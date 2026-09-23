@@ -78,6 +78,13 @@ def test_completion_only_is_a_date_the_proposer_left_empty_and_nothing_else():
     assert not completion_only({**item, "original": {**base, "date": "2031-01-06"}})   # a date it read, changed
     assert not completion_only({**item, "corrected": {**base, "balance": 5.0}})       # a balance only one read
     assert not completion_only({**item, "state": "agreed"})
+    # The filled date must be one the printed date text can mean (review finding: day or month off).
+    for wrong in ("2031-01-06", "2031-02-05"):
+        assert not completion_only({**item, "corrected": {**base, "date": wrong}})
+    day_first = {**base, "date_text": "05/01"}
+    assert completion_only({**item, "original": day_first, "corrected": {**day_first, "date": "2031-01-05"}})
+    no_date = {**base, "date_text": ""}                                                  # the proposer read no date
+    assert not completion_only({**item, "original": no_date, "corrected": {**no_date, "date": "2031-01-05"}})
 
 
 def test_running_balances_cover_the_rows_a_printed_balance_proves():
@@ -93,6 +100,23 @@ def test_running_balances_cover_the_rows_a_printed_balance_proves():
     broken = _score(end_of_day, states, admitted=False, reasons=["continuity_break"])
     assert broken["components"]["running_balances"] == 0.0
     assert _score(rows[1:], states)["components"]["running_balances"] is None
+
+
+def test_totals_and_counts_a_statement_does_not_print_are_not_missing_when_balances_prove_every_row():
+    rows = [_row("FABRICATED PAYROLL", "2500.00", locator="t0r1", balance="3500.00"),
+            _row("FABRICATED HARDWARE STORE", "224.50", locator="t0r2", balance="3275.50")]
+    states = {(1, "t0r1"): ("agreed", None), (1, "t0r2"): ("agreed", None)}
+    unprinted = {"credit_count_matches": None, "debit_count_matches": None}
+    chained = _score(rows, states, checks=unprinted)["components"]
+    assert chained["running_balances"] == 1.0 and chained["stated_counts"] is None
+    only_credit = _score(rows, states, checks={"credit_count_matches": True, "debit_count_matches": None})
+    assert only_credit["components"]["stated_counts"] == 1.0
+    # Without a balance on every row, an unprinted count is verification the statement lacks.
+    partial = [rows[0], _row("FABRICATED HARDWARE STORE", "224.50", locator="t0r2", date="2031-01-05")]
+    assert _score(partial, states, checks=unprinted)["components"]["stated_counts"] == 0.0
+    no_totals = _score(rows, states, checks={"summary_ok": None, **unprinted},
+                       account={"stated_total_credits": None, "stated_total_debits": None})
+    assert no_totals["components"]["stated_totals"] is None and no_totals["score"] == 1.0
 
 
 def test_a_description_counts_only_near_its_own_amount():

@@ -19,7 +19,7 @@ def test_compact_dates_enumerate_both_years_without_mutating_original_evidence()
     rows = [_row("dEc31"), _row("JAN29", locator="b0t0r2")]
     originals = [asdict(row) for row in rows]
     result = resolve_reviewed_dates(rows, period_start="2030-12-15", period_end="2031-01-31")
-    assert DATE_RESOLVER_VERSION == 2
+    assert DATE_RESOLVER_VERSION == 3
     assert result.unresolved == 0
     assert [row.date for row in result.rows] == ["2030-12-31", "2031-01-29"]
     assert [asdict(row) for row in rows] == originals

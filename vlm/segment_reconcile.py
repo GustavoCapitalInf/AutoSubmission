@@ -5,13 +5,15 @@ identity policy belongs here. Existing gate ordering/balance helpers are reused.
 """
 from decimal import Decimal
 
-from vlm.gate import collapse_daily_balances, orient, resolve_directions
+from vlm.gate import collapse_daily_balances, minus_styled, orient, resolve_directions, signed_amount
 
 
 def reconcile_page_segments(plan, rows):
     checks, occurrences = [], []
     if not plan.proven:
         return {"performed": False, "pages": []}, ()
+    # A column's print style (every value with a minus) is a property of the statement, not of one page.
+    styled = minus_styled(rows)
     for segment in plan.segments:
         page_rows = [row for row in rows if row.page == segment.page]
         page_rows, reversed_order = orient(page_rows)
@@ -35,8 +37,7 @@ def reconcile_page_segments(plan, rows):
         known = all(row.direction in ("credit", "debit") for row in page_rows)
         check("direction_unknown", "direction", known)
         if known:
-            signed = [(row.printed_amount if row.printed_amount is not None else row.amount)
-                      * (1 if row.direction == "credit" else -1) for row in page_rows]
+            signed = [signed_amount(row, styled) for row in page_rows]
             check("sum_mismatch", "ending_balance",
                   abs(account["beginning_balance"] + sum(signed, Decimal(0))
                       - account["ending_balance"]) <= Decimal("0.01"))

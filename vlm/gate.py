@@ -31,7 +31,8 @@ from vlm.assemble import CandidateRow
 from vlm.metadata import AccountMeta
 from vlm.textparse import normalise_description
 
-GATE_VERSION = 10
+# v11: a labelled column that prints every value with a minus is signed by its style (minus_styled).
+GATE_VERSION = 11
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -71,10 +72,32 @@ def resolve_directions(rows: list[CandidateRow], beginning: Decimal | None) -> t
     return resolved, flagged
 
 
-def _signed(row: CandidateRow) -> float:
+def minus_styled(rows) -> frozenset:
+    """Directions whose labelled column prints every value with a minus or brackets: the bank's print style
+    ("-$30.00" in a debits column), not a reversal. It takes at least two printed values, every one negative;
+    a negative among positive values of its column stays a reversal (the money moved the other way). Read
+    wrongly either way, the balance and sum checks refuse the statement."""
+    styled = set()
+    for direction in ("credit", "debit"):
+        printed = [row.printed_amount for row in rows
+                   if row.direction == direction and getattr(row, "printed_amount", None) is not None]
+        if len(printed) >= 2 and all(value < 0 for value in printed):
+            styled.add(direction)
+    return frozenset(styled)
+
+
+def signed_amount(row: CandidateRow, styled: frozenset = frozenset()) -> Decimal:
+    """The row's effect on the balance: its printed amount in a labelled column (negative there is a reversal,
+    unless the column's print style is a minus, minus_styled), else its magnitude, signed by direction."""
     printed = getattr(row, "printed_amount", None)
+    if printed is not None and row.direction in styled:
+        printed = abs(printed)
     amount = row.amount if printed is None else printed
-    return float(amount if row.direction == "credit" else -amount)
+    return amount if row.direction == "credit" else -amount
+
+
+def _signed(row: CandidateRow, styled: frozenset = frozenset()) -> float:
+    return float(signed_amount(row, styled))
 
 
 def _f(value: Decimal | None) -> float | None:
@@ -82,6 +105,7 @@ def _f(value: Decimal | None) -> float | None:
 
 
 def statement_from(rows: list[CandidateRow], meta: AccountMeta) -> Statement:
+    styled = minus_styled(rows)
     return Statement(
         bank=meta.bank, account_name=meta.account_name,
         account_number=meta.account_number or meta.account_last4,
@@ -97,7 +121,7 @@ def statement_from(rows: list[CandidateRow], meta: AccountMeta) -> Statement:
         bank_reported_average_label=meta.bank_reported_average_label,
         stated_daily_balances=[{'date': when, 'balance': float(balance)}
                                for when, balance in (meta.stated_daily_balances or ())],
-        transactions=[Transaction(date=row.date or "", description=row.description, amount=_signed(row),
+        transactions=[Transaction(date=row.date or "", description=row.description, amount=_signed(row, styled),
                                   direction=row.direction if row.direction != "unknown" else "debit",
                                   running_balance=_f(row.balance))
                       for row in rows],
@@ -275,7 +299,7 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         record("anchors_underdetermined")
     else:
         if beginning is None and first.balance is not None and first.direction in ("credit", "debit"):
-            beginning = first.balance - Decimal(str(_signed(first)))
+            beginning = first.balance - Decimal(str(_signed(first, minus_styled(rows))))
             checks["derived"].append("beginning_balance")
         if ending is None and last.balance is not None:
             ending = last.balance

@@ -390,13 +390,24 @@ def test_false_confirmation_of_incomplete_description_is_unresolved():
     assert result.evidence[0]["observed_description"] == "SYNTHETIC ROW 01"
 
 
-@pytest.mark.parametrize("observation", [None, "", " ", "Synthetic Exact CASE  0"])
+@pytest.mark.parametrize("observation", [None, "", " ", "Synthetic Exact CASE 9", "Synthetic Exact CASE"])
 def test_confirm_requires_exact_nonempty_description_observation(observation):
     rows = [_candidate()]
     payload = _review(rows)
     payload["reviews"][0]["observed_description"] = observation
     result = merge_review(rows, payload, page=1)
     assert not result.errors and not result.rows and result.evidence[0]["validation_errors"]
+
+
+@pytest.mark.parametrize("observation", ["Synthetic Exact CASE  0", "Synthetic Exact\nCASE 0", "Synthetic<br>Exact CASE 0"])
+def test_a_confirmed_description_observed_with_other_line_breaks_or_spacing_is_the_same_reading(observation):
+    # Line breaks and spacing inside a printed cell are layout: the proposer's Markdown grid writes "<br>",
+    # the reviewer a newline. The words and their order must still be exactly the same.
+    rows = [_candidate()]
+    payload = _review(rows)
+    payload["reviews"][0]["observed_description"] = observation
+    result = merge_review(rows, payload, page=1)
+    assert result.counts["agreed"] == 1 and result.rows[0].description == "Synthetic Exact CASE 0"
 
 
 def test_correction_requires_observation_matching_corrected_description():

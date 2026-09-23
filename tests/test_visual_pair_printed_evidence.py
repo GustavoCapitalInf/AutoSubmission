@@ -179,6 +179,24 @@ def test_a_multi_line_row_the_reviewer_contradicts_itself_about_is_settled_by_it
     assert merged.evidence[0]["resolution"]["chosen"] == "reviewer_observation"
 
 
+def test_a_line_break_written_as_a_tag_or_a_newline_is_the_same_reading():
+    # dots.mocr's Markdown grids write a line break inside a cell as "<br>"; the reviewer writes a newline.
+    # Both are layout: the reviewer agrees with the proposer, and the ledger publishes one line.
+    from vlm.native_text import spaced
+    from vlm.pair import ledger_rows
+
+    assert spaced("A<br>B<BR/>C <br /> D\nE") == "A B C D E"
+    rows = [_row("ONLINE PAYMENT<br>FABRICATED CARD 0001", "2500.00")]
+    payload = _payload(rows, r0={"observed_description": "ONLINE PAYMENT\nFABRICATED CARD 0001"})
+    merged = merge_review(rows, payload, page=1)
+    assert merged.counts["agreed"] == 1
+    ledger, excluded = ledger_rows([merged])
+    assert excluded == 0 and ledger[0].description == "ONLINE PAYMENT FABRICATED CARD 0001"
+    # A different reading is still a contradiction.
+    other = _payload(rows, r0={"observed_description": "ONLINE PAYMENT\nFABRICATED CARD 0002"})
+    assert merge_review(rows, other, page=1).counts["unresolved"] == 1
+
+
 def test_decimal_comma_with_space_thousands_is_money():
     printed = PrintedEvidence(native="Solde de fermeture 1 500,25\nDépôts 12 345,67\n")
     assert printed.amount_printed(1500.25) and printed.amount_printed(12345.67)

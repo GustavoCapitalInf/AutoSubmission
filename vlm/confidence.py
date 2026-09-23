@@ -18,6 +18,10 @@ earns half the score. The other half is the mean of the independent evidence tha
                        in the listing), counted only when the balances continued without a break (not
                        applicable when none is printed).
 
+When printed balances prove every row, each row's amount, direction and presence is verified one by one, so
+totals or counts the statement does not print are not applicable rather than missing (and a printed one counts
+on its own, not as half of a pair).
+
 A held statement scores below one half, whatever its evidence. The score is verification coverage, not a
 calibrated probability: it says how much was checked, not how often such readings are right.
 """
@@ -46,12 +50,17 @@ _COMPLETABLE_FIELDS = frozenset({"date"})
 
 def completion_only(item: dict) -> bool:
     """Whether a reviewer correction (a row_evidence item) only filled fields the proposer left empty, changing
-    nothing the proposer read."""
+    nothing the proposer read: an ISO date that the row's printed date text (as the proposer read it) can mean
+    in that year, day-first or month-first."""
     original, corrected = item.get("original"), item.get("corrected")
     if item.get("state") != "corrected" or not isinstance(original, dict) or not isinstance(corrected, dict):
         return False
     changed = [field for field in corrected if corrected.get(field) != original.get(field)]
-    return bool(changed) and all(field in _COMPLETABLE_FIELDS and original.get(field) is None for field in changed)
+    if not changed or not all(field in _COMPLETABLE_FIELDS and original.get(field) is None for field in changed):
+        return False
+    from vlm.dates import reads_as
+
+    return reads_as(original.get("date_text"), corrected.get("date"))
 
 
 def _rows_proven_by_balances(rows) -> int:
@@ -75,13 +84,21 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
     rows = list(rows)
     checks = checks or {}
     components: dict[str, float | None] = {}
+    # Printed balances on every row prove each row's amount, direction and presence one by one; totals and
+    # counts the statement does not print then leave nothing unverified, so their absence is not counted.
+    chain_proves_every_row = bool(rows) and "continuity_break" not in reasons and _rows_proven_by_balances(rows) == len(rows)
+    present = sum(account.get(field) is not None for field in ("stated_total_credits", "stated_total_debits"))
     if checks.get("summary_ok") is True:
-        present = sum(account.get(field) is not None for field in ("stated_total_credits", "stated_total_debits"))
-        components["stated_totals"] = present / 2
+        components["stated_totals"] = (1.0 if present else None) if chain_proves_every_row else present / 2
     else:
-        components["stated_totals"] = 0.0
-    components["stated_counts"] = sum(checks.get(name) is True for name in
-                                      ("credit_count_matches", "debit_count_matches")) / 2
+        components["stated_totals"] = None if chain_proves_every_row and not present else 0.0
+    counted = [checks.get(name) for name in ("credit_count_matches", "debit_count_matches")]
+    printed_counts = [value for value in counted if value is not None]
+    if chain_proves_every_row:
+        components["stated_counts"] = (sum(value is True for value in printed_counts) / len(printed_counts)
+                                       if printed_counts else None)
+    else:
+        components["stated_counts"] = sum(value is True for value in counted) / 2
 
     evidence = {"rows": len(rows), "reviewer_only_rows": 0, "corrected_rows": 0, "completion_only_corrections": 0,
                 "settled_by_text_layer": 0, "amounts_in_text_layer": 0, "text_layer_rows": 0,
@@ -90,7 +107,7 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
     for row in rows:
         printed = _printed(printed_pages, row.page)
         in_text_layer = printed.amount_in_text_layer(row.amount) if printed is not None else None
-        described = (printed.description_words_near(_bare_description(row), row.amount)
+        described = (printed.description_words_near(_bare_description(row), row.amount, row.date_text)
                      if printed is not None else None)
         if in_text_layer is not None:
             evidence["text_layer_rows"] += 1

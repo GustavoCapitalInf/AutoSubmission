@@ -72,3 +72,49 @@ def test_no_client_can_reach_the_network(evidence):
     client = pair._client("http://127.0.0.1:18013/v1", 10)
     with pytest.raises(replay.ReplayMiss, match="replay_attempted_model_request"):
         client.chat
+
+
+LIVE_RECORDED = {**RECORDED, "served_models": [{"model": "dotsmocr", "revision": "rev-1"}]}
+
+
+def _live(tmp_path, monkeypatch, served_revision):
+    """live_on_miss against fake servers that serve ``served_revision`` of the proposer."""
+    for name in ("_chat_once", "_check_model", "_client"):
+        monkeypatch.setattr(pair, name, getattr(pair, name))
+    monkeypatch.setenv("VISUAL_PAIR_PROPOSER_URL", "http://127.0.0.1:18013/v1")
+    received, checked = [], []
+
+    def check_model(client, model, revision):
+        checked.append((client, model, revision))
+        if revision != served_revision:
+            raise pair.VisualPairError("visual_pair_model_revision_unverified")
+        return {"model": model, "revision": revision}
+
+    def chat_once(root, client, model, prompt, **kwargs):
+        received.append((client, kwargs["manifest"]))
+        return "RESPONSE"
+
+    monkeypatch.setattr(pair, "_client", lambda url, timeout: ("LIVE", url))
+    monkeypatch.setattr(pair, "_check_model", check_model)
+    monkeypatch.setattr(pair, "_chat_once", chat_once)
+    stats = {"hits": 0, "misses": 0, "live_calls": 0}
+    replay.install(LIVE_RECORDED, stats, live_on_miss=True)
+    return stats, received, checked
+
+
+def test_live_on_miss_sends_only_a_changed_call_to_the_verified_server(tmp_path, monkeypatch):
+    stats, received, checked = _live(tmp_path, monkeypatch, served_revision="rev-1")
+    result = pair._chat_once(tmp_path, object(), "dotsmocr", "a changed prompt", manifest={},
+                             image_jpeg=b"page-image", seed=0)
+    assert result == "RESPONSE" and stats == {"hits": 0, "misses": 1, "live_calls": 1}
+    client, manifest = received[0]
+    assert client == ("LIVE", "http://127.0.0.1:18013/v1") and manifest is LIVE_RECORDED  # keyed as recorded
+    assert checked == [(("LIVE", "http://127.0.0.1:18013/v1"), "dotsmocr", "rev-1")]
+
+
+def test_live_on_miss_refuses_a_server_that_serves_another_revision(tmp_path, monkeypatch):
+    stats, received, _ = _live(tmp_path, monkeypatch, served_revision="rev-2")
+    with pytest.raises(pair.VisualPairError):
+        pair._chat_once(tmp_path, object(), "dotsmocr", "a changed prompt", manifest={},
+                        image_jpeg=b"page-image", seed=0)
+    assert received == []

@@ -205,16 +205,16 @@ def ledger_rows(merges) -> tuple[list, int]:
     """(rows entering the ledger, rows excluded). A cheque picture page (review.picture_page) shows cheques or
     deposit slips whose transactions are already listed elsewhere in the statement, so its rows never enter
     the ledger. If a real transaction page were taken for pictures, its missing rows break the arithmetic and
-    the gate refuses: this fails closed. A bare cheque number is named by its column's printed label
-    (assemble.labelled_description)."""
-    from vlm.assemble import labelled_description
+    the gate refuses: this fails closed. Descriptions are published on one line and a bare cheque number is
+    named by its column's printed label (assemble.published_row)."""
+    from vlm.assemble import published_row
     from vlm.review import picture_page
     rows, excluded = [], 0
     for merged in merges:
         if picture_page(merged):
             excluded += len(merged.rows)
             continue
-        rows.extend(labelled_description(row) for row in merged.rows)
+        rows.extend(published_row(row) for row in merged.rows)
     return rows, excluded
 
 
@@ -249,14 +249,29 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
     superseded = sorted(field for field, value in proven.items()
                         if account.get(field) is not None and Decimal(str(account[field])) != Decimal(str(value)))
     account.update(proven)
-    settled = [item for item in occurrences if item.get('code') == 'anchor_disagreement' and item.get('field') in proven]
+    # A count the box does not print is the reviewer's reading. Read on the proven summary page it is the
+    # statement's own count; a different count read on another page is a section's (a cheques section's own
+    # count). It stands, and the gate still checks it against the ledger.
+    counts_from_summary_page = []
+    for field in ('stated_credit_count', 'stated_debit_count'):
+        if field in proven or account.get(field) is None:
+            continue
+        read_there = any(item.get('field') == field and item.get('page') == proof.page
+                         and item.get('source') == 'reviewer' and item.get('value') == account[field]
+                         for item in field_evidence)
+        if read_there and any(item.get('code') == 'anchor_disagreement' and item.get('field') == field
+                              for item in occurrences):
+            counts_from_summary_page.append(field)
+    settled = [item for item in occurrences if item.get('code') == 'anchor_disagreement'
+               and item.get('field') in (*proven, *counts_from_summary_page)]
     for item in settled:
         occurrences.remove(item)
         reasons.remove('anchor_disagreement')
     field_evidence.extend({'field': field, 'page': proof.page, 'source': 'summary_box', 'value': value}
                           for field, value in proven.items())
     return {'proven': True, 'applied': True, 'page': proof.page, 'category_lines': proof.line_count,
-            'fields': sorted(proven), 'superseded_reviewer_fields': superseded, 'settled_disagreements': len(settled)}
+            'fields': sorted(proven), 'superseded_reviewer_fields': superseded, 'settled_disagreements': len(settled),
+            'counts_from_summary_page': counts_from_summary_page}
 
 
 def statement_bank_names(field_evidence, merges) -> list[str]:
@@ -307,9 +322,10 @@ def _markdown_page(merged, *, rows=None) -> str:
         if value is not None:
             parts.append(f'{labels.get(key, key)}: {html.escape(str(value))}')
     parts.append('<table><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>')
-    from vlm.assemble import labelled_description
-    # The bank reader is offered the descriptions the gated statement carries (a cheque named by its column).
-    for row in map(labelled_description, merged.rows if rows is None else rows):
+    from vlm.assemble import published_row
+    # The bank reader is offered the descriptions the gated statement carries (one line; a cheque named by its
+    # column).
+    for row in map(published_row, merged.rows if rows is None else rows):
         amount = row.printed_amount if row.printed_amount is not None else row.amount
         values = (row.date or row.date_text, row.description,
                   str(amount) if row.direction == 'debit' else '',

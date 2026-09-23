@@ -9,11 +9,16 @@ from vlm.textparse import is_date_like, is_money_like
 
 HEADER_KEYWORDS: dict[str, tuple[str, ...]] = {
     "date": ("date", "posted", "post date", "trans date", "transaction date", "effective", "date posted"),
-    "description": ("description", "details", "transaction", "particulars", "memo", "activity", "narrative", "payee", "transactions"),
-    "debit": ("debit", "debits", "withdrawal", "withdrawals", "payments", "money out", "paid out", "charges", "checks/debits", "withdrawals/debits", "subtractions"),
-    "credit": ("credit", "credits", "deposit", "deposits", "money in", "paid in", "additions", "deposits/credits", "deposits/additions"),
-    "amount": ("amount", "transaction amount", "amt"),
-    "balance": ("balance", "running balance", "ledger balance", "ending balance", "balance forward", "daily balance"),
+    "description": ("description", "details", "transaction", "particulars", "memo", "activity", "narrative", "payee", "transactions",
+                    # French (CIBC, RBC, Desjardins): accents are optional in a proposer's reading.
+                    "opérations", "operations", "détails", "libellé", "libelle"),
+    "debit": ("debit", "debits", "withdrawal", "withdrawals", "payments", "money out", "paid out", "charges", "checks/debits", "withdrawals/debits", "subtractions",
+              "retrait", "retraits", "débit", "débits", "chèques et débits", "cheques et debits", "paiements"),
+    "credit": ("credit", "credits", "deposit", "deposits", "money in", "paid in", "additions", "deposits/credits", "deposits/additions",
+               "dépôt", "dépôts", "depot", "depots", "crédit", "crédits", "dépôts et crédits", "depots et credits"),
+    "amount": ("amount", "transaction amount", "amt", "montant"),
+    "balance": ("balance", "running balance", "ledger balance", "ending balance", "balance forward", "daily balance",
+                "solde"),
 }
 ROLE_PRIORITY = ("balance", "debit", "credit", "amount", "date", "description")
 

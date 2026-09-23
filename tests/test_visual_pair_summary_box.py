@@ -153,8 +153,35 @@ def test_a_proven_box_supplies_the_totals_and_settles_reviewer_disagreements():
     assert audit == {"proven": True, "applied": True, "page": 1, "category_lines": 3,
                      "fields": ["stated_credit_count", "stated_debit_count", "stated_total_credits",
                                 "stated_total_debits"],
-                     "superseded_reviewer_fields": ["stated_total_credits"], "settled_disagreements": 1}
+                     "superseded_reviewer_fields": ["stated_total_credits"], "settled_disagreements": 1,
+                     "counts_from_summary_page": []}
     assert {"field": "stated_total_credits", "page": 1, "source": "summary_box", "value": 12000.5} in evidence
+
+
+def test_a_count_read_on_the_proven_summary_page_stands_over_a_sections_count_read_elsewhere():
+    from vlm.pair import apply_summary_box
+    # The box prints no counts. The reviewer read the statement's debit count on the summary page (page 1) and,
+    # on a cheques page, that section's own count as the statement's: page 1's count stands and the gate
+    # checks it against the ledger.
+    uncounted = (US_STYLE.replace("Customer Deposits 5 2,000.00", "Customer Deposits 2,000.00")
+                 .replace("Other Deposits 1 10,000.50", "Other Deposits 10,000.50")
+                 .replace("Other Withdrawals 32 11,500.25-", "Other Withdrawals 11,500.25-"))
+    account = {"beginning_balance": 1000.0, "ending_balance": 1500.25, "stated_debit_count": 32}
+    reasons = ["anchor_disagreement"]
+    occurrences = [{"code": "anchor_disagreement", "page": 3, "field": "stated_debit_count", "source": "metadata"}]
+    evidence = [{"field": "stated_debit_count", "page": 1, "source": "reviewer", "value": 32},
+                {"field": "stated_debit_count", "page": 3, "source": "reviewer", "value": 4}]
+    audit = apply_summary_box(account, reasons, occurrences, evidence, [uncounted])
+    assert account["stated_debit_count"] == 32 and reasons == [] and occurrences == []
+    assert audit["counts_from_summary_page"] == ["stated_debit_count"]
+    # A count the summary page did not print (read only elsewhere) is not settled: the disagreement holds.
+    account = {"beginning_balance": 1000.0, "ending_balance": 1500.25, "stated_debit_count": 4}
+    reasons = ["anchor_disagreement"]
+    occurrences = [{"code": "anchor_disagreement", "page": 5, "field": "stated_debit_count", "source": "metadata"}]
+    evidence = [{"field": "stated_debit_count", "page": 3, "source": "reviewer", "value": 4},
+                {"field": "stated_debit_count", "page": 5, "source": "reviewer", "value": 9}]
+    audit = apply_summary_box(account, reasons, occurrences, evidence, [uncounted])
+    assert reasons == ["anchor_disagreement"] and audit["counts_from_summary_page"] == []
 
 
 def test_nothing_changes_without_a_proof():

@@ -63,10 +63,17 @@ def compare(truth: dict, statement: dict | None) -> dict:
     return result
 
 
+KEY_MANIFESTS = "replay-manifests.json"
+
+
 def recorded_manifests(evidence: Path) -> dict[str, dict]:
-    """PDF sha256 -> the pipeline manifest an earlier run read that document under (from its receipt)."""
+    """PDF sha256 -> the pipeline manifest an earlier run's calls were keyed by: from its receipts, or, for a
+    replay, the manifests it replayed (its own receipts name the code that judged it)."""
     from tools.phase3_pair.replay_judgment import _blob
 
+    keyed = evidence.parent / KEY_MANIFESTS
+    if keyed.exists():
+        return json.loads(keyed.read_text(encoding="utf-8"))
     manifests = {}
     for index in evidence.glob("*.json"):
         audit = json.loads(index.read_text(encoding="utf-8"))["document"]["visual_pair"]
@@ -93,7 +100,8 @@ def run(args) -> dict:
         if (output / "evidence").exists():
             raise SystemExit("replay_output_already_has_evidence: use a fresh --output-dir")
         shutil.copytree(args.replay_from / "evidence", output / "evidence")
-        recorded = recorded_manifests(output / "evidence")
+        recorded = recorded_manifests(args.replay_from / "evidence")
+        (output / KEY_MANIFESTS).write_text(json.dumps(recorded), encoding="utf-8")
         replay = {"replayed_from": str(args.replay_from.name), "model_calls": 0, "hits": 0, "misses": 0}
         holder = install(None, replay)
     results = []

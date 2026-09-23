@@ -13,24 +13,15 @@ from datetime import date
 import re
 
 from vlm.assemble import CandidateRow
-from vlm.textparse import parse_date
+from vlm.textparse import month_number, parse_date
 
 
-DATE_RESOLVER_VERSION = 2
-_MONTHS = {
-    name: month
-    for month, names in enumerate((
-        ("jan", "january"), ("feb", "february"), ("mar", "march"),
-        ("apr", "april"), ("may",), ("jun", "june"), ("jul", "july"),
-        ("aug", "august"), ("sep", "sept", "september"), ("oct", "october"),
-        ("nov", "november"), ("dec", "december"),
-    ), 1)
-    for name in names
-}
+# v3: French month names (janv, févr, avr, mai, juin, juil, août, déc ...), accents optional.
+DATE_RESOLVER_VERSION = 3
 _ISO = re.compile(r"([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})")
 _NUMERIC = re.compile(r"([0-9]{1,2})([/\-])([0-9]{1,2})(?:\2([0-9]{2}|[0-9]{4}))?")
-_MONTH_FIRST = re.compile(r"([A-Za-z]+)\.?\s+([0-9]{1,2})(?:,?\s+([0-9]{2}|[0-9]{4}))?")
-_DAY_FIRST = re.compile(r"([0-9]{1,2})\s+([A-Za-z]+)\.?(?:,?\s+([0-9]{2}|[0-9]{4}))?")
+_MONTH_FIRST = re.compile(r"([^\W\d_]+)\.?\s+([0-9]{1,2})(?:,?\s+([0-9]{2}|[0-9]{4}))?")
+_DAY_FIRST = re.compile(r"([0-9]{1,2})\s+([^\W\d_]+)\.?(?:,?\s+([0-9]{2}|[0-9]{4}))?")
 _COMPACT_MONTH_DAY = re.compile(
     r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)([0-9]{1,2})",
     re.IGNORECASE | re.ASCII,
@@ -76,16 +67,31 @@ def _source_parts(date_text):
     if compact:
         # A compact printed token supplies only month/day. The reviewed period
         # must still select exactly one valid year through _possibilities.
-        return ((_MONTHS[compact[1].lower()], int(compact[2])),), None
+        return ((month_number(compact[1]), int(compact[2])),), None
     match = _MONTH_FIRST.fullmatch(raw)
     if match:
-        month, day, year = _MONTHS.get(match[1].lower()), int(match[2]), match[3]
+        month, day, year = month_number(match[1]), int(match[2]), match[3]
     else:
         match = _DAY_FIRST.fullmatch(raw)
         if not match:
             return (), None
-        month, day, year = _MONTHS.get(match[2].lower()), int(match[1]), match[3]
+        month, day, year = month_number(match[2]), int(match[1]), match[3]
     return (((month, day),), year) if month is not None else ((), None)
+
+
+def reads_as(date_text, iso) -> bool:
+    """Whether a printed date text (01/05, 05/01, Jan 5, DEC31, 2031-01-05) can mean this ISO date: its month and
+    day in either order a numeric print allows, and its printed year when it has one."""
+    try:
+        filled = date.fromisoformat(str(iso))
+    except ValueError:
+        return False
+    parts, printed_year = _source_parts(date_text)
+    if (filled.month, filled.day) not in parts:
+        return False
+    if printed_year is None:
+        return True
+    return int(printed_year) == (filled.year if len(printed_year) == 4 else filled.year % 100)
 
 
 def _possibilities(date_text, start: date, end: date) -> tuple[str, ...]:

@@ -50,6 +50,14 @@ def labelled_description(row: CandidateRow) -> CandidateRow:
     return row
 
 
+def published_row(row: CandidateRow) -> CandidateRow:
+    """A reviewed row as the ledger publishes it: its description on one line (a line-break tag or newline
+    inside a printed cell is layout, not text; vlm.native_text.spaced), then labelled_description."""
+    from vlm.native_text import spaced
+
+    return labelled_description(replace(row, description=spaced(row.description)))
+
+
 @dataclass(frozen=True)
 class Block:
     label: str

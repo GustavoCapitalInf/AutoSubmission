@@ -15,6 +15,7 @@ from decimal import Decimal
 import jsonschema
 
 from vlm.assemble import BALANCE_LINE, CandidateRow
+from vlm.native_text import contains_words, spaced
 from vlm.schema import PAGE_REVIEW_SCHEMA, REVIEW_ROW_FIELDS, empty_review, valid_review_row
 
 ROW_STATES = ("agreed", "corrected", "added", "rejected", "unresolved")
@@ -270,7 +271,8 @@ def _review_entry(original: dict, item: dict, *, candidate_id: str):
         row = corrected if verdict == "correct" else original
         if not isinstance(observed, str) or not observed.strip():
             errors.append("review_description_observation_missing")
-        elif observed != row["description"]:
+        elif spaced(observed) != spaced(row["description"]):
+            # Line breaks inside a printed cell are layout: the proposer writes "<br>", the reviewer a newline.
             errors.append("review_description_observation_mismatch")
     elif observed is not None:
         errors.append("review_unexpected_description_observation")
@@ -291,15 +293,16 @@ def _settle_description(original: dict, corrected: dict | None, observed, printe
         readings.append(("reviewer_correction", corrected["description"]))
     readings.append(("reviewer_observation", observed))
     readings = [(label, text) for label, text in readings if isinstance(text, str) and text.strip()]
-    # Only the text-layer lines that print this row's own amount can settle it: a reading printed elsewhere on
-    # the page (another row, a heading) is not this row's print.
-    amount = (corrected if corrected is not None else original).get("amount")
-    found = [printed.description_printed_near(text, amount) for _, text in readings]
+    # Only the row's own print can settle it: a reading printed elsewhere on the page (another row, a heading)
+    # is not this row's print, and a row whose amount several rows print is told apart by its printed date.
+    row = corrected if corrected is not None else original
+    found = [printed.description_printed_near(text, row.get("amount"), row.get("date_text")) for _, text in readings]
     if any(flag is None for flag in found):
         return None
-    from vlm.native_text import spaced
     printed_texts = {spaced(text) for (_, text), flag in zip(readings, found) if flag}
-    fullest = [text for text in printed_texts if all(other in text for other in printed_texts)]
+    # A fragment is printed inside the full text as whole words: "123" is not part of "1234".
+    fullest = [text for text in printed_texts
+               if all(contains_words(text.split(), other.split()) for other in printed_texts)]
     if len(fullest) != 1:
         return None
     label, text = next((label, text) for label, text in readings if spaced(text) == fullest[0])
@@ -480,15 +483,17 @@ _STATEMENT_FIGURES = ("stated_service_charge", "stated_interest_paid", "stated_n
 def _statement_evidence(merged) -> bool:
     """What no picture of a cheque or deposit slip carries: a failed review, a statement summary figure
     (opening, closing, totals or counts) or another printed statement figure, or a daily-balance table,
-    read, quarantined or read without dates. A figure or daily balance the reviewer reported but the page does
-    not print still says the reviewer saw a statement page, so it counts too. Repeated header details such as
-    bank, account or period do not count."""
+    read, quarantined or read without dates. A money figure or daily balance the reviewer reported but the
+    page does not print still says the reviewer saw a statement page, so it counts too; a count or a number of
+    days it reported without the page printing it does not (a reviewer repeats those from other pages, or
+    writes 0 for none). Repeated header details such as bank, account or period do not count."""
     return (bool(merged.errors) or _summary_figures(merged)
             or any(merged.account.get(name) is not None for name in _STATEMENT_FIGURES)
             or bool(merged.daily_balances)
             or any(item.get("scope") == "daily_balances" for item in merged.metadata_evidence)
-            or any(item.get("code") in ("review_daily_balance_undated", "review_figure_not_printed",
-                                        "review_daily_balance_not_printed") for item in merged.diagnostics))
+            or any(item.get("code") in ("review_daily_balance_undated", "review_daily_balance_not_printed")
+                   or (item.get("code") == "review_figure_not_printed" and item.get("field") in _PRINTED_AMOUNT_FIELDS)
+                   for item in merged.diagnostics))
 
 
 def picture_page(merged) -> bool:

@@ -114,4 +114,4 @@ def test_no_clock_baseline_or_neighbor_date_supplies_missing_year():
     missing = _row("Jan 3", locator="missing")
     result = resolve_reviewed_dates([explicit, missing], period_start=None, period_end=None)
     assert result.rows == (explicit, missing) and result.unresolved == 1
-    assert DATE_RESOLVER_VERSION == 2
+    assert DATE_RESOLVER_VERSION == 3
