@@ -527,7 +527,9 @@ Ruling as implemented (f069a24; `analysis/nsf_days.py`, `analysis/metrics.py`, `
   balance) is kept unchanged as the option "Carry the balance over inactive days when counting NSFs" on the
   web app's Settings page. The choice is stored with the web app's data and applied whenever a result
   leaves the server (the analysis API, the revenue-review response, the JSON/CSV/XLSX downloads and the
-  package analysis), so a saved statement changes basis without being reprocessed.
+  package analysis), so a saved statement changes basis without being reprocessed. A result saved before
+  f069a24 carries no printed-day count and is re-counted from its stored daily ledger; with no ledger it
+  keeps the count it was written with, under its own label.
 * Unchanged from R18: returned / NSF line items stay in `nsf_count` as evidence and are not added; without
   a validated daily ledger the figure is not computable on either basis (`effective_nsf_count = 0`,
   `nsf_source = "negative_ending_days_unavailable"`, with a note); the daily ledger and the ADB are the
