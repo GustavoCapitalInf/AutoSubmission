@@ -55,9 +55,13 @@ _BARE_CHEQUE_NUMBER = re.compile(r"\*?\s*#?\s*\d+\s*\*?")
 def labelled_description(row: CandidateRow) -> CandidateRow:
     """A row whose description is only a cheque number is named as the statement names the column it sits in:
     the printed label, then the number ("Check 1234"), which is how the production parsers write cheques
-    and the word the analysis counts them by. Any other description is left exactly as read."""
-    if row.description_label and _BARE_CHEQUE_NUMBER.fullmatch(row.description.strip()):
-        return replace(row, description=f"{row.description_label} {row.description.strip()}")
+    and the word the analysis counts them by. A cheque whose number cell prints nothing, or only the
+    break-in-sequence mark, is the label alone ("Check"). Any other description is left exactly as read."""
+    bare = row.description.strip()
+    if row.description_label and _BARE_CHEQUE_NUMBER.fullmatch(bare):
+        return replace(row, description=f"{row.description_label} {bare}")
+    if row.description_label and bare in ("", "*"):
+        return replace(row, description=row.description_label)
     return row
 
 
@@ -245,6 +249,19 @@ BALANCE_SECTION = re.compile(
     re.IGNORECASE)
 
 
+# A line under a section heading that only names the account ("Account: -------0000", "Acct # ****0000") or says
+# the section goes on ("(continued)") continues that section; it does not start a new one.
+_SECTION_CONTINUATION = re.compile(
+    r"acc(?:oun)?t\.?(?:\s*(?:number|no\.?|#))?\s*:?\s*[-*xX•·\d\s]{4,}|\(?\s*(?:continued|cont'd)\s*\)?",
+    re.IGNORECASE)
+
+
+def continues_section(text: str) -> bool:
+    """Whether a printed line (a block's first line) continues the section above it rather than heading one."""
+    head = (text or "").strip().splitlines()[0].strip() if text and text.strip() else ""
+    return bool(head) and bool(_SECTION_CONTINUATION.fullmatch(head))
+
+
 def section_direction(text: str) -> str | None:
     """The direction a printed section heading implies for the table below it ("Deposits and other
     credits" → credit, "Checks paid" → debit); None when the heading names both or neither."""
@@ -267,7 +284,8 @@ def rows_from_blocks(blocks: list[Block], *, year_hint: int | None = None, day_f
     heading: str | None = None
     for block in blocks:
         if block.label != "table":
-            heading = section_direction(block.content) if block.label in ("text", "paragraph_title", "doc_title", "header") else heading
+            if block.label in ("text", "paragraph_title", "doc_title", "header") and not continues_section(block.content):
+                heading = section_direction(block.content)
             continue
         for grid in parse_html_tables(block.content):
             unfolded = unfold_side_by_side(grid)
@@ -462,9 +480,10 @@ def parse_dots_layout(raw: str | list | dict, *, page: int, width: int, height: 
                 cells.append(block)
             if block.label in ("text", "paragraph_title", "section_header", "title", "doc_title", "header", "page_header"):
                 first_line = block.content.strip().splitlines()[0] if block.content.strip() else ""
-                if len(first_line) <= 80:
+                if len(first_line) <= 80 and not continues_section(first_line):
                     # A note printed under a section heading ("May include checks that have been processed
-                    # electronically ...") is not a new section: only a heading-length line changes it.
+                    # electronically ...") is not a new section: only a heading-length line changes it, and not
+                    # one that only names the account ("Account: -------0000") or says "(continued)".
                     heading = section_direction(block.content)
                     balance_section = bool(BALANCE_SECTION.search(first_line))
     rows.extend(_cell_rows(cells, year_hint=year_hint, day_first=day_first))

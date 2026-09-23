@@ -84,10 +84,14 @@ def parse_html_tables(html: str, *, preserve_whitespace: bool = False) -> list[l
 # The currency a column header names after its word ("AMOUNT($)", "Balance (USD)", "Montant $"): the column's
 # unit, not its role.
 _HEADER_CURRENCY = re.compile(r"\s*(?:\(\s*(?:[$€£]|usd|cad|us\$|c\$|eur|gbp)\s*\)|[$€£])$")
+# The sign a column header prints after its words ("Checks & Other Debits (-)", "Deposits & Other Credits (+)"):
+# the column's arithmetic, printed apart from the words that name it.
+_HEADER_SIGN = re.compile(r"\s*\(\s*[+\-−]\s*\)$")
 
 
 def _header_role(cell: str) -> str | None:
     text = _HEADER_CURRENCY.sub("", " ".join(cell.lower().replace("_", " ").split()))
+    text = _HEADER_SIGN.sub("", text)
     if not text:
         return None
     # These explicit compound labels name one direction. Match the whole

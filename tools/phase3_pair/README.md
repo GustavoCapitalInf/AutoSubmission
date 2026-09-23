@@ -24,9 +24,12 @@ nvidia/Qwen3.8-27B-NVFP4       482ca0f3832238542f8f5295dde86b5f22711d80
 
 Do not float either revision. Serving flags match the benchmark run
 (`--max-model-len 32768 --max-num-seqs 2 --limit-mm-per-prompt.image 1 --no-enable-prefix-caching`,
-`--trust-remote-code` for Stage A only, `VLLM_USE_FLASHINFER_SAMPLER=0`). Raising `--max-num-seqs`
-for throughput is a separate change that has to be re-validated, because batching can perturb
-numerics even at temperature 0.
+`--trust-remote-code` for Stage A only, `VLLM_USE_FLASHINFER_SAMPLER=0`). `--max-num-seqs` is the one
+exception: `SEQS_A` / `SEQS_B` set it per server (default 2, the benchmark's). The reviewer is
+decode-bound (about a thousand generated tokens per call), so runs over many statements serve more
+sequences at once (`SEQS_A=4 SEQS_B=8`); batching can perturb numerics even at temperature 0, so a run
+records the values it was served with. `stop-a` / `stop-b` stop one server, and `start` leaves a server
+that is already up untouched.
 
 dots.mocr's custom licence was accepted by Gustavo on 2026-09-21; the pinned
 revision and acceptance are recorded in `docs/moneythumb-replacement/phase3/LICENSES.md`.

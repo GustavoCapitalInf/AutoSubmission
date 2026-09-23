@@ -17,6 +17,10 @@ Review closures (CEILING-HARNESS-REVIEW-X):
            still print a balance after same-day runs are collapsed, balances decide, as before. RR-2 is
            unchanged: a matching count never distinguishes a repeat, and the arithmetic still refuses a
            row that is not on the page.
+* MAJOR-2 amendment (gate 15) a repeat on one page is also distinguished when that page prints the rows'
+           date and amount on at least as many lines as rows claim them: its text layer, else the proposer's
+           reading one line per table row or text line (vlm.pair.printed_repeat_groups). That is a count of
+           printed LINES from a source other than the reviewer, not the bank's summary count (RR-2 stands).
 """
 from __future__ import annotations
 
@@ -37,7 +41,9 @@ from vlm.textparse import normalise_description
 #      complete.
 # v13: the sum must hold to the cent: a one-cent difference is a missing or misread cent, not float noise.
 # v14: a zero amount is a printed row that moves nothing (a payment of 0.00), not an invalid proposal.
-GATE_VERSION = 14
+# v15: a repeated row is distinguished when its page prints the date and amount on at least as many lines as
+#      rows claim them (the text layer, else the proposer's lines): reviewer additions carry no position.
+GATE_VERSION = 15
 REASONS = ("no_rows", "proposal_invalid", "anchors_underdetermined", "anchor_derived", "missing_beginning_balance",
            "missing_ending_balance", "direction_unknown", "chain_direction_unanchored", "date_unparsed",
            "duplicate_row", "sum_mismatch", "continuity_break",
@@ -200,11 +206,12 @@ def _separate_printed_lines(first: CandidateRow, second: CandidateRow) -> bool:
 
 
 def _duplicates(rows: list[CandidateRow], *, occurrences: list[dict] | None = None,
-                positional: list[int] | None = None) -> tuple[int, int]:
+                positional: list[int] | None = None, printed_repeats=frozenset()) -> tuple[int, int]:
     """(distinguished_repeats, unverifiable_repeats): a repeat of (date, description, amount, direction)
     is distinguished when both rows print balances and they differ, or, when at least one carries no
     balance (including after same-day balance runs are collapsed), when the layout read them as
-    separate printed lines."""
+    separate printed lines, or when their page prints the date and amount on at least as many lines as rows
+    claim them (`printed_repeats`: (page, date, amount) groups, vlm.pair.printed_repeat_groups)."""
     seen: dict[tuple, list[CandidateRow]] = {}
     distinguished = unverifiable = 0
     for row in rows:
@@ -215,7 +222,8 @@ def _duplicates(rows: list[CandidateRow], *, occurrences: list[dict] | None = No
             if twin.balance is not None and row.balance is not None:
                 separate = twin.balance != row.balance
             else:
-                separate = _separate_printed_lines(twin, row)
+                separate = (_separate_printed_lines(twin, row)
+                            or (twin.page == row.page and (row.page, row.date, row.amount) in printed_repeats))
                 if separate and positional is not None:
                     positional[0] += 1
             if separate:
@@ -253,9 +261,10 @@ def _continuity_failure_rows(rows: list[CandidateRow], statement: Statement) -> 
 
 
 def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = Decimal("0.005"),
-         complete_document: bool = True) -> GateVerdict:
+         complete_document: bool = True, printed_repeats=frozenset()) -> GateVerdict:
     """``tolerance`` absorbs the reader's float arithmetic only: a sum one cent off is a missing or misread cent
-    (a $0.01 credit printed ".01"), never noise (gate v13)."""
+    (a $0.01 credit printed ".01"), never noise (gate v13). ``printed_repeats`` are the (page, date, amount) groups
+    whose page prints the date and amount on at least as many lines as rows claim them (gate v15)."""
     reasons: list[str] = []
     occurrences: list[dict] = []
 
@@ -300,7 +309,8 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
         checks["dates_outside_period"] = outside
         duplicates = []
         positional = [0]
-        distinguished, unverifiable = _duplicates(rows, occurrences=duplicates, positional=positional)
+        distinguished, unverifiable = _duplicates(rows, occurrences=duplicates, positional=positional,
+                                                  printed_repeats=printed_repeats)
         checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
         checks["repeats_by_position"] = positional[0]
         if unverifiable:
@@ -378,7 +388,8 @@ def gate(rows: list[CandidateRow], meta: AccountMeta, *, tolerance: Decimal = De
                 record("date_order_chained", row=row, field="date")
     duplicate_occurrences: list[dict] = []
     positional = [0]
-    distinguished, unverifiable = _duplicates(resolved, occurrences=duplicate_occurrences, positional=positional)
+    distinguished, unverifiable = _duplicates(resolved, occurrences=duplicate_occurrences, positional=positional,
+                                              printed_repeats=printed_repeats)
     checks["repeats"] = {"distinguished": distinguished, "unverifiable": unverifiable}
     checks["repeats_by_position"] = positional[0]
     computed_ending: Decimal | None = None

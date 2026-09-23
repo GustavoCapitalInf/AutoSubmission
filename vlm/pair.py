@@ -387,8 +387,16 @@ def pages_without_transactions(printed_pages, account: dict) -> frozenset:
     # body prints none, and the proposer's reading of the body is what it does not cover. Too few words to tell
     # (a scanned list of numbers) counts as covered only when the proposer read no amount there either.
     return frozenset(index + 1 for index, evidence in enumerate(printed_pages or ())
-                     if evidence is not None and evidence.native and evidence.native_amounts <= balances
+                     if evidence is not None and evidence.native and _standalone_amounts(evidence.native) <= balances
                      and _covered(evidence))
+
+
+def _standalone_amounts(text: str) -> frozenset:
+    """The text's printed amounts, leaving out a figure glued to a letter: a document control number
+    ("x12345.67") names a printout, it moves no money."""
+    from vlm.native_text import _money_spans
+    return frozenset(amount for start, _, amount in _money_spans(text or '')
+                     if not (start and text[start - 1].isalpha()))
 
 
 def _covered(evidence) -> bool:
@@ -399,6 +407,46 @@ def _covered(evidence) -> bool:
 def _proposer_amounts(evidence) -> frozenset:
     from vlm.native_text import _amounts
     return frozenset(_amounts(evidence.proposer or ""))
+
+
+_LETTERS = re.compile(r"[A-Za-z]{2,}")
+
+
+def printed_repeat_groups(rows, page_texts) -> frozenset:
+    """(page, date, amount) groups of two or more rows whose page prints their date and amount on at least as many
+    lines as rows claim them: the page's text layer, else the proposer's reading, one line per table row or text
+    line (summary_box.page_lines). Each such row is then a printed line of its own, whichever reader proposed it
+    (gate v15: a reviewer addition carries no position of its own).
+
+    A line counts once for each time it prints the rows' date text (a table printed k-up prints several), and only
+    when it also prints a word: a daily-balance line prints a date and a figure alone. Every row of a group must
+    carry the same printed date text; a row without one never counts."""
+    from collections import defaultdict
+
+    from vlm.native_text import _money_spans
+
+    cent = Decimal('0.01')
+    groups: dict[tuple, list] = defaultdict(list)
+    for row in rows:
+        tokens = (row.date_text or '').split()
+        if row.date and tokens:
+            groups[(row.page, row.date, row.amount)].append(tokens[0])
+    proven = set()
+    for (page, when, amount), tokens in groups.items():
+        if len(tokens) < 2 or len(set(tokens)) != 1 or not (0 < page <= len(page_texts or ())):
+            continue
+        pattern = re.compile(rf'(?<![\d/.\-]){re.escape(tokens[0])}(?![\d/.\-])')
+        target = abs(Decimal(str(amount))).quantize(cent)
+        printed = 0
+        for line in page_texts[page - 1] or ():
+            text = ' '.join(str(line).split())
+            dates = len(pattern.findall(text))
+            if not dates or not _LETTERS.search(pattern.sub(' ', text)):
+                continue
+            printed += min(dates, sum(1 for _, _, value in _money_spans(text) if value == target))
+        if printed >= len(tokens):
+            proven.add((page, when, amount))
+    return frozenset(proven)
 
 
 def exclude_undirected_by_totals(rows, account: dict, daily=()):
@@ -788,10 +836,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     # A statement that prints only its closing date opens the day after the previous statement's closing date.
     period_from_previous = previous_balance_period_start(account, reasons, occurrences, field_evidence,
                                                          native_texts)
-    summary_box = apply_summary_box(
-        account, reasons, occurrences, field_evidence,
-        [page_lines(native_texts[index] if index < len(native_texts) else None, layout.blocks)
-         for index, layout in enumerate(layouts)])
+    printed_lines = [page_lines(native_texts[index] if index < len(native_texts) else None, layout.blocks)
+                     for index, layout in enumerate(layouts)]
+    summary_box = apply_summary_box(account, reasons, occurrences, field_evidence, printed_lines)
     rows, cheque_rows_excluded = ledger_rows(merges)
     # The reviewed printed month/day and reviewed period can determine a
     # missing ISO date without another model reading. This is a separate
@@ -839,7 +886,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         # Incomplete ledgers retain independent row checks. Whole-document
         # arithmetic waits for the missing pages, avoiding false sum/summary
         # failures without hiding defects on the pages already reviewed.
-        verdict = gate(rows, _account_meta(account, daily), complete_document=not unresolved_pages)
+        verdict = gate(rows, _account_meta(account, daily), complete_document=not unresolved_pages,
+                       printed_repeats=printed_repeat_groups(rows, printed_lines))
         reasons.extend(verdict.reasons)
         occurrences.extend(verdict.occurrences)
         checks = verdict.checks

@@ -277,3 +277,25 @@ def test_merge_does_not_modify_the_model_wire_schema():
     payload["reviews"][0].pop("reason")
     merge_review(_rows(), payload, page=1)
     assert PAGE_REVIEW_SCHEMA == schema
+
+
+def test_a_cheque_whose_number_cell_prints_no_description_needs_no_observation():
+    # A cheque table (Date | Check No | Amount): the number cell prints nothing, the break mark alone, or a number.
+    from dataclasses import replace
+
+    from vlm.assemble import published_row
+    cells = ("", "*", "4410*")
+    rows = [replace(row, description=cell, description_label="Check", direction="debit")
+            for row, cell in zip(_rows(3), cells)]
+    payload = _payload(rows, added=False)
+    for review in payload["reviews"]:
+        review["observed_description"] = None
+    merged = merge_review(rows, payload, page=1)
+    assert merged.counts["agreed"] == 3 and not merged.errors
+    assert [published_row(row).description for row in merged.rows] == ["Check", "Check", "Check 4410*"]
+    # The same cells read from a column that is not a cheque-number column still need their text observed.
+    unlabelled = [replace(row, description_label=None) for row in rows]
+    assert merge_review(unlabelled, payload, page=1).counts["unresolved"] == 3
+    # An observation of a different number is still a contradiction.
+    payload["reviews"][2]["observed_description"] = "4411"
+    assert merge_review(rows, payload, page=1).counts["unresolved"] == 1

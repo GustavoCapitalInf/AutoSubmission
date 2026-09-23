@@ -118,3 +118,28 @@ def test_a_positional_repeat_is_still_refused_when_the_arithmetic_fails():
 
 def test_gate_version_moved_for_the_new_evidence():
     assert GATE_VERSION >= 10
+
+
+def test_additions_are_separate_when_their_page_prints_the_line_as_often_as_rows_claim_it():
+    # Gate v15: two reviewer additions repeating one fee (the proposer read that table as a text block it could not
+    # split, "description date amount") are two printed lines when the page prints the date and the amount on two
+    # lines: its text layer, else the proposer's reading, one line per table row or text line.
+    from vlm.pair import printed_repeat_groups
+
+    rows = [_fee("added0", source="stage_b"), _fee("added1", source="stage_b")]
+    twice = [["FABRICATED SERVICE FEE 01/05 1.50", "FABRICATED SERVICE FEE 01/05 1.50", "01/05 98.50"]]
+    groups = printed_repeat_groups(rows, twice)
+    assert groups == {(1, "2031-01-05", Decimal("1.50"))} and GATE_VERSION >= 15
+    verdict = gate(rows, _meta(2), printed_repeats=groups)
+    assert verdict.admitted, verdict.reasons
+    # Printed once (the daily-balance line prints a date and a figure, no words): the repeat stays refused.
+    once = [["FABRICATED SERVICE FEE 01/05 1.50", "01/05 1.50"]]
+    assert printed_repeat_groups(rows, once) == frozenset()
+    assert "duplicate_row" in gate(rows, _meta(2), printed_repeats=printed_repeat_groups(rows, once)).reasons
+    # A line printing the fee under another date, or on another page, proves nothing for this one.
+    elsewhere = [["FABRICATED SERVICE FEE 01/05 1.50", "FABRICATED SERVICE FEE 01/06 1.50"]]
+    assert printed_repeat_groups(rows, elsewhere) == frozenset()
+    assert printed_repeat_groups([replace(rows[1], page=2), rows[0]], twice) == frozenset()
+    # A k-up line prints each of its date and amount pairs.
+    kup = [["FABRICATED DEPOSIT 01/05 1.50 FABRICATED DEPOSIT 01/05 1.50"]]
+    assert printed_repeat_groups(rows, kup) == {(1, "2031-01-05", Decimal("1.50"))}

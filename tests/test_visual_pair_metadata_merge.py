@@ -309,3 +309,83 @@ def test_pages_disagreeing_about_an_auxiliary_figure_leave_it_unknown_and_hold_n
         page(2, {"bank_reported_average_balance": 1822.0, "bank_reported_average_label": "Average balance"})])
     assert "bank_reported_average_balance" not in account and "bank_reported_average_label" not in account
     assert reasons == []
+
+
+def test_a_page_listing_its_running_balances_gives_each_day_its_close():
+    # A statement printing a balance on every row: the reviewer reported each row's balance as a daily balance.
+    # The day's close is its last value in listing order (its first on a page listed newest first).
+    daily = [{"date": "2031-01-02", "balance": 110.0}, {"date": "2031-01-02", "balance": 95.5},
+             {"date": "2031-01-03", "balance": 81.37}]
+    for balances, listed in (((110.0, 95.5, 81.37), daily), ((81.37, 95.5, 110.0), list(reversed(daily)))):
+        occurrences = []
+        _, closes, reasons, provenance = merge_metadata([page(1, balances=balances, daily=listed)],
+                                                        occurrences=occurrences)
+        assert reasons == [] and occurrences == []
+        assert closes == [{"date": "2031-01-02", "balance": 95.5}, {"date": "2031-01-03", "balance": 81.37}]
+        assert {"field": "daily_balances", "page": 1, "source": "running_balances_day_close", "value": 1} in provenance
+    # The page's printed opening, listed first on the first date, is one of its own figures too.
+    opening = [{"date": "2031-01-02", "balance": 120.0}] + daily
+    _, closes, reasons, _ = merge_metadata([page(1, {"beginning_balance": 120.0}, balances=(110.0, 95.5, 81.37),
+                                                 daily=opening)], occurrences=[])
+    assert reasons == [] and closes == [{"date": "2031-01-02", "balance": 95.5}, {"date": "2031-01-03", "balance": 81.37}]
+    # A repeated day whose values are not balances the page's rows print stays a disagreement.
+    conflicting = [{"date": "2031-01-02", "balance": 110.0}, {"date": "2031-01-02", "balance": 99.0}]
+    _, _, reasons, _ = merge_metadata([page(1, balances=(110.0,), daily=conflicting)], occurrences=[])
+    assert reasons == ["anchor_disagreement"]
+
+
+def test_a_sibling_account_that_did_not_move_is_set_aside_for_the_one_the_transactions_move():
+    # A credit union prints its membership savings share first ($25.00 in, $25.00 out, nothing moved), then the
+    # checking share every transaction moves. The reviewer of page 1 reported the savings.
+    savings = {"beginning_balance": 25.0, "ending_balance": 25.0, "stated_total_credits": 0.0,
+               "stated_total_debits": 0.0, "account_number": "5550000000001", "account_name": "FABRICATED SAVINGS"}
+    checking = {"beginning_balance": 101.0, "ending_balance": 110.0, "account_number": "5550000000002",
+                "account_name": "FABRICATED CHECKING"}
+    merges = [page(1, savings, seen=("5550000000001", "5550000000002")),
+              page(2, checking, balances=(102.0, 110.0), seen=("5550000000002",))]
+    occurrences = []
+    account, _, reasons, provenance = merge_metadata(merges, occurrences=occurrences)
+    assert reasons == [] and occurrences == []
+    assert (account["beginning_balance"], account["ending_balance"], account["account_number"]) == (
+        101.0, 110.0, "5550000000002")
+    assert "stated_total_credits" not in account
+    assert {"field": "dormant_sibling_account", "page": 1, "source": "dormant_sibling_account",
+            "value": savings} in provenance
+    # The moving account's own summary cannot be set aside: a still figure its rows reach is a contradiction.
+    reached = [page(1, {"beginning_balance": 100}, balances=(150,)),
+               page(2, {"beginning_balance": 150, "ending_balance": 150})]
+    assert merge_metadata(reached, occurrences=[])[2] == ["anchor_disagreement"]
+    # A statement without transactions keeps every figure.
+    idle = [page(1, savings), page(2, checking)]
+    assert "anchor_disagreement" in merge_metadata(idle, occurrences=[])[2]
+
+
+def test_a_complete_account_number_padded_with_zeros_is_the_same_number():
+    merges = [page(1, {"account_number": "000000012345678"}, balances=(1.0,)),
+              page(2, {"account_number": "12345678"}, balances=(2.0,))]
+    assert merge_metadata(merges, occurrences=[])[2] == []
+    short = [page(1, {"account_number": "0072"}), page(2, {"account_number": "72"})]
+    assert merge_metadata(short, occurrences=[])[2] == ["proposal_invalid"]
+
+
+def test_a_page_listing_one_day_takes_the_statements_listing_order():
+    # One page lists a single day's running balances, so its own dates show no order; the other page's rows show
+    # whether the statement lists oldest first (the day closes on its last value) or newest first (its first).
+    def listed(number, entries):
+        rows = tuple(CandidateRow(when, when[5:].replace("-", "/"), "FABRICATED ROW", Decimal("1.00"), "credit",
+                                  Decimal(str(value)), number, "stage_a+stage_b", f"row{index}")
+                     for index, (when, value) in enumerate(entries))
+        account = dict(BASE) if number == 1 else {}
+        daily = tuple({"date": when, "balance": value} for when, value in entries)
+        return PageReviewMerge(number, rows, (), {"agreed": len(rows)}, (), account, daily, "statement_page", ())
+
+    earlier, day = [("2031-01-03", 70.0), ("2031-01-04", 71.0)], [("2031-01-05", 72.0), ("2031-01-05", 73.0)]
+    expected = [{"date": "2031-01-03", "balance": 70.0}, {"date": "2031-01-04", "balance": 71.0},
+                {"date": "2031-01-05", "balance": 73.0}]
+    for pages in ([listed(1, earlier), listed(2, day)], [listed(1, day[::-1]), listed(2, earlier[::-1])]):
+        _, closes, reasons, _ = merge_metadata(pages, occurrences=[])
+        assert reasons == [] and closes == expected
+    # A statement whose rows show no order keeps a single day's repeated values: they stay a disagreement.
+    _, _, reasons, _ = merge_metadata([page(1, balances=(72.0, 73.0), daily=[
+        {"date": "2031-01-02", "balance": 72.0}, {"date": "2031-01-02", "balance": 73.0}])], occurrences=[])
+    assert reasons == ["anchor_disagreement"]

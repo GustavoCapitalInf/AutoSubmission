@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
@@ -300,6 +301,27 @@ def _review_entry(original: dict, item: dict, *, candidate_id: str):
     return effective, corrected, list(dict.fromkeys(errors)), warnings
 
 
+# What a cheque-number column prints for a cheque: its number, with or without the break-in-sequence mark ("4410*",
+# "*218"), the mark alone, or nothing.
+_CHEQUE_CELL = re.compile(r"\*?\s*#?\s*\d*\s*\*?")
+
+
+def _cheque_cell_waiver(candidate, row: dict, row_errors: list[str], observed) -> list[str]:
+    """A cheque read from a cheque-number column (the proposer's description_label) prints no description beyond its
+    number, and often not even that: there is no text to observe. A missing observation, an observation that is the
+    same cell, and an empty description are then not errors; the row is published as the column names it
+    (assemble.labelled_description: "Check 4410", or "Check" alone). Every other error stands."""
+    description = str(row.get("description") or "").strip()
+    if not getattr(candidate, "description_label", None) or not _CHEQUE_CELL.fullmatch(description):
+        return row_errors
+    same_cell = (isinstance(observed, str) and _CHEQUE_CELL.fullmatch(observed.strip()) is not None
+                 and re.sub(r"\D", "", observed) == re.sub(r"\D", "", description))
+    waived = {"review_description_observation_missing"} | ({"review_description_observation_mismatch"}
+                                                           if same_cell else set())
+    return [code for code in row_errors
+            if code not in waived and not code.startswith("review_empty_description:")]
+
+
 def _settle_description(original: dict, corrected: dict | None, observed, printed) -> tuple[dict, str] | None:
     """A reviewer that contradicts itself about a description (its correction, or the proposer's reading it
     confirmed, differs from what it says it observed) is settled by the page's text layer, on the lines that
@@ -416,12 +438,14 @@ def merge_review(candidates, payload: object, *, page: int, truncated: bool = Fa
     by_id = {item["candidate_id"]: item for item in identified if ids.count(item["candidate_id"]) == 1}
     checked = {}
     diagnostics = []
-    for record in records:
+    for candidate, record in zip(candidates, records):
         candidate_id = record["candidate_id"]
         item = by_id.get(candidate_id)
         if item is None:
             continue
         effective, corrected, row_errors, warnings = _review_entry(record["row"], item, candidate_id=candidate_id)
+        row_errors = _cheque_cell_waiver(candidate, corrected if corrected is not None else record["row"],
+                                         row_errors, effective.get("observed_description"))
         row_errors, _ = _settle_zero_amount(corrected if corrected is not None else record["row"], row_errors, printed)
         inherited = list(dict.fromkeys(source_errors.get(candidate_id, ())))
         checked[candidate_id] = (effective, corrected, row_errors, warnings, inherited)

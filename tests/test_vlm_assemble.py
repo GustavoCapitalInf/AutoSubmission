@@ -115,6 +115,31 @@ def test_a_note_under_a_section_heading_keeps_the_sections_direction():
     assert [(row.amount, row.direction) for row in rows] == [(Decimal("175.00"), "debit")]
 
 
+def test_an_account_line_under_a_section_heading_keeps_the_sections_direction():
+    # A bank printing "Other Credits (+)" then "Account: -------0000" above each table: the account line names the
+    # account, it heads no section, so the tables keep their headings' directions.
+    table = ("<table><thead><tr><td>Date</td><td>Amount</td><td>Description</td></tr></thead>"
+             "<tbody><tr><td>04/23</td><td>162.40</td><td>FABRICATED ENTRY</td></tr></tbody></table>")
+    import json
+    layout = [{"category": "Section-header", "bbox": [100, 100, 900, 150], "text": "Other Credits (+)"},
+              {"category": "Text", "bbox": [1500, 100, 2400, 150], "text": "Account: -------0000"},
+              {"category": "Table", "bbox": [100, 160, 2400, 400], "text": table},
+              {"category": "Section-header", "bbox": [100, 500, 900, 550], "text": "Other Debits (-)"},
+              {"category": "Text", "bbox": [1500, 500, 2400, 550], "text": "Acct # ****0000"},
+              {"category": "Table", "bbox": [100, 560, 2400, 800], "text": table},
+              {"category": "Section-header", "bbox": [100, 900, 900, 950], "text": "Fabricated Summary"},
+              {"category": "Text", "bbox": [1500, 900, 2400, 950], "text": "Account: -------0000"},
+              {"category": "Table", "bbox": [100, 960, 2400, 1200], "text": table}]
+    rows = assemble.parse_dots_layout(json.dumps(layout), page=3, width=2550, height=3300, year_hint=2031).rows
+    assert [(row.direction, row.direction_source) for row in rows] == [
+        ("credit", "section"), ("debit", "section"), ("unknown", "printed")]
+    blocks = [assemble.Block("paragraph_title", (0, 0, 1, 0.1), "Other Debits (-)", 0, 0),
+              assemble.Block("text", (0, 0.1, 1, 0.15), "Account Number XXXX0000", 1, 0),
+              assemble.Block("table", (0, 0.15, 1, 0.5), table, 2, 0)]
+    assert [row.direction for row in assemble.rows_from_blocks(blocks, year_hint=2031)] == ["debit"]
+    assert not assemble.continues_section("Account Summary") and assemble.continues_section("(continued)")
+
+
 def test_deductions_and_purchases_sections_are_debits():
     for heading in ("ACH Deductions", "Other Deductions", "Card Purchases"):
         assert assemble.section_direction(heading) == "debit", heading

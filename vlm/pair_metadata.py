@@ -8,7 +8,8 @@ Policies:
   insensitively (a different basis still conflicts); their first printed
   representation is retained. Currency uses
   case/outer-whitespace comparison only. Missing currency is not a conflict.
-* Account IDs ignore formatting punctuation/case. Explicit masking characters
+* Account IDs ignore formatting punctuation/case, and zeros padding a complete
+  number of eight or more digits. Explicit masking characters
   and repeated Xs hide variable-width spans; bare four-character IDs are suffix
   evidence. Every visible character constrains compatibility. Two complete IDs
   must match in full. The most informative compatible account-field spelling
@@ -65,6 +66,10 @@ def _account_pattern(value) -> str:
     raw = "".join("*" if character in "*•●" else character
                   for character in raw if character.isalnum() or character in "*•●")
     raw = re.sub(r"\*+", "*", raw)
+    # A complete number printed with zeros in front ("000000012345678" on the first page, "12345678" on the
+    # activity pages) is the same number: the zeros pad a field.
+    if raw.isdigit() and len(raw) >= 8:
+        raw = raw.lstrip("0") or "0"
     return "*" + raw if len(raw) == 4 and "*" not in raw else raw
 
 
@@ -108,6 +113,119 @@ def _dated_entries(merged) -> list[dict]:
 
 def _daily_dates(merged) -> list[str]:
     return [item["date"] for item in _dated_entries(merged)]
+
+
+# A sibling account's own figures and identity, which a reviewer reports as the page's when it reads that account's
+# summary first (dormant_siblings).
+_SIBLING_FIELDS = ("beginning_balance", "ending_balance", "stated_total_credits", "stated_total_debits",
+                   "stated_credit_count", "stated_debit_count", "account_number", "account_number_last4",
+                   "account_name", "bank_reported_average_balance", "bank_reported_average_label")
+_MOVEMENT_FIELDS = ("stated_total_credits", "stated_total_debits", "stated_credit_count", "stated_debit_count")
+
+
+def dormant_siblings(merges) -> dict[int, dict]:
+    """Pages whose reviewer reported a sibling account that did not move, not the statement's: that account's
+    beginning and ending balance are printed and equal, it reports no money in or out (totals and counts absent or
+    zero), the statement has transactions, and another page reports the account they move, at another balance. A
+    credit union prints its membership savings share first ("Savings $25.00 ... $25.00"), then the checking
+    share that carries every transaction; a reviewer reading a page's first summary reports the savings.
+
+    Returns {merge index: {field: value}}: the sibling's fields, set aside rather than merged as the statement's.
+    Nothing is set aside when no page reports another balance: a statement whose own balance did not move keeps its
+    figures. The arithmetic still decides: the moving account must reconcile to its own printed figures."""
+    if not any(merged.rows for merged in merges if not picture_page(merged)):
+        return {}
+
+    def still(account) -> Decimal | None:
+        begin, end = account.get("beginning_balance"), account.get("ending_balance")
+        if begin is None or end is None or not _equal(begin, end):
+            return None
+        for key in _MOVEMENT_FIELDS:
+            value = account.get(key)
+            if value is not None and not _equal(value, 0):
+                return None
+        try:
+            return abs(Decimal(str(begin))).quantize(Decimal("0.01"))
+        except (ArithmeticError, TypeError, ValueError):
+            return None
+
+    stills = {index: still(merged.account) for index, merged in enumerate(merges) if not picture_page(merged)}
+    moving, printed = set(), set()
+    for index, merged in enumerate(merges):
+        if picture_page(merged):
+            continue
+        for row in merged.rows:
+            if row.balance is not None:
+                printed.add(abs(Decimal(str(row.balance))).quantize(Decimal("0.01")))
+        if stills.get(index) is not None:
+            continue
+        for key in _BALANCE_FIELDS:
+            value = merged.account.get(key)
+            try:
+                if value is not None:
+                    moving.add(abs(Decimal(str(value))).quantize(Decimal("0.01")))
+            except (ArithmeticError, TypeError, ValueError):
+                continue
+    # A still figure the moving account itself reaches (a running balance on a row) is that account's own summary
+    # contradicting its opening, not a sibling: it stays a disagreement.
+    return {index: {key: merges[index].account[key] for key in _SIBLING_FIELDS
+                    if merges[index].account.get(key) is not None}
+            for index, value in stills.items()
+            if value is not None and moving and value not in moving and value not in printed}
+
+
+def _newest_first(merges) -> bool | None:
+    """Whether the statement lists its rows newest first (True) or oldest first (False): every page whose row
+    dates run one way agrees on that way. None when no page shows an order, or pages disagree."""
+    orders = set()
+    for merged in merges:
+        dates = [row.date for row in merged.rows if row.date]
+        if len(set(dates)) < 2:
+            continue
+        if dates == sorted(dates):
+            orders.add(False)
+        elif dates == sorted(dates, reverse=True):
+            orders.add(True)
+    return orders.pop() if len(orders) == 1 else None
+
+
+def _day_closes(merged, newest_first: bool | None = None) -> tuple[list[dict], int]:
+    """A page's daily balances with each day once. A page listing one date several times, every such value a
+    running balance printed on one of its own rows (or the page's own opening or closing balance), transcribed its
+    running balances (a statement printing a balance on every row): the day's close is its last value in listing
+    order, or its first when the page lists newest first. A page listing a single date takes the statement's listing order (newest_first) and keeps its
+    entries when that is unknown. Anything else is returned as it is (repeated dates with other values stay a
+    disagreement). Returns (entries, how many running values were folded into their day's close)."""
+    items = list(merged.daily_balances)
+    dated = _dated_entries(merged)
+    dates = [item["date"] for item in dated]
+    repeated = {when for when in dates if dates.count(when) > 1}
+    if not repeated or len(dated) != len(items):
+        return items, 0
+    cent = Decimal("0.01")
+    # The page's printed opening (a "beginning balance" line on the first date) and closing count as its figures.
+    figures = [row.balance for row in merged.rows] + [merged.account.get(key)
+                                                      for key in ("beginning_balance", "ending_balance")]
+    try:
+        printed = {abs(Decimal(str(value))).quantize(cent) for value in figures if value is not None}
+        values = {abs(Decimal(str(item["balance"]))).quantize(cent) for item in dated if item["date"] in repeated}
+    except (ArithmeticError, TypeError, ValueError):
+        return items, 0
+    if not values <= printed:
+        return items, 0
+    ascending, descending = dates == sorted(dates), dates == sorted(dates, reverse=True)
+    if ascending and descending:
+        ascending, descending = newest_first is False, newest_first is True
+    if ascending:
+        ordered = dated
+    elif descending:
+        ordered = list(reversed(dated))
+    else:
+        return items, 0
+    closes: dict[str, dict] = {}
+    for item in ordered:
+        closes[item["date"]] = item
+    return sorted(closes.values(), key=lambda item: item["date"]), len(items) - len(closes)
 
 
 def _carried_forward_date(merges, index: int) -> str | None:
@@ -285,6 +403,10 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
     segment_failures = {(item["page"], item["field"]) for item in segment_plan.occurrences}
     for item in segment_plan.occurrences:
         fail(item["code"], item["page"], item["field"])
+    newest_first = _newest_first(merges)
+    aside = dormant_siblings(merges)
+    sibling_numbers = [_account_pattern(value) for fields in aside.values() for key, value in fields.items()
+                       if key in _NUMBER_FIELDS and _account_pattern(value)]
 
     for index, merged in enumerate(merges):
         page = _page(index, merged)
@@ -299,6 +421,8 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
             if value is None:
                 continue
             provenance.append({"field": key, "page": page, "source": "reviewer", "value": value})
+            if key in aside.get(index, ()):
+                continue  # a sibling account that did not move (dormant_siblings), never the statement's
             if page in segment_pages and key in SCOPED_FIELDS:
                 continue
             if key in _BALANCE_FIELDS:
@@ -344,12 +468,17 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
         # registering the others made a later page's correct own-account number conflict with them.
         printed = _transaction_texts(merged)
         for value in merged.account_numbers_seen:
-            if value and not _printed_in_a_transaction(value, printed):
+            if (value and not _printed_in_a_transaction(value, printed)
+                    and not any(_compatible(_account_pattern(value), sibling) for sibling in sibling_numbers)):
                 identity(value, page, "account_numbers_seen")
         carried = _carried_forward_date(merges, index)
         carry_open = carried is not None
         previous_date = None
-        for item in merged.daily_balances:
+        entries, folded = _day_closes(merged, newest_first)
+        if folded:
+            provenance.append({"field": "daily_balances", "page": page, "source": "running_balances_day_close",
+                               "value": folded})
+        for item in entries:
             when, balance = item.get("date"), item.get("balance")
             try:
                 date.fromisoformat(when)
@@ -368,6 +497,10 @@ def merge_metadata(merges, *, occurrences: list[dict] | None = None,
             daily[when] = balance
             daily_source[when] = index
             previous_date = when
+
+    for index, fields in sorted(aside.items()):
+        provenance.append({"field": "dormant_sibling_account", "page": _page(index, merges[index]),
+                           "source": "dormant_sibling_account", "value": fields})
 
     for field in ("beginning_balance", "ending_balance"):
         candidates = balances[field]

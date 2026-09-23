@@ -84,6 +84,15 @@ def test_a_printed_header_over_a_scanned_body_is_not_a_page_without_transactions
     assert pages_without_transactions([PrintedEvidence(native=stamp, proposer="")], account) == frozenset({1})
 
 
+def test_a_control_number_glued_to_a_letter_is_no_amount_on_a_page_without_transactions():
+    # A disclosure page printing the printout's control number ("x12345.67") prints no transaction amount.
+    account = {"beginning_balance": 1000.0, "ending_balance": 2468.13}
+    form = "PLEASE RETAIN THIS STATEMENT\nx12345.67\nIN CASE OF ERRORS OR INQUIRIES ABOUT YOUR STATEMENT\n"
+    assert pages_without_transactions([PrintedEvidence(native=form, proposer="")], account) == frozenset({1})
+    spaced = form.replace("x12345.67", "x 12345.67")
+    assert pages_without_transactions([PrintedEvidence(native=spaced, proposer="")], account) == frozenset()
+
+
 SNAP_PAGE = """01/05 CARD PURCHASE FABRIKATEDTRIPTOWN ONCA 12.50
 01/06 Purchase authorized on 01/05 Fabpal *Fabricated Store 402-555-0101 CA 20.75
 01/07 Orig CO Name:Fabricated Utility Orig ID:Web000099 Desc Date:310105 Trace#:9900112233 41.10

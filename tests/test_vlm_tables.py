@@ -53,6 +53,15 @@ def test_a_currency_after_a_header_word_is_the_columns_unit_not_its_role():
         assert tables._header_role(header) is not None, header
 
 
+def test_a_sign_after_a_header_word_is_the_columns_arithmetic_not_its_role():
+    # "Checks & Other Debits (-)" once named no role, so every row printing only a debit was dropped.
+    grid = [["Posting Date", "Transaction Description", "Deposits & Other Credits (+)", "Checks & Other Debits (-)",
+             "Daily Balance"], ["04/17/2031", "FABRICATED CHECK 101", "", "1,111.11", "5,000.00"]]
+    cm = tables.classify_columns(grid)
+    assert (cm.date, cm.description, cm.credit, cm.debit, cm.balance, cm.header_row) == (0, 1, 2, 3, 4, 0)
+    assert tables._header_role("Withdrawals (−)") == "debit" and tables._header_role("(+)") is None
+
+
 def test_a_table_printed_three_up_reads_as_one_table_left_to_right_then_down():
     header = ["DATE", "CHECK #", "AMOUNT($)"] * 3
     grid = [header,
