@@ -206,7 +206,11 @@ function isoDay(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
   if (!match) return null;
   const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  return Number.isNaN(day.getTime()) ? null : day;
+  // Reject an impossible date (2026-02-30, month 13) rather than letting Date roll it into another month.
+  if (Number.isNaN(day.getTime()) || day.getUTCMonth() !== Number(match[2]) - 1 || day.getUTCDate() !== Number(match[3])) {
+    return null;
+  }
+  return day;
 }
 
 // The calendar month a statement stands for: the one holding most of its period's days, the earlier on a
@@ -235,7 +239,7 @@ function formatWhole(value) {
   if (value === null || value === undefined || value === "") return "N/A";
   const number = Number(value);
   if (!Number.isFinite(number)) return "N/A";
-  return Math.round(number).toLocaleString("en-US");
+  return (Math.round(number) || 0).toLocaleString("en-US");  // `|| 0` turns a rounded -0 into 0
 }
 
 function formatNumber(value) {
@@ -1628,19 +1632,26 @@ function renderPackageTables(pkg) {
     const rows = documents.map((doc) => ({ doc, month: statementMonth(doc.period_start, doc.period_end) }));
     rows.sort((a, b) => (a.month ? a.month.key : Infinity) - (b.month ? b.month.key : Infinity));
     // Each row is denominated by its OWN statement (CURRENCY DOCTRINE §F). The column names say ($) as the
-    // CRM does; when one package mixes currencies, a non-USD row names its unit so no figure passes for USD.
-    const currencies = new Set(documents.map((doc) => ("currency" in doc ? doc.currency : "USD") || "USD"));
+    // CRM does; when the package mixes currencies (the server's list, which counts only statements that
+    // contribute money), a non-USD row names its unit so no figure passes for USD. An undeclared currency
+    // stays undeclared.
+    const mixedCurrencies = packageCurrencyInfo(pkg).currencies.length > 1;
+    // Two statements for one month (two accounts, or checking and savings) would be indistinguishable rows,
+    // so those rows alone name their file under the month.
+    const monthCounts = new Map();
+    rows.forEach(({ month }) => { if (month) monthCounts.set(month.key, (monthCounts.get(month.key) || 0) + 1); });
     els.monthlyTable.innerHTML = rows.map(({ doc, month }) => {
       const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
-      const docCurrency = ("currency" in doc ? doc.currency : "USD") || "USD";
-      const unit = currencies.size > 1 && docCurrency !== "USD" ? ` ${docCurrency}` : "";
+      const docCurrency = "currency" in doc ? doc.currency : "USD";
+      const unit = mixedCurrencies && docCurrency && docCurrency !== "USD" ? ` ${docCurrency}` : "";
       const amount = (value) => {
         const text = formatWhole(value);
         return text === "N/A" ? text : text + unit;
       };
+      const shared = month && monthCounts.get(month.key) > 1;
       return `
         <tr title="${escapeHtml(doc.filename || "Statement")}">
-          <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}</td>
+          <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
           <td>${escapeHtml(month ? String(month.year) : "N/A")}</td>
           <td>${escapeHtml(amount(doc.credits))}</td>
           <td>${escapeHtml(formatWhole(doc.deposit_count))}</td>
