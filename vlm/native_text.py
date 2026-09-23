@@ -47,6 +47,14 @@ _SKIPPABLE = re.compile(r"^[-+(]?\$?[\d.,]+\)?-?$|^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d
 _AMOUNT_TOKEN = re.compile(r"[-+(]?\$?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\)?-?")
 
 
+def _plain(text: str) -> str:
+    """Text as its characters read: compatibility forms unfolded (a "ﬁ" ligature is "fi") and invisible format
+    characters (a soft hyphen, a zero-width space) removed."""
+    import unicodedata
+
+    return "".join(char for char in unicodedata.normalize("NFKC", text) if unicodedata.category(char) != "Cf")
+
+
 def _edits(first: str, second: str) -> int:
     """Levenshtein distance between two short tokens."""
     previous = list(range(len(second) + 1))
@@ -247,13 +255,22 @@ class PrintedEvidence:
         "FABRIKATEDTRIPTOWN", "FabPal" printed "Fabpal"): among the tokens of the row's own printed stream (its line
         told apart strictly; amounts and the row's own leading date left out), the one run of as many tokens as
         the reading whose tokens all equal the reading's ignoring case, but at most two, each within two edits.
-        None when the reading is printed exactly, the row cannot be placed, or no single such run exists."""
+        The row's line must print its own date or balance too (a lone printed occurrence of its amount is no
+        proof the line is the row's: two rows whose amounts the readers swapped would swap descriptions), and
+        the print must be plain characters (a ligature or an invisible format character is a glyph artefact, not
+        a reading). None when the reading is printed exactly, the row cannot be placed, or no single such run
+        exists."""
         if not self.native or not description or not description.strip():
             return None
         anchors = self._anchor_lines(amount, date_text, balance, strict=True)
         if not anchors:
             return None
-        stream, _, _ = self._row_stream(anchors[0])
+        stream, first, last = self._row_stream(anchors[0])
+        dated = spaced(date_text or "").split()
+        closing = _cents(balance) if balance is not None else None
+        if not ((dated and contains_words([token for _, token in stream[:last + 1]], dated))
+                or (closing is not None and self._prints_balance(anchors[0], closing))):
+            return None
         words = [token for _, token in stream if not _AMOUNT_TOKEN.fullmatch(token)]
         lead = spaced(date_text or "").split()
         if lead and words[:len(lead)] == lead:
@@ -268,6 +285,8 @@ class PrintedEvidence:
         if len(runs) != 1:
             return None
         text = runs.pop()
+        if text != _plain(text):
+            return None
         return None if text == " ".join(target) else text
 
     def row_line_numbers(self, amount, date_text=None, balance=None) -> list[int] | None:

@@ -115,6 +115,21 @@ def test_a_description_read_with_small_differences_takes_the_prints_exact_charac
     assert changed == [[1, "b1l0"]]
 
 
+def test_a_description_is_never_snapped_to_glyph_artefacts_or_to_an_unconfirmed_line():
+    # Review 5 final check: a ligature or a soft hyphen in the print is a glyph artefact, not a reading.
+    ligature = PrintedEvidence(native="01/05 FABRICATED ﬁNANCE LOAN PMT 12.50\n")
+    assert ligature.printed_description("FABRICATED FINANCE LOAN PMT", Decimal("12.50"), "01/05") is None
+    soft = PrintedEvidence(native="01/05 FABRI­CATED STORE 12.50\n")
+    assert soft.printed_description("FABRICATED STORE", Decimal("12.50"), "01/05") is None
+    # A lone printed occurrence of the amount whose line does not print the row's date (or balance) is no proof
+    # the line is the row's: two rows whose amounts the readers swapped would swap descriptions.
+    swapped = PrintedEvidence(native="03/04 FABRICATED STORE 1 30.00\n03/05 FABRICATED STORE 2 20.00\n")
+    assert swapped.printed_description("FABRICATED STORE 2", Decimal("30.00"), "03/05") is None
+    confirmed = PrintedEvidence(native="03/05 FABRICATED STORE 2 30.00 470.00\n")
+    assert confirmed.printed_description("FABRICATED STOR 2", Decimal("30.00"), "", Decimal("470.00")) == \
+        "FABRICATED STORE 2"
+
+
 def test_a_row_whose_amount_is_not_its_lines_first_takes_no_date_from_the_line():
     # Review 5 finding 8: a cheque table printed two-up; the line's leading date is the first cheque's.
     printed = PrintedEvidence(native="CHECKS\nDATE CHECK # AMOUNT DATE CHECK # AMOUNT\n03/23 301 81.40 302 46.15\n")
