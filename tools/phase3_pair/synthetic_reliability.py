@@ -1,12 +1,17 @@
 """Measure the visual pair on fabricated statements with known truth (tools/phase3_pair/synthetic_statements.py).
 
     python -m tools.phase3_pair.synthetic_reliability --synthetic-root <folder> --output-dir <private folder>
+        [--replay-from <an earlier output folder>]
 
 Every statement is read with data_scope="synthetic" (no customer data, no customer fence), analysed when the
 gate admits it, and compared with its truth: transactions matched on (date, amount, direction), descriptions,
 beginning and ending balance, totals. The one number that matters most is ``admitted_wrong``: statements the
 pipeline admitted whose reading does not equal the truth. A statement held with reasons is a lost admission,
 not an error. The report also records every confidence score, so the score can be checked against the truth.
+
+With --replay-from, the models' recorded answers from that earlier run are reused and the current merge, gate
+and analysis code judges them, with zero model calls (tools/phase3_pair/replay_judgment.py): a statement the
+current code would have sent a model anything new is recorded as failed with ReplayMiss, never read live.
 """
 from __future__ import annotations
 
@@ -58,6 +63,18 @@ def compare(truth: dict, statement: dict | None) -> dict:
     return result
 
 
+def recorded_manifests(evidence: Path) -> dict[str, dict]:
+    """PDF sha256 -> the pipeline manifest an earlier run read that document under (from its receipt)."""
+    from tools.phase3_pair.replay_judgment import _blob
+
+    manifests = {}
+    for index in evidence.glob("*.json"):
+        audit = json.loads(index.read_text(encoding="utf-8"))["document"]["visual_pair"]
+        receipt = json.loads(_blob(evidence, audit["receipt_sha256"]))
+        manifests[receipt["pdf_sha256"]] = receipt["manifest"]
+    return manifests
+
+
 def run(args) -> dict:
     from ocr.visual_pair_config import load_visual_pair_settings
     from vlm.pair import extract_visual_pair
@@ -68,11 +85,24 @@ def run(args) -> dict:
     settings = load_visual_pair_settings()
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=True)
+    holder = replay = None
+    if getattr(args, "replay_from", None) is not None:
+        import shutil
+        from tools.phase3_pair.replay_judgment import install
+
+        if (output / "evidence").exists():
+            raise SystemExit("replay_output_already_has_evidence: use a fresh --output-dir")
+        shutil.copytree(args.replay_from / "evidence", output / "evidence")
+        recorded = recorded_manifests(output / "evidence")
+        replay = {"replayed_from": str(args.replay_from.name), "model_calls": 0, "hits": 0, "misses": 0}
+        holder = install(None, replay)
     results = []
     for item in manifest["files"]:
         pdf = root / item["path"]
         if hashlib.sha256(pdf.read_bytes()).hexdigest() != item["sha256"]:
             raise SystemExit(f"fixture changed: {item['path']}")
+        if holder is not None:
+            holder["manifest"] = recorded.get(item["sha256"])
         truth = json.loads(pdf.with_suffix(".truth.json").read_text(encoding="utf-8"))
         entry = {"id": truth["id"], "layout": truth["layout"], "expect_admitted": truth["expect_admitted"]}
         try:
@@ -114,6 +144,8 @@ def run(args) -> dict:
         "failed": [r["id"] for r in results if r.get("status") == "extraction_failed"],
         "results": results,
     }
+    if replay is not None:
+        summary["replay"] = replay
     (output / "summary.json").write_text(json.dumps(summary, indent=1, default=str), encoding="utf-8")
     return summary
 
@@ -122,10 +154,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--synthetic-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--replay-from", type=Path, default=None)
     summary = run(parser.parse_args(argv))
     print(json.dumps({key: summary[key] for key in ("statements", "admitted", "admitted_exact", "admitted_wrong",
-                                                    "held", "negative_controls_held", "failed")}))
-    return 0
+                                                    "held", "negative_controls_held", "failed", "replay")
+                      if key in summary}))
+    return 0 if not summary.get("replay", {}).get("misses") else 3
 
 
 if __name__ == "__main__":

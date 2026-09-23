@@ -100,6 +100,97 @@ def test_only_a_description_mismatch_is_ever_settled():
     assert merged.counts["unresolved"] == 1 and "resolution" not in merged.evidence[0]
 
 
+def test_settling_reads_only_the_lines_that_carry_the_rows_own_amount():
+    # Review finding F1: "1234" is printed on the page (another cheque), but not on the line of this 45.10 row.
+    native = "Check Nbr Date Amount\n123 03/05 45.10\n1234 03/06 300.00\n"
+    rows = [CandidateRow("2031-03-05", "03/05", "123", Decimal("45.10"), "debit", None, 1, "stage_a", "b1t0r1",
+                         "column", (0.1, 0.2, 0.9, 0.3), None)]
+    payload = _payload(rows, r0={"observed_description": "1234"})
+    settled = merge_review(rows, payload, page=1, printed=PrintedEvidence(native=native))
+    assert settled.counts["agreed"] == 1 and settled.rows[0].description == "123"
+
+
+def test_a_word_printed_elsewhere_on_the_page_never_settles_a_row():
+    # Neither reading is printed on the row's own line: the proposer's has a stray period, and the reviewer's
+    # observation is a heading word printed elsewhere. The row stays unresolved.
+    native = "DEPOSIT ACCOUNT STATEMENT\n03/02 ONLINE TRANSFER FROM SAVINGS 0001 1,000.00\n"
+    rows = [_row("ONLINE TRANSFER FROM SAVINGS 0001.", "1000.00")]
+    payload = _payload(rows, r0={"observed_description": "DEPOSIT"})
+    merged = merge_review(rows, payload, page=1, printed=PrintedEvidence(native=native))
+    assert merged.counts["unresolved"] == 1 and "resolution" not in merged.evidence[0]
+
+
+def test_a_wrapped_description_is_read_across_the_amount_column_on_its_own_lines():
+    # The description wraps to the next line and the text layer prints the amount between its two parts; only
+    # money and date tokens may be skipped, and the reading must touch the line that prints the amount.
+    native = "03/02 ONLINE TRANSFER TO 1,000.00\nFABRICATED SAVINGS 0001\n"
+    rows = [_row("ONLINE TRANSFER TO", "1000.00")]
+    payload = _payload(rows, r0={"observed_description": "ONLINE TRANSFER TO FABRICATED SAVINGS 0001"})
+    merged = merge_review(rows, payload, page=1, printed=PrintedEvidence(native=native))
+    assert merged.counts["corrected"] == 1
+    assert merged.rows[0].description == "ONLINE TRANSFER TO FABRICATED SAVINGS 0001"
+    printed = PrintedEvidence(native=native)
+    assert printed.description_printed_near("ONLINE TO", Decimal("1000.00")) is False   # a word may not be skipped
+    assert printed.description_words_near("ONLINE TRANSFER TO FABRICATED SAVINGS 0001", Decimal("1000.00")) is True
+
+
+MULTI_LINE = """Apr 29 Wire Transfer Fee 2900000001 40.00-
+Apr 29 Wire Debit REF000001
+BNF=FABRICATED PAYEE CO
+FAKEBANK NYC 260429FAB01
+12 FABRICATED STREET WEST
+2,500.00-
+Apr 30 Wire Debit REF000002
+BNF=OTHER FABRICATED CO
+90.00-
+Apr 30 Monthly Maintenance Fee 3000000001 15.00-
+"""
+
+
+def test_a_description_over_several_lines_above_an_amount_line_of_its_own_is_its_rows_print():
+    printed = PrintedEvidence(native=MULTI_LINE)
+    full = "Wire Debit REF000001 BNF=FABRICATED PAYEE CO FAKEBANK NYC 260429FAB01 12 FABRICATED STREET WEST"
+    assert printed.description_printed_near(full, Decimal("2500.00")) is True
+    assert printed.description_words_near(full, Decimal("2500.00")) is True
+    # A reading that stops short of the amount line, with unread text between, is not directly against it.
+    assert printed.description_printed_near("Wire Debit REF000001 BNF=FABRICATED PAYEE CO", Decimal("2500.00")) is False
+
+
+def test_a_rows_block_never_reaches_the_next_or_the_previous_row():
+    printed = PrintedEvidence(native=MULTI_LINE)
+    # The next row starts with its own date: its text is not printed as the 2,500.00 row.
+    assert printed.description_printed_near("Wire Debit REF000002 BNF=OTHER FABRICATED CO", Decimal("2500.00")) is False
+    assert printed.description_words_near("BNF=OTHER FABRICATED CO", Decimal("2500.00")) is False
+    # Nor is the previous row's, whose line prints its own amount.
+    assert printed.description_printed_near("Wire Transfer Fee 2900000001", Decimal("2500.00")) is False
+    # A continuation printed above another row's own line of text does not belong to that row.
+    neighbour = PrintedEvidence(native="01/02 FABRICATED A 100.00\nREF 123\n01/03 FABRICATED B 50.00\n")
+    assert neighbour.description_printed_near("REF 123", Decimal("50.00")) is False
+    assert neighbour.description_printed_near("FABRICATED A FABRICATED B", Decimal("50.00")) is False
+
+
+def test_a_multi_line_row_the_reviewer_contradicts_itself_about_is_settled_by_its_block():
+    # The proposer's reading keeps its line-break markup; the reviewer confirmed it but observed plain text.
+    rows = [_row("Wire Debit REF000001<br>BNF=FABRICATED PAYEE CO", "2500.00")]
+    observed = "Wire Debit REF000001 BNF=FABRICATED PAYEE CO FAKEBANK NYC 260429FAB01 12 FABRICATED STREET WEST"
+    merged = merge_review(rows, _payload(rows, r0={"observed_description": observed}), page=1,
+                          printed=PrintedEvidence(native=MULTI_LINE))
+    assert merged.counts["corrected"] == 1 and merged.rows[0].description == observed
+    assert merged.evidence[0]["resolution"]["chosen"] == "reviewer_observation"
+
+
+def test_decimal_comma_with_space_thousands_is_money():
+    printed = PrintedEvidence(native="Solde de fermeture 1 500,25\nDépôts 12 345,67\n")
+    assert printed.amount_printed(1500.25) and printed.amount_printed(12345.67)
+
+
+def test_amounts_in_the_text_layer_exclude_the_proposer_reading():
+    printed = PrintedEvidence(native="01/02 PAYROLL 2,500.00", proposer="01/02 PAYROLL 2,600.00")
+    assert printed.amount_printed(2600) and not printed.amount_in_text_layer(2600)
+    assert printed.amount_in_text_layer(2500)
+    assert PrintedEvidence(native=None, proposer="2,600.00").amount_in_text_layer(2600) is None
+
+
 def test_figures_not_printed_are_dropped_not_held():
     rows = [_row("ACH CREDIT FABRICATED PAYROLL, INC.")]
     payload = _payload(rows)

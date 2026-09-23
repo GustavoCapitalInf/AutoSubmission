@@ -146,6 +146,10 @@ def _box_proof(number, box, beginning: Decimal, ending: Decimal) -> SummaryProof
         return None
     if abs(begin) != abs(beginning) or abs(end) != abs(ending):
         return None
+    # A box prints a count on every category line or on none. An uncounted line among counted ones is not the
+    # box's own line (a fee or a returned item printed just under it), and two such lines can cancel out.
+    if len({printed is None for _, _, printed in categories}) > 1:
+        return None
     credits = sum((value for direction, value, _ in categories if direction == "credit"), Decimal("0"))
     debits = sum((value for direction, value, _ in categories if direction == "debit"), Decimal("0"))
     if beginning + credits - debits != ending:

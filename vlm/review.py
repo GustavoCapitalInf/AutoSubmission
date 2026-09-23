@@ -281,16 +281,20 @@ def _review_entry(original: dict, item: dict, *, candidate_id: str):
 
 def _settle_description(original: dict, corrected: dict | None, observed, printed) -> tuple[dict, str] | None:
     """A reviewer that contradicts itself about a description (its correction, or the proposer's reading it
-    confirmed, differs from what it says it observed) is settled by the page's text layer: the reading printed
-    there wins, or, when several are printed, the one that contains every other printed reading (a fragment
-    is printed inside the full text). No text layer, or no single winner: None, and the row stays
-    unresolved. Every other field keeps the reviewer's verdict. Returns (row, which reading won)."""
+    confirmed, differs from what it says it observed) is settled by the page's text layer, on the lines that
+    print the row's own amount (PrintedEvidence.description_printed_near): the reading printed there wins, or,
+    when several are printed there, the one that contains every other printed reading (a fragment is printed
+    inside the full text). No text layer, or no single winner: None, and the row stays unresolved. Every
+    other field keeps the reviewer's verdict. Returns (row, which reading won)."""
     readings = [("proposer", original["description"])]
     if corrected is not None:
         readings.append(("reviewer_correction", corrected["description"]))
     readings.append(("reviewer_observation", observed))
     readings = [(label, text) for label, text in readings if isinstance(text, str) and text.strip()]
-    found = [printed.description_printed(text) for _, text in readings]
+    # Only the text-layer lines that print this row's own amount can settle it: a reading printed elsewhere on
+    # the page (another row, a heading) is not this row's print.
+    amount = (corrected if corrected is not None else original).get("amount")
+    found = [printed.description_printed_near(text, amount) for _, text in readings]
     if any(flag is None for flag in found):
         return None
     from vlm.native_text import spaced
@@ -476,13 +480,15 @@ _STATEMENT_FIGURES = ("stated_service_charge", "stated_interest_paid", "stated_n
 def _statement_evidence(merged) -> bool:
     """What no picture of a cheque or deposit slip carries: a failed review, a statement summary figure
     (opening, closing, totals or counts) or another printed statement figure, or a daily-balance table,
-    read, quarantined or read without dates. Repeated header details such as bank, account or period do not
-    count."""
+    read, quarantined or read without dates. A figure or daily balance the reviewer reported but the page does
+    not print still says the reviewer saw a statement page, so it counts too. Repeated header details such as
+    bank, account or period do not count."""
     return (bool(merged.errors) or _summary_figures(merged)
             or any(merged.account.get(name) is not None for name in _STATEMENT_FIGURES)
             or bool(merged.daily_balances)
             or any(item.get("scope") == "daily_balances" for item in merged.metadata_evidence)
-            or any(item.get("code") == "review_daily_balance_undated" for item in merged.diagnostics))
+            or any(item.get("code") in ("review_daily_balance_undated", "review_figure_not_printed",
+                                        "review_daily_balance_not_printed") for item in merged.diagnostics))
 
 
 def picture_page(merged) -> bool:

@@ -81,10 +81,50 @@ Ending Balance 980.00
     assert prove_summary_box([text], beginning=Decimal("1000"), ending=Decimal("980")) is None
 
 
-def test_counts_only_when_every_line_prints_one():
-    text = US_STYLE.replace("Customer Deposits 5 2,000.00", "Customer Deposits 2,000.00")
-    proof = prove_summary_box([text], beginning=Decimal("1000.00"), ending=Decimal("1500.25"))
-    assert proof is not None and proof.stated_credit_count is None and proof.stated_debit_count == 32
+def test_a_box_whose_lines_mix_printed_counts_proves_nothing():
+    # Review finding F2: two keyworded lines printed right under the box (no counts) cancel out, so the box
+    # still balances with them absorbed and would "prove" totals 50.00 too high on each side.
+    text = """Beginning Balance 10,000.00
+Deposits and Other Credits 1 6,000.00
+Withdrawals and Other Debits 2 5,000.00
+Ending Balance 11,000.00
+Overdraft Fees 50.00
+Deposits Returned 50.00
+"""
+    assert prove_summary_box([text], beginning=Decimal("10000"), ending=Decimal("11000")) is None
+
+
+def test_a_proof_never_supersedes_reviewer_totals_that_balance_on_their_own():
+    from vlm.pair import apply_summary_box
+    # Two different readings both balance the statement: the reviewer's printed figures stand and the proof is
+    # not applied (the gate then checks the ledger against them).
+    text = """Beginning Balance 10,000.00
+Deposits and Other Credits 6,000.00
+Withdrawals and Other Debits 5,000.00
+Ending Balance 11,000.00
+Overdraft Fees 50.00
+Deposits Returned 50.00
+"""
+    account = {"beginning_balance": 10000.0, "ending_balance": 11000.0,
+               "stated_total_credits": 6000.0, "stated_total_debits": 5000.0}
+    reasons, occurrences, evidence = [], [], []
+    audit = apply_summary_box(account, reasons, occurrences, evidence, [text])
+    assert account["stated_total_credits"] == 6000.0 and account["stated_total_debits"] == 5000.0
+    assert audit == {"proven": True, "applied": False, "reason": "reviewer_totals_also_balance",
+                     "page": 1, "category_lines": 4}
+    assert evidence == []
+
+
+def test_a_box_prints_counts_on_every_line_or_on_none():
+    # One line without a count among counted lines is not the box's own line (see the mixed-counts test).
+    mixed = US_STYLE.replace("Customer Deposits 5 2,000.00", "Customer Deposits 2,000.00")
+    assert prove_summary_box([mixed], beginning=Decimal("1000.00"), ending=Decimal("1500.25")) is None
+    uncounted = (US_STYLE.replace("Customer Deposits 5 2,000.00", "Customer Deposits 2,000.00")
+                 .replace("Other Deposits 1 10,000.50", "Other Deposits 10,000.50")
+                 .replace("Other Withdrawals 32 11,500.25-", "Other Withdrawals 11,500.25-"))
+    proof = prove_summary_box([uncounted], beginning=Decimal("1000.00"), ending=Decimal("1500.25"))
+    assert proof is not None and proof.stated_credit_count is None and proof.stated_debit_count is None
+    assert proof.stated_total_credits == Decimal("12000.50")
 
 
 def test_totals_balances_and_undirected_lines_are_never_category_lines():
@@ -110,7 +150,7 @@ def test_a_proven_box_supplies_the_totals_and_settles_reviewer_disagreements():
     audit = apply_summary_box(account, reasons, occurrences, evidence, [US_STYLE])
     assert account["stated_total_credits"] == 12000.5 and account["stated_credit_count"] == 6
     assert reasons == ["count_mismatch"] and [item["code"] for item in occurrences] == ["count_mismatch"]
-    assert audit == {"proven": True, "page": 1, "category_lines": 3,
+    assert audit == {"proven": True, "applied": True, "page": 1, "category_lines": 3,
                      "fields": ["stated_credit_count", "stated_debit_count", "stated_total_credits",
                                 "stated_total_debits"],
                      "superseded_reviewer_fields": ["stated_total_credits"], "settled_disagreements": 1}

@@ -40,6 +40,15 @@ def test_the_label_names_only_a_bare_cheque_number():
     assert labelled_description(CandidateRow(**{**base.__dict__, "description_label": None})).description == "1234"
 
 
+def test_the_bank_reader_is_offered_the_labelled_description_the_ledger_carries():
+    # Review finding F7: the bank-reader bridge compares its reading with the gated statement; offering it the
+    # bare number while the statement says "Check 1234" meant a cheque table could never match.
+    from vlm.pair import _markdown_page
+    rows = _rows(("Check Nbr", "Date", "Amount"), ("1234", "01/05", "45.10"))
+    merged = PageReviewMerge(1, tuple(rows), (), {"agreed": 1}, (), {}, (), "statement_page", ())
+    assert "<td>Check 1234</td>" in _markdown_page(merged)
+
+
 def test_the_label_survives_a_correction_and_reaches_the_ledger():
     rows = _rows(("Check Nbr", "Date", "Amount"), ("1234", "01/05", "45.10"), ("1235", "01/06", "12.00"))
     payload = empty_review("statement_page")

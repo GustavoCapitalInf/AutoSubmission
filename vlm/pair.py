@@ -225,12 +225,22 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
     """When the statement's printed account summary is proven (vlm/summary_box.py: every category line of the
     box balances this statement's beginning to its ending, to the cent), its sums are the statement's totals and
     counts. A reviewer figure they replace is recorded as superseded, and a disagreement between reviewer
-    figures for a proven field is settled by the proof, not held. Mutates the merged account and reasons in
+    figures for a proven field is settled by the proof, not held. A proof never supersedes reviewer totals that
+    balance the statement on their own: two different readings that both balance leave the printed reviewer
+    figures in place (the gate then checks the ledger against them). Mutates the merged account and reasons in
     place; returns the audit entry, or None when nothing is proven."""
     from vlm.summary_box import prove_summary_box
     proof = prove_summary_box(pages, beginning=account.get('beginning_balance'), ending=account.get('ending_balance'))
     if proof is None:
         return None
+    reviewer = [account.get(field) for field in ('stated_total_credits', 'stated_total_debits')]
+    if None not in reviewer:
+        credits, debits = (Decimal(str(value)) for value in reviewer)
+        balances = (Decimal(str(account['beginning_balance'])) + credits - debits
+                    == Decimal(str(account['ending_balance'])))
+        if balances and (credits, debits) != (proof.stated_total_credits, proof.stated_total_debits):
+            return {'proven': True, 'applied': False, 'reason': 'reviewer_totals_also_balance',
+                    'page': proof.page, 'category_lines': proof.line_count}
     proven = {}
     for field in _SUMMARY_FIELDS:
         value = getattr(proof, field)
@@ -245,8 +255,8 @@ def apply_summary_box(account: dict, reasons: list, occurrences: list, field_evi
         reasons.remove('anchor_disagreement')
     field_evidence.extend({'field': field, 'page': proof.page, 'source': 'summary_box', 'value': value}
                           for field, value in proven.items())
-    return {'proven': True, 'page': proof.page, 'category_lines': proof.line_count, 'fields': sorted(proven),
-            'superseded_reviewer_fields': superseded, 'settled_disagreements': len(settled)}
+    return {'proven': True, 'applied': True, 'page': proof.page, 'category_lines': proof.line_count,
+            'fields': sorted(proven), 'superseded_reviewer_fields': superseded, 'settled_disagreements': len(settled)}
 
 
 def statement_bank_names(field_evidence, merges) -> list[str]:
@@ -297,7 +307,9 @@ def _markdown_page(merged, *, rows=None) -> str:
         if value is not None:
             parts.append(f'{labels.get(key, key)}: {html.escape(str(value))}')
     parts.append('<table><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>')
-    for row in merged.rows if rows is None else rows:
+    from vlm.assemble import labelled_description
+    # The bank reader is offered the descriptions the gated statement carries (a cheque named by its column).
+    for row in map(labelled_description, merged.rows if rows is None else rows):
         amount = row.printed_amount if row.printed_amount is not None else row.amount
         values = (row.date or row.date_text, row.description,
                   str(amount) if row.direction == 'debit' else '',
@@ -644,8 +656,9 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     confidence = confidence_summary(merges, gate_admitted=admitted, gate_reasons=reasons)
     # The statement's score is its verification coverage (vlm/confidence.py); the per-page review agreement
     # stays alongside it.
-    from vlm.confidence import statement_confidence
-    row_states = {(item['page'], item['locator']): (item['state'], (item.get('resolution') or {}).get('method'))
+    from vlm.confidence import completion_only, statement_confidence
+    row_states = {(item['page'], item['locator']): (item['state'], (item.get('resolution') or {}).get('method'),
+                                                    completion_only(item))
                   for merged in merges for item in merged.evidence}
     confidence.update(statement_confidence(
         admitted=admitted and confidence['gate_admitted'], checks=checks, account=account,

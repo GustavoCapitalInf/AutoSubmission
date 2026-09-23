@@ -300,6 +300,15 @@ def test_the_window_is_the_narrowest_period_any_page_printed():
     assert _echoes([_ledger(), _page(2, ["45.10", "300.00"]), end_only]) == [2]
 
 
+def test_a_reported_figure_dropped_as_unprinted_still_marks_a_statement_page():
+    # Review finding F5: a summary figure the reviewer reported on the page is statement evidence even when it
+    # is dropped for not being printed; the page is never pictures because of the drop.
+    dropped = replace(_page(2, ["45.10", "300.00"]),
+                      diagnostics=({"scope": "account", "page": 2, "field": "ending_balance",
+                                    "code": "review_figure_not_printed"},))
+    assert _echoes([_ledger(), dropped]) == []
+
+
 def test_unresolved_rows_on_a_picture_page_do_not_hold_it():
     # Owner ruling: nothing on a cheque picture page holds the statement. The kept rows prove the page.
     pictures = replace(_page(2, ["45.10", "300.00"]), counts={"added": 2, "unresolved": 1})

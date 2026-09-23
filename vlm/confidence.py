@@ -6,13 +6,17 @@ earns half the score. The other half is the mean of the independent evidence tha
 
 * stated_totals        the printed credit and debit totals were present and reconciled (1, 0.5 or 0);
 * stated_counts        the printed credit and debit counts were present and matched (1, 0.5 or 0);
-* amounts_printed      share of rows whose amount is printed on its page (text layer or proposer reading);
-* two_readers          share of rows both readers agree on: confirmed, settled by the text layer, or a
-                       correction the page prints (other corrections count half, reviewer-only rows zero);
-* descriptions_in_text_layer   share of rows on text-layer pages every word of whose description the text
-                       layer prints (not applicable to scanned pages);
-* running_balances     the printed running balances continued without a break (1 or 0; not applicable when
-                       none is printed).
+* amounts_printed      share of rows whose amount the PDF's own text layer prints (not applicable to scanned
+                       pages: the proposer's reading is where the rows came from, so it cannot corroborate them);
+* two_readers          share of rows two independent sources agree on: confirmed by the reviewer, settled by
+                       the text layer on the row's own lines, a correction that only fills a field the proposer
+                       left empty (a year), or a correction the text layer prints on the row's lines; other
+                       corrections count half and reviewer-only rows zero;
+* descriptions_in_text_layer   share of rows whose description's words the text layer prints on the lines of
+                       the row's own amount (not applicable to scanned pages);
+* running_balances     share of rows a printed balance proves (its own row and the earlier rows of that day
+                       in the listing), counted only when the balances continued without a break (not
+                       applicable when none is printed).
 
 A held statement scores below one half, whatever its evidence. The score is verification coverage, not a
 calibrated probability: it says how much was checked, not how often such readings are right.
@@ -35,8 +39,39 @@ def _bare_description(row) -> str:
     return row.description
 
 
+# A field the proposer may leave empty for want of context the row does not print: the ISO date of a row that
+# prints no year. Filling it in completes the proposer's reading rather than contradicting it.
+_COMPLETABLE_FIELDS = frozenset({"date"})
+
+
+def completion_only(item: dict) -> bool:
+    """Whether a reviewer correction (a row_evidence item) only filled fields the proposer left empty, changing
+    nothing the proposer read."""
+    original, corrected = item.get("original"), item.get("corrected")
+    if item.get("state") != "corrected" or not isinstance(original, dict) or not isinstance(corrected, dict):
+        return False
+    changed = [field for field in corrected if corrected.get(field) != original.get(field)]
+    return bool(changed) and all(field in _COMPLETABLE_FIELDS and original.get(field) is None for field in changed)
+
+
+def _rows_proven_by_balances(rows) -> int:
+    """Rows a printed balance proves: within each run of same-date rows in listing order, every row up to and
+    including the last one that prints a balance."""
+    proven, run = 0, []
+    for row in [*rows, None]:
+        if run and (row is None or row.date != run[-1].date):
+            last = max((index for index, item in enumerate(run) if item.balance is not None), default=-1)
+            proven += last + 1
+            run = []
+        if row is not None:
+            run.append(row)
+    return proven
+
+
 def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, row_states: dict,
                          printed_pages, reasons=()) -> dict:
+    """row_states maps (page, locator) to (state, resolution method, whether a correction only filled fields
+    the proposer left empty)."""
     rows = list(rows)
     checks = checks or {}
     components: dict[str, float | None] = {}
@@ -48,23 +83,22 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
     components["stated_counts"] = sum(checks.get(name) is True for name in
                                       ("credit_count_matches", "debit_count_matches")) / 2
 
-    evidence = {"rows": len(rows), "reviewer_only_rows": 0, "corrected_rows": 0, "settled_by_text_layer": 0,
-                "amounts_printed": 0, "rows_with_printed_evidence": 0, "text_layer_rows": 0,
-                "descriptions_in_text_layer": 0, "running_balance_rows": 0}
+    evidence = {"rows": len(rows), "reviewer_only_rows": 0, "corrected_rows": 0, "completion_only_corrections": 0,
+                "settled_by_text_layer": 0, "amounts_in_text_layer": 0, "text_layer_rows": 0,
+                "descriptions_in_text_layer": 0, "running_balance_rows": 0, "rows_proven_by_balances": 0}
     readers = []
     for row in rows:
         printed = _printed(printed_pages, row.page)
-        amount_printed = printed is not None and printed.amount_printed(row.amount)
-        if printed is not None:
-            evidence["rows_with_printed_evidence"] += 1
-            evidence["amounts_printed"] += amount_printed
-        described = printed.description_words_printed(_bare_description(row)) if printed is not None else None
-        if described is not None:
+        in_text_layer = printed.amount_in_text_layer(row.amount) if printed is not None else None
+        described = (printed.description_words_near(_bare_description(row), row.amount)
+                     if printed is not None else None)
+        if in_text_layer is not None:
             evidence["text_layer_rows"] += 1
-            evidence["descriptions_in_text_layer"] += described
+            evidence["amounts_in_text_layer"] += in_text_layer
+            evidence["descriptions_in_text_layer"] += bool(described)
         if row.balance is not None:
             evidence["running_balance_rows"] += 1
-        state, method = row_states.get((row.page, row.locator), (None, None))
+        state, method, completion_only = (tuple(row_states.get((row.page, row.locator), ())) + (None, None, False))[:3]
         if method == "text_layer":
             evidence["settled_by_text_layer"] += 1
             readers.append(1.0)
@@ -72,18 +106,20 @@ def statement_confidence(*, admitted: bool, checks: dict, account: dict, rows, r
             readers.append(1.0)
         elif state == "corrected":
             evidence["corrected_rows"] += 1
-            readers.append(1.0 if amount_printed and described is not False else 0.5)
+            evidence["completion_only_corrections"] += bool(completion_only)
+            readers.append(1.0 if completion_only or (in_text_layer and described) else 0.5)
         else:
             evidence["reviewer_only_rows"] += state == "added"
             readers.append(0.0)
-    components["amounts_printed"] = (evidence["amounts_printed"] / evidence["rows_with_printed_evidence"]
-                                     if evidence["rows_with_printed_evidence"] else None)
+    text_rows = evidence["text_layer_rows"]
+    components["amounts_printed"] = evidence["amounts_in_text_layer"] / text_rows if text_rows else None
     components["two_readers"] = sum(readers) / len(readers) if readers else None
-    components["descriptions_in_text_layer"] = (evidence["descriptions_in_text_layer"] / evidence["text_layer_rows"]
-                                                if evidence["text_layer_rows"] else None)
-    # Printed running balances (on every row, or only at the end of each day) are verified by the continuity
-    # check, which refuses the statement on any break.
-    components["running_balances"] = ((0.0 if "continuity_break" in reasons else 1.0)
+    components["descriptions_in_text_layer"] = evidence["descriptions_in_text_layer"] / text_rows if text_rows else None
+    # A printed balance proves its own row and the earlier rows of the same day in the listing (an end-of-day
+    # balance); the continuity check refuses the statement on any break, so a break proves nothing.
+    evidence["rows_proven_by_balances"] = _rows_proven_by_balances(rows)
+    components["running_balances"] = ((0.0 if "continuity_break" in reasons
+                                       else evidence["rows_proven_by_balances"] / len(rows))
                                       if evidence["running_balance_rows"] else None)
 
     applicable = [value for value in components.values() if value is not None]
