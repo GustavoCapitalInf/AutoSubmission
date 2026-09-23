@@ -68,13 +68,18 @@ function fetch(url) {
     json: () => Promise.resolve({analysis: null, analysis_error: 'visual pair requires human review'}),
     text: () => Promise.resolve('fabricated extraction')});
 }
+// The status card's message line, where a result that never reaches the results page is explained.
+els.statusMessage = {textContent: '', hidden: true, links: '',
+                     insertAdjacentHTML(where, html) { this.links += html; }};
 """ + "\n".join(_function(name) for name in (
-        "friendlyAnalysisError", "sourceContradiction", "setActions", "renderExtractionReview", "loadResults")) + """
+        "escapeHtml", "setStatusMessage", "appendStatusLink", "friendlyAnalysisError", "sourceContradiction",
+        "setActions", "renderExtractionReview", "loadResults")) + """
 loadResults('synthetic-job');
 setImmediate(() => console.log(JSON.stringify({currentAnalysis, currentMarkdown,
   cleared, renderedAnalysis, heading: els.statusHeading.textContent,
   summary: els.summaryBox.textContent, reviewHref: els.openTextBtn.href,
-  jsonHref: els.downloadJson.href})));
+  jsonHref: els.downloadJson.href, message: els.statusMessage.textContent,
+  messageHidden: els.statusMessage.hidden, messageLinks: els.statusMessage.links})));
 """
     result = _run(source)
     assert result["currentAnalysis"] is None
@@ -85,6 +90,9 @@ setImmediate(() => console.log(JSON.stringify({currentAnalysis, currentMarkdown,
     assert "No metrics have been published" in result["summary"]
     assert result["reviewHref"] == "/result/synthetic-job"
     assert result["jsonHref"] == "#"
+    # The New analysis page explains the hold and links to the review, since no results page opens.
+    assert "No metrics have been published" in result["message"] and result["messageHidden"] is False
+    assert 'href="/result/synthetic-job"' in result["messageLinks"] and "Review extraction" in result["messageLinks"]
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")

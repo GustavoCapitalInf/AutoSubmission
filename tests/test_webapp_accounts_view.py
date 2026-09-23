@@ -26,7 +26,8 @@ def _accounts_block():
 
 
 def _run(source):
-    result = subprocess.run([NODE, "-e", source], capture_output=True, text=True, encoding="utf-8", timeout=15)
+    # The script goes to node on stdin: the extracted block is longer than a Windows command line allows.
+    result = subprocess.run([NODE, "-"], input=source, capture_output=True, text=True, encoding="utf-8", timeout=15)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
@@ -196,8 +197,9 @@ console.log(JSON.stringify({{idle: idle && idle.title, unverified: unverifiedMai
 def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_accounts_figures():
     # Rendered twice, as a settings change or an account selection does: the status is set, never stacked, and the
     # summary box (the actions') is left to the loader and to Generate Summary, which lead with the note.
-    helpers = ("setBanner", "statusRowHtml", "renderAnalysis", "labelize", "formatPercent", "potentialLenderDebitTotal",
-               "hasMaterialPotentialLenderDebits", "period", "generateSummary")
+    helpers = ("setBanner", "setStatusMessage", "kvRowsHtml", "statusRowHtml", "renderAnalysis", "labelize",
+               "formatPercent", "potentialLenderDebitTotal", "hasMaterialPotentialLenderDebits", "period",
+               "generateSummary")
     # Each function up to its closing brace (top-level code follows some of them).
     source = _harness("off") + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
                                        for name in helpers) + f"""
@@ -228,7 +230,7 @@ console.log(JSON.stringify({{rendered, note, none, generated: els.summaryBox.tex
     rendered = result["rendered"]
     assert rendered["shownName"] == "FABRICATED SAVINGS" and rendered["heading"] == "Main account needs review"
     assert rendered["banner"] == "Main account had no activity; showing the active account"
-    assert rendered["meta"] == "Review required" and rendered["pill"] == "review required"
+    assert rendered["meta"] == "Review required" and rendered["pill"] == "Review required"
     assert rendered["summary"] == "Before."
     rows = " ".join(rendered["rows"].split())
     assert rows.count("Main account") == 1 and rows.index("No activity; needs review") < rows.index("Validation")
