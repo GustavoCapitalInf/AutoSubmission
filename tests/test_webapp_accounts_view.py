@@ -1,0 +1,130 @@
+"""The dashboard's view of a statement that holds several accounts (webapp/static/app.js), with fabricated payloads:
+the main account a lender funds is shown by default, and the "All accounts" setting lists every account the
+statement prints, each with its own figures and none added up across accounts."""
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+NODE = shutil.which("node")
+APP_JS = (Path(__file__).resolve().parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+
+
+def _function(name):
+    return APP_JS[APP_JS.index(f"function {name}("):].split("\nfunction ")[0]
+
+
+def _constant(name):
+    return APP_JS[APP_JS.index(f"const {name} "):].split("\n")[0] + "\n"
+
+
+def _accounts_block():
+    # isDocumentPayload, then every account helper, up to renderAnalysis.
+    return APP_JS[APP_JS.index("function isDocumentPayload("):APP_JS.index("function renderAnalysis(")]
+
+
+def _run(source):
+    result = subprocess.run([NODE, "-e", source], capture_output=True, text=True, encoding="utf-8", timeout=15)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _harness(view):
+    return f"""
+const store = {{"bsa-all-accounts": {json.dumps(view)}}};
+const localStorage = {{getItem: (key) => store[key] ?? null, setItem: (key, value) => {{ store[key] = value; }}}};
+const els = {{accountsPanel: {{innerHTML: "", hidden: true}}}};
+""" + _constant("CHIP_TONES") + "\n".join(_function(name) for name in (
+        "escapeHtml", "numberOrNull", "formatMoney", "formatNumber", "chipTone", "glassChip",
+    )) + _accounts_block()
+
+
+def _account(name, number, deposits, **statement):
+    return {"statement": {"account_name": name, "account_number": number, "currency": "USD",
+                          "beginning_balance": 100.0, "ending_balance": 200.0, "transactions": [{}, {}], **statement},
+            "metrics": {"effective_total_deposits": deposits, "effective_total_withdrawals": 50.0,
+                        "average_daily_balance": 150.0}}
+
+
+PAYLOAD = {"document": {"account_count": 3, "account_roster": [
+    {"title": "FABRICATED SAVINGS", "kind": "savings", "number_last4": "0001", "status": "published",
+     "published_index": 0, "balance": None, "reasons": []},
+    {"title": "FABRICATED BUSINESS CHECKING", "kind": "checking", "number_last4": "0010", "status": "published",
+     "published_index": 1, "balance": None, "reasons": []},
+    {"title": "FABRICATED CLUB", "kind": "savings", "number_last4": "0020", "status": "idle",
+     "published_index": None, "balance": 25.0, "reasons": []},
+    {"title": "FABRICATED MONEY MARKET", "kind": "money_market", "number_last4": "0030", "status": "held",
+     "published_index": None, "balance": None, "reasons": ["page_unresolved"]},
+]}, "accounts": [_account("FABRICATED SAVINGS", "0001", 9000.0), _account("FABRICATED BUSINESS CHECKING", "0010", 500.0)]}
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_the_main_account_is_the_business_checking_account_with_the_most_deposits():
+    source = _harness("off") + """
+const cases = [
+  [[{statement: {account_name: "Savings"}, metrics: {effective_total_deposits: 9000}},
+    {statement: {account_name: "Business Checking"}, metrics: {effective_total_deposits: 500}},
+    {statement: {account_name: "Checking"}, metrics: {effective_total_deposits: 20000}}], []],
+  [[{statement: {account_name: "Savings"}, metrics: {effective_total_deposits: 9000}},
+    {statement: {account_name: "Checking"}, metrics: {effective_total_deposits: 300}},
+    {statement: {account_name: "Checking"}, metrics: {effective_total_deposits: 700}}], []],
+  [[{statement: {account_name: "Share 01"}, metrics: {effective_total_deposits: 10}},
+    {statement: {account_name: "Share 70"}, metrics: {effective_total_deposits: 5}}],
+   [{status: "published", published_index: 0, kind: "savings"},
+    {status: "published", published_index: 1, kind: "checking", title: "Business Share Draft"}]],
+];
+console.log(JSON.stringify(cases.map(([accounts, roster]) => mainAccountIndex(accounts, roster))));
+"""
+    assert _run(source) == [1, 2, 1]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_by_default_only_the_main_account_is_shown_with_a_note_about_the_others():
+    source = _harness("off") + f"""
+const report = {json.dumps(PAYLOAD)};
+const published = publishedAccounts(report), roster = accountRoster(report);
+const main = mainAccountIndex(published, roster);
+renderAccountsPanel(published, roster, main, main);
+console.log(JSON.stringify({{main, html: els.accountsPanel.innerHTML, hidden: els.accountsPanel.hidden}}));
+"""
+    result = _run(source)
+    assert result["main"] == 1 and result["hidden"] is False
+    html = " ".join(result["html"].split())
+    assert "holds <strong>4 accounts</strong>" in html
+    assert "<strong>FABRICATED BUSINESS CHECKING ••0010</strong>" in html
+    assert "business checking account with the most deposits" in html
+    assert "review the other 3 accounts" in html and "<table" not in html
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_all_accounts_lists_every_account_with_its_own_figures_and_no_unverified_ones():
+    source = _harness("on") + f"""
+const report = {json.dumps(PAYLOAD)};
+const published = publishedAccounts(report), roster = accountRoster(report);
+renderAccountsPanel(published, roster, 1, 0);
+console.log(JSON.stringify({{html: els.accountsPanel.innerHTML}}));
+"""
+    html = " ".join(_run(source)["html"].split())
+    rows = html.split("<tr")[2:]
+    assert len(rows) == 4
+    assert 'data-account-index="0" class="is-selected"' in rows[0] and "MAIN" not in rows[0]
+    assert "$9,000.00" in rows[0] and "$150.00" in rows[0]
+    assert 'data-account-index="1"' in rows[1] and "main-badge" in rows[1] and "$500.00" in rows[1]
+    assert "No activity" in rows[2] and rows[2].count("$25.00") == 3 and "data-account-index" not in rows[2]
+    assert "Needs review" in rows[3] and "a page could not be verified" in rows[3] and "$" not in rows[3]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_a_payload_without_a_roster_lists_its_published_accounts():
+    payload = {"document": {"account_count": 2}, "accounts": [_account("Checking", "1234", 10.0),
+                                                              _account("Savings", "9876", 20.0)]}
+    source = _harness("on") + f"""
+const report = {json.dumps(payload)};
+const published = publishedAccounts(report), roster = accountRoster(report);
+renderAccountsPanel(published, roster, mainAccountIndex(published, roster), 0);
+console.log(JSON.stringify({{html: els.accountsPanel.innerHTML}}));
+"""
+    html = " ".join(_run(source)["html"].split())
+    assert "Checking ••1234" in html and "Savings ••9876" in html and html.count("Verified") == 2

@@ -268,6 +268,28 @@ def _visual_pair_summary_html(doc: StatementMarkdown, *, policy: str) -> str:
         explanation = ("This score measures reader agreement and statement checks; "
                        "it is not a probability of correctness.")
         detail = ""
+    accounts = evidence.get("accounts")
+    if isinstance(accounts, list) and accounts:
+        # A statement judged account by account: each account publishes on its own verification.
+        from html import escape
+        entries = [account for account in accounts if isinstance(account, dict)]
+        verified = sum(account.get("status") == "verified" for account in entries)
+        headline = f"Accounts verified: {verified} of {len(entries)}"
+        status = (f"{verified} of {len(entries)} accounts passed their own checks; only those publish metrics."
+                  if verified else "No account of this statement passed its checks; metrics are withheld.")
+        if verified and policy == "always_review":
+            status = "Human review required before publishing metrics. " + status
+        items = []
+        for account in entries:
+            label = escape(str(account.get("title") or "Account"))
+            if account.get("number_key"):
+                label += f" ...{escape(str(account['number_key']))}"
+            score = (account.get("confidence") or {}).get("score") if isinstance(account.get("confidence"), dict) \
+                else None
+            suffix = (f", confidence {score:.1%}" if account.get("status") == "verified" and type(score) in (int, float)
+                      and isfinite(score) and 0 <= score <= 1 else "")
+            items.append(f"<li>{label}: {escape(str(account.get('status') or 'held'))}{suffix}</li>")
+        detail += "<ul>" + "".join(items) + "</ul>"
     return (
         '<section class="visual-pair-summary" role="note" '
         'style="padding:1rem;border:1px solid #b98a30;background:#fff8e6;color:#453313;margin-bottom:1rem">'
@@ -276,6 +298,23 @@ def _visual_pair_summary_html(doc: StatementMarkdown, *, policy: str) -> str:
         '<p>Rows: ' + ', '.join(row_counts) + '</p></section>'
         + retained_evidence_html(evidence)
     )
+
+def _attach_account_confidence(analysis: dict, evidence: dict) -> None:
+    """Each published account of a statement judged account by account carries its OWN verification score
+    (`visual_pair_confidence`); the document-level score describes the statement read as one account. The roster
+    lists the visual pair's accounts in the same printed order as its evidence."""
+    accounts = evidence.get("accounts") if isinstance(evidence, dict) else None
+    roster = (analysis.get("document") or {}).get("account_roster") if isinstance(analysis.get("document"), dict) \
+        else None
+    if not isinstance(accounts, list) or not isinstance(roster, list) or len(roster) != len(accounts):
+        return
+    published = analysis.get("accounts") if isinstance(analysis.get("accounts"), list) else [analysis]
+    for entry, account in zip(roster, accounts):
+        index = entry.get("published_index") if isinstance(entry, dict) else None
+        if (isinstance(index, int) and 0 <= index < len(published) and isinstance(account, dict)
+                and isinstance(account.get("confidence"), dict)):
+            published[index]["visual_pair_confidence"] = dict(account["confidence"])
+
 
 def _analyze_doc(
     doc: StatementMarkdown,
@@ -312,6 +351,7 @@ def _analyze_doc(
                 analysis = document_to_json(report)
             analysis["parse_mode"] = parse_mode
             analysis["visual_pair_confidence"] = dict(doc.visual_pair.get("confidence") or {})
+            _attach_account_confidence(analysis, doc.visual_pair)
             return markdown, html, analysis, None
         with _timed(timer, "analysis"):
             # `doc.pages` is the intake object's own page list, and it goes to

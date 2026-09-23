@@ -319,6 +319,55 @@
   }
   .round-btn:active { transform: scale(.98); }
 
+  /* Settings popover: page-level preferences, kept in this browser only */
+  .settings-anchor { position: relative; }
+  .settings-btn { display: inline-grid; place-items: center; }
+  .settings-btn svg { width: 18px; height: 18px; fill: currentColor; }
+  .settings-btn[aria-expanded="true"] { box-shadow: 0 0 0 3px var(--focus-ring), inset 0 1px 1px var(--chip-inset); }
+  .settings-panel {
+    position: absolute; right: 0; top: calc(100% + 10px); z-index: 60; width: min(360px, calc(100vw - 32px));
+    padding: 14px 16px; border-radius: var(--radius-md);
+    background: var(--surface-modal); border: 1px solid var(--hairline); box-shadow: var(--shadow-modal);
+    backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%);
+  }
+  .settings-panel[hidden] { display: none; }
+  .settings-title { margin-bottom: 10px; color: var(--muted); font-size: 12px; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+  .settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; cursor: pointer; }
+  .settings-name { display: block; color: var(--ink); font-size: 14px; font-weight: 680; }
+  .settings-help { display: block; margin-top: 4px; color: var(--muted-2); font-size: 12.5px; line-height: 1.42; }
+  .switch { position: relative; flex: 0 0 auto; width: 46px; height: 28px; margin-top: 2px; }
+  .switch input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .switch-track { position: absolute; inset: 0; border-radius: 999px; background: var(--track); border: 1px solid var(--hairline); transition: background 200ms var(--spring); }
+  .switch-thumb { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 999px; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.18); transition: transform 220ms var(--spring); }
+  .switch input:checked ~ .switch-track { background: var(--green); }
+  .switch input:checked ~ .switch-thumb { transform: translateX(18px); }
+  .switch input:focus-visible ~ .switch-track { box-shadow: 0 0 0 3px var(--focus-ring); }
+
+  /* Accounts of a statement that holds several: the main account first, the others on request */
+  .accounts-panel { margin-bottom: 16px; }
+  .accounts-panel[hidden] { display: none; }
+  .accounts-note {
+    padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--hairline);
+    background: var(--chip-info); color: var(--ink-soft); font-size: 13.5px; line-height: 1.45;
+  }
+  .accounts-note strong { color: var(--ink); }
+  .accounts-panel .table-card { margin-top: 0; }
+  .accounts-table { min-width: 0; }
+  .accounts-table td, .accounts-table th { padding: 9px 10px; white-space: nowrap; }
+  .accounts-table th { white-space: normal; vertical-align: bottom; }
+  .accounts-table td:first-child, .accounts-table th:first-child { padding-left: 16px; min-width: 170px; white-space: normal; }
+  .accounts-table td:nth-child(n+3), .accounts-table th:nth-child(n+3) { text-align: right; font-variant-numeric: tabular-nums; }
+  .accounts-table td:last-child, .accounts-table th:last-child { padding-right: 16px; }
+  .accounts-table tr[data-account-index] { cursor: pointer; }
+  .accounts-table tr[data-account-index]:hover td { background: var(--surface-hover); }
+  .accounts-table tr.is-selected td { background: var(--chip-info); }
+  .accounts-table .account-reason { display: block; margin-top: 3px; color: var(--muted-2); font-size: 12px; white-space: normal; }
+  .main-badge {
+    display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; vertical-align: middle;
+    border: 1px solid var(--hairline); background: var(--chip-info); color: var(--tone-info-ink);
+    font-size: 11px; font-weight: 720; letter-spacing: .04em;
+  }
+
   .top-grid {
     display: grid;
     grid-template-columns: minmax(330px, 1.25fr) minmax(280px, .95fr) minmax(330px, 1.3fr);
@@ -957,6 +1006,32 @@
             <span class="appearance-label">Dark</span>
           </button>
         </div>
+        <div class="settings-anchor">
+          <button class="round-btn settings-btn" type="button" id="settingsBtn" aria-label="Settings"
+                  aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsPanel">
+            <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <path d="M3 6h8M15 6h2M3 14h2M9 14h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+              <circle cx="13" cy="6" r="2" stroke="currentColor" stroke-width="2" fill="none"/>
+              <circle cx="7" cy="14" r="2" stroke="currentColor" stroke-width="2" fill="none"/>
+            </svg>
+          </button>
+          <div class="settings-panel" id="settingsPanel" role="dialog" aria-label="Settings" hidden>
+            <div class="settings-title">Settings</div>
+            <label class="settings-row" for="allAccountsToggle">
+              <span class="settings-copy">
+                <span class="settings-name">All accounts</span>
+                <span class="settings-help">For statements that hold several accounts, list every account with its
+                  own transactions and average daily balance. Off: only the main account is shown &mdash; the
+                  business checking account with the most deposits.</span>
+              </span>
+              <span class="switch">
+                <input type="checkbox" id="allAccountsToggle" role="switch" aria-checked="false">
+                <span class="switch-track" aria-hidden="true"></span>
+                <span class="switch-thumb" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+        </div>
         <button class="round-btn" type="button" aria-label="Notifications">N</button>
         <button class="round-btn" type="button" aria-label="Help">?</button>
         <button class="round-btn" type="button" aria-label="User profile">GP</button>
@@ -1029,6 +1104,7 @@
           </div>
           <div class="decision-pill" id="decisionPill">No statement loaded</div>
         </div>
+        <div class="accounts-panel" id="accountsPanel" hidden></div>
         <div class="metric-grid" id="metricsGrid"></div>
         <div class="table-card">
           <div class="table-head">

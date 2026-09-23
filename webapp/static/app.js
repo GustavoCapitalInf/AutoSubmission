@@ -55,6 +55,10 @@ const els = {
   modalCopyData: document.getElementById("modalCopyData"),
   copyBuffer: document.getElementById("copyBuffer"),
   appearanceToggle: document.getElementById("appearanceToggle"),
+  settingsBtn: document.getElementById("settingsBtn"),
+  settingsPanel: document.getElementById("settingsPanel"),
+  allAccountsToggle: document.getElementById("allAccountsToggle"),
+  accountsPanel: document.getElementById("accountsPanel"),
 };
 
 let currentJobId = null;
@@ -66,6 +70,9 @@ let currentFiles = [];
 let startedAt = null;
 let pollTimer = null;
 let modalAnalysis = null;
+// A statement holding several accounts: the payload, and which of its published accounts the panels show.
+let currentDocument = null;
+let selectedAccountIndex = null;
 let modalJobId = null;
 let modalLastFocus = null;
 let modalScrollY = 0;
@@ -698,6 +705,9 @@ function setStatusRows(rows) {
 
 function setInitialState() {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
+  currentDocument = null;
+  selectedAccountIndex = null;
+  hideAccountsPanel();
   if (els.transactionCard) els.transactionCard.style.display = "block";
   renderMetricSections(emptyMetricSections);
   renderAccountSummary(accountFieldRows());
@@ -1112,47 +1122,307 @@ function isDocumentPayload(report) {
   return Boolean(report) && Array.isArray(report.accounts);
 }
 
-function documentRefusalMessage(report) {
-  // A panel shows ONE account. Rendering `report.statement` on a document that
-  // has none would show an empty panel; rendering the first account under the
-  // document's name would show one account's figures as the whole statement,
-  // which is the defect the document payload exists to remove. So the
-  // dashboard says what it holds and refuses to draw it, until it has an
-  // account selector to draw it with.
-  const doc = report.document || {};
-  const count = Array.isArray(report.accounts) ? report.accounts.length : 0;
-  const omitted = Array.isArray(doc.omitted_sections) ? doc.omitted_sections.length : 0;
-  const omittedNote = omitted
-    ? ` ${omitted} printed section${omitted === 1 ? " was" : "s were"} established and not published.`
-    : "";
-  return `This statement publishes ${count} accounts. This view shows one account `
-    + `at a time and has no account selector yet, so it is not showing you one `
-    + `of them as though it were the document.${omittedNote} Download the CSV or `
-    + `XLSX export, which carries every account.`;
+/* --- accounts of one statement ---------------------------------------
+   A statement can hold several accounts (a business checking account beside
+   savings shares). Each published account is its own complete analysis, and
+   the panels show ONE of them at a time: by default the main account a lender
+   funds -- the business checking account with the most deposits -- and, with
+   the "All accounts" setting on, a table of every account the statement
+   prints, each selectable. Nothing is ever added up across accounts. */
+const ALL_ACCOUNTS_KEY = "bsa-all-accounts";
+const ACCOUNT_KINDS = [
+  ["checking", /\b(checking|chequing|share\s+drafts?|demand\s+deposits?)\b/i],
+  ["money_market", /\bmoney\s*market\b/i],
+  ["certificate", /\b(certificates?|cds?)\b/i],
+  ["savings", /\b(savings?|shares?|club|membership)\b/i],
+];
+const ACCOUNT_KIND_LABELS = {
+  checking: "Checking",
+  savings: "Savings",
+  money_market: "Money market",
+  certificate: "Certificate",
+  retirement: "Retirement",
+  loan: "Loan",
+  credit_card: "Credit card",
+};
+const ACCOUNT_REASON_LABELS = {
+  page_unresolved: "a page could not be verified",
+  rows_unplaced: "some rows could not be placed in an account",
+  no_rows: "its transactions could not be verified",
+  sum_mismatch: "transactions do not add up to the printed balances",
+  continuity_break: "running balances do not follow",
+  anchors_underdetermined: "opening or closing balance not found",
+  anchor_derived: "opening or closing balance not printed",
+  direction_unknown: "a deposit could not be told from a withdrawal",
+  date_unparsed: "a date could not be read",
+  period_mismatch: "the statement period could not be read",
+  daily_ledger_not_validated: "its daily balances did not validate",
+  source_statement_invalid: "its reading did not validate",
+};
+
+function allAccountsView() {
+  try { return localStorage.getItem(ALL_ACCOUNTS_KEY) === "on"; } catch (error) { return false; }
+}
+
+function accountRoster(report) {
+  const doc = report && report.document;
+  return doc && Array.isArray(doc.account_roster) ? doc.account_roster.filter((entry) => entry && typeof entry === "object") : [];
+}
+
+function publishedAccounts(report) {
+  if (!isDocumentPayload(report)) return report ? [report] : [];
+  return report.accounts.filter((account) => account && typeof account === "object");
+}
+
+function rosterEntryFor(roster, publishedIndex) {
+  return roster.find((entry) => entry.status === "published" && entry.published_index === publishedIndex) || null;
+}
+
+function accountKindOf(statement = {}, entry = null) {
+  if (entry && entry.kind) return entry.kind;
+  const name = String(statement.account_name || "");
+  const found = ACCOUNT_KINDS.find(([, pattern]) => pattern.test(name));
+  return found ? found[0] : null;
+}
+
+function isBusinessAccount(statement = {}, entry = null) {
+  return /\b(business|commercial|corporate)\b/i.test(`${(entry && entry.title) || ""} ${statement.account_name || ""}`);
+}
+
+function lastFour(number) {
+  const digits = String(number || "").replace(/\D/g, "");
+  return digits ? digits.slice(-4) : "";
+}
+
+function accountDisplayName(statement = {}, entry = null) {
+  const title = (entry && entry.title) || statement.account_name
+    || ACCOUNT_KIND_LABELS[accountKindOf(statement, entry)] || "Account";
+  const four = (entry && entry.number_last4) || lastFour(statement.account_number);
+  return four ? `${title} ••${four}` : title;
+}
+
+function mainAccountIndex(accounts, roster = []) {
+  // The account a lender funds: a business checking account, and among several the one with the most deposits.
+  // A display default only: every account stays one click away with "All accounts" on.
+  let best = null;
+  accounts.forEach((account, index) => {
+    const statement = account.statement || {};
+    const entry = rosterEntryFor(roster, index);
+    const rank = (accountKindOf(statement, entry) === "checking" ? 2 : 0) + (isBusinessAccount(statement, entry) ? 1 : 0);
+    const deposits = Number((account.metrics || {}).effective_total_deposits) || 0;
+    if (!best || rank > best.rank || (rank === best.rank && deposits > best.deposits)) best = { index, rank, deposits };
+  });
+  return best ? best.index : 0;
+}
+
+function unverifiedMainAccount(roster = []) {
+  // The main account among EVERY account the statement prints: its kind decides first (business checking, then
+  // checking). When no account of the best kind was verified, that account is the main one and it is not
+  // verified: another account must never be shown in its place. null when a verified account can be the main one.
+  const rank = (entry) => (entry.kind === "checking" ? 2 : 0) + (/\b(business|commercial|corporate)\b/i.test(entry.title || "") ? 1 : 0);
+  if (!roster.length) return null;
+  const best = Math.max(...roster.map(rank));
+  const candidates = roster.filter((entry) => rank(entry) === best);
+  return candidates.some((entry) => entry.status === "published") ? null : candidates[0];
+}
+
+function mainAccountReason(account = {}, entry = null) {
+  const statement = account.statement || {};
+  const checking = accountKindOf(statement, entry) === "checking";
+  if (checking && isBusinessAccount(statement, entry)) return "the business checking account with the most deposits";
+  if (checking) return "the checking account with the most deposits";
+  return "the account with the most deposits";
+}
+
+function accountReasonText(reasons = []) {
+  const words = [...new Set((reasons || []).map((code) => ACCOUNT_REASON_LABELS[code]).filter(Boolean))];
+  return words.length ? words.slice(0, 2).join("; ") : "not verified";
+}
+
+function accountPanelEntries(published, roster) {
+  // Every account the statement prints, in printed order: the roster when the reader judged the statement account
+  // by account, else the published accounts themselves.
+  if (roster.length) return roster;
+  return published.map((account, index) => ({
+    title: (account.statement || {}).account_name || null,
+    kind: null,
+    number_last4: lastFour((account.statement || {}).account_number) || null,
+    status: "published",
+    published_index: index,
+    balance: null,
+    reasons: [],
+  }));
+}
+
+function accountPanelRowHtml(entry, published, main, selected, currency) {
+  const account = entry.status === "published" ? published[entry.published_index] : null;
+  const statement = (account && account.statement) || {};
+  const metrics = (account && account.metrics) || {};
+  const name = accountDisplayName(statement, entry);
+  const kind = ACCOUNT_KIND_LABELS[entry.kind || accountKindOf(statement, entry)] || "Account";
+  if (account) {
+    const money = (value) => escapeHtml(formatMoney(value, statement.currency || currency));
+    const isSelected = entry.published_index === selected;
+    const count = (statement.transactions || []).length;
+    return `
+      <tr data-account-index="${escapeHtml(String(entry.published_index))}" class="${isSelected ? "is-selected" : ""}"
+          tabindex="0" aria-selected="${isSelected ? "true" : "false"}">
+        <td><strong>${escapeHtml(name)}</strong>${entry.published_index === main ? `<span class="main-badge">MAIN</span>` : ""}
+          <span class="account-reason">${escapeHtml(kind)} · ${escapeHtml(formatNumber(count))} ${count === 1 ? "transaction" : "transactions"}</span></td>
+        <td>${glassChip("✓", "Verified", "green")}</td>
+        <td>${money(statement.beginning_balance)}</td>
+        <td>${money(statement.ending_balance)}</td>
+        <td>${money(metrics.effective_total_deposits)}</td>
+        <td>${money(metrics.effective_total_withdrawals)}</td>
+        <td>${money(metrics.average_daily_balance)}</td>
+      </tr>`;
+  }
+  if (entry.status === "idle") {
+    // An unchanged printed balance over the whole period: its daily balance is that balance every day.
+    const balance = escapeHtml(formatMoney(entry.balance, currency));
+    const zero = escapeHtml(formatMoney(0, currency));
+    return `
+      <tr>
+        <td><strong>${escapeHtml(name)}</strong><span class="account-reason">${escapeHtml(kind)} · no transactions</span></td>
+        <td>${glassChip("·", "No activity", "neutral")}</td>
+        <td>${balance}</td>
+        <td>${balance}</td>
+        <td>${zero}</td>
+        <td>${zero}</td>
+        <td>${balance}</td>
+      </tr>`;
+  }
+  return `
+    <tr>
+      <td><strong>${escapeHtml(name)}</strong><span class="account-reason">${escapeHtml(kind)} · ${escapeHtml(accountReasonText(entry.reasons))}</span></td>
+      <td>${glassChip("◐", "Needs review", "amber")}</td>
+      <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+    </tr>`;
+}
+
+function renderAccountsPanel(published, roster, main, selected) {
+  if (!els.accountsPanel) return;
+  const entries = accountPanelEntries(published, roster);
+  const mainAccount = published[main] || {};
+  const mainEntry = rosterEntryFor(roster, main);
+  const mainName = accountDisplayName(mainAccount.statement || {}, mainEntry);
+  const others = entries.length - 1;
+  if (!allAccountsView()) {
+    els.accountsPanel.innerHTML = `
+      <div class="accounts-note">This statement holds <strong>${escapeHtml(formatNumber(entries.length))} accounts</strong>.
+        Showing the main account, <strong>${escapeHtml(mainName)}</strong>: ${escapeHtml(mainAccountReason(mainAccount, mainEntry))}.
+        ${others > 0 ? `Turn on <strong>All accounts</strong> in Settings to review the other ${others === 1 ? "account" : `${escapeHtml(formatNumber(others))} accounts`}.` : ""}
+      </div>`;
+    els.accountsPanel.hidden = false;
+    return;
+  }
+  // The statement's own denomination; never an assumed one (an account without figures shows none).
+  const currency = (mainAccount.statement || {}).currency || null;
+  els.accountsPanel.innerHTML = `
+    <div class="table-card">
+      <div class="table-head">
+        <h3>Accounts in this statement</h3>
+        <span class="section-label">${escapeHtml(formatNumber(entries.length))} accounts · select one to analyze</span>
+      </div>
+      <div class="table-wrap">
+        <table class="accounts-table">
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Status</th>
+              <th>Beginning</th>
+              <th>Ending</th>
+              <th>Deposits</th>
+              <th>Withdrawals</th>
+              <th>Avg Daily Balance</th>
+            </tr>
+          </thead>
+          <tbody>${entries.map((entry) => accountPanelRowHtml(entry, published, main, selected, currency)).join("")}</tbody>
+        </table>
+      </div>
+    </div>`;
+  els.accountsPanel.hidden = false;
+}
+
+function renderUnverifiedMain(published, roster, entry) {
+  // The main account (the business checking account) was not verified. Its metrics are withheld, and no other
+  // account stands in for it; the verified ones stay one setting away.
+  const report = currentDocument;
+  setInitialState();
+  currentDocument = report;
+  currentAnalysis = null;
+  setProgress(false);
+  const name = accountDisplayName({}, entry);
+  const why = entry.status === "idle"
+    ? `it printed no activity this period (balance ${formatMoney(entry.balance, ((published[0] || {}).statement || {}).currency || null)})`
+    : accountReasonText(entry.reasons);
+  const verified = published.length;
+  els.statusHeading.textContent = "Main account needs review";
+  setBanner("pending", "Main account not verified; its metrics withheld", "Review required");
+  els.decisionPill.textContent = "review required";
+  els.decisionPill.className = "decision-pill";
+  els.summaryBox.textContent = `${name} is this statement's main account and could not be verified: ${why}. `
+    + "No metrics are shown for it.";
+  setStatusRows([
+    ["OCR completed", "Yes"],
+    ["Validation", "Review required"],
+    ["Main account", "Not verified"],
+    ["Metrics", "Withheld"],
+  ]);
+  if (els.transactionCard) els.transactionCard.style.display = "none";
+  if (!els.accountsPanel) return;
+  els.accountsPanel.innerHTML = `
+    <div class="accounts-note">This statement holds <strong>${escapeHtml(formatNumber(roster.length))} accounts</strong>.
+      The main account, <strong>${escapeHtml(name)}</strong>, could not be verified: ${escapeHtml(why)}.
+      ${verified ? `${escapeHtml(formatNumber(verified))} other ${verified === 1 ? "account was" : "accounts were"} verified: turn on <strong>All accounts</strong> in Settings to review ${verified === 1 ? "it" : "them"}.` : ""}
+    </div>`;
+  els.accountsPanel.hidden = false;
+}
+
+function hideAccountsPanel() {
+  if (!els.accountsPanel) return;
+  els.accountsPanel.hidden = true;
+  els.accountsPanel.innerHTML = "";
 }
 
 function renderAnalysis(report) {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
-  // The refusal comes BEFORE the global is set, and the global is CLEARED on
-  // the refusal path. Three other consumers read `.statement` off
-  // `currentAnalysis` -- `generateSummary()`, bound unconditionally to the
-  // summary button, and the two transaction renderers reached by every filter
-  // and sort control -- and none of them is gated by the refusal. Assigning
-  // first left them reading `currentAnalysis.statement || {}` on a document
-  // payload and answering: a complete credit-memo sentence with every figure
-  // rendered as its "N/A" placeholder. That is the quiet wrong answer this
-  // whole stage exists to remove, on the surface an analyst copies from.
-  if (isDocumentPayload(report)) {
+  const published = publishedAccounts(report);
+  const roster = accountRoster(report);
+  if (!published.length) {
+    // Three other consumers read `.statement` off `currentAnalysis` (the summary button and both transaction
+    // renderers), so a payload with no account to show must never reach them.
     currentAnalysis = null;
-    // `renderError` does not hide the transaction card, and `uploadFiles` has
-    // already shown it. Hidden HERE rather than inside `renderError`, because
-    // that would change what every other error does on a single-account
-    // document; this branch is reachable only by a payload no publisher in
-    // this tree can build.
+    currentDocument = null;
+    hideAccountsPanel();
     if (els.transactionCard) els.transactionCard.style.display = "none";
-    renderError(documentRefusalMessage(report));
+    renderError("This statement published no account to show.");
     return;
   }
+  if (!isDocumentPayload(report) && roster.length < 2) {
+    currentDocument = null;
+    selectedAccountIndex = null;
+    hideAccountsPanel();
+    renderAccount(report);
+    return;
+  }
+  currentDocument = report;
+  const unverified = unverifiedMainAccount(roster);
+  if (!allAccountsView() && unverified) {
+    renderUnverifiedMain(published, roster, unverified);
+    return;
+  }
+  const main = mainAccountIndex(published, roster);
+  if (!allAccountsView() || selectedAccountIndex === null || !published[selectedAccountIndex]) {
+    selectedAccountIndex = main;
+  }
+  renderAccountsPanel(published, roster, main, selectedAccountIndex);
+  const shown = published[selectedAccountIndex];
+  // One account's own payload: every panel below, the summary and the transaction list describe that account.
+  renderAccount(isDocumentPayload(report) ? { ...shown, parse_mode: report.parse_mode } : report);
+}
+
+function renderAccount(report) {
   currentAnalysis = report;
   const statement = report.statement || {};
   const metrics = report.metrics || {};
@@ -1708,8 +1978,9 @@ function openStatementModal(jobId) {
     .then(([payload, markdown]) => {
       if (!payload.analysis) throw new Error(friendlyAnalysisError(payload.analysis_error));
       // Same rule as `renderAnalysis`: the modal's transaction renderer reads
-      // `.statement` off this global, so a refused payload must not reach it.
-      modalAnalysis = isDocumentPayload(payload.analysis) ? null : payload.analysis;
+      // `.statement` off this global, so it holds ONE account's payload (the
+      // main account of a statement holding several), never the document.
+      modalAnalysis = modalAccountPayload(payload.analysis);
       renderStatementModal(jobId, payload.analysis, markdown || "");
       if (els.statementModalClose) els.statementModalClose.focus();
     })
@@ -1752,10 +2023,28 @@ function openStatementModal(jobId) {
     });
 }
 
+function modalAccountPayload(report) {
+  // The statement modal shows one account: of a statement holding several, its main account.
+  if (!isDocumentPayload(report)) return report;
+  const published = publishedAccounts(report);
+  if (!published.length) return null;
+  const main = mainAccountIndex(published, accountRoster(report));
+  return { ...published[main], parse_mode: report.parse_mode };
+}
+
 function renderStatementModal(jobId, report, markdown) {
+  let accountNote = "";
+  if (isDocumentPayload(report)) {
+    const count = Math.max(publishedAccounts(report).length, accountRoster(report).length);
+    const shown = modalAccountPayload(report);
+    if (shown) {
+      accountNote = `Main account of ${formatNumber(count)} - `;
+      report = shown;
+    }
+  }
   if (isDocumentPayload(report)) {
     els.statementModalTitle.textContent = "Multi-account statement";
-    els.statementModalSubtitle.textContent = documentRefusalMessage(report);
+    els.statementModalSubtitle.textContent = "This statement published no account to show.";
     els.statementModalMetrics.innerHTML = "";
     els.statementModalAccount.innerHTML = "";
     els.statementModalLenders.innerHTML = "";
@@ -1787,7 +2076,7 @@ function renderStatementModal(jobId, report, markdown) {
     : quality.corporate_use || quality.level || "review_required";
 
   els.statementModalTitle.textContent = title;
-  els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(decision)}`;
+  els.statementModalSubtitle.textContent = `${accountNote}${period(statement)} - ${labelize(decision)}`;
   els.statementModalMetrics.innerHTML = [
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
     ["Verified Revenue", `${formatNumber(metrics.verified_revenue_count)} / ${formatMoney(metrics.verified_revenue_total, currency)}`, REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
@@ -2052,7 +2341,7 @@ async function submitRevenueReview(button) {
 
     if (modalJobId === jobId) {
       // The refresh path, held to the same rule as the open path above.
-      modalAnalysis = isDocumentPayload(payload.analysis) ? null : payload.analysis;
+      modalAnalysis = modalAccountPayload(payload.analysis);
       renderStatementModal(jobId, payload.analysis, "");
     }
   } catch (error) {
@@ -2133,6 +2422,64 @@ if (els.statementModalLenders) {
     els.statementModalTransactions?.closest(".modal-panel")?.scrollIntoView({ block: "start" });
   });
 }
+
+/* --- settings -----------------------------------------------------------
+   Page preferences, kept in this browser only. "All accounts" changes what the
+   panels show of a statement that holds several accounts, never what was read. */
+function syncAllAccountsToggle() {
+  if (!els.allAccountsToggle) return;
+  const on = allAccountsView();
+  els.allAccountsToggle.checked = on;
+  els.allAccountsToggle.setAttribute("aria-checked", on ? "true" : "false");
+}
+
+function setAllAccountsView(on) {
+  try { localStorage.setItem(ALL_ACCOUNTS_KEY, on ? "on" : "off"); } catch (error) { /* private mode */ }
+  syncAllAccountsToggle();
+  if (currentDocument) renderAnalysis(currentDocument);
+}
+
+function setSettingsOpen(open) {
+  if (!els.settingsPanel || !els.settingsBtn) return;
+  els.settingsPanel.hidden = !open;
+  els.settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) els.allAccountsToggle?.focus();
+}
+
+els.settingsBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setSettingsOpen(els.settingsPanel.hidden);
+});
+els.settingsPanel?.addEventListener("click", (event) => event.stopPropagation());
+document.addEventListener("click", () => {
+  if (els.settingsPanel && !els.settingsPanel.hidden) setSettingsOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && els.settingsPanel && !els.settingsPanel.hidden) {
+    setSettingsOpen(false);
+    els.settingsBtn?.focus();
+  }
+});
+els.allAccountsToggle?.addEventListener("change", () => setAllAccountsView(els.allAccountsToggle.checked));
+syncAllAccountsToggle();
+
+function selectAccountFrom(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target ? target.closest("tr[data-account-index]") : null;
+  if (!row || !currentDocument) return;
+  const index = Number(row.getAttribute("data-account-index"));
+  if (!Number.isInteger(index) || index === selectedAccountIndex) return;
+  selectedAccountIndex = index;
+  renderAnalysis(currentDocument);
+  els.accountsPanel?.querySelector(`tr[data-account-index="${index}"]`)?.focus();
+}
+
+els.accountsPanel?.addEventListener("click", selectAccountFrom);
+els.accountsPanel?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  selectAccountFrom(event);
+});
 
 /* --- appearance ------------------------------------------------------
    The theme is resolved inline in the document head before first paint;
