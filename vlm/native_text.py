@@ -23,6 +23,7 @@ import html
 import re
 from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from functools import cached_property
 
@@ -45,6 +46,24 @@ _TAG = re.compile(r"<[^>]+>")
 _SKIPPABLE = re.compile(r"^[-+(]?\$?[\d.,]+\)?-?$|^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$")
 # An amount with cents as a printed token ("1,234.56", "(5.00)", "12.00-"): never a description word.
 _AMOUNT_TOKEN = re.compile(r"[-+(]?\$?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\)?-?")
+# A printed date: numeric (the year first or last, or a month/day), or a month name before or after the day, with a
+# weekday or an ordinal (PrintedEvidence.date_contradicted).
+_MONTH_NAME = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+_PRINTED_DATE = re.compile(
+    rf"(?<![\d/.\-])(?:\d{{4}}[-/.]\d{{1,2}}[-/.]\d{{1,2}}|\d{{1,2}}[/.\-]\d{{1,2}}[/.\-]\d{{2,4}}|\d{{1,2}}/\d{{1,2}})"
+    rf"(?![\d/])"
+    rf"|(?<![a-z])(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?{_MONTH_NAME}[\s\-/]+\d{{1,2}}(?:st|nd|rd|th)?"
+    rf"(?:,?[\s\-/]+\d{{4}})?"
+    rf"|\d{{1,2}}[\s\-/]+{_MONTH_NAME}(?:,?[\s\-/]+\d{{2,4}})?",
+    re.IGNORECASE)
+
+
+def _valid_day(when, year: int) -> bool:
+    try:
+        when.replace(year=year)
+    except ValueError:
+        return False
+    return True
 
 
 def _plain(text: str) -> str:
@@ -318,6 +337,34 @@ class PrintedEvidence:
             return None
         amount = _cents(value)
         return amount is not None and amount in self.native_amounts
+
+    def date_contradicted(self, iso) -> bool | None:
+        """Whether the text layer contradicts this ISO date's year: it prints the same month and day with a printed
+        year that differs, and prints no date that reads as this one (dates.reads_as). None without a text layer.
+        A reviewer's period date contradicted so (a misread year) is no evidence; absence of a match proves
+        nothing (a date printed in a form this scan does not know)."""
+        if not self.native:
+            return None
+        from vlm.dates import reads_as
+
+        try:
+            wanted = date.fromisoformat(str(iso))
+        except ValueError:
+            return None
+        text = " ".join(self.native.split())
+        other_year = False
+        for match in _PRINTED_DATE.finditer(text):
+            token = match.group(0).strip(" ,")
+            if reads_as(token, iso):
+                return False
+            year = re.search(r"(\d{4})|[/.\-](\d{2})$", token)
+            if year is None:
+                continue
+            printed_year = int(year.group(1)) if year.group(1) else 2000 + int(year.group(2))
+            if (printed_year != wanted.year and _valid_day(wanted, printed_year)
+                    and reads_as(token, wanted.replace(year=printed_year).isoformat())):
+                other_year = True
+        return other_year
 
     def integer_printed(self, value) -> bool:
         try:

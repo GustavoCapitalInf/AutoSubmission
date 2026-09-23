@@ -206,7 +206,9 @@ def _review_metadata(data: dict, *, page: int, printed=None):
                 invalid("account", value, codes, field=key, present=key in raw_account)
             elif printed is not None and value is not None and (
                     (key in _PRINTED_AMOUNT_FIELDS and not _figure_printed(printed, value))
-                    or (key in _PRINTED_INTEGER_FIELDS and not printed.integer_printed(value))):
+                    or (key in _PRINTED_INTEGER_FIELDS and not printed.integer_printed(value))
+                    # A period date whose year the page's text layer contradicts (a misread year) is no evidence.
+                    or (key in ("period_start", "period_end") and printed.date_contradicted(value) is True)):
                 diagnostics.append({"scope": "account", "page": page, "field": key,
                                     "code": "review_figure_not_printed"})
             else:

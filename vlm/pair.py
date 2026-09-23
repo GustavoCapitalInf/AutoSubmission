@@ -860,6 +860,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
         period_start=account.get('period_start') if 'period_mismatch' not in reasons else None,
         period_end=account.get('period_end') if 'period_mismatch' not in reasons else None,
         printed_pages=printed_pages,
+        # A statement in US dollars prints numeric dates month first.
+        month_first=str(account.get('currency') or '').strip().upper() == 'USD',
     )
     rows = list(dates.rows)
     # A description written with small differences from the row's own print takes the print's exact characters.
@@ -1001,6 +1003,8 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                  'version': DATE_RESOLVER_VERSION,
                  'resolved_count': sum(item.get('resolved_date') is not None for item in dates.evidence),
                  'unresolved_count': dates.unresolved,
+                 'numeric_order': dates.numeric_order,
+                 'numeric_order_source': dates.numeric_order_source,
                  'rows': list(dates.evidence),
                  'period_evidence': [item for item in field_evidence
                                      if item['field'] in ('period_start', 'period_end')],

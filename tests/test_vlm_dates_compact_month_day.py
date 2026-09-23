@@ -19,7 +19,7 @@ def test_compact_dates_enumerate_both_years_without_mutating_original_evidence()
     rows = [_row("dEc31"), _row("JAN29", locator="b0t0r2")]
     originals = [asdict(row) for row in rows]
     result = resolve_reviewed_dates(rows, period_start="2030-12-15", period_end="2031-01-31")
-    assert DATE_RESOLVER_VERSION == 5
+    assert DATE_RESOLVER_VERSION == 6
     assert result.unresolved == 0
     assert [row.date for row in result.rows] == ["2030-12-31", "2031-01-29"]
     assert [asdict(row) for row in rows] == originals
@@ -43,9 +43,10 @@ def test_only_the_printed_compact_month_and_day_are_used(month, name):
     assert row.date is None and result.rows[0].date_text == row.date_text
 
 
+# "JAN-29" and "29JAN" are printed forms since resolver v6 (test_vlm_dates_printed_forms.py).
 @pytest.mark.parametrize("text", [
     "JAN32", "JAN00", "APR31", "FEB29", "FEB30", "JAN029", "JAN292031", "JAN29 31",
-    "JAN29.", "JAN.29", "JAN-29", "29JAN", "January29", "SEPT29", "ſep29",
+    "JAN29.", "JAN.29", "January29", "SEPT29", "ſep29",
     "Janitor29", "JAN29 trailing", "prefix JAN29", "", None,
 ])
 def test_invalid_or_unrecognized_compact_dates_stay_unresolved(text):
