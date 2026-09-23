@@ -191,6 +191,10 @@ def _mask_account(value: object) -> str | None:
     return "****" + digits[-4:]
 
 
+def _is_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def _displayed(analysis: object, *, carry_over: bool | None = None) -> object:
     """A stored analysis as the dashboard presents it: the owner's Settings applied to a COPY.
 
@@ -1032,13 +1036,22 @@ def _package_analysis(jobs) -> dict:
             credits = round(credits - excluded_credits, 2)
             debits = round(debits - excluded_debits, 2)
             cash_flow = round(credits - debits, 2)
-        # The Monthly Statements table's "Deposits Per Month": the count that pairs with `credits` (the bank's
-        # stated count when the bank's total is used), less the transfers removed above. None, never 0, when
-        # the statement carries no count.
+        # The Monthly Statements table's "Deposits Per Month": the count that pairs with `credits`, less the
+        # transfers removed above. It pairs when the total IS the rows' total, when the bank printed its own
+        # count beside its total, or when the captured rows add up to the bank's total exactly. Otherwise (a
+        # parser that read the bank's total but not its count, and captured rows that fall short) the count
+        # would describe other money: None, shown as N/A.
+        deposit_total = _num(metrics.get("effective_total_deposits"), float("nan"))
+        line_item_total = _num(metrics.get("total_deposits"), float("nan"))
+        count_pairs = (
+            str(metrics.get("deposits_source") or "line_items") == "line_items"
+            or _is_count(statement.get("stated_credit_count"))
+            or abs(line_item_total - deposit_total) < 0.005
+        )
         stated_deposit_count = metrics.get("effective_num_deposits")
         deposit_count = (
             max(stated_deposit_count - excluded_credit_count, 0)
-            if isinstance(stated_deposit_count, int) and not isinstance(stated_deposit_count, bool)
+            if count_pairs and _is_count(stated_deposit_count)
             else None
         )
         authoritative_rows = [
