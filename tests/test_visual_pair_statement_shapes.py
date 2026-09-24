@@ -288,7 +288,12 @@ def test_a_header_above_the_rows_own_section_heading_is_another_tables():
     assert credits.governing_date(Decimal("1071.25")) == "03/09" and credits.governing_date(Decimal("18.45")) == "03/12"
     headless = PrintedEvidence(native="CHECKS PAID\nDATE CHECK NO. AMOUNT\n03/05 3101 100.00\n03/06 3102 200.00\n"
                                       "DEPOSITS AND OTHER CREDITS\n1,071.25 03/09\n")
-    assert headless.governing_date(Decimal("1071.25")) is UNDECIDED
+    # No header of its own and a line of one column: the date printed after the amount is the row's (review 13).
+    assert headless.governing_date(Decimal("1071.25")) == "03/09"
+    # A wrapped row whose amount line prints only amounts, in a table with no header: its day printed once above
+    # (a corpus statement's layout), never a date column the reading lost.
+    wrapped = PrintedEvidence(native="14 JAN FABRICATED TRANSFER 120,00 -310,50\nFABRICATED PAYEE\n45,10 -355,60\n")
+    assert wrapped.governing_date(Decimal("45.10")) == "14 JAN"
     ledger = PrintedEvidence(native="DATE CHECK NO. AMOUNT\n03/05 3101 100.00\n"
                                     "ACTIVITY DESCRIPTION DEBITS CREDITS DATE BALANCE\n03/01 OPENING BALANCE 1,000.00\n"
                                     "FABRICATED PAYMENT WITH A VERY LONG NAME\n51.37 03/09 1,051.37\n")

@@ -177,6 +177,15 @@ def _column_order(words: list[str]) -> str | None:
     date or no amount column. Amount words right before a date word qualify that date column ("DEPOSIT DATE AMOUNT",
     "PAID DATE CHECK # AMOUNT", "DEPOSIT POSTED DATE AMOUNT", "CREDITS/WITHDRAWALS POSTED DATE AMOUNT") and name no
     amount column, when an amount column remains (reviews 12, 13)."""
+    dates, amounts = _columns(words)
+    if not dates or not amounts:
+        return None
+    return "date_first" if dates[0] < amounts[0] else "amount_first"
+
+
+def _columns(words: list[str]) -> tuple[list[int], list[int]]:
+    """(date column positions, amount column positions) of a column header's words, amount words qualifying a date
+    column left out when an amount column remains (_column_order)."""
     parts = [part.lower() for word in words for part in re.findall(r"[^\W\d_]+", word)]
     dates = [position for position, part in enumerate(parts) if part in _DATE_WORDS]
     amounts = [position for position, part in enumerate(parts) if _AMOUNT_WORD.fullmatch(part)]
@@ -188,9 +197,15 @@ def _column_order(words: list[str]) -> str | None:
             before -= 1
     if any(position not in qualified for position in amounts):
         amounts = [position for position in amounts if position not in qualified]
-    if not dates or not amounts:
-        return None
-    return "date_first" if dates[0] < amounts[0] else "amount_first"
+    return dates, amounts
+
+
+def _column_kup(words: list[str]) -> bool:
+    """Whether a column header prints its table k-up: its date and amount columns alternate ("DATE CHECK # AMOUNT DATE
+    CHECK # AMOUNT", "AMOUNT DATE AMOUNT DATE"); "Post Date Effective Date Description Debits Credits" does not."""
+    dates, amounts = _columns(words)
+    return (any(first < amount < later for first in dates for later in dates for amount in amounts)
+            or any(first < when < later for first in amounts for later in amounts for when in dates))
 
 
 # The words a section heading joins its transaction words with ("DEPOSITS AND OTHER CREDITS", "CHECKS PAID", "ATM &
@@ -610,24 +625,43 @@ class PrintedEvidence:
             tokens = self._group_tokens((line, later))
             match = _ROW_START.match(" ".join(tokens))
             ambiguous |= bool(match) and len(tokens) > len(match.group(0).split())
+        # A line printed k-up: a later column group on it begins with a date, or its header alternates its date and
+        # amount columns (the later column's date need not be printed on every line: "03/23 301 11.00 302 22.00").
+        header = self._header_words(line)
+        line_kup = self._kup(line)
+        table_kup = header is not None and _column_kup(header)
+        kup = line_kup or table_kup
         if ambiguous:
-            order = self._header_order(line)
+            order = _column_order(header) if header is not None else None
             if order == "amount_first":
                 return after_date or UNDECIDED
-            if order != "date_first" or own > 0:
+            if order is None:
+                # No header: a line printed k-up is undecided; a line of one column prints its own date after its
+                # amount, if anywhere ("1,071.25 03/09"), else its day is printed once above (a wrapped row whose
+                # amount line prints only amounts: "277,41 -535,86").
+                if kup:
+                    return UNDECIDED
+                if after_date is not None:
+                    return after_date
+            elif own > 0 and kup:
                 return UNDECIDED
         elif after_date is not None:
             # A date column after the amount ("... 50.00 DEC31 1,234.56"): right after it, never past a word.
             return after_date
-        if own > 0:
-            # The row's amount is not its line's first and its group prints no date: the line's leading date
-            # belongs to the row printed before it on that line, and the lines above to other rows.
+        if own > 0 and kup:
+            # The row's amount is not its line's first on a line printed k-up: the line's leading date belongs to the
+            # column printed before it, and the lines above to other rows. On a line of one column an amount before
+            # the row's ("FABRICATED FEE 3 ITEMS @ 3.00 9.00") is its description's.
+            return UNDECIDED
+        if table_kup and not line_kup and len(self._line_spans[line]) < len(_columns(header)[1]):
+            # A line printing fewer columns than its header, under a header printing the table k-up, continues one of
+            # its columns, which is unknown ("3105 500.00" under "DATE CHECK # AMOUNT DATE CHECK # AMOUNT").
             return UNDECIDED
         # The search upward, for a statement printing each day's date once. A row on a line of one column below a
         # table printed k-up continues one of its columns, which is unknown: no date. A row of a table printed k-up
         # with no date above it on the page continues a column from the previous page, whose last dated line begins
         # with its first column's date: no date either (review 12).
-        row_kup = self._kup(line)
+        row_kup = kup
         for index in range(line, -1, -1):
             if index != line and not row_kup and self._kup(index):
                 return UNDECIDED
@@ -643,11 +677,16 @@ class PrintedEvidence:
 
     def _header_order(self, line: int) -> str | None:
         """How the nearest column header above ``line`` orders its columns (_column_order): "date_first",
-        "amount_first", or None (no header in reach, or it names no date or no amount column). A line printing money
-        is a row or a figure, never a header or a heading. A section heading ("DEPOSITS AND OTHER CREDITS", "DEPOSITS
-        POSTED") ends the search: a header above it is another table's (review 12). A header printed over several
-        lines ("DATE CHECK AMOUNT" over "NUMBER") is read from its nearest line naming a date and an amount column,
-        never across a heading (review 13)."""
+        "amount_first", or None (no header in reach, or it names no date or no amount column)."""
+        header = self._header_words(line)
+        return _column_order(header) if header is not None else None
+
+    def _header_words(self, line: int) -> list[str] | None:
+        """The words of the nearest column-header line above ``line`` naming a date and an amount column, or None. A
+        line printing money is a row or a figure, never a header or a heading. A section heading ("DEPOSITS AND OTHER
+        CREDITS", "DEPOSITS POSTED") ends the search: a header above it is another table's (review 12). A header
+        printed over several lines ("DATE CHECK AMOUNT" over "NUMBER") is read from its nearest line naming a date
+        and an amount column, never across a heading (review 13)."""
 
         def header(index: int) -> bool:
             words = self._native_lines[index]
@@ -662,8 +701,8 @@ class PrintedEvidence:
                 first = index
                 while first > 0 and header(first - 1):
                     first -= 1
-                return next((order for order in (_column_order(self._native_lines[printed])
-                                                  for printed in range(index, first - 1, -1)) if order), None)
+                return next((self._native_lines[printed] for printed in range(index, first - 1, -1)
+                             if _column_order(self._native_lines[printed])), None)
             if _section_heading_line(words):
                 return None
         return None
