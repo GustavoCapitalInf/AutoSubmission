@@ -174,3 +174,59 @@ def test_a_read_colliding_with_a_save_is_retried_rather_than_read_as_the_default
     monkeypatch.setattr(settings_module.Path, "read_text", busy_once)
     monkeypatch.setattr(settings_module.time, "sleep", lambda seconds: None)
     assert load_settings(tmp_path) == {"nsf_carry_over": True} and len(calls) == 2
+
+
+# --- the basis on a statement that holds several accounts -----------------------------------------------------------
+
+def _document_member(job_id, roster=None):
+    from tests.l1s3_payloads import document_payload
+    from webapp.jobs import Job
+
+    payload = document_payload()
+    for account in payload["accounts"]:
+        account["metrics"].update(_ledger_metrics())
+    if roster is not None:
+        payload["document"]["account_roster"] = roster
+    return Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=payload, content_sha256=job_id)
+
+
+def _roster(main_status):
+    main = {"title": "FABRICATED BUSINESS CHECKING", "kind": "checking", "number_last4": "0010", "status": main_status,
+            "published_index": 0 if main_status == "published" else None,
+            "balance": 25.0 if main_status == "idle" else None,
+            "reasons": ["page_unresolved"] if main_status == "held" else []}
+    savings = {"title": "FABRICATED SAVINGS", "kind": "savings", "number_last4": "0001", "status": "published",
+               "published_index": 1, "balance": None, "reasons": []}
+    return [main, savings]
+
+
+def test_every_published_account_of_a_document_member_follows_the_basis(settings_file):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_document_member("a")])
+    assert package["totals"]["nsf_source"] == "negative_printed_days" and package["totals"]["nsf_count"] == 2
+    save_settings(settings_file.parent, {"nsf_carry_over": True})
+    package = _package_analysis([_document_member("a")])
+    assert package["totals"]["nsf_source"] == "negative_ending_days" and package["totals"]["nsf_count"] == 4
+
+
+def test_the_basis_never_changes_which_accounts_a_package_leaves_out(settings_file):
+    # The exclusions read the roster off the re-based copy (webapp/app.py::_package_members); the basis rewrites only
+    # each account's metrics, so the idle and unverified main-account rules decide the same way on both bases, and
+    # the stored records are never rewritten.
+    import copy
+    from webapp.app import _package_members
+
+    jobs = [_document_member("idle", _roster("idle")), _document_member("held", _roster("held")),
+            _document_member("verified", _roster("published")), _document_member("no-roster")]
+    stored = [copy.deepcopy(job.analysis) for job in jobs]
+
+    def decided():
+        members, excluded = _package_members(jobs)
+        return sorted((member[0].id, member[2]) for member in members), excluded
+
+    printed = decided()
+    save_settings(settings_file.parent, {"nsf_carry_over": True})
+    assert decided() == printed
+    assert [item["reason"] for item in printed[1]] == ["main_account_idle", "main_account_unverified"]
+    assert [job.analysis for job in jobs] == stored

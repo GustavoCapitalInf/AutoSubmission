@@ -807,8 +807,12 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
 
     A member is ONE ACCOUNT. A job publishing today's payload is one member and
     is admitted exactly as it always was — this function cannot change what a
-    single-account package computes, because for such a job it yields the same
-    one `(job, job.analysis)` pair the loop used to read straight off the job.
+    single-account package computes, because for such a job it yields one
+    `(job, analysis)` pair whose analysis is the stored one as the dashboard
+    shows it (`_displayed`: the owner's NSF basis applied to a copy; the stored
+    record is never rewritten and every other field is the stored one). The
+    NSF basis is read once per package, so a setting saved mid-request cannot
+    split the members across two bases.
 
     Two rules apply to a job that publishes several accounts, and both are the
     package's own arithmetic protecting itself:

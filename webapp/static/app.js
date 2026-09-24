@@ -2745,6 +2745,9 @@ function renderPackageTables(pkg) {
     // so those rows alone name their file under the month.
     const monthCounts = new Map();
     rows.forEach(({ month }) => { if (month) monthCounts.set(month.key, (monthCounts.get(month.key) || 0) + 1); });
+    // Members counted on different NSF bases (one saved before the printed-day basis existed) would show counts that
+    // cannot be compared, so each NSF cell then names its basis; the tooltip always does.
+    const mixedNsf = new Set(rows.map(({ doc }) => doc.nsf_source).filter(Boolean)).size > 1;
     els.monthlyTable.innerHTML = rows.map(({ doc, month }) => {
       const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
       const docCurrency = currencyOfDocument(doc);
@@ -2761,7 +2764,7 @@ function renderPackageTables(pkg) {
           <td>${escapeHtml(amount(doc.credits))}</td>
           <td>${escapeHtml(formatWhole(doc.deposit_count))}</td>
           <td>${escapeHtml(amount(doc.average_daily_balance))}</td>
-          <td>${escapeHtml(formatNumber(doc.nsf_count))}</td>
+          <td title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(doc.nsf_count))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
           <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : `Open${OPEN_ICON}`}</button></td>
         </tr>
       `;
