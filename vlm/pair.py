@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import json
+import time
 import re
 from dataclasses import asdict, replace
 from decimal import Decimal
@@ -128,10 +129,14 @@ def _chat_once(root: Path, client: VlmClient, model: str, prompt: str, *, manife
                'image_sha256': sha256_bytes(kwargs['image_jpeg']),
                'prompt_sha256': _blob(root, prompt.encode())}
     client.evidence_sink = lambda label, raw: attempt.update({label + '_sha256': _blob(root, raw)})
+    started = time.perf_counter()
     try:
         result = client.chat(model, prompt, **kwargs)
     except TransportError as error:
         attempt['failure'] = str(error)
+        # How long the failed call ran and when it began: a timeout otherwise leaves no time behind.
+        attempt['elapsed_ms'] = (time.perf_counter() - started) * 1000.0
+        attempt['started_utc'] = getattr(client, 'last_started_utc', '')
         receipt_sha = _json_blob(root, attempt)
         from vlm.receipts import dump_new
         failure = {'failure': str(error), 'receipt_sha256': receipt_sha}
@@ -166,7 +171,9 @@ def _record_call(root: Path, result, prompt: str, *, page: int, stage: str,
                'prompt_tokens': result.prompt_tokens, 'completion_tokens': result.completion_tokens,
                'total_ms': result.total_ms, 'cached': result.cached}
     receipt.update({key: value for key, value in {'purpose': purpose, 'batch_index': batch_index,
-                                                'batch_count': batch_count}.items() if value is not None})
+                                                'batch_count': batch_count,
+                                                'started_utc': getattr(result, 'started_utc', '') or None,
+                                                }.items() if value is not None})
     receipt['receipt_sha256'] = _json_blob(root, receipt)
     return receipt
 
@@ -1132,5 +1139,7 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
                                                               'total_ms': c['total_ms'],
                                                               'prompt_tokens': c['prompt_tokens'],
                                                               'completion_tokens': c['completion_tokens'],
+                                                              'purpose': c.get('purpose'),
+                                                              'started_utc': c.get('started_utc'),
                                                               'execution_class': cfg.execution_class}
                                                               for c in calls if not c['cached']]})

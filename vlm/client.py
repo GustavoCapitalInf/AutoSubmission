@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from ocr.endpoint_policy import classify_endpoint
@@ -93,6 +94,8 @@ class HttpJson:
         while True:
             request = urllib.request.Request(url, data=body, headers=headers, method=method)
             started = time.perf_counter()
+            # Wall-clock start of this attempt (UTC), for placing the call in time; perf_counter measures it.
+            self.last_started_utc = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
             try:
                 with self._opener.open(request, timeout=self.timeout) as response:
                     raw = response.read(MAX_RESPONSE_BYTES + 1)
@@ -151,6 +154,8 @@ class ChatResult:
     request_bytes: bytes = b""
     response_bytes: bytes = b""
     cached: bool = False
+    # When the request was sent (UTC ISO); "" in recordings made before it was recorded.
+    started_utc: str = ""
 
 
 class VlmClient(HttpJson):
@@ -224,6 +229,7 @@ class VlmClient(HttpJson):
             request_sha256=sha256_bytes(encoded), response_sha256=sha256_bytes(raw),
             content_sha256=sha256_bytes(text.encode("utf-8")),
             request_bytes=encoded, response_bytes=raw,
+            started_utc=getattr(self, "last_started_utc", ""),
         )
 
 
