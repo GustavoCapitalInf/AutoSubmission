@@ -14,7 +14,9 @@ COPY requirements.txt requirements-analysis.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-analysis.txt
 
 COPY --chown=intern:intern . .
-RUN mkdir -p /app/webapp_data && chown intern:intern /app/webapp_data
+# Customer data lives outside the checkout (/app): the app refuses a data folder
+# inside it (ocr/private_artifacts.py, visual_pair_private_path_must_be_outside_checkout).
+RUN mkdir -p /data && chown intern:intern /data
 
 # No USER here: the container starts as root only to hand the data folder to
 # `intern`, because a freshly mounted volume (Fly, or a bind mount) is owned by
@@ -23,11 +25,11 @@ RUN mkdir -p /app/webapp_data && chown intern:intern /app/webapp_data
 ENV PYTHONUNBUFFERED=1 \
     WEBAPP_HOST=0.0.0.0 \
     WEBAPP_PORT=5000 \
-    WEBAPP_DATA_DIR=/app/webapp_data
+    WEBAPP_DATA_DIR=/data
 
 EXPOSE 5000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz')"
 
-CMD ["sh", "-c", "chown intern:intern /app/webapp_data && exec setpriv --reuid=intern --regid=intern --init-groups python -m webapp.app"]
+CMD ["sh", "-c", "chown intern:intern /data && exec setpriv --reuid=intern --regid=intern --init-groups python -m webapp.app"]
