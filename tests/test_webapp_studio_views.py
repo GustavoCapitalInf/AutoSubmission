@@ -1,0 +1,271 @@
+"""The dashboard of the multi-account branch inside the Statement Studio shell, driven end to end: the whole
+webapp/static/app.js runs in node on a fake page (tests/webapp_js_harness.py). Fabricated statements only, analysed
+by the real analysis path (analysis.pipeline.analyze_statement) and packaged by the real package code."""
+import json
+import os
+import re
+
+import pytest
+
+from tests.webapp_js_harness import NODE, run_dashboard
+
+pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
+
+BANK = "FABRICATED COMMUNITY BANK"
+# Whole-dollar fabricated amounts: a figure with cents could coincide with a real statement's (the privacy canaries).
+CHECKING_ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (3, "CARD PURCHASE FABRICATED SUPPLY", -312.0),
+                 (5, "CHECK 1041", -950.0), (9, "ACH DEBIT FABRICATED FUNDING LLC", -1250.0),
+                 (12, "WIRE TRANSFER OUT FABRICATED VENDOR", -5600.0), (13, "DEPOSIT FABRICATED", 3900.0),
+                 (27, "SERVICE FEE", -15.0)]
+SAVINGS_ROWS = [(4, "TRANSFER FROM CHECKING", 500.0), (15, "INTEREST PAID", 2.0), (22, "TRANSFER TO CHECKING", -300.0)]
+
+
+def _report(name, number, opening, rows, month=3):
+    from analysis.pipeline import analyze_statement
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+
+    txns, balance = [], opening
+    for day, description, amount in rows:
+        balance = round(balance + amount, 2)
+        txns.append(Transaction(date=f"2031-{month:02d}-{day:02d}", description=description, amount=amount,
+                                direction="credit" if amount > 0 else "debit", running_balance=balance))
+    statement = Statement(bank=BANK, account_name=name, account_number=number, period_start=f"2031-{month:02d}-01",
+                          period_end=f"2031-{month:02d}-28", beginning_balance=opening, ending_balance=balance,
+                          currency="USD", currency_source="printed", transactions=txns)
+    return analyze_statement(statement, reconciliation=reconcile(statement), markdown="", sheets=[],
+                             model_used="fabricated-test")
+
+
+def _single(month=3):
+    from analysis.serialization import document_report_to_dict
+    return document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, CHECKING_ROWS, month))
+
+
+def _document(main_status):
+    """Business checking (the main account) published, idle or held, beside a verified savings account."""
+    from analysis.pipeline import AccountRosterEntry, DocumentReport, identify_internal_transfers
+    from analysis.serialization import document_report_to_dict
+
+    checking = _report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, CHECKING_ROWS).accounts[0]
+    savings = _report("FABRICATED SAVINGS", "000000002020", 9000.0, SAVINGS_ROWS).accounts[0]
+    reports = [checking, savings] if main_status == "published" else [savings]
+    main = {"published": AccountRosterEntry("FABRICATED BUSINESS CHECKING", "checking", "1010", "published",
+                                            published_index=0),
+            "idle": AccountRosterEntry("FABRICATED BUSINESS CHECKING", "checking", "1010", "idle", balance=25.0),
+            "held": AccountRosterEntry("FABRICATED BUSINESS CHECKING", "checking", "1010", "held",
+                                       reasons=("page_unresolved",))}[main_status]
+    roster = [main, AccountRosterEntry("FABRICATED SAVINGS", "savings", "2020", "published",
+                                       published_index=len(reports) - 1)]
+    transfers, notes = identify_internal_transfers(reports)
+    return document_report_to_dict(DocumentReport(accounts=reports, document_period=("2031-03-01", "2031-03-28"),
+                                                  internal_transfers=transfers, integrity_notes=notes,
+                                                  account_roster=roster))
+
+
+def _serve(**jobs):
+    """FAKE_RESPONSES for /analysis/<id> and /markdown/<id>, and the ids a Recent list needs."""
+    responses = {}
+    for job_id, payload in jobs.items():
+        responses[f"/analysis/{job_id}"] = {"json": {"analysis": payload, "analysis_error": None}}
+        responses[f"/markdown/{job_id}"] = {"text": ""}
+    return f"Object.assign(FAKE_RESPONSES, {json.dumps(responses)});\n"
+
+
+def _all_accounts(view):
+    return f"localStorage.setItem('bsa-all-accounts', {json.dumps(view)});\n"
+
+
+def _select(index):
+    # What a click on an account row does (selectAccountFrom reads the row's index off the event's target).
+    return (f"(() => {{ const row = fakeElement('row-{index}'); row.attributes['data-account-index'] = '{index}';"
+            f" row.closest = () => row; selectAccountFrom({{target: row}}); }})();\n")
+
+
+def test_a_statement_whose_main_account_was_not_verified_withholds_every_metric_panel():
+    result = run_dashboard(_all_accounts("off") + _serve(single=_single(), held=_document("held")) + """
+currentJobId = 'single'; currentJobIds = ['single']; loadResults('single'); await settle();
+const reviewBefore = [els.reviewCount.hidden, els.reviewCount.textContent];
+currentJobId = 'held'; currentJobIds = ['held']; loadResults('held'); await settle();
+const held = {withheld: els.resultsContent.classList.contains('is-withheld'), chips: els.heroChips.innerHTML,
+              kicker: els.heroKicker.innerHTML, panel: els.accountsPanel.innerHTML, hidden: els.accountsPanel.hidden,
+              message: els.statusMessage.textContent, review: els.statusMessage.classList.contains('review'),
+              pill: els.decisionPill.textContent, crumbs: analysisCrumbs, reviewCount: els.reviewCount.hidden};
+currentJobId = 'single'; currentJobIds = ['single']; loadResults('single'); await settle();
+console.log(JSON.stringify({reviewBefore, held, after: els.resultsContent.classList.contains('is-withheld')}));
+""")
+    held = result["held"]
+    assert held["withheld"] is True and result["after"] is False
+    assert "Main account · Not verified" in held["chips"] and "2 accounts" in held["kicker"]
+    assert held["hidden"] is False and "could not be verified" in held["panel"] and 'data-nav="settings"' in held["panel"]
+    assert "No metrics are shown for it" in held["message"] and held["review"] is True
+    assert held["pill"] == "Review required" and BANK in held["crumbs"]
+    # The previous statement's deposits to review never stay on the sidebar for one that shows no account.
+    assert result["reviewBefore"][0] is False and held["reviewCount"] is True
+
+
+def test_a_verified_account_picked_on_that_statement_is_never_shown_as_approved_on_its_own():
+    result = run_dashboard(_all_accounts("on") + _serve(held=_document("held")) + """
+currentJobId = 'held'; currentJobIds = ['held']; loadResults('held'); await settle();
+const before = {withheld: els.resultsContent.classList.contains('is-withheld'), selected: selectedAccountIndex};
+""" + _select(0) + """
+generateSummary();
+console.log(JSON.stringify({before, withheld: els.resultsContent.classList.contains('is-withheld'),
+  pill: els.decisionPill.textContent, heading: els.statusHeading.textContent, chips: els.heroChips.innerHTML,
+  rows: els.processingList.innerHTML, summary: els.summaryBox.textContent}));
+""")
+    assert result["before"] == {"withheld": True, "selected": None}
+    assert result["withheld"] is False and result["pill"] == "Review required"
+    assert result["heading"] == "Main account needs review" and "Main account · Not verified" in result["chips"]
+    rows = " ".join(re.sub(r"<[^>]+>", " ", result["rows"]).split())
+    assert rows.startswith("Main account Not verified")
+    assert result["summary"].startswith("Main account FABRICATED BUSINESS CHECKING")
+    assert "could not be verified" in result["summary"] and "Figures for the selected account, FABRICATED SAVINGS" \
+        in result["summary"] and result["summary"].endswith("Status: review required.")
+
+
+def test_an_idle_main_account_is_named_on_the_header_and_both_processing_lists():
+    result = run_dashboard(_all_accounts("off") + _serve(idle=_document("idle")) + """
+currentJobId = 'idle'; currentJobIds = ['idle']; loadResults('idle'); await settle();
+console.log(JSON.stringify({chips: els.heroChips.innerHTML, status: els.statusList.innerHTML,
+  processing: els.processingList.innerHTML, kicker: els.heroKicker.innerHTML}));
+""")
+    assert result["chips"].count("Main account · No activity") == 1 and "FABRICATED SAVINGS" in result["kicker"]
+    for rows in (result["status"], result["processing"]):
+        assert " ".join(re.sub(r"<[^>]+>", " ", rows).split()).startswith("Main account No activity; needs review")
+
+
+def test_reopening_from_recent_never_carries_an_account_choice_and_a_failed_reopen_restores_the_one_on_screen():
+    result = run_dashboard(_all_accounts("on") + _serve(multi=_document("published"), held=_document("held")) + """
+rememberAnalysis({kind: 'statement', key: 'held', ids: ['held'], label: 'Held', meta: '', tone: 'amber'});
+rememberAnalysis({kind: 'statement', key: 'gone', ids: ['gone'], label: 'Gone', meta: '', tone: 'amber'});
+currentJobId = 'multi'; currentJobIds = ['multi']; loadResults('multi'); await settle();
+// The main account (index 0) is on screen: index 0 also exists on the statement reopened next (its savings account),
+// which is exactly where a carried choice would show another statement's account.
+const onScreen = selectedAccountIndex;
+openRecent('held'); await settle();
+const reopened = {selected: selectedAccountIndex, withheld: els.resultsContent.classList.contains('is-withheld')};
+currentJobId = 'multi'; currentJobIds = ['multi']; loadResults('multi'); await settle();
+""" + _select(1) + """
+const recorded = shownAnalysis.selectedAccountIndex;
+openRecent('gone'); await settle();
+console.log(JSON.stringify({onScreen, recorded, reopened, restored: {selected: selectedAccountIndex,
+  job: currentJobId, kicker: els.heroKicker.innerHTML}}));
+""")
+    assert result["onScreen"] == 0 and result["recorded"] == 1
+    assert result["reopened"] == {"selected": None, "withheld": True}
+    assert result["restored"]["selected"] == 1 and result["restored"]["job"] == "multi"
+    assert "FABRICATED SAVINGS" in result["restored"]["kicker"]
+
+
+def test_the_recent_entry_names_the_statement_and_keeps_its_dot_whichever_account_is_on_screen():
+    result = run_dashboard(_all_accounts("on") + _serve(multi=_document("published"), held=_document("held")) + """
+const entry = (key) => { const item = recentAnalyses.find((each) => each.key === key); return [item.label, item.tone]; };
+currentJobId = 'multi'; currentJobIds = ['multi']; loadResults('multi'); await settle();
+const multiFirst = entry('multi');
+""" + _select(1) + """
+loadResults('multi', {reveal: false}); await settle();
+const multiRefreshed = entry('multi');
+currentJobId = 'held'; currentJobIds = ['held']; loadResults('held'); await settle();
+const heldFirst = entry('held');
+""" + _select(0) + """
+loadResults('held', {reveal: false}); await settle();
+console.log(JSON.stringify({multiFirst, multiRefreshed, heldFirst, heldRefreshed: entry('held')}));
+""")
+    assert result["multiFirst"] == result["multiRefreshed"]
+    assert result["multiFirst"][0] == f"March 2031 · {BANK}"
+    # The statement whose main account was not verified stays a review, even with a verified account on screen.
+    assert result["heldFirst"] == result["heldRefreshed"] == [f"March 2031 · {BANK}", "amber"]
+
+
+def test_enter_on_the_settings_link_in_the_accounts_panel_is_left_to_the_link():
+    result = run_dashboard(_all_accounts("on") + _serve(multi=_document("published")) + """
+currentJobId = 'multi'; currentJobIds = ['multi']; loadResults('multi'); await settle();
+const keydown = els.accountsPanel.listeners.keydown[0];
+const link = fakeElement('settings-link'); link.closest = () => null;
+let linkPrevented = false;
+keydown({key: 'Enter', target: link, preventDefault() { linkPrevented = true; }});
+const row = fakeElement('row'); row.attributes['data-account-index'] = '1'; row.closest = () => row;
+let rowPrevented = false;
+keydown({key: ' ', target: row, preventDefault() { rowPrevented = true; }});
+console.log(JSON.stringify({linkPrevented, rowPrevented, selected: selectedAccountIndex}));
+""")
+    assert result == {"linkPrevented": False, "rowPrevented": True, "selected": 1}
+
+
+def test_summary_and_copy_on_a_withheld_statement_carry_the_statement():
+    result = run_dashboard(_all_accounts("off") + _serve(held=_document("held")) + """
+let copied = null;
+copyText = (text) => { copied = text; };
+els.summaryPanel.hidden = true;  // as the page starts (index.html) and as every new analysis closes it
+currentJobId = 'held'; currentJobIds = ['held']; loadResults('held'); await settle();
+const closedBefore = els.summaryPanel.hidden;
+els.summaryBtn.listeners.click[0]();
+els.copyDataBtn.listeners.click[0]();
+console.log(JSON.stringify({closedBefore, panelHidden: els.summaryPanel.hidden, summary: els.summaryBox.textContent,
+  copied: JSON.parse(copied)}));
+""")
+    assert result["closedBefore"] is True
+    assert result["panelHidden"] is False and "could not be verified" in result["summary"]
+    assert [entry["status"] for entry in result["copied"]["document"]["account_roster"]] == ["held", "published"]
+
+
+def test_a_withheld_statement_counts_as_open_and_is_fetched_again_by_a_settings_change():
+    result = run_dashboard(_all_accounts("off") + _serve(held=_document("held")) + """
+rememberAnalysis({kind: 'statement', key: 'other', ids: ['other'], label: 'Other', meta: '', tone: 'amber'});
+currentJobId = 'held'; currentJobIds = ['held']; loadResults('held'); await settle();
+FETCHED.length = 0;
+navigate('statements'); await settle();
+const onNavigate = FETCHED.slice();
+refreshShownResults(); await settle();
+console.log(JSON.stringify({onNavigate, onRefresh: FETCHED.slice(onNavigate.length), job: currentJobId}));
+""")
+    assert result["onNavigate"] == [] and result["job"] == "held"
+    assert "/analysis/held" in result["onRefresh"]
+
+
+def test_nsf_basis_labels_and_the_queue_rows_words():
+    result = run_dashboard("""
+console.log(JSON.stringify({legacy: nsfSourceLabel('classified_line_items'), printed: nsfSourceLabel('negative_printed_days'),
+  queue: queueState({jobId: 'x', status: 'processing', stage: 'visual_pair_proposing:2/8:batch:1/3'}).detail,
+  banner: processingStageLabel('visual_pair_proposing:2/8:batch:1/3')}));
+""")
+    assert result["legacy"] == "Returned items (saved before the negative-day count)"
+    assert result["printed"] == "Negative-ending days (printed days only)"
+    assert result["queue"] == result["banner"] and ":" not in result["queue"]
+
+
+def test_a_package_that_mixes_nsf_bases_names_each_rows_basis(tmp_path, monkeypatch):
+    from webapp.app import _package_analysis, store
+    from webapp.jobs import Job
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)  # the settings file of a scratch folder
+    jobs = []
+    for month in (1, 2):
+        payload = _single(month)
+        if month == 1:  # a result saved before the printed-day basis existed keeps its own basis
+            payload["metrics"]["nsf_source"] = "classified_line_items"
+        jobs.append(Job(id=f"m{month}", filename=f"fabricated-{month}.pdf", status="done", analysis=payload,
+                        content_sha256=f"m{month}"))
+    package = _package_analysis(jobs)
+    assert package["totals"]["nsf_source"] == "mixed"
+    result = run_dashboard(f"""
+currentJobIds = ['m1', 'm2']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{rows: els.monthlyTable.innerHTML}}));
+""")
+    assert result["rows"].count('class="table-cell-detail"') >= 2
+    assert "Returned items (saved before the negative-day count)" in result["rows"]
+    assert "Negative-ending days (printed days only)" in result["rows"]
+
+
+def test_the_page_carries_the_branch_s_controls_in_the_new_shell(monkeypatch, tmp_path):
+    monkeypatch.setenv("WEBAPP_DATA_DIR", str(tmp_path))
+    from webapp.app import app
+
+    page = app.test_client().get("/").get_data(as_text=True)
+    settings = page[page.index('id="settingsView"'):page.index('id="statementModalBackdrop"')]
+    assert 'id="allAccountsToggle"' in settings and "Statements</h2>" in settings
+    assert 'id="accountsPanel"' in page and 'id="openTextBtn"' in page and 'id="modalExtractionReview"' in page
+    assert ".status-message.review" in page and ".results-content.is-withheld" in page
+    assert 'id="settingsBtn"' not in page  # the old header popover is gone
+    assert os.path.basename(__file__)  # keeps the module importable under any runner

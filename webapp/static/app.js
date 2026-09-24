@@ -865,6 +865,8 @@ function setStatusRows(rows) {
 function setInitialState() {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
   els.resultsContent?.classList.remove("is-withheld");
+  // Nothing on screen has deposits to review until an account is drawn (renderAccount sets the count again).
+  setReviewCount(0);
   currentDocument = null;
   selectedAccountIndex = null;
   hideAccountsPanel();
@@ -1476,6 +1478,29 @@ function idleMainNote(report, currency) {
   return idleMain ? `Main account ${idleMainText(idleMain, currency)}. ` : "";
 }
 
+// Why the statement's main account was not verified, in the words the dashboard shows.
+function unverifiedMainWhy(entry, currency) {
+  return entry.status === "idle"
+    ? `it printed no activity this period (balance ${formatMoney(entry.balance, currency)})`
+    : accountReasonText(entry.reasons);
+}
+
+function unverifiedMainNote(report, currency) {
+  // The sentence the summary leads with when the statement's main account was not verified and another, verified,
+  // account is shown (All accounts); "" otherwise.
+  const entry = report ? unverifiedMainAccount(accountRoster(report)) : null;
+  return entry ? `Main account ${accountDisplayName({}, entry)} could not be verified: ${unverifiedMainWhy(entry, currency)}. ` : "";
+}
+
+// One account's own decision, as its pill shows it.
+function accountDecision(report) {
+  const metrics = report.metrics || {};
+  const quality = report.quality || {};
+  return hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
+    ? "review_required"
+    : quality.corporate_use || quality.level || "review_required";
+}
+
 function mainAccountReason(account = {}, entry = null) {
   const statement = account.statement || {};
   const checking = accountKindOf(statement, entry) === "checking";
@@ -1516,7 +1541,7 @@ function accountPanelRowHtml(entry, published, main, selected, currency, isUnver
     const count = (statement.transactions || []).length;
     return `
       <tr data-account-index="${escapeHtml(String(entry.published_index))}" class="${isSelected ? "is-selected" : ""}"
-          tabindex="0" aria-selected="${isSelected ? "true" : "false"}">
+          tabindex="0"${isSelected ? ` aria-current="true"` : ""}>
         <td><strong>${escapeHtml(name)}</strong>${entry.published_index === main ? `<span class="main-badge">MAIN</span>` : ""}
           <span class="account-reason">${escapeHtml(kind)} · ${escapeHtml(formatNumber(count))} ${count === 1 ? "transaction" : "transactions"}</span></td>
         <td>${glassChip("✓", "Verified", "green")}</td>
@@ -1612,9 +1637,7 @@ function renderUnverifiedMain(published, roster, entry) {
   // The statement's own period, bank and denomination, read off a verified account of the same statement.
   const first = (published[0] || {}).statement || {};
   const currency = first.currency || null;
-  const why = entry.status === "idle"
-    ? `it printed no activity this period (balance ${formatMoney(entry.balance, currency)})`
-    : accountReasonText(entry.reasons);
+  const why = unverifiedMainWhy(entry, currency);
   const verified = published.length;
   const explanation = `${name} is this statement's main account and could not be verified: ${why}. `
     + "No metrics are shown for it.";
@@ -1990,7 +2013,17 @@ function renderAnalysis(report) {
   const shown = published[selectedAccountIndex];
   // One account's own payload: every panel below, the summary and the transaction list describe that account.
   renderAccount(isDocumentPayload(report) ? { ...shown, parse_mode: report.parse_mode } : report);
-  if (idleMain) {
+  if (unverified) {
+    // All accounts on, and the user picked a verified account of a statement whose main account was not verified:
+    // that account's own figures are shown, never as the main account's, and the statement still needs review.
+    els.statusHeading.textContent = "Main account needs review";
+    setBanner("pending", "Main account not verified; showing a verified account", "Review required");
+    els.decisionPill.textContent = "Review required";
+    els.decisionPill.className = "decision-pill review_required";
+    const note = statusRowHtml(["Main account", "Not verified"]);
+    [els.statusList, els.processingList].forEach((list) => list?.insertAdjacentHTML("afterbegin", note));
+    els.heroChips?.insertAdjacentHTML("afterbegin", `<span class="hero-chip">Main account · Not verified</span>`);
+  } else if (idleMain) {
     // The summary box is the actions' (idleMainNote says it there); this runs again on every account selection and
     // settings change, so it only sets.
     els.statusHeading.textContent = "Main account needs review";
@@ -2021,9 +2054,7 @@ function renderAccount(report) {
   const totalDebits = metrics.effective_total_withdrawals;
   const validation = validationLabel(report);
   const elapsed = startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Complete";
-  const decision = hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
-    ? "review_required"
-    : quality.corporate_use || quality.level || "review_required";
+  const decision = accountDecision(report);
 
   els.statusHeading.textContent = "OCR completed";
   setBanner("done", "Extraction completed", validation);
@@ -2169,7 +2200,8 @@ function queueState(entry) {
   if (entry.status === "done") return { chip: "Done", tone: "neutral", detail: "Complete", bar: "done", width: 100 };
   if (!entry.jobId) return { chip: "Uploading", tone: "green", detail: "Uploading", bar: "busy", width: 0 };
   if (entry.status === "queued") return { chip: "Queued", tone: "amber", detail: "Waiting", bar: "", width: 0 };
-  return { chip: "Processing", tone: "green", detail: labelize(entry.stage || entry.status), bar: "busy", width: 0 };
+  // The same words as the status banner, the visual pair's page and part counters included.
+  return { chip: "Processing", tone: "green", detail: processingStageLabel(entry.stage || entry.status), bar: "busy", width: 0 };
 }
 
 function renderQueue() {
@@ -2508,10 +2540,9 @@ function loadResults(jobId, { reveal = true, announce = reveal, onError = render
         return;
       }
       recordShownAnalysis();
-      // A statement whose main account was not verified has no account on screen (its metrics are withheld), so the
-      // Recent entry names the statement, never one of its other accounts.
-      rememberStatement(jobId, currentAnalysis || documentLabelReport(currentDocument));
-      if (announce) notify(`${els.resultsTitle.textContent} analyzed`, "green");
+      rememberShownStatement(jobId);
+      // A statement whose main account was not verified opens with its metrics withheld: not a green result.
+      if (announce) notify(`${els.resultsTitle.textContent} analyzed`, currentAnalysis ? "green" : "amber");
       if (reveal) openResultsPage("results");
     })
     .catch((error) => onError(error.message || String(error)));
@@ -2957,7 +2988,6 @@ function renderStatementModal(jobId, report, markdown) {
   const statement = report.statement || {};
   const metrics = report.metrics || {};
   const detection = report.detection || {};
-  const quality = report.quality || {};
   const integrity = derivedIntegrity(report);
   const currency = statement.currency || "USD";
   const funders = Array.isArray(detection.known_funders) ? detection.known_funders : [];
@@ -2968,9 +2998,7 @@ function renderStatementModal(jobId, report, markdown) {
     ...potentialLenders.map((item) => ({ ...item, classification: "potential_lender" })),
   ];
   const title = statement.bank ? `${statement.bank} Statement` : "Bank Statement";
-  const decision = hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
-    ? "review_required"
-    : quality.corporate_use || quality.level || "review_required";
+  const decision = accountDecision(report);
 
   els.statementModalTitle.textContent = title;
   els.statementModalSubtitle.textContent = `${accountNote}${period(statement)} - ${labelize(decision)}`;
@@ -3103,11 +3131,15 @@ function generateSummary() {
   // The statement's main account printed no activity: the summary an analyst pastes says so, and whose figures follow;
   // the statement needs review, as the dashboard says.
   const idleNote = idleMainNote(currentDocument, currency);
-  const decision = idleNote || hasMaterialPotentialLenderDebits(m)
+  // Likewise when the main account was not verified and another, verified, account was picked (All accounts).
+  const unverifiedNote = idleNote ? "" : unverifiedMainNote(currentDocument, currency);
+  const decision = idleNote || unverifiedNote || hasMaterialPotentialLenderDebits(m)
     ? "review_required"
     : q.corporate_use || q.level || "review_required";
+  const lead = idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: `
+    : unverifiedNote ? `${unverifiedNote}Figures for the selected account, ${accountDisplayName(s, null)}: ` : "";
   els.summaryBox.textContent =
-    (idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: ` : "") +
+    lead +
     `${s.bank || "Statement"} ${period(s)}: average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
@@ -3201,7 +3233,8 @@ function navigate(target) {
     return;
   }
   const openPackage = Boolean(currentAnalysis && currentAnalysis.package);
-  const openStatement = Boolean(currentAnalysis && !currentAnalysis.package);
+  // A statement whose main account was not verified is open too: it shows its accounts (currentDocument), not one.
+  const openStatement = Boolean((currentAnalysis && !currentAnalysis.package) || currentDocument);
   if (target === "review") {
     if (!currentAnalysis) {
       showResultsEmpty("review");
@@ -3258,7 +3291,7 @@ function decisionDotTone(decision) {
   return "amber";
 }
 
-function rememberStatement(jobId, report) {
+function rememberStatement(jobId, report, tone = decisionDotTone(els.decisionPill.classList[1])) {
   const statement = report.statement || {};
   const account = Object.fromEntries(accountFieldRows(statement, currentMarkdown));
   const month = monthLabel(statementMonth(statement.period_start, statement.period_end));
@@ -3270,7 +3303,7 @@ function rememberStatement(jobId, report) {
     ids: [jobId],
     label: [month || statement.bank || "Statement", accountType || (month ? statement.bank : "")].filter(Boolean).join(" · "),
     meta: digits.slice(-4),
-    tone: decisionDotTone(els.decisionPill.classList[1]),
+    tone,
   });
 }
 
@@ -3278,6 +3311,23 @@ function rememberStatement(jobId, report) {
 function documentLabelReport(doc) {
   const first = (publishedAccounts(doc)[0] || {}).statement || {};
   return { statement: { bank: first.bank, period_start: first.period_start, period_end: first.period_end } };
+}
+
+// The Recent entry of the statement on screen. One that holds several accounts is named after the statement and
+// carries the statement's own dot (review when its main account was not verified or had no activity, else its main
+// account's decision): neither follows the account picked on screen, which a refresh or a revenue decision would
+// otherwise record.
+function rememberShownStatement(jobId) {
+  if (!currentDocument) {
+    if (currentAnalysis) rememberStatement(jobId, currentAnalysis);
+    return;
+  }
+  const roster = accountRoster(currentDocument);
+  const published = publishedAccounts(currentDocument);
+  const main = published[mainAccountIndex(published, roster)];
+  const needsReview = unverifiedMainAccount(roster) || idleMainAccount(roster) || !main;
+  rememberStatement(jobId, documentLabelReport(currentDocument),
+    needsReview ? "amber" : decisionDotTone(accountDecision(main)));
 }
 
 function rememberPackage(jobIds, pkg) {
@@ -3588,10 +3638,12 @@ function clearDropzoneParallax() {
 });
 
 if (els.copyTextBtn) els.copyTextBtn.addEventListener("click", () => copyText(currentMarkdown));
-els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || {}, null, 2)));
+// A statement whose main account was not verified has no account on screen: its data is the whole statement, and
+// its summary is the explanation its view wrote (generateSummary leaves it).
+els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || currentDocument || {}, null, 2)));
 els.summaryBtn.addEventListener("click", () => {
   generateSummary();
-  if (!currentAnalysis || !els.summaryPanel) return;
+  if ((!currentAnalysis && !currentDocument) || !els.summaryPanel) return;
   els.summaryPanel.hidden = false;
   els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
@@ -3692,7 +3744,7 @@ async function submitRevenueReview(button) {
     } else if (currentJobId === jobId) {
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
-      if (currentAnalysis) rememberStatement(jobId, currentAnalysis);
+      rememberShownStatement(jobId);
     }
 
     if (modalJobId === jobId) {
@@ -3787,7 +3839,6 @@ function syncAllAccountsToggle() {
   if (!els.allAccountsToggle) return;
   const on = allAccountsView();
   els.allAccountsToggle.checked = on;
-  els.allAccountsToggle.setAttribute("aria-checked", on ? "true" : "false");
 }
 
 function setAllAccountsView(on) {
@@ -3795,11 +3846,20 @@ function setAllAccountsView(on) {
   syncAllAccountsToggle();
   // Only a statement on screen is redrawn: never a package, never a statement still processing.
   const statementShown = currentDocument && !(currentAnalysis && currentAnalysis.package) && currentJobIds.length <= 1;
-  if (statementShown) renderAnalysis(currentDocument);
+  if (statementShown) {
+    renderAnalysis(currentDocument);
+    noteShownSelection();
+  }
 }
 
 els.allAccountsToggle?.addEventListener("change", () => setAllAccountsView(els.allAccountsToggle.checked));
 syncAllAccountsToggle();
+
+// The account on screen is part of what a failed reopen puts back (openRecent), so the record follows every
+// selection made after the statement finished loading, and only for the statement that record describes.
+function noteShownSelection() {
+  if (shownAnalysis && shownAnalysis.jobId === currentJobId) shownAnalysis.selectedAccountIndex = selectedAccountIndex;
+}
 
 function selectAccountFrom(event) {
   const target = event.target instanceof Element ? event.target : null;
@@ -3809,12 +3869,17 @@ function selectAccountFrom(event) {
   if (!Number.isInteger(index) || index === selectedAccountIndex) return;
   selectedAccountIndex = index;
   renderAnalysis(currentDocument);
+  noteShownSelection();
   els.accountsPanel?.querySelector(`tr[data-account-index="${index}"]`)?.focus();
 }
 
 els.accountsPanel?.addEventListener("click", selectAccountFrom);
 els.accountsPanel?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
+  // Only an account row is selected from the keyboard; any other control in the panel (the link to Settings)
+  // keeps its own Enter and Space.
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || !target.closest("tr[data-account-index]")) return;
   event.preventDefault();
   selectAccountFrom(event);
 });

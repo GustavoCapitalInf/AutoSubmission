@@ -140,10 +140,15 @@ let currentAnalysis = null;
 const els = {};
 for (const key of ["statusBanner", "statusMark", "statusCopy", "validationValue", "statusHeading", "summaryBox",
                    "decisionPill", "statusList"]) els[key] = {textContent: "", className: "", innerHTML: ""};
+// The New analysis page's status card line, where a result that opens no results page is explained.
+const toned = new Set();
+els.statusMessage = {textContent: "", hidden: true,
+                     classList: {toggle(name, on) { if (on) toned.add(name); else toned.delete(name); }}};
 function setInitialState() {}
 function setProgress() {}
 function escapeHtml(value) { return String(value); }
-""" + "".join(function(name) for name in ("setBanner", "statusRowHtml", "setStatusRows", "friendlyAnalysisError",
+""" + "".join(function(name) for name in ("setBanner", "setStatusMessage", "kvRowsHtml", "statusRowHtml",
+                                          "setStatusRows", "sentenceCase", "friendlyAnalysisError",
                                           "sourceContradiction", "renderExtractionReview"))
     results = []
     for message in ("Fail: Statement debit total ($150.00 listed, $250.00 printed) contradiction",
@@ -151,12 +156,20 @@ function escapeHtml(value) { return String(value); }
         script = harness + f"""
 renderExtractionReview({json.dumps(message)});
 console.log(JSON.stringify({{heading: els.statusHeading.textContent, banner: els.statusCopy.textContent,
-                            pill: els.decisionPill.textContent, state: els.statusBanner.className}}));
+                            pill: els.decisionPill.textContent, state: els.statusBanner.className,
+                            message: els.statusMessage.textContent, shown: !els.statusMessage.hidden,
+                            review: toned.has("review")}}));
 """
         run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=15)
         assert run.returncode == 0, run.stderr
         results.append(json.loads(run.stdout))
     failed, held = results
     assert failed["heading"] == "Fail: Statement debit total ($150.00 listed, $250.00 printed) contradiction"
-    assert failed["pill"] == "fail" and "error" in failed["state"] and "does not add up" in failed["banner"]
-    assert held["heading"] == "Extraction needs review" and held["pill"] == "review required"
+    assert failed["pill"] == "Fail" and "error" in failed["state"] and "does not add up" in failed["banner"]
+    # A failure of the statement is explained where the page shows it, in the failure's tone (not "review").
+    assert failed["shown"] and "failure of the statement, not of the reading" in failed["message"]
+    assert failed["review"] is False
+    assert held["heading"] == "Extraction needs review" and held["pill"] == "Review required"
+    # A held read needs review: its reason reads as a sentence of its own, in the review tone.
+    assert held["shown"] and held["review"] is True
+    assert held["message"].startswith("Visual pair gate refused the document. Open Review extraction")
