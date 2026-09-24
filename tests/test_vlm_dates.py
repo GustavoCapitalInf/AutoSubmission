@@ -146,6 +146,22 @@ def test_on_a_text_layer_page_the_date_the_page_prints_for_the_row_decides():
     assert result.evidence[0]["printed_date_text"] == "03/31"
 
 
+def test_a_row_the_text_layer_locates_but_cannot_date_takes_no_date_from_the_row_above():
+    # Review 13, finding 2: "no date" from the page is a hold, never the date of the row above in the same table
+    # (here the deposits' own section heading ends the search for a header: no date).
+    from vlm.native_text import PrintedEvidence
+    page = PrintedEvidence(native="DEPOSITS AND OTHER CREDITS\n1,071.25 03/09\n18.45 03/12\n")
+    first = replace(_row("03/09", locator="b1t0r1"), page=1, amount=Decimal("1071.25"), balance=None)
+    second = replace(_row("", locator="b1t0r2"), page=1, amount=Decimal("18.45"), balance=None)
+    result = resolve_reviewed_dates([first, second], period_start="2031-03-01", period_end="2031-03-31",
+                                    printed_pages=[page])
+    assert [row.date for row in result.rows] == ["2031-03-09", None] and result.unresolved == 1
+    # Located nowhere on its page (no text layer), the row above in its table still decides.
+    result = resolve_reviewed_dates([first, second], period_start="2031-03-01", period_end="2031-03-31",
+                                    printed_pages=[PrintedEvidence(native=None)])
+    assert [row.date for row in result.rows] == ["2031-03-09", "2031-03-09"]
+
+
 def test_no_clock_baseline_or_neighbor_date_supplies_missing_year():
     explicit = _row("Jan 2", explicit="2031-01-02")
     missing = _row("Jan 3", locator="missing")

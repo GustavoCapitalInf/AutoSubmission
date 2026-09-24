@@ -258,14 +258,16 @@ def test_a_title_naming_only_the_kind_is_the_account_of_that_kind():
         _block(4, "section_header", "Checking Account Activity - Main Account"),
     ), (), (), False)
     assert len(plan_accounts([layout]).sections) == 1
-    # Titles that each name something of their own, or print different numbers, are different accounts.
+    # Titles printing different numbers are different accounts; a line printing no number right under an identified
+    # account's heading, nothing printing money between them, is that account's own line (review 13).
     other = DotsLayout(1, (
         _block(0, "section_header", "360 Checking - 12345678901"),
         _block(1, "text", "360 CHECKING | JOINT WITH FABRICATED PERSON"),
         _block(2, "section_header", "360 Performance Savings - 12345678902"),
         _block(3, "section_header", "360 Performance Savings - 12345678903"),
     ), (), (), False)
-    assert len(plan_accounts([other]).sections) == 4
+    assert [section.number for section in plan_accounts([other]).sections] == ["12345678901", "12345678902",
+                                                                              "12345678903"]
 
 
 def test_a_summary_table_gives_an_account_the_figure_its_section_does_not_print():
@@ -602,6 +604,10 @@ def test_running_text_in_sentence_case_is_no_account_heading(text):
     ("FABRICATED PROTECTED CHECKING", "FABRICATED PROTECTED CHECKING"),
     ("Special Needs Savings", "Special Needs Savings"), ("Pay As You Go Checking", "Pay As You Go Checking"),
     ("Business NOW Checking", "Business NOW Checking"), ("FABRICATED SHARE A 0001", "FABRICATED SHARE A"),
+    # Review 13, finding 4: a product's name can print an advertisement's word.
+    ("Simplified Employee Pension IRA XXXX1234", "Simplified Employee Pension IRA"),
+    ("Preferred Rates Money Market 0005", "Preferred Rates Money Market"),
+    ("Business Simplified Checking 1234", "Business Simplified Checking"), ("Meet Me Checking", "Meet Me Checking"),
     # Review 12, finding 5: product names printing prose words or a verb before a qualified kind.
     ("SAVE TO WIN SAVINGS 0005", "SAVE TO WIN SAVINGS"), ("Learn to Save Youth Savings 0007", "Learn to Save Youth Savings"),
     ("Ready to Grow Savings", "Ready to Grow Savings"), ("Plan A Savings 0003", "Plan A Savings"),
@@ -615,6 +621,23 @@ def test_product_names_opening_with_a_verb_or_printing_their_number_still_name_a
     # Finding 6.
     heading = parse_heading(text)
     assert heading is not None and heading.title == title, text
+
+
+def test_a_heading_printing_no_identifier_right_under_an_identified_accounts_heading_is_that_account():
+    # Review 13: nothing printing money between them, it is the account's product line or a slogan; a statement that
+    # identifies its accounts prints an identifier for a real second one.
+    def sections(*blocks):
+        return [(section.kind, section.title, section.number) for section in plan_accounts([DotsLayout(1, tuple(
+            _block(order, label, content) for order, (label, content) in enumerate(blocks)), (), (), False)]).sections]
+    assert sections(("section_header", "FABRICATED CHECKING (0010)"), ("section_header", "Business Checking Simplified"),
+                    ("section_header", "Fabricated Checking Plus Package")) == [
+        ("checking", "FABRICATED CHECKING", "0010")]
+    # Money printed between them, or an "Account Number" line after it: another account.
+    assert len(sections(("section_header", "FABRICATED CHECKING (0010)"),
+                        ("text", "Beginning Balance: $1.00 Ending Balance: $1.00"),
+                        ("section_header", "Fabricated Checking Plus Package"))) == 2
+    assert len(sections(("section_header", "FABRICATED CHECKING (0010)"),
+                        ("section_header", "Fabricated Checking Plus Package"), ("text", "Account Number 1234560020"))) == 2
 
 
 def test_a_number_line_confirmed_by_its_titles_own_identifier_is_not_reused_for_the_next():
@@ -676,6 +699,18 @@ def test_a_ledger_printing_a_totals_row_is_never_a_summary_table():
                     ["Date", "Description", "Amount", "Amount", "Balance"], ["03/05", "X", "", "1.00", "2.00"]],
                    [["Ref", "Memo", "Total Deposits", "Total Withdrawals"], ["1", "FABRICATED", "10.00", "5.00"]]):
         assert _summary_header(ledger) is None, ledger[0]
+    # Review 13, finding 6: dates printed day first or in a column that is not the first, and a header that is not the
+    # table's first row, make a ledger; a title row above a summary table's header does not.
+    for ledger in ([["05 Mar", "FABRICATED TRANSFER", "100.00", "1,100.00"],
+                    ["Beginning Balance", "1,200.00", "Ending Balance", "1,100.00"], ["Interest Rate", "FABRICATED", "", ""]],
+                   [["FABRICATED TRANSFER", "03/05", "100.00", "1,100.00"],
+                    ["Beginning Balance", "1,200.00", "Ending Balance", "1,100.00"], ["Interest Rate", "FABRICATED", "", ""]],
+                   [["FABRICATED", "", "", ""], ["X", "Y", "", ""],
+                    ["Account", "Beginning Balance", "Ending Balance", ""], ["FABRICATED SAVINGS 0001", "$1.00", "$1.00", ""]]):
+        assert _summary_header(ledger) is None, ledger[0]
+    titled = [["Summary of Accounts"], ["Account", "Beginning Balance", "Ending Balance"],
+              ["FABRICATED SHARE 01", "$50.00", "$50.00"]]
+    assert _summary_header(titled) is not None
     # Review 12, finding 3: a ledger continued without its header, ending in a totals row.
     for totals in (["Total Deposits", "0.00", "Total Withdrawals", "150.00", "Ending Balance", "1,050.00"],
                    ["Beginning Balance", "1,200.00", "Total Withdrawals", "150.00", "Ending Balance", "1,050.00"]):
@@ -708,6 +743,13 @@ def test_a_short_title_in_sentence_case_is_still_an_accounts_heading():
     "Business Checking Simplified", "Business Checking Just Got Better", "Introducing Business Checking Plus",
     "Checking Reinvented", "New Savings Rates Effective April 1", "Coming Soon Business Checking Plus",
     "Meet Business Checking Plus", "Savings Simplified", "Business checking simplified",
+    # Review 13, finding 3: an advertisement capitalises its prose words; a year is no identifier; an adverb before a
+    # verb makes a sentence.
+    "Switch To Business Checking", "Upgrade To Business Checking", "Welcome To Fabricated Business Checking",
+    "Say Yes To Business Checking", "Get Access To Online Checking", "Open A Money Market",
+    "Ask About A Share Certificate", "Add A Savings", "Refer A Friend To Membership",
+    "Open A Checking Account Before June 30 2031", "TRANSFER TO SAVINGS", "PAYMENT TO LOAN", "DEPOSIT TO CHECKING",
+    "Now Available Business Checking Plus", "Get Protected Business Checking",
 ])
 def test_a_question_or_an_instruction_about_an_account_names_no_account(text):
     # Findings 6 (review 10), 2 (review 11) and 4 (review 12).

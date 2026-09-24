@@ -49,18 +49,16 @@ _AMOUNT_TOKEN = re.compile(r"[-+(]?\$?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\)?-?")
 # A printed date: numeric (the year first or last, or a month/day), or a month name before or after the day, with a
 # weekday or an ordinal (PrintedEvidence.date_contradicted).
 _MONTH_NAME = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
-# Two digits after "Mar 31," are its year only where the line ends, or punctuation, a range word ("to", "through"),
-# "page" or a month follows: "Mar 31, 30 Page 1", "Mar 31, 30." print years (review 11); "As of Mar 31, 45 items were
-# paid", "Mar 31, 12 returned items", "Mar 31, 30-day cycle", "Mar 31, 30 pages" print counts and "through Mar 31,
-# 12.50" an amount (reviews 10, 12).
-_TWO_DIGIT_YEAR_END = (r"(?!\d)(?!\.\d)(?![-–—][A-Za-z])"
-                       r"(?=[ \t]*(?:$|[^\sA-Za-z0-9]|(?:to|through|thru|till|until|page|pg|and)\b|"
-                       r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b))")
-# After "31 Mar" or "01-MAR-" (a row's date, a description following it) two digits are its year unless a digit, a
-# decimal or a count follows them.
-_TWO_DIGIT_YEAR_AFTER_MONTH = (r"(?!\d)(?!\.\d)(?![-–—][A-Za-z])(?![ \t]*(?:items?|checks?|cheques?|"
-                               r"deposits?|withdrawals?|debits?|credits?|transactions?|payments?|days?|times?|"
-                               r"returned|nsf|pages?|fees?)\b)")
+# Two digits after "Mar 31," are its year unless a digit, a decimal, a hyphenated word or a count follows them: "As of
+# Mar 31, 45 items were paid", "Mar 31, 12 returned items", "Mar 31, 30-day cycle", "Mar 31, 30 pages" print counts and
+# "through Mar 31, 12.50" an amount (reviews 10, 12); "Mar 31, 30 Page 1", "Mar 31, 30." and "Statement Date: Mar 31,
+# 30 Account Number ..." print years (reviews 11, 13).
+_TWO_DIGIT_YEAR_END = (r"(?!\d)(?!\.\d)(?![-–—][A-Za-z])(?![ \t]*\(?(?:items?|checks?|cheques?|deposits?|"
+                       r"withdrawals?|debits?|credits?|transactions?|payments?|days?|times?|returned|nsf|pages|"
+                       r"fees?|charges?|cycles?)\b)")
+# After "31 Mar" or "01-MAR-" (a row's date, its description following it: "01-MAR-30 FEE 5.00") two digits are its year
+# unless a digit, a decimal or a hyphenated word follows them (review 13).
+_TWO_DIGIT_YEAR_AFTER_MONTH = r"(?!\d)(?!\.\d)(?![-–—][A-Za-z])"
 _PRINTED_DATE = re.compile(
     rf"(?<![\d/.\-])(?:\d{{4}}[-/.]\d{{1,2}}[-/.]\d{{1,2}}|\d{{1,2}}[/.\-]\d{{1,2}}[/.\-]\d{{2,4}}|\d{{1,2}}/\d{{1,2}})"
     rf"(?![\d/])"
@@ -133,6 +131,23 @@ _AMOUNT_HEADER = re.compile(r"\b(?:amount|deposits?|withdrawals?|debits?|credits
 # A column header's amount column, and how far above a row its table's header is looked for.
 _AMOUNT_WORD = re.compile(r"amount|deposits?|withdrawals?|debits?|credits?|paid|payments?|charges?")
 _HEADER_REACH = 60
+
+
+class _Undecided:
+    """PrintedEvidence.governing_date's answer for a row the text layer locates but cannot date (another column's
+    date, no header saying how the table is laid out, other dates printed in its own group): false like "no date",
+    never "" (the day continuing from the previous page), and never a reason to take the date of the row above it,
+    which can be another column's or another day's (review 13)."""
+    __slots__ = ()
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "UNDECIDED"
+
+
+UNDECIDED = _Undecided()
 # The direction a heading gives its rows: deposits and credits add, cheques, debits, withdrawals and charges take away.
 _CREDIT_HEADING = re.compile(r"\b(?:deposits?|credits?|additions?)\b", re.IGNORECASE)
 _DEBIT_HEADING = re.compile(r"\b(?:checks?|cheques?|debits?|withdrawals?|subtractions?|payments?|charges?|fees?|"
@@ -153,17 +168,26 @@ def _header_line(words: list[str]) -> bool:
                                    for part in parts) > len(parts)
 
 
+_DATE_WORDS = frozenset({"date", "posted", "effective"})
+
+
 def _column_order(words: list[str]) -> str | None:
     """How a column header orders its columns: "date_first" (a DATE column before the first amount column: "DATE
     CHECK # AMOUNT"), "amount_first" ("AMOUNT DATE", "CHECK # AMOUNT DATE", "Credits Date"), or None when it names no
-    date or no amount column. A word qualifying a date column ("DEPOSIT DATE AMOUNT", "PAID DATE CHECK # AMOUNT": an
-    amount word right before "date", an amount column after it) names no amount column (review 12)."""
+    date or no amount column. Amount words right before a date word qualify that date column ("DEPOSIT DATE AMOUNT",
+    "PAID DATE CHECK # AMOUNT", "DEPOSIT POSTED DATE AMOUNT", "CREDITS/WITHDRAWALS POSTED DATE AMOUNT") and name no
+    amount column, when an amount column remains (reviews 12, 13)."""
     parts = [part.lower() for word in words for part in re.findall(r"[^\W\d_]+", word)]
-    dates = [position for position, part in enumerate(parts) if part in ("date", "posted", "effective")]
+    dates = [position for position, part in enumerate(parts) if part in _DATE_WORDS]
     amounts = [position for position, part in enumerate(parts) if _AMOUNT_WORD.fullmatch(part)]
-    amounts = [position for position in amounts
-               if not (parts[position] != "amount" and position + 1 < len(parts) and parts[position + 1] == "date"
-                       and any(later > position + 1 for later in amounts))]
+    qualified = set()
+    for position in dates:
+        before = position - 1
+        while before >= 0 and parts[before] != "amount" and _AMOUNT_WORD.fullmatch(parts[before]):
+            qualified.add(before)
+            before -= 1
+    if any(position not in qualified for position in amounts):
+        amounts = [position for position in amounts if position not in qualified]
     if not dates or not amounts:
         return None
     return "date_first" if dates[0] < amounts[0] else "amount_first"
@@ -534,7 +558,9 @@ class PrintedEvidence:
         amount (a statement printing each day's date once, on the day's first row). "" when no line above it on
         the page begins with a date (the day continues from the previous page, last_date_text); None when there
         is no text layer or the row cannot be located (its amount printed nowhere, or on several rows its
-        balance does not tell apart)."""
+        balance does not tell apart); UNDECIDED when the row is located but the page does not say which date is its
+        own (another column's, no header saying how its table is laid out, other dates in its own group): no date,
+        and never the date of the row above it (review 13)."""
         from vlm.dates import date_text_parts
 
         if not self.native:
@@ -566,14 +592,14 @@ class PrintedEvidence:
                 # its own date prints DATE first, and any other line is undecided.
                 order = self._header_order(line)
                 if order == "amount_first":
-                    return after_date
+                    return after_date or UNDECIDED
                 if order is None and not _ROW_START.match(" ".join(self._group_tokens((line, 0)))):
-                    return None
+                    return UNDECIDED
             return " ".join(group[:len(leading.group(0).split())])
         # A group printing a date elsewhere before its amount prints other dates too (an invoice's, a card
         # transaction's): no date is taken for it, from after the amount or from the lines above.
         if any(_ROW_START.match(" ".join(group[index:])) for index in range(len(group))):
-            return None
+            return UNDECIDED
         # Ambiguous: the row's group prints nothing before its amount, or a later group on its line begins with a date
         # and prints more ("3102 200.00 03/10 3104 400.00"). A date after the amount is then the row's own date
         # column, or the next column's row of a table printed k-up. The page's column header decides: AMOUNT before
@@ -587,16 +613,16 @@ class PrintedEvidence:
         if ambiguous:
             order = self._header_order(line)
             if order == "amount_first":
-                return after_date
+                return after_date or UNDECIDED
             if order != "date_first" or own > 0:
-                return None
+                return UNDECIDED
         elif after_date is not None:
             # A date column after the amount ("... 50.00 DEC31 1,234.56"): right after it, never past a word.
             return after_date
         if own > 0:
             # The row's amount is not its line's first and its group prints no date: the line's leading date
             # belongs to the row printed before it on that line, and the lines above to other rows.
-            return None
+            return UNDECIDED
         # The search upward, for a statement printing each day's date once. A row on a line of one column below a
         # table printed k-up continues one of its columns, which is unknown: no date. A row of a table printed k-up
         # with no date above it on the page continues a column from the previous page, whose last dated line begins
@@ -604,11 +630,11 @@ class PrintedEvidence:
         row_kup = self._kup(line)
         for index in range(line, -1, -1):
             if index != line and not row_kup and self._kup(index):
-                return None
+                return UNDECIDED
             count = self._row_starts[index]
             if count:
                 return " ".join(self._native_lines[index][:count])
-        return None if row_kup else ""
+        return UNDECIDED if row_kup else ""
 
     def _kup(self, index: int) -> bool:
         """Whether a text-layer line prints a table k-up: a later column group on it begins with a date."""
@@ -617,19 +643,27 @@ class PrintedEvidence:
 
     def _header_order(self, line: int) -> str | None:
         """How the nearest column header above ``line`` orders its columns (_column_order): "date_first",
-        "amount_first", or None (no header in reach, or it names no date or no amount column). A header printed
-        over several lines is read from its top line down ("DATE CHECK AMOUNT" over "NUMBER"); a section heading
-        ("DEPOSITS AND OTHER CREDITS") ends the search: a header above it is another table's (review 12)."""
+        "amount_first", or None (no header in reach, or it names no date or no amount column). A line printing money
+        is a row or a figure, never a header or a heading. A section heading ("DEPOSITS AND OTHER CREDITS", "DEPOSITS
+        POSTED") ends the search: a header above it is another table's (review 12). A header printed over several
+        lines ("DATE CHECK AMOUNT" over "NUMBER") is read from its nearest line naming a date and an amount column,
+        never across a heading (review 13)."""
+
+        def header(index: int) -> bool:
+            words = self._native_lines[index]
+            return (bool(words) and not self._line_spans[index] and _header_line(words)
+                    and not _section_heading_line(words))
+
         for index in range(line - 1, max(-1, line - _HEADER_REACH - 1), -1):
             words = self._native_lines[index]
-            if not words:
+            if not words or self._line_spans[index]:
                 continue
-            if _header_line(words):
+            if header(index):
                 first = index
-                while first > 0 and self._native_lines[first - 1] and _header_line(self._native_lines[first - 1]):
+                while first > 0 and header(first - 1):
                     first -= 1
-                return next((order for order in (_column_order(self._native_lines[header])
-                                                  for header in range(first, index + 1)) if order), None)
+                return next((order for order in (_column_order(self._native_lines[printed])
+                                                  for printed in range(index, first - 1, -1)) if order), None)
             if _section_heading_line(words):
                 return None
         return None

@@ -201,10 +201,15 @@ def _undated_row_date(row, above, printed_pages, start, end, order: str | None =
     once, on the day's first row); else, when no line above it on its page is dated, the previous page's last
     dated line (the day continues onto this page). Where the text layer cannot locate the row, or on a scanned
     page, the date of the row above it in the same printed table: never across a table, a section or a page,
-    never from a reviewer's addition (review 4)."""
+    never from a reviewer's addition (review 4). A row the text layer locates but cannot date (UNDECIDED) takes no
+    date at all: the row above can be another column's or another day's (review 13)."""
+    from vlm.native_text import UNDECIDED
+
     printed = (printed_pages[row.page - 1] if printed_pages is not None and 0 < row.page <= len(printed_pages)
                else None)
     governing = printed.governing_date(row.amount, row.balance) if printed is not None else None
+    if governing is UNDECIDED:
+        return None
     # The previous page's last dated line continues the day onto this page; for a row of a table printed k-up that
     # line's leading date is its first column's, which need not be the row's (review 11): no date.
     if (governing == "" and not getattr(row, "side_by_side", False) and 1 < row.page <= len(printed_pages or ())

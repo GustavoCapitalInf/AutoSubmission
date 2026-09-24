@@ -66,10 +66,17 @@ _PRODUCT_IDIOMS = re.compile(r"\bpay\s+as\s+you\s+go\b", re.I)
 # Here"). "Now" is a product's word ("Business NOW Account").
 _PROSE_WORDS = re.compile(r"\b(?:(?:a|an|to)\s+(?!(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
                           r"(?=[A-Za-z]{2})|(?:here|today)\b)", re.I)
-# Words of an advertisement, never of an account's title ("Introducing Business Checking Plus", "Business Checking
-# Simplified", "Business Checking Just Got Better", "New Savings Rates Effective April 1"; review 12).
-_MARKETING_PHRASES = re.compile(r"\b(?:introducing|announcing|meet|coming\s+soon|reinvented|reimagined|redefined|"
-                                r"simplified|just\s+got|got\s+better|rates)\b", re.I)
+# Words of an advertisement, never of an account's title ("Introducing Business Checking Plus", "Business Checking Just
+# Got Better"; review 12); and words an advertisement prints that a product's name can print too ("Business Checking
+# Simplified" but "Simplified Employee Pension IRA XXXX1234"; "New Savings Rates Effective April 1" but "Preferred
+# Rates Money Market 0005"; "Meet Business Checking Plus" but "Meet Me Checking"): an advertisement's only on a line
+# printing no identifier and not ending in its kind word (review 13).
+_MARKETING_PHRASES = re.compile(r"\b(?:introducing|announcing|coming\s+soon|reinvented|reimagined|redefined|just\s+got|"
+                                r"got\s+better)\b", re.I)
+_MARKETING_TITLE_WORDS = re.compile(r"\b(?:meet|rates|simplified)\b", re.I)
+# Words that make the verb after them a sentence's, never a product's ("Now Available Business Checking Plus", "Get
+# Protected Business Checking"; review 13).
+_VERB_ADVERBS = frozenset({"now", "get", "newly", "also", "just", "still"})
 # Forms of "be" and "have" are never a product's word: after a line's first word they make it a sentence in any case
 # ("Checking Accounts Are Changing"); the other verbs do only in lower case or beside a sentence word.
 _STRONG_VERBS = re.compile(r"(?:are|is|was|were|been|has|have)", re.I)
@@ -179,8 +186,22 @@ def _ends_in_kind(text: str) -> bool:
 
 
 def _identified(text: str) -> bool:
-    """Whether a line prints an account identifier (masked, labelled, in parentheses, or a long number)."""
-    return any(pattern.search(text) for pattern in (_MASKED, _LABELLED, _PARENS, _LETTER_NUMBER, _LONG))
+    """Whether a line prints an account identifier: masked, labelled, in parentheses, or a long number that is not a
+    year ("Open A Checking Account Before June 30 2031" prints none; review 13)."""
+    if any(pattern.search(text) for pattern in (_MASKED, _LABELLED, _PARENS, _LETTER_NUMBER)):
+        return True
+    return any(not re.fullmatch(r"(?:19|20)\d\d", match.group(0)) for match in _LONG.finditer(text))
+
+
+def _prose_in_title(text: str) -> bool:
+    """Whether every prose word of a title-case line is printed in lower case ("Ready to Grow Savings", "Learn to Save
+    Youth Savings"): a product's name; an advertisement capitalises them ("Switch To Business Checking", "Open A Money
+    Market"; review 13)."""
+    matches = list(_PROSE_WORDS.finditer(text))
+    prose = {match.group(0).split()[0] for match in matches}
+    others = [word for word in re.findall(r"[A-Za-z][A-Za-z'&-]*", text) if word not in prose]
+    return (bool(matches) and all(word.islower() for word in prose)
+            and bool(others) and all(word[0].isupper() for word in others))
 
 
 def _sentence_case(text) -> bool:
@@ -212,21 +233,25 @@ def parse_heading(text: str) -> Heading | None:
     continued = bool(_CONTINUED_TAIL.search(line))
     line = _CONTINUED_TAIL.sub("", line).strip(" -–—:|,")
     if (not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line)
-            or _MARKETING_PHRASES.search(line)):
+            or _MARKETING_PHRASES.search(line)
+            or (_MARKETING_TITLE_WORDS.search(line) and not (_identified(line) or _ends_in_kind(line)))):
         return None
     # A verb makes a sentence ("Business Checking has changed", "Business Checking Offers More"), unless it opens the
     # line ("Earn More Savings") or is a capitalised word of a product's name right before its kind word, a qualifier
     # between them ("POWER PROTECTED CHECKING", "Special Needs Savings", "Business Insured Money Market Account",
-    # "Overdraft Protected Business Checking"); and any verb beside a sentence word, the first word included ("Protect
-    # your checking account", "Is your checking account earning interest").
+    # "Custom Made Business Checking") and no adverb before it ("Now Available Business Checking Plus"); and any verb
+    # beside a sentence word, the first word included ("Protect your checking account", "Is your checking account
+    # earning interest").
     plain = _PRODUCT_IDIOMS.sub("PRODUCT", line)
     verbs = list(_VERBS.finditer(plain))
 
     def product_word(match):
+        before = plain[:match.start()].split()
         following = plain[match.end():].split()
         while following and following[0].lower() in _KIND_QUALIFIERS:
             following = following[1:]
         return (not match.group(0).islower() and not _STRONG_VERBS.fullmatch(match.group(0))
+                and not (before and before[-1].lower() in _VERB_ADVERBS)
                 and _kind_at_start(" ".join(following)) is not None)
 
     if any(match.start() > 0 and not product_word(match) for match in verbs) or (
@@ -236,10 +261,10 @@ def parse_heading(text: str) -> Heading | None:
     # Savings Faster"); the month a title is printed for is no sentence word ("... Activity for May").
     if any(match.start() > 0 for match in _MARKETING_WORDS.finditer(_PERIOD_TAIL.sub("", plain))):
         return None
-    # Prose words, unless the line prints an identifier or ends in its kind word: product names ("SAVE TO WIN SAVINGS
-    # 0005", "Ready to Grow Savings", "Plan A Savings 0003"; review 12).
+    # Prose words, unless the line prints an identifier or prints them in lower case in a title-case line: product
+    # names ("SAVE TO WIN SAVINGS 0005", "Plan A Savings 0003", "Ready to Grow Savings"; reviews 12, 13).
     prose = _PERIOD_TAIL.sub("", plain)
-    if _PROSE_WORDS.search(prose) and not (_identified(prose) or _ends_in_kind(prose)):
+    if _PROSE_WORDS.search(prose) and not (_identified(prose) or _prose_in_title(prose)):
         return None
     # A title's own words, without its identifier and the words every title can add ("Account", "Summary").
     title_words = [token for token in line.split()
@@ -437,14 +462,16 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
     for layout in layouts:
         caption = None
         last_heading = None  # (order, section index, Markdown level) of the last heading on this page
-        for block in sorted(layout.blocks, key=lambda block: block.order):
-            if block.label in _FURNITURE:
-                continue
+        money_since_heading = False
+        ordered = [block for block in sorted(layout.blocks, key=lambda block: block.order)
+                   if block.label not in _FURNITURE]
+        for position, block in enumerate(ordered):
             block_pages.setdefault(layout.page, []).append(block.order)
             captions[(layout.page, block.order)] = caption
             tops[(layout.page, block.order)] = block.bbox[1] if block.bbox else None
             if _MONEY_TOKEN.search(str(block.content)):
                 money.add((layout.page, block.order))
+                money_since_heading = True
             text = block_heading_text(block)
             heading = parse_heading(text) if text else None
             if heading is not None and heading.number is None and _marketing_line(text):
@@ -475,6 +502,14 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
                 # A product name printed as a lower heading directly under the account's own heading ("## Business
                 # Regular Checking - XXXX1234" then "### Fabricated Checking Basic").
                 chosen = last_heading[1]
+            elif (heading.number is None and last_heading is not None and not money_since_heading
+                  and sections[last_heading[1]].number is not None and not sections[last_heading[1]].number_from_line
+                  and heading.kind in (None, sections[last_heading[1]].kind)
+                  and not any(number_line(block_heading_text(later) or "") for later in ordered[position + 1:position + 4])):
+                # A heading printing no identifier right under an identified account's heading, nothing printing money
+                # between them and no "Account Number" line after it, is that account's product line or a slogan: a
+                # statement that identifies its accounts prints an identifier for a real second one (review 13).
+                chosen = last_heading[1]
             if chosen is None:
                 chosen = len(sections)
                 sections.append(AccountSection(chosen, heading.kind, heading.title, heading.number))
@@ -493,6 +528,7 @@ def plan_accounts(layouts, recoveries=()) -> AccountPlan:
             switches.append((layout.page, block.order, chosen))
             current = chosen
             last_heading = (block.order, chosen, level(block))
+            money_since_heading = False
             caption = None
     return AccountPlan(sections, switches, captions, crop_orders, block_pages, titles, tops, money)
 
@@ -550,6 +586,12 @@ _MONEY_TOKEN = re.compile(r"\(?[-−]?\s?[$€£]?\s?\d{1,3}(?:,\d{3})*\.\d{2}\)
 
 
 _LEAD_DATE = re.compile(r"^(?:\d{1,4}[/.-]\d{1,2}(?:[/.-]\d{2,4})?|[A-Za-z]{3,9}\.?\s+\d{1,2}(?:,?\s+\d{4})?)\s*$")
+# A table cell printing nothing but a date, in any order a statement prints one ("03/05", "Mar 5", "05 Mar", "05MAR31");
+# a month's name, never any word ("Share 01" is an account).
+_CELL_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+_CELL_DATE = re.compile(rf"^(?:\d{{1,4}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?|\d{{1,2}}\.\d{{1,2}}\.\d{{2,4}}|"
+                        rf"{_CELL_MONTH}\s*\d{{1,2}}(?:,?\s*\d{{2,4}})?|\d{{1,2}}\s*{_CELL_MONTH}(?:,?\s*\d{{2,4}})?)\s*$",
+                        re.I)
 
 
 def _label(text: str):
@@ -686,13 +728,15 @@ def _summary_header(grid) -> tuple[int, dict] | None:
                 roles[column] = label[0]
         if len(set(roles.values())) >= 2:
             # A summary table labels an account's balance; a ledger's figure columns are credits and debits only
-            # ("Day | Item | Deposits and Credits | Withdrawals and Debits | Balance"), and its rows begin with dates:
-            # any row, above the header too (a ledger continued without its header, ending in a totals row), and a
-            # header is never the table's last row (review 12).
-            first_cells = [next((cell for cell in row if cell), "") for position, row in enumerate(rows)
-                           if position != start]
-            if (start == len(rows) - 1 or not {"beginning_balance", "ending_balance"} & set(roles.values())
-                    or any(_LEAD_DATE.match(cell) for cell in first_cells if cell)):
+            # ("Day | Item | Deposits and Credits | Withdrawals and Debits | Balance"), and its rows print dates: any
+            # cell of any row, above the header too (a ledger continued without its header, ending in a totals row;
+            # "05 Mar"; a date column that is not the first), a header is never the table's last row, and it is the
+            # table's first row or follows only a title row (reviews 12, 13).
+            titled = start == 1 and len([cell for cell in rows[0] if cell]) == 1
+            dated = any(_CELL_DATE.match(cell) for position, row in enumerate(rows) if position != start
+                        for cell in row if cell)
+            if (start == len(rows) - 1 or (start > 0 and not titled) or dated
+                    or not {"beginning_balance", "ending_balance"} & set(roles.values())):
                 return None
             return start, roles
     return None
