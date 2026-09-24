@@ -32,7 +32,7 @@ the Fly demo host (out of scope entirely).
 4. Ship bar: **zero wrong**. Every published statement matches Phase 1 on every row amount, direction and
    date, the balances and the period; any reader-caused mismatch blocks shipping. Refusals are not errors.
    Phase 1's own errors are verified from the page and recorded (2026-09-23). Currency and currency source
-   also block (part 4, 2026-09-24).
+   also block (part 4, 2026-09-24), and so does the NSF count as decision 14 defines it.
 5. Partial accounts: Deterministic only shows the verified accounts and marks the rest "needs review"; Auto
    also runs the visual pair and keeps whichever reader verified more accounts, text-first winning ties;
    readers are never mixed within one statement (2026-09-23).
@@ -50,6 +50,14 @@ the Fly demo host (out of scope entirely).
     after text-first's single-account slice passes zero wrong (2026-09-24).
 13. Binding anti-optimizer rule (docs/moneythumb-replacement/PHASE2_RULINGS.md, "Anti-optimizer rule"):
     alternatives may be enumerated only to refuse, never to choose a reading.
+14. NSF count (R18, amended 2026-09-22; PHASE2_RULINGS.md "R18 amended"): the underwriting NSF count is the
+    number of days that end with a negative balance in the validated daily ledger, counting by default only
+    the days the statement itself establishes (a posting day, or a day the bank prints in its daily balance
+    table), `nsf_source = "negative_printed_days"`; carrying the balance over inactive days is the Settings
+    option (`"negative_ending_days"`). Returned / NSF line items are evidence only (`nsf_count`) and are never
+    the NSF figure. This branch carries the amendment, ported from phase3-ceiling (2026-09-24). Older truth
+    sources that count returned items (the run of record's payloads, the MoneyThumb benchmark's NSF count) are
+    never used as NSF truth.
 
 ## 3. Where it runs
 
@@ -305,7 +313,11 @@ and images cover ≥ 50% of it. Only the current page's glyphs are held in memor
   them).
 - Evidence-only figures (average, available or minimum balance, YTD, interest rate, APY, overdraft limit,
   per-item fee) are recorded, never used; the bank's average balance is evidence only (ADB doctrine).
-- Daily balances from daily-balance tables, dated the same way as rows.
+- Daily balances from daily-balance tables, dated the same way as rows, passed to analysis as
+  `Statement.stated_daily_balances` for every day the bank prints — no more and no fewer. They anchor the
+  daily ledger (analysis/adb.py marks such a day `bank_daily_summary`) and they decide which quiet days count
+  as printed days for the NSF count (owner decision 14), so a missed or invented daily-balance day changes a
+  published figure.
 - Idle account: opening and closing printed and equal, no rows, no dated money line.
 
 ### 5.7 Chronological statement
@@ -379,7 +391,10 @@ unproven figure), `verified_accounts`, `account_count`, `fully_verified`, `accou
 
 ### 7.2 Labels
 Every published account: `model_used = 'text-first-v1'`, `escalated = False`, `bank = None` (no parser's
-knowledge is borrowed), analysed with `dispatch=None`. `doc.model` stays the native token, so the source path
+knowledge is borrowed), analysed with `dispatch=None`. Metrics, the NSF count included, come from
+`analysis.metrics.compute_metrics` exactly as for a parser's statement; text-first computes none itself. The
+web app applies the owner's NSF basis to text-first payloads like any other (`analysis/nsf_days.py`,
+`webapp/app.py::_displayed`). `doc.model` stays the native token, so the source path
 stays `native` and the cost $0. The dashboard's "Parser used" shows **Text-first reader v1**.
 
 ### 7.3 Served annotation and confidence
@@ -424,8 +439,14 @@ Privacy throughout: statements are read locally and read-only; public outputs ca
 value-level detail and paths live in `*.private.json` files outside the checkout; tests, code and commit
 messages never carry real statement values; tests use hand-written fabricated PDFs only (no PyMuPDF).
 
-- **Stage 0 — floor**: settle the test floor (the two red guard tests; the tests/test_escalation_router.py
-  collection error; the modules that need pypdfium2, fixed by the requirements pin); freeze the manifest for
+- **Stage 0 — floor**: settle the test floor — the three guard tests already red on this branch
+  (`test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified`,
+  `test_no_statement_hardcodes::test_no_literal_account_numbers_in_ocr`,
+  `test_stated_counts::test_the_observer_is_not_wired_into_any_production_module`), the collection errors of
+  tests/test_escalation_router.py, tests/test_paddle_routing.py and tests/test_visual_rung.py, and the modules
+  that need pypdfium2 (fixed by the requirements pin). Tests that read the tracked corpus PDFs fail with
+  FileNotFoundError in a worktree that sparse-excludes `/Bank Statements/`, and Windows fails four POSIX
+  file-mode checks; both are recorded as the environment's baseline, not regressions. Freeze the manifest for
   every measurement run.
 - **Stage 1 — fabricated suite (CI, every commit)**: positive layouts match their truth files field by field
   (the layouts of tools/phase3_pair/synthetic_statements.py — running-balance, newest-first, end-of-day,
@@ -450,8 +471,15 @@ messages never carry real statement values; tests use hand-written fabricated PD
   parser at 25 statements per split; the wrong count is uncapped. `tools/textfirst/bench.py` recomputes Phase 1
   live exactly as discovery does, runs `read_statement` on the same bytes with the trigger bypassed, and
   compares: blocking — period, opening and closing, the multiset of (date, cents, direction) and the row count,
-  running balances where both print one, the ADB and daily ledger recomputed on both sides, currency and
-  currency source; reported only — stated totals and counts, descriptions, account key. Verdicts: MATCH,
+  running balances where both print one, the ADB and daily ledger recomputed on both sides, the NSF count on
+  both bases (`effective_nsf_count` with `nsf_source = "negative_printed_days"`, and `negative_days`), currency
+  and currency source; reported only — stated totals and counts, descriptions, the returned-item evidence
+  `nsf_count` (it follows descriptions), account key. Every blocking figure, NSF included, is recomputed live on
+  both sides by the same analysis code at the bench tag; no stored figure from an earlier run is ever truth
+  (owner decision 14: stored results from before R18 count returned items). A printed-day NSF mismatch whose
+  carry-over counts agree is a daily-balance-table coverage difference and is adjudicated from the page: if the
+  bank prints the day and text-first carried it while the parser did not, it is a PHASE1_MISMATCH; if text-first
+  missed or invented a printed day, it is a READER_MISMATCH. Verdicts: MATCH,
   READER_MISMATCH, PHASE1_MISMATCH (adjudicated from the page), REFUSED(code), HELD(code), PARTIAL. Every
   published mismatch is opened from the page and recorded privately (sha16, field class, verdict; no values). A
   reader error blocks shipping until the rule is fixed with a fabricated reproduction, or its tier is disabled.
@@ -505,6 +533,10 @@ everywhere after the exam. After slice A passes, the separate Phase 1 PyMuPDF mi
   provenance modules, and the corpus gate's excluded callers; the `decide()` call-site pin is unchanged.
 - `requirements.txt`: `pypdfium2==5.8.0`.
 
+Already on this branch before any text-first code (owner decision 14): the R18 NSF amendment ported from
+phase3-ceiling (`analysis/nsf_days.py`, `analysis/metrics.py`, `webapp/settings.py`, the Settings page, the
+`_displayed` step on every surface that serves or exports metrics, their tests and the ruling text).
+
 Unchanged: Phase 1 payloads, `ANALYSIS_STAGE_VERSION`, the pair manifest and caches, declared refusal
 literals.
 
@@ -527,6 +559,9 @@ literals.
 - Overfitting or burning holdout banks: whole-bank splits, per-parser caps, the look budget, recorded burns.
 - The test floor is not green at HEAD; new failures must be told apart from the recorded baseline.
 - Ruling 11 moves some visual-pair documents from validated to review; reported as the ruling's effect.
+- NSF truth conflicts: stored results from before R18 carry returned items as the NSF figure. The bench never
+  reads a stored figure (everything is recomputed live), and printed-day differences caused only by daily-
+  balance-table coverage are adjudicated from the page, not counted blindly against either reader.
 
 ## 13. Closed vocabularies (initial)
 
