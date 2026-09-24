@@ -72,8 +72,8 @@ function fetch(url) {
 els.statusMessage = {textContent: '', hidden: true, links: '',
                      insertAdjacentHTML(where, html) { this.links += html; }};
 """ + "\n".join(_function(name) for name in (
-        "escapeHtml", "setStatusMessage", "appendStatusLink", "friendlyAnalysisError", "sourceContradiction",
-        "setActions", "renderExtractionReview", "loadResults")) + """
+        "escapeHtml", "sentenceCase", "setStatusMessage", "appendStatusLink", "friendlyAnalysisError",
+        "sourceContradiction", "setActions", "renderExtractionReview", "loadResults")) + """
 loadResults('synthetic-job');
 setImmediate(() => console.log(JSON.stringify({currentAnalysis, currentMarkdown,
   cleared, renderedAnalysis, heading: els.statusHeading.textContent,

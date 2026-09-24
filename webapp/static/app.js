@@ -272,6 +272,9 @@ const NSF_SOURCE_LABELS = {
   negative_printed_days: "Negative-ending days (printed days only)",
   negative_ending_days: "Negative-ending days (balance carried over inactive days)",
   negative_ending_days_unavailable: "Not computable: no validated daily ledger",
+  // A result saved before R18 (2026-09-18) with no daily ledger to re-count keeps its own figure, which counted
+  // returned items; the label says so rather than pass it off as negative-ending days.
+  classified_line_items: "Returned items (saved before the negative-day count)",
 };
 
 function nsfSourceLabel(source) {
@@ -828,10 +831,12 @@ function setBanner(state, title, meta) {
   if (state !== "error") setStatusMessage("");
 }
 
-function setStatusMessage(message) {
+// `tone` "review" marks a result that needs review (amber) rather than a failure (red, the default).
+function setStatusMessage(message, tone = "error") {
   if (!els.statusMessage) return;
   els.statusMessage.textContent = message || "";
   els.statusMessage.hidden = !message;
+  els.statusMessage.classList?.toggle("review", tone === "review");
 }
 
 function kvRowsHtml(rows) {
@@ -1615,7 +1620,7 @@ function renderUnverifiedMain(published, roster, entry) {
     + "No metrics are shown for it.";
   els.statusHeading.textContent = "Main account needs review";
   setBanner("pending", "Main account not verified; its metrics withheld", "Review required");
-  setStatusMessage(explanation);
+  setStatusMessage(explanation, "review");
   els.decisionPill.textContent = "Review required";
   els.decisionPill.className = "decision-pill review_required";
   els.summaryBox.textContent = explanation;
@@ -2270,11 +2275,13 @@ function renderExtractionReview(message) {
     ]);
     return;
   }
-  const explanation = `${friendlyAnalysisError(message)} Open Review extraction to inspect the reading and its `
-    + "review status. No metrics have been published.";
+  // The reason, as a sentence of its own ahead of what to do about it.
+  const reason = sentenceCase(friendlyAnalysisError(message)).replace(/([^.!?])$/, "$1.");
+  const explanation = `${reason} Open Review extraction to inspect the reading and its review status. `
+    + "No metrics have been published.";
   els.statusHeading.textContent = "Extraction needs review";
   setBanner("pending", "Extraction available; metrics withheld", "Review required");
-  setStatusMessage(explanation);
+  setStatusMessage(explanation, "review");
   els.decisionPill.textContent = "Review required";
   els.decisionPill.className = "decision-pill review_required";
   els.summaryBox.textContent = explanation;
@@ -2470,7 +2477,8 @@ function pollJob(jobId) {
 let shownAnalysis = null;
 
 function recordShownAnalysis() {
-  shownAnalysis = { jobId: currentJobId, jobIds: currentJobIds.slice(), files: currentFiles, file: currentFile, startedAt };
+  shownAnalysis = { jobId: currentJobId, jobIds: currentJobIds.slice(), files: currentFiles, file: currentFile, startedAt,
+                    selectedAccountIndex };
 }
 
 // `reveal` opens the results page once they are drawn; a settings refresh redraws them where they are.
@@ -3333,20 +3341,23 @@ function openRecent(key) {
   transactionEntityFilter = null;
   setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
   closeSummary();
+  // The account chosen on another statement is not one of this statement's accounts.
+  selectedAccountIndex = null;
   // A reopen that fails (the job is gone, the server is unreachable) must not leave the page pointing at
   // it: the analysis still on screen gets its own ids back, and the failure is reported beside it.
   const onError = (message) => {
     if (currentJobIds.join(",") !== item.ids.join(",")) return;  // something newer was opened meanwhile
-    if (!currentAnalysis || !shownAnalysis) {
+    // A statement whose main account was not verified shows no account (currentAnalysis) but is on screen.
+    if ((!currentAnalysis && !currentDocument) || !shownAnalysis) {
       renderError(message);
       return;
     }
-    ({ jobId: currentJobId, files: currentFiles, file: currentFile, startedAt } = shownAnalysis);
+    ({ jobId: currentJobId, files: currentFiles, file: currentFile, startedAt, selectedAccountIndex } = shownAnalysis);
     currentJobIds = shownAnalysis.jobIds.slice();
     // The filter was reset for the reopen; the ledger on screen is redrawn to match its buttons.
     renderMainTransactions();
     notify(`Could not reopen ${item.label}: ${message}`, "red");
-    revealOpenAnalysis(currentAnalysis.package ? "packages" : "results");
+    revealOpenAnalysis(currentAnalysis && currentAnalysis.package ? "packages" : "results");
     togglePopover(els.notificationsPopover, els.notificationsBtn);
   };
   if (item.kind === "package") loadPackage(currentJobIds, { announce: false, onError });
