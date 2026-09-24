@@ -894,6 +894,8 @@ def ocr_settings_key(
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
     allow_paddle_ocr: bool = False,
+    allow_visual_pair: bool = False,
+    visual_pair_settings: Any | None = None,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -929,6 +931,8 @@ def ocr_settings_key(
         ocr_settings = _load_ocr_settings()
     version = OCR_STAGE_VERSION if stage_version is None else int(stage_version)
     partition = _validate_research_partition(research_partition)
+    if allow_visual_pair and version < 5:
+        raise ValueError("visual pair requires OCR stage version 5 or later")
     if partition and version < 5:
         # P22-IDENTITY closure-2 (review F-4): a pre-v5 key has no partition
         # field; silently dropping a research partition there would hand a
@@ -954,6 +958,8 @@ def ocr_settings_key(
             force_ocr=force_ocr, allow_local_ocr=allow_local_ocr,
             allow_visual_ocr=allow_visual_ocr, allow_paddle_ocr=allow_paddle_ocr,
         )
+        if allow_visual_pair:
+            extractor = "visual_pair"
         postprocess_state, postprocess_admitted = _ocr_postprocess_readout(extractor)
         try:
             from ocr.rasterize import RASTER_VERSION as _raster_version
@@ -980,6 +986,13 @@ def ocr_settings_key(
                 "pymupdf_version": toolchain["pymupdf_version"],
             }
         )
+        if allow_visual_pair:
+            from ocr.visual_pair_config import load_visual_pair_settings, visual_pair_settings_key_material
+
+            settings["allow_visual_pair"] = True
+            settings["visual_pair"] = visual_pair_settings_key_material(
+                visual_pair_settings or load_visual_pair_settings()
+            )
         if partition:
             # D7: present ONLY when non-empty — see the docstring. Every
             # extractor label gets its own research partition.
@@ -1218,6 +1231,9 @@ class ArtifactCache:
                 if document is None
                 else {
                     "model": document.model,
+                    **({"visual_pair": document.visual_pair,
+                        "visual_pair_sha256": _fingerprint(document.visual_pair)}
+                       if getattr(document, "visual_pair", None) is not None else {}),
                     "pages": [str(page) for page in document.pages],
                     "page_integrity": [
                         item.to_dict()
@@ -1322,6 +1338,8 @@ def cached_ocr(
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
     allow_paddle_ocr: bool = False,
+    allow_visual_pair: bool = False,
+    visual_pair_settings: Any | None = None,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -1389,6 +1407,8 @@ def cached_ocr(
         allow_local_ocr=allow_local_ocr,
         allow_visual_ocr=allow_visual_ocr,
         allow_paddle_ocr=allow_paddle_ocr,
+        allow_visual_pair=allow_visual_pair,
+        visual_pair_settings=visual_pair_settings,
         dpi=dpi,
         fallback_dpi=fallback_dpi,
         ocr_settings=ocr_settings,
@@ -1400,6 +1420,9 @@ def cached_ocr(
     if hit:
         try:
             evidence_payload = document.get("evidence") if document is not None else None
+            if document is not None and document.get("visual_pair") is not None:
+                if _fingerprint(document["visual_pair"]) != document.get("visual_pair_sha256"):
+                    raise ProvenanceTokenError("visual pair cache evidence hash mismatch")
             value = (
                 None
                 if document is None
@@ -1414,6 +1437,7 @@ def cached_ocr(
                     page_extractor=list(document.get("page_extractor") or []),
                     evidence=from_json(evidence_payload) if evidence_payload is not None else None,
                     native_evidence=_restore_native_evidence(document),
+                    visual_pair=document.get("visual_pair"),
                 )
             )
         except (EvidenceError, ProvenanceTokenError, TypeError, KeyError):

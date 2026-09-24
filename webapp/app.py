@@ -16,6 +16,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthorized
 
+from ocr.config import load_settings as load_ocr_settings
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
@@ -752,13 +753,68 @@ def _internal_transfer_positions(analysis: object, account_index: int | None) ->
     return positions
 
 
+_MAIN_ACCOUNT_TITLE = re.compile(r"\b(?:business|commercial|corporate)\b", re.IGNORECASE)
+
+
+def _account_roster(analysis: object) -> list[dict]:
+    """Every account a statement judged account by account prints (document.account_roster); [] for any other."""
+    document = analysis.get("document") if isinstance(analysis, dict) else None
+    roster = document.get("account_roster") if isinstance(document, dict) else None
+    return [entry for entry in roster if isinstance(entry, dict)] if isinstance(roster, list) else []
+
+
+_NOT_A_MAIN_ACCOUNT = frozenset({"credit_card", "loan"})
+
+
+def main_account_rank(kind, title) -> int:
+    """How likely an account is the one a lender funds, as the dashboard ranks it (app.js mainAccountRank): a
+    checking account first, then one whose title names no kind (a product name such as "... Plus Banking" can be the
+    operating account), then any other deposit account; a business title one higher within its tier; a card or a
+    loan never."""
+    if kind in _NOT_A_MAIN_ACCOUNT:
+        return -1
+    tier = 4 if kind == "checking" else 2 if kind in (None, "") else 0
+    return tier + (1 if _MAIN_ACCOUNT_TITLE.search(str(title or "")) else 0)
+
+
+def _unverified_main_account(roster: list[dict]) -> dict | None:
+    """The statement's main account when it was not verified, as the dashboard decides it (app.js
+    unverifiedMainAccount): a HELD account of the best rank (main_account_rank). Which account a lender funds is then
+    undetermined, and no other account stands in for it. None when no account of the best rank is held, when the
+    best rank is a card's or a loan's (no account a lender funds), or there is no roster."""
+    if not roster:
+        return None
+    ranks = [main_account_rank(entry.get("kind"), entry.get("title")) for entry in roster]
+    best = max(ranks)
+    held = [entry for entry, rank in zip(roster, ranks) if rank == best and entry.get("status") == "held"]
+    return held[0] if held and best >= 0 else None
+
+
+def _idle_main_account(roster: list[dict]) -> dict | None:
+    """The statement's main account when it printed no activity this period (owner ruling, 2026-09-23: it needs
+    review; the dashboard keeps showing the active account, app.js idleMainAccount): the idle account of the best rank
+    (main_account_rank), when no account of that rank was verified or held. None otherwise."""
+    if not roster:
+        return None
+    ranks = [main_account_rank(entry.get("kind"), entry.get("title")) for entry in roster]
+    best = max(ranks)
+    top = [entry for entry, rank in zip(roster, ranks) if rank == best]
+    if best < 0 or any(entry.get("status") in ("published", "held") for entry in top):
+        return None
+    return next((entry for entry in top if entry.get("status") == "idle"), None)
+
+
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
     A member is ONE ACCOUNT. A job publishing today's payload is one member and
     is admitted exactly as it always was — this function cannot change what a
-    single-account package computes, because for such a job it yields the same
-    one `(job, job.analysis)` pair the loop used to read straight off the job.
+    single-account package computes, because for such a job it yields one
+    `(job, analysis)` pair whose analysis is the stored one as the dashboard
+    shows it (`_displayed`: the owner's NSF basis applied to a copy; the stored
+    record is never rewritten and every other field is the stored one). The
+    NSF basis is read once per package, so a setting saved mid-request cannot
+    split the members across two bases.
 
     Two rules apply to a job that publishes several accounts, and both are the
     package's own arithmetic protecting itself:
@@ -785,6 +841,20 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
     for job in jobs:
         analysis = _displayed(job.analysis or {}, carry_over=carry_over)
+        roster = _account_roster(analysis)
+        unverified, idle = _unverified_main_account(roster), _idle_main_account(roster)
+        if unverified is not None or idle is not None:
+            # The statement's main account (its business checking account, as the dashboard shows it) was not
+            # verified, or printed no activity and needs review: no other account of the statement stands in for it
+            # in the package's figures.
+            excluded.append({
+                "job_id": job.id,
+                "account_index": None,
+                "account_count": len(roster),
+                "outcome": "withheld",
+                "reason": "main_account_unverified" if unverified is not None else "main_account_idle",
+            })
+            continue
         if not is_document_payload(analysis):
             members.append((job, analysis, None, 1))
             continue
@@ -1109,6 +1179,22 @@ def _package_analysis(jobs) -> dict:
             and len(posted_credit_rows)
             == sum(len(rows) for rows in revenue_rows.values())
         )
+        # Monthly Statements' True deposits (the verified revenue) stand for this member only when every captured
+        # credit carries its revenue state AND the captured credits are the money its Total counts: the line items are
+        # the Total's source, or they add up to the bank's own total. Otherwise the verified figure is a part of an
+        # unknown whole (a summary-only statement, a partly classified one, a payload from before classification
+        # records, a failed member), and the table says N/A rather than show it as the month's revenue. A member
+        # that captured no credit and whose Total is zero took in nothing, and its True deposits are zero.
+        revenue_established = ready and (
+            (
+                revenue_rows_are_authoritative
+                and (
+                    str(metrics.get("deposits_source") or "line_items") == "line_items"
+                    or abs(line_item_total - deposit_total) < 0.005
+                )
+            )
+            or (bool(statement) and not positive_statement_rows and credits == 0)
+        )
         if authoritative_rows:
             lender_debits = round(sum(abs(_num(row.get("amount"))) for row in lender_rows), 2)
             lender_debit_count = len(lender_rows)
@@ -1423,6 +1509,10 @@ def _package_analysis(jobs) -> dict:
                 "source_period_start": statement.get("period_start"),
                 "source_period_end": statement.get("period_end"),
             }
+            if account_index is not None:
+                # A row of one account of a multi-account document: its location is numbered within that account,
+                # so a review of it names the account (1-based, printed order). Other rows carry no such key.
+                package_transaction["source_account"] = account_index
             package_transactions.append(package_transaction)
             classification = tx.get("classification") or {}
             evidence = {
@@ -1480,6 +1570,7 @@ def _package_analysis(jobs) -> dict:
             "total_posted_credit_count": posted_credit_count,
             "verified_revenue_total": revenue_totals["verified_revenue"],
             "verified_revenue_count": revenue_counts["verified_revenue"],
+            "verified_revenue_established": revenue_established,
             "unverified_deposit_total": revenue_totals["unverified_deposit"],
             "unverified_deposit_count": revenue_counts["unverified_deposit"],
             "confirmed_true_revenue_total": revenue_totals["verified_revenue"],
@@ -1903,7 +1994,7 @@ def _upload_too_large(_exc):
     }), 413
 
 
-def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object, dict | None]:
+def _checked_upload(filename: str, pdf_bytes: bytes, *, read_native_text: bool = True) -> tuple[int | None, object, dict | None]:
     """Server-side gate for a single uploaded file. Returns
     (page_count, profile, error) with the error exclusive of the other two.
 
@@ -1938,7 +2029,8 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
         }
     if not pdf_bytes.startswith(b"%PDF-"):
         return None, None, {"error": "file is not a PDF", "filename": filename}
-    profile = inspect_pdf(pdf_bytes)
+    profile = (inspect_pdf(pdf_bytes) if read_native_text
+               else inspect_pdf(pdf_bytes, read_native_text=False))
     if profile.encrypted:
         return None, None, {
             "error": "PDF is password-protected; upload a decrypted copy",
@@ -1991,6 +2083,10 @@ def upload():
     parse_mode = request.form.get("parse_mode") or "auto"
     if parse_mode not in {"auto", "deterministic"}:
         return jsonify({"error": "invalid parse_mode"}), 400
+    # The forced pair skips native text at intake as well as in the worker.
+    # Encryption, page limits and the document hash still receive structural
+    # validation; the explicit legacy comparison keeps its previous preflight.
+    read_native_text = not (force_ocr and not load_ocr_settings().visual_pair_legacy_visual)
 
     # Validate the whole batch before creating any job. A half-accepted upload
     # would leave the dashboard aggregating an incomplete package with nothing
@@ -1998,7 +2094,7 @@ def upload():
     accepted: list[tuple[str, bytes, int, object]] = []
     for f in files:
         pdf_bytes = f.read()
-        page_count, profile, error = _checked_upload(f.filename, pdf_bytes)
+        page_count, profile, error = _checked_upload(f.filename, pdf_bytes, read_native_text=read_native_text)
         if error is not None:
             return jsonify(error), 400
         accepted.append((f.filename, pdf_bytes, page_count, profile))
@@ -2141,12 +2237,19 @@ def analysis(job_id):
 #: the exception's own string, so what crosses the boundary is provably a
 #: constant in this file. `f"{DECLARED}: {a quoted cell}"` does not match and is
 #: reduced like anything else. Fail-closed: admission is a deliberate edit.
+#:
+#: SEVEN since the review learned to name its account: a location numbers a
+#: posting within its account, so a document of several accounts can hold one
+#: location per account, and `apply_serialized_revenue_review` refuses such a
+#: location unless the review names the account, and a named account it lacks.
 _DECLARED_REVIEW_REFUSALS: tuple[str, ...] = (
     "transaction source location was not found",
     "decision must be confirm, reject, or reset",
     "only automatically unverified deposits can be reviewed",
     "every posted credit must have an authoritative classification record",
     "every posted credit must have a valid revenue classification",
+    "account was not found",
+    "transaction source location is in more than one account; name the account",
 )
 
 
@@ -2169,40 +2272,156 @@ def _review_refusal(exc: BaseException) -> str:
     )
 
 
+#: One lock per statement around a review's read-modify-write. A review reads the stored analysis, applies its
+#: decision to a copy and saves the copy; two reviews of one statement at once (the multi-select's batch and a row's
+#: own button, or two tabs) would each start from the same stored analysis and the second save would drop the first
+#: one's decision while both decision rows stayed recorded. Reviews of different statements do not wait on each other.
+_review_locks: dict[str, threading.Lock] = {}
+_review_locks_guard = threading.Lock()
+
+
+def _review_lock(job_id: str) -> threading.Lock:
+    """The statement's review lock. Taken only for a job the store knows (the routes check first), so a
+    request naming no statement leaves nothing behind."""
+    with _review_locks_guard:
+        return _review_locks.setdefault(job_id, threading.Lock())
+
+
+#: The longest actor name a review records. Free text until authentication exists (D-2b), and recorded twice per
+#: decision (decision row and audit row), so it is held to the length of a name.
+MAX_REVIEW_ACTOR = 120
+
+
+def _review_actor(payload: dict) -> tuple[str | None, str | None]:
+    """`(actor, None)`, or `(None, refusal)` for an actor that is not a name."""
+    actor = payload.get("actor")
+    if actor is None:
+        return "local-analyst", None
+    if not isinstance(actor, str) or len(actor.strip()) > MAX_REVIEW_ACTOR:
+        return None, f"actor must be text of at most {MAX_REVIEW_ACTOR} characters"
+    return actor.strip() or "local-analyst", None
+
+
+def _review_account(value: object) -> tuple[int | None, str | None]:
+    """`(account, None)` — the 1-based account in printed order, or None when the review names none — or
+    `(None, refusal)`. A location numbers a posting within its account, so a statement of several accounts needs it."""
+    if value is None:
+        return None, None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None, "account must be a whole number from 1"
+    return value, None
+
+
 @app.route("/analysis/<job_id>/revenue-review", methods=["POST"])
 def revenue_review(job_id):
-    job = store.get(job_id)
-    if job is None or job.status != "done" or job.analysis is None:
-        abort(404)
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "the review must be a JSON object"}), 400
     source_location = str(payload.get("source_location") or "").strip()
     decision = str(payload.get("decision") or "").strip().lower()
     if not source_location:
         return jsonify({"error": "source_location is required"}), 400
-    try:
-        updated = apply_serialized_revenue_review(
-            deepcopy(job.analysis),
-            source_location=source_location,
-            decision=decision,
-        )
-    except LookupError as exc:
-        return jsonify({"error": _review_refusal(exc)}), 404
-    except ValueError as exc:
-        return jsonify({"error": _review_refusal(exc)}), 400
+    account, refusal = _review_account(payload.get("account"))
+    if refusal:
+        return jsonify({"error": refusal}), 400
     # Free-text actor until authentication exists (D-2b); recorded with the
     # decision timestamp and the prior classification state in the same
     # storage transaction that persists the mutated analysis.
-    actor = str(payload.get("actor") or "").strip() or "local-analyst"
-    stored = store.apply_review(
-        job_id,
-        updated,
-        source_location=source_location,
-        decision=decision,
-        actor=actor,
-    )
+    actor, refusal = _review_actor(payload)
+    if refusal:
+        return jsonify({"error": refusal}), 400
+    if store.get(job_id) is None:
+        abort(404)
+    with _review_lock(job_id):
+        job = store.get(job_id)
+        if job is None or job.status != "done" or job.analysis is None:
+            abort(404)
+        try:
+            updated = apply_serialized_revenue_review(
+                deepcopy(job.analysis),
+                source_location=source_location,
+                decision=decision,
+                account=account,
+            )
+        except LookupError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 400
+        stored = store.apply_review(
+            job_id,
+            updated,
+            source_location=source_location,
+            decision=decision,
+            actor=actor,
+            account=account,
+        )
     if stored is None:
         abort(404)
     return jsonify({"analysis": _masked(_displayed(stored))})
+
+
+#: The most decisions one batch may carry: more than any statement prints credits, far fewer than a request could
+#: be made to hold.
+MAX_REVIEW_BATCH = 500
+
+
+@app.route("/analysis/<job_id>/revenue-reviews", methods=["POST"])
+def revenue_reviews(job_id):
+    """Several analyst decisions on one statement (the dashboard's multi-select), all or nothing.
+
+    Every decision is applied to a working copy first, in order; only when all of them hold are the result and,
+    for each decision, its own decision row and audit row saved, in one storage transaction
+    (`JobStore.apply_reviews`). A refused decision refuses the batch and nothing is saved. A posting — its location
+    within its account — may appear once per batch, so each recorded prior state is the one before the batch.
+    Refusals use the same vocabulary as the single-decision route (`_review_refusal`): no exception text reaches the
+    response."""
+    payload = request.get_json(silent=True)
+    decisions = payload.get("decisions") if isinstance(payload, dict) else None
+    if not isinstance(decisions, list) or not decisions:
+        return jsonify({"error": "decisions must be a non-empty list"}), 400
+    if len(decisions) > MAX_REVIEW_BATCH:
+        return jsonify({"error": f"a batch holds at most {MAX_REVIEW_BATCH} decisions"}), 400
+    parsed: list[tuple[str, str, int | None]] = []
+    seen: set[tuple[int | None, str]] = set()
+    for item in decisions:
+        if not isinstance(item, dict):
+            return jsonify({"error": "each decision must be an object"}), 400
+        source_location = str(item.get("source_location") or "").strip()
+        decision = str(item.get("decision") or "").strip().lower()
+        if not source_location:
+            return jsonify({"error": "source_location is required"}), 400
+        account, refusal = _review_account(item.get("account"))
+        if refusal:
+            return jsonify({"error": refusal}), 400
+        if (account, source_location) in seen:
+            return jsonify({"error": "a transaction appears more than once in the batch"}), 400
+        seen.add((account, source_location))
+        parsed.append((source_location, decision, account))
+    if len({account is None for _, _, account in parsed}) > 1:
+        # "transaction:2" and account 1's "transaction:2" can be one posting: a batch names every account or none.
+        return jsonify({"error": "every decision must name its account, or none may"}), 400
+    actor, refusal = _review_actor(payload)
+    if refusal:
+        return jsonify({"error": refusal}), 400
+    if store.get(job_id) is None:
+        abort(404)
+    with _review_lock(job_id):
+        job = store.get(job_id)
+        if job is None or job.status != "done" or job.analysis is None:
+            abort(404)
+        updated = deepcopy(job.analysis)
+        try:
+            for source_location, decision, account in parsed:
+                updated = apply_serialized_revenue_review(
+                    updated, source_location=source_location, decision=decision, account=account)
+        except LookupError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 400
+        stored = store.apply_reviews(job_id, updated, decisions=parsed, actor=actor)
+    if stored is None:
+        abort(404)
+    return jsonify({"analysis": _masked(_displayed(stored)), "applied": len(parsed)})
 
 
 @app.route("/package_analysis")

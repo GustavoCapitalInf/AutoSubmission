@@ -450,10 +450,10 @@ def test_case10_a_paddle_read_never_touches_ocr_client_at_runtime(scan_tree, mon
 # ---------------------------------------------------------------------------
 
 
-def test_case12_worker_enabled_extractors_is_visual_only():
+def test_case12_worker_enabled_extractors_keeps_paddle_disabled():
     from webapp.worker import WORKER_ENABLED_EXTRACTORS
 
-    assert WORKER_ENABLED_EXTRACTORS == frozenset({"visual"})
+    assert WORKER_ENABLED_EXTRACTORS == frozenset({"visual", "visual_pair"})
 
 
 def test_case12_webapp_worker_has_no_allow_paddle_ocr_call_site():

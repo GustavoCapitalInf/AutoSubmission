@@ -502,3 +502,39 @@ daily balance table (248 statements) the printed number of negative days equals 
 agrees in all 46: the extra days are quiet days (no activity) that the bank's activity-only table omits,
 which the ruling counts by definition. 245 accounts carry returned items; 75 of them never end a day
 negative and therefore report an NSF count of zero under this ruling (the items stay listed as evidence).
+
+
+## R18 amended — NSF counts printed days by default; carry-over is a Settings option (Gustavo, 2026-09-22)
+
+Verbatim: "alright before we keep working with this, the current way we get nsf count is negative ending
+balance days. however, how we calculate ending balance is that a previous day ending balance carries over
+inactive days. For example, 3/10 ending balance = -$10 3/12 ending balance = $20 since there is no activity
+day 11 we currently rollover the tenth's ending balance over to day 11. So day 11's ending balance comes out
+to be -$10 and the total number of negative days comes out to be 2. However, In this case i would want it
+to just show 1 negative day. Do not throw away the current way we calculate this. Instead, keep it as a
+secondary option as a toggle in a new settings page in the web app. Defaults to printed day no carry over
+balance. And if i toggle on carry over it should turn on the functionality."
+
+Ruling as implemented (f069a24; `analysis/nsf_days.py`, `analysis/metrics.py`, `webapp/settings.py`,
+`webapp/app.py`):
+
+* Default (`nsf_source = "negative_printed_days"`): `effective_nsf_count` counts the days whose ending
+  balance the statement itself establishes — a posting day, or a day the bank printed in its daily balance
+  table — and that end below zero. A day with no activity, which only carries the previous balance forward
+  in the ledger, is not counted. Gustavo's example: 03-10 ends -$10, nothing posts on 03-11, 03-12 ends
+  $20 → 1 negative day by default, 2 with carry-over. Every new analysis computes the default.
+* The R18 calendar-day count (`nsf_source = "negative_ending_days"`, a quiet day carrying the previous
+  balance) is kept unchanged as the option "Carry the balance over inactive days when counting NSFs" on the
+  web app's Settings page. The choice is stored with the web app's data and applied whenever a result
+  leaves the server (the analysis API, the revenue-review response, the JSON/CSV/XLSX downloads and the
+  package analysis), so a saved statement changes basis without being reprocessed. A result saved before
+  f069a24 carries no printed-day count and is re-counted from its stored daily ledger; with no ledger it
+  keeps the count it was written with, under its own label.
+* Unchanged from R18: returned / NSF line items stay in `nsf_count` as evidence and are not added; without
+  a validated daily ledger the figure is not computable on either basis (`effective_nsf_count = 0`,
+  `nsf_source = "negative_ending_days_unavailable"`, with a note); the daily ledger and the ADB are the
+  same on both bases.
+
+The R18 evidence above was measured on the carry-over basis and has not been re-measured on the
+printed-day default. The 46 statements whose computed count exceeded the bank's printed table differed
+only by quiet days, which are the days the default leaves out.

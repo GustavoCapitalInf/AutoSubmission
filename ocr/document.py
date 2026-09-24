@@ -89,6 +89,10 @@ class StatementMarkdown:
     # `None` for every rung that measured nothing (native, Tesseract, visual,
     # a committed artifact, a restored cache entry).
     extraction_telemetry: dict | None = None
+    # Phase 3.1: reviewed source fields, row lineage, gate and receipt binding.
+    # Separate from technical telemetry and canonical OCR geometry. Persisted
+    # only in the isolated visual-pair cache; contains private document content.
+    visual_pair: dict | None = None
 
     def __post_init__(self) -> None:
         """Close F-4(b) / MAJOR-2 at the point both fields are SET.
@@ -195,6 +199,8 @@ class StatementMarkdown:
             raise ProvenanceTokenError(
                 "extraction_telemetry must be a dict of technical figures or None"
             )
+        if self.visual_pair is not None and not isinstance(self.visual_pair, dict):
+            raise ProvenanceTokenError("visual_pair must be a dict or None")
 
     @property
     def native_evidence_sha256(self) -> str | None:

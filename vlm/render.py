@@ -1,4 +1,4 @@
-"""Page rendering for the vision models: pdfium in-process, model-fit JPEG, hashes, timings.
+"""Page rendering for vision models: pdfium, RGB PNG or JPEG, hashes, timings.
 
 No PyMuPDF (AGPL) and no subprocess. Nothing is written to disk; page bytes exist only in
 memory, as in `ocr/paddle_rung.py`.
@@ -18,7 +18,7 @@ from vlm.receipts import sha256_bytes
 
 DEFAULT_LONG_EDGE = 1540
 DEFAULT_JPEG_QUALITY = 90
-RENDER_VERSION = 1
+RENDER_VERSION = 2
 PDF_MAGIC = b"%PDF"
 
 
@@ -27,7 +27,7 @@ class RenderedPage:
     index: int
     width: int
     height: int
-    jpeg: bytes
+    jpeg: bytes  # Legacy field name; encoding is selected by image_format.
     jpeg_sha256: str
     pixel_sha256: str
     pdf_width_pt: float
@@ -51,16 +51,20 @@ def _pdfium_versions() -> tuple[str, str]:
     return str(wrapper), build
 
 
-def render_settings() -> dict:
+def render_settings(*, dpi: int | None = None, image_format: str = "JPEG") -> dict:
     wrapper, build = _pdfium_versions()
-    return {
+    settings = {
         "render_version": RENDER_VERSION,
         "renderer": "pypdfium2",
         "pypdfium2_version": wrapper,
         "pdfium_version": build,
-        "long_edge": DEFAULT_LONG_EDGE,
-        "jpeg_quality": DEFAULT_JPEG_QUALITY,
+        "image_format": image_format,
+        "color_mode": "RGB",
     }
+    settings.update({"long_edge": DEFAULT_LONG_EDGE} if dpi is None else {"dpi": dpi})
+    if image_format == "JPEG":
+        settings["jpeg_quality"] = DEFAULT_JPEG_QUALITY
+    return settings
 
 
 def page_count(pdf_bytes: bytes) -> int:
@@ -71,13 +75,18 @@ def page_count(pdf_bytes: bytes) -> int:
         doc.close()
 
 
-def _encode(image: Image.Image, quality: int) -> tuple[bytes, str, float]:
+def _encode(image: Image.Image, quality: int, image_format: str = "JPEG") -> tuple[bytes, str, float]:
     started = time.perf_counter()
     if image.mode != "RGB":
         image = image.convert("RGB")
     pixel_sha = sha256_bytes(image.tobytes())
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=quality, subsampling=0)
+    if image_format == "PNG":
+        image.save(buffer, format="PNG")
+    elif image_format == "JPEG":
+        image.save(buffer, format="JPEG", quality=quality, subsampling=0)
+    else:
+        raise ValueError("render_image_format_invalid")
     return buffer.getvalue(), pixel_sha, (time.perf_counter() - started) * 1000.0
 
 
@@ -104,7 +113,8 @@ def render_pages(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
 
 def _render_pages_unlocked(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_EDGE,
                  quality: int = DEFAULT_JPEG_QUALITY,
-                 page_indices: Iterable[int] | None = None) -> list[RenderedPage]:
+                 page_indices: Iterable[int] | None = None,
+                 dpi: int | None = None, image_format: str = "JPEG") -> list[RenderedPage]:
     doc = pdfium.PdfDocument(pdf_bytes)
     try:
         indices = list(range(len(doc))) if page_indices is None else list(page_indices)
@@ -113,12 +123,13 @@ def _render_pages_unlocked(pdf_bytes: bytes, *, long_edge: int = DEFAULT_LONG_ED
             page = doc[index]
             try:
                 width_pt, height_pt = page.get_size()
-                scale = long_edge / max(width_pt, height_pt)
+                scale = dpi / 72 if dpi is not None else long_edge / max(width_pt, height_pt)
                 started = time.perf_counter()
                 image = page.render(scale=scale).to_pil()
                 render_ms = (time.perf_counter() - started) * 1000.0
-                image = _fit(image, long_edge)
-                jpeg, pixel_sha, encode_ms = _encode(image, quality)
+                if dpi is None:
+                    image = _fit(image, long_edge)
+                jpeg, pixel_sha, encode_ms = _encode(image, quality, image_format)
                 pages.append(RenderedPage(
                     index=index, width=image.width, height=image.height, jpeg=jpeg,
                     jpeg_sha256=sha256_bytes(jpeg), pixel_sha256=pixel_sha,

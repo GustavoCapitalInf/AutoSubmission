@@ -221,6 +221,9 @@ DOCUMENT_LEVEL_FIELDS = {
     "integrity_notes": "on the object; today's only member is "
                        "`ambiguous_internal_transfer`, which needs two ledgers to be "
                        "reachable at all, so a single-account document carries none (L1-S4)",
+    "account_roster": "in the `document` block beside a single published account (the other accounts the "
+                      "document prints, idle or held), and in the multi-account block; empty from every "
+                      "reader that does not judge accounts one by one, so their payloads are unchanged",
 }
 
 

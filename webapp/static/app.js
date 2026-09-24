@@ -84,6 +84,13 @@ const els = {
   monthlyCard: document.getElementById("monthlyCard"),
   monthlyTable: document.getElementById("monthlyTable"),
   monthlyCount: document.getElementById("monthlyCount"),
+  monthlyHead: document.getElementById("monthlyHead"),
+  monthlyDepositsView: document.getElementById("monthlyDepositsView"),
+  bulkReviewBar: document.getElementById("bulkReviewBar"),
+  bulkReviewCount: document.getElementById("bulkReviewCount"),
+  bulkReviewStatus: document.getElementById("bulkReviewStatus"),
+  bulkSelectAll: document.getElementById("bulkSelectAll"),
+  transactionsTitle: document.getElementById("transactionsTitle"),
   accountSummary: document.getElementById("accountSummary"),
   copyTextBtn: document.getElementById("copyTextBtn"),
   openTextBtn: document.getElementById("openTextBtn"),
@@ -106,9 +113,12 @@ const els = {
   statementModalTransactions: document.getElementById("statementModalTransactions"),
   statementModalTransactionCount: document.getElementById("statementModalTransactionCount"),
   modalJsonDownload: document.getElementById("modalJsonDownload"),
+  modalExtractionReview: document.getElementById("modalExtractionReview"),
   modalCopyData: document.getElementById("modalCopyData"),
   copyBuffer: document.getElementById("copyBuffer"),
   appearanceToggle: document.getElementById("appearanceToggle"),
+  allAccountsToggle: document.getElementById("allAccountsToggle"),
+  accountsPanel: document.getElementById("accountsPanel"),
 };
 
 let currentJobId = null;
@@ -120,7 +130,14 @@ let currentFiles = [];
 let startedAt = null;
 let pollTimer = null;
 let modalAnalysis = null;
+// A statement holding several accounts: the payload, and which of its published accounts the panels show.
+let currentDocument = null;
+let selectedAccountIndex = null;
 let modalJobId = null;
+// The statement window's account: the one of the package row it was opened from (1-based; null opens the main
+// account), and the one it shows, which its rows' reviews name (null for a statement of one account).
+let modalAccount = null;
+let modalReviewAccount = null;
 let modalLastFocus = null;
 let modalScrollY = 0;
 let transactionFilter = "all";
@@ -186,7 +203,7 @@ const emptyMetricSections = [
     title: "Risk Signals",
     sub: "Balance and NSF indicators",
     items: [
-      ["NSFs", "N/A", "Returned or insufficient funds", "NSF", "neutral"],
+      ["NSFs", "N/A", "Days ending with a negative balance", "NSF", "neutral"],
       ["Average Daily Balance", "N/A", "Average of daily ending balances for the statement period", "AVG", "neutral"],
       ["Ending Balance", "N/A", "Closing balance for the statement period", "END", "neutral"],
       ["Lowest Balance", "N/A", "Lowest daily ending balance", "LOW", "neutral"],
@@ -225,6 +242,20 @@ function labelize(value) {
   return String(value || "N/A").replace(/_/g, " ");
 }
 
+function processingStageLabel(value) {
+  const match = /^(visual_pair_proposing|visual_pair_reviewing):(\d+)\/(\d+)(?::(batch|crop):(\d+)\/(\d+)|:(discovery))?$/.exec(String(value || ""));
+  if (match) {
+    const label = `${match[1] === "visual_pair_proposing" ? "Reading" : "Checking"} page ${match[2]} of ${match[3]}`;
+    if (match[7]) return `${label} for missing rows`;
+    if (match[4] === "crop") return `${label} again, region ${match[5]} of ${match[6]}`;
+    if (match[4] === "batch") return `${label}, part ${match[5]} of ${match[6]}`;
+    return label;
+  }
+  if (value === "visual_pair_rendering") return "Preparing statement pages";
+  if (value === "visual_pair_gating") return "Checking statement totals";
+  return labelize(value);
+}
+
 function numberOrNull(value) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
@@ -252,6 +283,9 @@ const NSF_SOURCE_LABELS = {
   negative_printed_days: "Negative-ending days (printed days only)",
   negative_ending_days: "Negative-ending days (balance carried over inactive days)",
   negative_ending_days_unavailable: "Not computable: no validated daily ledger",
+  // A result saved before R18 (2026-09-18) with no daily ledger to re-count keeps its own figure, which counted
+  // returned items; the label says so rather than pass it off as negative-ending days.
+  classified_line_items: "Returned items (saved before the negative-day count)",
 };
 
 function nsfSourceLabel(source) {
@@ -482,13 +516,37 @@ function filterTransactions(transactions, filter, canonicalEntity = null) {
   return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
 }
 
-function revenueReviewControls(tx, fallbackJobId = null) {
+// The account a review of this row names: 1-based, in printed order, or null for a statement of one account. A row's
+// location (`transaction:N`) is numbered within its account, so a statement of several accounts holds one
+// `transaction:2` per account and the server refuses the location alone. A package row carries its own
+// (`source_account`); a statement's rows are the account on screen's (`fallbackAccount`).
+function reviewAccountOf(tx, fallbackAccount = null) {
+  return tx.source_account ?? fallbackAccount ?? null;
+}
+
+// A deposit the classifier left for review and nobody has decided yet: its statement, account and row, or null. The
+// row's own Confirm and Mark buttons and the multi-select's checkbox are offered for exactly these.
+function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
+  const record = transactionClassification(tx);
+  if (record.revenue_initial_classification !== "unverified_deposit") return null;
+  if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") return null;
+  const jobId = tx.source_job || fallbackJobId;
+  const sourceLocation = record.source_location;
+  return jobId && sourceLocation ? { jobId, account: reviewAccountOf(tx, fallbackAccount), sourceLocation } : null;
+}
+
+function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null) {
   const record = transactionClassification(tx);
   if (record.revenue_initial_classification !== "unverified_deposit") return "";
   const jobId = tx.source_job || fallbackJobId;
   const sourceLocation = record.source_location;
   if (!jobId || !sourceLocation) return "";
-  const common = `data-revenue-review-job="${escapeHtml(jobId)}" data-revenue-review-location="${escapeHtml(sourceLocation)}"`;
+  const account = reviewAccountOf(tx, fallbackAccount);
+  // Drawn while the multi-select's batch is being saved (a sort, the statement window), a row's buttons are held
+  // like the ones already on screen (holdRowReviews): its decision would wait for nothing.
+  const common = `data-revenue-review-job="${escapeHtml(jobId)}" data-revenue-review-location="${escapeHtml(sourceLocation)}"`
+    + (account === null ? "" : ` data-revenue-review-account="${escapeHtml(String(account))}"`)
+    + (bulkBusy ? " disabled" : "");
   if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") {
     const decision = record.revenue_review_status === "confirmed" ? "Confirmed as revenue" : "Marked non-revenue";
     return `
@@ -554,8 +612,9 @@ function sortTransactions(transactions, sort) {
   return decorated.map((entry) => entry.tx);
 }
 
+// Draws the rows; returns the multi-select keys of the deposits it offered a checkbox for (none unless `selectable`).
 function renderTransactionRows(tableEl, countEl, transactions, filter, currency = "USD", options = {}) {
-  if (!tableEl || !countEl) return;
+  if (!tableEl || !countEl) return [];
   const {
     sort = "date",
     showSource = false,
@@ -563,6 +622,8 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     moreEl = null,
     canonicalEntity = null,
     reviewJobId = null,
+    reviewAccount = null,
+    selectable = false,
   } = options;
   const rows = Array.isArray(transactions) ? transactions : [];
   const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity), sort);
@@ -570,6 +631,11 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   const showRunningBalance = matched.some((tx) => runningBalanceValue(tx) !== null);
   const runningBalanceHeader = tableEl.closest("table")?.querySelector("[data-running-balance-column]");
   if (runningBalanceHeader) runningBalanceHeader.hidden = !showRunningBalance;
+  // The multi-select column shows only while a row shown can be picked (a deposit awaiting review).
+  const targets = visible.map((tx) => (selectable ? pendingReviewTarget(tx, reviewJobId, reviewAccount) : null));
+  const pickable = targets.some(Boolean);
+  tableEl.closest("table")?.classList.toggle("has-select", pickable);
+  const offered = targets.filter(Boolean).map((target) => bulkKey(target.jobId, target.account, target.sourceLocation));
   const filterLabel = canonicalEntity || (filter === "all" ? "transactions" : `${filter} matches`);
   countEl.textContent = visible.length < matched.length
     ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
@@ -589,16 +655,16 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   }
   if (!visible.length) {
     // Date, Description, Category, Amount and Review, plus the optional Statement and Running Balance columns.
-    const columns = 5 + (showSource ? 1 : 0) + (showRunningBalance ? 1 : 0);
+    const columns = 5 + (showSource ? 1 : 0) + (showRunningBalance ? 1 : 0) + (pickable ? 1 : 0);
     tableEl.innerHTML = `
       <tr>
         <td class="empty-cell" colspan="${columns}"><strong>No transactions found</strong>${escapeHtml(filter === "all" ? "No statement returned transaction rows." : "No rows matched this filter.")}</td>
       </tr>
     `;
-    return;
+    return offered;
   }
   const sourceLabels = showSource ? statementSourceLabels(rows) : null;
-  tableEl.innerHTML = visible.map((tx) => {
+  tableEl.innerHTML = visible.map((tx, index) => {
     const amount = txAmount(tx);
     const category = transactionCategory(tx);
     // The combined package ledger interleaves rows from every statement, so a
@@ -617,18 +683,28 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     const runningBalance = showRunningBalance
       ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`
       : "";
+    const target = targets[index];
+    // Each box names its deposit, so a screen reader can tell twenty of them apart.
+    const pickLabel = `Select the deposit of ${formatMoney(amount, rowCurrency)} on ${tx.date || "an unknown date"}: `
+      + (txDescriptionRaw(tx) || "no description");
+    const pick = !selectable ? "" : `<td class="tx-check">${target ? `<input type="checkbox" class="tx-select"
+        data-bulk-job="${escapeHtml(target.jobId)}" data-bulk-location="${escapeHtml(target.sourceLocation)}"${
+        target.account === null ? "" : ` data-bulk-account="${escapeHtml(String(target.account))}"`}
+        aria-label="${escapeHtml(pickLabel)}"${bulkSelection.has(bulkKey(target.jobId, target.account, target.sourceLocation)) ? " checked" : ""}>` : ""}</td>`;
     return `
       <tr>
+        ${pick}
         <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
         <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
         <td>${glassChip(category.glyph, category.label, category.tone)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
-        <td class="tx-review">${revenueReviewControls(tx, reviewJobId)}</td>
+        <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
       </tr>
     `;
   }).join("");
+  return offered;
 }
 
 // The combined ledger's Statement column names each row's statement by its month ("March 2026"). Two
@@ -670,6 +746,15 @@ function mainTransactionContext() {
   };
 }
 
+// The account of the statement on screen that its rows' reviews name (1-based, printed order): the account shown of a
+// statement that publishes its accounts, null for a statement of one account and for a package (whose rows carry
+// their own).
+function shownReviewAccount() {
+  if (currentAnalysis && currentAnalysis.package) return null;
+  if (!currentDocument || !isDocumentPayload(currentDocument)) return null;
+  return Number.isInteger(selectedAccountIndex) && selectedAccountIndex >= 0 ? selectedAccountIndex + 1 : null;
+}
+
 function renderMainTransactions({ keepLimit = false } = {}) {
   if (!keepLimit) transactionLimit = TRANSACTION_PAGE;
   const ctx = mainTransactionContext();
@@ -680,7 +765,14 @@ function renderMainTransactions({ keepLimit = false } = {}) {
   if (els.transactionScope) {
     els.transactionScope.textContent = ctx.multi ? "All statements" : "This statement";
   }
-  renderTransactionRows(
+  // The ticks belong to the analysis and account on screen: another one (reopened, a new package, another account
+  // picked) starts with none, even where it shows the same deposit.
+  const scope = JSON.stringify([currentJobIds, currentJobId, shownReviewAccount()]);
+  if (scope !== bulkScope) {
+    bulkSelection.clear();
+    bulkScope = scope;
+  }
+  const offered = renderTransactionRows(
     els.transactionTable,
     els.transactionCount,
     ctx.transactions,
@@ -693,8 +785,212 @@ function renderMainTransactions({ keepLimit = false } = {}) {
       moreEl: els.transactionMore,
       canonicalEntity: transactionEntityFilter,
       reviewJobId: currentJobId,
+      reviewAccount: shownReviewAccount(),
+      selectable: true,
     }
   );
+  // The selection is what is ticked on screen: a tick whose row is no longer shown (filtered out, on a page not
+  // drawn, decided) is dropped, so the bar never acts on a deposit the analyst cannot see.
+  const shown = new Set(offered);
+  [...bulkSelection].forEach((key) => { if (!shown.has(key)) bulkSelection.delete(key); });
+  syncBulkReview();
+}
+
+/* --- multi-select of deposits awaiting review ------------------------------
+   The ticked deposits, by statement, account and row. The action bar shows only while at least one is ticked; its
+   decision is saved one batch per statement (POST /analysis/<job>/revenue-reviews, all or nothing per statement). */
+let bulkSelection = new Set();
+let bulkScope = null;
+let bulkBusy = false;
+// Reviews of single rows still waiting for the server: the bar's decisions wait for them, and they for the bar's.
+let rowReviewsInFlight = 0;
+
+function bulkKey(jobId, account, sourceLocation) {
+  return JSON.stringify([jobId, account ?? null, sourceLocation]);
+}
+
+function boxKey(box) {
+  const account = box.getAttribute("data-bulk-account");
+  return bulkKey(box.getAttribute("data-bulk-job"), account === null ? null : Number(account),
+    box.getAttribute("data-bulk-location"));
+}
+
+function bulkBoxes() {
+  return [...(els.transactionTable?.querySelectorAll("input[data-bulk-job]") || [])];
+}
+
+// Row review buttons, in the ledger and the statement window, are held while a batch is being saved.
+function holdRowReviews(held) {
+  [els.transactionTable, els.statementModalTransactions].forEach((table) => {
+    table?.querySelectorAll("[data-revenue-review-action]").forEach((button) => { button.disabled = held; });
+  });
+}
+
+// `refocus`: the bar's own button started this, so when the bar goes away its focus moves to the select-all box (or the
+// table's title when no box is left) instead of dropping to the page.
+function syncBulkReview({ refocus = false } = {}) {
+  const count = bulkSelection.size;
+  if (els.bulkReviewBar) els.bulkReviewBar.hidden = count === 0;
+  if (els.bulkReviewCount) els.bulkReviewCount.textContent = `${formatNumber(count)} selected`;
+  // Announced from outside the bar: a live region inside it is not heard while the bar is hidden or appearing.
+  if (els.bulkReviewStatus) els.bulkReviewStatus.textContent = count ? `${formatNumber(count)} selected` : "";
+  const held = bulkBusy || rowReviewsInFlight > 0;
+  els.bulkReviewBar?.querySelectorAll("button").forEach((button) => { button.disabled = held; });
+  if (els.bulkSelectAll) {
+    // Ticked when every deposit shown awaiting review is picked; mixed when only some are.
+    const boxes = bulkBoxes();
+    const picked = boxes.filter((box) => box.checked).length;
+    els.bulkSelectAll.checked = boxes.length > 0 && picked === boxes.length;
+    els.bulkSelectAll.indeterminate = picked > 0 && picked < boxes.length;
+    els.bulkSelectAll.disabled = boxes.length === 0;
+  }
+  if (refocus && count === 0) {
+    (els.bulkSelectAll && !els.bulkSelectAll.disabled ? els.bulkSelectAll : els.transactionsTitle)?.focus();
+  }
+}
+
+function pickDeposit(box, on) {
+  const key = boxKey(box);
+  box.checked = on;
+  if (on) bulkSelection.add(key);
+  else bulkSelection.delete(key);
+}
+
+function clearBulkSelection({ refocus = false } = {}) {
+  bulkSelection.clear();
+  bulkBoxes().forEach((box) => { box.checked = false; });
+  syncBulkReview({ refocus });
+}
+
+// A response's JSON body, or {} when it has none (an error page from a proxy, an empty body): the refusal then reads
+// "Revenue review failed (status)" instead of a parser's complaint.
+async function responseJson(response) {
+  try {
+    return await response.json();
+  } catch (error) {
+    return {};
+  }
+}
+
+// What a notification calls a statement of the package on screen: its month ("March 2031"), with its file when
+// another statement of the package has the same month (as the Monthly Statements table tells them apart), else its
+// file. Null for the one statement shown, which needs no name.
+function reviewedStatementName(jobId) {
+  const pkg = currentAnalysis && currentAnalysis.package;
+  if (!pkg) return null;
+  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  const doc = documents.find((item) => packageMember(item.id).jobId === jobId);
+  const month = doc ? statementMonth(doc.period_start, doc.period_end) : null;
+  if (!month) return (doc && doc.filename) || "a statement";
+  const label = `${MONTH_NAMES[month.month]} ${month.year}`;
+  const shared = documents.some((item) => {
+    const other = statementMonth(item.period_start, item.period_end);
+    return packageMember(item.id).jobId !== jobId && other && other.key === month.key;
+  });
+  return shared && doc.filename ? `${label} (${doc.filename})` : label;
+}
+
+function showNotifications() {
+  if (els.notificationsPopover && els.notificationsPopover.hidden) togglePopover(els.notificationsPopover, els.notificationsBtn);
+}
+
+// Draws the analysis on screen again from what was saved: a package from the server's package, a statement from its
+// saved analysis (`saved`: the last statement saved, {jobId, analysis}). The rows opened with Show more stay open, and
+// the ticks are drawn from the selection. Throws when the package cannot be fetched. Only the analysis the review was
+// made on is drawn: one opened while the package was being fetched is left as it is.
+async function redrawAfterReview(saved) {
+  const limit = transactionLimit;
+  // The redraws below draw the first page of rows and so drop every tick past it; the ticks come back before the
+  // rows opened with Show more are drawn again.
+  const kept = [...bulkSelection];
+  const scope = bulkScope;
+  const shown = currentJobIds.join(",");
+  try {
+    if (currentJobIds.length > 1) {
+      const response = await fetch(`/package_analysis?ids=${encodeURIComponent(shown)}`);
+      if (!response.ok) throw new Error(`the page could not be refreshed (${response.status})`);
+      const pkg = await response.json();
+      if (currentJobIds.join(",") !== shown) return;
+      renderPackageAnalysis(pkg);
+      setPackageActions(currentJobIds);
+      rememberPackage(currentJobIds, pkg);
+    } else if (saved && currentJobId === saved.jobId) {
+      renderAnalysis(saved.analysis);
+      setActions(currentJobId, true);
+      rememberShownStatement(currentJobId);
+    }
+  } finally {
+    if (bulkScope === scope) {
+      transactionLimit = limit;
+      kept.forEach((key) => bulkSelection.add(key));
+      // A statement shown without an account (its main account withheld) has no ledger on screen to draw.
+      if (currentAnalysis) renderMainTransactions({ keepLimit: true });
+    }
+  }
+}
+
+async function submitBulkReview(decision) {
+  if (bulkBusy || rowReviewsInFlight > 0 || !bulkSelection.size) return;
+  const byJob = new Map();
+  [...bulkSelection].forEach((key) => {
+    const [jobId, account, sourceLocation] = JSON.parse(key);
+    if (!byJob.has(jobId)) byJob.set(jobId, []);
+    byJob.get(jobId).push({ key, account, sourceLocation });
+  });
+  bulkBusy = true;
+  syncBulkReview();
+  holdRowReviews(true);
+  const failures = [];
+  let applied = 0;
+  let latest = null;
+  for (const [jobId, picks] of byJob) {
+    try {
+      const decisions = picks.map(({ account, sourceLocation }) => (
+        account === null ? { source_location: sourceLocation, decision }
+          : { source_location: sourceLocation, decision, account }));
+      const response = await fetch(`/analysis/${encodeURIComponent(jobId)}/revenue-reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisions }),
+      });
+      const payload = await responseJson(response);
+      if (!response.ok || !payload.analysis) throw new Error(payload.error || `Revenue review failed (${response.status})`);
+      applied += picks.length;
+      picks.forEach(({ key }) => bulkSelection.delete(key));
+      latest = { jobId, analysis: payload.analysis };
+      if (modalJobId === jobId) {
+        setModalAnalysis(payload.analysis);
+        renderStatementModal(jobId, payload.analysis, "");
+      }
+    } catch (error) {
+      const name = reviewedStatementName(jobId);
+      failures.push(`Not saved${name ? ` for ${name}` : ""}: ${error.message || String(error)}`);
+    }
+  }
+  // The analysis on screen is drawn again once, from what was saved (the Monthly Statements' True deposits follow
+  // from the new verified revenue); a statement refused keeps its ticks.
+  let redrawFailure = null;
+  if (applied) {
+    try {
+      await redrawAfterReview(latest);
+    } catch (error) {
+      redrawFailure = error.message || String(error);
+    }
+  }
+  bulkBusy = false;
+  holdRowReviews(false);
+  syncBulkReview({ refocus: true });
+  if (applied) {
+    const noun = applied === 1 ? "deposit" : "deposits";
+    notify(decision === "confirm" ? `${applied} ${noun} confirmed as revenue` : `${applied} ${noun} marked non-revenue`,
+      "green");
+  }
+  failures.forEach((failure) => notify(failure, "red"));
+  if (redrawFailure) {
+    notify(`Saved, but ${redrawFailure}: open the statements again to see the decisions`, "red");
+  }
+  // A refusal is not left to a dot on the notifications button: the notifications open on it.
+  if (failures.length || redrawFailure) showNotifications();
 }
 
 function renderModalTransactions({ keepLimit = false } = {}) {
@@ -712,6 +1008,7 @@ function renderModalTransactions({ keepLimit = false } = {}) {
       moreEl: els.statementModalTransactionMore,
       canonicalEntity: modalTransactionEntityFilter,
       reviewJobId: modalJobId,
+      reviewAccount: modalReviewAccount,
     }
   );
 }
@@ -786,7 +1083,7 @@ function integrityLabel(integrity = {}) {
 function friendlyAnalysisError(message) {
   const text = String(message || "");
   if (/no deterministic parser matched/i.test(text)) {
-    return "No deterministic parser matched this statement. Fallback extraction runs only in Auto mode and only when the operator has enabled hosted extraction on the server; otherwise add a bank-specific deterministic parser.";
+    return "No deterministic parser matched this statement. Enable the configured visual fallback or select Force visual OCR to request a reviewed extraction.";
   }
   if (/native PDF text unavailable|too sparse|no native text/i.test(text)) {
     return "This PDF does not contain usable native text, and local OCR could not produce usable statement text. Turn on visual OCR or use Auto mode to retry with the OCR service.";
@@ -808,10 +1105,12 @@ function setBanner(state, title, meta) {
   if (state !== "error") setStatusMessage("");
 }
 
-function setStatusMessage(message) {
+// `tone` "review" marks a result that needs review (amber) rather than a failure (red, the default).
+function setStatusMessage(message, tone = "error") {
   if (!els.statusMessage) return;
   els.statusMessage.textContent = message || "";
   els.statusMessage.hidden = !message;
+  els.statusMessage.classList?.toggle("review", tone === "review");
 }
 
 function kvRowsHtml(rows) {
@@ -821,6 +1120,11 @@ function kvRowsHtml(rows) {
       <span class="kv-value" title="${escapeHtml(value || "N/A")}">${escapeHtml(value || "N/A")}</span>
     </div>
   `).join("");
+}
+
+// One processing row, for a note placed ahead of the rows setStatusRows wrote.
+function statusRowHtml(row) {
+  return kvRowsHtml([row]);
 }
 
 // The processing rows show on the New analysis page while a job runs, and again beside the account details
@@ -834,6 +1138,12 @@ function setStatusRows(rows) {
 
 function setInitialState() {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
+  els.resultsContent?.classList.remove("is-withheld");
+  // Nothing on screen has deposits to review until an account is drawn (renderAccount sets the count again).
+  setReviewCount(0);
+  currentDocument = null;
+  selectedAccountIndex = null;
+  hideAccountsPanel();
   if (els.transactionCard) els.transactionCard.style.display = "block";
   renderMetricSections(emptyMetricSections);
   renderAccountSummary(accountFieldRows());
@@ -861,18 +1171,18 @@ function setInitialState() {
   renderMainTransactions();
 }
 
-function setActions(jobId, ready) {
+function setActions(jobId, ready, textReady = ready) {
   const links = [
-    [els.downloadJson, "json"],
-    [els.downloadCsv, "csv"],
-    [els.downloadExcel, "xlsx"],
-    [els.exportText, "md"],
-    [els.openTextBtn, "md"],
+    [els.downloadJson, "json", ready],
+    [els.downloadCsv, "csv", ready],
+    [els.downloadExcel, "xlsx", ready],
+    [els.exportText, "md", textReady],
+    [els.openTextBtn, "result", textReady],
   ];
-  links.forEach(([link, fmt]) => {
+  links.forEach(([link, fmt, enabled]) => {
     if (!link) return;
-    if (ready) {
-      link.href = `/download/${jobId}/${fmt}`;
+    if (enabled) {
+      link.href = fmt === "result" ? `/result/${jobId}` : `/download/${jobId}/${fmt}`;
       link.classList.remove("disabled");
       link.setAttribute("aria-disabled", "false");
     } else {
@@ -881,10 +1191,10 @@ function setActions(jobId, ready) {
       link.setAttribute("aria-disabled", "true");
     }
   });
-  [els.copyDataBtn, els.summaryBtn, els.copyTextBtn].forEach((button) => {
+  [[els.copyDataBtn, ready], [els.summaryBtn, ready], [els.copyTextBtn, textReady]].forEach(([button, enabled]) => {
     if (!button) return;
-    button.disabled = !ready;
-    button.classList.toggle("disabled", !ready);
+    button.disabled = !enabled;
+    button.classList.toggle("disabled", !enabled);
   });
 }
 
@@ -1306,23 +1616,355 @@ function isDocumentPayload(report) {
   return Boolean(report) && Array.isArray(report.accounts);
 }
 
-function documentRefusalMessage(report) {
-  // A panel shows ONE account. Rendering `report.statement` on a document that
-  // has none would show an empty panel; rendering the first account under the
-  // document's name would show one account's figures as the whole statement,
-  // which is the defect the document payload exists to remove. So the
-  // dashboard says what it holds and refuses to draw it, until it has an
-  // account selector to draw it with.
-  const doc = report.document || {};
-  const count = Array.isArray(report.accounts) ? report.accounts.length : 0;
-  const omitted = Array.isArray(doc.omitted_sections) ? doc.omitted_sections.length : 0;
-  const omittedNote = omitted
-    ? ` ${omitted} printed section${omitted === 1 ? " was" : "s were"} established and not published.`
-    : "";
-  return `This statement publishes ${count} accounts. This view shows one account `
-    + `at a time and has no account selector yet, so it is not showing you one `
-    + `of them as though it were the document.${omittedNote} Download the CSV or `
-    + `XLSX export, which carries every account.`;
+/* --- accounts of one statement ---------------------------------------
+   A statement can hold several accounts (a business checking account beside
+   savings shares). Each published account is its own complete analysis, and
+   the panels show ONE of them at a time: by default the main account a lender
+   funds -- the business checking account with the most deposits -- and, with
+   the "All accounts" setting on, a table of every account the statement
+   prints, each selectable. Nothing is ever added up across accounts. */
+const ALL_ACCOUNTS_KEY = "bsa-all-accounts";
+const ACCOUNT_KINDS = [
+  ["checking", /\b(checking|chequing|share\s+drafts?|demand\s+deposits?)\b/i],
+  ["money_market", /\bmoney\s*market\b/i],
+  ["certificate", /\b(certificates?|cds?)\b/i],
+  ["savings", /\b(savings?|shares?|club|membership)\b/i],
+];
+const ACCOUNT_KIND_LABELS = {
+  checking: "Checking",
+  savings: "Savings",
+  money_market: "Money market",
+  certificate: "Certificate",
+  retirement: "Retirement",
+  loan: "Loan",
+  credit_card: "Credit card",
+};
+const ACCOUNT_REASON_LABELS = {
+  page_unresolved: "a page could not be verified",
+  rows_unplaced: "some rows could not be placed in an account",
+  no_rows: "its transactions could not be verified",
+  sum_mismatch: "transactions do not add up to the printed balances",
+  continuity_break: "running balances do not follow",
+  anchors_underdetermined: "opening or closing balance not found",
+  anchor_derived: "opening or closing balance not printed",
+  direction_unknown: "a deposit could not be told from a withdrawal",
+  date_unparsed: "a date could not be read",
+  period_mismatch: "the statement period could not be read",
+  daily_ledger_not_validated: "its daily balances did not validate",
+  source_statement_invalid: "its reading did not validate",
+};
+
+// The choice made on this page (null until one is); storage carries it to the next visit and, where storage is
+// blocked, the choice still holds for the page.
+let allAccountsChoice = null;
+
+function allAccountsView() {
+  if (allAccountsChoice !== null) return allAccountsChoice;
+  try { return localStorage.getItem(ALL_ACCOUNTS_KEY) === "on"; } catch (error) { return false; }
+}
+
+function accountRoster(report) {
+  const doc = report && report.document;
+  return doc && Array.isArray(doc.account_roster) ? doc.account_roster.filter((entry) => entry && typeof entry === "object") : [];
+}
+
+function publishedAccounts(report) {
+  if (!isDocumentPayload(report)) return report ? [report] : [];
+  return report.accounts.filter((account) => account && typeof account === "object");
+}
+
+function rosterEntryFor(roster, publishedIndex) {
+  return roster.find((entry) => entry.status === "published" && entry.published_index === publishedIndex) || null;
+}
+
+function accountKindOf(statement = {}, entry = null) {
+  if (entry && entry.kind) return entry.kind;
+  const name = String(statement.account_name || "");
+  const found = ACCOUNT_KINDS.find(([, pattern]) => pattern.test(name));
+  return found ? found[0] : null;
+}
+
+function isBusinessAccount(statement = {}, entry = null) {
+  return /\b(business|commercial|corporate)\b/i.test(`${(entry && entry.title) || ""} ${statement.account_name || ""}`);
+}
+
+function lastFour(number) {
+  const digits = String(number || "").replace(/\D/g, "");
+  return digits ? digits.slice(-4) : "";
+}
+
+function accountDisplayName(statement = {}, entry = null) {
+  const title = (entry && entry.title) || statement.account_name
+    || ACCOUNT_KIND_LABELS[accountKindOf(statement, entry)] || "Account";
+  const four = (entry && entry.number_last4) || lastFour(statement.account_number);
+  return four ? `${title} ••${four}` : title;
+}
+
+function mainAccountRank(kind, business) {
+  // How likely an account is the one a lender funds (webapp/app.py main_account_rank): a checking account first,
+  // then one whose title names no kind (a product name such as "... Plus Banking" can be the operating account), then
+  // any other deposit account; a business title one higher within its tier; a card or a loan never.
+  if (kind === "credit_card" || kind === "loan") return -1;
+  return (kind === "checking" ? 4 : !kind ? 2 : 0) + (business ? 1 : 0);
+}
+
+function mainAccountIndex(accounts, roster = []) {
+  // The account a lender funds: a business checking account, and among several the one with the most deposits.
+  // A display default only: every account stays one click away with "All accounts" on.
+  let best = null;
+  accounts.forEach((account, index) => {
+    const statement = account.statement || {};
+    const entry = rosterEntryFor(roster, index);
+    const rank = mainAccountRank(accountKindOf(statement, entry), isBusinessAccount(statement, entry));
+    const deposits = Number((account.metrics || {}).effective_total_deposits) || 0;
+    if (!best || rank > best.rank || (rank === best.rank && deposits > best.deposits)) best = { index, rank, deposits };
+  });
+  return best ? best.index : 0;
+}
+
+function unverifiedMainAccount(roster = []) {
+  // The main account among EVERY account the statement prints: its rank decides first (mainAccountRank). A HELD
+  // account of the best rank leaves the account a lender funds undetermined: it is the main one and it is not
+  // verified, and another account must never be shown in its place. null when no account of the best rank is held.
+  if (!roster.length) return null;
+  const rank = (entry) => mainAccountRank(entry.kind, /\b(business|commercial|corporate)\b/i.test(entry.title || ""));
+  const best = Math.max(...roster.map(rank));
+  if (best < 0) return null;  // cards and loans only: no account a lender funds
+  return roster.find((entry) => rank(entry) === best && entry.status === "held") || null;
+}
+
+function idleMainAccount(roster = []) {
+  // Owner ruling, 2026-09-23: when the main account (the business checking account) printed no activity this period,
+  // the dashboard says so and that it needs review, and keeps showing the active account(s). The idle account of the
+  // best rank, when no account of that rank was verified or held; null otherwise (webapp/app.py _idle_main_account).
+  if (!roster.length) return null;
+  const rank = (entry) => mainAccountRank(entry.kind, /\b(business|commercial|corporate)\b/i.test(entry.title || ""));
+  const best = Math.max(...roster.map(rank));
+  if (best < 0) return null;
+  const top = roster.filter((entry) => rank(entry) === best);
+  if (top.some((entry) => entry.status === "published" || entry.status === "held")) return null;
+  return top.find((entry) => entry.status === "idle") || null;
+}
+
+function idleMainText(entry, currency) {
+  return `${accountDisplayName({}, entry)} had no activity this period (balance ${formatMoney(entry.balance, currency)})`
+    + " and needs review";
+}
+
+function idleMainNote(report, currency) {
+  // The sentence the summary box leads with when the statement's main account printed no activity; "" otherwise.
+  const idleMain = report ? idleMainAccount(accountRoster(report)) : null;
+  return idleMain ? `Main account ${idleMainText(idleMain, currency)}. ` : "";
+}
+
+// Why the statement's main account was not verified, in the words the dashboard shows.
+function unverifiedMainWhy(entry, currency) {
+  return entry.status === "idle"
+    ? `it printed no activity this period (balance ${formatMoney(entry.balance, currency)})`
+    : accountReasonText(entry.reasons);
+}
+
+function unverifiedMainNote(report, currency) {
+  // The sentence the summary leads with when the statement's main account was not verified and another, verified,
+  // account is shown (All accounts); "" otherwise.
+  const entry = report ? unverifiedMainAccount(accountRoster(report)) : null;
+  return entry ? `Main account ${accountDisplayName({}, entry)} could not be verified: ${unverifiedMainWhy(entry, currency)}. ` : "";
+}
+
+// One account's own decision, as its pill shows it.
+function accountDecision(report) {
+  const metrics = report.metrics || {};
+  const quality = report.quality || {};
+  return hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
+    ? "review_required"
+    : quality.corporate_use || quality.level || "review_required";
+}
+
+function mainAccountReason(account = {}, entry = null) {
+  const statement = account.statement || {};
+  const checking = accountKindOf(statement, entry) === "checking";
+  if (checking && isBusinessAccount(statement, entry)) return "the business checking account with the most deposits";
+  if (checking) return "the checking account with the most deposits";
+  return "the account with the most deposits";
+}
+
+function accountReasonText(reasons = []) {
+  const words = [...new Set((reasons || []).map((code) => ACCOUNT_REASON_LABELS[code]).filter(Boolean))];
+  return words.length ? words.slice(0, 2).join("; ") : "not verified";
+}
+
+function accountPanelEntries(published, roster) {
+  // Every account the statement prints, in printed order: the roster when the reader judged the statement account
+  // by account, else the published accounts themselves.
+  if (roster.length) return roster;
+  return published.map((account, index) => ({
+    title: (account.statement || {}).account_name || null,
+    kind: null,
+    number_last4: lastFour((account.statement || {}).account_number) || null,
+    status: "published",
+    published_index: index,
+    balance: null,
+    reasons: [],
+  }));
+}
+
+function accountPanelRowHtml(entry, published, main, selected, currency, isUnverifiedMain = false) {
+  const account = entry.status === "published" ? published[entry.published_index] : null;
+  const statement = (account && account.statement) || {};
+  const metrics = (account && account.metrics) || {};
+  const name = accountDisplayName(statement, entry);
+  const kind = ACCOUNT_KIND_LABELS[entry.kind || accountKindOf(statement, entry)] || "Account";
+  if (account) {
+    const money = (value) => escapeHtml(formatMoney(value, statement.currency || currency));
+    const isSelected = entry.published_index === selected;
+    const count = (statement.transactions || []).length;
+    return `
+      <tr data-account-index="${escapeHtml(String(entry.published_index))}" class="${isSelected ? "is-selected" : ""}"
+          tabindex="0"${isSelected ? ` aria-current="true"` : ""}>
+        <td><strong>${escapeHtml(name)}</strong>${entry.published_index === main ? `<span class="main-badge">MAIN</span>` : ""}
+          <span class="account-reason">${escapeHtml(kind)} · ${escapeHtml(formatNumber(count))} ${count === 1 ? "transaction" : "transactions"}</span></td>
+        <td>${glassChip("✓", "Verified", "green")}</td>
+        <td class="num">${money(statement.beginning_balance)}</td>
+        <td class="num">${money(statement.ending_balance)}</td>
+        <td class="num">${money(metrics.effective_total_deposits)}</td>
+        <td class="num">${money(metrics.effective_total_withdrawals)}</td>
+        <td class="num">${money(metrics.average_daily_balance)}</td>
+      </tr>`;
+  }
+  if (entry.status === "idle") {
+    // An unchanged printed balance over the whole period: its daily balance is that balance every day.
+    const balance = escapeHtml(formatMoney(entry.balance, currency));
+    const zero = escapeHtml(formatMoney(0, currency));
+    return `
+      <tr>
+        <td><strong>${escapeHtml(name)}</strong>${isUnverifiedMain ? `<span class="main-badge">MAIN</span>` : ""}<span class="account-reason">${escapeHtml(kind)} · no transactions</span></td>
+        <td>${glassChip("·", "No activity", "neutral")}</td>
+        <td class="num">${balance}</td>
+        <td class="num">${balance}</td>
+        <td class="num">${zero}</td>
+        <td class="num">${zero}</td>
+        <td class="num">${balance}</td>
+      </tr>`;
+  }
+  return `
+    <tr>
+      <td><strong>${escapeHtml(name)}</strong>${isUnverifiedMain ? `<span class="main-badge">MAIN</span>` : ""}<span class="account-reason">${escapeHtml(kind)} · ${escapeHtml(accountReasonText(entry.reasons))}</span></td>
+      <td>${glassChip("◐", "Needs review", "amber")}</td>
+      <td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>
+    </tr>`;
+}
+
+// Where the All accounts switch lives, as a link that opens that page.
+const ALL_ACCOUNTS_SETTING_LINK = `<button class="link-btn" type="button" data-nav="settings">All accounts in Settings</button>`;
+
+function renderAccountsPanel(published, roster, main, selected, unverifiedMain = null, idleMain = null) {
+  if (!els.accountsPanel) return;
+  const entries = accountPanelEntries(published, roster);
+  const mainAccount = published[main] || {};
+  const mainEntry = rosterEntryFor(roster, main);
+  const mainName = accountDisplayName(mainAccount.statement || {}, mainEntry);
+  const others = entries.length - 1;
+  // The statement's own denomination; never an assumed one (an account without figures shows none).
+  const currency = (mainAccount.statement || {}).currency || null;
+  if (!allAccountsView()) {
+    const lead = idleMain
+      ? `This statement's main account, <strong>${escapeHtml(accountDisplayName({}, idleMain))}</strong>, had no activity`
+        + ` this period (balance ${escapeHtml(formatMoney(idleMain.balance, currency))}) and needs review.`
+        + ` Showing the active account, <strong>${escapeHtml(mainName)}</strong>.`
+      : `Showing the main account, <strong>${escapeHtml(mainName)}</strong>: ${escapeHtml(mainAccountReason(mainAccount, mainEntry))}.`;
+    els.accountsPanel.innerHTML = `
+      <p class="accounts-note">This statement holds <strong>${escapeHtml(formatNumber(entries.length))} accounts</strong>.
+        ${lead}
+        ${others > 0 ? `Turn on ${ALL_ACCOUNTS_SETTING_LINK} to review the other ${others === 1 ? "account" : `${escapeHtml(formatNumber(others))} accounts`}.` : ""}
+      </p>`;
+    els.accountsPanel.hidden = false;
+    return;
+  }
+  els.accountsPanel.innerHTML = `
+    <div class="panel-head">
+      <h3>Accounts in this statement</h3>
+      <span class="panel-sub">${escapeHtml(formatNumber(entries.length))} accounts · select one to analyze</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table accounts-table">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Status</th>
+            <th class="num">Beginning</th>
+            <th class="num">Ending</th>
+            <th class="num">Deposits</th>
+            <th class="num">Withdrawals</th>
+            <th class="num">Avg daily balance</th>
+          </tr>
+        </thead>
+        <tbody>${entries.map((entry) => accountPanelRowHtml(entry, published, idleMain ? -1 : main, selected, currency, entry === unverifiedMain || entry === idleMain)).join("")}</tbody>
+      </table>
+    </div>`;
+  els.accountsPanel.hidden = false;
+}
+
+function renderUnverifiedMain(published, roster, entry) {
+  // The main account (the business checking account) was not verified. Its metrics are withheld, and no other
+  // account stands in for it; the verified ones stay one setting away.
+  const report = currentDocument;
+  setInitialState();
+  currentDocument = report;
+  currentAnalysis = null;
+  setProgress(false);
+  const name = accountDisplayName({}, entry);
+  // The statement's own period, bank and denomination, read off a verified account of the same statement.
+  const first = (published[0] || {}).statement || {};
+  const currency = first.currency || null;
+  const why = unverifiedMainWhy(entry, currency);
+  const verified = published.length;
+  const explanation = `${name} is this statement's main account and could not be verified: ${why}. `
+    + "No metrics are shown for it.";
+  els.statusHeading.textContent = "Main account needs review";
+  setBanner("pending", "Main account not verified; its metrics withheld", "Review required");
+  setStatusMessage(explanation, "review");
+  els.decisionPill.textContent = "Review required";
+  els.decisionPill.className = "decision-pill review_required";
+  els.summaryBox.textContent = explanation;
+  setStatusRows([
+    ["OCR completed", "Yes"],
+    ["Validation", "Review required"],
+    ["Main account", "Not verified"],
+    ["Metrics", "Withheld"],
+  ]);
+  // The results page keeps the statement's header, its accounts and the summary; every metric panel is withheld.
+  setResultsMode("single");
+  showResultsContent();
+  els.resultsContent?.classList.add("is-withheld");
+  const month = monthLabel(statementMonth(first.period_start, first.period_end));
+  renderHero({
+    icon: BANK_ICON,
+    kicker: [first.bank || "Bank statement", `${formatNumber(roster.length)} accounts`].join(" · "),
+    title: month ? `${month} statement` : "Bank statement",
+    chips: [["Main account · Not verified"], [period(first), true], ...(currency ? [[currency]] : [])],
+  });
+  analysisCrumbs = ["Statements", first.bank || "Statement", month || period(first)];
+  resultsCrumbs = analysisCrumbs;
+  if (els.transactionCard) els.transactionCard.style.display = "none";
+  if (allAccountsView()) {
+    // Every account on the table, the main one marked and held; nothing selected until the user picks one.
+    selectedAccountIndex = null;
+    renderAccountsPanel(published, roster, -1, null, entry);
+    return;
+  }
+  if (!els.accountsPanel) return;
+  els.accountsPanel.innerHTML = `
+    <p class="accounts-note">This statement holds <strong>${escapeHtml(formatNumber(roster.length))} accounts</strong>.
+      The main account, <strong>${escapeHtml(name)}</strong>, could not be verified: ${escapeHtml(why)}.
+      ${verified ? `${escapeHtml(formatNumber(verified))} other ${verified === 1 ? "account was" : "accounts were"} verified: turn on ${ALL_ACCOUNTS_SETTING_LINK} to review ${verified === 1 ? "it" : "them"}.` : ""}
+    </p>`;
+  els.accountsPanel.hidden = false;
+}
+
+function hideAccountsPanel() {
+  if (!els.accountsPanel) return;
+  els.accountsPanel.hidden = true;
+  els.accountsPanel.innerHTML = "";
 }
 
 /* --- results page: header, credits, charts and totals ----------------
@@ -1559,23 +2201,32 @@ function packageTitle(rows) {
     : `${monthLabel(first)} – ${monthLabel(last)}`;
 }
 
-function renderMonthlyChart(rows, mixedCurrencies) {
+// The monthly chart follows the Monthly Statements basis (Settings) like the table beside it, so the page never shows
+// two different figures as a month's deposits: Total deposits, True deposits, or both (each Total bar holding its
+// True part).
+function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
   if (!els.monthlyChart) return;
-  const values = rows.map(({ doc }) => numberOrNull(doc.credits));
+  const both = view === "both";
+  const plotted = view === "true" ? trueDeposits : totalDeposits;
+  const values = rows.map(({ doc }) => numberOrNull(plotted(doc)));
   const largest = Math.max(0, ...values.filter((value) => value !== null));
   const years = new Set(rows.map((row) => row.month && row.month.year));
   const columns = `grid-template-columns: repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`;
-  const tallest = 150;
+  const tallest = both ? 128 : 150;  // room for the second figure above each bar
   const bars = rows.map(({ doc }, index) => {
     const value = values[index];
     const currency = currencyOfDocument(doc);
     const unit = mixedCurrencies && currency && currency !== "USD" ? ` ${currency}` : "";
-    const text = formatWhole(doc.credits);
+    const withUnit = (text) => (text === "N/A" ? text : text + unit);
     const heightPx = largest > 0 && value !== null ? Math.max((Math.max(value, 0) / largest) * tallest, 2) : 0;
+    const part = both ? numberOrNull(trueDeposits(doc)) : null;
+    const share = part !== null && value > 0 ? Math.min(Math.max(part, 0) / value, 1) : 0;
     return `
       <div class="bar-col">
-        <span class="bar-value">${escapeHtml(text === "N/A" ? text : text + unit)}</span>
-        <div class="bar${value !== null && value === largest && largest > 0 ? " peak" : ""}" style="height: ${heightPx.toFixed(1)}px"></div>
+        <span class="bar-value">${escapeHtml(withUnit(formatWhole(plotted(doc))))}</span>
+        ${both ? `<span class="bar-value bar-value-true">${escapeHtml(withUnit(formatWhole(trueDeposits(doc))))}</span>` : ""}
+        <div class="bar${both ? " bar-total" : value !== null && value === largest && largest > 0 ? " peak" : ""}" style="height: ${heightPx.toFixed(1)}px">${
+          share > 0 ? `<div class="bar-part" style="height: ${(share * 100).toFixed(1)}%"></div>` : ""}</div>
       </div>
     `;
   }).join("");
@@ -1593,12 +2244,19 @@ function renderMonthlyChart(rows, mixedCurrencies) {
       </div>
     `;
   }).join("");
+  const legend = both
+    ? `<span><i class="legend-swatch" aria-hidden="true"></i>Total deposits</span>`
+      + `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True deposits (revenue only)</span>`
+    : `<span>${view === "true" ? "True deposits (revenue only)" : "Total deposits (everything going in)"}`
+      + " and ledger (average daily balance) per statement</span>";
+  const described = { both: "total and true deposits", true: "true deposits (revenue only)", total: "total deposits" }[view]
+    || "total deposits";
   els.monthlyChart.innerHTML = `
     <div class="chart-head">
       <span class="chart-title">Monthly deposits</span>
-      <span class="chart-legend">Deposits and ledger (average daily balance) per statement</span>
+      <span class="chart-legend">${legend}</span>
     </div>
-    <div class="bar-chart" style="${columns}" role="img" aria-label="Monthly deposits per statement">${bars}</div>
+    <div class="bar-chart" style="${columns}" role="img" aria-label="Monthly deposits per statement: ${described}">${bars}</div>
     <div class="bar-labels" style="${columns}">${labels}</div>
   `;
 }
@@ -1612,27 +2270,71 @@ function setReviewCount(value) {
 
 function renderAnalysis(report) {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
-  // The refusal comes BEFORE the global is set, and the global is CLEARED on
-  // the refusal path. Three other consumers read `.statement` off
-  // `currentAnalysis` -- `generateSummary()`, bound unconditionally to the
-  // summary button, and the two transaction renderers reached by every filter
-  // and sort control -- and none of them is gated by the refusal. Assigning
-  // first left them reading `currentAnalysis.statement || {}` on a document
-  // payload and answering: a complete credit-memo sentence with every figure
-  // rendered as its "N/A" placeholder. That is the quiet wrong answer this
-  // whole stage exists to remove, on the surface an analyst copies from.
-  if (isDocumentPayload(report)) {
+  const published = publishedAccounts(report);
+  const roster = accountRoster(report);
+  if (!published.length) {
+    // Three other consumers read `.statement` off `currentAnalysis` (the summary button and both transaction
+    // renderers), so a payload with no account to show must never reach them.
     currentAnalysis = null;
-    // `renderError` does not hide the transaction card, and `uploadFiles` has
-    // already shown it. Hidden HERE rather than inside `renderError`, because
-    // that would change what every other error does on a single-account
-    // document; this branch is reachable only by a payload no publisher in
-    // this tree can build.
+    currentDocument = null;
+    hideAccountsPanel();
     if (els.transactionCard) els.transactionCard.style.display = "none";
-    renderError(documentRefusalMessage(report));
+    renderError("This statement published no account to show.");
     return;
   }
+  if (!isDocumentPayload(report) && roster.length < 2) {
+    currentDocument = null;
+    selectedAccountIndex = null;
+    hideAccountsPanel();
+    renderAccount(report);
+    return;
+  }
+  currentDocument = report;
+  const unverified = unverifiedMainAccount(roster);
+  if (unverified && (!allAccountsView() || selectedAccountIndex === null || !published[selectedAccountIndex])) {
+    // The business checking account was not verified: no other account stands in for it. With All accounts on,
+    // the table lists every account and the one the user selects is shown, never as the main account.
+    renderUnverifiedMain(published, roster, unverified);
+    return;
+  }
+  const main = unverified ? -1 : mainAccountIndex(published, roster);
+  // The main account printed no activity: it needs review, and the active account (the best-ranked verified one)
+  // stays shown.
+  const idleMain = unverified ? null : idleMainAccount(roster);
+  if (!allAccountsView() || selectedAccountIndex === null || !published[selectedAccountIndex]) {
+    selectedAccountIndex = main;
+  }
+  renderAccountsPanel(published, roster, main, selectedAccountIndex, unverified, idleMain);
+  const shown = published[selectedAccountIndex];
+  // One account's own payload: every panel below, the summary and the transaction list describe that account.
+  renderAccount(isDocumentPayload(report) ? { ...shown, parse_mode: report.parse_mode } : report);
+  if (unverified) {
+    // All accounts on, and the user picked a verified account of a statement whose main account was not verified:
+    // that account's own figures are shown, never as the main account's, and the statement still needs review.
+    els.statusHeading.textContent = "Main account needs review";
+    setBanner("pending", "Main account not verified; showing a verified account", "Review required");
+    els.decisionPill.textContent = "Review required";
+    els.decisionPill.className = "decision-pill review_required";
+    const note = statusRowHtml(["Main account", "Not verified"]);
+    [els.statusList, els.processingList].forEach((list) => list?.insertAdjacentHTML("afterbegin", note));
+    els.heroChips?.insertAdjacentHTML("afterbegin", `<span class="hero-chip">Main account · Not verified</span>`);
+  } else if (idleMain) {
+    // The summary box is the actions' (idleMainNote says it there); this runs again on every account selection and
+    // settings change, so it only sets.
+    els.statusHeading.textContent = "Main account needs review";
+    setBanner("pending", "Main account had no activity; showing the active account", "Review required");
+    els.decisionPill.textContent = "Review required";
+    els.decisionPill.className = "decision-pill review_required";
+    // Above the shown account's own rows (its "Validation" is that account's), on both pages that list them.
+    const note = statusRowHtml(["Main account", "No activity; needs review"]);
+    [els.statusList, els.processingList].forEach((list) => list?.insertAdjacentHTML("afterbegin", note));
+    els.heroChips?.insertAdjacentHTML("afterbegin", `<span class="hero-chip">Main account · No activity</span>`);
+  }
+}
+
+function renderAccount(report) {
   currentAnalysis = report;
+  els.resultsContent?.classList.remove("is-withheld");
   const statement = report.statement || {};
   const metrics = report.metrics || {};
   const detection = report.detection || {};
@@ -1647,9 +2349,7 @@ function renderAnalysis(report) {
   const totalDebits = metrics.effective_total_withdrawals;
   const validation = validationLabel(report);
   const elapsed = startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Complete";
-  const decision = hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
-    ? "review_required"
-    : quality.corporate_use || quality.level || "review_required";
+  const decision = accountDecision(report);
 
   els.statusHeading.textContent = "OCR completed";
   setBanner("done", "Extraction completed", validation);
@@ -1795,7 +2495,8 @@ function queueState(entry) {
   if (entry.status === "done") return { chip: "Done", tone: "neutral", detail: "Complete", bar: "done", width: 100 };
   if (!entry.jobId) return { chip: "Uploading", tone: "green", detail: "Uploading", bar: "busy", width: 0 };
   if (entry.status === "queued") return { chip: "Queued", tone: "amber", detail: "Waiting", bar: "", width: 0 };
-  return { chip: "Processing", tone: "green", detail: labelize(entry.stage || entry.status), bar: "busy", width: 0 };
+  // The same words as the status banner, the visual pair's page and part counters included.
+  return { chip: "Processing", tone: "green", detail: processingStageLabel(entry.stage || entry.status), bar: "busy", width: 0 };
 }
 
 function renderQueue() {
@@ -1867,6 +2568,66 @@ function renderPreview() {
   els.previewLabel.textContent = `p. ${formatNumber(previewPage + 1)} / ${formatNumber(previewPageCount)}`;
 }
 
+function sourceContradiction(message) {
+  // A verified contradiction in the statement itself (vlm/source_contradiction.py is_source_contradiction): the
+  // statement's own printed figures contradict the transactions it lists, every one of which was read and checked
+  // against the PDF's text. A valid failure of the statement, not of the reading (owner ruling, 2026-09-23).
+  const text = String(message || "");
+  return /^Fail: Statement (?:debit total|credit total|ending balance) \([^()]{1,80}\) contradiction$/.test(text)
+    ? text : null;
+}
+
+function renderExtractionReview(message) {
+  // A completed read can require review without admitting any metrics. Clear
+  // the previous statement's cards before exposing this read's source actions.
+  currentAnalysis = null;
+  setInitialState();
+  setProgress(false);
+  const contradiction = sourceContradiction(message);
+  // The explanation goes where this page shows it (the status card), and into the summary box as before.
+  if (contradiction) {
+    const explanation = `${contradiction}. The statement's own printed figures contradict the transactions `
+      + "it lists. Every listed transaction was read and checked against the PDF's own text, so this is a failure "
+      + "of the statement, not of the reading. No metrics have been published.";
+    els.statusHeading.textContent = contradiction;
+    setBanner("error", "Statement does not add up; metrics withheld", "Failed");
+    setStatusMessage(explanation);
+    els.decisionPill.textContent = "Fail";
+    els.decisionPill.className = "decision-pill failed";
+    els.summaryBox.textContent = explanation;
+    setStatusRows([
+      ["OCR completed", "Yes"],
+      ["Validation", "Failed: statement contradiction"],
+      ["Metrics", "Withheld"],
+    ]);
+    return;
+  }
+  // The reason, as a sentence of its own ahead of what to do about it.
+  const reason = sentenceCase(friendlyAnalysisError(message)).replace(/([^.!?])$/, "$1.");
+  const explanation = `${reason} Open Review extraction to inspect the reading and its review status. `
+    + "No metrics have been published.";
+  els.statusHeading.textContent = "Extraction needs review";
+  setBanner("pending", "Extraction available; metrics withheld", "Review required");
+  setStatusMessage(explanation, "review");
+  els.decisionPill.textContent = "Review required";
+  els.decisionPill.className = "decision-pill review_required";
+  els.summaryBox.textContent = explanation;
+  setStatusRows([
+    ["OCR completed", "Yes"],
+    ["Validation", "Review required"],
+    ["Metrics", "Withheld"],
+  ]);
+}
+
+// A link placed after the status card's message, for a result that never reaches the results page.
+function appendStatusLink(href, text) {
+  if (!els.statusMessage) return;
+  els.statusMessage.insertAdjacentHTML(
+    "beforeend",
+    ` <a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`,
+  );
+}
+
 function showSelectedFile(file) {
   currentFile = file;
   queueEntries = currentFiles.map((item) => ({
@@ -1901,8 +2662,13 @@ function uploadFiles(fileList) {
   const file = files[0];
   currentJobId = null;
   currentJobIds = [];
+  // Nothing in Recent is open while this upload runs; its own entry is marked when its result is drawn.
+  setOpenAnalysis(null);
   currentFiles = files;
   currentAnalysis = null;
+  currentDocument = null;
+  selectedAccountIndex = null;
+  hideAccountsPanel();
   currentMarkdown = "";
   transactionFilter = "all";
   transactionEntityFilter = null;
@@ -2008,7 +2774,7 @@ function pollJob(jobId) {
       if (jobId !== currentJobId) return;
       updateQueueEntry(jobId, status);
       renderQueue();
-      const stage = status.stage ? labelize(status.stage) : labelize(status.status);
+      const stage = processingStageLabel(status.stage || status.status);
       if (status.status === "done") {
         setProgress(false);
         loadResults(jobId);
@@ -2040,7 +2806,8 @@ function pollJob(jobId) {
 let shownAnalysis = null;
 
 function recordShownAnalysis() {
-  shownAnalysis = { jobId: currentJobId, jobIds: currentJobIds.slice(), files: currentFiles, file: currentFile, startedAt };
+  shownAnalysis = { jobId: currentJobId, jobIds: currentJobIds.slice(), files: currentFiles, file: currentFile, startedAt,
+                    selectedAccountIndex };
 }
 
 // `reveal` opens the results page once they are drawn; a settings refresh redraws them where they are.
@@ -2055,18 +2822,29 @@ function loadResults(jobId, { reveal = true, announce = reveal, onError = render
   ])
     .then(([payload, markdown]) => {
       if (jobId !== currentJobId) return;
-      if (!payload.analysis) throw new Error(friendlyAnalysisError(payload.analysis_error));
       currentMarkdown = markdown || "";
+      if (!payload.analysis) {
+        renderExtractionReview(payload.analysis_error);
+        setActions(jobId, false, true);
+        appendStatusLink(`/result/${encodeURIComponent(jobId)}`, "Review extraction");
+        openAnalysisKey = jobId;
+        rememberHeldStatement(jobId, payload.analysis_error);
+        // It opens no results page: its explanation is the New analysis page's status card, so it opens there.
+        if (reveal) navigate("new");
+        return;
+      }
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
-      if (!currentAnalysis) {
-        // The multi-account refusal points the analyst at the exports, so they sit under its message.
+      if (!currentAnalysis && !currentDocument) {
+        // Nothing could be shown (renderAnalysis reported why): the exports sit under that message.
         appendStatusExports(`/download/${encodeURIComponent(jobId)}`);
         return;
       }
       recordShownAnalysis();
-      rememberStatement(jobId, currentAnalysis);
-      if (announce) notify(`${els.resultsTitle.textContent} analyzed`, "green");
+      openAnalysisKey = jobId;
+      rememberShownStatement(jobId);
+      // A statement whose main account was not verified opens with its metrics withheld: not a green result.
+      if (announce) notify(`${els.resultsTitle.textContent} analyzed`, currentAnalysis ? "green" : "amber");
       if (reveal) openResultsPage("results");
     })
     .catch((error) => onError(error.message || String(error)));
@@ -2098,6 +2876,7 @@ function loadPackage(jobIds, { reveal = true, announce = reveal, onError = rende
       renderPackageAnalysis(pkg);
       setPackageActions(jobIds);
       recordShownAnalysis();
+      openAnalysisKey = jobIds.join(",");
       rememberPackage(jobIds, pkg);
       if (announce) notify(`Package ${els.resultsTitle.textContent} analyzed`, "green");
       if (reveal) openResultsPage("packages");
@@ -2106,6 +2885,11 @@ function loadPackage(jobIds, { reveal = true, announce = reveal, onError = rende
 }
 
 function renderPackageAnalysis(pkg) {
+  // A package is several statements, never one statement's accounts: the account view and its selection go.
+  currentDocument = null;
+  selectedAccountIndex = null;
+  hideAccountsPanel();
+  els.resultsContent?.classList.remove("is-withheld");
   currentAnalysis = { package: pkg };
   currentMarkdown = "";
   renderMainTransactions();
@@ -2155,7 +2939,8 @@ function renderPackageAnalysis(pkg) {
         + ` · Revenue upper bound <span class="mono">${escapeHtml(formatMoney(totals.maximum_revenue, currency))}</span>`,
   });
   renderCreditMix(totals, currency);
-  renderMonthlyChart(monthRows, currencyInfo.currencies.length > 1);
+  // The monthly chart is drawn with the Monthly Statements table (renderMonthlyStatements): both follow the basis
+  // chosen in Settings.
   renderTotals([
     ["Total debits", formatMoney(totals.total_debits, currency)],
     ["Total cash flow", formatMoney(totals.cash_flow, currency), signTone(totals.cash_flow)],
@@ -2263,7 +3048,6 @@ function renderPackageAnalysis(pkg) {
 }
 
 function renderPackageTables(pkg) {
-  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
   const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
   const potentialLenders = Array.isArray(pkg.potential_lenders) ? pkg.potential_lenders : [];
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
@@ -2274,9 +3058,88 @@ function renderPackageTables(pkg) {
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
   renderRevenueEvidence(pkg.totals || {}, currency);
+  renderMonthlyStatements(pkg);
+}
+
+/* --- Monthly Statements deposits -----------------------------------------
+   Which deposits the package's Monthly Statements table shows, chosen on the Settings page and kept in this browser
+   only. Total is everything going in. True is revenue only: the verified revenue, which takes in every deposit
+   confirmed as revenue, and never an own-account transfer, lender funding, or a deposit still awaiting review. */
+const MONTHLY_DEPOSITS_KEY = "bsa-monthly-deposits";
+const MONTHLY_DEPOSITS_VIEWS = ["both", "total", "true"];
+// The choice made on this page. Storage only carries it to the next visit: where storage is blocked (a private
+// window, a policy) the choice still holds for the page.
+let monthlyDepositsChoice = null;
+
+function monthlyDepositsView() {
+  let value = monthlyDepositsChoice;
+  if (value === null) {
+    try { value = localStorage.getItem(MONTHLY_DEPOSITS_KEY); } catch (error) { /* private mode */ }
+  }
+  return MONTHLY_DEPOSITS_VIEWS.includes(value) ? value : "both";
+}
+
+// A figure of a statement's month, or null (shown N/A) for a statement that failed: its zeros are the absence of an
+// analysis, not a month of nothing. The Monthly Statements table and its chart both read figures through it.
+function monthFigure(doc, value) {
+  return doc.status === "done" ? value : null;
+}
+
+// A statement's True deposits (the verified revenue), or null — shown N/A — unless the package established them:
+// not for a failed statement, nor for one whose captured credits are not all classified or are not the money its
+// Total counts (webapp/app.py `verified_revenue_established`; a payload that does not say reads as not established).
+function trueDeposits(doc) {
+  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_total) : null;
+}
+
+function trueDepositCount(doc) {
+  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_count) : null;
+}
+
+function totalDeposits(doc) {
+  return monthFigure(doc, doc.credits);
+}
+
+// The deposit columns, [header, value of a row, kind]: the CRM's own headers when one basis is shown, each basis
+// named when both are.
+function monthlyDepositColumns(view) {
+  const total = [totalDeposits, (doc) => monthFigure(doc, doc.deposit_count)];
+  const revenue = [trueDeposits, trueDepositCount];
+  if (view === "total") return [["Monthly Deposits ($)", total[0], "amount"], ["Deposits Per Month", total[1], "count"]];
+  if (view === "true") return [["Monthly Deposits ($)", revenue[0], "amount"], ["Deposits Per Month", revenue[1], "count"]];
+  return [
+    ["Total Deposits ($)", total[0], "amount"], ["Total Deposits Per Month", total[1], "count"],
+    ["True Deposits ($)", revenue[0], "amount"], ["True Deposits Per Month", revenue[1], "count"],
+  ];
+}
+
+const MONTHLY_DEPOSITS_NOTES = {
+  total: "Total monthly deposits: everything going in",
+  true: "True monthly deposits: revenue only",
+};
+
+function renderMonthlyStatements(pkg) {
+  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  const view = monthlyDepositsView();
+  const columns = monthlyDepositColumns(view);
+  renderMonthlyChart(packageMonthRows(documents), packageCurrencyInfo(pkg).currencies.length > 1, view);
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
-    els.monthlyCount.textContent = `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`;
+    const note = MONTHLY_DEPOSITS_NOTES[view];
+    els.monthlyCount.textContent = `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`
+      + (note ? ` · ${note}` : "");
+  }
+  if (els.monthlyHead) {
+    els.monthlyHead.innerHTML = `
+      <tr>
+        <th>Month</th>
+        <th>Year</th>
+        ${columns.map(([header]) => `<th>${escapeHtml(header)}</th>`).join("")}
+        <th>Ledger ($)</th>
+        <th>NSF</th>
+        <th>Action</th>
+      </tr>
+    `;
   }
   if (!els.monthlyTable) return;
   if (!documents.length) {
@@ -2284,8 +3147,7 @@ function renderPackageTables(pkg) {
       <tr>
         <td>No statements</td>
         <td>N/A</td>
-        <td>N/A</td>
-        <td>N/A</td>
+        ${columns.map(() => "<td>N/A</td>").join("")}
         <td>N/A</td>
         <td>N/A</td>
         <td>${glassChip("◐", "Review", "amber")}</td>
@@ -2303,6 +3165,9 @@ function renderPackageTables(pkg) {
     // so those rows alone name their file under the month.
     const monthCounts = new Map();
     rows.forEach(({ month }) => { if (month) monthCounts.set(month.key, (monthCounts.get(month.key) || 0) + 1); });
+    // Members counted on different NSF bases (one saved before the printed-day basis existed) would show counts that
+    // cannot be compared, so each NSF cell then names its basis; the tooltip always does.
+    const mixedNsf = new Set(rows.map(({ doc }) => doc.nsf_source).filter(Boolean)).size > 1;
     els.monthlyTable.innerHTML = rows.map(({ doc, month }) => {
       const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
       const docCurrency = currencyOfDocument(doc);
@@ -2315,11 +3180,10 @@ function renderPackageTables(pkg) {
       return `
         <tr title="${escapeHtml(doc.filename || "Statement")}">
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
-          <td>${escapeHtml(month ? String(month.year) : "N/A")}</td>
-          <td>${escapeHtml(amount(doc.credits))}</td>
-          <td>${escapeHtml(formatWhole(doc.deposit_count))}</td>
-          <td>${escapeHtml(amount(doc.average_daily_balance))}</td>
-          <td>${escapeHtml(formatNumber(doc.nsf_count))}</td>
+          <td class="mono">${escapeHtml(month ? String(month.year) : "N/A")}</td>
+          ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}</td>`).join("")}
+          <td class="mono">${escapeHtml(amount(monthFigure(doc, doc.average_daily_balance)))}</td>
+          <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(monthFigure(doc, doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
           <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : `Open${OPEN_ICON}`}</button></td>
         </tr>
       `;
@@ -2327,11 +3191,25 @@ function renderPackageTables(pkg) {
   }
 }
 
-function openStatementModal(jobId) {
+// A package row names one account of a multi-account statement `<job>#account_<n>` (webapp/app.py): the statement's
+// job, and n, the account in printed order. Any other row is the job alone.
+function packageMember(id) {
+  const match = /^(.*)#account_(\d+)$/.exec(String(id ?? ""));
+  return match ? { jobId: match[1], account: Number(match[2]) } : { jobId: String(id ?? ""), account: null };
+}
+
+function openStatementModal(memberId) {
   if (!els.statementModalBackdrop) return;
+  // The statement's own job: the server knows no `#account_<n>` (and a `#` in a URL is not sent at all).
+  const { jobId, account } = packageMember(memberId);
   modalLastFocus = document.activeElement;
   modalAnalysis = null;
   modalJobId = jobId;
+  modalAccount = account;
+  modalReviewAccount = null;
+  if (els.modalExtractionReview) {
+    els.modalExtractionReview.href = `/result/${encodeURIComponent(jobId)}`;
+  }
   modalTransactionFilter = "all";
   modalTransactionEntityFilter = null;
   setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
@@ -2387,17 +3265,19 @@ function openStatementModal(jobId) {
   }
 
   Promise.all([
-    fetch(`/analysis/${jobId}`).then((response) => {
+    fetch(`/analysis/${encodeURIComponent(jobId)}`).then((response) => {
       if (!response.ok) throw new Error(`Analysis unavailable (${response.status})`);
       return response.json();
     }),
-    fetch(`/markdown/${jobId}`).then((response) => response.ok ? response.text() : ""),
+    fetch(`/markdown/${encodeURIComponent(jobId)}`).then((response) => response.ok ? response.text() : ""),
   ])
     .then(([payload, markdown]) => {
       if (!payload.analysis) throw new Error(friendlyAnalysisError(payload.analysis_error));
       // Same rule as `renderAnalysis`: the modal's transaction renderer reads
-      // `.statement` off this global, so a refused payload must not reach it.
-      modalAnalysis = isDocumentPayload(payload.analysis) ? null : payload.analysis;
+      // `.statement` off this global, so it holds ONE account's payload (the
+      // account of the package row, or the main account of a statement holding
+      // several), never the document.
+      setModalAnalysis(payload.analysis);
       renderStatementModal(jobId, payload.analysis, markdown || "");
       if (els.statementModalClose) els.statementModalClose.focus();
     })
@@ -2440,10 +3320,67 @@ function openStatementModal(jobId) {
     });
 }
 
+// Which published account of a statement holding several the statement window shows (0-based, printed order): the
+// package row's own when it was opened from one, else the main account.
+function modalShownIndex(report) {
+  const published = publishedAccounts(report);
+  if (modalAccount !== null && published[modalAccount - 1]) return modalAccount - 1;
+  return mainAccountIndex(published, accountRoster(report));
+}
+
+function modalAccountPayload(report) {
+  // The statement modal shows one account: of a statement holding several, the package row's own or the main
+  // account; none when the main account (the business checking account) was not verified.
+  const roster = accountRoster(report);
+  if (unverifiedMainAccount(roster)) return null;
+  if (!isDocumentPayload(report)) return report;
+  const published = publishedAccounts(report);
+  if (!published.length) return null;
+  return { ...published[modalShownIndex(report)], parse_mode: report.parse_mode };
+}
+
+// The statement window's account payload, and the account its rows' reviews name.
+function setModalAnalysis(report) {
+  modalAnalysis = modalAccountPayload(report);
+  modalReviewAccount = modalAnalysis && isDocumentPayload(report) ? modalShownIndex(report) + 1 : null;
+}
+
 function renderStatementModal(jobId, report, markdown) {
+  let accountNote = "";
+  const unverifiedMain = unverifiedMainAccount(accountRoster(report));
+  if (unverifiedMain) {
+    els.statementModalTitle.textContent = "Main account needs review";
+    els.statementModalSubtitle.textContent = `${accountDisplayName({}, unverifiedMain)} could not be verified: `
+      + `${accountReasonText(unverifiedMain.reasons)}. No metrics are shown for it.`;
+    els.statementModalMetrics.innerHTML = "";
+    els.statementModalAccount.innerHTML = "";
+    els.statementModalLenders.innerHTML = "";
+    els.statementModalInsurance.innerHTML = "";
+    els.statementModalRevenue.innerHTML = "";
+    els.statementModalTransactions.innerHTML = "";
+    els.statementModalTransactionCount.textContent = "";
+    return;
+  }
+  // Owner ruling, 2026-09-23: an idle main account needs review; the active account stays shown.
+  const idleMain = idleMainAccount(accountRoster(report));
+  if (isDocumentPayload(report)) {
+    const count = Math.max(publishedAccounts(report).length, accountRoster(report).length);
+    const shown = modalAccountPayload(report);
+    if (shown) {
+      const index = modalShownIndex(report);
+      accountNote = index === mainAccountIndex(publishedAccounts(report), accountRoster(report))
+        ? `Main account of ${formatNumber(count)} - `
+        : `Account ${formatNumber(index + 1)} of ${formatNumber(count)} - `;
+      report = shown;
+    }
+  }
+  if (idleMain) {
+    accountNote = `Main account ${accountDisplayName({}, idleMain)} had no activity and needs review; `
+      + "showing the active account - ";
+  }
   if (isDocumentPayload(report)) {
     els.statementModalTitle.textContent = "Multi-account statement";
-    els.statementModalSubtitle.textContent = documentRefusalMessage(report);
+    els.statementModalSubtitle.textContent = "This statement published no account to show.";
     els.statementModalMetrics.innerHTML = "";
     els.statementModalAccount.innerHTML = "";
     els.statementModalLenders.innerHTML = "";
@@ -2459,7 +3396,6 @@ function renderStatementModal(jobId, report, markdown) {
   const statement = report.statement || {};
   const metrics = report.metrics || {};
   const detection = report.detection || {};
-  const quality = report.quality || {};
   const integrity = derivedIntegrity(report);
   const currency = statement.currency || "USD";
   const funders = Array.isArray(detection.known_funders) ? detection.known_funders : [];
@@ -2470,12 +3406,10 @@ function renderStatementModal(jobId, report, markdown) {
     ...potentialLenders.map((item) => ({ ...item, classification: "potential_lender" })),
   ];
   const title = statement.bank ? `${statement.bank} Statement` : "Bank Statement";
-  const decision = hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
-    ? "review_required"
-    : quality.corporate_use || quality.level || "review_required";
+  const decision = accountDecision(report);
 
   els.statementModalTitle.textContent = title;
-  els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(decision)}`;
+  els.statementModalSubtitle.textContent = `${accountNote}${period(statement)} - ${labelize(decision)}`;
   els.statementModalMetrics.innerHTML = [
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
     ["Verified Revenue", `${formatNumber(metrics.verified_revenue_count)} / ${formatMoney(metrics.verified_revenue_total, currency)}`, REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
@@ -2561,6 +3495,8 @@ function closeStatementModal() {
   window.scrollTo(0, modalScrollY);
   if (modalLastFocus && typeof modalLastFocus.focus === "function") modalLastFocus.focus();
   modalJobId = null;
+  modalAccount = null;
+  modalReviewAccount = null;
 }
 
 function copyText(value) {
@@ -2602,10 +3538,18 @@ function generateSummary() {
   const q = currentAnalysis.quality || {};
   const currency = s.currency || "USD";
   const lenders = Array.isArray(d.known_funders) ? d.known_funders.length : 0;
-  const decision = hasMaterialPotentialLenderDebits(m)
+  // The statement's main account printed no activity: the summary an analyst pastes says so, and whose figures follow;
+  // the statement needs review, as the dashboard says.
+  const idleNote = idleMainNote(currentDocument, currency);
+  // Likewise when the main account was not verified and another, verified, account was picked (All accounts).
+  const unverifiedNote = idleNote ? "" : unverifiedMainNote(currentDocument, currency);
+  const decision = idleNote || unverifiedNote || hasMaterialPotentialLenderDebits(m)
     ? "review_required"
     : q.corporate_use || q.level || "review_required";
+  const lead = idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: `
+    : unverifiedNote ? `${unverifiedNote}Figures for the selected account, ${accountDisplayName(s, null)}: ` : "";
   els.summaryBox.textContent =
+    lead +
     `${s.bank || "Statement"} ${period(s)}: average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
@@ -2699,7 +3643,8 @@ function navigate(target) {
     return;
   }
   const openPackage = Boolean(currentAnalysis && currentAnalysis.package);
-  const openStatement = Boolean(currentAnalysis && !currentAnalysis.package);
+  // A statement whose main account was not verified is open too: it shows its accounts (currentDocument), not one.
+  const openStatement = Boolean((currentAnalysis && !currentAnalysis.package) || currentDocument);
   if (target === "review") {
     if (!currentAnalysis) {
       showResultsEmpty("review");
@@ -2743,10 +3688,23 @@ function loadRecentAnalyses() {
 }
 
 let recentAnalyses = loadRecentAnalyses();
+// The Recent entry of the analysis open now (its key), marked in the sidebar; null while nothing is open, as when
+// an upload is under way.
+let openAnalysisKey = null;
 
+// A new analysis goes on top. One already listed (a reopen, a settings refresh, a review decision) is updated where
+// it stands, so the list never reshuffles under the pointer and the mark moves to the entry that was clicked.
 function rememberAnalysis(entry) {
-  recentAnalyses = [entry, ...recentAnalyses.filter((item) => item.key !== entry.key)].slice(0, RECENT_LIMIT);
+  const index = recentAnalyses.findIndex((item) => item.key === entry.key);
+  recentAnalyses = index >= 0
+    ? recentAnalyses.map((item, position) => (position === index ? entry : item))
+    : [entry, ...recentAnalyses].slice(0, RECENT_LIMIT);
   try { sessionStorage.setItem(RECENT_KEY, JSON.stringify(recentAnalyses)); } catch { /* storage unavailable */ }
+  renderRecentAnalyses();
+}
+
+function setOpenAnalysis(key) {
+  openAnalysisKey = key;
   renderRecentAnalyses();
 }
 
@@ -2756,7 +3714,7 @@ function decisionDotTone(decision) {
   return "amber";
 }
 
-function rememberStatement(jobId, report) {
+function rememberStatement(jobId, report, tone = decisionDotTone(els.decisionPill.classList[1])) {
   const statement = report.statement || {};
   const account = Object.fromEntries(accountFieldRows(statement, currentMarkdown));
   const month = monthLabel(statementMonth(statement.period_start, statement.period_end));
@@ -2768,7 +3726,44 @@ function rememberStatement(jobId, report) {
     ids: [jobId],
     label: [month || statement.bank || "Statement", accountType || (month ? statement.bank : "")].filter(Boolean).join(" · "),
     meta: digits.slice(-4),
-    tone: decisionDotTone(els.decisionPill.classList[1]),
+    tone,
+  });
+}
+
+// The statement a multi-account document came from, by its period and bank only: no account's type or number.
+function documentLabelReport(doc) {
+  const first = (publishedAccounts(doc)[0] || {}).statement || {};
+  return { statement: { bank: first.bank, period_start: first.period_start, period_end: first.period_end } };
+}
+
+// The Recent entry of the statement on screen. One that holds several accounts is named after the statement and
+// carries the statement's own dot (review when its main account was not verified or had no activity, else its main
+// account's decision): neither follows the account picked on screen, which a refresh or a revenue decision would
+// otherwise record.
+function rememberShownStatement(jobId) {
+  if (!currentDocument) {
+    if (currentAnalysis) rememberStatement(jobId, currentAnalysis);
+    return;
+  }
+  const roster = accountRoster(currentDocument);
+  const published = publishedAccounts(currentDocument);
+  const main = published[mainAccountIndex(published, roster)];
+  const needsReview = unverifiedMainAccount(roster) || idleMainAccount(roster) || !main;
+  rememberStatement(jobId, documentLabelReport(currentDocument),
+    needsReview ? "amber" : decisionDotTone(accountDecision(main)));
+}
+
+// A statement that opens no results page (a held read, a statement contradiction) is still one the sidebar reopens:
+// it keeps the name it was listed under, or takes its file's name, and its dot says fail or review.
+function rememberHeldStatement(jobId, message) {
+  const listed = recentAnalyses.find((item) => item.key === jobId);
+  rememberAnalysis({
+    kind: "statement",
+    key: jobId,
+    ids: [jobId],
+    label: listed ? listed.label : (currentFile && currentFile.name) || "Statement",
+    meta: listed ? listed.meta : "",
+    tone: sourceContradiction(message) ? "red" : "amber",
   });
 }
 
@@ -2788,8 +3783,10 @@ function recentItemHtml(item) {
   const mark = item.kind === "package"
     ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>`
     : `<span class="recent-dot tone-${escapeHtml(item.tone)}" aria-hidden="true"></span>`;
+  const open = item.key === openAnalysisKey;
   return `
-    <button class="side-link recent-item" type="button" data-recent-key="${escapeHtml(item.key)}" title="${escapeHtml(item.label)}">
+    <button class="side-link recent-item${open ? " active" : ""}" type="button" data-recent-key="${escapeHtml(item.key)}"
+            title="${escapeHtml(item.label)}"${open ? ` aria-current="true"` : ""}>
       ${mark}
       <span class="side-link-label">${escapeHtml(item.label)}</span>
       <span class="side-count">${escapeHtml(item.meta || "")}</span>
@@ -2833,20 +3830,23 @@ function openRecent(key) {
   transactionEntityFilter = null;
   setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
   closeSummary();
+  // The account chosen on another statement is not one of this statement's accounts.
+  selectedAccountIndex = null;
   // A reopen that fails (the job is gone, the server is unreachable) must not leave the page pointing at
   // it: the analysis still on screen gets its own ids back, and the failure is reported beside it.
   const onError = (message) => {
     if (currentJobIds.join(",") !== item.ids.join(",")) return;  // something newer was opened meanwhile
-    if (!currentAnalysis || !shownAnalysis) {
+    // A statement whose main account was not verified shows no account (currentAnalysis) but is on screen.
+    if ((!currentAnalysis && !currentDocument) || !shownAnalysis) {
       renderError(message);
       return;
     }
-    ({ jobId: currentJobId, files: currentFiles, file: currentFile, startedAt } = shownAnalysis);
+    ({ jobId: currentJobId, files: currentFiles, file: currentFile, startedAt, selectedAccountIndex } = shownAnalysis);
     currentJobIds = shownAnalysis.jobIds.slice();
     // The filter was reset for the reopen; the ledger on screen is redrawn to match its buttons.
     renderMainTransactions();
     notify(`Could not reopen ${item.label}: ${message}`, "red");
-    revealOpenAnalysis(currentAnalysis.package ? "packages" : "results");
+    revealOpenAnalysis(currentAnalysis && currentAnalysis.package ? "packages" : "results");
     togglePopover(els.notificationsPopover, els.notificationsBtn);
   };
   if (item.kind === "package") loadPackage(currentJobIds, { announce: false, onError });
@@ -2998,9 +3998,11 @@ function loadSettings() {
 }
 
 function refreshShownResults() {
-  // A setting changes how a result is presented, so whatever is open is fetched again, in place.
+  // A setting changes how a result is presented, so whatever is open is fetched again, in place. A statement whose
+  // main account was not verified shows no account (currentAnalysis is null) but keeps its accounts
+  // (currentDocument), and selecting one later renders from that copy, so it is fetched again too.
   if (currentJobIds.length > 1) loadPackage(currentJobIds, { reveal: false });
-  else if (currentJobId && currentAnalysis) loadResults(currentJobId, { reveal: false });
+  else if (currentJobId && (currentAnalysis || currentDocument)) loadResults(currentJobId, { reveal: false });
 }
 
 els.nsfCarryOverToggle.addEventListener("change", () => {
@@ -3075,10 +4077,12 @@ function clearDropzoneParallax() {
 });
 
 if (els.copyTextBtn) els.copyTextBtn.addEventListener("click", () => copyText(currentMarkdown));
-els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || {}, null, 2)));
+// A statement whose main account was not verified has no account on screen: its data is the whole statement, and
+// its summary is the explanation its view wrote (generateSummary leaves it).
+els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || currentDocument || {}, null, 2)));
 els.summaryBtn.addEventListener("click", () => {
   generateSummary();
-  if (!currentAnalysis || !els.summaryPanel) return;
+  if ((!currentAnalysis && !currentDocument) || !els.summaryPanel) return;
   els.summaryPanel.hidden = false;
   els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
@@ -3154,42 +4158,39 @@ async function submitRevenueReview(button) {
   const jobId = button.getAttribute("data-revenue-review-job");
   const sourceLocation = button.getAttribute("data-revenue-review-location");
   const decision = button.getAttribute("data-revenue-review-action");
-  if (!jobId || !sourceLocation || !decision) return;
+  const account = button.getAttribute("data-revenue-review-account");
+  // While the multi-select's batch is being saved, a row's own decision waits: both would start from one analysis.
+  if (!jobId || !sourceLocation || !decision || bulkBusy) return;
   button.disabled = true;
+  rowReviewsInFlight += 1;
+  syncBulkReview();
+  let saved = null;
   try {
     const response = await fetch(`/analysis/${encodeURIComponent(jobId)}/revenue-review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_location: sourceLocation, decision }),
+      body: JSON.stringify(account === null ? { source_location: sourceLocation, decision }
+        : { source_location: sourceLocation, decision, account: Number(account) }),
     });
-    const payload = await response.json();
+    const payload = await responseJson(response);
     if (!response.ok || !payload.analysis) {
       throw new Error(payload.error || `Revenue review failed (${response.status})`);
     }
-
-    if (currentJobIds.length > 1) {
-      const packageResponse = await fetch(
-        `/package_analysis?ids=${encodeURIComponent(currentJobIds.join(","))}`
-      );
-      if (!packageResponse.ok) throw new Error("Package refresh failed");
-      const pkg = await packageResponse.json();
-      renderPackageAnalysis(pkg);
-      setPackageActions(currentJobIds);
-      rememberPackage(currentJobIds, pkg);
-    } else if (currentJobId === jobId) {
-      renderAnalysis(payload.analysis);
-      setActions(jobId, true);
-      if (currentAnalysis) rememberStatement(jobId, currentAnalysis);
-    }
-
+    saved = { jobId, analysis: payload.analysis };
     if (modalJobId === jobId) {
       // The refresh path, held to the same rule as the open path above.
-      modalAnalysis = isDocumentPayload(payload.analysis) ? null : payload.analysis;
+      setModalAnalysis(payload.analysis);
       renderStatementModal(jobId, payload.analysis, "");
     }
+    await redrawAfterReview(saved);
   } catch (error) {
-    button.disabled = false;
-    window.alert(error.message || String(error));
+    // A decision saved but not drawn keeps its button held: pressed again, it would record the decision twice.
+    if (!saved) button.disabled = false;
+    const message = error.message || String(error);
+    window.alert(saved ? `Saved, but ${message}: open the statements again to see the decision` : message);
+  } finally {
+    rowReviewsInFlight -= 1;
+    syncBulkReview();
   }
 }
 
@@ -3201,6 +4202,25 @@ function handleRevenueReviewClick(event) {
 
 els.transactionTable?.addEventListener("click", handleRevenueReviewClick);
 els.statementModalTransactions?.addEventListener("click", handleRevenueReviewClick);
+
+els.transactionTable?.addEventListener("change", (event) => {
+  const box = event.target instanceof Element ? event.target.closest("input[data-bulk-job]") : null;
+  if (!box) return;
+  pickDeposit(box, box.checked);
+  syncBulkReview();
+});
+els.bulkSelectAll?.addEventListener("change", () => {
+  // Every deposit shown on this page of rows that awaits review (the selection is only ever what is shown).
+  bulkBoxes().forEach((box) => pickDeposit(box, els.bulkSelectAll.checked));
+  syncBulkReview();
+});
+els.bulkReviewBar?.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-bulk-review]") : null;
+  if (!button || button.disabled) return;
+  const action = button.getAttribute("data-bulk-review");
+  if (action === "clear") clearBulkSelection({ refocus: true });
+  else submitBulkReview(action);
+});
 
 document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -3265,6 +4285,72 @@ if (els.statementModalLenders) {
     els.statementModalTransactions?.closest(".modal-panel")?.scrollIntoView({ block: "start" });
   });
 }
+
+/* --- All accounts ---------------------------------------------------------
+   A preference kept in this browser only, switched on the Settings page. It
+   changes what the results page shows of a statement that holds several
+   accounts, never what was read. */
+function syncAllAccountsToggle() {
+  if (!els.allAccountsToggle) return;
+  const on = allAccountsView();
+  els.allAccountsToggle.checked = on;
+}
+
+function setAllAccountsView(on) {
+  allAccountsChoice = Boolean(on);
+  try { localStorage.setItem(ALL_ACCOUNTS_KEY, on ? "on" : "off"); } catch (error) { /* private mode: held for this page */ }
+  syncAllAccountsToggle();
+  // Only a statement on screen is redrawn: never a package, never a statement still processing.
+  const statementShown = currentDocument && !(currentAnalysis && currentAnalysis.package) && currentJobIds.length <= 1;
+  if (statementShown) {
+    renderAnalysis(currentDocument);
+    noteShownSelection();
+  }
+}
+
+els.allAccountsToggle?.addEventListener("change", () => setAllAccountsView(els.allAccountsToggle.checked));
+syncAllAccountsToggle();
+
+function setMonthlyDepositsView(view) {
+  const next = MONTHLY_DEPOSITS_VIEWS.includes(view) ? view : "both";
+  monthlyDepositsChoice = next;
+  try { localStorage.setItem(MONTHLY_DEPOSITS_KEY, next); } catch (error) { /* private mode: held for this page */ }
+  if (els.monthlyDepositsView) els.monthlyDepositsView.value = next;
+  // Only a package has the table and its chart: the one on screen is redrawn from the figures it already holds.
+  if (currentAnalysis && currentAnalysis.package) renderMonthlyStatements(currentAnalysis.package);
+}
+
+els.monthlyDepositsView?.addEventListener("change", () => setMonthlyDepositsView(els.monthlyDepositsView.value));
+if (els.monthlyDepositsView) els.monthlyDepositsView.value = monthlyDepositsView();
+
+// The account on screen is part of what a failed reopen puts back (openRecent), so the record follows every
+// selection made after the statement finished loading, and only for the statement that record describes.
+function noteShownSelection() {
+  if (shownAnalysis && shownAnalysis.jobId === currentJobId) shownAnalysis.selectedAccountIndex = selectedAccountIndex;
+}
+
+function selectAccountFrom(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target ? target.closest("tr[data-account-index]") : null;
+  if (!row || !currentDocument) return;
+  const index = Number(row.getAttribute("data-account-index"));
+  if (!Number.isInteger(index) || index === selectedAccountIndex) return;
+  selectedAccountIndex = index;
+  renderAnalysis(currentDocument);
+  noteShownSelection();
+  els.accountsPanel?.querySelector(`tr[data-account-index="${index}"]`)?.focus();
+}
+
+els.accountsPanel?.addEventListener("click", selectAccountFrom);
+els.accountsPanel?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  // Only an account row is selected from the keyboard; any other control in the panel (the link to Settings)
+  // keeps its own Enter and Space.
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || !target.closest("tr[data-account-index]")) return;
+  event.preventDefault();
+  selectAccountFrom(event);
+});
 
 /* --- appearance ------------------------------------------------------
    The theme is resolved inline in the document head before first paint;

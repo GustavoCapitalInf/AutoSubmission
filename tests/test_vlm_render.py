@@ -53,7 +53,7 @@ def test_render_document_dispatches_on_magic():
 
 def test_render_settings_are_pinned():
     settings = render.render_settings()
-    assert settings["render_version"] == 1 and settings["long_edge"] == 1540 and settings["jpeg_quality"] == 90
+    assert settings["render_version"] == 2 and settings["long_edge"] == 1540 and settings["jpeg_quality"] == 90
     assert settings["pdfium_version"]
 
 
