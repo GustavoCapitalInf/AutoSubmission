@@ -205,7 +205,10 @@ def _undated_row_date(row, above, printed_pages, start, end, order: str | None =
     printed = (printed_pages[row.page - 1] if printed_pages is not None and 0 < row.page <= len(printed_pages)
                else None)
     governing = printed.governing_date(row.amount, row.balance) if printed is not None else None
-    if governing == "" and 1 < row.page <= len(printed_pages or ()) and printed_pages[row.page - 2] is not None:
+    # The previous page's last dated line continues the day onto this page; for a row of a table printed k-up that
+    # line's leading date is its first column's, which need not be the row's (review 11): no date.
+    if (governing == "" and not getattr(row, "side_by_side", False) and 1 < row.page <= len(printed_pages or ())
+            and printed_pages[row.page - 2] is not None):
         governing = printed_pages[row.page - 2].last_date_text or None
     if governing:
         candidates = _possibilities(governing, start, end, order) if start is not None else ()

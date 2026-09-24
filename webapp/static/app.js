@@ -694,13 +694,17 @@ function setBanner(state, title, meta) {
   els.validationValue.textContent = meta;
 }
 
-function setStatusRows(rows) {
-  els.statusList.innerHTML = rows.map(([key, value]) => `
+function statusRowHtml([key, value]) {
+  return `
     <div class="status-row">
       <div class="status-key">${escapeHtml(key)}</div>
       <div class="status-value">${escapeHtml(value)}</div>
     </div>
-  `).join("");
+  `;
+}
+
+function setStatusRows(rows) {
+  els.statusList.innerHTML = rows.map(statusRowHtml).join("");
 }
 
 function setInitialState() {
@@ -1234,6 +1238,30 @@ function unverifiedMainAccount(roster = []) {
   return roster.find((entry) => rank(entry) === best && entry.status === "held") || null;
 }
 
+function idleMainAccount(roster = []) {
+  // Owner ruling, 2026-09-23: when the main account (the business checking account) printed no activity this period,
+  // the dashboard says so and that it needs review, and keeps showing the active account(s). The idle account of the
+  // best rank, when no account of that rank was verified or held; null otherwise (webapp/app.py _idle_main_account).
+  if (!roster.length) return null;
+  const rank = (entry) => mainAccountRank(entry.kind, /\b(business|commercial|corporate)\b/i.test(entry.title || ""));
+  const best = Math.max(...roster.map(rank));
+  if (best < 0) return null;
+  const top = roster.filter((entry) => rank(entry) === best);
+  if (top.some((entry) => entry.status === "published" || entry.status === "held")) return null;
+  return top.find((entry) => entry.status === "idle") || null;
+}
+
+function idleMainText(entry, currency) {
+  return `${accountDisplayName({}, entry)} had no activity this period (balance ${formatMoney(entry.balance, currency)})`
+    + " and needs review";
+}
+
+function idleMainNote(report, currency) {
+  // The sentence the summary box leads with when the statement's main account printed no activity; "" otherwise.
+  const idleMain = report ? idleMainAccount(accountRoster(report)) : null;
+  return idleMain ? `Main account ${idleMainText(idleMain, currency)}. ` : "";
+}
+
 function mainAccountReason(account = {}, entry = null) {
   const statement = account.statement || {};
   const checking = accountKindOf(statement, entry) === "checking";
@@ -1308,24 +1336,29 @@ function accountPanelRowHtml(entry, published, main, selected, currency, isUnver
     </tr>`;
 }
 
-function renderAccountsPanel(published, roster, main, selected, unverifiedMain = null) {
+function renderAccountsPanel(published, roster, main, selected, unverifiedMain = null, idleMain = null) {
   if (!els.accountsPanel) return;
   const entries = accountPanelEntries(published, roster);
   const mainAccount = published[main] || {};
   const mainEntry = rosterEntryFor(roster, main);
   const mainName = accountDisplayName(mainAccount.statement || {}, mainEntry);
   const others = entries.length - 1;
+  // The statement's own denomination; never an assumed one (an account without figures shows none).
+  const currency = (mainAccount.statement || {}).currency || null;
   if (!allAccountsView()) {
+    const lead = idleMain
+      ? `This statement's main account, <strong>${escapeHtml(accountDisplayName({}, idleMain))}</strong>, had no activity`
+        + ` this period (balance ${escapeHtml(formatMoney(idleMain.balance, currency))}) and needs review.`
+        + ` Showing the active account, <strong>${escapeHtml(mainName)}</strong>.`
+      : `Showing the main account, <strong>${escapeHtml(mainName)}</strong>: ${escapeHtml(mainAccountReason(mainAccount, mainEntry))}.`;
     els.accountsPanel.innerHTML = `
       <div class="accounts-note">This statement holds <strong>${escapeHtml(formatNumber(entries.length))} accounts</strong>.
-        Showing the main account, <strong>${escapeHtml(mainName)}</strong>: ${escapeHtml(mainAccountReason(mainAccount, mainEntry))}.
+        ${lead}
         ${others > 0 ? `Turn on <strong>All accounts</strong> in Settings to review the other ${others === 1 ? "account" : `${escapeHtml(formatNumber(others))} accounts`}.` : ""}
       </div>`;
     els.accountsPanel.hidden = false;
     return;
   }
-  // The statement's own denomination; never an assumed one (an account without figures shows none).
-  const currency = (mainAccount.statement || {}).currency || null;
   els.accountsPanel.innerHTML = `
     <div class="table-card">
       <div class="table-head">
@@ -1345,7 +1378,7 @@ function renderAccountsPanel(published, roster, main, selected, unverifiedMain =
               <th>Avg Daily Balance</th>
             </tr>
           </thead>
-          <tbody>${entries.map((entry) => accountPanelRowHtml(entry, published, main, selected, currency, entry === unverifiedMain)).join("")}</tbody>
+          <tbody>${entries.map((entry) => accountPanelRowHtml(entry, published, idleMain ? -1 : main, selected, currency, entry === unverifiedMain || entry === idleMain)).join("")}</tbody>
         </table>
       </div>
     </div>`;
@@ -1428,13 +1461,26 @@ function renderAnalysis(report) {
     return;
   }
   const main = unverified ? -1 : mainAccountIndex(published, roster);
+  // The main account printed no activity: it needs review, and the active account (the best-ranked verified one)
+  // stays shown.
+  const idleMain = unverified ? null : idleMainAccount(roster);
   if (!allAccountsView() || selectedAccountIndex === null || !published[selectedAccountIndex]) {
     selectedAccountIndex = main;
   }
-  renderAccountsPanel(published, roster, main, selectedAccountIndex, unverified);
+  renderAccountsPanel(published, roster, main, selectedAccountIndex, unverified, idleMain);
   const shown = published[selectedAccountIndex];
   // One account's own payload: every panel below, the summary and the transaction list describe that account.
   renderAccount(isDocumentPayload(report) ? { ...shown, parse_mode: report.parse_mode } : report);
+  if (idleMain) {
+    // The summary box is the actions' (idleMainNote says it there); this runs again on every account selection and
+    // settings change, so it only sets.
+    els.statusHeading.textContent = "Main account needs review";
+    setBanner("pending", "Main account had no activity; showing the active account", "Review required");
+    els.decisionPill.textContent = "review required";
+    els.decisionPill.className = "decision-pill";
+    // Above the shown account's own rows (its "Validation" is that account's).
+    els.statusList.insertAdjacentHTML("afterbegin", statusRowHtml(["Main account", "No activity; needs review"]));
+  }
 }
 
 function renderAccount(report) {
@@ -1732,8 +1778,12 @@ function loadResults(jobId) {
       }
       renderAnalysis(payload.analysis);
       setActions(jobId, true);
-      // A statement whose main account was not verified keeps its explanation in the summary.
-      if (currentAnalysis) els.summaryBox.textContent = "Exports and copy actions are ready.";
+      // A statement whose main account was not verified keeps its explanation in the summary; one whose main account
+      // printed no activity says so first.
+      if (currentAnalysis) {
+        const currency = (currentAnalysis.statement || {}).currency || null;
+        els.summaryBox.textContent = `${idleMainNote(currentDocument, currency)}Exports and copy actions are ready.`;
+      }
     })
     .catch((error) => renderError(error.message || String(error)));
 }
@@ -2074,6 +2124,8 @@ function renderStatementModal(jobId, report, markdown) {
     els.statementModalTransactionCount.textContent = "";
     return;
   }
+  // Owner ruling, 2026-09-23: an idle main account needs review; the active account stays shown.
+  const idleMain = idleMainAccount(accountRoster(report));
   if (isDocumentPayload(report)) {
     const count = Math.max(publishedAccounts(report).length, accountRoster(report).length);
     const shown = modalAccountPayload(report);
@@ -2081,6 +2133,10 @@ function renderStatementModal(jobId, report, markdown) {
       accountNote = `Main account of ${formatNumber(count)} - `;
       report = shown;
     }
+  }
+  if (idleMain) {
+    accountNote = `Main account ${accountDisplayName({}, idleMain)} had no activity and needs review; `
+      + "showing the active account - ";
   }
   if (isDocumentPayload(report)) {
     els.statementModalTitle.textContent = "Multi-account statement";
@@ -2239,10 +2295,14 @@ function generateSummary() {
   const q = currentAnalysis.quality || {};
   const currency = s.currency || "USD";
   const lenders = Array.isArray(d.known_funders) ? d.known_funders.length : 0;
-  const decision = hasMaterialPotentialLenderDebits(m)
+  // The statement's main account printed no activity: the summary an analyst pastes says so, and whose figures follow;
+  // the statement needs review, as the dashboard says.
+  const idleNote = idleMainNote(currentDocument, currency);
+  const decision = idleNote || hasMaterialPotentialLenderDebits(m)
     ? "review_required"
     : q.corporate_use || q.level || "review_required";
   els.summaryBox.textContent =
+    (idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: ` : "") +
     `${s.bank || "Statement"} ${period(s)}: average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +

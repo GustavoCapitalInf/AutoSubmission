@@ -121,8 +121,10 @@ def _bare_row_heading(row: dict, printed, daily=()) -> str | None:
             same_amount = abs(Decimal(str(item["balance"]))) == abs(Decimal(str(row.get("amount"))))
         except (ArithmeticError, KeyError, TypeError, ValueError):
             continue
-        same_day = (item.get("date") == row.get("date") if row.get("date")
-                    else bool(row.get("date_text")) and reads_as(row["date_text"], str(item.get("date"))))
+        # The same day: the same ISO date, or the row's printed month and day read as the balance's (a proposer's
+        # year hint can differ from the reviewer's year).
+        same_day = (item.get("date") == row.get("date")
+                    or (bool(row.get("date_text")) and reads_as(row["date_text"], str(item.get("date")))))
         if same_amount and same_day:
             return None
     return printed.bare_row_heading(row.get("amount"), row.get("date_text"), row.get("balance"), row.get("direction"))

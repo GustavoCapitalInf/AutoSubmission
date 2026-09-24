@@ -240,6 +240,11 @@ def test_a_row_that_is_one_of_the_pages_daily_balances_takes_no_heading():
     payload = _review(bare)
     payload["daily_balances"] = [{"date": "2031-01-02", "balance": 20.0}]
     assert merge_review(bare, payload, page=1, printed=PrintedEvidence(native=BARE_PAGE)).counts["unresolved"] == 1
+    # Review 11, finding 7: the proposer's year hint differs from the reviewer's; the printed month and day decide.
+    hinted = [replace(bare[0], date="2030-01-02")]
+    payload = _review(hinted)
+    payload["daily_balances"] = [{"date": "2031-01-02", "balance": 20.0}]
+    assert merge_review(hinted, payload, page=1, printed=PrintedEvidence(native=BARE_PAGE)).counts["unresolved"] == 1
 
 
 def test_a_reviewer_addition_printed_as_its_date_and_amount_alone_takes_its_section_heading():

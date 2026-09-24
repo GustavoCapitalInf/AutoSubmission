@@ -770,6 +770,20 @@ def _unverified_main_account(roster: list[dict]) -> dict | None:
     return held[0] if held and best >= 0 else None
 
 
+def _idle_main_account(roster: list[dict]) -> dict | None:
+    """The statement's main account when it printed no activity this period (owner ruling, 2026-09-23: it needs
+    review; the dashboard keeps showing the active account, app.js idleMainAccount): the idle account of the best rank
+    (main_account_rank), when no account of that rank was verified or held. None otherwise."""
+    if not roster:
+        return None
+    ranks = [main_account_rank(entry.get("kind"), entry.get("title")) for entry in roster]
+    best = max(ranks)
+    top = [entry for entry, rank in zip(roster, ranks) if rank == best]
+    if best < 0 or any(entry.get("status") in ("published", "held") for entry in top):
+        return None
+    return next((entry for entry in top if entry.get("status") == "idle"), None)
+
+
 def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
@@ -802,15 +816,17 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     for job in jobs:
         analysis = job.analysis or {}
         roster = _account_roster(analysis)
-        if _unverified_main_account(roster) is not None:
+        unverified, idle = _unverified_main_account(roster), _idle_main_account(roster)
+        if unverified is not None or idle is not None:
             # The statement's main account (its business checking account, as the dashboard shows it) was not
-            # verified: no other account of the statement stands in for it in the package's figures.
+            # verified, or printed no activity and needs review: no other account of the statement stands in for it
+            # in the package's figures.
             excluded.append({
                 "job_id": job.id,
                 "account_index": None,
                 "account_count": len(roster),
                 "outcome": "withheld",
-                "reason": "main_account_unverified",
+                "reason": "main_account_unverified" if unverified is not None else "main_account_idle",
             })
             continue
         if not is_document_payload(analysis):

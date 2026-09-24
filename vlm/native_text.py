@@ -49,9 +49,11 @@ _AMOUNT_TOKEN = re.compile(r"[-+(]?\$?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\)?-?")
 # A printed date: numeric (the year first or last, or a month/day), or a month name before or after the day, with a
 # weekday or an ordinal (PrintedEvidence.date_contradicted).
 _MONTH_NAME = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
-# Two digits after a month and day are its year only where nothing follows them on the line but punctuation: "As of
-# Mar 31, 45 items were paid" prints a count, "through Mar 31, 12.50" an amount (review 10).
-_TWO_DIGIT_YEAR_END = r"(?![\d.])(?![ \t]*[a-z0-9$])"
+# Two digits after a month and day are its year unless a digit, a decimal or a count follows them: "As of Mar 31, 45
+# items were paid" prints a count, "through Mar 31, 12.50" an amount (review 10); "Mar 31, 30 Page 1" and "Mar 31,
+# 30." print a year (review 11).
+_TWO_DIGIT_YEAR_END = (r"(?!\d)(?!\.\d)(?![ \t]*(?:items?|checks?|cheques?|deposits?|withdrawals?|debits?|credits?|"
+                       r"transactions?|payments?|days?|times?)\b)")
 _PRINTED_DATE = re.compile(
     rf"(?<![\d/.\-])(?:\d{{4}}[-/.]\d{{1,2}}[-/.]\d{{1,2}}|\d{{1,2}}[/.\-]\d{{1,2}}[/.\-]\d{{2,4}}|\d{{1,2}}/\d{{1,2}})"
     rf"(?![\d/])"
@@ -121,6 +123,9 @@ _TRANSACTION_HEADING = re.compile(r"\b(?:deposits?|credits?|additions?|checks?|c
                                   r"subtractions?|payments?|charges?|fees?|transfers?|purchases?)\b", re.IGNORECASE)
 _BALANCE_HEADING = re.compile(r"\bbalances?\b", re.IGNORECASE)
 _AMOUNT_HEADER = re.compile(r"\b(?:amount|deposits?|withdrawals?|debits?|credits?|checks?|cheques?)\b", re.IGNORECASE)
+# A column header's amount column, and how far above a row its table's header is looked for.
+_AMOUNT_WORD = re.compile(r"amount|deposits?|withdrawals?|debits?|credits?|paid|payments?|charges?")
+_HEADER_REACH = 60
 # The direction a heading gives its rows: deposits and credits add, cheques, debits, withdrawals and charges take away.
 _CREDIT_HEADING = re.compile(r"\b(?:deposits?|credits?|additions?)\b", re.IGNORECASE)
 _DEBIT_HEADING = re.compile(r"\b(?:checks?|cheques?|debits?|withdrawals?|subtractions?|payments?|charges?|fees?|"
@@ -388,9 +393,15 @@ class PrintedEvidence:
         except ValueError:
             return None
         other_year = False
-        # Line by line: what follows a date on its own line tells a two-digit year from a count (_TWO_DIGIT_YEAR_END).
-        matches = [match for line in self.native.splitlines()
-                   for match in _PRINTED_DATE.finditer(" ".join(line.split()))]
+        # Line by line: what follows a date on its own line tells a two-digit year from a count (_TWO_DIGIT_YEAR_END); a
+        # line ending in a comma continues on the next ("March 31," then "2030").
+        lines = []
+        for line in self.native.splitlines():
+            if lines and lines[-1].rstrip().endswith(","):
+                lines[-1] = f"{lines[-1]} {line}"
+            else:
+                lines.append(line)
+        matches = [match for line in lines for match in _PRINTED_DATE.finditer(" ".join(line.split()))]
         for match in matches:
             token = match.group(0).strip(" ,")
             # A printed year: four digits, or a numeric date's third part ("03/01/31"); "03/01" prints none.
@@ -497,33 +508,67 @@ class PrintedEvidence:
         # transaction's): no date is taken for it, from after the amount or from the lines above.
         if any(_ROW_START.match(" ".join(group[index:])) for index in range(len(group))):
             return None
-        # A date column after the amount ("... 50.00 DEC31 1,234.56"): right after it, never past a word, and never
-        # when a later column group on the line begins with a date and prints more (the next group's row of a table
-        # printed k-up: "3102 200.00 03/10 3104 400.00", the day printed once for the row). A date that begins a
-        # line above the row's (a statement printing each day's date once) is found by the search upward.
         line, own = anchors[0]
-        # A row whose group prints nothing before its amount (its date and words left to the day printed once above)
-        # sits in a table printed k-up: whatever follows its amount is the next column's.
-        next_row = not group
+        # The tokens printed after the row's amount, up to the next amount on its line.
+        tokens, spans = self._lines[line][1], self._line_spans[line]
+        following = spans[own + 1][0] if own + 1 < len(spans) else len(self._lines[line][0])
+        after = [token for token, start, end in tokens if start >= spans[own][1] and end <= following]
+        after_date = next((" ".join(after[:size]) for size in (1, 2, 3)   # "01/05", "Apr 29", "Apr 29, 2026"
+                           if len(after) >= size and date_text_parts(" ".join(after[:size]))), None)
+        # Ambiguous: the row's group prints nothing before its amount, or a later group on its line begins with a date
+        # and prints more ("3102 200.00 03/10 3104 400.00"). A date after the amount is then the row's own date
+        # column, or the next column's row of a table printed k-up. The page's column header decides: AMOUNT before
+        # DATE, the date after the amount; DATE before AMOUNT, a k-up table printing each day once, the search upward
+        # (the row's own column only); no header, no date.
+        ambiguous = not group
         for later in range(own + 1, len(self._line_spans[line])):
             tokens = self._group_tokens((line, later))
             match = _ROW_START.match(" ".join(tokens))
-            next_row |= bool(match) and len(tokens) > len(match.group(0).split())
-        stream, first, last = self._row_stream(anchors[0], trailing=True)
-        after = [token for index, token in stream[last + 1:] if index == anchors[0][0]]
-        for size in (1, 2, 3):   # "01/05", "Apr 29", "Apr 29, 2026"
-            text = " ".join(after[:size])
-            if not next_row and len(after) >= size and date_text_parts(text):
-                return text
-        if anchors[0][1] > 0:
+            ambiguous |= bool(match) and len(tokens) > len(match.group(0).split())
+        if ambiguous:
+            order = self._header_order(line)
+            if order == "amount_first":
+                return after_date
+            if order != "date_first" or own > 0:
+                return None
+        elif after_date is not None:
+            # A date column after the amount ("... 50.00 DEC31 1,234.56"): right after it, never past a word.
+            return after_date
+        if own > 0:
             # The row's amount is not its line's first and its group prints no date: the line's leading date
             # belongs to the row printed before it on that line, and the lines above to other rows.
             return None
-        for index in range(anchors[0][0], -1, -1):
+        # The search upward, for a statement printing each day's date once. A row on a line of one column below a
+        # table printed k-up continues one of its columns, which is unknown: no date.
+        row_kup = self._kup(line)
+        for index in range(line, -1, -1):
+            if index != line and not row_kup and self._kup(index):
+                return None
             count = self._row_starts[index]
             if count:
                 return " ".join(self._native_lines[index][:count])
         return ""
+
+    def _kup(self, index: int) -> bool:
+        """Whether a text-layer line prints a table k-up: a later column group on it begins with a date."""
+        return any(_ROW_START.match(" ".join(self._group_tokens((index, later))))
+                   for later in range(1, len(self._line_spans[index])))
+
+    def _header_order(self, line: int) -> str | None:
+        """How the nearest column header above ``line`` orders its columns: "date_first" (a DATE column before the
+        first amount column: "DATE CHECK # AMOUNT"), "amount_first" ("AMOUNT DATE"), or None (no header in reach,
+        or it names no date or no amount column)."""
+        for index in range(line - 1, max(-1, line - _HEADER_REACH - 1), -1):
+            words = self._native_lines[index]
+            if not words or not _column_header(words):
+                continue
+            parts = [part.lower() for word in words for part in re.findall(r"[^\W\d_]+", word)]
+            dates = [position for position, part in enumerate(parts) if part in ("date", "posted", "effective")]
+            amounts = [position for position, part in enumerate(parts) if _AMOUNT_WORD.fullmatch(part)]
+            if not dates or not amounts:
+                return None
+            return "date_first" if dates[0] < amounts[0] else "amount_first"
+        return None
 
     def _group_tokens(self, anchor: tuple[int, int]) -> list[str]:
         """The tokens of the column group of ``anchor``'s line printed before its amount: from the previous amount
@@ -561,8 +606,11 @@ class PrintedEvidence:
             if _column_header(words):
                 headers += 1
                 # A header naming a balance and no amount heads balances; a second header means another table lies
-                # between the row and any heading above (a daily-balance grid printed after the deposits).
-                if headers > 1 or (_BALANCE_HEADING.search(heading) and not _AMOUNT_HEADER.search(heading)):
+                # between the row and any heading above (a daily-balance grid printed after the deposits). A header
+                # naming a balance beside an amount ("REF # DATE AMOUNT DATE BALANCE": deposits printed beside the
+                # day's balances) heads balances in every column group after its line's first (review 11).
+                if headers > 1 or (_BALANCE_HEADING.search(heading)
+                                   and (not _AMOUNT_HEADER.search(heading) or anchors[0][1] > 0)):
                     return None
                 continue
             if (self._line_spans[index] or len(words) > _HEADING_WORDS

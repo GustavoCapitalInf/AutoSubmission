@@ -56,7 +56,16 @@ _SENTENCE = re.compile(r"\b(?:please|thank|thanks|if|call|visit|www|http|https|c
 _SENTENCE_WORDS = re.compile(r"\b(?:you|your|we|our|us|will|may)\b", re.I)
 # A verb makes a line a sentence ("Your savings are insured by the NCUA", "We value your checking relationship").
 _VERBS = re.compile(r"\b(?:are|is|was|were|be|been|can|could|should|must|earns?|earned|insured|available|changes?|"
-                    r"changed|offers?|provides?|protect(?:s|ed)?|appl(?:y|ies)|needs?|has|have|made)\b", re.I)
+                    r"changed|offers?|provides?|protect(?:s|ed)?|appl(?:y|ies)|needs?|has|have|made|pays?)\b", re.I)
+# The pronouns of marketing prose: a title may open with "Your" but never prints one further on.
+_MARKETING_WORDS = re.compile(r"\b(?:your|our|we|us|you)\b", re.I)
+# Product names built of sentence words ("Pay As You Go Checking"): read as one word by the sentence rules.
+_PRODUCT_IDIOMS = re.compile(r"\bpay\s+as\s+you\s+go\b", re.I)
+# Prose a title never prints: an article or "to" before a word (never a month: "... March 1 to March 31"), or an
+# invitation's adverb ("Open A Savings Account Today", "Switch To Paperless Checking Statements", "Savings Goals Start
+# Here"). "Now" is a product's word ("Business NOW Account").
+_PROSE_WORDS = re.compile(r"\b(?:(?:a|an|to)\s+(?!(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
+                          r"(?=[A-Za-z]{2})|(?:here|today)\b)", re.I)
 # Forms of "be" and "have" are never a product's word: after a line's first word they make it a sentence in any case
 # ("Checking Accounts Are Changing"); the other verbs do only in lower case or beside a sentence word.
 _STRONG_VERBS = re.compile(r"(?:are|is|was|were|been|has|have)", re.I)
@@ -149,16 +158,17 @@ def _sentence_case(text) -> bool:
 
 def _marketing_line(text) -> bool:
     """A line in sentence case naming an account word, printed as running text or as a heading ("Grow your savings
-    faster", "Open a savings account today"): marketing, never an account's title. A short title printed in sentence
-    case ("Business checking", "Everyday checking account") is a title: three words or fewer (or nothing but a title's
-    generic words), no sentence word and no verb."""
+    faster", "Open a savings account today"): marketing, never an account's title. A title printed in sentence case
+    ("Business checking", "Small business checking account") is a title: at most two words besides a title's generic
+    words, no sentence word and no verb."""
     if not _sentence_case(text):
         return False
     clean = _clean(str(text or ""))
     if _SENTENCE_WORDS.search(clean) or _VERBS.search(clean):
         return True
-    words = [word for word in clean.split() if re.search(r"[A-Za-z]", word)]
-    return len(words) > 3 and not _generic(clean)
+    # A title names its kind with at most two words of its own ("Small business checking account"); more is prose.
+    words = [word.lower().strip("().,:;") for word in clean.split() if re.search(r"[A-Za-z]", word)]
+    return len([word for word in words if word not in _GENERIC_WORDS]) > 2
 
 
 def parse_heading(text: str) -> Heading | None:
@@ -170,21 +180,32 @@ def parse_heading(text: str) -> Heading | None:
     line = _CONTINUED_TAIL.sub("", line).strip(" -–—:|,")
     if not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line):
         return None
-    # A verb makes a sentence ("Business Checking has changed", "Your savings are insured"), unless it opens the line
-    # or is a capitalised word of a product name ("Earn More Savings", "POWER PROTECTED CHECKING") on a line printing
-    # no sentence word.
-    verbs = list(_VERBS.finditer(line))
-    later = [match for match in verbs if match.start() > 0]
-    if any(match.group(0).islower() or _STRONG_VERBS.fullmatch(match.group(0)) for match in later) or (
-            verbs and _SENTENCE_WORDS.search(line)):
-        # ... and any verb beside a sentence word, the first word included: "Protect your checking account", "Is
-        # your checking account earning interest".
+    # A verb makes a sentence ("Business Checking has changed", "Business Checking Offers More"), unless it opens the
+    # line ("Earn More Savings") or is a capitalised word of a product's name right before its kind word ("POWER
+    # PROTECTED CHECKING", "Special Needs Savings"); and any verb beside a sentence word, the first word included
+    # ("Protect your checking account", "Is your checking account earning interest").
+    plain = _PRODUCT_IDIOMS.sub("PRODUCT", line)
+    verbs = list(_VERBS.finditer(plain))
+
+    def product_word(match):
+        following = plain[match.end():].split()
+        return (not match.group(0).islower() and not _STRONG_VERBS.fullmatch(match.group(0))
+                and bool(following) and _kind(following[0]) is not None)
+
+    if any(match.start() > 0 and not product_word(match) for match in verbs) or (
+            verbs and _SENTENCE_WORDS.search(plain)):
+        return None
+    # A title says "Your" first, if at all: "Your", "Our", "We", "Us" or "You" further on is a sentence ("Grow Your
+    # Savings Faster"); the month a title is printed for is no sentence word ("... Activity for May").
+    if any(match.start() > 0 for match in _MARKETING_WORDS.finditer(_PERIOD_TAIL.sub("", plain))):
+        return None
+    if _PROSE_WORDS.search(_PERIOD_TAIL.sub("", plain)):
         return None
     # A title's own words, without its identifier and the words every title can add ("Account", "Summary").
     title_words = [token for token in line.split()
                    if re.search(r"[A-Za-z]", token) and not re.search(r"\d", token)
                    and token.lower().strip(".,:;#()") not in ("account", "acct", "summary")]
-    sentence_words = len(_SENTENCE_WORDS.findall(line))
+    sentence_words = len(_SENTENCE_WORDS.findall(plain))
     if sentence_words > 1 or (sentence_words and (_kind(line) is None or len(title_words) > 5)):
         return None
     line = _POSSESSIVE.sub("", _PERIOD_TAIL.sub("", line))
@@ -612,7 +633,8 @@ def _summary_header(grid) -> tuple[int, dict] | None:
     columns (Beginning Balance, Ending Balance, ...). A table whose header row also names a ledger column (Date,
     Description, ...: "Date | Description | Deposits and Credits | Withdrawals and Debits | Balance") is a ledger,
     never a summary table."""
-    for start, header in enumerate([_clean(cell) for cell in row] for row in grid):
+    rows = [[_clean(cell) for cell in row] for row in grid]
+    for start, header in enumerate(rows):
         # A row naming a ledger column before any figure header makes the table a ledger, whatever totals row it
         # prints further down ("Total Deposits | 0.00 | Total Withdrawals | 100.00" inside the ledger, review 10).
         if any(_LEDGER_HEADER.search(cell) for cell in header if cell):
@@ -623,6 +645,12 @@ def _summary_header(grid) -> tuple[int, dict] | None:
             if label is not None:
                 roles[column] = label[0]
         if len(set(roles.values())) >= 2:
+            # A summary table labels an account's balance; a ledger's figure columns are credits and debits only
+            # ("Day | Item | Deposits and Credits | Withdrawals and Debits | Balance"), and its rows begin with dates.
+            first_cells = [next((cell for cell in row if cell), "") for row in rows[start + 1:]]
+            if (not {"beginning_balance", "ending_balance"} & set(roles.values())
+                    or any(_LEAD_DATE.match(cell) for cell in first_cells if cell)):
+                return None
             return start, roles
     return None
 
@@ -630,7 +658,8 @@ def _summary_header(grid) -> tuple[int, dict] | None:
 _BALANCE_CAPTION = re.compile(r"\bbalances?\b", re.I)
 # Words naming transactions (a balance grid's header can say "Amount": that word is neither).
 _TRANSACTION_CAPTION = re.compile(r"\b(?:deposits?|withdrawals?|debits?|credits?|checks?|cheques?|description|"
-                                  r"transactions?|payments?|fees?|charges?|items?|transfers?|adjustments?)\b", re.I)
+                                  r"transactions?|payments?|fees?|charges?|items?|transfers?|adjustments?|activity|"
+                                  r"purchases?|corrections?|overdrafts?)\b", re.I)
 
 
 def balance_table_blocks(layout) -> frozenset:

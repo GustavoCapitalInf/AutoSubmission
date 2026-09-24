@@ -552,7 +552,10 @@ def test_a_table_the_page_prints_as_balances_is_known_by_its_caption_or_header()
     # line printed right above the table.
     wordless = _table(("03/10", "500.00"), ("03/15", "500.00"))
     for caption in (("text", "Beginning Balance $1,000.00 Ending Balance $1,250.00"), ("text", "Ending balance on 03/31"),
-                    ("section_header", "Balance Transfers")):
+                    ("section_header", "Balance Transfers"),
+                    # Review 11, finding 8: activity, purchases, corrections and overdrafts are transactions.
+                    ("section_header", "Overdraft Balance Activity"), ("section_header", "Balance Corrections"),
+                    ("section_header", "Purchases Above Balance")):
         assert balance_table_blocks(DotsLayout(1, (_block(0, *caption), _block(1, "table", wordless)), (), (),
                                                False)) == frozenset(), caption
     stale = DotsLayout(1, (_block(0, "section_header", "DAILY BALANCE"),
@@ -597,6 +600,8 @@ def test_running_text_in_sentence_case_is_no_account_heading(text):
 @pytest.mark.parametrize("text,title", [
     ("Earn More Savings", "Earn More Savings"), ("Be Free Checking", "Be Free Checking"),
     ("FABRICATED PROTECTED CHECKING", "FABRICATED PROTECTED CHECKING"),
+    ("Special Needs Savings", "Special Needs Savings"), ("Pay As You Go Checking", "Pay As You Go Checking"),
+    ("Business NOW Checking", "Business NOW Checking"), ("FABRICATED SHARE A 0001", "FABRICATED SHARE A"),
     ("Your Business Advantage Checking Account 1234", "Business Advantage Checking"),
     ("Your Fabricated Business Checking Account XXXX1234", "Fabricated Business Checking Account"),
 ])
@@ -657,6 +662,14 @@ def test_a_ledger_printing_a_totals_row_is_never_a_summary_table():
     assert _summary_header(ledger) is None
     summary = [["Account", "Beginning Balance", "Ending Balance"], ["FABRICATED SAVINGS 0001", "$50.00", "$50.00"]]
     assert _summary_header(summary) is not None
+    # Review 11, finding 1: ledger headers printing no ledger word, and a two-row header, are ledgers too.
+    for ledger in ([["Day", "Item", "Deposits and Credits", "Withdrawals and Debits", "Balance"],
+                    ["03/05", "FABRICATED TRANSFER", "", "100.00", "1,200.00"]],
+                   [["Payee", "Deposits/Credits", "Withdrawals/Debits", "Balance"], ["FABRICATED", "", "100.00", "1.00"]],
+                   [["", "", "Deposits and Credits", "Withdrawals and Debits", ""],
+                    ["Date", "Description", "Amount", "Amount", "Balance"], ["03/05", "X", "", "1.00", "2.00"]],
+                   [["Ref", "Memo", "Total Deposits", "Total Withdrawals"], ["1", "FABRICATED", "10.00", "5.00"]]):
+        assert _summary_header(ledger) is None, ledger[0]
 
 
 def test_a_short_title_in_sentence_case_is_still_an_accounts_heading():
@@ -664,18 +677,24 @@ def test_a_short_title_in_sentence_case_is_still_an_accounts_heading():
     # heading, so its rows and figures are never published under the club's title.
     layout = DotsLayout(1, (
         _block(0, "section_header", "FABRICATED HOLIDAY CLUB (0020)"),
-        _block(1, "text", "Business checking"),
+        _block(1, "text", "Small business checking account"),
         _block(2, "table", _table(("Beginning Balance", "$1,000.00", "Ending Balance", "$1,250.00"))),
         _block(3, "section_header", "Grow your savings faster"),
     ), (), (), False)
     assert [(section.kind, section.title) for section in plan_accounts([layout]).sections] == [
-        ("savings", "FABRICATED HOLIDAY CLUB"), ("checking", "Business checking")]
+        ("savings", "FABRICATED HOLIDAY CLUB"), ("checking", "Small business checking account")]
 
 
 @pytest.mark.parametrize("text", [
     "Protect your checking account", "Is your checking account earning interest", "Has your savings grown",
+    # Review 11, finding 2: title-case slogans.
+    "Business Checking Offers More", "Checking Rates Changed", "Free Checking Available Now",
+    "Grow Your Savings Faster", "Checking That Pays You Back", "Savings Made Simple",
+    "Business Checking Changes Ahead", "Savings Insured By The NCUA", "Savings Rates Apply",
+    "Open A Savings Account Today", "Switch To Paperless Checking Statements", "Savings Goals Start Here",
 ])
 def test_a_question_or_an_instruction_about_an_account_names_no_account(text):
+    # Findings 6 (review 10) and 2 (review 11).
     # Finding 6.
     assert parse_heading(text) is None
 

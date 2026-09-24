@@ -55,6 +55,27 @@ def test_a_held_account_whose_title_names_no_kind_or_ranks_first_is_the_main_acc
     assert members == [] and excluded[0]["reason"] == "main_account_unverified"
 
 
+def test_an_idle_business_checking_account_needs_review_and_leaves_the_statement_out_of_the_package():
+    # Owner ruling, 2026-09-23: an idle main account needs review (the dashboard keeps showing the active account).
+    from webapp.app import _idle_main_account, _package_members
+    def roster(*entries):
+        return [{"title": title, "kind": kind, "status": status} for title, kind, status in entries]
+    idle = roster(("FABRICATED BUSINESS CHECKING", "checking", "idle"), ("FABRICATED SAVINGS", "savings", "published"))
+    assert _idle_main_account(idle)["kind"] == "checking"
+    # The business checking account stays the main account over a plain checking account that moved money.
+    assert _idle_main_account(roster(("FABRICATED BUSINESS CHECKING", "checking", "idle"),
+                                     ("FABRICATED CHECKING", "checking", "published")))["status"] == "idle"
+    for active in (roster(("FABRICATED CHECKING", "checking", "idle"),
+                          ("FABRICATED BUSINESS CHECKING", "checking", "published")),
+                   roster(("FABRICATED BUSINESS CHECKING", "checking", "idle"),
+                          ("FABRICATED BUSINESS CHECKING 2", "checking", "published")),
+                   roster(("FABRICATED SAVINGS", "savings", "idle"), ("FABRICATED CHECKING", "checking", "published")),
+                   roster(("FABRICATED CARD", "credit_card", "idle"))):
+        assert _idle_main_account(active) is None, active
+    members, excluded = _package_members([_Job("job-1", {**account_payload(), "document": {"account_roster": idle}})])
+    assert members == [] and excluded[0]["reason"] == "main_account_idle"
+
+
 def test_a_statement_whose_business_checking_account_is_verified_or_that_prints_one_account_is_a_member():
     from webapp.app import _package_members
     verified = {**account_payload(), "document": _roster("published")}

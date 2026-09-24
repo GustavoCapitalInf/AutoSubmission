@@ -194,6 +194,10 @@ def test_a_row_printed_as_its_date_and_amount_alone_is_named_by_its_section():
     grid = PrintedEvidence(native="DEPOSITS\nREF # DATE AMOUNT\n03/02 18.45\nDATE AMOUNT\n03/09 71.25\n")
     assert grid.bare_row_heading(Decimal("71.25"), "03/09", direction="credit") is None
     assert grid.bare_row_heading(Decimal("18.45"), "03/02", direction="credit") == "DEPOSITS"
+    # Review 11, finding 7: deposits printed beside the day's balances; the balance's group is no deposit.
+    beside = PrintedEvidence(native="DEPOSITS\nREF # DATE AMOUNT DATE BALANCE\n03/02 18.45 03/02 1,018.45\n")
+    assert beside.bare_row_heading(Decimal("1018.45"), "03/02", direction="credit") is None
+    assert beside.bare_row_heading(Decimal("18.45"), "03/02", direction="credit") == "DEPOSITS"
 
 
 def test_a_date_after_the_amount_is_the_rows_only_right_after_it():
@@ -218,10 +222,28 @@ def test_a_row_printed_under_a_day_printed_once_never_takes_the_next_columns_dat
                                      "3102 200.00 03/10 3104 400.00\n")
     assert cheques.governing_date(Decimal("200.00")) == "03/06"
     assert cheques.governing_date(Decimal("400.00")) == "03/10"
-    deposits = PrintedEvidence(native="03/06 100.00 03/09 300.00\n200.00 03/10 400.00\n")
+    deposits = PrintedEvidence(native="DATE AMOUNT DATE AMOUNT\n03/06 100.00 03/09 300.00\n200.00 03/10 400.00\n")
     assert deposits.governing_date(Decimal("200.00")) == "03/06"
+    # Review 11: with no column header to say how the table is laid out, no date at all.
+    headerless = PrintedEvidence(native="03/06 100.00 03/09 300.00\n200.00 03/10 400.00\n")
+    assert headerless.governing_date(Decimal("200.00")) is None
     # A date column printed alone between the amount and the balance is still the row's.
     assert PrintedEvidence(native="FABRICATED PAYMENT 51.37 03/09 1,051.37\n").governing_date(Decimal("51.37")) == "03/09"
+
+
+def test_a_single_column_listing_printing_the_date_after_the_amount_keeps_it():
+    # Review 11, finding 3: "AMOUNT DATE" deposits under a cheque table, and a wrapped description whose amount line
+    # prints the date after the amount; neither takes a date from a line above.
+    listing = PrintedEvidence(native="CHECKS\nDATE CHECK # AMOUNT\n03/05 3101 100.00\nDEPOSITS\nAMOUNT DATE\n"
+                                     "1,071.25 03/09\n18.45 03/12\n")
+    assert listing.governing_date(Decimal("1071.25")) == "03/09" and listing.governing_date(Decimal("18.45")) == "03/12"
+    wrapped = PrintedEvidence(native="03/01 OPENING BALANCE 1,000.00\nFABRICATED PAYMENT WITH A VERY LONG NAME\n"
+                                     "51.37 03/09 1,051.37\n")
+    assert wrapped.governing_date(Decimal("51.37")) is None
+    # Finding 4: a single-column line under a table printed k-up continues an unknown column.
+    longer = PrintedEvidence(native="DATE CHECK # AMOUNT DATE CHECK # AMOUNT\n03/06 3101 100.00 03/09 3103 300.00\n"
+                                    "3102 200.00 03/10 3104 400.00\n3105 500.00\n")
+    assert longer.governing_date(Decimal("500.00")) is None
 
 
 def test_a_count_or_an_amount_after_a_month_and_day_is_no_year():
@@ -230,6 +252,10 @@ def test_a_count_or_an_amount_after_a_month_and_day_is_no_year():
         printed = PrintedEvidence(native=f"Statement period March 1 - March 31\n{line}")
         assert printed.date_contradicted("2031-03-31") is False, line
     assert PrintedEvidence(native="Period ending Mar 31, 30").date_contradicted("2031-03-31") is True
+    # Review 11, finding 6: a year followed by words, a sentence's period, or wrapped after its comma is a year.
+    for native in ("Statement Period: Mar 1, 30 to Mar 31, 30 Page 1 of 3", "Closing date Mar 31, 30.",
+                   "Statement date March 31,\n2030", "31 Mar 30 to 30 Apr 30"):
+        assert PrintedEvidence(native=native).date_contradicted("2031-03-31") is True, native
 
 
 def test_each_column_group_beginning_with_its_date_takes_that_date():

@@ -159,6 +159,87 @@ console.log(JSON.stringify(cases.map((entries) => (unverifiedMainAccount(entries
     assert _run(source) == ["FABRICATED ADVANTAGE ACCOUNT", None, None, None, None, "FABRICATED CHECKING", None]
 
 
+IDLE_MAIN = {"document": {"account_count": 2, "account_roster": [
+    {"title": "FABRICATED BUSINESS CHECKING", "kind": "checking", "number_last4": "0010", "status": "idle",
+     "published_index": None, "balance": 25.0, "reasons": []},
+    {"title": "FABRICATED SAVINGS", "kind": "savings", "number_last4": "0001", "status": "published",
+     "published_index": 0, "balance": None, "reasons": []},
+]}, "accounts": [_account("FABRICATED SAVINGS", "0001", 9000.0), _account("FABRICATED CLUB", "0020", 20.0)]}
+
+
+@pytest.mark.parametrize("view", ["off", "on"])
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_an_idle_business_checking_account_needs_review_and_the_active_account_stays_shown(view):
+    # Owner ruling, 2026-09-23: say that the main business checking account had no activity and needs review, and
+    # keep showing the active savings account.
+    source = _harness(view) + f"""
+const report = {json.dumps(IDLE_MAIN)};
+const published = publishedAccounts(report), roster = accountRoster(report);
+const idle = idleMainAccount(roster), main = mainAccountIndex(published, roster);
+renderAccountsPanel(published, roster, main, main, null, idle);
+console.log(JSON.stringify({{idle: idle && idle.title, unverified: unverifiedMainAccount(roster), main,
+                            html: els.accountsPanel.innerHTML}}));
+"""
+    result = _run(source)
+    assert result["idle"] == "FABRICATED BUSINESS CHECKING" and result["unverified"] is None and result["main"] == 0
+    html = " ".join(result["html"].split())
+    if view == "off":
+        assert "had no activity this period" in html and "needs review" in html
+        assert "Showing the active account, <strong>FABRICATED SAVINGS ••0001</strong>" in html
+    else:
+        rows = html.split("<tr")[2:]
+        assert "main-badge" in rows[0] and "No activity" in rows[0]
+        assert "main-badge" not in rows[1] and 'class="is-selected"' in rows[1]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_accounts_figures():
+    # Rendered twice, as a settings change or an account selection does: the status is set, never stacked, and the
+    # summary box (the actions') is left to the loader and to Generate Summary, which lead with the note.
+    helpers = ("setBanner", "statusRowHtml", "renderAnalysis", "labelize", "formatPercent", "potentialLenderDebitTotal",
+               "hasMaterialPotentialLenderDebits", "period", "generateSummary")
+    # Each function up to its closing brace (top-level code follows some of them).
+    source = _harness("off") + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
+                                       for name in helpers) + f"""
+let currentDocument = null, currentAnalysis = null, selectedAccountIndex = null, shownName = null;
+for (const key of ["statusBanner", "statusMark", "statusCopy", "validationValue", "statusHeading", "summaryBox",
+                   "decisionPill"]) els[key] = {{textContent: "", className: ""}};
+els.statusList = {{innerHTML: "", insertAdjacentHTML(where, html) {{ this.innerHTML = html + this.innerHTML; }}}};
+function renderAccount(report) {{
+  currentAnalysis = report;
+  shownName = report.statement.account_name;
+  els.statusList.innerHTML = statusRowHtml(["Validation", "approved"]);
+  els.statusHeading.textContent = "OCR completed";
+  setBanner("done", "Extraction completed", "Validated");
+  els.decisionPill.textContent = "approved";
+}}
+const report = {json.dumps(IDLE_MAIN)};
+els.summaryBox.textContent = "Before.";
+renderAnalysis(report);
+renderAnalysis(report);
+const rendered = {{shownName, heading: els.statusHeading.textContent, banner: els.statusCopy.textContent,
+                  meta: els.validationValue.textContent, pill: els.decisionPill.textContent,
+                  summary: els.summaryBox.textContent, rows: els.statusList.innerHTML}};
+const note = idleMainNote(report, "USD"), none = idleMainNote({json.dumps(PAYLOAD)}, "USD");
+generateSummary();
+console.log(JSON.stringify({{rendered, note, none, generated: els.summaryBox.textContent}}));
+"""
+    result = _run(source)
+    rendered = result["rendered"]
+    assert rendered["shownName"] == "FABRICATED SAVINGS" and rendered["heading"] == "Main account needs review"
+    assert rendered["banner"] == "Main account had no activity; showing the active account"
+    assert rendered["meta"] == "Review required" and rendered["pill"] == "review required"
+    assert rendered["summary"] == "Before."
+    rows = " ".join(rendered["rows"].split())
+    assert rows.count("Main account") == 1 and rows.index("No activity; needs review") < rows.index("Validation")
+    assert result["note"] == ("Main account FABRICATED BUSINESS CHECKING \u2022\u20220010 had no activity this period "
+                              "(balance $25.00) and needs review. ")
+    assert result["none"] == ""
+    assert result["generated"].startswith(result["note"] + "Figures for the active account, FABRICATED SAVINGS")
+    assert result["generated"].count("had no activity") == 1
+    assert result["generated"].endswith("Status: review required.")
+
+
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_a_held_business_checking_account_is_never_replaced_as_the_main_account():
     # Review 7, finding 5: the table marks the held checking account MAIN, no published account; the statement modal
