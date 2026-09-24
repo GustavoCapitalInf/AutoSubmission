@@ -3,7 +3,10 @@ functions end to end instead of a hand-picked extract of them. Fabricated data o
 
 `run_dashboard(body)` loads app.js after the fake page and then runs `body`, which must print one JSON document with
 `console.log`. Every element the script looks up exists (a permissive fake keyed by id); `fetch` answers from
-`globalThis.FAKE_RESPONSES` (url prefix -> {status, json|text}), else 404; timers run for real."""
+`globalThis.FAKE_RESPONSES` (url prefix -> {status, json|text}, the longest matching prefix winning), else 404, and
+records every request in `globalThis.REQUESTS` ({url, method, body}); timers run for real. The fakes do not parse
+HTML: a test reads what was written into `innerHTML`, and stands in for a clicked or ticked element with a fake of
+its own (`fakeElement`)."""
 import json
 import shutil
 import subprocess
@@ -86,10 +89,14 @@ globalThis.requestAnimationFrame = (callback) => setTimeout(callback, 0);
 try { Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: () => Promise.resolve() } }, configurable: true }); } catch (error) {}
 globalThis.FAKE_RESPONSES = {};
 globalThis.FETCHED = [];
-globalThis.fetch = (url) => {
+globalThis.REQUESTS = [];
+globalThis.fetch = (url, options = {}) => {
   const text = String(url);
   FETCHED.push(text);
-  const key = Object.keys(FAKE_RESPONSES).find((prefix) => text.startsWith(prefix));
+  REQUESTS.push({ url: text, method: options.method || "GET", body: options.body || null });
+  // The most specific answer wins: "/analysis/x/revenue-reviews" before "/analysis/x".
+  const key = Object.keys(FAKE_RESPONSES).filter((prefix) => text.startsWith(prefix))
+    .sort((a, b) => b.length - a.length)[0];
   const answer = key ? FAKE_RESPONSES[key] : { status: 404, text: "not found" };
   const body = "json" in answer ? JSON.stringify(answer.json) : String(answer.text || "");
   return Promise.resolve(new Response(body, { status: answer.status || 200,

@@ -2278,6 +2278,57 @@ def revenue_review(job_id):
     return jsonify({"analysis": _masked(_displayed(stored))})
 
 
+#: The most decisions one batch may carry: more than any statement prints credits, far fewer than a request could
+#: be made to hold.
+MAX_REVIEW_BATCH = 500
+
+
+@app.route("/analysis/<job_id>/revenue-reviews", methods=["POST"])
+def revenue_reviews(job_id):
+    """Several analyst decisions on one statement (the dashboard's multi-select), all or nothing.
+
+    Every decision is applied to a working copy first, in order; only when all of them hold are the result and,
+    for each decision, its own decision row and audit row saved, in one storage transaction
+    (`JobStore.apply_reviews`). A refused decision refuses the batch and nothing is saved. A transaction may appear
+    once per batch, so each recorded prior state is the one before the batch. Refusals use the same vocabulary as
+    the single-decision route (`_review_refusal`): no exception text reaches the response."""
+    job = store.get(job_id)
+    if job is None or job.status != "done" or job.analysis is None:
+        abort(404)
+    payload = request.get_json(silent=True)
+    decisions = payload.get("decisions") if isinstance(payload, dict) else None
+    if not isinstance(decisions, list) or not decisions:
+        return jsonify({"error": "decisions must be a non-empty list"}), 400
+    if len(decisions) > MAX_REVIEW_BATCH:
+        return jsonify({"error": f"a batch holds at most {MAX_REVIEW_BATCH} decisions"}), 400
+    parsed: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in decisions:
+        if not isinstance(item, dict):
+            return jsonify({"error": "each decision must be an object"}), 400
+        source_location = str(item.get("source_location") or "").strip()
+        decision = str(item.get("decision") or "").strip().lower()
+        if not source_location:
+            return jsonify({"error": "source_location is required"}), 400
+        if source_location in seen:
+            return jsonify({"error": "a transaction appears more than once in the batch"}), 400
+        seen.add(source_location)
+        parsed.append((source_location, decision))
+    updated = deepcopy(job.analysis)
+    try:
+        for source_location, decision in parsed:
+            updated = apply_serialized_revenue_review(updated, source_location=source_location, decision=decision)
+    except LookupError as exc:
+        return jsonify({"error": _review_refusal(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": _review_refusal(exc)}), 400
+    actor = str(payload.get("actor") or "").strip() or "local-analyst"
+    stored = store.apply_reviews(job_id, updated, decisions=parsed, actor=actor)
+    if stored is None:
+        abort(404)
+    return jsonify({"analysis": _masked(_displayed(stored)), "applied": len(parsed)})
+
+
 @app.route("/package_analysis")
 def package_analysis():
     package = _package_from_request()

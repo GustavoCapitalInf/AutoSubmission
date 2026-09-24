@@ -84,6 +84,11 @@ const els = {
   monthlyCard: document.getElementById("monthlyCard"),
   monthlyTable: document.getElementById("monthlyTable"),
   monthlyCount: document.getElementById("monthlyCount"),
+  monthlyHead: document.getElementById("monthlyHead"),
+  monthlyDepositsView: document.getElementById("monthlyDepositsView"),
+  bulkReviewBar: document.getElementById("bulkReviewBar"),
+  bulkReviewCount: document.getElementById("bulkReviewCount"),
+  bulkSelectAll: document.getElementById("bulkSelectAll"),
   accountSummary: document.getElementById("accountSummary"),
   copyTextBtn: document.getElementById("copyTextBtn"),
   openTextBtn: document.getElementById("openTextBtn"),
@@ -505,6 +510,17 @@ function filterTransactions(transactions, filter, canonicalEntity = null) {
   return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
 }
 
+// A deposit the classifier left for review and nobody has decided yet: its statement and row, or null. The row's own
+// Confirm and Mark buttons and the multi-select's checkbox are offered for exactly these.
+function pendingReviewTarget(tx, fallbackJobId = null) {
+  const record = transactionClassification(tx);
+  if (record.revenue_initial_classification !== "unverified_deposit") return null;
+  if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") return null;
+  const jobId = tx.source_job || fallbackJobId;
+  const sourceLocation = record.source_location;
+  return jobId && sourceLocation ? { jobId, sourceLocation } : null;
+}
+
 function revenueReviewControls(tx, fallbackJobId = null) {
   const record = transactionClassification(tx);
   if (record.revenue_initial_classification !== "unverified_deposit") return "";
@@ -586,6 +602,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     moreEl = null,
     canonicalEntity = null,
     reviewJobId = null,
+    selectable = false,
   } = options;
   const rows = Array.isArray(transactions) ? transactions : [];
   const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity), sort);
@@ -593,6 +610,9 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   const showRunningBalance = matched.some((tx) => runningBalanceValue(tx) !== null);
   const runningBalanceHeader = tableEl.closest("table")?.querySelector("[data-running-balance-column]");
   if (runningBalanceHeader) runningBalanceHeader.hidden = !showRunningBalance;
+  // The multi-select column shows only while a row shown can be picked (a deposit awaiting review).
+  const pickable = selectable && visible.some((tx) => pendingReviewTarget(tx, reviewJobId));
+  tableEl.closest("table")?.classList.toggle("has-select", pickable);
   const filterLabel = canonicalEntity || (filter === "all" ? "transactions" : `${filter} matches`);
   countEl.textContent = visible.length < matched.length
     ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
@@ -612,7 +632,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   }
   if (!visible.length) {
     // Date, Description, Category, Amount and Review, plus the optional Statement and Running Balance columns.
-    const columns = 5 + (showSource ? 1 : 0) + (showRunningBalance ? 1 : 0);
+    const columns = 5 + (showSource ? 1 : 0) + (showRunningBalance ? 1 : 0) + (pickable ? 1 : 0);
     tableEl.innerHTML = `
       <tr>
         <td class="empty-cell" colspan="${columns}"><strong>No transactions found</strong>${escapeHtml(filter === "all" ? "No statement returned transaction rows." : "No rows matched this filter.")}</td>
@@ -640,8 +660,13 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     const runningBalance = showRunningBalance
       ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`
       : "";
+    const target = selectable ? pendingReviewTarget(tx, reviewJobId) : null;
+    const pick = !selectable ? "" : `<td class="tx-check">${target ? `<input type="checkbox" class="tx-select"
+        data-bulk-job="${escapeHtml(target.jobId)}" data-bulk-location="${escapeHtml(target.sourceLocation)}"
+        aria-label="Select this deposit"${bulkSelection.has(bulkKey(target.jobId, target.sourceLocation)) ? " checked" : ""}>` : ""}</td>`;
     return `
       <tr>
+        ${pick}
         <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
         <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
@@ -716,8 +741,120 @@ function renderMainTransactions({ keepLimit = false } = {}) {
       moreEl: els.transactionMore,
       canonicalEntity: transactionEntityFilter,
       reviewJobId: currentJobId,
+      selectable: true,
     }
   );
+  // The ticked deposits outlive a filter, a sort or another page of rows, never the analysis they belong to: what
+  // no longer awaits review in the analysis on screen (decided, or another analysis opened) is dropped.
+  const pending = new Set(ctx.transactions
+    .map((tx) => pendingReviewTarget(tx, currentJobId))
+    .filter(Boolean)
+    .map((target) => bulkKey(target.jobId, target.sourceLocation)));
+  [...bulkSelection].forEach((key) => { if (!pending.has(key)) bulkSelection.delete(key); });
+  syncBulkReview();
+}
+
+/* --- multi-select of deposits awaiting review ------------------------------
+   The ticked deposits, by statement and row. The action bar shows only while at least one is ticked; its decision
+   is saved one batch per statement (POST /analysis/<job>/revenue-reviews, all or nothing per statement). */
+let bulkSelection = new Set();
+let bulkBusy = false;
+
+function bulkKey(jobId, sourceLocation) {
+  return JSON.stringify([jobId, sourceLocation]);
+}
+
+function bulkBoxes() {
+  return [...(els.transactionTable?.querySelectorAll("input[data-bulk-job]") || [])];
+}
+
+function syncBulkReview() {
+  const count = bulkSelection.size;
+  if (els.bulkReviewBar) els.bulkReviewBar.hidden = count === 0;
+  if (els.bulkReviewCount) els.bulkReviewCount.textContent = `${formatNumber(count)} selected`;
+  els.bulkReviewBar?.querySelectorAll("button").forEach((button) => { button.disabled = bulkBusy; });
+  if (els.bulkSelectAll) {
+    // Ticked when every deposit shown awaiting review is picked; mixed when only some are.
+    const boxes = bulkBoxes();
+    const picked = boxes.filter((box) => box.checked).length;
+    els.bulkSelectAll.checked = boxes.length > 0 && picked === boxes.length;
+    els.bulkSelectAll.indeterminate = picked > 0 && picked < boxes.length;
+    els.bulkSelectAll.disabled = boxes.length === 0;
+  }
+}
+
+function pickDeposit(box, on) {
+  const key = bulkKey(box.getAttribute("data-bulk-job"), box.getAttribute("data-bulk-location"));
+  box.checked = on;
+  if (on) bulkSelection.add(key);
+  else bulkSelection.delete(key);
+}
+
+function clearBulkSelection() {
+  bulkSelection.clear();
+  bulkBoxes().forEach((box) => { box.checked = false; });
+  syncBulkReview();
+}
+
+async function submitBulkReview(decision) {
+  if (bulkBusy || !bulkSelection.size) return;
+  const byJob = new Map();
+  [...bulkSelection].forEach((key) => {
+    const [jobId, sourceLocation] = JSON.parse(key);
+    if (!byJob.has(jobId)) byJob.set(jobId, []);
+    byJob.get(jobId).push(sourceLocation);
+  });
+  bulkBusy = true;
+  syncBulkReview();
+  const failures = [];
+  let applied = 0;
+  let latest = null;
+  for (const [jobId, locations] of byJob) {
+    try {
+      const response = await fetch(`/analysis/${encodeURIComponent(jobId)}/revenue-reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisions: locations.map((location) => ({ source_location: location, decision })) }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.analysis) throw new Error(payload.error || `Revenue review failed (${response.status})`);
+      applied += locations.length;
+      locations.forEach((location) => bulkSelection.delete(bulkKey(jobId, location)));
+      latest = { jobId, analysis: payload.analysis };
+      if (modalJobId === jobId) {
+        modalAnalysis = modalAccountPayload(payload.analysis);
+        renderStatementModal(jobId, payload.analysis, "");
+      }
+    } catch (error) {
+      failures.push(error.message || String(error));
+    }
+  }
+  // The analysis on screen is drawn again once, from what was saved: a package from the package, a statement from
+  // its last saved analysis. The Monthly Statements' True deposits follow from the new verified revenue.
+  try {
+    if (applied && currentJobIds.length > 1) {
+      const packageResponse = await fetch(`/package_analysis?ids=${encodeURIComponent(currentJobIds.join(","))}`);
+      if (!packageResponse.ok) throw new Error("Package refresh failed");
+      const pkg = await packageResponse.json();
+      renderPackageAnalysis(pkg);
+      setPackageActions(currentJobIds);
+      rememberPackage(currentJobIds, pkg);
+    } else if (latest && currentJobId === latest.jobId) {
+      renderAnalysis(latest.analysis);
+      setActions(currentJobId, true);
+      rememberShownStatement(currentJobId);
+    }
+  } catch (error) {
+    failures.push(error.message || String(error));
+  }
+  bulkBusy = false;
+  syncBulkReview();
+  if (applied) {
+    const noun = applied === 1 ? "deposit" : "deposits";
+    notify(decision === "confirm" ? `${applied} ${noun} confirmed as revenue` : `${applied} ${noun} marked non-revenue`,
+      "green");
+  }
+  if (failures.length) notify(`Not saved: ${failures[0]}`, "red");
 }
 
 function renderModalTransactions({ keepLimit = false } = {}) {
@@ -2752,7 +2889,6 @@ function renderPackageAnalysis(pkg) {
 }
 
 function renderPackageTables(pkg) {
-  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
   const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
   const potentialLenders = Array.isArray(pkg.potential_lenders) ? pkg.potential_lenders : [];
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
@@ -2763,9 +2899,61 @@ function renderPackageTables(pkg) {
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
   renderRevenueEvidence(pkg.totals || {}, currency);
+  renderMonthlyStatements(pkg);
+}
+
+/* --- Monthly Statements deposits -----------------------------------------
+   Which deposits the package's Monthly Statements table shows, chosen on the Settings page and kept in this browser
+   only. Total is everything going in. True is revenue only: the verified revenue, which takes in every deposit
+   confirmed as revenue, and never an own-account transfer, lender funding, or a deposit still awaiting review. */
+const MONTHLY_DEPOSITS_KEY = "bsa-monthly-deposits";
+const MONTHLY_DEPOSITS_VIEWS = ["both", "total", "true"];
+
+function monthlyDepositsView() {
+  let value = null;
+  try { value = localStorage.getItem(MONTHLY_DEPOSITS_KEY); } catch (error) { /* private mode */ }
+  return MONTHLY_DEPOSITS_VIEWS.includes(value) ? value : "both";
+}
+
+// The deposit columns, [header, value of a row, kind]: the CRM's own headers when one basis is shown, each basis
+// named when both are.
+function monthlyDepositColumns(view) {
+  const total = [(doc) => doc.credits, (doc) => doc.deposit_count];
+  const revenue = [(doc) => doc.verified_revenue_total, (doc) => doc.verified_revenue_count];
+  if (view === "total") return [["Monthly Deposits ($)", total[0], "amount"], ["Deposits Per Month", total[1], "count"]];
+  if (view === "true") return [["Monthly Deposits ($)", revenue[0], "amount"], ["Deposits Per Month", revenue[1], "count"]];
+  return [
+    ["Total Deposits ($)", total[0], "amount"], ["Total Deposits Per Month", total[1], "count"],
+    ["True Deposits ($)", revenue[0], "amount"], ["True Deposits Per Month", revenue[1], "count"],
+  ];
+}
+
+const MONTHLY_DEPOSITS_NOTES = {
+  total: "Total monthly deposits: everything going in",
+  true: "True monthly deposits: revenue only",
+};
+
+function renderMonthlyStatements(pkg) {
+  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  const view = monthlyDepositsView();
+  const columns = monthlyDepositColumns(view);
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
-    els.monthlyCount.textContent = `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`;
+    const note = MONTHLY_DEPOSITS_NOTES[view];
+    els.monthlyCount.textContent = `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`
+      + (note ? ` · ${note}` : "");
+  }
+  if (els.monthlyHead) {
+    els.monthlyHead.innerHTML = `
+      <tr>
+        <th>Month</th>
+        <th>Year</th>
+        ${columns.map(([header]) => `<th>${escapeHtml(header)}</th>`).join("")}
+        <th>Ledger ($)</th>
+        <th>NSF</th>
+        <th>Action</th>
+      </tr>
+    `;
   }
   if (!els.monthlyTable) return;
   if (!documents.length) {
@@ -2773,8 +2961,7 @@ function renderPackageTables(pkg) {
       <tr>
         <td>No statements</td>
         <td>N/A</td>
-        <td>N/A</td>
-        <td>N/A</td>
+        ${columns.map(() => "<td>N/A</td>").join("")}
         <td>N/A</td>
         <td>N/A</td>
         <td>${glassChip("◐", "Review", "amber")}</td>
@@ -2808,8 +2995,7 @@ function renderPackageTables(pkg) {
         <tr title="${escapeHtml(doc.filename || "Statement")}">
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
           <td>${escapeHtml(month ? String(month.year) : "N/A")}</td>
-          <td>${escapeHtml(amount(doc.credits))}</td>
-          <td>${escapeHtml(formatWhole(doc.deposit_count))}</td>
+          ${columns.map(([, value, kind]) => `<td>${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}</td>`).join("")}
           <td>${escapeHtml(amount(doc.average_daily_balance))}</td>
           <td title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(doc.nsf_count))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
           <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : `Open${OPEN_ICON}`}</button></td>
@@ -3804,6 +3990,25 @@ function handleRevenueReviewClick(event) {
 els.transactionTable?.addEventListener("click", handleRevenueReviewClick);
 els.statementModalTransactions?.addEventListener("click", handleRevenueReviewClick);
 
+els.transactionTable?.addEventListener("change", (event) => {
+  const box = event.target instanceof Element ? event.target.closest("input[data-bulk-job]") : null;
+  if (!box) return;
+  pickDeposit(box, box.checked);
+  syncBulkReview();
+});
+els.bulkSelectAll?.addEventListener("change", () => {
+  // Every deposit shown that awaits review; the rest of the table (another page, another filter) keeps its ticks.
+  bulkBoxes().forEach((box) => pickDeposit(box, els.bulkSelectAll.checked));
+  syncBulkReview();
+});
+els.bulkReviewBar?.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-bulk-review]") : null;
+  if (!button || button.disabled) return;
+  const action = button.getAttribute("data-bulk-review");
+  if (action === "clear") clearBulkSelection();
+  else submitBulkReview(action);
+});
+
 document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     transactionFilter = button.getAttribute("data-transaction-filter") || "all";
@@ -3891,6 +4096,17 @@ function setAllAccountsView(on) {
 
 els.allAccountsToggle?.addEventListener("change", () => setAllAccountsView(els.allAccountsToggle.checked));
 syncAllAccountsToggle();
+
+function setMonthlyDepositsView(view) {
+  const next = MONTHLY_DEPOSITS_VIEWS.includes(view) ? view : "both";
+  try { localStorage.setItem(MONTHLY_DEPOSITS_KEY, next); } catch (error) { /* private mode */ }
+  if (els.monthlyDepositsView) els.monthlyDepositsView.value = next;
+  // Only a package has the table: the one on screen is redrawn from the figures it already holds.
+  if (currentAnalysis && currentAnalysis.package) renderMonthlyStatements(currentAnalysis.package);
+}
+
+els.monthlyDepositsView?.addEventListener("change", () => setMonthlyDepositsView(els.monthlyDepositsView.value));
+if (els.monthlyDepositsView) els.monthlyDepositsView.value = monthlyDepositsView();
 
 // The account on screen is part of what a failed reopen puts back (openRecent), so the record follows every
 // selection made after the statement finished loading, and only for the statement that record describes.

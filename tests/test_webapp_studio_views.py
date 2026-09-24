@@ -1,6 +1,7 @@
 """The dashboard of the multi-account branch inside the Statement Studio shell, driven end to end: the whole
 webapp/static/app.js runs in node on a fake page (tests/webapp_js_harness.py). Fabricated statements only, analysed
 by the real analysis path (analysis.pipeline.analyze_statement) and packaged by the real package code."""
+import copy
 import json
 import os
 import re
@@ -309,6 +310,141 @@ console.log(JSON.stringify({{rows: els.monthlyTable.innerHTML}}));
     assert result["rows"].count('class="table-cell-detail"') >= 2
     assert "Returned items (saved before the negative-day count)" in result["rows"]
     assert "Negative-ending days (printed days only)" in result["rows"]
+
+
+def _package(analyses, tmp_path, monkeypatch):
+    """The real package payload for fabricated statements (job id -> analysis)."""
+    from webapp.app import _package_analysis, store
+    from webapp.jobs import Job
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)  # the NSF setting of a scratch folder
+    return _package_analysis([Job(id=job_id, filename=f"fabricated-{job_id}.pdf", status="done", analysis=analysis,
+                                  content_sha256=job_id) for job_id, analysis in analyses.items()])
+
+
+CELLS = r"""
+const cells = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)]
+  .map((row) => [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map((cell) => cell[1].replace(/<[^>]+>/g, "").trim()));
+const monthly = () => ({head: cells(els.monthlyHead.innerHTML)[0], rows: cells(els.monthlyTable.innerHTML),
+                        count: els.monthlyCount.textContent});
+"""
+
+
+def test_the_monthly_statements_show_total_true_or_both_deposits(tmp_path, monkeypatch):
+    package = _package({"jan": _single(1), "feb": _single(2)}, tmp_path, monkeypatch)
+    documents = {doc["id"]: doc for doc in package["documents"]}
+    assert all(doc["credits"] != doc["verified_revenue_total"] for doc in documents.values())
+    result = run_dashboard(CELLS + f"""
+localStorage.setItem('bsa-monthly-deposits', 'no-such-view');  // anything unknown reads as Both
+currentJobIds = ['jan', 'feb']; renderPackageAnalysis({json.dumps(package)});
+const both = monthly();
+setMonthlyDepositsView('true');
+const trueOnly = {{...monthly(), stored: localStorage.getItem('bsa-monthly-deposits')}};
+setMonthlyDepositsView('total');
+console.log(JSON.stringify({{both, trueOnly, totalOnly: monthly()}}));
+""")
+    whole = lambda value: f"{round(value):,}"  # noqa: E731  the table's whole-number format
+    both, true_only, total_only = result["both"], result["trueOnly"], result["totalOnly"]
+    assert both["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month", "True Deposits ($)",
+                            "True Deposits Per Month", "Ledger ($)", "NSF", "Action"]
+    assert both["count"] == "2 statements"
+    january = documents["jan"]
+    assert both["rows"][0][2:6] == [whole(january["credits"]), str(january["deposit_count"]),
+                                    whole(january["verified_revenue_total"]), str(january["verified_revenue_count"])]
+    # One basis alone keeps the CRM's own headers and names the basis beside the count.
+    for view, shown, amount, count in ((true_only, "True monthly deposits: revenue only", "verified_revenue_total",
+                                        "verified_revenue_count"),
+                                       (total_only, "Total monthly deposits: everything going in", "credits",
+                                        "deposit_count")):
+        assert view["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month", "Ledger ($)", "NSF",
+                                "Action"]
+        assert view["count"] == f"2 statements · {shown}"
+        assert view["rows"][0][2:4] == [whole(january[amount]), str(january[count])]
+    assert true_only["stored"] == "true"
+
+
+PENDING_ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
+                (6, "DEPOSIT FABRICATED TWO", 200.0), (27, "SERVICE FEE", -15.0)]
+
+
+def _pending(month):
+    from analysis.serialization import document_report_to_dict
+    return document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, PENDING_ROWS,
+                                           month))
+
+
+def _decided(analysis, locations, decision):
+    from analysis.revenue import apply_serialized_revenue_review
+    for location in locations:
+        analysis = apply_serialized_revenue_review(copy.deepcopy(analysis), source_location=location,
+                                                   decision=decision)
+    return analysis
+
+
+def test_the_bulk_bar_shows_only_while_deposits_are_ticked_and_saves_one_batch_per_statement(tmp_path, monkeypatch):
+    before = {"a": _pending(1), "b": _pending(2)}
+    after = {"a": _decided(before["a"], ["transaction:2", "transaction:3"], "confirm"),
+             "b": _decided(before["b"], ["transaction:2"], "confirm")}
+    package_before = _package(before, tmp_path, monkeypatch)
+    package_after = _package(after, tmp_path, monkeypatch)
+    responses = {"/package_analysis": {"json": package_after},
+                 "/analysis/a/revenue-reviews": {"json": {"analysis": after["a"], "applied": 2}},
+                 "/analysis/b/revenue-reviews": {"json": {"analysis": after["b"], "applied": 1}}}
+    result = run_dashboard(CELLS + f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+localStorage.setItem('bsa-monthly-deposits', 'true');
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(package_before)});
+const table = els.transactionTable.innerHTML;
+const start = {{hidden: els.bulkReviewBar.hidden, boxes: (table.match(/data-bulk-job=/g) || []).length,
+               trueBefore: monthly().rows.map((row) => row[2])}};
+const tick = (job, location) => {{
+  const box = fakeElement(`box-${{job}}-${{location}}`); box.checked = true;
+  box.attributes['data-bulk-job'] = job; box.attributes['data-bulk-location'] = location; box.closest = () => box;
+  els.transactionTable.listeners.change[0]({{target: box}});
+}};
+tick('a', 'transaction:2'); tick('a', 'transaction:3'); tick('b', 'transaction:2');
+const ticked = {{hidden: els.bulkReviewBar.hidden, count: els.bulkReviewCount.textContent}};
+const confirm = fakeElement('confirm'); confirm.attributes['data-bulk-review'] = 'confirm'; confirm.closest = () => confirm;
+els.bulkReviewBar.listeners.click[0]({{target: confirm}}); await settle(); await settle();
+const posts = REQUESTS.filter((request) => request.method === 'POST')
+  .map((request) => [request.url, JSON.parse(request.body).decisions]);
+console.log(JSON.stringify({{start, ticked, posts, after: {{hidden: els.bulkReviewBar.hidden,
+  selected: bulkSelection.size, trueAfter: monthly().rows.map((row) => row[2]),
+  boxes: (els.transactionTable.innerHTML.match(/data-bulk-job=/g) || []).length}}}}));
+""")
+    start, ticked, after = result["start"], result["ticked"], result["after"]
+    assert start["hidden"] is True and start["boxes"] == 4  # two deposits awaiting review on each statement
+    assert ticked == {"hidden": False, "count": "3 selected"}
+    assert result["posts"] == [
+        ["/analysis/a/revenue-reviews", [{"source_location": "transaction:2", "decision": "confirm"},
+                                         {"source_location": "transaction:3", "decision": "confirm"}]],
+        ["/analysis/b/revenue-reviews", [{"source_location": "transaction:2", "decision": "confirm"}]]]
+    # Saved: the bar goes away, the deposits no longer await review, and True deposits take them in.
+    assert after["hidden"] is True and after["selected"] == 0 and after["boxes"] == 1
+    trues = {doc["id"]: f"{round(doc['verified_revenue_total']):,}" for doc in package_after["documents"]}
+    assert after["trueAfter"] == [trues["a"], trues["b"]] and after["trueAfter"] != start["trueBefore"]
+
+
+def test_a_refused_batch_keeps_its_ticks_and_says_why(tmp_path, monkeypatch):
+    before = {"a": _pending(1)}
+    responses = {"/analysis/a/revenue-reviews": {"status": 400, "json": {"error": "fabricated refusal"}},
+                 "/analysis/a": {"json": {"analysis": before["a"], "analysis_error": None}},
+                 "/markdown/a": {"text": ""}}
+    result = run_dashboard(f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+const said = [];
+notify = (message, tone) => said.push([message, tone]);
+currentJobId = 'a'; currentJobIds = ['a']; loadResults('a'); await settle();
+const box = fakeElement('box'); box.checked = true; box.attributes['data-bulk-job'] = 'a';
+box.attributes['data-bulk-location'] = 'transaction:2'; box.closest = () => box;
+els.transactionTable.listeners.change[0]({{target: box}});
+const reject = fakeElement('reject'); reject.attributes['data-bulk-review'] = 'reject'; reject.closest = () => reject;
+els.bulkReviewBar.listeners.click[0]({{target: reject}}); await settle();
+console.log(JSON.stringify({{said: said.filter(([, tone]) => tone === 'red'), selected: bulkSelection.size,
+  hidden: els.bulkReviewBar.hidden}}));
+""")
+    assert result["said"] == [["Not saved: fabricated refusal", "red"]]
+    assert result["selected"] == 1 and result["hidden"] is False
 
 
 def test_the_page_carries_the_branch_s_controls_in_the_new_shell(monkeypatch, tmp_path):

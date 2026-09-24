@@ -659,6 +659,15 @@
   .tx-table .empty-cell { color: var(--text-3); padding-top: 20px; padding-bottom: 20px; }
   .tx-table .empty-cell strong { color: var(--text); margin-right: 6px; }
   /* the source column only appears when a package of statements is loaded */
+  /* Multi-select of deposits awaiting review: a first column (only while the table holds one to pick) and an
+     action bar in the header that shows only while something is ticked. */
+  .tx-table .tx-check { width: 36px; padding-right: 0; }
+  .tx-table:not(.has-select) .tx-check { display: none; }
+  .tx-select { width: 16px; height: 16px; margin: 0; vertical-align: middle; accent-color: var(--accent); cursor: pointer; }
+  .bulk-review { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  .bulk-review[hidden] { display: none; }
+  .bulk-count { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+  .bulk-review .table-action:disabled { opacity: .55; cursor: progress; }
   .tx-source-col, .transaction-source { display: none; }
   #transactionCard.multi-statement .tx-source-col,
   #transactionCard.multi-statement .transaction-source { display: table-cell; }
@@ -691,6 +700,12 @@
   .theme-preview.light .tp-side, .theme-preview.light .tp-card { background: #ffffff; }
   .theme-preview.light .tp-title { background: #0a0a0a; }
   .setting-row { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; padding: 18px 20px; }
+  .setting-row + .setting-row { border-top: 1px solid var(--border); }
+  .setting-select {
+    flex-shrink: 0; min-width: 210px; height: 36px; padding: 0 10px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13.5px;
+  }
+  .setting-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .setting-title { display: block; font-size: 14.5px; font-weight: 600; cursor: pointer; }
   .setting-help { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--text-2); }
   .setting-help strong { color: var(--text); }
@@ -1156,7 +1171,8 @@
           </div>
           <div class="table-wrap">
             <table class="data-table seasonality-table">
-              <thead>
+              <!-- The deposit columns follow Settings > Statements (renderMonthlyStatements). -->
+              <thead id="monthlyHead">
                 <tr>
                   <th>Month</th>
                   <th>Year</th>
@@ -1272,6 +1288,13 @@
               <span aria-hidden="true">·</span>
               <span id="transactionCount">0 transactions</span>
             </div>
+            <!-- Shown only while at least one deposit awaiting review is ticked. -->
+            <div class="bulk-review" id="bulkReviewBar" role="group" aria-label="Review the selected deposits" hidden>
+              <span class="bulk-count" id="bulkReviewCount" aria-live="polite">0 selected</span>
+              <button class="table-action review-confirm" type="button" data-bulk-review="confirm">Confirm Revenue</button>
+              <button class="table-action review-reject" type="button" data-bulk-review="reject">Mark Non-Revenue</button>
+              <button class="table-action" type="button" data-bulk-review="clear">Clear</button>
+            </div>
             <div class="sort-group" role="group" aria-label="Sort transactions">
               <button class="transaction-filter active" type="button" data-transaction-sort="date">Date</button>
               <button class="transaction-filter" type="button" data-transaction-sort="credits">Credits</button>
@@ -1290,9 +1313,13 @@
             <button class="transaction-filter" type="button" data-transaction-filter="non_revenue">Non-Revenue</button>
           </div>
           <div class="table-wrap">
-            <table class="data-table tx-table">
+            <table class="data-table tx-table" id="transactionTableMain">
               <thead>
                 <tr>
+                  <th class="tx-check">
+                    <input type="checkbox" class="tx-select" id="bulkSelectAll"
+                           aria-label="Select every deposit shown that awaits review">
+                  </th>
                   <th>Date</th>
                   <th class="tx-source-col">Statement</th>
                   <th>Description</th>
@@ -1374,6 +1401,22 @@
                 <input type="checkbox" role="switch" id="allAccountsToggle" aria-describedby="allAccountsHelp">
                 <span class="switch-track" aria-hidden="true"></span>
               </span>
+            </div>
+            <div class="setting-row">
+              <div>
+                <label class="setting-title" for="monthlyDepositsView">Monthly Statements show</label>
+                <p class="setting-help" id="monthlyDepositsHelp">
+                  <strong>Total monthly deposits:</strong> everything going in, transfers from other accounts and lender
+                  funding included. <strong>True monthly deposits:</strong> revenue only, the verified revenue and the
+                  deposits you confirm; no transfers, no funding, and no deposit still awaiting review.
+                  <strong>Both</strong> shows the two side by side. Saved in this browser only.
+                </p>
+              </div>
+              <select class="setting-select" id="monthlyDepositsView" aria-describedby="monthlyDepositsHelp">
+                <option value="both">Both</option>
+                <option value="total">Total monthly deposits</option>
+                <option value="true">True monthly deposits</option>
+              </select>
             </div>
           </div>
         </section>

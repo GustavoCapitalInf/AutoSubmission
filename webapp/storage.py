@@ -57,7 +57,7 @@ import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 # O-1: the hash definition RELOCATED to ocr/inspect.py (the preflight needs it
 # and ocr must not depend on webapp). Re-exported here so every D-1 consumer
@@ -674,6 +674,35 @@ class Storage:
                 job_id=job_id,
                 detail={"source_location": source_location, "decision": decision, "actor": actor},
             )
+
+    def record_reviews(
+        self,
+        job_id: str,
+        *,
+        analysis_json: str,
+        decisions: Sequence[tuple[str, str, str | None]],
+        actor: str = "local-analyst",
+    ) -> None:
+        """Apply several analyst decisions at once: the stored analysis after every
+        one of them, and for EACH decision its append-only decision row (actor,
+        timestamp, prior state) and its audit row, all in ONE transaction, so a
+        batch lands whole or not at all and reads, decision by decision, exactly
+        as the same decisions made one at a time would."""
+        now = utc_now_iso()
+        with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
+            for source_location, decision, prior_state_json in decisions:
+                conn.execute(
+                    "INSERT INTO review_decisions (job_id, source_location, decision, actor, decided_at, prior_state)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (job_id, source_location, decision, actor, now, prior_state_json),
+                )
+                self._insert_audit(
+                    conn,
+                    "review",
+                    job_id=job_id,
+                    detail={"source_location": source_location, "decision": decision, "actor": actor},
+                )
 
     def review_history(self, job_id: str) -> list[dict]:
         with closing(self._connect()) as conn:

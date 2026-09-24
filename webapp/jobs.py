@@ -330,6 +330,30 @@ class JobStore:
             job.analysis = deepcopy(analysis)
         return deepcopy(analysis)
 
+    def apply_reviews(
+        self,
+        job_id: str,
+        analysis: dict,
+        *,
+        decisions: list[tuple[str, str]],
+        actor: str = "local-analyst",
+    ) -> dict | None:
+        """Replace the stored analysis AND record every decision of a batch, each
+        with the prior state it changed, in one storage transaction. The caller
+        has already applied every decision to `analysis`; a transaction appears at
+        most once in a batch, so each prior state is the one before the batch."""
+        job = self.get(job_id)
+        if job is None or job.analysis is None:
+            return None
+        rows = []
+        for source_location, decision in decisions:
+            prior_state = _classification_for(job.analysis, source_location)
+            rows.append((source_location, decision, json.dumps(prior_state) if prior_state is not None else None))
+        self._storage.record_reviews(job_id, analysis_json=json.dumps(analysis), decisions=rows, actor=actor)
+        with self._lock:
+            job.analysis = deepcopy(analysis)
+        return deepcopy(analysis)
+
     def review_history(self, job_id: str) -> list[dict]:
         return self._storage.review_history(job_id)
 
