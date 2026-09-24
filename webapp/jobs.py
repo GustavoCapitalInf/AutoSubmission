@@ -60,14 +60,20 @@ class Job:
         )
 
 
-def _classification_for(analysis: dict | None, source_location: str) -> dict | None:
+def _classification_for(
+    analysis: dict | None, source_location: str, account: int | None = None
+) -> dict | None:
     """The classification record currently stored for a transaction, located
     by its ``source_location`` — captured as the prior state of a review.
 
-    Every account is searched, in printed order. A reviewer acts on a posting,
-    and a posting belongs to one account of the document — so reading only the
-    first would silently find nothing for every posting in the second, and
-    "nothing" here reads as "this transaction was never classified".
+    Every account is searched, in printed order, unless ``account`` (1-based,
+    printed order) names the posting's own. A reviewer acts on a posting, and a
+    posting belongs to one account of the document — so reading only the first
+    would silently find nothing for every posting in the second, and "nothing"
+    here reads as "this transaction was never classified". A location numbers a
+    posting within its account, so when the review named the account, only that
+    account is read: the first account's posting of the same number is another
+    posting (`apply_serialized_revenue_review` refuses the unnamed ambiguous case).
     """
     if not isinstance(analysis, dict):
         return None
@@ -76,8 +82,10 @@ def _classification_for(analysis: dict | None, source_location: str) -> dict | N
             analysis, surface="webapp/jobs.py::_classification_for")
     else:
         accounts = [analysis]
-    for account in accounts:
-        statement = account.get("statement")
+    if account is not None:
+        accounts = accounts[account - 1:account] if account >= 1 else []
+    for holder in accounts:
+        statement = holder.get("statement")
         if not isinstance(statement, dict):
             continue
         for transaction in statement.get("transactions") or []:
@@ -311,13 +319,15 @@ class JobStore:
         source_location: str,
         decision: str,
         actor: str = "local-analyst",
+        account: int | None = None,
     ) -> dict | None:
         """Replace the stored analysis AND record the append-only review
-        decision (actor, timestamp, prior state) in one storage transaction."""
+        decision (actor, timestamp, prior state) in one storage transaction.
+        `account` is the 1-based account the reviewer named, if any."""
         job = self.get(job_id)
         if job is None or job.analysis is None:
             return None
-        prior_state = _classification_for(job.analysis, source_location)
+        prior_state = _classification_for(job.analysis, source_location, account)
         self._storage.record_review(
             job_id,
             analysis_json=json.dumps(analysis),
@@ -325,7 +335,34 @@ class JobStore:
             decision=decision,
             actor=actor,
             prior_state_json=json.dumps(prior_state) if prior_state is not None else None,
+            account=account,
         )
+        with self._lock:
+            job.analysis = deepcopy(analysis)
+        return deepcopy(analysis)
+
+    def apply_reviews(
+        self,
+        job_id: str,
+        analysis: dict,
+        *,
+        decisions: list[tuple[str, str, int | None]],
+        actor: str = "local-analyst",
+    ) -> dict | None:
+        """Replace the stored analysis AND record every decision of a batch —
+        `(source_location, decision, account)` — each with the prior state it
+        changed, in one storage transaction. The caller has already applied every
+        decision to `analysis`; a posting appears at most once in a batch, so each
+        prior state is that posting's stored record before the batch."""
+        job = self.get(job_id)
+        if job is None or job.analysis is None:
+            return None
+        rows = []
+        for source_location, decision, account in decisions:
+            prior_state = _classification_for(job.analysis, source_location, account)
+            rows.append((source_location, decision, json.dumps(prior_state) if prior_state is not None else None,
+                         account))
+        self._storage.record_reviews(job_id, analysis_json=json.dumps(analysis), decisions=rows, actor=actor)
         with self._lock:
             job.analysis = deepcopy(analysis)
         return deepcopy(analysis)

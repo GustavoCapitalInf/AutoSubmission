@@ -1,4 +1,8 @@
-"""Phase 2.0 (P20-ROUTER): the closed failure-class vocabulary, the
+"""Phase 3.1 amendment: the webapp alone may supply the explicit pair triggers
+for a forced visual read or configured deterministic fallback. Earlier Phase 2
+invariants below still apply to discovery and the legacy OCR rungs.
+
+Phase 2.0 (P20-ROUTER): the closed failure-class vocabulary, the
 independent `EscalationRouter`, and the `ExtractionQualityGate`.
 
 **The invariant this module exists to make structural.** Validator success may
@@ -147,6 +151,10 @@ EXTRACTOR_FAILED = "extractor_failed"
 #: card (the independent review's own reproduction, N1, confirms it: CASE 1
 #: still kills the literal reading).
 OPERATOR_FORCED_VISUAL = "operator_forced_visual"
+# Phase 3.1 handoff supersedes the older no-validation-to-OCR rule only for
+# the webapp visual pair. Legacy discovery routing remains unchanged.
+OPERATOR_FORCED_VISUAL_PAIR = "operator_forced_visual_pair"
+DETERMINISTIC_PARSE_UNVALIDATED = "deterministic_parse_unvalidated"
 #: P22-TRUTHTABLE (Phase 2.2, D8): the RESEARCH run mode's trigger. A
 #: pre-financial fact by construction — a RUN-MODE fact exactly like
 #: `OPERATOR_FORCED_VISUAL`, known before any document is read — that the
@@ -184,6 +192,8 @@ ALL_TRIGGERS: tuple[str, ...] = (
     EXTRACTOR_OUTPUT_UNUSABLE,
     EXTRACTOR_FAILED,
     OPERATOR_FORCED_VISUAL,
+    OPERATOR_FORCED_VISUAL_PAIR,
+    DETERMINISTIC_PARSE_UNVALIDATED,
     OPERATOR_FORCED_PADDLE,
     TRUNCATION_FLAGGED,
 )
@@ -209,6 +219,8 @@ TRIGGER_REPORT_PRIORITY: tuple[str, ...] = (
     IMAGE_ONLY_DOCUMENT,
     MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
     OPERATOR_FORCED_VISUAL,
+    OPERATOR_FORCED_VISUAL_PAIR,
+    DETERMINISTIC_PARSE_UNVALIDATED,
     OPERATOR_FORCED_PADDLE,
     TRUNCATION_FLAGGED,
 )
@@ -220,7 +232,7 @@ TRIGGER_REPORT_PRIORITY: tuple[str, ...] = (
 #: slot, not implemented here. Which of these a given run may actually use is
 #: `RouterInputs.enabled` (D4) — a MODE constant, never a per-document fact —
 #: not this tuple, which stays the fixed PREFERENCE among whatever is enabled.
-EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "paddle", "visual")
+EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "paddle", "visual", "visual_pair")
 
 
 # ---------------------------------------------------------------------------

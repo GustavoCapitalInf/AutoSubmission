@@ -52,8 +52,9 @@ Stop:
 docker compose down
 ```
 
-Job state lives in the `intern-data` volume (`webapp_data/` inside the
-container). Wipe it with `docker compose down -v` when the intern round is over.
+Job state lives in the `intern-data` volume (`/data` inside the container,
+outside the checkout at `/app`, where the app refuses to keep customer data).
+Wipe it with `docker compose down -v` when the intern round is over.
 
 ## Same machine, no Docker
 

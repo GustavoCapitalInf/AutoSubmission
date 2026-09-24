@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .endpoint_policy import classify_endpoint, remote_opt_in_from_env
 from .paddle_config import PADDLE_MODEL_TOKEN
+from .visual_pair_config import MODEL_TOKEN as VISUAL_PAIR_MODEL_TOKEN
 
 try:
     from dotenv import load_dotenv
@@ -78,6 +79,7 @@ RESERVED_MODEL_PREFIXES = (
     "local-tesseract-ocr",
     "deterministic-native-preflight",
     PADDLE_MODEL_TOKEN,
+    VISUAL_PAIR_MODEL_TOKEN,
 )
 
 
@@ -131,8 +133,14 @@ class Settings:
     #: check. `endpoint_class` auto-derives from `base_url` when left `None`.
     endpoint_class: str | None = None
     remote_opt_in: bool = False
+    # Phase 3.1 is dormant for automatic fallback until explicitly enabled.
+    allow_visual_pair: bool = False
+    visual_pair_fallback_trigger: str = "narrow"
+    visual_pair_legacy_visual: bool = False
 
     def __post_init__(self) -> None:
+        if self.visual_pair_fallback_trigger not in {"narrow", "broad"}:
+            raise ValueError("OCR_VISUAL_PAIR_FALLBACK_TRIGGER must be narrow or broad")
         if self.endpoint_class is None:
             self.endpoint_class = classify_endpoint(self.base_url)
 
@@ -158,4 +166,7 @@ def load_settings(model_override: str | None = None) -> Settings:
         max_workers=int(os.environ.get("OCR_MAX_WORKERS", "1")),
         endpoint_class=classify_endpoint(base_url),
         remote_opt_in=remote_opt_in_from_env(),
+        allow_visual_pair=os.environ.get("OCR_ALLOW_VISUAL_PAIR", "0") == "1",
+        visual_pair_fallback_trigger=os.environ.get("OCR_VISUAL_PAIR_FALLBACK_TRIGGER", "narrow"),
+        visual_pair_legacy_visual=os.environ.get("OCR_VISUAL_PAIR_LEGACY_VISUAL", "0") == "1",
     )

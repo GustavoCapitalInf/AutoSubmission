@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from ocr.endpoint_policy import classify_endpoint
@@ -22,6 +24,17 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 DEFAULT_TIMEOUT = 240.0
 MAX_TRANSPORT_RETRIES = 2
 CONTRACT = 1
+
+
+def _finite_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError("nonfinite_json_number")
+    return result
+
+
+def _invalid_constant(value: str):
+    raise ValueError("nonfinite_json_number")
 
 
 class TransportError(RuntimeError):
@@ -46,21 +59,28 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _default_opener() -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(_NoRedirect)
+    # Loopback authorization applies to the transport destination too. urllib's
+    # default ProxyHandler would send page images through environment proxies
+    # when NO_PROXY is absent, despite the validated loopback URL.
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
 
 def image_data_uri(jpeg: bytes) -> str:
-    return "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
+    # Keep bytes unchanged; the legacy argument name also accepts lossless PNG.
+    mime = "image/png" if jpeg.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+    return "data:" + mime + ";base64," + base64.b64encode(jpeg).decode("ascii")
 
 
 class HttpJson:
     def __init__(self, base_url: str, *, timeout: float = DEFAULT_TIMEOUT, token: str | None = None,
-                 opener: Callable[[], urllib.request.OpenerDirector] | None = None) -> None:
+                 opener: Callable[[], urllib.request.OpenerDirector] | None = None,
+                 transport_retries: int = MAX_TRANSPORT_RETRIES) -> None:
         if classify_endpoint(base_url) != "loopback":
             raise TransportError("endpoint_not_loopback")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.token = token
+        self.transport_retries = transport_retries
         self._opener = (opener or _default_opener)()
 
     def _request(self, method: str, path: str, body: bytes | None) -> tuple[bytes, float]:
@@ -74,6 +94,8 @@ class HttpJson:
         while True:
             request = urllib.request.Request(url, data=body, headers=headers, method=method)
             started = time.perf_counter()
+            # Wall-clock start of this attempt (UTC), for placing the call in time; perf_counter measures it.
+            self.last_started_utc = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
             try:
                 with self._opener.open(request, timeout=self.timeout) as response:
                     raw = response.read(MAX_RESPONSE_BYTES + 1)
@@ -90,11 +112,11 @@ class HttpJson:
                 raise TransportError(http_error_code(exc.code, body_bytes)) from None
             except urllib.error.URLError as exc:
                 attempt += 1
-                if attempt > MAX_TRANSPORT_RETRIES:
+                if attempt > self.transport_retries:
                     raise TransportError(f"connection_failed:{type(exc.reason).__name__}") from None
             except (TimeoutError, OSError) as exc:
                 attempt += 1
-                if attempt > MAX_TRANSPORT_RETRIES:
+                if attempt > self.transport_retries:
                     raise TransportError(f"connection_failed:{type(exc).__name__}") from None
 
     def get_json(self, path: str) -> dict:
@@ -128,6 +150,12 @@ class ChatResult:
     request_sha256: str
     response_sha256: str
     content_sha256: str = ""
+    # Private evidence only; never render these into logs or public telemetry.
+    request_bytes: bytes = b""
+    response_bytes: bytes = b""
+    cached: bool = False
+    # When the request was sent (UTC ISO); "" in recordings made before it was recorded.
+    started_utc: str = ""
 
 
 class VlmClient(HttpJson):
@@ -147,7 +175,7 @@ class VlmClient(HttpJson):
 
     def chat(self, model: str, prompt: str, *, image_jpeg: bytes | None = None, schema: dict | None = None,
              schema_name: str = "page_proposal", max_tokens: int = 4096, seed: int = 0,
-             disable_thinking: bool = True) -> ChatResult:
+             disable_thinking: bool = True, preserve_schema_order: bool = False) -> ChatResult:
         content: list[dict[str, Any]] = []
         if image_jpeg is not None:
             content.append({"type": "image_url", "image_url": {"url": image_data_uri(image_jpeg)}})
@@ -163,8 +191,18 @@ class VlmClient(HttpJson):
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": schema_name, "schema": schema}}
         if disable_thinking:
             body["chat_template_kwargs"] = {"enable_thinking": False}
-        encoded = canonical_json(body).encode("utf-8")
+        # Guided review decoding must see observations before decisions, and
+        # reviews before additions. Recursive canonical sorting changes those
+        # schema property orders. Opt in only for the pair's review request;
+        # all existing callers retain their exact canonical transport bytes.
+        encoded = (json.dumps(body, separators=(",", ":"), allow_nan=False)
+                   if preserve_schema_order else canonical_json(body)).encode("utf-8")
+        evidence_sink = getattr(self, "evidence_sink", None)
+        if evidence_sink is not None:
+            evidence_sink("request", encoded)
         raw, total_ms = self._request("POST", "/v1/chat/completions", encoded)
+        if evidence_sink is not None:
+            evidence_sink("response", raw)
         payload = _decode(raw)
         try:
             choice = payload["choices"][0]
@@ -177,7 +215,7 @@ class VlmClient(HttpJson):
         parse_error: str | None = None
         if schema is not None:
             try:
-                candidate = json.loads(text)
+                candidate = json.loads(text, parse_float=_finite_float, parse_constant=_invalid_constant)
                 if isinstance(candidate, dict):
                     parsed = candidate
                 else:
@@ -190,6 +228,8 @@ class VlmClient(HttpJson):
             completion_tokens=int(usage.get("completion_tokens") or 0), total_ms=total_ms,
             request_sha256=sha256_bytes(encoded), response_sha256=sha256_bytes(raw),
             content_sha256=sha256_bytes(text.encode("utf-8")),
+            request_bytes=encoded, response_bytes=raw,
+            started_utc=getattr(self, "last_started_utc", ""),
         )
 
 

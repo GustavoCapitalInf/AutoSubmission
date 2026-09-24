@@ -93,7 +93,7 @@ REFUSED_REASONS = (
 #: P21-ROUTING (Phase 2.1) adds `"paddle"`, between `"local_tesseract"` and
 #: `"visual"` — the same slot PaddleOCR takes in `ocr.escalation.
 #: EXTRACTOR_ORDER`.
-SOURCE_PATHS = ("native", "local_tesseract", "paddle", "visual", "none")
+SOURCE_PATHS = ("native", "local_tesseract", "paddle", "visual", "visual_pair", "none")
 
 #: P20-ROUTER (Phase 2.0). Mirrored, by value, from `ocr.escalation` — held
 #: equal to it by `tests/test_escalation_tripwires.py` so the two never drift.
@@ -111,6 +111,8 @@ EXTRACTION_TRIGGERS = (
     "extractor_output_unusable",
     "extractor_failed",
     "operator_forced_visual",
+    "operator_forced_visual_pair",
+    "deterministic_parse_unvalidated",
     # P22-TRUTHTABLE (D8): the research run mode's trigger; see
     # `ocr.escalation.OPERATOR_FORCED_PADDLE`.
     "operator_forced_paddle",
@@ -202,6 +204,7 @@ VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
 #: holds this literal equal to `ocr.paddle_config.PADDLE_MODEL_TOKEN` by test,
 #: so the two cannot silently drift apart.
 PADDLE_MODEL_TOKENS = frozenset({"paddle-ocr+ppocrv5"})
+VISUAL_PAIR_MODEL_TOKENS = frozenset({"visual-pair-dots-qwen"})
 
 
 def source_path_for(model: str | None) -> str:
@@ -227,6 +230,8 @@ def source_path_for(model: str | None) -> str:
         return "local_tesseract"
     if model == "deterministic-native-preflight":
         return "none"
+    if model in VISUAL_PAIR_MODEL_TOKENS:
+        return "visual_pair"
     if model in PADDLE_MODEL_TOKENS:
         return "paddle"
     if model in VISUAL_MODEL_TOKENS:
@@ -248,6 +253,8 @@ def source_path_unrecognized_model(model: str | None) -> bool:
     if model == "local-tesseract-ocr":
         return False
     if model == "deterministic-native-preflight":
+        return False
+    if model in VISUAL_PAIR_MODEL_TOKENS:
         return False
     if model in PADDLE_MODEL_TOKENS:
         return False
@@ -522,6 +529,23 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
                 "endpoint_class": endpoint_class,
                 "remote_opt_in": remote_opt_in,
             })
+        elif path == "visual_pair":
+            # Transient receipt figures describe actual calls only. Both cache
+            # layers restore no call telemetry, so a hit reports zero calls.
+            measurements = getattr(doc, "extraction_telemetry", None) or {}
+            measured = measurements.get("pages") or []
+            for stage, model in (("proposer", "dotsmocr"), ("reviewer", "qwen3.8-27b-nvfp4")):
+                rows = [item for item in measured if item.get("stage") == stage]
+                def token_total(field):
+                    values = [item.get(field) for item in rows]
+                    return sum(values) if values and all(isinstance(v, int) for v in values) else None
+                calls.append({
+                    "stage": "ocr", "model": model, "purpose": "visual_pair_" + stage,
+                    "calls": len(rows), "prompt_tokens": token_total("prompt_tokens"),
+                    "completion_tokens": token_total("completion_tokens"),
+                    "endpoint_class": measurements.get("execution_class"),
+                    "remote_opt_in": measurements.get("customer_data_opt_in"),
+                })
         elif path == "paddle":
             # P21-ROUTING: one call per Paddle page. Paddle pages are plain
             # `str` (D9's derived text), not the visual rung's `PageText`, so
@@ -560,6 +584,7 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
         payload is not None
         and model_used
         and not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX)
+        and model_used not in {"visual-pair-dots-qwen-bank-bridge", "visual-pair-dots-qwen-generic"}
     ):
         calls.append({
             "stage": "analysis",

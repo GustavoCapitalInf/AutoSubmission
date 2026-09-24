@@ -346,11 +346,11 @@ def _document_block(document: DocumentReport, *, always: bool = False) -> dict |
     facts = (
         document.document_period, document.rollup, document.omissions,
         document.boundary_mechanism, document.internal_transfers,
-        document.integrity_notes,
+        document.integrity_notes, document.account_roster,
     )
     if not always and not any(facts):
         return None
-    return {
+    block = {
         "period_start": document.document_period[0] if document.document_period else None,
         "period_end": document.document_period[1] if document.document_period else None,
         "boundary_mechanism": document.boundary_mechanism,
@@ -394,3 +394,21 @@ def _document_block(document: DocumentReport, *, always: bool = False) -> dict |
         # package's aggregation of this document and nothing else (§3.3, Q2).
         "integrity_notes": list(document.integrity_notes),
     }
+    if document.account_roster:
+        # Every account the document prints, in printed order, and how each stands: `published` (its analysis is
+        # `accounts[published_index]`, or the payload itself on a single published account), `idle` (an unchanged
+        # printed balance), `held` (not verified, with its reason codes; no figure of it is published). Present
+        # only when a reader judged the document account by account, so every other payload is unchanged.
+        block["account_roster"] = [
+            {
+                "title": entry.title,
+                "kind": entry.kind,
+                "number_last4": entry.number_last4,
+                "status": entry.status,
+                "published_index": entry.published_index,
+                "balance": entry.balance,
+                "reasons": list(entry.reasons),
+            }
+            for entry in document.account_roster
+        ]
+    return block

@@ -449,7 +449,7 @@ def test_recovery_through_the_real_runner_reports_offline_rungs_produced_no_text
 def test_the_paddle_slot_is_filled_between_tesseract_and_visual():
     """Phase 2.1 (D4, OQ5): PaddleOCR takes the SLOT Phase 2.0 left named but
     empty, in the documented position."""
-    assert EXTRACTOR_ORDER == ("local_tesseract", "paddle", "visual")
+    assert EXTRACTOR_ORDER == ("local_tesseract", "paddle", "visual", "visual_pair")
 
 
 def test_no_page_level_or_remote_extractor_id_is_ever_produced():
@@ -525,12 +525,13 @@ def test_all_triggers_and_admitted_triggers():
     # `OPERATOR_FORCED_VISUAL` beside it. Its mode-only reachability is
     # `tests/test_research_mode.py`'s subject, not this pin's — this line is
     # the closed-vocabulary pin and nothing else.
-    from ocr.escalation import OPERATOR_FORCED_PADDLE
+    from ocr.escalation import (OPERATOR_FORCED_PADDLE, OPERATOR_FORCED_VISUAL_PAIR, DETERMINISTIC_PARSE_UNVALIDATED)
 
     assert ALL_TRIGGERS == (
         IMAGE_ONLY_DOCUMENT, MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
         OFFLINE_RUNGS_PRODUCED_NO_TEXT, EXTRACTOR_OUTPUT_UNUSABLE, EXTRACTOR_FAILED,
-        OPERATOR_FORCED_VISUAL, OPERATOR_FORCED_PADDLE, TRUNCATION_FLAGGED,
+        OPERATOR_FORCED_VISUAL, OPERATOR_FORCED_VISUAL_PAIR,
+        DETERMINISTIC_PARSE_UNVALIDATED, OPERATOR_FORCED_PADDLE, TRUNCATION_FLAGGED,
     )
     assert ADMITTED_TRIGGERS == frozenset(ALL_TRIGGERS) - {TRUNCATION_FLAGGED}
 

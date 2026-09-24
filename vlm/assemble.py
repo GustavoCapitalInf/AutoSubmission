@@ -2,13 +2,22 @@
 from __future__ import annotations
 
 import re
+import json
+import math
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
-from vlm.tables import ColumnMap, classify_columns, parse_html_tables
-from vlm.textparse import parse_date, parse_money
+from vlm.tables import classify_columns, ColumnMap, DIRECTION_WORDS, parse_html_tables, unfold_side_by_side
+from vlm.textparse import is_date_like, month_number, parse_date, parse_money
 
-SKIP_DESCRIPTION = re.compile(r"^(total|totals|subtotal|sub-total|ending balance|beginning balance|balance forward|closing balance|opening balance)\b", re.IGNORECASE)
+# Balance lines as French statements print them: solde reporté / précédent / antérieur / d'ouverture / de
+# fermeture / de clôture, ancien / nouveau solde (accents optional in a proposer's or reviewer's reading).
+_SOLDE = (r"solde report[ée]|solde pr[ée]c[ée]dent|solde ant[ée]rieur|solde d['’]ouverture|"
+          r"solde de (?:fermeture|cl[ôo]ture)|ancien solde|nouveau solde")
+SKIP_DESCRIPTION = re.compile(rf"^(total|totals|subtotal|sub-total|ending balance|beginning balance|balance forward|closing balance|opening balance|sous-total|{_SOLDE})\b", re.IGNORECASE)
+# A printed balance line, which a reviewer may propose as a missed transaction. Narrower than
+# SKIP_DESCRIPTION on purpose: a real merchant can be named "Total ...".
+BALANCE_LINE = re.compile(rf"^(beginning balance|opening balance|ending balance|closing balance|previous balance|balance forward|balance (?:brought|carried) forward|{_SOLDE})\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -23,15 +32,81 @@ class CandidateRow:
     source: str
     locator: str
     direction_source: str = "printed"
+    bbox: tuple[float, float, float, float] | None = None
+    printed_amount: Decimal | None = None
+    # The printed word naming the row's kind when its only text cell is a cheque number ("Check" from a
+    # "Check Nbr" column). Structure, not text: the ledger applies it after review (labelled_description).
+    description_label: str | None = None
+    # Read from a table printed k-up (unfold_side_by_side): the row above in reading order can be the
+    # neighbouring column group's, so it never lends this row its date.
+    side_by_side: bool = False
+
+
+# A column that holds cheque numbers: "Check Nbr", "Check No.", "CHECK #", "Cheque Number", "Chk No".
+# A header column of an account-analysis table ("Detail of Services Used": Description | Volume | Amount, or
+# Unit Price, Quantity): the bank's list of charges for services, not the account's transactions.
+ANALYSIS_HEADER = re.compile(r"^\s*(volume|unit price|unit cost|quantity|qty|per item)\s*$", re.IGNORECASE)
+CHEQUE_NUMBER_HEADER = re.compile(r"^\s*(?P<word>check|cheque|chk)s?\s*(?:no\.?|nbr\.?|num\.?|number|#)\s*$",
+                                  re.IGNORECASE)
+# A cheque number alone, with the break-in-sequence mark some banks print before or after it ("*218", "1046 *").
+_BARE_CHEQUE_NUMBER = re.compile(r"\*?\s*#?\s*\d+\s*\*?")
+
+
+def labelled_description(row: CandidateRow) -> CandidateRow:
+    """A row whose description is only a cheque number is named as the statement names the column it sits in:
+    the printed label, then the number ("Check 1234"), which is how the production parsers write cheques
+    and the word the analysis counts them by. A cheque whose number cell prints nothing, or only the
+    break-in-sequence mark, is the label alone ("Check"). Any other description is left exactly as read."""
+    bare = row.description.strip()
+    if row.description_label and _BARE_CHEQUE_NUMBER.fullmatch(bare):
+        return replace(row, description=f"{row.description_label} {bare}")
+    if row.description_label and bare in ("", "*"):
+        return replace(row, description=row.description_label)
+    return row
+
+
+def labelled_from_print(row: CandidateRow, printed) -> CandidateRow:
+    """A cheque read as its number alone, with no column label from the proposer's table (a two-up cheque table
+    read as one row per line, or a row the reviewer added), named by the cheque-number column the page's text
+    layer prints it under (PrintedEvidence.cheque_column_word). Anything else is left as it is."""
+    bare = row.description.strip()
+    if row.description_label or printed is None or not _BARE_CHEQUE_NUMBER.fullmatch(bare):
+        return row
+    word = printed.cheque_column_word(bare.strip("*# "), row.amount, row.date_text, row.balance)
+    return labelled_description(replace(row, description_label=word)) if word else row
+
+
+def published_row(row: CandidateRow) -> CandidateRow:
+    """A reviewed row as the ledger publishes it: its description on one line (a line-break tag or newline
+    inside a printed cell is layout, not text; vlm.native_text.spaced), without a copy of the row's own printed
+    date in front of it (a reviewer reading "05/06 1033" off the date and cheque-number columns: the date is the
+    row's date, not its description), then labelled_description."""
+    from vlm.native_text import spaced
+
+    description = spaced(row.description)
+    date_text = spaced(row.date_text or "")
+    if date_text and description.startswith(date_text + " ") and description[len(date_text):].strip():
+        description = description[len(date_text):].strip()
+    return labelled_description(replace(row, description=description))
 
 
 @dataclass(frozen=True)
 class Block:
     label: str
-    bbox: tuple[float, float, float, float]
+    bbox: tuple[float, float, float, float] | None
     content: str
     order: int
     page: int
+
+
+@dataclass(frozen=True)
+class DotsLayout:
+    page: int
+    blocks: tuple[Block, ...]
+    rows: tuple[CandidateRow, ...]
+    errors: tuple[str, ...]
+    truncated: bool
+    warnings: tuple[str, ...] = ()
 
 
 def blocks_from_worker(raw: dict, *, page: int, width: int, height: int) -> list[Block]:
@@ -57,16 +132,83 @@ def _cell(row: list[str], index: int | None) -> str:
     return row[index].strip() if index is not None and index < len(row) else ""
 
 
+def _description_cells(row: list[str], colmap: ColumnMap) -> str:
+    # OCR sometimes splits one printed description into an extra, unlabeled cell.
+    # Keep those cells in source order instead of dropping account/check references.
+    value_columns = {colmap.date, colmap.debit, colmap.credit, colmap.amount, colmap.balance, colmap.direction,
+                     *colmap.other_dates}
+    return " ".join(cell.strip() for index, cell in enumerate(row)
+                    if index not in value_columns and cell.strip())
+
+
+# A printed date's shape, beyond is_date_like: "DEC31", "Mar05", "5-Mar", "05-MAR-26", "03.05.2026", "2026/03/05";
+# numeric parts are day or month sized, so an amount ("1315.60") is no date.
+_DATE_SHAPE = re.compile(r"^(?:(?:\d{4}[-/. ])?(?:0?[1-9]|[12]\d|3[01])[-/. ](?:0?[1-9]|[12]\d|3[01])(?:[-/. ]\d{2,4})?"
+                         r"|\d{1,2}[-/. ]?(?P<m1>[A-Za-z]{3,9})\.?(?:[-/., ]+\d{2,4})?"
+                         r"|(?P<m2>[A-Za-z]{3,9})\.?[-/. ]?\d{1,2}(?:[-/., ]+\d{2,4})?)$")
+# An amount with cents as a cell prints it: a figure, never a description (a cheque number has no cents).
+_FIGURE = re.compile(r"[-+(]?[$€£]?\s?(?:\d{1,3}(?:[,\s]\d{3})+|\d+)[.,]\d{2}\)?-?")
+
+
+def _looks_like_date(text: str) -> bool:
+    """Whether a cell prints a date in any common shape (a month named by a month name)."""
+    text = " ".join(str(text or "").split())
+    if is_date_like(text):
+        return True
+    match = _DATE_SHAPE.fullmatch(text)
+    if not match:
+        return False
+    month = match.group("m1") or match.group("m2")
+    return month is None or month_number(month) is not None
+
+
+def _restored_date_cell(row: list[str], colmap: ColumnMap, width: int) -> list[str]:
+    """A row printed without its date (the date printed once for the day) that the proposer wrote without the
+    empty date cell: exactly one cell short of the header whose first column is the date, its first cell text
+    that is no date in any shape. Every cell then sits one column left (a credit in the debit column, a balance
+    as the amount), so the empty date cell is put back, provided the restored row reads as a row: a description
+    that is no amount (a cheque number is a description), and every money column empty or a figure (a
+    continuation line prints none). Any other row is returned as it is (a row missing another cell, a compact
+    date the proposer left in place)."""
+    if not (colmap.date == 0 and width and len(row) == width - 1 and row and row[0].strip()
+            and not _looks_like_date(row[0])):
+        return row
+    restored = ["", *row]
+    money = [_cell(restored, column) for column in (colmap.debit, colmap.credit, colmap.amount, colmap.balance)
+             if column is not None]
+    description = _cell(restored, colmap.description) if colmap.description is not None else restored[1].strip()
+    if (not description or _FIGURE.fullmatch(description)
+            or any(cell and parse_money(cell) is None for cell in money)):
+        return row
+    return restored
+
+
 def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table_index: int,
-                   year_hint: int | None = None, day_first: bool = False) -> list[CandidateRow]:
+                   year_hint: int | None = None, day_first: bool = False,
+                   carry_dates: bool = True) -> list[CandidateRow]:
     if colmap.balance is None and colmap.amount is None and colmap.debit is None and colmap.credit is None:
         return []
+    head = (grid[colmap.header_row] if colmap.header_row is not None and colmap.header_row < len(grid)
+            else grid[0] if grid else [])
+    if colmap.date is None and any(ANALYSIS_HEADER.match(cell or "") for cell in head):
+        # An account-analysis table (services used: volume, unit price) lists charges, not dated transactions.
+        # A dated activity table with a Quantity column (securities) is transactions.
+        return []
+    label = None
+    if colmap.header_row is not None and colmap.header_row < len(grid):
+        header = grid[colmap.header_row]
+        value_columns = {colmap.date, colmap.debit, colmap.credit, colmap.amount, colmap.balance}
+        text_columns = [index for index in range(len(header)) if index not in value_columns]
+        match = CHEQUE_NUMBER_HEADER.match(header[text_columns[0]]) if len(text_columns) == 1 else None
+        label = match.group("word") if match else None
     rows: list[CandidateRow] = []
     last_date: str | None = None
+    width = len(grid[colmap.header_row]) if colmap.header_row is not None and colmap.header_row < len(grid) else 0
     for row_index, row in enumerate(grid):
         if colmap.header_row is not None and row_index == colmap.header_row:
             continue
-        description = _cell(row, colmap.description)
+        row = _restored_date_cell(row, colmap, width)
+        description = _description_cells(row, colmap)
         debit = parse_money(_cell(row, colmap.debit))
         credit = parse_money(_cell(row, colmap.credit))
         amount = parse_money(_cell(row, colmap.amount))
@@ -80,7 +222,9 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
         date_text = _cell(row, colmap.date)
         date = parse_date(date_text, year_hint=year_hint, day_first=day_first) if date_text else None
         if date is None and not date_text:
-            date = last_date
+            # A row printing no date is the day of the row above; not in a table printed k-up (unfolded), where
+            # the row above can be the neighbouring column group's.
+            date = last_date if carry_dates else None
         else:
             last_date = date or last_date
         if debit is not None:
@@ -91,14 +235,36 @@ def rows_from_grid(grid: list[list[str]], colmap: ColumnMap, *, page: int, table
             magnitude = abs(amount)
             direction = "debit" if amount < 0 else "unknown"
             source = "printed"
+            # A kind column ("Category": "Debit" / "Credit") directs a row whose amount prints no sign.
+            kind = DIRECTION_WORDS.get(" ".join(_cell(row, colmap.direction).lower().split()).rstrip("."))
+            if direction == "unknown" and kind is not None:
+                direction, source = kind, "column"
         rows.append(CandidateRow(date=date, date_text=date_text, description=description, amount=magnitude,
                                  direction=direction, balance=balance, page=page, source="stage_a",
-                                 locator=f"t{table_index}r{row_index}", direction_source=source))
+                                 locator=f"t{table_index}r{row_index}", direction_source=source,
+                                 printed_amount=debit if debit is not None else credit, description_label=label,
+                                 side_by_side=not carry_dates))
     return rows
 
 
 SECTION_CREDIT = re.compile(r"\b(deposits?|credits?|additions|money in|paid in|deposits and (?:other )?credits)\b", re.IGNORECASE)
-SECTION_DEBIT = re.compile(r"\b(withdrawals?|debits?|checks?|cheques?|fees|charges|payments|money out|paid out|subtractions|withdrawals and (?:other )?debits)\b", re.IGNORECASE)
+SECTION_DEBIT = re.compile(r"\b(withdrawals?|debits?|checks?|cheques?|fees|charges|payments|money out|paid out|subtractions|deductions?|purchases|withdrawals and (?:other )?debits)\b", re.IGNORECASE)
+BALANCE_SECTION = re.compile(
+    r"\b(?:daily|ledger|running|ending|available|collected)\s+balances?\b|\bbalance\s+summary\b",
+    re.IGNORECASE)
+
+
+# A line under a section heading that only names the account ("Account: -------0000", "Acct # ****0000") or says
+# the section goes on ("(continued)") continues that section; it does not start a new one.
+_SECTION_CONTINUATION = re.compile(
+    r"acc(?:oun)?t\.?(?:\s*(?:number|no\.?|#))?\s*:?\s*[-*xX•·\d\s]{4,}|\(?\s*(?:continued|cont'd)\s*\)?",
+    re.IGNORECASE)
+
+
+def continues_section(text: str) -> bool:
+    """Whether a printed line (a block's first line) continues the section above it rather than heading one."""
+    head = (text or "").strip().splitlines()[0].strip() if text and text.strip() else ""
+    return bool(head) and bool(_SECTION_CONTINUATION.fullmatch(head))
 
 
 def section_direction(text: str) -> str | None:
@@ -123,11 +289,14 @@ def rows_from_blocks(blocks: list[Block], *, year_hint: int | None = None, day_f
     heading: str | None = None
     for block in blocks:
         if block.label != "table":
-            heading = section_direction(block.content) if block.label in ("text", "paragraph_title", "doc_title", "header") else heading
+            if block.label in ("text", "paragraph_title", "doc_title", "header") and not continues_section(block.content):
+                heading = section_direction(block.content)
             continue
         for grid in parse_html_tables(block.content):
-            table_rows = rows_from_grid(grid, classify_columns(grid), page=block.page, table_index=table_index,
-                                        year_hint=year_hint, day_first=day_first)
+            unfolded = unfold_side_by_side(grid)
+            table_rows = rows_from_grid(unfolded, classify_columns(unfolded), page=block.page,
+                                        table_index=table_index, year_hint=year_hint, day_first=day_first,
+                                        carry_dates=unfolded is grid)
             if heading is not None:
                 table_rows = [replace(r, direction=heading, direction_source="section") if r.direction == "unknown" else r
                               for r in table_rows]
@@ -146,3 +315,248 @@ def text_lines_from_blocks(blocks: list[Block]) -> list[str]:
         else:
             lines.extend(line.strip() for line in block.content.splitlines() if line.strip())
     return lines
+
+
+_TEXT_DATE = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
+    r"[A-Za-z]{3,9}\.?\s+\d{1,2}(?:,?\s+\d{4})?|\d{1,2}\s+[A-Za-z]{3,9}(?:\s+\d{4})?)\s+(.+)$"
+)
+_TEXT_MONEY = re.compile(r"(?:\(?[-−]?[$€£]?\d[\d,]*\.\d{2}\)?-?(?:\s?(?:CR|DR))?)$")
+
+
+def _text_rows(block: Block, *, heading: str | None, year_hint: int | None,
+               day_first: bool) -> list[CandidateRow]:
+    """Conservative text rows: printed date + description + amount [+ balance].
+
+    Ambiguous undated text remains in the layout for the reviewer. Descriptions are
+    never normalized, and repeated source lines remain distinct candidates.
+    """
+    rows: list[CandidateRow] = []
+    for index, line in enumerate(block.content.splitlines()):
+        match = _TEXT_DATE.match(line)
+        if not match:
+            continue
+        date_text, tail = match.groups()
+        money = _TEXT_MONEY.search(tail)
+        if not money:
+            continue
+        last = parse_money(money[0])
+        description = tail[:money.start()].rstrip()
+        preceding = _TEXT_MONEY.search(description)
+        if preceding:
+            amount, balance = parse_money(preceding[0]), last
+            description = description[:preceding.start()].rstrip()
+        else:
+            amount, balance = last, None
+        if amount is None or not description or SKIP_DESCRIPTION.match(description):
+            continue
+        direction = heading or ("debit" if amount < 0 else "unknown")
+        rows.append(CandidateRow(
+            parse_date(date_text, year_hint=year_hint, day_first=day_first), date_text, description,
+            abs(amount), direction, balance, block.page, "stage_a", f"b{block.order}l{index}",
+            "section" if heading else "printed", block.bbox,
+        ))
+    return rows
+
+
+def _markdown_grid(content: str) -> list[list[str]]:
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not lines or not all("|" in line for line in lines):
+        return []
+    return [[cell.strip() for cell in line.strip("|").split("|")] for line in lines
+            if not re.fullmatch(r"[|:\-\s]+", line)]
+
+
+def _complete_html_tables(content: str) -> bool:
+    """Recognize the observed bare-table response without repairing fragments.
+
+    Missing element boxes are explicit, not synthesized from page dimensions.
+    Balanced structural tags prevent a visibly cut table becoming a shorter read.
+    """
+    if not re.fullmatch(r"<table\b[^>]*>.*</table\s*>", content, re.I | re.S):
+        return False
+    for tag in ("table", "tr", "td", "th"):
+        opened = len(re.findall(rf"<{tag}\b[^>]*>", content, re.I))
+        closed = len(re.findall(rf"</{tag}\s*>", content, re.I))
+        if opened != closed:
+            return False
+    return bool(parse_html_tables(content, preserve_whitespace=True))
+
+
+def parse_dots_layout(raw: str | list | dict, *, page: int, width: int, height: int,
+                      finish_reason: str | None = None, year_hint: int | None = None,
+                      day_first: bool = False) -> DotsLayout:
+    """Decode dots.mocr layout without repairing or silently salvaging invalid JSON.
+
+    Every return retains the page slot and an explicit truncation/error status.
+    Boxes reference the source layout element (a whole table for table rows), not
+    an invented per-row crop; the locator identifies the row inside that element.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    unboxed = False
+    truncated = finish_reason == "length"
+    if truncated:
+        errors.append("stage_a_truncated")
+    if isinstance(raw, str):
+        text = raw.strip()
+        if text.startswith("```") and text.endswith("```"):
+            text = re.sub(r"^```(?:json|html|svg)?\s*", "", text, flags=re.I)[:-3].strip()
+        if re.match(r"^(?:<\?xml\b.*?\?>\s*)?<svg\b", text, re.I | re.S):
+            # Observed dots responses sometimes redraw a page as SVG instead
+            # of transcribing its layout. Even a complete SVG can omit every
+            # source word, and its coordinate frame need not match the image.
+            # Retain the exact response in the caller's CAS; do not convert
+            # vector paths or incidental <text> labels into OCR evidence.
+            return DotsLayout(page, (), (), tuple(errors + ["layout_unsupported_svg"]), truncated)
+        if _complete_html_tables(text):
+            # dots.mocr sometimes emits a complete HTML table instead of its
+            # layout envelope. The table is still source evidence, but no box
+            # was supplied. Give it a block/row locator without inventing a box.
+            raw = [{"category": "Table", "bbox": None, "text": text}]
+            unboxed = True
+            warnings.append("layout_unboxed")
+        else:
+            try:
+                raw = json.loads(text)
+            except (ValueError, TypeError):
+                return DotsLayout(page, (), (), tuple(errors + ["layout_invalid_json"]), truncated)
+    # The full benchmark prompt permits one layout element as the final JSON
+    # object. Validate it identically to an element in the established array
+    # form; unknown object envelopes are not inferred or silently unwrapped.
+    if isinstance(raw, dict) and "category" in raw:
+        raw = [raw]
+    if not isinstance(raw, list):
+        return DotsLayout(page, (), (), tuple(errors + ["layout_not_array"]), truncated)
+    blocks: list[Block] = []
+    for order, item in enumerate(raw):
+        if not isinstance(item, dict) or not isinstance(item.get("category"), str):
+            errors.append(f"layout_element_invalid:{order}")
+            continue
+        label = item["category"].strip().lower().replace("-", "_")
+        content = item.get("text", "" if label in ("picture", "image") else None)
+        if not isinstance(content, str):
+            errors.append(f"layout_element_invalid:{order}")
+            continue
+        box = item.get("bbox")
+        if unboxed and box is None:
+            norm = None
+        elif (not isinstance(box, list) or len(box) != 4 or
+                any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in box)
+                or width <= 0 or height <= 0 or not (0 <= box[0] <= box[2] <= width and 0 <= box[1] <= box[3] <= height)):
+            errors.append(f"layout_box_invalid:{order}")
+            continue
+        else:
+            norm = tuple(round(v / (width if i % 2 == 0 else height), 6) for i, v in enumerate(box))
+        blocks.append(Block(label, norm, content, order, page))
+    rows: list[CandidateRow] = []
+    cells: list[Block] = []  # text blocks that read as no row by themselves: perhaps one cell each
+    heading: str | None = None
+    balance_section = False
+    for block in blocks:
+        # dots also emits complete Markdown grids under the Text category.
+        # Preserve that category and its provenance while assembling the cells;
+        # pipe-delimited rows cannot match the plain date-line reader below.
+        markdown = _markdown_grid(block.content) if block.label in ("table", "text") else []
+        if block.label == "text" and not any(
+                "-" in line and re.fullmatch(r"[|:\-\s]+", line)
+                for line in block.content.splitlines()):
+            markdown = []
+        if block.label == "table" or markdown:
+            grids = parse_html_tables(block.content, preserve_whitespace=True) or ([markdown] if markdown else [])
+            for index, grid in enumerate(grids):
+                grid, title = _spanning_title(grid)
+                unfolded = unfold_side_by_side(grid)
+                columns = classify_columns(unfolded, headerless_transaction_amount=not balance_section)
+                for row in rows_from_grid(unfolded, columns, page=page, table_index=index,
+                                          year_hint=year_hint, day_first=day_first,
+                                          carry_dates=unfolded is grid):
+                    if row.direction == "unknown" and (title or heading):
+                        row = replace(row, direction=title or heading, direction_source="section")
+                    rows.append(replace(row, locator=f"b{block.order}{row.locator}", bbox=block.bbox))
+            if not grids:
+                rows.extend(_text_rows(block, heading=heading, year_hint=year_hint, day_first=day_first))
+            heading = None
+            balance_section = False
+        else:
+            found = _text_rows(block, heading=heading, year_hint=year_hint, day_first=day_first)
+            rows.extend(found)
+            if not found and block.label not in ("page_header", "page_footer", "picture", "image"):
+                cells.append(block)
+            if block.label in ("text", "paragraph_title", "section_header", "title", "doc_title", "header", "page_header"):
+                first_line = block.content.strip().splitlines()[0] if block.content.strip() else ""
+                if len(first_line) <= 80 and not continues_section(first_line):
+                    # A note printed under a section heading ("May include checks that have been processed
+                    # electronically ...") is not a new section: only a heading-length line changes it, and not
+                    # one that only names the account ("Account: -------0000") or says "(continued)".
+                    heading = section_direction(block.content)
+                    balance_section = bool(BALANCE_SECTION.search(first_line))
+    rows.extend(_cell_rows(cells, year_hint=year_hint, day_first=day_first))
+    return DotsLayout(page, tuple(blocks), tuple(rows), tuple(errors), truncated, tuple(warnings))
+
+
+def _spanning_title(grid: list[list[str]]) -> tuple[list[list[str]], str | None]:
+    """A table whose first row is a section title spanning its columns ("Deposits & Credits" in every cell,
+    perhaps with a "Total ..." cell) above the real header: the grid without that row, and the direction the
+    title names."""
+    if len(grid) < 3:
+        return grid, None
+    cells = [" ".join(cell.split()) for cell in grid[0] if cell and cell.strip()]
+    titles = {cell for cell in cells if not cell.lower().startswith("total")}
+    if len(titles) != 1 or len(cells) < 2:
+        return grid, None
+    from vlm.tables import _header_role
+
+    if sum(_header_role(cell) is not None for cell in grid[1]) < 2:
+        return grid, None
+    return grid[1:], section_direction(titles.pop())
+
+
+def _cell_rows(blocks: list[Block], *, year_hint: int | None, day_first: bool) -> list[CandidateRow]:
+    """Rows from a layout that emits one text block per table cell (a date, an amount and a description side by
+    side, each its own block): blocks whose vertical ranges overlap by more than half form one printed line,
+    read left to right. A line whose first cell is a date and that prints an amount is a row (a second amount
+    to its right is its balance; the other cells are the description). A line directly below a row with
+    neither date nor amount continues its description. A section header sets the direction of the rows under
+    it; any other line ends the row above."""
+    lines: list[dict] = []
+    for block in sorted((block for block in blocks if block.bbox and "\n" not in block.content.strip()),
+                        key=lambda block: (block.bbox[1], block.bbox[0])):
+        top, bottom = block.bbox[1], block.bbox[3]
+        for line in lines:
+            if min(bottom, line["bottom"]) - max(top, line["top"]) > 0.5 * min(bottom - top, line["bottom"] - line["top"]):
+                line["blocks"].append(block)
+                line["top"], line["bottom"] = min(top, line["top"]), max(bottom, line["bottom"])
+                break
+        else:
+            lines.append({"top": top, "bottom": bottom, "blocks": [block]})
+    rows: list[CandidateRow] = []
+    heading, previous = None, None
+    for line in sorted(lines, key=lambda line: line["top"]):
+        line["blocks"].sort(key=lambda block: block.bbox[0])
+        cells = [" ".join(block.content.split()) for block in line["blocks"]]
+        if any(block.label in ("section_header", "paragraph_title") for block in line["blocks"]):
+            heading, previous = section_direction(" ".join(cells)) or heading, None
+            continue
+        money = [index for index, cell in enumerate(cells) if parse_money(cell) is not None]
+        if cells and is_date_like(cells[0]) and money and money[0] > 0:
+            amount = parse_money(cells[money[0]])
+            balance = parse_money(cells[money[1]]) if len(money) > 1 else None
+            description = " ".join(cell for index, cell in enumerate(cells) if index not in (0, *money[:2]))
+            if not description or SKIP_DESCRIPTION.match(description):
+                previous = None
+                continue
+            first = line["blocks"][0]
+            box = tuple(func(block.bbox[i] for block in line["blocks"]) for i, func in enumerate((min, min, max, max)))
+            rows.append(CandidateRow(
+                parse_date(cells[0], year_hint=year_hint, day_first=day_first), cells[0], description, abs(amount),
+                heading or ("debit" if amount < 0 else "unknown"), balance, first.page, "stage_a",
+                f"b{first.order}l0", "section" if heading else "printed", box))
+            previous = line
+        elif (previous is not None and not money and not any(is_date_like(cell) for cell in cells)
+              and line["top"] - previous["bottom"] < previous["bottom"] - previous["top"]):
+            rows[-1] = replace(rows[-1], description=rows[-1].description + " " + " ".join(cells))
+            previous = line
+        else:
+            previous = None
+    return rows

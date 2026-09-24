@@ -108,6 +108,11 @@
   a { color: var(--accent-text); }
   [hidden] { display: none !important; }
   .mono { font-family: var(--font-mono); }
+  /* Read by a screen reader, not shown. */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .appearance-shift, .appearance-shift *, .appearance-shift *::before, .appearance-shift *::after {
     transition: background-color .28s ease, border-color .28s ease, color .28s ease, fill .28s ease !important;
@@ -339,6 +344,7 @@
     margin: 0; padding: 12px 20px 16px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.5;
     color: var(--red); white-space: pre-wrap;
   }
+  .status-message.review { color: var(--amber); }  /* needs review, not a failure */
   .kv-list .kv { display: flex; justify-content: space-between; gap: 16px; padding: 10px 20px; border-top: 1px solid var(--border); font-size: 13px; }
   .kv-list .kv-key { color: var(--text-3); }
   .kv-list .kv-value { font-family: var(--font-mono); text-align: right; min-width: 0; overflow-wrap: anywhere; }
@@ -470,7 +476,17 @@
   }
   .bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; min-width: 0; }
   .bar-value { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); white-space: nowrap; }
-  .bar { width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px; background: var(--accent-muted); }
+  .bar {
+    position: relative; overflow: hidden; width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px;
+    background: var(--accent-muted);
+  }
+  /* Both deposits: each Total bar in a neutral tone, its True part in the accent from the bottom up (the muted accent
+     is too close to the accent to tell the two apart in the light theme). */
+  .bar.bar-total { background: var(--border-2); }
+  .bar-part { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
+  .bar-value-true { margin-top: -6px; color: var(--accent-text); }
+  .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--border-2); }
+  .legend-swatch-true { background: var(--accent); }
   .bar.peak { background: var(--accent); }
   .bar-labels { display: grid; gap: 20px; padding: 0 12px; }
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
@@ -547,6 +563,24 @@
   .results-content > * { scroll-margin-top: 76px; }
   .is-package .single-only { display: none !important; }
   .results-content:not(.is-package) .package-only { display: none !important; }
+  /* A statement whose main account was not verified: its metrics are withheld, so only the header, the accounts
+     and the summary stay on the page until the user picks another verified account (Settings > All accounts). */
+  .results-content.is-withheld > :not(.hero):not(.accounts-panel):not(.summary-panel) { display: none !important; }
+
+  /* ---------- accounts of a statement that holds several ---------- */
+  .accounts-panel[hidden] { display: none; }
+  .accounts-note { margin: 0; padding: 16px 20px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+  .accounts-note strong { color: var(--text); font-weight: 600; }
+  .accounts-note .link-btn { font: inherit; font-weight: 600; color: var(--accent-text); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .accounts-table tr[data-account-index] { cursor: pointer; }
+  .accounts-table tr[data-account-index]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .accounts-table tr.is-selected td { background: var(--accent-soft); }
+  .accounts-table .account-reason { display: block; margin-top: 3px; font-size: 12px; color: var(--text-3); white-space: normal; }
+  .accounts-table td:first-child { min-width: 200px; }
+  .main-badge {
+    display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; vertical-align: 1px;
+    background: var(--blue-soft); color: var(--blue); font-size: 10.5px; font-weight: 600; letter-spacing: .06em;
+  }
 
   /* ---------- tables ---------- */
   .table-wrap { width: 100%; overflow-x: auto; }
@@ -592,7 +626,7 @@
   .table-action:disabled { opacity: .45; cursor: default; }
   .table-action.review-confirm { border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .table-action.review-confirm:hover { background: var(--accent-hover); }
-  .revenue-review-actions { display: inline-flex; gap: 6px; }
+  .revenue-review-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
   .review-note { display: inline-flex; align-items: center; gap: 10px; }
   .review-note span { font-size: 12px; color: var(--text-3); }
 
@@ -600,7 +634,9 @@
   .seasonality-table thead tr { background: var(--surface-2); }
   .seasonality-table th { font-size: 13px; padding: 11px 12px; border-top: 0; }
   .seasonality-table td { padding: 13px 12px; }
-  .seasonality-table td:nth-child(n+2):nth-child(-n+6) { font-family: var(--font-mono); }
+  .seasonality-table td.mono { font-family: var(--font-mono); }
+  /* Both deposit bases make nine columns: a header takes two lines rather than push Action out of the card. */
+  .seasonality-table th { white-space: normal; min-width: 64px; }
   .seasonality-table th:last-child, .seasonality-table td:last-child { text-align: right; }
   .seasonality-table td:last-child { padding-top: 8px; padding-bottom: 8px; }
   .statement-open {
@@ -629,17 +665,32 @@
   .filter-pills button:hover { color: var(--text); border-color: var(--text-3); }
   .filter-pills button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
   .tx-table .tx-date { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-3); white-space: nowrap; }
-  .tx-table .tx-desc { font-family: var(--font-mono); font-size: 12.5px; min-width: 220px; max-width: 460px; overflow-wrap: anywhere; }
+  /* A description wraps rather than push the Review column out of the card: a package's ledger carries a Statement
+     column and, while deposits await review, a checkbox column too. */
+  .tx-table .tx-desc { font-family: var(--font-mono); font-size: 12.5px; min-width: 140px; max-width: 460px; overflow-wrap: anywhere; }
+  .tx-table th { white-space: normal; }
+  /* Ten pixels a side rather than twelve (the card's edges keep theirs): with both of those, a package's ledger fits
+     its card at 1280px with the panel open. */
+  .tx-table th, .tx-table td { padding-left: 10px; padding-right: 10px; }
   .tx-table .tx-reason { margin-top: 6px; font-size: 11.5px; color: var(--text-3); max-width: 260px; }
   .tx-table .amount-cell { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
   .tx-table .amount-credit { color: var(--accent-text); }
   .tx-table .balance-negative { color: var(--red); }
   .tx-table .tx-balance { color: var(--text-2); }
   .tx-table th.num { text-align: right; }
-  .tx-table .tx-review { text-align: right; white-space: nowrap; padding-top: 8px; padding-bottom: 8px; }
+  .tx-table .tx-review { text-align: right; padding-top: 8px; padding-bottom: 8px; }
   .tx-table .empty-cell { color: var(--text-3); padding-top: 20px; padding-bottom: 20px; }
   .tx-table .empty-cell strong { color: var(--text); margin-right: 6px; }
   /* the source column only appears when a package of statements is loaded */
+  /* Multi-select of deposits awaiting review: a first column (only while the table holds one to pick) and an
+     action bar in the header that shows only while something is ticked. */
+  .tx-table .tx-check { width: 36px; padding-right: 0; }
+  .tx-table:not(.has-select) .tx-check { display: none; }
+  .tx-select { width: 16px; height: 16px; margin: 0; vertical-align: middle; accent-color: var(--accent); cursor: pointer; }
+  .bulk-review { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  .bulk-review[hidden] { display: none; }
+  .bulk-count { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+  .bulk-review .table-action:disabled { opacity: .55; cursor: progress; }
   .tx-source-col, .transaction-source { display: none; }
   #transactionCard.multi-statement .tx-source-col,
   #transactionCard.multi-statement .transaction-source { display: table-cell; }
@@ -672,6 +723,13 @@
   .theme-preview.light .tp-side, .theme-preview.light .tp-card { background: #ffffff; }
   .theme-preview.light .tp-title { background: #0a0a0a; }
   .setting-row { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; padding: 18px 20px; }
+  .setting-row + .setting-row { border-top: 1px solid var(--border); }
+  .setting-row > div { min-width: 0; }
+  .setting-select {
+    flex-shrink: 0; min-width: min(210px, 100%); height: 36px; padding: 0 10px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13.5px;
+  }
+  .setting-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .setting-title { display: block; font-size: 14.5px; font-weight: 600; cursor: pointer; }
   .setting-help { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--text-2); }
   .setting-help strong { color: var(--text); }
@@ -796,6 +854,8 @@
     .modal-head { flex-direction: column; align-items: flex-start; padding: 18px 16px; }
     .modal-body { padding: 16px; }
     .modal-grid { grid-template-columns: 1fr; }
+    .setting-row:has(.setting-select) { flex-wrap: wrap; }
+    .setting-select { width: 100%; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; }
@@ -981,7 +1041,7 @@
                 <input type="checkbox" id="forceOcrToggle">
                 <span>
                   <span class="option-title">Force visual OCR</span>
-                  <span class="option-copy">Use visual OCR when a scanned statement has no selectable text.</span>
+                  <span class="option-copy">Read every page visually and review every proposed row, including PDFs with selectable text.</span>
                 </span>
               </label>
             </div>
@@ -1084,6 +1144,7 @@
               <a class="disabled" id="downloadCsv" href="#" aria-disabled="true" title="Flat rows for spreadsheets">CSV</a>
               <a class="disabled" id="downloadExcel" href="#" aria-disabled="true" title="Formatted workbook">Excel</a>
               <a class="disabled single-only" id="exportText" href="#" aria-disabled="true" title="Raw recognised characters">OCR text</a>
+              <a class="disabled single-only" id="openTextBtn" href="#" aria-disabled="true" target="_blank" rel="noopener" title="Read the extraction and its review status">Review extraction</a>
             </div>
             <button class="btn-quiet disabled" type="button" id="copyDataBtn" title="Copy the full result to the clipboard">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
@@ -1095,6 +1156,9 @@
             </button>
           </div>
         </section>
+
+        <!-- The accounts of a statement that holds several: the main account first, the others with All accounts -->
+        <section class="panel accounts-panel single-only" id="accountsPanel" aria-label="Accounts in this statement" hidden></section>
 
         <section class="panel summary-panel" id="summaryPanel" aria-labelledby="summaryTitle" hidden>
           <div class="panel-head">
@@ -1133,12 +1197,15 @@
           </div>
           <div class="table-wrap">
             <table class="data-table seasonality-table">
-              <thead>
+              <!-- The deposit columns follow Settings > Statements (renderMonthlyStatements). -->
+              <thead id="monthlyHead">
                 <tr>
                   <th>Month</th>
                   <th>Year</th>
-                  <th>Monthly Deposits ($)</th>
-                  <th>Deposits Per Month</th>
+                  <th>Total Deposits ($)</th>
+                  <th>Total Deposits Per Month</th>
+                  <th>True Deposits ($)</th>
+                  <th>True Deposits Per Month</th>
                   <th>Ledger ($)</th>
                   <th>NSF</th>
                   <th>Action</th>
@@ -1244,10 +1311,20 @@
         <section class="panel" id="transactionCard" aria-labelledby="transactionsTitle">
           <div class="tx-head">
             <div class="tx-title">
-              <h3 id="transactionsTitle">Transactions</h3>
+              <h3 id="transactionsTitle" tabindex="-1">Transactions</h3>
               <span id="transactionScope">This statement</span>
               <span aria-hidden="true">·</span>
               <span id="transactionCount">0 transactions</span>
+            </div>
+            <!-- The selection count, announced from outside the bar (a live region inside it is not heard while it
+                 appears). -->
+            <span class="sr-only" id="bulkReviewStatus" aria-live="polite"></span>
+            <!-- Shown only while at least one deposit awaiting review is ticked. -->
+            <div class="bulk-review" id="bulkReviewBar" role="group" aria-label="Review the selected deposits" hidden>
+              <span class="bulk-count" id="bulkReviewCount">0 selected</span>
+              <button class="table-action review-confirm" type="button" data-bulk-review="confirm">Confirm Revenue</button>
+              <button class="table-action review-reject" type="button" data-bulk-review="reject">Mark Non-Revenue</button>
+              <button class="table-action" type="button" data-bulk-review="clear">Clear</button>
             </div>
             <div class="sort-group" role="group" aria-label="Sort transactions">
               <button class="transaction-filter active" type="button" data-transaction-sort="date">Date</button>
@@ -1267,9 +1344,13 @@
             <button class="transaction-filter" type="button" data-transaction-filter="non_revenue">Non-Revenue</button>
           </div>
           <div class="table-wrap">
-            <table class="data-table tx-table">
+            <table class="data-table tx-table" id="transactionTableMain">
               <thead>
                 <tr>
+                  <th class="tx-check">
+                    <input type="checkbox" class="tx-select" id="bulkSelectAll"
+                           aria-label="Select every deposit shown that awaits review">
+                  </th>
                   <th>Date</th>
                   <th class="tx-source-col">Statement</th>
                   <th>Description</th>
@@ -1335,6 +1416,42 @@
             </div>
           </div>
         </section>
+        <section class="settings-section" aria-labelledby="statementsSettingsTitle">
+          <h2 class="eyebrow" id="statementsSettingsTitle">Statements</h2>
+          <div class="panel">
+            <div class="setting-row">
+              <div>
+                <label class="setting-title" for="allAccountsToggle">All accounts</label>
+                <p class="setting-help" id="allAccountsHelp">
+                  For statements that hold several accounts, list every account with its own transactions and average
+                  daily balance. <strong>Off:</strong> only the main account is shown, the business checking account with
+                  the most deposits. Saved in this browser only.
+                </p>
+              </div>
+              <span class="switch">
+                <input type="checkbox" role="switch" id="allAccountsToggle" aria-describedby="allAccountsHelp">
+                <span class="switch-track" aria-hidden="true"></span>
+              </span>
+            </div>
+            <div class="setting-row">
+              <div>
+                <label class="setting-title" for="monthlyDepositsView">Monthly Statements show</label>
+                <p class="setting-help" id="monthlyDepositsHelp">
+                  <strong>Total monthly deposits:</strong> everything going in, transfers from other accounts and lender
+                  funding included. <strong>True monthly deposits:</strong> revenue only, the verified revenue and the
+                  deposits you confirm; no transfers, no funding, and no deposit still awaiting review.
+                  <strong>Both</strong> shows the two side by side. The monthly chart follows the same choice, and a
+                  statement whose revenue could not be established shows N/A. Saved in this browser only.
+                </p>
+              </div>
+              <select class="setting-select" id="monthlyDepositsView" aria-describedby="monthlyDepositsHelp">
+                <option value="both">Both</option>
+                <option value="total">Total monthly deposits</option>
+                <option value="true">True monthly deposits</option>
+              </select>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
   </main>
@@ -1350,6 +1467,7 @@
       </div>
       <div class="modal-actions">
         <a class="btn-quiet" id="modalJsonDownload" href="#" aria-disabled="true">JSON</a>
+        <a class="btn-quiet" id="modalExtractionReview" href="#" target="_blank" rel="noopener" title="Read the extraction and its review status">Review extraction</a>
         <button class="btn-quiet" id="modalCopyData" type="button">Copy data</button>
         <button class="btn-quiet modal-close" id="statementModalClose" type="button" aria-label="Close statement details">&times;</button>
       </div>

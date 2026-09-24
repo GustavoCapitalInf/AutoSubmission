@@ -57,7 +57,7 @@ import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 # O-1: the hash definition RELOCATED to ocr/inspect.py (the preflight needs it
 # and ocr must not depend on webapp). Re-exported here so every D-1 consumer
@@ -256,12 +256,23 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _review_detail(source_location: str, decision: str, actor: str, account: int | None) -> dict:
+    """A review's audit detail. A location numbers a posting within its account, so a review that named the account
+    records it; one that did not records exactly what it always did."""
+    detail: dict = {"source_location": source_location, "decision": decision, "actor": actor}
+    if account is not None:
+        detail["account"] = account
+    return detail
+
+
 def default_data_dir() -> Path:
-    """``WEBAPP_DATA_DIR`` env override, else ``webapp_data/`` at repo root."""
+    """Absolute external override, else the private root's webapp data directory."""
+    from ocr.private_artifacts import private_artifact_path, validate_private_artifact_path
+
     env = os.environ.get("WEBAPP_DATA_DIR", "").strip()
     if env:
-        return Path(env)
-    return Path(__file__).resolve().parents[1] / "webapp_data"
+        return validate_private_artifact_path(env)
+    return private_artifact_path('webapp_data')
 
 
 class Storage:
@@ -272,7 +283,9 @@ class Storage:
     """
 
     def __init__(self, data_dir: str | Path | None = None) -> None:
-        self.data_dir = Path(data_dir) if data_dir is not None else default_data_dir()
+        from ocr.private_artifacts import validate_private_artifact_path
+
+        self.data_dir = validate_private_artifact_path(data_dir) if data_dir is not None else default_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / "webapp.db"
         self._ensure_schema()
@@ -652,10 +665,13 @@ class Storage:
         decision: str,
         actor: str = "local-analyst",
         prior_state_json: str | None = None,
+        account: int | None = None,
     ) -> None:
         """Apply an analyst review: the stored analysis mutation, the
         append-only decision row (actor, timestamp, prior state) and the
-        audit row land in ONE transaction so no restart can separate them."""
+        audit row land in ONE transaction so no restart can separate them.
+        The account the reviewer named (1-based) goes into the audit row; the
+        prior state already carries the posting's own account number."""
         now = utc_now_iso()
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
@@ -668,8 +684,40 @@ class Storage:
                 conn,
                 "review",
                 job_id=job_id,
-                detail={"source_location": source_location, "decision": decision, "actor": actor},
+                detail=_review_detail(source_location, decision, actor, account),
             )
+
+    def record_reviews(
+        self,
+        job_id: str,
+        *,
+        analysis_json: str,
+        decisions: Sequence[tuple[str, str, str | None, int | None]],
+        actor: str = "local-analyst",
+    ) -> None:
+        """Apply several analyst decisions at once — `(source_location, decision,
+        prior_state_json, account)` each: the stored analysis after every one of
+        them, and for EACH decision its append-only decision row (actor,
+        timestamp, prior state) and its audit row, all in ONE transaction, so a
+        batch lands whole or not at all. Each prior state is the posting's record
+        before the batch (a stored analysis that still carries legacy revenue
+        state names keeps them in every prior state of the batch, where decisions
+        made one at a time would see them renamed from the second on)."""
+        now = utc_now_iso()
+        with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
+            for source_location, decision, prior_state_json, account in decisions:
+                conn.execute(
+                    "INSERT INTO review_decisions (job_id, source_location, decision, actor, decided_at, prior_state)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (job_id, source_location, decision, actor, now, prior_state_json),
+                )
+                self._insert_audit(
+                    conn,
+                    "review",
+                    job_id=job_id,
+                    detail=_review_detail(source_location, decision, actor, account),
+                )
 
     def review_history(self, job_id: str) -> list[dict]:
         with closing(self._connect()) as conn:

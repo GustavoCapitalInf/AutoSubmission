@@ -1288,7 +1288,7 @@ POISONED_REVIEW_MESSAGE = f"could not convert string to float: '{CANARY} {DIGITS
 
 def test_the_declared_review_refusals_pass_through_verbatim():
     """The behaviour that must NOT be deleted. `webapp/static/app.js` throws
-    `payload.error` and shows it in a `window.alert`, so these five are what an
+    `payload.error` and shows it to the analyst, so these seven are what an
     analyst actually reads when a review is refused."""
     for declared in webapp_app._DECLARED_REVIEW_REFUSALS:
         assert webapp_app._review_refusal(ValueError(declared)) == declared
@@ -1360,6 +1360,10 @@ def _analysis_with(transactions: list[dict]) -> dict:
     return {"statement": {"transactions": transactions}, "metrics": {}}
 
 
+def _document_with(*accounts: list[dict]) -> dict:
+    return {"document": {}, "accounts": [_analysis_with(transactions) for transactions in accounts]}
+
+
 def _reviewable(source_location: str, **overrides) -> dict:
     record = {
         "source_location": source_location,
@@ -1372,9 +1376,11 @@ def _reviewable(source_location: str, **overrides) -> dict:
 
 
 #: One analysis payload per declared refusal, each reaching a DIFFERENT raise
-#: in `analysis/revenue.py`. The last two are the pair the batch-6 census
-#: missed: they live in `rebuild_serialized_revenue_views`, which
-#: `apply_serialized_revenue_review` calls on its way out.
+#: in `analysis/revenue.py`. Two are the pair the batch-6 census missed: they
+#: live in `rebuild_serialized_revenue_views`, which
+#: `apply_serialized_revenue_review` calls on its way out. The last two came
+#: with the review's account (a location numbers a posting within its account);
+#: a fourth element is the account the review names.
 _REVIEW_REFUSAL_DRIVERS = {
     "decision must be confirm, reject, or reset": (
         _analysis_with([]), "anywhere", CANARY,
@@ -1406,19 +1412,27 @@ _REVIEW_REFUSAL_DRIVERS = {
         ]),
         "p1:r1", "confirm",
     ),
+    "account was not found": (
+        _analysis_with([_reviewable("p1:r1")]), "p1:r1", "confirm", 2,
+    ),
+    "transaction source location is in more than one account; name the account": (
+        _document_with([_reviewable("p1:r1")], [_reviewable("p1:r1")]),
+        "p1:r1", "confirm",
+    ),
 }
 
 
 @pytest.mark.parametrize("declared", sorted(_REVIEW_REFUSAL_DRIVERS))
 def test_every_declared_review_refusal_is_actually_raised(declared):
     """The coupling, in the direction that catches a REWORD. The allow-list is
-    a copy of five literals from another module; if one of those raises is
+    a copy of seven literals from another module; if one of those raises is
     reworded the tuple stops matching it and the user silently loses the named
     reason. This drives each one out of `analysis/revenue.py` for real."""
-    analysis, source_location, decision = _REVIEW_REFUSAL_DRIVERS[declared]
+    analysis, source_location, decision, *account = _REVIEW_REFUSAL_DRIVERS[declared]
     with pytest.raises((ValueError, LookupError)) as raised:
         apply_serialized_revenue_review(
-            analysis, source_location=source_location, decision=decision
+            analysis, source_location=source_location, decision=decision,
+            account=account[0] if account else None,
         )
     assert str(raised.value) == declared
     assert declared in webapp_app._DECLARED_REVIEW_REFUSALS
@@ -1441,7 +1455,9 @@ def test_the_two_refusals_the_batch_six_census_missed_are_reachable():
 
     source = inspect.getsource(apply_serialized_revenue_review)
     assert "rebuild_serialized_revenue_views(analysis)" in source
-    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 5
+    # Five, and two more since the review can name its account (a missing
+    # account, and a location held by several accounts with none named).
+    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 7
 
 
 def test_the_browser_still_renders_the_review_error_body():

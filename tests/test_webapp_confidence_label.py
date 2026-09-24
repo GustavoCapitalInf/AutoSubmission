@@ -223,10 +223,11 @@ def test_package_validation_label_renders_completeness_words_and_never_a_number(
 def test_the_results_table_row_pairs_use_the_same_rendered_label():
     """The status-row entry (`["Validation", validation]`) and the banner meta
     (`setBanner(..., validation)`) both read the SAME variable in
-    `renderAnalysis` -- so proving the function's output is enough to prove
+    `renderAccount` (the one-account renderer `renderAnalysis` hands each
+    shown account to) -- so proving the function's output is enough to prove
     both surfaces agree; this pins that they are still the same variable
     rather than two independently-drifting copies."""
-    body = _extract_function("renderAnalysis")
+    body = _extract_function("renderAccount")
     assert body.count("validationLabel(report)") == 1
     assert '["Validation", validation]' in body
     assert "setBanner(\"done\", \"Extraction completed\", validation)" in body

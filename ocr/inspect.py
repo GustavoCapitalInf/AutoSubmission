@@ -182,8 +182,13 @@ def _layout_signals(text: str) -> LayoutSignals:
     )
 
 
-def inspect_pdf(pdf_bytes: bytes) -> DocumentProfile:
-    """Inspect a PDF without parsing it as a statement. Never raises."""
+def inspect_pdf(pdf_bytes: bytes, *, read_native_text: bool = True) -> DocumentProfile:
+    """Inspect a PDF without parsing it as a statement. Never raises.
+
+    Forced visual intake uses ``read_native_text=False`` for structural checks
+    only. Text-derived fields remain unknown rather than claiming the document
+    has no native text, and no page text accessor is called.
+    """
     profile = DocumentProfile(content_sha256=content_sha256(pdf_bytes))
     if not pdf_bytes.startswith(b"%PDF-"):
         return profile
@@ -203,6 +208,10 @@ def inspect_pdf(pdf_bytes: bytes) -> DocumentProfile:
         # Structurally valid but unreadable without a password: no text truth
         # to report, so classification stays "unknown".
         profile.encrypted = True
+        return profile
+
+    if not read_native_text:
+        doc.close()
         return profile
 
     pages, malformed = _page_texts(doc)

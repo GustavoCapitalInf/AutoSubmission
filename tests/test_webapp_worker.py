@@ -81,65 +81,35 @@ def test_run_job_failure(monkeypatch, store):
     assert "connection error" not in fetched.error
 
 
-def test_deterministic_run_prefers_native_before_forced_visual_ocr(monkeypatch, store):
-    # The REAL unified ladder routes: the native rung (patched at its one home
-    # in ocr.pipeline) matches, so neither tesseract nor visual OCR ever runs
-    # even though the operator forced OCR in deterministic mode.
-    job = store.create("td.pdf")
-
-    monkeypatch.setattr("ocr.pipeline._native_statement",
-                        lambda pdf_bytes, source_file="": _FakeDoc())
-    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
-                        lambda *a, **k: pytest.fail("tesseract rung must not run"))
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("visual OCR rung must not run"))
-    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
-
-    run_job(job.id, b"%PDF-fake", "td.pdf", store, force_ocr=True, parse_mode="deterministic")
-
-    fetched = store.get(job.id)
-    assert fetched.status == "done"
-    assert fetched.analysis == {"quality": {"level": "transaction_level"}, "parse_mode": "deterministic"}
-
-
-def test_deterministic_run_retries_visual_ocr_when_native_parser_does_not_match(monkeypatch, store):
-    # Mode policy: deterministic + Force OCR escalates to the visual rung when
-    # the native read exists but fails analysis. The ladder contract is
-    # asserted through the capability flags the worker passes.
-    job = store.create("unsupported.pdf")
+@pytest.mark.parametrize("mode", ["auto", "deterministic"])
+def test_forced_pair_skips_all_legacy_readers(monkeypatch, store, mode):
+    job = store.create("forced.pdf")
     calls = []
-
-    class NativeDoc(_FakeDoc):
-        model = "native-pdf-text"
-
-    class OcrDoc(_FakeDoc):
-        model = "ocr-model"
-
-    def fake_parse(pdf_bytes, source_file="", force_ocr=False, allow_visual_ocr=True, **kwargs):
-        calls.append({"force_ocr": force_ocr, "allow_visual_ocr": allow_visual_ocr})
-        return OcrDoc() if force_ocr else NativeDoc()
-
-    def fake_analyze(markdown, parse_mode="auto", **kwargs):
-        if len(calls) < 2:
-            raise RuntimeError("no deterministic parser matched this statement")
-        return object()
-
-    monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_document", fake_analyze)
-    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
-
-    run_job(job.id, b"%PDF-fake", "unsupported.pdf", store, force_ocr=True, parse_mode="deterministic")
-
+    monkeypatch.setattr("webapp.worker.inspect_pdf", lambda *a, **k: pytest.fail("native text probe ran"))
+    monkeypatch.setattr("webapp.worker.parse_statement", lambda *a, **k: pytest.fail("legacy reader ran"))
+    monkeypatch.setattr("webapp.worker._read_visual_pair", lambda *a, **k: calls.append("pair") or _FakeDoc())
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda *a, **k: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    run_job(job.id, b"%PDF-fake", "forced.pdf", store, force_ocr=True, parse_mode=mode)
     fetched = store.get(job.id)
     assert fetched.status == "done"
-    assert fetched.analysis == {"quality": {"level": "transaction_level"}, "parse_mode": "deterministic"}
-    assert fetched.analysis_error is None
-    # First the offline preflight (visual rung withheld), then the escalation.
-    assert calls == [
-        {"force_ocr": False, "allow_visual_ocr": False},
-        {"force_ocr": True, "allow_visual_ocr": True},
-    ]
+    assert calls == ["pair"]
+    assert fetched.analysis["parse_mode"] == mode
+
+
+def test_explicit_legacy_flag_uses_old_visual_rung(monkeypatch, store):
+    monkeypatch.setenv("OCR_VISUAL_PAIR_LEGACY_VISUAL", "1")
+    job = store.create("legacy.pdf")
+    calls = []
+    monkeypatch.setattr("webapp.worker.parse_statement", lambda *a, **k: calls.append(k) or _FakeDoc())
+    monkeypatch.setattr("webapp.worker._read_visual_pair", lambda *a, **k: pytest.fail("pair ran"))
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda *a, **k: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    run_job(job.id, b"%PDF-fake", "legacy.pdf", store, force_ocr=True, parse_mode="deterministic")
+    assert store.get(job.id).status == "done"
+    assert len(calls) == 1
+    assert calls[0]["force_ocr"] is True
+    assert calls[0]["allow_visual_ocr"] is True
 
 
 def test_deterministic_run_reports_native_text_required_without_force_ocr(monkeypatch, store):

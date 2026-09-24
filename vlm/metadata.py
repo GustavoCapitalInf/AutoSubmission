@@ -39,6 +39,18 @@ class AccountMeta:
     stated_total_debits: Decimal | None = None
     stated_credit_count: int | None = None
     stated_debit_count: int | None = None
+    # Phase 3.1 source fields. Defaults preserve the existing proposal callers;
+    # the visual pair supplies these before gating so summary identities use
+    # exactly the same printed evidence as downstream analysis.
+    account_name: str | None = None
+    account_number: str | None = None
+    days_in_period: int | None = None
+    stated_service_charge: Decimal | None = None
+    stated_interest_paid: Decimal | None = None
+    stated_nsf_count: int | None = None
+    bank_reported_average_balance: Decimal | None = None
+    bank_reported_average_label: str | None = None
+    stated_daily_balances: tuple[tuple[str, Decimal], ...] | None = None
 
 
 EMPTY_META = AccountMeta(None, None, None, None, None, None, None, ())

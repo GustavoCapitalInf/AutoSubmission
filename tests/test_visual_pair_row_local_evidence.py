@@ -1,0 +1,207 @@
+"""Fabricated text layers only. Which printed text is a row's own, the only evidence allowed to choose between
+two readings of its description (review rounds on 4866821): never a neighbour that prints the same amount,
+another column of a cheque line, the next row's text, or a heading."""
+from decimal import Decimal
+
+from vlm.assemble import CandidateRow
+from vlm.native_text import _ROW_START, PrintedEvidence
+from vlm.review import candidate_records, merge_review, picture_page
+from vlm.schema import empty_review
+
+
+def _row(description, amount, *, date="2031-01-03", date_text=None):
+    return CandidateRow(date, date_text or date[5:].replace("-", "/"), description, Decimal(amount), "debit", None,
+                        1, "stage_a", "b1t0r0", "column", (0.1, 0.2, 0.9, 0.3), None)
+
+
+def _settle(rows, native, observed):
+    payload = empty_review("statement_page")
+    payload["reviews"] = [{"candidate_id": record["candidate_id"], "verdict": "confirm",
+                           "observed_description": observed, "corrections": [], "reason": ""}
+                          for record in candidate_records(rows)]
+    return merge_review(rows, payload, page=1, printed=PrintedEvidence(native=native))
+
+
+def test_a_row_whose_amount_a_neighbour_also_prints_is_told_apart_by_its_date():
+    twins = "FABRICATED BANK STATEMENT\n01/02 FABRICATED GYM MEMBERSHIP 15.00 985.00\n" \
+            "01/03 FABRICATED STREAMING SERVICE 15.00 970.00\n"
+    # The reviewer observed the neighbour's text for this 15.00 row: not this row's print.
+    merged = _settle([_row("FABRICATED STREAMING SERVICES", "15.00")], twins, "FABRICATED GYM MEMBERSHIP")
+    assert merged.counts["unresolved"] == 1
+    # Its own reading is found on its own line, told apart by the date.
+    printed = PrintedEvidence(native=twins)
+    assert printed.description_printed_near("FABRICATED STREAMING SERVICE", Decimal("15.00"), "01/03") is True
+    assert printed.description_printed_near("FABRICATED GYM MEMBERSHIP", Decimal("15.00"), "01/03") is False
+    # Without a date that tells them apart, no reading is chosen at all.
+    assert printed.description_printed_near("FABRICATED GYM MEMBERSHIP", Decimal("15.00"), None) is None
+    same_day = PrintedEvidence(native="01/03 FABRICATED A 15.00\n01/03 FABRICATED B 15.00\n")
+    assert same_day.description_printed_near("FABRICATED A", Decimal("15.00"), "01/03") is None
+
+
+def test_a_row_printing_no_date_is_told_apart_by_its_running_balance():
+    # Two rows print 451,00 on lines of their own; the dateless row is the one whose line prints its balance.
+    layout = "2 oct FABRICATED OPENING TRANSFER 100,00 1 363,47\nVIREMENT INTERAC 0001 FABRICATED PAYEE\n" \
+             "451,00 912,47\n3 oct DEBIT PREAUTORISE\nFABRICATED COLLEGE\n451,00 461,47\n"
+    printed = PrintedEvidence(native=layout)
+    reading = "VIREMENT INTERAC 0001 FABRICATED PAYEE"
+    assert printed.description_printed_near(reading, Decimal("451.00"), "", None) is None      # cannot tell
+    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("912.47")) == [(2, 0)]
+    assert printed._anchor_lines(Decimal("451.00"), "", Decimal("461.47")) == [(5, 0)]
+    # Measured on its own lines: they start right after the previous row's amount line.
+    assert printed.description_words_near(reading, Decimal("451.00"), "", Decimal("912.47")) is True
+    assert printed.description_words_near("DEBIT PREAUTORISE", Decimal("451.00"), "", Decimal("912.47")) is False
+
+
+def test_a_bullet_glyph_a_proposer_reads_is_layout():
+    rows = [_row("● VIREMENT INTERAC 0001 FABRICATED PAYEE", "451.00")]
+    merged = _settle(rows, "01/03 VIREMENT INTERAC 0001 FABRICATED PAYEE 451,00\n",
+                     "VIREMENT INTERAC 0001 FABRICATED PAYEE")
+    assert merged.counts["agreed"] == 1
+
+
+def test_a_neighbours_balance_equal_to_the_rows_amount_is_not_the_rows_line():
+    balances = "01/02 FABRICATED DEPOSIT 500.00 600.00\n01/03 FABRICATED WITHDRAWAL 600.00 0.00\n"
+    merged = _settle([_row("FABRICATED WITHDRAWL", "600.00")], balances, "FABRICATED DEPOSIT")
+    assert merged.counts["unresolved"] == 1
+    printed = PrintedEvidence(native=balances)
+    assert printed.description_printed_near("FABRICATED WITHDRAWAL", Decimal("600.00"), "01/03") is True
+
+
+def test_each_cheque_of_a_multi_column_line_owns_only_its_own_segment():
+    two = "Checks Paid\nCheck Nbr Date Amount Check Nbr Date Amount\n123 03/05 45.10 1234 03/06 300.00\n"
+    row = _row("123", "45.10", date="2031-03-05")
+    merged = _settle([row], two, "1234")
+    assert merged.counts["agreed"] == 1 and merged.rows[0].description == "123"   # the exact print wins
+    three = "123 03/05 45.10 124 * 03/06 300.00 125 03/07 12.00\n"
+    merged = _settle([_row("124*", "300.00", date="2031-03-06")], three, "125")
+    assert merged.counts["unresolved"] == 1
+    printed = PrintedEvidence(native=three)
+    assert printed.description_printed_near("124 *", Decimal("300.00"), "03/06") is True
+    assert printed.description_printed_near("125", Decimal("300.00"), "03/06") is False
+
+
+def test_a_line_printing_the_amount_twice_gives_each_occurrence_its_own_row():
+    # Review 4, finding 1: two cheques of one amount side by side on one text line.
+    line = "1001 05/01 50.00 1002 05/02 50.00\n"
+    printed = PrintedEvidence(native=line)
+    assert printed.description_printed_near("1002", Decimal("50.00"), "05/02") is True
+    assert printed.description_printed_near("1001", Decimal("50.00"), "05/02") is False
+    merged = _settle([_row("1001", "50.00", date="2031-05-02")], line, "1002")   # proposer misread 1002
+    assert merged.counts["corrected"] == 1 and merged.rows[0].description == "1002"
+
+
+def test_twins_nothing_tells_apart_lend_no_words_to_each_other():
+    # Review 4, finding 5: a dateless, balance-less reading of the second 25.00 row is not corroborated by the
+    # first row's words.
+    printed = PrintedEvidence(native="05/01 SERVICE FEE 25.00\n05/15 ATM WITHDRAWAL 25.00\n")
+    assert printed.description_words_near("SERVICE FEE", Decimal("25.00"), "", None) is None
+    assert printed.description_words_near("SERVICE FEE", Decimal("25.00"), "05/01", None) is True
+    # Same-day twins (same amount, same printed date) are measured together.
+    same_day = PrintedEvidence(native="SEND E-TFR FABRICATED A 44.00 JAN05\nSEND E-TFR FABRICATED B 44.00 JAN05\n")
+    assert same_day.description_words_near("SEND E-TFR FABRICATED B", Decimal("44.00"), "JAN05") is True
+
+
+def test_a_running_balance_is_the_rows_only_when_its_own_print_carries_it():
+    layout = "01/02 FABRICATED PAYROLL 208.47\n01/02 FABRICATED CHEQUE 614.80 14,905.62\n"
+    printed = PrintedEvidence(native=layout)
+    assert printed.balance_printed_for(Decimal("614.80"), Decimal("14905.62"), "01/02") is True
+    assert printed.balance_printed_for(Decimal("208.47"), Decimal("14905.62"), "01/02") is False   # the day's close
+    assert printed.balance_printed_for(Decimal("7.77"), Decimal("14905.62"), "01/02") is None      # row not found
+    assert PrintedEvidence(native=None).balance_printed_for(Decimal("208.47"), Decimal("1.00")) is None
+    # Two rows of one day print the same amount; the date is printed once, on the day's first row. The second
+    # row's balance is on its own line: it is the row's, whatever the date says (CIBC).
+    once_a_day = ("7 oct VIREMENT FABRICATED A\n3 000,00 2 418,26\nVIREMENT FABRICATED B\n3 000,00 5 418,26\n")
+    printed = PrintedEvidence(native=once_a_day)
+    assert printed.balance_printed_for(Decimal("3000.00"), Decimal("5418.26"), "7 oct") is True
+    assert printed.balance_printed_for(Decimal("3000.00"), Decimal("9999.99"), "7 oct") is False
+
+
+def test_a_days_closing_balance_attached_to_an_earlier_row_of_the_day_is_dropped():
+    layout = "01/02 FABRICATED PAYROLL 208.47\n01/02 FABRICATED CHEQUE 614.80 14,905.62\n"
+    rows = [CandidateRow("2031-01-02", "01/02", "FABRICATED PAYROLL", Decimal("208.47"), "credit",
+                         Decimal("14905.62"), 1, "stage_a", "b1t0r1", "column", (0.1, 0.2, 0.9, 0.3), None),
+            CandidateRow("2031-01-02", "01/02", "FABRICATED CHEQUE", Decimal("614.80"), "debit",
+                         Decimal("14905.62"), 1, "stage_a", "b1t0r2", "column", (0.1, 0.2, 0.9, 0.3), None)]
+    payload = empty_review("statement_page")
+    payload["reviews"] = [{"candidate_id": record["candidate_id"], "verdict": "confirm",
+                           "observed_description": record["row"]["description"], "corrections": [], "reason": ""}
+                          for record in candidate_records(rows)]
+    merged = merge_review(rows, payload, page=1, printed=PrintedEvidence(native=layout))
+    assert [row.balance for row in merged.rows] == [None, Decimal("14905.62")]
+    assert merged.evidence[0]["balance_dropped"] is True and "balance_dropped" not in merged.evidence[1]
+    assert {"scope": "row", "page": 1, "locator": "b1t0r1", "code": "review_balance_not_printed_on_row"} \
+        in merged.diagnostics
+
+
+def test_a_description_printed_after_the_amount_is_the_rows_own():
+    # Date | Amount | Description (Citizens): the line's only amount comes before the description.
+    printed = PrintedEvidence(native="04/01 1,582.44 FABRICATED LENDER 7 11111\n04/02 35.00 RETURNED ITEM FEE\n")
+    assert printed.description_words_near("FABRICATED LENDER 7 11111", Decimal("1582.44"), "04/01") is True
+    assert printed.description_printed_near("RETURNED ITEM FEE", Decimal("35.00"), "04/02") is True
+    assert printed.description_printed_near("FABRICATED LENDER", Decimal("35.00"), "04/02") is False
+    # Another amount after it on the line is a second column: its words are not this row's.
+    cheques = PrintedEvidence(native="123 03/05 45.10 1234 03/06 300.00\n")
+    assert cheques.description_printed_near("1234", Decimal("45.10"), "03/05") is False
+
+
+def test_a_fragment_is_inside_a_fuller_reading_only_as_whole_words():
+    # "123" and "1234" both printed on the row's own line: neither contains the other, so neither is chosen.
+    merged = _settle([_row("123", "45.10", date="2031-03-05")], "1234 123 03/05 45.10\n", "1234")
+    assert merged.counts["unresolved"] == 1
+
+
+def test_a_column_ordered_text_layer_settles_no_row():
+    column_major = "Date Description Amount\n04/29\n04/30\nWire Debit REF000001\nWire Debit REF000002\n" \
+                   "2,500.00-\n90.00-\n"
+    printed = PrintedEvidence(native=column_major)
+    for reading in ("Wire Debit REF000001", "Wire Debit REF000002"):
+        assert printed.description_printed_near(reading, Decimal("2500.00"), "04/29") is False
+    merged = _settle([_row("Wire Debit REF000001", "2500.00", date="2031-04-29")], column_major,
+                     "Wire Debit REF000002")
+    assert merged.counts["unresolved"] == 1
+
+
+def test_text_after_a_date_and_amount_line_is_the_next_rows():
+    layout = "Wire Debit REF000001\nBNF=FABRICATED PAYEE CO\n04/29 2,500.00-\nWire Debit REF000002\n" \
+             "BNF=OTHER FABRICATED CO\n04/30 90.00-\n"
+    printed = PrintedEvidence(native=layout)
+    other = "Wire Debit REF000002 BNF=OTHER FABRICATED CO"
+    assert printed.description_printed_near(other, Decimal("2500.00"), "04/29") is False
+    assert printed.description_words_near(other, Decimal("2500.00"), "04/29") is False
+
+
+def test_a_heading_against_a_figures_only_line_is_not_the_rows_print():
+    above = PrintedEvidence(native="Checks Paid\nCheck Nbr Date Amount\n123 03/05 45.10\n1234 03/06 300.00\n")
+    assert above.description_printed_near("Check Nbr Date Amount", Decimal("45.10"), "03/05") is False
+    below = "Apr 30 Wire Debit REF000002\nBNF=OTHER FABRICATED CO\n90.00-\nDeposits and Other Credits\n" \
+            "Continued on next page\n"
+    printed = PrintedEvidence(native=below)
+    assert printed.description_printed_near("Deposits and Other Credits", Decimal("90.00"), "Apr 30") is False
+    merged = _settle([_row("Wire Debit REF000002 BNF=OTHER FABRICATD CO", "90.00", date="2031-04-30",
+                           date_text="Apr 30")], below, "Deposits and Other Credits")
+    assert merged.counts["unresolved"] == 1
+
+
+def test_a_small_amount_on_a_line_of_its_own_is_not_a_date():
+    for amount_line in ("90.00", "90.00-"):
+        printed = PrintedEvidence(native=f"Apr 30 Wire Debit REF000002\nBNF=OTHER FABRICATED CO\n{amount_line}\n")
+        text = "Wire Debit REF000002 BNF=OTHER FABRICATED CO"
+        assert printed.description_printed_near(text, Decimal("90.00"), "Apr 30") is True
+        assert printed.description_words_near(text, Decimal("90.00"), "Apr 30") is True
+    assert not any(_ROW_START.match(token) for token in ("90.00", "15.00", "5.00", "0.25"))
+    assert all(_ROW_START.match(text) for text in ("Apr 29, 2026 Wire Debit", "02.03.2026 FABRICATED",
+                                                   "03/02 FABRICATED", "29 avr. FABRICATED"))
+
+
+def test_a_count_or_day_number_a_reviewer_repeats_does_not_make_a_picture_page_a_statement_page():
+    printed = PrintedEvidence(native="FABRICATED CHEQUE IMAGES PAGE\nCheck 123 Check 124\n")
+    for field, value in (("days_in_period", 31), ("stated_nsf_count", 0)):
+        payload = empty_review("cheque_images")
+        payload["account"][field] = value
+        merged = merge_review([], payload, page=3, printed=printed)
+        assert any(item["code"] == "review_figure_not_printed" for item in merged.diagnostics)
+        assert picture_page(merged) is True
+    # A money figure it reports that the page does not print still says it saw a statement page.
+    payload = empty_review("cheque_images")
+    payload["account"]["ending_balance"] = 1234.56
+    assert picture_page(merge_review([], payload, page=3, printed=printed)) is False
