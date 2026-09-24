@@ -1177,6 +1177,22 @@ def _package_analysis(jobs) -> dict:
             and len(posted_credit_rows)
             == sum(len(rows) for rows in revenue_rows.values())
         )
+        # Monthly Statements' True deposits (the verified revenue) stand for this member only when every captured
+        # credit carries its revenue state AND the captured credits are the money its Total counts: the line items are
+        # the Total's source, or they add up to the bank's own total. Otherwise the verified figure is a part of an
+        # unknown whole (a summary-only statement, a partly classified one, a payload from before classification
+        # records, a failed member), and the table says N/A rather than show it as the month's revenue. A member
+        # that captured no credit and whose Total is zero took in nothing, and its True deposits are zero.
+        revenue_established = ready and (
+            (
+                revenue_rows_are_authoritative
+                and (
+                    str(metrics.get("deposits_source") or "line_items") == "line_items"
+                    or abs(line_item_total - deposit_total) < 0.005
+                )
+            )
+            or (bool(statement) and not positive_statement_rows and credits == 0)
+        )
         if authoritative_rows:
             lender_debits = round(sum(abs(_num(row.get("amount"))) for row in lender_rows), 2)
             lender_debit_count = len(lender_rows)
@@ -1491,6 +1507,10 @@ def _package_analysis(jobs) -> dict:
                 "source_period_start": statement.get("period_start"),
                 "source_period_end": statement.get("period_end"),
             }
+            if account_index is not None:
+                # A row of one account of a multi-account document: its location is numbered within that account,
+                # so a review of it names the account (1-based, printed order). Other rows carry no such key.
+                package_transaction["source_account"] = account_index
             package_transactions.append(package_transaction)
             classification = tx.get("classification") or {}
             evidence = {
@@ -1548,6 +1568,7 @@ def _package_analysis(jobs) -> dict:
             "total_posted_credit_count": posted_credit_count,
             "verified_revenue_total": revenue_totals["verified_revenue"],
             "verified_revenue_count": revenue_counts["verified_revenue"],
+            "verified_revenue_established": revenue_established,
             "unverified_deposit_total": revenue_totals["unverified_deposit"],
             "unverified_deposit_count": revenue_counts["unverified_deposit"],
             "confirmed_true_revenue_total": revenue_totals["verified_revenue"],
@@ -2214,12 +2235,19 @@ def analysis(job_id):
 #: the exception's own string, so what crosses the boundary is provably a
 #: constant in this file. `f"{DECLARED}: {a quoted cell}"` does not match and is
 #: reduced like anything else. Fail-closed: admission is a deliberate edit.
+#:
+#: SEVEN since the review learned to name its account: a location numbers a
+#: posting within its account, so a document of several accounts can hold one
+#: location per account, and `apply_serialized_revenue_review` refuses such a
+#: location unless the review names the account, and a named account it lacks.
 _DECLARED_REVIEW_REFUSALS: tuple[str, ...] = (
     "transaction source location was not found",
     "decision must be confirm, reject, or reset",
     "only automatically unverified deposits can be reviewed",
     "every posted credit must have an authoritative classification record",
     "every posted credit must have a valid revenue classification",
+    "account was not found",
+    "transaction source location is in more than one account; name the account",
 )
 
 
@@ -2242,37 +2270,85 @@ def _review_refusal(exc: BaseException) -> str:
     )
 
 
+#: One lock per statement around a review's read-modify-write. A review reads the stored analysis, applies its
+#: decision to a copy and saves the copy; two reviews of one statement at once (the multi-select's batch and a row's
+#: own button, or two tabs) would each start from the same stored analysis and the second save would drop the first
+#: one's decision while both decision rows stayed recorded. Reviews of different statements do not wait on each other.
+_review_locks: dict[str, threading.Lock] = {}
+_review_locks_guard = threading.Lock()
+
+
+def _review_lock(job_id: str) -> threading.Lock:
+    with _review_locks_guard:
+        return _review_locks.setdefault(job_id, threading.Lock())
+
+
+#: The longest actor name a review records. Free text until authentication exists (D-2b), and recorded twice per
+#: decision (decision row and audit row), so it is held to the length of a name.
+MAX_REVIEW_ACTOR = 120
+
+
+def _review_actor(payload: dict) -> tuple[str | None, str | None]:
+    """`(actor, None)`, or `(None, refusal)` for an actor that is not a name."""
+    actor = payload.get("actor")
+    if actor is None:
+        return "local-analyst", None
+    if not isinstance(actor, str) or len(actor.strip()) > MAX_REVIEW_ACTOR:
+        return None, f"actor must be text of at most {MAX_REVIEW_ACTOR} characters"
+    return actor.strip() or "local-analyst", None
+
+
+def _review_account(value: object) -> tuple[int | None, str | None]:
+    """`(account, None)` — the 1-based account in printed order, or None when the review names none — or
+    `(None, refusal)`. A location numbers a posting within its account, so a statement of several accounts needs it."""
+    if value is None:
+        return None, None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None, "account must be a whole number from 1"
+    return value, None
+
+
 @app.route("/analysis/<job_id>/revenue-review", methods=["POST"])
 def revenue_review(job_id):
-    job = store.get(job_id)
-    if job is None or job.status != "done" or job.analysis is None:
-        abort(404)
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "the review must be a JSON object"}), 400
     source_location = str(payload.get("source_location") or "").strip()
     decision = str(payload.get("decision") or "").strip().lower()
     if not source_location:
         return jsonify({"error": "source_location is required"}), 400
-    try:
-        updated = apply_serialized_revenue_review(
-            deepcopy(job.analysis),
-            source_location=source_location,
-            decision=decision,
-        )
-    except LookupError as exc:
-        return jsonify({"error": _review_refusal(exc)}), 404
-    except ValueError as exc:
-        return jsonify({"error": _review_refusal(exc)}), 400
+    account, refusal = _review_account(payload.get("account"))
+    if refusal:
+        return jsonify({"error": refusal}), 400
     # Free-text actor until authentication exists (D-2b); recorded with the
     # decision timestamp and the prior classification state in the same
     # storage transaction that persists the mutated analysis.
-    actor = str(payload.get("actor") or "").strip() or "local-analyst"
-    stored = store.apply_review(
-        job_id,
-        updated,
-        source_location=source_location,
-        decision=decision,
-        actor=actor,
-    )
+    actor, refusal = _review_actor(payload)
+    if refusal:
+        return jsonify({"error": refusal}), 400
+    with _review_lock(job_id):
+        job = store.get(job_id)
+        if job is None or job.status != "done" or job.analysis is None:
+            abort(404)
+        try:
+            updated = apply_serialized_revenue_review(
+                deepcopy(job.analysis),
+                source_location=source_location,
+                decision=decision,
+                account=account,
+            )
+        except LookupError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 400
+        stored = store.apply_review(
+            job_id,
+            updated,
+            source_location=source_location,
+            decision=decision,
+            actor=actor,
+            account=account,
+        )
     if stored is None:
         abort(404)
     return jsonify({"analysis": _masked(_displayed(stored))})
@@ -2289,20 +2365,18 @@ def revenue_reviews(job_id):
 
     Every decision is applied to a working copy first, in order; only when all of them hold are the result and,
     for each decision, its own decision row and audit row saved, in one storage transaction
-    (`JobStore.apply_reviews`). A refused decision refuses the batch and nothing is saved. A transaction may appear
-    once per batch, so each recorded prior state is the one before the batch. Refusals use the same vocabulary as
-    the single-decision route (`_review_refusal`): no exception text reaches the response."""
-    job = store.get(job_id)
-    if job is None or job.status != "done" or job.analysis is None:
-        abort(404)
+    (`JobStore.apply_reviews`). A refused decision refuses the batch and nothing is saved. A posting — its location
+    within its account — may appear once per batch, so each recorded prior state is the one before the batch.
+    Refusals use the same vocabulary as the single-decision route (`_review_refusal`): no exception text reaches the
+    response."""
     payload = request.get_json(silent=True)
     decisions = payload.get("decisions") if isinstance(payload, dict) else None
     if not isinstance(decisions, list) or not decisions:
         return jsonify({"error": "decisions must be a non-empty list"}), 400
     if len(decisions) > MAX_REVIEW_BATCH:
         return jsonify({"error": f"a batch holds at most {MAX_REVIEW_BATCH} decisions"}), 400
-    parsed: list[tuple[str, str]] = []
-    seen: set[str] = set()
+    parsed: list[tuple[str, str, int | None]] = []
+    seen: set[tuple[int | None, str]] = set()
     for item in decisions:
         if not isinstance(item, dict):
             return jsonify({"error": "each decision must be an object"}), 400
@@ -2310,20 +2384,33 @@ def revenue_reviews(job_id):
         decision = str(item.get("decision") or "").strip().lower()
         if not source_location:
             return jsonify({"error": "source_location is required"}), 400
-        if source_location in seen:
+        account, refusal = _review_account(item.get("account"))
+        if refusal:
+            return jsonify({"error": refusal}), 400
+        if (account, source_location) in seen:
             return jsonify({"error": "a transaction appears more than once in the batch"}), 400
-        seen.add(source_location)
-        parsed.append((source_location, decision))
-    updated = deepcopy(job.analysis)
-    try:
-        for source_location, decision in parsed:
-            updated = apply_serialized_revenue_review(updated, source_location=source_location, decision=decision)
-    except LookupError as exc:
-        return jsonify({"error": _review_refusal(exc)}), 404
-    except ValueError as exc:
-        return jsonify({"error": _review_refusal(exc)}), 400
-    actor = str(payload.get("actor") or "").strip() or "local-analyst"
-    stored = store.apply_reviews(job_id, updated, decisions=parsed, actor=actor)
+        seen.add((account, source_location))
+        parsed.append((source_location, decision, account))
+    if len({account is None for _, _, account in parsed}) > 1:
+        # "transaction:2" and account 1's "transaction:2" can be one posting: a batch names every account or none.
+        return jsonify({"error": "every decision must name its account, or none may"}), 400
+    actor, refusal = _review_actor(payload)
+    if refusal:
+        return jsonify({"error": refusal}), 400
+    with _review_lock(job_id):
+        job = store.get(job_id)
+        if job is None or job.status != "done" or job.analysis is None:
+            abort(404)
+        updated = deepcopy(job.analysis)
+        try:
+            for source_location, decision, account in parsed:
+                updated = apply_serialized_revenue_review(
+                    updated, source_location=source_location, decision=decision, account=account)
+        except LookupError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": _review_refusal(exc)}), 400
+        stored = store.apply_reviews(job_id, updated, decisions=parsed, actor=actor)
     if stored is None:
         abort(404)
     return jsonify({"analysis": _masked(_displayed(stored)), "applied": len(parsed)})

@@ -108,6 +108,11 @@
   a { color: var(--accent-text); }
   [hidden] { display: none !important; }
   .mono { font-family: var(--font-mono); }
+  /* Read by a screen reader, not shown. */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .appearance-shift, .appearance-shift *, .appearance-shift *::before, .appearance-shift *::after {
     transition: background-color .28s ease, border-color .28s ease, color .28s ease, fill .28s ease !important;
@@ -471,7 +476,17 @@
   }
   .bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; min-width: 0; }
   .bar-value { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); white-space: nowrap; }
-  .bar { width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px; background: var(--accent-muted); }
+  .bar {
+    position: relative; overflow: hidden; width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px;
+    background: var(--accent-muted);
+  }
+  /* Both deposits: each Total bar in a neutral tone, its True part in the accent from the bottom up (the muted accent
+     is too close to the accent to tell the two apart in the light theme). */
+  .bar.bar-total { background: var(--border-2); }
+  .bar-part { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
+  .bar-value-true { margin-top: -6px; color: var(--accent-text); }
+  .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--border-2); }
+  .legend-swatch-true { background: var(--accent); }
   .bar.peak { background: var(--accent); }
   .bar-labels { display: grid; gap: 20px; padding: 0 12px; }
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
@@ -611,7 +626,7 @@
   .table-action:disabled { opacity: .45; cursor: default; }
   .table-action.review-confirm { border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .table-action.review-confirm:hover { background: var(--accent-hover); }
-  .revenue-review-actions { display: inline-flex; gap: 6px; }
+  .revenue-review-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
   .review-note { display: inline-flex; align-items: center; gap: 10px; }
   .review-note span { font-size: 12px; color: var(--text-3); }
 
@@ -619,7 +634,9 @@
   .seasonality-table thead tr { background: var(--surface-2); }
   .seasonality-table th { font-size: 13px; padding: 11px 12px; border-top: 0; }
   .seasonality-table td { padding: 13px 12px; }
-  .seasonality-table td:nth-child(n+2):nth-child(-n+6) { font-family: var(--font-mono); }
+  .seasonality-table td.mono { font-family: var(--font-mono); }
+  /* Both deposit bases make nine columns: a header takes two lines rather than push Action out of the card. */
+  .seasonality-table th { white-space: normal; min-width: 64px; }
   .seasonality-table th:last-child, .seasonality-table td:last-child { text-align: right; }
   .seasonality-table td:last-child { padding-top: 8px; padding-bottom: 8px; }
   .statement-open {
@@ -648,14 +665,17 @@
   .filter-pills button:hover { color: var(--text); border-color: var(--text-3); }
   .filter-pills button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
   .tx-table .tx-date { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-3); white-space: nowrap; }
-  .tx-table .tx-desc { font-family: var(--font-mono); font-size: 12.5px; min-width: 220px; max-width: 460px; overflow-wrap: anywhere; }
+  /* A description wraps rather than push the Review column out of the card: a package's ledger carries a Statement
+     column and, while deposits await review, a checkbox column too. */
+  .tx-table .tx-desc { font-family: var(--font-mono); font-size: 12.5px; min-width: 140px; max-width: 460px; overflow-wrap: anywhere; }
+  .tx-table th { white-space: normal; }
   .tx-table .tx-reason { margin-top: 6px; font-size: 11.5px; color: var(--text-3); max-width: 260px; }
   .tx-table .amount-cell { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
   .tx-table .amount-credit { color: var(--accent-text); }
   .tx-table .balance-negative { color: var(--red); }
   .tx-table .tx-balance { color: var(--text-2); }
   .tx-table th.num { text-align: right; }
-  .tx-table .tx-review { text-align: right; white-space: nowrap; padding-top: 8px; padding-bottom: 8px; }
+  .tx-table .tx-review { text-align: right; padding-top: 8px; padding-bottom: 8px; }
   .tx-table .empty-cell { color: var(--text-3); padding-top: 20px; padding-bottom: 20px; }
   .tx-table .empty-cell strong { color: var(--text); margin-right: 6px; }
   /* the source column only appears when a package of statements is loaded */
@@ -701,8 +721,9 @@
   .theme-preview.light .tp-title { background: #0a0a0a; }
   .setting-row { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; padding: 18px 20px; }
   .setting-row + .setting-row { border-top: 1px solid var(--border); }
+  .setting-row > div { min-width: 0; }
   .setting-select {
-    flex-shrink: 0; min-width: 210px; height: 36px; padding: 0 10px; border-radius: 10px; cursor: pointer;
+    flex-shrink: 0; min-width: min(210px, 100%); height: 36px; padding: 0 10px; border-radius: 10px; cursor: pointer;
     border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13.5px;
   }
   .setting-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -830,6 +851,8 @@
     .modal-head { flex-direction: column; align-items: flex-start; padding: 18px 16px; }
     .modal-body { padding: 16px; }
     .modal-grid { grid-template-columns: 1fr; }
+    .setting-row:has(.setting-select) { flex-wrap: wrap; }
+    .setting-select { width: 100%; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; }
@@ -1176,8 +1199,10 @@
                 <tr>
                   <th>Month</th>
                   <th>Year</th>
-                  <th>Monthly Deposits ($)</th>
-                  <th>Deposits Per Month</th>
+                  <th>Total Deposits ($)</th>
+                  <th>Total Deposits Per Month</th>
+                  <th>True Deposits ($)</th>
+                  <th>True Deposits Per Month</th>
                   <th>Ledger ($)</th>
                   <th>NSF</th>
                   <th>Action</th>
@@ -1283,14 +1308,17 @@
         <section class="panel" id="transactionCard" aria-labelledby="transactionsTitle">
           <div class="tx-head">
             <div class="tx-title">
-              <h3 id="transactionsTitle">Transactions</h3>
+              <h3 id="transactionsTitle" tabindex="-1">Transactions</h3>
               <span id="transactionScope">This statement</span>
               <span aria-hidden="true">·</span>
               <span id="transactionCount">0 transactions</span>
             </div>
+            <!-- The selection count, announced from outside the bar (a live region inside it is not heard while it
+                 appears). -->
+            <span class="sr-only" id="bulkReviewStatus" aria-live="polite"></span>
             <!-- Shown only while at least one deposit awaiting review is ticked. -->
             <div class="bulk-review" id="bulkReviewBar" role="group" aria-label="Review the selected deposits" hidden>
-              <span class="bulk-count" id="bulkReviewCount" aria-live="polite">0 selected</span>
+              <span class="bulk-count" id="bulkReviewCount">0 selected</span>
               <button class="table-action review-confirm" type="button" data-bulk-review="confirm">Confirm Revenue</button>
               <button class="table-action review-reject" type="button" data-bulk-review="reject">Mark Non-Revenue</button>
               <button class="table-action" type="button" data-bulk-review="clear">Clear</button>
@@ -1409,7 +1437,8 @@
                   <strong>Total monthly deposits:</strong> everything going in, transfers from other accounts and lender
                   funding included. <strong>True monthly deposits:</strong> revenue only, the verified revenue and the
                   deposits you confirm; no transfers, no funding, and no deposit still awaiting review.
-                  <strong>Both</strong> shows the two side by side. Saved in this browser only.
+                  <strong>Both</strong> shows the two side by side. The monthly chart follows the same choice, and a
+                  statement whose revenue could not be established shows N/A. Saved in this browser only.
                 </p>
               </div>
               <select class="setting-select" id="monthlyDepositsView" aria-describedby="monthlyDepositsHelp">

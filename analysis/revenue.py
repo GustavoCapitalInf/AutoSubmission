@@ -211,33 +211,41 @@ def apply_serialized_revenue_review(
     *,
     source_location: str,
     decision: Literal["confirm", "reject", "reset"],
+    account: int | None = None,
 ) -> dict:
     """Apply a human decision to one potential credit and rebuild all views.
 
-    Every account is searched, in printed order. A reviewer acts on a POSTING,
-    and a posting belongs to one account of the document; searching only the
-    first would raise `transaction source location was not found` for every
-    posting in the second — a message about the reviewer's request rather than
-    about the shape this function was handed.
+    Every account is searched, in printed order, unless `account` (1-based, in
+    printed order) names the one the posting belongs to. A reviewer acts on a
+    POSTING, and a posting belongs to one account of the document; searching
+    only the first would raise `transaction source location was not found` for
+    every posting in the second — a message about the reviewer's request rather
+    than about the shape this function was handed.
+
+    A location numbers a posting within ITS account (`transaction:N`), so in a
+    document of several accounts one location can name a posting in each. Such
+    a location is refused unless `account` says which: taking the first match
+    would record the decision against another account's posting.
     """
     if decision not in {"confirm", "reject", "reset"}:
         raise ValueError("decision must be confirm, reject, or reset")
-    transactions = [
+    accounts = payload_accounts(analysis, surface=_REVIEW_SURFACE)
+    if account is not None:
+        if isinstance(account, bool) or not isinstance(account, int) or not 1 <= account <= len(accounts):
+            raise LookupError("account was not found")
+        accounts = [accounts[account - 1]]
+    matches = [
         transaction
-        for account in payload_accounts(analysis, surface=_REVIEW_SURFACE)
-        for transaction in (account.get("statement") or {}).get("transactions") or []
+        for holder in accounts
+        for transaction in (holder.get("statement") or {}).get("transactions") or []
+        if (transaction.get("classification") or {}).get("source_location")
+        == source_location
     ]
-    target = next(
-        (
-            transaction
-            for transaction in transactions
-            if (transaction.get("classification") or {}).get("source_location")
-            == source_location
-        ),
-        None,
-    )
-    if target is None:
+    if not matches:
         raise LookupError("transaction source location was not found")
+    if len(matches) > 1:
+        raise ValueError("transaction source location is in more than one account; name the account")
+    target = matches[0]
     record = target.get("classification") or {}
     initial_state = record.get("revenue_initial_classification")
     initial_state = LEGACY_REVENUE_STATE_MAP.get(initial_state, initial_state)

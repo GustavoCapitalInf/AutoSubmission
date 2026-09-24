@@ -363,6 +363,74 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: monthly()}}));
     assert true_only["stored"] == "true"
 
 
+CHART = r"""
+const chart = () => ({
+  legend: els.monthlyChart.innerHTML.match(/<span class="chart-legend">([\s\S]*?)<\/span>\s*<\/div>/)[1],
+  values: [...els.monthlyChart.innerHTML.matchAll(/<span class="bar-value( bar-value-true)?">([^<]*)<\/span>/g)]
+    .map((m) => [m[1] ? "true" : "shown", m[2]]),
+});
+"""
+
+
+def test_the_monthly_chart_follows_the_basis_and_the_choice_holds_with_storage_blocked(tmp_path, monkeypatch):
+    """One page never shows two different figures as a month's deposits: the chart above the table plots the basis
+    the table shows. Where the browser refuses storage, the choice still takes effect for the page."""
+    package = _package({"jan": _single(1), "feb": _single(2)}, tmp_path, monkeypatch)
+    documents = {doc["id"]: doc for doc in package["documents"]}
+    result = run_dashboard(CELLS + CHART + f"""
+localStorage.getItem = () => {{ throw new Error("storage blocked"); }};
+localStorage.setItem = () => {{ throw new Error("storage blocked"); }};
+currentJobIds = ['jan', 'feb']; renderPackageAnalysis({json.dumps(package)});
+const both = {{...monthly(), chart: chart()}};
+setMonthlyDepositsView('true');
+const trueOnly = {{...monthly(), chart: chart(), select: els.monthlyDepositsView.value}};
+setMonthlyDepositsView('total');
+console.log(JSON.stringify({{both, trueOnly, totalOnly: {{...monthly(), chart: chart()}}}}));
+""")
+    whole = lambda value: f"{round(value):,}"  # noqa: E731
+    jan, feb = documents["jan"], documents["feb"]
+    both, true_only, total_only = result["both"], result["trueOnly"], result["totalOnly"]
+    assert len(both["head"]) == 9
+    assert both["chart"]["values"] == [["shown", whole(jan["credits"])], ["true", whole(jan["verified_revenue_total"])],
+                                       ["shown", whole(feb["credits"])], ["true", whole(feb["verified_revenue_total"])]]
+    assert "Total deposits" in both["chart"]["legend"] and "True deposits (revenue only)" in both["chart"]["legend"]
+    # Storage refused the choice; the page still took it.
+    assert true_only["select"] == "true" and true_only["head"][2] == "Monthly Deposits ($)"
+    assert true_only["count"] == "2 statements · True monthly deposits: revenue only"
+    assert true_only["chart"]["values"] == [["shown", whole(jan["verified_revenue_total"])],
+                                            ["shown", whole(feb["verified_revenue_total"])]]
+    assert "True deposits (revenue only) and ledger" in true_only["chart"]["legend"]
+    assert total_only["chart"]["values"] == [["shown", whole(jan["credits"])], ["shown", whole(feb["credits"])]]
+    assert "Total deposits (everything going in) and ledger" in total_only["chart"]["legend"]
+
+
+def test_the_all_accounts_choice_holds_with_storage_blocked():
+    result = run_dashboard("""
+localStorage.getItem = () => { throw new Error("storage blocked"); };
+localStorage.setItem = () => { throw new Error("storage blocked"); };
+const before = allAccountsView();
+setAllAccountsView(true);
+console.log(JSON.stringify({before, after: allAccountsView(), toggle: els.allAccountsToggle.checked}));
+""")
+    assert result == {"before": False, "after": True, "toggle": True}
+
+
+def test_true_deposits_not_established_and_a_failed_statement_read_n_a(tmp_path, monkeypatch):
+    package = _package({"jan": _single(1), "feb": _single(2)}, tmp_path, monkeypatch)
+    jan, feb = sorted(package["documents"], key=lambda doc: doc["id"] != "jan")
+    feb["verified_revenue_established"] = False  # e.g. a credit the classifier left without a revenue state
+    jan["status"] = "failed"
+    result = run_dashboard(CELLS + CHART + f"""
+currentJobIds = ['jan', 'feb']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{...monthly(), chart: chart()}}));
+""")
+    failed, unknown = result["rows"]
+    # A failed statement has no figures at all, not a month of zeros.
+    assert failed[2:8] == ["N/A"] * 6 and failed[8] == "Unavailable"
+    assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:6] == ["N/A", "N/A"]
+    assert result["chart"]["values"][2:] == [["shown", f"{round(feb['credits']):,}"], ["true", "N/A"]]
+
+
 PENDING_ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
                 (6, "DEPOSIT FABRICATED TWO", 200.0), (27, "SERVICE FEE", -15.0)]
 
