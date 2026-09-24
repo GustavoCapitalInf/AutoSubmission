@@ -140,7 +140,12 @@ def test_a_batch_has_a_size_limit_and_needs_json(job):
 
 
 def test_an_unknown_or_unfinished_job_is_not_found():
+    from webapp import app as webapp_app
+
     assert _post("no-such-job", [{"source_location": "transaction:2", "decision": "confirm"}]).status_code == 404
+    assert _single("no-such-job", source_location="transaction:2", decision="confirm").status_code == 404
+    # A request naming no statement leaves no lock behind: the table of locks holds statements, not guesses.
+    assert "no-such-job" not in webapp_app._review_locks
 
 
 # --- the account a decision names ------------------------------------------------------------------------------

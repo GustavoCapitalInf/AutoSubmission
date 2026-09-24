@@ -259,6 +259,150 @@ console.log(JSON.stringify({{labels, said: said.filter(([, tone]) => tone === "r
     assert result["said"] == [["Not saved: Revenue review failed (502)", "red"]]
 
 
+def _many(count, month=3):
+    """A fabricated statement of `count` deposits awaiting review, five a day: more than one page of rows."""
+    from analysis.serialization import document_report_to_dict
+    from tests.test_webapp_studio_views import _report
+    rows = [(1 + index // 5, f"DEPOSIT FABRICATED NUMBER {index + 1}", 100.0) for index in range(count)]
+    return document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, rows, month))
+
+
+# Rows past the first page: what Show more drew, ticked, and the first page's locations.
+BEYOND = r"""
+const firstPage = new Set(boxesIn(els.transactionTable.innerHTML).map((box) => box["data-bulk-job"] + box["data-bulk-location"]));
+transactionLimit = 300; renderMainTransactions({keepLimit: true});
+const beyond = boxesIn(els.transactionTable.innerHTML)
+  .filter((box) => !firstPage.has(box["data-bulk-job"] + box["data-bulk-location"]));
+const ticked = (html, box) => (boxesIn(html).find((b) => b["data-bulk-job"] === box["data-bulk-job"]
+  && b["data-bulk-location"] === box["data-bulk-location"]) || {}).checked;
+"""
+
+
+def test_a_row_review_keeps_the_ticks_beyond_the_first_page():
+    before = _many(110)
+    after = _decided(before, [("transaction:1", "confirm", None)])
+    responses = {"/analysis/many/revenue-review": {"json": {"analysis": after}}}
+    result = run_dashboard(DRAWN + _serve(many=before) + f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+currentJobId = 'many'; currentJobIds = ['many']; loadResults('many'); await settle();
+""" + BEYOND + """
+const far = beyond[beyond.length - 1];
+tick(far);
+const attrs = buttonsIn(els.transactionTable.innerHTML)
+  .find((b) => b["data-revenue-review-location"] === "transaction:1" && b["data-revenue-review-action"] === "confirm");
+const button = fakeElement("row"); Object.assign(button.attributes, attrs);
+await submitRevenueReview(button); await settle();
+console.log(JSON.stringify({beyond: beyond.length, selected: bulkSelection.size, hidden: els.bulkReviewBar.hidden,
+  farTicked: ticked(els.transactionTable.innerHTML, far), posts: posts().length}));
+""")
+    assert result["beyond"] == 10 and result["posts"] == 1
+    assert result == {**result, "selected": 1, "hidden": False, "farTicked": True}
+
+
+def test_a_refused_statement_keeps_its_ticks_beyond_the_first_page(tmp_path, monkeypatch):
+    before = {"a": _many(60, 1), "b": _many(60, 2)}
+    after_a = _decided(before["a"], [("transaction:1", "confirm", None)])
+    package_before = _package(before, tmp_path, monkeypatch)
+    package_after = _package({"a": after_a, "b": before["b"]}, tmp_path, monkeypatch)
+    responses = {"/analysis/a/revenue-reviews": {"json": {"analysis": after_a, "applied": 1}},
+                 "/analysis/b/revenue-reviews": {"status": 400, "json": {"error": "fabricated refusal"}},
+                 "/package_analysis": {"json": package_after}}
+    result = run_dashboard(DRAWN + f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(package_before)});
+""" + BEYOND + """
+tick(boxesIn(els.transactionTable.innerHTML).find((box) => box["data-bulk-job"] === "a"
+  && box["data-bulk-location"] === "transaction:1"));
+const far = beyond.filter((box) => box["data-bulk-job"] === "b").pop();
+tick(far);
+press("confirm"); await settle(); await settle();
+console.log(JSON.stringify({selected: [...bulkSelection], farKey: JSON.stringify(["b", null, far["data-bulk-location"]]),
+  farTicked: ticked(els.transactionTable.innerHTML, far), hidden: els.bulkReviewBar.hidden}));
+""")
+    assert result["selected"] == [result["farKey"]]
+    assert result["farTicked"] is True and result["hidden"] is False
+
+
+def test_row_buttons_drawn_during_a_batch_are_held():
+    """A sort or the statement window can draw rows while a batch is being saved: their buttons are drawn held, like
+    the ones already on screen, not live-looking buttons whose click does nothing."""
+    result = run_dashboard(DRAWN + _serve(a=_pending(1)) + """
+currentJobId = 'a'; currentJobIds = ['a']; loadResults('a'); await settle();
+const held = (html) => [...html.matchAll(/<button class="table-action[^"]*" type="button"([^>]*)>/g)]
+  .filter((m) => m[1].includes("data-revenue-review-action")).map((m) => /\\sdisabled\\b/.test(m[1]));
+bulkBusy = true; renderMainTransactions();
+const during = held(els.transactionTable.innerHTML);
+bulkBusy = false; renderMainTransactions();
+console.log(JSON.stringify({during, after: held(els.transactionTable.innerHTML)}));
+""")
+    assert result["during"] and all(result["during"])
+    assert result["after"] and not any(result["after"])
+
+
+def test_a_saved_decision_whose_page_cannot_refresh_keeps_its_button_held(tmp_path, monkeypatch):
+    """Pressed again, the button of a decision already saved would record the decision twice."""
+    before = {"a": _pending(1), "b": _pending(2)}
+    package = _package(before, tmp_path, monkeypatch)
+    after_a = _decided(before["a"], [("transaction:2", "confirm", None)])
+    responses = {"/analysis/a/revenue-review": {"json": {"analysis": after_a}},
+                 "/package_analysis": {"status": 500, "json": {"error": "fabricated outage"}}}
+    result = run_dashboard(DRAWN + f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+const alerts = []; window.alert = (message) => alerts.push(message);
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(package)});
+const attrs = buttonsIn(els.transactionTable.innerHTML).find((b) => b["data-revenue-review-job"] === "a"
+  && b["data-revenue-review-location"] === "transaction:2" && b["data-revenue-review-action"] === "confirm");
+const button = fakeElement("row"); Object.assign(button.attributes, attrs);
+await submitRevenueReview(button); await settle();
+console.log(JSON.stringify({{alerts, disabled: button.disabled}}));
+""")
+    assert result["disabled"] is True
+    assert len(result["alerts"]) == 1 and result["alerts"][0].startswith("Saved, but the page could not be refreshed")
+
+
+def test_a_refusal_names_the_file_when_two_statements_share_a_month(tmp_path, monkeypatch):
+    before = {"a": _pending(3), "b": _pending(3)}
+    package = _package(before, tmp_path, monkeypatch)
+    responses = {"/analysis/b/revenue-reviews": {"status": 400, "json": {"error": "fabricated refusal"}}}
+    result = run_dashboard(DRAWN + f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(package)});
+tick(boxesIn(els.transactionTable.innerHTML).find((box) => box["data-bulk-job"] === "b"));
+press("confirm"); await settle(); await settle();
+console.log(JSON.stringify({{red: said.filter(([, tone]) => tone === "red").map(([message]) => message)}}));
+""")
+    assert result["red"] == ["Not saved for March 2031 (fabricated-b.pdf): fabricated refusal"]
+
+
+def test_an_analysis_opened_while_the_page_refreshes_is_left_as_it_is(tmp_path, monkeypatch):
+    """The package is fetched again after a batch; opening another analysis meanwhile must not have the old package
+    drawn over it, nor the old analysis's ticks (here a refused one) carried into it."""
+    first = {"a": _pending(1), "b": _pending(2)}
+    after_a = _decided(first["a"], [("transaction:2", "confirm", None)])
+    package_first = _package(first, tmp_path, monkeypatch)
+    package_after = _package({"a": after_a, "b": first["b"]}, tmp_path, monkeypatch)
+    package_second = _package({"b": first["b"], "c": _pending(3)}, tmp_path, monkeypatch)
+    responses = {"/analysis/a/revenue-reviews": {"json": {"analysis": after_a, "applied": 1}},
+                 "/analysis/b/revenue-reviews": {"status": 400, "json": {"error": "fabricated refusal"}},
+                 "/package_analysis": {"json": package_after}}
+    result = run_dashboard(DRAWN + f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+const realFetch = fetch;
+fetch = (url, options) => String(url).startsWith("/package_analysis")
+  ? new Promise((resolve) => setTimeout(() => resolve(realFetch(url, options)), 80)) : realFetch(url, options);
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(package_first)});
+const boxes = boxesIn(els.transactionTable.innerHTML);
+tick(boxes.find((box) => box["data-bulk-job"] === "a" && box["data-bulk-location"] === "transaction:2"));
+tick(boxes.find((box) => box["data-bulk-job"] === "b" && box["data-bulk-location"] === "transaction:2"));
+press("confirm"); await settle();
+currentJobIds = ['b', 'c']; renderPackageAnalysis({json.dumps(package_second)});
+await new Promise((resolve) => setTimeout(resolve, 150));
+console.log(JSON.stringify({{shown: currentAnalysis.package.documents.map((doc) => doc.id), selected: bulkSelection.size,
+  hidden: els.bulkReviewBar.hidden, checked: boxesIn(els.transactionTable.innerHTML).filter((box) => box.checked).length}}));
+""")
+    assert result == {"shown": ["b", "c"], "selected": 0, "hidden": True, "checked": 0}
+
+
 def test_a_review_keeps_the_rows_opened_with_show_more():
     before = _pending(1)
     after = _decided(before, [("transaction:2", "confirm", None)])

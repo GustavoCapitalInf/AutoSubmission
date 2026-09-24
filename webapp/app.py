@@ -2279,6 +2279,8 @@ _review_locks_guard = threading.Lock()
 
 
 def _review_lock(job_id: str) -> threading.Lock:
+    """The statement's review lock. Taken only for a job the store knows (the routes check first), so a
+    request naming no statement leaves nothing behind."""
     with _review_locks_guard:
         return _review_locks.setdefault(job_id, threading.Lock())
 
@@ -2326,6 +2328,8 @@ def revenue_review(job_id):
     actor, refusal = _review_actor(payload)
     if refusal:
         return jsonify({"error": refusal}), 400
+    if store.get(job_id) is None:
+        abort(404)
     with _review_lock(job_id):
         job = store.get(job_id)
         if job is None or job.status != "done" or job.analysis is None:
@@ -2397,6 +2401,8 @@ def revenue_reviews(job_id):
     actor, refusal = _review_actor(payload)
     if refusal:
         return jsonify({"error": refusal}), 400
+    if store.get(job_id) is None:
+        abort(404)
     with _review_lock(job_id):
         job = store.get(job_id)
         if job is None or job.status != "done" or job.analysis is None:

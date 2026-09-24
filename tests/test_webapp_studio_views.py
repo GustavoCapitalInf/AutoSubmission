@@ -428,7 +428,23 @@ console.log(JSON.stringify({{...monthly(), chart: chart()}}));
     # A failed statement has no figures at all, not a month of zeros.
     assert failed[2:8] == ["N/A"] * 6 and failed[8] == "Unavailable"
     assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:6] == ["N/A", "N/A"]
-    assert result["chart"]["values"][2:] == [["shown", f"{round(feb['credits']):,}"], ["true", "N/A"]]
+    # The chart says what the table says: nothing for the failed month, no True deposits for the other.
+    assert result["chart"]["values"] == [["shown", "N/A"], ["true", "N/A"],
+                                         ["shown", f"{round(feb['credits']):,}"], ["true", "N/A"]]
+
+
+def test_true_deposits_of_a_payload_that_does_not_say_read_n_a(tmp_path, monkeypatch):
+    """A package row without `verified_revenue_established` (none the server sends today) is not taken as
+    established: True deposits read N/A, Total deposits stand."""
+    package = _package({"jan": _single(1)}, tmp_path, monkeypatch)
+    del package["documents"][0]["verified_revenue_established"]
+    result = run_dashboard(CELLS + CHART + f"""
+currentJobIds = ['jan']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{...monthly(), chart: chart()}}));
+""")
+    row = result["rows"][0]
+    assert row[2] == f"{round(package['documents'][0]['credits']):,}" and row[4:6] == ["N/A", "N/A"]
+    assert result["chart"]["values"][1] == ["true", "N/A"]
 
 
 PENDING_ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),

@@ -542,8 +542,11 @@ function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null)
   const sourceLocation = record.source_location;
   if (!jobId || !sourceLocation) return "";
   const account = reviewAccountOf(tx, fallbackAccount);
+  // Drawn while the multi-select's batch is being saved (a sort, the statement window), a row's buttons are held
+  // like the ones already on screen (holdRowReviews): its decision would wait for nothing.
   const common = `data-revenue-review-job="${escapeHtml(jobId)}" data-revenue-review-location="${escapeHtml(sourceLocation)}"`
-    + (account === null ? "" : ` data-revenue-review-account="${escapeHtml(String(account))}"`);
+    + (account === null ? "" : ` data-revenue-review-account="${escapeHtml(String(account))}"`)
+    + (bulkBusy ? " disabled" : "");
   if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") {
     const decision = record.revenue_review_status === "confirmed" ? "Confirmed as revenue" : "Marked non-revenue";
     return `
@@ -869,14 +872,22 @@ async function responseJson(response) {
   }
 }
 
-// What a notification calls a statement of the package on screen: its month ("March 2031"), else its file. Null for
-// the one statement shown, which needs no name.
+// What a notification calls a statement of the package on screen: its month ("March 2031"), with its file when
+// another statement of the package has the same month (as the Monthly Statements table tells them apart), else its
+// file. Null for the one statement shown, which needs no name.
 function reviewedStatementName(jobId) {
   const pkg = currentAnalysis && currentAnalysis.package;
   if (!pkg) return null;
-  const doc = (Array.isArray(pkg.documents) ? pkg.documents : []).find((item) => packageMember(item.id).jobId === jobId);
+  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  const doc = documents.find((item) => packageMember(item.id).jobId === jobId);
   const month = doc ? statementMonth(doc.period_start, doc.period_end) : null;
-  return month ? `${MONTH_NAMES[month.month]} ${month.year}` : (doc && doc.filename) || "a statement";
+  if (!month) return (doc && doc.filename) || "a statement";
+  const label = `${MONTH_NAMES[month.month]} ${month.year}`;
+  const shared = documents.some((item) => {
+    const other = statementMonth(item.period_start, item.period_end);
+    return packageMember(item.id).jobId !== jobId && other && other.key === month.key;
+  });
+  return shared && doc.filename ? `${label} (${doc.filename})` : label;
 }
 
 function showNotifications() {
@@ -885,14 +896,21 @@ function showNotifications() {
 
 // Draws the analysis on screen again from what was saved: a package from the server's package, a statement from its
 // saved analysis (`saved`: the last statement saved, {jobId, analysis}). The rows opened with Show more stay open, and
-// the ticks are drawn from the selection. Throws when the package cannot be fetched.
+// the ticks are drawn from the selection. Throws when the package cannot be fetched. Only the analysis the review was
+// made on is drawn: one opened while the package was being fetched is left as it is.
 async function redrawAfterReview(saved) {
   const limit = transactionLimit;
+  // The redraws below draw the first page of rows and so drop every tick past it; the ticks come back before the
+  // rows opened with Show more are drawn again.
+  const kept = [...bulkSelection];
+  const scope = bulkScope;
+  const shown = currentJobIds.join(",");
   try {
     if (currentJobIds.length > 1) {
-      const response = await fetch(`/package_analysis?ids=${encodeURIComponent(currentJobIds.join(","))}`);
+      const response = await fetch(`/package_analysis?ids=${encodeURIComponent(shown)}`);
       if (!response.ok) throw new Error(`the page could not be refreshed (${response.status})`);
       const pkg = await response.json();
+      if (currentJobIds.join(",") !== shown) return;
       renderPackageAnalysis(pkg);
       setPackageActions(currentJobIds);
       rememberPackage(currentJobIds, pkg);
@@ -902,9 +920,12 @@ async function redrawAfterReview(saved) {
       rememberShownStatement(currentJobId);
     }
   } finally {
-    transactionLimit = limit;
-    // A statement shown without an account (its main account withheld) has no ledger on screen to draw.
-    if (currentAnalysis) renderMainTransactions({ keepLimit: true });
+    if (bulkScope === scope) {
+      transactionLimit = limit;
+      kept.forEach((key) => bulkSelection.add(key));
+      // A statement shown without an account (its main account withheld) has no ledger on screen to draw.
+      if (currentAnalysis) renderMainTransactions({ keepLimit: true });
+    }
   }
 }
 
@@ -2186,7 +2207,7 @@ function packageTitle(rows) {
 function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
   if (!els.monthlyChart) return;
   const both = view === "both";
-  const plotted = view === "true" ? trueDeposits : (doc) => doc.credits;
+  const plotted = view === "true" ? trueDeposits : totalDeposits;
   const values = rows.map(({ doc }) => numberOrNull(plotted(doc)));
   const largest = Math.max(0, ...values.filter((value) => value !== null));
   const years = new Set(rows.map((row) => row.month && row.month.year));
@@ -3058,21 +3079,31 @@ function monthlyDepositsView() {
   return MONTHLY_DEPOSITS_VIEWS.includes(value) ? value : "both";
 }
 
-// A statement's True deposits (the verified revenue), or null — shown N/A — when the package could not establish
-// them: a failed statement, or one whose captured credits are not all classified or are not the money its Total
-// counts (webapp/app.py `verified_revenue_established`).
+// A figure of a statement's month, or null (shown N/A) for a statement that failed: its zeros are the absence of an
+// analysis, not a month of nothing. The Monthly Statements table and its chart both read figures through it.
+function monthFigure(doc, value) {
+  return doc.status === "done" ? value : null;
+}
+
+// A statement's True deposits (the verified revenue), or null — shown N/A — unless the package established them:
+// not for a failed statement, nor for one whose captured credits are not all classified or are not the money its
+// Total counts (webapp/app.py `verified_revenue_established`; a payload that does not say reads as not established).
 function trueDeposits(doc) {
-  return doc.verified_revenue_established === false ? null : doc.verified_revenue_total;
+  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_total) : null;
 }
 
 function trueDepositCount(doc) {
-  return doc.verified_revenue_established === false ? null : doc.verified_revenue_count;
+  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_count) : null;
+}
+
+function totalDeposits(doc) {
+  return monthFigure(doc, doc.credits);
 }
 
 // The deposit columns, [header, value of a row, kind]: the CRM's own headers when one basis is shown, each basis
 // named when both are.
 function monthlyDepositColumns(view) {
-  const total = [(doc) => doc.credits, (doc) => doc.deposit_count];
+  const total = [totalDeposits, (doc) => monthFigure(doc, doc.deposit_count)];
   const revenue = [trueDeposits, trueDepositCount];
   if (view === "total") return [["Monthly Deposits ($)", total[0], "amount"], ["Deposits Per Month", total[1], "count"]];
   if (view === "true") return [["Monthly Deposits ($)", revenue[0], "amount"], ["Deposits Per Month", revenue[1], "count"]];
@@ -3141,10 +3172,8 @@ function renderMonthlyStatements(pkg) {
       const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
       const docCurrency = currencyOfDocument(doc);
       const unit = mixedCurrencies && docCurrency && docCurrency !== "USD" ? ` ${docCurrency}` : "";
-      // A statement that failed has no figures: its zeros are the absence of an analysis, not a month of nothing.
-      const figure = (value) => (doc.status === "done" ? value : null);
       const amount = (value) => {
-        const text = formatWhole(figure(value));
+        const text = formatWhole(value);
         return text === "N/A" ? text : text + unit;
       };
       const shared = month && monthCounts.get(month.key) > 1;
@@ -3152,9 +3181,9 @@ function renderMonthlyStatements(pkg) {
         <tr title="${escapeHtml(doc.filename || "Statement")}">
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
           <td class="mono">${escapeHtml(month ? String(month.year) : "N/A")}</td>
-          ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(figure(value(doc))))}</td>`).join("")}
-          <td class="mono">${escapeHtml(amount(doc.average_daily_balance))}</td>
-          <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(figure(doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
+          ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}</td>`).join("")}
+          <td class="mono">${escapeHtml(amount(monthFigure(doc, doc.average_daily_balance)))}</td>
+          <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(monthFigure(doc, doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
           <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : `Open${OPEN_ICON}`}</button></td>
         </tr>
       `;
@@ -4155,7 +4184,8 @@ async function submitRevenueReview(button) {
     }
     await redrawAfterReview(saved);
   } catch (error) {
-    button.disabled = false;
+    // A decision saved but not drawn keeps its button held: pressed again, it would record the decision twice.
+    if (!saved) button.disabled = false;
     const message = error.message || String(error);
     window.alert(saved ? `Saved, but ${message}: open the statements again to see the decision` : message);
   } finally {
