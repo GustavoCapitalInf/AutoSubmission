@@ -69,7 +69,7 @@ function fetch(url) {
     text: () => Promise.resolve('fabricated extraction')});
 }
 """ + "\n".join(_function(name) for name in (
-        "friendlyAnalysisError", "setActions", "renderExtractionReview", "loadResults")) + """
+        "friendlyAnalysisError", "sourceContradiction", "setActions", "renderExtractionReview", "loadResults")) + """
 loadResults('synthetic-job');
 setImmediate(() => console.log(JSON.stringify({currentAnalysis, currentMarkdown,
   cleared, renderedAnalysis, heading: els.statusHeading.textContent,

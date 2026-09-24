@@ -237,6 +237,12 @@ def analyze_visual_pair(
         _refuse("visual pair multiple accounts require review")
     gate = evidence.get("gate")
     if not isinstance(gate, dict) or gate.get("admitted") is not True or gate.get("reasons") != []:
+        # A verified contradiction in the statement itself (vlm/source_contradiction.py): the refusal names it.
+        from vlm.source_contradiction import SourceContradictionError
+        contradiction = (SourceContradictionError.from_verdict(gate.get("source_contradiction"))
+                         if isinstance(gate, dict) and gate.get("admitted") is not True else None)
+        if contradiction is not None:
+            raise contradiction
         _refuse("visual pair gate refused the document")
     confidence = evidence.get("confidence")
     counts = confidence.get("counts") if isinstance(confidence, dict) else None

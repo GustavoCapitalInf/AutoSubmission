@@ -25,6 +25,7 @@ from ocr.escalation import (
 from ocr.inspect import DocumentProfile, content_sha256, inspect_pdf
 from ocr.pipeline import parse_statement
 from ocr.render import markdown_to_html
+from vlm.source_contradiction import is_source_contradiction
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -210,6 +211,13 @@ def _analysis_failure(exc: BaseException) -> str:
     closed tuple of constants, so a new refusal message the pipeline invents is
     withheld until someone deliberately admits it here.
     """
+    from vlm.source_contradiction import SourceContradictionError
+
+    if isinstance(exc, SourceContradictionError):
+        # A verified contradiction in the statement itself: its message is built from the refusal's closed set of
+        # reasons and its figures ("Fail: Statement debit total ($... listed, $... printed) contradiction"), never
+        # from free text, so it quotes nothing of the document but the two figures that disagree.
+        return exc.dashboard_message()
     message = str(exc)
     for declared in _DECLARED_ANALYSIS_REFUSALS:
         if message == declared:
@@ -464,6 +472,9 @@ def _emit(
             escalated=bool((analysis or {}).get("escalated")),
             error_type=error_type,
             error_reason="analysis_error" if analysis_error and not error_type else None,
+            # A statement contradicting itself is the platform declining it, a valid failure (owner ruling,
+            # 2026-09-23), never an extraction that failed.
+            refused="contradictory" if not error_type and is_source_contradiction(analysis_error) else None,
         ))
     except Exception:
         return None

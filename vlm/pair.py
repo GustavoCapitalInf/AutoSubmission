@@ -1030,12 +1030,23 @@ def extract_visual_pair(pdf: Path, *, settings: VisualPairSettings | None = None
     if accounts is not None and accounts.get('skipped'):
         # Not judged account by account (rows outside every recognized account): held as one statement.
         accounts_skipped, accounts = accounts, None
+    # A held statement whose own printed figures contradict the transactions it lists, the reading proven complete and
+    # exact by the PDF's text layer: a failure of the statement, not of the reading (owner ruling, 2026-09-23).
+    source_contradiction = None
+    if not admitted and accounts is None:
+        from vlm.source_contradiction import verify_source_contradiction
+        try:
+            source_contradiction = verify_source_contradiction(reasons=reasons, rows=rows, account=account,
+                                                               printed_pages=printed_pages)
+        except (ValueError, TypeError, ArithmeticError):
+            source_contradiction = None
     page_text = page_texts(merges, truncated)
     integrity = assess_pages(page_text)
     audit = {'version': PAIR_VERSION, 'account_count': len(accounts['accounts']) if accounts else 1,
              'statement': statement,
              'gate': {'admitted': admitted, 'reasons': reasons, 'checks': checks,
-                      'reason_occurrences': occurrences, 'reason_counts': reason_counts},
+                      'reason_occurrences': occurrences, 'reason_counts': reason_counts,
+                      **({'source_contradiction': source_contradiction} if source_contradiction else {})},
              'confidence': confidence, 'field_evidence': field_evidence,
              # Sibling accounts that did not move, set aside rather than merged (pair_metadata.dormant_siblings): the
              # statement names accounts the ledger does not describe.

@@ -1593,12 +1593,37 @@ function renderError(message) {
   renderAccountSummary(accountFieldRows());
 }
 
+function sourceContradiction(message) {
+  // A verified contradiction in the statement itself (vlm/source_contradiction.py is_source_contradiction): the
+  // statement's own printed figures contradict the transactions it lists, every one of which was read and checked
+  // against the PDF's text. A valid failure of the statement, not of the reading (owner ruling, 2026-09-23).
+  const text = String(message || "");
+  return /^Fail: Statement (?:debit total|credit total|ending balance) \([^()]{1,80}\) contradiction$/.test(text)
+    ? text : null;
+}
+
 function renderExtractionReview(message) {
   // A completed read can require review without admitting any metrics. Clear
   // the previous statement's cards before exposing this read's source actions.
   currentAnalysis = null;
   setInitialState();
   setProgress(false);
+  const contradiction = sourceContradiction(message);
+  if (contradiction) {
+    els.statusHeading.textContent = contradiction;
+    setBanner("error", "Statement does not add up; metrics withheld", "Failed");
+    els.decisionPill.textContent = "fail";
+    els.decisionPill.className = "decision-pill";
+    els.summaryBox.textContent = `${contradiction}. The statement's own printed figures contradict the transactions `
+      + "it lists. Every listed transaction was read and checked against the PDF's own text, so this is a failure "
+      + "of the statement, not of the reading. No metrics have been published.";
+    setStatusRows([
+      ["OCR completed", "Yes"],
+      ["Validation", "Failed: statement contradiction"],
+      ["Metrics", "Withheld"],
+    ]);
+    return;
+  }
   els.statusHeading.textContent = "Extraction needs review";
   setBanner("pending", "Extraction available; metrics withheld", "Review required");
   els.decisionPill.textContent = "review required";
