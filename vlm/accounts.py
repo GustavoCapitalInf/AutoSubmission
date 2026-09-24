@@ -66,6 +66,10 @@ _PRODUCT_IDIOMS = re.compile(r"\bpay\s+as\s+you\s+go\b", re.I)
 # Here"). "Now" is a product's word ("Business NOW Account").
 _PROSE_WORDS = re.compile(r"\b(?:(?:a|an|to)\s+(?!(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
                           r"(?=[A-Za-z]{2})|(?:here|today)\b)", re.I)
+# Words of an advertisement, never of an account's title ("Introducing Business Checking Plus", "Business Checking
+# Simplified", "Business Checking Just Got Better", "New Savings Rates Effective April 1"; review 12).
+_MARKETING_PHRASES = re.compile(r"\b(?:introducing|announcing|meet|coming\s+soon|reinvented|reimagined|redefined|"
+                                r"simplified|just\s+got|got\s+better|rates)\b", re.I)
 # Forms of "be" and "have" are never a product's word: after a line's first word they make it a sentence in any case
 # ("Checking Accounts Are Changing"); the other verbs do only in lower case or beside a sentence word.
 _STRONG_VERBS = re.compile(r"(?:are|is|was|were|been|has|have)", re.I)
@@ -150,6 +154,35 @@ def _kind(text: str) -> str | None:
     return None
 
 
+def _kind_at_start(text: str) -> str | None:
+    """The kind a text begins with ("Money Market Account 5678": money_market), or None."""
+    for kind, pattern in _KINDS:
+        if pattern.match(text):
+            return kind
+    return None
+
+
+# Words that qualify a kind word in a product's name ("Overdraft Protected Business Checking").
+_KIND_QUALIFIERS = frozenset({"business", "personal", "commercial", "small"})
+# The last words of a kind printed in two words ("Money Market", "Share Draft", "Demand Deposit").
+_KIND_TAILS = frozenset({"market", "draft", "drafts", "deposit", "deposits"})
+
+
+def _ends_in_kind(text: str) -> bool:
+    """Whether a line's last word names its kind ("Ready to Grow Savings", "... Money Market"); "Account" is not one."""
+    words = re.findall(r"[A-Za-z]+", text)
+    if not words:
+        return False
+    return (_kind_at_start(words[-1]) is not None
+            or (len(words) > 1 and words[-1].lower() in _KIND_TAILS
+                and _kind_at_start(" ".join(words[-2:])) is not None))
+
+
+def _identified(text: str) -> bool:
+    """Whether a line prints an account identifier (masked, labelled, in parentheses, or a long number)."""
+    return any(pattern.search(text) for pattern in (_MASKED, _LABELLED, _PARENS, _LETTER_NUMBER, _LONG))
+
+
 def _sentence_case(text) -> bool:
     """A line printed as a sentence: two words or more, the first capitalised and every other one in lower case."""
     words = [word for word in _clean(str(text or "")).split() if re.search(r"[A-Za-z]", word)]
@@ -178,19 +211,23 @@ def parse_heading(text: str) -> Heading | None:
         return None
     continued = bool(_CONTINUED_TAIL.search(line))
     line = _CONTINUED_TAIL.sub("", line).strip(" -–—:|,")
-    if not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line):
+    if (not line or _MONEY.search(line) or _SENTENCE.search(line) or _IDENTIFIER_LINE.match(line)
+            or _MARKETING_PHRASES.search(line)):
         return None
     # A verb makes a sentence ("Business Checking has changed", "Business Checking Offers More"), unless it opens the
-    # line ("Earn More Savings") or is a capitalised word of a product's name right before its kind word ("POWER
-    # PROTECTED CHECKING", "Special Needs Savings"); and any verb beside a sentence word, the first word included
-    # ("Protect your checking account", "Is your checking account earning interest").
+    # line ("Earn More Savings") or is a capitalised word of a product's name right before its kind word, a qualifier
+    # between them ("POWER PROTECTED CHECKING", "Special Needs Savings", "Business Insured Money Market Account",
+    # "Overdraft Protected Business Checking"); and any verb beside a sentence word, the first word included ("Protect
+    # your checking account", "Is your checking account earning interest").
     plain = _PRODUCT_IDIOMS.sub("PRODUCT", line)
     verbs = list(_VERBS.finditer(plain))
 
     def product_word(match):
         following = plain[match.end():].split()
+        while following and following[0].lower() in _KIND_QUALIFIERS:
+            following = following[1:]
         return (not match.group(0).islower() and not _STRONG_VERBS.fullmatch(match.group(0))
-                and bool(following) and _kind(following[0]) is not None)
+                and _kind_at_start(" ".join(following)) is not None)
 
     if any(match.start() > 0 and not product_word(match) for match in verbs) or (
             verbs and _SENTENCE_WORDS.search(plain)):
@@ -199,7 +236,10 @@ def parse_heading(text: str) -> Heading | None:
     # Savings Faster"); the month a title is printed for is no sentence word ("... Activity for May").
     if any(match.start() > 0 for match in _MARKETING_WORDS.finditer(_PERIOD_TAIL.sub("", plain))):
         return None
-    if _PROSE_WORDS.search(_PERIOD_TAIL.sub("", plain)):
+    # Prose words, unless the line prints an identifier or ends in its kind word: product names ("SAVE TO WIN SAVINGS
+    # 0005", "Ready to Grow Savings", "Plan A Savings 0003"; review 12).
+    prose = _PERIOD_TAIL.sub("", plain)
+    if _PROSE_WORDS.search(prose) and not (_identified(prose) or _ends_in_kind(prose)):
         return None
     # A title's own words, without its identifier and the words every title can add ("Account", "Summary").
     title_words = [token for token in line.split()
@@ -646,9 +686,12 @@ def _summary_header(grid) -> tuple[int, dict] | None:
                 roles[column] = label[0]
         if len(set(roles.values())) >= 2:
             # A summary table labels an account's balance; a ledger's figure columns are credits and debits only
-            # ("Day | Item | Deposits and Credits | Withdrawals and Debits | Balance"), and its rows begin with dates.
-            first_cells = [next((cell for cell in row if cell), "") for row in rows[start + 1:]]
-            if (not {"beginning_balance", "ending_balance"} & set(roles.values())
+            # ("Day | Item | Deposits and Credits | Withdrawals and Debits | Balance"), and its rows begin with dates:
+            # any row, above the header too (a ledger continued without its header, ending in a totals row), and a
+            # header is never the table's last row (review 12).
+            first_cells = [next((cell for cell in row if cell), "") for position, row in enumerate(rows)
+                           if position != start]
+            if (start == len(rows) - 1 or not {"beginning_balance", "ending_balance"} & set(roles.values())
                     or any(_LEAD_DATE.match(cell) for cell in first_cells if cell)):
                 return None
             return start, roles

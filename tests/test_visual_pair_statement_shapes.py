@@ -246,6 +246,61 @@ def test_a_single_column_listing_printing_the_date_after_the_amount_keeps_it():
     assert longer.governing_date(Decimal("500.00")) is None
 
 
+def test_a_header_qualifying_its_date_column_or_printed_over_two_lines_still_orders_the_columns():
+    # Review 12, finding 1: "DEPOSIT DATE AMOUNT" prints DATE before AMOUNT; the deposits' k-up row printed under the
+    # day 03/06 never takes the next column's 03/10.
+    kup = PrintedEvidence(native="DEPOSITS\nDEPOSIT DATE AMOUNT DEPOSIT DATE AMOUNT\n03/06 100.00 03/09 300.00\n"
+                                 "200.00 03/10 400.00\n")
+    assert kup.governing_date(Decimal("200.00")) == "03/06"
+    single = PrintedEvidence(native="DEPOSITS\nDEPOSIT DATE AMOUNT\n03/06 100.00\n200.00\n")
+    assert single.governing_date(Decimal("200.00")) == "03/06"
+    paid = PrintedEvidence(native="PAID DATE CHECK # AMOUNT PAID DATE CHECK # AMOUNT\n03/06 3101 100.00 03/09 3103 300.00\n"
+                                  "3102 200.00 03/10 3104 400.00\n")
+    assert paid.governing_date(Decimal("200.00")) == "03/06"
+    # Finding 9: a header printed over two lines is read from its top line.
+    split = PrintedEvidence(native="DATE CHECK AMOUNT DATE CHECK AMOUNT\nNUMBER NUMBER\n03/06 3101 100.00 03/09 3103 300.00\n"
+                                   "3102 200.00 03/10 3104 400.00\n")
+    assert split.governing_date(Decimal("200.00")) == "03/06"
+
+
+def test_a_header_above_the_rows_own_section_heading_is_another_tables():
+    # Review 12, finding 2: "Credits Date" is the deposits' own header (amount words are column words); without a
+    # header of its own, the section heading ends the search: the cheque table's header never decides.
+    credits = PrintedEvidence(native="CHECKS PAID\nDATE CHECK NO. AMOUNT\n03/05 3101 100.00\n03/06 3102 200.00\n"
+                                     "DEPOSITS AND OTHER CREDITS\nCredits Date\n1,071.25 03/09\n18.45 03/12\n")
+    assert credits.governing_date(Decimal("1071.25")) == "03/09" and credits.governing_date(Decimal("18.45")) == "03/12"
+    headless = PrintedEvidence(native="CHECKS PAID\nDATE CHECK NO. AMOUNT\n03/05 3101 100.00\n03/06 3102 200.00\n"
+                                      "DEPOSITS AND OTHER CREDITS\n1,071.25 03/09\n")
+    assert headless.governing_date(Decimal("1071.25")) is None
+    ledger = PrintedEvidence(native="DATE CHECK NO. AMOUNT\n03/05 3101 100.00\n"
+                                    "ACTIVITY DESCRIPTION DEBITS CREDITS DATE BALANCE\n03/01 OPENING BALANCE 1,000.00\n"
+                                    "FABRICATED PAYMENT WITH A VERY LONG NAME\n51.37 03/09 1,051.37\n")
+    assert ledger.governing_date(Decimal("51.37")) == "03/09"
+
+
+def test_a_table_printing_the_amount_before_the_date_k_up_dates_each_row_by_its_own_column():
+    # Review 12, finding 7: the date beginning the second group is the first column's; the row's own date follows
+    # its amount.
+    cheques = PrintedEvidence(native="CHECK # AMOUNT DATE REF # CHECK # AMOUNT DATE REF #\n"
+                                     "1001 100.00 03/05 12345678 1002 200.00 03/06 23456789\n")
+    assert cheques.governing_date(Decimal("100.00")) == "03/05" and cheques.governing_date(Decimal("200.00")) == "03/06"
+    amounts = PrintedEvidence(native="AMOUNT DATE AMOUNT DATE\n100.00 03/05 200.00 03/06\n")
+    assert amounts.governing_date(Decimal("100.00")) == "03/05" and amounts.governing_date(Decimal("200.00")) == "03/06"
+    # No header: a line not beginning with its own date is undecided; one beginning with it prints DATE first.
+    bare = PrintedEvidence(native="1001 100.00 03/05 12345678 1002 200.00 03/06 23456789\n")
+    assert bare.governing_date(Decimal("200.00")) is None
+    dated = PrintedEvidence(native="03/06 3101 4,321.09 03/17 3104 765.43\n")
+    assert dated.governing_date(Decimal("765.43")) == "03/17"
+
+
+def test_a_k_up_row_with_no_date_above_it_on_its_page_takes_none_from_the_previous_page():
+    # Review 12, finding 6: the previous page's last dated line begins with its first column's date.
+    page = PrintedEvidence(native="DATE CHECK # AMOUNT DATE CHECK # AMOUNT\n3102 200.00 03/10 3104 400.00\n")
+    assert page.governing_date(Decimal("200.00")) is None
+    # One column: the day continues from the previous page ("").
+    assert PrintedEvidence(native="DATE CHECK # AMOUNT\n3102 200.00\n").governing_date(Decimal("200.00")) == ""
+
+
 def test_a_count_or_an_amount_after_a_month_and_day_is_no_year():
     # Review 10, finding 7.
     for line in ("As of Mar 31, 45 items were paid", "Interest paid through Mar 31, 12.50"):
@@ -256,6 +311,12 @@ def test_a_count_or_an_amount_after_a_month_and_day_is_no_year():
     for native in ("Statement Period: Mar 1, 30 to Mar 31, 30 Page 1 of 3", "Closing date Mar 31, 30.",
                    "Statement date March 31,\n2030", "31 Mar 30 to 30 Apr 30"):
         assert PrintedEvidence(native=native).date_contradicted("2031-03-31") is True, native
+    # Review 12, finding 8: a word after the two digits is a count's, never a year's.
+    for native in ("As of Mar 31, 12 returned items", "Mar 31, 30-day cycle", "Mar 31, 15 NSF fees", "Mar 31, 30 pages",
+                   "Through March 31,\n12 NSF items"):
+        assert PrintedEvidence(native=native).date_contradicted("2031-03-31") is False, native
+    # A row's day-month date followed by its description keeps its year.
+    assert PrintedEvidence(native="01-MAR-31 FABRICATED DEPOSIT 100.00").date_contradicted("2030-03-01") is True
 
 
 def test_each_column_group_beginning_with_its_date_takes_that_date():

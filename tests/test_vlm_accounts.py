@@ -602,6 +602,12 @@ def test_running_text_in_sentence_case_is_no_account_heading(text):
     ("FABRICATED PROTECTED CHECKING", "FABRICATED PROTECTED CHECKING"),
     ("Special Needs Savings", "Special Needs Savings"), ("Pay As You Go Checking", "Pay As You Go Checking"),
     ("Business NOW Checking", "Business NOW Checking"), ("FABRICATED SHARE A 0001", "FABRICATED SHARE A"),
+    # Review 12, finding 5: product names printing prose words or a verb before a qualified kind.
+    ("SAVE TO WIN SAVINGS 0005", "SAVE TO WIN SAVINGS"), ("Learn to Save Youth Savings 0007", "Learn to Save Youth Savings"),
+    ("Ready to Grow Savings", "Ready to Grow Savings"), ("Plan A Savings 0003", "Plan A Savings"),
+    ("Business Insured Money Market Account 5678", "Business Insured Money Market"),
+    ("FABRICATED PROTECTED BUSINESS CHECKING", "FABRICATED PROTECTED BUSINESS CHECKING"),
+    ("Custom Made Business Checking", "Custom Made Business Checking"),
     ("Your Business Advantage Checking Account 1234", "Business Advantage Checking"),
     ("Your Fabricated Business Checking Account XXXX1234", "Fabricated Business Checking Account"),
 ])
@@ -670,6 +676,12 @@ def test_a_ledger_printing_a_totals_row_is_never_a_summary_table():
                     ["Date", "Description", "Amount", "Amount", "Balance"], ["03/05", "X", "", "1.00", "2.00"]],
                    [["Ref", "Memo", "Total Deposits", "Total Withdrawals"], ["1", "FABRICATED", "10.00", "5.00"]]):
         assert _summary_header(ledger) is None, ledger[0]
+    # Review 12, finding 3: a ledger continued without its header, ending in a totals row.
+    for totals in (["Total Deposits", "0.00", "Total Withdrawals", "150.00", "Ending Balance", "1,050.00"],
+                   ["Beginning Balance", "1,200.00", "Total Withdrawals", "150.00", "Ending Balance", "1,050.00"]):
+        continued = [["03/05", "ONLINE BANKING TRANSFER FROM SAVINGS 0001", "", "100.00", "1,100.00"],
+                     ["03/06", "FABRICATED FEE", "", "50.00", "1,050.00"], totals]
+        assert _summary_header(continued) is None, totals[0]
 
 
 def test_a_short_title_in_sentence_case_is_still_an_accounts_heading():
@@ -692,10 +704,13 @@ def test_a_short_title_in_sentence_case_is_still_an_accounts_heading():
     "Grow Your Savings Faster", "Checking That Pays You Back", "Savings Made Simple",
     "Business Checking Changes Ahead", "Savings Insured By The NCUA", "Savings Rates Apply",
     "Open A Savings Account Today", "Switch To Paperless Checking Statements", "Savings Goals Start Here",
+    # Review 12, finding 4: slogans printing no listed verb.
+    "Business Checking Simplified", "Business Checking Just Got Better", "Introducing Business Checking Plus",
+    "Checking Reinvented", "New Savings Rates Effective April 1", "Coming Soon Business Checking Plus",
+    "Meet Business Checking Plus", "Savings Simplified", "Business checking simplified",
 ])
 def test_a_question_or_an_instruction_about_an_account_names_no_account(text):
-    # Findings 6 (review 10) and 2 (review 11).
-    # Finding 6.
+    # Findings 6 (review 10), 2 (review 11) and 4 (review 12).
     assert parse_heading(text) is None
 
 
