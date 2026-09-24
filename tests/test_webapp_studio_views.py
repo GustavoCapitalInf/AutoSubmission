@@ -178,6 +178,59 @@ console.log(JSON.stringify({multiFirst, multiRefreshed, heldFirst, heldRefreshed
     assert result["heldFirst"] == result["heldRefreshed"] == [f"March 2031 · {BANK}", "amber"]
 
 
+MARKED = """
+const marked = () => [...els.recentStatements.innerHTML.matchAll(/<button class="side-link recent-item( active)?"[^>]*data-recent-key="([^"]+)"[^>]*?(aria-current="true")?>/g)]
+  .filter((match) => match[1] || match[3]).map((match) => match[2]);
+const order = () => recentAnalyses.map((item) => item.key);
+"""
+
+
+def test_the_recent_list_marks_the_open_statement_and_keeps_its_place_on_reopen():
+    result = run_dashboard(_serve(jan=_single(1), feb=_single(2), mar=_single(3)) + MARKED + """
+for (const id of ['jan', 'feb', 'mar']) {
+  currentJobId = id; currentJobIds = [id]; loadResults(id); await settle();
+}
+const afterUploads = {order: order(), marked: marked()};
+openRecent('jan'); await settle();
+const reopenedJan = {order: order(), marked: marked(), title: els.resultsTitle.textContent};
+openRecent('feb'); await settle();
+const reopenedFeb = {order: order(), marked: marked(), title: els.resultsTitle.textContent};
+uploadFiles([{name: 'fabricated-next.pdf', type: 'application/pdf', size: 1}]); await settle();
+console.log(JSON.stringify({afterUploads, reopenedJan, reopenedFeb, duringUpload: marked()}));
+""")
+    assert result["afterUploads"] == {"order": ["mar", "feb", "jan"], "marked": ["mar"]}
+    # A reopen marks the entry clicked and leaves the list where it was.
+    assert result["reopenedJan"]["order"] == ["mar", "feb", "jan"] and result["reopenedJan"]["marked"] == ["jan"]
+    assert result["reopenedJan"]["title"] == "January 2031 statement"
+    assert result["reopenedFeb"]["order"] == ["mar", "feb", "jan"] and result["reopenedFeb"]["marked"] == ["feb"]
+    assert result["reopenedFeb"]["title"] == "February 2031 statement"
+    assert result["duringUpload"] == []
+
+
+def test_a_held_or_contradicted_statement_is_listed_and_reopens_on_its_explanation():
+    held = {"/analysis/held": {"json": {"analysis": None, "analysis_error": "visual pair requires human review"}},
+            "/markdown/held": {"text": ""},
+            "/analysis/fail": {"json": {"analysis": None, "analysis_error":
+                                        "Fail: Statement debit total ($150.00 listed, $250.00 printed) contradiction"}},
+            "/markdown/fail": {"text": ""}}
+    result = run_dashboard(f"Object.assign(FAKE_RESPONSES, {json.dumps(held)});\n" + _serve(ok=_single()) + MARKED + """
+const entry = (key) => { const item = recentAnalyses.find((each) => each.key === key); return item && [item.label, item.tone]; };
+for (const [id, name] of [['held', 'fabricated-held.pdf'], ['fail', 'fabricated-fail.pdf']]) {
+  currentFile = {name, size: 1}; currentJobId = id; currentJobIds = [id]; loadResults(id); await settle();
+}
+currentFile = null; currentJobId = 'ok'; currentJobIds = ['ok']; loadResults('ok'); await settle();
+const onResults = {view: currentView, marked: marked()};
+openRecent('held'); await settle();
+console.log(JSON.stringify({held: entry('held'), fail: entry('fail'), onResults,
+  reopened: {view: currentView, nav: activeNav, marked: marked(), message: els.statusMessage.textContent}}));
+""")
+    assert result["held"] == ["fabricated-held.pdf", "amber"] and result["fail"] == ["fabricated-fail.pdf", "red"]
+    assert result["onResults"] == {"view": "results", "marked": ["ok"]}
+    reopened = result["reopened"]
+    assert reopened["view"] == "new" and reopened["nav"] == "new" and reopened["marked"] == ["held"]
+    assert "No metrics have been published" in reopened["message"]
+
+
 def test_enter_on_the_settings_link_in_the_accounts_panel_is_left_to_the_link():
     result = run_dashboard(_all_accounts("on") + _serve(multi=_document("published")) + """
 currentJobId = 'multi'; currentJobIds = ['multi']; loadResults('multi'); await settle();

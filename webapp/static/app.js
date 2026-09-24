@@ -2367,6 +2367,8 @@ function uploadFiles(fileList) {
   const file = files[0];
   currentJobId = null;
   currentJobIds = [];
+  // Nothing in Recent is open while this upload runs; its own entry is marked when its result is drawn.
+  setOpenAnalysis(null);
   currentFiles = files;
   currentAnalysis = null;
   currentDocument = null;
@@ -2530,6 +2532,10 @@ function loadResults(jobId, { reveal = true, announce = reveal, onError = render
         renderExtractionReview(payload.analysis_error);
         setActions(jobId, false, true);
         appendStatusLink(`/result/${encodeURIComponent(jobId)}`, "Review extraction");
+        openAnalysisKey = jobId;
+        rememberHeldStatement(jobId, payload.analysis_error);
+        // It opens no results page: its explanation is the New analysis page's status card, so it opens there.
+        if (reveal) navigate("new");
         return;
       }
       renderAnalysis(payload.analysis);
@@ -2540,6 +2546,7 @@ function loadResults(jobId, { reveal = true, announce = reveal, onError = render
         return;
       }
       recordShownAnalysis();
+      openAnalysisKey = jobId;
       rememberShownStatement(jobId);
       // A statement whose main account was not verified opens with its metrics withheld: not a green result.
       if (announce) notify(`${els.resultsTitle.textContent} analyzed`, currentAnalysis ? "green" : "amber");
@@ -2574,6 +2581,7 @@ function loadPackage(jobIds, { reveal = true, announce = reveal, onError = rende
       renderPackageAnalysis(pkg);
       setPackageActions(jobIds);
       recordShownAnalysis();
+      openAnalysisKey = jobIds.join(",");
       rememberPackage(jobIds, pkg);
       if (announce) notify(`Package ${els.resultsTitle.textContent} analyzed`, "green");
       if (reveal) openResultsPage("packages");
@@ -3278,10 +3286,23 @@ function loadRecentAnalyses() {
 }
 
 let recentAnalyses = loadRecentAnalyses();
+// The Recent entry of the analysis open now (its key), marked in the sidebar; null while nothing is open, as when
+// an upload is under way.
+let openAnalysisKey = null;
 
+// A new analysis goes on top. One already listed (a reopen, a settings refresh, a review decision) is updated where
+// it stands, so the list never reshuffles under the pointer and the mark moves to the entry that was clicked.
 function rememberAnalysis(entry) {
-  recentAnalyses = [entry, ...recentAnalyses.filter((item) => item.key !== entry.key)].slice(0, RECENT_LIMIT);
+  const index = recentAnalyses.findIndex((item) => item.key === entry.key);
+  recentAnalyses = index >= 0
+    ? recentAnalyses.map((item, position) => (position === index ? entry : item))
+    : [entry, ...recentAnalyses].slice(0, RECENT_LIMIT);
   try { sessionStorage.setItem(RECENT_KEY, JSON.stringify(recentAnalyses)); } catch { /* storage unavailable */ }
+  renderRecentAnalyses();
+}
+
+function setOpenAnalysis(key) {
+  openAnalysisKey = key;
   renderRecentAnalyses();
 }
 
@@ -3330,6 +3351,20 @@ function rememberShownStatement(jobId) {
     needsReview ? "amber" : decisionDotTone(accountDecision(main)));
 }
 
+// A statement that opens no results page (a held read, a statement contradiction) is still one the sidebar reopens:
+// it keeps the name it was listed under, or takes its file's name, and its dot says fail or review.
+function rememberHeldStatement(jobId, message) {
+  const listed = recentAnalyses.find((item) => item.key === jobId);
+  rememberAnalysis({
+    kind: "statement",
+    key: jobId,
+    ids: [jobId],
+    label: listed ? listed.label : (currentFile && currentFile.name) || "Statement",
+    meta: listed ? listed.meta : "",
+    tone: sourceContradiction(message) ? "red" : "amber",
+  });
+}
+
 function rememberPackage(jobIds, pkg) {
   const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
   rememberAnalysis({
@@ -3346,8 +3381,10 @@ function recentItemHtml(item) {
   const mark = item.kind === "package"
     ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>`
     : `<span class="recent-dot tone-${escapeHtml(item.tone)}" aria-hidden="true"></span>`;
+  const open = item.key === openAnalysisKey;
   return `
-    <button class="side-link recent-item" type="button" data-recent-key="${escapeHtml(item.key)}" title="${escapeHtml(item.label)}">
+    <button class="side-link recent-item${open ? " active" : ""}" type="button" data-recent-key="${escapeHtml(item.key)}"
+            title="${escapeHtml(item.label)}"${open ? ` aria-current="true"` : ""}>
       ${mark}
       <span class="side-link-label">${escapeHtml(item.label)}</span>
       <span class="side-count">${escapeHtml(item.meta || "")}</span>

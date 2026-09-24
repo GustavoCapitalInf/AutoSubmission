@@ -63,6 +63,10 @@ function setBanner() {}
 function setStatusRows() {}
 function renderAnalysis() { renderedAnalysis = true; }
 function renderError(message) { throw new Error(message); }
+// The sidebar's Recent list and page navigation (tests/test_webapp_studio_views.py drives them end to end).
+let openAnalysisKey = null, remembered = null, navigatedTo = null;
+function rememberHeldStatement(jobId, message) { remembered = [jobId, message]; }
+function navigate(target) { navigatedTo = target; }
 function fetch(url) {
   return Promise.resolve({ok: true,
     json: () => Promise.resolve({analysis: null, analysis_error: 'visual pair requires human review'}),
