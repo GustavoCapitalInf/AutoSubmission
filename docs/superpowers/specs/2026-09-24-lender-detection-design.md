@@ -49,6 +49,11 @@ The census and the code found three kinds of failure.
 | Flag: **Factoring** | No; flagged like alternative positions | Invoice factoring companies: RTS Financial, OTR Capital, Apex Capital, BC Factoring… |
 | Flag: **Premium financing** | No; the rows **stay counted as insurance** as today, and are also flagged | Insurance premium financing: IPFS, First Insurance Funding… |
 
+*Amendment (owner, 2026-09-25, after research round 5):*
+- **Online business term lenders count as lenders.** This covers OnDeck's term loans, National Funding, Expansion Capital, iCapital, ARF Financial and similar, the same as MCA funders.
+- **Short-term rentals are flagged under Leases & rentals** (U-Haul, Sunbelt, United Rentals, Herc).
+- **The numbered Ontario company** debited daily/weekly is a **potential lender** for review, through the D6 recurrence rule. It gets no alias, and its number is never written anywhere.
+
 *Amendment (owner, 2026-09-24):* Floor plan, Factoring and Premium financing were added after round 2 of the research. Each has its own checkbox, default on. The floor-plan and factoring rows are flagged like alternative positions. Premium-financing rows keep the `insurance` state and their insurance totals, and also carry the flag.
 
 - Every flag group has its own Settings checkbox.
