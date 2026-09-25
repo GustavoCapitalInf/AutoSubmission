@@ -110,7 +110,8 @@ S1-specific constraints:
      - a premium financier or a bank passes in its own table and must match no known payee.
    - **Privacy.**
      - No run of five or more digits outside a URL, unless today's registry already holds that exact alias.
-     - Every evidence source and `where_looked` entry is an http(s) URL without a query string or a fragment.
+     - Every evidence source and `where_looked` entry is an http(s) URL without a query string, a fragment, a `|` or credentials, on a public host: not `localhost`, not a private or loopback IP address, not an undotted host. The validator parses it with `urllib.parse.urlsplit` (amended after review).
+     - No validator message, `move:` line, privacy-review line or evidence-ledger move row quotes a run of five or more digits: each masks the names and values it prints, and `validate` scrubs every problem as a backstop (amended after review).
    - **Today's registry (spec §9 and S2's prerequisite 9).**
      - Every entity of today's three lists is held by a ledger entity.
      - The entity holding its first alias keeps today's name, because S2's pins and the census compare entity names.
@@ -125,7 +126,7 @@ S1-specific constraints:
 5. **Rendering.**
    - An `admitted` entity renders into its group's table, and a `review` entity into `POTENTIAL_LENDER_ALIASES`, whatever its group. `owner_ruling` and `rejected` entities render into no table.
    - Within a table, entities are in case-folded name order, and aliases keep the ledger's order with exact repeats dropped. The order is the matcher's tie-break, so it is part of the rendering.
-   - The evidence ledger lists every rendered entity with its aliases, its verdicts and its first public source. For anything not admitted, it also lists where the researchers looked. It then adds:
+   - The evidence ledger lists every entity with its group, its verdicts and its first public source (else `none recorded`), and, for anything not admitted, where the researchers looked (spec section 5). A rendered entity also shows its status and aliases, so a `review` entity shows the group it was researched for. (Amended after review: the earlier rows left out the group of a rendered entity and the source of an entity awaiting a ruling or rejected.) After the tables it adds:
      - the moves from today's registry;
      - the entities awaiting an owner ruling;
      - the premium/insurer overlaps;
@@ -228,6 +229,8 @@ The real ledger's counts will differ.
 **After the trial (the cross-plan consistency check, 2026-09-25).** Two edits were made without a replay of the whole file:
 - Task 9's content test lost one parametrized case: `VSA PUR INTUIT QBOOKS ONLINE` comes from the H-2 real-statement evidence, and S2's Task 0 no longer uses it. `CARD PURCHASE INTUIT QUICKBOOKS 0001` covers the same case. The counts move by one: Task 9 Step 8 gives 97 (58 content tests), and Step 9 gives 223.
 - Task 8's audit now reads S2's exact step-8 wording and order in its bank-name and card-context passes (`_LOAN_WORDING`, `_CARD_WORDING`). The wording was replayed on a scratch script against S2's step-8 rules as S2's plan writes them: on 223,652 fabricated descriptors built from the rules' own words, around a listed bank and a listed issuer, the two passes took exactly the rows S2 gives to the bank-name and card-payment rules. The extended test `test_only_the_descriptor_rule_passes_need_loan_or_card_wording` pins it, and the audit keeps its 22 tests. The trial's audit counts were taken with the earlier wording.
+
+**After the review of Tasks 5-8 (fix round 1, 2026-09-25).** The independent review found two Important and three Minor defects in the plan's own code, and the orchestrator ruled that the binding constraints and spec section 5 govern over the code blocks. The code blocks of Tasks 5-8 are amended to the reviewed code (each task says so). The counts above predate the fix; the amended steps give Task 5 107 tests, Task 6 11, Task 7 Step 8 130, Task 8 23 and 197 for every S1 test so far, and Task 9 Step 9 255.
 
 ## Prerequisite: the curated ledger (Task 9 starts only when both hold)
 
@@ -1519,6 +1522,13 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 
 ### Task 5: The ledger's schema and validator (C10)
 
+> **Amended after review (fix round 1, 2026-09-25).** The code blocks below are the reviewed code:
+> - every validator message masks the names and values it quotes (`_shown`, `mask_digit_runs`), and `validate` scrubs every problem as a backstop, so no message quotes a run of five or more digits; `privacy_review` masks digit runs too;
+> - `_public_url` parses URLs with `urllib.parse.urlsplit` and refuses credentials, `localhost`, private or loopback IP addresses, undotted or numeric hosts and a `|`;
+> - the fixture's rejected entity looks somewhere other than its source (Task 6's column test).
+>
+> Step 5 counts 107 tests.
+
 **Files:**
 - Create: `tools/lender_ledger.py`
 - Create: `tests/lender_ledger_fixture.py`
@@ -1529,7 +1539,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
   - `analysis.description_text.normalize_transaction_description` (Task 3);
   - `AliasIndex`, `registry_match` and `RUN_TOGETHER_MIN_LENGTH` (Task 3).
 - Produces (used by Tasks 6-10):
-  - **Constants:** `SCHEMA`, `LEDGER_PATH`, `EMPTY_LEDGER`, `TABLES` (group, table, heading) in C2 order, `GROUPS`, `TABLE_OF_GROUP`, `PAYEE_STATES`, `STATUSES`, `RENDERED`, `ADMITTING_VERDICTS`, `FIELDS`, `SHORT_ALIAS`, `GENERIC_WORDS`, `ORG_CUES`, `CONTEXT_ONLY_GROUPS`, `MOVE_MARKER`, `BASELINE_REVISION`, `BASELINE_TABLES`, `BASELINE_STATE`, `UNRULED_PLACES`.
+  - **Constants:** `SCHEMA`, `LEDGER_PATH`, `EMPTY_LEDGER`, `TABLES` (group, table, heading) in C2 order, `GROUPS`, `TABLE_OF_GROUP`, `PAYEE_STATES`, `STATUSES`, `RENDERED`, `ADMITTING_VERDICTS`, `FIELDS`, `SHORT_ALIAS`, `GENERIC_WORDS`, `ORG_CUES`, `CONTEXT_ONLY_GROUPS`, `MOVE_MARKER`, `BASELINE_REVISION`, `BASELINE_TABLES`, `BASELINE_STATE`, `UNRULED_PLACES`, `WITHHELD`.
   - **Data model:**
     - `Evidence(source, note)` and `Verdict(round, verdict, confirmed)`;
     - `LedgerEntity(index, entity, group, business_type, aliases, status, short_alias_reason, evidence, verdicts, where_looked, notes)`, with the properties `.table` (its C2 table, or None) and `.place` (its group, `"potential_lender"` or `"no table"`);
@@ -1545,7 +1555,8 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
     - `owner_named_problems(tables, owner_named) -> list[str]`;
     - `validate(data: object, rules: Rules) -> list[str]`;
     - `premium_insurer_overlaps(entities, insurers) -> list[tuple[str, str]]`;
-    - `privacy_review(entities) -> list[str]`.
+    - `privacy_review(entities) -> list[str]`;
+    - `mask_digit_runs(text: str) -> str`, which replaces every run of five or more digits with `WITHHELD`.
   - **Fixture:** `tests.lender_ledger_fixture.entity(...)`, `ledger(*changes)`, and the constants `ENTITIES`, `UNRESOLVED`, `BASELINE`, `OWNER_NAMED`, `HAND_KEPT` and `RULES`.
 
 - [ ] **Step 1: Write the fabricated ledger fixture**
@@ -1616,7 +1627,7 @@ ENTITIES = [
     entity("Tarnmoor Capital", "confirmed_lender", ["TARNMOOR CAP"], status="rejected",
            evidence=[{"source": "https://tarnmoor.example/", "note": "fabricated: a bakery"}],
            verdicts=[{"round": "r2", "verdict": "refuted", "confirmed": False}],
-           notes="Fabricated: a bakery, not a funder."),
+           where_looked=["https://registry.example/tarnmoor"], notes="Fabricated: a bakery, not a funder."),
 ]
 
 #: Today's three lists, as the validator reads them from git (fabricated).
@@ -1668,6 +1679,7 @@ Create `tests/test_lender_ledger.py`:
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import pytest
 
@@ -1950,12 +1962,93 @@ def test_a_digit_run_is_allowed_in_an_alias_todays_registry_already_holds():
     assert _problems((1, "aliases", ["OLDCO FUNDING", "OLDCO", "OLDCO 4444444"]), rules=rules) == []
 
 
+NUMBERED = "7777777 ONTARIO INC"
+WITHHELD = "(withheld: a run of digits)"
+
+
+def test_no_message_quotes_a_digit_run_name_that_is_duplicated_and_holds_todays_first_alias():
+    assert _problems((1, "entity", NUMBERED), (16, "entity", NUMBERED)) == [
+        f"entity name {WITHHELD} appears more than once (entities 1 and 16)",
+        "entity 1: the entity field carries a run of five or more digits",
+        "entity 16: the entity field carries a run of five or more digits",
+        f"the ledger entity holding the first alias of today's 'Oldco Funding' is named {WITHHELD}: keep today's "
+        "name (S2's pins and the census compare entity names)",
+    ]
+
+
+@pytest.mark.parametrize("data,rules", [
+    (ledger((0, "entity", "Quillon 7777777 Funding"), (0, "group", "line_of_credit")), RULES),
+    (ledger(), dataclasses.replace(RULES, baseline={**BASELINE, "POTENTIAL_LENDER_ALIASES": {
+        **BASELINE["POTENTIAL_LENDER_ALIASES"], "Septima 7777777 Holdings": ("SEPTIMA HOLDINGS",)}})),
+    (ledger(), dataclasses.replace(RULES, owner_named={
+        "confirmed_lender": (("Quillon 7777777", "QUILLON 7777777"),)})),
+    (ledger((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"])),
+     dataclasses.replace(RULES, hand_kept={"INSURANCE_PROVIDER_ALIASES": {"Brisk 7777777": ("BRISK MUTUAL",)}})),
+    (ledger((0, "group", "grp 7777777")), RULES),
+    (ledger((0, "status", "7777777")), RULES),
+    (ledger((0, "7777777", "x")), RULES),
+    ({"schema": 7777777, "entities": []}, RULES),
+])
+def test_no_problem_ever_quotes_a_run_of_five_or_more_digits(data, rules):
+    problems = lender_ledger.validate(data, rules)
+    assert problems
+    assert [problem for problem in problems if re.search(r"\d{5}", problem)] == []
+    assert any(WITHHELD in problem for problem in problems)
+
+
+def test_validate_withholds_a_digit_run_whichever_rule_would_quote_it(monkeypatch):
+    monkeypatch.setattr(lender_ledger, "baseline_problems",
+                        lambda _entities, _baseline: ["fabricated 12345 and 7777777"])
+    assert lender_ledger.validate(ledger(), RULES) == [f"fabricated {WITHHELD} and {WITHHELD}"]
+
+
+def test_the_privacy_review_never_quotes_a_run_of_five_or_more_digits():
+    assert lender_ledger.privacy_review(_entities((16, "entity", "Marsh 7777777 Recovery"),
+                                                  (16, "aliases", ["MARSH RECOVERY", "REMCO 4444444"]))) == [
+        "alias shares no word with its name: Quillon Funding | QUILLONFUND",
+        "no organisation word in the name: Ruledco (admitted)",
+        "no organisation word in the name: Oxbow Card (admitted)",
+        "no organisation word in the name: Oxbow (admitted)",
+        f"no organisation word in the name: Marsh {WITHHELD} Recovery (owner_ruling)",
+        f"alias shares no word with its name: Marsh {WITHHELD} Recovery | REMCO {WITHHELD}",
+    ]
+
+
 def test_sources_and_where_looked_are_public_urls_without_a_query_string():
     assert _problems((0, "where_looked", ["https://search.example/?q=QUILLON"]),
                      (0, "evidence", [{"source": "descriptor: fabricated", "note": "x"}])) == [
         "entity 0 ('Quillon Funding'): evidence 0 source is not a public URL without a query string",
         "entity 0 ('Quillon Funding'): where_looked 0 is not a public URL without a query string",
     ]
+
+
+@pytest.mark.parametrize("url", [
+    "https://user:token@quillon.example/",
+    "https://user@quillon.example/",
+    "http://localhost/quillon",
+    "http://docs.localhost/quillon",
+    "http://127.0.0.1/quillon",
+    "http://10.1.2.3/quillon",
+    "http://192.168.1.20/quillon",
+    "http://[::1]/quillon",
+    "http://intranet/quillon",
+    "http://0177.0.0.1/quillon",
+    "https:///quillon",
+    "https://quillon.example:port/",
+    "https://quillon.example/a|b",
+])
+def test_a_url_with_credentials_or_on_a_local_private_or_undotted_host_is_not_public(url):
+    assert _problems((0, "where_looked", [url])) == [
+        "entity 0 ('Quillon Funding'): where_looked 0 is not a public URL without a query string"
+    ]
+
+
+@pytest.mark.parametrize("url", [
+    "https://quillon.example/", "http://registry.example/company/about.html", "https://quillon.example:8443/",
+    "https://8.8.8.8/quillon",
+])
+def test_a_url_on_a_public_host_is_public(url):
+    assert _problems((0, "where_looked", [url])) == []
 
 
 def test_the_privacy_review_lists_every_name_without_an_organisation_word_and_every_foreign_alias():
@@ -2088,7 +2181,8 @@ The validator applies:
   * every rule contract C10 lists;
   * spec section 5's brand rule (a brand that also sells goods is an alias only with payment or loan wording);
   * the privacy constraints: no digit run of five or more outside a URL, unless today's registry already
-    holds that alias; sources and "where looked" entries are public URLs without a query string;
+    holds that alias; sources and "where looked" entries are public URLs without a query string, credentials
+    or a local, private or undotted host;
   * contract C2's context-only tables: no entity of the card, card-issuer, bank-name or premium-finance
     groups is under review, and every card-payment alias carries card or payment wording;
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
@@ -2099,6 +2193,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import ipaddress
 import json
 import re
 import subprocess
@@ -2106,6 +2201,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -2166,7 +2262,10 @@ ACCEPTANCE ADVANCE BANK CAPITAL CO CORP CORPORATION CREDIT FACTORING FINANCE FIN
 HOLDINGS INC LEASING LENDING LLC LOANS LTD MORTGAGE PARTNERS SERVICES SERVICING VENTURES
 """.split())
 _LONG_DIGITS = re.compile(r"\d{5,}")
-_PUBLIC_URL = re.compile(r"https?://[^\s?#]+")
+#: What a message or a printed line shows in place of a run of five or more digits: the validator's messages,
+#: the move lines and the privacy review never quote such a run (the numbered company's number).
+WITHHELD = "(withheld: a run of digits)"
+_URL_SCHEME = re.compile(r"https?://")
 #: The groups whose tables the classifier reads only with context: card or payment wording, loan wording, or
 #: the insurance rule. None of their entities is ever "review", because the potential tier (where C10 renders
 #: every review entity) reads its aliases with no context at all.
@@ -2283,6 +2382,38 @@ def ledger_digest(data: object) -> str:
     return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
+def mask_digit_runs(text: str) -> str:
+    """``text`` with every run of five or more digits replaced by WITHHELD."""
+    return _LONG_DIGITS.sub(WITHHELD, text)
+
+
+def _shown(value: object) -> str:
+    """The repr of a name or a value for a message, or WITHHELD when it carries a run of five or more digits."""
+    text = repr(value)
+    return WITHHELD if _LONG_DIGITS.search(text) else text
+
+
+def _public_url(text: str) -> bool:
+    """An http(s) URL without whitespace, a query string, a fragment, a '|' (it would split an evidence-ledger
+    row) or credentials (userinfo), on a public host: a global IP address, or a dotted name that is not
+    localhost and whose last label starts with a letter (so no private, loopback, undotted or numeric host)."""
+    if not _URL_SCHEME.match(text) or any(char.isspace() or char in "?#|" for char in text):
+        return False
+    try:
+        parts = urlsplit(text)
+        host, _port = parts.hostname, parts.port
+    except ValueError:
+        return False
+    if not host or "@" in parts.netloc:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass
+    labels = host.split(".")
+    return len(labels) >= 2 and all(labels) and labels[-1] != "localhost" and labels[-1][0].isalpha()
+
+
 def _texts(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
@@ -2301,15 +2432,15 @@ def _shape_problems(index: int, record: object) -> list[str]:
     if missing:
         problems.append(f"{where}: missing field(s) {', '.join(missing)}")
     if unknown:
-        problems.append(f"{where}: unknown field(s) {', '.join(unknown)}")
+        problems.append(f"{where}: unknown field(s) {mask_digit_runs(', '.join(unknown))}")
     if problems:
         return problems
     checks = (
         (_filled(record["entity"]), "entity is not a non-empty string"),
-        (record["group"] in GROUPS, f"group {record['group']!r} is not a C10 group"),
+        (record["group"] in GROUPS, f"group {_shown(record['group'])} is not a C10 group"),
         (_filled(record["business_type"]), "business_type is not a non-empty string"),
         (_texts(record["aliases"]), "aliases is not a list of strings"),
-        (record["status"] in STATUSES, f"status {record['status']!r} is not one of {', '.join(STATUSES)}"),
+        (record["status"] in STATUSES, f"status {_shown(record['status'])} is not one of {', '.join(STATUSES)}"),
         (record["short_alias_reason"] is None or _filled(record["short_alias_reason"]),
          "short_alias_reason is neither null nor a non-empty string"),
         (isinstance(record["evidence"], list), "evidence is not a list"),
@@ -2336,7 +2467,7 @@ def parse_ledger(data: object) -> tuple[list[LedgerEntity], list[str]]:
     if not isinstance(data, dict) or set(data) != {"schema", "entities"}:
         return [], ["the ledger is not an object with exactly the keys 'schema' and 'entities'"]
     if data["schema"] is True or data["schema"] != SCHEMA:
-        return [], [f"the ledger schema is {data['schema']!r}; this validator reads schema {SCHEMA}"]
+        return [], [f"the ledger schema is {_shown(data['schema'])}; this validator reads schema {SCHEMA}"]
     if not isinstance(data["entities"], list):
         return [], ["the ledger's 'entities' is not a list"]
     entities: list[LedgerEntity] = []
@@ -2445,25 +2576,25 @@ def baseline_problems(entities: list[LedgerEntity],
                       baseline: Mapping[str, Mapping[str, tuple[str, ...]]]) -> list[str]:
     moves, missing = baseline_moves(entities, baseline)
     marked = f"a sentence starting {MOVE_MARKER!r} in its notes"
-    problems = [f"today's {table} entity {name!r} is in no ledger entity: record it in its place, or moved or "
-                f"rejected with {marked}" for table, name in missing]
+    problems = [f"today's {table} entity {_shown(name)} is in no ledger entity: record it in its place, or moved "
+                f"or rejected with {marked}" for table, name in missing]
     held = _holders(entities)
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
             first = held.get(normalize(aliases[0]))
             if first is not None and first.entity != name:
-                problems.append(f"the ledger entity holding the first alias of today's {name!r} is named "
-                                f"{first.entity!r}: keep today's name (S2's pins and the census compare entity "
-                                f"names)")
+                problems.append(f"the ledger entity holding the first alias of today's {_shown(name)} is named "
+                                f"{_shown(first.entity)}: keep today's name (S2's pins and the census compare "
+                                f"entity names)")
     for move in moves:
         if move.reason:
             continue
         if move.now not in UNRULED_PLACES[move.table]:
-            problems.append(f"today's {move.table} entity {move.entity!r} moves from {move.was} to {move.now} "
-                            f"without {marked}")
+            problems.append(f"today's {move.table} entity {_shown(move.entity)} moves from {move.was} to "
+                            f"{move.now} without {marked}")
         if move.lost:
-            problems.append(f"today's {move.table} entity {move.entity!r} loses {move.lost} of today's aliases "
-                            f"without {marked}")
+            problems.append(f"today's {move.table} entity {_shown(move.entity)} loses {move.lost} of today's "
+                            f"aliases without {marked}")
     return problems
 
 
@@ -2474,10 +2605,6 @@ def _label(entity: LedgerEntity) -> str:
     if _LONG_DIGITS.search(entity.entity):
         return f"entity {entity.index}"
     return f"entity {entity.index} ({entity.entity!r})"
-
-
-def _shown(alias: str) -> str:
-    return "(withheld: a run of digits)" if _LONG_DIGITS.search(alias) else repr(alias)
 
 
 def _alias_problems(entity: LedgerEntity, alias: str, rules: Rules, held: frozenset[str]) -> list[str]:
@@ -2507,7 +2634,8 @@ def _alias_problems(entity: LedgerEntity, alias: str, rules: Rules, held: frozen
     for table, entries in rules.hand_kept.items():
         for name, aliases in entries.items():
             if norm in {normalize(other) for other in aliases}:
-                problems.append(f"{label}: alias {shown} is also an alias of the hand-kept {table} entity {name!r}")
+                problems.append(f"{label}: alias {shown} is also an alias of the hand-kept {table} entity "
+                                f"{_shown(name)}")
     if norm in rules.brands and entity.table not in (TABLE_OF_GROUP["card_issuer_context"],
                                                      TABLE_OF_GROUP["bank_name"]):
         problems.append(f"{label}: alias {shown} is a bare brand name; it belongs in card_issuer_context or "
@@ -2544,10 +2672,10 @@ def _entity_problems(entity: LedgerEntity, rules: Rules, held: frozenset[str]) -
         if _LONG_DIGITS.search(text):
             problems.append(f"{label}: the {field_name} field carries a run of five or more digits")
     for number, item in enumerate(entity.evidence):
-        if not _PUBLIC_URL.fullmatch(item.source):
+        if not _public_url(item.source):
             problems.append(f"{label}: evidence {number} source is not a public URL without a query string")
     for number, url in enumerate(entity.where_looked):
-        if not _PUBLIC_URL.fullmatch(url):
+        if not _public_url(url):
             problems.append(f"{label}: where_looked {number} is not a public URL without a query string")
     return problems
 
@@ -2558,8 +2686,8 @@ def _name_problems(entities: list[LedgerEntity], rules: Rules) -> list[str]:
     for entity in entities:
         seen = first.setdefault(entity.entity, entity)
         if seen is not entity:
-            problems.append(f"entity name {entity.entity!r} appears more than once (entities {seen.index} and "
-                            f"{entity.index})")
+            problems.append(f"entity name {_shown(entity.entity)} appears more than once (entities {seen.index} "
+                            f"and {entity.index})")
         for table, entries in rules.hand_kept.items():
             if entity.entity in entries:
                 problems.append(f"{_label(entity)} has the name of an entity of the hand-kept {table}")
@@ -2619,13 +2747,13 @@ def owner_named_problems(tables: Mapping[str, Mapping[str, tuple[str, ...]]],
                     continue
             elif payee is None and registry_match(text, tables[TABLE_OF_GROUP[group]]) is not None:
                 continue
-            found = "nothing" if payee is None else f"{payee.entity!r} ({payee.state})"
-            problems.append(f"owner-named {label} is not admitted in {group}: {spelling!r} matches {found}")
+            found = "nothing" if payee is None else f"{_shown(payee.entity)} ({payee.state})"
+            problems.append(f"owner-named {mask_digit_runs(label)} is not admitted in {group}: {_shown(spelling)} "
+                            f"matches {found}")
     return problems
 
 
-def validate(data: object, rules: Rules) -> list[str]:
-    """Every problem with the ledger, in a fixed order; an empty list means it may be rendered."""
+def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     entities, problems = parse_ledger(data)
     if problems:
         return problems
@@ -2637,6 +2765,13 @@ def validate(data: object, rules: Rules) -> list[str]:
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
     problems.extend(baseline_problems(entities, rules.baseline))
     return problems
+
+
+def validate(data: object, rules: Rules) -> list[str]:
+    """Every problem with the ledger, in a fixed order; an empty list means it may be rendered. Every rule
+    masks the names and values it quotes; as a backstop, no returned message quotes a run of five or more
+    digits."""
+    return [mask_digit_runs(problem) for problem in _unmasked_problems(data, rules)]
 
 
 # --- what the owner and a privacy reviewer read ---------------------------------------------------------------
@@ -2665,7 +2800,8 @@ def premium_insurer_overlaps(entities: list[LedgerEntity],
 def privacy_review(entities: list[LedgerEntity]) -> list[str]:
     """The lines a person reads for a person's or a customer's name before the ledger is committed: every
     entity name without an organisation word, and every alias that shares no word with its entity's name.
-    Every status is listed, because the committed ledger carries them all."""
+    Every status is listed, because the committed ledger carries them all. No line quotes a run of five or
+    more digits."""
     lines = []
     for entity in entities:
         words = set(normalize(entity.entity).split(" "))
@@ -2674,13 +2810,13 @@ def privacy_review(entities: list[LedgerEntity]) -> list[str]:
         for alias in dict.fromkeys(entity.aliases):
             if not set(normalize(alias).split(" ")) & words:
                 lines.append(f"alias shares no word with its name: {entity.entity} | {alias}")
-    return lines
+    return [mask_digit_runs(line) for line in lines]
 ```
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_ledger.py -q -p no:cacheprovider`
-Expected: 79 passed. `test_the_baseline_revision_holds_the_lists_the_classifier_reads_until_s2` reads git. It proves that `BASELINE_REVISION` holds exactly the three lists the classifier reads today.
+Expected: 107 passed. `test_the_baseline_revision_holds_the_lists_the_classifier_reads_until_s2` reads git. It proves that `BASELINE_REVISION` holds exactly the three lists the classifier reads today.
 
 - [ ] **Step 6: Commit**
 
@@ -2693,6 +2829,8 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 ---
 
 ### Task 6: The deterministic renderer
+
+> **Amended after review (fix round 1, 2026-09-25).** Spec section 5 governs the evidence ledger: the table rows carry a Group column, the rows awaiting an owner ruling and the rejected rows carry a Source column (the first source, else `none recorded`), every source and where-looked cell goes through `_cell`, and the moves table masks digit runs. Step 4 counts 11 tests.
 
 **Files:**
 - Create: `tools/build_lender_registry.py` (the renderer; Task 7 adds the command line)
@@ -2810,12 +2948,19 @@ def test_the_evidence_ledger_names_its_ledger_digest_and_every_table(evidence):
     assert "## Mortgages (`MORTGAGE_SERVICER_ALIASES`)\n\n| Entity |" in evidence
 
 
-def test_the_evidence_ledger_rows_carry_the_source_and_for_review_where_the_researchers_looked(evidence):
-    assert ("| Quillon Funding | mca_or_revenue_based_funder | r1 upheld | admitted | QUILLON FUNDING, QUILLONFUND | "
-            "https://quillon.example/ | - | - |") in evidence
-    assert ("| Heldco Advance | mca_or_revenue_based_funder | r2 unresolved (not confirmed) | review | "
-            "HELDCO ADVANCE | none recorded | https://registry.example/heldco, https://heldco.example/ | "
+def test_the_evidence_ledger_rows_carry_the_group_the_source_and_for_review_where_the_researchers_looked(evidence):
+    assert ("| Quillon Funding | confirmed_lender | mca_or_revenue_based_funder | r1 upheld | admitted | "
+            "QUILLON FUNDING, QUILLONFUND | https://quillon.example/ | - | - |") in evidence
+    assert ("| Heldco Advance | confirmed_lender | mca_or_revenue_based_funder | r2 unresolved (not confirmed) | "
+            "review | HELDCO ADVANCE | none recorded | https://registry.example/heldco, https://heldco.example/ | "
             "Fabricated: identity unconfirmed. |") in evidence
+
+
+def test_an_entity_under_review_shows_its_researched_group_in_the_potential_table():
+    evidence = builder.render_evidence(_entities((3, "status", "review")), "a" * 64, RULES)
+    potential = evidence.split("(`POTENTIAL_LENDER_ALIASES`)\n", 1)[1].split("\n## ", 1)[0]
+    assert ("| Brambleway Capital | line_of_credit | business_loc_provider | r1 upheld | review | "
+            "BRAMBLEWAY CAPITAL | https://brambleway.example/ | https://brambleway.example/ | - |") in potential
 
 
 def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(evidence):
@@ -2825,14 +2970,28 @@ def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(e
     assert "| Westfen Leasing | lease_or_equipment_financing | lease_or_rental | 0 | - |" in moves
     waiting = evidence.split("## Awaiting an owner ruling\n", 1)[1].split("\n## ", 1)[0]
     assert ("| Marsh Recovery | potential_lender | servicer_or_processor_for_funders | r2 unresolved (not confirmed) "
-            "| https://marsh.example/, https://registry.example/marsh | Fabricated: a collector whose funder is "
-            "unknown; the owner decides. |") in waiting
+            "| none recorded | https://marsh.example/, https://registry.example/marsh | Fabricated: a collector whose "
+            "funder is unknown; the owner decides. |") in waiting
     assert ("- Brisk Mutual Funding (premium financing) has an alias that contains an alias of the hand-kept insurer "
             "Brisk Mutual (`INSURANCE_PROVIDER_ALIASES`).") in waiting
     rejected = evidence.split("## Rejected\n", 1)[1]
     assert ("| Tarnmoor Capital | confirmed_lender | mca_or_revenue_based_funder | r2 refuted (not confirmed) | "
-            "https://tarnmoor.example/ | Fabricated: a bakery, not a funder. |") in rejected
+            "https://tarnmoor.example/ | https://registry.example/tarnmoor | Fabricated: a bakery, not a funder. "
+            "|") in rejected
     assert "TARNMOOR CAP" not in evidence and "MARSH RECOVERY" not in evidence
+
+
+def test_a_pipe_in_a_source_or_where_looked_never_splits_an_evidence_row():
+    entities = _entities((0, "evidence", [{"source": "https://quillon.example/a|b", "note": "fabricated"}]),
+                         (15, "where_looked", ["https://heldco.example/a|b"]),
+                         (17, "where_looked", ["https://registry.example/t|x"]))
+    evidence = builder.render_evidence(entities, "a" * 64, RULES)
+    for section in evidence.split("\n## ")[1:]:
+        rows = [line for line in section.splitlines() if line.startswith("|")]
+        assert len({row.count("|") for row in rows}) <= 1, section.splitlines()[0]
+    assert "| https://quillon.example/a/b | - | - |" in evidence
+    assert "| none recorded | https://heldco.example/a/b |" in evidence
+    assert "| https://tarnmoor.example/ | https://registry.example/t/x |" in evidence
 
 
 def test_the_evidence_ledger_is_the_same_text_every_time(evidence):
@@ -2940,26 +3099,32 @@ def _verdicts(entity: LedgerEntity) -> str:
                      for v in entity.verdicts) or "none"
 
 
+def _source(entity: LedgerEntity) -> str:
+    return entity.evidence[0].source if entity.evidence else "none recorded"
+
+
 def _looked(entity: LedgerEntity) -> str:
     return ", ".join(entity.where_looked) or "none recorded"
 
 
 def _table_row(entity: LedgerEntity) -> str:
-    source = entity.evidence[0].source if entity.evidence else "none recorded"
     looked = "-" if entity.status == "admitted" else _looked(entity)
     aliases = ", ".join(dict.fromkeys(entity.aliases))
-    return (f"| {_cell(entity.entity)} | {_cell(entity.business_type)} | {_cell(_verdicts(entity))} | "
-            f"{entity.status} | {_cell(aliases)} | {source} | {looked} | {_cell(entity.notes)} |")
+    return (f"| {_cell(entity.entity)} | {entity.group} | {_cell(entity.business_type)} | "
+            f"{_cell(_verdicts(entity))} | {entity.status} | {_cell(aliases)} | {_cell(_source(entity))} | "
+            f"{_cell(looked)} | {_cell(entity.notes)} |")
 
 
 def _listed_row(entity: LedgerEntity) -> str:
     return (f"| {_cell(entity.entity)} | {entity.group} | {_cell(entity.business_type)} | "
-            f"{_cell(_verdicts(entity))} | {_looked(entity)} | {_cell(entity.notes)} |")
+            f"{_cell(_verdicts(entity))} | {_cell(_source(entity))} | {_cell(_looked(entity))} | "
+            f"{_cell(entity.notes)} |")
 
 
 def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> str:
-    """The evidence ledger: every entity with its group, verdicts, public source and, for anything not
-    admitted, where the researchers looked. No statement text, amounts, account numbers or customer names."""
+    """The evidence ledger (spec section 5): every entity with its group, its verdicts, its first public source
+    (else "none recorded") and, for anything not admitted, where the researchers looked. No statement text,
+    amounts, account numbers or customer names."""
     tables = render_tables(entities)
     by_name = {entity.entity: entity for entity in entities}
     lines = [
@@ -2982,8 +3147,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "- An entity under review is in `POTENTIAL_LENDER_ALIASES` (review, never counted), whatever its group. "
         "No entity of a table read only with context (credit cards, card issuers, bank names, premium financing) "
         "is under review.",
-        "- An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with where the "
-        "researchers looked.",
+        "- An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with its group, its "
+        "public source and where the researchers looked.",
         "- Every payee the owner named in spec section 2 is admitted in its ruled group: the validator refuses a "
         "ledger in which one is not.",
         "- An entity of the registry as it stood before this ledger changes place, or loses an alias, only with a "
@@ -3002,14 +3167,15 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         if not tables[table]:
             lines.append("None.")
             continue
-        lines += ["| Entity | Business type | Verdicts | Status | Aliases | Source | Where the researchers looked "
-                  "| Notes |", "|---|---|---|---|---|---|---|---|"]
+        lines += ["| Entity | Group | Business type | Verdicts | Status | Aliases | Source | Where the researchers "
+                  "looked | Notes |", "|---|---|---|---|---|---|---|---|---|"]
         lines += [_table_row(by_name[name]) for name in tables[table]]
     moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline)
     lines += ["", "## Moves from the registry as it stood before this ledger", ""]
     if moves:
         lines += ["| Entity | Was | Now | Aliases of today's registry lost | Why |", "|---|---|---|---:|---|"]
-        lines += [f"| {_cell(m.entity)} | {m.was} | {m.now} | {m.lost} | {_cell(m.reason)} |" for m in moves]
+        lines += [f"| {_cell(lender_ledger.mask_digit_runs(m.entity))} | {m.was} | {m.now} | {m.lost} | "
+                  f"{_cell(lender_ledger.mask_digit_runs(m.reason))} |" for m in moves]
     else:
         lines.append("None.")
     lines += ["", "## Awaiting an owner ruling", ""]
@@ -3017,8 +3183,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
     insurers = rules.hand_kept.get("INSURANCE_PROVIDER_ALIASES", {})
     overlaps = lender_ledger.premium_insurer_overlaps(entities, insurers)
     if waiting:
-        lines += ["| Entity | Group | Business type | Verdicts | Where the researchers looked | Notes |",
-                  "|---|---|---|---|---|---|"]
+        lines += ["| Entity | Group | Business type | Verdicts | Source | Where the researchers looked | Notes |",
+                  "|---|---|---|---|---|---|---|"]
         lines += [_listed_row(entity) for entity in waiting]
         if overlaps:
             lines.append("")
@@ -3032,8 +3198,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
     lines += ["", "## Rejected", ""]
     rejected = [entity for entity in entities if entity.status == "rejected"]
     if rejected:
-        lines += ["| Entity | Group | Business type | Verdicts | Where the researchers looked | Notes |",
-                  "|---|---|---|---|---|---|"]
+        lines += ["| Entity | Group | Business type | Verdicts | Source | Where the researchers looked | Notes |",
+                  "|---|---|---|---|---|---|---|"]
         lines += [_listed_row(entity) for entity in rejected]
     else:
         lines.append("None.")
@@ -3043,7 +3209,7 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_build_lender_registry.py -q -p no:cacheprovider`
-Expected: 9 passed.
+Expected: 11 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -3057,11 +3223,13 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 
 ### Task 7: The hand-kept inputs, the command line and the drift test
 
+> **Amended after review (fix round 1, 2026-09-25).** The `move:` lines mask every run of five or more digits (`lender_ledger.mask_digit_runs`). The command-line tests gain `test_move_lines_and_the_evidence_ledger_never_quote_a_run_of_five_or_more_digits`, so Step 1 also imports `dataclasses`, `re` and the fixture's `BASELINE`. The counts in Steps 4 and 8 include it.
+
 **Files:**
 - Modify: `analysis/classification_registry.py`. The three hand-kept constants go after `PAYEE_GROUP_REGISTRIES`, before the Deprecated block.
 - Modify: `tools/lender_ledger.py` (append `current_rules`)
 - Modify: `tools/build_lender_registry.py` (import `argparse`; append `main`)
-- Modify: `tests/test_build_lender_registry.py` (import `json`; append the command-line tests)
+- Modify: `tests/test_build_lender_registry.py` (import `dataclasses`, `json`, `re` and `BASELINE`; append the command-line tests)
 - Create: `tests/test_lender_registry_drift.py`
 
 **Interfaces:**
@@ -3072,10 +3240,10 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
   - `tools.lender_ledger.current_rules() -> Rules`, which reads those constants, the two hand-kept tables and git;
   - `tools.build_lender_registry.main(argv: list[str] | None = None) -> int`:
     - one of `--check`, `--write` or `--privacy-review`, plus `--ledger`, `--registry` and `--evidence`;
-    - `--check` and `--write` print `ledger ok: ...`, then one `move: ...` line per move from today's registry (Decision 3);
+    - `--check` and `--write` print `ledger ok: ...`, then one `move: ...` line per move from today's registry (Decision 3), with every run of five or more digits masked;
     - exit codes 0 (done), 1 (the ledger has problems; nothing is written) and 2 (no ledger, or not JSON).
 
-- [ ] **Step 1: Import `json` in the builder test**
+- [ ] **Step 1: Import `dataclasses`, `json`, `re` and `BASELINE` in the builder test**
 
 In `tests/test_build_lender_registry.py`, replace:
 
@@ -3083,6 +3251,8 @@ In `tests/test_build_lender_registry.py`, replace:
 from __future__ import annotations
 
 import pytest
+
+from tests.lender_ledger_fixture import RULES, ledger
 ```
 
 with:
@@ -3090,9 +3260,13 @@ with:
 ```python
 from __future__ import annotations
 
+import dataclasses
 import json
+import re
 
 import pytest
+
+from tests.lender_ledger_fixture import BASELINE, RULES, ledger
 ```
 
 - [ ] **Step 2: Append the failing command-line tests**
@@ -3136,6 +3310,21 @@ def test_check_accepts_a_clean_ledger_prints_every_move_and_writes_nothing(paths
     ]
     assert paths["registry"].read_bytes() == _registry_source().encode("utf-8")
     assert not paths["evidence"].exists()
+
+
+def test_move_lines_and_the_evidence_ledger_never_quote_a_run_of_five_or_more_digits(paths, monkeypatch, capsys):
+    baseline = {**BASELINE, "CONFIRMED_LENDER_ALIASES": {
+        **BASELINE["CONFIRMED_LENDER_ALIASES"], "Oldco 7777777 Holdings": ("OLDCO HOLDINGS", "OLDCO FUNDING")}}
+    monkeypatch.setattr(lender_ledger, "current_rules", lambda: dataclasses.replace(RULES, baseline=baseline))
+    paths["ledger"].write_text(json.dumps(ledger((1, "notes", "Move: fabricated merger of two funders."))),
+                               encoding="utf-8")
+    assert builder.main(_args(paths, "--write")) == 0
+    moves = [line for line in capsys.readouterr().out.splitlines() if line.startswith("move: ")]
+    assert ("move: Oldco (withheld: a run of digits) Holdings (CONFIRMED_LENDER_ALIASES): confirmed_lender -> "
+            "confirmed_lender, 1 of today's aliases lost; why: fabricated merger of two funders.") in moves
+    section = paths["evidence"].read_text(encoding="utf-8").split("## Moves from the registry", 1)[1]
+    assert "| Oldco (withheld: a run of digits) Holdings | confirmed_lender | confirmed_lender | 1 |" in section
+    assert not re.search(r"\d{5}", "\n".join(moves) + section)
 
 
 def test_check_prints_every_problem_and_exits_1(paths, capsys):
@@ -3261,11 +3450,11 @@ def test_the_evidence_ledger_is_the_rendering_of_the_committed_ledger():
 - [ ] **Step 4: Run them to verify they fail**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_build_lender_registry.py tests/test_lender_registry_drift.py -q -p no:cacheprovider`
-Expected: `2 failed, 12 passed, 6 errors`.
-- The six tests that use the `paths` fixture error at setup, because `monkeypatch` finds no `current_rules` on `tools.lender_ledger`.
+Expected: `2 failed, 14 passed, 7 errors`.
+- The seven tests that use the `paths` fixture error at setup, because `monkeypatch` finds no `current_rules` on `tools.lender_ledger`.
 - `test_the_rules_come_from_the_hand_kept_constants_of_the_registry` fails with `AttributeError: module 'tools.lender_ledger' has no attribute 'current_rules'`.
 - `test_the_owner_named_payees_cover_every_group_spec_section_2_names` fails with `AttributeError: module 'analysis.classification_registry' has no attribute 'OWNER_NAMED_PAYEES'`.
-- The three drift tests already pass, because Task 2's block is the rendering of the empty ledger. If the ledger is already on the branch (see "Before Task 1"), they fail instead, and the line reads `5 failed, 9 passed, 6 errors`.
+- The three drift tests already pass, because Task 2's block is the rendering of the empty ledger. If the ledger is already on the branch (see "Before Task 1"), they fail instead, and the line reads `5 failed, 11 passed, 7 errors`.
 
 - [ ] **Step 5: Add the hand-kept inputs to the registry**
 
@@ -3461,8 +3650,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"ledger ok: {len(entities)} entities, sha256:{digest}")
     moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline)
     for move in moves:
-        print(f"move: {move.entity} ({move.table}): {move.was} -> {move.now}, {move.lost} of today's aliases lost; "
-              f"why: {move.reason or 'none needed (spec section 4.1)'}")
+        print(lender_ledger.mask_digit_runs(
+            f"move: {move.entity} ({move.table}): {move.was} -> {move.now}, {move.lost} of today's aliases lost; "
+            f"why: {move.reason or 'none needed (spec section 4.1)'}"))
     if args.check:
         return 0
     tables = render_tables(entities)
@@ -3483,7 +3673,7 @@ if __name__ == "__main__":
 - [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_ledger.py -q -p no:cacheprovider`
-Expected: 99 passed (17 + 3 + 79). If the ledger is already on the branch, the result is `3 failed, 96 passed`: the three drift tests fail until Task 9 renders the ledger. That is expected; go on.
+Expected: 130 passed (20 + 3 + 107). If the ledger is already on the branch, the result is `3 failed, 127 passed`: the three drift tests fail until Task 9 renders the ledger. That is expected; go on.
 
 Run: `C:\Python314\python.exe -m pytest tests/test_classification_registry_groups.py tests/test_no_statement_hardcodes.py -q -p no:cacheprovider`
 Expected: `1 failed, 104 passed`. The failure is the known `test_no_literal_account_numbers_in_ocr`.
@@ -3503,6 +3693,8 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 
 ### Task 8: The alias-collision audit
 
+> **Amended after review (fix round 1, 2026-09-25).** `payee_key` falls back to the fixed `NO_PAYEE_WORDS`, never to descriptor text, which could carry an account number. Step 4 counts 23 tests, and 197 for every S1 test so far.
+
 **Files:**
 - Create: `tools/lender_alias_audit.py`
 - Test: `tests/test_lender_alias_audit.py`
@@ -3514,10 +3706,10 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
   - `FINANCING_STATES` (Task 1) and `ORG_CUES` (Task 5);
   - `webapp.artifact_cache.ArtifactCache` (tests only, to write fabricated cache entries).
 - Produces:
-  - `EARLIER_RULE_STATES` and `VOCAB`;
+  - `EARLIER_RULE_STATES`, `VOCAB` and `NO_PAYEE_WORDS`;
   - `AuditPass(index: AliasIndex, needs: re.Pattern[str] | None = None)`;
   - `CachedRow(analysis: str, description: str, amount: float, stored: str, posted: bool = True)`;
-  - `payee_key(text: str) -> str`;
+  - `payee_key(text: str) -> str`, which returns `NO_PAYEE_WORDS` when no name word survives, never descriptor text;
   - `default_passes() -> tuple[AuditPass, ...]`, whose five passes are premium financing, the known-payee matcher, the bank name (needs loan wording), the card context (needs card or payment wording) and the potential registry;
   - `takes(state: str, row: CachedRow) -> bool`;
   - `cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]`;
@@ -3604,6 +3796,14 @@ def test_payee_keys_skip_channel_words_and_stop_at_field_labels():
     assert audit_tool.payee_key("ACH DEBIT QUILLON FUNDING DES PAYMENT") == "QUILLON FUNDING"
     assert audit_tool.payee_key("ORIG CO NAME QUILLON BAKERY ORIG ID 99") == "QUILLON BAKERY"
     assert audit_tool.payee_key("CHECKCARD 0102 BRAMBLEWAY CAPITAL LOAN PROCEEDS") == "BRAMBLEWAY CAPITAL LOAN"
+
+
+def test_a_descriptor_without_payee_words_gets_a_fixed_key_and_never_its_text():
+    assert audit_tool.payee_key("ACH DEBIT 0012345678 PAYMENT") == "<no payee words>"
+    row = audit_tool.CachedRow("c" * 64, "ORIG CO NAME 7777777 ORIG ID QUILLON FUNDING", -10.0, "other")
+    report = audit_tool.audit([row], PASSES)
+    assert list(report["confirmed_lender"]["QUILLON FUNDING"]["keys"]) == ["<no payee words>"]
+    assert audit_tool.needs_review("QUILLON FUNDING", "Quillon Funding", "<no payee words>")
 
 
 def test_the_audit_replays_the_rule_order_and_counts_only_taken_rows_as_taken(tmp_path):
@@ -3883,6 +4083,9 @@ MOTOR MSP MTG NA NAME OF ON ONLINE ORIG PAD PAY PAYMENT PAYMENTS PAYOUT PMT PMTS
 PRET PROCEEDS PROGRAM PYMNT PYMNTS PYMT RECURRING REMIT RETAIL RLS SCHEDULED SERVICES SERVICING SVC SVCS TEL
 THE TYPE US USA WEB WITHDRAWAL
 """.split())
+#: The payee key of a descriptor in which no name word survives: a fixed placeholder, never descriptor text
+#: (which may carry an account number). ``needs_review`` flags it, so every such match gets a decision.
+NO_PAYEE_WORDS = "<no payee words>"
 
 
 @dataclass(frozen=True)
@@ -3903,7 +4106,8 @@ class CachedRow:
 
 
 def payee_key(text: str) -> str:
-    """The counterparty key of a normalized descriptor: up to three name words after the channel words."""
+    """The counterparty key of a normalized descriptor: up to three name words after the channel words, or
+    NO_PAYEE_WORDS when none survives."""
     originator = _CHASE_ORIGINATOR.search(text)
     base = _LEADING.sub("", (originator.group(1) if originator else text) + " ").strip()
     words: list[str] = []
@@ -3917,7 +4121,7 @@ def payee_key(text: str) -> str:
         words.append(word)
         if len(words) == 3:
             break
-    return " ".join(words) or text[:24]
+    return " ".join(words) or NO_PAYEE_WORDS
 
 
 def default_passes() -> tuple[AuditPass, ...]:
@@ -4136,10 +4340,10 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_alias_audit.py -q -p no:cacheprovider`
-Expected: 22 passed.
+Expected: 23 passed.
 
 Run every S1 test so far: `C:\Python314\python.exe -m pytest tests/test_flag_groups.py tests/test_classification_registry_groups.py tests/test_payee_matcher.py tests/test_classifier_speed.py tests/test_lender_ledger.py tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_alias_audit.py -q -p no:cacheprovider`
-Expected: 165 passed (5 + 21 + 15 + 3 + 79 + 17 + 3 + 22), or `3 failed, 162 passed` when the ledger is already on the branch (Task 7 Step 8).
+Expected: 197 passed (5 + 21 + 15 + 3 + 107 + 20 + 3 + 23), or `3 failed, 194 passed` when the ledger is already on the branch (Task 7 Step 8).
 
 - [ ] **Step 5: Commit**
 
@@ -4451,7 +4655,7 @@ Never edit the ledger, the rendered block or the test to make it pass.
 - [ ] **Step 9: Run every S1 test, the three selections and the benchmark**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_flag_groups.py tests/test_classification_registry_groups.py tests/test_payee_matcher.py tests/test_classifier_speed.py tests/test_lender_ledger.py tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_alias_audit.py tests/test_lender_registry_content.py -q -p no:cacheprovider`
-Expected: 223 passed.
+Expected: 255 passed (197 + 58; amended after review).
 
 Run the three commands from "Before Task 1".
 Expected: the baseline counts, unchanged: `404 passed`; `146 passed, 1 failed` (the known failure); `306 passed`. The classifier still reads the legacy lists.
@@ -4766,7 +4970,7 @@ Do not quote any payee key.
   - the validator runs as `tools/build_lender_registry.py --check`;
   - the evidence ledger is `docs/lender-registry-evidence.md`.
 - The names are used consistently across the tasks:
-  - the ledger module (Tasks 5 and 7): `parse_ledger`, `validate`, `render_tables`, `owner_named_problems`, `move_reason`, `baseline_moves`, `baseline_problems`, `premium_insurer_overlaps`, `privacy_review`, `ledger_digest`, `read_ledger`, `load_baseline`, `baseline_from_source`, `current_rules`, and the constants `MOVE_MARKER` and `CONTEXT_ONLY_GROUPS`;
+  - the ledger module (Tasks 5 and 7): `parse_ledger`, `validate`, `render_tables`, `owner_named_problems`, `move_reason`, `baseline_moves`, `baseline_problems`, `premium_insurer_overlaps`, `privacy_review`, `ledger_digest`, `read_ledger`, `load_baseline`, `baseline_from_source`, `current_rules`, `mask_digit_runs`, and the constants `MOVE_MARKER`, `CONTEXT_ONLY_GROUPS` and `WITHHELD`;
   - the renderer (Tasks 6-7): `render_block`, `current_block`, `replace_block`, `render_evidence`, `main`;
-  - the audit (Tasks 8 and 10): `AuditPass`, `CachedRow`, `payee_key`, `default_passes`, `takes`, `cached_rows`, `audit`, `needs_review`, `review`, `lost_matches`, `main` (with `--before`).
+  - the audit (Tasks 8 and 10): `AuditPass`, `CachedRow`, `NO_PAYEE_WORDS`, `payee_key`, `default_passes`, `takes`, `cached_rows`, `audit`, `needs_review`, `review`, `lost_matches`, `main` (with `--before`).
 - The S2 Task-0 descriptors that S1's content test checks are copied verbatim from the current S2 plan.
