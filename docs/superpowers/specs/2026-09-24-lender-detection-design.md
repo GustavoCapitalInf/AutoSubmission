@@ -45,6 +45,11 @@ The census and the code found three kinds of failure.
 | Flag: **Mortgages** | No | Mortgage servicers |
 | Flag: **Leases & rentals** | No | Equipment rentals, leases, lease-to-own (Progressive, SmartPay, Snap) |
 | Flag: **Personal loans** | No | Consumer and student loans paid from the account |
+| Flag: **Floor plan** | No; flagged like alternative positions | Inventory (floor-plan) lenders for dealers: NextGear Capital, Westlake Flooring… |
+| Flag: **Factoring** | No; flagged like alternative positions | Invoice factoring companies: RTS Financial, OTR Capital, Apex Capital, BC Factoring… |
+| Flag: **Premium financing** | No; the rows **stay counted as insurance** as today, and are also flagged | Insurance premium financing: IPFS, First Insurance Funding… |
+
+*Amendment (owner, 2026-09-24):* Floor plan, Factoring and Premium financing were added after round 2 of the research. Each has its own checkbox, default on. The floor-plan and factoring rows are flagged like alternative positions. Premium-financing rows keep the `insurance` state and their insurance totals, and also carry the flag.
 
 - Every flag group has its own Settings checkbox.
 - Every checkbox is **on by default**.
@@ -88,6 +93,8 @@ The code forced these choices, and the rulings above did not settle them.
 - `mortgage`
 - `lease_or_rental`
 - `personal_loan`
+- `floor_plan_financing`
+- `factoring`
 
 `credit_card_payment` stays; it is the credit-card group.
 
@@ -114,6 +121,11 @@ The dashboard keeps a label for the retired state so that analyses stored before
 | `mortgage` | `mortgages` | `flag_mortgages` | Mortgages |
 | `lease_or_rental` | `leases_rentals` | `flag_leases_rentals` | Leases & rentals |
 | `personal_loan` | `personal_loans` | `flag_personal_loans` | Personal loans |
+| `floor_plan_financing` | `floor_plan` | `flag_floor_plan` | Floor plan |
+| `factoring` | `factoring` | `flag_factoring` | Factoring |
+| `insurance` (premium-finance payees only) | `premium_financing` | `flag_premium_financing` | Premium financing |
+
+**Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. **D1** (financing proceeds) covers `floor_plan_financing` and `factoring` credits. Premium-financing credits keep today's insurance treatment.
 
 `CLASSIFICATION_VERSION` becomes `"5.0"`.
 
@@ -189,6 +201,9 @@ Stable names also fix recurrence grouping. Today "NORTHSTAR FINANCE PAYMENT JAN 
   - `BANK_NAME_ALIASES` (for D5)
   - `LEASE_RENTAL_ALIASES`
   - `PERSONAL_LOAN_ALIASES`
+  - `FLOOR_PLAN_ALIASES`
+  - `FACTORING_ALIASES`
+  - `PREMIUM_FINANCE_ALIASES`, consulted inside the insurance rule
   - `POTENTIAL_LENDER_ALIASES`
 
   `CONFIRMED_LENDER_ALIASES` stays as a compatibility name for `LENDER_ALIASES`.
