@@ -13,6 +13,7 @@ Exit codes: 0 done; 1 the ledger has problems (nothing is written); 2 refused (n
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -187,3 +188,63 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
     else:
         lines.append("None.")
     return "\n".join(lines) + "\n"
+
+
+# --- the command line ----------------------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--check", action="store_true", help="validate the ledger; write nothing")
+    mode.add_argument("--write", action="store_true",
+                      help="validate the ledger, then render the registry block and the evidence ledger")
+    mode.add_argument("--privacy-review", action="store_true",
+                      help="print the names and aliases a person reads before the ledger is committed")
+    parser.add_argument("--ledger", type=Path, default=lender_ledger.LEDGER_PATH)
+    parser.add_argument("--registry", type=Path, default=REGISTRY_PATH)
+    parser.add_argument("--evidence", type=Path, default=EVIDENCE_PATH)
+    args = parser.parse_args(argv)
+    if not args.ledger.is_file():
+        print(f"refused: {args.ledger} does not exist; the orchestrator's consolidation workflow commits it "
+              "(contract C10)", file=sys.stderr)
+        return 2
+    try:
+        data = lender_ledger.read_ledger(args.ledger)
+    except (OSError, ValueError) as error:
+        print(f"refused: {args.ledger} is not readable JSON ({type(error).__name__})", file=sys.stderr)
+        return 2
+    if args.privacy_review:
+        entities, problems = lender_ledger.parse_ledger(data)
+        for line in [f"problem: {problem}" for problem in problems] or lender_ledger.privacy_review(entities):
+            print(line)
+        return 1 if problems else 0
+    rules = lender_ledger.current_rules()
+    problems = lender_ledger.validate(data, rules)
+    if problems:
+        for problem in problems:
+            print(f"problem: {problem}")
+        print(f"refused: {len(problems)} problem(s); nothing was written")
+        return 1
+    entities, _problems = lender_ledger.parse_ledger(data)
+    digest = lender_ledger.ledger_digest(data)
+    print(f"ledger ok: {len(entities)} entities, sha256:{digest}")
+    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline)
+    for move in moves:
+        print(f"move: {move.entity} ({move.table}): {move.was} -> {move.now}, {move.lost} of today's aliases lost; "
+              f"why: {move.reason or 'none needed (spec section 4.1)'}")
+    if args.check:
+        return 0
+    tables = render_tables(entities)
+    source = args.registry.read_bytes().decode("utf-8")
+    args.registry.write_bytes(replace_block(source, render_block(tables)).encode("utf-8"))
+    args.evidence.parent.mkdir(parents=True, exist_ok=True)
+    args.evidence.write_bytes(render_evidence(entities, digest, rules).encode("utf-8"))
+    for _group, table, _heading in TABLES:
+        entries = tables[table]
+        print(f"{table}: {len(entries)} entities, {sum(len(aliases) for aliases in entries.values())} aliases")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

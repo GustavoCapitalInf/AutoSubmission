@@ -597,3 +597,23 @@ def privacy_review(entities: list[LedgerEntity]) -> list[str]:
             if not set(normalize(alias).split(" ")) & words:
                 lines.append(f"alias shares no word with its name: {entity.entity} | {alias}")
     return lines
+
+
+# --- the hand-kept inputs --------------------------------------------------------------------------------------
+
+
+def current_rules() -> Rules:
+    """The validator's inputs: the hand-kept constants of ``analysis/classification_registry.py`` and today's
+    registry from git at BASELINE_REVISION."""
+    from analysis import classification_registry as registry
+
+    return Rules(
+        owner_named=registry.OWNER_NAMED_PAYEES,
+        platforms=frozenset(normalize(name) for name in registry.BARE_PLATFORM_NAMES),
+        brands=frozenset(normalize(name) for name in registry.BARE_BRAND_NAMES),
+        hand_kept={
+            "INSURANCE_PROVIDER_ALIASES": registry.INSURANCE_PROVIDER_ALIASES,
+            "OPERATING_REVENUE_SOURCE_ALIASES": registry.OPERATING_REVENUE_SOURCE_ALIASES,
+        },
+        baseline=load_baseline(),
+    )

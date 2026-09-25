@@ -1,6 +1,8 @@
 """tools/build_lender_registry.py: the deterministic rendering of a curated ledger (contract C10)."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.lender_ledger_fixture import RULES, ledger
@@ -122,3 +124,113 @@ def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(e
 
 def test_the_evidence_ledger_is_the_same_text_every_time(evidence):
     assert builder.render_evidence(_entities(), "a" * 64, RULES) == evidence
+
+
+# --- the command line --------------------------------------------------------------------------------------
+
+
+def _registry_source() -> str:
+    return (f'"""Fabricated registry."""\r\nHEAD = 1\r\n\r\n{builder.BEGIN_MARKER}\r\nOLD = 1\r\n'
+            f"{builder.END_MARKER}\r\n\r\nKEEP = 2\r\n")
+
+
+@pytest.fixture
+def paths(tmp_path, monkeypatch):
+    monkeypatch.setattr(lender_ledger, "current_rules", lambda: RULES)
+    ledger_file = tmp_path / "ledger.json"
+    ledger_file.write_text(json.dumps(ledger(), indent=2), encoding="utf-8")
+    registry_file = tmp_path / "registry.py"
+    registry_file.write_bytes(_registry_source().encode("utf-8"))
+    return {"ledger": ledger_file, "registry": registry_file, "evidence": tmp_path / "docs" / "evidence.md"}
+
+
+def _args(paths, mode):
+    return [mode, "--ledger", str(paths["ledger"]), "--registry", str(paths["registry"]),
+            "--evidence", str(paths["evidence"])]
+
+
+def test_check_accepts_a_clean_ledger_prints_every_move_and_writes_nothing(paths, capsys):
+    assert builder.main(_args(paths, "--check")) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"ledger ok: 18 entities, sha256:{lender_ledger.ledger_digest(ledger())}",
+        "move: Ruledco (CONFIRMED_LENDER_ALIASES): confirmed_lender -> alternative_position, 0 of today's aliases "
+        "lost; why: fabricated owner ruling, an alternative position.",
+        "move: Westfen Leasing (LEASE_PROVIDER_ALIASES): lease_or_equipment_financing -> lease_or_rental, 0 of "
+        "today's aliases lost; why: none needed (spec section 4.1)",
+    ]
+    assert paths["registry"].read_bytes() == _registry_source().encode("utf-8")
+    assert not paths["evidence"].exists()
+
+
+def test_check_prints_every_problem_and_exits_1(paths, capsys):
+    paths["ledger"].write_text(json.dumps(ledger((0, "evidence", []))), encoding="utf-8")
+    assert builder.main(_args(paths, "--check")) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "problem: entity 0 ('Quillon Funding') is admitted without evidence",
+        "refused: 1 problem(s); nothing was written",
+    ]
+
+
+def test_write_renders_the_block_and_the_evidence_ledger_the_same_way_twice(paths):
+    assert builder.main(_args(paths, "--write")) == 0
+    first = (paths["registry"].read_bytes(), paths["evidence"].read_bytes())
+    assert builder.main(_args(paths, "--write")) == 0
+    assert (paths["registry"].read_bytes(), paths["evidence"].read_bytes()) == first
+    registry_text = first[0].decode("utf-8")
+    assert "\n" not in registry_text.replace("\r\n", "") and "OLD = 1" not in registry_text
+    assert registry_text.startswith('"""Fabricated registry."""\r\nHEAD = 1\r\n')
+    assert registry_text.endswith("KEEP = 2\r\n")
+    namespace: dict = {}
+    exec(compile(registry_text, "registry.py", "exec"), namespace)
+    entities, _problems = lender_ledger.parse_ledger(ledger())
+    assert {name: namespace[name] for name in TABLE_NAMES} == builder.render_tables(entities)
+    expected = builder.render_evidence(entities, lender_ledger.ledger_digest(ledger()), RULES)
+    assert first[1].decode("utf-8") == expected
+
+
+def test_write_refuses_a_ledger_with_problems_and_writes_nothing(paths):
+    paths["ledger"].write_text(json.dumps(ledger((0, "aliases", ["QUILLON#FUND"]))), encoding="utf-8")
+    assert builder.main(_args(paths, "--write")) == 1
+    assert paths["registry"].read_bytes() == _registry_source().encode("utf-8")
+    assert not paths["evidence"].exists()
+
+
+def test_a_missing_or_unreadable_ledger_is_refused(paths, tmp_path):
+    args = _args(paths, "--check")
+    args[args.index("--ledger") + 1] = str(tmp_path / "absent.json")
+    assert builder.main(args) == 2
+    paths["ledger"].write_text("{not json", encoding="utf-8")
+    assert builder.main(_args(paths, "--write")) == 2
+    assert not paths["evidence"].exists()
+
+
+def test_privacy_review_prints_the_lines_a_person_reads(paths, capsys):
+    assert builder.main(_args(paths, "--privacy-review")) == 0
+    entities, _problems = lender_ledger.parse_ledger(ledger())
+    assert capsys.readouterr().out.splitlines() == lender_ledger.privacy_review(entities)
+
+
+def test_the_rules_come_from_the_hand_kept_constants_of_the_registry():
+    from analysis import classification_registry as registry
+
+    rules = lender_ledger.current_rules()
+    assert rules.owner_named is registry.OWNER_NAMED_PAYEES
+    assert {"SQUARE", "SHOPIFY", "PAYPAL", "STRIPE", "INTUIT", "AMAZON"} <= rules.platforms
+    assert {"CAPITAL ONE", "TOYOTA", "FORD", "APPLE"} <= rules.brands
+    assert rules.hand_kept["INSURANCE_PROVIDER_ALIASES"] is registry.INSURANCE_PROVIDER_ALIASES
+    assert rules.hand_kept["OPERATING_REVENUE_SOURCE_ALIASES"] is registry.OPERATING_REVENUE_SOURCE_ALIASES
+    assert list(rules.baseline) == list(lender_ledger.BASELINE_TABLES)
+
+
+def test_the_owner_named_payees_cover_every_group_spec_section_2_names():
+    from analysis import classification_registry as registry
+
+    assert set(registry.OWNER_NAMED_PAYEES) == {
+        "confirmed_lender", "alternative_position", "line_of_credit", "credit_card_payment", "vehicle_financing",
+        "bank_name", "lease_or_rental", "floor_plan_financing", "factoring", "premium_financing",
+    }
+    labels = {label for pairs in registry.OWNER_NAMED_PAYEES.values() for label, _spelling in pairs}
+    assert {"OnDeck", "Bitty", "Legend", "LG Funding", "Hunter Caroline", "CAN Capital", "CanaCap"} <= labels
+    for pairs in registry.OWNER_NAMED_PAYEES.values():
+        for _label, spelling in pairs:
+            assert spelling == spelling.upper() and spelling.replace(" ", "").isalnum(), spelling

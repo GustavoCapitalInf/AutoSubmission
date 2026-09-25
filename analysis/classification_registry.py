@@ -79,6 +79,92 @@ PAYEE_GROUP_REGISTRIES: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
+# --- Hand-kept inputs of the ledger validator (tools/lender_ledger.py) ---
+
+#: Spec section 2 (the owner's rulings of 2026-09-24 and the amendment): every payee the owner named, by
+#: ledger group, with one public spelling of it. ``python -m tools.build_lender_registry --check`` refuses
+#: a ledger that does not admit each one in its group (contract C10). Change it only on an owner ruling.
+OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
+    "confirmed_lender": (
+        ("OnDeck", "ONDECK"),
+        ("Bitty", "BITTY ADVANCE"),
+        ("Legend", "LEGEND ADVANCE FUNDING"),
+        ("LG Funding", "LG FUNDING"),
+        ("Hunter Caroline", "HUNTER CAROLINE"),
+        ("CAN Capital", "CAN CAPITAL"),
+        ("CanaCap", "CANACAP"),
+        ("NMEF", "NMEF FUNDING"),
+        ("Balboa", "BALBOA CAPITAL"),
+        ("Navitas", "NAVITAS CREDIT CORP"),
+        ("Deere", "JOHN DEERE FINANCIAL"),
+    ),
+    "alternative_position": (
+        ("SBA/EIDL", "SBA EIDL"),
+        ("BDC", "BDC"),
+        ("Affirm", "AFFIRM"),
+        ("Amex loans", "AMERICAN EXPRESS BUSINESS LOAN"),
+        ("Intuit", "INTUIT FINANCING"),
+        ("Square", "SQUARE CAPITAL"),
+        ("Shopify", "SHOPIFY CAPITAL"),
+        ("PayPal", "PAYPAL WORKING CAPITAL"),
+        ("Stripe", "STRIPE CAPITAL"),
+        ("Amazon financing", "AMAZON CAPITAL SERVICES"),
+    ),
+    "line_of_credit": (
+        ("Fundbox", "FUNDBOX"),
+        ("BlueVine", "BLUEVINE"),
+        ("Kabbage", "KABBAGE"),
+    ),
+    "credit_card_payment": (
+        ("American Express", "AMEX EPAYMENT ACH PMT"),
+        ("Capital One", "CAPITAL ONE ONLINE PMT"),
+        ("Chase", "CHASE CREDIT CRD EPAY"),
+        ("Credit One", "CREDIT ONE BANK PAYMENT"),
+        ("Concora", "CONCORA CREDIT PAYMENT"),
+    ),
+    "vehicle_financing": (
+        ("GM Financial", "GM FINANCIAL"),
+        ("Ford Credit", "FORD CREDIT"),
+        ("Toyota Financial", "TOYOTA FINANCIAL"),
+        ("Ally", "ALLY FINANCIAL"),
+    ),
+    "bank_name": (
+        ("Truist", "TRUIST LN PYMT"),
+    ),
+    "lease_or_rental": (
+        ("Progressive", "PROGRESSIVE LEASING"),
+        ("SmartPay", "SMARTPAY SOL"),
+        ("Snap", "SNAP FINANCE"),
+    ),
+    "floor_plan_financing": (
+        ("NextGear Capital", "NEXTGEAR CAPITAL"),
+        ("Westlake Flooring", "WESTLAKE FLOORING"),
+    ),
+    "factoring": (
+        ("RTS Financial", "RTS FINANCIAL"),
+        ("OTR Capital", "OTR CAPITAL"),
+        ("Apex Capital", "APEX CAPITAL"),
+        ("BC Factoring", "BC FACTORING"),
+    ),
+    "premium_financing": (
+        ("IPFS", "IPFS"),
+        ("First Insurance Funding", "FIRST INSURANCE FUNDING"),
+    ),
+}
+
+#: Spec section 5: bare platform names appear only in OPERATING_REVENUE_SOURCE_ALIASES.
+BARE_PLATFORM_NAMES: tuple[str, ...] = ("SQUARE", "SHOPIFY", "PAYPAL", "STRIPE", "INTUIT", "AMAZON", "AMZN")
+
+#: Spec section 5: brands that also sell goods, and bare issuer and bank names. Alone, each may be an alias
+#: only of CARD_ISSUER_CONTEXT_ALIASES or BANK_NAME_ALIASES, which the classifier reads only with payment or
+#: loan wording. A known-payee or potential alias must name the financing business ("TOYOTA FINANCIAL").
+BARE_BRAND_NAMES: tuple[str, ...] = (
+    "ALLY", "AMERICAN EXPRESS", "AMEX", "APPLE", "BANK OF AMERICA", "BARCLAYS", "CAPITAL ONE", "CHASE", "CITI",
+    "CITIBANK", "DEERE", "DISCOVER", "FORD", "GM", "HONDA", "HYUNDAI", "JOHN DEERE", "KIA", "NISSAN",
+    "SYNCHRONY", "TOYOTA", "WELLS FARGO",
+)
+
+
 # --- Deprecated: the inputs of the classifier as it stands before S2 ---
 # LEGACY_CONFIRMED_LENDER_ALIASES, LEGACY_POTENTIAL_LENDER_ALIASES and
 # LEASE_PROVIDER_ALIASES are today's three lists, byte for byte, so that S1
