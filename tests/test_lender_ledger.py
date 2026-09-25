@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import pytest
 
@@ -282,6 +283,58 @@ def test_a_digit_run_is_allowed_in_an_alias_todays_registry_already_holds():
         **BASELINE["CONFIRMED_LENDER_ALIASES"], "Oldco Funding": ("OLDCO FUNDING", "OLDCO", "OLDCO 4444444")}}
     rules = dataclasses.replace(RULES, baseline=baseline)
     assert _problems((1, "aliases", ["OLDCO FUNDING", "OLDCO", "OLDCO 4444444"]), rules=rules) == []
+
+
+NUMBERED = "7777777 ONTARIO INC"
+WITHHELD = "(withheld: a run of digits)"
+
+
+def test_no_message_quotes_a_digit_run_name_that_is_duplicated_and_holds_todays_first_alias():
+    assert _problems((1, "entity", NUMBERED), (16, "entity", NUMBERED)) == [
+        f"entity name {WITHHELD} appears more than once (entities 1 and 16)",
+        "entity 1: the entity field carries a run of five or more digits",
+        "entity 16: the entity field carries a run of five or more digits",
+        f"the ledger entity holding the first alias of today's 'Oldco Funding' is named {WITHHELD}: keep today's "
+        "name (S2's pins and the census compare entity names)",
+    ]
+
+
+@pytest.mark.parametrize("data,rules", [
+    (ledger((0, "entity", "Quillon 7777777 Funding"), (0, "group", "line_of_credit")), RULES),
+    (ledger(), dataclasses.replace(RULES, baseline={**BASELINE, "POTENTIAL_LENDER_ALIASES": {
+        **BASELINE["POTENTIAL_LENDER_ALIASES"], "Septima 7777777 Holdings": ("SEPTIMA HOLDINGS",)}})),
+    (ledger(), dataclasses.replace(RULES, owner_named={
+        "confirmed_lender": (("Quillon 7777777", "QUILLON 7777777"),)})),
+    (ledger((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"])),
+     dataclasses.replace(RULES, hand_kept={"INSURANCE_PROVIDER_ALIASES": {"Brisk 7777777": ("BRISK MUTUAL",)}})),
+    (ledger((0, "group", "grp 7777777")), RULES),
+    (ledger((0, "status", "7777777")), RULES),
+    (ledger((0, "7777777", "x")), RULES),
+    ({"schema": 7777777, "entities": []}, RULES),
+])
+def test_no_problem_ever_quotes_a_run_of_five_or_more_digits(data, rules):
+    problems = lender_ledger.validate(data, rules)
+    assert problems
+    assert [problem for problem in problems if re.search(r"\d{5}", problem)] == []
+    assert any(WITHHELD in problem for problem in problems)
+
+
+def test_validate_withholds_a_digit_run_whichever_rule_would_quote_it(monkeypatch):
+    monkeypatch.setattr(lender_ledger, "baseline_problems",
+                        lambda _entities, _baseline: ["fabricated 12345 and 7777777"])
+    assert lender_ledger.validate(ledger(), RULES) == [f"fabricated {WITHHELD} and {WITHHELD}"]
+
+
+def test_the_privacy_review_never_quotes_a_run_of_five_or_more_digits():
+    assert lender_ledger.privacy_review(_entities((16, "entity", "Marsh 7777777 Recovery"),
+                                                  (16, "aliases", ["MARSH RECOVERY", "REMCO 4444444"]))) == [
+        "alias shares no word with its name: Quillon Funding | QUILLONFUND",
+        "no organisation word in the name: Ruledco (admitted)",
+        "no organisation word in the name: Oxbow Card (admitted)",
+        "no organisation word in the name: Oxbow (admitted)",
+        f"no organisation word in the name: Marsh {WITHHELD} Recovery (owner_ruling)",
+        f"alias shares no word with its name: Marsh {WITHHELD} Recovery | REMCO {WITHHELD}",
+    ]
 
 
 def test_sources_and_where_looked_are_public_urls_without_a_query_string():

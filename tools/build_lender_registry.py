@@ -159,7 +159,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
     lines += ["", "## Moves from the registry as it stood before this ledger", ""]
     if moves:
         lines += ["| Entity | Was | Now | Aliases of today's registry lost | Why |", "|---|---|---|---:|---|"]
-        lines += [f"| {_cell(m.entity)} | {m.was} | {m.now} | {m.lost} | {_cell(m.reason)} |" for m in moves]
+        lines += [f"| {_cell(lender_ledger.mask_digit_runs(m.entity))} | {m.was} | {m.now} | {m.lost} | "
+                  f"{_cell(lender_ledger.mask_digit_runs(m.reason))} |" for m in moves]
     else:
         lines.append("None.")
     lines += ["", "## Awaiting an owner ruling", ""]
@@ -231,8 +232,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"ledger ok: {len(entities)} entities, sha256:{digest}")
     moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline)
     for move in moves:
-        print(f"move: {move.entity} ({move.table}): {move.was} -> {move.now}, {move.lost} of today's aliases lost; "
-              f"why: {move.reason or 'none needed (spec section 4.1)'}")
+        print(lender_ledger.mask_digit_runs(
+            f"move: {move.entity} ({move.table}): {move.was} -> {move.now}, {move.lost} of today's aliases lost; "
+            f"why: {move.reason or 'none needed (spec section 4.1)'}"))
     if args.check:
         return 0
     tables = render_tables(entities)

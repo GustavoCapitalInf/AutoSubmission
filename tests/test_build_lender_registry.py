@@ -1,11 +1,13 @@
 """tools/build_lender_registry.py: the deterministic rendering of a curated ledger (contract C10)."""
 from __future__ import annotations
 
+import dataclasses
 import json
+import re
 
 import pytest
 
-from tests.lender_ledger_fixture import RULES, ledger
+from tests.lender_ledger_fixture import BASELINE, RULES, ledger
 from tools import build_lender_registry as builder
 from tools import lender_ledger
 
@@ -160,6 +162,21 @@ def test_check_accepts_a_clean_ledger_prints_every_move_and_writes_nothing(paths
     ]
     assert paths["registry"].read_bytes() == _registry_source().encode("utf-8")
     assert not paths["evidence"].exists()
+
+
+def test_move_lines_and_the_evidence_ledger_never_quote_a_run_of_five_or_more_digits(paths, monkeypatch, capsys):
+    baseline = {**BASELINE, "CONFIRMED_LENDER_ALIASES": {
+        **BASELINE["CONFIRMED_LENDER_ALIASES"], "Oldco 7777777 Holdings": ("OLDCO HOLDINGS", "OLDCO FUNDING")}}
+    monkeypatch.setattr(lender_ledger, "current_rules", lambda: dataclasses.replace(RULES, baseline=baseline))
+    paths["ledger"].write_text(json.dumps(ledger((1, "notes", "Move: fabricated merger of two funders."))),
+                               encoding="utf-8")
+    assert builder.main(_args(paths, "--write")) == 0
+    moves = [line for line in capsys.readouterr().out.splitlines() if line.startswith("move: ")]
+    assert ("move: Oldco (withheld: a run of digits) Holdings (CONFIRMED_LENDER_ALIASES): confirmed_lender -> "
+            "confirmed_lender, 1 of today's aliases lost; why: fabricated merger of two funders.") in moves
+    section = paths["evidence"].read_text(encoding="utf-8").split("## Moves from the registry", 1)[1]
+    assert "| Oldco (withheld: a run of digits) Holdings | confirmed_lender | confirmed_lender | 1 |" in section
+    assert not re.search(r"\d{5}", "\n".join(moves) + section)
 
 
 def test_check_prints_every_problem_and_exits_1(paths, capsys):

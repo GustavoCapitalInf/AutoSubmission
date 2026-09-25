@@ -88,6 +88,9 @@ ACCEPTANCE ADVANCE BANK CAPITAL CO CORP CORPORATION CREDIT FACTORING FINANCE FIN
 HOLDINGS INC LEASING LENDING LLC LOANS LTD MORTGAGE PARTNERS SERVICES SERVICING VENTURES
 """.split())
 _LONG_DIGITS = re.compile(r"\d{5,}")
+#: What a message or a printed line shows in place of a run of five or more digits: the validator's messages,
+#: the move lines and the privacy review never quote such a run (the numbered company's number).
+WITHHELD = "(withheld: a run of digits)"
 _PUBLIC_URL = re.compile(r"https?://[^\s?#]+")
 #: The groups whose tables the classifier reads only with context: card or payment wording, loan wording, or
 #: the insurance rule. None of their entities is ever "review", because the potential tier (where C10 renders
@@ -205,6 +208,17 @@ def ledger_digest(data: object) -> str:
     return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
+def mask_digit_runs(text: str) -> str:
+    """``text`` with every run of five or more digits replaced by WITHHELD."""
+    return _LONG_DIGITS.sub(WITHHELD, text)
+
+
+def _shown(value: object) -> str:
+    """The repr of a name or a value for a message, or WITHHELD when it carries a run of five or more digits."""
+    text = repr(value)
+    return WITHHELD if _LONG_DIGITS.search(text) else text
+
+
 def _texts(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
@@ -223,15 +237,15 @@ def _shape_problems(index: int, record: object) -> list[str]:
     if missing:
         problems.append(f"{where}: missing field(s) {', '.join(missing)}")
     if unknown:
-        problems.append(f"{where}: unknown field(s) {', '.join(unknown)}")
+        problems.append(f"{where}: unknown field(s) {mask_digit_runs(', '.join(unknown))}")
     if problems:
         return problems
     checks = (
         (_filled(record["entity"]), "entity is not a non-empty string"),
-        (record["group"] in GROUPS, f"group {record['group']!r} is not a C10 group"),
+        (record["group"] in GROUPS, f"group {_shown(record['group'])} is not a C10 group"),
         (_filled(record["business_type"]), "business_type is not a non-empty string"),
         (_texts(record["aliases"]), "aliases is not a list of strings"),
-        (record["status"] in STATUSES, f"status {record['status']!r} is not one of {', '.join(STATUSES)}"),
+        (record["status"] in STATUSES, f"status {_shown(record['status'])} is not one of {', '.join(STATUSES)}"),
         (record["short_alias_reason"] is None or _filled(record["short_alias_reason"]),
          "short_alias_reason is neither null nor a non-empty string"),
         (isinstance(record["evidence"], list), "evidence is not a list"),
@@ -258,7 +272,7 @@ def parse_ledger(data: object) -> tuple[list[LedgerEntity], list[str]]:
     if not isinstance(data, dict) or set(data) != {"schema", "entities"}:
         return [], ["the ledger is not an object with exactly the keys 'schema' and 'entities'"]
     if data["schema"] is True or data["schema"] != SCHEMA:
-        return [], [f"the ledger schema is {data['schema']!r}; this validator reads schema {SCHEMA}"]
+        return [], [f"the ledger schema is {_shown(data['schema'])}; this validator reads schema {SCHEMA}"]
     if not isinstance(data["entities"], list):
         return [], ["the ledger's 'entities' is not a list"]
     entities: list[LedgerEntity] = []
@@ -367,25 +381,25 @@ def baseline_problems(entities: list[LedgerEntity],
                       baseline: Mapping[str, Mapping[str, tuple[str, ...]]]) -> list[str]:
     moves, missing = baseline_moves(entities, baseline)
     marked = f"a sentence starting {MOVE_MARKER!r} in its notes"
-    problems = [f"today's {table} entity {name!r} is in no ledger entity: record it in its place, or moved or "
-                f"rejected with {marked}" for table, name in missing]
+    problems = [f"today's {table} entity {_shown(name)} is in no ledger entity: record it in its place, or moved "
+                f"or rejected with {marked}" for table, name in missing]
     held = _holders(entities)
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
             first = held.get(normalize(aliases[0]))
             if first is not None and first.entity != name:
-                problems.append(f"the ledger entity holding the first alias of today's {name!r} is named "
-                                f"{first.entity!r}: keep today's name (S2's pins and the census compare entity "
-                                f"names)")
+                problems.append(f"the ledger entity holding the first alias of today's {_shown(name)} is named "
+                                f"{_shown(first.entity)}: keep today's name (S2's pins and the census compare "
+                                f"entity names)")
     for move in moves:
         if move.reason:
             continue
         if move.now not in UNRULED_PLACES[move.table]:
-            problems.append(f"today's {move.table} entity {move.entity!r} moves from {move.was} to {move.now} "
-                            f"without {marked}")
+            problems.append(f"today's {move.table} entity {_shown(move.entity)} moves from {move.was} to "
+                            f"{move.now} without {marked}")
         if move.lost:
-            problems.append(f"today's {move.table} entity {move.entity!r} loses {move.lost} of today's aliases "
-                            f"without {marked}")
+            problems.append(f"today's {move.table} entity {_shown(move.entity)} loses {move.lost} of today's "
+                            f"aliases without {marked}")
     return problems
 
 
@@ -396,10 +410,6 @@ def _label(entity: LedgerEntity) -> str:
     if _LONG_DIGITS.search(entity.entity):
         return f"entity {entity.index}"
     return f"entity {entity.index} ({entity.entity!r})"
-
-
-def _shown(alias: str) -> str:
-    return "(withheld: a run of digits)" if _LONG_DIGITS.search(alias) else repr(alias)
 
 
 def _alias_problems(entity: LedgerEntity, alias: str, rules: Rules, held: frozenset[str]) -> list[str]:
@@ -429,7 +439,8 @@ def _alias_problems(entity: LedgerEntity, alias: str, rules: Rules, held: frozen
     for table, entries in rules.hand_kept.items():
         for name, aliases in entries.items():
             if norm in {normalize(other) for other in aliases}:
-                problems.append(f"{label}: alias {shown} is also an alias of the hand-kept {table} entity {name!r}")
+                problems.append(f"{label}: alias {shown} is also an alias of the hand-kept {table} entity "
+                                f"{_shown(name)}")
     if norm in rules.brands and entity.table not in (TABLE_OF_GROUP["card_issuer_context"],
                                                      TABLE_OF_GROUP["bank_name"]):
         problems.append(f"{label}: alias {shown} is a bare brand name; it belongs in card_issuer_context or "
@@ -480,8 +491,8 @@ def _name_problems(entities: list[LedgerEntity], rules: Rules) -> list[str]:
     for entity in entities:
         seen = first.setdefault(entity.entity, entity)
         if seen is not entity:
-            problems.append(f"entity name {entity.entity!r} appears more than once (entities {seen.index} and "
-                            f"{entity.index})")
+            problems.append(f"entity name {_shown(entity.entity)} appears more than once (entities {seen.index} "
+                            f"and {entity.index})")
         for table, entries in rules.hand_kept.items():
             if entity.entity in entries:
                 problems.append(f"{_label(entity)} has the name of an entity of the hand-kept {table}")
@@ -541,13 +552,13 @@ def owner_named_problems(tables: Mapping[str, Mapping[str, tuple[str, ...]]],
                     continue
             elif payee is None and registry_match(text, tables[TABLE_OF_GROUP[group]]) is not None:
                 continue
-            found = "nothing" if payee is None else f"{payee.entity!r} ({payee.state})"
-            problems.append(f"owner-named {label} is not admitted in {group}: {spelling!r} matches {found}")
+            found = "nothing" if payee is None else f"{_shown(payee.entity)} ({payee.state})"
+            problems.append(f"owner-named {mask_digit_runs(label)} is not admitted in {group}: {_shown(spelling)} "
+                            f"matches {found}")
     return problems
 
 
-def validate(data: object, rules: Rules) -> list[str]:
-    """Every problem with the ledger, in a fixed order; an empty list means it may be rendered."""
+def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     entities, problems = parse_ledger(data)
     if problems:
         return problems
@@ -559,6 +570,13 @@ def validate(data: object, rules: Rules) -> list[str]:
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
     problems.extend(baseline_problems(entities, rules.baseline))
     return problems
+
+
+def validate(data: object, rules: Rules) -> list[str]:
+    """Every problem with the ledger, in a fixed order; an empty list means it may be rendered. Every rule
+    masks the names and values it quotes; as a backstop, no returned message quotes a run of five or more
+    digits."""
+    return [mask_digit_runs(problem) for problem in _unmasked_problems(data, rules)]
 
 
 # --- what the owner and a privacy reviewer read ---------------------------------------------------------------
@@ -587,7 +605,8 @@ def premium_insurer_overlaps(entities: list[LedgerEntity],
 def privacy_review(entities: list[LedgerEntity]) -> list[str]:
     """The lines a person reads for a person's or a customer's name before the ledger is committed: every
     entity name without an organisation word, and every alias that shares no word with its entity's name.
-    Every status is listed, because the committed ledger carries them all."""
+    Every status is listed, because the committed ledger carries them all. No line quotes a run of five or
+    more digits."""
     lines = []
     for entity in entities:
         words = set(normalize(entity.entity).split(" "))
@@ -596,7 +615,7 @@ def privacy_review(entities: list[LedgerEntity]) -> list[str]:
         for alias in dict.fromkeys(entity.aliases):
             if not set(normalize(alias).split(" ")) & words:
                 lines.append(f"alias shares no word with its name: {entity.entity} | {alias}")
-    return lines
+    return [mask_digit_runs(line) for line in lines]
 
 
 # --- the hand-kept inputs --------------------------------------------------------------------------------------
