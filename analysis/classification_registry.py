@@ -1,13 +1,91 @@
 """Maintained entity registries for deterministic transaction classification.
 
 Aliases are normalized and matched on token boundaries by
-``analysis.transaction_classifier``. Keep generic financing words out of the
-verified registry; they are evidence signals, not lender identities.
+``analysis.payee_matcher``. Keep generic financing words out of the named
+registries; they are evidence signals, not lender identities.
+
+The group tables between the GENERATED markers are rendered by
+``tools/build_lender_registry.py`` from ``docs/lender-registry-ledger.json``,
+the curated lender ledger (contract C10). The evidence for every entity is in
+``docs/lender-registry-evidence.md``.
 """
 from __future__ import annotations
 
+# --- BEGIN GENERATED: tools/build_lender_registry.py ---
+# Rendered by tools/build_lender_registry.py from docs/lender-registry-ledger.json (contract C10).
+# Never edit by hand: change the ledger, then run python -m tools.build_lender_registry --write.
 
-CONFIRMED_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
+#: Lenders: MCA and revenue-based funders, equipment financing.
+LENDER_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Alternative positions.
+ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Lines of credit.
+LINE_OF_CREDIT_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Credit cards: aliases that carry card-payment wording.
+CARD_ISSUER_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Card issuers: bare names, used only with card-payment wording.
+CARD_ISSUER_CONTEXT_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Vehicle loans & leases.
+VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Mortgages.
+MORTGAGE_SERVICER_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Leases & rentals.
+LEASE_RENTAL_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Personal loans.
+PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Floor plan.
+FLOOR_PLAN_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Factoring.
+FACTORING_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Premium financing: premium-finance payees, read only by the insurance rule.
+PREMIUM_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Bank names: bank loans (D5).
+BANK_NAME_ALIASES: dict[str, tuple[str, ...]] = {}
+
+#: Potential lenders: review, never counted.
+POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {}
+
+# --- END GENERATED: tools/build_lender_registry.py ---
+
+#: Compatibility name (spec section 5): the lender table under its old name.
+CONFIRMED_LENDER_ALIASES = LENDER_ALIASES
+
+#: The known-payee matcher's registries (contract C2), keyed by classification
+#: state. The order is the tie-break order of ``analysis.payee_matcher``.
+#: PREMIUM_FINANCE_ALIASES is not here: only the insurance rule reads it.
+PAYEE_GROUP_REGISTRIES: dict[str, dict[str, tuple[str, ...]]] = {
+    "confirmed_lender": LENDER_ALIASES,
+    "alternative_position": ALTERNATIVE_POSITION_ALIASES,
+    "line_of_credit": LINE_OF_CREDIT_ALIASES,
+    "vehicle_financing": VEHICLE_FINANCE_ALIASES,
+    "mortgage": MORTGAGE_SERVICER_ALIASES,
+    "personal_loan": PERSONAL_LOAN_ALIASES,
+    "floor_plan_financing": FLOOR_PLAN_ALIASES,
+    "factoring": FACTORING_ALIASES,
+    "lease_or_rental": LEASE_RENTAL_ALIASES,
+    "credit_card_payment": CARD_ISSUER_ALIASES,
+}
+
+
+# --- Deprecated: the inputs of the classifier as it stands before S2 ---
+# LEGACY_CONFIRMED_LENDER_ALIASES, LEGACY_POTENTIAL_LENDER_ALIASES and
+# LEASE_PROVIDER_ALIASES are today's three lists, byte for byte, so that S1
+# changes no classification. Only analysis/transaction_classifier.py reads
+# them. S2 deletes all three together with those reads; tools/lender_ledger.py
+# reads today's lists from git at its BASELINE_REVISION to check the ledger.
+LEGACY_CONFIRMED_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "ACH CAPITAL": ("ACH CAPITAL",),
     # R-1 item 12a - pre-approved by Ocean (H-2 evidence: WMB May 25, three
     # ledger debits totaling 18,977.11 matched by MoneyThumb, missed by us).
@@ -136,7 +214,7 @@ CONFIRMED_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
+LEGACY_POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "CMCA Finance": (
         "CMCA FINANCE",
         "CMCA FINANCE BUS",
@@ -299,5 +377,5 @@ LEASE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 # Reserved for transaction codes whose meaning is specific to an institution.
-# Global aliases belong in ``CONFIRMED_LENDER_ALIASES``.
+# Global aliases belong in ``LENDER_ALIASES``.
 BANK_SPECIFIC_LENDER_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {}

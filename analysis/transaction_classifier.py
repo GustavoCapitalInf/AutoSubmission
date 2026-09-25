@@ -9,12 +9,12 @@ from typing import Literal, Sequence, TYPE_CHECKING
 
 from .classification_registry import (
     BANK_SPECIFIC_LENDER_ALIASES,
-    CONFIRMED_LENDER_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
     LEASE_PROVIDER_ALIASES,
+    LEGACY_CONFIRMED_LENDER_ALIASES,
+    LEGACY_POTENTIAL_LENDER_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
-    POTENTIAL_LENDER_ALIASES,
 )
 from .dates import parse_date
 from .revenue import RevenueState, revenue_contribution_flags
@@ -214,7 +214,7 @@ def _registry_match(
 
 
 def match_verified_lender_alias(description: str) -> tuple[str, str] | None:
-    return _registry_match(normalize_transaction_description(description), CONFIRMED_LENDER_ALIASES)
+    return _registry_match(normalize_transaction_description(description), LEGACY_CONFIRMED_LENDER_ALIASES)
 
 
 def match_insurance_provider(description: str) -> tuple[str, str] | None:
@@ -633,7 +633,7 @@ def _classify_credit_revenue(
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
             context_signals=("credit_direction", "insurance_provider"),
         )
-    lender_match = _registry_match(text, CONFIRMED_LENDER_ALIASES)
+    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
     if lender_match is not None:
         entity, alias = lender_match
         return _RevenueDecision(
@@ -646,7 +646,7 @@ def _classify_credit_revenue(
             f"Credit matched confirmed lender alias '{alias}' and is funding, not revenue.",
             context_signals=("credit_direction", "confirmed_lender_source"),
         )
-    potential_lender_match = _registry_match(text, POTENTIAL_LENDER_ALIASES)
+    potential_lender_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
     if potential_lender_match is not None:
         entity, alias = potential_lender_match
         return _RevenueDecision(
@@ -1108,7 +1108,7 @@ def classify_transaction(
             reason="The row is a subscription or membership payment with no verified lender evidence.",
         )
 
-    lender_match = _registry_match(text, CONFIRMED_LENDER_ALIASES)
+    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
     if lender_match is not None:
         lender, alias = lender_match
         if amount < 0:
@@ -1149,7 +1149,7 @@ def classify_transaction(
             reason=f"Matched lender alias or transaction code '{alias}' for {bank}.",
         )
 
-    potential_match = _registry_match(text, POTENTIAL_LENDER_ALIASES)
+    potential_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
     if potential_match is not None and amount < 0:
         lender, alias = potential_match
         return _build_record(
