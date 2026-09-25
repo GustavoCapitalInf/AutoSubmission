@@ -10,7 +10,8 @@ The validator applies:
   * every rule contract C10 lists;
   * spec section 5's brand rule (a brand that also sells goods is an alias only with payment or loan wording);
   * the privacy constraints: no digit run of five or more outside a URL, unless today's registry already
-    holds that alias; sources and "where looked" entries are public URLs without a query string;
+    holds that alias; sources and "where looked" entries are public URLs without a query string, credentials
+    or a local, private or undotted host;
   * contract C2's context-only tables: no entity of the card, card-issuer, bank-name or premium-finance
     groups is under review, and every card-payment alias carries card or payment wording;
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import ipaddress
 import json
 import re
 import subprocess
@@ -28,6 +30,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -91,7 +94,7 @@ _LONG_DIGITS = re.compile(r"\d{5,}")
 #: What a message or a printed line shows in place of a run of five or more digits: the validator's messages,
 #: the move lines and the privacy review never quote such a run (the numbered company's number).
 WITHHELD = "(withheld: a run of digits)"
-_PUBLIC_URL = re.compile(r"https?://[^\s?#]+")
+_URL_SCHEME = re.compile(r"https?://")
 #: The groups whose tables the classifier reads only with context: card or payment wording, loan wording, or
 #: the insurance rule. None of their entities is ever "review", because the potential tier (where C10 renders
 #: every review entity) reads its aliases with no context at all.
@@ -217,6 +220,27 @@ def _shown(value: object) -> str:
     """The repr of a name or a value for a message, or WITHHELD when it carries a run of five or more digits."""
     text = repr(value)
     return WITHHELD if _LONG_DIGITS.search(text) else text
+
+
+def _public_url(text: str) -> bool:
+    """An http(s) URL without whitespace, a query string, a fragment or credentials (userinfo), on a public
+    host: a global IP address, or a dotted name that is not localhost and whose last label starts with a letter
+    (so no private, loopback, undotted or numeric host)."""
+    if not _URL_SCHEME.match(text) or any(char.isspace() or char in "?#" for char in text):
+        return False
+    try:
+        parts = urlsplit(text)
+        host, _port = parts.hostname, parts.port
+    except ValueError:
+        return False
+    if not host or "@" in parts.netloc:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass
+    labels = host.split(".")
+    return len(labels) >= 2 and all(labels) and labels[-1] != "localhost" and labels[-1][0].isalpha()
 
 
 def _texts(value: object) -> bool:
@@ -477,10 +501,10 @@ def _entity_problems(entity: LedgerEntity, rules: Rules, held: frozenset[str]) -
         if _LONG_DIGITS.search(text):
             problems.append(f"{label}: the {field_name} field carries a run of five or more digits")
     for number, item in enumerate(entity.evidence):
-        if not _PUBLIC_URL.fullmatch(item.source):
+        if not _public_url(item.source):
             problems.append(f"{label}: evidence {number} source is not a public URL without a query string")
     for number, url in enumerate(entity.where_looked):
-        if not _PUBLIC_URL.fullmatch(url):
+        if not _public_url(url):
             problems.append(f"{label}: where_looked {number} is not a public URL without a query string")
     return problems
 

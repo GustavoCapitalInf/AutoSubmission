@@ -345,6 +345,34 @@ def test_sources_and_where_looked_are_public_urls_without_a_query_string():
     ]
 
 
+@pytest.mark.parametrize("url", [
+    "https://user:token@quillon.example/",
+    "https://user@quillon.example/",
+    "http://localhost/quillon",
+    "http://docs.localhost/quillon",
+    "http://127.0.0.1/quillon",
+    "http://10.1.2.3/quillon",
+    "http://192.168.1.20/quillon",
+    "http://[::1]/quillon",
+    "http://intranet/quillon",
+    "http://0177.0.0.1/quillon",
+    "https:///quillon",
+    "https://quillon.example:port/",
+])
+def test_a_url_with_credentials_or_on_a_local_private_or_undotted_host_is_not_public(url):
+    assert _problems((0, "where_looked", [url])) == [
+        "entity 0 ('Quillon Funding'): where_looked 0 is not a public URL without a query string"
+    ]
+
+
+@pytest.mark.parametrize("url", [
+    "https://quillon.example/", "http://registry.example/company/about.html", "https://quillon.example:8443/",
+    "https://8.8.8.8/quillon",
+])
+def test_a_url_on_a_public_host_is_public(url):
+    assert _problems((0, "where_looked", [url])) == []
+
+
 def test_the_privacy_review_lists_every_name_without_an_organisation_word_and_every_foreign_alias():
     assert lender_ledger.privacy_review(_entities()) == [
         "alias shares no word with its name: Quillon Funding | QUILLONFUND",
