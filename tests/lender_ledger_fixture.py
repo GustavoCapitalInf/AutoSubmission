@@ -61,7 +61,7 @@ ENTITIES = [
     entity("Tarnmoor Capital", "confirmed_lender", ["TARNMOOR CAP"], status="rejected",
            evidence=[{"source": "https://tarnmoor.example/", "note": "fabricated: a bakery"}],
            verdicts=[{"round": "r2", "verdict": "refuted", "confirmed": False}],
-           notes="Fabricated: a bakery, not a funder."),
+           where_looked=["https://registry.example/tarnmoor"], notes="Fabricated: a bakery, not a funder."),
 ]
 
 #: Today's three lists, as the validator reads them from git (fabricated).

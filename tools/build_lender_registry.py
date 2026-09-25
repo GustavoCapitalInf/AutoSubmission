@@ -90,26 +90,31 @@ def _verdicts(entity: LedgerEntity) -> str:
                      for v in entity.verdicts) or "none"
 
 
+def _source(entity: LedgerEntity) -> str:
+    return entity.evidence[0].source if entity.evidence else "none recorded"
+
+
 def _looked(entity: LedgerEntity) -> str:
     return ", ".join(entity.where_looked) or "none recorded"
 
 
 def _table_row(entity: LedgerEntity) -> str:
-    source = entity.evidence[0].source if entity.evidence else "none recorded"
     looked = "-" if entity.status == "admitted" else _looked(entity)
     aliases = ", ".join(dict.fromkeys(entity.aliases))
-    return (f"| {_cell(entity.entity)} | {_cell(entity.business_type)} | {_cell(_verdicts(entity))} | "
-            f"{entity.status} | {_cell(aliases)} | {source} | {looked} | {_cell(entity.notes)} |")
+    return (f"| {_cell(entity.entity)} | {entity.group} | {_cell(entity.business_type)} | "
+            f"{_cell(_verdicts(entity))} | {entity.status} | {_cell(aliases)} | {_source(entity)} | {looked} | "
+            f"{_cell(entity.notes)} |")
 
 
 def _listed_row(entity: LedgerEntity) -> str:
     return (f"| {_cell(entity.entity)} | {entity.group} | {_cell(entity.business_type)} | "
-            f"{_cell(_verdicts(entity))} | {_looked(entity)} | {_cell(entity.notes)} |")
+            f"{_cell(_verdicts(entity))} | {_source(entity)} | {_looked(entity)} | {_cell(entity.notes)} |")
 
 
 def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> str:
-    """The evidence ledger: every entity with its group, verdicts, public source and, for anything not
-    admitted, where the researchers looked. No statement text, amounts, account numbers or customer names."""
+    """The evidence ledger (spec section 5): every entity with its group, its verdicts, its first public source
+    (else "none recorded") and, for anything not admitted, where the researchers looked. No statement text,
+    amounts, account numbers or customer names."""
     tables = render_tables(entities)
     by_name = {entity.entity: entity for entity in entities}
     lines = [
@@ -132,8 +137,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "- An entity under review is in `POTENTIAL_LENDER_ALIASES` (review, never counted), whatever its group. "
         "No entity of a table read only with context (credit cards, card issuers, bank names, premium financing) "
         "is under review.",
-        "- An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with where the "
-        "researchers looked.",
+        "- An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with its group, its "
+        "public source and where the researchers looked.",
         "- Every payee the owner named in spec section 2 is admitted in its ruled group: the validator refuses a "
         "ledger in which one is not.",
         "- An entity of the registry as it stood before this ledger changes place, or loses an alias, only with a "
@@ -152,8 +157,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         if not tables[table]:
             lines.append("None.")
             continue
-        lines += ["| Entity | Business type | Verdicts | Status | Aliases | Source | Where the researchers looked "
-                  "| Notes |", "|---|---|---|---|---|---|---|---|"]
+        lines += ["| Entity | Group | Business type | Verdicts | Status | Aliases | Source | Where the researchers "
+                  "looked | Notes |", "|---|---|---|---|---|---|---|---|---|"]
         lines += [_table_row(by_name[name]) for name in tables[table]]
     moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline)
     lines += ["", "## Moves from the registry as it stood before this ledger", ""]
@@ -168,8 +173,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
     insurers = rules.hand_kept.get("INSURANCE_PROVIDER_ALIASES", {})
     overlaps = lender_ledger.premium_insurer_overlaps(entities, insurers)
     if waiting:
-        lines += ["| Entity | Group | Business type | Verdicts | Where the researchers looked | Notes |",
-                  "|---|---|---|---|---|---|"]
+        lines += ["| Entity | Group | Business type | Verdicts | Source | Where the researchers looked | Notes |",
+                  "|---|---|---|---|---|---|---|"]
         lines += [_listed_row(entity) for entity in waiting]
         if overlaps:
             lines.append("")
@@ -183,8 +188,8 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
     lines += ["", "## Rejected", ""]
     rejected = [entity for entity in entities if entity.status == "rejected"]
     if rejected:
-        lines += ["| Entity | Group | Business type | Verdicts | Where the researchers looked | Notes |",
-                  "|---|---|---|---|---|---|"]
+        lines += ["| Entity | Group | Business type | Verdicts | Source | Where the researchers looked | Notes |",
+                  "|---|---|---|---|---|---|---|"]
         lines += [_listed_row(entity) for entity in rejected]
     else:
         lines.append("None.")

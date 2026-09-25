@@ -99,12 +99,19 @@ def test_the_evidence_ledger_names_its_ledger_digest_and_every_table(evidence):
     assert "## Mortgages (`MORTGAGE_SERVICER_ALIASES`)\n\n| Entity |" in evidence
 
 
-def test_the_evidence_ledger_rows_carry_the_source_and_for_review_where_the_researchers_looked(evidence):
-    assert ("| Quillon Funding | mca_or_revenue_based_funder | r1 upheld | admitted | QUILLON FUNDING, QUILLONFUND | "
-            "https://quillon.example/ | - | - |") in evidence
-    assert ("| Heldco Advance | mca_or_revenue_based_funder | r2 unresolved (not confirmed) | review | "
-            "HELDCO ADVANCE | none recorded | https://registry.example/heldco, https://heldco.example/ | "
+def test_the_evidence_ledger_rows_carry_the_group_the_source_and_for_review_where_the_researchers_looked(evidence):
+    assert ("| Quillon Funding | confirmed_lender | mca_or_revenue_based_funder | r1 upheld | admitted | "
+            "QUILLON FUNDING, QUILLONFUND | https://quillon.example/ | - | - |") in evidence
+    assert ("| Heldco Advance | confirmed_lender | mca_or_revenue_based_funder | r2 unresolved (not confirmed) | "
+            "review | HELDCO ADVANCE | none recorded | https://registry.example/heldco, https://heldco.example/ | "
             "Fabricated: identity unconfirmed. |") in evidence
+
+
+def test_an_entity_under_review_shows_its_researched_group_in_the_potential_table():
+    evidence = builder.render_evidence(_entities((3, "status", "review")), "a" * 64, RULES)
+    potential = evidence.split("(`POTENTIAL_LENDER_ALIASES`)\n", 1)[1].split("\n## ", 1)[0]
+    assert ("| Brambleway Capital | line_of_credit | business_loc_provider | r1 upheld | review | "
+            "BRAMBLEWAY CAPITAL | https://brambleway.example/ | https://brambleway.example/ | - |") in potential
 
 
 def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(evidence):
@@ -114,13 +121,14 @@ def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(e
     assert "| Westfen Leasing | lease_or_equipment_financing | lease_or_rental | 0 | - |" in moves
     waiting = evidence.split("## Awaiting an owner ruling\n", 1)[1].split("\n## ", 1)[0]
     assert ("| Marsh Recovery | potential_lender | servicer_or_processor_for_funders | r2 unresolved (not confirmed) "
-            "| https://marsh.example/, https://registry.example/marsh | Fabricated: a collector whose funder is "
-            "unknown; the owner decides. |") in waiting
+            "| none recorded | https://marsh.example/, https://registry.example/marsh | Fabricated: a collector whose "
+            "funder is unknown; the owner decides. |") in waiting
     assert ("- Brisk Mutual Funding (premium financing) has an alias that contains an alias of the hand-kept insurer "
             "Brisk Mutual (`INSURANCE_PROVIDER_ALIASES`).") in waiting
     rejected = evidence.split("## Rejected\n", 1)[1]
     assert ("| Tarnmoor Capital | confirmed_lender | mca_or_revenue_based_funder | r2 refuted (not confirmed) | "
-            "https://tarnmoor.example/ | Fabricated: a bakery, not a funder. |") in rejected
+            "https://tarnmoor.example/ | https://registry.example/tarnmoor | Fabricated: a bakery, not a funder. "
+            "|") in rejected
     assert "TARNMOOR CAP" not in evidence and "MARSH RECOVERY" not in evidence
 
 
