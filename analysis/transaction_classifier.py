@@ -19,6 +19,7 @@ from .dates import parse_date
 from .revenue import RevenueState, revenue_contribution_flags
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
+from .payee_matcher import registry_match
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -183,19 +184,8 @@ def _registry_match(
     text: str,
     registry: dict[str, tuple[str, ...]],
 ) -> tuple[str, str] | None:
-    candidates = (
-        (canonical, alias)
-        for canonical, aliases in registry.items()
-        for alias in aliases
-    )
-    for canonical, alias in sorted(
-        candidates,
-        key=lambda item: len(normalize_transaction_description(item[1])),
-        reverse=True,
-    ):
-        if _contains_alias(text, alias):
-            return canonical, alias
-    return None
+    # Spec section 4.6: the aliases are normalized and indexed once per registry, not on every call.
+    return registry_match(text, registry)
 
 
 def match_verified_lender_alias(description: str) -> tuple[str, str] | None:
