@@ -358,6 +358,7 @@ def test_sources_and_where_looked_are_public_urls_without_a_query_string():
     "http://0177.0.0.1/quillon",
     "https:///quillon",
     "https://quillon.example:port/",
+    "https://quillon.example/a|b",
 ])
 def test_a_url_with_credentials_or_on_a_local_private_or_undotted_host_is_not_public(url):
     assert _problems((0, "where_looked", [url])) == [

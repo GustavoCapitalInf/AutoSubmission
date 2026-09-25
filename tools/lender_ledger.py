@@ -223,10 +223,10 @@ def _shown(value: object) -> str:
 
 
 def _public_url(text: str) -> bool:
-    """An http(s) URL without whitespace, a query string, a fragment or credentials (userinfo), on a public
-    host: a global IP address, or a dotted name that is not localhost and whose last label starts with a letter
-    (so no private, loopback, undotted or numeric host)."""
-    if not _URL_SCHEME.match(text) or any(char.isspace() or char in "?#" for char in text):
+    """An http(s) URL without whitespace, a query string, a fragment, a '|' (it would split an evidence-ledger
+    row) or credentials (userinfo), on a public host: a global IP address, or a dotted name that is not
+    localhost and whose last label starts with a letter (so no private, loopback, undotted or numeric host)."""
+    if not _URL_SCHEME.match(text) or any(char.isspace() or char in "?#|" for char in text):
         return False
     try:
         parts = urlsplit(text)

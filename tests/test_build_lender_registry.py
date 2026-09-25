@@ -132,6 +132,19 @@ def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(e
     assert "TARNMOOR CAP" not in evidence and "MARSH RECOVERY" not in evidence
 
 
+def test_a_pipe_in_a_source_or_where_looked_never_splits_an_evidence_row():
+    entities = _entities((0, "evidence", [{"source": "https://quillon.example/a|b", "note": "fabricated"}]),
+                         (15, "where_looked", ["https://heldco.example/a|b"]),
+                         (17, "where_looked", ["https://registry.example/t|x"]))
+    evidence = builder.render_evidence(entities, "a" * 64, RULES)
+    for section in evidence.split("\n## ")[1:]:
+        rows = [line for line in section.splitlines() if line.startswith("|")]
+        assert len({row.count("|") for row in rows}) <= 1, section.splitlines()[0]
+    assert "| https://quillon.example/a/b | - | - |" in evidence
+    assert "| none recorded | https://heldco.example/a/b |" in evidence
+    assert "| https://tarnmoor.example/ | https://registry.example/t/x |" in evidence
+
+
 def test_the_evidence_ledger_is_the_same_text_every_time(evidence):
     assert builder.render_evidence(_entities(), "a" * 64, RULES) == evidence
 

@@ -102,13 +102,14 @@ def _table_row(entity: LedgerEntity) -> str:
     looked = "-" if entity.status == "admitted" else _looked(entity)
     aliases = ", ".join(dict.fromkeys(entity.aliases))
     return (f"| {_cell(entity.entity)} | {entity.group} | {_cell(entity.business_type)} | "
-            f"{_cell(_verdicts(entity))} | {entity.status} | {_cell(aliases)} | {_source(entity)} | {looked} | "
-            f"{_cell(entity.notes)} |")
+            f"{_cell(_verdicts(entity))} | {entity.status} | {_cell(aliases)} | {_cell(_source(entity))} | "
+            f"{_cell(looked)} | {_cell(entity.notes)} |")
 
 
 def _listed_row(entity: LedgerEntity) -> str:
     return (f"| {_cell(entity.entity)} | {entity.group} | {_cell(entity.business_type)} | "
-            f"{_cell(_verdicts(entity))} | {_source(entity)} | {_looked(entity)} | {_cell(entity.notes)} |")
+            f"{_cell(_verdicts(entity))} | {_cell(_source(entity))} | {_cell(_looked(entity))} | "
+            f"{_cell(entity.notes)} |")
 
 
 def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> str:
