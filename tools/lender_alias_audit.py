@@ -105,6 +105,9 @@ MOTOR MSP MTG NA NAME OF ON ONLINE ORIG PAD PAY PAYMENT PAYMENTS PAYOUT PMT PMTS
 PRET PROCEEDS PROGRAM PYMNT PYMNTS PYMT RECURRING REMIT RETAIL RLS SCHEDULED SERVICES SERVICING SVC SVCS TEL
 THE TYPE US USA WEB WITHDRAWAL
 """.split())
+#: The payee key of a descriptor in which no name word survives: a fixed placeholder, never descriptor text
+#: (which may carry an account number). ``needs_review`` flags it, so every such match gets a decision.
+NO_PAYEE_WORDS = "<no payee words>"
 
 
 @dataclass(frozen=True)
@@ -125,7 +128,8 @@ class CachedRow:
 
 
 def payee_key(text: str) -> str:
-    """The counterparty key of a normalized descriptor: up to three name words after the channel words."""
+    """The counterparty key of a normalized descriptor: up to three name words after the channel words, or
+    NO_PAYEE_WORDS when none survives."""
     originator = _CHASE_ORIGINATOR.search(text)
     base = _LEADING.sub("", (originator.group(1) if originator else text) + " ").strip()
     words: list[str] = []
@@ -139,7 +143,7 @@ def payee_key(text: str) -> str:
         words.append(word)
         if len(words) == 3:
             break
-    return " ".join(words) or text[:24]
+    return " ".join(words) or NO_PAYEE_WORDS
 
 
 def default_passes() -> tuple[AuditPass, ...]:

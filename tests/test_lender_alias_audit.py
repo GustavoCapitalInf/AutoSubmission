@@ -71,6 +71,14 @@ def test_payee_keys_skip_channel_words_and_stop_at_field_labels():
     assert audit_tool.payee_key("CHECKCARD 0102 BRAMBLEWAY CAPITAL LOAN PROCEEDS") == "BRAMBLEWAY CAPITAL LOAN"
 
 
+def test_a_descriptor_without_payee_words_gets_a_fixed_key_and_never_its_text():
+    assert audit_tool.payee_key("ACH DEBIT 0012345678 PAYMENT") == "<no payee words>"
+    row = audit_tool.CachedRow("c" * 64, "ORIG CO NAME 7777777 ORIG ID QUILLON FUNDING", -10.0, "other")
+    report = audit_tool.audit([row], PASSES)
+    assert list(report["confirmed_lender"]["QUILLON FUNDING"]["keys"]) == ["<no payee words>"]
+    assert audit_tool.needs_review("QUILLON FUNDING", "Quillon Funding", "<no payee words>")
+
+
 def test_the_audit_replays_the_rule_order_and_counts_only_taken_rows_as_taken(tmp_path):
     report = _report(tmp_path)
     assert report == {
