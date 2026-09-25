@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, replace
 from datetime import date
 from statistics import mean, pstdev
@@ -18,6 +17,8 @@ from .classification_registry import (
 )
 from .dates import parse_date
 from .revenue import RevenueState, revenue_contribution_flags
+# Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
+from .description_text import normalize_transaction_description
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -166,22 +167,6 @@ class TransactionClassification:
         if self.is_atm_withdrawal:
             categories.append("atm_withdrawal")
         return tuple(categories)
-
-
-def normalize_transaction_description(description: str) -> str:
-    """Normalize matching text while retaining the exact source separately."""
-    decomposed = unicodedata.normalize("NFKD", description or "")
-    ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
-    normalized = ascii_text.upper().replace("&", " AND ")
-    normalized = re.sub(r"[^A-Z0-9]+", " ", normalized)
-    normalized = re.sub(r"\bP0S\b", "POS", normalized)
-    normalized = re.sub(r"\bN(?:\s|5)*S(?:\s)*F\b|\bN5F\b", "NSF", normalized)
-    normalized = re.sub(r"\bA(?:\s)*[T7](?:\s)*M\b", "ATM", normalized)
-    normalized = re.sub(r"\b1NSURANCE\b|\bINSURANCF\b", "INSURANCE", normalized)
-    normalized = re.sub(r"\bF1NANCE\b", "FINANCE", normalized)
-    normalized = re.sub(r"\bLN\b", "LOAN", normalized)
-    normalized = re.sub(r"\bPAYMT\b", "PAYMENT", normalized)
-    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _contains_alias(text: str, alias: str) -> bool:
