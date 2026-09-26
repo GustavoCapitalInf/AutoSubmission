@@ -77,3 +77,48 @@ def test_the_job_store_clears_the_analysis_error_and_refuses_an_unknown_job(tmp_
     assert store.apply_reanalysis(job.id, {"rules": "new"}) == {"rules": "new"}
     assert (store.get(job.id).analysis, store.get(job.id).analysis_error) == ({"rules": "new"}, None)
     assert store.apply_reanalysis("no-such-job", {"rules": "new"}) is None
+
+
+# --- the review writer the replay uses ------------------------------------------------------------------------------
+
+DECIDED_AT = "2031-04-02T09:00:00+00:00"
+
+
+def _payload(rows=ROWS):
+    """A fabricated business checking statement, analysed by the real analysis path."""
+    from analysis.serialization import document_report_to_dict
+
+    return document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, rows))
+
+
+def test_the_review_writer_keeps_the_decision_s_own_time_and_leaves_the_rebuild_to_its_caller():
+    from analysis.revenue import rebuild_serialized_revenue_views, record_serialized_revenue_review
+
+    analysis = _payload()
+    metrics = copy.deepcopy(analysis["metrics"])
+    record = record_serialized_revenue_review(analysis, source_location="transaction:2", decision="confirm",
+                                              reviewed_at=DECIDED_AT)
+    assert record is _records(analysis)["transaction:2"]
+    assert (record["revenue_review_status"], record["revenue_classification"], record["revenue_reviewed_at"]) == (
+        "confirmed", "verified_revenue", DECIDED_AT)
+    assert analysis["metrics"] == metrics  # the views wait for the caller's one rebuild
+    rebuild_serialized_revenue_views(analysis)
+    assert analysis["metrics"]["verified_revenue_total"] == metrics["verified_revenue_total"] + 300.0
+    reset = record_serialized_revenue_review(analysis, source_location="transaction:2", decision="reset",
+                                             reviewed_at=DECIDED_AT)
+    assert (reset["revenue_review_status"], reset["revenue_reviewed_at"]) == ("pending", None)
+
+
+@pytest.mark.parametrize("location, decision, refusal", [
+    ("transaction:1", "confirm", ValueError),   # revenue a rule verified: not the analyst's to decide
+    ("transaction:99", "confirm", LookupError),  # no such row
+    ("transaction:2", "approve", ValueError),    # no such decision
+])
+def test_the_review_writer_writes_nothing_when_it_refuses(location, decision, refusal):
+    from analysis.revenue import record_serialized_revenue_review
+
+    analysis = _payload()
+    before = copy.deepcopy(analysis)
+    with pytest.raises(refusal):
+        record_serialized_revenue_review(analysis, source_location=location, decision=decision)
+    assert analysis == before

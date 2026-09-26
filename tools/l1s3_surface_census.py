@@ -130,7 +130,7 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "package membership: each account on its OWN validation, no duplicate digest"),
     ("webapp/jobs.py", "_classification_for", "per_account",
      "a reviewer's posting belongs to one account; every account is searched"),
-    ("analysis/revenue.py", "apply_serialized_revenue_review", "per_account",
+    ("analysis/revenue.py", "record_serialized_revenue_review", "per_account",
      "a reviewer acts on a POSTING, and a posting belongs to one account"),
     ("benchmark/ourside.py", "_account", "refuses",
      "the benchmark declares one value per FILENAME and has no account column"),
