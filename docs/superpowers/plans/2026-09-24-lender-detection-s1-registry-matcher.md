@@ -21,7 +21,7 @@ Until S2 lands, classification stays exactly what it is today.
   - `--write` validates it, then renders the GENERATED block of `analysis/classification_registry.py` (the C2 tables) and `docs/lender-registry-evidence.md`;
   - `--privacy-review` prints the lines a person reads before a commit.
 - A drift test holds the committed registry block and evidence ledger equal to the rendering of the committed ledger.
-- `analysis/classification_registry.py` also gains the validator's three hand-kept inputs, outside the GENERATED block: `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES` and `BARE_BRAND_NAMES`.
+- `analysis/classification_registry.py` also gains the validator's six hand-kept inputs, outside the GENERATED block: `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES` and `BARE_BRAND_NAMES`, and, on the owner's ruling of 2026-09-25, `PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES` and `PAYOUT_CREDIT_ENTITIES`.
 - The pre-S2 classifier keeps reading today's three lists under deprecated names, so S1 changes no classification.
 - `tools/lender_alias_audit.py` replays the local artifact cache through the rendered registries in the classifier's rule order. S1's acceptance is a reviewed audit with zero undecided matches that need review and zero denied collisions. After a revised ledger it also needs zero rows that an entity lost without a decision (`--before`).
 
@@ -93,7 +93,8 @@ S1-specific constraints:
    - **Generic words.** "A bare generic word" is read as "an alias made only of generic words" (`GENERIC_WORDS`). So `FUNDING LLC` and `EQUIPMENT FINANCE` are refused as well.
    - **Short aliases.** Four characters or fewer, spaces not counted. The entity's one `short_alias_reason` covers all its short aliases.
    - **Platform names.** `BARE_PLATFORM_NAMES` holds C10's six names, plus `AMZN`.
-   - **Hand-kept tables.** A rendered alias equal to an alias of the hand-kept `OPERATING_REVENUE_SOURCE_ALIASES` or `INSURANCE_PROVIDER_ALIASES` is refused. So is an entity, of any status, named like a hand-kept entity, and so is an entity name used twice. This keeps `First Insurance Funding` and the hand-kept insurer `First Insurance` apart without a duplicate (Decision 8).
+   - **Hand-kept tables.** A rendered alias equal to an alias of the hand-kept `OPERATING_REVENUE_SOURCE_ALIASES` or `INSURANCE_PROVIDER_ALIASES` is refused. So is an entity, of any status, named like a hand-kept entity, and so is an entity name used twice. This keeps `First Insurance Funding` and the hand-kept insurer `First Insurance` apart without a duplicate entity (Decision 8).
+     - The one exception is the owner's ruling of 2026-09-25 (amended): a `premium_financing` alias may equal an `INSURANCE_PROVIDER_ALIASES` alias when the hand-kept `PREMIUM_FINANCE_INSURER_ALIASES` holds that spelling (`FIRST INSURANCE`). The rule exempts exactly those spellings, only on a `premium_financing` entity, and only against the insurer table: the same spelling in any other group, or equal to an operating-revenue alias, is still refused.
    - **Brands (spec §5).** An alias equal to a bare brand or issuer name in `BARE_BRAND_NAMES` (`TOYOTA`, `FORD`, `APPLE`, `CAPITAL ONE` and so on) is allowed only in `card_issuer_context` or `bank_name`. The classifier reads those two tables only with payment or loan wording.
    - **Context-only tables (C2, C10).** The classifier reads four tables only with context:
      - `credit_card_payment` and `card_issuer_context` with card or payment wording;
@@ -108,6 +109,8 @@ S1-specific constraints:
    - **Owner-named payees.** C10 names only the lenders, alternative positions and lines of credit. `OWNER_NAMED_PAYEES` carries every payee spec §2 names, in every group, and the validator checks them all:
      - a card issuer passes as a card alias or as a bare issuer name of the context table;
      - a premium financier or a bank passes in its own table and must match no known payee.
+     - The owner's ruling of 2026-09-25 (amended) respelled two of them: BlueVine is `BLUEVINE CAPITAL`, because bare `BLUEVINE` also takes Bluevine Bill Pay and checking rows; SmartPay is `SMARTPAY LEASING`, because `SMARTPAY SOL` is SmartPay Solutions' premium billing.
+   - **Payout credits (the owner's ruling of 2026-09-25, amended).** The hand-kept `PAYOUT_CREDIT_ENTITIES` names the entities whose credits are the account holder's own sales, settled by the platform: revenue, not financing proceeds. It is a D1 exception that S2 reads; their debits keep their group. The validator refuses a name that is not an admitted ledger entity of a group whose credits D1 treats as financing proceeds (`analysis.flag_groups.FINANCING_STATES`), because the exception means nothing anywhere else.
    - **Privacy.**
      - No run of five or more digits outside a URL, unless today's registry already holds that exact alias.
      - Every evidence source and `where_looked` entry is an http(s) URL without a query string, a fragment, a `|` or credentials, on a public host: not `localhost`, not a private or loopback IP address, not an undotted host. The validator parses it with `urllib.parse.urlsplit` (amended after review).
@@ -116,11 +119,13 @@ S1-specific constraints:
      - Every entity of today's three lists is held by a ledger entity.
      - The entity holding its first alias keeps today's name, because S2's pins and the census compare entity names.
      - A change of place, or a lost alias of today's registry, needs a reason: a sentence of `notes` that starts `Move:` (`MOVE_MARKER`). Any other text in `notes` does not count, so an unrelated note never excuses a move. An entry of the lease list may become a lender, a lease or rental, or vehicle financing without one (spec §4.1).
-     - `--check` and `--write` print one `move:` line per move, with its reason. The orchestrator reads each one before the owner reads the rendered list, and S1 reports them in the hand-off.
+     - **Merges (the owner's ruling of 2026-09-25, amended).** The hand-kept `MERGED_REGISTRY_ENTITIES` maps an entity of today's registry to the ledger entity that absorbs it (`EBF HOLDINGS` into `EVEREST BUSINESS FUNDING`). The validator treats the merged entity as held by its target: the "keeps today's name" rule does not apply to it, it is never missing, and its lost aliases, like a change of place, need a `Move:` sentence in the target's notes. It refuses a key that is not an entity of today's lists, a target that is not a ledger entity, and a rendered ledger entity that still carries the merged name (the target has not absorbed it).
+     - `--check` and `--write` print one `move:` line per move, with its reason; a merged entity always has one, which says `merged into <target>`, and the evidence ledger's moves section shows the merge in its "Now" column. The orchestrator reads each one before the owner reads the rendered list, and S1 reports them in the hand-off.
    - **Schema.** `schema` is 1, and every entity has exactly C10's ten fields, with their types.
 4. **The hand-kept inputs live in the registry module**, outside the GENERATED block:
    - `OWNER_NAMED_PAYEES` (spec §2): one public spelling per payee;
-   - `BARE_PLATFORM_NAMES` and `BARE_BRAND_NAMES` (spec §5).
+   - `BARE_PLATFORM_NAMES` and `BARE_BRAND_NAMES` (spec §5);
+   - on the owner's ruling of 2026-09-25 (amended): `PREMIUM_FINANCE_INSURER_ALIASES` (Decision 8), `MERGED_REGISTRY_ENTITIES` and `PAYOUT_CREDIT_ENTITIES` (Decision 3).
 
    Counterparty names live only in that module, and these change only on an owner ruling. "Prerequisite: the curated ledger" lists the spellings, so the orchestrator can run the validator before S1 does.
 5. **Rendering.**
@@ -136,10 +141,11 @@ S1-specific constraints:
    - the committed block must equal the rendering of the empty ledger, which is exactly what Task 2 writes;
    - the evidence ledger must not exist.
 7. **Today's registry is read from git** at `BASELINE_REVISION = 693fd009c5c96a838ef47b61ba5b65a610ea5ba1`, the last commit that changed it. The check survives S2's deletion of the legacy lists, and no second copy is committed.
-8. **Premium financing and the hand-kept insurers.** The hand-kept `INSURANCE_PROVIDER_ALIASES` holds `First Insurance` (`FIRST INSURANCE`), probably the owner-named premium financier First Insurance Funding. S1 keeps that entry unchanged, because S1 changes no classification and the ledger has no insurer group.
-   - The validator refuses a premium alias equal to an insurer alias, and a premium entity named like an insurer (Decision 3). So the ledger's `FIRST INSURANCE FUNDING` stays distinct.
-   - S2's insurance rule looks up `PREMIUM_FINANCE_ALIASES` first (S2 Task 7). `FIRST INSURANCE FUNDING` rows therefore go to the financier, and rows that print only `FIRST INSURANCE` stay plain insurance, unflagged.
-   - The evidence ledger lists, under "Awaiting an owner ruling", every premium alias that contains an insurer's alias. The owner decides whether those rows are premium financing. Task 9's content test pins this.
+8. **Premium financing and the hand-kept insurers.** The hand-kept `INSURANCE_PROVIDER_ALIASES` holds `First Insurance` (`FIRST INSURANCE`). S1 keeps that entry unchanged, because S1 changes no classification and the ledger has no insurer group.
+   - The owner ruled on 2026-09-25 (amended) that the bare `FIRST INSURANCE` originator is the premium financier FIRST Insurance Funding: its rows stay insurance and are also flagged premium financing. `PREMIUM_FINANCE_INSURER_ALIASES` holds that spelling, so a `premium_financing` entity may carry it (Decision 3).
+   - The validator still refuses every other premium alias equal to an insurer alias, and a premium entity named like an insurer (Decision 3). So the ledger's `First Insurance Funding` stays an entity of its own beside the hand-kept insurer.
+   - S2's insurance rule looks up `PREMIUM_FINANCE_ALIASES` first (S2 Task 7). A row that prints a premium alias therefore goes to the financier, and so does a row that prints only `FIRST INSURANCE` once the ledger gives it to FIRST Insurance Funding. A row that prints only another insurer's alias stays plain insurance, unflagged.
+   - The evidence ledger lists, under "Awaiting an owner ruling", every premium alias that contains an insurer's alias, except an insurer alias that a premium entity holds itself (`premium_insurer_overlaps`): the rows that print that alias are premium financing already, so no premium entity's overlap with it waits for a ruling. Its Admission section states the ruling. The owner decides the overlaps that remain. Task 9's content test pins this.
 9. **The audit's review rule.** A taken match needs review when its payee key may name someone else:
    - the alias is one word and the key is not exactly that word;
    - the key holds a word outside the alias, the entity's name (and their run-together forms), `VOCAB` and `ORG_CUES`;
@@ -183,7 +189,7 @@ S1-specific constraints:
 | `analysis/flag_groups.py` | Create | C1: the eleven flag groups, lookups, Settings keys, `FINANCING_STATES`. |
 | `analysis/description_text.py` | Create | `normalize_transaction_description`, moved verbatim out of the classifier. |
 | `analysis/payee_matcher.py` | Create | C3: `PayeeMatch`, `AliasIndex`, `match_known_payee`, `registry_match`. |
-| `analysis/classification_registry.py` | Modify | C2: the fourteen GENERATED tables (rendered from the ledger in Task 9), `CONFIRMED_LENDER_ALIASES = LENDER_ALIASES`, `PAYEE_GROUP_REGISTRIES` (ten states). Also the hand-kept `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES` and `BARE_BRAND_NAMES`, and today's lists renamed `LEGACY_*` (deprecated). |
+| `analysis/classification_registry.py` | Modify | C2: the fourteen GENERATED tables (rendered from the ledger in Task 9), `CONFIRMED_LENDER_ALIASES = LENDER_ALIASES`, `PAYEE_GROUP_REGISTRIES` (ten states). Also the hand-kept `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES`, `BARE_BRAND_NAMES`, `PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES` and `PAYOUT_CREDIT_ENTITIES`, and today's lists renamed `LEGACY_*` (deprecated). |
 | `analysis/transaction_classifier.py` | Modify | Reads the `LEGACY_*` lists; re-exports normalization; `_registry_match` delegates to `registry_match`. |
 | `analysis/lenders.py` | Not edited | Its unused `LENDER_KEYWORDS` follows `CONFIRMED_LENDER_ALIASES` (Decision 14). |
 | `tools/bench_classifier.py` | Create | The legacy matcher (reference), the fabricated 300-row statement, `measure()`. |
@@ -231,6 +237,14 @@ The real ledger's counts will differ.
 - Task 8's audit now reads S2's exact step-8 wording and order in its bank-name and card-context passes (`_LOAN_WORDING`, `_CARD_WORDING`). The wording was replayed on a scratch script against S2's step-8 rules as S2's plan writes them: on 223,652 fabricated descriptors built from the rules' own words, around a listed bank and a listed issuer, the two passes took exactly the rows S2 gives to the bank-name and card-payment rules. The extended test `test_only_the_descriptor_rule_passes_need_loan_or_card_wording` pins it, and the audit keeps its 22 tests. The trial's audit counts were taken with the earlier wording.
 
 **After the review of Tasks 5-8 (fix round 1, 2026-09-25).** The independent review found two Important and three Minor defects in the plan's own code, and the orchestrator ruled that the binding constraints and spec section 5 govern over the code blocks. The code blocks of Tasks 5-8 are amended to the reviewed code (each task says so). The counts above predate the fix; the amended steps give Task 5 107 tests, Task 6 11, Task 7 Step 8 130, Task 8 23 and 197 for every S1 test so far, and Task 9 Step 9 255.
+
+**After the owner's ruling of 2026-09-25 (amendments A1-A4, delegated).** The owner ruled four changes to the hand-kept inputs, and the code blocks of Tasks 5-7 are amended to the committed code (each task says so):
+- A1: two `OWNER_NAMED_PAYEES` spellings, BlueVine `BLUEVINE CAPITAL` and SmartPay `SMARTPAY LEASING` (Decision 3);
+- A2: `PREMIUM_FINANCE_INSURER_ALIASES`, the premium-finance spellings that may equal an insurer alias (Decisions 3 and 8);
+- A3: `MERGED_REGISTRY_ENTITIES`, the entities of today's registry that a ledger entity absorbs (Decision 3);
+- A4: `PAYOUT_CREDIT_ENTITIES`, the D1 exception S2 reads (Decision 3).
+
+The amended steps give Task 5 128 tests, Task 6 14, Task 7 Step 8 160, Task 8 23 (unchanged) and 227 for every S1 test so far; the three selections keep their baseline counts. Tasks 9-10 are amended separately.
 
 ## Prerequisite: the curated ledger (Task 9 starts only when both hold)
 
@@ -1528,6 +1542,13 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 > - the fixture's rejected entity looks somewhere other than its source (Task 6's column test).
 >
 > Step 5 counts 107 tests.
+>
+> **Amended for the owner's ruling of 2026-09-25 (A2-A4).** `Rules` gains `premium_insurer_aliases`, `merged` and `payout_credit`, which the fixture's `RULES` sets empty:
+> - the hand-kept-alias rule exempts a ruled premium spelling on a `premium_financing` entity (`INSURER_TABLE`), and `premium_insurer_overlaps` leaves out an insurer alias that a premium entity holds itself;
+> - `baseline_moves` and `baseline_problems` take `merged`: a merged entity is held by its target, is always a move (`Move.merged`), keeps no name of its own, and its lost aliases need the target's `Move:` sentence; `_merge_problems` refuses a bad key or target and a rendered entity under the merged name;
+> - `payout_credit_problems` refuses a payout-credit name that is not an admitted entity of a group in `FINANCING_STATES`.
+>
+> Step 5 counts 128 tests.
 
 **Files:**
 - Create: `tools/lender_ledger.py`
@@ -1537,22 +1558,24 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 **Interfaces:**
 - Consumes:
   - `analysis.description_text.normalize_transaction_description` (Task 3);
-  - `AliasIndex`, `registry_match` and `RUN_TOGETHER_MIN_LENGTH` (Task 3).
+  - `AliasIndex`, `registry_match` and `RUN_TOGETHER_MIN_LENGTH` (Task 3);
+  - `analysis.flag_groups.FINANCING_STATES` (Task 1).
 - Produces (used by Tasks 6-10):
-  - **Constants:** `SCHEMA`, `LEDGER_PATH`, `EMPTY_LEDGER`, `TABLES` (group, table, heading) in C2 order, `GROUPS`, `TABLE_OF_GROUP`, `PAYEE_STATES`, `STATUSES`, `RENDERED`, `ADMITTING_VERDICTS`, `FIELDS`, `SHORT_ALIAS`, `GENERIC_WORDS`, `ORG_CUES`, `CONTEXT_ONLY_GROUPS`, `MOVE_MARKER`, `BASELINE_REVISION`, `BASELINE_TABLES`, `BASELINE_STATE`, `UNRULED_PLACES`, `WITHHELD`.
+  - **Constants:** `SCHEMA`, `LEDGER_PATH`, `EMPTY_LEDGER`, `TABLES` (group, table, heading) in C2 order, `GROUPS`, `TABLE_OF_GROUP`, `PAYEE_STATES`, `STATUSES`, `RENDERED`, `ADMITTING_VERDICTS`, `FIELDS`, `SHORT_ALIAS`, `GENERIC_WORDS`, `ORG_CUES`, `CONTEXT_ONLY_GROUPS`, `INSURER_TABLE`, `MOVE_MARKER`, `BASELINE_REVISION`, `BASELINE_TABLES`, `BASELINE_STATE`, `UNRULED_PLACES`, `WITHHELD`.
   - **Data model:**
     - `Evidence(source, note)` and `Verdict(round, verdict, confirmed)`;
     - `LedgerEntity(index, entity, group, business_type, aliases, status, short_alias_reason, evidence, verdicts, where_looked, notes)`, with the properties `.table` (its C2 table, or None) and `.place` (its group, `"potential_lender"` or `"no table"`);
-    - `Rules(owner_named, platforms, brands, hand_kept, baseline)`;
-    - `Move(entity, table, was, now, lost, holder, reason)`.
+    - `Rules(owner_named, platforms, brands, hand_kept, baseline, premium_insurer_aliases, merged, payout_credit)`;
+    - `Move(entity, table, was, now, lost, holder, reason, merged=False)`.
   - **Functions:**
     - `read_ledger(path: Path) -> object` and `ledger_digest(data: object) -> str`;
     - `parse_ledger(data: object) -> tuple[list[LedgerEntity], list[str]]`;
     - `render_tables(entities: list[LedgerEntity]) -> dict[str, dict[str, tuple[str, ...]]]`;
     - `baseline_from_source(source: str) -> dict` and `load_baseline(revision: str = BASELINE_REVISION) -> dict`;
     - `move_reason(notes: str) -> str`, the text of the `Move:` sentence or `""`;
-    - `baseline_moves(entities, baseline) -> tuple[list[Move], list[tuple[str, str]]]` and `baseline_problems(entities, baseline) -> list[str]`;
+    - `baseline_moves(entities, baseline, merged=None) -> tuple[list[Move], list[tuple[str, str]]]` and `baseline_problems(entities, baseline, merged=None) -> list[str]`;
     - `owner_named_problems(tables, owner_named) -> list[str]`;
+    - `payout_credit_problems(entities, names) -> list[str]`;
     - `validate(data: object, rules: Rules) -> list[str]`;
     - `premium_insurer_overlaps(entities, insurers) -> list[tuple[str, str]]`;
     - `privacy_review(entities) -> list[str]`;
@@ -1659,6 +1682,9 @@ RULES = Rules(
     brands=frozenset({"RIVETT"}),
     hand_kept=HAND_KEPT,
     baseline=BASELINE,
+    premium_insurer_aliases=frozenset(),
+    merged={},
+    payout_credit=(),
 )
 
 
@@ -1909,6 +1935,51 @@ def test_a_premium_alias_that_contains_an_insurer_alias_is_listed_for_the_owner_
     ]
 
 
+def _premium_ruled(*spellings, **changes):
+    """RULES with the premium-finance spellings the owner ruled may repeat an insurer alias."""
+    return dataclasses.replace(RULES, premium_insurer_aliases=frozenset(spellings), **changes)
+
+
+def test_a_premium_alias_the_owner_ruled_may_repeat_a_hand_kept_insurer_alias():
+    assert _problems((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"]),
+                     rules=_premium_ruled("BRISK MUTUAL")) == []
+
+
+def test_the_premium_insurer_ruling_holds_only_on_a_premium_financing_entity():
+    assert _problems((11, "aliases", ["LOXLEY FACTORING", "BRISK MUTUAL"]), rules=_premium_ruled("BRISK MUTUAL")) == [
+        "entity 11 ('Loxley Factoring'): alias 'BRISK MUTUAL' is also an alias of the hand-kept "
+        "INSURANCE_PROVIDER_ALIASES entity 'Brisk Mutual'"
+    ]
+
+
+def test_the_premium_insurer_ruling_exempts_only_its_own_spellings():
+    insurers = {**HAND_KEPT, "INSURANCE_PROVIDER_ALIASES": {"Brisk Mutual": ("BRISK MUTUAL", "BRISK MUTUAL GROUP")}}
+    rules = _premium_ruled("BRISK MUTUAL", hand_kept=insurers)
+    assert _problems((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL", "BRISK MUTUAL GROUP"]),
+                     rules=rules) == [
+        "entity 13 ('Brisk Mutual Funding'): alias 'BRISK MUTUAL GROUP' is also an alias of the hand-kept "
+        "INSURANCE_PROVIDER_ALIASES entity 'Brisk Mutual'"
+    ]
+
+
+def test_the_premium_insurer_ruling_never_exempts_an_operating_revenue_alias():
+    assert _problems((13, "aliases", ["BRISK MUTUAL FUNDING", "ZANTHOS PAY"]),
+                     rules=_premium_ruled("ZANTHOS PAY")) == [
+        "entity 13 ('Brisk Mutual Funding'): alias 'ZANTHOS PAY' is also an alias of the hand-kept "
+        "OPERATING_REVENUE_SOURCE_ALIASES entity 'Zanthos Pay'"
+    ]
+
+
+def test_an_insurer_alias_that_a_premium_entity_holds_is_an_overlap_of_no_premium_entity():
+    insurers = HAND_KEPT["INSURANCE_PROVIDER_ALIASES"]
+    hollin = (12, "aliases", ["HOLLIN PREMIUM FIN", "HOLLIN BRISK MUTUAL"])
+    assert lender_ledger.premium_insurer_overlaps(_entities(hollin), insurers) == [
+        ("Hollin Premium Finance", "Brisk Mutual"), ("Brisk Mutual Funding", "Brisk Mutual")
+    ]
+    held = (13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"])
+    assert lender_ledger.premium_insurer_overlaps(_entities(hollin, held), insurers) == []
+
+
 # --- C10: the payees the owner named ----------------------------------------------------------------------------
 
 
@@ -1936,6 +2007,46 @@ def test_every_payee_the_owner_named_is_admitted_in_its_group(changes, problem):
 def test_a_card_issuer_the_owner_named_may_be_a_bare_issuer_name_of_the_context_table():
     rules = dataclasses.replace(RULES, owner_named={"credit_card_payment": (("Oxbow", "OXBOW EPAYMENT"),)})
     assert _problems(rules=rules) == []
+
+
+# --- the payout-credit entities (owner ruling: a D1 exception S2 reads) ------------------------------------------
+
+
+def test_a_payout_credit_entity_is_an_admitted_entity_of_a_group_whose_credits_are_financing_proceeds():
+    names = ("Quillon Funding", "Ruledco", "Brambleway Capital", "Rivett Motor Credit", "Penwick Mortgage",
+             "Kelder Loans", "Gantry Floorplan Credit", "Loxley Factoring")
+    assert _problems(rules=dataclasses.replace(RULES, payout_credit=names)) == []
+
+
+NOT_PAYOUT = ("a payout-credit exception needs an admitted entity of a group whose credits D1 treats as financing "
+              "proceeds")
+
+
+@pytest.mark.parametrize("name,problem", [
+    ("Quillon Capital", "PAYOUT_CREDIT_ENTITIES names 'Quillon Capital', which is not a ledger entity"),
+    ("Heldco Advance", f"PAYOUT_CREDIT_ENTITIES names entity 15 ('Heldco Advance'), review in confirmed_lender: "
+                       f"{NOT_PAYOUT}"),
+    ("Tarnmoor Capital", f"PAYOUT_CREDIT_ENTITIES names entity 17 ('Tarnmoor Capital'), rejected in "
+                         f"confirmed_lender: {NOT_PAYOUT}"),
+    ("Westfen Leasing", f"PAYOUT_CREDIT_ENTITIES names entity 8 ('Westfen Leasing'), admitted in lease_or_rental: "
+                        f"{NOT_PAYOUT}"),
+    ("Oxbow Card", f"PAYOUT_CREDIT_ENTITIES names entity 4 ('Oxbow Card'), admitted in credit_card_payment: "
+                   f"{NOT_PAYOUT}"),
+    ("Brambleway Bank", f"PAYOUT_CREDIT_ENTITIES names entity 14 ('Brambleway Bank'), admitted in bank_name: "
+                        f"{NOT_PAYOUT}"),
+    ("Hollin Premium Finance", f"PAYOUT_CREDIT_ENTITIES names entity 12 ('Hollin Premium Finance'), admitted in "
+                               f"premium_financing: {NOT_PAYOUT}"),
+])
+def test_a_payout_credit_entity_outside_the_financing_groups_is_refused(name, problem):
+    assert _problems(rules=dataclasses.replace(RULES, payout_credit=(name,))) == [problem]
+
+
+def test_no_payout_credit_problem_quotes_a_run_of_five_or_more_digits():
+    assert _problems((9, "entity", "Kelder 7777777 Loans"),
+                     rules=dataclasses.replace(RULES, payout_credit=("Quillon 7777777", "Kelder 7777777 Loans"))) == [
+        "entity 9: the entity field carries a run of five or more digits",
+        f"PAYOUT_CREDIT_ENTITIES names {lender_ledger.WITHHELD}, which is not a ledger entity",
+    ]
 
 
 # --- privacy -----------------------------------------------------------------------------------------------------
@@ -1997,8 +2108,7 @@ def test_no_problem_ever_quotes_a_run_of_five_or_more_digits(data, rules):
 
 
 def test_validate_withholds_a_digit_run_whichever_rule_would_quote_it(monkeypatch):
-    monkeypatch.setattr(lender_ledger, "baseline_problems",
-                        lambda _entities, _baseline: ["fabricated 12345 and 7777777"])
+    monkeypatch.setattr(lender_ledger, "baseline_problems", lambda *_args: ["fabricated 12345 and 7777777"])
     assert lender_ledger.validate(ledger(), RULES) == [f"fabricated {WITHHELD} and {WITHHELD}"]
 
 
@@ -2128,6 +2238,75 @@ def test_baseline_moves_list_every_changed_entity_with_its_reason():
     ]
 
 
+#: Entity 0 holding the aliases of a fabricated entity of today's registry that the owner merged into it.
+ABSORBED = (0, "aliases", ["QUILLON FUNDING", "QUILLONFUND", "QUILLON HOLDINGS", "QUILLON HLDG"])
+
+
+def _merged(**changes):
+    """RULES whose today's registry also holds 'Quillon Holdings', which the owner merged into 'Quillon Funding'."""
+    baseline = {**BASELINE, "CONFIRMED_LENDER_ALIASES": {
+        **BASELINE["CONFIRMED_LENDER_ALIASES"], "Quillon Holdings": ("QUILLON HOLDINGS", "QUILLON HLDG")}}
+    return dataclasses.replace(RULES, **{"baseline": baseline, "merged": {"Quillon Holdings": "Quillon Funding"},
+                                         **changes})
+
+
+def test_a_merged_entity_of_todays_registry_is_held_by_its_target_under_the_targets_name():
+    assert _problems(ABSORBED, rules=_merged()) == []
+    assert _problems(ABSORBED, rules=_merged(merged={})) == [
+        "the ledger entity holding the first alias of today's 'Quillon Holdings' is named 'Quillon Funding': keep "
+        "today's name (S2's pins and the census compare entity names)"
+    ]
+
+
+def test_the_aliases_a_merge_loses_need_the_targets_move_sentence():
+    assert _problems(rules=_merged()) == [
+        "today's CONFIRMED_LENDER_ALIASES entity 'Quillon Holdings' loses 2 of today's aliases without a sentence "
+        "starting 'Move:' in the notes of 'Quillon Funding', which absorbs it"
+    ]
+    assert _problems((0, "notes", "Move: fabricated merger; the holding company's names print on no row."),
+                     rules=_merged()) == []
+
+
+def test_baseline_moves_list_a_merge_even_when_it_loses_nothing():
+    rules = _merged()
+    moves, missing = lender_ledger.baseline_moves(_entities(ABSORBED), rules.baseline, rules.merged)
+    assert missing == []
+    assert moves == [
+        lender_ledger.Move("Ruledco", "CONFIRMED_LENDER_ALIASES", "confirmed_lender", "alternative_position", 0,
+                           "Ruledco", "fabricated owner ruling, an alternative position."),
+        lender_ledger.Move("Quillon Holdings", "CONFIRMED_LENDER_ALIASES", "confirmed_lender", "confirmed_lender", 0,
+                           "Quillon Funding", "", merged=True),
+        lender_ledger.Move("Westfen Leasing", "LEASE_PROVIDER_ALIASES", "lease_or_equipment_financing",
+                           "lease_or_rental", 0, "Westfen Leasing", ""),
+    ]
+
+
+@pytest.mark.parametrize("merged,problems", [
+    ({"Septima Holdings": "Quillon Funding"},
+     ["MERGED_REGISTRY_ENTITIES merges 'Septima Holdings', which is not an entity of today's registry"]),
+    ({"Heldco Advance": "Heldco Capital"},
+     ["MERGED_REGISTRY_ENTITIES merges 'Heldco Advance' into 'Heldco Capital', which is not a ledger entity",
+      "MERGED_REGISTRY_ENTITIES merges 'Heldco Advance' into 'Heldco Capital', but entity 15 ('Heldco Advance') "
+      "still renders under the merged name"]),
+    ({"Heldco Advance": "Quillon Funding"},
+     ["MERGED_REGISTRY_ENTITIES merges 'Heldco Advance' into 'Quillon Funding', but entity 15 ('Heldco Advance') "
+      "still renders under the merged name",
+      "today's POTENTIAL_LENDER_ALIASES entity 'Heldco Advance' moves from potential_lender to confirmed_lender "
+      "without a sentence starting 'Move:' in the notes of 'Quillon Funding', which absorbs it",
+      "today's POTENTIAL_LENDER_ALIASES entity 'Heldco Advance' loses 1 of today's aliases without a sentence "
+      "starting 'Move:' in the notes of 'Quillon Funding', which absorbs it"]),
+])
+def test_a_merge_names_an_entity_of_todays_registry_that_a_ledger_entity_absorbs(merged, problems):
+    assert _problems(rules=dataclasses.replace(RULES, merged=merged)) == problems
+
+
+def test_no_merge_problem_quotes_a_run_of_five_or_more_digits():
+    assert _problems(rules=dataclasses.replace(RULES, merged={"Septima 7777777": "Tarnmoor 4444444 Capital"})) == [
+        f"MERGED_REGISTRY_ENTITIES merges {WITHHELD}, which is not an entity of today's registry",
+        f"MERGED_REGISTRY_ENTITIES merges {WITHHELD} into {WITHHELD}, which is not a ledger entity",
+    ]
+
+
 def test_the_baseline_is_read_from_a_registry_source_without_importing_it():
     source = "".join(f"{table}: dict[str, tuple[str, ...]] = {entries!r}\n" for table, entries in BASELINE.items())
     assert lender_ledger.baseline_from_source("OTHER = 1\n" + source) == BASELINE
@@ -2185,9 +2364,14 @@ The validator applies:
     or a local, private or undotted host;
   * contract C2's context-only tables: no entity of the card, card-issuer, bank-name or premium-finance
     groups is under review, and every card-payment alias carries card or payment wording;
+  * the owner's premium-finance ruling: a premium-finance alias repeats a hand-kept insurer's alias only when
+    PREMIUM_FINANCE_INSURER_ALIASES holds it;
+  * the owner's payout-credit ruling: each name in PAYOUT_CREDIT_ENTITIES is an admitted ledger entity of a
+    group whose credits D1 treats as financing proceeds (analysis.flag_groups.FINANCING_STATES);
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
     reason: a sentence of its notes that starts "Move:" (today's registry is read from git at
-    BASELINE_REVISION).
+    BASELINE_REVISION); an entity the owner merged into a ledger entity (MERGED_REGISTRY_ENTITIES) is held by
+    that entity, whose notes give the reason.
 """
 from __future__ import annotations
 
@@ -2208,6 +2392,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis.description_text import normalize_transaction_description as normalize  # noqa: E402
+from analysis.flag_groups import FINANCING_STATES  # noqa: E402
 from analysis.payee_matcher import RUN_TOGETHER_MIN_LENGTH, AliasIndex, registry_match  # noqa: E402
 
 SCHEMA = 1
@@ -2270,6 +2455,9 @@ _URL_SCHEME = re.compile(r"https?://")
 #: the insurance rule. None of their entities is ever "review", because the potential tier (where C10 renders
 #: every review entity) reads its aliases with no context at all.
 CONTEXT_ONLY_GROUPS = frozenset({"credit_card_payment", "card_issuer_context", "bank_name", "premium_financing"})
+#: The hand-kept insurer table. A premium-finance alias may repeat one of its aliases only on the owner's
+#: ruling (``Rules.premium_insurer_aliases``, PREMIUM_FINANCE_INSURER_ALIASES).
+INSURER_TABLE = "INSURANCE_PROVIDER_ALIASES"
 #: The wording of S2's card-payment rule (spec section 4.3 step 8). C10: the aliases of credit_card_payment are
 #: "already payment-specific", so each carries this wording; a bare issuer name belongs in card_issuer_context.
 _CARD_PAYMENT_WORDING = re.compile(
@@ -2353,12 +2541,18 @@ class Rules:
     brands: frozenset[str]
     hand_kept: Mapping[str, Mapping[str, tuple[str, ...]]]
     baseline: Mapping[str, Mapping[str, tuple[str, ...]]]
+    #: Normalized premium-finance spellings that may equal a hand-kept insurer alias (owner ruling).
+    premium_insurer_aliases: frozenset[str]
+    #: Entity of today's registry -> the ledger entity that absorbs it (owner ruling).
+    merged: Mapping[str, str]
+    #: Ledger entities whose credits are the account holder's own sales, not financing proceeds (owner ruling).
+    payout_credit: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class Move:
-    """An entity of today's registry whose place or aliases the ledger changes. ``reason`` is the text of the
-    holder's "Move:" sentence, or "" when its notes have none."""
+    """An entity of today's registry whose place or aliases the ledger changes, or that the owner merged into
+    ``holder``. ``reason`` is the text of the holder's "Move:" sentence, or "" when its notes have none."""
 
     entity: str
     table: str
@@ -2367,6 +2561,7 @@ class Move:
     lost: int
     holder: str
     reason: str
+    merged: bool = False
 
 
 # --- reading -------------------------------------------------------------------------------------------------
@@ -2547,54 +2742,94 @@ def _holders(entities: list[LedgerEntity]) -> dict[str, LedgerEntity]:
     return held
 
 
-def baseline_moves(entities: list[LedgerEntity],
-                   baseline: Mapping[str, Mapping[str, tuple[str, ...]]]) -> tuple[list[Move], list[tuple[str, str]]]:
+def _by_name(entities: list[LedgerEntity]) -> dict[str, LedgerEntity]:
+    """Each entity name's first ledger entity (a name used twice is refused by the name rules)."""
+    named: dict[str, LedgerEntity] = {}
+    for entity in entities:
+        named.setdefault(entity.entity, entity)
+    return named
+
+
+def baseline_moves(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
+                   merged: Mapping[str, str] | None = None) -> tuple[list[Move], list[tuple[str, str]]]:
     """(moves, missing). A move is an entity of today's lists whose place changes or that loses an alias; the
-    ledger entity holding its first alias (else most of its aliases) decides. Missing are the (table, entity)
-    pairs of today's lists that no ledger entity holds an alias of."""
+    ledger entity holding its first alias (else most of its aliases) decides. An entity the owner merged
+    (``merged``, MERGED_REGISTRY_ENTITIES) is held by its target ledger entity instead, and is always a move.
+    Missing are the (table, entity) pairs of today's lists that no ledger entity holds an alias of."""
+    merged = merged or {}
     held = _holders(entities)
+    named = _by_name(entities)
     moves: list[Move] = []
     missing: list[tuple[str, str]] = []
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
             normalized = list(dict.fromkeys(normalize(alias) for alias in aliases))
+            target = named.get(merged[name]) if name in merged else None
             holders = [held[alias] for alias in normalized if alias in held]
-            if not holders:
+            if target is not None:
+                primary = target
+            elif not holders:
                 missing.append((table, name))
                 continue
-            primary = held.get(normalized[0]) or max(holders, key=lambda e: (holders.count(e), -e.index))
+            else:
+                primary = held.get(normalized[0]) or max(holders, key=lambda e: (holders.count(e), -e.index))
             kept = {normalize(alias) for alias in primary.aliases} if primary.status in RENDERED else set()
             lost = sum(1 for alias in normalized if alias not in kept)
             move = Move(name, table, BASELINE_STATE[table], primary.place, lost, primary.entity,
-                        move_reason(primary.notes))
-            if move.now != move.was or move.lost:
+                        move_reason(primary.notes), merged=target is not None)
+            if move.merged or move.now != move.was or move.lost:
                 moves.append(move)
     return moves, missing
 
 
-def baseline_problems(entities: list[LedgerEntity],
-                      baseline: Mapping[str, Mapping[str, tuple[str, ...]]]) -> list[str]:
-    moves, missing = baseline_moves(entities, baseline)
+def _merge_problems(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
+                    merged: Mapping[str, str]) -> list[str]:
+    """MERGED_REGISTRY_ENTITIES names an entity of today's lists, merged into a ledger entity; no rendered ledger
+    entity keeps the merged name."""
+    today = {name for table in BASELINE_TABLES for name in baseline.get(table, {})}
+    named = _by_name(entities)
+    problems = []
+    for name, target in merged.items():
+        if name not in today:
+            problems.append(f"MERGED_REGISTRY_ENTITIES merges {_shown(name)}, which is not an entity of today's "
+                            f"registry")
+        if target not in named:
+            problems.append(f"MERGED_REGISTRY_ENTITIES merges {_shown(name)} into {_shown(target)}, which is not a "
+                            f"ledger entity")
+        kept = named.get(name)
+        if kept is not None and kept.status in RENDERED:
+            problems.append(f"MERGED_REGISTRY_ENTITIES merges {_shown(name)} into {_shown(target)}, but "
+                            f"{_label(kept)} still renders under the merged name")
+    return problems
+
+
+def baseline_problems(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
+                      merged: Mapping[str, str] | None = None) -> list[str]:
+    merged = merged or {}
+    moves, missing = baseline_moves(entities, baseline, merged)
     marked = f"a sentence starting {MOVE_MARKER!r} in its notes"
-    problems = [f"today's {table} entity {_shown(name)} is in no ledger entity: record it in its place, or moved "
-                f"or rejected with {marked}" for table, name in missing]
+    problems = _merge_problems(entities, baseline, merged)
+    problems += [f"today's {table} entity {_shown(name)} is in no ledger entity: record it in its place, or "
+                 f"moved or rejected with {marked}" for table, name in missing]
     held = _holders(entities)
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
             first = held.get(normalize(aliases[0]))
-            if first is not None and first.entity != name:
+            if name not in merged and first is not None and first.entity != name:
                 problems.append(f"the ledger entity holding the first alias of today's {_shown(name)} is named "
                                 f"{_shown(first.entity)}: keep today's name (S2's pins and the census compare "
                                 f"entity names)")
     for move in moves:
         if move.reason:
             continue
+        needs = (f"a sentence starting {MOVE_MARKER!r} in the notes of {_shown(move.holder)}, which absorbs it"
+                 if move.merged else marked)
         if move.now not in UNRULED_PLACES[move.table]:
             problems.append(f"today's {move.table} entity {_shown(move.entity)} moves from {move.was} to "
-                            f"{move.now} without {marked}")
+                            f"{move.now} without {needs}")
         if move.lost:
             problems.append(f"today's {move.table} entity {_shown(move.entity)} loses {move.lost} of today's "
-                            f"aliases without {marked}")
+                            f"aliases without {needs}")
     return problems
 
 
@@ -2632,6 +2867,8 @@ def _alias_problems(entity: LedgerEntity, alias: str, rules: Rules, held: frozen
         problems.append(f"{label}: alias {shown} is a bare platform name (spec section 5: the operating-revenue "
                         f"registry only)")
     for table, entries in rules.hand_kept.items():
+        if table == INSURER_TABLE and entity.group == "premium_financing" and norm in rules.premium_insurer_aliases:
+            continue  # the owner's ruling: this premium financier's rows print as the insurer
         for name, aliases in entries.items():
             if norm in {normalize(other) for other in aliases}:
                 problems.append(f"{label}: alias {shown} is also an alias of the hand-kept {table} entity "
@@ -2753,6 +2990,23 @@ def owner_named_problems(tables: Mapping[str, Mapping[str, tuple[str, ...]]],
     return problems
 
 
+def payout_credit_problems(entities: list[LedgerEntity], names: tuple[str, ...]) -> list[str]:
+    """The owner's payout-credit ruling (PAYOUT_CREDIT_ENTITIES): S2 reads these entities' credits as the account
+    holder's own sales, an exception to D1, so each is an admitted ledger entity of a group whose credits D1
+    treats as financing proceeds (FINANCING_STATES)."""
+    named = _by_name(entities)
+    problems = []
+    for name in names:
+        entity = named.get(name)
+        if entity is None:
+            problems.append(f"PAYOUT_CREDIT_ENTITIES names {_shown(name)}, which is not a ledger entity")
+        elif entity.status != "admitted" or entity.group not in FINANCING_STATES:
+            problems.append(f"PAYOUT_CREDIT_ENTITIES names {_label(entity)}, {entity.status} in {entity.group}: a "
+                            f"payout-credit exception needs an admitted entity of a group whose credits D1 treats "
+                            f"as financing proceeds")
+    return problems
+
+
 def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     entities, problems = parse_ledger(data)
     if problems:
@@ -2763,7 +3017,8 @@ def _unmasked_problems(data: object, rules: Rules) -> list[str]:
         problems.extend(_entity_problems(entity, rules, held))
     problems.extend(_collision_problems(entities))
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
-    problems.extend(baseline_problems(entities, rules.baseline))
+    problems.extend(payout_credit_problems(entities, rules.payout_credit))
+    problems.extend(baseline_problems(entities, rules.baseline, rules.merged))
     return problems
 
 
@@ -2781,18 +3036,22 @@ def premium_insurer_overlaps(entities: list[LedgerEntity],
                              insurers: Mapping[str, tuple[str, ...]]) -> list[tuple[str, str]]:
     """(premium-finance entity, hand-kept insurer) pairs where a premium alias contains an insurer's alias as
     whole words. Not a problem: the insurance rule reads the premium table first (S2), so the financier keeps
-    its own rows and rows naming only the insurer stay plain insurance. The owner rules on them."""
+    its own rows and rows naming only the insurer stay plain insurance. The owner rules on them. An insurer
+    alias that a premium entity holds itself (the owner's ruling, PREMIUM_FINANCE_INSURER_ALIASES) is no
+    overlap of any premium entity: the rows that print it are premium financing already."""
+    premium = [entity for entity in entities if entity.status == "admitted" and entity.group == "premium_financing"]
+    held = {normalize(alias) for entity in premium for alias in entity.aliases}
     pairs: list[tuple[str, str]] = []
-    for entity in entities:
-        if entity.status != "admitted" or entity.group != "premium_financing":
-            continue
+    for entity in premium:
         texts = [normalize(alias) for alias in entity.aliases]
         for insurer, aliases in insurers.items():
             for alias in aliases:
                 norm = normalize(alias)
+                if norm in held:
+                    continue
                 inside = re.compile(rf"(?<![A-Z0-9]){re.escape(norm)}(?![A-Z0-9])")
                 pair = (entity.entity, insurer)
-                if pair not in pairs and any(text != norm and inside.search(text) for text in texts):
+                if pair not in pairs and any(inside.search(text) for text in texts):
                     pairs.append(pair)
     return pairs
 
@@ -2816,7 +3075,7 @@ def privacy_review(entities: list[LedgerEntity]) -> list[str]:
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_ledger.py -q -p no:cacheprovider`
-Expected: 107 passed. `test_the_baseline_revision_holds_the_lists_the_classifier_reads_until_s2` reads git. It proves that `BASELINE_REVISION` holds exactly the three lists the classifier reads today.
+Expected: 128 passed. `test_the_baseline_revision_holds_the_lists_the_classifier_reads_until_s2` reads git. It proves that `BASELINE_REVISION` holds exactly the three lists the classifier reads today.
 
 - [ ] **Step 6: Commit**
 
@@ -2831,13 +3090,15 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 ### Task 6: The deterministic renderer
 
 > **Amended after review (fix round 1, 2026-09-25).** Spec section 5 governs the evidence ledger: the table rows carry a Group column, the rows awaiting an owner ruling and the rejected rows carry a Source column (the first source, else `none recorded`), every source and where-looked cell goes through `_cell`, and the moves table masks digit runs. Step 4 counts 11 tests.
+>
+> **Amended for the owner's ruling of 2026-09-25 (A2-A3).** The Admission section states the premium-finance insurer ruling (`PREMIUM_FINANCE_INSURER_ALIASES`) and how a merge (`MERGED_REGISTRY_ENTITIES`) is held; the moves table reads `rules.merged` and shows a merged entity's target in its "Now" column (`_now`). Step 4 counts 14 tests.
 
 **Files:**
 - Create: `tools/build_lender_registry.py` (the renderer; Task 7 adds the command line)
 - Test: `tests/test_build_lender_registry.py`
 
 **Interfaces:**
-- Consumes: `TABLES`, `LedgerEntity`, `Rules`, `render_tables`, `baseline_moves` and `premium_insurer_overlaps` (Task 5).
+- Consumes: `TABLES`, `LedgerEntity`, `Move`, `Rules` (with its `merged`), `render_tables`, `baseline_moves` and `premium_insurer_overlaps` (Task 5).
 - Produces:
   - `REGISTRY_PATH`, `EVIDENCE_PATH`, `BEGIN_MARKER`, `END_MARKER`, `HEADER`;
   - `render_block(tables) -> str`, the GENERATED block with `"\n"` line endings;
@@ -2981,6 +3242,29 @@ def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(e
     assert "TARNMOOR CAP" not in evidence and "MARSH RECOVERY" not in evidence
 
 
+def test_the_evidence_ledger_states_the_owner_ruling_on_premium_aliases_that_repeat_an_insurer(evidence):
+    admission = evidence.split("## Admission\n", 1)[1].split("\n## ", 1)[0]
+    assert ("- A premium-finance alias equals an alias of a hand-kept insurer (`INSURANCE_PROVIDER_ALIASES`) only "
+            "on the owner's ruling (`PREMIUM_FINANCE_INSURER_ALIASES`). The insurance rule reads the premium-finance "
+            "table first, so rows that print that alias stay insurance and are also flagged premium financing, and "
+            "no overlap with it awaits a ruling.") in admission
+
+
+def test_the_evidence_ledger_states_how_a_merge_of_the_owner_is_held(evidence):
+    admission = evidence.split("## Admission\n", 1)[1].split("\n## ", 1)[0]
+    assert ("- An entity of that registry that the owner merged into a ledger entity (`MERGED_REGISTRY_ENTITIES`) "
+            "is held by that entity under its name. The moves section shows the merge, and an alias the merge loses "
+            "needs a `Move:` sentence in that entity's notes.") in admission
+
+
+def test_an_insurer_alias_that_a_premium_entity_holds_awaits_no_owner_ruling():
+    entities = _entities((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"]))
+    evidence = builder.render_evidence(entities, "a" * 64, RULES)
+    waiting = evidence.split("## Awaiting an owner ruling\n", 1)[1].split("\n## ", 1)[0]
+    assert "hand-kept insurer" not in waiting
+    assert "| Marsh Recovery |" in waiting
+
+
 def test_a_pipe_in_a_source_or_where_looked_never_splits_an_evidence_row():
     entities = _entities((0, "evidence", [{"source": "https://quillon.example/a|b", "note": "fabricated"}]),
                          (15, "where_looked", ["https://heldco.example/a|b"]),
@@ -3115,6 +3399,11 @@ def _table_row(entity: LedgerEntity) -> str:
             f"{_cell(looked)} | {_cell(entity.notes)} |")
 
 
+def _now(move: lender_ledger.Move) -> str:
+    """Where a moved entity of today's registry is now, and the entity it merges into, if any."""
+    return f"{move.now} (merged into {move.holder})" if move.merged else move.now
+
+
 def _listed_row(entity: LedgerEntity) -> str:
     return (f"| {_cell(entity.entity)} | {entity.group} | {_cell(entity.business_type)} | "
             f"{_cell(_verdicts(entity))} | {_cell(_source(entity))} | {_cell(_looked(entity))} | "
@@ -3153,6 +3442,13 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "ledger in which one is not.",
         "- An entity of the registry as it stood before this ledger changes place, or loses an alias, only with a "
         "reason: a sentence of its notes that starts `Move:` (spec section 9). The moves section shows that reason.",
+        "- A premium-finance alias equals an alias of a hand-kept insurer (`INSURANCE_PROVIDER_ALIASES`) only on the "
+        "owner's ruling (`PREMIUM_FINANCE_INSURER_ALIASES`). The insurance rule reads the premium-finance table "
+        "first, so rows that print that alias stay insurance and are also flagged premium financing, and no overlap "
+        "with it awaits a ruling.",
+        "- An entity of that registry that the owner merged into a ledger entity (`MERGED_REGISTRY_ENTITIES`) is held "
+        "by that entity under its name. The moves section shows the merge, and an alias the merge loses needs a "
+        "`Move:` sentence in that entity's notes.",
         "",
         "## Summary",
         "",
@@ -3170,11 +3466,12 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         lines += ["| Entity | Group | Business type | Verdicts | Status | Aliases | Source | Where the researchers "
                   "looked | Notes |", "|---|---|---|---|---|---|---|---|---|"]
         lines += [_table_row(by_name[name]) for name in tables[table]]
-    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline)
+    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged)
     lines += ["", "## Moves from the registry as it stood before this ledger", ""]
     if moves:
         lines += ["| Entity | Was | Now | Aliases of today's registry lost | Why |", "|---|---|---|---:|---|"]
-        lines += [f"| {_cell(lender_ledger.mask_digit_runs(m.entity))} | {m.was} | {m.now} | {m.lost} | "
+        lines += [f"| {_cell(lender_ledger.mask_digit_runs(m.entity))} | {m.was} | "
+                  f"{_cell(lender_ledger.mask_digit_runs(_now(m)))} | {m.lost} | "
                   f"{_cell(lender_ledger.mask_digit_runs(m.reason))} |" for m in moves]
     else:
         lines.append("None.")
@@ -3209,7 +3506,7 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_build_lender_registry.py -q -p no:cacheprovider`
-Expected: 11 passed.
+Expected: 14 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -3224,9 +3521,11 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 ### Task 7: The hand-kept inputs, the command line and the drift test
 
 > **Amended after review (fix round 1, 2026-09-25).** The `move:` lines mask every run of five or more digits (`lender_ledger.mask_digit_runs`). The command-line tests gain `test_move_lines_and_the_evidence_ledger_never_quote_a_run_of_five_or_more_digits`, so Step 1 also imports `dataclasses`, `re` and the fixture's `BASELINE`. The counts in Steps 4 and 8 include it.
+>
+> **Amended for the owner's ruling of 2026-09-25 (A1-A4).** Step 5 respells BlueVine (`BLUEVINE CAPITAL`) and SmartPay (`SMARTPAY LEASING`) in `OWNER_NAMED_PAYEES` and adds three hand-kept constants: `PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES` and `PAYOUT_CREDIT_ENTITIES`. `current_rules` reads them, and a merged entity's `move:` line says `merged into <target>`. The command-line tests gain the two merge tests and one test per new constant. The counts in Steps 4 and 8 include them.
 
 **Files:**
-- Modify: `analysis/classification_registry.py`. The three hand-kept constants go after `PAYEE_GROUP_REGISTRIES`, before the Deprecated block.
+- Modify: `analysis/classification_registry.py`. The six hand-kept constants go after `PAYEE_GROUP_REGISTRIES`, before the Deprecated block.
 - Modify: `tools/lender_ledger.py` (append `current_rules`)
 - Modify: `tools/build_lender_registry.py` (import `argparse`; append `main`)
 - Modify: `tests/test_build_lender_registry.py` (import `dataclasses`, `json`, `re` and `BASELINE`; append the command-line tests)
@@ -3237,10 +3536,11 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - Produces:
   - `analysis.classification_registry.OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]]`, group → (label, spelling) pairs;
   - `BARE_PLATFORM_NAMES: tuple[str, ...]` and `BARE_BRAND_NAMES: tuple[str, ...]`;
+  - `PREMIUM_FINANCE_INSURER_ALIASES: tuple[str, ...]`, `MERGED_REGISTRY_ENTITIES: dict[str, str]` (entity of today's registry → the ledger entity that absorbs it) and `PAYOUT_CREDIT_ENTITIES: tuple[str, ...]` (ledger entity names; S2 reads it as a D1 exception);
   - `tools.lender_ledger.current_rules() -> Rules`, which reads those constants, the two hand-kept tables and git;
   - `tools.build_lender_registry.main(argv: list[str] | None = None) -> int`:
     - one of `--check`, `--write` or `--privacy-review`, plus `--ledger`, `--registry` and `--evidence`;
-    - `--check` and `--write` print `ledger ok: ...`, then one `move: ...` line per move from today's registry (Decision 3), with every run of five or more digits masked;
+    - `--check` and `--write` print `ledger ok: ...`, then one `move: ...` line per move from today's registry (Decision 3), with every run of five or more digits masked; a merged entity's line reads `move: <entity> (<table>): merged into <target>; <was> -> <now>, <n> of today's aliases lost; why: <the target's Move: sentence, else "none needed (the owner's merge, MERGED_REGISTRY_ENTITIES)">`;
     - exit codes 0 (done), 1 (the ledger has problems; nothing is written) and 2 (no ledger, or not JSON).
 
 - [ ] **Step 1: Import `dataclasses`, `json`, `re` and `BASELINE` in the builder test**
@@ -3327,6 +3627,39 @@ def test_move_lines_and_the_evidence_ledger_never_quote_a_run_of_five_or_more_di
     assert not re.search(r"\d{5}", "\n".join(moves) + section)
 
 
+def _merge_rules():
+    """RULES whose today's registry also holds 'Quillon Holdings', which the owner merged into 'Quillon Funding'."""
+    baseline = {**BASELINE, "CONFIRMED_LENDER_ALIASES": {
+        **BASELINE["CONFIRMED_LENDER_ALIASES"], "Quillon Holdings": ("QUILLON HOLDINGS", "QUILLON HLDG")}}
+    return dataclasses.replace(RULES, baseline=baseline, merged={"Quillon Holdings": "Quillon Funding"})
+
+
+def test_a_merge_prints_one_move_line_and_shows_in_the_evidence_moves(paths, monkeypatch, capsys):
+    monkeypatch.setattr(lender_ledger, "current_rules", _merge_rules)
+    paths["ledger"].write_text(json.dumps(ledger(
+        (0, "aliases", ["QUILLON FUNDING", "QUILLONFUND", "QUILLON HOLDINGS"]),
+        (0, "notes", "Move: fabricated merger; the short form prints on no row."))), encoding="utf-8")
+    assert builder.main(_args(paths, "--write")) == 0
+    moves = [line for line in capsys.readouterr().out.splitlines() if line.startswith("move: ")]
+    assert ("move: Quillon Holdings (CONFIRMED_LENDER_ALIASES): merged into Quillon Funding; confirmed_lender -> "
+            "confirmed_lender, 1 of today's aliases lost; why: fabricated merger; the short form prints on no "
+            "row.") in moves
+    assert len(moves) == 3
+    section = paths["evidence"].read_text(encoding="utf-8").split("## Moves from the registry", 1)[1]
+    assert ("| Quillon Holdings | confirmed_lender | confirmed_lender (merged into Quillon Funding) | 1 | fabricated "
+            "merger; the short form prints on no row. |") in section
+
+
+def test_a_merge_that_loses_nothing_needs_no_reason(paths, monkeypatch, capsys):
+    monkeypatch.setattr(lender_ledger, "current_rules", _merge_rules)
+    paths["ledger"].write_text(json.dumps(ledger(
+        (0, "aliases", ["QUILLON FUNDING", "QUILLONFUND", "QUILLON HOLDINGS", "QUILLON HLDG"]))), encoding="utf-8")
+    assert builder.main(_args(paths, "--check")) == 0
+    assert ("move: Quillon Holdings (CONFIRMED_LENDER_ALIASES): merged into Quillon Funding; confirmed_lender -> "
+            "confirmed_lender, 0 of today's aliases lost; why: none needed (the owner's merge, "
+            "MERGED_REGISTRY_ENTITIES)") in capsys.readouterr().out.splitlines()
+
+
 def test_check_prints_every_problem_and_exits_1(paths, capsys):
     paths["ledger"].write_text(json.dumps(ledger((0, "evidence", []))), encoding="utf-8")
     assert builder.main(_args(paths, "--check")) == 1
@@ -3399,6 +3732,40 @@ def test_the_owner_named_payees_cover_every_group_spec_section_2_names():
     for pairs in registry.OWNER_NAMED_PAYEES.values():
         for _label, spelling in pairs:
             assert spelling == spelling.upper() and spelling.replace(" ", "").isalnum(), spelling
+
+
+def test_the_owner_ruling_of_2026_09_25_respells_bluevine_and_smartpay():
+    from analysis import classification_registry as registry
+
+    spelled = {label: spelling for pairs in registry.OWNER_NAMED_PAYEES.values() for label, spelling in pairs}
+    assert spelled["BlueVine"] == "BLUEVINE CAPITAL"
+    assert spelled["SmartPay"] == "SMARTPAY LEASING"
+
+
+def test_the_premium_insurer_spellings_are_hand_kept_insurer_aliases_that_the_validator_reads():
+    from analysis import classification_registry as registry
+    from analysis.description_text import normalize_transaction_description as normalize
+
+    insurers = {normalize(alias) for aliases in registry.INSURANCE_PROVIDER_ALIASES.values() for alias in aliases}
+    ruled = frozenset(normalize(spelling) for spelling in registry.PREMIUM_FINANCE_INSURER_ALIASES)
+    assert ruled and ruled <= insurers
+    assert lender_ledger.current_rules().premium_insurer_aliases == ruled
+
+
+def test_the_merged_entities_are_entities_of_todays_registry_that_the_validator_reads():
+    from analysis import classification_registry as registry
+
+    rules = lender_ledger.current_rules()
+    today = {name for table in rules.baseline.values() for name in table}
+    assert registry.MERGED_REGISTRY_ENTITIES and set(registry.MERGED_REGISTRY_ENTITIES) <= today
+    assert rules.merged is registry.MERGED_REGISTRY_ENTITIES
+
+
+def test_the_payout_credit_entities_are_the_ones_the_validator_reads():
+    from analysis import classification_registry as registry
+
+    assert registry.PAYOUT_CREDIT_ENTITIES
+    assert lender_ledger.current_rules().payout_credit is registry.PAYOUT_CREDIT_ENTITIES
 ```
 
 - [ ] **Step 3: Write the failing drift test**
@@ -3450,11 +3817,12 @@ def test_the_evidence_ledger_is_the_rendering_of_the_committed_ledger():
 - [ ] **Step 4: Run them to verify they fail**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_build_lender_registry.py tests/test_lender_registry_drift.py -q -p no:cacheprovider`
-Expected: `2 failed, 14 passed, 7 errors`.
-- The seven tests that use the `paths` fixture error at setup, because `monkeypatch` finds no `current_rules` on `tools.lender_ledger`.
-- `test_the_rules_come_from_the_hand_kept_constants_of_the_registry` fails with `AttributeError: module 'tools.lender_ledger' has no attribute 'current_rules'`.
-- `test_the_owner_named_payees_cover_every_group_spec_section_2_names` fails with `AttributeError: module 'analysis.classification_registry' has no attribute 'OWNER_NAMED_PAYEES'`.
-- The three drift tests already pass, because Task 2's block is the rendering of the empty ledger. If the ledger is already on the branch (see "Before Task 1"), they fail instead, and the line reads `5 failed, 11 passed, 7 errors`.
+Expected: `6 failed, 17 passed, 9 errors`.
+- The nine tests that use the `paths` fixture error at setup, because `monkeypatch` finds no `current_rules` on `tools.lender_ledger`.
+- `test_the_rules_come_from_the_hand_kept_constants_of_the_registry` and `test_the_merged_entities_are_entities_of_todays_registry_that_the_validator_reads` fail with `AttributeError: module 'tools.lender_ledger' has no attribute 'current_rules'`.
+- `test_the_owner_named_payees_cover_every_group_spec_section_2_names` and `test_the_owner_ruling_of_2026_09_25_respells_bluevine_and_smartpay` fail with `AttributeError: module 'analysis.classification_registry' has no attribute 'OWNER_NAMED_PAYEES'`.
+- `test_the_premium_insurer_spellings_are_hand_kept_insurer_aliases_that_the_validator_reads` and `test_the_payout_credit_entities_are_the_ones_the_validator_reads` fail with an `AttributeError` for `PREMIUM_FINANCE_INSURER_ALIASES` and `PAYOUT_CREDIT_ENTITIES`.
+- The fourteen tests of Task 6 pass. The three drift tests already pass, because Task 2's block is the rendering of the empty ledger. If the ledger is already on the branch (see "Before Task 1"), they fail instead, and the line reads `9 failed, 14 passed, 9 errors`.
 
 - [ ] **Step 5: Add the hand-kept inputs to the registry**
 
@@ -3479,6 +3847,7 @@ with:
 #: Spec section 2 (the owner's rulings of 2026-09-24 and the amendment): every payee the owner named, by
 #: ledger group, with one public spelling of it. ``python -m tools.build_lender_registry --check`` refuses
 #: a ledger that does not admit each one in its group (contract C10). Change it only on an owner ruling.
+#: The owner ruling of 2026-09-25 respelled BlueVine and SmartPay (see their entries).
 OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
     "confirmed_lender": (
         ("OnDeck", "ONDECK"),
@@ -3507,7 +3876,8 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "line_of_credit": (
         ("Fundbox", "FUNDBOX"),
-        ("BlueVine", "BLUEVINE"),
+        # Owner ruling 2026-09-25: bare BLUEVINE takes Bluevine Bill Pay and checking rows.
+        ("BlueVine", "BLUEVINE CAPITAL"),
         ("Kabbage", "KABBAGE"),
     ),
     "credit_card_payment": (
@@ -3528,7 +3898,8 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "lease_or_rental": (
         ("Progressive", "PROGRESSIVE LEASING"),
-        ("SmartPay", "SMARTPAY SOL"),
+        # Owner ruling 2026-09-25: SMARTPAY SOL is SmartPay Solutions premium billing.
+        ("SmartPay", "SMARTPAY LEASING"),
         ("Snap", "SNAP FINANCE"),
     ),
     "floor_plan_financing": (
@@ -3558,6 +3929,23 @@ BARE_BRAND_NAMES: tuple[str, ...] = (
     "CITIBANK", "DEERE", "DISCOVER", "FORD", "GM", "HONDA", "HYUNDAI", "JOHN DEERE", "KIA", "NISSAN",
     "SYNCHRONY", "TOYOTA", "WELLS FARGO",
 )
+
+#: Owner ruling 2026-09-25: premium-finance spellings that may equal an alias of the hand-kept
+#: INSURANCE_PROVIDER_ALIASES. The bare FIRST INSURANCE originator is FIRST Insurance Funding: its rows stay
+#: insurance and are also flagged premium financing. The validator exempts exactly these spellings from its
+#: hand-kept-alias rule, and only on a premium_financing entity.
+PREMIUM_FINANCE_INSURER_ALIASES: tuple[str, ...] = ("FIRST INSURANCE",)
+
+#: Owner ruling 2026-09-25: an entity of today's registry (the validator's BASELINE_REVISION) that a ledger
+#: entity absorbs, mapped to that ledger entity. The validator reads the merged entity as held by its target:
+#: it keeps no name of its own, and the aliases it loses need a "Move:" sentence in the target's notes.
+MERGED_REGISTRY_ENTITIES: dict[str, str] = {"EBF HOLDINGS": "EVEREST BUSINESS FUNDING"}
+
+#: Owner ruling 2026-09-25: ledger entities whose credits are the account holder's own sales, settled by the
+#: platform: revenue, not financing proceeds. A D1 exception that S2 reads; their debits keep their group. The
+#: validator refuses a name that is not an admitted ledger entity of a group whose credits D1 treats as
+#: financing proceeds (analysis.flag_groups.FINANCING_STATES).
+PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = ("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")
 ```
 
 - [ ] **Step 6: Append `current_rules` to the ledger module**
@@ -3580,10 +3968,13 @@ def current_rules() -> Rules:
         platforms=frozenset(normalize(name) for name in registry.BARE_PLATFORM_NAMES),
         brands=frozenset(normalize(name) for name in registry.BARE_BRAND_NAMES),
         hand_kept={
-            "INSURANCE_PROVIDER_ALIASES": registry.INSURANCE_PROVIDER_ALIASES,
+            INSURER_TABLE: registry.INSURANCE_PROVIDER_ALIASES,
             "OPERATING_REVENUE_SOURCE_ALIASES": registry.OPERATING_REVENUE_SOURCE_ALIASES,
         },
         baseline=load_baseline(),
+        premium_insurer_aliases=frozenset(normalize(name) for name in registry.PREMIUM_FINANCE_INSURER_ALIASES),
+        merged=registry.MERGED_REGISTRY_ENTITIES,
+        payout_credit=registry.PAYOUT_CREDIT_ENTITIES,
     )
 ```
 
@@ -3648,11 +4039,13 @@ def main(argv: list[str] | None = None) -> int:
     entities, _problems = lender_ledger.parse_ledger(data)
     digest = lender_ledger.ledger_digest(data)
     print(f"ledger ok: {len(entities)} entities, sha256:{digest}")
-    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline)
+    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged)
     for move in moves:
+        merge = f"merged into {move.holder}; " if move.merged else ""
+        unneeded = "the owner's merge, MERGED_REGISTRY_ENTITIES" if move.merged else "spec section 4.1"
         print(lender_ledger.mask_digit_runs(
-            f"move: {move.entity} ({move.table}): {move.was} -> {move.now}, {move.lost} of today's aliases lost; "
-            f"why: {move.reason or 'none needed (spec section 4.1)'}"))
+            f"move: {move.entity} ({move.table}): {merge}{move.was} -> {move.now}, {move.lost} of today's aliases "
+            f"lost; why: {move.reason or f'none needed ({unneeded})'}"))
     if args.check:
         return 0
     tables = render_tables(entities)
@@ -3673,7 +4066,7 @@ if __name__ == "__main__":
 - [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_ledger.py -q -p no:cacheprovider`
-Expected: 130 passed (20 + 3 + 107). If the ledger is already on the branch, the result is `3 failed, 127 passed`: the three drift tests fail until Task 9 renders the ledger. That is expected; go on.
+Expected: 160 passed (29 + 3 + 128). If the ledger is already on the branch, the result is `3 failed, 157 passed`: the three drift tests fail until Task 9 renders the ledger. That is expected; go on.
 
 Run: `C:\Python314\python.exe -m pytest tests/test_classification_registry_groups.py tests/test_no_statement_hardcodes.py -q -p no:cacheprovider`
 Expected: `1 failed, 104 passed`. The failure is the known `test_no_literal_account_numbers_in_ocr`.
@@ -4852,12 +5245,16 @@ Do not quote any payee key.
   - it adds the brand, context-only, card-wording, hand-kept, run-together, privacy and today's-registry rules;
   - a move needs a `Move:` sentence, not just any note.
 
+  The owner's ruling of 2026-09-25 adds three more (Decision 3), which the master plan's C10 does not list yet: a premium-finance alias repeats an insurer alias only as a `PREMIUM_FINANCE_INSURER_ALIASES` spelling; a `MERGED_REGISTRY_ENTITIES` entry names an entity of today's registry and a ledger entity that absorbs it; every `PAYOUT_CREDIT_ENTITIES` name is an admitted entity of a financing group.
+
   S2's "Why Task 0 checks more than C10's validator" still holds for the entity spellings S2 pins and for the reach into real statements. The owner-named payees of the amendment groups, the equipment lenders and the lease-to-own names are now also refused by the validator when they are missing.
 - **The legacy lists.**
   - S2's Task 6 deletes the three legacy tables and the Deprecated comment block above them, after its Task 5 has removed their last readers.
   - Afterwards `test_the_baseline_revision_holds_the_lists_the_classifier_reads_until_s2` skips by design, and `test_registry_match_agrees_with_the_legacy_matcher...` skips the removed names.
   - The validator keeps working, because it reads today's registry from git at `BASELINE_REVISION`. No baseline file is committed.
-- **S1's hand-kept constants** (`OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES`, `BARE_BRAND_NAMES`) sit between `PAYEE_GROUP_REGISTRIES` and the Deprecated block. S2 must neither edit nor delete them. S2's deletion of the Deprecated block stops at `LEGACY_CONFIRMED_LENDER_ALIASES`, so they survive it.
+- **S1's hand-kept constants** (`OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES`, `BARE_BRAND_NAMES`, `PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES`, `PAYOUT_CREDIT_ENTITIES`) sit between `PAYEE_GROUP_REGISTRIES` and the Deprecated block. S2 must neither edit nor delete them. S2's deletion of the Deprecated block stops at `LEGACY_CONFIRMED_LENDER_ALIASES`, so they survive it.
+  - S2 reads `PAYOUT_CREDIT_ENTITIES` as a D1 exception (the owner's ruling of 2026-09-25): those entities' credits are the account holder's own sales settled by the platform, so revenue, not financing proceeds; their debits keep their group.
+  - S2's insurance rule reads `PREMIUM_FINANCE_ALIASES` first, so once the ledger gives `FIRST INSURANCE` to FIRST Insurance Funding, a row that prints only `FIRST INSURANCE` stays insurance and is also flagged premium financing (Decision 8).
 - **Classifier edits S2 must expect.**
   - S2's Task 3 Step 3 replaces `_contains_alias` through S1's delegating `_registry_match`. In the replayed S1 tree, `def _contains_alias` is at line 173 and `    return registry_match(text, registry)` at line 188. S2 anchors on the text, so the line numbers are a guide only.
   - S2's Task 4 widens S1's `from .payee_matcher import registry_match`.
@@ -4867,8 +5264,8 @@ Do not quote any payee key.
 - **The speed test after S2.** `tests/test_classifier_speed.py` keeps passing after S2, because it swaps whichever of `registry_match` and `match_known_payee` the classifier module holds.
 - **A new ledger.** When the orchestrator changes the ledger (for example after a research round), whoever owns the branch at that time reruns Task 9 from Step 1 (its rerun path) and Task 10 from Step 2. The drift test fails until they do.
 - **Planner decisions the owner should see:**
-  - the "Awaiting an owner ruling" section of `docs/lender-registry-evidence.md`, including each premium/insurer overlap line (First Insurance);
-  - the spellings in `OWNER_NAMED_PAYEES`, for example Amex loans = `AMERICAN EXPRESS BUSINESS LOAN`, Amazon financing = `AMAZON CAPITAL SERVICES` and SmartPay = `SMARTPAY SOL`;
+  - the "Awaiting an owner ruling" section of `docs/lender-registry-evidence.md`, including each premium/insurer overlap line that remains once a premium entity holds the ruled `FIRST INSURANCE` (Decision 8);
+  - the spellings in `OWNER_NAMED_PAYEES`, for example Amex loans = `AMERICAN EXPRESS BUSINESS LOAN`, Amazon financing = `AMAZON CAPITAL SERVICES`, and, on the owner's ruling of 2026-09-25, BlueVine = `BLUEVINE CAPITAL` and SmartPay = `SMARTPAY LEASING`;
   - `BARE_BRAND_NAMES` (which includes `ALLY`, `DEERE` and `JOHN DEERE`) and `AMZN` in `BARE_PLATFORM_NAMES`;
   - the reading of "a bare generic word" as "only generic words" (Decision 3);
   - the three rules this revision adds to Decision 3:
@@ -4902,7 +5299,8 @@ Do not quote any payee key.
 | §5 collision audit: local only, reports every alias, zero collisions | Task 8 (the audit; the review rule of Decision 9, QUILLON → QUILLON BAKERY needs review; `lost_matches` and `--before`, Decision 15); Task 10 (zero denied and zero undecided, and zero lost after a revised ledger; a second agent checks the allows) |
 | §9 every lost lender is a ruled move; gained lenders trace to admitted entities | Task 5 (today's-registry rules, `baseline_moves`, a move needs a `Move:` sentence); Task 6 (the moves section); Task 7 (the `move:` lines of `--check`); Task 10 (a revised ledger that loses an entity's rows fails the audit) |
 | §5 evidence ledger: group, public source URL, verdict, where the researchers looked, no statement text; the owner-ruling list with the numbered company | Task 6 (`render_evidence`); Task 9 (rendered, read in full, the numbered-company test, the digit test) |
-| Premium financing vs the hand-kept `First Insurance` | Decision 8; Task 5 (hand-kept duplicates refused, overlaps listed); Task 9 (acceptance test) |
+| Premium financing vs the hand-kept `First Insurance` | Decision 8; Task 5 (hand-kept duplicates refused except the owner-ruled `PREMIUM_FINANCE_INSURER_ALIASES` spellings on a premium entity; overlaps listed unless a premium entity holds the insurer alias); Task 6 (the Admission line); Task 9 (acceptance test) |
+| The owner's ruling of 2026-09-25: two respelled owner-named payees, the premium-finance insurer spellings, the merged entities of today's registry, the payout-credit entities | Decisions 3, 4 and 8; Task 5 (the rules and their tests); Task 6 (the Admission lines, the merge in the moves table); Task 7 (the six hand-kept constants, `current_rules`, the merge `move:` line) |
 | Reproducibility | Task 5 (`ledger_digest`); Task 6 (the digest in the evidence ledger); Task 7 (drift test) |
 | The numbered Ontario company stays out | Task 5 (digit rule, messages never quote a digit run); Task 9 (the owner-ruling test also requires no evidence and no `where_looked`, since a URL escapes the digit rule; the digit test) |
 
@@ -4970,7 +5368,7 @@ Do not quote any payee key.
   - the validator runs as `tools/build_lender_registry.py --check`;
   - the evidence ledger is `docs/lender-registry-evidence.md`.
 - The names are used consistently across the tasks:
-  - the ledger module (Tasks 5 and 7): `parse_ledger`, `validate`, `render_tables`, `owner_named_problems`, `move_reason`, `baseline_moves`, `baseline_problems`, `premium_insurer_overlaps`, `privacy_review`, `ledger_digest`, `read_ledger`, `load_baseline`, `baseline_from_source`, `current_rules`, `mask_digit_runs`, and the constants `MOVE_MARKER`, `CONTEXT_ONLY_GROUPS` and `WITHHELD`;
+  - the ledger module (Tasks 5 and 7): `parse_ledger`, `validate`, `render_tables`, `owner_named_problems`, `move_reason`, `baseline_moves`, `baseline_problems`, `payout_credit_problems`, `premium_insurer_overlaps`, `privacy_review`, `ledger_digest`, `read_ledger`, `load_baseline`, `baseline_from_source`, `current_rules`, `mask_digit_runs`, and the constants `MOVE_MARKER`, `CONTEXT_ONLY_GROUPS`, `INSURER_TABLE` and `WITHHELD`;
   - the renderer (Tasks 6-7): `render_block`, `current_block`, `replace_block`, `render_evidence`, `main`;
   - the audit (Tasks 8 and 10): `AuditPass`, `CachedRow`, `NO_PAYEE_WORDS`, `payee_key`, `default_passes`, `takes`, `cached_rows`, `audit`, `needs_review`, `review`, `lost_matches`, `main` (with `--before`).
 - The S2 Task-0 descriptors that S1's content test checks are copied verbatim from the current S2 plan.
