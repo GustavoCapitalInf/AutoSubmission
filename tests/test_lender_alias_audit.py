@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import re
+import sqlite3
 
 import pytest
 
@@ -202,13 +204,13 @@ def test_review_separates_denied_matches_from_undecided_matches_that_need_review
     assert [(row["alias"], row["key"], row["needs_review"]) for row in undecided] == [("OXBOW", "OXBOW LOAN", True)]
 
 
-def _run(tmp_path, monkeypatch, decisions, *extra, passes=PASSES):
+def _run(tmp_path, monkeypatch, decisions, *extra, passes=PASSES, data_dir=None):
     monkeypatch.setattr(audit_tool, "default_passes", lambda: passes)
     review_file = tmp_path / "local" / "review.json"
     review_file.parent.mkdir(parents=True, exist_ok=True)
     review_file.write_text(json.dumps(decisions), encoding="utf-8")
     out = tmp_path / "local" / "audit.json"
-    code = audit_tool.main(["--data-dir", str(_cache(tmp_path)), "--review", str(review_file),
+    code = audit_tool.main(["--data-dir", str(data_dir or _cache(tmp_path)), "--review", str(review_file),
                             "--out", str(out), *extra])
     return code, out
 
@@ -293,6 +295,90 @@ def test_the_audit_refuses_a_report_inside_the_repository_and_a_directory_withou
     assert not (tmp_path / "out.json").exists()
     assert audit_tool.main(["--data-dir", str(tmp_path / "empty"), "--review", str(review_file),
                             "--out", str(tmp_path / "out.json")]) == 2
+
+
+def _corrupt(data_dir, input_sha):
+    """Make the cached analysis of ``input_sha`` unreadable (the cache writes canonical JSON)."""
+    for path in (data_dir / "artifacts").rglob("*.json"):
+        if f'"input_sha256":"{input_sha}"' in path.read_text(encoding="utf-8"):
+            path.write_text("{", encoding="utf-8")
+
+
+def test_a_cache_the_audit_cannot_read_is_refused_and_nothing_is_written(tmp_path, monkeypatch, capsys):
+    # The final review of S1: an empty or unreadable cache exited 0 even with --strict, with nothing checked.
+    monkeypatch.setattr(audit_tool, "default_passes", lambda: PASSES)
+    review_file = tmp_path / "review.json"
+    review_file.write_text('{"deny": [], "allow": []}', encoding="utf-8")
+    out = tmp_path / "out.json"
+
+    def run(data_dir):
+        return audit_tool.main(["--data-dir", str(data_dir), "--review", str(review_file), "--out", str(out),
+                                "--strict"])
+
+    ArtifactCache(data_dir=tmp_path / "empty")
+    assert run(tmp_path / "empty") == 2
+    unreadable = _cache(tmp_path)
+    _corrupt(unreadable, "a" * 64)
+    _corrupt(unreadable, "b" * 64)
+    assert run(unreadable) == 2
+    (tmp_path / "broken").mkdir()
+    connection = sqlite3.connect(tmp_path / "broken" / "webapp.db")
+    connection.execute("CREATE TABLE unrelated (x)")
+    connection.commit()
+    connection.close()
+    assert run(tmp_path / "broken") == 2
+    assert not out.exists()
+    errors = capsys.readouterr().err
+    assert errors.count("no cached analysis could be read") == 2 and "cannot read the cache database" in errors
+
+
+def test_strict_fails_while_an_analysis_of_the_cache_is_unreadable(tmp_path, monkeypatch, capsys):
+    decisions = {"deny": DENY_THE_BAKERY, "allow": ALLOW_THE_REST}
+    data_dir = _cache(tmp_path)
+    _corrupt(data_dir, "b" * 64)
+    assert _run(tmp_path, monkeypatch, decisions, passes=PASSES_WITHOUT_BARE_QUILLON, data_dir=data_dir)[0] == 0
+    code, out = _run(tmp_path, monkeypatch, decisions, "--strict", passes=PASSES_WITHOUT_BARE_QUILLON,
+                     data_dir=data_dir)
+    assert code == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["cache"]["unreadable"] == 1
+    assert "cache: 1 analyses read, 1 unreadable" in capsys.readouterr().out
+
+
+def test_the_report_records_the_cache_read_and_before_refuses_a_report_of_another_read(tmp_path, monkeypatch,
+                                                                                        capsys):
+    # The final review of S1: the report did not record --limit or the analyses read, so --before could not
+    # confirm that two reports read the same cache.
+    decisions = {"deny": DENY_THE_BAKERY, "allow": ALLOW_THE_REST}
+    passes = PASSES_WITHOUT_BARE_QUILLON
+    _code, out = _run(tmp_path, monkeypatch, decisions, passes=passes)
+    full = json.loads(out.read_text(encoding="utf-8"))
+    assert {key: value for key, value in full["cache"].items() if key != "digest"} == {
+        "limit": None, "analyses": 2, "unreadable": 0}
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", full["cache"]["digest"])
+    assert "cache: 2 analyses read, 0 unreadable" in capsys.readouterr().out
+    same = tmp_path / "local" / "same.json"
+    same.write_text(json.dumps(full), encoding="utf-8")
+    assert _run(tmp_path, monkeypatch, decisions, "--before", str(same), passes=passes)[0] == 0
+    assert "lost matches: 0" in capsys.readouterr().out
+    _code, out = _run(tmp_path, monkeypatch, decisions, "--limit", "1", passes=passes)
+    limited = json.loads(out.read_text(encoding="utf-8"))
+    assert (limited["cache"]["limit"], limited["cache"]["analyses"]) == (1, 1)
+    assert limited["cache"]["digest"] != full["cache"]["digest"]
+    assert "cache: 1 analyses read, 0 unreadable, limit 1" in capsys.readouterr().out
+    written_before_the_record = {key: value for key, value in full.items() if key != "cache"}
+    out.unlink()
+    cases = (("limited.json", limited), ("unrecorded.json", written_before_the_record), ("same.json", full))
+    for name, earlier in cases:
+        previous = tmp_path / "local" / name
+        previous.write_text(json.dumps(earlier), encoding="utf-8")
+        data_dir = _cache(tmp_path)
+        if name == "same.json":  # the same analyses, but one artifact's bytes changed since
+            ArtifactCache(data_dir=data_dir).put_analysis("a" * 64, "settings", {"classifications": [
+                _row("MOBILE DEPOSIT", 40.0)]})
+        code, out = _run(tmp_path, monkeypatch, decisions, "--before", str(previous), passes=passes,
+                         data_dir=data_dir)
+        assert code == 2 and not out.exists(), name
+        assert "is not a report of the same cache read" in capsys.readouterr().err
 
 
 def test_only_the_descriptor_rule_passes_need_loan_or_card_wording():

@@ -20,26 +20,30 @@ A taken match needs review (``needs_review``) when the payee key may name someon
     either), not a channel or descriptor word (VOCAB) and not an organisation word (ORG_CUES);
   * the key shares no word with the alias at all.
 A reviewed allow/deny file records the decisions. The audit fails when a denied pair still wins a row,
-and --strict also fails while a match that needs review has no decision. With --before <an earlier report
-of the same cache>, it also fails on every (entity, payee key) that takes fewer rows than before, leaving out
-denied pairs: a ledger change that dropped or narrowed an alias must not take the entity's own rows with it.
+and --strict also fails while a match that needs review has no decision, or an analysis of the cache could not be
+read. With --before <an earlier report of the same cache>, it also fails on every (entity, payee key) that takes
+fewer rows than before, leaving out denied pairs: a ledger change that dropped or narrowed an alias must not take
+the entity's own rows with it. Each report records the cache it read (the --limit, the analyses and a digest of
+their artifacts), and --before refuses a report of another read.
 Payee keys come from customer statements, so the review file and the reports stay outside the repository.
 
 Usage, from the repository root:
     python -m tools.lender_alias_audit --data-dir <webapp_data> --review <file> --out <file> [--strict]
         [--limit N] [--before <earlier report>]
 
-Exit codes: 0 no denied match, no lost match (and, with --strict, nothing undecided); 1 otherwise; 2 refused.
+Exit codes: 0 no denied match, no lost match (and, with --strict, nothing undecided and nothing unreadable);
+1 otherwise; 2 refused, including a cache of which no analysis could be read.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -140,6 +144,22 @@ class CachedRow:
     posted: bool = True
 
 
+@dataclass
+class CacheRead:
+    """What ``cached_rows`` read: each analysis, as its input and the sha256 of its artifact's bytes, and the inputs
+    whose artifact it could not read. A report keeps ``record``, so that --before can check two reports read the
+    same cache."""
+
+    analyses: list[str] = field(default_factory=list)
+    unreadable: list[str] = field(default_factory=list)
+
+    def record(self, limit: int | None) -> dict:
+        lines = sorted([*self.analyses, *(f"{sha} unreadable" for sha in self.unreadable)])
+        digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+        return {"limit": limit, "analyses": len(self.analyses), "unreadable": len(self.unreadable),
+                "digest": f"sha256:{digest}"}
+
+
 def payee_key(text: str) -> str:
     """The counterparty key of a normalized descriptor: up to three name words after the channel words, or
     NO_PAYEE_WORDS when none survives."""
@@ -215,9 +235,10 @@ def _classification_lists(node) -> Iterator[list]:
             yield from _classification_lists(value)
 
 
-def cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]:
+def cached_rows(data_dir: Path, limit: int | None = None, read: CacheRead | None = None) -> Iterator[CachedRow]:
     """Every row of the latest cached analysis of each input. Opens the cache database read-only and never
-    writes to the data directory."""
+    writes to the data directory. With ``read``, records each analysis it read and each it could not read."""
+    read = read if read is not None else CacheRead()
     database = data_dir / "webapp.db"
     connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
     try:
@@ -234,9 +255,14 @@ def cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]
         if limit is not None and number >= limit:
             return
         try:
-            payload = json.loads((data_dir / "artifacts" / relative).read_text(encoding="utf-8"))
+            raw = (data_dir / "artifacts" / relative).read_bytes()
+            payload = json.loads(raw.decode("utf-8"))
         except (OSError, ValueError):
+            payload = None
+        if not isinstance(payload, dict):
+            read.unreadable.append(sha)
             continue
+        read.analyses.append(f"{sha} {hashlib.sha256(raw).hexdigest()}")
         for rows in _classification_lists(payload.get("artifact")):
             for row in rows:
                 amount = row.get("amount") if isinstance(row, dict) else None
@@ -364,18 +390,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {args.data_dir} holds no webapp.db", file=sys.stderr)
         return 2
     decisions = json.loads(args.review.read_text(encoding="utf-8"))
-    report = audit(cached_rows(args.data_dir, args.limit), default_passes())
+    earlier = json.loads(args.before.read_text(encoding="utf-8")) if args.before is not None else None
+    read = CacheRead()
+    try:
+        report = audit(cached_rows(args.data_dir, args.limit, read), default_passes())
+    except sqlite3.Error as error:
+        print(f"refused: cannot read the cache database in {args.data_dir}: {error}", file=sys.stderr)
+        return 2
+    if not read.analyses:
+        print(f"refused: no cached analysis could be read in {args.data_dir}, so nothing would be checked",
+              file=sys.stderr)
+        return 2
+    cache = read.record(args.limit)
+    if earlier is not None and (not isinstance(earlier, dict) or earlier.get("cache") != cache):
+        print(f"refused: {args.before} is not a report of the same cache read (the same --limit, analyses and "
+              f"artifact bytes); --before compares two reports of one cache", file=sys.stderr)
+        return 2
     denied, undecided = review(report, decisions)
-    lost = []
-    if args.before is not None:
-        lost = lost_matches(json.loads(args.before.read_text(encoding="utf-8"))["aliases"], report, decisions)
+    lost = lost_matches(earlier["aliases"], report, decisions) if earlier is not None else []
     taken = [(alias, entry["entity"], key) for aliases in report.values() for alias, entry in aliases.items()
              for key, counts in entry["keys"].items() if counts["taken_rows"]]
     flagged = sum(needs_review(alias, entity, key) for alias, entity, key in taken)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps({"aliases": report, "denied": denied, "undecided": undecided, "lost": lost},
-                                   indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.out.write_text(json.dumps({"aliases": report, "cache": cache, "denied": denied, "undecided": undecided,
+                                    "lost": lost}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     keys = sum(len(entry["keys"]) for aliases in report.values() for entry in aliases.values())
+    print(f"cache: {cache['analyses']} analyses read, {cache['unreadable']} unreadable"
+          + ("" if args.limit is None else f", limit {args.limit}"))
     print(f"aliases that matched: {sum(len(aliases) for aliases in report.values())}; payee keys: {keys}; "
           f"taken matches: {len(taken)}, of which need review: {flagged}; denied matches: {len(denied)}; "
           f"undecided: {len(undecided)}")
@@ -387,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         for row in lost:
             print(f"LOST {row['entity']!r} payee key {row['key']!r}: {row['before']} taken rows before, "
                   f"{row['after']} now")
-    return 1 if denied or lost or (args.strict and undecided) else 0
+    return 1 if denied or lost or (args.strict and (undecided or read.unreadable)) else 0
 
 
 if __name__ == "__main__":
