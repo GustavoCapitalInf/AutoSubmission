@@ -26,11 +26,41 @@ from analysis.payload_shape import (
 )
 
 _SURFACE = "analysis/flagged_view.py::apply_flagged_groups_to_payload"
+#: The first classifier major version that writes flag groups (plan contract C4, `CLASSIFICATION_VERSION`).
+FLAG_RULES_MAJOR = 5
+#: The top-level key that says the stored rows were classified by older lender rules (spec §8.2, D12).
+RULES_OUTDATED_KEY = "analysis_rules_outdated"
 
 
 def enabled_group_keys(enabled: Mapping[str, bool]) -> frozenset[str]:
     """The flag-group keys Settings shows. `enabled` is keyed by `FlagGroup.setting`; a missing key is ticked."""
     return frozenset(group.key for group in FLAG_GROUPS if bool(enabled.get(group.setting, True)))
+
+
+def _major_version(version: object) -> int | None:
+    """The major number of a stored `classification_version` ("4.1" gives 4); None when it cannot be read."""
+    if isinstance(version, int) and not isinstance(version, bool):
+        return version
+    if isinstance(version, str):
+        head = version.strip().split(".", 1)[0]
+        return int(head) if head.isdigit() else None
+    return None
+
+
+def _rules_outdated(accounts: list[Mapping]) -> bool:
+    """Whether any stored record was written by a classifier older than the flag-group rules. Such an analysis
+    keeps its stored labels until it is re-analysed (D12); the dashboard says so."""
+    for account in accounts:
+        statement = account.get(STATEMENT_KEY)
+        rows = statement.get("transactions") if isinstance(statement, Mapping) else None
+        for row in rows if isinstance(rows, list) else []:
+            classification = row.get("classification") if isinstance(row, Mapping) else None
+            if not isinstance(classification, Mapping):
+                continue
+            major = _major_version(classification.get("classification_version"))
+            if major is not None and major < FLAG_RULES_MAJOR:
+                return True
+    return False
 
 
 def _is_shown(group: object, shown: frozenset[str]) -> bool:
@@ -81,6 +111,9 @@ def apply_flagged_groups_to_payload(payload: object, *, enabled: Mapping[str, bo
     * every classification record in `statement.transactions` gains `flag_shown`: it names a flag group, and that
       group is ticked. The record's `flagged_group` and its contribution flags are kept as stored (D7).
 
+    At the TOP level it sets `analysis_rules_outdated`: True when any record's `classification_version` has a major
+    version below the flag-group rules (D12).
+
     `enabled` is keyed by `FlagGroup.setting`; a missing key counts as ticked. A group key the contract does not
     define is never shown. The input is never mutated."""
     try:
@@ -89,6 +122,11 @@ def apply_flagged_groups_to_payload(payload: object, *, enabled: Mapping[str, bo
     except PayloadShapeError:
         return payload
     shown = enabled_group_keys(enabled)
+    outdated = _rules_outdated(accounts)
     if shape == DOCUMENT_SHAPE:
-        return {**payload, ACCOUNTS_KEY: [_shown_account(account, shown) for account in accounts]}
-    return _shown_account(payload, shown)
+        return {
+            **payload,
+            ACCOUNTS_KEY: [_shown_account(account, shown) for account in accounts],
+            RULES_OUTDATED_KEY: outdated,
+        }
+    return {**_shown_account(payload, shown), RULES_OUTDATED_KEY: outdated}

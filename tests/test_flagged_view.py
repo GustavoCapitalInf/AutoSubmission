@@ -145,3 +145,30 @@ def test_anything_that_is_not_a_published_shape_is_returned_unchanged(payload):
     # `{}` matters beyond tidiness: the package reads a member whose analysis is empty as carrying no currency,
     # and a key added here would make it one that declares none (webapp/app.py::_package_analysis).
     assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED) is payload
+
+
+# --- analysed with older lender rules (spec §8.2, D12) ------------------------------------------------------------
+
+@pytest.mark.parametrize("version, outdated", [
+    ("4.1", True), ("3.0", True), ("4", True), (4, True),
+    ("5.0", False), ("5.2", False), ("6.0", False), (None, False), ("unknown", False), (True, False),
+])
+def test_rows_classified_by_older_rules_mark_the_analysis_outdated(version, outdated):
+    payload = with_flagged_rows(account_payload(), [flagged_row(None)])
+    payload["statement"]["transactions"][-1]["classification"]["classification_version"] = version
+    assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is outdated
+
+
+def test_a_fresh_analysis_and_one_without_classified_rows_are_not_outdated():
+    assert apply_flagged_groups_to_payload(flagged_account_payload(), enabled=ALL_TICKED)[
+        "analysis_rules_outdated"] is False
+    assert apply_flagged_groups_to_payload({"statement": {}}, enabled=ALL_TICKED)["analysis_rules_outdated"] is False
+
+
+def test_one_outdated_account_marks_the_whole_document_at_the_top_level():
+    payload = flagged_document_payload()
+    payload["accounts"][1]["statement"]["transactions"][-1]["classification"]["classification_version"] = "4.1"
+    shown = apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)
+    assert shown["analysis_rules_outdated"] is True
+    assert all("analysis_rules_outdated" not in account for account in shown["accounts"])
+    assert "analysis_rules_outdated" not in payload
