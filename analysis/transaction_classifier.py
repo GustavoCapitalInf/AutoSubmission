@@ -1996,6 +1996,26 @@ def _apply_operating_source_context(
     return updated
 
 
+#: D6 skips a row whose own words say it is a transfer, even when no transfer
+#: rule claimed it (a transfer to a person is not an MCA remittance).
+_TRANSFER_WORD_PATTERNS = (re.compile(r"\b(?:TRANSFER|XFER|TFR)\b"),)
+
+
+def _promotion_cadence(
+    records: list[TransactionClassification],
+    indexes: list[int],
+    min_recurring_count: int,
+) -> tuple[str, float | None] | None:
+    """The daily or weekly cadence of a same-amount group, or None when it does not promote."""
+    if len(indexes) < min_recurring_count:
+        return None
+    dates = [parsed for index in indexes if (parsed := parse_date(records[index].date)) is not None]
+    cadence, average_gap = classify_cadence(dates)
+    if cadence not in {"daily", "weekly"}:
+        return None
+    return cadence, average_gap
+
+
 def classify_statement_transactions(
     statement: Statement,
     *,
@@ -2035,36 +2055,65 @@ def classify_statement_transactions(
         else:
             seen[fingerprint] = index
 
-    groups: dict[tuple[str, float], list[int]] = {}
+    # Recurrence (spec §4.3 statement pass 2). Both kinds group by payee words
+    # and amount, so two unnamed payees are never merged (D11).
+    keyword_groups: dict[tuple[tuple[str, ...], float], list[int]] = {}
+    fixed_debit_groups: dict[tuple[tuple[str, ...], float], list[int]] = {}
     for index, record in enumerate(records):
-        if index in duplicate_of:
+        if index in duplicate_of or record.amount >= 0 or record.classification != "other":
             continue
-        if (
-            record.classification == "other"
-            and record.match_method == "financing_keyword_review"
-            and record.canonical_entity
-            and record.amount < 0
+        payee = _unknown_payee_tokens(record.normalized_description)
+        if not payee:
+            continue
+        key = (payee, round(abs(record.amount), 2))
+        if record.match_method == "financing_keyword_review" and record.canonical_entity:
+            keyword_groups.setdefault(key, []).append(index)
+        elif record.match_method == "default" and not _matches_any(
+            record.normalized_description,
+            _TRANSFER_WORD_PATTERNS,
         ):
-            groups.setdefault((record.canonical_entity, round(abs(record.amount), 2)), []).append(index)
+            fixed_debit_groups.setdefault(key, []).append(index)
 
-    for (entity, _), indexes in groups.items():
-        if len(indexes) < min_recurring_count:
+    for indexes in keyword_groups.values():
+        promotion = _promotion_cadence(records, indexes, min_recurring_count)
+        if promotion is None:
             continue
-        dates = [parsed for index in indexes if (parsed := parse_date(records[index].date)) is not None]
-        cadence, average_gap = classify_cadence(dates)
-        if cadence not in {"daily", "weekly"}:
-            continue
+        cadence, average_gap = promotion
         for index in indexes:
-            record = records[index]
             records[index] = replace(
-                record,
+                records[index],
                 classification="potential_lender",
-                canonical_entity=entity,
                 match_method="recurring_financing_counterparty",
                 matched_rule=f"{cadence}_fixed_debit_{average_gap}_day_average",
                 confidence_score=0.76,
                 reason=(
                     f"An unverified financing-related counterparty repeats on a {cadence} cadence; "
+                    "it is potential only and requires review."
+                ),
+                review_required=True,
+                contributes_to_potential_lender_count=True,
+                contributes_to_potential_lender_totals=True,
+                contributes_to_potential_withholding_exposure=True,
+            )
+
+    # D6: an unknown payee (a row no rule claimed) with fixed daily or weekly
+    # debits joins the review tier. Nothing is counted without a named lender.
+    for (payee, _), indexes in fixed_debit_groups.items():
+        promotion = _promotion_cadence(records, indexes, min_recurring_count)
+        if promotion is None:
+            continue
+        cadence, average_gap = promotion
+        entity = _unknown_payee_name(payee) or UNIDENTIFIED_LENDER_OBLIGATION
+        for index in indexes:
+            records[index] = replace(
+                records[index],
+                classification="potential_lender",
+                canonical_entity=entity,
+                match_method="recurring_fixed_debit",
+                matched_rule=f"{cadence}_fixed_debit_{average_gap}_day_average",
+                confidence_score=0.70,
+                reason=(
+                    f"An unknown payee repeats the same debit on a {cadence} cadence (D6); "
                     "it is potential only and requires review."
                 ),
                 review_required=True,

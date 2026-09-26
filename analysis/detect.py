@@ -165,6 +165,11 @@ def find_insurance(
     return sorted(matches.values(), key=lambda item: (-item.total_debited, item.provider))
 
 
+#: The recurrence tier's match methods (spec §4.3 statement pass 2): the
+#: financing-keyword promotion and D6's fixed daily or weekly debits.
+_RECURRING_MATCH_METHODS = frozenset({"recurring_financing_counterparty", "recurring_fixed_debit"})
+
+
 def find_recurring_debits(
     stmt: Statement,
     *,
@@ -176,7 +181,7 @@ def find_recurring_debits(
     for index, record in enumerate(records):
         if (
             record.classification == "potential_lender"
-            and record.match_method == "recurring_financing_counterparty"
+            and record.match_method in _RECURRING_MATCH_METHODS
             and record.contributes_to_potential_lender_count
             and record.canonical_entity
         ):
