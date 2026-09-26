@@ -36,6 +36,7 @@ from webapp.app import (
     _package_xlsx,
     _statement_currency,
 )
+from analysis.flag_groups import FLAG_GROUPS
 from webapp.jobs import Job
 from tests.flagged_payloads import FLAGGED_DEBIT, flagged_row, with_flagged_rows
 
@@ -602,9 +603,11 @@ def test_xlsx_export_carries_the_same_refusal():
 #: Sections that aggregate ACROSS documents. Matched exactly so that
 #: `potential_lender_evidence_3` — a per-transaction classification record, and
 #: therefore statement-level — is not mistaken for the `potential_lender_3`
-#: rollup.
+#: rollup. The flag roll-up (`flagged_<group>_<n>`, lender detection §8.4) is
+#: named group by group for the same reason.
 CROSS_DOCUMENT_SECTION = re.compile(
-    r"^(totals|funder_\d+|potential_lender_\d+|insurance_provider_\d+)$"
+    r"^(totals|funder_\d+|potential_lender_\d+|insurance_provider_\d+"
+    r"|flagged_(?:" + "|".join(group.key for group in FLAG_GROUPS) + r")_\d+)$"
 )
 
 #: Counts that live on the cross-document rollups.
@@ -629,7 +632,11 @@ def test_every_money_row_the_export_emits_is_covered_by_a_declared_currency():
     different: each must DECLARE the unit it is in, so that no consumer can
     assume dollars.
     """
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    cad, usd = member("a", "CAD"), member("b", "USD")
+    for job in (cad, usd):
+        # A flag roll-up in the refused package, so the flagged sections are swept too.
+        with_flagged_rows(job.analysis, [flagged_row("credit_cards")])
+    package = _package_analysis([cad, usd])
     rows = _package_rows(package)
     assert package["totals"]["cross_currency_totals_refused"] is True
 
@@ -663,6 +670,7 @@ def test_every_money_row_the_export_emits_is_covered_by_a_declared_currency():
     assert any(s.startswith("funder_") for s in exercised)
     assert any(s.startswith("potential_lender_") for s in exercised)
     assert any(s.startswith("insurance_provider_") for s in exercised)
+    assert any(s.startswith("flagged_credit_cards_") for s in exercised)
 
     # Statement-level sections keep their money and declare their unit.
     document_sections = {s for s, _, _ in rows if s.startswith("document_")}

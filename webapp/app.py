@@ -439,6 +439,12 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, provider in enumerate(package.get("insurance_providers") or [], start=1):
         for key, value in provider.items():
             rows.append((f"insurance_provider_{idx}", key, "" if value is None else value))
+    # Lender detection §8.4: one section per flagged payee, `flagged_<group>_<n>`. The package holds only the
+    # groups Settings ticks, so the sheet follows Settings.
+    for group, items in (package.get("flagged_positions") or {}).items():
+        for idx, item in enumerate(items, start=1):
+            for key, value in item.items():
+                rows.append((f"flagged_{group}_{idx}", key, "" if value is None else value))
     for idx, evidence in enumerate(package.get("lender_evidence") or [], start=1):
         for key, value in evidence.items():
             rows.append((f"lender_evidence_{idx}", key, "" if value is None else value))

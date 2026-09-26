@@ -422,3 +422,50 @@ def test_a_member_without_analysis_adds_nothing_to_the_flag_roll_up(settings_fil
     assert (item["documents"], item["count"], package["totals"]["flagged_position_count"]) == (1, 1, 1)
     alone = _package_analysis([failed])
     assert alone["flagged_positions"] == {} and alone["totals"]["flagged_position_count"] == 0
+
+
+# --- the package CSV and XLSX (§8.4) -------------------------------------------------------------------------
+
+@EACH_GROUP
+def test_the_package_csv_and_xlsx_carry_the_ticked_groups_only(settings_file, group):
+    from webapp.app import _package_analysis, _package_csv, _package_xlsx
+
+    jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
+    section = f"flagged_{group.key}_1"
+    package = _package_analysis(jobs)
+    cells = _csv_cells(_package_csv(package))
+    assert cells[(section, "payee")] == fabricated_payee(group.key)
+    assert (cells[(section, "documents")], cells[(section, "count")]) == ("2", "2")
+    assert cells[(section, "total_debited")] == str(2 * FLAGGED_DEBIT)
+    assert cells[("totals", "flagged_position_count")] == str(2 * len(GROUP_KEYS))
+    assert f"<t>{section}</t>" in _sheet(_package_xlsx(package))
+    save_settings(settings_file.parent, {group.setting: False})
+    package = _package_analysis(jobs)
+    cells = _csv_cells(_package_csv(package))
+    assert not [key for key in cells if key[0].startswith(f"flagged_{group.key}_")]
+    assert f"<t>{section}</t>" not in _sheet(_package_xlsx(package))
+
+
+def test_a_package_payee_that_reads_as_a_formula_is_escaped(settings_file):
+    from webapp.app import _package_analysis, _package_csv, _package_xlsx
+
+    payload = with_flagged_rows(account_payload(), [flagged_row("mortgages", payee="=FABRICATED(1)")])
+    package = _package_analysis([_member("a", payload)])
+    assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in _package_csv(package)
+    sheet = _sheet(_package_xlsx(package))
+    assert "<t>'=FABRICATED(1)</t>" in sheet and "<t>=FABRICATED(1)</t>" not in sheet
+
+
+def test_the_package_routes_follow_the_checkboxes(settings_file):
+    ids = []
+    for index in (0, 1):
+        job = store.create(f"fabricated-{index}.pdf")
+        store.set_result(job.id, "# fabricated", "<h1>fabricated</h1>", analysis=flagged_account_payload(index))
+        ids.append(job.id)
+    client = app.test_client()
+    save_settings(settings_file.parent, {"flag_credit_cards": False})
+    served = client.get(f"/package_analysis?ids={','.join(ids)}").get_json()
+    assert "credit_cards" not in served["flagged_positions"] and "mortgages" in served["flagged_positions"]
+    cells = _csv_cells(client.get(f"/package_download/csv?ids={','.join(ids)}").get_data(as_text=True))
+    assert ("flagged_mortgages_1", "payee") in cells
+    assert not [key for key in cells if key[0].startswith("flagged_credit_cards_")]
