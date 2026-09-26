@@ -839,3 +839,67 @@ def test_the_panel_says_what_received_means():
     assert "Received: money a flagged payee paid in, such as a factor's payouts, which stays in deposits." in card
     for reused in ("Potential Withholding", "Eligible Deposits", "Exposure"):
         assert reused not in card
+
+
+# ---------------------------------------------------------------- Task 13: end to end on the served payload
+
+SERVED_ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 6000.0), (5, "MORTGAGE PAYMENT FABRICATED HOME", -1500.0),
+               (9, "ACH DEBIT FABRICATED PFC", -250.0), (19, "MORTGAGE PAYMENT FABRICATED HOME", -1500.0),
+               (23, "ACH DEBIT FABRICATED PFC", -250.0), (27, "SERVICE FEE", -15.0)]
+
+
+@needs_node
+def test_a_served_fabricated_statement_fills_the_panel_and_follows_its_switches(tmp_path, monkeypatch):
+    """S2's classifier and S3's serving, end to end. A mortgage descriptor (spec §4.3 step 8) and a premium-finance
+    payee (C4: its rows stay insurance and carry flagged_group) are served as flagged positions while their switches
+    are on; the panel, the chips and a payee click follow the switches without re-analysis (D7)."""
+    from analysis import transaction_classifier
+    from analysis.serialization import document_report_to_dict
+    from tests.test_webapp_studio_views import _report
+    from webapp.app import _displayed, store
+    from webapp.settings import save_settings
+
+    # A fabricated premium financier, routed into the insurance rule as S2's own tests route one
+    # (tests/flag_group_fixtures.py, fake_premium_finance).
+    monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES",
+                        {"Fabricated Premium Finance": ("FABRICATED PFC",)})
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)  # the settings file of a scratch folder
+    stored = document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, SERVED_ROWS))
+    shown = _displayed(stored)
+    save_settings(tmp_path, {"flag_premium_financing": False})
+    premium_off = _displayed(stored)
+    save_settings(tmp_path, {"flag_mortgages": False})
+    hidden = _displayed(stored)
+    result = run_dashboard(CELLS + ROWS + PAYEE_CLICK + _serve(shown=shown, premium_off=premium_off, hidden=hidden)
+                           + """
+const insurer = (html) => rowsOf(html)
+  .map((row) => row.includes('<span class="chip-text">Fabricated Premium Finance</span>'));
+const open = async (id) => {
+  transactionFilter = 'all'; transactionEntityFilter = null;  // as a reopen from Recent does
+  currentJobId = id; currentJobIds = [id]; loadResults(id); await settle();
+  return {rows: cells(els.flaggedTable.innerHTML), flagged: flaggedOf(els.transactionTable.innerHTML),
+    insurer: insurer(els.transactionTable.innerHTML)};
+};
+const shown = await open('shown');
+clickPayee(els.flaggedTable, 'premium_financing', 'Fabricated Premium Finance');
+const clicked = {count: els.transactionCount.textContent, dates: datesOf(els.transactionTable.innerHTML)};
+const premiumOff = await open('premium_off');
+console.log(JSON.stringify({shown, clicked, premiumOff, hidden: await open('hidden')}));
+""")
+    shown, premium_off, hidden = result["shown"], result["premiumOff"], result["hidden"]
+    # Mortgages before Premium financing: FLAG_GROUPS order.
+    assert [row[0] for row in shown["rows"]] == ["Mortgages", "Premium financing"]
+    assert shown["rows"][0][2:4] == ["2", "$3,000.00"]
+    assert shown["rows"][1][1:4] == ["Fabricated Premium Finance", "2", "$500.00"]
+    assert shown["flagged"].count(True) == 4
+    # The premium-finance rows keep their insurance tag (the insurer's name), whatever the switch says.
+    assert shown["insurer"].count(True) == 2 and premium_off["insurer"] == shown["insurer"]
+    # A click on the payee shows exactly its two insurance rows: the served canonical_entity is the panel's payee.
+    assert result["clicked"] == {"count": "2 Fabricated Premium Finance", "dates": ["2031-03-09", "2031-03-23"]}
+    # Premium financing unticked: its rows lose the chip and the panel entry; the mortgages stay flagged.
+    assert [row[0] for row in premium_off["rows"]] == ["Mortgages"]
+    assert premium_off["flagged"].count(True) == 2
+    assert [flag for flag, tagged in zip(premium_off["flagged"], premium_off["insurer"]) if tagged] == [False, False]
+    # Both unticked: nothing is flagged.
+    assert hidden["rows"] == [[NO_FLAGGED_PAYMENTS]]
+    assert True not in hidden["flagged"]
