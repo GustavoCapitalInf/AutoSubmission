@@ -230,7 +230,10 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - It deep-copies every account's `statement.transactions`, `detection` and `metrics` before changing them.
   - On each account, it drops unticked groups from `metrics.flagged_groups` and `detection.flagged_positions`.
   - It sets `classification["flag_shown"] = bool(flagged_group and enabled[group.setting])` on every copied row.
-  - At the TOP level of the returned payload, it sets `analysis_rules_outdated: bool`: True when any row's `classification.classification_version` is present and its major version is below 5.
+  - At the TOP level of the returned payload, it sets `analysis_rules_outdated: bool`: True when any row's classification record carries no `classification_version` (absent or null), or one whose major version is below 5.
+    - A record without the field predates versioning, so older lender rules classified it (D12). The orchestrator decided this on 2026-09-26, delegated by the owner: the sentence used to say "is present", which left stored analyses of version-less revenue records without the notice and the Re-analyze button.
+    - A version that is present but cannot be read marks nothing. Only ASCII digits before the first dot are read.
+    - A payload with no classification record is False.
   - It never raises. A non-dict payload is returned unchanged.
 - `webapp/app.py`:
   - `_displayed(analysis, *, carry_over=None, settings=None)`. Settings are loaded once when `settings is None`, and `carry_over` still overrides NSF when it is given.

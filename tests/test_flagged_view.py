@@ -150,19 +150,62 @@ def test_anything_that_is_not_a_published_shape_is_returned_unchanged(payload):
 # --- analysed with older lender rules (spec §8.2, D12) ------------------------------------------------------------
 
 @pytest.mark.parametrize("version, outdated", [
-    ("4.1", True), ("3.0", True), ("4", True), (4, True),
-    ("5.0", False), ("5.2", False), ("6.0", False), (None, False), ("unknown", False), (True, False),
+    ("4.1", True), ("3.0", True), ("4", True), (4, True), (None, True),
+    ("5.0", False), ("5.2", False), ("6.0", False), ("unknown", False), (True, False),
 ])
 def test_rows_classified_by_older_rules_mark_the_analysis_outdated(version, outdated):
-    payload = with_flagged_rows(account_payload(), [flagged_row(None)])
+    # Every other record is current, so the one record under test decides. A null version is no version.
+    payload = with_flagged_rows(flagged_account_payload(groups=()), [flagged_row(None)])
     payload["statement"]["transactions"][-1]["classification"]["classification_version"] = version
     assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is outdated
+
+
+@pytest.mark.parametrize("version", [
+    "²", "².0", "٤.1", "9" * 5000, "", " ", ".5", "-4", "+4", "4a.0", "4 .1",
+], ids=["superscript", "superscript-dotted", "arabic-indic", "too-many-digits", "empty", "blank", "no-major",
+        "negative", "signed", "letters", "inner-space"])
+def test_a_version_that_cannot_be_read_never_raises_and_says_nothing(version):
+    # C6 never raises. The classifier writes an ASCII "<major>.<minor>" (C4); anything else is malformed, so it
+    # neither marks the analysis outdated nor hides an older record elsewhere. `str.isdigit` accepts a superscript
+    # that `int` refuses, `int` reads non-ASCII digits, and it refuses a string past `sys.get_int_max_str_digits`.
+    payload = with_flagged_rows(flagged_account_payload(groups=()), [flagged_row(None)])
+    payload["statement"]["transactions"][-1]["classification"]["classification_version"] = version
+    assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is False
+    with_flagged_rows(payload, [flagged_row(None, version="4.1")])
+    assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is True
+
+
+def test_a_record_without_a_version_predates_versioning_and_marks_the_analysis_outdated():
+    # A record written before `classification_version` existed was classified by the rules of that time, older
+    # than the flag groups (D12), so the dashboard offers the re-analysis.
+    legacy = account_payload()  # revenue records only, none versioned: what the oldest stored analyses hold
+    assert "classification_version" not in legacy["statement"]["transactions"][0]["classification"]
+    assert apply_flagged_groups_to_payload(legacy, enabled=ALL_TICKED)["analysis_rules_outdated"] is True
+    # One version-less record among current ones is enough.
+    mixed = with_flagged_rows(flagged_account_payload(), [flagged_row("mortgages", version=None)])
+    assert apply_flagged_groups_to_payload(mixed, enabled=ALL_TICKED)["analysis_rules_outdated"] is True
+
+
+def test_a_document_whose_records_carry_no_version_is_outdated_at_the_top_level():
+    payload = flagged_document_payload()
+    del payload["accounts"][1]["statement"]["transactions"][0]["classification"]["classification_version"]
+    shown = apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)
+    assert shown["analysis_rules_outdated"] is True
+    assert all("analysis_rules_outdated" not in account for account in shown["accounts"])
 
 
 def test_a_fresh_analysis_and_one_without_classified_rows_are_not_outdated():
     assert apply_flagged_groups_to_payload(flagged_account_payload(), enabled=ALL_TICKED)[
         "analysis_rules_outdated"] is False
+    assert apply_flagged_groups_to_payload(flagged_document_payload(), enabled=ALL_TICKED)[
+        "analysis_rules_outdated"] is False
     assert apply_flagged_groups_to_payload({"statement": {}}, enabled=ALL_TICKED)["analysis_rules_outdated"] is False
+    # Rows that carry no classification record at all say nothing about the rules that classified them.
+    unclassified = account_payload()
+    for row in unclassified["statement"]["transactions"]:
+        del row["classification"]
+    unclassified["statement"]["transactions"].append({"date": "2054-01-05", "classification": "not a record"})
+    assert apply_flagged_groups_to_payload(unclassified, enabled=ALL_TICKED)["analysis_rules_outdated"] is False
 
 
 def test_one_outdated_account_marks_the_whole_document_at_the_top_level():

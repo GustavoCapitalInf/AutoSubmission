@@ -78,6 +78,18 @@ def test_the_analysis_and_its_json_export_follow_the_checkbox(settings_file, don
     assert done_job.analysis == stored
 
 
+def test_a_stored_analysis_whose_records_carry_no_version_is_served_as_outdated(settings_file, monkeypatch):
+    # The oldest stored analyses hold revenue records written before `classification_version` existed (D12): the
+    # served analysis must say so, or the notice and its Re-analyze button never show. The record is not rewritten.
+    job = SimpleNamespace(id="job-legacy", status="done", analysis=account_payload(), analysis_error=None,
+                          filename="fabricated-legacy.pdf", markdown="", html="")
+    stored = copy.deepcopy(job.analysis)
+    original = store.get
+    monkeypatch.setattr(store, "get", lambda job_id: job if job_id == job.id else original(job_id))
+    assert app.test_client().get("/analysis/job-legacy").get_json()["analysis"]["analysis_rules_outdated"] is True
+    assert job.analysis == stored
+
+
 def test_displayed_takes_one_settings_snapshot_and_carry_over_still_decides_the_nsf_basis(settings_file):
     from tests.test_webapp_settings import _ledger_metrics
     from webapp.app import _displayed

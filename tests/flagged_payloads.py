@@ -82,6 +82,16 @@ def flagged_row(
     }
 
 
+def classified_now(payload: dict) -> dict:
+    """`payload`, an ACCOUNT payload, with the current `classification_version` on every ledger record that carries
+    none. Today's classifier writes the field on every record it publishes (C4); the records of the L1-S3 fixture
+    (tests/l1s3_payloads.py) predate it, so an analysis built on them reads as classified by older rules (C6).
+    Mutates and returns `payload`."""
+    for row in payload.get("statement", {}).get("transactions", []):
+        row["classification"].setdefault("classification_version", CURRENT_VERSION)
+    return payload
+
+
 def with_flagged_rows(payload: dict, rows: list[dict]) -> dict:
     """`payload`, an ACCOUNT payload, with `rows` appended to its ledger (numbered after the rows already there)
     and its `metrics.flagged_groups` and `detection.flagged_positions` rebuilt from the whole ledger the way C5
@@ -141,16 +151,19 @@ def flagged_account_payload(
     date: str = "2054-01-05",
 ) -> dict:
     """A validated ACCOUNT payload (tests/l1s3_payloads.py) in `currency`, with one fabricated debit of `amount`
-    on `date` per group in `groups`, each to its own fabricated payee."""
-    payload = account_payload(index)
+    on `date` per group in `groups`, each to its own fabricated payee. Every record carries the current
+    `classification_version`, as a fresh analysis's records do."""
+    payload = classified_now(account_payload(index))
     payload["statement"]["currency"] = currency
     return with_flagged_rows(payload, [flagged_row(key, amount=amount, date=date) for key in groups])
 
 
 def flagged_document_payload(*, groups: tuple[str, ...] = GROUP_KEYS) -> dict:
     """The DOCUMENT shape (tests/l1s3_payloads.py): two validated accounts, each with one fabricated debit per
-    group in `groups`; the second account's debits are twice the first's."""
+    group in `groups`; the second account's debits are twice the first's. Every record carries the current
+    `classification_version`, as a fresh analysis's records do."""
     payload = document_payload()
     for index, account in enumerate(payload["accounts"]):
-        with_flagged_rows(account, [flagged_row(key, amount=-FLAGGED_DEBIT * (index + 1)) for key in groups])
+        with_flagged_rows(classified_now(account),
+                          [flagged_row(key, amount=-FLAGGED_DEBIT * (index + 1)) for key in groups])
     return payload

@@ -38,18 +38,30 @@ def enabled_group_keys(enabled: Mapping[str, bool]) -> frozenset[str]:
 
 
 def _major_version(version: object) -> int | None:
-    """The major number of a stored `classification_version` ("4.1" gives 4); None when it cannot be read."""
+    """The major number of a stored `classification_version` ("4.1" gives 4); None when it cannot be read.
+
+    Never raises. The classifier writes ASCII digits (C4), so only those are read: `str.isdigit` accepts a
+    superscript "2" that `int` refuses, and `int` reads non-ASCII decimal digits the classifier never writes. `int`
+    also refuses a string longer than `sys.get_int_max_str_digits()`."""
     if isinstance(version, int) and not isinstance(version, bool):
         return version
     if isinstance(version, str):
         head = version.strip().split(".", 1)[0]
-        return int(head) if head.isdigit() else None
+        if not (head.isascii() and head.isdecimal()):
+            return None
+        try:
+            return int(head)
+        except ValueError:
+            return None
     return None
 
 
 def _rules_outdated(accounts: list[Mapping]) -> bool:
     """Whether any stored record was written by a classifier older than the flag-group rules. Such an analysis
-    keeps its stored labels until it is re-analysed (D12); the dashboard says so."""
+    keeps its stored labels until it is re-analysed (D12); the dashboard says so.
+
+    A record with no `classification_version` (absent or null) predates the field, so it was classified by older
+    rules. A version that is present but cannot be read says nothing either way. Rows without a record are skipped."""
     for account in accounts:
         statement = account.get(STATEMENT_KEY)
         rows = statement.get("transactions") if isinstance(statement, Mapping) else None
@@ -57,7 +69,10 @@ def _rules_outdated(accounts: list[Mapping]) -> bool:
             classification = row.get("classification") if isinstance(row, Mapping) else None
             if not isinstance(classification, Mapping):
                 continue
-            major = _major_version(classification.get("classification_version"))
+            version = classification.get("classification_version")
+            if version is None:
+                return True
+            major = _major_version(version)
             if major is not None and major < FLAG_RULES_MAJOR:
                 return True
     return False
@@ -111,8 +126,9 @@ def apply_flagged_groups_to_payload(payload: object, *, enabled: Mapping[str, bo
     * every classification record in `statement.transactions` gains `flag_shown`: it names a flag group, and that
       group is ticked. The record's `flagged_group` and its contribution flags are kept as stored (D7).
 
-    At the TOP level it sets `analysis_rules_outdated`: True when any record's `classification_version` has a major
-    version below the flag-group rules (D12).
+    At the TOP level it sets `analysis_rules_outdated`: True when any record carries no `classification_version`
+    (it predates the field) or one whose major version is below the flag-group rules (D12); False when there is
+    no record.
 
     `enabled` is keyed by `FlagGroup.setting`; a missing key counts as ticked. A group key the contract does not
     define is never shown. The input is never mutated."""

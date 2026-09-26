@@ -121,7 +121,7 @@ These stay green unchanged, and the plan relies on that:
 
 1. **Pass-through vs. the new keys (spec §8.2 against C6).**
    - A payload in one of the two published shapes always gets:
-     - the top-level `analysis_rules_outdated: bool`, which is False when no record has an older major version;
+     - the top-level `analysis_rules_outdated: bool`, which is False when every record carries a version whose major is 5 or more, or one that cannot be read, and when there is no record (C6 as amended 2026-09-26: a record with no version is outdated; Task 4's amendment note);
      - `flag_shown` on every classification record, False for a record that names no group.
    - Nothing stored is dropped or altered, so "legacy payloads pass through" holds for every stored value.
    - Anything that is not a published shape is returned as the same object, including `{}`, `None`, a malformed document and the shim.
@@ -979,6 +979,14 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - Consumes: the stored `classification.classification_version` (today `"4.1"`, `analysis/transaction_classifier.py:64,139`; `"5.0"` after S2, C4).
 - Produces: C6's top-level `analysis_rules_outdated: bool` on every payload in a published shape. It is consumed by S4 (`#rulesOutdatedNotice`) and S5.
 
+**Amended 2026-09-26, after S3 merged (the orchestrator's decision, delegated by the owner; branch `ld-s3-followup`).** This task pinned a record with no `classification_version` as not outdated (`(None, False)` below). The final S3 review found stored analyses whose records are all version-less revenue records: they would never show the notice or the Re-analyze button (spec D12). C6 now reads such a record as outdated:
+- The pin is `(None, True)`. The parametrized test builds on `flagged_account_payload(groups=())`, so the one record under test decides.
+- `tests/flagged_payloads.py` gains `classified_now`. `flagged_account_payload` and `flagged_document_payload` use it to stamp the current version on the L1-S3 fixture's records, as a fresh analysis carries it on every record.
+- New tests cover a version-less legacy payload, a version-less record among current ones, a document account, rows with no record at all (still False), and the served route.
+- `_major_version` reads only ASCII decimal digits and never raises. `str.isdigit` accepted a superscript digit that `int` refused, and `int` refuses a string past `sys.get_int_max_str_digits()`. A version it cannot read still marks nothing.
+
+Step 1's first test below carries the amended pin and payload. It passes only with the amendment's fixtures and code. Every other code block, and the counts in Steps 2 and 4, are the ones this task ran with. `tests/test_flagged_view.py` and `analysis/flagged_view.py` on `ld-s3-followup` are the current text.
+
 - [ ] **Step 1: Write the failing tests.** Append to `tests/test_flagged_view.py`:
 
 ```python
@@ -987,11 +995,12 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 # --- analysed with older lender rules (spec §8.2, D12) ------------------------------------------------------------
 
 @pytest.mark.parametrize("version, outdated", [
-    ("4.1", True), ("3.0", True), ("4", True), (4, True),
-    ("5.0", False), ("5.2", False), ("6.0", False), (None, False), ("unknown", False), (True, False),
+    ("4.1", True), ("3.0", True), ("4", True), (4, True), (None, True),
+    ("5.0", False), ("5.2", False), ("6.0", False), ("unknown", False), (True, False),
 ])
 def test_rows_classified_by_older_rules_mark_the_analysis_outdated(version, outdated):
-    payload = with_flagged_rows(account_payload(), [flagged_row(None)])
+    # Every other record is current, so the one record under test decides. A null version is no version.
+    payload = with_flagged_rows(flagged_account_payload(groups=()), [flagged_row(None)])
     payload["statement"]["transactions"][-1]["classification"]["classification_version"] = version
     assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is outdated
 
@@ -3731,7 +3740,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 | §8.2: copies before changing | Task 3: deep copies of `statement.transactions`, `metrics` and `detection`. It is tested for equality and for identity of the changed structures, and through the routes (`done_job.analysis == stored`, and the review test's stored record has no tag). |
 | §8.2: removes unticked groups | Task 3, for both shapes. Tasks 5 and 6 cover every route. |
 | §8.2: `flag_shown` | Task 3 (the C6 formula), Task 5 (routes and package members). |
-| §8.2: `analysis_rules_outdated` | Task 4. |
+| §8.2: `analysis_rules_outdated` | Task 4, and its 2026-09-26 amendment: a record with no version is outdated. |
 | §8.2: never refuses; legacy payloads pass through | Task 3: the shape-less inputs return the same object, and a legacy payload keeps every stored value. |
 | §8.2: `_package_members` reads the whole snapshot once | Task 5 (read once per package; resolution 2). `test_a_package_reads_the_settings_once_and_hands_that_snapshot_to_every_member` counts the reads: one per `_package_analysis(jobs)`, and none when a snapshot is passed. `test_package_members_follow_the_snapshot_they_are_handed_not_the_file` pins that the members' tags come from the snapshot. Task 7's `test_the_roll_up_reads_the_same_snapshot_as_the_member_rows` pins the same for the roll-up, the evidence and the package ledger. |
 | §8.3: roll-up `{payee, documents, count, total_debited, cadence, first_date, last_date}` from the ticked groups of validated members | Tasks 7 and 10. Only validated members reach `members`: document accounts are excluded by `_package_members` and are unchanged, as the exclusion test shows. |
