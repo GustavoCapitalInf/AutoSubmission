@@ -573,3 +573,51 @@ def test_the_package_csv_and_xlsx_carry_the_credited_fields(settings_file):
     assert (cells[("totals", "flagged_position_count_credited")],
             cells[("totals", "flagged_position_total_credited")]) == ("2", str(2 * FACTOR_PAYOUT))
     assert "<t>flagged_position_total_credited</t>" in _sheet(_package_xlsx(package))
+
+
+# --- the package cadence (§8.3; needs analysis/cadence.py from S2) -------------------------------------------
+
+def _member_paying(job_id, index, group_key, dates):
+    payload = with_flagged_rows(account_payload(index), [flagged_row(group_key, date=date) for date in dates])
+    return _member(job_id, payload)
+
+
+def test_the_package_cadence_is_read_across_every_members_dates(settings_file):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([
+        _member_paying("a", 0, "vehicle_financing", ("2054-01-05", "2054-01-12")),
+        _member_paying("b", 1, "vehicle_financing", ("2054-01-19", "2054-01-26")),
+    ])
+    [item] = package["flagged_positions"]["vehicle_financing"]
+    assert (item["cadence"], item["count"]) == ("weekly", 4)
+    assert (item["first_date"], item["last_date"]) == ("2054-01-05", "2054-01-26")
+
+
+def test_one_payment_per_monthly_statement_reads_as_monthly(settings_file):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([
+        _member_paying("jan", 0, "mortgages", ("2054-01-15",)),
+        _member_paying("feb", 1, "mortgages", ("2054-02-15",)),
+        _member_paying("mar", 2, "mortgages", ("2054-03-15",)),
+    ])
+    [item] = package["flagged_positions"]["mortgages"]
+    assert (item["cadence"], item["documents"]) == ("monthly", 3)
+
+
+def test_a_payee_paid_once_in_the_package_has_a_single_cadence(settings_file):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_member("a", flagged_account_payload(0, groups=("mortgages",)))])
+    assert package["flagged_positions"]["mortgages"][0]["cadence"] == "single"
+
+
+def test_every_flag_roll_up_item_carries_the_contract_fields_in_order(settings_file):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_member("a", flagged_account_payload(0))])
+    for items in package["flagged_positions"].values():
+        for item in items:
+            assert list(item) == ["payee", "documents", "count", "total_debited", "count_credited", "total_credited",
+                                  "cadence", "first_date", "last_date"]

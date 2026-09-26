@@ -32,6 +32,7 @@ from analysis.revenue import (
     REVENUE_STATES,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
+from analysis.cadence import describe_cadence
 from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
 from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group_keys
@@ -600,8 +601,10 @@ def _published_flagged_positions(
     rollup: dict[tuple[str, str], dict], *, refuse_cross_currency: bool
 ) -> dict[str, list[dict]]:
     """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
-    order, as a list of `{payee, documents, count, total_debited, count_credited, total_credited, first_date,
-    last_date}`.
+    order, as a list of `{payee, documents, count, total_debited, count_credited, total_credited, cadence,
+    first_date, last_date}`. The cadence is read over the payee's dates in every member together
+    (analysis/cadence.py), its debits and its credits alike, so a monthly payment split across monthly statements
+    reads as monthly.
 
     Largest total first, debited plus credited; a package that refuses to combine currencies ranks by the
     unit-free count, debits plus credits, then the payee, because an order read off summed money would publish the
@@ -620,6 +623,7 @@ def _published_flagged_positions(
                 "total_debited": item["total_debited"],
                 "count_credited": item["count_credited"],
                 "total_credited": item["total_credited"],
+                "cadence": describe_cadence(dates)[0] if dates else None,
                 "first_date": dates[0].isoformat() if dates else None,
                 "last_date": dates[-1].isoformat() if dates else None,
             })
