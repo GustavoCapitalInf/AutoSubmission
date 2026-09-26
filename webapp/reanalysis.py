@@ -1,8 +1,10 @@
 """Re-analysis of a saved statement (docs/superpowers/specs/2026-09-24-lender-detection-design.md §8.6, D12).
 
 `rerun_analysis` runs the statement's stored PDF through the worker's own read and analysis path
-(`webapp.worker.run_job`) into a stand-in for the job store, so the saved job is not touched until the route accepts
-the new analysis.
+(`webapp.worker.run_job`), its reading served from the artifact cache only: a re-analysis only analyzes a reading
+already made, and no reading rung runs. It writes nothing into the cache, whose one writer stays the upload queue's
+worker. The run writes into a stand-in for the job store, so the saved job is not touched until the route accepts the
+new analysis.
 
 `replay_reviews` puts the analyst's revenue decisions (the append-only `review_decisions` table) back onto a fresh
 analysis of the same statement, only where the posting is unchanged: the row at the same account and location has the
@@ -22,6 +24,7 @@ from analysis.revenue import (
     record_serialized_revenue_review,
 )
 
+from .artifact_cache import ArtifactCache
 from .jobs import Job, JobStore
 from .worker import run_job
 
@@ -200,6 +203,16 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
     return Replay(updated, _ids(history, applied), _ids(history, sorted(redo + refused)), _ids(history, ruled))
 
 
+#: Why a re-analysis stops where the worker would read the statement: the reading it needs is not in the artifact
+#: cache (a pruned cache, a new OCR toolchain, or a reading the statement never had, such as the visual pair's where
+#: the deterministic path claimed it before). The reading is served from the cache only (spec §8.6.2): a re-analysis
+#: runs on the request thread, outside the upload queue's single worker slot, which keeps two OCR jobs from running
+#: at once.
+READING_NOT_CACHED = (
+    "the reading this re-analysis needs is not cached, and a re-analysis only analyzes a reading already made; "
+    "upload the statement again instead"
+)
+
 #: Why a re-run that produced an analysis is still not accepted: under the current rules the analysis comes from
 #: another cached reading of the statement than the one the saved analysis was made from (the worker chose the other
 #: of its deterministic and visual-pair paths). The saved analysis and the source view beside it describe one reading,
@@ -209,22 +222,75 @@ READS_DIFFERENTLY = (
 )
 
 
+class _ReadingRefused(Exception):
+    """Raised inside `run_job` where a re-analysis would read the statement. The worker's own boundary catches it
+    (`run_job`'s `except Exception`) and records its fixed stage failure on the stand-in store; `rerun_analysis`
+    answers READING_NOT_CACHED from the stand-in's flag instead."""
+
+
+class _CacheOnly:
+    """The artifact cache as a re-analysis sees it: every stage reads through the real cache, a reading the cache does
+    not hold is never computed, and nothing is written into it.
+
+    `cached_ocr` asks `get_ocr` before it computes (webapp/artifact_cache.py), and the worker's reading ladder and its
+    visual pair both read through `cached_ocr`, so a miss stops the run before any reader or remote model is called.
+    On the visual pair's path this is the only guard: the pair does work before it names its first step.
+
+    The upload queue's worker stays the cache's one writer. The cache writes each entry through one fixed temporary
+    file, so a write from this request thread to an entry an upload of the same statement is writing at that moment
+    could fail the upload. The three writes below are the only ones the worker's cache helpers make (`cached_ocr`,
+    `cached_analysis`, `cached_report`), and each helper ignores the key a write returns. The new analysis is saved
+    with the job, and the next upload of the statement caches it."""
+
+    def __init__(self, cache: ArtifactCache, run: _CapturedJobStore) -> None:
+        self._cache = cache
+        self._run = run
+
+    def __getattr__(self, name: str):
+        return getattr(self._cache, name)
+
+    def get_ocr(self, content_hash: str, settings_key: str) -> tuple[bool, dict | None]:
+        hit, document = self._cache.get_ocr(content_hash, settings_key)
+        if not hit:
+            self._run.refuse_reading()
+        return hit, document
+
+    def put_ocr(self, content_hash: str, settings_key: str, document: object) -> None:
+        # In a re-analysis this is reached only when the visual pair answered again from its own local evidence, over
+        # a cached reading that failed its own checks (every rung of the ladder names itself first and is stopped).
+        # That entry is left for the next upload to repair.
+        return None
+
+    def put_analysis(self, markdown_hash: str, settings_key: str, analysis: dict) -> None:
+        return None
+
+    def put_report(self, markdown_hash: str, settings_key: str, html: str) -> None:
+        return None
+
+
 class _CapturedJobStore:
     """What `run_job` is handed during a re-analysis, in place of the job store.
 
-    Every stage reads and writes through the real artifact cache, and cache hits are recorded in the real audit log
-    (the evidence of what was served from the cache). Every job-state write lands here, so the saved job keeps its
-    status, its stage and its analysis until the route accepts the new one. It has no `storage`, so the run writes no
-    telemetry record (`telemetry.emit.open_sqlite_sink` opens a null sink): telemetry counts intake runs, and the
-    audit log records the re-analysis. Its methods are exactly the ones `webapp/worker.py` calls on its store."""
+    Its cache is `_CacheOnly`, so no reading rung runs and nothing is written into the cache. Cache hits are recorded
+    in the real audit log (the evidence that the reading was served from the cache), but every job-state write lands
+    here, so the saved job keeps its status, its stage and its analysis until the route accepts the new one. It has no
+    `storage`, so the run writes no telemetry record (`telemetry.emit.open_sqlite_sink` opens a null sink): telemetry
+    counts intake runs, and the audit log records the re-analysis. Its methods are exactly the ones `webapp/worker.py`
+    calls on its store."""
 
     def __init__(self, store: JobStore, job: Job) -> None:
         self._store = store
-        self.cache = store.cache
+        self.cache = _CacheOnly(store.cache, self)
         self.job = Job(id=job.id, filename=job.filename, force_ocr=job.force_ocr, parse_mode=job.parse_mode,
                        page_count=job.page_count, content_sha256=job.content_sha256)
         self.result: tuple[str, str, dict | None, str | None, str | None] | None = None
         self.error: str | None = None
+        self.reading_refused = False
+
+    def refuse_reading(self) -> None:
+        """Stop the run where the worker would read the statement."""
+        self.reading_refused = True
+        raise _ReadingRefused()
 
     def get(self, job_id: str) -> Job | None:
         return self.job if job_id == self.job.id else None
@@ -236,10 +302,16 @@ class _CapturedJobStore:
         self.job.status = status
 
     def set_stage(self, job_id: str, stage: str, parse_model: str | None = None) -> None:
+        # "analyzing" is the one stage the worker names outside a read (`run_job`). Every other stage is a rung of its
+        # reading ladder or a step of the visual pair, named just before it reads: a cached reading that fails its own
+        # checks is read again by `cached_ocr` after `get_ocr` has answered a hit, and it is stopped here.
+        if stage != "analyzing":
+            self.refuse_reading()
         self.job.stage = stage
 
     def append_page_live(self, job_id: str, page: int, chunk: str) -> None:
-        return None
+        # Only a live read streams text.
+        self.refuse_reading()
 
     def set_page_live(self, job_id: str, page: int, text: str) -> None:
         # A cached reading replays its pages here.
@@ -258,7 +330,8 @@ class _CapturedJobStore:
 @dataclass(frozen=True)
 class Rerun:
     """A re-run's new analysis; or None, with the reason it is not accepted: text the worker already publishes for
-    that outcome (`_stage_failure`, `_analysis_failure`, its no-native-text notice) or READS_DIFFERENTLY."""
+    that outcome (`_stage_failure`, `_analysis_failure`, its no-native-text notice), READING_NOT_CACHED, or
+    READS_DIFFERENTLY."""
 
     analysis: dict | None
     reason: str | None = None
@@ -266,9 +339,11 @@ class Rerun:
 
 def rerun_analysis(store: JobStore, job: Job, pdf_bytes: bytes) -> Rerun:
     """Run a saved job's statement through `webapp.worker.run_job` again, with the job's own read flag and parse mode,
-    into a `_CapturedJobStore`. Nothing of the saved job is written here."""
+    into a `_CapturedJobStore`, its reading from the artifact cache only. Nothing of the saved job is written here."""
     run = _CapturedJobStore(store, job)
     run_job(job.id, pdf_bytes, job.filename, run, force_ocr=job.force_ocr, parse_mode=job.parse_mode)
+    if run.reading_refused:
+        return Rerun(None, READING_NOT_CACHED)
     if run.error is not None or run.result is None:
         return Rerun(None, run.error)
     markdown, _html, analysis, analysis_error, _parse_model = run.result

@@ -558,3 +558,141 @@ def test_a_rerun_whose_analysis_comes_from_another_reading_is_not_accepted(pipel
     rerun = rerun_analysis(private_store, saved, private_store.pdf_bytes(job_id))
     assert pipeline.reads == 1
     assert (rerun.analysis, rerun.reason) == (None, READS_DIFFERENTLY)
+
+
+# --- the reading comes from the cache, or the re-analysis is refused ------------------------------------------------
+
+
+def test_a_rerun_runs_no_reader_for_a_statement_whose_reading_is_not_cached(pipeline, private_store):
+    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+
+    old = _payload()
+    job_id = pipeline.upload(old)
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.forget_ocr()
+    statuses = len(private_store.storage.audit_events("status_change", job_id=job_id))
+
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+
+    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
+    assert pipeline.reads == 1  # the reader was never called
+    assert private_store.storage.cache_entries("ocr") == []  # and nothing was read into the cache
+    saved = private_store.get(job_id)
+    assert (saved.status, saved.analysis) == ("done", _stamped(old))
+    assert len(private_store.storage.audit_events("status_change", job_id=job_id)) == statuses
+
+
+def test_a_miss_stops_the_run_before_a_reader_that_names_no_stage(pipeline, private_store):
+    """The cache lookup is the guard, not the stage a reader names: here nothing but the lookup stands between the run
+    and the reader."""
+    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.forget_ocr()
+    pipeline.announce = False
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
+    assert pipeline.reads == 1
+
+
+def test_a_cached_reading_that_fails_its_own_checks_is_not_read_again(pipeline, private_store):
+    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.drift_ocr()
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
+    assert pipeline.reads == 1  # stopped where the ladder named its rung, before the rung read
+
+
+def test_a_reading_that_streams_before_it_names_a_stage_is_stopped(pipeline, private_store):
+    """A cached reading that fails its own checks is read again after the lookup answered a hit; a reader that streams
+    its text before it names a stage is stopped at its first streamed chunk."""
+    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.drift_ocr()
+    pipeline.announce, pipeline.stream = False, True
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
+    assert pipeline.reads == 1
+
+
+def test_the_visual_pair_is_never_called_for_a_reading_that_is_not_cached(pipeline, private_store, visual_pair):
+    """The pair answers from its own evidence, or asks its model servers for their models, before it names a step, so
+    on its path the cache lookup is the only guard."""
+    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+
+    job_id = pipeline.upload(_payload(), force_ocr=True)
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.forget_ocr()
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
+    assert (len(visual_pair), pipeline.reads) == (1, 0)  # the upload's call, and no other
+
+
+def test_a_statement_that_now_needs_the_visual_pair_is_refused_without_calling_it(
+        pipeline, private_store, visual_pair, monkeypatch):
+    """With the pair on, a statement the deterministic path no longer analyses falls back to the visual pair
+    (webapp/worker.py), a reading this statement never had."""
+    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+
+    monkeypatch.setenv("OCR_ALLOW_VISUAL_PAIR", "1")
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.analysis_failure = RuntimeError("no deterministic parser matched this statement")
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
+    assert (visual_pair, pipeline.reads) == ([], 1)
+
+
+# --- the upload queue's worker stays the artifact cache's one writer ------------------------------------------------
+
+
+def _cache_files(store):
+    """Every artifact-cache entry by stage: its key and the bytes of its file. Hit counts are left out, since serving
+    a hit updates them."""
+    return {stage: [(entry["cache_key"], (store.cache.root / entry["artifact_path"]).read_bytes())
+                    for entry in store.storage.cache_entries(stage)]
+            for stage in ("ocr", "analysis", "report")}
+
+
+def test_a_rerun_writes_no_analysis_and_no_report_into_the_cache(pipeline, private_store):
+    """The new analysis and the report rendered again are not cached: an upload of the same statement writing the
+    same entry at that moment could fail on the cache's one temporary file per entry."""
+    from webapp.reanalysis import rerun_analysis
+
+    job_id = pipeline.upload(_payload())
+    new = _payload(SHIFTED_ROWS)
+    pipeline.new_rules(new)
+    for entry in private_store.storage.cache_entries("report"):
+        private_store.storage.cache_forget("report", entry["cache_key"])  # so the report is rendered again
+    before = _cache_files(private_store)
+
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+
+    assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
+    assert _cache_files(private_store) == before
+
+
+def test_a_pair_reading_answered_again_from_the_pair_s_own_evidence_is_not_written_back(
+        pipeline, private_store, visual_pair):
+    """A cached pair reading that fails its own checks is read again, and the pair answers from its own local
+    evidence, naming no step (the fabricated pair answers that way). That answer is a reading already made, so the
+    re-analysis goes on with it, and it leaves the drifted entry for the next upload to repair."""
+    from webapp.reanalysis import rerun_analysis
+
+    job_id = pipeline.upload(_payload(), force_ocr=True)
+    new = _payload(SHIFTED_ROWS)
+    pipeline.new_rules(new)
+    pipeline.drift_ocr()
+    before = _cache_files(private_store)
+
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+
+    assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
+    assert (len(visual_pair), pipeline.reads) == (2, 0)
+    assert _cache_files(private_store) == before
