@@ -14,13 +14,15 @@ from .classification_registry import (
     LEGACY_POTENTIAL_LENDER_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
+    PAYOUT_CREDIT_ENTITIES,
+    POTENTIAL_LENDER_ALIASES,
 )
 from .dates import parse_date
-from .flag_groups import FLAG_GROUP_BY_STATE
+from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_STATE
 from .revenue import RevenueState, revenue_contribution_flags
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
-from .payee_matcher import registry_match
+from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -580,6 +582,7 @@ def _classify_credit_revenue(
     posted: bool,
     account_name: str | None,
     direction_consistent: bool,
+    bank: str | None = None,
 ) -> _RevenueDecision | None:
     if amount <= 0 or not posted:
         return None
@@ -620,20 +623,44 @@ def _classify_credit_revenue(
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
             context_signals=("credit_direction", "insurance_provider"),
         )
-    lender_match = registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
-    if lender_match is not None:
-        entity, alias = lender_match
+    # Spec §4.4 / D1: a credit from a financing group is proceeds. It is decided
+    # before the operating-revenue registry, and group aliases are
+    # financing-specific (SQUARE CAPITAL, never bare SQUARE), so a platform's
+    # sales settlement still reaches the operating registry below. Card-issuer
+    # and lease/rental payees never apply to credits, and neither does a
+    # payout-credit entity (owner decision 2026-09-25).
+    financing_match = _financing_proceeds_payee(text)
+    if financing_match is not None:
         return _RevenueDecision(
             "non_revenue",
-            entity,
-            "lender_registry_credit_exclusion",
-            alias,
-            "confirmed_lender_funding_credit",
+            financing_match.entity,
+            "financing_proceeds_credit",
+            financing_match.alias,
+            "financing_proceeds_credit",
             0.99,
-            f"Credit matched confirmed lender alias '{alias}' and is funding, not revenue.",
-            context_signals=("credit_direction", "confirmed_lender_source"),
+            (
+                f"Credit matched maintained {_state_words(financing_match.state)} alias "
+                f"'{financing_match.alias}'; financing proceeds are not revenue."
+            ),
+            context_signals=("credit_direction", "financing_proceeds"),
         )
-    potential_lender_match = registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
+    # D1 by descriptor (owner decisions 2026-09-25). `_descriptor_proceeds` keeps
+    # the potential registry and the strong non-revenue rule below ahead of a
+    # line-of-credit draw or a floor-plan advance.
+    descriptor_proceeds = _descriptor_proceeds(text)
+    if descriptor_proceeds is not None:
+        rule, names_bank = descriptor_proceeds
+        return _RevenueDecision(
+            "non_revenue",
+            (bank or None) if names_bank else None,
+            "financing_proceeds_credit",
+            None,
+            rule,
+            0.97,
+            f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are not revenue.",
+            context_signals=("credit_direction", "financing_proceeds"),
+        )
+    potential_lender_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
     if potential_lender_match is not None:
         entity, alias = potential_lender_match
         return _RevenueDecision(
@@ -645,19 +672,6 @@ def _classify_credit_revenue(
             0.95,
             f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
             context_signals=("credit_direction", "potential_lender_source"),
-        )
-    lease_match = registry_match(text, LEASE_PROVIDER_ALIASES)
-    if lease_match is not None:
-        entity, alias = lease_match
-        return _RevenueDecision(
-            "non_revenue",
-            entity,
-            "lease_provider_credit_exclusion",
-            alias,
-            "lease_or_equipment_financing_credit",
-            0.95,
-            f"Credit matched lease or equipment-financing alias '{alias}' and is not operating revenue.",
-            context_signals=("credit_direction", "lease_provider"),
         )
     if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS):
         return _RevenueDecision(
@@ -818,6 +832,7 @@ def _build_record(
         text,
         amount,
         posted=is_posted,
+        bank=bank,
         account_name=account_name,
         direction_consistent=direction_consistent,
     )
@@ -875,6 +890,101 @@ def _build_record(
         is_check=_matches_any(text, _CHECK_PATTERNS),
         is_loan_payment=_matches_any(text, _EXPLICIT_REPAYMENT_PATTERNS),
         is_pos_context=_matches_any(text, _POS_PATTERNS),
+    )
+
+
+def _state_words(state: str) -> str:
+    return state.replace("_", " ")
+
+
+def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
+    """D1: the known payee whose credit is financing proceeds, or None.
+
+    Owner decision 2026-09-25: the credits of a payout-credit entity
+    (PAYOUT_CREDIT_ENTITIES) are the account holder's own sales settled by the
+    platform, so they are revenue; that entity's debits keep their group.
+    """
+    match = match_known_payee(text)
+    if match is None or match.state not in FINANCING_STATES or match.entity in PAYOUT_CREDIT_ENTITIES:
+        return None
+    return match
+
+
+#: D1 by descriptor (owner decisions 2026-09-25): credits whose own words say they
+#: are financing proceeds, with no registry payee named. Credits only.
+_BANK_LINE_ADVANCE_CREDIT = re.compile(r"^LOAN CREDIT$")
+_LOC_DRAW_CREDIT_PATTERNS = (
+    re.compile(r"\b(?:LOC|LINE OF CREDIT) (?:ADVANCE|ADV|DRAW)\b"),
+    re.compile(r"\bADVANCE FROM (?:LOC|LINE OF CREDIT)\b"),
+    re.compile(r"\bDRAW (?:ON|FROM) (?:LOC|LINE OF CREDIT)\b"),
+)
+_FLOOR_PLAN_ADVANCE_CREDIT = re.compile(r"^ADVANCE (?:19|20)\d\d .*\bVIN\b")
+
+
+def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
+    """D1 by descriptor: (rule, whether the statement bank is the lender), or None.
+
+    Read after the known-payee check. The bank's own line advance (exactly
+    LOAN CREDIT) is decided there, ahead of the strong non-revenue rule that
+    would otherwise claim it. A line-of-credit draw or a per-vehicle floor-plan
+    advance counts only when no potential alias and no strong non-revenue rule
+    (an own-account transfer, for example) claims the credit.
+    """
+    if _BANK_LINE_ADVANCE_CREDIT.search(text):
+        return "bank_line_advance_credit", True
+    if registry_match(text, POTENTIAL_LENDER_ALIASES) is not None or _matches_any(
+        text, _NON_REVENUE_CREDIT_PATTERNS
+    ):
+        return None
+    if _matches_any(text, _LOC_DRAW_CREDIT_PATTERNS):
+        return "loc_draw_credit", True
+    if _FLOOR_PLAN_ADVANCE_CREDIT.search(text):
+        return "floor_plan_advance_credit", False
+    return None
+
+
+def _financing_proceeds_credit_record(
+    common: dict[str, object],
+    amount: float,
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """D1: a credit from a financing group is proceeds, excluded from eligible deposits."""
+    return _build_record(
+        **common,
+        classification="other",
+        canonical_entity=match.entity,
+        match_method="financing_proceeds_credit",
+        matched_alias=match.alias,
+        matched_rule="financing_proceeds_credit",
+        confidence_score=0.97,
+        reason=(
+            f"Matched maintained {_state_words(match.state)} alias '{match.alias}' on a credit; "
+            "financing proceeds are excluded from lender debits and eligible deposits."
+        ),
+        contributes_to_lender_credit_exclusion=amount > 0,
+    )
+
+
+def _descriptor_proceeds_credit_record(
+    common: dict[str, object],
+    amount: float,
+    proceeds: tuple[str, bool],
+    bank: str | None,
+) -> TransactionClassification:
+    """D1 by descriptor: the credit's own words say it is financing proceeds."""
+    rule, names_bank = proceeds
+    return _build_record(
+        **common,
+        classification="other",
+        canonical_entity=(bank or None) if names_bank else None,
+        match_method="financing_proceeds_credit",
+        matched_rule=rule,
+        confidence_score=0.95,
+        reason=(
+            f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are "
+            "excluded from lender debits and eligible deposits."
+        ),
+        contributes_to_lender_credit_exclusion=amount > 0,
     )
 
 
@@ -1044,6 +1154,17 @@ def classify_transaction(
             confidence_score=0.94,
             reason="The descriptor identifies a utility payment.",
         )
+
+    # Spec §4.3 step 7 / D1: a credit from a financing-group payee is proceeds,
+    # and so is a credit whose own words say so (owner decisions 2026-09-25).
+    # (Task 5 moves debits to the same step.)
+    if amount > 0:
+        financing_payee = _financing_proceeds_payee(text)
+        if financing_payee is not None:
+            return _financing_proceeds_credit_record(common, amount, financing_payee)
+        descriptor_proceeds = _descriptor_proceeds(text)
+        if descriptor_proceeds is not None:
+            return _descriptor_proceeds_credit_record(common, amount, descriptor_proceeds, bank)
 
     lease_match = registry_match(text, LEASE_PROVIDER_ALIASES)
     if lease_match is not None or _matches_any(text, _LEASE_PATTERNS):
