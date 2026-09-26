@@ -11,6 +11,7 @@ from analysis.adb import compute_average_daily_balance
 from analysis.reconcile import reconcile
 from analysis.metrics import compute_metrics, daily_closing_balances
 from analysis.detect import detect, find_known_funders, find_recurring_debits
+from analysis.transaction_classifier import classify_statement_transactions
 from analysis.extract import strip_embedded_images
 from analysis.altana import parse_altana_statement
 from analysis.atb import parse_atb_statement
@@ -3362,6 +3363,9 @@ def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():
     assert m.withholding_rate == 5.0
     assert m.pos_count == 1
     assert m.loan_count == 1
+    # Owner ruling 2026-09-24: SBA is an alternative position, never a potential lender.
+    assert classify_statement_transactions(s)[4].classification == "alternative_position"
+    assert m.potential_lender_debit_count == 0
 
 
 def test_metrics_uses_exact_posted_lender_debits_for_withholding_rate():
@@ -3576,7 +3580,12 @@ def test_detect_affirm_without_space():
     ])
     matches = find_known_funders(s)
     assert matches == []
-    assert compute_metrics(s).pos_count == 2
+    # D8: a card-paid Affirm instalment is classified by who was paid.
+    assert [record.classification for record in classify_statement_transactions(s)] == [
+        "alternative_position",
+        "alternative_position",
+    ]
+    assert compute_metrics(s).pos_count == 0
 
 
 def test_detect_expanded_lender_keyword_aliases():
@@ -3585,7 +3594,7 @@ def test_detect_expanded_lender_keyword_aliases():
         _txn("2054-01-03", -225.0, "DIRECT DEB DELAGELANDEN LEASE"),
     ])
     matches = find_known_funders(s)
-    assert [m.funder for m in matches] == ["FUNDWORKS"]
+    assert [m.funder for m in matches] == ["FUNDWORKS", "De Lage Landen"]
 
 
 def test_recurring_debits_filters_generic_processors():

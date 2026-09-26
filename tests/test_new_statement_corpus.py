@@ -119,7 +119,7 @@ EXPECTED = {
         "revenue": (0.00, 6705.81, 0.00, 6705.81),
         "revenue_counts": (0, 5, 0),
         "channels": (0, 0, 5, 0, 1, 0),
-        "lenders": (1, 100.00, 0, 0.00),
+        "lenders": (0, 0.00, 0, 0.00),
         "insurance": (0, 0.00),
         "reversal_pairs": 0,
         "daily": [
@@ -178,7 +178,7 @@ EXPECTED = {
         "printed_average": None,
         "revenue": (2020.00, 0.00, 12779.79, 2020.00),
         "revenue_counts": (2, 0, 49),
-        "channels": (2, 8, 66, 9, 0, 0),
+        "channels": (2, 8, 59, 9, 0, 0),
         "lenders": (0, 0.00, 0, 0.00),
         "insurance": (0, 0.00),
         "reversal_pairs": 9,
@@ -493,3 +493,13 @@ def test_dashboard_uses_backend_adb_without_frontend_recalculation():
     assert "daily_balance_sum /" not in javascript
     assert "daily_balances.reduce" not in javascript
     assert "computeAverageDailyBalance" not in javascript
+
+
+def test_first_farmers_bluevine_named_row_is_not_flagged():
+    """Owner decision 2026-09-25: the bare BLUEVINE alias is dropped. first_farmers' one
+    BlueVine-named debit pays another business that banks with Bluevine, so it is no
+    lender, no line of credit and no flagged row."""
+    report = _source_report("first_farmers")
+    assert not any(record.classification == "line_of_credit" for record in report.classifications)
+    assert not any(record.canonical_entity == "BLUEVINE" for record in report.classifications)
+    assert report.metrics.lenders_detected == 0

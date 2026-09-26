@@ -400,9 +400,9 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert metrics.pos_count == 0
     assert metrics.nsf_count == 0
     assert metrics.lenders_detected == 3
-    assert metrics.lender_debit_count == 43
-    assert metrics.lender_debits == 8658.91
-    assert metrics.potential_lender_debit_total == 571.88
+    assert metrics.lender_debit_count == 45
+    assert metrics.lender_debits == 9757.26
+    assert metrics.potential_lender_debit_total == 3178.19
     assert metrics.insurance_total == 362.17
 
     payload = report_to_dict(report)
