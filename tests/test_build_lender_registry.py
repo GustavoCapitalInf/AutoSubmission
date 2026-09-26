@@ -272,3 +272,11 @@ def test_the_owner_named_payees_cover_every_group_spec_section_2_names():
     for pairs in registry.OWNER_NAMED_PAYEES.values():
         for _label, spelling in pairs:
             assert spelling == spelling.upper() and spelling.replace(" ", "").isalnum(), spelling
+
+
+def test_the_owner_ruling_of_2026_09_25_respells_bluevine_and_smartpay():
+    from analysis import classification_registry as registry
+
+    spelled = {label: spelling for pairs in registry.OWNER_NAMED_PAYEES.values() for label, spelling in pairs}
+    assert spelled["BlueVine"] == "BLUEVINE CAPITAL"
+    assert spelled["SmartPay"] == "SMARTPAY LEASING"

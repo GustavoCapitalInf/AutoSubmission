@@ -84,6 +84,7 @@ PAYEE_GROUP_REGISTRIES: dict[str, dict[str, tuple[str, ...]]] = {
 #: Spec section 2 (the owner's rulings of 2026-09-24 and the amendment): every payee the owner named, by
 #: ledger group, with one public spelling of it. ``python -m tools.build_lender_registry --check`` refuses
 #: a ledger that does not admit each one in its group (contract C10). Change it only on an owner ruling.
+#: The owner ruling of 2026-09-25 respelled BlueVine and SmartPay (see their entries).
 OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
     "confirmed_lender": (
         ("OnDeck", "ONDECK"),
@@ -112,7 +113,8 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "line_of_credit": (
         ("Fundbox", "FUNDBOX"),
-        ("BlueVine", "BLUEVINE"),
+        # Owner ruling 2026-09-25: bare BLUEVINE takes Bluevine Bill Pay and checking rows.
+        ("BlueVine", "BLUEVINE CAPITAL"),
         ("Kabbage", "KABBAGE"),
     ),
     "credit_card_payment": (
@@ -133,7 +135,8 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "lease_or_rental": (
         ("Progressive", "PROGRESSIVE LEASING"),
-        ("SmartPay", "SMARTPAY SOL"),
+        # Owner ruling 2026-09-25: SMARTPAY SOL is SmartPay Solutions premium billing.
+        ("SmartPay", "SMARTPAY LEASING"),
         ("Snap", "SNAP FINANCE"),
     ),
     "floor_plan_financing": (
