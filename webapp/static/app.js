@@ -4215,6 +4215,15 @@ function setFlagSettingsStatus(message, error = false) {
   else els.flagSettingsStatus.removeAttribute("data-state");
 }
 
+// The ledger filtered to one flagged payee (a Flagged positions panel click) shows every row again once that payee's
+// group is unticked: its rows are no longer flagged, so the filter would match none.
+function releaseFlagFilter(group) {
+  if (flaggedFilterGroup(transactionFilter) !== group) return;
+  transactionFilter = "all";
+  transactionEntityFilter = null;
+  setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+}
+
 function flagGroupOfSetting(key) {
   const group = String(key || "").replace(/^flag_/, "");
   return ownKey(FLAG_GROUP_LABELS, group) ? group : null;
@@ -4239,6 +4248,7 @@ function saveFlagSetting(key, wanted) {
       flagSettingsSaved = payload.settings;
       const shown = payload.settings[key] !== false;
       setFlagSettingsStatus(`Saved. ${flagGroupLabel(group)}: ${shown ? "flagged" : "no longer flagged"}.`);
+      if (!shown) releaseFlagFilter(group);
       refreshShownResults();
     })
     .catch((error) => {

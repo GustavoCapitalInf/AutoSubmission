@@ -583,3 +583,44 @@ await settle(); await settle();
 console.log(JSON.stringify({posts: posts()}));
 """)
     assert result["posts"] == [["/api/settings", {"flag_mortgages": False}]]
+
+
+# ---------------------------------------------------------------- Task 9: unticking the group being filtered
+
+def _unticked(group):
+    """The statement as the server serves it once `group` is unticked (C6): its rows no longer shown as flagged, its
+    positions gone."""
+    ledger = [{**row, "classification": {**row["classification"], "flag_shown": False}}
+              if row["classification"]["flagged_group"] == group else row for row in LEDGER]
+    return _statement(positions=[entry for entry in POSITIONS if entry["group"] != group], ledger=ledger)
+
+
+@needs_node
+def test_unticking_the_group_the_ledger_is_filtered_to_shows_every_row_again():
+    result = run_dashboard(ROWS + PAYEE_CLICK + _settings_page_with("s", _statement()) + """
+clickPayee(els.flaggedTable, 'mortgages', 'FABRICATED MORTGAGE CO');
+const before = {filter: transactionFilter, count: els.transactionCount.textContent};
+""" + _answer("/api/settings", {"json": {"settings": _settings(flag_mortgages=False)}})
+        + _answer("/analysis/s", {"json": {"analysis": _unticked("mortgages"), "analysis_error": None}}) + """
+toggle('flag_mortgages', false);
+await settle(); await settle();
+console.log(JSON.stringify({before, after: {filter: transactionFilter, entity: transactionEntityFilter,
+  count: els.transactionCount.textContent, dates: datesOf(els.transactionTable.innerHTML)}}));
+""")
+    assert result["before"] == {"filter": "flagged:mortgages", "count": "2 FABRICATED MORTGAGE CO"}
+    assert result["after"] == {"filter": "all", "entity": None, "count": "6 transactions",
+                               "dates": ["2031-03-03", "2031-03-05", "2031-03-17", "2031-03-17", "2031-03-20",
+                                         "2031-03-24"]}
+
+
+@needs_node
+def test_unticking_another_group_keeps_the_filter():
+    result = run_dashboard(ROWS + PAYEE_CLICK + _settings_page_with("s", _statement()) + """
+clickPayee(els.flaggedTable, 'credit_cards', 'Credit cards');
+""" + _answer("/api/settings", {"json": {"settings": _settings(flag_mortgages=False)}})
+        + _answer("/analysis/s", {"json": {"analysis": _unticked("mortgages"), "analysis_error": None}}) + """
+toggle('flag_mortgages', false);
+await settle(); await settle();
+console.log(JSON.stringify({filter: transactionFilter, count: els.transactionCount.textContent}));
+""")
+    assert result == {"filter": "flagged:credit_cards", "count": "1 Credit cards"}
