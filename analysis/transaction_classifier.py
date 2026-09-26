@@ -221,6 +221,12 @@ def match_insurance_provider(description: str) -> tuple[str, str] | None:
 #: (C1: the one flag group that is not a classification state).
 _PREMIUM_FINANCING_GROUP = "premium_financing"
 
+#: Owner ruling 2026-09-26: a factor's payout is the business's own sales, paid
+#: by the factor that bought its invoices. A credit from a payee of these states
+#: is not financing proceeds: it takes the operating-revenue path, as a
+#: PAYOUT_CREDIT_ENTITIES credit does, and it still carries its group's flag (C4).
+_FLAGGED_REVENUE_CREDIT_STATES: frozenset[str] = frozenset({"factoring"})
+
 
 def _insurance_registry_match(text: str) -> tuple[str, str, bool] | None:
     """Spec §4.3 step 4: the insurer of an insurance row, as (entity, alias, premium_finance).
@@ -1020,7 +1026,12 @@ def _build_record(
     # A flag-group state names its own group. Premium financing is the one group
     # a rule passes in, on an insurance row (C1, C4).
     group_key = flag_group.key if flag_group is not None else flagged_group
-    contributes_flagged = group_key is not None and is_debit and is_posted
+    # A posted debit of a flag group counts in the flagged totals, and so does a
+    # posted credit of a group whose credits are flagged revenue (owner ruling
+    # 2026-09-26: factoring; C5 count_credited and total_credited).
+    contributes_flagged = group_key is not None and is_posted and (
+        is_debit or (amount > 0 and classification in _FLAGGED_REVENUE_CREDIT_STATES)
+    )
     revenue = _classify_credit_revenue(
         text,
         amount,
@@ -1175,9 +1186,17 @@ def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
     Owner decision 2026-09-25: the credits of a payout-credit entity
     (PAYOUT_CREDIT_ENTITIES) are the account holder's own sales settled by the
     platform, so they are revenue; that entity's debits keep their group.
+    Owner ruling 2026-09-26: a factoring payee's credits are the business's own
+    sales paid by the factor, so they are revenue too, and they keep the
+    factoring flag (_FLAGGED_REVENUE_CREDIT_STATES).
     """
     match = match_known_payee(text)
-    if match is None or match.state not in FINANCING_STATES or match.entity in PAYOUT_CREDIT_ENTITIES:
+    if (
+        match is None
+        or match.state not in FINANCING_STATES
+        or match.state in _FLAGGED_REVENUE_CREDIT_STATES
+        or match.entity in PAYOUT_CREDIT_ENTITIES
+    ):
         return None
     return match
 
@@ -1234,6 +1253,33 @@ def _financing_proceeds_credit_record(
             "financing proceeds are excluded from lender debits and eligible deposits."
         ),
         contributes_to_lender_credit_exclusion=amount > 0,
+    )
+
+
+def _flagged_revenue_credit_record(
+    common: dict[str, object],
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """Owner ruling 2026-09-26: a factoring payee's credit is the business's own sales, paid by the factor.
+
+    The row takes the payee's group, so it carries the group's flag and counts in
+    the flagged totals as a credit. Its revenue decision is the operating-revenue
+    path's (the payee is skipped there), so it is never financing proceeds and it
+    stays in eligible deposits.
+    """
+    return _build_record(
+        **common,
+        classification=match.state,
+        canonical_entity=match.entity,
+        match_method="known_payee_alias",
+        matched_alias=match.alias,
+        matched_rule=f"{match.state}_revenue_credit",
+        confidence_score=0.97,
+        reason=(
+            f"Matched maintained {_state_words(match.state)} alias '{match.alias}' on a credit: a "
+            "factor's payout is the business's own sales, so it stays revenue and in eligible "
+            "deposits, and it is flagged as a factoring position (owner ruling)."
+        ),
     )
 
 
@@ -1614,10 +1660,14 @@ def classify_transaction(
     # Step 7: the known payee's group (D9 inside). A credit is proceeds only
     # for a financing group (D1), and never for a payout-credit entity (owner
     # decision 2026-09-25: its credits are the holder's own sales); a card-issuer
-    # or lease/rental payee on a credit falls through to the rules below.
+    # or lease/rental payee on a credit falls through to the rules below. A
+    # factoring payee's credit is revenue and keeps the factoring flag (owner
+    # ruling 2026-09-26).
     if known_payee is not None:
         if amount < 0:
             return _known_payee_debit_record(common, text, known_payee)
+        if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
+            return _flagged_revenue_credit_record(common, known_payee)
         if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
             return _financing_proceeds_credit_record(common, amount, known_payee)
     # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
@@ -1916,10 +1966,13 @@ def _apply_reversal_pair_context(
             ),
             related_transaction=related_location,
         )
+        # A credit this pass pairs with a debit is money coming back, not a factor's
+        # payout (owner ruling 2026-09-26), so it leaves the flagged totals.
         updated[credit_index] = replace(
             updated_credit,
             reversal_of=related_location if is_settlement_reversal else None,
             settlement_reversal=is_settlement_reversal,
+            contributes_to_flagged_totals=False,
         )
         if is_settlement_reversal:
             updated[debit_index] = replace(

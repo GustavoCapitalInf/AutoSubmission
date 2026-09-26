@@ -2,9 +2,10 @@
 
 `snapshot` re-classifies every cached analysis with the `analysis` package of one checkout and
 records, per account: each row's state, the lender rows (index, entity, alias), the flagged groups
-and the withholding figures. `compare` reads two snapshots, taken with the code before and after
-the lender-detection change, and reports lenders gained and lost, flagged groups and withholding
-moves. It prints counts, registry entity names and aliases only: no descriptor text, no amount.
+(debits and credits) and the withholding figures. `compare` reads two snapshots, taken with the code
+before and after the lender-detection change, and reports lenders gained and lost, flagged groups,
+eligible-deposit moves and withholding moves. It prints counts, registry entity names and aliases
+only: no descriptor text, no amount.
 Both snapshots and the comparison hold figures from customer statements, so they stay outside the
 repository.
 
@@ -125,8 +126,10 @@ def account_snapshot(account: dict) -> dict:
             for index, record in enumerate(records)
             if record.contributes_to_lender_totals
         ],
+        # [debits, debited, credits, credited] per group (C5). A checkout older than
+        # the credited fields reports no credits.
         "flagged": {
-            key: [group["count"], group["total"]]
+            key: [group["count"], group["total"], group.get("count_credited", 0), group.get("total_credited", 0.0)]
             for key, group in (getattr(metrics, "flagged_groups", None) or {}).items()
         },
         "lender_debits": metrics.lender_debits,
@@ -161,7 +164,7 @@ def compare(
     admitted: Collection[str],
     merged: Mapping[str, str] | None = None,
 ) -> dict:
-    """Lenders gained and lost, generic-word gains, flagged groups and withholding moves.
+    """Lenders gained and lost, generic-word gains, flagged groups, eligible-deposit and withholding moves.
 
     `admitted` holds the ledger's admitted lender entities (`admitted_lenders`). `merged` maps an
     entity of the registry before the change to the ledger entity that absorbed it (S1's
@@ -174,8 +177,9 @@ def compare(
     gained: dict = defaultdict(lambda: {"analyses": set(), "rows": 0, "aliases": Counter()})
     lost: dict = defaultdict(lambda: {"analyses": set(), "rows_now": Counter()})
     generic: Counter = Counter()
-    flagged: dict = defaultdict(lambda: {"analyses": set(), "rows": 0})
+    flagged: dict = defaultdict(lambda: {"analyses": set(), "rows": 0, "rows_credited": 0})
     withholding: Counter = Counter()
+    deposits: Counter = Counter()
     moves: list[tuple[float, str]] = []
     unmatched = 0
     for key, old in sorted(before["accounts"].items()):
@@ -199,9 +203,18 @@ def compare(
                 slot = lost[entity]
                 slot["analyses"].add(sha)
                 slot["rows_now"][new["states"][index]] += 1
-        for group, (count, _total) in new["flagged"].items():
+        for group, values in new["flagged"].items():
             flagged[group]["analyses"].add(sha)
-            flagged[group]["rows"] += count
+            flagged[group]["rows"] += values[0]
+            # A snapshot written before the credited fields holds [count, total] only.
+            flagged[group]["rows_credited"] += values[2] if len(values) > 2 else 0
+        old_deposits, new_deposits = old.get("eligible_deposits"), new.get("eligible_deposits")
+        if old_deposits is None or new_deposits is None:
+            deposits["not_comparable"] += 1
+        elif round(new_deposits - old_deposits, 2) == 0:
+            deposits["unchanged"] += 1
+        else:
+            deposits["up" if new_deposits > old_deposits else "down"] += 1
         old_rate, new_rate = old["withholding_rate"], new["withholding_rate"]
         if old_rate is None or new_rate is None:
             withholding["not_comparable"] += 1
@@ -233,8 +246,10 @@ def compare(
             {"entity": entity, "alias": alias, "rows": rows} for (entity, alias), rows in sorted(generic.items())
         ],
         "flagged": {
-            group: {"analyses": len(slot["analyses"]), "rows": slot["rows"]} for group, slot in sorted(flagged.items())
+            group: {"analyses": len(slot["analyses"]), "rows": slot["rows"], "rows_credited": slot["rows_credited"]}
+            for group, slot in sorted(flagged.items())
         },
+        "eligible_deposits": dict(sorted(deposits.items())),
         "withholding": dict(sorted(withholding.items())),
         "largest_withholding_moves": {"down": [key for _, key in moves[:10]], "up": [key for _, key in moves[-10:][::-1]]},
     }
@@ -255,7 +270,12 @@ def _print_comparison(report: dict) -> None:
     for entry in report["gained_through_generic_words"]:
         print(f"  ! {entry['entity']} via {entry['alias']!r}: {entry['rows']} rows")
     print("flagged groups: " + ", ".join(
-        f"{group} {slot['analyses']} analyses/{slot['rows']} rows" for group, slot in report["flagged"].items()
+        f"{group} {slot['analyses']} analyses/{slot['rows']} rows"
+        + (f"/{slot['rows_credited']} credits" if slot["rows_credited"] else "")
+        for group, slot in report["flagged"].items()
+    ))
+    print("eligible deposits: " + ", ".join(
+        f"{name} {count}" for name, count in report["eligible_deposits"].items()
     ))
     print("withholding rate: " + ", ".join(f"{name} {count}" for name, count in report["withholding"].items()))
 

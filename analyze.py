@@ -176,9 +176,14 @@ def _render(report: Report) -> str:
         for fp in d.flagged_positions:
             group = FLAG_GROUP_BY_KEY.get(fp.group)
             label = group.label if group is not None else fp.group
+            # Owner ruling 2026-09-26: a factor's payouts are credits the payee paid in.
+            received = (
+                f"; {fp.count_credited} credit(s) received, ${fp.total_credited:,.2f}"
+                if fp.count_credited else ""
+            )
             L.append(
                 f"  - {label}: {fp.payee}: {fp.count} debit(s), "
-                f"${fp.total_debited:,.2f} ({fp.cadence})"
+                f"${fp.total_debited:,.2f}{received} ({fp.cadence})"
             )
     else:
         L.append("  Flagged positions: none")

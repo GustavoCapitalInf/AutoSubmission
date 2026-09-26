@@ -1516,5 +1516,7 @@ INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 # Reserved for transaction codes whose meaning is specific to an institution.
-# Global aliases belong in ``LENDER_ALIASES``.
+# A global alias is never added here: it is an entity of the curated ledger
+# (docs/lender-registry-ledger.json), which tools/build_lender_registry.py renders
+# into the GENERATED tables above.
 BANK_SPECIFIC_LENDER_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {}

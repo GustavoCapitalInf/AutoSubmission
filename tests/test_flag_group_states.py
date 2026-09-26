@@ -73,12 +73,16 @@ def test_a_posted_flag_group_debit_contributes_to_flagged_totals_only(group):
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
-def test_a_flag_group_credit_or_unposted_debit_never_contributes(group):
+def test_only_a_factoring_credit_contributes_and_an_unposted_row_never_does(group):
+    """Owner ruling 2026-09-26: a factor's payout counts in the Factoring totals as a credit. No other group's
+    credit counts, and an unposted row of any group never does."""
     credit = _record(group.state, 100.0)
     unposted = _record(group.state, -100.0, posted=False)
+    unposted_credit = _record(group.state, 100.0, posted=False)
     assert credit.flagged_group == unposted.flagged_group == group.key
-    assert not credit.contributes_to_flagged_totals
+    assert credit.contributes_to_flagged_totals is (group.state == "factoring")
     assert not unposted.contributes_to_flagged_totals
+    assert not unposted_credit.contributes_to_flagged_totals
 
 
 @pytest.mark.parametrize(

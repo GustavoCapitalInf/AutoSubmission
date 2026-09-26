@@ -13,11 +13,18 @@ PAYEE_ROWS = [(alias, *FAKE_PAYEES[alias]) for alias in FAKE_PAYEES]
 
 
 @pytest.mark.parametrize(("alias", "entity", "state"), PAYEE_ROWS)
-def test_a_known_payee_credit_is_proceeds_only_for_a_financing_group(fake_payees, alias, entity, state):
+def test_a_known_payee_credit_is_proceeds_only_for_a_financing_group_other_than_factoring(
+    fake_payees, alias, entity, state
+):
     record = classify_transaction(f"{alias} DEPOSIT 0001", 5000.0)
-    assert record.flagged_group is None
-    assert not record.contributes_to_flagged_totals
-    if state in FINANCING_STATES:
+    if state == "factoring":
+        # Owner ruling 2026-09-26: a factor's payout is revenue and keeps the Factoring flag
+        # (tests/test_factoring_credits.py).
+        assert (record.flagged_group, record.contributes_to_flagged_totals) == ("factoring", True)
+    else:
+        assert record.flagged_group is None
+        assert not record.contributes_to_flagged_totals
+    if state in FINANCING_STATES and state != "factoring":
         assert record.classification == "other"
         assert record.canonical_entity == entity
         assert record.match_method == "financing_proceeds_credit"
@@ -32,10 +39,10 @@ def test_a_known_payee_credit_is_proceeds_only_for_a_financing_group(fake_payees
         assert record.revenue_classification == "unverified_deposit"
 
 
-@pytest.mark.parametrize("description", ["NEXTGEAR CAPITAL PAYMENT", "RTS FINANCIAL PAYMENT"])
-def test_owner_named_floor_plan_and_factoring_credits_are_financing_proceeds(description):
-    """Spec §2 amendment and §4.2: D1 covers floor-plan and factoring credits."""
-    record = classify_transaction(description, 100.0)
+def test_the_owner_named_floor_plan_credit_is_financing_proceeds():
+    """Spec §2 amendment and §4.2: D1 covers floor-plan credits. Factoring credits are revenue since the owner's
+    ruling of 2026-09-26 (tests/test_factoring_credits.py)."""
+    record = classify_transaction("NEXTGEAR CAPITAL PAYMENT", 100.0)
     assert record.matched_rule == "financing_proceeds_credit"
     assert record.contributes_to_lender_credit_exclusion
     assert record.revenue_classification == "non_revenue"

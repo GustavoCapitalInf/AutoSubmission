@@ -3366,7 +3366,9 @@ def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():
     # Owner ruling 2026-09-24: SBA is an alternative position, never a potential lender.
     assert classify_statement_transactions(s)[4].classification == "alternative_position"
     assert m.potential_lender_debit_count == 0
-    assert m.flagged_groups == {"alternative_positions": {"count": 1, "total": 750.0, "payees": 1}}
+    assert m.flagged_groups == {
+        "alternative_positions": {"count": 1, "total": 750.0, "count_credited": 0, "total_credited": 0.0, "payees": 1}
+    }
 
 
 def test_metrics_uses_exact_posted_lender_debits_for_withholding_rate():

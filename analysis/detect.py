@@ -55,13 +55,20 @@ class RecurringDebit:
 
 @dataclass
 class FlaggedPositionMatch:
-    """One payee of one flagged group (spec §6): never a lender, never in lender math."""
+    """One payee of one flagged group (spec §6): never a lender, never in lender math.
+
+    `count` and `total_debited` are the payee's debits; `count_credited` and
+    `total_credited` are the credits it paid in (owner ruling 2026-09-26: a
+    factor's payouts, which stay revenue). The cadence and the dates read every
+    row that counts, debit or credit."""
 
     group: str
     payee: str
     matched_alias: str | None
     count: int = 0
     total_debited: float = 0.0
+    count_credited: int = 0
+    total_credited: float = 0.0
     cadence: str = "single"
     avg_gap_days: float | None = None
     first_date: str | None = None
@@ -192,7 +199,8 @@ def find_flagged_positions(
 ) -> list[FlaggedPositionMatch]:
     """Spec §6: one entry per flagged group and payee, over rows marked
     contributes_to_flagged_totals, sorted by group (FLAG_GROUPS order), then
-    total debited (descending), then payee."""
+    total debited plus total credited (descending), then payee. A payee whose
+    counted rows are all credits is an entry too, with a count of 0."""
     records = _records(stmt, classifications)
     matches: dict[tuple[str, str], FlaggedPositionMatch] = {}
     dates: dict[tuple[str, str], list[date]] = {}
@@ -210,14 +218,19 @@ def find_flagged_positions(
             )
             matches[key] = match
             dates[key] = []
-        match.count += 1
-        match.total_debited += abs(record.amount)
+        if record.amount < 0:
+            match.count += 1
+            match.total_debited += abs(record.amount)
+        else:
+            match.count_credited += 1
+            match.total_credited += record.amount
         match.source_locations.append(record.source_location or f"transaction:{index + 1}")
         parsed = parse_date(record.date)
         if parsed is not None:
             dates[key].append(parsed)
     for key, match in matches.items():
         match.total_debited = round(match.total_debited, 2)
+        match.total_credited = round(match.total_credited, 2)
         match.cadence, match.avg_gap_days = describe_cadence(dates[key])
         if dates[key]:
             match.first_date = min(dates[key]).isoformat()
@@ -225,7 +238,11 @@ def find_flagged_positions(
     order = {group.key: position for position, group in enumerate(FLAG_GROUPS)}
     return sorted(
         matches.values(),
-        key=lambda item: (order.get(item.group, len(order)), -item.total_debited, item.payee),
+        key=lambda item: (
+            order.get(item.group, len(order)),
+            -(item.total_debited + item.total_credited),
+            item.payee,
+        ),
     )
 
 

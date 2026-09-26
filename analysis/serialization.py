@@ -95,6 +95,8 @@ def _flagged_dict(match) -> dict:
         "matched_alias": match.matched_alias,
         "count": match.count,
         "total_debited": match.total_debited,
+        "count_credited": match.count_credited,
+        "total_credited": match.total_credited,
         "cadence": match.cadence,
         "avg_gap_days": match.avg_gap_days,
         "first_date": match.first_date,

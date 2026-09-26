@@ -93,10 +93,10 @@ FLAGGED_ROWS: tuple[tuple[str, str, float], ...] = (
 )
 
 FLAGGED_GROUPS_EXPECTED: dict[str, dict[str, float | int]] = {
-    "alternative_positions": {"count": 3, "total": 2300.0, "payees": 2},
-    "credit_cards": {"count": 2, "total": 800.0, "payees": 1},
-    "mortgages": {"count": 2, "total": 2400.0, "payees": 1},
-    "leases_rentals": {"count": 1, "total": 200.0, "payees": 1},
+    "alternative_positions": {"count": 3, "total": 2300.0, "count_credited": 0, "total_credited": 0.0, "payees": 2},
+    "credit_cards": {"count": 2, "total": 800.0, "count_credited": 0, "total_credited": 0.0, "payees": 1},
+    "mortgages": {"count": 2, "total": 2400.0, "count_credited": 0, "total_credited": 0.0, "payees": 1},
+    "leases_rentals": {"count": 1, "total": 200.0, "count_credited": 0, "total_credited": 0.0, "payees": 1},
 }
 
 
@@ -110,15 +110,15 @@ def flagged_statement(rows: tuple[tuple[str, str, float], ...] = FLAGGED_ROWS):
     )
 
 
-def flagged_report():
-    """A full Report for FLAGGED_ROWS. Call it with the fake_payees fixture active."""
+def flagged_report(rows: tuple[tuple[str, str, float], ...] = FLAGGED_ROWS):
+    """A full Report for `rows` (FLAGGED_ROWS by default). Call it with the fake_payees fixture active."""
     from analysis.detect import detect
     from analysis.metrics import compute_metrics
     from analysis.pipeline import DocumentIntegrity, Quality, Report
     from analysis.reconcile import reconcile
     from analysis.transaction_classifier import classify_statement_transactions
 
-    statement = flagged_statement()
+    statement = flagged_statement(rows)
     records = classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
     return Report(

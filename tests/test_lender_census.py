@@ -37,9 +37,10 @@ def test_a_snapshot_records_states_lenders_flags_and_withholding_per_account(tmp
     first = result["accounts"]["a" * 64 + ":0"]
     assert first["states"] == ["other", "confirmed_lender", "alternative_position"]
     assert first["lenders"] == [[1, "Fabricated Lender", "FABRICATED LENDER"]]
-    assert first["flagged"] == {"alternative_positions": [1, 700.0]}
+    # [debits, debited, credits, credited] per group (C5).
+    assert first["flagged"] == {"alternative_positions": [1, 700.0, 0, 0.0]}
     assert first["withholding_rate"] == pytest.approx(10.0)
-    assert result["accounts"]["b" * 64 + ":0"]["flagged"] == {"mortgages": [1, 1200.0]}
+    assert result["accounts"]["b" * 64 + ":0"]["flagged"] == {"mortgages": [1, 1200.0, 0, 0.0]}
     assert "b" * 64 + ":1" not in result["accounts"]
     assert result["skipped"] == {"ValidationError": 1}
 
@@ -94,9 +95,42 @@ def test_compare_reports_gains_losses_generic_words_flags_and_withholding():
     }
     assert report["lost"] == {"Brambleway Capital": {"analyses": 1, "rows_now": {"alternative_position": 1}}}
     assert report["gained_through_generic_words"] == [{"entity": "Tarnmoor Funding", "alias": "FUNDING", "rows": 1}]
-    assert report["flagged"] == {"alternative_positions": {"analyses": 1, "rows": 1}}
+    # AFTER's flagged entry is a snapshot written before the credited fields: [count, total] only.
+    assert report["flagged"] == {"alternative_positions": {"analyses": 1, "rows": 1, "rows_credited": 0}}
+    assert report["eligible_deposits"] == {"unchanged": 2}
     assert report["withholding"] == {"down": 1, "unchanged": 1}
     assert report["largest_withholding_moves"]["down"] == ["s1:0"]
+
+
+def test_a_snapshot_records_a_factoring_payees_credits(tmp_path, fake_payees):
+    """Owner ruling 2026-09-26: a factor's payout is revenue and carries the Factoring flag."""
+    cache = ArtifactCache(data_dir=tmp_path / "data")
+    cache.put_analysis("c" * 64, "settings", {"statement": {"transactions": [
+        _row("2054-01-05", "FABRICATED FACTOR INVOICE PAYMENT 0001", 4000.0),
+        _row("2054-01-12", "ACH DEBIT FABRICATED FACTOR 0001", -200.0),
+    ]}})
+    [account] = census.snapshot(census.cached_accounts(tmp_path / "data"))["accounts"].values()
+    assert account["flagged"] == {"factoring": [1, 200.0, 1, 4000.0]}
+    assert account["eligible_deposits"] == 4000.0
+
+
+def test_compare_counts_credited_rows_and_eligible_deposit_moves(tmp_path, capsys):
+    before = {"classification_version": "5.0", "accounts": {
+        "s1:0": _account(["factoring", "factoring"], [], {"factoring": [1, 200.0, 0, 0.0]}, 10.0),
+    }}
+    after = json.loads(json.dumps(before))
+    after["accounts"]["s1:0"]["flagged"] = {"factoring": [1, 200.0, 1, 4000.0]}
+    after["accounts"]["s1:0"]["eligible_deposits"] = 5000.0
+    after["accounts"]["s1:0"]["withholding_rate"] = 2.0
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["flagged"] == {"factoring": {"analyses": 1, "rows": 1, "rows_credited": 1}}
+    assert report["eligible_deposits"] == {"up": 1}
+    assert report["withholding"] == {"down": 1}
+    paths = _files(tmp_path, before, after, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 0
+    printed = capsys.readouterr().out
+    assert "flagged groups: factoring 1 analyses/1 rows/1 credits" in printed
+    assert "eligible deposits: up 1" in printed
 
 
 def test_compare_reads_a_merged_entity_as_the_entity_that_absorbed_it():

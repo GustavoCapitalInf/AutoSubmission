@@ -50,44 +50,51 @@ def test_a_proven_duplicate_flagged_row_is_counted_once():
         ]
     )
     assert compute_metrics(statement).flagged_groups == {
-        "credit_cards": {"count": 1, "total": 250.0, "payees": 1}
+        "credit_cards": {"count": 1, "total": 250.0, "count_credited": 0, "total_credited": 0.0, "payees": 1}
     }
 
 
 def test_premium_financing_counts_as_insurance_and_as_its_flagged_group(fake_premium_finance):
     metrics = compute_metrics(flagged_statement(PREMIUM_ROWS))
     assert (metrics.insurance_count, metrics.insurance_total) == (3, 700.0)
-    assert metrics.flagged_groups == {"premium_financing": {"count": 2, "total": 600.0, "payees": 1}}
+    assert metrics.flagged_groups == {
+        "premium_financing": {"count": 2, "total": 600.0, "count_credited": 0, "total_credited": 0.0, "payees": 1}
+    }
 
 
 EXPECTED_POSITIONS = [
     {
         "group": "alternative_positions", "payee": "Fabricated Alt Capital", "matched_alias": "FABRICATED ALT",
-        "count": 2, "total_debited": 1400.0, "cadence": "weekly", "avg_gap_days": 7.0,
+        "count": 2, "total_debited": 1400.0, "count_credited": 0, "total_credited": 0.0,
+        "cadence": "weekly", "avg_gap_days": 7.0,
         "first_date": "2054-01-06", "last_date": "2054-01-13",
         "source_locations": ["transaction:2", "transaction:3"],
     },
     {
         "group": "alternative_positions", "payee": "Fabricated BNPL", "matched_alias": "FABRICATED BNPL",
-        "count": 1, "total_debited": 900.0, "cadence": "single", "avg_gap_days": None,
+        "count": 1, "total_debited": 900.0, "count_credited": 0, "total_credited": 0.0,
+        "cadence": "single", "avg_gap_days": None,
         "first_date": "2054-01-08", "last_date": "2054-01-08",
         "source_locations": ["transaction:4"],
     },
     {
         "group": "credit_cards", "payee": "Credit cards", "matched_alias": None,
-        "count": 2, "total_debited": 800.0, "cadence": "irregular", "avg_gap_days": 10.0,
+        "count": 2, "total_debited": 800.0, "count_credited": 0, "total_credited": 0.0,
+        "cadence": "irregular", "avg_gap_days": 10.0,
         "first_date": "2054-01-10", "last_date": "2054-01-20",
         "source_locations": ["transaction:7", "transaction:8"],
     },
     {
         "group": "mortgages", "payee": "Mortgages", "matched_alias": None,
-        "count": 2, "total_debited": 2400.0, "cadence": "monthly", "avg_gap_days": 31.0,
+        "count": 2, "total_debited": 2400.0, "count_credited": 0, "total_credited": 0.0,
+        "cadence": "monthly", "avg_gap_days": 31.0,
         "first_date": "2054-01-05", "last_date": "2054-02-05",
         "source_locations": ["transaction:5", "transaction:6"],
     },
     {
         "group": "leases_rentals", "payee": "Leases & rentals", "matched_alias": None,
-        "count": 1, "total_debited": 200.0, "cadence": "single", "avg_gap_days": None,
+        "count": 1, "total_debited": 200.0, "count_credited": 0, "total_credited": 0.0,
+        "cadence": "single", "avg_gap_days": None,
         "first_date": "2054-01-12", "last_date": "2054-01-12",
         "source_locations": ["transaction:9"],
     },
