@@ -7,12 +7,12 @@
 **Architecture:**
 - `analysis/transaction_classifier.py` gains nine states and two record fields (C4). It routes every payee lookup through S1's compiled matchers (C3) and applies the spec's rule order:
   - every lookup is compiled once (§4.6);
-  - a credit from a financing group is proceeds (D1, §4.4);
+  - a credit from a financing group is proceeds (D1, §4.4), except a factoring payee's credit, which stays revenue and carries the Factoring flag (owner ruling 2026-09-26, Task 18);
   - the known payee comes after fee/transfer/tax/payroll/utility, with the D8 POS exception and the D9 LOC override;
   - the insurance rule consults `PREMIUM_FINANCE_ALIASES` first and flags premium financing (§4.2);
   - obligation descriptors cover unnamed payees (D4, D5);
   - D11 naming, D10 servicers and the D6 recurrence tier follow.
-- `analysis/metrics.py` sums flagged rows into `metrics.flagged_groups`; `analysis/detect.py` groups them into `FlaggedPositionMatch` entries with a cadence from the new `analysis/cadence.py`, and its recurring-debit view also lists the D6 rows; `analysis/serialization.py` publishes them (C5).
+- `analysis/metrics.py` sums flagged rows into `metrics.flagged_groups`; `analysis/detect.py` groups them into `FlaggedPositionMatch` entries with a cadence from the new `analysis/cadence.py`, and its recurring-debit view also lists the D6 rows; `analysis/serialization.py` publishes them (C5). Since Task 18 both count a flagged payee's credits (a factor's payouts) apart from its debits, as `count_credited` and `total_credited`.
 - The CLI (`batch.py`, `analyze.py`), the MoneyThumb benchmark and the docs follow. `CLASSIFICATION_VERSION` becomes `"5.0"` and `ANALYSIS_STAGE_VERSION` becomes 19 in the first commit that changes classifier output.
 - `tools/lender_census.py` re-classifies the local artifact cache with the code before and after the change and compares the two (local only).
 
@@ -41,11 +41,12 @@
 - **S1 and the ledger own the lists.** S2 consumes C1-C3 exactly as the master plan states them. Since C10, S1 renders every alias table from the curated ledger `docs/lender-registry-ledger.json`, which the orchestrator produces, and S1's drift test holds the rendered block equal to that ledger. S2 never edits `analysis/flag_groups.py`, `analysis/payee_matcher.py`, the ledger, S1's renderer and validator (`tools/build_lender_registry.py`), or any alias table.
   - The one exception is the classifier's retired inputs. These are today's lists, kept verbatim for the pre-S2 classifier and not rendered from the ledger: `LEASE_PROVIDER_ALIASES`, `LEGACY_CONFIRMED_LENDER_ALIASES` and `LEGACY_POTENTIAL_LENDER_ALIASES`, with their "Deprecated" header comment, in `analysis/classification_registry.py`.
   - Task 5 removes their last readers, so Task 6 deletes each one that is present (C2 removes `LEASE_PROVIDER_ALIASES`). Task 6 then re-runs S1's tests, drift test included.
+  - Task 18 corrects two S1 comments that the owner's ruling of 2026-09-26 made false, and nothing else of S1's: the `FINANCING_STATES` comment in `analysis/flag_groups.py` (the set does not change) and the comment above `BANK_SPECIFIC_LENDER_ALIASES`, outside the GENERATED block.
   - This plan cites S1 by contract (C1-C3, C10) and by file or test name, never by S1 task number: S1 is revised in parallel, and its numbers move.
 - **S1's facts are prerequisites.** The section "Prerequisites from S1" lists every S1 fact this plan's code and pins rely on: facts about S1's code, and facts about the content of the C10 ledger. Task 0 checks each one, and any FAIL line stops S2. The orchestrator settles a failed fact (a code fact in S1, a content fact in the ledger, which S1 then re-renders) or gives S2 the ruled values. S2 never works around one.
 - **Group registries are read through `PAYEE_GROUP_REGISTRIES` / `match_known_payee` only.** `BANK_NAME_ALIASES` and `CARD_ISSUER_CONTEXT_ALIASES` are read only by the step-8 descriptor rule. `PREMIUM_FINANCE_ALIASES` is not a group registry (C2); it is read only by the insurance rule (Task 7). `INSURANCE_PROVIDER_ALIASES`, `PREMIUM_FINANCE_ALIASES`, `POTENTIAL_LENDER_ALIASES`, `OPERATING_REVENUE_SOURCE_ALIASES` and `BANK_SPECIFIC_LENDER_ALIASES` go through `registry_match`.
 - **New fabricated test amounts are whole dollars** (the privacy canaries flag cent figures; `tests/test_webapp_studio_views.py:16`).
-- **One stage-19 change set.** Task 2 is the first commit that changes classifier output, so it carries both version bumps and the cache pin. Tasks 4-14 change output further under the same stage 19; the branch merges as one unit and no intermediate commit is ever served.
+- **One stage-19 change set.** Task 2 is the first commit that changes classifier output, so it carries both version bumps and the cache pin. Tasks 4-14 and 18 change output further under the same stage 19; the branch merges as one unit and no intermediate commit is ever served.
 - **Real-statement re-pins are measured, not guessed.** The derived totals below come from two measurements:
   - read-only probes on 2026-09-24/25 that ran today's code and registry plus this plan's rules (BDC out, BlueVine to lines of credit, NMEF in, D6 with this plan's payee words);
   - a dry run of this whole plan on 2026-09-25, on a scratch copy of the pre-C10 S1 revision. Its builder had built the registry (eleven groups) from the research files. The dry run reproduced every value in the pin ledger, including the two variants that registry selected (the 2026-09-25 decisions leave one: see "Prerequisites from S1", fact 8).
@@ -72,20 +73,22 @@
 | `analysis/metrics.py` | Modify | `Metrics.flagged_groups` (C5). |
 | `analysis/detect.py` | Modify | `FlaggedPositionMatch`, `find_flagged_positions`, `DetectionResult.flagged_positions`; the recurring-debit view lists D6 rows. |
 | `analysis/serialization.py` | Modify | `detection.flagged_positions` in the payload (C5). |
-| `analysis/classification_registry.py` | Modify only if S1 left them | Delete the retired classifier inputs `LEASE_PROVIDER_ALIASES`, `LEGACY_CONFIRMED_LENDER_ALIASES`, `LEGACY_POTENTIAL_LENDER_ALIASES` and their "Deprecated" header comment (Task 6). |
+| `analysis/classification_registry.py` | Modify only if S1 left them | Delete the retired classifier inputs `LEASE_PROVIDER_ALIASES`, `LEGACY_CONFIRMED_LENDER_ALIASES`, `LEGACY_POTENTIAL_LENDER_ALIASES` and their "Deprecated" header comment (Task 6). Task 18 corrects the comment above `BANK_SPECIFIC_LENDER_ALIASES` (comment only). |
+| `analysis/flag_groups.py` | Modify, comment only (Task 18) | The `FINANCING_STATES` comment names D1's two credit exceptions (payout-credit entities, and factoring since the owner's ruling of 2026-09-26). The set does not change. |
 | `webapp/artifact_cache.py` | Modify | `ANALYSIS_STAGE_VERSION = 19` and its changelog entry. |
 | `batch.py` | Modify | `flagged_positions` CSV column. |
 | `analyze.py` | Modify | "Flagged positions" block in the text report. |
 | `benchmark/lenders.py` | Modify | `flagged_lender_groups` replaces `NON_MCA_SCOPE`. |
 | `benchmark/compare.py` | Modify | MoneyThumb lenders we flag are "flagged here", not misses. |
 | `tools/lender_census.py` | Create | The before/after census over the local artifact cache (spec §9); local only. A gained lender passes only when the C10 ledger admits it as a lender. |
-| `docs/transaction-classification.md` | Modify | State list, precedence, naming, metrics, extension rule for version 5.0. |
+| `docs/transaction-classification.md` | Modify | State list, precedence, naming, metrics, extension rule for version 5.0; factoring credits and the minors review's corrections (Task 18). |
 | `docs/moneythumb-replacement/R1_HARDCODE_LOG.md` | Modify | Item 12a amendment: Intuit moved to alternative positions. |
 | `tests/flag_group_fixtures.py` | Create | Fabricated rows, fake payees, fake insurers and a report builder shared by the S2 tests (not collected: no `test_` prefix). |
 | `tests/test_cadence.py` | Create | `describe_cadence` table. |
 | `tests/test_flag_group_states.py` | Create | States, versions, record flags, statement-pass clearing. |
 | `tests/test_classifier_lookups.py` | Create | One normalization per row; the compiled ACH token; the 300-row synthetic statement. |
-| `tests/test_financing_proceeds_credits.py` | Create | D1 in both classification and revenue; floor-plan and factoring credits; credits that say they are proceeds; payout credits and platform settlements stay revenue. |
+| `tests/test_financing_proceeds_credits.py` | Create | D1 in both classification and revenue; floor-plan and factoring credits (factoring moves to `tests/test_factoring_credits.py` in Task 18); credits that say they are proceeds; payout credits and platform settlements stay revenue. |
+| `tests/test_factoring_credits.py` | Create (Task 18) | Owner ruling 2026-09-26: a factoring credit is revenue and carries the Factoring flag; its metrics, positions, payload and text report. |
 | `tests/test_known_payee_classification.py` | Create | Step 7, D8, D9, owner-ruled payees (floor plan and factoring included), the overdraft-charge fee, the membership and top-up exception, payout credits, card payments, the `analysis/lenders.py` helpers, the retired inputs. |
 | `tests/test_premium_financing.py` | Create | Premium financing stays insurance and carries its flag (§4.2), by payee or by wording. |
 | `tests/test_obligation_descriptors.py` | Create | Step 8 (the own-account guard, floor-plan payoffs, LOC, mortgage, vehicle, student loans, D5, lease, cards, D4). |
@@ -115,7 +118,7 @@ Line numbers are those verified on `lender-detection` at `4f219cd`. S1 may have 
 | 3 | same file `:111` | BDC `confirmed_lender` | `alternative_position`, `BDC` | 5 | §2 |
 | 4 | `tests/test_r1_hardcodes.py:536-539` | Intuit `confirmed_lender` | `alternative_position`, flagged group `alternative_positions` | 5 | §7 (Item 12a amended) |
 | 5 | `tests/test_r1_hardcodes.py:541-545` | software charge not lender/potential | also not `alternative_position` | 5 | §5 alias rule |
-| 6 | `tests/test_analysis.py:3348-3364` | `SBA LOAN PAYMENT` implicitly `potential_lender` | row is `alternative_position`; potential count 0; `flagged_groups == {"alternative_positions": {"count": 1, "total": 750.0, "payees": 1}}` (the test's own fabricated row) | 5, 11 | §9 |
+| 6 | `tests/test_analysis.py:3348-3364` | `SBA LOAN PAYMENT` implicitly `potential_lender` | row is `alternative_position`; potential count 0; `flagged_groups == {"alternative_positions": {"count": 1, "total": 750.0, "payees": 1}}` (the test's own fabricated row), with `"count_credited": 0, "total_credited": 0.0` since Task 18 | 5, 11, 18 | §9; C5 as amended 2026-09-26 |
 | 7 | `tests/test_analysis.py:3572-3579` | Affirm card purchases `pos`, `pos_count == 2` | both `alternative_position`; `pos_count == 0`; `find_known_funders == []` | 5 | D8 |
 | 8 | `tests/test_analysis.py:3582-3588` | funders `["FUNDWORKS"]` | `["FUNDWORKS", "De Lage Landen"]` | 5 | §2 equipment financing; §9 lists De Lage Landen |
 | 9 | `tests/test_transaction_classifier.py:314-316, 329, 347-348, 367-369` | ATB Nov lenders 3 / 43 rows / 8658.91; funders {BDC, CanaCap, Forward Funding} | 3 / 45 / 9757.26; {CanaCap, Econolease, Forward Funding}; one `alternative_position` row | 5 | §2 (BDC); owner decision 2026-09-25 (Econolease is equipment finance: its three rows join the lenders) |
@@ -6092,7 +6095,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - Consumes: the behavior of Tasks 2-12.
 - Produces: the written contract for classification version 5.0 and the Item 12a amendment.
 
-- [ ] **Step 1: Replace** `docs/transaction-classification.md` with:
+- [ ] **Step 1: Replace** `docs/transaction-classification.md` with the block below. (Task 18 amends the file for the owner's ruling of 2026-09-26 on factoring credits. The block carries the three wording corrections that the S2 minors review asked for on that date, which Task 18 also makes in the file: a premium-finance *payee's* credits, the exclusion stated by the credit's revenue decision, and a bare brand allowed in `card_issuer_context` and `bank_name`.)
 
 ````markdown
 # Transaction Classification Contract
@@ -6148,8 +6151,8 @@ A flagged group's credits are another matter. A credit from a financing group
 financing) is financing proceeds, and D1 subtracts it from eligible deposits as
 it does a lender's credit (see "Withholding rate"). Neither the credits of a
 payout-credit entity (`PAYOUT_CREDIT_ENTITIES`), which are the holder's own
-sales, nor premium-finance credits, which keep the insurance credit treatment,
-are subtracted.
+sales, nor a premium-finance payee's credits, which keep the insurance credit
+treatment, are subtracted.
 
 The group list lives in `analysis/flag_groups.py`. A flagged row carries
 `flagged_group`; a posted flagged debit also sets
@@ -6194,8 +6197,8 @@ Classification is applied in this order; the first match wins:
    financing too. A descriptor with premium-finance
    wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance
    payee is premium financing under the insurer it names, or under
-   `Insurance provider not identified`. A premium-finance credit is treated as
-   any insurance credit.
+   `Insurance provider not identified`. A premium-finance payee's credit is
+   treated as any insurer's credit.
 3. POS and ATM. A row whose payee is a known payee is classified by who was paid
    instead (D8). An alternative-position payee's membership or balance top-up
    (its alias followed by `PLUS`, `MEMBER`, `MEMBERSHIP` or `BALANCE TOP UP`) is
@@ -6208,10 +6211,12 @@ Classification is applied in this order; the first match wins:
    to `line_of_credit` (D9). A credit from a financing group (lenders,
    alternative positions, lines of credit, bank loans, vehicle financing,
    mortgages, personal loans, floor plan, factoring) is financing proceeds:
-   `other`, revenue `non_revenue`, excluded from eligible deposits (D1). A
-   financing group's credit that an earlier rule names (a transfer, an
-   insurance term) keeps that state, and is still `non_revenue` and excluded
-   from eligible deposits. The exception is a payout-credit entity
+   `other`, revenue `non_revenue`, excluded from eligible deposits (D1). The
+   exclusion follows the credit's revenue decision, whichever rule named the
+   row: a financing group's credit that a transfer or insurance-term rule
+   claims first keeps that state, and its revenue decision is still financing
+   proceeds, so it is still `non_revenue` and excluded from eligible deposits.
+   The exception is a payout-credit entity
    (`PAYOUT_CREDIT_ENTITIES`, owner ruling), whose credits are the account
    holder's own sales and stay revenue; its debits keep its group. Three
    credits are proceeds by their own words: the
@@ -6355,8 +6360,8 @@ D1 reads the payee registries, except a payout-credit entity
 stay in eligible deposits. A credit is subtracted whenever its revenue decision
 is financing proceeds, whichever rule named the row: a financing group's credit
 that a transfer or insurance-term rule claims first is subtracted too.
-Premium-finance credits keep the insurance credit treatment and are not
-subtracted. D1 also reads three descriptors: the statement bank's
+A premium-finance payee's credits keep the insurance credit treatment and are
+not subtracted. D1 also reads three descriptors: the statement bank's
 own line advance (`LOAN CREDIT`), a line-of-credit draw and a per-vehicle
 floor-plan advance. Any other credit whose descriptor names no listed payee (an
 unnamed loan advance, for example) keeps its revenue rule and is not subtracted
@@ -6420,7 +6425,9 @@ operating-revenue aliases and source types (`OPERATING_REVENUE_SOURCE_ALIASES`,
 module directly.
 
 An alias names the financing business, never a bare platform or a brand that
-also sells goods; the validator refuses both. Cover aliases, OCR variants,
+also sells goods; the validator refuses both. The one place a bare brand or
+card issuer is allowed is a `card_issuer_context` or `bank_name` entity, whose
+rules read it only beside card-payment or loan wording. Cover aliases, OCR variants,
 token boundaries, precedence, both directions, and contribution flags in tests.
 Do not add statement-specific description checks in parsers, metrics, API
 routes, or frontend code.
@@ -6555,6 +6562,1100 @@ Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug an
 
 ---
 
+### Task 18: Factoring credits are revenue and keep the Factoring flag (owner ruling 2026-09-26)
+
+The owner ruled on 2026-09-26: a credit from a factoring payee (RTS Financial, OTR Capital, Apex, BC Factoring and the other `factoring` entities of the ledger) is the business's sales, paid by the factor that bought its invoices. It is **not** financing proceeds. It takes the credit treatment of a `PAYOUT_CREDIT_ENTITIES` credit (the operating-revenue path: no `financing_proceeds_credit`, no `contributes_to_lender_credit_exclusion`, so it stays in eligible deposits) **and** it carries the Factoring flag, the way a premium-financing row stays insurance and is flagged. Factoring debits keep their treatment. The ruling reverses D1 for factoring only: floor plan and every other financing group are unchanged.
+
+The master plan's C4 and C5 carry the ruling since 2026-09-26: the factoring credit record, and `count_credited` / `total_credited` on `metrics.flagged_groups` and `detection.flagged_positions`. This task builds both, re-pins what they move, folds in the minors review's documentation corrections, and measures the ruling on the local cache (read-only, counts only).
+
+- **When.** After Task 17, before S2 merges. Its tests use fabricated payees only. It changes classifier output under the same stage 19 (S2-specific constraints, "One stage-19 change set"): S2 merges as one unit, so no version moves.
+- **Two S1 comments, nothing else of S1's.** The ruling makes two comments in S1's hand-kept code false, and this task corrects the comment text only: the `FINANCING_STATES` comment in `analysis/flag_groups.py` (the set itself does not change: a factoring payee still claims its credit, which S1's alias audit reads through `FINANCING_STATES`), and the stale "Global aliases belong in ``LENDER_ALIASES``" comment above `BANK_SPECIFIC_LENDER_ALIASES` in `analysis/classification_registry.py` (that table is rendered from the ledger now). No alias table, no ledger entry and no GENERATED line changes.
+- **No real-statement pin moves.** The pinned statements carry no factoring payee (pin ledger, "Amendment groups" row). A replay of this task on a scratch export of `3fe78e1` kept the Core (395 passed), Guards/JS (147 passed and the known failure) and Wider (309 passed) selections unchanged.
+
+**Files:**
+- Modify: `analysis/transaction_classifier.py` (a constant after `_PREMIUM_FINANCING_GROUP`; `contributes_flagged` in `_build_record`; `_financing_proceeds_payee`; a new `_flagged_revenue_credit_record` after `_financing_proceeds_credit_record`; step 7 of `classify_transaction`; the credit update in `_apply_reversal_pair_context`)
+- Modify: `analysis/metrics.py` (the `Metrics.flagged_groups` comment; the flagged accumulators, loop and publication in `compute_metrics`)
+- Modify: `analysis/detect.py` (`FlaggedPositionMatch`; `find_flagged_positions`)
+- Modify: `analysis/serialization.py` (`_flagged_dict`)
+- Modify: `analyze.py` (the Flagged positions block of `_render`)
+- Modify: `tools/lender_census.py` (module docstring; `account_snapshot`; `compare`; `_print_comparison`)
+- Modify, comment only: `analysis/flag_groups.py` (the `FINANCING_STATES` comment), `analysis/classification_registry.py` (the comment above `BANK_SPECIFIC_LENDER_ALIASES`)
+- Modify: `docs/transaction-classification.md`
+- Create: `tests/test_factoring_credits.py`
+- Modify: `tests/flag_group_fixtures.py` (`FLAGGED_GROUPS_EXPECTED`, `flagged_report`), `tests/test_financing_proceeds_credits.py`, `tests/test_flag_group_states.py`, `tests/test_flagged_positions_payload.py`, `tests/test_lender_census.py`, `tests/test_analysis.py` (the SBA metrics pin)
+
+**Interfaces:**
+- Consumes: C1 `FINANCING_STATES`, `FLAG_GROUP_BY_STATE`; C2 `PAYOUT_CREDIT_ENTITIES`; C3 `match_known_payee`, `PayeeMatch`; `_financing_proceeds_payee` and `_financing_proceeds_credit_record` (Task 4); `_build_record` and `_state_words`; `flagged_payee` and `Metrics.flagged_groups` (Task 11); `FlaggedPositionMatch`, `find_flagged_positions` and `_flagged_dict` (Task 12); the `analyze.py` block (Task 13); `account_snapshot`, `compare` and `_print_comparison` (Task 15); the fixtures `FAKE_PAYEES` (its `FABRICATED FACTOR` payee is `factoring`), `fake_payees`, `flagged_statement`, `flagged_report`, `txn`.
+- Produces (C4, C5 as amended 2026-09-26):
+  - `transaction_classifier._FLAGGED_REVENUE_CREDIT_STATES: frozenset[str] = frozenset({"factoring"})` and `_flagged_revenue_credit_record(common, match) -> TransactionClassification`.
+  - **The factoring credit record:** `classification="factoring"`, `canonical_entity=<payee entity>`, `match_method="known_payee_alias"`, `matched_alias=<alias>`, `matched_rule="factoring_revenue_credit"`, `flagged_group="factoring"`, `contributes_to_flagged_totals=True` for a posted credit (cleared for a proven duplicate and for a credit the reversal pass pairs), `contributes_to_lender_credit_exclusion=False`; its revenue fields come from the operating-revenue path, as a `PAYOUT_CREDIT_ENTITIES` credit's do. A factoring credit that an earlier rule claims (a transfer, an insurance term) keeps that state, carries no flag and is not excluded.
+  - `Metrics.flagged_groups` values: `{"count", "total", "count_credited", "total_credited", "payees"}`. `count` and `total` are debits only; `payees` counts payees with any contributing row; a group appears when any row contributes.
+  - `FlaggedPositionMatch.count_credited: int = 0` and `.total_credited: float = 0.0`, after `total_debited`. `find_flagged_positions` counts debits in `count`/`total_debited` and credits in the credited pair, reads the cadence and the first/last dates over every contributing row, and sorts by group (`FLAG_GROUPS` order), then `total_debited + total_credited` descending, then payee. A payee whose rows are all credits has an entry with `count` 0.
+  - `detection.flagged_positions` keys, in order: `group, payee, matched_alias, count, total_debited, count_credited, total_credited, cadence, avg_gap_days, first_date, last_date, source_locations`.
+  - `flagged_report(rows=FLAGGED_ROWS)` in `tests/flag_group_fixtures.py` (the default keeps every earlier caller).
+  - The census: a snapshot's `flagged` is `{group: [count, total, count_credited, total_credited]}`; `compare` reads a two-value entry as no credits, reports `flagged[group] = {"analyses", "rows", "rows_credited"}` and `eligible_deposits: {"up" | "down" | "unchanged" | "not_comparable": n}`, and prints `flagged groups: <group> <n> analyses/<n> rows[/<n> credits]` and `eligible deposits: ...`.
+
+- [ ] **Step 1: Start from a clean tree.**
+
+Run: `git status --short`
+Expected: no output. Every file below is edited from the text it holds at `3fe78e1` (or at a later S2 fix commit, which touches none of these anchors).
+
+- [ ] **Step 2: Write the failing tests.** Create `tests/test_factoring_credits.py`:
+
+```python
+"""Owner ruling 2026-09-26: a factoring payee's credit is the business's own sales, paid by the factor that bought
+its invoices. It is revenue, not financing proceeds, so it stays in eligible deposits, and it still carries the
+Factoring flag: the payload counts it in `count_credited` and `total_credited` (contract C4, C5).
+
+Every descriptor, payee and amount is fabricated, and every amount is whole dollars."""
+from __future__ import annotations
+
+import pytest
+
+from analysis import transaction_classifier
+from analysis.metrics import compute_metrics
+from analysis.payee_matcher import PayeeMatch
+from analysis.schema import Statement
+from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from tests.flag_group_fixtures import FAKE_PAYEES, fake_payees, flagged_statement, txn  # noqa: F401  (fixture)
+
+#: One factor paid twice by credit and once by debit, one lender debit and one customer deposit.
+FACTORED_ROWS: tuple[tuple[str, str, float], ...] = (
+    ("2054-01-05", "FABRICATED FACTOR INVOICE PAYMENT 0001", 4000.0),
+    ("2054-01-12", "ACH DEBIT FABRICATED FACTOR 0001", -200.0),
+    ("2054-01-19", "FABRICATED FACTOR INVOICE PAYMENT 0002", 3000.0),
+    ("2054-01-20", "CUSTOMER DEPOSIT FABRICATED", 1000.0),
+    ("2054-01-21", "ACH DEBIT FABRICATED LENDER 0001", -800.0),
+)
+
+
+def test_a_factoring_credit_is_revenue_and_carries_the_factoring_flag(fake_payees):
+    record = classify_transaction("FABRICATED FACTOR INVOICE PAYMENT 0001", 4000.0)
+    assert (record.classification, record.canonical_entity, record.matched_alias) == (
+        "factoring", "Fabricated Factor", "FABRICATED FACTOR")
+    assert (record.match_method, record.matched_rule) == ("known_payee_alias", "factoring_revenue_credit")
+    assert (record.flagged_group, record.contributes_to_flagged_totals) == ("factoring", True)
+    # Not financing proceeds: the operating-revenue path decides its revenue, and it is never excluded.
+    assert not record.contributes_to_lender_credit_exclusion
+    assert record.revenue_match_method != "financing_proceeds_credit"
+    assert record.revenue_classification == "verified_revenue"
+    assert not (record.contributes_to_lender_totals or record.contributes_to_potential_lender_totals)
+
+
+def test_a_factoring_debit_keeps_its_flagged_group(fake_payees):
+    record = classify_transaction("ACH DEBIT FABRICATED FACTOR 0001", -200.0)
+    assert (record.classification, record.matched_rule, record.flagged_group) == (
+        "factoring", "factoring_registry", "factoring")
+    assert record.contributes_to_flagged_totals and not record.contributes_to_lender_totals
+
+
+def test_the_owner_named_factor_pays_revenue_and_is_flagged():
+    """RTS Financial is an owner-named factoring payee (spec §2), read from the rendered registry."""
+    record = classify_transaction("RTS FINANCIAL PAYMENT", 100.0)
+    assert (record.classification, record.matched_rule) == ("factoring", "factoring_revenue_credit")
+    assert (record.flagged_group, record.contributes_to_flagged_totals) == ("factoring", True)
+    assert not record.contributes_to_lender_credit_exclusion
+    assert record.revenue_classification == "unverified_deposit"
+
+
+def test_a_factoring_credit_an_earlier_rule_claims_stays_in_eligible_deposits_unflagged(fake_payees):
+    """A transfer-worded credit is a transfer (step 6 comes before the known payee), as for a payout-credit entity."""
+    record = classify_transaction("ONLINE TRANSFER FROM FABRICATED FACTOR 0001", 900.0)
+    assert record.classification == "transfer"
+    assert record.flagged_group is None and not record.contributes_to_flagged_totals
+    assert record.revenue_match_method != "financing_proceeds_credit"
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+def test_factoring_credits_stay_in_eligible_deposits_and_count_as_credited(fake_payees):
+    metrics = compute_metrics(flagged_statement(FACTORED_ROWS))
+    assert metrics.lender_credits == 0.0
+    assert metrics.legacy_eligible_deposits == 8000.0
+    assert metrics.withholding_rate == pytest.approx(10.0)
+    assert metrics.flagged_groups == {
+        "factoring": {"count": 1, "total": 200.0, "count_credited": 2, "total_credited": 7000.0, "payees": 1}
+    }
+
+
+def test_a_group_whose_rows_are_only_credits_is_published_with_no_debits(fake_payees):
+    credits_only = tuple(row for row in FACTORED_ROWS if "INVOICE" in row[1])
+    assert compute_metrics(flagged_statement(credits_only)).flagged_groups == {
+        "factoring": {"count": 0, "total": 0.0, "count_credited": 2, "total_credited": 7000.0, "payees": 1}
+    }
+
+
+def test_a_proven_duplicate_factoring_credit_is_counted_once(fake_payees):
+    statement = Statement(transactions=[
+        txn("2054-01-05", "FABRICATED FACTOR INVOICE PAYMENT 0001", 4000.0, balance=5000.0),
+        txn("2054-01-05", "FABRICATED FACTOR INVOICE PAYMENT 0001", 4000.0, balance=5000.0),
+    ])
+    first, duplicate = classify_statement_transactions(statement)
+    assert first.contributes_to_flagged_totals and not duplicate.contributes_to_flagged_totals
+    assert compute_metrics(statement).flagged_groups["factoring"]["count_credited"] == 1
+
+
+def test_a_factoring_credit_the_reversal_pass_pairs_leaves_the_flagged_totals(fake_payees):
+    statement = Statement(transactions=[
+        txn("2054-01-05", "FABRICATED FACTOR INVOICE PAYMENT 0001", 4000.0),
+        txn("2054-01-07", "REVERSAL FABRICATED FACTOR INVOICE PAYMENT 0001", -4000.0),
+    ])
+    credit, debit = classify_statement_transactions(statement)
+    assert credit.flagged_group == "factoring"
+    assert credit.revenue_match_method == "matched_reversal_pair"
+    assert not credit.contributes_to_flagged_totals
+    assert "factoring" not in compute_metrics(statement).flagged_groups
+
+
+def test_a_factoring_position_counts_its_debits_and_its_credits_apart(fake_payees):
+    from analysis.detect import find_flagged_positions
+
+    statement = flagged_statement(FACTORED_ROWS)
+    [position] = find_flagged_positions(statement, classify_statement_transactions(statement))
+    assert (position.group, position.payee, position.matched_alias) == (
+        "factoring", "Fabricated Factor", "FABRICATED FACTOR")
+    assert (position.count, position.total_debited) == (1, 200.0)
+    assert (position.count_credited, position.total_credited) == (2, 7000.0)
+    # The cadence and the dates read every counted row, debit or credit.
+    assert (position.cadence, position.avg_gap_days) == ("weekly", 7.0)
+    assert (position.first_date, position.last_date) == ("2054-01-05", "2054-01-19")
+    assert position.source_locations == ["transaction:1", "transaction:2", "transaction:3"]
+
+
+@pytest.fixture
+def two_factors(monkeypatch):
+    """FAKE_PAYEES plus a second fabricated factor, so one group holds two payees."""
+    payees = {**FAKE_PAYEES, "FABRICATED SECOND FACTOR": ("Fabricated Second Factor", "factoring")}
+
+    def match(normalized_text: str) -> PayeeMatch | None:
+        for alias in sorted(payees, key=len, reverse=True):
+            if alias in normalized_text:
+                entity, state = payees[alias]
+                return PayeeMatch(entity=entity, state=state, alias=alias)
+        return None
+
+    monkeypatch.setattr(transaction_classifier, "match_known_payee", match)
+
+
+def test_positions_rank_by_debited_plus_credited_within_a_group(two_factors):
+    from analysis.detect import find_flagged_positions
+
+    statement = flagged_statement((
+        ("2054-01-05", "ACH DEBIT FABRICATED FACTOR 0001", -500.0),
+        ("2054-01-06", "ACH DEBIT FABRICATED SECOND FACTOR 0001", -100.0),
+        ("2054-01-07", "FABRICATED SECOND FACTOR INVOICE PAYMENT 0001", 900.0),
+    ))
+    positions = find_flagged_positions(statement, classify_statement_transactions(statement))
+    # 100 debited plus 900 received outranks 500 debited: the order reads both directions.
+    assert [position.payee for position in positions] == ["Fabricated Second Factor", "Fabricated Factor"]
+
+
+def test_the_payload_publishes_the_credited_fields(fake_payees):
+    from analysis.serialization import report_to_dict
+    from tests.flag_group_fixtures import flagged_report
+
+    payload = report_to_dict(flagged_report(FACTORED_ROWS))
+    [position] = payload["detection"]["flagged_positions"]
+    assert list(position) == [
+        "group", "payee", "matched_alias", "count", "total_debited", "count_credited", "total_credited",
+        "cadence", "avg_gap_days", "first_date", "last_date", "source_locations",
+    ]
+    assert (position["count_credited"], position["total_credited"]) == (2, 7000.0)
+    assert payload["metrics"]["flagged_groups"]["factoring"]["total_credited"] == 7000.0
+
+
+def test_the_text_report_prints_what_a_flagged_payee_paid_in(fake_payees):
+    from analyze import _render
+    from tests.flag_group_fixtures import flagged_report
+
+    assert (
+        "  - Factoring: Fabricated Factor: 1 debit(s), $200.00; 2 credit(s) received, $7,000.00 (weekly)"
+        in _render(flagged_report(FACTORED_ROWS))
+    )
+```
+
+- [ ] **Step 3: Re-pin the tests the ruling moves** (fabricated values only).
+  - `tests/flag_group_fixtures.py`: replace
+    ```python
+        "alternative_positions": {"count": 3, "total": 2300.0, "payees": 2},
+        "credit_cards": {"count": 2, "total": 800.0, "payees": 1},
+        "mortgages": {"count": 2, "total": 2400.0, "payees": 1},
+        "leases_rentals": {"count": 1, "total": 200.0, "payees": 1},
+    }
+    ```
+    with
+    ```python
+        "alternative_positions": {"count": 3, "total": 2300.0, "count_credited": 0, "total_credited": 0.0, "payees": 2},
+        "credit_cards": {"count": 2, "total": 800.0, "count_credited": 0, "total_credited": 0.0, "payees": 1},
+        "mortgages": {"count": 2, "total": 2400.0, "count_credited": 0, "total_credited": 0.0, "payees": 1},
+        "leases_rentals": {"count": 1, "total": 200.0, "count_credited": 0, "total_credited": 0.0, "payees": 1},
+    }
+    ```
+    and replace
+    ```python
+    def flagged_report():
+        """A full Report for FLAGGED_ROWS. Call it with the fake_payees fixture active."""
+    ```
+    with
+    ```python
+    def flagged_report(rows: tuple[tuple[str, str, float], ...] = FLAGGED_ROWS):
+        """A full Report for `rows` (FLAGGED_ROWS by default). Call it with the fake_payees fixture active."""
+    ```
+    and, in the same function, replace `    statement = flagged_statement()` with `    statement = flagged_statement(rows)`.
+  - `tests/test_financing_proceeds_credits.py`: replace
+    ```python
+    @pytest.mark.parametrize(("alias", "entity", "state"), PAYEE_ROWS)
+    def test_a_known_payee_credit_is_proceeds_only_for_a_financing_group(fake_payees, alias, entity, state):
+        record = classify_transaction(f"{alias} DEPOSIT 0001", 5000.0)
+        assert record.flagged_group is None
+        assert not record.contributes_to_flagged_totals
+        if state in FINANCING_STATES:
+    ```
+    with
+    ```python
+    @pytest.mark.parametrize(("alias", "entity", "state"), PAYEE_ROWS)
+    def test_a_known_payee_credit_is_proceeds_only_for_a_financing_group_other_than_factoring(
+        fake_payees, alias, entity, state
+    ):
+        record = classify_transaction(f"{alias} DEPOSIT 0001", 5000.0)
+        if state == "factoring":
+            # Owner ruling 2026-09-26: a factor's payout is revenue and keeps the Factoring flag
+            # (tests/test_factoring_credits.py).
+            assert (record.flagged_group, record.contributes_to_flagged_totals) == ("factoring", True)
+        else:
+            assert record.flagged_group is None
+            assert not record.contributes_to_flagged_totals
+        if state in FINANCING_STATES and state != "factoring":
+    ```
+    and replace
+    ```python
+    @pytest.mark.parametrize("description", ["NEXTGEAR CAPITAL PAYMENT", "RTS FINANCIAL PAYMENT"])
+    def test_owner_named_floor_plan_and_factoring_credits_are_financing_proceeds(description):
+        """Spec §2 amendment and §4.2: D1 covers floor-plan and factoring credits."""
+        record = classify_transaction(description, 100.0)
+    ```
+    with
+    ```python
+    def test_the_owner_named_floor_plan_credit_is_financing_proceeds():
+        """Spec §2 amendment and §4.2: D1 covers floor-plan credits. Factoring credits are revenue since the owner's
+        ruling of 2026-09-26 (tests/test_factoring_credits.py)."""
+        record = classify_transaction("NEXTGEAR CAPITAL PAYMENT", 100.0)
+    ```
+  - `tests/test_flag_group_states.py`: replace
+    ```python
+    @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
+    def test_a_flag_group_credit_or_unposted_debit_never_contributes(group):
+        credit = _record(group.state, 100.0)
+        unposted = _record(group.state, -100.0, posted=False)
+        assert credit.flagged_group == unposted.flagged_group == group.key
+        assert not credit.contributes_to_flagged_totals
+        assert not unposted.contributes_to_flagged_totals
+    ```
+    with
+    ```python
+    @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
+    def test_only_a_factoring_credit_contributes_and_an_unposted_row_never_does(group):
+        """Owner ruling 2026-09-26: a factor's payout counts in the Factoring totals as a credit. No other group's
+        credit counts, and an unposted row of any group never does."""
+        credit = _record(group.state, 100.0)
+        unposted = _record(group.state, -100.0, posted=False)
+        unposted_credit = _record(group.state, 100.0, posted=False)
+        assert credit.flagged_group == unposted.flagged_group == group.key
+        assert credit.contributes_to_flagged_totals is (group.state == "factoring")
+        assert not unposted.contributes_to_flagged_totals
+        assert not unposted_credit.contributes_to_flagged_totals
+    ```
+  - `tests/test_flagged_positions_payload.py`:
+    - replace `        "credit_cards": {"count": 1, "total": 250.0, "payees": 1}` with `        "credit_cards": {"count": 1, "total": 250.0, "count_credited": 0, "total_credited": 0.0, "payees": 1}`;
+    - replace `    assert metrics.flagged_groups == {"premium_financing": {"count": 2, "total": 600.0, "payees": 1}}` with
+      ```python
+          assert metrics.flagged_groups == {
+              "premium_financing": {"count": 2, "total": 600.0, "count_credited": 0, "total_credited": 0.0, "payees": 1}
+          }
+      ```
+    - in `EXPECTED_POSITIONS`, give every entry the two credited keys after `total_debited`. Replace each of these five lines with the two lines under it:
+      ```python
+              "count": 2, "total_debited": 1400.0, "cadence": "weekly", "avg_gap_days": 7.0,
+      ```
+      ```python
+              "count": 2, "total_debited": 1400.0, "count_credited": 0, "total_credited": 0.0,
+              "cadence": "weekly", "avg_gap_days": 7.0,
+      ```
+      ```python
+              "count": 1, "total_debited": 900.0, "cadence": "single", "avg_gap_days": None,
+      ```
+      ```python
+              "count": 1, "total_debited": 900.0, "count_credited": 0, "total_credited": 0.0,
+              "cadence": "single", "avg_gap_days": None,
+      ```
+      ```python
+              "count": 2, "total_debited": 800.0, "cadence": "irregular", "avg_gap_days": 10.0,
+      ```
+      ```python
+              "count": 2, "total_debited": 800.0, "count_credited": 0, "total_credited": 0.0,
+              "cadence": "irregular", "avg_gap_days": 10.0,
+      ```
+      ```python
+              "count": 2, "total_debited": 2400.0, "cadence": "monthly", "avg_gap_days": 31.0,
+      ```
+      ```python
+              "count": 2, "total_debited": 2400.0, "count_credited": 0, "total_credited": 0.0,
+              "cadence": "monthly", "avg_gap_days": 31.0,
+      ```
+      ```python
+              "count": 1, "total_debited": 200.0, "cadence": "single", "avg_gap_days": None,
+      ```
+      ```python
+              "count": 1, "total_debited": 200.0, "count_credited": 0, "total_credited": 0.0,
+              "cadence": "single", "avg_gap_days": None,
+      ```
+  - `tests/test_analysis.py::test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts`: replace
+    ```python
+        assert m.flagged_groups == {"alternative_positions": {"count": 1, "total": 750.0, "payees": 1}}
+    ```
+    with
+    ```python
+        assert m.flagged_groups == {
+            "alternative_positions": {"count": 1, "total": 750.0, "count_credited": 0, "total_credited": 0.0, "payees": 1}
+        }
+    ```
+  - `tests/test_lender_census.py`:
+    - replace
+      ```python
+          assert first["flagged"] == {"alternative_positions": [1, 700.0]}
+          assert first["withholding_rate"] == pytest.approx(10.0)
+          assert result["accounts"]["b" * 64 + ":0"]["flagged"] == {"mortgages": [1, 1200.0]}
+      ```
+      with
+      ```python
+          # [debits, debited, credits, credited] per group (C5).
+          assert first["flagged"] == {"alternative_positions": [1, 700.0, 0, 0.0]}
+          assert first["withholding_rate"] == pytest.approx(10.0)
+          assert result["accounts"]["b" * 64 + ":0"]["flagged"] == {"mortgages": [1, 1200.0, 0, 0.0]}
+      ```
+    - replace
+      ```python
+          assert report["flagged"] == {"alternative_positions": {"analyses": 1, "rows": 1}}
+          assert report["withholding"] == {"down": 1, "unchanged": 1}
+          assert report["largest_withholding_moves"]["down"] == ["s1:0"]
+      ```
+      with
+      ```python
+          # AFTER's flagged entry is a snapshot written before the credited fields: [count, total] only.
+          assert report["flagged"] == {"alternative_positions": {"analyses": 1, "rows": 1, "rows_credited": 0}}
+          assert report["eligible_deposits"] == {"unchanged": 2}
+          assert report["withholding"] == {"down": 1, "unchanged": 1}
+          assert report["largest_withholding_moves"]["down"] == ["s1:0"]
+
+
+      def test_a_snapshot_records_a_factoring_payees_credits(tmp_path, fake_payees):
+          """Owner ruling 2026-09-26: a factor's payout is revenue and carries the Factoring flag."""
+          cache = ArtifactCache(data_dir=tmp_path / "data")
+          cache.put_analysis("c" * 64, "settings", {"statement": {"transactions": [
+              _row("2054-01-05", "FABRICATED FACTOR INVOICE PAYMENT 0001", 4000.0),
+              _row("2054-01-12", "ACH DEBIT FABRICATED FACTOR 0001", -200.0),
+          ]}})
+          [account] = census.snapshot(census.cached_accounts(tmp_path / "data"))["accounts"].values()
+          assert account["flagged"] == {"factoring": [1, 200.0, 1, 4000.0]}
+          assert account["eligible_deposits"] == 4000.0
+
+
+      def test_compare_counts_credited_rows_and_eligible_deposit_moves(tmp_path, capsys):
+          before = {"classification_version": "5.0", "accounts": {
+              "s1:0": _account(["factoring", "factoring"], [], {"factoring": [1, 200.0, 0, 0.0]}, 10.0),
+          }}
+          after = json.loads(json.dumps(before))
+          after["accounts"]["s1:0"]["flagged"] = {"factoring": [1, 200.0, 1, 4000.0]}
+          after["accounts"]["s1:0"]["eligible_deposits"] = 5000.0
+          after["accounts"]["s1:0"]["withholding_rate"] = 2.0
+          report = census.compare(before, after, admitted=frozenset())
+          assert report["flagged"] == {"factoring": {"analyses": 1, "rows": 1, "rows_credited": 1}}
+          assert report["eligible_deposits"] == {"up": 1}
+          assert report["withholding"] == {"down": 1}
+          paths = _files(tmp_path, before, after, _ledger())
+          assert census.main(_compare_argv(paths, tmp_path)) == 0
+          printed = capsys.readouterr().out
+          assert "flagged groups: factoring 1 analyses/1 rows/1 credits" in printed
+          assert "eligible deposits: up 1" in printed
+      ```
+
+- [ ] **Step 4: Run them and watch them fail.**
+
+Run: `C:\Python314\python.exe -m pytest tests/test_factoring_credits.py tests/test_financing_proceeds_credits.py tests/test_flag_group_states.py tests/test_flagged_positions_payload.py tests/test_lender_census.py -q -p no:cacheprovider`
+Expected: `21 failed, 73 passed` (measured on a replay of `3fe78e1`). Among them:
+- the credit tests with `AssertionError: assert ('other', 'Fa...CATED FACTOR') == ('factoring',...CATED FACTOR')` and `assert ('other', 'fi...ceeds_credit') == ('factoring',...venue_credit')`: today a factoring credit is financing proceeds;
+- `assert 7000.0 == 0.0` (`lender_credits`) and `assert 'financing_proceeds_credit' != 'financing_proceeds_credit'` (the transfer-worded credit is still excluded today);
+- `AttributeError: 'FlaggedPositionMatch' object has no attribute 'count_credited'`;
+- the metric dicts without the two credited keys, and the census lists of two values.
+
+`test_a_factoring_debit_keeps_its_flagged_group` passes already: debits do not move.
+
+Run: `C:\Python314\python.exe -m pytest tests/test_analysis.py -q -p no:cacheprovider -k "metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts"`
+Expected: `1 failed`, on the dict without the credited keys.
+
+- [ ] **Step 5: The classifier.** In `analysis/transaction_classifier.py`:
+  - replace
+    ```python
+    #: The flag group of an insurance row whose insurer is a premium-finance payee
+    #: (C1: the one flag group that is not a classification state).
+    _PREMIUM_FINANCING_GROUP = "premium_financing"
+    ```
+    with
+    ```python
+    #: The flag group of an insurance row whose insurer is a premium-finance payee
+    #: (C1: the one flag group that is not a classification state).
+    _PREMIUM_FINANCING_GROUP = "premium_financing"
+
+    #: Owner ruling 2026-09-26: a factor's payout is the business's own sales, paid
+    #: by the factor that bought its invoices. A credit from a payee of these states
+    #: is not financing proceeds: it takes the operating-revenue path, as a
+    #: PAYOUT_CREDIT_ENTITIES credit does, and it still carries its group's flag (C4).
+    _FLAGGED_REVENUE_CREDIT_STATES: frozenset[str] = frozenset({"factoring"})
+    ```
+  - in `_build_record`, replace
+    ```python
+        contributes_flagged = group_key is not None and is_debit and is_posted
+    ```
+    with
+    ```python
+        # A posted debit of a flag group counts in the flagged totals, and so does a
+        # posted credit of a group whose credits are flagged revenue (owner ruling
+        # 2026-09-26: factoring; C5 count_credited and total_credited).
+        contributes_flagged = group_key is not None and is_posted and (
+            is_debit or (amount > 0 and classification in _FLAGGED_REVENUE_CREDIT_STATES)
+        )
+    ```
+  - in `_financing_proceeds_payee`, replace
+    ```python
+        platform, so they are revenue; that entity's debits keep their group.
+        """
+        match = match_known_payee(text)
+        if match is None or match.state not in FINANCING_STATES or match.entity in PAYOUT_CREDIT_ENTITIES:
+            return None
+        return match
+    ```
+    with
+    ```python
+        platform, so they are revenue; that entity's debits keep their group.
+        Owner ruling 2026-09-26: a factoring payee's credits are the business's own
+        sales paid by the factor, so they are revenue too, and they keep the
+        factoring flag (_FLAGGED_REVENUE_CREDIT_STATES).
+        """
+        match = match_known_payee(text)
+        if (
+            match is None
+            or match.state not in FINANCING_STATES
+            or match.state in _FLAGGED_REVENUE_CREDIT_STATES
+            or match.entity in PAYOUT_CREDIT_ENTITIES
+        ):
+            return None
+        return match
+    ```
+  - directly before `def _descriptor_proceeds_credit_record(`, add
+    ```python
+    def _flagged_revenue_credit_record(
+        common: dict[str, object],
+        match: PayeeMatch,
+    ) -> TransactionClassification:
+        """Owner ruling 2026-09-26: a factoring payee's credit is the business's own sales, paid by the factor.
+
+        The row takes the payee's group, so it carries the group's flag and counts in
+        the flagged totals as a credit. Its revenue decision is the operating-revenue
+        path's (the payee is skipped there), so it is never financing proceeds and it
+        stays in eligible deposits.
+        """
+        return _build_record(
+            **common,
+            classification=match.state,
+            canonical_entity=match.entity,
+            match_method="known_payee_alias",
+            matched_alias=match.alias,
+            matched_rule=f"{match.state}_revenue_credit",
+            confidence_score=0.97,
+            reason=(
+                f"Matched maintained {_state_words(match.state)} alias '{match.alias}' on a credit: a "
+                "factor's payout is the business's own sales, so it stays revenue and in eligible "
+                "deposits, and it is flagged as a factoring position (owner ruling)."
+            ),
+        )
+
+
+    ```
+    The reason names no date: `tests/test_no_statement_hardcodes.py::test_no_literal_years_outside_date_parsing` refuses a year in a string literal of `analysis/` (a comment or docstring may carry one).
+  - in `classify_transaction`, replace
+    ```python
+        # or lease/rental payee on a credit falls through to the rules below.
+        if known_payee is not None:
+            if amount < 0:
+                return _known_payee_debit_record(common, text, known_payee)
+            if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
+    ```
+    with
+    ```python
+        # or lease/rental payee on a credit falls through to the rules below. A
+        # factoring payee's credit is revenue and keeps the factoring flag (owner
+        # ruling 2026-09-26).
+        if known_payee is not None:
+            if amount < 0:
+                return _known_payee_debit_record(common, text, known_payee)
+            if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
+                return _flagged_revenue_credit_record(common, known_payee)
+            if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
+    ```
+  - in `_apply_reversal_pair_context`, replace
+    ```python
+            updated[credit_index] = replace(
+                updated_credit,
+                reversal_of=related_location if is_settlement_reversal else None,
+                settlement_reversal=is_settlement_reversal,
+            )
+    ```
+    with
+    ```python
+            # A credit this pass pairs with a debit is money coming back, not a factor's
+            # payout (owner ruling 2026-09-26), so it leaves the flagged totals.
+            updated[credit_index] = replace(
+                updated_credit,
+                reversal_of=related_location if is_settlement_reversal else None,
+                settlement_reversal=is_settlement_reversal,
+                contributes_to_flagged_totals=False,
+            )
+    ```
+    Only a factoring credit can carry the flag, so the pass changes nothing for any other credit. Duplicate finalisation already clears `contributes_to_flagged_totals` on every duplicate.
+
+- [ ] **Step 6: Metrics, detection, serialization and the text report.**
+  - `analysis/metrics.py`: replace
+    ```python
+        # Spec §6 (C5): {group key: {"count", "total", "payees"}} over rows marked
+        # contributes_to_flagged_totals. It never feeds lender_*, withholding_*,
+        # eligible_deposits or potential_* figures.
+    ```
+    with
+    ```python
+        # Spec §6 (C5): {group key: {"count", "total", "count_credited",
+        # "total_credited", "payees"}} over rows marked contributes_to_flagged_totals.
+        # "count" and "total" are the debits; the credited pair is the credits a
+        # flagged payee paid in (owner ruling 2026-09-26: factoring payouts). It never
+        # feeds lender_*, withholding_*, eligible_deposits or potential_* figures.
+    ```
+    then replace
+    ```python
+        flagged_counts: dict[str, int] = {}
+        flagged_totals: dict[str, float] = {}
+        flagged_payees: dict[str, set[str]] = {}
+    ```
+    with
+    ```python
+        flagged_counts: dict[str, int] = {}
+        flagged_totals: dict[str, float] = {}
+        flagged_credited_counts: dict[str, int] = {}
+        flagged_credited_totals: dict[str, float] = {}
+        flagged_payees: dict[str, set[str]] = {}
+    ```
+    then replace
+    ```python
+                group_key = classification.flagged_group
+                flagged_counts[group_key] = flagged_counts.get(group_key, 0) + 1
+                flagged_totals[group_key] = flagged_totals.get(group_key, 0.0) + abs(t.amount)
+                flagged_payees.setdefault(group_key, set()).add(flagged_payee(classification))
+    ```
+    with
+    ```python
+                group_key = classification.flagged_group
+                if t.amount < 0:
+                    flagged_counts[group_key] = flagged_counts.get(group_key, 0) + 1
+                    flagged_totals[group_key] = flagged_totals.get(group_key, 0.0) + abs(t.amount)
+                else:
+                    flagged_credited_counts[group_key] = flagged_credited_counts.get(group_key, 0) + 1
+                    flagged_credited_totals[group_key] = flagged_credited_totals.get(group_key, 0.0) + t.amount
+                flagged_payees.setdefault(group_key, set()).add(flagged_payee(classification))
+    ```
+    then replace
+    ```python
+        m.flagged_groups = {
+            group.key: {
+                "count": flagged_counts[group.key],
+                "total": round(flagged_totals[group.key], 2),
+                "payees": len(flagged_payees[group.key]),
+            }
+            for group in FLAG_GROUPS
+            if group.key in flagged_counts
+        }
+    ```
+    with
+    ```python
+        m.flagged_groups = {
+            group.key: {
+                "count": flagged_counts.get(group.key, 0),
+                "total": round(flagged_totals.get(group.key, 0.0), 2),
+                "count_credited": flagged_credited_counts.get(group.key, 0),
+                "total_credited": round(flagged_credited_totals.get(group.key, 0.0), 2),
+                "payees": len(flagged_payees[group.key]),
+            }
+            for group in FLAG_GROUPS
+            if group.key in flagged_payees
+        }
+    ```
+  - `analysis/detect.py`: replace
+    ```python
+        """One payee of one flagged group (spec §6): never a lender, never in lender math."""
+
+        group: str
+        payee: str
+        matched_alias: str | None
+        count: int = 0
+        total_debited: float = 0.0
+        cadence: str = "single"
+    ```
+    with
+    ```python
+        """One payee of one flagged group (spec §6): never a lender, never in lender math.
+
+        `count` and `total_debited` are the payee's debits; `count_credited` and
+        `total_credited` are the credits it paid in (owner ruling 2026-09-26: a
+        factor's payouts, which stay revenue). The cadence and the dates read every
+        row that counts, debit or credit."""
+
+        group: str
+        payee: str
+        matched_alias: str | None
+        count: int = 0
+        total_debited: float = 0.0
+        count_credited: int = 0
+        total_credited: float = 0.0
+        cadence: str = "single"
+    ```
+    then, in `find_flagged_positions`, replace
+    ```python
+        """Spec §6: one entry per flagged group and payee, over rows marked
+        contributes_to_flagged_totals, sorted by group (FLAG_GROUPS order), then
+        total debited (descending), then payee."""
+    ```
+    with
+    ```python
+        """Spec §6: one entry per flagged group and payee, over rows marked
+        contributes_to_flagged_totals, sorted by group (FLAG_GROUPS order), then
+        total debited plus total credited (descending), then payee. A payee whose
+        counted rows are all credits is an entry too, with a count of 0."""
+    ```
+    then replace
+    ```python
+            match.count += 1
+            match.total_debited += abs(record.amount)
+            match.source_locations.append(record.source_location or f"transaction:{index + 1}")
+    ```
+    with
+    ```python
+            if record.amount < 0:
+                match.count += 1
+                match.total_debited += abs(record.amount)
+            else:
+                match.count_credited += 1
+                match.total_credited += record.amount
+            match.source_locations.append(record.source_location or f"transaction:{index + 1}")
+    ```
+    then replace
+    ```python
+            match.total_debited = round(match.total_debited, 2)
+            match.cadence, match.avg_gap_days = describe_cadence(dates[key])
+    ```
+    with
+    ```python
+            match.total_debited = round(match.total_debited, 2)
+            match.total_credited = round(match.total_credited, 2)
+            match.cadence, match.avg_gap_days = describe_cadence(dates[key])
+    ```
+    and replace
+    ```python
+            key=lambda item: (order.get(item.group, len(order)), -item.total_debited, item.payee),
+    ```
+    with
+    ```python
+            key=lambda item: (
+                order.get(item.group, len(order)),
+                -(item.total_debited + item.total_credited),
+                item.payee,
+            ),
+    ```
+  - `analysis/serialization.py`, in `_flagged_dict`: replace
+    ```python
+            "total_debited": match.total_debited,
+            "cadence": match.cadence,
+    ```
+    with
+    ```python
+            "total_debited": match.total_debited,
+            "count_credited": match.count_credited,
+            "total_credited": match.total_credited,
+            "cadence": match.cadence,
+    ```
+  - `analyze.py`, in `_render`: replace
+    ```python
+                label = group.label if group is not None else fp.group
+                L.append(
+                    f"  - {label}: {fp.payee}: {fp.count} debit(s), "
+                    f"${fp.total_debited:,.2f} ({fp.cadence})"
+                )
+    ```
+    with
+    ```python
+                label = group.label if group is not None else fp.group
+                # Owner ruling 2026-09-26: a factor's payouts are credits the payee paid in.
+                received = (
+                    f"; {fp.count_credited} credit(s) received, ${fp.total_credited:,.2f}"
+                    if fp.count_credited else ""
+                )
+                L.append(
+                    f"  - {label}: {fp.payee}: {fp.count} debit(s), "
+                    f"${fp.total_debited:,.2f}{received} ({fp.cadence})"
+                )
+    ```
+    A position without credits prints the line of Task 13, unchanged. `batch.py`'s `group:payee` column and `benchmark/lenders.py`'s `flagged_lender_groups` (which reads `count` and `total_debited`, debits only by C5) need no edit.
+
+- [ ] **Step 7: The census.** In `tools/lender_census.py`:
+  - in the module docstring, replace
+    ```
+    records, per account: each row's state, the lender rows (index, entity, alias), the flagged groups
+    and the withholding figures. `compare` reads two snapshots, taken with the code before and after
+    the lender-detection change, and reports lenders gained and lost, flagged groups and withholding
+    moves. It prints counts, registry entity names and aliases only: no descriptor text, no amount.
+    ```
+    with
+    ```
+    records, per account: each row's state, the lender rows (index, entity, alias), the flagged groups
+    (debits and credits) and the withholding figures. `compare` reads two snapshots, taken with the code
+    before and after the lender-detection change, and reports lenders gained and lost, flagged groups,
+    eligible-deposit moves and withholding moves. It prints counts, registry entity names and aliases
+    only: no descriptor text, no amount.
+    ```
+  - in `account_snapshot`, replace
+    ```python
+            "flagged": {
+                key: [group["count"], group["total"]]
+                for key, group in (getattr(metrics, "flagged_groups", None) or {}).items()
+            },
+    ```
+    with
+    ```python
+            # [debits, debited, credits, credited] per group (C5). A checkout older than
+            # the credited fields reports no credits.
+            "flagged": {
+                key: [group["count"], group["total"], group.get("count_credited", 0), group.get("total_credited", 0.0)]
+                for key, group in (getattr(metrics, "flagged_groups", None) or {}).items()
+            },
+    ```
+  - in `compare`, replace `    """Lenders gained and lost, generic-word gains, flagged groups and withholding moves.` with `    """Lenders gained and lost, generic-word gains, flagged groups, eligible-deposit and withholding moves.`, then replace
+    ```python
+        flagged: dict = defaultdict(lambda: {"analyses": set(), "rows": 0})
+        withholding: Counter = Counter()
+    ```
+    with
+    ```python
+        flagged: dict = defaultdict(lambda: {"analyses": set(), "rows": 0, "rows_credited": 0})
+        withholding: Counter = Counter()
+        deposits: Counter = Counter()
+    ```
+    then replace
+    ```python
+            for group, (count, _total) in new["flagged"].items():
+                flagged[group]["analyses"].add(sha)
+                flagged[group]["rows"] += count
+    ```
+    with
+    ```python
+            for group, values in new["flagged"].items():
+                flagged[group]["analyses"].add(sha)
+                flagged[group]["rows"] += values[0]
+                # A snapshot written before the credited fields holds [count, total] only.
+                flagged[group]["rows_credited"] += values[2] if len(values) > 2 else 0
+            old_deposits, new_deposits = old.get("eligible_deposits"), new.get("eligible_deposits")
+            if old_deposits is None or new_deposits is None:
+                deposits["not_comparable"] += 1
+            elif round(new_deposits - old_deposits, 2) == 0:
+                deposits["unchanged"] += 1
+            else:
+                deposits["up" if new_deposits > old_deposits else "down"] += 1
+    ```
+    then replace
+    ```python
+            "flagged": {
+                group: {"analyses": len(slot["analyses"]), "rows": slot["rows"]} for group, slot in sorted(flagged.items())
+            },
+            "withholding": dict(sorted(withholding.items())),
+    ```
+    with
+    ```python
+            "flagged": {
+                group: {"analyses": len(slot["analyses"]), "rows": slot["rows"], "rows_credited": slot["rows_credited"]}
+                for group, slot in sorted(flagged.items())
+            },
+            "eligible_deposits": dict(sorted(deposits.items())),
+            "withholding": dict(sorted(withholding.items())),
+    ```
+  - in `_print_comparison`, replace
+    ```python
+        print("flagged groups: " + ", ".join(
+            f"{group} {slot['analyses']} analyses/{slot['rows']} rows" for group, slot in report["flagged"].items()
+        ))
+    ```
+    with
+    ```python
+        print("flagged groups: " + ", ".join(
+            f"{group} {slot['analyses']} analyses/{slot['rows']} rows"
+            + (f"/{slot['rows_credited']} credits" if slot["rows_credited"] else "")
+            for group, slot in report["flagged"].items()
+        ))
+        print("eligible deposits: " + ", ".join(
+            f"{name} {count}" for name, count in report["eligible_deposits"].items()
+        ))
+    ```
+
+- [ ] **Step 8: Correct two S1 comments (comment text only).**
+  - `analysis/flag_groups.py`: replace
+    ```python
+    # D1: credits from these states are financing proceeds (non_revenue + lender credit exclusion).
+    ```
+    with
+    ```python
+    # D1: a credit from a payee of these states is financing proceeds (non_revenue + lender credit exclusion),
+    # except a PAYOUT_CREDIT_ENTITIES entity's credit (revenue) and a factoring payee's credit (owner ruling
+    # 2026-09-26: revenue, and flagged as factoring).
+    ```
+  - `analysis/classification_registry.py` (after the GENERATED block, so S1's drift test does not read it): replace
+    ```python
+    # Reserved for transaction codes whose meaning is specific to an institution.
+    # Global aliases belong in ``LENDER_ALIASES``.
+    ```
+    with
+    ```python
+    # Reserved for transaction codes whose meaning is specific to an institution.
+    # A global alias is never added here: it is an entity of the curated ledger
+    # (docs/lender-registry-ledger.json), which tools/build_lender_registry.py renders
+    # into the GENERATED tables above.
+    ```
+
+- [ ] **Step 9: Run the tests.**
+
+Run: `C:\Python314\python.exe -m pytest tests/test_factoring_credits.py tests/test_financing_proceeds_credits.py tests/test_flag_group_states.py tests/test_flagged_positions_payload.py tests/test_lender_census.py -q -p no:cacheprovider`
+Expected: `94 passed` (12 + 23 + 30 + 11 + 18).
+
+Run: `C:\Python314\python.exe -m pytest tests/test_cadence.py tests/test_flag_group_states.py tests/test_classifier_lookups.py tests/test_financing_proceeds_credits.py tests/test_known_payee_classification.py tests/test_premium_financing.py tests/test_obligation_descriptors.py tests/test_unknown_payee_naming.py tests/test_recurring_fixed_debits.py tests/test_flagged_positions_payload.py tests/test_lender_census.py tests/test_factoring_credits.py -q -p no:cacheprovider`
+Expected: `289 passed` (Task 17 Step 1's 276, less the RTS case of the split floor-plan test, plus 2 census tests and the 12 of the new file).
+
+- [ ] **Step 10: Run the three selections and S1's tests.**
+
+Run the Core, Guards/JS and Wider commands from Task 0 Step 2, then S1's tests (the `$s1Tests = ...` and `pytest $s1Tests` lines of Task 6 Step 4).
+Expected, as at the end of Task 17: Core `395 passed`; Guards/JS `147 passed` and the known `test_no_literal_account_numbers_in_ocr` failure; Wider `309 passed`; S1's tests pass with their legacy-list skips. A failing real-statement pin is a finding for the orchestrator (the pinned statements carry no factoring payee); never re-pin it.
+
+- [ ] **Step 11: Measure the ruling on the local cache (read-only; counts only; nothing is committed).** In PowerShell, from the repository root of `ld-s2-classifier`, before committing. `HEAD` still holds the code before this task, and the working tree holds this task's:
+
+```powershell
+$local = "C:\Users\GustavoPrietodePaula\AppData\Local\Temp\lender-s2-task18"
+$webappData = "C:\Users\GustavoPrietodePaula\OneDrive - Capital Infusion\Desktop\Capital Infusion Projects\bankStatementAnalysis\webapp_data"
+New-Item -ItemType Directory -Force $local | Out-Null
+git worktree add --detach "$local\before" HEAD
+C:\Python314\python.exe -m tools.lender_census snapshot --data-dir $webappData --out "$local\before.json" --code-root "$local\before"
+C:\Python314\python.exe -m tools.lender_census snapshot --data-dir $webappData --out "$local\after.json"
+C:\Python314\python.exe -m tools.lender_census compare --before "$local\before.json" --after "$local\after.json" --out "$local\compare.json"
+git worktree remove "$local\before"
+```
+
+Expected (measured 2026-09-26 on scratch exports of `3fe78e1` before and after this task; about 6 minutes per snapshot): both snapshots print `classification 5.0: 7241 accounts; skipped: 0`, and `compare` prints and exits 0 with:
+- `classification 5.0 -> 5.0; accounts compared: 7241; unmatched: 0`;
+- `lenders gained: 0`, `lenders lost: 0`, `lenders gained through a generic word: 0`;
+- in the `flagged groups:` line, `factoring 178 analyses/114 rows/1174 credits` (the 114 debits do not move; the 1,174 credits are the ones the orchestrator counted before the ruling), and no other group with credits;
+- `eligible deposits: unchanged 7084, up 157`: the ruling returns the factoring credits to eligible deposits in 157 accounts and moves no other account;
+- `withholding rate: down 85, not_comparable 77, unchanged 7079`.
+
+Report these counts only, never a name, an amount or a rate, to the orchestrator. Any other figure is a finding: stop and report it.
+
+- [ ] **Step 12: Scan what the task adds for statement values, then commit the code.**
+
+Run: `git diff -U0 -- tests | findstr /R "^+.*[0-9][0-9]*\.[0-9][0-9]"` (or `git diff -U0 -- tests | grep -nE '^\+.*[0-9]+\.[0-9]{2}'`)
+Expected: one line, the `analyze.py` report test's `$200.00` and `$7,000.00`, fabricated whole dollars written with cents (Task 17 Step 4 allows the same for `1,400.00` and `2,400.00`). Anything else: stop and report.
+
+```
+git add analysis/transaction_classifier.py analysis/metrics.py analysis/detect.py analysis/serialization.py analyze.py tools/lender_census.py analysis/flag_groups.py analysis/classification_registry.py tests/test_factoring_credits.py tests/flag_group_fixtures.py tests/test_financing_proceeds_credits.py tests/test_flag_group_states.py tests/test_flagged_positions_payload.py tests/test_lender_census.py tests/test_analysis.py
+git commit -m "classifier: factoring credits are revenue and keep the Factoring flag (owner ruling)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: <the Claude-Session URL from your system reminder>"
+```
+
+- [ ] **Step 13: The documentation.** In `docs/transaction-classification.md` (the text Task 16 wrote, amended by `3fe78e1`):
+  - replace
+    ```markdown
+    A flagged group's credits are another matter. A credit from a financing group
+    (every flagged group except credit cards, leases & rentals and premium
+    financing) is financing proceeds, and D1 subtracts it from eligible deposits as
+    it does a lender's credit (see "Withholding rate"). Neither the credits of a
+    payout-credit entity (`PAYOUT_CREDIT_ENTITIES`), which are the holder's own
+    sales, nor premium-finance credits, which keep the insurance credit treatment,
+    are subtracted.
+
+    The group list lives in `analysis/flag_groups.py`. A flagged row carries
+    `flagged_group`; a posted flagged debit also sets
+    `contributes_to_flagged_totals`, which proven duplicates and settlement-reversed
+    debits clear. The web app hides unticked groups at serving time; the stored
+    record never changes.
+    ```
+    with
+    ```markdown
+    A flagged group's credits are another matter. A credit from a financing group
+    (every flagged group except credit cards, leases & rentals, premium financing
+    and factoring) is financing proceeds, and D1 subtracts it from eligible deposits
+    as it does a lender's credit (see "Withholding rate"). Three kinds of credit
+    are not subtracted: a payout-credit entity's credits (`PAYOUT_CREDIT_ENTITIES`),
+    which are the holder's own sales; a premium-finance payee's credits, which keep
+    the insurance credit treatment; and a factoring payee's credits (owner ruling
+    2026-09-26), which are the business's own sales, paid by the factor that bought
+    its invoices. A factoring credit takes the operating-revenue path, as a payout
+    credit does, and it is also flagged: its state is `factoring`, its entity is
+    the payee, and it counts in the Factoring group as a credit.
+
+    The group list lives in `analysis/flag_groups.py`. A flagged row carries
+    `flagged_group`; a posted flagged debit, and a posted factoring credit, also
+    set `contributes_to_flagged_totals`. Proven duplicates, settlement-reversed
+    debits and credits that the reversal pass pairs clear it. The web app hides
+    unticked groups at serving time; the stored record never changes.
+    ```
+  - replace
+    ```markdown
+       `Insurance provider not identified`. A premium-finance credit is treated as
+       any insurance credit.
+    ```
+    with
+    ```markdown
+       `Insurance provider not identified`. A premium-finance payee's credit is
+       treated as any insurer's credit.
+    ```
+  - replace
+    ```markdown
+       to `line_of_credit` (D9). A credit from a financing group (lenders,
+       alternative positions, lines of credit, bank loans, vehicle financing,
+       mortgages, personal loans, floor plan, factoring) is financing proceeds:
+       `other`, revenue `non_revenue`, excluded from eligible deposits (D1). A
+       financing group's credit that an earlier rule names (a transfer, an
+       insurance term) keeps that state, and is still `non_revenue` and excluded
+       from eligible deposits. The exception is a payout-credit entity
+       (`PAYOUT_CREDIT_ENTITIES`, owner ruling), whose credits are the account
+       holder's own sales and stay revenue; its debits keep its group. Three
+       credits are proceeds by their own words: the
+    ```
+    with
+    ```markdown
+       to `line_of_credit` (D9). A credit from a financing group (lenders,
+       alternative positions, lines of credit, bank loans, vehicle financing,
+       mortgages, personal loans, floor plan) is financing proceeds: `other`,
+       revenue `non_revenue`, excluded from eligible deposits (D1). The exclusion
+       follows the credit's revenue decision, whichever rule named the row: a
+       financing group's credit that a transfer or insurance-term rule claims first
+       keeps that state, and its revenue decision is still financing proceeds, so
+       it is still `non_revenue` and excluded from eligible deposits. Two payees'
+       credits are revenue instead, and their debits keep their group: a
+       payout-credit entity's (`PAYOUT_CREDIT_ENTITIES`, owner ruling), the account
+       holder's own sales; and a factoring payee's (owner ruling 2026-09-26), the
+       business's own sales paid by the factor. Both take the operating-revenue
+       path and stay in eligible deposits. A factoring credit is also recorded as
+       `factoring` under its payee (`factoring_revenue_credit`), so it carries the
+       Factoring flag. Three credits are proceeds by their own words: the
+    ```
+  - replace
+    ```markdown
+    - `flagged_groups`: per flagged group key, `{count, total, payees}` over rows
+      marked `contributes_to_flagged_totals`; only groups with a contributing row
+      appear, in flag-group order. It never feeds lender, withholding,
+      eligible-deposit or potential figures.
+    - `detection.flagged_positions`: one entry per flagged group and payee (`group`,
+      `payee`, `matched_alias`, `count`, `total_debited`, `cadence`,
+      `avg_gap_days`, `first_date`, `last_date`, `source_locations`), in flag-group
+      order, then by total. The payee is the canonical entity, or the group label
+      when the descriptor names none; the cadence (`daily`, `weekly`, `biweekly`,
+      `monthly`, `irregular` or `single`) comes from
+      `analysis.cadence.describe_cadence`.
+    ```
+    with
+    ```markdown
+    - `flagged_groups`: per flagged group key, `{count, total, count_credited,
+      total_credited, payees}` over rows marked `contributes_to_flagged_totals`.
+      `count` and `total` are the debits and their absolute sum; `count_credited`
+      and `total_credited` are the credits (a factoring payee's payouts) and their
+      sum; `payees` counts the payees with any contributing row. Only groups with a
+      contributing row appear, in flag-group order. It never feeds lender,
+      withholding, eligible-deposit or potential figures.
+    - `detection.flagged_positions`: one entry per flagged group and payee (`group`,
+      `payee`, `matched_alias`, `count`, `total_debited`, `count_credited`,
+      `total_credited`, `cadence`, `avg_gap_days`, `first_date`, `last_date`,
+      `source_locations`), in flag-group order, then by total debited plus total
+      credited, then by payee. `count` and `total_debited` are debits only; a payee
+      whose counted rows are all credits has an entry with a `count` of 0. The
+      payee is the canonical entity, or the group label when the descriptor names
+      none; the cadence (`daily`, `weekly`, `biweekly`, `monthly`, `irregular` or
+      `single`) comes from `analysis.cadence.describe_cadence`, over the dates of
+      every counted row, debit or credit, as do `first_date` and `last_date`.
+    ```
+  - replace
+    ```markdown
+    every credit from a financing-group payee (D1: lenders, alternative positions,
+    lines of credit, bank loans, vehicle financing, mortgages, personal loans, floor
+    plan and factoring).
+    They are excluded because they are financing proceeds, not operating deposits.
+    D1 reads the payee registries, except a payout-credit entity
+    (`PAYOUT_CREDIT_ENTITIES`), whose credits are the account holder's own sales and
+    stay in eligible deposits. A credit is subtracted whenever its revenue decision
+    is financing proceeds, whichever rule named the row: a financing group's credit
+    that a transfer or insurance-term rule claims first is subtracted too.
+    Premium-finance credits keep the insurance credit treatment and are not
+    subtracted. D1 also reads three descriptors: the statement bank's
+    ```
+    with
+    ```markdown
+    every credit from a financing-group payee (D1: lenders, alternative positions,
+    lines of credit, bank loans, vehicle financing, mortgages, personal loans and
+    floor plan).
+    They are excluded because they are financing proceeds, not operating deposits.
+    D1 reads the payee registries, except two kinds of payee whose credits are the
+    account holder's own sales and stay in eligible deposits: a payout-credit entity
+    (`PAYOUT_CREDIT_ENTITIES`) and a factoring payee (owner ruling 2026-09-26: a
+    factor's payout for the invoices it bought; it is flagged, never subtracted). A
+    credit is subtracted whenever its revenue decision is financing proceeds,
+    whichever rule named the row: a financing group's credit that a transfer or
+    insurance-term rule claims first is subtracted too. A premium-finance payee's
+    credits keep the insurance credit treatment and are not subtracted. D1 also
+    reads three descriptors: the statement bank's
+    ```
+  - replace
+    ```markdown
+    An alias names the financing business, never a bare platform or a brand that
+    also sells goods; the validator refuses both. Cover aliases, OCR variants,
+    ```
+    with
+    ```markdown
+    An alias names the financing business, never a bare platform or a brand that
+    also sells goods; the validator refuses both. The one place a bare brand or
+    card issuer is allowed is a `card_issuer_context` or `bank_name` entity, whose
+    rules read it only beside card-payment or loan wording. Cover aliases, OCR variants,
+    ```
+
+  Edits 1, 2, 3, 5 and 6 also carry the minors review's corrections (2026-09-26): a premium-finance **payee's** credits keep the insurance credit treatment (a credit with premium-finance wording and no payee is not read as an insurer's credit by the revenue rules); the exclusion is stated by the revenue decision, because an NSF or refund rule that claims a credit first leaves it out of financing proceeds; and a bare brand is allowed in `card_issuer_context` and `bank_name`, per C10's brand rule. Task 16's block carries the same three corrections.
+
+- [ ] **Step 14: Check the documentation names only real code.**
+
+Run: `git grep -n "lease_or_equipment_financing\|NON_MCA_SCOPE\|LEASE_PROVIDER_ALIASES\|LEGACY_" -- docs/transaction-classification.md`
+Expected: exactly one line, the retired-state sentence (as in Task 16 Step 3).
+
+Run: `git grep -n "count_credited\|factoring_revenue_credit\|premium-finance payee's" -- docs/transaction-classification.md`
+Expected: seven lines: the three premium-finance sentences (flagged groups, step 2, withholding), the step-5 record (`factoring_revenue_credit`, the classifier's `matched_rule`), and three lines of the `flagged_groups` and `flagged_positions` definitions.
+
+- [ ] **Step 15: Commit the documentation.**
+
+```
+git add docs/transaction-classification.md
+git commit -m "docs: factoring credits stay revenue and carry the Factoring flag; classification doc corrections" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: <the Claude-Session URL from your system reminder>"
+```
+
+- [ ] **Step 16: Report to the orchestrator.** Include the Step 4 and Step 9 counts, the three selections and S1's result (Step 10), the Step 11 counts and exit code, the Step 12 scan, and the two commits.
+
+---
+
 ## Self-Review
 
 **Spec coverage (the sections S2 owns):**
@@ -6576,14 +7677,14 @@ Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug an
   - Step 11: the potential rules, with D11 naming and D10 servicers, `MCA SERVICING` included (Task 9).
   - Statement passes: duplicates; recurrence plus D6, and the recurring-debit view (Task 10); reversal pairs and duplicate finalisation, which clear the flag (Task 2, and Task 7 for premium financing); operating-source context through `registry_match` (Task 3).
 - **§4.4 credits** (Task 4):
-  - `_classify_credit_revenue` checks `FINANCING_STATES` payees before the operating registry; these include floor plan and factoring.
+  - `_classify_credit_revenue` checks `FINANCING_STATES` payees before the operating registry; these include floor plan and factoring. Since the owner's ruling of 2026-09-26 (Task 18), a factoring payee is skipped there, as a payout-credit entity is: its credit is revenue, and step 7 records it as `factoring` with the Factoring flag.
   - `classify_transaction` gives the C4 record with `contributes_to_lender_credit_exclusion`.
   - Owner decisions of 2026-09-25: a payout-credit entity's credits stay revenue (`PAYOUT_CREDIT_ENTITIES`), and the bank's own line advance, a line-of-credit draw and a per-vehicle floor-plan advance are proceeds by their own words.
   - Platform settlements stay revenue: the existing `tests/test_revenue_classification.py:440-523`, plus the new Square/Shopify test.
   - Premium-finance credits keep the insurance credit treatment (Task 7).
 - **§4.5 potential tier:** D11 naming (Task 9), D6 (Task 10), D10 (Task 9).
 - **§4.6 speed (S2's share):** every classifier lookup goes through the compiled index, one normalization per row (Task 3); measured in Task 17 with S1's relative benchmark.
-- **§6 payload:** `metrics.flagged_groups` (Task 11), `detection.flagged_positions` and `FlaggedPositionMatch` (Task 12), `describe_cadence` (Task 1), versions 5.0 / 19 with the cache pin (Task 2).
+- **§6 payload:** `metrics.flagged_groups` (Task 11), `detection.flagged_positions` and `FlaggedPositionMatch` (Task 12), `describe_cadence` (Task 1), versions 5.0 / 19 with the cache pin (Task 2); their `count_credited` and `total_credited` (Task 18, C5 as amended 2026-09-26).
 - **§7:**
   - `batch.py` column and `analyze.py` block (Task 13); the recurring-debit view now includes D6 rows (Task 10);
   - benchmark flagged scope replacing `NON_MCA_SCOPE` (Task 14);
@@ -6623,8 +7724,9 @@ Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug an
   - the nine states and `flagged_group`, `contributes_to_flagged_totals`;
   - premium financing: `classification="insurance"`, `flagged_group="premium_financing"`, contributing on posted debits only;
   - the financing-proceeds credit: `classification="other"`, `matched_rule="financing_proceeds_credit"`, `revenue_match_method="financing_proceeds_credit"`, `contributes_to_lender_credit_exclusion=True`;
+  - the factoring credit (Task 18, C4 as amended 2026-09-26): `classification="factoring"`, `matched_rule="factoring_revenue_credit"`, `flagged_group="factoring"`, `contributes_to_flagged_totals` when posted, no lender credit exclusion, revenue from the operating path;
   - `CLASSIFICATION_VERSION = "5.0"`.
-- **C5:** the `metrics.flagged_groups` shape and ordering; the `detection.flagged_positions` keys and sort order; `describe_cadence(dates) -> tuple[str, float | None]` with its six values.
+- **C5:** the `metrics.flagged_groups` shape and ordering; the `detection.flagged_positions` keys and sort order; `describe_cadence(dates) -> tuple[str, float | None]` with its six values. As amended 2026-09-26 (Task 18): `count_credited` and `total_credited` on both, `count` and `total_debited` debit-only, and the sort by `total_debited + total_credited`.
 - **Names this plan defines and later tasks use:**
   - `_ACH_TOKEN` and the test helper `synthetic_statement` (Task 3; Task 17 uses the helper);
   - `_state_words`, `_financing_proceeds_payee`, `_descriptor_proceeds`, `_financing_proceeds_credit_record` and `_descriptor_proceeds_credit_record` (Task 4; used in Tasks 5 and 8);
@@ -6636,6 +7738,7 @@ Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug an
   - `flagged_payee` (Task 11, used in Task 12);
   - `FlaggedPositionMatch` / `find_flagged_positions` (Task 12, used in Task 13);
   - `flagged_lender_groups` (Task 14);
+  - `_FLAGGED_REVENUE_CREDIT_STATES`, `_flagged_revenue_credit_record`, `FlaggedPositionMatch.count_credited` / `.total_credited`, the census's `rows_credited` and `eligible_deposits`, and the fixture parameter `flagged_report(rows=FLAGGED_ROWS)` (Task 18);
   - `DEFAULT_LEDGER`, `GENERIC_WORDS`, `admitted_lenders`, `cached_accounts`, `account_snapshot`, `snapshot`, `compare`, `main` (Task 15);
   - the test helpers in `tests/flag_group_fixtures.py`: `txn` (Task 2); `FAKE_PAYEES`, `fake_match`, `fake_payees` (Task 4; used in Tasks 5, 11, 12, 13 and 15); `fake_premium_finance` (Task 7; used in Tasks 11 and 12); `FLAGGED_ROWS`, `FLAGGED_GROUPS_EXPECTED`, `flagged_statement` (Task 11); `flagged_report` (Task 12; used in Task 13);
   - `PREMIUM_ROWS` in `tests/test_flagged_positions_payload.py` (Task 11, used in Task 12).
@@ -6643,7 +7746,7 @@ Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug an
 **Ambiguities this plan resolved (for the orchestrator):**
 1. `describe_cadence` returns `"single"` for fewer than two distinct dates. C5 lists that value; §6 does not.
 2. **Retired tables.** C2 says `LEASE_PROVIDER_ALIASES` is removed. The pre-C10 S1 plan kept it, and also `LEGACY_CONFIRMED_LENDER_ALIASES` and `LEGACY_POTENTIAL_LENDER_ALIASES`, until S2 rewires the classifier, and left all three for S2 to delete. Task 6 deletes whichever are present, outside the block S1 renders from the C10 ledger. S1's legacy-list tests skip by design once they are gone.
-3. **Step-8 descriptors apply to debits only.** Today's card and lease patterns also tagged credits. D1 says the card and lease lists never apply to credits, and this rule keeps `flagged_group` off credits, so no credit shows a "Flagged" chip. A lease or rental payee's credit therefore loses today's lease credit exclusion and is reviewed like any other credit (D1's last sentence).
+3. **Step-8 descriptors apply to debits only.** Today's card and lease patterns also tagged credits. D1 says the card and lease lists never apply to credits, and this rule keeps `flagged_group` off credits, so no credit shows a "Flagged" chip. (Since the owner's ruling of 2026-09-26, the one flagged credit is a factoring payee's, recorded at step 7: Task 18.) A lease or rental payee's credit therefore loses today's lease credit exclusion and is reviewed like any other credit (D1's last sentence).
 4. **D6 promotes only rows no rule claimed** (`other` with match method `default`), and it skips rows with transfer wording (TRANSFER/XFER/TFR). Without that skip, TD's `TFR TO` rows would join the review tier and move a pinned potential count.
 5. **D6's reach.** In the dry run it moved two pinned statements the tests map did not foresee: ATB November potential (1 row → 22; 3178.19; exposure 5.36) and navigant (1 row → 4; 1299.00, or 3 rows and 108.00 in the bank-name variant). It also added review rows no test pins, all named `Unidentified lender obligation`: 22 on ATB Aug, 19 on ATB Dec and 6 on RBC Jan. On the revised C10 ledger (probe of 2026-09-26), ATB's fixed daily debits are MERCH PAD's review alias. The potential registry claims them at step 11, in Task 5, before D6 runs. So ATB November's 22 / 3178.19 / 5.36 is pinned in Task 5 as two review entities (MERCH PAD and LOANS FC), and D6 is left with navigant's 3 rows and RBC Jan's 6. Task 17 Step 5 re-measures the unpinned statements for the owner before merge.
 6. **"AUTO … PAYMENT" (step 8)** is read as AUTO LOAN/LEASE/FINANCE and VEHICLE PAYMENT. A bare "AUTO PAYMENT" is autopay wording and stays unflagged.
@@ -6658,7 +7761,7 @@ Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug an
     - **Residual, accepted.** 3 of those 159 rows (3 analyses) are the statement bank's overdraft fee for a `FIRST INSURANCE` item: the fee row prints the item's originator. They were `insurance` already, because the insurance rule (step 4) runs before the fee rule (step 6), and now they also carry the flag. No ledger spelling separates them, and a wording exception inside the insurance rule would need exact fee wording that no probe has measured. S2 accepts the 3 rows, and the census shows them. Rows of other groups are not affected this way: their item-fee rows stay `fee`, because step 6 runs before step 7.
     - **Premium-finance wording** (owner decision 2026-09-25). A row with `PREM FIN`, `PREMIUM FINANCE` or `INSPREMFIN` and no premium-finance alias is premium financing: 6 cache debits in 6 analyses, `insurance` today by the term rule. Its entity is the insurer the descriptor names, else `Insurance provider not identified`. The rule is read by `classify_transaction` only, so a credit's revenue treatment does not move.
     - The record keeps `match_method="insurance_provider_alias"` and gets `matched_rule="premium_finance_provider"` (or `"premium_finance_descriptor"` for the wording); C4 names none of these values.
-    - `flagged_group="premium_financing"` is set on debits only, as for every other group (item 3). A premium-finance credit carries no flag and keeps the insurance credit exclusion, which is "today's insurance treatment" in §4.2.
+    - `flagged_group="premium_financing"` is set on debits only, as for every other group but factoring, whose credits carry their flag since the owner's ruling of 2026-09-26 (item 3, Task 18). A premium-finance credit carries no flag and keeps the insurance credit exclusion, which is "today's insurance treatment" in §4.2.
     - S3's conformance test (the S3 task "Conformance with S2's real payload, and the re-run after S2") builds such a row from the first `PREMIUM_FINANCE_ALIASES` alias, and a floor-plan and a factoring row from the first alias of their tables. The dry run classified all six of its rows as S3 expects. Those rows exist only if the C10 ledger admits a payee in each table (Prerequisite 1).
 13. **Floor plan and factoring take no descriptor rule.** The amendment adds registries only; spec §4.3 step 8 is unchanged. D9's LOC override still covers only lenders, alternative positions and lines of credit, so a floor-plan payee with LOC wording stays floor plan (a Task 5 test pins this).
 14. **S1's classifier imports.** S1 adds `from .description_text import normalize_transaction_description` and `from .payee_matcher import registry_match` after the registry and revenue imports (the pre-C10 S1 tree did; Task 0's anchor lines check it on the merged tree). Task 4 widens the second line to `PayeeMatch, match_known_payee, registry_match`, and Task 5 replaces only the `from .classification_registry import (...)` block, so the classifier imports the matcher once.
@@ -6725,3 +7828,18 @@ Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug an
 - **Cross-plan consistency check (2026-09-25), after the runs above.**
   - The census's `GENERIC_WORDS` is now every word of S1's `tools.lender_ledger.GENERIC_WORDS` plus `FUNDER`, and one census test pins the superset: 15 census tests. The words are written out, not imported, because importing `tools.lender_ledger` loads this checkout's `analysis` package before `snapshot --code-root` can load the other checkout's, and `_use_code_root` would then refuse. With the widened set, the census's own test data classify as before: `FUNDING` is generic, and `TARNMOOR FUNDING`, `QUILLON FUNDING` and `BRAMBLEWAY CAPITAL` are not (checked on a scratch script).
   - Task 6 Step 4 lists S1's nine current test files, and "Why Task 0 checks more than C10's validator" lists only what S1's validator does not check.
+
+**The owner's ruling of 2026-09-26 (Task 18).**
+- **What it changes.** A factoring payee's credit is the business's sales paid by the factor: revenue (the operating-revenue path, as a `PAYOUT_CREDIT_ENTITIES` credit), never financing proceeds, and flagged. It is recorded as `factoring` under its payee, `matched_rule="factoring_revenue_credit"`, so the Flagged positions panel groups a factor's payouts with its debits. Floor plan and every other financing group keep D1.
+- **Choices made in writing it (for the orchestrator):**
+  - `FINANCING_STATES` keeps `factoring`. The set names the groups whose payee claims a credit at step 7, which a factoring payee still does, and S1's alias audit reads it with that meaning (`takes`, `_decides_credit` in `tools/lender_alias_audit.py`). The classifier's own `_FLAGGED_REVENUE_CREDIT_STATES` carries the exception, and C1's comment names it.
+  - The record takes the `factoring` state, not `other`: `flagged_group` then follows the state, as C4 states for every group but premium financing, and S3's fixtures (`row_state`) and S4's tags need no special case. A credit still shows its revenue tag first on the dashboard (S4, Task 1).
+  - A factoring credit that the reversal pass pairs with a debit leaves the flagged totals, as a settlement-reversed debit does: the pass reads it as money coming back, not a payout. Proven duplicates were already cleared.
+  - A factoring credit that an earlier rule claims (a transfer, an insurance term) keeps that state and carries no flag, as a debit claimed by an earlier rule does. Its revenue decision is no longer financing proceeds, so it stays in eligible deposits.
+  - `analyze.py` prints the credits beside the debits. `batch.py` (group and payee) and the benchmark (`count` and `total_debited`, debits only) need no edit.
+- **Replay (2026-09-26).** Every code block of Task 18 was applied, as written, to a scratch export of `3fe78e1` (49 replacements, each anchor matched once). The result equals the tree the measurements ran on:
+  - red phase `21 failed, 73 passed`; green `94 passed`;
+  - the S2 files `289 passed`; Core `395 passed`; Guards/JS `147 passed` and the known failure; Wider `309 passed`;
+  - S1's registry, matcher, speed and alias-audit tests: no new failure. The tests that read git history could not run in an export, and fail the same way on the unchanged export.
+  - The cache measurement of Step 11 read the whole cache (7,241 accounts) with both trees and printed the counts that step lists.
+- **Nothing here depends on the ledger's content** beyond the owner-named factoring payee RTS Financial (`test_the_owner_named_factor_pays_revenue_and_is_flagged`), which S1's validator already requires (`OWNER_NAMED_PAYEES`).
