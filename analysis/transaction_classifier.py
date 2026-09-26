@@ -7,19 +7,23 @@ from statistics import mean, pstdev
 from typing import Literal, Sequence, TYPE_CHECKING
 
 from .classification_registry import (
+    BANK_NAME_ALIASES,
     BANK_SPECIFIC_LENDER_ALIASES,
+    CARD_ISSUER_CONTEXT_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
-    LEASE_PROVIDER_ALIASES,
-    LEGACY_CONFIRMED_LENDER_ALIASES,
-    LEGACY_POTENTIAL_LENDER_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
+    PAYEE_GROUP_REGISTRIES,
+    PAYOUT_CREDIT_ENTITIES,
+    POTENTIAL_LENDER_ALIASES,
+    PREMIUM_FINANCE_ALIASES,
 )
 from .dates import parse_date
+from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
 from .revenue import RevenueState, revenue_contribution_flags
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
-from .payee_matcher import registry_match
+from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -29,6 +33,17 @@ ClassificationState = Literal[
     "confirmed_lender",
     "potential_lender",
     "insurance",
+    "alternative_position",
+    "line_of_credit",
+    "vehicle_financing",
+    "bank_loan",
+    "mortgage",
+    "lease_or_rental",
+    "personal_loan",
+    "floor_plan_financing",
+    "factoring",
+    # Retired in classification version 5.0: no rule produces it, but records
+    # stored before 5.0 carry it and must still validate (spec §4.1).
     "lease_or_equipment_financing",
     "fee",
     "transfer",
@@ -48,6 +63,15 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "confirmed_lender",
     "potential_lender",
     "insurance",
+    "alternative_position",
+    "line_of_credit",
+    "vehicle_financing",
+    "bank_loan",
+    "mortgage",
+    "lease_or_rental",
+    "personal_loan",
+    "floor_plan_financing",
+    "factoring",
     "lease_or_equipment_financing",
     "fee",
     "transfer",
@@ -63,7 +87,10 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "4.1"
+CLASSIFICATION_VERSION = "5.0"
+
+#: The entity of an unknown obligation whose descriptor names no organisation (D11).
+UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
 
 
 @dataclass(frozen=True)
@@ -102,6 +129,8 @@ class TransactionClassification:
     reason: str = "No higher-confidence classification rule matched."
     is_posted: bool = True
     review_required: bool = False
+    # Spec §4.2: the FlagGroup.key of a flag-group state, otherwise None.
+    flagged_group: str | None = None
     revenue_classification: RevenueState | None = None
     revenue_initial_classification: RevenueState | None = None
     revenue_canonical_entity: str | None = None
@@ -128,6 +157,9 @@ class TransactionClassification:
     contributes_to_potential_lender_totals: bool = False
     contributes_to_potential_withholding_exposure: bool = False
     contributes_to_insurance_totals: bool = False
+    # Spec §4.2: a posted flag-group debit; cleared for proven duplicates and
+    # settlement-reversed debits. Never read by lender, withholding or revenue math.
+    contributes_to_flagged_totals: bool = False
     contributes_to_verified_revenue: bool = False
     contributes_to_unverified_deposit: bool = False
     contributes_to_true_revenue: bool = False
@@ -170,30 +202,55 @@ class TransactionClassification:
         return tuple(categories)
 
 
-def _contains_alias(text: str, alias: str) -> bool:
-    normalized_alias = normalize_transaction_description(alias)
-    if not normalized_alias:
-        return False
-    return re.search(
-        rf"(?<![A-Z0-9]){re.escape(normalized_alias)}(?![A-Z0-9])",
-        text,
-    ) is not None
-
-
-def _registry_match(
-    text: str,
-    registry: dict[str, tuple[str, ...]],
-) -> tuple[str, str] | None:
-    # Spec section 4.6: the aliases are normalized and indexed once per registry, not on every call.
-    return registry_match(text, registry)
+#: The ACH token, compiled once (it used to be re-normalized on every row).
+_ACH_TOKEN = re.compile(r"(?<![A-Z0-9])ACH(?![A-Z0-9])")
 
 
 def match_verified_lender_alias(description: str) -> tuple[str, str] | None:
-    return _registry_match(normalize_transaction_description(description), LEGACY_CONFIRMED_LENDER_ALIASES)
+    return registry_match(
+        normalize_transaction_description(description),
+        PAYEE_GROUP_REGISTRIES["confirmed_lender"],
+    )
 
 
 def match_insurance_provider(description: str) -> tuple[str, str] | None:
-    return _registry_match(normalize_transaction_description(description), INSURANCE_PROVIDER_ALIASES)
+    return registry_match(normalize_transaction_description(description), INSURANCE_PROVIDER_ALIASES)
+
+
+#: The flag group of an insurance row whose insurer is a premium-finance payee
+#: (C1: the one flag group that is not a classification state).
+_PREMIUM_FINANCING_GROUP = "premium_financing"
+
+#: Owner ruling 2026-09-26: a factor's payout is the business's own sales, paid
+#: by the factor that bought its invoices. A credit from a payee of these states
+#: is not financing proceeds: it takes the operating-revenue path, as a
+#: PAYOUT_CREDIT_ENTITIES credit does, and it still carries its group's flag (C4).
+_FLAGGED_REVENUE_CREDIT_STATES: frozenset[str] = frozenset({"factoring"})
+
+
+def _insurance_registry_match(text: str) -> tuple[str, str, bool] | None:
+    """Spec §4.3 step 4: the insurer of an insurance row, as (entity, alias, premium_finance).
+
+    Premium-finance payees (`PREMIUM_FINANCE_ALIASES`, spec §4.2) are consulted
+    first, so a premium financier whose name contains an insurer's name is still
+    the premium financier.
+    """
+    premium = registry_match(text, PREMIUM_FINANCE_ALIASES)
+    if premium is not None:
+        return premium[0], premium[1], True
+    insurer = registry_match(text, INSURANCE_PROVIDER_ALIASES)
+    if insurer is not None:
+        return insurer[0], insurer[1], False
+    return None
+
+
+#: Owner decision 2026-09-25 (premium_finance_wording): premium-finance wording on
+#: a row no premium-finance alias claimed is premium financing too. Read by the
+#: insurance rule of `classify_transaction` only; credit revenue reads the registries.
+_PREMIUM_FINANCE_WORDING_PATTERNS = (
+    re.compile(r"\bPREM(?:IUM)? ?FIN(?:ANCE|ANCING)?\b"),
+    re.compile(r"\bINSPREMFIN\b"),
+)
 
 
 _NON_POSTED_PATTERNS = (
@@ -271,6 +328,9 @@ _FEE_PATTERNS = (
     re.compile(r"\bMERCHANT PROCESSING\b"),
     re.compile(r"\bPROCESSING CHARGE\b"),
     re.compile(r"\bMONTHLY CHARGE\b"),
+    # Owner decision 2026-09-25: the bank's overdraft charge for an item is a fee,
+    # even when it prints the item's payee (step 6 runs before the known payee).
+    re.compile(r"\bOVERDRAFT CHARGES?\b"),
 )
 _TRANSFER_PATTERNS = (
     re.compile(r"\b(?:INTERNAL|ONLINE|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
@@ -310,21 +370,102 @@ _RENT_PATTERNS = (
     re.compile(r"\bLANDLORD\b"),
     re.compile(r"\bPROPERTY RENTAL\b"),
 )
-_LEASE_PATTERNS = (
+#: POS precedence is unchanged (spec §4.3 step 5): a card row with lease,
+#: equipment-financing or vehicle wording is not a POS purchase. These rows are
+#: then decided by the step-8 descriptors.
+_POS_LEASE_EXCLUSION_PATTERNS = (
     re.compile(r"\bLEASE(?:S|D| PAYMENT| PMT)?\b"),
     re.compile(r"\bEQUIPMENT (?:FINANCING|FINANCE|RENT|RENTAL|PAYMENT)\b"),
     re.compile(r"\bVEHICLE (?:FINANCING|FINANCE|LEASE|PAYMENT)\b"),
     re.compile(r"\bAUTO LEASE\b"),
 )
 _CREDIT_CARD_PATTERNS = (
-    re.compile(r"\bCREDIT CARD (?:PAYMENT|PMT|PYMT)\b"),
+    # One bank prints its ECS channel word between CREDIT CARD and PAYMENT.
+    re.compile(r"\bCREDIT CARD (?:ECS )?(?:PAYMENT|PMT|PYMT)\b"),
     re.compile(r"\bCARDMEMBER SERVICES?\b"),
     re.compile(r"\b(?:VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS) (?:PAYMENT|PMT|PYMT|EPAYMENT)\b"),
+    # The card network itself as the ACH originator, with a PAYMENT entry in its own
+    # field (Bank of America's DES field; Chase's CO ENTRY DESCR field).
+    re.compile(r"\b(?:VISA|MASTER ?CARD) DES (?:PAYMENT|PMT|PYMT|EPAYMENT)\b"),
+    re.compile(r"\bORIG CO NAME (?:VISA|MASTER ?CARD) ORIG ID\b.*?\bCO ENTRY DESCR (?:PAYMENT|PMT|PYMT|EPAYMENT)\b"),
     re.compile(r"\bATB MASTER ?CARD\b"),
     re.compile(r"\bCAPITAL ONE\b.*\b(?:ONLINE PMT|CARD PAYMENT|PAYMENT)\b"),
     re.compile(r"\bCAPITAL ?ON ?TAP\b"),
-    re.compile(r"\bPAYMENT TO (?:VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS)\b"),
+    # A payment to a card account named only by its type.
+    re.compile(r"\b(?:PAYMENT|PMT|PYMT) TO (?:CRD|CREDIT CARD|VSA|VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS)\b"),
 )
+#: Owner decision 2026-09-25 (step8_own_account_transfer_guard): a fintech transfer
+#: between the holder's own accounts takes no step-8 rule, whatever the holder
+#: named the sub-account.
+_OWN_ACCOUNT_TRANSFER_GUARD = re.compile(r"^TRANSFER (?:TO|FROM) .+ (?:ACCOUNT )?TRANSFER (?:OUT|IN)$")
+#: Owner decision 2026-09-25 (floor_plan_per_vehicle): a per-vehicle floor-plan payoff.
+_FLOOR_PLAN_PAYOFF_PATTERN = re.compile(r"^PAYOFF (?:19|20)\d\d .*\bVIN\b")
+#: A home-equity loan is a second mortgage (owner decision 2026-09-25). It has no
+#: leading word boundary, so a run-together payee nickname matches too.
+_MORTGAGE_PATTERNS = (re.compile(r"\bMORTGAGES?\b"), re.compile(r"HOME ?EQUITY ?LOANS?\b"))
+#: "AUTO PAYMENT" is a bank's autopay wording, not a car payment, so AUTO needs
+#: loan, lease or finance wording while VEHICLE may carry PAYMENT.
+_VEHICLE_FINANCING_PATTERNS = (
+    re.compile(r"\b(?:AUTO|CAR) (?:LOAN|LOANS|LEASE|FINANCE|FINANCING)\b"),
+    re.compile(r"\bVEHICLE (?:LOAN|LEASE|PAYMENT|PMT|PYMT|FINANCE|FINANCING)\b"),
+)
+#: Owner decision 2026-09-25 (student_loan_wording): an unnamed student-loan payee.
+_STUDENT_LOAN_PATTERNS = (
+    re.compile(r"\bSTUDENT ?LOANS?\b"),
+    re.compile(r"\bSTDNT ?LOANS?\b"),
+    re.compile(r"\bSTUDNT ?LOANS?\b"),
+    re.compile(r"\bSTUDENT LN\b"),
+)
+#: D5 loan wording for the bank-name rule. French PRET is loan wording too (owner
+#: decision 2026-09-25).
+_LOAN_WORD_PATTERNS = (re.compile(r"\bLOANS?\b"), re.compile(r"\bPRETS?\b"))
+#: D5: a transfer to the statement bank's own loan account.
+_OWN_LOAN_TRANSFER_PATTERNS = (
+    re.compile(r"\b(?:TRANSFER|TFR) TO (?:MY |YOUR )?LOAN\b"),
+    re.compile(r"\bLOAN (?:TRANSFER|TFR)\b"),
+)
+#: D5, owner decisions 2026-09-25. Another bank's loan whose originator is only a
+#: generic bank or loan name: the statement bank is not the lender.
+_OUTSIDE_BANK_LOAN_PATTERNS = (
+    re.compile(r"\bORIG CO NAME COMMERCIAL LOAN\b"),
+    re.compile(r"\bSAVINGS BANK LOAN (?:PAYMENT|PMT|PYMT)\b"),
+)
+#: The statement bank's own loan-payment wording, commercial-loan billing and
+#: French loan wording, with no lender named. A bare PRET is never enough: it is
+#: also a restaurant's name and a named funder's term-loan word.
+_OWN_LOAN_PAYMENT_PATTERNS = (
+    re.compile(r"\bAUTOMATIC LOAN (?:PAYMENT|PMT|PYMT|PAY)\b"),
+    re.compile(r"\bAUTOMATED LOAN PAYMENT\b"),
+    re.compile(r"\bPAYMENT TO (?:CMML |COMMERCIAL )?LOAN\b"),
+)
+_COMMERCIAL_LOAN_BILLING_PATTERNS = (
+    re.compile(r"\b(?:INTEREST|PRINCIPAL|LATE CHARGE) PAYMENT CUSTOMER \d+ OBLIGATION \d+"),
+)
+_FRENCH_OWN_LOAN_PATTERNS = (
+    re.compile(r"\bVERSEMENT PRET\b"),
+    re.compile(r"\bINTERETS? SUR PRET\b"),
+    re.compile(r"\b(?:VERS|INT) P A TERME\b"),
+    re.compile(r"\bPMT PRET\b"),
+    re.compile(r"\bPRET PMT\b"),
+)
+#: D3: PROPERTY RENTAL is landlord rent, never a flagged rental.
+_LEASE_RENTAL_PATTERNS = (
+    re.compile(r"\bLEAS(?:E|ES|ED|ING)\b"),
+    re.compile(r"(?<!PROPERTY )\bRENTALS?\b"),
+    re.compile(r"\bEQUIPMENT (?:RENT|PAYMENT)\b"),
+)
+#: A listed card issuer (CARD_ISSUER_CONTEXT_ALIASES) counts only with card or payment
+#: wording. Owner decision 2026-09-25: Synchrony's PAYMNT, and a payment word glued to
+#: the SEC label in Chase's field layout, are payment wording too.
+_CARD_PAYMENT_CONTEXT_PATTERNS = (
+    re.compile(r"\b(?:CREDIT CARD|CRCARD|CRD|CARD|CARDMEMBER)\b"),
+    re.compile(
+        r"\b(?:AUTOPAY|AUTO PAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)\b"
+        r"|\b(?:AUTOPAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)SEC\b"
+    ),
+)
+#: D4: equipment financing with no named company.
+_EQUIPMENT_FINANCING_PATTERNS = (re.compile(r"\bEQUIPMENT (?:FINANCING|FINANCE)\b"),)
 _CHECK_PATTERNS = (
     re.compile(r"\bCHECKS?\b"),
     re.compile(r"\bCHEQUES?\b"),
@@ -348,6 +489,22 @@ _DIRECT_DEBIT_LOAN_PATTERNS = (
     re.compile(r"\b(?:DIRECT DEB(?:IT)?|ACH DEBIT|BUSINESS PAD)\b.*\bLOANS?\b"),
     re.compile(r"\bLOANS?\b.*\b(?:DIRECT DEB(?:IT)?|ACH DEBIT|BUSINESS PAD)\b"),
 )
+#: D10: a loan servicer or debt collector whose funder is not in a registry.
+#: (A servicer whose funder is known is an alias of that funder in the registry, via the C10 ledger.)
+#: MCA SERVICING: owner decision 2026-09-25 (the words stay out of every alias table).
+_SERVICER_COLLECTOR_PATTERNS = (
+    re.compile(r"\bSERVICER\b"),
+    re.compile(r"\bLOAN SERVICING\b"),
+    re.compile(r"\bMCA SERVICING\b"),
+    re.compile(r"\bDEBT (?:COLLECTION|COLLECTIONS|COLLECTOR|COLLECTORS)\b"),
+    re.compile(r"\bCOLLECTION AGENCY\b"),
+)
+#: D5, owner decision 2026-09-25 (d5_unnamed_loan_payment): loan-payment wording
+#: (normalization already reads LN as LOAN and PAYMT as PAYMENT) ...
+_UNNAMED_LOAN_PAYMENT_PATTERNS = (re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),)
+#: ... on a row whose D11 payee words are only a bank's template words, or none:
+#: the payment names no lender, so it is the statement bank's own loan.
+_BANK_TEMPLATE_WORDS = frozenset({"NO", "BR", "AUTOMATED", "COMPTE", "DIVERS"})
 _EXPLICIT_REPAYMENT_PATTERNS = (
     re.compile(r"\bLOAN (?:PAYMENT|PMT|PYMT|REPAYMENT)\b"),
     re.compile(r"\b(?:PAYMENT|PMT|PYMT|REPAYMENT) (?:ON |FOR )?(?:A )?LOAN\b"),
@@ -568,6 +725,7 @@ def _classify_credit_revenue(
     posted: bool,
     account_name: str | None,
     direction_consistent: bool,
+    bank: str | None = None,
 ) -> _RevenueDecision | None:
     if amount <= 0 or not posted:
         return None
@@ -595,9 +753,10 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    insurance_match = _registry_match(text, INSURANCE_PROVIDER_ALIASES)
+    # A premium-finance credit keeps the insurance credit treatment (spec §4.2).
+    insurance_match = _insurance_registry_match(text)
     if insurance_match is not None:
-        entity, alias = insurance_match
+        entity, alias, _premium_finance = insurance_match
         return _RevenueDecision(
             "non_revenue",
             entity,
@@ -608,20 +767,44 @@ def _classify_credit_revenue(
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
             context_signals=("credit_direction", "insurance_provider"),
         )
-    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
-    if lender_match is not None:
-        entity, alias = lender_match
+    # Spec §4.4 / D1: a credit from a financing group is proceeds. It is decided
+    # before the operating-revenue registry, and group aliases are
+    # financing-specific (SQUARE CAPITAL, never bare SQUARE), so a platform's
+    # sales settlement still reaches the operating registry below. Card-issuer
+    # and lease/rental payees never apply to credits, and neither does a
+    # payout-credit entity (owner decision 2026-09-25).
+    financing_match = _financing_proceeds_payee(text)
+    if financing_match is not None:
         return _RevenueDecision(
             "non_revenue",
-            entity,
-            "lender_registry_credit_exclusion",
-            alias,
-            "confirmed_lender_funding_credit",
+            financing_match.entity,
+            "financing_proceeds_credit",
+            financing_match.alias,
+            "financing_proceeds_credit",
             0.99,
-            f"Credit matched confirmed lender alias '{alias}' and is funding, not revenue.",
-            context_signals=("credit_direction", "confirmed_lender_source"),
+            (
+                f"Credit matched maintained {_state_words(financing_match.state)} alias "
+                f"'{financing_match.alias}'; financing proceeds are not revenue."
+            ),
+            context_signals=("credit_direction", "financing_proceeds"),
         )
-    potential_lender_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
+    # D1 by descriptor (owner decisions 2026-09-25). `_descriptor_proceeds` keeps
+    # the potential registry and the strong non-revenue rule below ahead of a
+    # line-of-credit draw or a floor-plan advance.
+    descriptor_proceeds = _descriptor_proceeds(text)
+    if descriptor_proceeds is not None:
+        rule, names_bank = descriptor_proceeds
+        return _RevenueDecision(
+            "non_revenue",
+            (bank or None) if names_bank else None,
+            "financing_proceeds_credit",
+            None,
+            rule,
+            0.97,
+            f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are not revenue.",
+            context_signals=("credit_direction", "financing_proceeds"),
+        )
+    potential_lender_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
     if potential_lender_match is not None:
         entity, alias = potential_lender_match
         return _RevenueDecision(
@@ -633,19 +816,6 @@ def _classify_credit_revenue(
             0.95,
             f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
             context_signals=("credit_direction", "potential_lender_source"),
-        )
-    lease_match = _registry_match(text, LEASE_PROVIDER_ALIASES)
-    if lease_match is not None:
-        entity, alias = lease_match
-        return _RevenueDecision(
-            "non_revenue",
-            entity,
-            "lease_provider_credit_exclusion",
-            alias,
-            "lease_or_equipment_financing_credit",
-            0.95,
-            f"Credit matched lease or equipment-financing alias '{alias}' and is not operating revenue.",
-            context_signals=("credit_direction", "lease_provider"),
         )
     if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS):
         return _RevenueDecision(
@@ -662,7 +832,7 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    revenue_match = _registry_match(text, OPERATING_REVENUE_SOURCE_ALIASES)
+    revenue_match = registry_match(text, OPERATING_REVENUE_SOURCE_ALIASES)
     if revenue_match is not None:
         entity, alias = revenue_match
         source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
@@ -739,37 +909,88 @@ def _classify_credit_revenue(
     )
 
 
+#: Channel and payment words that never name a payee (D11).
 _ENTITY_NOISE = {
-    "ACH", "EFT", "DEBIT", "DIRECT", "DEB", "EXTERNAL", "WITHDRAWAL",
-    "AUTOMATIC", "AUTO", "W", "D", "ORIG", "ORIGINATOR", "CO", "COMPANY",
-    "NAME", "DESCR", "DESCRIPTION", "ENTRY", "DETAIL", "PAYMENT", "PAYMENTS",
-    "PAY", "PMT", "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE",
-    "WEB", "CCD", "PPD", "LOAN", "MCA", "TO", "FROM", "FOR",
+    "ACH", "EFT", "DEBIT", "DIRECT", "DEB", "EXTERNAL", "WITHDRAWAL", "ELECTRONIC",
+    "PREAUTHORIZED", "PREAUTH", "AUTOMATIC", "AUTO", "ORIG", "ORIGINATOR", "NAME",
+    "DESCR", "DESCRIPTION", "ENTRY", "DETAIL", "PAYMENT", "PAYMENTS", "PAY", "PMT",
+    "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE", "WEB", "CCD", "PPD",
+    "LOAN", "MCA", "TO", "FROM", "FOR", "TFR", "XFER", "TRANSFER", "MISC",
 }
-_ENTITY_ACRONYMS = {"ACH", "BDC", "CMCA", "EFT", "LLC", "MCA", "SBA", "SNAP"}
+#: Financing words that describe the payment, not the payee, when they lead the name.
+_GENERIC_ENTITY_WORDS = {"FINANCE", "FINANCING", "FUNDING", "CAPITAL", "FUNDER", "ADVANCE"}
+#: D11: a name is published only when one of these organisation cues survives.
+#: The last eight are the registry-style company tokens (legal-form suffixes).
+_ORGANISATION_CUES = {
+    "LLC", "INC", "CORP", "CO", "FUNDING", "CAPITAL", "FINANCIAL", "FINANCE", "BANK",
+    "CREDIT", "LENDING", "ADVANCE", "GROUP", "HOLDINGS", "SERVICES",
+    "CORPORATION", "COMPANY", "INCORPORATED", "LTD", "LIMITED", "LP", "LLP", "PLLC",
+}
+_ENTITY_MONTHS = {
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "SEPT", "OCT", "NOV",
+    "DEC", "JANUARY", "FEBRUARY", "MARCH", "APRIL", "JUNE", "JULY", "AUGUST", "SEPTEMBER",
+    "OCTOBER", "NOVEMBER", "DECEMBER",
+}
+_ENTITY_ACRONYMS = {"ACH", "BDC", "CMCA", "EFT", "LLC", "LLP", "LP", "MCA", "PLLC", "SBA", "SNAP"}
+#: Labels that introduce the originator's name: the label goes, the name stays.
+_ENTITY_NAME_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIGINATOR NAME|COMPANY NAME|CO NAME)\b")
+#: D11: ACH field segments. Everything from the first one on is dropped, so a
+#: name is never built from ID, INDN, IND NAME, CO ID, TRACE or similar fields.
+_ACH_FIELD_SEGMENT = re.compile(
+    r"\b(?:DES|DESC|DESCR|ORIG ID|CO ID|IND ID|IND NAME|INDN|IND|ID|TRACE|SEC|EED|TRN|"
+    r"CONF|REF|MEMO|CUST|TYPE)\b"
+)
+_MASKED_TOKEN = re.compile(r"X{2,}[A-Z0-9]*")
+_MAX_ENTITY_TOKENS = 4
+
+
+def _is_reference_token(token: str) -> bool:
+    return (
+        any(character.isdigit() for character in token)
+        or _MASKED_TOKEN.fullmatch(token) is not None
+        or token in _ENTITY_MONTHS
+    )
+
+
+def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
+    """D11: the payee words of an unknown counterparty, at most four.
+
+    Removes originator-name labels, cuts at the first ACH field segment, drops
+    channel words, single letters and leading financing words, and stops at the
+    first reference token (digits, a masked number or a month) once a name has
+    started, so a person's name printed after the references never joins it.
+    """
+    text = _ENTITY_NAME_LABELS.sub(" ", text)
+    segment = _ACH_FIELD_SEGMENT.search(text)
+    if segment is not None:
+        text = text[: segment.start()]
+    tokens: list[str] = []
+    for token in text.split():
+        if token in _ENTITY_NOISE or len(token) == 1:
+            continue
+        if _is_reference_token(token):
+            if tokens:
+                break
+            continue
+        if not tokens and token in _GENERIC_ENTITY_WORDS:
+            continue
+        tokens.append(token)
+        if len(tokens) == _MAX_ENTITY_TOKENS:
+            break
+    return tuple(tokens)
+
+
+def _unknown_payee_name(tokens: Sequence[str]) -> str | None:
+    """D11: the published name, the unidentified label, or None when no payee is named."""
+    if not tokens:
+        return None
+    if not any(token in _ORGANISATION_CUES for token in tokens):
+        return UNIDENTIFIED_LENDER_OBLIGATION
+    return " ".join(token if token in _ENTITY_ACRONYMS else token.title() for token in tokens)
 
 
 def _canonical_unknown_entity(text: str) -> str | None:
-    tokens: list[str] = []
-    for token in text.split():
-        if token in _ENTITY_NOISE:
-            continue
-        if token.isdigit() and len(token) >= 4:
-            continue
-        if re.fullmatch(r"X{2,}\d*", token):
-            continue
-        if re.fullmatch(r"(?:TRACE|REF|ID)\d+", token):
-            continue
-        if re.fullmatch(r"\d{1,2}(?:\d{1,2}){1,2}", token):
-            continue
-        tokens.append(token)
-    if not tokens:
-        return None
-    meaningful = [token for token in tokens if token not in {"FINANCE", "FINANCING", "FUNDING", "CAPITAL", "FUNDER"}]
-    if not meaningful:
-        return None
-    rendered = [token if token in _ENTITY_ACRONYMS else token.title() for token in tokens[:8]]
-    return " ".join(rendered)
+    return _unknown_payee_name(_unknown_payee_tokens(text))
 
 
 def _build_record(
@@ -795,20 +1016,38 @@ def _build_record(
     is_posted: bool = True,
     review_required: bool = False,
     contributes_to_lender_credit_exclusion: bool = False,
+    flagged_group: str | None = None,
 ) -> TransactionClassification:
     is_debit = amount < 0
     contributes_lender = classification == "confirmed_lender" and is_debit and is_posted
     contributes_potential = classification == "potential_lender" and is_debit and is_posted
     contributes_insurance = classification == "insurance" and is_debit and is_posted
+    flag_group = FLAG_GROUP_BY_STATE.get(classification)
+    # A flag-group state names its own group. Premium financing is the one group
+    # a rule passes in, on an insurance row (C1, C4).
+    group_key = flag_group.key if flag_group is not None else flagged_group
+    # A posted debit of a flag group counts in the flagged totals, and so does a
+    # posted credit of a group whose credits are flagged revenue (owner ruling
+    # 2026-09-26: factoring; C5 count_credited and total_credited).
+    contributes_flagged = group_key is not None and is_posted and (
+        is_debit or (amount > 0 and classification in _FLAGGED_REVENUE_CREDIT_STATES)
+    )
     revenue = _classify_credit_revenue(
         text,
         amount,
         posted=is_posted,
+        bank=bank,
         account_name=account_name,
         direction_consistent=direction_consistent,
     )
     revenue_state = revenue.classification if revenue is not None else None
     revenue_flags = revenue_contribution_flags(revenue_state)
+    # Contract C4, spec §4.4: a credit whose revenue decision is financing proceeds (D1) is
+    # also excluded from eligible deposits, whichever rule named the row. A transfer or an
+    # insurance term can claim a financing group's credit before step 7. A payout-credit
+    # entity's credit and a premium-finance payee's credit never reach this revenue decision.
+    if revenue is not None and revenue.match_method == "financing_proceeds_credit":
+        contributes_to_lender_credit_exclusion = True
     return TransactionClassification(
         original_description=description,
         normalized_description=text,
@@ -831,6 +1070,7 @@ def _build_record(
         reason=reason,
         is_posted=is_posted,
         review_required=review_required,
+        flagged_group=group_key,
         revenue_classification=revenue_state,
         revenue_initial_classification=revenue_state,
         revenue_canonical_entity=revenue.canonical_entity if revenue else None,
@@ -853,13 +1093,363 @@ def _build_record(
         contributes_to_potential_lender_totals=contributes_potential,
         contributes_to_potential_withholding_exposure=contributes_potential,
         contributes_to_insurance_totals=contributes_insurance,
+        contributes_to_flagged_totals=contributes_flagged,
         **revenue_flags,
         contributes_to_lender_credit_exclusion=contributes_to_lender_credit_exclusion,
-        is_ach=_contains_alias(text, "ACH"),
+        is_ach=_ACH_TOKEN.search(text) is not None,
         is_check=_matches_any(text, _CHECK_PATTERNS),
         is_loan_payment=_matches_any(text, _EXPLICIT_REPAYMENT_PATTERNS),
         is_pos_context=_matches_any(text, _POS_PATTERNS),
     )
+
+
+def _state_words(state: str) -> str:
+    return state.replace("_", " ")
+
+
+#: D9: LOC wording. Also the first step-8 descriptor rule (Task 8).
+_LINE_OF_CREDIT_PATTERNS = (
+    re.compile(r"\bLOC\b"),
+    re.compile(r"\bLINE OF CREDIT\b"),
+)
+#: D9: known-payee groups that LOC wording moves to lines of credit.
+_LOC_OVERRIDE_STATES = frozenset({"confirmed_lender", "alternative_position", "line_of_credit"})
+
+
+def _known_payee_debit_record(
+    common: dict[str, object],
+    text: str,
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """Spec §4.3 step 7 and D9: a debit to a known payee takes the payee's group."""
+    if match.state in _LOC_OVERRIDE_STATES and _matches_any(text, _LINE_OF_CREDIT_PATTERNS):
+        return _build_record(
+            **common,
+            classification="line_of_credit",
+            canonical_entity=match.entity,
+            match_method="known_payee_alias",
+            matched_alias=match.alias,
+            matched_rule="line_of_credit_descriptor_override",
+            confidence_score=0.97,
+            reason=(
+                f"Matched maintained {_state_words(match.state)} alias '{match.alias}', and the "
+                "descriptor says LOC or line of credit, so the row is a line of credit (D9)."
+            ),
+        )
+    if match.state == "confirmed_lender":
+        return _build_record(
+            **common,
+            classification="confirmed_lender",
+            canonical_entity=match.entity,
+            match_method="verified_lender_alias",
+            matched_alias=match.alias,
+            matched_rule="confirmed_lender_registry",
+            confidence_score=0.99,
+            reason=f"Matched maintained lender alias '{match.alias}' after all strong exclusions.",
+        )
+    return _build_record(
+        **common,
+        classification=match.state,
+        canonical_entity=match.entity,
+        match_method="known_payee_alias",
+        matched_alias=match.alias,
+        matched_rule=f"{match.state}_registry",
+        confidence_score=0.97,
+        reason=(
+            f"Matched maintained {_state_words(match.state)} alias '{match.alias}'; "
+            "it is a flagged obligation and never enters lender math."
+        ),
+    )
+
+
+#: Owner decision 2026-09-25 (Klarna Inc): an alternative-position payee's paid
+#: membership, or a top-up of the customer's own balance with it, printed right
+#: after the payee's alias, is not a repayment. The words are read after the
+#: matched alias, so no payee name is written here.
+_MEMBERSHIP_OR_TOP_UP_AFTER_ALIAS = (
+    r" (?:PLUS|PLU|MEM|MEMB|MEMBER|MEMBERSHIP)\b",
+    r" BALANCE TOP ?(?:UP|U)\b",
+)
+
+
+def _is_membership_or_top_up(text: str, match: PayeeMatch) -> bool:
+    """True when a debit to an alternative-position payee is its membership or a balance top-up."""
+    if match.state != "alternative_position":
+        return False
+    alias = re.escape(match.alias)
+    return any(re.search(rf"\b{alias}{tail}", text) for tail in _MEMBERSHIP_OR_TOP_UP_AFTER_ALIAS)
+
+
+def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
+    """D1: the known payee whose credit is financing proceeds, or None.
+
+    Owner decision 2026-09-25: the credits of a payout-credit entity
+    (PAYOUT_CREDIT_ENTITIES) are the account holder's own sales settled by the
+    platform, so they are revenue; that entity's debits keep their group.
+    Owner ruling 2026-09-26: a factoring payee's credits are the business's own
+    sales paid by the factor, so they are revenue too, and they keep the
+    factoring flag (_FLAGGED_REVENUE_CREDIT_STATES).
+    """
+    match = match_known_payee(text)
+    if (
+        match is None
+        or match.state not in FINANCING_STATES
+        or match.state in _FLAGGED_REVENUE_CREDIT_STATES
+        or match.entity in PAYOUT_CREDIT_ENTITIES
+    ):
+        return None
+    return match
+
+
+#: D1 by descriptor (owner decisions 2026-09-25): credits whose own words say they
+#: are financing proceeds, with no registry payee named. Credits only.
+_BANK_LINE_ADVANCE_CREDIT = re.compile(r"^LOAN CREDIT$")
+_LOC_DRAW_CREDIT_PATTERNS = (
+    re.compile(r"\b(?:LOC|LINE OF CREDIT) (?:ADVANCE|ADV|DRAW)\b"),
+    re.compile(r"\bADVANCE FROM (?:LOC|LINE OF CREDIT)\b"),
+    re.compile(r"\bDRAW (?:ON|FROM) (?:LOC|LINE OF CREDIT)\b"),
+)
+_FLOOR_PLAN_ADVANCE_CREDIT = re.compile(r"^ADVANCE (?:19|20)\d\d .*\bVIN\b")
+
+
+def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
+    """D1 by descriptor: (rule, whether the statement bank is the lender), or None.
+
+    Read after the known-payee check. The bank's own line advance (exactly
+    LOAN CREDIT) is decided there, ahead of the strong non-revenue rule that
+    would otherwise claim it. A line-of-credit draw or a per-vehicle floor-plan
+    advance counts only when no potential alias and no strong non-revenue rule
+    (an own-account transfer, for example) claims the credit.
+    """
+    if _BANK_LINE_ADVANCE_CREDIT.search(text):
+        return "bank_line_advance_credit", True
+    if registry_match(text, POTENTIAL_LENDER_ALIASES) is not None or _matches_any(
+        text, _NON_REVENUE_CREDIT_PATTERNS
+    ):
+        return None
+    if _matches_any(text, _LOC_DRAW_CREDIT_PATTERNS):
+        return "loc_draw_credit", True
+    if _FLOOR_PLAN_ADVANCE_CREDIT.search(text):
+        return "floor_plan_advance_credit", False
+    return None
+
+
+def _financing_proceeds_credit_record(
+    common: dict[str, object],
+    amount: float,
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """D1: a credit from a financing group is proceeds, excluded from eligible deposits."""
+    return _build_record(
+        **common,
+        classification="other",
+        canonical_entity=match.entity,
+        match_method="financing_proceeds_credit",
+        matched_alias=match.alias,
+        matched_rule="financing_proceeds_credit",
+        confidence_score=0.97,
+        reason=(
+            f"Matched maintained {_state_words(match.state)} alias '{match.alias}' on a credit; "
+            "financing proceeds are excluded from lender debits and eligible deposits."
+        ),
+        contributes_to_lender_credit_exclusion=amount > 0,
+    )
+
+
+def _flagged_revenue_credit_record(
+    common: dict[str, object],
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """Owner ruling 2026-09-26: a factoring payee's credit is the business's own sales, paid by the factor.
+
+    The row takes the payee's group, so it carries the group's flag and counts in
+    the flagged totals as a credit. Its revenue decision is the operating-revenue
+    path's (the payee is skipped there), so it is never financing proceeds and it
+    stays in eligible deposits.
+    """
+    return _build_record(
+        **common,
+        classification=match.state,
+        canonical_entity=match.entity,
+        match_method="known_payee_alias",
+        matched_alias=match.alias,
+        matched_rule=f"{match.state}_revenue_credit",
+        confidence_score=0.97,
+        reason=(
+            f"Matched maintained {_state_words(match.state)} alias '{match.alias}' on a credit: a "
+            "factor's payout is the business's own sales, so it stays revenue and in eligible "
+            "deposits, and it is flagged as a factoring position (owner ruling)."
+        ),
+    )
+
+
+def _descriptor_proceeds_credit_record(
+    common: dict[str, object],
+    amount: float,
+    proceeds: tuple[str, bool],
+    bank: str | None,
+) -> TransactionClassification:
+    """D1 by descriptor: the credit's own words say it is financing proceeds."""
+    rule, names_bank = proceeds
+    return _build_record(
+        **common,
+        classification="other",
+        canonical_entity=(bank or None) if names_bank else None,
+        match_method="financing_proceeds_credit",
+        matched_rule=rule,
+        confidence_score=0.95,
+        reason=(
+            f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are "
+            "excluded from lender debits and eligible deposits."
+        ),
+        contributes_to_lender_credit_exclusion=amount > 0,
+    )
+
+
+def _obligation_fields(
+    state: str,
+    rule: str,
+    reason: str,
+    *,
+    entity: str | None = None,
+    alias: str | None = None,
+    match_method: str = "obligation_descriptor",
+) -> dict[str, object]:
+    return {
+        "classification": state,
+        "canonical_entity": entity,
+        "match_method": match_method,
+        "matched_alias": alias,
+        "matched_rule": rule,
+        "confidence_score": 0.95,
+        "reason": f"{reason} It is a flagged obligation and never enters lender math.",
+    }
+
+
+def _descriptor_obligation(text: str, bank: str | None) -> dict[str, object] | None:
+    """Spec §4.3 step 8: obligation descriptors on a debit no known payee claimed.
+
+    The rules run in the spec's order, with the rules of the owner decisions of
+    2026-09-25 where their own placement puts them, and the first match wins.
+    Returns the `_build_record` keyword arguments, or None when no descriptor
+    rule matches.
+    """
+    # A transfer between the holder's own accounts takes no step-8 rule.
+    if _OWN_ACCOUNT_TRANSFER_GUARD.search(text):
+        return None
+    if _FLOOR_PLAN_PAYOFF_PATTERN.search(text):
+        return _obligation_fields(
+            "floor_plan_financing",
+            "floor_plan_payoff_descriptor",
+            "The descriptor is a per-vehicle floor-plan payoff.",
+        )
+    if _matches_any(text, _LINE_OF_CREDIT_PATTERNS):
+        return _obligation_fields(
+            "line_of_credit", "line_of_credit_descriptor", "The descriptor says LOC or line of credit."
+        )
+    if _matches_any(text, _MORTGAGE_PATTERNS):
+        return _obligation_fields(
+            "mortgage", "mortgage_descriptor", "The descriptor identifies a mortgage or home-equity loan payment."
+        )
+    if _matches_any(text, _VEHICLE_FINANCING_PATTERNS):
+        return _obligation_fields(
+            "vehicle_financing",
+            "vehicle_financing_descriptor",
+            "The descriptor identifies a vehicle loan, lease or payment.",
+        )
+    if _matches_any(text, _STUDENT_LOAN_PATTERNS):
+        return _obligation_fields(
+            "personal_loan", "student_loan_descriptor", "The descriptor identifies a student-loan payment."
+        )
+    bank_match = registry_match(text, BANK_NAME_ALIASES)
+    if bank_match is not None and _matches_any(text, _LOAN_WORD_PATTERNS):
+        entity, alias = bank_match
+        return _obligation_fields(
+            "bank_loan",
+            "bank_name_loan_payment",
+            f"A listed bank ('{alias}') with loan wording is a bank loan (D5).",
+            entity=entity,
+            alias=alias,
+            match_method="bank_name_alias",
+        )
+    if _matches_any(text, _OWN_LOAN_TRANSFER_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "own_bank_loan_transfer",
+            "The descriptor is a transfer to the statement bank's own loan (D5).",
+            entity=bank or None,
+        )
+    if _matches_any(text, _OUTSIDE_BANK_LOAN_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "outside_bank_loan_payment",
+            "The descriptor is another bank's loan payment, with no lender named (D5).",
+        )
+    if _matches_any(text, _OWN_LOAN_PAYMENT_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "own_bank_loan_payment",
+            "The descriptor is the statement bank's own loan-payment wording (D5).",
+            entity=bank or None,
+        )
+    if _matches_any(text, _COMMERCIAL_LOAN_BILLING_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "commercial_loan_billing",
+            "The descriptor is the statement bank's commercial-loan billing (D5).",
+            entity=bank or None,
+        )
+    if _matches_any(text, _FRENCH_OWN_LOAN_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "french_loan_wording",
+            "The descriptor is the statement bank's own French loan wording (D5).",
+            entity=bank or None,
+        )
+    # D5 (owner decision 2026-09-25): a loan payment that prints no payee is the
+    # statement bank's own loan, not a potential lender. The last D5 rule.
+    if _matches_any(text, _UNNAMED_LOAN_PAYMENT_PATTERNS) and (
+        set(_unknown_payee_tokens(text)) <= _BANK_TEMPLATE_WORDS
+    ):
+        return _obligation_fields(
+            "bank_loan",
+            "unnamed_loan_payment",
+            "The descriptor is a loan payment that names no lender: the statement bank's own loan (D5).",
+            entity=bank or None,
+        )
+    if _matches_any(text, _LEASE_RENTAL_PATTERNS):
+        return _obligation_fields(
+            "lease_or_rental",
+            "lease_or_rental_descriptor",
+            "The descriptor identifies a lease, rental or lease-to-own payment.",
+        )
+    issuer = registry_match(text, CARD_ISSUER_CONTEXT_ALIASES)
+    if _matches_any(text, _CREDIT_CARD_PATTERNS) or (
+        issuer is not None and _matches_any(text, _CARD_PAYMENT_CONTEXT_PATTERNS)
+    ):
+        entity, alias = issuer if issuer is not None else (None, None)
+        return _obligation_fields(
+            "credit_card_payment",
+            "credit_card_payment",
+            "The descriptor identifies a credit-card account payment.",
+            entity=entity,
+            alias=alias,
+        )
+    if _matches_any(text, _EQUIPMENT_FINANCING_PATTERNS):
+        named = _canonical_unknown_entity(_EQUIPMENT_FINANCING_PATTERNS[0].sub(" ", text))
+        return {
+            "classification": "potential_lender",
+            "canonical_entity": named or UNIDENTIFIED_LENDER_OBLIGATION,
+            "match_method": "unnamed_equipment_financing",
+            "matched_rule": "equipment_financing_without_verified_entity",
+            "confidence_score": 0.72,
+            "reason": (
+                "Equipment financing with no named, verified company is a potential "
+                "lender; it requires review (D4)."
+            ),
+            "review_required": True,
+        }
+    return None
 
 
 def classify_transaction(
@@ -879,7 +1469,7 @@ def classify_transaction(
     derived_direction = "credit" if amount >= 0 else "debit"
     source_direction = str(direction or derived_direction).strip().lower()
     direction_consistent = source_direction == derived_direction
-    common = {
+    common: dict[str, object] = {
         "description": description,
         "text": text,
         "amount": amount,
@@ -924,18 +1514,43 @@ def classify_transaction(
             reason="A refund, reversal, void, cancellation, or returned-payment rule matched.",
         )
 
-    insurance_match = _registry_match(text, INSURANCE_PROVIDER_ALIASES)
-    if insurance_match is not None:
-        provider, alias = insurance_match
+    insurance_match = _insurance_registry_match(text)
+    # Owner decision 2026-09-25: premium-finance wording on a row no premium-finance
+    # alias claimed is premium financing too, under the insurer when one is named.
+    premium_wording = (insurance_match is None or not insurance_match[2]) and _matches_any(
+        text, _PREMIUM_FINANCE_WORDING_PATTERNS
+    )
+    if insurance_match is not None or premium_wording:
+        provider, alias, premium_finance = insurance_match or ("Insurance provider not identified", None, False)
+        if premium_finance:
+            rule = "premium_finance_provider"
+            reason = (
+                f"Matched maintained premium-finance alias '{alias}'; the row stays insurance "
+                "and is also flagged as premium financing."
+            )
+        elif premium_wording:
+            rule = "premium_finance_descriptor"
+            reason = (
+                "The descriptor says premium finance; the row stays insurance and is also "
+                "flagged as premium financing."
+            )
+        else:
+            rule = "verified_insurance_provider"
+            reason = f"Matched maintained insurance provider alias '{alias}'."
         return _build_record(
             **common,
             classification="insurance",
             canonical_entity=provider,
-            match_method="insurance_provider_alias",
+            match_method="insurance_provider_alias" if alias is not None else "insurance_descriptor",
             matched_alias=alias,
-            matched_rule="verified_insurance_provider",
-            confidence_score=0.99,
-            reason=f"Matched maintained insurance provider alias '{alias}'.",
+            matched_rule=rule,
+            confidence_score=0.99 if alias is not None else 0.95,
+            reason=reason,
+            # Spec §4.2: premium financing keeps the insurance state and the
+            # insurance totals, and also carries its flag, on debits only.
+            flagged_group=(
+                _PREMIUM_FINANCING_GROUP if (premium_finance or premium_wording) and amount < 0 else None
+            ),
         )
 
     if _matches_any(text, _INSURANCE_TERM_PATTERNS):
@@ -949,16 +1564,24 @@ def classify_transaction(
             reason="Matched an insurance-specific provider or policy/premium descriptor.",
         )
 
+    # Spec §4.6: one lookup over every group registry. A known payee is excepted
+    # from the POS and ATM rules (D8) and takes its group at step 7 below.
+    known_payee = match_known_payee(text)
+    # Owner decision 2026-09-25: a membership or balance top-up debit of an
+    # alternative-position payee matches no known payee (steps 5 and 7).
+    if known_payee is not None and amount < 0 and _is_membership_or_top_up(text, known_payee):
+        known_payee = None
+
     if (
         amount < 0
+        and known_payee is None
         and _matches_any(text, _POS_PATTERNS)
         and not _matches_any(text, _POS_EXCLUSION_PATTERNS)
         and (
             "TRANSFER" not in text
             or _matches_any(text, _EXPLICIT_CARD_PURCHASE_PATTERNS)
         )
-        and not _matches_any(text, _LEASE_PATTERNS)
-        and _registry_match(text, LEASE_PROVIDER_ALIASES) is None
+        and not _matches_any(text, _POS_LEASE_EXCLUSION_PATTERNS)
     ):
         return _build_record(
             **common,
@@ -969,7 +1592,12 @@ def classify_transaction(
             reason="The posted debit is explicitly identified as a point-of-sale purchase.",
         )
 
-    if amount < 0 and _matches_any(text, _ATM_PATTERNS) and not _matches_any(text, _FEE_PATTERNS):
+    if (
+        amount < 0
+        and known_payee is None
+        and _matches_any(text, _ATM_PATTERNS)
+        and not _matches_any(text, _FEE_PATTERNS)
+    ):
         return _build_record(
             **common,
             classification="atm",
@@ -1029,19 +1657,31 @@ def classify_transaction(
             reason="The descriptor identifies a utility payment.",
         )
 
-    lease_match = _registry_match(text, LEASE_PROVIDER_ALIASES)
-    if lease_match is not None or _matches_any(text, _LEASE_PATTERNS):
-        entity, alias = lease_match or (None, None)
-        return _build_record(
-            **common,
-            classification="lease_or_equipment_financing",
-            canonical_entity=entity,
-            match_method="lease_provider_alias" if lease_match else "strong_non_lender_exclusion",
-            matched_alias=alias,
-            matched_rule="lease_or_equipment_financing",
-            confidence_score=0.98 if lease_match else 0.95,
-            reason="The descriptor identifies a lease, vehicle lease, or equipment-financing obligation.",
-        )
+    # Step 7: the known payee's group (D9 inside). A credit is proceeds only
+    # for a financing group (D1), and never for a payout-credit entity (owner
+    # decision 2026-09-25: its credits are the holder's own sales); a card-issuer
+    # or lease/rental payee on a credit falls through to the rules below. A
+    # factoring payee's credit is revenue and keeps the factoring flag (owner
+    # ruling 2026-09-26).
+    if known_payee is not None:
+        if amount < 0:
+            return _known_payee_debit_record(common, text, known_payee)
+        if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
+            return _flagged_revenue_credit_record(common, known_payee)
+        if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
+            return _financing_proceeds_credit_record(common, amount, known_payee)
+    # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
+    # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.
+    if amount > 0:
+        descriptor_proceeds = _descriptor_proceeds(text)
+        if descriptor_proceeds is not None:
+            return _descriptor_proceeds_credit_record(common, amount, descriptor_proceeds, bank)
+
+    # Step 8: obligation descriptors, debits only (D1: these never apply to credits).
+    if amount < 0:
+        obligation = _descriptor_obligation(text, bank)
+        if obligation is not None:
+            return _build_record(**common, **obligation)
 
     if _matches_any(text, _RENT_PATTERNS):
         return _build_record(
@@ -1051,16 +1691,6 @@ def classify_transaction(
             matched_rule="rent",
             confidence_score=0.95,
             reason="The descriptor identifies rent or a landlord payment.",
-        )
-
-    if _matches_any(text, _CREDIT_CARD_PATTERNS):
-        return _build_record(
-            **common,
-            classification="credit_card_payment",
-            match_method="strong_non_lender_exclusion",
-            matched_rule="credit_card_payment",
-            confidence_score=0.97,
-            reason="The descriptor identifies a credit-card account payment.",
         )
 
     if _matches_any(text, _CHECK_PATTERNS):
@@ -1083,35 +1713,9 @@ def classify_transaction(
             reason="The row is a subscription or membership payment with no verified lender evidence.",
         )
 
-    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
-    if lender_match is not None:
-        lender, alias = lender_match
-        if amount < 0:
-            return _build_record(
-                **common,
-                classification="confirmed_lender",
-                canonical_entity=lender,
-                match_method="verified_lender_alias",
-                matched_alias=alias,
-                matched_rule="confirmed_lender_registry",
-                confidence_score=0.99,
-                reason=f"Matched maintained lender alias '{alias}' after all strong exclusions.",
-            )
-        return _build_record(
-            **common,
-            classification="other",
-            canonical_entity=lender,
-            match_method="verified_lender_alias_credit",
-            matched_alias=alias,
-            matched_rule="lender_funding_credit",
-            confidence_score=0.97,
-            reason="Matched a verified lender on a credit; it is excluded from lender debits and the withholding numerator.",
-            contributes_to_lender_credit_exclusion=amount > 0,
-        )
-
-    bank_registry = BANK_SPECIFIC_LENDER_ALIASES.get((bank or "").upper(), {})
-    bank_match = _registry_match(text, bank_registry)
-    if bank_match is not None and amount < 0:
+    bank_registry = BANK_SPECIFIC_LENDER_ALIASES.get((bank or "").upper())
+    bank_match = registry_match(text, bank_registry) if bank_registry and amount < 0 else None
+    if bank_match is not None:
         lender, alias = bank_match
         return _build_record(
             **common,
@@ -1124,7 +1728,7 @@ def classify_transaction(
             reason=f"Matched lender alias or transaction code '{alias}' for {bank}.",
         )
 
-    potential_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
+    potential_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
     if potential_match is not None and amount < 0:
         lender, alias = potential_match
         return _build_record(
@@ -1139,11 +1743,26 @@ def classify_transaction(
             review_required=True,
         )
 
+    if amount < 0 and _matches_any(text, _SERVICER_COLLECTOR_PATTERNS):
+        return _build_record(
+            **common,
+            classification="potential_lender",
+            canonical_entity=_canonical_unknown_entity(text) or UNIDENTIFIED_LENDER_OBLIGATION,
+            match_method="unknown_servicer_or_collector",
+            matched_rule="servicer_or_collector_without_verified_funder",
+            confidence_score=0.74,
+            reason=(
+                "The payee is a loan servicer or debt collector whose funder is not "
+                "identified; it is potential only and requires review (D10)."
+            ),
+            review_required=True,
+        )
+
     if amount < 0 and _matches_any(text, _DIRECT_DEBIT_LOAN_PATTERNS):
         return _build_record(
             **common,
             classification="potential_lender",
-            canonical_entity="Unidentified lender obligation",
+            canonical_entity=UNIDENTIFIED_LENDER_OBLIGATION,
             match_method="unidentified_loan_obligation",
             matched_rule="direct_debit_loan_without_verified_counterparty",
             confidence_score=0.78,
@@ -1162,7 +1781,7 @@ def classify_transaction(
         return _build_record(
             **common,
             classification="potential_lender",
-            canonical_entity=candidate or "Unidentified lender obligation",
+            canonical_entity=candidate or UNIDENTIFIED_LENDER_OBLIGATION,
             match_method="explicit_financing_repayment",
             matched_rule="unknown_explicit_repayment",
             confidence_score=0.78,
@@ -1204,6 +1823,14 @@ def classify_cadence(dates: list[date]) -> tuple[str, float | None]:
     if 5 <= average <= 9 and spread <= 2.5:
         return "weekly", round(average, 1)
     return "irregular", round(average, 1)
+
+
+def flagged_payee(record: TransactionClassification) -> str:
+    """The payee a flagged row is grouped under: its entity, else its group's label (spec §6)."""
+    if record.canonical_entity:
+        return record.canonical_entity
+    group = FLAG_GROUP_BY_KEY.get(record.flagged_group or "")
+    return group.label if group is not None else (record.flagged_group or "")
 
 
 def _replace_revenue_state(
@@ -1339,10 +1966,13 @@ def _apply_reversal_pair_context(
             ),
             related_transaction=related_location,
         )
+        # A credit this pass pairs with a debit is money coming back, not a factor's
+        # payout (owner ruling 2026-09-26), so it leaves the flagged totals.
         updated[credit_index] = replace(
             updated_credit,
             reversal_of=related_location if is_settlement_reversal else None,
             settlement_reversal=is_settlement_reversal,
+            contributes_to_flagged_totals=False,
         )
         if is_settlement_reversal:
             updated[debit_index] = replace(
@@ -1355,6 +1985,7 @@ def _apply_reversal_pair_context(
                 contributes_to_potential_lender_totals=False,
                 contributes_to_potential_withholding_exposure=False,
                 contributes_to_insurance_totals=False,
+                contributes_to_flagged_totals=False,
             )
     return updated
 
@@ -1369,7 +2000,7 @@ def _apply_operating_source_context(
     for index, record in enumerate(records):
         if index in duplicate_indexes or not record.is_posted:
             continue
-        match = _registry_match(
+        match = registry_match(
             record.normalized_description,
             OPERATING_REVENUE_SOURCE_ALIASES,
         )
@@ -1432,6 +2063,26 @@ def _apply_operating_source_context(
     return updated
 
 
+#: D6 skips a row whose own words say it is a transfer, even when no transfer
+#: rule claimed it (a transfer to a person is not an MCA remittance).
+_TRANSFER_WORD_PATTERNS = (re.compile(r"\b(?:TRANSFER|XFER|TFR)\b"),)
+
+
+def _promotion_cadence(
+    records: list[TransactionClassification],
+    indexes: list[int],
+    min_recurring_count: int,
+) -> tuple[str, float | None] | None:
+    """The daily or weekly cadence of a same-amount group, or None when it does not promote."""
+    if len(indexes) < min_recurring_count:
+        return None
+    dates = [parsed for index in indexes if (parsed := parse_date(records[index].date)) is not None]
+    cadence, average_gap = classify_cadence(dates)
+    if cadence not in {"daily", "weekly"}:
+        return None
+    return cadence, average_gap
+
+
 def classify_statement_transactions(
     statement: Statement,
     *,
@@ -1471,36 +2122,65 @@ def classify_statement_transactions(
         else:
             seen[fingerprint] = index
 
-    groups: dict[tuple[str, float], list[int]] = {}
+    # Recurrence (spec §4.3 statement pass 2). Both kinds group by payee words
+    # and amount, so two unnamed payees are never merged (D11).
+    keyword_groups: dict[tuple[tuple[str, ...], float], list[int]] = {}
+    fixed_debit_groups: dict[tuple[tuple[str, ...], float], list[int]] = {}
     for index, record in enumerate(records):
-        if index in duplicate_of:
+        if index in duplicate_of or record.amount >= 0 or record.classification != "other":
             continue
-        if (
-            record.classification == "other"
-            and record.match_method == "financing_keyword_review"
-            and record.canonical_entity
-            and record.amount < 0
+        payee = _unknown_payee_tokens(record.normalized_description)
+        if not payee:
+            continue
+        key = (payee, round(abs(record.amount), 2))
+        if record.match_method == "financing_keyword_review" and record.canonical_entity:
+            keyword_groups.setdefault(key, []).append(index)
+        elif record.match_method == "default" and not _matches_any(
+            record.normalized_description,
+            _TRANSFER_WORD_PATTERNS,
         ):
-            groups.setdefault((record.canonical_entity, round(abs(record.amount), 2)), []).append(index)
+            fixed_debit_groups.setdefault(key, []).append(index)
 
-    for (entity, _), indexes in groups.items():
-        if len(indexes) < min_recurring_count:
+    for indexes in keyword_groups.values():
+        promotion = _promotion_cadence(records, indexes, min_recurring_count)
+        if promotion is None:
             continue
-        dates = [parsed for index in indexes if (parsed := parse_date(records[index].date)) is not None]
-        cadence, average_gap = classify_cadence(dates)
-        if cadence not in {"daily", "weekly"}:
-            continue
+        cadence, average_gap = promotion
         for index in indexes:
-            record = records[index]
             records[index] = replace(
-                record,
+                records[index],
                 classification="potential_lender",
-                canonical_entity=entity,
                 match_method="recurring_financing_counterparty",
                 matched_rule=f"{cadence}_fixed_debit_{average_gap}_day_average",
                 confidence_score=0.76,
                 reason=(
                     f"An unverified financing-related counterparty repeats on a {cadence} cadence; "
+                    "it is potential only and requires review."
+                ),
+                review_required=True,
+                contributes_to_potential_lender_count=True,
+                contributes_to_potential_lender_totals=True,
+                contributes_to_potential_withholding_exposure=True,
+            )
+
+    # D6: an unknown payee (a row no rule claimed) with fixed daily or weekly
+    # debits joins the review tier. Nothing is counted without a named lender.
+    for (payee, _), indexes in fixed_debit_groups.items():
+        promotion = _promotion_cadence(records, indexes, min_recurring_count)
+        if promotion is None:
+            continue
+        cadence, average_gap = promotion
+        entity = _unknown_payee_name(payee) or UNIDENTIFIED_LENDER_OBLIGATION
+        for index in indexes:
+            records[index] = replace(
+                records[index],
+                classification="potential_lender",
+                canonical_entity=entity,
+                match_method="recurring_fixed_debit",
+                matched_rule=f"{cadence}_fixed_debit_{average_gap}_day_average",
+                confidence_score=0.70,
+                reason=(
+                    f"An unknown payee repeats the same debit on a {cadence} cadence (D6); "
                     "it is potential only and requires review."
                 ),
                 review_required=True,
@@ -1527,6 +2207,7 @@ def classify_statement_transactions(
             contributes_to_potential_lender_totals=False,
             contributes_to_potential_withholding_exposure=False,
             contributes_to_insurance_totals=False,
+            contributes_to_flagged_totals=False,
             contributes_to_lender_credit_exclusion=False,
             revenue_classification="non_revenue" if duplicate_revenue else None,
             revenue_initial_classification="non_revenue" if duplicate_revenue else None,

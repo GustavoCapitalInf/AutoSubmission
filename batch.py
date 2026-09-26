@@ -46,7 +46,7 @@ FIELDS = [
     "potential_withholding_denominator", "potential_withholding_exposure",
     "potential_withholding_review_required", "pos_count", "pos_credit_count",
     "atm_withdrawal_count", "loan_count",
-    "debit_coverage", "nsf", "mca_funders", "recurring_debit_groups",
+    "debit_coverage", "nsf", "mca_funders", "flagged_positions", "recurring_debit_groups",
     "quality", "transaction_detail_reliable", "corporate_use", "needs_review",
     "model", "error",
 ]
@@ -159,6 +159,9 @@ def _row(path: Path, report: Report) -> dict:
         "debit_coverage": f"{r.debit_coverage:.0%}" if r.debit_coverage is not None else "",
         "nsf": m.effective_nsf_count,
         "mca_funders": "; ".join(fm.funder for fm in d.known_funders),
+        # Spec §7: flagged obligations as group:payee, never lenders. Analysis
+        # time only; the webapp's Settings never reach this CSV.
+        "flagged_positions": "; ".join(f"{fp.group}:{fp.payee}" for fp in d.flagged_positions),
         "recurring_debit_groups": sum(1 for rc in d.recurring_debits if rc.cadence in ("daily", "weekly")),
         "quality": report.quality.level,
         "transaction_detail_reliable": "yes" if report.quality.transaction_detail_reliable else "no",

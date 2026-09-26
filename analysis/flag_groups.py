@@ -34,7 +34,9 @@ FLAG_GROUPS: tuple[FlagGroup, ...] = (
 FLAG_GROUP_BY_STATE: dict[str, FlagGroup] = {g.state: g for g in FLAG_GROUPS if g.state is not None}
 FLAG_GROUP_BY_KEY: dict[str, FlagGroup] = {g.key: g for g in FLAG_GROUPS}
 FLAG_SETTING_KEYS: tuple[str, ...] = tuple(g.setting for g in FLAG_GROUPS)
-# D1: credits from these states are financing proceeds (non_revenue + lender credit exclusion).
+# D1: a credit from a payee of these states is financing proceeds (non_revenue + lender credit exclusion),
+# except a PAYOUT_CREDIT_ENTITIES entity's credit (revenue) and a factoring payee's credit (owner ruling
+# 2026-09-26: revenue, and flagged as factoring).
 FINANCING_STATES: frozenset[str] = frozenset({
     "confirmed_lender", "alternative_position", "line_of_credit", "bank_loan",
     "vehicle_financing", "mortgage", "personal_loan", "floor_plan_financing", "factoring",

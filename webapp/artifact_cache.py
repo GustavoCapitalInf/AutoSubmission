@@ -521,7 +521,17 @@ OCR_STAGE_VERSION = 5
 # rotates once, at the train's cold run, together with the OCR partition
 # (`EXTRACTION_SCHEMA_VERSION` 3). Pinned in the same commit
 # (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 18
+# 18 -> 19: LENDER-DETECTION (2026-09-24 design, service S2) — classification
+# version 5.0: ten flag-group states, the premium-financing flag on insurance
+# rows, and the `flagged_group` / `contributes_to_flagged_totals` record
+# fields; the reordered payee rules (known-payee matcher, card-paid lenders,
+# LOC wording); financing-proceeds credits; obligation descriptors;
+# unknown-payee naming and the fixed-debit
+# review tier; `metrics.flagged_groups` and `detection.flagged_positions` join
+# the payload. The classifier's registry is not key material, so a warm cache
+# keyed on 18 would serve the old lender groups. OCR stays cached. Pinned in the
+# same commit (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 19
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
