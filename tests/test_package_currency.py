@@ -37,6 +37,7 @@ from webapp.app import (
     _statement_currency,
 )
 from webapp.jobs import Job
+from tests.flagged_payloads import FLAGGED_DEBIT, flagged_row, with_flagged_rows
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +52,7 @@ EXPECTED_REFUSED_TOTALS = {
     "confirmed_true_revenue",
     "confirmed_true_revenue_total",
     "eligible_deposits",
+    "flagged_position_total",
     "insurance_total",
     "lender_debits",
     "maximum_revenue",
@@ -90,6 +92,7 @@ UNIT_FREE_TOTALS = {
     "documents",
     "duplicate_documents",
     "failed",
+    "flagged_position_count",
     "insurance_count",
     "integrity_high",
     "integrity_review",
@@ -396,6 +399,40 @@ def test_potential_lender_order_is_unit_free_in_both_cases():
     names = [item["funder"] for item in refused["potential_lenders"]]
     assert names == sorted(names)
     assert names == [item["funder"] for item in single["potential_lenders"]]
+
+
+def test_mixed_currency_refusal_covers_the_flag_roll_up():
+    """Lender detection §8.3. The flag roll-up sums money across members exactly as the funder roll-up does, so
+    a refused package publishes its counts and none of its money."""
+    cad, usd = member("a", "CAD"), member("b", "USD")
+    with_flagged_rows(cad.analysis, [flagged_row("credit_cards")])
+    with_flagged_rows(usd.analysis, [flagged_row("credit_cards")])
+    package = _package_analysis([cad, usd])
+    assert package["totals"]["flagged_position_total"] is None
+    assert package["totals"]["flagged_position_count"] == 2
+    [item] = package["flagged_positions"]["credit_cards"]
+    assert item["total_debited"] is None
+    assert (item["documents"], item["count"]) == (2, 2)
+
+
+def test_refused_packages_rank_flagged_positions_by_count_then_payee():
+    """MINOR-1's rule, applied to the flag roll-up: no row order read off a cross-currency magnitude."""
+    def build(first_currency, second_currency):
+        big = member("a", first_currency)
+        with_flagged_rows(big.analysis, [flagged_row("mortgages", payee="ZZZ FABRICATED BIG",
+                                                     amount=-100 * FLAGGED_DEBIT)])
+        many = member("b", second_currency)
+        with_flagged_rows(many.analysis, [flagged_row("mortgages", payee="AAA FABRICATED MANY") for _ in range(3)])
+        return _package_analysis([big, many])
+
+    refused = build("CAD", "USD")
+    assert [item["payee"] for item in refused["flagged_positions"]["mortgages"]] == [
+        "AAA FABRICATED MANY", "ZZZ FABRICATED BIG"]
+    single = build("CAD", "CAD")
+    assert [item["payee"] for item in single["flagged_positions"]["mortgages"]] == [
+        "ZZZ FABRICATED BIG", "AAA FABRICATED MANY"]
+    assert single["totals"]["flagged_position_count"] == 4
+    assert single["totals"]["flagged_position_total"] == 103 * FLAGGED_DEBIT
 
 
 def test_statement_level_results_survive_a_mixed_currency_refusal():
@@ -713,7 +750,7 @@ def test_the_route_serves_the_undetermined_bucket_end_to_end():
     assert body["currency"]["undeclared_currency_documents"] == 1
     # The code that WAS declared is still reported as evidence.
     assert body["currency"]["currencies"] == ["USD"]
-    assert len(body["currency"]["refused_total_fields"]) == 32
+    assert len(body["currency"]["refused_total_fields"]) == 33
     assert body["totals"]["cross_currency_totals_refused"] is True
     assert body["totals"]["currency"] is None
     assert body["totals"]["total_credits"] is None

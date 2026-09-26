@@ -386,3 +386,39 @@ def test_a_package_of_payloads_without_flag_groups_rolls_up_nothing(settings_fil
 
     package = _package_analysis([member("a", "USD"), _member("b", account_payload())])
     assert package["flagged_positions"] == {} and package["flagged_evidence"] == []
+
+
+@EACH_GROUP
+def test_the_package_totals_count_the_debits_of_ticked_groups_only(settings_file, group):
+    from webapp.app import _package_analysis
+
+    # Two members, one debit per group each: every group counts two debits and debits both amounts.
+    jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1, amount=-3.0))]
+    per_group = FLAGGED_DEBIT + 3.0
+    totals = _package_analysis(jobs)["totals"]
+    assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (
+        2 * len(GROUP_KEYS), len(GROUP_KEYS) * per_group)
+    save_settings(settings_file.parent, {group.setting: False})
+    totals = _package_analysis(jobs)["totals"]
+    assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (
+        2 * (len(GROUP_KEYS) - 1), (len(GROUP_KEYS) - 1) * per_group)
+
+
+def test_a_package_without_flag_groups_publishes_zero_flagged_totals(settings_file):
+    from webapp.app import _package_analysis
+
+    totals = _package_analysis([_member("b", account_payload())])["totals"]
+    assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (0, 0.0)
+
+
+def test_a_member_without_analysis_adds_nothing_to_the_flag_roll_up(settings_file):
+    # Mirrors the NSF basis test of the same shape (tests/test_webapp_settings.py): a failed member has no analysis.
+    from webapp.app import _package_analysis
+
+    done = _member("a", flagged_account_payload(0, groups=("mortgages",)))
+    failed = Job(id="b", filename="b.pdf", status="failed", analysis=None, content_sha256="b")
+    package = _package_analysis([done, failed])
+    [item] = package["flagged_positions"]["mortgages"]
+    assert (item["documents"], item["count"], package["totals"]["flagged_position_count"]) == (1, 1, 1)
+    alone = _package_analysis([failed])
+    assert alone["flagged_positions"] == {} and alone["totals"]["flagged_position_count"] == 0

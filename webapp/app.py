@@ -581,9 +581,15 @@ def _add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> 
             item["dates"].append(posted)
 
 
-def _published_flagged_positions(rollup: dict[tuple[str, str], dict]) -> dict[str, list[dict]]:
+def _published_flagged_positions(
+    rollup: dict[tuple[str, str], dict], *, refuse_cross_currency: bool
+) -> dict[str, list[dict]]:
     """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
-    order, as a list of `{payee, documents, count, total_debited, first_date, last_date}`, largest total first."""
+    order, as a list of `{payee, documents, count, total_debited, first_date, last_date}`.
+
+    Largest total first; a package that refuses to combine currencies ranks by the unit-free count, then the
+    payee, because an order read off summed money would publish the cross-currency comparison the refusal
+    withholds (CURRENCY DOCTRINE §F)."""
     published: dict[str, list[dict]] = {}
     for group in FLAG_GROUPS:
         items = []
@@ -599,7 +605,11 @@ def _published_flagged_positions(rollup: dict[tuple[str, str], dict]) -> dict[st
                 "first_date": dates[0].isoformat() if dates else None,
                 "last_date": dates[-1].isoformat() if dates else None,
             })
-        if items:
+        if not items:
+            continue
+        if refuse_cross_currency:
+            published[group.key] = sorted(items, key=lambda item: (-item["count"], item["payee"]))
+        else:
             published[group.key] = sorted(items, key=lambda item: (-item["total_debited"], item["payee"]))
     return published
 
@@ -637,6 +647,7 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "confirmed_true_revenue",
     "confirmed_true_revenue_total",
     "eligible_deposits",
+    "flagged_position_total",
     "insurance_total",
     "lender_debits",
     "maximum_revenue",
@@ -1079,6 +1090,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "monthly_lender_debits": 0.0,
         "insurance_count": 0,
         "insurance_total": 0.0,
+        # Lender detection §8.3: the ticked flag groups' counted debits and their total. Never lender math (D7).
+        "flagged_position_count": 0,
+        "flagged_position_total": 0.0,
         "withholding_numerator": 0.0,
         "withholding_denominator": 0.0,
         "potential_withholding_numerator": 0.0,
@@ -1813,6 +1827,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         package_average_daily_balance = None
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
+    totals["flagged_position_count"] = sum(item["count"] for item in flagged_rollup.values())
+    totals["flagged_position_total"] = round(sum(item["total_debited"] for item in flagged_rollup.values()), 2)
     totals["maximum_revenue"] = round(
         totals["verified_revenue_total"] + totals["unverified_deposit_total"],
         2,
@@ -1940,7 +1956,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     package_potential_lenders = sorted(
         potential_lenders.values(), key=lambda r: r["funder"]
     )
-    package_flagged_positions = _published_flagged_positions(flagged_rollup)
+    package_flagged_positions = _published_flagged_positions(
+        flagged_rollup, refuse_cross_currency=refuse_cross_currency
+    )
 
     published_totals = {
         **totals,
@@ -2021,6 +2039,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             *package_funders,
             *package_potential_lenders,
             *package_insurance_providers,
+            *(item for items in package_flagged_positions.values() for item in items),
         ):
             for key in _CROSS_CURRENCY_ROLLUP_KEYS:
                 if key in item:
