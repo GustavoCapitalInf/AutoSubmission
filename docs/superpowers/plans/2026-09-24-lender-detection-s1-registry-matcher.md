@@ -160,11 +160,10 @@ S1-specific constraints:
     - it would vanish the next time the orchestrator's workflow regenerates the ledger.
 
     So S1 records a reviewed deny only in its local review file. It sends the orchestrator the entity, the alias and the kind of collision, never the payee key, and marks when the alias is:
-    - bare `BLUEVINE` (spec §5 keeps it);
     - an alias of an owner-named payee;
     - the entity's last alias.
 
-    For these three, a drop is not the fix. The orchestrator answers each denial in one of two ways:
+    For these two, a drop is not the fix. (Bare `BLUEVINE` was a third mark until the owner's ruling of 2026-09-25 dropped the alias; Task 10 Step 3.) The orchestrator answers each denial in one of two ways:
     - **A ruling that allows the pair.** S1 records it as an allow whose `why` starts `orchestrator ruling <date>:`.
     - **A revised ledger that the owner has read**, for example with a narrower alias, or with the other business admitted under a longer alias that wins. S1 brings the revised ledger and reruns Task 9 through its rerun path (Step 1 on), then Task 10 from Step 2.
 
@@ -217,9 +216,9 @@ S1-specific constraints:
 
 For S2's coordination only (S2 owns these edits):
 - S2's plan holds the pin ledger of every pin that its routing moves.
-- S2's Task 0 checks the ledger facts those pins rely on ("Prerequisites from S1", facts 1-9).
-- The ledger's content selects two pre-measured variants: navigant's bank-name rows (S2 pin-ledger row 15) and relay's card-paid personal-loan payees (row 17).
-- S1's Task 10 Step 6 runs S2's Task 0 on this branch, and reports every FAIL, variant and info line.
+- S2's Task 0 checks the ledger facts those pins rely on ("Prerequisites from S1", facts 1-10).
+- The ledger's content selects one pre-measured variant: navigant's bank-name rows (S2 pin-ledger row 15). Since the owner's rulings of 2026-09-25, relay's card-paid personal-loan payees (row 17) are an exact pin, not a variant.
+- S1's Task 10 Step 6 runs S2's Task 0 on this branch, and reports every FAIL and info line.
 
 **Trial of this revision (2026-09-25, after the second verification).** A script replayed every code block of Tasks 1-9 of this file, in order, on a fresh clone of `lender-detection@4f219cd`:
 - every red and green step gave the counts written in it;
@@ -279,6 +278,14 @@ Expected output:
 
 The owner reads `$preview\lender-registry-evidence.md`. Its first table section is the lender list, and the moves and the entities awaiting a ruling follow. A ledger with problems prints `problem:` lines, exits `1` and writes nothing.
 
+**The ledger of the owner's delegated rulings of 2026-09-25.** The owner read the counted lender list on 2026-09-25 and delegated every open question to the orchestrator; the orchestrator's decisions are owner rulings, and the ledger carries them. Rendered with this branch's tools at `b69d12e` in a scratch clone, it printed:
+- `ledger ok: 1085 entities, sha256:cdcd7ecabd83621d88e0359b36b5cb1b0033076ebd39cf386142f32cf70dabdf`;
+- 58 `move:` lines, among them `EBF HOLDINGS` `merged into EVEREST BUSINESS FUNDING`, SmartPay's `SMARTPAY SOL reattributed to SmartPay Solutions, LLC`, and `CAPITAL INFUSION` `confirmed_lender -> alternative_position`;
+- `LENDER_ALIASES: 286 entities, 505 aliases`, `ALTERNATIVE_POSITION_ALIASES: 54 entities, 94 aliases`, `LINE_OF_CREDIT_ALIASES: 14 entities, 21 aliases`, `CARD_ISSUER_ALIASES: 41 entities, 115 aliases`, `CARD_ISSUER_CONTEXT_ALIASES: 58 entities, 105 aliases`, `VEHICLE_FINANCE_ALIASES: 48 entities, 115 aliases`, `MORTGAGE_SERVICER_ALIASES: 35 entities, 48 aliases`, `LEASE_RENTAL_ALIASES: 32 entities, 65 aliases`, `PERSONAL_LOAN_ALIASES: 78 entities, 126 aliases`, `FLOOR_PLAN_ALIASES: 8 entities, 18 aliases`, `FACTORING_ALIASES: 13 entities, 21 aliases`, `PREMIUM_FINANCE_ALIASES: 21 entities, 47 aliases`, `BANK_NAME_ALIASES: 34 entities, 51 aliases`, `POTENTIAL_LENDER_ALIASES: 110 entities, 128 aliases`;
+- `0`.
+
+A later revision of the ledger prints other counts; the items below still hold for it.
+
 The ledger passes Task 9 only when every item below holds. The orchestrator can check the first three before S1 runs, with `python -m tools.build_lender_registry --check` on a checkout that has Task 7.
 
 - **`--check` exits 0**: every rule of Decision 3. The rules most likely to catch a ledger written before this revision:
@@ -292,29 +299,34 @@ The ledger passes Task 9 only when every item below holds. The orchestrator can 
   |---|---|
   | `confirmed_lender` | OnDeck: `ONDECK`; Bitty: `BITTY ADVANCE`; Legend: `LEGEND ADVANCE FUNDING`; LG Funding: `LG FUNDING`; Hunter Caroline: `HUNTER CAROLINE`; CAN Capital: `CAN CAPITAL`; CanaCap: `CANACAP`; NMEF: `NMEF FUNDING`; Balboa: `BALBOA CAPITAL`; Navitas: `NAVITAS CREDIT CORP`; Deere: `JOHN DEERE FINANCIAL` |
   | `alternative_position` | SBA/EIDL: `SBA EIDL`; BDC: `BDC`; Affirm: `AFFIRM`; Amex loans: `AMERICAN EXPRESS BUSINESS LOAN`; Intuit: `INTUIT FINANCING`; Square: `SQUARE CAPITAL`; Shopify: `SHOPIFY CAPITAL`; PayPal: `PAYPAL WORKING CAPITAL`; Stripe: `STRIPE CAPITAL`; Amazon financing: `AMAZON CAPITAL SERVICES` |
-  | `line_of_credit` | Fundbox: `FUNDBOX`; BlueVine: `BLUEVINE`; Kabbage: `KABBAGE` |
+  | `line_of_credit` | Fundbox: `FUNDBOX`; BlueVine: `BLUEVINE CAPITAL`; Kabbage: `KABBAGE` |
   | `credit_card_payment` (a card alias, or a bare issuer name in `card_issuer_context`) | American Express: `AMEX EPAYMENT ACH PMT`; Capital One: `CAPITAL ONE ONLINE PMT`; Chase: `CHASE CREDIT CRD EPAY`; Credit One: `CREDIT ONE BANK PAYMENT`; Concora: `CONCORA CREDIT PAYMENT` |
   | `vehicle_financing` | GM Financial: `GM FINANCIAL`; Ford Credit: `FORD CREDIT`; Toyota Financial: `TOYOTA FINANCIAL`; Ally: `ALLY FINANCIAL` |
   | `bank_name` (and no known payee) | Truist: `TRUIST LN PYMT` |
-  | `lease_or_rental` | Progressive: `PROGRESSIVE LEASING`; SmartPay: `SMARTPAY SOL`; Snap: `SNAP FINANCE` |
+  | `lease_or_rental` | Progressive: `PROGRESSIVE LEASING`; SmartPay: `SMARTPAY LEASING`; Snap: `SNAP FINANCE` |
   | `floor_plan_financing` | NextGear Capital: `NEXTGEAR CAPITAL`; Westlake Flooring: `WESTLAKE FLOORING` |
   | `factoring` | RTS Financial: `RTS FINANCIAL`; OTR Capital: `OTR CAPITAL`; Apex Capital: `APEX CAPITAL`; BC Factoring: `BC FACTORING` |
   | `premium_financing` (and no known payee) | IPFS: `IPFS`; First Insurance Funding: `FIRST INSURANCE FUNDING` |
 
-- **S2's Task-0 facts** (S2 "Prerequisites from S1", facts 1-6 and 9). Task 9's content test restates them:
-  - each payee that S2 pins by name keeps today's `entity` spelling (`NMEF`, `Navitas Credit Corp`, `Balboa Capital`, `De Lage Landen`, `FORA FINANCIAL`, `ONDECK`, `CanaCap`, `CAN Capital`, `Forward Funding`, `Forward Financing`, `RAPID FINANCE`, `KAPITUS`, `FUNDWORKS`, `AFC FUNDING CORP`, `BDC`, `AFFIRM`, `INTUIT FINANCING`, `SQUARE CAPITAL`, `SHOPIFY CAPITAL`, `PAYPAL WORKING CAPITAL`, `BLUEVINE`, `FUNDBOX`, `KABBAGE`, `SNAP Finance`, `Progressive Leasing`, `SmartPay`, `NETCREDIT`, `Econolease`, `Clover Equipment`, `CMCA Finance`, `Lily Advance`), in the group S2's Task 0 expects;
+  The owner's ruling of 2026-09-25 respelled two of them (Decision 3). BlueVine is `BLUEVINE CAPITAL`: bare `BLUEVINE` also takes Bluevine Bill Pay payments and receipts between other businesses and Bluevine checking transfers. SmartPay is `SMARTPAY LEASING`, the lease-to-own SmartPay Leasing: `SMARTPAY SOL` is SmartPay Solutions' insurance premium billing (`REATTRIBUTED_REGISTRY_ALIASES`).
+
+- **S2's Task-0 facts** (S2 "Prerequisites from S1", facts 1-6 and 9), as the owner's rulings of 2026-09-25 amend them. The five payees that S2 once listed as expected conflicts (AFC FUNDING CORP, Econolease, Clover Equipment, CMCA Finance, Lily Advance) are ordinary facts now, with the ledger's filing. Task 9's content test restates them:
+  - each payee that S2 pins by name keeps today's `entity` spelling (`NMEF`, `Navitas Credit Corp`, `Balboa Capital`, `De Lage Landen`, `FORA FINANCIAL`, `ONDECK`, `CanaCap`, `CAN Capital`, `Forward Funding`, `Forward Financing`, `RAPID FINANCE`, `KAPITUS`, `FUNDWORKS`, `EVEREST BUSINESS FUNDING`, `AFC FUNDING CORP`, `BDC`, `AFFIRM`, `INTUIT FINANCING`, `SQUARE CAPITAL`, `SHOPIFY CAPITAL`, `PAYPAL WORKING CAPITAL`, `CAPITAL INFUSION`, `BLUEVINE`, `FUNDBOX`, `KABBAGE`, `SNAP Finance`, `Progressive Leasing`, `SmartPay`, `NETCREDIT`, `Econolease`, `Clover Equipment`, `CMCA Finance`, `Lily Advance`), in the group S2's Task 0 expects. `AFC FUNDING CORP` is `floor_plan_financing` (a dealer floor-plan lender's receivables-funding subsidiary), and `CAPITAL INFUSION` (the house) is an `alternative_position`: flagged, never counted;
   - De Lage Landen matches `DELAGELANDEN`;
-  - `BLUEVINE` keeps its bare alias;
-  - SmartPay keeps `SMARTPAY SOL`;
+  - the `line_of_credit` entity `BLUEVINE` holds `BLUEVINE CAPITAL` and `BLUEVINE LOAN` and no bare `BLUEVINE`, so no rendered table claims a Bluevine Bill Pay row or a Bluevine transfer;
+  - the `lease_or_rental` entity `SmartPay` holds only `SMARTPAY LEASING`; `SMARTPAY SOL` is held by the rejected SmartPay Solutions, LLC, and no rendered table claims it;
   - no rendered entity carries `ACH CAPITAL`;
   - NETCREDIT is in a financing group;
-  - Econolease and Clover Equipment are known payees, not lenders;
-  - CMCA Finance and Lily Advance render into `POTENTIAL_LENDER_ALIASES`;
+  - Econolease (equipment finance), CMCA Finance and Lily Advance are counted lenders (`confirmed_lender` known payees), and none of them is a potential alias;
+  - Clover Equipment stays in review: it is no known payee, and it renders into `POTENTIAL_LENDER_ALIASES`;
+  - `EBF HOLDINGS` is merged into `EVEREST BUSINESS FUNDING` (`MERGED_REGISTRY_ENTITIES`): no ledger entity is named `EBF HOLDINGS`, and `EVEREST BUSINESS FUNDING` holds `EBF HOLDINGS`, `EBF DEBIT` and `HOLDINGS EBF`, so the funder counts once;
+  - every `PAYOUT_CREDIT_ENTITIES` name (`Sezzle Inc`, `American First Finance, LLC`, `PAYABILITY`) is an admitted entity of a financing group, and its rows match in that group (S2 makes their credits revenue; their debits keep the group);
   - no bare platform name is a known payee.
+- **The other delegated rulings of 2026-09-25**, which the content test pins by ledger place: MERCH PAD (probably Merchant Growth) and Rewards Network in review, never counted; MR BIZ CAPITAL rejected (a broker); Keep Technologies rejected, so `KEEP BUS` is unflagged; LADCO Leasing, a card-terminal lessor, in Leases & rentals, not a lender.
 - **The spec's examples.**
   - `FORWARDFINANCING` and `EXPANSIONCAP` match their lenders (spec §1).
   - `ONDECK` claims neither the Journey Capital rows nor an unrelated `ENOVA` utility, and `SmartPay` claims no Atlas Financial card rows (spec §5).
-- **First Insurance.** A premium alias matches `FIRST INSURANCE FUNDING`, and no premium alias is the insurer's `FIRST INSURANCE`.
+- **First Insurance** (the owner's ruling of 2026-09-25, Decision 8). A premium alias matches `FIRST INSURANCE FUNDING`. The bare `FIRST INSURANCE` is a premium alias of FIRST Insurance Funding (`PREMIUM_FINANCE_INSURER_ALIASES`), and it is the only premium alias equal to an insurer alias. The hand-kept insurer `First Insurance` keeps `FIRST INSURANCE` unchanged. The Canadian spellings stay with FIRST Insurance Funding of Canada. The evidence ledger states the ruling in its Admission section and lists no premium/insurer overlap under "Awaiting an owner ruling".
 - **The numbered Ontario company.** It is an `owner_ruling` entity whose name or `notes` says "numbered Ontario company".
   - It has no `evidence` and no `where_looked`, because it is not searched anywhere, by rule (spec §5). A URL is the one place the validator's digit rule does not look.
   - Neither its number nor an alias that carries the number appears anywhere.
@@ -5100,11 +5112,14 @@ On a rerun for a revised ledger, the committed files are the rendering of the pr
 
 - [ ] **Step 4: Write the content test**
 
+The test restates "Prerequisite: the curated ledger" as the owner's rulings of 2026-09-25 amend it. Its `S2_TASK_0` rows are S2's Task 0 `OWNER_RULED` rows as the orchestrator amends them to those rulings (S1 never edits S2's plan): `AFC FUNDING CORP XPRESS PAY` is Floor plan, `SMARTPAY LEASING payment` replaces `SmartPay Sol debitpmt`, and `EBF HOLDINGS DEBIT 0001`, `CAPITAL INFUSION PAYMENT` and `BLUEVINE CAPITAL` are added. S2's amended `OWNER_RULED` also holds the Econolease, CMCA Finance and Lily Advance lender rows; the content test restates those three in `test_econolease_cmca_finance_and_lily_advance_are_counted_lenders_and_no_potential_alias`, which also checks that none is a potential alias. (Amended after the owner's rulings: the earlier version expected `AFC FUNDING CORP` as a lender, SmartPay on `SMARTPAY SOL`, Econolease and Clover Equipment as known payees outside the lenders, CMCA Finance and Lily Advance in the potential tier, and no premium alias equal to `FIRST INSURANCE`. Run on the ledger of those rulings, it failed those 7 cases; this version passes all 75.)
+
 Create `tests/test_lender_registry_content.py`:
 
 ```python
 """Spec sections 2 and 5, and the S1 facts S2's Task 0 checks, on the registry rendered from the committed
-ledger (contract C10). The descriptors are fabricated around public company names; none is statement text."""
+ledger (contract C10), with the owner's rulings of 2026-09-25. The descriptors are fabricated around public
+company names; none is statement text."""
 from __future__ import annotations
 
 import re
@@ -5120,11 +5135,14 @@ from tools import lender_ledger
 
 DATA = lender_ledger.read_ledger(lender_ledger.LEDGER_PATH)
 ENTITIES, SHAPE_PROBLEMS = lender_ledger.parse_ledger(DATA)
+BY_NAME = {entity.entity: entity for entity in ENTITIES}
 RULES = lender_ledger.current_rules()
 EVIDENCE = builder.EVIDENCE_PATH.read_text(encoding="utf-8")
 REGISTRY_TABLES = {table: getattr(registry, table) for _group, table, _heading in lender_ledger.TABLES}
 
-#: The S2 plan's Task 0 Step 3 OWNER_RULED rows, copied verbatim: (descriptor, entity, state).
+#: The S2 plan's Task 0 Step 3 OWNER_RULED rows, as the owner's rulings of 2026-09-25 amend them (AFC FUNDING
+#: CORP is floor plan; BLUEVINE CAPITAL and SMARTPAY LEASING are the owner-named spellings; EBF HOLDINGS is
+#: merged into EVEREST BUSINESS FUNDING; CAPITAL INFUSION is an alternative position): (descriptor, entity, state).
 S2_TASK_0 = (
     ("NMEF Funding 2025A payment", "NMEF", "confirmed_lender"),
     ("Navitas Credit Corp payment", "Navitas Credit Corp", "confirmed_lender"),
@@ -5140,24 +5158,32 @@ S2_TASK_0 = (
     ("ACH DEBIT RAPID FINANCE PAYMENT", "RAPID FINANCE", "confirmed_lender"),
     ("Orig CO Name:Kapitus Descr:Payment ACH Debit", "KAPITUS", "confirmed_lender"),
     ("ACH DEBIT THE FUNDWORKS LLC PMT", "FUNDWORKS", "confirmed_lender"),
-    ("AFC FUNDING CORP XPRESS PAY", "AFC FUNDING CORP", "confirmed_lender"),
+    ("EBF HOLDINGS DEBIT 0001", "EVEREST BUSINESS FUNDING", "confirmed_lender"),
+    ("AFC FUNDING CORP XPRESS PAY", "AFC FUNDING CORP", "floor_plan_financing"),
     ("BDC loan payment", "BDC", "alternative_position"),
     ("CARD PURCHASE AFFIRMCOM 0001", "AFFIRM", "alternative_position"),
     ("ACH DEBIT INTUIT FINANCING 0001", "INTUIT FINANCING", "alternative_position"),
     ("SQUARE CAPITAL", "SQUARE CAPITAL", "alternative_position"),
     ("SHOPIFY CAPITAL PAYOUT", "SHOPIFY CAPITAL", "alternative_position"),
     ("PAYPAL WORKING CAPITAL", "PAYPAL WORKING CAPITAL", "alternative_position"),
+    ("CAPITAL INFUSION PAYMENT", "CAPITAL INFUSION", "alternative_position"),
     ("BLUEVINE loan payment", "BLUEVINE", "line_of_credit"),
+    ("BLUEVINE CAPITAL", "BLUEVINE", "line_of_credit"),
     ("FUNDBOX payment", "FUNDBOX", "line_of_credit"),
     ("KABBAGE payment", "KABBAGE", "line_of_credit"),
     ("External Withdrawal SNAP FINANCE - PAYMENT", "SNAP Finance", "lease_or_rental"),
     ("Progressive Leasing recurring purchase", "Progressive Leasing", "lease_or_rental"),
-    ("SmartPay Sol debitpmt", "SmartPay", "lease_or_rental"),
+    ("SMARTPAY LEASING payment", "SmartPay", "lease_or_rental"),
 )
 
 
 def _known(descriptor):
     return match_known_payee(normalize(descriptor))
+
+
+def _claimed_by(descriptor):
+    """The rendered tables with an alias in the descriptor, whatever their context."""
+    return [table for table, entries in REGISTRY_TABLES.items() if registry_match(normalize(descriptor), entries)]
 
 
 def test_the_committed_ledger_passes_the_validator():
@@ -5213,21 +5239,26 @@ def test_netcredit_is_a_financing_payee_named_netcredit():
 
 
 @pytest.mark.parametrize("descriptor,entity", [("VLFC-Econolease finance payment", "Econolease"),
-                                               ("Clover equipment rent/leases", "Clover Equipment")])
-def test_econolease_and_clover_equipment_are_known_payees_and_not_lenders(descriptor, entity):
+                                               ("CMCA Finance BUS payment", "CMCA Finance"),
+                                               ("Lily Advance", "Lily Advance")])
+def test_econolease_cmca_finance_and_lily_advance_are_counted_lenders_and_no_potential_alias(descriptor, entity):
     found = _known(descriptor)
-    assert found is not None and found.entity == entity and found.state != "confirmed_lender", found
+    assert found is not None and (found.entity, found.state) == (entity, "confirmed_lender"), found
+    assert registry_match(normalize(descriptor), registry.POTENTIAL_LENDER_ALIASES) is None
 
 
 def test_truist_is_on_the_bank_name_list():
     assert registry_match(normalize("TRUIST LN 0001 PYMT"), registry.BANK_NAME_ALIASES) is not None
 
 
-@pytest.mark.parametrize("descriptor,entity", [("CMCA Finance BUS payment", "CMCA Finance"),
-                                               ("Lily Advance", "Lily Advance")])
-def test_review_tier_payees_stay_potential_lender_aliases(descriptor, entity):
+@pytest.mark.parametrize("descriptor,entity", [("Clover equipment rent/leases", "Clover Equipment"),
+                                               ("INVESTMENT MERCH PAD", "MERCH PAD (probably Merchant Growth)"),
+                                               ("REWARDS NETWORK PAYMENT", "Rewards Network")])
+def test_review_tier_payees_are_potential_lender_aliases_and_no_known_payee(descriptor, entity):
+    assert _known(descriptor) is None
     found = registry_match(normalize(descriptor), registry.POTENTIAL_LENDER_ALIASES)
     assert found is not None and found[0] == entity, found
+    assert BY_NAME[entity].status == "review"
 
 
 @pytest.mark.parametrize("descriptor,entity", [("ACH DEBIT FORWARDFINANCING LLC", "Forward Financing"),
@@ -5247,17 +5278,80 @@ def test_the_collisions_spec_section_5_names_are_gone(descriptor, wrong):
     assert found is None or found.entity != wrong, found
 
 
-def test_first_insurance_funding_is_premium_financing_beside_the_hand_kept_insurer_first_insurance():
+def test_bluevine_is_bluevine_capital_and_bluevine_loan_without_the_bare_alias():
+    # Owner ruling 2026-09-25: bare BLUEVINE takes Bluevine Bill Pay and Bluevine checking rows.
+    assert registry.LINE_OF_CREDIT_ALIASES["BLUEVINE"] == ("BLUEVINE CAPITAL", "BLUEVINE LOAN")
+    assert not [name for entries in REGISTRY_TABLES.values() for name, aliases in entries.items()
+                if any(normalize(alias) == "BLUEVINE" for alias in aliases)]
+    for descriptor in ("BLUEVINE", "BLUEVINE BILL PAY QUILLON BAKERY", "BLUEVINE ONLINE TRANSFER"):
+        assert _known(descriptor) is None and _claimed_by(descriptor) == [], descriptor
+
+
+def test_smartpay_is_smartpay_leasing_and_smartpay_sol_is_claimed_by_no_table():
+    # Owner ruling 2026-09-25: SMARTPAY SOL is SmartPay Solutions' premium billing, not the lease-to-own SmartPay.
+    assert registry.LEASE_RENTAL_ALIASES["SmartPay"] == ("SMARTPAY LEASING",)
+    assert registry.REATTRIBUTED_REGISTRY_ALIASES == {"SMARTPAY SOL": "SmartPay Solutions, LLC"}
+    solutions = BY_NAME["SmartPay Solutions, LLC"]
+    assert solutions.status == "rejected" and "SMARTPAY SOL" in solutions.aliases
+    for descriptor in ("SmartPay Sol debitpmt", "SMARTPAY SOL"):
+        assert _known(descriptor) is None and _claimed_by(descriptor) == [], descriptor
+
+
+def test_first_insurance_is_premium_financing_of_first_insurance_funding_on_the_owners_ruling():
     premium = registry.PREMIUM_FINANCE_ALIASES
-    funding = registry_match(normalize("FIRST INSURANCE FUNDING PMT"), premium)
-    assert funding is not None
-    assert registry_match(normalize("FIRST INSURANCE PMT"), premium) is None
+    assert registry.PREMIUM_FINANCE_INSURER_ALIASES == ("FIRST INSURANCE",)
+    for descriptor in ("FIRST INSURANCE FUNDING PMT", "FIRST INSURANCE PMT"):
+        found = registry_match(normalize(descriptor), premium)
+        assert found is not None and found[0] == "FIRST Insurance Funding", (descriptor, found)
+        assert _known(descriptor) is None, descriptor
+    found = registry_match(normalize("PAD FIRST INSURANCE LOAN"), premium)
+    assert found is not None and found[0] == "FIRST Insurance Funding of Canada", found
     assert registry.INSURANCE_PROVIDER_ALIASES["First Insurance"] == ("FIRST INSURANCE",)
     insurer_aliases = {normalize(a) for aliases in registry.INSURANCE_PROVIDER_ALIASES.values() for a in aliases}
-    assert not insurer_aliases & {normalize(a) for aliases in premium.values() for a in aliases}
+    premium_aliases = {normalize(a) for aliases in premium.values() for a in aliases}
+    assert insurer_aliases & premium_aliases == {normalize(a) for a in registry.PREMIUM_FINANCE_INSURER_ALIASES}
     assert not set(premium) & set(registry.INSURANCE_PROVIDER_ALIASES)
-    assert (f"- {funding[0]} (premium financing) has an alias that contains an alias of the hand-kept insurer "
-            "First Insurance (`INSURANCE_PROVIDER_ALIASES`).") in EVIDENCE
+    assert "only on the owner's ruling (`PREMIUM_FINANCE_INSURER_ALIASES`)" in EVIDENCE
+    assert "has an alias that contains an alias of the hand-kept insurer" not in EVIDENCE
+
+
+def test_ebf_holdings_is_merged_into_everest_business_funding_and_counts_once():
+    assert registry.MERGED_REGISTRY_ENTITIES == {"EBF HOLDINGS": "EVEREST BUSINESS FUNDING"}
+    assert "EBF HOLDINGS" not in BY_NAME
+    assert not [table for table, entries in REGISTRY_TABLES.items() if "EBF HOLDINGS" in entries]
+    assert {"EBF HOLDINGS", "EBF DEBIT", "HOLDINGS EBF"} <= set(registry.LENDER_ALIASES["EVEREST BUSINESS FUNDING"])
+    found = _known("HOLDINGS EBF DEBIT")
+    assert found is not None and (found.entity, found.state) == ("EVEREST BUSINESS FUNDING", "confirmed_lender")
+    assert "| EBF HOLDINGS | confirmed_lender | confirmed_lender (merged into EVEREST BUSINESS FUNDING) |" in EVIDENCE
+
+
+@pytest.mark.parametrize("descriptor,entity,state", [
+    ("SEZZLE PAYMENT", "Sezzle Inc", "alternative_position"),
+    ("AMERICAN FIRST FINANCE PAYMENT", "American First Finance, LLC", "alternative_position"),
+    ("PAYABILITY PAYMENT", "PAYABILITY", "confirmed_lender"),
+])
+def test_the_payout_credit_entities_are_admitted_financing_payees_whose_debits_keep_their_group(
+        descriptor, entity, state):
+    # Owner ruling 2026-09-25: their credits are the holder's own sales settled by the platform, which S2 reads
+    # as revenue (PAYOUT_CREDIT_ENTITIES, a D1 exception); the matcher still gives every row the entity's group.
+    assert registry.PAYOUT_CREDIT_ENTITIES == ("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")
+    assert BY_NAME[entity].status == "admitted" and BY_NAME[entity].group in FINANCING_STATES
+    found = _known(descriptor)
+    assert found is not None and (found.entity, found.state) == (entity, state), found
+
+
+@pytest.mark.parametrize("entity,group,status", [
+    ("CAPITAL INFUSION", "alternative_position", "admitted"),
+    ("MERCH PAD (probably Merchant Growth)", "confirmed_lender", "review"),
+    ("Rewards Network", "confirmed_lender", "review"),
+    ("MR BIZ CAPITAL", "confirmed_lender", "rejected"),
+    ("Keep Technologies Corp", "credit_card_payment", "rejected"),
+    ("LADCO Leasing", "lease_or_rental", "admitted"),
+])
+def test_the_owner_delegated_rulings_of_2026_09_25_file_each_payee_in_its_place(entity, group, status):
+    assert (BY_NAME[entity].group, BY_NAME[entity].status) == (group, status)
+    counted = entity in registry.LENDER_ALIASES
+    assert counted == (group == "confirmed_lender" and status == "admitted"), entity
 
 
 def test_the_numbered_ontario_company_waits_for_the_owner_unsearched_and_without_its_number():
@@ -5288,7 +5382,7 @@ Expected: 1 error during collection: `FileNotFoundError: [Errno 2] No such file 
 Run: `C:\Python314\python.exe -m tools.build_lender_registry --write; $LASTEXITCODE`
 Expected output:
 - the `ledger ok: ...` line and the `move:` lines of Step 2;
-- one line per table, from `LENDER_ALIASES: <n> entities, <m> aliases` to `POTENTIAL_LENDER_ALIASES: ...`;
+- one line per table, from `LENDER_ALIASES: <n> entities, <m> aliases` to `POTENTIAL_LENDER_ALIASES: ...` (for the ledger of the owner's rulings of 2026-09-25, the lines listed in "Prerequisite: the curated ledger");
 - `0`.
 
 The tool has rewritten the GENERATED block of `analysis/classification_registry.py`, and has written `docs/lender-registry-evidence.md`.
@@ -5309,6 +5403,8 @@ It prints two kinds of line, for every entity of every status:
 - `no organisation word in the name: <entity> (<status>)`;
 - `alias shares no word with its name: <entity> | <alias>`.
 
+For the ledger of the owner's rulings of 2026-09-25 it printed 597 lines.
+
 Read every line. Then read `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md` from start to end. Look for:
 - a person's or a customer's name, in an entity, an alias, `notes` or an evidence note;
 - an alias that does not name its payee, such as an entry description, a loan-type code or channel words;
@@ -5324,7 +5420,7 @@ If you find anything:
 - [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_registry_content.py tests/test_lender_registry_drift.py tests/test_classification_registry_groups.py tests/test_payee_matcher.py -q -p no:cacheprovider`
-Expected: 97 passed (58 + 3 + 21 + 15).
+Expected: 114 passed (75 + 3 + 21 + 15; amended to the owner's rulings of 2026-09-25).
 
 If a content test fails:
 1. Undo the render (the command at the end of Step 6). Step 3 then fails as it did before the render.
@@ -5336,10 +5432,10 @@ Never edit the ledger, the rendered block or the test to make it pass.
 - [ ] **Step 9: Run every S1 test, the three selections and the benchmark**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_flag_groups.py tests/test_classification_registry_groups.py tests/test_payee_matcher.py tests/test_classifier_speed.py tests/test_lender_ledger.py tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_alias_audit.py tests/test_lender_registry_content.py -q -p no:cacheprovider`
-Expected: 255 passed (197 + 58; amended after review).
+Expected: 318 passed (243 + 75; amended to the owner's rulings of 2026-09-25).
 
 Run the three commands from "Before Task 1".
-Expected: the baseline counts, unchanged: `404 passed`; `146 passed, 1 failed` (the known failure); `306 passed`. The classifier still reads the legacy lists.
+Expected: the baseline counts, unchanged: `404 passed`; `146 passed, 1 failed` (the known failure); `306 passed`. The classifier still reads the legacy lists. (The counts of this step were measured on the ledger of the owner's rulings of 2026-09-25, rendered on this branch at `b69d12e` in a scratch clone.)
 
 Run: `C:\Python314\python.exe -m tools.bench_classifier; $LASTEXITCODE`
 Expected: a line `300 fabricated rows: legacy <a> s, compiled <b> s, <n>x faster (required: 10x)` with `<n>` of at least 10, then `0`.
@@ -5353,9 +5449,10 @@ Each check, and the evidence for it:
 | The validator is clean | Step 2 exit `0`; `test_the_committed_ledger_passes_the_validator` |
 | Every move from today's registry has a reason about that move | the `move:` lines of Step 2, each read |
 | Every owner-named payee is present in its group | `test_every_payee_the_owner_named_is_in_its_ruled_group_in_the_committed_registry` |
-| `First Insurance Funding` is resolved against the hand-kept `First Insurance` without a duplicate or a collision | `test_first_insurance_funding_is_premium_financing_beside_the_hand_kept_insurer_first_insurance`; the owner line under "Awaiting an owner ruling" |
+| `FIRST INSURANCE` is FIRST Insurance Funding's premium alias on the owner's ruling, the only premium alias equal to an insurer alias, beside the unchanged hand-kept `First Insurance` | `test_first_insurance_is_premium_financing_of_first_insurance_funding_on_the_owners_ruling`; the ruling's line in the evidence ledger's Admission section, and no overlap line under "Awaiting an owner ruling" |
 | The committed files are the rendering of the ledger | the three drift tests |
-| S2's facts | the S2 Task-0 cases of the content test |
+| S2's facts | the S2 Task-0 cases of the content test; the Econolease, CMCA Finance and Lily Advance lender cases; the review-tier cases |
+| The owner's rulings of 2026-09-25: BlueVine without the bare alias, SmartPay Leasing and SmartPay Solutions, the EBF merge, the payout-credit entities, and the other delegated filings | `test_bluevine_is_bluevine_capital_and_bluevine_loan_without_the_bare_alias`; `test_smartpay_is_smartpay_leasing_and_smartpay_sol_is_claimed_by_no_table`; `test_ebf_holdings_is_merged_into_everest_business_funding_and_counts_once`; `test_the_payout_credit_entities_are_admitted_financing_payees_whose_debits_keep_their_group`; `test_the_owner_delegated_rulings_of_2026_09_25_file_each_payee_in_its_place` |
 | Privacy | Step 7 read in full; `test_no_digit_run_of_five_or_more_reaches_the_ledgers_outside_urls_and_todays_aliases`; `test_the_numbered_ontario_company_waits_for_the_owner_unsearched_and_without_its_number` |
 
 - [ ] **Step 11: Commit**
@@ -5418,6 +5515,7 @@ With a previous report, the summary line is followed by:
 About the counts:
 - They depend on the ledger.
 - For scale, the trial with this revision's stand-in ledger printed `taken matches: 166, of which need review: 119` at `--limit 300`, and `taken matches: 422, of which need review: 334` on the full cache (under three minutes).
+- The ledger of the owner's rulings of 2026-09-25, rendered on this branch at `b69d12e`, printed `aliases that matched: 1136; payee keys: 2262; taken matches: 2063, of which need review: 1180` on the full cache. With the orchestrator's review file and the previous ledger's report as `--before`, it printed `denied matches: 1; undecided: 0` and `lost matches: 0`. The one deny is the Zip overdraft charge (Step 4).
 - Most of them are one-word aliases whose payee key adds a word.
 
 - [ ] **Step 3: Decide every row of `undecided`**
@@ -5429,7 +5527,9 @@ Add one decision per row to `$local\alias-review.json`. When a decision holds fo
 - **Allow for the entity**, `{"entity": E, "key": K, "why": "..."}`, when K is the entity itself: its name, a truncation or run-together form of it, its name with a legal suffix, or its servicer or funder as the ledger's `notes` record.
 - **Deny**, `{"alias": A, "entity": E, "key": K, "why": "..."}`, when K names a different business or a person. S1 only records the deny here and sends it to the orchestrator (Step 4). S1 never edits the ledger to carry it out.
 
-S1 may allow a row on any alias, including bare `BLUEVINE`, an alias of a payee in `OWNER_NAMED_PAYEES` and an entity's last alias.
+S1 may allow a row on any alias, including an alias of a payee in `OWNER_NAMED_PAYEES` and an entity's last alias.
+
+**BlueVine.** The owner's ruling of 2026-09-25 dropped bare `BLUEVINE`. That carried out the five denies the review recorded on it: Bluevine Bill Pay payments and receipts between other businesses, and transfers to or from Bluevine checking accounts. Keep those deny entries in the review file. They name the bare alias, so they no longer fire, and the audit fails if a later ledger gives BlueVine the bare `BLUEVINE` again. BlueVine's aliases are now `BLUEVINE CAPITAL` and `BLUEVINE LOAN`, and a deny on either is marked as an alias of an owner-named payee.
 
 A fabricated example of the file:
 
@@ -5440,7 +5540,7 @@ A fabricated example of the file:
 ```
 
 For each deny, note two more facts for Step 4:
-- **The mark.** Mark the deny when A is bare `BLUEVINE` (spec §5 keeps it), an alias of a payee in `OWNER_NAMED_PAYEES`, or E's last alias. For these, dropping A is not the fix, and the orchestrator must find another one.
+- **The mark.** Mark the deny when A is an alias of a payee in `OWNER_NAMED_PAYEES`, or E's last alias. For these, dropping A is not the fix, and the orchestrator must find another one.
 - **The other keys of A.** Under `aliases.<state>.<A>.keys` in `$local\alias-audit.json`, count the other keys with `taken_rows` above 0 that no deny names. A drop of A would take their rows from E too, unless another alias of E matches them.
 
 - [ ] **Step 4: Settle every denial with the orchestrator (only when Step 3 recorded one)**
@@ -5453,7 +5553,7 @@ For each deny, note two more facts for Step 4:
 
 2. Send the orchestrator one line per deny, in this form (ledger text and counts only):
 
-   `deny: entity '<E>', alias '<A>', <kind of collision, e.g. an unrelated merchant's card purchases>; mark: <bare BLUEVINE | owner-named payee | last alias | none>; other keys of the alias with taken rows: <n>`
+   `deny: entity '<E>', alias '<A>', <kind of collision, e.g. an unrelated merchant's card purchases>; mark: <owner-named payee | last alias | none>; other keys of the alias with taken rows: <n>`
 
    The orchestrator reads the payee keys itself in `$local\alias-review.json` and `$local\alias-audit.json`. Both are local and outside the repository.
 3. Stop until the orchestrator has answered every deny. Each answer is one of two:
@@ -5464,6 +5564,8 @@ For each deny, note two more facts for Step 4:
 4. On the rerun, each `LOST` line is a pair whose rows the revision took from the entity without a decision. Send each one to the orchestrator as `lost: entity '<E>', <a> taken rows before, <b> now`, never with the key. The orchestrator answers in one of two ways:
    - **The loss is intended.** Add `{"entity": E, "key": K, "why": "orchestrator ruling <date>: <its reason>"}` to `deny`, and rerun Step 2. The deny also makes the audit fail if E takes K again.
    - **The loss is not intended**, for example because a drop should have been a narrower alias. The orchestrator sends a further revised ledger: handle it as in item 3. The previous report stays the one saved in item 1.
+
+**The Zip overdraft charge (the ledger of the owner's rulings of 2026-09-25).** That ledger leaves one deny: `ZIP APP PAY` (Zip Co US Inc) takes the bank's own overdraft charge for a Zip item. The charge prints the same truncated Zip spelling as Zip's own payments, so no ledger spelling can separate them, and a drop would lose Zip's own rows. The fix belongs to S2: its fee rule also reads `OVERDRAFT CHARGE` (step 6, ahead of the known-payee matcher), so under S2 the charge is a fee and Zip never takes it. The audit replays today's stored states, in which the charge is `other`, so it cannot see that rule. The orchestrator's answer to this deny is therefore a ruling: move the entry to `allow` in the entity-and-key form, `{"entity": "Zip Co US Inc", "key": <the denied key>, "why": ...}` (never the key alone, which would allow the key for every entity), with `"why": "orchestrator ruling 2026-09-25: the bank's overdraft charge for a Zip item; S2's fee rule reads OVERDRAFT CHARGE at step 6, and no ledger spelling separates it"`, then rerun Step 2. The census after S2 shows those rows as fees.
 
 Step 5 is reached only when every deny and every `LOST` line has an answer.
 
@@ -5487,10 +5589,11 @@ C:\Python314\python.exe "$local\s2_preconditions.py"; $LASTEXITCODE
 Expected: every check line `ok`, then `0 failure(s)` and `0`. Besides the checks it prints:
 - three `info  ... still defined: True` lines;
 - `info` lines for the card-issuer count on RBC Jan and Navy Fed June;
-- `info  navigant: open loan debits naming a listed bank = <N>`;
-- possibly `variant relay: personal-loan payees claim 3 debit rows, 2 of them POS (pin-ledger row 17)`.
+- `info  navigant: open loan debits naming a listed bank = <N>`.
 
-The last two select S2's pin variants (pin-ledger rows 15 and 17), and the ledger decides them. The trial with the stand-in ledger printed `0 failure(s)`, card counts `3` and `0`, navigant `0`, and no relay variant.
+The navigant line selects S2's pin variant (pin-ledger row 15), and the ledger decides it. The trial with the stand-in ledger printed `0 failure(s)`, card counts `3` and `0`, and navigant `0`; the S2 Task 0 of that time could also print a relay variant line, which it did not.
+
+For the ledger of the owner's rulings of 2026-09-25, copy the script only once the orchestrator has amended S2's Task 0 to those rulings: its facts 3, 4, 6 and 9, its `OWNER_RULED` rows and its `EXPECTED` values. Run on that ledger before the amendment (in a scratch clone of this branch at `b69d12e`), the script printed `20 failure(s)`: the six facts the rulings changed (AFC FUNDING CORP, SmartPay, Econolease, Clover Equipment, CMCA Finance, Lily Advance) and 14 pinned-statement counts that the ledger moves, first_farmers' BlueVine-named row among them (no longer claimed). The orchestrator's amendment of S2's Task 0 re-pins all of them; the amended script, run on a scratch export of this branch at `b69d12e` with that ledger rendered, printed `0 failure(s)`, card counts `3` and `0`, and navigant `2`. Report any `FAIL` line of the amended script as usual.
 
 A `FAIL` line means the ledger breaks a fact that S2 relies on. Report every `FAIL` line verbatim; the lines carry counts, fabricated descriptors and registry names only. S2 does not start until the orchestrator settles it, in the ledger (then rerun Task 9 from Step 1 and this task from Step 2) or by giving S2 ruled values.
 
@@ -5503,7 +5606,7 @@ Report:
 - the audit summary lines of the first run (Step 2) and of the acceptance (Step 5), with the `lost matches` line when there is one;
 - the number of allow and deny decisions in `$local\alias-review.json`, and how many allows are by key alone;
 - every deny and `LOST` line sent in Step 4, with the orchestrator's answer (ledger text and counts only);
-- S2's Task 0 output: the failure count, and every `FAIL`, `variant` and `info` line;
+- S2's Task 0 output: the failure count, and every `FAIL` and `info` line;
 - the local paths `$local\alias-review.json`, `$local\alias-audit.json` and, when it exists, `$local\alias-audit-previous.json`.
 
 Do not quote any payee key.
@@ -5511,7 +5614,7 @@ Do not quote any payee key.
 **The check of S1's allow decisions (the orchestrator, or the independent reviewer of S1, before S2 starts).** One agent made every allow decision, so a second one checks them:
 - Read `$local\alias-review.json` beside the `aliases` section of `$local\alias-audit.json`, which lists every alias with its entity and the keys it takes. The files are local and outside the repository, so reading them breaks no privacy rule.
 - Check every allow by key alone, because each one allows its key for every alias and entity.
-- Check at least 30 other allows, spread across entities, including every allow on bare `BLUEVINE`.
+- Check at least 30 other allows, spread across entities, including every allow on a BlueVine alias (`BLUEVINE CAPITAL`, `BLUEVINE LOAN`; bare `BLUEVINE` is no longer an alias).
 - A wrong allow becomes a deny, which goes through Step 4.
 - The check's report names entities and counts, never a payee key.
 
@@ -5519,7 +5622,7 @@ Do not quote any payee key.
 
 ## Notes for S2 and the orchestrator
 
-- **S2's Task 0 on S1's output.** Expect `0 failure(s)`. The navigant bank-name count and a possible `variant relay` line select S2's pin variants (pin-ledger rows 15 and 17), and the ledger decides both. S1's Task 10 Step 6 reports them. The earlier draft of this plan expected three relay FAIL lines; S2's current Task 0 treats the relay reach as a variant, so no FAIL is expected.
+- **S2's Task 0 on S1's output.** Expect `0 failure(s)`. The navigant bank-name count selects S2's one pin variant (pin-ledger row 15), and the ledger decides it; S1's Task 10 Step 6 reports it. The earlier draft of this plan expected three relay FAIL lines, and a later S2 Task 0 treated the relay reach as a variant. Since the owner's rulings of 2026-09-25, S2's Task 0 expects relay's reach exactly (pin-ledger row 17), so no relay variant line is printed.
 - **The ledger belongs to the orchestrator, content and edits alike (Decision 10).**
   - A failed content fact, whether from S1's validator, S1's content test or S2's Task 0, is settled in the ledger.
   - So is every alias the audit denies. S1 sends each deny as entity, alias, kind and mark (Task 10 Step 4), and never edits the ledger.
@@ -5533,7 +5636,7 @@ Do not quote any payee key.
   - it adds the brand, context-only, card-wording, hand-kept, run-together, privacy and today's-registry rules;
   - a move needs a `Move:` sentence, not just any note.
 
-  The owner's ruling of 2026-09-25 adds four more (Decision 3), which the master plan's C10 does not list yet: a premium-finance alias repeats an insurer alias only as a `PREMIUM_FINANCE_INSURER_ALIASES` spelling; a `MERGED_REGISTRY_ENTITIES` entry names an entity of today's registry and a ledger entity that absorbs it; a `REATTRIBUTED_REGISTRY_ALIASES` entry names an alias of today's registry and the ledger entity of the other company, which holds it and alone may be read from it; every `PAYOUT_CREDIT_ENTITIES` name is an admitted entity of a financing group.
+  The owner's ruling of 2026-09-25 adds four more (Decision 3), which the master plan's C10 now lists too: a premium-finance alias repeats an insurer alias only as a `PREMIUM_FINANCE_INSURER_ALIASES` spelling; a `MERGED_REGISTRY_ENTITIES` entry names an entity of today's registry and a ledger entity that absorbs it; a `REATTRIBUTED_REGISTRY_ALIASES` entry names an alias of today's registry and the ledger entity of the other company, which holds it and alone may be read from it; every `PAYOUT_CREDIT_ENTITIES` name is an admitted entity of a financing group.
 
   S2's "Why Task 0 checks more than C10's validator" still holds for the entity spellings S2 pins and for the reach into real statements. The owner-named payees of the amendment groups, the equipment lenders and the lease-to-own names are now also refused by the validator when they are missing.
 - **The legacy lists.**
@@ -5544,9 +5647,9 @@ Do not quote any payee key.
   - S2 reads `PAYOUT_CREDIT_ENTITIES` as a D1 exception (the owner's ruling of 2026-09-25): those entities' credits are the account holder's own sales settled by the platform, so revenue, not financing proceeds; their debits keep their group.
   - S2's insurance rule reads `PREMIUM_FINANCE_ALIASES` first, so once the ledger gives `FIRST INSURANCE` to FIRST Insurance Funding, a row that prints only `FIRST INSURANCE` stays insurance and is also flagged premium financing (Decision 8).
 - **The owner's merge and reattribution in S2's census compare.** Spec §9 reads every lost lender as a ruled move, so the orchestrator should expect these before reading `lender_census compare`:
-  - The merge of `EBF HOLDINGS` into `EVEREST BUSINESS FUNDING` shows as `EBF HOLDINGS` lost in every account where it had rows. Those rows are still `confirmed_lender`, now under `EVEREST BUSINESS FUNDING`, which gains them: the move is ruled (`MERGED_REGISTRY_ENTITIES`), not a lost lender.
-  - The reattribution of `SMARTPAY SOL` to SmartPay Solutions takes those rows from SmartPay: SmartPay Solutions is a rejected entity (premium billing, not a lender, a lessor or a premium financier), and the validator refuses a registry whose known-payee or potential tables read `SMARTPAY SOL` as anyone else, so with bare `SMARTPAY` dropped those rows leave the lease state and no registry entity claims them. SmartPay shows as lost where they were its only rows. That is ruled too (`REATTRIBUTED_REGISTRY_ALIASES`).
-  - S2's plan still names `SMARTPAY SOL` as SmartPay's alias in its fact 4. The orchestrator amends that fact to `SMARTPAY LEASING` (S1 does not edit S2's plan).
+  - The merge of `EBF HOLDINGS` into `EVEREST BUSINESS FUNDING` is silent: S2's `compare` reads `MERGED_REGISTRY_ENTITIES` and treats the two names as one lender, so `EBF HOLDINGS` shows neither as lost nor as gained. Its rows are still `confirmed_lender`, under `EVEREST BUSINESS FUNDING`.
+  - The reattribution of `SMARTPAY SOL` to SmartPay Solutions takes those rows from SmartPay: SmartPay Solutions is a rejected entity (premium billing, not a lender, a lessor or a premium financier), and the validator refuses a registry whose known-payee or potential tables read `SMARTPAY SOL` as anyone else, so with bare `SMARTPAY` dropped those rows leave the lease state and no registry entity claims them. They were never lender rows, so the census shows no lender change for them; they become unflagged `other` rows. That is ruled (`REATTRIBUTED_REGISTRY_ALIASES`).
+  - S2's plan names `SMARTPAY LEASING` as SmartPay's alias in its fact 4 (amended by the orchestrator to the owner's ruling).
 - **The ledger's own words must match the owner's ruling.** The validator reads a move's reason from the holder's first `Move:` sentence, so the orchestrator rewrites these notes when it revises the ledger:
   - `EVEREST BUSINESS FUNDING`: its `Move:` sentence becomes the merge's reason on the `move:` line and the evidence page, so it must be about the merge. The current text says the `EBF HOLDINGS` spellings stay with a separate `EBF HOLDINGS`, which contradicts the merge.
   - SmartPay: it holds `SMARTPAY LEASING`; its notes say that `SMARTPAY SOL` went to SmartPay Solutions on the owner's ruling, and its `Move:` sentence explains why bare `SMARTPAY` is dropped.
@@ -5591,7 +5694,7 @@ Do not quote any payee key.
 | §5 admission: confirmed plus upheld or corrected; unresolved entities to the potential tier or the owner list | Task 5 (admission rules; `review` renders into `POTENTIAL_LENDER_ALIASES`; `owner_ruling` and `rejected` render nowhere); Task 6 (evidence sections) |
 | §2 every payee the owner named, in every group, including the amendment's | Task 7 (`OWNER_NAMED_PAYEES`); Task 5 (`owner_named_problems`); Task 9 (committed registry) |
 | §5 aliases: payee names only; no bare platform names; financing-specific, not brands; no `#`; no customer names | Task 5 (character, platform, hand-kept and brand rules); Task 7 (`BARE_PLATFORM_NAMES`, `BARE_BRAND_NAMES`); Task 9 Step 7 (privacy review of every committed name) |
-| §5 BLUEVINE keeps transfer precedence; ENOVA must not catch Journey or NetCredit; SmartPay versus Atlas | Task 9 (content test: `BLUEVINE loan payment` stays a line of credit, the three collisions); Task 10 (a deny on bare `BLUEVINE` is marked for the orchestrator, because dropping it is not the fix) |
+| §5 BlueVine is `BLUEVINE CAPITAL` and `BLUEVINE LOAN`, with no bare `BLUEVINE` (owner, 2026-09-25); ENOVA must not catch Journey or NetCredit; SmartPay versus Atlas | Task 9 (content test: `BLUEVINE loan payment` and `BLUEVINE CAPITAL` are a line of credit, no table claims bare `BLUEVINE`, a Bluevine Bill Pay row or a Bluevine transfer, and the three collisions); Task 10 (the five BlueVine denies stay in the review file and fail the audit if the bare alias returns) |
 | §5 collision audit: local only, reports every alias, zero collisions | Task 8 (the audit; the review rule of Decision 9, QUILLON → QUILLON BAKERY needs review; `lost_matches` and `--before`, Decision 15); Task 10 (zero denied and zero undecided, and zero lost after a revised ledger; a second agent checks the allows) |
 | §9 every lost lender is a ruled move; gained lenders trace to admitted entities | Task 5 (today's-registry rules, `baseline_moves`, a move needs a `Move:` sentence); Task 6 (the moves section); Task 7 (the `move:` lines of `--check`); Task 10 (a revised ledger that loses an entity's rows fails the audit) |
 | §5 evidence ledger: group, public source URL, verdict, where the researchers looked, no statement text; the owner-ruling list with the numbered company | Task 6 (`render_evidence`); Task 9 (rendered, read in full, the numbered-company test, the digit test) |
@@ -5611,7 +5714,7 @@ Do not quote any payee key.
 | Minor: descriptor text as name tokens and aliases | No name tokens are derived. The privacy review lists every alias that shares no word with its entity, and Task 9 Step 7 has the reader reject an alias that does not name its payee. |
 | Minor: the privacy review skipped emptied entities | `privacy_review` covers every entity of every status, because the committed ledger carries them all. |
 | Minor: a late research snapshot | No research is read. The committed ledger is the input, and its canonical digest is in the evidence ledger. |
-| Minor: relay and S2's Task 0 | The hand-off expects `0 failure(s)`. The relay and navigant lines are variants (Task 10 Step 6; Notes for S2). |
+| Minor: relay and S2's Task 0 | The hand-off expects `0 failure(s)`. The navigant line is a variant; since the owner's rulings of 2026-09-25, S2's Task 0 pins relay's reach exactly (Task 10 Step 6; Notes for S2). |
 | Minor: stale S2 task numbers | Decisions 1, 11 and 14 and the Notes cite S2's current Tasks 3, 4, 5 and 6. |
 | Minor: `First Insurance` versus `First Insurance Funding` | Decision 8; Task 5 rules; Task 6 owner line; Task 9 acceptance test. |
 
