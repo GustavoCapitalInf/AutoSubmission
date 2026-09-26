@@ -892,3 +892,39 @@ def test_a_statement_whose_reading_is_not_cached_is_refused_and_runs_no_reader(p
     assert pipeline.reads == 1  # the upload's read, and no other
     assert private_store.storage.load_job(job_id)["analysis_json"] == stored_text
     assert private_store.storage.audit_events("reanalysis", job_id=job_id) == []
+
+
+def test_a_review_waits_for_a_reanalysis_of_the_same_statement(pipeline, private_store, monkeypatch):
+    """A row's decision while its statement is being re-analyzed. Without the statement's lock it would be saved on
+    the old analysis and then overwritten when the re-analysis saved its own, while its decision row stayed
+    recorded."""
+    from webapp import app as webapp_app
+
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload())
+    entered, release = threading.Event(), threading.Event()
+    save = private_store.apply_reanalysis
+
+    def held_save(*args, **kwargs):
+        entered.set()
+        release.wait(5)
+        return save(*args, **kwargs)
+
+    monkeypatch.setattr(private_store, "apply_reanalysis", held_save)
+    results = {}
+    rerun = threading.Thread(target=lambda: results.update(rerun=_reanalyze(job_id)))
+    review = threading.Thread(target=lambda: results.update(review=webapp_app.app.test_client().post(
+        f"/analysis/{job_id}/revenue-review", json={"source_location": "transaction:3", "decision": "reject"})))
+    rerun.start()
+    assert entered.wait(5)
+    review.start()
+    review.join(timeout=1)
+    waited = review.is_alive()
+    release.set()
+    rerun.join(5)
+    review.join(5)
+    assert waited
+    assert results["rerun"].status_code == results["review"].status_code == 200
+    assert _records(private_store.get(job_id).analysis)["transaction:3"]["revenue_review_status"] == "rejected"
+    # A request naming no statement leaves no lock behind: the table of locks holds statements, not guesses.
+    assert _reanalyze("no-such-job").status_code == 404 and "no-such-job" not in webapp_app._review_locks

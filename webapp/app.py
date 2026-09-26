@@ -2619,24 +2619,31 @@ def reanalyze(job_id):
     for OCR. The analysis replaced is written to the audit log first, in the same transaction as the replacement
     (`JobStore.apply_reanalysis`), and the analyst's revenue decisions are replayed where their posting is unchanged
     (`replay_reviews`); the answer counts those replayed, those that need redoing and those a rule now decides. JSON
-    only, like the review and settings routes: a cross-site HTML form cannot send it without a preflight."""
+    only, like the review and settings routes: a cross-site HTML form cannot send it without a preflight.
+
+    Held under the statement's review lock from reading the job to saving the new analysis: a decision saved in
+    between would land on the old analysis and then be overwritten, while its decision row stayed recorded. Reviews
+    of other statements do not wait."""
     if not isinstance(request.get_json(silent=True), dict):
         return jsonify({"error": "the request must be a JSON object"}), 400
-    job = store.get(job_id)
-    if job is None:
+    if store.get(job_id) is None:
         return jsonify({"error": "job not found"}), 404
-    if job.status != "done":
-        return jsonify({"error": "job is not finished"}), 409
-    pdf_bytes = store.pdf_bytes(job_id)
-    if pdf_bytes is None:
-        return jsonify({"error": "the original PDF is not stored"}), 409
-    rerun = rerun_analysis(store, job, pdf_bytes)
-    if rerun.analysis is None:
-        return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": rerun.reason}), 422
-    replay = replay_reviews(rerun.analysis, store.review_history(job_id))
-    stored = store.apply_reanalysis(
-        job_id, replay.analysis, replayed=replay.replayed, not_replayed=replay.not_replayed,
-        decided_by_rules=replay.decided_by_rules)
+    with _review_lock(job_id):
+        job = store.get(job_id)
+        if job is None:
+            return jsonify({"error": "job not found"}), 404
+        if job.status != "done":
+            return jsonify({"error": "job is not finished"}), 409
+        pdf_bytes = store.pdf_bytes(job_id)
+        if pdf_bytes is None:
+            return jsonify({"error": "the original PDF is not stored"}), 409
+        rerun = rerun_analysis(store, job, pdf_bytes)
+        if rerun.analysis is None:
+            return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": rerun.reason}), 422
+        replay = replay_reviews(rerun.analysis, store.review_history(job_id))
+        stored = store.apply_reanalysis(
+            job_id, replay.analysis, replayed=replay.replayed, not_replayed=replay.not_replayed,
+            decided_by_rules=replay.decided_by_rules)
     if stored is None:
         return jsonify({"error": "job not found"}), 404
     return jsonify({
