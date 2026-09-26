@@ -87,6 +87,24 @@ def _insurance_dict(match) -> dict:
     }
 
 
+def _flagged_dict(match) -> dict:
+    """Spec §6 (C5): one flagged position, exactly the contract's keys."""
+    return {
+        "group": match.group,
+        "payee": match.payee,
+        "matched_alias": match.matched_alias,
+        "count": match.count,
+        "total_debited": match.total_debited,
+        "count_credited": match.count_credited,
+        "total_credited": match.total_credited,
+        "cadence": match.cadence,
+        "avg_gap_days": match.avg_gap_days,
+        "first_date": match.first_date,
+        "last_date": match.last_date,
+        "source_locations": list(match.source_locations),
+    }
+
+
 def _recurring_dict(item) -> dict:
     return {
         "description_key": item.description_key,
@@ -166,6 +184,7 @@ def report_to_dict(report: Report) -> dict:
             "known_funders": [_funder_dict(match) for match in detection.known_funders],
             "potential_lenders": [_funder_dict(match) for match in detection.potential_lenders],
             "insurance_providers": [_insurance_dict(match) for match in detection.insurance_providers],
+            "flagged_positions": [_flagged_dict(match) for match in detection.flagged_positions],
             "recurring_debits": [_recurring_dict(item) for item in detection.recurring_debits],
             "lender_evidence": [asdict(item) for item in detection.lender_evidence],
             "potential_lender_evidence": [

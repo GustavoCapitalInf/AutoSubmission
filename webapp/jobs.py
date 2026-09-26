@@ -311,6 +311,39 @@ class JobStore:
         self._storage.set_job_analysis(job_id, json.dumps(analysis))
         return deepcopy(analysis)
 
+    def apply_reanalysis(
+        self,
+        job_id: str,
+        analysis: dict,
+        *,
+        replayed: tuple[int, ...] = (),
+        not_replayed: tuple[int, ...] = (),
+        decided_by_rules: tuple[int, ...] = (),
+    ) -> dict | None:
+        """Replace a job's analysis with a re-analysis of its statement: the same job, so the same id and the same
+        place in Recent. The analysis replaced goes to the audit log first, in the same storage transaction
+        (`Storage.record_reanalysis`), beside the ids of the review decisions the re-analysis replayed, of those that
+        need redoing, and of those a rule now decides (their row no longer awaits review, so there is nothing to
+        redo). A re-analysis that produced an analysis has no analysis error."""
+        job = self.get(job_id)
+        if job is None:
+            return None
+        written = self._storage.record_reanalysis(
+            job_id,
+            analysis_json=json.dumps(analysis),
+            detail={
+                "reviews_replayed": list(replayed),
+                "reviews_not_replayed": list(not_replayed),
+                "reviews_decided_by_rules": list(decided_by_rules),
+            },
+        )
+        if not written:
+            return None
+        with self._lock:
+            job.analysis = deepcopy(analysis)
+            job.analysis_error = None
+        return deepcopy(analysis)
+
     def apply_review(
         self,
         job_id: str,

@@ -34,9 +34,14 @@ from analysis.revenue import (
     REVENUE_STATES,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
+from analysis.cadence import describe_cadence
+from analysis.dates import parse_date
+from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
+from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group_keys
 from .jobs import JobStore
-from .settings import load_settings, save_settings
+from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
 from .worker import run_job
+from .reanalysis import replay_reviews, rerun_analysis
 
 # Upload ceilings. Every value here is enforced server-side and mirrored in the
 # dropzone caption, so what the operator is told is what the server does.
@@ -196,16 +201,25 @@ def _is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
-def _displayed(analysis: object, *, carry_over: bool | None = None) -> object:
+def _displayed(
+    analysis: object, *, carry_over: bool | None = None, settings: dict | None = None
+) -> object:
     """A stored analysis as the dashboard presents it: the owner's Settings applied to a COPY.
 
-    Today that is the NSF basis (analysis/nsf_days.py): printed days by default, or every calendar day with
-    the balance carried over inactive days when Settings turns carry-over on. Every surface that shows or
-    exports metrics goes through here, so the dashboard, the downloads and the package agree; the stored
-    record is never rewritten, and a change of setting applies to every job at once."""
+    Two settings apply. The NSF basis (analysis/nsf_days.py): printed days by default, or every calendar day with
+    the balance carried over inactive days when Settings turns carry-over on. And the flag groups
+    (analysis/flagged_view.py): an unticked group is hidden from the summaries and its rows lose their flag.
+    Every surface that shows or exports an analysis goes through here, so the dashboard, the downloads and the
+    package agree; the stored record is never rewritten, and a change of setting applies to every job at once.
+
+    `settings` is a snapshot of every setting, read here once when it is not passed; `carry_over`, when given,
+    still decides the NSF basis."""
+    if settings is None:
+        settings = load_settings(store.storage.data_dir)
     if carry_over is None:
-        carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
-    return apply_nsf_basis_to_payload(analysis, carry_over=carry_over)
+        carry_over = settings.get("nsf_carry_over", SETTINGS_DEFAULTS["nsf_carry_over"])
+    rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over)
+    return apply_flagged_groups_to_payload(rebased, enabled=settings)
 
 
 def _masked(payload: object) -> object:
@@ -362,9 +376,32 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     detection = analysis.get("detection")
     if isinstance(detection, dict):
         for key, item in detection.items():
+            if key == "flagged_positions":
+                continue  # emitted as readable rows below
             if isinstance(item, (dict, list)):
                 item = json.dumps(item)
             rows.append(("detection", key, "" if item is None else item))
+        rows.extend(_flagged_position_rows(detection.get("flagged_positions")))
+    return rows
+
+
+def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
+    """An account's flagged positions, one readable section per payee (lender detection §8.4):
+    `flagged_<group>_<n>` with the payee, its debit count, the total debited, the credits it paid in and their
+    total (plan contract C5: a factor's payouts, owner ruling 2026-09-26), and the cadence.
+
+    Served payloads hold only the ticked groups (analysis/flagged_view.py via `_displayed`), so the sheet follows
+    Settings. A payee name is statement text: these rows reach a file only through `_escaped_rows`."""
+    rows: list[tuple[str, str, object]] = []
+    numbers: dict[str, int] = {}
+    for entry in positions if isinstance(positions, list) else []:
+        group = entry.get("group") if isinstance(entry, dict) else None
+        if not isinstance(group, str) or group not in FLAG_GROUP_BY_KEY:
+            continue
+        numbers[group] = numbers.get(group, 0) + 1
+        for field in ("payee", "count", "total_debited", "count_credited", "total_credited", "cadence"):
+            value = entry.get(field)
+            rows.append((f"flagged_{group}_{numbers[group]}", field, "" if value is None else value))
     return rows
 
 
@@ -407,6 +444,12 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, provider in enumerate(package.get("insurance_providers") or [], start=1):
         for key, value in provider.items():
             rows.append((f"insurance_provider_{idx}", key, "" if value is None else value))
+    # Lender detection §8.4: one section per flagged payee, `flagged_<group>_<n>`. The package holds only the
+    # groups Settings ticks, so the sheet follows Settings.
+    for group, items in (package.get("flagged_positions") or {}).items():
+        for idx, item in enumerate(items, start=1):
+            for key, value in item.items():
+                rows.append((f"flagged_{group}_{idx}", key, "" if value is None else value))
     for idx, evidence in enumerate(package.get("lender_evidence") or [], start=1):
         for key, value in evidence.items():
             rows.append((f"lender_evidence_{idx}", key, "" if value is None else value))
@@ -511,6 +554,95 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
     return classification.get("contributes_to_potential_lender_count") is True
 
 
+def _counts_as_flagged(classification: dict, shown: frozenset[str]) -> bool:
+    """A row the package's flag roll-up counts: the analysis marked it a contributing row of a flag group
+    (`contributes_to_flagged_totals`: a posted debit, or a posted factoring credit, that is not a proven duplicate
+    and not reversed; plan contract C4), and Settings ticks its group."""
+    group = classification.get("flagged_group")
+    return (
+        classification.get("contributes_to_flagged_totals") is True
+        and isinstance(group, str)
+        and group in shown
+    )
+
+
+def _add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> None:
+    """Fold one member's counted flag rows into the package roll-up, keyed by (group, payee).
+
+    The payee is the row's canonical entity, or its group's label when the analysis named none (plan contract
+    C5). `documents` counts the members a payee appears in, as the funder roll-up does. A debit adds to `count`
+    and `total_debited`; a credit (a factor's payout, owner ruling 2026-09-26) adds to `count_credited` and
+    `total_credited`. The dates of both are kept so the first and last dates, and the cadence, are read across
+    every member rather than per statement."""
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        classification = row["classification"]
+        group = classification["flagged_group"]
+        entity = classification.get("canonical_entity")
+        payee = entity if isinstance(entity, str) and entity else FLAG_GROUP_BY_KEY[group].label
+        item = rollup.setdefault(
+            (group, payee),
+            {"payee": payee, "documents": 0, "count": 0, "total_debited": 0.0, "count_credited": 0,
+             "total_credited": 0.0, "dates": []},
+        )
+        if (group, payee) not in seen:
+            seen.add((group, payee))
+            item["documents"] += 1
+        amount = _num(row.get("amount"))
+        if amount < 0:
+            item["count"] += 1
+            item["total_debited"] = round(item["total_debited"] + abs(amount), 2)
+        else:
+            item["count_credited"] += 1
+            item["total_credited"] = round(item["total_credited"] + amount, 2)
+        posted = parse_date(row.get("date") or classification.get("date"))
+        if posted is not None:
+            item["dates"].append(posted)
+
+
+def _published_flagged_positions(
+    rollup: dict[tuple[str, str], dict], *, refuse_cross_currency: bool
+) -> dict[str, list[dict]]:
+    """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
+    order, as a list of `{payee, documents, count, total_debited, count_credited, total_credited, cadence,
+    first_date, last_date}`. The cadence is read over the payee's dates in every member together
+    (analysis/cadence.py), its debits and its credits alike, so a monthly payment split across monthly statements
+    reads as monthly.
+
+    Largest total first, debited plus credited; a package that refuses to combine currencies ranks by the
+    unit-free count, debits plus credits, then the payee, because an order read off summed money would publish the
+    cross-currency comparison the refusal withholds (CURRENCY DOCTRINE §F)."""
+    published: dict[str, list[dict]] = {}
+    for group in FLAG_GROUPS:
+        items = []
+        for (key, _payee), item in rollup.items():
+            if key != group.key:
+                continue
+            dates = sorted(item["dates"])
+            items.append({
+                "payee": item["payee"],
+                "documents": item["documents"],
+                "count": item["count"],
+                "total_debited": item["total_debited"],
+                "count_credited": item["count_credited"],
+                "total_credited": item["total_credited"],
+                "cadence": describe_cadence(dates)[0] if dates else None,
+                "first_date": dates[0].isoformat() if dates else None,
+                "last_date": dates[-1].isoformat() if dates else None,
+            })
+        if not items:
+            continue
+        if refuse_cross_currency:
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["count"] + item["count_credited"]), item["payee"])
+            )
+        else:
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["total_debited"] + item["total_credited"]), item["payee"])
+            )
+    return published
+
+
 #: Package totals that carry money, or that divide one money figure by another.
 #: Adding or dividing these across statements denominated in different
 #: currencies is a unit error — `30,000 CAD + 20,000 USD != 50,000 package ADB`
@@ -544,6 +676,8 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "confirmed_true_revenue",
     "confirmed_true_revenue_total",
     "eligible_deposits",
+    "flagged_position_total",
+    "flagged_position_total_credited",
     "insurance_total",
     "lender_debits",
     "maximum_revenue",
@@ -583,6 +717,7 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
 #: here; everything left on them is a genuine count.
 _CROSS_CURRENCY_ROLLUP_KEYS = (
     "total_debited",
+    "total_credited",
     "potential_lender_debit_total",
     "eligible_deposit_denominator",
     "potential_withholding_exposure",
@@ -804,17 +939,18 @@ def _idle_main_account(roster: list[dict]) -> dict | None:
     return next((entry for entry in top if entry.get("status") == "idle"), None)
 
 
-def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
+def _package_members(jobs, *, settings: dict | None = None) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
     A member is ONE ACCOUNT. A job publishing today's payload is one member and
     is admitted exactly as it always was — this function cannot change what a
     single-account package computes, because for such a job it yields one
     `(job, analysis)` pair whose analysis is the stored one as the dashboard
-    shows it (`_displayed`: the owner's NSF basis applied to a copy; the stored
-    record is never rewritten and every other field is the stored one). The
-    NSF basis is read once per package, so a setting saved mid-request cannot
-    split the members across two bases.
+    shows it (`_displayed`: the owner's NSF basis and flag groups applied to a
+    copy; the stored record is never rewritten and every other field is the
+    stored one). Settings are read once per package — here, or by the caller
+    that passes `settings` — so a setting saved mid-request cannot split the
+    members across two NSF bases or two sets of ticked flag groups.
 
     Two rules apply to a job that publishes several accounts, and both are the
     package's own arithmetic protecting itself:
@@ -837,10 +973,12 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
 
     members: list[tuple] = []
     excluded: list[dict] = []
-    # One read per package, so a setting saved mid-request cannot split the members across two NSF bases.
-    carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
+    # One read per package, so a setting saved mid-request cannot split the members across two NSF bases or two
+    # sets of ticked flag groups.
+    if settings is None:
+        settings = load_settings(store.storage.data_dir)
     for job in jobs:
-        analysis = _displayed(job.analysis or {}, carry_over=carry_over)
+        analysis = _displayed(job.analysis or {}, settings=settings)
         roster = _account_roster(analysis)
         unverified, idle = _unverified_main_account(roster), _idle_main_account(roster)
         if unverified is not None or idle is not None:
@@ -916,9 +1054,14 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     return members, excluded
 
 
-def _package_analysis(jobs) -> dict:
+def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
+    # The one settings snapshot this package is built on: its members are displayed with it, and its flag roll-up
+    # keeps the groups it ticks.
+    if settings is None:
+        settings = load_settings(store.storage.data_dir)
+    shown_groups = enabled_group_keys(settings)
     duplicate_of, duplicate_groups = _package_duplicates(jobs)
-    members, excluded_accounts = _package_members(jobs)
+    members, excluded_accounts = _package_members(jobs, settings=settings)
     #: Q10. Every ratified sibling omission any member document published. The
     #: package says so rather than demoting anything: an omission admitted on
     #: printed evidence beside an independently validated account is a
@@ -978,6 +1121,12 @@ def _package_analysis(jobs) -> dict:
         "monthly_lender_debits": 0.0,
         "insurance_count": 0,
         "insurance_total": 0.0,
+        # Lender detection §8.3: the ticked flag groups' counted debits and their total, and apart from them the
+        # counted credits (a factor's payouts, owner ruling 2026-09-26) and theirs. Never lender math (D7).
+        "flagged_position_count": 0,
+        "flagged_position_total": 0.0,
+        "flagged_position_count_credited": 0,
+        "flagged_position_total_credited": 0.0,
         "withholding_numerator": 0.0,
         "withholding_denominator": 0.0,
         "potential_withholding_numerator": 0.0,
@@ -998,6 +1147,9 @@ def _package_analysis(jobs) -> dict:
     package_revenue_evidence: dict[str, list[dict]] = {
         state: [] for state in REVENUE_STATES
     }
+    #: (group key, payee) -> the running roll-up of the ticked flag groups (lender detection §8.3).
+    flagged_rollup: dict[tuple[str, str], dict] = {}
+    package_flagged_evidence: list[dict] = []
     denominator_modes: set[str] = set()
     nsf_sources: set[str] = set()
     #: CURRENCY DOCTRINE §F bookkeeping: how many money-contributing members
@@ -1143,6 +1295,11 @@ def _package_analysis(jobs) -> dict:
             transaction
             for transaction in authoritative_rows
             if transaction["classification"].get("contributes_to_insurance_totals") is True
+        ]
+        flagged_rows = [
+            transaction
+            for transaction in authoritative_rows
+            if _counts_as_flagged(transaction["classification"], shown_groups)
         ]
         positive_statement_rows = [
             transaction
@@ -1495,6 +1652,10 @@ def _package_analysis(jobs) -> dict:
                 }
             )
 
+        # Flag groups (lender detection §8.3): the ticked groups' counted rows of this member's ledger, less its
+        # internal-transfer legs. They never reach the lender totals, the withholding or the decision (D7).
+        _add_flagged_rows(flagged_rollup, flagged_rows)
+
         # Flattened ledger so the dashboard can show every statement's rows at once.
         for tx in statement_transactions:
             package_transaction = {
@@ -1526,6 +1687,11 @@ def _package_analysis(jobs) -> dict:
                 package_potential_lender_evidence.append(evidence)
             if classification.get("contributes_to_insurance_totals") is True:
                 package_insurance_evidence.append(evidence)
+            if _counts_as_flagged(classification, shown_groups):
+                # A location is numbered within its own account, so a multi-account member's evidence names it.
+                package_flagged_evidence.append(
+                    evidence if account_index is None else {**evidence, "source_account": account_index}
+                )
             revenue_state = classification.get("revenue_classification")
             if revenue_state in REVENUE_STATES and _num(tx.get("amount")) > 0:
                 package_revenue_evidence[revenue_state].append(evidence)
@@ -1695,6 +1861,12 @@ def _package_analysis(jobs) -> dict:
         package_average_daily_balance = None
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
+    totals["flagged_position_count"] = sum(item["count"] for item in flagged_rollup.values())
+    totals["flagged_position_total"] = round(sum(item["total_debited"] for item in flagged_rollup.values()), 2)
+    totals["flagged_position_count_credited"] = sum(item["count_credited"] for item in flagged_rollup.values())
+    totals["flagged_position_total_credited"] = round(
+        sum(item["total_credited"] for item in flagged_rollup.values()), 2
+    )
     totals["maximum_revenue"] = round(
         totals["verified_revenue_total"] + totals["unverified_deposit_total"],
         2,
@@ -1822,6 +1994,9 @@ def _package_analysis(jobs) -> dict:
     package_potential_lenders = sorted(
         potential_lenders.values(), key=lambda r: r["funder"]
     )
+    package_flagged_positions = _published_flagged_positions(
+        flagged_rollup, refuse_cross_currency=refuse_cross_currency
+    )
 
     published_totals = {
         **totals,
@@ -1902,6 +2077,7 @@ def _package_analysis(jobs) -> dict:
             *package_funders,
             *package_potential_lenders,
             *package_insurance_providers,
+            *(item for items in package_flagged_positions.values() for item in items),
         ):
             for key in _CROSS_CURRENCY_ROLLUP_KEYS:
                 if key in item:
@@ -1940,10 +2116,13 @@ def _package_analysis(jobs) -> dict:
         "funders": package_funders,
         "potential_lenders": package_potential_lenders,
         "insurance_providers": package_insurance_providers,
+        # Lender detection §8.3: the ticked flag groups, never lender math.
+        "flagged_positions": package_flagged_positions,
         "transactions": package_transactions,
         "lender_evidence": package_lender_evidence,
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
+        "flagged_evidence": package_flagged_evidence,
         "verified_revenue_evidence": package_revenue_evidence["verified_revenue"],
         "unverified_deposit_evidence": package_revenue_evidence["unverified_deposit"],
         "true_revenue_evidence": package_revenue_evidence["verified_revenue"],
@@ -2422,6 +2601,59 @@ def revenue_reviews(job_id):
     if stored is None:
         abort(404)
     return jsonify({"analysis": _masked(_displayed(stored)), "applied": len(parsed)})
+
+
+#: A re-analysis with no analysis to save: none was produced, or the one produced was refused. The saved analysis
+#: stays; the `reason` beside this is text the worker already publishes for the same outcome (`webapp/worker.py`
+#: `_stage_failure` / `_analysis_failure`) or `webapp/reanalysis.py`'s READING_NOT_CACHED or READS_DIFFERENTLY, never
+#: an exception's own text.
+REANALYSIS_NOT_SAVED = "no new analysis was saved; the saved analysis is unchanged"
+
+
+@app.route("/analysis/<job_id>/reanalyze", methods=["POST"])
+def reanalyze(job_id):
+    """Analyze a saved statement again under the current rules (spec §8.6, D12) and replace its analysis in place:
+    the job keeps its id and its place in Recent.
+
+    The stored PDF (kept on disk by content hash) goes through the worker's own read and analysis path, its reading
+    served from the artifact cache only (`webapp/reanalysis.py::rerun_analysis`): a statement whose reading is not
+    cached is refused and no reading rung runs, so this request thread never competes with the upload queue's worker
+    for OCR. The analysis replaced is written to the audit log first, in the same transaction as the replacement
+    (`JobStore.apply_reanalysis`), and the analyst's revenue decisions are replayed where their posting is unchanged
+    (`replay_reviews`); the answer counts those replayed, those that need redoing and those a rule now decides. JSON
+    only, like the review and settings routes: a cross-site HTML form cannot send it without a preflight.
+
+    Held under the statement's review lock from reading the job to saving the new analysis: a decision saved in
+    between would land on the old analysis and then be overwritten, while its decision row stayed recorded. Reviews
+    of other statements do not wait."""
+    if not isinstance(request.get_json(silent=True), dict):
+        return jsonify({"error": "the request must be a JSON object"}), 400
+    if store.get(job_id) is None:
+        return jsonify({"error": "job not found"}), 404
+    with _review_lock(job_id):
+        job = store.get(job_id)
+        if job is None:
+            return jsonify({"error": "job not found"}), 404
+        if job.status != "done":
+            return jsonify({"error": "job is not finished"}), 409
+        pdf_bytes = store.pdf_bytes(job_id)
+        if pdf_bytes is None:
+            return jsonify({"error": "the original PDF is not stored"}), 409
+        rerun = rerun_analysis(store, job, pdf_bytes)
+        if rerun.analysis is None:
+            return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": rerun.reason}), 422
+        replay = replay_reviews(rerun.analysis, store.review_history(job_id))
+        stored = store.apply_reanalysis(
+            job_id, replay.analysis, replayed=replay.replayed, not_replayed=replay.not_replayed,
+            decided_by_rules=replay.decided_by_rules)
+    if stored is None:
+        return jsonify({"error": "job not found"}), 404
+    return jsonify({
+        "analysis": _masked(_displayed(stored)),
+        "reviews_replayed": len(replay.replayed),
+        "reviews_not_replayed": len(replay.not_replayed),
+        "reviews_decided_by_rules": len(replay.decided_by_rules),
+    })
 
 
 @app.route("/package_analysis")

@@ -206,14 +206,22 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
     return analysis
 
 
-def apply_serialized_revenue_review(
+def record_serialized_revenue_review(
     analysis: dict,
     *,
     source_location: str,
     decision: Literal["confirm", "reject", "reset"],
     account: int | None = None,
+    reviewed_at: str | None = None,
 ) -> dict:
-    """Apply a human decision to one potential credit and rebuild all views.
+    """Write a human decision onto one potential credit's classification record
+    and return the record, WITHOUT rebuilding the revenue views.
+    `apply_serialized_revenue_review` is this followed by the rebuild; a caller
+    writing several decisions (the re-analysis replay, `webapp/reanalysis.py`)
+    rebuilds once, after the last. Every check below comes before the first
+    write, so a refused decision leaves `analysis` exactly as it was.
+    `reviewed_at` is when the decision was made (default: now); a reset clears
+    it.
 
     Every account is searched, in printed order, unless `account` (1-based, in
     printed order) names the one the posting belongs to. A reviewer acts on a
@@ -270,7 +278,23 @@ def apply_serialized_revenue_review(
     record["revenue_review_status"] = status
     record["revenue_review_note"] = note
     record["revenue_reviewed_at"] = (
-        None if decision == "reset" else datetime.now(UTC).isoformat()
+        None if decision == "reset" else reviewed_at or datetime.now(UTC).isoformat()
     )
     record.update(revenue_contribution_flags(state))
+    return record
+
+
+def apply_serialized_revenue_review(
+    analysis: dict,
+    *,
+    source_location: str,
+    decision: Literal["confirm", "reject", "reset"],
+    account: int | None = None,
+) -> dict:
+    """Apply a human decision to one potential credit and rebuild all views:
+    `record_serialized_revenue_review`, whose checks and account rules these
+    are, followed by one rebuild."""
+    record_serialized_revenue_review(
+        analysis, source_location=source_location, decision=decision, account=account,
+    )
     return rebuild_serialized_revenue_views(analysis)
