@@ -158,6 +158,14 @@ tails in the handoff. Fixture tests: `tests/test_r1_hardcodes.py`; guard:
 - Fixtures: both classify as confirmed_lender with correct canonical
   entities; the H-2 negative case (−37.10 `VSA PUR INTUIT QBOOKS ONLINE`)
   is asserted non-lender.
+- **Amended 2026-09-24 and 2026-09-25 (owner rulings, lender-detection design §2):**
+  `INTUIT FINANCING` is no longer a lender. It moved from the lender registry
+  to `ALTERNATIVE_POSITION_ALIASES` and is classified `alternative_position`:
+  a flagged position, outside lender count, lender totals and withholding. The
+  two-word alias and the negative software case are unchanged; the fixture now
+  asserts `alternative_position`. `AFC FUNDING CORP` moved to Floor plan (owner
+  ruling 2026-09-25): it is not a lender, and it is flagged like an alternative
+  position. Its fixture now asserts `floor_plan_financing`.
 
 ## Item 12b — registry counterparty entries → **proposed** (code untouched)
 
