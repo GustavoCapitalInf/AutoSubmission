@@ -280,3 +280,76 @@ def test_every_decision_is_replayed_onto_one_copy_rebuilt_once(monkeypatch):
     records = _records(replay.analysis)
     assert [records[f"transaction:{number}"]["revenue_review_status"] for number in (2, 3, 4)] == [
         "confirmed", "rejected", "confirmed"]
+
+
+def _ruled(analysis, location, account=1):
+    """`analysis` after a new rule decided the deposit at `location` (S2's D1, say: a credit from a financing payee is
+    financing proceeds): the rule classifies the credit itself, so the row no longer awaits the analyst, who could not
+    review it again (analysis/revenue.py refuses any row a rule decided)."""
+    from analysis.revenue import rebuild_serialized_revenue_views
+
+    _records(analysis, account)[location].update(
+        revenue_classification="non_revenue", revenue_initial_classification="non_revenue",
+        revenue_review_required=False, revenue_review_status="not_required",
+        revenue_match_method="financing_proceeds_credit")
+    return rebuild_serialized_revenue_views(analysis)
+
+
+def test_a_decision_on_a_row_a_rule_now_decides_is_reported_apart():
+    from webapp.reanalysis import replay_reviews
+
+    old = _payload()
+    replay = replay_reviews(_ruled(_payload(), "transaction:2"), [_decision(5, old, "transaction:2", "confirm")])
+    assert (replay.replayed, replay.not_replayed, replay.decided_by_rules) == ((), (), (5,))
+    assert _records(replay.analysis)["transaction:2"]["revenue_classification"] == "non_revenue"
+
+
+def test_a_review_redone_on_a_changed_row_is_not_reported_again():
+    from webapp.reanalysis import replay_reviews
+
+    old, changed = _payload(), _payload(CHANGED_ROWS)
+    # The analyst's decision; a re-analysis on which its row prints another amount; the analyst's redo on that row.
+    history = [_decision(1, old, "transaction:3", "confirm"), _decision(2, changed, "transaction:3", "confirm")]
+    replay = replay_reviews(_payload(CHANGED_ROWS), history)
+    assert (replay.replayed, replay.not_replayed) == ((2,), ())
+    assert _records(replay.analysis)["transaction:3"]["revenue_review_status"] == "confirmed"
+
+
+def test_a_review_redone_where_its_posting_moved_is_not_reported_again():
+    from webapp.reanalysis import replay_reviews
+
+    old, shifted = _payload(), _payload(SHIFTED_ROWS)
+    # The posting decided at transaction:2 moved to transaction:3, and the analyst decided it again there.
+    history = [_decision(1, old, "transaction:2", "confirm"), _decision(2, shifted, "transaction:3", "confirm")]
+    replay = replay_reviews(_payload(SHIFTED_ROWS), history)
+    assert (replay.replayed, replay.not_replayed) == ((2,), ())
+    records = _records(replay.analysis)
+    assert (records["transaction:2"]["revenue_review_status"], records["transaction:3"]["revenue_review_status"]) == (
+        "pending", "confirmed")
+
+
+def test_a_decision_on_a_posting_alike_on_another_day_is_not_a_redo():
+    from webapp.reanalysis import replay_reviews
+
+    old = _payload(TWIN_ROWS)
+    history = [_decision(1, old, "transaction:2", "confirm"), _decision(2, old, "transaction:3", "confirm")]
+    # While both twins are unchanged, each keeps its own decision.
+    both = replay_reviews(_payload(TWIN_ROWS), history)
+    assert (both.replayed, both.not_replayed) == ((1, 2), ())
+    # When the first prints another amount, its decision needs redoing: the decision on the second twin was made on
+    # another day's posting, so it did not redo the first.
+    changed = replay_reviews(_payload(TWIN_CHANGED_ROWS), history)
+    assert (changed.replayed, changed.not_replayed) == ((2,), (1,))
+
+
+def test_a_decision_on_another_account_is_not_a_redo():
+    """A redo is made on the same account number: the other account's row at the same location is another posting."""
+    from webapp.reanalysis import replay_reviews
+
+    old, new = _two_accounts(), _two_accounts()
+    changed = new["accounts"][0]["statement"]["transactions"][1]  # the checking account's transaction:2
+    changed["amount"] = changed["classification"]["amount"] = 350.0
+    history = [_decision(1, old, "transaction:2", "confirm", account=1),
+               _decision(2, old, "transaction:2", "confirm", account=2)]
+    replay = replay_reviews(new, history)
+    assert (replay.replayed, replay.not_replayed) == ((2,), (1,))

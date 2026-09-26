@@ -12,7 +12,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from analysis.payload_shape import payload_accounts
-from analysis.revenue import rebuild_serialized_revenue_views, record_serialized_revenue_review
+from analysis.revenue import (
+    LEGACY_REVENUE_STATE_MAP,
+    rebuild_serialized_revenue_views,
+    record_serialized_revenue_review,
+)
 
 #: Named once: it reaches a shape refusal's message.
 _REPLAY_SURFACE = "webapp/reanalysis.py::replay_reviews"
@@ -123,6 +127,26 @@ def _ids(history: Sequence[Mapping], indexes: Iterable[int]) -> tuple[int, ...]:
     return tuple(history[index].get("id") for index in indexes)
 
 
+def _redone(identity: tuple | None, later: Sequence[tuple | None]) -> bool:
+    """Whether a decision made after this one (`later`, their identities) redid it: on the same account number, and
+    either the same row (the analyst decided that row again, whatever it printed by then) or the same posting wherever
+    it sat by then (the same description, amount and date). Two postings of one account alike in all three are the one
+    case this cannot tell apart; a decision on one of them then passes for a redo of the other, and the count says one
+    review too few."""
+    if identity is None:
+        return False
+    return any(other is not None and other[0] == identity[0]
+               and (other[1] == identity[1] or other[2:] == identity[2:])
+               for other in later)
+
+
+def _awaits_review(record: Mapping) -> bool:
+    """The row is a deposit the analyst decides, not one a rule decided: the review writer refuses any other
+    (analysis/revenue.py), so the analyst could not redo a decision on it."""
+    initial = record.get("revenue_initial_classification")
+    return LEGACY_REVENUE_STATE_MAP.get(initial, initial) == "unverified_deposit"
+
+
 def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
     """Replay `history` (`JobStore.review_history` rows, oldest first) onto `analysis`, a fresh analysis of the
     statement the decisions were made on. `analysis` itself is never changed: the decisions are applied to one copy,
@@ -134,8 +158,10 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
     a fresh analysis already has, so it is neither replayed nor counted. Replayed decisions keep the time the analyst
     made them.
 
-    A decision that is not replayed needs redoing. Nothing here writes a decision: the replay is part of the
-    re-analysis, which the audit log records.
+    A decision that is not replayed needs redoing, unless a later decision redid it (`_redone`). One whose row a rule
+    of the current analysis now decides cannot be redone (the analyst can no longer review that row), so it is
+    reported apart, as decided by the rules (spec §8.6.5: anything that cannot be replayed is reported back). Nothing
+    here writes a decision: the replay is part of the re-analysis, which the audit log records.
     """
     identities = [_identity(row) for row in history]
     latest: dict[tuple, int] = {}
@@ -149,13 +175,19 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
         accounts = []
     waiting: list[tuple[int, int]] = []
     redo: list[int] = []
+    ruled: list[int] = []
     for index in latest.values():
         if history[index].get("decision") == "reset":
             continue
         places = _places(accounts, identities[index])
         if len(places) != 1:
-            redo.append(index)
+            if not _redone(identities[index], identities[index + 1:]):
+                redo.append(index)
             continue
-        waiting.append((index, places[0][0]))
+        number, record = places[0]
+        if not _awaits_review(record):
+            ruled.append(index)
+            continue
+        waiting.append((index, number))
     updated, applied, refused = _applied(analysis, history, waiting)
-    return Replay(updated, _ids(history, applied), _ids(history, sorted(redo + refused)))
+    return Replay(updated, _ids(history, applied), _ids(history, sorted(redo + refused)), _ids(history, ruled))
