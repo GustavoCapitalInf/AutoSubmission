@@ -680,3 +680,26 @@ def test_the_notice_carries_its_words_and_the_re_analyze_button():
     assert notice.split(">")[0].rstrip().endswith("hidden")  # hidden until a served analysis says otherwise
     # The withheld view hides every other panel; the notice is exempt (the node test above shows it stays shown).
     assert ":not(.rules-outdated)" in html
+
+
+# ---------------------------------------------------------------- Task 11: parity with analysis/flag_groups.py
+
+def _js_flag_group_labels():
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    block = source[source.index("const FLAG_GROUP_LABELS = Object.freeze({"):]
+    block = block[:block.index("});")]
+    return re.findall(r'^\s*([a-z_]+): "([^"]+)",$', block, re.M)
+
+
+def test_the_dashboard_labels_every_flag_group_as_the_analysis_does():
+    from analysis.flag_groups import FLAG_GROUPS
+
+    assert _js_flag_group_labels() == [(group.key, group.label) for group in FLAG_GROUPS]
+    # app.js names each switch's settings key flag_<group key> (flagSettingKey).
+    assert all(group.setting == f"flag_{group.key}" for group in FLAG_GROUPS)
+    # Every group that is a classification state has its own tag (transactionCategory, Task 1). Premium financing is
+    # the one group without a state: its rows stay insurance and keep the Insurance tag (Tasks 1, 2 and 4).
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert [group.key for group in FLAG_GROUPS if group.state is None] == ["premium_financing"]
+    assert [group.state for group in FLAG_GROUPS
+            if group.state is not None and f"\n    {group.state}: {{ label: " not in source] == []
