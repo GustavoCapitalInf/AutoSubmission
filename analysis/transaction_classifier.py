@@ -16,6 +16,7 @@ from .classification_registry import (
     OPERATING_REVENUE_SOURCE_TYPES,
 )
 from .dates import parse_date
+from .flag_groups import FLAG_GROUP_BY_STATE
 from .revenue import RevenueState, revenue_contribution_flags
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
@@ -29,6 +30,17 @@ ClassificationState = Literal[
     "confirmed_lender",
     "potential_lender",
     "insurance",
+    "alternative_position",
+    "line_of_credit",
+    "vehicle_financing",
+    "bank_loan",
+    "mortgage",
+    "lease_or_rental",
+    "personal_loan",
+    "floor_plan_financing",
+    "factoring",
+    # Retired in classification version 5.0: no rule produces it, but records
+    # stored before 5.0 carry it and must still validate (spec §4.1).
     "lease_or_equipment_financing",
     "fee",
     "transfer",
@@ -48,6 +60,15 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "confirmed_lender",
     "potential_lender",
     "insurance",
+    "alternative_position",
+    "line_of_credit",
+    "vehicle_financing",
+    "bank_loan",
+    "mortgage",
+    "lease_or_rental",
+    "personal_loan",
+    "floor_plan_financing",
+    "factoring",
     "lease_or_equipment_financing",
     "fee",
     "transfer",
@@ -63,7 +84,7 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "4.1"
+CLASSIFICATION_VERSION = "5.0"
 
 
 @dataclass(frozen=True)
@@ -102,6 +123,8 @@ class TransactionClassification:
     reason: str = "No higher-confidence classification rule matched."
     is_posted: bool = True
     review_required: bool = False
+    # Spec §4.2: the FlagGroup.key of a flag-group state, otherwise None.
+    flagged_group: str | None = None
     revenue_classification: RevenueState | None = None
     revenue_initial_classification: RevenueState | None = None
     revenue_canonical_entity: str | None = None
@@ -128,6 +151,9 @@ class TransactionClassification:
     contributes_to_potential_lender_totals: bool = False
     contributes_to_potential_withholding_exposure: bool = False
     contributes_to_insurance_totals: bool = False
+    # Spec §4.2: a posted flag-group debit; cleared for proven duplicates and
+    # settlement-reversed debits. Never read by lender, withholding or revenue math.
+    contributes_to_flagged_totals: bool = False
     contributes_to_verified_revenue: bool = False
     contributes_to_unverified_deposit: bool = False
     contributes_to_true_revenue: bool = False
@@ -800,6 +826,8 @@ def _build_record(
     contributes_lender = classification == "confirmed_lender" and is_debit and is_posted
     contributes_potential = classification == "potential_lender" and is_debit and is_posted
     contributes_insurance = classification == "insurance" and is_debit and is_posted
+    flag_group = FLAG_GROUP_BY_STATE.get(classification)
+    contributes_flagged = flag_group is not None and is_debit and is_posted
     revenue = _classify_credit_revenue(
         text,
         amount,
@@ -831,6 +859,7 @@ def _build_record(
         reason=reason,
         is_posted=is_posted,
         review_required=review_required,
+        flagged_group=flag_group.key if flag_group is not None else None,
         revenue_classification=revenue_state,
         revenue_initial_classification=revenue_state,
         revenue_canonical_entity=revenue.canonical_entity if revenue else None,
@@ -853,6 +882,7 @@ def _build_record(
         contributes_to_potential_lender_totals=contributes_potential,
         contributes_to_potential_withholding_exposure=contributes_potential,
         contributes_to_insurance_totals=contributes_insurance,
+        contributes_to_flagged_totals=contributes_flagged,
         **revenue_flags,
         contributes_to_lender_credit_exclusion=contributes_to_lender_credit_exclusion,
         is_ach=_contains_alias(text, "ACH"),
@@ -1355,6 +1385,7 @@ def _apply_reversal_pair_context(
                 contributes_to_potential_lender_totals=False,
                 contributes_to_potential_withholding_exposure=False,
                 contributes_to_insurance_totals=False,
+                contributes_to_flagged_totals=False,
             )
     return updated
 
@@ -1527,6 +1558,7 @@ def classify_statement_transactions(
             contributes_to_potential_lender_totals=False,
             contributes_to_potential_withholding_exposure=False,
             contributes_to_insurance_totals=False,
+            contributes_to_flagged_totals=False,
             contributes_to_lender_credit_exclusion=False,
             revenue_classification="non_revenue" if duplicate_revenue else None,
             revenue_initial_classification="non_revenue" if duplicate_revenue else None,
