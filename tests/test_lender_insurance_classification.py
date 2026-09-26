@@ -199,12 +199,14 @@ def test_recurring_counterparty_normalization_removes_ids_not_business_name():
     assert {record.canonical_entity for record in records} == {"Lily Advance"}
     assert {record.classification for record in records} == {"confirmed_lender"}
 
-    unidentified = classify_transaction("PAYMENT - AUTOMATIC LOAN PYMT W/D", -370.17)
-    assert unidentified.classification == "potential_lender"
-    assert unidentified.canonical_entity == "Unidentified lender obligation"
-    assert unidentified.review_required
-    assert unidentified.contributes_to_potential_lender_count
-    assert not unidentified.contributes_to_lender_count
+    # The statement bank's own loan-payment wording is its bank loan (D5, owner decision 2026-09-25).
+    own_loan = classify_transaction("PAYMENT - AUTOMATIC LOAN PYMT W/D", -370.17)
+    assert (own_loan.classification, own_loan.canonical_entity) == ("bank_loan", None)
+    assert own_loan.matched_rule == "own_bank_loan_payment"
+    assert own_loan.flagged_group == "bank_loans"
+    assert not own_loan.review_required
+    assert not own_loan.contributes_to_potential_lender_count
+    assert not own_loan.contributes_to_lender_count
 
 
 def test_repeated_insurance_debits_count_rows_and_one_provider():
