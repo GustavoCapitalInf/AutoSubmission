@@ -306,6 +306,46 @@ def test_a_card_issuer_the_owner_named_may_be_a_bare_issuer_name_of_the_context_
     assert _problems(rules=rules) == []
 
 
+# --- the payout-credit entities (owner ruling: a D1 exception S2 reads) ------------------------------------------
+
+
+def test_a_payout_credit_entity_is_an_admitted_entity_of_a_group_whose_credits_are_financing_proceeds():
+    names = ("Quillon Funding", "Ruledco", "Brambleway Capital", "Rivett Motor Credit", "Penwick Mortgage",
+             "Kelder Loans", "Gantry Floorplan Credit", "Loxley Factoring")
+    assert _problems(rules=dataclasses.replace(RULES, payout_credit=names)) == []
+
+
+NOT_PAYOUT = ("a payout-credit exception needs an admitted entity of a group whose credits D1 treats as financing "
+              "proceeds")
+
+
+@pytest.mark.parametrize("name,problem", [
+    ("Quillon Capital", "PAYOUT_CREDIT_ENTITIES names 'Quillon Capital', which is not a ledger entity"),
+    ("Heldco Advance", f"PAYOUT_CREDIT_ENTITIES names entity 15 ('Heldco Advance'), review in confirmed_lender: "
+                       f"{NOT_PAYOUT}"),
+    ("Tarnmoor Capital", f"PAYOUT_CREDIT_ENTITIES names entity 17 ('Tarnmoor Capital'), rejected in "
+                         f"confirmed_lender: {NOT_PAYOUT}"),
+    ("Westfen Leasing", f"PAYOUT_CREDIT_ENTITIES names entity 8 ('Westfen Leasing'), admitted in lease_or_rental: "
+                        f"{NOT_PAYOUT}"),
+    ("Oxbow Card", f"PAYOUT_CREDIT_ENTITIES names entity 4 ('Oxbow Card'), admitted in credit_card_payment: "
+                   f"{NOT_PAYOUT}"),
+    ("Brambleway Bank", f"PAYOUT_CREDIT_ENTITIES names entity 14 ('Brambleway Bank'), admitted in bank_name: "
+                        f"{NOT_PAYOUT}"),
+    ("Hollin Premium Finance", f"PAYOUT_CREDIT_ENTITIES names entity 12 ('Hollin Premium Finance'), admitted in "
+                               f"premium_financing: {NOT_PAYOUT}"),
+])
+def test_a_payout_credit_entity_outside_the_financing_groups_is_refused(name, problem):
+    assert _problems(rules=dataclasses.replace(RULES, payout_credit=(name,))) == [problem]
+
+
+def test_no_payout_credit_problem_quotes_a_run_of_five_or_more_digits():
+    assert _problems((9, "entity", "Kelder 7777777 Loans"),
+                     rules=dataclasses.replace(RULES, payout_credit=("Quillon 7777777", "Kelder 7777777 Loans"))) == [
+        "entity 9: the entity field carries a run of five or more digits",
+        f"PAYOUT_CREDIT_ENTITIES names {lender_ledger.WITHHELD}, which is not a ledger entity",
+    ]
+
+
 # --- privacy -----------------------------------------------------------------------------------------------------
 
 

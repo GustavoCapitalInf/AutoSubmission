@@ -16,6 +16,8 @@ The validator applies:
     groups is under review, and every card-payment alias carries card or payment wording;
   * the owner's premium-finance ruling: a premium-finance alias repeats a hand-kept insurer's alias only when
     PREMIUM_FINANCE_INSURER_ALIASES holds it;
+  * the owner's payout-credit ruling: each name in PAYOUT_CREDIT_ENTITIES is an admitted ledger entity of a
+    group whose credits D1 treats as financing proceeds (analysis.flag_groups.FINANCING_STATES);
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
     reason: a sentence of its notes that starts "Move:" (today's registry is read from git at
     BASELINE_REVISION); an entity the owner merged into a ledger entity (MERGED_REGISTRY_ENTITIES) is held by
@@ -40,6 +42,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis.description_text import normalize_transaction_description as normalize  # noqa: E402
+from analysis.flag_groups import FINANCING_STATES  # noqa: E402
 from analysis.payee_matcher import RUN_TOGETHER_MIN_LENGTH, AliasIndex, registry_match  # noqa: E402
 
 SCHEMA = 1
@@ -192,6 +195,8 @@ class Rules:
     premium_insurer_aliases: frozenset[str]
     #: Entity of today's registry -> the ledger entity that absorbs it (owner ruling).
     merged: Mapping[str, str]
+    #: Ledger entities whose credits are the account holder's own sales, not financing proceeds (owner ruling).
+    payout_credit: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -635,6 +640,23 @@ def owner_named_problems(tables: Mapping[str, Mapping[str, tuple[str, ...]]],
     return problems
 
 
+def payout_credit_problems(entities: list[LedgerEntity], names: tuple[str, ...]) -> list[str]:
+    """The owner's payout-credit ruling (PAYOUT_CREDIT_ENTITIES): S2 reads these entities' credits as the account
+    holder's own sales, an exception to D1, so each is an admitted ledger entity of a group whose credits D1
+    treats as financing proceeds (FINANCING_STATES)."""
+    named = _by_name(entities)
+    problems = []
+    for name in names:
+        entity = named.get(name)
+        if entity is None:
+            problems.append(f"PAYOUT_CREDIT_ENTITIES names {_shown(name)}, which is not a ledger entity")
+        elif entity.status != "admitted" or entity.group not in FINANCING_STATES:
+            problems.append(f"PAYOUT_CREDIT_ENTITIES names {_label(entity)}, {entity.status} in {entity.group}: a "
+                            f"payout-credit exception needs an admitted entity of a group whose credits D1 treats "
+                            f"as financing proceeds")
+    return problems
+
+
 def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     entities, problems = parse_ledger(data)
     if problems:
@@ -645,6 +667,7 @@ def _unmasked_problems(data: object, rules: Rules) -> list[str]:
         problems.extend(_entity_problems(entity, rules, held))
     problems.extend(_collision_problems(entities))
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
+    problems.extend(payout_credit_problems(entities, rules.payout_credit))
     problems.extend(baseline_problems(entities, rules.baseline, rules.merged))
     return problems
 
@@ -718,4 +741,5 @@ def current_rules() -> Rules:
         baseline=load_baseline(),
         premium_insurer_aliases=frozenset(normalize(name) for name in registry.PREMIUM_FINANCE_INSURER_ALIASES),
         merged=registry.MERGED_REGISTRY_ENTITIES,
+        payout_credit=registry.PAYOUT_CREDIT_ENTITIES,
     )

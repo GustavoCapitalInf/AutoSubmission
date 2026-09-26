@@ -95,6 +95,7 @@ RULES = Rules(
     baseline=BASELINE,
     premium_insurer_aliases=frozenset(),
     merged={},
+    payout_credit=(),
 )
 
 

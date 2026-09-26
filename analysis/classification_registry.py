@@ -178,6 +178,12 @@ PREMIUM_FINANCE_INSURER_ALIASES: tuple[str, ...] = ("FIRST INSURANCE",)
 #: it keeps no name of its own, and the aliases it loses need a "Move:" sentence in the target's notes.
 MERGED_REGISTRY_ENTITIES: dict[str, str] = {"EBF HOLDINGS": "EVEREST BUSINESS FUNDING"}
 
+#: Owner ruling 2026-09-25: ledger entities whose credits are the account holder's own sales, settled by the
+#: platform: revenue, not financing proceeds. A D1 exception that S2 reads; their debits keep their group. The
+#: validator refuses a name that is not an admitted ledger entity of a group whose credits D1 treats as
+#: financing proceeds (analysis.flag_groups.FINANCING_STATES).
+PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = ("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")
+
 
 # --- Deprecated: the inputs of the classifier as it stands before S2 ---
 # LEGACY_CONFIRMED_LENDER_ALIASES, LEGACY_POTENTIAL_LENDER_ALIASES and

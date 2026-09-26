@@ -355,3 +355,10 @@ def test_the_merged_entities_are_entities_of_todays_registry_that_the_validator_
     today = {name for table in rules.baseline.values() for name in table}
     assert registry.MERGED_REGISTRY_ENTITIES and set(registry.MERGED_REGISTRY_ENTITIES) <= today
     assert rules.merged is registry.MERGED_REGISTRY_ENTITIES
+
+
+def test_the_payout_credit_entities_are_the_ones_the_validator_reads():
+    from analysis import classification_registry as registry
+
+    assert registry.PAYOUT_CREDIT_ENTITIES
+    assert lender_ledger.current_rules().payout_credit is registry.PAYOUT_CREDIT_ENTITIES
