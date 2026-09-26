@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, replace
 from datetime import date
 from statistics import mean, pstdev
@@ -9,15 +8,18 @@ from typing import Literal, Sequence, TYPE_CHECKING
 
 from .classification_registry import (
     BANK_SPECIFIC_LENDER_ALIASES,
-    CONFIRMED_LENDER_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
     LEASE_PROVIDER_ALIASES,
+    LEGACY_CONFIRMED_LENDER_ALIASES,
+    LEGACY_POTENTIAL_LENDER_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
-    POTENTIAL_LENDER_ALIASES,
 )
 from .dates import parse_date
 from .revenue import RevenueState, revenue_contribution_flags
+# Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
+from .description_text import normalize_transaction_description
+from .payee_matcher import registry_match
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -168,22 +170,6 @@ class TransactionClassification:
         return tuple(categories)
 
 
-def normalize_transaction_description(description: str) -> str:
-    """Normalize matching text while retaining the exact source separately."""
-    decomposed = unicodedata.normalize("NFKD", description or "")
-    ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
-    normalized = ascii_text.upper().replace("&", " AND ")
-    normalized = re.sub(r"[^A-Z0-9]+", " ", normalized)
-    normalized = re.sub(r"\bP0S\b", "POS", normalized)
-    normalized = re.sub(r"\bN(?:\s|5)*S(?:\s)*F\b|\bN5F\b", "NSF", normalized)
-    normalized = re.sub(r"\bA(?:\s)*[T7](?:\s)*M\b", "ATM", normalized)
-    normalized = re.sub(r"\b1NSURANCE\b|\bINSURANCF\b", "INSURANCE", normalized)
-    normalized = re.sub(r"\bF1NANCE\b", "FINANCE", normalized)
-    normalized = re.sub(r"\bLN\b", "LOAN", normalized)
-    normalized = re.sub(r"\bPAYMT\b", "PAYMENT", normalized)
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
 def _contains_alias(text: str, alias: str) -> bool:
     normalized_alias = normalize_transaction_description(alias)
     if not normalized_alias:
@@ -198,23 +184,12 @@ def _registry_match(
     text: str,
     registry: dict[str, tuple[str, ...]],
 ) -> tuple[str, str] | None:
-    candidates = (
-        (canonical, alias)
-        for canonical, aliases in registry.items()
-        for alias in aliases
-    )
-    for canonical, alias in sorted(
-        candidates,
-        key=lambda item: len(normalize_transaction_description(item[1])),
-        reverse=True,
-    ):
-        if _contains_alias(text, alias):
-            return canonical, alias
-    return None
+    # Spec section 4.6: the aliases are normalized and indexed once per registry, not on every call.
+    return registry_match(text, registry)
 
 
 def match_verified_lender_alias(description: str) -> tuple[str, str] | None:
-    return _registry_match(normalize_transaction_description(description), CONFIRMED_LENDER_ALIASES)
+    return _registry_match(normalize_transaction_description(description), LEGACY_CONFIRMED_LENDER_ALIASES)
 
 
 def match_insurance_provider(description: str) -> tuple[str, str] | None:
@@ -633,7 +608,7 @@ def _classify_credit_revenue(
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
             context_signals=("credit_direction", "insurance_provider"),
         )
-    lender_match = _registry_match(text, CONFIRMED_LENDER_ALIASES)
+    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
     if lender_match is not None:
         entity, alias = lender_match
         return _RevenueDecision(
@@ -646,7 +621,7 @@ def _classify_credit_revenue(
             f"Credit matched confirmed lender alias '{alias}' and is funding, not revenue.",
             context_signals=("credit_direction", "confirmed_lender_source"),
         )
-    potential_lender_match = _registry_match(text, POTENTIAL_LENDER_ALIASES)
+    potential_lender_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
     if potential_lender_match is not None:
         entity, alias = potential_lender_match
         return _RevenueDecision(
@@ -1108,7 +1083,7 @@ def classify_transaction(
             reason="The row is a subscription or membership payment with no verified lender evidence.",
         )
 
-    lender_match = _registry_match(text, CONFIRMED_LENDER_ALIASES)
+    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
     if lender_match is not None:
         lender, alias = lender_match
         if amount < 0:
@@ -1149,7 +1124,7 @@ def classify_transaction(
             reason=f"Matched lender alias or transaction code '{alias}' for {bank}.",
         )
 
-    potential_match = _registry_match(text, POTENTIAL_LENDER_ALIASES)
+    potential_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
     if potential_match is not None and amount < 0:
         lender, alias = potential_match
         return _build_record(
