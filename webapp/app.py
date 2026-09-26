@@ -32,8 +32,9 @@ from analysis.revenue import (
     REVENUE_STATES,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
+from analysis.flagged_view import apply_flagged_groups_to_payload
 from .jobs import JobStore
-from .settings import load_settings, save_settings
+from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
 from .worker import run_job
 
 # Upload ceilings. Every value here is enforced server-side and mirrored in the
@@ -194,16 +195,25 @@ def _is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
-def _displayed(analysis: object, *, carry_over: bool | None = None) -> object:
+def _displayed(
+    analysis: object, *, carry_over: bool | None = None, settings: dict | None = None
+) -> object:
     """A stored analysis as the dashboard presents it: the owner's Settings applied to a COPY.
 
-    Today that is the NSF basis (analysis/nsf_days.py): printed days by default, or every calendar day with
-    the balance carried over inactive days when Settings turns carry-over on. Every surface that shows or
-    exports metrics goes through here, so the dashboard, the downloads and the package agree; the stored
-    record is never rewritten, and a change of setting applies to every job at once."""
+    Two settings apply. The NSF basis (analysis/nsf_days.py): printed days by default, or every calendar day with
+    the balance carried over inactive days when Settings turns carry-over on. And the flag groups
+    (analysis/flagged_view.py): an unticked group is hidden from the summaries and its rows lose their flag.
+    Every surface that shows or exports an analysis goes through here, so the dashboard, the downloads and the
+    package agree; the stored record is never rewritten, and a change of setting applies to every job at once.
+
+    `settings` is a snapshot of every setting, read here once when it is not passed; `carry_over`, when given,
+    still decides the NSF basis."""
+    if settings is None:
+        settings = load_settings(store.storage.data_dir)
     if carry_over is None:
-        carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
-    return apply_nsf_basis_to_payload(analysis, carry_over=carry_over)
+        carry_over = settings.get("nsf_carry_over", SETTINGS_DEFAULTS["nsf_carry_over"])
+    rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over)
+    return apply_flagged_groups_to_payload(rebased, enabled=settings)
 
 
 def _masked(payload: object) -> object:
@@ -802,17 +812,18 @@ def _idle_main_account(roster: list[dict]) -> dict | None:
     return next((entry for entry in top if entry.get("status") == "idle"), None)
 
 
-def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
+def _package_members(jobs, *, settings: dict | None = None) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
 
     A member is ONE ACCOUNT. A job publishing today's payload is one member and
     is admitted exactly as it always was — this function cannot change what a
     single-account package computes, because for such a job it yields one
     `(job, analysis)` pair whose analysis is the stored one as the dashboard
-    shows it (`_displayed`: the owner's NSF basis applied to a copy; the stored
-    record is never rewritten and every other field is the stored one). The
-    NSF basis is read once per package, so a setting saved mid-request cannot
-    split the members across two bases.
+    shows it (`_displayed`: the owner's NSF basis and flag groups applied to a
+    copy; the stored record is never rewritten and every other field is the
+    stored one). Settings are read once per package — here, or by the caller
+    that passes `settings` — so a setting saved mid-request cannot split the
+    members across two NSF bases or two sets of ticked flag groups.
 
     Two rules apply to a job that publishes several accounts, and both are the
     package's own arithmetic protecting itself:
@@ -835,10 +846,12 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
 
     members: list[tuple] = []
     excluded: list[dict] = []
-    # One read per package, so a setting saved mid-request cannot split the members across two NSF bases.
-    carry_over = load_settings(store.storage.data_dir)["nsf_carry_over"]
+    # One read per package, so a setting saved mid-request cannot split the members across two NSF bases or two
+    # sets of ticked flag groups.
+    if settings is None:
+        settings = load_settings(store.storage.data_dir)
     for job in jobs:
-        analysis = _displayed(job.analysis or {}, carry_over=carry_over)
+        analysis = _displayed(job.analysis or {}, settings=settings)
         roster = _account_roster(analysis)
         unverified, idle = _unverified_main_account(roster), _idle_main_account(roster)
         if unverified is not None or idle is not None:
@@ -914,9 +927,13 @@ def _package_members(jobs) -> tuple[list[tuple], list[dict]]:
     return members, excluded
 
 
-def _package_analysis(jobs) -> dict:
+def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
+    # The one settings snapshot this package is built on: its members are displayed with it, and its flag roll-up
+    # keeps the groups it ticks.
+    if settings is None:
+        settings = load_settings(store.storage.data_dir)
     duplicate_of, duplicate_groups = _package_duplicates(jobs)
-    members, excluded_accounts = _package_members(jobs)
+    members, excluded_accounts = _package_members(jobs, settings=settings)
     #: Q10. Every ratified sibling omission any member document published. The
     #: package says so rather than demoting anything: an omission admitted on
     #: printed evidence beside an independently validated account is a
