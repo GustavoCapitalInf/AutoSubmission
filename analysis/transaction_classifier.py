@@ -483,6 +483,22 @@ _DIRECT_DEBIT_LOAN_PATTERNS = (
     re.compile(r"\b(?:DIRECT DEB(?:IT)?|ACH DEBIT|BUSINESS PAD)\b.*\bLOANS?\b"),
     re.compile(r"\bLOANS?\b.*\b(?:DIRECT DEB(?:IT)?|ACH DEBIT|BUSINESS PAD)\b"),
 )
+#: D10: a loan servicer or debt collector whose funder is not in a registry.
+#: (A servicer whose funder is known is an alias of that funder in the registry, via the C10 ledger.)
+#: MCA SERVICING: owner decision 2026-09-25 (the words stay out of every alias table).
+_SERVICER_COLLECTOR_PATTERNS = (
+    re.compile(r"\bSERVICER\b"),
+    re.compile(r"\bLOAN SERVICING\b"),
+    re.compile(r"\bMCA SERVICING\b"),
+    re.compile(r"\bDEBT (?:COLLECTION|COLLECTIONS|COLLECTOR|COLLECTORS)\b"),
+    re.compile(r"\bCOLLECTION AGENCY\b"),
+)
+#: D5, owner decision 2026-09-25 (d5_unnamed_loan_payment): loan-payment wording
+#: (normalization already reads LN as LOAN and PAYMT as PAYMENT) ...
+_UNNAMED_LOAN_PAYMENT_PATTERNS = (re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),)
+#: ... on a row whose D11 payee words are only a bank's template words, or none:
+#: the payment names no lender, so it is the statement bank's own loan.
+_BANK_TEMPLATE_WORDS = frozenset({"NO", "BR", "AUTOMATED", "COMPTE", "DIVERS"})
 _EXPLICIT_REPAYMENT_PATTERNS = (
     re.compile(r"\bLOAN (?:PAYMENT|PMT|PYMT|REPAYMENT)\b"),
     re.compile(r"\b(?:PAYMENT|PMT|PYMT|REPAYMENT) (?:ON |FOR )?(?:A )?LOAN\b"),
@@ -887,37 +903,88 @@ def _classify_credit_revenue(
     )
 
 
+#: Channel and payment words that never name a payee (D11).
 _ENTITY_NOISE = {
-    "ACH", "EFT", "DEBIT", "DIRECT", "DEB", "EXTERNAL", "WITHDRAWAL",
-    "AUTOMATIC", "AUTO", "W", "D", "ORIG", "ORIGINATOR", "CO", "COMPANY",
-    "NAME", "DESCR", "DESCRIPTION", "ENTRY", "DETAIL", "PAYMENT", "PAYMENTS",
-    "PAY", "PMT", "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE",
-    "WEB", "CCD", "PPD", "LOAN", "MCA", "TO", "FROM", "FOR",
+    "ACH", "EFT", "DEBIT", "DIRECT", "DEB", "EXTERNAL", "WITHDRAWAL", "ELECTRONIC",
+    "PREAUTHORIZED", "PREAUTH", "AUTOMATIC", "AUTO", "ORIG", "ORIGINATOR", "NAME",
+    "DESCR", "DESCRIPTION", "ENTRY", "DETAIL", "PAYMENT", "PAYMENTS", "PAY", "PMT",
+    "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE", "WEB", "CCD", "PPD",
+    "LOAN", "MCA", "TO", "FROM", "FOR", "TFR", "XFER", "TRANSFER", "MISC",
 }
-_ENTITY_ACRONYMS = {"ACH", "BDC", "CMCA", "EFT", "LLC", "MCA", "SBA", "SNAP"}
+#: Financing words that describe the payment, not the payee, when they lead the name.
+_GENERIC_ENTITY_WORDS = {"FINANCE", "FINANCING", "FUNDING", "CAPITAL", "FUNDER", "ADVANCE"}
+#: D11: a name is published only when one of these organisation cues survives.
+#: The last eight are the registry-style company tokens (legal-form suffixes).
+_ORGANISATION_CUES = {
+    "LLC", "INC", "CORP", "CO", "FUNDING", "CAPITAL", "FINANCIAL", "FINANCE", "BANK",
+    "CREDIT", "LENDING", "ADVANCE", "GROUP", "HOLDINGS", "SERVICES",
+    "CORPORATION", "COMPANY", "INCORPORATED", "LTD", "LIMITED", "LP", "LLP", "PLLC",
+}
+_ENTITY_MONTHS = {
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "SEPT", "OCT", "NOV",
+    "DEC", "JANUARY", "FEBRUARY", "MARCH", "APRIL", "JUNE", "JULY", "AUGUST", "SEPTEMBER",
+    "OCTOBER", "NOVEMBER", "DECEMBER",
+}
+_ENTITY_ACRONYMS = {"ACH", "BDC", "CMCA", "EFT", "LLC", "LLP", "LP", "MCA", "PLLC", "SBA", "SNAP"}
+#: Labels that introduce the originator's name: the label goes, the name stays.
+_ENTITY_NAME_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIGINATOR NAME|COMPANY NAME|CO NAME)\b")
+#: D11: ACH field segments. Everything from the first one on is dropped, so a
+#: name is never built from ID, INDN, IND NAME, CO ID, TRACE or similar fields.
+_ACH_FIELD_SEGMENT = re.compile(
+    r"\b(?:DES|DESC|DESCR|ORIG ID|CO ID|IND ID|IND NAME|INDN|IND|ID|TRACE|SEC|EED|TRN|"
+    r"CONF|REF|MEMO|CUST|TYPE)\b"
+)
+_MASKED_TOKEN = re.compile(r"X{2,}[A-Z0-9]*")
+_MAX_ENTITY_TOKENS = 4
+
+
+def _is_reference_token(token: str) -> bool:
+    return (
+        any(character.isdigit() for character in token)
+        or _MASKED_TOKEN.fullmatch(token) is not None
+        or token in _ENTITY_MONTHS
+    )
+
+
+def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
+    """D11: the payee words of an unknown counterparty, at most four.
+
+    Removes originator-name labels, cuts at the first ACH field segment, drops
+    channel words, single letters and leading financing words, and stops at the
+    first reference token (digits, a masked number or a month) once a name has
+    started, so a person's name printed after the references never joins it.
+    """
+    text = _ENTITY_NAME_LABELS.sub(" ", text)
+    segment = _ACH_FIELD_SEGMENT.search(text)
+    if segment is not None:
+        text = text[: segment.start()]
+    tokens: list[str] = []
+    for token in text.split():
+        if token in _ENTITY_NOISE or len(token) == 1:
+            continue
+        if _is_reference_token(token):
+            if tokens:
+                break
+            continue
+        if not tokens and token in _GENERIC_ENTITY_WORDS:
+            continue
+        tokens.append(token)
+        if len(tokens) == _MAX_ENTITY_TOKENS:
+            break
+    return tuple(tokens)
+
+
+def _unknown_payee_name(tokens: Sequence[str]) -> str | None:
+    """D11: the published name, the unidentified label, or None when no payee is named."""
+    if not tokens:
+        return None
+    if not any(token in _ORGANISATION_CUES for token in tokens):
+        return UNIDENTIFIED_LENDER_OBLIGATION
+    return " ".join(token if token in _ENTITY_ACRONYMS else token.title() for token in tokens)
 
 
 def _canonical_unknown_entity(text: str) -> str | None:
-    tokens: list[str] = []
-    for token in text.split():
-        if token in _ENTITY_NOISE:
-            continue
-        if token.isdigit() and len(token) >= 4:
-            continue
-        if re.fullmatch(r"X{2,}\d*", token):
-            continue
-        if re.fullmatch(r"(?:TRACE|REF|ID)\d+", token):
-            continue
-        if re.fullmatch(r"\d{1,2}(?:\d{1,2}){1,2}", token):
-            continue
-        tokens.append(token)
-    if not tokens:
-        return None
-    meaningful = [token for token in tokens if token not in {"FINANCE", "FINANCING", "FUNDING", "CAPITAL", "FUNDER"}]
-    if not meaningful:
-        return None
-    rendered = [token if token in _ENTITY_ACRONYMS else token.title() for token in tokens[:8]]
-    return " ".join(rendered)
+    return _unknown_payee_name(_unknown_payee_tokens(text))
 
 
 def _build_record(
@@ -1287,6 +1354,17 @@ def _descriptor_obligation(text: str, bank: str | None) -> dict[str, object] | N
             "The descriptor is the statement bank's own French loan wording (D5).",
             entity=bank or None,
         )
+    # D5 (owner decision 2026-09-25): a loan payment that prints no payee is the
+    # statement bank's own loan, not a potential lender. The last D5 rule.
+    if _matches_any(text, _UNNAMED_LOAN_PAYMENT_PATTERNS) and (
+        set(_unknown_payee_tokens(text)) <= _BANK_TEMPLATE_WORDS
+    ):
+        return _obligation_fields(
+            "bank_loan",
+            "unnamed_loan_payment",
+            "The descriptor is a loan payment that names no lender: the statement bank's own loan (D5).",
+            entity=bank or None,
+        )
     if _matches_any(text, _LEASE_RENTAL_PATTERNS):
         return _obligation_fields(
             "lease_or_rental",
@@ -1606,6 +1684,21 @@ def classify_transaction(
             matched_rule="potential_lender_registry",
             confidence_score=0.82,
             reason=f"Matched maintained candidate alias '{alias}'; confirmation requires review.",
+            review_required=True,
+        )
+
+    if amount < 0 and _matches_any(text, _SERVICER_COLLECTOR_PATTERNS):
+        return _build_record(
+            **common,
+            classification="potential_lender",
+            canonical_entity=_canonical_unknown_entity(text) or UNIDENTIFIED_LENDER_OBLIGATION,
+            match_method="unknown_servicer_or_collector",
+            matched_rule="servicer_or_collector_without_verified_funder",
+            confidence_score=0.74,
+            reason=(
+                "The payee is a loan servicer or debt collector whose funder is not "
+                "identified; it is potential only and requires review (D10)."
+            ),
             review_required=True,
         )
 
