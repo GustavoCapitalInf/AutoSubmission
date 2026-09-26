@@ -261,3 +261,128 @@ def test_a_payee_that_reads_as_a_formula_is_escaped_in_both_sheets():
     assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in _analysis_csv(shown)
     sheet = _sheet(_analysis_xlsx(shown))
     assert "<t>'=FABRICATED(1)</t>" in sheet and "<t>=FABRICATED(1)</t>" not in sheet
+
+
+# --- the package roll-up (§8.3) -------------------------------------------------------------------------------
+
+def _not_flagged(totals):
+    return {key: value for key, value in totals.items() if not key.startswith("flagged_")}
+
+
+def test_the_package_rolls_up_each_ticked_group_across_members(settings_file):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([
+        _member("a", flagged_account_payload(0)),
+        _member("b", flagged_account_payload(1, amount=-3.0, date="2054-01-12")),
+    ])
+    assert list(package["flagged_positions"]) == list(GROUP_KEYS)
+    for key in GROUP_KEYS:
+        [item] = package["flagged_positions"][key]
+        assert item["payee"] == fabricated_payee(key)
+        assert (item["documents"], item["count"], item["total_debited"]) == (2, 2, FLAGGED_DEBIT + 3.0)
+        assert (item["first_date"], item["last_date"]) == ("2054-01-05", "2054-01-12")
+    assert len(package["flagged_evidence"]) == 2 * len(GROUP_KEYS)
+    assert {evidence["source_job"] for evidence in package["flagged_evidence"]} == {"a", "b"}
+    assert all("source_account" not in evidence for evidence in package["flagged_evidence"])
+
+
+def test_a_row_without_a_named_payee_rolls_up_under_its_group_label(settings_file):
+    from analysis.flag_groups import FLAG_GROUP_BY_KEY
+    from webapp.app import _package_analysis
+
+    payload = with_flagged_rows(account_payload(), [flagged_row("bank_loans", payee="")])
+    [item] = _package_analysis([_member("a", payload)])["flagged_positions"]["bank_loans"]
+    assert item["payee"] == FLAG_GROUP_BY_KEY["bank_loans"].label
+
+
+def test_a_row_the_analysis_does_not_count_never_enters_the_roll_up(settings_file):
+    from webapp.app import _package_analysis
+
+    payload = with_flagged_rows(account_payload(), [flagged_row("mortgages"),
+                                                    flagged_row("mortgages", contributes=False)])
+    package = _package_analysis([_member("a", payload)])
+    [item] = package["flagged_positions"]["mortgages"]
+    assert (item["count"], item["total_debited"]) == (1, FLAGGED_DEBIT)
+    assert len(package["flagged_evidence"]) == 1
+
+
+@EACH_GROUP
+def test_an_unticked_group_leaves_the_package_and_nothing_else_moves(settings_file, group):
+    from webapp.app import _package_analysis
+
+    jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
+    ticked = _package_analysis(jobs)
+    save_settings(settings_file.parent, {group.setting: False})
+    unticked = _package_analysis(jobs)
+    assert set(unticked["flagged_positions"]) == set(GROUP_KEYS) - {group.key}
+    assert all(evidence["flagged_group"] != group.key for evidence in unticked["flagged_evidence"])
+    # D7: the lender totals, the withholding and the decision never read a flag group or its checkbox.
+    assert _not_flagged(unticked["totals"]) == _not_flagged(ticked["totals"])
+    assert ticked["totals"]["decision"] == "approved"
+    assert unticked["funders"] == ticked["funders"] and unticked["potential_lenders"] == ticked["potential_lenders"]
+
+
+def test_premium_financing_stays_insurance_whether_or_not_it_is_flagged(settings_file):
+    from webapp.app import _package_analysis
+
+    jobs = [_member("a", flagged_account_payload(0, groups=("premium_financing",))),
+            _member("b", flagged_account_payload(1, groups=("premium_financing",)))]
+    ticked = _package_analysis(jobs)
+    [item] = ticked["flagged_positions"]["premium_financing"]
+    assert (item["count"], item["total_debited"]) == (2, 2 * FLAGGED_DEBIT)
+    assert (ticked["totals"]["insurance_count"], ticked["totals"]["insurance_total"]) == (2, 2 * FLAGGED_DEBIT)
+    save_settings(settings_file.parent, {"flag_premium_financing": False})
+    unticked = _package_analysis(jobs)
+    assert unticked["flagged_positions"] == {} and unticked["flagged_evidence"] == []
+    # The checkbox hides the flag only: the rows are still insurance, counted and evidenced as today.
+    assert (unticked["totals"]["insurance_count"], unticked["totals"]["insurance_total"]) == (2, 2 * FLAGGED_DEBIT)
+    assert [evidence["source_job"] for evidence in unticked["insurance_evidence"]] == ["a", "b"]
+
+
+def test_the_roll_up_reads_the_same_snapshot_as_the_member_rows(settings_file):
+    # Spec §8.2: the members' tags and the roll-up come from ONE snapshot. The file ticks every group and the
+    # snapshot unticks premium financing, so a roll-up that re-read the file would still show it.
+    from webapp.app import _package_analysis
+
+    save_settings(settings_file.parent, dict(DEFAULTS))
+    jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
+    package = _package_analysis(jobs, settings={**DEFAULTS, "flag_premium_financing": False})
+    assert set(package["flagged_positions"]) == set(GROUP_KEYS) - {"premium_financing"}
+    assert {evidence["flagged_group"] for evidence in package["flagged_evidence"]} == set(package["flagged_positions"])
+    tagged = {row["classification"]["flagged_group"] for row in package["transactions"]
+              if row["classification"]["flag_shown"]}
+    assert tagged == set(package["flagged_positions"])
+    # Hidden, never re-classified: both premium-financing rows still count as insurance (C4, D7).
+    assert package["totals"]["insurance_count"] == 2
+
+
+def test_flag_evidence_of_a_document_member_names_its_account(settings_file):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_member("doc", flagged_document_payload(groups=("mortgages",)))])
+    assert [(evidence["source_job"], evidence["source_account"], evidence["source_location"])
+            for evidence in package["flagged_evidence"]] == [("doc", 1, "transaction:2"), ("doc", 2, "transaction:2")]
+    [item] = package["flagged_positions"]["mortgages"]
+    assert (item["documents"], item["count"], item["total_debited"]) == (2, 2, 3 * FLAGGED_DEBIT)
+
+
+def test_an_internal_transfer_leg_never_enters_the_flag_roll_up(settings_file):
+    from webapp.app import _package_analysis
+
+    payload = flagged_document_payload(groups=("mortgages",))
+    # Account 1's ledger holds its revenue credit at position 0 and its flagged debit at position 1; the document
+    # pairs that debit with account 2's credit as one movement between its own accounts.
+    payload["document"]["internal_transfers"] = [{"a": [0, 1], "b": [1, 0]}]
+    package = _package_analysis([_member("doc", payload)])
+    [item] = package["flagged_positions"]["mortgages"]
+    assert (item["documents"], item["count"], item["total_debited"]) == (1, 1, 2 * FLAGGED_DEBIT)
+    assert [evidence["source_account"] for evidence in package["flagged_evidence"]] == [2]
+
+
+def test_a_package_of_payloads_without_flag_groups_rolls_up_nothing(settings_file):
+    from tests.test_package_currency import member
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([member("a", "USD"), _member("b", account_payload())])
+    assert package["flagged_positions"] == {} and package["flagged_evidence"] == []

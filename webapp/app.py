@@ -32,8 +32,9 @@ from analysis.revenue import (
     REVENUE_STATES,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
-from analysis.flag_groups import FLAG_GROUP_BY_KEY
-from analysis.flagged_view import apply_flagged_groups_to_payload
+from analysis.dates import parse_date
+from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
+from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group_keys
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
 from .worker import run_job
@@ -542,6 +543,67 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
     return classification.get("contributes_to_potential_lender_count") is True
 
 
+def _counts_as_flagged(classification: dict, shown: frozenset[str]) -> bool:
+    """A row the package's flag roll-up counts: the analysis marked it a contributing debit of a flag group
+    (`contributes_to_flagged_totals`: posted, not a proven duplicate, not settlement-reversed), and Settings ticks
+    its group."""
+    group = classification.get("flagged_group")
+    return (
+        classification.get("contributes_to_flagged_totals") is True
+        and isinstance(group, str)
+        and group in shown
+    )
+
+
+def _add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> None:
+    """Fold one member's counted flag rows into the package roll-up, keyed by (group, payee).
+
+    The payee is the row's canonical entity, or its group's label when the analysis named none (plan contract
+    C5). `documents` counts the members a payee appears in, as the funder roll-up does. The dates are kept so the
+    first and last dates, and the cadence, are read across every member rather than per statement."""
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        classification = row["classification"]
+        group = classification["flagged_group"]
+        entity = classification.get("canonical_entity")
+        payee = entity if isinstance(entity, str) and entity else FLAG_GROUP_BY_KEY[group].label
+        item = rollup.setdefault(
+            (group, payee),
+            {"payee": payee, "documents": 0, "count": 0, "total_debited": 0.0, "dates": []},
+        )
+        if (group, payee) not in seen:
+            seen.add((group, payee))
+            item["documents"] += 1
+        item["count"] += 1
+        item["total_debited"] = round(item["total_debited"] + abs(_num(row.get("amount"))), 2)
+        posted = parse_date(row.get("date") or classification.get("date"))
+        if posted is not None:
+            item["dates"].append(posted)
+
+
+def _published_flagged_positions(rollup: dict[tuple[str, str], dict]) -> dict[str, list[dict]]:
+    """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
+    order, as a list of `{payee, documents, count, total_debited, first_date, last_date}`, largest total first."""
+    published: dict[str, list[dict]] = {}
+    for group in FLAG_GROUPS:
+        items = []
+        for (key, _payee), item in rollup.items():
+            if key != group.key:
+                continue
+            dates = sorted(item["dates"])
+            items.append({
+                "payee": item["payee"],
+                "documents": item["documents"],
+                "count": item["count"],
+                "total_debited": item["total_debited"],
+                "first_date": dates[0].isoformat() if dates else None,
+                "last_date": dates[-1].isoformat() if dates else None,
+            })
+        if items:
+            published[group.key] = sorted(items, key=lambda item: (-item["total_debited"], item["payee"]))
+    return published
+
+
 #: Package totals that carry money, or that divide one money figure by another.
 #: Adding or dividing these across statements denominated in different
 #: currencies is a unit error — `30,000 CAD + 20,000 USD != 50,000 package ADB`
@@ -955,6 +1017,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # keeps the groups it ticks.
     if settings is None:
         settings = load_settings(store.storage.data_dir)
+    shown_groups = enabled_group_keys(settings)
     duplicate_of, duplicate_groups = _package_duplicates(jobs)
     members, excluded_accounts = _package_members(jobs, settings=settings)
     #: Q10. Every ratified sibling omission any member document published. The
@@ -1036,6 +1099,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     package_revenue_evidence: dict[str, list[dict]] = {
         state: [] for state in REVENUE_STATES
     }
+    #: (group key, payee) -> the running roll-up of the ticked flag groups (lender detection §8.3).
+    flagged_rollup: dict[tuple[str, str], dict] = {}
+    package_flagged_evidence: list[dict] = []
     denominator_modes: set[str] = set()
     nsf_sources: set[str] = set()
     #: CURRENCY DOCTRINE §F bookkeeping: how many money-contributing members
@@ -1181,6 +1247,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             transaction
             for transaction in authoritative_rows
             if transaction["classification"].get("contributes_to_insurance_totals") is True
+        ]
+        flagged_rows = [
+            transaction
+            for transaction in authoritative_rows
+            if _counts_as_flagged(transaction["classification"], shown_groups)
         ]
         positive_statement_rows = [
             transaction
@@ -1533,6 +1604,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 }
             )
 
+        # Flag groups (lender detection §8.3): the ticked groups' counted rows of this member's ledger, less its
+        # internal-transfer legs. They never reach the lender totals, the withholding or the decision (D7).
+        _add_flagged_rows(flagged_rollup, flagged_rows)
+
         # Flattened ledger so the dashboard can show every statement's rows at once.
         for tx in statement_transactions:
             package_transaction = {
@@ -1564,6 +1639,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 package_potential_lender_evidence.append(evidence)
             if classification.get("contributes_to_insurance_totals") is True:
                 package_insurance_evidence.append(evidence)
+            if _counts_as_flagged(classification, shown_groups):
+                # A location is numbered within its own account, so a multi-account member's evidence names it.
+                package_flagged_evidence.append(
+                    evidence if account_index is None else {**evidence, "source_account": account_index}
+                )
             revenue_state = classification.get("revenue_classification")
             if revenue_state in REVENUE_STATES and _num(tx.get("amount")) > 0:
                 package_revenue_evidence[revenue_state].append(evidence)
@@ -1860,6 +1940,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     package_potential_lenders = sorted(
         potential_lenders.values(), key=lambda r: r["funder"]
     )
+    package_flagged_positions = _published_flagged_positions(flagged_rollup)
 
     published_totals = {
         **totals,
@@ -1978,10 +2059,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "funders": package_funders,
         "potential_lenders": package_potential_lenders,
         "insurance_providers": package_insurance_providers,
+        # Lender detection §8.3: the ticked flag groups, never lender math.
+        "flagged_positions": package_flagged_positions,
         "transactions": package_transactions,
         "lender_evidence": package_lender_evidence,
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
+        "flagged_evidence": package_flagged_evidence,
         "verified_revenue_evidence": package_revenue_evidence["verified_revenue"],
         "unverified_deposit_evidence": package_revenue_evidence["unverified_deposit"],
         "true_revenue_evidence": package_revenue_evidence["verified_revenue"],
