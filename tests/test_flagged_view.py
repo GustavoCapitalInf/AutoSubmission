@@ -160,6 +160,21 @@ def test_rows_classified_by_older_rules_mark_the_analysis_outdated(version, outd
     assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is outdated
 
 
+@pytest.mark.parametrize("version", [
+    "²", "².0", "٤.1", "9" * 5000, "", " ", ".5", "-4", "+4", "4a.0", "4 .1",
+], ids=["superscript", "superscript-dotted", "arabic-indic", "too-many-digits", "empty", "blank", "no-major",
+        "negative", "signed", "letters", "inner-space"])
+def test_a_version_that_cannot_be_read_never_raises_and_says_nothing(version):
+    # C6 never raises. The classifier writes an ASCII "<major>.<minor>" (C4); anything else is malformed, so it
+    # neither marks the analysis outdated nor hides an older record elsewhere. `str.isdigit` accepts a superscript
+    # that `int` refuses, `int` reads non-ASCII digits, and it refuses a string past `sys.get_int_max_str_digits`.
+    payload = with_flagged_rows(flagged_account_payload(groups=()), [flagged_row(None)])
+    payload["statement"]["transactions"][-1]["classification"]["classification_version"] = version
+    assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is False
+    with_flagged_rows(payload, [flagged_row(None, version="4.1")])
+    assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is True
+
+
 def test_a_record_without_a_version_predates_versioning_and_marks_the_analysis_outdated():
     # A record written before `classification_version` existed was classified by the rules of that time, older
     # than the flag groups (D12), so the dashboard offers the re-analysis.

@@ -38,12 +38,21 @@ def enabled_group_keys(enabled: Mapping[str, bool]) -> frozenset[str]:
 
 
 def _major_version(version: object) -> int | None:
-    """The major number of a stored `classification_version` ("4.1" gives 4); None when it cannot be read."""
+    """The major number of a stored `classification_version` ("4.1" gives 4); None when it cannot be read.
+
+    Never raises. The classifier writes ASCII digits (C4), so only those are read: `str.isdigit` accepts a
+    superscript "2" that `int` refuses, and `int` reads non-ASCII decimal digits the classifier never writes. `int`
+    also refuses a string longer than `sys.get_int_max_str_digits()`."""
     if isinstance(version, int) and not isinstance(version, bool):
         return version
     if isinstance(version, str):
         head = version.strip().split(".", 1)[0]
-        return int(head) if head.isdigit() else None
+        if not (head.isascii() and head.isdecimal()):
+            return None
+        try:
+            return int(head)
+        except ValueError:
+            return None
     return None
 
 
