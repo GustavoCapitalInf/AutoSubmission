@@ -238,3 +238,50 @@ def test_the_panel_sits_after_the_evidence_and_reuses_no_lender_header():
         assert reused not in card
     assert html.index('aria-label="Evidence"') < html.index('id="flaggedCard"') \
         < html.index('aria-label="Package summary and processing"')
+
+
+# ---------------------------------------------------------------- Task 4: a payee click filters the ledger
+
+PAYEE_CLICK = """
+const clickPayee = (table, group, payee) => {
+  const button = fakeElement('payee'); button.closest = () => button;
+  button.attributes['data-lender-evidence-filter'] = `flagged:${group}`;
+  button.attributes['data-lender-evidence-entity'] = payee;
+  table.listeners.click[0]({target: button});
+};
+"""
+
+
+@needs_node
+def test_a_payee_click_filters_the_ledger_to_the_rows_behind_it():
+    result = run_dashboard(ROWS + PAYEE_CLICK + _load("s", _statement()) + """
+const shown = () => ({filter: transactionFilter, entity: transactionEntityFilter,
+  count: els.transactionCount.textContent, dates: datesOf(els.transactionTable.innerHTML)});
+clickPayee(els.flaggedTable, 'mortgages', 'FABRICATED MORTGAGE CO');
+const mortgage = shown();
+clickPayee(els.flaggedTable, 'credit_cards', 'Credit cards');
+console.log(JSON.stringify({mortgage, card: shown()}));
+""")
+    # The rows the panel counted: the duplicate is tagged but not behind the payee's count.
+    assert result["mortgage"] == {"filter": "flagged:mortgages", "entity": "FABRICATED MORTGAGE CO",
+                                  "count": "2 FABRICATED MORTGAGE CO", "dates": ["2031-03-03", "2031-03-17"]}
+    # An unnamed payee is its group, as the server names it.
+    assert result["card"] == {"filter": "flagged:credit_cards", "entity": "Credit cards", "count": "1 Credit cards",
+                              "dates": ["2031-03-05"]}
+
+
+@needs_node
+def test_a_premium_financing_payee_is_listed_under_its_group_and_its_click_shows_its_insurance_rows():
+    result = run_dashboard(CELLS + ROWS + PAYEE_CLICK
+                           + _load("p", _statement(positions=PREMIUM_POSITIONS, ledger=PREMIUM_LEDGER)) + """
+const panel = cells(els.flaggedTable.innerHTML);
+clickPayee(els.flaggedTable, 'premium_financing', 'FABRICATED PREMIUM FINANCE');
+console.log(JSON.stringify({panel, filter: transactionFilter, count: els.transactionCount.textContent,
+  dates: datesOf(els.transactionTable.innerHTML)}));
+""")
+    assert result["panel"] == [["Premium financing", "FABRICATED PREMIUM FINANCE", "2", "CA$500.00",
+                                "Every two weeks2031-03-04 to 2031-03-18"]]
+    # Keyed on flagged_group, not on the state: the rows stay insurance, and the plain insurer's row is left out.
+    assert result["filter"] == "flagged:premium_financing"
+    assert result["count"] == "2 FABRICATED PREMIUM FINANCE"
+    assert result["dates"] == ["2031-03-04", "2031-03-18"]

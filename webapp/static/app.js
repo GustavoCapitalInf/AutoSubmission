@@ -557,20 +557,42 @@ function flaggedChip(tx) {
   return transactionClassification(tx).flag_shown === true ? glassChip("FLG", "Flagged", "blue", "flag-chip") : "";
 }
 
+// The ledger filter behind one row of the Flagged positions panel is "flagged:<group>": that group's rows that count,
+// of the payee clicked. Null for any other filter.
+function flaggedFilterGroup(filter) {
+  const match = /^flagged:([a-z_]+)$/.exec(String(filter || ""));
+  return match ? match[1] : null;
+}
+
+// Who a flagged row paid, as the panel names it: the payee the classifier named, else the row's group.
+function flaggedPayeeOf(tx) {
+  const record = transactionClassification(tx);
+  return record.canonical_entity || (record.flagged_group ? flagGroupLabel(record.flagged_group) : null);
+}
+
 function filterTransactions(transactions, filter, canonicalEntity = null) {
   let matched = transactions;
+  const flagGroup = flaggedFilterGroup(filter);
   if (filter === "nsf") matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
   if (filter === "lender") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true);
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
   if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");
   if (filter === "flagged") matched = transactions.filter((tx) => transactionClassification(tx).flag_shown === true);
+  if (flagGroup) {
+    matched = transactions.filter((tx) => {
+      const record = transactionClassification(tx);
+      return record.flag_shown === true && record.flagged_group === flagGroup
+        && record.contributes_to_flagged_totals === true;
+    });
+  }
   if (["verified_revenue", "unverified_deposit", "non_revenue"].includes(filter)) {
     matched = transactions.filter(
       (tx) => transactionClassification(tx).revenue_classification === filter
     );
   }
   if (!canonicalEntity) return matched;
+  if (flagGroup) return matched.filter((tx) => flaggedPayeeOf(tx) === canonicalEntity);
   return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
 }
 
@@ -4406,6 +4428,19 @@ if (els.statementModalLenders) {
     setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
     renderModalTransactions();
     els.statementModalTransactions?.closest(".modal-panel")?.scrollIntoView({ block: "start" });
+  });
+}
+
+// A payee of the Flagged positions panel shows the ledger rows behind it.
+if (els.flaggedTable) {
+  els.flaggedTable.addEventListener("click", (event) => {
+    const selection = lenderEvidenceSelection(event);
+    if (!selection) return;
+    transactionFilter = selection.filter;
+    transactionEntityFilter = selection.entity;
+    setTransactionFilterButtons("[data-transaction-filter]", "flagged");
+    renderMainTransactions();
+    els.transactionCard?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 
