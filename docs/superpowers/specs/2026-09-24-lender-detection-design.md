@@ -35,19 +35,43 @@ The census and the code found three kinds of failure.
 
 | Group | Counts as a lender? | Who |
 |---|---|---|
-| **Lender** | **Yes**: lender count, lender totals, withholding | MCA and revenue-based funders (OnDeck, Bitty, Legend, LG Funding, Hunter Caroline, CAN Capital, CanaCap and so on) and **equipment financing** (NMEF, Balboa, Navitas, Deere and so on) |
+| **Lender** | **Yes**: lender count, lender totals, withholding | MCA and revenue-based funders (OnDeck, Bitty, Legend, LG Funding, Hunter Caroline, CAN Capital, CanaCap and so on) and **equipment financing** (NMEF, Balboa, Navitas, Deere, office-equipment captives such as Pitney Bowes and Canon Financial, heavy-truck lenders such as Daimler Truck and PACCAR, and so on) |
 | **Potential lender** | No; review, as today | Unknown payees with lender signals |
-| Flag: **Alternative positions** | No | SBA/EIDL, BDC, Affirm and other BNPL, Amex loans and lines, Intuit, Square, Shopify, PayPal, Stripe and Amazon financing |
-| Flag: **Lines of credit** | No; called out separately as LOC | Fundbox, BlueVine, Kabbage, and any row whose descriptor says LOC or LINE OF CREDIT |
+| Flag: **Alternative positions** | No | SBA/EIDL, BDC, Affirm and other BNPL, Amex loans and lines, Intuit, Square, Shopify, PayPal, Stripe and Amazon financing, and Capital Infusion (the house) |
+| Flag: **Lines of credit** | No; called out separately as LOC | Fundbox, BlueVine (`BLUEVINE CAPITAL`), Kabbage, and any row whose descriptor says LOC or LINE OF CREDIT |
 | Flag: **Credit cards** | No | Card payments to Amex, Capital One, Chase, Credit One, Concora and so on |
 | Flag: **Vehicle loans & leases** | No | GM Financial, Ford Credit, Toyota Financial, Ally, auto leases |
 | Flag: **Bank loans** | No | A bank's own loan payments, e.g. `TRUIST LN … PYMT` |
 | Flag: **Mortgages** | No | Mortgage servicers |
-| Flag: **Leases & rentals** | No | Equipment rentals, leases, lease-to-own (Progressive, SmartPay, Snap) |
+| Flag: **Leases & rentals** | No | Equipment rentals, leases, card-terminal (POS equipment) lessors such as LADCO Leasing and First Data Global Leasing, lease-to-own (Progressive, SmartPay Leasing, Snap) |
 | Flag: **Personal loans** | No | Consumer and student loans paid from the account |
 | Flag: **Floor plan** | No; flagged like alternative positions | Inventory (floor-plan) lenders for dealers: NextGear Capital, Westlake Flooring… |
 | Flag: **Factoring** | No; flagged like alternative positions | Invoice factoring companies: RTS Financial, OTR Capital, Apex Capital, BC Factoring… |
-| Flag: **Premium financing** | No; the rows **stay counted as insurance** as today, and are also flagged | Insurance premium financing: IPFS, First Insurance Funding… |
+| Flag: **Premium financing** | No; the rows **stay counted as insurance** as today, and are also flagged | Insurance premium financing: IPFS, First Insurance Funding (including rows that print only `FIRST INSURANCE`)… |
+
+*Amendment (owner, 2026-09-25, delegated to the orchestrator):* The owner read the counted lender list and delegated every open question to the orchestrator ("take your suggestions"). The orchestrator's decisions are now owner rulings. The curated ledger records each one in the entity's notes, and the evidence ledger shows it.
+- **Capital Infusion (the house) is not a lender, but it is flagged.** It is admitted under Alternative positions on the owner's ruling.
+- **Everest Business Funding and EBF Holdings are one funder**, so they count once. EBF Holdings' spellings are aliases of Everest Business Funding (§5).
+- **Card-terminal (POS equipment) lessors are Leases & rentals, not lenders:** LADCO Leasing, First Data Global Leasing, LogicaLease and Finova Capital's point-of-sale lease product. Office-equipment captives (Pitney Bowes' leasing arms, Canon Financial) and heavy-truck lenders (Daimler Truck, PACCAR, Volvo, Mack) stay lenders, as equipment financing; Pitney Bowes' postage credit lines (Purchase Power, PitneyWorks) stay Lines of credit.
+- **BlueVine is `BLUEVINE CAPITAL` and `BLUEVINE LOAN`.** The bare alias `BLUEVINE` is dropped (§5).
+- **SmartPay is SmartPay Leasing**, the lease-to-own company. The `SMARTPAY SOL` rows are SmartPay Solutions' insurance premium billing, and they stay unflagged (§5).
+- **Bare `FIRST INSURANCE` is FIRST Insurance Funding.** Those rows stay insurance and are also flagged premium financing (§4.2, §5).
+- **Payout credits are revenue.** Credits from Sezzle, American First Finance and Payability are the account holder's own sales, settled by the platform (D1).
+- **Unnamed loan payments are bank loans** of the statement's bank, not potential lenders (D5).
+- **Filings confirmed:**
+  - counted lenders: Econolease (equipment finance), CMCA Finance, Lily Advance, Loot Financial Services, and Payability for its debits;
+  - Floor plan: AFC Funding Corp;
+  - as filed: Amazon Capital Services and American Express Loans (Alternative positions), Kabbage and IDEA Financial (Lines of credit), LoanMe (Personal loans);
+  - review, never counted: Clover Equipment (every spelling carries lease or rental wording, so step 8 flags its rows under Leases & rentals before the review tier is read), Rewards Network, and MERCH PAD (probably Merchant Growth; no public source ties the name to it);
+  - not flagged: Keep Technologies (`KEEP BUS`; D6 still sends fixed daily or weekly debits to review), PayPal's generic debits, and PetroCard;
+  - rejected: MR BIZ CAPITAL, a broker, not a funder the account pays.
+- **Descriptor rules.** Where a decision needed a rule rather than an alias, S2 carries it in the §4.3 order:
+  - step 4: a row with premium-finance wording and no named financier is insurance, flagged premium financing;
+  - steps 5 and 7: Klarna's paid membership and balance top-ups are not BNPL repayments, so they match no known payee;
+  - step 6: `OVERDRAFT CHARGE` is a fee, so the bank's overdraft charge for a Zip item is not a Zip payment;
+  - step 8: a transfer between the holder's own accounts is not an obligation, even when the holder named the account with loan words; a per-vehicle floor-plan payoff is Floor plan; a home-equity loan is a mortgage; an unnamed student loan is a personal loan; the statement bank's own loan wording (in English or French), another bank's unnamed commercial loan and commercial-loan billing are bank loans; the card-payment wording is widened;
+  - step 11: `MCA SERVICING` is an unknown servicer (D10);
+  - credits: a per-vehicle floor-plan advance, the statement bank's own `LOAN CREDIT` and a line-of-credit draw are financing proceeds (D1).
 
 *Amendment (owner, 2026-09-25, after research round 5):*
 - **Online business term lenders count as lenders.** This covers OnDeck's term loans, National Funding, Expansion Capital, iCapital, ARF Financial and similar, the same as MCA funders.
@@ -66,12 +90,16 @@ The census and the code found three kinds of failure.
 The code forced these choices, and the rulings above did not settle them.
 
 - **D1. Financing proceeds.** A credit from any financing group is financing proceeds. That covers lenders, alternative positions, lines of credit, bank loans, vehicle financing, mortgages and personal loans. Proceeds are `non_revenue` and are subtracted from eligible deposits. This is today's treatment for everything in the lender registry, so the withholding denominators for SBA, Intuit and LOC proceeds do not move. The card-issuer and lease/rental lists never apply to credits: an Amex merchant settlement is revenue.
+  - **Payout credits (owner, 2026-09-25).** A credit from Sezzle, American First Finance or Payability is the account holder's own sales, settled by the platform (BNPL merchant payouts, early marketplace payouts). It is revenue, not financing proceeds, and keeps today's treatment of platform settlements. The registry names these entities in `PAYOUT_CREDIT_ENTITIES`. Their debits keep their group: Sezzle and American First Finance are alternative positions, and Payability stays a counted lender. Today Payability's credits are lender credits, so revenue rises where it pays out. Only these three are excepted; Affirm stays under D2.
 - **D2. Affirm credits** keep today's treatment as financing proceeds. Whether an Affirm merchant payout is revenue is a separate revenue question and is out of scope here.
 - **D3. Plain rent is not flagged.** Landlord and office rent stay `rent`. "Leases & rentals" covers equipment rentals, leases and lease-to-own.
 - **D4. Unnamed equipment financing.** A generic `EQUIPMENT FINANCING/FINANCE` descriptor with no named company is a **potential lender** (review), never a counted lender.
-- **D5. Unnamed loan payments.** A loan payment with no identifiable counterparty stays a potential lender (review), which is today's behavior. It becomes a **bank loan** only when:
-  - the payee is on the bank-name list, or
-  - the descriptor is the statement bank's own loan transfer (e.g. `TRANSFER TO LOAN …`).
+- **D5. Unnamed loan payments** (amended by the owner, 2026-09-25). A loan payment that prints no lender is the statement bank's own loan, so it is a **bank loan**, not a potential lender. The row's entity is the statement bank when it is known. A loan payment is a bank loan when:
+  - the payee is on the bank-name list, with loan wording;
+  - the descriptor is the statement bank's own loan transfer (e.g. `TRANSFER TO LOAN …`) or its own loan wording;
+  - it carries loan-payment wording (`LOAN PAYMENT`, `LOAN PYMT` and the like) and prints no payee at all: no lender, servicer, person or other bank.
+
+  A loan payment that prints any other payee keeps today's rules: a known payee, the bank-name rule, or the potential-lender rules.
 - **D6. Unknown MCA-style debits.** A payee on no list, with at least 3 debits of the **same amount** on a **daily or weekly** cadence, becomes a **potential lender** (review). This does not apply to rows that are already a POS purchase, transfer, fee, payroll, tax, utility, rent or insurance. It relaxes "recurrence alone is never lender evidence" for the **review tier only**. Nothing is ever *counted* without a named lender.
 - **D7. Unticking a checkbox only hides the flag.**
   - A setting never moves a row into review or into lender math.
@@ -130,7 +158,7 @@ The dashboard keeps a label for the retired state so that analyses stored before
 | `factoring` | `factoring` | `flag_factoring` | Factoring |
 | `insurance` (premium-finance payees only) | `premium_financing` | `flag_premium_financing` | Premium financing |
 
-**Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. **D1** (financing proceeds) covers `floor_plan_financing` and `factoring` credits. Premium-financing credits keep today's insurance treatment.
+**Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. The insurance rule reads the premium-finance table before the insurer table, so a row that prints only `FIRST INSURANCE` is FIRST Insurance Funding (owner, 2026-09-25): it stays insurance and is also flagged. A row with premium-finance wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance payee is flagged the same way, under the insurer it names, or else `Insurance provider not identified` (owner, 2026-09-25). **D1** (financing proceeds) covers `floor_plan_financing` and `factoring` credits. Premium-financing credits keep today's insurance treatment.
 
 `CLASSIFICATION_VERSION` becomes `"5.0"`.
 
@@ -147,13 +175,15 @@ The dashboard keeps a label for the retired state so that analyses stored before
    - LOC/LINE OF CREDIT → `line_of_credit`
    - MORTGAGE → `mortgage`
    - AUTO/VEHICLE LOAN, LEASE or PAYMENT → `vehicle_financing`
-   - a bank name plus LOAN, LN or LOAN PAYMENT, or the statement bank's own loan transfer → `bank_loan` (D5)
+   - a bank name plus LOAN, LN or LOAN PAYMENT, the statement bank's own loan transfer, or a loan payment that prints no payee → `bank_loan` (D5)
    - LEASE, RENTAL or LEASE-TO-OWN → `lease_or_rental`
    - credit-card payment patterns, widened to the card issuers the research found → `credit_card_payment`
    - EQUIPMENT FINANCING/FINANCE with no named company → `potential_lender` (D4)
 9. Rent → `rent` (unchanged, D3).
 10. Check, then subscription → `other` (unchanged).
 11. Potential-lender rules: the potential registry, direct-debit loans, explicit repayments, and financing words with a payment marker. These are unchanged, except that entity naming follows D11.
+
+The amendment of 2026-09-25 (§2, "Descriptor rules") adds rules at steps 4, 5, 6, 7, 8 and 11 and for credits. S2's plan places each one in this order.
 
 Statement-level passes, in order:
 1. Duplicates (unchanged).
@@ -166,7 +196,7 @@ Statement-level passes, in order:
 
 ### 4.4 Credits
 
-In `_classify_credit_revenue`, the known-payee matcher runs **before** the operating-revenue registry. A credit from a **financing group** (D1) is `non_revenue`, with match method `financing_proceeds_credit`, and sets `contributes_to_lender_credit_exclusion`. Group aliases are financing-specific: `SQUARE CAPITAL`, never bare `SQUARE`. So platform sales settlements (Square, Shopify, PayPal, Stripe) stay revenue.
+In `_classify_credit_revenue`, the known-payee matcher runs **before** the operating-revenue registry. A credit from a **financing group** (D1) is `non_revenue`, with match method `financing_proceeds_credit`, and sets `contributes_to_lender_credit_exclusion`. Group aliases are financing-specific: `SQUARE CAPITAL`, never bare `SQUARE`. So platform sales settlements (Square, Shopify, PayPal, Stripe) stay revenue. The payout credits of the entities in `PAYOUT_CREDIT_ENTITIES` are revenue too (D1's exception): the financing-proceeds branch skips them, and they go on to the operating-revenue path.
 
 Three existing tests pin this:
 - `tests/test_revenue_classification.py:440-523`
@@ -221,11 +251,19 @@ Stable names also fix recurrence grouping. Today "NORTHSTAR FINANCE PAYMENT JAN 
   - They come from spellings seen on real statements. They are payee names only, never customer names, amounts or account numbers.
   - Bare platform names (`SQUARE`, `SHOPIFY`, `PAYPAL`, `STRIPE`, `INTUIT`, `AMAZON`) appear only in the operating-revenue registry.
   - An alias must name the *financing* business, not a brand that also sells goods. `TOYOTA FINANCIAL`, `FORD CREDIT` and `GM FINANCIAL` are fine; `TOYOTA`, `FORD`, `APPLE` and `CAPITAL ONE` alone are not. Otherwise a card purchase at a dealership or store would become a flagged position, because card payments to known payees now bypass POS (D8).
-  - `BLUEVINE` must not catch transfers to or from a BlueVine *bank account*; it keeps the transfer precedence.
+  - BlueVine's aliases are `BLUEVINE CAPITAL` and `BLUEVINE LOAN` (owner, 2026-09-25). Bare `BLUEVINE` is not an alias: it also names Bluevine Bill Pay payments and receipts between other businesses and transfers to or from Bluevine checking accounts, which are not the line of credit. Transfer precedence alone would not protect those rows, because they are payments to and from third parties.
+  - SmartPay's alias is `SMARTPAY LEASING`, the lease-to-own SmartPay Leasing (owner, 2026-09-25). `SMARTPAY SOL` names SmartPay Solutions, whose insurance premium billing is neither a lease nor financing, so no table claims it and those rows stay unflagged.
   - `ONDECK`'s `ENOVA` alias must not catch Journey Capital or NetCredit rows.
-- **Collision audit.** `tools/lender_alias_audit.py` reads only the local cache and runs outside CI. For every alias it reports the payees it matches, and it must report **zero** matches on a different payee. The research found collisions to fix: `BLUEVINE` catches BlueVine banking, `SmartPay` catches Atlas Financial card rows, and `ONDECK` catches Journey Capital.
+  - **One funder, one entity.** A company that prints under two names counts once. EBF Holdings, LLC does business as Everest Business Funding, so the `EBF HOLDINGS` spellings are aliases of `EVEREST BUSINESS FUNDING` (owner, 2026-09-25).
+  - **An insurer's alias as a premium-finance alias.** A premium-finance alias may equal an alias of the hand-kept insurer table only on the owner's ruling. The one such spelling is `FIRST INSURANCE`, the ACH company name that FIRST Insurance Funding prints (owner, 2026-09-25). The hand-kept insurer First Insurance keeps its alias, and the insurance rule reads the premium-finance table first (§4.2).
+- **Owner-ruled inputs.** Besides the validator's hand-kept lists (the payees the owner named in §2, and the bare platform and brand names), `analysis/classification_registry.py` holds four hand-kept constants for the rulings of 2026-09-25, outside the rendered tables:
+  - `PREMIUM_FINANCE_INSURER_ALIASES`: the premium-finance spellings that may equal an insurer alias (`FIRST INSURANCE`);
+  - `MERGED_REGISTRY_ENTITIES`: an entity of today's registry that a ledger entity absorbs (`EBF HOLDINGS` into `EVEREST BUSINESS FUNDING`);
+  - `REATTRIBUTED_REGISTRY_ALIASES`: an alias of today's registry that names another company (`SMARTPAY SOL`, SmartPay Solutions);
+  - `PAYOUT_CREDIT_ENTITIES`: the entities whose credits are payout revenue (D1's exception).
+- **Collision audit.** `tools/lender_alias_audit.py` reads only the local cache and runs outside CI. For every alias it reports the payees it matches, and it must report **zero** matches on a different payee. The research found collisions to fix: `BLUEVINE` catches BlueVine banking, `SmartPay` catches Atlas Financial card rows, and `ONDECK` catches Journey Capital. The ledger fixes all three: bare `BLUEVINE` and bare `SMARTPAY` are dropped, and `ONDECK` claims neither Journey Capital nor an unrelated `ENOVA`.
 - **Evidence ledger.** `docs/lender-registry-evidence.md` lists every entity with its group, a public source URL, the verification verdict, and, for anything unconfirmed, where the researchers looked. It contains no statement text, amounts or customer names.
-- **Entities awaiting an owner ruling** are listed at the end of the ledger. One example is a numbered Ontario company debited daily/weekly in about three customer accounts; it is not searched anywhere, by rule.
+- **Entities awaiting an owner ruling** are listed at the end of the ledger. Since the delegated rulings of 2026-09-25, the only one is a numbered Ontario company debited daily/weekly in about three customer accounts; it is not searched anywhere, by rule.
 
 ## 6. The payload (the contract §8 builds on)
 
@@ -325,22 +363,23 @@ The route refuses when the stored PDF is missing.
 
 - **Tests**, all with fabricated descriptors and never statement text:
   - classification tables for every group, both directions, including the card-paid lender (D8), LOC wording (D9), unnamed loans (D5), unnamed equipment financing (D4), the D6 recurrence rule and D11 naming;
-  - the credit-side financing proceeds, and platform settlements that stay revenue;
+  - the credit-side financing proceeds, platform settlements that stay revenue, and the payout credits of D1's exception;
   - Settings, serving and exports for every checkbox, with the stored record unchanged;
   - the package roll-up and the currency refusal;
   - the dashboard through `tests/webapp_js_harness.py`;
   - re-analysis with review replay.
 - **Pins that move, re-pinned with derived totals only:**
-  - ATB November (BDC leaves the lenders)
+  - ATB November (BDC leaves the lenders; Econolease joins them)
+  - TD CMCA (CMCA Finance joins the lenders and leaves the potential tier)
   - Altana (Affirm leaves; NMEF joins)
-  - first_farmers (BlueVine becomes a LOC)
+  - first_farmers (its BlueVine-named row is a payment to another business that banks with Bluevine, so it is neither a lender nor a LOC)
   - `SBA LOAN PAYMENT`, the Affirm card purchase, and De Lage Landen
   - Intuit (item 12a)
   - NMEF, Navitas and Balboa
   - `ANALYSIS_STAGE_VERSION`
 - **Before/after census** (`tools/lender_census.py`, local only), over the 7,241 cached analyses. For each analysis it reports lenders gained and lost, flagged groups and the change in the withholding rate. Acceptance:
   1. Every gained lender traces to an admitted ledger entity.
-  2. Every lost lender is a ruled move.
+  2. Every lost lender is a ruled move. CAPITAL INFUSION leaves for Alternative positions, a ruled move. The census reads the EBF merge as one lender (`MERGED_REGISTRY_ENTITIES`), so EBF HOLDINGS shows neither as lost nor as gained: its rows are EVEREST BUSINESS FUNDING's.
   3. The alias audit reports zero collisions.
   4. The owner's NMEF statement shows NMEF as a lender and Truist as a bank loan.
   5. No statement gains a lender from a generic word.

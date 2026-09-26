@@ -110,7 +110,15 @@ FINANCING_STATES: frozenset[str] = frozenset({
 - `POTENTIAL_LENDER_ALIASES`, `INSURANCE_PROVIDER_ALIASES`, `OPERATING_REVENUE_SOURCE_ALIASES` and `OPERATING_REVENUE_SOURCE_TYPES` keep their names.
 - `CONFIRMED_LENDER_ALIASES = LENDER_ALIASES` remains as a compatibility name. `analysis/lenders.py` reads only this name (`analysis/lenders.py:4, 13`), so neither S1 nor S2 edits it.
 - **Today's lists, until S2.** S1 changes no classification, so it keeps today's three lists as deprecated verbatim copies that the pre-S2 classifier reads: `LEASE_PROVIDER_ALIASES`, and today's confirmed and potential lists renamed `LEGACY_CONFIRMED_LENDER_ALIASES` and `LEGACY_POTENTIAL_LENDER_ALIASES`. The classifier is their only reader. S2's Task 5 removes those reads, and S2's Task 6 deletes all three tables with their "Deprecated" comment block. After S2, `LEASE_PROVIDER_ALIASES` no longer exists.
-- **Hand-kept validator inputs.** `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES` and `BARE_BRAND_NAMES` (S1, spec §2 and §5) live in this module, outside the GENERATED block, and change only on an owner ruling. S2 never edits or deletes them. They sit between `PAYEE_GROUP_REGISTRIES` and the Deprecated block, so S2's deletion of that block does not reach them.
+- **Hand-kept validator inputs.** Seven constants live in this module, outside the GENERATED block, and change only on an owner ruling:
+  - `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES` and `BARE_BRAND_NAMES` (S1, spec §2 and §5);
+  - on the owner's rulings of 2026-09-25 (spec §2 and §5):
+    - `PREMIUM_FINANCE_INSURER_ALIASES: tuple[str, ...]`, the premium-finance spellings that may equal an alias of the hand-kept `INSURANCE_PROVIDER_ALIASES` (`("FIRST INSURANCE",)`);
+    - `MERGED_REGISTRY_ENTITIES: dict[str, str]`, an entity of today's registry mapped to the ledger entity that absorbs it (`{"EBF HOLDINGS": "EVEREST BUSINESS FUNDING"}`);
+    - `REATTRIBUTED_REGISTRY_ALIASES: dict[str, str]`, an alias of today's registry that names another company, mapped to that company's ledger entity (`{"SMARTPAY SOL": "SmartPay Solutions, LLC"}`);
+    - `PAYOUT_CREDIT_ENTITIES: tuple[str, ...]`, the ledger entities whose credits are the account holder's own sales settled by the platform (`("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")`). S2 reads it as D1's exception (C4).
+
+  S2 never edits or deletes them. They sit between `PAYEE_GROUP_REGISTRIES` and the Deprecated block, so S2's deletion of that block does not reach them.
 - **`PAYEE_GROUP_REGISTRIES`** is a `dict[str, dict[str, tuple[str, ...]]]` keyed by classification state, in this order:
   - `"confirmed_lender"` → `LENDER_ALIASES`
   - `"alternative_position"` → `ALTERNATIVE_POSITION_ALIASES`
@@ -162,7 +170,7 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - `personal_loan`
   - `floor_plan_financing`
   - `factoring`
-- **Premium financing:** an insurance row whose insurer match is a `PREMIUM_FINANCE_ALIASES` payee keeps `classification="insurance"` and `contributes_to_insurance_totals`. It also gets `flagged_group="premium_financing"` and `contributes_to_flagged_totals` (posted debits only).
+- **Premium financing:** an insurance row whose insurer match is a `PREMIUM_FINANCE_ALIASES` payee, or (owner ruling 2026-09-25) whose descriptor has premium-finance wording and no such payee, keeps `classification="insurance"` and `contributes_to_insurance_totals`. It also gets `flagged_group="premium_financing"` and `contributes_to_flagged_totals` (posted debits only).
 - `lease_or_equipment_financing` is **no longer produced**. It remains in `CLASSIFICATION_STATES` so that stored records still validate, and the dashboard keeps its label.
 - **New `TransactionClassification` fields**, with defaults:
   - `flagged_group: str | None = None`, the `FlagGroup.key` for a flag-group state, otherwise None;
@@ -173,6 +181,9 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - `matched_rule="financing_proceeds_credit"`
   - `contributes_to_lender_credit_exclusion=True`
   - revenue `non_revenue` with `revenue_match_method="financing_proceeds_credit"`
+
+  The one exception is a payee whose entity is in C2's `PAYOUT_CREDIT_ENTITIES` (spec D1, owner ruling 2026-09-25). Its credit is not financing proceeds: it goes on to the operating-revenue path with today's treatment of platform settlements, with no `financing_proceeds_credit` and no `contributes_to_lender_credit_exclusion`. Its debits keep their group.
+- Three credits are financing proceeds by their own words, with no payee named (spec D1, owner rulings 2026-09-25): the statement bank's own line advance (exactly `LOAN CREDIT`), a line-of-credit draw, and a per-vehicle floor-plan advance. They get the same record, except that `matched_rule` (and `revenue_matched_rule`) names the rule (`bank_line_advance_credit`, `loc_draw_credit`, `floor_plan_advance_credit`) and `canonical_entity` is the statement bank, or None for the floor-plan advance.
 - `CLASSIFICATION_VERSION = "5.0"`.
 
 ### C5. Analysis payload (S2), per account
@@ -293,19 +304,23 @@ The research is consolidated into one entity per company **outside the code**, b
 - **Generic words.** A refused "bare generic word" is any alias made only of generic words (S1's `tools/lender_ledger.GENERIC_WORDS`, which holds the fixed list above). `FUNDING LLC` and `EQUIPMENT FINANCE` are refused too.
 - **Platform names** include `AMZN` besides the six above (`BARE_PLATFORM_NAMES`).
 - **Hand-kept tables.** An alias equal to an alias of the hand-kept `OPERATING_REVENUE_SOURCE_ALIASES` or `INSURANCE_PROVIDER_ALIASES` is refused. So is an entity named like a hand-kept entity, and an entity name used twice.
+  - The one exception (owner ruling 2026-09-25): a `premium_financing` alias may equal an `INSURANCE_PROVIDER_ALIASES` alias when `PREMIUM_FINANCE_INSURER_ALIASES` holds that spelling (`FIRST INSURANCE`, held by FIRST Insurance Funding). The same spelling in any other group, or equal to an operating-revenue alias, is still refused.
 - **Brands (spec §5).** An alias equal to a bare brand or issuer name in `BARE_BRAND_NAMES` (`TOYOTA`, `FORD`, `APPLE`, `CAPITAL ONE`…) is allowed only in `card_issuer_context` or `bank_name`.
 - **Context-only groups.** No `review` entity may be in `credit_card_payment`, `card_issuer_context`, `bank_name` or `premium_financing`: a `review` entity renders into `POTENTIAL_LENDER_ALIASES`, which the classifier reads with no context. An unconfirmed entity of these groups is `owner_ruling` or `rejected`.
 - **Card aliases.** Every `credit_card_payment` alias carries the wording of S2's card-payment rule: `CARD`, `CRD`, `CRCARD`, `CARDMEMBER`, `CREDIT CARD`, `AUTOPAY`, `AUTO PAY`, `EPAY`, `EPAYMENT`, `PAYMENT`, `PMT` or `PYMT`. A bare issuer name belongs in `card_issuer_context`.
 - **Run-together forms (spec §4.6).** The run-together form of a spaced alias may not be another entity's alias or run-together form.
-- **Every owner-named payee** in spec §2, in every group, resolves to its group (`OWNER_NAMED_PAYEES`): the lenders, including the equipment lenders; the alternative positions and lines of credit; the card issuers; the vehicle lenders; Truist as a `bank_name`; the lease-to-own names; the floor-plan, factoring and premium-finance payees. A bank or a premium financier must also match no known payee.
+- **Every owner-named payee** in spec §2, in every group, resolves to its group (`OWNER_NAMED_PAYEES`): the lenders, including the equipment lenders; the alternative positions and lines of credit; the card issuers; the vehicle lenders; Truist as a `bank_name`; the lease-to-own names; the floor-plan, factoring and premium-finance payees. A bank or a premium financier must also match no known payee. Since the owner's ruling of 2026-09-25, BlueVine's spelling is `BLUEVINE CAPITAL` and SmartPay's is `SMARTPAY LEASING`.
 - **Privacy.** No run of five or more digits outside a URL, unless today's registry already holds that exact alias. Every `evidence` source and `where_looked` entry is an http(s) URL without a query string or a fragment. The numbered Ontario company is an `owner_ruling` entity with no `evidence` and no `where_looked`, and its number appears nowhere.
 - **Today's registry** (read from git at `693fd009c5c96a838ef47b61ba5b65a610ea5ba1`):
   - every entity of today's three lists is held by a ledger entity;
   - the entity that holds today's first alias keeps today's `entity` name, because S2's pins and the census compare names;
   - a **move** (a change of place, or a lost alias of today's registry) needs a sentence of `notes` that starts `Move:`, for example `"notes": "Move: spec §2 makes BDC an alternative position."` Any other note does not count. An entry of today's lease list may become a lender, a lease or rental, or vehicle financing without one (spec §4.1). The example above has empty `notes` because Hunter Caroline is not in today's registry.
+- **Merged entities** (owner ruling 2026-09-25). Each `MERGED_REGISTRY_ENTITIES` key must be an entity of today's lists, and its value a ledger entity. The validator reads the merged entity as held by its target: it keeps no name of its own, and the aliases it loses need a `Move:` sentence in the target's `notes`, which is about the merge. A rendered ledger entity that still carries the merged name is refused.
+- **Reattributed aliases** (owner ruling 2026-09-25). Each `REATTRIBUTED_REGISTRY_ALIASES` key must be an alias of today's lists, and its value the ledger entity that holds it. The alias is left out of today's entity: it does not decide which ledger entity holds that entity, it is not its first alias for the name rule, and it is not counted as lost. A rendered registry whose known-payee matcher, or else potential table, reads the alias as any other entity is refused.
+- **Payout-credit entities** (owner ruling 2026-09-25). Every `PAYOUT_CREDIT_ENTITIES` name must be an `admitted` ledger entity of a group whose credits D1 makes financing proceeds (`FINANCING_STATES`). A `bank_name` entity is refused too.
 - **Schema.** `schema` is 1, and every entity has exactly the ten fields of the example above, with their types.
 
-`--check` and `--write` print one `move:` line per move, with its reason. The orchestrator reads each one (the C10 ledger gate above).
+`--check` and `--write` print one `move:` line per move, with its reason. A merged entity's line says `merged into <target>`, and an entity with a reattributed alias says `<alias> reattributed to <target>`. The orchestrator reads each one (the C10 ledger gate above).
 
 `docs/lender-registry-evidence.md` is rendered from the ledger for the owner to read.
 
@@ -322,7 +337,7 @@ The research is consolidated into one entity per company **outside the code**, b
 3. Run an independent Opus review of the service's branch. Check every finding against the code before acting on it.
    - **Before S2 is branched**, the orchestrator (or the independent S1 reviewer) also:
      - reads every `move:` line that S1's last `--write` printed, as reported in S1's hand-off;
-     - checks S1's allow decisions in S1's local `alias-review.json`, beside the `aliases` section of its `alias-audit.json`: every allow by key alone, and at least 30 others spread across entities, including every allow on bare `BLUEVINE` (S1 Task 10 Step 7). A wrong allow becomes a deny, which goes back through S1's Task 10 Step 4. The report names entities and counts, never a payee key.
+     - checks S1's allow decisions in S1's local `alias-review.json`, beside the `aliases` section of its `alias-audit.json`: every allow by key alone, and at least 30 others spread across entities, including every allow on a BlueVine alias (S1 Task 10 Step 7; the owner's ruling of 2026-09-25 dropped bare `BLUEVINE`). A wrong allow becomes a deny, which goes back through S1's Task 10 Step 4. The report names entities and counts, never a payee key.
 4. After S2 has merged:
    - the local census (`tools/lender_census.py`);
    - the alias audit (`tools/lender_alias_audit.py`);

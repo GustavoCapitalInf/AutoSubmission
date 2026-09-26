@@ -48,11 +48,11 @@
 - **One stage-19 change set.** Task 2 is the first commit that changes classifier output, so it carries both version bumps and the cache pin. Tasks 4-14 change output further under the same stage 19; the branch merges as one unit and no intermediate commit is ever served.
 - **Real-statement re-pins are measured, not guessed.** The derived totals below come from two measurements:
   - read-only probes on 2026-09-24/25 that ran today's code and registry plus this plan's rules (BDC out, BlueVine to lines of credit, NMEF in, D6 with this plan's payee words);
-  - a dry run of this whole plan on 2026-09-25, on a scratch copy of the pre-C10 S1 revision. Its builder had built the registry (eleven groups) from the research files. The dry run reproduced every value in the pin ledger, including the two variants that registry selects.
+  - a dry run of this whole plan on 2026-09-25, on a scratch copy of the pre-C10 S1 revision. Its builder had built the registry (eleven groups) from the research files. The dry run reproduced every value in the pin ledger, including the two variants that registry selected (the 2026-09-25 decisions leave one: see "Prerequisites from S1", fact 8).
 
   A probe after the owner's amendment found no premium-finance, floor-plan or factoring wording in any pinned statement.
 
-  C10 replaced that builder's inputs with the curated ledger, so S1's merged tables can differ from the dry run's. The derived totals depend only on which rows of the pinned statements the tables claim, and Task 0 measures exactly that on S1's merged tree:
+  C10 replaced that builder's inputs with the curated ledger, so S1's merged tables can differ from the dry run's. The owner delegated every open ledger question on 2026-09-25, and the orchestrator's decisions are owner rulings (the S2 amendments of that date). Read-only probes of 2026-09-25/26 measured the pinned statements again on the revised ledger's rendering (S1 at `b69d12e`), counts and derived totals only. Every value below that moved with those decisions is that measurement. The derived totals depend only on which rows of the pinned statements the tables claim, and Task 0 measures exactly that on S1's merged tree:
   - no FAIL line: the pin ledger holds;
   - a FAIL line: the orchestrator settles the ledger entry, or gives S2 new derived values ("Prerequisites from S1").
 
@@ -85,21 +85,21 @@
 | `tests/test_cadence.py` | Create | `describe_cadence` table. |
 | `tests/test_flag_group_states.py` | Create | States, versions, record flags, statement-pass clearing. |
 | `tests/test_classifier_lookups.py` | Create | One normalization per row; the compiled ACH token; the 300-row synthetic statement. |
-| `tests/test_financing_proceeds_credits.py` | Create | D1 in both classification and revenue; floor-plan and factoring credits; platform settlements stay revenue. |
-| `tests/test_known_payee_classification.py` | Create | Step 7, D8, D9, owner-ruled payees (floor plan and factoring included), card payments, the `analysis/lenders.py` helpers, the retired inputs. |
-| `tests/test_premium_financing.py` | Create | Premium financing stays insurance and carries its flag (§4.2). |
-| `tests/test_obligation_descriptors.py` | Create | Step 8 (LOC, mortgage, vehicle, D5, lease, cards, D4). |
-| `tests/test_unknown_payee_naming.py` | Create | D11 naming and D10 servicers. |
+| `tests/test_financing_proceeds_credits.py` | Create | D1 in both classification and revenue; floor-plan and factoring credits; credits that say they are proceeds; payout credits and platform settlements stay revenue. |
+| `tests/test_known_payee_classification.py` | Create | Step 7, D8, D9, owner-ruled payees (floor plan and factoring included), the overdraft-charge fee, the membership and top-up exception, payout credits, card payments, the `analysis/lenders.py` helpers, the retired inputs. |
+| `tests/test_premium_financing.py` | Create | Premium financing stays insurance and carries its flag (§4.2), by payee or by wording. |
+| `tests/test_obligation_descriptors.py` | Create | Step 8 (the own-account guard, floor-plan payoffs, LOC, mortgage, vehicle, student loans, D5, lease, cards, D4). |
+| `tests/test_unknown_payee_naming.py` | Create | D11 naming, D10 servicers and the unnamed loan payment (D5). |
 | `tests/test_recurring_fixed_debits.py` | Create | D6 recurrence tier and the recurring-debit view. |
 | `tests/test_flagged_positions_payload.py` | Create | `metrics.flagged_groups`, `detection.flagged_positions`, CLI output. |
 | `tests/test_lender_census.py` | Create | The census over a fabricated cache, fabricated snapshots and a fabricated C10 ledger. |
 | `tests/test_artifact_cache.py` | Modify | Stage pin 18 -> 19. |
-| `tests/test_lender_insurance_classification.py` | Modify | Order table and named-alias pins. |
+| `tests/test_lender_insurance_classification.py` | Modify | Order table, named-alias, unidentified-loan, Lily Advance and own-loan, Audit Bank, potential-serialization, duplicate-potential and TD CMCA pins. |
 | `tests/test_transaction_classifier.py` | Modify | ATB November lender and potential pins. |
 | `tests/test_revenue_classification.py` | Modify | ATB November lender and potential pins; NETCREDIT row (check only). |
 | `tests/test_analysis.py` | Modify | SBA, Affirm card purchase and De Lage Landen pins. |
-| `tests/test_r1_hardcodes.py` | Modify | Intuit Item 12a pin. |
-| `tests/test_new_statement_corpus.py` | Modify | first_farmers and navigant lender tuples, relay channels (variant only); BlueVine test. |
+| `tests/test_r1_hardcodes.py` | Modify | Item 12a pins: AFC Funding and Intuit. |
+| `tests/test_new_statement_corpus.py` | Modify | first_farmers and navigant lender tuples, relay channels; the first_farmers BlueVine test. |
 | `tests/test_benchmark_harness.py` | Modify | Flagged-here benchmark tests. |
 
 `analysis/lenders.py` needs no edit: it reads `CONFIRMED_LENDER_ALIASES`, which C2 keeps as the name of `LENDER_ALIASES`, and its helpers call `classify_transaction`. Task 5 guards its behavior.
@@ -110,7 +110,7 @@ Line numbers are those verified on `lender-detection` at `4f219cd`. S1 may have 
 
 | # | Location | Today | After S2 | Task | Cause |
 |---|---|---|---|---|---|
-| 1 | `tests/test_lender_insurance_classification.py:52-60` (order table) | NMEF, Navitas, Balboa, Progressive Leasing, Econolease, Clover, SmartPay as `lease_or_equipment_financing`; ATB Mastercard and Capital One rows with entity `None` | rows leave the order table; `tests/test_known_payee_classification.py` pins them (NMEF/Navitas/Balboa `confirmed_lender`; Progressive Leasing/SmartPay `lease_or_rental`; Econolease/Clover their registry group; card rows `credit_cards`) | 5 | §2, §4.1, §4.3 |
+| 1 | `tests/test_lender_insurance_classification.py:52-60` (order table) | NMEF, Navitas, Balboa, Progressive Leasing, Econolease, Clover, SmartPay as `lease_or_equipment_financing`; ATB Mastercard and Capital One rows with entity `None` | rows leave the order table. `tests/test_known_payee_classification.py` pins NMEF/Navitas/Balboa and Econolease `confirmed_lender`, Progressive Leasing `lease_or_rental`, the card rows `credit_cards`, and `SmartPay Sol debitpmt` unflagged (`other`, no entity; SmartPay itself is pinned by a fabricated `SMARTPAY LEASING payment`). `tests/test_obligation_descriptors.py` (Task 8) pins `Clover equipment rent/leases` as `lease_or_rental` by its lease wording, with no entity | 5 (Clover: 8) | §2, §4.1, §4.3; owner decisions 2026-09-25 (Econolease a lender, Clover Equipment in review, SMARTPAY SOL is SmartPay Solutions) |
 | 2 | same file `:108` | SNAP Finance `potential_lender` | `lease_or_rental`, `SNAP Finance` | 5 | §2 (lease-to-own) |
 | 3 | same file `:111` | BDC `confirmed_lender` | `alternative_position`, `BDC` | 5 | §2 |
 | 4 | `tests/test_r1_hardcodes.py:536-539` | Intuit `confirmed_lender` | `alternative_position`, flagged group `alternative_positions` | 5 | §7 (Item 12a amended) |
@@ -118,19 +118,26 @@ Line numbers are those verified on `lender-detection` at `4f219cd`. S1 may have 
 | 6 | `tests/test_analysis.py:3348-3364` | `SBA LOAN PAYMENT` implicitly `potential_lender` | row is `alternative_position`; potential count 0; `flagged_groups == {"alternative_positions": {"count": 1, "total": 750.0, "payees": 1}}` (the test's own fabricated row) | 5, 11 | §9 |
 | 7 | `tests/test_analysis.py:3572-3579` | Affirm card purchases `pos`, `pos_count == 2` | both `alternative_position`; `pos_count == 0`; `find_known_funders == []` | 5 | D8 |
 | 8 | `tests/test_analysis.py:3582-3588` | funders `["FUNDWORKS"]` | `["FUNDWORKS", "De Lage Landen"]` | 5 | §2 equipment financing; §9 lists De Lage Landen |
-| 9 | `tests/test_transaction_classifier.py:314-316, 329, 347-348, 367-369` | ATB Nov lenders 3 / 43 rows / 8658.91; funders {BDC, CanaCap, Forward Funding} | 2 / 42 / 7497.0; {CanaCap, Forward Funding}; one `alternative_position` row | 5 | §2 (BDC) |
-| 10 | `tests/test_transaction_classifier.py:318-326, 336-346, 349, 355-360, 371-374, 379-385` | ATB Nov potential 1 row / 571.88 / 0.96 | 22 rows / 3178.19 / 5.36; evidence by match method `{"unidentified_loan_obligation": 1, "recurring_fixed_debit": 21}` | 10 | D6 |
-| 11 | `tests/test_revenue_classification.py:402-404` | ATB Nov 3 / 43 / 8658.91 | 2 / 42 / 7497.0 | 5 | §2 (BDC) |
-| 12 | `tests/test_revenue_classification.py:405` | potential 571.88 | 3178.19 | 10 | D6 |
+| 9 | `tests/test_transaction_classifier.py:314-316, 329, 347-348, 367-369` | ATB Nov lenders 3 / 43 rows / 8658.91; funders {BDC, CanaCap, Forward Funding} | 3 / 45 / 9757.26; {CanaCap, Econolease, Forward Funding}; one `alternative_position` row | 5 | §2 (BDC); owner decision 2026-09-25 (Econolease is equipment finance: its three rows join the lenders) |
+| 10 | `tests/test_transaction_classifier.py:317-326, 333-346, 349, 351-360, 370-374, 376-385` | ATB Nov potential 1 lender / 1 row / 571.88 / 0.96, `Unidentified lender obligation` | 2 potential lenders / 22 rows / 3178.19 / 5.36, every row `candidate_lender_alias`: `MERCH PAD (probably Merchant Growth)` 21 rows / 2606.31 and `LOANS FC` 1 row / 571.88 | 5 | C10 ledger: MERCH PAD (owner decision 2026-09-25) and LOANS FC are review entities of `POTENTIAL_LENDER_ALIASES`, read at step 11 once Task 5 reads the rendered table. D6 then finds nothing left to promote on this statement |
+| 11 | `tests/test_revenue_classification.py:402-404` | ATB Nov 3 / 43 / 8658.91 | 3 / 45 / 9757.26 | 5 | as row 9 |
+| 12 | `tests/test_revenue_classification.py:405` | potential 571.88 | 3178.19 | 5 | as row 10 |
 | 13 | `tests/test_revenue_classification.py:168` | NETCREDIT revenue entity `NETCREDIT` | stays `NETCREDIT` (financing proceeds); restore it if S1 changed it | 4 | D1 |
-| 14 | `tests/test_new_statement_corpus.py:122` | first_farmers `(1, 100.00, 0, 0.00)` | `(0, 0.00, 0, 0.00)`; new test: the BlueVine row is `line_of_credit` | 5, 11 | §2 (BlueVine = LOC) |
-| 15 | `tests/test_new_statement_corpus.py:153` | navigant `(0, 0.00, 1, 1191.00)` | `(0, 0.00, 4, 1299.00)` (Task 10). **Bank-name variant** (Task 0 prints `navigant: open loan debits naming a listed bank` of 1 or more): `(0, 0.00, 0, 0.00)` in Task 8, then `(0, 0.00, 3, 108.00)` in Task 10 | 10 (variant: 8, 10) | D6 (and D5) |
+| 14 | `tests/test_new_statement_corpus.py:122` | first_farmers `(1, 100.00, 0, 0.00)` | `(0, 0.00, 0, 0.00)`; new test: first_farmers has no `line_of_credit` row and `lenders_detected == 0` (its BlueVine-named row is unflagged `other`) | 5, 11 | owner decision 2026-09-25: the bare `BLUEVINE` alias is dropped; the row pays another business that banks with Bluevine |
+| 15 | `tests/test_new_statement_corpus.py:153` | navigant `(0, 0.00, 1, 1191.00)` | `(0, 0.00, 4, 1299.00)` (Task 10). **Bank-name variant** (Task 0 prints `navigant: open loan debits naming a listed bank` of 1 or more): `(0, 0.00, 0, 0.00)` in Task 8, then `(0, 0.00, 3, 108.00)` in Task 10. The revised ledger selects the variant (Task 0 reads 2: Beacon Bank loan payments). navigant's three Comenity card debits (Task 0's card line reads 3) are `other` today and become `credit_card_payment`, and so do its Wayfair and Amazon Store Card debits (card-group known payees, which Task 0 leaves out of its non-card count). None of them is one of D6's three rows, so the tuple does not move | 10 (variant: 8, 10) | D6 (and D5) |
 | 16 | `tests/test_artifact_cache.py:487-493` | stage 18 | stage 19 | 2 | §6 versions |
-| 17 | `tests/test_new_statement_corpus.py:181` | relay channels `(2, 8, 66, 9, 0, 0)` | unchanged. **Personal-loan variant** (Task 0 prints `variant relay: ...`): `(2, 8, 64, 9, 0, 0)`, because two card-paid personal-loan rows leave POS | variant: 5 | D8 |
-| — | ATB Dec (`tests/test_revenue_classification.py:599-676`), ATB Aug (`tests/test_transaction_classifier.py:289-304`), RBC Jan (`tests/test_transaction_classifier.py:245-272`) | — | no edit: none of these tests reads lender or potential figures. They move unasserted (dry run, counts only): BDC leaves the ATB Aug and ATB Dec lenders (one row each); D6 adds `recurring_fixed_debit` review rows, all named `Unidentified lender obligation`: 22 on ATB Aug, 19 on ATB Dec, 6 on RBC Jan. The owner sees these counts in the Task 17 report. | — | — |
+| 17 | `tests/test_new_statement_corpus.py:181` | relay channels `(2, 8, 66, 9, 0, 0)` | `(2, 8, 59, 9, 0, 0)`: seven card-paid personal-loan rows (Klover 5, Tilt 2) leave POS | 5 | D8; the C10 ledger admits relay's personal-loan payees (Task 0 reads 8 claimed rows, 7 of them POS) |
+| 18 | `tests/test_r1_hardcodes.py:530-534` | AFC FUNDING CORP `confirmed_lender`, in withholding | `floor_plan_financing`, flagged group `floor_plan`, not in withholding | 5 | owner decision 2026-09-25: AFC Funding Corporation funds dealer floor plans (Item 12a amended) |
+| 19 | `tests/test_lender_insurance_classification.py:105-107` | CMCA Finance (two rows) and Lily Advance `potential_lender` | `confirmed_lender`, entities `CMCA Finance` and `Lily Advance` | 5 | owner decision 2026-09-25: both are MCA funders |
+| 20 | same file `:130-145` | `Direct Debit Loans FC` is the unidentified direct-debit loan | the rule is pinned on the fabricated `Direct Debit Loans`; `Direct Debit Loans FC` is the review entity `LOANS FC` (`candidate_lender_alias`) | 5 | C10 ledger: LOANS FC is a review entity (it predates the 2026-09-25 decisions) |
+| 21 | same file `:196` and `:199-204` | the three Lily Advance rows `potential_lender`; `PAYMENT - AUTOMATIC LOAN PYMT W/D` `potential_lender`, `Unidentified lender obligation` | Lily Advance `confirmed_lender` (Task 5); the automatic loan payment `bank_loan`, no entity, `own_bank_loan_payment` (Task 8) | 5, 8 | owner decision 2026-09-25 (Lily Advance); the decisions' D5 own-loan wording (`d5_own_loan_wording_en`) |
+| 22 | same file `:275-364` (Audit Bank fixture) | 2 lenders / 3 rows / 2235.0 / 13.23; CMCA Finance potential 1 row / 125.0 | 4 lenders (CanaCap, CAN Capital, CMCA Finance, Econolease) / 5 rows / 2660.0 / 15.74; no potential lender; the package decision stays `review_required` (its customer deposit needs revenue review, measured 2026-09-26) | 5 | owner decisions 2026-09-25 (CMCA Finance and Econolease are lenders) |
+| 23 | same file `:367-380` | serializes the fixture's CMCA Finance candidate | the fixture plus one fabricated `Direct Debit Loans` row supplies the candidate; the package's stale-candidate rebuild (from row 25) moves here | 5 | as row 22 |
+| 24 | same file `:405-422` | duplicate CMCA Finance rows stay out of the potential totals | the same rows with the fabricated `Direct Debit Loans` descriptor, same counts | 5 | as row 19 |
+| 25 | same file `:474-563` (TD CMCA) | potential 1 / 20 rows / 2235.0 / exposure 13.23; withholding 0 | lender 1 (`CMCA Finance`) / 20 rows / 2235.0 / withholding 13.23; no potential lender; the package decision stays `review_required` (revenue review, measured 2026-09-26) | 5 | as row 19 |
+| — | ATB Dec (`tests/test_revenue_classification.py:599-676`), ATB Aug (`tests/test_transaction_classifier.py:289-304`), RBC Jan (`tests/test_transaction_classifier.py:245-272`) | — | no edit: none of these tests reads lender or potential figures. They move unasserted (probe of 2026-09-26 on the revised ledger, counts only): BDC leaves the ATB Aug and ATB Dec lenders (one row each) and Econolease joins them (three rows each); the review tier takes MERCH PAD's registry rows (22 on ATB Aug, 19 on ATB Dec) and ATB Aug's `LOANS FC` row; D6 adds `recurring_fixed_debit` review rows, all named `Unidentified lender obligation`, only on RBC Jan (6). The owner sees these counts in the Task 17 report. | — | — |
 | — | Altana (`tests/test_analysis.py:1342`) | `lender_debits > 0` | no edit: Affirm leaves, NMEF (2/1/4 rows) joins, so it stays true | — | — |
-| — | TD CMCA (`tests/test_lender_insurance_classification.py:474-563`) | 20 rows / 2235.0 | no edit: its `TFR TO` rows carry no payee words, so D6 never forms a group | — | — |
-| — | Amendment groups (floor plan, factoring, premium financing) on every statement above | — | no edit: the 2026-09-24 probe found none of their wording in these statements, and no existing test names one of their payees; Task 0 re-checks against S1's tables | — | — |
+| — | Amendment groups (floor plan, factoring, premium financing) and the rules of the 2026-09-25 decisions on every statement above | — | no edit: the probes found none of their wording in these statements, apart from navigant's two loan-payment rows that the bank-name rule claims first, and no existing test names one of their payees; Task 0 re-checks against S1's tables | — | — |
 
 ---
 
@@ -139,7 +146,7 @@ Line numbers are those verified on `lender-detection` at `4f219cd`. S1 may have 
 S2's code and pins rely on the S1 facts below. Task 0 checks each one on S1's merged tree, and any FAIL line stops S2.
 
 - **Two kinds of fact.**
-  - **Code facts:** fact 7 and the code half of fact 1 are about S1's code.
+  - **Code facts:** facts 7 and 10 and the code half of fact 1 are about S1's code.
   - **Content facts:** all the others are about the content of the C10 ledger (`docs/lender-registry-ledger.json`), because S1 renders every alias table from it. They cover which entities are `admitted`, in which `group`, under which `entity` spelling, and with which aliases.
 - **Who settles a failure.**
   - The orchestrator settles a failed code fact in S1.
@@ -148,28 +155,31 @@ S2's code and pins rely on the S1 facts below. Task 0 checks each one on S1's me
   - S2 never works around a fact, and never edits the ledger or a rendered table.
 - **Why Task 0 checks more than C10's validator.** S1's validator (`tools/build_lender_registry.py --check`, normative for the ledger per the master plan's C10) already refuses a ledger in which any owner-named payee of spec §2 does not resolve to its group, in every group (`OWNER_NAMED_PAYEES`): the equipment lenders, the owner-named payees of the amendment groups, the lease-to-own names and Truist included. It also keeps today's `entity` name on the entity that holds today's first alias. Task 0 re-checks some of those facts on the merged tree. The validator does not check the following:
   - the `entity` spelling of every payee a test pins by name, beyond the first-alias rule, and that each rendered table is keyed by the ledger's `entity` (fact 9);
-  - NETCREDIT in a `FINANCING_STATES` group, Econolease and Clover Equipment outside the lenders, and CMCA Finance and Lily Advance in the potential tier (fact 6);
+  - NETCREDIT in a `FINANCING_STATES` group, Econolease, CMCA Finance and Lily Advance admitted as lenders, and Clover Equipment in the review tier (fact 6);
+  - that the bare `BLUEVINE` and `SMARTPAY SOL` claim nothing, and that `EBF HOLDINGS` is no entity of its own (facts 3, 4 and 9);
   - that no alias claims `ACH CAPITAL ONE ... PMT` card payments (fact 5);
-  - the reach of the rendered tables into the pinned statements, at the counts the pin ledger holds (fact 8), and the two variants it selects;
+  - the reach of the rendered tables, and of the rules the 2026-09-25 decisions added, into the pinned statements, at the counts the pin ledger holds (fact 8), and the navigant variant it selects;
   - the code anchors Tasks 3-5 replace (fact 7).
 
-  S1's content test (`tests/test_lender_registry_content.py`) restates facts 1-6 and 9 on S1's committed registry. Facts 7 and 8 are checked only by Task 0, and Task 0 checks every fact again on the merged tree.
+  S1's content test (`tests/test_lender_registry_content.py`) restates facts 1-6 and 9 on S1's committed registry. Facts 7, 8 and 10 are checked only by Task 0 (S1's validator also refuses a `PAYOUT_CREDIT_ENTITIES` name that is not an admitted entity of a `FINANCING_STATES` group), and Task 0 checks every fact again on the merged tree.
 - **History.**
   - S1's first plan draft (2026-09-24) contradicted facts 1-5.
   - The pre-C10 S1 revision of 2026-09-25, whose builder read the research files, carried all of them. This plan's dry run ran Task 0 on that tree: 0 failures, before the C10 checks were added.
-  - No C10 ledger has been through Task 0 yet.
+  - On 2026-09-25 the owner delegated every open ledger question to the orchestrator, whose decisions are owner rulings. They re-pinned facts 3, 4, 6, 8 and 9 and added fact 10. The orchestrator's `prereq_check.py` checks them on the revised ledger (206 checks, 0 failures). Task 0's reach section was replayed on its rendering (S1 at `b69d12e`), and `EXPECTED` holds those measurements.
+  - No C10 ledger has been through Task 0 itself yet.
 
 | # | S1 fact | Why S2 needs it | Task 0 check | If it fails |
 |---|---|---|---|---|
 | 1 | Code: C1 and C2 as the master plan states them after the owner's amendment: eleven flag groups; `FLOOR_PLAN_ALIASES`, `FACTORING_ALIASES` and `PREMIUM_FINANCE_ALIASES`; `PAYEE_GROUP_REGISTRIES` with ten keys in C2 order, without the premium-finance table; `FINANCING_STATES` including floor plan and factoring. Ledger: the owner-named NextGear Capital (`floor_plan_financing`), RTS Financial (`factoring`), IPFS and First Insurance Funding (`premium_financing`) are `admitted`, with aliases that match `NEXTGEAR CAPITAL`, `RTS FINANCIAL`, `IPFS` and `FIRST INSURANCE FUNDING` | Spec §2 amendment, §4.1, §4.2; every group loop in Tasks 2-14; the owner-named tests of Tasks 4, 5 and 7 | the table-existence, key-order and `FINANCING_STATES` lines; the NextGear, RTS, IPFS and First Insurance Funding lines | S1 amends its code to the master contract. The orchestrator admits the four payees the owner named in spec §2. S2 needs no change. |
 | 2 | Ledger: De Lage Landen is an `admitted` `confirmed_lender`, with an alias that matches `DELAGELANDEN` (a spaced `DE LAGE LANDEN` does, by C3's run-together rule) | Spec §2 (equipment financing is a lender), §4.1 (equipment financing becomes `confirmed_lender`), §9 (De Lage Landen is a pin that moves) | `'DIRECT DEB DELAGELANDEN LEASE' -> De Lage Landen / confirmed_lender` | The orchestrator admits De Lage Landen in `confirmed_lender`. If the owner rules instead that it stays a lease, the orchestrator gives S2 these ruled values: the Task 0 line expects `lease_or_rental`, and pin-ledger row 8 stays `["FUNDWORKS"]`. |
-| 3 | Ledger: the `admitted` `line_of_credit` entity `BLUEVINE` keeps the bare alias `BLUEVINE` | Spec §2 (BlueVine is a line of credit) and §9 (first_farmers: BlueVine becomes a LOC). first_farmers' one lender row matches only the bare alias. §5 asks only that BlueVine keep the transfer precedence, and S2's rule order keeps it: transfers are step 6, the matcher step 7 (`test_fee_and_transfer_precedence_survives_the_real_matcher`) | `'BLUEVINE loan payment' -> BLUEVINE / line_of_credit`; `first_farmers: non-card debit rows claimed = 1` | The orchestrator keeps the alias in the ledger. A matcher-level S1 test that a BlueVine transfer matches nothing is stricter than §5 requires. |
-| 4 | Ledger: the `admitted` `lease_or_rental` entity `SmartPay` has an alias that does not match Atlas card rows (for example `SMARTPAY SOL`) | Spec §2 names SmartPay under Leases & rentals; §5's SmartPay/Atlas collision needs only the bare alias left out | `'SmartPay Sol debitpmt' -> SmartPay / lease_or_rental` | The orchestrator keeps a non-colliding SmartPay alias in the ledger. |
+| 3 | Ledger: the `admitted` `line_of_credit` entity `BLUEVINE` holds `BLUEVINE CAPITAL` (the owner-named spelling) and `BLUEVINE LOAN`, and no bare `BLUEVINE` | Spec §2 (BlueVine is a line of credit). Owner decision 2026-09-25: the bare alias took Bluevine Bill Pay payments and receipts between other businesses and transfers to or from Bluevine checking accounts, not the line of credit (S1's alias audit denied all five such payee keys). first_farmers' one BlueVine-named debit is such a payment, so it leaves the lenders and is unflagged (§9's first_farmers move). §5's transfer sentence is settled by dropping the alias; S2's rule order still keeps transfers at step 6, ahead of the matcher (`test_fee_and_transfer_precedence_survives_the_real_matcher`) | `'BLUEVINE loan payment' -> BLUEVINE / line_of_credit`; `'BLUEVINE CAPITAL' -> BLUEVINE / line_of_credit`; `first_farmers: non-card debit rows claimed = 0` | The orchestrator restores the ledger to the owner decision, and S1 re-renders. S2 never re-admits the bare alias. |
+| 4 | Ledger: the `admitted` `lease_or_rental` entity `SmartPay` (SmartPay Leasing, the lease-to-own company) holds `SMARTPAY LEASING`. `SMARTPAY SOL` belongs to the rejected SmartPay Solutions, LLC (S1's `REATTRIBUTED_REGISTRY_ALIASES`), so no rendered alias claims it | Spec §2 names SmartPay under Leases & rentals. Owner decision 2026-09-25: the `SMARTPAY SOL DEBITPMT` rows are SmartPay Solutions' insurance premium billing, so they stay unflagged. §5's SmartPay/Atlas collision needs only the bare alias left out | `'SMARTPAY LEASING payment' -> SmartPay / lease_or_rental`; `'SmartPay Sol debitpmt' matches no known payee and no potential alias` | The orchestrator restores the ledger to the owner decision, and S1 re-renders. |
 | 5 | Ledger: no entity carries today's lender alias `ACH CAPITAL`, or any other alias that `ACH CAPITAL ONE ... PMT` card payments contain | Step 7 now runs before the card rules. `ACH CAPITAL` (11 characters) is the longest alias in `ACH CAPITAL ONE ... PMT`, so it would count Capital One card payments as lender debits | `'ACH Capital One TYPE: ONLINE PMT' is not claimed by a lender or financing alias` | The orchestrator drops the alias from the ledger (the entity `rejected`, or a narrower alias) and records why in the entity's `notes`. |
-| 6 | Ledger: `NETCREDIT` is an `admitted` entity of a `FINANCING_STATES` group; Econolease and Clover Equipment are `admitted` in a group other than `confirmed_lender`; Truist is an `admitted` `bank_name`; CMCA Finance and Lily Advance render into `POTENTIAL_LENDER_ALIASES` (group `potential_lender`, or status `review`); no bare platform name is an alias outside the operating registry (C10's validator refuses one) | Pin-ledger rows 1 and 13; spec §5 and §9 (acceptance 4); the TD CMCA pin | one line each | The orchestrator restores the entry in the ledger. |
+| 6 | Ledger: `NETCREDIT` is an `admitted` entity of a `FINANCING_STATES` group; Econolease (equipment finance), CMCA Finance and Lily Advance (merchant cash advance funders) are `admitted` `confirmed_lender` entities and no potential-lender entity; Clover Equipment renders into `POTENTIAL_LENDER_ALIASES` (status `review`) and is no known payee; Truist is an `admitted` `bank_name`; no bare platform name is an alias outside the operating registry (C10's validator refuses one) | Pin-ledger rows 1, 9, 11, 13 and 19-25 (owner decisions 2026-09-25); spec §5 and §9 (acceptance 4). Every Clover Equipment alias carries lease or rental wording, which step 8 reads before the potential tier, so its rows are `lease_or_rental` with no entity (Task 8) | one line each | The orchestrator restores the entry in the ledger. |
 | 7 | Code: the classifier as S1 leaves it: the legacy lists under their `LEGACY_*` names, `from .payee_matcher import registry_match` after the revenue import, and a delegating `_registry_match` | Tasks 3-5 replace these exact lines | the `classifier anchor ... appears once` lines | S1 restores those edits, or the orchestrator gives S2 the new anchors. |
-| 8 | Ledger: the rendered tables reach no other row of the pinned statements: known-payee claims, lender rows and totals, POS rows, new financing credits, potential-registry hits, card-issuer context and bank names, at the counts in Task 0 | Every real-statement pin in the pin ledger | the per-statement lines | The orchestrator decides whether the new reach is intended. If it is, it gives S2 derived re-pin values; if not, it changes the ledger. Two variants are pre-measured: navigant's bank-name rows (pin-ledger row 15) and relay's card-paid personal-loan payees (pin-ledger row 17). |
-| 9 | Ledger: each payee a test pins by name keeps today's canonical spelling as its `entity`, and each rendered table is keyed by the ledger's `entity` (S2's reading of C10's rendering; Task 0 checks it on the lender table): `NMEF`, `Navitas Credit Corp`, `Balboa Capital`, `De Lage Landen`, `FORA FINANCIAL`, `ONDECK`, `CanaCap`, `CAN Capital`, `Forward Funding`, `Forward Financing`, `RAPID FINANCE`, `KAPITUS`, `FUNDWORKS`, `AFC FUNDING CORP`, `BDC`, `AFFIRM`, `INTUIT FINANCING`, `SQUARE CAPITAL`, `SHOPIFY CAPITAL`, `PAYPAL WORKING CAPITAL`, `BLUEVINE`, `FUNDBOX`, `KABBAGE`, `SNAP Finance`, `Progressive Leasing`, `SmartPay`, `NETCREDIT`, `Econolease`, `Clover Equipment`, and the potential entities `CMCA Finance` and `Lily Advance` | The existing pins and S2's new tests compare `canonical_entity` exactly (for example ATB November's funder set, the De Lage Landen funder list, first_farmers' `["BLUEVINE"]`, Item 12a's `INTUIT FINANCING`), and the census traces every gained lender to a ledger `entity` (Task 15) | the entity names in the owner-ruled, NETCREDIT, lease and potential-alias lines; `every LENDER_ALIASES entity is an admitted confirmed_lender entity of the ledger` | The orchestrator restores today's spelling in the ledger. Or it rules the new spelling and gives S2 the re-pin values of every test that names the entity. |
+| 8 | Ledger: the rendered tables reach no other row of the pinned statements: known-payee claims, lender rows and totals, POS rows, new financing credits, potential-registry hits, card-issuer context and bank names, at the counts in Task 0 (measured on the revised ledger, 2026-09-25/26). Nor do the rules of the 2026-09-25 decisions (Tasks 4, 5 and 7-9), apart from navigant's two loan-payment rows, which the bank-name rule claims first | Every real-statement pin in the pin ledger | the per-statement lines | The orchestrator decides whether the new reach is intended. If it is, it gives S2 derived re-pin values; if not, it changes the ledger. One variant is pre-measured: navigant's bank-name rows (pin-ledger row 15), which the revised ledger selects (Task 0 reads 2). relay's card-paid personal-loan payees are no longer a variant: the revised ledger claims 8 of relay's debits, 7 of them POS (pin-ledger row 17). |
+| 9 | Ledger: each payee a test pins by name keeps today's canonical spelling as its `entity`, or the spelling the owner decisions of 2026-09-25 gave it, and each rendered table is keyed by the ledger's `entity` (S2's reading of C10's rendering; Task 0 checks it on the lender table): `NMEF`, `Navitas Credit Corp`, `Balboa Capital`, `De Lage Landen`, `FORA FINANCIAL`, `ONDECK`, `CanaCap`, `CAN Capital`, `Forward Funding`, `Forward Financing`, `RAPID FINANCE`, `KAPITUS`, `FUNDWORKS`, `Econolease`, `CMCA Finance`, `Lily Advance`, `PAYABILITY`, `EVEREST BUSINESS FUNDING` (which holds the merged `EBF HOLDINGS`), `BDC`, `AFFIRM`, `INTUIT FINANCING`, `SQUARE CAPITAL`, `SHOPIFY CAPITAL`, `PAYPAL WORKING CAPITAL`, `CAPITAL INFUSION`, `Sezzle Inc`, `BLUEVINE`, `FUNDBOX`, `KABBAGE`, `AFC FUNDING CORP` (floor plan), `SNAP Finance`, `Progressive Leasing`, `SmartPay`, `NETCREDIT`, `FIRST Insurance Funding` (premium finance), and the review entities `Clover Equipment`, `LOANS FC` and `MERCH PAD (probably Merchant Growth)` | The existing pins and S2's new tests compare `canonical_entity` exactly (for example ATB November's funder and candidate sets, the De Lage Landen funder list, Item 12a's `INTUIT FINANCING` and `AFC FUNDING CORP`), and the census traces every gained lender to a ledger `entity` (Task 15) | the entity names in the owner-ruled, `PAYOUT_CREDIT_ENTITIES`, NETCREDIT, Clover, EBF, `LOANS FC`/`MERCH PAD` and `FIRST INSURANCE DES INSURANCE` lines; `every LENDER_ALIASES entity is an admitted confirmed_lender entity of the ledger` | The orchestrator restores the ruled spelling in the ledger. Or it rules a new spelling and gives S2 the re-pin values of every test that names the entity. |
+| 10 | Code: `analysis.classification_registry.PAYOUT_CREDIT_ENTITIES` (owner decision 2026-09-25) names `Sezzle Inc`, `American First Finance, LLC` and `PAYABILITY`, each an entity of a `FINANCING_STATES` group registry | The D1 payout-credit exception (Task 4) reads it: those entities' credits are the account holder's own sales settled by the platform, so they are revenue, and their debits keep their group | `classification_registry.PAYOUT_CREDIT_ENTITIES exists`; `every PAYOUT_CREDIT_ENTITIES name is an entity of a FINANCING_STATES group registry` | S1 restores the name (its validator refuses a name that is not an admitted entity of such a group); the orchestrator restores the ledger entry. |
 
 ---
 
@@ -180,7 +190,7 @@ S2's code and pins rely on the S1 facts below. Task 0 checks each one on S1's me
 
 **Interfaces:**
 - Consumes: C1 (`analysis.flag_groups`), C2 (`analysis.classification_registry`), C3 (`analysis.payee_matcher`), exactly as the master plan states them, and the C10 ledger `docs/lender-registry-ledger.json` (read only: its schema, and each entry's `entity`, `group` and `status`).
-- Produces: nothing in the repo. A pass/fail printout you keep for the final report, and the two variant choices (pin-ledger rows 15 and 17).
+- Produces: nothing in the repo. A pass/fail printout you keep for the final report, and the navigant variant choice (pin-ledger row 15).
 
 - [ ] **Step 1: Check the branch.**
 
@@ -271,6 +281,7 @@ for name in (
     "CARD_ISSUER_CONTEXT_ALIASES", "POTENTIAL_LENDER_ALIASES", "INSURANCE_PROVIDER_ALIASES",
     "OPERATING_REVENUE_SOURCE_ALIASES", "OPERATING_REVENUE_SOURCE_TYPES",
     "PAYEE_GROUP_REGISTRIES", "CONFIRMED_LENDER_ALIASES", "BANK_SPECIFIC_LENDER_ALIASES",
+    "PAYOUT_CREDIT_ENTITIES",
 ):
     check(f"classification_registry.{name} exists", hasattr(registry, name))
 check(
@@ -310,6 +321,16 @@ check(
         "mortgage", "personal_loan", "floor_plan_financing", "factoring",
     },
 )
+# Owner decision 2026-09-25: these entities' credits are the holder's own sales settled by the
+# platform, so D1 does not make them proceeds (Task 4). Each must be a financing-group payee.
+payout_entities = tuple(getattr(registry, "PAYOUT_CREDIT_ENTITIES", ()))
+check(
+    "every PAYOUT_CREDIT_ENTITIES name is an entity of a FINANCING_STATES group registry",
+    bool(payout_entities) and all(
+        any(name in table for state, table in group_registries.items() if state in FINANCING_STATES)
+        for name in payout_entities
+    ),
+)
 for name in ("LEASE_PROVIDER_ALIASES", "LEGACY_CONFIRMED_LENDER_ALIASES", "LEGACY_POTENTIAL_LENDER_ALIASES"):
     print(f"info  {name} still defined:", hasattr(registry, name))
 
@@ -339,7 +360,8 @@ def known(description: str) -> PayeeMatch | None:
     return match_known_payee(normalize(description))
 
 
-# --- The owner-ruled payees (spec section 2) and the S1 facts in "Prerequisites from S1".
+# --- The owner-ruled payees (spec section 2, and the owner decisions of 2026-09-25) and the S1
+# facts in "Prerequisites from S1".
 OWNER_RULED = (
     ("NMEF Funding 2025A payment", "NMEF", "confirmed_lender"),
     ("Navitas Credit Corp payment", "Navitas Credit Corp", "confirmed_lender"),
@@ -355,19 +377,25 @@ OWNER_RULED = (
     ("ACH DEBIT RAPID FINANCE PAYMENT", "RAPID FINANCE", "confirmed_lender"),
     ("Orig CO Name:Kapitus Descr:Payment ACH Debit", "KAPITUS", "confirmed_lender"),
     ("ACH DEBIT THE FUNDWORKS LLC PMT", "FUNDWORKS", "confirmed_lender"),
-    ("AFC FUNDING CORP XPRESS PAY", "AFC FUNDING CORP", "confirmed_lender"),
+    ("VLFC-Econolease finance payment", "Econolease", "confirmed_lender"),
+    ("CMCA Finance BUS payment", "CMCA Finance", "confirmed_lender"),
+    ("Lily Advance", "Lily Advance", "confirmed_lender"),
+    ("EBF HOLDINGS DEBIT 0001", "EVEREST BUSINESS FUNDING", "confirmed_lender"),
+    ("AFC FUNDING CORP XPRESS PAY", "AFC FUNDING CORP", "floor_plan_financing"),
     ("BDC loan payment", "BDC", "alternative_position"),
     ("CARD PURCHASE AFFIRMCOM 0001", "AFFIRM", "alternative_position"),
     ("ACH DEBIT INTUIT FINANCING 0001", "INTUIT FINANCING", "alternative_position"),
     ("SQUARE CAPITAL", "SQUARE CAPITAL", "alternative_position"),
     ("SHOPIFY CAPITAL PAYOUT", "SHOPIFY CAPITAL", "alternative_position"),
     ("PAYPAL WORKING CAPITAL", "PAYPAL WORKING CAPITAL", "alternative_position"),
+    ("CAPITAL INFUSION PAYMENT", "CAPITAL INFUSION", "alternative_position"),
     ("BLUEVINE loan payment", "BLUEVINE", "line_of_credit"),
+    ("BLUEVINE CAPITAL", "BLUEVINE", "line_of_credit"),
     ("FUNDBOX payment", "FUNDBOX", "line_of_credit"),
     ("KABBAGE payment", "KABBAGE", "line_of_credit"),
     ("External Withdrawal SNAP FINANCE - PAYMENT", "SNAP Finance", "lease_or_rental"),
     ("Progressive Leasing recurring purchase", "Progressive Leasing", "lease_or_rental"),
-    ("SmartPay Sol debitpmt", "SmartPay", "lease_or_rental"),
+    ("SMARTPAY LEASING payment", "SmartPay", "lease_or_rental"),
 )
 for description, entity, state in OWNER_RULED:
     match = known(description)
@@ -406,25 +434,43 @@ check(
     "NETCREDIT is a financing payee named NETCREDIT",
     netcredit is not None and netcredit.entity == "NETCREDIT" and netcredit.state in FINANCING_STATES,
 )
-for description, entity in (
-    ("VLFC-Econolease finance payment", "Econolease"),
-    ("Clover equipment rent/leases", "Clover Equipment"),
-):
-    match = known(description)
-    check(
-        f"{entity} is a known payee and not a lender",
-        match is not None and match.entity == entity and match.state != "confirmed_lender",
-    )
+# Owner decisions of 2026-09-25: Econolease, CMCA Finance and Lily Advance are lenders (OWNER_RULED
+# above) and no potential-lender entity; Clover Equipment is in review and no known payee; the
+# SMARTPAY SOL rows are SmartPay Solutions' premium billing and match nothing; EBF HOLDINGS is merged
+# into EVEREST BUSINESS FUNDING, so it is no entity of its own.
+clover = registry_match(normalize("Clover equipment rent/leases"), registry.POTENTIAL_LENDER_ALIASES)
+check(
+    "Clover Equipment is a potential-lender alias (review) and no known payee",
+    clover is not None and clover[0] == "Clover Equipment" and known("Clover equipment rent/leases") is None,
+)
+check(
+    "'SmartPay Sol debitpmt' matches no known payee and no potential alias",
+    known("SmartPay Sol debitpmt") is None
+    and registry_match(normalize("SmartPay Sol debitpmt"), registry.POTENTIAL_LENDER_ALIASES) is None,
+)
+check(
+    "CMCA Finance and Lily Advance are no potential-lender entity",
+    not {"CMCA Finance", "Lily Advance"} & set(registry.POTENTIAL_LENDER_ALIASES),
+)
+check(
+    "EBF HOLDINGS is no lender-table entity (merged into EVEREST BUSINESS FUNDING)",
+    "EBF HOLDINGS" not in getattr(registry, "LENDER_ALIASES", {}),
+)
+# Fact 9: names S2's new pins compare exactly. ATB November's review candidates, and the premium
+# financier that the bare FIRST INSURANCE originator names (owner decision 2026-09-25).
+check(
+    "LOANS FC and MERCH PAD (probably Merchant Growth) are potential-lender entities",
+    {"LOANS FC", "MERCH PAD (probably Merchant Growth)"} <= set(registry.POTENTIAL_LENDER_ALIASES),
+)
+first_insurance = registry_match(normalize("FIRST INSURANCE DES INSURANCE"), premium_registry)
+check(
+    "'FIRST INSURANCE DES INSURANCE' is a premium-finance payee of FIRST Insurance Funding",
+    first_insurance is not None and first_insurance[0] == "FIRST Insurance Funding",
+)
 check(
     "Truist is on the bank-name list",
     registry_match(normalize("TRUIST LN 0001 PYMT"), registry.BANK_NAME_ALIASES) is not None,
 )
-for description, entity in (("CMCA Finance BUS payment", "CMCA Finance"), ("Lily Advance", "Lily Advance")):
-    match = registry_match(normalize(description), registry.POTENTIAL_LENDER_ALIASES)
-    check(
-        f"{description!r} stays a potential-lender alias of {entity}",
-        match is not None and match[0] == entity,
-    )
 
 # --- S1's reach into the real statements whose pins this plan re-derives. Counts only.
 from analysis.pipeline import analyze_markdown  # noqa: E402
@@ -447,31 +493,79 @@ reports = {
     "relay": _source_report("relay"),
 }
 #: (non-card debit rows the matcher claims, lender rows, lender total, debit rows the
-#: potential registry matches), measured 2026-09-24/25 with the pre-S1 registry under this
-#: plan's groups. None of these statements carries floor-plan, factoring or premium-finance
-#: wording (read-only probe).
+#: potential registry matches), measured 2026-09-25/26 on the rendering of the ledger that
+#: carries the owner decisions of 2026-09-25 (S1 at b69d12e). ATB Nov: Econolease's three
+#: rows join the lenders; MERCH PAD's 21 rows and the LOANS FC row are review entities.
+#: RBC Jan: the sixth claimed row is stored as a fee (step 6 keeps it one). Navy Fed June:
+#: PAID TO TILT is a personal loan. TD CMCA: CMCA Finance is a lender. first_farmers: the
+#: bare BLUEVINE is dropped. relay: three personal-loan payees (Klover, Tilt, Cashli).
+#: None of these statements carries floor-plan, factoring or premium-finance wording.
 EXPECTED = {
-    "ATB Nov": (46, 42, 7497.0, 0),
-    "RBC Jan": (5, 5, None, 0),
-    "Navy Fed June": (0, 0, 0.0, 0),
-    "TD CMCA": (0, 0, 0.0, 20),
-    "first_farmers": (1, 0, 0.0, 0),
+    "ATB Nov": (46, 45, 9757.26, 22),
+    "RBC Jan": (6, 6, None, 0),
+    "Navy Fed June": (1, 0, 0.0, 0),
+    "TD CMCA": (20, 20, 2235.0, 0),
+    "first_farmers": (0, 0, 0.0, 0),
     "navigant": (0, 0, 0.0, 0),
-    "relay": (0, 0, 0.0, 0),
+    "relay": (8, 0, 0.0, 0),
 }
-#: The one pre-measured variant of S1's matcher reach (pin-ledger row 17): an S1 registry that
-#: admits the card-paid personal-loan payees seen on relay. (non-card debit rows claimed,
-#: POS rows claimed), every claimed row a personal loan.
-RELAY_PERSONAL_LOAN_VARIANT = (3, 2)
+#: POS rows a known payee claims (D8 moves them out of POS; pin-ledger row 17). relay's seven
+#: are card-paid personal loans, and every relay row the matcher claims is a personal loan.
+POS_CLAIMED = {"relay": 7}
 #: The statements whose lender or potential figures a test pins. The step-8 card and
-#: bank-name rules must claim none of their open rows (navigant's bank-name rows pick
-#: the variant pins of pin-ledger row 15 instead; see Step 4).
+#: bank-name rules must claim none of their open rows, except navigant's: its three Comenity
+#: card payments (owner decision 2026-09-25: they are card payments) and its bank-name rows,
+#: which pick the variant pins of pin-ledger row 15 (see Step 4).
 POTENTIAL_PINNED = ("ATB Nov", "TD CMCA", "first_farmers", "navigant", "relay")
+CARD_HITS = {"navigant": 3}
+#: S2's card-issuer context wording (Task 8 Step 6), with the decisions' PAYMNT and the payment
+#: word glued to a SEC label.
 CARD_WORDING = (
     re.compile(r"\b(?:CREDIT CARD|CRCARD|CRD|CARD|CARDMEMBER)\b"),
-    re.compile(r"\b(?:AUTOPAY|AUTO PAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT)\b"),
+    re.compile(
+        r"\b(?:AUTOPAY|AUTO PAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)\b"
+        r"|\b(?:AUTOPAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)SEC\b"
+    ),
 )
-LOAN_WORD = re.compile(r"\bLOANS?\b")
+#: S2's loan wording for the bank-name rule (Task 8): LOAN or LOANS, and French PRET or PRETS.
+LOAN_WORD = re.compile(r"\bLOANS?\b|\bPRETS?\b")
+#: The words the rules of the owner decisions of 2026-09-25 read (Tasks 5 and 7-9): on debits,
+#: the overdraft-charge fee, premium-finance wording, the own-account transfer guard,
+#: floor-plan payoffs, home-equity and student loans, French and English own-loan wording,
+#: commercial-loan billing, unnamed loan payments, the widened card-payment forms and MCA
+#: SERVICING; on credits, per-vehicle floor-plan advances, the bank's own line advance and
+#: line-of-credit draws. Measured 2026-09-26: none reaches a pinned statement, apart from
+#: navigant's two loan-payment rows, which the bank-name rule claims first.
+NEW_DEBIT_RULES = tuple(re.compile(pattern) for pattern in (
+    r"\bOVERDRAFT CHARGES?\b",
+    r"\bPREM(?:IUM)? ?FIN(?:ANCE|ANCING)?\b", r"\bINSPREMFIN\b",
+    r"^TRANSFER (?:TO|FROM) .+ (?:ACCOUNT )?TRANSFER (?:OUT|IN)$",
+    r"^PAYOFF (?:19|20)\d\d .*\bVIN\b",
+    r"HOME ?EQUITY ?LOANS?\b",
+    r"\bSTUDENT ?LOANS?\b", r"\bSTDNT ?LOANS?\b", r"\bSTUDNT ?LOANS?\b", r"\bSTUDENT LN\b",
+    r"\bPRETS?\b",
+    r"\bORIG CO NAME COMMERCIAL LOAN\b", r"\bSAVINGS BANK LOAN (?:PAYMENT|PMT|PYMT)\b",
+    r"\bAUTOMATIC LOAN (?:PAYMENT|PMT|PYMT|PAY)\b", r"\bAUTOMATED LOAN PAYMENT\b",
+    r"\bPAYMENT TO (?:CMML |COMMERCIAL )?LOAN\b",
+    r"\b(?:INTEREST|PRINCIPAL|LATE CHARGE) PAYMENT CUSTOMER \d+ OBLIGATION \d+",
+    r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b",
+    r"\bCREDIT CARD ECS (?:PAYMENT|PMT|PYMT)\b",
+    r"\b(?:VISA|MASTER ?CARD) DES (?:PAYMENT|PMT|PYMT|EPAYMENT)\b",
+    r"\bORIG CO NAME (?:VISA|MASTER ?CARD) ORIG ID\b.*?\bCO ENTRY DESCR (?:PAYMENT|PMT|PYMT|EPAYMENT)\b",
+    r"\b(?:PAYMENT|PMT|PYMT) TO (?:CRD|CREDIT CARD|VSA)\b",
+    r"\b(?:PMT|PYMT) TO (?:VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS)\b",
+    r"\bPAYMNT\b", r"\b(?:AUTOPAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)SEC\b",
+    r"\bMCA SERVICING\b",
+))
+NEW_CREDIT_RULES = tuple(re.compile(pattern) for pattern in (
+    r"^ADVANCE (?:19|20)\d\d .*\bVIN\b",
+    r"^LOAN CREDIT$",
+    r"\b(?:LOC|LINE OF CREDIT) (?:ADVANCE|ADV|DRAW)\b",
+    r"\bADVANCE FROM (?:LOC|LINE OF CREDIT)\b",
+    r"\bDRAW (?:ON|FROM) (?:LOC|LINE OF CREDIT)\b",
+))
+#: The membership and top-up words Task 5 reads right after an alternative-position alias.
+MEMBERSHIP_OR_TOP_UP = (r" (?:PLUS|PLU|MEM|MEMB|MEMBER|MEMBERSHIP)\b", r" BALANCE TOP ?(?:UP|U)\b")
 for label, report in reports.items():
     records = report.classifications
     debits = [r for r in records if r.amount < 0]
@@ -498,16 +592,30 @@ for label, report in reports.items():
         if LOAN_WORD.search(r.normalized_description)
         and registry_match(r.normalized_description, registry.BANK_NAME_ALIASES) is not None
     )
+    new_rule_rows = sum(
+        1 for r in debits
+        if any(pattern.search(r.normalized_description) for pattern in NEW_DEBIT_RULES)
+        and not (
+            LOAN_WORD.search(r.normalized_description)
+            and registry_match(r.normalized_description, registry.BANK_NAME_ALIASES) is not None
+        )
+    ) + sum(
+        1 for r, m in claimed
+        if m.state == "alternative_position"
+        and any(re.search(rf"\b{re.escape(m.alias)}{tail}", r.normalized_description) for tail in MEMBERSHIP_OR_TOP_UP)
+    ) + sum(
+        1 for r in records
+        if r.amount > 0 and (
+            any(pattern.search(r.normalized_description) for pattern in NEW_CREDIT_RULES)
+            or ((m := match_known_payee(r.normalized_description)) is not None and m.entity in payout_entities)
+        )
+    )
     want_claimed, want_lenders, want_total, want_potential = EXPECTED[label]
-    if (
-        label == "relay"
-        and (len(non_card), len(pos_claimed)) == RELAY_PERSONAL_LOAN_VARIANT
-        and {m.state for _, m in non_card} == {"personal_loan"}
-    ):
-        print("variant relay: personal-loan payees claim 3 debit rows, 2 of them POS (pin-ledger row 17)")
-    else:
-        check(f"{label}: non-card debit rows claimed = {len(non_card)} (want {want_claimed})", len(non_card) == want_claimed)
-        check(f"{label}: POS rows claimed = {len(pos_claimed)} (want 0)", not pos_claimed)
+    check(f"{label}: non-card debit rows claimed = {len(non_card)} (want {want_claimed})", len(non_card) == want_claimed)
+    want_pos = POS_CLAIMED.get(label, 0)
+    check(f"{label}: POS rows claimed = {len(pos_claimed)} (want {want_pos})", len(pos_claimed) == want_pos)
+    if want_pos:
+        check(f"{label}: every claimed debit row is a personal loan", {m.state for _, m in non_card} == {"personal_loan"})
     check(f"{label}: lender rows = {len(lenders)} (want {want_lenders})", len(lenders) == want_lenders)
     if want_total is not None:
         total = round(sum(abs(r.amount) for r in lenders), 2)
@@ -521,7 +629,8 @@ for label, report in reports.items():
     check(f"{label}: premium-finance rows = {premium_rows} (want 0)", premium_rows == 0)
     card_line = f"{label}: open debit rows naming a card issuer with payment wording = {card_hits}"
     if label in POTENTIAL_PINNED:
-        check(card_line + " (want 0)", card_hits == 0)
+        want_cards = CARD_HITS.get(label, 0)
+        check(card_line + f" (want {want_cards})", card_hits == want_cards)
     else:
         print("info  " + card_line)
     bank_line = f"{label}: open loan debits naming a listed bank = {bank_hits}"
@@ -529,6 +638,10 @@ for label, report in reports.items():
         print("info  " + bank_line)
     else:
         check(bank_line + " (want 0)", bank_hits == 0)
+    check(
+        f"{label}: rows the rules of the 2026-09-25 decisions reach = {new_rule_rows} (want 0)",
+        new_rule_rows == 0,
+    )
 
 print(f"{len(failures)} failure(s)")
 sys.exit(1 if failures else 0)
@@ -539,11 +652,10 @@ sys.exit(1 if failures else 0)
 Run: `C:\Python314\python.exe <your scratchpad>\s2_preconditions.py`
 Expected: every check line `ok` and `0 failure(s)`. Besides the checks it prints:
 - three `... still defined:` lines, `True` or `False` (Task 6 handles either; the pre-C10 S1 tree printed `True` for all three);
-- `info` lines for the card-issuer count on RBC Jan and Navy Fed June (no test reads the figures those rows would move; the dry run's pre-C10 S1 tree printed 3 and 0);
-- `info  navigant: open loan debits naming a listed bank = N`. When N is 1 or more, use pin-ledger row 15's bank-name variant (Task 8 Step 9 and Task 10 Step 8). The dry run's pre-C10 S1 tree printed 2;
-- possibly `variant relay: ...`. It selects pin-ledger row 17's personal-loan variant (Task 5 Step 14). The dry run's pre-C10 S1 tree printed it.
+- `info` lines for the card-issuer count on RBC Jan and Navy Fed June (no test reads the figures those rows would move; the revised ledger reads 3 and 0);
+- `info  navigant: open loan debits naming a listed bank = N`. When N is 1 or more, use pin-ledger row 15's bank-name variant (Task 8 Step 11 and Task 10 Step 8). The revised ledger reads 2 (Beacon Bank loan payments), as did the dry run's pre-C10 S1 tree.
 
-The C10 ledger decides the last two, so they can differ from the dry run's; each one only selects which listed pins apply.
+The C10 ledger decides the navigant line; it only selects which listed pins apply.
 
 If **any** `FAIL` line prints, stop. Report the FAIL lines to the orchestrator (they carry no statement text) and wait: "Prerequisites from S1" says what settles each fact, and whether the fix belongs in S1's code or in the ledger.
 
@@ -1121,7 +1233,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - Modify: `analysis/transaction_classifier.py`:
   - the `from .classification_registry import (` block (one line added);
   - the `from .flag_groups import` line (Task 2) and S1's `from .payee_matcher import registry_match` line;
-  - `_classify_credit_revenue` (whole function, S1 tree `:564-739`);
+  - `_classify_credit_revenue` (whole function, S1 tree `:564-739`), and its call in `_build_record`;
   - new helpers directly before `def classify_transaction(`;
   - one credit branch in `classify_transaction`, before its lease-registry block.
 - Modify: `tests/flag_group_fixtures.py` (replace the file)
@@ -1129,8 +1241,16 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - Test: `tests/test_financing_proceeds_credits.py`
 
 **Interfaces:**
-- Consumes: C1 `FINANCING_STATES`; C2 `POTENTIAL_LENDER_ALIASES`, `INSURANCE_PROVIDER_ALIASES`, `OPERATING_REVENUE_SOURCE_ALIASES`, `OPERATING_REVENUE_SOURCE_TYPES`; C3 `match_known_payee(normalized_text) -> PayeeMatch | None`, `registry_match`, `PayeeMatch(entity, state, alias)`.
-- Produces (C4): a credit from a `FINANCING_STATES` payee is `classification="other"`, `canonical_entity=<entity>`, `match_method="financing_proceeds_credit"`, `matched_rule="financing_proceeds_credit"`, `contributes_to_lender_credit_exclusion=True`, revenue `non_revenue` with `revenue_match_method="financing_proceeds_credit"`. Card-issuer and lease/rental payees never apply to credits. Also produces `_state_words(state: str) -> str`, `_financing_proceeds_credit_record(common, amount, match) -> TransactionClassification`, and the test fixtures `FAKE_PAYEES`, `fake_match`, `fake_payees`.
+- Consumes: C1 `FINANCING_STATES`; C2 `POTENTIAL_LENDER_ALIASES`, `INSURANCE_PROVIDER_ALIASES`, `OPERATING_REVENUE_SOURCE_ALIASES`, `OPERATING_REVENUE_SOURCE_TYPES`; S1's `PAYOUT_CREDIT_ENTITIES` (fact 10); C3 `match_known_payee(normalized_text) -> PayeeMatch | None`, `registry_match`, `PayeeMatch(entity, state, alias)`.
+- Produces (C4): a credit from a `FINANCING_STATES` payee is `classification="other"`, `canonical_entity=<entity>`, `match_method="financing_proceeds_credit"`, `matched_rule="financing_proceeds_credit"`, `contributes_to_lender_credit_exclusion=True`, revenue `non_revenue` with `revenue_match_method="financing_proceeds_credit"`. Card-issuer and lease/rental payees never apply to credits.
+- Produces the owner decisions of 2026-09-25 on credits:
+  - **Payout credits (a D1 exception).** A credit whose known payee is an entity of `PAYOUT_CREDIT_ENTITIES` (Sezzle Inc, American First Finance, LLC, PAYABILITY) is the account holder's own sales, settled by the platform. D1 does not apply: the credit takes the operating-revenue path, with no `financing_proceeds_credit` and no `contributes_to_lender_credit_exclusion`. Debits keep their group (Task 5).
+  - **D1 by descriptor.** Three credits whose own words say they are financing proceeds get the same record and revenue decision as a financing payee's credit, with `matched_rule` (and `revenue_matched_rule`) naming the rule:
+    - `bank_line_advance_credit`: a credit whose whole descriptor is `LOAN CREDIT` (an advance from the statement bank's own operating line), decided with the financing-group check, ahead of the strong non-revenue rule that claims it today; entity the statement bank.
+    - `loc_draw_credit`: a line-of-credit draw (`LOC` or `LINE OF CREDIT` with `ADVANCE`, `ADV` or `DRAW`, `ADVANCE FROM LOC`, `DRAW ON/FROM LOC`); entity the statement bank.
+    - `floor_plan_advance_credit`: a per-vehicle floor-plan advance (`ADVANCE`, a four-digit model year, `VIN`); no entity.
+    - The last two apply only when no potential alias and no strong non-revenue rule (an own-account transfer, for example) claims the credit. None of the three carries a flag.
+- Also produces `_state_words(state: str) -> str`, `_financing_proceeds_payee(text: str) -> PayeeMatch | None`, `_descriptor_proceeds(text: str) -> tuple[str, bool] | None`, `_financing_proceeds_credit_record(common, amount, match) -> TransactionClassification`, `_descriptor_proceeds_credit_record(common, amount, proceeds, bank) -> TransactionClassification`, the keyword `_classify_credit_revenue(..., bank: str | None = None)`, and the test fixtures `FAKE_PAYEES`, `fake_match`, `fake_payees`.
 
 - [ ] **Step 1: Replace** `tests/flag_group_fixtures.py` with:
 
@@ -1198,6 +1318,7 @@ from __future__ import annotations
 
 import pytest
 
+from analysis import transaction_classifier
 from analysis.flag_groups import FINANCING_STATES
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement
@@ -1257,6 +1378,55 @@ def test_platform_financing_credits_are_proceeds_but_platform_sales_stay_revenue
     assert metrics.lender_credits == 15900.0
     assert metrics.verified_revenue_total == 800.0
     assert metrics.legacy_eligible_deposits == 800.0
+
+
+@pytest.fixture
+def fabricated_payout_entity(monkeypatch):
+    """Owner decision 2026-09-25: the credits of a PAYOUT_CREDIT_ENTITIES payee are the
+    account holder's own sales, settled by the platform."""
+    monkeypatch.setattr(transaction_classifier, "PAYOUT_CREDIT_ENTITIES", ("Fabricated BNPL",))
+
+
+def test_a_payout_credit_entitys_credit_is_revenue_not_proceeds(fake_payees, fabricated_payout_entity):
+    payout = classify_transaction("FABRICATED BNPL MERCHANT PAYOUT 0001", 900.0)
+    assert payout.matched_rule != "financing_proceeds_credit"
+    assert not payout.contributes_to_lender_credit_exclusion
+    assert payout.revenue_classification == "verified_revenue"
+    assert payout.revenue_match_method != "financing_proceeds_credit"
+    # Another alternative position's credit is still proceeds.
+    assert classify_transaction("FABRICATED ALT DEPOSIT 0001", 900.0).matched_rule == "financing_proceeds_credit"
+
+
+@pytest.mark.parametrize(
+    ("description", "rule", "entity"),
+    [
+        ("LOAN CREDIT", "bank_line_advance_credit", "Fabricated Bank"),
+        ("LOC ADVANCE 0001", "loc_draw_credit", "Fabricated Bank"),
+        ("ADVANCE FROM LINE OF CREDIT 0001", "loc_draw_credit", "Fabricated Bank"),
+        ("ADVANCE 2054 FABRICATED MODEL VIN 0001", "floor_plan_advance_credit", None),
+    ],
+)
+def test_a_credit_whose_words_say_financing_proceeds_is_proceeds(description, rule, entity):
+    """Owner decisions 2026-09-25: the bank's own line advance, a line-of-credit draw and a
+    per-vehicle floor-plan advance are financing proceeds (D1), with no flag."""
+    record = classify_transaction(description, 900.0, bank="Fabricated Bank")
+    assert record.classification == "other"
+    assert (record.match_method, record.matched_rule, record.canonical_entity) == (
+        "financing_proceeds_credit",
+        rule,
+        entity,
+    )
+    assert record.contributes_to_lender_credit_exclusion
+    assert record.flagged_group is None
+    assert record.revenue_classification == "non_revenue"
+    assert (record.revenue_match_method, record.revenue_matched_rule) == ("financing_proceeds_credit", rule)
+    assert record.revenue_canonical_entity == entity
+
+
+def test_only_the_exact_bank_line_posting_is_proceeds_by_its_words():
+    record = classify_transaction("LOAN CREDIT MEMO 0001", 900.0, bank="Fabricated Bank")
+    assert record.revenue_match_method == "strong_non_revenue_rule"
+    assert not record.contributes_to_lender_credit_exclusion
 ```
 
 - [ ] **Step 3: Run it and watch it fail.**
@@ -1264,8 +1434,9 @@ def test_platform_financing_credits_are_proceeds_but_platform_sales_stay_revenue
 Run: `C:\Python314\python.exe -m pytest tests/test_financing_proceeds_credits.py -q -p no:cacheprovider`
 Expected: FAIL.
 - Every `fake_payees` test errors at setup with `AttributeError: <module 'analysis.transaction_classifier' ...> has no attribute 'match_known_payee'`.
-- The NextGear and RTS credits fail on `matched_rule` (no rule claims them yet).
+- The NextGear and RTS credits fail on `matched_rule` (no rule claims them yet), and so do the four descriptor credits.
 - The platform test fails on `revenue_match_method`: today's lender-registry credit exclusion names its own method.
+- `test_only_the_exact_bank_line_posting_is_proceeds_by_its_words` passes: it guards the rule's exact posting.
 
 - [ ] **Step 4: Import what the credit rule reads.** In `analysis/transaction_classifier.py`:
   - in the `from .classification_registry import (` block, replace
@@ -1276,6 +1447,7 @@ Expected: FAIL.
     with
     ```python
         OPERATING_REVENUE_SOURCE_TYPES,
+        PAYOUT_CREDIT_ENTITIES,
         POTENTIAL_LENDER_ALIASES,
     )
     ```
@@ -1292,6 +1464,7 @@ def _classify_credit_revenue(
     posted: bool,
     account_name: str | None,
     direction_consistent: bool,
+    bank: str | None = None,
 ) -> _RevenueDecision | None:
     if amount <= 0 or not posted:
         return None
@@ -1336,9 +1509,10 @@ def _classify_credit_revenue(
     # before the operating-revenue registry, and group aliases are
     # financing-specific (SQUARE CAPITAL, never bare SQUARE), so a platform's
     # sales settlement still reaches the operating registry below. Card-issuer
-    # and lease/rental payees never apply to credits.
-    financing_match = match_known_payee(text)
-    if financing_match is not None and financing_match.state in FINANCING_STATES:
+    # and lease/rental payees never apply to credits, and neither does a
+    # payout-credit entity (owner decision 2026-09-25).
+    financing_match = _financing_proceeds_payee(text)
+    if financing_match is not None:
         return _RevenueDecision(
             "non_revenue",
             financing_match.entity,
@@ -1350,6 +1524,22 @@ def _classify_credit_revenue(
                 f"Credit matched maintained {_state_words(financing_match.state)} alias "
                 f"'{financing_match.alias}'; financing proceeds are not revenue."
             ),
+            context_signals=("credit_direction", "financing_proceeds"),
+        )
+    # D1 by descriptor (owner decisions 2026-09-25). `_descriptor_proceeds` keeps
+    # the potential registry and the strong non-revenue rule below ahead of a
+    # line-of-credit draw or a floor-plan advance.
+    descriptor_proceeds = _descriptor_proceeds(text)
+    if descriptor_proceeds is not None:
+        rule, names_bank = descriptor_proceeds
+        return _RevenueDecision(
+            "non_revenue",
+            (bank or None) if names_bank else None,
+            "financing_proceeds_credit",
+            None,
+            rule,
+            0.97,
+            f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are not revenue.",
             context_signals=("credit_direction", "financing_proceeds"),
         )
     potential_lender_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
@@ -1457,11 +1647,70 @@ def _classify_credit_revenue(
     )
 ```
 
-- [ ] **Step 6: Add the proceeds record builder.** Directly before `def classify_transaction(`, insert:
+- [ ] **Step 6: Pass the statement bank to the revenue rule.** In `_build_record`, in its call `revenue = _classify_credit_revenue(...)`, replace
+
+```python
+        posted=is_posted,
+        account_name=account_name,
+```
+with
+```python
+        posted=is_posted,
+        bank=bank,
+        account_name=account_name,
+```
+
+- [ ] **Step 7: Add the proceeds helpers.** Directly before `def classify_transaction(`, insert:
 
 ```python
 def _state_words(state: str) -> str:
     return state.replace("_", " ")
+
+
+def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
+    """D1: the known payee whose credit is financing proceeds, or None.
+
+    Owner decision 2026-09-25: the credits of a payout-credit entity
+    (PAYOUT_CREDIT_ENTITIES) are the account holder's own sales settled by the
+    platform, so they are revenue; that entity's debits keep their group.
+    """
+    match = match_known_payee(text)
+    if match is None or match.state not in FINANCING_STATES or match.entity in PAYOUT_CREDIT_ENTITIES:
+        return None
+    return match
+
+
+#: D1 by descriptor (owner decisions 2026-09-25): credits whose own words say they
+#: are financing proceeds, with no registry payee named. Credits only.
+_BANK_LINE_ADVANCE_CREDIT = re.compile(r"^LOAN CREDIT$")
+_LOC_DRAW_CREDIT_PATTERNS = (
+    re.compile(r"\b(?:LOC|LINE OF CREDIT) (?:ADVANCE|ADV|DRAW)\b"),
+    re.compile(r"\bADVANCE FROM (?:LOC|LINE OF CREDIT)\b"),
+    re.compile(r"\bDRAW (?:ON|FROM) (?:LOC|LINE OF CREDIT)\b"),
+)
+_FLOOR_PLAN_ADVANCE_CREDIT = re.compile(r"^ADVANCE (?:19|20)\d\d .*\bVIN\b")
+
+
+def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
+    """D1 by descriptor: (rule, whether the statement bank is the lender), or None.
+
+    Read after the known-payee check. The bank's own line advance (exactly
+    LOAN CREDIT) is decided there, ahead of the strong non-revenue rule that
+    would otherwise claim it. A line-of-credit draw or a per-vehicle floor-plan
+    advance counts only when no potential alias and no strong non-revenue rule
+    (an own-account transfer, for example) claims the credit.
+    """
+    if _BANK_LINE_ADVANCE_CREDIT.search(text):
+        return "bank_line_advance_credit", True
+    if registry_match(text, POTENTIAL_LENDER_ALIASES) is not None or _matches_any(
+        text, _NON_REVENUE_CREDIT_PATTERNS
+    ):
+        return None
+    if _matches_any(text, _LOC_DRAW_CREDIT_PATTERNS):
+        return "loc_draw_credit", True
+    if _FLOOR_PLAN_ADVANCE_CREDIT.search(text):
+        return "floor_plan_advance_credit", False
+    return None
 
 
 def _financing_proceeds_credit_record(
@@ -1486,9 +1735,32 @@ def _financing_proceeds_credit_record(
     )
 
 
+def _descriptor_proceeds_credit_record(
+    common: dict[str, object],
+    amount: float,
+    proceeds: tuple[str, bool],
+    bank: str | None,
+) -> TransactionClassification:
+    """D1 by descriptor: the credit's own words say it is financing proceeds."""
+    rule, names_bank = proceeds
+    return _build_record(
+        **common,
+        classification="other",
+        canonical_entity=(bank or None) if names_bank else None,
+        match_method="financing_proceeds_credit",
+        matched_rule=rule,
+        confidence_score=0.95,
+        reason=(
+            f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are "
+            "excluded from lender debits and eligible deposits."
+        ),
+        contributes_to_lender_credit_exclusion=amount > 0,
+    )
+
+
 ```
 
-- [ ] **Step 7: Decide credits at step 7 of the rule order.** In `classify_transaction`, directly before the two lines
+- [ ] **Step 8: Decide credits at step 7 of the rule order.** In `classify_transaction`, directly before the two lines
 
 ```python
     lease_match = registry_match(text, LEASE_PROVIDER_ALIASES)
@@ -1496,30 +1768,34 @@ def _financing_proceeds_credit_record(
 ```
 insert
 ```python
-    # Spec §4.3 step 7 / D1: a credit from a financing-group payee is proceeds.
+    # Spec §4.3 step 7 / D1: a credit from a financing-group payee is proceeds,
+    # and so is a credit whose own words say so (owner decisions 2026-09-25).
     # (Task 5 moves debits to the same step.)
     if amount > 0:
-        financing_payee = match_known_payee(text)
-        if financing_payee is not None and financing_payee.state in FINANCING_STATES:
+        financing_payee = _financing_proceeds_payee(text)
+        if financing_payee is not None:
             return _financing_proceeds_credit_record(common, amount, financing_payee)
+        descriptor_proceeds = _descriptor_proceeds(text)
+        if descriptor_proceeds is not None:
+            return _descriptor_proceeds_credit_record(common, amount, descriptor_proceeds, bank)
 
 ```
 
-- [ ] **Step 8: Check the NETCREDIT row** (pin-ledger row 13). In `tests/test_revenue_classification.py`, the parametrized row at `:168` must read `("NETCREDIT CCBANK-NTC loan proceeds", "NETCREDIT"),`. It needs no edit on S1's tree (Task 0 checked that NETCREDIT is a financing payee named `NETCREDIT`); if S1 changed it, restore that line.
+- [ ] **Step 9: Check the NETCREDIT row** (pin-ledger row 13). In `tests/test_revenue_classification.py`, the parametrized row at `:168` must read `("NETCREDIT CCBANK-NTC loan proceeds", "NETCREDIT"),`. It needs no edit on S1's tree (Task 0 checked that NETCREDIT is a financing payee named `NETCREDIT`); if S1 changed it, restore that line.
 
-- [ ] **Step 9: Run the tests.**
+- [ ] **Step 10: Run the tests.**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_financing_proceeds_credits.py tests/test_classifier_lookups.py tests/test_flag_group_states.py tests/test_lender_insurance_classification.py tests/test_transaction_classifier.py tests/test_revenue_classification.py tests/test_new_statement_corpus.py -q -p no:cacheprovider`
-Expected: PASS, apart from any baseline failure recorded in Task 0 Step 2. Debits are untouched (Task 5), so no lender pin moves here.
+Expected: PASS, apart from any baseline failure recorded in Task 0 Step 2. Debits are untouched (Task 5), so no lender pin moves here, and Task 0 found no descriptor-proceeds or payout credit on a pinned statement. The payout credits of the real registry's Sezzle and PAYABILITY are pinned in Task 5: until then S1's legacy lender list still reads PAYABILITY's credits as lender credits.
 
-- [ ] **Step 10: Commit.**
+- [ ] **Step 11: Commit.**
 
 ```
 git add analysis/transaction_classifier.py tests/flag_group_fixtures.py tests/test_financing_proceeds_credits.py
 git commit -m "classifier: credits from a financing group are proceeds (D1)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 Claude-Session: <the Claude-Session URL from your system reminder>"
 ```
-If Step 8 restored the NETCREDIT line, also `git add tests/test_revenue_classification.py` before committing.
+If Step 9 restored the NETCREDIT line, also `git add tests/test_revenue_classification.py` before committing.
 
 ---
 
@@ -1529,19 +1805,24 @@ If Step 8 restored the NETCREDIT line, also `git add tests/test_revenue_classifi
 - Modify: `analysis/transaction_classifier.py`:
   - the `from .classification_registry import (` block (whole);
   - `match_verified_lender_alias` (S1 tree `:191-192`);
-  - new D9 constants and `_known_payee_debit_record` after `_state_words` (Task 4);
+  - new D9 constants, `_known_payee_debit_record` and `_is_membership_or_top_up` after `_state_words` (Task 4);
+  - `_FEE_PATTERNS` (S1 tree `:268-274`, one pattern added);
   - `classify_transaction` (whole function).
-- Modify: `tests/test_lender_insurance_classification.py:40-86, :102-117`
-- Modify: `tests/test_r1_hardcodes.py:536-545`
+- Modify: `tests/test_lender_insurance_classification.py:40-86, :102-117, :130-145, :196, :230-380, :405-422, :474-563`
+- Modify: `tests/test_r1_hardcodes.py:530-545`
 - Modify: `tests/test_analysis.py:13, :3348-3364, :3572-3579, :3582-3588`
-- Modify: `tests/test_transaction_classifier.py:314-331, :347-348, :367-369`
+- Modify: `tests/test_transaction_classifier.py:3` (one import) and `:306-386` (the ATB November test)
 - Modify: `tests/test_revenue_classification.py:402-405`
-- Modify: `tests/test_new_statement_corpus.py:122` (and `:181` in the personal-loan variant) and append one test
+- Modify: `tests/test_new_statement_corpus.py:122, :181` and append one test
 - Test: `tests/test_known_payee_classification.py`
 
 **Interfaces:**
-- Consumes: C1 `FINANCING_STATES`, `FLAG_GROUP_BY_STATE`; C2 `PAYEE_GROUP_REGISTRIES`, `INSURANCE_PROVIDER_ALIASES`, `POTENTIAL_LENDER_ALIASES`, `OPERATING_REVENUE_SOURCE_ALIASES`, `OPERATING_REVENUE_SOURCE_TYPES`, `BANK_SPECIFIC_LENDER_ALIASES`; C3 `match_known_payee`, `registry_match`, `PayeeMatch`; Task 4 `_state_words`, `_financing_proceeds_credit_record`; the fixtures `FAKE_PAYEES`, `fake_payees`.
+- Consumes: C1 `FINANCING_STATES`, `FLAG_GROUP_BY_STATE`; C2 `PAYEE_GROUP_REGISTRIES`, `INSURANCE_PROVIDER_ALIASES`, `POTENTIAL_LENDER_ALIASES`, `OPERATING_REVENUE_SOURCE_ALIASES`, `OPERATING_REVENUE_SOURCE_TYPES`, `BANK_SPECIFIC_LENDER_ALIASES`; S1's `PAYOUT_CREDIT_ENTITIES`; C3 `match_known_payee`, `registry_match`, `PayeeMatch`; Task 4 `_state_words`, `_financing_proceeds_credit_record`, `_descriptor_proceeds`, `_descriptor_proceeds_credit_record`; the fixtures `FAKE_PAYEES`, `fake_payees`.
 - Produces (C4): a debit to a known payee takes `PayeeMatch.state` (lenders keep `match_method="verified_lender_alias"`, `matched_rule="confirmed_lender_registry"`; other groups `match_method="known_payee_alias"`, `matched_rule=f"{state}_registry"`); D9 gives `line_of_credit` with `matched_rule="line_of_credit_descriptor_override"`; POS and ATM skip a known payee (D8). Also produces `_LINE_OF_CREDIT_PATTERNS` (Task 8 reuses it) and `_known_payee_debit_record(common, text, match) -> TransactionClassification`. `analysis/lenders.py` needs no edit: it reads `CONFIRMED_LENDER_ALIASES`, which C2 keeps as the name of `LENDER_ALIASES`, and its helpers call `classify_transaction`.
+- Produces the owner decisions of 2026-09-25 at steps 5-7:
+  - **An overdraft charge is a fee** (step 6): `_FEE_PATTERNS` reads `OVERDRAFT CHARGE(S)`, so the bank's charge for an item is a fee even when it prints the item's payee (S1's alias audit denied the two such Zip rows). A refund of the charge stays `refund_or_reversal` (step 3).
+  - **A membership or balance top-up is not a repayment** (steps 5 and 7): `_is_membership_or_top_up(text, match) -> bool`. A debit whose known payee is an `alternative_position` payee, and which prints `PLUS`, `PLU`, `MEM`, `MEMB`, `MEMBER` or `MEMBERSHIP`, or `BALANCE TOP UP`, right after the matched alias, matches no known payee. So D8 does not bypass POS for it, and it never takes the payee's group. The rule reads the matched alias, so no payee name is written in the classifier. On the cache it claims exactly the 42 Klarna Inc rows the decision names (31 Klarna Plus membership, 11 balance top-up) and no other payee's row. Limiting it to alternative positions keeps it off personal-loan memberships, which no decision covers.
+  - **Payout credits** (step 7): a payout-credit entity's credit is not proceeds (Task 4's exception, now in the rule order too), and the descriptor-proceeds credits of Task 4 keep their place after the known-payee check.
 
 - [ ] **Step 1: Write the failing test** `tests/test_known_payee_classification.py`:
 
@@ -1550,7 +1831,6 @@ from __future__ import annotations
 
 import pytest
 
-from analysis.classification_registry import PAYEE_GROUP_REGISTRIES
 from analysis.flag_groups import FLAG_GROUP_BY_STATE
 from analysis.lenders import find_lender_match, has_false_lender_keyword
 from analysis.transaction_classifier import classify_transaction
@@ -1562,13 +1842,6 @@ PAYEE_ROWS = [(alias, *FAKE_PAYEES[alias]) for alias in FAKE_PAYEES]
 def _group_key(state: str) -> str | None:
     group = FLAG_GROUP_BY_STATE.get(state)
     return group.key if group is not None else None
-
-
-def _registry_state(entity: str) -> str:
-    for state, table in PAYEE_GROUP_REGISTRIES.items():
-        if entity in table:
-            return state
-    raise AssertionError(f"{entity} is in no group registry")
 
 
 @pytest.mark.parametrize(("alias", "entity", "state"), PAYEE_ROWS)
@@ -1595,6 +1868,9 @@ def test_a_card_paid_known_payee_is_classified_by_who_was_paid(fake_payees):
     ("description", "state"),
     [
         ("FABRICATED LENDER TRANSFER FEE", "fee"),
+        # Owner decision 2026-09-25: the bank's overdraft charge for an item is a fee,
+        # even when it prints the item's payee.
+        ("OVERDRAFT CHARGE FABRICATED ALT 0001", "fee"),
         ("FABRICATED LINE ONLINE TRANSFER", "transfer"),
         ("FABRICATED LENDER PAYROLL", "payroll"),
         ("CHECK 1001 FABRICATED LENDER", "confirmed_lender"),
@@ -1604,6 +1880,30 @@ def test_a_card_paid_known_payee_is_classified_by_who_was_paid(fake_payees):
 )
 def test_fees_and_transfers_keep_precedence_but_checks_no_longer_hide_a_payee(fake_payees, description, state):
     assert classify_transaction(description, -500.0).classification == state
+
+
+def test_an_overdraft_charge_is_a_fee_and_its_refund_a_reversal():
+    assert classify_transaction("OVERDRAFT CHARGE 0001", -35.0).classification == "fee"
+    assert classify_transaction("OVERDRAFT CHARGE REVERSAL 0001", 35.0).classification == "refund_or_reversal"
+
+
+@pytest.mark.parametrize(
+    ("description", "state"),
+    [
+        ("FABRICATED BNPL PLUS MEMBERSHIP", "other"),
+        ("FABRICATED BNPL BALANCE TOP UP", "other"),
+        ("CARD PURCHASE FABRICATED BNPL PLUS", "pos"),
+        ("FABRICATED BNPL PAYMENT", "alternative_position"),
+        ("FABRICATED PERSONAL PLUS", "personal_loan"),
+    ],
+)
+def test_a_membership_or_balance_top_up_is_not_a_repayment(fake_payees, description, state):
+    """Owner decision 2026-09-25 (Klarna Inc): an alternative-position payee's paid membership,
+    or a top-up of the customer's own balance with it, matches no known payee, so D8 does not
+    apply and it never takes the payee's group. Other groups are not affected."""
+    record = classify_transaction(description, -20.0)
+    assert record.classification == state
+    assert record.flagged_group == _group_key(state)
 
 
 @pytest.mark.parametrize(
@@ -1626,21 +1926,28 @@ def test_loc_wording_moves_lender_and_alternative_payees_to_lines_of_credit(fake
 @pytest.mark.parametrize(
     ("description", "state", "entity"),
     [
-        # The NMEF, Navitas, Balboa, Progressive Leasing and SmartPay descriptors move here unchanged
+        # The NMEF, Navitas, Balboa, Econolease and Progressive Leasing descriptors move here unchanged
         # from the order table of tests/test_lender_insurance_classification.py; the others are fabricated.
         ("NMEF Funding 2025A payment", "confirmed_lender", "NMEF"),
         ("Navitas Credit Corp payment", "confirmed_lender", "Navitas Credit Corp"),
         ("Balboa Capital payment", "confirmed_lender", "Balboa Capital"),
         ("CHECKCARD 0102 NMEF FUNDING", "confirmed_lender", "NMEF"),
         ("CHECK 1234 FORA FINANCIAL", "confirmed_lender", "FORA FINANCIAL"),
+        # Owner decisions 2026-09-25: Econolease is equipment finance, a lender; EBF Holdings
+        # is Everest Business Funding, one funder counted once.
+        ("VLFC-Econolease finance payment", "confirmed_lender", "Econolease"),
+        ("EBF HOLDINGS DEBIT 0001", "confirmed_lender", "EVEREST BUSINESS FUNDING"),
         ("BDC loan payment", "alternative_position", "BDC"),
         ("ACH DEBIT INTUIT FINANCING 0001", "alternative_position", "INTUIT FINANCING"),
         ("CARD PURCHASE AFFIRMCOM 0001", "alternative_position", "AFFIRM"),
+        # Owner ruling 2026-09-25: Capital Infusion (the house) is flagged, never counted.
+        ("CAPITAL INFUSION PAYMENT", "alternative_position", "CAPITAL INFUSION"),
         ("BLUEVINE loan payment", "line_of_credit", "BLUEVINE"),
+        ("BLUEVINE CAPITAL", "line_of_credit", "BLUEVINE"),
         ("FUNDBOX payment", "line_of_credit", "FUNDBOX"),
         ("KABBAGE payment", "line_of_credit", "KABBAGE"),
         ("Progressive Leasing recurring purchase", "lease_or_rental", "Progressive Leasing"),
-        ("SmartPay Sol debitpmt", "lease_or_rental", "SmartPay"),
+        ("SMARTPAY LEASING payment", "lease_or_rental", "SmartPay"),
     ],
 )
 def test_owner_ruled_payees_take_their_groups(description, state, entity):
@@ -1666,21 +1973,32 @@ def test_owner_named_floor_plan_and_factoring_payees_take_their_groups(descripti
     assert not record.contributes_to_withholding_rate
 
 
+def test_smartpay_solutions_premium_billing_is_not_the_lease_to_own_smartpay():
+    """Owner decision 2026-09-25: SMARTPAY SOL rows are SmartPay Solutions' premium billing,
+    not the lease-to-own SmartPay Leasing, so they stay unflagged."""
+    # Moves here unchanged from the order table of tests/test_lender_insurance_classification.py.
+    record = classify_transaction("SmartPay Sol debitpmt", -100.0)
+    assert (record.classification, record.canonical_entity, record.flagged_group) == ("other", None, None)
+
+
 @pytest.mark.parametrize(
-    ("description", "entity"),
+    ("debit", "credit", "state", "entity"),
     [
-        # Both descriptors move here unchanged from the order table of
-        # tests/test_lender_insurance_classification.py.
-        ("VLFC-Econolease finance payment", "Econolease"),
-        ("Clover equipment rent/leases", "Clover Equipment"),
+        ("SEZZLE PAYMENT 0001", "SEZZLE MERCHANT PAYOUT 0001", "alternative_position", "Sezzle Inc"),
+        ("PAYABILITY PAYMENT 0001", "PAYABILITY MARKETPLACE PAYOUT 0001", "confirmed_lender", "PAYABILITY"),
     ],
 )
-def test_a_lease_registry_row_takes_the_group_its_registry_declares(description, entity):
-    record = classify_transaction(description, -100.0)
-    state = _registry_state(entity)
-    assert (record.classification, record.canonical_entity) == (state, entity)
-    assert record.flagged_group == _group_key(state)
-    assert not record.contributes_to_withholding_rate
+def test_a_payout_credit_entity_keeps_its_group_on_debits_and_its_payouts_are_revenue(debit, credit, state, entity):
+    """Owner decision 2026-09-25 (PAYOUT_CREDIT_ENTITIES): the platform settles the account
+    holder's own sales, so its credits are revenue, not financing proceeds."""
+    paid = classify_transaction(debit, -100.0)
+    assert (paid.classification, paid.canonical_entity) == (state, entity)
+    assert paid.contributes_to_withholding_rate is (state == "confirmed_lender")
+    payout = classify_transaction(credit, 900.0)
+    assert payout.matched_rule != "financing_proceeds_credit"
+    assert not payout.contributes_to_lender_credit_exclusion
+    assert payout.revenue_classification == "verified_revenue"
+    assert payout.revenue_match_method != "financing_proceeds_credit"
 
 
 @pytest.mark.parametrize(
@@ -1726,8 +2044,10 @@ def test_the_lenders_compatibility_helpers_follow_the_new_groups():
 
 Run: `C:\Python314\python.exe -m pytest tests/test_known_payee_classification.py -q -p no:cacheprovider`
 Expected: FAIL.
-- The `fake_payees` debit tests fail on the state: debits still go through S1's legacy lists, which know no fabricated payee.
-- The owner-ruled NMEF/Balboa/Navitas/BDC/Intuit/Affirm/BlueVine/Fundbox/Kabbage rows, the NextGear/RTS rows and the card-paid rows fail on the state.
+- The `fake_payees` debit tests fail on the state: debits still go through S1's legacy lists, which know no fabricated payee. That includes the overdraft-charge row (`other`, not yet a fee) and the `FABRICATED BNPL PAYMENT` and `FABRICATED PERSONAL PLUS` membership cases; the other membership cases already pass.
+- The owner-ruled NMEF/Balboa/Navitas/Econolease/EBF/BDC/Intuit/Affirm/Capital Infusion/BlueVine/Fundbox/Kabbage/SmartPay Leasing rows, the NextGear/RTS rows and the card-paid rows fail on the state or the entity.
+- `SmartPay Sol debitpmt` fails as `lease_or_equipment_financing` (S1's legacy lease list still holds `SMARTPAY SOL`), and `OVERDRAFT CHARGE 0001` is `other`.
+- The Sezzle debit fails on the state; the PAYABILITY credit fails on `contributes_to_lender_credit_exclusion` (S1's legacy lender list still reads it as a lender credit).
 - `test_the_lenders_compatibility_helpers_follow_the_new_groups` fails with `TypeError: 'NoneType' object is not subscriptable` (NMEF is still a lease).
 
 - [ ] **Step 3: Replace the classifier's registry import block.** Replace the whole `from .classification_registry import (...)` block (every line from `from .classification_registry import (` through its closing `)`) with:
@@ -1739,6 +2059,7 @@ from .classification_registry import (
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
     PAYEE_GROUP_REGISTRIES,
+    PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
 )
 ```
@@ -1811,9 +2132,42 @@ def _known_payee_debit_record(
             "it is a flagged obligation and never enters lender math."
         ),
     )
+
+
+#: Owner decision 2026-09-25 (Klarna Inc): an alternative-position payee's paid
+#: membership, or a top-up of the customer's own balance with it, printed right
+#: after the payee's alias, is not a repayment. The words are read after the
+#: matched alias, so no payee name is written here.
+_MEMBERSHIP_OR_TOP_UP_AFTER_ALIAS = (
+    r" (?:PLUS|PLU|MEM|MEMB|MEMBER|MEMBERSHIP)\b",
+    r" BALANCE TOP ?(?:UP|U)\b",
+)
+
+
+def _is_membership_or_top_up(text: str, match: PayeeMatch) -> bool:
+    """True when a debit to an alternative-position payee is its membership or a balance top-up."""
+    if match.state != "alternative_position":
+        return False
+    alias = re.escape(match.alias)
+    return any(re.search(rf"\b{alias}{tail}", text) for tail in _MEMBERSHIP_OR_TOP_UP_AFTER_ALIAS)
 ```
 
-- [ ] **Step 6: Replace `classify_transaction`** (the whole function) with:
+- [ ] **Step 6: Make an overdraft charge a fee.** In `_FEE_PATTERNS`, replace
+
+```python
+    re.compile(r"\bMONTHLY CHARGE\b"),
+)
+```
+with
+```python
+    re.compile(r"\bMONTHLY CHARGE\b"),
+    # Owner decision 2026-09-25: the bank's overdraft charge for an item is a fee,
+    # even when it prints the item's payee (step 6 runs before the known payee).
+    re.compile(r"\bOVERDRAFT CHARGES?\b"),
+)
+```
+
+- [ ] **Step 7: Replace `classify_transaction`** (the whole function) with:
 
 ```python
 def classify_transaction(
@@ -1906,6 +2260,10 @@ def classify_transaction(
     # Spec §4.6: one lookup over every group registry. A known payee is excepted
     # from the POS and ATM rules (D8) and takes its group at step 7 below.
     known_payee = match_known_payee(text)
+    # Owner decision 2026-09-25: a membership or balance top-up debit of an
+    # alternative-position payee matches no known payee (steps 5 and 7).
+    if known_payee is not None and amount < 0 and _is_membership_or_top_up(text, known_payee):
+        known_payee = None
 
     if (
         amount < 0
@@ -1993,13 +2351,20 @@ def classify_transaction(
         )
 
     # Step 7: the known payee's group (D9 inside). A credit is proceeds only
-    # for a financing group (D1); a card-issuer or lease/rental payee on a
-    # credit falls through to the rules below.
+    # for a financing group (D1), and never for a payout-credit entity (owner
+    # decision 2026-09-25: its credits are the holder's own sales); a card-issuer
+    # or lease/rental payee on a credit falls through to the rules below.
     if known_payee is not None:
         if amount < 0:
             return _known_payee_debit_record(common, text, known_payee)
-        if known_payee.state in FINANCING_STATES:
+        if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
             return _financing_proceeds_credit_record(common, amount, known_payee)
+    # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
+    # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.
+    if amount > 0:
+        descriptor_proceeds = _descriptor_proceeds(text)
+        if descriptor_proceeds is not None:
+            return _descriptor_proceeds_credit_record(common, amount, descriptor_proceeds, bank)
 
     if _matches_any(text, _LEASE_PATTERNS):
         return _build_record(
@@ -2134,12 +2499,12 @@ def classify_transaction(
     )
 ```
 
-- [ ] **Step 7: Run the new tests.**
+- [ ] **Step 8: Run the new tests.**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_known_payee_classification.py tests/test_financing_proceeds_credits.py tests/test_classifier_lookups.py tests/test_flag_group_states.py -q -p no:cacheprovider`
 Expected: PASS.
 
-- [ ] **Step 8: Settle the order table** (pin-ledger row 1). In `tests/test_lender_insurance_classification.py`, replace the whole `test_ordered_non_lender_rules_precede_lender_detection` (decorator and body, `:40-86`) with:
+- [ ] **Step 9: Settle the order table** (pin-ledger row 1). In `tests/test_lender_insurance_classification.py`, replace the whole `test_ordered_non_lender_rules_precede_lender_detection` (decorator and body, `:40-86`) with:
 
 ```python
 @pytest.mark.parametrize(
@@ -2155,7 +2520,9 @@ Expected: PASS.
         ("Desjardins Assurances policy", "insurance", "Desjardins Insurance"),
         ("PROGRESSIVE INS 800-776-4737", "insurance", "Progressive"),
         # Lease, equipment-financing and card rows moved to
-        # tests/test_known_payee_classification.py (lender-detection design §2).
+        # tests/test_known_payee_classification.py, and the Clover row to
+        # tests/test_obligation_descriptors.py (lender-detection design §2;
+        # owner decisions 2026-09-25).
         ("ACH fee", "fee", None),
         ("INTERAC e-transfer fee", "fee", None),
         ("Merchant-processing fee", "fee", None),
@@ -2186,11 +2553,27 @@ def test_ordered_non_lender_rules_precede_lender_detection(
     assert not result.contributes_to_flagged_totals
 ```
 
-- [ ] **Step 9: Settle the named aliases** (pin-ledger rows 2-3). In `test_named_financing_aliases` (`:102-117`), the SNAP row must read `("External Withdrawal SNAP FINANCE - PAYMENT", "lease_or_rental", "SNAP Finance"),` and the BDC row must read `("BDC loan payment", "alternative_position", "BDC"),`. Leave the other five rows as they are.
+- [ ] **Step 10: Settle the named aliases** (pin-ledger rows 2, 3 and 19). In `test_named_financing_aliases` (`:102-117`), these rows must read:
+  ```python
+          ("CMCA Finance BUS payment", "confirmed_lender", "CMCA Finance"),
+          ("CMCAFINANCE debit", "confirmed_lender", "CMCA Finance"),
+          ("91003457252 EFT Payment xxxxxx1111 Lily Advance 8008545315", "confirmed_lender", "Lily Advance"),
+          ("External Withdrawal SNAP FINANCE - PAYMENT", "lease_or_rental", "SNAP Finance"),
+  ```
+  and the BDC row must read `("BDC loan payment", "alternative_position", "BDC"),`. Leave the two Forward rows as they are.
 
-- [ ] **Step 10: Settle Item 12a** (pin-ledger rows 4-5). In `tests/test_r1_hardcodes.py`, replace `test_intuit_financing_confirmed_lender` and `test_intuit_software_purchase_is_not_a_lender` (`:536-545`) with:
+- [ ] **Step 11: Settle Item 12a** (pin-ledger rows 4, 5 and 18). In `tests/test_r1_hardcodes.py`, replace `test_afc_funding_confirmed_lender`, `test_intuit_financing_confirmed_lender` and `test_intuit_software_purchase_is_not_a_lender` (`:530-545`) with:
 
 ```python
+    def test_afc_funding_is_floor_plan_financing(self):
+        # Owner decision 2026-09-25 (lender-detection design §2): AFC Funding Corporation
+        # funds dealer floor plans, so Item 12a's AFC FUNDING CORP is flagged Floor plan.
+        record = classify_transaction("AFC FUNDING CORP XPRESS PAY", -4229.99)
+        assert record.classification == "floor_plan_financing"
+        assert record.canonical_entity == "AFC FUNDING CORP"
+        assert record.flagged_group == "floor_plan"
+        assert not record.contributes_to_withholding_rate
+
     def test_intuit_financing_is_an_alternative_position(self):
         # Owner ruling 2026-09-24 (lender-detection design §2) moved Item 12a's
         # INTUIT FINANCING out of the lenders: it is a flagged alternative position.
@@ -2211,7 +2594,7 @@ def test_ordered_non_lender_rules_precede_lender_detection(
         assert record.canonical_entity != "INTUIT FINANCING"
 ```
 
-- [ ] **Step 11: Settle `tests/test_analysis.py`** (pin-ledger rows 6-8).
+- [ ] **Step 12: Settle `tests/test_analysis.py`** (pin-ledger rows 6-8).
   - After the import line `from analysis.detect import detect, find_known_funders, find_recurring_debits` (`:13`), add `from analysis.transaction_classifier import classify_statement_transactions`.
   - In `test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts`, after its final assertion `assert m.loan_count == 1`, add:
     ```python
@@ -2232,38 +2615,312 @@ def test_ordered_non_lender_rules_precede_lender_detection(
     ```
   - In `test_detect_expanded_lender_keyword_aliases`, the last line must read `assert [m.funder for m in matches] == ["FUNDWORKS", "De Lage Landen"]`.
 
-- [ ] **Step 12: Settle the ATB November lender lines** (pin-ledger rows 9 and 11). In `tests/test_transaction_classifier.py::test_atb_november_lender_and_potential_obligation_regression`:
-  - the three lender lines (`:314-316`) must read:
-    ```python
-        assert metrics.lenders_detected == 2
-        assert metrics.lender_debit_count == 42
-        assert metrics.lender_debits == 7497.0
-    ```
-  - the funder-set line (`:329`) must read `assert set(known_funders) == {"CanaCap", "Forward Funding"}`, and directly after `assert known_funders["Forward Funding"].total_debited == 4305.0` add:
-    ```python
-        # Owner ruling 2026-09-24: BDC is an alternative position, not a lender.
-        assert sum(record.classification == "alternative_position" for record in report.classifications) == 1
-    ```
-  - the lender-evidence lines (`:347-348`) must read `assert len(report.detection.lender_evidence) == 42` and `assert sum(abs(record.amount) for record in report.detection.lender_evidence) == 7497.0`;
-  - the package lender lines (`:367-369`) must read `assert totals["lenders_detected"] == 2`, `assert totals["lender_debit_count"] == 42`, `assert totals["lender_debits"] == 7497.0`;
-  - the potential lines keep (or, if S1 changed them, are restored to) the pre-D6 values 1 row / 571.88 / 0.96 until Task 10.
-
-  In `tests/test_revenue_classification.py::test_atb_november_true_revenue_regression_from_exact_evidence`, lines `:402-404` must read `== 2`, `== 42`, `== 7497.0`; line `:405` keeps (or is restored to) `== 571.88` until Task 10.
-
-- [ ] **Step 13: Settle first_farmers** (pin-ledger row 14). In `tests/test_new_statement_corpus.py`, the first_farmers `"lenders"` entry (`:122`) must read `"lenders": (0, 0.00, 0, 0.00),`, and append at the end of the file:
+- [ ] **Step 13: Settle ATB November** (pin-ledger rows 9-12). The lender lines move with BDC (an alternative position) and Econolease (a lender). The potential lines move here, not in Task 10: from this task on the classifier reads the rendered `POTENTIAL_LENDER_ALIASES`, whose review entities `MERCH PAD (probably Merchant Growth)` and `LOANS FC` claim the statement's 21 fixed daily debits and its direct-debit loan at step 11. Task 10's D6 then finds nothing left to promote on this statement (probe of 2026-09-26). In `tests/test_transaction_classifier.py`, directly before `from pathlib import Path` (`:3`), add `from collections import Counter`, and replace the whole function `test_atb_november_lender_and_potential_obligation_regression` (`:306-386`) with:
 
 ```python
-def test_first_farmers_bluevine_row_is_a_line_of_credit_not_a_lender():
-    """Owner ruling 2026-09-24 (lender-detection design §2): BlueVine is a line of credit."""
+def test_atb_november_lender_and_potential_obligation_regression():
+    report = _real_statement_report("ATB/ATB Nov 2023.pdf")
+    metrics = report.metrics
+
+    assert report.statement.period_start == "2023-11-01"
+    assert report.statement.period_end == "2023-11-30"
+    assert report.reconciliation.ok
+    # Owner rulings 2026-09-24/25: BDC is an alternative position, and Econolease
+    # (equipment finance) is a lender. Derived totals only.
+    assert metrics.lenders_detected == 3
+    assert metrics.lender_debit_count == 45
+    assert metrics.lender_debits == 9757.26
+    # The C10 ledger's review tier (spec section 4.3 step 11): MERCH PAD's fixed
+    # daily debits and the LOANS FC direct debit.
+    assert metrics.potential_lenders_detected == 2
+    assert metrics.potential_lender_debit_count == 22
+    assert metrics.potential_lender_debit_total == 3178.19
+    assert metrics.eligible_deposits == 59310.74
+    assert metrics.potential_withholding_numerator == 3178.19
+    assert metrics.potential_withholding_denominator == 59310.74
+    assert metrics.potential_withholding_exposure == pytest.approx(
+        3178.19 / 59310.74 * 100
+    )
+    assert round(metrics.potential_withholding_exposure, 2) == 5.36
+
+    known_funders = {match.funder: match for match in report.detection.known_funders}
+    assert set(known_funders) == {"CanaCap", "Econolease", "Forward Funding"}
+    assert known_funders["Forward Funding"].debit_count == 21
+    assert known_funders["Forward Funding"].total_debited == 4305.0
+    assert known_funders["Econolease"].debit_count == 3
+    # Owner ruling 2026-09-24: BDC is an alternative position, not a lender.
+    assert sum(record.classification == "alternative_position" for record in report.classifications) == 1
+
+    assert [match.funder for match in report.detection.potential_lenders] == [
+        "MERCH PAD (probably Merchant Growth)",
+        "LOANS FC",
+    ]
+    merch_pad, loans_fc = report.detection.potential_lenders
+    assert (merch_pad.debit_count, merch_pad.total_debited) == (21, 2606.31)
+    assert (loans_fc.debit_count, loans_fc.total_debited) == (1, 571.88)
+    for potential in (merch_pad, loans_fc):
+        assert potential.eligible_deposit_denominator == 59310.74
+        assert potential.potential_withholding_exposure == pytest.approx(
+            potential.total_debited / 59310.74 * 100
+        )
+        assert potential.review_required
+    assert [transaction.description for transaction in loans_fc.transactions] == [
+        "Direct Debit Loans FC"
+    ]
+    assert [transaction.amount for transaction in loans_fc.transactions] == [-571.88]
+    assert len(report.detection.lender_evidence) == 45
+    assert round(sum(abs(record.amount) for record in report.detection.lender_evidence), 2) == 9757.26
+    assert len(report.detection.potential_lender_evidence) == 22
+    assert Counter(record.match_method for record in report.detection.potential_lender_evidence) == {
+        "candidate_lender_alias": 22,
+    }
+    assert not any(record.contributes_to_lender_totals for record in report.detection.potential_lender_evidence)
+
+    payload = report_to_dict(report)
+    serialized = {item["funder"]: item for item in payload["detection"]["potential_lenders"]}
+    assert serialized["LOANS FC"]["debit_count"] == 1
+    assert serialized["LOANS FC"]["total_debited"] == 571.88
+    assert serialized["LOANS FC"]["eligible_deposit_denominator"] == 59310.74
+    assert serialized["LOANS FC"]["potential_withholding_exposure"] == pytest.approx(
+        571.88 / 59310.74 * 100
+    )
+    assert serialized["LOANS FC"]["status"] == "review_required"
+    assert serialized["MERCH PAD (probably Merchant Growth)"]["debit_count"] == 21
+    assert serialized["MERCH PAD (probably Merchant Growth)"]["total_debited"] == 2606.31
+
+    package = _package_analysis(
+        [Job(id="atb-nov", filename="ATB Nov 2023.pdf", status="done", analysis=payload)]
+    )
+    totals = package["totals"]
+    assert totals["lenders_detected"] == 3
+    assert totals["lender_debit_count"] == 45
+    assert totals["lender_debits"] == 9757.26
+    assert totals["potential_lenders_detected"] == 2
+    assert totals["potential_lender_debit_count"] == 22
+    assert totals["potential_lender_debit_total"] == 3178.19
+    assert totals["eligible_deposits"] == 59310.74
+    assert totals["potential_withholding_exposure"] == 5.36
+    assert totals["decision"] == "review_required"
+
+    package_candidates = {item["funder"]: item for item in package["potential_lenders"]}
+    assert list(package_candidates) == ["LOANS FC", "MERCH PAD (probably Merchant Growth)"]
+    package_candidate = package_candidates["LOANS FC"]
+    assert package_candidate["debit_count"] == 1
+    assert package_candidate["total_debited"] == 571.88
+    assert package_candidate["eligible_deposit_denominator"] == 59310.74
+    assert package_candidate["status"] == "review_required"
+    assert package_candidates["MERCH PAD (probably Merchant Growth)"]["debit_count"] == 21
+    assert Counter(row["match_method"] for row in package["potential_lender_evidence"]) == {
+        "candidate_lender_alias": 22,
+    }
+```
+
+  In `tests/test_revenue_classification.py::test_atb_november_true_revenue_regression_from_exact_evidence`, lines `:402-405` must read:
+  ```python
+      assert metrics.lenders_detected == 3
+      assert metrics.lender_debit_count == 45
+      assert metrics.lender_debits == 9757.26
+      assert metrics.potential_lender_debit_total == 3178.19
+  ```
+
+- [ ] **Step 14: Settle the other pins the ledger moves in `tests/test_lender_insurance_classification.py`** (pin-ledger rows 20-25). CMCA Finance and Econolease are lenders (owner decisions 2026-09-25), and the ledger holds `LOANS FC` as a review entity.
+  - In `test_unidentified_direct_debit_loan_is_potential_and_requires_review` (`:130-145`), replace `result = classify_transaction("Direct Debit Loans FC", -571.88)` with `result = classify_transaction("Direct Debit Loans", -571.88)`, and add as its last lines:
+    ```python
+        # The C10 ledger holds LOANS FC as a review entity: the potential registry names it.
+        named = classify_transaction("Direct Debit Loans FC", -571.88)
+        assert (named.classification, named.canonical_entity) == ("potential_lender", "LOANS FC")
+        assert (named.match_method, named.matched_rule) == ("candidate_lender_alias", "potential_lender_registry")
+        assert named.review_required
+        assert not named.contributes_to_withholding_rate
+    ```
+  - In `test_recurring_counterparty_normalization_removes_ids_not_business_name`, the line `assert {record.classification for record in records} == {"potential_lender"}` (`:196`) must read `assert {record.classification for record in records} == {"confirmed_lender"}`. Its `PAYMENT - AUTOMATIC LOAN PYMT W/D` block stays until Task 8.
+  - Replace the line `def _audit_report() -> Report:` (`:230`) with `def _audit_report(*extra: Transaction) -> Report:`, and in its `transactions=[...]` list replace the last row `            _txn("2054-01-12", "BDC payment returned NSF", -200.0),` with:
+    ```python
+                _txn("2054-01-12", "BDC payment returned NSF", -200.0),
+                *extra,
+    ```
+  - In `test_metrics_api_tables_filters_and_withholding_share_exact_evidence` (`:275-364`), replace everything from `    assert metrics["lenders_detected"] == 2` through `    assert package["potential_lenders"][0]["total_debited"] == 125.0` with:
+    ```python
+        # Owner decisions 2026-09-25: CMCA Finance and Econolease are lenders.
+        assert metrics["lenders_detected"] == 4
+        assert metrics["potential_lenders_detected"] == 0
+        assert metrics["lender_debit_count"] == len(lender_filter_rows) == len(lender_evidence) == 5
+        assert metrics["lender_debits"] == metrics["withholding_numerator"] == 2660.0
+        assert sum(abs(row["amount"]) for row in lender_filter_rows) == 2660.0
+        assert sum(abs(row["amount"]) for row in lender_evidence) == 2660.0
+        assert metrics["withholding_denominator"] == metrics["eligible_deposits"] == 16898.73
+        assert metrics["withholding_rate"] == pytest.approx(2660.0 / 16898.73 * 100)
+        assert round(metrics["withholding_rate"], 2) == 15.74
+
+        assert metrics["potential_lender_debit_count"] == len(potential_filter_rows) == 0
+        assert metrics["potential_lender_debit_total"] == metrics["potential_lender_debits"] == 0.0
+        assert not metrics["potential_withholding_review_required"]
+        assert potential_lender_evidence == []
+
+        assert metrics["insurance_count"] == len(insurance_filter_rows) == len(insurance_evidence) == 2
+        assert metrics["insurance_total"] == 600.0
+        assert sum(abs(row["amount"]) for row in insurance_filter_rows) == 600.0
+        assert {item["funder"] for item in payload["detection"]["known_funders"]} == {
+            "CanaCap",
+            "CAN Capital",
+            "CMCA Finance",
+            "Econolease",
+        }
+        assert payload["detection"]["potential_lenders"] == []
+        assert {item["provider"] for item in payload["detection"]["insurance_providers"]} == {
+            "Co-operators",
+            "Intact Insurance",
+        }
+        assert payload["classifications"] == [row["classification"] for row in transactions]
+
+        package = _package_analysis(
+            [Job(id="audit", filename="audit.pdf", status="done", analysis=payload)]
+        )
+        totals = package["totals"]
+        assert totals["lenders_detected"] == 4
+        assert totals["potential_lenders_detected"] == 0
+        assert totals["lender_debit_count"] == 5
+        assert totals["lender_debits"] == totals["withholding_numerator"] == 2660.0
+        assert totals["withholding_denominator"] == 16898.73
+        assert totals["package_withholding_rate"] == 15.74
+        assert len(package["lender_evidence"]) == 5
+        assert totals["potential_lender_debit_count"] == 0
+        assert totals["potential_lender_debit_total"] == totals["potential_lender_debits"] == 0.0
+        assert not totals["potential_withholding_review_required"]
+        # Still review: the fixture's customer deposit needs revenue review (measured 2026-09-26).
+        assert totals["decision"] == "review_required"
+        assert package["potential_lender_evidence"] == []
+    ```
+    and keep its three insurance lines after that block (`assert totals["insurance_count"] == 2` and the two after it).
+  - Replace the whole `test_potential_funder_serialization_rebuilds_values_from_authoritative_evidence` (`:367-380`) with:
+    ```python
+    def test_potential_funder_serialization_rebuilds_values_from_authoritative_evidence():
+        # CMCA Finance is a lender since the owner decision of 2026-09-25, so a fabricated
+        # unnamed direct-debit loan is the audit fixture's potential row here.
+        report = _audit_report(_txn("2054-01-13", "Direct Debit Loans", -125.0))
+        candidate = report.detection.potential_lenders[0]
+        assert candidate.funder == "Unidentified lender obligation"
+        candidate.debit_count = 0
+        candidate.total_debited = 0.0
+        candidate.potential_withholding_exposure = None
+
+        payload = report_to_dict(report)
+        serialized = payload["detection"]["potential_lenders"][0]
+        assert serialized["debit_count"] == serialized["potential_lender_debit_count"] == 1
+        assert serialized["total_debited"] == serialized["potential_lender_debit_total"] == 125.0
+        assert serialized["eligible_deposit_denominator"] == 16898.73
+        assert serialized["potential_withholding_exposure"] == pytest.approx(
+            125.0 / 16898.73 * 100
+        )
+
+        # The package rebuilds a stale candidate from the same evidence (moved here from
+        # the TD CMCA test, whose candidate is now a lender).
+        stale_payload = deepcopy(payload)
+        stale_candidate = stale_payload["detection"]["potential_lenders"][0]
+        for key in (
+            "debit_count",
+            "potential_lender_debit_count",
+            "potential_lender_debit_total",
+            "eligible_deposit_denominator",
+            "potential_withholding_exposure",
+        ):
+            stale_candidate.pop(key, None)
+        stale_candidate["total_debited"] = 0.0
+        rebuilt_package = _package_analysis(
+            [Job(id="audit-stale", filename="audit.pdf", status="done", analysis=stale_payload)]
+        )
+        rebuilt_candidate = rebuilt_package["potential_lenders"][0]
+        assert rebuilt_candidate["debit_count"] == 1
+        assert rebuilt_candidate["total_debited"] == 125.0
+        assert rebuilt_candidate["eligible_deposit_denominator"] == 16898.73
+        assert rebuilt_candidate["potential_withholding_exposure"] == pytest.approx(
+            125.0 / 16898.73 * 100
+        )
+        assert rebuilt_package["totals"]["potential_lender_debit_total"] == 125.0
+    ```
+  - In `test_duplicate_potential_lender_row_is_excluded_from_potential_totals` (`:405-422`), replace the descriptor `"CMCA Finance BUS payment"` with `"Direct Debit Loans"` in all three rows, and add directly under the `def` line the comment `    # CMCA Finance is a lender since 2026-09-25; an unnamed direct-debit loan stays potential.` Every assertion stays.
+  - Replace the whole `test_td_cmca_fixture_reports_potential_amount_and_exposure_without_promotion` (`:474-563`) with:
+    ```python
+    def test_td_cmca_fixture_counts_cmca_finance_as_a_lender():
+        """Owner decision 2026-09-25: CMCA Finance is a merchant cash advance funder, a counted lender."""
+        root = Path(__file__).resolve().parents[1]
+        pdf = root / "Bank Statements" / "TD Can" / "Jan_30-Feb_27_2026 (3).pdf"
+        document = parse_native_td_canada(pdf.read_bytes(), source_file=pdf.name)
+        assert document is not None
+
+        report = analyze_markdown(document.to_markdown(), parse_mode="deterministic")
+        payload = report_to_dict(report)
+        metrics = payload["metrics"]
+        lender_rows = [
+            transaction
+            for transaction in payload["statement"]["transactions"]
+            if transaction["classification"]["contributes_to_withholding_rate"]
+        ]
+
+        assert payload["statement"]["bank"] == "TD Canada Trust"
+        assert payload["statement"]["currency"] == "CAD"
+        assert metrics["lenders_detected"] == 1
+        assert metrics["lender_debit_count"] == len(lender_rows) == 20
+        assert metrics["lender_debits"] == metrics["withholding_numerator"] == 2235.0
+        assert sum(abs(row["amount"]) for row in lender_rows) == 2235.0
+        assert metrics["eligible_deposits"] == metrics["withholding_denominator"] == 16898.73
+        assert metrics["withholding_rate"] == pytest.approx(2235.0 / 16898.73 * 100)
+        assert round(metrics["withholding_rate"], 2) == 13.23
+        assert metrics["potential_lenders_detected"] == 0
+        assert metrics["potential_lender_debit_count"] == 0
+        assert metrics["potential_lender_debit_total"] == 0.0
+        assert not metrics["potential_withholding_review_required"]
+        assert {row["description"] for row in lender_rows} == {"CMCA Finance BUS"}
+        assert {row["amount"] for row in lender_rows} == {-111.75}
+        assert {row["classification"]["canonical_entity"] for row in lender_rows} == {"CMCA Finance"}
+
+        funders = payload["detection"]["known_funders"]
+        assert [funder["funder"] for funder in funders] == ["CMCA Finance"]
+        funder = funders[0]
+        assert funder["classification"] == "confirmed_lender"
+        assert funder["debit_count"] == 20
+        assert funder["total_debited"] == 2235.0
+        assert len(funder["transactions"]) == len(funder["evidence"]) == 20
+        assert len(payload["detection"]["lender_evidence"]) == 20
+        assert payload["detection"]["potential_lenders"] == []
+        assert payload["detection"]["potential_lender_evidence"] == []
+
+        package = _package_analysis(
+            [Job(id="td-cmca", filename=pdf.name, status="done", analysis=payload)]
+        )
+        totals = package["totals"]
+        assert totals["lenders_detected"] == 1
+        assert totals["lender_debit_count"] == 20
+        assert totals["lender_debits"] == totals["withholding_numerator"] == 2235.0
+        assert totals["withholding_denominator"] == 16898.73
+        assert totals["package_withholding_rate"] == 13.23
+        assert totals["potential_lender_debit_count"] == 0
+        assert totals["potential_lender_debit_total"] == 0.0
+        assert not totals["potential_withholding_review_required"]
+        # Still review: the statement's unverified deposits need revenue review (measured 2026-09-26).
+        assert totals["decision"] == "review_required"
+        assert len(package["lender_evidence"]) == 20
+        assert [(item["funder"], item["debit_count"], item["total_debited"]) for item in package["funders"]] == [
+            ("CMCA Finance", 20, 2235.0)
+        ]
+    ```
+
+- [ ] **Step 15: Settle first_farmers** (pin-ledger row 14). In `tests/test_new_statement_corpus.py`, the first_farmers `"lenders"` entry (`:122`) must read `"lenders": (0, 0.00, 0, 0.00),`, and append at the end of the file:
+
+```python
+def test_first_farmers_bluevine_named_row_is_not_flagged():
+    """Owner decision 2026-09-25: the bare BLUEVINE alias is dropped. first_farmers' one
+    BlueVine-named debit pays another business that banks with Bluevine, so it is no
+    lender, no line of credit and no flagged row."""
     report = _source_report("first_farmers")
-    lines = [record for record in report.classifications if record.classification == "line_of_credit"]
-    assert [record.canonical_entity for record in lines] == ["BLUEVINE"]
+    assert not any(record.classification == "line_of_credit" for record in report.classifications)
+    assert not any(record.canonical_entity == "BLUEVINE" for record in report.classifications)
     assert report.metrics.lenders_detected == 0
 ```
 
-- [ ] **Step 14: Settle relay, only in the personal-loan variant** (pin-ledger row 17). If Task 0 printed `variant relay: personal-loan payees claim 3 debit rows, 2 of them POS (pin-ledger row 17)`, the relay `"channels"` entry of `EXPECTED` in `tests/test_new_statement_corpus.py` (`:181`) must read `"channels": (2, 8, 64, 9, 0, 0),`: D8 moves the two card-paid personal-loan rows out of POS. Otherwise leave it at `(2, 8, 66, 9, 0, 0)`.
+- [ ] **Step 16: Settle relay** (pin-ledger row 17). The relay `"channels"` entry of `EXPECTED` in `tests/test_new_statement_corpus.py` (`:181`) must read `"channels": (2, 8, 59, 9, 0, 0),`: D8 moves the seven card-paid personal-loan rows (Klover 5, Tilt 2; Task 0 reads `relay: POS rows claimed = 7`) out of POS. relay's `"lenders"` entry stays `(0, 0.00, 0, 0.00)`: personal loans are flagged, never lenders or potential lenders.
 
-- [ ] **Step 15: Run the core and wider selections.**
+- [ ] **Step 17: Run the core and wider selections.**
 
 Run:
 ```
@@ -2272,7 +2929,7 @@ C:\Python314\python.exe -m pytest tests/test_analysis.py -q -p no:cacheprovider 
 ```
 Expected: PASS. Any other failure: stop and report the test id.
 
-- [ ] **Step 16: Commit.**
+- [ ] **Step 18: Commit.**
 
 ```
 git add analysis/transaction_classifier.py tests/test_known_payee_classification.py tests/test_lender_insurance_classification.py tests/test_r1_hardcodes.py tests/test_analysis.py tests/test_transaction_classifier.py tests/test_revenue_classification.py tests/test_new_statement_corpus.py
@@ -2317,7 +2974,7 @@ Expected: FAIL for each name Task 0 printed as `still defined: True`, one failur
   - `LEGACY_CONFIRMED_LENDER_ALIASES`
   - `LEGACY_POTENTIAL_LENDER_ALIASES`
 
-  If present, also delete S1's "Deprecated" comment block above them (on the pre-C10 S1 tree it starts `# --- Deprecated: the inputs of the classifier as it stands before S2 ---`), down to the line before the next assignment. Delete nothing else: never touch the block S1 renders from the C10 ledger. If one of the three tables sits inside that rendered block, stop and report it to the orchestrator; deleting it would break S1's drift test. Then confirm no reader is left:
+  If present, also delete S1's "Deprecated" comment block above them (on the pre-C10 S1 tree it starts `# --- Deprecated: the inputs of the classifier as it stands before S2 ---`), down to the line before the next assignment. Delete nothing else: never touch the block S1 renders from the C10 ledger, or S1's owner-ruling constants just above that comment (`PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES`, `REATTRIBUTED_REGISTRY_ALIASES`, and `PAYOUT_CREDIT_ENTITIES`, which the classifier reads). If one of the three tables sits inside that rendered block, stop and report it to the orchestrator; deleting it would break S1's drift test. Then confirm no reader is left:
 
 Run: `git grep -n "LEASE_PROVIDER_ALIASES\|LEGACY_CONFIRMED_LENDER_ALIASES\|LEGACY_POTENTIAL_LENDER_ALIASES" -- analysis webapp benchmark batch.py analyze.py`
 Expected: no output. Test files and `tools/` may still name them: S1's tests read the legacy lists through `getattr` and skip once they are gone (that is how the pre-C10 S1 tree's tests behaved).
@@ -2362,7 +3019,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 **Files:**
 - Modify: `analysis/transaction_classifier.py`:
   - the `from .classification_registry import (` block;
-  - a new helper after `match_insurance_provider`;
+  - two new definitions after `match_insurance_provider`;
   - the `_build_record` signature and its flag lines (Task 2);
   - the insurance block of `_classify_credit_revenue` (Task 4);
   - the insurance block of `classify_transaction` (Task 5).
@@ -2376,7 +3033,10 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
   - `contributes_to_insurance_totals` exactly as any insurance debit;
   - on a debit, `flagged_group="premium_financing"` and `contributes_to_flagged_totals` (posted debits only; cleared for duplicates and settlement reversals by Task 2's passes).
 - A premium-finance credit keeps the insurance credit treatment (revenue `non_revenue`, `revenue_match_method="insurance_provider_credit_exclusion"`) and carries no flag.
-- Also produces: the keyword `_build_record(..., flagged_group: str | None = None)`; `_insurance_registry_match(text: str) -> tuple[str, str, bool] | None`; the test fixture `fake_premium_finance`.
+- Produces the owner decisions of 2026-09-25 on premium financing:
+  - **Premium-finance wording** (`premium_finance_wording`). A row that no premium-finance alias claimed, and whose descriptor says premium finance (`PREM FIN`, `PREMIUM FINANCE`, `PREMIUM FINANCING`, `INSPREMFIN`), is insurance with `matched_rule="premium_finance_descriptor"` and the same flag on a debit. Its entity is the insurer when `INSURANCE_PROVIDER_ALIASES` names one (`match_method="insurance_provider_alias"`), else `Insurance provider not identified` (`match_method="insurance_descriptor"`). A credit keeps the insurance credit treatment: its revenue still reads only the two registries.
+  - **FIRST INSURANCE is FIRST Insurance Funding.** The bare ACH company name `FIRST INSURANCE` is also a premium-finance alias of `FIRST Insurance Funding` (S1's `PREMIUM_FINANCE_INSURER_ALIASES`). This rule reads `PREMIUM_FINANCE_ALIASES` first, so those rows stay insurance and are flagged premium financing with no code of their own. The hand-kept insurer `First Insurance` is unchanged.
+- Also produces: the keyword `_build_record(..., flagged_group: str | None = None)`; `_insurance_registry_match(text: str) -> tuple[str, str, bool] | None`; `_PREMIUM_FINANCE_WORDING_PATTERNS`; the test fixture `fake_premium_finance`.
 
 - [ ] **Step 1: Append the fake insurers** to `tests/flag_group_fixtures.py`:
 
@@ -2471,12 +3131,51 @@ def test_a_proven_duplicate_premium_finance_debit_leaves_the_flagged_totals(fake
     assert not duplicate.contributes_to_insurance_totals
 
 
-@pytest.mark.parametrize("description", ["IPFS CORP PMT", "FIRST INSURANCE FUNDING PMT"])
+@pytest.mark.parametrize(
+    "description",
+    # The last is fabricated: the bare ACH company name FIRST INSURANCE is FIRST Insurance
+    # Funding (owner decision 2026-09-25).
+    ["IPFS CORP PMT", "FIRST INSURANCE FUNDING PMT", "FIRST INSURANCE DES INSURANCE"],
+)
 def test_owner_named_premium_financiers_are_insurance_and_flagged(description):
     record = classify_transaction(description, -300.0)
     assert record.classification == "insurance"
     assert record.flagged_group == "premium_financing"
     assert record.contributes_to_insurance_totals
+
+
+def test_the_bare_first_insurance_originator_is_first_insurance_funding():
+    record = classify_transaction("FIRST INSURANCE DES INSURANCE", -300.0)
+    assert (record.canonical_entity, record.matched_alias) == ("FIRST Insurance Funding", "FIRST INSURANCE")
+    assert record.matched_rule == "premium_finance_provider"
+    assert record.contributes_to_flagged_totals
+
+
+@pytest.mark.parametrize(
+    ("description", "entity", "alias", "method"),
+    [
+        ("FABRICATED INSURER PREMIUM FINANCE 0001", "Fabricated Insurer", "FABRICATED INSURER", "insurance_provider_alias"),
+        ("ACH DEBIT PREM FIN 0001", "Insurance provider not identified", None, "insurance_descriptor"),
+        ("INSPREMFIN 0001", "Insurance provider not identified", None, "insurance_descriptor"),
+    ],
+)
+def test_premium_finance_wording_is_premium_financing_under_the_insurer_it_names(
+    fake_premium_finance, description, entity, alias, method
+):
+    """Owner decision 2026-09-25: premium-finance wording with no premium-finance payee named."""
+    record = classify_transaction(description, -300.0)
+    assert (record.classification, record.canonical_entity, record.matched_alias) == ("insurance", entity, alias)
+    assert (record.match_method, record.matched_rule) == (method, "premium_finance_descriptor")
+    assert record.flagged_group == "premium_financing"
+    assert record.contributes_to_flagged_totals
+    assert record.contributes_to_insurance_totals
+
+
+def test_a_premium_finance_wording_credit_carries_no_flag(fake_premium_finance):
+    record = classify_transaction("PREM FIN 0001", 300.0)
+    assert record.classification == "insurance"
+    assert record.flagged_group is None
+    assert not record.contributes_to_flagged_totals
 ```
 
 - [ ] **Step 3: Run it and watch it fail.**
@@ -2484,7 +3183,7 @@ def test_owner_named_premium_financiers_are_insurance_and_flagged(description):
 Run: `C:\Python314\python.exe -m pytest tests/test_premium_financing.py -q -p no:cacheprovider`
 Expected: FAIL.
 - Every `fake_premium_finance` test errors at setup with `AttributeError: <module 'analysis.transaction_classifier' ...> has no attribute 'PREMIUM_FINANCE_ALIASES'`.
-- Both owner-named rows fail on `flagged_group`, which is None. The `FIRST INSURANCE FUNDING` row may already be `insurance` through a shorter insurer alias.
+- The three owner-named rows fail on `flagged_group`, which is None. The `FIRST INSURANCE FUNDING` row may already be `insurance` through a shorter insurer alias, and the `FIRST INSURANCE DES INSURANCE` row is `insurance` through the hand-kept insurer `First Insurance`, so `test_the_bare_first_insurance_originator_is_first_insurance_funding` fails on the entity.
 
 - [ ] **Step 4: Import the premium-finance table.** In the `from .classification_registry import (` block, replace
 
@@ -2499,7 +3198,7 @@ with
 )
 ```
 
-- [ ] **Step 5: Add the insurer lookup.** Directly after the `match_insurance_provider` function (which Task 3 left calling `registry_match`), add:
+- [ ] **Step 5: Add the insurer lookup and the premium-finance wording.** Directly after the `match_insurance_provider` function (which Task 3 left calling `registry_match`), add:
 
 ```python
 
@@ -2523,6 +3222,15 @@ def _insurance_registry_match(text: str) -> tuple[str, str, bool] | None:
     if insurer is not None:
         return insurer[0], insurer[1], False
     return None
+
+
+#: Owner decision 2026-09-25 (premium_finance_wording): premium-finance wording on
+#: a row no premium-finance alias claimed is premium financing too. Read by the
+#: insurance rule of `classify_transaction` only; credit revenue reads the registries.
+_PREMIUM_FINANCE_WORDING_PATTERNS = (
+    re.compile(r"\bPREM(?:IUM)? ?FIN(?:ANCE|ANCING)?\b"),
+    re.compile(r"\bINSPREMFIN\b"),
+)
 ```
 
 - [ ] **Step 6: Let a rule pass the premium-financing group to `_build_record`.** In the `_build_record` signature, replace
@@ -2591,25 +3299,42 @@ with
 with
 ```python
     insurance_match = _insurance_registry_match(text)
-    if insurance_match is not None:
-        provider, alias, premium_finance = insurance_match
+    # Owner decision 2026-09-25: premium-finance wording on a row no premium-finance
+    # alias claimed is premium financing too, under the insurer when one is named.
+    premium_wording = (insurance_match is None or not insurance_match[2]) and _matches_any(
+        text, _PREMIUM_FINANCE_WORDING_PATTERNS
+    )
+    if insurance_match is not None or premium_wording:
+        provider, alias, premium_finance = insurance_match or ("Insurance provider not identified", None, False)
+        if premium_finance:
+            rule = "premium_finance_provider"
+            reason = (
+                f"Matched maintained premium-finance alias '{alias}'; the row stays insurance "
+                "and is also flagged as premium financing."
+            )
+        elif premium_wording:
+            rule = "premium_finance_descriptor"
+            reason = (
+                "The descriptor says premium finance; the row stays insurance and is also "
+                "flagged as premium financing."
+            )
+        else:
+            rule = "verified_insurance_provider"
+            reason = f"Matched maintained insurance provider alias '{alias}'."
         return _build_record(
             **common,
             classification="insurance",
             canonical_entity=provider,
-            match_method="insurance_provider_alias",
+            match_method="insurance_provider_alias" if alias is not None else "insurance_descriptor",
             matched_alias=alias,
-            matched_rule="premium_finance_provider" if premium_finance else "verified_insurance_provider",
-            confidence_score=0.99,
-            reason=(
-                f"Matched maintained premium-finance alias '{alias}'; the row stays insurance "
-                "and is also flagged as premium financing."
-                if premium_finance
-                else f"Matched maintained insurance provider alias '{alias}'."
-            ),
+            matched_rule=rule,
+            confidence_score=0.99 if alias is not None else 0.95,
+            reason=reason,
             # Spec §4.2: premium financing keeps the insurance state and the
             # insurance totals, and also carries its flag, on debits only.
-            flagged_group=_PREMIUM_FINANCING_GROUP if premium_finance and amount < 0 else None,
+            flagged_group=(
+                _PREMIUM_FINANCING_GROUP if (premium_finance or premium_wording) and amount < 0 else None
+            ),
         )
 ```
 
@@ -2631,13 +3356,35 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 ### Task 8: Obligation descriptors for unnamed payees (step 8, D4, D5)
 
 **Files:**
-- Modify: `analysis/transaction_classifier.py` (import block; `_LEASE_PATTERNS` definition `:338-343`; new constants after `CLASSIFICATION_VERSION`; new patterns after `_CREDIT_CARD_PATTERNS`; new helpers after `_financing_proceeds_credit_record`; `classify_transaction` lease/card blocks)
+- Modify: `analysis/transaction_classifier.py` (import block; `_LEASE_PATTERNS` definition `:338-343`; `_CREDIT_CARD_PATTERNS` `:319-327`; new constants after `CLASSIFICATION_VERSION`; new patterns after `_CREDIT_CARD_PATTERNS`; new helpers after `_descriptor_proceeds_credit_record` (Task 4); `classify_transaction` lease/card blocks)
+- Modify: `tests/test_lender_insurance_classification.py:199-204`
 - Modify (bank-name variant only): `tests/test_new_statement_corpus.py:153`
 - Test: `tests/test_obligation_descriptors.py`
 
 **Interfaces:**
 - Consumes: C2 `BANK_NAME_ALIASES`, `CARD_ISSUER_CONTEXT_ALIASES`; C3 `registry_match`.
 - Produces: debit-only step-8 records: `line_of_credit`, `mortgage`, `vehicle_financing`, `bank_loan` (bank-name route: `match_method="bank_name_alias"`, entity and alias from `BANK_NAME_ALIASES`; own-loan transfer: `matched_rule="own_bank_loan_transfer"`, entity = the statement bank or `None`), `lease_or_rental`, `credit_card_payment` (entity from `CARD_ISSUER_CONTEXT_ALIASES` when listed), and D4 `potential_lender` with `match_method="unnamed_equipment_financing"`. Produces the constant `UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"`. `lease_or_equipment_financing` is no longer produced.
+- Produces the step-8 rules of the owner decisions of 2026-09-25, in the order the rules' own placement gives them. Every one is debit-only, and steps 1-7 keep precedence:
+  1. **The own-account guard** (`step8_own_account_transfer_guard`): a debit whose whole descriptor is a fintech transfer between the holder's own accounts (`TRANSFER TO <nickname> [ACCOUNT] TRANSFER OUT`) takes no step-8 rule and continues to steps 9-11 as today. On one fintech bank the holder named a sub-account with auto-loan words, and its 408 cache rows would otherwise be vehicle financing.
+  2. **Floor-plan payoffs** (`floor_plan_per_vehicle`, the debit half): `PAYOFF`, a four-digit model year and `VIN` is `floor_plan_financing`, `matched_rule="floor_plan_payoff_descriptor"`, no entity.
+  3. LOC wording (unchanged).
+  4. Mortgage wording, now with **home-equity loans** (`mortgage_home_equity_loan`: `HOME EQUITY LOAN`, with no leading word boundary, so a run-together payee nickname matches). `HOME EQUITY LINE OF CREDIT` stays a line of credit because the LOC rule runs first (D9).
+  5. Vehicle wording (unchanged; `vehicle_wording_confirmed`).
+  6. **Student loans** (`student_loan_wording`): `personal_loan`, `matched_rule="student_loan_descriptor"`, no entity.
+  7. The bank-name rule, whose loan wording now also reads **French `PRET` or `PRETS`** (`d5_french_loan_wording` (a)).
+  8. The own-loan transfer (unchanged).
+  9. **Another bank's unnamed loan** (`d5_outside_bank_unnamed_loan`): a generic commercial-loan or savings-bank originator with loan-payment wording. It is `bank_loan` with no entity, because the statement bank is not the lender.
+  10. **The statement bank's own loan-payment wording** (`d5_own_loan_wording_en`): `AUTOMATIC LOAN PAYMENT`, `AUTOMATED LOAN PAYMENT`, `PAYMENT TO (COMMERCIAL) LOAN`. It is `bank_loan`, `matched_rule="own_bank_loan_payment"`, entity the statement bank.
+  11. **Commercial-loan billing** (`d5_commercial_loan_billing`): an interest, principal or late-charge payment on a customer/obligation number. `bank_loan`, `matched_rule="commercial_loan_billing"`, entity the statement bank.
+  12. **The statement bank's own French loan wording** (`d5_french_loan_wording` (b)): `VERSEMENT PRET`, `INTERETS SUR PRET`, `VERS/INT P A TERME`, `PMT PRET`, `PRET PMT`. `bank_loan`, `matched_rule="french_loan_wording"`, entity the statement bank. A bare `PRET` is never enough.
+  13. The unnamed loan payment (`d5_unnamed_loan_payment`) comes here. It needs D11's payee words, so Task 9 adds it.
+  14. Lease or rental (unchanged).
+  15. The card rule, widened by four decisions:
+      - `credit-card-ecs-payment` reads `CREDIT CARD ECS PAYMENT`;
+      - `card-network-originator-payment` reads a `VISA` or `MASTERCARD` originator with a `PAYMENT` entry in the Bank of America `DES` or Chase `CO ENTRY DESCR` field;
+      - `card-payment-to-card-account` reads `PAYMENT`, `PMT` or `PYMT` `TO CRD`, `CREDIT CARD`, `VSA`, `VISA`, `MASTERCARD` or `AMEX`;
+      - `card-context-wording-paymnt-glued-sec` adds `PAYMNT`, and a payment word glued to its SEC label, to the card-issuer context wording.
+  16. D4 (unchanged).
 
 - [ ] **Step 1: Write the failing test** `tests/test_obligation_descriptors.py`:
 
@@ -2666,6 +3413,18 @@ from analysis.transaction_classifier import classify_transaction
         ("LEASE PAYMENT FABRICATED", "lease_or_rental", "leases_rentals"),
         ("CHECKCARD 0102 EQUIPMENT LEASE", "lease_or_rental", "leases_rentals"),
         ("CREDIT CARD PAYMENT FABRICATED", "credit_card_payment", "credit_cards"),
+        # Owner decisions 2026-09-25 (fabricated rows).
+        ("PAYOFF 2054 FABRICATED MODEL VIN 0001", "floor_plan_financing", "floor_plan"),
+        ("WEB PMT HOME EQUITY LOAN 0001", "mortgage", "mortgages"),
+        ("WEB PMT FABRICATEDHOMEEQUITYLOAN 0001", "mortgage", "mortgages"),
+        ("STUDENT LOAN PAYMENT 0001", "personal_loan", "personal_loans"),
+        ("ORIG CO NAME COMMERCIAL LOAN ORIG ID 0001", "bank_loan", "bank_loans"),
+        ("SAVINGS BANK LOAN PMT 0001", "bank_loan", "bank_loans"),
+        ("CREDIT CARD ECS PAYMENT 0001", "credit_card_payment", "credit_cards"),
+        ("VISA DES PAYMENT ID 0001", "credit_card_payment", "credit_cards"),
+        ("ORIG CO NAME MASTERCARD ORIG ID 0001 CO ENTRY DESCR PAYMENT SEC CCD", "credit_card_payment", "credit_cards"),
+        ("ONLINE BANKING PMT TO CRD 0001", "credit_card_payment", "credit_cards"),
+        ("PAYMENT TO VSA 0001", "credit_card_payment", "credit_cards"),
     ],
 )
 def test_an_unnamed_obligation_debit_takes_its_descriptor_group(description, state, group):
@@ -2684,14 +3443,67 @@ def test_an_unnamed_obligation_debit_takes_its_descriptor_group(description, sta
         ("Office rent payment", "rent"),
         ("PROPERTY RENTAL PAYMENT", "rent"),
         ("AUTO PAYMENT FABRICATED GYM", "other"),
-        ("LOAN PAYMENT", "potential_lender"),
         ("FABRICATED BANK PAYMENT 0001", "other"),
+        ("FABRICATED PRET CAFE 0001", "other"),
     ],
 )
-def test_rent_autopay_and_unnamed_loans_are_not_flagged(description, state):
+def test_rent_autopay_and_a_bare_pret_are_not_flagged(description, state):
+    """Landlord rent (D3), autopay wording and a bare PRET (also a restaurant's name) are no
+    flagged obligation. An unnamed LOAN PAYMENT is the statement bank's loan since the owner
+    decision of 2026-09-25 (D5); Task 9 pins it."""
     record = classify_transaction(description, -400.0)
     assert record.classification == state
     assert record.flagged_group is None
+
+
+def test_a_transfer_between_the_holders_own_accounts_takes_no_step_8_rule():
+    """Owner decision 2026-09-25: a fintech transfer to a sub-account the holder named with
+    auto-loan words is no vehicle loan; an unnamed auto-loan bill payment still is."""
+    moved = classify_transaction("TRANSFER TO CAR LOAN TRANSFER OUT", -400.0)
+    assert (moved.classification, moved.flagged_group) == ("other", None)
+    assert classify_transaction("AUTO LOAN BILL PAYMENT 0001", -400.0).classification == "vehicle_financing"
+
+
+@pytest.mark.parametrize(
+    ("description", "rule"),
+    [
+        ("PAYMENT - AUTOMATIC LOAN PMT 0001", "own_bank_loan_payment"),
+        ("AUTOMATED LOAN PAYMENT 0001", "own_bank_loan_payment"),
+        ("PAYMENT TO COMMERCIAL LOAN 0001", "own_bank_loan_payment"),
+        ("INTEREST PAYMENT CUSTOMER 0001 OBLIGATION 0002", "commercial_loan_billing"),
+        ("VERSEMENT PRET 0001", "french_loan_wording"),
+        ("INT P A TERME 0001", "french_loan_wording"),
+    ],
+)
+def test_the_statement_banks_own_loan_wording_is_its_bank_loan(description, rule):
+    """Owner decisions 2026-09-25 (D5): the statement bank's own loan wording, no lender named."""
+    record = classify_transaction(description, -900.0, bank="Fabricated Bank")
+    assert (record.classification, record.canonical_entity, record.matched_rule) == (
+        "bank_loan",
+        "Fabricated Bank",
+        rule,
+    )
+    assert record.flagged_group == "bank_loans"
+    assert not record.review_required
+
+
+def test_another_banks_unnamed_loan_names_no_bank():
+    """Owner decision 2026-09-25 (D5): a generic savings-bank or commercial-loan originator is
+    another bank's loan, so the statement bank is not named."""
+    record = classify_transaction("SAVINGS BANK LOAN PMT 0001", -900.0, bank="Fabricated Bank")
+    assert (record.classification, record.canonical_entity) == ("bank_loan", None)
+    assert record.matched_rule == "outside_bank_loan_payment"
+
+
+def test_a_review_tier_payee_with_lease_wording_is_a_lease_by_its_wording():
+    """Owner decision 2026-09-25: Clover Equipment is in review, never counted. Every one of its
+    aliases carries lease or rental wording, which step 8 reads before the potential tier."""
+    # Moves here unchanged from the order table of tests/test_lender_insurance_classification.py.
+    record = classify_transaction("Clover equipment rent/leases", -100.0)
+    assert (record.classification, record.canonical_entity) == ("lease_or_rental", None)
+    assert record.flagged_group == "leases_rentals"
+    assert not record.contributes_to_withholding_rate
+    assert not record.contributes_to_potential_lender_totals
 
 
 @pytest.fixture
@@ -2713,6 +3525,16 @@ def test_a_listed_bank_with_loan_wording_is_a_bank_loan(fabricated_bank):
     assert record.match_method == "bank_name_alias"
     assert record.flagged_group == "bank_loans"
     assert classify_transaction("FABRICATED BANK PAYMENT 0001", -900.0).classification == "other"
+
+
+def test_a_listed_bank_with_french_loan_wording_is_a_bank_loan(fabricated_bank):
+    """Owner decision 2026-09-25: PRET is loan wording for the bank-name rule (D5)."""
+    record = classify_transaction("FABRICATED BANK PRET 0001", -900.0)
+    assert (record.classification, record.canonical_entity, record.match_method) == (
+        "bank_loan",
+        "Fabricated Bank",
+        "bank_name_alias",
+    )
 
 
 def test_a_transfer_to_the_statement_banks_own_loan_is_a_bank_loan():
@@ -2743,6 +3565,19 @@ def test_a_listed_card_issuer_needs_payment_wording(monkeypatch):
         "FABRICATED ISSUER",
     )
     assert bare.classification == "other"
+
+
+@pytest.mark.parametrize("description", ["FABRICATED ISSUER PAYMNT 0001", "FABRICATED ISSUER EPAYMENTSEC CCD"])
+def test_card_issuer_wording_reads_paymnt_and_a_payment_word_glued_to_its_sec_label(monkeypatch, description):
+    """Owner decision 2026-09-25: Synchrony prints PAYMNT, and Chase's field layout can glue
+    the payment word to its SEC label."""
+    monkeypatch.setattr(
+        transaction_classifier,
+        "CARD_ISSUER_CONTEXT_ALIASES",
+        {"Fabricated Issuer": ("FABRICATED ISSUER",)},
+    )
+    record = classify_transaction(description, -300.0)
+    assert (record.classification, record.canonical_entity) == ("credit_card_payment", "Fabricated Issuer")
 
 
 def test_unnamed_equipment_financing_is_a_potential_lender_for_review():
@@ -2781,7 +3616,7 @@ def test_the_retired_lease_state_is_never_produced(description, amount):
 - [ ] **Step 2: Run it and watch it fail.**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_obligation_descriptors.py -q -p no:cacheprovider`
-Expected: FAIL. LOC and mortgage rows are `potential_lender`/`other`; lease and vehicle rows are `lease_or_equipment_financing`; the `fabricated_bank` fixture raises `AttributeError: ... has no attribute 'BANK_NAME_ALIASES'`.
+Expected: FAIL. LOC and mortgage rows are `potential_lender`/`other`; lease and vehicle rows, and the Clover row, are `lease_or_equipment_financing`; the floor-plan payoff, home-equity, student-loan, D5-wording and widened card rows are `other` or `potential_lender`; the `fabricated_bank` fixture raises `AttributeError: ... has no attribute 'BANK_NAME_ALIASES'`, and the card-issuer monkeypatches raise the same for `CARD_ISSUER_CONTEXT_ALIASES`.
 
 - [ ] **Step 3: Import the two step-8 tables.** In the `from .classification_registry import (` block, add the lines `    BANK_NAME_ALIASES,` (before `BANK_SPECIFIC_LENDER_ALIASES,`) and `    CARD_ISSUER_CONTEXT_ALIASES,` (after `BANK_SPECIFIC_LENDER_ALIASES,`).
 
@@ -2807,18 +3642,59 @@ and in the POS condition of `classify_transaction` replace `        and not _mat
 - [ ] **Step 6: Add the step-8 patterns.** Directly after the `_CREDIT_CARD_PATTERNS = (...)` tuple, add:
 
 ```python
-_MORTGAGE_PATTERNS = (re.compile(r"\bMORTGAGES?\b"),)
+#: Owner decision 2026-09-25 (step8_own_account_transfer_guard): a fintech transfer
+#: between the holder's own accounts takes no step-8 rule, whatever the holder
+#: named the sub-account.
+_OWN_ACCOUNT_TRANSFER_GUARD = re.compile(r"^TRANSFER (?:TO|FROM) .+ (?:ACCOUNT )?TRANSFER (?:OUT|IN)$")
+#: Owner decision 2026-09-25 (floor_plan_per_vehicle): a per-vehicle floor-plan payoff.
+_FLOOR_PLAN_PAYOFF_PATTERN = re.compile(r"^PAYOFF (?:19|20)\d\d .*\bVIN\b")
+#: A home-equity loan is a second mortgage (owner decision 2026-09-25). It has no
+#: leading word boundary, so a run-together payee nickname matches too.
+_MORTGAGE_PATTERNS = (re.compile(r"\bMORTGAGES?\b"), re.compile(r"HOME ?EQUITY ?LOANS?\b"))
 #: "AUTO PAYMENT" is a bank's autopay wording, not a car payment, so AUTO needs
 #: loan, lease or finance wording while VEHICLE may carry PAYMENT.
 _VEHICLE_FINANCING_PATTERNS = (
     re.compile(r"\b(?:AUTO|CAR) (?:LOAN|LOANS|LEASE|FINANCE|FINANCING)\b"),
     re.compile(r"\bVEHICLE (?:LOAN|LEASE|PAYMENT|PMT|PYMT|FINANCE|FINANCING)\b"),
 )
-_LOAN_WORD_PATTERNS = (re.compile(r"\bLOANS?\b"),)
+#: Owner decision 2026-09-25 (student_loan_wording): an unnamed student-loan payee.
+_STUDENT_LOAN_PATTERNS = (
+    re.compile(r"\bSTUDENT ?LOANS?\b"),
+    re.compile(r"\bSTDNT ?LOANS?\b"),
+    re.compile(r"\bSTUDNT ?LOANS?\b"),
+    re.compile(r"\bSTUDENT LN\b"),
+)
+#: D5 loan wording for the bank-name rule. French PRET is loan wording too (owner
+#: decision 2026-09-25).
+_LOAN_WORD_PATTERNS = (re.compile(r"\bLOANS?\b"), re.compile(r"\bPRETS?\b"))
 #: D5: a transfer to the statement bank's own loan account.
 _OWN_LOAN_TRANSFER_PATTERNS = (
     re.compile(r"\b(?:TRANSFER|TFR) TO (?:MY |YOUR )?LOAN\b"),
     re.compile(r"\bLOAN (?:TRANSFER|TFR)\b"),
+)
+#: D5, owner decisions 2026-09-25. Another bank's loan whose originator is only a
+#: generic bank or loan name: the statement bank is not the lender.
+_OUTSIDE_BANK_LOAN_PATTERNS = (
+    re.compile(r"\bORIG CO NAME COMMERCIAL LOAN\b"),
+    re.compile(r"\bSAVINGS BANK LOAN (?:PAYMENT|PMT|PYMT)\b"),
+)
+#: The statement bank's own loan-payment wording, commercial-loan billing and
+#: French loan wording, with no lender named. A bare PRET is never enough: it is
+#: also a restaurant's name and a named funder's term-loan word.
+_OWN_LOAN_PAYMENT_PATTERNS = (
+    re.compile(r"\bAUTOMATIC LOAN (?:PAYMENT|PMT|PYMT|PAY)\b"),
+    re.compile(r"\bAUTOMATED LOAN PAYMENT\b"),
+    re.compile(r"\bPAYMENT TO (?:CMML |COMMERCIAL )?LOAN\b"),
+)
+_COMMERCIAL_LOAN_BILLING_PATTERNS = (
+    re.compile(r"\b(?:INTEREST|PRINCIPAL|LATE CHARGE) PAYMENT CUSTOMER \d+ OBLIGATION \d+"),
+)
+_FRENCH_OWN_LOAN_PATTERNS = (
+    re.compile(r"\bVERSEMENT PRET\b"),
+    re.compile(r"\bINTERETS? SUR PRET\b"),
+    re.compile(r"\b(?:VERS|INT) P A TERME\b"),
+    re.compile(r"\bPMT PRET\b"),
+    re.compile(r"\bPRET PMT\b"),
 )
 #: D3: PROPERTY RENTAL is landlord rent, never a flagged rental.
 _LEASE_RENTAL_PATTERNS = (
@@ -2826,16 +3702,41 @@ _LEASE_RENTAL_PATTERNS = (
     re.compile(r"(?<!PROPERTY )\bRENTALS?\b"),
     re.compile(r"\bEQUIPMENT (?:RENT|PAYMENT)\b"),
 )
-#: A listed card issuer (CARD_ISSUER_CONTEXT_ALIASES) counts only with card or payment wording.
+#: A listed card issuer (CARD_ISSUER_CONTEXT_ALIASES) counts only with card or payment
+#: wording. Owner decision 2026-09-25: Synchrony's PAYMNT, and a payment word glued to
+#: the SEC label in Chase's field layout, are payment wording too.
 _CARD_PAYMENT_CONTEXT_PATTERNS = (
     re.compile(r"\b(?:CREDIT CARD|CRCARD|CRD|CARD|CARDMEMBER)\b"),
-    re.compile(r"\b(?:AUTOPAY|AUTO PAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT)\b"),
+    re.compile(
+        r"\b(?:AUTOPAY|AUTO PAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)\b"
+        r"|\b(?:AUTOPAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)SEC\b"
+    ),
 )
 #: D4: equipment financing with no named company.
 _EQUIPMENT_FINANCING_PATTERNS = (re.compile(r"\bEQUIPMENT (?:FINANCING|FINANCE)\b"),)
 ```
 
-- [ ] **Step 7: Add the step-8 rule.** Directly after the end of `_financing_proceeds_credit_record`, add:
+- [ ] **Step 7: Widen the card-payment patterns** (owner decisions 2026-09-25: `credit-card-ecs-payment`, `card-network-originator-payment`, `card-payment-to-card-account`). Replace the whole `_CREDIT_CARD_PATTERNS = (...)` tuple (from `_CREDIT_CARD_PATTERNS = (` through its closing `)`) with:
+
+```python
+_CREDIT_CARD_PATTERNS = (
+    # One bank prints its ECS channel word between CREDIT CARD and PAYMENT.
+    re.compile(r"\bCREDIT CARD (?:ECS )?(?:PAYMENT|PMT|PYMT)\b"),
+    re.compile(r"\bCARDMEMBER SERVICES?\b"),
+    re.compile(r"\b(?:VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS) (?:PAYMENT|PMT|PYMT|EPAYMENT)\b"),
+    # The card network itself as the ACH originator, with a PAYMENT entry in its own
+    # field (Bank of America's DES field; Chase's CO ENTRY DESCR field).
+    re.compile(r"\b(?:VISA|MASTER ?CARD) DES (?:PAYMENT|PMT|PYMT|EPAYMENT)\b"),
+    re.compile(r"\bORIG CO NAME (?:VISA|MASTER ?CARD) ORIG ID\b.*?\bCO ENTRY DESCR (?:PAYMENT|PMT|PYMT|EPAYMENT)\b"),
+    re.compile(r"\bATB MASTER ?CARD\b"),
+    re.compile(r"\bCAPITAL ONE\b.*\b(?:ONLINE PMT|CARD PAYMENT|PAYMENT)\b"),
+    re.compile(r"\bCAPITAL ?ON ?TAP\b"),
+    # A payment to a card account named only by its type.
+    re.compile(r"\b(?:PAYMENT|PMT|PYMT) TO (?:CRD|CREDIT CARD|VSA|VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS)\b"),
+)
+```
+
+- [ ] **Step 8: Add the step-8 rule.** Directly after the end of `_descriptor_proceeds_credit_record` (Task 4), add:
 
 ```python
 def _obligation_fields(
@@ -2861,22 +3762,37 @@ def _obligation_fields(
 def _descriptor_obligation(text: str, bank: str | None) -> dict[str, object] | None:
     """Spec §4.3 step 8: obligation descriptors on a debit no known payee claimed.
 
-    The rules run in the spec's order and the first match wins. Returns the
-    `_build_record` keyword arguments, or None when no descriptor rule matches.
+    The rules run in the spec's order, with the rules of the owner decisions of
+    2026-09-25 where their own placement puts them, and the first match wins.
+    Returns the `_build_record` keyword arguments, or None when no descriptor
+    rule matches.
     """
+    # A transfer between the holder's own accounts takes no step-8 rule.
+    if _OWN_ACCOUNT_TRANSFER_GUARD.search(text):
+        return None
+    if _FLOOR_PLAN_PAYOFF_PATTERN.search(text):
+        return _obligation_fields(
+            "floor_plan_financing",
+            "floor_plan_payoff_descriptor",
+            "The descriptor is a per-vehicle floor-plan payoff.",
+        )
     if _matches_any(text, _LINE_OF_CREDIT_PATTERNS):
         return _obligation_fields(
             "line_of_credit", "line_of_credit_descriptor", "The descriptor says LOC or line of credit."
         )
     if _matches_any(text, _MORTGAGE_PATTERNS):
         return _obligation_fields(
-            "mortgage", "mortgage_descriptor", "The descriptor identifies a mortgage payment."
+            "mortgage", "mortgage_descriptor", "The descriptor identifies a mortgage or home-equity loan payment."
         )
     if _matches_any(text, _VEHICLE_FINANCING_PATTERNS):
         return _obligation_fields(
             "vehicle_financing",
             "vehicle_financing_descriptor",
             "The descriptor identifies a vehicle loan, lease or payment.",
+        )
+    if _matches_any(text, _STUDENT_LOAN_PATTERNS):
+        return _obligation_fields(
+            "personal_loan", "student_loan_descriptor", "The descriptor identifies a student-loan payment."
         )
     bank_match = registry_match(text, BANK_NAME_ALIASES)
     if bank_match is not None and _matches_any(text, _LOAN_WORD_PATTERNS):
@@ -2894,6 +3810,33 @@ def _descriptor_obligation(text: str, bank: str | None) -> dict[str, object] | N
             "bank_loan",
             "own_bank_loan_transfer",
             "The descriptor is a transfer to the statement bank's own loan (D5).",
+            entity=bank or None,
+        )
+    if _matches_any(text, _OUTSIDE_BANK_LOAN_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "outside_bank_loan_payment",
+            "The descriptor is another bank's loan payment, with no lender named (D5).",
+        )
+    if _matches_any(text, _OWN_LOAN_PAYMENT_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "own_bank_loan_payment",
+            "The descriptor is the statement bank's own loan-payment wording (D5).",
+            entity=bank or None,
+        )
+    if _matches_any(text, _COMMERCIAL_LOAN_BILLING_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "commercial_loan_billing",
+            "The descriptor is the statement bank's commercial-loan billing (D5).",
+            entity=bank or None,
+        )
+    if _matches_any(text, _FRENCH_OWN_LOAN_PATTERNS):
+        return _obligation_fields(
+            "bank_loan",
+            "french_loan_wording",
+            "The descriptor is the statement bank's own French loan wording (D5).",
             entity=bank or None,
         )
     if _matches_any(text, _LEASE_RENTAL_PATTERNS):
@@ -2931,7 +3874,7 @@ def _descriptor_obligation(text: str, bank: str | None) -> dict[str, object] | N
     return None
 ```
 
-- [ ] **Step 8: Put step 8 in the rule order.** In `classify_transaction`, replace the Task 5 block
+- [ ] **Step 9: Put step 8 in the rule order.** In `classify_transaction`, replace the Task 5 block
 
 ```python
     if _matches_any(text, _LEASE_PATTERNS):
@@ -2965,33 +3908,61 @@ and delete the card block that follows the rent block:
         )
 ```
 
-- [ ] **Step 9: Settle navigant, only in the bank-name variant** (pin-ledger row 15). If Task 0 printed `navigant: open loan debits naming a listed bank = N` with N of 1 or more, the D5 bank-name rule now makes navigant's loan row a bank loan, so the navigant `"lenders"` entry of `EXPECTED` in `tests/test_new_statement_corpus.py` (`:153`) must read `"lenders": (0, 0.00, 0, 0.00),` until Task 10. Otherwise leave it at `(0, 0.00, 1, 1191.00)`.
+- [ ] **Step 10: Settle the automatic loan payment** (pin-ledger row 21, owner decision 2026-09-25 `d5_own_loan_wording_en`). In `tests/test_lender_insurance_classification.py::test_recurring_counterparty_normalization_removes_ids_not_business_name`, replace the block (`:199-204`)
 
-- [ ] **Step 10: Run the tests.**
+```python
+    unidentified = classify_transaction("PAYMENT - AUTOMATIC LOAN PYMT W/D", -370.17)
+    assert unidentified.classification == "potential_lender"
+    assert unidentified.canonical_entity == "Unidentified lender obligation"
+    assert unidentified.review_required
+    assert unidentified.contributes_to_potential_lender_count
+    assert not unidentified.contributes_to_lender_count
+```
+with
+```python
+    # The statement bank's own loan-payment wording is its bank loan (D5, owner decision 2026-09-25).
+    own_loan = classify_transaction("PAYMENT - AUTOMATIC LOAN PYMT W/D", -370.17)
+    assert (own_loan.classification, own_loan.canonical_entity) == ("bank_loan", None)
+    assert own_loan.matched_rule == "own_bank_loan_payment"
+    assert own_loan.flagged_group == "bank_loans"
+    assert not own_loan.review_required
+    assert not own_loan.contributes_to_potential_lender_count
+    assert not own_loan.contributes_to_lender_count
+```
+
+- [ ] **Step 11: Settle navigant, only in the bank-name variant** (pin-ledger row 15). If Task 0 printed `navigant: open loan debits naming a listed bank = N` with N of 1 or more (the revised ledger reads 2), the D5 bank-name rule now makes navigant's loan row a bank loan, so the navigant `"lenders"` entry of `EXPECTED` in `tests/test_new_statement_corpus.py` (`:153`) must read `"lenders": (0, 0.00, 0, 0.00),` until Task 10. Otherwise leave it at `(0, 0.00, 1, 1191.00)`. navigant's three Comenity debits become `credit_card_payment` here; no pinned figure counts them.
+
+- [ ] **Step 12: Run the tests.**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_obligation_descriptors.py tests/test_known_payee_classification.py tests/test_flag_group_states.py tests/test_lender_insurance_classification.py tests/test_transaction_classifier.py tests/test_revenue_classification.py tests/test_r1_hardcodes.py tests/test_new_statement_corpus.py tests/test_no_statement_hardcodes.py -q -p no:cacheprovider`
 Expected: PASS, except the known pre-existing `test_no_literal_account_numbers_in_ocr`.
 
-- [ ] **Step 11: Commit.**
+- [ ] **Step 13: Commit.**
 
 ```
-git add analysis/transaction_classifier.py tests/test_obligation_descriptors.py
+git add analysis/transaction_classifier.py tests/test_obligation_descriptors.py tests/test_lender_insurance_classification.py
 git commit -m "classifier: obligation descriptors for unnamed payees (D4, D5)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 Claude-Session: <the Claude-Session URL from your system reminder>"
 ```
-If Step 9 changed the navigant entry, also `git add tests/test_new_statement_corpus.py` before committing.
+If Step 11 changed the navigant entry, also `git add tests/test_new_statement_corpus.py` before committing.
 
 ---
 
 ### Task 9: Unknown-payee naming and servicers (D11, D10)
 
 **Files:**
-- Modify: `analysis/transaction_classifier.py` (entity block `_ENTITY_NOISE` through `_canonical_unknown_entity`, `:767-797`; new `_SERVICER_COLLECTOR_PATTERNS` after `_DIRECT_DEBIT_LOAN_PATTERNS` `:372-375`; new branch in `classify_transaction` before the direct-debit-loan rule)
+- Modify: `analysis/transaction_classifier.py` (entity block `_ENTITY_NOISE` through `_canonical_unknown_entity`, `:767-797`; new `_SERVICER_COLLECTOR_PATTERNS`, `_BANK_TEMPLATE_WORDS` and `_UNNAMED_LOAN_PAYMENT_PATTERNS` after `_DIRECT_DEBIT_LOAN_PATTERNS` `:372-375`; one branch in `_descriptor_obligation` (Task 8) before its lease/rental rule; new branch in `classify_transaction` before the direct-debit-loan rule)
 - Test: `tests/test_unknown_payee_naming.py`
 
 **Interfaces:**
-- Consumes: `UNIDENTIFIED_LENDER_OBLIGATION` (Task 8).
-- Produces: `_unknown_payee_tokens(text: str) -> tuple[str, ...]`, `_unknown_payee_name(tokens: Sequence[str]) -> str | None`, `_canonical_unknown_entity(text: str) -> str | None` (same name, D11 behavior); D10 records with `match_method="unknown_servicer_or_collector"`.
+- Consumes: `UNIDENTIFIED_LENDER_OBLIGATION`, `_descriptor_obligation` and `_obligation_fields` (Task 8).
+- Produces: `_unknown_payee_tokens(text: str) -> tuple[str, ...]`, `_unknown_payee_name(tokens: Sequence[str]) -> str | None`, `_canonical_unknown_entity(text: str) -> str | None` (same name, D11 behavior); D10 records with `match_method="unknown_servicer_or_collector"`, now also for `MCA SERVICING` (owner decision 2026-09-25, `d10_mca_servicing`; the two words stay out of every alias table).
+- Produces the unnamed loan payment (owner decision 2026-09-25, `d5_unnamed_loan_payment`, spec D5 widened). A debit with loan-payment wording (`LOAN PAYMENT`, `LOAN PMT`, `LOAN PYMT`, `LOAN REPAYMENT`; normalization reads `LN` as `LOAN`) that prints no payee is the statement bank's own loan:
+  - `bank_loan`, `matched_rule="unnamed_loan_payment"`, entity the statement bank or `None`;
+  - it is the last D5 rule of step 8, after the bank-name rule, the own-loan transfer and the D5 wording rules of Task 8;
+  - "prints no payee" means every D11 payee word is a bank-template word (`NO`, `BR`, `AUTOMATED`, `COMPTE`, `DIVERS`), or there is none;
+  - a loan payment that prints a lender, a servicer, a person or another bank keeps the potential-lender rules.
+  - It needs D11's payee words, so it lands here rather than in Task 8. On the cache it takes 842 debits that are `potential_lender` today.
 
 - [ ] **Step 1: Write the failing test** `tests/test_unknown_payee_naming.py`:
 
@@ -3081,6 +4052,8 @@ def test_unnamed_equipment_financing_keeps_only_an_organisation_name(description
         ("ACH DEBIT FABRICATED LOAN SERVICING", UNIDENTIFIED),
         ("ACH DEBIT FABRICATED SERVICER LLC", "Fabricated Servicer LLC"),
         ("FABRICATED DEBT COLLECTORS INC", "Fabricated Debt Collectors Inc"),
+        # Owner decision 2026-09-25: an MCA servicing company whose funder is not named.
+        ("ACH DEBIT MCA SERVICING 0001", UNIDENTIFIED),
     ],
 )
 def test_an_unknown_servicer_or_collector_is_a_potential_lender(description, entity):
@@ -3090,12 +4063,34 @@ def test_an_unknown_servicer_or_collector_is_a_potential_lender(description, ent
     assert record.canonical_entity == entity
     assert record.review_required
     assert not record.contributes_to_withholding_rate
+
+
+@pytest.mark.parametrize("description", ["LOAN PAYMENT", "LOAN PAYMENT BR 0001", "COMPTE DIVERS LOAN PAYMENT 0001"])
+def test_a_loan_payment_that_names_no_payee_is_the_statement_banks_loan(description):
+    """Owner decision 2026-09-25 (D5): a LOAN PAYMENT with no lender printed is the statement
+    bank's own loan, not a potential lender."""
+    named = classify_transaction(description, -500.0, bank="Fabricated Bank")
+    unnamed = classify_transaction(description, -500.0)
+    assert (named.classification, named.canonical_entity, named.matched_rule) == (
+        "bank_loan",
+        "Fabricated Bank",
+        "unnamed_loan_payment",
+    )
+    assert (unnamed.classification, unnamed.canonical_entity) == ("bank_loan", None)
+    assert named.flagged_group == "bank_loans"
+    assert not named.review_required
+    assert not named.contributes_to_potential_lender_totals
+
+
+def test_a_loan_payment_that_prints_a_payee_keeps_the_potential_rules():
+    # LOAN PAYMENT PAT EXAMPLE (a person) stays potential too: see the repayment test above.
+    assert classify_transaction("LOAN PAYMENT NORTHSTAR FINANCE 0001", -500.0).classification == "potential_lender"
 ```
 
 - [ ] **Step 2: Run it and watch it fail.**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_unknown_payee_naming.py -q -p no:cacheprovider`
-Expected: FAIL. Today's naming keeps ACH field segments and person names (for example `"Northstar Finance Indn Pat Example Id"`, `"Pat Example"`), the dated rows split into five entities, and the servicer rows are `other` or `unidentified_loan_obligation`.
+Expected: FAIL. Today's naming keeps ACH field segments and person names (for example `"Northstar Finance Indn Pat Example Id"`, `"Pat Example"`), the dated rows split into five entities, and the servicer rows (the MCA SERVICING row included) are `other` or `unidentified_loan_obligation`. The unnamed loan payments are still `potential_lender`. `test_a_loan_payment_that_prints_a_payee_keeps_the_potential_rules` passes: it guards the rule's edge.
 
 - [ ] **Step 3: Replace the entity block.** Replace everything from `_ENTITY_NOISE = {` through the end of `_canonical_unknown_entity` (its `return " ".join(rendered)` line) with:
 
@@ -3189,12 +4184,20 @@ def _canonical_unknown_entity(text: str) -> str | None:
 ```python
 #: D10: a loan servicer or debt collector whose funder is not in a registry.
 #: (A servicer whose funder is known is an alias of that funder in the registry, via the C10 ledger.)
+#: MCA SERVICING: owner decision 2026-09-25 (the words stay out of every alias table).
 _SERVICER_COLLECTOR_PATTERNS = (
     re.compile(r"\bSERVICER\b"),
     re.compile(r"\bLOAN SERVICING\b"),
+    re.compile(r"\bMCA SERVICING\b"),
     re.compile(r"\bDEBT (?:COLLECTION|COLLECTIONS|COLLECTOR|COLLECTORS)\b"),
     re.compile(r"\bCOLLECTION AGENCY\b"),
 )
+#: D5, owner decision 2026-09-25 (d5_unnamed_loan_payment): loan-payment wording
+#: (normalization already reads LN as LOAN and PAYMT as PAYMENT) ...
+_UNNAMED_LOAN_PAYMENT_PATTERNS = (re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),)
+#: ... on a row whose D11 payee words are only a bank's template words, or none:
+#: the payment names no lender, so it is the statement bank's own loan.
+_BANK_TEMPLATE_WORDS = frozenset({"NO", "BR", "AUTOMATED", "COMPTE", "DIVERS"})
 ```
 
 - [ ] **Step 5: Add the D10 rule.** In `classify_transaction`, directly before `    if amount < 0 and _matches_any(text, _DIRECT_DEBIT_LOAN_PATTERNS):`, insert:
@@ -3217,16 +4220,32 @@ _SERVICER_COLLECTOR_PATTERNS = (
 
 ```
 
-- [ ] **Step 6: Run the tests.**
+- [ ] **Step 6: Add the unnamed loan payment to step 8** (owner decision 2026-09-25, D5). In `_descriptor_obligation` (Task 8), directly before the line `    if _matches_any(text, _LEASE_RENTAL_PATTERNS):`, insert:
+
+```python
+    # D5 (owner decision 2026-09-25): a loan payment that prints no payee is the
+    # statement bank's own loan, not a potential lender. The last D5 rule.
+    if _matches_any(text, _UNNAMED_LOAN_PAYMENT_PATTERNS) and (
+        set(_unknown_payee_tokens(text)) <= _BANK_TEMPLATE_WORDS
+    ):
+        return _obligation_fields(
+            "bank_loan",
+            "unnamed_loan_payment",
+            "The descriptor is a loan payment that names no lender: the statement bank's own loan (D5).",
+            entity=bank or None,
+        )
+```
+
+- [ ] **Step 7: Run the tests.**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_unknown_payee_naming.py tests/test_obligation_descriptors.py tests/test_known_payee_classification.py tests/test_lender_insurance_classification.py tests/test_transaction_classifier.py tests/test_revenue_classification.py tests/test_new_statement_corpus.py tests/test_no_statement_hardcodes.py -q -p no:cacheprovider`
-Expected: PASS, except the known pre-existing `test_no_literal_account_numbers_in_ocr`.
+Expected: PASS, except the known pre-existing `test_no_literal_account_numbers_in_ocr`. navigant's two loan-payment rows are claimed first by the bank-name rule (Task 8), so no pinned figure moves.
 
-- [ ] **Step 7: Commit.**
+- [ ] **Step 8: Commit.**
 
 ```
 git add analysis/transaction_classifier.py tests/test_unknown_payee_naming.py
-git commit -m "classifier: unknown payees are never named from ACH fields or persons (D10, D11)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+git commit -m "classifier: unknown payees are never named from ACH fields or persons (D10, D11); unnamed loan payments are bank loans (D5)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 Claude-Session: <the Claude-Session URL from your system reminder>"
 ```
 
@@ -3237,10 +4256,9 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 **Files:**
 - Modify: `analysis/transaction_classifier.py` (new `_TRANSFER_WORD_PATTERNS` and `_promotion_cadence` before `classify_statement_transactions`; the recurrence block of `classify_statement_transactions`, `:1499-1535`)
 - Modify: `analysis/detect.py` (`find_recurring_debits` `:168-183`)
-- Modify: `tests/test_transaction_classifier.py` (imports; `:317-326, :333-346, :349, :355-360, :370-374, :379-385`)
-- Modify: `tests/test_revenue_classification.py:405`
 - Modify: `tests/test_new_statement_corpus.py:153`
 - Test: `tests/test_recurring_fixed_debits.py`
+- No ATB November edit: Task 5 already pinned its potential lines, and D6 finds nothing left to promote there (Step 7).
 
 **Interfaces:**
 - Consumes: `_unknown_payee_tokens`, `_unknown_payee_name` (Task 9); `classify_cadence` (unchanged).
@@ -3496,55 +4514,9 @@ with
 Run: `C:\Python314\python.exe -m pytest tests/test_recurring_fixed_debits.py tests/test_unknown_payee_naming.py tests/test_lender_insurance_classification.py -q -p no:cacheprovider`
 Expected: PASS.
 
-- [ ] **Step 7: Re-pin the ATB November potential lines** (pin-ledger rows 10 and 12). In `tests/test_transaction_classifier.py`:
-  - directly before `from pathlib import Path`, add `from collections import Counter`;
-  - the metrics potential lines (`:317-326`) must read:
-    ```python
-        assert metrics.potential_lenders_detected == 1
-        assert metrics.potential_lender_debit_count == 22
-        assert metrics.potential_lender_debit_total == 3178.19
-        assert metrics.eligible_deposits == 59310.74
-        assert metrics.potential_withholding_numerator == 3178.19
-        assert metrics.potential_withholding_denominator == 59310.74
-        assert metrics.potential_withholding_exposure == pytest.approx(
-            3178.19 / 59310.74 * 100
-        )
-        assert round(metrics.potential_withholding_exposure, 2) == 5.36
-    ```
-  - the potential-lender block (`:333-346`) must read:
-    ```python
-        assert len(report.detection.potential_lenders) == 1
-        potential = report.detection.potential_lenders[0]
-        assert potential.funder == "Unidentified lender obligation"
-        assert potential.debit_count == 22
-        assert potential.total_debited == 3178.19
-        assert potential.eligible_deposit_denominator == 59310.74
-        assert potential.potential_withholding_exposure == pytest.approx(
-            3178.19 / 59310.74 * 100
-        )
-        assert potential.review_required
-        # D6 (owner ruling 2026-09-24): an unknown payee's fixed daily debits join
-        # the direct-debit loan row in the review tier. Derived counts only.
-        assert Counter(record.match_method for record in potential.evidence) == {
-            "unidentified_loan_obligation": 1,
-            "recurring_fixed_debit": 21,
-        }
-    ```
-  - `:349` must read `assert len(report.detection.potential_lender_evidence) == 22`;
-  - the serialized block (`:355-360`) must read `assert serialized["debit_count"] == 22`, `assert serialized["total_debited"] == 3178.19`, and `assert serialized["potential_withholding_exposure"] == pytest.approx(3178.19 / 59310.74 * 100)`;
-  - the package potential lines (`:370-374`) must read `assert totals["potential_lenders_detected"] == 1`, `assert totals["potential_lender_debit_count"] == 22`, `assert totals["potential_lender_debit_total"] == 3178.19`, `assert totals["eligible_deposits"] == 59310.74`, `assert totals["potential_withholding_exposure"] == 5.36`;
-  - the package candidate lines (`:379-380`) must read `assert package_candidate["debit_count"] == 22` and `assert package_candidate["total_debited"] == 3178.19`;
-  - replace the final assertion (`:383-385`, the list of original descriptions) with:
-    ```python
-        assert Counter(row["match_method"] for row in package["potential_lender_evidence"]) == {
-            "unidentified_loan_obligation": 1,
-            "recurring_fixed_debit": 21,
-        }
-    ```
+- [ ] **Step 7: Check that ATB November does not move** (pin-ledger rows 10 and 12). Leave `tests/test_transaction_classifier.py` and `tests/test_revenue_classification.py` as Task 5 left them. The 21 fixed daily debits that the 2026-09-24 dry run's D6 promoted as `recurring_fixed_debit` are MERCH PAD's review alias since the owner decision of 2026-09-25. The potential registry claims them at step 11, before this statement pass, so D6 finds no other group on this statement (probe of 2026-09-26). Step 9 runs the Task 5 pins again: 22 rows / 3178.19 / 5.36, every one `candidate_lender_alias`.
 
-  In `tests/test_revenue_classification.py`, line `:405` must read `assert metrics.potential_lender_debit_total == 3178.19`.
-
-- [ ] **Step 8: Re-pin navigant** (pin-ledger row 15). In `tests/test_new_statement_corpus.py`, the navigant `"lenders"` entry (`:153`) must read `"lenders": (0, 0.00, 4, 1299.00),`. If Task 0 printed `navigant: open loan debits naming a listed bank = 1` or more, it must read `"lenders": (0, 0.00, 3, 108.00),` instead: the D5 bank-name rule (Task 8) then claims the loan row, and only D6's rows stay potential.
+- [ ] **Step 8: Re-pin navigant** (pin-ledger row 15). In `tests/test_new_statement_corpus.py`, the navigant `"lenders"` entry (`:153`) must read `"lenders": (0, 0.00, 4, 1299.00),`. If Task 0 printed `navigant: open loan debits naming a listed bank = 1` or more (the revised ledger reads 2), it must read `"lenders": (0, 0.00, 3, 108.00),` instead: the D5 bank-name rule (Task 8) then claims the loan row, and only D6's rows stay potential. D6's three rows are not navigant's Comenity card payments, which step 8 claims (probe of 2026-09-26).
 
 - [ ] **Step 9: Run the regression selections.**
 
@@ -3558,7 +4530,7 @@ Expected: PASS. If another fixture's potential figures move because of D6, stop 
 - [ ] **Step 10: Commit.**
 
 ```
-git add analysis/transaction_classifier.py analysis/detect.py tests/test_recurring_fixed_debits.py tests/test_transaction_classifier.py tests/test_revenue_classification.py tests/test_new_statement_corpus.py
+git add analysis/transaction_classifier.py analysis/detect.py tests/test_recurring_fixed_debits.py tests/test_new_statement_corpus.py
 git commit -m "classifier: fixed daily or weekly debits of unknown payees are potential lenders (D6)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 Claude-Session: <the Claude-Session URL from your system reminder>"
 ```
@@ -3571,7 +4543,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - Modify: `analysis/transaction_classifier.py` (flag-group import; new `flagged_payee` after `classify_cadence`)
 - Modify: `analysis/metrics.py` (imports `:23-26`; `Metrics` after `insurance_total` `:91`; `compute_metrics` loop `:318-346` and rounding `:398`)
 - Modify: `tests/flag_group_fixtures.py` (append)
-- Modify: `tests/test_analysis.py` (SBA test), `tests/test_transaction_classifier.py` (ATB Nov), `tests/test_new_statement_corpus.py` (BlueVine test)
+- Modify: `tests/test_analysis.py` (SBA test), `tests/test_transaction_classifier.py` (ATB Nov), `tests/test_new_statement_corpus.py` (the first_farmers BlueVine test)
 - Test: `tests/test_flagged_positions_payload.py`
 
 **Interfaces:**
@@ -3781,14 +4753,20 @@ def flagged_payee(record: TransactionClassification) -> str:
     ```
   - `tests/test_transaction_classifier.py::test_atb_november_lender_and_potential_obligation_regression`: after the Task 5 line `assert sum(record.classification == "alternative_position" ...) == 1` add
     ```python
+        # BDC's row, and the two funders that stayed lenders, make up today's lender total.
         alternative = metrics.flagged_groups["alternative_positions"]
         assert alternative["count"] == alternative["payees"] == 1
-        assert round(metrics.lender_debits + alternative["total"], 2) == 8658.91
+        assert round(
+            known_funders["CanaCap"].total_debited
+            + known_funders["Forward Funding"].total_debited
+            + alternative["total"],
+            2,
+        ) == 8658.91
         assert metrics.flagged_groups["credit_cards"]["count"] == 1
     ```
-  - `tests/test_new_statement_corpus.py::test_first_farmers_bluevine_row_is_a_line_of_credit_not_a_lender`: add as its last line
+  - `tests/test_new_statement_corpus.py::test_first_farmers_bluevine_named_row_is_not_flagged`: add as its last line
     ```python
-        assert report.metrics.flagged_groups["lines_of_credit"]["count"] == 1
+        assert "lines_of_credit" not in report.metrics.flagged_groups
     ```
 
 - [ ] **Step 7: Run the tests.**
@@ -4525,7 +5503,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
   - `cached_accounts(data_dir: Path, limit: int | None = None) -> Iterator[tuple[str, int, dict]]`
   - `account_snapshot(account: dict) -> dict` with keys `rows`, `states`, `lenders` (`[index, entity, alias]`), `flagged` (`{group key: [count, total]}`), `lender_debits`, `eligible_deposits`, `withholding_rate`
   - `snapshot(accounts) -> dict` (`classification_version`, `accounts` keyed `"<sha>:<index>"`, `skipped`)
-  - `compare(before: dict, after: dict, admitted: Collection[str]) -> dict`. Each gained lender carries `"admitted": bool`.
+  - `compare(before: dict, after: dict, admitted: Collection[str], merged: Mapping[str, str] | None = None) -> dict`. Each gained lender carries `"admitted": bool`. `merged` is S1's `MERGED_REGISTRY_ENTITIES` (owner decision 2026-09-25: EBF HOLDINGS is merged into EVEREST BUSINESS FUNDING). The census reads a merged entity as its target, so a merge is one lender, not one lost and one gained. `main` passes it on `compare`, the one subcommand that loads no other checkout.
   - `main(argv) -> int` with the subcommands `snapshot` and `compare` and exit codes 0, 1 and 2.
 - The census runs locally only. Its snapshot and comparison files hold statement figures, so the tool refuses any output path inside the repository; the printed lines carry counts, registry entity names and aliases only. Master plan step 4 runs it on the full cache after S2 merges.
 - **Spec §9, acceptance 1** reads "every gained lender traces to an admitted ledger entity". C10 makes that checkable: the census reads the ledger's JSON, not the evidence document rendered from it. A gained lender passes only when its `canonical_entity` is an `admitted` `confirmed_lender` `entity` of the ledger. A name that appears in the ledger only as `review`, `owner_ruling`, `rejected` or another group does not pass.
@@ -4632,6 +5610,21 @@ def test_compare_reports_gains_losses_generic_words_flags_and_withholding():
     assert report["flagged"] == {"alternative_positions": {"analyses": 1, "rows": 1}}
     assert report["withholding"] == {"down": 1, "unchanged": 1}
     assert report["largest_withholding_moves"]["down"] == ["s1:0"]
+
+
+def test_compare_reads_a_merged_entity_as_the_entity_that_absorbed_it():
+    """Owner decision 2026-09-25 (MERGED_REGISTRY_ENTITIES): a merge is one lender, not a loss and a gain."""
+    before = {"classification_version": "4.1", "accounts": {
+        "s1:0": _account(["confirmed_lender"], [[0, "Quillon Holdings", "QUILLON HOLDINGS"]], {}, 12.0),
+    }}
+    after = {"classification_version": "5.0", "accounts": {
+        "s1:0": _account(["confirmed_lender"], [[0, "Quillon Funding", "QUILLON HOLDINGS"]], {}, 12.0),
+    }}
+    merged = census.compare(before, after, admitted=frozenset({"Quillon Funding"}),
+                            merged={"Quillon Holdings": "Quillon Funding"})
+    assert (merged["gained"], merged["lost"]) == ({}, {})
+    plain = census.compare(before, after, admitted=frozenset({"Quillon Funding"}))
+    assert (set(plain["gained"]), set(plain["lost"])) == ({"Quillon Funding"}, {"Quillon Holdings"})
 
 
 def _files(tmp_path, before, after, ledger):
@@ -4751,7 +5744,7 @@ import re
 import sqlite3
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -4878,10 +5871,22 @@ def _generic(alias: str | None) -> bool:
     return bool(words) and all(word in GENERIC_WORDS for word in words)
 
 
-def compare(before: dict, after: dict, admitted: Collection[str]) -> dict:
+def compare(
+    before: dict,
+    after: dict,
+    admitted: Collection[str],
+    merged: Mapping[str, str] | None = None,
+) -> dict:
     """Lenders gained and lost, generic-word gains, flagged groups and withholding moves.
 
-    `admitted` holds the ledger's admitted lender entities (`admitted_lenders`)."""
+    `admitted` holds the ledger's admitted lender entities (`admitted_lenders`). `merged` maps an
+    entity of the registry before the change to the ledger entity that absorbed it (S1's
+    MERGED_REGISTRY_ENTITIES): the two are one lender, so a merge is neither a gain nor a loss."""
+    merged = merged or {}
+
+    def one_lender(entity: str) -> str:
+        return merged.get(entity, entity)
+
     gained: dict = defaultdict(lambda: {"analyses": set(), "rows": 0, "aliases": Counter()})
     lost: dict = defaultdict(lambda: {"analyses": set(), "rows_now": Counter()})
     generic: Counter = Counter()
@@ -4895,10 +5900,10 @@ def compare(before: dict, after: dict, admitted: Collection[str]) -> dict:
             unmatched += 1
             continue
         sha = key.split(":")[0]
-        old_entities = {entity for _, entity, _ in old["lenders"]}
-        new_entities = {entity for _, entity, _ in new["lenders"]}
+        old_entities = {one_lender(entity) for _, entity, _ in old["lenders"]}
+        new_entities = {one_lender(entity) for _, entity, _ in new["lenders"]}
         for _, entity, alias in new["lenders"]:
-            if entity not in old_entities:
+            if one_lender(entity) not in old_entities:
                 slot = gained[entity]
                 slot["analyses"].add(sha)
                 slot["rows"] += 1
@@ -4906,7 +5911,7 @@ def compare(before: dict, after: dict, admitted: Collection[str]) -> dict:
                 if _generic(alias):
                     generic[(entity, alias)] += 1
         for index, entity, _ in old["lenders"]:
-            if entity not in new_entities:
+            if one_lender(entity) not in new_entities:
                 slot = lost[entity]
                 slot["analyses"].add(sha)
                 slot["rows_now"][new["states"][index]] += 1
@@ -5015,10 +6020,14 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         print(f"refused: {args.ledger} is not a readable C10 ledger ({error})", file=sys.stderr)
         return 2
+    # `compare` loads no other checkout, so this one's registry may be imported here.
+    from analysis.classification_registry import MERGED_REGISTRY_ENTITIES
+
     report = compare(
         json.loads(args.before.read_text(encoding="utf-8")),
         json.loads(args.after.read_text(encoding="utf-8")),
         admitted,
+        merged=MERGED_REGISTRY_ENTITIES,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -5034,7 +6043,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the tests.**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_census.py tests/test_no_statement_hardcodes.py -q -p no:cacheprovider`
-Expected: PASS (15 census tests), except the known pre-existing `test_no_literal_account_numbers_in_ocr`.
+Expected: PASS (16 census tests), except the known pre-existing `test_no_literal_account_numbers_in_ocr`.
 
 - [ ] **Step 5: Smoke-run it on 60 cached analyses** (read-only; nothing is committed). In PowerShell, from the repository root of `ld-s2-classifier`:
 
@@ -5054,6 +6063,14 @@ Expected: the two snapshot lines read `classification 4.1: N accounts` and `clas
 - The pre-C10 dry run printed the same summary and exit code 0 against the evidence document that S1's builder rendered then. Against C10's ledger, a gained lender passes only when the ledger admits it as a `confirmed_lender`.
 - Report the exit code and the summary's counts only (not the gained or lost names) to the orchestrator.
 - A `NOT AN ADMITTED LENDER IN THE LEDGER` line, or a generic-word gain, is a finding for the orchestrator (a ledger question). S2 does not fix it. The full run (no `--limit`, about 20 minutes per snapshot) is the orchestrator's, after S2 merges (master plan step 4).
+- The owner decisions of 2026-09-25 move these lines of the full run (s2 amendments, section D):
+  - **Renamed funders.** Torro Funding LLC, Sheaves Capital, 2M7 Financial Solutions and Iruka Capital Group LLC appear as admitted gains, with their old names lost. So does Rockstone Funding Group Inc, which takes Credora Capital's rows.
+  - **The merge.** EBF HOLDINGS is silent: `compare` reads it as EVEREST BUSINESS FUNDING.
+  - **Lenders lost to flagged groups.** CAPITAL INFUSION (0 cached rows), AFC FUNDING CORP (Floor plan), LADCO Leasing and Finova's lease product (Leases & rentals).
+  - **Revenue.** It rises in PAYABILITY's 12 analyses, whose payout credits are revenue now. Legacy eligible deposits drop in the 79 analyses whose `LOAN CREDIT` rows are bank-line proceeds, so withholding goes up there.
+  - **Fees.** Overdraft charges become fees (228 debits in 52 analyses).
+  - **Premium financing.** FIRST INSURANCE rows are flagged premium financing (159 debits in 129 analyses). 3 of them are the bank's overdraft fee for a FIRST INSURANCE item (see the self-review, item 12).
+  - **The review tier.** It gains MERCH PAD, ACCOUNT SERVICIN[G] and TFG. It loses PAID TO TILT, PULL TILT and PULL DAVE to admitted personal loans, and ALBERT DES EDI PYMNTS, whose rows are now unflagged.
 
 - [ ] **Step 6: Commit.**
 
@@ -5164,30 +6181,56 @@ Classification is applied in this order; the first match wins:
 1. Non-posted items, NSF and returned items, refunds and reversals.
 2. Insurance, by registry or by term. Premium-finance payees are looked up
    first; they stay insurance and a debit also carries the premium-financing
-   flag. A premium-finance credit is treated as any insurance credit.
+   flag. On the owner's ruling a premium-finance alias may repeat a hand-kept
+   insurer's alias (`PREMIUM_FINANCE_INSURER_ALIASES`), and such rows are premium
+   financing too. A descriptor with premium-finance
+   wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance
+   payee is premium financing under the insurer it names, or under
+   `Insurance provider not identified`. A premium-finance credit is treated as
+   any insurance credit.
 3. POS and ATM. A row whose payee is a known payee is classified by who was paid
-   instead (D8).
-4. Fees, transfers, tax, payroll and utilities.
+   instead (D8). An alternative-position payee's membership or balance top-up
+   (its alias followed by `PLUS`, `MEMBER`, `MEMBERSHIP` or `BALANCE TOP UP`) is
+   not a repayment and matches no known payee.
+4. Fees (an overdraft charge included, even when it prints the item's payee),
+   transfers, tax, payroll and utilities.
 5. The known-payee matcher (`analysis.payee_matcher.match_known_payee`) over the
    group registries. A debit takes the payee's group. A descriptor that says LOC
    or LINE OF CREDIT moves a lender, alternative-position or line-of-credit payee
    to `line_of_credit` (D9). A credit from a financing group (lenders,
    alternative positions, lines of credit, bank loans, vehicle financing,
    mortgages, personal loans, floor plan, factoring) is financing proceeds:
-   `other`, revenue `non_revenue`, excluded from eligible deposits (D1).
+   `other`, revenue `non_revenue`, excluded from eligible deposits (D1). The
+   exception is a payout-credit entity (`PAYOUT_CREDIT_ENTITIES`, owner ruling),
+   whose credits are the account holder's own sales and stay revenue; its
+   debits keep its group. Three credits are proceeds by their own words: the
+   statement bank's line advance (exactly `LOAN CREDIT`), a line-of-credit draw
+   and a per-vehicle floor-plan advance (`ADVANCE`, a model year, `VIN`).
    Card-issuer and lease/rental payees never apply to credits.
-6. Obligation descriptors, debits only, for rows no known payee claimed: LOC or
-   line of credit; mortgage; auto or vehicle loan, lease or payment; a listed
-   bank with loan wording, or a transfer to the statement bank's own loan (D5);
-   lease, rental or lease-to-own; credit-card payments, including a listed card
-   issuer with payment wording; and unnamed equipment financing, which is a
-   `potential_lender` for review (D4).
+6. Obligation descriptors, debits only, for rows no known payee claimed. A
+   transfer between the holder's own accounts (`TRANSFER TO ... TRANSFER OUT`)
+   takes none of them. In order:
+   - a per-vehicle floor-plan payoff;
+   - LOC or line of credit;
+   - mortgage or home-equity loan;
+   - auto or vehicle loan, lease or payment;
+   - student loan (a personal loan);
+   - a listed bank with loan wording (`LOAN` or French `PRET`);
+   - the statement bank's own loan, D5: a transfer to it, its own loan-payment
+     wording, its commercial-loan billing, its French loan wording, or a loan
+     payment that prints no payee (entity the statement bank). Another bank's
+     unnamed loan is a bank loan with no entity;
+   - lease, rental or lease-to-own;
+   - credit-card payments, including a listed card issuer with payment wording
+     and a payment to a card account named only by its type;
+   - unnamed equipment financing, which is a `potential_lender` for review (D4).
 7. Rent. Landlord and office rent are never flagged (D3).
 8. Checks and subscriptions (`other`).
 9. Bank-specific lender rules, then the potential tier: the potential registry,
-   unknown loan servicers and debt collectors (D10), direct-debit loans,
-   explicit repayments (an unnamed loan payment stays potential, D5), and
-   financing words with a payment marker (`other`, review).
+   unknown loan servicers and debt collectors (D10, `MCA SERVICING` included),
+   direct-debit loans, explicit repayments (a loan payment that prints a lender,
+   a servicer, a person or another bank stays potential, D5), and financing
+   words with a payment marker (`other`, review).
 
 Statement passes run in this order: duplicates; recurrence; reversal pairs;
 operating-source context; duplicate finalisation. Recurrence promotes to
@@ -5296,9 +6339,13 @@ every credit from a financing-group payee (D1: lenders, alternative positions,
 lines of credit, bank loans, vehicle financing, mortgages, personal loans, floor
 plan and factoring).
 They are excluded because they are financing proceeds, not operating deposits.
-D1 reads the payee registries only: a credit whose descriptor names no listed
-payee (an unnamed loan advance, for example) keeps its revenue rule and is not
-subtracted here.
+D1 reads the payee registries, except a payout-credit entity
+(`PAYOUT_CREDIT_ENTITIES`), whose credits are the account holder's own sales and
+stay in eligible deposits. It also reads three descriptors: the statement bank's
+own line advance (`LOAN CREDIT`), a line-of-credit draw and a per-vehicle
+floor-plan advance. Any other credit whose descriptor names no listed payee (an
+unnamed loan advance, for example) keeps its revenue rule and is not subtracted
+here.
 
 The default mode is explicitly exposed as `legacy_eligible_deposits`. Set
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to opt into verified classified
@@ -5335,7 +6382,9 @@ lenders (MCA funders and equipment financing) in `LENDER_ALIASES`; each flagged
 group in its own table, listed in `PAYEE_GROUP_REGISTRIES`; premium-finance
 payees in `PREMIUM_FINANCE_ALIASES`, which only the insurance rule reads; banks
 for the D5 bank-loan rule in `BANK_NAME_ALIASES`; card issuers that need
-payment wording in `CARD_ISSUER_CONTEXT_ALIASES`. An alias names the financing business, never a
+payment wording in `CARD_ISSUER_CONTEXT_ALIASES`; financing-group payees whose
+credits are the holder's own sales in `PAYOUT_CREDIT_ENTITIES` (owner ruling
+only). An alias names the financing business, never a
 bare platform or a brand that also sells goods. Cover aliases, OCR variants,
 token boundaries, precedence, both directions, and contribution flags in tests.
 Do not add statement-specific description checks in parsers, metrics, API
@@ -5345,12 +6394,14 @@ routes, or frontend code.
 - [ ] **Step 2: Amend Item 12a.** In `docs/moneythumb-replacement/R1_HARDCODE_LOG.md`, directly after the line `  is asserted non-lender.` (`:160`), insert:
 
 ```markdown
-- **Amended 2026-09-24 (owner ruling, lender-detection design §2):**
+- **Amended 2026-09-24 and 2026-09-25 (owner rulings, lender-detection design §2):**
   `INTUIT FINANCING` is no longer a lender. It moved from the lender registry
   to `ALTERNATIVE_POSITION_ALIASES` and is classified `alternative_position`:
   a flagged position, outside lender count, lender totals and withholding. The
   two-word alias and the negative software case are unchanged; the fixture now
-  asserts `alternative_position`. `AFC FUNDING CORP` stays a lender.
+  asserts `alternative_position`. `AFC FUNDING CORP` moved to Floor plan (owner
+  ruling 2026-09-25): it is not a lender, and it is flagged like an alternative
+  position. Its fixture now asserts `floor_plan_financing`.
 ```
 
 - [ ] **Step 3: Check the docs name only real code.**
@@ -5362,7 +6413,7 @@ Expected: exactly one line, the retired-state sentence for `lease_or_equipment_f
 
 ```
 git add docs/transaction-classification.md docs/moneythumb-replacement/R1_HARDCODE_LOG.md
-git commit -m "docs: classification contract 5.0 and the Intuit ruling" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+git commit -m "docs: classification contract 5.0 and the Item 12a rulings" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 Claude-Session: <the Claude-Session URL from your system reminder>"
 ```
 
@@ -5422,10 +6473,10 @@ Run: `git log lender-detection..HEAD --format=%B`
 Expected: no money figure, account number, date or payee from a statement in any message.
 
 Run: `git diff lender-detection...HEAD -U0 -- tests | findstr /R "^+.*[0-9][0-9]*\.[0-9][0-9]"` (or the `grep -nE '^\+.*[0-9]+\.[0-9]{2}'` equivalent)
-Expected: every figure with cents on an added line is one of these (the dry run's diff added exactly these):
-- derived totals from the pin ledger: `3178.19`, `59310.74` (an unchanged denominator on rewritten lines), `5.36`, `8658.91`, `0.00`, and `1299.00` or, in the bank-name variant, `108.00`;
+Expected: every figure with cents on an added line is one of these (the dry run's diff added the first list's figures of 2026-09-24/25; the owner decisions of 2026-09-25 added the rest):
+- derived totals from the pin ledger: `3178.19`, `59310.74` and `16898.73` (unchanged denominators on rewritten lines), `5.36`, `8658.91`, `0.00`, and `1299.00` or, in the bank-name variant, `108.00`; since the 2026-09-25 decisions also `9757.26` (ATB November's lenders), `2606.31` (MERCH PAD's ATB November rows), `13.23` (TD CMCA's withholding) and `15.74` (the Audit Bank fixture's withholding);
 - whole-dollar fabricated figures written with cents: `100.00` (the benchmark test), `1,400.00` and `2,400.00` (the `analyze.py` report test);
-- a value S2 moved without changing it, if the diff shows the line as added: `-632.24`, `-37.10`, `571.88`.
+- a value S2 moved without changing it, if the diff shows the line as added: `-632.24`, `-37.10`, `571.88` and `-571.88`, `-4229.99` (the AFC Funding fixture), `-370.17` (the automatic loan payment fixture) and `-111.75` (TD CMCA's CMCA Finance rows).
 
 Anything else: **stop and report** the file and line to the orchestrator. Never delete an assertion to clear the scan.
 
@@ -5457,10 +6508,10 @@ for label, make in (
           f"lender rows {report.metrics.lender_debit_count}")
 ```
 Run: `C:\Python314\python.exe <your scratchpad>\s2_reach.py`
-Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 on RBC Jan, every one of them unnamed. These are review rows no test pins; the owner sees them before merge.
+Expected (probe of 2026-09-26 on the revised ledger, counts only): on ATB Aug and ATB Dec, the fixed daily debits that the 2026-09-24 dry run's D6 promoted (22 and 19) are MERCH PAD's review alias. They show as `candidate_lender_alias`, not `recurring_fixed_debit`, and are not unnamed; ATB Aug also shows its `LOANS FC` row as `candidate_lender_alias`. On RBC Jan, `recurring_fixed_debit` is 6, every one unnamed, and the lender rows are 5. These are review rows no test pins; the owner sees them before merge.
 
 - [ ] **Step 6: Report to the orchestrator.** Include:
-  - the Task 0 printout (FAIL-free) and the variants it selected (pin-ledger rows 15 and 17);
+  - the Task 0 printout (FAIL-free) and the variant it selected (pin-ledger row 15);
   - the three selection results and S1's test result;
   - the speed number and S1's benchmark result;
   - the Task 15 smoke-run summary counts and exit code;
@@ -5482,16 +6533,17 @@ Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 o
   - Task 2: `flagged_group`, `contributes_to_flagged_totals`, and the clearing for duplicates and settlement reversals; the table keys come from C1.
   - Task 7: premium financing, the one flag group that is not a state.
 - **§4.3 rule order:**
-  - Steps 1-3 are unchanged (Task 5 code). Step 4 is insurance, with premium finance looked up first (Task 7).
-  - Step 5: D8, POS and ATM skip a known payee (Task 5). Step 6 is unchanged.
-  - Step 7: the known payee and the D9 LOC override (Task 5); a financing payee's credit is proceeds (Task 4).
-  - Step 8 (Task 8): LOC, mortgage, vehicle, D5 bank name or own-loan transfer, lease/rental, cards widened through `CARD_ISSUER_CONTEXT_ALIASES`, and D4.
+  - Steps 1-3 are unchanged (Task 5 code). Step 4 is insurance, with premium finance looked up first, and premium-finance wording (Task 7).
+  - Step 5: D8, POS and ATM skip a known payee, except an alternative position's membership or balance top-up (Task 5). Step 6 gains the overdraft-charge fee (Task 5).
+  - Step 7: the known payee and the D9 LOC override (Task 5); a financing payee's credit is proceeds, except a payout-credit entity's, and three descriptors are proceeds too (Task 4).
+  - Step 8 (Task 8, and the unnamed loan payment in Task 9): the own-account guard, floor-plan payoffs, LOC, mortgage with home-equity loans, vehicle, student loans, D5 bank name (with `PRET`) or own-loan transfer, another bank's unnamed loan, the statement bank's own English, billing and French loan wording, the unnamed loan payment, lease/rental, cards widened through `CARD_ISSUER_CONTEXT_ALIASES` and the decisions' card forms, and D4.
   - Step 9: rent (D3, Task 8 test). Step 10: check and subscription (Task 5; a known payee now wins over a check).
-  - Step 11: the potential rules, with D11 naming and D10 servicers (Task 9).
+  - Step 11: the potential rules, with D11 naming and D10 servicers, `MCA SERVICING` included (Task 9).
   - Statement passes: duplicates; recurrence plus D6, and the recurring-debit view (Task 10); reversal pairs and duplicate finalisation, which clear the flag (Task 2, and Task 7 for premium financing); operating-source context through `registry_match` (Task 3).
 - **§4.4 credits** (Task 4):
   - `_classify_credit_revenue` checks `FINANCING_STATES` payees before the operating registry; these include floor plan and factoring.
   - `classify_transaction` gives the C4 record with `contributes_to_lender_credit_exclusion`.
+  - Owner decisions of 2026-09-25: a payout-credit entity's credits stay revenue (`PAYOUT_CREDIT_ENTITIES`), and the bank's own line advance, a line-of-credit draw and a per-vehicle floor-plan advance are proceeds by their own words.
   - Platform settlements stay revenue: the existing `tests/test_revenue_classification.py:440-523`, plus the new Square/Shopify test.
   - Premium-finance credits keep the insurance credit treatment (Task 7).
 - **§4.5 potential tier:** D11 naming (Task 9), D6 (Task 10), D10 (Task 9).
@@ -5506,7 +6558,7 @@ Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 o
   - classification tables for every group in both directions (Tasks 4, 5, 7, 8);
   - the D8/D9/D5/D4/D6/D11 tests;
   - credit proceeds and platform revenue (Task 4);
-  - the pins that move (pin ledger, with two pre-measured variants);
+  - the pins that move (pin ledger, with one pre-measured variant);
   - the before/after census `tools/lender_census.py` (Task 15), which reports acceptance criteria 1, 2 and 5 and exits non-zero on 1 or 5. It checks criterion 1 against the C10 ledger's admitted lenders. Criterion 3 is S1's alias audit, and criterion 4 is the owner's NMEF probe (master plan step 4); the full census run is the orchestrator's;
   - the speed evidence (Task 3 normalization count, Task 17 measurement and S1's relative benchmark).
 
@@ -5516,10 +6568,9 @@ Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 o
 - The conditional steps each state the check that decides them and give the concrete outcomes:
   - Task 3 Step 6 (an S1 test file that does not exist);
   - Task 6 Step 4 (S1's test files come from `git diff --diff-filter=A`, and an empty list stops the step);
-  - Task 4 Step 8 (the NETCREDIT line, only if S1 changed it);
-  - Task 5 Step 14 (relay's personal-loan variant);
+  - Task 4 Step 9 (the NETCREDIT line, only if S1 changed it);
   - Task 6 Steps 2-3 (which retired tables S1 left);
-  - Task 8 Step 9 and Task 10 Step 8 (navigant's bank-name variant).
+  - Task 8 Step 11 and Task 10 Step 8 (navigant's bank-name variant).
 - The only value the executor supplies at run time is the committing session's URL in the `Claude-Session` line (Global Constraints, Commits).
 
 **Contract-name consistency:**
@@ -5530,7 +6581,8 @@ Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 o
   - `BANK_NAME_ALIASES` and `CARD_ISSUER_CONTEXT_ALIASES` (step 8 only), `POTENTIAL_LENDER_ALIASES`, `INSURANCE_PROVIDER_ALIASES`, `OPERATING_REVENUE_SOURCE_ALIASES`, `OPERATING_REVENUE_SOURCE_TYPES`;
   - the existing `BANK_SPECIFIC_LENDER_ALIASES`;
   - `CONFIRMED_LENDER_ALIASES`, only through `analysis/lenders.py` (unchanged) and Task 0's identity check;
-  - `FLOOR_PLAN_ALIASES`, `FACTORING_ALIASES` and every other table name in Task 0's existence check.
+  - `FLOOR_PLAN_ALIASES`, `FACTORING_ALIASES` and every other table name in Task 0's existence check;
+  - S1's owner-ruling constants of 2026-09-25: `PAYOUT_CREDIT_ENTITIES` (Tasks 4 and 5) and `MERGED_REGISTRY_ENTITIES` (the census, Task 15). `PREMIUM_FINANCE_INSURER_ALIASES` and `REATTRIBUTED_REGISTRY_ALIASES` are read only by S1's validator; S2 relies on their effect (facts 1 and 4).
 - **C3 names used:** `match_known_payee`, `registry_match` and `PayeeMatch(entity, state, alias)`. `AliasIndex` appears only in the Task 0 import check.
 - **C4:**
   - the nine states and `flagged_group`, `contributes_to_flagged_totals`;
@@ -5540,11 +6592,11 @@ Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 o
 - **C5:** the `metrics.flagged_groups` shape and ordering; the `detection.flagged_positions` keys and sort order; `describe_cadence(dates) -> tuple[str, float | None]` with its six values.
 - **Names this plan defines and later tasks use:**
   - `_ACH_TOKEN` and the test helper `synthetic_statement` (Task 3; Task 17 uses the helper);
-  - `_state_words` and `_financing_proceeds_credit_record` (Task 4; used in Tasks 5 and 8);
-  - `_LINE_OF_CREDIT_PATTERNS` and `_known_payee_debit_record` (Task 5; Task 8 reuses the patterns);
-  - `_insurance_registry_match` and the `_build_record(..., flagged_group=...)` keyword (Task 7);
-  - `UNIDENTIFIED_LENDER_OBLIGATION` (Task 8, used in Tasks 9 and 10);
-  - `_unknown_payee_tokens` / `_unknown_payee_name` (Task 9, used in Task 10);
+  - `_state_words`, `_financing_proceeds_payee`, `_descriptor_proceeds`, `_financing_proceeds_credit_record` and `_descriptor_proceeds_credit_record` (Task 4; used in Tasks 5 and 8);
+  - `_LINE_OF_CREDIT_PATTERNS`, `_known_payee_debit_record` and `_is_membership_or_top_up` (Task 5; Task 8 reuses the patterns);
+  - `_insurance_registry_match`, `_PREMIUM_FINANCE_WORDING_PATTERNS` and the `_build_record(..., flagged_group=...)` keyword (Task 7);
+  - `UNIDENTIFIED_LENDER_OBLIGATION`, `_obligation_fields` and `_descriptor_obligation` (Task 8, used in Tasks 9 and 10);
+  - `_unknown_payee_tokens` / `_unknown_payee_name` (Task 9, used in Task 10; the unnamed loan payment of step 8 reads the tokens);
   - `_RECURRING_MATCH_METHODS` (Task 10);
   - `flagged_payee` (Task 11, used in Task 12);
   - `FlaggedPositionMatch` / `find_flagged_positions` (Task 12, used in Task 13);
@@ -5558,7 +6610,7 @@ Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 o
 2. **Retired tables.** C2 says `LEASE_PROVIDER_ALIASES` is removed. The pre-C10 S1 plan kept it, and also `LEGACY_CONFIRMED_LENDER_ALIASES` and `LEGACY_POTENTIAL_LENDER_ALIASES`, until S2 rewires the classifier, and left all three for S2 to delete. Task 6 deletes whichever are present, outside the block S1 renders from the C10 ledger. S1's legacy-list tests skip by design once they are gone.
 3. **Step-8 descriptors apply to debits only.** Today's card and lease patterns also tagged credits. D1 says the card and lease lists never apply to credits, and this rule keeps `flagged_group` off credits, so no credit shows a "Flagged" chip. A lease or rental payee's credit therefore loses today's lease credit exclusion and is reviewed like any other credit (D1's last sentence).
 4. **D6 promotes only rows no rule claimed** (`other` with match method `default`), and it skips rows with transfer wording (TRANSFER/XFER/TFR). Without that skip, TD's `TFR TO` rows would join the review tier and move a pinned potential count.
-5. **D6's reach.** It moves two pinned statements the tests map did not foresee: ATB November potential (1 row → 22; 3178.19; exposure 5.36) and navigant (1 row → 4; 1299.00, or 3 rows and 108.00 in the bank-name variant). It also adds review rows no test pins, all named `Unidentified lender obligation`: 22 on ATB Aug, 19 on ATB Dec and 6 on RBC Jan (dry run, counts only). Task 17 Step 5 re-measures them for the owner before merge.
+5. **D6's reach.** In the dry run it moved two pinned statements the tests map did not foresee: ATB November potential (1 row → 22; 3178.19; exposure 5.36) and navigant (1 row → 4; 1299.00, or 3 rows and 108.00 in the bank-name variant). It also added review rows no test pins, all named `Unidentified lender obligation`: 22 on ATB Aug, 19 on ATB Dec and 6 on RBC Jan. On the revised C10 ledger (probe of 2026-09-26), ATB's fixed daily debits are MERCH PAD's review alias. The potential registry claims them at step 11, in Task 5, before D6 runs. So ATB November's 22 / 3178.19 / 5.36 is pinned in Task 5 as two review entities (MERCH PAD and LOANS FC), and D6 is left with navigant's 3 rows and RBC Jan's 6. Task 17 Step 5 re-measures the unpinned statements for the owner before merge.
 6. **"AUTO … PAYMENT" (step 8)** is read as AUTO LOAN/LEASE/FINANCE and VEHICLE PAYMENT. A bare "AUTO PAYMENT" is autopay wording and stays unflagged.
 7. **Transfers stay ahead of the own-bank loan transfer.** The spec puts transfers at step 6 and the own-bank loan transfer at step 8, so "ONLINE TRANSFER TO LOAN" stays `transfer` and only a plain "TRANSFER TO LOAN" becomes a bank loan. This is raised for the owner rather than changed.
 8. **"A registry-style company token"** is read as a legal-form suffix (CORPORATION, COMPANY, INCORPORATED, LTD, LIMITED, LP, LLP, PLLC). Leading financing words are dropped from names, so "ADVANCE PAYMENT <person>" never publishes the person.
@@ -5567,20 +6619,53 @@ Expected (dry run): `recurring_fixed_debit` 22 on ATB Aug, 19 on ATB Dec and 6 o
 11. **Alias prefixes.** The spec's order puts the known-payee matcher (step 7) ahead of rent, card patterns, checks and subscriptions, so a lender alias that is a prefix of another business takes that business's rows. Today's `ACH CAPITAL` is one (Prerequisite 5). Fixing an alias is a change to the C10 ledger, with S1's collision audit (§5) as the evidence. Task 0 stops if the pinned rows show one.
 12. **Premium financing (amendment):**
     - The insurance rule looks up `PREMIUM_FINANCE_ALIASES` before `INSURANCE_PROVIDER_ALIASES`. A premium financier whose name contains an insurer's name (`FIRST INSURANCE FUNDING` against `FIRST INSURANCE`) is therefore the premium financier, and a premium-finance payee is insurance even when its descriptor has no insurance word.
-    - The record keeps `match_method="insurance_provider_alias"` and gets `matched_rule="premium_finance_provider"`; C4 names neither value.
+    - **Rows that name only the insurer.** Before 2026-09-25 they stayed plain insurance. That no longer holds for the bare `FIRST INSURANCE`: the owner ruled that this ACH company name is FIRST Insurance Funding. `FIRST INSURANCE` is now also a premium-finance alias of that entity (S1's `PREMIUM_FINANCE_INSURER_ALIASES`), so its rows stay insurance and are flagged premium financing (159 cache debits in 129 analyses). The hand-kept insurer `First Insurance` is unchanged and no longer claims such a row. The longer Canadian spellings stay with FIRST Insurance Funding of Canada.
+    - **Residual, accepted.** 3 of those 159 rows (3 analyses) are the statement bank's overdraft fee for a `FIRST INSURANCE` item: the fee row prints the item's originator. They were `insurance` already, because the insurance rule (step 4) runs before the fee rule (step 6), and now they also carry the flag. No ledger spelling separates them, and a wording exception inside the insurance rule would need exact fee wording that no probe has measured. S2 accepts the 3 rows, and the census shows them. Rows of other groups are not affected this way: their item-fee rows stay `fee`, because step 6 runs before step 7.
+    - **Premium-finance wording** (owner decision 2026-09-25). A row with `PREM FIN`, `PREMIUM FINANCE` or `INSPREMFIN` and no premium-finance alias is premium financing: 6 cache debits in 6 analyses, `insurance` today by the term rule. Its entity is the insurer the descriptor names, else `Insurance provider not identified`. The rule is read by `classify_transaction` only, so a credit's revenue treatment does not move.
+    - The record keeps `match_method="insurance_provider_alias"` and gets `matched_rule="premium_finance_provider"` (or `"premium_finance_descriptor"` for the wording); C4 names none of these values.
     - `flagged_group="premium_financing"` is set on debits only, as for every other group (item 3). A premium-finance credit carries no flag and keeps the insurance credit exclusion, which is "today's insurance treatment" in §4.2.
     - S3's conformance test (the S3 task "Conformance with S2's real payload, and the re-run after S2") builds such a row from the first `PREMIUM_FINANCE_ALIASES` alias, and a floor-plan and a factoring row from the first alias of their tables. The dry run classified all six of its rows as S3 expects. Those rows exist only if the C10 ledger admits a payee in each table (Prerequisite 1).
 13. **Floor plan and factoring take no descriptor rule.** The amendment adds registries only; spec §4.3 step 8 is unchanged. D9's LOC override still covers only lenders, alternative positions and lines of credit, so a floor-plan payee with LOC wording stays floor plan (a Task 5 test pins this).
 14. **S1's classifier imports.** S1 adds `from .description_text import normalize_transaction_description` and `from .payee_matcher import registry_match` after the registry and revenue imports (the pre-C10 S1 tree did; Task 0's anchor lines check it on the merged tree). Task 4 widens the second line to `PayeeMatch, match_known_payee, registry_match`, and Task 5 replaces only the `from .classification_registry import (...)` block, so the classifier imports the matcher once.
-15. **D1 reaches registry payees only.** C4 and §4.4 make a credit proceeds when its payee is in a `FINANCING_STATES` registry. No registry holds banks (`BANK_NAME_ALIASES` is D5's debit rule), so no credit is ever bank-loan proceeds, and an unnamed LOC, mortgage, vehicle or bank-loan credit keeps today's revenue rule: "LOAN PROCEEDS" stays `non_revenue` by the strong non-revenue rule without the eligible-deposit exclusion, and "LINE OF CREDIT ADVANCE" stays an unverified deposit. Extending D1 to unnamed credits would move eligible deposits (the withholding denominator), which §11 keeps out of scope, so it is routed to the owner rather than built.
+15. **D1 reaches registry payees, and three descriptors the owner ruled.** C4 and §4.4 make a credit proceeds when its payee is in a `FINANCING_STATES` registry. No registry holds banks (`BANK_NAME_ALIASES` is D5's debit rule), so no credit is bank-loan proceeds by payee. This plan routed the extension to unnamed credits to the owner, because it moves eligible deposits (the withholding denominator), which §11 keeps out of scope. The owner decided it on 2026-09-25 for three exact descriptors only, which Task 4 builds:
+    - the statement bank's own line advance (exactly `LOAN CREDIT`: 368 cache credits in 79 analyses, `non_revenue` today, so revenue does not move while legacy eligible deposits drop there);
+    - a line-of-credit draw (`LOC ADVANCE`, `ADVANCE FROM LINE OF CREDIT` and the like: 8 credits, unverified deposits today);
+    - a per-vehicle floor-plan advance (`ADVANCE`, a model year, `VIN`: 54 credits of one dealer).
+
+    Any other unnamed credit keeps today's revenue rule: "LOAN PROCEEDS" stays `non_revenue` by the strong non-revenue rule without the eligible-deposit exclusion. The same day the owner narrowed D1 once: a payout-credit entity's credits (`PAYOUT_CREDIT_ENTITIES`) are the holder's own sales and stay revenue (Sezzle 140 cache credits, American First Finance 3, PAYABILITY 174). The residual the checkers noted: a merchant paid out by another BNPL platform (Klarna, Credit Key) would still have its settlements made proceeds. No such credit is in the corpus, and adding one is an owner ruling in S1's constant, not an S2 change.
 16. **The recurring-debit view groups by entity and amount**, as before. Two D6 groups that are both `Unidentified lender obligation` with the same amount show as one recurring line; the classification records stay separate.
 17. **The census compares by account and row position.** Both snapshots read the same cached payload, so a row keeps its index; an account whose row count differs between the two is reported as unmatched, never guessed.
 18. **C10, the curated registry ledger.** It changes how S1 fills the C2 tables, not their names or C3, so no classifier, metrics or payload code changes. It changes three things in this plan:
     - **Prerequisites are ledger content.** S2's facts about entities, groups, aliases and `entity` spellings are now facts about `docs/lender-registry-ledger.json`. S1's validator, normative for the ledger per the master plan's C10, requires every owner-named payee of spec §2 in its group; Task 0 checks the facts it does not cover ("Why Task 0 checks more than C10's validator"). Two lines were added: the ledger is schema 1, and the lender table's entities are its admitted `confirmed_lender` entities. The latter is S2's reading that each table is keyed by the ledger's `entity`.
     - **The census reads the ledger's JSON.** Spec §9's "traces to an admitted ledger entity" is checked against `status` and `group`, not as a substring of the rendered evidence document. That document also names entities that are in no table, such as those awaiting an owner ruling.
     - **S2 never edits the ledger or the rendered block.** A failed content fact goes to the orchestrator.
+19. **The owner-delegated decisions of 2026-09-25.** The owner delegated every open ledger question to the orchestrator, whose decisions are owner rulings. They move this plan in four ways.
+    - **Facts and Task 0.** Facts 3, 4, 6, 8 and 9 were re-pinned and fact 10 added. `EXPECTED` holds the measurements on the revised ledger. relay's reach is exact now, no longer a variant.
+    - **Pins.** Pin-ledger rows 1, 9-12, 14, 15 and 17 changed, and rows 18-25 are new. Some of them move because of C10 ledger content that predates these decisions: the `LOANS FC` review entity (row 20, and ATB November's candidate) and relay's personal-loan payees.
+    - **New rules.** They are placed where the spec's rule order puts them:
+      - payout credits and three descriptor credits (Task 4);
+      - the overdraft-charge fee and the membership/top-up exception (Task 5);
+      - premium-finance wording (Task 7);
+      - the step-8 rules and card forms (Task 8), with the unnamed loan payment (Task 9);
+      - `MCA SERVICING` as a servicer (Task 9);
+      - the census reading a merge as one lender (Task 15).
+    - **Choices made in writing them:**
+      - **The membership/top-up exception reads the matched alias.** The decision names Klarna Inc. The rule keeps payee names out of the classifier, so it reads membership or top-up words right after the alias of any `alternative_position` payee. On the cache it claims exactly the Klarna rows the decision's Klarna-worded patterns claim (42, 2026-09-26 probe). Without the group limit it would also take personal-loan memberships (Brigit, Bright Money, Klover: 53 rows), which no decision covers.
+      - **The unnamed loan payment is built in Task 9.** It needs D11's payee words, and Task 8 runs before them. Task 8's `LOAN PAYMENT` case therefore moves to Task 9's tests, as `bank_loan`.
+      - **Step-8 order.** It follows the merged list of the decisions (s2 amendments C). Another bank's unnamed loan comes after the own-loan transfer; the two claim disjoint rows.
+      - **Clover Equipment is pinned in Task 8.** Its rows reach `lease_or_rental` through step 8's lease wording, which Task 8 builds.
+      - **TD CMCA's stale-candidate rebuild moved.** Its candidate is now a lender, so the check moved to the Audit Bank serialization test, which gains a fabricated unnamed direct-debit loan.
+      - **The FIRST INSURANCE residual is accepted** (item 12).
+    - S1's plan, its content test and the spec change separately (s2 amendments E); this plan cites S1 by contract and names only the S1 constants it reads.
 
 **Dry run (2026-09-25).**
+- **It predates the owner decisions of 2026-09-25.** The replay of 2026-09-26 below covers them.
+- **Replay on the revised ledger (2026-09-26).** A scratch export of S1 at `b69d12e` with the revised ledger's rendered registry, never the working tree:
+  - Task 0: `0 failure(s)`; navigant's bank-name line reads 2, and the card-issuer info lines read 3 (RBC Jan) and 0 (Navy Fed June).
+  - A replay script applied the code blocks and edits of Tasks 1-11 and 15, as amended for these decisions, task by task, and each replace target matched exactly once. Tasks 12-14 and 16 were not replayed: the decisions left Tasks 12-14 unchanged and changed only Task 16's documentation text.
+  - Red phases of Tasks 4, 5, 7, 8 and 9 (each task's test file on the tree the earlier tasks leave): every new test failed or passed as its "watch it fail" step says.
+  - After Task 15: the new S2 test files, every re-pinned test file, the three selections of Task 0 Step 2 and S1's registry, matcher, speed and alias-audit tests gave `1177 passed, 3 skipped` (S1's legacy-list checks, by design), with the known `test_no_literal_account_numbers_in_ocr` failure deselected.
+  - Task 17 Step 4's scan of the replayed test diff found only figures with cents that step lists.
 - **Setup.** A scratch copy of the pre-C10 S1 revision's trial tree, never the working tree: `lender-detection` at `4f219cd` with S1's plan applied as revised on 2026-09-25. It held its builder's registry (eleven groups, built from the research files) and its classifier edits. A replay script applied every code block of this plan file, task by task, and each replace target matched exactly once.
 - **Task 0 on that tree:** 0 failures. It selected both variants: navigant's bank-name rows (2 loan debits name a listed bank) and relay's personal-loan payees.
 - **Red phases.** Every task's new tests failed as its "watch it fail" step says. Task 3 failed on `600 == 300`; Task 15 failed at collection.
