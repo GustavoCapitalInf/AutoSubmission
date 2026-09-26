@@ -285,3 +285,139 @@ console.log(JSON.stringify({panel, filter: transactionFilter, count: els.transac
     assert result["filter"] == "flagged:premium_financing"
     assert result["count"] == "2 FABRICATED PREMIUM FINANCE"
     assert result["dates"] == ["2031-03-04", "2031-03-18"]
+
+
+# ---------------------------------------------------------------- Task 5: the panel on a package
+
+PACKAGE = {
+    "totals": {"decision": "approved", "flagged_position_count": 8, "flagged_position_total": 5450.0},
+    "currency": {"currency": "CAD", "currencies": ["CAD"]},
+    "documents": [], "transactions": [], "funders": [], "potential_lenders": [], "insurance_providers": [],
+    # The package roll-up (C6): one list per ticked group, keyed by group, in no particular key order. It holds the
+    # three groups of the owner's amendment (floor plan, factoring, premium financing) beside two older ones.
+    "flagged_positions": {
+        "factoring": [{"payee": "FABRICATED FACTOR FUNDING", "documents": 1, "count": 1, "total_debited": 150.0,
+                       "cadence": "single", "first_date": "2031-02-10", "last_date": "2031-02-10"}],
+        "premium_financing": [{"payee": "FABRICATED PREMIUM FINANCE", "documents": 1, "count": 2,
+                               "total_debited": 500.0, "cadence": "biweekly", "first_date": "2031-02-04",
+                               "last_date": "2031-02-18"}],
+        "vehicle_financing": [{"payee": "FABRICATED AUTO FINANCE", "documents": 2, "count": 2, "total_debited": 800.0,
+                               "cadence": "monthly", "first_date": "2031-01-24", "last_date": "2031-02-24"}],
+        "floor_plan": [{"payee": "FABRICATED FLOORING CAPITAL", "documents": 2, "count": 2, "total_debited": 3000.0,
+                        "cadence": "monthly", "first_date": "2031-01-15", "last_date": "2031-02-15"}],
+        "alternative_positions": [{"payee": "FABRICATED PLATFORM CAPITAL", "documents": 1, "count": 1,
+                                   "total_debited": 1000.0, "cadence": "single", "first_date": "2031-02-03",
+                                   "last_date": "2031-02-03"}],
+    },
+}
+
+
+def _in_statement(job_id, row):
+    """A row of the package's combined ledger: the member's row, with the statement it came from."""
+    return {**row, "source_job": job_id, "source_currency": "CAD"}
+
+
+# The combined ledger behind PACKAGE's flagged positions. It holds the auto-finance debits of two statements, one of
+# them printed twice (tagged, never counted), payees of two other groups, a revenue credit, and the premium-financing
+# debits, which stay insurance, beside a plain insurer's debit.
+PACKAGE_LEDGER = [
+    _in_statement("a", _row("transaction:1", "2031-01-24", "ACH DEBIT FABRICATED AUTO FINANCE", -400.0,
+                            "vehicle_financing", entity="FABRICATED AUTO FINANCE", group="vehicle_financing")),
+    _in_statement("a", _row("transaction:2", "2031-01-27", "ACH CREDIT FABRICATED CUSTOMER", 5000.0, "other",
+                            revenue="verified_revenue")),
+    _in_statement("b", _row("transaction:1", "2031-02-03", "ACH DEBIT FABRICATED PLATFORM CAPITAL", -1000.0,
+                            "alternative_position", entity="FABRICATED PLATFORM CAPITAL",
+                            group="alternative_positions")),
+    _in_statement("b", _row("transaction:2", "2031-02-24", "ACH DEBIT FABRICATED AUTO FINANCE", -400.0,
+                            "vehicle_financing", entity="FABRICATED AUTO FINANCE", group="vehicle_financing")),
+    _in_statement("b", _row("transaction:3", "2031-02-24", "ACH DEBIT FABRICATED AUTO FINANCE", -400.0,
+                            "vehicle_financing", entity="FABRICATED AUTO FINANCE", group="vehicle_financing",
+                            counted=False)),
+    _in_statement("b", _row("transaction:4", "2031-02-10", "ACH DEBIT FABRICATED FACTOR FUNDING", -150.0, "factoring",
+                            entity="FABRICATED FACTOR FUNDING", group="factoring")),
+    _in_statement("b", _insured(_row("transaction:5", "2031-02-04", "ACH DEBIT FABRICATED PREMIUM FINANCE", -250.0,
+                                     "insurance", entity="FABRICATED PREMIUM FINANCE", group="premium_financing"))),
+    _in_statement("b", _insured(_row("transaction:6", "2031-02-11", "ACH DEBIT FABRICATED INSURER", -90.0, "insurance",
+                                     entity="FABRICATED INSURER"))),
+    _in_statement("b", _insured(_row("transaction:7", "2031-02-18", "ACH DEBIT FABRICATED PREMIUM FINANCE", -250.0,
+                                     "insurance", entity="FABRICATED PREMIUM FINANCE", group="premium_financing"))),
+]
+
+
+def _package_page(package):
+    return CELLS + f"""
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{rows: cells(els.flaggedTable.innerHTML), count: els.flaggedCount.textContent,
+  html: els.flaggedTable.innerHTML, pill: els.decisionPill.textContent}}));
+"""
+
+
+@needs_node
+def test_the_package_panel_lists_payees_group_by_group_with_their_statements():
+    result = run_dashboard(_package_page(PACKAGE))
+    # In FLAG_GROUPS order, whatever the order of the roll-up's keys: the amendment's three groups come last.
+    assert result["rows"] == [
+        ["Alternative positions", "FABRICATED PLATFORM CAPITAL", "1", "CA$1,000.00", "Single payment", "1"],
+        ["Vehicle loans &amp; leases", "FABRICATED AUTO FINANCE", "2", "CA$800.00", "Monthly2031-01-24 to 2031-02-24",
+         "2"],
+        ["Floor plan", "FABRICATED FLOORING CAPITAL", "2", "CA$3,000.00", "Monthly2031-01-15 to 2031-02-15", "2"],
+        ["Factoring", "FABRICATED FACTOR FUNDING", "1", "CA$150.00", "Single payment", "1"],
+        ["Premium financing", "FABRICATED PREMIUM FINANCE", "2", "CA$500.00",
+         "Every two weeks2031-02-04 to 2031-02-18", "1"],
+    ]
+    assert result["count"] == "5 payees"
+    # Flagged positions never touch the package decision (D7).
+    assert result["pill"] == "Package decision · Approved"
+
+
+@needs_node
+def test_a_package_that_refused_its_currency_pools_no_flagged_money():
+    refused = {**PACKAGE,
+               "currency": {"currency": None, "currencies": ["CAD", "USD"], "cross_currency_totals_refused": True,
+                            "refusal_reason": "multiple_currencies"},
+               "flagged_positions": {"vehicle_financing": [{**PACKAGE["flagged_positions"]["vehicle_financing"][0],
+                                                            "total_debited": None}]}}
+    result = run_dashboard(_package_page(refused))
+    assert result["rows"] == [["Vehicle loans &amp; leases", "FABRICATED AUTO FINANCE", "2", "N/A",
+                               "Monthly2031-01-24 to 2031-02-24", "2"]]
+
+
+@needs_node
+@pytest.mark.parametrize(("positions", "row"), [({}, NO_FLAGGED_PAYMENTS), (None, NOT_AVAILABLE)],
+                         ids=["no-ticked-group-paid", "server-before-flagged-positions"])
+def test_a_package_without_flagged_positions_says_why(positions, row):
+    package = {key: value for key, value in PACKAGE.items() if key != "flagged_positions"}
+    if positions is not None:
+        package["flagged_positions"] = positions
+    result = run_dashboard(_package_page(package))
+    assert result["rows"] == [[row]]
+    assert 'colspan="6"' in result["html"]
+
+
+@needs_node
+def test_a_package_payee_click_shows_the_combined_ledger_rows_behind_its_count():
+    package = {**PACKAGE, "transactions": PACKAGE_LEDGER}
+    result = run_dashboard(CELLS + ROWS + PAYEE_CLICK + f"""
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(package)});
+const panel = cells(els.flaggedTable.innerHTML);
+const click = (group, payee) => {{
+  clickPayee(els.flaggedTable, group, payee);
+  return {{filter: transactionFilter, count: els.transactionCount.textContent,
+    dates: datesOf(els.transactionTable.innerHTML)}};
+}};
+const vehicle = click('vehicle_financing', 'FABRICATED AUTO FINANCE');
+console.log(JSON.stringify({{panel, vehicle, premium: click('premium_financing', 'FABRICATED PREMIUM FINANCE')}}));
+""")
+    [vehicle] = [row for row in result["panel"] if "FABRICATED AUTO FINANCE" in row]
+    [premium] = [row for row in result["panel"] if "FABRICATED PREMIUM FINANCE" in row]
+    # The ledger shows exactly the rows the panel counted, across both statements: never the duplicate, never the
+    # other groups' payees, never the credit.
+    assert result["vehicle"] == {"filter": "flagged:vehicle_financing",
+                                 "count": f"{vehicle[2]} FABRICATED AUTO FINANCE",
+                                 "dates": ["2031-01-24", "2031-02-24"]}
+    assert vehicle[2] == "2"
+    # Premium financing keys on flagged_group: its rows stay insurance, and the plain insurer's row is left out.
+    assert result["premium"] == {"filter": "flagged:premium_financing",
+                                 "count": f"{premium[2]} FABRICATED PREMIUM FINANCE",
+                                 "dates": ["2031-02-04", "2031-02-18"]}
+    assert (premium[0], premium[2]) == ("Premium financing", "2")

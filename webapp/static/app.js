@@ -3202,6 +3202,7 @@ function renderPackageTables(pkg) {
   const currency = packageCurrencyInfo(pkg).currency;
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
+  renderFlaggedPositions(pkg.flagged_positions, currency, true);
   renderRevenueEvidence(pkg.totals || {}, currency);
   renderMonthlyStatements(pkg);
 }
