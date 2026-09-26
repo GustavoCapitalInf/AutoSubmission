@@ -14,6 +14,8 @@ The validator applies:
     or a local, private or undotted host;
   * contract C2's context-only tables: no entity of the card, card-issuer, bank-name or premium-finance
     groups is under review, and every card-payment alias carries card or payment wording;
+  * the owner's premium-finance ruling: a premium-finance alias repeats a hand-kept insurer's alias only when
+    PREMIUM_FINANCE_INSURER_ALIASES holds it;
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
     reason: a sentence of its notes that starts "Move:" (today's registry is read from git at
     BASELINE_REVISION).
@@ -99,6 +101,9 @@ _URL_SCHEME = re.compile(r"https?://")
 #: the insurance rule. None of their entities is ever "review", because the potential tier (where C10 renders
 #: every review entity) reads its aliases with no context at all.
 CONTEXT_ONLY_GROUPS = frozenset({"credit_card_payment", "card_issuer_context", "bank_name", "premium_financing"})
+#: The hand-kept insurer table. A premium-finance alias may repeat one of its aliases only on the owner's
+#: ruling (``Rules.premium_insurer_aliases``, PREMIUM_FINANCE_INSURER_ALIASES).
+INSURER_TABLE = "INSURANCE_PROVIDER_ALIASES"
 #: The wording of S2's card-payment rule (spec section 4.3 step 8). C10: the aliases of credit_card_payment are
 #: "already payment-specific", so each carries this wording; a bare issuer name belongs in card_issuer_context.
 _CARD_PAYMENT_WORDING = re.compile(
@@ -182,6 +187,8 @@ class Rules:
     brands: frozenset[str]
     hand_kept: Mapping[str, Mapping[str, tuple[str, ...]]]
     baseline: Mapping[str, Mapping[str, tuple[str, ...]]]
+    #: Normalized premium-finance spellings that may equal a hand-kept insurer alias (owner ruling).
+    premium_insurer_aliases: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -461,6 +468,8 @@ def _alias_problems(entity: LedgerEntity, alias: str, rules: Rules, held: frozen
         problems.append(f"{label}: alias {shown} is a bare platform name (spec section 5: the operating-revenue "
                         f"registry only)")
     for table, entries in rules.hand_kept.items():
+        if table == INSURER_TABLE and entity.group == "premium_financing" and norm in rules.premium_insurer_aliases:
+            continue  # the owner's ruling: this premium financier's rows print as the insurer
         for name, aliases in entries.items():
             if norm in {normalize(other) for other in aliases}:
                 problems.append(f"{label}: alias {shown} is also an alias of the hand-kept {table} entity "
@@ -610,18 +619,22 @@ def premium_insurer_overlaps(entities: list[LedgerEntity],
                              insurers: Mapping[str, tuple[str, ...]]) -> list[tuple[str, str]]:
     """(premium-finance entity, hand-kept insurer) pairs where a premium alias contains an insurer's alias as
     whole words. Not a problem: the insurance rule reads the premium table first (S2), so the financier keeps
-    its own rows and rows naming only the insurer stay plain insurance. The owner rules on them."""
+    its own rows and rows naming only the insurer stay plain insurance. The owner rules on them. An insurer
+    alias that a premium entity holds itself (the owner's ruling, PREMIUM_FINANCE_INSURER_ALIASES) is no
+    overlap of any premium entity: the rows that print it are premium financing already."""
+    premium = [entity for entity in entities if entity.status == "admitted" and entity.group == "premium_financing"]
+    held = {normalize(alias) for entity in premium for alias in entity.aliases}
     pairs: list[tuple[str, str]] = []
-    for entity in entities:
-        if entity.status != "admitted" or entity.group != "premium_financing":
-            continue
+    for entity in premium:
         texts = [normalize(alias) for alias in entity.aliases]
         for insurer, aliases in insurers.items():
             for alias in aliases:
                 norm = normalize(alias)
+                if norm in held:
+                    continue
                 inside = re.compile(rf"(?<![A-Z0-9]){re.escape(norm)}(?![A-Z0-9])")
                 pair = (entity.entity, insurer)
-                if pair not in pairs and any(text != norm and inside.search(text) for text in texts):
+                if pair not in pairs and any(inside.search(text) for text in texts):
                     pairs.append(pair)
     return pairs
 
@@ -655,8 +668,9 @@ def current_rules() -> Rules:
         platforms=frozenset(normalize(name) for name in registry.BARE_PLATFORM_NAMES),
         brands=frozenset(normalize(name) for name in registry.BARE_BRAND_NAMES),
         hand_kept={
-            "INSURANCE_PROVIDER_ALIASES": registry.INSURANCE_PROVIDER_ALIASES,
+            INSURER_TABLE: registry.INSURANCE_PROVIDER_ALIASES,
             "OPERATING_REVENUE_SOURCE_ALIASES": registry.OPERATING_REVENUE_SOURCE_ALIASES,
         },
         baseline=load_baseline(),
+        premium_insurer_aliases=frozenset(normalize(name) for name in registry.PREMIUM_FINANCE_INSURER_ALIASES),
     )

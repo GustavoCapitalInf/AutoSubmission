@@ -167,6 +167,12 @@ BARE_BRAND_NAMES: tuple[str, ...] = (
     "SYNCHRONY", "TOYOTA", "WELLS FARGO",
 )
 
+#: Owner ruling 2026-09-25: premium-finance spellings that may equal an alias of the hand-kept
+#: INSURANCE_PROVIDER_ALIASES. The bare FIRST INSURANCE originator is FIRST Insurance Funding: its rows stay
+#: insurance and are also flagged premium financing. The validator exempts exactly these spellings from its
+#: hand-kept-alias rule, and only on a premium_financing entity.
+PREMIUM_FINANCE_INSURER_ALIASES: tuple[str, ...] = ("FIRST INSURANCE",)
+
 
 # --- Deprecated: the inputs of the classifier as it stands before S2 ---
 # LEGACY_CONFIRMED_LENDER_ALIASES, LEGACY_POTENTIAL_LENDER_ALIASES and

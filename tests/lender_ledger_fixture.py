@@ -93,6 +93,7 @@ RULES = Rules(
     brands=frozenset({"RIVETT"}),
     hand_kept=HAND_KEPT,
     baseline=BASELINE,
+    premium_insurer_aliases=frozenset(),
 )
 
 

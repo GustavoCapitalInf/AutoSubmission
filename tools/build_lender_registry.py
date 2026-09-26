@@ -144,6 +144,10 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "ledger in which one is not.",
         "- An entity of the registry as it stood before this ledger changes place, or loses an alias, only with a "
         "reason: a sentence of its notes that starts `Move:` (spec section 9). The moves section shows that reason.",
+        "- A premium-finance alias equals an alias of a hand-kept insurer (`INSURANCE_PROVIDER_ALIASES`) only on the "
+        "owner's ruling (`PREMIUM_FINANCE_INSURER_ALIASES`). The insurance rule reads the premium-finance table "
+        "first, so rows that print that alias stay insurance and are also flagged premium financing, and no overlap "
+        "with it awaits a ruling.",
         "",
         "## Summary",
         "",

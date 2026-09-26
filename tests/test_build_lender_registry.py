@@ -132,6 +132,22 @@ def test_the_evidence_ledger_lists_moves_owner_rulings_overlaps_and_rejections(e
     assert "TARNMOOR CAP" not in evidence and "MARSH RECOVERY" not in evidence
 
 
+def test_the_evidence_ledger_states_the_owner_ruling_on_premium_aliases_that_repeat_an_insurer(evidence):
+    admission = evidence.split("## Admission\n", 1)[1].split("\n## ", 1)[0]
+    assert ("- A premium-finance alias equals an alias of a hand-kept insurer (`INSURANCE_PROVIDER_ALIASES`) only "
+            "on the owner's ruling (`PREMIUM_FINANCE_INSURER_ALIASES`). The insurance rule reads the premium-finance "
+            "table first, so rows that print that alias stay insurance and are also flagged premium financing, and "
+            "no overlap with it awaits a ruling.") in admission
+
+
+def test_an_insurer_alias_that_a_premium_entity_holds_awaits_no_owner_ruling():
+    entities = _entities((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"]))
+    evidence = builder.render_evidence(entities, "a" * 64, RULES)
+    waiting = evidence.split("## Awaiting an owner ruling\n", 1)[1].split("\n## ", 1)[0]
+    assert "hand-kept insurer" not in waiting
+    assert "| Marsh Recovery |" in waiting
+
+
 def test_a_pipe_in_a_source_or_where_looked_never_splits_an_evidence_row():
     entities = _entities((0, "evidence", [{"source": "https://quillon.example/a|b", "note": "fabricated"}]),
                          (15, "where_looked", ["https://heldco.example/a|b"]),
@@ -280,3 +296,13 @@ def test_the_owner_ruling_of_2026_09_25_respells_bluevine_and_smartpay():
     spelled = {label: spelling for pairs in registry.OWNER_NAMED_PAYEES.values() for label, spelling in pairs}
     assert spelled["BlueVine"] == "BLUEVINE CAPITAL"
     assert spelled["SmartPay"] == "SMARTPAY LEASING"
+
+
+def test_the_premium_insurer_spellings_are_hand_kept_insurer_aliases_that_the_validator_reads():
+    from analysis import classification_registry as registry
+    from analysis.description_text import normalize_transaction_description as normalize
+
+    insurers = {normalize(alias) for aliases in registry.INSURANCE_PROVIDER_ALIASES.values() for alias in aliases}
+    ruled = frozenset(normalize(spelling) for spelling in registry.PREMIUM_FINANCE_INSURER_ALIASES)
+    assert ruled and ruled <= insurers
+    assert lender_ledger.current_rules().premium_insurer_aliases == ruled

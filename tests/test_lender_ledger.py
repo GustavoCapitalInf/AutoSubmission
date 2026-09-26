@@ -232,6 +232,51 @@ def test_a_premium_alias_that_contains_an_insurer_alias_is_listed_for_the_owner_
     ]
 
 
+def _premium_ruled(*spellings, **changes):
+    """RULES with the premium-finance spellings the owner ruled may repeat an insurer alias."""
+    return dataclasses.replace(RULES, premium_insurer_aliases=frozenset(spellings), **changes)
+
+
+def test_a_premium_alias_the_owner_ruled_may_repeat_a_hand_kept_insurer_alias():
+    assert _problems((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"]),
+                     rules=_premium_ruled("BRISK MUTUAL")) == []
+
+
+def test_the_premium_insurer_ruling_holds_only_on_a_premium_financing_entity():
+    assert _problems((11, "aliases", ["LOXLEY FACTORING", "BRISK MUTUAL"]), rules=_premium_ruled("BRISK MUTUAL")) == [
+        "entity 11 ('Loxley Factoring'): alias 'BRISK MUTUAL' is also an alias of the hand-kept "
+        "INSURANCE_PROVIDER_ALIASES entity 'Brisk Mutual'"
+    ]
+
+
+def test_the_premium_insurer_ruling_exempts_only_its_own_spellings():
+    insurers = {**HAND_KEPT, "INSURANCE_PROVIDER_ALIASES": {"Brisk Mutual": ("BRISK MUTUAL", "BRISK MUTUAL GROUP")}}
+    rules = _premium_ruled("BRISK MUTUAL", hand_kept=insurers)
+    assert _problems((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL", "BRISK MUTUAL GROUP"]),
+                     rules=rules) == [
+        "entity 13 ('Brisk Mutual Funding'): alias 'BRISK MUTUAL GROUP' is also an alias of the hand-kept "
+        "INSURANCE_PROVIDER_ALIASES entity 'Brisk Mutual'"
+    ]
+
+
+def test_the_premium_insurer_ruling_never_exempts_an_operating_revenue_alias():
+    assert _problems((13, "aliases", ["BRISK MUTUAL FUNDING", "ZANTHOS PAY"]),
+                     rules=_premium_ruled("ZANTHOS PAY")) == [
+        "entity 13 ('Brisk Mutual Funding'): alias 'ZANTHOS PAY' is also an alias of the hand-kept "
+        "OPERATING_REVENUE_SOURCE_ALIASES entity 'Zanthos Pay'"
+    ]
+
+
+def test_an_insurer_alias_that_a_premium_entity_holds_is_an_overlap_of_no_premium_entity():
+    insurers = HAND_KEPT["INSURANCE_PROVIDER_ALIASES"]
+    hollin = (12, "aliases", ["HOLLIN PREMIUM FIN", "HOLLIN BRISK MUTUAL"])
+    assert lender_ledger.premium_insurer_overlaps(_entities(hollin), insurers) == [
+        ("Hollin Premium Finance", "Brisk Mutual"), ("Brisk Mutual Funding", "Brisk Mutual")
+    ]
+    held = (13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"])
+    assert lender_ledger.premium_insurer_overlaps(_entities(hollin, held), insurers) == []
+
+
 # --- C10: the payees the owner named ----------------------------------------------------------------------------
 
 
