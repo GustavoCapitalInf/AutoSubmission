@@ -107,8 +107,11 @@ def _table_row(entity: LedgerEntity) -> str:
 
 
 def _now(move: lender_ledger.Move) -> str:
-    """Where a moved entity of today's registry is now, and the entity it merges into, if any."""
-    return f"{move.now} (merged into {move.holder})" if move.merged else move.now
+    """Where a moved entity of today's registry is now, the entity it merges into, if any, and each of its
+    aliases that the owner gave to another company."""
+    notes = [f"merged into {move.holder}"] if move.merged else []
+    notes += [f"{alias} reattributed to {holder}" for alias, holder in move.reattributed]
+    return f"{move.now} ({'; '.join(notes)})" if notes else move.now
 
 
 def _listed_row(entity: LedgerEntity) -> str:
@@ -156,6 +159,9 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "- An entity of that registry that the owner merged into a ledger entity (`MERGED_REGISTRY_ENTITIES`) is held "
         "by that entity under its name. The moves section shows the merge, and an alias the merge loses needs a "
         "`Move:` sentence in that entity's notes.",
+        "- An alias of that registry that the owner ruled names another company (`REATTRIBUTED_REGISTRY_ALIASES`) is "
+        "held by that company's ledger entity, and the known-payee and potential tables read it as that entity or not "
+        "at all. The moves section shows it beside the entity that held it, and it is not counted as lost.",
         "",
         "## Summary",
         "",
@@ -173,7 +179,7 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         lines += ["| Entity | Group | Business type | Verdicts | Status | Aliases | Source | Where the researchers "
                   "looked | Notes |", "|---|---|---|---|---|---|---|---|---|"]
         lines += [_table_row(by_name[name]) for name in tables[table]]
-    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged)
+    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged, rules.reattributed)
     lines += ["", "## Moves from the registry as it stood before this ledger", ""]
     if moves:
         lines += ["| Entity | Was | Now | Aliases of today's registry lost | Why |", "|---|---|---|---:|---|"]
@@ -249,13 +255,19 @@ def main(argv: list[str] | None = None) -> int:
     entities, _problems = lender_ledger.parse_ledger(data)
     digest = lender_ledger.ledger_digest(data)
     print(f"ledger ok: {len(entities)} entities, sha256:{digest}")
-    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged)
+    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged, rules.reattributed)
     for move in moves:
         merge = f"merged into {move.holder}; " if move.merged else ""
-        unneeded = "the owner's merge, MERGED_REGISTRY_ENTITIES" if move.merged else "spec section 4.1"
+        given = "".join(f"; {alias} reattributed to {holder}" for alias, holder in move.reattributed)
+        if move.merged:
+            unneeded = "the owner's merge, MERGED_REGISTRY_ENTITIES"
+        elif move.now == move.was:
+            unneeded = "the owner's reattribution, REATTRIBUTED_REGISTRY_ALIASES"
+        else:
+            unneeded = "spec section 4.1"
         print(lender_ledger.mask_digit_runs(
             f"move: {move.entity} ({move.table}): {merge}{move.was} -> {move.now}, {move.lost} of today's aliases "
-            f"lost; why: {move.reason or f'none needed ({unneeded})'}"))
+            f"lost{given}; why: {move.reason or f'none needed ({unneeded})'}"))
     if args.check:
         return 0
     tables = render_tables(entities)

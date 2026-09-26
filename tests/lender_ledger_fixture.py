@@ -96,6 +96,7 @@ RULES = Rules(
     premium_insurer_aliases=frozenset(),
     merged={},
     payout_credit=(),
+    reattributed={},
 )
 
 
@@ -105,3 +106,24 @@ def ledger(*changes):
     for index, field_name, value in changes:
         entities[index][field_name] = value
     return {"schema": 1, "entities": entities}
+
+
+#: Today's three lists plus 'Pellam', a fabricated lease entry whose first alias the owner ruled names another
+#: company, 'Pellam Solutions' (the reattribution tests).
+PELLAM_BASELINE = {**BASELINE, "LEASE_PROVIDER_ALIASES": {
+    **BASELINE["LEASE_PROVIDER_ALIASES"], "Pellam": ("PELLAM SOL", "PELLAM")}}
+
+
+def pellam_ledger(aliases=("PELLAM LEASING",),
+                  notes="Fabricated: a lease-to-own company. Move: bare PELLAM names other companies.", extra=()):
+    """The fabricated ledger plus entity 18, 'Pellam', which keeps today's name with ``aliases``, entity 19,
+    'Pellam Solutions', rejected, which holds the alias the owner gave it, and the ``extra`` entities."""
+    data = ledger()
+    data["entities"] += [
+        entity("Pellam", "lease_or_rental", aliases, business_type="lease_to_own", notes=notes),
+        entity("Pellam Solutions", "potential_lender", ["PELLAM SOL"], status="rejected",
+               business_type="premium_billing", evidence=[], verdicts=UNRESOLVED,
+               notes="Fabricated: premium billing, not a lender."),
+        *extra,
+    ]
+    return data

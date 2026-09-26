@@ -6,7 +6,9 @@ import re
 
 import pytest
 
-from tests.lender_ledger_fixture import BASELINE, ENTITIES, HAND_KEPT, RULES, UNRESOLVED, entity, ledger
+from tests.lender_ledger_fixture import (
+    BASELINE, ENTITIES, HAND_KEPT, PELLAM_BASELINE, RULES, UNRESOLVED, entity, ledger, pellam_ledger,
+)
 from tools import lender_ledger
 
 
@@ -95,9 +97,8 @@ def test_a_corrected_verdict_admits_and_other_statuses_need_no_verdict():
 
 def test_an_admitted_or_review_entity_needs_an_alias():
     assert _problems((15, "aliases", [])) == ["entity 15 ('Heldco Advance') is review but has no alias",
-                                              "today's POTENTIAL_LENDER_ALIASES entity 'Heldco Advance' is in no "
-                                              "ledger entity: record it in its place, or moved or rejected with a "
-                                              "sentence starting 'Move:' in its notes"]
+                                              "today's POTENTIAL_LENDER_ALIASES entity 'Heldco Advance' loses 1 of "
+                                              "today's aliases without a sentence starting 'Move:' in its notes"]
     assert _problems((16, "aliases", [])) == []
 
 
@@ -479,6 +480,15 @@ def test_every_entity_of_todays_registry_is_in_the_ledger():
                         "in its place, or moved or rejected with a sentence starting 'Move:' in its notes"]
 
 
+def test_an_entity_of_todays_registry_that_keeps_its_name_but_none_of_its_aliases_loses_them_all():
+    assert _problems((1, "aliases", ["OLDCO FUNDING GROUP"])) == [
+        "today's CONFIRMED_LENDER_ALIASES entity 'Oldco Funding' loses 2 of today's aliases without a sentence "
+        "starting 'Move:' in its notes"
+    ]
+    assert _problems((1, "aliases", ["OLDCO FUNDING GROUP"]),
+                     (1, "notes", "Move: fabricated: its statements print the longer name.")) == []
+
+
 def test_an_entity_of_todays_registry_keeps_its_name():
     assert _problems((1, "entity", "Oldco Funding LLC")) == [
         "the ledger entity holding the first alias of today's 'Oldco Funding' is named 'Oldco Funding LLC': keep "
@@ -602,6 +612,113 @@ def test_no_merge_problem_quotes_a_run_of_five_or_more_digits():
         f"MERGED_REGISTRY_ENTITIES merges {WITHHELD}, which is not an entity of today's registry",
         f"MERGED_REGISTRY_ENTITIES merges {WITHHELD} into {WITHHELD}, which is not a ledger entity",
     ]
+
+
+def _reattributed(**changes):
+    """RULES whose today's lease list also holds 'Pellam', whose first alias the owner gave to 'Pellam Solutions'."""
+    return dataclasses.replace(RULES, **{"baseline": PELLAM_BASELINE,
+                                         "reattributed": {"PELLAM SOL": "Pellam Solutions"}, **changes})
+
+
+def test_an_alias_the_owner_reattributed_is_held_by_its_company_and_todays_entity_keeps_its_name():
+    assert lender_ledger.validate(pellam_ledger(), _reattributed()) == []
+    assert lender_ledger.validate(pellam_ledger(), _reattributed(reattributed={})) == [
+        "the ledger entity holding the first alias of today's 'Pellam' is named 'Pellam Solutions': keep today's "
+        "name (S2's pins and the census compare entity names)",
+        "today's LEASE_PROVIDER_ALIASES entity 'Pellam' moves from lease_or_equipment_financing to no table without "
+        "a sentence starting 'Move:' in its notes",
+        "today's LEASE_PROVIDER_ALIASES entity 'Pellam' loses 2 of today's aliases without a sentence starting "
+        "'Move:' in its notes",
+    ]
+
+
+def test_the_aliases_an_entity_loses_beside_a_reattribution_need_its_move_sentence():
+    assert lender_ledger.validate(pellam_ledger(notes="Fabricated: a lease-to-own company."), _reattributed()) == [
+        "today's LEASE_PROVIDER_ALIASES entity 'Pellam' loses 1 of today's aliases without a sentence starting "
+        "'Move:' in its notes"
+    ]
+
+
+SOLWAY = entity("Solway Advance", "confirmed_lender", ["SOL"], status="review", short_alias_reason="fabricated",
+                evidence=[], verdicts=UNRESOLVED, notes="Fabricated: identity unconfirmed.")
+
+
+@pytest.mark.parametrize("data,problem", [
+    (pellam_ledger(aliases=["PELLAM LEASING", "PELLAM"]),
+     "REATTRIBUTED_REGISTRY_ALIASES reattributes 'PELLAM SOL' to 'Pellam Solutions', but the registry reads it as "
+     "'Pellam' (lease_or_rental)"),
+    (pellam_ledger(extra=[SOLWAY]),
+     "REATTRIBUTED_REGISTRY_ALIASES reattributes 'PELLAM SOL' to 'Pellam Solutions', but the registry reads it as "
+     "'Solway Advance' (potential_lender)"),
+])
+def test_the_registry_reads_a_reattributed_alias_as_its_company_or_not_at_all(data, problem):
+    assert lender_ledger.validate(data, _reattributed()) == [problem]
+
+
+def test_a_reattributed_alias_may_render_under_its_company():
+    data = pellam_ledger()
+    data["entities"][19].update(status="review", group="confirmed_lender")
+    assert lender_ledger.validate(data, _reattributed()) == []
+
+
+@pytest.mark.parametrize("reattributed,problems", [
+    ({"QUILLON FUNDING": "Quillon Funding"},
+     ["REATTRIBUTED_REGISTRY_ALIASES reattributes 'QUILLON FUNDING', which is not an alias of today's registry"]),
+    ({"OLDCO": "Oldco Bakery"},
+     ["REATTRIBUTED_REGISTRY_ALIASES reattributes 'OLDCO' to 'Oldco Bakery', which is not a ledger entity"]),
+    ({"OLDCO": "Tarnmoor Capital"},
+     ["REATTRIBUTED_REGISTRY_ALIASES reattributes 'OLDCO' to 'Tarnmoor Capital', but 'Tarnmoor Capital' does not "
+      "hold it",
+      "REATTRIBUTED_REGISTRY_ALIASES reattributes 'OLDCO' to 'Tarnmoor Capital', but the registry reads it as "
+      "'Oldco Funding' (confirmed_lender)"]),
+])
+def test_a_reattribution_names_an_alias_of_todays_registry_and_the_ledger_entity_that_holds_it(reattributed,
+                                                                                              problems):
+    assert _problems(rules=dataclasses.replace(RULES, reattributed=reattributed)) == problems
+
+
+def test_no_reattribution_problem_quotes_a_run_of_five_or_more_digits():
+    rules = dataclasses.replace(RULES, reattributed={"OLDCO 7777777": "Tarnmoor 4444444 Capital"})
+    assert _problems(rules=rules) == [
+        f"REATTRIBUTED_REGISTRY_ALIASES reattributes {WITHHELD}, which is not an alias of today's registry",
+        f"REATTRIBUTED_REGISTRY_ALIASES reattributes {WITHHELD} to {WITHHELD}, which is not a ledger entity",
+    ]
+
+
+#: Entity 1 without the alias OLDCO, which the owner gave to a fabricated bakery (entity 18, rejected).
+OLDCO_BAKERY = entity("Oldco Bakery", "potential_lender", ["OLDCO"], status="rejected", business_type="bakery",
+                      evidence=[], verdicts=UNRESOLVED, notes="Fabricated: a bakery, not a funder.")
+
+
+def _bakery_ledger():
+    data = ledger((1, "aliases", ["OLDCO FUNDING"]))
+    data["entities"].append(OLDCO_BAKERY)
+    return data
+
+
+def test_baseline_moves_show_a_reattributed_alias_beside_todays_entity_and_never_count_it_lost():
+    rules = _reattributed()
+    entities, problems = lender_ledger.parse_ledger(pellam_ledger())
+    assert problems == []
+    moves, missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged, rules.reattributed)
+    assert missing == []
+    assert moves[-1] == lender_ledger.Move(
+        "Pellam", "LEASE_PROVIDER_ALIASES", "lease_or_equipment_financing", "lease_or_rental", 1, "Pellam",
+        "bare PELLAM names other companies.", reattributed=(("PELLAM SOL", "Pellam Solutions"),))
+
+
+def test_a_reattribution_alone_is_a_move_that_needs_no_reason():
+    rules = dataclasses.replace(RULES, reattributed={"OLDCO": "Oldco Bakery"})
+    assert lender_ledger.validate(_bakery_ledger(), rules) == []
+    assert lender_ledger.validate(_bakery_ledger(), RULES) == [
+        "today's CONFIRMED_LENDER_ALIASES entity 'Oldco Funding' loses 1 of today's aliases without a sentence "
+        "starting 'Move:' in its notes"
+    ]
+    entities, _problems = lender_ledger.parse_ledger(_bakery_ledger())
+    moves, _missing = lender_ledger.baseline_moves(entities, rules.baseline, rules.merged, rules.reattributed)
+    assert moves[0] == lender_ledger.Move("Oldco Funding", "CONFIRMED_LENDER_ALIASES", "confirmed_lender",
+                                          "confirmed_lender", 0, "Oldco Funding", "",
+                                          reattributed=(("OLDCO", "Oldco Bakery"),))
 
 
 def test_the_baseline_is_read_from_a_registry_source_without_importing_it():

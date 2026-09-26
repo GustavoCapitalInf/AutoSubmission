@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from tests.lender_ledger_fixture import BASELINE, RULES, ledger
+from tests.lender_ledger_fixture import BASELINE, PELLAM_BASELINE, RULES, UNRESOLVED, entity, ledger, pellam_ledger
 from tools import build_lender_registry as builder
 from tools import lender_ledger
 
@@ -147,6 +147,14 @@ def test_the_evidence_ledger_states_how_a_merge_of_the_owner_is_held(evidence):
             "needs a `Move:` sentence in that entity's notes.") in admission
 
 
+def test_the_evidence_ledger_states_how_an_alias_the_owner_reattributed_is_held(evidence):
+    admission = evidence.split("## Admission\n", 1)[1].split("\n## ", 1)[0]
+    assert ("- An alias of that registry that the owner ruled names another company (`REATTRIBUTED_REGISTRY_ALIASES`) "
+            "is held by that company's ledger entity, and the known-payee and potential tables read it as that "
+            "entity or not at all. The moves section shows it beside the entity that held it, and it is not counted "
+            "as lost.") in admission
+
+
 def test_an_insurer_alias_that_a_premium_entity_holds_awaits_no_owner_ruling():
     entities = _entities((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"]))
     evidence = builder.render_evidence(entities, "a" * 64, RULES)
@@ -256,6 +264,40 @@ def test_a_merge_that_loses_nothing_needs_no_reason(paths, monkeypatch, capsys):
             "MERGED_REGISTRY_ENTITIES)") in capsys.readouterr().out.splitlines()
 
 
+def _reattribution_rules():
+    """RULES whose today's lease list also holds 'Pellam', whose first alias the owner gave to 'Pellam Solutions'."""
+    return dataclasses.replace(RULES, baseline=PELLAM_BASELINE, reattributed={"PELLAM SOL": "Pellam Solutions"})
+
+
+def test_a_reattribution_shows_beside_todays_entity_in_its_move_line_and_the_evidence_moves(paths, monkeypatch,
+                                                                                          capsys):
+    monkeypatch.setattr(lender_ledger, "current_rules", _reattribution_rules)
+    paths["ledger"].write_text(json.dumps(pellam_ledger()), encoding="utf-8")
+    assert builder.main(_args(paths, "--write")) == 0
+    moves = [line for line in capsys.readouterr().out.splitlines() if line.startswith("move: ")]
+    assert ("move: Pellam (LEASE_PROVIDER_ALIASES): lease_or_equipment_financing -> lease_or_rental, 1 of today's "
+            "aliases lost; PELLAM SOL reattributed to Pellam Solutions; why: bare PELLAM names other "
+            "companies.") in moves
+    assert len(moves) == 3
+    section = paths["evidence"].read_text(encoding="utf-8").split("## Moves from the registry", 1)[1]
+    assert ("| Pellam | lease_or_equipment_financing | lease_or_rental (PELLAM SOL reattributed to Pellam Solutions) "
+            "| 1 | bare PELLAM names other companies. |") in section
+
+
+def test_a_reattribution_alone_needs_no_reason(paths, monkeypatch, capsys):
+    monkeypatch.setattr(lender_ledger, "current_rules",
+                        lambda: dataclasses.replace(RULES, reattributed={"OLDCO": "Oldco Bakery"}))
+    data = ledger((1, "aliases", ["OLDCO FUNDING"]))
+    data["entities"].append(entity("Oldco Bakery", "potential_lender", ["OLDCO"], status="rejected",
+                                   business_type="bakery", evidence=[], verdicts=UNRESOLVED,
+                                   notes="Fabricated: a bakery, not a funder."))
+    paths["ledger"].write_text(json.dumps(data), encoding="utf-8")
+    assert builder.main(_args(paths, "--check")) == 0
+    assert ("move: Oldco Funding (CONFIRMED_LENDER_ALIASES): confirmed_lender -> confirmed_lender, 0 of today's "
+            "aliases lost; OLDCO reattributed to Oldco Bakery; why: none needed (the owner's reattribution, "
+            "REATTRIBUTED_REGISTRY_ALIASES)") in capsys.readouterr().out.splitlines()
+
+
 def test_check_prints_every_problem_and_exits_1(paths, capsys):
     paths["ledger"].write_text(json.dumps(ledger((0, "evidence", []))), encoding="utf-8")
     assert builder.main(_args(paths, "--check")) == 1
@@ -355,6 +397,17 @@ def test_the_merged_entities_are_entities_of_todays_registry_that_the_validator_
     today = {name for table in rules.baseline.values() for name in table}
     assert registry.MERGED_REGISTRY_ENTITIES and set(registry.MERGED_REGISTRY_ENTITIES) <= today
     assert rules.merged is registry.MERGED_REGISTRY_ENTITIES
+
+
+def test_the_reattributed_aliases_are_aliases_of_todays_registry_that_the_validator_reads():
+    from analysis import classification_registry as registry
+    from analysis.description_text import normalize_transaction_description as normalize
+
+    rules = lender_ledger.current_rules()
+    today = {normalize(alias) for table in rules.baseline.values() for aliases in table.values() for alias in aliases}
+    assert registry.REATTRIBUTED_REGISTRY_ALIASES == {"SMARTPAY SOL": "SmartPay Solutions, LLC"}
+    assert {normalize(alias) for alias in registry.REATTRIBUTED_REGISTRY_ALIASES} <= today
+    assert rules.reattributed is registry.REATTRIBUTED_REGISTRY_ALIASES
 
 
 def test_the_payout_credit_entities_are_the_ones_the_validator_reads():

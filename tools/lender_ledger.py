@@ -21,7 +21,9 @@ The validator applies:
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
     reason: a sentence of its notes that starts "Move:" (today's registry is read from git at
     BASELINE_REVISION); an entity the owner merged into a ledger entity (MERGED_REGISTRY_ENTITIES) is held by
-    that entity, whose notes give the reason.
+    that entity, whose notes give the reason; an alias the owner ruled names another company
+    (REATTRIBUTED_REGISTRY_ALIASES) is held by that company's ledger entity, the only entity the registry may read
+    it as, and is neither lost nor the first alias of today's entity.
 """
 from __future__ import annotations
 
@@ -197,12 +199,15 @@ class Rules:
     merged: Mapping[str, str]
     #: Ledger entities whose credits are the account holder's own sales, not financing proceeds (owner ruling).
     payout_credit: tuple[str, ...]
+    #: Alias of today's registry -> the ledger entity of the other company it names (owner ruling).
+    reattributed: Mapping[str, str]
 
 
 @dataclass(frozen=True)
 class Move:
-    """An entity of today's registry whose place or aliases the ledger changes, or that the owner merged into
-    ``holder``. ``reason`` is the text of the holder's "Move:" sentence, or "" when its notes have none."""
+    """An entity of today's registry whose place or aliases the ledger changes, that the owner merged into
+    ``holder``, or an alias of which the owner gave to another company (``reattributed``: (alias, ledger entity)
+    pairs). ``reason`` is the text of the holder's "Move:" sentence, or "" when its notes have none."""
 
     entity: str
     table: str
@@ -212,6 +217,7 @@ class Move:
     holder: str
     reason: str
     merged: bool = False
+    reattributed: tuple[tuple[str, str], ...] = ()
 
 
 # --- reading -------------------------------------------------------------------------------------------------
@@ -401,12 +407,16 @@ def _by_name(entities: list[LedgerEntity]) -> dict[str, LedgerEntity]:
 
 
 def baseline_moves(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
-                   merged: Mapping[str, str] | None = None) -> tuple[list[Move], list[tuple[str, str]]]:
+                   merged: Mapping[str, str] | None = None,
+                   reattributed: Mapping[str, str] | None = None) -> tuple[list[Move], list[tuple[str, str]]]:
     """(moves, missing). A move is an entity of today's lists whose place changes or that loses an alias; the
-    ledger entity holding its first alias (else most of its aliases) decides. An entity the owner merged
-    (``merged``, MERGED_REGISTRY_ENTITIES) is held by its target ledger entity instead, and is always a move.
-    Missing are the (table, entity) pairs of today's lists that no ledger entity holds an alias of."""
+    ledger entity holding its first alias (else most of its aliases, else its name) decides. An entity the owner
+    merged (``merged``, MERGED_REGISTRY_ENTITIES) is held by its target ledger entity instead, and is always a
+    move. An alias the owner gave to another company (``reattributed``, REATTRIBUTED_REGISTRY_ALIASES) is left out
+    of its entity's aliases: it decides nothing and is never lost, and its entity is always a move that shows it.
+    Missing are the (table, entity) pairs of today's lists whose name and aliases no ledger entity holds."""
     merged = merged or {}
+    given_to = {normalize(alias): target for alias, target in (reattributed or {}).items()}
     held = _holders(entities)
     named = _by_name(entities)
     moves: list[Move] = []
@@ -414,20 +424,24 @@ def baseline_moves(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
             normalized = list(dict.fromkeys(normalize(alias) for alias in aliases))
+            given = tuple((alias, given_to[alias]) for alias in normalized if alias in given_to)
+            own = [alias for alias in normalized if alias not in given_to]
             target = named.get(merged[name]) if name in merged else None
-            holders = [held[alias] for alias in normalized if alias in held]
+            holders = [held[alias] for alias in own if alias in held]
             if target is not None:
                 primary = target
-            elif not holders:
+            elif holders:
+                primary = held.get(own[0]) or max(holders, key=lambda e: (holders.count(e), -e.index))
+            elif name in named:
+                primary = named[name]
+            else:
                 missing.append((table, name))
                 continue
-            else:
-                primary = held.get(normalized[0]) or max(holders, key=lambda e: (holders.count(e), -e.index))
             kept = {normalize(alias) for alias in primary.aliases} if primary.status in RENDERED else set()
-            lost = sum(1 for alias in normalized if alias not in kept)
+            lost = sum(1 for alias in own if alias not in kept)
             move = Move(name, table, BASELINE_STATE[table], primary.place, lost, primary.entity,
-                        move_reason(primary.notes), merged=target is not None)
-            if move.merged or move.now != move.was or move.lost:
+                        move_reason(primary.notes), merged=target is not None, reattributed=given)
+            if move.merged or move.reattributed or move.now != move.was or move.lost:
                 moves.append(move)
     return moves, missing
 
@@ -453,18 +467,60 @@ def _merge_problems(entities: list[LedgerEntity], baseline: Mapping[str, Mapping
     return problems
 
 
+def _reattribution_problems(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
+                            reattributed: Mapping[str, str]) -> list[str]:
+    """REATTRIBUTED_REGISTRY_ALIASES names an alias of today's lists and the ledger entity that holds it, and the
+    rendered registry reads that alias, without context, as that entity or not at all: the known-payee matcher
+    (C3), else the potential table."""
+    today = {normalize(alias) for table in BASELINE_TABLES for aliases in baseline.get(table, {}).values()
+             for alias in aliases}
+    held = _holders(entities)
+    named = _by_name(entities)
+    tables = render_tables(entities)
+    index = AliasIndex({state: tables[TABLE_OF_GROUP[state]] for state in PAYEE_STATES})
+    problems = []
+    for alias, target in reattributed.items():
+        norm = normalize(alias)
+        if norm not in today:
+            problems.append(f"REATTRIBUTED_REGISTRY_ALIASES reattributes {_shown(alias)}, which is not an alias of "
+                            f"today's registry")
+        if target not in named:
+            problems.append(f"REATTRIBUTED_REGISTRY_ALIASES reattributes {_shown(alias)} to {_shown(target)}, which "
+                            f"is not a ledger entity")
+            continue
+        if held.get(norm) is not named[target]:
+            problems.append(f"REATTRIBUTED_REGISTRY_ALIASES reattributes {_shown(alias)} to {_shown(target)}, but "
+                            f"{_shown(target)} does not hold it")
+        payee = index.match(norm)
+        potential = registry_match(norm, tables[TABLE_OF_GROUP["potential_lender"]])
+        if payee is not None:
+            reader = (payee.entity, payee.state)
+        elif potential is not None:
+            reader = (potential[0], "potential_lender")
+        else:
+            continue
+        if reader[0] != target:
+            problems.append(f"REATTRIBUTED_REGISTRY_ALIASES reattributes {_shown(alias)} to {_shown(target)}, but the "
+                            f"registry reads it as {_shown(reader[0])} ({reader[1]})")
+    return problems
+
+
 def baseline_problems(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
-                      merged: Mapping[str, str] | None = None) -> list[str]:
-    merged = merged or {}
-    moves, missing = baseline_moves(entities, baseline, merged)
+                      merged: Mapping[str, str] | None = None,
+                      reattributed: Mapping[str, str] | None = None) -> list[str]:
+    merged, reattributed = merged or {}, reattributed or {}
+    moves, missing = baseline_moves(entities, baseline, merged, reattributed)
     marked = f"a sentence starting {MOVE_MARKER!r} in its notes"
     problems = _merge_problems(entities, baseline, merged)
+    problems += _reattribution_problems(entities, baseline, reattributed)
     problems += [f"today's {table} entity {_shown(name)} is in no ledger entity: record it in its place, or "
                  f"moved or rejected with {marked}" for table, name in missing]
     held = _holders(entities)
+    given = {normalize(alias) for alias in reattributed}
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
-            first = held.get(normalize(aliases[0]))
+            own = [alias for alias in aliases if normalize(alias) not in given]
+            first = held.get(normalize(own[0])) if own else None
             if name not in merged and first is not None and first.entity != name:
                 problems.append(f"the ledger entity holding the first alias of today's {_shown(name)} is named "
                                 f"{_shown(first.entity)}: keep today's name (S2's pins and the census compare "
@@ -668,7 +724,7 @@ def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     problems.extend(_collision_problems(entities))
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
     problems.extend(payout_credit_problems(entities, rules.payout_credit))
-    problems.extend(baseline_problems(entities, rules.baseline, rules.merged))
+    problems.extend(baseline_problems(entities, rules.baseline, rules.merged, rules.reattributed))
     return problems
 
 
@@ -742,4 +798,5 @@ def current_rules() -> Rules:
         premium_insurer_aliases=frozenset(normalize(name) for name in registry.PREMIUM_FINANCE_INSURER_ALIASES),
         merged=registry.MERGED_REGISTRY_ENTITIES,
         payout_credit=registry.PAYOUT_CREDIT_ENTITIES,
+        reattributed=registry.REATTRIBUTED_REGISTRY_ALIASES,
     )

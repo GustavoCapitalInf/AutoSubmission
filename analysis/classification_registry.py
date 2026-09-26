@@ -178,6 +178,13 @@ PREMIUM_FINANCE_INSURER_ALIASES: tuple[str, ...] = ("FIRST INSURANCE",)
 #: it keeps no name of its own, and the aliases it loses need a "Move:" sentence in the target's notes.
 MERGED_REGISTRY_ENTITIES: dict[str, str] = {"EBF HOLDINGS": "EVEREST BUSINESS FUNDING"}
 
+#: Owner ruling 2026-09-25: an alias of today's registry (the validator's BASELINE_REVISION) that names a company
+#: other than today's entity, mapped to the ledger entity of that company, which holds it. SMARTPAY SOL is
+#: SmartPay Solutions premium billing, not the lease-to-own SmartPay. The validator leaves the alias out of today's
+#: entity (it is neither lost nor that entity's first alias) and refuses a registry that reads it as any other
+#: entity.
+REATTRIBUTED_REGISTRY_ALIASES: dict[str, str] = {"SMARTPAY SOL": "SmartPay Solutions, LLC"}
+
 #: Owner ruling 2026-09-25: ledger entities whose credits are the account holder's own sales, settled by the
 #: platform: revenue, not financing proceeds. A D1 exception that S2 reads; their debits keep their group. The
 #: validator refuses a name that is not an admitted ledger entity of a group whose credits D1 treats as
