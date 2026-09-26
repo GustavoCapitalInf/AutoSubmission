@@ -209,3 +209,13 @@ def test_the_lenders_compatibility_helpers_follow_the_new_groups():
     assert find_lender_match("BDC loan payment") is None
     assert has_false_lender_keyword("BDC loan payment")
     assert not has_false_lender_keyword("Canacap payment")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["LEASE_PROVIDER_ALIASES", "LEGACY_CONFIRMED_LENDER_ALIASES", "LEGACY_POTENTIAL_LENDER_ALIASES"],
+)
+def test_the_retired_classifier_inputs_are_gone(name):
+    from analysis import classification_registry
+
+    assert not hasattr(classification_registry, name)
