@@ -1696,12 +1696,21 @@ function flaggedPositionRowsHtml(entries, currency, isPackage = false) {
       ? `<div class="table-cell-detail">${escapeHtml(entry.first_date)} to ${escapeHtml(entry.last_date)}</div>`
       : "";
     const statements = isPackage ? `<td>${escapeHtml(formatNumber(entry.documents))}</td>` : "";
+    // Money the payee paid in (a factor's payouts, owner ruling 2026-09-26) is shown under the debits as received,
+    // never added to them. A payee with no credit shows no such line.
+    const received = Number(entry.count_credited) > 0;
+    const receivedCount = received
+      ? `<div class="table-cell-detail">${escapeHtml(formatNumber(entry.count_credited))} received</div>`
+      : "";
+    const receivedTotal = received
+      ? `<div class="table-cell-detail">${escapeHtml(formatMoney(entry.total_credited, currency))} received</div>`
+      : "";
     return `
       <tr>
         <td>${escapeHtml(flagGroupLabel(group))}</td>
-        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions paid to ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
-        <td>${escapeHtml(formatNumber(entry.count))}</td>
-        <td>${escapeHtml(formatMoney(entry.total_debited, currency))}</td>
+        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions of ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
+        <td>${escapeHtml(formatNumber(entry.count))}${receivedCount}</td>
+        <td>${escapeHtml(formatMoney(entry.total_debited, currency))}${receivedTotal}</td>
         <td>${escapeHtml(cadenceLabel(entry.cadence))}${span}</td>
         ${statements}
       </tr>

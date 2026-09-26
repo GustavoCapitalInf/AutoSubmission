@@ -710,3 +710,132 @@ def test_the_dashboard_labels_every_flag_group_as_the_analysis_does():
 def test_the_page_asks_browsers_for_the_new_script():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     assert '<script src="/static/app.js?v=lender-detection-1"></script>' in html
+
+
+# ---------------------------------------------------------------- Task 15: what a flagged payee paid in
+
+# Owner ruling 2026-09-26 (C4, C5): a factor's payout is the business's own sales. The row stays revenue, so it shows
+# its revenue tag first, and it is a Factoring row that counts (flagged_group, contributes_to_flagged_totals), so it
+# carries the Flagged chip. The panel shows a payee's credits under its debits as "received" (count_credited,
+# total_credited), never added to them. Payees and amounts are fabricated.
+FACTOR_LEDGER = [
+    _row("transaction:1", "2031-03-03", "ACH DEBIT FABRICATED FACTOR FUNDING", -150.0, "factoring",
+         entity="FABRICATED FACTOR FUNDING", group="factoring"),
+    _row("transaction:2", "2031-03-10", "FABRICATED FACTOR FUNDING INVOICE PAYMENT", 4000.0, "factoring",
+         entity="FABRICATED FACTOR FUNDING", group="factoring", revenue="verified_revenue"),
+    _row("transaction:3", "2031-03-17", "FABRICATED FACTOR FUNDING INVOICE PAYMENT", 3000.0, "factoring",
+         entity="FABRICATED FACTOR FUNDING", group="factoring", revenue="unverified_deposit"),
+    _row("transaction:4", "2031-03-20", "ACH CREDIT FABRICATED CUSTOMER", 5000.0, "other", revenue="verified_revenue"),
+    _row("transaction:5", "2031-03-24", "FABRICATED SECOND FACTOR INVOICE PAYMENT", 2000.0, "factoring",
+         entity="FABRICATED SECOND FACTOR", group="factoring", revenue="verified_revenue"),
+]
+
+# detection.flagged_positions as S2 serves it (C5): group order, then debited plus credited, then payee. A payee whose
+# counted rows are all credits has an entry with a count of 0.
+FACTOR_POSITIONS = [
+    {"group": "factoring", "payee": "FABRICATED FACTOR FUNDING", "matched_alias": "FABRICATED FACTOR FUNDING",
+     "count": 1, "total_debited": 150.0, "count_credited": 2, "total_credited": 7000.0, "cadence": "weekly",
+     "avg_gap_days": 7.0, "first_date": "2031-03-03", "last_date": "2031-03-17",
+     "source_locations": ["transaction:1", "transaction:2", "transaction:3"]},
+    {"group": "factoring", "payee": "FABRICATED SECOND FACTOR", "matched_alias": "FABRICATED SECOND FACTOR",
+     "count": 0, "total_debited": 0.0, "count_credited": 1, "total_credited": 2000.0, "cadence": "single",
+     "avg_gap_days": None, "first_date": "2031-03-24", "last_date": "2031-03-24",
+     "source_locations": ["transaction:5"]},
+]
+
+# The panel's rows, one list per row: a cell is its text, or [its text, its detail lines...] when it has detail lines.
+PARTS = r"""
+const parts = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((row) =>
+  [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((cell) => {
+    const details = [...cell[1].matchAll(/<div class="table-cell-detail">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
+    const main = cell[1].replace(/<div class="table-cell-detail">[\s\S]*?<\/div>/g, "").replace(/<[^>]+>/g, "").trim();
+    return details.length ? [main, ...details] : main;
+  }));
+"""
+
+FACTOR_ROWS = [
+    ["Factoring", "FABRICATED FACTOR FUNDING", ["1", "2 received"], ["CA$150.00", "CA$7,000.00 received"],
+     ["Weekly", "2031-03-03 to 2031-03-17"]],
+    ["Factoring", "FABRICATED SECOND FACTOR", ["0", "1 received"], ["CA$0.00", "CA$2,000.00 received"],
+     "Single payment"],
+]
+
+
+@needs_node
+def test_the_statement_panel_shows_what_each_payee_paid_in_under_its_debits():
+    result = run_dashboard(PARTS + _load("f", _statement(positions=FACTOR_POSITIONS, ledger=FACTOR_LEDGER)) + """
+console.log(JSON.stringify({rows: parts(els.flaggedTable.innerHTML), count: els.flaggedCount.textContent,
+  html: els.flaggedTable.innerHTML}));
+""")
+    assert result["rows"] == FACTOR_ROWS
+    assert result["count"] == "2 payees"
+    assert 'aria-label="Show the transactions of FABRICATED SECOND FACTOR"' in result["html"]
+
+
+@needs_node
+def test_a_payee_with_no_credit_shows_no_received_line():
+    result = run_dashboard(CELLS + _load("s", _statement()) + PANEL)
+    assert "received" not in result["html"]
+
+
+@needs_node
+def test_the_package_panel_shows_what_a_factor_paid_in_and_refuses_it_across_currencies():
+    factor = {**PACKAGE["flagged_positions"]["factoring"][0], "count_credited": 3, "total_credited": 9000.0}
+    single = {**PACKAGE, "flagged_positions": {"factoring": [factor]}}
+    refused = {**single,
+               "currency": {"currency": None, "currencies": ["CAD", "USD"], "cross_currency_totals_refused": True,
+                            "refusal_reason": "multiple_currencies"},
+               "flagged_positions": {"factoring": [{**factor, "total_debited": None, "total_credited": None}]}}
+    script = PARTS + """
+const draw = (pkg) => { currentJobIds = ['a', 'b']; renderPackageAnalysis(pkg); return parts(els.flaggedTable.innerHTML); };
+"""
+    result = run_dashboard(script + f"console.log(JSON.stringify({{single: draw({json.dumps(single)}),"
+                                    f" refused: draw({json.dumps(refused)})}}));\n")
+    assert result["single"] == [["Factoring", "FABRICATED FACTOR FUNDING", ["1", "3 received"],
+                                 ["CA$150.00", "CA$9,000.00 received"], "Single payment", "1"]]
+    # The counts survive a currency refusal; the money received is refused like the money debited.
+    assert result["refused"] == [["Factoring", "FABRICATED FACTOR FUNDING", ["1", "3 received"],
+                                  ["N/A", "N/A received"], "Single payment", "1"]]
+
+
+@needs_node
+def test_the_statement_window_shows_what_each_payee_paid_in():
+    result = run_dashboard(PARTS + _serve(m=_statement(positions=FACTOR_POSITIONS, ledger=FACTOR_LEDGER)) + """
+openStatementModal('m'); await settle();
+console.log(JSON.stringify({rows: parts(els.statementModalFlagged.innerHTML)}));
+""")
+    assert result["rows"] == FACTOR_ROWS
+
+
+@needs_node
+def test_a_factor_payout_keeps_its_revenue_tag_carries_the_chip_and_is_behind_its_payee():
+    result = run_dashboard(ROWS + PAYEE_CLICK + _load("f", _statement(positions=FACTOR_POSITIONS, ledger=FACTOR_LEDGER))
+                           + """
+const tagged = (text) => rowsOf(els.transactionTable.innerHTML)
+  .map((row) => row.includes(`<span class="chip-text">${text}</span>`));
+const all = {dates: datesOf(els.transactionTable.innerHTML), flagged: flaggedOf(els.transactionTable.innerHTML),
+  revenue: tagged('Verified Revenue')};
+transactionFilter = 'flagged'; renderMainTransactions();
+const flagged = datesOf(els.transactionTable.innerHTML);
+clickPayee(els.flaggedTable, 'factoring', 'FABRICATED FACTOR FUNDING');
+console.log(JSON.stringify({all, flagged, clicked: {count: els.transactionCount.textContent,
+  dates: datesOf(els.transactionTable.innerHTML)}}));
+""")
+    assert result["all"]["dates"] == ["2031-03-03", "2031-03-10", "2031-03-17", "2031-03-20", "2031-03-24"]
+    # Every factoring row carries the chip, the payouts beside their revenue tag; the customer's credit carries none.
+    assert result["all"]["flagged"] == [True, True, True, False, True]
+    assert result["all"]["revenue"] == [False, True, False, True, True]
+    # The Flagged pill keeps the payouts with the debit.
+    assert result["flagged"] == ["2031-03-03", "2031-03-10", "2031-03-17", "2031-03-24"]
+    # A payee click shows the rows behind both of its counts: its debit and its two payouts.
+    assert result["clicked"] == {"count": "3 FABRICATED FACTOR FUNDING",
+                                 "dates": ["2031-03-03", "2031-03-10", "2031-03-17"]}
+
+
+def test_the_panel_says_what_received_means():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    card = html[html.index('id="flaggedCard"'):]
+    card = card[:card.index("</section>")]
+    assert "Received: money a flagged payee paid in, such as a factor's payouts, which stays in deposits." in card
+    for reused in ("Potential Withholding", "Eligible Deposits", "Exposure"):
+        assert reused not in card
