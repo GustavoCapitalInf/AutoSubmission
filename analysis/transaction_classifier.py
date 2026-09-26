@@ -1031,6 +1031,12 @@ def _build_record(
     )
     revenue_state = revenue.classification if revenue is not None else None
     revenue_flags = revenue_contribution_flags(revenue_state)
+    # Contract C4, spec §4.4: a credit whose revenue decision is financing proceeds (D1) is
+    # also excluded from eligible deposits, whichever rule named the row. A transfer or an
+    # insurance term can claim a financing group's credit before step 7. A payout-credit
+    # entity's credit and a premium-finance payee's credit never reach this revenue decision.
+    if revenue is not None and revenue.match_method == "financing_proceeds_credit":
+        contributes_to_lender_credit_exclusion = True
     return TransactionClassification(
         original_description=description,
         normalized_description=text,

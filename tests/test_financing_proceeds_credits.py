@@ -82,6 +82,45 @@ def test_a_payout_credit_entitys_credit_is_revenue_not_proceeds(fake_payees, fab
 
 
 @pytest.mark.parametrize(
+    ("description", "classification", "entity"),
+    [
+        ("ONLINE TRANSFER FROM FABRICATED LENDER 0001", "transfer", "Fabricated Lender"),
+        ("ONLINE TRANSFER FROM FABRICATED ALT 0001", "transfer", "Fabricated Alt Capital"),
+        ("FABRICATED LINE POLICY 0001", "insurance", "Fabricated Line"),
+    ],
+)
+def test_a_financing_group_credit_an_earlier_rule_claims_is_still_excluded(
+    fake_payees, description, classification, entity
+):
+    """Contract C4, spec §4.4: a financing group's credit is non_revenue proceeds AND is excluded
+    from eligible deposits, even when an earlier rule (a transfer, an insurance term) names the row."""
+    statement = Statement(
+        bank="Fabricated Bank",
+        transactions=[
+            txn("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 800.0),
+            txn("2054-01-03", description, 5000.0),
+        ],
+    )
+    records = classify_statement_transactions(statement)
+    record = records[1]
+    assert record.classification == classification
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "financing_proceeds_credit"
+    assert record.revenue_canonical_entity == entity
+    assert record.contributes_to_lender_credit_exclusion
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.lender_credits == 5000.0
+    assert metrics.legacy_eligible_deposits == 800.0
+
+
+def test_a_payout_entitys_transfer_worded_credit_stays_in_eligible_deposits(fake_payees, fabricated_payout_entity):
+    record = classify_transaction("ONLINE TRANSFER FROM FABRICATED BNPL 0001", 900.0)
+    assert record.classification == "transfer"
+    assert record.revenue_match_method != "financing_proceeds_credit"
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize(
     ("description", "rule", "entity"),
     [
         ("LOAN CREDIT", "bank_line_advance_credit", "Fabricated Bank"),
