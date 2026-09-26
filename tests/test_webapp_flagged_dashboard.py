@@ -511,3 +511,75 @@ console.log(JSON.stringify({atStart, loading, loaded: switches(), html: els.flag
     for label in ("Alternative positions", "Lines of credit", "Vehicle loans &amp; leases", "Leases &amp; rentals",
                   "Floor plan", "Factoring", "Premium financing"):
         assert f">{label}</label>" in result["html"]
+
+
+# ---------------------------------------------------------------- Task 8: saving a switch
+
+TOGGLE = """
+const toggle = (key, on) => {
+  const box = fakeElement('switch'); box.checked = on; box.attributes['data-flag-setting'] = key; box.closest = () => box;
+  els.flagSettingsList.dispatch('change', {target: box});
+};
+const posts = () => REQUESTS.filter((request) => request.method === 'POST')
+  .map((request) => [request.url, JSON.parse(request.body)]);
+"""
+
+
+def _settings_page_with(job_id, payload):
+    """A statement open, then the Settings page loaded with every flag on."""
+    return (SWITCHES + TOGGLE + _load(job_id, payload)
+            + _answer("/api/settings", {"json": {"settings": _settings()}})
+            + "loadSettings(); await settle(); REQUESTS.length = 0; FETCHED.length = 0;\n")
+
+
+@needs_node
+def test_a_change_saves_its_key_alone_holds_the_group_and_refreshes_what_is_open():
+    result = run_dashboard(_settings_page_with("s", _statement())
+                           + _answer("/api/settings", {"json": {"settings": _settings(flag_factoring=False)}}) + """
+toggle('flag_factoring', false);
+const saving = {switches: switches(), status: els.flagSettingsStatus.textContent};
+await settle(); await settle();
+console.log(JSON.stringify({saving, posts: posts(), fetched: FETCHED.slice(), saved: switches(),
+  status: els.flagSettingsStatus.textContent, state: els.flagSettingsStatus.getAttribute('data-state'),
+  nsfStatus: els.settingsStatus.textContent}));
+""")
+    saving = result["saving"]
+    assert all(switch["disabled"] for switch in saving["switches"]) and saving["status"] == "Saving..."
+    assert [switch["checked"] for switch in saving["switches"]] == [group != "factoring" for group in GROUP_KEYS]
+    assert result["posts"] == [["/api/settings", {"flag_factoring": False}]]
+    assert "/analysis/s" in result["fetched"]
+    assert [(switch["checked"], switch["disabled"]) for switch in result["saved"]] == \
+        [(group != "factoring", False) for group in GROUP_KEYS]
+    # Worded to read right for every label, plural ("Mortgages") or not ("Factoring", "Floor plan").
+    assert result["status"] == "Saved. Factoring: no longer flagged." and result["state"] is None
+    assert result["nsfStatus"] == ""
+
+
+@needs_node
+def test_a_refused_save_puts_the_switch_back_and_says_why_on_its_own_line():
+    result = run_dashboard(_settings_page_with("s", _statement())
+                           + _answer("/api/settings", {"status": 503, "json": {"error": "fabricated save failure"}})
+                           + """
+toggle('flag_bank_loans', false);
+await settle(); await settle();
+console.log(JSON.stringify({posts: posts(), fetched: FETCHED.slice(), saved: switches(),
+  status: els.flagSettingsStatus.textContent, state: els.flagSettingsStatus.getAttribute('data-state'),
+  nsfStatus: els.settingsStatus.textContent}));
+""")
+    assert result["posts"] == [["/api/settings", {"flag_bank_loans": False}]]
+    assert not any(url.startswith("/analysis/") for url in result["fetched"])
+    assert all(switch["checked"] and not switch["disabled"] for switch in result["saved"])
+    assert result["status"] == "fabricated save failure" and result["state"] == "error"
+    assert result["nsfStatus"] == ""
+
+
+@needs_node
+def test_a_second_change_while_one_is_saving_is_not_sent():
+    result = run_dashboard(_settings_page_with("s", _statement())
+                           + _answer("/api/settings", {"json": {"settings": _settings(flag_mortgages=False)}}) + """
+toggle('flag_mortgages', false);
+toggle('flag_credit_cards', false);
+await settle(); await settle();
+console.log(JSON.stringify({posts: posts()}));
+""")
+    assert result["posts"] == [["/api/settings", {"flag_mortgages": False}]]

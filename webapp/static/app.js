@@ -4215,6 +4215,43 @@ function setFlagSettingsStatus(message, error = false) {
   else els.flagSettingsStatus.removeAttribute("data-state");
 }
 
+function flagGroupOfSetting(key) {
+  const group = String(key || "").replace(/^flag_/, "");
+  return ownKey(FLAG_GROUP_LABELS, group) ? group : null;
+}
+
+// Saves one switch: that key alone (the server merges it), with the whole group held until the answer, so two quick
+// changes never race two refreshes. The open statement or package is fetched again, as the server now serves it.
+function saveFlagSetting(key, wanted) {
+  const group = flagGroupOfSetting(key);
+  if (!group || flagSettingsBusy) return;
+  flagSettingsBusy = true;
+  renderFlagSettings({ ...flagSettingsSaved, [key]: wanted }, true);
+  setFlagSettingsStatus("Saving...");
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [key]: wanted }),
+  })
+    .then((response) => responseJson(response).then((payload) => ({ response, payload })))
+    .then(({ response, payload }) => {
+      if (!response.ok || !payload.settings) throw new Error(payload.error || `Save failed (${response.status})`);
+      flagSettingsSaved = payload.settings;
+      const shown = payload.settings[key] !== false;
+      setFlagSettingsStatus(`Saved. ${flagGroupLabel(group)}: ${shown ? "flagged" : "no longer flagged"}.`);
+      refreshShownResults();
+    })
+    .catch((error) => {
+      setFlagSettingsStatus(error.message || String(error), true);
+    })
+    .finally(() => {
+      flagSettingsBusy = false;
+      // Drawn from what the server holds, so a refused save puts the switch back.
+      renderFlagSettings(flagSettingsSaved, false);
+      document.getElementById(`flagSetting-${group}`)?.focus();
+    });
+}
+
 els.nsfCarryOverToggle.addEventListener("change", () => {
   const wanted = els.nsfCarryOverToggle.checked;
   els.nsfCarryOverToggle.disabled = true;
@@ -4243,6 +4280,11 @@ els.nsfCarryOverToggle.addEventListener("change", () => {
     .finally(() => {
       els.nsfCarryOverToggle.disabled = false;
     });
+});
+
+els.flagSettingsList?.addEventListener("change", (event) => {
+  const box = event.target instanceof Element ? event.target.closest("[data-flag-setting]") : null;
+  if (box) saveFlagSetting(box.getAttribute("data-flag-setting"), box.checked === true);
 });
 
 els.uploadBtn.addEventListener("click", () => els.fileInput.click());
