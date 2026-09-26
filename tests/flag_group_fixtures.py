@@ -108,3 +108,32 @@ def flagged_statement(rows: tuple[tuple[str, str, float], ...] = FLAGGED_ROWS):
         account_number="0000",
         transactions=[txn(day, description, amount) for day, description, amount in rows],
     )
+
+
+def flagged_report():
+    """A full Report for FLAGGED_ROWS. Call it with the fake_payees fixture active."""
+    from analysis.detect import detect
+    from analysis.metrics import compute_metrics
+    from analysis.pipeline import DocumentIntegrity, Quality, Report
+    from analysis.reconcile import reconcile
+    from analysis.transaction_classifier import classify_statement_transactions
+
+    statement = flagged_statement()
+    records = classify_statement_transactions(statement)
+    metrics = compute_metrics(statement, classifications=records)
+    return Report(
+        statement=statement,
+        reconciliation=reconcile(statement),
+        metrics=metrics,
+        detection=detect(statement, classifications=records, eligible_deposits=metrics.eligible_deposits),
+        quality=Quality(
+            level="transaction_level",
+            transaction_detail_reliable=True,
+            summary_totals_reliable=True,
+            corporate_use="approved",
+        ),
+        integrity=DocumentIntegrity(risk_level="clear", flags=[], notes=[]),
+        model_used="fabricated-test",
+        escalated=False,
+        classifications=records,
+    )
