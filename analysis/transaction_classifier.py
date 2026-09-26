@@ -196,30 +196,16 @@ class TransactionClassification:
         return tuple(categories)
 
 
-def _contains_alias(text: str, alias: str) -> bool:
-    normalized_alias = normalize_transaction_description(alias)
-    if not normalized_alias:
-        return False
-    return re.search(
-        rf"(?<![A-Z0-9]){re.escape(normalized_alias)}(?![A-Z0-9])",
-        text,
-    ) is not None
-
-
-def _registry_match(
-    text: str,
-    registry: dict[str, tuple[str, ...]],
-) -> tuple[str, str] | None:
-    # Spec section 4.6: the aliases are normalized and indexed once per registry, not on every call.
-    return registry_match(text, registry)
+#: The ACH token, compiled once (it used to be re-normalized on every row).
+_ACH_TOKEN = re.compile(r"(?<![A-Z0-9])ACH(?![A-Z0-9])")
 
 
 def match_verified_lender_alias(description: str) -> tuple[str, str] | None:
-    return _registry_match(normalize_transaction_description(description), LEGACY_CONFIRMED_LENDER_ALIASES)
+    return registry_match(normalize_transaction_description(description), LEGACY_CONFIRMED_LENDER_ALIASES)
 
 
 def match_insurance_provider(description: str) -> tuple[str, str] | None:
-    return _registry_match(normalize_transaction_description(description), INSURANCE_PROVIDER_ALIASES)
+    return registry_match(normalize_transaction_description(description), INSURANCE_PROVIDER_ALIASES)
 
 
 _NON_POSTED_PATTERNS = (
@@ -621,7 +607,7 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    insurance_match = _registry_match(text, INSURANCE_PROVIDER_ALIASES)
+    insurance_match = registry_match(text, INSURANCE_PROVIDER_ALIASES)
     if insurance_match is not None:
         entity, alias = insurance_match
         return _RevenueDecision(
@@ -634,7 +620,7 @@ def _classify_credit_revenue(
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
             context_signals=("credit_direction", "insurance_provider"),
         )
-    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
+    lender_match = registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
     if lender_match is not None:
         entity, alias = lender_match
         return _RevenueDecision(
@@ -647,7 +633,7 @@ def _classify_credit_revenue(
             f"Credit matched confirmed lender alias '{alias}' and is funding, not revenue.",
             context_signals=("credit_direction", "confirmed_lender_source"),
         )
-    potential_lender_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
+    potential_lender_match = registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
     if potential_lender_match is not None:
         entity, alias = potential_lender_match
         return _RevenueDecision(
@@ -660,7 +646,7 @@ def _classify_credit_revenue(
             f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
             context_signals=("credit_direction", "potential_lender_source"),
         )
-    lease_match = _registry_match(text, LEASE_PROVIDER_ALIASES)
+    lease_match = registry_match(text, LEASE_PROVIDER_ALIASES)
     if lease_match is not None:
         entity, alias = lease_match
         return _RevenueDecision(
@@ -688,7 +674,7 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    revenue_match = _registry_match(text, OPERATING_REVENUE_SOURCE_ALIASES)
+    revenue_match = registry_match(text, OPERATING_REVENUE_SOURCE_ALIASES)
     if revenue_match is not None:
         entity, alias = revenue_match
         source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
@@ -885,7 +871,7 @@ def _build_record(
         contributes_to_flagged_totals=contributes_flagged,
         **revenue_flags,
         contributes_to_lender_credit_exclusion=contributes_to_lender_credit_exclusion,
-        is_ach=_contains_alias(text, "ACH"),
+        is_ach=_ACH_TOKEN.search(text) is not None,
         is_check=_matches_any(text, _CHECK_PATTERNS),
         is_loan_payment=_matches_any(text, _EXPLICIT_REPAYMENT_PATTERNS),
         is_pos_context=_matches_any(text, _POS_PATTERNS),
@@ -954,7 +940,7 @@ def classify_transaction(
             reason="A refund, reversal, void, cancellation, or returned-payment rule matched.",
         )
 
-    insurance_match = _registry_match(text, INSURANCE_PROVIDER_ALIASES)
+    insurance_match = registry_match(text, INSURANCE_PROVIDER_ALIASES)
     if insurance_match is not None:
         provider, alias = insurance_match
         return _build_record(
@@ -988,7 +974,7 @@ def classify_transaction(
             or _matches_any(text, _EXPLICIT_CARD_PURCHASE_PATTERNS)
         )
         and not _matches_any(text, _LEASE_PATTERNS)
-        and _registry_match(text, LEASE_PROVIDER_ALIASES) is None
+        and registry_match(text, LEASE_PROVIDER_ALIASES) is None
     ):
         return _build_record(
             **common,
@@ -1059,7 +1045,7 @@ def classify_transaction(
             reason="The descriptor identifies a utility payment.",
         )
 
-    lease_match = _registry_match(text, LEASE_PROVIDER_ALIASES)
+    lease_match = registry_match(text, LEASE_PROVIDER_ALIASES)
     if lease_match is not None or _matches_any(text, _LEASE_PATTERNS):
         entity, alias = lease_match or (None, None)
         return _build_record(
@@ -1113,7 +1099,7 @@ def classify_transaction(
             reason="The row is a subscription or membership payment with no verified lender evidence.",
         )
 
-    lender_match = _registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
+    lender_match = registry_match(text, LEGACY_CONFIRMED_LENDER_ALIASES)
     if lender_match is not None:
         lender, alias = lender_match
         if amount < 0:
@@ -1140,7 +1126,7 @@ def classify_transaction(
         )
 
     bank_registry = BANK_SPECIFIC_LENDER_ALIASES.get((bank or "").upper(), {})
-    bank_match = _registry_match(text, bank_registry)
+    bank_match = registry_match(text, bank_registry)
     if bank_match is not None and amount < 0:
         lender, alias = bank_match
         return _build_record(
@@ -1154,7 +1140,7 @@ def classify_transaction(
             reason=f"Matched lender alias or transaction code '{alias}' for {bank}.",
         )
 
-    potential_match = _registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
+    potential_match = registry_match(text, LEGACY_POTENTIAL_LENDER_ALIASES)
     if potential_match is not None and amount < 0:
         lender, alias = potential_match
         return _build_record(
@@ -1400,7 +1386,7 @@ def _apply_operating_source_context(
     for index, record in enumerate(records):
         if index in duplicate_indexes or not record.is_posted:
             continue
-        match = _registry_match(
+        match = registry_match(
             record.normalized_description,
             OPERATING_REVENUE_SOURCE_ALIASES,
         )
