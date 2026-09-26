@@ -696,3 +696,199 @@ def test_a_pair_reading_answered_again_from_the_pair_s_own_evidence_is_not_writt
     assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
     assert (len(visual_pair), pipeline.reads) == (2, 0)
     assert _cache_files(private_store) == before
+
+
+# --- the route ------------------------------------------------------------------------------------------------------
+
+
+def _reanalyze(job_id, body=None):
+    from webapp.app import app
+
+    return app.test_client().post(f"/analysis/{job_id}/reanalyze", json={} if body is None else body)
+
+
+def _review(job_id, location, decision):
+    from webapp.app import app
+
+    response = app.test_client().post(f"/analysis/{job_id}/revenue-review",
+                                      json={"source_location": location, "decision": decision})
+    assert response.status_code == 200
+
+
+def test_a_reanalysis_replaces_the_analysis_in_place(pipeline, private_store):
+    from webapp.app import app
+
+    old, new = _payload(), _payload(SHIFTED_ROWS)
+    job_id = pipeline.upload(old)
+    before = private_store.storage.load_job(job_id)
+    pipeline.new_rules(new)
+
+    response = _reanalyze(job_id)
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert (body["reviews_replayed"], body["reviews_not_replayed"], body["reviews_decided_by_rules"]) == (0, 0, 0)
+    # The same job: its id, its creation time and its source view do not change; its analysis does.
+    after = private_store.storage.load_job(job_id)
+    assert after["id"] == job_id and after["status"] == "done"
+    assert (after["created_at"], after["markdown"], after["html"]) == (
+        before["created_at"], before["markdown"], before["html"])
+    assert private_store.get(job_id).analysis == _stamped(new)
+    assert json.loads(after["analysis_json"]) == _json(_stamped(new))
+    # The page is drawn from the answer, which is the analysis as /analysis/<job> now serves it, masked.
+    assert body["analysis"] == app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]
+    assert body["analysis"]["statement"]["account_number"] == "****1010"
+    # The analysis replaced is in the audit log, verbatim.
+    events = private_store.storage.audit_events("reanalysis", job_id=job_id)
+    assert len(events) == 1
+    detail = json.loads(events[0]["detail"])
+    assert detail["previous_analysis_json"] == before["analysis_json"]
+    assert (detail["reviews_replayed"], detail["reviews_not_replayed"], detail["reviews_decided_by_rules"]) == (
+        [], [], [])
+    # A restart reads the new analysis back.
+    assert JobStore(Storage(private_store.storage.data_dir)).get(job_id).analysis == _json(_stamped(new))
+
+
+def test_a_reanalysis_replays_the_revenue_decisions_whose_posting_is_unchanged(pipeline, private_store):
+    job_id = pipeline.upload(_payload())
+    _review(job_id, "transaction:2", "confirm")  # unchanged under the new rules: replayed
+    _review(job_id, "transaction:3", "reject")   # its row now prints another amount: needs redoing
+    _review(job_id, "transaction:4", "confirm")
+    _review(job_id, "transaction:4", "reset")    # left pending: nothing to redo
+    history = private_store.review_history(job_id)
+    pipeline.new_rules(_payload(CHANGED_ROWS))
+
+    body = _reanalyze(job_id).get_json()
+
+    assert (body["reviews_replayed"], body["reviews_not_replayed"], body["reviews_decided_by_rules"]) == (1, 1, 0)
+    records = _records(private_store.get(job_id).analysis)
+    assert records["transaction:2"]["revenue_review_status"] == "confirmed"
+    assert records["transaction:2"]["revenue_reviewed_at"] == history[0]["decided_at"]
+    assert records["transaction:3"]["revenue_review_status"] == "pending"
+    assert records["transaction:4"]["revenue_review_status"] == "pending"
+    assert _records(body["analysis"])["transaction:2"]["revenue_review_status"] == "confirmed"
+    # The audit row names the decisions by id; replaying records no decision of its own.
+    detail = json.loads(private_store.storage.audit_events("reanalysis", job_id=job_id)[0]["detail"])
+    assert (detail["reviews_replayed"], detail["reviews_not_replayed"], detail["reviews_decided_by_rules"]) == (
+        [history[0]["id"]], [history[1]["id"]], [])
+    assert private_store.review_history(job_id) == history
+
+
+def test_a_reanalysis_reports_the_reviews_a_rule_now_decides(pipeline, private_store):
+    """Nothing re-labels silently (D12): a deposit the analyst confirmed that a rule of the current analysis now
+    decides is not replayed, and the answer says so."""
+    job_id = pipeline.upload(_payload())
+    _review(job_id, "transaction:2", "confirm")
+    history = private_store.review_history(job_id)
+    pipeline.new_rules(_ruled(_payload(), "transaction:2"))
+
+    body = _reanalyze(job_id).get_json()
+
+    assert (body["reviews_replayed"], body["reviews_not_replayed"], body["reviews_decided_by_rules"]) == (0, 0, 1)
+    record = _records(private_store.get(job_id).analysis)["transaction:2"]
+    assert (record["revenue_classification"], record["revenue_review_status"]) == ("non_revenue", "not_required")
+    detail = json.loads(private_store.storage.audit_events("reanalysis", job_id=job_id)[0]["detail"])
+    assert (detail["reviews_replayed"], detail["reviews_not_replayed"], detail["reviews_decided_by_rules"]) == (
+        [], [], [history[0]["id"]])
+
+
+def test_a_reanalysis_puts_each_account_s_decisions_back_on_that_account(pipeline, private_store):
+    from webapp.app import app
+
+    job_id = pipeline.upload(_two_accounts())
+    response = app.test_client().post(f"/analysis/{job_id}/revenue-reviews", json={"decisions": [
+        {"source_location": "transaction:2", "decision": "confirm", "account": 1},
+        {"source_location": "transaction:2", "decision": "reject", "account": 2}]})
+    assert response.status_code == 200
+    pipeline.new_rules(_two_accounts())
+
+    body = _reanalyze(job_id).get_json()
+
+    assert (body["reviews_replayed"], body["reviews_not_replayed"]) == (2, 0)
+    analysis = private_store.get(job_id).analysis
+    assert _records(analysis, 1)["transaction:2"]["revenue_review_status"] == "confirmed"
+    assert _records(analysis, 2)["transaction:2"]["revenue_review_status"] == "rejected"
+
+
+def test_an_unknown_job_is_not_found(private_store):
+    response = _reanalyze("no-such-job")
+    assert response.status_code == 404 and response.get_json() == {"error": "job not found"}
+
+
+def test_a_job_that_is_not_finished_is_refused(private_store):
+    queued = private_store.create("fabricated.pdf", pdf_bytes=PDF)  # still waiting for the worker
+    failed = private_store.create("fabricated.pdf", pdf_bytes=PDF)
+    private_store.set_error(failed.id, "fabricated failure")
+    for job_id in (queued.id, failed.id):
+        response = _reanalyze(job_id)
+        assert response.status_code == 409 and response.get_json() == {"error": "job is not finished"}
+    assert private_store.storage.audit_events("reanalysis") == []
+
+
+def test_a_job_whose_pdf_is_not_stored_is_refused(pipeline, private_store):
+    job_id = pipeline.upload(_payload())
+    before = copy.deepcopy(private_store.get(job_id).analysis)
+    private_store.storage.pdf_path(private_store.get(job_id).content_sha256).unlink()  # the stored PDF is gone
+    never = private_store.create("fabricated.pdf")  # a job saved without its PDF
+    private_store.set_result(never.id, "# F", "<p>F</p>", analysis=_payload())
+    for refused in (job_id, never.id):
+        response = _reanalyze(refused)
+        assert response.status_code == 409 and response.get_json() == {"error": "the original PDF is not stored"}
+    assert private_store.get(job_id).analysis == before
+    assert private_store.storage.audit_events("reanalysis") == []
+
+
+def test_a_request_that_is_not_a_json_object_is_refused(pipeline, private_store):
+    from webapp.app import app
+
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    before = copy.deepcopy(private_store.get(job_id).analysis)
+    form = app.test_client().post(f"/analysis/{job_id}/reanalyze",
+                                  data={"reanalyze": "1"})  # a cross-site form cannot send JSON
+    listed = _reanalyze(job_id, ["reanalyze"])
+    assert form.status_code == listed.status_code == 400
+    assert form.get_json() == {"error": "the request must be a JSON object"}
+    assert private_store.get(job_id).analysis == before
+    assert private_store.storage.audit_events("reanalysis") == []
+
+
+def test_a_reanalysis_that_produces_no_analysis_keeps_the_saved_one(pipeline, private_store):
+    from webapp.app import REANALYSIS_NOT_SAVED
+
+    job_id = pipeline.upload(_payload())
+    before = copy.deepcopy(private_store.get(job_id).analysis)
+    stored_text = private_store.storage.load_job(job_id)["analysis_json"]
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.analysis_failure = RuntimeError("FABRICATED STATEMENT TEXT")
+
+    response = _reanalyze(job_id)
+
+    assert response.status_code == 422
+    assert response.get_json() == {"error": REANALYSIS_NOT_SAVED,
+                                   "reason": f"analysis stage failed: RuntimeError {WITHHELD}"}
+    assert REANALYSIS_NOT_SAVED == "no new analysis was saved; the saved analysis is unchanged"
+    assert "FABRICATED STATEMENT TEXT" not in response.get_data(as_text=True)
+    assert private_store.get(job_id).analysis == before
+    assert private_store.storage.load_job(job_id)["analysis_json"] == stored_text
+    assert private_store.storage.audit_events("reanalysis", job_id=job_id) == []
+
+
+def test_a_statement_whose_reading_is_not_cached_is_refused_and_runs_no_reader(pipeline, private_store):
+    from webapp.app import REANALYSIS_NOT_SAVED
+    from webapp.reanalysis import READING_NOT_CACHED
+
+    job_id = pipeline.upload(_payload())
+    stored_text = private_store.storage.load_job(job_id)["analysis_json"]
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.forget_ocr()
+
+    response = _reanalyze(job_id)
+
+    assert response.status_code == 422
+    assert response.get_json() == {"error": REANALYSIS_NOT_SAVED, "reason": READING_NOT_CACHED}
+    assert READING_NOT_CACHED == ("the reading this re-analysis needs is not cached, and a re-analysis only "
+                                  "analyzes a reading already made; upload the statement again instead")
+    assert pipeline.reads == 1  # the upload's read, and no other
+    assert private_store.storage.load_job(job_id)["analysis_json"] == stored_text
+    assert private_store.storage.audit_events("reanalysis", job_id=job_id) == []
