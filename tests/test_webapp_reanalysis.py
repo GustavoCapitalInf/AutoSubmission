@@ -928,3 +928,117 @@ def test_a_review_waits_for_a_reanalysis_of_the_same_statement(pipeline, private
     assert _records(private_store.get(job_id).analysis)["transaction:3"]["revenue_review_status"] == "rejected"
     # A request naming no statement leaves no lock behind: the table of locks holds statements, not guesses.
     assert _reanalyze("no-such-job").status_code == 404 and "no-such-job" not in webapp_app._review_locks
+
+
+# --- after S2 and S3: the current rules are the 5.0 rules, served through the flag groups --------------------------
+
+#: The fabricated premium financier the 5.0 insurance rule is shown. S2 reads `PREMIUM_FINANCE_ALIASES` only inside
+#: the insurance rule, so it is not one of S2's `FAKE_PAYEES`.
+PREMIUM_FINANCE_PAYEE = "FABRICATED PFC"
+
+
+def _saved_under_old_rules(payload):
+    """A payload as a statement analysed before the 5.0 rules left it: every record stamped with the old version."""
+    for account in payload["accounts"] if "accounts" in payload else [payload]:
+        for transaction in account["statement"]["transactions"]:
+            transaction["classification"]["classification_version"] = "4.1"
+    return payload
+
+
+def _every_group_rows():
+    """A fabricated statement's rows: a deposit from the floor-plan, factoring and premium-finance payees each and an
+    ordinary deposit, then one debit to a payee of each of the eleven flag groups, in FLAG_GROUPS order. The payees
+    are S2's fabricated FAKE_PAYEES; the bank loan is the statement bank's own loan transfer (D5), which no payee
+    registry names; premium financing is the fabricated premium financier above. Every row has an amount of its own,
+    so no recurrence rule (D6) groups them. Returns the rows and the deposits' locations, in that order: floor plan,
+    factoring, premium finance, ordinary."""
+    from analysis.flag_groups import FLAG_GROUPS
+    from tests.flag_group_fixtures import FAKE_PAYEES
+
+    payee_of = {}
+    for alias, (_entity, state) in FAKE_PAYEES.items():
+        payee_of.setdefault(state, alias)
+    debits = []
+    for group in FLAG_GROUPS:
+        if group.state is None:  # premium financing: an insurance row that also carries the flag
+            debits.append(f"ACH DEBIT {PREMIUM_FINANCE_PAYEE} 0001")
+        elif group.state == "bank_loan":
+            debits.append("TRANSFER TO LOAN 0001")
+        else:
+            debits.append(f"ACH DEBIT {payee_of[group.state]} 0001")
+    deposits = [f"{payee_of['floor_plan_financing']} DEPOSIT 0001", f"{payee_of['factoring']} DEPOSIT 0001",
+                f"{PREMIUM_FINANCE_PAYEE} DEPOSIT 0001", "DEPOSIT FABRICATED ORDINARY"]
+    rows = [(2 + index, text, 400.0 + 50.0 * index) for index, text in enumerate(deposits)]
+    rows += [(2 + len(deposits) + index, text, -100.0 - 10.0 * index) for index, text in enumerate(debits)]
+    return rows, [f"transaction:{index + 1}" for index in range(len(deposits))]
+
+
+def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipeline, private_store, monkeypatch):
+    """An integration pin (Task 11 of the S5 plan): the analysis stage is fabricated, and the payloads it answers with
+    are built here by S2's real classifier: first with registries that know none of these payees (the rules the
+    statement was analysed under), then with S2's fabricated payees and premium financier (the current rules)."""
+    from analysis import transaction_classifier
+    from analysis.flag_groups import FLAG_GROUPS
+    from tests.flag_group_fixtures import fake_match
+    from webapp.app import app
+
+    keys = {group.key for group in FLAG_GROUPS}
+    rows, deposits = _every_group_rows()
+    monkeypatch.setattr(transaction_classifier, "match_known_payee", lambda normalized_text: None)
+    monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES", {})
+    job_id = pipeline.upload(_saved_under_old_rules(_payload(rows)))
+    for location in deposits:
+        _review(job_id, location, "confirm")
+    assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is True
+    monkeypatch.setattr(transaction_classifier, "match_known_payee", fake_match)
+    monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES",
+                        {"Fabricated Premium Finance": (PREMIUM_FINANCE_PAYEE,)})
+    pipeline.new_rules(_payload(rows))
+
+    body = _reanalyze(job_id).get_json()
+
+    # The ordinary deposit keeps its review, and so does the factoring deposit: a factor's payout is the business's own
+    # sales, a deposit the analyst decides, which now also carries the Factoring flag (owner ruling 2026-09-26). The
+    # floor-plan deposit is financing proceeds now (D1), and the premium financier's keeps the insurance credit
+    # treatment: a rule decides both, and the answer says so.
+    assert (body["reviews_replayed"], body["reviews_not_replayed"], body["reviews_decided_by_rules"]) == (2, 0, 2)
+    saved = private_store.get(job_id).analysis
+    records = _records(saved)
+    floor_plan, factoring, premium_financed, ordinary = deposits
+    assert [records[location]["revenue_classification"] for location in deposits] == [
+        "non_revenue", "verified_revenue", "non_revenue", "verified_revenue"]
+    assert [records[location]["revenue_review_status"] for location in deposits] == [
+        "not_required", "confirmed", "not_required", "confirmed"]
+    assert records[floor_plan]["contributes_to_lender_credit_exclusion"] is True
+    assert (records[factoring]["classification"], records[factoring]["flagged_group"],
+            records[factoring]["contributes_to_lender_credit_exclusion"]) == ("factoring", "factoring", False)
+    assert records[premium_financed]["classification"] == "insurance"
+    # Every one of the eleven groups is saved: on its row, in the metrics and in the detection. The factoring deposit
+    # is the one flagged credit, so twelve rows are flagged: the eleven debits and it.
+    flagged = [record for record in records.values() if record.get("contributes_to_flagged_totals")]
+    assert {record["flagged_group"] for record in flagged} == keys
+    assert [record["source_location"] for record in flagged if record["direction"] == "credit"] == [factoring]
+    assert len(flagged) == len(keys) + 1
+    assert set(saved["metrics"]["flagged_groups"]) == keys
+    assert saved["metrics"]["flagged_groups"]["factoring"]["count_credited"] == 1
+    assert {position["group"] for position in saved["detection"]["flagged_positions"]} == keys
+    assert {record["classification_version"] for record in records.values()} == {"5.0"}
+    # Premium financing is no state of its own: the row stays insurance, in the insurance totals, and carries its flag.
+    (premium,) = [record for record in flagged if record["flagged_group"] == "premium_financing"]
+    assert (premium["classification"], premium["contributes_to_insurance_totals"]) == ("insurance", True)
+    # The answer is the analysis as it is now served: every group is ticked by default, so every flagged row shows,
+    # the factoring credit's among them, and the rules are current.
+    served = _records(body["analysis"])
+    assert [served[record["source_location"]]["flag_shown"] for record in flagged] == [True] * len(flagged)
+    assert body["analysis"]["analysis_rules_outdated"] is False
+
+
+def test_the_outdated_rules_flag_clears_after_a_reanalysis(pipeline, private_store):
+    from webapp.app import app
+
+    job_id = pipeline.upload(_saved_under_old_rules(_payload()))
+    assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is True
+    pipeline.new_rules(_payload())
+    body = _reanalyze(job_id).get_json()
+    assert body["analysis"]["analysis_rules_outdated"] is False
+    assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is False
