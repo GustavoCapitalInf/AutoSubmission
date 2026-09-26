@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Serve, package and export the eleven flag groups exactly as the owner's Settings tick them. That means eleven Settings checkboxes, on by default. Serving works on a copy that hides unticked groups, tags each row with `flag_shown` and marks analyses classified by older rules. The package gains a roll-up and two totals, both covered by the currency refusal. Readable `flagged_<group>_<n>` rows go into every CSV/XLSX. The lender totals, the withholding and the package `decision` must not move.
+**Goal:** Serve, package and export the eleven flag groups exactly as the owner's Settings tick them. That means eleven Settings checkboxes, on by default. Serving works on a copy that hides unticked groups, tags each row with `flag_shown` and marks analyses classified by older rules. The package gains a roll-up and two totals, both covered by the currency refusal. Since the owner's ruling of 2026-09-26, a flagged payee's credits (a factor's payouts) are counted apart from its debits, in the served summaries, the roll-up, two more totals and the sheets (Task 12). Readable `flagged_<group>_<n>` rows go into every CSV/XLSX. The lender totals, the withholding and the package `decision` must not move.
 
 **Architecture:**
 - A new presentation module, `analysis/flagged_view.py`, follows the NSF-basis pattern (`analysis/nsf_days.py`):
@@ -68,6 +68,7 @@
   - S3 never edits or re-pins S1's copy. S1's copy must pass Task 1's C1 pin: eleven groups, and premium financing with `state=None`. If it fails, S3 stops and reports to the orchestrator (Task 1, Step 3);
   - on a rebase conflict, S3 takes `lender-detection`'s copy only after that copy passes the same pin (Task 1, Step 7). If the copy fails, S3 aborts the rebase and reports.
 - Tasks 10 and 11 start only after S2 has merged into `lender-detection` and this branch is rebased onto it.
+- Task 12 (the owner's ruling of 2026-09-26 on factoring credits) runs after Task 9 and before Task 10. It needs nothing from S2, and Tasks 10 and 11 are written on top of it (Task 12, "Why it runs now").
 - **Commands** are written for PowerShell, the primary shell. From Git Bash, write the interpreter as `C:/Python314/python.exe`.
 - **Commits.** Every commit step gives the exact `git add` paths and the whole `git commit` command. Its second `-m` carries the two attribution lines:
   - `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` is fixed for an Opus 5.5 (1M context) cell.
@@ -85,12 +86,12 @@
 | `analysis/flagged_view.py` | Create | C6 `apply_flagged_groups_to_payload`: on a copy, drops the unticked groups from the summaries, tags rows with `flag_shown`, sets the top-level `analysis_rules_outdated`, never raises. Also `enabled_group_keys`. |
 | `tools/l1s3_surface_census.py` | Modify: one `READERS` entry after `webapp/worker.py`'s (`:151-152`), just before `analysis/nsf_days.py`'s. S5 appends its own entry after `analysis/nsf_days.py`'s (`:153-154`), so each plan's edit still finds its anchor after the other merges, and git rebases the two without a conflict (checked on a scratch copy of the file) | Declares `apply_flagged_groups_to_payload` a `per_account` payload reader, as `apply_nsf_basis_to_payload` is. Its account reads go through the imported `STATEMENT_KEY`, which the census's reverse sweep does not follow, so only the declaration puts it under the census's forward check (master plan, Orchestrator verification). |
 | `webapp/settings.py` | Modify `:19-28` | C7: `DEFAULTS` gains every key of `FLAG_SETTING_KEYS`, each `True`. |
-| `webapp/app.py` | Modify | `_displayed` takes the settings snapshot. `_package_members` and `_package_analysis` share one snapshot. The package flag roll-up, evidence, totals, currency refusal and ordering. Readable flag rows in the statement and package CSV/XLSX. |
-| `tests/flagged_payloads.py` | Create | Fabricated payloads that follow C4/C5 (rows, `metrics.flagged_groups`, `detection.flagged_positions`), built on `tests/l1s3_payloads.py`. A premium-financing row is an `insurance` row that also carries the flag. |
+| `webapp/app.py` | Modify | `_displayed` takes the settings snapshot. `_package_members` and `_package_analysis` share one snapshot. The package flag roll-up, evidence, totals, currency refusal and ordering. Readable flag rows in the statement and package CSV/XLSX. The credited fields of each (Task 12). |
+| `tests/flagged_payloads.py` | Create | Fabricated payloads that follow C4/C5 (rows, `metrics.flagged_groups`, `detection.flagged_positions`), built on `tests/l1s3_payloads.py`. A premium-financing row is an `insurance` row that also carries the flag. Since Task 12, a factoring credit counts too (`CREDITED_GROUP_KEYS`), and the summaries carry `count_credited` and `total_credited`. |
 | `tests/test_flagged_view.py` | Create | Unit tests for `analysis/flagged_view.py`. |
-| `tests/test_webapp_flagged_positions.py` | Create | Every served surface for every checkbox: `/analysis`, the JSON/CSV/XLSX downloads, the review response, package members and document accounts, exclusions, one settings read per package, roll-up, totals, premium financing staying insurance, package exports, cadence, and conformance with S2 (floor plan, factoring and premium financing included). |
+| `tests/test_webapp_flagged_positions.py` | Create | Every served surface for every checkbox: `/analysis`, the JSON/CSV/XLSX downloads, the review response, package members and document accounts, exclusions, one settings read per package, roll-up, totals, premium financing staying insurance, package exports, cadence, and conformance with S2 (floor plan, factoring and premium financing included). Task 12 adds the flagged credits (a factor's payouts) on every one of these surfaces. |
 | `tests/test_webapp_settings.py` | Modify `:1-9, :31, :41-42, :57-61, :129-130, :176`, and append | The whole-dict pins take the new keys. New checkbox tests. |
-| `tests/test_package_currency.py` | Modify `:31-41, :45-78, :83-109, :565-571, :595-628, :716`, and insert before `:401` | The refused-totals and unit-free sets, the widened `CROSS_DOCUMENT_SECTION`, a sweep that is not vacuous over flagged rows, the refusal tests for the flag roll-up, and 32 becoming 33. |
+| `tests/test_package_currency.py` | Modify `:31-41, :45-78, :83-109, :565-571, :595-628, :716`, and insert before `:401` | The refused-totals and unit-free sets, the widened `CROSS_DOCUMENT_SECTION`, a sweep that is not vacuous over flagged rows, the refusal tests for the flag roll-up, and 32 becoming 33. Task 12 adds the credited keys to the three sets, a factoring credit to the sweep, two refusal tests for the credited roll-up, and 33 becoming 34. |
 
 ## Existing pins that flip (derived values only)
 
@@ -106,6 +107,10 @@
 | `tests/test_package_currency.py:716` | `== 32` | `== 33` | Task 8 |
 | `tests/test_package_currency.py:569-571` `CROSS_DOCUMENT_SECTION` | four section kinds | adds `flagged_(<the eleven keys>)_\d+` | Task 9 |
 | `tests/test_package_currency.py:595` and `:622-628` (the sweep) | members with no flag rows | both members gain one fabricated `credit_cards` debit, and `exercised` must include a `flagged_credit_cards_` section | Task 9 |
+| `tests/test_package_currency.py` `EXPECTED_REFUSED_TOTALS`, `UNIT_FREE_TOTALS`, `UNIT_FREE_ROLLUP_KEYS` | as Tasks 8-9 leave them | add `"flagged_position_total_credited"`, `"flagged_position_count_credited"` and `"count_credited"` | Task 12 |
+| the refused-field count (Task 8's `== 33`) | `33` | `34` | Task 12 |
+| the sweep (Task 9) | one `credit_cards` debit per member | also one fabricated `factoring` credit per member, and the swept rows include its `count_credited` and a refused `total_credited` | Task 12 |
+| `tests/test_webapp_flagged_positions.py`, `test_displayed_takes_one_settings_snapshot_and_carry_over_still_decides_the_nsf_basis` | `{"count": 1, "total": FLAGGED_DEBIT, "payees": 1}` | the same with `"count_credited": 0, "total_credited": 0.0` (C5 as amended) | Task 12 |
 
 These stay green unchanged, and the plan relies on that:
 - `tests/test_l1s3_surfaces.py:54-57`: `account_payload()` has no `flagged_positions`, so its section set is untouched.
@@ -146,6 +151,11 @@ These stay green unchanged, and the plan relies on that:
     - Its rows stay in the insurance totals, as today (spec §2, C4), and they also count in `flagged_position_count` and `flagged_position_total` while the checkbox is ticked.
     - The two are separate figures, and neither feeds the lender totals, the withholding or the decision. Nothing adds them together.
     - Unticking premium financing removes it from the flag roll-up and the flag totals only. The insurance count, total and evidence do not move (Task 7, `test_premium_financing_stays_insurance_whether_or_not_it_is_flagged`).
+13. **Flagged credits (the owner's ruling of 2026-09-26; C4-C6 as amended; Task 12).**
+    - A factoring credit stays revenue and carries the Factoring flag. It is a contributing row of the Factoring group, so `_counts_as_flagged` counts it and `flag_shown` tags it with no serving change.
+    - The roll-up keeps it apart from the debits: `count` and `total_debited` stay debit-only (resolution 3 still holds for `flagged_position_count`), and a credit adds to `count_credited` and `total_credited`. `totals.flagged_position_count_credited` (unit-free) and `totals.flagged_position_total_credited` (money, refused across currencies) sum them.
+    - Order within a group is `total_debited + total_credited`, then payee, or `count + count_credited`, then payee, under a refusal. The dates, and Task 10's cadence, read debits and credits alike, as C5 reads them for a statement.
+    - A payee whose counted rows are all credits is an item with `count` 0.
 
 ---
 
@@ -2616,6 +2626,677 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 
 ---
 
+### Task 12: Flagged credits in serving, the package roll-up, the exports and the currency sweep (runs after Task 9, before Tasks 10-11)
+
+The owner ruled on 2026-09-26 that a factoring payee's credit is the business's sales, paid by the factor that bought its invoices: it stays revenue, and it also carries the Factoring flag. The master plan's C4, C5 and C6 carry the ruling since that date:
+- C4: a factoring credit is a row of state `factoring` with `flagged_group="factoring"` and, when posted, `contributes_to_flagged_totals`;
+- C5: every `metrics.flagged_groups` value and every `detection.flagged_positions` entry gains `count_credited` and `total_credited`, while `count` and `total_debited` stay debit-only;
+- C6: the package roll-up item gains the same two fields, and the package totals gain `flagged_position_count_credited` and `flagged_position_total_credited`.
+
+This task serves, filters, rolls up, exports and currency-checks the credited fields exactly as it does the debited ones.
+
+**Why it runs now, before Tasks 10-11.**
+- It needs nothing from S2. Its tests build fabricated payloads that follow the amended C4/C5 (`tests/flagged_payloads.py`), as Tasks 1-9 do, so it runs while S2 does its own Task 18 (the classifier's side of the ruling).
+- Tasks 10 and 11 build on it, and this plan writes them that way (amended 2026-09-26). Task 10 replaces the whole `_published_flagged_positions` with its cadence version, and that version keeps the credited fields. Task 10's field-order test and Task 11's C5 key sets and conformance test name them too. Run in the other order, Task 10 would drop the credited fields, and Task 11's key-set test would fail on S2's payload, which carries them once S2 merges with its Task 18.
+- Serving needs no code change. `apply_flagged_groups_to_payload` keys on `flagged_group`, so a credit row of a ticked group gets `flag_shown`, and its group's summaries keep their credited fields. Two tests pin that, and they pass before the implementation.
+
+**Files:**
+- Modify `webapp/app.py`:
+  - `_flagged_position_rows` (Task 6);
+  - the `_counts_as_flagged` docstring and `_add_flagged_rows` (Task 7);
+  - `_published_flagged_positions` (Task 8);
+  - `_CROSS_CURRENCY_TOTAL_KEYS` and `_CROSS_CURRENCY_ROLLUP_KEYS`;
+  - the package totals: their initial values and their computation (Task 8).
+- Modify `tests/flagged_payloads.py`: `CREDITED_GROUP_KEYS`, and the `flagged_row` and `with_flagged_rows` fixtures.
+- Test:
+  - `tests/test_flagged_view.py` (append);
+  - `tests/test_webapp_flagged_positions.py` (one pin, then append);
+  - `tests/test_package_currency.py`: the three key sets, the refused-field count, the currency sweep, and two tests inserted after `test_refused_packages_rank_flagged_positions_by_count_then_payee`.
+
+**Interfaces:**
+- Consumes:
+  - C4 as amended: a factoring credit row `{"classification": "factoring", "flagged_group": "factoring", "contributes_to_flagged_totals": true, "amount": > 0, ...}`, and no other group's credit contributes;
+  - C5 as amended: `count_credited` and `total_credited` on `metrics.flagged_groups` values and `detection.flagged_positions` entries;
+  - Tasks 6-9: `_flagged_position_rows`, `_counts_as_flagged`, `_add_flagged_rows`, `_published_flagged_positions`, `refuse_cross_currency`, `_package_rows`, and the fixtures `flagged_row`, `with_flagged_rows`, `account_payload`, `FLAGGED_DEBIT`.
+- Produces (C6 as amended 2026-09-26):
+  - package roll-up items `{payee, documents, count, total_debited, count_credited, total_credited, first_date, last_date}`, where Task 10 adds `cadence` after `total_credited`. `count` and `total_debited` hold the debits, and `count_credited` and `total_credited` the credits. The dates read both.
+  - Order within a group: `total_debited + total_credited` descending, then payee. A refused package orders by `count + count_credited` descending, then payee.
+  - `totals.flagged_position_count_credited` (int, unit-free) and `totals.flagged_position_total_credited` (money). `flagged_position_count` and `flagged_position_total` stay debit-only.
+  - `total_credited` joins `_CROSS_CURRENCY_ROLLUP_KEYS`, and `flagged_position_total_credited` joins `_CROSS_CURRENCY_TOTAL_KEYS` (34 refused totals).
+  - The statement sheets' `flagged_<group>_<n>` sections carry `payee, count, total_debited, count_credited, total_credited, cadence`. The package sheets carry every item and total field.
+  - The fixtures: `CREDITED_GROUP_KEYS = ("factoring",)`. `flagged_row`'s default `contributes` holds for a debit of a flag group or a credit of a credited group. `with_flagged_rows` builds C5 as amended.
+
+- [ ] **Step 1: Write the failing tests.** In `tests/flagged_payloads.py`:
+
+(a) Replace:
+
+```python
+PREMIUM_FINANCING_STATE = "insurance"
+```
+
+with:
+
+```python
+PREMIUM_FINANCING_STATE = "insurance"
+#: The groups whose posted credits count in the flagged totals (plan contract C4; owner ruling 2026-09-26: a
+#: factor's payout is the business's own sales, stays revenue and carries the Factoring flag).
+CREDITED_GROUP_KEYS = ("factoring",)
+```
+
+(b) Replace:
+
+```python
+    `contributes` defaults to the contract rule (a debit of a flag group); pass False for a duplicate or a
+    settlement-reversed debit. A premium-financing row is an insurance row that also carries the flag, so its
+    `contributes_to_insurance_totals` follows the same rule. `version` None leaves `classification_version` out,
+    as a record written before the field existed would."""
+    state = row_state(group_key)
+    name = payee if payee is not None else (fabricated_payee(group_key) if group_key else None)
+    if contributes is None:
+        contributes = group_key is not None and amount < 0
+```
+
+with:
+
+```python
+    `contributes` defaults to the contract rule (a debit of a flag group, or a credit of a CREDITED_GROUP_KEYS
+    group); pass False for a duplicate or a reversed row. A premium-financing row is an insurance row that also
+    carries the flag, so its `contributes_to_insurance_totals` follows the same rule. `version` None leaves
+    `classification_version` out, as a record written before the field existed would."""
+    state = row_state(group_key)
+    name = payee if payee is not None else (fabricated_payee(group_key) if group_key else None)
+    if contributes is None:
+        contributes = group_key is not None and (amount < 0 or (amount > 0 and group_key in CREDITED_GROUP_KEYS))
+```
+
+(c) Replace:
+
+```python
+    entries = []
+    for (group, payee), members in by_payee.items():
+        dates = sorted(row["date"] for row in members)
+        entries.append({
+            "group": group,
+            "payee": payee,
+            "matched_alias": payee,
+            "count": len(members),
+            "total_debited": round(sum(abs(row["amount"]) for row in members), 2),
+            "cadence": "single" if len(dates) == 1 else "irregular",
+            "avg_gap_days": None,
+            "first_date": dates[0],
+            "last_date": dates[-1],
+            "source_locations": [row["classification"]["source_location"] for row in members],
+        })
+    entries.sort(key=lambda entry: (GROUP_KEYS.index(entry["group"]), -entry["total_debited"], entry["payee"]))
+    summaries: dict[str, dict] = {}
+    for entry in entries:
+        summary = summaries.setdefault(entry["group"], {"count": 0, "total": 0.0, "payees": 0})
+        summary["count"] += entry["count"]
+        summary["total"] = round(summary["total"] + entry["total_debited"], 2)
+        summary["payees"] += 1
+```
+
+with:
+
+```python
+    entries = []
+    for (group, payee), members in by_payee.items():
+        dates = sorted(row["date"] for row in members)
+        debits = [row for row in members if row["amount"] < 0]
+        credits = [row for row in members if row["amount"] >= 0]
+        entries.append({
+            "group": group,
+            "payee": payee,
+            "matched_alias": payee,
+            "count": len(debits),
+            "total_debited": round(sum(abs(row["amount"]) for row in debits), 2),
+            "count_credited": len(credits),
+            "total_credited": round(sum(row["amount"] for row in credits), 2),
+            "cadence": "single" if len(dates) == 1 else "irregular",
+            "avg_gap_days": None,
+            "first_date": dates[0],
+            "last_date": dates[-1],
+            "source_locations": [row["classification"]["source_location"] for row in members],
+        })
+    entries.sort(key=lambda entry: (GROUP_KEYS.index(entry["group"]),
+                                    -(entry["total_debited"] + entry["total_credited"]), entry["payee"]))
+    summaries: dict[str, dict] = {}
+    for entry in entries:
+        summary = summaries.setdefault(
+            entry["group"], {"count": 0, "total": 0.0, "count_credited": 0, "total_credited": 0.0, "payees": 0})
+        summary["count"] += entry["count"]
+        summary["total"] = round(summary["total"] + entry["total_debited"], 2)
+        summary["count_credited"] += entry["count_credited"]
+        summary["total_credited"] = round(summary["total_credited"] + entry["total_credited"], 2)
+        summary["payees"] += 1
+```
+
+Append to `tests/test_flagged_view.py`:
+
+```python
+
+
+def test_a_flagged_credit_is_shown_and_hidden_with_its_group():
+    """Owner ruling 2026-09-26 (C4): a factor's payout is a credit row of the Factoring group. It is tagged and its
+    credited figures are served while the group is ticked, and both go when it is unticked; the record is kept."""
+    payload = with_flagged_rows(account_payload(), [flagged_row("factoring", amount=3 * FLAGGED_DEBIT)])
+    shown = apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)
+    [credit] = _flagged_rows(shown)
+    assert (credit["amount"] > 0, credit["classification"]["flag_shown"]) == (True, True)
+    assert shown["metrics"]["flagged_groups"]["factoring"]["count_credited"] == 1
+    assert shown["detection"]["flagged_positions"][0]["total_credited"] == 3 * FLAGGED_DEBIT
+    hidden = apply_flagged_groups_to_payload(payload, enabled={"flag_factoring": False})
+    [credit] = _flagged_rows(hidden)
+    assert credit["classification"]["flag_shown"] is False
+    assert credit["classification"]["contributes_to_flagged_totals"] is True
+    assert hidden["metrics"]["flagged_groups"] == {} and hidden["detection"]["flagged_positions"] == []
+```
+
+In `tests/test_webapp_flagged_positions.py`:
+
+(d) Replace:
+
+```python
+    assert _displayed(payload)["metrics"]["flagged_groups"] == {"mortgages": {"count": 1, "total": FLAGGED_DEBIT,
+                                                                              "payees": 1}}
+```
+
+with:
+
+```python
+    assert _displayed(payload)["metrics"]["flagged_groups"] == {"mortgages": {
+        "count": 1, "total": FLAGGED_DEBIT, "count_credited": 0, "total_credited": 0.0, "payees": 1}}
+```
+
+Append to `tests/test_webapp_flagged_positions.py`:
+
+```python
+
+
+# --- flagged credits: a factor's payouts (owner ruling 2026-09-26; contract C4-C6) -----------------------------
+
+#: What each fabricated factoring credit posts: three times a flagged debit, so the two totals never coincide.
+FACTOR_PAYOUT = 3 * FLAGGED_DEBIT
+
+
+def _factored(index=0, *, payee=None, payouts=1, date="2054-01-12"):
+    """An ACCOUNT payload whose factoring payee is paid one debit and pays in `payouts` credits (C4)."""
+    return with_flagged_rows(account_payload(index), [
+        flagged_row("factoring", payee=payee),
+        *(flagged_row("factoring", payee=payee, amount=FACTOR_PAYOUT, date=date) for _ in range(payouts)),
+    ])
+
+
+def test_a_factoring_credit_is_served_flagged_and_follows_its_checkbox(settings_file):
+    from webapp.app import _displayed
+
+    shown = _displayed(_factored(), settings=dict(DEFAULTS))
+    assert shown["metrics"]["flagged_groups"] == {"factoring": {
+        "count": 1, "total": FLAGGED_DEBIT, "count_credited": 1, "total_credited": FACTOR_PAYOUT, "payees": 1}}
+    [entry] = shown["detection"]["flagged_positions"]
+    assert (entry["count"], entry["total_debited"], entry["count_credited"], entry["total_credited"]) == (
+        1, FLAGGED_DEBIT, 1, FACTOR_PAYOUT)
+    rows = [row for row in shown["statement"]["transactions"] if row["classification"].get("flagged_group")]
+    assert [(row["amount"] > 0, row["classification"]["flag_shown"]) for row in rows] == [(False, True), (True, True)]
+    hidden = _displayed(_factored(), settings={**DEFAULTS, "flag_factoring": False})
+    assert hidden["metrics"]["flagged_groups"] == {} and hidden["detection"]["flagged_positions"] == []
+    assert not [row for row in hidden["statement"]["transactions"] if row["classification"]["flag_shown"]]
+
+
+def test_the_statement_csv_and_xlsx_carry_the_credited_fields(settings_file):
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+
+    shown = _displayed(_factored(), settings=dict(DEFAULTS))
+    cells = _csv_cells(_analysis_csv(shown))
+    assert (cells[("flagged_factoring_1", "count")], cells[("flagged_factoring_1", "total_debited")]) == (
+        "1", str(FLAGGED_DEBIT))
+    assert (cells[("flagged_factoring_1", "count_credited")], cells[("flagged_factoring_1", "total_credited")]) == (
+        "1", str(FACTOR_PAYOUT))
+    assert "<t>total_credited</t>" in _sheet(_analysis_xlsx(shown))
+
+
+def test_the_package_rolls_up_credits_apart_from_debits(settings_file):
+    from webapp.app import _package_analysis
+
+    jobs = [_member("a", _factored(0)), _member("b", _factored(1, date="2054-01-19"))]
+    package = _package_analysis(jobs)
+    [item] = package["flagged_positions"]["factoring"]
+    assert (item["documents"], item["count"], item["total_debited"]) == (2, 2, 2 * FLAGGED_DEBIT)
+    assert (item["count_credited"], item["total_credited"]) == (2, 2 * FACTOR_PAYOUT)
+    # The dates are every counted row's, debit or credit.
+    assert (item["first_date"], item["last_date"]) == ("2054-01-05", "2054-01-19")
+    totals = package["totals"]
+    # flagged_position_count and flagged_position_total stay debits only (C6).
+    assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (2, 2 * FLAGGED_DEBIT)
+    assert (totals["flagged_position_count_credited"], totals["flagged_position_total_credited"]) == (
+        2, 2 * FACTOR_PAYOUT)
+    assert len(package["flagged_evidence"]) == 4
+    # D7: the credits never touch the decision, and unticking the group moves nothing but the flag figures.
+    save_settings(settings_file.parent, {"flag_factoring": False})
+    unticked = _package_analysis(jobs)
+    assert (unticked["totals"]["flagged_position_count_credited"],
+            unticked["totals"]["flagged_position_total_credited"]) == (0, 0.0)
+    assert _not_flagged(unticked["totals"]) == _not_flagged(totals)
+    assert totals["decision"] == unticked["totals"]["decision"]
+
+
+def test_a_payee_whose_counted_rows_are_all_credits_rolls_up_with_no_debits(settings_file):
+    from webapp.app import _package_analysis
+
+    payload = with_flagged_rows(account_payload(), [flagged_row("factoring", amount=FACTOR_PAYOUT)])
+    [item] = _package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
+    assert (item["count"], item["total_debited"], item["count_credited"], item["total_credited"]) == (
+        0, 0.0, 1, FACTOR_PAYOUT)
+
+
+def test_package_positions_rank_by_debited_plus_credited(settings_file):
+    from webapp.app import _package_analysis
+
+    payload = with_flagged_rows(account_payload(), [
+        flagged_row("factoring", payee="FABRICATED DEBITED FACTOR", amount=-3 * FLAGGED_DEBIT),
+        flagged_row("factoring", payee="FABRICATED PAYING FACTOR", amount=-FLAGGED_DEBIT),
+        flagged_row("factoring", payee="FABRICATED PAYING FACTOR", amount=FACTOR_PAYOUT),
+    ])
+    items = _package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
+    # 1 debited plus 3 paid in outranks 3 debited alone, and the paid-in money never joins total_debited.
+    assert [(item["payee"], item["total_debited"], item["total_credited"]) for item in items] == [
+        ("FABRICATED PAYING FACTOR", FLAGGED_DEBIT, FACTOR_PAYOUT),
+        ("FABRICATED DEBITED FACTOR", 3 * FLAGGED_DEBIT, 0.0),
+    ]
+
+
+def test_the_package_csv_and_xlsx_carry_the_credited_fields(settings_file):
+    from webapp.app import _package_analysis, _package_csv, _package_xlsx
+
+    package = _package_analysis([_member("a", _factored(0)), _member("b", _factored(1))])
+    cells = _csv_cells(_package_csv(package))
+    assert (cells[("flagged_factoring_1", "count_credited")], cells[("flagged_factoring_1", "total_credited")]) == (
+        "2", str(2 * FACTOR_PAYOUT))
+    assert (cells[("totals", "flagged_position_count_credited")],
+            cells[("totals", "flagged_position_total_credited")]) == ("2", str(2 * FACTOR_PAYOUT))
+    assert "<t>flagged_position_total_credited</t>" in _sheet(_package_xlsx(package))
+```
+
+In `tests/test_package_currency.py`:
+
+(e) In `EXPECTED_REFUSED_TOTALS`, replace:
+
+```python
+    "flagged_position_total",
+    "insurance_total",
+```
+
+with:
+
+```python
+    "flagged_position_total",
+    "flagged_position_total_credited",
+    "insurance_total",
+```
+
+(f) In `UNIT_FREE_TOTALS`, replace:
+
+```python
+    "flagged_position_count",
+    "insurance_count",
+```
+
+with:
+
+```python
+    "flagged_position_count",
+    "flagged_position_count_credited",
+    "insurance_count",
+```
+
+(g) In `UNIT_FREE_ROLLUP_KEYS`, replace:
+
+```python
+    "count",
+    "debit_count",
+```
+
+with:
+
+```python
+    "count",
+    "count_credited",
+    "debit_count",
+```
+
+(h) Replace `    assert len(body["currency"]["refused_total_fields"]) == 33` with `    assert len(body["currency"]["refused_total_fields"]) == 34`.
+
+(i) In `test_every_money_row_the_export_emits_is_covered_by_a_declared_currency`, replace:
+
+```python
+    for job in (cad, usd):
+        # A flag roll-up in the refused package, so the flagged sections are swept too.
+        with_flagged_rows(job.analysis, [flagged_row("credit_cards")])
+```
+
+with:
+
+```python
+    for job in (cad, usd):
+        # A flag roll-up in the refused package, so the flagged sections are swept too: a debit, and a factoring
+        # credit, whose credited count and total are swept as the debited ones are (C6, owner ruling 2026-09-26).
+        with_flagged_rows(job.analysis, [flagged_row("credit_cards"),
+                                         flagged_row("factoring", amount=3 * FLAGGED_DEBIT)])
+```
+
+and replace:
+
+```python
+    assert any(s.startswith("flagged_credit_cards_") for s in exercised)
+```
+
+with:
+
+```python
+    assert any(s.startswith("flagged_credit_cards_") for s in exercised)
+    assert ("flagged_factoring_1", "total_credited", "") in rows
+    assert ("flagged_factoring_1", "count_credited", 2) in rows
+```
+
+(j) Replace:
+
+```python
+    assert single["totals"]["flagged_position_count"] == 4
+    assert single["totals"]["flagged_position_total"] == 103 * FLAGGED_DEBIT
+```
+
+with:
+
+```python
+    assert single["totals"]["flagged_position_count"] == 4
+    assert single["totals"]["flagged_position_total"] == 103 * FLAGGED_DEBIT
+
+
+def test_mixed_currency_refusal_covers_the_credited_flag_roll_up():
+    """C6 and the owner's ruling of 2026-09-26: a factor's payouts roll up as credited money, refused exactly as
+    the debited money is, while both counts survive."""
+    cad, usd = member("a", "CAD"), member("b", "USD")
+    for job in (cad, usd):
+        with_flagged_rows(job.analysis, [flagged_row("factoring"), flagged_row("factoring", amount=3 * FLAGGED_DEBIT)])
+    package = _package_analysis([cad, usd])
+    totals = package["totals"]
+    assert (totals["flagged_position_total"], totals["flagged_position_total_credited"]) == (None, None)
+    assert (totals["flagged_position_count"], totals["flagged_position_count_credited"]) == (2, 2)
+    [item] = package["flagged_positions"]["factoring"]
+    assert (item["total_debited"], item["total_credited"]) == (None, None)
+    assert (item["documents"], item["count"], item["count_credited"]) == (2, 2, 2)
+
+
+def test_refused_packages_rank_flagged_positions_by_debits_plus_credits():
+    """A refused package ranks by the unit-free count, debits plus credits, never by money."""
+    def build(first_currency, second_currency):
+        paid = member("a", first_currency)
+        with_flagged_rows(paid.analysis, [flagged_row("factoring", payee="ZZZ FABRICATED PAID",
+                                                      amount=-100 * FLAGGED_DEBIT) for _ in range(2)])
+        paying = member("b", second_currency)
+        with_flagged_rows(paying.analysis, [flagged_row("factoring", payee="AAA FABRICATED PAYING",
+                                                        amount=FLAGGED_DEBIT) for _ in range(3)])
+        return _package_analysis([paid, paying])
+
+    refused = build("CAD", "USD")
+    assert [(item["payee"], item["count"], item["count_credited"])
+            for item in refused["flagged_positions"]["factoring"]] == [
+        ("AAA FABRICATED PAYING", 0, 3), ("ZZZ FABRICATED PAID", 2, 0)]
+    single = build("CAD", "CAD")
+    assert [item["payee"] for item in single["flagged_positions"]["factoring"]] == [
+        "ZZZ FABRICATED PAID", "AAA FABRICATED PAYING"]
+```
+
+- [ ] **Step 2: Run them.**
+
+```powershell
+C:\Python314\python.exe -m pytest tests/test_flagged_view.py tests/test_webapp_flagged_positions.py tests/test_webapp_settings.py tests/test_package_currency.py -q -p no:cacheprovider
+```
+
+Expected: FAIL, `13 failed, 300 passed` (measured on a scratch export of `b18cacf`):
+- the four roll-up and export tests of `tests/test_webapp_flagged_positions.py` fail with `KeyError: ('flagged_factoring_1', 'count_credited')`, `KeyError: 'count_credited'` or `assert (2, 4, 56.0) == (2, 2, 14.0)`: today a credit adds to `count` and `total_debited`. The ranking test fails too, because `total_debited` still holds the paid-in money.
+- eight tests of `tests/test_package_currency.py` fail with `KeyError: 'flagged_position_total_credited'`, `KeyError: 'flagged_position_count_credited'`, `KeyError: 'count_credited'` (the refused ranking), the refused-set mismatch, the swept rows and `assert 33 == 34`.
+- `test_a_flagged_credit_is_shown_and_hidden_with_its_group` and `test_a_factoring_credit_is_served_flagged_and_follows_its_checkbox` pass already: serving keys on `flagged_group`, so they pin behaviour that needs no change.
+
+- [ ] **Step 3: Implement.** In `webapp/app.py`:
+
+(k) In `_flagged_position_rows`, replace:
+
+```python
+    """An account's flagged positions, one readable section per payee (lender detection §8.4):
+    `flagged_<group>_<n>` with the payee, its debit count, the total debited and the cadence.
+```
+
+with:
+
+```python
+    """An account's flagged positions, one readable section per payee (lender detection §8.4):
+    `flagged_<group>_<n>` with the payee, its debit count, the total debited, the credits it paid in and their
+    total (plan contract C5: a factor's payouts, owner ruling 2026-09-26), and the cadence.
+```
+
+and replace:
+
+```python
+        for field in ("payee", "count", "total_debited", "cadence"):
+```
+
+with:
+
+```python
+        for field in ("payee", "count", "total_debited", "count_credited", "total_credited", "cadence"):
+```
+
+(l) Replace:
+
+```python
+    """A row the package's flag roll-up counts: the analysis marked it a contributing debit of a flag group
+    (`contributes_to_flagged_totals`: posted, not a proven duplicate, not settlement-reversed), and Settings ticks
+    its group."""
+```
+
+with:
+
+```python
+    """A row the package's flag roll-up counts: the analysis marked it a contributing row of a flag group
+    (`contributes_to_flagged_totals`: a posted debit, or a posted factoring credit, that is not a proven duplicate
+    and not reversed; plan contract C4), and Settings ticks its group."""
+```
+
+(m) In `_add_flagged_rows`, replace:
+
+```python
+    C5). `documents` counts the members a payee appears in, as the funder roll-up does. The dates are kept so the
+    first and last dates, and the cadence, are read across every member rather than per statement."""
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        classification = row["classification"]
+        group = classification["flagged_group"]
+        entity = classification.get("canonical_entity")
+        payee = entity if isinstance(entity, str) and entity else FLAG_GROUP_BY_KEY[group].label
+        item = rollup.setdefault(
+            (group, payee),
+            {"payee": payee, "documents": 0, "count": 0, "total_debited": 0.0, "dates": []},
+        )
+        if (group, payee) not in seen:
+            seen.add((group, payee))
+            item["documents"] += 1
+        item["count"] += 1
+        item["total_debited"] = round(item["total_debited"] + abs(_num(row.get("amount"))), 2)
+```
+
+with:
+
+```python
+    C5). `documents` counts the members a payee appears in, as the funder roll-up does. A debit adds to `count`
+    and `total_debited`; a credit (a factor's payout, owner ruling 2026-09-26) adds to `count_credited` and
+    `total_credited`. The dates of both are kept so the first and last dates, and the cadence, are read across
+    every member rather than per statement."""
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        classification = row["classification"]
+        group = classification["flagged_group"]
+        entity = classification.get("canonical_entity")
+        payee = entity if isinstance(entity, str) and entity else FLAG_GROUP_BY_KEY[group].label
+        item = rollup.setdefault(
+            (group, payee),
+            {"payee": payee, "documents": 0, "count": 0, "total_debited": 0.0, "count_credited": 0,
+             "total_credited": 0.0, "dates": []},
+        )
+        if (group, payee) not in seen:
+            seen.add((group, payee))
+            item["documents"] += 1
+        amount = _num(row.get("amount"))
+        if amount < 0:
+            item["count"] += 1
+            item["total_debited"] = round(item["total_debited"] + abs(amount), 2)
+        else:
+            item["count_credited"] += 1
+            item["total_credited"] = round(item["total_credited"] + amount, 2)
+```
+
+(n) Replace the whole `_published_flagged_positions` (from Task 8) with:
+
+```python
+def _published_flagged_positions(
+    rollup: dict[tuple[str, str], dict], *, refuse_cross_currency: bool
+) -> dict[str, list[dict]]:
+    """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
+    order, as a list of `{payee, documents, count, total_debited, count_credited, total_credited, first_date,
+    last_date}`.
+
+    Largest total first, debited plus credited; a package that refuses to combine currencies ranks by the
+    unit-free count, debits plus credits, then the payee, because an order read off summed money would publish the
+    cross-currency comparison the refusal withholds (CURRENCY DOCTRINE §F)."""
+    published: dict[str, list[dict]] = {}
+    for group in FLAG_GROUPS:
+        items = []
+        for (key, _payee), item in rollup.items():
+            if key != group.key:
+                continue
+            dates = sorted(item["dates"])
+            items.append({
+                "payee": item["payee"],
+                "documents": item["documents"],
+                "count": item["count"],
+                "total_debited": item["total_debited"],
+                "count_credited": item["count_credited"],
+                "total_credited": item["total_credited"],
+                "first_date": dates[0].isoformat() if dates else None,
+                "last_date": dates[-1].isoformat() if dates else None,
+            })
+        if not items:
+            continue
+        if refuse_cross_currency:
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["count"] + item["count_credited"]), item["payee"])
+            )
+        else:
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["total_debited"] + item["total_credited"]), item["payee"])
+            )
+    return published
+```
+
+(o) In `_CROSS_CURRENCY_TOTAL_KEYS`, replace:
+
+```python
+    "flagged_position_total",
+    "insurance_total",
+    "lender_debits",
+```
+
+with:
+
+```python
+    "flagged_position_total",
+    "flagged_position_total_credited",
+    "insurance_total",
+    "lender_debits",
+```
+
+(p) Replace:
+
+```python
+_CROSS_CURRENCY_ROLLUP_KEYS = (
+    "total_debited",
+    "potential_lender_debit_total",
+```
+
+with:
+
+```python
+_CROSS_CURRENCY_ROLLUP_KEYS = (
+    "total_debited",
+    "total_credited",
+    "potential_lender_debit_total",
+```
+
+(q) In the totals init of `_package_analysis`, replace:
+
+```python
+        # Lender detection §8.3: the ticked flag groups' counted debits and their total. Never lender math (D7).
+        "flagged_position_count": 0,
+        "flagged_position_total": 0.0,
+```
+
+with:
+
+```python
+        # Lender detection §8.3: the ticked flag groups' counted debits and their total, and apart from them the
+        # counted credits (a factor's payouts, owner ruling 2026-09-26) and theirs. Never lender math (D7).
+        "flagged_position_count": 0,
+        "flagged_position_total": 0.0,
+        "flagged_position_count_credited": 0,
+        "flagged_position_total_credited": 0.0,
+```
+
+(r) Replace:
+
+```python
+    totals["flagged_position_count"] = sum(item["count"] for item in flagged_rollup.values())
+    totals["flagged_position_total"] = round(sum(item["total_debited"] for item in flagged_rollup.values()), 2)
+```
+
+with:
+
+```python
+    totals["flagged_position_count"] = sum(item["count"] for item in flagged_rollup.values())
+    totals["flagged_position_total"] = round(sum(item["total_debited"] for item in flagged_rollup.values()), 2)
+    totals["flagged_position_count_credited"] = sum(item["count_credited"] for item in flagged_rollup.values())
+    totals["flagged_position_total_credited"] = round(
+        sum(item["total_credited"] for item in flagged_rollup.values()), 2
+    )
+```
+
+The refusal loop needs no edit: it nulls every `_CROSS_CURRENCY_ROLLUP_KEYS` key an item holds, so `total_credited` goes with `total_debited`. The package sheets write every item and total field (Task 9), so they carry the new ones with no edit.
+
+- [ ] **Step 4: Run them.**
+
+```powershell
+C:\Python314\python.exe -m pytest tests/test_flagged_view.py tests/test_webapp_flagged_positions.py tests/test_webapp_settings.py tests/test_package_currency.py -q -p no:cacheprovider
+```
+
+Expected: PASS, `313 passed` (64 + 103 + 100 + 46).
+
+Then the neighbours:
+
+```powershell
+C:\Python314\python.exe -m pytest tests/test_flagged_view.py tests/test_webapp_flagged_positions.py tests/test_webapp_settings.py tests/test_package_currency.py tests/test_l1s3_surfaces.py tests/test_webapp_app.py tests/test_webapp_security.py tests/test_nsf_days.py tests/test_adb.py -q -p no:cacheprovider
+```
+
+Expected: PASS, `550 passed` (541 before this task, plus its nine new tests).
+
+- [ ] **Step 5: Commit.**
+
+```powershell
+git add webapp/app.py tests/flagged_payloads.py tests/test_flagged_view.py tests/test_webapp_flagged_positions.py tests/test_package_currency.py
+git commit -m "webapp: flagged credits in serving, the package roll-up, the exports and the currency sweep" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: <the Claude-Session URL from your system reminder>"
+```
+
+---
+
 ### Task 10: The package cadence across members (after S2 merges)
 
 **Files:**
@@ -2624,7 +3305,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 
 **Interfaces:**
 - Consumes: C5 `analysis/cadence.py::describe_cadence(dates: Sequence[date]) -> tuple[str, float | None]`, which returns one of `daily | weekly | biweekly | monthly | irregular | single`. S2 provides it.
-- Produces: C6's `cadence` on every roll-up item, in the order `{payee, documents, count, total_debited, cadence, first_date, last_date}`. It is `None` when no date parses.
+- Produces: C6's `cadence` on every roll-up item, in the order `{payee, documents, count, total_debited, count_credited, total_credited, cadence, first_date, last_date}` (the credited fields come from Task 12, which runs before this task). It is `None` when no date parses, and it reads a payee's debits and credits alike.
 
 - [ ] **Step 1: Rebase onto S2.**
 
@@ -2638,13 +3319,13 @@ Expected:
 - the last command prints `analysis/cadence.py`;
 - if the rebase stops on `analysis/flag_groups.py`, resolve it with Task 1, Step 7. Take `lender-detection`'s copy only when it passes the C1 pin; otherwise run `git rebase --abort`, report, and stop here.
 
-Then re-run Tasks 1-9's tests:
+Then re-run the tests of Tasks 1-9 and 12:
 
 ```powershell
 C:\Python314\python.exe -m pytest tests/test_flagged_view.py tests/test_webapp_flagged_positions.py tests/test_webapp_settings.py tests/test_package_currency.py -q -p no:cacheprovider
 ```
 
-Expected: PASS, with 63 + 97 + 100 + 44 (304).
+Expected: PASS, with 64 + 103 + 100 + 46 (313).
 
 These tests read S1's `analysis/flag_groups.py` from here on, instead of Task 1's copy. If `test_the_view_reads_the_eleven_contract_groups` or `test_every_flag_group_has_a_checkbox_that_is_on_by_default` fails, S1's module departs from C1 (for example, eight groups instead of eleven). Report it to the orchestrator with the printed tuple. Do not re-pin.
 
@@ -2697,8 +3378,8 @@ def test_every_flag_roll_up_item_carries_the_contract_fields_in_order(settings_f
     package = _package_analysis([_member("a", flagged_account_payload(0))])
     for items in package["flagged_positions"].values():
         for item in items:
-            assert list(item) == ["payee", "documents", "count", "total_debited", "cadence", "first_date",
-                                  "last_date"]
+            assert list(item) == ["payee", "documents", "count", "total_debited", "count_credited", "total_credited",
+                                  "cadence", "first_date", "last_date"]
 ```
 
 - [ ] **Step 3: Run them.**
@@ -2707,7 +3388,7 @@ def test_every_flag_roll_up_item_carries_the_contract_fields_in_order(settings_f
 C:\Python314\python.exe -m pytest tests/test_webapp_flagged_positions.py -q -p no:cacheprovider
 ```
 
-Expected: FAIL, `4 failed, 97 passed`. The four new tests fail with `KeyError: 'cadence'`, or with a key list that lacks `cadence`.
+Expected: FAIL, `4 failed, 103 passed`. The four new tests fail with `KeyError: 'cadence'`, or with a key list that lacks `cadence`.
 
 - [ ] **Step 4: Implement.** In `webapp/app.py`:
 
@@ -2718,20 +3399,21 @@ from analysis.nsf_days import apply_nsf_basis_to_payload
 from analysis.cadence import describe_cadence
 ```
 
-(b) Replace the whole `_published_flagged_positions` (from Task 8) with:
+(b) Replace the whole `_published_flagged_positions` (as Task 12 left it) with:
 
 ```python
 def _published_flagged_positions(
     rollup: dict[tuple[str, str], dict], *, refuse_cross_currency: bool
 ) -> dict[str, list[dict]]:
     """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
-    order, as a list of `{payee, documents, count, total_debited, cadence, first_date, last_date}`. The cadence is
-    read over the payee's dates in every member together (analysis/cadence.py), so a monthly payment split
-    across monthly statements reads as monthly.
+    order, as a list of `{payee, documents, count, total_debited, count_credited, total_credited, cadence,
+    first_date, last_date}`. The cadence is read over the payee's dates in every member together
+    (analysis/cadence.py), its debits and its credits alike, so a monthly payment split across monthly statements
+    reads as monthly.
 
-    Largest total first; a package that refuses to combine currencies ranks by the unit-free count, then the
-    payee, because an order read off summed money would publish the cross-currency comparison the refusal
-    withholds (CURRENCY DOCTRINE §F)."""
+    Largest total first, debited plus credited; a package that refuses to combine currencies ranks by the
+    unit-free count, debits plus credits, then the payee, because an order read off summed money would publish the
+    cross-currency comparison the refusal withholds (CURRENCY DOCTRINE §F)."""
     published: dict[str, list[dict]] = {}
     for group in FLAG_GROUPS:
         items = []
@@ -2744,6 +3426,8 @@ def _published_flagged_positions(
                 "documents": item["documents"],
                 "count": item["count"],
                 "total_debited": item["total_debited"],
+                "count_credited": item["count_credited"],
+                "total_credited": item["total_credited"],
                 "cadence": describe_cadence(dates)[0] if dates else None,
                 "first_date": dates[0].isoformat() if dates else None,
                 "last_date": dates[-1].isoformat() if dates else None,
@@ -2751,11 +3435,17 @@ def _published_flagged_positions(
         if not items:
             continue
         if refuse_cross_currency:
-            published[group.key] = sorted(items, key=lambda item: (-item["count"], item["payee"]))
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["count"] + item["count_credited"]), item["payee"])
+            )
         else:
-            published[group.key] = sorted(items, key=lambda item: (-item["total_debited"], item["payee"]))
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["total_debited"] + item["total_credited"]), item["payee"])
+            )
     return published
 ```
+
+This keeps Task 12's credited fields and order, and adds only `cadence` (amended 2026-09-26 for Task 12, which runs before this task).
 
 - [ ] **Step 5: Run them.**
 
@@ -2763,7 +3453,7 @@ def _published_flagged_positions(
 C:\Python314\python.exe -m pytest tests/test_webapp_flagged_positions.py tests/test_package_currency.py -q -p no:cacheprovider
 ```
 
-Expected: PASS, `145 passed` in all. `tests/test_webapp_flagged_positions.py`: `101 passed`.
+Expected: PASS, `153 passed` in all. `tests/test_webapp_flagged_positions.py`: `107 passed`.
 - The `cadence` column appears in the package CSV rows (Task 9 writes every item field).
 - The currency sweep ignores it, because a word does not parse as a number.
 - If `weekly`, `monthly` or `single` comes back as another value, S2's helper departs from C5 for exact 7-day gaps, 28-31-day gaps or one date. Report it to the orchestrator with the returned value. Do not re-pin.
@@ -2794,11 +3484,12 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
   - `report_to_dict(report)` (`analysis/serialization.py:139`);
   - `Report`, `Quality` and `DocumentIntegrity` (`analysis/pipeline.py`, as `tests/test_lender_insurance_classification.py:10,230-272` builds them);
   - C4 `TransactionClassification.flagged_group` and `contributes_to_flagged_totals`, and `CLASSIFICATION_VERSION == "5.0"`.
-- Produces proof of four things:
+- Produces proof of five things:
   - C4/C5, as S2 built them, flow through C6 serving and the package, including D7: the decision stays `approved`;
   - the three amendment groups arrive under their C1 keys: `floor_plan` from the `floor_plan_financing` state, `factoring` from `factoring`, and `premium_financing` on an `insurance` row;
   - every flagged record carries the state the fixtures give its group;
-  - S2's premium-financing row has the shape the fixtures give it: an `insurance` row that also carries the flag.
+  - S2's premium-financing row has the shape the fixtures give it: an `insurance` row that also carries the flag;
+  - (the owner's ruling of 2026-09-26, S2's Task 18) S2's factoring credit has the shape the fixtures give it: a `factoring` row that counts, is never financing proceeds, and rolls up as `count_credited` / `total_credited`; C5's key sets include the credited fields.
 
 - [ ] **Step 1: Write the tests.** In `tests/test_webapp_flagged_positions.py`, replace:
 
@@ -2840,18 +3531,20 @@ Append to the end of the file:
 # --- S2's real payload flows through serving and the package (contract C4/C5; after S2 merges) ----------------
 
 #: The keys C5 publishes on every `detection.flagged_positions` entry, and on every `metrics.flagged_groups` value.
-C5_POSITION_KEYS = {"group", "payee", "matched_alias", "count", "total_debited", "cadence", "avg_gap_days",
-                    "first_date", "last_date", "source_locations"}
-C5_GROUP_KEYS = {"count", "total", "payees"}
+C5_POSITION_KEYS = {"group", "payee", "matched_alias", "count", "total_debited", "count_credited", "total_credited",
+                    "cadence", "avg_gap_days", "first_date", "last_date", "source_locations"}
+C5_GROUP_KEYS = {"count", "total", "count_credited", "total_credited", "payees"}
 
 
 def _analysed_payload() -> dict:
     """A fabricated statement run through the real classifier, metrics, detection and serializer.
 
     The first two debits name no payee; S2's descriptor rules (spec §4.3 step 8) file them under mortgages and
-    lines of credit. The other three pay the owner's amendment groups (spec §2): an insurance premium to a
-    premium-finance payee, a floor-plan payee and a factoring payee. Each name is the first alias of its C2 table,
-    which S1 renders from the C10 ledger, read at run time, so no payee name is written in a test."""
+    lines of credit. The next three pay the owner's amendment groups (spec §2): an insurance premium to a
+    premium-finance payee, a floor-plan payee and a factoring payee. The last row is that factoring payee's payout
+    for invoices it bought, a credit that stays revenue and carries the Factoring flag (owner ruling 2026-09-26).
+    Each name is the first alias of its C2 table, which S1 renders from the C10 ledger, read at run time, so no payee
+    name is written in a test."""
     from analysis.classification_registry import FACTORING_ALIASES, FLOOR_PLAN_ALIASES, PREMIUM_FINANCE_ALIASES
     from analysis.detect import detect
     from analysis.metrics import compute_metrics
@@ -2882,6 +3575,7 @@ def _analysed_payload() -> dict:
         row("2054-01-07", f"FABRICATED {premium_payee} INSURANCE PREMIUM", -FLAGGED_DEBIT),
         row("2054-01-08", f"FABRICATED {floor_plan_payee} PAYMENT", -FLAGGED_DEBIT),
         row("2054-01-09", f"FABRICATED {factoring_payee} PAYMENT", -FLAGGED_DEBIT),
+        row("2054-01-10", f"FABRICATED {factoring_payee} INVOICE PAYMENT", 3 * FLAGGED_DEBIT),
     ])
     records = classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
@@ -2906,8 +3600,8 @@ def test_the_classifiers_payload_carries_the_contract_fields():
     flagged = [row["classification"] for row in payload["statement"]["transactions"]
                if row["classification"]["flagged_group"]]
     assert flagged and all(record["contributes_to_flagged_totals"] is True for record in flagged)
-    # Every record carries the state the fixtures give its group: floor_plan_financing, factoring, and insurance
-    # for premium financing (C1, C4).
+    # Every record carries the state the fixtures give its group: floor_plan_financing, factoring (its payout
+    # credit too), and insurance for premium financing (C1, C4).
     assert all(record["classification"] == row_state(record["flagged_group"]) for record in flagged)
 
 
@@ -2918,6 +3612,28 @@ def test_the_classifiers_premium_financing_row_is_an_insurance_row_with_the_flag
     fixture = flagged_row("premium_financing")["classification"]
     names = ("classification", "flagged_group", "contributes_to_insurance_totals", "contributes_to_flagged_totals")
     assert {name: premium[name] for name in names} == {name: fixture[name] for name in names}
+
+
+def test_the_classifiers_factoring_credit_is_revenue_and_rolls_up_as_credited(settings_file):
+    """Owner ruling 2026-09-26 (C4-C6): the factor's payout is flagged, counted apart from the debits, never
+    financing proceeds, and it matches the fixtures' credit row."""
+    from webapp.app import _package_analysis
+
+    payload = _analysed_payload()
+    [credit] = [row["classification"] for row in payload["statement"]["transactions"]
+                if row["classification"]["flagged_group"] == "factoring" and row["amount"] > 0]
+    fixture = flagged_row("factoring", amount=3 * FLAGGED_DEBIT)["classification"]
+    names = ("classification", "flagged_group", "contributes_to_flagged_totals")
+    assert {name: credit[name] for name in names} == {name: fixture[name] for name in names}
+    assert credit["contributes_to_lender_credit_exclusion"] is False
+    assert credit["revenue_match_method"] != "financing_proceeds_credit"
+    assert payload["metrics"]["lender_credits"] == 0.0
+    [position] = [entry for entry in payload["detection"]["flagged_positions"] if entry["group"] == "factoring"]
+    assert (position["count"], position["count_credited"], position["total_credited"]) == (1, 1, 3 * FLAGGED_DEBIT)
+    package = _package_analysis([_member("fabricated", payload)])
+    [item] = package["flagged_positions"]["factoring"]
+    assert (item["count"], item["count_credited"], item["total_credited"]) == (1, 1, 3 * FLAGGED_DEBIT)
+    assert package["totals"]["flagged_position_count_credited"] == 1
 
 
 def test_the_classifiers_payload_is_served_and_packaged_by_the_checkboxes(settings_file):
@@ -2936,6 +3652,7 @@ def test_the_classifiers_payload_is_served_and_packaged_by_the_checkboxes(settin
     # Unticking every group hides every flag; the premium-financing row still counts as insurance.
     unticked = _package_analysis([_member("fabricated", payload)], settings=none_ticked)
     assert unticked["flagged_positions"] == {} and unticked["totals"]["flagged_position_count"] == 0
+    assert unticked["totals"]["flagged_position_count_credited"] == 0
     assert unticked["totals"]["insurance_count"] == package["totals"]["insurance_count"] == 1
     assert unticked["totals"]["decision"] == "approved"
 
@@ -2956,9 +3673,10 @@ def test_the_fixture_records_use_only_fields_the_classifier_writes():
 C:\Python314\python.exe -m pytest tests/test_webapp_flagged_positions.py -q -p no:cacheprovider
 ```
 
-Expected: PASS, `105 passed`. These tests have no red phase on this branch, because they check S2's already-merged output.
-- On the pre-S2 base (measured), all four fail: the three amendment registries do not exist, and the records carry no `flagged_group`.
+Expected: PASS, `112 passed` (the 107 of Tasks 1-10 and 12, plus these five). These tests have no red phase on this branch, because they check S2's already-merged output.
+- On the pre-S2 base (measured), all four tests of the first revision failed: the three amendment registries do not exist, and the records carry no `flagged_group`.
 - Their assertions were also run over a C5-shaped fabricated stand-in for `_analysed_payload()`, with one fixture row each for mortgages, lines of credit, premium financing, floor plan and factoring. The three payload tests passed.
+- The revision of 2026-09-26 (the owner's ruling on factoring credits) was run on a scratch tree of S2 with its Task 18 plus S3 with Tasks 1-10 and 12: `112 passed`. On a `lender-detection` whose S2 lacks Task 18, the C5 key-set test and the factoring-credit test fail: S2 merges with its Task 18.
 
 If one fails now:
 - print `payload["statement"]["transactions"]` classifications and `payload["detection"]["flagged_positions"]`;
@@ -3029,6 +3747,7 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 | §8.4: JSON follows the displayed payload | Task 5 (`/download/<id>/json`); Task 9 (`/package_analysis`, `/package_download/csv`). |
 | §2 amendment: premium-financing rows stay counted as insurance and are also flagged; floor plan and factoring are flagged like alternative positions | Floor plan and factoring are ordinary groups in every parametrized test. Premium financing: the fixture row is an `insurance` row with the flag (Task 3); unticking hides only the flag (Task 3, `test_unticking_premium_financing_hides_the_flag_and_keeps_the_insurance_record`); the package insurance count, total and evidence do not move with the checkbox (Task 7, `test_premium_financing_stays_insurance_whether_or_not_it_is_flagged`, and the snapshot test); S2's real row is checked against the fixture (Task 11). Task 11 also runs a floor-plan payee and a factoring payee through S2's real classifier. It checks that they arrive as `floor_plan` and `factoring`, and that every flagged record carries the state the fixtures give its group. |
 | §9: tests for Settings, serving and exports for every checkbox, with the stored record unchanged; package roll-up and refusal | Tasks 2-3 and 5-9 are parametrized over all eleven `FLAG_GROUPS`. |
+| Owner ruling 2026-09-26 (C4-C6 as amended): a factoring credit stays revenue and is flagged; the credited count and total are served, filtered by Settings, rolled up per package, written to CSV/XLSX and currency-checked exactly as the debited ones | Task 12 (fabricated payloads; the two serving tests pin behaviour that needed no change), Task 10 (the cadence version keeps the credited fields), Task 11 (S2's real factoring credit through serving and the package). |
 | The NSF tests at `tests/test_webapp_settings.py:83-232`, mirrored per checkbox | `:83` analysis and exports → Task 5 `test_the_analysis_and_its_json_export_follow_the_checkbox` and Task 6 `test_the_csv_and_xlsx_exports_carry_readable_rows_for_ticked_groups_only`; `:96` package members → Task 5 `test_package_members_carry_the_displayed_checkboxes`; `:133` package totals and rows → Task 8 `test_the_package_totals_count_the_debits_of_ticked_groups_only` and Task 9 `test_the_package_csv_and_xlsx_carry_the_ticked_groups_only`; `:151` a member without analysis → Task 8 `test_a_member_without_analysis_adds_nothing_to_the_flag_roll_up`; `:203` document accounts → Task 5 `test_every_published_account_of_a_document_member_follows_the_checkbox`; `:213` exclusions → Task 5 `test_the_checkboxes_never_change_which_accounts_a_package_leaves_out`. The file-writing tests (`:105`, `:118`, `:164`) do not depend on the key; Task 2 re-pins them to the merged dict. |
 
 **Placeholder scan.**
@@ -3050,20 +3769,20 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - S1 is referred to only by these contract names (C1, C2, C10), never by its task numbers.
 - **C4:** `flagged_group`, `contributes_to_flagged_totals`, `contributes_to_insurance_totals`, `classification_version`, `canonical_entity`, `source_location`, `date` and `amount`.
 - **C5:**
-  - `metrics.flagged_groups` values `{count, total, payees}`;
-  - `detection.flagged_positions` entries `{group, payee, matched_alias, count, total_debited, cadence, avg_gap_days, first_date, last_date, source_locations}`;
+  - `metrics.flagged_groups` values `{count, total, payees}`, and `count_credited`, `total_credited` since the amendment of 2026-09-26 (Task 12);
+  - `detection.flagged_positions` entries `{group, payee, matched_alias, count, total_debited, cadence, avg_gap_days, first_date, last_date, source_locations}`, and `count_credited`, `total_credited` after `total_debited` since the same amendment;
   - `describe_cadence`.
 - **C6:**
   - `apply_flagged_groups_to_payload(payload, *, enabled)`, `flag_shown`, `analysis_rules_outdated`;
   - `_displayed(analysis, *, carry_over=None, settings=None)`;
-  - package `flagged_positions` with `{payee, documents, count, total_debited, cadence, first_date, last_date}`;
-  - `totals.flagged_position_count` and `totals.flagged_position_total`.
+  - package `flagged_positions` with `{payee, documents, count, total_debited, count_credited, total_credited, cadence, first_date, last_date}` (the credited pair from Task 12);
+  - `totals.flagged_position_count` and `totals.flagged_position_total`, and `totals.flagged_position_count_credited` and `totals.flagged_position_total_credited` (Task 12).
 - **C7:** `DEFAULTS`.
 - **S3-internal names**, defined in the task that introduces them and not used by other services:
   - `enabled_group_keys`, `FLAG_RULES_MAJOR` and `RULES_OUTDATED_KEY` (Tasks 3-4);
   - `_flagged_position_rows` (Task 6);
   - `_counts_as_flagged`, `_add_flagged_rows`, `_published_flagged_positions` and the package key `flagged_evidence` (Task 7);
-  - the fixture API in `tests/flagged_payloads.py` (Task 3).
+  - the fixture API in `tests/flagged_payloads.py` (Task 3), and its `CREDITED_GROUP_KEYS` (Task 12).
 - S4 and S5 may import `tests/flagged_payloads.py` once S3 has merged. They should not create a file of that name.
 
 **Prototype check.** Every code block of this plan was applied verbatim, task by task, to an export of `4f219cd` in a scratch folder. Each "replace" anchor had to match exactly once. Nothing in the repository was touched. Every red and green count written above is the measured one:
@@ -3079,6 +3798,11 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 - Task 11 on the pre-S2 classifier: all four tests fail, as expected. Three fail with `ImportError` (the amendment registries are not there yet), and the fourth because the records carry no `flagged_group`.
   - Its three payload tests were also run over a C5-shaped fabricated stand-in for `_analysed_payload()`: one fixture row each for mortgages, lines of credit, premium financing, floor plan and factoring, with C4's defaults on the other rows. All three passed.
   - With the floor-plan row's state changed to `alternative_position`, the contract-fields test failed. The real check comes after S2 merges.
+
+**The owner's ruling of 2026-09-26 (Task 12, and Tasks 10-11 amended).** Measured on scratch exports; nothing in the repository was touched.
+- Task 12's blocks were applied verbatim to an export of `b18cacf` (22 replacements, each anchor matched once): red `13 failed, 300 passed`, green `313 passed` (64 + 103 + 100 + 46), and the neighbour selection of its Step 4 `550 passed` (541 before).
+- Tasks 10 and 11, as amended, were then applied to a scratch tree of S2 with its Task 18 plus that S3 tree: `tests/test_webapp_flagged_positions.py` `107 passed` after Task 10 (`153` with the currency file) and `112 passed` after Task 11. The selections of Task 11 Step 3 (S3's files, Core and Guards/JS) gave `995 passed` and the known `test_no_literal_account_numbers_in_ocr` failure.
+- Task 11's factoring credit reads `INVOICE PAYMENT`, so S2's operating-revenue path makes it verified revenue and the package decision stays `approved`.
 
 **Review fixes (2026-09-25).** An independent review ACCEPTED this plan WITH FIXES. The fixes were re-measured by replaying the edited blocks, stage by stage, on a clone of the reviewer's replay of `4f219cd`. Every count above is from that replay.
 - **S1 conformance (major).** When this plan was first written, S1's plan built an eight-group `analysis/flag_groups.py` with `state: str`. Task 1, Step 3 now stops and reports when S1's module fails the C1 pin. Task 1, Step 7 takes `lender-detection`'s copy during a rebase only after the same pin passes; otherwise it aborts the rebase. Both outcomes were simulated (Task 1, Step 7). S3 never edits S1's module.
