@@ -804,6 +804,9 @@ let bulkScope = null;
 let bulkBusy = false;
 // Reviews of single rows still waiting for the server: the bar's decisions wait for them, and they for the bar's.
 let rowReviewsInFlight = 0;
+// A re-analysis of the statement on screen still waiting for the server (reanalyzeShownStatement): every review waits
+// for it, since its answer replaces the rows a decision names; and it waits for them.
+let reanalysisBusy = false;
 
 function bulkKey(jobId, account, sourceLocation) {
   return JSON.stringify([jobId, account ?? null, sourceLocation]);
@@ -834,7 +837,7 @@ function syncBulkReview({ refocus = false } = {}) {
   if (els.bulkReviewCount) els.bulkReviewCount.textContent = `${formatNumber(count)} selected`;
   // Announced from outside the bar: a live region inside it is not heard while the bar is hidden or appearing.
   if (els.bulkReviewStatus) els.bulkReviewStatus.textContent = count ? `${formatNumber(count)} selected` : "";
-  const held = bulkBusy || rowReviewsInFlight > 0;
+  const held = bulkBusy || rowReviewsInFlight > 0 || reanalysisBusy;
   els.bulkReviewBar?.querySelectorAll("button").forEach((button) => { button.disabled = held; });
   if (els.bulkSelectAll) {
     // Ticked when every deposit shown awaiting review is picked; mixed when only some are.
@@ -930,7 +933,7 @@ async function redrawAfterReview(saved) {
 }
 
 async function submitBulkReview(decision) {
-  if (bulkBusy || rowReviewsInFlight > 0 || !bulkSelection.size) return;
+  if (bulkBusy || rowReviewsInFlight > 0 || reanalysisBusy || !bulkSelection.size) return;
   const byJob = new Map();
   [...bulkSelection].forEach((key) => {
     const [jobId, account, sourceLocation] = JSON.parse(key);
@@ -4160,7 +4163,8 @@ async function submitRevenueReview(button) {
   const decision = button.getAttribute("data-revenue-review-action");
   const account = button.getAttribute("data-revenue-review-account");
   // While the multi-select's batch is being saved, a row's own decision waits: both would start from one analysis.
-  if (!jobId || !sourceLocation || !decision || bulkBusy) return;
+  // While the statement is re-analyzed it waits too: the row it names is about to be replaced.
+  if (!jobId || !sourceLocation || !decision || bulkBusy || reanalysisBusy) return;
   button.disabled = true;
   rowReviewsInFlight += 1;
   syncBulkReview();
@@ -4221,6 +4225,89 @@ els.bulkReviewBar?.addEventListener("click", (event) => {
   if (action === "clear") clearBulkSelection({ refocus: true });
   else submitBulkReview(action);
 });
+
+/* --- re-analysis of a saved statement ---------------------------------------
+   The Re-analyze button of the outdated-rules notice (#reanalyzeButton; the results page draws the notice and decides
+   when it shows) runs the statement on screen again under the current rules. POST /analysis/<job>/reanalyze replaces
+   its saved analysis in place (the same statement, in the same place in Recent) and answers with the new one, so the
+   page is drawn again from the answer. The analyst's revenue decisions come back where their row is unchanged; the
+   notification says how many need redoing and how many a rule of the current analysis now decides. While it runs,
+   every review waits (reanalysisBusy, declared beside bulkBusy). */
+function reviewsLabel(count) {
+  return `${formatNumber(count)} ${count === 1 ? "review" : "reviews"}`;
+}
+
+// [text, tone] of the notification a finished re-analysis leaves. A review that needs redoing, or that a rule now
+// decides in the analyst's place, is news the analyst must see: amber, and the notifications open on it.
+function reanalysisNotice(payload) {
+  const kept = Number(payload.reviews_replayed) || 0;
+  const redo = Number(payload.reviews_not_replayed) || 0;
+  const ruled = Number(payload.reviews_decided_by_rules) || 0;
+  const done = "Re-analyzed with the current rules";
+  const news = [];
+  if (redo) news.push(`${reviewsLabel(redo)} ${redo === 1 ? "needs" : "need"} redoing`);
+  if (ruled) news.push(`${reviewsLabel(ruled)} ${ruled === 1 ? "is" : "are"} now decided by the rules`);
+  if (news.length) return [`${done}; ${news.join("; ")}`, "amber"];
+  return [kept ? `${done}; ${reviewsLabel(kept)} kept` : done, "green"];
+}
+
+async function reanalyzeShownStatement() {
+  const jobId = currentJobId;
+  // One statement on screen, and none of its decisions being saved: the answer would be drawn over them.
+  if (reanalysisBusy || bulkBusy || rowReviewsInFlight > 0 || !jobId || currentJobIds.length > 1) return;
+  reanalysisBusy = true;
+  const button = document.getElementById("reanalyzeButton");
+  const label = button ? button.textContent : "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Re-analyzing...";
+  }
+  // Every review waits for the answer: the bar's buttons and the rows' own are held.
+  syncBulkReview();
+  holdRowReviews(true);
+  let saved = false;
+  try {
+    const response = await fetch(`/analysis/${encodeURIComponent(jobId)}/reanalyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const payload = await responseJson(response);
+    if (!response.ok || !payload.analysis) {
+      const reason = payload.reason ? ` (${payload.reason})` : "";
+      throw new Error(payload.error ? `${payload.error}${reason}` : `status ${response.status}`);
+    }
+    saved = true;
+    if (currentJobId === jobId && currentJobIds.length <= 1) {
+      // The rows were read afresh: a tick made on the old rows could name another posting now.
+      clearBulkSelection();
+      renderAnalysis(payload.analysis);
+      setActions(jobId, true);
+      if (currentAnalysis || currentDocument) rememberShownStatement(jobId);
+      else appendStatusExports(`/download/${encodeURIComponent(jobId)}`);
+    }
+    const [text, tone] = reanalysisNotice(payload);
+    notify(text, tone);
+    if (tone !== "green") showNotifications();
+  } catch (error) {
+    const message = error.message || String(error);
+    notify(saved ? `Re-analyzed, but ${message}: open the statement again to see it` : `Not re-analyzed: ${message}`,
+      "red");
+    showNotifications();
+  } finally {
+    reanalysisBusy = false;
+    // No batch and no row's decision can have started meanwhile (their guards read reanalysisBusy), so every review
+    // button is given back.
+    holdRowReviews(false);
+    syncBulkReview();
+    if (button) {
+      button.disabled = false;
+      button.textContent = label;
+    }
+  }
+}
+
+document.getElementById("reanalyzeButton")?.addEventListener("click", () => { reanalyzeShownStatement(); });
 
 document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
   button.addEventListener("click", () => {
