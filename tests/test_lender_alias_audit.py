@@ -102,6 +102,81 @@ def test_the_audit_replays_the_rule_order_and_counts_only_taken_rows_as_taken(tm
     }
 
 
+#: A fabricated potential alias beside a payout-credit entity, a lease, a bank and a lender (the final review of S1:
+#: the audit never counted the credits the potential registry takes out of revenue).
+CREDIT_PASSES = (
+    audit_tool.AuditPass(AliasIndex({
+        "confirmed_lender": {"Quillon Funding": ("QUILLON FUNDING",)},
+        "alternative_position": {"Meridel Payouts": ("MERIDEL CAPITAL",)},
+        "lease_or_rental": {"Westfen Leasing": ("WESTFEN LEASING",)},
+    })),
+    audit_tool.AuditPass(AliasIndex({"bank_name": {"Oxbow Bank": ("OXBOW",)}}, run_together=False),
+                         audit_tool._LOAN_WORDING),
+    audit_tool.AuditPass(AliasIndex({"potential_lender": {"Tamsin Advance": ("TAMSIN",)}}, run_together=False)),
+)
+CREDIT_ROWS = [
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN BAKERY SALES", 250.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN BAKERY TRANSFER", 90.0, "transfer"),
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN BAKERY INSURANCE CLAIM", 30.0, "insurance"),
+    audit_tool.CachedRow("a" * 64, "ACH MERIDEL CAPITAL TAMSIN PAYOUT", 400.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH MERIDEL CAPITAL LOAN PAYMENT", -60.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH WESTFEN LEASING TAMSIN CREDIT", 20.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH OXBOW LOAN TAMSIN DEPOSIT", 70.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH QUILLON FUNDING TAMSIN PROCEEDS", 900.0, "transfer"),
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN ADVANCE PAYMENT", -75.0, "other"),
+]
+
+
+def _counts(rows, taken_rows, debit_rows, credit_rows):
+    return {"rows": rows, "taken_rows": taken_rows, "debit_rows": debit_rows, "credit_rows": credit_rows,
+            "analyses": 1}
+
+
+def test_a_credit_goes_to_a_financing_payee_or_the_potential_registry_as_s2s_credit_rule_reads_it(monkeypatch):
+    # S2's _classify_credit_revenue reads a credit's own words, whatever rule stored the row: after a return or
+    # reversal and an insurer, a financing group's payee takes it unless the payee is a payout-credit entity, and
+    # else the potential registry does. The bank-name rule reads debits only, and a lease payee never takes a credit.
+    monkeypatch.setattr(audit_tool, "PAYOUT_CREDIT_ENTITIES", ("Meridel Payouts",))
+    assert audit_tool.audit(CREDIT_ROWS, CREDIT_PASSES) == {
+        "alternative_position": {"MERIDEL CAPITAL": {"entity": "Meridel Payouts", "keys": {
+            "MERIDEL CAPITAL TAMSIN": _counts(1, 0, 0, 1),
+            "MERIDEL CAPITAL LOAN": _counts(1, 1, 1, 0)}}},
+        "bank_name": {"OXBOW": {"entity": "Oxbow Bank", "keys": {"OXBOW LOAN TAMSIN": _counts(1, 0, 0, 1)}}},
+        "confirmed_lender": {"QUILLON FUNDING": {"entity": "Quillon Funding", "keys": {
+            "QUILLON FUNDING TAMSIN": _counts(1, 1, 0, 1)}}},
+        "lease_or_rental": {"WESTFEN LEASING": {"entity": "Westfen Leasing", "keys": {
+            "WESTFEN LEASING TAMSIN": _counts(1, 0, 0, 1)}}},
+        "potential_lender": {"TAMSIN": {"entity": "Tamsin Advance", "keys": {
+            "TAMSIN BAKERY SALES": _counts(1, 1, 0, 1),
+            "TAMSIN BAKERY TRANSFER": _counts(1, 1, 0, 1),
+            "TAMSIN BAKERY INSURANCE": _counts(1, 0, 0, 1),
+            "MERIDEL CAPITAL TAMSIN": _counts(1, 1, 0, 1),
+            "WESTFEN LEASING TAMSIN": _counts(1, 1, 0, 1),
+            "OXBOW LOAN TAMSIN": _counts(1, 1, 0, 1),
+            "TAMSIN ADVANCE": _counts(1, 1, 1, 0)}}},
+    }
+
+
+def test_a_potential_alias_on_another_business_credits_needs_review_and_a_narrowed_alias_loses_them(monkeypatch):
+    monkeypatch.setattr(audit_tool, "PAYOUT_CREDIT_ENTITIES", ("Meridel Payouts",))
+    report = audit_tool.audit(CREDIT_ROWS, CREDIT_PASSES)
+    denied, undecided = audit_tool.review(report, {"deny": [], "allow": []})
+    assert denied == []
+    assert [(row["alias"], row["key"]) for row in undecided] == [
+        ("QUILLON FUNDING", "QUILLON FUNDING TAMSIN"), ("TAMSIN", "TAMSIN BAKERY SALES"),
+        ("TAMSIN", "TAMSIN BAKERY TRANSFER"), ("TAMSIN", "MERIDEL CAPITAL TAMSIN"),
+        ("TAMSIN", "WESTFEN LEASING TAMSIN"), ("TAMSIN", "OXBOW LOAN TAMSIN"), ("TAMSIN", "TAMSIN ADVANCE"),
+    ]
+    narrowed = (*CREDIT_PASSES[:2], audit_tool.AuditPass(
+        AliasIndex({"potential_lender": {"Tamsin Advance": ("TAMSIN ADVANCE",)}}, run_together=False)))
+    lost = audit_tool.lost_matches(report, audit_tool.audit(CREDIT_ROWS, narrowed), {"deny": [], "allow": []})
+    assert [(row["entity"], row["key"], row["before"], row["after"]) for row in lost] == [
+        ("Tamsin Advance", "MERIDEL CAPITAL TAMSIN", 1, 0), ("Tamsin Advance", "OXBOW LOAN TAMSIN", 1, 0),
+        ("Tamsin Advance", "TAMSIN BAKERY SALES", 1, 0), ("Tamsin Advance", "TAMSIN BAKERY TRANSFER", 1, 0),
+        ("Tamsin Advance", "WESTFEN LEASING TAMSIN", 1, 0),
+    ]
+
+
 @pytest.mark.parametrize("alias,entity,key,expected", [
     ("QUILLON", "Quillon Funding", "QUILLON BAKERY", True),
     ("QUILLON", "Quillon Funding", "QUILLON FUNDING", True),

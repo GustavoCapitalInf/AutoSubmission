@@ -8,6 +8,12 @@ analysis counts and no descriptor text. A row counts as taken when the rule orde
 alias: rows a rule ahead of the matcher keeps (a fee, a transfer, insurance and the other states of
 section 4.3 steps 1-6) are counted but never taken.
 
+A credit follows S2's credit rule (``_classify_credit_revenue``, spec section 4.4), which reads the credit's own
+words whatever rule stored the row: after a return or reversal and an insurer, a financing group's payee takes it,
+unless the payee is a payout-credit entity (PAYOUT_CREDIT_ENTITIES), and else the potential registry takes it out
+of revenue. So a credit that the bank-name or card-context rule (debits only) matches, or a payee outside the
+financing groups or a payout-credit entity, goes on to the potential registry.
+
 A taken match needs review (``needs_review``) when the payee key may name someone else:
   * the alias is a single word and the key is not exactly that word;
   * the key holds a word that is not in the alias, not in the entity's name (nor a run-together form of
@@ -45,12 +51,13 @@ from analysis.classification_registry import (  # noqa: E402
     BANK_NAME_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
     PAYEE_GROUP_REGISTRIES,
+    PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
     PREMIUM_FINANCE_ALIASES,
 )
 from analysis.description_text import normalize_transaction_description as normalize  # noqa: E402
 from analysis.flag_groups import FINANCING_STATES  # noqa: E402
-from analysis.payee_matcher import AliasIndex  # noqa: E402
+from analysis.payee_matcher import AliasIndex, PayeeMatch  # noqa: E402
 from tools.lender_ledger import _CARD_PAYMENT_WORDING, ORG_CUES  # noqa: E402
 
 #: Stored states that a rule ahead of the known-payee matcher keeps (spec section 4.3 steps 2-6). POS and
@@ -58,6 +65,12 @@ from tools.lender_ledger import _CARD_PAYMENT_WORDING, ORG_CUES  # noqa: E402
 EARLIER_RULE_STATES = frozenset(
     {"nsf_or_return", "refund_or_reversal", "insurance", "fee", "transfer", "tax", "payroll", "utility"}
 )
+#: Stored states of a credit that S2's credit rule decides before it reads a payee: a return or reversal, and an
+#: insurer. The rule reads a credit's own words, so a credit stored as a fee, a transfer, a tax, payroll or a
+#: utility still reaches a financing payee and the potential registry.
+EARLIER_CREDIT_RULE_STATES = frozenset({"nsf_or_return", "refund_or_reversal", "insurance"})
+#: The state of the potential registry's pass (spec section 4.3 step 11; S2's credit rule reads it too).
+POTENTIAL_STATE = "potential_lender"
 #: S2's step-8 rules that decide a row before its bank-name rule (spec section 4.3 step 8): LOC, mortgage and
 #: vehicle wording, as S2's _LINE_OF_CREDIT_PATTERNS, _MORTGAGE_PATTERNS and _VEHICLE_FINANCING_PATTERNS.
 _DECIDED_BEFORE_BANK_NAME = (
@@ -153,21 +166,41 @@ def default_passes() -> tuple[AuditPass, ...]:
         AuditPass(AliasIndex(PAYEE_GROUP_REGISTRIES)),
         AuditPass(AliasIndex({"bank_name": BANK_NAME_ALIASES}, run_together=False), _LOAN_WORDING),
         AuditPass(AliasIndex({"card_context": CARD_ISSUER_CONTEXT_ALIASES}, run_together=False), _CARD_WORDING),
-        AuditPass(AliasIndex({"potential_lender": POTENTIAL_LENDER_ALIASES}, run_together=False)),
+        AuditPass(AliasIndex({POTENTIAL_STATE: POTENTIAL_LENDER_ALIASES}, run_together=False)),
     )
 
 
-def takes(state: str, row: CachedRow) -> bool:
-    """Whether the classifier's rule order gives the row to an alias of ``state`` (spec sections 4.3, 4.4)."""
+def takes(state: str, row: CachedRow, entity: str = "") -> bool:
+    """Whether the classifier's rule order gives the row to ``entity``'s alias of ``state`` (spec sections 4.3,
+    4.4). A credit follows S2's credit rule: a financing group's payee takes it unless ``entity`` is a payout-credit
+    entity (PAYOUT_CREDIT_ENTITIES), and the potential registry takes it out of revenue."""
     if not row.posted or row.stored in ("nsf_or_return", "refund_or_reversal"):
         return False
     if state == "premium_financing":
         return True
+    if row.amount > 0:
+        if row.stored in EARLIER_CREDIT_RULE_STATES:
+            return False
+        if state in PAYEE_GROUP_REGISTRIES:
+            return state in FINANCING_STATES and entity not in PAYOUT_CREDIT_ENTITIES
+        return state == POTENTIAL_STATE
     if row.stored in EARLIER_RULE_STATES:
         return False
     if state in PAYEE_GROUP_REGISTRIES:
         return row.amount < 0 or state in FINANCING_STATES
     return row.amount < 0 and row.stored not in ("pos", "atm")
+
+
+def _decides_credit(audit_pass: AuditPass, match: PayeeMatch) -> bool:
+    """Whether the rule of ``audit_pass`` decides a credit it matches, so that no later rule reads the credit. The
+    bank-name and card-context rules (the passes that need wording) read debits only, and S2's credit rule reads a
+    payee only in a financing group and never a payout-credit entity's: the credit goes on to the potential
+    registry."""
+    if audit_pass.needs is not None:
+        return False
+    if match.state in PAYEE_GROUP_REGISTRIES:
+        return match.state in FINANCING_STATES and match.entity not in PAYOUT_CREDIT_ENTITIES
+    return True
 
 
 def _classification_lists(node) -> Iterator[list]:
@@ -214,7 +247,8 @@ def cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]
 
 def audit(rows: Iterable[CachedRow], passes: tuple[AuditPass, ...]) -> dict:
     """state -> alias -> {entity, keys: {payee key: {rows, taken_rows, debit_rows, credit_rows, analyses}}}.
-    The first pass that matches a row claims it, as the first rule that matches does. No descriptor text."""
+    The first pass that matches a row claims it, as the first rule that matches does, except that a credit goes on
+    past a pass whose rule does not decide it (``_decides_credit``). No descriptor text."""
     found: dict = {}
     analyses: dict = defaultdict(set)
     for row in rows:
@@ -230,11 +264,12 @@ def audit(rows: Iterable[CachedRow], passes: tuple[AuditPass, ...]) -> dict:
             counts = entry["keys"].setdefault(
                 key, {"rows": 0, "taken_rows": 0, "debit_rows": 0, "credit_rows": 0, "analyses": 0})
             counts["rows"] += 1
-            counts["taken_rows"] += int(takes(match.state, row))
+            counts["taken_rows"] += int(takes(match.state, row, match.entity))
             counts["debit_rows" if row.amount < 0 else "credit_rows"] += 1
             analyses[(match.state, match.alias, key)].add(row.analysis)
             counts["analyses"] = len(analyses[(match.state, match.alias, key)])
-            break
+            if row.amount <= 0 or _decides_credit(audit_pass, match):
+                break
     return {state: dict(sorted(aliases.items())) for state, aliases in sorted(found.items())}
 
 
