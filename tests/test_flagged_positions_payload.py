@@ -137,3 +137,49 @@ def test_a_premium_financier_is_a_flagged_position_under_its_own_name(fake_premi
     )
     assert (position.count, position.total_debited, position.cadence) == (2, 600.0, "monthly")
     assert position.source_locations == ["transaction:1", "transaction:2"]
+
+
+def test_the_batch_row_lists_flagged_positions_as_group_and_payee(fake_payees):
+    from pathlib import Path
+
+    import batch
+    from tests.flag_group_fixtures import flagged_report
+
+    row = batch._row(Path("fabricated.pdf"), flagged_report())
+    assert "flagged_positions" in batch.FIELDS
+    assert row["flagged_positions"] == (
+        "alternative_positions:Fabricated Alt Capital; alternative_positions:Fabricated BNPL; "
+        "credit_cards:Credit cards; mortgages:Mortgages; leases_rentals:Leases & rentals"
+    )
+    assert row["mca_funders"] == "Fabricated Lender"
+
+
+def test_the_text_report_prints_a_flagged_positions_block(fake_payees):
+    from analyze import _render
+    from tests.flag_group_fixtures import flagged_report
+
+    rendered = _render(flagged_report())
+    assert "## Flagged positions (not lenders; outside lender math)" in rendered
+    assert "  - Alternative positions: Fabricated Alt Capital: 2 debit(s), $1,400.00 (weekly)" in rendered
+    assert "  - Mortgages: Mortgages: 2 debit(s), $2,400.00 (monthly)" in rendered
+
+
+def test_the_text_report_says_none_without_flagged_rows():
+    from analyze import _render
+    from analysis.detect import detect
+    from analysis.metrics import compute_metrics
+    from analysis.pipeline import DocumentIntegrity, Quality, Report
+    from analysis.reconcile import reconcile
+
+    statement = Statement(transactions=[txn("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 500.0)])
+    report = Report(
+        statement=statement,
+        reconciliation=reconcile(statement),
+        metrics=compute_metrics(statement),
+        detection=detect(statement),
+        quality=Quality(level="transaction_level", transaction_detail_reliable=True, summary_totals_reliable=True),
+        integrity=DocumentIntegrity(risk_level="clear", flags=[], notes=[]),
+        model_used="fabricated-test",
+        escalated=False,
+    )
+    assert "  Flagged positions: none" in _render(report)
