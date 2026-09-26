@@ -383,7 +383,8 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
 
 def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
     """An account's flagged positions, one readable section per payee (lender detection §8.4):
-    `flagged_<group>_<n>` with the payee, its debit count, the total debited and the cadence.
+    `flagged_<group>_<n>` with the payee, its debit count, the total debited, the credits it paid in and their
+    total (plan contract C5: a factor's payouts, owner ruling 2026-09-26), and the cadence.
 
     Served payloads hold only the ticked groups (analysis/flagged_view.py via `_displayed`), so the sheet follows
     Settings. A payee name is statement text: these rows reach a file only through `_escaped_rows`."""
@@ -394,7 +395,7 @@ def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
         if not isinstance(group, str) or group not in FLAG_GROUP_BY_KEY:
             continue
         numbers[group] = numbers.get(group, 0) + 1
-        for field in ("payee", "count", "total_debited", "cadence"):
+        for field in ("payee", "count", "total_debited", "count_credited", "total_credited", "cadence"):
             value = entry.get(field)
             rows.append((f"flagged_{group}_{numbers[group]}", field, "" if value is None else value))
     return rows
@@ -550,9 +551,9 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
 
 
 def _counts_as_flagged(classification: dict, shown: frozenset[str]) -> bool:
-    """A row the package's flag roll-up counts: the analysis marked it a contributing debit of a flag group
-    (`contributes_to_flagged_totals`: posted, not a proven duplicate, not settlement-reversed), and Settings ticks
-    its group."""
+    """A row the package's flag roll-up counts: the analysis marked it a contributing row of a flag group
+    (`contributes_to_flagged_totals`: a posted debit, or a posted factoring credit, that is not a proven duplicate
+    and not reversed; plan contract C4), and Settings ticks its group."""
     group = classification.get("flagged_group")
     return (
         classification.get("contributes_to_flagged_totals") is True
@@ -565,8 +566,10 @@ def _add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> 
     """Fold one member's counted flag rows into the package roll-up, keyed by (group, payee).
 
     The payee is the row's canonical entity, or its group's label when the analysis named none (plan contract
-    C5). `documents` counts the members a payee appears in, as the funder roll-up does. The dates are kept so the
-    first and last dates, and the cadence, are read across every member rather than per statement."""
+    C5). `documents` counts the members a payee appears in, as the funder roll-up does. A debit adds to `count`
+    and `total_debited`; a credit (a factor's payout, owner ruling 2026-09-26) adds to `count_credited` and
+    `total_credited`. The dates of both are kept so the first and last dates, and the cadence, are read across
+    every member rather than per statement."""
     seen: set[tuple[str, str]] = set()
     for row in rows:
         classification = row["classification"]
@@ -575,13 +578,19 @@ def _add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> 
         payee = entity if isinstance(entity, str) and entity else FLAG_GROUP_BY_KEY[group].label
         item = rollup.setdefault(
             (group, payee),
-            {"payee": payee, "documents": 0, "count": 0, "total_debited": 0.0, "dates": []},
+            {"payee": payee, "documents": 0, "count": 0, "total_debited": 0.0, "count_credited": 0,
+             "total_credited": 0.0, "dates": []},
         )
         if (group, payee) not in seen:
             seen.add((group, payee))
             item["documents"] += 1
-        item["count"] += 1
-        item["total_debited"] = round(item["total_debited"] + abs(_num(row.get("amount"))), 2)
+        amount = _num(row.get("amount"))
+        if amount < 0:
+            item["count"] += 1
+            item["total_debited"] = round(item["total_debited"] + abs(amount), 2)
+        else:
+            item["count_credited"] += 1
+            item["total_credited"] = round(item["total_credited"] + amount, 2)
         posted = parse_date(row.get("date") or classification.get("date"))
         if posted is not None:
             item["dates"].append(posted)
@@ -591,11 +600,12 @@ def _published_flagged_positions(
     rollup: dict[tuple[str, str], dict], *, refuse_cross_currency: bool
 ) -> dict[str, list[dict]]:
     """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
-    order, as a list of `{payee, documents, count, total_debited, first_date, last_date}`.
+    order, as a list of `{payee, documents, count, total_debited, count_credited, total_credited, first_date,
+    last_date}`.
 
-    Largest total first; a package that refuses to combine currencies ranks by the unit-free count, then the
-    payee, because an order read off summed money would publish the cross-currency comparison the refusal
-    withholds (CURRENCY DOCTRINE §F)."""
+    Largest total first, debited plus credited; a package that refuses to combine currencies ranks by the
+    unit-free count, debits plus credits, then the payee, because an order read off summed money would publish the
+    cross-currency comparison the refusal withholds (CURRENCY DOCTRINE §F)."""
     published: dict[str, list[dict]] = {}
     for group in FLAG_GROUPS:
         items = []
@@ -608,15 +618,21 @@ def _published_flagged_positions(
                 "documents": item["documents"],
                 "count": item["count"],
                 "total_debited": item["total_debited"],
+                "count_credited": item["count_credited"],
+                "total_credited": item["total_credited"],
                 "first_date": dates[0].isoformat() if dates else None,
                 "last_date": dates[-1].isoformat() if dates else None,
             })
         if not items:
             continue
         if refuse_cross_currency:
-            published[group.key] = sorted(items, key=lambda item: (-item["count"], item["payee"]))
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["count"] + item["count_credited"]), item["payee"])
+            )
         else:
-            published[group.key] = sorted(items, key=lambda item: (-item["total_debited"], item["payee"]))
+            published[group.key] = sorted(
+                items, key=lambda item: (-(item["total_debited"] + item["total_credited"]), item["payee"])
+            )
     return published
 
 
@@ -654,6 +670,7 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "confirmed_true_revenue_total",
     "eligible_deposits",
     "flagged_position_total",
+    "flagged_position_total_credited",
     "insurance_total",
     "lender_debits",
     "maximum_revenue",
@@ -693,6 +710,7 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
 #: here; everything left on them is a genuine count.
 _CROSS_CURRENCY_ROLLUP_KEYS = (
     "total_debited",
+    "total_credited",
     "potential_lender_debit_total",
     "eligible_deposit_denominator",
     "potential_withholding_exposure",
@@ -1096,9 +1114,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "monthly_lender_debits": 0.0,
         "insurance_count": 0,
         "insurance_total": 0.0,
-        # Lender detection §8.3: the ticked flag groups' counted debits and their total. Never lender math (D7).
+        # Lender detection §8.3: the ticked flag groups' counted debits and their total, and apart from them the
+        # counted credits (a factor's payouts, owner ruling 2026-09-26) and theirs. Never lender math (D7).
         "flagged_position_count": 0,
         "flagged_position_total": 0.0,
+        "flagged_position_count_credited": 0,
+        "flagged_position_total_credited": 0.0,
         "withholding_numerator": 0.0,
         "withholding_denominator": 0.0,
         "potential_withholding_numerator": 0.0,
@@ -1835,6 +1856,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     totals["potential_lenders_detected"] = len(potential_lenders)
     totals["flagged_position_count"] = sum(item["count"] for item in flagged_rollup.values())
     totals["flagged_position_total"] = round(sum(item["total_debited"] for item in flagged_rollup.values()), 2)
+    totals["flagged_position_count_credited"] = sum(item["count_credited"] for item in flagged_rollup.values())
+    totals["flagged_position_total_credited"] = round(
+        sum(item["total_credited"] for item in flagged_rollup.values()), 2
+    )
     totals["maximum_revenue"] = round(
         totals["verified_revenue_total"] + totals["unverified_deposit_total"],
         2,

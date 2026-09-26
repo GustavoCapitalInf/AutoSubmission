@@ -172,3 +172,19 @@ def test_one_outdated_account_marks_the_whole_document_at_the_top_level():
     assert shown["analysis_rules_outdated"] is True
     assert all("analysis_rules_outdated" not in account for account in shown["accounts"])
     assert "analysis_rules_outdated" not in payload
+
+
+def test_a_flagged_credit_is_shown_and_hidden_with_its_group():
+    """Owner ruling 2026-09-26 (C4): a factor's payout is a credit row of the Factoring group. It is tagged and its
+    credited figures are served while the group is ticked, and both go when it is unticked; the record is kept."""
+    payload = with_flagged_rows(account_payload(), [flagged_row("factoring", amount=3 * FLAGGED_DEBIT)])
+    shown = apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)
+    [credit] = _flagged_rows(shown)
+    assert (credit["amount"] > 0, credit["classification"]["flag_shown"]) == (True, True)
+    assert shown["metrics"]["flagged_groups"]["factoring"]["count_credited"] == 1
+    assert shown["detection"]["flagged_positions"][0]["total_credited"] == 3 * FLAGGED_DEBIT
+    hidden = apply_flagged_groups_to_payload(payload, enabled={"flag_factoring": False})
+    [credit] = _flagged_rows(hidden)
+    assert credit["classification"]["flag_shown"] is False
+    assert credit["classification"]["contributes_to_flagged_totals"] is True
+    assert hidden["metrics"]["flagged_groups"] == {} and hidden["detection"]["flagged_positions"] == []

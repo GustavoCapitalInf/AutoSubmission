@@ -87,8 +87,8 @@ def test_displayed_takes_one_settings_snapshot_and_carry_over_still_decides_the_
     assert shown["metrics"]["effective_nsf_count"] == 1 and shown["metrics"]["flagged_groups"] == {}
     shown = _displayed(payload, carry_over=True, settings=snapshot)
     assert shown["metrics"]["effective_nsf_count"] == 2 and shown["metrics"]["flagged_groups"] == {}
-    assert _displayed(payload)["metrics"]["flagged_groups"] == {"mortgages": {"count": 1, "total": FLAGGED_DEBIT,
-                                                                              "payees": 1}}
+    assert _displayed(payload)["metrics"]["flagged_groups"] == {"mortgages": {
+        "count": 1, "total": FLAGGED_DEBIT, "count_credited": 0, "total_credited": 0.0, "payees": 1}}
     save_settings(settings_file.parent, {"flag_mortgages": False})
     assert _displayed(payload)["metrics"]["flagged_groups"] == {}
 
@@ -469,3 +469,107 @@ def test_the_package_routes_follow_the_checkboxes(settings_file):
     cells = _csv_cells(client.get(f"/package_download/csv?ids={','.join(ids)}").get_data(as_text=True))
     assert ("flagged_mortgages_1", "payee") in cells
     assert not [key for key in cells if key[0].startswith("flagged_credit_cards_")]
+
+
+# --- flagged credits: a factor's payouts (owner ruling 2026-09-26; contract C4-C6) -----------------------------
+
+#: What each fabricated factoring credit posts: three times a flagged debit, so the two totals never coincide.
+FACTOR_PAYOUT = 3 * FLAGGED_DEBIT
+
+
+def _factored(index=0, *, payee=None, payouts=1, date="2054-01-12"):
+    """An ACCOUNT payload whose factoring payee is paid one debit and pays in `payouts` credits (C4)."""
+    return with_flagged_rows(account_payload(index), [
+        flagged_row("factoring", payee=payee),
+        *(flagged_row("factoring", payee=payee, amount=FACTOR_PAYOUT, date=date) for _ in range(payouts)),
+    ])
+
+
+def test_a_factoring_credit_is_served_flagged_and_follows_its_checkbox(settings_file):
+    from webapp.app import _displayed
+
+    shown = _displayed(_factored(), settings=dict(DEFAULTS))
+    assert shown["metrics"]["flagged_groups"] == {"factoring": {
+        "count": 1, "total": FLAGGED_DEBIT, "count_credited": 1, "total_credited": FACTOR_PAYOUT, "payees": 1}}
+    [entry] = shown["detection"]["flagged_positions"]
+    assert (entry["count"], entry["total_debited"], entry["count_credited"], entry["total_credited"]) == (
+        1, FLAGGED_DEBIT, 1, FACTOR_PAYOUT)
+    rows = [row for row in shown["statement"]["transactions"] if row["classification"].get("flagged_group")]
+    assert [(row["amount"] > 0, row["classification"]["flag_shown"]) for row in rows] == [(False, True), (True, True)]
+    hidden = _displayed(_factored(), settings={**DEFAULTS, "flag_factoring": False})
+    assert hidden["metrics"]["flagged_groups"] == {} and hidden["detection"]["flagged_positions"] == []
+    assert not [row for row in hidden["statement"]["transactions"] if row["classification"]["flag_shown"]]
+
+
+def test_the_statement_csv_and_xlsx_carry_the_credited_fields(settings_file):
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+
+    shown = _displayed(_factored(), settings=dict(DEFAULTS))
+    cells = _csv_cells(_analysis_csv(shown))
+    assert (cells[("flagged_factoring_1", "count")], cells[("flagged_factoring_1", "total_debited")]) == (
+        "1", str(FLAGGED_DEBIT))
+    assert (cells[("flagged_factoring_1", "count_credited")], cells[("flagged_factoring_1", "total_credited")]) == (
+        "1", str(FACTOR_PAYOUT))
+    assert "<t>total_credited</t>" in _sheet(_analysis_xlsx(shown))
+
+
+def test_the_package_rolls_up_credits_apart_from_debits(settings_file):
+    from webapp.app import _package_analysis
+
+    jobs = [_member("a", _factored(0)), _member("b", _factored(1, date="2054-01-19"))]
+    package = _package_analysis(jobs)
+    [item] = package["flagged_positions"]["factoring"]
+    assert (item["documents"], item["count"], item["total_debited"]) == (2, 2, 2 * FLAGGED_DEBIT)
+    assert (item["count_credited"], item["total_credited"]) == (2, 2 * FACTOR_PAYOUT)
+    # The dates are every counted row's, debit or credit.
+    assert (item["first_date"], item["last_date"]) == ("2054-01-05", "2054-01-19")
+    totals = package["totals"]
+    # flagged_position_count and flagged_position_total stay debits only (C6).
+    assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (2, 2 * FLAGGED_DEBIT)
+    assert (totals["flagged_position_count_credited"], totals["flagged_position_total_credited"]) == (
+        2, 2 * FACTOR_PAYOUT)
+    assert len(package["flagged_evidence"]) == 4
+    # D7: the credits never touch the decision, and unticking the group moves nothing but the flag figures.
+    save_settings(settings_file.parent, {"flag_factoring": False})
+    unticked = _package_analysis(jobs)
+    assert (unticked["totals"]["flagged_position_count_credited"],
+            unticked["totals"]["flagged_position_total_credited"]) == (0, 0.0)
+    assert _not_flagged(unticked["totals"]) == _not_flagged(totals)
+    assert totals["decision"] == unticked["totals"]["decision"]
+
+
+def test_a_payee_whose_counted_rows_are_all_credits_rolls_up_with_no_debits(settings_file):
+    from webapp.app import _package_analysis
+
+    payload = with_flagged_rows(account_payload(), [flagged_row("factoring", amount=FACTOR_PAYOUT)])
+    [item] = _package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
+    assert (item["count"], item["total_debited"], item["count_credited"], item["total_credited"]) == (
+        0, 0.0, 1, FACTOR_PAYOUT)
+
+
+def test_package_positions_rank_by_debited_plus_credited(settings_file):
+    from webapp.app import _package_analysis
+
+    payload = with_flagged_rows(account_payload(), [
+        flagged_row("factoring", payee="FABRICATED DEBITED FACTOR", amount=-3 * FLAGGED_DEBIT),
+        flagged_row("factoring", payee="FABRICATED PAYING FACTOR", amount=-FLAGGED_DEBIT),
+        flagged_row("factoring", payee="FABRICATED PAYING FACTOR", amount=FACTOR_PAYOUT),
+    ])
+    items = _package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
+    # 1 debited plus 3 paid in outranks 3 debited alone, and the paid-in money never joins total_debited.
+    assert [(item["payee"], item["total_debited"], item["total_credited"]) for item in items] == [
+        ("FABRICATED PAYING FACTOR", FLAGGED_DEBIT, FACTOR_PAYOUT),
+        ("FABRICATED DEBITED FACTOR", 3 * FLAGGED_DEBIT, 0.0),
+    ]
+
+
+def test_the_package_csv_and_xlsx_carry_the_credited_fields(settings_file):
+    from webapp.app import _package_analysis, _package_csv, _package_xlsx
+
+    package = _package_analysis([_member("a", _factored(0)), _member("b", _factored(1))])
+    cells = _csv_cells(_package_csv(package))
+    assert (cells[("flagged_factoring_1", "count_credited")], cells[("flagged_factoring_1", "total_credited")]) == (
+        "2", str(2 * FACTOR_PAYOUT))
+    assert (cells[("totals", "flagged_position_count_credited")],
+            cells[("totals", "flagged_position_total_credited")]) == ("2", str(2 * FACTOR_PAYOUT))
+    assert "<t>flagged_position_total_credited</t>" in _sheet(_package_xlsx(package))

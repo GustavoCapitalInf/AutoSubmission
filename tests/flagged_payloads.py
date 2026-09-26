@@ -18,6 +18,9 @@ CURRENT_VERSION = "5.0"
 GROUP_KEYS = tuple(group.key for group in FLAG_GROUPS)
 #: The state a premium-financing row keeps: it has no state of its own and stays insurance (plan contract C1, C4).
 PREMIUM_FINANCING_STATE = "insurance"
+#: The groups whose posted credits count in the flagged totals (plan contract C4; owner ruling 2026-09-26: a
+#: factor's payout is the business's own sales, stays revenue and carries the Factoring flag).
+CREDITED_GROUP_KEYS = ("factoring",)
 
 
 def fabricated_payee(group_key: str) -> str:
@@ -44,14 +47,14 @@ def flagged_row(
 ) -> dict:
     """One ledger row whose classification record follows C4. `group_key` None is a row of no flag group.
 
-    `contributes` defaults to the contract rule (a debit of a flag group); pass False for a duplicate or a
-    settlement-reversed debit. A premium-financing row is an insurance row that also carries the flag, so its
-    `contributes_to_insurance_totals` follows the same rule. `version` None leaves `classification_version` out,
-    as a record written before the field existed would."""
+    `contributes` defaults to the contract rule (a debit of a flag group, or a credit of a CREDITED_GROUP_KEYS
+    group); pass False for a duplicate or a reversed row. A premium-financing row is an insurance row that also
+    carries the flag, so its `contributes_to_insurance_totals` follows the same rule. `version` None leaves
+    `classification_version` out, as a record written before the field existed would."""
     state = row_state(group_key)
     name = payee if payee is not None else (fabricated_payee(group_key) if group_key else None)
     if contributes is None:
-        contributes = group_key is not None and amount < 0
+        contributes = group_key is not None and (amount < 0 or (amount > 0 and group_key in CREDITED_GROUP_KEYS))
     direction = "debit" if amount < 0 else "credit"
     classification = {
         "source_location": None,
@@ -97,24 +100,32 @@ def with_flagged_rows(payload: dict, rows: list[dict]) -> dict:
     entries = []
     for (group, payee), members in by_payee.items():
         dates = sorted(row["date"] for row in members)
+        debits = [row for row in members if row["amount"] < 0]
+        credits = [row for row in members if row["amount"] >= 0]
         entries.append({
             "group": group,
             "payee": payee,
             "matched_alias": payee,
-            "count": len(members),
-            "total_debited": round(sum(abs(row["amount"]) for row in members), 2),
+            "count": len(debits),
+            "total_debited": round(sum(abs(row["amount"]) for row in debits), 2),
+            "count_credited": len(credits),
+            "total_credited": round(sum(row["amount"] for row in credits), 2),
             "cadence": "single" if len(dates) == 1 else "irregular",
             "avg_gap_days": None,
             "first_date": dates[0],
             "last_date": dates[-1],
             "source_locations": [row["classification"]["source_location"] for row in members],
         })
-    entries.sort(key=lambda entry: (GROUP_KEYS.index(entry["group"]), -entry["total_debited"], entry["payee"]))
+    entries.sort(key=lambda entry: (GROUP_KEYS.index(entry["group"]),
+                                    -(entry["total_debited"] + entry["total_credited"]), entry["payee"]))
     summaries: dict[str, dict] = {}
     for entry in entries:
-        summary = summaries.setdefault(entry["group"], {"count": 0, "total": 0.0, "payees": 0})
+        summary = summaries.setdefault(
+            entry["group"], {"count": 0, "total": 0.0, "count_credited": 0, "total_credited": 0.0, "payees": 0})
         summary["count"] += entry["count"]
         summary["total"] = round(summary["total"] + entry["total_debited"], 2)
+        summary["count_credited"] += entry["count_credited"]
+        summary["total_credited"] = round(summary["total_credited"] + entry["total_credited"], 2)
         summary["payees"] += 1
     payload.setdefault("metrics", {})["flagged_groups"] = summaries
     payload.setdefault("detection", {})["flagged_positions"] = entries
