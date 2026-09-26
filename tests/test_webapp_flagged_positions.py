@@ -1,6 +1,9 @@
 """Every served surface follows the flag-group checkboxes (lender detection §8.2-8.4). Fabricated payloads only."""
 import copy
+import csv
+import io
 import json
+import zipfile
 from types import SimpleNamespace
 
 import pytest
@@ -9,11 +12,13 @@ from analysis.flag_groups import FLAG_GROUPS, FLAG_SETTING_KEYS
 from tests.flagged_payloads import (
     FLAGGED_DEBIT,
     GROUP_KEYS,
+    fabricated_payee,
     flagged_account_payload,
     flagged_document_payload,
     flagged_row,
     with_flagged_rows,
 )
+from tests.l1s3_payloads import account_payload
 from webapp.app import app, store
 from webapp.jobs import Job
 from webapp.settings import DEFAULTS, SETTINGS_FILE, save_settings
@@ -199,3 +204,60 @@ def test_package_members_follow_the_snapshot_they_are_handed_not_the_file(settin
     records = [row["classification"] for row in package["transactions"] if row["classification"].get("flagged_group")]
     assert len(records) == 2 * len(GROUP_KEYS)
     assert all(record["flag_shown"] is (record["flagged_group"] != "mortgages") for record in records)
+
+
+# --- one statement: the CSV and XLSX exports (§8.4) -------------------------------------------------------------
+
+def _csv_cells(text):
+    return {(row[0], row[1]): row[2] for row in list(csv.reader(io.StringIO(text)))[1:]}
+
+
+def _sheet(blob):
+    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        return archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+
+
+@EACH_GROUP
+def test_the_csv_and_xlsx_exports_carry_readable_rows_for_ticked_groups_only(settings_file, done_job, group):
+    client = app.test_client()
+    section = f"flagged_{group.key}_1"
+    cells = _csv_cells(client.get("/download/job-flagged/csv").get_data(as_text=True))
+    assert cells[(section, "payee")] == fabricated_payee(group.key)
+    assert cells[(section, "count")] == "1"
+    assert cells[(section, "total_debited")] == str(FLAGGED_DEBIT)
+    assert cells[(section, "cadence")] == "single"
+    assert ("detection", "flagged_positions") not in cells  # the readable rows replace the JSON cell
+    assert f"<t>{section}</t>" in _sheet(client.get("/download/job-flagged/xlsx").get_data())
+    client.post("/api/settings", json={group.setting: False})
+    cells = _csv_cells(client.get("/download/job-flagged/csv").get_data(as_text=True))
+    assert not [key for key in cells if key[0].startswith(f"flagged_{group.key}_")]
+    assert len({key[0] for key in cells if key[0].startswith("flagged_")}) == len(GROUP_KEYS) - 1
+    assert f"<t>{section}</t>" not in _sheet(client.get("/download/job-flagged/xlsx").get_data())
+
+
+def test_every_account_of_a_document_gets_its_own_flagged_rows():
+    from webapp.app import _analysis_rows
+
+    rows = _analysis_rows(flagged_document_payload(groups=("mortgages",)))
+    assert {"account_1.flagged_mortgages_1", "account_2.flagged_mortgages_1"} <= {section for section, _f, _v in rows}
+
+
+def test_two_payees_of_one_group_are_numbered_in_the_payload_order():
+    from webapp.app import _analysis_rows
+
+    payload = with_flagged_rows(account_payload(), [
+        flagged_row("mortgages", payee="FABRICATED MORTGAGE A"),
+        flagged_row("mortgages", payee="FABRICATED MORTGAGE B", amount=-2 * FLAGGED_DEBIT),
+    ])
+    payees = {section: value for section, field, value in _analysis_rows(payload) if field == "payee"}
+    assert payees == {"flagged_mortgages_1": "FABRICATED MORTGAGE B", "flagged_mortgages_2": "FABRICATED MORTGAGE A"}
+
+
+def test_a_payee_that_reads_as_a_formula_is_escaped_in_both_sheets():
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+
+    payload = with_flagged_rows(account_payload(), [flagged_row("mortgages", payee="=FABRICATED(1)")])
+    shown = _displayed(payload, settings=dict(DEFAULTS))
+    assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in _analysis_csv(shown)
+    sheet = _sheet(_analysis_xlsx(shown))
+    assert "<t>'=FABRICATED(1)</t>" in sheet and "<t>=FABRICATED(1)</t>" not in sheet

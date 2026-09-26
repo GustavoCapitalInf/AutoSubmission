@@ -32,6 +32,7 @@ from analysis.revenue import (
     REVENUE_STATES,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
+from analysis.flag_groups import FLAG_GROUP_BY_KEY
 from analysis.flagged_view import apply_flagged_groups_to_payload
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
@@ -370,9 +371,31 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     detection = analysis.get("detection")
     if isinstance(detection, dict):
         for key, item in detection.items():
+            if key == "flagged_positions":
+                continue  # emitted as readable rows below
             if isinstance(item, (dict, list)):
                 item = json.dumps(item)
             rows.append(("detection", key, "" if item is None else item))
+        rows.extend(_flagged_position_rows(detection.get("flagged_positions")))
+    return rows
+
+
+def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
+    """An account's flagged positions, one readable section per payee (lender detection §8.4):
+    `flagged_<group>_<n>` with the payee, its debit count, the total debited and the cadence.
+
+    Served payloads hold only the ticked groups (analysis/flagged_view.py via `_displayed`), so the sheet follows
+    Settings. A payee name is statement text: these rows reach a file only through `_escaped_rows`."""
+    rows: list[tuple[str, str, object]] = []
+    numbers: dict[str, int] = {}
+    for entry in positions if isinstance(positions, list) else []:
+        group = entry.get("group") if isinstance(entry, dict) else None
+        if not isinstance(group, str) or group not in FLAG_GROUP_BY_KEY:
+            continue
+        numbers[group] = numbers.get(group, 0) + 1
+        for field in ("payee", "count", "total_debited", "cadence"):
+            value = entry.get(field)
+            rows.append((f"flagged_{group}_{numbers[group]}", field, "" if value is None else value))
     return rows
 
 
