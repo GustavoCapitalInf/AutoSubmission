@@ -150,6 +150,8 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "the Phase 3 comparison reads every cached account through payload_accounts"),
     ("webapp/worker.py", "_attach_account_confidence", "per_account",
      "each published account takes its own verification score, found through payload_accounts"),
+    ("analysis/flagged_view.py", "apply_flagged_groups_to_payload", "per_account",
+     "the flag groups are served per account ledger; every account is tagged, a malformed document passes untouched"),
     ("analysis/nsf_days.py", "apply_nsf_basis_to_payload", "per_account",
      "the NSF basis is a property of one account's ledger; every account is re-based, a malformed document passes untouched"),
 )
