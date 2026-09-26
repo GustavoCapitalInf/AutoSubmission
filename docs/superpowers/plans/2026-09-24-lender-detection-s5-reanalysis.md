@@ -139,16 +139,16 @@ C9 and §8.6 do not settle these points. Each is fixed below and pinned by a tes
 
 ## What the orchestrator must ratify
 
-This plan extends or changes the master plan in the places below. Each is implemented and tested as written. Items 1, 3 and 5 are now written into the master plan (its C9, its order table, and its "Surface census" item); item 2 still waits for the owner, and item 4 is a note for the rebase.
+This plan extends or changes the master plan in the places below. Each is implemented and tested as written. Items 1, 3 and 5 are now written into the master plan (its C9, its order table, and its "Surface census" item); the owner ratified item 2 on 2026-09-26, and item 4 is a note for the rebase.
 
 1. **C9 amendment** (now in the master plan's C9). Proposed text, to append to C9:
    - The 200 body also carries `"reviews_decided_by_rules": int` (Decision 5).
    - 400 `{"error": "the request must be a JSON object"}` for a body that is not a JSON object (Decision 4).
    - 422 `{"error": "no new analysis was saved; the saved analysis is unchanged", "reason": str}` when the re-run produces no analysis to save (Decision 3). `reason` is text the worker already publishes, or `READING_NOT_CACHED` / `READS_DIFFERENTLY` (`webapp/reanalysis.py`).
    - The audit row is `event_type = "reanalysis"` with the detail of Decision 6.
-2. **Owner rulings.**
-   - Decision 2: cache-only, against re-reads through the upload queue. The ruling covers its two known limits: the backstop's, and the one overlap left in sharing the cache with an upload.
-   - Decision 5's "Decided by a rule": reported apart, against counting them as needing redoing.
+2. **Owner rulings: RATIFIED by the owner on 2026-09-26, both as this plan's defaults.**
+   - Decision 2: cache-only, against re-reads through the upload queue. The ruling covers its two known limits: the backstop's, and the one overlap left in sharing the cache with an upload. *Ratified: re-analysis reads only the saved reading and refuses with `READING_NOT_CACHED`; the owner accepts both limits.*
+   - Decision 5's "Decided by a rule": reported apart, against counting them as needing redoing. *Ratified: `reviews_decided_by_rules` stays in the answer, the audit detail and the notice, as written.*
 3. **Order table** (now in the master plan). S5 finishes on top of S2 **and S3** (Task 11 pins C6's `analysis_rules_outdated` and S3's `flag_shown`).
 4. **Shared files.** S5 edits `analysis/revenue.py` (Task 3; no other plan edits it) and `tools/l1s3_surface_census.py` (Tasks 3 and 4). A rebase conflict in the census's `READERS` tuple or `EXCUSED` dict is resolved by keeping both sides.
    - S3's Task 3 also adds one `READERS` entry, `analysis/flagged_view.py::apply_flagged_groups_to_payload`, placed after `webapp/worker.py`'s entry and before `analysis/nsf_days.py`'s. S5's Task 4 anchor (the `analysis/nsf_days.py` entry and the tuple's closing `)`) is therefore unchanged after S3 merges, and the two edits rebase without a conflict.

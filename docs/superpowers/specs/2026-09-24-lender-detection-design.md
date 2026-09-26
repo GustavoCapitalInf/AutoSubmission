@@ -46,8 +46,18 @@ The census and the code found three kinds of failure.
 | Flag: **Leases & rentals** | No | Equipment rentals, leases, card-terminal (POS equipment) lessors such as LADCO Leasing and First Data Global Leasing, lease-to-own (Progressive, SmartPay Leasing, Snap) |
 | Flag: **Personal loans** | No | Consumer and student loans paid from the account |
 | Flag: **Floor plan** | No; flagged like alternative positions | Inventory (floor-plan) lenders for dealers: NextGear Capital, Westlake Flooring… |
-| Flag: **Factoring** | No; flagged like alternative positions | Invoice factoring companies: RTS Financial, OTR Capital, Apex Capital, BC Factoring… |
+| Flag: **Factoring** | No; flagged like alternative positions. Their payouts to the business stay revenue and are flagged too (owner, 2026-09-26) | Invoice factoring companies: RTS Financial, OTR Capital, Apex Capital, BC Factoring… |
 | Flag: **Premium financing** | No; the rows **stay counted as insurance** as today, and are also flagged | Insurance premium financing: IPFS, First Insurance Funding (including rows that print only `FIRST INSURANCE`)… |
+
+*Amendment (owner, 2026-09-26):* The owner answered three questions himself.
+- **Factoring payouts are revenue, and still flagged.** A credit from a factoring payee (RTS Financial, OTR Capital, Apex Capital, BC Factoring and the ledger's other factoring entities) is the business's own sales, paid by the factor that bought its invoices. It is **not** financing proceeds.
+  - It keeps a payout credit's treatment (D1's exception): the operating-revenue path, never subtracted from eligible deposits.
+  - It also carries the Factoring flag, the way a premium-financing row stays insurance and is flagged.
+  - Factoring debits are unchanged.
+  - This reverses D1 for factoring only: floor plan, lines of credit and the other financing groups keep D1 (§3, §4.2, §4.4).
+  - Measured before the ruling: 1,174 factoring credits in 157 cached accounts. The ruling returns them to eligible deposits.
+- **Re-analysis reads only the saved reading.** S5's Decision 2 is ratified. A statement whose reading is not cached is refused (`READING_NOT_CACHED`), and the owner accepts the decision's two known limits (§8.6).
+- **Reviews a rule now decides are reported apart.** S5's Decision 5 is ratified. The re-analysis reports them as `reviews_decided_by_rules`, not as reviews that need redoing (§8.6).
 
 *Amendment (owner, 2026-09-25, delegated to the orchestrator):* The owner read the counted lender list and delegated every open question to the orchestrator ("take your suggestions"). The orchestrator's decisions are now owner rulings. The curated ledger records each one in the entity's notes, and the evidence ledger shows it.
 - **Capital Infusion (the house) is not a lender, but it is flagged.** It is admitted under Alternative positions on the owner's ruling.
@@ -91,6 +101,7 @@ The code forced these choices, and the rulings above did not settle them.
 
 - **D1. Financing proceeds.** A credit from any financing group is financing proceeds. That covers lenders, alternative positions, lines of credit, bank loans, vehicle financing, mortgages and personal loans. Proceeds are `non_revenue` and are subtracted from eligible deposits. This is today's treatment for everything in the lender registry, so the withholding denominators for SBA, Intuit and LOC proceeds do not move. The card-issuer and lease/rental lists never apply to credits: an Amex merchant settlement is revenue.
   - **Payout credits (owner, 2026-09-25).** A credit from Sezzle, American First Finance or Payability is the account holder's own sales, settled by the platform (BNPL merchant payouts, early marketplace payouts). It is revenue, not financing proceeds, and keeps today's treatment of platform settlements. The registry names these entities in `PAYOUT_CREDIT_ENTITIES`. Their debits keep their group: Sezzle and American First Finance are alternative positions, and Payability stays a counted lender. Today Payability's credits are lender credits, so revenue rises where it pays out. Only these three are excepted; Affirm stays under D2.
+  - **Factoring payouts (owner, 2026-09-26).** A credit from a factoring payee is the business's own sales, paid by the factor that bought its invoices. It is revenue, as a payout credit is, and it is never subtracted from eligible deposits. Unlike a payout credit, the row also carries the Factoring flag: it is recorded as `factoring` under its payee (§4.2, §4.4). Factoring debits keep their group. The exception covers the whole factoring group, and no other group.
 - **D2. Affirm credits** keep today's treatment as financing proceeds. Whether an Affirm merchant payout is revenue is a separate revenue question and is out of scope here.
 - **D3. Plain rent is not flagged.** Landlord and office rent stay `rent`. "Leases & rentals" covers equipment rentals, leases and lease-to-own.
 - **D4. Unnamed equipment financing.** A generic `EQUIPMENT FINANCING/FINANCE` descriptor with no named company is a **potential lender** (review), never a counted lender.
@@ -140,9 +151,9 @@ The dashboard keeps a label for the retired state so that analyses stored before
 ### 4.2 New fields on each classification record
 
 - **`flagged_group: str | None`** holds the group key from the table below, or None. It is set whenever the state is one of the flag groups.
-- **`contributes_to_flagged_totals: bool`** is True only for a posted debit of a flag group. It follows the same rules as the lender flags:
+- **`contributes_to_flagged_totals: bool`** is True for a posted debit of a flag group, and for a posted factoring credit (owner, 2026-09-26: a factor's payout, which stays revenue). No other group's credit sets it. It follows the same rules as the lender flags:
   - it is off for proven duplicates;
-  - it is off for settlement-reversed debits.
+  - it is off for settlement-reversed debits, and for a credit that the reversal pass pairs with a debit.
 
 | State | `flagged_group` | Settings key (default `true`) | Label |
 |---|---|---|---|
@@ -158,7 +169,7 @@ The dashboard keeps a label for the retired state so that analyses stored before
 | `factoring` | `factoring` | `flag_factoring` | Factoring |
 | `insurance` (premium-finance payees only) | `premium_financing` | `flag_premium_financing` | Premium financing |
 
-**Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. The insurance rule reads the premium-finance table before the insurer table, so a row that prints only `FIRST INSURANCE` is FIRST Insurance Funding (owner, 2026-09-25): it stays insurance and is also flagged. A row with premium-finance wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance payee is flagged the same way, under the insurer it names, or else `Insurance provider not identified` (owner, 2026-09-25). **D1** (financing proceeds) covers `floor_plan_financing` and `factoring` credits. Premium-financing credits keep today's insurance treatment.
+**Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. The insurance rule reads the premium-finance table before the insurer table, so a row that prints only `FIRST INSURANCE` is FIRST Insurance Funding (owner, 2026-09-25): it stays insurance and is also flagged. A row with premium-finance wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance payee is flagged the same way, under the insurer it names, or else `Insurance provider not identified` (owner, 2026-09-25). **D1** (financing proceeds) covers `floor_plan_financing` credits. A factoring payee's credit is not proceeds (owner, 2026-09-26). It is revenue, recorded as `factoring` under its payee, with `flagged_group="factoring"` and `contributes_to_flagged_totals`: the credit counterpart of the premium-financing row, which stays what it is and is also flagged. A premium-finance payee's credits keep today's insurance treatment.
 
 `CLASSIFICATION_VERSION` becomes `"5.0"`.
 
@@ -196,7 +207,7 @@ Statement-level passes, in order:
 
 ### 4.4 Credits
 
-In `_classify_credit_revenue`, the known-payee matcher runs **before** the operating-revenue registry. A credit from a **financing group** (D1) is `non_revenue`, with match method `financing_proceeds_credit`, and sets `contributes_to_lender_credit_exclusion`. Group aliases are financing-specific: `SQUARE CAPITAL`, never bare `SQUARE`. So platform sales settlements (Square, Shopify, PayPal, Stripe) stay revenue. The payout credits of the entities in `PAYOUT_CREDIT_ENTITIES` are revenue too (D1's exception): the financing-proceeds branch skips them, and they go on to the operating-revenue path.
+In `_classify_credit_revenue`, the known-payee matcher runs **before** the operating-revenue registry. A credit from a **financing group** (D1) is `non_revenue`, with match method `financing_proceeds_credit`, and sets `contributes_to_lender_credit_exclusion`. Group aliases are financing-specific: `SQUARE CAPITAL`, never bare `SQUARE`. So platform sales settlements (Square, Shopify, PayPal, Stripe) stay revenue. The payout credits of the entities in `PAYOUT_CREDIT_ENTITIES` are revenue too (D1's exception): the financing-proceeds branch skips them, and they go on to the operating-revenue path. So are a factoring payee's credits (owner, 2026-09-26). The branch skips them the same way, and their revenue comes from the operating-revenue path, so they stay in eligible deposits. Unlike a payout credit, the row is recorded as `factoring` under its payee (`matched_rule="factoring_revenue_credit"`) and carries the Factoring flag. A factoring credit that an earlier rule claims (a transfer, an insurance term) keeps that rule's state and carries no flag.
 
 Three existing tests pin this:
 - `tests/test_revenue_classification.py:440-523`
@@ -269,12 +280,13 @@ Stable names also fix recurrence grouping. Today "NORTHSTAR FINANCE PAYMENT JAN 
 
 Per account:
 - **Rows.** Every `statement.transactions[].classification` carries `flagged_group` and `contributes_to_flagged_totals`.
-- **`metrics.flagged_groups`** is `{group: {"count": int, "total": float, "payees": int}}`, built from rows with `contributes_to_flagged_totals`. It **never** feeds `lender_*`, `withholding_*`, `eligible_deposits` or `potential_*`.
-- **`detection.flagged_positions`** is a list of entries, sorted by total within each group. Each entry holds:
+- **`metrics.flagged_groups`** is `{group: {"count": int, "total": float, "count_credited": int, "total_credited": float, "payees": int}}`, built from rows with `contributes_to_flagged_totals`. `count` and `total` are the debits; `count_credited` and `total_credited` are the credits (a factor's payouts, owner 2026-09-26); `payees` counts the payees with any contributing row. It **never** feeds `lender_*`, `withholding_*`, `eligible_deposits` or `potential_*`.
+- **`detection.flagged_positions`** is a list of entries, sorted within each group by total debited plus total credited, then by payee. Each entry holds:
   - `group`, `payee`, `matched_alias`
-  - `count`, `total_debited`
-  - `cadence` and `avg_gap_days`
-  - `first_date` and `last_date`
+  - `count`, `total_debited` (debits only)
+  - `count_credited`, `total_credited` (credits only; 0 and 0.0 without one). A payee whose counted rows are all credits has an entry with `count` 0.
+  - `cadence` and `avg_gap_days`, over every counted row, debit or credit
+  - `first_date` and `last_date`, likewise
   - `source_locations`
 - **Cadence** comes from a new helper that returns `daily`, `weekly`, `biweekly`, `monthly` or `irregular`. `classify_cadence` and today's promotion gate stay unchanged.
 - **Versions:**
@@ -300,8 +312,8 @@ Per account:
 
 `_displayed(analysis, *, settings=None)` reads Settings once, when no snapshot is passed. It applies the NSF basis, then the new `apply_flagged_groups_to_payload`. That function:
 - **copies before it changes anything.** It copies each account's `statement.transactions`, `detection` and `metrics`. `apply_nsf_basis_to_payload` copies shallowly, and the stored job must never be touched;
-- removes unticked groups from `metrics.flagged_groups` and `detection.flagged_positions`;
-- sets `flag_shown: bool` on each copied row's classification;
+- removes unticked groups from `metrics.flagged_groups` and `detection.flagged_positions`, their credited fields included;
+- sets `flag_shown: bool` on each copied row's classification, a flagged credit row included;
 - adds `analysis_rules_outdated: true` when the stored records carry `classification_version < "5.0"`;
 - never refuses. Payloads without the new fields pass through unchanged.
 
@@ -309,21 +321,23 @@ Per account:
 
 ### 8.3 Package
 
-- **Roll-up.** `_package_analysis` adds `flagged_positions: {group: [{payee, documents, count, total_debited, cadence, first_date, last_date}]}`, built from the rows of each validated member for the ticked groups:
+- **Roll-up.** `_package_analysis` adds `flagged_positions: {group: [{payee, documents, count, total_debited, count_credited, total_credited, cadence, first_date, last_date}]}`, built from the rows of each validated member for the ticked groups:
   - internal-transfer legs are excluded;
   - evidence carries `source_account`;
-  - cadence is computed across all members' dates.
-- **Totals.** `flagged_position_count` and `flagged_position_total` are added.
+  - a debit adds to `count` and `total_debited`, a counted credit (a factor's payout, owner 2026-09-26) to `count_credited` and `total_credited`;
+  - cadence is computed across all members' dates, debits and credits alike;
+  - items are ordered by total debited plus total credited, then by payee.
+- **Totals.** `flagged_position_count` and `flagged_position_total` (the debits) are added, and `flagged_position_count_credited` and `flagged_position_total_credited` (the credits, owner 2026-09-26).
   - The money keys join `_CROSS_CURRENCY_TOTAL_KEYS` and `EXPECTED_REFUSED_TOTALS`.
-  - The count joins `UNIT_FREE_TOTALS`.
-  - `total_debited` is already a refused roll-up key.
-  - A refused package orders roll-ups by count, then by name.
+  - The counts join `UNIT_FREE_TOTALS`.
+  - `total_debited` is already a refused roll-up key, and `total_credited` joins it.
+  - A refused package orders roll-ups by count (debits plus credits), then by name.
 - **Untouched:** lender totals, withholding, and the `decision` rule (D7).
 
 ### 8.4 Downloads
 
-- **Single-statement CSV/XLSX:** readable `flagged_<group>_<n>` rows (payee, count, total, cadence) for ticked groups only, through the escaped-row path.
-- **Package CSV/XLSX:** `flagged_<group>_<n>` rows. The currency sweep's `CROSS_DOCUMENT_SECTION` widens to cover them.
+- **Single-statement CSV/XLSX:** readable `flagged_<group>_<n>` rows (payee, count, total, count and total credited, cadence) for ticked groups only, through the escaped-row path.
+- **Package CSV/XLSX:** `flagged_<group>_<n>` rows. The currency sweep's `CROSS_DOCUMENT_SECTION` widens to cover them, the credited fields included.
 - **JSON:** follows the displayed payload automatically.
 
 ### 8.5 Dashboard
@@ -334,6 +348,7 @@ Per account:
   - The whole group is disabled while a save is in flight.
 - **Flagged positions panel.** It sits on the results page, the package page and the statement modal.
   - Columns: Group, Payee, Count, Total, Cadence, plus Statements on the package page.
+  - What a payee paid in (a factor's payouts, owner 2026-09-26) is shown under its Count and Total as "received", never added to them.
   - Money is shown with the payload's currency.
   - Clicking a payee filters the ledger.
   - An empty state says no ticked group has payments.
@@ -341,8 +356,8 @@ Per account:
 - **Transaction tags.**
   - Each new state gets a label.
   - A row with `flag_shown` carries a "Flagged" chip.
-  - A credit shows its revenue state first (unchanged).
-  - A "Flagged" ledger filter pill is added.
+  - A credit shows its revenue state first (unchanged). A factoring credit shows both its revenue state and the chip.
+  - A "Flagged" ledger filter pill is added. It keeps flagged credit rows as well as debits.
   - When the group being filtered is unticked, the ledger filter resets.
 - **Lender table.** No change beyond its now-correct contents.
 - **Outdated notice.** When `analysis_rules_outdated` is set, the results page shows "Analysed with older lender rules" and a **Re-analyze** button (§8.6).
@@ -352,10 +367,10 @@ Per account:
 `POST /analysis/<job_id>/reanalyze` re-runs the analysis for a saved job.
 
 1. It reads the job's stored PDF bytes, which are kept on disk by content hash.
-2. OCR is served from the cache.
+2. OCR is served from the cache. The saved reading is the only one used: a statement whose reading is not cached is refused, and no reader runs (owner, 2026-09-26; S5's Decision 2).
 3. It **replaces the job's analysis in place**. The job id and its place in Recent do not change.
 4. The previous analysis is kept in the audit log.
-5. Revenue review decisions are **replayed** from `review_decisions` onto the new analysis. A decision is replayed only when the row at the same account and location has the same description and amount. Anything that cannot be replayed is reported back: "N reviews need redoing".
+5. Revenue review decisions are **replayed** from `review_decisions` onto the new analysis. A decision is replayed only when the row at the same account and location has the same description and amount. Anything that cannot be replayed is reported back: "N reviews need redoing". A decision whose row a rule of the new analysis now decides is reported apart, as decided by the rules, and is not counted as needing redoing (owner, 2026-09-26; S5's Decision 5).
 
 The route refuses when the stored PDF is missing.
 
@@ -364,6 +379,7 @@ The route refuses when the stored PDF is missing.
 - **Tests**, all with fabricated descriptors and never statement text:
   - classification tables for every group, both directions, including the card-paid lender (D8), LOC wording (D9), unnamed loans (D5), unnamed equipment financing (D4), the D6 recurrence rule and D11 naming;
   - the credit-side financing proceeds, platform settlements that stay revenue, and the payout credits of D1's exception;
+  - factoring payouts that stay revenue and carry the Factoring flag (owner, 2026-09-26), counted apart from the debits in the payload, the package, the exports and the dashboard;
   - Settings, serving and exports for every checkbox, with the stored record unchanged;
   - the package roll-up and the currency refusal;
   - the dashboard through `tests/webapp_js_harness.py`;
@@ -377,12 +393,13 @@ The route refuses when the stored PDF is missing.
   - Intuit (item 12a)
   - NMEF, Navitas and Balboa
   - `ANALYSIS_STAGE_VERSION`
-- **Before/after census** (`tools/lender_census.py`, local only), over the 7,241 cached analyses. For each analysis it reports lenders gained and lost, flagged groups and the change in the withholding rate. Acceptance:
+- **Before/after census** (`tools/lender_census.py`, local only), over the 7,241 cached analyses. For each analysis it reports lenders gained and lost, flagged groups (the debits, and the credits since the owner's ruling of 2026-09-26), eligible-deposit moves and the change in the withholding rate. Acceptance:
   1. Every gained lender traces to an admitted ledger entity.
   2. Every lost lender is a ruled move. CAPITAL INFUSION leaves for Alternative positions, a ruled move. The census reads the EBF merge as one lender (`MERGED_REGISTRY_ENTITIES`), so EBF HOLDINGS shows neither as lost nor as gained: its rows are EVEREST BUSINESS FUNDING's.
   3. The alias audit reports zero collisions.
   4. The owner's NMEF statement shows NMEF as a lender and Truist as a bank loan.
   5. No statement gains a lender from a generic word.
+  6. The factoring ruling (owner, 2026-09-26) moves no lender, and it moves eligible deposits only where factoring credits are. On S2's code before and after the ruling, the census counts no lender gained or lost. Factoring's credits show as flagged credits, and eligible deposits rise only in the accounts that hold them. The measurement of 2026-09-26 found 1,174 credits, with eligible deposits up in 157 accounts and unchanged in the other 7,084.
 - **Speed:** the 300-row synthetic statement classifies at least 10× faster than today.
 
 ## 10. Services

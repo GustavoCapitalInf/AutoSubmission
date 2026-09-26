@@ -42,6 +42,11 @@
 | S5 Re-analysis of saved statements | `2026-09-24-lender-detection-s5-reanalysis.md` | `ld-s5-reanalysis` (from `lender-detection`) | the contract below; finishes on top of S2 and S3 |
 
 - **Merge order:** S1 → S2 → S3 → {S4, S5}. S4 and S5 may merge in either order; their `webapp/static/app.js` edit sites do not overlap (S5's "S5-specific constraints").
+- **The owner's ruling of 2026-09-26 (factoring credits: revenue, and flagged).** It adds one task per service that builds a surface of it, and it moves no merge:
+  - S2's Task 18 runs after its Task 17, before S2 merges. It covers the C4 record, the C5 fields, the documentation corrections and a read-only cache measurement.
+  - S3's Task 12 runs after its Task 9 and before its Tasks 10-11. It needs nothing from S2, and Tasks 10-11 are written on top of it.
+  - S4's Task 15 runs after its Task 12 and before its Task 13. It needs nothing from S2 or S3, and its Task 14 covers it.
+  - S5's plan records the owner's ratification of its item 2. Its Task 11 pin still counts a factoring deposit among the reviews a rule decides, which the ruling ends. That deposit is now replayed, so the pin's counts move. This is open for the orchestrator.
 - **Review and merge.** Each service ends with an independent Opus review. The orchestrator checks the evidence (reruns the service's tests, reads its diff) before merging into `lender-detection`.
 - **S3, S4 and S5** build against fabricated payloads that follow the contract below. They rebase onto `lender-detection` once S2 has merged, and re-run their tests there. S4 and S5 close only after S3 has merged too, and rebase again onto it:
   - S4's Task 14 is its final verification on top of S2 and S3;
@@ -85,7 +90,9 @@ FLAG_GROUPS: tuple[FlagGroup, ...] = (
 FLAG_GROUP_BY_STATE: dict[str, FlagGroup] = {g.state: g for g in FLAG_GROUPS if g.state is not None}
 FLAG_GROUP_BY_KEY: dict[str, FlagGroup] = {g.key: g for g in FLAG_GROUPS}
 FLAG_SETTING_KEYS: tuple[str, ...] = tuple(g.setting for g in FLAG_GROUPS)
-# D1: credits from these states are financing proceeds (non_revenue + lender credit exclusion).
+# D1: a credit from a payee of these states is financing proceeds (non_revenue + lender credit exclusion),
+# except a PAYOUT_CREDIT_ENTITIES entity's credit (revenue) and a factoring payee's credit (owner ruling
+# 2026-09-26: revenue, and flagged as factoring).
 FINANCING_STATES: frozenset[str] = frozenset({
     "confirmed_lender", "alternative_position", "line_of_credit", "bank_loan",
     "vehicle_financing", "mortgage", "personal_loan", "floor_plan_financing", "factoring",
@@ -174,7 +181,7 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
 - `lease_or_equipment_financing` is **no longer produced**. It remains in `CLASSIFICATION_STATES` so that stored records still validate, and the dashboard keeps its label.
 - **New `TransactionClassification` fields**, with defaults:
   - `flagged_group: str | None = None`, the `FlagGroup.key` for a flag-group state, otherwise None;
-  - `contributes_to_flagged_totals: bool = False`, True only for a posted debit whose state is a flag-group state. It is cleared for duplicates and settlement-reversed debits.
+  - `contributes_to_flagged_totals: bool = False`, True for a posted debit whose state is a flag-group state, and for a posted factoring credit (owner ruling 2026-09-26, below). It is cleared for duplicates, settlement-reversed debits and credits that the reversal pass pairs with a debit.
 - A credit from a `FINANCING_STATES` payee has:
   - `classification="other"`
   - `canonical_entity=<entity>`
@@ -182,21 +189,38 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - `contributes_to_lender_credit_exclusion=True`
   - revenue `non_revenue` with `revenue_match_method="financing_proceeds_credit"`
 
-  The one exception is a payee whose entity is in C2's `PAYOUT_CREDIT_ENTITIES` (spec D1, owner ruling 2026-09-25). Its credit is not financing proceeds: it goes on to the operating-revenue path with today's treatment of platform settlements, with no `financing_proceeds_credit` and no `contributes_to_lender_credit_exclusion`. Its debits keep their group.
+  There are two exceptions.
+  - **Payout credits.** A payee whose entity is in C2's `PAYOUT_CREDIT_ENTITIES` (spec D1, owner ruling 2026-09-25). Its credit is not financing proceeds: it goes on to the operating-revenue path with today's treatment of platform settlements, with no `financing_proceeds_credit` and no `contributes_to_lender_credit_exclusion`. Its debits keep their group.
+  - **Factoring credits** (spec §2 and D1, owner ruling 2026-09-26). A factor's payout is the business's own sales. The credit takes the same revenue treatment as a payout credit: the operating-revenue path, no `financing_proceeds_credit`, no `contributes_to_lender_credit_exclusion`, so it stays in eligible deposits. It also carries the Factoring flag, with this record:
+    - `classification="factoring"`
+    - `canonical_entity=<entity>`, `match_method="known_payee_alias"`, `matched_alias=<alias>`
+    - `matched_rule="factoring_revenue_credit"`
+    - `flagged_group="factoring"`, and `contributes_to_flagged_totals` when it is posted (cleared as above)
+    - the revenue fields of the operating-revenue path
+
+    A factoring credit that an earlier rule claims (a transfer, an insurance term) keeps that rule's state, with no flag and no exclusion. Factoring debits are unchanged. `FINANCING_STATES` keeps `factoring` (C1): the payee still claims its credit at step 7, which S1's alias audit reads.
 - Three credits are financing proceeds by their own words, with no payee named (spec D1, owner rulings 2026-09-25): the statement bank's own line advance (exactly `LOAN CREDIT`), a line-of-credit draw, and a per-vehicle floor-plan advance. They get the same record, except that `matched_rule` (and `revenue_matched_rule`) names the rule (`bank_line_advance_credit`, `loc_draw_credit`, `floor_plan_advance_credit`) and `canonical_entity` is the statement bank, or None for the floor-plan advance.
 - `CLASSIFICATION_VERSION = "5.0"`.
 
 ### C5. Analysis payload (S2), per account
 
-- `metrics.flagged_groups`: `{"<group key>": {"count": int, "total": float, "payees": int}}`. It contains only groups with at least one contributing row, and the money is rounded to 2 decimals.
-- `detection.flagged_positions`: a list of objects, sorted by `group` in FLAG_GROUPS order, then by `total_debited` descending, then by `payee`. Each object has:
+- `metrics.flagged_groups`: `{"<group key>": {"count": int, "total": float, "count_credited": int, "total_credited": float, "payees": int}}`. It contains only groups with at least one contributing row, and the money is rounded to 2 decimals.
+  - `count` and `total` are the contributing debits.
+  - `count_credited` and `total_credited` are the contributing credits: a factor's payouts, owner ruling 2026-09-26. They are 0 and 0.0 in a group without one.
+  - `payees` counts the payees with any contributing row.
+- `detection.flagged_positions`: a list of objects, sorted by `group` in FLAG_GROUPS order, then by `total_debited + total_credited` descending, then by `payee`. Each object has:
 
   ```json
   {"group": "<group key>", "payee": "<canonical_entity or group label>", "matched_alias": "<alias or null>",
-   "count": 3, "total_debited": 1234.5, "cadence": "monthly", "avg_gap_days": 30.5,
+   "count": 3, "total_debited": 1234.5, "count_credited": 0, "total_credited": 0.0,
+   "cadence": "monthly", "avg_gap_days": 30.5,
    "first_date": "YYYY-MM-DD or null", "last_date": "YYYY-MM-DD or null",
    "source_locations": ["transaction:4", "transaction:9"]}
   ```
+
+  - `count` and `total_debited` stay debit-only. `count_credited` and `total_credited` are the position's contributing credits, 0 and 0.0 without one (owner ruling 2026-09-26).
+  - A position whose rows are only credits exists, with `count` 0 and `total_debited` 0.0.
+  - `cadence`, `avg_gap_days`, `first_date`, `last_date` and `source_locations` read every contributing row, debit or credit.
 - `analysis/cadence.py` provides `describe_cadence(dates: Sequence[date]) -> tuple[str, float | None]`, returning one of `"daily" | "weekly" | "biweekly" | "monthly" | "irregular" | "single"`.
 
 ### C6. Serving (S3)
@@ -212,9 +236,15 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - `_displayed(analysis, *, carry_over=None, settings=None)`. Settings are loaded once when `settings is None`, and `carry_over` still overrides NSF when it is given.
   - One settings read per package. `_package_analysis(jobs, *, settings=None)` calls `_package_members`, so it reads the settings once and passes them to `_package_members(jobs, *, settings=None)`, which reads them itself only when it is called alone. Both keep today's call shapes (S3, "Contract points" 2).
   - The package payload gains:
-    - top-level `flagged_positions: {"<group key>": [{"payee", "documents", "count", "total_debited", "cadence", "first_date", "last_date"}]}`, for ticked groups only;
-    - top-level `flagged_evidence`: a list of the counted flagged classification records of the ticked groups, each with `source_job` and `source_document`, plus `source_account` for an account of a multi-account document (spec §8.3). It goes to the JSON only; the CSV/XLSX carry the `flagged_<group>_<n>` rows (§8.4);
-    - `totals.flagged_position_count` (int: the ticked groups' counted debits, the sum of the items' `count`) and `totals.flagged_position_total` (money).
+    - top-level `flagged_positions: {"<group key>": [{"payee", "documents", "count", "total_debited", "count_credited", "total_credited", "cadence", "first_date", "last_date"}]}`, for ticked groups only;
+      - `count` and `total_debited` are the counted debits, and `count_credited` and `total_credited` the counted credits (owner ruling 2026-09-26);
+      - items are ordered by `total_debited + total_credited` descending, then payee, or by `count + count_credited` under a currency refusal;
+      - the dates and the cadence read both;
+    - top-level `flagged_evidence`: a list of the counted flagged classification records of the ticked groups (credits included), each with `source_job` and `source_document`, plus `source_account` for an account of a multi-account document (spec §8.3). It goes to the JSON only; the CSV/XLSX carry the `flagged_<group>_<n>` rows (§8.4);
+    - `totals.flagged_position_count` (int: the ticked groups' counted debits, the sum of the items' `count`) and `totals.flagged_position_total` (money);
+    - `totals.flagged_position_count_credited` (int: the counted credits, the sum of the items' `count_credited`; unit-free) and `totals.flagged_position_total_credited` (money; it joins `_CROSS_CURRENCY_TOTAL_KEYS`, and `total_credited` joins `_CROSS_CURRENCY_ROLLUP_KEYS`), owner ruling 2026-09-26.
+  - The statement sheets' `flagged_<group>_<n>` sections carry `payee`, `count`, `total_debited`, `count_credited`, `total_credited` and `cadence`. The package sheets carry every item and total field, and the currency sweep covers the credited ones.
+  - Serving needs no new rule for credits: `flag_shown` and the group filter key on `flagged_group`, so a ticked group's credit row is shown and its credited figures are served, and an unticked group's are hidden with its debits.
 
 ### C7. Settings (S3)
 
@@ -225,7 +255,8 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
 - **Constant.** `FLAG_GROUP_LABELS` is an object literal keyed by group key, with the labels from C1. A test checks that it matches `analysis/flag_groups.py`.
 - **Settings markup.** A section `id="flagSettingsSection"` holds the container `id="flagSettingsList"` and the status line `id="flagSettingsStatus"`. Checkbox rows are rendered by `renderFlagSettings(settings, disabled)`, and each input carries `data-flag-setting="<settings key>"`.
 - **Panel markup.** The panel `id="flaggedCard"` holds `id="flaggedCount"` and `<tbody id="flaggedTable">`. It is rendered by `renderFlaggedPositions(positions, currency, isPackage)`. On a statement, `positions` is the `detection.flagged_positions` list; on a package, it is the `pkg.flagged_positions` object.
-- **Filter.** `filterTransactions` gains the filter `"flagged"`, which keeps rows whose `classification.flag_shown === true`.
+  - Since the owner's ruling of 2026-09-26, a row with `count_credited` above 0 shows its credits under its Count and Total as detail lines, "`<n>` received" and "`<money>` received", on the results page, the package page and the statement window. The columns and headers do not change.
+- **Filter.** `filterTransactions` gains the filter `"flagged"`, which keeps rows whose `classification.flag_shown === true`. It and the "Flagged" chip key on the row's flag fields, never on its direction, so they cover flagged credit rows (a factor's payouts). A credit still shows its revenue tag first.
 - **Outdated notice.** The notice `id="rulesOutdatedNotice"` has a button `id="reanalyzeButton"`. It is shown when the served analysis has `analysis_rules_outdated === true`.
 
 ### C9. Re-analysis (S5)
@@ -238,7 +269,9 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
 - It returns 422 `{"error": "no new analysis was saved; the saved analysis is unchanged", "reason": str}` when the re-run produces no analysis to save, and writes nothing (S5 Decision 3). `reason` is text the worker already publishes, or one of `webapp/reanalysis.py`'s `READING_NOT_CACHED` and `READS_DIFFERENTLY`.
 - The previous `analysis_json` is written to the audit log before it is replaced, in one transaction with the job update. The audit row has `event_type = "reanalysis"` and `detail = {"reviews_replayed": [ids], "reviews_not_replayed": [ids], "reviews_decided_by_rules": [ids], "previous_analysis_json": <stored text, verbatim>, "previous_analysis_error": <text or null>}` (S5 Decision 6).
 - The JS calls it from `#reanalyzeButton` and re-renders from the response.
-- Two S5 decisions still wait for the owner (S5, "What the orchestrator must ratify", item 2): cache-only re-reading (Decision 2), and reporting rule-decided reviews apart (Decision 5). If the owner rules Decision 5's alternative, `reviews_decided_by_rules` leaves the 200 body and the audit detail, and those decisions count in `reviews_not_replayed`.
+- The owner ratified S5's two open decisions on 2026-09-26 (S5, "What the orchestrator must ratify", item 2), and the plan's defaults stand:
+  - cache-only re-reading (Decision 2): a statement whose reading is not cached is refused with `READING_NOT_CACHED`, and the owner accepts the decision's two known limits;
+  - rule-decided reviews reported apart (Decision 5): `reviews_decided_by_rules` stays in the 200 body and the audit detail as written above.
 
 ### C10. The curated registry ledger (data; the orchestrator produces it, S1 consumes it)
 
