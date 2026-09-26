@@ -19,7 +19,7 @@ from .classification_registry import (
     PREMIUM_FINANCE_ALIASES,
 )
 from .dates import parse_date
-from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_STATE
+from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
 from .revenue import RevenueState, revenue_contribution_flags
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
@@ -1767,6 +1767,14 @@ def classify_cadence(dates: list[date]) -> tuple[str, float | None]:
     if 5 <= average <= 9 and spread <= 2.5:
         return "weekly", round(average, 1)
     return "irregular", round(average, 1)
+
+
+def flagged_payee(record: TransactionClassification) -> str:
+    """The payee a flagged row is grouped under: its entity, else its group's label (spec §6)."""
+    if record.canonical_entity:
+        return record.canonical_entity
+    group = FLAG_GROUP_BY_KEY.get(record.flagged_group or "")
+    return group.label if group is not None else (record.flagged_group or "")
 
 
 def _replace_revenue_state(

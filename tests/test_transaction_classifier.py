@@ -337,6 +337,16 @@ def test_atb_november_lender_and_potential_obligation_regression():
     assert known_funders["Econolease"].debit_count == 3
     # Owner ruling 2026-09-24: BDC is an alternative position, not a lender.
     assert sum(record.classification == "alternative_position" for record in report.classifications) == 1
+    # BDC's row, and the two funders that stayed lenders, make up today's lender total.
+    alternative = metrics.flagged_groups["alternative_positions"]
+    assert alternative["count"] == alternative["payees"] == 1
+    assert round(
+        known_funders["CanaCap"].total_debited
+        + known_funders["Forward Funding"].total_debited
+        + alternative["total"],
+        2,
+    ) == 8658.91
+    assert metrics.flagged_groups["credit_cards"]["count"] == 1
 
     assert [match.funder for match in report.detection.potential_lenders] == [
         "MERCH PAD (probably Merchant Growth)",

@@ -503,3 +503,4 @@ def test_first_farmers_bluevine_named_row_is_not_flagged():
     assert not any(record.classification == "line_of_credit" for record in report.classifications)
     assert not any(record.canonical_entity == "BLUEVINE" for record in report.classifications)
     assert report.metrics.lenders_detected == 0
+    assert "lines_of_credit" not in report.metrics.flagged_groups

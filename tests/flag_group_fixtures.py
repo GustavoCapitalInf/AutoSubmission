@@ -75,3 +75,36 @@ def fake_premium_finance(monkeypatch):
             "Fabricated Insurer Funding": ("FABRICATED INSURER FUNDING",),
         },
     )
+
+
+#: One statement with four flagged groups, one lender (all via FAKE_PAYEES or
+#: descriptors) and one deposit. Transaction numbers follow the tuple order.
+FLAGGED_ROWS: tuple[tuple[str, str, float], ...] = (
+    ("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 10000.0),
+    ("2054-01-06", "ACH DEBIT FABRICATED ALT 0001", -700.0),
+    ("2054-01-13", "ACH DEBIT FABRICATED ALT 0002", -700.0),
+    ("2054-01-08", "ACH DEBIT FABRICATED BNPL 0001", -900.0),
+    ("2054-01-05", "MORTGAGE PMT FABRICATED HOME", -1200.0),
+    ("2054-02-05", "MORTGAGE PMT FABRICATED HOME", -1200.0),
+    ("2054-01-10", "CREDIT CARD PAYMENT", -300.0),
+    ("2054-01-20", "CREDIT CARD PAYMENT", -500.0),
+    ("2054-01-12", "EQUIPMENT RENTAL FABRICATED", -200.0),
+    ("2054-01-15", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+)
+
+FLAGGED_GROUPS_EXPECTED: dict[str, dict[str, float | int]] = {
+    "alternative_positions": {"count": 3, "total": 2300.0, "payees": 2},
+    "credit_cards": {"count": 2, "total": 800.0, "payees": 1},
+    "mortgages": {"count": 2, "total": 2400.0, "payees": 1},
+    "leases_rentals": {"count": 1, "total": 200.0, "payees": 1},
+}
+
+
+def flagged_statement(rows: tuple[tuple[str, str, float], ...] = FLAGGED_ROWS):
+    from analysis.schema import Statement
+
+    return Statement(
+        bank="Fabricated Bank",
+        account_number="0000",
+        transactions=[txn(day, description, amount) for day, description, amount in rows],
+    )
