@@ -353,3 +353,208 @@ def test_a_decision_on_another_account_is_not_a_redo():
                _decision(2, old, "transaction:2", "confirm", account=2)]
     replay = replay_reviews(new, history)
     assert (replay.replayed, replay.not_replayed) == ((2,), (1,))
+
+
+# --- re-running the statement through the worker's own path ---------------------------------------------------------
+
+PDF = b"%PDF-1.7\nfabricated statement for the re-analysis tests"
+WITHHELD = "(message withheld; an exception message can quote statement text)"
+
+
+@pytest.fixture
+def private_store(monkeypatch, tmp_path):
+    """A job store of its own (so an artifact cache of its own), installed where the routes read it. The visual pair
+    stays off, as it is by default: these statements are read by the fabricated reader below."""
+    from webapp import app as webapp_app
+
+    store = JobStore(Storage(tmp_path / "data"))
+    monkeypatch.setattr(webapp_app, "store", store)
+    monkeypatch.delenv("OCR_ALLOW_VISUAL_PAIR", raising=False)
+    monkeypatch.delenv("OCR_VISUAL_PAIR_LEGACY_VISUAL", raising=False)
+    return store
+
+
+class _Pipeline:
+    """The worker's two expensive stages, fabricated: a reader that counts its reads and, like the real ladder
+    (ocr/pipeline.py), names its rung before it reads; and an analysis stage that answers with the payload of the rules
+    in force. Everything between them (the worker, the artifact cache, the job store) is real, so an upload leaves the
+    reading cached exactly as production does.
+
+    `announce = False` makes a reader that names no stage before it reads, and `stream = True` one that streams text
+    through the live view before it reads: each takes one of the re-analysis's guards out of the way of the other."""
+
+    def __init__(self, monkeypatch, store):
+        self.monkeypatch, self.store = monkeypatch, store
+        self.reads = 0
+        self.announce = True
+        self.stream = False
+        self.payload = None
+        self.analysis_failure = None
+        monkeypatch.setattr("webapp.worker.parse_statement", self._read)
+        monkeypatch.setattr("webapp.worker.analyze_document", self._analyze)
+        monkeypatch.setattr("webapp.worker.document_to_json", lambda document: copy.deepcopy(self.payload))
+
+    def _read(self, pdf_bytes, source_file="", on_stage=None, on_page_delta=None, **kwargs):
+        from ocr.document import StatementMarkdown
+
+        if self.stream and on_page_delta is not None:
+            on_page_delta(0, "FABRICATED")
+        if self.announce and on_stage is not None:
+            on_stage("native")
+        self.reads += 1
+        return StatementMarkdown(source_file=source_file, model="fabricated-reader",
+                                 pages=["FABRICATED STATEMENT PAGE"])
+
+    def _analyze(self, markdown, **kwargs):
+        if self.analysis_failure is not None:
+            raise self.analysis_failure
+        return object()
+
+    def upload(self, payload, filename="fabricated.pdf", *, force_ocr=False, parse_mode="auto"):
+        """One upload through the real worker, with the job's own read flag and parse mode; returns the job id."""
+        from webapp.worker import run_job
+
+        self.payload = payload
+        job = self.store.create(filename, pdf_bytes=PDF, force_ocr=force_ocr, parse_mode=parse_mode)
+        run_job(job.id, PDF, filename, self.store, force_ocr=force_ocr, parse_mode=parse_mode)
+        assert self.store.get(job.id).status == "done"
+        return job.id
+
+    def new_rules(self, payload):
+        """What a release of new rules does: the analysis stage version moves on, so the cached analysis is not
+        served, and the analysis stage answers under the new rules. The reading stays cached."""
+        from webapp import artifact_cache
+
+        self.monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", artifact_cache.ANALYSIS_STAGE_VERSION + 1)
+        self.payload = payload
+
+    def forget_ocr(self):
+        """The reading is no longer cached (a pruned cache, a new OCR toolchain)."""
+        for entry in self.store.storage.cache_entries("ocr"):
+            self.store.storage.cache_forget("ocr", entry["cache_key"])
+
+    def drift_ocr(self):
+        """The cached reading fails its own round-trip check (`cached_ocr` in webapp/artifact_cache.py): the cache
+        takes it for a miss after answering a hit, and would read the statement again."""
+        for entry in self.store.storage.cache_entries("ocr"):
+            path = self.store.cache.root / entry["artifact_path"]
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["artifact"]["document"]["visual_pair"] = {"fabricated": True}
+            payload["artifact"]["document"]["visual_pair_sha256"] = "0" * 64
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+@pytest.fixture
+def pipeline(monkeypatch, private_store):
+    return _Pipeline(monkeypatch, private_store)
+
+
+@pytest.fixture
+def visual_pair(monkeypatch, tmp_path):
+    """The visual pair, fabricated at its one entry point (`vlm.pair.extract_visual_pair`, imported by the worker when
+    it reads), as tests/test_private_artifacts.py does. It records each call and answers as the pair does from its own
+    local evidence index: it names no step and streams nothing. Its customer-data fence is opened for these fabricated
+    statements, and its private evidence root is a temporary directory. The answer is not a pair document (no pair
+    evidence, another model name), so the fabricated analysis stage reads it."""
+    from ocr import private_artifacts
+    from ocr.document import StatementMarkdown
+
+    calls = []
+
+    def extract(pdf, **kwargs):
+        calls.append(pdf)
+        return StatementMarkdown(source_file="statement.pdf", model="fabricated-pair-reader",
+                                 pages=["FABRICATED STATEMENT PAGE"])
+
+    monkeypatch.setenv(private_artifacts.PRIVATE_ROOT_ENV, str(tmp_path / "private"))
+    monkeypatch.setattr("webapp.worker.check_remote_authorization", lambda *args, **kwargs: None)
+    monkeypatch.setattr("vlm.pair.extract_visual_pair", extract)
+    return calls
+
+
+def _stamped(payload, parse_mode="auto"):
+    """A payload as the worker saves it: stamped with the parse mode it ran under (webapp/worker.py:392-393)."""
+    return {**payload, "parse_mode": parse_mode}
+
+
+def _json(value):
+    return json.loads(json.dumps(value))
+
+
+def test_a_rerun_reads_the_statement_from_the_ocr_cache_and_leaves_the_saved_job_alone(pipeline, private_store):
+    from webapp.reanalysis import rerun_analysis
+
+    old, new = _payload(), _payload(SHIFTED_ROWS)
+    job_id = pipeline.upload(old)
+    assert pipeline.reads == 1
+    pipeline.new_rules(new)
+    statuses = len(private_store.storage.audit_events("status_change", job_id=job_id))
+    telemetry = len(private_store.storage.telemetry_records())
+
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+
+    assert rerun.reason is None and rerun.analysis == _stamped(new)
+    assert pipeline.reads == 1  # the statement was not read again
+    hits = [json.loads(row["detail"])["stage"] for row in private_store.storage.audit_events("cache_hit", job_id=job_id)]
+    assert "ocr" in hits
+    # Nothing of the saved job moved: no status change, no telemetry record, the same analysis in memory and on disk.
+    saved = private_store.get(job_id)
+    assert saved.status == "done" and saved.analysis == _stamped(old)
+    assert json.loads(private_store.storage.load_job(job_id)["analysis_json"]) == _json(_stamped(old))
+    assert len(private_store.storage.audit_events("status_change", job_id=job_id)) == statuses
+    assert len(private_store.storage.telemetry_records()) == telemetry
+
+
+def test_a_rerun_keeps_the_job_s_own_parse_mode(pipeline, private_store):
+    """A job uploaded in deterministic mode is re-run in deterministic mode: in auto mode the analysis stage may make
+    the hosted call the operator did not choose for this job."""
+    from webapp.reanalysis import rerun_analysis
+
+    job_id = pipeline.upload(_payload(), parse_mode="deterministic")
+    new = _payload(SHIFTED_ROWS)
+    pipeline.new_rules(new)
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.reason, rerun.analysis) == (None, _stamped(new, "deterministic"))
+
+
+def test_a_statement_the_visual_pair_read_is_reanalyzed_from_the_pair_s_cached_reading(
+        pipeline, private_store, visual_pair):
+    """A job uploaded with Force visual OCR was read by the visual pair. Its re-analysis takes the same path (the
+    job's own read flag), and the pair's reading comes from the cache: the pair is not called again."""
+    from webapp.reanalysis import rerun_analysis
+
+    job_id = pipeline.upload(_payload(), force_ocr=True)
+    assert (len(visual_pair), pipeline.reads) == (1, 0)
+    new = _payload(SHIFTED_ROWS)
+    pipeline.new_rules(new)
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
+    assert (len(visual_pair), pipeline.reads) == (1, 0)
+
+
+@pytest.mark.parametrize("failure, reason", [
+    (RuntimeError("no deterministic parser matched this statement"), "no deterministic parser matched this statement"),
+    (RuntimeError("FABRICATED STATEMENT TEXT"), f"analysis stage failed: RuntimeError {WITHHELD}"),
+])
+def test_a_rerun_that_produces_no_analysis_gives_the_worker_s_own_reason(pipeline, private_store, failure, reason):
+    from webapp.reanalysis import rerun_analysis
+
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    pipeline.analysis_failure = failure
+    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+    assert (rerun.analysis, rerun.reason) == (None, reason)
+
+
+def test_a_rerun_whose_analysis_comes_from_another_reading_is_not_accepted(pipeline, private_store):
+    from webapp.reanalysis import READS_DIFFERENTLY, rerun_analysis
+
+    job_id = pipeline.upload(_payload())
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    # The saved analysis was made from another reading than the one the current rules analyse: a statement the visual
+    # pair read, say, which the deterministic path now claims from its own cached reading.
+    saved = copy.copy(private_store.get(job_id))
+    saved.markdown = "<!-- fabricated: the reading the saved analysis was made from -->"
+    rerun = rerun_analysis(private_store, saved, private_store.pdf_bytes(job_id))
+    assert pipeline.reads == 1
+    assert (rerun.analysis, rerun.reason) == (None, READS_DIFFERENTLY)

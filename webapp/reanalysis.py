@@ -1,5 +1,9 @@
 """Re-analysis of a saved statement (docs/superpowers/specs/2026-09-24-lender-detection-design.md §8.6, D12).
 
+`rerun_analysis` runs the statement's stored PDF through the worker's own read and analysis path
+(`webapp.worker.run_job`) into a stand-in for the job store, so the saved job is not touched until the route accepts
+the new analysis.
+
 `replay_reviews` puts the analyst's revenue decisions (the append-only `review_decisions` table) back onto a fresh
 analysis of the same statement, only where the posting is unchanged: the row at the same account and location has the
 same description and amount. The others are counted, so the analyst can be told how many reviews need redoing.
@@ -17,6 +21,9 @@ from analysis.revenue import (
     rebuild_serialized_revenue_views,
     record_serialized_revenue_review,
 )
+
+from .jobs import Job, JobStore
+from .worker import run_job
 
 #: Named once: it reaches a shape refusal's message.
 _REPLAY_SURFACE = "webapp/reanalysis.py::replay_reviews"
@@ -191,3 +198,82 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
         waiting.append((index, number))
     updated, applied, refused = _applied(analysis, history, waiting)
     return Replay(updated, _ids(history, applied), _ids(history, sorted(redo + refused)), _ids(history, ruled))
+
+
+#: Why a re-run that produced an analysis is still not accepted: under the current rules the analysis comes from
+#: another cached reading of the statement than the one the saved analysis was made from (the worker chose the other
+#: of its deterministic and visual-pair paths). The saved analysis and the source view beside it describe one reading,
+#: so the saved job is kept.
+READS_DIFFERENTLY = (
+    "under the current rules the analysis comes from another reading of the statement than the saved one"
+)
+
+
+class _CapturedJobStore:
+    """What `run_job` is handed during a re-analysis, in place of the job store.
+
+    Every stage reads and writes through the real artifact cache, and cache hits are recorded in the real audit log
+    (the evidence of what was served from the cache). Every job-state write lands here, so the saved job keeps its
+    status, its stage and its analysis until the route accepts the new one. It has no `storage`, so the run writes no
+    telemetry record (`telemetry.emit.open_sqlite_sink` opens a null sink): telemetry counts intake runs, and the
+    audit log records the re-analysis. Its methods are exactly the ones `webapp/worker.py` calls on its store."""
+
+    def __init__(self, store: JobStore, job: Job) -> None:
+        self._store = store
+        self.cache = store.cache
+        self.job = Job(id=job.id, filename=job.filename, force_ocr=job.force_ocr, parse_mode=job.parse_mode,
+                       page_count=job.page_count, content_sha256=job.content_sha256)
+        self.result: tuple[str, str, dict | None, str | None, str | None] | None = None
+        self.error: str | None = None
+
+    def get(self, job_id: str) -> Job | None:
+        return self.job if job_id == self.job.id else None
+
+    def record_cache_hit(self, job_id: str, stage: str, cache_key: str | None) -> None:
+        self._store.record_cache_hit(job_id, stage, cache_key)
+
+    def set_status(self, job_id: str, status: str) -> None:
+        self.job.status = status
+
+    def set_stage(self, job_id: str, stage: str, parse_model: str | None = None) -> None:
+        self.job.stage = stage
+
+    def append_page_live(self, job_id: str, page: int, chunk: str) -> None:
+        return None
+
+    def set_page_live(self, job_id: str, page: int, text: str) -> None:
+        # A cached reading replays its pages here.
+        return None
+
+    def set_result(self, job_id: str, markdown: str, html: str, analysis: dict | None = None,
+                   analysis_error: str | None = None, parse_model: str | None = None) -> None:
+        self.job.status = "done"
+        self.result = (markdown, html, analysis, analysis_error, parse_model)
+
+    def set_error(self, job_id: str, error: str) -> None:
+        self.job.status = "error"
+        self.error = error
+
+
+@dataclass(frozen=True)
+class Rerun:
+    """A re-run's new analysis; or None, with the reason it is not accepted: text the worker already publishes for
+    that outcome (`_stage_failure`, `_analysis_failure`, its no-native-text notice) or READS_DIFFERENTLY."""
+
+    analysis: dict | None
+    reason: str | None = None
+
+
+def rerun_analysis(store: JobStore, job: Job, pdf_bytes: bytes) -> Rerun:
+    """Run a saved job's statement through `webapp.worker.run_job` again, with the job's own read flag and parse mode,
+    into a `_CapturedJobStore`. Nothing of the saved job is written here."""
+    run = _CapturedJobStore(store, job)
+    run_job(job.id, pdf_bytes, job.filename, run, force_ocr=job.force_ocr, parse_mode=job.parse_mode)
+    if run.error is not None or run.result is None:
+        return Rerun(None, run.error)
+    markdown, _html, analysis, analysis_error, _parse_model = run.result
+    if analysis is None:
+        return Rerun(None, analysis_error)
+    if markdown != job.markdown:
+        return Rerun(None, READS_DIFFERENTLY)
+    return Rerun(analysis)
