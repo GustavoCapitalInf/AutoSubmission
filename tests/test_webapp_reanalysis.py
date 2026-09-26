@@ -50,3 +50,30 @@ def test_a_reanalysis_of_an_unknown_job_writes_nothing(tmp_path):
     storage = Storage(tmp_path / "data")
     assert storage.record_reanalysis("no-such-job", analysis_json="{}", detail={}) is False
     assert storage.audit_events("reanalysis") == []
+
+
+# --- the job store: the same job, in memory and on disk -------------------------------------------------------------
+
+
+def test_the_job_store_replaces_the_analysis_in_memory_and_on_disk(tmp_path):
+    store = JobStore(Storage(tmp_path / "data"))
+    job = store.create("fabricated.pdf")
+    store.set_result(job.id, "# F", "<p>F</p>", analysis={"rules": "old"})
+    saved = store.apply_reanalysis(job.id, {"rules": "new"}, replayed=(5,), not_replayed=(6,), decided_by_rules=(7,))
+    assert saved == {"rules": "new"} and store.get(job.id).analysis == {"rules": "new"}
+    saved["rules"] = "edited by a caller"  # the store keeps its own copy
+    assert store.get(job.id).analysis == {"rules": "new"}
+    assert JobStore(Storage(tmp_path / "data")).get(job.id).analysis == {"rules": "new"}  # a restart reads it back
+    detail = json.loads(store.storage.audit_events("reanalysis", job_id=job.id)[0]["detail"])
+    assert (detail["reviews_replayed"], detail["reviews_not_replayed"], detail["reviews_decided_by_rules"]) == (
+        [5], [6], [7])
+    assert json.loads(detail["previous_analysis_json"]) == {"rules": "old"}
+
+
+def test_the_job_store_clears_the_analysis_error_and_refuses_an_unknown_job(tmp_path):
+    store = JobStore(Storage(tmp_path / "data"))
+    job = store.create("fabricated.pdf")
+    store.set_result(job.id, "# F", "<p>F</p>", analysis=None, analysis_error="fabricated refusal")
+    assert store.apply_reanalysis(job.id, {"rules": "new"}) == {"rules": "new"}
+    assert (store.get(job.id).analysis, store.get(job.id).analysis_error) == ({"rules": "new"}, None)
+    assert store.apply_reanalysis("no-such-job", {"rules": "new"}) is None
