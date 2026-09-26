@@ -54,6 +54,8 @@ const els = {
   settingsView: document.getElementById("settingsView"),
   nsfCarryOverToggle: document.getElementById("nsfCarryOverToggle"),
   settingsStatus: document.getElementById("settingsStatus"),
+  flagSettingsList: document.getElementById("flagSettingsList"),
+  flagSettingsStatus: document.getElementById("flagSettingsStatus"),
   fileInput: document.getElementById("fileInput"),
   uploadBtn: document.getElementById("uploadBtn"),
   forceOcrToggle: document.getElementById("forceOcrToggle"),
@@ -4148,6 +4150,7 @@ function setSettingsStatus(message, error = false) {
 
 function loadSettings() {
   els.nsfCarryOverToggle.disabled = true;
+  renderFlagSettings(flagSettingsSaved, true);
   fetch("/api/settings")
     .then((response) => {
       if (!response.ok) throw new Error(`Settings unavailable (${response.status})`);
@@ -4158,9 +4161,14 @@ function loadSettings() {
       els.nsfCarryOverToggle.disabled = false;
       renderNsfExample(els.nsfCarryOverToggle.checked);
       setSettingsStatus("");
+      flagSettingsSaved = settings;
+      // A switch still being saved keeps the group held; its own save draws the group again when it settles.
+      renderFlagSettings(settings, flagSettingsBusy);
+      if (!flagSettingsBusy) setFlagSettingsStatus("");
     })
     .catch((error) => {
       setSettingsStatus(error.message || String(error), true);
+      setFlagSettingsStatus(error.message || String(error), true);
     });
 }
 
@@ -4170,6 +4178,41 @@ function refreshShownResults() {
   // (currentDocument), and selecting one later renders from that copy, so it is fetched again too.
   if (currentJobIds.length > 1) loadPackage(currentJobIds, { reveal: false });
   else if (currentJobId && (currentAnalysis || currentDocument)) loadResults(currentJobId, { reveal: false });
+}
+
+/* Flagged positions: one switch per group (FLAG_GROUP_LABELS), each its own settings key, flag_<group>, on by default.
+   The server applies them when it serves an analysis; a switch only hides or shows its group. */
+let flagSettingsSaved = {};
+let flagSettingsBusy = false;
+
+function flagSettingKey(group) {
+  return `flag_${group}`;
+}
+
+// A key the settings lack (a server older than the flags) reads as on, the default.
+function renderFlagSettings(settings = {}, disabled = false) {
+  if (!els.flagSettingsList) return;
+  els.flagSettingsList.innerHTML = Object.entries(FLAG_GROUP_LABELS).map(([group, label]) => {
+    const key = flagSettingKey(group);
+    const id = `flagSetting-${group}`;
+    return `
+      <div class="setting-row">
+        <label class="setting-title" for="${id}">${escapeHtml(label)}</label>
+        <span class="switch">
+          <input type="checkbox" role="switch" id="${id}" data-flag-setting="${key}" aria-describedby="flagSettingsHelp"${
+            settings[key] === false ? "" : " checked"}${disabled ? " disabled" : ""}>
+          <span class="switch-track" aria-hidden="true"></span>
+        </span>
+      </div>
+    `;
+  }).join("");
+}
+
+function setFlagSettingsStatus(message, error = false) {
+  if (!els.flagSettingsStatus) return;
+  els.flagSettingsStatus.textContent = message;
+  if (error) els.flagSettingsStatus.setAttribute("data-state", "error");
+  else els.flagSettingsStatus.removeAttribute("data-state");
 }
 
 els.nsfCarryOverToggle.addEventListener("change", () => {
@@ -4647,6 +4690,7 @@ document.addEventListener("keydown", (event) => {
 
 setInitialState();
 renderNsfExample(false);
+renderFlagSettings({}, true);
 renderRecentAnalyses();
 renderPreview();
 showView("new");

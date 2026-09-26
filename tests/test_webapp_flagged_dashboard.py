@@ -458,3 +458,56 @@ def test_the_statement_window_has_its_own_flagged_table():
     table = modal[:modal.index('<tbody id="statementModalFlagged">')]
     table = table[table.rindex("<table"):]
     assert re.findall(r"<th[^>]*>([^<]*)</th>", table) == ["Group", "Payee", "Count", "Total", "Cadence"]
+
+
+# ---------------------------------------------------------------- Task 7: the Settings switches
+
+GROUP_KEYS = ["alternative_positions", "lines_of_credit", "credit_cards", "vehicle_financing", "bank_loans",
+              "mortgages", "leases_rentals", "personal_loans", "floor_plan", "factoring", "premium_financing"]
+
+SWITCHES = r"""
+const switches = () => [...els.flagSettingsList.innerHTML.matchAll(
+  /<input type="checkbox" role="switch" id="flagSetting-([a-z_]+)" data-flag-setting="([^"]+)"([^>]*)>/g)]
+  .map((m) => ({group: m[1], key: m[2], checked: / checked/.test(m[3]), disabled: / disabled/.test(m[3])}));
+"""
+
+
+def _settings(**overrides):
+    """GET/POST /api/settings's `settings` (C7): every flag key on unless overridden."""
+    return {"nsf_carry_over": False, **{f"flag_{group}": True for group in GROUP_KEYS}, **overrides}
+
+
+def _answer(url, answer):
+    return f"FAKE_RESPONSES[{json.dumps(url)}] = {json.dumps(answer)};\n"
+
+
+def test_the_flag_settings_sit_between_analysis_and_statements_with_their_own_status_line():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    assert html.index('id="analysisSettingsTitle"') < html.index('id="flagSettingsSection"') \
+        < html.index('id="statementsSettingsTitle"')
+    section = html[html.index('id="flagSettingsSection"'):]
+    section = section[:section.index("</section>")]
+    assert "Flagged positions</h2>" in section and 'id="flagSettingsList"' in section
+    assert '<p class="setting-status" id="flagSettingsStatus" role="status" aria-live="polite"></p>' in section
+    # The NSF switch keeps its own line.
+    assert html.count('id="settingsStatus"') == 1 and 'id="settingsStatus"' not in section
+
+
+@needs_node
+def test_the_switches_start_held_and_follow_the_saved_settings_once_loaded():
+    result = run_dashboard(SWITCHES + """
+const atStart = switches();
+""" + _answer("/api/settings", {"json": {"settings": _settings(flag_credit_cards=False)}}) + """
+loadSettings();
+const loading = switches();
+await settle();
+console.log(JSON.stringify({atStart, loading, loaded: switches(), html: els.flagSettingsList.innerHTML}));
+""")
+    assert [switch["group"] for switch in result["atStart"]] == GROUP_KEYS
+    assert all(switch["key"] == f"flag_{switch['group']}" for switch in result["atStart"])
+    assert all(switch["checked"] and switch["disabled"] for switch in result["atStart"] + result["loading"])
+    assert [(switch["group"], switch["checked"], switch["disabled"]) for switch in result["loaded"]] == \
+        [(group, group != "credit_cards", False) for group in GROUP_KEYS]
+    for label in ("Alternative positions", "Lines of credit", "Vehicle loans &amp; leases", "Leases &amp; rentals",
+                  "Floor plan", "Factoring", "Premium financing"):
+        assert f">{label}</label>" in result["html"]

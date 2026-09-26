@@ -769,6 +769,8 @@
   .setting-status:not(:empty)::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
   .setting-status[data-state="error"] { color: var(--red); }
   .setting-status[data-state="error"]::before { background: var(--red); }
+  .flag-settings-help { margin: 0; padding: 16px 20px 4px; }
+  .flag-settings-foot { display: flex; align-items: center; min-height: 44px; padding: 0 20px; border-top: 1px solid var(--border); background: var(--inset); }
 
   /* ---------- statement modal ---------- */
   .modal-backdrop {
@@ -1445,6 +1447,21 @@
                 <span class="example-total" id="nsfExampleTotal">1</span>
                 <p class="setting-status" id="settingsStatus" role="status" aria-live="polite"></p>
               </div>
+            </div>
+          </div>
+        </section>
+        <section class="settings-section" id="flagSettingsSection" aria-labelledby="flagSettingsTitle">
+          <h2 class="eyebrow" id="flagSettingsTitle">Flagged positions</h2>
+          <div class="panel">
+            <p class="setting-help flag-settings-help" id="flagSettingsHelp">
+              A ticked group is flagged on statements and packages: listed in the Flagged positions panel, tagged in the
+              transactions and written to the downloads. A flagged group never counts as a lender and never changes
+              withholding or the package decision; unticking it only hides it.
+            </p>
+            <!-- One switch per group, drawn by renderFlagSettings (webapp/static/app.js). -->
+            <div id="flagSettingsList"></div>
+            <div class="flag-settings-foot">
+              <p class="setting-status" id="flagSettingsStatus" role="status" aria-live="polite"></p>
             </div>
           </div>
         </section>
