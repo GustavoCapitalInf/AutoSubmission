@@ -73,6 +73,8 @@ const els = {
   lenderCount: document.getElementById("lenderCount"),
   insuranceTable: document.getElementById("insuranceTable"),
   insuranceCount: document.getElementById("insuranceCount"),
+  flaggedTable: document.getElementById("flaggedTable"),
+  flaggedCount: document.getElementById("flaggedCount"),
   revenueTable: document.getElementById("revenueTable"),
   revenueCount: document.getElementById("revenueCount"),
   transactionTable: document.getElementById("transactionTable"),
@@ -290,6 +292,46 @@ const NSF_SOURCE_LABELS = {
 
 function nsfSourceLabel(source) {
   return NSF_SOURCE_LABELS[source] || (source ? labelize(source) : "Negative-ending days");
+}
+
+// Whether a label table defines `key` itself: never an inherited name such as "constructor" or "toString".
+function ownKey(table, key) {
+  return Object.prototype.hasOwnProperty.call(table, String(key ?? ""));
+}
+
+// The groups of obligations flagged outside lender math, in the analysis's order (analysis/flag_groups.py
+// FLAG_GROUPS; tests/test_webapp_flagged_dashboard.py keeps the two alike). A group's settings key is flag_<group>.
+// Premium financing is the one group with no classification state: its rows stay insurance and carry flagged_group.
+const FLAG_GROUP_LABELS = Object.freeze({
+  alternative_positions: "Alternative positions",
+  lines_of_credit: "Lines of credit",
+  credit_cards: "Credit cards",
+  vehicle_financing: "Vehicle loans & leases",
+  bank_loans: "Bank loans",
+  mortgages: "Mortgages",
+  leases_rentals: "Leases & rentals",
+  personal_loans: "Personal loans",
+  floor_plan: "Floor plan",
+  factoring: "Factoring",
+  premium_financing: "Premium financing",
+});
+
+function flagGroupLabel(group) {
+  return ownKey(FLAG_GROUP_LABELS, group) ? FLAG_GROUP_LABELS[group] : labelize(group);
+}
+
+// How often a flagged payee was paid, as the analysis describes it (analysis/cadence.py describe_cadence).
+const CADENCE_LABELS = Object.freeze({
+  daily: "Daily",
+  weekly: "Weekly",
+  biweekly: "Every two weeks",
+  monthly: "Monthly",
+  irregular: "Irregular",
+  single: "Single payment",
+});
+
+function cadenceLabel(cadence) {
+  return ownKey(CADENCE_LABELS, cadence) ? CADENCE_LABELS[cadence] : labelize(cadence);
 }
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
@@ -1175,6 +1217,7 @@ function setInitialState() {
   ]);
   renderLenders([]);
   renderInsurance([]);
+  renderFlaggedPositions([], null, false);
   renderRevenueEvidence({
     total_posted_credit_count: 0,
     verified_revenue_count: 0,
@@ -1583,6 +1626,69 @@ function renderInsurance(providers, currency = "USD") {
       <td>${glassChip("INS", "Insurance", "blue")}</td>
     </tr>
   `).join("");
+}
+
+/* --- flagged positions ------------------------------------------------------
+   Obligations outside lender math (analysis/flag_groups.py), one row per payee, for the groups ticked in Settings:
+   the server leaves the other groups out when it serves the analysis. */
+
+// The panel's rows. A statement serves one list (detection.flagged_positions, already in group order), a package one
+// list per group (flagged_positions): either way they come out group by group, each group's own order kept. Null when
+// the payload publishes none (an analysis saved before flagged positions existed): the panel then cannot say whether
+// any group was paid.
+function flaggedPositionEntries(positions) {
+  const entries = (list) => (Array.isArray(list) ? list : []).filter((entry) => entry && typeof entry === "object");
+  if (Array.isArray(positions)) return entries(positions);
+  if (!positions || typeof positions !== "object") return null;
+  const known = Object.keys(FLAG_GROUP_LABELS);
+  const groups = [...known, ...Object.keys(positions).filter((group) => !known.includes(group))];
+  return groups.flatMap((group) => entries(positions[group]).map((entry) => ({ ...entry, group })));
+}
+
+// `isPackage` adds the Statements column: how many of the package's statements paid the payee.
+function flaggedPositionRowsHtml(entries, currency, isPackage = false) {
+  const columns = isPackage ? 6 : 5;
+  if (entries === null) {
+    return `
+      <tr>
+        <td class="empty-cell" colspan="${columns}"><strong>Not available</strong>Analysed before flagged positions existed; re-analyze to see them.</td>
+      </tr>
+    `;
+  }
+  if (!entries.length) {
+    return `
+      <tr>
+        <td class="empty-cell" colspan="${columns}"><strong>No flagged payments</strong>No group ticked in Settings has payments here.</td>
+      </tr>
+    `;
+  }
+  return entries.map((entry) => {
+    const group = String(entry.group || "");
+    const payee = String(entry.payee || flagGroupLabel(group));
+    const span = entry.first_date && entry.last_date && entry.first_date !== entry.last_date
+      ? `<div class="table-cell-detail">${escapeHtml(entry.first_date)} to ${escapeHtml(entry.last_date)}</div>`
+      : "";
+    const statements = isPackage ? `<td>${escapeHtml(formatNumber(entry.documents))}</td>` : "";
+    return `
+      <tr>
+        <td>${escapeHtml(flagGroupLabel(group))}</td>
+        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions paid to ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
+        <td>${escapeHtml(formatNumber(entry.count))}</td>
+        <td>${escapeHtml(formatMoney(entry.total_debited, currency))}</td>
+        <td>${escapeHtml(cadenceLabel(entry.cadence))}${span}</td>
+        ${statements}
+      </tr>
+    `;
+  }).join("");
+}
+
+function renderFlaggedPositions(positions, currency, isPackage = false) {
+  if (!els.flaggedTable || !els.flaggedCount) return;
+  const entries = flaggedPositionEntries(positions);
+  els.flaggedCount.textContent = entries === null
+    ? "Not available"
+    : `${formatNumber(entries.length)} ${entries.length === 1 ? "payee" : "payees"}`;
+  els.flaggedTable.innerHTML = flaggedPositionRowsHtml(entries, currency, isPackage);
 }
 
 const revenueRows = [
@@ -2484,6 +2590,7 @@ function renderAccount(report) {
   renderRevenueEvidence(metrics, currency);
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
+  renderFlaggedPositions(detection.flagged_positions, currency, false);
   renderMainTransactions();
   refreshOpenSummary();
 }

@@ -602,6 +602,12 @@
   .lender-evidence-table td:nth-child(2) { color: var(--text-2); }
   .evidence-table td:nth-child(2), .evidence-table td:nth-child(3) { text-align: right; font-family: var(--font-mono); }
   .evidence-table th:nth-child(2), .evidence-table th:nth-child(3) { text-align: right; }
+  .flagged-note { margin: 0; padding: 0 20px 12px; font-size: 12.5px; color: var(--text-3); }
+  .flagged-table td:nth-child(3), .flagged-table td:nth-child(4), .flagged-table td:nth-child(6) { text-align: right; font-family: var(--font-mono); }
+  .flagged-table th:nth-child(3), .flagged-table th:nth-child(4), .flagged-table th:nth-child(6) { text-align: right; }
+  .flagged-table td:first-child:not(.empty-cell) { color: var(--text-2); }
+  .flagged-table .empty-cell { color: var(--text-3); padding-top: 20px; padding-bottom: 20px; }
+  .flagged-table .empty-cell strong { color: var(--text); margin-right: 6px; }
   .table-cell-detail { margin-top: 2px; font-family: var(--font-sans); font-size: 11.5px; color: var(--text-3); font-weight: 400; }
   .evidence-link {
     border: 0; background: transparent; padding: 0; color: var(--text); font-size: 13px; text-align: left; font-weight: inherit;
@@ -1290,6 +1296,30 @@
               </table>
             </div>
           </section>
+        </section>
+
+        <!-- Obligations outside lender math, for the groups ticked in Settings (renderFlaggedPositions). -->
+        <section class="panel flagged-panel" id="flaggedCard" aria-labelledby="flaggedTitle">
+          <div class="panel-head">
+            <h3 id="flaggedTitle">Flagged positions</h3>
+            <span class="panel-sub" id="flaggedCount">0 payees</span>
+          </div>
+          <p class="flagged-note">Obligations outside lender math: never counted as lenders, never in withholding.</p>
+          <div class="table-wrap">
+            <table class="data-table flagged-table">
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Payee</th>
+                  <th>Count</th>
+                  <th>Total</th>
+                  <th>Cadence</th>
+                  <th class="package-only">Statements</th>
+                </tr>
+              </thead>
+              <tbody id="flaggedTable"></tbody>
+            </table>
+          </div>
         </section>
 
         <section class="split-2 package-only" aria-label="Package summary and processing">

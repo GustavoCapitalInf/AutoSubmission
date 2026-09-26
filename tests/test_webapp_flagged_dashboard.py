@@ -189,3 +189,52 @@ def test_both_ledgers_offer_the_flagged_filter():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     assert 'data-transaction-filter="flagged">Flagged</button>' in html
     assert 'data-modal-transaction-filter="flagged">Flagged</button>' in html
+
+
+# ---------------------------------------------------------------- Task 3: the panel on a statement
+
+PANEL = """
+console.log(JSON.stringify({rows: cells(els.flaggedTable.innerHTML), count: els.flaggedCount.textContent,
+  html: els.flaggedTable.innerHTML}));
+"""
+
+# The two rows a panel with no payee draws, as `cells` reads them (tags stripped).
+NO_FLAGGED_PAYMENTS = "No flagged paymentsNo group ticked in Settings has payments here."
+NOT_AVAILABLE = "Not availableAnalysed before flagged positions existed; re-analyze to see them."
+
+
+@needs_node
+def test_the_statement_panel_lists_each_payee_with_its_group_count_total_and_cadence():
+    result = run_dashboard(CELLS + _load("s", _statement()) + PANEL)
+    # Money in the statement's own currency (CA$), never the USD default.
+    assert result["rows"] == [
+        ["Credit cards", "Credit cards", "1", "CA$300.00", "Single payment"],
+        ["Mortgages", "FABRICATED MORTGAGE CO", "2", "CA$2,400.00", "Every two weeks2031-03-03 to 2031-03-17"],
+    ]
+    assert result["count"] == "2 payees"
+    assert 'data-lender-evidence-filter="flagged:mortgages"' in result["html"]
+    assert 'data-lender-evidence-entity="FABRICATED MORTGAGE CO"' in result["html"]
+
+
+@needs_node
+@pytest.mark.parametrize(("positions", "row", "count"), [
+    ([], NO_FLAGGED_PAYMENTS, "0 payees"),
+    # Saved before flagged positions existed: the dashboard cannot tell whether any group was paid, and says so.
+    (None, NOT_AVAILABLE, "Not available"),
+], ids=["no-ticked-group-paid", "saved-before-flagged-positions"])
+def test_a_statement_without_flagged_positions_says_why(positions, row, count):
+    result = run_dashboard(CELLS + _load("s", _statement(positions=positions)) + PANEL)
+    assert result["rows"] == [[row]]
+    assert 'colspan="5"' in result["html"] and result["count"] == count
+
+
+def test_the_panel_sits_after_the_evidence_and_reuses_no_lender_header():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    card = html[html.index('id="flaggedCard"'):]
+    card = card[:card.index("</section>")]
+    assert re.findall(r"<th[^>]*>([^<]*)</th>", card) == ["Group", "Payee", "Count", "Total", "Cadence", "Statements"]
+    assert '<tbody id="flaggedTable">' in card and 'id="flaggedCount"' in card and "Flagged positions</h3>" in card
+    for reused in ("Potential Withholding", "Eligible Deposits", "Exposure"):
+        assert reused not in card
+    assert html.index('aria-label="Evidence"') < html.index('id="flaggedCard"') \
+        < html.index('aria-label="Package summary and processing"')
