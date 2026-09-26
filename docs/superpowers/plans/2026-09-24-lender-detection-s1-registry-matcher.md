@@ -268,7 +268,7 @@ The amended steps give Task 5 140 tests, Task 6 15, Task 7 Step 8 176, Task 8 23
 - an allow of the no-payee-words key holds only for the entity it names (Decision 9; Task 10 Step 3);
 - a `Move:` sentence that names no reason does not excuse a move (Decision 3; Task 5).
 
-The amended steps give Task 5 144 tests, Task 7 Step 8 180, Task 8 29 and 253 for every S1 test so far, and Task 9 Step 9 328; the three selections keep their baseline counts. With the ledger `lender-detection` holds (`0933763`) rendered in a scratch clone of this branch:
+The amended steps give Task 5 144 tests, Task 7 Step 8 180, Task 8 29 and 253 for every S1 test so far, and Task 9 Step 9 328; the three selections keep their baseline counts. With the ledger `lender-detection` then held (`0933763`, since replaced by `d9e5ae6`, which changes only sources and notes, so every count below stands) rendered in a scratch clone of this branch:
 - `--check` and `--write` print the same lines as before the fixes, and the rendered files are byte-identical;
 - all 328 S1 tests pass, the three selections keep their baseline counts, and the benchmark measured 36.4x;
 - S2's Task 0 prints `0 failure(s)`, card counts `3` and `0`, and navigant `2`;
@@ -5705,7 +5705,7 @@ It prints two kinds of line, for every entity of every status:
 
 For the ledger of the owner's rulings of 2026-09-25 it printed 597 lines.
 
-The tool reads names and aliases only. The rest of the review is a person's read (amended 2026-09-26: the first run missed names in URLs). Read every line. Then read `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md` from start to end. Then read every distinct URL of the ledger. This command prints them sorted; for the ledger of the owner's rulings of 2026-09-25 it printed 5,917:
+The tool reads names and aliases only. The rest of the review is a person's read (amended 2026-09-26: the first run missed names in URLs). Read every line. Then read `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md` from start to end. Then read every distinct URL of the ledger. This command prints them sorted; for the committed ledger (`d9e5ae6`, after the privacy revision of 2026-09-26) it printed 5,904 (5,917 before that revision removed 13):
 
 ```powershell
 C:\Python314\python.exe -c "import json; d = json.load(open('docs/lender-registry-ledger.json', encoding='utf-8')); print('\n'.join(sorted({u for e in d['entities'] for u in [x['source'] for x in e['evidence']] + e['where_looked']})))"
@@ -5846,7 +5846,7 @@ About the counts:
 - They depend on the ledger.
 - For scale, the trial with this revision's stand-in ledger printed `taken matches: 166, of which need review: 119` at `--limit 300`, and `taken matches: 422, of which need review: 334` on the full cache (under three minutes).
 - The ledger of the owner's rulings of 2026-09-25, rendered on this branch at `b69d12e`, printed `aliases that matched: 1136; payee keys: 2262; taken matches: 2063, of which need review: 1180` on the full cache. With the orchestrator's review file and the previous ledger's report as `--before`, it printed `denied matches: 1; undecided: 0` and `lost matches: 0`. The one deny is the Zip overdraft charge (Step 4).
-- After the final review of S1 (2026-09-26), the same ledger (`0933763`), rendered in a scratch clone of this branch with the fixed audit, printed `cache: 7241 analyses read, 0 unreadable` and `aliases that matched: 1136; payee keys: 2263; taken matches: 2077, of which need review: 1190; denied matches: 1; undecided: 14` with the orchestrator's review file. The 14 new undecided matches are credits that S2's credit rule gives to 7 lender entities (credits stored as transfers, which that rule reads by their own words) and 5 review entities (the potential registry), which the earlier audit never counted. The orchestrator's previous report predates the cache record, so `--before` refused it.
+- After the final review of S1 (2026-09-26), the same ledger (`0933763`, since replaced by `d9e5ae6`, which changes no alias, group or status), rendered in a scratch clone of this branch with the fixed audit, printed `cache: 7241 analyses read, 0 unreadable` and `aliases that matched: 1136; payee keys: 2263; taken matches: 2077, of which need review: 1190; denied matches: 1; undecided: 14` with the orchestrator's review file. The 14 new undecided matches are credits that S2's credit rule gives to 7 lender entities (credits stored as transfers, which that rule reads by their own words) and 5 review entities (the potential registry), which the earlier audit never counted. The orchestrator's previous report predates the cache record, so `--before` refused it.
 - Most of them are one-word aliases whose payee key adds a word.
 
 - [ ] **Step 3: Decide every row of `undecided`**
