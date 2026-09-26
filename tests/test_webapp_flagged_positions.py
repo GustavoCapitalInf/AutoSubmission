@@ -10,12 +10,14 @@ import pytest
 
 from analysis.flag_groups import FLAG_GROUPS, FLAG_SETTING_KEYS
 from tests.flagged_payloads import (
+    CURRENT_VERSION,
     FLAGGED_DEBIT,
     GROUP_KEYS,
     fabricated_payee,
     flagged_account_payload,
     flagged_document_payload,
     flagged_row,
+    row_state,
     with_flagged_rows,
 )
 from tests.l1s3_payloads import account_payload
@@ -621,3 +623,142 @@ def test_every_flag_roll_up_item_carries_the_contract_fields_in_order(settings_f
         for item in items:
             assert list(item) == ["payee", "documents", "count", "total_debited", "count_credited", "total_credited",
                                   "cadence", "first_date", "last_date"]
+
+
+# --- S2's real payload flows through serving and the package (contract C4/C5; after S2 merges) ----------------
+
+#: The keys C5 publishes on every `detection.flagged_positions` entry, and on every `metrics.flagged_groups` value.
+C5_POSITION_KEYS = {"group", "payee", "matched_alias", "count", "total_debited", "count_credited", "total_credited",
+                    "cadence", "avg_gap_days", "first_date", "last_date", "source_locations"}
+C5_GROUP_KEYS = {"count", "total", "count_credited", "total_credited", "payees"}
+
+
+def _analysed_payload() -> dict:
+    """A fabricated statement run through the real classifier, metrics, detection and serializer.
+
+    The first two debits name no payee; S2's descriptor rules (spec §4.3 step 8) file them under mortgages and
+    lines of credit. The next three pay the owner's amendment groups (spec §2): an insurance premium to a
+    premium-finance payee, a floor-plan payee and a factoring payee. The last row is that factoring payee's payout
+    for invoices it bought, a credit that stays revenue and carries the Factoring flag (owner ruling 2026-09-26).
+    Each name is the first alias of its C2 table, which S1 renders from the C10 ledger, read at run time, so no payee
+    name is written in a test."""
+    from analysis.classification_registry import FACTORING_ALIASES, FLOOR_PLAN_ALIASES, PREMIUM_FINANCE_ALIASES
+    from analysis.detect import detect
+    from analysis.metrics import compute_metrics
+    from analysis.pipeline import DocumentIntegrity, Quality, Report
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+    from analysis.serialization import report_to_dict
+    from analysis.transaction_classifier import classify_statement_transactions
+
+    def row(day, description, amount):
+        return Transaction(date=day, description=description, amount=amount,
+                           direction="credit" if amount >= 0 else "debit")
+
+    def first_alias(name, table):
+        # C10's validator requires no admitted entity in these three groups, so an empty table is named here
+        # instead of surfacing as a bare StopIteration.
+        aliases = [alias for entity_aliases in table.values() for alias in entity_aliases]
+        assert aliases, f"{name} holds no alias: the C10 ledger admits no entity in this group"
+        return aliases[0]
+
+    premium_payee = first_alias("PREMIUM_FINANCE_ALIASES", PREMIUM_FINANCE_ALIASES)
+    floor_plan_payee = first_alias("FLOOR_PLAN_ALIASES", FLOOR_PLAN_ALIASES)
+    factoring_payee = first_alias("FACTORING_ALIASES", FACTORING_ALIASES)
+    statement = Statement(bank="FABRICATED BANK", account_number="0000", transactions=[
+        row("2054-01-02", "FABRICATED CUSTOMER DEPOSIT", 10 * FLAGGED_DEBIT),
+        row("2054-01-05", "FABRICATED MORTGAGE PAYMENT", -FLAGGED_DEBIT),
+        row("2054-01-06", "FABRICATED LINE OF CREDIT PAYMENT", -FLAGGED_DEBIT),
+        row("2054-01-07", f"FABRICATED {premium_payee} INSURANCE PREMIUM", -FLAGGED_DEBIT),
+        row("2054-01-08", f"FABRICATED {floor_plan_payee} PAYMENT", -FLAGGED_DEBIT),
+        row("2054-01-09", f"FABRICATED {factoring_payee} PAYMENT", -FLAGGED_DEBIT),
+        row("2054-01-10", f"FABRICATED {factoring_payee} INVOICE PAYMENT", 3 * FLAGGED_DEBIT),
+    ])
+    records = classify_statement_transactions(statement)
+    metrics = compute_metrics(statement, classifications=records)
+    detection = detect(statement, classifications=records, eligible_deposits=metrics.eligible_deposits)
+    return report_to_dict(Report(
+        statement=statement, reconciliation=reconcile(statement), metrics=metrics, detection=detection,
+        quality=Quality(level="transaction_level", transaction_detail_reliable=True,
+                        summary_totals_reliable=True, corporate_use="approved"),
+        integrity=DocumentIntegrity(risk_level="clear", flags=[], notes=[]),
+        model_used="test", escalated=False, classifications=records,
+    ))
+
+
+def test_the_classifiers_payload_carries_the_contract_fields():
+    payload = _analysed_payload()
+    positions = payload["detection"]["flagged_positions"]
+    groups = {entry["group"] for entry in positions}
+    assert groups & {"mortgages", "lines_of_credit"}
+    assert {"premium_financing", "floor_plan", "factoring"} <= groups
+    assert all(set(entry) == C5_POSITION_KEYS for entry in positions)
+    assert all(set(value) == C5_GROUP_KEYS for value in payload["metrics"]["flagged_groups"].values())
+    flagged = [row["classification"] for row in payload["statement"]["transactions"]
+               if row["classification"]["flagged_group"]]
+    assert flagged and all(record["contributes_to_flagged_totals"] is True for record in flagged)
+    # Every record carries the state the fixtures give its group: floor_plan_financing, factoring (its payout
+    # credit too), and insurance for premium financing (C1, C4).
+    assert all(record["classification"] == row_state(record["flagged_group"]) for record in flagged)
+
+
+def test_the_classifiers_premium_financing_row_is_an_insurance_row_with_the_flag():
+    payload = _analysed_payload()
+    [premium] = [row["classification"] for row in payload["statement"]["transactions"]
+                 if row["classification"]["flagged_group"] == "premium_financing"]
+    fixture = flagged_row("premium_financing")["classification"]
+    names = ("classification", "flagged_group", "contributes_to_insurance_totals", "contributes_to_flagged_totals")
+    assert {name: premium[name] for name in names} == {name: fixture[name] for name in names}
+
+
+def test_the_classifiers_factoring_credit_is_revenue_and_rolls_up_as_credited(settings_file):
+    """Owner ruling 2026-09-26 (C4-C6): the factor's payout is flagged, counted apart from the debits, never
+    financing proceeds, and it matches the fixtures' credit row."""
+    from webapp.app import _package_analysis
+
+    payload = _analysed_payload()
+    [credit] = [row["classification"] for row in payload["statement"]["transactions"]
+                if row["classification"]["flagged_group"] == "factoring" and row["amount"] > 0]
+    fixture = flagged_row("factoring", amount=3 * FLAGGED_DEBIT)["classification"]
+    names = ("classification", "flagged_group", "contributes_to_flagged_totals")
+    assert {name: credit[name] for name in names} == {name: fixture[name] for name in names}
+    assert credit["contributes_to_lender_credit_exclusion"] is False
+    assert credit["revenue_match_method"] != "financing_proceeds_credit"
+    assert payload["metrics"]["lender_credits"] == 0.0
+    [position] = [entry for entry in payload["detection"]["flagged_positions"] if entry["group"] == "factoring"]
+    assert (position["count"], position["count_credited"], position["total_credited"]) == (1, 1, 3 * FLAGGED_DEBIT)
+    package = _package_analysis([_member("fabricated", payload)])
+    [item] = package["flagged_positions"]["factoring"]
+    assert (item["count"], item["count_credited"], item["total_credited"]) == (1, 1, 3 * FLAGGED_DEBIT)
+    assert package["totals"]["flagged_position_count_credited"] == 1
+
+
+def test_the_classifiers_payload_is_served_and_packaged_by_the_checkboxes(settings_file):
+    from webapp.app import _displayed, _package_analysis
+
+    payload = _analysed_payload()
+    none_ticked = {**DEFAULTS, **{key: False for key in FLAG_SETTING_KEYS}}
+    hidden = _displayed(payload, settings=none_ticked)
+    assert hidden["metrics"]["flagged_groups"] == {} and hidden["detection"]["flagged_positions"] == []
+    assert hidden["analysis_rules_outdated"] is False
+    package = _package_analysis([_member("fabricated", payload)])
+    assert set(package["flagged_positions"]) == {entry["group"] for entry in payload["detection"]["flagged_positions"]}
+    # D7: flag groups never make a package need review, and never enter the lender math.
+    assert package["totals"]["decision"] == "approved"
+    assert package["totals"]["lender_debit_count"] == 0 and package["totals"]["potential_lender_debit_count"] == 0
+    # Unticking every group hides every flag; the premium-financing row still counts as insurance.
+    unticked = _package_analysis([_member("fabricated", payload)], settings=none_ticked)
+    assert unticked["flagged_positions"] == {} and unticked["totals"]["flagged_position_count"] == 0
+    assert unticked["totals"]["flagged_position_count_credited"] == 0
+    assert unticked["totals"]["insurance_count"] == package["totals"]["insurance_count"] == 1
+    assert unticked["totals"]["decision"] == "approved"
+
+
+def test_the_fixture_records_use_only_fields_the_classifier_writes():
+    from dataclasses import fields
+
+    from analysis.transaction_classifier import CLASSIFICATION_VERSION, TransactionClassification
+
+    names = {field.name for field in fields(TransactionClassification)}
+    assert set(flagged_row("mortgages")["classification"]) <= names
+    assert CLASSIFICATION_VERSION == CURRENT_VERSION
