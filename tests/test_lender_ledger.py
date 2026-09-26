@@ -517,6 +517,11 @@ def test_an_entity_of_todays_registry_keeps_its_name():
       "personal_loan without a sentence starting 'Move:' in its notes"]),
     ([(8, "group", "confirmed_lender")], []),
     ([(1, "status", "rejected"), (1, "notes", "Fabricated: a funder. Move: the owner ruled it out.")], []),
+    ([(1, "status", "rejected"), (1, "notes", "Move: . Fabricated: a funder the owner ruled out.")],
+     ["today's CONFIRMED_LENDER_ALIASES entity 'Oldco Funding' moves from confirmed_lender to no table without "
+      "a sentence starting 'Move:' in its notes",
+      "today's CONFIRMED_LENDER_ALIASES entity 'Oldco Funding' loses 2 of today's aliases without a sentence "
+      "starting 'Move:' in its notes"]),
 ])
 def test_a_move_or_a_lost_alias_of_todays_registry_needs_a_move_sentence(changes, problems):
     assert _problems(*changes) == problems
@@ -527,6 +532,10 @@ def test_a_move_or_a_lost_alias_of_todays_registry_needs_a_move_sentence(changes
     ("Fabricated: a funder. Move: the owner ruled it out.", "the owner ruled it out."),
     ("Fabricated: a funder; Move:  renamed by the owner.", "renamed by the owner."),
     ("Fabricated: see the Move: column.", ""),
+    ("Move: (fabricated) renamed by the owner.", "(fabricated) renamed by the owner."),
+    # The final review of S1: the Move: sentence itself must name a reason, whatever the notes say after it.
+    ("Move: . Fabricated: a funder the owner ruled out.", ""),
+    ("Fabricated: a funder. Move: -- ! The owner ruled it out.", ""),
     ("Move:", ""),
     ("", ""),
 ])

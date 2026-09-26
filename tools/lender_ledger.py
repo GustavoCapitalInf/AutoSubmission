@@ -119,6 +119,8 @@ _CARD_PAYMENT_WORDING = re.compile(
 #: starts with this marker. Any other text in notes never excuses a move.
 MOVE_MARKER = "Move:"
 _MOVE_REASON = re.compile(r"(?:^|(?<=[.!?;])\s+)" + re.escape(MOVE_MARKER) + r"\s*(\S.*)", re.DOTALL)
+#: The Move: sentence names a reason: a word before the sentence ends ("Move: ." gives no reason).
+_WORDED_SENTENCE = re.compile(r"[^.!?]*\w")
 #: The last commit that changed today's registry. Today's three lists are read from git at this revision, so
 #: the check survives S2 deleting the legacy lists and no second copy of them is ever committed.
 BASELINE_REVISION = "693fd009c5c96a838ef47b61ba5b65a610ea5ba1"
@@ -385,9 +387,10 @@ def load_baseline(revision: str = BASELINE_REVISION) -> dict[str, dict[str, tupl
 
 def move_reason(notes: str) -> str:
     """The reason the ledger records for a move from today's registry: the text after the first sentence of
-    ``notes`` that starts with MOVE_MARKER, or "" when no sentence does."""
+    ``notes`` that starts with MOVE_MARKER, or "" when no sentence does or that sentence holds no word."""
     found = _MOVE_REASON.search(notes)
-    return found.group(1).strip() if found else ""
+    reason = found.group(1).strip() if found else ""
+    return reason if _WORDED_SENTENCE.match(reason) else ""
 
 
 def _holders(entities: list[LedgerEntity]) -> dict[str, LedgerEntity]:
