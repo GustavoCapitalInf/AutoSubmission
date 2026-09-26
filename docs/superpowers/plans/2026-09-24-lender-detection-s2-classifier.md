@@ -6121,8 +6121,8 @@ Every row has exactly one state:
 5.0, but records stored before 5.0 carry it and still validate.
 
 Only MCA and revenue-based funders and equipment financing are
-`confirmed_lender`. Eleven groups are flagged instead. They never enter lender
-counts, lender totals, withholding, eligible deposits or potential exposure:
+`confirmed_lender`. Eleven groups are flagged instead. Their debits never enter
+lender counts, lender totals, withholding or potential exposure:
 
 | State | `flagged_group` | Label |
 |---|---|---|
@@ -6142,6 +6142,14 @@ Premium financing is the one group that is not a state. Its rows stay
 `insurance` and keep their insurance totals. The insurance rule sets
 `flagged_group="premium_financing"` on a debit whose insurer is a
 premium-finance payee (`PREMIUM_FINANCE_ALIASES`).
+
+A flagged group's credits are another matter. A credit from a financing group
+(every flagged group except credit cards, leases & rentals and premium
+financing) is financing proceeds, and D1 subtracts it from eligible deposits as
+it does a lender's credit (see "Withholding rate"). Neither the credits of a
+payout-credit entity (`PAYOUT_CREDIT_ENTITIES`), which are the holder's own
+sales, nor premium-finance credits, which keep the insurance credit treatment,
+are subtracted.
 
 The group list lives in `analysis/flag_groups.py`. A flagged row carries
 `flagged_group`; a posted flagged debit also sets
@@ -6200,10 +6208,13 @@ Classification is applied in this order; the first match wins:
    to `line_of_credit` (D9). A credit from a financing group (lenders,
    alternative positions, lines of credit, bank loans, vehicle financing,
    mortgages, personal loans, floor plan, factoring) is financing proceeds:
-   `other`, revenue `non_revenue`, excluded from eligible deposits (D1). The
-   exception is a payout-credit entity (`PAYOUT_CREDIT_ENTITIES`, owner ruling),
-   whose credits are the account holder's own sales and stay revenue; its
-   debits keep its group. Three credits are proceeds by their own words: the
+   `other`, revenue `non_revenue`, excluded from eligible deposits (D1). A
+   financing group's credit that an earlier rule names (a transfer, an
+   insurance term) keeps that state, and is still `non_revenue` and excluded
+   from eligible deposits. The exception is a payout-credit entity
+   (`PAYOUT_CREDIT_ENTITIES`, owner ruling), whose credits are the account
+   holder's own sales and stay revenue; its debits keep its group. Three
+   credits are proceeds by their own words: the
    statement bank's line advance (exactly `LOAN CREDIT`), a line-of-credit draw
    and a per-vehicle floor-plan advance (`ADVANCE`, a model year, `VIN`).
    Card-issuer and lease/rental payees never apply to credits.
@@ -6341,7 +6352,11 @@ plan and factoring).
 They are excluded because they are financing proceeds, not operating deposits.
 D1 reads the payee registries, except a payout-credit entity
 (`PAYOUT_CREDIT_ENTITIES`), whose credits are the account holder's own sales and
-stay in eligible deposits. It also reads three descriptors: the statement bank's
+stay in eligible deposits. A credit is subtracted whenever its revenue decision
+is financing proceeds, whichever rule named the row: a financing group's credit
+that a transfer or insurance-term rule claims first is subtracted too.
+Premium-finance credits keep the insurance credit treatment and are not
+subtracted. D1 also reads three descriptors: the statement bank's
 own line advance (`LOAN CREDIT`), a line-of-credit draw and a per-vehicle
 floor-plan advance. Any other credit whose descriptor names no listed payee (an
 unnamed loan advance, for example) keeps its revenue rule and is not subtracted
@@ -6377,15 +6392,35 @@ the exposure is reported as `N/A` in that case.
 
 ## Extension rule
 
-Add provider and counterparty knowledge in `analysis/classification_registry.py`:
-lenders (MCA funders and equipment financing) in `LENDER_ALIASES`; each flagged
-group in its own table, listed in `PAYEE_GROUP_REGISTRIES`; premium-finance
-payees in `PREMIUM_FINANCE_ALIASES`, which only the insurance rule reads; banks
-for the D5 bank-loan rule in `BANK_NAME_ALIASES`; card issuers that need
-payment wording in `CARD_ISSUER_CONTEXT_ALIASES`; financing-group payees whose
-credits are the holder's own sales in `PAYOUT_CREDIT_ENTITIES` (owner ruling
-only). An alias names the financing business, never a
-bare platform or a brand that also sells goods. Cover aliases, OCR variants,
+Lender and flagged-payee knowledge lives in the curated ledger
+`docs/lender-registry-ledger.json` (contract C10 of the lender-detection plan),
+never in hand-edited tables. Add or change an entity there: its group
+(`confirmed_lender` for MCA funders and equipment financing, a flagged group,
+`card_issuer_context` for a bare card issuer that needs payment wording,
+`premium_financing`, `bank_name` for the D5 bank-loan rule, or
+`potential_lender`), its aliases, status, evidence and verdicts. Then run
+`python -m tools.build_lender_registry --check` to validate the ledger and
+`python -m tools.build_lender_registry --write` to render the GENERATED block
+of `analysis/classification_registry.py` (`LENDER_ALIASES`, each group's table,
+`CARD_ISSUER_CONTEXT_ALIASES`, `PREMIUM_FINANCE_ALIASES`, `BANK_NAME_ALIASES`
+and `POTENTIAL_LENDER_ALIASES`) and `docs/lender-registry-evidence.md`, and
+commit the three files together. Never edit the GENERATED block by hand:
+`tests/test_lender_registry_drift.py` fails when the committed tables are not
+the rendering of the committed ledger.
+
+The constants after the GENERATED block are hand-kept.
+`PAYEE_GROUP_REGISTRIES` wires the rendered tables to the known-payee matcher.
+`PAYOUT_CREDIT_ENTITIES` (financing-group payees whose credits are the holder's
+own sales), `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES`, `BARE_BRAND_NAMES`,
+`PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES` and
+`REATTRIBUTED_REGISTRY_ALIASES` are inputs of the ledger validator and change
+only on an owner ruling. Insurance aliases (`INSURANCE_PROVIDER_ALIASES`) and
+operating-revenue aliases and source types (`OPERATING_REVENUE_SOURCE_ALIASES`,
+`OPERATING_REVENUE_SOURCE_TYPES`) are not in the ledger and are edited in that
+module directly.
+
+An alias names the financing business, never a bare platform or a brand that
+also sells goods; the validator refuses both. Cover aliases, OCR variants,
 token boundaries, precedence, both directions, and contribution flags in tests.
 Do not add statement-specific description checks in parsers, metrics, API
 routes, or frontend code.
