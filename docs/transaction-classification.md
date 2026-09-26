@@ -47,18 +47,22 @@ Premium financing is the one group that is not a state. Its rows stay
 premium-finance payee (`PREMIUM_FINANCE_ALIASES`).
 
 A flagged group's credits are another matter. A credit from a financing group
-(every flagged group except credit cards, leases & rentals and premium
-financing) is financing proceeds, and D1 subtracts it from eligible deposits as
-it does a lender's credit (see "Withholding rate"). Neither the credits of a
-payout-credit entity (`PAYOUT_CREDIT_ENTITIES`), which are the holder's own
-sales, nor premium-finance credits, which keep the insurance credit treatment,
-are subtracted.
+(every flagged group except credit cards, leases & rentals, premium financing
+and factoring) is financing proceeds, and D1 subtracts it from eligible deposits
+as it does a lender's credit (see "Withholding rate"). Three kinds of credit
+are not subtracted: a payout-credit entity's credits (`PAYOUT_CREDIT_ENTITIES`),
+which are the holder's own sales; a premium-finance payee's credits, which keep
+the insurance credit treatment; and a factoring payee's credits (owner ruling
+2026-09-26), which are the business's own sales, paid by the factor that bought
+its invoices. A factoring credit takes the operating-revenue path, as a payout
+credit does, and it is also flagged: its state is `factoring`, its entity is
+the payee, and it counts in the Factoring group as a credit.
 
 The group list lives in `analysis/flag_groups.py`. A flagged row carries
-`flagged_group`; a posted flagged debit also sets
-`contributes_to_flagged_totals`, which proven duplicates and settlement-reversed
-debits clear. The web app hides unticked groups at serving time; the stored
-record never changes.
+`flagged_group`; a posted flagged debit, and a posted factoring credit, also
+set `contributes_to_flagged_totals`. Proven duplicates, settlement-reversed
+debits and credits that the reversal pass pairs clear it. The web app hides
+unticked groups at serving time; the stored record never changes.
 
 Every posted credit also has exactly one independent revenue state:
 
@@ -97,8 +101,8 @@ Classification is applied in this order; the first match wins:
    financing too. A descriptor with premium-finance
    wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance
    payee is premium financing under the insurer it names, or under
-   `Insurance provider not identified`. A premium-finance credit is treated as
-   any insurance credit.
+   `Insurance provider not identified`. A premium-finance payee's credit is
+   treated as any insurer's credit.
 3. POS and ATM. A row whose payee is a known payee is classified by who was paid
    instead (D8). An alternative-position payee's membership or balance top-up
    (its alias followed by `PLUS`, `MEMBER`, `MEMBERSHIP` or `BALANCE TOP UP`) is
@@ -110,14 +114,19 @@ Classification is applied in this order; the first match wins:
    or LINE OF CREDIT moves a lender, alternative-position or line-of-credit payee
    to `line_of_credit` (D9). A credit from a financing group (lenders,
    alternative positions, lines of credit, bank loans, vehicle financing,
-   mortgages, personal loans, floor plan, factoring) is financing proceeds:
-   `other`, revenue `non_revenue`, excluded from eligible deposits (D1). A
-   financing group's credit that an earlier rule names (a transfer, an
-   insurance term) keeps that state, and is still `non_revenue` and excluded
-   from eligible deposits. The exception is a payout-credit entity
-   (`PAYOUT_CREDIT_ENTITIES`, owner ruling), whose credits are the account
-   holder's own sales and stay revenue; its debits keep its group. Three
-   credits are proceeds by their own words: the
+   mortgages, personal loans, floor plan) is financing proceeds: `other`,
+   revenue `non_revenue`, excluded from eligible deposits (D1). The exclusion
+   follows the credit's revenue decision, whichever rule named the row: a
+   financing group's credit that a transfer or insurance-term rule claims first
+   keeps that state, and its revenue decision is still financing proceeds, so
+   it is still `non_revenue` and excluded from eligible deposits. Two payees'
+   credits are revenue instead, and their debits keep their group: a
+   payout-credit entity's (`PAYOUT_CREDIT_ENTITIES`, owner ruling), the account
+   holder's own sales; and a factoring payee's (owner ruling 2026-09-26), the
+   business's own sales paid by the factor. Both take the operating-revenue
+   path and stay in eligible deposits. A factoring credit is also recorded as
+   `factoring` under its payee (`factoring_revenue_credit`), so it carries the
+   Factoring flag. Three credits are proceeds by their own words: the
    statement bank's line advance (exactly `LOAN CREDIT`), a line-of-credit draw
    and a per-vehicle floor-plan advance (`ADVANCE`, a model year, `VIN`).
    Card-issuer and lease/rental payees never apply to credits.
@@ -206,17 +215,23 @@ status, flagged group, and every metric contribution flag.
 - `total_lender_debits`: absolute sum of those exact rows.
 - `insurance_count` and `insurance_total`: qualifying posted insurance debit
   rows and their absolute sum, premium-financing rows included.
-- `flagged_groups`: per flagged group key, `{count, total, payees}` over rows
-  marked `contributes_to_flagged_totals`; only groups with a contributing row
-  appear, in flag-group order. It never feeds lender, withholding,
-  eligible-deposit or potential figures.
+- `flagged_groups`: per flagged group key, `{count, total, count_credited,
+  total_credited, payees}` over rows marked `contributes_to_flagged_totals`.
+  `count` and `total` are the debits and their absolute sum; `count_credited`
+  and `total_credited` are the credits (a factoring payee's payouts) and their
+  sum; `payees` counts the payees with any contributing row. Only groups with a
+  contributing row appear, in flag-group order. It never feeds lender,
+  withholding, eligible-deposit or potential figures.
 - `detection.flagged_positions`: one entry per flagged group and payee (`group`,
-  `payee`, `matched_alias`, `count`, `total_debited`, `cadence`,
-  `avg_gap_days`, `first_date`, `last_date`, `source_locations`), in flag-group
-  order, then by total. The payee is the canonical entity, or the group label
-  when the descriptor names none; the cadence (`daily`, `weekly`, `biweekly`,
-  `monthly`, `irregular` or `single`) comes from
-  `analysis.cadence.describe_cadence`.
+  `payee`, `matched_alias`, `count`, `total_debited`, `count_credited`,
+  `total_credited`, `cadence`, `avg_gap_days`, `first_date`, `last_date`,
+  `source_locations`), in flag-group order, then by total debited plus total
+  credited, then by payee. `count` and `total_debited` are debits only; a payee
+  whose counted rows are all credits has an entry with a `count` of 0. The
+  payee is the canonical entity, or the group label when the descriptor names
+  none; the cadence (`daily`, `weekly`, `biweekly`, `monthly`, `irregular` or
+  `single`) comes from `analysis.cadence.describe_cadence`, over the dates of
+  every counted row, debit or credit, as do `first_date` and `last_date`.
 - `verified_revenue_total` and `verified_revenue_count`: posted credits marked
   `contributes_to_verified_revenue`.
 - `unverified_deposit_total` and `unverified_deposit_count`: posted credits that
@@ -250,16 +265,18 @@ The existing eligible-deposit policy is preserved:
 `effective_total_deposits` uses a reconciled bank-printed total when available
 and otherwise uses parsed credit rows. Recognized lender funding credits are
 every credit from a financing-group payee (D1: lenders, alternative positions,
-lines of credit, bank loans, vehicle financing, mortgages, personal loans, floor
-plan and factoring).
+lines of credit, bank loans, vehicle financing, mortgages, personal loans and
+floor plan).
 They are excluded because they are financing proceeds, not operating deposits.
-D1 reads the payee registries, except a payout-credit entity
-(`PAYOUT_CREDIT_ENTITIES`), whose credits are the account holder's own sales and
-stay in eligible deposits. A credit is subtracted whenever its revenue decision
-is financing proceeds, whichever rule named the row: a financing group's credit
-that a transfer or insurance-term rule claims first is subtracted too.
-Premium-finance credits keep the insurance credit treatment and are not
-subtracted. D1 also reads three descriptors: the statement bank's
+D1 reads the payee registries, except two kinds of payee whose credits are the
+account holder's own sales and stay in eligible deposits: a payout-credit entity
+(`PAYOUT_CREDIT_ENTITIES`) and a factoring payee (owner ruling 2026-09-26: a
+factor's payout for the invoices it bought; it is flagged, never subtracted). A
+credit is subtracted whenever its revenue decision is financing proceeds,
+whichever rule named the row: a financing group's credit that a transfer or
+insurance-term rule claims first is subtracted too. A premium-finance payee's
+credits keep the insurance credit treatment and are not subtracted. D1 also
+reads three descriptors: the statement bank's
 own line advance (`LOAN CREDIT`), a line-of-credit draw and a per-vehicle
 floor-plan advance. Any other credit whose descriptor names no listed payee (an
 unnamed loan advance, for example) keeps its revenue rule and is not subtracted
@@ -323,7 +340,9 @@ operating-revenue aliases and source types (`OPERATING_REVENUE_SOURCE_ALIASES`,
 module directly.
 
 An alias names the financing business, never a bare platform or a brand that
-also sells goods; the validator refuses both. Cover aliases, OCR variants,
+also sells goods; the validator refuses both. The one place a bare brand or
+card issuer is allowed is a `card_issuer_context` or `bank_name` entity, whose
+rules read it only beside card-payment or loan wording. Cover aliases, OCR variants,
 token boundaries, precedence, both directions, and contribution flags in tests.
 Do not add statement-specific description checks in parsers, metrics, API
 routes, or frontend code.
