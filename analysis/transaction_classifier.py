@@ -14,6 +14,7 @@ from .classification_registry import (
     PAYEE_GROUP_REGISTRIES,
     PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
+    PREMIUM_FINANCE_ALIASES,
 )
 from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_STATE
@@ -209,6 +210,36 @@ def match_verified_lender_alias(description: str) -> tuple[str, str] | None:
 
 def match_insurance_provider(description: str) -> tuple[str, str] | None:
     return registry_match(normalize_transaction_description(description), INSURANCE_PROVIDER_ALIASES)
+
+
+#: The flag group of an insurance row whose insurer is a premium-finance payee
+#: (C1: the one flag group that is not a classification state).
+_PREMIUM_FINANCING_GROUP = "premium_financing"
+
+
+def _insurance_registry_match(text: str) -> tuple[str, str, bool] | None:
+    """Spec §4.3 step 4: the insurer of an insurance row, as (entity, alias, premium_finance).
+
+    Premium-finance payees (`PREMIUM_FINANCE_ALIASES`, spec §4.2) are consulted
+    first, so a premium financier whose name contains an insurer's name is still
+    the premium financier.
+    """
+    premium = registry_match(text, PREMIUM_FINANCE_ALIASES)
+    if premium is not None:
+        return premium[0], premium[1], True
+    insurer = registry_match(text, INSURANCE_PROVIDER_ALIASES)
+    if insurer is not None:
+        return insurer[0], insurer[1], False
+    return None
+
+
+#: Owner decision 2026-09-25 (premium_finance_wording): premium-finance wording on
+#: a row no premium-finance alias claimed is premium financing too. Read by the
+#: insurance rule of `classify_transaction` only; credit revenue reads the registries.
+_PREMIUM_FINANCE_WORDING_PATTERNS = (
+    re.compile(r"\bPREM(?:IUM)? ?FIN(?:ANCE|ANCING)?\b"),
+    re.compile(r"\bINSPREMFIN\b"),
+)
 
 
 _NON_POSTED_PATTERNS = (
@@ -614,9 +645,10 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    insurance_match = registry_match(text, INSURANCE_PROVIDER_ALIASES)
+    # A premium-finance credit keeps the insurance credit treatment (spec §4.2).
+    insurance_match = _insurance_registry_match(text)
     if insurance_match is not None:
-        entity, alias = insurance_match
+        entity, alias, _premium_finance = insurance_match
         return _RevenueDecision(
             "non_revenue",
             entity,
@@ -825,13 +857,17 @@ def _build_record(
     is_posted: bool = True,
     review_required: bool = False,
     contributes_to_lender_credit_exclusion: bool = False,
+    flagged_group: str | None = None,
 ) -> TransactionClassification:
     is_debit = amount < 0
     contributes_lender = classification == "confirmed_lender" and is_debit and is_posted
     contributes_potential = classification == "potential_lender" and is_debit and is_posted
     contributes_insurance = classification == "insurance" and is_debit and is_posted
     flag_group = FLAG_GROUP_BY_STATE.get(classification)
-    contributes_flagged = flag_group is not None and is_debit and is_posted
+    # A flag-group state names its own group. Premium financing is the one group
+    # a rule passes in, on an insurance row (C1, C4).
+    group_key = flag_group.key if flag_group is not None else flagged_group
+    contributes_flagged = group_key is not None and is_debit and is_posted
     revenue = _classify_credit_revenue(
         text,
         amount,
@@ -864,7 +900,7 @@ def _build_record(
         reason=reason,
         is_posted=is_posted,
         review_required=review_required,
-        flagged_group=flag_group.key if flag_group is not None else None,
+        flagged_group=group_key,
         revenue_classification=revenue_state,
         revenue_initial_classification=revenue_state,
         revenue_canonical_entity=revenue.canonical_entity if revenue else None,
@@ -1127,18 +1163,43 @@ def classify_transaction(
             reason="A refund, reversal, void, cancellation, or returned-payment rule matched.",
         )
 
-    insurance_match = registry_match(text, INSURANCE_PROVIDER_ALIASES)
-    if insurance_match is not None:
-        provider, alias = insurance_match
+    insurance_match = _insurance_registry_match(text)
+    # Owner decision 2026-09-25: premium-finance wording on a row no premium-finance
+    # alias claimed is premium financing too, under the insurer when one is named.
+    premium_wording = (insurance_match is None or not insurance_match[2]) and _matches_any(
+        text, _PREMIUM_FINANCE_WORDING_PATTERNS
+    )
+    if insurance_match is not None or premium_wording:
+        provider, alias, premium_finance = insurance_match or ("Insurance provider not identified", None, False)
+        if premium_finance:
+            rule = "premium_finance_provider"
+            reason = (
+                f"Matched maintained premium-finance alias '{alias}'; the row stays insurance "
+                "and is also flagged as premium financing."
+            )
+        elif premium_wording:
+            rule = "premium_finance_descriptor"
+            reason = (
+                "The descriptor says premium finance; the row stays insurance and is also "
+                "flagged as premium financing."
+            )
+        else:
+            rule = "verified_insurance_provider"
+            reason = f"Matched maintained insurance provider alias '{alias}'."
         return _build_record(
             **common,
             classification="insurance",
             canonical_entity=provider,
-            match_method="insurance_provider_alias",
+            match_method="insurance_provider_alias" if alias is not None else "insurance_descriptor",
             matched_alias=alias,
-            matched_rule="verified_insurance_provider",
-            confidence_score=0.99,
-            reason=f"Matched maintained insurance provider alias '{alias}'.",
+            matched_rule=rule,
+            confidence_score=0.99 if alias is not None else 0.95,
+            reason=reason,
+            # Spec §4.2: premium financing keeps the insurance state and the
+            # insurance totals, and also carries its flag, on debits only.
+            flagged_group=(
+                _PREMIUM_FINANCING_GROUP if (premium_finance or premium_wording) and amount < 0 else None
+            ),
         )
 
     if _matches_any(text, _INSURANCE_TERM_PATTERNS):

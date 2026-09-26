@@ -52,3 +52,26 @@ def fake_payees(monkeypatch):
     """Route the classifier's known-payee lookups to FAKE_PAYEES for one test."""
     monkeypatch.setattr(transaction_classifier, "match_known_payee", fake_match)
     return FAKE_PAYEES
+
+
+@pytest.fixture
+def fake_premium_finance(monkeypatch):
+    """Route the insurance rule's two registries to fabricated insurers for one test.
+
+    `FABRICATED INSURER FUNDING` (premium finance) contains the shorter insurer
+    alias `FABRICATED INSURER`, as a premium financier's name can contain an
+    insurer's.
+    """
+    monkeypatch.setattr(
+        transaction_classifier,
+        "INSURANCE_PROVIDER_ALIASES",
+        {"Fabricated Insurer": ("FABRICATED INSURER",)},
+    )
+    monkeypatch.setattr(
+        transaction_classifier,
+        "PREMIUM_FINANCE_ALIASES",
+        {
+            "Fabricated Premium Finance": ("FABRICATED PFC",),
+            "Fabricated Insurer Funding": ("FABRICATED INSURER FUNDING",),
+        },
+    )
