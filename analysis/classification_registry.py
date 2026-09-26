@@ -173,6 +173,11 @@ BARE_BRAND_NAMES: tuple[str, ...] = (
 #: hand-kept-alias rule, and only on a premium_financing entity.
 PREMIUM_FINANCE_INSURER_ALIASES: tuple[str, ...] = ("FIRST INSURANCE",)
 
+#: Owner ruling 2026-09-25: an entity of today's registry (the validator's BASELINE_REVISION) that a ledger
+#: entity absorbs, mapped to that ledger entity. The validator reads the merged entity as held by its target:
+#: it keeps no name of its own, and the aliases it loses need a "Move:" sentence in the target's notes.
+MERGED_REGISTRY_ENTITIES: dict[str, str] = {"EBF HOLDINGS": "EVEREST BUSINESS FUNDING"}
+
 
 # --- Deprecated: the inputs of the classifier as it stands before S2 ---
 # LEGACY_CONFIRMED_LENDER_ALIASES, LEGACY_POTENTIAL_LENDER_ALIASES and

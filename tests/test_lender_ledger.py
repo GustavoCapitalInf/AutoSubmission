@@ -365,8 +365,7 @@ def test_no_problem_ever_quotes_a_run_of_five_or_more_digits(data, rules):
 
 
 def test_validate_withholds_a_digit_run_whichever_rule_would_quote_it(monkeypatch):
-    monkeypatch.setattr(lender_ledger, "baseline_problems",
-                        lambda _entities, _baseline: ["fabricated 12345 and 7777777"])
+    monkeypatch.setattr(lender_ledger, "baseline_problems", lambda *_args: ["fabricated 12345 and 7777777"])
     assert lender_ledger.validate(ledger(), RULES) == [f"fabricated {WITHHELD} and {WITHHELD}"]
 
 
@@ -493,6 +492,75 @@ def test_baseline_moves_list_every_changed_entity_with_its_reason():
                            "Ruledco", "fabricated owner ruling, an alternative position."),
         lender_ledger.Move("Westfen Leasing", "LEASE_PROVIDER_ALIASES", "lease_or_equipment_financing",
                            "lease_or_rental", 0, "Westfen Leasing", ""),
+    ]
+
+
+#: Entity 0 holding the aliases of a fabricated entity of today's registry that the owner merged into it.
+ABSORBED = (0, "aliases", ["QUILLON FUNDING", "QUILLONFUND", "QUILLON HOLDINGS", "QUILLON HLDG"])
+
+
+def _merged(**changes):
+    """RULES whose today's registry also holds 'Quillon Holdings', which the owner merged into 'Quillon Funding'."""
+    baseline = {**BASELINE, "CONFIRMED_LENDER_ALIASES": {
+        **BASELINE["CONFIRMED_LENDER_ALIASES"], "Quillon Holdings": ("QUILLON HOLDINGS", "QUILLON HLDG")}}
+    return dataclasses.replace(RULES, **{"baseline": baseline, "merged": {"Quillon Holdings": "Quillon Funding"},
+                                         **changes})
+
+
+def test_a_merged_entity_of_todays_registry_is_held_by_its_target_under_the_targets_name():
+    assert _problems(ABSORBED, rules=_merged()) == []
+    assert _problems(ABSORBED, rules=_merged(merged={})) == [
+        "the ledger entity holding the first alias of today's 'Quillon Holdings' is named 'Quillon Funding': keep "
+        "today's name (S2's pins and the census compare entity names)"
+    ]
+
+
+def test_the_aliases_a_merge_loses_need_the_targets_move_sentence():
+    assert _problems(rules=_merged()) == [
+        "today's CONFIRMED_LENDER_ALIASES entity 'Quillon Holdings' loses 2 of today's aliases without a sentence "
+        "starting 'Move:' in the notes of 'Quillon Funding', which absorbs it"
+    ]
+    assert _problems((0, "notes", "Move: fabricated merger; the holding company's names print on no row."),
+                     rules=_merged()) == []
+
+
+def test_baseline_moves_list_a_merge_even_when_it_loses_nothing():
+    rules = _merged()
+    moves, missing = lender_ledger.baseline_moves(_entities(ABSORBED), rules.baseline, rules.merged)
+    assert missing == []
+    assert moves == [
+        lender_ledger.Move("Ruledco", "CONFIRMED_LENDER_ALIASES", "confirmed_lender", "alternative_position", 0,
+                           "Ruledco", "fabricated owner ruling, an alternative position."),
+        lender_ledger.Move("Quillon Holdings", "CONFIRMED_LENDER_ALIASES", "confirmed_lender", "confirmed_lender", 0,
+                           "Quillon Funding", "", merged=True),
+        lender_ledger.Move("Westfen Leasing", "LEASE_PROVIDER_ALIASES", "lease_or_equipment_financing",
+                           "lease_or_rental", 0, "Westfen Leasing", ""),
+    ]
+
+
+@pytest.mark.parametrize("merged,problems", [
+    ({"Septima Holdings": "Quillon Funding"},
+     ["MERGED_REGISTRY_ENTITIES merges 'Septima Holdings', which is not an entity of today's registry"]),
+    ({"Heldco Advance": "Heldco Capital"},
+     ["MERGED_REGISTRY_ENTITIES merges 'Heldco Advance' into 'Heldco Capital', which is not a ledger entity",
+      "MERGED_REGISTRY_ENTITIES merges 'Heldco Advance' into 'Heldco Capital', but entity 15 ('Heldco Advance') "
+      "still renders under the merged name"]),
+    ({"Heldco Advance": "Quillon Funding"},
+     ["MERGED_REGISTRY_ENTITIES merges 'Heldco Advance' into 'Quillon Funding', but entity 15 ('Heldco Advance') "
+      "still renders under the merged name",
+      "today's POTENTIAL_LENDER_ALIASES entity 'Heldco Advance' moves from potential_lender to confirmed_lender "
+      "without a sentence starting 'Move:' in the notes of 'Quillon Funding', which absorbs it",
+      "today's POTENTIAL_LENDER_ALIASES entity 'Heldco Advance' loses 1 of today's aliases without a sentence "
+      "starting 'Move:' in the notes of 'Quillon Funding', which absorbs it"]),
+])
+def test_a_merge_names_an_entity_of_todays_registry_that_a_ledger_entity_absorbs(merged, problems):
+    assert _problems(rules=dataclasses.replace(RULES, merged=merged)) == problems
+
+
+def test_no_merge_problem_quotes_a_run_of_five_or_more_digits():
+    assert _problems(rules=dataclasses.replace(RULES, merged={"Septima 7777777": "Tarnmoor 4444444 Capital"})) == [
+        f"MERGED_REGISTRY_ENTITIES merges {WITHHELD}, which is not an entity of today's registry",
+        f"MERGED_REGISTRY_ENTITIES merges {WITHHELD} into {WITHHELD}, which is not a ledger entity",
     ]
 
 

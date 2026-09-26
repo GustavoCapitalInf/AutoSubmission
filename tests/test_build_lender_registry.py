@@ -140,6 +140,13 @@ def test_the_evidence_ledger_states_the_owner_ruling_on_premium_aliases_that_rep
             "no overlap with it awaits a ruling.") in admission
 
 
+def test_the_evidence_ledger_states_how_a_merge_of_the_owner_is_held(evidence):
+    admission = evidence.split("## Admission\n", 1)[1].split("\n## ", 1)[0]
+    assert ("- An entity of that registry that the owner merged into a ledger entity (`MERGED_REGISTRY_ENTITIES`) "
+            "is held by that entity under its name. The moves section shows the merge, and an alias the merge loses "
+            "needs a `Move:` sentence in that entity's notes.") in admission
+
+
 def test_an_insurer_alias_that_a_premium_entity_holds_awaits_no_owner_ruling():
     entities = _entities((13, "aliases", ["BRISK MUTUAL FUNDING", "BRISK MUTUAL"]))
     evidence = builder.render_evidence(entities, "a" * 64, RULES)
@@ -214,6 +221,39 @@ def test_move_lines_and_the_evidence_ledger_never_quote_a_run_of_five_or_more_di
     section = paths["evidence"].read_text(encoding="utf-8").split("## Moves from the registry", 1)[1]
     assert "| Oldco (withheld: a run of digits) Holdings | confirmed_lender | confirmed_lender | 1 |" in section
     assert not re.search(r"\d{5}", "\n".join(moves) + section)
+
+
+def _merge_rules():
+    """RULES whose today's registry also holds 'Quillon Holdings', which the owner merged into 'Quillon Funding'."""
+    baseline = {**BASELINE, "CONFIRMED_LENDER_ALIASES": {
+        **BASELINE["CONFIRMED_LENDER_ALIASES"], "Quillon Holdings": ("QUILLON HOLDINGS", "QUILLON HLDG")}}
+    return dataclasses.replace(RULES, baseline=baseline, merged={"Quillon Holdings": "Quillon Funding"})
+
+
+def test_a_merge_prints_one_move_line_and_shows_in_the_evidence_moves(paths, monkeypatch, capsys):
+    monkeypatch.setattr(lender_ledger, "current_rules", _merge_rules)
+    paths["ledger"].write_text(json.dumps(ledger(
+        (0, "aliases", ["QUILLON FUNDING", "QUILLONFUND", "QUILLON HOLDINGS"]),
+        (0, "notes", "Move: fabricated merger; the short form prints on no row."))), encoding="utf-8")
+    assert builder.main(_args(paths, "--write")) == 0
+    moves = [line for line in capsys.readouterr().out.splitlines() if line.startswith("move: ")]
+    assert ("move: Quillon Holdings (CONFIRMED_LENDER_ALIASES): merged into Quillon Funding; confirmed_lender -> "
+            "confirmed_lender, 1 of today's aliases lost; why: fabricated merger; the short form prints on no "
+            "row.") in moves
+    assert len(moves) == 3
+    section = paths["evidence"].read_text(encoding="utf-8").split("## Moves from the registry", 1)[1]
+    assert ("| Quillon Holdings | confirmed_lender | confirmed_lender (merged into Quillon Funding) | 1 | fabricated "
+            "merger; the short form prints on no row. |") in section
+
+
+def test_a_merge_that_loses_nothing_needs_no_reason(paths, monkeypatch, capsys):
+    monkeypatch.setattr(lender_ledger, "current_rules", _merge_rules)
+    paths["ledger"].write_text(json.dumps(ledger(
+        (0, "aliases", ["QUILLON FUNDING", "QUILLONFUND", "QUILLON HOLDINGS", "QUILLON HLDG"]))), encoding="utf-8")
+    assert builder.main(_args(paths, "--check")) == 0
+    assert ("move: Quillon Holdings (CONFIRMED_LENDER_ALIASES): merged into Quillon Funding; confirmed_lender -> "
+            "confirmed_lender, 0 of today's aliases lost; why: none needed (the owner's merge, "
+            "MERGED_REGISTRY_ENTITIES)") in capsys.readouterr().out.splitlines()
 
 
 def test_check_prints_every_problem_and_exits_1(paths, capsys):
@@ -306,3 +346,12 @@ def test_the_premium_insurer_spellings_are_hand_kept_insurer_aliases_that_the_va
     ruled = frozenset(normalize(spelling) for spelling in registry.PREMIUM_FINANCE_INSURER_ALIASES)
     assert ruled and ruled <= insurers
     assert lender_ledger.current_rules().premium_insurer_aliases == ruled
+
+
+def test_the_merged_entities_are_entities_of_todays_registry_that_the_validator_reads():
+    from analysis import classification_registry as registry
+
+    rules = lender_ledger.current_rules()
+    today = {name for table in rules.baseline.values() for name in table}
+    assert registry.MERGED_REGISTRY_ENTITIES and set(registry.MERGED_REGISTRY_ENTITIES) <= today
+    assert rules.merged is registry.MERGED_REGISTRY_ENTITIES

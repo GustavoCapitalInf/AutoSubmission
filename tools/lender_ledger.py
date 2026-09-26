@@ -18,7 +18,8 @@ The validator applies:
     PREMIUM_FINANCE_INSURER_ALIASES holds it;
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
     reason: a sentence of its notes that starts "Move:" (today's registry is read from git at
-    BASELINE_REVISION).
+    BASELINE_REVISION); an entity the owner merged into a ledger entity (MERGED_REGISTRY_ENTITIES) is held by
+    that entity, whose notes give the reason.
 """
 from __future__ import annotations
 
@@ -189,12 +190,14 @@ class Rules:
     baseline: Mapping[str, Mapping[str, tuple[str, ...]]]
     #: Normalized premium-finance spellings that may equal a hand-kept insurer alias (owner ruling).
     premium_insurer_aliases: frozenset[str]
+    #: Entity of today's registry -> the ledger entity that absorbs it (owner ruling).
+    merged: Mapping[str, str]
 
 
 @dataclass(frozen=True)
 class Move:
-    """An entity of today's registry whose place or aliases the ledger changes. ``reason`` is the text of the
-    holder's "Move:" sentence, or "" when its notes have none."""
+    """An entity of today's registry whose place or aliases the ledger changes, or that the owner merged into
+    ``holder``. ``reason`` is the text of the holder's "Move:" sentence, or "" when its notes have none."""
 
     entity: str
     table: str
@@ -203,6 +206,7 @@ class Move:
     lost: int
     holder: str
     reason: str
+    merged: bool = False
 
 
 # --- reading -------------------------------------------------------------------------------------------------
@@ -383,54 +387,94 @@ def _holders(entities: list[LedgerEntity]) -> dict[str, LedgerEntity]:
     return held
 
 
-def baseline_moves(entities: list[LedgerEntity],
-                   baseline: Mapping[str, Mapping[str, tuple[str, ...]]]) -> tuple[list[Move], list[tuple[str, str]]]:
+def _by_name(entities: list[LedgerEntity]) -> dict[str, LedgerEntity]:
+    """Each entity name's first ledger entity (a name used twice is refused by the name rules)."""
+    named: dict[str, LedgerEntity] = {}
+    for entity in entities:
+        named.setdefault(entity.entity, entity)
+    return named
+
+
+def baseline_moves(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
+                   merged: Mapping[str, str] | None = None) -> tuple[list[Move], list[tuple[str, str]]]:
     """(moves, missing). A move is an entity of today's lists whose place changes or that loses an alias; the
-    ledger entity holding its first alias (else most of its aliases) decides. Missing are the (table, entity)
-    pairs of today's lists that no ledger entity holds an alias of."""
+    ledger entity holding its first alias (else most of its aliases) decides. An entity the owner merged
+    (``merged``, MERGED_REGISTRY_ENTITIES) is held by its target ledger entity instead, and is always a move.
+    Missing are the (table, entity) pairs of today's lists that no ledger entity holds an alias of."""
+    merged = merged or {}
     held = _holders(entities)
+    named = _by_name(entities)
     moves: list[Move] = []
     missing: list[tuple[str, str]] = []
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
             normalized = list(dict.fromkeys(normalize(alias) for alias in aliases))
+            target = named.get(merged[name]) if name in merged else None
             holders = [held[alias] for alias in normalized if alias in held]
-            if not holders:
+            if target is not None:
+                primary = target
+            elif not holders:
                 missing.append((table, name))
                 continue
-            primary = held.get(normalized[0]) or max(holders, key=lambda e: (holders.count(e), -e.index))
+            else:
+                primary = held.get(normalized[0]) or max(holders, key=lambda e: (holders.count(e), -e.index))
             kept = {normalize(alias) for alias in primary.aliases} if primary.status in RENDERED else set()
             lost = sum(1 for alias in normalized if alias not in kept)
             move = Move(name, table, BASELINE_STATE[table], primary.place, lost, primary.entity,
-                        move_reason(primary.notes))
-            if move.now != move.was or move.lost:
+                        move_reason(primary.notes), merged=target is not None)
+            if move.merged or move.now != move.was or move.lost:
                 moves.append(move)
     return moves, missing
 
 
-def baseline_problems(entities: list[LedgerEntity],
-                      baseline: Mapping[str, Mapping[str, tuple[str, ...]]]) -> list[str]:
-    moves, missing = baseline_moves(entities, baseline)
+def _merge_problems(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
+                    merged: Mapping[str, str]) -> list[str]:
+    """MERGED_REGISTRY_ENTITIES names an entity of today's lists, merged into a ledger entity; no rendered ledger
+    entity keeps the merged name."""
+    today = {name for table in BASELINE_TABLES for name in baseline.get(table, {})}
+    named = _by_name(entities)
+    problems = []
+    for name, target in merged.items():
+        if name not in today:
+            problems.append(f"MERGED_REGISTRY_ENTITIES merges {_shown(name)}, which is not an entity of today's "
+                            f"registry")
+        if target not in named:
+            problems.append(f"MERGED_REGISTRY_ENTITIES merges {_shown(name)} into {_shown(target)}, which is not a "
+                            f"ledger entity")
+        kept = named.get(name)
+        if kept is not None and kept.status in RENDERED:
+            problems.append(f"MERGED_REGISTRY_ENTITIES merges {_shown(name)} into {_shown(target)}, but "
+                            f"{_label(kept)} still renders under the merged name")
+    return problems
+
+
+def baseline_problems(entities: list[LedgerEntity], baseline: Mapping[str, Mapping[str, tuple[str, ...]]],
+                      merged: Mapping[str, str] | None = None) -> list[str]:
+    merged = merged or {}
+    moves, missing = baseline_moves(entities, baseline, merged)
     marked = f"a sentence starting {MOVE_MARKER!r} in its notes"
-    problems = [f"today's {table} entity {_shown(name)} is in no ledger entity: record it in its place, or moved "
-                f"or rejected with {marked}" for table, name in missing]
+    problems = _merge_problems(entities, baseline, merged)
+    problems += [f"today's {table} entity {_shown(name)} is in no ledger entity: record it in its place, or "
+                 f"moved or rejected with {marked}" for table, name in missing]
     held = _holders(entities)
     for table in BASELINE_TABLES:
         for name, aliases in baseline.get(table, {}).items():
             first = held.get(normalize(aliases[0]))
-            if first is not None and first.entity != name:
+            if name not in merged and first is not None and first.entity != name:
                 problems.append(f"the ledger entity holding the first alias of today's {_shown(name)} is named "
                                 f"{_shown(first.entity)}: keep today's name (S2's pins and the census compare "
                                 f"entity names)")
     for move in moves:
         if move.reason:
             continue
+        needs = (f"a sentence starting {MOVE_MARKER!r} in the notes of {_shown(move.holder)}, which absorbs it"
+                 if move.merged else marked)
         if move.now not in UNRULED_PLACES[move.table]:
             problems.append(f"today's {move.table} entity {_shown(move.entity)} moves from {move.was} to "
-                            f"{move.now} without {marked}")
+                            f"{move.now} without {needs}")
         if move.lost:
             problems.append(f"today's {move.table} entity {_shown(move.entity)} loses {move.lost} of today's "
-                            f"aliases without {marked}")
+                            f"aliases without {needs}")
     return problems
 
 
@@ -601,7 +645,7 @@ def _unmasked_problems(data: object, rules: Rules) -> list[str]:
         problems.extend(_entity_problems(entity, rules, held))
     problems.extend(_collision_problems(entities))
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
-    problems.extend(baseline_problems(entities, rules.baseline))
+    problems.extend(baseline_problems(entities, rules.baseline, rules.merged))
     return problems
 
 
@@ -673,4 +717,5 @@ def current_rules() -> Rules:
         },
         baseline=load_baseline(),
         premium_insurer_aliases=frozenset(normalize(name) for name in registry.PREMIUM_FINANCE_INSURER_ALIASES),
+        merged=registry.MERGED_REGISTRY_ENTITIES,
     )
