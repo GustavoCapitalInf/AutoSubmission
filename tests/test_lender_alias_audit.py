@@ -204,6 +204,21 @@ def test_review_separates_denied_matches_from_undecided_matches_that_need_review
     assert [(row["alias"], row["key"], row["needs_review"]) for row in undecided] == [("OXBOW", "OXBOW LOAN", True)]
 
 
+def test_an_allow_of_the_no_payee_words_key_holds_only_for_the_entity_it_names():
+    # The final review of S1: every no-name descriptor of every alias shares the one placeholder key, so an allow of
+    # that key alone would allow it for every alias and entity.
+    placeholder = audit_tool.NO_PAYEE_WORDS
+    row = audit_tool.CachedRow("c" * 64, "ORIG CO NAME 7777777 ORIG ID QUILLON FUNDING", -10.0, "other")
+    report = audit_tool.audit([row], PASSES)
+    for allow in ({"key": placeholder, "why": "channel words only"},
+                  {"alias": "QUILLON FUNDING", "key": placeholder},
+                  {"entity": "Oxbow Bank", "key": placeholder}):
+        undecided = audit_tool.review(report, {"deny": [], "allow": [allow]})[1]
+        assert [(row["entity"], row["key"]) for row in undecided] == [("Quillon Funding", placeholder)], allow
+    assert audit_tool.review(report, {"deny": [], "allow": [{"entity": "Quillon Funding", "key": placeholder}]}) == (
+        [], [])
+
+
 def _run(tmp_path, monkeypatch, decisions, *extra, passes=PASSES, data_dir=None):
     monkeypatch.setattr(audit_tool, "default_passes", lambda: passes)
     review_file = tmp_path / "local" / "review.json"

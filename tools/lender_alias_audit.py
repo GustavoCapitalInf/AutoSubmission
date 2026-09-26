@@ -123,7 +123,8 @@ PRET PROCEEDS PROGRAM PYMNT PYMNTS PYMT RECURRING REMIT RETAIL RLS SCHEDULED SER
 THE TYPE US USA WEB WITHDRAWAL
 """.split())
 #: The payee key of a descriptor in which no name word survives: a fixed placeholder, never descriptor text
-#: (which may carry an account number). ``needs_review`` flags it, so every such match gets a decision.
+#: (which may carry an account number). ``needs_review`` flags it, so every such match gets a decision. Every
+#: no-name descriptor of every alias shares it, so an allow of it holds only for the entity it names.
 NO_PAYEE_WORDS = "<no payee words>"
 
 
@@ -325,7 +326,8 @@ def needs_review(alias: str, entity: str, key: str) -> bool:
 
 def review(report: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
     """(denied, undecided): the taken matches a deny decision names, and the taken matches that need review and
-    have no decision. Each is {state, alias, entity, key, rows, taken_rows, analyses, needs_review}."""
+    have no decision. Each is {state, alias, entity, key, rows, taken_rows, analyses, needs_review}. An allow of
+    NO_PAYEE_WORDS decides only a match of the entity it names; without an entity it decides nothing."""
     denied: list[dict] = []
     undecided: list[dict] = []
     for state, aliases in report.items():
@@ -339,7 +341,9 @@ def review(report: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
                 if any(_fires(d, alias, entry["entity"], key) for d in decisions.get("deny", [])):
                     denied.append(row)
                 elif row["needs_review"] and not any(
-                        _fires(a, alias, entry["entity"], key) for a in decisions.get("allow", [])):
+                        _fires(a, alias, entry["entity"], key)
+                        and (key != NO_PAYEE_WORDS or a.get("entity") is not None)
+                        for a in decisions.get("allow", [])):
                     undecided.append(row)
     return denied, undecided
 
