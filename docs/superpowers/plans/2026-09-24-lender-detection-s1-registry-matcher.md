@@ -66,9 +66,9 @@ S1-specific constraints:
 - **The numbered Ontario company's number is never written anywhere:** not in code, tests, the ledger, a commit message or a report to the owner.
   - The validator refuses a run of five or more digits outside a URL, unless today's registry already holds that exact alias, and its messages never quote such a run.
   - A URL could still carry the number. The company is not searched anywhere, by rule (spec §5), so Task 9's content test requires its entity to have no evidence and no `where_looked`.
-- **Commits.** Each commit step gives the exact `git add` paths and the subject, which names no statement value. The attribution lines follow as a second `-m`, as in the S2 plan:
-  - The `Co-Authored-By` line is fixed for an Opus 5.5 (1M context) cell.
-  - The `Claude-Session` URL belongs to the session that commits. Take it from that session's system reminder, and put it where the step shows `<the Claude-Session URL from your system reminder>`.
+- **Commits.** Each commit step gives the exact `git add` paths and the subject, which names no statement value. The attribution line follows as a second `-m`:
+  - It is `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`, the orchestrator's instruction to every S1 cell (amended 2026-09-26).
+  - The first commits of Tasks 1-8 were made under the earlier instruction: an `Opus 5.5 (1M context)` line and a `Claude-Session` line. The commit blocks now show the current line.
 - Commands are PowerShell, run from the repository root of the S1 branch.
 - Every S1 file is ASCII-only. Non-ASCII characters in code are built with `chr()`.
 
@@ -196,7 +196,7 @@ S1-specific constraints:
 | `tools/bench_classifier.py` | Create | The legacy matcher (reference), the fabricated 300-row statement, `measure()`. |
 | `tools/lender_ledger.py` | Create | C10: the ledger's schema, validator and table rendering; today's registry from git; the premium/insurer overlaps; the privacy review; `current_rules()`. |
 | `tools/build_lender_registry.py` | Create | C10's command line (`--check`, `--write`, `--privacy-review`); renders the GENERATED block and the evidence ledger. |
-| `docs/lender-registry-ledger.json` | Consumed | The C10 ledger. The orchestrator commits it and every revision of it; S1 never edits it. Task 9 brings it onto the branch when it is only on `lender-detection`, and brings a revised ledger when Task 10 Step 4 leads to one. |
+| `docs/lender-registry-ledger.json` | Consumed | The C10 ledger. The orchestrator commits it and every revision of it; S1 never edits it. Task 9 brings it onto the branch when it is only on `lender-detection`, and brings a revised ledger when Task 10 Step 4, or a stop in Task 9, leads to one. |
 | `docs/lender-registry-evidence.md` | Create (rendered) | The evidence ledger (spec §5). |
 | `tools/lender_alias_audit.py` | Create | The local, read-only alias-collision audit, which replays the rule order over the artifact cache and, with `--before`, finds the rows a ledger change took from an entity. |
 | `tests/test_flag_groups.py` | Create | C1. |
@@ -254,10 +254,15 @@ The amended steps give Task 5 128 tests, Task 6 14, Task 7 Step 8 160, Task 8 23
 
 The amended steps give Task 5 140 tests, Task 6 15, Task 7 Step 8 176, Task 8 23 (unchanged) and 243 for every S1 test so far; the three selections keep their baseline counts.
 
+**After the review of Task 9's first run (2026-09-26).** Task 9 stopped at Step 7 on a person's name in the ledger, and nothing was committed. The review found that Step 7 left URLs out of the review, and that the report understated what the evidence page shows. Task 9's steps are amended; no code changed, and every count stands:
+- Step 7 reviews every field, URLs and quoted page titles included, reads every distinct URL, and reports each finding with whether the evidence page shows it;
+- a stop at Step 2, 7 or 8 resumes through the rerun path of Step 1, which now checks the revised ledger against the ledger in the index, so the check also works before Task 9's commit exists (Steps 1, 3 and 11);
+- the prerequisite's digest is that of the committed ledger, and the attribution line is the orchestrator's (Global Constraints, "Commits").
+
 ## Prerequisite: the curated ledger (Task 9 starts only when both hold)
 
 1. The orchestrator's consolidation workflow has produced `docs/lender-registry-ledger.json` (C10). It is committed on `lender-detection` or on this branch.
-2. The owner has read the rendered lender list, and the orchestrator says so in the message that starts Task 9. For a revised ledger (Task 10 Step 4), the owner has read the changed entities.
+2. The owner has read the rendered lender list, and the orchestrator says so in the message that starts Task 9. For a revised ledger (Task 10 Step 4, or a stop in Task 9), the owner has read the changed entities.
 
 If either is missing, S1 stops after Task 8 and reports `Task 9 blocked: ledger absent` or `Task 9 blocked: owner read not confirmed` to the orchestrator. Tasks 1-8 need neither.
 
@@ -278,8 +283,8 @@ Expected output:
 
 The owner reads `$preview\lender-registry-evidence.md`. Its first table section is the lender list, and the moves and the entities awaiting a ruling follow. A ledger with problems prints `problem:` lines, exits `1` and writes nothing.
 
-**The ledger of the owner's delegated rulings of 2026-09-25.** The owner read the counted lender list on 2026-09-25 and delegated every open question to the orchestrator; the orchestrator's decisions are owner rulings, and the ledger carries them. Rendered with this branch's tools at `b69d12e` in a scratch clone, it printed:
-- `ledger ok: 1085 entities, sha256:cdcd7ecabd83621d88e0359b36b5cb1b0033076ebd39cf386142f32cf70dabdf`;
+**The ledger of the owner's delegated rulings of 2026-09-25.** The owner read the counted lender list on 2026-09-25 and delegated every open question to the orchestrator; the orchestrator's decisions are owner rulings, and the ledger carries them. Rendered with this branch's tools at `b69d12e` in a scratch clone, it printed (the digest amended 2026-09-26 to the ledger `lender-detection` holds, `0933763`; the digest written here before did not belong to any committed revision, and the counts are unchanged):
+- `ledger ok: 1085 entities, sha256:4aa854faeeddbc751c369229d742f9957aed4980b5cde7613293ac7370e855fd`;
 - 58 `move:` lines, among them `EBF HOLDINGS` `merged into EVEREST BUSINESS FUNDING`, SmartPay's `SMARTPAY SOL reattributed to SmartPay Solutions, LLC`, and `CAPITAL INFUSION` `confirmed_lender -> alternative_position`;
 - `LENDER_ALIASES: 286 entities, 505 aliases`, `ALTERNATIVE_POSITION_ALIASES: 54 entities, 94 aliases`, `LINE_OF_CREDIT_ALIASES: 14 entities, 21 aliases`, `CARD_ISSUER_ALIASES: 41 entities, 115 aliases`, `CARD_ISSUER_CONTEXT_ALIASES: 58 entities, 105 aliases`, `VEHICLE_FINANCE_ALIASES: 48 entities, 115 aliases`, `MORTGAGE_SERVICER_ALIASES: 35 entities, 48 aliases`, `LEASE_RENTAL_ALIASES: 32 entities, 65 aliases`, `PERSONAL_LOAN_ALIASES: 78 entities, 126 aliases`, `FLOOR_PLAN_ALIASES: 8 entities, 18 aliases`, `FACTORING_ALIASES: 13 entities, 21 aliases`, `PREMIUM_FINANCE_ALIASES: 21 entities, 47 aliases`, `BANK_NAME_ALIASES: 34 entities, 51 aliases`, `POTENTIAL_LENDER_ALIASES: 110 entities, 128 aliases`;
 - `0`.
@@ -524,8 +529,7 @@ Expected: `test_flag_groups.py` 5 passed. `test_no_statement_hardcodes.py` fails
 
 ```powershell
 git add analysis/flag_groups.py tests/test_flag_groups.py
-git commit -m "analysis: the eleven flag group constants (contract C1)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "analysis: the eleven flag group constants (contract C1)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -845,8 +849,7 @@ Expected: the same counts: `404 passed`; `146 passed, 1 failed` (the known failu
 
 ```powershell
 git add analysis/classification_registry.py analysis/transaction_classifier.py tests/test_classification_registry_groups.py
-git commit -m "registry: group tables (contract C2) beside the unchanged lists the classifier still reads" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "registry: group tables (contract C2) beside the unchanged lists the classifier still reads" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1283,8 +1286,7 @@ Expected: everything passes except the known `test_no_literal_account_numbers_in
 
 ```powershell
 git add analysis/description_text.py analysis/payee_matcher.py analysis/transaction_classifier.py tools/bench_classifier.py tests/test_payee_matcher.py
-git commit -m "analysis: compiled known-payee matcher (contract C3); normalization in its own module" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "analysis: compiled known-payee matcher (contract C3); normalization in its own module" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1549,8 +1551,7 @@ Expected: the same counts as the baseline: `404 passed`; `146 passed, 1 failed` 
 
 ```powershell
 git add analysis/transaction_classifier.py tools/bench_classifier.py tests/test_classifier_speed.py
-git commit -m "classifier: registry lookups through the compiled index (spec 4.6 speed, no classification change)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "classifier: registry lookups through the compiled index (spec 4.6 speed, no classification change)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3304,8 +3305,7 @@ Expected: 140 passed. `test_the_baseline_revision_holds_the_lists_the_classifier
 
 ```powershell
 git add tools/lender_ledger.py tests/lender_ledger_fixture.py tests/test_lender_ledger.py
-git commit -m "tools: curated lender ledger schema and validator (contract C10)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "tools: curated lender ledger schema and validator (contract C10)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3751,8 +3751,7 @@ Expected: 15 passed.
 
 ```powershell
 git add tools/build_lender_registry.py tests/test_build_lender_registry.py
-git commit -m "tools: deterministic rendering of the lender registry and its evidence ledger" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "tools: deterministic rendering of the lender registry and its evidence ledger" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4378,8 +4377,7 @@ Expected, while the ledger is not on the branch: `refused: <repository>\docs\len
 
 ```powershell
 git add analysis/classification_registry.py tools/lender_ledger.py tools/build_lender_registry.py tests/test_build_lender_registry.py tests/test_lender_registry_drift.py
-git commit -m "tools: lender ledger command line, hand-kept validator inputs and the drift test (contract C10)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "tools: lender ledger command line, hand-kept validator inputs and the drift test (contract C10)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5042,8 +5040,7 @@ Expected: 243 passed (5 + 21 + 15 + 3 + 140 + 33 + 3 + 23), or `3 failed, 240 pa
 
 ```powershell
 git add tools/lender_alias_audit.py tests/test_lender_alias_audit.py
-git commit -m "tools: local alias-collision audit that replays the classifier rule order" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "tools: local alias-collision audit that replays the classifier rule order" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5080,14 +5077,18 @@ Expected: `on this branch`, or `brought from lender-detection`.
 - If it prints `ledger absent`, stop and report `Task 9 blocked: ledger absent` to the orchestrator.
 - If the owner's read is not confirmed, stop and report `Task 9 blocked: owner read not confirmed`.
 
-**On a rerun for a revised ledger** (Task 10 Step 4), the ledger is already on this branch, so the command above brings nothing. The orchestrator's message names the ref that holds the revised ledger, normally `lender-detection`, and confirms that the owner has read the changed entities. Bring it and check that it changed:
+**On a rerun for a revised ledger**, the ledger is already on this branch, so the command above brings nothing. A rerun follows Task 10 Step 4, or a stop at Step 2, 7 or 8 of this task that the orchestrator answers with a revised ledger (amended 2026-09-26). After such a stop, Task 9's commit does not exist yet: the ledger is staged by this step, not committed.
+
+The orchestrator's message names the ref that holds the revised ledger, normally `lender-detection`, and confirms that the owner has read the changed entities. Check that it differs from the ledger on this branch, which the index holds whether it is committed or only staged, then bring it:
 
 ```powershell
+git diff --stat ":docs/lender-registry-ledger.json" "<the ref the orchestrator named>:docs/lender-registry-ledger.json"
 git checkout <the ref the orchestrator named> -- docs/lender-registry-ledger.json
-git diff --cached --stat -- docs/lender-registry-ledger.json
 ```
 
-Expected: ` docs/lender-registry-ledger.json | <n> <+ and ->`, then ` 1 file changed, ...`. If nothing is printed, the ledger did not change: stop, and tell the orchestrator.
+Expected: ` docs/lender-registry-ledger.json | <n> <+ and ->`, then ` 1 file changed, ...`; the checkout prints nothing. If the diff prints nothing, the ledger did not change: stop, and tell the orchestrator. (`git diff --cached` compares with the last commit. Before Task 9's commit, the last commit holds no ledger, so it would print the whole file even for an unchanged ledger.)
+
+Then continue with Step 2. Skip Steps 4 and 5 when `tests/test_lender_registry_content.py` already exists: after Task 9's commit, or after a stop at Step 7 or 8.
 
 - [ ] **Step 2: Validate the ledger**
 
@@ -5099,16 +5100,22 @@ Expected:
 
 Read every `move:` line. Each `why` must be about that move: the place it names, or the aliases it drops. If one is not, stop, and report the line to the orchestrator. The line carries ledger text only. Keep the `move:` lines for the hand-off (Task 10 Step 7).
 
+On a rerun, the digest differs from the previous run's, because the ledger changed. Read every `move:` line again, and keep the new ones for the hand-off.
+
 If it exits `1`, stop, and report the `problem:` lines and the count to the orchestrator:
 - The lines quote ledger names and aliases, which are the orchestrator's committed data, and they never quote a digit run.
-- Do not edit the ledger to make it pass. The orchestrator fixes the ledger, and you rerun this task from Step 2.
+- Do not edit the ledger to make it pass. The orchestrator fixes the ledger. Bring the revised ledger through the rerun path of Step 1, then rerun this task from Step 2.
 
 - [ ] **Step 3: Watch the drift test fail**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_registry_drift.py -q -p no:cacheprovider`
 Expected: `3 failed`. The committed block is still the rendering of the empty ledger, and the evidence ledger does not exist yet.
 
-On a rerun for a revised ledger, the committed files are the rendering of the previous ledger. At least `test_the_evidence_ledger_is_the_rendering_of_the_committed_ledger` fails, because the ledger's digest changed. The two block tests also fail when the revision changed a table. Skip Steps 4 and 5 on a rerun: the content test already exists.
+On a rerun for a revised ledger after Task 9's commit, the committed files are the rendering of the previous ledger. At least `test_the_evidence_ledger_is_the_rendering_of_the_committed_ledger` fails, because the ledger's digest changed. The two block tests also fail when the revision changed a table.
+
+On a rerun after a stop at Step 2, 7 or 8, before Task 9's commit exists, the committed files are still the rendering of the empty ledger: expect `3 failed`, as on the first run.
+
+Skip Steps 4 and 5 when the content test already exists (Step 1 says when).
 
 - [ ] **Step 4: Write the content test**
 
@@ -5395,7 +5402,7 @@ git checkout -- analysis/classification_registry.py; if (git ls-files docs/lende
 
 It restores the committed block, and it restores the committed evidence ledger, or removes the file when none is committed yet.
 
-- [ ] **Step 7: Privacy review of every committed name**
+- [ ] **Step 7: Privacy review of every committed name and URL**
 
 Run: `C:\Python314\python.exe -m tools.build_lender_registry --privacy-review`
 
@@ -5405,17 +5412,35 @@ It prints two kinds of line, for every entity of every status:
 
 For the ledger of the owner's rulings of 2026-09-25 it printed 597 lines.
 
-Read every line. Then read `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md` from start to end. Look for:
-- a person's or a customer's name, in an entity, an alias, `notes` or an evidence note;
-- an alias that does not name its payee, such as an entry description, a loan-type code or channel words;
-- anything copied from a statement: amounts, dates, account, reference or card numbers, or descriptor text.
+The tool reads names and aliases only. The rest of the review is a person's read (amended 2026-09-26: the first run missed names in URLs). Read every line. Then read `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md` from start to end. Then read every distinct URL of the ledger. This command prints them sorted; for the ledger of the owner's rulings of 2026-09-25 it printed 5,917:
 
-Company names, their spellings, truncations and initialisms are expected.
+```powershell
+C:\Python314\python.exe -c "import json; d = json.load(open('docs/lender-registry-ledger.json', encoding='utf-8')); print('\n'.join(sorted({u for e in d['entities'] for u in [x['source'] for x in e['evidence']] + e['where_looked']})))"
+```
+
+Look for:
+- a person's or a customer's name, in any field of any entity:
+  - an entity, an alias, `notes` or an evidence note, including a page title or a court caption that a note quotes;
+  - a URL, which is an evidence `source` or a `where_looked` entry. Names reach URLs through profile and people pages, personal blogs, court-caption and enforcement-action slugs that name an individual, and news or press-release slugs that name a person;
+  - a public official's name in a government press-release slug, such as an attorney general's. Report it like any other name until the orchestrator rules otherwise;
+- an alias that does not name its payee, such as an entry description, a loan-type code or channel words;
+- anything copied from a statement: amounts, dates, account, reference or card numbers, or descriptor text, including a customer's own label for a payee.
+
+Company names, their spellings, truncations and initialisms are expected. This includes a company named after a person, such as a law firm or a dealer group, and a business named in a court caption.
 
 If you find anything:
 1. Undo the render (the command at the end of Step 6).
 2. Stop.
-3. Report the entity's index in the ledger and the field to the orchestrator, never the text.
+3. Report each finding to the orchestrator, never the text:
+   - the entity's index in the ledger;
+   - the field, such as `notes`, `evidence[2].note`, `evidence[2].source` or `where_looked[8]`;
+   - whether the evidence page shows it. The page shows each entity's name, `notes` and first source (`evidence[0].source`), the aliases of each entity in a table (`admitted` or `review`), and each `where_looked` entry of an entity that is not `admitted`. Evidence notes, the other sources, and an admitted entity's `where_looked` are in the ledger only.
+4. The orchestrator fixes the ledger, and confirms that the owner has read the changed entities. Resume through the rerun path of Step 1:
+   - bring the revised ledger (Step 1);
+   - check it (Step 2);
+   - watch the drift tests fail (Step 3);
+   - skip Steps 4 and 5, because the content test exists;
+   - continue from Step 6.
 
 - [ ] **Step 8: Run the tests to verify they pass**
 
@@ -5425,7 +5450,7 @@ Expected: 114 passed (75 + 3 + 21 + 15; amended to the owner's rulings of 2026-0
 If a content test fails:
 1. Undo the render (the command at the end of Step 6). Step 3 then fails as it did before the render.
 2. Stop, and report the test id to the orchestrator with the fact it checks. Each test maps to one item of "Prerequisite: the curated ledger", or to one of S2's facts.
-3. The orchestrator fixes the ledger. Bring the revised ledger (Step 1), then rerun this task from Step 2, skipping Steps 4 and 5 because the content test already exists.
+3. The orchestrator fixes the ledger, and confirms that the owner has read the changed entities. Bring the revised ledger through the rerun path of Step 1, then rerun this task from Step 2, skipping Steps 4 and 5 because the content test already exists.
 
 Never edit the ledger, the rendered block or the test to make it pass.
 
@@ -5453,19 +5478,20 @@ Each check, and the evidence for it:
 | The committed files are the rendering of the ledger | the three drift tests |
 | S2's facts | the S2 Task-0 cases of the content test; the Econolease, CMCA Finance and Lily Advance lender cases; the review-tier cases |
 | The owner's rulings of 2026-09-25: BlueVine without the bare alias, SmartPay Leasing and SmartPay Solutions, the EBF merge, the payout-credit entities, and the other delegated filings | `test_bluevine_is_bluevine_capital_and_bluevine_loan_without_the_bare_alias`; `test_smartpay_is_smartpay_leasing_and_smartpay_sol_is_claimed_by_no_table`; `test_ebf_holdings_is_merged_into_everest_business_funding_and_counts_once`; `test_the_payout_credit_entities_are_admitted_financing_payees_whose_debits_keep_their_group`; `test_the_owner_delegated_rulings_of_2026_09_25_file_each_payee_in_its_place` |
-| Privacy | Step 7 read in full; `test_no_digit_run_of_five_or_more_reaches_the_ledgers_outside_urls_and_todays_aliases`; `test_the_numbered_ontario_company_waits_for_the_owner_unsearched_and_without_its_number` |
+| Privacy | Step 7 read in full: its lines, both files, and every distinct URL; `test_no_digit_run_of_five_or_more_reaches_the_ledgers_outside_urls_and_todays_aliases`; `test_the_numbered_ontario_company_waits_for_the_owner_unsearched_and_without_its_number` |
 
 - [ ] **Step 11: Commit**
 
 ```powershell
 git add docs/lender-registry-ledger.json analysis/classification_registry.py docs/lender-registry-evidence.md tests/test_lender_registry_content.py
-git commit -m "registry: lender tables and evidence ledger rendered from the curated ledger (contract C10)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-Claude-Session: <the Claude-Session URL from your system reminder>"
+git commit -m "registry: lender tables and evidence ledger rendered from the curated ledger (contract C10)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 `git add` of an unchanged ledger adds nothing, which is expected when the ledger was already on the branch.
 
-On a rerun for a revised ledger, use the same `git add` line with the subject `registry: re-render the lender tables from the revised curated ledger (contract C10)`. The content test is already committed, so `git add` adds nothing for it.
+On a rerun for a revised ledger after Task 9's commit, use the same `git add` line with the subject `registry: re-render the lender tables from the revised curated ledger (contract C10)`. The content test is already committed, so `git add` adds nothing for it.
+
+On a rerun after a stop at Step 2, 7 or 8, Task 9's commit does not exist yet, so this is the first commit: use the block above as it stands. Its `git add` stages the revised ledger and the content test with the rendered files.
 
 ---
 
