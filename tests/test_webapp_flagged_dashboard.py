@@ -703,3 +703,10 @@ def test_the_dashboard_labels_every_flag_group_as_the_analysis_does():
     assert [group.key for group in FLAG_GROUPS if group.state is None] == ["premium_financing"]
     assert [group.state for group in FLAG_GROUPS
             if group.state is not None and f"\n    {group.state}: {{ label: " not in source] == []
+
+
+# ---------------------------------------------------------------- Task 12: browsers fetch the new script
+
+def test_the_page_asks_browsers_for_the_new_script():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    assert '<script src="/static/app.js?v=lender-detection-1"></script>' in html
