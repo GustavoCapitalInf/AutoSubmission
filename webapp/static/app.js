@@ -124,6 +124,7 @@ const els = {
   appearanceToggle: document.getElementById("appearanceToggle"),
   allAccountsToggle: document.getElementById("allAccountsToggle"),
   accountsPanel: document.getElementById("accountsPanel"),
+  rulesOutdatedNotice: document.getElementById("rulesOutdatedNotice"),
 };
 
 let currentJobId = null;
@@ -1227,6 +1228,7 @@ function setInitialState() {
   currentDocument = null;
   selectedAccountIndex = null;
   hideAccountsPanel();
+  syncRulesOutdatedNotice(null);
   if (els.transactionCard) els.transactionCard.style.display = "block";
   renderMetricSections(emptyMetricSections);
   renderAccountSummary(accountFieldRows());
@@ -2056,6 +2058,9 @@ function renderUnverifiedMain(published, roster, entry) {
   // account stands in for it; the verified ones stay one setting away.
   const report = currentDocument;
   setInitialState();
+  // setInitialState hid the notice; this statement's own analysis decides it. Re-analysis concerns the whole saved
+  // statement, so the notice stays while the main account's metrics are withheld.
+  syncRulesOutdatedNotice(report);
   currentDocument = report;
   currentAnalysis = null;
   setProgress(false);
@@ -2415,10 +2420,20 @@ function setReviewCount(value) {
   els.reviewCount.hidden = count <= 0;
 }
 
+// A saved statement analysed with older lender rules says so (the server sets analysis_rules_outdated when it serves
+// it), beside its Re-analyze button; a package or a statement of the current rules shows nothing. Kept in the block
+// that tests/test_webapp_accounts_view.py runs with only the accounts panel: every element is looked up null-safe.
+function syncRulesOutdatedNotice(report) {
+  if (!els.rulesOutdatedNotice) return;
+  els.rulesOutdatedNotice.hidden = !(report && report.analysis_rules_outdated === true);
+}
+
 function renderAnalysis(report) {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
   const published = publishedAccounts(report);
   const roster = accountRoster(report);
+  // A payload with no account to show draws no statement, so it keeps no notice either.
+  syncRulesOutdatedNotice(published.length ? report : null);
   if (!published.length) {
     // Three other consumers read `.statement` off `currentAnalysis` (the summary button and both transaction
     // renderers), so a payload with no account to show must never reach them.
@@ -3037,6 +3052,7 @@ function renderPackageAnalysis(pkg) {
   currentDocument = null;
   selectedAccountIndex = null;
   hideAccountsPanel();
+  syncRulesOutdatedNotice(null);
   els.resultsContent?.classList.remove("is-withheld");
   currentAnalysis = { package: pkg };
   currentMarkdown = "";

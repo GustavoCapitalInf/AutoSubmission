@@ -565,7 +565,14 @@
   .results-content:not(.is-package) .package-only { display: none !important; }
   /* A statement whose main account was not verified: its metrics are withheld, so only the header, the accounts
      and the summary stay on the page until the user picks another verified account (Settings > All accounts). */
-  .results-content.is-withheld > :not(.hero):not(.accounts-panel):not(.summary-panel) { display: none !important; }
+  .results-content.is-withheld > :not(.hero):not(.accounts-panel):not(.summary-panel):not(.rules-outdated) { display: none !important; }
+  .rules-outdated {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 14px 20px;
+    border-color: var(--amber); background: var(--amber-soft);
+  }
+  .rules-outdated[hidden] { display: none; }
+  .rules-outdated-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+  .rules-outdated-text strong { font-weight: 600; }
 
   /* ---------- accounts of a statement that holds several ---------- */
   .accounts-panel[hidden] { display: none; }
@@ -1164,6 +1171,15 @@
               Generate summary
             </button>
           </div>
+        </section>
+
+        <!-- A saved statement analysed with older lender rules (analysis_rules_outdated, set when it is served). -->
+        <section class="panel rules-outdated single-only" id="rulesOutdatedNotice" aria-labelledby="rulesOutdatedTitle" hidden>
+          <p class="rules-outdated-text">
+            <strong id="rulesOutdatedTitle">Analysed with older lender rules.</strong>
+            Its lenders and flagged positions follow the rules it was analysed with, not the current ones.
+          </p>
+          <button class="btn-quiet" type="button" id="reanalyzeButton">Re-analyze</button>
         </section>
 
         <!-- The accounts of a statement that holds several: the main account first, the others with All accounts -->

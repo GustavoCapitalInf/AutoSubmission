@@ -624,3 +624,59 @@ await settle(); await settle();
 console.log(JSON.stringify({filter: transactionFilter, count: els.transactionCount.textContent}));
 """)
     assert result == {"filter": "flagged:credit_cards", "count": "1 Credit cards"}
+
+
+# ---------------------------------------------------------------- Task 10: the outdated-rules notice
+
+@needs_node
+def test_the_notice_shows_only_on_a_statement_analysed_with_older_rules():
+    document = {"document": {"account_count": 2}, "accounts": [_statement(), _statement()],
+                "analysis_rules_outdated": True}
+    # A payload with no account to show draws no statement (renderAnalysis's "published no account" path).
+    empty = {"document": {"account_count": 1}, "accounts": [], "analysis_rules_outdated": True}
+    result = run_dashboard(_serve(old=_statement(outdated=True), current=_statement(outdated=False),
+                                  saved=_statement(), doc=document, empty=empty) + """
+const atStart = els.rulesOutdatedNotice.hidden;
+const open = async (id) => {
+  currentJobId = id; currentJobIds = [id]; loadResults(id); await settle(); return els.rulesOutdatedNotice.hidden;
+};
+const old = await open('old'), current = await open('current'), saved = await open('saved'), doc = await open('doc');
+await open('old');
+const empty = await open('empty');
+await open('old');
+currentJobIds = ['a', 'b']; renderPackageAnalysis(""" + json.dumps({**PACKAGE, "analysis_rules_outdated": True}) + """);
+console.log(JSON.stringify({atStart, old, current, saved, doc, empty, package: els.rulesOutdatedNotice.hidden}));
+""")
+    assert result == {"atStart": True, "old": False, "current": True, "saved": True, "doc": False, "empty": True,
+                      "package": True}
+
+
+@needs_node
+def test_the_notice_stays_on_a_statement_whose_main_account_is_withheld():
+    """Re-analysis concerns the whole saved statement, so the notice stays while the main account's metrics are
+    withheld: with All accounts off, with it on, and once a verified account of the statement is picked."""
+    from tests.test_webapp_studio_views import _all_accounts, _document, _select
+
+    held = {**_document("held"), "analysis_rules_outdated": True}
+    open_held = """
+const state = () => ({withheld: els.resultsContent.classList.contains('is-withheld'),
+  hidden: els.rulesOutdatedNotice.hidden});
+currentJobId = 'held'; currentJobIds = ['held']; loadResults('held'); await settle();
+const held = state();
+"""
+    off = run_dashboard(_all_accounts("off") + _serve(held=held) + open_held
+                        + "console.log(JSON.stringify({held}));\n")
+    on = run_dashboard(_all_accounts("on") + _serve(held=held) + open_held + _select(0)
+                       + "console.log(JSON.stringify({held, picked: state()}));\n")
+    assert off == {"held": {"withheld": True, "hidden": False}}
+    assert on == {"held": {"withheld": True, "hidden": False}, "picked": {"withheld": False, "hidden": False}}
+
+
+def test_the_notice_carries_its_words_and_the_re_analyze_button():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    notice = html[html.index('id="rulesOutdatedNotice"'):]
+    notice = notice[:notice.index("</section>")]
+    assert "Analysed with older lender rules" in notice and 'id="reanalyzeButton"' in notice
+    assert notice.split(">")[0].rstrip().endswith("hidden")  # hidden until a served analysis says otherwise
+    # The withheld view hides every other panel; the notice is exempt (the node test above shows it stays shown).
+    assert ":not(.rules-outdated)" in html
