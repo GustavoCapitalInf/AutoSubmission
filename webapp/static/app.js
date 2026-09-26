@@ -111,6 +111,7 @@ const els = {
   statementModalAccount: document.getElementById("statementModalAccount"),
   statementModalLenders: document.getElementById("statementModalLenders"),
   statementModalInsurance: document.getElementById("statementModalInsurance"),
+  statementModalFlagged: document.getElementById("statementModalFlagged"),
   statementModalRevenue: document.getElementById("statementModalRevenue"),
   statementModalTransactions: document.getElementById("statementModalTransactions"),
   statementModalTransactionCount: document.getElementById("statementModalTransactionCount"),
@@ -3393,6 +3394,13 @@ function openStatementModal(memberId) {
       </tr>
     `;
   }
+  if (els.statementModalFlagged) {
+    els.statementModalFlagged.innerHTML = `
+      <tr>
+        <td colspan="5"><strong>Loading</strong></td>
+      </tr>
+    `;
+  }
   if (els.statementModalRevenue) {
     els.statementModalRevenue.innerHTML = `
       <tr>
@@ -3452,6 +3460,13 @@ function openStatementModal(memberId) {
           </tr>
         `;
       }
+      if (els.statementModalFlagged) {
+        els.statementModalFlagged.innerHTML = `
+          <tr>
+            <td colspan="5"><strong>Unable to load statement</strong></td>
+          </tr>
+        `;
+      }
       if (els.statementModalRevenue) {
         els.statementModalRevenue.innerHTML = `
           <tr>
@@ -3502,6 +3517,7 @@ function renderStatementModal(jobId, report, markdown) {
     els.statementModalAccount.innerHTML = "";
     els.statementModalLenders.innerHTML = "";
     els.statementModalInsurance.innerHTML = "";
+    els.statementModalFlagged.innerHTML = "";
     els.statementModalRevenue.innerHTML = "";
     els.statementModalTransactions.innerHTML = "";
     els.statementModalTransactionCount.textContent = "";
@@ -3531,6 +3547,7 @@ function renderStatementModal(jobId, report, markdown) {
     els.statementModalAccount.innerHTML = "";
     els.statementModalLenders.innerHTML = "";
     els.statementModalInsurance.innerHTML = "";
+    els.statementModalFlagged.innerHTML = "";
     els.statementModalRevenue.innerHTML = "";
     els.statementModalTransactions.innerHTML = "";
     els.statementModalTransactionCount.textContent = "";
@@ -3614,6 +3631,10 @@ function renderStatementModal(jobId, report, markdown) {
           <td>${glassChip("INS", "Clear", "green")}</td>
         </tr>
       `;
+  }
+  if (els.statementModalFlagged) {
+    els.statementModalFlagged.innerHTML = flaggedPositionRowsHtml(
+      flaggedPositionEntries(detection.flagged_positions), currency, false);
   }
   if (els.statementModalRevenue) {
     els.statementModalRevenue.innerHTML = revenueEvidenceRowsHtml(metrics, currency, true);
@@ -4442,6 +4463,17 @@ if (els.flaggedTable) {
     setTransactionFilterButtons("[data-transaction-filter]", "flagged");
     renderMainTransactions();
     els.transactionCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+if (els.statementModalFlagged) {
+  els.statementModalFlagged.addEventListener("click", (event) => {
+    const selection = lenderEvidenceSelection(event);
+    if (!selection) return;
+    modalTransactionFilter = selection.filter;
+    modalTransactionEntityFilter = selection.entity;
+    setTransactionFilterButtons("[data-modal-transaction-filter]", "flagged");
+    renderModalTransactions();
+    els.statementModalTransactions?.closest(".modal-panel")?.scrollIntoView({ block: "start" });
   });
 }
 

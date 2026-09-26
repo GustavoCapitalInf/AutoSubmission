@@ -421,3 +421,40 @@ console.log(JSON.stringify({{panel, vehicle, premium: click('premium_financing',
                                  "count": f"{premium[2]} FABRICATED PREMIUM FINANCE",
                                  "dates": ["2031-02-04", "2031-02-18"]}
     assert (premium[0], premium[2]) == ("Premium financing", "2")
+
+
+# ---------------------------------------------------------------- Task 6: the panel in the statement window
+
+@needs_node
+def test_the_statement_window_shows_the_flagged_positions_and_a_payee_click_filters_its_ledger():
+    result = run_dashboard(CELLS + ROWS + PAYEE_CLICK + _serve(m=_statement(), old=_statement(positions=None)) + """
+openStatementModal('m');
+const loading = els.statementModalFlagged.innerHTML;
+await settle();
+const rows = cells(els.statementModalFlagged.innerHTML);
+clickPayee(els.statementModalFlagged, 'mortgages', 'FABRICATED MORTGAGE CO');
+const filtered = {filter: modalTransactionFilter, count: els.statementModalTransactionCount.textContent,
+  dates: datesOf(els.statementModalTransactions.innerHTML)};
+openStatementModal('old'); await settle();
+const old = cells(els.statementModalFlagged.innerHTML);
+openStatementModal('gone'); await settle();
+console.log(JSON.stringify({loading, rows, filtered, old, failed: els.statementModalFlagged.innerHTML}));
+""")
+    assert "<strong>Loading</strong>" in result["loading"]
+    assert result["rows"] == [
+        ["Credit cards", "Credit cards", "1", "CA$300.00", "Single payment"],
+        ["Mortgages", "FABRICATED MORTGAGE CO", "2", "CA$2,400.00", "Every two weeks2031-03-03 to 2031-03-17"],
+    ]
+    assert result["filtered"] == {"filter": "flagged:mortgages", "count": "2 FABRICATED MORTGAGE CO",
+                                  "dates": ["2031-03-03", "2031-03-17"]}
+    # Saved before flagged positions existed: the window says so, never that no ticked group was paid.
+    assert result["old"] == [[NOT_AVAILABLE]]
+    assert "<strong>Unable to load statement</strong>" in result["failed"]
+
+
+def test_the_statement_window_has_its_own_flagged_table():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    modal = html[html.index('id="statementModalBackdrop"'):]
+    table = modal[:modal.index('<tbody id="statementModalFlagged">')]
+    table = table[table.rindex("<table"):]
+    assert re.findall(r"<th[^>]*>([^<]*)</th>", table) == ["Group", "Payee", "Count", "Total", "Cadence"]
