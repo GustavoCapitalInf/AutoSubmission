@@ -9,6 +9,7 @@ direct source evidence for a lender either side detected.
 from __future__ import annotations
 
 import re
+from typing import Any, Iterable
 
 
 def _norm(name: str) -> str:
@@ -49,13 +50,6 @@ LEDGER_TOKENS: dict[str, tuple[str, ...]] = {
     "US SMALL BUSINESS ADMINISTRATION": ("sba", "small business administration"),
 }
 
-#: Canonical lenders that are financing counterparties but not MCA funders -
-#: the documented scope difference between our general lender detection and
-#: MT's MCA-specific list (FIELD_MAPPING section 4).
-NON_MCA_SCOPE: frozenset[str] = frozenset(
-    {"AFFIRM", "SNAP FINANCE", "US SMALL BUSINESS ADMINISTRATION"}
-)
-
 
 def canonical_lender(name: str | None) -> str:
     if not name:
@@ -67,6 +61,28 @@ def canonical_lender(name: str | None) -> str:
         if normalized.startswith(alias) or alias.startswith(normalized):
             return canonical
     return normalized
+
+
+def flagged_lender_groups(detections: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Canonical key -> {"group", "count", "total"} over ``detection.flagged_positions``.
+
+    Replaces the old NON_MCA_SCOPE set (owner ruling 2026-09-24): a
+    counterparty our payload carries as a flagged position is outside lender
+    math by ruling, so a MoneyThumb lender that matches one is reported as
+    flagged here, never as a miss.
+    """
+    flagged: dict[str, dict[str, Any]] = {}
+    for detection in detections:
+        for position in detection.get("flagged_positions") or []:
+            canonical = canonical_lender(position.get("payee"))
+            entry = flagged.setdefault(
+                canonical, {"group": position.get("group"), "count": 0, "total": 0.0}
+            )
+            entry["count"] += int(position.get("count") or 0)
+            entry["total"] = round(
+                entry["total"] + abs(float(position.get("total_debited") or 0.0)), 2
+            )
+    return flagged
 
 
 def ledger_tokens(canonical: str) -> tuple[str, ...]:
