@@ -510,6 +510,11 @@ function contributesToPotentialTotals(tx) {
   return record.contributes_to_potential_lender_count === true;
 }
 
+// A row of a flagged group ticked in Settings: the server marks it (flag_shown) when it serves the analysis.
+function flaggedChip(tx) {
+  return transactionClassification(tx).flag_shown === true ? glassChip("FLG", "Flagged", "blue", "flag-chip") : "";
+}
+
 function filterTransactions(transactions, filter, canonicalEntity = null) {
   let matched = transactions;
   if (filter === "nsf") matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
@@ -517,6 +522,7 @@ function filterTransactions(transactions, filter, canonicalEntity = null) {
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
   if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");
+  if (filter === "flagged") matched = transactions.filter((tx) => transactionClassification(tx).flag_shown === true);
   if (["verified_revenue", "unverified_deposit", "non_revenue"].includes(filter)) {
     matched = transactions.filter(
       (tx) => transactionClassification(tx).revenue_classification === filter
@@ -707,7 +713,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
         <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
-        <td>${glassChip(category.glyph, category.label, category.tone)}${reviewReasonHtml}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${flaggedChip(tx)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
         <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
