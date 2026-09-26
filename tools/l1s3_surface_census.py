@@ -154,6 +154,8 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "the flag groups are served per account ledger; every account is tagged, a malformed document passes untouched"),
     ("analysis/nsf_days.py", "apply_nsf_basis_to_payload", "per_account",
      "the NSF basis is a property of one account's ledger; every account is re-based, a malformed document passes untouched"),
+    ("webapp/reanalysis.py", "replay_reviews", "per_account",
+     "a decision names one posting of one account; every account is searched through payload_accounts"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -178,6 +180,7 @@ EXCUSED: dict[str, str] = {
     "benchmark/ourside.py::statement": "one account's view, reached only through the taught `_account`",
     "webapp/app.py::_statement_currency": "one MEMBER's currency; members come from the taught `_package_members`",
     "webapp/app.py::_package_analysis": "reads one MEMBER's account payload, supplied by `_package_members`",
+    "webapp/reanalysis.py::_records": "one ACCOUNT's records; `replay_reviews` hands it each account from `payload_accounts`",
     # A developer utility that publishes nothing. Handed a document payload it
     # falls back to the payload itself and `Statement.model_validate` refuses
     # it loudly, which is the fail-closed answer this census asks for.

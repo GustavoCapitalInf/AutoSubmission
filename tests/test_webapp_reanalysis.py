@@ -122,3 +122,161 @@ def test_the_review_writer_writes_nothing_when_it_refuses(location, decision, re
     with pytest.raises(refusal):
         record_serialized_revenue_review(analysis, source_location=location, decision=decision)
     assert analysis == before
+
+
+# --- replaying the analyst's decisions ------------------------------------------------------------------------------
+
+# The same statement read under new rules, where one deposit now prints another amount: the row at that location is
+# no longer the posting the analyst decided.
+CHANGED_ROWS = [(day, text, 250.0) if text == "DEPOSIT FABRICATED TWO" else (day, text, amount)
+                for day, text, amount in ROWS]
+# The same statement with one more row read near the top: every later posting moved one location down.
+SHIFTED_ROWS = [ROWS[0], (3, "DEPOSIT FABRICATED EARLY", 50.0), *ROWS[1:]]
+# Two deposits alike but for their day; then the same statement where the first of them prints another amount.
+TWIN_ROWS = [ROWS[0], (4, "DEPOSIT FABRICATED TWIN", 300.0), (6, "DEPOSIT FABRICATED TWIN", 300.0), *ROWS[3:]]
+TWIN_CHANGED_ROWS = [ROWS[0], (4, "DEPOSIT FABRICATED TWIN", 350.0), *TWIN_ROWS[2:]]
+
+
+def _decision(row_id, analysis, location, decision, account=1):
+    """A `review_decisions` row as `JobStore.review_history` returns it, its prior state the record in `analysis`."""
+    return {"id": row_id, "job_id": "fabricated-job", "source_location": location, "decision": decision,
+            "actor": "local-analyst", "decided_at": DECIDED_AT,
+            "prior_state": json.dumps(_records(analysis, account)[location])}
+
+
+def _alike_in_both_accounts():
+    """`_two_accounts()` where the savings account's second row is the checking account's second deposit, printed
+    under the savings account's own number: one location, description and amount in two accounts."""
+    from analysis.revenue import rebuild_serialized_revenue_views
+
+    payload = _two_accounts()
+    checking, savings = (account["statement"]["transactions"] for account in payload["accounts"])
+    row = copy.deepcopy(checking[1])
+    row["classification"]["account"] = savings[1]["classification"]["account"]
+    savings[1] = row
+    return rebuild_serialized_revenue_views(payload)
+
+
+def test_a_decision_is_replayed_where_its_posting_is_unchanged():
+    from webapp.reanalysis import replay_reviews
+
+    old, new = _payload(), _payload()
+    before = new["metrics"]["verified_revenue_total"]
+    replay = replay_reviews(new, [_decision(7, old, "transaction:2", "confirm")])
+    assert (replay.replayed, replay.not_replayed, replay.decided_by_rules) == ((7,), (), ())
+    record = _records(replay.analysis)["transaction:2"]
+    assert (record["revenue_review_status"], record["revenue_classification"]) == ("confirmed", "verified_revenue")
+    assert replay.analysis["metrics"]["verified_revenue_total"] == before + 300.0
+    assert new["metrics"]["verified_revenue_total"] == before  # the analysis handed in is left as it was
+    # The decision keeps the time the analyst made it, on the row and on every copy of its record.
+    assert record["revenue_reviewed_at"] == DECIDED_AT
+    copies = [item for item in replay.analysis["classifications"] if item["source_location"] == "transaction:2"]
+    assert [item["revenue_reviewed_at"] for item in copies] == [DECIDED_AT]
+
+
+def test_a_decision_is_not_replayed_where_the_row_at_its_location_changed():
+    from webapp.reanalysis import replay_reviews
+
+    old = _payload()
+    changed = replay_reviews(_payload(CHANGED_ROWS), [_decision(8, old, "transaction:3", "reject")])
+    assert (changed.replayed, changed.not_replayed) == ((), (8,))
+    assert _records(changed.analysis)["transaction:3"]["revenue_review_status"] == "pending"
+    # The posting still exists one row further down. A location names a row, so the decision does not follow it.
+    shifted = replay_reviews(_payload(SHIFTED_ROWS), [_decision(9, old, "transaction:2", "confirm")])
+    assert (shifted.replayed, shifted.not_replayed) == ((), (9,))
+    records = _records(shifted.analysis)
+    assert records["transaction:2"]["revenue_review_status"] == "pending"
+    assert records["transaction:3"]["revenue_review_status"] == "pending"
+
+
+def test_a_posting_s_latest_decision_is_replayed_and_a_reset_needs_nothing():
+    from webapp.reanalysis import replay_reviews
+
+    old = _payload()
+    history = [_decision(1, old, "transaction:2", "confirm"), _decision(2, old, "transaction:4", "confirm"),
+               _decision(3, old, "transaction:2", "reject"), _decision(4, old, "transaction:4", "reset")]
+    replay = replay_reviews(_payload(), history)
+    assert (replay.replayed, replay.not_replayed) == ((3,), ())
+    records = _records(replay.analysis)
+    assert records["transaction:2"]["revenue_review_status"] == "rejected"
+    assert records["transaction:4"]["revenue_review_status"] == "pending"
+
+
+def test_each_account_gets_its_own_decisions_back():
+    from webapp.reanalysis import replay_reviews
+
+    old = _two_accounts()
+    history = [_decision(1, old, "transaction:2", "confirm", account=2),
+               _decision(2, old, "transaction:2", "reject", account=1)]
+    replay = replay_reviews(_two_accounts(), history)
+    assert (replay.replayed, replay.not_replayed) == ((1, 2), ())
+    assert _records(replay.analysis, 2)["transaction:2"]["revenue_review_status"] == "confirmed"
+    assert _records(replay.analysis, 1)["transaction:2"]["revenue_review_status"] == "rejected"
+
+
+def test_a_posting_two_accounts_hold_alike_is_not_guessed():
+    from webapp.reanalysis import replay_reviews
+
+    old, new = _two_accounts(), _two_accounts()
+    new["accounts"][1] = copy.deepcopy(new["accounts"][0])  # both accounts now print the same row at the same place
+    replay = replay_reviews(new, [_decision(3, old, "transaction:2", "confirm", account=1)])
+    assert (replay.replayed, replay.not_replayed) == ((), (3,))
+
+
+def test_a_decision_never_follows_its_posting_into_another_account():
+    """The account number is part of what a decision was made on: a deposit alike in two accounts is two postings."""
+    from webapp.reanalysis import replay_reviews
+
+    old, new = _alike_in_both_accounts(), _alike_in_both_accounts()
+    # The savings account's deposit now prints another amount; the checking account's, alike before, is unchanged.
+    changed = new["accounts"][1]["statement"]["transactions"][1]
+    changed["amount"] = changed["classification"]["amount"] = 350.0
+    replay = replay_reviews(new, [_decision(4, old, "transaction:2", "confirm", account=2)])
+    assert (replay.replayed, replay.not_replayed) == ((), (4,))
+    assert _records(replay.analysis, 1)["transaction:2"]["revenue_review_status"] == "pending"
+
+
+@pytest.mark.parametrize("prior_state", [None, "not a record", "[1, 2]"])
+def test_a_decision_whose_prior_state_cannot_be_read_is_not_replayed(prior_state):
+    from webapp.reanalysis import replay_reviews
+
+    history = [{"id": 1, "source_location": "transaction:2", "decision": "confirm", "decided_at": DECIDED_AT,
+                "prior_state": prior_state},
+               {"id": 2, "source_location": "transaction:3", "decision": "reset", "decided_at": DECIDED_AT,
+                "prior_state": prior_state}]
+    replay = replay_reviews(_payload(), history)
+    assert (replay.replayed, replay.not_replayed, replay.decided_by_rules) == ((), (1,), ())
+
+
+def test_a_decision_that_cannot_be_applied_leaves_the_analysis_as_it_was():
+    from webapp.reanalysis import replay_reviews
+
+    old, new = _payload(), _payload()
+    # Another credit of the account has lost its classification record: rebuilding the revenue views refuses, after
+    # the decision was already written onto its row.
+    new["statement"]["transactions"][0]["classification"] = None
+    before = copy.deepcopy(new)
+    replay = replay_reviews(new, [_decision(7, old, "transaction:2", "confirm")])
+    assert (replay.replayed, replay.not_replayed) == ((), (7,))
+    assert replay.analysis == before and new == before
+
+
+def test_every_decision_is_replayed_onto_one_copy_rebuilt_once(monkeypatch):
+    """The replay runs under the statement's review lock, so its cost must not grow with the decisions times the
+    statement: one copy of the analysis takes every decision, and its revenue views are rebuilt once, after the
+    last."""
+    import webapp.reanalysis as reanalysis
+
+    old = _payload()
+    rebuilds, copies = [], []
+    rebuild, deepcopy = reanalysis.rebuild_serialized_revenue_views, reanalysis.deepcopy
+    monkeypatch.setattr(reanalysis, "rebuild_serialized_revenue_views",
+                        lambda analysis: rebuilds.append(1) or rebuild(analysis))
+    monkeypatch.setattr(reanalysis, "deepcopy", lambda value: copies.append(1) or deepcopy(value))
+    history = [_decision(1, old, "transaction:2", "confirm"), _decision(2, old, "transaction:3", "reject"),
+               _decision(3, old, "transaction:4", "confirm")]
+    replay = reanalysis.replay_reviews(_payload(), history)
+    assert (replay.replayed, len(rebuilds), len(copies)) == ((1, 2, 3), 1, 1)
+    records = _records(replay.analysis)
+    assert [records[f"transaction:{number}"]["revenue_review_status"] for number in (2, 3, 4)] == [
+        "confirmed", "rejected", "confirmed"]
