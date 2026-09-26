@@ -118,7 +118,7 @@ S1-specific constraints:
    - **Today's registry (spec §9 and S2's prerequisite 9).**
      - Every entity of today's three lists is held by a ledger entity: the one holding its first alias, else most of its aliases, else the one that keeps its name (amended after the review of the owner's ruling: an entity that keeps today's name but none of today's aliases has lost them all, and was wrongly reported as in no ledger entity).
      - The entity holding its first alias keeps today's name, because S2's pins and the census compare entity names.
-     - A change of place, or a lost alias of today's registry, needs a reason: a sentence of `notes` that starts `Move:` (`MOVE_MARKER`). Any other text in `notes` does not count, so an unrelated note never excuses a move. An entry of the lease list may become a lender, a lease or rental, or vehicle financing without one (spec §4.1).
+     - A change of place, or a lost alias of today's registry, needs a reason: a sentence of `notes` that starts `Move:` (`MOVE_MARKER`). Any other text in `notes` does not count, so an unrelated note never excuses a move. The sentence must name a reason, a word before it ends (amended after the final review of S1, 2026-09-26: `Move: .` counted). An entry of the lease list may become a lender, a lease or rental, or vehicle financing without one (spec §4.1).
      - **Merges (the owner's ruling of 2026-09-25, amended).** The hand-kept `MERGED_REGISTRY_ENTITIES` maps an entity of today's registry to the ledger entity that absorbs it (`EBF HOLDINGS` into `EVEREST BUSINESS FUNDING`). The validator treats the merged entity as held by its target: the "keeps today's name" rule does not apply to it, it is never missing, and its lost aliases, like a change of place, need a `Move:` sentence in the target's notes. It refuses a key that is not an entity of today's lists, a target that is not a ledger entity, and a rendered ledger entity that still carries the merged name (the target has not absorbed it).
        - The merge's reason is the target's `Move:` sentence, the same one that explains the target's own moves, so the orchestrator writes that sentence about the merge.
      - **Reattributions (the owner's ruling of 2026-09-25, amended after its review).** The hand-kept `REATTRIBUTED_REGISTRY_ALIASES` maps an alias of today's registry that names a company other than today's entity to the ledger entity of that company (`SMARTPAY SOL` to `SmartPay Solutions, LLC`). Without it no ledger could carry out the SmartPay ruling: holding that first alias, SmartPay Solutions would have to keep today's name `SmartPay`, and it would take today's SmartPay to its own place. The validator leaves the alias out of today's entity: it does not decide which ledger entity holds the entity, it is not the entity's first alias for the name rule, and it is not counted as lost. It refuses an alias that is not an alias of today's lists, a target that is not a ledger entity or does not hold the alias, and a rendered registry that reads the alias, without context, as any entity other than its target: the known-payee matcher, else the potential table. So today's entity cannot keep a shorter alias that still reads it (bare `SMARTPAY` would read `SMARTPAY SOL` as SmartPay).
@@ -154,6 +154,8 @@ S1-specific constraints:
    - or the key shares no word with the alias.
 
    `--strict` fails until every such pair has a decision. The earlier draft's seed file is gone with its builder: C10 puts the collisions the research found into the ledger, as dropped aliases with their reason in `notes`. The review rule catches a business with the same name word, such as `QUILLON BAKERY` for the alias `QUILLON`.
+   - **Credits (amended after the final review of S1, 2026-09-26).** A match is taken when S2's rule order gives the row to the alias, and a credit follows S2's credit rule (`_classify_credit_revenue`), which reads the credit's own words whatever rule stored the row. After a return or reversal and an insurer, a financing group's payee takes the credit, unless the payee is a `PAYOUT_CREDIT_ENTITIES` entity, and else the potential registry takes it out of revenue. So a potential alias on another business's revenue deposits needs review like one on its debits. A credit that the bank-name or card-context rule (debits only) matches, or a payee outside the financing groups or a payout-credit entity, goes on to the potential registry.
+   - **The no-payee-words key.** Every descriptor of every alias in which no name word survives has the key `NO_PAYEE_WORDS`, so an allow of that key decides only a match of the entity it names; without `entity` it decides nothing.
 10. **Denials go to the orchestrator; S1 never edits the ledger.** C10 makes the orchestrator the ledger's only producer. An alias that S1 dropped itself would have three problems:
     - it would bypass the owner's read of the rendered list;
     - it would leave one agent deciding every collision;
@@ -180,6 +182,7 @@ S1-specific constraints:
 15. **Rows lost to a ledger change.** A deny decides one pair (alias A, payee key K). The ledger carries it out by dropping or narrowing A, which affects every key A matched. If A was also the only alias that matched some of the entity's own rows, those real lender rows are lost. That is the missed-lender failure of spec §1.
     - `lost_matches(before, after, decisions)` compares two audit reports of the same cache. It totals the taken rows per (entity, payee key) in each report, leaving out the rows of denied pairs from the earlier one. It returns every pair whose total fell, with both totals.
     - `--before <earlier report>` prints `lost matches: <n>` and one `LOST` line per pair, writes them to the report, and fails the audit when any exists.
+    - "The same cache" is checked (amended after the final review of S1, 2026-09-26). Each report records the cache it read (`cache`: the `--limit`, the analyses read, the unreadable ones, and a digest of the analyses and their artifacts' bytes), and `--before` refuses (`2`) a report of another read. A report written before this record has none, and is refused too: it was also written under the earlier credit rule, so it would show every payout-credit entity's credits as lost.
     - A loss the orchestrator intends is recorded as a deny on the entity and the key, `{"entity": E, "key": K, "why": "orchestrator ruling <date>: ..."}`. From then on the audit also fails if the entity takes that key again.
     - Payee keys appear only on the terminal and in the local report, as they already do for `COLLISION` lines.
 
@@ -258,6 +261,18 @@ The amended steps give Task 5 140 tests, Task 6 15, Task 7 Step 8 176, Task 8 23
 - Step 7 reviews every field, URLs and quoted page titles included, reads every distinct URL, and reports each finding with whether the evidence page shows it;
 - a stop at Step 2, 7 or 8 resumes through the rerun path of Step 1, which now checks the revised ledger against the ledger in the index, so the check also works before Task 9's commit exists (Steps 1, 3 and 11);
 - the prerequisite's digest is that of the committed ledger, and the attribution line is the orchestrator's (Global Constraints, "Commits").
+
+**After the final review of S1 (2026-09-26).** The independent final review found one Important defect in the audit, and Minor ones that it said to fix before Task 10. Each was fixed test-first, and the code blocks of Tasks 5 and 8 are amended to the committed code (each task says so):
+- the audit counts the credits that S2's credit rule gives a financing payee or the potential registry, and lets a credit that a payout-credit entity, a payee outside the financing groups, or the bank-name or card-context rule matches go on to the potential registry (Decision 9);
+- the audit refuses a cache it cannot read, `--strict` fails while an analysis is unreadable, and each report records the cache read, so `--before` refuses a report of another read (Decision 15);
+- an allow of the no-payee-words key holds only for the entity it names (Decision 9; Task 10 Step 3);
+- a `Move:` sentence that names no reason does not excuse a move (Decision 3; Task 5).
+
+The amended steps give Task 5 144 tests, Task 7 Step 8 180, Task 8 29 and 253 for every S1 test so far, and Task 9 Step 9 328; the three selections keep their baseline counts. With the ledger `lender-detection` holds (`0933763`) rendered in a scratch clone of this branch:
+- `--check` and `--write` print the same lines as before the fixes, and the rendered files are byte-identical;
+- all 328 S1 tests pass, the three selections keep their baseline counts, and the benchmark measured 36.4x;
+- S2's Task 0 prints `0 failure(s)`, card counts `3` and `0`, and navigant `2`;
+- the audit's counts are in Task 10 Step 2.
 
 ## Prerequisite: the curated ledger (Task 9 starts only when both hold)
 
@@ -1578,6 +1593,8 @@ git commit -m "classifier: registry lookups through the compiled index (spec 4.6
 > - `baseline_moves` holds an entity of today's registry by its name when no ledger entity holds any of its aliases, so `test_an_admitted_or_review_entity_needs_an_alias` now expects a lost alias, not a missing entity.
 >
 > Step 5 counts 140 tests.
+>
+> **Amended after the final review of S1 (2026-09-26).** `move_reason` returns `""` when the `Move:` sentence holds no word before it ends (`_WORDED_SENTENCE`), so `Move: .` no longer excuses a move, whatever `notes` say after it. The reason it returns still runs to the end of `notes`: cutting it at the sentence's end would cut the ledger's own sentences at an abbreviation (`Inc.`), and the rendering of the ledger of the owner's rulings of 2026-09-25 is unchanged, byte for byte. One validator case and three `move_reason` cases are added; Step 5 counts 144 tests.
 
 **Files:**
 - Create: `tools/lender_ledger.py`
@@ -1601,7 +1618,7 @@ git commit -m "classifier: registry lookups through the compiled index (spec 4.6
     - `parse_ledger(data: object) -> tuple[list[LedgerEntity], list[str]]`;
     - `render_tables(entities: list[LedgerEntity]) -> dict[str, dict[str, tuple[str, ...]]]`;
     - `baseline_from_source(source: str) -> dict` and `load_baseline(revision: str = BASELINE_REVISION) -> dict`;
-    - `move_reason(notes: str) -> str`, the text of the `Move:` sentence or `""`;
+    - `move_reason(notes: str) -> str`, the text after the marker of the first `Move:` sentence, to the end of `notes`, or `""` when no sentence starts `Move:` or that sentence holds no word;
     - `baseline_moves(entities, baseline, merged=None, reattributed=None) -> tuple[list[Move], list[tuple[str, str]]]` and `baseline_problems(entities, baseline, merged=None, reattributed=None) -> list[str]`;
     - `owner_named_problems(tables, owner_named) -> list[str]`;
     - `payout_credit_problems(entities, names) -> list[str]`;
@@ -2271,6 +2288,11 @@ def test_an_entity_of_todays_registry_keeps_its_name():
       "personal_loan without a sentence starting 'Move:' in its notes"]),
     ([(8, "group", "confirmed_lender")], []),
     ([(1, "status", "rejected"), (1, "notes", "Fabricated: a funder. Move: the owner ruled it out.")], []),
+    ([(1, "status", "rejected"), (1, "notes", "Move: . Fabricated: a funder the owner ruled out.")],
+     ["today's CONFIRMED_LENDER_ALIASES entity 'Oldco Funding' moves from confirmed_lender to no table without "
+      "a sentence starting 'Move:' in its notes",
+      "today's CONFIRMED_LENDER_ALIASES entity 'Oldco Funding' loses 2 of today's aliases without a sentence "
+      "starting 'Move:' in its notes"]),
 ])
 def test_a_move_or_a_lost_alias_of_todays_registry_needs_a_move_sentence(changes, problems):
     assert _problems(*changes) == problems
@@ -2281,6 +2303,10 @@ def test_a_move_or_a_lost_alias_of_todays_registry_needs_a_move_sentence(changes
     ("Fabricated: a funder. Move: the owner ruled it out.", "the owner ruled it out."),
     ("Fabricated: a funder; Move:  renamed by the owner.", "renamed by the owner."),
     ("Fabricated: see the Move: column.", ""),
+    ("Move: (fabricated) renamed by the owner.", "(fabricated) renamed by the owner."),
+    # The final review of S1: the Move: sentence itself must name a reason, whatever the notes say after it.
+    ("Move: . Fabricated: a funder the owner ruled out.", ""),
+    ("Fabricated: a funder. Move: -- ! The owner ruled it out.", ""),
     ("Move:", ""),
     ("", ""),
 ])
@@ -2637,6 +2663,8 @@ _CARD_PAYMENT_WORDING = re.compile(
 #: starts with this marker. Any other text in notes never excuses a move.
 MOVE_MARKER = "Move:"
 _MOVE_REASON = re.compile(r"(?:^|(?<=[.!?;])\s+)" + re.escape(MOVE_MARKER) + r"\s*(\S.*)", re.DOTALL)
+#: The Move: sentence names a reason: a word before the sentence ends ("Move: ." gives no reason).
+_WORDED_SENTENCE = re.compile(r"[^.!?]*\w")
 #: The last commit that changed today's registry. Today's three lists are read from git at this revision, so
 #: the check survives S2 deleting the legacy lists and no second copy of them is ever committed.
 BASELINE_REVISION = "693fd009c5c96a838ef47b61ba5b65a610ea5ba1"
@@ -2903,9 +2931,10 @@ def load_baseline(revision: str = BASELINE_REVISION) -> dict[str, dict[str, tupl
 
 def move_reason(notes: str) -> str:
     """The reason the ledger records for a move from today's registry: the text after the first sentence of
-    ``notes`` that starts with MOVE_MARKER, or "" when no sentence does."""
+    ``notes`` that starts with MOVE_MARKER, or "" when no sentence does or that sentence holds no word."""
     found = _MOVE_REASON.search(notes)
-    return found.group(1).strip() if found else ""
+    reason = found.group(1).strip() if found else ""
+    return reason if _WORDED_SENTENCE.match(reason) else ""
 
 
 def _holders(entities: list[LedgerEntity]) -> dict[str, LedgerEntity]:
@@ -3299,7 +3328,7 @@ def privacy_review(entities: list[LedgerEntity]) -> list[str]:
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_ledger.py -q -p no:cacheprovider`
-Expected: 140 passed. `test_the_baseline_revision_holds_the_lists_the_classifier_reads_until_s2` reads git. It proves that `BASELINE_REVISION` holds exactly the three lists the classifier reads today.
+Expected: 144 passed. `test_the_baseline_revision_holds_the_lists_the_classifier_reads_until_s2` reads git. It proves that `BASELINE_REVISION` holds exactly the three lists the classifier reads today.
 
 - [ ] **Step 6: Commit**
 
@@ -4365,7 +4394,7 @@ if __name__ == "__main__":
 - [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_ledger.py -q -p no:cacheprovider`
-Expected: 176 passed (33 + 3 + 140). If the ledger is already on the branch, the result is `3 failed, 173 passed`: the three drift tests fail until Task 9 renders the ledger. That is expected; go on.
+Expected: 180 passed (33 + 3 + 144). If the ledger is already on the branch, the result is `3 failed, 177 passed`: the three drift tests fail until Task 9 renders the ledger. That is expected; go on.
 
 Run: `C:\Python314\python.exe -m pytest tests/test_classification_registry_groups.py tests/test_no_statement_hardcodes.py -q -p no:cacheprovider`
 Expected: `1 failed, 104 passed`. The failure is the known `test_no_literal_account_numbers_in_ocr`.
@@ -4385,6 +4414,13 @@ git commit -m "tools: lender ledger command line, hand-kept validator inputs and
 ### Task 8: The alias-collision audit
 
 > **Amended after review (fix round 1, 2026-09-25).** `payee_key` falls back to the fixed `NO_PAYEE_WORDS`, never to descriptor text, which could carry an account number. Step 4 counts 23 tests, and 243 for every S1 test so far (Tasks 5-7 as amended for the owner's ruling of 2026-09-25 and its review).
+>
+> **Amended after the final review of S1 (2026-09-26).** The code blocks below are the fixed code, each fix test-first:
+> - **Credits (Important).** The audit never counted a credit as taken on the potential pass, so a potential alias that takes another business's revenue deposits out of revenue was never reviewed, and `--before` never saw lost credit rows. A credit now follows S2's credit rule (`_classify_credit_revenue`), which reads the credit's own words whatever rule stored the row: after a return or reversal and an insurer (`EARLIER_CREDIT_RULE_STATES`), a financing group's payee takes it unless the payee is a `PAYOUT_CREDIT_ENTITIES` entity, and else the potential registry takes it (`takes(state, row, entity)`). A credit that the bank-name or card-context rule (debits only) matches, or a payee outside the financing groups or a payout-credit entity, goes on to the potential registry (`_decides_credit`). Two tests.
+> - **The cache read.** An empty or unreadable cache exited `0` even with `--strict`. The audit now refuses (`2`) a cache of which no analysis could be read and a database it cannot read, and `--strict` fails while an analysis is unreadable. The report records the read (`cache`: the `--limit`, the analyses read, the unreadable ones and a digest of the analyses and their artifacts' bytes, `CacheRead`), and `--before` refuses a report of another read, including a report written before this record. Three tests.
+> - **The no-payee-words key.** An allow of `NO_PAYEE_WORDS` decides only a match of the entity it names: every no-name descriptor of every alias shares that key. One test.
+>
+> Step 4 counts 29 tests, and 253 for every S1 test so far (Task 5 as amended by the same review).
 
 **Files:**
 - Create: `tools/lender_alias_audit.py`
@@ -4392,24 +4428,25 @@ git commit -m "tools: lender ledger command line, hand-kept validator inputs and
 
 **Interfaces:**
 - Consumes:
-  - `AliasIndex` (Task 3);
-  - `PAYEE_GROUP_REGISTRIES`, `PREMIUM_FINANCE_ALIASES`, `BANK_NAME_ALIASES`, `CARD_ISSUER_CONTEXT_ALIASES` and `POTENTIAL_LENDER_ALIASES` (Task 2's structure, Task 9's content);
+  - `AliasIndex` and `PayeeMatch` (Task 3);
+  - `PAYEE_GROUP_REGISTRIES`, `PREMIUM_FINANCE_ALIASES`, `BANK_NAME_ALIASES`, `CARD_ISSUER_CONTEXT_ALIASES` and `POTENTIAL_LENDER_ALIASES` (Task 2's structure, Task 9's content), and `PAYOUT_CREDIT_ENTITIES` (Task 7);
   - `FINANCING_STATES` (Task 1) and `ORG_CUES` (Task 5);
   - `webapp.artifact_cache.ArtifactCache` (tests only, to write fabricated cache entries).
 - Produces:
-  - `EARLIER_RULE_STATES`, `VOCAB` and `NO_PAYEE_WORDS`;
+  - `EARLIER_RULE_STATES`, `EARLIER_CREDIT_RULE_STATES`, `POTENTIAL_STATE`, `VOCAB` and `NO_PAYEE_WORDS`;
   - `AuditPass(index: AliasIndex, needs: re.Pattern[str] | None = None)`;
   - `CachedRow(analysis: str, description: str, amount: float, stored: str, posted: bool = True)`;
+  - `CacheRead(analyses: list[str], unreadable: list[str])`, with `record(limit) -> dict` (`limit`, `analyses`, `unreadable`, `digest`);
   - `payee_key(text: str) -> str`, which returns `NO_PAYEE_WORDS` when no name word survives, never descriptor text;
   - `default_passes() -> tuple[AuditPass, ...]`, whose five passes are premium financing, the known-payee matcher, the bank name (needs loan wording), the card context (needs card or payment wording) and the potential registry;
-  - `takes(state: str, row: CachedRow) -> bool`;
-  - `cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]`;
+  - `takes(state: str, row: CachedRow, entity: str = "") -> bool`;
+  - `cached_rows(data_dir: Path, limit: int | None = None, read: CacheRead | None = None) -> Iterator[CachedRow]`;
   - `audit(rows, passes) -> dict`, shaped `state -> alias -> {entity, keys: {key: {rows, taken_rows, debit_rows, credit_rows, analyses}}}`;
   - `needs_review(alias: str, entity: str, key: str) -> bool` (Decision 9);
   - `review(report: dict, decisions: dict) -> tuple[list[dict], list[dict]]`, which returns (denied, undecided);
   - `lost_matches(before: dict, after: dict, decisions: dict) -> list[dict]` (Decision 15), each `{entity, key, before, after}`;
-  - `main(argv) -> int`, with the options `--data-dir`, `--review`, `--out`, `--strict`, `--limit` and `--before`, and exit codes 0, 1 and 2. The report file holds `aliases`, `denied`, `undecided` and `lost`.
-  - The review file format: `{"deny": [{"key": str, "alias"?: str, "entity"?: str, "why"?: str}], "allow": [...]}`.
+  - `main(argv) -> int`, with the options `--data-dir`, `--review`, `--out`, `--strict`, `--limit` and `--before`, and exit codes 0, 1 and 2. The report file holds `aliases`, `cache`, `denied`, `undecided` and `lost`.
+  - The review file format: `{"deny": [{"key": str, "alias"?: str, "entity"?: str, "why"?: str}], "allow": [...]}`. An allow of `NO_PAYEE_WORDS` needs `entity`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4420,6 +4457,8 @@ Create `tests/test_lender_alias_audit.py`:
 from __future__ import annotations
 
 import json
+import re
+import sqlite3
 
 import pytest
 
@@ -4520,6 +4559,81 @@ def test_the_audit_replays_the_rule_order_and_counts_only_taken_rows_as_taken(tm
     }
 
 
+#: A fabricated potential alias beside a payout-credit entity, a lease, a bank and a lender (the final review of S1:
+#: the audit never counted the credits the potential registry takes out of revenue).
+CREDIT_PASSES = (
+    audit_tool.AuditPass(AliasIndex({
+        "confirmed_lender": {"Quillon Funding": ("QUILLON FUNDING",)},
+        "alternative_position": {"Meridel Payouts": ("MERIDEL CAPITAL",)},
+        "lease_or_rental": {"Westfen Leasing": ("WESTFEN LEASING",)},
+    })),
+    audit_tool.AuditPass(AliasIndex({"bank_name": {"Oxbow Bank": ("OXBOW",)}}, run_together=False),
+                         audit_tool._LOAN_WORDING),
+    audit_tool.AuditPass(AliasIndex({"potential_lender": {"Tamsin Advance": ("TAMSIN",)}}, run_together=False)),
+)
+CREDIT_ROWS = [
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN BAKERY SALES", 250.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN BAKERY TRANSFER", 90.0, "transfer"),
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN BAKERY INSURANCE CLAIM", 30.0, "insurance"),
+    audit_tool.CachedRow("a" * 64, "ACH MERIDEL CAPITAL TAMSIN PAYOUT", 400.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH MERIDEL CAPITAL LOAN PAYMENT", -60.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH WESTFEN LEASING TAMSIN CREDIT", 20.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH OXBOW LOAN TAMSIN DEPOSIT", 70.0, "other"),
+    audit_tool.CachedRow("a" * 64, "ACH QUILLON FUNDING TAMSIN PROCEEDS", 900.0, "transfer"),
+    audit_tool.CachedRow("a" * 64, "ACH TAMSIN ADVANCE PAYMENT", -75.0, "other"),
+]
+
+
+def _counts(rows, taken_rows, debit_rows, credit_rows):
+    return {"rows": rows, "taken_rows": taken_rows, "debit_rows": debit_rows, "credit_rows": credit_rows,
+            "analyses": 1}
+
+
+def test_a_credit_goes_to_a_financing_payee_or_the_potential_registry_as_s2s_credit_rule_reads_it(monkeypatch):
+    # S2's _classify_credit_revenue reads a credit's own words, whatever rule stored the row: after a return or
+    # reversal and an insurer, a financing group's payee takes it unless the payee is a payout-credit entity, and
+    # else the potential registry does. The bank-name rule reads debits only, and a lease payee never takes a credit.
+    monkeypatch.setattr(audit_tool, "PAYOUT_CREDIT_ENTITIES", ("Meridel Payouts",))
+    assert audit_tool.audit(CREDIT_ROWS, CREDIT_PASSES) == {
+        "alternative_position": {"MERIDEL CAPITAL": {"entity": "Meridel Payouts", "keys": {
+            "MERIDEL CAPITAL TAMSIN": _counts(1, 0, 0, 1),
+            "MERIDEL CAPITAL LOAN": _counts(1, 1, 1, 0)}}},
+        "bank_name": {"OXBOW": {"entity": "Oxbow Bank", "keys": {"OXBOW LOAN TAMSIN": _counts(1, 0, 0, 1)}}},
+        "confirmed_lender": {"QUILLON FUNDING": {"entity": "Quillon Funding", "keys": {
+            "QUILLON FUNDING TAMSIN": _counts(1, 1, 0, 1)}}},
+        "lease_or_rental": {"WESTFEN LEASING": {"entity": "Westfen Leasing", "keys": {
+            "WESTFEN LEASING TAMSIN": _counts(1, 0, 0, 1)}}},
+        "potential_lender": {"TAMSIN": {"entity": "Tamsin Advance", "keys": {
+            "TAMSIN BAKERY SALES": _counts(1, 1, 0, 1),
+            "TAMSIN BAKERY TRANSFER": _counts(1, 1, 0, 1),
+            "TAMSIN BAKERY INSURANCE": _counts(1, 0, 0, 1),
+            "MERIDEL CAPITAL TAMSIN": _counts(1, 1, 0, 1),
+            "WESTFEN LEASING TAMSIN": _counts(1, 1, 0, 1),
+            "OXBOW LOAN TAMSIN": _counts(1, 1, 0, 1),
+            "TAMSIN ADVANCE": _counts(1, 1, 1, 0)}}},
+    }
+
+
+def test_a_potential_alias_on_another_business_credits_needs_review_and_a_narrowed_alias_loses_them(monkeypatch):
+    monkeypatch.setattr(audit_tool, "PAYOUT_CREDIT_ENTITIES", ("Meridel Payouts",))
+    report = audit_tool.audit(CREDIT_ROWS, CREDIT_PASSES)
+    denied, undecided = audit_tool.review(report, {"deny": [], "allow": []})
+    assert denied == []
+    assert [(row["alias"], row["key"]) for row in undecided] == [
+        ("QUILLON FUNDING", "QUILLON FUNDING TAMSIN"), ("TAMSIN", "TAMSIN BAKERY SALES"),
+        ("TAMSIN", "TAMSIN BAKERY TRANSFER"), ("TAMSIN", "MERIDEL CAPITAL TAMSIN"),
+        ("TAMSIN", "WESTFEN LEASING TAMSIN"), ("TAMSIN", "OXBOW LOAN TAMSIN"), ("TAMSIN", "TAMSIN ADVANCE"),
+    ]
+    narrowed = (*CREDIT_PASSES[:2], audit_tool.AuditPass(
+        AliasIndex({"potential_lender": {"Tamsin Advance": ("TAMSIN ADVANCE",)}}, run_together=False)))
+    lost = audit_tool.lost_matches(report, audit_tool.audit(CREDIT_ROWS, narrowed), {"deny": [], "allow": []})
+    assert [(row["entity"], row["key"], row["before"], row["after"]) for row in lost] == [
+        ("Tamsin Advance", "MERIDEL CAPITAL TAMSIN", 1, 0), ("Tamsin Advance", "OXBOW LOAN TAMSIN", 1, 0),
+        ("Tamsin Advance", "TAMSIN BAKERY SALES", 1, 0), ("Tamsin Advance", "TAMSIN BAKERY TRANSFER", 1, 0),
+        ("Tamsin Advance", "WESTFEN LEASING TAMSIN", 1, 0),
+    ]
+
+
 @pytest.mark.parametrize("alias,entity,key,expected", [
     ("QUILLON", "Quillon Funding", "QUILLON BAKERY", True),
     ("QUILLON", "Quillon Funding", "QUILLON FUNDING", True),
@@ -4545,13 +4659,28 @@ def test_review_separates_denied_matches_from_undecided_matches_that_need_review
     assert [(row["alias"], row["key"], row["needs_review"]) for row in undecided] == [("OXBOW", "OXBOW LOAN", True)]
 
 
-def _run(tmp_path, monkeypatch, decisions, *extra, passes=PASSES):
+def test_an_allow_of_the_no_payee_words_key_holds_only_for_the_entity_it_names():
+    # The final review of S1: every no-name descriptor of every alias shares the one placeholder key, so an allow of
+    # that key alone would allow it for every alias and entity.
+    placeholder = audit_tool.NO_PAYEE_WORDS
+    row = audit_tool.CachedRow("c" * 64, "ORIG CO NAME 7777777 ORIG ID QUILLON FUNDING", -10.0, "other")
+    report = audit_tool.audit([row], PASSES)
+    for allow in ({"key": placeholder, "why": "channel words only"},
+                  {"alias": "QUILLON FUNDING", "key": placeholder},
+                  {"entity": "Oxbow Bank", "key": placeholder}):
+        undecided = audit_tool.review(report, {"deny": [], "allow": [allow]})[1]
+        assert [(row["entity"], row["key"]) for row in undecided] == [("Quillon Funding", placeholder)], allow
+    assert audit_tool.review(report, {"deny": [], "allow": [{"entity": "Quillon Funding", "key": placeholder}]}) == (
+        [], [])
+
+
+def _run(tmp_path, monkeypatch, decisions, *extra, passes=PASSES, data_dir=None):
     monkeypatch.setattr(audit_tool, "default_passes", lambda: passes)
     review_file = tmp_path / "local" / "review.json"
     review_file.parent.mkdir(parents=True, exist_ok=True)
     review_file.write_text(json.dumps(decisions), encoding="utf-8")
     out = tmp_path / "local" / "audit.json"
-    code = audit_tool.main(["--data-dir", str(_cache(tmp_path)), "--review", str(review_file),
+    code = audit_tool.main(["--data-dir", str(data_dir or _cache(tmp_path)), "--review", str(review_file),
                             "--out", str(out), *extra])
     return code, out
 
@@ -4638,6 +4767,90 @@ def test_the_audit_refuses_a_report_inside_the_repository_and_a_directory_withou
                             "--out", str(tmp_path / "out.json")]) == 2
 
 
+def _corrupt(data_dir, input_sha):
+    """Make the cached analysis of ``input_sha`` unreadable (the cache writes canonical JSON)."""
+    for path in (data_dir / "artifacts").rglob("*.json"):
+        if f'"input_sha256":"{input_sha}"' in path.read_text(encoding="utf-8"):
+            path.write_text("{", encoding="utf-8")
+
+
+def test_a_cache_the_audit_cannot_read_is_refused_and_nothing_is_written(tmp_path, monkeypatch, capsys):
+    # The final review of S1: an empty or unreadable cache exited 0 even with --strict, with nothing checked.
+    monkeypatch.setattr(audit_tool, "default_passes", lambda: PASSES)
+    review_file = tmp_path / "review.json"
+    review_file.write_text('{"deny": [], "allow": []}', encoding="utf-8")
+    out = tmp_path / "out.json"
+
+    def run(data_dir):
+        return audit_tool.main(["--data-dir", str(data_dir), "--review", str(review_file), "--out", str(out),
+                                "--strict"])
+
+    ArtifactCache(data_dir=tmp_path / "empty")
+    assert run(tmp_path / "empty") == 2
+    unreadable = _cache(tmp_path)
+    _corrupt(unreadable, "a" * 64)
+    _corrupt(unreadable, "b" * 64)
+    assert run(unreadable) == 2
+    (tmp_path / "broken").mkdir()
+    connection = sqlite3.connect(tmp_path / "broken" / "webapp.db")
+    connection.execute("CREATE TABLE unrelated (x)")
+    connection.commit()
+    connection.close()
+    assert run(tmp_path / "broken") == 2
+    assert not out.exists()
+    errors = capsys.readouterr().err
+    assert errors.count("no cached analysis could be read") == 2 and "cannot read the cache database" in errors
+
+
+def test_strict_fails_while_an_analysis_of_the_cache_is_unreadable(tmp_path, monkeypatch, capsys):
+    decisions = {"deny": DENY_THE_BAKERY, "allow": ALLOW_THE_REST}
+    data_dir = _cache(tmp_path)
+    _corrupt(data_dir, "b" * 64)
+    assert _run(tmp_path, monkeypatch, decisions, passes=PASSES_WITHOUT_BARE_QUILLON, data_dir=data_dir)[0] == 0
+    code, out = _run(tmp_path, monkeypatch, decisions, "--strict", passes=PASSES_WITHOUT_BARE_QUILLON,
+                     data_dir=data_dir)
+    assert code == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["cache"]["unreadable"] == 1
+    assert "cache: 1 analyses read, 1 unreadable" in capsys.readouterr().out
+
+
+def test_the_report_records_the_cache_read_and_before_refuses_a_report_of_another_read(tmp_path, monkeypatch,
+                                                                                        capsys):
+    # The final review of S1: the report did not record --limit or the analyses read, so --before could not
+    # confirm that two reports read the same cache.
+    decisions = {"deny": DENY_THE_BAKERY, "allow": ALLOW_THE_REST}
+    passes = PASSES_WITHOUT_BARE_QUILLON
+    _code, out = _run(tmp_path, monkeypatch, decisions, passes=passes)
+    full = json.loads(out.read_text(encoding="utf-8"))
+    assert {key: value for key, value in full["cache"].items() if key != "digest"} == {
+        "limit": None, "analyses": 2, "unreadable": 0}
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", full["cache"]["digest"])
+    assert "cache: 2 analyses read, 0 unreadable" in capsys.readouterr().out
+    same = tmp_path / "local" / "same.json"
+    same.write_text(json.dumps(full), encoding="utf-8")
+    assert _run(tmp_path, monkeypatch, decisions, "--before", str(same), passes=passes)[0] == 0
+    assert "lost matches: 0" in capsys.readouterr().out
+    _code, out = _run(tmp_path, monkeypatch, decisions, "--limit", "1", passes=passes)
+    limited = json.loads(out.read_text(encoding="utf-8"))
+    assert (limited["cache"]["limit"], limited["cache"]["analyses"]) == (1, 1)
+    assert limited["cache"]["digest"] != full["cache"]["digest"]
+    assert "cache: 1 analyses read, 0 unreadable, limit 1" in capsys.readouterr().out
+    written_before_the_record = {key: value for key, value in full.items() if key != "cache"}
+    out.unlink()
+    cases = (("limited.json", limited), ("unrecorded.json", written_before_the_record), ("same.json", full))
+    for name, earlier in cases:
+        previous = tmp_path / "local" / name
+        previous.write_text(json.dumps(earlier), encoding="utf-8")
+        data_dir = _cache(tmp_path)
+        if name == "same.json":  # the same analyses, but one artifact's bytes changed since
+            ArtifactCache(data_dir=data_dir).put_analysis("a" * 64, "settings", {"classifications": [
+                _row("MOBILE DEPOSIT", 40.0)]})
+        code, out = _run(tmp_path, monkeypatch, decisions, "--before", str(previous), passes=passes,
+                         data_dir=data_dir)
+        assert code == 2 and not out.exists(), name
+        assert "is not a report of the same cache read" in capsys.readouterr().err
+
+
 def test_only_the_descriptor_rule_passes_need_loan_or_card_wording():
     passes = audit_tool.default_passes()
     assert [audit_pass.needs is not None for audit_pass in passes] == [False, False, True, True, False]
@@ -4677,32 +4890,42 @@ analysis counts and no descriptor text. A row counts as taken when the rule orde
 alias: rows a rule ahead of the matcher keeps (a fee, a transfer, insurance and the other states of
 section 4.3 steps 1-6) are counted but never taken.
 
+A credit follows S2's credit rule (``_classify_credit_revenue``, spec section 4.4), which reads the credit's own
+words whatever rule stored the row: after a return or reversal and an insurer, a financing group's payee takes it,
+unless the payee is a payout-credit entity (PAYOUT_CREDIT_ENTITIES), and else the potential registry takes it out
+of revenue. So a credit that the bank-name or card-context rule (debits only) matches, or a payee outside the
+financing groups or a payout-credit entity, goes on to the potential registry.
+
 A taken match needs review (``needs_review``) when the payee key may name someone else:
   * the alias is a single word and the key is not exactly that word;
   * the key holds a word that is not in the alias, not in the entity's name (nor a run-together form of
     either), not a channel or descriptor word (VOCAB) and not an organisation word (ORG_CUES);
   * the key shares no word with the alias at all.
 A reviewed allow/deny file records the decisions. The audit fails when a denied pair still wins a row,
-and --strict also fails while a match that needs review has no decision. With --before <an earlier report
-of the same cache>, it also fails on every (entity, payee key) that takes fewer rows than before, leaving out
-denied pairs: a ledger change that dropped or narrowed an alias must not take the entity's own rows with it.
+and --strict also fails while a match that needs review has no decision, or an analysis of the cache could not be
+read. With --before <an earlier report of the same cache>, it also fails on every (entity, payee key) that takes
+fewer rows than before, leaving out denied pairs: a ledger change that dropped or narrowed an alias must not take
+the entity's own rows with it. Each report records the cache it read (the --limit, the analyses and a digest of
+their artifacts), and --before refuses a report of another read.
 Payee keys come from customer statements, so the review file and the reports stay outside the repository.
 
 Usage, from the repository root:
     python -m tools.lender_alias_audit --data-dir <webapp_data> --review <file> --out <file> [--strict]
         [--limit N] [--before <earlier report>]
 
-Exit codes: 0 no denied match, no lost match (and, with --strict, nothing undecided); 1 otherwise; 2 refused.
+Exit codes: 0 no denied match, no lost match (and, with --strict, nothing undecided and nothing unreadable);
+1 otherwise; 2 refused, including a cache of which no analysis could be read.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -4714,12 +4937,13 @@ from analysis.classification_registry import (  # noqa: E402
     BANK_NAME_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
     PAYEE_GROUP_REGISTRIES,
+    PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
     PREMIUM_FINANCE_ALIASES,
 )
 from analysis.description_text import normalize_transaction_description as normalize  # noqa: E402
 from analysis.flag_groups import FINANCING_STATES  # noqa: E402
-from analysis.payee_matcher import AliasIndex  # noqa: E402
+from analysis.payee_matcher import AliasIndex, PayeeMatch  # noqa: E402
 from tools.lender_ledger import _CARD_PAYMENT_WORDING, ORG_CUES  # noqa: E402
 
 #: Stored states that a rule ahead of the known-payee matcher keeps (spec section 4.3 steps 2-6). POS and
@@ -4727,6 +4951,12 @@ from tools.lender_ledger import _CARD_PAYMENT_WORDING, ORG_CUES  # noqa: E402
 EARLIER_RULE_STATES = frozenset(
     {"nsf_or_return", "refund_or_reversal", "insurance", "fee", "transfer", "tax", "payroll", "utility"}
 )
+#: Stored states of a credit that S2's credit rule decides before it reads a payee: a return or reversal, and an
+#: insurer. The rule reads a credit's own words, so a credit stored as a fee, a transfer, a tax, payroll or a
+#: utility still reaches a financing payee and the potential registry.
+EARLIER_CREDIT_RULE_STATES = frozenset({"nsf_or_return", "refund_or_reversal", "insurance"})
+#: The state of the potential registry's pass (spec section 4.3 step 11; S2's credit rule reads it too).
+POTENTIAL_STATE = "potential_lender"
 #: S2's step-8 rules that decide a row before its bank-name rule (spec section 4.3 step 8): LOC, mortgage and
 #: vehicle wording, as S2's _LINE_OF_CREDIT_PATTERNS, _MORTGAGE_PATTERNS and _VEHICLE_FINANCING_PATTERNS.
 _DECIDED_BEFORE_BANK_NAME = (
@@ -4775,7 +5005,8 @@ PRET PROCEEDS PROGRAM PYMNT PYMNTS PYMT RECURRING REMIT RETAIL RLS SCHEDULED SER
 THE TYPE US USA WEB WITHDRAWAL
 """.split())
 #: The payee key of a descriptor in which no name word survives: a fixed placeholder, never descriptor text
-#: (which may carry an account number). ``needs_review`` flags it, so every such match gets a decision.
+#: (which may carry an account number). ``needs_review`` flags it, so every such match gets a decision. Every
+#: no-name descriptor of every alias shares it, so an allow of it holds only for the entity it names.
 NO_PAYEE_WORDS = "<no payee words>"
 
 
@@ -4794,6 +5025,22 @@ class CachedRow:
     amount: float
     stored: str
     posted: bool = True
+
+
+@dataclass
+class CacheRead:
+    """What ``cached_rows`` read: each analysis, as its input and the sha256 of its artifact's bytes, and the inputs
+    whose artifact it could not read. A report keeps ``record``, so that --before can check two reports read the
+    same cache."""
+
+    analyses: list[str] = field(default_factory=list)
+    unreadable: list[str] = field(default_factory=list)
+
+    def record(self, limit: int | None) -> dict:
+        lines = sorted([*self.analyses, *(f"{sha} unreadable" for sha in self.unreadable)])
+        digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+        return {"limit": limit, "analyses": len(self.analyses), "unreadable": len(self.unreadable),
+                "digest": f"sha256:{digest}"}
 
 
 def payee_key(text: str) -> str:
@@ -4822,21 +5069,41 @@ def default_passes() -> tuple[AuditPass, ...]:
         AuditPass(AliasIndex(PAYEE_GROUP_REGISTRIES)),
         AuditPass(AliasIndex({"bank_name": BANK_NAME_ALIASES}, run_together=False), _LOAN_WORDING),
         AuditPass(AliasIndex({"card_context": CARD_ISSUER_CONTEXT_ALIASES}, run_together=False), _CARD_WORDING),
-        AuditPass(AliasIndex({"potential_lender": POTENTIAL_LENDER_ALIASES}, run_together=False)),
+        AuditPass(AliasIndex({POTENTIAL_STATE: POTENTIAL_LENDER_ALIASES}, run_together=False)),
     )
 
 
-def takes(state: str, row: CachedRow) -> bool:
-    """Whether the classifier's rule order gives the row to an alias of ``state`` (spec sections 4.3, 4.4)."""
+def takes(state: str, row: CachedRow, entity: str = "") -> bool:
+    """Whether the classifier's rule order gives the row to ``entity``'s alias of ``state`` (spec sections 4.3,
+    4.4). A credit follows S2's credit rule: a financing group's payee takes it unless ``entity`` is a payout-credit
+    entity (PAYOUT_CREDIT_ENTITIES), and the potential registry takes it out of revenue."""
     if not row.posted or row.stored in ("nsf_or_return", "refund_or_reversal"):
         return False
     if state == "premium_financing":
         return True
+    if row.amount > 0:
+        if row.stored in EARLIER_CREDIT_RULE_STATES:
+            return False
+        if state in PAYEE_GROUP_REGISTRIES:
+            return state in FINANCING_STATES and entity not in PAYOUT_CREDIT_ENTITIES
+        return state == POTENTIAL_STATE
     if row.stored in EARLIER_RULE_STATES:
         return False
     if state in PAYEE_GROUP_REGISTRIES:
         return row.amount < 0 or state in FINANCING_STATES
     return row.amount < 0 and row.stored not in ("pos", "atm")
+
+
+def _decides_credit(audit_pass: AuditPass, match: PayeeMatch) -> bool:
+    """Whether the rule of ``audit_pass`` decides a credit it matches, so that no later rule reads the credit. The
+    bank-name and card-context rules (the passes that need wording) read debits only, and S2's credit rule reads a
+    payee only in a financing group and never a payout-credit entity's: the credit goes on to the potential
+    registry."""
+    if audit_pass.needs is not None:
+        return False
+    if match.state in PAYEE_GROUP_REGISTRIES:
+        return match.state in FINANCING_STATES and match.entity not in PAYOUT_CREDIT_ENTITIES
+    return True
 
 
 def _classification_lists(node) -> Iterator[list]:
@@ -4851,9 +5118,10 @@ def _classification_lists(node) -> Iterator[list]:
             yield from _classification_lists(value)
 
 
-def cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]:
+def cached_rows(data_dir: Path, limit: int | None = None, read: CacheRead | None = None) -> Iterator[CachedRow]:
     """Every row of the latest cached analysis of each input. Opens the cache database read-only and never
-    writes to the data directory."""
+    writes to the data directory. With ``read``, records each analysis it read and each it could not read."""
+    read = read if read is not None else CacheRead()
     database = data_dir / "webapp.db"
     connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
     try:
@@ -4870,9 +5138,14 @@ def cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]
         if limit is not None and number >= limit:
             return
         try:
-            payload = json.loads((data_dir / "artifacts" / relative).read_text(encoding="utf-8"))
+            raw = (data_dir / "artifacts" / relative).read_bytes()
+            payload = json.loads(raw.decode("utf-8"))
         except (OSError, ValueError):
+            payload = None
+        if not isinstance(payload, dict):
+            read.unreadable.append(sha)
             continue
+        read.analyses.append(f"{sha} {hashlib.sha256(raw).hexdigest()}")
         for rows in _classification_lists(payload.get("artifact")):
             for row in rows:
                 amount = row.get("amount") if isinstance(row, dict) else None
@@ -4883,7 +5156,8 @@ def cached_rows(data_dir: Path, limit: int | None = None) -> Iterator[CachedRow]
 
 def audit(rows: Iterable[CachedRow], passes: tuple[AuditPass, ...]) -> dict:
     """state -> alias -> {entity, keys: {payee key: {rows, taken_rows, debit_rows, credit_rows, analyses}}}.
-    The first pass that matches a row claims it, as the first rule that matches does. No descriptor text."""
+    The first pass that matches a row claims it, as the first rule that matches does, except that a credit goes on
+    past a pass whose rule does not decide it (``_decides_credit``). No descriptor text."""
     found: dict = {}
     analyses: dict = defaultdict(set)
     for row in rows:
@@ -4899,11 +5173,12 @@ def audit(rows: Iterable[CachedRow], passes: tuple[AuditPass, ...]) -> dict:
             counts = entry["keys"].setdefault(
                 key, {"rows": 0, "taken_rows": 0, "debit_rows": 0, "credit_rows": 0, "analyses": 0})
             counts["rows"] += 1
-            counts["taken_rows"] += int(takes(match.state, row))
+            counts["taken_rows"] += int(takes(match.state, row, match.entity))
             counts["debit_rows" if row.amount < 0 else "credit_rows"] += 1
             analyses[(match.state, match.alias, key)].add(row.analysis)
             counts["analyses"] = len(analyses[(match.state, match.alias, key)])
-            break
+            if row.amount <= 0 or _decides_credit(audit_pass, match):
+                break
     return {state: dict(sorted(aliases.items())) for state, aliases in sorted(found.items())}
 
 
@@ -4933,7 +5208,8 @@ def needs_review(alias: str, entity: str, key: str) -> bool:
 
 def review(report: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
     """(denied, undecided): the taken matches a deny decision names, and the taken matches that need review and
-    have no decision. Each is {state, alias, entity, key, rows, taken_rows, analyses, needs_review}."""
+    have no decision. Each is {state, alias, entity, key, rows, taken_rows, analyses, needs_review}. An allow of
+    NO_PAYEE_WORDS decides only a match of the entity it names; without an entity it decides nothing."""
     denied: list[dict] = []
     undecided: list[dict] = []
     for state, aliases in report.items():
@@ -4947,7 +5223,9 @@ def review(report: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
                 if any(_fires(d, alias, entry["entity"], key) for d in decisions.get("deny", [])):
                     denied.append(row)
                 elif row["needs_review"] and not any(
-                        _fires(a, alias, entry["entity"], key) for a in decisions.get("allow", [])):
+                        _fires(a, alias, entry["entity"], key)
+                        and (key != NO_PAYEE_WORDS or a.get("entity") is not None)
+                        for a in decisions.get("allow", [])):
                     undecided.append(row)
     return denied, undecided
 
@@ -4998,18 +5276,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {args.data_dir} holds no webapp.db", file=sys.stderr)
         return 2
     decisions = json.loads(args.review.read_text(encoding="utf-8"))
-    report = audit(cached_rows(args.data_dir, args.limit), default_passes())
+    earlier = json.loads(args.before.read_text(encoding="utf-8")) if args.before is not None else None
+    read = CacheRead()
+    try:
+        report = audit(cached_rows(args.data_dir, args.limit, read), default_passes())
+    except sqlite3.Error as error:
+        print(f"refused: cannot read the cache database in {args.data_dir}: {error}", file=sys.stderr)
+        return 2
+    if not read.analyses:
+        print(f"refused: no cached analysis could be read in {args.data_dir}, so nothing would be checked",
+              file=sys.stderr)
+        return 2
+    cache = read.record(args.limit)
+    if earlier is not None and (not isinstance(earlier, dict) or earlier.get("cache") != cache):
+        print(f"refused: {args.before} is not a report of the same cache read (the same --limit, analyses and "
+              f"artifact bytes); --before compares two reports of one cache", file=sys.stderr)
+        return 2
     denied, undecided = review(report, decisions)
-    lost = []
-    if args.before is not None:
-        lost = lost_matches(json.loads(args.before.read_text(encoding="utf-8"))["aliases"], report, decisions)
+    lost = lost_matches(earlier["aliases"], report, decisions) if earlier is not None else []
     taken = [(alias, entry["entity"], key) for aliases in report.values() for alias, entry in aliases.items()
              for key, counts in entry["keys"].items() if counts["taken_rows"]]
     flagged = sum(needs_review(alias, entity, key) for alias, entity, key in taken)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps({"aliases": report, "denied": denied, "undecided": undecided, "lost": lost},
-                                   indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.out.write_text(json.dumps({"aliases": report, "cache": cache, "denied": denied, "undecided": undecided,
+                                    "lost": lost}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     keys = sum(len(entry["keys"]) for aliases in report.values() for entry in aliases.values())
+    print(f"cache: {cache['analyses']} analyses read, {cache['unreadable']} unreadable"
+          + ("" if args.limit is None else f", limit {args.limit}"))
     print(f"aliases that matched: {sum(len(aliases) for aliases in report.values())}; payee keys: {keys}; "
           f"taken matches: {len(taken)}, of which need review: {flagged}; denied matches: {len(denied)}; "
           f"undecided: {len(undecided)}")
@@ -5021,7 +5314,7 @@ def main(argv: list[str] | None = None) -> int:
         for row in lost:
             print(f"LOST {row['entity']!r} payee key {row['key']!r}: {row['before']} taken rows before, "
                   f"{row['after']} now")
-    return 1 if denied or lost or (args.strict and undecided) else 0
+    return 1 if denied or lost or (args.strict and (undecided or read.unreadable)) else 0
 
 
 if __name__ == "__main__":
@@ -5031,10 +5324,10 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_lender_alias_audit.py -q -p no:cacheprovider`
-Expected: 23 passed.
+Expected: 29 passed.
 
 Run every S1 test so far: `C:\Python314\python.exe -m pytest tests/test_flag_groups.py tests/test_classification_registry_groups.py tests/test_payee_matcher.py tests/test_classifier_speed.py tests/test_lender_ledger.py tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_alias_audit.py -q -p no:cacheprovider`
-Expected: 243 passed (5 + 21 + 15 + 3 + 140 + 33 + 3 + 23), or `3 failed, 240 passed` when the ledger is already on the branch (Task 7 Step 8). (Amended after the review of the owner's ruling of 2026-09-25; before the fix round and the ruling it read 197.)
+Expected: 253 passed (5 + 21 + 15 + 3 + 144 + 33 + 3 + 29), or `3 failed, 250 passed` when the ledger is already on the branch (Task 7 Step 8). (Amended after the final review of S1, 2026-09-26; after the review of the owner's ruling of 2026-09-25 it read 243, and before the fix round and the ruling 197.)
 
 - [ ] **Step 5: Commit**
 
@@ -5457,7 +5750,7 @@ Never edit the ledger, the rendered block or the test to make it pass.
 - [ ] **Step 9: Run every S1 test, the three selections and the benchmark**
 
 Run: `C:\Python314\python.exe -m pytest tests/test_flag_groups.py tests/test_classification_registry_groups.py tests/test_payee_matcher.py tests/test_classifier_speed.py tests/test_lender_ledger.py tests/test_build_lender_registry.py tests/test_lender_registry_drift.py tests/test_lender_alias_audit.py tests/test_lender_registry_content.py -q -p no:cacheprovider`
-Expected: 318 passed (243 + 75; amended to the owner's rulings of 2026-09-25).
+Expected: 328 passed (253 + 75; amended to the owner's rulings of 2026-09-25, and to the final review of S1 of 2026-09-26).
 
 Run the three commands from "Before Task 1".
 Expected: the baseline counts, unchanged: `404 passed`; `146 passed, 1 failed` (the known failure); `306 passed`. The classifier still reads the legacy lists. (The counts of this step were measured on the ledger of the owner's rulings of 2026-09-25, rendered on this branch at `b69d12e` in a scratch clone.)
@@ -5520,19 +5813,24 @@ Test-Path "$local\alias-audit-previous.json"
 Expected: `False` the first time this task runs.
 - It prints `True` only after Step 4 has sent a denial to the orchestrator. Step 2 then checks the revised ledger against that report.
 - If it prints `True` on the first run, the file is left from an earlier trial. Delete it with `Remove-Item "$local\alias-audit-previous.json"`.
+- A previous report is usable only when it records the cache it read (its `cache` field, amended after the final review of S1, 2026-09-26). A report written before that record is refused by `--before` in Step 2 (`refused: ... is not a report of the same cache read ...`, then `2`). If the previous ledger's report is such a report, tell the orchestrator: the lost-rows check then needs a report of the previous ledger written by this audit over the same cache.
 
 - [ ] **Step 2: Run the strict audit**
 
-It reads the cache read-only, and takes three to nine minutes on the full cache. Add `--limit 300` for a quick look first, but never together with `--before`: a report of fewer analyses has fewer rows, and every missing row would read as lost. The first line builds the `--before` option only when a previous report exists.
+It reads the cache read-only, and takes three to nine minutes on the full cache. Add `--limit 300` for a quick look first, but never together with `--before`: a report of fewer analyses has fewer rows, and every missing row would read as lost. The audit refuses (`2`) a `--before` report whose recorded cache read differs from this run's: another `--limit`, other analyses, or an artifact whose bytes changed. The first line builds the `--before` option only when a previous report exists.
 
 ```powershell
 $before = @(); if (Test-Path "$local\alias-audit-previous.json") { $before = @("--before", "$local\alias-audit-previous.json") }
 C:\Python314\python.exe -m tools.lender_alias_audit --data-dir $webappData --review "$local\alias-review.json" --out "$local\alias-audit.json" --strict @before; $LASTEXITCODE
 ```
 
-Expected on the first run: one summary line, then `1`:
+Expected on the first run: the cache line and one summary line, then `1`:
+
+`cache: <n> analyses read, 0 unreadable`
 
 `aliases that matched: <a>; payee keys: <k>; taken matches: <t>, of which need review: <r>; denied matches: 0; undecided: <r>`
+
+The audit refuses (`2`, nothing written) a cache of which no analysis could be read, and a cache database it cannot read. With `--strict`, it also fails while the cache line shows an unreadable analysis.
 
 With a previous report, the summary line is followed by:
 - `lost matches: <n>`;
@@ -5542,6 +5840,7 @@ About the counts:
 - They depend on the ledger.
 - For scale, the trial with this revision's stand-in ledger printed `taken matches: 166, of which need review: 119` at `--limit 300`, and `taken matches: 422, of which need review: 334` on the full cache (under three minutes).
 - The ledger of the owner's rulings of 2026-09-25, rendered on this branch at `b69d12e`, printed `aliases that matched: 1136; payee keys: 2262; taken matches: 2063, of which need review: 1180` on the full cache. With the orchestrator's review file and the previous ledger's report as `--before`, it printed `denied matches: 1; undecided: 0` and `lost matches: 0`. The one deny is the Zip overdraft charge (Step 4).
+- After the final review of S1 (2026-09-26), the same ledger (`0933763`), rendered in a scratch clone of this branch with the fixed audit, printed `cache: 7241 analyses read, 0 unreadable` and `aliases that matched: 1136; payee keys: 2263; taken matches: 2077, of which need review: 1190; denied matches: 1; undecided: 14` with the orchestrator's review file. The 14 new undecided matches are credits that S2's credit rule gives to 7 lender entities (credits stored as transfers, which that rule reads by their own words) and 5 review entities (the potential registry), which the earlier audit never counted. The orchestrator's previous report predates the cache record, so `--before` refused it.
 - Most of them are one-word aliases whose payee key adds a word.
 
 - [ ] **Step 3: Decide every row of `undecided`**
@@ -5549,8 +5848,8 @@ About the counts:
 `$local\alias-audit.json` lists the rows under `undecided`. Each row has `state`, `alias`, `entity`, `key`, `rows`, `taken_rows`, `analyses` and `needs_review`.
 
 Add one decision per row to `$local\alias-review.json`. When a decision holds for every alias of a key, one decision per key is enough. Write each `why` so that a reviewer who reads the key can check it (Step 7): say what K is.
-- **Allow by key alone**, `{"key": K, "why": "channel words only"}`, when K holds only bank-channel or descriptor words and no business name. It allows K for every alias and every entity, so use it only then.
-- **Allow for the entity**, `{"entity": E, "key": K, "why": "..."}`, when K is the entity itself: its name, a truncation or run-together form of it, its name with a legal suffix, or its servicer or funder as the ledger's `notes` record.
+- **Allow by key alone**, `{"key": K, "why": "channel words only"}`, when K holds only bank-channel or descriptor words and no business name. It allows K for every alias and every entity, so use it only then. Never for `<no payee words>` (`NO_PAYEE_WORDS`): every descriptor of every alias in which no name word survives shares that key, so the audit ignores an allow of it without `entity` (amended after the final review of S1, 2026-09-26).
+- **Allow for the entity**, `{"entity": E, "key": K, "why": "..."}`, when K is the entity itself: its name, a truncation or run-together form of it, its name with a legal suffix, or its servicer or funder as the ledger's `notes` record. `<no payee words>` is allowed only this way, one entity at a time, after reading that entity's rows under the key in `$local\alias-audit.json`.
 - **Deny**, `{"alias": A, "entity": E, "key": K, "why": "..."}`, when K names a different business or a person. S1 only records the deny here and sends it to the orchestrator (Step 4). S1 never edits the ledger to carry it out.
 
 S1 may allow a row on any alias, including an alias of a payee in `OWNER_NAMED_PAYEES` and an entity's last alias.
@@ -5599,6 +5898,7 @@ Step 5 is reached only when every deny and every `LOST` line has an answer.
 
 Rerun Step 2. Expected:
 - exit code `0`;
+- the cache line shows `0 unreadable`, and no `--limit`;
 - the summary line ends `denied matches: 0; undecided: 0`;
 - when a previous report exists, the next line is `lost matches: 0`.
 
@@ -5629,7 +5929,7 @@ Report:
 - the ledger's `ledger ok` line (the entity count and the digest), and its `move:` lines;
 - the per-table lines of the last `--write`;
 - that the privacy review was read in full, and how many lines it printed;
-- the audit summary lines of the first run (Step 2) and of the acceptance (Step 5), with the `lost matches` line when there is one;
+- the audit's cache and summary lines of the first run (Step 2) and of the acceptance (Step 5), with the `lost matches` line when there is one;
 - the number of allow and deny decisions in `$local\alias-review.json`, and how many allows are by key alone;
 - every deny and `LOST` line sent in Step 4, with the orchestrator's answer (ledger text and counts only);
 - S2's Task 0 output: the failure count, and every `FAIL` and `info` line;
@@ -5639,7 +5939,7 @@ Do not quote any payee key.
 
 **The check of S1's allow decisions (the orchestrator, or the independent reviewer of S1, before S2 starts).** One agent made every allow decision, so a second one checks them:
 - Read `$local\alias-review.json` beside the `aliases` section of `$local\alias-audit.json`, which lists every alias with its entity and the keys it takes. The files are local and outside the repository, so reading them breaks no privacy rule.
-- Check every allow by key alone, because each one allows its key for every alias and entity.
+- Check every allow by key alone, because each one allows its key for every alias and entity. None may be of `<no payee words>`, which the audit ignores without an entity; check every allow of that key per entity too.
 - Check at least 30 other allows, spread across entities, including every allow on a BlueVine alias (`BLUEVINE CAPITAL`, `BLUEVINE LOAN`; bare `BLUEVINE` is no longer an alias).
 - A wrong allow becomes a deny, which goes through Step 4.
 - The check's report names entities and counts, never a payee key.
@@ -5721,7 +6021,7 @@ Do not quote any payee key.
 | §2 every payee the owner named, in every group, including the amendment's | Task 7 (`OWNER_NAMED_PAYEES`); Task 5 (`owner_named_problems`); Task 9 (committed registry) |
 | §5 aliases: payee names only; no bare platform names; financing-specific, not brands; no `#`; no customer names | Task 5 (character, platform, hand-kept and brand rules); Task 7 (`BARE_PLATFORM_NAMES`, `BARE_BRAND_NAMES`); Task 9 Step 7 (privacy review of every committed name) |
 | §5 BlueVine is `BLUEVINE CAPITAL` and `BLUEVINE LOAN`, with no bare `BLUEVINE` (owner, 2026-09-25); ENOVA must not catch Journey or NetCredit; SmartPay versus Atlas | Task 9 (content test: `BLUEVINE loan payment` and `BLUEVINE CAPITAL` are a line of credit, no table claims bare `BLUEVINE`, a Bluevine Bill Pay row or a Bluevine transfer, and the three collisions); Task 10 (the five BlueVine denies stay in the review file and fail the audit if the bare alias returns) |
-| §5 collision audit: local only, reports every alias, zero collisions | Task 8 (the audit; the review rule of Decision 9, QUILLON → QUILLON BAKERY needs review; `lost_matches` and `--before`, Decision 15); Task 10 (zero denied and zero undecided, and zero lost after a revised ledger; a second agent checks the allows) |
+| §5 collision audit: local only, reports every alias, zero collisions | Task 8 (the audit; the review rule of Decision 9, QUILLON → QUILLON BAKERY needs review; credits as S2's credit rule reads them, and the no-payee-words key allowed per entity only; `lost_matches` and `--before` over one recorded cache read, Decision 15); Task 10 (zero denied and zero undecided, and zero lost after a revised ledger; a second agent checks the allows) |
 | §9 every lost lender is a ruled move; gained lenders trace to admitted entities | Task 5 (today's-registry rules, `baseline_moves`, a move needs a `Move:` sentence); Task 6 (the moves section); Task 7 (the `move:` lines of `--check`); Task 10 (a revised ledger that loses an entity's rows fails the audit) |
 | §5 evidence ledger: group, public source URL, verdict, where the researchers looked, no statement text; the owner-ruling list with the numbered company | Task 6 (`render_evidence`); Task 9 (rendered, read in full, the numbered-company test, the digit test) |
 | Premium financing vs the hand-kept `First Insurance` | Decision 8; Task 5 (hand-kept duplicates refused except the owner-ruled `PREMIUM_FINANCE_INSURER_ALIASES` spellings on a premium entity; overlaps listed unless a premium entity holds the insurer alias); Task 6 (the Admission line); Task 9 (acceptance test) |
@@ -5795,5 +6095,5 @@ Do not quote any payee key.
 - The names are used consistently across the tasks:
   - the ledger module (Tasks 5 and 7): `parse_ledger`, `validate`, `render_tables`, `owner_named_problems`, `move_reason`, `baseline_moves`, `baseline_problems`, `payout_credit_problems`, `premium_insurer_overlaps`, `privacy_review`, `ledger_digest`, `read_ledger`, `load_baseline`, `baseline_from_source`, `current_rules`, `mask_digit_runs`, and the constants `MOVE_MARKER`, `CONTEXT_ONLY_GROUPS`, `INSURER_TABLE` and `WITHHELD`;
   - the renderer (Tasks 6-7): `render_block`, `current_block`, `replace_block`, `render_evidence`, `main`;
-  - the audit (Tasks 8 and 10): `AuditPass`, `CachedRow`, `NO_PAYEE_WORDS`, `payee_key`, `default_passes`, `takes`, `cached_rows`, `audit`, `needs_review`, `review`, `lost_matches`, `main` (with `--before`).
+  - the audit (Tasks 8 and 10): `AuditPass`, `CachedRow`, `CacheRead`, `NO_PAYEE_WORDS`, `EARLIER_CREDIT_RULE_STATES`, `POTENTIAL_STATE`, `payee_key`, `default_passes`, `takes`, `cached_rows`, `audit`, `needs_review`, `review`, `lost_matches`, `main` (with `--before`).
 - The S2 Task-0 descriptors that S1's content test checks are copied verbatim from the current S2 plan.
