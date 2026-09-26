@@ -20,9 +20,11 @@ from .adb import (
 )
 from .nsf_days import PRINTED as NSF_PRINTED, UNAVAILABLE as NSF_UNAVAILABLE, negative_day_count
 from .schema import Statement
+from .flag_groups import FLAG_GROUPS
 from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
+    flagged_payee,
 )
 from .revenue import (
     WITHHOLDING_DENOMINATOR_MODES,
@@ -89,6 +91,12 @@ class Metrics:
     monthly_lender_debits: float = 0.0
     insurance_count: int = 0
     insurance_total: float = 0.0
+    # Spec §6 (C5): {group key: {"count", "total", "count_credited",
+    # "total_credited", "payees"}} over rows marked contributes_to_flagged_totals.
+    # "count" and "total" are the debits; the credited pair is the credits a
+    # flagged payee paid in (owner ruling 2026-09-26: factoring payouts). It never
+    # feeds lender_*, withholding_*, eligible_deposits or potential_* figures.
+    flagged_groups: dict[str, dict[str, float | int]] = field(default_factory=dict)
     verified_revenue_total: float = 0.0
     verified_revenue_count: int = 0
     unverified_deposit_total: float = 0.0
@@ -317,6 +325,11 @@ def compute_metrics(
         raise ValueError("classification count must equal transaction count")
     confirmed_entities: set[str] = set()
     potential_entities: set[str] = set()
+    flagged_counts: dict[str, int] = {}
+    flagged_totals: dict[str, float] = {}
+    flagged_credited_counts: dict[str, int] = {}
+    flagged_credited_totals: dict[str, float] = {}
+    flagged_payees: dict[str, set[str]] = {}
     for t, classification in zip(stmt.transactions, records):
         if t.amount >= 0:
             m.total_deposits += t.amount
@@ -344,6 +357,15 @@ def compute_metrics(
             m.insurance_count += 1
             m.insurance_total += abs(t.amount)
             m.insurance_evidence.append(classification)
+        if classification.contributes_to_flagged_totals and classification.flagged_group:
+            group_key = classification.flagged_group
+            if t.amount < 0:
+                flagged_counts[group_key] = flagged_counts.get(group_key, 0) + 1
+                flagged_totals[group_key] = flagged_totals.get(group_key, 0.0) + abs(t.amount)
+            else:
+                flagged_credited_counts[group_key] = flagged_credited_counts.get(group_key, 0) + 1
+                flagged_credited_totals[group_key] = flagged_credited_totals.get(group_key, 0.0) + t.amount
+            flagged_payees.setdefault(group_key, set()).add(flagged_payee(classification))
         if t.amount > 0 and classification.is_posted:
             revenue_flags = (
                 classification.contributes_to_verified_revenue,
@@ -396,6 +418,17 @@ def compute_metrics(
     m.potential_lender_debits = m.potential_lender_debit_total
     m.monthly_lender_debits = m.lender_debits
     m.insurance_total = round(m.insurance_total, 2)
+    m.flagged_groups = {
+        group.key: {
+            "count": flagged_counts.get(group.key, 0),
+            "total": round(flagged_totals.get(group.key, 0.0), 2),
+            "count_credited": flagged_credited_counts.get(group.key, 0),
+            "total_credited": round(flagged_credited_totals.get(group.key, 0.0), 2),
+            "payees": len(flagged_payees[group.key]),
+        }
+        for group in FLAG_GROUPS
+        if group.key in flagged_payees
+    }
     m.verified_revenue_total = round(m.verified_revenue_total, 2)
     m.unverified_deposit_total = round(m.unverified_deposit_total, 2)
     m.non_revenue_total = round(m.non_revenue_total, 2)

@@ -485,12 +485,12 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_18():
-    """P22-IDENTITY (Phase 2.2, D6; mutant M9): the geometry-aware analysis
-    key — `analysis_input_sha` carrying the evidence sha and
-    `analysis_settings_key` carrying `reconstruction_mode` — lands with
-    ANALYSIS_STAGE_VERSION 17 -> 18 in the same commit. This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 18
+def test_analysis_stage_version_is_pinned_at_19():
+    """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
+    lender groups and adds the flagged-position payload, and the classifier's
+    registry is not key material, so ANALYSIS_STAGE_VERSION goes 18 -> 19 in the
+    same commit as the classifier change. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 19
 
 
 def test_paddle_model_token_is_not_in_free_models():

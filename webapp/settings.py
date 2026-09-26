@@ -18,6 +18,8 @@ import threading
 import time
 from pathlib import Path
 
+from analysis.flag_groups import FLAG_SETTING_KEYS
+
 SETTINGS_FILE = "settings.json"
 
 #: Every setting, with its default. Unknown keys are refused on save and ignored on load.
@@ -25,6 +27,10 @@ DEFAULTS: dict[str, bool] = {
     # Owner ruling, 2026-09-22: the NSF count (negative-ending days) counts printed days only by default.
     # On: a day with no activity carries the previous day's ending balance and counts if it is negative.
     "nsf_carry_over": False,
+    # Owner ruling, 2026-09-24 (lender detection): one checkbox per flag group (analysis/flag_groups.py), each on
+    # by default. Unticking one hides that group wherever an analysis is shown or exported; it never moves a row
+    # into review or into lender math (analysis/flagged_view.py).
+    **{key: True for key in FLAG_SETTING_KEYS},
 }
 
 _LOCK = threading.Lock()

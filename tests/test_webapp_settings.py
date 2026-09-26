@@ -1,12 +1,33 @@
-"""The Settings page's NSF basis toggle (owner ruling, 2026-09-22). Fabricated payloads only."""
+"""The Settings page: the NSF basis toggle (owner ruling, 2026-09-22) and one checkbox per flag group (lender
+detection, 2026-09-24). Fabricated payloads only."""
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from analysis.flag_groups import FLAG_GROUPS, FLAG_SETTING_KEYS
 from webapp.app import app, store
 from webapp.settings import DEFAULTS, SETTINGS_FILE, load_settings, save_settings
+
+#: The whole settings dict with nothing saved: printed NSF days, and every flag group shown. Spelled out rather
+#: than derived, so a key added to DEFAULTS without thinking fails here.
+EXPECTED_DEFAULTS = {
+    "nsf_carry_over": False,
+    "flag_alternative_positions": True,
+    "flag_lines_of_credit": True,
+    "flag_credit_cards": True,
+    "flag_vehicle_financing": True,
+    "flag_bank_loans": True,
+    "flag_mortgages": True,
+    "flag_leases_rentals": True,
+    "flag_personal_loans": True,
+    "flag_floor_plan": True,
+    "flag_factoring": True,
+    "flag_premium_financing": True,
+}
+#: The settings after the NSF toggle alone is turned on: a save merges, so every other key keeps its default.
+CARRY_OVER = {**EXPECTED_DEFAULTS, "nsf_carry_over": True}
 
 
 @pytest.fixture
@@ -28,7 +49,7 @@ def _ledger_metrics():
 # --- the settings file -------------------------------------------------------------------------------------
 
 def test_defaults_to_printed_days_when_nothing_is_saved(tmp_path):
-    assert load_settings(tmp_path) == {"nsf_carry_over": False} == DEFAULTS
+    assert load_settings(tmp_path) == EXPECTED_DEFAULTS == DEFAULTS
 
 
 @pytest.mark.parametrize("content", ["not json", "[]", '{"nsf_carry_over": "yes"}', '{"nsf_carry_over": 1}'])
@@ -38,8 +59,8 @@ def test_a_malformed_file_or_value_reads_as_the_default(tmp_path, content):
 
 
 def test_saving_persists_and_leaves_no_temporary_file(tmp_path):
-    assert save_settings(tmp_path, {"nsf_carry_over": True}) == {"nsf_carry_over": True}
-    assert load_settings(tmp_path) == {"nsf_carry_over": True}
+    assert save_settings(tmp_path, {"nsf_carry_over": True}) == CARRY_OVER
+    assert load_settings(tmp_path) == CARRY_OVER
     assert sorted(p.name for p in tmp_path.iterdir()) == [SETTINGS_FILE]
 
 
@@ -54,11 +75,11 @@ def test_a_bad_update_is_refused_and_writes_nothing(tmp_path, updates):
 
 def test_the_api_reads_and_saves_the_toggle(settings_file):
     client = app.test_client()
-    assert client.get("/api/settings").get_json() == {"settings": {"nsf_carry_over": False}}
+    assert client.get("/api/settings").get_json() == {"settings": EXPECTED_DEFAULTS}
     response = client.post("/api/settings", json={"nsf_carry_over": True})
-    assert response.status_code == 200 and response.get_json() == {"settings": {"nsf_carry_over": True}}
-    assert json.loads(settings_file.read_text(encoding="utf-8")) == {"nsf_carry_over": True}
-    assert client.get("/api/settings").get_json() == {"settings": {"nsf_carry_over": True}}
+    assert response.status_code == 200 and response.get_json() == {"settings": CARRY_OVER}
+    assert json.loads(settings_file.read_text(encoding="utf-8")) == CARRY_OVER
+    assert client.get("/api/settings").get_json() == {"settings": CARRY_OVER}
 
 
 def test_the_api_refuses_a_form_post_and_unknown_keys_without_echoing_them(settings_file):
@@ -67,6 +88,39 @@ def test_the_api_refuses_a_form_post_and_unknown_keys_without_echoing_them(setti
     response = client.post("/api/settings", json={"<script>": True})
     assert response.status_code == 400 and response.get_json() == {"error": "invalid settings update"}
     assert not settings_file.exists()
+
+
+# --- the flag-group checkboxes (lender detection §8.1) -------------------------------------------------------
+
+def test_every_flag_group_has_a_checkbox_that_is_on_by_default():
+    assert FLAG_SETTING_KEYS == tuple(group.setting for group in FLAG_GROUPS)
+    assert set(DEFAULTS) == {"nsf_carry_over", *FLAG_SETTING_KEYS}
+    assert all(DEFAULTS[key] is True for key in FLAG_SETTING_KEYS)
+
+
+@pytest.mark.parametrize("key", FLAG_SETTING_KEYS)
+@pytest.mark.parametrize("stored", ['"no"', "0", "null"])
+def test_a_malformed_checkbox_value_reads_as_shown(tmp_path, key, stored):
+    (tmp_path / SETTINGS_FILE).write_text(f'{{"{key}": {stored}}}', encoding="utf-8")
+    assert load_settings(tmp_path) == EXPECTED_DEFAULTS
+
+
+@pytest.mark.parametrize("key", FLAG_SETTING_KEYS)
+@pytest.mark.parametrize("value", ["false", 0, None])
+def test_a_checkbox_update_that_is_not_a_bool_is_refused_and_writes_nothing(tmp_path, key, value):
+    with pytest.raises(ValueError, match=f"setting {key} must be bool"):
+        save_settings(tmp_path, {key: value})
+    assert not (tmp_path / SETTINGS_FILE).exists()
+
+
+@pytest.mark.parametrize("key", FLAG_SETTING_KEYS)
+def test_the_api_saves_one_checkbox_and_keeps_every_other_setting(settings_file, key):
+    client = app.test_client()
+    save_settings(settings_file.parent, {"nsf_carry_over": True})
+    response = client.post("/api/settings", json={key: False})
+    assert response.status_code == 200 and response.get_json() == {"settings": {**CARRY_OVER, key: False}}
+    assert json.loads(settings_file.read_text(encoding="utf-8")) == {**CARRY_OVER, key: False}
+    assert client.get("/api/settings").get_json() == {"settings": {**CARRY_OVER, key: False}}
 
 
 # --- every served surface follows the toggle -----------------------------------------------------------------
@@ -126,8 +180,8 @@ def test_a_replace_that_collides_with_a_reader_is_retried(settings_file, monkeyp
         real_replace(source, target)
     monkeypatch.setattr(settings_module.os, "replace", flaky)
     monkeypatch.setattr(settings_module.time, "sleep", lambda seconds: None)
-    assert save_settings(settings_file.parent, {"nsf_carry_over": True}) == {"nsf_carry_over": True}
-    assert len(calls) == 3 and load_settings(settings_file.parent) == {"nsf_carry_over": True}
+    assert save_settings(settings_file.parent, {"nsf_carry_over": True}) == CARRY_OVER
+    assert len(calls) == 3 and load_settings(settings_file.parent) == CARRY_OVER
 
 
 def test_the_package_totals_and_rows_carry_the_basis(settings_file):
@@ -173,7 +227,7 @@ def test_a_read_colliding_with_a_save_is_retried_rather_than_read_as_the_default
         return real_read(self, *args, **kwargs)
     monkeypatch.setattr(settings_module.Path, "read_text", busy_once)
     monkeypatch.setattr(settings_module.time, "sleep", lambda seconds: None)
-    assert load_settings(tmp_path) == {"nsf_carry_over": True} and len(calls) == 2
+    assert load_settings(tmp_path) == CARRY_OVER and len(calls) == 2
 
 
 # --- the basis on a statement that holds several accounts -----------------------------------------------------------

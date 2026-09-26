@@ -22,7 +22,9 @@ from typing import Any
 
 from .classify import ComparisonRow, Outcome, UNSET, classify, values_match
 from .expectations import Expectation
-from .lenders import NON_MCA_SCOPE, canonical_lender, ledger_tokens
+from analysis.flag_groups import FLAG_GROUP_BY_KEY
+
+from .lenders import canonical_lender, flagged_lender_groups, ledger_tokens
 from .manifest import BenchmarkSet
 from .masking import mask_account, transaction_ref
 from .normalize import MTLender, MTResultRow, MTSet, MTStatementRow, last4, parse_money
@@ -635,6 +637,10 @@ def build_mca_rows(
                 entry["total"] = round(entry["total"] + abs(funder.get("total_debited") or 0.0), 2)
                 entry["transactions"].extend(funder.get("transactions") or [])
 
+    # Counterparties our payload flags (owner ruling 2026-09-24) are not
+    # lenders here, and a MoneyThumb lender matching one is no miss.
+    our_flagged = flagged_lender_groups(our_file.detection for our_file in ours.files)
+
     mt_lenders: dict[str, MTLender] = {}
     for label, lender in mt.lenders().items():
         mt_lenders[canonical_lender(label)] = lender
@@ -662,8 +668,10 @@ def build_mca_rows(
     for canonical in sorted(set(our_lenders) | set(mt_lenders)):
         our_entry = our_lenders.get(canonical)
         mt_entry = mt_lenders.get(canonical)
-        our_count = our_entry["count"] if our_entry else None
-        our_total = our_entry["total"] if our_entry else None
+        flagged_entry = our_flagged.get(canonical) if our_entry is None else None
+        tracked = our_entry or flagged_entry
+        our_count = tracked["count"] if tracked else None
+        our_total = tracked["total"] if tracked else None
         mt_count = mt_entry.withdrawal_count if mt_entry else None
         mt_total = mt_entry.withdrawal_total if mt_entry else None
 
@@ -688,17 +696,15 @@ def build_mca_rows(
 
         scope_note = ""
         different_definition = None
-        if our_entry and not mt_entry and canonical in NON_MCA_SCOPE:
+        if flagged_entry is not None and mt_entry is not None:
+            group = flagged_entry["group"]
+            label = FLAG_GROUP_BY_KEY[group].label if group in FLAG_GROUP_BY_KEY else str(group)
             different_definition = {
-                "ours": "general financing/lender detection (registry-backed, "
-                "includes BNPL / SBA / consumer-finance counterparties)",
+                "ours": f"flagged here as {label}: a financing obligation outside "
+                "lender math (owner ruling 2026-09-24)",
                 "moneythumb": "MCA-specific lender list (mca_transactions)",
             }
-            scope_note = (
-                f"'{canonical}' is a financing counterparty outside MCA scope; "
-                "MT's list is MCA-specific, so its absence there is a scope "
-                "difference, not an extraction miss."
-            )
+            scope_note = f"'{canonical}' is flagged here ({label}), not a missed lender."
         potential_note = (
             " Detected by our POTENTIAL-lender tier (review-gated), not the "
             "confirmed tier." if our_entry and our_entry["kind"] == "potential" else ""
@@ -767,12 +773,30 @@ def build_mca_rows(
     )
     mt_detected = sorted(mt_lenders)
     ours_only = [c for c in our_confirmed if c not in mt_lenders]
-    mt_only = [c for c in mt_detected if c not in our_lenders]
-    ours_only_mca = [c for c in ours_only if c not in NON_MCA_SCOPE]
+    # A MoneyThumb lender our payload carries as a flagged position is not a
+    # miss: the owner ruled it out of lender math (2026-09-24).
+    mt_flagged = [c for c in mt_detected if c not in our_lenders and c in our_flagged]
+    mt_only = [c for c in mt_detected if c not in our_lenders and c not in our_flagged]
+    flagged_note = (
+        f" MoneyThumb lenders flagged here, not missed: {mt_flagged}." if mt_flagged else ""
+    )
     mt_only_corroborated = [c for c in mt_only if ledger_debits(c)]
     mt_only_deposit_only = [
         c for c in mt_only if (mt_lenders[c].withdrawal_count or 0) == 0
     ]
+    if mt_flagged and not mt_only and not ours_only:
+        rows.append(
+            classify(
+                set_name, "mca_lender_set", our_confirmed, mt_detected,
+                different_definition={
+                    "ours": "lenders are MCA and equipment-financing funders; other "
+                    "financing obligations are flagged positions (owner ruling 2026-09-24)",
+                    "moneythumb": "MCA-specific lender list (mca_transactions)",
+                },
+                note=flagged_note.strip(),
+            )
+        )
+        return rows
     if mt_only and not ours_only and all(
         c in mt_only_deposit_only for c in mt_only
     ) and all(ledger_credits(c) for c in mt_only):
@@ -790,7 +814,7 @@ def build_mca_rows(
             },
             note=f"MT-only {mt_only} are deposit-only entries; our ledger "
             "recognizes the same funding credit(s) - see the "
-            "funding_deposits row(s).",
+            "funding_deposits row(s)." + flagged_note,
         )
         rows.append(aggregate)
         return rows
@@ -806,7 +830,7 @@ def build_mca_rows(
                              "detail": "per-lender ledger evidence (see mca.* rows)"},
             note=outcome_note,
         )
-    elif mt_only_corroborated and not ours_only_mca:
+    elif mt_only_corroborated and not ours_only:
         aggregate = ComparisonRow(
             set_name=set_name, field="mca_lender_set",
             outcome=Outcome.MONEYTHUMB_CORRECT,
@@ -821,34 +845,23 @@ def build_mca_rows(
             for_ocean=True,
         )
     elif ours_only and not mt_only:
-        scope_only = all(c in NON_MCA_SCOPE for c in ours_only)
-        if scope_only:
-            aggregate = classify(
-                set_name, "mca_lender_set", our_confirmed, mt_detected,
-                different_definition={
-                    "ours": "general lender detection (financing counterparties "
-                    "beyond MCA)",
-                    "moneythumb": "MCA-specific list",
-                },
-                note=f"Our extra detections {ours_only} are outside MCA scope.",
-            )
-        else:
-            aggregate = ComparisonRow(
-                set_name=set_name, field="mca_lender_set",
-                outcome=Outcome.OUR_SYSTEM_CORRECT,
-                ours=our_confirmed, mt=mt_detected,
-                evidence={"kind": "ledger_rows",
-                          "detail": f"registry-confirmed ledger evidence for {ours_only}"},
-                rationale=(
-                    f"We detected MCA-scope lenders {ours_only} that MoneyThumb "
-                    "missed; the reconciled ledger rows are the evidence."
-                ),
-            )
+        aggregate = ComparisonRow(
+            set_name=set_name, field="mca_lender_set",
+            outcome=Outcome.OUR_SYSTEM_CORRECT,
+            ours=our_confirmed, mt=mt_detected,
+            evidence={"kind": "ledger_rows",
+                      "detail": f"registry-confirmed ledger evidence for {ours_only}"},
+            rationale=(
+                f"We detected MCA-scope lenders {ours_only} that MoneyThumb "
+                "missed; the reconciled ledger rows are the evidence."
+            ),
+        )
     else:
         aggregate = classify(
             set_name, "mca_lender_set", our_confirmed, mt_detected,
             note=f"ours-only={ours_only}, mt-only={mt_only}.",
         )
+    aggregate.rationale += flagged_note
     rows.append(aggregate)
 
     return rows

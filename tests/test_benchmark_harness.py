@@ -372,3 +372,72 @@ class TestHelpers:
             "OUR_SYSTEM_CORRECT": 1,
             "UNRESOLVED": 1,
         }
+
+
+# --------------------------------------------------------------------------
+# Lender detection (2026-09-24, spec §7): flagged lenders are not misses.
+# --------------------------------------------------------------------------
+
+class TestFlaggedHere:
+    @staticmethod
+    def _set(flagged_positions):
+        from benchmark.normalize import MTSet
+        from benchmark.ourside import OurFileResult, OurSetResult
+
+        mt = MTSet(
+            name="synthetic", ok=True, http_status=200, uploaded_at=None,
+            source_files=[], stub_message=None,
+            response={"scorecard": {"mca_transactions": [
+                {"lender": "FABRICATED ALT CAPITAL", "amount": "-100.00", "date": "2054-01-02"},
+                {"lender": "FABRICATED ALT CAPITAL", "amount": "-100.00", "date": "2054-01-09"},
+            ]}},
+            paths=set(), summary_rows=[], result_rows=[],
+        )
+        payload = {
+            "statement": {"transactions": []},
+            "metrics": {},
+            "detection": {
+                "known_funders": [],
+                "potential_lenders": [],
+                "flagged_positions": flagged_positions,
+            },
+        }
+        ours = OurSetResult(
+            set_name="synthetic",
+            files=[OurFileResult(relative_path="synthetic.pdf", source_type="digital/native",
+                                 markdown="", payload=payload)],
+        )
+        return ours, mt
+
+    def test_a_flagged_moneythumb_lender_is_flagged_here_not_missed(self):
+        from benchmark.compare import build_mca_rows
+
+        ours, mt = self._set([{
+            "group": "alternative_positions", "payee": "FABRICATED ALT CAPITAL",
+            "matched_alias": "FABRICATED ALT CAPITAL", "count": 2, "total_debited": 200.0,
+            "cadence": "weekly", "avg_gap_days": 7.0, "first_date": "2054-01-02",
+            "last_date": "2054-01-09", "source_locations": ["transaction:1", "transaction:2"],
+        }])
+        rows = {row.field: row for row in build_mca_rows("synthetic", ours, mt)}
+        count_row = rows["mca.FABRICATED ALT CAPITAL.withdrawal_count"]
+        assert count_row.outcome is Outcome.DIFFERENT_DEFINITION
+        assert not count_row.for_ocean
+        assert (count_row.ours, count_row.mt) == (2, 2)
+        assert "flagged here" in count_row.rationale
+        aggregate = rows["mca_lender_set"]
+        assert aggregate.outcome is Outcome.DIFFERENT_DEFINITION
+        assert "FABRICATED ALT CAPITAL" in aggregate.rationale
+
+    def test_an_unflagged_moneythumb_lender_is_still_a_miss(self):
+        from benchmark.compare import build_mca_rows
+
+        ours, mt = self._set([])
+        rows = {row.field: row for row in build_mca_rows("synthetic", ours, mt)}
+        count_row = rows["mca.FABRICATED ALT CAPITAL.withdrawal_count"]
+        assert count_row.outcome is not Outcome.DIFFERENT_DEFINITION
+        assert count_row.for_ocean
+
+    def test_the_old_non_mca_scope_set_is_gone(self):
+        import benchmark.lenders as lenders
+
+        assert not hasattr(lenders, "NON_MCA_SCOPE")

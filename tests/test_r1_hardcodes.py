@@ -527,19 +527,30 @@ class TestMojibakeNormalization:
 # ---------------------------------------------------------------------------
 
 class TestPreApprovedRegistryEntries:
-    def test_afc_funding_confirmed_lender(self):
+    def test_afc_funding_is_floor_plan_financing(self):
+        # Owner decision 2026-09-25 (lender-detection design §2): AFC Funding Corporation
+        # funds dealer floor plans, so Item 12a's AFC FUNDING CORP is flagged Floor plan.
         record = classify_transaction("AFC FUNDING CORP XPRESS PAY", -4229.99)
-        assert record.classification == "confirmed_lender"
+        assert record.classification == "floor_plan_financing"
         assert record.canonical_entity == "AFC FUNDING CORP"
-        assert record.contributes_to_withholding_rate
+        assert record.flagged_group == "floor_plan"
+        assert not record.contributes_to_withholding_rate
 
-    def test_intuit_financing_confirmed_lender(self):
+    def test_intuit_financing_is_an_alternative_position(self):
+        # Owner ruling 2026-09-24 (lender-detection design §2) moved Item 12a's
+        # INTUIT FINANCING out of the lenders: it is a flagged alternative position.
         record = classify_transaction("INTUIT FINANCING QBC_PMTS", -632.24)
-        assert record.classification == "confirmed_lender"
+        assert record.classification == "alternative_position"
         assert record.canonical_entity == "INTUIT FINANCING"
+        assert record.flagged_group == "alternative_positions"
+        assert not record.contributes_to_withholding_rate
 
     def test_intuit_software_purchase_is_not_a_lender(self):
         # H-2 negative evidence: the $37.10 QuickBooks software charge.
         record = classify_transaction("VSA PUR INTUIT QBOOKS ONLINE CL.INT", -37.10)
-        assert record.classification not in ("confirmed_lender", "potential_lender")
+        assert record.classification not in (
+            "confirmed_lender",
+            "potential_lender",
+            "alternative_position",
+        )
         assert record.canonical_entity != "INTUIT FINANCING"

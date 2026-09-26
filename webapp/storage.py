@@ -628,6 +628,33 @@ class Storage:
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
 
+    def record_reanalysis(self, job_id: str, *, analysis_json: str, detail: dict) -> bool:
+        """Replace a job's analysis with a re-analysis of its statement (spec §8.6), in ONE transaction: the audit
+        row carrying the analysis being replaced, verbatim, is written first, then the job row takes the new analysis
+        and loses any old analysis error (a re-analysis that produced an analysis has none). `detail` goes into the
+        audit row beside the replaced analysis. Returns False, writing nothing, for a job that does not exist."""
+        with closing(self._connect()) as conn, conn:
+            row = conn.execute(
+                "SELECT analysis_json, analysis_error FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            self._insert_audit(
+                conn,
+                "reanalysis",
+                job_id=job_id,
+                detail={
+                    **detail,
+                    "previous_analysis_json": row["analysis_json"],
+                    "previous_analysis_error": row["analysis_error"],
+                },
+            )
+            conn.execute(
+                "UPDATE jobs SET analysis_json = ?, analysis_error = NULL WHERE id = ?",
+                (analysis_json, job_id),
+            )
+        return True
+
     def mark_interrupted_jobs(self, note: str) -> list[str]:
         """Startup re-hydration: any job that was queued/processing when the
         process died is explicitly marked ``interrupted`` with an explanatory

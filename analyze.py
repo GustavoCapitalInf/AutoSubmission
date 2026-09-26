@@ -11,6 +11,7 @@ import json
 import sys
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.serialization import document_report_to_dict
+from analysis.flag_groups import FLAG_GROUP_BY_KEY
 
 
 def _render(report: Report) -> str:
@@ -168,6 +169,24 @@ def _render(report: Report) -> str:
             L.append(f"    - ${rc.amount:,.2f} x{rc.count} [{rc.cadence}] : {rc.description_key[:50]}")
     else:
         L.append("  Recurring fixed debits: none with a regular cadence")
+
+    # Spec §7: flagged obligations, analysis time only (no Settings are read).
+    L.append("\n## Flagged positions (not lenders; outside lender math)")
+    if d.flagged_positions:
+        for fp in d.flagged_positions:
+            group = FLAG_GROUP_BY_KEY.get(fp.group)
+            label = group.label if group is not None else fp.group
+            # Owner ruling 2026-09-26: a factor's payouts are credits the payee paid in.
+            received = (
+                f"; {fp.count_credited} credit(s) received, ${fp.total_credited:,.2f}"
+                if fp.count_credited else ""
+            )
+            L.append(
+                f"  - {label}: {fp.payee}: {fp.count} debit(s), "
+                f"${fp.total_debited:,.2f}{received} ({fp.cadence})"
+            )
+    else:
+        L.append("  Flagged positions: none")
     return "\n".join(L)
 
 
