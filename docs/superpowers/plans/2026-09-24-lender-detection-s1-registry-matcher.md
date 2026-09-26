@@ -298,8 +298,8 @@ Expected output:
 
 The owner reads `$preview\lender-registry-evidence.md`. Its first table section is the lender list, and the moves and the entities awaiting a ruling follow. A ledger with problems prints `problem:` lines, exits `1` and writes nothing.
 
-**The ledger of the owner's delegated rulings of 2026-09-25.** The owner read the counted lender list on 2026-09-25 and delegated every open question to the orchestrator; the orchestrator's decisions are owner rulings, and the ledger carries them. Rendered with this branch's tools at `b69d12e` in a scratch clone, it printed (the digest amended 2026-09-26 to the ledger `lender-detection` holds, `0933763`; the digest written here before did not belong to any committed revision, and the counts are unchanged):
-- `ledger ok: 1085 entities, sha256:4aa854faeeddbc751c369229d742f9957aed4980b5cde7613293ac7370e855fd`;
+**The ledger of the owner's delegated rulings of 2026-09-25.** The owner read the counted lender list on 2026-09-25 and delegated every open question to the orchestrator; the orchestrator's decisions are owner rulings, and the ledger carries them. Rendered with this branch's tools at `b69d12e` in a scratch clone, it printed (the digest amended 2026-09-26 to the ledger `lender-detection` holds, `d9e5ae6`: the revision that followed the stop of Task 9's first run at Step 7 removed the URLs that named private individuals, and changed sources and notes only, so the counts and the 58 `move:` lines are unchanged; every digest written here before is superseded):
+- `ledger ok: 1085 entities, sha256:d20b9627089fa217f27e3caff83293595ed3a61dd606709cbfd655bf79b75759`;
 - 58 `move:` lines, among them `EBF HOLDINGS` `merged into EVEREST BUSINESS FUNDING`, SmartPay's `SMARTPAY SOL reattributed to SmartPay Solutions, LLC`, and `CAPITAL INFUSION` `confirmed_lender -> alternative_position`;
 - `LENDER_ALIASES: 286 entities, 505 aliases`, `ALTERNATIVE_POSITION_ALIASES: 54 entities, 94 aliases`, `LINE_OF_CREDIT_ALIASES: 14 entities, 21 aliases`, `CARD_ISSUER_ALIASES: 41 entities, 115 aliases`, `CARD_ISSUER_CONTEXT_ALIASES: 58 entities, 105 aliases`, `VEHICLE_FINANCE_ALIASES: 48 entities, 115 aliases`, `MORTGAGE_SERVICER_ALIASES: 35 entities, 48 aliases`, `LEASE_RENTAL_ALIASES: 32 entities, 65 aliases`, `PERSONAL_LOAN_ALIASES: 78 entities, 126 aliases`, `FLOOR_PLAN_ALIASES: 8 entities, 18 aliases`, `FACTORING_ALIASES: 13 entities, 21 aliases`, `PREMIUM_FINANCE_ALIASES: 21 entities, 47 aliases`, `BANK_NAME_ALIASES: 34 entities, 51 aliases`, `POTENTIAL_LENDER_ALIASES: 110 entities, 128 aliases`;
 - `0`.
@@ -5715,11 +5715,17 @@ Look for:
 - a person's or a customer's name, in any field of any entity:
   - an entity, an alias, `notes` or an evidence note, including a page title or a court caption that a note quotes;
   - a URL, which is an evidence `source` or a `where_looked` entry. Names reach URLs through profile and people pages, personal blogs, court-caption and enforcement-action slugs that name an individual, and news or press-release slugs that name a person;
-  - a public official's name in a government press-release slug, such as an attorney general's. Report it like any other name until the orchestrator rules otherwise;
 - an alias that does not name its payee, such as an entry description, a loan-type code or channel words;
 - anything copied from a statement: amounts, dates, account, reference or card numbers, or descriptor text, including a customer's own label for a payee.
 
 Company names, their spellings, truncations and initialisms are expected. This includes a company named after a person, such as a law firm or a dealer group, and a business named in a court caption.
+
+**The orchestrator's ruling of 2026-09-26** (after the first run stopped here), so a later read does not stop on these:
+- A public official named in an official publication, in that public role, is not private data and stays: an attorney general in the slug or title of an attorney-general press release, a judge in a court report.
+- A company named after a person stays, whatever the field (the owner ruled that rejected payees stay as evidence).
+- A private individual never stays, in any field: a court docket or caption that names a private person as a party (a business party stays), a personal profile, a person's own page or blog, and a press release, case study or news slug that names an employee, a founder or a customer. Report each one as below.
+
+The revision of the ledger that followed (`lender-detection` `d9e5ae6`) removed 13 URLs in 13 entities that named private individuals, with the quoted page title of one of them, and rewrote one note that quoted a customer's own label for a payee. It changed no group, status or alias.
 
 If you find anything:
 1. Undo the render (the command at the end of Step 6).
