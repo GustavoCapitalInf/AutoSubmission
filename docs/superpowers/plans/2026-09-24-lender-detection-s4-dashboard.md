@@ -4,7 +4,7 @@
 
 **Goal:** The dashboard shows the eleven flag groups (C1) that the analysis now publishes and the server filters by Settings. That means:
 - a Settings section with one switch per group;
-- a Flagged positions panel on the results page, the package page and the statement window;
+- a Flagged positions panel on the results page, the package page and the statement window. Since the owner's ruling of 2026-09-26, it also shows what a flagged payee paid in (a factor's payouts) under its debits, as "received" (Task 15);
 - a tag for each new classification state, and a Flagged chip on rows the server marks `flag_shown`. A premium-financing row keeps its Insurance tag and also carries the chip;
 - a Flagged ledger filter;
 - a notice on a statement analysed with older lender rules.
@@ -55,7 +55,7 @@ Specific to S4:
   - `webapp/templates/index.html`
   - `tests/test_webapp_flagged_dashboard.py` (new)
 - **Order of work.**
-  - Tasks 1-10 and 12 need nothing from S1, S2 or S3. They test against fabricated payloads that follow C5/C6.
+  - Tasks 1-10, 12 and 15 need nothing from S1, S2 or S3. They test against fabricated payloads that follow C5/C6. Task 15 (the owner's ruling of 2026-09-26 on factoring credits) runs after Task 12 and before Task 13.
   - Task 11 needs S1 merged into `lender-detection`: C1's `analysis/flag_groups.py` exists.
   - From S1, S4 consumes C1 only. It reads no alias table (C2), no matcher (C3), and nothing of the curated registry ledger (C10): not `docs/lender-registry-ledger.json`, not S1's builder or its `--check` validator, and no research input. app.js carries no payee name, and every S4 test uses fabricated names.
   - Task 13 needs S2 and S3 merged.
@@ -131,7 +131,7 @@ At the base, the selection without the new file gives: **75 passed**.
 |---|---|---|
 | `webapp/static/app.js` | Modify | Holds all dashboard behaviour:<br>- `FLAG_GROUP_LABELS` and `CADENCE_LABELS`, read through `ownKey`<br>- tags for the new states (card payments name their issuer), and the Flagged chip<br>- the `flagged` and `flagged:<group>` ledger filters<br>- `renderFlaggedPositions` and its helpers, drawn on the results page, the package page and the statement window<br>- the Settings switches (`renderFlagSettings`, the delegated save, the filter reset)<br>- `syncRulesOutdatedNotice` |
 | `webapp/templates/index.html` | Modify | Holds all markup and CSS:<br>- the `#flaggedCard` panel<br>- the statement window's `#statementModalFlagged` table<br>- the two Flagged filter pills<br>- the `#flagSettingsSection` Settings section<br>- the `#rulesOutdatedNotice` notice with `#reanalyzeButton`<br>- their CSS<br>- the app.js cache-busting query |
-| `tests/test_webapp_flagged_dashboard.py` | Create | Tests S4's dashboard:<br>- node-harness tests on fabricated C5/C6 payloads<br>- static markup tests<br>- parity with `analysis/flag_groups.py`<br>- one end-to-end test on the served payload |
+| `tests/test_webapp_flagged_dashboard.py` | Create | Tests S4's dashboard:<br>- node-harness tests on fabricated C5/C6 payloads<br>- static markup tests<br>- parity with `analysis/flag_groups.py`<br>- one end-to-end test on the served payload<br>- what a flagged payee paid in, on the panels, the chip and the filters (Task 15) |
 
 ---
 
@@ -2512,6 +2512,255 @@ git commit -m "dashboard: new app.js cache key for the lender detection release"
 
 ---
 
+### Task 15: What a flagged payee paid in, on the panels, the chip and the filters (runs after Task 12, before Task 13)
+
+The owner ruled on 2026-09-26 that a factoring payee's credit is the business's sales, paid by the factor that bought its invoices. It stays revenue, and it also carries the Factoring flag. The master plan's contract carries the ruling since that date:
+- **C4.** A factoring credit is a row of state `factoring`, with `flagged_group="factoring"`. When posted, it has `contributes_to_flagged_totals`, and the server serves it with `flag_shown` while Factoring is ticked.
+- **C5.** Every `detection.flagged_positions` entry gains `count_credited` and `total_credited`. `count` and `total_debited` stay debit-only. A payee whose counted rows are all credits has an entry with `count` 0.
+- **C6.** Every `pkg.flagged_positions` item gains the same two fields. Under a currency refusal, `total_credited` is null, like `total_debited`.
+- **C8.** The Flagged positions panels show the credited count and total, worded "received". The Flagged chip and the ledger filters cover flagged credit rows.
+
+**When.** Now: after Task 12, before Task 13. It tests fabricated payloads that follow the amended C5/C6, as Tasks 1-10 and 12 do, so it needs neither S2 nor S3. Task 14's final verification runs it with the rest of the file.
+
+**What already holds and what changes.**
+- **Holds.** The chip, the Flagged pill and the payee filter key on `flag_shown`, `flagged_group` and `contributes_to_flagged_totals`, never on the direction. They already cover a factoring credit. A credit still shows its revenue tag first (`transactionCategory`, Task 1). This task pins all of that; those tests pass before any change.
+- **Changes.** The panel rows (`flaggedPositionRowsHtml`, shared by the results page, the package page and the statement window) show the credits under the debits, as two detail lines: "`<n>` received" under Count and "`<money>` received" under Total.
+  - They use the cell-detail style the cadence cell already uses. So the columns, the headers, the colspans and every earlier row stay as they are.
+  - A payee with no credit shows no such line.
+  - The payee button's accessible name becomes "Show the transactions of `<payee>`", because a payee's rows may be money it paid in.
+  - The panel's note says what "received" means.
+
+**Files:**
+- Modify `webapp/static/app.js`: `flaggedPositionRowsHtml` (Task 3).
+- Modify `webapp/templates/index.html`: the `.flagged-note` paragraph of `#flaggedCard` (Task 3).
+- Test: `tests/test_webapp_flagged_dashboard.py` (append).
+
+**Interfaces:**
+- Consumes:
+  - C5 and C6 as amended: `count_credited` and `total_credited` on each panel entry. They are absent from payloads served before the ruling, and a missing `count_credited` reads as no credit;
+  - C4 and C6: a factoring credit row with `flagged_group`, `contributes_to_flagged_totals` and `flag_shown`;
+  - `flaggedPositionRowsHtml`, `renderFlaggedPositions` and `flaggedPositionEntries` (Task 3), the payee click and the `flagged:<group>` filter (Task 4), `renderPackageAnalysis` (Task 5) and `openStatementModal` (Task 6);
+  - the fixtures `_row`, `ROWS`, `_statement` and `_load` (Task 2), `PANEL` (Task 3), `PAYEE_CLICK` (Task 4) and `PACKAGE` (Task 5), and `CELLS` and `_serve` from `tests/test_webapp_studio_views.py`.
+- Produces:
+  - panel rows whose Count and Total cells carry a `<div class="table-cell-detail">` line, "`<n>` received" and "`<money>` received", when `count_credited` is above 0;
+  - money shown with the payload's currency, or "N/A received" when the package refused it;
+  - the button text `aria-label="Show the transactions of <payee>"`;
+  - the note sentence "Received: money a flagged payee paid in, such as a factor's payouts, which stays in deposits.";
+  - the test constants `FACTOR_LEDGER`, `FACTOR_POSITIONS`, `PARTS` and `FACTOR_ROWS`.
+
+- [ ] **Step 1: Write the failing tests.** Append to `tests/test_webapp_flagged_dashboard.py`:
+
+```python
+
+
+# ---------------------------------------------------------------- Task 15: what a flagged payee paid in
+
+# Owner ruling 2026-09-26 (C4, C5): a factor's payout is the business's own sales. The row stays revenue, so it shows
+# its revenue tag first, and it is a Factoring row that counts (flagged_group, contributes_to_flagged_totals), so it
+# carries the Flagged chip. The panel shows a payee's credits under its debits as "received" (count_credited,
+# total_credited), never added to them. Payees and amounts are fabricated.
+FACTOR_LEDGER = [
+    _row("transaction:1", "2031-03-03", "ACH DEBIT FABRICATED FACTOR FUNDING", -150.0, "factoring",
+         entity="FABRICATED FACTOR FUNDING", group="factoring"),
+    _row("transaction:2", "2031-03-10", "FABRICATED FACTOR FUNDING INVOICE PAYMENT", 4000.0, "factoring",
+         entity="FABRICATED FACTOR FUNDING", group="factoring", revenue="verified_revenue"),
+    _row("transaction:3", "2031-03-17", "FABRICATED FACTOR FUNDING INVOICE PAYMENT", 3000.0, "factoring",
+         entity="FABRICATED FACTOR FUNDING", group="factoring", revenue="unverified_deposit"),
+    _row("transaction:4", "2031-03-20", "ACH CREDIT FABRICATED CUSTOMER", 5000.0, "other", revenue="verified_revenue"),
+    _row("transaction:5", "2031-03-24", "FABRICATED SECOND FACTOR INVOICE PAYMENT", 2000.0, "factoring",
+         entity="FABRICATED SECOND FACTOR", group="factoring", revenue="verified_revenue"),
+]
+
+# detection.flagged_positions as S2 serves it (C5): group order, then debited plus credited, then payee. A payee whose
+# counted rows are all credits has an entry with a count of 0.
+FACTOR_POSITIONS = [
+    {"group": "factoring", "payee": "FABRICATED FACTOR FUNDING", "matched_alias": "FABRICATED FACTOR FUNDING",
+     "count": 1, "total_debited": 150.0, "count_credited": 2, "total_credited": 7000.0, "cadence": "weekly",
+     "avg_gap_days": 7.0, "first_date": "2031-03-03", "last_date": "2031-03-17",
+     "source_locations": ["transaction:1", "transaction:2", "transaction:3"]},
+    {"group": "factoring", "payee": "FABRICATED SECOND FACTOR", "matched_alias": "FABRICATED SECOND FACTOR",
+     "count": 0, "total_debited": 0.0, "count_credited": 1, "total_credited": 2000.0, "cadence": "single",
+     "avg_gap_days": None, "first_date": "2031-03-24", "last_date": "2031-03-24",
+     "source_locations": ["transaction:5"]},
+]
+
+# The panel's rows, one list per row: a cell is its text, or [its text, its detail lines...] when it has detail lines.
+PARTS = r"""
+const parts = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((row) =>
+  [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((cell) => {
+    const details = [...cell[1].matchAll(/<div class="table-cell-detail">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
+    const main = cell[1].replace(/<div class="table-cell-detail">[\s\S]*?<\/div>/g, "").replace(/<[^>]+>/g, "").trim();
+    return details.length ? [main, ...details] : main;
+  }));
+"""
+
+FACTOR_ROWS = [
+    ["Factoring", "FABRICATED FACTOR FUNDING", ["1", "2 received"], ["CA$150.00", "CA$7,000.00 received"],
+     ["Weekly", "2031-03-03 to 2031-03-17"]],
+    ["Factoring", "FABRICATED SECOND FACTOR", ["0", "1 received"], ["CA$0.00", "CA$2,000.00 received"],
+     "Single payment"],
+]
+
+
+@needs_node
+def test_the_statement_panel_shows_what_each_payee_paid_in_under_its_debits():
+    result = run_dashboard(PARTS + _load("f", _statement(positions=FACTOR_POSITIONS, ledger=FACTOR_LEDGER)) + """
+console.log(JSON.stringify({rows: parts(els.flaggedTable.innerHTML), count: els.flaggedCount.textContent,
+  html: els.flaggedTable.innerHTML}));
+""")
+    assert result["rows"] == FACTOR_ROWS
+    assert result["count"] == "2 payees"
+    assert 'aria-label="Show the transactions of FABRICATED SECOND FACTOR"' in result["html"]
+
+
+@needs_node
+def test_a_payee_with_no_credit_shows_no_received_line():
+    result = run_dashboard(CELLS + _load("s", _statement()) + PANEL)
+    assert "received" not in result["html"]
+
+
+@needs_node
+def test_the_package_panel_shows_what_a_factor_paid_in_and_refuses_it_across_currencies():
+    factor = {**PACKAGE["flagged_positions"]["factoring"][0], "count_credited": 3, "total_credited": 9000.0}
+    single = {**PACKAGE, "flagged_positions": {"factoring": [factor]}}
+    refused = {**single,
+               "currency": {"currency": None, "currencies": ["CAD", "USD"], "cross_currency_totals_refused": True,
+                            "refusal_reason": "multiple_currencies"},
+               "flagged_positions": {"factoring": [{**factor, "total_debited": None, "total_credited": None}]}}
+    script = PARTS + """
+const draw = (pkg) => { currentJobIds = ['a', 'b']; renderPackageAnalysis(pkg); return parts(els.flaggedTable.innerHTML); };
+"""
+    result = run_dashboard(script + f"console.log(JSON.stringify({{single: draw({json.dumps(single)}),"
+                                    f" refused: draw({json.dumps(refused)})}}));\n")
+    assert result["single"] == [["Factoring", "FABRICATED FACTOR FUNDING", ["1", "3 received"],
+                                 ["CA$150.00", "CA$9,000.00 received"], "Single payment", "1"]]
+    # The counts survive a currency refusal; the money received is refused like the money debited.
+    assert result["refused"] == [["Factoring", "FABRICATED FACTOR FUNDING", ["1", "3 received"],
+                                  ["N/A", "N/A received"], "Single payment", "1"]]
+
+
+@needs_node
+def test_the_statement_window_shows_what_each_payee_paid_in():
+    result = run_dashboard(PARTS + _serve(m=_statement(positions=FACTOR_POSITIONS, ledger=FACTOR_LEDGER)) + """
+openStatementModal('m'); await settle();
+console.log(JSON.stringify({rows: parts(els.statementModalFlagged.innerHTML)}));
+""")
+    assert result["rows"] == FACTOR_ROWS
+
+
+@needs_node
+def test_a_factor_payout_keeps_its_revenue_tag_carries_the_chip_and_is_behind_its_payee():
+    result = run_dashboard(ROWS + PAYEE_CLICK + _load("f", _statement(positions=FACTOR_POSITIONS, ledger=FACTOR_LEDGER))
+                           + """
+const tagged = (text) => rowsOf(els.transactionTable.innerHTML)
+  .map((row) => row.includes(`<span class="chip-text">${text}</span>`));
+const all = {dates: datesOf(els.transactionTable.innerHTML), flagged: flaggedOf(els.transactionTable.innerHTML),
+  revenue: tagged('Verified Revenue')};
+transactionFilter = 'flagged'; renderMainTransactions();
+const flagged = datesOf(els.transactionTable.innerHTML);
+clickPayee(els.flaggedTable, 'factoring', 'FABRICATED FACTOR FUNDING');
+console.log(JSON.stringify({all, flagged, clicked: {count: els.transactionCount.textContent,
+  dates: datesOf(els.transactionTable.innerHTML)}}));
+""")
+    assert result["all"]["dates"] == ["2031-03-03", "2031-03-10", "2031-03-17", "2031-03-20", "2031-03-24"]
+    # Every factoring row carries the chip, the payouts beside their revenue tag; the customer's credit carries none.
+    assert result["all"]["flagged"] == [True, True, True, False, True]
+    assert result["all"]["revenue"] == [False, True, False, True, True]
+    # The Flagged pill keeps the payouts with the debit.
+    assert result["flagged"] == ["2031-03-03", "2031-03-10", "2031-03-17", "2031-03-24"]
+    # A payee click shows the rows behind both of its counts: its debit and its two payouts.
+    assert result["clicked"] == {"count": "3 FABRICATED FACTOR FUNDING",
+                                 "dates": ["2031-03-03", "2031-03-10", "2031-03-17"]}
+
+
+def test_the_panel_says_what_received_means():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    card = html[html.index('id="flaggedCard"'):]
+    card = card[:card.index("</section>")]
+    assert "Received: money a flagged payee paid in, such as a factor's payouts, which stays in deposits." in card
+    for reused in ("Potential Withholding", "Eligible Deposits", "Exposure"):
+        assert reused not in card
+```
+
+- [ ] **Step 2: Run them and watch them fail.**
+
+Run: `C:\Python314\python.exe -m pytest tests/test_webapp_flagged_dashboard.py -q -p no:cacheprovider`
+
+Expected: `4 failed, 31 passed` (measured on a scratch export of `c45ff42`).
+- The three panel tests fail on the row lists: today no Count or Total cell has a "received" line.
+- `test_the_panel_says_what_received_means` fails with `AssertionError` on the note.
+- `test_a_payee_with_no_credit_shows_no_received_line` and `test_a_factor_payout_keeps_its_revenue_tag_carries_the_chip_and_is_behind_its_payee` pass already: the chip, the pill and the payee filter key on the row's flag fields, never on its direction.
+
+- [ ] **Step 3: Implement.**
+
+Edit `webapp/static/app.js`, in `flaggedPositionRowsHtml`. Find:
+
+```js
+    const statements = isPackage ? `<td>${escapeHtml(formatNumber(entry.documents))}</td>` : "";
+    return `
+      <tr>
+        <td>${escapeHtml(flagGroupLabel(group))}</td>
+        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions paid to ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
+        <td>${escapeHtml(formatNumber(entry.count))}</td>
+        <td>${escapeHtml(formatMoney(entry.total_debited, currency))}</td>
+        <td>${escapeHtml(cadenceLabel(entry.cadence))}${span}</td>
+```
+
+Replace with:
+
+```js
+    const statements = isPackage ? `<td>${escapeHtml(formatNumber(entry.documents))}</td>` : "";
+    // Money the payee paid in (a factor's payouts, owner ruling 2026-09-26) is shown under the debits as received,
+    // never added to them. A payee with no credit shows no such line.
+    const received = Number(entry.count_credited) > 0;
+    const receivedCount = received
+      ? `<div class="table-cell-detail">${escapeHtml(formatNumber(entry.count_credited))} received</div>`
+      : "";
+    const receivedTotal = received
+      ? `<div class="table-cell-detail">${escapeHtml(formatMoney(entry.total_credited, currency))} received</div>`
+      : "";
+    return `
+      <tr>
+        <td>${escapeHtml(flagGroupLabel(group))}</td>
+        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions of ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
+        <td>${escapeHtml(formatNumber(entry.count))}${receivedCount}</td>
+        <td>${escapeHtml(formatMoney(entry.total_debited, currency))}${receivedTotal}</td>
+        <td>${escapeHtml(cadenceLabel(entry.cadence))}${span}</td>
+```
+
+Edit `webapp/templates/index.html`. Find:
+
+```html
+          <p class="flagged-note">Obligations outside lender math: never counted as lenders, never in withholding.</p>
+```
+
+Replace with:
+
+```html
+          <p class="flagged-note">Obligations outside lender math: never counted as lenders, never in withholding. Received: money a flagged payee paid in, such as a factor's payouts, which stays in deposits.</p>
+```
+
+Both `formatMoney(` calls pass the payload's currency (the guard `tests/test_package_currency.py:773-796`), and no payee literal enters app.js.
+
+- [ ] **Step 4: Run the tests and the guards.**
+
+Run: `C:\Python314\python.exe -m pytest tests/test_webapp_flagged_dashboard.py -q -p no:cacheprovider`
+
+Expected: `35 passed`.
+
+Then run DASHBOARD GUARDS. Expected: `110 passed` (104 after Task 12, plus these six), no failure.
+
+- [ ] **Step 5: Commit.**
+
+```
+git add webapp/static/app.js webapp/templates/index.html tests/test_webapp_flagged_dashboard.py
+git commit -m "dashboard: what a flagged payee paid in, under its debits, on every Flagged positions panel"
+```
+
+The commit message ends with the two attribution lines of the Global Constraints (Commits), as a second `-m`.
+
+---
+
 ### Task 13: End to end on a served fabricated statement
 
 **Precondition:**
@@ -2628,7 +2877,7 @@ git commit -m "tests: dashboard flagged panel end to end on a served fabricated 
 
 Run: `C:\Python314\python.exe -m pytest tests/test_webapp_flagged_dashboard.py -q -p no:cacheprovider`
 
-Expected: 30 passed.
+Expected: 36 passed (Tasks 1-13, and the six tests of Task 15).
 
 - [ ] **Step 2: Run DASHBOARD GUARDS.** Expected: no failures.
 
@@ -2651,7 +2900,8 @@ Expected: everything passes except the known `tests/test_no_statement_hardcodes.
      - the empty-state rows are drawn in the muted text colour (`--text-3`), not the group column's colour;
      - Settings shows eleven switches, in the order of `analysis/flag_groups.py`;
      - on a statement with a premium-financing payee, its rows keep their Insurance tag and carry the Flagged chip, the panel lists the payee under "Premium financing", and a click on it shows those rows;
-     - on a package holding floor-plan, factoring or premium-financing payees, the panel lists them after the older groups, in the order of `analysis/flag_groups.py`.
+     - on a package holding floor-plan, factoring or premium-financing payees, the panel lists them after the older groups, in the order of `analysis/flag_groups.py`;
+     - on a statement and a package with a factoring payee's credits (the owner's ruling of 2026-09-26), the panel shows them under the payee's debits as "received" (count and money), the credit rows carry the Flagged chip beside their revenue tag, and unticking Factoring removes the "received" lines with the rest of the payee's row (Task 15).
   4. Use real CDP mouse events, following the project's local browser-testing note.
 
 ---
@@ -2670,6 +2920,9 @@ Expected: everything passes except the known `tests/test_no_statement_hardcodes.
   - T11 passed against the C1 stand-in, as its Step 2 expects.
 - After each task, the whole new file gave 1/4/8/10/15/17/19/22/24/27/28/29 passed, the numbers each Step 4 predicts.
 - DASHBOARD GUARDS gave **75 passed** at the base and **104 passed** after Task 12, with no failure after any task.
+- **Task 15 (the owner's ruling of 2026-09-26), measured on a scratch export of `c45ff42`.** Its blocks applied verbatim, each anchor once (3 edits). The whole file went from `4 failed, 31 passed` before the implementation to `35 passed`. DASHBOARD GUARDS gave `110 passed`.
+  - The chip, pill and payee-filter test passed before any change, as did the no-credit test. So flagged credit rows needed no code, only the panel's detail lines.
+  - The detail lines use the existing `table-cell-detail` style. The headers, the colspans and every earlier row assertion of Tasks 3-6 are unchanged.
 - **Task 10's new tests bite** (`s4fix3/mutate_t10.py`, on the copy with Tasks 1-12 applied):
   - With the `renderUnverifiedMain` re-sync removed (the reviewer's finding), `test_the_notice_stays_on_a_statement_whose_main_account_is_withheld` fails with `{'held': {'withheld': True, 'hidden': True}} != {'held': {'withheld': True, 'hidden': False}}`.
   - With the sync moved back above the no-account return, unguarded, `test_the_notice_shows_only_on_a_statement_analysed_with_older_rules` fails with `{'empty': False} != {'empty': True}`.
@@ -2752,6 +3005,7 @@ Expected: everything passes except the known `tests/test_no_statement_hardcodes.
 | Whole group disabled while a save is in flight | Task 8 (`saving` all disabled; second change not sent) |
 | Panel on the results page, package page and statement window | Tasks 3, 5, 6 |
 | Columns Group, Payee, Count, Total, Cadence, plus Statements on packages | Tasks 3, 5 (static and rendered), 6 |
+| Owner ruling 2026-09-26 (C4-C6, C8 as amended): the panels show the credited count and total, worded "received"; the Flagged chip and the ledger filters cover flagged credit rows | Task 15 (results page, package page with a currency refusal, statement window; the chip, the pill and the payee click on a factor's payouts) |
 | Money with the payload's currency | Tasks 3, 5, 6 (CA$ asserted; refused package shows N/A) |
 | Clicking a payee filters the ledger | Task 4 (results page), Task 5 (package page, combined ledger), Task 6 (statement window) |
 | Empty state when no ticked group has payments | Tasks 3, 5; a payload that publishes no flagged positions says "Not available" instead (Tasks 3, 5, 6) |
@@ -2783,8 +3037,8 @@ Expected: everything passes except the known `tests/test_no_statement_hardcodes.
 - `rulesOutdatedNotice` and `reanalyzeButton`
 
 The payload names follow C5/C6:
-- `detection.flagged_positions` and its entry keys;
-- `pkg.flagged_positions` with `documents`;
+- `detection.flagged_positions` and its entry keys, `count_credited` and `total_credited` included since the amendment of 2026-09-26 (Task 15);
+- `pkg.flagged_positions` with `documents`, and the same two credited fields;
 - `flagged_group`, `contributes_to_flagged_totals` and `flag_shown`;
 - the top-level `analysis_rules_outdated`.
 

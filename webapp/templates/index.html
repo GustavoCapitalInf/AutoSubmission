@@ -565,7 +565,14 @@
   .results-content:not(.is-package) .package-only { display: none !important; }
   /* A statement whose main account was not verified: its metrics are withheld, so only the header, the accounts
      and the summary stay on the page until the user picks another verified account (Settings > All accounts). */
-  .results-content.is-withheld > :not(.hero):not(.accounts-panel):not(.summary-panel) { display: none !important; }
+  .results-content.is-withheld > :not(.hero):not(.accounts-panel):not(.summary-panel):not(.rules-outdated) { display: none !important; }
+  .rules-outdated {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 14px 20px;
+    border-color: var(--amber); background: var(--amber-soft);
+  }
+  .rules-outdated[hidden] { display: none; }
+  .rules-outdated-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+  .rules-outdated-text strong { font-weight: 600; }
 
   /* ---------- accounts of a statement that holds several ---------- */
   .accounts-panel[hidden] { display: none; }
@@ -602,6 +609,12 @@
   .lender-evidence-table td:nth-child(2) { color: var(--text-2); }
   .evidence-table td:nth-child(2), .evidence-table td:nth-child(3) { text-align: right; font-family: var(--font-mono); }
   .evidence-table th:nth-child(2), .evidence-table th:nth-child(3) { text-align: right; }
+  .flagged-note { margin: 0; padding: 0 20px 12px; font-size: 12.5px; color: var(--text-3); }
+  .flagged-table td:nth-child(3), .flagged-table td:nth-child(4), .flagged-table td:nth-child(6) { text-align: right; font-family: var(--font-mono); }
+  .flagged-table th:nth-child(3), .flagged-table th:nth-child(4), .flagged-table th:nth-child(6) { text-align: right; }
+  .flagged-table td:first-child:not(.empty-cell) { color: var(--text-2); }
+  .flagged-table .empty-cell { color: var(--text-3); padding-top: 20px; padding-bottom: 20px; }
+  .flagged-table .empty-cell strong { color: var(--text); margin-right: 6px; }
   .table-cell-detail { margin-top: 2px; font-family: var(--font-sans); font-size: 11.5px; color: var(--text-3); font-weight: 400; }
   .evidence-link {
     border: 0; background: transparent; padding: 0; color: var(--text); font-size: 13px; text-align: left; font-weight: inherit;
@@ -617,6 +630,7 @@
   .glass-chip.error { background: var(--red-soft); color: var(--red); }
   .glass-chip.info { background: var(--blue-soft); color: var(--blue); }
   .glass-chip.violet { background: var(--violet-soft); color: var(--violet); }
+  .glass-chip.flag-chip { margin-left: 6px; }
   .data-table .chip-glyph { display: none; }
   .table-action {
     height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-2); background: transparent;
@@ -762,6 +776,8 @@
   .setting-status:not(:empty)::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
   .setting-status[data-state="error"] { color: var(--red); }
   .setting-status[data-state="error"]::before { background: var(--red); }
+  .flag-settings-help { margin: 0; padding: 16px 20px 4px; }
+  .flag-settings-foot { display: flex; align-items: center; min-height: 44px; padding: 0 20px; border-top: 1px solid var(--border); background: var(--inset); }
 
   /* ---------- statement modal ---------- */
   .modal-backdrop {
@@ -1157,6 +1173,15 @@
           </div>
         </section>
 
+        <!-- A saved statement analysed with older lender rules (analysis_rules_outdated, set when it is served). -->
+        <section class="panel rules-outdated single-only" id="rulesOutdatedNotice" aria-labelledby="rulesOutdatedTitle" hidden>
+          <p class="rules-outdated-text">
+            <strong id="rulesOutdatedTitle">Analysed with older lender rules.</strong>
+            Its lenders and flagged positions follow the rules it was analysed with, not the current ones.
+          </p>
+          <button class="btn-quiet" type="button" id="reanalyzeButton">Re-analyze</button>
+        </section>
+
         <!-- The accounts of a statement that holds several: the main account first, the others with All accounts -->
         <section class="panel accounts-panel single-only" id="accountsPanel" aria-label="Accounts in this statement" hidden></section>
 
@@ -1291,6 +1316,30 @@
           </section>
         </section>
 
+        <!-- Obligations outside lender math, for the groups ticked in Settings (renderFlaggedPositions). -->
+        <section class="panel flagged-panel" id="flaggedCard" aria-labelledby="flaggedTitle">
+          <div class="panel-head">
+            <h3 id="flaggedTitle">Flagged positions</h3>
+            <span class="panel-sub" id="flaggedCount">0 payees</span>
+          </div>
+          <p class="flagged-note">Obligations outside lender math: never counted as lenders, never in withholding. Received: money a flagged payee paid in, such as a factor's payouts, which stays in deposits.</p>
+          <div class="table-wrap">
+            <table class="data-table flagged-table">
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Payee</th>
+                  <th>Count</th>
+                  <th>Total</th>
+                  <th>Cadence</th>
+                  <th class="package-only">Statements</th>
+                </tr>
+              </thead>
+              <tbody id="flaggedTable"></tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="split-2 package-only" aria-label="Package summary and processing">
           <section class="panel" aria-labelledby="packageSummaryTitle">
             <div class="panel-head">
@@ -1338,6 +1387,7 @@
             <button class="transaction-filter" type="button" data-transaction-filter="lender">Lenders</button>
             <button class="transaction-filter" type="button" data-transaction-filter="potential">Potential Lenders</button>
             <button class="transaction-filter" type="button" data-transaction-filter="insurance">Insurance</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="flagged">Flagged</button>
             <button class="transaction-filter" type="button" data-transaction-filter="pos">POS</button>
             <button class="transaction-filter" type="button" data-transaction-filter="verified_revenue">Verified Revenue</button>
             <button class="transaction-filter" type="button" data-transaction-filter="unverified_deposit">Unverified Deposits</button>
@@ -1413,6 +1463,21 @@
                 <span class="example-total" id="nsfExampleTotal">1</span>
                 <p class="setting-status" id="settingsStatus" role="status" aria-live="polite"></p>
               </div>
+            </div>
+          </div>
+        </section>
+        <section class="settings-section" id="flagSettingsSection" aria-labelledby="flagSettingsTitle">
+          <h2 class="eyebrow" id="flagSettingsTitle">Flagged positions</h2>
+          <div class="panel">
+            <p class="setting-help flag-settings-help" id="flagSettingsHelp">
+              A ticked group is flagged on statements and packages: listed in the Flagged positions panel, tagged in the
+              transactions and written to the downloads. A flagged group never counts as a lender and never changes
+              withholding or the package decision; unticking it only hides it.
+            </p>
+            <!-- One switch per group, drawn by renderFlagSettings (webapp/static/app.js). -->
+            <div id="flagSettingsList"></div>
+            <div class="flag-settings-foot">
+              <p class="setting-status" id="flagSettingsStatus" role="status" aria-live="polite"></p>
             </div>
           </div>
         </section>
@@ -1531,6 +1596,23 @@
         </section>
       </div>
       <section class="panel modal-panel">
+        <div class="panel-head"><h3>Flagged positions</h3></div>
+        <div class="table-wrap">
+          <table class="data-table flagged-table">
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th>Payee</th>
+                <th>Count</th>
+                <th>Total</th>
+                <th>Cadence</th>
+              </tr>
+            </thead>
+            <tbody id="statementModalFlagged"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel modal-panel">
         <div class="tx-head">
           <div class="tx-title">
             <h3>Transactions</h3>
@@ -1548,6 +1630,7 @@
           <button class="transaction-filter" type="button" data-modal-transaction-filter="lender">Lenders</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="potential">Potential Lenders</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="insurance">Insurance</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="flagged">Flagged</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="pos">POS</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="verified_revenue">Verified Revenue</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="unverified_deposit">Unverified Deposits</button>
@@ -1574,6 +1657,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=statement-studio-1"></script>
+<script src="/static/app.js?v=lender-detection-1"></script>
 </body>
 </html>

@@ -54,6 +54,8 @@ const els = {
   settingsView: document.getElementById("settingsView"),
   nsfCarryOverToggle: document.getElementById("nsfCarryOverToggle"),
   settingsStatus: document.getElementById("settingsStatus"),
+  flagSettingsList: document.getElementById("flagSettingsList"),
+  flagSettingsStatus: document.getElementById("flagSettingsStatus"),
   fileInput: document.getElementById("fileInput"),
   uploadBtn: document.getElementById("uploadBtn"),
   forceOcrToggle: document.getElementById("forceOcrToggle"),
@@ -73,6 +75,8 @@ const els = {
   lenderCount: document.getElementById("lenderCount"),
   insuranceTable: document.getElementById("insuranceTable"),
   insuranceCount: document.getElementById("insuranceCount"),
+  flaggedTable: document.getElementById("flaggedTable"),
+  flaggedCount: document.getElementById("flaggedCount"),
   revenueTable: document.getElementById("revenueTable"),
   revenueCount: document.getElementById("revenueCount"),
   transactionTable: document.getElementById("transactionTable"),
@@ -109,6 +113,7 @@ const els = {
   statementModalAccount: document.getElementById("statementModalAccount"),
   statementModalLenders: document.getElementById("statementModalLenders"),
   statementModalInsurance: document.getElementById("statementModalInsurance"),
+  statementModalFlagged: document.getElementById("statementModalFlagged"),
   statementModalRevenue: document.getElementById("statementModalRevenue"),
   statementModalTransactions: document.getElementById("statementModalTransactions"),
   statementModalTransactionCount: document.getElementById("statementModalTransactionCount"),
@@ -119,6 +124,7 @@ const els = {
   appearanceToggle: document.getElementById("appearanceToggle"),
   allAccountsToggle: document.getElementById("allAccountsToggle"),
   accountsPanel: document.getElementById("accountsPanel"),
+  rulesOutdatedNotice: document.getElementById("rulesOutdatedNotice"),
 };
 
 let currentJobId = null;
@@ -290,6 +296,46 @@ const NSF_SOURCE_LABELS = {
 
 function nsfSourceLabel(source) {
   return NSF_SOURCE_LABELS[source] || (source ? labelize(source) : "Negative-ending days");
+}
+
+// Whether a label table defines `key` itself: never an inherited name such as "constructor" or "toString".
+function ownKey(table, key) {
+  return Object.prototype.hasOwnProperty.call(table, String(key ?? ""));
+}
+
+// The groups of obligations flagged outside lender math, in the analysis's order (analysis/flag_groups.py
+// FLAG_GROUPS; tests/test_webapp_flagged_dashboard.py keeps the two alike). A group's settings key is flag_<group>.
+// Premium financing is the one group with no classification state: its rows stay insurance and carry flagged_group.
+const FLAG_GROUP_LABELS = Object.freeze({
+  alternative_positions: "Alternative positions",
+  lines_of_credit: "Lines of credit",
+  credit_cards: "Credit cards",
+  vehicle_financing: "Vehicle loans & leases",
+  bank_loans: "Bank loans",
+  mortgages: "Mortgages",
+  leases_rentals: "Leases & rentals",
+  personal_loans: "Personal loans",
+  floor_plan: "Floor plan",
+  factoring: "Factoring",
+  premium_financing: "Premium financing",
+});
+
+function flagGroupLabel(group) {
+  return ownKey(FLAG_GROUP_LABELS, group) ? FLAG_GROUP_LABELS[group] : labelize(group);
+}
+
+// How often a flagged payee was paid, as the analysis describes it (analysis/cadence.py describe_cadence).
+const CADENCE_LABELS = Object.freeze({
+  daily: "Daily",
+  weekly: "Weekly",
+  biweekly: "Every two weeks",
+  monthly: "Monthly",
+  irregular: "Irregular",
+  single: "Single payment",
+});
+
+function cadenceLabel(cadence) {
+  return ownKey(CADENCE_LABELS, cadence) ? CADENCE_LABELS[cadence] : labelize(cadence);
 }
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
@@ -474,10 +520,20 @@ function transactionCategory(tx) {
     confirmed_lender: { label: entity || "Confirmed lender", glyph: "LEN", tone: "violet" },
     potential_lender: { label: entity ? `${entity} (Potential)` : "Potential lender", glyph: "?", tone: "violet" },
     insurance: { label: entity || "Insurance", glyph: "INS", tone: "blue" },
+    // Retired 2026-09-24 (lender detection): analyses saved before then still carry it.
     lease_or_equipment_financing: { label: "Lease / Equipment", glyph: "LSE", tone: "neutral" },
+    alternative_position: { label: entity ? `${entity} (Alternative position)` : "Alternative position", glyph: "ALT", tone: "neutral" },
+    line_of_credit: { label: entity ? `${entity} (Line of credit)` : "Line of credit", glyph: "LOC", tone: "neutral" },
+    vehicle_financing: { label: entity ? `${entity} (Vehicle loan / lease)` : "Vehicle loan / lease", glyph: "VEH", tone: "neutral" },
+    bank_loan: { label: entity ? `${entity} (Bank loan)` : "Bank loan", glyph: "BNK", tone: "neutral" },
+    mortgage: { label: entity ? `${entity} (Mortgage)` : "Mortgage", glyph: "MTG", tone: "neutral" },
+    lease_or_rental: { label: entity ? `${entity} (Lease / rental)` : "Lease / rental", glyph: "LSE", tone: "neutral" },
+    personal_loan: { label: entity ? `${entity} (Personal loan)` : "Personal loan", glyph: "PLN", tone: "neutral" },
+    floor_plan_financing: { label: entity ? `${entity} (Floor plan)` : "Floor plan", glyph: "FLR", tone: "neutral" },
+    factoring: { label: entity ? `${entity} (Factoring)` : "Factoring", glyph: "FCT", tone: "neutral" },
     fee: { label: "Fee", glyph: "$", tone: "neutral" },
     transfer: { label: "Transfer", glyph: "TR", tone: "neutral" },
-    credit_card_payment: { label: "Credit Card Payment", glyph: "CC", tone: "neutral" },
+    credit_card_payment: { label: entity ? `${entity} (Credit card)` : "Credit Card Payment", glyph: "CC", tone: "neutral" },
     payroll: { label: "Payroll", glyph: "PAY", tone: "neutral" },
     tax: { label: "Tax", glyph: "TAX", tone: "neutral" },
     utility: { label: "Utility", glyph: "UTL", tone: "neutral" },
@@ -500,19 +556,47 @@ function contributesToPotentialTotals(tx) {
   return record.contributes_to_potential_lender_count === true;
 }
 
+// A row of a flagged group ticked in Settings: the server marks it (flag_shown) when it serves the analysis.
+function flaggedChip(tx) {
+  return transactionClassification(tx).flag_shown === true ? glassChip("FLG", "Flagged", "blue", "flag-chip") : "";
+}
+
+// The ledger filter behind one row of the Flagged positions panel is "flagged:<group>": that group's rows that count,
+// of the payee clicked. Null for any other filter.
+function flaggedFilterGroup(filter) {
+  const match = /^flagged:([a-z_]+)$/.exec(String(filter || ""));
+  return match ? match[1] : null;
+}
+
+// Who a flagged row paid, as the panel names it: the payee the classifier named, else the row's group.
+function flaggedPayeeOf(tx) {
+  const record = transactionClassification(tx);
+  return record.canonical_entity || (record.flagged_group ? flagGroupLabel(record.flagged_group) : null);
+}
+
 function filterTransactions(transactions, filter, canonicalEntity = null) {
   let matched = transactions;
+  const flagGroup = flaggedFilterGroup(filter);
   if (filter === "nsf") matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
   if (filter === "lender") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true);
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
   if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");
+  if (filter === "flagged") matched = transactions.filter((tx) => transactionClassification(tx).flag_shown === true);
+  if (flagGroup) {
+    matched = transactions.filter((tx) => {
+      const record = transactionClassification(tx);
+      return record.flag_shown === true && record.flagged_group === flagGroup
+        && record.contributes_to_flagged_totals === true;
+    });
+  }
   if (["verified_revenue", "unverified_deposit", "non_revenue"].includes(filter)) {
     matched = transactions.filter(
       (tx) => transactionClassification(tx).revenue_classification === filter
     );
   }
   if (!canonicalEntity) return matched;
+  if (flagGroup) return matched.filter((tx) => flaggedPayeeOf(tx) === canonicalEntity);
   return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
 }
 
@@ -697,7 +781,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
         <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
-        <td>${glassChip(category.glyph, category.label, category.tone)}${reviewReasonHtml}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${flaggedChip(tx)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
         <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
@@ -1144,6 +1228,7 @@ function setInitialState() {
   currentDocument = null;
   selectedAccountIndex = null;
   hideAccountsPanel();
+  syncRulesOutdatedNotice(null);
   if (els.transactionCard) els.transactionCard.style.display = "block";
   renderMetricSections(emptyMetricSections);
   renderAccountSummary(accountFieldRows());
@@ -1159,6 +1244,7 @@ function setInitialState() {
   ]);
   renderLenders([]);
   renderInsurance([]);
+  renderFlaggedPositions([], null, false);
   renderRevenueEvidence({
     total_posted_credit_count: 0,
     verified_revenue_count: 0,
@@ -1569,6 +1655,78 @@ function renderInsurance(providers, currency = "USD") {
   `).join("");
 }
 
+/* --- flagged positions ------------------------------------------------------
+   Obligations outside lender math (analysis/flag_groups.py), one row per payee, for the groups ticked in Settings:
+   the server leaves the other groups out when it serves the analysis. */
+
+// The panel's rows. A statement serves one list (detection.flagged_positions, already in group order), a package one
+// list per group (flagged_positions): either way they come out group by group, each group's own order kept. Null when
+// the payload publishes none (an analysis saved before flagged positions existed): the panel then cannot say whether
+// any group was paid.
+function flaggedPositionEntries(positions) {
+  const entries = (list) => (Array.isArray(list) ? list : []).filter((entry) => entry && typeof entry === "object");
+  if (Array.isArray(positions)) return entries(positions);
+  if (!positions || typeof positions !== "object") return null;
+  const known = Object.keys(FLAG_GROUP_LABELS);
+  const groups = [...known, ...Object.keys(positions).filter((group) => !known.includes(group))];
+  return groups.flatMap((group) => entries(positions[group]).map((entry) => ({ ...entry, group })));
+}
+
+// `isPackage` adds the Statements column: how many of the package's statements paid the payee.
+function flaggedPositionRowsHtml(entries, currency, isPackage = false) {
+  const columns = isPackage ? 6 : 5;
+  if (entries === null) {
+    return `
+      <tr>
+        <td class="empty-cell" colspan="${columns}"><strong>Not available</strong>Analysed before flagged positions existed; re-analyze to see them.</td>
+      </tr>
+    `;
+  }
+  if (!entries.length) {
+    return `
+      <tr>
+        <td class="empty-cell" colspan="${columns}"><strong>No flagged payments</strong>No group ticked in Settings has payments here.</td>
+      </tr>
+    `;
+  }
+  return entries.map((entry) => {
+    const group = String(entry.group || "");
+    const payee = String(entry.payee || flagGroupLabel(group));
+    const span = entry.first_date && entry.last_date && entry.first_date !== entry.last_date
+      ? `<div class="table-cell-detail">${escapeHtml(entry.first_date)} to ${escapeHtml(entry.last_date)}</div>`
+      : "";
+    const statements = isPackage ? `<td>${escapeHtml(formatNumber(entry.documents))}</td>` : "";
+    // Money the payee paid in (a factor's payouts, owner ruling 2026-09-26) is shown under the debits as received,
+    // never added to them. A payee with no credit shows no such line.
+    const received = Number(entry.count_credited) > 0;
+    const receivedCount = received
+      ? `<div class="table-cell-detail">${escapeHtml(formatNumber(entry.count_credited))} received</div>`
+      : "";
+    const receivedTotal = received
+      ? `<div class="table-cell-detail">${escapeHtml(formatMoney(entry.total_credited, currency))} received</div>`
+      : "";
+    return `
+      <tr>
+        <td>${escapeHtml(flagGroupLabel(group))}</td>
+        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions of ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
+        <td>${escapeHtml(formatNumber(entry.count))}${receivedCount}</td>
+        <td>${escapeHtml(formatMoney(entry.total_debited, currency))}${receivedTotal}</td>
+        <td>${escapeHtml(cadenceLabel(entry.cadence))}${span}</td>
+        ${statements}
+      </tr>
+    `;
+  }).join("");
+}
+
+function renderFlaggedPositions(positions, currency, isPackage = false) {
+  if (!els.flaggedTable || !els.flaggedCount) return;
+  const entries = flaggedPositionEntries(positions);
+  els.flaggedCount.textContent = entries === null
+    ? "Not available"
+    : `${formatNumber(entries.length)} ${entries.length === 1 ? "payee" : "payees"}`;
+  els.flaggedTable.innerHTML = flaggedPositionRowsHtml(entries, currency, isPackage);
+}
+
 const revenueRows = [
   ["verified_revenue", "Verified Revenue", "REV", "Verified", "green"],
   ["unverified_deposit", "Unverified Deposits", "?", "Review Required", "amber"],
@@ -1909,6 +2067,9 @@ function renderUnverifiedMain(published, roster, entry) {
   // account stands in for it; the verified ones stay one setting away.
   const report = currentDocument;
   setInitialState();
+  // setInitialState hid the notice; this statement's own analysis decides it. Re-analysis concerns the whole saved
+  // statement, so the notice stays while the main account's metrics are withheld.
+  syncRulesOutdatedNotice(report);
   currentDocument = report;
   currentAnalysis = null;
   setProgress(false);
@@ -2268,10 +2429,20 @@ function setReviewCount(value) {
   els.reviewCount.hidden = count <= 0;
 }
 
+// A saved statement analysed with older lender rules says so (the server sets analysis_rules_outdated when it serves
+// it), beside its Re-analyze button; a package or a statement of the current rules shows nothing. Kept in the block
+// that tests/test_webapp_accounts_view.py runs with only the accounts panel: every element is looked up null-safe.
+function syncRulesOutdatedNotice(report) {
+  if (!els.rulesOutdatedNotice) return;
+  els.rulesOutdatedNotice.hidden = !(report && report.analysis_rules_outdated === true);
+}
+
 function renderAnalysis(report) {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
   const published = publishedAccounts(report);
   const roster = accountRoster(report);
+  // A payload with no account to show draws no statement, so it keeps no notice either.
+  syncRulesOutdatedNotice(published.length ? report : null);
   if (!published.length) {
     // Three other consumers read `.statement` off `currentAnalysis` (the summary button and both transaction
     // renderers), so a payload with no account to show must never reach them.
@@ -2468,6 +2639,7 @@ function renderAccount(report) {
   renderRevenueEvidence(metrics, currency);
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
+  renderFlaggedPositions(detection.flagged_positions, currency, false);
   renderMainTransactions();
   refreshOpenSummary();
 }
@@ -2889,6 +3061,7 @@ function renderPackageAnalysis(pkg) {
   currentDocument = null;
   selectedAccountIndex = null;
   hideAccountsPanel();
+  syncRulesOutdatedNotice(null);
   els.resultsContent?.classList.remove("is-withheld");
   currentAnalysis = { package: pkg };
   currentMarkdown = "";
@@ -3057,6 +3230,7 @@ function renderPackageTables(pkg) {
   const currency = packageCurrencyInfo(pkg).currency;
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
+  renderFlaggedPositions(pkg.flagged_positions, currency, true);
   renderRevenueEvidence(pkg.totals || {}, currency);
   renderMonthlyStatements(pkg);
 }
@@ -3247,6 +3421,13 @@ function openStatementModal(memberId) {
       </tr>
     `;
   }
+  if (els.statementModalFlagged) {
+    els.statementModalFlagged.innerHTML = `
+      <tr>
+        <td colspan="5"><strong>Loading</strong></td>
+      </tr>
+    `;
+  }
   if (els.statementModalRevenue) {
     els.statementModalRevenue.innerHTML = `
       <tr>
@@ -3306,6 +3487,13 @@ function openStatementModal(memberId) {
           </tr>
         `;
       }
+      if (els.statementModalFlagged) {
+        els.statementModalFlagged.innerHTML = `
+          <tr>
+            <td colspan="5"><strong>Unable to load statement</strong></td>
+          </tr>
+        `;
+      }
       if (els.statementModalRevenue) {
         els.statementModalRevenue.innerHTML = `
           <tr>
@@ -3356,6 +3544,7 @@ function renderStatementModal(jobId, report, markdown) {
     els.statementModalAccount.innerHTML = "";
     els.statementModalLenders.innerHTML = "";
     els.statementModalInsurance.innerHTML = "";
+    els.statementModalFlagged.innerHTML = "";
     els.statementModalRevenue.innerHTML = "";
     els.statementModalTransactions.innerHTML = "";
     els.statementModalTransactionCount.textContent = "";
@@ -3385,6 +3574,7 @@ function renderStatementModal(jobId, report, markdown) {
     els.statementModalAccount.innerHTML = "";
     els.statementModalLenders.innerHTML = "";
     els.statementModalInsurance.innerHTML = "";
+    els.statementModalFlagged.innerHTML = "";
     els.statementModalRevenue.innerHTML = "";
     els.statementModalTransactions.innerHTML = "";
     els.statementModalTransactionCount.textContent = "";
@@ -3468,6 +3658,10 @@ function renderStatementModal(jobId, report, markdown) {
           <td>${glassChip("INS", "Clear", "green")}</td>
         </tr>
       `;
+  }
+  if (els.statementModalFlagged) {
+    els.statementModalFlagged.innerHTML = flaggedPositionRowsHtml(
+      flaggedPositionEntries(detection.flagged_positions), currency, false);
   }
   if (els.statementModalRevenue) {
     els.statementModalRevenue.innerHTML = revenueEvidenceRowsHtml(metrics, currency, true);
@@ -3981,6 +4175,7 @@ function setSettingsStatus(message, error = false) {
 
 function loadSettings() {
   els.nsfCarryOverToggle.disabled = true;
+  renderFlagSettings(flagSettingsSaved, true);
   fetch("/api/settings")
     .then((response) => {
       if (!response.ok) throw new Error(`Settings unavailable (${response.status})`);
@@ -3991,9 +4186,14 @@ function loadSettings() {
       els.nsfCarryOverToggle.disabled = false;
       renderNsfExample(els.nsfCarryOverToggle.checked);
       setSettingsStatus("");
+      flagSettingsSaved = settings;
+      // A switch still being saved keeps the group held; its own save draws the group again when it settles.
+      renderFlagSettings(settings, flagSettingsBusy);
+      if (!flagSettingsBusy) setFlagSettingsStatus("");
     })
     .catch((error) => {
       setSettingsStatus(error.message || String(error), true);
+      setFlagSettingsStatus(error.message || String(error), true);
     });
 }
 
@@ -4003,6 +4203,88 @@ function refreshShownResults() {
   // (currentDocument), and selecting one later renders from that copy, so it is fetched again too.
   if (currentJobIds.length > 1) loadPackage(currentJobIds, { reveal: false });
   else if (currentJobId && (currentAnalysis || currentDocument)) loadResults(currentJobId, { reveal: false });
+}
+
+/* Flagged positions: one switch per group (FLAG_GROUP_LABELS), each its own settings key, flag_<group>, on by default.
+   The server applies them when it serves an analysis; a switch only hides or shows its group. */
+let flagSettingsSaved = {};
+let flagSettingsBusy = false;
+
+function flagSettingKey(group) {
+  return `flag_${group}`;
+}
+
+// A key the settings lack (a server older than the flags) reads as on, the default.
+function renderFlagSettings(settings = {}, disabled = false) {
+  if (!els.flagSettingsList) return;
+  els.flagSettingsList.innerHTML = Object.entries(FLAG_GROUP_LABELS).map(([group, label]) => {
+    const key = flagSettingKey(group);
+    const id = `flagSetting-${group}`;
+    return `
+      <div class="setting-row">
+        <label class="setting-title" for="${id}">${escapeHtml(label)}</label>
+        <span class="switch">
+          <input type="checkbox" role="switch" id="${id}" data-flag-setting="${key}" aria-describedby="flagSettingsHelp"${
+            settings[key] === false ? "" : " checked"}${disabled ? " disabled" : ""}>
+          <span class="switch-track" aria-hidden="true"></span>
+        </span>
+      </div>
+    `;
+  }).join("");
+}
+
+function setFlagSettingsStatus(message, error = false) {
+  if (!els.flagSettingsStatus) return;
+  els.flagSettingsStatus.textContent = message;
+  if (error) els.flagSettingsStatus.setAttribute("data-state", "error");
+  else els.flagSettingsStatus.removeAttribute("data-state");
+}
+
+// The ledger filtered to one flagged payee (a Flagged positions panel click) shows every row again once that payee's
+// group is unticked: its rows are no longer flagged, so the filter would match none.
+function releaseFlagFilter(group) {
+  if (flaggedFilterGroup(transactionFilter) !== group) return;
+  transactionFilter = "all";
+  transactionEntityFilter = null;
+  setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+}
+
+function flagGroupOfSetting(key) {
+  const group = String(key || "").replace(/^flag_/, "");
+  return ownKey(FLAG_GROUP_LABELS, group) ? group : null;
+}
+
+// Saves one switch: that key alone (the server merges it), with the whole group held until the answer, so two quick
+// changes never race two refreshes. The open statement or package is fetched again, as the server now serves it.
+function saveFlagSetting(key, wanted) {
+  const group = flagGroupOfSetting(key);
+  if (!group || flagSettingsBusy) return;
+  flagSettingsBusy = true;
+  renderFlagSettings({ ...flagSettingsSaved, [key]: wanted }, true);
+  setFlagSettingsStatus("Saving...");
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [key]: wanted }),
+  })
+    .then((response) => responseJson(response).then((payload) => ({ response, payload })))
+    .then(({ response, payload }) => {
+      if (!response.ok || !payload.settings) throw new Error(payload.error || `Save failed (${response.status})`);
+      flagSettingsSaved = payload.settings;
+      const shown = payload.settings[key] !== false;
+      setFlagSettingsStatus(`Saved. ${flagGroupLabel(group)}: ${shown ? "flagged" : "no longer flagged"}.`);
+      if (!shown) releaseFlagFilter(group);
+      refreshShownResults();
+    })
+    .catch((error) => {
+      setFlagSettingsStatus(error.message || String(error), true);
+    })
+    .finally(() => {
+      flagSettingsBusy = false;
+      // Drawn from what the server holds, so a refused save puts the switch back.
+      renderFlagSettings(flagSettingsSaved, false);
+      document.getElementById(`flagSetting-${group}`)?.focus();
+    });
 }
 
 els.nsfCarryOverToggle.addEventListener("change", () => {
@@ -4033,6 +4315,11 @@ els.nsfCarryOverToggle.addEventListener("change", () => {
     .finally(() => {
       els.nsfCarryOverToggle.disabled = false;
     });
+});
+
+els.flagSettingsList?.addEventListener("change", (event) => {
+  const box = event.target instanceof Element ? event.target.closest("[data-flag-setting]") : null;
+  if (box) saveFlagSetting(box.getAttribute("data-flag-setting"), box.checked === true);
 });
 
 els.uploadBtn.addEventListener("click", () => els.fileInput.click());
@@ -4286,6 +4573,30 @@ if (els.statementModalLenders) {
   });
 }
 
+// A payee of the Flagged positions panel shows the ledger rows behind it.
+if (els.flaggedTable) {
+  els.flaggedTable.addEventListener("click", (event) => {
+    const selection = lenderEvidenceSelection(event);
+    if (!selection) return;
+    transactionFilter = selection.filter;
+    transactionEntityFilter = selection.entity;
+    setTransactionFilterButtons("[data-transaction-filter]", "flagged");
+    renderMainTransactions();
+    els.transactionCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+if (els.statementModalFlagged) {
+  els.statementModalFlagged.addEventListener("click", (event) => {
+    const selection = lenderEvidenceSelection(event);
+    if (!selection) return;
+    modalTransactionFilter = selection.filter;
+    modalTransactionEntityFilter = selection.entity;
+    setTransactionFilterButtons("[data-modal-transaction-filter]", "flagged");
+    renderModalTransactions();
+    els.statementModalTransactions?.closest(".modal-panel")?.scrollIntoView({ block: "start" });
+  });
+}
+
 /* --- All accounts ---------------------------------------------------------
    A preference kept in this browser only, switched on the Settings page. It
    changes what the results page shows of a statement that holds several
@@ -4456,6 +4767,7 @@ document.addEventListener("keydown", (event) => {
 
 setInitialState();
 renderNsfExample(false);
+renderFlagSettings({}, true);
 renderRecentAnalyses();
 renderPreview();
 showView("new");
