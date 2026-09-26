@@ -39,6 +39,7 @@ from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
 from .worker import run_job
+from .reanalysis import replay_reviews, rerun_analysis
 
 # Upload ceilings. Every value here is enforced server-side and mirrored in the
 # dropzone caption, so what the operator is told is what the server does.
@@ -2598,6 +2599,59 @@ def revenue_reviews(job_id):
     if stored is None:
         abort(404)
     return jsonify({"analysis": _masked(_displayed(stored)), "applied": len(parsed)})
+
+
+#: A re-analysis with no analysis to save: none was produced, or the one produced was refused. The saved analysis
+#: stays; the `reason` beside this is text the worker already publishes for the same outcome (`webapp/worker.py`
+#: `_stage_failure` / `_analysis_failure`) or `webapp/reanalysis.py`'s READING_NOT_CACHED or READS_DIFFERENTLY, never
+#: an exception's own text.
+REANALYSIS_NOT_SAVED = "no new analysis was saved; the saved analysis is unchanged"
+
+
+@app.route("/analysis/<job_id>/reanalyze", methods=["POST"])
+def reanalyze(job_id):
+    """Analyze a saved statement again under the current rules (spec §8.6, D12) and replace its analysis in place:
+    the job keeps its id and its place in Recent.
+
+    The stored PDF (kept on disk by content hash) goes through the worker's own read and analysis path, its reading
+    served from the artifact cache only (`webapp/reanalysis.py::rerun_analysis`): a statement whose reading is not
+    cached is refused and no reading rung runs, so this request thread never competes with the upload queue's worker
+    for OCR. The analysis replaced is written to the audit log first, in the same transaction as the replacement
+    (`JobStore.apply_reanalysis`), and the analyst's revenue decisions are replayed where their posting is unchanged
+    (`replay_reviews`); the answer counts those replayed, those that need redoing and those a rule now decides. JSON
+    only, like the review and settings routes: a cross-site HTML form cannot send it without a preflight.
+
+    Held under the statement's review lock from reading the job to saving the new analysis: a decision saved in
+    between would land on the old analysis and then be overwritten, while its decision row stayed recorded. Reviews
+    of other statements do not wait."""
+    if not isinstance(request.get_json(silent=True), dict):
+        return jsonify({"error": "the request must be a JSON object"}), 400
+    if store.get(job_id) is None:
+        return jsonify({"error": "job not found"}), 404
+    with _review_lock(job_id):
+        job = store.get(job_id)
+        if job is None:
+            return jsonify({"error": "job not found"}), 404
+        if job.status != "done":
+            return jsonify({"error": "job is not finished"}), 409
+        pdf_bytes = store.pdf_bytes(job_id)
+        if pdf_bytes is None:
+            return jsonify({"error": "the original PDF is not stored"}), 409
+        rerun = rerun_analysis(store, job, pdf_bytes)
+        if rerun.analysis is None:
+            return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": rerun.reason}), 422
+        replay = replay_reviews(rerun.analysis, store.review_history(job_id))
+        stored = store.apply_reanalysis(
+            job_id, replay.analysis, replayed=replay.replayed, not_replayed=replay.not_replayed,
+            decided_by_rules=replay.decided_by_rules)
+    if stored is None:
+        return jsonify({"error": "job not found"}), 404
+    return jsonify({
+        "analysis": _masked(_displayed(stored)),
+        "reviews_replayed": len(replay.replayed),
+        "reviews_not_replayed": len(replay.not_replayed),
+        "reviews_decided_by_rules": len(replay.decided_by_rules),
+    })
 
 
 @app.route("/package_analysis")

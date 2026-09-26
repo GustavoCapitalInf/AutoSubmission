@@ -116,7 +116,7 @@ C9 and §8.6 do not settle these points. Each is fixed below and pinned by a tes
    - **Needs redoing** (`reviews_not_replayed`): no row or several rows match, and no later decision **redid** it. A later decision redid it when it was made on the same account number (pinned in Task 5) and either the same location (the analyst decided that row again, whatever it printed by then) or the same posting wherever it sat by then (the same description, amount and date). Without this, an analyst's redo on a changed or moved posting would leave the old decision reported as needing redoing at every later re-analysis.
      - Redoing is judged only for decisions that do not replay. It never stops a decision from replaying: two postings of one account alike in description, amount and date (two identical deposits on one day) keep their own decisions. The one cost of that likeness is that a decision on one of them whose row changed may be taken as redone by a decision on the other, so the count says one review too few; no decision is lost.
      - The date is part of "the same posting" here, although the replay match (the spec's four fields) leaves it out: without it, a decision on a recurring deposit would be taken as redone by a decision on the same deposit another month.
-   - **Decided by a rule** (`reviews_decided_by_rules`): exactly one row matches, but it no longer awaits review, because a rule of the current analysis decides it. Under the 5.0 rules that is a credit from a payee of any `FINANCING_STATES` group (D1: lenders, alternative positions, lines of credit, bank loans, vehicle financing, mortgages, personal loans, floor plan, factoring), which is financing proceeds, and a credit from a premium-finance payee, which keeps the insurance credit treatment (§4.2). The review writer refuses such a row (`analysis/revenue.py:250-253`), so the analyst could not redo the decision. It is not replayed and not counted as needing redoing, but **it is reported back**: spec §8.6.5 says anything that cannot be replayed is reported, and D12 says nothing re-labels silently. The route's answer carries `reviews_decided_by_rules`, the audit detail lists the ids, and the notice says "N reviews are now decided by the rules" in amber, with the notifications opened, even when the rule agrees with the analyst.
+   - **Decided by a rule** (`reviews_decided_by_rules`): exactly one row matches, but it no longer awaits review, because a rule of the current analysis decides it. Under the 5.0 rules that is a credit from a payee of a `FINANCING_STATES` group (D1: lenders, alternative positions, lines of credit, bank loans, vehicle financing, mortgages, personal loans, floor plan), which is financing proceeds, and a credit from a premium-finance payee, which keeps the insurance credit treatment (§4.2). A factoring payee's credit is not one of them (owner ruling 2026-09-26): a factor's payout is the business's own sales, so it takes the operating-revenue path, stays a deposit the analyst decides and also carries the Factoring flag, and a decision on it is replayed like any other deposit's. A payout-credit entity's credit is not one of them either (owner ruling 2026-09-25). The review writer refuses such a row (`analysis/revenue.py:250-253`), so the analyst could not redo the decision. It is not replayed and not counted as needing redoing, but **it is reported back**: spec §8.6.5 says anything that cannot be replayed is reported, and D12 says nothing re-labels silently. The route's answer carries `reviews_decided_by_rules`, the audit detail lists the ids, and the notice says "N reviews are now decided by the rules" in amber, with the notifications opened, even when the rule agrees with the analyst.
      - *The alternative, if the owner prefers:* count these in `reviews_not_replayed` ("N reviews need redoing"). The plan does not, because the analyst cannot redo them: the row's review buttons are gone.
    - A decision whose prior state cannot be read is counted as needing redoing, unless it is a `reset`.
    - Every replayable decision is written onto **one** copy of the analysis, whose revenue views are rebuilt **once**, after the last (Task 3's writer, Task 4's `_applied`). A decision the writer refuses is refused alone (it checks everything before it writes). When the rebuilt views do not hold, which no decision can cause (a posted credit with no valid classification record), every decision counts as needing redoing and the analysis is kept exactly as the analysis stage produced it, as the review routes keep their saved analysis when a rebuild refuses (`webapp/app.py:2338-2343, 2410-2414`). `replay_reviews` never changes the analysis it is handed.
@@ -2720,8 +2720,11 @@ The orchestrator starts this task once both S2 and S3 are merged (see the sequen
 **What these pins prove, and what they do not.** `_Pipeline` fakes the analysis stage, so the 5.0 records come from `_payload()`, which runs S2's real classifier inside the test. The tests do not show that a re-analysis applies the current rules; Task 8 pins S5's own behaviour (the saved analysis becomes whatever the current analysis stage produced). They show that on the rebased branch:
 - an analysis carrying every one of the eleven flag groups, with S2's new states and record fields, goes through S5's replay and replacement, is saved whole and is served back through S3's serving (every flagged row shown, since every group is ticked by default);
 - premium financing, the one group with no state of its own, is saved as an `insurance` row that keeps `contributes_to_insurance_totals` and also carries `flagged_group="premium_financing"` and `contributes_to_flagged_totals`;
-- an analyst's confirmation of a deposit that the 5.0 rules now decide (a floor-plan or factoring credit, which is financing proceeds under D1 since both states are in `FINANCING_STATES`, and a premium-finance credit, which keeps the insurance credit treatment) is reported as decided by the rules, while an ordinary deposit's decision is replayed;
+- an analyst's confirmation of a deposit that the 5.0 rules now decide (a floor-plan credit, which is financing proceeds under D1, and a premium-finance credit, which keeps the insurance credit treatment) is reported as decided by the rules, while an ordinary deposit's decision is replayed;
+- a factoring credit is revenue and flagged (owner ruling 2026-09-26): it is a deposit the analyst decides, so the confirmation made on it is replayed (it is saved `verified_revenue`, `confirmed`), it stays out of the lender credit exclusion, and it is saved as a `factoring` row carrying `flagged_group="factoring"` and `contributes_to_flagged_totals`. It is the one flagged credit, so the statement has twelve flagged rows (eleven debits and it), and the factoring group's `count_credited` is 1;
 - C6's `analysis_rules_outdated` is true on the saved analysis before the re-analysis and false after it.
+
+**Amendment of 2026-09-26 (owner ruling: factoring payouts are revenue, and flagged).** The first text of this task counted the factoring deposit among the reviews a rule decides, as financing proceeds. The ruling ends that: only floor plan and the other D1 groups stay financing proceeds, and a factoring credit is revenue that also carries the Factoring flag (master plan C4 and C5, spec D1). The pin now counts the factoring deposit as replayed. Its values were measured, not estimated: the amended pin was run against the real classifier on a tree equal to this branch rebased onto `lender-detection` at `d1f1048` (S1, S2 with its Task 18, and S3 merged), before these words were written. It answered `(2, 0, 2)` for (replayed, needing redoing, decided by the rules), deposit states `non_revenue`, `verified_revenue`, `non_revenue`, `verified_revenue` in the order the statement prints them (floor plan, factoring, premium finance, ordinary), twelve flagged rows all shown, and `count_credited` 1 in `metrics.flagged_groups["factoring"]`.
 
 **Files:**
 - Test: `tests/test_webapp_reanalysis.py` (append)
@@ -2734,6 +2737,7 @@ The orchestrator starts this task once both S2 and S3 are merged (see the sequen
   - S2's module names `analysis.transaction_classifier.match_known_payee` (C3) and `analysis.transaction_classifier.PREMIUM_FINANCE_ALIASES` (C2), patched as S2's own `fake_payees` / `fake_premium_finance` fixtures patch them;
   - nothing of the registry's content. Every payee here is fabricated and patched in, so the pins do not depend on what the curated ledger (C10) renders into `analysis/classification_registry.py`. They assume only that no rendered alias reaches the fabricated descriptors (`FABRICATED ...`, `TRANSFER TO LOAN 0001`, `DEPOSIT FABRICATED ORDINARY`), which name no company; C10's validator refuses bare generic words such as `LOAN` as aliases. If a rendered alias does reach one, Step 4's rule applies: it is a finding for the orchestrator, not an expectation to re-pin;
   - S2's own-bank loan transfer rule (D5: a plain `TRANSFER TO LOAN` debit is a `bank_loan`);
+  - S2's factoring-credit rule (C4, owner ruling 2026-09-26: a factoring payee's credit is `classification="factoring"` with `flagged_group="factoring"`, the operating-revenue path's revenue fields and no lender credit exclusion) and C5's `metrics.flagged_groups[<key>]["count_credited"]`;
   - S3's top-level `analysis_rules_outdated: bool` (C6) and each served row's `classification.flag_shown` (C6);
   - `_payload`, `_records`, `_review`, `_reanalyze`, the `pipeline` and `private_store` fixtures (Tasks 3-8).
 - Produces: test helpers `PREMIUM_FINANCE_PAYEE`, `_saved_under_old_rules(payload) -> dict`, `_every_group_rows() -> tuple[list, list[str]]`.
@@ -2761,7 +2765,8 @@ def _every_group_rows():
     ordinary deposit, then one debit to a payee of each of the eleven flag groups, in FLAG_GROUPS order. The payees
     are S2's fabricated FAKE_PAYEES; the bank loan is the statement bank's own loan transfer (D5), which no payee
     registry names; premium financing is the fabricated premium financier above. Every row has an amount of its own,
-    so no recurrence rule (D6) groups them. Returns the rows and the deposits' locations."""
+    so no recurrence rule (D6) groups them. Returns the rows and the deposits' locations, in that order: floor plan,
+    factoring, premium finance, ordinary."""
     from analysis.flag_groups import FLAG_GROUPS
     from tests.flag_group_fixtures import FAKE_PAYEES
 
@@ -2807,26 +2812,39 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
 
     body = _reanalyze(job_id).get_json()
 
-    # The ordinary deposit keeps its review. The floor-plan and factoring deposits are financing proceeds now, and the
-    # premium financier's keeps the insurance credit treatment: a rule decides all three, and the answer says so.
-    assert (body["reviews_replayed"], body["reviews_not_replayed"], body["reviews_decided_by_rules"]) == (1, 0, 3)
+    # The ordinary deposit keeps its review, and so does the factoring deposit: a factor's payout is the business's own
+    # sales, a deposit the analyst decides, which now also carries the Factoring flag (owner ruling 2026-09-26). The
+    # floor-plan deposit is financing proceeds now (D1), and the premium financier's keeps the insurance credit
+    # treatment: a rule decides both, and the answer says so.
+    assert (body["reviews_replayed"], body["reviews_not_replayed"], body["reviews_decided_by_rules"]) == (2, 0, 2)
     saved = private_store.get(job_id).analysis
     records = _records(saved)
-    assert records[deposits[-1]]["revenue_review_status"] == "confirmed"
-    assert {records[location]["revenue_classification"] for location in deposits[:-1]} == {"non_revenue"}
-    # Every one of the eleven groups is saved: on its row, in the metrics and in the detection.
+    floor_plan, factoring, premium_financed, ordinary = deposits
+    assert [records[location]["revenue_classification"] for location in deposits] == [
+        "non_revenue", "verified_revenue", "non_revenue", "verified_revenue"]
+    assert [records[location]["revenue_review_status"] for location in deposits] == [
+        "not_required", "confirmed", "not_required", "confirmed"]
+    assert records[floor_plan]["contributes_to_lender_credit_exclusion"] is True
+    assert (records[factoring]["classification"], records[factoring]["flagged_group"],
+            records[factoring]["contributes_to_lender_credit_exclusion"]) == ("factoring", "factoring", False)
+    assert records[premium_financed]["classification"] == "insurance"
+    # Every one of the eleven groups is saved: on its row, in the metrics and in the detection. The factoring deposit
+    # is the one flagged credit, so twelve rows are flagged: the eleven debits and it.
     flagged = [record for record in records.values() if record.get("contributes_to_flagged_totals")]
     assert {record["flagged_group"] for record in flagged} == keys
+    assert [record["source_location"] for record in flagged if record["direction"] == "credit"] == [factoring]
+    assert len(flagged) == len(keys) + 1
     assert set(saved["metrics"]["flagged_groups"]) == keys
+    assert saved["metrics"]["flagged_groups"]["factoring"]["count_credited"] == 1
     assert {position["group"] for position in saved["detection"]["flagged_positions"]} == keys
     assert {record["classification_version"] for record in records.values()} == {"5.0"}
     # Premium financing is no state of its own: the row stays insurance, in the insurance totals, and carries its flag.
     (premium,) = [record for record in flagged if record["flagged_group"] == "premium_financing"]
     assert (premium["classification"], premium["contributes_to_insurance_totals"]) == ("insurance", True)
     # The answer is the analysis as it is now served: every group is ticked by default, so every flagged row shows,
-    # and the rules are current.
+    # the factoring credit's among them, and the rules are current.
     served = _records(body["analysis"])
-    assert [served[record["source_location"]]["flag_shown"] for record in flagged] == [True] * len(keys)
+    assert [served[record["source_location"]]["flag_shown"] for record in flagged] == [True] * len(flagged)
     assert body["analysis"]["analysis_rules_outdated"] is False
 
 
@@ -2848,6 +2866,8 @@ Expected: FAIL, 2 failed:
 - the eleven-group pin with `ModuleNotFoundError: No module named 'analysis.flag_groups'` (S1 is not on the branch) or `No module named 'tests.flag_group_fixtures'` (S1 is, S2 is not);
 - the outdated-flag pin with `KeyError: 'analysis_rules_outdated'` (S3 is not on the branch).
 
+On the branch as it was cut (from `ccb5535`, which carries S1 and S2 but not S3), both fail with `KeyError: 'analysis_rules_outdated'`, at their first read of the served flag (measured 2026-09-26 on an export of `032ca82` with the amended block appended: 2 failed).
+
 - [ ] **Step 3: Rebase onto the branch that carries S2 and S3.**
 
 ```bash
@@ -2863,7 +2883,7 @@ Resolve any conflict by keeping both sides. Never drop an S2, S3 or S4 line. The
 Run: `C:\Python314\python.exe -m pytest tests/test_webapp_reanalysis.py tests/test_webapp_reanalysis_ui.py tests/test_webapp_revenue_batch.py tests/test_worker_privacy.py tests/test_webapp_storage.py tests/test_webapp_jobs.py tests/test_webapp_settings.py tests/test_l1s3_census.py tests/test_privacy3_boundaries.py -q -p no:cacheprovider`
 Expected: PASS (all passed; 52 in `tests/test_webapp_reanalysis.py`, 9 in `tests/test_webapp_reanalysis_ui.py`).
 
-If the eleven-group pin fails on its counts or its groups, read the saved records before changing anything: the pin states S2's contract (C1 `FINANCING_STATES`, C4's premium-financing rule and the D5 own-bank loan transfer), so a difference is a finding to report to the orchestrator, not an expectation to re-pin.
+If the eleven-group pin fails on its counts or its groups, read the saved records before changing anything: the pin states S2's contract (C1 `FINANCING_STATES`, C4's premium-financing rule, C4's factoring-credit rule of the owner's ruling of 2026-09-26 and the D5 own-bank loan transfer), so a difference is a finding to report to the orchestrator, not an expectation to re-pin.
 
 Then run the master plan's **Core**, **Guards/JS** and **Wider** selections, plus `tests/test_l1s3_census.py`. The only failure allowed is the known `tests/test_no_statement_hardcodes.py::test_no_literal_account_numbers_in_ocr`.
 
@@ -2897,7 +2917,8 @@ Claude-Session: <the Claude-Session URL from your system reminder>"
 | Per-job lock like the review routes | Task 9 |
 | CSRF / JSON-only, privacy of refusal texts | Task 8 (400 for a form and for a list body; 422 never echoes the exception); `test_the_webapp_exception_ledger_is_complete` in Tasks 4-8 |
 | Amendment: eleven groups, three new ones with their own states / key / setting | S5's production code names no group. Task 11 iterates `FLAG_GROUPS` (all eleven) and pins each group on its saved row, in `metrics.flagged_groups`, in `detection.flagged_positions` and as served (`flag_shown`) |
-| Amendment: floor plan and factoring credits are financing proceeds (`FINANCING_STATES`) | Task 11: a confirmed deposit from each is reported as decided by the rules after the re-analysis (Decision 5) |
+| Amendment: floor plan credits are financing proceeds (`FINANCING_STATES`, D1) | Task 11: a confirmed floor-plan deposit is reported as decided by the rules after the re-analysis (Decision 5) |
+| Owner ruling 2026-09-26: factoring credits are revenue, and flagged (C4, C5) | Task 11: a confirmed factoring deposit is replayed (`verified_revenue`, `confirmed`), stays out of the lender credit exclusion, is saved as a `factoring` row with `flagged_group="factoring"` and `contributes_to_flagged_totals`, counts in `metrics.flagged_groups["factoring"]["count_credited"]`, and is shown |
 | Amendment: premium financing stays `insurance` and in the insurance totals, and also carries its flag | Task 11: the saved premium-financing row is `insurance`, `contributes_to_insurance_totals`, `flagged_group="premium_financing"`, `contributes_to_flagged_totals`, and is shown; its confirmed deposit is decided by the rules |
 
 **Out of S5's scope and owned elsewhere:**
@@ -2936,7 +2957,7 @@ Task 11 pins S5's end of each of these once they land.
 **Contract-name consistency:**
 - **C9:** the route path `/analysis/<job_id>/reanalyze`; the response keys `analysis`, `reviews_replayed`, `reviews_not_replayed` and `reviews_decided_by_rules` (now in the master plan's C9, subject to the owner's ruling on Decision 5); the 400 and 422 bodies of Decisions 3-4, also in the master's C9; the errors `job not found`, `job is not finished`, `the original PDF is not stored`. All are spelled identically in the route (Tasks 8-9), the tests (Task 8) and the JS tests (Task 10).
 - **C8:** the id `reanalyzeButton` is used verbatim. `rulesOutdatedNotice` is S4's and is not referenced.
-- **C1/C4/C6:** `FLAG_GROUPS`, `FlagGroup.state`/`.key`, the group keys `premium_financing` and the states `bank_loan`, `floor_plan_financing`, `factoring`, `classification_version` "5.0", `flagged_group`, `contributes_to_flagged_totals`, `contributes_to_insurance_totals`, `metrics.flagged_groups`, `detection.flagged_positions`, `flag_shown`, `analysis_rules_outdated` (Task 11), as the contract spells them. S2's fixture names `FAKE_PAYEES` and `fake_match` (in `tests/flag_group_fixtures.py`) and the classifier's module names `match_known_payee` (C3) and `PREMIUM_FINANCE_ALIASES` (C2) are used as the S2 plan defines them. S1 and S2 are cited by contract name and file, never by task number, since both plans are revised apart from this one.
+- **C1/C4/C6:** `FLAG_GROUPS`, `FlagGroup.state`/`.key`, the group keys `premium_financing` and the states `bank_loan`, `floor_plan_financing`, `factoring`, `classification_version` "5.0", `flagged_group`, `contributes_to_flagged_totals`, `contributes_to_insurance_totals`, `contributes_to_lender_credit_exclusion`, `metrics.flagged_groups` (with its `count_credited`), `detection.flagged_positions`, `flag_shown`, `analysis_rules_outdated` (Task 11), as the contract spells them. S2's fixture names `FAKE_PAYEES` and `fake_match` (in `tests/flag_group_fixtures.py`) and the classifier's module names `match_known_payee` (C3) and `PREMIUM_FINANCE_ALIASES` (C2) are used as the S2 plan defines them. S1 and S2 are cited by contract name and file, never by task number, since both plans are revised apart from this one.
 - `_displayed(analysis)` is called with no keyword argument, so it matches today's signature and S3's `_displayed(analysis, *, carry_over=None, settings=None)`.
 - **Names this plan introduces**, each defined before it is used:
   - `Storage.record_reanalysis` (Task 1)
