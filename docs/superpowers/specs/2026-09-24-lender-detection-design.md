@@ -111,7 +111,11 @@ The code forced these choices, and the rulings above did not settle them.
   - it carries loan-payment wording (`LOAN PAYMENT`, `LOAN PYMT` and the like) and prints no payee at all: no lender, servicer, person or other bank.
 
   A loan payment that prints any other payee keeps today's rules: a known payee, the bank-name rule, or the potential-lender rules.
-- **D6. Unknown MCA-style debits.** A payee on no list, with at least 3 debits of the **same amount** on a **daily or weekly** cadence, becomes a **potential lender** (review). This does not apply to rows that are already a POS purchase, transfer, fee, payroll, tax, utility, rent or insurance. It relaxes "recurrence alone is never lender evidence" for the **review tier only**. Nothing is ever *counted* without a named lender.
+- **D6. Unknown MCA-style debits.** A payee on no list, with debits of the **same amount** on **at least three different dates** on a **daily or weekly** cadence, becomes a **potential lender** (review). Several debits on one date count as one. This does not apply to rows that are already a POS purchase, transfer, fee, payroll, tax, utility, rent or insurance, nor to card-purchase postings that the POS rule does not read (clarified 2026-09-26):
+  - a posting that starts `PURCHASE` and its mmdd, after an optional `RECURRING`;
+  - a descriptor with a `processor*merchant` mark: a letter or digit, `*`, a letter or digit.
+
+  The word `PURCHASE` alone is not a card mark: an ACH entry description can print it. D6 relaxes "recurrence alone is never lender evidence" for the **review tier only**. Nothing is ever *counted* without a named lender.
 - **D7. Unticking a checkbox only hides the flag.**
   - A setting never moves a row into review or into lender math.
   - Flag groups never change the package decision.
@@ -227,7 +231,7 @@ If what remains has no organisation cue, the entity is "Unidentified lender obli
 
 Stable names also fix recurrence grouping. Today "NORTHSTAR FINANCE PAYMENT JAN 2…8" splits into five entities.
 
-**D6 rule.** An unknown payee whose key has at least 3 debits of the same amount on a daily or weekly cadence, and none of the excluded states, becomes `potential_lender` with match method `recurring_fixed_debit`, review required.
+**D6 rule.** An unknown payee whose key has debits of the same amount on at least three different dates on a daily or weekly cadence, none of the excluded states and no card-purchase mark (D6), becomes `potential_lender` with match method `recurring_fixed_debit`, review required.
 
 ### 4.6 The known-payee matcher
 

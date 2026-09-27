@@ -157,11 +157,17 @@ Classification is applied in this order; the first match wins:
 
 Statement passes run in this order: duplicates; recurrence; reversal pairs;
 operating-source context; duplicate finalisation. Recurrence promotes to
-`potential_lender`, review only, two kinds of same-amount debit groups with at
-least three rows on a daily or weekly cadence: financing-keyword rows of one
-payee (`recurring_financing_counterparty`), and rows no rule claimed (`other`,
-match method `default`) whose descriptor names a payee and carries no transfer
-wording (`recurring_fixed_debit`, D6). Recurrence never makes a counted lender:
+`potential_lender`, review only, two kinds of same-amount debit groups on at
+least three different dates on a daily or weekly cadence (several rows on one
+date count as one): financing-keyword rows of one payee
+(`recurring_financing_counterparty`), and rows no rule claimed (`other`, match
+method `default`) whose descriptor names a payee and carries no transfer wording
+(`recurring_fixed_debit`, D6). D6 never takes a card-purchase posting, including
+the card formats the POS rule does not read: a posting that starts `PURCHASE`
+and its mmdd (after an optional `RECURRING`), and a descriptor with a
+`processor*merchant` mark (a letter or digit, `*`, a letter or digit). The word
+`PURCHASE` alone is not a card mark, since an ACH entry description can print
+it. Recurrence never makes a counted lender:
 nothing is counted without a named lender. The recurring-debit view
 (`detection.recurring_debits`, the CLI's "Recurring fixed debits") lists both
 kinds, grouped by entity and amount.
