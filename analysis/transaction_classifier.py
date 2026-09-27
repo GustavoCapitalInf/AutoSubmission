@@ -87,7 +87,10 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "5.0"
+#: 5.0 (2026-09-24): the lender-detection rules. 5.1 (2026-09-26): the D6
+#: clarification (three different dates; no card-purchase posting). Moves with
+#: `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
+CLASSIFICATION_VERSION = "5.1"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
@@ -2066,6 +2069,38 @@ def _apply_operating_source_context(
 #: D6 skips a row whose own words say it is a transfer, even when no transfer
 #: rule claimed it (a transfer to a person is not an MCA remittance).
 _TRANSFER_WORD_PATTERNS = (re.compile(r"\b(?:TRANSFER|XFER|TFR)\b"),)
+#: D6 does not apply to a card purchase, including the card formats the POS rule
+#: does not read: a posting that starts "PURCHASE" and its mmdd (after an
+#: optional "RECURRING"), read on the normalized text, and a processor*merchant
+#: mark, read on the printed text because normalization drops the star. The word
+#: PURCHASE alone is not a card mark: an ACH entry description can print it.
+_CARD_PURCHASE_POSTING_PATTERN = re.compile(r"^(?:RECURRING )?PURCHASE \d{4}\b")
+#: The processor*merchant mark: a letter or digit, an optional space, "*", an
+#: optional space, a letter or digit ("TST*NAME", "SQ *NAME", "TST* NAME"). ASCII
+#: letters and digits only: `\w` would also take "_" and non-ASCII letters.
+_PROCESSOR_MERCHANT_MARK_PATTERN = re.compile(r"[A-Za-z0-9] ?\* ?[A-Za-z0-9]")
+#: An ACH entry prints stars too: in its addenda ("RMR*IV*"), a masked account
+#: or an ID. A row with an ACH field mark is never read as a card purchase by
+#: its star. The SEC codes and field names are read as words on the normalized
+#: text; the labels whose colon normalization drops, on the printed text.
+_ACH_FIELD_MARK_WORD_PATTERN = re.compile(r"\b(?:ACH|CCD|PPD|CTX|WEB|INDN|RMR|CO ID|ORIG CO)\b")
+_ACH_FIELD_MARK_LABEL_PATTERN = re.compile(r"(?<![A-Za-z0-9])(?:DES|ID)\s*:", re.IGNORECASE)
+
+
+def _has_ach_field_mark(record: TransactionClassification) -> bool:
+    return bool(
+        _ACH_FIELD_MARK_WORD_PATTERN.search(record.normalized_description)
+        or _ACH_FIELD_MARK_LABEL_PATTERN.search(record.original_description or "")
+    )
+
+
+def _is_card_purchase_posting(record: TransactionClassification) -> bool:
+    if _CARD_PURCHASE_POSTING_PATTERN.match(record.normalized_description):
+        return True
+    return bool(
+        _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "")
+        and not _has_ach_field_mark(record)
+    )
 
 
 def _promotion_cadence(
@@ -2073,10 +2108,16 @@ def _promotion_cadence(
     indexes: list[int],
     min_recurring_count: int,
 ) -> tuple[str, float | None] | None:
-    """The daily or weekly cadence of a same-amount group, or None when it does not promote."""
+    """The daily or weekly cadence of a same-amount group, or None when it does not promote.
+
+    A recurrence needs at least ``min_recurring_count`` different dates: several
+    rows on one day are one occurrence, as classify_cadence reads them.
+    """
     if len(indexes) < min_recurring_count:
         return None
     dates = [parsed for index in indexes if (parsed := parse_date(records[index].date)) is not None]
+    if len(set(dates)) < min_recurring_count:
+        return None
     cadence, average_gap = classify_cadence(dates)
     if cadence not in {"daily", "weekly"}:
         return None
@@ -2135,9 +2176,10 @@ def classify_statement_transactions(
         key = (payee, round(abs(record.amount), 2))
         if record.match_method == "financing_keyword_review" and record.canonical_entity:
             keyword_groups.setdefault(key, []).append(index)
-        elif record.match_method == "default" and not _matches_any(
-            record.normalized_description,
-            _TRANSFER_WORD_PATTERNS,
+        elif (
+            record.match_method == "default"
+            and not _matches_any(record.normalized_description, _TRANSFER_WORD_PATTERNS)
+            and not _is_card_purchase_posting(record)
         ):
             fixed_debit_groups.setdefault(key, []).append(index)
 

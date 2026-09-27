@@ -149,22 +149,71 @@ def test_anything_that_is_not_a_published_shape_is_returned_unchanged(payload):
 
 # --- analysed with older lender rules (spec §8.2, D12) ------------------------------------------------------------
 
+@pytest.fixture
+def running_5_1(monkeypatch):
+    """The running classifier is 5.1, whatever it is later: the tables below read against it."""
+    from analysis import transaction_classifier
+
+    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "5.1")
+
+
+def _outdated_with_one_record(version) -> bool:
+    # Every other record carries the running version, so the one record under test decides. A null version is no
+    # version.
+    from analysis import transaction_classifier
+
+    payload = with_flagged_rows(flagged_account_payload(groups=()), [flagged_row(None)])
+    rows = payload["statement"]["transactions"]
+    for row in rows:
+        row["classification"]["classification_version"] = transaction_classifier.CLASSIFICATION_VERSION
+    rows[-1]["classification"]["classification_version"] = version
+    return apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"]
+
+
 @pytest.mark.parametrize("version, outdated", [
     ("4.1", True), ("3.0", True), ("4", True), (4, True), (None, True),
-    ("5.0", False), ("5.2", False), ("6.0", False), ("unknown", False), (True, False),
+    ("5.0", True), ("5", True), (5, True),
+    ("5.1", False), (" 5.1 ", False), ("5.2", False), ("5.10", False), ("6.0", False), (6, False),
+    ("unknown", False), (True, False),
 ])
-def test_rows_classified_by_older_rules_mark_the_analysis_outdated(version, outdated):
-    # Every other record is current, so the one record under test decides. A null version is no version.
-    payload = with_flagged_rows(flagged_account_payload(groups=()), [flagged_row(None)])
-    payload["statement"]["transactions"][-1]["classification"]["classification_version"] = version
-    assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"] is outdated
+def test_rows_classified_by_older_rules_mark_the_analysis_outdated(running_5_1, version, outdated):
+    # Any version older than the running one is outdated, a 5.0 record under 5.1 among them; the running version and
+    # a newer one are not. Versions compare as numbers: "5.10" is newer than "5.1".
+    assert _outdated_with_one_record(version) is outdated
+
+
+def test_the_running_version_is_read_at_each_call_and_compared_as_numbers(monkeypatch):
+    from analysis import transaction_classifier
+
+    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "5.10")
+    assert [_outdated_with_one_record(version) for version in ("5.9", "5.10", "5.11", "6.0")] == [
+        True, False, False, False]
+    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "5.9")
+    assert [_outdated_with_one_record(version) for version in ("5.9", "5.10")] == [False, False]
+
+
+def test_a_5_0_analysis_is_outdated_under_the_running_rules_and_a_current_one_is_not():
+    # The D6 clarification made the running rules 5.1: an analysis stored by the 5.0 rules gets the notice and the
+    # Re-analyze button, and one the running classifier wrote does not.
+    from analysis.transaction_classifier import CLASSIFICATION_VERSION
+
+    assert _outdated_with_one_record("5.0") is True
+    assert _outdated_with_one_record(CLASSIFICATION_VERSION) is False
+
+
+def test_a_running_version_that_cannot_be_read_compares_nothing(monkeypatch):
+    # Never raises: only a record without a version still marks the analysis outdated.
+    from analysis import transaction_classifier
+
+    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "unknown")
+    assert [_outdated_with_one_record(version) for version in ("4.1", "5.0", None)] == [False, False, True]
 
 
 @pytest.mark.parametrize("version", [
-    "²", "².0", "٤.1", "9" * 5000, "", " ", ".5", "-4", "+4", "4a.0", "4 .1",
+    "²", "².0", "٤.1", "9" * 5000, "", " ", ".5", "-4", "+4", "4a.0", "4 .1", "4.", "4.x", "5.0.1",
 ], ids=["superscript", "superscript-dotted", "arabic-indic", "too-many-digits", "empty", "blank", "no-major",
-        "negative", "signed", "letters", "inner-space"])
-def test_a_version_that_cannot_be_read_never_raises_and_says_nothing(version):
+        "negative", "signed", "letters", "inner-space", "empty-minor", "letter-minor", "three-parts"])
+def test_a_version_that_cannot_be_read_never_raises_and_says_nothing(running_5_1, version):
     # C6 never raises. The classifier writes an ASCII "<major>.<minor>" (C4); anything else is malformed, so it
     # neither marks the analysis outdated nor hides an older record elsewhere. `str.isdigit` accepts a superscript
     # that `int` refuses, `int` reads non-ASCII digits, and it refuses a string past `sys.get_int_max_str_digits`.

@@ -531,7 +531,17 @@ OCR_STAGE_VERSION = 5
 # the payload. The classifier's registry is not key material, so a warm cache
 # keyed on 18 would serve the old lender groups. OCR stays cached. Pinned in the
 # same commit (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 19
+# 19 -> 20: LENDER-DETECTION D6 clarification (2026-09-26) — classification
+# version 5.1: a same-amount recurrence (D6 and the financing-keyword tier) needs
+# at least three different dates, several rows on one date counting as one; and
+# D6 never takes a card-purchase posting the POS rule does not read (a posting
+# that starts PURCHASE and its mmdd, or a processor*merchant star on a row with
+# no ACH field mark). Stored rows lose `recurring_fixed_debit` /
+# `recurring_financing_counterparty` promotions, so a warm cache keyed on 19
+# would serve them; a re-analysis (webapp/reanalysis.py) misses the analysis
+# stage and recomputes it from the cached reading. OCR stays cached. Pinned in
+# the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 20
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Mapping
 
+from analysis import transaction_classifier
 from analysis.flag_groups import FLAG_GROUPS
 from analysis.payload_shape import (
     ACCOUNTS_KEY,
@@ -26,8 +27,6 @@ from analysis.payload_shape import (
 )
 
 _SURFACE = "analysis/flagged_view.py::apply_flagged_groups_to_payload"
-#: The first classifier major version that writes flag groups (plan contract C4, `CLASSIFICATION_VERSION`).
-FLAG_RULES_MAJOR = 5
 #: The top-level key that says the stored rows were classified by older lender rules (spec §8.2, D12).
 RULES_OUTDATED_KEY = "analysis_rules_outdated"
 
@@ -37,31 +36,38 @@ def enabled_group_keys(enabled: Mapping[str, bool]) -> frozenset[str]:
     return frozenset(group.key for group in FLAG_GROUPS if bool(enabled.get(group.setting, True)))
 
 
-def _major_version(version: object) -> int | None:
-    """The major number of a stored `classification_version` ("4.1" gives 4); None when it cannot be read.
+def _version_number(version: object) -> tuple[int, int] | None:
+    """A `classification_version` as a numeric (major, minor) pair ("4.1" gives (4, 1), "4" and 4 give (4, 0));
+    None when it cannot be read.
 
-    Never raises. The classifier writes ASCII digits (C4), so only those are read: `str.isdigit` accepts a
-    superscript "2" that `int` refuses, and `int` reads non-ASCII decimal digits the classifier never writes. `int`
-    also refuses a string longer than `sys.get_int_max_str_digits()`."""
+    Never raises. The classifier writes "<major>.<minor>" in ASCII digits (C4), so only "<major>" or
+    "<major>.<minor>" in ASCII digits is read, around any outer whitespace: `str.isdigit` accepts a superscript "2"
+    that `int` refuses, and `int` reads non-ASCII decimal digits the classifier never writes. `int` also refuses a
+    string longer than `sys.get_int_max_str_digits()`."""
     if isinstance(version, int) and not isinstance(version, bool):
-        return version
-    if isinstance(version, str):
-        head = version.strip().split(".", 1)[0]
-        if not (head.isascii() and head.isdecimal()):
-            return None
-        try:
-            return int(head)
-        except ValueError:
-            return None
-    return None
+        return (version, 0)
+    if not isinstance(version, str):
+        return None
+    parts = version.strip().split(".")
+    if len(parts) > 2 or not all(part.isascii() and part.isdecimal() for part in parts):
+        return None
+    try:
+        numbers = [int(part) for part in parts]
+    except ValueError:
+        return None
+    return (numbers[0], numbers[1] if len(numbers) == 2 else 0)
 
 
 def _rules_outdated(accounts: list[Mapping]) -> bool:
-    """Whether any stored record was written by a classifier older than the flag-group rules. Such an analysis
-    keeps its stored labels until it is re-analysed (D12); the dashboard says so.
+    """Whether any stored record was written by a classifier older than the one running. Such an analysis keeps its
+    stored labels until it is re-analysed (D12); the dashboard says so.
 
     A record with no `classification_version` (absent or null) predates the field, so it was classified by older
-    rules. A version that is present but cannot be read says nothing either way. Rows without a record are skipped."""
+    rules. A readable version is compared, as a (major, minor) pair, with the running
+    `analysis.transaction_classifier.CLASSIFICATION_VERSION`, read at each call: an older one marks the analysis
+    outdated, the same or a newer one does not. A version that is present but cannot be read says nothing either
+    way. Rows without a record are skipped."""
+    current = _version_number(transaction_classifier.CLASSIFICATION_VERSION)
     for account in accounts:
         statement = account.get(STATEMENT_KEY)
         rows = statement.get("transactions") if isinstance(statement, Mapping) else None
@@ -72,8 +78,8 @@ def _rules_outdated(accounts: list[Mapping]) -> bool:
             version = classification.get("classification_version")
             if version is None:
                 return True
-            major = _major_version(version)
-            if major is not None and major < FLAG_RULES_MAJOR:
+            number = _version_number(version)
+            if number is not None and current is not None and number < current:
                 return True
     return False
 
@@ -127,8 +133,8 @@ def apply_flagged_groups_to_payload(payload: object, *, enabled: Mapping[str, bo
       group is ticked. The record's `flagged_group` and its contribution flags are kept as stored (D7).
 
     At the TOP level it sets `analysis_rules_outdated`: True when any record carries no `classification_version`
-    (it predates the field) or one whose major version is below the flag-group rules (D12); False when there is
-    no record.
+    (it predates the field) or a readable one older than the running `CLASSIFICATION_VERSION` (D12); False when
+    there is no record.
 
     `enabled` is keyed by `FlagGroup.setting`; a missing key counts as ticked. A group key the contract does not
     define is never shown. The input is never mutated."""
