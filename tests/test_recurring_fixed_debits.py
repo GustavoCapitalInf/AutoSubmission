@@ -258,3 +258,109 @@ def test_fixed_debits_join_the_recurring_debit_view():
         4,
         "weekly",
     )
+
+
+# --- D6 and push payments (clarified 2026-09-27) -------------------------------------------------------------------
+# A push payment the account holder sends prints a masked recipient account, a reference with digits and a free-text
+# memo. The reference and the masked digits are reference tokens, so the payee words are the memo's words alone.
+
+
+def _push(mark: str, day: int, memo: str) -> str:
+    """A fabricated push payment: `mark` is the printed recipient ("To ....1111"), the reference varies by day."""
+    return f"ACH PAYMENT {mark} FABREF{day:02d}F0FAB7FABRICATED {memo}"
+
+
+def _push_rows(mark: str, memo: str, amount: float, days: tuple[int, ...]):
+    return [(f"2054-01-{day:02d}", _push(mark, day, memo), amount) for day in days]
+
+
+@pytest.mark.parametrize(
+    "memo",
+    ["FABRICATED COMMISSION", "fabricated commission", "FABRICAT COMMISION", "FABRICATED BONUS", "FABRICATED SALARY"],
+)
+def test_weekly_push_payments_whose_memo_names_compensation_stay_other(memo):
+    """A commission, a bonus or a salary is pay, not an MCA remittance. D6 only skips the row: it stays "other"."""
+    records = classify_statement_transactions(_statement(_push_rows("To ....1111", memo, -140.0, WEEKLY)))
+    assert {(record.classification, record.match_method) for record in records} == {("other", "default")}
+
+
+@pytest.mark.parametrize(
+    "word",
+    ["COMMISSION", "COMMISSIONS", "COMMISION", "COMMISIONS", "COMISSION", "COMISION", "COMISSIONS", "COMMISSON",
+     "BONUS", "BONUSES", "SALARY", "SALARIES", "STIPEND", "STIPENDS", "REIMBURSEMENT", "REIMBURSEMENTS", "REIMB",
+     "REIMBURSE", "REIMBURSED", "REIMBURSMENT"],
+)
+def test_each_compensation_word_keeps_a_fixed_weekly_debit_out_of_d6(word):
+    assert _d6_methods(f"ACH DEBIT FABRICATED {word}") == {("other", "default")}
+
+
+@pytest.mark.parametrize(
+    "word", ["COMMON", "COMMISSARY", "COMMITTEE", "COMMISSIONER", "BONUSLY", "SALARYMAN", "REIMAGINE"]
+)
+def test_words_that_only_look_like_compensation_stay_in_d6(word):
+    """Compensation words are read as whole words: these are payee names, and D6 still takes them."""
+    assert _d6_methods(f"ACH DEBIT FABRICATED {word}") == D6
+
+
+#: The printed forms of a masked recipient account after TO.
+RECIPIENT_MARKS = ["To ....{}", "TO XXXX{}", "to xxxx{}", "TO ***{}", "TO #{}", "TO x{}", "TO ACCT XXXX{}"]
+
+
+@pytest.mark.parametrize("mark", RECIPIENT_MARKS)
+def test_weekly_push_payments_to_one_masked_recipient_are_still_promoted(mark):
+    records = classify_statement_transactions(_statement(
+        _push_rows(mark.format("1111"), "FABRICATED WIDGETS LLC", -10.0, (2, 9, 16))
+    ))
+    assert {(record.classification, record.match_method) for record in records} == D6
+    # The recipient's digits split the payees; they never join the published name.
+    (entity,) = {record.canonical_entity for record in records}
+    assert entity and not any(character.isdigit() for character in entity)
+
+
+def test_the_masked_recipient_digits_never_join_the_name():
+    records = classify_statement_transactions(_statement(
+        _push_rows("To ....1111", "FABRICATED WIDGETS LLC", -10.0, (2, 9, 16))
+    ))
+    assert {record.canonical_entity for record in records} == {"Fabricated Widgets LLC"}
+
+
+@pytest.mark.parametrize("mark", RECIPIENT_MARKS)
+def test_push_payments_to_two_masked_recipients_are_two_payees(mark):
+    """The owner's shape, fabricated: the same memo and amount to two recipient accounts on one day, then weekly.
+    Together the rows fall on three weekly dates; each recipient alone has two, so neither is a recurrence."""
+    rows = [
+        *_push_rows(mark.format("1111"), "FABRICATED SUPPLIES", -10.0, (2, 16)),
+        *_push_rows(mark.format("2222"), "FABRICATED SUPPLIES", -10.0, (2, 9)),
+    ]
+    records = classify_statement_transactions(_statement(rows))
+    assert {(record.classification, record.match_method) for record in records} == {("other", "default")}
+
+
+@pytest.mark.parametrize("mark", RECIPIENT_MARKS)
+def test_only_the_recipient_with_three_weekly_dates_is_promoted(mark):
+    rows = [
+        *_push_rows(mark.format("1111"), "FABRICATED SUPPLIES", -10.0, (2, 9, 16)),
+        *_push_rows(mark.format("2222"), "FABRICATED SUPPLIES", -10.0, (2, 9)),
+    ]
+    records = classify_statement_transactions(_statement(rows))
+    assert [(record.classification, record.match_method) for record in records] == [
+        *[("potential_lender", "recurring_fixed_debit")] * 3,
+        *[("other", "default")] * 2,
+    ]
+    assert records[0].canonical_entity == UNIDENTIFIED
+
+
+@pytest.mark.parametrize(
+    "template",
+    ["ACH PAYMENT TO {} FABRICATED WIDGETS LLC", "ACH DEBIT FABRICATED WIDGETS LLC ACCT XXXX{}"],
+    ids=["digits after TO with no mask", "a masked account that follows no TO"],
+)
+def test_rows_without_a_masked_recipient_keep_one_payee(template):
+    """Only a masked account printed after TO splits a payee. Without one the key is today's: payee words and amount."""
+    rows = [
+        (f"2054-01-{day:02d}", template.format(account), -10.0)
+        for day, account in zip(WEEKLY, ("1111", "2222", "1111", "2222"))
+    ]
+    records = classify_statement_transactions(_statement(rows))
+    assert {(record.classification, record.match_method) for record in records} == D6
+    assert len({record.canonical_entity for record in records}) == 1
