@@ -9,6 +9,8 @@ transaction descriptions independently.
 
 Classification version 5.0 (2026-09-24) applies the owner's lender rulings in
 `docs/superpowers/specs/2026-09-24-lender-detection-design.md` (decisions D1-D12).
+Version 5.1 (2026-09-26) clarifies D6: a recurrence needs at least three
+different dates, and D6 never takes a card-purchase posting.
 
 ## States and precedence
 
@@ -157,12 +159,22 @@ Classification is applied in this order; the first match wins:
 
 Statement passes run in this order: duplicates; recurrence; reversal pairs;
 operating-source context; duplicate finalisation. Recurrence promotes to
-`potential_lender`, review only, two kinds of same-amount debit groups with at
-least three rows on a daily or weekly cadence: financing-keyword rows of one
-payee (`recurring_financing_counterparty`), and rows no rule claimed (`other`,
-match method `default`) whose descriptor names a payee and carries no transfer
-wording (`recurring_fixed_debit`, D6). Recurrence never makes a counted lender:
-nothing is counted without a named lender. The recurring-debit view
+`potential_lender`, review only, two kinds of same-amount debit groups on at
+least three different dates on a daily or weekly cadence (several rows on one
+date count as one): financing-keyword rows of one payee
+(`recurring_financing_counterparty`), and rows no rule claimed (`other`, match
+method `default`) whose descriptor names a payee and carries no transfer wording
+(`recurring_fixed_debit`, D6). D6 never takes a card-purchase posting, including
+the card formats the POS rule does not read: a posting that starts `PURCHASE`
+and its mmdd (after an optional `RECURRING`), and a descriptor with a
+`processor*merchant` mark (`TST*NAME`, `SQ *NAME`, `TST* NAME`: a letter or
+digit, an optional space, `*`, an optional space, a letter or digit). The star
+is read only on a row with no ACH field mark (`ACH`, `CCD`, `PPD`, `CTX`, `WEB`,
+`DES:`, `INDN`, `CO ID`, `ID:`, `ORIG CO`, `RMR`), because an ACH entry prints
+stars too: in its addenda (`RMR*IV*`), a masked account or an ID. The word
+`PURCHASE` alone is not a card mark, since an ACH entry description can print
+it. Recurrence never makes a counted lender: nothing is counted without a named
+lender. The recurring-debit view
 (`detection.recurring_debits`, the CLI's "Recurring fixed debits") lists both
 kinds, grouped by entity and amount.
 

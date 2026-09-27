@@ -12,8 +12,8 @@ from tests.l1s3_payloads import account_payload, document_payload
 #: The invented debit each fabricated flagged row posts. Short and named once, as tests/l1s3_payloads.py does,
 #: so no added line carries a figure a real statement could have printed.
 FLAGGED_DEBIT = 7.0
-#: The classifier version the contract's records carry (C4).
-CURRENT_VERSION = "5.0"
+#: The classifier version the contract's records carry (C4). Re-pinned 5.0 -> 5.1 with the D6 clarification.
+CURRENT_VERSION = "5.1"
 #: The flag-group keys in contract order.
 GROUP_KEYS = tuple(group.key for group in FLAG_GROUPS)
 #: The state a premium-financing row keeps: it has no state of its own and stays insurance (plan contract C1, C4).

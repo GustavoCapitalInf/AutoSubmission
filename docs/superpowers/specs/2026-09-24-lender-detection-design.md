@@ -111,7 +111,11 @@ The code forced these choices, and the rulings above did not settle them.
   - it carries loan-payment wording (`LOAN PAYMENT`, `LOAN PYMT` and the like) and prints no payee at all: no lender, servicer, person or other bank.
 
   A loan payment that prints any other payee keeps today's rules: a known payee, the bank-name rule, or the potential-lender rules.
-- **D6. Unknown MCA-style debits.** A payee on no list, with at least 3 debits of the **same amount** on a **daily or weekly** cadence, becomes a **potential lender** (review). This does not apply to rows that are already a POS purchase, transfer, fee, payroll, tax, utility, rent or insurance. It relaxes "recurrence alone is never lender evidence" for the **review tier only**. Nothing is ever *counted* without a named lender.
+- **D6. Unknown MCA-style debits.** A payee on no list, with debits of the **same amount** on **at least three different dates** on a **daily or weekly** cadence, becomes a **potential lender** (review). Several debits on one date count as one. This does not apply to rows that are already a POS purchase, transfer, fee, payroll, tax, utility, rent or insurance, nor to card-purchase postings that the POS rule does not read (clarified 2026-09-26):
+  - a posting that starts `PURCHASE` and its mmdd, after an optional `RECURRING`;
+  - a descriptor with a `processor*merchant` mark (`TST*NAME`, `SQ *NAME`, `TST* NAME`): a letter or digit, an optional space, `*`, an optional space, a letter or digit. It is read only on a row that carries no ACH field mark (`ACH`, `CCD`, `PPD`, `CTX`, `WEB`, `DES:`, `INDN`, `CO ID`, `ID:`, `ORIG CO`, `RMR`), because an ACH entry prints stars too: in its addenda (`RMR*IV*`), a masked account or an ID.
+
+  The word `PURCHASE` alone is not a card mark: an ACH entry description can print it. D6 relaxes "recurrence alone is never lender evidence" for the **review tier only**. Nothing is ever *counted* without a named lender.
 - **D7. Unticking a checkbox only hides the flag.**
   - A setting never moves a row into review or into lender math.
   - Flag groups never change the package decision.
@@ -124,6 +128,7 @@ The code forced these choices, and the rulings above did not settle them.
 - **D12. Saved jobs.**
   - Statements analysed before this change keep their stored labels until re-analysed. Nothing re-labels them silently.
   - The results page shows a notice and a **Re-analyze** action (§8.6).
+  - The same holds whenever the classifier moves on: an analysis whose records carry no `classification_version`, or one older than the running version, gets the notice. A 5.0 analysis gets it once 5.1 runs (clarified 2026-09-26).
 
 ## 4. Classification model
 
@@ -171,7 +176,7 @@ The dashboard keeps a label for the retired state so that analyses stored before
 
 **Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. The insurance rule reads the premium-finance table before the insurer table, so a row that prints only `FIRST INSURANCE` is FIRST Insurance Funding (owner, 2026-09-25): it stays insurance and is also flagged. A row with premium-finance wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance payee is flagged the same way, under the insurer it names, or else `Insurance provider not identified` (owner, 2026-09-25). **D1** (financing proceeds) covers `floor_plan_financing` credits. A factoring payee's credit is not proceeds (owner, 2026-09-26). It is revenue, recorded as `factoring` under its payee, with `flagged_group="factoring"` and `contributes_to_flagged_totals`: the credit counterpart of the premium-financing row, which stays what it is and is also flagged. A premium-finance payee's credits keep today's insurance treatment.
 
-`CLASSIFICATION_VERSION` becomes `"5.0"`.
+`CLASSIFICATION_VERSION` becomes `"5.0"`, and `"5.1"` with the D6 clarification of 2026-09-26.
 
 ### 4.3 Rule order (debits). The first match wins.
 
@@ -227,7 +232,7 @@ If what remains has no organisation cue, the entity is "Unidentified lender obli
 
 Stable names also fix recurrence grouping. Today "NORTHSTAR FINANCE PAYMENT JAN 2…8" splits into five entities.
 
-**D6 rule.** An unknown payee whose key has at least 3 debits of the same amount on a daily or weekly cadence, and none of the excluded states, becomes `potential_lender` with match method `recurring_fixed_debit`, review required.
+**D6 rule.** An unknown payee whose key has debits of the same amount on at least three different dates on a daily or weekly cadence, none of the excluded states and no card-purchase mark (D6), becomes `potential_lender` with match method `recurring_fixed_debit`, review required.
 
 ### 4.6 The known-payee matcher
 
@@ -292,6 +297,7 @@ Per account:
 - **Versions:**
   - `CLASSIFICATION_VERSION = "5.0"`.
   - `ANALYSIS_STAGE_VERSION` goes 18 → 19 in the same commit (`webapp/artifact_cache.py`), so a re-upload does not reuse a stale analysis. OCR stays cached.
+  - The D6 clarification (2026-09-26) changes stored rows again: `CLASSIFICATION_VERSION = "5.1"` and `ANALYSIS_STAGE_VERSION` 19 → 20, together.
 
 ## 7. Command-line tools, benchmark, docs
 
@@ -314,7 +320,7 @@ Per account:
 - **copies before it changes anything.** It copies each account's `statement.transactions`, `detection` and `metrics`. `apply_nsf_basis_to_payload` copies shallowly, and the stored job must never be touched;
 - removes unticked groups from `metrics.flagged_groups` and `detection.flagged_positions`, their credited fields included;
 - sets `flag_shown: bool` on each copied row's classification, a flagged credit row included;
-- adds `analysis_rules_outdated: true` when the stored records carry `classification_version < "5.0"`;
+- adds `analysis_rules_outdated: true` when a stored record carries no `classification_version`, or one older than the running `CLASSIFICATION_VERSION`, compared as numbers (major, then minor); a version it cannot read marks nothing;
 - never refuses. Payloads without the new fields pass through unchanged.
 
 `_package_members` reads the whole settings snapshot once per package, as it already does for NSF, and passes it to `_displayed` and to `_package_analysis`.
