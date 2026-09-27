@@ -2066,6 +2066,20 @@ def _apply_operating_source_context(
 #: D6 skips a row whose own words say it is a transfer, even when no transfer
 #: rule claimed it (a transfer to a person is not an MCA remittance).
 _TRANSFER_WORD_PATTERNS = (re.compile(r"\b(?:TRANSFER|XFER|TFR)\b"),)
+#: D6 does not apply to a card purchase, including the card formats the POS rule
+#: does not read: a posting that starts "PURCHASE" and its mmdd (after an
+#: optional "RECURRING"), read on the normalized text, and a processor*merchant
+#: mark, read on the printed text because normalization drops the star. The word
+#: PURCHASE alone is not a card mark: an ACH entry description can print it.
+_CARD_PURCHASE_POSTING_PATTERN = re.compile(r"^(?:RECURRING )?PURCHASE \d{4}\b")
+_PROCESSOR_MERCHANT_MARK_PATTERN = re.compile(r"\w\*\w")
+
+
+def _is_card_purchase_posting(record: TransactionClassification) -> bool:
+    return bool(
+        _CARD_PURCHASE_POSTING_PATTERN.match(record.normalized_description)
+        or _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "")
+    )
 
 
 def _promotion_cadence(
@@ -2141,9 +2155,10 @@ def classify_statement_transactions(
         key = (payee, round(abs(record.amount), 2))
         if record.match_method == "financing_keyword_review" and record.canonical_entity:
             keyword_groups.setdefault(key, []).append(index)
-        elif record.match_method == "default" and not _matches_any(
-            record.normalized_description,
-            _TRANSFER_WORD_PATTERNS,
+        elif (
+            record.match_method == "default"
+            and not _matches_any(record.normalized_description, _TRANSFER_WORD_PATTERNS)
+            and not _is_card_purchase_posting(record)
         ):
             fixed_debit_groups.setdefault(key, []).append(index)
 

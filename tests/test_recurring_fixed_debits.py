@@ -139,6 +139,51 @@ def test_same_amount_rows_on_three_weekly_dates_are_promoted(description, method
     assert len(records) == len(days)
 
 
+WEEKLY = (2, 9, 16, 23)
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "PURCHASE 01{day:02d} 4TE*FABRICATED CAFE RICHMOND TX",
+        "RECURRING PURCHASE 01{day:02d} FABRICATED STREAMING CO",
+        "TST*FABRICATED GRILL AUSTIN TX",
+    ],
+    ids=["purchase mmdd with processor mark", "recurring purchase mmdd", "processor mark only"],
+)
+def test_card_purchase_postings_are_never_a_d6_recurrence(template):
+    """D6 does not apply to card purchases, whatever format the bank prints them in."""
+    records = classify_statement_transactions(_statement(
+        [(f"2054-01-{day:02d}", template.format(day=day), -10.0) for day in WEEKLY]
+    ))
+    assert {(record.classification, record.match_method) for record in records} == {("other", "default")}
+
+
+def test_the_reported_card_purchase_shape_stays_other():
+    """The owner's report, fabricated: eight same-amount card purchases at one merchant,
+    three on one date and five on a date five days later."""
+    records = classify_statement_transactions(_statement(
+        [(f"2054-01-{day:02d}", f"PURCHASE 01{day:02d} 4TE*FABRICATED CAFE RICHMOND TX", -10.0) for day in TWO_DATES]
+    ))
+    assert {(record.classification, record.match_method) for record in records} == {("other", "default")}
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "ACH DEBIT FABRICATED WIDGETS LLC",
+        "FABRICATED WIDGETS LLC DES:PURCHASE ID:0000 INDN:PAT EXAMPLE CO ID:0000 CCD",
+        "ACH DEBIT FABRICATED WIDGETS LLC PURCHASE 0000",
+    ],
+    ids=["ach debit", "purchase as entry description", "purchase and digits after the payee"],
+)
+def test_ach_fixed_weekly_debits_still_reach_d6_when_they_print_purchase(description):
+    records = classify_statement_transactions(_statement(_rows_on_dates(description, -10.0, WEEKLY)))
+    assert {(record.classification, record.match_method) for record in records} == {
+        ("potential_lender", "recurring_fixed_debit")
+    }
+
+
 def test_financing_keyword_rows_of_two_unnamed_payees_are_not_merged():
     records = classify_statement_transactions(_statement([
         ("2054-01-02", "ADVANCE PAT EXAMPLE PMT", -200.0),
