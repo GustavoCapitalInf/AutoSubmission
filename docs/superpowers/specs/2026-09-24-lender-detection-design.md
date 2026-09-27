@@ -116,6 +116,10 @@ The code forced these choices, and the rulings above did not settle them.
   - a descriptor with a `processor*merchant` mark (`TST*NAME`, `SQ *NAME`, `TST* NAME`): a letter or digit, an optional space, `*`, an optional space, a letter or digit. It is read only on a row that carries no ACH field mark (`ACH`, `CCD`, `PPD`, `CTX`, `WEB`, `DES:`, `INDN`, `CO ID`, `ID:`, `ORIG CO`, `RMR`), because an ACH entry prints stars too: in its addenda (`RMR*IV*`), a masked account or an ID.
 
   The word `PURCHASE` alone is not a card mark: an ACH entry description can print it. D6 relaxes "recurrence alone is never lender evidence" for the **review tier only**. Nothing is ever *counted* without a named lender.
+
+  Clarified 2026-09-27:
+  - D6 does not take a row whose words name compensation: a commission (with its misspellings, such as `COMMISION` or `COMISSION`), a bonus, a salary, a stipend or a reimbursement. Pay is not an MCA remittance. The row stays `other`.
+  - A masked recipient account printed after `TO` (`To ....1234`, `TO XXXX1234`, `TO ***1234`, `TO #1234`) is part of the payee. Payments to different recipient accounts are never one payee.
 - **D7. Unticking a checkbox only hides the flag.**
   - A setting never moves a row into review or into lender math.
   - Flag groups never change the package decision.
@@ -176,7 +180,7 @@ The dashboard keeps a label for the retired state so that analyses stored before
 
 **Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. The insurance rule reads the premium-finance table before the insurer table, so a row that prints only `FIRST INSURANCE` is FIRST Insurance Funding (owner, 2026-09-25): it stays insurance and is also flagged. A row with premium-finance wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance payee is flagged the same way, under the insurer it names, or else `Insurance provider not identified` (owner, 2026-09-25). **D1** (financing proceeds) covers `floor_plan_financing` credits. A factoring payee's credit is not proceeds (owner, 2026-09-26). It is revenue, recorded as `factoring` under its payee, with `flagged_group="factoring"` and `contributes_to_flagged_totals`: the credit counterpart of the premium-financing row, which stays what it is and is also flagged. A premium-finance payee's credits keep today's insurance treatment.
 
-`CLASSIFICATION_VERSION` becomes `"5.0"`, and `"5.1"` with the D6 clarification of 2026-09-26.
+`CLASSIFICATION_VERSION` becomes `"5.0"`, `"5.1"` with the D6 clarification of 2026-09-26, and `"5.2"` with the second one of 2026-09-27.
 
 ### 4.3 Rule order (debits). The first match wins.
 
@@ -232,7 +236,7 @@ If what remains has no organisation cue, the entity is "Unidentified lender obli
 
 Stable names also fix recurrence grouping. Today "NORTHSTAR FINANCE PAYMENT JAN 2…8" splits into five entities.
 
-**D6 rule.** An unknown payee whose key has debits of the same amount on at least three different dates on a daily or weekly cadence, none of the excluded states and no card-purchase mark (D6), becomes `potential_lender` with match method `recurring_fixed_debit`, review required.
+**D6 rule.** An unknown payee whose key has debits of the same amount on at least three different dates on a daily or weekly cadence, none of the excluded states, no card-purchase mark and no compensation words (D6), becomes `potential_lender` with match method `recurring_fixed_debit`, review required. The key is the payee words and the amount, plus the digits of a masked recipient account printed after `TO` when the row has one (2026-09-27). The name never takes those digits.
 
 ### 4.6 The known-payee matcher
 
@@ -298,6 +302,7 @@ Per account:
   - `CLASSIFICATION_VERSION = "5.0"`.
   - `ANALYSIS_STAGE_VERSION` goes 18 → 19 in the same commit (`webapp/artifact_cache.py`), so a re-upload does not reuse a stale analysis. OCR stays cached.
   - The D6 clarification (2026-09-26) changes stored rows again: `CLASSIFICATION_VERSION = "5.1"` and `ANALYSIS_STAGE_VERSION` 19 → 20, together.
+  - So does the second D6 clarification (2026-09-27: compensation memos, masked recipient accounts): `CLASSIFICATION_VERSION = "5.2"` and `ANALYSIS_STAGE_VERSION` 20 → 21, together.
 
 ## 7. Command-line tools, benchmark, docs
 
