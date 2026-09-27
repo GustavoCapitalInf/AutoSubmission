@@ -175,7 +175,7 @@ The dashboard keeps a label for the retired state so that analyses stored before
 
 **Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. The insurance rule reads the premium-finance table before the insurer table, so a row that prints only `FIRST INSURANCE` is FIRST Insurance Funding (owner, 2026-09-25): it stays insurance and is also flagged. A row with premium-finance wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance payee is flagged the same way, under the insurer it names, or else `Insurance provider not identified` (owner, 2026-09-25). **D1** (financing proceeds) covers `floor_plan_financing` credits. A factoring payee's credit is not proceeds (owner, 2026-09-26). It is revenue, recorded as `factoring` under its payee, with `flagged_group="factoring"` and `contributes_to_flagged_totals`: the credit counterpart of the premium-financing row, which stays what it is and is also flagged. A premium-finance payee's credits keep today's insurance treatment.
 
-`CLASSIFICATION_VERSION` becomes `"5.0"`.
+`CLASSIFICATION_VERSION` becomes `"5.0"`, and `"5.1"` with the D6 clarification of 2026-09-26.
 
 ### 4.3 Rule order (debits). The first match wins.
 
@@ -296,6 +296,7 @@ Per account:
 - **Versions:**
   - `CLASSIFICATION_VERSION = "5.0"`.
   - `ANALYSIS_STAGE_VERSION` goes 18 → 19 in the same commit (`webapp/artifact_cache.py`), so a re-upload does not reuse a stale analysis. OCR stays cached.
+  - The D6 clarification (2026-09-26) changes stored rows again: `CLASSIFICATION_VERSION = "5.1"` and `ANALYSIS_STAGE_VERSION` 19 → 20, together.
 
 ## 7. Command-line tools, benchmark, docs
 

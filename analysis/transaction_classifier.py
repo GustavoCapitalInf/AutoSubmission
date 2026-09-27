@@ -87,7 +87,10 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "5.0"
+#: 5.0 (2026-09-24): the lender-detection rules. 5.1 (2026-09-26): the D6
+#: clarification (three different dates; no card-purchase posting). Moves with
+#: `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
+CLASSIFICATION_VERSION = "5.1"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"

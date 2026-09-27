@@ -517,6 +517,38 @@ def test_a_rerun_keeps_the_job_s_own_parse_mode(pipeline, private_store):
     assert (rerun.reason, rerun.analysis) == (None, _stamped(new, "deterministic"))
 
 
+def test_a_statement_analysed_at_stage_19_is_analysed_again_from_its_cached_reading(
+        pipeline, private_store, monkeypatch):
+    """The D6 clarification (classification 5.1) moves ANALYSIS_STAGE_VERSION 19 -> 20 (webapp/artifact_cache.py).
+    `_CacheOnly` passes `get_analysis` through to the real cache, so a statement whose analysis was cached at stage
+    19 misses it: the analysis stage runs again under the current rules, and the reading still comes from the cache
+    alone. At stage 19 itself the cached analysis is what comes back, so the stage decides."""
+    from webapp import artifact_cache
+    from webapp.reanalysis import rerun_analysis
+
+    current = artifact_cache.ANALYSIS_STAGE_VERSION
+    assert current > 19
+    old, new = _payload(), _payload(SHIFTED_ROWS)
+    monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", 19)
+    job_id = pipeline.upload(old)
+    pipeline.payload = new  # what the analysis stage answers from now on, when it runs
+
+    def rerun_and_hits():
+        before = len(private_store.storage.audit_events("cache_hit", job_id=job_id))
+        rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+        events = private_store.storage.audit_events("cache_hit", job_id=job_id)
+        return rerun, {json.loads(row["detail"])["stage"] for row in events[before:]}
+
+    rerun, hits = rerun_and_hits()
+    assert rerun.reason is None and _json(rerun.analysis) == _json(_stamped(old))  # served from the cache, as JSON
+    assert {"ocr", "analysis"} <= hits
+    monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", current)
+    rerun, hits = rerun_and_hits()
+    assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
+    assert "ocr" in hits and "analysis" not in hits
+    assert pipeline.reads == 1  # the statement was read once, at its upload
+
+
 def test_a_statement_the_visual_pair_read_is_reanalyzed_from_the_pair_s_cached_reading(
         pipeline, private_store, visual_pair):
     """A job uploaded with Force visual OCR was read by the visual pair. Its re-analysis takes the same path (the
@@ -1022,7 +1054,8 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     assert set(saved["metrics"]["flagged_groups"]) == keys
     assert saved["metrics"]["flagged_groups"]["factoring"]["count_credited"] == 1
     assert {position["group"] for position in saved["detection"]["flagged_positions"]} == keys
-    assert {record["classification_version"] for record in records.values()} == {"5.0"}
+    # Re-pinned from 5.0: the D6 clarification (2026-09-26) is classification 5.1.
+    assert {record["classification_version"] for record in records.values()} == {"5.1"}
     # Premium financing is no state of its own: the row stays insurance, in the insurance totals, and carries its flag.
     (premium,) = [record for record in flagged if record["flagged_group"] == "premium_financing"]
     assert (premium["classification"], premium["contributes_to_insurance_totals"]) == ("insurance", True)

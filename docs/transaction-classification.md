@@ -9,6 +9,8 @@ transaction descriptions independently.
 
 Classification version 5.0 (2026-09-24) applies the owner's lender rulings in
 `docs/superpowers/specs/2026-09-24-lender-detection-design.md` (decisions D1-D12).
+Version 5.1 (2026-09-26) clarifies D6: a recurrence needs at least three
+different dates, and D6 never takes a card-purchase posting.
 
 ## States and precedence
 

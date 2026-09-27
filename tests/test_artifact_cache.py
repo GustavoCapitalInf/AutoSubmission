@@ -485,12 +485,13 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_19():
+def test_analysis_stage_version_is_pinned_at_20():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
-    registry is not key material, so ANALYSIS_STAGE_VERSION goes 18 -> 19 in the
-    same commit as the classifier change. This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 19
+    registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
+    same commit as the classifier change. The D6 clarification (classification
+    5.1, 2026-09-26) changes stored rows again, so it goes 19 -> 20. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 20
 
 
 def test_paddle_model_token_is_not_in_free_models():
