@@ -24,7 +24,7 @@
   - Never commit statement text, amounts, account numbers, dates or customer names.
   - Commit messages quote no statement values.
   - Re-pinned regression expectations use derived totals only.
-- `CLASSIFICATION_VERSION = "5.0"` and `ANALYSIS_STAGE_VERSION = 19` land in the same commit as the classifier change (S2).
+- `CLASSIFICATION_VERSION = "5.0"` and `ANALYSIS_STAGE_VERSION = 19` land in the same commit as the classifier change (S2). The D6 clarification (2026-09-26) moves them to `"5.1"` and `20` together.
 - Run tests with `C:\Python314\python.exe -m pytest tests/<files> -q -p no:cacheprovider`. **Always pass paths under `tests/`**: a bare `pytest` also collects `discovery_reports/`.
 - Known failure that predates this work, and must not be attributed to it: `tests/test_no_statement_hardcodes.py::test_no_literal_account_numbers_in_ocr`.
 - Write or patch Python with the Write/Edit tools, not with Bash heredocs (the Bash tool mangles backslashes here). Restart Flask after template edits.
@@ -200,7 +200,7 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
 
     A factoring credit that an earlier rule claims (a transfer, an insurance term) keeps that rule's state, with no flag and no exclusion. Factoring debits are unchanged. `FINANCING_STATES` keeps `factoring` (C1): the payee still claims its credit at step 7, which S1's alias audit reads.
 - Three credits are financing proceeds by their own words, with no payee named (spec D1, owner rulings 2026-09-25): the statement bank's own line advance (exactly `LOAN CREDIT`), a line-of-credit draw, and a per-vehicle floor-plan advance. They get the same record, except that `matched_rule` (and `revenue_matched_rule`) names the rule (`bank_line_advance_credit`, `loc_draw_credit`, `floor_plan_advance_credit`) and `canonical_entity` is the statement bank, or None for the floor-plan advance.
-- `CLASSIFICATION_VERSION = "5.0"`.
+- `CLASSIFICATION_VERSION = "5.0"`; `"5.1"` since the D6 clarification (2026-09-26: three different dates, no card-purchase posting), with `ANALYSIS_STAGE_VERSION` 19 → 20.
 
 ### C5. Analysis payload (S2), per account
 
@@ -230,9 +230,10 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - It deep-copies every account's `statement.transactions`, `detection` and `metrics` before changing them.
   - On each account, it drops unticked groups from `metrics.flagged_groups` and `detection.flagged_positions`.
   - It sets `classification["flag_shown"] = bool(flagged_group and enabled[group.setting])` on every copied row.
-  - At the TOP level of the returned payload, it sets `analysis_rules_outdated: bool`: True when any row's classification record carries no `classification_version` (absent or null), or one whose major version is below 5.
+  - At the TOP level of the returned payload, it sets `analysis_rules_outdated: bool`: True when any row's classification record carries no `classification_version` (absent or null), or a readable one older than the running `CLASSIFICATION_VERSION`. The two compare as numeric `(major, minor)` pairs, and the running version is read from `analysis.transaction_classifier` at each call. The same or a newer version is not outdated.
     - A record without the field predates versioning, so older lender rules classified it (D12). The orchestrator decided this on 2026-09-26, delegated by the owner: the sentence used to say "is present", which left stored analyses of version-less revenue records without the notice and the Re-analyze button.
-    - A version that is present but cannot be read marks nothing. Only ASCII digits before the first dot are read.
+    - Any older version, not only a major version below 5. The orchestrator decided this on 2026-09-26, delegated by the owner: the sentence used to say "whose major version is below 5", which would have left a 5.0 analysis without the notice and the Re-analyze button once the D6 clarification (5.1) runs. A re-analysis clears it.
+    - A version that is present but cannot be read marks nothing. Only `<major>` or `<major>.<minor>` in ASCII digits is read, around outer whitespace; an integer reads as `<major>.0`.
     - A payload with no classification record is False.
   - It never raises. A non-dict payload is returned unchanged.
 - `webapp/app.py`:
