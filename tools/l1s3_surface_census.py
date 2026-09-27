@@ -181,6 +181,7 @@ EXCUSED: dict[str, str] = {
     "webapp/app.py::_statement_currency": "one MEMBER's currency; members come from the taught `_package_members`",
     "webapp/app.py::_package_analysis": "reads one MEMBER's account payload, supplied by `_package_members`",
     "webapp/reanalysis.py::_records": "one ACCOUNT's records; `replay_reviews` hands it each account from `payload_accounts`",
+    "analysis/nsf_days.py::_rebased_account": "one ACCOUNT's ledger and postings; `apply_nsf_basis_to_payload` hands it each account from `payload_accounts`",
     # A developer utility that publishes nothing. Handed a document payload it
     # falls back to the payload itself and `Statement.model_validate` refuses
     # it loudly, which is the fail-closed answer this census asks for.

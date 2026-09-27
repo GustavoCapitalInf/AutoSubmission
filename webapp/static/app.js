@@ -574,10 +574,102 @@ function flaggedPayeeOf(tx) {
   return record.canonical_entity || (record.flagged_group ? flagGroupLabel(record.flagged_group) : null);
 }
 
-function filterTransactions(transactions, filter, canonicalEntity = null) {
+/* --- the NSFs and NSF fees chips -------------------------------------------------------------------------------
+   R18 (2026-09-18): the underwriting NSF count is the number of days that END with a negative balance, on the basis
+   Settings chooses (analysis/nsf_days.py). Owner request, 2026-09-27 ("Two chips"): the NSFs chip lists exactly those
+   days, each shown by the posting that ended it (the server's metrics.nsf_days), so its header always counts the NSF
+   tile's days; a row that ended several days is shown once. The bank's NSF fee and returned-item rows
+   (nsf_or_return, evidence only since R18) are the NSF fees chip. */
+const NSF_UNAVAILABLE = "negative_ending_days_unavailable";
+const NSF_DAY_BASES = new Set(["negative_printed_days", "negative_ending_days"]);
+
+// A row's location within its own account (`transaction:N`): its classification's, else its position in the
+// account's ledger when that is known (the name the server gives it).
+function rowSourceLocation(tx, position = null) {
+  const location = transactionClassification(tx).source_location;
+  if (typeof location === "string" && location.trim()) return location;
+  return Number.isInteger(position) ? `transaction:${position + 1}` : null;
+}
+
+function nsfDayLocations(days) {
+  return new Set((Array.isArray(days) ? days : [])
+    .map((day) => (day && typeof day.source_location === "string" ? day.source_location : null))
+    .filter(Boolean));
+}
+
+// One account's NSF days, from its served metrics: the tile's count, and the rows that ended them.
+function statementNsfDays(metrics) {
+  const m = metrics || {};
+  const count = numberOrNull(m.effective_nsf_count);
+  const days = Array.isArray(m.nsf_days) ? m.nsf_days : null;
+  const locations = nsfDayLocations(days);
+  return {
+    count,
+    source: m.nsf_source,
+    unavailable: m.nsf_source === NSF_UNAVAILABLE || count === null,
+    listed: days !== null && days.length === count,
+    unavailableMembers: 0,
+    has: (tx, position) => locations.has(rowSourceLocation(tx, position)),
+  };
+}
+
+// A package's NSF days: each member account's own days (its row of `documents`), matched to the combined ledger's
+// rows by the statement and account a row came from, since a location is numbered within its account. The count is
+// the package tile's.
+function packageNsfDays(pkg) {
+  const totals = pkg?.totals || {};
+  const documents = Array.isArray(pkg?.documents) ? pkg.documents : [];
+  const keys = new Set();
+  let listedDays = 0;
+  documents.forEach((doc) => {
+    const { jobId, account } = packageMember(doc.id);
+    const days = Array.isArray(doc.nsf_days) ? doc.nsf_days : [];
+    listedDays += days.length;
+    nsfDayLocations(days).forEach((location) => keys.add(JSON.stringify([jobId, account, location])));
+  });
+  const count = numberOrNull(totals.nsf_count);
+  return {
+    count,
+    source: totals.nsf_source,
+    unavailable: totals.nsf_source === NSF_UNAVAILABLE || count === null,
+    listed: listedDays === count,
+    unavailableMembers: documents.filter((doc) => doc.nsf_source === NSF_UNAVAILABLE).length,
+    has: (tx) => keys.has(JSON.stringify([String(tx.source_job ?? ""), tx.source_account ?? null,
+      rowSourceLocation(tx)])),
+  };
+}
+
+// The NSFs chip's header: the days, as the tile counts them, never the rows shown.
+function nsfDaysLabel(nsfDays) {
+  if (!nsfDays) return "NSF days not available";
+  if (nsfDays.unavailable) return "NSF days not computable: no validated daily ledger";
+  const count = nsfDays.count;
+  if (nsfDays.source && !NSF_DAY_BASES.has(nsfDays.source) && nsfDays.source !== "mixed") {
+    // Saved before R18 with no daily ledger to re-count: the tile's figure is not a count of days.
+    return `${formatNumber(count)} NSFs: ${nsfSourceLabel(nsfDays.source)}`;
+  }
+  let label = `${formatNumber(count)} ${count === 1 ? "day" : "days"} ending negative`;
+  if (nsfDays.unavailableMembers) {
+    const k = nsfDays.unavailableMembers;
+    label += `; ${formatNumber(k)} ${k === 1 ? "statement" : "statements"} not computable: no validated daily ledger`;
+  }
+  if (!nsfDays.listed) label += " (not listed: the daily ledger does not show them)";
+  return label;
+}
+
+function nsfDaysEmptyNote(nsfDays) {
+  if (!nsfDays || nsfDays.unavailable) return "No validated daily ledger, so no day can be counted.";
+  if (nsfDays.count === 0) return "No day ended with a negative balance.";
+  return "The days counted could not be matched to rows.";
+}
+
+function filterTransactions(transactions, filter, canonicalEntity = null, nsfDays = null) {
   let matched = transactions;
   const flagGroup = flaggedFilterGroup(filter);
-  if (filter === "nsf") matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
+  if (filter === "nsf") matched = nsfDays ? transactions.filter((tx, position) => nsfDays.has(tx, position)) : [];
+  if (filter === "nsf_fees") {
+    matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
+  }
   if (filter === "lender") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true);
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
@@ -708,9 +800,10 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     reviewJobId = null,
     reviewAccount = null,
     selectable = false,
+    nsfDays = null,
   } = options;
   const rows = Array.isArray(transactions) ? transactions : [];
-  const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity), sort);
+  const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity, nsfDays), sort);
   const visible = matched.slice(0, limit);
   const showRunningBalance = matched.some((tx) => runningBalanceValue(tx) !== null);
   const runningBalanceHeader = tableEl.closest("table")?.querySelector("[data-running-balance-column]");
@@ -720,10 +813,17 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   const pickable = targets.some(Boolean);
   tableEl.closest("table")?.classList.toggle("has-select", pickable);
   const offered = targets.filter(Boolean).map((target) => bulkKey(target.jobId, target.account, target.sourceLocation));
-  const filterLabel = canonicalEntity || (filter === "all" ? "transactions" : `${filter} matches`);
-  countEl.textContent = visible.length < matched.length
-    ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
-    : `${formatNumber(matched.length)} ${filterLabel}`;
+  if (filter === "nsf" && !canonicalEntity) {
+    // The header counts the DAYS, as the tile does; the rows are the postings that ended them.
+    countEl.textContent = nsfDaysLabel(nsfDays) + (visible.length < matched.length
+      ? ` · showing ${formatNumber(visible.length)} of ${formatNumber(matched.length)} rows` : "");
+  } else {
+    const filterLabel = canonicalEntity || (filter === "all" ? "transactions"
+      : filter === "nsf_fees" ? (matched.length === 1 ? "NSF fee row" : "NSF fee rows") : `${filter} matches`);
+    countEl.textContent = visible.length < matched.length
+      ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
+      : `${formatNumber(matched.length)} ${filterLabel}`;
+  }
   if (moreEl) {
     const remaining = matched.length - visible.length;
     moreEl.hidden = remaining <= 0;
@@ -740,9 +840,12 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   if (!visible.length) {
     // Date, Description, Category, Amount and Review, plus the optional Statement and Running Balance columns.
     const columns = 5 + (showSource ? 1 : 0) + (showRunningBalance ? 1 : 0) + (pickable ? 1 : 0);
+    const note = filter === "all" ? "No statement returned transaction rows."
+      : filter === "nsf" && !canonicalEntity ? nsfDaysEmptyNote(nsfDays)
+      : "No rows matched this filter.";
     tableEl.innerHTML = `
       <tr>
-        <td class="empty-cell" colspan="${columns}"><strong>No transactions found</strong>${escapeHtml(filter === "all" ? "No statement returned transaction rows." : "No rows matched this filter.")}</td>
+        <td class="empty-cell" colspan="${columns}"><strong>No transactions found</strong>${escapeHtml(note)}</td>
       </tr>
     `;
     return offered;
@@ -820,6 +923,7 @@ function mainTransactionContext() {
       // individually instead of all being relabelled as one unit.
       currency: packageCurrencyInfo(pkg).currency,
       multi: true,
+      nsfDays: packageNsfDays(pkg),
     };
   }
   const statement = currentAnalysis?.statement || {};
@@ -827,6 +931,7 @@ function mainTransactionContext() {
     transactions: getTransactions(statement),
     currency: statement.currency || "USD",
     multi: false,
+    nsfDays: statementNsfDays(currentAnalysis?.metrics),
   };
 }
 
@@ -871,6 +976,7 @@ function renderMainTransactions({ keepLimit = false } = {}) {
       reviewJobId: currentJobId,
       reviewAccount: shownReviewAccount(),
       selectable: true,
+      nsfDays: ctx.nsfDays,
     }
   );
   // The selection is what is ticked on screen: a tick whose row is no longer shown (filtered out, on a page not
@@ -1096,6 +1202,7 @@ function renderModalTransactions({ keepLimit = false } = {}) {
       canonicalEntity: modalTransactionEntityFilter,
       reviewJobId: modalJobId,
       reviewAccount: modalReviewAccount,
+      nsfDays: statementNsfDays(modalAnalysis?.metrics),
     }
   );
 }

@@ -252,6 +252,23 @@ status, flagged group, and every metric contribution flag.
   transfers, contributions, returns, refunds, corrections, rewards, interest,
   proceeds, and proven duplicate credits.
 - `maximum_revenue`: verified revenue plus unverified deposits.
+- `effective_nsf_count` (R18): the days that end with a negative balance in the
+  validated daily ledger, on the basis in `nsf_source` (printed days by default,
+  every calendar day when Settings carries the balance over inactive days;
+  `analysis/nsf_days.py`). `nsf_or_return` rows are evidence and never counted.
+  As served to the dashboard, `nsf_days` lists exactly the days it counts
+  (`date`, `ending_balance`, the ledger day's `source`, and the `source_location`
+  of the posting that ended the day, or of the last posting before a day with
+  none); it is empty when the count is not computable, and no download carries it.
+
+The dashboard's transaction chips follow this split (owner request 2026-09-27).
+**NSFs** shows the days the NSF tile counts, each by the posting that ended it,
+and its header counts days ("N days ending negative"), so it always equals the
+tile; a row that ended several days is shown once, and a day that went below
+zero only during the day is not listed. In a package each member account's days
+are matched to its own rows. **NSF fees** lists the `nsf_or_return` rows (the
+bank's NSF fee and returned-item lines), which may exist when no day ended
+negative.
 
 Revenue must reconcile from the authoritative rows:
 
