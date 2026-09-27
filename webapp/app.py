@@ -202,7 +202,7 @@ def _is_count(value: object) -> bool:
 
 
 def _displayed(
-    analysis: object, *, carry_over: bool | None = None, settings: dict | None = None
+    analysis: object, *, carry_over: bool | None = None, settings: dict | None = None, export: bool = False
 ) -> object:
     """A stored analysis as the dashboard presents it: the owner's Settings applied to a COPY.
 
@@ -213,13 +213,33 @@ def _displayed(
     package agree; the stored record is never rewritten, and a change of setting applies to every job at once.
 
     `settings` is a snapshot of every setting, read here once when it is not passed; `carry_over`, when given,
-    still decides the NSF basis."""
+    still decides the NSF basis. `export` leaves out what only the dashboard reads (the NSF days its NSFs chip
+    lists, `metrics.nsf_days`), so a download carries what it carried before the chip."""
     if settings is None:
         settings = load_settings(store.storage.data_dir)
     if carry_over is None:
         carry_over = settings.get("nsf_carry_over", SETTINGS_DEFAULTS["nsf_carry_over"])
-    rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over)
+    rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over, list_days=not export)
     return apply_flagged_groups_to_payload(rebased, enabled=settings)
+
+
+#: What a package member row carries for the dashboard alone, left out of the package downloads.
+_PACKAGE_DISPLAY_ONLY_KEYS = ("nsf_days",)
+
+
+def _package_for_export(package: dict) -> dict:
+    """A copy of a package payload without the fields only the dashboard reads: from its member rows, which it
+    lists twice (`documents`, and `monthly` for the members with a period)."""
+    exported = dict(package)
+    for section in ("documents", "monthly"):
+        rows = package.get(section)
+        if isinstance(rows, list):
+            exported[section] = [
+                {key: value for key, value in row.items() if key not in _PACKAGE_DISPLAY_ONLY_KEYS}
+                if isinstance(row, dict) else row
+                for row in rows
+            ]
+    return exported
 
 
 def _masked(payload: object) -> object:
@@ -1470,6 +1490,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         nsf_source = metrics.get("nsf_source")
         if isinstance(nsf_source, str):
             nsf_sources.add(nsf_source)  # a member with no analysis contributes no count and no basis
+        # The days that count names (analysis/nsf_days.py), for the dashboard's NSFs chip over the combined ledger:
+        # each is shown by this member's row that ended it. Display only; no figure reads it.
+        nsf_days = metrics.get("nsf_days") if isinstance(metrics.get("nsf_days"), list) else []
         adb_calendar_days = metrics.get("calendar_day_count")
         average_daily_balance_num = _num(
             metrics.get("average_daily_balance"),
@@ -1758,6 +1781,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "adb_validated": adb_validated,
             "nsf_count": nsf_count,
             "nsf_source": nsf_source,
+            "nsf_days": nsf_days,
             "lender_debits": lender_debits,
             "lender_debit_count": lender_debit_count,
             "lenders_detected": int(_num(metrics.get("lenders_detected"), len(detection.get("known_funders") or []))),
@@ -2743,7 +2767,7 @@ def package_download(fmt):
     package = _package_from_request()
     if isinstance(package, tuple):
         return package
-    package = _masked(package)
+    package = _masked(_package_for_export(package))
     if fmt == "json":
         content = json.dumps(package, indent=2)
         mimetype = "application/json"
@@ -2800,17 +2824,17 @@ def download(job_id, fmt):
     if fmt == "json":
         if job.analysis is None:
             abort(404)
-        content = json.dumps(_masked(_displayed(job.analysis)), indent=2)
+        content = json.dumps(_masked(_displayed(job.analysis, export=True)), indent=2)
         mimetype = "application/json"
     elif fmt == "csv":
         if job.analysis is None:
             abort(404)
-        content = _analysis_csv(_masked(_displayed(job.analysis)))
+        content = _analysis_csv(_masked(_displayed(job.analysis, export=True)))
         mimetype = "text/csv"
     elif fmt == "xlsx":
         if job.analysis is None:
             abort(404)
-        content = _analysis_xlsx(_masked(_displayed(job.analysis)))
+        content = _analysis_xlsx(_masked(_displayed(job.analysis, export=True)))
         mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
         # Raw OCR source, served verbatim: see the residual-exposure note on
