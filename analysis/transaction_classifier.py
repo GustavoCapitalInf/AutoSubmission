@@ -2073,10 +2073,16 @@ def _promotion_cadence(
     indexes: list[int],
     min_recurring_count: int,
 ) -> tuple[str, float | None] | None:
-    """The daily or weekly cadence of a same-amount group, or None when it does not promote."""
+    """The daily or weekly cadence of a same-amount group, or None when it does not promote.
+
+    A recurrence needs at least ``min_recurring_count`` different dates: several
+    rows on one day are one occurrence, as classify_cadence reads them.
+    """
     if len(indexes) < min_recurring_count:
         return None
     dates = [parsed for index in indexes if (parsed := parse_date(records[index].date)) is not None]
+    if len(set(dates)) < min_recurring_count:
+        return None
     cadence, average_gap = classify_cadence(dates)
     if cadence not in {"daily", "weekly"}:
         return None

@@ -95,6 +95,50 @@ def test_proven_duplicates_do_not_make_a_recurring_group():
     assert not any(record.classification == "potential_lender" for record in records)
 
 
+def _rows_on_dates(description: str, amount: float, days: tuple[int, ...]):
+    return [(f"2054-01-{day:02d}", description, amount) for day in days]
+
+
+#: Three same-day rows, then five same-day rows five days later: eight rows but
+#: only two dates, so one five-day gap would otherwise read as weekly.
+TWO_DATES = (2, 2, 2, 7, 7, 7, 7, 7)
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["ACH DEBIT FABRICATED WIDGETS LLC", "ACH DEBIT FABRICATED FUNDING LLC"],
+    ids=["unknown payee (D6)", "financing keyword"],
+)
+def test_same_amount_rows_on_only_two_dates_are_not_a_recurrence(description):
+    records = classify_statement_transactions(_statement(_rows_on_dates(description, -10.0, TWO_DATES)))
+    assert not any(record.classification == "potential_lender" for record in records)
+    assert not any(
+        record.match_method in {"recurring_fixed_debit", "recurring_financing_counterparty"}
+        for record in records
+    )
+
+
+@pytest.mark.parametrize(
+    ("description", "method"),
+    [
+        ("ACH DEBIT FABRICATED WIDGETS LLC", "recurring_fixed_debit"),
+        ("ACH DEBIT FABRICATED FUNDING LLC", "recurring_financing_counterparty"),
+    ],
+    ids=["unknown payee (D6)", "financing keyword"],
+)
+@pytest.mark.parametrize(
+    "days",
+    [(2, 9, 16), (2, 9, 9, 16)],
+    ids=["three rows on three weekly dates", "four rows on three weekly dates"],
+)
+def test_same_amount_rows_on_three_weekly_dates_are_promoted(description, method, days):
+    records = classify_statement_transactions(_statement(_rows_on_dates(description, -10.0, days)))
+    assert {(record.classification, record.match_method) for record in records} == {
+        ("potential_lender", method)
+    }
+    assert len(records) == len(days)
+
+
 def test_financing_keyword_rows_of_two_unnamed_payees_are_not_merged():
     records = classify_statement_transactions(_statement([
         ("2054-01-02", "ADVANCE PAT EXAMPLE PMT", -200.0),
