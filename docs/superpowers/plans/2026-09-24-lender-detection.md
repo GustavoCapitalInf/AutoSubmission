@@ -24,7 +24,7 @@
   - Never commit statement text, amounts, account numbers, dates or customer names.
   - Commit messages quote no statement values.
   - Re-pinned regression expectations use derived totals only.
-- `CLASSIFICATION_VERSION = "5.0"` and `ANALYSIS_STAGE_VERSION = 19` land in the same commit as the classifier change (S2). The D6 clarification (2026-09-26) moves them to `"5.1"` and `20` together.
+- `CLASSIFICATION_VERSION = "5.0"` and `ANALYSIS_STAGE_VERSION = 19` land in the same commit as the classifier change (S2). The D6 clarification (2026-09-26) moves them to `"5.1"` and `20` together, and the second one (2026-09-27) to `"5.2"` and `21`.
 - Run tests with `C:\Python314\python.exe -m pytest tests/<files> -q -p no:cacheprovider`. **Always pass paths under `tests/`**: a bare `pytest` also collects `discovery_reports/`.
 - Known failure that predates this work, and must not be attributed to it: `tests/test_no_statement_hardcodes.py::test_no_literal_account_numbers_in_ocr`.
 - Write or patch Python with the Write/Edit tools, not with Bash heredocs (the Bash tool mangles backslashes here). Restart Flask after template edits.
@@ -200,7 +200,7 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
 
     A factoring credit that an earlier rule claims (a transfer, an insurance term) keeps that rule's state, with no flag and no exclusion. Factoring debits are unchanged. `FINANCING_STATES` keeps `factoring` (C1): the payee still claims its credit at step 7, which S1's alias audit reads.
 - Three credits are financing proceeds by their own words, with no payee named (spec D1, owner rulings 2026-09-25): the statement bank's own line advance (exactly `LOAN CREDIT`), a line-of-credit draw, and a per-vehicle floor-plan advance. They get the same record, except that `matched_rule` (and `revenue_matched_rule`) names the rule (`bank_line_advance_credit`, `loc_draw_credit`, `floor_plan_advance_credit`) and `canonical_entity` is the statement bank, or None for the floor-plan advance.
-- `CLASSIFICATION_VERSION = "5.0"`; `"5.1"` since the D6 clarification (2026-09-26: three different dates, no card-purchase posting), with `ANALYSIS_STAGE_VERSION` 19 → 20.
+- `CLASSIFICATION_VERSION = "5.0"`; `"5.1"` since the D6 clarification (2026-09-26: three different dates, no card-purchase posting), with `ANALYSIS_STAGE_VERSION` 19 → 20; `"5.2"` since the second D6 clarification (2026-09-27: no compensation memo, a masked recipient account after `TO` is part of the payee), with `ANALYSIS_STAGE_VERSION` 20 → 21.
 
 ### C5. Analysis payload (S2), per account
 

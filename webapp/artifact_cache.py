@@ -541,7 +541,16 @@ OCR_STAGE_VERSION = 5
 # would serve them; a re-analysis (webapp/reanalysis.py) misses the analysis
 # stage and recomputes it from the cached reading. OCR stays cached. Pinned in
 # the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 20
+# 20 -> 21: LENDER-DETECTION second D6 clarification (2026-09-27) —
+# classification version 5.2: D6 never takes a row whose words name
+# compensation (a commission and its misspellings, a bonus, a salary, a stipend,
+# a reimbursement), and a masked recipient account printed after TO joins the D6
+# payee key, so payments to two recipient accounts are never one payee. Stored
+# rows lose `recurring_fixed_debit` promotions, so a warm cache keyed on 20 would
+# serve them; a re-analysis recomputes the analysis stage from the cached
+# reading. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 21
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

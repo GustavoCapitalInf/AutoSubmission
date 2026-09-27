@@ -88,9 +88,11 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 )
 
 #: 5.0 (2026-09-24): the lender-detection rules. 5.1 (2026-09-26): the D6
-#: clarification (three different dates; no card-purchase posting). Moves with
+#: clarification (three different dates; no card-purchase posting). 5.2
+#: (2026-09-27): D6 skips compensation memos, and a masked recipient account
+#: printed after TO is part of the payee. Moves with
 #: `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.1"
+CLASSIFICATION_VERSION = "5.2"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
@@ -2069,6 +2071,14 @@ def _apply_operating_source_context(
 #: D6 skips a row whose own words say it is a transfer, even when no transfer
 #: rule claimed it (a transfer to a person is not an MCA remittance).
 _TRANSFER_WORD_PATTERNS = (re.compile(r"\b(?:TRANSFER|XFER|TFR)\b"),)
+#: D6 also skips a row whose own words say it pays compensation: a commission
+#: (with its common misspellings: COMMISION, COMISSION, COMISION, COMMISSON), a
+#: bonus, a salary, a stipend or a reimbursement. Pay is not an MCA remittance.
+#: The row stays "other"; payroll and wages already classify as payroll.
+_COMPENSATION_WORD_PATTERNS = (
+    re.compile(r"\bCOMM?ISS?I?ONS?\b"),
+    re.compile(r"\b(?:BONUS(?:ES)?|SALARY|SALARIES|STIPENDS?|REIMB(?:URS\w*)?)\b"),
+)
 #: D6 does not apply to a card purchase, including the card formats the POS rule
 #: does not read: a posting that starts "PURCHASE" and its mmdd (after an
 #: optional "RECURRING"), read on the normalized text, and a processor*merchant
@@ -2085,6 +2095,14 @@ _PROCESSOR_MERCHANT_MARK_PATTERN = re.compile(r"[A-Za-z0-9] ?\* ?[A-Za-z0-9]")
 #: text; the labels whose colon normalization drops, on the printed text.
 _ACH_FIELD_MARK_WORD_PATTERN = re.compile(r"\b(?:ACH|CCD|PPD|CTX|WEB|INDN|RMR|CO ID|ORIG CO)\b")
 _ACH_FIELD_MARK_LABEL_PATTERN = re.compile(r"(?<![A-Za-z0-9])(?:DES|ID)\s*:", re.IGNORECASE)
+#: D6: a masked recipient account printed after TO ("To ....1234", "TO XXXX1234",
+#: "TO ***1234", "TO #1234", "TO x1234", "TO ACCT XXXX1234"), read on the printed
+#: text because normalization drops the dots, stars and "#". Its digits are part
+#: of the payee, so payments to two recipient accounts are never one payee (D11).
+_MASKED_RECIPIENT_PATTERN = re.compile(
+    r"\bTO\b[\s:]*(?:(?:ACCOUNT|ACCT)\b[\s:]*)?(?:\.{2,}|…+|X+|\*+|#)[ -]?([0-9]{2,})(?![0-9])",
+    re.IGNORECASE,
+)
 
 
 def _has_ach_field_mark(record: TransactionClassification) -> bool:
@@ -2101,6 +2119,12 @@ def _is_card_purchase_posting(record: TransactionClassification) -> bool:
         _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "")
         and not _has_ach_field_mark(record)
     )
+
+
+def _masked_recipient(record: TransactionClassification) -> str | None:
+    """D6: the printed digits of a masked recipient account after TO, or None."""
+    match = _MASKED_RECIPIENT_PATTERN.search(record.original_description or "")
+    return match.group(1) if match else None
 
 
 def _promotion_cadence(
@@ -2164,9 +2188,10 @@ def classify_statement_transactions(
             seen[fingerprint] = index
 
     # Recurrence (spec §4.3 statement pass 2). Both kinds group by payee words
-    # and amount, so two unnamed payees are never merged (D11).
+    # and amount, so two unnamed payees are never merged (D11). D6 adds the
+    # digits of a masked recipient account printed after TO (None without one).
     keyword_groups: dict[tuple[tuple[str, ...], float], list[int]] = {}
-    fixed_debit_groups: dict[tuple[tuple[str, ...], float], list[int]] = {}
+    fixed_debit_groups: dict[tuple[tuple[str, ...], float, str | None], list[int]] = {}
     for index, record in enumerate(records):
         if index in duplicate_of or record.amount >= 0 or record.classification != "other":
             continue
@@ -2179,9 +2204,10 @@ def classify_statement_transactions(
         elif (
             record.match_method == "default"
             and not _matches_any(record.normalized_description, _TRANSFER_WORD_PATTERNS)
+            and not _matches_any(record.normalized_description, _COMPENSATION_WORD_PATTERNS)
             and not _is_card_purchase_posting(record)
         ):
-            fixed_debit_groups.setdefault(key, []).append(index)
+            fixed_debit_groups.setdefault((*key, _masked_recipient(record)), []).append(index)
 
     for indexes in keyword_groups.values():
         promotion = _promotion_cadence(records, indexes, min_recurring_count)
@@ -2207,7 +2233,7 @@ def classify_statement_transactions(
 
     # D6: an unknown payee (a row no rule claimed) with fixed daily or weekly
     # debits joins the review tier. Nothing is counted without a named lender.
-    for (payee, _), indexes in fixed_debit_groups.items():
+    for (payee, _, _), indexes in fixed_debit_groups.items():
         promotion = _promotion_cadence(records, indexes, min_recurring_count)
         if promotion is None:
             continue

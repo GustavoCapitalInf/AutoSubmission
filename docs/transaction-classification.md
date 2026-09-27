@@ -11,6 +11,9 @@ Classification version 5.0 (2026-09-24) applies the owner's lender rulings in
 `docs/superpowers/specs/2026-09-24-lender-detection-design.md` (decisions D1-D12).
 Version 5.1 (2026-09-26) clarifies D6: a recurrence needs at least three
 different dates, and D6 never takes a card-purchase posting.
+Version 5.2 (2026-09-27) clarifies D6 again: D6 never takes a row whose words
+name compensation, and a masked recipient account printed after `TO` is part
+of the payee.
 
 ## States and precedence
 
@@ -164,7 +167,10 @@ least three different dates on a daily or weekly cadence (several rows on one
 date count as one): financing-keyword rows of one payee
 (`recurring_financing_counterparty`), and rows no rule claimed (`other`, match
 method `default`) whose descriptor names a payee and carries no transfer wording
-(`recurring_fixed_debit`, D6). D6 never takes a card-purchase posting, including
+(`recurring_fixed_debit`, D6). D6 never takes a row whose words name
+compensation: a commission (with its misspellings, such as `COMMISION`), a
+bonus, a salary, a stipend or a reimbursement; the row stays `other`. D6 never
+takes a card-purchase posting, including
 the card formats the POS rule does not read: a posting that starts `PURCHASE`
 and its mmdd (after an optional `RECURRING`), and a descriptor with a
 `processor*merchant` mark (`TST*NAME`, `SQ *NAME`, `TST* NAME`: a letter or
@@ -187,7 +193,10 @@ FINANCIAL, FINANCE, BANK, CREDIT, LENDING, ADVANCE, GROUP, HOLDINGS, SERVICES or
 a legal-form suffix) the entity is `Unidentified lender obligation`, so a
 person's name is never published as a lender. Payees are grouped for recurrence
 by these words, so one payee keeps one name across dated descriptors and two
-unnamed payees are never merged.
+unnamed payees are never merged. D6 also groups by the digits of a masked
+recipient account printed after `TO` (`To ....1234`, `TO XXXX1234`, `TO ***1234`,
+`TO #1234`), so payments to two recipient accounts are never one payee. The
+name never takes those digits.
 
 A higher-precedence non-lender match overrides generic words such as `finance`,
 `capital`, `funding`, and `payment`. Unverified credible financing counterparties
