@@ -113,7 +113,7 @@ The code forced these choices, and the rulings above did not settle them.
   A loan payment that prints any other payee keeps today's rules: a known payee, the bank-name rule, or the potential-lender rules.
 - **D6. Unknown MCA-style debits.** A payee on no list, with debits of the **same amount** on **at least three different dates** on a **daily or weekly** cadence, becomes a **potential lender** (review). Several debits on one date count as one. This does not apply to rows that are already a POS purchase, transfer, fee, payroll, tax, utility, rent or insurance, nor to card-purchase postings that the POS rule does not read (clarified 2026-09-26):
   - a posting that starts `PURCHASE` and its mmdd, after an optional `RECURRING`;
-  - a descriptor with a `processor*merchant` mark: a letter or digit, `*`, a letter or digit.
+  - a descriptor with a `processor*merchant` mark (`TST*NAME`, `SQ *NAME`, `TST* NAME`): a letter or digit, an optional space, `*`, an optional space, a letter or digit. It is read only on a row that carries no ACH field mark (`ACH`, `CCD`, `PPD`, `CTX`, `WEB`, `DES:`, `INDN`, `CO ID`, `ID:`, `ORIG CO`, `RMR`), because an ACH entry prints stars too: in its addenda (`RMR*IV*`), a masked account or an ID.
 
   The word `PURCHASE` alone is not a card mark: an ACH entry description can print it. D6 relaxes "recurrence alone is never lender evidence" for the **review tier only**. Nothing is ever *counted* without a named lender.
 - **D7. Unticking a checkbox only hides the flag.**

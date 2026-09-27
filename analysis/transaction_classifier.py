@@ -2072,13 +2072,31 @@ _TRANSFER_WORD_PATTERNS = (re.compile(r"\b(?:TRANSFER|XFER|TFR)\b"),)
 #: mark, read on the printed text because normalization drops the star. The word
 #: PURCHASE alone is not a card mark: an ACH entry description can print it.
 _CARD_PURCHASE_POSTING_PATTERN = re.compile(r"^(?:RECURRING )?PURCHASE \d{4}\b")
-_PROCESSOR_MERCHANT_MARK_PATTERN = re.compile(r"\w\*\w")
+#: The processor*merchant mark: a letter or digit, an optional space, "*", an
+#: optional space, a letter or digit ("TST*NAME", "SQ *NAME", "TST* NAME"). ASCII
+#: letters and digits only: `\w` would also take "_" and non-ASCII letters.
+_PROCESSOR_MERCHANT_MARK_PATTERN = re.compile(r"[A-Za-z0-9] ?\* ?[A-Za-z0-9]")
+#: An ACH entry prints stars too: in its addenda ("RMR*IV*"), a masked account
+#: or an ID. A row with an ACH field mark is never read as a card purchase by
+#: its star. The SEC codes and field names are read as words on the normalized
+#: text; the labels whose colon normalization drops, on the printed text.
+_ACH_FIELD_MARK_WORD_PATTERN = re.compile(r"\b(?:ACH|CCD|PPD|CTX|WEB|INDN|RMR|CO ID|ORIG CO)\b")
+_ACH_FIELD_MARK_LABEL_PATTERN = re.compile(r"(?<![A-Za-z0-9])(?:DES|ID)\s*:", re.IGNORECASE)
+
+
+def _has_ach_field_mark(record: TransactionClassification) -> bool:
+    return bool(
+        _ACH_FIELD_MARK_WORD_PATTERN.search(record.normalized_description)
+        or _ACH_FIELD_MARK_LABEL_PATTERN.search(record.original_description or "")
+    )
 
 
 def _is_card_purchase_posting(record: TransactionClassification) -> bool:
+    if _CARD_PURCHASE_POSTING_PATTERN.match(record.normalized_description):
+        return True
     return bool(
-        _CARD_PURCHASE_POSTING_PATTERN.match(record.normalized_description)
-        or _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "")
+        _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "")
+        and not _has_ach_field_mark(record)
     )
 
 
