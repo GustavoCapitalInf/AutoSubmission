@@ -128,6 +128,7 @@ The code forced these choices, and the rulings above did not settle them.
 - **D12. Saved jobs.**
   - Statements analysed before this change keep their stored labels until re-analysed. Nothing re-labels them silently.
   - The results page shows a notice and a **Re-analyze** action (§8.6).
+  - The same holds whenever the classifier moves on: an analysis whose records carry no `classification_version`, or one older than the running version, gets the notice. A 5.0 analysis gets it once 5.1 runs (clarified 2026-09-26).
 
 ## 4. Classification model
 
@@ -319,7 +320,7 @@ Per account:
 - **copies before it changes anything.** It copies each account's `statement.transactions`, `detection` and `metrics`. `apply_nsf_basis_to_payload` copies shallowly, and the stored job must never be touched;
 - removes unticked groups from `metrics.flagged_groups` and `detection.flagged_positions`, their credited fields included;
 - sets `flag_shown: bool` on each copied row's classification, a flagged credit row included;
-- adds `analysis_rules_outdated: true` when the stored records carry `classification_version < "5.0"`;
+- adds `analysis_rules_outdated: true` when a stored record carries no `classification_version`, or one older than the running `CLASSIFICATION_VERSION`, compared as numbers (major, then minor); a version it cannot read marks nothing;
 - never refuses. Payloads without the new fields pass through unchanged.
 
 `_package_members` reads the whole settings snapshot once per package, as it already does for NSF, and passes it to `_displayed` and to `_package_analysis`.

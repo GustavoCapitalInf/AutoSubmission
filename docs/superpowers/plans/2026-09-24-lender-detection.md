@@ -230,9 +230,10 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - It deep-copies every account's `statement.transactions`, `detection` and `metrics` before changing them.
   - On each account, it drops unticked groups from `metrics.flagged_groups` and `detection.flagged_positions`.
   - It sets `classification["flag_shown"] = bool(flagged_group and enabled[group.setting])` on every copied row.
-  - At the TOP level of the returned payload, it sets `analysis_rules_outdated: bool`: True when any row's classification record carries no `classification_version` (absent or null), or one whose major version is below 5.
+  - At the TOP level of the returned payload, it sets `analysis_rules_outdated: bool`: True when any row's classification record carries no `classification_version` (absent or null), or a readable one older than the running `CLASSIFICATION_VERSION`. The two compare as numeric `(major, minor)` pairs, and the running version is read from `analysis.transaction_classifier` at each call. The same or a newer version is not outdated.
     - A record without the field predates versioning, so older lender rules classified it (D12). The orchestrator decided this on 2026-09-26, delegated by the owner: the sentence used to say "is present", which left stored analyses of version-less revenue records without the notice and the Re-analyze button.
-    - A version that is present but cannot be read marks nothing. Only ASCII digits before the first dot are read.
+    - Any older version, not only a major version below 5. The orchestrator decided this on 2026-09-26, delegated by the owner: the sentence used to say "whose major version is below 5", which would have left a 5.0 analysis without the notice and the Re-analyze button once the D6 clarification (5.1) runs. A re-analysis clears it.
+    - A version that is present but cannot be read marks nothing. Only `<major>` or `<major>.<minor>` in ASCII digits is read, around outer whitespace; an integer reads as `<major>.0`.
     - A payload with no classification record is False.
   - It never raises. A non-dict payload is returned unchanged.
 - `webapp/app.py`:

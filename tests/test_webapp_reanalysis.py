@@ -969,11 +969,12 @@ def test_a_review_waits_for_a_reanalysis_of_the_same_statement(pipeline, private
 PREMIUM_FINANCE_PAYEE = "FABRICATED PFC"
 
 
-def _saved_under_old_rules(payload):
-    """A payload as a statement analysed before the 5.0 rules left it: every record stamped with the old version."""
+def _saved_under_old_rules(payload, version="4.1"):
+    """A payload as a statement analysed under older rules left it: every record stamped with the old version, by
+    default one from before the 5.0 rules."""
     for account in payload["accounts"] if "accounts" in payload else [payload]:
         for transaction in account["statement"]["transactions"]:
-            transaction["classification"]["classification_version"] = "4.1"
+            transaction["classification"]["classification_version"] = version
     return payload
 
 
@@ -1066,10 +1067,11 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     assert body["analysis"]["analysis_rules_outdated"] is False
 
 
-def test_the_outdated_rules_flag_clears_after_a_reanalysis(pipeline, private_store):
+@pytest.mark.parametrize("version", ["4.1", "5.0"], ids=["before the flag groups", "before the D6 clarification"])
+def test_the_outdated_rules_flag_clears_after_a_reanalysis(pipeline, private_store, version):
     from webapp.app import app
 
-    job_id = pipeline.upload(_saved_under_old_rules(_payload()))
+    job_id = pipeline.upload(_saved_under_old_rules(_payload(), version))
     assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is True
     pipeline.new_rules(_payload())
     body = _reanalyze(job_id).get_json()
