@@ -492,3 +492,23 @@ def test_a_processors_small_account_charge_is_not_a_d6_payee(description, amount
 )
 def test_a_processor_rail_above_the_cap_or_naming_financing_stays_in_review(description, amount):
     assert _states(description, amount) == D6
+
+
+# --- A12: insurers cut short by the ACH field ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("cut", ["INSU", "INSUR", "INSURA", "INSURAN", "INSURANC"])
+def test_an_insurer_cut_short_is_not_a_d6_payee(cut):
+    assert _states(f"FABNEXT {cut} (AP I DES:FABNEXT {cut} ID:0001 INDN:FAB HOLDER CO ID:0002 WEB") == OTHER
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "FABRIKAM LLC DES:PAYMENT ID:0077 INDN:ZORVEX BROS INSURAN CO ID:0009 CCD",   # the holder is the agency
+        "ACH DEBIT FABRICATED INSURED CAPITAL",
+        "ACH DEBIT FABRIKAM SERVICES ID:INSU-0001 CCD",
+        "FAB PENINSULA INSULATION CO",
+    ],
+)
+def test_a_cut_insurance_word_outside_the_payee_words_never_skips(description):
+    assert _states(description) == D6

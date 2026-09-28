@@ -2504,6 +2504,10 @@ _PROCESSOR_DEBIT_FINANCING_GUARD = re.compile(
     r"|\bSQ ?CAP|\bSQ ?LOAN|\bLENDING\b"
 )
 _PROCESSOR_ACCOUNT_CHARGE_MAX = 50
+#: 5.3 (2026-09-27): an insurer whose name the ACH field cut short (INSU, INSUR, INSURA, INSURAN, INSURANC: the
+#: 16-character company name or the 10-character entry description). Read on the D11 payee words only: the holder's
+#: name (INDN, IND NAME, or unlabeled) never decides. INSURED, INSURER and the bare INS stay out.
+_TRUNCATED_INSURANCE_WORD_PATTERN = re.compile(r"\bINSU(?:R|RA|RAN|RANC)?\b")
 
 
 def _is_processor_account_charge(record: TransactionClassification) -> bool:
@@ -2553,6 +2557,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "platform_payout_to_person"
     if _is_processor_account_charge(record):
         return "processor_account_charge"
+    if _skips(" ".join(payee), (_TRUNCATED_INSURANCE_WORD_PATTERN,), text):
+        return "truncated_insurer"
     return None
 
 
