@@ -431,3 +431,37 @@ def test_owner_pay_and_a_platform_payout_to_a_person_are_not_d6_payees(descripti
 )
 def test_owner_pay_words_and_payouts_never_hide_a_financing_or_organisation_payee(description):
     assert _states(description) == D6
+
+
+# --- A10: the $25 floor for unnamed payees ------------------------------------------------------------------------------
+
+def test_a_fixed_debit_under_25_dollars_to_an_unnamed_payee_is_not_promoted():
+    assert _states("ACH DEBIT PAT EXAMPLE", -24.0) == OTHER
+
+
+def test_an_unnamed_group_under_the_floor_leaves_the_recurring_debit_view():
+    from analysis.detect import find_recurring_debits
+
+    statement = Statement(transactions=[txn(f"2054-01-{day:02d}", "ACH DEBIT PAT EXAMPLE", -24.0) for day in WEEKLY])
+    assert find_recurring_debits(statement) == []
+
+
+def test_the_floor_is_strict():
+    assert _states("ACH DEBIT PAT EXAMPLE", -25.0) == D6
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "FABRICATED CAPITAL DES:ACH PMT ID:0001 CCD",                                 # a named payee
+        "< Business to Business ACH Debit - Fabricated Recovery L Fab Co Inc",       # a collector's words
+    ],
+)
+def test_a_named_or_financing_payee_promotes_at_any_amount(description):
+    assert _states(description, -20.0) == D6
+
+
+def test_the_floor_never_reaches_the_keyword_recurrence():
+    assert _states("ACH DEBIT FABRICATED FUNDING LLC", -20.0) == {
+        ("potential_lender", "recurring_financing_counterparty")
+    }

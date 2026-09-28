@@ -2484,6 +2484,13 @@ def _is_platform_payout_to_person(text: str) -> bool:
     ) and not _names_financing(" ".join(recipient))
 
 
+#: 5.3 (2026-09-27): D6 does not take a same-amount group under this amount whose payee names no organisation (it
+#: would publish as 'Unidentified lender obligation') and whose row names no financing. Strict: a 25-dollar debit
+#: promotes. A named payee promotes at any amount. A whole number: analysis/ carries no exact-cent literal
+#: (tests/test_no_statement_hardcodes.py).
+_D6_MIN_FIXED_DEBIT = 25
+
+
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
     """Why D6 (spec D6 and its clarifications) does not take this default debit, or None when it may.
 
@@ -2640,12 +2647,18 @@ def classify_statement_transactions(
 
     # D6: an unknown payee (a row no rule claimed) with fixed daily or weekly
     # debits joins the review tier. Nothing is counted without a named lender.
-    for (payee, _, _), indexes in fixed_debit_groups.items():
+    for (payee, amount, _), indexes in fixed_debit_groups.items():
+        entity = _unknown_payee_name(payee) or UNIDENTIFIED_LENDER_OBLIGATION
+        if (
+            entity == UNIDENTIFIED_LENDER_OBLIGATION
+            and amount < _D6_MIN_FIXED_DEBIT
+            and not _names_financing(records[indexes[0]].normalized_description)
+        ):
+            continue
         promotion = _promotion_cadence(records, indexes, min_recurring_count)
         if promotion is None:
             continue
         cadence, average_gap = promotion
-        entity = _unknown_payee_name(payee) or UNIDENTIFIED_LENDER_OBLIGATION
         for index in indexes:
             records[index] = replace(
                 records[index],
