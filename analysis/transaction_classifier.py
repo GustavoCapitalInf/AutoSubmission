@@ -2214,6 +2214,61 @@ def _masked_recipient(record: TransactionClassification) -> str | None:
     return match.group(1) if match else None
 
 
+#: 5.3 (2026-09-27): bank channel vocabulary. A D6 group whose payee words are all channel words names no payee:
+#: a card, cash, cheque or bill-pay posting printed without its merchant or recipient. OTHER, BANK and the bare
+#: withdrawal abbreviations (WD, WDL, WDRL) are left out on purpose: 'Other Debit', 'Bank Debit' and 'Preauthorized
+#: Wd' rows stay in review, because the 2026-09-27 hunt could not tell what they pay.
+_CHANNEL_VOCABULARY = frozenset({
+    # card postings
+    "CARD", "CARDS", "CRD", "DBT", "DBCRD", "PIN", "PURCH", "PURCHASE", "PUR", "POS", "DDA", "VISA", "MASTERCARD",
+    "MC", "TRANSACTION", "SPEND", "RETAIL", "ACHAT", "AUTHORIZED", "AUTHORISED", "ON", "ENDING",
+    # cash
+    "ATM", "ABM", "CASH", "TELLER", "COUNTER", "BRANCH", "STORE", "MADE", "IN", "NETWORK", "WITHDRWL", "RETRAIT",
+    # cheques and items
+    "CHK", "CK", "CHQ", "DRAFT", "SHARE", "ITEM",
+    # bill pay, push and banking channels
+    "BILL", "BILLS", "BILLPAY", "RECURRING", "RECUR", "AUTOPAY", "MISCELLANEOUS", "INTERNET", "MOBILE", "PHONE",
+    "TELEPHONE", "SENT", "PMNT", "VIREMENT", "ENVOYE", "PAID",
+})
+
+
+def _names_only_channel_words(payee: Sequence[str], text: str) -> bool:
+    """5.3: the D6 payee words are all channel words and the payee region of the normalized row `text` prints no
+    organisation cue. D11's key stops at the first reference token once a name has started, so a format that prints
+    a reference before the merchant keys as its template ('RECURRING PAYMENT AUTHORIZED ON 01 02 FAB HOLDINGS LLC
+    CARD 4321' keys as RECURRING AUTHORIZED ON): the cue keeps such a row in review, as the card veto does (A1)."""
+    return (
+        bool(payee)
+        and all(token in _CHANNEL_VOCABULARY for token in payee)
+        and not any(token in _ORGANISATION_CUES for token in _payee_region(text).split())
+    )
+
+
+def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
+    """Why D6 (spec D6 and its clarifications) does not take this default debit, or None when it may.
+
+    `payee` is the row's D11 payee words (`_unknown_payee_tokens`). Every clause added in 5.3 reads the payee's
+    words (never a receiver field) and carries the shared financing veto (`_names_financing`)."""
+    text = record.normalized_description
+    if _matches_any(text, _TRANSFER_WORD_PATTERNS):
+        return "transfer_word"
+    if _matches_any(text, _COMPENSATION_WORD_PATTERNS):
+        return "compensation"
+    if _is_card_purchase_posting(record):
+        return "card_purchase_posting"
+    if _names_only_channel_words(payee, text) and not _names_financing(text):
+        return "channel_words_only"
+    return None
+
+
+def _keyword_recurrence_skip(record: TransactionClassification) -> str | None:
+    """Why the financing-keyword recurrence (recurring_financing_counterparty) does not take this row, or None.
+
+    Its rows carry a financing word by definition (LOAN, ADVANCE, FINANCE, FUNDING…), so these clauses carry no
+    financing veto; each names a payee that is never a lender (A7, A8)."""
+    return None
+
+
 def _promotion_cadence(
     records: list[TransactionClassification],
     indexes: list[int],
@@ -2287,13 +2342,9 @@ def classify_statement_transactions(
             continue
         key = (payee, round(abs(record.amount), 2))
         if record.match_method == "financing_keyword_review" and record.canonical_entity:
-            keyword_groups.setdefault(key, []).append(index)
-        elif (
-            record.match_method == "default"
-            and not _matches_any(record.normalized_description, _TRANSFER_WORD_PATTERNS)
-            and not _matches_any(record.normalized_description, _COMPENSATION_WORD_PATTERNS)
-            and not _is_card_purchase_posting(record)
-        ):
+            if _keyword_recurrence_skip(record) is None:
+                keyword_groups.setdefault(key, []).append(index)
+        elif record.match_method == "default" and _d6_skip(record, payee) is None:
             fixed_debit_groups.setdefault((*key, _masked_recipient(record)), []).append(index)
 
     for indexes in keyword_groups.values():
