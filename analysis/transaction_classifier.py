@@ -1010,12 +1010,24 @@ _ENTITY_NAME_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIGINATOR NAME|COMPANY NAM
 #: name is never built from ID, INDN, IND NAME, CO ID, TRACE or similar fields.
 _ACH_FIELD_SEGMENT = re.compile(
     r"\b(?:DES|DESC|DESCR|ORIG ID|CO ID|IND ID|IND NAME|INDN|IND|ID|TRACE|SEC|EED|TRN|"
-    r"CONF|REF|MEMO|CUST|TYPE)\b"
+    # 5.3 (2026-09-27): Truist's receiver field label and Huntington's instruction field.
+    r"CONF|REF|MEMO|CUST|TYPE|CUSTOMER ID|INSTR)\b"
 )
 _MASKED_TOKEN = re.compile(r"X{2,}[A-Z0-9]*")
 _MAX_ENTITY_TOKENS = 4
 #: 5.3: connectors that never end a name (a name cut by the four-word cap: 'BOKF NATIONAL BANK OF').
 _TRAILING_CONNECTORS = frozenset({"OF", "AND", "THE", "DE", "DU", "DES"})
+#: 5.3 (2026-09-27): bank template words printed before the payee: removed before the payee words start, so two
+#: recipients paid through one template are never one payee (D11) and a template is never a name. Read at the start
+#: of the normalized row. 'ACH CORP DEBIT' is Truist's; its name then passes _truist_name_is_published.
+_PAYEE_TEMPLATE_PREFIX = re.compile(
+    r"^(?:(?:PMNT|PAYMENT) SENT|CORPORATE ACH|DOMESTIC ASSIST WIRE|HIP CREDIT SENT(?: TO)?|RETAIL PURCHASE"
+    r"|DBCRD PUR AP(?: AUT)?(?: [0-9]+)?(?: VISA DDA PUR(?: AP)?)?|ACH CORP (?:DEBIT|CREDIT))\b"
+)
+_TRUIST_CORP_PREFIX = re.compile(r"^ACH CORP (?:DEBIT|CREDIT)\b")
+#: 5.3: Truist prints no padding, so a short originator lets the receiver's words into the 16-character company
+#: field. A Truist name is published only when a whole legal-form word lies inside those 16 characters.
+_TRUIST_COMPANY_FIELD = 16
 #: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
 _RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
@@ -1097,9 +1109,9 @@ def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     started, so a person's name printed after the references never joins it.
 
     5.3 (2026-09-27): a name ends at its first legal-form word after the first word; a leading AND and a trailing
-    connector are dropped.
+    connector are dropped. A bank template prefix is removed first.
     """
-    text = _payee_region(text)
+    text = _payee_region(_PAYEE_TEMPLATE_PREFIX.sub(" ", text, count=1))
     tokens: list[str] = []
     for token in text.split():
         if token in _ENTITY_NOISE or len(token) == 1:
@@ -1140,8 +1152,34 @@ def _unknown_payee_name(tokens: Sequence[str]) -> str | None:
     return " ".join(token if token in _ENTITY_ACRONYMS else token.title() for token in tokens)
 
 
+def _truist_name_is_published(text: str) -> bool:
+    """5.3 (2026-09-27): on a Truist 'ACH CORP DEBIT' row, whether a whole legal-form word lies inside the first 16
+    characters of the payee words, the width of the company-name field. True for every other row."""
+    if not _TRUIST_CORP_PREFIX.match(text):
+        return True
+    words: list[str] = []
+    for token in _payee_region(_PAYEE_TEMPLATE_PREFIX.sub(" ", text, count=1)).split():
+        if not words and (token in _ENTITY_NOISE or len(token) == 1 or _is_reference_token(token)):
+            continue
+        words.append(token)
+    printed = " ".join(words)
+    field = printed[:_TRUIST_COMPANY_FIELD].split()
+    if len(printed) > _TRUIST_COMPANY_FIELD and printed[_TRUIST_COMPANY_FIELD] != " ":
+        field = field[:-1]  # the field's edge cut the last word
+    return any(word in _LEGAL_FORM_SUFFIXES for word in field)
+
+
+def _unknown_entity_for_text(text: str, tokens: Sequence[str]) -> str | None:
+    """D11: the published name of the payee words `tokens` read from the normalized row `text` (5.3: a Truist name
+    only through its company field)."""
+    name = _unknown_payee_name(tokens)
+    if name not in (None, UNIDENTIFIED_LENDER_OBLIGATION) and not _truist_name_is_published(text):
+        return UNIDENTIFIED_LENDER_OBLIGATION
+    return name
+
+
 def _canonical_unknown_entity(text: str) -> str | None:
-    return _unknown_payee_name(_unknown_payee_tokens(text))
+    return _unknown_entity_for_text(text, _unknown_payee_tokens(text))
 
 
 def _build_record(
@@ -2911,7 +2949,9 @@ def classify_statement_transactions(
     # D6: an unknown payee (a row no rule claimed) with fixed daily or weekly
     # debits joins the review tier. Nothing is counted without a named lender.
     for (payee, amount, _), indexes in fixed_debit_groups.items():
-        entity = _unknown_payee_name(payee) or UNIDENTIFIED_LENDER_OBLIGATION
+        entity = _unknown_entity_for_text(records[indexes[0]].normalized_description, payee) or (
+            UNIDENTIFIED_LENDER_OBLIGATION
+        )
         if (
             entity == UNIDENTIFIED_LENDER_OBLIGATION
             and amount < _D6_MIN_FIXED_DEBIT

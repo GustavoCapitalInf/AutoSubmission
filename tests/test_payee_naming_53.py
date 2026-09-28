@@ -50,3 +50,45 @@ def test_the_cue_rules_and_the_legal_form_cut(printed, name):
 
 def test_paid_is_a_channel_word_not_part_of_the_payee():
     assert _unknown_payee_tokens(normalize("PAID TO - FAB CAPITAL GROUP 0001")) == ("FAB", "CAPITAL", "GROUP")
+
+
+# --- C6: bank template prefixes and Truist's company field ----------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("printed", "payee"),
+    [
+        ("PMNT SENT 0105 FAB RECIPIENT ONE", ("FAB", "RECIPIENT", "ONE")),
+        ("Payment Sent 01/05 Fab Funding LLC Card 1234", ("FAB", "FUNDING", "LLC")),
+        ("Corporate ACH Payment Fab Capital LLC", ("FAB", "CAPITAL", "LLC")),
+        ("HIP Credit SENT to Fab Advance LLC", ("FAB", "ADVANCE", "LLC")),
+        ("DOMESTIC ASSIST WIRE FAB HOLDINGS LLC", ("FAB", "HOLDINGS", "LLC")),
+        ("DBCRD PUR AP, AUT 010554 VISA DDA PUR AP 123456 FAB MART MIAMI FL", ("FAB", "MART", "MIAMI", "FL")),
+    ],
+)
+def test_a_bank_template_prefix_never_names_the_payee(printed, payee):
+    assert _unknown_payee_tokens(normalize(printed)) == payee
+
+
+def test_two_recipients_of_one_template_are_two_payees():
+    # FUNDING keeps both off the p2p rail (A2's veto), so only the payee key decides.
+    statement = Statement(bank="Fabricated Bank", transactions=[
+        *(txn(day, "PMNT SENT 0105 FAB FUNDING ONE", -300.0) for day in WEEKLY[:2]),
+        *(txn(day, "PMNT SENT 0105 FAB FUNDING TWO", -300.0) for day in WEEKLY[2:]),
+    ])
+    records = classify_statement_transactions(statement)
+    assert {record.classification for record in records} == {"other"}
+
+
+@pytest.mark.parametrize(
+    ("printed", "name"),
+    [
+        ("ACH CORP DEBIT SQ540512 SQUARE INC FAB YOGA STUDIO LL CUSTOMER ID 0001", "Square Inc"),
+        ("ACH CORP DEBIT KAPIFAB LLC FAB HOLDER CUSTOMER ID 0001", "Kapifab LLC"),
+        # a short originator lets the receiver's words into the 16-character field: no name is published
+        ("ACH CORP DEBIT DEBIT FABPAY CAPITAL GROWTH LLC CUSTOMER ID 0001", UNIDENTIFIED),
+        ("ACH CORP DEBIT 0012345678 FAB BUSINESS FABCO WIDGETS LLC CUSTOMER ID 0001", UNIDENTIFIED),
+        ("ACH CORP DEBIT LOAN PMT FABRIKAM EXPRESS FAB HOLDER CUSTOMER ID 0001", UNIDENTIFIED),
+    ],
+)
+def test_a_truist_name_is_published_only_through_its_company_field(printed, name):
+    assert _name(printed) == name
