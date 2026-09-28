@@ -2450,6 +2450,14 @@ _GOVERNMENT_FINANCE_DEPARTMENT_PATTERNS = (
     re.compile(r"\bFINANCE DEPT\b"),
 )
 _RETAILER_ADVANCE_PATTERNS = (re.compile(r"\bADVANCE (?:AUTO PARTS|STORES)\b"),)
+#: 5.3 (2026-09-27): a court-ordered family-support payment through a state conduit is not an MCA remittance. Read
+#: before the receiver fields (a holder named '... Child Support Svcs' never silences its funder). GARNISH, LEVY,
+#: LEGAL ORDER, bare SDU and CSE stay out: an MCA judgment creditor collects through a law office or a marshal.
+_FAMILY_SUPPORT_WORD_PATTERNS = (
+    re.compile(r"\bCHI?LD ?SUPP(?:ORT|T)?\b"),
+    re.compile(r"\bFAM(?:ILY)? SUPP(?:ORT)? (?:REG(?:ISTRY)?|PAYMENT CENTER|PMT CTR|PAYMENT CTR)\b"),
+    re.compile(r"\bSTATE DISBURSEMENT UNIT\b"),
+)
 
 
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
@@ -2482,6 +2490,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         _payee_region(text), _GOVERNMENT_PAYEE_PATTERNS, text
     ):
         return "government_payee"
+    if _skips(_row_before_receiver(text), _FAMILY_SUPPORT_WORD_PATTERNS, text):
+        return "family_support"
     return None
 
 
@@ -2495,6 +2505,8 @@ def _keyword_recurrence_skip(record: TransactionClassification) -> str | None:
         return "government_finance_department"
     if _matches_any(region, _RETAILER_ADVANCE_PATTERNS):
         return "retailer_named_advance"
+    if _matches_any(region, _FAMILY_SUPPORT_WORD_PATTERNS):
+        return "family_support"
     return None
 
 

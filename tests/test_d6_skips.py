@@ -370,3 +370,35 @@ def test_government_finance_departments_and_a_named_retailer_are_no_keyword_recu
 
 def test_a_financing_keyword_payee_still_recurs():
     assert _states("ACH DEBIT FABRICATED FUNDING LLC") == {("potential_lender", "recurring_financing_counterparty")}
+
+
+# --- A8: family support ------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "FS CHILD SUPPORT DES:PAYMENT ID:0001",
+        "CO FAM SUPP REG 1234",
+        "FB SDU DES:CHILD SUPP ID:0001 INDN:FABRIKAM CORP CO ID:0002 CCD",
+        "Orig CO Name:Fab SDU Orig ID:0001 Desc Date: CO Entry Descr:Chld Supp Sec:CCD",
+        "STATE DISBURSEMENT UNIT ACH DEBIT",
+    ],
+)
+def test_family_support_payments_are_not_d6_payees(description):
+    assert _states(description) == OTHER
+
+
+def test_family_support_words_in_a_financing_row_stop_the_keyword_recurrence():
+    assert _states("ACH DEBIT CHILD SUPPORT ADVANCE 0000") == {("other", "financing_keyword_review")}
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "FABRICATED RIVER CAPITAL DES:PAYMENT ID:0001 INDN:CHILD SUPPORT SVCS LLC CO ID:0002 CCD",  # the holder
+        "ACH DEBIT FAMILY SUPPORT CAPITAL LLC",
+        "ACH DEBIT CHILDS CAPITAL LLC",
+    ],
+)
+def test_a_family_support_word_never_hides_a_funder(description):
+    assert _states(description) == D6
