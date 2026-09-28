@@ -7670,7 +7670,7 @@
     "https://data.ny.gov/resource/n9v6-gdp6.json",
     "https://goatadvance.com/"
    ],
-   "notes": "Coverage gap for the orchestrator: the ACH debits print GOAT ADVANCE followed directly by digits, which the token-boundary matcher does not reach, so GOAT ADVANCE catches the funding credits and any spaced debit only; the recurrence rule (D6) is what reaches those debits today. No safe alias covers them: bare GOAT also prints on a sneaker marketplace and a barber shop."
+   "notes": "The ACH debits print GOAT ADVANCE followed directly by digits (entry descriptions ACHDEBIT and RETRY_ACH). Since classification 5.3 (owner ruling 2026-09-27) the known-payee matcher also reads a multi-word alias whose last word, of three letters or more, has digits glued to it, which reaches these debits with this alias and no new one. A spaced ACH debit or credit printing GOAT ADVANCE is still read by the alias as before. Correction 2026-09-27: the only spaced printings in the corpus are Zelle credits from GOAT ADVANCE LLC and a Zelle 'Loan pay off' debit to it, which the transfer rule claims before the known-payee step. No other safe alias covers the rows: bare GOAT also prints on a sneaker marketplace and a barber shop."
   },
   {
    "entity": "Goldman Financial",
@@ -33071,7 +33071,7 @@
     "https://www.preqin.com/data/profile/fund-manager/bell-rock-capital/246581",
     "https://bellrockcap.com/"
    ],
-   "notes": "Mortgage servicers are flagged under Mortgages (owner's rulings 2026-09-24). Bell Rock Income Fund 1 LLC, a real-estate debt fund run with Bell Rock Finance LLC / Bell Rock Capital (Mesa AZ), a private hard-money lender to real-estate investors (fix-and-flip and construction loans; r4 upheld). The rows are monthly payment, collection and interest debits on such a loan, so it is filed with mortgages. The alias is the cut fund name the rows print; Bell Rock Finance disclaims any link to an unrelated Bell Rock Capital, LLC of Delaware."
+   "notes": "Mortgage servicers are flagged under Mortgages (owner's rulings 2026-09-24). Bell Rock Income Fund 1 LLC, a real-estate debt fund run with Bell Rock Finance LLC / Bell Rock Capital (Mesa AZ), a private hard-money lender to real-estate investors (fix-and-flip and construction loans; r4 upheld). The rows are monthly payment, collection and interest debits on such a loan, so it is filed with mortgages. The alias is the cut fund name the rows print; Bell Rock Finance disclaims any link to an unrelated Bell Rock Capital, LLC of Delaware. Matcher note 2026-09-27: 57 of the fund's monthly rows print one digit glued to FD, the two-letter last word of the cut name BELL ROCK IN FD, and 15 more print a different cut (BELL ROCK INCOME FUN...). The 5.3 glued-digit reading needs a last word of three letters or more, so this alias still reaches none of these rows; the owner decides whether to widen the rule or add the second cut as an alias."
   },
   {
    "entity": "BSI Financial Services",

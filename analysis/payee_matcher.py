@@ -20,6 +20,10 @@ from .description_text import normalize_transaction_description
 #: A spaced alias also matches its run-together form when that form has at least this many characters.
 RUN_TOGETHER_MIN_LENGTH = 8
 _TOKEN = re.compile(r"[A-Z0-9]+")
+#: 5.3 (owner ruling 2026-09-27): a description token of letters with digits glued on (ADVANCE1234). Its letters
+#: may stand for the LAST word of a multi-word alias whose last word is at least three letters, in the
+#: known-payee index only.
+_GLUED_DIGITS = re.compile(r"([A-Z]{3,})[0-9]+")
 
 
 @dataclass(frozen=True)
@@ -39,15 +43,19 @@ class _Entry:
 class AliasIndex:
     """Aliases normalized and compiled ONCE. match() returns the longest normalized alias found on token
     boundaries (?<![A-Z0-9])alias(?![A-Z0-9]); ties go to the earlier registry, then the earlier alias.
-    A spaced alias whose run-together form has >= 8 characters also matches that form."""
+    A spaced alias whose run-together form has >= 8 characters also matches that form. With glued_digits, the
+    last word of a multi-word alias whose last word has three letters or more also matches that word with digits
+    glued on (5.3)."""
 
     def __init__(
         self,
         registries: Mapping[str, Mapping[str, Sequence[str]]],
         *,
         run_together: bool = True,
+        glued_digits: bool = False,
     ) -> None:
         table: dict[tuple[str, ...], _Entry] = {}
+        glued: dict[tuple[str, ...], _Entry] = {}
         joined: list[tuple[tuple[str, ...], _Entry]] = []
         rank = 0
         for state, registry in registries.items():
@@ -60,12 +68,15 @@ class AliasIndex:
                     entry = _Entry(len(normalized), rank, PayeeMatch(entity, state, alias))
                     rank += 1
                     table.setdefault(tokens, entry)
+                    if glued_digits and len(tokens) > 1 and tokens[-1].isalpha() and len(tokens[-1]) >= 3:
+                        glued.setdefault(tokens, entry)
                     form = "".join(tokens)
                     if run_together and len(tokens) > 1 and len(form) >= RUN_TOGETHER_MIN_LENGTH:
                         joined.append(((form,), _Entry(len(form), entry.rank, entry.match)))
         for tokens, entry in joined:
             table.setdefault(tokens, entry)
         self._table = table
+        self._glued = glued
         self._longest = max((len(tokens) for tokens in table), default=0)
 
     def match(self, normalized_text: str) -> PayeeMatch | None:
@@ -80,6 +91,10 @@ class AliasIndex:
                     break
                 tokens.append(runs[position][0])
                 entry = self._table.get(tuple(tokens))
+                if entry is None and self._glued and position > start:
+                    split = _GLUED_DIGITS.fullmatch(tokens[-1])
+                    if split is not None:
+                        entry = self._glued.get((*tokens[:-1], split.group(1)))
                 if entry is not None and (
                     best is None
                     or entry.length > best.length
@@ -89,7 +104,7 @@ class AliasIndex:
         return None if best is None else best.match
 
 
-_DEFAULT_INDEX = AliasIndex(PAYEE_GROUP_REGISTRIES)
+_DEFAULT_INDEX = AliasIndex(PAYEE_GROUP_REGISTRIES, glued_digits=True)
 _REGISTRY_INDEXES: dict[int, tuple[Mapping[str, Sequence[str]], AliasIndex]] = {}
 _REGISTRY_INDEX_LIMIT = 64
 
