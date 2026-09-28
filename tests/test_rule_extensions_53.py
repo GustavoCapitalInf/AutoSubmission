@@ -48,3 +48,27 @@ def test_a_returned_funder_debit_credit_keeps_its_financing_proceeds_revenue(fak
     assert record.classification == "nsf_or_return"
     assert record.revenue_match_method == "financing_proceeds_credit"
     assert record.contributes_to_lender_credit_exclusion
+
+
+# --- B2: cheque spellings ---------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    ["CHQ 123", "CHQ#123", "SHARE DRAFT (12345)", "Draft Withdrawal Draft # 1234", "CHK 1234", "IMAGE CHK 1234", "CK #1234"],
+)
+def test_canadian_and_credit_union_cheque_spellings_are_cheques(description):
+    record = classify_transaction(description, -500.0)
+    assert (record.classification, record.matched_rule, record.is_check) == ("other", "check", True)
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["PRE-AUTHORIZED PAYMENT BUS CHQ FAB CAPITAL", "ACH DEBIT FAB CAPITAL SHARE DRAFT",
+     "Draft Withdrawal ACH FAB CAPITAL LLC", "PAID TO - FAB CAPITAL CHK 1234567"],
+)
+def test_a_cheque_word_that_is_not_the_instrument_never_claims_the_row(description):
+    assert classify_transaction(description, -500.0).matched_rule != "check"
+
+
+def test_a_known_payee_after_the_cheque_number_is_still_named(fake_payees):
+    assert classify_transaction("CHQ 417 FABRICATED LENDER", -500.0).classification == "confirmed_lender"

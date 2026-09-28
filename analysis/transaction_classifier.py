@@ -493,6 +493,14 @@ _EQUIPMENT_FINANCING_PATTERNS = (re.compile(r"\bEQUIPMENT (?:FINANCING|FINANCE)\
 _CHECK_PATTERNS = (
     re.compile(r"\bCHECKS?\b"),
     re.compile(r"\bCHEQUES?\b"),
+    # 5.3 (2026-09-27): the Canadian, credit-union and short cheque spellings, anchored at the start and with the
+    # instrument's number, so a label ('BUS CHQ', '... SHARE DRAFT', Navy Federal's 'Paid To - <payee> Chk nnn')
+    # never makes a row a cheque. Bare DRAFT is lender collection wording (AUTO DRAFT, WEB DRAFT).
+    re.compile(r"^CHQ ?[0-9]"),
+    re.compile(r"^SHARE DRAFTS? ?[0-9]"),
+    re.compile(r"^DRAFT WITHDRAWAL DRAFT ?[0-9]"),
+    re.compile(r"^(?:IMAGE |PAID )?CHK ?[0-9]"),
+    re.compile(r"^CK ?[0-9]"),
 )
 _SUBSCRIPTION_PATTERNS = (
     re.compile(r"\bSUBSCRIPTION\b"),
