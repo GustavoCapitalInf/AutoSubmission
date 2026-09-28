@@ -427,6 +427,8 @@ def test_owner_pay_and_a_platform_payout_to_a_person_are_not_d6_payees(descripti
         PAYONEER.format("Payoneer Inc"),                  # the platform collecting for itself
         "Orig CO Name:Payoneer Inc Orig ID:0001 Payoneer ID: 0001",  # no recipient printed
         "BILL PAY TO PAYONEER INC",                       # a payment to Payoneer
+        # a person recipient, but the row names financing outside the recipient: the shared veto reads the whole row
+        PAYONEER.format("Pat Example").replace("Descr:Payment", "Descr:Daily Rtr"),
     ],
 )
 def test_owner_pay_words_and_payouts_never_hide_a_financing_or_organisation_payee(description):
@@ -488,6 +490,7 @@ def test_a_processors_small_account_charge_is_not_a_d6_payee(description, amount
         ("ACH CORP DEBIT SQ540512 SQUARE INC CUSTOMER ID 0001", -1250.0),
         ("SQUARE INC DES:SQ540512 ID:SQCAP1201", -30.0),                 # Square's glued loan code
         ("SQUARE INC DES:SQ540512 LENDING", -30.0),
+        ("INTUIT PYMT SOLN DES:DAILY RTR ID:0001", -30.0),              # the shared veto, beyond the processor guard
     ],
 )
 def test_a_processor_rail_above_the_cap_or_naming_financing_stays_in_review(description, amount):

@@ -2742,6 +2742,9 @@ _PLATFORM_PAYOUT_PATTERN = re.compile(r"\bPAYONEER\b.*\bPAY TO\b(?P<recipient>.*
 
 
 def _is_platform_payout_to_person(text: str) -> bool:
+    """5.3: the shared veto reads the whole row `text`, the recipient included. The skip's own words (PAYONEER, PAY
+    TO, PAYMENT DATE, TRN) carry no financing root, so nothing is removed first: the pattern's spans are never
+    hidden from the veto."""
     found = _PLATFORM_PAYOUT_PATTERN.search(text)
     if found is None:
         return False
@@ -2749,7 +2752,7 @@ def _is_platform_payout_to_person(text: str) -> bool:
                  if len(token) > 1 and not _is_reference_token(token)]
     return bool(recipient) and not any(
         token in _ORGANISATION_CUES or token == "PAYONEER" for token in recipient
-    ) and not _names_financing(" ".join(recipient))
+    ) and not _names_financing(text)
 
 
 #: 5.3 (2026-09-27): D6 does not take a same-amount group under this amount whose payee names no organisation (it
@@ -2800,11 +2803,14 @@ _TELECOM_CARRIER_PATTERNS = (
 
 
 def _is_processor_account_charge(record: TransactionClassification) -> bool:
+    """5.3: besides its own loan and capital guard, the skip reads the shared veto on the whole row. The skip's own
+    words (SQUARE, SQ and the entry date, INTUIT PYMT SOLN) carry no financing root, so nothing is removed first."""
     text = record.normalized_description
     return (
         abs(record.amount) <= _PROCESSOR_ACCOUNT_CHARGE_MAX
         and _matches_any(text, _PROCESSOR_ACCOUNT_DEBIT_PATTERNS)
         and _PROCESSOR_DEBIT_FINANCING_GUARD.search(text) is None
+        and not _names_financing(text)
     )
 
 
