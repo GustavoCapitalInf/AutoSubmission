@@ -94,9 +94,11 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: 5.0 (2026-09-24): the lender-detection rules. 5.1 (2026-09-26): the D6
 #: clarification (three different dates; no card-purchase posting). 5.2
 #: (2026-09-27): D6 skips compensation memos, and a masked recipient account
-#: printed after TO is part of the payee. Moves with
-#: `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.2"
+#: printed after TO is part of the payee. 5.3 (2026-09-27): the
+#: false-potential-lender release: D6 skips, rule extensions, the routing of
+#: unconfirmed flag payees, the D11 naming fixes, the tab's payee labels and the
+#: Debt relief group. Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
+CLASSIFICATION_VERSION = "5.3"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
