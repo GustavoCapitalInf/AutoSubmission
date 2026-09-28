@@ -22702,18 +22702,56 @@
   },
   {
    "entity": "IDEA FINANCIAL",
-   "group": "line_of_credit",
-   "business_type": "business_loc_provider",
+   "group": "confirmed_lender",
+   "business_type": "online_business_term_lender",
    "aliases": [
     "IDEA FINANCIAL",
-    "IDEAFINANCIAL"
+    "IDEAFINANCIAL",
+    "IDEALOAN",
+    "IDEA 247 INC"
    ],
    "status": "admitted",
    "short_alias_reason": null,
    "evidence": [
     {
      "source": "https://www.ideafinancial.com/",
-     "note": "Two products: Business Line of Credit ('Replenish available credit with every payment') and Business Term Loan (fixed rates and terms); no MCA."
+     "note": "Re-fetched 2026-09-28: two products, Business Line of Credit and Business Term Loan (fixed rates and terms); footer: Idea Financial is a registered trademark of Idea 247 Inc.; limits up to $350,000; no MCA."
+    },
+    {
+     "source": "https://www.ideafinancial.com/faqs",
+     "note": "Fetched 2026-09-28: payments are processed automatically on a weekly, bi-weekly or monthly basis; repayment periods of 6 to 18 months."
+    },
+    {
+     "source": "https://www.ideafinancial.com/term-loan",
+     "note": "Fetched 2026-09-28: business term loans with a fixed rate and repayment term of 6 to 18 months."
+    },
+    {
+     "source": "https://www.ideafinancial.com/line-of-credit",
+     "note": "Fetched 2026-09-28: revolving line up to $350K that replenishes after every payment, repayment terms up to 36 months."
+    },
+    {
+     "source": "https://www.ideafinancial.com/terms-of-service",
+     "note": "Fetched 2026-09-28: the operator is Idea 247, Inc., a Florida corporation."
+    },
+    {
+     "source": "https://www.atg.wa.gov/idea-247-inc-dba-idea-financial",
+     "note": "Fetched 2026-09-28: Washington Attorney General data-breach notice (2023) filed under 'Idea 247 Inc. (d/b/a Idea Financial)', a state record of the legal name."
+    },
+    {
+     "source": "https://www.manatt.com/insights/news/2019/idea-financial-secures-70m-in-capital-from-cross",
+     "note": "Fetched 2026-09-28: Idea 247, Inc. (d/b/a Idea Financial), a Miami marketplace lender, closed a $70M warehouse loan facility with Cross River Bank (2019)."
+    },
+    {
+     "source": "https://debanked.com/2019/08/outside-the-box-idea-financials-unusual-path-to-alternative-finance/",
+     "note": "Fetched 2026-09-28 (verify round): founded in March 2017; made its first loan in January 2018; lines of credit to small-business owners."
+    },
+    {
+     "source": "https://debanked.com/2024/10/idea-financial-secures-50-million-warehouse-facility-to-expand-small-business-lending/",
+     "note": "Fetched 2026-09-28: $50M warehouse facility (2024); Miami; a non-bank provider of small-business lines of credit; maximum raised to $350K."
+    },
+    {
+     "source": "https://www.unitedcapitalsource.com/business-loans/lender-reviews/idea-financial-review/",
+     "note": "Fetched 2026-09-28: line of credit with a 2.5% draw fee and daily interest; term loans priced by factor rate; repaid in fixed weekly or monthly payments; terms 6 to 18 months; 50% of remaining interest forgiven on early payoff."
     }
    ],
    "verdicts": [
@@ -22721,14 +22759,31 @@
      "round": "r1",
      "verdict": "upheld",
      "confirmed": true
+    },
+    {
+     "round": "owner",
+     "verdict": "upheld",
+     "confirmed": true
     }
    ],
    "where_looked": [
     "https://www.ideafinancial.com/",
     "https://www.nerdwallet.com/article/small-business/idea-financial-review",
-    "https://www.idealfinancial.com/"
+    "https://www.idealfinancial.com/",
+    "https://www.ideafinancial.com/faqs",
+    "https://www.ideafinancial.com/term-loan",
+    "https://www.ideafinancial.com/line-of-credit",
+    "https://www.ideafinancial.com/terms-of-service",
+    "https://www.atg.wa.gov/idea-247-inc-dba-idea-financial",
+    "https://www.manatt.com/insights/news/2019/idea-financial-secures-70m-in-capital-from-cross",
+    "https://debanked.com/2024/10/idea-financial-secures-50-million-warehouse-facility-to-expand-small-business-lending/",
+    "https://debanked.com/2019/08/outside-the-box-idea-financials-unusual-path-to-alternative-finance/",
+    "https://www.prnewswire.com/news-releases/idea-financial-surpasses-1-billion-in-business-funding-reinforcing-its-role-as-a-leading-force-in-smb-lending-innovation-302500182.html",
+    "https://www.unitedcapitalsource.com/business-loans/lender-reviews/idea-financial-review/",
+    "https://www.bbb.org/us/fl/miami/profile/financial-services/idea-financial-0633-90412249",
+    "https://debanked.com/2025/04/virginias-sales-based-financing-provider-list/"
    ],
-   "notes": "Move: owner ruling 2026-09-24 (spec section 2) makes fintech business lines of credit a line of credit, and Idea Financial's flagship product is its Business Line of Credit. Today's two aliases are kept. It also sells business term loans, which the owner's 2026-09-25 amendment counts as lenders; the corpus has no Idea Financial row, so the owner may keep it a lender instead. Decision 2026-09-25 (owner delegated to the orchestrator): stays as filed, a line of credit."
+   "notes": "Owner ruling 2026-09-28: Idea Financial is a counted lender, an online business term lender. This reverses the decision of 2026-09-25 (owner delegated to the orchestrator) that kept it filed as a line of credit because its flagship product is a revolving Business Line of Credit. Idea 247, Inc. (d/b/a Idea Financial; Miami FL, a Florida corporation, founded in 2017 and lending since January 2018) is a direct small-business lender. It sells a revolving line of credit and fixed-rate term loans of 6 to 18 months, and its own FAQ says payments are processed automatically weekly, bi-weekly or monthly. A row whose own words say LOC or LINE OF CREDIT still goes to Lines of credit (D9). Its credits are financing proceeds (D1), as before. IDEA 247 INC, its legal name as the ACH originator, and IDEALOAN, its ACH entry description, are added: the tryout host's Wells Fargo weekly debits print the two together with an L-numbered loan reference (the dump masks the originator's digits, so 247 is presumed there; IDEALOAN reaches those rows either way). No cached corpus row prints IDEA as a word, and neither alias matches another registry alias or any corpus row. Residual, for the owner: the matcher reads the whole row, so an account holder named '... Idea Financial ...' in another originator's receiver field is read as Idea Financial (no corpus row prints it); and IDEALOAN is one word, so the glued-digit reading (multi-word aliases only) does not reach IDEALOAN printed with digits glued to it, a form added when one is seen. Bare IDEA is never an alias: it is an English word that would read receivers and other companies' names. Today's two aliases are kept."
   },
   {
    "entity": "KABBAGE",
