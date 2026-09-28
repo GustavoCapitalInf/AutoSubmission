@@ -14,6 +14,11 @@ different dates, and D6 never takes a card-purchase posting.
 Version 5.2 (2026-09-27) clarifies D6 again: D6 never takes a row whose words
 name compensation, and a masked recipient account printed after `TO` is part
 of the payee.
+Version 5.3 (2026-09-27) is the false-potential-lender release: more D6 skips,
+fee, NSF, cheque, card, payroll, mortgage and POS wording, admitted payees
+printed in the bank's field order, unconfirmed flag payees routed to their flag,
+D11 naming fixes, one Potential Lenders line per unnamed payee key, and the
+Debt relief group.
 
 ## States and precedence
 
@@ -21,15 +26,16 @@ Every row has exactly one state:
 
 `confirmed_lender`, `potential_lender`, `insurance`, `alternative_position`,
 `line_of_credit`, `vehicle_financing`, `bank_loan`, `mortgage`,
-`lease_or_rental`, `personal_loan`, `floor_plan_financing`, `factoring`, `fee`,
-`transfer`, `credit_card_payment`, `payroll`, `tax`, `utility`, `rent`, `pos`,
-`atm`, `nsf_or_return`, `refund_or_reversal`, or `other`.
+`lease_or_rental`, `personal_loan`, `floor_plan_financing`, `factoring`,
+`debt_relief`, `fee`, `transfer`, `credit_card_payment`, `payroll`, `tax`,
+`utility`, `rent`, `pos`, `atm`, `nsf_or_return`, `refund_or_reversal`, or
+`other`.
 
 `lease_or_equipment_financing` is retired: no rule produces it since version
 5.0, but records stored before 5.0 carry it and still validate.
 
 Only MCA and revenue-based funders and equipment financing are
-`confirmed_lender`. Eleven groups are flagged instead. Their debits never enter
+`confirmed_lender`. Twelve groups are flagged instead. Their debits never enter
 lender counts, lender totals, withholding or potential exposure:
 
 | State | `flagged_group` | Label |
@@ -45,6 +51,7 @@ lender counts, lender totals, withholding or potential exposure:
 | `floor_plan_financing` | `floor_plan` | Floor plan |
 | `factoring` | `factoring` | Factoring |
 | `insurance` (premium-finance payees only) | `premium_financing` | Premium financing |
+| `debt_relief` | `debt_relief` | Debt relief |
 
 Premium financing is the one group that is not a state. Its rows stay
 `insurance` and keep their insurance totals. The insurance rule sets
@@ -52,16 +59,19 @@ Premium financing is the one group that is not a state. Its rows stay
 premium-finance payee (`PREMIUM_FINANCE_ALIASES`).
 
 A flagged group's credits are another matter. A credit from a financing group
-(every flagged group except credit cards, leases & rentals, premium financing
-and factoring) is financing proceeds, and D1 subtracts it from eligible deposits
-as it does a lender's credit (see "Withholding rate"). Three kinds of credit
-are not subtracted: a payout-credit entity's credits (`PAYOUT_CREDIT_ENTITIES`),
-which are the holder's own sales; a premium-finance payee's credits, which keep
-the insurance credit treatment; and a factoring payee's credits (owner ruling
-2026-09-26), which are the business's own sales, paid by the factor that bought
-its invoices. A factoring credit takes the operating-revenue path, as a payout
-credit does, and it is also flagged: its state is `factoring`, its entity is
-the payee, and it counts in the Factoring group as a credit.
+(every flagged group except credit cards, leases & rentals, premium financing,
+factoring and debt relief) is financing proceeds, and D1 subtracts it from
+eligible deposits as it does a lender's credit (see "Withholding rate"). Three
+kinds of credit are not subtracted: a payout-credit entity's credits
+(`PAYOUT_CREDIT_ENTITIES`), which are the holder's own sales; a premium-finance
+payee's credits, which keep the insurance credit treatment; and a factoring
+payee's credits (owner ruling 2026-09-26), which are the business's own sales,
+paid by the factor that bought its invoices. A factoring credit takes the
+operating-revenue path, as a payout credit does, and it is also flagged: its
+state is `factoring`, its entity is the payee, and it counts in the Factoring
+group as a credit. Debt-relief payees (5.3) never apply to credits: their
+credits are the debtor's own escrow refunds, and they follow the rules any
+other credit follows.
 
 The group list lives in `analysis/flag_groups.py`. A flagged row carries
 `flagged_group`; a posted flagged debit, and a posted factoring credit, also
@@ -98,7 +108,11 @@ revenue contribution flags.
 
 Classification is applied in this order; the first match wins:
 
-1. Non-posted items, NSF and returned items, refunds and reversals.
+1. Non-posted items, NSF and returned items, refunds and reversals. Since 5.3,
+   a returned item includes the banks' abbreviated and French wording
+   (`RTN STOP PAY` / `RETURNED STOP PAY`, a stop-payment return of the
+   business's own debit, and `EFFETS RETOURNES`), and a
+   `DEPOSITED ITEM RETURNED` is a reversal, as `RETURNED DEPOSIT` is.
 2. Insurance, by registry or by term. Premium-finance payees are looked up
    first; they stay insurance and a debit also carries the premium-financing
    flag. On the owner's ruling a premium-finance alias may repeat a hand-kept
@@ -109,11 +123,28 @@ Classification is applied in this order; the first match wins:
    `Insurance provider not identified`. A premium-finance payee's credit is
    treated as any insurer's credit.
 3. POS and ATM. A row whose payee is a known payee is classified by who was paid
-   instead (D8). An alternative-position payee's membership or balance top-up
-   (its alias followed by `PLUS`, `MEMBER`, `MEMBERSHIP` or `BALANCE TOP UP`) is
-   not a repayment and matches no known payee.
+   instead (D8); since 5.3 a debt-relief payee (step 5) counts as one. An
+   alternative-position payee's membership or balance top-up (its alias followed
+   by `PLUS`, `MEMBER`, `MEMBERSHIP` or `BALANCE TOP UP`) is not a repayment and
+   matches no known payee. The POS labels include, since 5.3, `RETAIL PURCHASE`,
+   `MOBILE PURCHASE` and `PIN PURCHASE`, and the French card forms `C/ACHAT`,
+   `ACHAT AU DETAIL`, `ACHAT INTERAC`, `ACHAT PAR CARTE` and `ACHAT EN LIGNE`
+   (never a bare `ACHAT`: 'ACHAT DE CREANCES' is a factor's wording).
 4. Fees (an overdraft charge included, even when it prints the item's payee),
-   transfers, tax, payroll and utilities.
+   transfers, tax, payroll and utilities. Since 5.3:
+   - fee wording printed without FEE: the `SVC` / `SERV` charge abbreviations,
+     overdraft, handling, batch, item and wire charges (`CHG`, `CHRG`), RBC's
+     `INTERAC SC`, the ATM withdrawal service charge, and the French `FRAIS`
+     when no French loan or line-of-credit word is beside it. A bare `CHARGE`
+     or `CHG` is never a fee word;
+   - payroll includes `PAYROLL` glued to an entry-description suffix
+     (`PAYROLLTAX`, `PAYROLLDD`…), the payroll providers the corpus prints
+     (Patriot Software, DataPay, Paycor, OnPay, PayWorks, Paycom, Paylocity),
+     benefit administrators and retirement-plan recordkeepers (HealthEquity,
+     WageWorks, TASC, Ascensus, Human Interest, Guideline) and the French
+     `PAIE` and `SALAIRE`. Provider, administrator and French words are read on
+     the originator segment only, so a holder named like one of them never
+     hides its lender, and none of them applies to a row that names financing.
 5. The known-payee matcher (`analysis.payee_matcher.match_known_payee`) over the
    group registries. A debit takes the payee's group. A descriptor that says LOC
    or LINE OF CREDIT moves a lender, alternative-position or line-of-credit payee
@@ -135,30 +166,60 @@ Classification is applied in this order; the first match wins:
    statement bank's line advance (exactly `LOAN CREDIT`), a line-of-credit draw
    and a per-vehicle floor-plan advance (`ADVANCE`, a model year, `VIN`).
    Card-issuer and lease/rental payees never apply to credits.
+   Since 5.3:
+   - on a debit, an admitted payee that the bank prints in separate fields is
+     read from those fields when no alias matched (`FIELD_ORDER_PAYEE_FORMS`:
+     Chase's 'ORIG CO NAME … CO ENTRY DESCR', Truist's entry description
+     first). Amex loans become an alternative position and Amex card payments
+     a card payment this way, with match method `known_payee_field_order` and
+     rule `<state>_field_order`; LOC wording still wins (D9);
+   - the known-payee index reads digits glued to the last word of a multi-word
+     alias (see "Normalization and registries");
+   - on a debit, a debt-relief payee is `debt_relief`. It is read only after no
+     known payee matched, and on the row without its receiver fields, so the
+     account holder's own name never makes a row debt relief.
 6. Obligation descriptors, debits only, for rows no known payee claimed. A
    transfer between the holder's own accounts (`TRANSFER TO ... TRANSFER OUT`)
    takes none of them. In order:
    - a per-vehicle floor-plan payoff;
    - LOC or line of credit;
-   - mortgage or home-equity loan;
+   - mortgage or home-equity loan, and since 5.3 the abbreviations `MTG PYMT`
+     and `MTGE PAYMENT`;
    - auto or vehicle loan, lease or payment;
    - student loan (a personal loan);
    - a listed bank with loan wording (`LOAN` or French `PRET`);
-   - the statement bank's own loan, D5: a transfer to it, its own loan-payment
-     wording, its commercial-loan billing, its French loan wording, or a loan
-     payment that prints no payee (entity the statement bank). Another bank's
-     unnamed loan is a bank loan with no entity;
+   - the statement bank's own loan, D5: a transfer to it (since 5.3, to its
+     `LOANS` too), its own loan-payment wording, its own `LOAN INTEREST` with no
+     payee printed (5.3), its commercial-loan billing, its French loan wording,
+     or a loan payment that prints no payee (entity the statement bank).
+     Another bank's unnamed loan is a bank loan with no entity;
    - lease, rental or lease-to-own;
    - credit-card payments, including a listed card issuer with payment wording
-     and a payment to a card account named only by its type;
+     and a payment to a card account named only by its type. Since 5.3 the
+     wording includes `CREDITCARD` and Navy Federal's `CREDIT CARD RECUR`;
    - unnamed equipment financing, which is a `potential_lender` for review (D4).
 7. Rent. Landlord and office rent are never flagged (D3).
-8. Checks and subscriptions (`other`).
+8. Checks and subscriptions (`other`). Since 5.3 the cheque spellings include
+   the Canadian, credit-union and short forms, anchored at the start and with
+   the instrument's number: `CHQ`, `SHARE DRAFT`, `DRAFT WITHDRAWAL DRAFT`,
+   `CHK` (and `IMAGE CHK`, `PAID CHK`) and `CK`. A label never makes a row a
+   cheque, and a bare `DRAFT` is lender collection wording.
 9. Bank-specific lender rules, then the potential tier: the potential registry,
    unknown loan servicers and debt collectors (D10, `MCA SERVICING` included),
    direct-debit loans, explicit repayments (a loan payment that prints a lender,
    a servicer, a person or another bank stays potential, D5), and financing
-   words with a payment marker (`other`, review).
+   words with a payment marker (`other`, review). Since 5.3:
+   - a debit whose potential alias belongs to a review entity of a routed flag
+     group (`REVIEW_FLAG_ENTITIES`: vehicle financing, mortgages, leases and
+     rentals, personal loans, debt relief) takes that flag, marked unconfirmed
+     (`review_required`, match method `unconfirmed_flag_payee_alias`). Its
+     credits keep the potential registry's exclusion;
+   - a loan from the business's own shareholder, owner or director
+     (`SHAREHOLDER LOAN`, `OWNER LOAN`, `DIRECTOR LOAN`, `DUE TO SHAREHOLDER`)
+     names no lender: on a debit whose descriptor names no organisation, the
+     row is `other`;
+   - an `MCA SERVICING` payee carries the fixed name 'MCA servicer (funder not
+     identified)' (D10): the words print for two unrelated funders.
 
 Statement passes run in this order: duplicates; recurrence; reversal pairs;
 operating-source context; duplicate finalisation. Recurrence promotes to
@@ -167,9 +228,10 @@ least three different dates on a daily or weekly cadence (several rows on one
 date count as one): financing-keyword rows of one payee
 (`recurring_financing_counterparty`), and rows no rule claimed (`other`, match
 method `default`) whose descriptor names a payee and carries no transfer wording
-(`recurring_fixed_debit`, D6). D6 never takes a row whose words name
-compensation: a commission (with its misspellings, such as `COMMISION`), a
-bonus, a salary, a stipend or a reimbursement; the row stays `other`. D6 never
+(nor, since 5.3, a transfer template; see below) (`recurring_fixed_debit`, D6).
+D6 never takes a row whose words name compensation: a commission (with its
+misspellings, such as `COMMISION`), a bonus, a salary, a stipend or a
+reimbursement; the row stays `other`. D6 never
 takes a card-purchase posting, including
 the card formats the POS rule does not read: a posting that starts `PURCHASE`
 and its mmdd (after an optional `RECURRING`), and a descriptor with a
@@ -179,24 +241,130 @@ is read only on a row with no ACH field mark (`ACH`, `CCD`, `PPD`, `CTX`, `WEB`,
 `DES:`, `INDN`, `CO ID`, `ID:`, `ORIG CO`, `RMR`), because an ACH entry prints
 stars too: in its addenda (`RMR*IV*`), a masked account or an ID. The word
 `PURCHASE` alone is not a card mark, since an ACH entry description can print
-it. Recurrence never makes a counted lender: nothing is counted without a named
+it.
+
+Since 5.3, D6 also never takes the rows below; they stay `other`. Every 5.3
+skip reads the payee's words, never a receiver field, and none fires on a row
+that names financing. The shared veto reads prefix-tolerant roots, so
+KOVOCREDIT, CAPITA and FUNDIN veto too, and so do SETTLE, CRED before IT, ORA,
+IBLY or a word end, and ACCEPT.
+
+- A payee whose words are all bank channel words (`BILL`, `RECURRING`,
+  `AUTOPAY`, `ATM`, `TELLER`, `CHK`…) names no payee, unless the payee region
+  prints an organisation cue. `OTHER`, `BANK`, `WD`, `WDL` and `WDRL` are left
+  out, so 'Other Debit', 'Bank Debit' and 'Preauthorized Wd' rows stay in
+  review.
+- Card postings in the bank formats the POS rule does not read are skipped:
+  labels such as `DBT CRD`, `PIN DEBIT`, `CARD TRANSACTION`, `PURCH` and
+  `DDA PUR`, Square's 'Card spend' and Wells Fargo's '… authorized on mm/dd …
+  Card nnnn'; Wealthsimple's bare-merchant card rows; and the 'NAME, CITY, ST'
+  location suffix of Bluevine and Lead Bank (Found) rows. This skip never
+  fires on a row that names a bank, an investment firm or an organisation.
+- Person-to-person, wallet and card-push rails are skipped (`VIREMENT`,
+  `ZEL TO`, `PAYMENT SENT` with its mmdd, Apple Cash, Wise, `IAT PAYPAL`,
+  Greenlight). The transfer rule itself is not widened, because it runs before
+  the known payee.
+- Transfer templates are skipped for a payee that names no organisation:
+  `XFR`, `TRF`, `TRSFR`, `TRNSFR`, `TRANSFER` with digits glued on,
+  'TO <account type> <number>', a bare online withdrawal, Atlas's Smart Save
+  sweep, and RTP and FedNow payments.
+- The holder's cash withdrawals in the formats the ATM rule does not read, the
+  offset of an ACH batch sent from the holder's own bank portal, and tuition,
+  school and childcare billing are skipped.
+- A closed list of savings and investing apps is skipped: Stash, Alinea,
+  Fidelity's MoneyLine, Albert, Acorns, Robinhood, Coinbase, Betterment and
+  Wealthfront.
+- Vendors and other named non-lenders are skipped, with the vocabulary the
+  spec's D6 lists verbatim: bookkeepers, distributors, manufacturers,
+  invoices, uniform, linen and food suppliers, ad platforms, landscaping and
+  pest control, royalties and franchise funds, church giving, tolls, betting
+  and lotteries, and a Bill.com or Melio payment with an invoice number. The
+  words are read on the payee words, never beside a lending word or the
+  holder's own name. `DISTRIBUT…` also clears recurring owner distributions.
+- Tax authorities and government agencies printed without TAX, IRS or CRA are
+  skipped for a payee that names no organisation, read on the payee region
+  only.
+- Court-ordered family-support payments are skipped (`CHILD SUPPORT`, a
+  family-support registry, a `STATE DISBURSEMENT UNIT`).
+- Owner money is skipped: a draw or distribution to an owner, member, partner
+  or shareholder, a dividend, a per diem, a guaranteed payment. So is a
+  payments platform's payout to a named person.
+- A same-amount group under $25 whose payee names no organisation is not
+  promoted. The comparison is strict, so a $25.00 group promotes, and a named
+  payee promotes at any amount.
+- A processor's own charge of $50 or less is skipped, through Square's
+  seller-account code or Intuit Payment Solutions, never with loan or capital
+  wording.
+- An insurer cut short by the ACH field (`INSU`, `INSUR`, `INSURA`, `INSURAN`,
+  `INSURANC`) is skipped, read on the payee words only.
+- Phone and cable carriers are skipped, matched at the start of the payee's
+  leading words.
+- A listed card issuer printed alone is skipped: a `card_issuer_context` alias
+  whose words lead the payee's words.
+
+The financing-keyword recurrence never promotes a government finance
+department (`DEPARTMENT OF FINANCE`, `FINANCE DEPT` and the like), a retailer
+named ADVANCE (`ADVANCE AUTO PARTS`, `ADVANCE STORES`) or a family-support
+payment. Their single rows stay `other` / `financing_keyword_review`.
+
+Recurrence never makes a counted lender: nothing is counted without a named
 lender. The recurring-debit view
 (`detection.recurring_debits`, the CLI's "Recurring fixed debits") lists both
-kinds, grouped by entity and amount.
+kinds, grouped by entity and amount. The groups D6 no longer promotes (the 5.3
+skips and the $25 floor) leave it too, and leave `batch.py`'s
+`recurring_debit_groups`.
 
 An unknown payee is named from its descriptor (D11). Originator-name labels are
 removed; the text is cut at the first ACH field segment (DES, ID, INDN, IND
 NAME, CO ID, TRACE, SEC, EED, TYPE and similar); channel words and reference
 tokens (digits, masked numbers, months) are dropped; and at most four words are
-kept. Without an organisation cue (LLC, INC, CORP, CO, FUNDING, CAPITAL,
-FINANCIAL, FINANCE, BANK, CREDIT, LENDING, ADVANCE, GROUP, HOLDINGS, SERVICES or
-a legal-form suffix) the entity is `Unidentified lender obligation`, so a
+kept. Without an organisation cue (LLC, INC, CORP, FUNDING, CAPITAL, FINANCIAL,
+FINANCE, BANK, CREDIT, LENDING, ADVANCE, GROUP, HOLDINGS, SERVICES or a
+legal-form suffix) the entity is `Unidentified lender obligation`, so a
 person's name is never published as a lender. Payees are grouped for recurrence
 by these words, so one payee keeps one name across dated descriptors and two
 unnamed payees are never merged. D6 also groups by the digits of a masked
 recipient account printed after `TO` (`To ....1234`, `TO XXXX1234`, `TO ***1234`,
 `TO #1234`), so payments to two recipient accounts are never one payee. The
 name never takes those digits.
+
+Since 5.3 the naming follows these rules too:
+
+- a legal form (`LLC`, `INC`, `CORP`, `CORPORATION`, `COMPANY`,
+  `INCORPORATED`, `LTD`, `LIMITED`, `LP`, `LLP`, `PLLC`) counts as a cue only
+  after the name's first word;
+- a name made only of cue words names no organisation, and neither does `CO`,
+  which is no longer a cue (it is also Colorado's state code in
+  'NAME, CITY, CO');
+- the name ends at its first legal form after the first word;
+- trailing connectors (`OF`, `AND`, `THE`, `DE`, `DU`, `DES`), `PAID` and a
+  leading `AND` are dropped;
+- bank template prefixes printed before the payee are removed (`PMNT SENT`,
+  `PAYMENT SENT`, `CORPORATE ACH`, `DOMESTIC ASSIST WIRE`, `HIP CREDIT SENT`,
+  `RETAIL PURCHASE`, the `DBCRD PUR AP` card forms and Truist's
+  `ACH CORP DEBIT` / `ACH CORP CREDIT`), so two recipients paid through one
+  template are never one payee;
+- a Truist `ACH CORP DEBIT` name is published only when a whole legal-form
+  word lies inside its 16-character company field;
+- a wire is named by its beneficiary (after `BNF`, or after the account label
+  of Chase's 'Wire Transfer Via: <bank> A/C: <beneficiary>'), and the name ends
+  at its first organisation cue after its first word;
+- Truist's `CUSTOMER ID`, Huntington's `INSTR` and the wire fields `SRF`,
+  `RFB` and `IMAD` are field segments;
+- a card network's 'NAME, CITY, ST' line (with no ACH field mark) is named by
+  the printed name before the first comma alone;
+- an `MCA SERVICING` payee carries the fixed name 'MCA servicer (funder not
+  identified)' (D10).
+
+The Potential Lenders tab lists each unnamed payee key on its own line (5.3).
+An unnamed potential payee's rows (entity 'Unidentified lender obligation' or
+'MCA servicer (funder not identified)') carry `potential_payee_label`, shared
+by the rows of one payee key (entity, rule, D6 payee words, amount and masked
+recipient). The label names the entity, a recurrence's cadence and the amount,
+never a payee word: 'Unidentified lender obligation (weekly, 450.00)', with
+' #2' for a second key with the same label. The tab, the metric, the package
+and the tab's click filter read the label; `canonical_entity` and each ledger
+row's tag do not change.
 
 A higher-precedence non-lender match overrides generic words such as `finance`,
 `capital`, `funding`, and `payment`. Unverified credible financing counterparties
@@ -218,6 +386,39 @@ are maintained separately and have precedence over lender rules. Operating reven
 types are maintained in `OPERATING_REVENUE_SOURCE_ALIASES` and
 `OPERATING_REVENUE_SOURCE_TYPES`.
 
+Since 5.3 (2026-09-27):
+
+- **Glued digits.** The known-payee index also reads the last word of a
+  multi-word alias with digits glued on, when that word has at least three
+  letters (`GOAT ADVANCE` matches `GOAT ADVANCE1234`). No other table reads
+  glued digits, and an alias whose last word has one or two letters stays
+  strict.
+- **The debt-relief index.** `DEBT_RELIEF_ALIASES` is a table of its own, not a
+  group registry, read through its own index (`match_debt_relief_payee`) only
+  after no known payee matched, on debits, on the row without its receiver
+  fields. It reads run-together forms (`FORTHPAY`, `RAMPAYMENTS`) as the
+  known-payee index does. It is never a longest-alias peer of the known-payee
+  groups, because a debt-relief firm in the holder's own name would outrank the
+  funder.
+- **`FIELD_ORDER_PAYEE_FORMS`**, hand-kept on the owner's ruling: the printed
+  forms, in the bank's field order, of admitted payees whose bank prints the
+  originator and the entry description apart (Chase's 'ORIG CO NAME … CO ENTRY
+  DESCR', Truist's entry description first). Today it holds American Express
+  Loans and the American Express card payment. They are read as regular
+  expressions on the normalized row, on debits only, when no alias matched.
+  The ledger validator refuses an entity that is not admitted in a known-payee
+  group, and a form that does not compile.
+- **`REVIEW_FLAG_ENTITIES`**, rendered from the ledger: each review entity of
+  the vehicle, mortgage, lease, personal-loan or debt-relief group whose
+  business type is known, mapped to its group. Its debits take that flag,
+  marked unconfirmed, and its credits keep the potential registry's exclusion,
+  because its aliases stay in `POTENTIAL_LENDER_ALIASES`.
+- The D6 vocabularies of non-lender brands (savings apps, vendors, government
+  agencies, payroll providers, telecom carriers) live in the classifier, as
+  `_PAYROLL_PATTERNS` and `_TRANSFER_PATTERNS` already do. A name joins only
+  after a collision check against every registry table and ledger alias prints
+  no hit.
+
 The record stores the source description, normalized description, canonical
 entity, date, amount/direction, bank/account, source location, match method,
 matched alias/rule, confidence, human-readable reason, review status, duplicate
@@ -227,8 +428,9 @@ status, flagged group, and every metric contribution flag.
 
 - `lenders_detected`: distinct canonical entities with qualifying posted
   `confirmed_lender` debit rows.
-- `potential_lenders_detected`: distinct canonical entities with qualifying
-  posted `potential_lender` debit rows.
+- `potential_lenders_detected`: distinct Potential Lenders lines with
+  qualifying posted `potential_lender` debit rows (5.3): a named payee's
+  canonical entity, or an unnamed payee's `potential_payee_label`.
 - `potential_lender_debit_count` and `potential_lender_debit_total`: qualifying
   posted potential-lender debit rows and their absolute sum. These rows remain
   excluded from confirmed lender totals and confirmed withholding.
@@ -246,7 +448,9 @@ status, flagged group, and every metric contribution flag.
 - `detection.flagged_positions`: one entry per flagged group and payee (`group`,
   `payee`, `matched_alias`, `count`, `total_debited`, `count_credited`,
   `total_credited`, `cadence`, `avg_gap_days`, `first_date`, `last_date`,
-  `source_locations`), in flag-group order, then by total debited plus total
+  `source_locations`, and since 5.3 `review_required`, true when any counted
+  row of the payee requires review, as a routed unconfirmed payee's rows do),
+  in flag-group order, then by total debited plus total
   credited, then by payee. `count` and `total_debited` are debits only; a payee
   whose counted rows are all credits has an entry with a `count` of 0. The
   payee is the canonical entity, or the group label when the descriptor names
@@ -360,8 +564,9 @@ never in hand-edited tables. Add or change an entity there: its group
 `python -m tools.build_lender_registry --check` to validate the ledger and
 `python -m tools.build_lender_registry --write` to render the GENERATED block
 of `analysis/classification_registry.py` (`LENDER_ALIASES`, each group's table,
-`CARD_ISSUER_CONTEXT_ALIASES`, `PREMIUM_FINANCE_ALIASES`, `BANK_NAME_ALIASES`
-and `POTENTIAL_LENDER_ALIASES`) and `docs/lender-registry-evidence.md`, and
+`CARD_ISSUER_CONTEXT_ALIASES`, `PREMIUM_FINANCE_ALIASES`, `BANK_NAME_ALIASES`,
+`POTENTIAL_LENDER_ALIASES` and, since 5.3, `DEBT_RELIEF_ALIASES` and
+`REVIEW_FLAG_ENTITIES`) and `docs/lender-registry-evidence.md`, and
 commit the three files together. Never edit the GENERATED block by hand:
 `tests/test_lender_registry_drift.py` fails when the committed tables are not
 the rendering of the committed ledger.
@@ -370,12 +575,12 @@ The constants after the GENERATED block are hand-kept.
 `PAYEE_GROUP_REGISTRIES` wires the rendered tables to the known-payee matcher.
 `PAYOUT_CREDIT_ENTITIES` (financing-group payees whose credits are the holder's
 own sales), `OWNER_NAMED_PAYEES`, `BARE_PLATFORM_NAMES`, `BARE_BRAND_NAMES`,
-`PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES` and
-`REATTRIBUTED_REGISTRY_ALIASES` are inputs of the ledger validator and change
-only on an owner ruling. Insurance aliases (`INSURANCE_PROVIDER_ALIASES`) and
-operating-revenue aliases and source types (`OPERATING_REVENUE_SOURCE_ALIASES`,
-`OPERATING_REVENUE_SOURCE_TYPES`) are not in the ledger and are edited in that
-module directly.
+`PREMIUM_FINANCE_INSURER_ALIASES`, `MERGED_REGISTRY_ENTITIES`,
+`REATTRIBUTED_REGISTRY_ALIASES` and, since 5.3, `FIELD_ORDER_PAYEE_FORMS` are
+inputs of the ledger validator and change only on an owner ruling. Insurance
+aliases (`INSURANCE_PROVIDER_ALIASES`) and operating-revenue aliases and source
+types (`OPERATING_REVENUE_SOURCE_ALIASES`, `OPERATING_REVENUE_SOURCE_TYPES`) are
+not in the ledger and are edited in that module directly.
 
 An alias names the financing business, never a bare platform or a brand that
 also sells goods; the validator refuses both. The one place a bare brand or
