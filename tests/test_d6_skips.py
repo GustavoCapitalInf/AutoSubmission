@@ -328,6 +328,12 @@ def test_vendors_and_named_non_lenders_are_not_d6_payees(description, account_na
         ("KAPIFAB ACHPMT FAB UNIFORMS LLC", None),
         ("KAPIFAB PAY PAYMENT TO FAB LANDSCAPING LLC", None),         # Bluevine
         ("FAB FOODSERVICE VENDOR PAY", None),
+        # a financing root run together with a vendor stem is no vendor word
+        ("FAB DISTRIBUTIONCAPITAL LLC DES:PAYMENT ID:0001 CCD", None),
+        ("FAB DISTRIBUTIONCAPITAL LLC", "FABRIKAM TRADING LLC"),     # a run of words, the holder known
+        ("FAB BOOKKEEPINGFUNDING 0001", None),
+        ("FAB DISTRIBUTORSCREDIT DES:PAYMENT ID:0001 CCD", None),
+        ("FAB LANDSCAPINGLEASE 0001", None),
     ],
 )
 def test_a_vendor_word_never_hides_a_financing_payee_or_reads_the_holder(description, account_name):

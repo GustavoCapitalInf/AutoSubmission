@@ -2667,16 +2667,30 @@ def _payee_words_are_bounded(text: str) -> bool:
     return False
 
 
+def _vendor_match_names_financing(matched: str) -> bool:
+    """5.3: whether a vendor match carries a financing root. A vendor stem's trailing letters would swallow a root run
+    together with it ('FAB DISTRIBUTIONCAPITAL LLC', 'BOOKKEEPINGFUNDING', 'FAB DISTRIBUTORSCREDIT'), and the lending
+    guard reads the row without the matched words, so such a match is no vendor. The whole word FUND of the ad-fund
+    phrases (AD FUND, MARKETING FUND, ADVERTISING FUND) is their own vocabulary, not a glued root."""
+    return any(word != "FUND" and _FINANCING_ROOT_PATTERN.search(word) for word in matched.split())
+
+
 def _is_vendor_payee(payee: Sequence[str], text: str, account_name: str | None) -> bool:
     """5.3: the D11 payee words (or, on a bounded row, the originator segment, which then never reads a receiver
     field) name a vendor or another payee that never lends, the row prints no lending word (outside the matched vendor
-    words), and those words carry none of the account holder's own name words. On a row that is one run of words the
-    segment is never read, and when the holder's name is unknown the vendor word must be the payee's first word."""
+    words, which carry none themselves), and those words carry none of the account holder's own name words. On a row
+    that is one run of words the segment is never read, and when the holder's name is unknown the vendor word must be
+    the payee's first word."""
     words = " ".join(payee)
     bounded = _payee_words_are_bounded(text)
     segment = _originator_segment(text) if bounded else ""
     found = next(
-        (match for source in (words, segment) for pattern in _VENDOR_PAYEE_PATTERNS if (match := pattern.search(source))),
+        (
+            match
+            for source in (words, segment)
+            for pattern in _VENDOR_PAYEE_PATTERNS
+            if (match := pattern.search(source)) and not _vendor_match_names_financing(match.group(0))
+        ),
         None,
     )
     if found is None and _BILL_PAY_PLATFORM_PATTERN.search(words) and _INVOICE_NUMBER_PATTERN.search(text):
