@@ -566,6 +566,17 @@ _PAYMENT_MARKER_PATTERNS = (
     re.compile(r"\bDIRECT DEB(?:IT)?\b"),
     re.compile(r"\bBUSINESS PAD\b"),
 )
+#: 5.3 (2026-09-27): PAYROLL glued to an ACH entry-description suffix (a closed list, so a receiver name that only
+#: contains PAYROLL is not read), payroll providers seen in the corpus, benefit administrators and retirement-plan
+#: recordkeepers, and the French pay words. Provider, administrator and French words are read on the originator
+#: segment only (_originator_segment): a holder named like one of them in INDN or IND NAME never hides its lender.
+#: No new pattern fires on a row that names financing. 401(k) is left out (it prints in holder names).
+_PAYROLL_GLUED_PATTERN = re.compile(r"\bPAYROLL(?:TAX(?:ES)?|TX|TS|DDS?|DEP|FEES?)\b")
+_PAYROLL_PROVIDER_PATTERNS = (
+    re.compile(r"\b(?:PATRIOT SOFTWARE|DATAPAY|PAYCOR|ONPAY|PAYWORKS|PAYCOM|PAYLOCITY)\b"),
+    re.compile(r"\b(?:HEALTH ?EQUI(?:TY)?|WAGEWORKS|TASC|ASCENSUS|HUMAN INTEREST|GUIDELINE RETIRE(?:MENT)?)\b"),
+    re.compile(r"\bPAIE\b|\bSALAIRES?\b"),
+)
 
 _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
     *_REFUND_REVERSAL_PATTERNS,
@@ -1038,6 +1049,15 @@ def _originator_segment(text: str) -> str:
         words.append(token)
         started = started or (token not in _ENTITY_NOISE and len(token) > 1)
     return " ".join(words)
+
+
+def _is_payroll_provider_row(text: str) -> bool:
+    """5.3: a payroll provider, benefit administrator or French pay row (payroll N1 and N2)."""
+    if _names_financing(text):
+        return False
+    return _PAYROLL_GLUED_PATTERN.search(text) is not None or _matches_any(
+        _originator_segment(text), _PAYROLL_PROVIDER_PATTERNS
+    )
 
 
 def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
@@ -1770,14 +1790,16 @@ def classify_transaction(
             reason="The descriptor identifies a tax authority or tax payment.",
         )
 
-    if _matches_any(text, _PAYROLL_PATTERNS):
+    if _matches_any(text, _PAYROLL_PATTERNS) or _is_payroll_provider_row(text):
         return _build_record(
             **common,
             classification="payroll",
             match_method="strong_non_lender_exclusion",
             matched_rule="payroll",
             confidence_score=0.96,
-            reason="The descriptor identifies payroll, wages, or a payroll provider.",
+            reason=(
+                "The descriptor identifies payroll, wages, a payroll provider or an employee-benefits administrator."
+            ),
         )
 
     if _matches_any(text, _UTILITY_PATTERNS):

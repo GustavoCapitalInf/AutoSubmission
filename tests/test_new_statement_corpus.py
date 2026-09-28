@@ -150,7 +150,8 @@ EXPECTED = {
         "revenue": (1543.85, 107438.89, 41501.50, 108982.74),
         "revenue_counts": (1, 19, 11),
         "channels": (1, 37, 30, 0, 20, 5),
-        "lenders": (0, 0.00, 3, 108.00),
+        # 5.3: its three fixed weekly debits are a payroll provider's billing (payroll), no longer a potential lender.
+        "lenders": (0, 0.00, 0, 0.00),
         "insurance": (2, 1251.74),
         "reversal_pairs": 11,
         "daily": [
