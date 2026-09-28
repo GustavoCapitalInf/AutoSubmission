@@ -2202,8 +2202,20 @@ def _has_ach_field_mark(record: TransactionClassification) -> bool:
 def _is_card_purchase_posting(record: TransactionClassification) -> bool:
     if _CARD_PURCHASE_POSTING_PATTERN.match(record.normalized_description):
         return True
+    if _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "") and not _has_ach_field_mark(record):
+        return True
+    # 5.3 (2026-09-27): the bank card formats the POS rule does not read, never on a row that names financing,
+    # a bank or an organisation (read on the whole row, not on the D11 payee words, which are the card template).
+    text = record.normalized_description
+    if _card_posting_vetoed(text):
+        return False
+    if _matches_any(text, _CARD_POSTING_LABEL_PATTERNS):
+        return True
+    if record.bank == "Wealthsimple" and not _WEALTHSIMPLE_CHANNEL_PATTERN.search(text):
+        return True
     return bool(
-        _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "")
+        record.bank in _CARD_LOCATION_SUFFIX_BANKS
+        and _CARD_LOCATION_SUFFIX_PATTERN.search(record.original_description or "")
         and not _has_ach_field_mark(record)
     )
 
@@ -2241,6 +2253,54 @@ def _names_only_channel_words(payee: Sequence[str], text: str) -> bool:
         bool(payee)
         and all(token in _CHANNEL_VOCABULARY for token in payee)
         and not any(token in _ORGANISATION_CUES for token in _payee_region(text).split())
+    )
+
+
+#: 5.3 (2026-09-27): card-posting labels the POS rule does not read, read on the normalized row with no ACH guard,
+#: as _POS_PATTERNS are. MOBILE, RETAIL and PIN PURCHASE and the French ACHAT join the POS rule itself (B7).
+_CARD_POSTING_LABEL_PATTERNS = (
+    re.compile(r"\b\d{2} \d{2} \d{6,} (?:MOBILE )?PURCHASE\b"),        # Bank of America merchant-first card row
+    re.compile(r"\bDE?BI?T CRD\b"),                                     # DBT CRD, DEBIT CRD
+    re.compile(r"^DEBIT CARD\b"),                                       # Truist DEBIT CARD RECURRING PYMT / MISC DEBIT
+    re.compile(r"^CARD$"),                                              # a type-only card row (CSV export)
+    re.compile(r"\bCARD SPEND$"),                                       # Square Checking '<merchant> Card spend'
+    re.compile(r"\bAUTHORI[ZS]ED ON \d{2} \d{2}\b.*\bCARD \d{4}$"),     # Wells Fargo '... authorized on mm/dd ... Card nnnn'
+    re.compile(r"\bPIN DEBIT\b"),
+    re.compile(r"\bRECURRING (?:DEBIT )?CARD\b"),                       # PNC RECURRING DEBIT CARD
+    re.compile(r"\bCARD TRANSACTION\b"),                                # Regions
+    re.compile(r"\bPURCH\b"),                                           # Citi DEBIT PURCH
+    re.compile(r"\bCARD ENDING IN\b"),
+    re.compile(r"\bDDA PUR\b"),                                         # TD Bank VISA DDA PUR (without its star)
+)
+#: 5.3: Wealthsimple Chequing prints a card purchase as the bare merchant; its other debits carry one of these words
+#: (seen in 32 corpus accounts; its bill-payment print form is unverified: re-check when one arrives).
+_WEALTHSIMPLE_CHANNEL_PATTERN = re.compile(
+    r"\b(?:TRANSFER|TRANSFERT|INTERAC|PRE ?AUTHORI[ZS]ED|PAD|DEBIT|BILL|PAYMENT|EFT|WITHDRAWAL|DEPOSIT|CHEQUE|CHECK|"
+    r"LOAN|WIRE|FEE)\b"
+)
+#: 5.3: the card network's merchant location, 'NAME, CITY, ST' (Bluevine) or 'NAME ###, CITY , ST , USA' (Found),
+#: read on the printed text of those two banks' rows only, and only without an ACH field mark. Bluevine's glued
+#: 'CITY, NYUS' variant is a known non-match.
+_CARD_LOCATION_SUFFIX_PATTERN = re.compile(
+    r",\s*[A-Za-z][A-Za-z .'-]*?\s*,\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|"
+    r"MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|PR|GU|VI|AB|BC|MB|NB|NL|NS|NT|NU|"
+    r"ON|PE|QC|SK|YT)\s*(?:,\s*USA)?\s*$"
+)
+_CARD_LOCATION_SUFFIX_BANKS = frozenset({"Bluevine", "Lead Bank (Found)"})
+#: 5.3: besides the shared roots, a card-format skip never fires on a row that names a bank, an investment firm or an
+#: organisation (an organisation cue or a financing-organisation word): funders ARE paid by debit card in these
+#: formats (card lender-risk verifier: Dakota Financial on Bluevine, Hillcrest and CNAC on Square 'Card spend').
+_CARD_POSTING_VETO_PATTERN = re.compile(
+    r"(?:BANK|BANQUE|INVEST)"
+    r"|\b(?:HOLDINGS?|PARTNERS?|VENTURES?|EQUITIES|GROUP|SOLUTIONS?|ENTERPRISES?|RESOURCES?|LP)\b"
+)
+
+
+def _card_posting_vetoed(text: str) -> bool:
+    return (
+        _names_financing(text)
+        or _CARD_POSTING_VETO_PATTERN.search(text) is not None
+        or any(token in _ORGANISATION_CUES for token in text.split())
     )
 
 

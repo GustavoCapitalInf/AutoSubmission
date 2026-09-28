@@ -83,3 +83,61 @@ def test_a_group_whose_payee_words_are_all_channel_words_is_no_payee(description
 )
 def test_unclear_templates_and_vetoed_rows_stay_in_review(description):
     assert _states(description) == D6
+
+
+# --- A1: card postings the POS rule does not read -----------------------------------------------------------------
+
+CARD_POSTINGS = [
+    ("Fabricated Donuts Card spend", None),                                        # Square Checking
+    ("DEBIT CARD RECURRING PYMT FAB.COM/BILL 01-05 CA 4321", None),                # Truist
+    ("Debit Card Debit", None),
+    ("Card", None),                                                                # a type-only export row
+    ("FAB MART 1234 01/05 1234567890 PURCHASE FAB MIAMI FL", None),                # BofA merchant-first
+    ("DBT CRD 0105 01/05/54 FAB C12345", None),
+    ("Recurring Payment authorized on 01/02 Fab Web S123456789012345 Card 4321", None),  # Wells Fargo (c00148's shape)
+    ("PIN DEBIT FAB MART SPRINGFIELD IL", None),
+    ("RECURRING DEBIT CARD FAB STREAMING 800-555-0100 CA", None),                  # PNC
+    ("DEBIT CARD TRANSACTION FAB MART SPRINGFIELD IL", None),                      # Regions
+    ("VISA DDA PUR AP FAB MART SPRINGFIELD IL", None),                             # TD Bank without its star
+    ("FAB DINER42, SPRINGFIELD, IL", "Bluevine"),
+    ("Fab Mart 1234567, TOWNVILLE , CA , USA", "Lead Bank (Found)"),
+    ("Fabricated Donuts", "Wealthsimple"),                                          # a bare merchant
+]
+
+
+@pytest.mark.parametrize(("description", "bank"), CARD_POSTINGS)
+def test_card_postings_in_every_bank_format_are_never_a_d6_recurrence(description, bank):
+    assert _states(description, bank=bank) == OTHER
+
+
+@pytest.mark.parametrize(
+    ("description", "bank"),
+    [
+        ("Capital Fuel Card spend", None),                                           # a financing root
+        ("Fabricated Holdings LLC Card spend", None),                                # an organisation word
+        ("DEBIT CARD RECURRING PYMT FAB EQUITIES LLC 800-555-0100 NY 4321", "Truist"),
+        ("Recurring Payment authorized on 01/02 Fabcreditacceptance NY S123456789012345 Card 4321", None),
+        ("FABCO RECOVERY LLC, BROOKLYN, NY", "Bluevine"),
+        ("FAB DEBT SETTLEMENT, BROOKLYN, NY", "Bluevine"),                         # a settlement payee
+        ("FAB DEBT SETTLEMENT Card spend", None),
+        ("CREDIBLYCO, BROOKLYN, NY", "Bluevine"),                                  # a CRED-prefixed name
+        ("FABRICATED, INC., NEW YORK, NY", "Bluevine"),
+        ("FAB NATIONAL A BANK OF TULSA, TULSA, OK", "Bluevine"),                     # a bank: stays reviewed
+        ("FAB DINER42, SPRINGFIELD, IL", "Wells Fargo"),                             # the suffix is read on two banks only
+        ("Pre-authorized Debit to FABRICATED WIDGETS", "Wealthsimple"),              # a Wealthsimple channel label
+        ("Fab Credit Union", "Wealthsimple"),
+        ("ACH DEBIT FABRICATED WIDGETS LLC", None),
+        ("FABRICATED WIDGETS DES:PURCHASE ID:0000 INDN:PAT EXAMPLE CO ID:0000 CCD", None),
+        ("PURCHASE FABRICATED FUNDING", None),                                       # an ACH entry description first
+    ],
+)
+def test_card_formats_never_hide_a_row_that_names_financing_or_an_organisation(description, bank):
+    assert _states(description, bank=bank) == D6
+
+
+def test_a_card_posting_leaves_the_recurring_debit_view():
+    from analysis.detect import find_recurring_debits
+
+    statement = Statement(transactions=[txn(f"2054-01-{day:02d}", "Fabricated Donuts Card spend", -100.0)
+                                        for day in WEEKLY])
+    assert find_recurring_debits(statement) == []
