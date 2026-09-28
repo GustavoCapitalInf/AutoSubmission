@@ -947,6 +947,13 @@ _ACH_FIELD_SEGMENT = re.compile(
 )
 _MASKED_TOKEN = re.compile(r"X{2,}[A-Z0-9]*")
 _MAX_ENTITY_TOKENS = 4
+#: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
+_RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
+#: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
+_LEADING_PREFIX_WORDS = frozenset({
+    "BILL", "BILLS", "PRE", "AUTHORIZED", "AUTHORISED", "RECURRING", "RECUR", "INTERNET", "BANKING", "PAIEMENT",
+    "FACTURE", "BM", "CABLE", "TV", "TELEPHONE", "PCS", "SVC", "ON",
+})
 
 
 def _is_reference_token(token: str) -> bool:
@@ -957,6 +964,52 @@ def _is_reference_token(token: str) -> bool:
     )
 
 
+def _payee_region(text: str) -> str:
+    """D11: the payee part of a normalized row: originator-name labels removed, cut at the first ACH field segment
+    (so never an ID, INDN, IND NAME, CO ID or TRACE field). `_unknown_payee_tokens` reads its words."""
+    text = _ENTITY_NAME_LABELS.sub(" ", text)
+    segment = _ACH_FIELD_SEGMENT.search(text)
+    return text[: segment.start()] if segment is not None else text
+
+
+def _row_before_receiver(text: str) -> str:
+    """5.3: the normalized row up to its first receiver field, so the account holder's own name never decides a D6
+    skip. The entry-description fields stay (DES:FACTS, DES:CHILD SUPP). A row with no receiver field is read whole:
+    a label-less format prints the holder unmarked, which the payee-word readers cover instead."""
+    return _RECEIVER_NAME_FIELD.split(text, 1)[0]
+
+
+def _leading_payee_words(text: str) -> str:
+    """5.3: the payee's leading words: the payee region after channel words, bill-payment prefix words and any
+    leading reference, up to the next reference token. A word printed after the payee's own name (a receiver in a
+    label-less format) is never a leading word."""
+    words: list[str] = []
+    for token in _payee_region(text).split():
+        if not words:
+            if token in _ENTITY_NOISE or token in _LEADING_PREFIX_WORDS or _is_reference_token(token):
+                continue
+        elif _is_reference_token(token):
+            break
+        words.append(token)
+    return " ".join(words)
+
+
+def _originator_segment(text: str) -> str:
+    """5.3 (payroll N1): D11's reading of the originator without the four-word cap and keeping channel words: the
+    payee region up to the first reference token after a name word. Provider and benefit-administrator names are
+    read here, never in a receiver field."""
+    words: list[str] = []
+    started = False
+    for token in _payee_region(text).split():
+        if _is_reference_token(token):
+            if started:
+                break
+            continue
+        words.append(token)
+        started = started or (token not in _ENTITY_NOISE and len(token) > 1)
+    return " ".join(words)
+
+
 def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     """D11: the payee words of an unknown counterparty, at most four.
 
@@ -965,10 +1018,7 @@ def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     first reference token (digits, a masked number or a month) once a name has
     started, so a person's name printed after the references never joins it.
     """
-    text = _ENTITY_NAME_LABELS.sub(" ", text)
-    segment = _ACH_FIELD_SEGMENT.search(text)
-    if segment is not None:
-        text = text[: segment.start()]
+    text = _payee_region(text)
     tokens: list[str] = []
     for token in text.split():
         if token in _ENTITY_NOISE or len(token) == 1:
