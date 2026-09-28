@@ -175,3 +175,40 @@ def test_person_to_person_and_wallet_rails_are_not_d6_payees(description):
 )
 def test_a_rail_that_names_financing_stays_in_review(description):
     assert _states(description) == D6
+
+
+# --- A3: transfer templates -----------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "TRF DT INTERNET 12345",
+        "INTERNET XFR TO CHECKG x1234",
+        "Internet/Phone Trsfr",
+        "EXT TRNSFR 12345",
+        "INTERNET TRANSFER123456789012 TO: 12345",               # CIBC, transfer word glued to its reference
+        "E-TRANSFER104567890123 Pat Example",
+        "BKOFAMERICA BC 01/05 12345 TO CHKG 12345 FAB ST",        # P2: owner may strike it
+        "Internet Withdrawal",
+        "ACH Web Smartsave 12345 Atlasfinancial 999",
+        "RTP SENT PAT EXAMPLE",
+        "Real Time Payment To Pat Example",
+    ],
+)
+def test_transfer_templates_of_an_unnamed_payee_are_not_d6_payees(description):
+    assert _states(description) == OTHER
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "E-TRANSFER104567890123 Fabrique Capital Inc",
+        "INTERNET XFR TO FABRICATED CAPITAL LLC",
+        "OUTGOING WIRE TRF FABRICATED CAPITAL LLC",
+        "FABRICATED CAPITAL DES:TRF ID:0001 CCD",                  # a funder's own entry description
+        "SMART SAVE FUNDING LLC",
+        "RTP SENT FABCO LLC",                                      # an organisation: stays reviewed
+    ],
+)
+def test_a_transfer_template_never_hides_a_named_or_financing_payee(description):
+    assert _states(description) == D6

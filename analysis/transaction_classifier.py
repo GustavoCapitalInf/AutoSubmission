@@ -2317,6 +2317,15 @@ _P2P_RAIL_PATTERNS = (
     re.compile(r"\bIAT PAYPAL\b"),
     re.compile(r"\bGREENLIGHT DES APP\b"),
 )
+#: 5.3 (2026-09-27): transfer templates the 5.2 transfer-word skip does not read. Each fires only for a payee that
+#: names no organisation (D11 would publish 'Unidentified lender obligation') and a row that names no financing.
+_TRANSFER_TEMPLATE_PATTERNS = (
+    re.compile(r"\b(?:XFR|TRF|TRSFR|TRNSFR)\b|\b(?:TRANSFER|XFER|TFR)(?=\d)"),      # abbreviations; glued digits
+    re.compile(r"\bTO (?:CHKG|CHK|CHECKG|CHECKING|SAV|SAVINGS|SVGS|SHARES?|MMA)(?: ACCOUNT| ACCT)? X*\d{2,}\b"),
+    re.compile(r"^(?:INTERNET|ONLINE|PHONE|TELEPHONE|MOBILE|WEB) (?:WITHDRAWAL|WDRL|WDL)$"),
+    re.compile(r"\bSMART ?SAVE\b.*\bATLAS ?FIN\w*|\bATLAS ?FIN\w*.*\bSMART ?SAVE\b"),  # Atlas's Smart Save sweep
+    re.compile(r"\b(?:RTP SENT|REAL TIME PAYMENT TO|FEDNOW (?:PAYMENT|PMT) TO)\b"),
+)
 
 
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
@@ -2335,6 +2344,10 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "channel_words_only"
     if _skips(_row_before_receiver(text), _P2P_RAIL_PATTERNS, text):
         return "p2p_rail"
+    if _unknown_payee_name(payee) in (None, UNIDENTIFIED_LENDER_OBLIGATION) and _skips(
+        _row_before_receiver(text), _TRANSFER_TEMPLATE_PATTERNS, text
+    ):
+        return "transfer_template"
     return None
 
 
