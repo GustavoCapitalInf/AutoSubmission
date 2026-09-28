@@ -22761,6 +22761,11 @@
      "confirmed": true
     },
     {
+     "round": "r8",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
      "round": "owner",
      "verdict": "upheld",
      "confirmed": true
@@ -22783,7 +22788,7 @@
     "https://www.bbb.org/us/fl/miami/profile/financial-services/idea-financial-0633-90412249",
     "https://debanked.com/2025/04/virginias-sales-based-financing-provider-list/"
    ],
-   "notes": "Owner ruling 2026-09-28: Idea Financial is a counted lender, an online business term lender. This reverses the decision of 2026-09-25 (owner delegated to the orchestrator) that kept it filed as a line of credit because its flagship product is a revolving Business Line of Credit. Idea 247, Inc. (d/b/a Idea Financial; Miami FL, a Florida corporation, founded in 2017 and lending since January 2018) is a direct small-business lender. It sells a revolving line of credit and fixed-rate term loans of 6 to 18 months, and its own FAQ says payments are processed automatically weekly, bi-weekly or monthly. A row whose own words say LOC or LINE OF CREDIT still goes to Lines of credit (D9). Its credits are financing proceeds (D1), as before. IDEA 247 INC, its legal name as the ACH originator, and IDEALOAN, its ACH entry description, are added: the tryout host's Wells Fargo weekly debits print the two together with an L-numbered loan reference (the dump masks the originator's digits, so 247 is presumed there; IDEALOAN reaches those rows either way). No cached corpus row prints IDEA as a word, and neither alias matches another registry alias or any corpus row. Residual, for the owner: the matcher reads the whole row, so an account holder named '... Idea Financial ...' in another originator's receiver field is read as Idea Financial (no corpus row prints it); and IDEALOAN is one word, so the glued-digit reading (multi-word aliases only) does not reach IDEALOAN printed with digits glued to it, a form added when one is seen. Bare IDEA is never an alias: it is an English word that would read receivers and other companies' names. Today's two aliases are kept."
+   "notes": "Owner ruling 2026-09-28: Idea Financial is a counted lender, an online business term lender. This reverses the decision of 2026-09-25 (owner delegated to the orchestrator) that kept it filed as a line of credit because its flagship product is a revolving Business Line of Credit. Idea 247, Inc. (d/b/a Idea Financial; Miami FL, a Florida corporation, founded in 2017 and lending since January 2018) is a direct small-business lender. It sells a revolving line of credit and fixed-rate term loans of 6 to 18 months, and its own FAQ says payments are processed automatically weekly, bi-weekly or monthly. A row whose own words say LOC or LINE OF CREDIT still goes to Lines of credit (D9). Its credits are financing proceeds (D1), as before. IDEA 247 INC, its legal name as the ACH originator, and IDEALOAN, its ACH entry description, are added: the tryout host's Wells Fargo weekly debits print the two together with an L-numbered loan reference (the dump masks the originator's digits, so 247 is presumed there; IDEALOAN reaches those rows either way). No cached corpus row prints IDEA as a word, and neither alias matches another registry alias or any corpus row. Residual, for the owner: the matcher reads the whole row, so an account holder named '... Idea Financial ...' in another originator's receiver field is read as Idea Financial (no corpus row prints it); and IDEALOAN is one word, so the glued-digit reading (multi-word aliases only) does not reach IDEALOAN printed with digits glued to it, a form added when one is seen. Bare IDEA is never an alias: it is an English word that would read receivers and other companies' names. Today's two aliases are kept. The r8 verdict records the independent verify round of 2026-09-28, which re-fetched the sources and reproduced the collision check before IDEALOAN and IDEA 247 INC were committed (the 5.3 precedent of r7); the owner verdict after it records the ruling."
   },
   {
    "entity": "KABBAGE",
