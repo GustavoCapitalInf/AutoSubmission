@@ -512,3 +512,33 @@ def test_an_insurer_cut_short_is_not_a_d6_payee(cut):
 )
 def test_a_cut_insurance_word_outside_the_payee_words_never_skips(description):
     assert _states(description) == D6
+
+
+# --- A13: phone and cable carriers ----------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "KOODO MOBILE ABC123", "BILL PAYMENT BELL CANADA", "PRE-AUTHORIZED PAYMENT FIDO MOBILE PAP",
+        "CABLE TV BILL PMT SHAW CABLE TV", "ONLINE BANKING PAYMENT 1234 ROGERS WIRELESS",
+        "VERIZON WIRELESS DES:PAYMENTS ID:0001", "Orig CO Name:AT&T Orig ID:0001", "T-MOBILE PCS SVC",
+        "ACH WEB RECUR PCS SVC T MOBILE", "ACH WITHDRAWAL ATT PAYMENT 1234 FAB BUSINESS", "ELECTRONIC WITHDRAWAL TO ATT",
+        "RECURRING PAYMENT AUTHORIZED ON 01/05 VZWRLSS*APOCC VISB CARD 1234", "METRO BY T MOBILE 1234",
+    ],
+)
+def test_a_carrier_bill_is_not_a_d6_payee(description):
+    assert _states(description) == OTHER
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "ACH CORP DEBIT 00012345 FAB PARTNERS LLC BOOST MOBILE CUSTOMER ID 1",
+        "Business to Business ACH Debit - FAB PARTNERS PAYMENT PAT DBA CRICKET WIRELESS LLC",
+        "FAB MOBILE TIRE LLC",
+        "MINT MOBILE FUNDING LLC",
+        "FABRICATED CAPITAL DES:PAYMENT ID:0001 INDN:FAB T-MOBILE STORE LLC CO ID:0002 CCD",
+    ],
+)
+def test_a_carrier_word_after_the_payees_own_name_never_skips(description):
+    assert _states(description) == D6

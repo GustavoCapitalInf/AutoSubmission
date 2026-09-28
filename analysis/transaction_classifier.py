@@ -2508,6 +2508,27 @@ _PROCESSOR_ACCOUNT_CHARGE_MAX = 50
 #: 16-character company name or the 10-character entry description). Read on the D11 payee words only: the holder's
 #: name (INDN, IND NAME, or unlabeled) never decides. INSURED, INSURER and the bare INS stay out.
 _TRUNCATED_INSURANCE_WORD_PATTERN = re.compile(r"\bINSU(?:R|RA|RAN|RANC)?\b")
+#: 5.3 (2026-09-27): phone and cable carriers, matched at the START of the payee's leading words
+#: (_leading_payee_words), so a carrier printed after the payee's own name (a receiver that is a wireless dealer)
+#: never decides. Brand names only; BELL, ROGERS, SHAW and SPRINT need their telecom word; ATT only in its bill and
+#: payment forms. The VERIZON lookahead covers the registry's Verizon Visa alias only (a 'SYNCB VERIZON' card
+#: payment in 'other' hides no funder).
+_TELECOM_CARRIER_PATTERNS = (
+    re.compile(r"(?:KOODO|FIDO|TELUS|VIDEOTRON|SASKTEL|EASTLINK|CHATR|COGECO)\b"),
+    re.compile(r"(?:FREEDOM|VIRGIN|PUBLIC|LUCKY|BOOST|MINT|T) ?MOBILE\b"),
+    re.compile(r"VIRGIN PLUS\b"),
+    re.compile(r"BELL (?:CANADA|MOBILITY|MTS|ALIANT)\b"),
+    re.compile(r"ROGERS (?:WIRELESS|COMMUNICATIONS?|CABLE)\b"),
+    re.compile(r"SHAW (?:CABLE|COMMUNICATIONS?|DIRECT)\b"),
+    re.compile(r"VERIZON\b(?! (?:CREDIT|VISA))"),
+    re.compile(r"(?:VZWRLSS|AT AND T|METRO ?PCS|METRO BY T MOBILE|TRACFONE|COMCAST|XFINITY|CENTURYLINK|WINDSTREAM|"
+               r"DIRECTV)\b"),
+    re.compile(r"ATT\b(?= (?:BILL|PAYMENT|MOBILITY|UVERSE|WIRELESS)\b|\s*$)"),
+    re.compile(r"(?:SPRINT|CRICKET|TOTAL) WIRELESS\b"),
+    re.compile(r"(?:US|U S|CONSUMER) CELLULAR\b|USCELLULAR\b"),
+    re.compile(r"(?:CHARTER|COX|FRONTIER) COMM(?:UNICATIONS?)?\b"),
+    re.compile(r"DISH NETWORK\b"),
+)
 
 
 def _is_processor_account_charge(record: TransactionClassification) -> bool:
@@ -2559,6 +2580,10 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "processor_account_charge"
     if _skips(" ".join(payee), (_TRUNCATED_INSURANCE_WORD_PATTERN,), text):
         return "truncated_insurer"
+    leading = _leading_payee_words(text)
+    carrier = next((found for pattern in _TELECOM_CARRIER_PATTERNS if (found := pattern.match(leading))), None)
+    if carrier is not None and not _names_financing(text, besides=carrier.group(0)):
+        return "telecom_carrier"
     return None
 
 
