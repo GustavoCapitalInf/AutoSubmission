@@ -140,3 +140,16 @@ def test_a_french_receivables_purchase_is_not_a_pos_purchase():
 
 def test_a_known_payee_paid_by_card_keeps_its_group(fake_payees):
     assert _state("MOBILE PURCHASE 0105 FABRICATED LENDER", -100.0)[0] == "confirmed_lender"
+
+
+# --- B8: related-party loans -----------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description", ["SHAREHOLDER LOAN REPAYMENT 1234567", "ACH DEBIT OWNER LOAN REPAYMENT", "DUE TO SHAREHOLDER 1234"]
+)
+def test_a_loan_from_the_businesss_own_people_names_no_lender(description):
+    assert _state(description, -1000.0)[:2] == ("other", "related_party_loan")
+
+
+def test_a_named_payee_with_owner_loan_words_keeps_the_potential_rules():
+    assert _state("FAB CAPITAL OWNER LOAN PMT", -1000.0)[0] == "potential_lender"

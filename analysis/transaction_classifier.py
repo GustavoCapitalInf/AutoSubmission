@@ -592,6 +592,13 @@ _PAYROLL_PROVIDER_PATTERNS = (
     re.compile(r"\b(?:HEALTH ?EQUI(?:TY)?|WAGEWORKS|TASC|ASCENSUS|HUMAN INTEREST|GUIDELINE RETIRE(?:MENT)?)\b"),
     re.compile(r"\bPAIE\b|\bSALAIRES?\b"),
 )
+#: 5.3 (2026-09-27): a loan from the business's own shareholder, owner or director, repaid to them: no lender is
+#: named. The loan producers never take it (debits only, and only when the row names no organisation). MEMBER and
+#: PARTNER are left out: a funder can be named '... Partners'.
+_RELATED_PARTY_LOAN_PATTERNS = (
+    re.compile(r"\b(?:SHAREHOLDERS?|OWNERS?|DIRECTORS?) LOANS?\b"),
+    re.compile(r"\bDUE TO (?:SHAREHOLDERS?|OWNERS?)\b"),
+)
 
 _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
     *_REFUND_REVERSAL_PATTERNS,
@@ -1913,6 +1920,23 @@ def classify_transaction(
             confidence_score=0.82,
             reason=f"Matched maintained candidate alias '{alias}'; confirmation requires review.",
             review_required=True,
+        )
+
+    if (
+        amount < 0
+        and _matches_any(text, _RELATED_PARTY_LOAN_PATTERNS)
+        and _canonical_unknown_entity(text) in (None, UNIDENTIFIED_LENDER_OBLIGATION)
+    ):
+        return _build_record(
+            **common,
+            classification="other",
+            match_method="strong_non_lender_exclusion",
+            matched_rule="related_party_loan",
+            confidence_score=0.90,
+            reason=(
+                "The descriptor names a loan from the business's own shareholder, owner or director; it names "
+                "no lender."
+            ),
         )
 
     if amount < 0 and _matches_any(text, _SERVICER_COLLECTOR_PATTERNS):
