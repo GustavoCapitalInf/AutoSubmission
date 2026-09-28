@@ -99,6 +99,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "EN OD Capital, LLC": ("EN OD CAPITAL",),
     "Entegra Capital LLC": ("ENTEGRA CAPITAL",),
     "Equirex Leasing": ("EQUIREX",),
+    "Essentia Funding": ("ESSENTIA FUNDING",),
     "EVEREST BUSINESS FUNDING": (
         "EVEREST BUSINESS FUNDING",
         "EBFUNDING",
@@ -134,6 +135,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Flash Advance": ("FLASH ADVANCE", "DIRCT MER COL", "DIRECT MERCHANTS FUNDING", "DIRECT MERCHANTS"),
     "Fleet Financial": ("FLEET FINANCIAL",),
     "Flex Capital": ("FLEX CAPITAL",),
+    "Flexibility Capital, Inc.": ("FLEXIBILITY CAPI", "FLEXIBILITY CAPITAL"),
     "FORA FINANCIAL": ("FORA FINANCIAL", "FORAFINANCIAL"),
     "Foretrust Funding": ("FORETRUSTFUNDING",),
     "Forward Financing": (
@@ -234,6 +236,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "McKenzie Capital LLC": ("MCKENZIE CAPITAL",),
     "Meged Funding Group": ("MEGED1", "MEGED FUNDING"),
     "Merchant Growth Ltd": ("MERCHANT GROWTH", "INVESTMENT MERCHANT GROWTH FUND"),
+    "Merit Business Funding": ("MERIT BUSINESS FUNDING",),
     "MHB Financial": ("MHB FINANCIAL",),
     "MicroAdvance": ("MICROADVANCEFUND",),
     "Millstone Funding, Inc": ("MILLSTONE FUNDIN",),
@@ -249,7 +252,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Mount Valor Capital": ("MOUNT VALOR CAPI", "MOUNT VALOR CAPITAL"),
     "Mr. Advance LLC": ("MR ADVANCE",),
     "Mulligan Funding, LLC": ("MULLIGAN FUNDING",),
-    "NATIONAL FUNDING": ("NATIONAL FUNDING", "NFAS3"),
+    "NATIONAL FUNDING": ("NATIONAL FUNDING", "NFAS3", "NFSPV1 COLLECTION"),
     "Navitas Credit Corp": ("NAVITAS CREDIT CORP", "NAVITAS CREDIT C", "NAVITAS CREDIT"),
     "NEC Financial Services, LLC": ("NEC FINANCIAL",),
     "New York Tribeca Group": ("NEW YORK TRIBECA", "NEW YORK TRIBECA GROUP"),
@@ -1034,6 +1037,39 @@ FACTORING_ALIASES: dict[str, tuple[str, ...]] = {
     "Treadstone US Capital, LLC": ("TREADSTONE US CAPITAL",),
 }
 
+#: Debt relief: debt-settlement account processors and debt-relief firms (flagged, never lender math).
+DEBT_RELIEF_ALIASES: dict[str, tuple[str, ...]] = {
+    "Americor Funding LLC (Americor Financial)": ("AMERICOR FINANCIAL", "AMERICOR FUNDING"),
+    "Beyond Finance LLC (Accredited Debt Relief)": ("BEYOND FINANCE", "ACCREDITED DEBT RELIEF"),
+    "Cambridge Credit Counseling Corp": ("CAMBRIDGE CREDIT COUNSELING",),
+    "ClearOne Advantage LLC": ("CLEARONE ADVANTAGE", "CLEAR ONE ADVANTAGE"),
+    "Coastal Debt Resolve (ABSM LLC)": ("COASTAL DEBT RESOLVE",),
+    "Consolidated Credit Counseling Services Inc": ("CONSOLIDATED CREDIT COUNSELING",),
+    "Cordoba Legal Group PLLC": ("CORDOBA LEGAL",),
+    "Credit Canada Debt Solutions": ("CREDIT CANADA DEBT SOLUTIONS",),
+    "Credit Counselling Society": ("CREDIT COUNSELLING SOCIETY",),
+    "Crossroads Financial Technologies (CFTPay)": ("CFTPAY", "CROSSROADS FINANCIAL TECHNOLOGIES"),
+    "CuraDebt Systems LLC": ("CURADEBT",),
+    "Delancey Street Debt Relief Inc": ("DELANCEY STREET DEBT RELIEF",),
+    "Freedom Debt Relief LLC": ("FREEDOM DEBT RELIEF",),
+    "Global Holdings LLC": ("GHLLC", "GLOBAL CLIENT SOLUTIONS"),
+    "GreenPath Inc (GreenPath Financial Wellness)": ("GREENPATH FINANCIAL WELLNESS", "GREENPATH INC"),
+    "InCharge Debt Solutions": ("INCHARGE DEBT SOLUTIONS", "INCHARGE DEBT"),
+    "Money Management International Inc": ("MONEY MANAGEMENT INTERNATIONAL", "MONEY MANAGEMENT INTL"),
+    "National Debt Relief LLC": ("NATIONAL DEBT RELIEF",),
+    "New Leaf Debt Solutions Inc": ("NEW LEAF DEBT",),
+    "RAM Payment LLC (Reliant)": (
+        "RAM PAYMENTS",
+        "RAM PAYMENT",
+        "RAM PMT",
+        "ORIG CO NAME RAM ORIG",
+        "RELIANT ACCOUNT MANAGEMENT",
+    ),
+    "Second Wind Consultants Inc (Rise Alliance)": ("RISE ALLIANCE", "SECOND WIND CONSULTANTS"),
+    "Set Forth LLC (Forth Pay)": ("FORTH PAY", "FORTH CORDOBA"),
+    "Tayne Law Group": ("TAYNE LAW GROUP", "TAYNE LAW"),
+}
+
 #: Premium financing: premium-finance payees, read only by the insurance rule.
 PREMIUM_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
     "AFCO Credit Corporation": ("AFCO DIRECT", "AFCO CREDIT"),
@@ -1124,7 +1160,6 @@ BANK_NAME_ALIASES: dict[str, tuple[str, ...]] = {
 #: Potential lenders: review, never counted.
 POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "ACC LP IV": ("ACC LP IV LOAN",),
-    "ACCOUNT SERVICIN[G]": ("ACCOUNT SERVICIN",),
     "ADVANCE CONSOLID (unidentified ACH originator)": ("ADVANCE CONSOLID",),
     "Advisco Capital Corp": ("ADVISCO CAPITAL CORP",),
     "AI MY ADVANCE (unidentified debit)": ("AI MY ADVANCE",),
@@ -1168,7 +1203,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "First Pro Financial LLC": ("FIRST PRO FINANCIAL",),
     "First Sterling": ("FIRST STERLING LOAN",),
     "FleetLogic (probably Fleet Logic, LLC dba Velocity Truck Rental and Leasing)": ("FLEETLOGIC CONS COLL",),
-    "Future Funding LLC": ("FUTURE FUNDING DES",),
+    "FUTURE FUNDING (legal entity not identified)": ("FUTURE FUNDING DES",),
     "Geneva Capital": ("GENEVA CAPITAL",),
     "Georgia Venture Holdings (GEORGIAVENTUREHO)": ("GEORGIAVENTUREHO",),
     "GLOBAL FUNDING (Zelle payee)": ("ZELLE PAYMENT TO GLOBAL FUNDING",),
@@ -1199,7 +1234,11 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "MERCH PAD INV",
         "MERCH PAD PLAC",
     ),
-    "Meridian RLS payee (probably Meridian OneCap Credit Corp)": ("MERIDIAN RLS", "MERIDIAN RLS LOY"),
+    "Meridian (RLS rent/lease PAD; probably Meridian OneCap Credit Corp)": (
+        "MERIDIAN RLS",
+        "MERIDIAN RLS LOY",
+    ),
+    "Merit Business (probably Merit Business Funding)": ("MERIT BUSINESS",),
     "Money Man 4 Cash Advance": ("MONEY MAN 4 CASH",),
     "MORTGAGE IVR PYMNT (probably 21st Mortgage Corporation)": (
         "MORTGAGE IVR PYMNT",
@@ -1207,7 +1246,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "MORTGAGE SERV CT (unidentified mortgage servicer)": ("MORTGAGE SERV CT",),
     "NATIONAL MONEY (probably Money Mart)": ("NATIONAL MONEY",),
-    "NATIONWIDECREDIT": ("NATIONWIDECREDIT",),
+    "Nationwide Credit (debt collector; creditor not printed)": ("NATIONWIDECREDIT",),
     "Nomas Recovery LLC": ("NOMAS RECOVERY",),
     "Oakmont Capital (probably Oakmont Capital Services)": ("OAKMONT CAPITAL",),
     "OCEAN FUND (probably an Ocean Funding MCA company)": ("OCEAN FUND",),
@@ -1220,7 +1259,9 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Quantum SPV I LLC": ("QUANTUM SPV I",),
     "RecoverX Corp": ("RECOVERX CORP", "RECOVERX"),
     "Resolve (probably Resolve Pay)": ("RESOLVE PAYMENT",),
+    "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)": ("RESOLVE CAPITAL",),
     "Rewards Network": ("REWARDS NETWORK",),
+    "Samson Servicing (probably Samson MCA / Samson Funding)": ("SAMSONSERVICING",),
     "Sigma Financial": ("SIGMA FINANCIAL",),
     "States Resources Corp": ("STATES RESOURCES",),
     "STELLANTIS SFA (probably Stellantis Financial Services)": ("STELLANTIS SFA",),
@@ -1231,7 +1272,8 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "TFG (Quebec pre-authorized debit)": ("PRELEVEMENT AUTOMATIQUE TFG",),
     "Transparency Advance": ("TRANSPARENCY ADVANCE",),
     "Triton Recovery LLC": ("TRITON RECOVERY",),
-    "UAS DES EPAYMENT (probably University Accounting Service)": ("UAS DES EPAYMENT",),
+    "UAS (probably University Accounting Service)": ("UAS DES EPAYMENT",),
+    "Unidentified account servicer (ACCOUNT SERVICIN[G])": ("ACCOUNT SERVICIN",),
     "Unidentified PAD originator BUSINESS CR EFT (Commercial Loans)": (
         "COMMERCIAL LOANS BUSINESS CR EFT",
         "BUSINESS CR EFT CLN",
@@ -1242,8 +1284,34 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Vanguard Cap": ("VANGUARD CAP OPE",),
     "VAULT (Canadian PAD originator)": ("VAULT MSP DIV", "MISC PAYMENT VAULT", "MISC PAYMENTS VAULT"),
     "Vellum Capital LLC": ("VELLUM CAPITAL L",),
-    "WESTLAKE (probably Westlake Financial Services)": ("WESTLAKE PAYMENT", "ORIG CO NAME WESTLAKE ORIG"),
+    "WESTLAKE (Chase CCD form; possibly Westlake commercial vehicle financing)": (
+        "ORIG CO NAME WESTLAKE ORIG",
+    ),
+    "WESTLAKE (probably Westlake Financial Services)": ("WESTLAKE PAYMENT",),
     "WOW FACTOR (unidentified Canadian PAD originator)": ("WOW FACTOR RLS",),
+}
+
+#: 5.3 (owner ruling 2026-09-27): review entities whose debits take their flag, unconfirmed.
+REVIEW_FLAG_ENTITIES: dict[str, str] = {
+    "AVEN AUTO FINANC (probably Aven Auto Inc)": "vehicle_financing",
+    "CAF DIRECT CHECK (probably CarMax Auto Finance)": "vehicle_financing",
+    "Classic Leasing": "vehicle_financing",
+    "Clover Equipment": "lease_or_rental",
+    "CMI (Canadian mortgage lender, unresolved)": "mortgage",
+    "Cooper Equipment Rentals Ltd (probable)": "lease_or_rental",
+    "CRB UPL LOAN (Cross River Bank personal loan)": "personal_loan",
+    "Hillcrest Acceptance, LLC": "vehicle_financing",
+    "HMF (probably Hyundai Motor Finance)": "vehicle_financing",
+    "IA AUTO CAB (possibly iA Auto Finance)": "vehicle_financing",
+    "MB FINANCIAL CA (probably Mercedes-Benz Financial Services Canada)": "vehicle_financing",
+    "MORTGAGE IVR PYMNT (probably 21st Mortgage Corporation)": "mortgage",
+    "MORTGAGE SERV CT (unidentified mortgage servicer)": "mortgage",
+    "NATIONAL MONEY (probably Money Mart)": "personal_loan",
+    "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)": "debt_relief",
+    "STELLANTIS SFA (probably Stellantis Financial Services)": "vehicle_financing",
+    "UAS (probably University Accounting Service)": "personal_loan",
+    "Unidentified payee FREEDOM": "mortgage",
+    "WESTLAKE (probably Westlake Financial Services)": "vehicle_financing",
 }
 
 # --- END GENERATED: tools/build_lender_registry.py ---
@@ -1287,6 +1355,10 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
         ("Balboa", "BALBOA CAPITAL"),
         ("Navitas", "NAVITAS CREDIT CORP"),
         ("Deere", "JOHN DEERE FINANCIAL"),
+        # Owner ruling 2026-09-27 (classification 5.3): the funders the false-positive hunt found missing.
+        ("Flexibility Capital", "FLEXIBILITY CAPITAL"),
+        ("Merit Business Funding", "MERIT BUSINESS FUNDING"),
+        ("Essentia Funding", "ESSENTIA FUNDING"),
     ),
     "alternative_position": (
         ("SBA/EIDL", "SBA EIDL"),
@@ -1342,6 +1414,13 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
         ("IPFS", "IPFS"),
         ("First Insurance Funding", "FIRST INSURANCE FUNDING"),
     ),
+    # Owner ruling 2026-09-27 (classification 5.3): the Debt relief group. Resolve Capital, also named, is under
+    # review (its printed originator is not tied to the negotiator), so it is not listed here.
+    "debt_relief": (
+        ("RAM Payments / Reliant", "RAM PAYMENTS"),
+        ("Global Holdings", "GHLLC"),
+        ("Tayne Law Group", "TAYNE LAW GROUP"),
+    ),
 }
 
 #: Spec section 5: bare platform names appear only in OPERATING_REVENUE_SOURCE_ALIASES.
@@ -1379,6 +1458,24 @@ REATTRIBUTED_REGISTRY_ALIASES: dict[str, str] = {"SMARTPAY SOL": "SmartPay Solut
 #: validator refuses a name that is not an admitted ledger entity of a group whose credits D1 treats as
 #: financing proceeds (analysis.flag_groups.FINANCING_STATES).
 PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = ("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")
+
+#: Owner ruling 2026-09-27 (classification 5.3): the printed forms, in the bank's field order, of admitted payees whose
+#: bank prints the originator and the entry description apart, so no contiguous alias can match them (Chase's
+#: 'ORIG CO NAME ... CO ENTRY DESCR' fields; Truist's entry description first). Keyed by ledger entity; each value is
+#: a regular expression read on the normalized row, on DEBITS ONLY, when no alias matched. The Chase forms refuse a
+#: row that holds two originator blocks (a merged row stays in review). tools/lender_ledger.py refuses an entity
+#: that is not admitted in a known-payee group.
+FIELD_ORDER_PAYEE_FORMS: dict[str, tuple[str, ...]] = {
+    "American Express Loans": (
+        r"^(?!.*\bORIG CO NAME\b.*\bORIG CO NAME\b).*\bORIG CO NAME AMERICAN EXPRESS ORIG ID [A-Z0-9]+ DESC DATE"
+        r"(?: [A-Z0-9]+)? CO ENTRY DESCR LOAN(?: (?:PMT|PYMT|PAYMENT))?(?:SEC)?\b",
+        r"^(?:ACH CORP (?:DEBIT|CREDIT) )?LOAN(?: (?:PMT|PYMT|PAYMENT))? AMERICAN EXPRESS\b",
+    ),
+    "American Express [credit card payment]": (
+        r"^(?!.*\bORIG CO NAME\b.*\bORIG CO NAME\b).*\bORIG CO NAME AMERICAN EXPRESS ORIG ID\b"
+        r"(?:(?!\bCO ENTRY\b).)*?\bCO ENTRY (?:[0-9]+ )?DESCR (?:ACH |RETRY )?(?:PAYMENT|PMT|PYMT|EPAYMENT)(?:SEC)?\b",
+    ),
+}
 
 
 OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {

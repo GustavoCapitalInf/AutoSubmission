@@ -65,7 +65,7 @@ def test_the_block_is_python_that_defines_exactly_the_rendered_tables():
     assert {name: namespace[name] for name in TABLE_NAMES} == tables
 
 
-def test_the_block_of_an_empty_ledger_defines_fourteen_empty_tables():
+def test_the_block_of_an_empty_ledger_defines_fifteen_empty_tables():
     block = builder.render_block(builder.render_tables([]))
     namespace: dict = {}
     exec(compile(block, "block", "exec"), namespace)
@@ -363,7 +363,7 @@ def test_the_owner_named_payees_cover_every_group_spec_section_2_names():
 
     assert set(registry.OWNER_NAMED_PAYEES) == {
         "confirmed_lender", "alternative_position", "line_of_credit", "credit_card_payment", "vehicle_financing",
-        "bank_name", "lease_or_rental", "floor_plan_financing", "factoring", "premium_financing",
+        "bank_name", "lease_or_rental", "floor_plan_financing", "factoring", "premium_financing", "debt_relief",
     }
     labels = {label for pairs in registry.OWNER_NAMED_PAYEES.values() for label, _spelling in pairs}
     assert {"OnDeck", "Bitty", "Legend", "LG Funding", "Hunter Caroline", "CAN Capital", "CanaCap"} <= labels
@@ -415,3 +415,14 @@ def test_the_payout_credit_entities_are_the_ones_the_validator_reads():
 
     assert registry.PAYOUT_CREDIT_ENTITIES
     assert lender_ledger.current_rules().payout_credit is registry.PAYOUT_CREDIT_ENTITIES
+
+
+def test_the_block_renders_the_review_flag_entities_when_given():
+    entities = _entities((6, "status", "review"))
+    block = builder.render_block(builder.render_tables(entities), lender_ledger.review_flag_entities(entities))
+    assert max(len(line) for line in block.split("\n")) <= 110
+    namespace: dict = {}
+    exec(compile(block, "block", "exec"), namespace)
+    assert [name for name in namespace if name.isupper()] == [*TABLE_NAMES, "REVIEW_FLAG_ENTITIES"]
+    assert namespace["REVIEW_FLAG_ENTITIES"] == {"Rivett Motor Credit": "vehicle_financing"}
+    assert "REVIEW_FLAG_ENTITIES: dict[str, str] = {}\n" in builder.render_block(builder.render_tables([]), {})

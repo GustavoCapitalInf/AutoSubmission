@@ -69,6 +69,7 @@ EXPECTED_POSITIONS = [
         "cadence": "weekly", "avg_gap_days": 7.0,
         "first_date": "2054-01-06", "last_date": "2054-01-13",
         "source_locations": ["transaction:2", "transaction:3"],
+        "review_required": False,
     },
     {
         "group": "alternative_positions", "payee": "Fabricated BNPL", "matched_alias": "FABRICATED BNPL",
@@ -76,6 +77,7 @@ EXPECTED_POSITIONS = [
         "cadence": "single", "avg_gap_days": None,
         "first_date": "2054-01-08", "last_date": "2054-01-08",
         "source_locations": ["transaction:4"],
+        "review_required": False,
     },
     {
         "group": "credit_cards", "payee": "Credit cards", "matched_alias": None,
@@ -83,6 +85,7 @@ EXPECTED_POSITIONS = [
         "cadence": "irregular", "avg_gap_days": 10.0,
         "first_date": "2054-01-10", "last_date": "2054-01-20",
         "source_locations": ["transaction:7", "transaction:8"],
+        "review_required": False,
     },
     {
         "group": "mortgages", "payee": "Mortgages", "matched_alias": None,
@@ -90,6 +93,7 @@ EXPECTED_POSITIONS = [
         "cadence": "monthly", "avg_gap_days": 31.0,
         "first_date": "2054-01-05", "last_date": "2054-02-05",
         "source_locations": ["transaction:5", "transaction:6"],
+        "review_required": False,
     },
     {
         "group": "leases_rentals", "payee": "Leases & rentals", "matched_alias": None,
@@ -97,6 +101,7 @@ EXPECTED_POSITIONS = [
         "cadence": "single", "avg_gap_days": None,
         "first_date": "2054-01-12", "last_date": "2054-01-12",
         "source_locations": ["transaction:9"],
+        "review_required": False,
     },
 ]
 

@@ -318,6 +318,7 @@ const FLAG_GROUP_LABELS = Object.freeze({
   floor_plan: "Floor plan",
   factoring: "Factoring",
   premium_financing: "Premium financing",
+  debt_relief: "Debt relief",
 });
 
 function flagGroupLabel(group) {
@@ -531,6 +532,7 @@ function transactionCategory(tx) {
     personal_loan: { label: entity ? `${entity} (Personal loan)` : "Personal loan", glyph: "PLN", tone: "neutral" },
     floor_plan_financing: { label: entity ? `${entity} (Floor plan)` : "Floor plan", glyph: "FLR", tone: "neutral" },
     factoring: { label: entity ? `${entity} (Factoring)` : "Factoring", glyph: "FCT", tone: "neutral" },
+    debt_relief: { label: entity ? `${entity} (Debt relief)` : "Debt relief", glyph: "DRP", tone: "neutral" },
     fee: { label: "Fee", glyph: "$", tone: "neutral" },
     transfer: { label: "Transfer", glyph: "TR", tone: "neutral" },
     credit_card_payment: { label: entity ? `${entity} (Credit card)` : "Credit Card Payment", glyph: "CC", tone: "neutral" },
@@ -689,7 +691,11 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
   }
   if (!canonicalEntity) return matched;
   if (flagGroup) return matched.filter((tx) => flaggedPayeeOf(tx) === canonicalEntity);
-  return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
+  // 5.3: an unnamed potential payee is listed under its own label (potential_payee_label), one per payee key.
+  return matched.filter((tx) => {
+    const record = transactionClassification(tx);
+    return (record.potential_payee_label || record.canonical_entity) === canonicalEntity;
+  });
 }
 
 // The account a review of this row names: 1-based, in printed order, or null for a statement of one account. A row's
@@ -1806,6 +1812,10 @@ function flaggedPositionRowsHtml(entries, currency, isPackage = false) {
       ? `<div class="table-cell-detail">${escapeHtml(entry.first_date)} to ${escapeHtml(entry.last_date)}</div>`
       : "";
     const statements = isPackage ? `<td>${escapeHtml(formatNumber(entry.documents))}</td>` : "";
+    // 5.3 (owner ruling 2026-09-27): a payee the ledger has not confirmed says so under its name.
+    const unconfirmed = entry.review_required === true
+      ? '<div class="table-cell-detail">Unconfirmed: identity under review</div>'
+      : "";
     // Money the payee paid in (a factor's payouts, owner ruling 2026-09-26) is shown under the debits as received,
     // never added to them. A payee with no credit shows no such line.
     const received = Number(entry.count_credited) > 0;
@@ -1818,7 +1828,7 @@ function flaggedPositionRowsHtml(entries, currency, isPackage = false) {
     return `
       <tr>
         <td>${escapeHtml(flagGroupLabel(group))}</td>
-        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions of ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
+        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions of ${escapeHtml(payee)}">${escapeHtml(payee)}</button>${unconfirmed}</td>
         <td>${escapeHtml(formatNumber(entry.count))}${receivedCount}</td>
         <td>${escapeHtml(formatMoney(entry.total_debited, currency))}${receivedTotal}</td>
         <td>${escapeHtml(cadenceLabel(entry.cadence))}${span}</td>

@@ -86,6 +86,9 @@ FLAG_GROUPS: tuple[FlagGroup, ...] = (
     # Premium financing: rows keep classification "insurance" (and their insurance totals); the classifier
     # sets flagged_group="premium_financing" when the insurance match is a PREMIUM_FINANCE_ALIASES payee.
     FlagGroup(None, "premium_financing", "flag_premium_financing", "Premium financing"),
+    # Owner ruling 2026-09-27 (classification 5.3): debt-settlement account processors and debtor-side debt-relief
+    # firms. Never lender math, and not in FINANCING_STATES: its payees never lend.
+    FlagGroup("debt_relief", "debt_relief", "flag_debt_relief", "Debt relief"),
 )
 FLAG_GROUP_BY_STATE: dict[str, FlagGroup] = {g.state: g for g in FLAG_GROUPS if g.state is not None}
 FLAG_GROUP_BY_KEY: dict[str, FlagGroup] = {g.key: g for g in FLAG_GROUPS}
@@ -98,6 +101,8 @@ FINANCING_STATES: frozenset[str] = frozenset({
     "vehicle_financing", "mortgage", "personal_loan", "floor_plan_financing", "factoring",
 })
 ```
+
+(Amended 2026-09-27, classification 5.3: docs/superpowers/plans/2026-09-27-false-potential-lenders.md.) The twelfth `FlagGroup`, Debt relief, comes last (owner ruling 2026-09-27). Its state `debt_relief` is not in `FINANCING_STATES`, so a debt-relief payee's credit is never financing proceeds.
 
 ### C2. `analysis/classification_registry.py` (S1)
 
@@ -138,6 +143,11 @@ FINANCING_STATES: frozenset[str] = frozenset({
   - `"lease_or_rental"` → `LEASE_RENTAL_ALIASES`
   - `"credit_card_payment"` → `CARD_ISSUER_ALIASES`
 - **Card issuers.** The `CARD_ISSUER_ALIASES` entries need card-payment context. S1 stores bare issuer names such as `CAPITAL ONE` in a separate table, `CARD_ISSUER_CONTEXT_ALIASES`, used only by the S2 descriptor rule (§4.3 step 8).
+- (Amended 2026-09-27, classification 5.3: docs/superpowers/plans/2026-09-27-false-potential-lenders.md.)
+  - **`DEBT_RELIEF_ALIASES`**, a `dict[str, tuple[str, ...]]` rendered from the ledger's `debt_relief` group. It is **not** a known-payee registry and is not in `PAYEE_GROUP_REGISTRIES`: only `match_debt_relief_payee` (C3) reads it, on a debit no known payee claimed.
+  - **`REVIEW_FLAG_ENTITIES`**, a `dict[str, str]` rendered in the GENERATED block after the tables: each `review` entity of a routed flag group (vehicle financing, mortgage, lease or rental, personal loan, debt relief) whose business type is known, mapped to that group (C10). The entities stay in `POTENTIAL_LENDER_ALIASES`.
+  - **`FIELD_ORDER_PAYEE_FORMS`**, a hand-kept `dict[str, tuple[str, ...]]` beside the other owner-ruled inputs (owner ruling 2026-09-27): an admitted ledger entity of a known-payee group mapped to the regular expressions of its printed forms in the bank's field order (Chase's 'ORIG CO NAME … CO ENTRY DESCR', Truist's entry description first), read on debits only when no alias matched.
+  - `CARD_ISSUER_CONTEXT_ALIASES` is also read the other way: an issuer alias whose words lead a D6 payee's words is a card payment printed alone, which D6 does not take.
 
 ### C3. `analysis/payee_matcher.py` (S1)
 
@@ -163,6 +173,20 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
     # Same (canonical, alias) semantics as today's transaction_classifier._registry_match (longest alias
     # first within one registry, same boundary rule), compiled once per registry object; used by S2
     # for the insurance, potential, operating and bank-name registries.
+```
+
+(Amended 2026-09-27, classification 5.3: docs/superpowers/plans/2026-09-27-false-potential-lenders.md.)
+
+```python
+class AliasIndex:
+    def __init__(self, registries, *, run_together: bool = True, glued_digits: bool = False) -> None: ...
+    # glued_digits: the last word of a multi-word alias whose last word has three letters or more also matches
+    # that word with digits glued on (GOAT ADVANCE1234). Only _DEFAULT_INDEX (the known-payee index) sets it.
+
+def match_debt_relief_payee(normalized_text: str) -> PayeeMatch | None: ...
+    # The longest DEBT_RELIEF_ALIASES alias (state "debt_relief"), read through an index of its own built with
+    # run_together=True (FORTHPAY, RAMPAYMENTS). The classifier calls it only after no known payee matched, on a
+    # debit, with the row's receiver fields removed.
 ```
 
 ### C4. Classification record and states (S2, `analysis/transaction_classifier.py`)
@@ -200,7 +224,13 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
 
     A factoring credit that an earlier rule claims (a transfer, an insurance term) keeps that rule's state, with no flag and no exclusion. Factoring debits are unchanged. `FINANCING_STATES` keeps `factoring` (C1): the payee still claims its credit at step 7, which S1's alias audit reads.
 - Three credits are financing proceeds by their own words, with no payee named (spec D1, owner rulings 2026-09-25): the statement bank's own line advance (exactly `LOAN CREDIT`), a line-of-credit draw, and a per-vehicle floor-plan advance. They get the same record, except that `matched_rule` (and `revenue_matched_rule`) names the rule (`bank_line_advance_credit`, `loc_draw_credit`, `floor_plan_advance_credit`) and `canonical_entity` is the statement bank, or None for the floor-plan advance.
-- `CLASSIFICATION_VERSION = "5.0"`; `"5.1"` since the D6 clarification (2026-09-26: three different dates, no card-purchase posting), with `ANALYSIS_STAGE_VERSION` 19 → 20; `"5.2"` since the second D6 clarification (2026-09-27: no compensation memo, a masked recipient account after `TO` is part of the payee), with `ANALYSIS_STAGE_VERSION` 20 → 21.
+- `CLASSIFICATION_VERSION = "5.0"`; `"5.1"` since the D6 clarification (2026-09-26: three different dates, no card-purchase posting), with `ANALYSIS_STAGE_VERSION` 19 → 20; `"5.2"` since the second D6 clarification (2026-09-27: no compensation memo, a masked recipient account after `TO` is part of the payee), with `ANALYSIS_STAGE_VERSION` 20 → 21; `"5.3"` since the false-potential release (2026-09-27), with `ANALYSIS_STAGE_VERSION` 21 → 22.
+- (Amended 2026-09-27, classification 5.3: docs/superpowers/plans/2026-09-27-false-potential-lenders.md.)
+  - **The state `debt_relief`** in `ClassificationState` and `CLASSIFICATION_STATES`: a debit to a debt-relief payee (`match_debt_relief_payee`), or to a routed review entity of the debt-relief group. Debits only; a credit keeps today's rules.
+  - **The field `potential_payee_label: str | None = None`**, last in `TransactionClassification`: the Potential Lenders line of an unnamed potential payee ('Unidentified lender obligation' or 'MCA servicer (funder not identified)'), one per payee key within the statement, for example 'Unidentified lender obligation (weekly, 450.00)', with ' #2' for a second key with the same label. `canonical_entity` does not change.
+  - **Two match methods:**
+    - `unconfirmed_flag_payee_alias`: a debit whose potential alias belongs to a `REVIEW_FLAG_ENTITIES` entity takes that group's state, `matched_rule="<state>_review_registry"` and `review_required=True`;
+    - `known_payee_field_order`: a debit that a `FIELD_ORDER_PAYEE_FORMS` form reads takes its payee's group, `matched_rule="<state>_field_order"` (D9's LOC wording still wins), with no `matched_alias`.
 
 ### C5. Analysis payload (S2), per account
 
@@ -222,6 +252,9 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
   - A position whose rows are only credits exists, with `count` 0 and `total_debited` 0.0.
   - `cadence`, `avg_gap_days`, `first_date`, `last_date` and `source_locations` read every contributing row, debit or credit.
 - `analysis/cadence.py` provides `describe_cadence(dates: Sequence[date]) -> tuple[str, float | None]`, returning one of `"daily" | "weekly" | "biweekly" | "monthly" | "irregular" | "single"`.
+- (Amended 2026-09-27, classification 5.3: docs/superpowers/plans/2026-09-27-false-potential-lenders.md.)
+  - Each flagged position carries `review_required: bool` **last**, after `source_locations`: true when any contributing row of the payee requires review (a routed unconfirmed payee).
+  - `detection.potential_lenders[].funder` is the `potential_payee_label` for an unnamed payee, so each unnamed payee key is its own entry. `metrics.potential_lenders_detected` counts those labels, and a named payee keeps its entity.
 
 ### C6. Serving (S3)
 
@@ -249,6 +282,7 @@ def registry_match(normalized_text: str, registry: Mapping[str, Sequence[str]]) 
     - `totals.flagged_position_count_credited` (int: the counted credits, the sum of the items' `count_credited`; unit-free) and `totals.flagged_position_total_credited` (money; it joins `_CROSS_CURRENCY_TOTAL_KEYS`, and `total_credited` joins `_CROSS_CURRENCY_ROLLUP_KEYS`), owner ruling 2026-09-26.
   - The statement sheets' `flagged_<group>_<n>` sections carry `payee`, `count`, `total_debited`, `count_credited`, `total_credited` and `cadence`. The package sheets carry every item and total field, and the currency sweep covers the credited ones.
   - Serving needs no new rule for credits: `flag_shown` and the group filter key on `flagged_group`, so a ticked group's credit row is shown and its credited figures are served, and an unticked group's are hidden with its debits.
+  - (Amended 2026-09-27, classification 5.3: docs/superpowers/plans/2026-09-27-false-potential-lenders.md.) Each package flagged item carries `review_required` **last**, after `last_date`: true when any member's counted row of the payee requires review. The statement and package sheets' `flagged_<group>_<n>` sections carry it last too. The package's potential rows are keyed by `potential_payee_label` when a row has one, else by `canonical_entity`.
 
 ### C7. Settings (S3)
 
@@ -360,6 +394,12 @@ The research is consolidated into one entity per company **outside the code**, b
 `--check` and `--write` print one `move:` line per move, with its reason. A merged entity's line says `merged into <target>`, and an entity with a reattributed alias says `<alias> reattributed to <target>`. The orchestrator reads each one (the C10 ledger gate above).
 
 `docs/lender-registry-evidence.md` is rendered from the ledger for the owner to read.
+
+(Amended 2026-09-27, classification 5.3: docs/superpowers/plans/2026-09-27-false-potential-lenders.md.)
+- **`group`** gains `debt_relief` (owner ruling 2026-09-27). An admitted `debt_relief` entity renders into `DEBT_RELIEF_ALIASES`, its own table and never a known-payee registry. Its run-together forms join the validator's run-together collision check, so a glued debt-relief alias can never equal a lender's alias or glued form. `OWNER_NAMED_PAYEES` holds its owner-named payees (RAM Payments / Reliant, Global Holdings, Tayne Law Group).
+- **The routing rule.** `tools/lender_ledger.review_flag_entities` renders `REVIEW_FLAG_ENTITIES`: each `review` entity whose group is in `ROUTED_REVIEW_GROUPS` (`vehicle_financing`, `mortgage`, `lease_or_rental`, `personal_loan`, `debt_relief`) and whose `business_type` does not start with `unknown`, mapped to its group. The table stays `status`-driven: such an entity still renders into `POTENTIAL_LENDER_ALIASES`, which keeps its credits' exclusion, and only its debits take the flag, marked unconfirmed. A review entity of `confirmed_lender`, `potential_lender`, `alternative_position` or `factoring` is never routed. `tests/test_lender_registry_drift.py` renders the block with the map.
+- **Generic words.** `GENERIC_WORDS` (and `tools/lender_census.GENERIC_WORDS`) gain `DEBT`, `RELIEF`, `SETTLEMENT`, `CONSOLIDATION`, `RESOLUTION`, `NEGOTIATION`, `PROGRAM` and `LAW`, so a phrase such as `DEBT RELIEF` alone is never an alias.
+- **The field-order validator.** `--check` refuses a `FIELD_ORDER_PAYEE_FORMS` entity that is not an `admitted` ledger entity of a known-payee group, and a form that does not compile.
 
 ## Orchestrator verification (after each service, before merging)
 

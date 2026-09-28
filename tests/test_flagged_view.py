@@ -26,11 +26,11 @@ def _flagged_rows(account):
     return [row for row in account["statement"]["transactions"] if row["classification"].get("flagged_group")]
 
 
-def test_the_view_reads_the_eleven_contract_groups():
+def test_the_view_reads_the_twelve_contract_groups():
     assert tuple(group.key for group in FLAG_GROUPS) == (
         "alternative_positions", "lines_of_credit", "credit_cards", "vehicle_financing",
         "bank_loans", "mortgages", "leases_rentals", "personal_loans",
-        "floor_plan", "factoring", "premium_financing",
+        "floor_plan", "factoring", "premium_financing", "debt_relief",
     )
     assert FLAG_SETTING_KEYS == tuple(f"flag_{group.key}" for group in FLAG_GROUPS)
     # Premium financing is the one group with no state of its own: its rows stay insurance (C1, C4).

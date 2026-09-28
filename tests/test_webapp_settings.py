@@ -25,6 +25,7 @@ EXPECTED_DEFAULTS = {
     "flag_floor_plan": True,
     "flag_factoring": True,
     "flag_premium_financing": True,
+    "flag_debt_relief": True,
 }
 #: The settings after the NSF toggle alone is turned on: a save merges, so every other key keeps its default.
 CARRY_OVER = {**EXPECTED_DEFAULTS, "nsf_carry_over": True}

@@ -38,8 +38,9 @@ HEADER = (
 # --- the GENERATED block -----------------------------------------------------------------------------------
 
 
-def render_block(tables: dict[str, dict[str, tuple[str, ...]]]) -> str:
-    """The GENERATED block: one typed dict literal per C2 table, in TABLES order, with "\\n" line endings."""
+def render_block(tables: dict[str, dict[str, tuple[str, ...]]], review_flags: dict[str, str] | None = None) -> str:
+    """The GENERATED block: one typed dict literal per C2 table, in TABLES order, then (5.3) REVIEW_FLAG_ENTITIES
+    when `review_flags` is given, with "\\n" line endings."""
     lines = [BEGIN_MARKER, *HEADER, ""]
     for _group, table, heading in TABLES:
         lines.append(f"#: {heading}.")
@@ -58,6 +59,16 @@ def render_block(tables: dict[str, dict[str, tuple[str, ...]]]) -> str:
                 lines.extend(f"        {json.dumps(alias)}," for alias in aliases)
                 lines.append("    ),")
         lines += ["}", ""]
+    if review_flags is not None:
+        lines.append("#: 5.3 (owner ruling 2026-09-27): review entities whose debits take their flag, unconfirmed.")
+        if not review_flags:
+            lines += ["REVIEW_FLAG_ENTITIES: dict[str, str] = {}", ""]
+        else:
+            lines.append("REVIEW_FLAG_ENTITIES: dict[str, str] = {")
+            for name, group in review_flags.items():
+                line = f"    {json.dumps(name)}: {json.dumps(group)},"
+                lines += [line] if len(line) <= 110 else [f"    {json.dumps(name)}:", f"        {json.dumps(group)},"]
+            lines += ["}", ""]
     lines.append(END_MARKER)
     return "\n".join(lines)
 
@@ -146,6 +157,10 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "- An entity under review is in `POTENTIAL_LENDER_ALIASES` (review, never counted), whatever its group. "
         "No entity of a table read only with context (credit cards, card issuers, bank names, premium financing) "
         "is under review.",
+        "- Since classification 5.3 (owner ruling 2026-09-27), the debits of a review entity of the vehicle, "
+        "mortgage, lease, personal-loan or debt-relief group take that flag group, marked unconfirmed "
+        "(`REVIEW_FLAG_ENTITIES`), unless its business type is unknown. Its credits keep the potential tier's "
+        "exclusion.",
         "- An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with its group, its "
         "public source and where the researchers looked.",
         "- Every payee the owner named in spec section 2 is admitted in its ruled group: the validator refuses a "
@@ -272,7 +287,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     tables = render_tables(entities)
     source = args.registry.read_bytes().decode("utf-8")
-    args.registry.write_bytes(replace_block(source, render_block(tables)).encode("utf-8"))
+    block = render_block(tables, lender_ledger.review_flag_entities(entities))
+    args.registry.write_bytes(replace_block(source, block).encode("utf-8"))
     args.evidence.parent.mkdir(parents=True, exist_ok=True)
     args.evidence.write_bytes(render_evidence(entities, digest, rules).encode("utf-8"))
     for _group, table, _heading in TABLES:

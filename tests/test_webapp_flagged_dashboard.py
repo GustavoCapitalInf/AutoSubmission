@@ -31,6 +31,9 @@ def test_every_new_state_has_its_own_tag_and_the_retired_state_keeps_one():
         ("personal_loan", "FABRICATED PERSONAL LENDER", "FABRICATED PERSONAL LENDER (Personal loan)"),
         ("floor_plan_financing", "FABRICATED FLOORING CAPITAL", "FABRICATED FLOORING CAPITAL (Floor plan)"),
         ("factoring", None, "Factoring"),
+        # 5.3 (owner ruling 2026-09-27): the twelfth group.
+        ("debt_relief", "FABRICATED SETTLEMENT CO", "FABRICATED SETTLEMENT CO (Debt relief)"),
+        ("debt_relief", None, "Debt relief"),
         # Retired on 2026-09-24; an analysis saved before then still carries it.
         ("lease_or_equipment_financing", "FABRICATED LEASING", "Lease / Equipment"),
         # The Credit cards group names its card issuer, as the Flagged positions panel does.
@@ -463,7 +466,8 @@ def test_the_statement_window_has_its_own_flagged_table():
 # ---------------------------------------------------------------- Task 7: the Settings switches
 
 GROUP_KEYS = ["alternative_positions", "lines_of_credit", "credit_cards", "vehicle_financing", "bank_loans",
-              "mortgages", "leases_rentals", "personal_loans", "floor_plan", "factoring", "premium_financing"]
+              "mortgages", "leases_rentals", "personal_loans", "floor_plan", "factoring", "premium_financing",
+              "debt_relief"]
 
 SWITCHES = r"""
 const switches = () => [...els.flagSettingsList.innerHTML.matchAll(
@@ -709,7 +713,7 @@ def test_the_dashboard_labels_every_flag_group_as_the_analysis_does():
 
 def test_the_page_asks_browsers_for_the_new_script():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
-    assert '<script src="/static/app.js?v=lender-detection-1"></script>' in html
+    assert '<script src="/static/app.js?v=lender-detection-2"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in
@@ -903,3 +907,21 @@ console.log(JSON.stringify({shown, clicked, premiumOff, hidden: await open('hidd
     # Both unticked: nothing is flagged.
     assert hidden["rows"] == [[NO_FLAGGED_PAYMENTS]]
     assert True not in hidden["flagged"]
+
+
+# ---------------------------------------------------------------- 5.3: an unconfirmed flagged payee says so
+
+@needs_node
+def test_an_unconfirmed_flagged_payee_says_so_under_its_name():
+    entries = [
+        {"group": "vehicle_financing", "payee": "FABRICATED REVIEW AUTO", "count": 1, "total_debited": 400.0,
+         "count_credited": 0, "total_credited": 0.0, "cadence": "single", "review_required": True},
+        {"group": "vehicle_financing", "payee": "FABRICATED KNOWN AUTO", "count": 1, "total_debited": 300.0,
+         "count_credited": 0, "total_credited": 0.0, "cadence": "single", "review_required": False},
+    ]
+    result = run_dashboard(f"""
+console.log(JSON.stringify({{html: flaggedPositionRowsHtml({json.dumps(entries)}, "USD")}}));
+""")
+    [unconfirmed, known] = result["html"].split("</tr>")[:2]
+    assert "Unconfirmed: identity under review" in unconfirmed
+    assert "Unconfirmed" not in known

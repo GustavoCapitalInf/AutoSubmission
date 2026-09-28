@@ -84,7 +84,8 @@ def test_unnamed_equipment_financing_keeps_only_an_organisation_name(description
         ("ACH DEBIT FABRICATED SERVICER LLC", "Fabricated Servicer LLC"),
         ("FABRICATED DEBT COLLECTORS INC", "Fabricated Debt Collectors Inc"),
         # Owner decision 2026-09-25: an MCA servicing company whose funder is not named.
-        ("ACH DEBIT MCA SERVICING 0001", UNIDENTIFIED),
+        # 5.3 (2026-09-27): its fixed D10 label, because the words print for two unrelated funders.
+        ("ACH DEBIT MCA SERVICING 0001", "MCA servicer (funder not identified)"),
     ],
 )
 def test_an_unknown_servicer_or_collector_is_a_potential_lender(description, entity):

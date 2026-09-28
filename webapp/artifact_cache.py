@@ -550,7 +550,19 @@ OCR_STAGE_VERSION = 5
 # serve them; a re-analysis recomputes the analysis stage from the cached
 # reading. OCR stays cached. Pinned in the same change
 # (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 21
+# 21 -> 22: LENDER-DETECTION false-potential release (2026-09-27) —
+# classification version 5.3: new D6 skips, fee/NSF, cheque, card, payroll,
+# mortgage and POS wording, admitted payees in the bank's field order, unconfirmed
+# flag payees routed to their flag, D11 naming fixes, one Potential Lenders line
+# per unnamed payee key (potential_payee_label), and the Debt relief group (a new
+# state). The groups D6 no longer promotes (the skips and the $25 floor for
+# unnamed payees) also leave detect.find_recurring_debits, so the CLI's
+# 'Recurring fixed debits' lines, batch.py's recurring_debit_groups and the
+# payload's detection.recurring_debits lose them too. Stored rows change state,
+# entity and fields, so a warm cache keyed on 21 would serve them; a re-analysis
+# recomputes the analysis stage from the cached reading. OCR stays cached.
+# Pinned in the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 22
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

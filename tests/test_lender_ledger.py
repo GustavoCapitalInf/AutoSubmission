@@ -347,6 +347,22 @@ def test_no_payout_credit_problem_quotes_a_run_of_five_or_more_digits():
     ]
 
 
+# --- the field-order forms (owner ruling 2026-09-27, classification 5.3) -----------------------------------------
+
+
+def test_a_field_order_form_names_an_admitted_entity_of_a_known_payee_group():
+    problems = _problems(rules=dataclasses.replace(RULES, field_order={"Nonexistent Payee": ("X",)}))
+    assert len(problems) == 1
+    assert "FIELD_ORDER_PAYEE_FORMS" in problems[0]
+    assert _problems(rules=dataclasses.replace(RULES, field_order={"Ruledco": ("^RULEDCO LOAN PMT",)})) == []
+
+
+def test_a_field_order_form_that_does_not_compile_is_refused():
+    assert _problems(rules=dataclasses.replace(RULES, field_order={"Ruledco": ("(",)})) == [
+        "FIELD_ORDER_PAYEE_FORMS has a form of 'Ruledco' that does not compile",
+    ]
+
+
 # --- privacy -----------------------------------------------------------------------------------------------------
 
 
@@ -759,3 +775,62 @@ def test_the_ledger_digest_ignores_formatting():
         {"entities": data["entities"], "schema": 1})
     assert len(lender_ledger.ledger_digest(data)) == 64
     assert lender_ledger.ledger_digest(data) != lender_ledger.ledger_digest(ledger((0, "notes", "changed")))
+
+
+# --- 5.3 (owner ruling 2026-09-27): review entities routed to their flag ------------------------------------------
+
+
+def test_review_entities_of_the_routed_flag_groups_are_the_review_flag_entities():
+    entities = _entities((6, "status", "review"), (7, "status", "review"), (8, "status", "review"),
+                         (8, "business_type", "unknown"), (9, "status", "review"), (11, "status", "review"))
+    # Westfen's business type is unknown; Loxley is factoring and Heldco a lender: all three keep the potential tier.
+    assert lender_ledger.review_flag_entities(entities) == {
+        "Kelder Loans": "personal_loan", "Penwick Mortgage": "mortgage", "Rivett Motor Credit": "vehicle_financing",
+    }
+
+
+def test_the_routing_keeps_every_routed_alias_in_the_potential_table():
+    entities = _entities((6, "status", "review"))
+    tables = lender_ledger.render_tables(entities)
+    assert tables["POTENTIAL_LENDER_ALIASES"]["Rivett Motor Credit"] == ("RIVETT MOTOR CREDIT",)
+    assert "Rivett Motor Credit" not in tables["VEHICLE_FINANCE_ALIASES"]
+
+
+# --- 5.3 (owner ruling 2026-09-27): the Debt relief group --------------------------------------------------------
+
+
+def _with(*records):
+    data = ledger()
+    data["entities"] += list(records)
+    return data
+
+
+SETTLEMENT = entity("Fabrikam Settlement Payments", "debt_relief", ["FABRIKAM SETTLE PMT"],
+                    business_type="debt_settlement_dedicated_account_processor")
+
+
+def test_an_admitted_debt_relief_entity_renders_into_its_own_table_and_never_the_matcher():
+    data = _with(SETTLEMENT)
+    assert lender_ledger.validate(data, RULES) == []
+    entities, _problems = lender_ledger.parse_ledger(data)
+    tables = lender_ledger.render_tables(entities)
+    assert tables["DEBT_RELIEF_ALIASES"] == {"Fabrikam Settlement Payments": ("FABRIKAM SETTLE PMT",)}
+    assert "debt_relief" not in lender_ledger.PAYEE_STATES
+
+
+def test_debt_relief_words_alone_are_generic():
+    generic = entity("Fabrikam Relief", "debt_relief", ["DEBT RELIEF PROGRAM"], business_type="debt_settlement_company")
+    assert any("only generic words" in problem for problem in lender_ledger.validate(_with(generic), RULES))
+
+
+def test_a_debt_relief_aliases_run_together_form_may_not_be_a_lenders_alias():
+    clash = entity("Quillon Settlement", "debt_relief", ["QUILLON FUND"], business_type="debt_settlement_company")
+    assert any("run-together form" in problem for problem in lender_ledger.validate(_with(clash), RULES))
+
+
+def test_a_review_entity_of_debt_relief_is_routed_to_its_flag():
+    negotiator = entity("Fabrikam Negotiators", "debt_relief", ["FABRIKAM NEGOTIATORS"], status="review",
+                        business_type="mca_debt_relief_negotiator", evidence=[], verdicts=UNRESOLVED)
+    entities, problems = lender_ledger.parse_ledger(_with(negotiator))
+    assert problems == []
+    assert lender_ledger.review_flag_entities(entities) == {"Fabrikam Negotiators": "debt_relief"}
