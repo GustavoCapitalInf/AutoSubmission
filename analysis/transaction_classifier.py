@@ -182,6 +182,10 @@ class TransactionClassification:
     is_loan_payment: bool = False
     is_pos_context: bool = False
     classification_version: str = CLASSIFICATION_VERSION
+    # 5.3 (2026-09-27): the Potential Lenders line of an unnamed potential payee, one per payee key within the
+    # statement ('Unidentified lender obligation (weekly, 450.00)'). None for every other row, whose line is its
+    # canonical_entity.
+    potential_payee_label: str | None = None
 
     @property
     def is_pos_purchase(self) -> bool:
@@ -2910,6 +2914,36 @@ def _record_payee_tokens(record: TransactionClassification) -> tuple[str, ...]:
     return _unknown_payee_tokens(record.normalized_description)
 
 
+#: 5.3 (2026-09-27): the names D11 and D10 publish for a payee they cannot name. The Potential Lenders tab lists
+#: each payee key of them on its own line (potential_payee_label), never one line for all.
+_UNNAMED_POTENTIAL_ENTITIES = frozenset({UNIDENTIFIED_LENDER_OBLIGATION, UNIDENTIFIED_MCA_SERVICER})
+_RECURRENCE_CADENCE = re.compile(r"^(daily|weekly)_fixed_debit_")
+
+
+def _label_unnamed_potential_payees(records: list[TransactionClassification]) -> list[TransactionClassification]:
+    """5.3 (2026-09-27): one Potential Lenders line per unnamed payee of a statement. The rows of one payee key
+    (entity, rule, payee words, amount and masked recipient) share a label that names the entity, the cadence of a
+    recurrence and the amount, never a payee word (D11): 'Unidentified lender obligation (weekly, 450.00)'. A second
+    key with the same label gets ' #2'. canonical_entity is unchanged."""
+    groups: dict[tuple[object, ...], list[int]] = {}
+    for index, record in enumerate(records):
+        if record.classification == "potential_lender" and record.canonical_entity in _UNNAMED_POTENTIAL_ENTITIES:
+            key = (record.canonical_entity, record.match_method, _record_payee_tokens(record),
+                   round(abs(record.amount), 2), _masked_recipient(record))
+            groups.setdefault(key, []).append(index)
+    labelled = list(records)
+    used: dict[str, int] = {}
+    for (entity, _method, _payee, amount, _recipient), indexes in groups.items():
+        cadence = _RECURRENCE_CADENCE.match(records[indexes[0]].matched_rule or "")
+        label = f"{entity} ({cadence.group(1)}, {amount:,.2f})" if cadence else f"{entity} ({amount:,.2f})"
+        used[label] = used.get(label, 0) + 1
+        if used[label] > 1:
+            label = f"{label} #{used[label]}"
+        for index in indexes:
+            labelled[index] = replace(records[index], potential_payee_label=label)
+    return labelled
+
+
 def classify_statement_transactions(
     statement: Statement,
     *,
@@ -3023,6 +3057,7 @@ def classify_statement_transactions(
                 contributes_to_potential_withholding_exposure=True,
             )
 
+    records = _label_unnamed_potential_payees(records)
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
 

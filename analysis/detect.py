@@ -123,10 +123,12 @@ def _group_funders(
         )
         if record.classification != state or not record.canonical_entity or not contributes:
             continue
-        match = matches.get(record.canonical_entity)
+        # 5.3 (2026-09-27): an unnamed potential payee is listed under its own label, one per payee key.
+        name = record.potential_payee_label or record.canonical_entity
+        match = matches.get(name)
         if match is None:
             match = FunderMatch(
-                funder=record.canonical_entity,
+                funder=name,
                 matched_alias=record.matched_alias,
                 classification=state,
                 status="confirmed" if state == "confirmed_lender" else "review_required",
@@ -136,7 +138,7 @@ def _group_funders(
         match.evidence.append(record)
         match.debit_count += 1
         match.total_debited += abs(record.amount)
-        matches[record.canonical_entity] = match
+        matches[name] = match
     for match in matches.values():
         match.total_debited = round(match.total_debited, 2)
         if state == "potential_lender":

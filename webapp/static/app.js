@@ -689,7 +689,11 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
   }
   if (!canonicalEntity) return matched;
   if (flagGroup) return matched.filter((tx) => flaggedPayeeOf(tx) === canonicalEntity);
-  return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
+  // 5.3: an unnamed potential payee is listed under its own label (potential_payee_label), one per payee key.
+  return matched.filter((tx) => {
+    const record = transactionClassification(tx);
+    return (record.potential_payee_label || record.canonical_entity) === canonicalEntity;
+  });
 }
 
 // The account a review of this row names: 1-based, in printed order, or null for a statement of one account. A row's

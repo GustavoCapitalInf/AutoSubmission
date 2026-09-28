@@ -1590,7 +1590,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         potential_rows_by_entity: dict[str, list[dict]] = {}
         for row in potential_lender_rows:
             classification = row["classification"]
-            name = classification.get("canonical_entity") or "Unknown candidate"
+            name = (classification.get("potential_payee_label") or classification.get("canonical_entity")
+                    or "Unknown candidate")
             potential_rows_by_entity.setdefault(name, []).append(row)
 
         for name in sorted(set(potential_matches_by_entity) | set(potential_rows_by_entity)):
