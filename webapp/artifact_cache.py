@@ -562,7 +562,15 @@ OCR_STAGE_VERSION = 5
 # entity and fields, so a warm cache keyed on 21 would serve them; a re-analysis
 # recomputes the analysis stage from the cached reading. OCR stays cached.
 # Pinned in the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 22
+# 22 -> 23: LENDER-DETECTION Idea Financial ruling (owner, 2026-09-28) —
+# classification version 5.4: IDEA FINANCIAL moves from the line-of-credit table
+# to the lender table and gains its printed ACH spellings (IDEALOAN, IDEA 247
+# INC), so its debits become counted lender rows (a row printing LOC or LINE OF
+# CREDIT stays a line of credit, D9) and its credits stay financing proceeds.
+# Stored rows change state and entity, so a warm cache keyed on 22 would serve
+# them; a re-analysis recomputes the analysis stage from the cached reading. OCR
+# stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 23
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
