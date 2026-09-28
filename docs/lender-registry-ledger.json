@@ -52621,6 +52621,11 @@
    ],
    "verdicts": [
     {
+     "round": "r7",
+     "verdict": "unresolved",
+     "confirmed": false
+    },
+    {
      "round": "owner",
      "verdict": "upheld",
      "confirmed": false
@@ -52634,7 +52639,7 @@
     "https://www.sec.gov/Archives/edgar/data/1750735/000175073525000011/mrbk-20241231.htm",
     "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
    ],
-   "notes": "Review: MERIT BUSINESS is the printed originator of Truist 'ACH CORP DEBIT' rows that the funders research tied to Merit Business Funding, the revenue-advance brand of Meridian Equipment Finance LLC (the word FUNDING is never printed; tryout host only, no cached corpus row prints MERIT BUS). The verify round of 2026-09-27 (r7) admitted Merit Business Funding with its full name only and left this spelling to the owner (owner_pending_aliases): BUSINESS is a generic word, so its only distinctive word is MERIT, and a same-named payee, or an account holder named 'Merit Business ...' in a receiver field, would also be read as Merit. Owner decision 2026-09-28 (delegated): review alias, not counted. The rows are named on the Potential Lenders tab and never enter lender math; as for every review entity, a credit printing the spelling keeps the potential tier's exclusion from revenue. The verdict is that owner ruling (round 'owner'): the spelling is upheld as a review alias, not confirmed as Merit Business Funding's, which is why the entity says 'probably'. Bare MERIT is never an alias."
+   "notes": "Review: MERIT BUSINESS is the printed originator of Truist 'ACH CORP DEBIT' rows that the funders research tied to Merit Business Funding, the revenue-advance brand of Meridian Equipment Finance LLC (the word FUNDING is never printed; tryout host only, no cached corpus row prints MERIT BUS). The verify round of 2026-09-27 (r7) admitted Merit Business Funding with its full name only and left this spelling to the owner (owner_pending_aliases): BUSINESS is a generic word, so its only distinctive word is MERIT, and a same-named payee, or an account holder named 'Merit Business ...' in a receiver field, would also be read as Merit. Owner decision 2026-09-28 (delegated): review alias, not counted. The rows are named on the Potential Lenders tab and never enter lender math; as for every review entity, a credit printing the spelling keeps the potential tier's exclusion from revenue. The r7 verdict records that round's finding on this spelling (unresolved, left to the owner); the owner verdict after it records the ruling: the spelling is upheld as a review alias, not confirmed as Merit Business Funding's, which is why the entity says 'probably'. Bare MERIT is never an alias."
   },
   {
    "entity": "RAM Payment LLC (Reliant)",
