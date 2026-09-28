@@ -147,3 +147,9 @@ def test_bare_forth_is_no_debt_relief_alias():
 def test_an_escrow_refund_credit_keeps_todays_path():
     refund = classify_transaction("RAM PMT 482913 0001", 300.0)
     assert refund.classification != "debt_relief" and refund.flagged_group is None
+
+
+def test_samson_servicing_is_named_on_the_potential_tab_only():
+    record = classify_transaction("SAMSONSERVICING DES:ACHPAYMENT ID:0001 INDN:FAB HOLDER CO ID:0002 CCD", -900.0)
+    assert record.classification == "potential_lender" and record.canonical_entity.startswith("Samson Servicing")
+    assert not record.contributes_to_withholding_rate

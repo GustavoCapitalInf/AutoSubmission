@@ -1261,6 +1261,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Resolve (probably Resolve Pay)": ("RESOLVE PAYMENT",),
     "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)": ("RESOLVE CAPITAL",),
     "Rewards Network": ("REWARDS NETWORK",),
+    "Samson Servicing (probably Samson MCA / Samson Funding)": ("SAMSONSERVICING",),
     "Sigma Financial": ("SIGMA FINANCIAL",),
     "States Resources Corp": ("STATES RESOURCES",),
     "STELLANTIS SFA (probably Stellantis Financial Services)": ("STELLANTIS SFA",),

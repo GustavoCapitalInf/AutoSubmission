@@ -53369,6 +53369,48 @@
     "https://secondwindconsultants.com/resource/mca-debt-relief-firm-reviews-a-guide-to-the-real-options-for-business-owners-and-lenders/"
    ],
    "notes": "Named by the owner on 2026-09-27 as debt relief; kept REVIEW here, not admitted, because the printed originator cannot be tied to Resolve Capital Partners: Chase CCD 'Orig CO Name:Resolve Capital ... CO Entry Descr:<number> Sec:CCD' (a D6 payee key, 9 D6 rows in 3 accounts, one fixed weekly amount in the tens of thousands). The weekly cadence and size do not match the site's one-monthly-payment wording and fit either a pass-through of negotiated settlements to funders or a reverse-consolidation advance (a funder product); the same account holder also wires Rise Alliance, an MCA debt-relief firm, which supports the debt-relief reading. The name carries CAPITAL, a funder cue, and Chase cuts Orig CO Name at 16 characters: 'Resolve Capital' is 15, so a 'Resolve Capital Partners' and any funder called 'Resolve Capital <word>' print the same field; in memory the alias also claims a fabricated 'RESOLVE CAPITAL FUNDING LLC' row. Under today's C10 rendering a review entity stays in the potential tier, named; under part (C) it moves to the Debt relief flag marked unconfirmed. Admit it only on a source tying the originator to the negotiator. RESOLVE alone and RESOLVE PAYMENT (the potential alias of Resolve Pay, a B2B net-terms payee) are untouched: the alias needs the two words RESOLVE CAPITAL. A separate site 'Resolve Capital Consolidation' did not resolve (DNS). Verify round 2026-09-27: resolve-capital.com describes an MCA debt-relief negotiator (one monthly payment, no funding) and names no legal entity. MCA Resolve LLC of Delray Beach is a second Palm Beach County 'Resolve' debt-relief firm whose old domain now redirects to a consolidation-loan lender, which keeps the funder reading alive; no source ties either firm to the printed originator, and no funder named Resolve Capital was found."
+  },
+  {
+   "entity": "Samson Servicing (probably Samson MCA / Samson Funding)",
+   "group": "confirmed_lender",
+   "business_type": "mca_or_revenue_based_funder (probable; the originator is not publicly tied to the Samson funders)",
+   "aliases": [
+    "SAMSONSERVICING"
+   ],
+   "status": "review",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "Fetched and read (r6): 'Samson MCA LLC', State Street, New York NY, is a Virginia sales-based financing provider registrant at year-end 2025. Nothing in the list names Samson Servicing."
+    },
+    {
+     "source": "https://www.samsonfunding.com/",
+     "note": "Fetched (r6): Samson Funding, Inc. offers revenue-based financing, lines of credit, equipment financing, invoice factoring, short-term financing and a home-equity line; 'We directly fund most of the capital we provide' and match other products with partners. No servicing entity is named."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r6",
+     "verdict": "unresolved",
+     "confirmed": false
+    },
+    {
+     "round": "r7",
+     "verdict": "unresolved",
+     "confirmed": false
+    }
+   ],
+   "where_looked": [
+    "https://www.samsonfunding.com/",
+    "https://www.samsonfunding.com/contact-us",
+    "https://www.sec.gov/Archives/edgar/data/1158419/000121465917002254/ex10_15.htm",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+    "https://opencorporates.com/companies/us_de/6589155",
+    "https://www.bizapedia.com/de/samson-servicing-llc.html",
+    "https://www.sec.gov/edgar/search/"
+   ],
+   "notes": "Review: added 2026-09-27 under owner decision 3 of the false-positive hunt as a review alias only, so the Potential Lenders tab names these rows instead of 'Unidentified lender obligation'. The rows are Bank of America CCD debits from the originator SAMSONSERVICING, entry description ACHPAYMENT, fixed weekly amounts at three levels (tryout host, 10 accounts, 54 rows): financing-shaped. Samson is a known MCA family: Samson MCA LLC (New York) is a Virginia sales-based financing provider registrant and Samson Funding, Inc. sells revenue-based financing, but no public source ties the originator to either. A search result lists a Delaware SAMSON SERVICING LLC, whose registry pages returned only a bot check, so its owner is unknown. A 2017 agreement in a public filing (listed under where_looked, not cited because it names a guarantor) named a third-party servicing agent for a 'Samson Funding' contract; it says nothing about the 2026 originator. The SEC's full-text search finds no 'Samson Servicing'. Admit it as a counted lender only when a verified source ties Samson Servicing to a Samson funder. The alias is the glued printed originator (the potential table has no run-together matching); SAMSON alone prints only on card purchases in the corpus and is never an alias."
   }
  ]
 }
