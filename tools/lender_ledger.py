@@ -28,6 +28,7 @@ The validator applies:
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 import ipaddress
 import json
@@ -203,6 +204,8 @@ class Rules:
     payout_credit: tuple[str, ...]
     #: Alias of today's registry -> the ledger entity of the other company it names (owner ruling).
     reattributed: Mapping[str, str]
+    #: Ledger entity -> its printed forms in the bank's field order (owner ruling 2026-09-27, classification 5.3).
+    field_order: Mapping[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -716,6 +719,24 @@ def payout_credit_problems(entities: list[LedgerEntity], names: tuple[str, ...])
     return problems
 
 
+def field_order_problems(entities: list[LedgerEntity], forms: Mapping[str, tuple[str, ...]]) -> list[str]:
+    """The owner's field-order ruling (FIELD_ORDER_PAYEE_FORMS, 2026-09-27): each entity is an admitted ledger entity
+    of a known-payee group, and each form compiles."""
+    named = _by_name(entities)
+    problems = []
+    for name, patterns in forms.items():
+        entity = named.get(name)
+        if entity is None or entity.status != "admitted" or entity.group not in PAYEE_STATES:
+            problems.append(f"FIELD_ORDER_PAYEE_FORMS names {_shown(name)}, which is not an admitted ledger entity of "
+                            f"a known-payee group")
+        for pattern in patterns:
+            try:
+                re.compile(pattern)
+            except re.error:
+                problems.append(f"FIELD_ORDER_PAYEE_FORMS has a form of {_shown(name)} that does not compile")
+    return problems
+
+
 def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     entities, problems = parse_ledger(data)
     if problems:
@@ -727,6 +748,7 @@ def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     problems.extend(_collision_problems(entities))
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
     problems.extend(payout_credit_problems(entities, rules.payout_credit))
+    problems.extend(field_order_problems(entities, rules.field_order))
     problems.extend(baseline_problems(entities, rules.baseline, rules.merged, rules.reattributed))
     return problems
 
@@ -802,4 +824,5 @@ def current_rules() -> Rules:
         merged=registry.MERGED_REGISTRY_ENTITIES,
         payout_credit=registry.PAYOUT_CREDIT_ENTITIES,
         reattributed=registry.REATTRIBUTED_REGISTRY_ALIASES,
+        field_order=registry.FIELD_ORDER_PAYEE_FORMS,
     )

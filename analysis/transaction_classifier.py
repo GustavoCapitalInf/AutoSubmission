@@ -10,6 +10,7 @@ from .classification_registry import (
     BANK_NAME_ALIASES,
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
+    FIELD_ORDER_PAYEE_FORMS,
     INSURANCE_PROVIDER_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
@@ -1198,6 +1199,49 @@ _LINE_OF_CREDIT_PATTERNS = (
 _LOC_OVERRIDE_STATES = frozenset({"confirmed_lender", "alternative_position", "line_of_credit"})
 
 
+def _compile_field_order_forms() -> tuple[tuple[re.Pattern[str], PayeeMatch], ...]:
+    """FIELD_ORDER_PAYEE_FORMS compiled once, each with its payee's group (PAYEE_GROUP_REGISTRIES)."""
+    state_of = {entity: state for state, registry in PAYEE_GROUP_REGISTRIES.items() for entity in registry}
+    return tuple(
+        (re.compile(form), PayeeMatch(entity, state_of[entity], ""))
+        for entity, forms in FIELD_ORDER_PAYEE_FORMS.items()
+        if entity in state_of
+        for form in forms
+    )
+
+
+_FIELD_ORDER_FORMS = _compile_field_order_forms()
+
+
+def _field_order_payee(text: str) -> PayeeMatch | None:
+    """5.3 (owner ruling 2026-09-27): the admitted payee a debit prints in the bank's field order, or None."""
+    return next((match for pattern, match in _FIELD_ORDER_FORMS if pattern.search(text)), None)
+
+
+def _field_order_debit_record(
+    common: dict[str, object],
+    text: str,
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """A debit to a payee read from the bank's fields: its group (D9's LOC wording still wins), with no alias."""
+    if match.state in _LOC_OVERRIDE_STATES and _matches_any(text, _LINE_OF_CREDIT_PATTERNS):
+        state, rule = "line_of_credit", "line_of_credit_descriptor_override"
+    else:
+        state, rule = match.state, f"{match.state}_field_order"
+    return _build_record(
+        **common,
+        classification=state,
+        canonical_entity=match.entity,
+        match_method="known_payee_field_order",
+        matched_rule=rule,
+        confidence_score=0.97,
+        reason=(
+            f"The bank printed the originator and the entry description of {match.entity} in separate fields; "
+            f"read from those fields, the row is {_state_words(state)}."
+        ),
+    )
+
+
 def _known_payee_debit_record(
     common: dict[str, object],
     text: str,
@@ -1653,6 +1697,11 @@ def classify_transaction(
     # alternative-position payee matches no known payee (steps 5 and 7).
     if known_payee is not None and amount < 0 and _is_membership_or_top_up(text, known_payee):
         known_payee = None
+    # 5.3 (owner ruling 2026-09-27): an admitted payee printed in the bank's field order, on a debit no alias
+    # matched (FIELD_ORDER_PAYEE_FORMS). Credits keep today's rules.
+    field_order_payee = _field_order_payee(text) if known_payee is None and amount < 0 else None
+    if field_order_payee is not None:
+        known_payee = field_order_payee
 
     if (
         amount < 0
@@ -1747,6 +1796,8 @@ def classify_transaction(
     # ruling 2026-09-26).
     if known_payee is not None:
         if amount < 0:
+            if field_order_payee is not None:
+                return _field_order_debit_record(common, text, known_payee)
             return _known_payee_debit_record(common, text, known_payee)
         if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
             return _flagged_revenue_credit_record(common, known_payee)

@@ -347,6 +347,22 @@ def test_no_payout_credit_problem_quotes_a_run_of_five_or_more_digits():
     ]
 
 
+# --- the field-order forms (owner ruling 2026-09-27, classification 5.3) -----------------------------------------
+
+
+def test_a_field_order_form_names_an_admitted_entity_of_a_known_payee_group():
+    problems = _problems(rules=dataclasses.replace(RULES, field_order={"Nonexistent Payee": ("X",)}))
+    assert len(problems) == 1
+    assert "FIELD_ORDER_PAYEE_FORMS" in problems[0]
+    assert _problems(rules=dataclasses.replace(RULES, field_order={"Ruledco": ("^RULEDCO LOAN PMT",)})) == []
+
+
+def test_a_field_order_form_that_does_not_compile_is_refused():
+    assert _problems(rules=dataclasses.replace(RULES, field_order={"Ruledco": ("(",)})) == [
+        "FIELD_ORDER_PAYEE_FORMS has a form of 'Ruledco' that does not compile",
+    ]
+
+
 # --- privacy -----------------------------------------------------------------------------------------------------
 
 

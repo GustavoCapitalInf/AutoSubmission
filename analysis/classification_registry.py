@@ -1380,6 +1380,24 @@ REATTRIBUTED_REGISTRY_ALIASES: dict[str, str] = {"SMARTPAY SOL": "SmartPay Solut
 #: financing proceeds (analysis.flag_groups.FINANCING_STATES).
 PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = ("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")
 
+#: Owner ruling 2026-09-27 (classification 5.3): the printed forms, in the bank's field order, of admitted payees whose
+#: bank prints the originator and the entry description apart, so no contiguous alias can match them (Chase's
+#: 'ORIG CO NAME ... CO ENTRY DESCR' fields; Truist's entry description first). Keyed by ledger entity; each value is
+#: a regular expression read on the normalized row, on DEBITS ONLY, when no alias matched. The Chase forms refuse a
+#: row that holds two originator blocks (a merged row stays in review). tools/lender_ledger.py refuses an entity
+#: that is not admitted in a known-payee group.
+FIELD_ORDER_PAYEE_FORMS: dict[str, tuple[str, ...]] = {
+    "American Express Loans": (
+        r"^(?!.*\bORIG CO NAME\b.*\bORIG CO NAME\b).*\bORIG CO NAME AMERICAN EXPRESS ORIG ID [A-Z0-9]+ DESC DATE"
+        r"(?: [A-Z0-9]+)? CO ENTRY DESCR LOAN(?: (?:PMT|PYMT|PAYMENT))?(?:SEC)?\b",
+        r"^(?:ACH CORP (?:DEBIT|CREDIT) )?LOAN(?: (?:PMT|PYMT|PAYMENT))? AMERICAN EXPRESS\b",
+    ),
+    "American Express [credit card payment]": (
+        r"^(?!.*\bORIG CO NAME\b.*\bORIG CO NAME\b).*\bORIG CO NAME AMERICAN EXPRESS ORIG ID\b"
+        r"(?:(?!\bCO ENTRY\b).)*?\bCO ENTRY (?:[0-9]+ )?DESCR (?:ACH |RETRY )?(?:PAYMENT|PMT|PYMT|EPAYMENT)(?:SEC)?\b",
+    ),
+}
+
 
 OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     "11-101 Signal R": ("11 101 SIGNAL R", "SIGNAL R"),
