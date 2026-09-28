@@ -57,9 +57,10 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # Re-pinned 5.0/19 -> 5.1/20: the D6 clarification (2026-09-26) changes the stored rows. Re-pinned 5.1/20 ->
     # 5.2/21: the second D6 clarification (2026-09-27, compensation memos and masked recipient accounts) does too.
     # 5.3/22: the false-positive release (2026-09-27): D6 skips, rule extensions, routing, naming, Debt relief.
-    assert CLASSIFICATION_VERSION == "5.3"
-    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.3"
-    assert ANALYSIS_STAGE_VERSION == 22
+    # 5.4/23: the owner ruling of 2026-09-28: Idea Financial is a counted lender, no longer a line of credit.
+    assert CLASSIFICATION_VERSION == "5.4"
+    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.4"
+    assert ANALYSIS_STAGE_VERSION == 23
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
