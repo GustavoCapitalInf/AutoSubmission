@@ -418,6 +418,8 @@ _CREDIT_CARD_PATTERNS = (
     re.compile(r"\bCAPITAL ?ON ?TAP\b"),
     # A payment to a card account named only by its type.
     re.compile(r"\b(?:PAYMENT|PMT|PYMT) TO (?:CRD|CREDIT CARD|VSA|VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS)\b"),
+    # 5.3 (2026-09-27): Navy Federal's memo for a recurring card payment.
+    re.compile(r"\bCREDIT CARD RECUR(?:RING)?\b"),
 )
 #: Owner decision 2026-09-25 (step8_own_account_transfer_guard): a fintech transfer
 #: between the holder's own accounts takes no step-8 rule, whatever the holder
@@ -483,7 +485,7 @@ _LEASE_RENTAL_PATTERNS = (
 #: wording. Owner decision 2026-09-25: Synchrony's PAYMNT, and a payment word glued to
 #: the SEC label in Chase's field layout, are payment wording too.
 _CARD_PAYMENT_CONTEXT_PATTERNS = (
-    re.compile(r"\b(?:CREDIT CARD|CRCARD|CRD|CARD|CARDMEMBER)\b"),
+    re.compile(r"\b(?:CREDIT CARD|CREDITCARD|CRCARD|CRD|CARD|CARDMEMBER)\b"),
     re.compile(
         r"\b(?:AUTOPAY|AUTO PAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)\b"
         r"|\b(?:AUTOPAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)SEC\b"
@@ -2618,6 +2620,27 @@ def _is_processor_account_charge(record: TransactionClassification) -> bool:
     )
 
 
+#: 5.3 (2026-09-27): each card_issuer_context alias's normalized words, computed once.
+_CARD_ISSUER_CONTEXT_WORDS = {
+    alias: tuple(normalize_transaction_description(alias).split())
+    for aliases in CARD_ISSUER_CONTEXT_ALIASES.values()
+    for alias in aliases
+}
+
+
+def _names_card_issuer(payee: Sequence[str], text: str) -> bool:
+    """5.3: the payee IS a listed card issuer printed alone (C10 keeps that row unflagged): the issuer alias's words
+    lead the D11 payee words, and the rest of the row names no financing. An issuer token inside a longer name
+    (FABRICATED SYF CAPITAL) is never enough."""
+    found = registry_match(" ".join(payee), CARD_ISSUER_CONTEXT_ALIASES)
+    if found is None:
+        return False
+    words = _CARD_ISSUER_CONTEXT_WORDS.get(found[1], ())
+    return bool(words) and tuple(payee[: len(words)]) == words and not _names_financing(
+        text, besides=" ".join(words)
+    )
+
+
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
     """Why D6 (spec D6 and its clarifications) does not take this default debit, or None when it may.
 
@@ -2662,6 +2685,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
     carrier = next((found for pattern in _TELECOM_CARRIER_PATTERNS if (found := pattern.match(leading))), None)
     if carrier is not None and not _names_financing(text, besides=carrier.group(0)):
         return "telecom_carrier"
+    if _names_card_issuer(payee, text):
+        return "card_issuer_alone"
     return None
 
 

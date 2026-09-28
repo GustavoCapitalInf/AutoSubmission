@@ -72,3 +72,29 @@ def test_a_cheque_word_that_is_not_the_instrument_never_claims_the_row(descripti
 
 def test_a_known_payee_after_the_cheque_number_is_still_named(fake_payees):
     assert classify_transaction("CHQ 417 FABRICATED LENDER", -500.0).classification == "confirmed_lender"
+
+
+# --- B4: card-payment wording, and an issuer printed alone --------------------------------------------------------
+
+def test_the_run_together_creditcard_is_card_payment_wording():
+    assert _state("BARCLAYCARD US DES:CREDITCARD ID:0001 INDN:FAB HOLDER CO ID:0002 PPD") == (
+        "credit_card_payment", "credit_card_payment", "Barclays Bank Delaware [credit card payment]")
+
+
+def test_a_recurring_card_payment_memo_is_a_card_payment():
+    assert _state("NFCU ACH 0001 CREDIT CARD RECUR")[:2] == ("credit_card_payment", "credit_card_payment")
+
+
+def _d6_states(description: str) -> set[tuple[str, str]]:
+    statement = Statement(transactions=[txn(f"2054-01-{day:02d}", description, -300.0) for day in WEEKLY])
+    return {(record.classification, record.match_method) for record in classify_statement_transactions(statement)}
+
+
+@pytest.mark.parametrize("description", ["VISA TD ABC123", "CAPTL ONE MC ABC123", "Electronic Withdrawal To APPLECARD GSBANK"])
+def test_an_issuer_printed_alone_stays_unflagged_and_is_not_a_d6_payee(description):
+    assert _d6_states(description) == {("other", "default")}
+
+
+@pytest.mark.parametrize("description", ["FABRICATED SYF CAPITAL LLC", "SYF FAB CAPITAL LLC"])
+def test_an_issuer_token_inside_a_funder_name_never_hides_it(description):
+    assert _d6_states(description) == {("potential_lender", "recurring_fixed_debit")}
