@@ -2426,6 +2426,32 @@ def _is_vendor_payee(payee: Sequence[str], text: str, account_name: str | None) 
     return _VENDOR_LENDING_GUARD.search(text.replace(found.group(0), " ")) is None
 
 
+#: 5.3 (2026-09-27): tax authorities and government agencies printed without TAX, IRS or CRA, read on the payee
+#: region only (never an entry description or memo) and only for a payee that names no organisation. The row stays
+#: 'other': the tax rule has no amount guard and runs before the known payee, so it is not widened.
+_GOVERNMENT_PAYEE_PATTERNS = (
+    re.compile(r"\b(?:UNITED STATES|U ?S) (?:(?:DEPT|DEPARTMENT) OF (?:THE )?)?TREAS(?:URY)?\b"),
+    re.compile(r"\bEFTPS\b"),
+    re.compile(r"\bCCRA\b"),
+    re.compile(r"\bRECEIVER GENERAL\b"),
+    re.compile(r"\bSECRETARY OF STATE\b"),
+    re.compile(r"\bSTATE OF [A-Z]+(?: [A-Z]+)? (?:SOS|DMV)\b"),
+    re.compile(r"\b(?:DEPT|DEPARTMENT) OF MOTOR VEHICLES?\b"),
+    re.compile(r"\b(?:DTF|EDD|DOR|TAXATION|COMPTROLLER)\b"),
+    re.compile(r"\b(?:DEPT|DEPARTMENT) (?:OF )?REV(?:ENUE)?\b"),
+    re.compile(r"\bTREASURER OF STATE\b|\b[A-Z]{2} TREASURY\b"),
+    re.compile(r"\bREVENU QUEBEC\b|\bMINISTRE DU REVENU\b"),
+    re.compile(r"\b(?:WSIB|WORKSAFE\w*|WCB|EHT|CNESST)\b"),
+)
+#: 5.3: payees the financing-keyword recurrence never promotes: a government finance department (FINANCE is its
+#: name, not a loan) and a retailer named ADVANCE. Their single rows stay 'other' / financing_keyword_review.
+_GOVERNMENT_FINANCE_DEPARTMENT_PATTERNS = (
+    re.compile(r"\b(?:DEPT|DEPARTMENT|MINISTRY|MIN|MINISTERE|DIV) (?:OF |DES )?FINANCES?\b"),
+    re.compile(r"\bFINANCE DEPT\b"),
+)
+_RETAILER_ADVANCE_PATTERNS = (re.compile(r"\bADVANCE (?:AUTO PARTS|STORES)\b"),)
+
+
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
     """Why D6 (spec D6 and its clarifications) does not take this default debit, or None when it may.
 
@@ -2452,6 +2478,10 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "savings_or_investment"
     if _is_vendor_payee(payee, text, record.account_name):
         return "named_non_lender"
+    if _unknown_payee_name(payee) in (None, UNIDENTIFIED_LENDER_OBLIGATION) and _skips(
+        _payee_region(text), _GOVERNMENT_PAYEE_PATTERNS, text
+    ):
+        return "government_payee"
     return None
 
 
@@ -2460,6 +2490,11 @@ def _keyword_recurrence_skip(record: TransactionClassification) -> str | None:
 
     Its rows carry a financing word by definition (LOAN, ADVANCE, FINANCE, FUNDING…), so these clauses carry no
     financing veto; each names a payee that is never a lender (A7, A8)."""
+    region = _row_before_receiver(record.normalized_description)
+    if _matches_any(region, _GOVERNMENT_FINANCE_DEPARTMENT_PATTERNS):
+        return "government_finance_department"
+    if _matches_any(region, _RETAILER_ADVANCE_PATTERNS):
+        return "retailer_named_advance"
     return None
 
 

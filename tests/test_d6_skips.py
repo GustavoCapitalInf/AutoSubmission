@@ -332,3 +332,41 @@ def test_vendors_and_named_non_lenders_are_not_d6_payees(description, account_na
 )
 def test_a_vendor_word_never_hides_a_financing_payee_or_reads_the_holder(description, account_name):
     assert _states(description, account_name=account_name) == D6
+
+
+# --- A7: tax and government payees -------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Online Payment 1234 To United States Treasury",
+        "PAD CCRA CANADA",
+        "STATE OF FABSTATE SOS EFT",
+        "NYS DTF WT DES:NYS DTF WT ID:0001 INDN:FABRIKAM CORP CO ID:0002 CCD",
+        "MI TREASURY 1234",
+        "PAD WSIB",
+        "EFTPS PAYMENT 1234",
+    ],
+)
+def test_tax_and_government_payees_are_not_d6_payees(description):
+    assert _states(description) == OTHER
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["TREASURY CAPITAL GROUP LLC", "ACH DEBIT CCRA HOLDINGS LLC", "FABRICATED WIDGETS DES:CCRA ID:0001"],
+)
+def test_a_government_word_never_hides_a_named_payee_or_reads_an_entry_field(description):
+    assert _states(description) == D6
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["BUSINESS PAD FABTOWN MIN OF FINANCE", "FAB CITY DEPT OF FINANCE PARKING ACH DEBIT", "ADVANCE AUTO PARTS ACH DEBIT"],
+)
+def test_government_finance_departments_and_a_named_retailer_are_no_keyword_recurrence(description):
+    assert _states(description) == {("other", "financing_keyword_review")}
+
+
+def test_a_financing_keyword_payee_still_recurs():
+    assert _states("ACH DEBIT FABRICATED FUNDING LLC") == {("potential_lender", "recurring_financing_counterparty")}
