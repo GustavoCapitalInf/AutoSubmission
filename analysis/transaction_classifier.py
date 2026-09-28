@@ -985,13 +985,16 @@ _ENTITY_NOISE = {
     "DESCR", "DESCRIPTION", "ENTRY", "DETAIL", "PAYMENT", "PAYMENTS", "PAY", "PMT",
     "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE", "WEB", "CCD", "PPD",
     "LOAN", "MCA", "TO", "FROM", "FOR", "TFR", "XFER", "TRANSFER", "MISC",
+    # 5.3: the paid-to label a bank prints before the payee (Navy Federal "Paid To -").
+    "PAID",
 }
 #: Financing words that describe the payment, not the payee, when they lead the name.
 _GENERIC_ENTITY_WORDS = {"FINANCE", "FINANCING", "FUNDING", "CAPITAL", "FUNDER", "ADVANCE"}
 #: D11: a name is published only when one of these organisation cues survives.
 #: The last eight are the registry-style company tokens (legal-form suffixes).
+#: 5.3 (2026-09-27): CO is no cue (it is also Colorado's state code: 'NAME, CITY, CO'); COMPANY stays one.
 _ORGANISATION_CUES = {
-    "LLC", "INC", "CORP", "CO", "FUNDING", "CAPITAL", "FINANCIAL", "FINANCE", "BANK",
+    "LLC", "INC", "CORP", "FUNDING", "CAPITAL", "FINANCIAL", "FINANCE", "BANK",
     "CREDIT", "LENDING", "ADVANCE", "GROUP", "HOLDINGS", "SERVICES",
     "CORPORATION", "COMPANY", "INCORPORATED", "LTD", "LIMITED", "LP", "LLP", "PLLC",
 }
@@ -1011,6 +1014,8 @@ _ACH_FIELD_SEGMENT = re.compile(
 )
 _MASKED_TOKEN = re.compile(r"X{2,}[A-Z0-9]*")
 _MAX_ENTITY_TOKENS = 4
+#: 5.3: connectors that never end a name (a name cut by the four-word cap: 'BOKF NATIONAL BANK OF').
+_TRAILING_CONNECTORS = frozenset({"OF", "AND", "THE", "DE", "DU", "DES"})
 #: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
 _RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
@@ -1090,6 +1095,9 @@ def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     channel words, single letters and leading financing words, and stops at the
     first reference token (digits, a masked number or a month) once a name has
     started, so a person's name printed after the references never joins it.
+
+    5.3 (2026-09-27): a name ends at its first legal-form word after the first word; a leading AND and a trailing
+    connector are dropped.
     """
     text = _payee_region(text)
     tokens: list[str] = []
@@ -1100,19 +1108,34 @@ def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
             if tokens:
                 break
             continue
-        if not tokens and token in _GENERIC_ENTITY_WORDS:
+        if not tokens and (token in _GENERIC_ENTITY_WORDS or token == "AND"):
             continue
         tokens.append(token)
+        if len(tokens) > 1 and token in _LEGAL_FORM_SUFFIXES:
+            break
         if len(tokens) == _MAX_ENTITY_TOKENS:
             break
+    while tokens and tokens[-1] in _TRAILING_CONNECTORS:
+        tokens.pop()
     return tuple(tokens)
+
+
+def _names_an_organisation(tokens: Sequence[str]) -> bool:
+    """D11 and 5.3 (2026-09-27): a cue names an organisation, except a legal-form word printed first (CORP of
+    'CORP FABRIKAM ...'); a name made only of cue words ('BANK', 'CORP') names none."""
+    if all(token in _ORGANISATION_CUES for token in tokens):
+        return False
+    return any(
+        token in _ORGANISATION_CUES and (position > 0 or token not in _LEGAL_FORM_SUFFIXES)
+        for position, token in enumerate(tokens)
+    )
 
 
 def _unknown_payee_name(tokens: Sequence[str]) -> str | None:
     """D11: the published name, the unidentified label, or None when no payee is named."""
     if not tokens:
         return None
-    if not any(token in _ORGANISATION_CUES for token in tokens):
+    if not _names_an_organisation(tokens):
         return UNIDENTIFIED_LENDER_OBLIGATION
     return " ".join(token if token in _ENTITY_ACRONYMS else token.title() for token in tokens)
 
