@@ -73,6 +73,7 @@ def test_a_group_whose_payee_words_are_all_channel_words_is_no_payee(description
         "Bank Debit",            # a bank template with no payee: unclear (c00136's shape)
         "Preauthorized Wd",      # prints no payee at all: unclear (c00242's shape)
         "RECURRING PAYMENT 0105 FAB CAPITAL",  # channel words only, but the row names financing
+        "ATM DEBIT 1234 FAB MCA",              # channel words only, no organisation cue: only the veto keeps it
         # D6's key stops at the first reference, so it is the template; the payee region names an organisation
         "Recurring Payment authorized on 01/02 Fab Holdings LLC Card 4321",
         "ONLINE BILL PAYMENT 1234567 TO FAB HOLDINGS LLC",
@@ -467,6 +468,7 @@ def test_the_floor_is_strict():
     [
         "FABRICATED CAPITAL DES:ACH PMT ID:0001 CCD",                                 # a named payee
         "< Business to Business ACH Debit - Fabricated Recovery L Fab Co Inc",       # a collector's words
+        "ACH DEBIT FABRICATED RECOVERY",   # no organisation cue (unnamed): only the floor's financing veto keeps it
     ],
 )
 def test_a_named_or_financing_payee_promotes_at_any_amount(description):
