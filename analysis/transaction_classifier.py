@@ -273,6 +273,11 @@ _NSF_PATTERNS = (
     re.compile(r"\bRETURNED (?:CHECK|CHEQUE) FEE\b"),
     re.compile(r"\bUNPAID ITEM FEE\b"),
     re.compile(r"\bITEM RETURNED\b.*\bNSF\b"),
+    # 5.3 (2026-09-27): a returned item in the banks' abbreviated and French wording: TD's stop-payment return of
+    # the business's own debit, and the French returned-item charge. A deposited item returned under a stop payment
+    # is a reversal (_REFUND_REVERSAL_PATTERNS), as RETURNED DEPOSIT is.
+    re.compile(r"\bRTN STOP PAY(?:T|MT|MENT)?\b|(?<!\bITEM )\bRETURNED STOP PAY(?:T|MT|MENT)?\b"),
+    re.compile(r"\bEFFETS? (?:RET|RETOUR|RETOURNES?)\b"),
 )
 _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bREFUND(?:ED)?\b"),
@@ -294,6 +299,7 @@ _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bCREDIT ADJUSTMENT\b"),
     re.compile(r"\bREJECTED\b"),
     re.compile(r"\bRETURNED ACH\b"),
+    re.compile(r"\bDEPOSITED ITEM RETURNED\b"),
 )
 _POS_PATTERNS = (
     re.compile(r"\bPOS\b"),
@@ -336,6 +342,19 @@ _FEE_PATTERNS = (
     # Owner decision 2026-09-25: the bank's overdraft charge for an item is a fee,
     # even when it prints the item's payee (step 6 runs before the known payee).
     re.compile(r"\bOVERDRAFT CHARGES?\b"),
+    # 5.3 (2026-09-27): bank charges printed without FEE: the SVC/SERV/CHG abbreviations, charges whose CHARGE is
+    # not next to SERVICE/MONTHLY/OVERDRAFT/PROCESSING, RBC's Interac service-charge code SC, the ATM withdrawal
+    # service charge, and the French FRAIS, never beside French loan or line-of-credit words. A bare CHARGE or CHG
+    # is never a fee word (Capital One prints 'CHARGE <merchant>').
+    re.compile(r"\b(?:SVC|SRVC?|SERV|SERVICES?) (?:CHARGES?|CHGS?|CHRGS?)\b|\bSERVICE (?:CHGS?|CHRGS?)\b"),
+    re.compile(r"\b(?:OVERDRAWN|OVERDRAFT|HANDLING|BATCH) (?:CHARGES?|CHGS?|CHRGS?)\b"),
+    re.compile(
+        r"\b(?:EXTENDED OVERDRAFT|CONTINUOUS OD|OD|OVERDRAFT ITEM|PAID ITEM|PER ITEM|UNCOLLECTED FUNDS|COURTESY PAY"
+        r"|WIRE|ACH ORIGINATION|CURRENCY HANDLING) (?:CHARGES?|CHGS?)\b"
+    ),
+    re.compile(r"\bINTERAC SC\b"),
+    re.compile(r"\bW D SVC\b"),
+    re.compile(r"^FRAIS\b(?!.*\b(?:FINANCEMENT|INTERETS?|PRET|MARGE|MCR)\b)"),
 )
 _TRANSFER_PATTERNS = (
     re.compile(r"\b(?:INTERNAL|ONLINE|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
