@@ -99,6 +99,10 @@ CLASSIFICATION_VERSION = "5.2"
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
 
+#: 5.3 (2026-09-27): the fixed D10 name of an MCA SERVICING payee. The two words print for two unrelated funders
+#: (ledger decision of 2026-09-25), so no D11 name is ever built from them.
+UNIDENTIFIED_MCA_SERVICER = "MCA servicer (funder not identified)"
+
 
 @dataclass(frozen=True)
 class _RevenueDecision:
@@ -539,6 +543,8 @@ _DIRECT_DEBIT_LOAN_PATTERNS = (
 #: D10: a loan servicer or debt collector whose funder is not in a registry.
 #: (A servicer whose funder is known is an alias of that funder in the registry, via the C10 ledger.)
 #: MCA SERVICING: owner decision 2026-09-25 (the words stay out of every alias table).
+#: 5.3 (2026-09-27): the MCA SERVICING words, named by the fixed UNIDENTIFIED_MCA_SERVICER label (D10).
+_MCA_SERVICING_PATTERN = re.compile(r"\bMCA SERVICING\b")
 _SERVICER_COLLECTOR_PATTERNS = (
     re.compile(r"\bSERVICER\b"),
     re.compile(r"\bLOAN SERVICING\b"),
@@ -2042,7 +2048,11 @@ def classify_transaction(
         return _build_record(
             **common,
             classification="potential_lender",
-            canonical_entity=_canonical_unknown_entity(text) or UNIDENTIFIED_LENDER_OBLIGATION,
+            canonical_entity=(
+                UNIDENTIFIED_MCA_SERVICER
+                if _MCA_SERVICING_PATTERN.search(text)
+                else _canonical_unknown_entity(text) or UNIDENTIFIED_LENDER_OBLIGATION
+            ),
             match_method="unknown_servicer_or_collector",
             matched_rule="servicer_or_collector_without_verified_funder",
             confidence_score=0.74,
