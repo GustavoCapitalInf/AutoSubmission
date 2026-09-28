@@ -2458,6 +2458,30 @@ _FAMILY_SUPPORT_WORD_PATTERNS = (
     re.compile(r"\bFAM(?:ILY)? SUPP(?:ORT)? (?:REG(?:ISTRY)?|PAYMENT CENTER|PMT CTR|PAYMENT CTR)\b"),
     re.compile(r"\bSTATE DISBURSEMENT UNIT\b"),
 )
+#: 5.3 (2026-09-27): owner money is not an MCA remittance: a draw or distribution to an owner, member, partner or
+#: shareholder, a dividend, a per diem, a guaranteed payment. Read before the receiver fields, with the veto
+#: (DIVIDEND FINANCE is a lender); a bare DISTRIBUTION is a vendor's name.
+_OWNER_PAY_WORD_PATTERNS = (
+    re.compile(r"\b(?:OWNERS?|MEMBERS?|PARTNERS?|SHAREHOLDERS?) (?:DRAWS?|DISTRIBUTIONS?)\b"),
+    re.compile(r"\bPER DIEM\b"),
+    re.compile(r"\bGUARANTEED PAYMENTS?\b"),
+    re.compile(r"\bDIVIDENDS?\b"),
+)
+#: 5.3: a payments platform paying a recipient it names ('Pay To: <name>'): the platform is the originator, not a
+#: creditor. Only a person recipient is skipped: Payoneer's Capital Advance is collected by ACH bank debit (an
+#: alternative position), so an organisation recipient, the platform itself or no recipient stays reviewed.
+_PLATFORM_PAYOUT_PATTERN = re.compile(r"\bPAYONEER\b.*\bPAY TO\b(?P<recipient>.*?)(?:\bPAYMENT DATE\b|\bTRN\b|$)")
+
+
+def _is_platform_payout_to_person(text: str) -> bool:
+    found = _PLATFORM_PAYOUT_PATTERN.search(text)
+    if found is None:
+        return False
+    recipient = [token for token in found.group("recipient").split()
+                 if len(token) > 1 and not _is_reference_token(token)]
+    return bool(recipient) and not any(
+        token in _ORGANISATION_CUES or token == "PAYONEER" for token in recipient
+    ) and not _names_financing(" ".join(recipient))
 
 
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
@@ -2492,6 +2516,10 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "government_payee"
     if _skips(_row_before_receiver(text), _FAMILY_SUPPORT_WORD_PATTERNS, text):
         return "family_support"
+    if _skips(_row_before_receiver(text), _OWNER_PAY_WORD_PATTERNS, text):
+        return "owner_pay"
+    if _is_platform_payout_to_person(text):
+        return "platform_payout_to_person"
     return None
 
 

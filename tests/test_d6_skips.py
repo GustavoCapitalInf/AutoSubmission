@@ -402,3 +402,32 @@ def test_family_support_words_in_a_financing_row_stop_the_keyword_recurrence():
 )
 def test_a_family_support_word_never_hides_a_funder(description):
     assert _states(description) == D6
+
+
+# --- A9: owner pay and platform payouts to a person -----------------------------------------------------------------
+
+PAYONEER = ("Orig CO Name:Payoneer Inc Orig ID:0001 Desc Date: CO Entry Descr:Payment Sec:WEB Ind Name:Fab Holder "
+            "Trn: 0001 Payoneer ID: 0001 Pay To: {} Payment Date: 01/05")
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["OWNERS DRAW PAT EXAMPLE", "ACH DEBIT OWNER DRAW", "MEMBER DISTRIBUTION", "PARTNER DRAW", "PER DIEM WEEK 12",
+     "GUARANTEED PAYMENT PAT EXAMPLE", PAYONEER.format("Pat Example")],
+)
+def test_owner_pay_and_a_platform_payout_to_a_person_are_not_d6_payees(description):
+    assert _states(description) == OTHER
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "DIVIDEND FINANCE 0001",                          # a financing word: stays reviewed
+        PAYONEER.format("Fabricated Capital LLC"),        # an organisation recipient
+        PAYONEER.format("Payoneer Inc"),                  # the platform collecting for itself
+        "Orig CO Name:Payoneer Inc Orig ID:0001 Payoneer ID: 0001",  # no recipient printed
+        "BILL PAY TO PAYONEER INC",                       # a payment to Payoneer
+    ],
+)
+def test_owner_pay_words_and_payouts_never_hide_a_financing_or_organisation_payee(description):
+    assert _states(description) == D6
