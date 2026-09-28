@@ -126,6 +126,7 @@ def with_flagged_rows(payload: dict, rows: list[dict]) -> dict:
             "first_date": dates[0],
             "last_date": dates[-1],
             "source_locations": [row["classification"]["source_location"] for row in members],
+            "review_required": any(row["classification"].get("review_required") is True for row in members),
         })
     entries.sort(key=lambda entry: (GROUP_KEYS.index(entry["group"]),
                                     -(entry["total_debited"] + entry["total_credited"]), entry["payee"]))

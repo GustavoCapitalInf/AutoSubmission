@@ -406,7 +406,8 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
 def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
     """An account's flagged positions, one readable section per payee (lender detection §8.4):
     `flagged_<group>_<n>` with the payee, its debit count, the total debited, the credits it paid in and their
-    total (plan contract C5: a factor's payouts, owner ruling 2026-09-26), and the cadence.
+    total (plan contract C5: a factor's payouts, owner ruling 2026-09-26), the cadence, and (5.3) whether the
+    payee is unconfirmed (`review_required`).
 
     Served payloads hold only the ticked groups (analysis/flagged_view.py via `_displayed`), so the sheet follows
     Settings. A payee name is statement text: these rows reach a file only through `_escaped_rows`."""
@@ -417,7 +418,8 @@ def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
         if not isinstance(group, str) or group not in FLAG_GROUP_BY_KEY:
             continue
         numbers[group] = numbers.get(group, 0) + 1
-        for field in ("payee", "count", "total_debited", "count_credited", "total_credited", "cadence"):
+        for field in ("payee", "count", "total_debited", "count_credited", "total_credited", "cadence",
+                      "review_required"):
             value = entry.get(field)
             rows.append((f"flagged_{group}_{numbers[group]}", field, "" if value is None else value))
     return rows
@@ -601,8 +603,9 @@ def _add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> 
         item = rollup.setdefault(
             (group, payee),
             {"payee": payee, "documents": 0, "count": 0, "total_debited": 0.0, "count_credited": 0,
-             "total_credited": 0.0, "dates": []},
+             "total_credited": 0.0, "dates": [], "review_required": False},
         )
+        item["review_required"] = item["review_required"] or classification.get("review_required") is True
         if (group, payee) not in seen:
             seen.add((group, payee))
             item["documents"] += 1
@@ -623,7 +626,7 @@ def _published_flagged_positions(
 ) -> dict[str, list[dict]]:
     """The package's `flagged_positions` (plan contract C6): each ticked group with a counted row, in contract
     order, as a list of `{payee, documents, count, total_debited, count_credited, total_credited, cadence,
-    first_date, last_date}`. The cadence is read over the payee's dates in every member together
+    first_date, last_date, review_required}`. The cadence is read over the payee's dates in every member together
     (analysis/cadence.py), its debits and its credits alike, so a monthly payment split across monthly statements
     reads as monthly.
 
@@ -647,6 +650,7 @@ def _published_flagged_positions(
                 "cadence": describe_cadence(dates)[0] if dates else None,
                 "first_date": dates[0].isoformat() if dates else None,
                 "last_date": dates[-1].isoformat() if dates else None,
+                "review_required": item["review_required"],
             })
         if not items:
             continue

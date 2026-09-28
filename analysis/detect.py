@@ -74,6 +74,8 @@ class FlaggedPositionMatch:
     first_date: str | None = None
     last_date: str | None = None
     source_locations: list[str] = field(default_factory=list)
+    # 5.3 (owner ruling 2026-09-27): the payee is a review entity of the ledger routed to its flag, unconfirmed.
+    review_required: bool = False
 
 
 @dataclass
@@ -224,6 +226,7 @@ def find_flagged_positions(
         else:
             match.count_credited += 1
             match.total_credited += record.amount
+        match.review_required = match.review_required or record.review_required
         match.source_locations.append(record.source_location or f"transaction:{index + 1}")
         parsed = parse_date(record.date)
         if parsed is not None:

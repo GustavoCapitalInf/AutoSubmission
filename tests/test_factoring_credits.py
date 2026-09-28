@@ -152,7 +152,7 @@ def test_the_payload_publishes_the_credited_fields(fake_payees):
     [position] = payload["detection"]["flagged_positions"]
     assert list(position) == [
         "group", "payee", "matched_alias", "count", "total_debited", "count_credited", "total_credited",
-        "cadence", "avg_gap_days", "first_date", "last_date", "source_locations",
+        "cadence", "avg_gap_days", "first_date", "last_date", "source_locations", "review_required",
     ]
     assert (position["count_credited"], position["total_credited"]) == (2, 7000.0)
     assert payload["metrics"]["flagged_groups"]["factoring"]["total_credited"] == 7000.0

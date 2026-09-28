@@ -903,3 +903,21 @@ console.log(JSON.stringify({shown, clicked, premiumOff, hidden: await open('hidd
     # Both unticked: nothing is flagged.
     assert hidden["rows"] == [[NO_FLAGGED_PAYMENTS]]
     assert True not in hidden["flagged"]
+
+
+# ---------------------------------------------------------------- 5.3: an unconfirmed flagged payee says so
+
+@needs_node
+def test_an_unconfirmed_flagged_payee_says_so_under_its_name():
+    entries = [
+        {"group": "vehicle_financing", "payee": "FABRICATED REVIEW AUTO", "count": 1, "total_debited": 400.0,
+         "count_credited": 0, "total_credited": 0.0, "cadence": "single", "review_required": True},
+        {"group": "vehicle_financing", "payee": "FABRICATED KNOWN AUTO", "count": 1, "total_debited": 300.0,
+         "count_credited": 0, "total_credited": 0.0, "cadence": "single", "review_required": False},
+    ]
+    result = run_dashboard(f"""
+console.log(JSON.stringify({{html: flaggedPositionRowsHtml({json.dumps(entries)}, "USD")}}));
+""")
+    [unconfirmed, known] = result["html"].split("</tr>")[:2]
+    assert "Unconfirmed: identity under review" in unconfirmed
+    assert "Unconfirmed" not in known

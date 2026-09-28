@@ -83,3 +83,14 @@ def test_every_routed_entity_is_a_potential_table_entity():
 )
 def test_the_registrys_review_payees_in_their_printed_forms(description, state):
     assert classify_transaction(description, -300.0).classification == state
+
+
+def test_a_flagged_position_of_a_routed_payee_is_marked_unconfirmed(review_payees, fake_payees):
+    statement = Statement(bank="Fabricated Bank", transactions=[
+        txn("2054-01-05", "ACH DEBIT FABRIKAM AUTO CR 0001", -400.0),
+        txn("2054-01-12", "ACH DEBIT FABRIKAM AUTO CR 0001", -400.0),
+        txn("2054-01-06", "ACH DEBIT FABRICATED CARMAKER FINANCIAL 0001", -500.0),
+    ])
+    positions = find_flagged_positions(statement, classify_statement_transactions(statement))
+    assert [(position.payee, position.review_required) for position in positions] == [
+        ("FABRIKAM AUTO CR (probable)", True), ("Fabricated Carmaker Financial", False)]

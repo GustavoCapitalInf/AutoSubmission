@@ -1806,6 +1806,10 @@ function flaggedPositionRowsHtml(entries, currency, isPackage = false) {
       ? `<div class="table-cell-detail">${escapeHtml(entry.first_date)} to ${escapeHtml(entry.last_date)}</div>`
       : "";
     const statements = isPackage ? `<td>${escapeHtml(formatNumber(entry.documents))}</td>` : "";
+    // 5.3 (owner ruling 2026-09-27): a payee the ledger has not confirmed says so under its name.
+    const unconfirmed = entry.review_required === true
+      ? '<div class="table-cell-detail">Unconfirmed: identity under review</div>'
+      : "";
     // Money the payee paid in (a factor's payouts, owner ruling 2026-09-26) is shown under the debits as received,
     // never added to them. A payee with no credit shows no such line.
     const received = Number(entry.count_credited) > 0;
@@ -1818,7 +1822,7 @@ function flaggedPositionRowsHtml(entries, currency, isPackage = false) {
     return `
       <tr>
         <td>${escapeHtml(flagGroupLabel(group))}</td>
-        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions of ${escapeHtml(payee)}">${escapeHtml(payee)}</button></td>
+        <td><button class="evidence-link" type="button" data-lender-evidence-filter="flagged:${escapeHtml(group)}" data-lender-evidence-entity="${escapeHtml(payee)}" aria-label="Show the transactions of ${escapeHtml(payee)}">${escapeHtml(payee)}</button>${unconfirmed}</td>
         <td>${escapeHtml(formatNumber(entry.count))}${receivedCount}</td>
         <td>${escapeHtml(formatMoney(entry.total_debited, currency))}${receivedTotal}</td>
         <td>${escapeHtml(cadenceLabel(entry.cadence))}${span}</td>
