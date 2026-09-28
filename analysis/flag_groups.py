@@ -30,6 +30,9 @@ FLAG_GROUPS: tuple[FlagGroup, ...] = (
     # Premium financing: rows keep classification "insurance" (and their insurance totals); the classifier
     # sets flagged_group="premium_financing" when the insurance match is a PREMIUM_FINANCE_ALIASES payee.
     FlagGroup(None, "premium_financing", "flag_premium_financing", "Premium financing"),
+    # Owner ruling 2026-09-27 (classification 5.3): debt-settlement account processors and debtor-side debt-relief
+    # firms. Never lender math, and not in FINANCING_STATES: its payees never lend.
+    FlagGroup("debt_relief", "debt_relief", "flag_debt_relief", "Debt relief"),
 )
 FLAG_GROUP_BY_STATE: dict[str, FlagGroup] = {g.state: g for g in FLAG_GROUPS if g.state is not None}
 FLAG_GROUP_BY_KEY: dict[str, FlagGroup] = {g.key: g for g in FLAG_GROUPS}

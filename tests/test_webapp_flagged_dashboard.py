@@ -31,6 +31,9 @@ def test_every_new_state_has_its_own_tag_and_the_retired_state_keeps_one():
         ("personal_loan", "FABRICATED PERSONAL LENDER", "FABRICATED PERSONAL LENDER (Personal loan)"),
         ("floor_plan_financing", "FABRICATED FLOORING CAPITAL", "FABRICATED FLOORING CAPITAL (Floor plan)"),
         ("factoring", None, "Factoring"),
+        # 5.3 (owner ruling 2026-09-27): the twelfth group.
+        ("debt_relief", "FABRICATED SETTLEMENT CO", "FABRICATED SETTLEMENT CO (Debt relief)"),
+        ("debt_relief", None, "Debt relief"),
         # Retired on 2026-09-24; an analysis saved before then still carries it.
         ("lease_or_equipment_financing", "FABRICATED LEASING", "Lease / Equipment"),
         # The Credit cards group names its card issuer, as the Flagged positions panel does.
@@ -463,7 +466,8 @@ def test_the_statement_window_has_its_own_flagged_table():
 # ---------------------------------------------------------------- Task 7: the Settings switches
 
 GROUP_KEYS = ["alternative_positions", "lines_of_credit", "credit_cards", "vehicle_financing", "bank_loans",
-              "mortgages", "leases_rentals", "personal_loans", "floor_plan", "factoring", "premium_financing"]
+              "mortgages", "leases_rentals", "personal_loans", "floor_plan", "factoring", "premium_financing",
+              "debt_relief"]
 
 SWITCHES = r"""
 const switches = () => [...els.flagSettingsList.innerHTML.matchAll(

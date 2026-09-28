@@ -44,6 +44,7 @@ ClassificationState = Literal[
     "personal_loan",
     "floor_plan_financing",
     "factoring",
+    "debt_relief",
     # Retired in classification version 5.0: no rule produces it, but records
     # stored before 5.0 carry it and must still validate (spec §4.1).
     "lease_or_equipment_financing",
@@ -74,6 +75,7 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "personal_loan",
     "floor_plan_financing",
     "factoring",
+    "debt_relief",
     "lease_or_equipment_financing",
     "fee",
     "transfer",

@@ -318,6 +318,7 @@ const FLAG_GROUP_LABELS = Object.freeze({
   floor_plan: "Floor plan",
   factoring: "Factoring",
   premium_financing: "Premium financing",
+  debt_relief: "Debt relief",
 });
 
 function flagGroupLabel(group) {
@@ -531,6 +532,7 @@ function transactionCategory(tx) {
     personal_loan: { label: entity ? `${entity} (Personal loan)` : "Personal loan", glyph: "PLN", tone: "neutral" },
     floor_plan_financing: { label: entity ? `${entity} (Floor plan)` : "Floor plan", glyph: "FLR", tone: "neutral" },
     factoring: { label: entity ? `${entity} (Factoring)` : "Factoring", glyph: "FCT", tone: "neutral" },
+    debt_relief: { label: entity ? `${entity} (Debt relief)` : "Debt relief", glyph: "DRP", tone: "neutral" },
     fee: { label: "Fee", glyph: "$", tone: "neutral" },
     transfer: { label: "Transfer", glyph: "TR", tone: "neutral" },
     credit_card_payment: { label: entity ? `${entity} (Credit card)` : "Credit Card Payment", glyph: "CC", tone: "neutral" },
