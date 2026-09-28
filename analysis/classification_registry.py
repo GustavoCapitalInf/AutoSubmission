@@ -1124,7 +1124,6 @@ BANK_NAME_ALIASES: dict[str, tuple[str, ...]] = {
 #: Potential lenders: review, never counted.
 POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "ACC LP IV": ("ACC LP IV LOAN",),
-    "ACCOUNT SERVICIN[G]": ("ACCOUNT SERVICIN",),
     "ADVANCE CONSOLID (unidentified ACH originator)": ("ADVANCE CONSOLID",),
     "Advisco Capital Corp": ("ADVISCO CAPITAL CORP",),
     "AI MY ADVANCE (unidentified debit)": ("AI MY ADVANCE",),
@@ -1168,7 +1167,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "First Pro Financial LLC": ("FIRST PRO FINANCIAL",),
     "First Sterling": ("FIRST STERLING LOAN",),
     "FleetLogic (probably Fleet Logic, LLC dba Velocity Truck Rental and Leasing)": ("FLEETLOGIC CONS COLL",),
-    "Future Funding LLC": ("FUTURE FUNDING DES",),
+    "FUTURE FUNDING (legal entity not identified)": ("FUTURE FUNDING DES",),
     "Geneva Capital": ("GENEVA CAPITAL",),
     "Georgia Venture Holdings (GEORGIAVENTUREHO)": ("GEORGIAVENTUREHO",),
     "GLOBAL FUNDING (Zelle payee)": ("ZELLE PAYMENT TO GLOBAL FUNDING",),
@@ -1199,7 +1198,10 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "MERCH PAD INV",
         "MERCH PAD PLAC",
     ),
-    "Meridian RLS payee (probably Meridian OneCap Credit Corp)": ("MERIDIAN RLS", "MERIDIAN RLS LOY"),
+    "Meridian (RLS rent/lease PAD; probably Meridian OneCap Credit Corp)": (
+        "MERIDIAN RLS",
+        "MERIDIAN RLS LOY",
+    ),
     "Money Man 4 Cash Advance": ("MONEY MAN 4 CASH",),
     "MORTGAGE IVR PYMNT (probably 21st Mortgage Corporation)": (
         "MORTGAGE IVR PYMNT",
@@ -1207,7 +1209,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "MORTGAGE SERV CT (unidentified mortgage servicer)": ("MORTGAGE SERV CT",),
     "NATIONAL MONEY (probably Money Mart)": ("NATIONAL MONEY",),
-    "NATIONWIDECREDIT": ("NATIONWIDECREDIT",),
+    "Nationwide Credit (debt collector; creditor not printed)": ("NATIONWIDECREDIT",),
     "Nomas Recovery LLC": ("NOMAS RECOVERY",),
     "Oakmont Capital (probably Oakmont Capital Services)": ("OAKMONT CAPITAL",),
     "OCEAN FUND (probably an Ocean Funding MCA company)": ("OCEAN FUND",),
@@ -1231,7 +1233,8 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "TFG (Quebec pre-authorized debit)": ("PRELEVEMENT AUTOMATIQUE TFG",),
     "Transparency Advance": ("TRANSPARENCY ADVANCE",),
     "Triton Recovery LLC": ("TRITON RECOVERY",),
-    "UAS DES EPAYMENT (probably University Accounting Service)": ("UAS DES EPAYMENT",),
+    "UAS (probably University Accounting Service)": ("UAS DES EPAYMENT",),
+    "Unidentified account servicer (ACCOUNT SERVICIN[G])": ("ACCOUNT SERVICIN",),
     "Unidentified PAD originator BUSINESS CR EFT (Commercial Loans)": (
         "COMMERCIAL LOANS BUSINESS CR EFT",
         "BUSINESS CR EFT CLN",
@@ -1266,7 +1269,7 @@ REVIEW_FLAG_ENTITIES: dict[str, str] = {
     "MORTGAGE SERV CT (unidentified mortgage servicer)": "mortgage",
     "NATIONAL MONEY (probably Money Mart)": "personal_loan",
     "STELLANTIS SFA (probably Stellantis Financial Services)": "vehicle_financing",
-    "UAS DES EPAYMENT (probably University Accounting Service)": "personal_loan",
+    "UAS (probably University Accounting Service)": "personal_loan",
     "Unidentified payee FREEDOM": "mortgage",
     "WESTLAKE (probably Westlake Financial Services)": "vehicle_financing",
 }

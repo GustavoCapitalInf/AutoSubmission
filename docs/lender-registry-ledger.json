@@ -7060,7 +7060,7 @@
    "notes": "The Fundworks, LLC (Salt Lake City, UT), revenue-based financing repaid by daily ACH; Virginia SCC sales-based financing registrant. Move: FW CAPITAL and FWCAPITAL are dropped: they match no row and no research round verified either as Fundworks (registry audit), so they could only catch an unrelated FW Capital. Bank NSF and uncollected-funds fees that name a Fundworks item stay fees because the fee rules run first."
   },
   {
-   "entity": "Future Funding LLC",
+   "entity": "FUTURE FUNDING (legal entity not identified)",
    "group": "confirmed_lender",
    "business_type": "mca_or_revenue_based_funder",
    "aliases": [
@@ -11351,7 +11351,7 @@
    "notes": "Merchant Growth Ltd. (Vancouver BC), originator and servicer; its serviced book is about 91% merchant advances remitted daily or weekly. INVESTMENT is the Payments Canada Investment code label; MERCHANT GROWTH also names its funding credits, which are proceeds. The MERCH PAD family (candidate C0351, probably Merchant Growth) stays for an owner ruling; MERCHANT GROWTH FUND is left to that entity's evidence so no alias is shared."
   },
   {
-   "entity": "Meridian RLS payee (probably Meridian OneCap Credit Corp)",
+   "entity": "Meridian (RLS rent/lease PAD; probably Meridian OneCap Credit Corp)",
    "group": "confirmed_lender",
    "business_type": "equipment_finance",
    "aliases": [
@@ -41089,7 +41089,7 @@
    "notes": "U.S. Department of Education (Federal Student Aid): federal Direct student loan payments, which the owner's rulings put under Personal loans (student loans paid from the account). DEPT EDUCATION is the originator name of the student-loan debits; DEPT EDUCATIONSTUDENT is the fused spelling one bank prints. A state agency printed DEPT OF EDUCATION does not match (the OF breaks the alias). DEPT EDUCATION stays bare because the Bank of America rows print DES between the name and STUDENT LOAN; it would also read another payee printed DEPT EDUCATION without OF, such as a state education department paying a school (none in the corpus), and D1 would then treat those credits as financing proceeds."
   },
   {
-   "entity": "UAS DES EPAYMENT (probably University Accounting Service)",
+   "entity": "UAS (probably University Accounting Service)",
    "group": "personal_loan",
    "business_type": "student_loan",
    "aliases": [
@@ -46776,7 +46776,7 @@
    "notes": "Rejected, kept as evidence: an unidentified e-bill payment originator printed ACCNT SERV with the entry description EBILLPYMTS (round 1 unresolved). 'Account services' labels are used by many billers and creditors, so the payee cannot be named. One debit per statement, no lending word; today's classifier reads these rows as lease or equipment financing through its wording rules, not through a registry alias."
   },
   {
-   "entity": "ACCOUNT SERVICIN[G]",
+   "entity": "Unidentified account servicer (ACCOUNT SERVICIN[G])",
    "group": "potential_lender",
    "business_type": "generic account-servicing label (creditor not printed)",
    "aliases": [
@@ -49659,7 +49659,7 @@
    "notes": "Owner ruling (generic name): an unidentified ACH originator printed NATIONAL CAPITAL, with no daily or weekly pattern. New York records alone hold several unrelated National Capital companies (consulting, holdings, leasing, management, recovery services), so it could be a funder, a lessor, a collection agency or an investment firm (round 1). Rendering the bare name would put every one of them in the review tier and turn their credits into non-revenue, so the spelling is kept as evidence only; the owner may rule on it. Decision 2026-09-25 (owner delegated to the orchestrator): Not flagged: the bare name fits many unrelated companies (a bank, lessors, collectors, investment firms) and the debits show no funder pattern."
   },
   {
-   "entity": "NATIONWIDECREDIT",
+   "entity": "Nationwide Credit (debt collector; creditor not printed)",
    "group": "potential_lender",
    "business_type": "third-party debt collector (creditor not printed)",
    "aliases": [
