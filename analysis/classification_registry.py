@@ -252,7 +252,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Mount Valor Capital": ("MOUNT VALOR CAPI", "MOUNT VALOR CAPITAL"),
     "Mr. Advance LLC": ("MR ADVANCE",),
     "Mulligan Funding, LLC": ("MULLIGAN FUNDING",),
-    "NATIONAL FUNDING": ("NATIONAL FUNDING", "NFAS3"),
+    "NATIONAL FUNDING": ("NATIONAL FUNDING", "NFAS3", "NFSPV1 COLLECTION"),
     "Navitas Credit Corp": ("NAVITAS CREDIT CORP", "NAVITAS CREDIT C", "NAVITAS CREDIT"),
     "NEC Financial Services, LLC": ("NEC FINANCIAL",),
     "New York Tribeca Group": ("NEW YORK TRIBECA", "NEW YORK TRIBECA GROUP"),

@@ -12113,7 +12113,8 @@
    "business_type": "online_business_term_lender",
    "aliases": [
     "NATIONAL FUNDING",
-    "NFAS3"
+    "NFAS3",
+    "NFSPV1 COLLECTION"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -12141,6 +12142,10 @@
     {
      "source": "https://www.kbra.com/publications/GVqkwTqm/kbra-assigns-ratings-to-nfas3-llc-series-2025-1",
      "note": "Answer under review (not re-fetched by the verifier): KBRA rates NFAS3 LLC Series 2025-1; National Funding, Inc. is the Seller."
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "Fetched and read (r6, 2026-09-27): National Funding, Inc., San Diego, is a Virginia sales-based financing provider registrant at year-end 2025. The list names no NFSPV entity."
     }
    ],
    "verdicts": [
@@ -12173,6 +12178,11 @@
      "round": "r5",
      "verdict": "unresolved",
      "confirmed": false
+    },
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
     }
    ],
    "where_looked": [
@@ -12196,9 +12206,11 @@
     "https://www.sec.gov/cgi-bin/browse-edgar",
     "https://html.duckduckgo.com/html/",
     "https://www.bing.com/search",
-    "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
+    "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+    "https://www.sec.gov/edgar/search/"
    ],
-   "notes": "National Funding, Inc. (San Diego): small-business loans and equipment financing; a lender under the owner's 2026-09-25 amendment, which names it. NFAS3 LLC is its securitization issuing entity (SEC Form ABS-15G) and prints as the originator of its collection debits. The NF-numbered EDI PYMNTS originator stays unaliased (unresolved in round 5)."
+   "notes": "National Funding, Inc. (San Diego): small-business loans and equipment financing; a lender under the owner's 2026-09-25 amendment, which names it. NFAS3 LLC is its securitization issuing entity (SEC Form ABS-15G) and prints as the originator of its collection debits. The NF-numbered EDI PYMNTS originator stays unaliased (unresolved in round 5). NFSPV1 COLLECTION (added 2026-09-27 under owner decision 3 of the false-positive hunt, on local evidence; no public source names NFSPV, and an SEC full-text search finds none): a Wells Fargo business-to-business ACH debit prints the originator glued as Nfspv1Collection with the entry description EDI PYMNTS. In the one statement that prints it (3 cached copies) the same fixed Tuesday amount prints NFSPV1 in three weeks and NFAS3 in the fourth, with the same ACH ID family (carried only by National Funding's originators) and the same receiver, so it is read as another National Funding collection vehicle beside its NFAS2 and NFAS3 securitization issuers. The spaced alias also reaches the glued printed token through the matcher's run-together rule; bare NFSPV or NFSPV1 is never an alias. The NF-numbered Regions originator stays unaliased as decided on 2026-09-25."
   },
   {
    "entity": "Navitas Credit Corp",

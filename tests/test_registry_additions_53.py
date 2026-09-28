@@ -58,3 +58,10 @@ def test_merit_business_alone_is_a_review_alias_and_never_counted():
 def test_the_owner_named_funders_are_listed():
     labels = [label for label, _spelling in OWNER_NAMED_PAYEES["confirmed_lender"]]
     assert labels[-3:] == ["Flexibility Capital", "Merit Business Funding", "Essentia Funding"]
+
+
+def test_national_fundings_collection_vehicle_spelling_is_national_funding():
+    # The alias is read from the registry: this file never writes the vehicle's digit.
+    [alias] = [alias for alias in LENDER_ALIASES["NATIONAL FUNDING"] if alias.startswith("NFSPV")]
+    record = classify_transaction(f"{alias.replace(' ', '')} EDI PYMNTS 0001 FAB HOLDER", -900.0)
+    assert (record.classification, record.canonical_entity) == ("confirmed_lender", "NATIONAL FUNDING")
