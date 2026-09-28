@@ -120,3 +120,14 @@ def test_two_beneficiaries_of_one_wire_format_are_two_payees():
         *(txn(day, "WT Fed#01R23 Fab Bank /Ftr/Bnf=Fab Two LLC Srf# 0001", -900.0) for day in WEEKLY[2:]),
     ])
     assert {record.classification for record in classify_statement_transactions(statement)} == {"other"}
+
+
+# --- C8: the printed 'NAME, CITY, ST' line ----------------------------------------------------------------------------
+
+def test_a_card_networks_city_never_joins_the_d6_name():
+    statement = Statement(bank="Bluevine", transactions=[
+        txn(day, "FAB CARRIER SERVICES, OVERLAND PARK, KS", -700.0) for day in WEEKLY
+    ])
+    records = classify_statement_transactions(statement)
+    assert {(record.classification, record.canonical_entity) for record in records} == {
+        ("potential_lender", "Fab Carrier Services")}

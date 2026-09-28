@@ -2886,6 +2886,20 @@ def _promotion_cadence(
     return cadence, average_gap
 
 
+#: 5.3 (2026-09-27): the D6 payee words of a card network's 'NAME, CITY, ST' line are the printed name before the
+#: first comma (the city never joins the name), read without the module normalizer.
+_PRINTED_NAME_WORD = re.compile(r"[A-Z0-9]+")
+
+
+def _record_payee_tokens(record: TransactionClassification) -> tuple[str, ...]:
+    """D6's payee words for one row: D11's words, or, on a 'NAME, CITY, ST' line with no ACH field mark, the words of
+    the printed name before the first comma (5.3, 2026-09-27)."""
+    printed = record.original_description or ""
+    if _CARD_LOCATION_SUFFIX_PATTERN.search(printed) and not _has_ach_field_mark(record):
+        return _unknown_payee_tokens(" ".join(_PRINTED_NAME_WORD.findall(printed.split(",", 1)[0].upper())))
+    return _unknown_payee_tokens(record.normalized_description)
+
+
 def classify_statement_transactions(
     statement: Statement,
     *,
@@ -2933,7 +2947,7 @@ def classify_statement_transactions(
     for index, record in enumerate(records):
         if index in duplicate_of or record.amount >= 0 or record.classification != "other":
             continue
-        payee = _unknown_payee_tokens(record.normalized_description)
+        payee = _record_payee_tokens(record)
         if not payee:
             continue
         key = (payee, round(abs(record.amount), 2))
