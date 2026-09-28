@@ -92,3 +92,31 @@ def test_two_recipients_of_one_template_are_two_payees():
 )
 def test_a_truist_name_is_published_only_through_its_company_field(printed, name):
     assert _name(printed) == name
+
+
+# --- C7: wire beneficiaries ---------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("printed", "name"),
+    [
+        ("WT Fed#01R23 Fab Bank /Ftr/Bnf=Fab Advance Group LLC Srf# 0001 Trn#0001 Rfb# 0001", "Fab Advance"),
+        ("WIRE TYPE:WIRE OUT DATE:540105 TIME:1200 ET TRN:0001 SERVICE REF:0001 BNF:FAB FUNDING LLC ID:0001",
+         "Fab Funding"),
+        ("Online Domestic Wire Transfer Via: Fab CU/123456789 A/C: Fab Funding Sampletown NY 00001 US Ref: Loan "
+         "Imad: 0001 Trn: 0001", "Fab Funding"),
+        # a person beneficiary, anywhere, is never published
+        ("WT Fed#01R23 Fab Bank /Ftr/Bnf=Pat Example Srf# 0001", UNIDENTIFIED),
+        ("Online Domestic Wire Transfer Via: Fab CU/123456789 A/C: Pat Example Denver CO 00002 US Ref: Rent "
+         "Imad: 0001 Trn: 0001", UNIDENTIFIED),
+    ],
+)
+def test_a_wire_is_named_by_its_beneficiary(printed, name):
+    assert _name(printed) == name
+
+
+def test_two_beneficiaries_of_one_wire_format_are_two_payees():
+    statement = Statement(bank="Wells Fargo", transactions=[
+        *(txn(day, "WT Fed#01R23 Fab Bank /Ftr/Bnf=Fab One LLC Srf# 0001", -900.0) for day in WEEKLY[:2]),
+        *(txn(day, "WT Fed#01R23 Fab Bank /Ftr/Bnf=Fab Two LLC Srf# 0001", -900.0) for day in WEEKLY[2:]),
+    ])
+    assert {record.classification for record in classify_statement_transactions(statement)} == {"other"}

@@ -1010,8 +1010,8 @@ _ENTITY_NAME_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIGINATOR NAME|COMPANY NAM
 #: name is never built from ID, INDN, IND NAME, CO ID, TRACE or similar fields.
 _ACH_FIELD_SEGMENT = re.compile(
     r"\b(?:DES|DESC|DESCR|ORIG ID|CO ID|IND ID|IND NAME|INDN|IND|ID|TRACE|SEC|EED|TRN|"
-    # 5.3 (2026-09-27): Truist's receiver field label and Huntington's instruction field.
-    r"CONF|REF|MEMO|CUST|TYPE|CUSTOMER ID|INSTR)\b"
+    # 5.3 (2026-09-27): Truist's receiver field label, Huntington's instruction field and the wire fields.
+    r"CONF|REF|MEMO|CUST|TYPE|CUSTOMER ID|INSTR|SRF|RFB|IMAD)\b"
 )
 _MASKED_TOKEN = re.compile(r"X{2,}[A-Z0-9]*")
 _MAX_ENTITY_TOKENS = 4
@@ -1028,6 +1028,12 @@ _TRUIST_CORP_PREFIX = re.compile(r"^ACH CORP (?:DEBIT|CREDIT)\b")
 #: 5.3: Truist prints no padding, so a short originator lets the receiver's words into the 16-character company
 #: field. A Truist name is published only when a whole legal-form word lies inside those 16 characters.
 _TRUIST_COMPANY_FIELD = 16
+#: 5.3: a wire's beneficiary starts after BNF (Wells Fargo /Bnf=, Bank of America BNF:), else after the account
+#: label of Chase's 'Wire Transfer Via: <bank> A/C: <beneficiary>'.
+_WIRE_BENEFICIARY_PATTERNS = (
+    re.compile(r"\bBNF(?: FFC)?\b"),
+    re.compile(r"\bWIRE TRANSFER VIA\b.*?\bA C\b"),
+)
 #: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
 _RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
@@ -1100,6 +1106,15 @@ def _is_payroll_provider_row(text: str) -> bool:
     )
 
 
+def _wire_beneficiary(text: str) -> str | None:
+    """5.3 (2026-09-27): the text after a wire's beneficiary label, or None for a row that is no such wire."""
+    for pattern in _WIRE_BENEFICIARY_PATTERNS:
+        found = pattern.search(text)
+        if found is not None:
+            return text[found.end():]
+    return None
+
+
 def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     """D11: the payee words of an unknown counterparty, at most four.
 
@@ -1109,11 +1124,13 @@ def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     started, so a person's name printed after the references never joins it.
 
     5.3 (2026-09-27): a name ends at its first legal-form word after the first word; a leading AND and a trailing
-    connector are dropped. A bank template prefix is removed first.
+    connector are dropped. A bank template prefix is removed first. A wire is read from its beneficiary, where a
+    name ends at its first organisation cue after the first word.
     """
-    text = _payee_region(_PAYEE_TEMPLATE_PREFIX.sub(" ", text, count=1))
+    beneficiary = _wire_beneficiary(text)
+    region = _payee_region(beneficiary if beneficiary is not None else _PAYEE_TEMPLATE_PREFIX.sub(" ", text, count=1))
     tokens: list[str] = []
-    for token in text.split():
+    for token in region.split():
         if token in _ENTITY_NOISE or len(token) == 1:
             continue
         if _is_reference_token(token):
@@ -1123,7 +1140,9 @@ def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
         if not tokens and (token in _GENERIC_ENTITY_WORDS or token == "AND"):
             continue
         tokens.append(token)
-        if len(tokens) > 1 and token in _LEGAL_FORM_SUFFIXES:
+        if len(tokens) > 1 and (
+            token in _LEGAL_FORM_SUFFIXES or (beneficiary is not None and token in _ORGANISATION_CUES)
+        ):
             break
         if len(tokens) == _MAX_ENTITY_TOKENS:
             break
