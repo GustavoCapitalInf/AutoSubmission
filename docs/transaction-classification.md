@@ -244,10 +244,13 @@ stars too: in its addenda (`RMR*IV*`), a masked account or an ID. The word
 it.
 
 Since 5.3, D6 also never takes the rows below; they stay `other`. Every 5.3
-skip reads the payee's words, never a receiver field, and none fires on a row
-that names financing. The shared veto reads prefix-tolerant roots, so
-KOVOCREDIT, CAPITA and FUNDIN veto too, and so do SETTLE, CRED before IT, ORA,
-IBLY or a word end, and ACCEPT.
+skip reads the payee's words, never a receiver field, and every one reads the
+shared veto on the whole row, so none fires on a row that names financing. The
+shared veto reads prefix-tolerant roots, so KOVOCREDIT, CAPITA and FUNDIN veto
+too, and so do SETTLE, CRED before IT, ORA, IBLY or a word end, and ACCEPT. It
+leaves out only the skip's own matched words, and those hide no name: a vendor
+word run together with a lending root is no vendor word, and only reference
+numbers may sit inside the Atlas sweep's match.
 
 - A payee whose words are all bank channel words (`BILL`, `RECURRING`,
   `AUTOPAY`, `ATM`, `TELLER`, `CHK`…) names no payee, unless the payee region
@@ -267,7 +270,8 @@ IBLY or a word end, and ACCEPT.
 - Transfer templates are skipped for a payee that names no organisation:
   `XFR`, `TRF`, `TRSFR`, `TRNSFR`, `TRANSFER` with digits glued on,
   'TO <account type> <number>', a bare online withdrawal, Atlas's Smart Save
-  sweep, and RTP and FedNow payments.
+  sweep (`SMARTSAVE`, reference numbers, `ATLASFINANCIAL`), and RTP and FedNow
+  payments.
 - The holder's cash withdrawals in the formats the ATM rule does not read, the
   offset of an ACH batch sent from the holder's own bank portal, and tuition,
   school and childcare billing are skipped.
@@ -280,7 +284,9 @@ IBLY or a word end, and ACCEPT.
   pest control, royalties and franchise funds, church giving, tolls, betting
   and lotteries, and a Bill.com or Melio payment with an invoice number. The
   words are read on the payee words, never beside a lending word or the
-  holder's own name. `DISTRIBUT…` also clears recurring owner distributions.
+  holder's own name, and a vendor word run together with a lending root
+  (`BOOKKEEPINGFUNDING`) is no vendor word. `DISTRIBUT…` also clears recurring
+  owner distributions.
 - Tax authorities and government agencies printed without TAX, IRS or CRA are
   skipped for a payee that names no organisation, read on the payee region
   only.
@@ -293,8 +299,8 @@ IBLY or a word end, and ACCEPT.
   promoted. The comparison is strict, so a $25.00 group promotes, and a named
   payee promotes at any amount.
 - A processor's own charge of $50 or less is skipped, through Square's
-  seller-account code or Intuit Payment Solutions, never with loan or capital
-  wording.
+  seller-account code or Intuit Payment Solutions. Besides the shared veto, it
+  keeps its own guard: never with loan or capital wording.
 - An insurer cut short by the ACH field (`INSU`, `INSUR`, `INSURA`, `INSURAN`,
   `INSURANC`) is skipped, read on the payee words only.
 - Phone and cable carriers are skipped, matched at the start of the payee's
