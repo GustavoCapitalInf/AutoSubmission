@@ -2304,6 +2304,21 @@ def _card_posting_vetoed(text: str) -> bool:
     )
 
 
+#: 5.3 (2026-09-27): person-to-person, wallet and card-push rails the transfer rule does not read. D6 only: the
+#: transfer rule runs before the known payee (step 6 before 7), so widening it would hide a counted funder paid by
+#: e-Transfer. VIREMENT covers every French RBC transfer line (Interac e-Transfer, 'Virement envoye', 'Virement par
+#: Banque en direct'). Bare WISE is never a rail (WISE CHOICE, FINWISE).
+_P2P_RAIL_PATTERNS = (
+    re.compile(r"\bVIREMENTS?\b"),
+    re.compile(r"\bZEL (?:TO|FROM)\b"),
+    re.compile(r"^(?:PMNT|PAYMENT) SENT \d{2} ?\d{2}\b"),
+    re.compile(r"\bAPPLE (?:CASH|WALLET)\b"),
+    re.compile(r"\b(?:WISE (?:INC|US INC)|TRANSFERWISE)\b|\bDES WISE\b"),
+    re.compile(r"\bIAT PAYPAL\b"),
+    re.compile(r"\bGREENLIGHT DES APP\b"),
+)
+
+
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
     """Why D6 (spec D6 and its clarifications) does not take this default debit, or None when it may.
 
@@ -2318,6 +2333,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "card_purchase_posting"
     if _names_only_channel_words(payee, text) and not _names_financing(text):
         return "channel_words_only"
+    if _skips(_row_before_receiver(text), _P2P_RAIL_PATTERNS, text):
+        return "p2p_rail"
     return None
 
 

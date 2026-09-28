@@ -141,3 +141,37 @@ def test_a_card_posting_leaves_the_recurring_debit_view():
     statement = Statement(transactions=[txn(f"2054-01-{day:02d}", "Fabricated Donuts Card spend", -100.0)
                                         for day in WEEKLY])
     assert find_recurring_debits(statement) == []
+
+
+# --- A2: person-to-person, wallet and card-push rails -------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Virement envoye Pat Example",
+        "Virement par Banque en direct - 1234",                    # RBC's French online-banking transfer
+        "Zel To Pat Example PNCAA0X7654321",
+        "PMNT SENT 0105 APPLE CASH 1234 CA",
+        "Payment Sent 01/05 Pat Example CA Card 4321",            # Chase's card push (c00022's shape)
+        "FAB GOODS IAT PAYPAL",
+        "WISE US INC DES:WISE ID:0001",
+        "GREENLIGHT DES:APP ID:0001",
+    ],
+)
+def test_person_to_person_and_wallet_rails_are_not_d6_payees(description):
+    assert _states(description) == OTHER
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Virement envoye Fabrique Funding Inc",
+        "Zel To Fabricated Global Funding PNCAA0X7654321",
+        "PMNT SENT 0105 FABRICATED FUNDING LLC",
+        "WISE CHOICE LLC",                                         # bare WISE is never a rail
+        "ZEL TO FAB SETTLEMENT PNCAA0X7654321",                    # a settlement payee paid by Zelle
+        "FINWISE DES:LOANPMT ID:0001",
+    ],
+)
+def test_a_rail_that_names_financing_stays_in_review(description):
+    assert _states(description) == D6
