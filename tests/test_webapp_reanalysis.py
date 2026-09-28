@@ -1056,8 +1056,8 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     assert saved["metrics"]["flagged_groups"]["factoring"]["count_credited"] == 1
     assert {position["group"] for position in saved["detection"]["flagged_positions"]} == keys
     # Re-pinned from 5.0: the D6 clarification (2026-09-26) is classification 5.1, the second one (2026-09-27) 5.2,
-    # the false-positive release 5.3.
-    assert {record["classification_version"] for record in records.values()} == {"5.3"}
+    # the false-positive release 5.3, the Idea Financial ruling (2026-09-28) 5.4.
+    assert {record["classification_version"] for record in records.values()} == {"5.4"}
     # Premium financing is no state of its own: the row stays insurance, in the insurance totals, and carries its flag.
     (premium,) = [record for record in flagged if record["flagged_group"] == "premium_financing"]
     assert (premium["classification"], premium["contributes_to_insurance_totals"]) == ("insurance", True)

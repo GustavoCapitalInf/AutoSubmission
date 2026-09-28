@@ -50,6 +50,8 @@ The census and the code found three kinds of failure.
 | Flag: **Premium financing** | No; the rows **stay counted as insurance** as today, and are also flagged | Insurance premium financing: IPFS, First Insurance Funding (including rows that print only `FIRST INSURANCE`)… |
 | Flag: **Debt relief** | No; flagged, never lender math | Debt-settlement dedicated-account processors (RAM Payment / Reliant, Global Holdings, Forth, CFTPay), debtor-side debt-relief firms and law firms (Tayne Law Group, Delancey Street, Rise Alliance), credit-counselling debt-management plans |
 
+*Amendment (owner, 2026-09-28; classification 5.4, `ANALYSIS_STAGE_VERSION` 23):* **Idea Financial (Idea 247, Inc.) is a counted lender**, an online business term lender, no longer a line of credit; this reverses the 2026-09-25 filing below, and its printed ACH spellings `IDEALOAN` and `IDEA 247 INC` were admitted on this ruling, while a row whose own words say LOC or LINE OF CREDIT still goes to Lines of credit (D9) and its credits stay financing proceeds (D1).
+
 *Amendment (owner, 2026-09-27; classification 5.3):* The owner read the false-potential-lender hunt of 2026-09-27 and ruled three things. The implementation plan is `docs/superpowers/plans/2026-09-27-false-potential-lenders.md`.
 - **One release in three parts** (classification 5.3, `ANALYSIS_STAGE_VERSION` 22):
   - (A) D6-only skips, where the rows stay `other` (§3 D6);
@@ -89,7 +91,7 @@ The census and the code found three kinds of failure.
 - **Filings confirmed:**
   - counted lenders: Econolease (equipment finance), CMCA Finance, Lily Advance, Loot Financial Services, and Payability for its debits;
   - Floor plan: AFC Funding Corp;
-  - as filed: Amazon Capital Services and American Express Loans (Alternative positions), Kabbage and IDEA Financial (Lines of credit), LoanMe (Personal loans);
+  - as filed: Amazon Capital Services and American Express Loans (Alternative positions), Kabbage and IDEA Financial (Lines of credit; IDEA Financial counts as a lender since the owner's ruling of 2026-09-28, above), LoanMe (Personal loans);
   - review, never counted: Clover Equipment (every spelling carries lease or rental wording, so step 8 flags its rows under Leases & rentals before the review tier is read), Rewards Network, and MERCH PAD (probably Merchant Growth; no public source ties the name to it);
   - not flagged: Keep Technologies (`KEEP BUS`; D6 still sends fixed daily or weekly debits to review), PayPal's generic debits, and PetroCard;
   - rejected: MR BIZ CAPITAL, a broker, not a funder the account pays.
@@ -257,7 +259,7 @@ The dashboard keeps a label for the retired state so that analyses stored before
 
 **Premium financing** is the one group that is not a state of its own. The row keeps `classification="insurance"` and `contributes_to_insurance_totals`. When the insurance match is a premium-finance payee (`PREMIUM_FINANCE_ALIASES`), the classifier also sets `flagged_group="premium_financing"` and `contributes_to_flagged_totals`. The insurance rule reads the premium-finance table before the insurer table, so a row that prints only `FIRST INSURANCE` is FIRST Insurance Funding (owner, 2026-09-25): it stays insurance and is also flagged. A row with premium-finance wording (`PREM FIN`, `PREMIUM FINANCE`, `INSPREMFIN`) and no premium-finance payee is flagged the same way, under the insurer it names, or else `Insurance provider not identified` (owner, 2026-09-25). **D1** (financing proceeds) covers `floor_plan_financing` credits. A factoring payee's credit is not proceeds (owner, 2026-09-26). It is revenue, recorded as `factoring` under its payee, with `flagged_group="factoring"` and `contributes_to_flagged_totals`: the credit counterpart of the premium-financing row, which stays what it is and is also flagged. A premium-finance payee's credits keep today's insurance treatment.
 
-`CLASSIFICATION_VERSION` becomes `"5.0"`, `"5.1"` with the D6 clarification of 2026-09-26, `"5.2"` with the second one of 2026-09-27, and `"5.3"` with the false-potential release of 2026-09-27.
+`CLASSIFICATION_VERSION` becomes `"5.0"`, `"5.1"` with the D6 clarification of 2026-09-26, `"5.2"` with the second one of 2026-09-27, `"5.3"` with the false-potential release of 2026-09-27, and `"5.4"` with the owner's Idea Financial ruling of 2026-09-28.
 
 **Debt relief** (5.3) is flagged on debits only. Its payees' credits are the debtor's own money back from the escrow, never financing proceeds: the state is not in `FINANCING_STATES`, and a credit keeps today's rules.
 
@@ -421,6 +423,7 @@ Per account:
   - The D6 clarification (2026-09-26) changes stored rows again: `CLASSIFICATION_VERSION = "5.1"` and `ANALYSIS_STAGE_VERSION` 19 → 20, together.
   - So does the second D6 clarification (2026-09-27: compensation memos, masked recipient accounts): `CLASSIFICATION_VERSION = "5.2"` and `ANALYSIS_STAGE_VERSION` 20 → 21, together.
   - The false-potential release (2026-09-27) changes stored rows: `CLASSIFICATION_VERSION = "5.3"` and `ANALYSIS_STAGE_VERSION` 21 → 22, together.
+  - So does the owner's Idea Financial ruling (2026-09-28: a counted lender, no longer a line of credit): `CLASSIFICATION_VERSION = "5.4"` and `ANALYSIS_STAGE_VERSION` 22 → 23, together.
 
 ## 7. Command-line tools, benchmark, docs
 

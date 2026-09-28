@@ -19,6 +19,10 @@ fee, NSF, cheque, card, payroll, mortgage and POS wording, admitted payees
 printed in the bank's field order, unconfirmed flag payees routed to their flag,
 D11 naming fixes, one Potential Lenders line per unnamed payee key, and the
 Debt relief group.
+Version 5.4 (2026-09-28) applies the owner's ruling that Idea Financial is a
+counted lender, no longer a line of credit: its debits are `confirmed_lender`
+rows, except a row whose own words say LOC or LINE OF CREDIT, which stays
+`line_of_credit` (D9), and its credits stay financing proceeds (D1).
 
 ## States and precedence
 

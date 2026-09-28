@@ -121,7 +121,7 @@ Every family of `digest_families.md` is covered, with the fix as amended by its 
 
 Not done, because the owner's list does not include them:
 - the SST phone-number matcher;
-- the IDEALOAN alias;
+- the IDEALOAN alias (admitted 2026-09-28 on the owner's explicit ruling that Idea Financial is a counted lender; classification 5.4);
 - KIKOFFCCBX;
 - BLACKBULL.
 
@@ -191,7 +191,7 @@ Some change only their published name: c00098 'Review Inc' (C5), c00138 HIP (C6)
 7. c00148, WF 'Recurring Payment authorized on … Card nnnn' to a person plus a website, is skipped on format.
 8. Stop-payment returns as `nsf_or_return` (B1), which moves the evidence-only `nsf_count`.
 9. RTS Carrier Services (c00120) and Atlas Smart Pay (c00207) stay in review: neither research file carries a card-context entry for them (Part E).
-10. KIKOFFCCBX (c00105), BLACKBULL (c00060), IDEALOAN (f00002) and States Resources (c00065): not in this release.
+10. KIKOFFCCBX (c00105), BLACKBULL (c00060), IDEALOAN (f00002) and States Resources (c00065): not in this release. IDEALOAN: admitted 2026-09-28 on the owner's explicit ruling that Idea Financial is a counted lender (classification 5.4).
 11. Merit Business Funding's alias `MERIT BUSINESS`, the only spelling that reaches its rows (the Truist originator, tryout host only). The verify round (r7) requires the owner's explicit choice before it is committed: BUSINESS is a generic word, so its only distinctive word is MERIT, and the matcher reads the whole row. It would count as Merit obligations a debit to any other payee printing the two words and another originator's debit whose receiver, the account holder, is named 'Merit Business …' (INDN / IND NAME), and it would read a same-named payee's credit as financing proceeds. The research file now carries `MERIT BUSINESS FUNDING` only (its `owner_pending_aliases` holds the choice). E1 adds `MERIT BUSINESS` only on the owner's yes, with the notes sentence `Owner choice <date>: …` (E0's `owner-alias`); without it the Truist rows stay D6 review rows, unnamed after C6.
 12. Essentia Funding's rows carry a 'Real Estate Loan Payment' memo. As a counted alias, step 7 counts them before step 8's mortgage wording.
 13. Bell Rock Income Fund's monthly rows (72 corpus rows in 12 accounts, the funders verifier's count): 57 glue one digit to FD, the two-letter last word of its alias BELL ROCK IN FD, which C4's three-letter rule leaves strict; 15 more print a different cut (BELL ROCK INCOME FUN…), which no alias or glued rule reaches and which would need a second cut alias (for the mortgage cell). Widen the rule to two letters (after re-scanning the 46 aliases ending in a one- or two-letter word), add the spellings, or leave them?

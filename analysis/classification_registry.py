@@ -188,6 +188,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Hop Capital": ("HOP CAPITAL LLC",),
     "Hunter Caroline": ("HUNTER CAROLINE",),
     "iCapital Financial Services Ltd": ("ICAPITAL FINANC",),
+    "IDEA FINANCIAL": ("IDEA FINANCIAL", "IDEAFINANCIAL", "IDEALOAN", "IDEA 247 INC"),
     "IOU FINANCIAL": ("IOU FINANCIAL", "IOU CENTRAL"),
     "Iruka Capital Group LLC": ("IRUKA CAPITAL",),
     "Isuzu Finance of America": ("ISUZU FINANCE",),
@@ -459,7 +460,6 @@ LINE_OF_CREDIT_ALIASES: dict[str, tuple[str, ...]] = {
     "Celtic Bank (Bluevine line of credit)": ("CELTIC BANK DES BV LOAN",),
     "FUNDBOX": ("FUNDBOX",),
     "HEADWAY CAPITAL": ("HEADWAY CAPITAL", "HWCRCVBLS23"),
-    "IDEA FINANCIAL": ("IDEA FINANCIAL", "IDEAFINANCIAL"),
     "KABBAGE": ("KABBAGE",),
     "National Bank of Canada line of credit": ("NBC LINE OF CR",),
     "Pitney Bowes Purchase Power": ("PBPURCHASPWR", "PITNEY PURCHASE"),
@@ -1359,6 +1359,8 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
         ("Flexibility Capital", "FLEXIBILITY CAPITAL"),
         ("Merit Business Funding", "MERIT BUSINESS FUNDING"),
         ("Essentia Funding", "ESSENTIA FUNDING"),
+        # Owner ruling 2026-09-28: Idea Financial (Idea 247, Inc.) is a counted lender, no longer a line of credit.
+        ("Idea Financial", "IDEA FINANCIAL"),
     ),
     "alternative_position": (
         ("SBA/EIDL", "SBA EIDL"),
