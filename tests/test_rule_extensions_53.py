@@ -119,3 +119,24 @@ def test_the_banks_own_loan_interest_is_a_bank_loan():
 
 def test_loan_interest_that_names_a_payee_is_not_the_banks():
     assert _state("FAB CAPITAL LOAN INTEREST", -100.0)[0] != "bank_loan"
+
+
+# --- B7: POS labels ---------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    ["MOBILE PURCHASE 0105 FAB MART MIAMI FL", "RETAIL PURCHASE 123456789012 FAB GAS",
+     "PIN PURCHASE FAB MART SPRINGFIELD IL 0109", "C/ACHAT 12345678901 FAB EPICERIE", "ACHAT AU DETAIL FAB EPICERIE",
+     "ACHAT PAR CARTE 0105 FAB EPICERIE", "DEBIT ACHAT EN LIGNE FAB BOUTIQUE"],
+)
+def test_bank_card_purchase_labels_are_pos_purchases(description):
+    assert _state(description, -10.0)[:2] == ("pos", "point_of_sale_purchase")
+
+
+def test_a_french_receivables_purchase_is_not_a_pos_purchase():
+    # ACHAT alone is also a factor's or lessor's wording: only the evidenced card forms are POS
+    assert _state("ACHAT DE CREANCES FAB AFFACTURAGE", -900.0)[0] != "pos"
+
+
+def test_a_known_payee_paid_by_card_keeps_its_group(fake_payees):
+    assert _state("MOBILE PURCHASE 0105 FABRICATED LENDER", -100.0)[0] == "confirmed_lender"

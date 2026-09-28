@@ -317,6 +317,12 @@ _POS_PATTERNS = (
     re.compile(r"\bMASTER ?CARD DEBIT PURCHASE\b"),
     re.compile(r"\bCHECK ?CARD\b"),
     re.compile(r"\bPURCHASE AUTHORI[ZS]ED\b"),
+    # 5.3 (2026-09-27): bank card-purchase labels of the same kind (BofA MOBILE PURCHASE, CIBC RETAIL PURCHASE,
+    # Regions PIN PURCHASE) and the French card-purchase forms the corpus prints (C/ACHAT, CIBC ACHAT AU DETAIL,
+    # RBC ACHAT INTERAC, BMO ACHAT PAR CARTE and ACHAT EN LIGNE). A bare ACHAT is never read: 'ACHAT DE CREANCES'
+    # is a factor's wording.
+    re.compile(r"\b(?:RETAIL|MOBILE|PIN) PURCHASE\b"),
+    re.compile(r"\bC ACHAT\b|\bACHAT (?:AU DETAIL|INTERAC|PAR CARTE|EN LIGNE)\b"),
 )
 _POS_EXCLUSION_PATTERNS = (
     re.compile(r"\bCASH ADVANCE\b"),
