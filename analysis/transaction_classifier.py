@@ -2103,6 +2103,43 @@ _MASKED_RECIPIENT_PATTERN = re.compile(
     r"\bTO\b[\s:]*(?:(?:ACCOUNT|ACCT)\b[\s:]*)?(?:\.{2,}|…+|X+|\*+|#)[ -]?([0-9]{2,})(?![0-9])",
     re.IGNORECASE,
 )
+#: 5.3 (2026-09-27): the financing veto every 5.3 D6 skip reads. Funders ARE paid by card, Zelle, Interac, bill pay
+#: and wire, so no skip fires on a row that names financing. The roots have no left word boundary, so a
+#: run-together or cut name hits (KOVOCREDIT, CONSTRULOANS, BYZFUNDER, FUNDIN, CAPITA, FINANC, CLICKLEASE), and so
+#: does a collector of MCA debt (RECOVERY, RECEIVABLES, COLLECTIONS). The card verifier's roots: SETTLE (an
+#: unregistered debt-settlement payee stays reviewed; the registry alone names it debt relief), CRED before IT, ORA,
+#: IBLY or a word end (CREDIBLY, CREDORA, a cut CRED; never INCREDIBLE) and ACCEPT (ACCEPTANCE). A skip's own matched
+#: words are removed before the veto reads the row (_skips), so A4's 'BUS ONLINE ACH SETTLEMENT' template still skips.
+#: The short abbreviations are whole words. Known over-reach, in the safe direction (the row stays in review):
+#: CALENDAR, RELEASE, REFUNDABLE, FUNDRAISER, a processor's SETTLEMENT wording, ACCEPTED.
+_FINANCING_ROOT_PATTERN = re.compile(
+    r"(?:FUND|CAPITA|CAPTL|CRED(?=IT|ORA|IBLY|\b)|LOAN|LEND|FINANC|ADVANC|MERCH|RECOVER|RECEIVAB|COLLECT"
+    r"|SERVICING|SERVICER|FACTOR|LEASE|LEASING|EQUIP|MORTG|ACCEPT|REMIT|SETTLE)"
+    r"|\b(?:CAP|FIN|FINL|FNCL|ADV|MTG|MCA|RTR|SPV|DLY|DAILY|WKLY|WEEKLY)\b"
+)
+#: D11 and 5.3: the legal-form suffixes. A legal form names an organisation only after the name's first word.
+_LEGAL_FORM_SUFFIXES = frozenset({
+    "LLC", "INC", "CORP", "CORPORATION", "COMPANY", "INCORPORATED", "LTD", "LIMITED", "LP", "LLP", "PLLC",
+})
+
+
+def _names_financing(text: str, *, besides: str = "") -> bool:
+    """5.3: whether a normalized row names financing anywhere but in `besides`, the words a D6 skip matched.
+
+    Read on the whole row, the account holder's name included: a holder named like a funder keeps its rows in
+    review, which is the safe direction. The skip's own words are removed first, so they never veto the skip."""
+    rest = text.replace(besides, " ") if besides else text
+    return _FINANCING_ROOT_PATTERN.search(rest) is not None
+
+
+def _skips(region: str, patterns: Sequence[re.Pattern[str]], text: str) -> bool:
+    """5.3: a D6 skip fires when one of `patterns` is found in `region` (the part of the row the skip reads) and
+    the rest of the whole row `text` names no financing (`_names_financing`)."""
+    for pattern in patterns:
+        found = pattern.search(region)
+        if found is not None and not _names_financing(text, besides=found.group(0)):
+            return True
+    return False
 
 
 def _has_ach_field_mark(record: TransactionClassification) -> bool:
