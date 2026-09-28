@@ -191,6 +191,7 @@ def test_a_rail_that_names_financing_stays_in_review(description):
         "BKOFAMERICA BC 01/05 12345 TO CHKG 12345 FAB ST",        # P2: owner may strike it
         "Internet Withdrawal",
         "ACH Web Smartsave 12345 Atlasfinancial 999",
+        "ACH Web Smartsave 12345678901234567 Atlasfinancial 12AB3CD45E6FG78",  # the observed shape
         "RTP SENT PAT EXAMPLE",
         "Real Time Payment To Pat Example",
     ],
@@ -208,6 +209,9 @@ def test_transfer_templates_of_an_unnamed_payee_are_not_d6_payees(description):
         "FABRICATED CAPITAL DES:TRF ID:0001 CCD",                  # a funder's own entry description
         "SMART SAVE FUNDING LLC",
         "RTP SENT FABCO LLC",                                      # an organisation: stays reviewed
+        # only reference numbers may sit inside the Atlas sweep's match, which the veto does not read
+        "ACH Web Smartsave 12345 Fabricated Capital Atlasfinancial 999",
+        "ACH Web Smartsave 12345 Atlasfinancialfunding 999",
     ],
 )
 def test_a_transfer_template_never_hides_a_named_or_financing_payee(description):
