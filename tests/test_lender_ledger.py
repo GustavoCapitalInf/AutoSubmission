@@ -826,3 +826,11 @@ def test_debt_relief_words_alone_are_generic():
 def test_a_debt_relief_aliases_run_together_form_may_not_be_a_lenders_alias():
     clash = entity("Quillon Settlement", "debt_relief", ["QUILLON FUND"], business_type="debt_settlement_company")
     assert any("run-together form" in problem for problem in lender_ledger.validate(_with(clash), RULES))
+
+
+def test_a_review_entity_of_debt_relief_is_routed_to_its_flag():
+    negotiator = entity("Fabrikam Negotiators", "debt_relief", ["FABRIKAM NEGOTIATORS"], status="review",
+                        business_type="mca_debt_relief_negotiator", evidence=[], verdicts=UNRESOLVED)
+    entities, problems = lender_ledger.parse_ledger(_with(negotiator))
+    assert problems == []
+    assert lender_ledger.review_flag_entities(entities) == {"Fabrikam Negotiators": "debt_relief"}

@@ -158,7 +158,7 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "No entity of a table read only with context (credit cards, card issuers, bank names, premium financing) "
         "is under review.",
         "- Since classification 5.3 (owner ruling 2026-09-27), the debits of a review entity of the vehicle, "
-        "mortgage, lease or personal-loan group take that flag group, marked unconfirmed "
+        "mortgage, lease, personal-loan or debt-relief group take that flag group, marked unconfirmed "
         "(`REVIEW_FLAG_ENTITIES`), unless its business type is unknown. Its credits keep the potential tier's "
         "exclusion.",
         "- An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with its group, its "

@@ -8,7 +8,7 @@ The ledger is curated outside the code (contract C10): the orchestrator's resear
 
 - An admitted entity is in its group's table. It has at least one public source, and an independent second agent's verdict of upheld or corrected that confirms it (spec section 5).
 - An entity under review is in `POTENTIAL_LENDER_ALIASES` (review, never counted), whatever its group. No entity of a table read only with context (credit cards, card issuers, bank names, premium financing) is under review.
-- Since classification 5.3 (owner ruling 2026-09-27), the debits of a review entity of the vehicle, mortgage, lease or personal-loan group take that flag group, marked unconfirmed (`REVIEW_FLAG_ENTITIES`), unless its business type is unknown. Its credits keep the potential tier's exclusion.
+- Since classification 5.3 (owner ruling 2026-09-27), the debits of a review entity of the vehicle, mortgage, lease, personal-loan or debt-relief group take that flag group, marked unconfirmed (`REVIEW_FLAG_ENTITIES`), unless its business type is unknown. Its credits keep the potential tier's exclusion.
 - An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with its group, its public source and where the researchers looked.
 - Every payee the owner named in spec section 2 is admitted in its ruled group: the validator refuses a ledger in which one is not.
 - An entity of the registry as it stood before this ledger changes place, or loses an alias, only with a reason: a sentence of its notes that starts `Move:` (spec section 9). The moves section shows that reason.

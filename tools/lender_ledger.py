@@ -364,7 +364,7 @@ def render_tables(entities: list[LedgerEntity]) -> dict[str, dict[str, tuple[str
 #: 5.3 (owner ruling 2026-09-27): the flag groups whose review entities take their flag on debits, marked
 #: unconfirmed (REVIEW_FLAG_ENTITIES). A review entity of the lender, potential, alternative-position or factoring
 #: group keeps the potential tier: each has a plausible counted reading.
-ROUTED_REVIEW_GROUPS = ("vehicle_financing", "mortgage", "lease_or_rental", "personal_loan")
+ROUTED_REVIEW_GROUPS = ("vehicle_financing", "mortgage", "lease_or_rental", "personal_loan", "debt_relief")
 
 
 def review_flag_entities(entities: list[LedgerEntity]) -> dict[str, str]:

@@ -76,3 +76,13 @@ def test_debt_relief_rows_are_a_flagged_position_and_never_a_d6_payee(relief_pay
     [position] = find_flagged_positions(statement, records)
     assert (position.group, position.payee, position.count, position.cadence) == (
         "debt_relief", "Fabrikam Settlement Payments", 3, "weekly")
+
+
+def test_a_review_debt_relief_payee_takes_the_flag_marked_unconfirmed(monkeypatch):
+    monkeypatch.setattr(transaction_classifier, "POTENTIAL_LENDER_ALIASES",
+                        {"FABRIKAM NEGOTIATORS (unconfirmed)": ("FABRIKAM NEGOTIATORS",)})
+    monkeypatch.setattr(transaction_classifier, "REVIEW_FLAG_ENTITIES",
+                        {"FABRIKAM NEGOTIATORS (unconfirmed)": "debt_relief"})
+    record = classify_transaction("ACH DEBIT FABRIKAM NEGOTIATORS 0001", -900.0)
+    assert (record.classification, record.flagged_group, record.review_required, record.match_method) == (
+        "debt_relief", "debt_relief", True, "unconfirmed_flag_payee_alias")
