@@ -99,6 +99,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "EN OD Capital, LLC": ("EN OD CAPITAL",),
     "Entegra Capital LLC": ("ENTEGRA CAPITAL",),
     "Equirex Leasing": ("EQUIREX",),
+    "Essentia Funding": ("ESSENTIA FUNDING",),
     "EVEREST BUSINESS FUNDING": (
         "EVEREST BUSINESS FUNDING",
         "EBFUNDING",
@@ -134,6 +135,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Flash Advance": ("FLASH ADVANCE", "DIRCT MER COL", "DIRECT MERCHANTS FUNDING", "DIRECT MERCHANTS"),
     "Fleet Financial": ("FLEET FINANCIAL",),
     "Flex Capital": ("FLEX CAPITAL",),
+    "Flexibility Capital, Inc.": ("FLEXIBILITY CAPI", "FLEXIBILITY CAPITAL"),
     "FORA FINANCIAL": ("FORA FINANCIAL", "FORAFINANCIAL"),
     "Foretrust Funding": ("FORETRUSTFUNDING",),
     "Forward Financing": (
@@ -234,6 +236,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "McKenzie Capital LLC": ("MCKENZIE CAPITAL",),
     "Meged Funding Group": ("MEGED1", "MEGED FUNDING"),
     "Merchant Growth Ltd": ("MERCHANT GROWTH", "INVESTMENT MERCHANT GROWTH FUND"),
+    "Merit Business Funding": ("MERIT BUSINESS FUNDING",),
     "MHB Financial": ("MHB FINANCIAL",),
     "MicroAdvance": ("MICROADVANCEFUND",),
     "Millstone Funding, Inc": ("MILLSTONE FUNDIN",),
@@ -1205,6 +1208,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "MERIDIAN RLS",
         "MERIDIAN RLS LOY",
     ),
+    "Merit Business (probably Merit Business Funding)": ("MERIT BUSINESS",),
     "Money Man 4 Cash Advance": ("MONEY MAN 4 CASH",),
     "MORTGAGE IVR PYMNT (probably 21st Mortgage Corporation)": (
         "MORTGAGE IVR PYMNT",
@@ -1318,6 +1322,10 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
         ("Balboa", "BALBOA CAPITAL"),
         ("Navitas", "NAVITAS CREDIT CORP"),
         ("Deere", "JOHN DEERE FINANCIAL"),
+        # Owner ruling 2026-09-27 (classification 5.3): the funders the false-positive hunt found missing.
+        ("Flexibility Capital", "FLEXIBILITY CAPITAL"),
+        ("Merit Business Funding", "MERIT BUSINESS FUNDING"),
+        ("Essentia Funding", "ESSENTIA FUNDING"),
     ),
     "alternative_position": (
         ("SBA/EIDL", "SBA EIDL"),

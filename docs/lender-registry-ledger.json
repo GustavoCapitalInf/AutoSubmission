@@ -52420,6 +52420,209 @@
     "https://docs.zumrails.com/payments/bank-payments"
    ],
    "notes": "Rejected as a payee: a US/Canada payments platform, not a lender (r4, upheld). In the corpus ZUM RAILS appears only on e-Transfers received, whose sender could be a lender or any other client; rendered, the alias would treat such payouts as financing proceeds, so it is kept as evidence only."
+  },
+  {
+   "entity": "Flexibility Capital, Inc.",
+   "group": "confirmed_lender",
+   "business_type": "mca_or_revenue_based_funder",
+   "aliases": [
+    "FLEXIBILITY CAPI",
+    "FLEXIBILITY CAPITAL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://flexibilitycapital.com/about-us",
+     "note": "Own site, fetched this round (r6): footer 'Flexibility Capital, Inc.', New York, serving businesses 'across the U.S.' since 2018; products Business Term Loan, Business Line of Credit, Equipment Financing and Revenue Based Funding."
+    },
+    {
+     "source": "https://flexibilitycapital.com/revenue-based-funding",
+     "note": "Own site, fetched (r6): revenue-based funding 'repaid based on your future sales', $5K to $3 million, 3-month to 2-year expected terms; 'Repay automatically on a fixed schedule'."
+    },
+    {
+     "source": "https://flexibilitycapital.com/business-term-loan",
+     "note": "Own site, fetched (r6): term loans with 'Daily or weekly payment options'."
+    },
+    {
+     "source": "https://www.unitedcapitalsource.com/business-loans/lender-reviews/flexibility-capital-review/",
+     "note": "Fetched (r6): headquartered in New York, founded 2018; 'a direct lender and financial marketplace' that also partners with other lenders; revenue-based products repaid as 'a small percentage of daily or weekly revenue'."
+    },
+    {
+     "source": "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/",
+     "note": "Fetched (r6): 'Flexibility Capital Inc.' is on Virginia's list of registered sales-based financing providers as of 2023-03-29. It is not on the SCC's year-end 2025 registrant list (ar03-25.pdf, read this round)."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r6",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://flexibilitycapital.com/",
+    "https://flexibilitycapital.com/about-us",
+    "https://flexibilitycapital.com/revenue-based-funding",
+    "https://flexibilitycapital.com/business-term-loan",
+    "https://www.unitedcapitalsource.com/business-loans/lender-reviews/flexibility-capital-review/",
+    "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf"
+   ],
+   "notes": "Added 2026-09-27 under owner decision 3 of the false-positive hunt (missing funders). Flexibility Capital, Inc. (New York City, founded 2018): revenue-based funding, term loans with daily or weekly payments, lines of credit and equipment financing; it funds directly and also places some deals with partner lenders, and on the observed rows it is the collecting ACH originator. The rows (Navy Federal 'Paid To' debits printing the originator as 'Flexibility Capi Flexibilit' then a check number; tryout host, 2 accounts, 15 rows) are a fixed daily debit that later becomes a weekly debit of exactly five times the daily amount: a revenue-based remittance shape. FLEXIBILITY CAPI is the 16-character ACH company-name cut the rows print (it reaches them even when D6 cannot fire); FLEXIBILITY CAPITAL is the full name for other printings. Neither reaches another payee: no cached corpus row prints FLEXIBILIT, the Canadian FLEX CAPITAL alias (Flex Capital) is a different token run, and a FLEXIBILITY FITNESS card purchase is untouched. Court decisions of 2024 (New York, Tennessee) treat its contracts as purchases of future receivables; they are not cited because they name private guarantors."
+  },
+  {
+   "entity": "Merit Business Funding",
+   "group": "confirmed_lender",
+   "business_type": "mca_or_revenue_based_funder",
+   "aliases": [
+    "MERIT BUSINESS FUNDING"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.meritbusinessfunding.com/",
+     "note": "Own site, fetched this round (r6): 'a Revenue Advance company'; 'A Revenue Advance is NOT a Business or Personal Loan'; customers remit 'via daily, automated ACH debits from their business bank accounts, or via a split of their daily credit card receipts'; 'we are owned by a bank'."
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "Fetched and read (r6): the Virginia SCC Bureau of Financial Institutions 2025 annual report lists 'Meridian Equipment Finance LLC d/b/a Merit Business Funding', Eagleview Boulevard, Exton PA, among the sales-based financing provider registrants at year-end 2025."
+    },
+    {
+     "source": "https://www.meridianef.com/contact-us/",
+     "note": "Fetched (r6): 'Meridian Equipment Finance, LLC is a wholly-owned subsidiary of Meridian Bank, Member FDIC', at the same Exton PA street address as the Virginia registration."
+    },
+    {
+     "source": "https://www.sec.gov/Archives/edgar/data/1750735/000175073525000011/mrbk-20241231.htm",
+     "note": "Fetched (r6): Meridian Corporation's FY2024 Form 10-K names its bank subsidiary Meridian Equipment Finance, LLC 'an equipment leasing and other finance receivables company'; the filing does not name the Merit Business Funding brand."
+    },
+    {
+     "source": "https://www.unitedcapitalsource.com/business-loans/lender-reviews/merit-business-funding-review/",
+     "note": "Fetched (r6): revenue advance company launched in 2022, Philadelphia area; 'operates under Meridian Equipment Finance, LLC' (the review calls the parent 'Merit Bank', a slip for Meridian Bank per the SCC list and MEF's own page); repayment from daily or weekly revenue."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r6",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.meritbusinessfunding.com/",
+    "https://www.unitedcapitalsource.com/business-loans/lender-reviews/merit-business-funding-review/",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+    "https://www.meridianef.com/contact-us/",
+    "https://www.sec.gov/Archives/edgar/data/1750735/000175073525000011/mrbk-20241231.htm",
+    "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
+   ],
+   "notes": "Added 2026-09-27 under owner decision 3 of the false-positive hunt (missing funders). Merit Business Funding is the revenue-advance brand of Meridian Equipment Finance LLC, a subsidiary of Meridian Bank (parent Meridian Corporation, Nasdaq MRBK), registered in Virginia as a sales-based financing provider under that d/b/a; it collects by daily or weekly ACH debits. The observed row is a Truist 'ACH CORP DEBIT' debit whose originator prints 'Merit Business' followed directly by the receiver's own business name and CUSTOMER ID; the word FUNDING is never printed (tryout host, 1 account, 4 weekly rows of one fixed amount). MERIT BUSINESS FUNDING is the full name and, until the owner decides, the only alias. MERIT BUSINESS, the printed originator and the only spelling that reaches the observed rows, waits for the owner's explicit choice (verify round 2026-09-27): BUSINESS is a generic word, so its only distinctive word is MERIT, and the known-payee matcher reads the whole row. It would therefore count as a Merit obligation (1) a debit to any other payee printing the two words, (2) another originator's debit whose receiver, the account holder, is named 'Merit Business ...' in INDN or IND NAME, and (3) it would read a same-named payee's credit as financing proceeds. No cached corpus row prints MERIT BUS today. Without MERIT BUSINESS the entity reaches no observed row, and the Truist rows stay D6 review rows under 'Unidentified lender obligation' (the 5.3 Truist naming fix publishes no name there). Bare MERIT is never an alias (MERIT ELECTRIC credits, a MERIT-TEL card row). Meridian Equipment Finance's own equipment leases are not aliased here. Owner decision 2026-09-28 (delegated): MERIT BUSINESS is a review alias of its own entity, Merit Business (probably Merit Business Funding), named on the Potential Lenders tab and never counted."
+  },
+  {
+   "entity": "Essentia Funding",
+   "group": "confirmed_lender",
+   "business_type": "mca_or_revenue_based_funder",
+   "aliases": [
+    "ESSENTIA FUNDING"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.essentiafunding.com/",
+     "note": "Own site, fetched this round (r6): 'Essentia Funding is a direct funder, not a broker or a marketplace. Every application is underwritten in-house and funded from Essentia's own capital'; revenue-based financing where the business 'delivers an agreed percentage of its daily or weekly sales'; also equipment financing; footer 'Essentia Funding, LLC'. No real-estate lending is offered."
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "Fetched and read (r6): 'Essentia Holdings LLC d/b/a Essentia Funding', East Main Street, Middletown NY (printed 'Middleton' with Middletown's ZIP code), is a Virginia sales-based financing provider registrant at year-end 2025."
+    },
+    {
+     "source": "https://dramerlaw.com/essentia-holdings-llc-dba-essentia-funding/",
+     "note": "Fetched (r6): an MCA-defense law firm's page for merchants behind on payments to 'Essentia Holdings, LLC dba Essentia Funding', which it treats as a merchant cash advance company."
+    },
+    {
+     "source": "https://www.sec.gov/Archives/edgar/data/1935092/000107997326000861/ceti_10q.htm",
+     "note": "Fetched (r7): a public company's 2026 Form 10-Q (Cyber Enviro-Tech, Inc.) describes a Sale of Future Receipts Agreement with Essentia Funding, remitted as a percentage of future receipts until the purchased amount is delivered: a merchant cash advance, and no real-estate loan."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r6",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.essentiafunding.com/",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+    "https://dramerlaw.com/essentia-holdings-llc-dba-essentia-funding/",
+    "https://www.sec.gov/Archives/edgar/data/1935092/000107997326000861/ceti_10q.htm"
+   ],
+   "notes": "Added 2026-09-27 under owner decision 3 of the false-positive hunt (missing funders). Essentia Holdings LLC d/b/a Essentia Funding (Middletown NY): a direct revenue-based and equipment funder, registered in Virginia as a sales-based financing provider. The observed rows are Chase outgoing wires to the beneficiary 'Essentia Funding Middletown NY' (the registered town) through an intermediary bank, with the memo 'Real Estate Loan Payment' and one round amount, once in each of 6 tryout-host accounts (the tryout data has no dates, so distinct months cannot be told from re-uploads). Today they reach the review tier only through the loan memo, and the payee key names the intermediary bank. Owner note: with this alias the wires count as a lender obligation even with the real-estate memo, because the known-payee step precedes the mortgage descriptor step; Essentia offers no real-estate lending, so the memo is read as the payer's own wording, but a monthly-shaped round amount is not the usual daily or weekly remittance. ESSENTIA alone prints on card purchases (a hotel, a home-goods store) and is never an alias; ESSENTIA FUNDING reaches none of them."
+  },
+  {
+   "entity": "Merit Business (probably Merit Business Funding)",
+   "group": "confirmed_lender",
+   "business_type": "mca_or_revenue_based_funder (probable; the printed spelling's only distinctive word is MERIT)",
+   "aliases": [
+    "MERIT BUSINESS"
+   ],
+   "status": "review",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.meritbusinessfunding.com/",
+     "note": "Own site, fetched this round (r6): 'a Revenue Advance company'; 'A Revenue Advance is NOT a Business or Personal Loan'; customers remit 'via daily, automated ACH debits from their business bank accounts, or via a split of their daily credit card receipts'; 'we are owned by a bank'."
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "Fetched and read (r6): the Virginia SCC Bureau of Financial Institutions 2025 annual report lists 'Meridian Equipment Finance LLC d/b/a Merit Business Funding', Eagleview Boulevard, Exton PA, among the sales-based financing provider registrants at year-end 2025."
+    },
+    {
+     "source": "https://www.meridianef.com/contact-us/",
+     "note": "Fetched (r6): 'Meridian Equipment Finance, LLC is a wholly-owned subsidiary of Meridian Bank, Member FDIC', at the same Exton PA street address as the Virginia registration."
+    },
+    {
+     "source": "https://www.sec.gov/Archives/edgar/data/1750735/000175073525000011/mrbk-20241231.htm",
+     "note": "Fetched (r6): Meridian Corporation's FY2024 Form 10-K names its bank subsidiary Meridian Equipment Finance, LLC 'an equipment leasing and other finance receivables company'; the filing does not name the Merit Business Funding brand."
+    },
+    {
+     "source": "https://www.unitedcapitalsource.com/business-loans/lender-reviews/merit-business-funding-review/",
+     "note": "Fetched (r6): revenue advance company launched in 2022, Philadelphia area; 'operates under Meridian Equipment Finance, LLC' (the review calls the parent 'Merit Bank', a slip for Meridian Bank per the SCC list and MEF's own page); repayment from daily or weekly revenue."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "unresolved",
+     "confirmed": false
+    }
+   ],
+   "where_looked": [
+    "https://www.meritbusinessfunding.com/",
+    "https://www.unitedcapitalsource.com/business-loans/lender-reviews/merit-business-funding-review/",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+    "https://www.meridianef.com/contact-us/",
+    "https://www.sec.gov/Archives/edgar/data/1750735/000175073525000011/mrbk-20241231.htm",
+    "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
+   ],
+   "notes": "Review: MERIT BUSINESS is the printed originator of Truist 'ACH CORP DEBIT' rows that the funders research tied to Merit Business Funding, the revenue-advance brand of Meridian Equipment Finance LLC (the word FUNDING is never printed; tryout host only, no cached corpus row prints MERIT BUS). The verify round of 2026-09-27 (r7) admitted Merit Business Funding with its full name only and left this spelling to the owner (owner_pending_aliases): BUSINESS is a generic word, so its only distinctive word is MERIT, and a same-named payee, or an account holder named 'Merit Business ...' in a receiver field, would also be read as Merit. Owner decision 2026-09-28 (delegated): review alias, not counted. The rows are named on the Potential Lenders tab and never enter lender math; as for every review entity, a credit printing the spelling keeps the potential tier's exclusion from revenue. The r7 verdict records that round's finding on this spelling (not confirmed, left to the owner). Bare MERIT is never an alias."
   }
  ]
 }
