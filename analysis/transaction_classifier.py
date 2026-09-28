@@ -25,7 +25,7 @@ from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STAT
 from .revenue import RevenueState, revenue_contribution_flags
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
-from .payee_matcher import PayeeMatch, match_known_payee, registry_match
+from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -1048,6 +1048,11 @@ _WIRE_BENEFICIARY_PATTERNS = (
 )
 #: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
 _RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
+#: 5.3 (owner ruling 2026-09-27): a receiver-name field with its value, up to the next ACH field, removed before the
+#: debt-relief table is read: the account holder's own name never makes a row debt relief.
+_RECEIVER_FIELD_VALUE = re.compile(
+    r"\b(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b.*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
+)
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
 _LEADING_PREFIX_WORDS = frozenset({
     "BILL", "BILLS", "PRE", "AUTHORIZED", "AUTHORISED", "RECURRING", "RECUR", "INTERNET", "BANKING", "PAIEMENT",
@@ -1839,6 +1844,11 @@ def classify_transaction(
     field_order_payee = _field_order_payee(text) if known_payee is None and amount < 0 else None
     if field_order_payee is not None:
         known_payee = field_order_payee
+    # 5.3 (owner ruling 2026-09-27): a debt-relief payee, on a debit no known payee claimed, read without the row's
+    # receiver fields (the account holder may itself be a debt-relief firm). It then stands in for the known payee:
+    # the POS and ATM exceptions (D8) and step 7 treat it as one. Credits keep today's rules.
+    if known_payee is None and amount < 0:
+        known_payee = match_debt_relief_payee(_RECEIVER_FIELD_VALUE.sub(" ", text))
 
     if (
         amount < 0

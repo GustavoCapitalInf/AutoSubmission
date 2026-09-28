@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from .classification_registry import PAYEE_GROUP_REGISTRIES
+from .classification_registry import DEBT_RELIEF_ALIASES, PAYEE_GROUP_REGISTRIES
 from .description_text import normalize_transaction_description
 
 #: A spaced alias also matches its run-together form when that form has at least this many characters.
@@ -105,6 +105,10 @@ class AliasIndex:
 
 
 _DEFAULT_INDEX = AliasIndex(PAYEE_GROUP_REGISTRIES, glued_digits=True)
+#: 5.3 (owner ruling 2026-09-27): the debt-relief payees, an index of their own. They are read only after no known
+#: payee matched, never as a longest-alias peer of the known-payee groups. Run-together forms are read (FORTHPAY,
+#: RAMPAYMENTS), as in the known-payee index; registry_match never reads them.
+_DEBT_RELIEF_INDEX = AliasIndex({"debt_relief": DEBT_RELIEF_ALIASES}, run_together=True)
 _REGISTRY_INDEXES: dict[int, tuple[Mapping[str, Sequence[str]], AliasIndex]] = {}
 _REGISTRY_INDEX_LIMIT = 64
 
@@ -112,6 +116,11 @@ _REGISTRY_INDEX_LIMIT = 64
 def match_known_payee(normalized_text: str) -> PayeeMatch | None:
     """The longest alias across every group registry (spec section 4.6), or None."""
     return _DEFAULT_INDEX.match(normalized_text)
+
+
+def match_debt_relief_payee(normalized_text: str) -> PayeeMatch | None:
+    """5.3 (owner ruling 2026-09-27): the longest debt-relief alias (state "debt_relief"), or None."""
+    return _DEBT_RELIEF_INDEX.match(normalized_text)
 
 
 def registry_match(
