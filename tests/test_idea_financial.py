@@ -13,6 +13,8 @@ from analysis.transaction_classifier import classify_statement_transactions, cla
 from tests.flag_group_fixtures import txn
 
 IDEA = "IDEA FINANCIAL"
+#: The entity's spellings since the owner's ruling, fixed here so the controls stay behavioural at any registry state.
+IDEA_SPELLINGS = frozenset({"IDEA FINANCIAL", "IDEAFINANCIAL", "IDEALOAN", "IDEA 247 INC"})
 WEEKLY = (2, 9, 16, 23)
 
 #: The tryout host's Wells Fargo business-to-business layout: '<company name> <entry description> <date>
@@ -27,7 +29,7 @@ def _weekly(description: str, amount: float = -300.0):
 
 
 def test_idea_financial_is_a_counted_lender_with_its_printed_spellings():
-    assert set(registry.LENDER_ALIASES[IDEA]) == {"IDEA FINANCIAL", "IDEAFINANCIAL", "IDEALOAN", "IDEA 247 INC"}
+    assert set(registry.LENDER_ALIASES[IDEA]) == IDEA_SPELLINGS
     assert IDEA not in registry.LINE_OF_CREDIT_ALIASES
     assert IDEA not in registry.POTENTIAL_LENDER_ALIASES
     # Bare IDEA is an English word: it would read receivers and other companies' names, so it is never an alias.
@@ -135,5 +137,5 @@ def test_an_idea_financial_credit_is_financing_proceeds(printed):
 def test_other_idea_words_are_not_idea_financial(printed, amount):
     records = _weekly(printed, amount)
     assert all(record.canonical_entity != IDEA for record in records)
-    assert all(record.matched_alias not in registry.LENDER_ALIASES[IDEA] for record in records)
+    assert all(record.matched_alias not in IDEA_SPELLINGS for record in records)
     assert not any(record.match_method == "financing_proceeds_credit" for record in records)
