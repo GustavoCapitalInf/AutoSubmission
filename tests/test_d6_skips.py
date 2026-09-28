@@ -465,3 +465,30 @@ def test_the_floor_never_reaches_the_keyword_recurrence():
     assert _states("ACH DEBIT FABRICATED FUNDING LLC", -20.0) == {
         ("potential_lender", "recurring_financing_counterparty")
     }
+
+
+# --- A11: a processor's own small account charge -------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("description", "amount"),
+    [
+        ("ACH CORP DEBIT SQ540512 SQUARE INC CUSTOMER ID 0001", -10.0),
+        ("ACH Pull: INTUIT PYMT SOLN", -25.0),
+        ("INTUIT PYMT SOLN DES:INTUITPMTS ID:0001", -49.0),
+    ],
+)
+def test_a_processors_small_account_charge_is_not_a_d6_payee(description, amount):
+    assert _states(description, amount) == OTHER
+
+
+@pytest.mark.parametrize(
+    ("description", "amount"),
+    [
+        ("ACH Pull: INTUIT PYMT SOLN", -450.0),                          # above the cap: the payee is unknown
+        ("ACH CORP DEBIT SQ540512 SQUARE INC CUSTOMER ID 0001", -1250.0),
+        ("SQUARE INC DES:SQ540512 ID:SQCAP1201", -30.0),                 # Square's glued loan code
+        ("SQUARE INC DES:SQ540512 LENDING", -30.0),
+    ],
+)
+def test_a_processor_rail_above_the_cap_or_naming_financing_stays_in_review(description, amount):
+    assert _states(description, amount) == D6

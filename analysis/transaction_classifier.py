@@ -2489,6 +2489,30 @@ def _is_platform_payout_to_person(text: str) -> bool:
 #: promotes. A named payee promotes at any amount. A whole number: analysis/ carries no exact-cent literal
 #: (tests/test_no_statement_hardcodes.py).
 _D6_MIN_FIXED_DEBIT = 25
+#: 5.3 (2026-09-27): a payment processor's own small charge to its merchant, through its merchant-services
+#: spelling: Square's seller-account entry code (SQ + the entry date yymmdd) and Intuit Payment Solutions. Capped at
+#: 50 dollars (Intuit's fees and chargebacks, Square's small charges): these rails also carry invoice payments to
+#: third parties in the thousands, so a fixed debit above the cap stays in review. Never with loan or capital
+#: wording, including Square's glued loan codes (SQCAP, SQ LOAN). A whole number
+#: (tests/test_no_statement_hardcodes.py).
+_PROCESSOR_ACCOUNT_DEBIT_PATTERNS = (
+    re.compile(r"\bSQUARE\b.*\bSQ ?\d{6}\b|\bSQ ?\d{6}\b.*\bSQUARE\b"),
+    re.compile(r"\bINTUIT (?:PYMT|PMT|PAYMENTS?) SOL(?:N|NS|UTIONS?)?\b"),
+)
+_PROCESSOR_DEBIT_FINANCING_GUARD = re.compile(
+    r"\bLOANS?\b|\bADVANCE\b|\bFINANC(?:E|ING|IAL)\b|\bFUND(?:ER|ING)\b|\bCAP(?:ITAL)?(?![A-Z])|\bMCA\b"
+    r"|\bSQ ?CAP|\bSQ ?LOAN|\bLENDING\b"
+)
+_PROCESSOR_ACCOUNT_CHARGE_MAX = 50
+
+
+def _is_processor_account_charge(record: TransactionClassification) -> bool:
+    text = record.normalized_description
+    return (
+        abs(record.amount) <= _PROCESSOR_ACCOUNT_CHARGE_MAX
+        and _matches_any(text, _PROCESSOR_ACCOUNT_DEBIT_PATTERNS)
+        and _PROCESSOR_DEBIT_FINANCING_GUARD.search(text) is None
+    )
 
 
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
@@ -2527,6 +2551,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "owner_pay"
     if _is_platform_payout_to_person(text):
         return "platform_payout_to_person"
+    if _is_processor_account_charge(record):
+        return "processor_account_charge"
     return None
 
 
