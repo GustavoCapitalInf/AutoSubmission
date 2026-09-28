@@ -2326,6 +2326,25 @@ _TRANSFER_TEMPLATE_PATTERNS = (
     re.compile(r"\bSMART ?SAVE\b.*\bATLAS ?FIN\w*|\bATLAS ?FIN\w*.*\bSMART ?SAVE\b"),  # Atlas's Smart Save sweep
     re.compile(r"\b(?:RTP SENT|REAL TIME PAYMENT TO|FEDNOW (?:PAYMENT|PMT) TO)\b"),
 )
+#: 5.3 (2026-09-27): rows whose own words say they cannot pay a funder: the holder's cash withdrawal in the formats
+#: the ATM rule does not read (only reference tokens or NETWORK may sit between ATM/ABM and the withdrawal word, so a
+#: payee name never fills the gap), the offset of an ACH batch the holder sent from its own bank's portal (inferred
+#: from the row shape; D11 already drops the batch name from the review entry), and school, tuition and childcare
+#: billing.
+_NON_REMITTANCE_WORD_PATTERNS = (
+    re.compile(
+        r"\b(?:ATM|ABM)\b(?:\s+(?:\S*\d\S*|NETWORK)){0,3}\s+(?:CASH\s+)?"
+        r"(?:WITHDRAWALS?|WITHDRAW|WITHDRWLS?|WDRLS?|WDL|W D|WD)\b"
+    ),
+    re.compile(r"\bWITHDRAWALS? (?:ATM|ABM)(?:\s+\S*\d\S*|$)"),
+    re.compile(r"\bWITHDRWLS?\b"),
+    re.compile(r"(?:^|(?<=\d )|\b(?:ATM|ABM|NETWORK|TELLER|COUNTER|BRANCH|LARGE|NON \S+)\s)CASH WITHDRA\w*"),
+    re.compile(r"\bRETRAITS? (?:GAB|DAB|ATM|ABM|PAR GA|AU GUICHET|AU COMPTOIR)\b"),
+    re.compile(r"^G RETRAIT\b"),
+    re.compile(r"^(?:BUS ONLINE ACH SETTLEMENT|ACH SETTLMT REL DATE FUND)\b"),
+    re.compile(r"\bDES FACTS\b|\bPAYMENT FACTS\b|\bFACTS(?: \d+)?$"),
+    re.compile(r"\b(?:TUITION|DAYCARE|CHILD ?CARE|PRESCHOOL|MONTESSORI|KINDERCARE|BRIGHTWHEEL|PROCARE)\b"),
+)
 
 
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
@@ -2348,6 +2367,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         _row_before_receiver(text), _TRANSFER_TEMPLATE_PATTERNS, text
     ):
         return "transfer_template"
+    if _skips(_row_before_receiver(text), _NON_REMITTANCE_WORD_PATTERNS, text):
+        return "not_a_remittance"
     return None
 
 

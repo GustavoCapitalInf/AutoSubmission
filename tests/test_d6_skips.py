@@ -212,3 +212,40 @@ def test_transfer_templates_of_an_unnamed_payee_are_not_d6_payees(description):
 )
 def test_a_transfer_template_never_hides_a_named_or_financing_payee(description):
     assert _states(description) == D6
+
+
+# --- A4: cash, own ACH-batch offsets, school and childcare ---------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "BKOFAMERICA ATM 01/05 #000123 WITHDRWL FAB BRANCH",
+        "ATM NETWORK CASH WITHDRAWAL",
+        "ABM WITHDRAWAL FAB TOWN ON",
+        "GC 1234-CASH WITHDRA",
+        "G/RETRAIT",
+        "RETRAIT PAR GA 1234",
+        "ACH SETTLMT REL DATE_FUND HNB HVACH PAT EXAMPLE",
+        "BUS ONLINE ACH SETTLEMENT",
+        "FAB SCHOOL DES:FACTS ID:0001 INDN:PAT EXAMPLE CO ID:0002 WEB",
+        "KINDERCARE 1234567",
+        "FAB ACADEMY TUITION 1234",
+    ],
+)
+def test_cash_own_batches_and_school_billing_are_not_d6_payees(description):
+    assert _states(description) == OTHER
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "FAKE QUICK CASH WITHDRAWAL",
+        "ABM FUNDING WITHDRAWAL",
+        "ATM FAKE CAPITAL WITHDRAWAL",
+        "WITHDRAWAL ABM FAKE CAPITAL",
+        "RETRAIT GA FAKE CAPITAL",
+        "ACH SETTLEMENT ACH BATCH FAKE CAPITAL LLC",
+    ],
+)
+def test_a_payee_name_never_fills_a_cash_template(description):
+    assert _states(description) == D6
