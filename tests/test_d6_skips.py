@@ -281,3 +281,54 @@ def test_the_savings_names_never_reach_a_registered_payee():
     # a candidate: the skip only reads rows no rule claimed.
     assert classify_transaction("ALBERT GENIUS EDI PYMNTS", -100.0).classification == "personal_loan"
     assert classify_transaction("GLOBAL MER EDI PYMNTS", -100.0).match_method == "candidate_lender_alias"
+
+
+# --- A6: vendors and other named non-lender payees -------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("description", "account_name"),
+    [
+        ("FAB BOOKKEEPING LLC DES:BILL ID:0001 INDN:FAB HOLDER CO ID:0002 CCD", None),
+        ("CINTAS CORP 123 DES:CINTAS ID:0001", None),
+        ("FABRIKAM MFG INC INVOICES 1234567", None),                 # the originator segment, ended by its reference
+        ("FAB FOODSERVICE VENDOR PAY 0001", None),
+        ("UNIFIRST", None),                                          # one word: the vendor word is the first
+        ("FAB FOODSERVICE VENDOR PAY", "FABRIKAM TRADING LLC"),      # a run of words, the holder known
+        ("FACEBK ADS 12345", None),
+        ("Bill.com Fab Supplies Inc - Inv 1234", None),
+        ("ARAMARK UNIFORM SERVICES 1234567", None),
+        ("SUBWAY ROYALTY DES:ROYALTY ID:0001", None),
+        ("PUSHPAY 1234567", None),
+        ("E ZPASS 1234567", None),
+        ("DRAFTKINGS 1234567", None),
+        ("FAB MARKETING FUND LLC 0001", None),
+    ],
+)
+def test_vendors_and_named_non_lenders_are_not_d6_payees(description, account_name):
+    assert _states(description, account_name=account_name) == OTHER
+
+
+@pytest.mark.parametrize(
+    ("description", "account_name"),
+    [
+        ("PMTS FABLEASE FACEBK", None),                            # an ad word after a lessor's name
+        ("Bill.com Fab Credit Corp - Inv 1234", None),
+        ("FAB FINANCIAL INVOICE 12345", None),
+        ("FAB GRP FUNDIN INVOICE", None),
+        ("FAB CAPITA INVOICES", None),
+        ("MFG LLC DES:PAYMENT ID:0001 CCD", None),                  # a funder's own abbreviation
+        ("FAB WHOLESALE PMT", None),
+        ("FAB FACTORING INVOICE", None),
+        ("FAB LLC DAILY INVOICE", None),
+        ("FAB LLC RTR INVOICE", None),
+        ("BUSINESS PAD FAB INVOICES", None),
+        ("PAYMENT FABRIKAM CCD FAB DISTRIBUTING LLC", "FAB DISTRIBUTING LLC"),  # the holder's own trade word
+        # label-less rows that are one run of words, the holder unknown: the receiver may be the holder
+        ("KAPIFAB LLC ACHPMT FAB UNIFORMS LLC", None),                # Regions
+        ("KAPIFAB ACHPMT FAB UNIFORMS LLC", None),
+        ("KAPIFAB PAY PAYMENT TO FAB LANDSCAPING LLC", None),         # Bluevine
+        ("FAB FOODSERVICE VENDOR PAY", None),
+    ],
+)
+def test_a_vendor_word_never_hides_a_financing_payee_or_reads_the_holder(description, account_name):
+    assert _states(description, account_name=account_name) == D6

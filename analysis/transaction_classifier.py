@@ -2355,6 +2355,75 @@ _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS = (
     re.compile(r"\bALBERT (?:SAVINGS )?(?:DES )?EDI PYMNTS\b"),         # Albert's money movement, not its advances
     re.compile(r"\b(?:ACORNS|ROBINHOOD|COINBASE|BETTERMENT|WEALTHFRONT)\b"),
 )
+#: 5.3 (2026-09-27): vendors and other payees that never lend, read on the D11 payee words only (never an entry
+#: description: SBFS/Rapid Finance prints 'Vendor Pay'; never the holder: a holder named '... Distributions' pays
+#: Credibly), guarded by the lending words below and by the holder's own name. DISTRIBUT* also clears recurring owner
+#: distributions. Names join only after collision_check.py prints no registry or ledger hit.
+_VENDOR_PAYEE_PATTERNS = (
+    re.compile(r"\bBOOKK\w*"),
+    re.compile(r"\b(?:DISTR|DISTRIBUT\w*|FOODSERVICE)\b"),
+    re.compile(r"\bMANUFACTURING\b"),
+    re.compile(r"\bINVOICES?\b"),
+    re.compile(r"\b(?:CINTAS\w*|UNIFIRST|ARAMARK|SYSCO|ALSCO)\b|\bUS FOODS\b"),
+    re.compile(r"^(?:FACEBOOK|FACEBK|META ADS|META PLATFORMS|GOOGLE ADS|TIKTOK ADS|YELP|ANGI|HOMEADVISOR|THUMBTACK)\b"),
+    re.compile(r"\b(?:UNIFORMS?|LINEN|JANITORIAL|LANDSCAP\w*|LAWN|PEST CONTROL)\b"),
+    re.compile(r"\bROYALT(?:Y|IES)\b|\bFRANCHIS\w*|\b(?:AD|MARKETING|ADVERTISING) FUND\b"),
+    re.compile(r"\bTITHE\w*|\bCHURCH\b|\bMINISTRIES\b|\bDONATIONS?\b|\b(?:PUSHPAY|GIVELIFY|VANCO|SUBSPLASH|EASYTITHE)\b"),
+    re.compile(r"\b(?:EZPASS|ZPASS|SUNPASS|FASTRAK|TXTAG|NTTA|HCTRA|PEACH PASS|IPASS|BESTPASS|PREPASS|TOLLS?|TOLLWAY)\b"),
+    re.compile(r"\b(?:DRAFTKINGS|FANDUEL|BETMGM|LOTTERY|OLG|CASINO)\b"),
+)
+#: 5.3: a Bill.com or Melio payment is a vendor's only when the row prints an invoice number.
+_BILL_PAY_PLATFORM_PATTERN = re.compile(r"^(?:BILL COM|MELIO)\b")
+_INVOICE_NUMBER_PATTERN = re.compile(r"\bINV \d")
+#: 5.3: the vendor skip's lending guard: the shared roots plus the Canadian pre-authorized-debit channel word.
+_VENDOR_LENDING_GUARD = re.compile(_FINANCING_ROOT_PATTERN.pattern + r"|\bPAD\b")
+#: 5.3: the account holder's name words, read without the module normalizer: classifying a row normalizes exactly
+#: one text (tests/test_classifier_lookups.py::test_each_row_is_normalized_exactly_once).
+_HOLDER_WORD = re.compile(r"[A-Z0-9]+")
+
+
+def _payee_words_are_bounded(text: str) -> bool:
+    """5.3 (plan review 2026-09-28): whether an ACH field, or a reference token after the payee's first name word,
+    ends the payee's words before the normalized row `text` ends. A row that is one run of words (Regions '<funder>
+    ACHPMT <receiver>', Bluevine '<funder> PAY PAYMENT TO <receiver>') can end with the account holder's name."""
+    labelled = _ENTITY_NAME_LABELS.sub(" ", text)
+    if _ACH_FIELD_SEGMENT.search(labelled) is not None:
+        return True
+    started = False
+    for token in labelled.split():
+        if _is_reference_token(token):
+            if started:
+                return True
+            continue
+        started = started or (token not in _ENTITY_NOISE and len(token) > 1)
+    return False
+
+
+def _is_vendor_payee(payee: Sequence[str], text: str, account_name: str | None) -> bool:
+    """5.3: the D11 payee words (or, on a bounded row, the originator segment, which then never reads a receiver
+    field) name a vendor or another payee that never lends, the row prints no lending word (outside the matched vendor
+    words), and those words carry none of the account holder's own name words. On a row that is one run of words the
+    segment is never read, and when the holder's name is unknown the vendor word must be the payee's first word."""
+    words = " ".join(payee)
+    bounded = _payee_words_are_bounded(text)
+    segment = _originator_segment(text) if bounded else ""
+    found = next(
+        (match for source in (words, segment) for pattern in _VENDOR_PAYEE_PATTERNS if (match := pattern.search(source))),
+        None,
+    )
+    if found is None and _BILL_PAY_PLATFORM_PATTERN.search(words) and _INVOICE_NUMBER_PATTERN.search(text):
+        found = _BILL_PAY_PLATFORM_PATTERN.search(words)
+    if found is None:
+        return False
+    holder = {
+        word for word in _HOLDER_WORD.findall((account_name or "").upper())
+        if len(word) >= 4 and word not in _LEGAL_FORM_SUFFIXES
+    }
+    if not bounded and not holder and found.start() > 0:
+        return False  # a label-less run of words may end with the holder's name, which is unknown here
+    if holder & (set(payee) | set(segment.split())):
+        return False
+    return _VENDOR_LENDING_GUARD.search(text.replace(found.group(0), " ")) is None
 
 
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
@@ -2381,6 +2450,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "not_a_remittance"
     if _skips(_row_before_receiver(text), _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS, text):
         return "savings_or_investment"
+    if _is_vendor_payee(payee, text, record.account_name):
+        return "named_non_lender"
     return None
 
 
