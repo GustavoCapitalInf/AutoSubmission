@@ -429,7 +429,12 @@ _OWN_ACCOUNT_TRANSFER_GUARD = re.compile(r"^TRANSFER (?:TO|FROM) .+ (?:ACCOUNT )
 _FLOOR_PLAN_PAYOFF_PATTERN = re.compile(r"^PAYOFF (?:19|20)\d\d .*\bVIN\b")
 #: A home-equity loan is a second mortgage (owner decision 2026-09-25). It has no
 #: leading word boundary, so a run-together payee nickname matches too.
-_MORTGAGE_PATTERNS = (re.compile(r"\bMORTGAGES?\b"), re.compile(r"HOME ?EQUITY ?LOANS?\b"))
+_MORTGAGE_PATTERNS = (
+    re.compile(r"\bMORTGAGES?\b"),
+    re.compile(r"HOME ?EQUITY ?LOANS?\b"),
+    # 5.3 (2026-09-27): the mortgage payment abbreviations (MTG PYMT, MTGE PAYMENT).
+    re.compile(r"\bMTGE? (?:PYMTS?|PMTS?|PAYMENTS?)\b"),
+)
 #: "AUTO PAYMENT" is a bank's autopay wording, not a car payment, so AUTO needs
 #: loan, lease or finance wording while VEHICLE may carry PAYMENT.
 _VEHICLE_FINANCING_PATTERNS = (
@@ -448,7 +453,7 @@ _STUDENT_LOAN_PATTERNS = (
 _LOAN_WORD_PATTERNS = (re.compile(r"\bLOANS?\b"), re.compile(r"\bPRETS?\b"))
 #: D5: a transfer to the statement bank's own loan account.
 _OWN_LOAN_TRANSFER_PATTERNS = (
-    re.compile(r"\b(?:TRANSFER|TFR) TO (?:MY |YOUR )?LOAN\b"),
+    re.compile(r"\b(?:TRANSFER|TFR) TO (?:MY |YOUR )?LOANS?\b"),
     re.compile(r"\bLOAN (?:TRANSFER|TFR)\b"),
 )
 #: D5, owner decisions 2026-09-25. Another bank's loan whose originator is only a
@@ -536,10 +541,14 @@ _SERVICER_COLLECTOR_PATTERNS = (
 )
 #: D5, owner decision 2026-09-25 (d5_unnamed_loan_payment): loan-payment wording
 #: (normalization already reads LN as LOAN and PAYMT as PAYMENT) ...
-_UNNAMED_LOAN_PAYMENT_PATTERNS = (re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),)
+_UNNAMED_LOAN_PAYMENT_PATTERNS = (
+    re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),
+    # 5.3 (2026-09-27): the statement bank's own loan interest, with no payee printed.
+    re.compile(r"\bLOAN INTEREST\b"),
+)
 #: ... on a row whose D11 payee words are only a bank's template words, or none:
 #: the payment names no lender, so it is the statement bank's own loan.
-_BANK_TEMPLATE_WORDS = frozenset({"NO", "BR", "AUTOMATED", "COMPTE", "DIVERS"})
+_BANK_TEMPLATE_WORDS = frozenset({"NO", "BR", "AUTOMATED", "COMPTE", "DIVERS", "INTEREST", "CHARGE", "CHARGED"})
 _EXPLICIT_REPAYMENT_PATTERNS = (
     re.compile(r"\bLOAN (?:PAYMENT|PMT|PYMT|REPAYMENT)\b"),
     re.compile(r"\b(?:PAYMENT|PMT|PYMT|REPAYMENT) (?:ON |FOR )?(?:A )?LOAN\b"),

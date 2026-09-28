@@ -98,3 +98,24 @@ def test_an_issuer_printed_alone_stays_unflagged_and_is_not_a_d6_payee(descripti
 @pytest.mark.parametrize("description", ["FABRICATED SYF CAPITAL LLC", "SYF FAB CAPITAL LLC"])
 def test_an_issuer_token_inside_a_funder_name_never_hides_it(description):
     assert _d6_states(description) == {("potential_lender", "recurring_fixed_debit")}
+
+
+# --- B6: mortgage wording, a transfer to the bank's loans, the bank's own loan interest ----------------------------
+
+@pytest.mark.parametrize("description", ["FAB SERVICER DES:MTG PYMTS ID:0001", "MTGE PAYMENT 1234", "MTG PYMT 1234"])
+def test_mortgage_payment_abbreviations_are_mortgages(description):
+    assert _state(description, -900.0)[:2] == ("mortgage", "mortgage_descriptor")
+
+
+def test_a_transfer_to_the_banks_loans_is_its_own_loan():
+    assert _state("Loan payment ICPAYMENT TRANSFER TO LOANS 1234", -300.0, bank="Fabricated Bank") == (
+        "bank_loan", "own_bank_loan_transfer", "Fabricated Bank")
+
+
+def test_the_banks_own_loan_interest_is_a_bank_loan():
+    assert _state("LOAN INTEREST CHARGE", -100.0, bank="Fabricated Bank") == (
+        "bank_loan", "unnamed_loan_payment", "Fabricated Bank")
+
+
+def test_loan_interest_that_names_a_payee_is_not_the_banks():
+    assert _state("FAB CAPITAL LOAN INTEREST", -100.0)[0] != "bank_loan"
