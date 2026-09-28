@@ -794,3 +794,35 @@ def test_the_routing_keeps_every_routed_alias_in_the_potential_table():
     tables = lender_ledger.render_tables(entities)
     assert tables["POTENTIAL_LENDER_ALIASES"]["Rivett Motor Credit"] == ("RIVETT MOTOR CREDIT",)
     assert "Rivett Motor Credit" not in tables["VEHICLE_FINANCE_ALIASES"]
+
+
+# --- 5.3 (owner ruling 2026-09-27): the Debt relief group --------------------------------------------------------
+
+
+def _with(*records):
+    data = ledger()
+    data["entities"] += list(records)
+    return data
+
+
+SETTLEMENT = entity("Fabrikam Settlement Payments", "debt_relief", ["FABRIKAM SETTLE PMT"],
+                    business_type="debt_settlement_dedicated_account_processor")
+
+
+def test_an_admitted_debt_relief_entity_renders_into_its_own_table_and_never_the_matcher():
+    data = _with(SETTLEMENT)
+    assert lender_ledger.validate(data, RULES) == []
+    entities, _problems = lender_ledger.parse_ledger(data)
+    tables = lender_ledger.render_tables(entities)
+    assert tables["DEBT_RELIEF_ALIASES"] == {"Fabrikam Settlement Payments": ("FABRIKAM SETTLE PMT",)}
+    assert "debt_relief" not in lender_ledger.PAYEE_STATES
+
+
+def test_debt_relief_words_alone_are_generic():
+    generic = entity("Fabrikam Relief", "debt_relief", ["DEBT RELIEF PROGRAM"], business_type="debt_settlement_company")
+    assert any("only generic words" in problem for problem in lender_ledger.validate(_with(generic), RULES))
+
+
+def test_a_debt_relief_aliases_run_together_form_may_not_be_a_lenders_alias():
+    clash = entity("Quillon Settlement", "debt_relief", ["QUILLON FUND"], business_type="debt_settlement_company")
+    assert any("run-together form" in problem for problem in lender_ledger.validate(_with(clash), RULES))

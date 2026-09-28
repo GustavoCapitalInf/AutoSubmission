@@ -65,7 +65,7 @@ def test_the_block_is_python_that_defines_exactly_the_rendered_tables():
     assert {name: namespace[name] for name in TABLE_NAMES} == tables
 
 
-def test_the_block_of_an_empty_ledger_defines_fourteen_empty_tables():
+def test_the_block_of_an_empty_ledger_defines_fifteen_empty_tables():
     block = builder.render_block(builder.render_tables([]))
     namespace: dict = {}
     exec(compile(block, "block", "exec"), namespace)

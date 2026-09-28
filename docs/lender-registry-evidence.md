@@ -31,6 +31,7 @@ The ledger is curated outside the code (contract C10): the orchestrator's resear
 | `PERSONAL_LOAN_ALIASES` | 78 | 126 |
 | `FLOOR_PLAN_ALIASES` | 8 | 18 |
 | `FACTORING_ALIASES` | 13 | 21 |
+| `DEBT_RELIEF_ALIASES` | 0 | 0 |
 | `PREMIUM_FINANCE_ALIASES` | 21 | 47 |
 | `BANK_NAME_ALIASES` | 34 | 51 |
 | `POTENTIAL_LENDER_ALIASES` | 111 | 128 |
@@ -756,6 +757,10 @@ The ledger is curated outside the code (contract C10): the orchestrator's resear
 | RTS Financial Service, Inc | factoring | factoring | r3 upheld | admitted | RTS FINANCIAL, RTS FINANCIAL SERVICE | https://rtsinc.com/ | - | Freight factoring (RTS Financial Service, a Shamrock Trading brand, Overland Park, Kansas). RTS FINANCIAL is the owner-named spelling and also matches the truncated RTS FINANCIAL SE spelling. RTS CARRIER SERVICES card debits are the RTS fuel-card program, not factoring, and bare RTS is not an alias. |
 | Scale Funding | factoring | factoring | r3 upheld (not confirmed); r4 upheld | admitted | SCALE FUNDING | https://getscalefunding.com/ | - | Invoice factoring division of Scale Bank (formerly TCI Business Capital; factoring since 1994). Round 3 could not identify the payer; round 4 identified and upheld it after ruling out other similarly named sites. |
 | Treadstone US Capital, LLC | factoring | factoring | r3 upheld | admitted | TREADSTONE US CAPITAL | https://treadstoneus.com/ | - | Boutique transportation factoring company (Marietta, Georgia; remittance entity in Cincinnati). For the orchestrator: the frequent TREADSTONE OPER payment credits in the same accounts are probably this factor's operating account, but no round confirmed that spelling, so it is not an alias and awaits an alias review. Bare TREADSTONE is not an alias: Treadstone Funding is an unrelated mortgage lender. |
+
+## Debt relief: debt-settlement account processors and debt-relief firms (flagged, never lender math) (`DEBT_RELIEF_ALIASES`)
+
+None.
 
 ## Premium financing: premium-finance payees, read only by the insurance rule (`PREMIUM_FINANCE_ALIASES`)
 

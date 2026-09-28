@@ -1034,6 +1034,9 @@ FACTORING_ALIASES: dict[str, tuple[str, ...]] = {
     "Treadstone US Capital, LLC": ("TREADSTONE US CAPITAL",),
 }
 
+#: Debt relief: debt-settlement account processors and debt-relief firms (flagged, never lender math).
+DEBT_RELIEF_ALIASES: dict[str, tuple[str, ...]] = {}
+
 #: Premium financing: premium-finance payees, read only by the insurance rule.
 PREMIUM_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
     "AFCO Credit Corporation": ("AFCO DIRECT", "AFCO CREDIT"),

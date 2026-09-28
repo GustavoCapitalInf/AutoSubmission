@@ -21,6 +21,7 @@ GROUP_TABLES = (
     "PERSONAL_LOAN_ALIASES",
     "FLOOR_PLAN_ALIASES",
     "FACTORING_ALIASES",
+    "DEBT_RELIEF_ALIASES",
     "PREMIUM_FINANCE_ALIASES",
     "BANK_NAME_ALIASES",
     "POTENTIAL_LENDER_ALIASES",
@@ -76,7 +77,7 @@ def test_confirmed_lender_aliases_is_the_compatibility_name_of_the_lender_table(
 def test_the_context_bank_potential_and_premium_tables_stay_out_of_the_known_payee_matcher():
     matcher_tables = [id(table) for table in registry.PAYEE_GROUP_REGISTRIES.values()]
     for name in ("CARD_ISSUER_CONTEXT_ALIASES", "BANK_NAME_ALIASES", "POTENTIAL_LENDER_ALIASES",
-                 "PREMIUM_FINANCE_ALIASES"):
+                 "PREMIUM_FINANCE_ALIASES", "DEBT_RELIEF_ALIASES"):
         assert id(getattr(registry, name)) not in matcher_tables, name
 
 

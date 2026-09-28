@@ -46,6 +46,8 @@ GENERIC_WORDS = frozenset({
     "FUNDER", "FUNDING", "FUNDS", "GROUP", "HOLDINGS", "INC", "INSURANCE", "LEASE", "LEASING", "LENDER",
     "LENDING", "LLC", "LOAN", "LOANS", "LTD", "MCA", "MERCHANT", "MORTGAGE", "OF", "PAYMENT", "PAYMENTS", "PMT",
     "SERVICES", "SERVICING", "SOLUTIONS", "THE",
+    # 5.3 (2026-09-27): the debt-relief words tools.lender_ledger.GENERIC_WORDS gained.
+    "DEBT", "RELIEF", "SETTLEMENT", "CONSOLIDATION", "RESOLUTION", "NEGOTIATION", "PROGRAM", "LAW",
 })
 
 

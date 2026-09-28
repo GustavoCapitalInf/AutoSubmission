@@ -67,6 +67,8 @@ TABLES: tuple[tuple[str, str, str], ...] = (
     ("personal_loan", "PERSONAL_LOAN_ALIASES", "Personal loans"),
     ("floor_plan_financing", "FLOOR_PLAN_ALIASES", "Floor plan"),
     ("factoring", "FACTORING_ALIASES", "Factoring"),
+    ("debt_relief", "DEBT_RELIEF_ALIASES",
+     "Debt relief: debt-settlement account processors and debt-relief firms (flagged, never lender math)"),
     ("premium_financing", "PREMIUM_FINANCE_ALIASES",
      "Premium financing: premium-finance payees, read only by the insurance rule"),
     ("bank_name", "BANK_NAME_ALIASES", "Bank names: bank loans (D5)"),
@@ -93,6 +95,7 @@ GENERIC_WORDS = frozenset("""
 ACH ADVANCE ADVANCES AND AUTO BANK BUSINESS CAPITAL CARD CO COMPANY CORP CORPORATION CREDIT DEBIT EQUIPMENT
 FINANCE FINANCIAL FINANCING FUND FUNDING FUNDS GROUP HOLDINGS INC INSURANCE LEASE LEASING LENDER LENDING LLC
 LOAN LOANS LTD MCA MERCHANT MORTGAGE OF PAYMENT PAYMENTS PMT SERVICES SERVICING SOLUTIONS THE
+DEBT RELIEF SETTLEMENT CONSOLIDATION RESOLUTION NEGOTIATION PROGRAM LAW
 """.split())
 #: Words that make a name an organisation's name. A name without one is read by a person before a commit.
 ORG_CUES = frozenset("""
@@ -672,7 +675,7 @@ def _collision_problems(entities: list[LedgerEntity]) -> list[str]:
             first = owner.setdefault(norm, entity)
             if first is not entity:
                 problems.append(f"alias {_shown(norm)} appears under {_label(first)} and {_label(entity)}")
-    matcher = [e for e in entities if e.status == "admitted" and e.group in PAYEE_STATES]
+    matcher = [e for e in entities if e.status == "admitted" and e.group in (*PAYEE_STATES, "debt_relief")]
     explicit: dict[str, LedgerEntity] = {}
     for entity in matcher:
         for alias in entity.aliases:
