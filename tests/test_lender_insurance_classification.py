@@ -361,7 +361,8 @@ def test_potential_funder_serialization_rebuilds_values_from_authoritative_evide
     # unnamed direct-debit loan is the audit fixture's potential row here.
     report = _audit_report(_txn("2054-01-13", "Direct Debit Loans", -125.0))
     candidate = report.detection.potential_lenders[0]
-    assert candidate.funder == "Unidentified lender obligation"
+    # 5.3 (2026-09-27): an unnamed payee's line carries its amount, one line per payee key.
+    assert candidate.funder == "Unidentified lender obligation (125.00)"
     candidate.debit_count = 0
     candidate.total_debited = 0.0
     candidate.potential_withholding_exposure = None

@@ -10,6 +10,7 @@ from .classification_registry import (
     BANK_NAME_ALIASES,
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
+    FIELD_ORDER_PAYEE_FORMS,
     INSURANCE_PROVIDER_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
@@ -17,13 +18,14 @@ from .classification_registry import (
     PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
     PREMIUM_FINANCE_ALIASES,
+    REVIEW_FLAG_ENTITIES,
 )
 from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
 from .revenue import RevenueState, revenue_contribution_flags
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
-from .payee_matcher import PayeeMatch, match_known_payee, registry_match
+from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -42,6 +44,7 @@ ClassificationState = Literal[
     "personal_loan",
     "floor_plan_financing",
     "factoring",
+    "debt_relief",
     # Retired in classification version 5.0: no rule produces it, but records
     # stored before 5.0 carry it and must still validate (spec §4.1).
     "lease_or_equipment_financing",
@@ -72,6 +75,7 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "personal_loan",
     "floor_plan_financing",
     "factoring",
+    "debt_relief",
     "lease_or_equipment_financing",
     "fee",
     "transfer",
@@ -90,12 +94,18 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: 5.0 (2026-09-24): the lender-detection rules. 5.1 (2026-09-26): the D6
 #: clarification (three different dates; no card-purchase posting). 5.2
 #: (2026-09-27): D6 skips compensation memos, and a masked recipient account
-#: printed after TO is part of the payee. Moves with
-#: `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.2"
+#: printed after TO is part of the payee. 5.3 (2026-09-27): the
+#: false-potential-lender release: D6 skips, rule extensions, the routing of
+#: unconfirmed flag payees, the D11 naming fixes, the tab's payee labels and the
+#: Debt relief group. Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
+CLASSIFICATION_VERSION = "5.3"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
+
+#: 5.3 (2026-09-27): the fixed D10 name of an MCA SERVICING payee. The two words print for two unrelated funders
+#: (ledger decision of 2026-09-25), so no D11 name is ever built from them.
+UNIDENTIFIED_MCA_SERVICER = "MCA servicer (funder not identified)"
 
 
 @dataclass(frozen=True)
@@ -176,6 +186,10 @@ class TransactionClassification:
     is_loan_payment: bool = False
     is_pos_context: bool = False
     classification_version: str = CLASSIFICATION_VERSION
+    # 5.3 (2026-09-27): the Potential Lenders line of an unnamed potential payee, one per payee key within the
+    # statement ('Unidentified lender obligation (weekly, 450.00)'). None for every other row, whose line is its
+    # canonical_entity.
+    potential_payee_label: str | None = None
 
     @property
     def is_pos_purchase(self) -> bool:
@@ -273,6 +287,11 @@ _NSF_PATTERNS = (
     re.compile(r"\bRETURNED (?:CHECK|CHEQUE) FEE\b"),
     re.compile(r"\bUNPAID ITEM FEE\b"),
     re.compile(r"\bITEM RETURNED\b.*\bNSF\b"),
+    # 5.3 (2026-09-27): a returned item in the banks' abbreviated and French wording: TD's stop-payment return of
+    # the business's own debit, and the French returned-item charge. A deposited item returned under a stop payment
+    # is a reversal (_REFUND_REVERSAL_PATTERNS), as RETURNED DEPOSIT is.
+    re.compile(r"\bRTN STOP PAY(?:T|MT|MENT)?\b|(?<!\bITEM )\bRETURNED STOP PAY(?:T|MT|MENT)?\b"),
+    re.compile(r"\bEFFETS? (?:RET|RETOUR|RETOURNES?)\b"),
 )
 _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bREFUND(?:ED)?\b"),
@@ -294,6 +313,7 @@ _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bCREDIT ADJUSTMENT\b"),
     re.compile(r"\bREJECTED\b"),
     re.compile(r"\bRETURNED ACH\b"),
+    re.compile(r"\bDEPOSITED ITEM RETURNED\b"),
 )
 _POS_PATTERNS = (
     re.compile(r"\bPOS\b"),
@@ -310,6 +330,12 @@ _POS_PATTERNS = (
     re.compile(r"\bMASTER ?CARD DEBIT PURCHASE\b"),
     re.compile(r"\bCHECK ?CARD\b"),
     re.compile(r"\bPURCHASE AUTHORI[ZS]ED\b"),
+    # 5.3 (2026-09-27): bank card-purchase labels of the same kind (BofA MOBILE PURCHASE, CIBC RETAIL PURCHASE,
+    # Regions PIN PURCHASE) and the French card-purchase forms the corpus prints (C/ACHAT, CIBC ACHAT AU DETAIL,
+    # RBC ACHAT INTERAC, BMO ACHAT PAR CARTE and ACHAT EN LIGNE). A bare ACHAT is never read: 'ACHAT DE CREANCES'
+    # is a factor's wording.
+    re.compile(r"\b(?:RETAIL|MOBILE|PIN) PURCHASE\b"),
+    re.compile(r"\bC ACHAT\b|\bACHAT (?:AU DETAIL|INTERAC|PAR CARTE|EN LIGNE)\b"),
 )
 _POS_EXCLUSION_PATTERNS = (
     re.compile(r"\bCASH ADVANCE\b"),
@@ -336,6 +362,19 @@ _FEE_PATTERNS = (
     # Owner decision 2026-09-25: the bank's overdraft charge for an item is a fee,
     # even when it prints the item's payee (step 6 runs before the known payee).
     re.compile(r"\bOVERDRAFT CHARGES?\b"),
+    # 5.3 (2026-09-27): bank charges printed without FEE: the SVC/SERV/CHG abbreviations, charges whose CHARGE is
+    # not next to SERVICE/MONTHLY/OVERDRAFT/PROCESSING, RBC's Interac service-charge code SC, the ATM withdrawal
+    # service charge, and the French FRAIS, never beside French loan or line-of-credit words. A bare CHARGE or CHG
+    # is never a fee word (Capital One prints 'CHARGE <merchant>').
+    re.compile(r"\b(?:SVC|SRVC?|SERV|SERVICES?) (?:CHARGES?|CHGS?|CHRGS?)\b|\bSERVICE (?:CHGS?|CHRGS?)\b"),
+    re.compile(r"\b(?:OVERDRAWN|OVERDRAFT|HANDLING|BATCH) (?:CHARGES?|CHGS?|CHRGS?)\b"),
+    re.compile(
+        r"\b(?:EXTENDED OVERDRAFT|CONTINUOUS OD|OD|OVERDRAFT ITEM|PAID ITEM|PER ITEM|UNCOLLECTED FUNDS|COURTESY PAY"
+        r"|WIRE|ACH ORIGINATION|CURRENCY HANDLING) (?:CHARGES?|CHGS?)\b"
+    ),
+    re.compile(r"\bINTERAC SC\b"),
+    re.compile(r"\bW D SVC\b"),
+    re.compile(r"^FRAIS\b(?!.*\b(?:FINANCEMENT|INTERETS?|PRET|MARGE|MCR)\b)"),
 )
 _TRANSFER_PATTERNS = (
     re.compile(r"\b(?:INTERNAL|ONLINE|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
@@ -398,6 +437,8 @@ _CREDIT_CARD_PATTERNS = (
     re.compile(r"\bCAPITAL ?ON ?TAP\b"),
     # A payment to a card account named only by its type.
     re.compile(r"\b(?:PAYMENT|PMT|PYMT) TO (?:CRD|CREDIT CARD|VSA|VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS)\b"),
+    # 5.3 (2026-09-27): Navy Federal's memo for a recurring card payment.
+    re.compile(r"\bCREDIT CARD RECUR(?:RING)?\b"),
 )
 #: Owner decision 2026-09-25 (step8_own_account_transfer_guard): a fintech transfer
 #: between the holder's own accounts takes no step-8 rule, whatever the holder
@@ -407,7 +448,12 @@ _OWN_ACCOUNT_TRANSFER_GUARD = re.compile(r"^TRANSFER (?:TO|FROM) .+ (?:ACCOUNT )
 _FLOOR_PLAN_PAYOFF_PATTERN = re.compile(r"^PAYOFF (?:19|20)\d\d .*\bVIN\b")
 #: A home-equity loan is a second mortgage (owner decision 2026-09-25). It has no
 #: leading word boundary, so a run-together payee nickname matches too.
-_MORTGAGE_PATTERNS = (re.compile(r"\bMORTGAGES?\b"), re.compile(r"HOME ?EQUITY ?LOANS?\b"))
+_MORTGAGE_PATTERNS = (
+    re.compile(r"\bMORTGAGES?\b"),
+    re.compile(r"HOME ?EQUITY ?LOANS?\b"),
+    # 5.3 (2026-09-27): the mortgage payment abbreviations (MTG PYMT, MTGE PAYMENT).
+    re.compile(r"\bMTGE? (?:PYMTS?|PMTS?|PAYMENTS?)\b"),
+)
 #: "AUTO PAYMENT" is a bank's autopay wording, not a car payment, so AUTO needs
 #: loan, lease or finance wording while VEHICLE may carry PAYMENT.
 _VEHICLE_FINANCING_PATTERNS = (
@@ -426,7 +472,7 @@ _STUDENT_LOAN_PATTERNS = (
 _LOAN_WORD_PATTERNS = (re.compile(r"\bLOANS?\b"), re.compile(r"\bPRETS?\b"))
 #: D5: a transfer to the statement bank's own loan account.
 _OWN_LOAN_TRANSFER_PATTERNS = (
-    re.compile(r"\b(?:TRANSFER|TFR) TO (?:MY |YOUR )?LOAN\b"),
+    re.compile(r"\b(?:TRANSFER|TFR) TO (?:MY |YOUR )?LOANS?\b"),
     re.compile(r"\bLOAN (?:TRANSFER|TFR)\b"),
 )
 #: D5, owner decisions 2026-09-25. Another bank's loan whose originator is only a
@@ -463,7 +509,7 @@ _LEASE_RENTAL_PATTERNS = (
 #: wording. Owner decision 2026-09-25: Synchrony's PAYMNT, and a payment word glued to
 #: the SEC label in Chase's field layout, are payment wording too.
 _CARD_PAYMENT_CONTEXT_PATTERNS = (
-    re.compile(r"\b(?:CREDIT CARD|CRCARD|CRD|CARD|CARDMEMBER)\b"),
+    re.compile(r"\b(?:CREDIT CARD|CREDITCARD|CRCARD|CRD|CARD|CARDMEMBER)\b"),
     re.compile(
         r"\b(?:AUTOPAY|AUTO PAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)\b"
         r"|\b(?:AUTOPAY|EPAYMENT|EPAY|PAYMENT|PMT|PYMT|PAYMNT)SEC\b"
@@ -474,6 +520,14 @@ _EQUIPMENT_FINANCING_PATTERNS = (re.compile(r"\bEQUIPMENT (?:FINANCING|FINANCE)\
 _CHECK_PATTERNS = (
     re.compile(r"\bCHECKS?\b"),
     re.compile(r"\bCHEQUES?\b"),
+    # 5.3 (2026-09-27): the Canadian, credit-union and short cheque spellings, anchored at the start and with the
+    # instrument's number, so a label ('BUS CHQ', '... SHARE DRAFT', Navy Federal's 'Paid To - <payee> Chk nnn')
+    # never makes a row a cheque. Bare DRAFT is lender collection wording (AUTO DRAFT, WEB DRAFT).
+    re.compile(r"^CHQ ?[0-9]"),
+    re.compile(r"^SHARE DRAFTS? ?[0-9]"),
+    re.compile(r"^DRAFT WITHDRAWAL DRAFT ?[0-9]"),
+    re.compile(r"^(?:IMAGE |PAID )?CHK ?[0-9]"),
+    re.compile(r"^CK ?[0-9]"),
 )
 _SUBSCRIPTION_PATTERNS = (
     re.compile(r"\bSUBSCRIPTION\b"),
@@ -497,6 +551,8 @@ _DIRECT_DEBIT_LOAN_PATTERNS = (
 #: D10: a loan servicer or debt collector whose funder is not in a registry.
 #: (A servicer whose funder is known is an alias of that funder in the registry, via the C10 ledger.)
 #: MCA SERVICING: owner decision 2026-09-25 (the words stay out of every alias table).
+#: 5.3 (2026-09-27): the MCA SERVICING words, named by the fixed UNIDENTIFIED_MCA_SERVICER label (D10).
+_MCA_SERVICING_PATTERN = re.compile(r"\bMCA SERVICING\b")
 _SERVICER_COLLECTOR_PATTERNS = (
     re.compile(r"\bSERVICER\b"),
     re.compile(r"\bLOAN SERVICING\b"),
@@ -506,10 +562,14 @@ _SERVICER_COLLECTOR_PATTERNS = (
 )
 #: D5, owner decision 2026-09-25 (d5_unnamed_loan_payment): loan-payment wording
 #: (normalization already reads LN as LOAN and PAYMT as PAYMENT) ...
-_UNNAMED_LOAN_PAYMENT_PATTERNS = (re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),)
+_UNNAMED_LOAN_PAYMENT_PATTERNS = (
+    re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),
+    # 5.3 (2026-09-27): the statement bank's own loan interest, with no payee printed.
+    re.compile(r"\bLOAN INTEREST\b"),
+)
 #: ... on a row whose D11 payee words are only a bank's template words, or none:
 #: the payment names no lender, so it is the statement bank's own loan.
-_BANK_TEMPLATE_WORDS = frozenset({"NO", "BR", "AUTOMATED", "COMPTE", "DIVERS"})
+_BANK_TEMPLATE_WORDS = frozenset({"NO", "BR", "AUTOMATED", "COMPTE", "DIVERS", "INTEREST", "CHARGE", "CHARGED"})
 _EXPLICIT_REPAYMENT_PATTERNS = (
     re.compile(r"\bLOAN (?:PAYMENT|PMT|PYMT|REPAYMENT)\b"),
     re.compile(r"\b(?:PAYMENT|PMT|PYMT|REPAYMENT) (?:ON |FOR )?(?:A )?LOAN\b"),
@@ -535,6 +595,24 @@ _PAYMENT_MARKER_PATTERNS = (
     re.compile(r"\bACH DEBIT\b"),
     re.compile(r"\bDIRECT DEB(?:IT)?\b"),
     re.compile(r"\bBUSINESS PAD\b"),
+)
+#: 5.3 (2026-09-27): PAYROLL glued to an ACH entry-description suffix (a closed list, so a receiver name that only
+#: contains PAYROLL is not read), payroll providers seen in the corpus, benefit administrators and retirement-plan
+#: recordkeepers, and the French pay words. Provider, administrator and French words are read on the originator
+#: segment only (_originator_segment): a holder named like one of them in INDN or IND NAME never hides its lender.
+#: No new pattern fires on a row that names financing. 401(k) is left out (it prints in holder names).
+_PAYROLL_GLUED_PATTERN = re.compile(r"\bPAYROLL(?:TAX(?:ES)?|TX|TS|DDS?|DEP|FEES?)\b")
+_PAYROLL_PROVIDER_PATTERNS = (
+    re.compile(r"\b(?:PATRIOT SOFTWARE|DATAPAY|PAYCOR|ONPAY|PAYWORKS|PAYCOM|PAYLOCITY)\b"),
+    re.compile(r"\b(?:HEALTH ?EQUI(?:TY)?|WAGEWORKS|TASC|ASCENSUS|HUMAN INTEREST|GUIDELINE RETIRE(?:MENT)?)\b"),
+    re.compile(r"\bPAIE\b|\bSALAIRES?\b"),
+)
+#: 5.3 (2026-09-27): a loan from the business's own shareholder, owner or director, repaid to them: no lender is
+#: named. The loan producers never take it (debits only, and only when the row names no organisation). MEMBER and
+#: PARTNER are left out: a funder can be named '... Partners'.
+_RELATED_PARTY_LOAN_PATTERNS = (
+    re.compile(r"\b(?:SHAREHOLDERS?|OWNERS?|DIRECTORS?) LOANS?\b"),
+    re.compile(r"\bDUE TO (?:SHAREHOLDERS?|OWNERS?)\b"),
 )
 
 _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
@@ -921,13 +999,16 @@ _ENTITY_NOISE = {
     "DESCR", "DESCRIPTION", "ENTRY", "DETAIL", "PAYMENT", "PAYMENTS", "PAY", "PMT",
     "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE", "WEB", "CCD", "PPD",
     "LOAN", "MCA", "TO", "FROM", "FOR", "TFR", "XFER", "TRANSFER", "MISC",
+    # 5.3: the paid-to label a bank prints before the payee (Navy Federal "Paid To -").
+    "PAID",
 }
 #: Financing words that describe the payment, not the payee, when they lead the name.
 _GENERIC_ENTITY_WORDS = {"FINANCE", "FINANCING", "FUNDING", "CAPITAL", "FUNDER", "ADVANCE"}
 #: D11: a name is published only when one of these organisation cues survives.
 #: The last eight are the registry-style company tokens (legal-form suffixes).
+#: 5.3 (2026-09-27): CO is no cue (it is also Colorado's state code: 'NAME, CITY, CO'); COMPANY stays one.
 _ORGANISATION_CUES = {
-    "LLC", "INC", "CORP", "CO", "FUNDING", "CAPITAL", "FINANCIAL", "FINANCE", "BANK",
+    "LLC", "INC", "CORP", "FUNDING", "CAPITAL", "FINANCIAL", "FINANCE", "BANK",
     "CREDIT", "LENDING", "ADVANCE", "GROUP", "HOLDINGS", "SERVICES",
     "CORPORATION", "COMPANY", "INCORPORATED", "LTD", "LIMITED", "LP", "LLP", "PLLC",
 }
@@ -943,10 +1024,42 @@ _ENTITY_NAME_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIGINATOR NAME|COMPANY NAM
 #: name is never built from ID, INDN, IND NAME, CO ID, TRACE or similar fields.
 _ACH_FIELD_SEGMENT = re.compile(
     r"\b(?:DES|DESC|DESCR|ORIG ID|CO ID|IND ID|IND NAME|INDN|IND|ID|TRACE|SEC|EED|TRN|"
-    r"CONF|REF|MEMO|CUST|TYPE)\b"
+    # 5.3 (2026-09-27): Truist's receiver field label, Huntington's instruction field and the wire fields.
+    r"CONF|REF|MEMO|CUST|TYPE|CUSTOMER ID|INSTR|SRF|RFB|IMAD)\b"
 )
 _MASKED_TOKEN = re.compile(r"X{2,}[A-Z0-9]*")
 _MAX_ENTITY_TOKENS = 4
+#: 5.3: connectors that never end a name (a name cut by the four-word cap: 'BOKF NATIONAL BANK OF').
+_TRAILING_CONNECTORS = frozenset({"OF", "AND", "THE", "DE", "DU", "DES"})
+#: 5.3 (2026-09-27): bank template words printed before the payee: removed before the payee words start, so two
+#: recipients paid through one template are never one payee (D11) and a template is never a name. Read at the start
+#: of the normalized row. 'ACH CORP DEBIT' is Truist's; its name then passes _truist_name_is_published.
+_PAYEE_TEMPLATE_PREFIX = re.compile(
+    r"^(?:(?:PMNT|PAYMENT) SENT|CORPORATE ACH|DOMESTIC ASSIST WIRE|HIP CREDIT SENT(?: TO)?|RETAIL PURCHASE"
+    r"|DBCRD PUR AP(?: AUT)?(?: [0-9]+)?(?: VISA DDA PUR(?: AP)?)?|ACH CORP (?:DEBIT|CREDIT))\b"
+)
+_TRUIST_CORP_PREFIX = re.compile(r"^ACH CORP (?:DEBIT|CREDIT)\b")
+#: 5.3: Truist prints no padding, so a short originator lets the receiver's words into the 16-character company
+#: field. A Truist name is published only when a whole legal-form word lies inside those 16 characters.
+_TRUIST_COMPANY_FIELD = 16
+#: 5.3: a wire's beneficiary starts after BNF (Wells Fargo /Bnf=, Bank of America BNF:), else after the account
+#: label of Chase's 'Wire Transfer Via: <bank> A/C: <beneficiary>'.
+_WIRE_BENEFICIARY_PATTERNS = (
+    re.compile(r"\bBNF(?: FFC)?\b"),
+    re.compile(r"\bWIRE TRANSFER VIA\b.*?\bA C\b"),
+)
+#: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
+_RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
+#: 5.3 (owner ruling 2026-09-27): a receiver-name field with its value, up to the next ACH field, removed before the
+#: debt-relief table is read: the account holder's own name never makes a row debt relief.
+_RECEIVER_FIELD_VALUE = re.compile(
+    r"\b(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b.*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
+)
+#: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
+_LEADING_PREFIX_WORDS = frozenset({
+    "BILL", "BILLS", "PRE", "AUTHORIZED", "AUTHORISED", "RECURRING", "RECUR", "INTERNET", "BANKING", "PAIEMENT",
+    "FACTURE", "BM", "CABLE", "TV", "TELEPHONE", "PCS", "SVC", "ON",
+})
 
 
 def _is_reference_token(token: str) -> bool:
@@ -957,6 +1070,70 @@ def _is_reference_token(token: str) -> bool:
     )
 
 
+def _payee_region(text: str) -> str:
+    """D11: the payee part of a normalized row: originator-name labels removed, cut at the first ACH field segment
+    (so never an ID, INDN, IND NAME, CO ID or TRACE field). `_unknown_payee_tokens` reads its words."""
+    text = _ENTITY_NAME_LABELS.sub(" ", text)
+    segment = _ACH_FIELD_SEGMENT.search(text)
+    return text[: segment.start()] if segment is not None else text
+
+
+def _row_before_receiver(text: str) -> str:
+    """5.3: the normalized row up to its first receiver field, so the account holder's own name never decides a D6
+    skip. The entry-description fields stay (DES:FACTS, DES:CHILD SUPP). A row with no receiver field is read whole:
+    a label-less format prints the holder unmarked, which the payee-word readers cover instead."""
+    return _RECEIVER_NAME_FIELD.split(text, 1)[0]
+
+
+def _leading_payee_words(text: str) -> str:
+    """5.3: the payee's leading words: the payee region after channel words, bill-payment prefix words and any
+    leading reference, up to the next reference token. A word printed after the payee's own name (a receiver in a
+    label-less format) is never a leading word."""
+    words: list[str] = []
+    for token in _payee_region(text).split():
+        if not words:
+            if token in _ENTITY_NOISE or token in _LEADING_PREFIX_WORDS or _is_reference_token(token):
+                continue
+        elif _is_reference_token(token):
+            break
+        words.append(token)
+    return " ".join(words)
+
+
+def _originator_segment(text: str) -> str:
+    """5.3 (payroll N1): D11's reading of the originator without the four-word cap and keeping channel words: the
+    payee region up to the first reference token after a name word. Provider and benefit-administrator names are
+    read here, never in a receiver field."""
+    words: list[str] = []
+    started = False
+    for token in _payee_region(text).split():
+        if _is_reference_token(token):
+            if started:
+                break
+            continue
+        words.append(token)
+        started = started or (token not in _ENTITY_NOISE and len(token) > 1)
+    return " ".join(words)
+
+
+def _is_payroll_provider_row(text: str) -> bool:
+    """5.3: a payroll provider, benefit administrator or French pay row (payroll N1 and N2)."""
+    if _names_financing(text):
+        return False
+    return _PAYROLL_GLUED_PATTERN.search(text) is not None or _matches_any(
+        _originator_segment(text), _PAYROLL_PROVIDER_PATTERNS
+    )
+
+
+def _wire_beneficiary(text: str) -> str | None:
+    """5.3 (2026-09-27): the text after a wire's beneficiary label, or None for a row that is no such wire."""
+    for pattern in _WIRE_BENEFICIARY_PATTERNS:
+        found = pattern.search(text)
+        if found is not None:
+            return text[found.end():]
+    return None
+
+
 def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     """D11: the payee words of an unknown counterparty, at most four.
 
@@ -964,38 +1141,83 @@ def _unknown_payee_tokens(text: str) -> tuple[str, ...]:
     channel words, single letters and leading financing words, and stops at the
     first reference token (digits, a masked number or a month) once a name has
     started, so a person's name printed after the references never joins it.
+
+    5.3 (2026-09-27): a name ends at its first legal-form word after the first word; a leading AND and a trailing
+    connector are dropped. A bank template prefix is removed first. A wire is read from its beneficiary, where a
+    name ends at its first organisation cue after the first word.
     """
-    text = _ENTITY_NAME_LABELS.sub(" ", text)
-    segment = _ACH_FIELD_SEGMENT.search(text)
-    if segment is not None:
-        text = text[: segment.start()]
+    beneficiary = _wire_beneficiary(text)
+    region = _payee_region(beneficiary if beneficiary is not None else _PAYEE_TEMPLATE_PREFIX.sub(" ", text, count=1))
     tokens: list[str] = []
-    for token in text.split():
+    for token in region.split():
         if token in _ENTITY_NOISE or len(token) == 1:
             continue
         if _is_reference_token(token):
             if tokens:
                 break
             continue
-        if not tokens and token in _GENERIC_ENTITY_WORDS:
+        if not tokens and (token in _GENERIC_ENTITY_WORDS or token == "AND"):
             continue
         tokens.append(token)
+        if len(tokens) > 1 and (
+            token in _LEGAL_FORM_SUFFIXES or (beneficiary is not None and token in _ORGANISATION_CUES)
+        ):
+            break
         if len(tokens) == _MAX_ENTITY_TOKENS:
             break
+    while tokens and tokens[-1] in _TRAILING_CONNECTORS:
+        tokens.pop()
     return tuple(tokens)
+
+
+def _names_an_organisation(tokens: Sequence[str]) -> bool:
+    """D11 and 5.3 (2026-09-27): a cue names an organisation, except a legal-form word printed first (CORP of
+    'CORP FABRIKAM ...'); a name made only of cue words ('BANK', 'CORP') names none."""
+    if all(token in _ORGANISATION_CUES for token in tokens):
+        return False
+    return any(
+        token in _ORGANISATION_CUES and (position > 0 or token not in _LEGAL_FORM_SUFFIXES)
+        for position, token in enumerate(tokens)
+    )
 
 
 def _unknown_payee_name(tokens: Sequence[str]) -> str | None:
     """D11: the published name, the unidentified label, or None when no payee is named."""
     if not tokens:
         return None
-    if not any(token in _ORGANISATION_CUES for token in tokens):
+    if not _names_an_organisation(tokens):
         return UNIDENTIFIED_LENDER_OBLIGATION
     return " ".join(token if token in _ENTITY_ACRONYMS else token.title() for token in tokens)
 
 
+def _truist_name_is_published(text: str) -> bool:
+    """5.3 (2026-09-27): on a Truist 'ACH CORP DEBIT' row, whether a whole legal-form word lies inside the first 16
+    characters of the payee words, the width of the company-name field. True for every other row."""
+    if not _TRUIST_CORP_PREFIX.match(text):
+        return True
+    words: list[str] = []
+    for token in _payee_region(_PAYEE_TEMPLATE_PREFIX.sub(" ", text, count=1)).split():
+        if not words and (token in _ENTITY_NOISE or len(token) == 1 or _is_reference_token(token)):
+            continue
+        words.append(token)
+    printed = " ".join(words)
+    field = printed[:_TRUIST_COMPANY_FIELD].split()
+    if len(printed) > _TRUIST_COMPANY_FIELD and printed[_TRUIST_COMPANY_FIELD] != " ":
+        field = field[:-1]  # the field's edge cut the last word
+    return any(word in _LEGAL_FORM_SUFFIXES for word in field)
+
+
+def _unknown_entity_for_text(text: str, tokens: Sequence[str]) -> str | None:
+    """D11: the published name of the payee words `tokens` read from the normalized row `text` (5.3: a Truist name
+    only through its company field)."""
+    name = _unknown_payee_name(tokens)
+    if name not in (None, UNIDENTIFIED_LENDER_OBLIGATION) and not _truist_name_is_published(text):
+        return UNIDENTIFIED_LENDER_OBLIGATION
+    return name
+
+
 def _canonical_unknown_entity(text: str) -> str | None:
-    return _unknown_payee_name(_unknown_payee_tokens(text))
+    return _unknown_entity_for_text(text, _unknown_payee_tokens(text))
 
 
 def _build_record(
@@ -1119,6 +1341,49 @@ _LINE_OF_CREDIT_PATTERNS = (
 )
 #: D9: known-payee groups that LOC wording moves to lines of credit.
 _LOC_OVERRIDE_STATES = frozenset({"confirmed_lender", "alternative_position", "line_of_credit"})
+
+
+def _compile_field_order_forms() -> tuple[tuple[re.Pattern[str], PayeeMatch], ...]:
+    """FIELD_ORDER_PAYEE_FORMS compiled once, each with its payee's group (PAYEE_GROUP_REGISTRIES)."""
+    state_of = {entity: state for state, registry in PAYEE_GROUP_REGISTRIES.items() for entity in registry}
+    return tuple(
+        (re.compile(form), PayeeMatch(entity, state_of[entity], ""))
+        for entity, forms in FIELD_ORDER_PAYEE_FORMS.items()
+        if entity in state_of
+        for form in forms
+    )
+
+
+_FIELD_ORDER_FORMS = _compile_field_order_forms()
+
+
+def _field_order_payee(text: str) -> PayeeMatch | None:
+    """5.3 (owner ruling 2026-09-27): the admitted payee a debit prints in the bank's field order, or None."""
+    return next((match for pattern, match in _FIELD_ORDER_FORMS if pattern.search(text)), None)
+
+
+def _field_order_debit_record(
+    common: dict[str, object],
+    text: str,
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """A debit to a payee read from the bank's fields: its group (D9's LOC wording still wins), with no alias."""
+    if match.state in _LOC_OVERRIDE_STATES and _matches_any(text, _LINE_OF_CREDIT_PATTERNS):
+        state, rule = "line_of_credit", "line_of_credit_descriptor_override"
+    else:
+        state, rule = match.state, f"{match.state}_field_order"
+    return _build_record(
+        **common,
+        classification=state,
+        canonical_entity=match.entity,
+        match_method="known_payee_field_order",
+        matched_rule=rule,
+        confidence_score=0.97,
+        reason=(
+            f"The bank printed the originator and the entry description of {match.entity} in separate fields; "
+            f"read from those fields, the row is {_state_words(state)}."
+        ),
+    )
 
 
 def _known_payee_debit_record(
@@ -1576,6 +1841,16 @@ def classify_transaction(
     # alternative-position payee matches no known payee (steps 5 and 7).
     if known_payee is not None and amount < 0 and _is_membership_or_top_up(text, known_payee):
         known_payee = None
+    # 5.3 (owner ruling 2026-09-27): an admitted payee printed in the bank's field order, on a debit no alias
+    # matched (FIELD_ORDER_PAYEE_FORMS). Credits keep today's rules.
+    field_order_payee = _field_order_payee(text) if known_payee is None and amount < 0 else None
+    if field_order_payee is not None:
+        known_payee = field_order_payee
+    # 5.3 (owner ruling 2026-09-27): a debt-relief payee, on a debit no known payee claimed, read without the row's
+    # receiver fields (the account holder may itself be a debt-relief firm). It then stands in for the known payee:
+    # the POS and ATM exceptions (D8) and step 7 treat it as one. Credits keep today's rules.
+    if known_payee is None and amount < 0:
+        known_payee = match_debt_relief_payee(_RECEIVER_FIELD_VALUE.sub(" ", text))
 
     if (
         amount < 0
@@ -1642,14 +1917,16 @@ def classify_transaction(
             reason="The descriptor identifies a tax authority or tax payment.",
         )
 
-    if _matches_any(text, _PAYROLL_PATTERNS):
+    if _matches_any(text, _PAYROLL_PATTERNS) or _is_payroll_provider_row(text):
         return _build_record(
             **common,
             classification="payroll",
             match_method="strong_non_lender_exclusion",
             matched_rule="payroll",
             confidence_score=0.96,
-            reason="The descriptor identifies payroll, wages, or a payroll provider.",
+            reason=(
+                "The descriptor identifies payroll, wages, a payroll provider or an employee-benefits administrator."
+            ),
         )
 
     if _matches_any(text, _UTILITY_PATTERNS):
@@ -1670,6 +1947,8 @@ def classify_transaction(
     # ruling 2026-09-26).
     if known_payee is not None:
         if amount < 0:
+            if field_order_payee is not None:
+                return _field_order_debit_record(common, text, known_payee)
             return _known_payee_debit_record(common, text, known_payee)
         if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
             return _flagged_revenue_credit_record(common, known_payee)
@@ -1736,6 +2015,24 @@ def classify_transaction(
     potential_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
     if potential_match is not None and amount < 0:
         lender, alias = potential_match
+        # 5.3 (owner ruling 2026-09-27): a review entity of a flag group takes its flag, marked unconfirmed. Its
+        # aliases stay in POTENTIAL_LENDER_ALIASES, so its credits keep the potential tier's exclusion.
+        routed = REVIEW_FLAG_ENTITIES.get(lender)
+        if routed is not None:
+            return _build_record(
+                **common,
+                classification=routed,
+                canonical_entity=lender,
+                match_method="unconfirmed_flag_payee_alias",
+                matched_alias=alias,
+                matched_rule=f"{routed}_review_registry",
+                confidence_score=0.82,
+                reason=(
+                    f"Matched maintained candidate alias '{alias}' of an unconfirmed {_state_words(routed)} payee: "
+                    "it is flagged, marked unconfirmed, and never enters lender math."
+                ),
+                review_required=True,
+            )
         return _build_record(
             **common,
             classification="potential_lender",
@@ -1748,11 +2045,32 @@ def classify_transaction(
             review_required=True,
         )
 
+    if (
+        amount < 0
+        and _matches_any(text, _RELATED_PARTY_LOAN_PATTERNS)
+        and _canonical_unknown_entity(text) in (None, UNIDENTIFIED_LENDER_OBLIGATION)
+    ):
+        return _build_record(
+            **common,
+            classification="other",
+            match_method="strong_non_lender_exclusion",
+            matched_rule="related_party_loan",
+            confidence_score=0.90,
+            reason=(
+                "The descriptor names a loan from the business's own shareholder, owner or director; it names "
+                "no lender."
+            ),
+        )
+
     if amount < 0 and _matches_any(text, _SERVICER_COLLECTOR_PATTERNS):
         return _build_record(
             **common,
             classification="potential_lender",
-            canonical_entity=_canonical_unknown_entity(text) or UNIDENTIFIED_LENDER_OBLIGATION,
+            canonical_entity=(
+                UNIDENTIFIED_MCA_SERVICER
+                if _MCA_SERVICING_PATTERN.search(text)
+                else _canonical_unknown_entity(text) or UNIDENTIFIED_LENDER_OBLIGATION
+            ),
             match_method="unknown_servicer_or_collector",
             matched_rule="servicer_or_collector_without_verified_funder",
             confidence_score=0.74,
@@ -2103,6 +2421,43 @@ _MASKED_RECIPIENT_PATTERN = re.compile(
     r"\bTO\b[\s:]*(?:(?:ACCOUNT|ACCT)\b[\s:]*)?(?:\.{2,}|…+|X+|\*+|#)[ -]?([0-9]{2,})(?![0-9])",
     re.IGNORECASE,
 )
+#: 5.3 (2026-09-27): the financing veto every 5.3 D6 skip reads. Funders ARE paid by card, Zelle, Interac, bill pay
+#: and wire, so no skip fires on a row that names financing. The roots have no left word boundary, so a
+#: run-together or cut name hits (KOVOCREDIT, CONSTRULOANS, BYZFUNDER, FUNDIN, CAPITA, FINANC, CLICKLEASE), and so
+#: does a collector of MCA debt (RECOVERY, RECEIVABLES, COLLECTIONS). The card verifier's roots: SETTLE (an
+#: unregistered debt-settlement payee stays reviewed; the registry alone names it debt relief), CRED before IT, ORA,
+#: IBLY or a word end (CREDIBLY, CREDORA, a cut CRED; never INCREDIBLE) and ACCEPT (ACCEPTANCE). A skip's own matched
+#: words are removed before the veto reads the row (_skips), so A4's 'BUS ONLINE ACH SETTLEMENT' template still skips.
+#: The short abbreviations are whole words. Known over-reach, in the safe direction (the row stays in review):
+#: CALENDAR, RELEASE, REFUNDABLE, FUNDRAISER, a processor's SETTLEMENT wording, ACCEPTED.
+_FINANCING_ROOT_PATTERN = re.compile(
+    r"(?:FUND|CAPITA|CAPTL|CRED(?=IT|ORA|IBLY|\b)|LOAN|LEND|FINANC|ADVANC|MERCH|RECOVER|RECEIVAB|COLLECT"
+    r"|SERVICING|SERVICER|FACTOR|LEASE|LEASING|EQUIP|MORTG|ACCEPT|REMIT|SETTLE)"
+    r"|\b(?:CAP|FIN|FINL|FNCL|ADV|MTG|MCA|RTR|SPV|DLY|DAILY|WKLY|WEEKLY)\b"
+)
+#: D11 and 5.3: the legal-form suffixes. A legal form names an organisation only after the name's first word.
+_LEGAL_FORM_SUFFIXES = frozenset({
+    "LLC", "INC", "CORP", "CORPORATION", "COMPANY", "INCORPORATED", "LTD", "LIMITED", "LP", "LLP", "PLLC",
+})
+
+
+def _names_financing(text: str, *, besides: str = "") -> bool:
+    """5.3: whether a normalized row names financing anywhere but in `besides`, the words a D6 skip matched.
+
+    Read on the whole row, the account holder's name included: a holder named like a funder keeps its rows in
+    review, which is the safe direction. The skip's own words are removed first, so they never veto the skip."""
+    rest = text.replace(besides, " ") if besides else text
+    return _FINANCING_ROOT_PATTERN.search(rest) is not None
+
+
+def _skips(region: str, patterns: Sequence[re.Pattern[str]], text: str) -> bool:
+    """5.3: a D6 skip fires when one of `patterns` is found in `region` (the part of the row the skip reads) and
+    the rest of the whole row `text` names no financing (`_names_financing`)."""
+    for pattern in patterns:
+        found = pattern.search(region)
+        if found is not None and not _names_financing(text, besides=found.group(0)):
+            return True
+    return False
 
 
 def _has_ach_field_mark(record: TransactionClassification) -> bool:
@@ -2115,8 +2470,20 @@ def _has_ach_field_mark(record: TransactionClassification) -> bool:
 def _is_card_purchase_posting(record: TransactionClassification) -> bool:
     if _CARD_PURCHASE_POSTING_PATTERN.match(record.normalized_description):
         return True
+    if _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "") and not _has_ach_field_mark(record):
+        return True
+    # 5.3 (2026-09-27): the bank card formats the POS rule does not read, never on a row that names financing,
+    # a bank or an organisation (read on the whole row, not on the D11 payee words, which are the card template).
+    text = record.normalized_description
+    if _card_posting_vetoed(text):
+        return False
+    if _matches_any(text, _CARD_POSTING_LABEL_PATTERNS):
+        return True
+    if record.bank == "Wealthsimple" and not _WEALTHSIMPLE_CHANNEL_PATTERN.search(text):
+        return True
     return bool(
-        _PROCESSOR_MERCHANT_MARK_PATTERN.search(record.original_description or "")
+        record.bank in _CARD_LOCATION_SUFFIX_BANKS
+        and _CARD_LOCATION_SUFFIX_PATTERN.search(record.original_description or "")
         and not _has_ach_field_mark(record)
     )
 
@@ -2125,6 +2492,428 @@ def _masked_recipient(record: TransactionClassification) -> str | None:
     """D6: the printed digits of a masked recipient account after TO, or None."""
     match = _MASKED_RECIPIENT_PATTERN.search(record.original_description or "")
     return match.group(1) if match else None
+
+
+#: 5.3 (2026-09-27): bank channel vocabulary. A D6 group whose payee words are all channel words names no payee:
+#: a card, cash, cheque or bill-pay posting printed without its merchant or recipient. OTHER, BANK and the bare
+#: withdrawal abbreviations (WD, WDL, WDRL) are left out on purpose: 'Other Debit', 'Bank Debit' and 'Preauthorized
+#: Wd' rows stay in review, because the 2026-09-27 hunt could not tell what they pay.
+_CHANNEL_VOCABULARY = frozenset({
+    # card postings
+    "CARD", "CARDS", "CRD", "DBT", "DBCRD", "PIN", "PURCH", "PURCHASE", "PUR", "POS", "DDA", "VISA", "MASTERCARD",
+    "MC", "TRANSACTION", "SPEND", "RETAIL", "ACHAT", "AUTHORIZED", "AUTHORISED", "ON", "ENDING",
+    # cash
+    "ATM", "ABM", "CASH", "TELLER", "COUNTER", "BRANCH", "STORE", "MADE", "IN", "NETWORK", "WITHDRWL", "RETRAIT",
+    # cheques and items
+    "CHK", "CK", "CHQ", "DRAFT", "SHARE", "ITEM",
+    # bill pay, push and banking channels
+    "BILL", "BILLS", "BILLPAY", "RECURRING", "RECUR", "AUTOPAY", "MISCELLANEOUS", "INTERNET", "MOBILE", "PHONE",
+    "TELEPHONE", "SENT", "PMNT", "VIREMENT", "ENVOYE", "PAID",
+})
+
+
+def _names_only_channel_words(payee: Sequence[str], text: str) -> bool:
+    """5.3: the D6 payee words are all channel words and the payee region of the normalized row `text` prints no
+    organisation cue. D11's key stops at the first reference token once a name has started, so a format that prints
+    a reference before the merchant keys as its template ('RECURRING PAYMENT AUTHORIZED ON 01 02 FAB HOLDINGS LLC
+    CARD 4321' keys as RECURRING AUTHORIZED ON): the cue keeps such a row in review, as the card veto does (A1)."""
+    return (
+        bool(payee)
+        and all(token in _CHANNEL_VOCABULARY for token in payee)
+        and not any(token in _ORGANISATION_CUES for token in _payee_region(text).split())
+    )
+
+
+#: 5.3 (2026-09-27): card-posting labels the POS rule does not read, read on the normalized row with no ACH guard,
+#: as _POS_PATTERNS are. MOBILE, RETAIL and PIN PURCHASE and the French ACHAT join the POS rule itself (B7).
+_CARD_POSTING_LABEL_PATTERNS = (
+    re.compile(r"\b\d{2} \d{2} \d{6,} (?:MOBILE )?PURCHASE\b"),        # Bank of America merchant-first card row
+    re.compile(r"\bDE?BI?T CRD\b"),                                     # DBT CRD, DEBIT CRD
+    re.compile(r"^DEBIT CARD\b"),                                       # Truist DEBIT CARD RECURRING PYMT / MISC DEBIT
+    re.compile(r"^CARD$"),                                              # a type-only card row (CSV export)
+    re.compile(r"\bCARD SPEND$"),                                       # Square Checking '<merchant> Card spend'
+    re.compile(r"\bAUTHORI[ZS]ED ON \d{2} \d{2}\b.*\bCARD \d{4}$"),     # Wells Fargo '... authorized on mm/dd ... Card nnnn'
+    re.compile(r"\bPIN DEBIT\b"),
+    re.compile(r"\bRECURRING (?:DEBIT )?CARD\b"),                       # PNC RECURRING DEBIT CARD
+    re.compile(r"\bCARD TRANSACTION\b"),                                # Regions
+    re.compile(r"\bPURCH\b"),                                           # Citi DEBIT PURCH
+    re.compile(r"\bCARD ENDING IN\b"),
+    re.compile(r"\bDDA PUR\b"),                                         # TD Bank VISA DDA PUR (without its star)
+)
+#: 5.3: Wealthsimple Chequing prints a card purchase as the bare merchant; its other debits carry one of these words
+#: (seen in 32 corpus accounts; its bill-payment print form is unverified: re-check when one arrives).
+_WEALTHSIMPLE_CHANNEL_PATTERN = re.compile(
+    r"\b(?:TRANSFER|TRANSFERT|INTERAC|PRE ?AUTHORI[ZS]ED|PAD|DEBIT|BILL|PAYMENT|EFT|WITHDRAWAL|DEPOSIT|CHEQUE|CHECK|"
+    r"LOAN|WIRE|FEE)\b"
+)
+#: 5.3: the card network's merchant location, 'NAME, CITY, ST' (Bluevine) or 'NAME ###, CITY , ST , USA' (Found),
+#: read on the printed text of those two banks' rows only, and only without an ACH field mark. Bluevine's glued
+#: 'CITY, NYUS' variant is a known non-match.
+_CARD_LOCATION_SUFFIX_PATTERN = re.compile(
+    r",\s*[A-Za-z][A-Za-z .'-]*?\s*,\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|"
+    r"MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|PR|GU|VI|AB|BC|MB|NB|NL|NS|NT|NU|"
+    r"ON|PE|QC|SK|YT)\s*(?:,\s*USA)?\s*$"
+)
+_CARD_LOCATION_SUFFIX_BANKS = frozenset({"Bluevine", "Lead Bank (Found)"})
+#: 5.3: besides the shared roots, a card-format skip never fires on a row that names a bank, an investment firm or an
+#: organisation (an organisation cue or a financing-organisation word): funders ARE paid by debit card in these
+#: formats (card lender-risk verifier: Dakota Financial on Bluevine, Hillcrest and CNAC on Square 'Card spend').
+_CARD_POSTING_VETO_PATTERN = re.compile(
+    r"(?:BANK|BANQUE|INVEST)"
+    r"|\b(?:HOLDINGS?|PARTNERS?|VENTURES?|EQUITIES|GROUP|SOLUTIONS?|ENTERPRISES?|RESOURCES?|LP)\b"
+)
+
+
+def _card_posting_vetoed(text: str) -> bool:
+    return (
+        _names_financing(text)
+        or _CARD_POSTING_VETO_PATTERN.search(text) is not None
+        or any(token in _ORGANISATION_CUES for token in text.split())
+    )
+
+
+#: 5.3 (2026-09-27): person-to-person, wallet and card-push rails the transfer rule does not read. D6 only: the
+#: transfer rule runs before the known payee (step 6 before 7), so widening it would hide a counted funder paid by
+#: e-Transfer. VIREMENT covers every French RBC transfer line (Interac e-Transfer, 'Virement envoye', 'Virement par
+#: Banque en direct'). Bare WISE is never a rail (WISE CHOICE, FINWISE).
+_P2P_RAIL_PATTERNS = (
+    re.compile(r"\bVIREMENTS?\b"),
+    re.compile(r"\bZEL (?:TO|FROM)\b"),
+    re.compile(r"^(?:PMNT|PAYMENT) SENT \d{2} ?\d{2}\b"),
+    re.compile(r"\bAPPLE (?:CASH|WALLET)\b"),
+    re.compile(r"\b(?:WISE (?:INC|US INC)|TRANSFERWISE)\b|\bDES WISE\b"),
+    re.compile(r"\bIAT PAYPAL\b"),
+    re.compile(r"\bGREENLIGHT DES APP\b"),
+)
+#: 5.3 (2026-09-27): transfer templates the 5.2 transfer-word skip does not read. Each fires only for a payee that
+#: names no organisation (D11 would publish 'Unidentified lender obligation') and a row that names no financing.
+_TRANSFER_TEMPLATE_PATTERNS = (
+    re.compile(r"\b(?:XFR|TRF|TRSFR|TRNSFR)\b|\b(?:TRANSFER|XFER|TFR)(?=\d)"),      # abbreviations; glued digits
+    re.compile(r"\bTO (?:CHKG|CHK|CHECKG|CHECKING|SAV|SAVINGS|SVGS|SHARES?|MMA)(?: ACCOUNT| ACCT)? X*\d{2,}\b"),
+    re.compile(r"^(?:INTERNET|ONLINE|PHONE|TELEPHONE|MOBILE|WEB) (?:WITHDRAWAL|WDRL|WDL)$"),
+    # Atlas's Smart Save sweep ('SMARTSAVE <reference> ATLASFINANCIAL <trace>'): only reference numbers may sit
+    # between the two words, since the veto reads the row without the matched words, and the tail stops at
+    # ATLASFINANCIAL, so no name printed inside the match is hidden from it.
+    re.compile(r"\bSMART ?SAVE(?:\s+[0-9]+)*\s+ATLAS ?FIN(?:ANCIAL)?\b"),
+    re.compile(r"\b(?:RTP SENT|REAL TIME PAYMENT TO|FEDNOW (?:PAYMENT|PMT) TO)\b"),
+)
+#: 5.3 (2026-09-27): rows whose own words say they cannot pay a funder: the holder's cash withdrawal in the formats
+#: the ATM rule does not read (only reference tokens or NETWORK may sit between ATM/ABM and the withdrawal word, so a
+#: payee name never fills the gap), the offset of an ACH batch the holder sent from its own bank's portal (inferred
+#: from the row shape; D11 already drops the batch name from the review entry), and school, tuition and childcare
+#: billing.
+_NON_REMITTANCE_WORD_PATTERNS = (
+    re.compile(
+        r"\b(?:ATM|ABM)\b(?:\s+(?:\S*\d\S*|NETWORK)){0,3}\s+(?:CASH\s+)?"
+        r"(?:WITHDRAWALS?|WITHDRAW|WITHDRWLS?|WDRLS?|WDL|W D|WD)\b"
+    ),
+    re.compile(r"\bWITHDRAWALS? (?:ATM|ABM)(?:\s+\S*\d\S*|$)"),
+    re.compile(r"\bWITHDRWLS?\b"),
+    re.compile(r"(?:^|(?<=\d )|\b(?:ATM|ABM|NETWORK|TELLER|COUNTER|BRANCH|LARGE|NON \S+)\s)CASH WITHDRA\w*"),
+    re.compile(r"\bRETRAITS? (?:GAB|DAB|ATM|ABM|PAR GA|AU GUICHET|AU COMPTOIR)\b"),
+    re.compile(r"^G RETRAIT\b"),
+    re.compile(r"^(?:BUS ONLINE ACH SETTLEMENT|ACH SETTLMT REL DATE FUND)\b"),
+    re.compile(r"\bDES FACTS\b|\bPAYMENT FACTS\b|\bFACTS(?: \d+)?$"),
+    re.compile(r"\b(?:TUITION|DAYCARE|CHILD ?CARE|PRESCHOOL|MONTESSORI|KINDERCARE|BRIGHTWHEEL|PROCARE)\b"),
+)
+#: 5.3 (2026-09-27): named consumer savings and investing originators: a closed list of verified non-funder ACH
+#: names, never a category by resemblance. A name joins only after collision_check.py (registry tables, the whole
+#: ledger, all_keys.json) prints no hit. Bare VANGUARD, INVEST, SAVINGS, FIDELITY and MONEYLINE stay out.
+_SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS = (
+    re.compile(r"\bSTASH (?:CAPITAL|INVEST(?:MENTS?)?)\b"),
+    re.compile(r"\bALINEA\b"),
+    re.compile(r"\bFID BKG SVC\b"),                                   # Fidelity Brokerage Services MoneyLine
+    re.compile(r"\bALBERT (?:SAVINGS )?(?:DES )?EDI PYMNTS\b"),         # Albert's money movement, not its advances
+    re.compile(r"\b(?:ACORNS|ROBINHOOD|COINBASE|BETTERMENT|WEALTHFRONT)\b"),
+)
+#: 5.3 (2026-09-27): vendors and other payees that never lend, read on the D11 payee words only (never an entry
+#: description: SBFS/Rapid Finance prints 'Vendor Pay'; never the holder: a holder named '... Distributions' pays
+#: Credibly), guarded by the lending words below and by the holder's own name. DISTRIBUT* also clears recurring owner
+#: distributions. Names join only after collision_check.py prints no registry or ledger hit.
+_VENDOR_PAYEE_PATTERNS = (
+    re.compile(r"\bBOOKK\w*"),
+    re.compile(r"\b(?:DISTR|DISTRIBUT\w*|FOODSERVICE)\b"),
+    re.compile(r"\bMANUFACTURING\b"),
+    re.compile(r"\bINVOICES?\b"),
+    re.compile(r"\b(?:CINTAS\w*|UNIFIRST|ARAMARK|SYSCO|ALSCO)\b|\bUS FOODS\b"),
+    re.compile(r"^(?:FACEBOOK|FACEBK|META ADS|META PLATFORMS|GOOGLE ADS|TIKTOK ADS|YELP|ANGI|HOMEADVISOR|THUMBTACK)\b"),
+    re.compile(r"\b(?:UNIFORMS?|LINEN|JANITORIAL|LANDSCAP\w*|LAWN|PEST CONTROL)\b"),
+    re.compile(r"\bROYALT(?:Y|IES)\b|\bFRANCHIS\w*|\b(?:AD|MARKETING|ADVERTISING) FUND\b"),
+    re.compile(r"\bTITHE\w*|\bCHURCH\b|\bMINISTRIES\b|\bDONATIONS?\b|\b(?:PUSHPAY|GIVELIFY|VANCO|SUBSPLASH|EASYTITHE)\b"),
+    re.compile(r"\b(?:EZPASS|ZPASS|SUNPASS|FASTRAK|TXTAG|NTTA|HCTRA|PEACH PASS|IPASS|BESTPASS|PREPASS|TOLLS?|TOLLWAY)\b"),
+    re.compile(r"\b(?:DRAFTKINGS|FANDUEL|BETMGM|LOTTERY|OLG|CASINO)\b"),
+)
+#: 5.3: a Bill.com or Melio payment is a vendor's only when the row prints an invoice number.
+_BILL_PAY_PLATFORM_PATTERN = re.compile(r"^(?:BILL COM|MELIO)\b")
+_INVOICE_NUMBER_PATTERN = re.compile(r"\bINV \d")
+#: 5.3: the vendor skip's lending guard: the shared roots plus the Canadian pre-authorized-debit channel word.
+_VENDOR_LENDING_GUARD = re.compile(_FINANCING_ROOT_PATTERN.pattern + r"|\bPAD\b")
+#: 5.3: the account holder's name words, read without the module normalizer: classifying a row normalizes exactly
+#: one text (tests/test_classifier_lookups.py::test_each_row_is_normalized_exactly_once).
+_HOLDER_WORD = re.compile(r"[A-Z0-9]+")
+
+
+def _payee_words_are_bounded(text: str) -> bool:
+    """5.3 (plan review 2026-09-28): whether an ACH field, or a reference token after the payee's first name word,
+    ends the payee's words before the normalized row `text` ends. A row that is one run of words (Regions '<funder>
+    ACHPMT <receiver>', Bluevine '<funder> PAY PAYMENT TO <receiver>') can end with the account holder's name."""
+    labelled = _ENTITY_NAME_LABELS.sub(" ", text)
+    if _ACH_FIELD_SEGMENT.search(labelled) is not None:
+        return True
+    started = False
+    for token in labelled.split():
+        if _is_reference_token(token):
+            if started:
+                return True
+            continue
+        started = started or (token not in _ENTITY_NOISE and len(token) > 1)
+    return False
+
+
+def _vendor_match_names_financing(matched: str) -> bool:
+    """5.3: whether a vendor match carries a financing root. A vendor stem's trailing letters would swallow a root run
+    together with it ('FAB DISTRIBUTIONCAPITAL LLC', 'BOOKKEEPINGFUNDING', 'FAB DISTRIBUTORSCREDIT'), and the lending
+    guard reads the row without the matched words, so such a match is no vendor. The whole word FUND of the ad-fund
+    phrases (AD FUND, MARKETING FUND, ADVERTISING FUND) is their own vocabulary, not a glued root."""
+    return any(word != "FUND" and _FINANCING_ROOT_PATTERN.search(word) for word in matched.split())
+
+
+def _is_vendor_payee(payee: Sequence[str], text: str, account_name: str | None) -> bool:
+    """5.3: the D11 payee words (or, on a bounded row, the originator segment, which then never reads a receiver
+    field) name a vendor or another payee that never lends, the row prints no lending word (outside the matched vendor
+    words, which carry none themselves), and those words carry none of the account holder's own name words. On a row
+    that is one run of words the segment is never read, and when the holder's name is unknown the vendor word must be
+    the payee's first word."""
+    words = " ".join(payee)
+    bounded = _payee_words_are_bounded(text)
+    segment = _originator_segment(text) if bounded else ""
+    found = next(
+        (
+            match
+            for source in (words, segment)
+            for pattern in _VENDOR_PAYEE_PATTERNS
+            if (match := pattern.search(source)) and not _vendor_match_names_financing(match.group(0))
+        ),
+        None,
+    )
+    if found is None and _BILL_PAY_PLATFORM_PATTERN.search(words) and _INVOICE_NUMBER_PATTERN.search(text):
+        found = _BILL_PAY_PLATFORM_PATTERN.search(words)
+    if found is None:
+        return False
+    holder = {
+        word for word in _HOLDER_WORD.findall((account_name or "").upper())
+        if len(word) >= 4 and word not in _LEGAL_FORM_SUFFIXES
+    }
+    if not bounded and not holder and found.start() > 0:
+        return False  # a label-less run of words may end with the holder's name, which is unknown here
+    if holder & (set(payee) | set(segment.split())):
+        return False
+    return _VENDOR_LENDING_GUARD.search(text.replace(found.group(0), " ")) is None
+
+
+#: 5.3 (2026-09-27): tax authorities and government agencies printed without TAX, IRS or CRA, read on the payee
+#: region only (never an entry description or memo) and only for a payee that names no organisation. The row stays
+#: 'other': the tax rule has no amount guard and runs before the known payee, so it is not widened.
+_GOVERNMENT_PAYEE_PATTERNS = (
+    re.compile(r"\b(?:UNITED STATES|U ?S) (?:(?:DEPT|DEPARTMENT) OF (?:THE )?)?TREAS(?:URY)?\b"),
+    re.compile(r"\bEFTPS\b"),
+    re.compile(r"\bCCRA\b"),
+    re.compile(r"\bRECEIVER GENERAL\b"),
+    re.compile(r"\bSECRETARY OF STATE\b"),
+    re.compile(r"\bSTATE OF [A-Z]+(?: [A-Z]+)? (?:SOS|DMV)\b"),
+    re.compile(r"\b(?:DEPT|DEPARTMENT) OF MOTOR VEHICLES?\b"),
+    re.compile(r"\b(?:DTF|EDD|DOR|TAXATION|COMPTROLLER)\b"),
+    re.compile(r"\b(?:DEPT|DEPARTMENT) (?:OF )?REV(?:ENUE)?\b"),
+    re.compile(r"\bTREASURER OF STATE\b|\b[A-Z]{2} TREASURY\b"),
+    re.compile(r"\bREVENU QUEBEC\b|\bMINISTRE DU REVENU\b"),
+    re.compile(r"\b(?:WSIB|WORKSAFE\w*|WCB|EHT|CNESST)\b"),
+)
+#: 5.3: payees the financing-keyword recurrence never promotes: a government finance department (FINANCE is its
+#: name, not a loan) and a retailer named ADVANCE. Their single rows stay 'other' / financing_keyword_review.
+_GOVERNMENT_FINANCE_DEPARTMENT_PATTERNS = (
+    re.compile(r"\b(?:DEPT|DEPARTMENT|MINISTRY|MIN|MINISTERE|DIV) (?:OF |DES )?FINANCES?\b"),
+    re.compile(r"\bFINANCE DEPT\b"),
+)
+_RETAILER_ADVANCE_PATTERNS = (re.compile(r"\bADVANCE (?:AUTO PARTS|STORES)\b"),)
+#: 5.3 (2026-09-27): a court-ordered family-support payment through a state conduit is not an MCA remittance. Read
+#: before the receiver fields (a holder named '... Child Support Svcs' never silences its funder). GARNISH, LEVY,
+#: LEGAL ORDER, bare SDU and CSE stay out: an MCA judgment creditor collects through a law office or a marshal.
+_FAMILY_SUPPORT_WORD_PATTERNS = (
+    re.compile(r"\bCHI?LD ?SUPP(?:ORT|T)?\b"),
+    re.compile(r"\bFAM(?:ILY)? SUPP(?:ORT)? (?:REG(?:ISTRY)?|PAYMENT CENTER|PMT CTR|PAYMENT CTR)\b"),
+    re.compile(r"\bSTATE DISBURSEMENT UNIT\b"),
+)
+#: 5.3 (2026-09-27): owner money is not an MCA remittance: a draw or distribution to an owner, member, partner or
+#: shareholder, a dividend, a per diem, a guaranteed payment. Read before the receiver fields, with the veto
+#: (DIVIDEND FINANCE is a lender); a bare DISTRIBUTION is a vendor's name.
+_OWNER_PAY_WORD_PATTERNS = (
+    re.compile(r"\b(?:OWNERS?|MEMBERS?|PARTNERS?|SHAREHOLDERS?) (?:DRAWS?|DISTRIBUTIONS?)\b"),
+    re.compile(r"\bPER DIEM\b"),
+    re.compile(r"\bGUARANTEED PAYMENTS?\b"),
+    re.compile(r"\bDIVIDENDS?\b"),
+)
+#: 5.3: a payments platform paying a recipient it names ('Pay To: <name>'): the platform is the originator, not a
+#: creditor. Only a person recipient is skipped: Payoneer's Capital Advance is collected by ACH bank debit (an
+#: alternative position), so an organisation recipient, the platform itself or no recipient stays reviewed.
+_PLATFORM_PAYOUT_PATTERN = re.compile(r"\bPAYONEER\b.*\bPAY TO\b(?P<recipient>.*?)(?:\bPAYMENT DATE\b|\bTRN\b|$)")
+
+
+def _is_platform_payout_to_person(text: str) -> bool:
+    """5.3: the shared veto reads the whole row `text`, the recipient included. The skip's own words (PAYONEER, PAY
+    TO, PAYMENT DATE, TRN) carry no financing root, so nothing is removed first: the pattern's spans are never
+    hidden from the veto."""
+    found = _PLATFORM_PAYOUT_PATTERN.search(text)
+    if found is None:
+        return False
+    recipient = [token for token in found.group("recipient").split()
+                 if len(token) > 1 and not _is_reference_token(token)]
+    return bool(recipient) and not any(
+        token in _ORGANISATION_CUES or token == "PAYONEER" for token in recipient
+    ) and not _names_financing(text)
+
+
+#: 5.3 (2026-09-27): D6 does not take a same-amount group under this amount whose payee names no organisation (it
+#: would publish as 'Unidentified lender obligation') and whose row names no financing. Strict: a 25-dollar debit
+#: promotes. A named payee promotes at any amount. A whole number: analysis/ carries no exact-cent literal
+#: (tests/test_no_statement_hardcodes.py).
+_D6_MIN_FIXED_DEBIT = 25
+#: 5.3 (2026-09-27): a payment processor's own small charge to its merchant, through its merchant-services
+#: spelling: Square's seller-account entry code (SQ + the entry date yymmdd) and Intuit Payment Solutions. Capped at
+#: 50 dollars (Intuit's fees and chargebacks, Square's small charges): these rails also carry invoice payments to
+#: third parties in the thousands, so a fixed debit above the cap stays in review. Never with loan or capital
+#: wording, including Square's glued loan codes (SQCAP, SQ LOAN). A whole number
+#: (tests/test_no_statement_hardcodes.py).
+_PROCESSOR_ACCOUNT_DEBIT_PATTERNS = (
+    re.compile(r"\bSQUARE\b.*\bSQ ?\d{6}\b|\bSQ ?\d{6}\b.*\bSQUARE\b"),
+    re.compile(r"\bINTUIT (?:PYMT|PMT|PAYMENTS?) SOL(?:N|NS|UTIONS?)?\b"),
+)
+_PROCESSOR_DEBIT_FINANCING_GUARD = re.compile(
+    r"\bLOANS?\b|\bADVANCE\b|\bFINANC(?:E|ING|IAL)\b|\bFUND(?:ER|ING)\b|\bCAP(?:ITAL)?(?![A-Z])|\bMCA\b"
+    r"|\bSQ ?CAP|\bSQ ?LOAN|\bLENDING\b"
+)
+_PROCESSOR_ACCOUNT_CHARGE_MAX = 50
+#: 5.3 (2026-09-27): an insurer whose name the ACH field cut short (INSU, INSUR, INSURA, INSURAN, INSURANC: the
+#: 16-character company name or the 10-character entry description). Read on the D11 payee words only: the holder's
+#: name (INDN, IND NAME, or unlabeled) never decides. INSURED, INSURER and the bare INS stay out.
+_TRUNCATED_INSURANCE_WORD_PATTERN = re.compile(r"\bINSU(?:R|RA|RAN|RANC)?\b")
+#: 5.3 (2026-09-27): phone and cable carriers, matched at the START of the payee's leading words
+#: (_leading_payee_words), so a carrier printed after the payee's own name (a receiver that is a wireless dealer)
+#: never decides. Brand names only; BELL, ROGERS, SHAW and SPRINT need their telecom word; ATT only in its bill and
+#: payment forms. The VERIZON lookahead covers the registry's Verizon Visa alias only (a 'SYNCB VERIZON' card
+#: payment in 'other' hides no funder).
+_TELECOM_CARRIER_PATTERNS = (
+    re.compile(r"(?:KOODO|FIDO|TELUS|VIDEOTRON|SASKTEL|EASTLINK|CHATR|COGECO)\b"),
+    re.compile(r"(?:FREEDOM|VIRGIN|PUBLIC|LUCKY|BOOST|MINT|T) ?MOBILE\b"),
+    re.compile(r"VIRGIN PLUS\b"),
+    re.compile(r"BELL (?:CANADA|MOBILITY|MTS|ALIANT)\b"),
+    re.compile(r"ROGERS (?:WIRELESS|COMMUNICATIONS?|CABLE)\b"),
+    re.compile(r"SHAW (?:CABLE|COMMUNICATIONS?|DIRECT)\b"),
+    re.compile(r"VERIZON\b(?! (?:CREDIT|VISA))"),
+    re.compile(r"(?:VZWRLSS|AT AND T|METRO ?PCS|METRO BY T MOBILE|TRACFONE|COMCAST|XFINITY|CENTURYLINK|WINDSTREAM|"
+               r"DIRECTV)\b"),
+    re.compile(r"ATT\b(?= (?:BILL|PAYMENT|MOBILITY|UVERSE|WIRELESS)\b|\s*$)"),
+    re.compile(r"(?:SPRINT|CRICKET|TOTAL) WIRELESS\b"),
+    re.compile(r"(?:US|U S|CONSUMER) CELLULAR\b|USCELLULAR\b"),
+    re.compile(r"(?:CHARTER|COX|FRONTIER) COMM(?:UNICATIONS?)?\b"),
+    re.compile(r"DISH NETWORK\b"),
+)
+
+
+def _is_processor_account_charge(record: TransactionClassification) -> bool:
+    """5.3: besides its own loan and capital guard, the skip reads the shared veto on the whole row. The skip's own
+    words (SQUARE, SQ and the entry date, INTUIT PYMT SOLN) carry no financing root, so nothing is removed first."""
+    text = record.normalized_description
+    return (
+        abs(record.amount) <= _PROCESSOR_ACCOUNT_CHARGE_MAX
+        and _matches_any(text, _PROCESSOR_ACCOUNT_DEBIT_PATTERNS)
+        and _PROCESSOR_DEBIT_FINANCING_GUARD.search(text) is None
+        and not _names_financing(text)
+    )
+
+
+#: 5.3 (2026-09-27): each card_issuer_context alias's normalized words, computed once.
+_CARD_ISSUER_CONTEXT_WORDS = {
+    alias: tuple(normalize_transaction_description(alias).split())
+    for aliases in CARD_ISSUER_CONTEXT_ALIASES.values()
+    for alias in aliases
+}
+
+
+def _names_card_issuer(payee: Sequence[str], text: str) -> bool:
+    """5.3: the payee IS a listed card issuer printed alone (C10 keeps that row unflagged): the issuer alias's words
+    lead the D11 payee words, and the rest of the row names no financing. An issuer token inside a longer name
+    (FABRICATED SYF CAPITAL) is never enough."""
+    found = registry_match(" ".join(payee), CARD_ISSUER_CONTEXT_ALIASES)
+    if found is None:
+        return False
+    words = _CARD_ISSUER_CONTEXT_WORDS.get(found[1], ())
+    return bool(words) and tuple(payee[: len(words)]) == words and not _names_financing(
+        text, besides=" ".join(words)
+    )
+
+
+def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
+    """Why D6 (spec D6 and its clarifications) does not take this default debit, or None when it may.
+
+    `payee` is the row's D11 payee words (`_unknown_payee_tokens`). Every clause added in 5.3 reads the payee's
+    words (never a receiver field) and carries the shared financing veto (`_names_financing`)."""
+    text = record.normalized_description
+    if _matches_any(text, _TRANSFER_WORD_PATTERNS):
+        return "transfer_word"
+    if _matches_any(text, _COMPENSATION_WORD_PATTERNS):
+        return "compensation"
+    if _is_card_purchase_posting(record):
+        return "card_purchase_posting"
+    if _names_only_channel_words(payee, text) and not _names_financing(text):
+        return "channel_words_only"
+    if _skips(_row_before_receiver(text), _P2P_RAIL_PATTERNS, text):
+        return "p2p_rail"
+    if _unknown_payee_name(payee) in (None, UNIDENTIFIED_LENDER_OBLIGATION) and _skips(
+        _row_before_receiver(text), _TRANSFER_TEMPLATE_PATTERNS, text
+    ):
+        return "transfer_template"
+    if _skips(_row_before_receiver(text), _NON_REMITTANCE_WORD_PATTERNS, text):
+        return "not_a_remittance"
+    if _skips(_row_before_receiver(text), _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS, text):
+        return "savings_or_investment"
+    if _is_vendor_payee(payee, text, record.account_name):
+        return "named_non_lender"
+    if _unknown_payee_name(payee) in (None, UNIDENTIFIED_LENDER_OBLIGATION) and _skips(
+        _payee_region(text), _GOVERNMENT_PAYEE_PATTERNS, text
+    ):
+        return "government_payee"
+    if _skips(_row_before_receiver(text), _FAMILY_SUPPORT_WORD_PATTERNS, text):
+        return "family_support"
+    if _skips(_row_before_receiver(text), _OWNER_PAY_WORD_PATTERNS, text):
+        return "owner_pay"
+    if _is_platform_payout_to_person(text):
+        return "platform_payout_to_person"
+    if _is_processor_account_charge(record):
+        return "processor_account_charge"
+    if _skips(" ".join(payee), (_TRUNCATED_INSURANCE_WORD_PATTERN,), text):
+        return "truncated_insurer"
+    leading = _leading_payee_words(text)
+    carrier = next((found for pattern in _TELECOM_CARRIER_PATTERNS if (found := pattern.match(leading))), None)
+    if carrier is not None and not _names_financing(text, besides=carrier.group(0)):
+        return "telecom_carrier"
+    if _names_card_issuer(payee, text):
+        return "card_issuer_alone"
+    return None
+
+
+def _keyword_recurrence_skip(record: TransactionClassification) -> str | None:
+    """Why the financing-keyword recurrence (recurring_financing_counterparty) does not take this row, or None.
+
+    Its rows carry a financing word by definition (LOAN, ADVANCE, FINANCE, FUNDING…), so these clauses carry no
+    financing veto; each names a payee that is never a lender (A7, A8)."""
+    region = _row_before_receiver(record.normalized_description)
+    if _matches_any(region, _GOVERNMENT_FINANCE_DEPARTMENT_PATTERNS):
+        return "government_finance_department"
+    if _matches_any(region, _RETAILER_ADVANCE_PATTERNS):
+        return "retailer_named_advance"
+    if _matches_any(region, _FAMILY_SUPPORT_WORD_PATTERNS):
+        return "family_support"
+    return None
 
 
 def _promotion_cadence(
@@ -2146,6 +2935,50 @@ def _promotion_cadence(
     if cadence not in {"daily", "weekly"}:
         return None
     return cadence, average_gap
+
+
+#: 5.3 (2026-09-27): the D6 payee words of a card network's 'NAME, CITY, ST' line are the printed name before the
+#: first comma (the city never joins the name), read without the module normalizer.
+_PRINTED_NAME_WORD = re.compile(r"[A-Z0-9]+")
+
+
+def _record_payee_tokens(record: TransactionClassification) -> tuple[str, ...]:
+    """D6's payee words for one row: D11's words, or, on a 'NAME, CITY, ST' line with no ACH field mark, the words of
+    the printed name before the first comma (5.3, 2026-09-27)."""
+    printed = record.original_description or ""
+    if _CARD_LOCATION_SUFFIX_PATTERN.search(printed) and not _has_ach_field_mark(record):
+        return _unknown_payee_tokens(" ".join(_PRINTED_NAME_WORD.findall(printed.split(",", 1)[0].upper())))
+    return _unknown_payee_tokens(record.normalized_description)
+
+
+#: 5.3 (2026-09-27): the names D11 and D10 publish for a payee they cannot name. The Potential Lenders tab lists
+#: each payee key of them on its own line (potential_payee_label), never one line for all.
+_UNNAMED_POTENTIAL_ENTITIES = frozenset({UNIDENTIFIED_LENDER_OBLIGATION, UNIDENTIFIED_MCA_SERVICER})
+_RECURRENCE_CADENCE = re.compile(r"^(daily|weekly)_fixed_debit_")
+
+
+def _label_unnamed_potential_payees(records: list[TransactionClassification]) -> list[TransactionClassification]:
+    """5.3 (2026-09-27): one Potential Lenders line per unnamed payee of a statement. The rows of one payee key
+    (entity, rule, payee words, amount and masked recipient) share a label that names the entity, the cadence of a
+    recurrence and the amount, never a payee word (D11): 'Unidentified lender obligation (weekly, 450.00)'. A second
+    key with the same label gets ' #2'. canonical_entity is unchanged."""
+    groups: dict[tuple[object, ...], list[int]] = {}
+    for index, record in enumerate(records):
+        if record.classification == "potential_lender" and record.canonical_entity in _UNNAMED_POTENTIAL_ENTITIES:
+            key = (record.canonical_entity, record.match_method, _record_payee_tokens(record),
+                   round(abs(record.amount), 2), _masked_recipient(record))
+            groups.setdefault(key, []).append(index)
+    labelled = list(records)
+    used: dict[str, int] = {}
+    for (entity, _method, _payee, amount, _recipient), indexes in groups.items():
+        cadence = _RECURRENCE_CADENCE.match(records[indexes[0]].matched_rule or "")
+        label = f"{entity} ({cadence.group(1)}, {amount:,.2f})" if cadence else f"{entity} ({amount:,.2f})"
+        used[label] = used.get(label, 0) + 1
+        if used[label] > 1:
+            label = f"{label} #{used[label]}"
+        for index in indexes:
+            labelled[index] = replace(records[index], potential_payee_label=label)
+    return labelled
 
 
 def classify_statement_transactions(
@@ -2195,18 +3028,14 @@ def classify_statement_transactions(
     for index, record in enumerate(records):
         if index in duplicate_of or record.amount >= 0 or record.classification != "other":
             continue
-        payee = _unknown_payee_tokens(record.normalized_description)
+        payee = _record_payee_tokens(record)
         if not payee:
             continue
         key = (payee, round(abs(record.amount), 2))
         if record.match_method == "financing_keyword_review" and record.canonical_entity:
-            keyword_groups.setdefault(key, []).append(index)
-        elif (
-            record.match_method == "default"
-            and not _matches_any(record.normalized_description, _TRANSFER_WORD_PATTERNS)
-            and not _matches_any(record.normalized_description, _COMPENSATION_WORD_PATTERNS)
-            and not _is_card_purchase_posting(record)
-        ):
+            if _keyword_recurrence_skip(record) is None:
+                keyword_groups.setdefault(key, []).append(index)
+        elif record.match_method == "default" and _d6_skip(record, payee) is None:
             fixed_debit_groups.setdefault((*key, _masked_recipient(record)), []).append(index)
 
     for indexes in keyword_groups.values():
@@ -2233,12 +3062,20 @@ def classify_statement_transactions(
 
     # D6: an unknown payee (a row no rule claimed) with fixed daily or weekly
     # debits joins the review tier. Nothing is counted without a named lender.
-    for (payee, _, _), indexes in fixed_debit_groups.items():
+    for (payee, amount, _), indexes in fixed_debit_groups.items():
+        entity = _unknown_entity_for_text(records[indexes[0]].normalized_description, payee) or (
+            UNIDENTIFIED_LENDER_OBLIGATION
+        )
+        if (
+            entity == UNIDENTIFIED_LENDER_OBLIGATION
+            and amount < _D6_MIN_FIXED_DEBIT
+            and not _names_financing(records[indexes[0]].normalized_description)
+        ):
+            continue
         promotion = _promotion_cadence(records, indexes, min_recurring_count)
         if promotion is None:
             continue
         cadence, average_gap = promotion
-        entity = _unknown_payee_name(payee) or UNIDENTIFIED_LENDER_OBLIGATION
         for index in indexes:
             records[index] = replace(
                 records[index],
@@ -2257,6 +3094,7 @@ def classify_statement_transactions(
                 contributes_to_potential_withholding_exposure=True,
             )
 
+    records = _label_unnamed_potential_payees(records)
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
 

@@ -25,10 +25,12 @@ EXPECTED = (
     ("floor_plan_financing", "floor_plan", "flag_floor_plan", "Floor plan"),
     ("factoring", "factoring", "flag_factoring", "Factoring"),
     (None, "premium_financing", "flag_premium_financing", "Premium financing"),
+    # Owner ruling 2026-09-27 (classification 5.3): the twelfth group.
+    ("debt_relief", "debt_relief", "flag_debt_relief", "Debt relief"),
 )
 
 
-def test_the_eleven_groups_match_the_spec_table_in_order():
+def test_the_twelve_groups_match_the_spec_table_in_order():
     assert tuple((g.state, g.key, g.setting, g.label) for g in FLAG_GROUPS) == EXPECTED
     assert all(isinstance(g, FlagGroup) for g in FLAG_GROUPS)
 
@@ -40,7 +42,7 @@ def test_premium_financing_is_the_one_group_without_a_state():
 def test_lookups_and_setting_keys_are_derived_from_the_one_tuple():
     assert FLAG_GROUP_BY_STATE == {g.state: g for g in FLAG_GROUPS if g.state is not None}
     assert None not in FLAG_GROUP_BY_STATE
-    assert len(FLAG_GROUP_BY_STATE) == 10
+    assert len(FLAG_GROUP_BY_STATE) == 11
     assert FLAG_GROUP_BY_KEY == {g.key: g for g in FLAG_GROUPS}
     assert FLAG_SETTING_KEYS == tuple(row[2] for row in EXPECTED)
 

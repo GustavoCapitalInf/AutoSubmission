@@ -251,3 +251,17 @@ def test_no_digit_run_of_five_or_more_reaches_the_ledgers_outside_urls_and_today
     for text in (EVIDENCE, lender_ledger.LEDGER_PATH.read_text(encoding="utf-8")):
         stripped = re.sub(r"sha256:[0-9a-f]{64}", "", re.sub(r"https?://[^\s\"|,]+", "", text))
         assert set(re.findall(r"\d{5,}", stripped)) <= held
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "entity"),
+    [
+        ("MERIDIAN RLS LOY 0001", "Meridian (RLS rent/lease PAD; probably Meridian OneCap Credit Corp)"),
+        ("FUTURE FUNDING DES:PAYMENT ID:0001", "FUTURE FUNDING (legal entity not identified)"),
+        ("NATIONWIDECREDIT TELECHK 0001", "Nationwide Credit (debt collector; creditor not printed)"),
+        ("ORIG CO NAME ACCOUNT SERVICIN ORIG ID 0001", "Unidentified account servicer (ACCOUNT SERVICIN[G])"),
+    ],
+)
+def test_review_payees_are_published_under_names_that_say_what_the_ledger_knows(descriptor, entity):
+    found = registry_match(normalize(descriptor), registry.POTENTIAL_LENDER_ALIASES)
+    assert found is not None and found[0] == entity, found

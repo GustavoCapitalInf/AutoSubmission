@@ -35,6 +35,7 @@ FAKE_PAYEES: dict[str, tuple[str, str]] = {
     "FABRICATED FACTOR": ("Fabricated Factor", "factoring"),
     "FABRICATED RENTALS": ("Fabricated Rentals", "lease_or_rental"),
     "FABRICATED ISSUER": ("Fabricated Issuer", "credit_card_payment"),
+    "FABRICATED DEBT RELIEF": ("Fabricated Debt Relief", "debt_relief"),
 }
 
 

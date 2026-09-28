@@ -348,7 +348,7 @@ def compute_metrics(
         if classification.contributes_to_lender_count and classification.canonical_entity:
             confirmed_entities.add(classification.canonical_entity)
         if classification.contributes_to_potential_lender_count and classification.canonical_entity:
-            potential_entities.add(classification.canonical_entity)
+            potential_entities.add(classification.potential_payee_label or classification.canonical_entity)
         if classification.contributes_to_potential_lender_totals:
             m.potential_lender_debit_total += abs(t.amount)
             m.potential_lender_debit_count += 1

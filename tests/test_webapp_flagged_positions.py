@@ -634,14 +634,14 @@ def test_every_flag_roll_up_item_carries_the_contract_fields_in_order(settings_f
     for items in package["flagged_positions"].values():
         for item in items:
             assert list(item) == ["payee", "documents", "count", "total_debited", "count_credited", "total_credited",
-                                  "cadence", "first_date", "last_date"]
+                                  "cadence", "first_date", "last_date", "review_required"]
 
 
 # --- S2's real payload flows through serving and the package (contract C4/C5; after S2 merges) ----------------
 
 #: The keys C5 publishes on every `detection.flagged_positions` entry, and on every `metrics.flagged_groups` value.
 C5_POSITION_KEYS = {"group", "payee", "matched_alias", "count", "total_debited", "count_credited", "total_credited",
-                    "cadence", "avg_gap_days", "first_date", "last_date", "source_locations"}
+                    "cadence", "avg_gap_days", "first_date", "last_date", "source_locations", "review_required"}
 C5_GROUP_KEYS = {"count", "total", "count_credited", "total_credited", "payees"}
 
 
@@ -774,3 +774,19 @@ def test_the_fixture_records_use_only_fields_the_classifier_writes():
     names = {field.name for field in fields(TransactionClassification)}
     assert set(flagged_row("mortgages")["classification"]) <= names
     assert CLASSIFICATION_VERSION == CURRENT_VERSION
+
+
+# --- 5.3 (owner ruling 2026-09-27): an unconfirmed flagged payee --------------------------------------------------
+
+def test_an_unconfirmed_flagged_payee_is_marked_in_the_package_and_its_export(settings_file):
+    from webapp.app import _package_analysis, _package_csv
+
+    row = flagged_row("vehicle_financing", payee="FABRICATED REVIEW AUTO")
+    row["classification"]["review_required"] = True
+    known = flagged_row("vehicle_financing", payee="FABRICATED KNOWN AUTO", date="2054-01-06")
+    package = _package_analysis([_member("a", with_flagged_rows(account_payload(0), [row, known]))])
+    items = {item["payee"]: item["review_required"] for item in package["flagged_positions"]["vehicle_financing"]}
+    assert items == {"FABRICATED REVIEW AUTO": True, "FABRICATED KNOWN AUTO": False}
+    cells = _csv_cells(_package_csv(package))
+    assert sorted(value for (section, field), value in cells.items()
+                  if section.startswith("flagged_vehicle_financing_") and field == "review_required") == ["False", "True"]

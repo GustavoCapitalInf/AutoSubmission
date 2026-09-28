@@ -102,6 +102,7 @@ def _flagged_dict(match) -> dict:
         "first_date": match.first_date,
         "last_date": match.last_date,
         "source_locations": list(match.source_locations),
+        "review_required": match.review_required,
     }
 
 

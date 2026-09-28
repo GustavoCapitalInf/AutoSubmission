@@ -188,7 +188,7 @@ def test_ach_fixed_weekly_debits_still_reach_d6_when_they_print_purchase(descrip
 
 
 def _d6_methods(description: str) -> set[tuple[str, str]]:
-    records = classify_statement_transactions(_statement(_rows_on_dates(description, -10.0, WEEKLY)))
+    records = classify_statement_transactions(_statement(_rows_on_dates(description, -100.0, WEEKLY)))
     return {(record.classification, record.match_method) for record in records}
 
 
@@ -309,7 +309,7 @@ RECIPIENT_MARKS = ["To ....{}", "TO XXXX{}", "to xxxx{}", "TO ***{}", "TO #{}", 
 @pytest.mark.parametrize("mark", RECIPIENT_MARKS)
 def test_weekly_push_payments_to_one_masked_recipient_are_still_promoted(mark):
     records = classify_statement_transactions(_statement(
-        _push_rows(mark.format("1111"), "FABRICATED WIDGETS LLC", -10.0, (2, 9, 16))
+        _push_rows(mark.format("1111"), "FABRICATED WIDGETS LLC", -100.0, (2, 9, 16))
     ))
     assert {(record.classification, record.match_method) for record in records} == D6
     # The recipient's digits split the payees; they never join the published name.
@@ -339,8 +339,8 @@ def test_push_payments_to_two_masked_recipients_are_two_payees(mark):
 @pytest.mark.parametrize("mark", RECIPIENT_MARKS)
 def test_only_the_recipient_with_three_weekly_dates_is_promoted(mark):
     rows = [
-        *_push_rows(mark.format("1111"), "FABRICATED SUPPLIES", -10.0, (2, 9, 16)),
-        *_push_rows(mark.format("2222"), "FABRICATED SUPPLIES", -10.0, (2, 9)),
+        *_push_rows(mark.format("1111"), "FABRICATED SUPPLIES", -100.0, (2, 9, 16)),
+        *_push_rows(mark.format("2222"), "FABRICATED SUPPLIES", -100.0, (2, 9)),
     ]
     records = classify_statement_transactions(_statement(rows))
     assert [(record.classification, record.match_method) for record in records] == [

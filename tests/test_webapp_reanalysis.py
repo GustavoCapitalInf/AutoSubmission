@@ -980,7 +980,7 @@ def _saved_under_old_rules(payload, version="4.1"):
 
 def _every_group_rows():
     """A fabricated statement's rows: a deposit from the floor-plan, factoring and premium-finance payees each and an
-    ordinary deposit, then one debit to a payee of each of the eleven flag groups, in FLAG_GROUPS order. The payees
+    ordinary deposit, then one debit to a payee of each of the twelve flag groups, in FLAG_GROUPS order. The payees
     are S2's fabricated FAKE_PAYEES; the bank loan is the statement bank's own loan transfer (D5), which no payee
     registry names; premium financing is the fabricated premium financier above. Every row has an amount of its own,
     so no recurrence rule (D6) groups them. Returns the rows and the deposits' locations, in that order: floor plan,
@@ -1046,8 +1046,8 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     assert (records[factoring]["classification"], records[factoring]["flagged_group"],
             records[factoring]["contributes_to_lender_credit_exclusion"]) == ("factoring", "factoring", False)
     assert records[premium_financed]["classification"] == "insurance"
-    # Every one of the eleven groups is saved: on its row, in the metrics and in the detection. The factoring deposit
-    # is the one flagged credit, so twelve rows are flagged: the eleven debits and it.
+    # Every one of the twelve groups is saved: on its row, in the metrics and in the detection. The factoring deposit
+    # is the one flagged credit, so thirteen rows are flagged: the twelve debits and it.
     flagged = [record for record in records.values() if record.get("contributes_to_flagged_totals")]
     assert {record["flagged_group"] for record in flagged} == keys
     assert [record["source_location"] for record in flagged if record["direction"] == "credit"] == [factoring]
@@ -1055,8 +1055,9 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     assert set(saved["metrics"]["flagged_groups"]) == keys
     assert saved["metrics"]["flagged_groups"]["factoring"]["count_credited"] == 1
     assert {position["group"] for position in saved["detection"]["flagged_positions"]} == keys
-    # Re-pinned from 5.0: the D6 clarification (2026-09-26) is classification 5.1, the second one (2026-09-27) 5.2.
-    assert {record["classification_version"] for record in records.values()} == {"5.2"}
+    # Re-pinned from 5.0: the D6 clarification (2026-09-26) is classification 5.1, the second one (2026-09-27) 5.2,
+    # the false-positive release 5.3.
+    assert {record["classification_version"] for record in records.values()} == {"5.3"}
     # Premium financing is no state of its own: the row stays insurance, in the insurance totals, and carries its flag.
     (premium,) = [record for record in flagged if record["flagged_group"] == "premium_financing"]
     assert (premium["classification"], premium["contributes_to_insurance_totals"]) == ("insurance", True)

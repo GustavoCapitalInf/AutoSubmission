@@ -74,6 +74,8 @@ class FlaggedPositionMatch:
     first_date: str | None = None
     last_date: str | None = None
     source_locations: list[str] = field(default_factory=list)
+    # 5.3 (owner ruling 2026-09-27): the payee is a review entity of the ledger routed to its flag, unconfirmed.
+    review_required: bool = False
 
 
 @dataclass
@@ -121,10 +123,12 @@ def _group_funders(
         )
         if record.classification != state or not record.canonical_entity or not contributes:
             continue
-        match = matches.get(record.canonical_entity)
+        # 5.3 (2026-09-27): an unnamed potential payee is listed under its own label, one per payee key.
+        name = record.potential_payee_label or record.canonical_entity
+        match = matches.get(name)
         if match is None:
             match = FunderMatch(
-                funder=record.canonical_entity,
+                funder=name,
                 matched_alias=record.matched_alias,
                 classification=state,
                 status="confirmed" if state == "confirmed_lender" else "review_required",
@@ -134,7 +138,7 @@ def _group_funders(
         match.evidence.append(record)
         match.debit_count += 1
         match.total_debited += abs(record.amount)
-        matches[record.canonical_entity] = match
+        matches[name] = match
     for match in matches.values():
         match.total_debited = round(match.total_debited, 2)
         if state == "potential_lender":
@@ -224,6 +228,7 @@ def find_flagged_positions(
         else:
             match.count_credited += 1
             match.total_credited += record.amount
+        match.review_required = match.review_required or record.review_required
         match.source_locations.append(record.source_location or f"transaction:{index + 1}")
         parsed = parse_date(record.date)
         if parsed is not None:

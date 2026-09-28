@@ -138,3 +138,40 @@ def test_match_known_payee_is_the_index_over_payee_group_registries():
              for aliases in table.values() for alias in aliases]
     for text in [*texts, *TEXTS]:
         assert match_known_payee(text) == index.match(text)
+
+
+# --- 5.3 (owner ruling 2026-09-27): digits glued to the last word of a multi-word alias --------------------------
+
+GLUED = {
+    "confirmed_lender": {"Quillon Advance": ("QUILLON ADVANCE",), "Brisk": ("BRISK",)},
+    "mortgage": {"Tarnmoor Fund": ("TARNMOOR IN FD",)},
+}
+
+
+@pytest.mark.parametrize(
+    ("text", "entity"),
+    [
+        ("ACH DEBIT QUILLON ADVANCE1234 ACHDEBIT", "Quillon Advance"),
+        ("QUILLON ADVANCE1234", "Quillon Advance"),
+        ("QUILLON ADVANCE 1234", "Quillon Advance"),
+        # a single-word alias stays strict, and so does a last word of fewer than three letters
+        ("BRISK1234 PAYMENT", None),
+        ("TARNMOOR IN FD1234", None),
+        # the digits must be glued to the whole last word, and a longer word is another word
+        ("QUILLON ADV1234", None),
+        ("QUILLON ADVANCES1234", None),
+    ],
+)
+def test_the_known_payee_index_reads_digits_glued_to_the_last_word_of_a_multi_word_alias(text, entity):
+    found = AliasIndex(GLUED, glued_digits=True).match(normalize(text))
+    assert (found.entity if found else None) == entity
+
+
+def test_only_the_known_payee_index_reads_glued_digits():
+    assert AliasIndex(GLUED).match("QUILLON ADVANCE1234") is None
+    assert registry_match("QUILLON ADVANCE1234", GLUED["confirmed_lender"]) is None
+
+
+def test_the_live_known_payee_index_reads_goat_advances_glued_debits():
+    found = match_known_payee(normalize("GOAT ADVANCE1234 DES:ACHDEBIT ID:0001 INDN:FAB HOLDER CO ID:0002 CCD"))
+    assert found is not None and (found.entity, found.state) == ("GOAT ADVANCE LLC", "confirmed_lender")
