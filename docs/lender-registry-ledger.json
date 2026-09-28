@@ -52635,6 +52635,740 @@
     "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
    ],
    "notes": "Review: MERIT BUSINESS is the printed originator of Truist 'ACH CORP DEBIT' rows that the funders research tied to Merit Business Funding, the revenue-advance brand of Meridian Equipment Finance LLC (the word FUNDING is never printed; tryout host only, no cached corpus row prints MERIT BUS). The verify round of 2026-09-27 (r7) admitted Merit Business Funding with its full name only and left this spelling to the owner (owner_pending_aliases): BUSINESS is a generic word, so its only distinctive word is MERIT, and a same-named payee, or an account holder named 'Merit Business ...' in a receiver field, would also be read as Merit. Owner decision 2026-09-28 (delegated): review alias, not counted. The rows are named on the Potential Lenders tab and never enter lender math; as for every review entity, a credit printing the spelling keeps the potential tier's exclusion from revenue. The r7 verdict records that round's finding on this spelling (not confirmed, left to the owner). Bare MERIT is never an alias."
+  },
+  {
+   "entity": "RAM Payment LLC (Reliant)",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_dedicated_account_processor",
+   "aliases": [
+    "RAM PAYMENTS",
+    "RAM PAYMENT",
+    "RAM PMT",
+    "ORIG CO NAME RAM ORIG",
+    "RELIANT ACCOUNT MANAGEMENT"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://reliantpayment.com/for-business/",
+     "note": "Company site: RAM Payment, LLC operating as Reliant; payment infrastructure for debt resolution: special account management and settlement disbursements for debt-settlement companies, attorneys and TSR programs, including a business-debt settlement offering."
+    },
+    {
+     "source": "https://www.globenewswire.com/news-release/2025/10/28/3175380/0/en/reliant-launches-ramfi-payments-infrastructure-platform-announces-bitgo-coinx-and-strategic-claims-as-launch-partners.html",
+     "note": "Company release (Knoxville, Tenn.): 'RAM Payment LLC d/b/a Reliant' is a third-party payment processor and dedicated account management company with expertise in consumer and business debt settlement processing; money transmitter licences; no lending."
+    },
+    {
+     "source": "https://www.bbb.org/us/tn/knoxville/profile/payment-processing-services/reliant-account-management-0533-90028599",
+     "note": "BBB profile of Reliant Account Management at RAM's Knoxville address: payment processing and account management (ACH, wire, check) for debt relief programs and legal trust accounts."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://reliantpayment.com/for-business/",
+    "https://www.globenewswire.com/news-release/2025/10/28/3175380/0/en/reliant-launches-ramfi-payments-infrastructure-platform-announces-bitgo-coinx-and-strategic-claims-as-launch-partners.html",
+    "https://www.bbb.org/us/tn/knoxville/profile/payment-processing-services/reliant-account-management-0533-90028599"
+   ],
+   "notes": "Debt-settlement dedicated-account processor, not a lender: the debtor's weekly deposit into its own settlement escrow. A merchant paying it is in a debt-settlement program (an underwriting red flag, never lender math). Corpus: the D6 payee key RAM, 110 D6 rows in 28 accounts (Citizens, U.S. Bank, Chase, Wells Fargo) plus 3 tryout-host rows (Bank of America 'RAM PAYMENTS DES:RELIANT ... PPD', which ties the RAM rows to Reliant). Printed forms: 'RAM PMT <ref>', 'Electronic Withdrawal To RAM PAYMENTS', 'RAM PAYMENTS PMT', 'PMT RAM PAYMENTS', 'RAM PAYMENTS DES:PMT ... PPD', a cheque 'Paid To - Ram Pmt Chk', and Chase 'Orig CO Name:Ram Orig ID:... CO Entry Descr:Pmt Sec:PPD' (alias ORIG CO NAME RAM ORIG, the registry's existing field-order form as for Maxim and Westlake). Every RAM row printing a SEC code prints PPD. RAM PAYMENT is the legal-name form; RELIANT ACCOUNT MANAGEMENT is the former name of the predecessor (Account Management Systems, LLC) whose debt-settlement payment business RAM Payment acquired in 2019; BBB lists it at RAM's Knoxville address, and the tryout host ties RAM PAYMENTS to RELIANT. Deliberately NOT aliases: bare RAM (a first name in INDN/ID fields of card and Amex rows, and RAM Capital Funding, a different company that was an MCA funder, prints its full name) and bare RELIANT (Reliant Funding is a counted lender; Reliant Insurance and Reliant Security payees exist). The form 'External Withdrawal RAM RAM DEBIT - PMT' (6 corpus rows, one bank) is not tied to RAM Payment and is left out. The 28 'RAM PMT' credits are refunds from the escrow: not financing proceeds. The CFPB consent order of May 2022 (2022-CFPB-0003) against RAM Payment and Account Management Systems (formerly Reliant Account Management) describes the same debt-relief payment-processing business; its page names two individuals, so it is not cited here. Run-together forms (RAMPAYMENTS) are read through the debt-relief index, which the 5.3 plan builds with run_together=True."
+  },
+  {
+   "entity": "Global Holdings LLC",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_dedicated_account_processor",
+   "aliases": [
+    "GHLLC",
+    "GLOBAL CLIENT SOLUTIONS"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://globalholdings.com/frequently-asked-questions/",
+     "note": "FAQ: the deposit 'will appear on your bank statement as GLOBAL GHLLC.COM'; most consumers authorize Global Holdings to debit their checking or savings account on a regular basis."
+    },
+    {
+     "source": "https://ghllc.com/announcement/",
+     "note": "Announcement: statements will show GLOBAL GHLLC.COM instead of the old GCS descriptor for deposits into the Global account."
+    },
+    {
+     "source": "https://www.globalholdings.com/",
+     "note": "Company site (Global Holdings LLC, Tulsa OK): establishes an FDIC-insured account in the client's name and processes payments to creditors and related fees for debt settlement clients; no lending."
+    },
+    {
+     "source": "https://www.newstatecp.com/portfolio/global-holdings/",
+     "note": "Owner's portfolio page: the leading dedicated account and payment processing provider to the consumer debt settlement industry, based in Tulsa."
+    },
+    {
+     "source": "https://www.bbb.org/us/ok/tulsa/profile/payment-processing-services/global-holdings-llc-1025-33000499",
+     "note": "BBB profile: Global Holdings, LLC, payment processing services, Tulsa; founded 2003; the profile links the Global Client Solutions handle. The Global Client Solutions to Global Holdings tie is the ghllc.com announcement's (the GCS descriptor replaced by GLOBAL GHLLC.COM)."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://globalholdings.com/frequently-asked-questions/",
+    "https://ghllc.com/announcement/",
+    "https://www.globalholdings.com/",
+    "https://www.newstatecp.com/portfolio/global-holdings/",
+    "https://www.bbb.org/us/ok/tulsa/profile/payment-processing-services/global-holdings-llc-1025-33000499"
+   ],
+   "notes": "Debt-settlement dedicated-account processor (formerly Global Client Solutions), not a lender. Corpus: a D6 payee key (Regions 'Global Ghllc.Com Grt Fin <holder>', 24 D6 rows in 6 accounts) and 59 more non-recurring rows: Bank of America 'GLOBAL GHLLC.COM DES:AMERICOR ... PPD', Chase 'Orig CO Name:Global Ghllc.Com ... CO Entry Descr:Clearone Sec:PPD', 'GLOBAL GHLLC.COM UNITEDDEBT PPD'; 83 rows in 35 accounts in all, every one Global Holdings. The DES field names the client's debt-settlement company (Americor, ClearOne, United Debt, GRT), which is why this one token covers every program. GHLLC is the glued token of the printed domain (GLOBAL GHLLC.COM normalizes to GLOBAL GHLLC COM; WWW.GHLLC.COM to WWW GHLLC COM). Deliberately NOT aliases: GLOBAL HOLDINGS (a common company name, and a funder-shaped one), GLOBAL (Global Merchant Cash and Global Funding look-alikes), and the old descriptor GCS plus a phone number (three letters used by many companies; the number is a digit run). A CFPB enforcement action exists against Global Client Solutions and Global Holdings; its page names individuals, so it is not cited."
+  },
+  {
+   "entity": "Tayne Law Group",
+   "group": "debt_relief",
+   "business_type": "debt_relief_law_firm (debtor-side, MCA and consumer debt)",
+   "aliases": [
+    "TAYNE LAW GROUP",
+    "TAYNE LAW"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://attorney-newyork.com/debt-relief-services/merchant-cash-advance",
+     "note": "Firm site (Melville, NY): defends businesses against MCA companies, negotiates settlements, fights lawsuits, vacates confessions of judgment, removes UCC liens, works to stop or reduce daily withdrawals; clients pay one monthly amount under flat-fee arrangements."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://attorney-newyork.com/debt-relief-services/merchant-cash-advance"
+   ],
+   "notes": "Debtor-side MCA debt-relief law firm, not a funder, servicer or collector: D10 does not apply. Corpus: a D6 payee key, 6 D6 rows in 2 accounts (Lead Bank / Found, fixed weekly) and 12 more non-recurring rows, all printed 'Tayne Law Group'; 18 'Wire fee / Transfer fee for ... Tayne Law Group' rows stay fees because step 6 claims them before the matcher. Whether its weekly debits are fees or pass-through settlement money to funders is not stated on its site; either way the payee is the merchant's counsel. A bare LAW word is never used (funder-side collection counsel must stay reviewable)."
+  },
+  {
+   "entity": "Set Forth LLC (Forth Pay)",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_dedicated_account_processor",
+   "aliases": [
+    "FORTH PAY",
+    "FORTH CORDOBA"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.setforth.com/business/forth-pay/dedicated-accounts/",
+     "note": "Set Forth, LLC: FORTH Pay dedicated accounts take consumer deposits and make disbursements on their behalf in debt settlement programs, under the Telemarketing Sales Rule."
+    },
+    {
+     "source": "https://www.debtpaypro.com/consumers/faqs/",
+     "note": "FAQ: Forth is a dedicated account administrator and processor for clients enrolled in debt relief programs."
+    },
+    {
+     "source": "https://www.setforth.com/consumers/",
+     "note": "Consumer page: account administrator and agent of banking institutions for dedicated accounts; headed 'Saw FORTH on Your Bank Statement? We're Here To Help'."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.setforth.com/business/forth-pay/dedicated-accounts/",
+    "https://www.debtpaypro.com/consumers/faqs/",
+    "https://www.setforth.com/consumers/"
+   ],
+   "notes": "Debt-settlement dedicated-account processor, not a lender. Corpus: 9 rows in 9 accounts, none promoted today: Wells Fargo 'Forth-Cordoba <refs> <holder>' (normalizes to FORTH CORDOBA; Cordoba Legal Group is a debt-resolution law firm) and Chase 'Forth <ref> PPD ID: <ref>'. FORTH PAY is the product name; its run-together form FORTHPAY is read by the debt-relief index, which the 5.3 plan builds with run_together=True (as the known-payee index is), over the row with its receiver fields cut out. Bare FORTH is NOT proposed although every corpus row printing it (9 of 901,548) is Forth: it is an English word the matcher would read anywhere in a row, before the potential-lender rules; the owner may add it (see open questions). A web search for Forth-named funders found only an investment adviser called Forth Capital (search result, not fetched)."
+  },
+  {
+   "entity": "Crossroads Financial Technologies (CFTPay)",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_dedicated_account_processor",
+   "aliases": [
+    "CFTPAY",
+    "CROSSROADS FINANCIAL TECHNOLOGIES"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.freedomdebtrelief.com/faq/",
+     "note": "Freedom Debt Relief FAQ: client deposits go into a dedicated account with Crossroads Financial Technologies (CFT), FDIC-insured and controlled by the client; CFT charges setup and monthly fees."
+    },
+    {
+     "source": "https://www.bbb.org/us/ga/alpharetta/profile/payment-processing-services/cftpay-0443-91826388",
+     "note": "BBB profile CFTPAY (Alpharetta, GA; payment processing services): a payment processing and FDIC-insured escrow account platform purpose-built for consumer finance businesses; alternate name Priority Commerce."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.freedomdebtrelief.com/faq/",
+    "https://www.bbb.org/us/ga/alpharetta/profile/payment-processing-services/cftpay-0443-91826388"
+   ],
+   "notes": "Dedicated-account (escrow) processor used by Freedom Debt Relief, the largest US debt-settlement brand; not a lender. No corpus row prints CFTPAY or the full name. Deliberately NOT aliases: CFT (Desjardins/BofA 'CFT FUNDS TRANSFER CHARGES' fee rows, 877 corpus rows) and CROSSROADS / CROSSROADS FINANCIAL (Crossroads Financial LLC is an inventory lender, and the corpus has a Crossroads equipment lessor, auto repair shop and veterinarian). Residual: CFTPay describes itself as serving consumer finance businesses generally, so a lender could in principle collect through it; no such printed form is known."
+  },
+  {
+   "entity": "Cordoba Legal Group PLLC",
+   "group": "debt_relief",
+   "business_type": "debt_relief_law_firm (debtor-side, consumer debt)",
+   "aliases": [
+    "CORDOBA LEGAL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.cordobalegal.com/about-us/",
+     "note": "Firm site (Boca Raton, FL): legal services protecting clients against collection lawsuits and claims, resolving disputed accounts; does not lend."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.cordobalegal.com/about-us/"
+   ],
+   "notes": "Debtor-side debt-resolution law firm whose program deposits Forth Pay collects: the corpus prints it only inside 'Forth-Cordoba', which the Forth entity's alias FORTH CORDOBA already claims (the longer alias wins, so both entities are safe). The alias CORDOBA LEGAL is its own name for rows that print it directly; bare CORDOBA (a city and a surname) is not used."
+  },
+  {
+   "entity": "Beyond Finance LLC (Accredited Debt Relief)",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_company",
+   "aliases": [
+    "BEYOND FINANCE",
+    "ACCREDITED DEBT RELIEF"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.accrediteddebtrelief.com/",
+     "note": "Site footer: Accredited Debt Relief is a DBA of Beyond Finance, LLC; debt relief programs; consolidation loans only through affiliates."
+    },
+    {
+     "source": "https://www.beyondfinance.com/faqs/",
+     "note": "FAQ: debt relief program with a single monthly deposit into a special-purpose, FDIC-insured account the client opens and controls; consolidation loan options offered by affiliates."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.accrediteddebtrelief.com/",
+    "https://www.beyondfinance.com/faqs/"
+   ],
+   "notes": "Consumer debt-settlement company (one legal entity, two brands), not a lender itself; its affiliates' consolidation loans print their own lender names and are not covered by these aliases (a payment to such a loan is a personal loan, not debt relief). No corpus row prints either brand (the only ACCREDITED rows are a drug store card purchase). Full-name forms only; bare ACCREDITED and BEYOND are never used."
+  },
+  {
+   "entity": "National Debt Relief LLC",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_company",
+   "aliases": [
+    "NATIONAL DEBT RELIEF"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.nationaldebtrelief.com/faq/",
+     "note": "FAQ: National Debt Relief LLC, New York; debt settlement services; states it does not assume consumer debt or make monthly payments to creditors; registered with the California DFPI."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.nationaldebtrelief.com/faq/"
+   ],
+   "notes": "Large US consumer debt-settlement company, not a lender. No corpus row prints it; full-name form only. Bare NATIONAL is never used (National Funding is a counted lender, National Money a potential alias)."
+  },
+  {
+   "entity": "Freedom Debt Relief LLC",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_company",
+   "aliases": [
+    "FREEDOM DEBT RELIEF"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.freedomdebtrelief.com/faq/",
+     "note": "FAQ: debt resolution, negotiation and settlement; a subsidiary of Achieve; does not provide loans itself (refers to affiliates); deposits go to a dedicated account with Crossroads Financial Technologies."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.freedomdebtrelief.com/faq/"
+   ],
+   "notes": "Largest US consumer debt-settlement brand, not a lender. No corpus row prints it (its clients' deposits print the account provider CFT). Full-name form only: bare FREEDOM is the potential alias of Freedom Mortgage's 'FREEDOM DES:MTG PYMTS' rows and also Freedom Mobile, Freedom Boat Club; FREEDOM FINANCIAL is the parent network that also lent (FreedomPlus, now Achieve Loans), so it is left out."
+  },
+  {
+   "entity": "ClearOne Advantage LLC",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_company",
+   "aliases": [
+    "CLEARONE ADVANTAGE",
+    "CLEAR ONE ADVANTAGE"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.clearoneadvantage.com/",
+     "note": "Site disclosure: ClearOne Advantage, LLC is a debt settlement company, not a lender, loan broker, creditor or debt collector; it does not hold consumer funds."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.clearoneadvantage.com/"
+   ],
+   "notes": "Consumer debt-settlement company, not a lender. In the corpus it appears only as the entry description of Global Holdings rows ('CO Entry Descr:Clearone', 6 rows), which the GHLLC alias claims. Bare CLEARONE is NOT an alias: ClearOne, Inc. is an unrelated audio-conferencing equipment vendor."
+  },
+  {
+   "entity": "Americor Funding LLC (Americor Financial)",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_company",
+   "aliases": [
+    "AMERICOR FINANCIAL",
+    "AMERICOR FUNDING"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://americor.com/",
+     "note": "Site footer: Americor Funding, LLC dba Americor Financial, Irvine CA; a debt relief (debt resolution) company; does not lend directly, consolidation loans through the partner Credit9; clients keep a dedicated account."
+    },
+    {
+     "source": "https://www.prweb.com/releases/americor-announces-close-of-106-million-a-rated-personal-loan-securitization-302288243.html",
+     "note": "Americor Holdings release: debt relief services through Americor Funding, LLC; personal loans through Credit9, LLC; mortgages through Mission Loans, LLC."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://americor.com/",
+    "https://www.prweb.com/releases/americor-announces-close-of-106-million-a-rated-personal-loan-securitization-302288243.html"
+   ],
+   "notes": "Consumer debt-settlement company. Special care: its legal name carries FUNDING, but Americor Funding, LLC is the group's debt-relief subsidiary; the group's lending is done by Credit9 (personal loans) and Mission Loans (mortgages), which print their own names and are NOT covered. In the corpus Americor appears only as the entry description of Global Holdings rows ('GLOBAL GHLLC.COM DES:AMERICOR', 41 rows in 14 accounts), which GHLLC claims. Bare AMERICOR is not used (a brand shared by the lending subsidiaries' parent); AMERICORP (mortgage brokers) is a different token and is not matched."
+  },
+  {
+   "entity": "Consolidated Credit Counseling Services Inc",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counseling_debt_management_plan",
+   "aliases": [
+    "CONSOLIDATED CREDIT COUNSELING"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.consolidatedcredit.org/about-us/",
+     "note": "About page: a nonprofit credit counseling agency offering debt management programs; 'We are not a loan company. We do not lend money.' The page names neither the legal entity nor the payment flow of the plan."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.consolidatedcredit.org/about-us/"
+   ],
+   "notes": "Debt-management-plan agency, not a lender. No corpus row. Bare CONSOLIDATED CREDIT is NOT used: it would read a credit union or finance company named 'Consolidated Credit ...' as debt relief."
+  },
+  {
+   "entity": "GreenPath Inc (GreenPath Financial Wellness)",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counseling_debt_management_plan",
+   "aliases": [
+    "GREENPATH FINANCIAL WELLNESS",
+    "GREENPATH INC"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.greenpath.com/",
+     "note": "Site footer: GreenPath, Inc., nonprofit (Farmington Hills, MI); credit counseling and debt management programs with consolidated monthly payments; 'We Do Not Lend Money.'"
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.greenpath.com/"
+   ],
+   "notes": "Debt-management-plan agency, not a lender. No corpus row prints GREENPATH. Bare GREENPATH / GREEN PATH are not used (landscaping, energy and other businesses share the name); if a real printed form turns up, add it then."
+  },
+  {
+   "entity": "Money Management International Inc",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counseling_debt_management_plan",
+   "aliases": [
+    "MONEY MANAGEMENT INTERNATIONAL",
+    "MONEY MANAGEMENT INTL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.moneymanagement.org/about",
+     "note": "About page: a nonprofit credit counseling agency; 'We do not lend money.' The page does not describe the debt-management-plan payment flow."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.moneymanagement.org/about"
+   ],
+   "notes": "Debt-management-plan agency, not a lender. No corpus row. Bare MMI (three letters) and MONEY MANAGEMENT (a generic business phrase) are not used."
+  },
+  {
+   "entity": "InCharge Debt Solutions",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counseling_debt_management_plan",
+   "aliases": [
+    "INCHARGE DEBT SOLUTIONS",
+    "INCHARGE DEBT"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.incharge.org/",
+     "note": "501(c)(3) non-profit credit counseling organization (Orlando, FL); debt management plans consolidating card payments into one monthly payment; 'We do not lend money.'"
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.incharge.org/"
+   ],
+   "notes": "Debt-management-plan agency, not a lender. No corpus row. Bare INCHARGE is not used (a common word in product names)."
+  },
+  {
+   "entity": "Cambridge Credit Counseling Corp",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counseling_debt_management_plan",
+   "aliases": [
+    "CAMBRIDGE CREDIT COUNSELING"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.cambridge-credit.org/",
+     "note": "Nonprofit (Agawam, MA): debt management plans where the client makes one monthly payment and Cambridge pays the creditors."
+    },
+    {
+     "source": "https://www.cambridge-credit.org/disclosures.html",
+     "note": "Disclosures page: Cambridge is not a loan company and does not lend money."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.cambridge-credit.org/",
+    "https://www.cambridge-credit.org/disclosures.html"
+   ],
+   "notes": "Debt-management-plan agency, not a lender. No corpus row. Bare CAMBRIDGE (a city and many businesses) is not used."
+  },
+  {
+   "entity": "New Leaf Debt Solutions Inc",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counselling_debt_management_plan (Canada)",
+   "aliases": [
+    "NEW LEAF DEBT"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://newleafdebt.ca/debt-management-program/",
+     "note": "New Leaf Debt Solutions, Inc., nonprofit credit counselling agency (Pickering, ON): clients make one monthly payment to the agency, which pays creditors; 'We Are Not A Loan Company. We Do Not Lend Money.'"
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://newleafdebt.ca/debt-management-program/"
+   ],
+   "notes": "Canadian debt-management-plan agency, not a lender. Corpus: TD Canada Trust bill payments 'New Leaf Debt S BPY' (30 debits in 15 accounts, varying amounts, none promoted today) and 6 credits ('NEW LEAF DEBT S MSP' / 'New Leaf Debt S BPY'), which are the debtor's money returned, not financing proceeds. The alias is the printed name truncated before the cut 'S'. Bare NEW LEAF is not used (landscaping and other businesses)."
+  },
+  {
+   "entity": "Credit Counselling Society",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counselling_debt_management_plan (Canada)",
+   "aliases": [
+    "CREDIT COUNSELLING SOCIETY"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://nomoredebts.org/",
+     "note": "Registered non-profit (head office New Westminster, BC): a Debt Management Program consolidating debts into one monthly payment; the page offers no loan product."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://nomoredebts.org/"
+   ],
+   "notes": "Canadian debt-management-plan agency, not a lender. No corpus row (the only CCS rows are a card purchase and a municipal payee). Bare CCS is never used."
+  },
+  {
+   "entity": "Credit Canada Debt Solutions",
+   "group": "debt_relief",
+   "business_type": "nonprofit_credit_counselling_debt_management_plan (Canada)",
+   "aliases": [
+    "CREDIT CANADA DEBT SOLUTIONS"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.creditcanada.com/about-us",
+     "note": "Provincially incorporated non-profit (Ontario, since 1966): a Debt Consolidation (debt management) Program combining debts into one monthly payment; the page offers no loan product."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.creditcanada.com/about-us"
+   ],
+   "notes": "Canadian debt-management-plan agency, not a lender. No corpus row. Bare CREDIT CANADA is NOT used: it is inside FORD CREDIT CANADA and TOYOTA CREDIT CANADA, vehicle-finance rows the corpus prints 56 times."
+  },
+  {
+   "entity": "CuraDebt Systems LLC",
+   "group": "debt_relief",
+   "business_type": "debt_settlement_company (consumer, tax and business/MCA debt)",
+   "aliases": [
+    "CURADEBT"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.curadebt.com/",
+     "note": "Site footer: CuraDebt Systems, LLC (Hollywood, FL); consumer debt relief, tax debt resolution and business/MCA debt relief, largely by referral to independent providers; 'CuraDebt is not a lender'."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.curadebt.com/"
+   ],
+   "notes": "Debt-relief company, not a lender. No corpus row. CURADEBT is a coined word; CURA alone is not used."
+  },
+  {
+   "entity": "Delancey Street Debt Relief Inc",
+   "group": "debt_relief",
+   "business_type": "mca_debt_relief_negotiator (business debt settlement)",
+   "aliases": [
+    "DELANCEY STREET DEBT RELIEF"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.delanceystreet.com/",
+     "note": "Company site: Delancey Street Debt Relief, Inc., New York; a business debt settlement company (not a law firm) settling merchant cash advance, SBA and stacked business debt; 'We only do MCAs'; not a lender."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.delanceystreet.com/"
+   ],
+   "notes": "MCA debt-relief negotiator, not a funder. Corpus: 27 card purchases 'Debit Card Purchase: ... Delancey Street New York NY ...' of three- and four-figure amounts at one bank (12 accounts), POS today; step 5's known-payee exception would move them to this flag. DELANCEY STREET NEW YORK is that printed card form. Owner check: it reads the merchant name plus the city, so a different New York merchant trading as 'Delancey Street' would also be flagged (never a lender row either way); if that is not acceptable, keep only the full-name alias. Bare DELANCEY STREET is NOT used: the Delancey Street Foundation (San Francisco) runs a restaurant and a moving company. Owner decision 2026-09-28 (delegated): DELANCEY STREET NEW YORK is not an alias (the card form reads the merchant name plus the city; only the full name is read, so the card rows keep today's rules)."
+  },
+  {
+   "entity": "Second Wind Consultants Inc (Rise Alliance)",
+   "group": "debt_relief",
+   "business_type": "mca_debt_relief_negotiator (business debt restructuring)",
+   "aliases": [
+    "RISE ALLIANCE",
+    "SECOND WIND CONSULTANTS"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://risealliance.com/about/",
+     "note": "Rise Alliance, a division of Second Wind Consultants (New York office): business debt settlement and resolution, MCA resolution, SBA restructuring, personal guaranty resolution; works with creditors, not a lender. The page also offers customized financing solutions through a network of commercial lenders and working-capital providers."
+    },
+    {
+     "source": "https://secondwindconsultants.com/solution/merchant-cash-advance-mca-resolution/",
+     "note": "Second Wind Consultants Inc. (Northampton, MA): debt restructuring and MCA resolution through negotiated settlements; does not itself provide loans."
+    },
+    {
+     "source": "https://risealliance.com/about/frequently-asked-questions/",
+     "note": "FAQ read for the payment model: no enrollment fee for the first consultation; how program money moves is not stated."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://risealliance.com/about/",
+    "https://secondwindconsultants.com/solution/merchant-cash-advance-mca-resolution/",
+    "https://risealliance.com/about/frequently-asked-questions/"
+   ],
+   "notes": "MCA debt-relief negotiator, not a funder. Corpus: 6 outgoing wires in 6 accounts, 'Online Domestic Wire Transfer ... A/C: Rise Alliance New York NY' (Chase) and 'WT ... /Bnf=Rise Alliance' (Wells Fargo), other/default today. The account holder of those Chase wires is the same holder as on the Resolve Capital rows. Second Wind also partners with a funding broker (Lawrence Financial), whose rows print their own name and are not covered. Rise Alliance also brokers financing through a lender network (its about page): an outgoing wire to it is a payment to the negotiator, and brokered proceeds print the funder's name, not this one."
+  },
+  {
+   "entity": "Coastal Debt Resolve (ABSM LLC)",
+   "group": "debt_relief",
+   "business_type": "mca_debt_relief_negotiator (business debt settlement)",
+   "aliases": [
+    "COASTAL DEBT RESOLVE"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.coastaldebt.com/",
+     "note": "Site disclaimer: ABSM, LLC d/b/a Coastal Debt Resolve (Fort Lauderdale, FL) restructures MCA debt for businesses; 'not lenders, creditors, or debt collectors. This is not a loan.'"
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.coastaldebt.com/"
+   ],
+   "notes": "MCA debt-relief negotiator, not a funder. No corpus row. Bare COASTAL is not used (Coastal Credit, Coastal Community Bank and other lenders). COASTAL DEBT is not an alias (verify round 2026-09-27): it would read a creditor-side 'Coastal Debt Recovery' or 'Coastal Debt Collection' row as debt relief and hide a collector from D10 review, and it prints in no corpus row; a shorter printed form joins only when a statement shows it."
+  },
+  {
+   "entity": "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)",
+   "group": "debt_relief",
+   "business_type": "mca_debt_relief_negotiator (identity of the printed originator not confirmed)",
+   "aliases": [
+    "RESOLVE CAPITAL"
+   ],
+   "status": "review",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://resolve-capital.com/",
+     "note": "Resolve Capital Partners: MCA debt relief and business debt consolidation; negotiates with existing MCA lenders on the client's behalf rather than providing funding; one predictable monthly payment after restructuring."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r7",
+     "verdict": "unresolved",
+     "confirmed": false
+    }
+   ],
+   "where_looked": [
+    "https://resolve-capital.com/",
+    "https://secondwindconsultants.com/resource/mca-debt-relief-firm-reviews-a-guide-to-the-real-options-for-business-owners-and-lenders/"
+   ],
+   "notes": "Named by the owner on 2026-09-27 as debt relief; kept REVIEW here, not admitted, because the printed originator cannot be tied to Resolve Capital Partners: Chase CCD 'Orig CO Name:Resolve Capital ... CO Entry Descr:<number> Sec:CCD' (a D6 payee key, 9 D6 rows in 3 accounts, one fixed weekly amount in the tens of thousands). The weekly cadence and size do not match the site's one-monthly-payment wording and fit either a pass-through of negotiated settlements to funders or a reverse-consolidation advance (a funder product); the same account holder also wires Rise Alliance, an MCA debt-relief firm, which supports the debt-relief reading. The name carries CAPITAL, a funder cue, and Chase cuts Orig CO Name at 16 characters: 'Resolve Capital' is 15, so a 'Resolve Capital Partners' and any funder called 'Resolve Capital <word>' print the same field; in memory the alias also claims a fabricated 'RESOLVE CAPITAL FUNDING LLC' row. Under today's C10 rendering a review entity stays in the potential tier, named; under part (C) it moves to the Debt relief flag marked unconfirmed. Admit it only on a source tying the originator to the negotiator. RESOLVE alone and RESOLVE PAYMENT (the potential alias of Resolve Pay, a B2B net-terms payee) are untouched: the alias needs the two words RESOLVE CAPITAL. A separate site 'Resolve Capital Consolidation' did not resolve (DNS). Verify round 2026-09-27: resolve-capital.com describes an MCA debt-relief negotiator (one monthly payment, no funding) and names no legal entity. MCA Resolve LLC of Delray Beach is a second Palm Beach County 'Resolve' debt-relief firm whose old domain now redirects to a consolidation-loan lender, which keeps the funder reading alive; no source ties either firm to the printed originator, and no funder named Resolve Capital was found."
   }
  ]
 }

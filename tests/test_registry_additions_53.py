@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from analysis.classification_registry import (
+    DEBT_RELIEF_ALIASES,
     LENDER_ALIASES,
     OWNER_NAMED_PAYEES,
     POTENTIAL_LENDER_ALIASES,
@@ -65,3 +66,84 @@ def test_national_fundings_collection_vehicle_spelling_is_national_funding():
     [alias] = [alias for alias in LENDER_ALIASES["NATIONAL FUNDING"] if alias.startswith("NFSPV")]
     record = classify_transaction(f"{alias.replace(' ', '')} EDI PYMNTS 0001 FAB HOLDER", -900.0)
     assert (record.classification, record.canonical_entity) == ("confirmed_lender", "NATIONAL FUNDING")
+
+
+@pytest.mark.parametrize(
+    ("printed", "entity"),
+    [
+        ("RAM PMT 482913 0001", "RAM Payment LLC (Reliant)"),
+        ("Electronic Withdrawal To RAM PAYMENTS", "RAM Payment LLC (Reliant)"),
+        ("RAM PAYMENTS DES:RELIANT ID:0001 INDN:PAT EXAMPLE CO ID:0002 PPD", "RAM Payment LLC (Reliant)"),
+        ("RAMPAYMENTS DES:PMT ID:0001 INDN:PAT EXAMPLE CO ID:0002 PPD", "RAM Payment LLC (Reliant)"),
+        # a cheque payable to the processor: step 7b reads it before the cheque rule (the verifier's 'check'
+        # expectation, updated for the flag design)
+        ("Paid To - Ram Pmt Chk 1234", "RAM Payment LLC (Reliant)"),
+        ("GLOBAL GHLLC.COM DES:FABPROGRAM ID:0001 INDN:PAT EXAMPLE CO ID:0002 PPD", "Global Holdings LLC"),
+        ("Tayne Law Group", "Tayne Law Group"),
+        ("FORTHPAY DES:DEPOSIT ID:0001 INDN:PAT EXAMPLE CO ID:0002 PPD", "Set Forth LLC (Forth Pay)"),
+    ],
+)
+def test_the_debt_relief_payees_are_flagged_debt_relief(printed, entity):
+    record = classify_transaction(printed, -300.0)
+    assert (record.classification, record.canonical_entity, record.flagged_group) == (
+        "debt_relief", entity, "debt_relief")
+
+
+@pytest.mark.parametrize(
+    ("printed", "state"),
+    [
+        # the debt-settlement verifier's negative controls: settlement words beside a funder or a law office, and
+        # RAM Capital, never the RAM Payment processor
+        ("FABRICATED FUNDING LLC DEBT SETTLEMENT", ("potential_lender", "recurring_fixed_debit")),
+        ("FAB LAW GROUP DEBT SETTLEMENT", ("potential_lender", "recurring_fixed_debit")),
+        ("LAW OFFICES OF PAT EXAMPLE", ("potential_lender", "recurring_fixed_debit")),
+        ("ACH DEBIT RAM CAPITAL FUNDING", ("potential_lender", "recurring_financing_counterparty")),
+        ("RAM CAPITAL", ("potential_lender", "recurring_fixed_debit")),
+    ],
+)
+def test_settlement_words_and_ram_capital_are_never_debt_relief(printed, state):
+    assert _weekly_states(printed) == {state}
+
+
+def test_a_chase_ram_capital_originator_is_not_the_ram_payment_processor():
+    record = classify_transaction(
+        "Orig CO Name:Ram Capital Fundi Orig ID:0001 Desc Date: CO Entry Descr:Payment Sec:CCD Ind Name:Fab Holder",
+        -300.0)
+    assert record.classification == "potential_lender"
+
+
+def test_resolve_capital_is_debt_relief_marked_unconfirmed():
+    [entity] = [name for name in POTENTIAL_LENDER_ALIASES if name.startswith("Resolve Capital")]
+    assert REVIEW_FLAG_ENTITIES[entity] == "debt_relief"
+    record = classify_transaction(
+        "Orig CO Name:Resolve Capital Orig ID:0001 Desc Date: CO Entry Descr:0001 Sec:CCD", -9000.0)
+    assert (record.classification, record.review_required) == ("debt_relief", True)
+
+
+def test_the_owner_named_debt_relief_payees_are_listed():
+    assert [label for label, _spelling in OWNER_NAMED_PAYEES["debt_relief"]] == [
+        "RAM Payments / Reliant", "Global Holdings", "Tayne Law Group"]
+
+
+# --- Owner decisions 2026-09-28 (delegated; open question 14) ------------------------------------------------------
+
+
+def test_delancey_street_is_read_by_its_full_name_only():
+    # No card form DELANCEY STREET NEW YORK: a card purchase printing the merchant and the city keeps today's rules.
+    assert DEBT_RELIEF_ALIASES["Delancey Street Debt Relief Inc"] == ("DELANCEY STREET DEBT RELIEF",)
+    named = classify_transaction("DELANCEY STREET DEBT RELIEF DES:PAYMENT ID:0001 INDN:FAB HOLDER CO ID:0002 CCD",
+                                 -300.0)
+    assert (named.classification, named.canonical_entity) == ("debt_relief", "Delancey Street Debt Relief Inc")
+    card = classify_transaction("Debit Card Purchase: 0105 PURCHASE 12 Delancey Street New York NY", -300.0)
+    assert card.classification != "debt_relief" and card.flagged_group is None
+
+
+def test_bare_forth_is_no_debt_relief_alias():
+    assert all(alias != "FORTH" for aliases in DEBT_RELIEF_ALIASES.values() for alias in aliases)
+    record = classify_transaction("Forth 0001 PPD ID: 0002", -300.0)
+    assert record.classification != "debt_relief"
+
+
+def test_an_escrow_refund_credit_keeps_todays_path():
+    refund = classify_transaction("RAM PMT 482913 0001", 300.0)
+    assert refund.classification != "debt_relief" and refund.flagged_group is None

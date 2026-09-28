@@ -1038,7 +1038,37 @@ FACTORING_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 #: Debt relief: debt-settlement account processors and debt-relief firms (flagged, never lender math).
-DEBT_RELIEF_ALIASES: dict[str, tuple[str, ...]] = {}
+DEBT_RELIEF_ALIASES: dict[str, tuple[str, ...]] = {
+    "Americor Funding LLC (Americor Financial)": ("AMERICOR FINANCIAL", "AMERICOR FUNDING"),
+    "Beyond Finance LLC (Accredited Debt Relief)": ("BEYOND FINANCE", "ACCREDITED DEBT RELIEF"),
+    "Cambridge Credit Counseling Corp": ("CAMBRIDGE CREDIT COUNSELING",),
+    "ClearOne Advantage LLC": ("CLEARONE ADVANTAGE", "CLEAR ONE ADVANTAGE"),
+    "Coastal Debt Resolve (ABSM LLC)": ("COASTAL DEBT RESOLVE",),
+    "Consolidated Credit Counseling Services Inc": ("CONSOLIDATED CREDIT COUNSELING",),
+    "Cordoba Legal Group PLLC": ("CORDOBA LEGAL",),
+    "Credit Canada Debt Solutions": ("CREDIT CANADA DEBT SOLUTIONS",),
+    "Credit Counselling Society": ("CREDIT COUNSELLING SOCIETY",),
+    "Crossroads Financial Technologies (CFTPay)": ("CFTPAY", "CROSSROADS FINANCIAL TECHNOLOGIES"),
+    "CuraDebt Systems LLC": ("CURADEBT",),
+    "Delancey Street Debt Relief Inc": ("DELANCEY STREET DEBT RELIEF",),
+    "Freedom Debt Relief LLC": ("FREEDOM DEBT RELIEF",),
+    "Global Holdings LLC": ("GHLLC", "GLOBAL CLIENT SOLUTIONS"),
+    "GreenPath Inc (GreenPath Financial Wellness)": ("GREENPATH FINANCIAL WELLNESS", "GREENPATH INC"),
+    "InCharge Debt Solutions": ("INCHARGE DEBT SOLUTIONS", "INCHARGE DEBT"),
+    "Money Management International Inc": ("MONEY MANAGEMENT INTERNATIONAL", "MONEY MANAGEMENT INTL"),
+    "National Debt Relief LLC": ("NATIONAL DEBT RELIEF",),
+    "New Leaf Debt Solutions Inc": ("NEW LEAF DEBT",),
+    "RAM Payment LLC (Reliant)": (
+        "RAM PAYMENTS",
+        "RAM PAYMENT",
+        "RAM PMT",
+        "ORIG CO NAME RAM ORIG",
+        "RELIANT ACCOUNT MANAGEMENT",
+    ),
+    "Second Wind Consultants Inc (Rise Alliance)": ("RISE ALLIANCE", "SECOND WIND CONSULTANTS"),
+    "Set Forth LLC (Forth Pay)": ("FORTH PAY", "FORTH CORDOBA"),
+    "Tayne Law Group": ("TAYNE LAW GROUP", "TAYNE LAW"),
+}
 
 #: Premium financing: premium-finance payees, read only by the insurance rule.
 PREMIUM_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
@@ -1229,6 +1259,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Quantum SPV I LLC": ("QUANTUM SPV I",),
     "RecoverX Corp": ("RECOVERX CORP", "RECOVERX"),
     "Resolve (probably Resolve Pay)": ("RESOLVE PAYMENT",),
+    "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)": ("RESOLVE CAPITAL",),
     "Rewards Network": ("REWARDS NETWORK",),
     "Sigma Financial": ("SIGMA FINANCIAL",),
     "States Resources Corp": ("STATES RESOURCES",),
@@ -1275,6 +1306,7 @@ REVIEW_FLAG_ENTITIES: dict[str, str] = {
     "MORTGAGE IVR PYMNT (probably 21st Mortgage Corporation)": "mortgage",
     "MORTGAGE SERV CT (unidentified mortgage servicer)": "mortgage",
     "NATIONAL MONEY (probably Money Mart)": "personal_loan",
+    "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)": "debt_relief",
     "STELLANTIS SFA (probably Stellantis Financial Services)": "vehicle_financing",
     "UAS (probably University Accounting Service)": "personal_loan",
     "Unidentified payee FREEDOM": "mortgage",
@@ -1380,6 +1412,13 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
     "premium_financing": (
         ("IPFS", "IPFS"),
         ("First Insurance Funding", "FIRST INSURANCE FUNDING"),
+    ),
+    # Owner ruling 2026-09-27 (classification 5.3): the Debt relief group. Resolve Capital, also named, is under
+    # review (its printed originator is not tied to the negotiator), so it is not listed here.
+    "debt_relief": (
+        ("RAM Payments / Reliant", "RAM PAYMENTS"),
+        ("Global Holdings", "GHLLC"),
+        ("Tayne Law Group", "TAYNE LAW GROUP"),
     ),
 }
 

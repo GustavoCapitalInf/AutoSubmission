@@ -363,7 +363,7 @@ def test_the_owner_named_payees_cover_every_group_spec_section_2_names():
 
     assert set(registry.OWNER_NAMED_PAYEES) == {
         "confirmed_lender", "alternative_position", "line_of_credit", "credit_card_payment", "vehicle_financing",
-        "bank_name", "lease_or_rental", "floor_plan_financing", "factoring", "premium_financing",
+        "bank_name", "lease_or_rental", "floor_plan_financing", "factoring", "premium_financing", "debt_relief",
     }
     labels = {label for pairs in registry.OWNER_NAMED_PAYEES.values() for label, _spelling in pairs}
     assert {"OnDeck", "Bitty", "Legend", "LG Funding", "Hunter Caroline", "CAN Capital", "CanaCap"} <= labels
