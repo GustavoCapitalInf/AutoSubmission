@@ -249,3 +249,35 @@ def test_cash_own_batches_and_school_billing_are_not_d6_payees(description):
 )
 def test_a_payee_name_never_fills_a_cash_template(description):
     assert _states(description) == D6
+
+
+# --- A5: named savings and investing originators --------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Orig CO Name:Stash Capital (S Orig ID:0001 Desc Date: CO Entry Descr:ACH Sec:Web Ind ID:0002 Ind Name:Pat Example",
+        "Orig CO Name:Alinea Orig ID:0001 CO Entry Descr:Payment Sec:PPD",
+        "Fid Bkg Svc LLC Moneyline 1234567 Pat Example",
+        "Paid To - Albert Edi Pymnts Chk 1234567",
+        "ALBERT DES:EDI PYMNTS ID:0001 INDN:PAT EXAMPLE CO ID:0002 WEB",
+        "ACORNS INVEST DES:1234 ID:0001",
+        "ROBINHOOD DEBITS 1234",
+        "COINBASE INC 1234",
+        "BETTERMENT 1234",
+        "WEALTHFRONT 1234",
+    ],
+)
+def test_named_savings_and_investing_originators_are_not_d6_payees(description):
+    assert _states(description) == OTHER
+
+
+def test_a_savings_brand_beside_financing_words_stays_in_review():
+    assert _states("ALINEA CAPITAL DAILY PMT") == D6
+
+
+def test_the_savings_names_never_reach_a_registered_payee():
+    # The admitted Albert Corporation alias is a known payee (step 7), and a potential alias with EDI PYMNTS stays
+    # a candidate: the skip only reads rows no rule claimed.
+    assert classify_transaction("ALBERT GENIUS EDI PYMNTS", -100.0).classification == "personal_loan"
+    assert classify_transaction("GLOBAL MER EDI PYMNTS", -100.0).match_method == "candidate_lender_alias"

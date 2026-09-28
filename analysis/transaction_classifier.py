@@ -2345,6 +2345,16 @@ _NON_REMITTANCE_WORD_PATTERNS = (
     re.compile(r"\bDES FACTS\b|\bPAYMENT FACTS\b|\bFACTS(?: \d+)?$"),
     re.compile(r"\b(?:TUITION|DAYCARE|CHILD ?CARE|PRESCHOOL|MONTESSORI|KINDERCARE|BRIGHTWHEEL|PROCARE)\b"),
 )
+#: 5.3 (2026-09-27): named consumer savings and investing originators: a closed list of verified non-funder ACH
+#: names, never a category by resemblance. A name joins only after collision_check.py (registry tables, the whole
+#: ledger, all_keys.json) prints no hit. Bare VANGUARD, INVEST, SAVINGS, FIDELITY and MONEYLINE stay out.
+_SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS = (
+    re.compile(r"\bSTASH (?:CAPITAL|INVEST(?:MENTS?)?)\b"),
+    re.compile(r"\bALINEA\b"),
+    re.compile(r"\bFID BKG SVC\b"),                                   # Fidelity Brokerage Services MoneyLine
+    re.compile(r"\bALBERT (?:SAVINGS )?(?:DES )?EDI PYMNTS\b"),         # Albert's money movement, not its advances
+    re.compile(r"\b(?:ACORNS|ROBINHOOD|COINBASE|BETTERMENT|WEALTHFRONT)\b"),
+)
 
 
 def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str | None:
@@ -2369,6 +2379,8 @@ def _d6_skip(record: TransactionClassification, payee: tuple[str, ...]) -> str |
         return "transfer_template"
     if _skips(_row_before_receiver(text), _NON_REMITTANCE_WORD_PATTERNS, text):
         return "not_a_remittance"
+    if _skips(_row_before_receiver(text), _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS, text):
+        return "savings_or_investment"
     return None
 
 
