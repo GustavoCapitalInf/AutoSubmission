@@ -415,3 +415,14 @@ def test_the_payout_credit_entities_are_the_ones_the_validator_reads():
 
     assert registry.PAYOUT_CREDIT_ENTITIES
     assert lender_ledger.current_rules().payout_credit is registry.PAYOUT_CREDIT_ENTITIES
+
+
+def test_the_block_renders_the_review_flag_entities_when_given():
+    entities = _entities((6, "status", "review"))
+    block = builder.render_block(builder.render_tables(entities), lender_ledger.review_flag_entities(entities))
+    assert max(len(line) for line in block.split("\n")) <= 110
+    namespace: dict = {}
+    exec(compile(block, "block", "exec"), namespace)
+    assert [name for name in namespace if name.isupper()] == [*TABLE_NAMES, "REVIEW_FLAG_ENTITIES"]
+    assert namespace["REVIEW_FLAG_ENTITIES"] == {"Rivett Motor Credit": "vehicle_financing"}
+    assert "REVIEW_FLAG_ENTITIES: dict[str, str] = {}\n" in builder.render_block(builder.render_tables([]), {})

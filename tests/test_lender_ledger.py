@@ -775,3 +775,22 @@ def test_the_ledger_digest_ignores_formatting():
         {"entities": data["entities"], "schema": 1})
     assert len(lender_ledger.ledger_digest(data)) == 64
     assert lender_ledger.ledger_digest(data) != lender_ledger.ledger_digest(ledger((0, "notes", "changed")))
+
+
+# --- 5.3 (owner ruling 2026-09-27): review entities routed to their flag ------------------------------------------
+
+
+def test_review_entities_of_the_routed_flag_groups_are_the_review_flag_entities():
+    entities = _entities((6, "status", "review"), (7, "status", "review"), (8, "status", "review"),
+                         (8, "business_type", "unknown"), (9, "status", "review"), (11, "status", "review"))
+    # Westfen's business type is unknown; Loxley is factoring and Heldco a lender: all three keep the potential tier.
+    assert lender_ledger.review_flag_entities(entities) == {
+        "Kelder Loans": "personal_loan", "Penwick Mortgage": "mortgage", "Rivett Motor Credit": "vehicle_financing",
+    }
+
+
+def test_the_routing_keeps_every_routed_alias_in_the_potential_table():
+    entities = _entities((6, "status", "review"))
+    tables = lender_ledger.render_tables(entities)
+    assert tables["POTENTIAL_LENDER_ALIASES"]["Rivett Motor Credit"] == ("RIVETT MOTOR CREDIT",)
+    assert "Rivett Motor Credit" not in tables["VEHICLE_FINANCE_ALIASES"]

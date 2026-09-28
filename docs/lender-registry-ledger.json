@@ -32785,7 +32785,52 @@
    "group": "vehicle_financing",
    "business_type": "auto_or_vehicle_finance",
    "aliases": [
-    "WESTLAKE PAYMENT",
+    "WESTLAKE PAYMENT"
+   ],
+   "status": "review",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.doxo.com/u/biller/westlake-services-llc-2490A968/",
+     "note": "r4 verified: re-fetched by verifier: 'lends to subprime credit customers, specializing in auto loans and credit cards'; 4751 Wilshire Blvd, Los Angeles; pays by debit card."
+    },
+    {
+     "source": "https://www.westlakefinancial.com/faq/",
+     "note": "r4 verified: search result (verifier; fetch returned 403): Westlake accepts ATM/debit card payments online, by phone and in the app, with a possible $5 processing fee."
+    },
+    {
+     "source": "https://www.westlakeflooringservices.com/",
+     "note": "r4 verified: search result (verifier): Westlake Flooring Services, a division of Westlake Financial since 2013, provides floor plan lines of credit to auto dealers."
+    },
+    {
+     "source": "https://www.autofinancenews.net/allposts/risk-management/westlake-partners-with-aci-for-loan-payment-solutions/",
+     "note": "r4 verified: search result (original run): Westlake auto-loan payments by debit card or ACH."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r4",
+     "verdict": "unresolved",
+     "confirmed": false
+    }
+   ],
+   "where_looked": [
+    "https://www.doxo.com/u/biller/westlake-services-llc-2490A968/",
+    "https://www.westlakefinancial.com/faq/",
+    "https://www.westlakeflooringservices.com/",
+    "https://www.autofinancenews.net/allposts/risk-management/westlake-partners-with-aci-for-loan-payment-solutions/",
+    "https://www.westlakefinancial.com/",
+    "https://www.westlakefinancial.com/about-us/",
+    "https://www.wpmservicing.com/new-customer/",
+    "https://en.wikipedia.org/wiki/Westlake_Financial_Services"
+   ],
+   "notes": "Card and ACH payments to WESTLAKE printed with Los Angeles: most likely Westlake Financial Services, the Los Angeles subprime auto lender, which takes debit-card loan payments, but round 4's verifier left it unresolved, so it stays in the review tier. Bare WESTLAKE is not used: it reaches hardware stores, markets and other Westlake businesses. Westlake Flooring (the owner-named floor-plan lender) is a separate entity in another batch; neither alias here matches its spellings. The Chase CCD form ORIG CO NAME WESTLAKE ORIG was split into its own review entity on 2026-09-27 (classification 5.3), so only the card and consumer form takes the vehicle flag."
+  },
+  {
+   "entity": "WESTLAKE (Chase CCD form; possibly Westlake commercial vehicle financing)",
+   "group": "confirmed_lender",
+   "business_type": "equipment_finance",
+   "aliases": [
     "ORIG CO NAME WESTLAKE ORIG"
    ],
    "status": "review",
@@ -32825,7 +32870,7 @@
     "https://www.wpmservicing.com/new-customer/",
     "https://en.wikipedia.org/wiki/Westlake_Financial_Services"
    ],
-   "notes": "Card and ACH payments to WESTLAKE printed with Los Angeles: most likely Westlake Financial Services, the Los Angeles subprime auto lender, which takes debit-card loan payments, but round 4's verifier left it unresolved, so it stays in the review tier. Bare WESTLAKE is not used: it reaches hardware stores, markets and other Westlake businesses. Westlake Flooring (the owner-named floor-plan lender) is a separate entity in another batch; neither alias here matches its spellings."
+   "notes": "Split on 2026-09-27 (classification 5.3) from the WESTLAKE review entity: a business-to-business (CCD) entry from a trucking business may be Westlake's commercial-vehicle financing, which the ledger's truck convention (Daimler, PACCAR) counts, so this form stays in the potential tier until a source confirms it. Bare WESTLAKE is not used."
   },
   {
    "entity": "Wilshire Commercial Capital LLC",
@@ -35134,7 +35179,7 @@
   },
   {
    "entity": "FleetLogic (probably Fleet Logic, LLC dba Velocity Truck Rental and Leasing)",
-   "group": "lease_or_rental",
+   "group": "potential_lender",
    "business_type": "truck_rental_and_leasing (probable)",
    "aliases": [
     "FLEETLOGIC CONS COLL"
@@ -35192,7 +35237,7 @@
     "https://www.dnb.com/business-directory/company-profiles.fleet_logic_llc.430d092a6f8c325b8531198c10b400bd.html",
     "https://truckspy.io/trucking-companies/ca/fleet_logic_llc_dba_velocity_truck_rental_leasing"
    ],
-   "notes": "Review: the ACH originator FLEETLOGIC (entry CONS COLL), about once a month. Most likely Fleet Logic, LLC dba Velocity Truck Rental & Leasing (Velocity Vehicle Group, Whittier/Fontana CA): commercial truck rental and full-service leasing, with a California Financing Law licence. Round 4 left it unresolved because FleetLogic is also Texada's field-service software, billed monthly. If confirmed as a full-service truck lease it fits vehicle_financing (vehicle leases); as truck rental, Leases & rentals. Only the printed spelling with its entry description is used."
+   "notes": "Review: the ACH originator FLEETLOGIC (entry CONS COLL), about once a month. Most likely Fleet Logic, LLC dba Velocity Truck Rental & Leasing (Velocity Vehicle Group, Whittier/Fontana CA): commercial truck rental and full-service leasing, with a California Financing Law licence. Round 4 left it unresolved because FleetLogic is also Texada's field-service software, billed monthly. If confirmed as a full-service truck lease it fits vehicle_financing (vehicle leases); as truck rental, Leases & rentals. Only the printed spelling with its entry description is used. Kept in the potential tier by the 5.3 routing (2026-09-27): a full-service truck lease is a counted equipment-financing reading under the PACCAR and Daimler convention, until the owner rules."
   },
   {
    "entity": "FlexShopper",
@@ -40617,7 +40662,7 @@
   },
   {
    "entity": "Table Rock Investments LLC",
-   "group": "personal_loan",
+   "group": "potential_lender",
    "business_type": "personal_or_consumer_loan",
    "aliases": [
     "TABLE ROCK INVST"
@@ -40646,7 +40691,7 @@
     "https://www.bbb.org/us/mo/branson/profile/loans/table-rock-investments-llc-0734-20589",
     "https://www.tablerock.com/log-in"
    ],
-   "notes": "One monthly consumer-class (PPD) ACH debit per statement to Table Rock Investments LLC (Branson MO), a private lender that buys and services consumer notes (timeshare, vacation club, campground membership, home improvement, elective medical) and also makes business and hard-money loans. The identity holds, but no source ties the debit to one product (r4 unresolved): consumer finance, a personal loan or a hard-money loan. The PPD entry class points to a consumer obligation, so it is filed with personal loans and stays in the review tier. Not TableRock Capital and not Table Rock Management."
+   "notes": "One monthly consumer-class (PPD) ACH debit per statement to Table Rock Investments LLC (Branson MO), a private lender that buys and services consumer notes (timeshare, vacation club, campground membership, home improvement, elective medical) and also makes business and hard-money loans. The identity holds, but no source ties the debit to one product (r4 unresolved): consumer finance, a personal loan or a hard-money loan. The PPD entry class points to a consumer obligation, so it is filed with personal loans and stays in the review tier. Not TableRock Capital and not Table Rock Management. Kept in the potential tier by the 5.3 routing (2026-09-27): the company also makes business and hard-money loans, a counted reading, so its debits are not sent to the personal-loan flag."
   },
   {
    "entity": "Tennessee Title Loans, Inc",

@@ -18,6 +18,7 @@ from .classification_registry import (
     PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
     PREMIUM_FINANCE_ALIASES,
+    REVIEW_FLAG_ENTITIES,
 )
 from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
@@ -1910,6 +1911,24 @@ def classify_transaction(
     potential_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
     if potential_match is not None and amount < 0:
         lender, alias = potential_match
+        # 5.3 (owner ruling 2026-09-27): a review entity of a flag group takes its flag, marked unconfirmed. Its
+        # aliases stay in POTENTIAL_LENDER_ALIASES, so its credits keep the potential tier's exclusion.
+        routed = REVIEW_FLAG_ENTITIES.get(lender)
+        if routed is not None:
+            return _build_record(
+                **common,
+                classification=routed,
+                canonical_entity=lender,
+                match_method="unconfirmed_flag_payee_alias",
+                matched_alias=alias,
+                matched_rule=f"{routed}_review_registry",
+                confidence_score=0.82,
+                reason=(
+                    f"Matched maintained candidate alias '{alias}' of an unconfirmed {_state_words(routed)} payee: "
+                    "it is flagged, marked unconfirmed, and never enters lender math."
+                ),
+                review_required=True,
+            )
         return _build_record(
             **common,
             classification="potential_lender",

@@ -20,7 +20,8 @@ def _committed():
 def test_the_generated_block_is_the_rendering_of_the_committed_ledger():
     _data, entities = _committed()
     source = builder.REGISTRY_PATH.read_text(encoding="utf-8")
-    assert builder.current_block(source) == builder.render_block(builder.render_tables(entities))
+    assert builder.current_block(source) == builder.render_block(
+        builder.render_tables(entities), lender_ledger.review_flag_entities(entities))
 
 
 def test_the_registry_module_holds_exactly_the_rendered_tables():

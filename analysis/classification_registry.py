@@ -1242,8 +1242,33 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Vanguard Cap": ("VANGUARD CAP OPE",),
     "VAULT (Canadian PAD originator)": ("VAULT MSP DIV", "MISC PAYMENT VAULT", "MISC PAYMENTS VAULT"),
     "Vellum Capital LLC": ("VELLUM CAPITAL L",),
-    "WESTLAKE (probably Westlake Financial Services)": ("WESTLAKE PAYMENT", "ORIG CO NAME WESTLAKE ORIG"),
+    "WESTLAKE (Chase CCD form; possibly Westlake commercial vehicle financing)": (
+        "ORIG CO NAME WESTLAKE ORIG",
+    ),
+    "WESTLAKE (probably Westlake Financial Services)": ("WESTLAKE PAYMENT",),
     "WOW FACTOR (unidentified Canadian PAD originator)": ("WOW FACTOR RLS",),
+}
+
+#: 5.3 (owner ruling 2026-09-27): review entities whose debits take their flag, unconfirmed.
+REVIEW_FLAG_ENTITIES: dict[str, str] = {
+    "AVEN AUTO FINANC (probably Aven Auto Inc)": "vehicle_financing",
+    "CAF DIRECT CHECK (probably CarMax Auto Finance)": "vehicle_financing",
+    "Classic Leasing": "vehicle_financing",
+    "Clover Equipment": "lease_or_rental",
+    "CMI (Canadian mortgage lender, unresolved)": "mortgage",
+    "Cooper Equipment Rentals Ltd (probable)": "lease_or_rental",
+    "CRB UPL LOAN (Cross River Bank personal loan)": "personal_loan",
+    "Hillcrest Acceptance, LLC": "vehicle_financing",
+    "HMF (probably Hyundai Motor Finance)": "vehicle_financing",
+    "IA AUTO CAB (possibly iA Auto Finance)": "vehicle_financing",
+    "MB FINANCIAL CA (probably Mercedes-Benz Financial Services Canada)": "vehicle_financing",
+    "MORTGAGE IVR PYMNT (probably 21st Mortgage Corporation)": "mortgage",
+    "MORTGAGE SERV CT (unidentified mortgage servicer)": "mortgage",
+    "NATIONAL MONEY (probably Money Mart)": "personal_loan",
+    "STELLANTIS SFA (probably Stellantis Financial Services)": "vehicle_financing",
+    "UAS DES EPAYMENT (probably University Accounting Service)": "personal_loan",
+    "Unidentified payee FREEDOM": "mortgage",
+    "WESTLAKE (probably Westlake Financial Services)": "vehicle_financing",
 }
 
 # --- END GENERATED: tools/build_lender_registry.py ---

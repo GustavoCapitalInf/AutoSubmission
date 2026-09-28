@@ -358,6 +358,25 @@ def render_tables(entities: list[LedgerEntity]) -> dict[str, dict[str, tuple[str
     return tables
 
 
+#: 5.3 (owner ruling 2026-09-27): the flag groups whose review entities take their flag on debits, marked
+#: unconfirmed (REVIEW_FLAG_ENTITIES). A review entity of the lender, potential, alternative-position or factoring
+#: group keeps the potential tier: each has a plausible counted reading.
+ROUTED_REVIEW_GROUPS = ("vehicle_financing", "mortgage", "lease_or_rental", "personal_loan")
+
+
+def review_flag_entities(entities: list[LedgerEntity]) -> dict[str, str]:
+    """5.3 (owner ruling 2026-09-27): entity -> group of each review entity of a routed flag group whose business
+    type is known, in name order. The classifier sends such an entity's debits to its flag, marked unconfirmed; its
+    aliases stay in POTENTIAL_LENDER_ALIASES, so its credits keep the potential tier's exclusion. A business type
+    starting 'unknown' (a payee read from a payment code alone) is never routed."""
+    routed = [
+        entity for entity in entities
+        if entity.status == "review" and entity.group in ROUTED_REVIEW_GROUPS
+        and not entity.business_type.startswith("unknown")
+    ]
+    return {entity.entity: entity.group for entity in sorted(routed, key=lambda e: (e.entity.casefold(), e.entity))}
+
+
 # --- today's registry (spec section 9) ------------------------------------------------------------------------
 
 
