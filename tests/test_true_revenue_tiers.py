@@ -477,6 +477,55 @@ def test_q5_never_verifies_a_securities_firm_s_wires():
     assert {_tier(record) for record in rows} == {("excluded_pending_review", "non_sale_purpose")}
 
 
+@pytest.mark.parametrize("text", [
+    "FABRIKAM WEALT DES:PAYABLES ID:1", "FABRIKAM BROKERAGE LLC DES:ACCOUNTS PAYABLE ID:1",
+    "FABRIKAM SECURITIES INC DES:VENDOR PAYMENT ID:1",
+])
+def test_the_investment_words_spare_an_accounts_payable_payment(text):
+    # S4.2 fix measurement: a wealth, brokerage or securities firm paying a vendor from its payables pays the business
+    # for a sale; it is not the holder's own money. §7.5's remittance veto still reads the words, so the row is counted
+    # and flagged, never verified: alone, by its company form, or repeated.
+    record = _one(text, 3000.0)
+    assert _tier(record) == ("counted_flagged", "named_payer_purpose_refused")
+    assert record.revenue_classification == "unverified_deposit"
+    repeated = _records([(text, 3000.0), (text.replace("ID:1", "ID:2"), 3100.0)])
+    assert {record.revenue_classification for record in repeated} == {"unverified_deposit"}
+    assert {_tier(record) for record in repeated} == {("counted_flagged", "named_payer_purpose_refused")}
+
+
+def test_q5_never_verifies_a_securities_firm_s_vendor_payment_wires():
+    rows = _records([(WIRE.format(n=1, orig="FABRIKAM SECURITIES LLC") + " OBI VENDOR PAYMENT", 25000.0),
+                     (WIRE.format(n=2, orig="FABRIKAM SECURITIES LLC") + " OBI VENDOR PAYMENT", 26000.0)])
+    assert {record.revenue_classification for record in rows} == {"unverified_deposit"}
+    assert {_tier(record) for record in rows} == {("counted_flagged", "named_payer_purpose_refused")}
+
+
+@pytest.mark.parametrize("text", [
+    "FABRIKAM WEALT DES:DIVIDEND PAYABLES ID:1", "FABRIKAM BROKERAGE LLC DES:ACCOUNTS PAYABLE DISTRIB ID:1",
+    "FABRIKAM SECURITIES INC DES:VENDOR PAYMENT OWNER DRAW ID:1",
+])
+def test_every_other_non_sale_word_still_holds_an_accounts_payable_payment(text):
+    assert _tier(_one(text, 3000.0)) == ("excluded_pending_review", "non_sale_purpose")
+
+
+@pytest.mark.parametrize("text", [
+    "E*TRADE SECURITIES LLC DES:ACCOUNTS PAYABLE ID:1", "ROBINHOOD SECURITIES LLC DES:PAYABLES ID:1",
+    "FIDELITY BROKERAGE SERVICES LLC DES:VENDOR PAYMENT ID:1",
+])
+def test_a_brokerage_platform_s_accounts_payable_wording_stays_held_by_the_platform_list(text):
+    # The investment word is spared by the AP wording; the platform list still holds the owner's money.
+    assert _tier(_one(text, 3000.0)) == ("excluded_pending_review", "non_sale_purpose")
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Pre-existing on 167c83d, outside pass 7: §7.5's payer remittance (payer_remittance_descriptor) verifies it "
+    "before pass 7, as its veto reads no platform name; pass 7 never demotes a verified row. Awaits a ruling."
+))
+def test_schwab_s_accounts_payable_wording_stays_held_by_the_platform_list():
+    assert _tier(_one("CHARLES SCHWAB & CO INC DES:PAYABLES ID:1", 3000.0)) == (
+        "excluded_pending_review", "non_sale_purpose")
+
+
 @pytest.mark.parametrize("rail", ["E TRANSFER AUTODEPOSIT {name} CA1234ABCD", "INTERAC E TRANSFER RECEIVED {name}",
                                   "ZELLE TRANSFER {name}", "ZELLE CREDIT {name} CONF 1"])
 def test_a_p2p_sender_printed_without_from_takes_the_holder_test_and_the_round_repeat(rail):

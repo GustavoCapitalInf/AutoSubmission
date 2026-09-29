@@ -88,11 +88,9 @@ _PERSONAL_INCOME = re.compile(
     r"|(?<![A-Z])CHI?LD ?SUPP\w*\b|(?<![A-Z])CHILD ?CTC\b|(?<![A-Z])PENSION\b|(?<![A-Z])ANNUIT\w*"
     r"|(?<![A-Z])RETIRE\w*"
 )
-#: §8.1: a non-sale purpose. S4.2 review (I6b): §7.5's investment words BROKERAGE, SECURITIES and WEALT join the owner
-#: money group (the standing rule: owner money never becomes revenue).
+#: §8.1: a non-sale purpose.
 _NON_SALE_PURPOSE = re.compile(
     r"(?<![A-Z])(?:INVEST\w*|DISTRIB(?!UTORS?\b|UTING\b)\w*|DIVIDENDS?\b|EQUITY\b|CONTRIB\w*|SHAREHOLDER\w*"
-    r"|BROKERAGE\w*|SECURITIES\b|WEALT\w*"
     r"|OWNERS?\b(?! OP\b| OPERATORS?\b)|STOCK\b|INTERCO\w*|INTER COMPANY\b|DUE FROM\b|SWEEP\b|ZERO BAL\w*"
     r"|REPAY\w*|PRINCIPAL\b|PAYOFF\b|PROMISSORY\b|CONVERTIBLE\b|TRANCHE\b|DRAWS?\b|DRAWDOWNS?\b"
     r"|DISBURS\w*"
@@ -102,6 +100,12 @@ _NON_SALE_PURPOSE = re.compile(
     r"|RFND\w*|REFND\w*)"
     r"|\bZBA\b|[A-Z]*REFUND\w*"
 )
+#: §8.1, S4.2 review (I6b): §7.5's investment words BROKERAGE, SECURITIES and WEALT join the owner money group (the
+#: standing rule: owner money never becomes revenue), except on a row that prints §7.5's accounts-payable or
+#: vendor-payment wording (_accounts_payable_wording; S4.2 fix measurement): a wealth, brokerage or securities firm
+#: paying a vendor from its payables. Such a row is counted and flagged, never verified: §7.5's remittance veto reads
+#: the same words, and Q5 and Q6 refuse them as proof (CreditFacts.refused_word).
+_INVESTMENT_PURPOSE = re.compile(r"(?<![A-Z])(?:BROKERAGE\w*|SECURITIES\b|WEALT\w*)")
 #: §8.1: a healthcare payer's member or premium credit.
 _HEALTHCARE_MEMBER_WORDS = re.compile(
     r"(?<![A-Z])(?:REIMB\w*|MEMBER\b|SUBSCRIBER\b|PREMIUM\b)|\bMBR\b"
@@ -385,14 +389,33 @@ def financing_named(text: str, region: str, entry: str, account_name: str | None
     return any(_FINANCING_ROOT.search(part) for part in parts)
 
 
+def _accounts_payable_wording(text: str) -> bool:
+    """§7.5 (S4.2 fix measurement): the payer's accounts-payable or vendor-payment wording, as _payer_remittance
+    matches it before its veto: an AP pattern on the row before its receiver fields or on its joined text (PAYABLES
+    never on a row that prints BILL COM), or an invoice number on a row that also prints a payment-channel word."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    joined = classifier._joined_text(row)
+    for pattern in classifier._PAYER_REMITTANCE_CREDIT_PATTERNS:
+        found = pattern.search(row) or pattern.search(joined)
+        if found is not None and not (found.group(0) == "PAYABLES" and classifier._BILL_COM.search(row)):
+            return True
+    found = classifier._INVOICE_NUMBER.search(row)
+    return found is not None and classifier._PAYMENT_CHANNEL_WORD.search(
+        row[: found.start()] + " " + row[found.end():]
+    ) is not None
+
+
 def non_sale_purpose(text: str, region: str) -> bool:
-    """§8.1: a non-sale purpose, a public payer's refund or benefit, or a healthcare payer's member or premium credit."""
+    """§8.1: a non-sale purpose, a public payer's refund or benefit, or a healthcare payer's member or premium credit.
+    The investment words hold a row unless it prints accounts-payable wording (S4.2 fix measurement)."""
     classifier = _classifier()
     row = _hold_text(text)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
     healthcare = healthcare_payer(region)
-    purpose = _NON_SALE_PURPOSE.search(row)
-    if purpose is not None:
+    if _NON_SALE_PURPOSE.search(row) is not None:
+        return True
+    if _INVESTMENT_PURPOSE.search(row) is not None and not _accounts_payable_wording(text):
         return True
     if _CLAIM_WORD.search(row) and not claim_entry and not (healthcare and re.search(r"(?<![A-Z])CLAIM PMT\b", row)):
         return True
@@ -582,9 +605,11 @@ def credit_facts(
         healthcare=healthcare,
         numbered=classifier.numbered_company(text, region),
         electronic=classifier._ELECTRONIC_PAYMENT_FORM.search(row) is not None,
+        # An investment word an accounts-payable row spared from the holds (S4.2 fix measurement) is no proof either:
+        # §7.5's remittance veto reads it, so Q5 and Q6 never verify the row.
         refused_word=bool(
             _VERIFICATION_ONLY.search(entry) or _VERIFICATION_ONLY.search(region)
-            or _ENTRY_VERIFICATION_ONLY.search(entry)
+            or _ENTRY_VERIFICATION_ONLY.search(entry) or _INVESTMENT_PURPOSE.search(row)
         ),
         round_sum=classifier.is_round_sum(record.amount),
         consumer_entry=_CONSUMER_ENTRY.search(text) is not None,
