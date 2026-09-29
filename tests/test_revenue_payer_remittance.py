@@ -89,3 +89,17 @@ def test_a_payer_the_statement_also_debits_goes_back_to_unverified():
     ]))
     assert records[0].revenue_classification == "unverified_deposit"
     assert records[0].revenue_match_method == "payer_remittance_with_counter_debit"
+
+
+def test_a_card_purchase_from_the_payer_is_a_counter_debit_too():
+    # S2.4 review: Bank of America's CHECKCARD and its MMDD date are skipped before the debit's first distinctive word.
+    credit = Transaction(date="2054-03-02", description="NORTHWIND SUPPLY DES:VENDOR PAY ID:1", amount=5000.0,
+                         direction="credit")
+    card = Transaction(date="2054-03-03", description="CHECKCARD 0302 NORTHWIND GRILL", amount=-25.0,
+                       direction="debit")
+    records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit, card]))
+    assert (records[0].revenue_classification, records[0].revenue_match_method) == (
+        "unverified_deposit", "payer_remittance_with_counter_debit")
+    [alone] = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit]))
+    assert (alone.revenue_classification, alone.revenue_match_method) == (
+        "verified_revenue", "payer_remittance_descriptor")

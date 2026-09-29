@@ -194,3 +194,53 @@ def test_funding_vetoes_recurrence_except_on_the_three_platforms_that_print_it_o
     assert {record.revenue_classification for record in etsy} == {"unverified_deposit"}
     tapgoods = _statement([(day, f"TGPAYMENTS DES:FUNDING ID:{day}", 900.0 + day) for day in (2, 9, 16)])
     assert {record.revenue_match_method for record in tapgoods} == {"recurring_operating_source"}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S2.4 review: a vetoed auction or property row carries its branch's rule; the reversal pair reads the return codes
+# (pass 4).
+# ---------------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("word", ["FUNDING", "FUNDNG", "ADVANCE", "CAPTL", "FLOORPLAN", "FLOOR PLAN", "FINANCING",
+                                  "NGC", "PPD"])
+def test_an_auction_payout_printing_a_financing_or_consumer_word_carries_its_rule(word):
+    # FUNDING, ADVANCE and FINANCING are recurrence vetoes too: the vetoed row still carries the auction's rule.
+    records = _statement([(2, f"MANHEIM US DES:ACH PAYMNT {word} ID:1", 18000.0),
+                          (9, f"MANHEIM US DES:ACH PAYMNT {word} ID:2", 17000.0),
+                          (16, f"MANHEIM US DES:ACH PAYMNT {word} ID:3", 16000.0)], holder="SAMPLE MOTORS LLC")
+    assert {(record.revenue_classification, record.revenue_matched_rule) for record in records} == {
+        ("unverified_deposit", "auction_credit_prints_financing_or_consumer_word")}
+
+
+def test_a_vetoed_auction_row_without_its_payout_form_carries_that_rule():
+    records = _statement([(day, f"MANHEIM US DES:PAYROLL ID:{day}", 1500.0 + day) for day in (2, 9, 16)],
+                         holder="SAMPLE MOTORS LLC")
+    assert {(record.revenue_classification, record.revenue_matched_rule) for record in records} == {
+        ("unverified_deposit", "auction_credit_without_payout_form")}
+
+
+def test_a_vetoed_property_row_printing_advance_carries_the_property_rule():
+    records = _statement([(2, "BUILDIUM DES:ADVANCE ID:1", 1500.0), (9, "BUILDIUM DES:FUNDING ID:2", 1501.0),
+                          (16, "BUILDIUM DES:FUNDING ID:3", 1502.0)], holder="SAMPLE PROPERTIES LLC")
+    assert (records[0].revenue_classification, records[0].revenue_matched_rule) == (
+        "unverified_deposit", "property_platform_owner_or_deposit_wording")
+    assert {record.revenue_match_method for record in records[1:]} == {"recurring_operating_source"}
+
+
+def test_a_return_code_debit_pairs_an_equal_credit():
+    records = _statement([(2, "NORTHWIND SUPPLY DES:VENDOR PAY ID:1", 5000.0),
+                          (5, "NORTHWIND SUPPLY DES:RTN ID:1", -5000.0)], holder="SAMPLE CAFE LLC")
+    assert (records[0].revenue_classification, records[0].revenue_match_method) == (
+        "non_revenue", "matched_reversal_pair")
+
+
+def test_a_return_code_credit_pairs_an_equal_debit():
+    records = _statement([(2, "NORTHWIND SUPPLY DES:RETN ID:1", 5000.0),
+                          (5, "NORTHWIND SUPPLY DES:PAYMENT ID:1", -5000.0)], holder="SAMPLE CAFE LLC")
+    assert (records[0].revenue_classification, records[0].revenue_match_method) == (
+        "non_revenue", "matched_reversal_pair")
+
+
+def test_an_equal_pair_without_a_marker_is_no_reversal_pair():
+    records = _statement([(2, "STRIPE DES:TRANSFER ID:1", 300.0), (9, "STRIPE DES:TRANSFER ID:2", 310.0),
+                          (16, "STRIPE DES:TRANSFER ID:3", 320.0), (18, "STRIPE DES:TRANSFER ID:3", -320.0)])
+    assert [record.revenue_match_method for record in records[:3]] == ["recurring_operating_source"] * 3

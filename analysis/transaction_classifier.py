@@ -3731,15 +3731,23 @@ def _recurrence_vetoed(record: TransactionClassification, text: str) -> bool:
     veto words and card-credit labels (read on the row before its receiver fields), FUNDING outside the three
     platforms that print it on settlements (review C2), under the $1 floor, or a direction conflict."""
     return (
+        _recurrence_veto_wording(record, text)
+        or record.amount < _MICRO_DEPOSIT_FLOOR
+        or record.revenue_match_method == "direction_conflict"
+        or not record.direction_consistent
+    )
+
+
+def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bool:
+    """5.5 (§7.0): the worded part of the recurrence veto: payroll, a veto word or card-credit label, or FUNDING
+    outside the three platforms that print it on settlements (review C2)."""
+    return (
         record.classification == "payroll"
         or _recurrence_veto_word(text, record.account_name)
         or (
             record.revenue_canonical_entity not in _FUNDING_SETTLEMENT_ENTITIES
             and _recurrence_veto_word(text, record.account_name, _FUNDING_WORD)
         )
-        or record.amount < _MICRO_DEPOSIT_FLOOR
-        or record.revenue_match_method == "direction_conflict"
-        or not record.direction_consistent
     )
 
 
@@ -3825,6 +3833,7 @@ def _apply_operating_source_context(
     receiver field's value removed (§5.2: the holder's name never names a source) and through the ledger gate."""
     updated = list(records)
     pools: dict[str, list[int]] = {}
+    vetoed: dict[str, list[int]] = {}
     activity_by_entity: dict[str, list[int]] = {}
     net_settle: dict[tuple[str, ...], list[int]] = {}
     for index, record in enumerate(records):
@@ -3839,7 +3848,11 @@ def _apply_operating_source_context(
             if found is not None and _matches_any(alias_text, _OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS):
                 activity_by_entity.setdefault(found[0], []).append(index)
             continue
-        if record.amount <= 0 or _recurrence_vetoed(record, text):
+        if record.amount <= 0:
+            continue
+        if _recurrence_vetoed(record, text):
+            if _in_operating_pool(record):
+                vetoed.setdefault(record.revenue_canonical_entity, []).append(index)
             continue
         if _in_operating_pool(record):
             pools.setdefault(record.revenue_canonical_entity, []).append(index)
@@ -3896,7 +3909,82 @@ def _apply_operating_source_context(
                 reason=f"One originator's NET SETTLE entry recurs in {len(indexes)} posted credits: card settlements.",
                 context_signals=(*updated[index].revenue_context_signals, "card_settlement_form"),
             )
+    _name_vetoed_branch_rows(updated, vetoed)
     return updated
+
+
+def _name_vetoed_branch_rows(updated: list[TransactionClassification], vetoed: dict[str, list[int]]) -> None:
+    """5.5 (§7.8, §7.10, §14.1; S2.4 review): a vetoed pool row of a wholesale auction or a property-management
+    platform never counts and is never lifted, and still carries its branch's rule. Only a direction-consistent
+    unverified row in an operating method is renamed; its classification stays. An auction row takes the auction's
+    refusal (a payout-form row vetoed by a pay, financing or other veto word takes the financing or consumer rule; one
+    vetoed only by the $1 floor has no rule of its own and is left as it is); a property row takes the owner or
+    deposit wording rule when it prints that wording."""
+    for entity, indexes in vetoed.items():
+        source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
+        if source_type not in {"wholesale_auto_auction", "property_management_payments"}:
+            continue
+        forms = _AUCTION_PAYOUT_FORMS.get(entity, ())
+        for index in indexes:
+            record = updated[index]
+            if (
+                not record.direction_consistent
+                or record.revenue_classification != "unverified_deposit"
+                or record.revenue_match_method not in _OPERATING_SOURCE_METHODS
+            ):
+                continue
+            text = revenue_text(record.normalized_description)
+            if source_type == "property_management_payments":
+                if _PROPERTY_PLATFORM_GUARD.search(_before_receiver(text)):
+                    updated[index] = _property_wording_record(record, entity)
+                continue
+            rule = _auction_refusal(text, forms)
+            if rule is None:
+                if not _recurrence_veto_wording(record, text):
+                    continue
+                rule = "auction_credit_prints_financing_or_consumer_word"
+            updated[index] = _auction_unverified_record(record, entity, rule)
+
+
+def _auction_refusal(text: str, forms: Sequence[re.Pattern[str]]) -> str | None:
+    """5.5 (§7.8, §14.1): the rule that refuses an auction credit on its wording (a buyer-payment reference, a
+    floor-plan or financing word or a consumer entry, or no observed payout form), or None when it prints the payout
+    form. The payout form is read with the receiver field's value removed (§5.2): the holder's name never verifies."""
+    if _AUCTION_BUYER_PAYMENT.search(text):
+        return "auction_credit_prints_buyer_payment_reference"
+    if _AUCTION_VETO.search(_before_receiver(text)):
+        return "auction_credit_prints_financing_or_consumer_word"
+    if not any(form.search(_without_receiver_value(text)) for form in forms):
+        return "auction_credit_without_payout_form"
+    return None
+
+
+def _auction_unverified_record(
+    record: TransactionClassification, entity: str, rule: str
+) -> TransactionClassification:
+    """5.5 (§7.8): an auction credit that is not the auction's verified payout."""
+    return _replace_revenue_state(
+        record,
+        "unverified_deposit",
+        match_method="operating_source_requires_context",
+        matched_rule=rule,
+        confidence_score=0.60,
+        reason=f"A credit from the wholesale auction '{entity}' that is not its observed payout form.",
+        context_signals=record.revenue_context_signals,
+    )
+
+
+def _property_wording_record(record: TransactionClassification, entity: str) -> TransactionClassification:
+    """5.5 (§7.10): a property-management platform's credit printing owner, distribution or deposit wording."""
+    return _replace_revenue_state(
+        record,
+        "unverified_deposit",
+        match_method="operating_source_requires_context",
+        matched_rule="property_platform_owner_or_deposit_wording",
+        confidence_score=0.60,
+        reason=f"A '{entity}' credit prints owner, distribution or deposit wording.",
+        context_signals=record.revenue_context_signals,
+    )
 
 
 def _apply_auction_branch(
@@ -3915,13 +4003,8 @@ def _apply_auction_branch(
     used_debits: set[int] = set()
     for index in indexes:
         record = updated[index]
-        text = revenue_text(record.normalized_description)
-        rule, verified = "auction_credit_without_payout_form", False
-        if _AUCTION_BUYER_PAYMENT.search(text):
-            rule = "auction_credit_prints_buyer_payment_reference"
-        elif _AUCTION_VETO.search(_before_receiver(text)):
-            rule = "auction_credit_prints_financing_or_consumer_word"
-        elif any(form.search(_without_receiver_value(text)) for form in forms):
+        rule, verified = _auction_refusal(revenue_text(record.normalized_description), forms), False
+        if rule is None:
             pair = _auction_refund_pair(records, index, refund_name, used_debits, duplicate_indexes)
             if pair is not None:
                 used_debits.add(pair)
@@ -3939,15 +4022,7 @@ def _apply_auction_branch(
                 context_signals=(*record.revenue_context_signals, "wholesale_auction_payout_form"),
             )
         else:
-            updated[index] = _replace_revenue_state(
-                record,
-                "unverified_deposit",
-                match_method="operating_source_requires_context",
-                matched_rule=rule,
-                confidence_score=0.60,
-                reason=f"A credit from the wholesale auction '{entity}' that is not its observed payout form.",
-                context_signals=record.revenue_context_signals,
-            )
+            updated[index] = _auction_unverified_record(record, entity, rule)
 
 
 def _auction_refund_pair(
@@ -3996,15 +4071,7 @@ def _apply_property_branch(
         text = revenue_text(record.normalized_description)
         row = _before_receiver(text)
         if _PROPERTY_PLATFORM_GUARD.search(row):
-            updated[index] = _replace_revenue_state(
-                record,
-                "unverified_deposit",
-                match_method="operating_source_requires_context",
-                matched_rule="property_platform_owner_or_deposit_wording",
-                confidence_score=0.60,
-                reason=f"A '{entity}' credit prints owner, distribution or deposit wording.",
-                context_signals=record.revenue_context_signals,
-            )
+            updated[index] = _property_wording_record(record, entity)
             continue
         if _PROPERTY_MICRO_DEPOSIT.search(row) or _PROPERTY_PUSH_SHAPE.search(row):
             continue
@@ -4037,10 +4104,19 @@ def _payer_first_distinctive_word(region: str) -> str | None:
     return _first_distinctive_word(words)
 
 
+#: 5.5 (§7.5, S2.4 review): a card purchase's leading card-form words and the MMDD date after them. D11 stops at that
+#: date, so 'CHECKCARD 0302 NORTHWIND GRILL' reads CHECKCARD alone; pass 6 reads the debit after them.
+_CARD_FORM_DEBIT_PREFIX = re.compile(
+    r"^(?:RECURRING )?(?:CHECKCARD|(?:MOBILE |CARD )?PURCHASE(?: AUTHORIZED ON)?) (?:\d{4}|\d{2} \d{2}) (?=\S)"
+)
+
+
 def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
-    """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words."""
+    """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words, after a card
+    purchase's leading card-form words and MMDD date (S2.4 review; D11 itself is unchanged)."""
+    text = _CARD_FORM_DEBIT_PREFIX.sub("", record.normalized_description, count=1)
     words = [
-        word for word in _distinctive_words(_unknown_payee_tokens(record.normalized_description))
+        word for word in _distinctive_words(_unknown_payee_tokens(text))
         if word not in _counter_debit_skip_words()
     ]
     return _first_distinctive_word(words)
