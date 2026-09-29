@@ -341,3 +341,55 @@ RESIDUALS = [
 @pytest.mark.parametrize(("label", "bank", "holder", "printed"), RESIDUALS)
 def test_the_recorded_wire_residuals_verify_and_are_sampled(label, bank, holder, printed):
     assert _outcome(_one(bank, holder, printed)) == "verified", label
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S2.3 review (fixes 2 and 3): the wire vetoes read a wire whose reference is glued to WIRE, and a wire whose purpose
+# reads as a customer or invoice descriptor (§6.1 step 11) as they read every other wire (§7.9).
+# ---------------------------------------------------------------------------------------------------------------------
+GLUED_REFERENCE = "123456W1234567"
+
+
+@pytest.mark.parametrize(("printed", "anchored_state"), [
+    ("WIRE FROM FABRIKAM HOLDINGS LLC PAYMENT INV 1234 DISTRIBUTION", "unverified_deposit"),
+    ("WIRE FROM FABRIKAM PROPERTIES LLC PAYMENT INV 1042 INTEREST", "unverified_deposit"),
+    ("WIRE FROM FABRIKAM TITLE AGENCY LLC VENDOR PAYMENT", "unverified_deposit"),
+    ("WIRE FROM FABRIKAM SUPPLY LLC SECURITY DEPOSIT INV 1042 PAYMENT", "unverified_deposit"),
+    # A person's invoice wire: step 12's company-form gate refuses both rows; §7.9 states that the anchored row
+    # verifies at step 14, whose channel test (N1) reads an anchored label only, so the glued row stays unverified.
+    ("WIRE FROM JOHN SMITH PAYMENT INV 1234", "verified_revenue"),
+])
+def test_a_reference_glued_to_wire_answers_to_the_wire_vetoes(printed, anchored_state):
+    anchored, glued = _credit(printed), _credit(GLUED_REFERENCE + printed)
+    assert (anchored.revenue_classification, anchored.revenue_match_method) != (
+        "verified_revenue", "payer_remittance_descriptor")
+    assert anchored.revenue_classification == anchored_state
+    assert glued.revenue_classification == "unverified_deposit", glued.revenue_match_method
+
+
+def test_a_genuine_glued_wire_still_verifies_as_its_anchored_twin():
+    printed = "WIRE FROM FABRIKAM SUPPLY LLC PAYMENT INV 1234"
+    anchored, glued = _credit(printed), _credit(GLUED_REFERENCE + printed)
+    assert anchored.revenue_classification == glued.revenue_classification == "verified_revenue"
+
+
+STEP_11_WIRES = [
+    ("BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Capital Partners LLC", bnf="Northwind Labs LLC", obi="Invoice Payment 104211")),
+    ("BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Merchant Funding LLC", bnf="Northwind Labs LLC", obi="Invoice Paid 104211")),
+    (HOLDER, BOFA_IN.format(orig="CONTOSO PROPERTIES LLC", bank="SAMPLE BANK", det="INVOICE PAID 1042 INTEREST")),
+    (HOLDER, BOFA_IN.format(orig="CONTOSO TITLE AGENCY LLC", bank="SAMPLE BANK", det="INVOICE PAYMENT 1042")),
+    (HOLDER, BOFA_IN.format(orig="CONTOSO SISTER CO LLC", bank="SAMPLE BANK", det="INTERCOMPANY INVOICE PAYMENT 1042")),
+    (HOLDER, BOFA_IN.format(orig="CONTOSO SERVICING LLC", bank="SAMPLE BANK", det="ACCOUNTS RECEIVABLE 104211")),
+]
+
+
+@pytest.mark.parametrize(("holder", "printed"), STEP_11_WIRES)
+def test_an_invoice_descriptor_on_a_wire_answers_to_the_wire_vetoes(holder, printed):
+    assert _credit(printed, holder=holder).revenue_classification == "unverified_deposit"
+
+
+def test_a_plain_invoice_payment_wire_still_verifies():
+    record = _credit("WIRE FROM CONTOSO SUPPLY LLC INVOICE PAYMENT 1234", holder=HOLDER)
+    assert record.revenue_classification == "verified_revenue"

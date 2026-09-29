@@ -802,10 +802,19 @@ def prints_internal_transfer_designation(description: str) -> bool:
     produces exactly that signature, and flagging it removes a printed deposit
     from a funder's view of the business by an inference (design §3.2).
 
-    **Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` ALONE.** Every member of
-    that tuple names one member's OWN accounts as the source or the
+    **Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` and, since 5.5 (§7.11),
+    the narrowed book and funds transfer rule, and by nothing else.** Every
+    member of that tuple names one member's OWN accounts as the source or the
     destination — `TRANSFER FROM SAVINGS`, `SH TO SH`, `ACCOUNT TO ACCOUNT`,
-    `TRANSFER FROM <masked> TO <masked>`.
+    `TRANSFER FROM <masked> TO <masked>`. A `BOOK TRANSFER` or `FUNDS TRANSFER`
+    (never `ELECTRONIC FUNDS TRANSFER DEPOSIT`, an EFT channel) designates an
+    own account only when it prints no third-party originator
+    (`_third_party_originator`): an account description after FROM
+    (`BUSINESS SAVINGS`, `LINE OF CREDIT`) names no payer, a payer's name does.
+    Without the owner's yes to T19 every `BOOK TRANSFER` designates one. No
+    account name is read here, so `_own_book_or_funds_transfer`'s holder test
+    does not apply: a transfer that prints the holder's own name as its
+    originator designates no own account for R-d, the conservative direction.
 
     **`_TRANSFER_PATTERNS` is REFUSED as evidence for this question, and the
     refusal is a ruling rather than a preference** (Gustavo, 2026-08-30,
@@ -1073,6 +1082,18 @@ def _is_wire_row(text: str) -> bool:
     return _INCOMING_WIRE_LABEL.match(text) is not None or _third_party_book_transfer(text)
 
 
+#: S2.3 review (fix 2): WIRE printed anywhere on the row, a reference glued on its left included
+#: ('123456W1234567WIRE FROM ...', which _INCOMING_WIRE_LABEL, anchored at the row's start, never reads).
+_WIRE_WORD = re.compile(r"(?<![A-Z])WIRE\b")
+
+
+def _wire_vetoes_apply(text: str) -> bool:
+    """S2.3 review (fixes 2 and 3): the wire vetoes (_wire_vetoed) and the wire company-form gate read a wire row
+    (_is_wire_row) and, failing closed, any row that prints WIRE, so a reference glued to WIRE never skips them. The
+    verifier's own channel test (N1, _wire_remittance_purpose) keeps _is_wire_row."""
+    return _is_wire_row(text) or _WIRE_WORD.search(text) is not None
+
+
 def _is_transfer_or_p2p_row(text: str) -> bool:
     """5.5 (§8.4): a person-to-person rail, or transfer wording, on a row that is no wire."""
     row = _before_receiver(text)
@@ -1302,15 +1323,38 @@ _FUNDS_TRANSFER_WIRE_LABEL = re.compile(
 
 def _third_party_originator(text: str) -> str | None:
     """5.5 (§7.11): the originator a book or funds transfer prints (after B O, CUSTOMER, ORIGINATOR, ORG, TT, FROM or
-    WIRE FROM, or one of the four funds-transfer wire labels), when it holds a name word; otherwise None."""
+    WIRE FROM, or one of the four funds-transfer wire labels), when it prints a distinctive payer word; otherwise
+    None. S2.3 review (fix 1): an account description is no payer ('FROM BUSINESS SAVINGS', 'FROM LINE OF CREDIT',
+    'FROM TAX RESERVE'): _originator_payer_words."""
     for label in (_FUNDS_TRANSFER_WIRE_LABEL, _THIRD_PARTY_ORIGINATOR):
         for found in label.finditer(text):
             rest = text[found.end():]
             end = _WIRE_FIELD_END.search(rest)
             words = _leading_name_words(rest[: end.start()] if end is not None else rest)
-            if any(word not in REVENUE_GENERIC_WORDS and not _is_reference_token(word) for word in words.split()):
+            if _originator_payer_words(words):
                 return words
     return None
+
+
+#: S2.3 review (fix 1, §7.11): the account-type and product words a transfer prints after FROM about one of the
+#: holder's own accounts. _INTERNAL_ACCOUNT_SOURCE's words and HOLDER_NOISE (BUSINESS, CHECKING, SAVINGS, ACCOUNT,
+#: OPERATING, MONEY MARKET, TRUST, the generic words) are read too, so neither is repeated here.
+_OWN_ACCOUNT_PRODUCT_WORDS = frozenset({
+    "SAVS", "SVG", "SVGS", "CHKG", "CHKING", "MMDA", "OPER", "RESERVE", "RESERVES", "TAX", "TAXES", "PAYROLL",
+    "PERSONAL", "BUS", "BUSN", "ACCTS", "LOC", "LINE", "HELOC", "SWEEP", "ESCROW", "INVESTMENT", "INVESTMENTS",
+    "BROKERAGE", "IRA", "SUB",
+})
+_INTERNAL_ACCOUNT_SOURCE_WORDS = re.compile(rf"\b{_INTERNAL_ACCOUNT_SOURCE}\b")
+
+
+def _originator_payer_words(words: str) -> list[str]:
+    """S2.3 review (fix 1): the words of a transfer's originator that may name a payer: no reference token, no
+    _INTERNAL_ACCOUNT_SOURCE account word, no HOLDER_NOISE or generic word (_distinctive_words) and no account-type or
+    product word. An originator that prints none describes one of the holder's own accounts."""
+    return [
+        word for word in _distinctive_words(_INTERNAL_ACCOUNT_SOURCE_WORDS.sub(" ", words).split())
+        if word not in _OWN_ACCOUNT_PRODUCT_WORDS and not _is_reference_token(word)
+    ]
 
 
 def _third_party_book_transfer(text: str) -> bool:
@@ -1885,13 +1929,15 @@ def _payer_remittance(text: str, region: str, account_name: str | None) -> bool:
             matched = found.group(0)
     if matched is None:
         return False
-    if _FREE_TEXT_REMITTANCE.search(matched) and (re.search(r"\bPAYPAL\b", row) or _is_wire_row(text)):
+    # S2.3 review (fix 2): a wire whose reference is glued to WIRE answers to the gate and the vetoes too.
+    wire = _wire_vetoes_apply(text)
+    if _FREE_TEXT_REMITTANCE.search(matched) and (re.search(r"\bPAYPAL\b", row) or wire):
         if not company_form(payer_name(region)):
             return False
     rest = _CREDIT_POSTING_LABELS.sub(" ", row.replace(matched, " "))
     if _PAYER_REMITTANCE_VETO.search(rest) is not None:
         return False
-    if _is_wire_row(text) and _wire_vetoed(text, region, account_name):
+    if wire and _wire_vetoed(text, region, account_name):
         return False
     # A public payer's vendor payment also answers to §7.6's whole-row veto (a grant, a refund, a benefit, a
     # settlement, assistance), so a public payer never verifies here what §7.6 refuses.
@@ -2185,9 +2231,12 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "operating_income_descriptor", "card_settlement_form"),
         )
     joined = _joined_text(_before_receiver(text))
-    customer_or_invoice = _matches_any(text, _CUSTOMER_INVOICE_DESCRIPTORS) or _matches_any(
-        joined, _CUSTOMER_INVOICE_DESCRIPTORS
-    )
+    # S2.3 review: the customer and invoice descriptors never read the receiver field's value, the holder (fix 4,
+    # §5.2); on a wire they answer to the §7.9 wire vetoes as steps 12 and 14 do, and a vetoed row falls through (fix 3).
+    customer_or_invoice = (
+        _matches_any(_without_receiver_value(text), _CUSTOMER_INVOICE_DESCRIPTORS)
+        or _matches_any(joined, _CUSTOMER_INVOICE_DESCRIPTORS)
+    ) and not (_wire_vetoes_apply(text) and _wire_vetoed(text, region, account_name))
     if _matches_any(text, _VERIFIED_REVENUE_CREDIT_PATTERNS) or _matches_any(joined, _VERIFIED_REVENUE_CREDIT_PATTERNS):
         return _RevenueDecision(
             "verified_revenue",

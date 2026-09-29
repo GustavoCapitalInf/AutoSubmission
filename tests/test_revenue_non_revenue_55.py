@@ -59,6 +59,34 @@ def test_rbc_s_funds_transfer_credit_names_its_sender():
     assert prints_internal_transfer_designation("FUNDS TRANSFER FROM SAVINGS 1234")
 
 
+#: S2.3 review (fix 1, §7.11): 'FROM <payer>' names a third party; an account type or product after FROM describes one
+#: of the holder's own accounts, so the transfer stays own-account.
+OWN_ACCOUNT_DESCRIPTIONS = [
+    "FUNDS TRANSFER FROM BUSINESS SAVINGS 1234",
+    "FUNDS TRANSFER CREDIT FROM MONEY MARKET 1234",
+    "BOOK TRANSFER FROM OPERATING ACCOUNT 1234",
+    "FUNDS TRANSFER FROM PERSONAL CHECKING 1234",
+    "ONLINE FUNDS TRANSFER FROM BUSINESS CHECKING 1234",
+    "BOOK TRANSFER CREDIT FROM TAX RESERVE 1234",
+    "FUNDS TRANSFER FROM LINE OF CREDIT 1234",
+]
+
+
+@pytest.mark.parametrize("holder", [None, "FABRIKAM LLC"])
+@pytest.mark.parametrize("printed", OWN_ACCOUNT_DESCRIPTIONS)
+def test_a_transfer_from_an_account_description_stays_own_account(printed, holder):
+    assert _credit(printed, holder=holder).revenue_classification == "non_revenue"
+    assert prints_internal_transfer_designation(printed)
+
+
+def test_a_transfer_from_a_named_payer_is_still_a_third_party():
+    printed = "FUNDS TRANSFER FROM CONTOSO SUPPLY LLC"
+    assert _credit(printed, holder="FABRIKAM LLC").revenue_classification == "unverified_deposit"
+    assert not prints_internal_transfer_designation(printed)
+    # ... unless the named payer is the holder (§5.2's holder test).
+    assert _credit(printed, holder="CONTOSO SUPPLY LLC").revenue_classification == "non_revenue"
+
+
 @pytest.mark.parametrize(("printed", "state"), [
     ("DEBIT CARD CREDIT VISA DIRECT SQUARE INC", "verified_revenue"),
     ("Debit Card Credit: Stripe Payout", "verified_revenue"),
@@ -86,6 +114,15 @@ def test_customer_id_and_a_customer_check_never_verify():
         "unverified_deposit")
     assert _credit("FABRIKAM CUSTOMER CHECK PAYMENT").revenue_classification == "unverified_deposit"
     assert _credit("FABRIKAM CUSTOMER ACH PAYMENT").revenue_classification == "verified_revenue"
+
+
+def test_the_customer_descriptor_never_reads_the_receiver_s_name():
+    # S2.3 review (fix 4, §5.2): the receiver field prints the holder; its value never verifies a customer descriptor.
+    receiver = "FABRIKAM SUPPLY DES:PAYMENT ID:1 INDN:CONTOSO CUSTOMER CARE LLC CO ID:1 CCD"
+    assert _credit(receiver, holder="CONTOSO CUSTOMER CARE LLC").revenue_classification == "unverified_deposit"
+    assert _credit(receiver).revenue_classification == "unverified_deposit"
+    originator = "CONTOSO CUSTOMER CARE LLC DES:PAYMENT ID:1 INDN:FABRIKAM SUPPLY CO ID:1 CCD"
+    assert _credit(originator, holder="FABRIKAM SUPPLY").revenue_classification == "verified_revenue"
 
 
 @pytest.mark.parametrize(("printed", "rule"), [

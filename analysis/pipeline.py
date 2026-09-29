@@ -1386,7 +1386,9 @@ def identify_internal_transfers(
     4. **the printed designation** — at least one of the two legs prints an
        INTERNAL-MOVEMENT designation, read by
        `analysis/transaction_classifier.py::prints_internal_transfer_designation`
-       and therefore by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` alone. A pair that
+       and therefore by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` and, since 5.5
+       (§7.11), a book or funds transfer that prints no third-party originator;
+       never by the peer-to-peer vocabulary of `_TRANSFER_PATTERNS`. A pair that
        fails this clause is simply NOT FLAGGED — it is not ambiguous, it is an
        arithmetic coincidence, and both postings keep every effect they have
        today. That is the clause the whole rule turns on: without it a member
