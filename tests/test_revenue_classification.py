@@ -61,7 +61,6 @@ def _txn(
         ("ACH Credit Customer Payment INV-42", None),
         ("Merchant processor settlement", None),
         ("Card sales deposit", None),
-        ("Customer check deposit", None),
         ("DoorDash payout", "DoorDash"),
         ("Invoice payment 1042", None),
         ("Direct Deposit Misc. Payments MRCH22064280019", None),
@@ -104,6 +103,8 @@ def test_verified_operating_credits_are_verified_revenue(
         "INTERAC e-Transfer Received",
         "Check deposit",
         "Cash deposit",
+        # 5.5 (true revenue spec §6.1 step 9b, Q3): a check deposit is never verified, whatever it prints.
+        "Customer check deposit",
         "Incoming credit from unknown source",
     ],
 )
@@ -205,8 +206,8 @@ def test_serialized_revenue_views_fail_when_a_credit_lacks_a_classification():
 def test_proven_duplicate_credit_is_non_revenue_without_changing_credit_math():
     statement = Statement(
         transactions=[
-            _txn("2054-01-02", "Customer ACH payment", 100.0, balance=1100.0),
-            _txn("2054-01-02", "Customer ACH payment", 100.0, balance=1100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0, balance=1100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0, balance=1100.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -225,7 +226,7 @@ def test_proven_duplicate_credit_is_non_revenue_without_changing_credit_math():
 def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
     statement = Statement(
         transactions=[
-            _txn("2054-01-02", "Customer ACH payment", 100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0),
             _txn("2054-01-03", "Mobile deposit", 50.0),
             _txn("2054-01-04", "Internal transfer from savings", 25.0),
             _txn("2054-01-05", "Rent payment", -20.0),
@@ -256,7 +257,7 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
 def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
     statement = Statement(
         transactions=[
-            _txn("2054-01-02", "Customer ACH payment", 100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0),
             _txn("2054-01-03", "Mobile deposit", 50.0),
             _txn("2054-01-04", "Debit Card Credit", 25.0),
             _txn("2054-01-05", "Online transfer from savings 1234", 40.0),
@@ -294,7 +295,7 @@ def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
 def test_withholding_denominator_is_legacy_by_default_and_configurable():
     statement = Statement(
         transactions=[
-            _txn("2054-01-01", "Customer ACH payment", 1000.0),
+            _txn("2054-01-01", "Fabrikam customer ACH payment", 1000.0),
             _txn("2054-01-02", "Mobile deposit", 200.0),
             _txn("2054-01-03", "INTERAC e-Transfer Returned", 100.0),
             _txn("2054-01-04", "Rapid Finance funding", 500.0),

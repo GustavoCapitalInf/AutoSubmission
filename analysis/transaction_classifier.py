@@ -664,7 +664,9 @@ _INTERNAL_ACCOUNT_SOURCE = (
     r"MONEY MARKET|PCA|(?:SUB )?RESERVE ACCOUNTS?)"
 )
 _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
-    re.compile(r"\b(?:INTERNAL|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
+    # 5.5 (§7.11): BOOK TRANSFER and FUNDS TRANSFER are own-account only without a third-party originator
+    # (_own_book_or_funds_transfer).
+    re.compile(r"\b(?:INTERNAL|ACCOUNT) TRANSFER\b"),
     re.compile(r"\bTRANSFER (?:FROM|BETWEEN) (?:OWN|MY|INTERNAL) ACCOUNTS?\b"),
     re.compile(rf"\b(?:TRANSFER|XFER|TFR) FROM {_INTERNAL_ACCOUNT_SOURCE}\b"),
     re.compile(
@@ -703,6 +705,10 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bCAPITAL CONTRIBUTION\b"),
     re.compile(r"\bINSURANCE (?:PROCEEDS|CLAIM|PAYMENT)\b"),
     re.compile(r"\bTAX REFUND\b"),
+    # 5.5 (§7.11, T5): the tax-refund abbreviations (Treasury's TAX REF; a state's glued TAXRFD, and TAXEIC, review
+    # I6) and account-verification micro-deposits.
+    re.compile(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b"),
+    re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
     re.compile(
         r"\b(?:CASH ?BACK|CASH ?REWARDS?|CARD REWARDS?|CREDIT CARD REWARDS?)"
@@ -720,15 +726,22 @@ _VERIFIED_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bMRCH\d{5,}\b"),
     re.compile(r"\bMERCHANT (?:PROCESSOR )?(?:SETTLEMENT|DEPOSIT|PAYOUT)\b"),
     re.compile(r"\bCARD SALES? (?:DEPOSIT|SETTLEMENT|PAYOUT)\b"),
-    re.compile(r"\bCUSTOMER\b.*\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b"),
-    re.compile(r"\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b.*\bCUSTOMER\b"),
-    re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
-    re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
     re.compile(r"\bMARKETPLACE (?:PAYOUT|SETTLEMENT)\b"),
-    re.compile(r"\bH(?:C|E)?CLAIMPMT\b"),
+    # 5.5 (§7.7): the NACHA claim-payment entry, glued on either side (Chase's SEC, a sixteen-character name or
+    # digits on the left); its unbounded branch takes only the full token, so THECLAIMPMT stays unmatched.
+    re.compile(r"(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b"),
     re.compile(r"\bEDIRPAY\b"),
     re.compile(r"\bMERCHANT BANK(?:CD|CARD|ED) DEPOSIT\b"),
     re.compile(r"\bMTOT DEP\b"),
+)
+#: 5.5 (§6.1 step 11, §7.11): the customer and invoice descriptors. CUSTOMER is never read in CUSTOMER ID (Truist
+#: prints it on every ACH line) and never with CHECK or CHEQUE (Q3). A payer the holder test or the numbered-company
+#: guard matches never verifies through them (§5.2).
+_CUSTOMER_INVOICE_DESCRIPTORS = (
+    re.compile(r"^(?!.*\bCHE(?:CK|QUE)S?\b).*\bCUSTOMER\b(?! ID\b).*\b(?:ACH|PAYMENT|DEPOSIT)\b"),
+    re.compile(r"^(?!.*\bCHE(?:CK|QUE)S?\b).*\b(?:ACH|PAYMENT|DEPOSIT)\b.*\bCUSTOMER\b(?! ID\b)"),
+    re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
+    re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
 )
 _OPERATING_CREDIT_CONTEXT_PATTERNS = (
     re.compile(r"\b(?:SETTLEMENT|PAYOUT|DISBURSEMENT)\b"),
@@ -813,9 +826,15 @@ def prints_internal_transfer_designation(description: str) -> bool:
     question is asked of exactly the text every other classification in this
     module is decided on.
     """
-    return _matches_any(
-        normalize_transaction_description(description),
-        _INTERNAL_TRANSFER_CREDIT_PATTERNS,
+    text = normalize_transaction_description(description)
+    # 5.5 (§7.11): a book or funds transfer designates an own account only when it prints no third-party originator.
+    return _matches_any(text, _INTERNAL_TRANSFER_CREDIT_PATTERNS) or (
+        _BOOK_OR_FUNDS_TRANSFER.search(text) is not None
+        and _EFT_FUNDS_TRANSFER.search(text) is None
+        and (
+            (_BOOK_OR_FUNDS_TRANSFER.search(text).group(0).startswith("BOOK") and not THIRD_PARTY_BOOK_TRANSFER_AS_WIRE)
+            or _third_party_originator(text) is None
+        )
     )
 
 
@@ -2007,6 +2026,7 @@ def _classify_credit_revenue(
 ) -> _RevenueDecision | None:
     if amount <= 0 or not posted:
         return None
+    text = revenue_text(text)
 
     if not direction_consistent:
         return _RevenueDecision(
@@ -2019,7 +2039,7 @@ def _classify_credit_revenue(
             "The source direction conflicts with the signed amount, so the credit requires review.",
             context_signals=("positive_amount", "direction_conflict"),
         )
-    if _matches_any(text, _REVERSAL_CANCELLATION_CREDIT_PATTERNS):
+    if _reversal_credit(text):
         return _RevenueDecision(
             "non_revenue",
             None,
@@ -2031,10 +2051,28 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    # A premium-finance credit keeps the insurance credit treatment (spec §4.2).
-    insurance_match = _insurance_registry_match(text)
-    if insurance_match is not None:
+    # §7.7: the lookups below read a glued HCCLAIMPMT split from the name before it.
+    lookup_text = _split_glued_claim(text)
+    claim_entry = _HCCLAIMPMT.search(text) is not None
+    # A premium-finance credit keeps the insurance credit treatment (spec §4.2). T18: a claim payment skips the
+    # insurer registry when the owner's switch is on; T14: an insurer's customer payment is held, not decided.
+    insurance_match = _insurance_registry_match(lookup_text)
+    if insurance_match is not None and not (claim_entry and HCCLAIMPMT_CLAIM_FIRST):
         entity, alias, _premium_finance = insurance_match
+        if claim_entry or _INSURER_CUSTOMER_PAYMENT.search(_before_receiver(text)):
+            return _RevenueDecision(
+                "unverified_deposit",
+                entity,
+                "insurer_customer_payment",
+                alias,
+                "insurer_customer_payment_requires_review",
+                0.60,
+                (
+                    f"Credit matched insurance provider alias '{alias}' with customer-payment or claim-payment "
+                    "wording; an analyst decides whether it is revenue."
+                ),
+                context_signals=("credit_direction", "insurance_provider", "customer_payment_wording"),
+            )
         return _RevenueDecision(
             "non_revenue",
             entity,
@@ -2045,13 +2083,24 @@ def _classify_credit_revenue(
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
             context_signals=("credit_direction", "insurance_provider"),
         )
+    if claim_entry and not HCCLAIMPMT_CLAIM_FIRST and _BLUE_PLAN_CLAIM_PAYER.search(_before_receiver(text)):
+        return _RevenueDecision(
+            "unverified_deposit",
+            None,
+            "insurer_customer_payment",
+            None,
+            "insurer_customer_payment_requires_review",
+            0.60,
+            "A Blue-plan claim payment is held with the insurer's credits until the owner rules on claim first.",
+            context_signals=("credit_direction", "insurance_provider", "customer_payment_wording"),
+        )
     # Spec §4.4 / D1: a credit from a financing group is proceeds. It is decided
     # before the operating-revenue registry, and group aliases are
     # financing-specific (SQUARE CAPITAL, never bare SQUARE), so a platform's
     # sales settlement still reaches the operating registry below. Card-issuer
     # and lease/rental payees never apply to credits, and neither does a
     # payout-credit entity (owner decision 2026-09-25).
-    financing_match = _financing_proceeds_payee(text)
+    financing_match = _financing_proceeds_payee(lookup_text)
     if financing_match is not None:
         return _RevenueDecision(
             "non_revenue",
@@ -2066,9 +2115,9 @@ def _classify_credit_revenue(
             ),
             context_signals=("credit_direction", "financing_proceeds"),
         )
-    # D1 by descriptor (owner decisions 2026-09-25). `_descriptor_proceeds` keeps
-    # the potential registry and the strong non-revenue rule below ahead of a
-    # line-of-credit draw or a floor-plan advance.
+    # D1 by descriptor (owner decisions 2026-09-25; 5.5: Square Capital's SQ CAP, SBA and EIDL). `_descriptor_proceeds`
+    # keeps the potential registry and the strong non-revenue rule below ahead of a line-of-credit draw or a
+    # floor-plan advance.
     descriptor_proceeds = _descriptor_proceeds(text)
     if descriptor_proceeds is not None:
         rule, names_bank = descriptor_proceeds
@@ -2082,7 +2131,7 @@ def _classify_credit_revenue(
             f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are not revenue.",
             context_signals=("credit_direction", "financing_proceeds"),
         )
-    potential_lender_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
+    potential_lender_match = registry_match(lookup_text, POTENTIAL_LENDER_ALIASES)
     if potential_lender_match is not None:
         entity, alias = potential_lender_match
         return _RevenueDecision(
@@ -2095,7 +2144,7 @@ def _classify_credit_revenue(
             f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
             context_signals=("credit_direction", "potential_lender_source"),
         )
-    if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS):
+    if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS) or _own_book_or_funds_transfer(text, account_name):
         return _RevenueDecision(
             "non_revenue",
             None,
@@ -2110,50 +2159,36 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    revenue_match = registry_match(text, OPERATING_REVENUE_SOURCE_ALIASES)
-    if revenue_match is not None:
-        entity, alias = revenue_match
-        source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
-        has_operating_context = _matches_any(text, _OPERATING_CREDIT_CONTEXT_PATTERNS)
-        business_account = _matches_any(
-            normalize_transaction_description(account_name or ""),
-            _BUSINESS_ACCOUNT_PATTERNS,
-        )
-        signals = ["credit_direction", "maintained_operating_source"]
-        if has_operating_context:
-            signals.append("settlement_or_payout_descriptor")
-        if business_account:
-            signals.append("business_account")
-        if has_operating_context:
-            return _RevenueDecision(
-                "verified_revenue",
-                entity,
-                "operating_source_with_credit_context",
-                alias,
-                "verified_operating_source_credit",
-                0.98 if business_account else 0.96,
-                (
-                    f"Credit matched maintained {source_type or 'operating-source'} alias "
-                    f"'{alias}' with settlement, payout, or deposit context."
-                ),
-                source_type=source_type,
-                context_signals=tuple(signals),
-            )
+    # §6.1 step 9b, the channel gate: a consumer rail, a check, cash, branch or ATM deposit, or a row with no payer
+    # word is never verified; a real-time or push rail is verified by the operating registry only.
+    gate = channel_gate(text)
+    if gate != "closed":
+        source_text = _before_receiver(text) if gate == "push" else text
+        source = _operating_source(source_text)
+        if source is not None:
+            return _operating_source_decision(text, source, account_name=account_name, bank=bank)
+    if gate is not None:
+        return _fallback_credit_decision(text)
+
+    region = payer_region(text)
+    form = _card_settlement_form(text, bank=bank)
+    if form is not None and form.label != "net_settle":
         return _RevenueDecision(
-            "unverified_deposit",
-            entity,
-            "operating_source_requires_context",
-            alias,
-            "operating_source_without_payout_context",
-            0.70,
-            (
-                f"Credit matched maintained {source_type or 'operating-source'} alias "
-                f"'{alias}', but the row needs recurrence or related operating activity to verify revenue."
-            ),
-            source_type=source_type,
-            context_signals=tuple(signals),
+            "verified_revenue",
+            form.entity,
+            "operating_income_descriptor",
+            form.label,
+            f"card_settlement_form_{form.label}",
+            0.93,
+            f"Credit prints the card-settlement form '{form.label}'.",
+            source_type=OPERATING_REVENUE_SOURCE_TYPES.get(form.entity) if form.entity else None,
+            context_signals=("credit_direction", "operating_income_descriptor", "card_settlement_form"),
         )
-    if _matches_any(text, _VERIFIED_REVENUE_CREDIT_PATTERNS):
+    joined = _joined_text(_before_receiver(text))
+    customer_or_invoice = _matches_any(text, _CUSTOMER_INVOICE_DESCRIPTORS) or _matches_any(
+        joined, _CUSTOMER_INVOICE_DESCRIPTORS
+    )
+    if _matches_any(text, _VERIFIED_REVENUE_CREDIT_PATTERNS) or _matches_any(joined, _VERIFIED_REVENUE_CREDIT_PATTERNS):
         return _RevenueDecision(
             "verified_revenue",
             None,
@@ -2161,9 +2196,139 @@ def _classify_credit_revenue(
             None,
             "verified_operating_income_descriptor",
             0.93,
-            "Credit has a customer-payment, merchant-settlement, card-sales, invoice, or verified business-deposit descriptor.",
+            "Credit has a merchant-settlement, card-sales, claim-payment, or verified business-deposit descriptor.",
             context_signals=("credit_direction", "operating_income_descriptor"),
         )
+    guard = _refused_by_payer_guards(text, region, account_name)
+    if guard == "holder" and (
+        customer_or_invoice
+        or _payer_remittance(text, region, account_name)
+        or _public_payer_remittance(text) is not None
+        or _wire_remittance_purpose(text, region, account_name)
+    ):
+        return _RevenueDecision(
+            "unverified_deposit",
+            None,
+            "holder_named_payer",
+            None,
+            "payer_prints_the_holders_name",
+            0.40,
+            "The payer prints the account holder's own name or brand, so its remittance wording is not proof.",
+            context_signals=("credit_direction", "holder_named_payer"),
+        )
+    if guard is None:
+        if customer_or_invoice:
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "operating_income_descriptor",
+                None,
+                "verified_operating_income_descriptor",
+                0.93,
+                "Credit has a customer-payment or invoice descriptor.",
+                context_signals=("credit_direction", "operating_income_descriptor"),
+            )
+        if _payer_remittance(text, region, account_name):
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "payer_remittance_descriptor",
+                None,
+                "verified_payer_accounts_payable_remittance",
+                0.90,
+                "The payer prints its accounts-payable remittance: the credit pays an invoice of the business.",
+                context_signals=("credit_direction", "payer_remittance"),
+            )
+        public_rule = _public_payer_remittance(text)
+        if public_rule is not None:
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "public_payer_remittance",
+                None,
+                public_rule,
+                0.90,
+                "A public payer pays a vendor or provider remittance of the business.",
+                source_type="government_payer",
+                context_signals=("credit_direction", "public_payer_remittance"),
+            )
+        if _wire_remittance_purpose(text, region, account_name):
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "wire_remittance_purpose",
+                None,
+                "verified_wire_remittance_purpose",
+                0.90,
+                "The incoming wire's remittance cites an invoice, a purchase order, an order or goods.",
+                context_signals=("credit_direction", "wire_remittance_purpose"),
+            )
+    return _fallback_credit_decision(text)
+
+
+def _operating_source_decision(
+    text: str,
+    source: _OperatingSource,
+    *,
+    account_name: str | None,
+    bank: str | None,
+) -> _RevenueDecision:
+    """5.5 (§6.1 step 10): a credit the operating registry names: verified with payout context, otherwise it needs
+    recurrence or related activity. Property-management platforms and wholesale auctions never verify here: the
+    recurrence pass decides them."""
+    entity, alias, source_type = source.entity, source.alias, source.source_type
+    business_account = _business_account(account_name)
+    has_context = source_type not in {"property_management_payments", "wholesale_auto_auction"} and (
+        _has_operating_context(text, source, bank=bank)
+    )
+    signals = ["credit_direction", "maintained_operating_source"]
+    if source.payout_form:
+        signals.append("payout_form")
+    if has_context:
+        signals.append("settlement_or_payout_descriptor")
+    if business_account:
+        signals.append("business_account")
+    if has_context:
+        return _RevenueDecision(
+            "verified_revenue",
+            entity,
+            "operating_source_with_credit_context",
+            alias,
+            "verified_operating_source_credit",
+            0.98 if business_account else 0.96,
+            (
+                f"Credit matched maintained {source_type or 'operating-source'} "
+                f"{'payout form' if source.payout_form else 'alias'} '{alias}' with settlement, payout, or deposit "
+                "context."
+            ),
+            source_type=source_type,
+            context_signals=tuple(signals),
+        )
+    return _RevenueDecision(
+        "unverified_deposit",
+        entity,
+        "operating_source_requires_context",
+        alias,
+        "operating_source_without_payout_context",
+        0.70,
+        (
+            f"Credit matched maintained {source_type or 'operating-source'} alias "
+            f"'{alias}', but the row needs recurrence or related operating activity to verify revenue."
+        ),
+        source_type=source_type,
+        context_signals=tuple(signals),
+    )
+
+
+def _business_account(account_name: str | None) -> bool:
+    """§7.0: a business account for the recurrence rule: BUSINESS, COMMERCIAL, OPERATING or MERCHANT, or (5.5) a
+    holder name that prints a legal form."""
+    name = account_name_text(account_name)
+    return _matches_any(name, _BUSINESS_ACCOUNT_PATTERNS) or _LEGAL_FORM_HOLDER.search(name) is not None
+
+
+def _fallback_credit_decision(text: str) -> _RevenueDecision:
+    """§6.1 steps 15 and 16: deposit wording, else an unidentified posted credit."""
     if _matches_any(text, _UNVERIFIED_DEPOSIT_CREDIT_PATTERNS):
         return _RevenueDecision(
             "unverified_deposit",
@@ -2686,6 +2851,11 @@ def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
     """
     if _BANK_LINE_ADVANCE_CREDIT.search(text):
         return "bank_line_advance_credit", True
+    # 5.5 (§7.11, T5): Square Capital's SQ CAP spelling on a row that names Square, and SBA and EIDL disbursements.
+    if _SQUARE_CAPITAL_CREDIT.search(text) and _SQUARE_NAME.search(text):
+        return "square_capital_credit", False
+    if _SBA_DISBURSEMENT_CREDIT.search(text):
+        return "sba_disbursement_credit", False
     if registry_match(text, POTENTIAL_LENDER_ALIASES) is not None or _matches_any(
         text, _NON_REVENUE_CREDIT_PATTERNS
     ):

@@ -3358,7 +3358,8 @@ def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():
     assert m.lender_credits == 2000.0
     assert m.lender_debits == 500.0
     assert m.monthly_lender_debits == 500.0
-    assert m.true_revenue == 10000.0
+    # 5.5 (§6.1 step 9b): the bare teller CUSTOMER DEPOSIT prints no payer word, so it is no longer verified.
+    assert m.true_revenue == 0.0
     assert m.cash_flow == 7000.0
     assert m.withholding_rate == 5.0
     assert m.pos_count == 1

@@ -14,7 +14,7 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 BANK = "FABRICATED COMMUNITY BANK"
 # Whole-dollar fabricated amounts: a figure with cents could coincide with a real statement's (the privacy canaries).
-CHECKING_ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (3, "CARD PURCHASE FABRICATED SUPPLY", -312.0),
+CHECKING_ROWS = [(2, "ACH CREDIT NORTHWIND CUSTOMER PAYMENT", 4200.0), (3, "CARD PURCHASE FABRICATED SUPPLY", -312.0),
                  (5, "CHECK 1041", -950.0), (9, "ACH DEBIT FABRICATED FUNDING LLC", -1250.0),
                  (12, "WIRE TRANSFER OUT FABRICATED VENDOR", -5600.0), (13, "DEPOSIT FABRICATED", 3900.0),
                  (27, "SERVICE FEE", -15.0)]
@@ -447,7 +447,7 @@ console.log(JSON.stringify({{...monthly(), chart: chart()}}));
     assert result["chart"]["values"][1] == ["true", "N/A"]
 
 
-PENDING_ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
+PENDING_ROWS = [(2, "ACH CREDIT NORTHWIND CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
                 (6, "DEPOSIT FABRICATED TWO", 200.0), (27, "SERVICE FEE", -15.0)]
 
 

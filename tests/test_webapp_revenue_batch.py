@@ -10,7 +10,7 @@ import pytest
 
 from tests.test_webapp_studio_views import _report
 
-ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
+ROWS = [(2, "ACH CREDIT NORTHWIND CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
         (6, "DEPOSIT FABRICATED TWO", 200.0), (8, "DEPOSIT FABRICATED THREE", 100.0),
         (12, "WIRE TRANSFER OUT FABRICATED VENDOR", -1600.0)]
 # A savings account whose second row is also a deposit awaiting review: each account numbers its own rows, so
