@@ -156,22 +156,28 @@ def test_the_channel_gate(printed, gate):
     ("RTP Credit From Fabrikam LLC Inv 1234", "push"),
 ])
 def test_a_leading_date_never_opens_the_channel_gate(printed, gate):
-    # S2.1 review, finding 1 (§6.1 step 9b, §7.0): a date glued to the row's first word ('01/02Zelle ...') or printed
-    # before it is dropped from the revenue text, so the gate, the payer region, the payer name and the company form
-    # read the dated row as they read the undated one; the gate never fails open.
-    readings = []
-    for variant in (printed, "01/02" + printed, "01/02 " + printed):
+    # S2.1 review, finding 1 (§6.1 step 9b, §7.0): a date glued to the row's first word ('01/02Zelle ...') is dropped
+    # from the revenue text, so the gate, the payer region, the payer name and the company form read the dated row as
+    # they read the undated one. A date printed with a space before the first word is kept (a spaced leading '5 3' is
+    # Fifth Third's 5/3 brand, not a date); the word-bounded rails and forms still read that row, so its gate, payer
+    # name and company form are the undated row's too. The gate never fails open.
+    def readings(variant):
         text = _text(variant)
         region = payer_region(text)
-        readings.append((text, channel_gate(text), region, payer_name(region), company_form(payer_name(region))))
-    assert readings[0][1] == gate
-    assert readings == [readings[0]] * 3
+        return text, channel_gate(text), region, payer_name(region), company_form(payer_name(region))
+
+    undated = readings(printed)
+    assert undated[1] == gate
+    assert readings("01/02" + printed) == undated
+    spaced = readings("01/02 " + printed)
+    assert spaced[0] == "01 02 " + undated[0]
+    assert (spaced[1], spaced[3], spaced[4]) == (undated[1], undated[3], undated[4])
 
 
-@pytest.mark.parametrize("prefix", ["", "01/02", "01/02 ", "1/2", "12/31"])
-def test_a_leading_date_never_hides_a_row_start_label(prefix):
+@pytest.mark.parametrize("prefix", ["", "01/02", "1/2", "12/31", "31/12"])
+def test_a_glued_leading_date_never_hides_a_row_start_label(prefix):
     # The readers anchored at the row's start: the incoming-wire label, the revenue template prefix and the
-    # numbered-company template.
+    # numbered-company template. A glued date is dropped, so they read the row; a spaced one is kept (below).
     wire = _text(prefix + "Wire In From Fabrikam Trading LLC OBI Invoice 1234 TRN 99")
     assert payer_region(wire) == "FABRIKAM TRADING LLC"
     assert entry_fields(wire) == "INVOICE 1234"
@@ -189,6 +195,30 @@ def test_a_leading_date_never_hides_a_row_start_label(prefix):
 ])
 def test_leading_numbers_that_are_no_date_prefix_are_kept(printed):
     assert _text(printed) == normalize(printed)
+
+
+@pytest.mark.parametrize(("printed", "kept"), [
+    ("5/3 Online Transfer From Chk 1234", "5 3 "),                 # Fifth Third's 5/3 brand is no date
+    ("5/3 ATM Deposit", "5 3 "),
+    ("5/3 Fabrikam DES:Payment ID:1234 INDN:Contoso Bakery CO ID:1234567890 CCD", "5 3 "),  # a 5/3 payer's ACH row
+    ("01/02 Zelle Payment From Fabrikam LLC Conf 99", "01 02 "),   # a spaced date is ambiguous: kept
+    ("1/2 Wire In From Fabrikam Trading LLC OBI Invoice 1234", "1 2 "),
+])
+def test_a_leading_number_pair_before_a_space_is_kept(printed, kept):
+    # S2.1 fix round 2 (§7.0): only a date glued to the first word is removed; '5 3 ...' with a space is Fifth Third's
+    # 5/3 brand (its own rows and a 5/3 payer on another bank's rows), so a spaced pair keeps its text.
+    assert _text(printed) == normalize(printed)
+    assert _text(printed).startswith(kept)
+
+
+@pytest.mark.parametrize(("printed", "stripped"), [
+    ("01/02Zelle Payment From Fabrikam LLC Conf 99", "ZELLE PAYMENT FROM FABRIKAM LLC CONF 99"),
+    ("1/2Wire In From Fabrikam Trading LLC OBI Invoice 1234", "WIRE IN FROM FABRIKAM TRADING LLC OBI INVOICE 1234"),
+    ("12/31Bankcard Deposit 123456", "BANKCARD DEPOSIT 123456"),
+    ("31/12Direct Deposit 1234567", "DIRECT DEPOSIT 1234567"),     # a DD MM print too
+])
+def test_a_date_glued_to_the_first_word_is_removed(printed, stripped):
+    assert _text(printed) == stripped
 
 
 @pytest.mark.parametrize(("printed", "region"), [

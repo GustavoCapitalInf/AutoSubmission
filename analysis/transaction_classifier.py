@@ -824,10 +824,11 @@ THIRD_PARTY_BOOK_TRANSFER_AS_WIRE = True
 _GLUED_SEC_CODE = re.compile(
     r"(\bCO (?:ENTRY )?DESCR (?:\S+ ){0,2}?\S{2,}?)SEC (CCD|CTX|PPD|WEB|IAT|COR|TEL|POP|BOC|ARC|RCK|CIE)\b"
 )
-#: §7.0, S2.1 review finding 1: a date the bank prints at the row's start ('01/02Zelle ...' normalizes to
-#: '01 02ZELLE ...'), glued to the first word or one space before it. Two numbers of one or two digits, each 1 to 31
-#: (a month and a day, in either order), then a letter; no other leading number is removed.
-_LEADING_DATE = re.compile(r"^(?:0?[1-9]|[12]\d|3[01]) (?:0?[1-9]|[12]\d|3[01]) ?(?=[A-Z])")
+#: §7.0, S2.1 review finding 1: a date the bank prints at the row's start, glued to the first word ('01/02Zelle ...'
+#: normalizes to '01 02ZELLE ...'). Two numbers of one or two digits, each 1 to 31 (a month and a day, in either
+#: order), then a letter with no space before it; no other leading number is removed. A spaced pair is kept: '5 3 ...'
+#: is Fifth Third's 5/3 brand, and the word-bounded rails and forms read a spaced row anyway (fix round 2).
+_LEADING_DATE = re.compile(r"^(?:0?[1-9]|[12]\d|3[01]) (?:0?[1-9]|[12]\d|3[01])(?=[A-Z])")
 #: §7.0: the fields between Chase's originator and its entry description, and Bank of America's DES label.
 _CHASE_FIELDS_BETWEEN = re.compile(r" ORIG ID \S+ DESC DATE(?: \S+)? CO (?:ENTRY )?DESCR ")
 _BOFA_DES_FIELD = re.compile(r" DES ")
@@ -963,10 +964,10 @@ _ACH_ORIGINATOR_FIELD = re.compile(r"\b(?:DES|CO ENTRY DESCR|ORIG CO NAME)\b")
 
 
 def revenue_text(text: str) -> str:
-    """5.5 (§7.0): the text every credit revenue rule reads: the normalized row without a leading date ('01 02ZELLE
-    PAYMENT' becomes 'ZELLE PAYMENT', so a glued date never hides a rail from the channel gate or a label from a
-    reader anchored at the row's start), and with Chase's glued SEC code split ('CO ENTRY DESCR HCCLAIMPMTSEC CCD'
-    becomes 'CO ENTRY DESCR HCCLAIMPMT SEC CCD')."""
+    """5.5 (§7.0): the text every credit revenue rule reads: the normalized row without a glued leading date
+    ('01 02ZELLE PAYMENT' becomes 'ZELLE PAYMENT', so a glued date never hides a rail from the channel gate or a label
+    from a reader anchored at the row's start; a spaced '5 3 ...' is kept), and with Chase's glued SEC code split
+    ('CO ENTRY DESCR HCCLAIMPMTSEC CCD' becomes 'CO ENTRY DESCR HCCLAIMPMT SEC CCD')."""
     return _GLUED_SEC_CODE.sub(r"\1 SEC \2", _LEADING_DATE.sub("", text, count=1))
 
 
