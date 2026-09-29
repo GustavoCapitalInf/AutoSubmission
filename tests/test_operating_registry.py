@@ -119,17 +119,26 @@ CARD_FORM_ROWS = [
     ("french_card_settlement", "REGLEMENT CARTE"),
     ("french_card_settlement", "DEPOT MARCHAND"),
 ]
-#: Row-anchored layouts keep their `^`: the ruling moves left boundaries, not anchors, so these rows are left out of
-#: the glued-date case (the row-start branch of `brand_dep` and `dep_brand`, and Square's whole-row Activity type).
+#: Square's whole-row Activity type keeps its bare `^`: its layout is Square's own Details column (gated by bank), so it
+#: is left out of the glued-date case. The row-start branch of `brand_dep` and `dep_brand` lets a leading date through
+#: (owner ruling 2026-09-29), so its rows are in.
 ROW_ANCHORED_CARD_ROWS = {
-    ("brand_dep", "VISA DEP 1"),
-    ("dep_brand", "DEP VISA 1"),
     ("square_checking_sales", "CARD PAYMENT SALES"),
 }
 
 
+def _card_form(label):
+    return next(form for form in registry.CARD_SETTLEMENT_CREDIT_FORMS if form.label == label)
+
+
 def _card_form_pattern(label):
-    return next(form.pattern for form in registry.CARD_SETTLEMENT_CREDIT_FORMS if form.label == label)
+    return _card_form(label).pattern
+
+
+def _card_form_reads(label, row):
+    """A card form reads a row when its pattern matches and its refusal does not."""
+    form = _card_form(label)
+    return bool(re.search(form.pattern, row)) and not (form.refusal is not None and re.search(form.refusal, row))
 
 
 def test_every_card_form_has_a_fabricated_row():
@@ -142,6 +151,7 @@ def test_a_card_form_reads_its_row_with_a_date_glued_on_the_left(label, row):
     pattern = _card_form_pattern(label)
     assert re.search(pattern, row)
     assert re.search(pattern, "01 02" + row)
+    assert re.search(pattern, "01 02 " + row)
 
 
 @pytest.mark.parametrize(("label", "row"), CARD_FORM_ROWS)
@@ -150,6 +160,105 @@ def test_a_letter_glued_on_the_left_still_blocks_a_card_form(label, row):
     pattern = _card_form_pattern(label)
     assert re.search(pattern, row)
     assert not re.search(pattern, "X" + row)
+
+
+#: Owner ruling 2026-09-29: every left boundary inside the card forms (refusal words, vetoes and required words) ignores
+#: a glued date, so a date in front never changes how a row reads. The dated variants of a fabricated row.
+DATE_PREFIXES = ("", "01 02", "01 02 ", "1 2")
+
+#: One fabricated row per refusal or veto word, each refused, beside the same row without that word, which reads.
+CARD_REFUSED_ROWS = [
+    ("bankcard", "BANKCARD CTR DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "BANKCARD CENTER DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "PREMIER BANKCARD DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "FIRST BANKCARD DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "ELAN BANKCARD SETTLEMENT", "BANKCARD SETTLEMENT"),
+    ("bankcard", "CARDMEMBER BANKCARD DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "CARD SERVICES BANKCARD DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "CARD SVCS BANKCARD DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "CREDIT CARD BANKCARD DEPOSIT", "BANKCARD DEPOSIT"),
+    ("bankcard", "BANKCARD PROCESSING LLC DEPOSIT", "BANKCARD DEPOSIT"),
+    ("net_settle", "LAW OFFICE DES NET SETTLE", "OFFICE DES NET SETTLE"),
+    ("net_settle", "ATTORNEY DES NET SETTLE", "DES NET SETTLE"),
+    ("net_settle", "ATTORNEYS DES NET SETTLE", "DES NET SETTLE"),
+    ("net_settle", "ESQ DES NET SETTLE", "DES NET SETTLE"),
+    ("net_settle", "TRUST DES NET SETTLE", "DES NET SETTLE"),
+    ("net_settle", "ESCROW DES NET SETTLE", "DES NET SETTLE"),
+    ("net_settle", "TITLE DES NET SETTLE", "DES NET SETTLE"),
+    ("net_settle", "CLAIM DES NET SETTLE", "DES NET SETTLE"),
+    ("net_settle", "CLAIMS DES NET SETTLE", "DES NET SETTLE"),
+    ("intuit_deposit", "TAX INTUIT PYMT SOLN", "INTUIT PYMT SOLN"),
+    ("intuit_deposit", "RFND INTUIT PYMT SOLN", "INTUIT PYMT SOLN"),
+    ("intuit_deposit", "REFUND INTUIT PYMT SOLN", "INTUIT PYMT SOLN"),
+    ("intuit_deposit", "QBC INTUIT PYMT SOLN", "INTUIT PYMT SOLN"),
+    ("intuit_deposit", "CAPITAL INTUIT PYMT SOLN", "INTUIT PYMT SOLN"),
+    ("intuit_deposit", "LOAN INTUIT PYMT SOLN", "INTUIT PYMT SOLN"),
+    ("generic_card_sales", "BALANCE CREDIT CARD DEPOSIT", "CREDIT CARD DEPOSIT"),
+    ("generic_card_sales", "REFUND CREDIT CARD DEPOSIT", "CREDIT CARD DEPOSIT"),
+    ("generic_card_sales", "REWARD CREDIT CARD DEPOSIT", "CREDIT CARD DEPOSIT"),
+    ("generic_card_sales", "REWARDS CREDIT CARD DEPOSIT", "CREDIT CARD DEPOSIT"),
+]
+
+
+@pytest.mark.parametrize(("label", "refused", "bare"), CARD_REFUSED_ROWS)
+def test_a_date_in_front_never_lifts_a_card_refusal_or_veto(label, refused, bare):
+    for prefix in DATE_PREFIXES:
+        assert _card_form_reads(label, prefix + bare), prefix + bare
+        assert not _card_form_reads(label, prefix + refused), prefix + refused
+
+
+#: A required word inside a card form (bankcard's order-free deposit word, a word after the form's leading token) reads
+#: the same with a date glued in front of it: (form, the row up to that word, the row from that word on). The row does
+#: not start at the form's leading token where that would let a row-start branch read it without the word.
+CARD_REQUIRED_WORD_ROWS = [
+    ("bankcard", "", "DEPOSIT BANKCARD"),
+    ("bankcard", "", "SETTLEMENT BKCD"),
+    ("merchant_services_mid", "MERCHANT SERVICES ", "TRANS SLIP"),
+    ("merchant_services_mid", "MERCHANT SERVICES ", "MID 123456"),
+    ("brand_dep", "ACH VISA DEP ", "MERCH SVC"),
+    ("brand_dep", "ACH VISA DEP ", "DIV"),
+    ("dep_brand", "ACH DEP VISA ", "MSP"),
+    ("intuit_deposit", "ORIG CO NAME INTUIT 123456 CO ENTRY ", "DESCR DEPOSIT"),
+    ("network_settlement", "AMERICAN EXPRESS ", "SETTLEMENT"),
+    ("network_settlement", "DISCOVER NETWORK ", "SETL"),
+]
+
+
+@pytest.mark.parametrize(("label", "head", "word"), CARD_REQUIRED_WORD_ROWS)
+def test_a_date_glued_to_a_card_form_s_required_word_never_blocks_it(label, head, word):
+    for prefix in DATE_PREFIXES:
+        assert _card_form_reads(label, head + prefix + word), head + prefix + word
+    assert not _card_form_reads(label, head + "X" + word)
+
+
+#: The row-start branch of brand_dep and dep_brand: a leading date (glued or spaced) is let through, and the rows the
+#: anchor refused before stay refused (spec §7.1: `VISA DEP <person>` and `MOBILE DEP VISA` stay unmatched).
+@pytest.mark.parametrize(("label", "row", "reads"), [
+    ("brand_dep", "VISA DEP 1", True),
+    ("brand_dep", "MC VISA DEP 1", True),
+    ("dep_brand", "DEP VISA 1", True),
+    ("dep_brand", "DEP MC1", True),
+    ("brand_dep", "VISA DEP JOHN DOE", False),
+    ("brand_dep", "MOBILE VISA DEP 1", False),
+    ("brand_dep", "123 VISA DEP 1", False),
+    ("brand_dep", "VISA DEP", False),
+    ("dep_brand", "MOBILE DEP VISA", False),
+    ("dep_brand", "MOBILE DEP VISA 1", False),
+    ("dep_brand", "DEP VISA", False),
+])
+def test_a_leading_date_never_changes_a_row_start_brand_reading(label, row, reads):
+    for prefix in DATE_PREFIXES:
+        assert _card_form_reads(label, prefix + row) is reads, prefix + row
+    assert not _card_form_reads(label, "01 02X" + row)
+
+
+def test_no_card_form_keeps_a_left_word_boundary():
+    # Owner ruling 2026-09-29: a left boundary inside a card form is (?<![A-Z]); \b stays only on the right of a word,
+    # where it is followed by ')', '|', '.' or the end, never by a letter, a group '(?:' or a class '['.
+    left_boundary = re.compile(r"\\b(?=[A-Z]|\(\?:|\[)")
+    for form in registry.CARD_SETTLEMENT_CREDIT_FORMS:
+        for text in (form.pattern, form.refusal or ""):
+            assert not left_boundary.search(text), form.label
 
 
 def test_the_payer_tables_collide_with_no_ledger_or_insurer_alias(monkeypatch):

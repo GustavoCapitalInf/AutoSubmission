@@ -1783,16 +1783,17 @@ class CardSettlementForm:
     bank: str | None = None
 
 
-#: 5.5 (§7.0, §7.1): the card-settlement forms, in reading order. Every form's leading token takes the left boundary
-#: (?<![A-Z]), never \b, so a date glued on the left ('01 02BANKCARD DEPOSIT') does not block it while a glued letter
-#: still does. A row-anchored layout keeps its ^ (the row-start branch of brand_dep and dep_brand, and
-#: square_checking_sales) and is not read after a glued date; inner words, lookahead vetoes and refusals keep \b.
+#: 5.5 (§7.0, §7.1): the card-settlement forms, in reading order. Every left boundary inside a form (its leading
+#: token, its inner and required words, its lookahead vetoes and its refusal) is (?<![A-Z]), never \b, so a date glued
+#: on the left ('01 02BANKCARD DEPOSIT', '01 02ELAN BANKCARD SETTLEMENT') never changes how a row reads while a glued
+#: letter still blocks the word (owner ruling 2026-09-29); \b stays on the right of a word. The row-start branch of
+#: brand_dep and dep_brand lets a leading date through, glued or spaced; square_checking_sales keeps its bare ^.
 CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
     CardSettlementForm(
         "bankcard",
-        r"^(?!.*\b(?:BANKCARD CTR|BANKCARD CENTER|PREMIER BANKCARD|FIRST BANKCARD|ELAN|CARDMEMBER|CARD SERVICES"
-        r"|CARD SVCS|CREDIT CARD)\b)(?=.*(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)\b)"
-        r"(?=.*\b(?:DEP|DEPOSITS?|DEPST|SETTLEMENT|SETTLE|SETLMT|SETL|STLMT|BTOT|MTOT)(?:SEC)?\b)",
+        r"^(?!.*(?<![A-Z])(?:BANKCARD CTR|BANKCARD CENTER|PREMIER BANKCARD|FIRST BANKCARD|ELAN|CARDMEMBER"
+        r"|CARD SERVICES|CARD SVCS|CREDIT CARD)\b)(?=.*(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)\b)"
+        r"(?=.*(?<![A-Z])(?:DEP|DEPOSITS?|DEPST|SETTLEMENT|SETTLE|SETLMT|SETL|STLMT|BTOT|MTOT)(?:SEC)?\b)",
         refusal=(
             r"(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)(?: [A-Z]+){0,2} (?:LLC|INC|CORP|LTD|GROUP"
             r"|HOLDINGS|FUNDING|CAPITAL|FINANCIAL|PARTNERS|SOLUTIONS|SERVICES|SVCS|CO)\b"
@@ -1805,19 +1806,20 @@ CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
     CardSettlementForm("mrchntsrvs", r"(?<![A-Z])DESCR MRCHNTSRVS(?:SEC)?\b"),
     CardSettlementForm("merch_svcs_setl_code", r"(?<![A-Z])MERCH(?:ANT)? SVCS?(?: DES)? [A-Z0-9]*SETL\b"),
     CardSettlementForm(
-        "merchant_services_mid", r"(?<![A-Z])MERCHANT SERVI(?:CES?)?\b.*\b(?:MID ?\d{6,}|TRANS SLIP)\b",
+        "merchant_services_mid",
+        r"(?<![A-Z])MERCHANT SERVI(?:CES?)?\b.*(?<![A-Z])(?:MID ?\d{6,}|TRANS SLIP)\b",
     ),
     CardSettlementForm(
         "brand_dep",
-        r"(?:^|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC"
-        r"|DCVR|IDP|DEBITCD) )+DEP ?\d|(?<![A-Z])(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) )+DEP"
-        r"(?:\d|\b.*\b(?:MSP|DIV|MERCH SVC)\b)",
+        r"(?:^(?:\d{1,2} \d{1,2} ?)?|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )(?:(?:VSA|VISA|VI|MC"
+        r"|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) )+DEP ?\d|(?<![A-Z])(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC"
+        r"|DCVR|IDP|DEBITCD) )+DEP(?:\d|\b.*(?<![A-Z])(?:MSP|DIV|MERCH SVC)\b)",
     ),
     CardSettlementForm(
         "dep_brand",
-        r"(?:^|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC"
-        r"|DCVR|IDP|DEBITCD) ?\d|(?<![A-Z])DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD)\d*\b.*"
-        r"\b(?:MSP|DIV)\b",
+        r"(?:^(?:\d{1,2} \d{1,2} ?)?|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )DEP (?:VSA|VISA|VI|MC"
+        r"|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) ?\d|(?<![A-Z])DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR"
+        r"|IDP|DEBITCD)\d*\b.*(?<![A-Z])(?:MSP|DIV)\b",
     ),
     CardSettlementForm(
         "gbl_brand", r"(?<![A-Z])(?:(?:VISA|MC|AMEXO?|IDP|DISC|DCVR) )?GBL (?:VI|MC|AX|IDP|DS|DC)\d*\b",
@@ -1825,29 +1827,30 @@ CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
     ),
     CardSettlementForm(
         "net_settle", r"(?<![A-Z])(?:DES|DESCR) NET (?:SETTLE|SETLMT|STLMT|SETL)(?:SEC)?\b",
-        refusal=r"\b(?:LAW|ATTORNEYS?|ESQ|TRUST|ESCROW|TITLE|CLAIMS?)\b",
+        refusal=r"(?<![A-Z])(?:LAW|ATTORNEYS?|ESQ|TRUST|ESCROW|TITLE|CLAIMS?)\b",
     ),
     CardSettlementForm("batch_total", r"(?<![A-Z])[BM]TOT DEP\b"),
     CardSettlementForm(
         "intuit_deposit",
         r"(?<![A-Z])INTUIT \d{6,}(?: DES)? DEPOSIT\b|(?<![A-Z])DEPOSIT FROM INTUIT \d{6,}\b"
-        r"|(?<![A-Z])INTUIT PYMT SOLN\b|(?<![A-Z])QBOOKS\b|(?<![A-Z])ORIG CO NAME INTUIT \d+\b.*\bDESCR DEPOSIT\b",
+        r"|(?<![A-Z])INTUIT PYMT SOLN\b|(?<![A-Z])QBOOKS\b"
+        r"|(?<![A-Z])ORIG CO NAME INTUIT \d+\b.*(?<![A-Z])DESCR DEPOSIT\b",
         entity="QuickBooks Payments",
-        refusal=r"\b(?:TAX|RFND|REFUND|QBC|CAPITAL|LOAN)\b",
+        refusal=r"(?<![A-Z])(?:TAX|RFND|REFUND|QBC|CAPITAL|LOAN)\b",
     ),
     CardSettlementForm(
         "square_checking_sales", r"^(?:\d+ ACTIVITIES|CARD PAYMENT) SALES$", entity="Square", bank="SQUARE",
     ),
     CardSettlementForm(
         "network_settlement",
-        r"(?<![A-Z])(?:AMERICAN EXPRESS|DISCOVER NETWORK)\b.*\b(?:SETTLEMENT|SETL)\b|(?<![A-Z])AMEXO GBL\b"
+        r"(?<![A-Z])(?:AMERICAN EXPRESS|DISCOVER NETWORK)\b.*(?<![A-Z])(?:SETTLEMENT|SETL)\b|(?<![A-Z])AMEXO GBL\b"
         r"|(?<![A-Z])MISC PAYMENT AMEX BANK OF CANADA\b",
     ),
     CardSettlementForm(
         "generic_card_sales",
         r"(?<![A-Z])(?:VISA ?MC|CARD PROCESSING) (?:DEPOSIT|DEP|SETTLEMENT|SETL|STLM|STLMT)\b"
-        r"|^(?!.*\b(?:BALANCE|REFUND|REWARDS?)\b).*(?<![A-Z])(?:CREDIT CARD|CR CD|CC) (?:DEPOSIT|DEP|SETTLEMENT|SETL"
-        r"|STLMT)\b",
+        r"|^(?!.*(?<![A-Z])(?:BALANCE|REFUND|REWARDS?)\b).*(?<![A-Z])(?:CREDIT CARD|CR CD|CC) (?:DEPOSIT|DEP"
+        r"|SETTLEMENT|SETL|STLMT)\b",
     ),
     CardSettlementForm(
         "french_card_settlement", r"(?<![A-Z])REGLEMENT (?:CARTE|MARCHAND|COMMERCANT)\b|(?<![A-Z])DEPOT MARCHAND\b",
