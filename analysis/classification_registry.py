@@ -1798,7 +1798,7 @@ CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
         # blank DESC DATE, Bank of America's CO ID, a CO NAME), so 'BANKCARD DESC DATE CO ENTRY DESCR DEPOSIT' reads.
         refusal=(
             r"(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)(?: [A-Z]+){0,2} (?:LLC|INC|CORP|LTD|GROUP"
-            r"|HOLDINGS|FUNDING|CAPITAL|FINANCIAL|PARTNERS|SOLUTIONS|SERVICES|SVCS|CO\b(?! ENTRY\b| ID\b| NAME\b))\b"
+            r"|HOLDINGS|FUNDING|CAPITAL|FINANCIAL|PARTNERS|SOLUTIONS|SERVICES|SVCS|CO\b(?! ENTRY\b| DESCR\b| ID\b| NAME\b))\b"
         ),
     ),
     CardSettlementForm(

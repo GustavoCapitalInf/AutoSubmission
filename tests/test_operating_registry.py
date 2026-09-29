@@ -212,6 +212,7 @@ def test_a_date_in_front_never_lifts_a_card_refusal_or_veto(label, refused, bare
 #: still reads. Normalized rows; the Bank of America row is read as printed and joined (' DES ' removed).
 @pytest.mark.parametrize(("row", "reads"), [
     ("ORIG CO NAME BANKCARD DESC DATE CO ENTRY DESCR DEPOSIT", True),            # Chase, no ORIG ID, blank date
+    ("ORIG CO NAME BANKCARD DESC DATE CO DESCR DEPOSIT", True),                  # Chase's CO DESCR, no ENTRY
     ("ORIG CO NAME BANKCARD ORIG ID BKCD DESC DATE CO ENTRY DESCR DEPOSIT SEC CCD", True),
     ("BANKCARD DES DEPOSIT CO ID 1234567890 CCD", True),                         # Bank of America, no ID field
     ("BANKCARD DEPOSIT CO ID 1234567890 CCD", True),
