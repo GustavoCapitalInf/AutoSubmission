@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import gzip
 import json
+from pathlib import Path
 
 import pytest
 
@@ -474,6 +475,7 @@ def test_the_pdf_basis_reads_one_analysis_per_source_pdf(fabricated_cache):
     # PDF A counts once, from its newest OCR route.
     assert len(accounts[1][1]["statement"]["transactions"]) == len(ROWS)
     assert stats == {"analysis_inputs": 7, "pdfs": 5, "pdfs_joined": 4, "pdfs_joined_on_newest_route": 3,
+                     "pdfs_on_an_older_reconciling_route": 0, "pdfs_without_a_reconciling_route": 0,
                      "pdfs_without_an_analysis": 1, "pdfs_sharing_an_analysis": 1, "analysis_inputs_joined": 4,
                      "orphan_inputs": 3, "orphan_accounts_kept": 2, "orphan_accounts_matching_a_kept_statement": 1,
                      "orphan_accounts_without_identity": 1}
@@ -541,3 +543,355 @@ def test_the_snapshot_reads_the_wire_veto_and_the_recurrence_veto_with_the_check
              for credit in credits]
     assert facts == [(0, True, False), (1, False, False), (2, False, True)]
     assert credits[0]["state"] == "unverified_deposit" and credits[1]["state"] == "verified_revenue"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S3.1 review, fix round 1 (decided by the orchestrator on the owner's delegation): every declared cause is tied to the
+# 5.4 rule it explains and the 5.5 outcome it produces; a guard whose facts the run lacks is reported unchecked, never
+# held; no output inside any repository; the per-PDF basis prefers a reconciling route; the bank is masked.
+# ---------------------------------------------------------------------------------------------------------------------
+
+def _step_11(text):
+    """A credit 5.4's step 11 verified (its plain verified-descriptor rule)."""
+    return _credit(0, 5000, "verified_revenue", "operating_income_descriptor", rule="verified_operating_income_descriptor",
+                   text=text)
+
+
+def _registry(method, text, *, entity="Stripe", alias="STRIPE", cents=5000):
+    """A credit 5.4's operating registry verified (its context, its recurrence or its related activity)."""
+    credit = _credit(0, cents, "verified_revenue", method, text=text, entity=entity)
+    credit["alias"] = alias
+    return credit
+
+
+def _later(method, text, *, state="unverified_deposit", cents=5000, rule=None, entity=None, **facts):
+    return _credit(0, cents, state, method, text=text, rule=rule, entity=entity, **facts)
+
+
+def _causes(priors, laters, admissions=None):
+    base = _snap("5.4", {"a": _account(priors)})
+    after = _snap("5.5", {"a": _account(laters)})
+    return {cause: value["rows"] for cause, value in
+            census.compare(base, [after], admissions=admissions)["runs"][0]["verified_demotions"].items()}
+
+
+SQ_CAP = "SQUARE INC DES SQ CAP#### ID #"
+CAPITAL_SETTLEMENT = "FABRIKAM CAPITAL DES MERCHANT SETTLEMENT ID #"
+TRUIST = "FABRIKAM DES PAYMENT CUSTOMER ID ####"
+CHECK = "FABRIKAM INC DES CUSTOMER PAYMENT CHECK ####"
+HOLDER = "CONTOSO BAKERY LLC DES CUSTOMER PAYMENT ID #"
+NUMBERED = "####### NOVA SCOTIA LTD DES CUSTOMER PAYMENT"
+CLAIM = "BLUE CROSS BLUE DES HCCLAIMPMT ID #"
+PUSH = "RTP CREDIT FABRIKAM CUSTOMER PAYMENT"
+
+
+@pytest.mark.parametrize(("prior", "later", "admissions", "cause"), [
+    # D1 by descriptor precedes every verifying rule (§6.1 step 7): Square Capital's SQ CAP.
+    (_registry("operating_source_with_credit_context", SQ_CAP, entity="Square", alias="SQUARE"),
+     _later("financing_proceeds_credit", SQ_CAP, state="non_revenue", rule="square_capital_credit"), None,
+     "sq_cap_or_sba"),
+    # Financing proceeds of an entity the S1.5 admissions added: declared only with the signed-off list, and only for
+    # an entity on it.
+    (_step_11(CAPITAL_SETTLEMENT), _later("financing_proceeds_credit", CAPITAL_SETTLEMENT, state="non_revenue",
+                                          rule="financing_proceeds_credit", entity="Fabrikam Capital"),
+     ["Fabrikam Capital"], "ledger_admission"),
+    (_step_11(CAPITAL_SETTLEMENT), _later("financing_proceeds_credit", CAPITAL_SETTLEMENT, state="non_revenue",
+                                          rule="financing_proceeds_credit", entity="Fabrikam Capital"),
+     None, "undeclared"),
+    (_step_11(CAPITAL_SETTLEMENT), _later("financing_proceeds_credit", CAPITAL_SETTLEMENT, state="non_revenue",
+                                          rule="financing_proceeds_credit", entity="Fabrikam Capital"),
+     ["Contoso Capital"], "undeclared"),
+    # The reversal-pair pass (its markers widened, §7.11); a duplicate is not it.
+    (_step_11(HOLDER), _later("matched_reversal_pair", HOLDER, state="non_revenue"), None, "reversal_pair"),
+    (_step_11(HOLDER), _later("duplicate_credit_exclusion", HOLDER, state="non_revenue"), None, "undeclared"),
+    # Strong non-revenue declares only the words §7.11 adds to it.
+    (_registry("operating_source_with_credit_context", "STRIPE DES ACCTVERIFY ID #"),
+     _later("strong_non_revenue_rule", "STRIPE DES ACCTVERIFY ID #", state="non_revenue"), None, "acctverify"),
+    (_registry("operating_source_with_credit_context", "IRS TREAS ### DES TAX REF"),
+     _later("strong_non_revenue_rule", "IRS TREAS ### DES TAX REF", state="non_revenue"), None,
+     "new_non_revenue_marker"),
+    (_registry("operating_source_with_credit_context", "STRIPE DES INTEREST PAID"),
+     _later("strong_non_revenue_rule", "STRIPE DES INTEREST PAID", state="non_revenue"), None, "undeclared"),
+    # The reversal rule declares only a return code §7.11 adds, read as the classifier reads it (a code glued to a
+    # digit is an ID's suffix; REVERSAL is 5.4's own word).
+    (_registry("operating_source_with_credit_context", "STRIPE DES PAYMENT RTN ID #"),
+     _later("reversal_cancellation_exclusion", "STRIPE DES PAYMENT RTN ID #", state="non_revenue"), None,
+     "new_non_revenue_marker"),
+    (_registry("operating_source_with_credit_context", "STRIPE DES PAYMENT ID ####RTN"),
+     _later("reversal_cancellation_exclusion", "STRIPE DES PAYMENT ID ####RTN", state="non_revenue"), None,
+     "undeclared"),
+    (_registry("operating_source_with_credit_context", "STRIPE DES REVERSAL"),
+     _later("reversal_cancellation_exclusion", "STRIPE DES REVERSAL", state="non_revenue"), None, "undeclared"),
+    # Claim first off (§7.7): step 11's claim descriptor held with the insurer's credits; not a registry row.
+    (_step_11(CLAIM), _later("insurer_customer_payment", CLAIM), None, "claim_first_off"),
+    (_registry("operating_source_with_credit_context", CLAIM), _later("insurer_customer_payment", CLAIM), None,
+     "undeclared"),
+    # A row 5.4's recurrence lifted that 5.5 reads as a direction conflict; a step-11 row is not the pool's.
+    (_registry("recurring_operating_source", "ELAVON MERCHANT DES DEPOSIT ID #", entity=None, alias=None),
+     _later("direction_conflict", "ELAVON MERCHANT DES DEPOSIT ID #"), None, "direction_conflict_pool"),
+    (_step_11("FABRIKAM DES MERCHANT DEPOSIT"), _later("direction_conflict", "FABRIKAM DES MERCHANT DEPOSIT"), None,
+     "undeclared"),
+    # The $1 floor governs the recurrence pool, not a row verified on its own context.
+    (_registry("recurring_operating_source", "STRIPE DES TRANSFER ID #", cents=50),
+     _later("operating_source_requires_context", "STRIPE DES TRANSFER ID #", cents=50, entity="Stripe"), None,
+     "micro_deposit_floor"),
+    (_registry("operating_source_with_credit_context", "STRIPE DES TRANSFER ID #", cents=50),
+     _later("operating_source_requires_context", "STRIPE DES TRANSFER ID #", cents=50, entity="Stripe"), None,
+     "undeclared"),
+    # The channel gate: a closed row is never verified; a push row is refused to steps 11 to 14, not to the registry.
+    (_registry("recurring_operating_source", "ZELLE FROM FABRIKAM STRIPE"),
+     _later("unidentified_posted_credit", "ZELLE FROM FABRIKAM STRIPE", gate="closed"), None, "channel_gate"),
+    (_step_11(PUSH), _later("ambiguous_credit_descriptor", PUSH, gate="push"), None, "channel_gate"),
+    (_registry("operating_source_with_credit_context", PUSH), _later("ambiguous_credit_descriptor", PUSH, gate="push"),
+     None, "undeclared"),
+    # CUSTOMER ID (§7.11): step 11 whose every match needed it; not a registry row printing it (Truist prints it on
+    # every ACH line), nor a row another CUSTOMER still verifies.
+    (_step_11(TRUIST), _later("ambiguous_credit_descriptor", TRUIST), None, "customer_id"),
+    (_registry("operating_source_with_credit_context", "STRIPE TRANSFER CUSTOMER ID ####### ST-XXXX SETTLEMENT"),
+     _later("operating_source_requires_context", "STRIPE TRANSFER CUSTOMER ID ####### ST-XXXX SETTLEMENT",
+            entity="Stripe"), None, "undeclared"),
+    (_step_11("NORTHWIND CUSTOMER PAYMENT ACH CUSTOMER ID ####"),
+     _later("ambiguous_credit_descriptor", "NORTHWIND CUSTOMER PAYMENT ACH CUSTOMER ID ####"), None, "undeclared"),
+    # CUSTOMER with CHECK or CHEQUE (§7.11, Q3): step 11 only, and only when no other descriptor verified it.
+    (_step_11(CHECK), _later("unidentified_posted_credit", CHECK), None, "customer_check"),
+    (_registry("operating_source_with_credit_context", CHECK), _later("unidentified_posted_credit", CHECK), None,
+     "undeclared"),
+    (_step_11("FABRIKAM MERCHANT DEPOSIT CUSTOMER CHECK"),
+     _later("unidentified_posted_credit", "FABRIKAM MERCHANT DEPOSIT CUSTOMER CHECK"), None, "undeclared"),
+    # The receiver's value: the registry row must have lost its entity's reading, not kept it.
+    (_registry("operating_source_with_credit_context", "FABRIKAM DES PAYMENT ID # INDN STRIPE STREET CAFE CO ID # CCD"),
+     _later("operating_source_requires_context", "FABRIKAM DES PAYMENT ID # INDN STRIPE STREET CAFE CO ID # CCD",
+            entity="Stripe"), None, "undeclared"),
+    # The wire vetoes govern step 11's customer and invoice descriptors, not a settlement descriptor on a wire.
+    (_step_11("WIRE TYPE WIRE IN ORIG FABRIKAM DESIGN INC OBI MERCHANT DEPOSIT"),
+     _later("ambiguous_credit_descriptor", "WIRE TYPE WIRE IN ORIG FABRIKAM DESIGN INC OBI MERCHANT DEPOSIT",
+            wire_vetoed=True), None, "undeclared"),
+    # The holder veto (§5.2) governs steps 11 to 14, never the registry, and its outcome is holder_named_payer.
+    (_step_11(HOLDER), _later("holder_named_payer", HOLDER, holder=True), None, "holder_veto"),
+    (_registry("operating_source_with_credit_context", "DEPOSIT STRIPE CONTOSO BAKERY PAYOUT"),
+     _later("operating_source_requires_context", "DEPOSIT STRIPE CONTOSO BAKERY PAYOUT", entity="Stripe", holder=True),
+     None, "undeclared"),
+    (_step_11(HOLDER), _later("unidentified_posted_credit", HOLDER, holder=True), None, "undeclared"),
+    # The numbered-company guard (§5.2, T11) governs steps 11 to 14, never a processor's settlement or the registry.
+    (_step_11(NUMBERED), _later("unidentified_posted_credit", NUMBERED, numbered=True), None, "numbered_company"),
+    (_step_11("MISC PAYMENT ####### MERCHANT DEPOSIT"),
+     _later("unidentified_posted_credit", "MISC PAYMENT ####### MERCHANT DEPOSIT", numbered=True), None, "undeclared"),
+    (_registry("operating_source_with_credit_context", "MISC PAYMENT ####### STRIPE PAYOUT"),
+     _later("ambiguous_credit_descriptor", "MISC PAYMENT ####### STRIPE PAYOUT", numbered=True), None, "undeclared"),
+    # Square payroll: the registry's Square row with a pay word, Square read as a word (never SQ inside BISQUE).
+    (_registry("operating_source_with_credit_context", "SQUARE INC DES PAYROLL ID #", entity="Square", alias="SQUARE"),
+     _later("operating_source_requires_context", "SQUARE INC DES PAYROLL ID #", entity="Square"), None,
+     "square_payroll"),
+    (_step_11("BISQUE BAKERY DES BONUS CUSTOMER PAYMENT ID #"),
+     _later("unidentified_posted_credit", "BISQUE BAKERY DES BONUS CUSTOMER PAYMENT ID #"), None, "undeclared"),
+    (_registry("operating_source_with_credit_context", "BISQUE BAKERY DES BONUS STRIPE PAYOUT"),
+     _later("operating_source_requires_context", "BISQUE BAKERY DES BONUS STRIPE PAYOUT", entity="Stripe"), None,
+     "recurrence_veto"),
+    # The recurrence veto governs the registry's rows, never step 11's, whatever the fact or the words say.
+    (_step_11("FABRIKAM CAPITAL PARTNERS DES MERCHANT SETTLEMENT ID #"),
+     _later("unidentified_posted_credit", "FABRIKAM CAPITAL PARTNERS DES MERCHANT SETTLEMENT ID #",
+            recurrence_veto_wording=True), None, "undeclared"),
+    (_step_11("FABRIKAM INSURANCE AGENCY DES MERCHANT SETTLEMENT ID #"),
+     _later("unidentified_posted_credit", "FABRIKAM INSURANCE AGENCY DES MERCHANT SETTLEMENT ID #"), None,
+     "undeclared"),
+    # An entity split takes a pool the recurrence lifted, not a row verified on its own context.
+    (_registry("recurring_operating_source", "STRIPE SHOPIFY DES TRANSFER ID #"),
+     _later("operating_source_requires_context", "STRIPE SHOPIFY DES TRANSFER ID #", entity="Shopify"), None,
+     "entity_split"),
+    (_registry("operating_source_with_credit_context", "STRIPE SHOPIFY DES TRANSFER ID #"),
+     _later("operating_source_requires_context", "STRIPE SHOPIFY DES TRANSFER ID #", entity="Shopify"), None,
+     "undeclared"),
+])
+def test_each_declared_cause_explains_only_its_own_rule_and_outcome(prior, later, admissions, cause):
+    assert _causes([prior], [later], admissions) == {cause: 1}
+
+
+def _pool(n, *, entity="Stripe", overrides=None):
+    overrides = overrides or {}
+    rows = []
+    for i in range(n):
+        credit = _credit(i, 50000 + 100 * i, "verified_revenue", "recurring_operating_source",
+                         text="STRIPE DES TRANSFER ID #", entity=entity)
+        credit["alias"] = "STRIPE"
+        credit.update(overrides.get(i, {}))
+        rows.append(credit)
+    return rows
+
+
+def _unlifted(n, *, entity="Stripe", **facts_by_row):
+    return [_credit(i, 50000 + 100 * i, "unverified_deposit", "operating_source_requires_context",
+                    text="STRIPE DES TRANSFER ID #", entity=(facts_by_row.get(f"entity{i}") or entity),
+                    **facts_by_row.get(f"facts{i}", {}))
+            for i in range(n)]
+
+
+@pytest.mark.parametrize(("vetoed", "causes"), [
+    (True, {"recurrence_veto": 1, "pool_below_recurrence_after_a_declared_veto": 2}),
+    # No member was taken out by a declared veto: the pool fell below its count for no declared reason.
+    (False, {"undeclared": 3}),
+])
+def test_a_pool_left_below_its_count_needs_a_vetoed_member_of_the_same_pool(vetoed, causes):
+    laters = _unlifted(3, facts0={"recurrence_veto_wording": vetoed})
+    assert _causes(_pool(3), laters) == causes
+
+
+def test_a_vetoed_member_of_another_pool_or_account_explains_nothing():
+    base = _snap("5.4", {"a": _account(_pool(2)), "b": _account(_pool(1))})
+    vetoed_elsewhere = _unlifted(1, facts0={"recurrence_veto_wording": True})
+    after = _snap("5.5", {"a": _account(_unlifted(2)), "b": _account(vetoed_elsewhere)})
+    demoted = census.compare(base, [after])["runs"][0]["verified_demotions"]
+    assert {cause: value["rows"] for cause, value in demoted.items()} == {"recurrence_veto": 1, "undeclared": 2}
+    other_entity = _pool(3)
+    other_entity[0]["entity"] = "Square"
+    assert _causes(other_entity, _unlifted(3, facts0={"recurrence_veto_wording": True})) == {
+        "recurrence_veto": 1, "undeclared": 2}
+
+
+def test_a_pooled_direction_conflict_is_its_pool_s_declared_veto_by_the_registry_s_reading():
+    """5.4 pooled a direction conflict the registry names; its own decision names no entity, so the snapshot's
+    registry reading (registry_entity) keys its pool."""
+    priors = _pool(3, overrides={2: {"entity": None, "registry_entity": "Stripe"}})
+    laters = _unlifted(3)
+    laters[2] = _credit(2, 50200, "unverified_deposit", "direction_conflict", text="STRIPE DES TRANSFER ID #")
+    assert _causes(priors, laters) == {"direction_conflict_pool": 1,
+                                       "pool_below_recurrence_after_a_declared_veto": 2}
+
+
+def test_a_pool_split_by_one_member_s_re_reading_is_declared_for_every_member():
+    laters = _unlifted(3, entity0="Shopify")
+    assert _causes(_pool(3), laters) == {"entity_split": 3}
+
+
+def test_the_admissions_list_is_given_to_compare_on_the_command_line(tmp_path, capsys):
+    base, after = tmp_path / "s54.json.gz", tmp_path / "s55.json.gz"
+    base.write_bytes(gzip.compress(json.dumps(_snap("5.4", {"a": _account([_step_11(CAPITAL_SETTLEMENT)])})).encode()))
+    after.write_bytes(gzip.compress(json.dumps(_snap("5.5", {"a": _account([
+        _later("financing_proceeds_credit", CAPITAL_SETTLEMENT, state="non_revenue", rule="financing_proceeds_credit",
+               entity="Fabrikam Capital")])})).encode()))
+    admissions = tmp_path / "admissions.json"
+    admissions.write_text(json.dumps({"signed_off": "fabricated", "entities": ["Fabrikam Capital"]}), encoding="utf-8")
+    report = tmp_path / "report.json"
+    arguments = ["compare", "--base", str(base), "--after", str(after), "--out", str(report)]
+    assert census.main(arguments + ["--admissions", str(admissions)]) == 0
+    run = json.loads(report.read_text(encoding="utf-8"))["runs"][0]
+    assert list(run["verified_demotions"]) == ["ledger_admission"]
+    assert census.main(arguments) == 1
+    assert list(json.loads(report.read_text(encoding="utf-8"))["runs"][0]["verified_demotions"]) == ["undeclared"]
+    (tmp_path / "broken.json").write_text("{", encoding="utf-8")
+    assert census.main(arguments + ["--admissions", str(tmp_path / "broken.json")]) == 2
+
+
+def test_the_square_capital_name_is_gone_and_every_declared_cause_is_produced():
+    assert "square_capital" not in census.DECLARED_DEMOTIONS
+    assert {"direction_conflict_pool", "customer_check", "numbered_company", "ledger_admission"} <= set(
+        census.DECLARED_DEMOTIONS)
+
+
+#: The facts a 5.5 snapshot carries (the S2.1 readers'), and those true_revenue.guard_facts adds in 5.6 (S4.2, S4.3).
+FACTS_55 = {"gate": None, "holder": False, "numbered": False, "third_party_originator": False, "own_transfer": False,
+            "pool_candidate": False, "pool_vetoed": False, "pool_threshold": 3, "wire_vetoed": False,
+            "recurrence_veto_wording": False}
+FACTS_56 = {"financing_root": False, "registry_root": False, "registry_financing": False, "pay_or_personal": False,
+            "transfer_no_counterparty": False, "known_financing": False, "payout_or_factoring": False,
+            "numbered_region": False, "customer_descriptor": False, "pooled_while_vetoed": False, "q6_shape": False,
+            "q7_payer_ok": True, "q7_listed": False, "q7_credit_union": False, "q7_veto_word": False}
+UNCHECKED_AT_55 = ["G2", "G3 step 11", "G4", "G5", "G9 tiers", "G11", "G12", "G13 region", "G13 step 11",
+                   "G14 per row"]
+
+
+def test_a_5_5_snapshot_reports_the_guards_its_facts_cannot_check():
+    base = _snap("5.4", {"a": _account([_credit(0, 5000, "unverified_deposit", "x")])})
+    after = _snap("5.5", {"a": _account([_credit(0, 5000, "verified_revenue", "named_payer_repeats", **FACTS_55)])})
+    run = _run(base, after)
+    assert run["unchecked_guards"] == UNCHECKED_AT_55
+    assert run["guard_checks"]["G2"] == {"checked": False, "facts": ["financing_root", "registry_root"],
+                                         "status": "not checked (facts arrive in 5.6)"}
+    assert {name: check["status"] for name, check in run["guard_checks"].items() if check["checked"]} == {
+        name: "held" for name in ("G1", "G3", "G6", "G7b", "G9", "G10", "G13", "G14", "G15", "G16", "G17",
+                                  "undeclared_demotion")}
+    assert run["verdict"] == "hold" and run["failed_guards"] == []
+
+
+def test_a_5_6_snapshot_with_the_guard_facts_checks_every_guard():
+    base = _snap("5.4", {"a": _account([_credit(0, 5000, "unverified_deposit", "x")])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, "verified_revenue", "named_payer_repeats", tier="verified",
+                                                 **FACTS_55, **FACTS_56)])})
+    run = _run(base, after)
+    assert run["unchecked_guards"] == [] and run["verdict"] == "hold"
+    assert all(check["status"] == "held" for check in run["guard_checks"].values())
+    after["accounts"]["a"]["credits"][0]["facts"]["financing_root"] = True
+    run = _run(base, after)
+    assert run["guard_checks"]["G2"]["status"] == "failed" and run["failed_guards"] == ["G2"]
+    assert run["verdict"] == "fail"
+
+
+def test_the_printed_report_never_shows_an_unchecked_guard_as_held(tmp_path, capsys):
+    base, after = tmp_path / "s54.json.gz", tmp_path / "s55.json.gz"
+    base.write_bytes(gzip.compress(json.dumps(_snap("5.4", {"a": _account([
+        _credit(0, 5000, "unverified_deposit", "x")])})).encode()))
+    after.write_bytes(gzip.compress(json.dumps(_snap("5.5", {"a": _account([
+        _credit(0, 5000, "verified_revenue", "named_payer_repeats", **FACTS_55)])})).encode()))
+    capsys.readouterr()
+    assert census.main(["compare", "--base", str(base), "--after", str(after),
+                        "--out", str(tmp_path / "report.json")]) == 0
+    printed = capsys.readouterr().out
+    assert "guards: every checked guard holds" in printed and "all hold" not in printed
+    assert "not checked (facts arrive in 5.6): " + ", ".join(UNCHECKED_AT_55) in printed
+
+
+@pytest.mark.parametrize("entry", ["directory", "file"])
+@pytest.mark.parametrize("depth", [(), ("reports",), ("reports", "deeper")])
+def test_no_output_is_written_inside_any_repository(tmp_path, capsys, entry, depth):
+    """A folder holding a `.git` entry is a checkout (a directory) or a worktree (a file), of any repository."""
+    snapshot = tmp_path / "base.json.gz"
+    snapshot.write_bytes(gzip.compress(json.dumps(BASE).encode("utf-8")))
+    checkout = tmp_path / "some-checkout"
+    checkout.mkdir()
+    if entry == "directory":
+        (checkout / ".git").mkdir()
+    else:
+        (checkout / ".git").write_text("gitdir: ../elsewhere/.git/worktrees/some-checkout\n", encoding="utf-8")
+    out = checkout.joinpath(*depth, "report.json")
+    arguments = ["compare", "--base", str(snapshot), "--after", str(snapshot), "--out"]
+    for spelling in (str(out), "\\\\?\\" + str(out)):
+        assert census.main(arguments + [spelling]) == 2
+        assert "inside the repository" in capsys.readouterr().err
+    assert not out.exists() and not (checkout / "reports").exists()
+    assert census.main(arguments + [str(tmp_path / "plain" / "report.json")]) == 0
+    assert (tmp_path / "plain" / "report.json").is_file()
+
+
+def test_the_extended_length_form_of_this_checkout_is_refused(capsys):
+    assert census._output_repository(census.ROOT / "x-census.json") is not None
+    assert census._output_repository(Path("\\\\?\\" + str(census.ROOT / "tools" / "x-census.json"))) is not None
+
+
+def test_the_pdf_basis_prefers_the_newest_route_whose_analysis_reconciles(tmp_path):
+    cache = _FabricatedCache(tmp_path / "webapp_data")
+    newest = cache.ocr(PDF_A, ["FABRICATED PAGE NEW"], "2031-03-02T00:00:00")
+    older = cache.ocr(PDF_A, ["FABRICATED PAGE OLD"], "2031-03-01T00:00:00")
+    cache.analysis(older, [_statement("XXXX1234")], "2031-03-03T00:00:00")
+    cache._put("analysis", newest, {"analysis": {"accounts": [
+        {"statement": _statement("XXXX1234", ROWS[:1]), "reconciliation": {"ok": False}}]}}, "2031-03-03T00:00:00")
+    # PDF B: no route reconciles, so its newest analysed route is kept (and the snapshot's filter drops it).
+    only_b = cache.ocr(PDF_B, ["FABRICATED PAGE B"], "2031-03-01T00:00:00")
+    cache._put("analysis", only_b, {"analysis": {"accounts": [
+        {"statement": _statement("XXXX5678"), "reconciliation": {"ok": False}}]}}, "2031-03-03T00:00:00")
+    cache.connection.close()
+    stats: dict = {}
+    accounts = list(census.cached_accounts(cache.root, basis="pdf", stats=stats))
+    assert [(key, len(account["statement"]["transactions"])) for key, account in accounts] == [
+        (f"p{PDF_A[:12]}.0", len(ROWS)), (f"p{PDF_B[:12]}.0", len(ROWS))]
+    assert (stats["pdfs_joined_on_newest_route"], stats["pdfs_on_an_older_reconciling_route"],
+            stats["pdfs_without_a_reconciling_route"]) == (1, 1, 1)
+    assert len(census.snapshot(iter(accounts), basis="pdf")["accounts"]) == 1
+
+
+def test_the_snapshot_masks_the_bank_and_records_the_registry_s_pool_key():
+    from analysis.schema import Statement
+
+    payload = _statement("XXXX1234", [(3, "SQUARE INC DES SETTLEMENT ID 1234", 500.0)])
+    payload["bank"] = "FABRICATED BANK 24"
+    snap = census.account_snapshot({"statement": Statement.model_validate(payload).model_dump(mode="json")})
+    assert snap["bank"] == "FABRICATED BANK ##"
+    assert snap["credits"][0]["registry_entity"] == "Square"

@@ -17,7 +17,12 @@ Usage, from the repository root of the checkout that holds this tool:
     python -m tools.revenue_census snapshot --jobs-db <webapp.db copy> --out <file> [--code-root <checkout>]
                                             [--basis input|pdf]
     python -m tools.revenue_census compare --base <file> --after <file> [--after <file>] --out <file>
+                                           [--admissions <the S1.5 admissions' signed-off entity list>]
     python -m tools.revenue_census sample --snapshot <5.6 file> --out <file>
+
+Every output is refused inside any repository: a path that is, or sits below, a folder holding a `.git` entry (S3.1
+review). A guard whose facts the run's snapshot lacks is reported "not checked (facts arrive in 5.6)", never as held,
+and the verdict counts the checked guards only.
 
 `--basis` (S3.1): `input` (the default, the plan's census) reads the latest analysis of every cached analysis input.
 An analysis input is a digest over the OCR markdown and its page partition (webapp.artifact_cache.analysis_input_sha),
@@ -40,6 +45,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import re
 import sqlite3
 import statistics
@@ -77,13 +83,16 @@ BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunb
 #: entities, and a pool left below the recurrence count once a declared veto takes a member out. S3.1 (the owner's
 #: delegated review fixes of S2.2 and S2.3): a verified wire that the §7.9 wire vetoes now refuse (they read step 11's
 #: descriptors on a wire, and a row whose reference is glued to WIRE), and a row whose verification read an operating
-#: alias or a customer descriptor only inside the receiver field's value, the holder's name (§5.2). Any other cause
-#: fails.
+#: alias or a customer descriptor only inside the receiver field's value, the holder's name (§5.2). S3.1 review
+#: (fix 2): the direction-conflict pool (§7.0), step 11's CUSTOMER with CHECK or CHEQUE (§7.11), the numbered-company
+#: guard on steps 11 to 14 (§5.2, T11) and the S1.5 ledger admissions (D1). Each cause is declared only for the 5.4 rule
+#: it governs and the 5.5 outcome it produces (_demotion_cause). Square Capital's SQ CAP is `sq_cap_or_sba` (the plan's
+#: `square_capital` named no rule of its own and is gone). Any other cause fails.
 DECLARED_DEMOTIONS = (
-    "square_capital", "square_payroll", "acctverify", "channel_gate", "holder_veto", "customer_id",
+    "square_payroll", "acctverify", "channel_gate", "holder_veto", "customer_id", "customer_check",
     "claim_first_off", "recurrence_veto", "sq_cap_or_sba", "new_non_revenue_marker", "reversal_pair",
     "entity_split", "direction_conflict_pool", "micro_deposit_floor", "pool_below_recurrence_after_a_declared_veto",
-    "wire_veto", "receiver_value",
+    "wire_veto", "receiver_value", "numbered_company", "ledger_admission",
 )
 #: The operating-registry methods (§8.9).
 REGISTRY_METHODS = frozenset({
@@ -92,6 +101,41 @@ REGISTRY_METHODS = frozenset({
 })
 #: G10: the methods that may verify a real-time or push-rail row (step 10, the registry, §6.1 step 9b).
 REGISTRY_VERIFYING_METHODS = REGISTRY_METHODS - {"operating_source_requires_context"}
+#: S3.1 review (fix 1): the methods a recurrence pass gives the rows it lifts (5.4 and 5.5).
+RECURRENCE_LIFT_METHODS = frozenset({"recurring_operating_source", "operating_source_related_activity"})
+#: S3.1 review (fix 1): a 5.4 recurrence pool's members as the 5.4 snapshot records them: the registry rows its pass
+#: lifted, or left unlifted, and the direction conflicts it pooled with them (5.4 pooled every unverified row the
+#: registry names, §7.0).
+POOL_54_METHODS = RECURRENCE_LIFT_METHODS | {"operating_source_requires_context", "direction_conflict"}
+#: S3.1 review (fix 1): the verified methods of steps 12 to 14 (§7.5, §7.6, §7.9), which a 5.5 base may hold.
+STEPS_12_TO_14_METHODS = frozenset({"payer_remittance_descriptor", "public_payer_remittance", "wire_remittance_purpose"})
+#: §7.0: the absolute micro-deposit floor, in cents.
+MICRO_DEPOSIT_FLOOR_CENTS = 100
+#: The demotion causes that read the account (the row's recurrence pool), not the row alone.
+_POOL_CAUSES = frozenset({"entity_split", "pool_below_recurrence_after_a_declared_veto"})
+#: S3.1 review (fix 3): the §14.3 facts each guard, or each arm of one, reads. A check whose facts no credit of the run
+#: carries cannot fail, so it is reported "not checked", never as held: the facts of true_revenue.guard_facts arrive
+#: in 5.6 (S4.2, S4.3). The pool, holder, numbered, gate and own-transfer facts are the S2.1 readers' (5.5).
+GUARD_FACTS = {
+    "G2": ("financing_root", "registry_root"),
+    "G3": ("holder",),
+    "G3 step 11": ("customer_descriptor",),
+    "G4": ("transfer_no_counterparty",),
+    "G5": ("known_financing", "payout_or_factoring"),
+    "G10": ("gate",),
+    "G11": ("pay_or_personal",),
+    "G12": ("q7_payer_ok", "q7_veto_word", "q7_credit_union", "q7_listed"),
+    "G13": ("numbered",),
+    "G13 region": ("numbered_region",),
+    "G13 step 11": ("customer_descriptor",),
+    "G14": ("pool_candidate", "pool_vetoed", "pool_threshold"),
+    "G14 per row": ("pooled_while_vetoed",),
+    "G17": ("own_transfer",),
+}
+#: The checks that read no fact (a row's state, method, tier, amount or text), always checked; G9's tier identity
+#: ("G9 tiers") is checked when the run carries tiers (5.6).
+FACT_FREE_CHECKS = ("G1", "G6", "G7b", "G9", "G15", "G16", "undeclared_demotion")
+NOT_CHECKED = "not checked (facts arrive in 5.6)"
 #: G3: the rules that verify on the payer's identity or remittance (step 11's descriptors, steps 12 to 14, Q5, Q6).
 IDENTITY_METHODS = frozenset({
     "payer_remittance_descriptor", "public_payer_remittance", "wire_remittance_purpose", "repeat_wire_sender",
@@ -127,14 +171,61 @@ _ACH_FIELD = re.compile(r"\b(?:DES|CO ENTRY DESCR|ORIG CO NAME)\b")
 _RECEIVER_VALUE = re.compile(
     r"\b(?:INDN|IND NAME|IND ID|RECEIVER NAME)\b.*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
 )
+#: S3.1 review: a classifier word boundary read on the digit-masked text. A masked digit ('#') is a word character, as
+#: the digit was, so '####RTN' is not the word RTN (the classifier never read '1234RTN' as it).
+_MASKED_BOUNDARY = r"(?:(?<![\w#])(?=[\w#])|(?<=[\w#])(?![\w#]))"
+
+
+def _on_masked(pattern: str) -> re.Pattern[str]:
+    """A classifier pattern (copied verbatim) read on the census's digit-masked text: \\d and \\w read '#', and \\b
+    counts '#' as a word character. Not for patterns with \\w or \\d inside a character class."""
+    return re.compile(
+        pattern.replace(r"\d", r"[\d#]").replace(r"\w", r"[\w#]").replace(r"\b", _MASKED_BOUNDARY)
+    )
+
+
 #: S3.1 (receiver_value): classification 5.4's customer, invoice and receivable descriptors (its
 #: _VERIFIED_REVENUE_CREDIT_PATTERNS), which it read on the whole row.
-_PRE_55_CUSTOMER_DESCRIPTORS = (
-    re.compile(r"\bCUSTOMER\b.*\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b"),
-    re.compile(r"\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b.*\bCUSTOMER\b"),
-    re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
-    re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
-)
+_PRE_55_CUSTOMER_DESCRIPTORS = tuple(_on_masked(pattern) for pattern in (
+    r"\bCUSTOMER\b.*\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b",
+    r"\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b.*\bCUSTOMER\b",
+    r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b",
+    r"\bACCOUNTS? RECEIVABLE\b",
+))
+#: S3.1 review (fix 1): classification 5.4's other verified descriptors (the rest of _VERIFIED_REVENUE_CREDIT_PATTERNS,
+#: verbatim): merchant, card and marketplace settlements and the claim payment. A row they read is not step 11's
+#: customer or invoice verification.
+_PRE_55_OTHER_DESCRIPTORS = tuple(_on_masked(pattern) for pattern in (
+    r"\bMRCH\d{5,}\b",
+    r"\bMERCHANT (?:PROCESSOR )?(?:SETTLEMENT|DEPOSIT|PAYOUT)\b",
+    r"\bCARD SALES? (?:DEPOSIT|SETTLEMENT|PAYOUT)\b",
+    r"\bMARKETPLACE (?:PAYOUT|SETTLEMENT)\b",
+    r"\bH(?:C|E)?CLAIMPMT\b",
+    r"\bEDIRPAY\b",
+    r"\bMERCHANT BANK(?:CD|CARD|ED) DEPOSIT\b",
+    r"\bMTOT DEP\b",
+))
+_PRE_55_VERIFIED_DESCRIPTORS = _PRE_55_CUSTOMER_DESCRIPTORS + _PRE_55_OTHER_DESCRIPTORS
+#: S3.1 review (customer_check): 5.4's customer descriptors as 5.5 reads them for CHECK and CHEQUE (§7.11: neither
+#: CUSTOMER pattern accepts them, _CUSTOMER_INVOICE_DESCRIPTORS), CUSTOMER ID aside (customer_id has its own cause).
+_CUSTOMER_WITHOUT_CHECK = tuple(_on_masked(pattern) for pattern in (
+    r"^(?!.*\bCHE(?:CK|QUE)S?\b).*\bCUSTOMER\b.*\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b",
+    r"^(?!.*\bCHE(?:CK|QUE)S?\b).*\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b.*\bCUSTOMER\b",
+)) + _PRE_55_CUSTOMER_DESCRIPTORS[2:] + _PRE_55_OTHER_DESCRIPTORS
+_CHECK_WORD = _on_masked(r"\bCHE(?:CK|QUE)S?\b")
+_CUSTOMER_ID = _on_masked(r"\bCUSTOMER ID\b")
+#: §7.11, 5.5 verbatim: the return codes that joined the reversal rule's credit markers
+#: (_RETURN_CODE_CREDIT_PATTERNS), the tax-refund abbreviations and the account-verification words that joined the
+#: strong non-revenue rule (_NON_REVENUE_CREDIT_PATTERNS).
+_RETURN_CODES_55 = _on_masked(r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RECALL(?:ED)?|UNPAID|REJT|CHBK|CHGBK)\b")
+_TAX_REFUNDS_55 = _on_masked(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b")
+_ACCOUNT_VERIFICATION_55 = _on_masked(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
+#: §7.7: 5.4's claim-payment descriptor, and 5.5's claim entry (glued on either side).
+_CLAIM_54 = _on_masked(r"\bH(?:C|E)?CLAIMPMT\b")
+_CLAIM_55 = _on_masked(r"(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b")
+#: §7.0 (square_payroll): Square named as a word, and the pay words of the recurrence veto.
+_SQUARE_WORD = _on_masked(r"\b(?:SQ|SQUARE)\b")
+_PAY_WORD = re.compile(r"(?<![A-Z])(?:PAYROLL|PAYRL|DIR ?DEP|DIRECT DEP|SALAR|WAGE|BONUS)")
 #: §7.0 (recurrence_veto): the recurrence veto's words, read on the digit-masked row before its receiver fields when a
 #: snapshot carries no `recurrence_veto_wording` fact (a checkout before 5.5). S2.2 review (item A): a veto word of four
 #: letters or more (all its words counted) reads through a glued digit, (?<![A-Z]) (a masked digit is '#'); a word of
@@ -302,15 +393,39 @@ def _statement_identity(account: dict) -> tuple | None:
     return " ".join(str(statement.get("bank") or "").upper().split()), digits[-4:], str(start), str(end)
 
 
+def _reconciles(payload: dict) -> bool:
+    """S3.1 review: an analysis passes the snapshot's filter when every account it holds reconciles."""
+    accounts = list(_account_payloads(payload.get("artifact")))
+    return bool(accounts) and all(bool((account.get("reconciliation") or {}).get("ok")) for account in accounts)
+
+
+def _pdf_route(
+    data_dir: Path, latest: dict[str, tuple[str, str]], candidates: list[tuple[str, int]]
+) -> tuple[str, int, dict | None, bool]:
+    """S3.1 review: of a PDF's analysed routes (newest first), the newest whose analysis reconciles (passes the
+    snapshot's filter); the newest when none does. (sha, route position, payload, reconciles)."""
+    newest: tuple[str, int, dict | None] | None = None
+    for sha, position in candidates:
+        payload = _artifact(data_dir, latest[sha][0])
+        if newest is None:
+            newest = (sha, position, payload)
+        if payload is not None and _reconciles(payload):
+            return sha, position, payload, True
+    assert newest is not None
+    return (*newest, False)
+
+
 def _pdf_accounts(
     data_dir: Path, latest: dict[str, tuple[str, str]], routes: dict[str, list[str]], limit: int | None, stats: dict
 ) -> Iterator[tuple[str, dict]]:
-    """S3.1: the pdf basis. Each PDF (in hash order) yields the latest analysis of the analysis input its newest OCR
-    route with an analysis is analysed under, once (two PDFs that read to one markdown share one analysis, which the
-    first yields). Then every analysis input no cached OCR route reaches (an orphan: its route is no longer cached),
-    newest first, yields each account whose statement identity no account yielded before holds (an account without
-    an identity is always yielded). `limit` caps the analyses read."""
-    for name in ("pdfs_joined", "pdfs_joined_on_newest_route", "pdfs_without_an_analysis", "pdfs_sharing_an_analysis",
+    """S3.1: the pdf basis. Each PDF (in hash order) yields the latest analysis of one analysis input its OCR routes
+    are analysed under, once (two PDFs that read to one markdown share one analysis, which the first yields): the
+    newest route whose analysis reconciles, or the newest analysed route when none does (S3.1 review). Then every
+    analysis input no cached OCR route reaches (an orphan: its route is no longer cached), newest first, yields each
+    account whose statement identity no account yielded before holds (an account without an identity is always
+    yielded). `limit` caps the analyses read."""
+    for name in ("pdfs_joined", "pdfs_joined_on_newest_route", "pdfs_on_an_older_reconciling_route",
+                 "pdfs_without_a_reconciling_route", "pdfs_without_an_analysis", "pdfs_sharing_an_analysis",
                  "analysis_inputs_joined", "orphan_inputs", "orphan_accounts_kept",
                  "orphan_accounts_matching_a_kept_statement", "orphan_accounts_without_identity"):
         stats[name] = 0
@@ -320,7 +435,7 @@ def _pdf_accounts(
     identities: set[tuple] = set()
     read = 0
     for pdf in sorted(routes):
-        chosen: tuple[str, int] | None = None
+        candidates: list[tuple[str, int]] = []
         for position, relative in enumerate(routes[pdf]):
             document = ((_artifact(data_dir, relative) or {}).get("artifact") or {}).get("document")
             if not isinstance(document, dict):
@@ -328,23 +443,25 @@ def _pdf_accounts(
             for sha in _analysis_inputs_of(document):
                 if sha in latest:
                     reached.add(sha)
-                    if chosen is None:
-                        chosen = (sha, position)
+                    if all(sha != seen for seen, _position in candidates):
+                        candidates.append((sha, position))
         stats["analysis_inputs_joined"] = len(reached)
-        if chosen is None:
+        if not candidates:
             stats["pdfs_without_an_analysis"] += 1
             continue
         stats["pdfs_joined"] += 1
-        stats["pdfs_joined_on_newest_route"] += chosen[1] == 0
-        if chosen[0] in taken:
-            stats["pdfs_sharing_an_analysis"] += 1
-            continue
-        taken.add(chosen[0])
         if limit is not None and read >= limit:
             stats["limit_reached"] = True
             return
+        sha, position, payload, reconciles = _pdf_route(data_dir, latest, candidates)
+        stats["pdfs_joined_on_newest_route"] += position == 0
+        stats["pdfs_on_an_older_reconciling_route"] += reconciles and sha != candidates[0][0]
+        stats["pdfs_without_a_reconciling_route"] += not reconciles
+        if sha in taken:
+            stats["pdfs_sharing_an_analysis"] += 1
+            continue
+        taken.add(sha)
         read += 1
-        payload = _artifact(data_dir, latest[chosen[0]][0])
         if payload is None:
             continue
         for index, account in enumerate(_account_payloads(payload.get("artifact"))):
@@ -472,7 +589,9 @@ def _guard_facts(record, text: str) -> dict:
 
 def account_snapshot(account: dict) -> dict:
     """Re-classify one account payload with the `analysis` package on sys.path."""
+    from analysis.classification_registry import OPERATING_REVENUE_SOURCE_ALIASES
     from analysis.metrics import compute_metrics
+    from analysis.payee_matcher import registry_match
     from analysis.schema import Statement
     from analysis.transaction_classifier import classify_statement_transactions
 
@@ -484,7 +603,11 @@ def account_snapshot(account: dict) -> dict:
     for index, record in enumerate(records):
         if record.amount <= 0 or not record.is_posted or record.revenue_classification is None:
             continue
+        # S3.1 review: the operating registry's reading of the whole row, which is 5.4's recurrence-pool key (§7.0:
+        # 5.4 pooled a direction conflict the registry names, whose own decision names no entity).
+        registry = registry_match(record.normalized_description, OPERATING_REVENUE_SOURCE_ALIASES)
         credits.append({
+            "registry_entity": registry[0] if registry else None,
             "i": index,
             "cents": round(record.amount * 100),
             "state": record.revenue_classification,
@@ -508,7 +631,8 @@ def account_snapshot(account: dict) -> dict:
             "non_revenue": round(metrics.non_revenue_total * 100),
         }
     return {
-        "bank": statement.bank,
+        # S3.1 review: the bank as printed can hold digits; it is masked like every other text.
+        "bank": mask(statement.bank),
         "rows": len(records),
         "credits": credits,
         "posted_cents": sum(credit["cents"] for credit in credits),
@@ -645,15 +769,46 @@ def _narrowing(base: dict, after: dict) -> str | None:
     return None
 
 
+def _matches(patterns: Iterable[re.Pattern[str]], text: str) -> bool:
+    return any(pattern.search(text) for pattern in patterns)
+
+
+def _step_11(base: dict) -> bool:
+    """A row step 11's verified descriptors verified (method operating_income_descriptor, the plain descriptor rule;
+    not a card form)."""
+    return base["method"] == "operating_income_descriptor" and (
+        base.get("rule") or "verified_operating_income_descriptor"
+    ) == "verified_operating_income_descriptor"
+
+
+def _step_11_customer(base: dict) -> bool:
+    """S3.1 review: a row 5.4's step 11 verified by its customer, invoice or receivable descriptor alone: one of them
+    reads the row and none of 5.4's other verified descriptors (a merchant, card or marketplace settlement, a claim
+    payment) does, so the verification rested on the rules §5.2 and §7.11 change."""
+    text = base["text"]
+    return (
+        _step_11(base) and _matches(_PRE_55_CUSTOMER_DESCRIPTORS, text)
+        and not _matches(_PRE_55_OTHER_DESCRIPTORS, text)
+    )
+
+
+def _steps_11_to_14(base: dict) -> bool:
+    """S3.1 review: the rules that verify on the payer's identity or remittance (§5.2: step 11's customer and invoice
+    descriptors, steps 12 to 14), which the holder test and the numbered-company guard govern."""
+    return _step_11_customer(base) or base["method"] in STEPS_12_TO_14_METHODS
+
+
 def _wire_veto_demotion(base: dict, after: dict) -> bool:
     """S3.1 (wire_veto): a verified row of a rule the §7.9 wire vetoes govern (WIRE_VETOED_METHODS; of step 11 only its
-    customer and invoice descriptors, not a card form) that the checkout's own wire vetoes refuse (the snapshot's
-    `wire_vetoed` fact), and that therefore fell to steps 15 and 16. A snapshot without the fact declares none."""
+    customer and invoice descriptors, not a card form nor another settlement descriptor) that the checkout's own wire
+    vetoes refuse (the snapshot's `wire_vetoed` fact), and that therefore fell to steps 15 and 16. A snapshot without
+    the fact declares none."""
     facts = after.get("facts") or {}
     if not facts.get("wire_vetoed") or after["method"] not in FALLBACK_METHODS:
         return False
     if base["method"] == "operating_income_descriptor":
-        return (base.get("rule") or "verified_operating_income_descriptor") == "verified_operating_income_descriptor"
+        # S3.1 review: 5.4 read a customer or invoice descriptor (the wire vetoes do not govern a settlement form).
+        return _step_11_customer(base)
     return base["method"] in WIRE_VETOED_METHODS
 
 
@@ -668,13 +823,10 @@ def _read_only_in_receiver_value(base: dict) -> bool:
     if base["method"] in REGISTRY_METHODS and base.get("alias"):
         alias = re.compile(rf"(?<!\S){re.escape(mask(base['alias']))}(?!\S)")
         return alias.search(text) is not None and alias.search(without) is None
-    if (
-        base["method"] == "operating_income_descriptor"
-        and (base.get("rule") or "verified_operating_income_descriptor") == "verified_operating_income_descriptor"
-    ):
-        return any(pattern.search(text) for pattern in _PRE_55_CUSTOMER_DESCRIPTORS) and not any(
-            pattern.search(without) for pattern in _PRE_55_CUSTOMER_DESCRIPTORS
-        )
+    if _step_11(base):
+        # S3.1 review: every 5.4 verified descriptor, so a row another descriptor verified outside the receiver field
+        # is not the receiver's.
+        return _matches(_PRE_55_VERIFIED_DESCRIPTORS, text) and not _matches(_PRE_55_VERIFIED_DESCRIPTORS, without)
     return False
 
 
@@ -691,49 +843,168 @@ def _recurrence_vetoed_wording(after: dict) -> bool:
     return after.get("entity") not in _FUNDING_SETTLEMENT_ENTITIES and _FUNDING_WORDS.search(row) is not None
 
 
-def _demotion_cause(base: dict, after: dict) -> str:
-    """The declared cause of a base verified row that is no longer verified (§7.0, §7.11), or 'undeclared'."""
+def _pool_key(base: dict) -> str | None:
+    """The entity whose 5.4 recurrence pool held a row: the registry's reading of the whole row, which 5.4's pass keyed
+    its pools on (recorded as `registry_entity`; a pooled direction conflict's own decision names no entity), or the
+    row's entity in a snapshot that does not record it."""
+    return base.get("registry_entity") or base.get("entity")
+
+
+def _taken_out_of_pool(base: dict, after: dict, admissions: frozenset) -> bool:
+    """S3.1 review (pool_below): a 5.4 pool member that 5.5 takes out of its pool by a declared veto: the recurrence
+    veto (the snapshot's pool_vetoed or recurrence_veto_wording fact: the veto words, payroll, the $1 floor, a direction
+    conflict, a closed channel, §7.0), a direction conflict or the $1 floor read on the row itself, or a demotion of
+    its own whose cause is declared (a new non-revenue rule, the channel gate, the receiver's value...)."""
+    facts = after.get("facts") or {}
+    if facts.get("pool_vetoed") or facts.get("recurrence_veto_wording") or facts.get("gate") == "closed":
+        return True
+    if after["method"] == "direction_conflict" or after["cents"] < MICRO_DEPOSIT_FLOOR_CENTS:
+        return True
+    if base["state"] == "verified_revenue" and after["state"] != "verified_revenue":
+        cause = _demotion_cause(base, after, {"admissions": admissions})
+        return cause != "undeclared" and cause not in _POOL_CAUSES
+    return False
+
+
+def _account_context(pairs: Iterable[tuple[dict, dict]], admissions: Iterable[str] = ()) -> dict:
+    """S3.1 review: what the pool causes read of one account, from its (5.4 credit, later credit) pairs: for each 5.4
+    pool key, the rows 5.5 took out of the pool by a declared veto (`vetoed`: key -> row indexes), and the keys whose
+    pool one member's re-reading split (`split`: a member 5.5 reads as another registry entity)."""
+    admitted = frozenset(admissions)
+    context: dict = {"admissions": admitted, "vetoed": defaultdict(set), "split": set()}
+    for base, after in pairs:
+        key = _pool_key(base)
+        if key is None or base["method"] not in POOL_54_METHODS:
+            continue
+        if _taken_out_of_pool(base, after, admitted):
+            context["vetoed"][key].add(after["i"])
+        if after.get("entity") and after["entity"] != key:
+            context["split"].add(key)
+    return context
+
+
+def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str:
+    """The declared cause of a base verified row that is no longer verified (§7.0, §7.11), or 'undeclared'.
+
+    S3.1 review (fix 1): each cause is declared only for (a) the 5.4 rule family it governs and (b) the 5.5 outcome it
+    produces, each named beside it; the first that holds names the row. `context` is the row's account
+    (_account_context): the pool causes and the ledger admissions read it, and without it they are never declared."""
+    context = context or {}
     text, method, rule = after["text"], after["method"], after["rule"] or ""
     facts = after.get("facts") or {}
-    if after["cents"] < 100:
-        return "micro_deposit_floor"
-    if rule == "square_capital_credit" or rule == "sba_disbursement_credit":
+    fallback = method in FALLBACK_METHODS
+    unlifted = method == "operating_source_requires_context"
+    key = _pool_key(base)
+    # (a) any verifying rule: D1 by descriptor precedes every verifying step (§6.1 step 7, §7.11); (b) Square Capital's
+    # SQ CAP or an SBA / EIDL disbursement read as financing proceeds.
+    if method == "financing_proceeds_credit" and rule in {"square_capital_credit", "sba_disbursement_credit"}:
         return "sq_cap_or_sba"
+    # (a) any verifying rule: D1 precedes them all (§6.1 step 6); (b) financing proceeds from an entity the S1.5 ledger
+    # admissions added or updated (the owner's signed-off list, given to compare).
+    if method == "financing_proceeds_credit" and after.get("entity") in context.get("admissions", ()):
+        return "ledger_admission"
+    # (a) any verifying rule: the reversal-pair pass runs after every per-row rule, its logic unchanged, and only the
+    # widened credit markers (§7.11, read on the credit or the debit it pairs) find new pairs (§6.2 step 4);
+    # (b) matched_reversal_pair.
     if method == "matched_reversal_pair":
         return "reversal_pair"
-    if method in {"reversal_cancellation_exclusion", "strong_non_revenue_rule"}:
-        return "new_non_revenue_marker"
-    if re.search(r"\bACCT ?VERIFY", text):
+    # (a) any verifying rule: strong non-revenue precedes them all (§6.1 step 9); (b) that rule on a row printing the
+    # account-verification words §7.11 adds to it.
+    if method == "strong_non_revenue_rule" and _ACCOUNT_VERIFICATION_55.search(text):
         return "acctverify"
-    if method == "holder_named_payer" or facts.get("holder"):
-        return "holder_veto"
-    if facts.get("gate") == "closed" or (facts.get("gate") == "push" and base["method"] == "operating_income_descriptor"):
-        return "channel_gate"
-    if re.search(r"\bCUSTOMER ID\b", text):
-        return "customer_id"
-    if method == "insurer_customer_payment":
+    # (a) any verifying rule (§6.1 steps 3 and 9 precede them all); (b) the reversal rule on a row printing a return code
+    # §7.11 adds to its credit markers, or strong non-revenue on a row printing a tax-refund abbreviation it adds.
+    if (method == "reversal_cancellation_exclusion" and _RETURN_CODES_55.search(text)) or (
+        method == "strong_non_revenue_rule" and _TAX_REFUNDS_55.search(text)
+    ):
+        return "new_non_revenue_marker"
+    # (a) 5.4's step-11 claim-payment descriptor (§7.7); (b) the claim entry held with the insurer's credits
+    # (insurer_customer_payment), which 5.5 does only with the T18 switch off.
+    if (
+        method == "insurer_customer_payment" and _CLAIM_55.search(text)
+        and _step_11(base) and _CLAIM_54.search(base["text"])
+    ):
         return "claim_first_off"
+    # (a) a row 5.4's recurrence pass lifted; (b) 5.5 reads it as a direction conflict, which no pass lifts (§7.0).
+    if base["method"] in RECURRENCE_LIFT_METHODS and method == "direction_conflict":
+        return "direction_conflict_pool"
+    # (a) a row 5.4's recurrence pass lifted (the floor governs the pool, not a row verified on its own context);
+    # (b) left unlifted (operating_source_requires_context) under $1 (§7.0).
+    if base["method"] in RECURRENCE_LIFT_METHODS and unlifted and after["cents"] < MICRO_DEPOSIT_FLOOR_CENTS:
+        return "micro_deposit_floor"
+    # §6.1 step 9b. Closed: (a) any verifying rule (no step verifies a closed row, the registry and the recurrence pass
+    # included); (b) the row fell to steps 15 and 16. Push: (a) a rule outside the registry (steps 11 to 14 never verify
+    # a push-rail row); (b) steps 15 and 16.
+    if fallback and (
+        facts.get("gate") == "closed" or (facts.get("gate") == "push" and base["method"] not in REGISTRY_METHODS)
+    ):
+        return "channel_gate"
+    # §7.11. (a) step 11's descriptors, whose every match disappears once CUSTOMER ID is removed (Truist prints it on
+    # every ACH line); (b) steps 15 and 16.
+    if (
+        fallback and _step_11(base) and _CUSTOMER_ID.search(base["text"])
+        and _matches(_PRE_55_VERIFIED_DESCRIPTORS, base["text"])
+        and not _matches(_PRE_55_VERIFIED_DESCRIPTORS, _CUSTOMER_ID.sub(" ", base["text"]))
+    ):
+        return "customer_id"
+    # §7.11 (Q3). (a) step 11's descriptors, whose every match disappears once CUSTOMER refuses CHECK and CHEQUE;
+    # (b) a row printing CHECK or CHEQUE, fallen to steps 15 and 16.
+    if (
+        fallback and _step_11(base) and _CHECK_WORD.search(text)
+        and _matches(_PRE_55_VERIFIED_DESCRIPTORS, base["text"])
+        and not _matches(_CUSTOMER_WITHOUT_CHECK, base["text"])
+    ):
+        return "customer_check"
+    # §5.2. (a) a registry alias or step 11's descriptors read only in the receiver field's value (the holder's name);
+    # (b) steps 15 and 16, or another registry entity read outside that field.
+    if _read_only_in_receiver_value(base) and (fallback or after.get("entity") != base.get("entity")):
+        return "receiver_value"
+    # §7.9 (S2.3 review). (a) step 11's customer or invoice descriptor, the AP remittance or the invoice wire; (b) the
+    # checkout's wire vetoes refuse it (the wire_vetoed fact) and it fell to steps 15 and 16.
     if _wire_veto_demotion(base, after):
         return "wire_veto"
-    if _read_only_in_receiver_value(base):
-        return "receiver_value"
-    if re.search(r"\bPAYROLL|\bPAYRL|\bDIR ?DEP|\bSALAR|\bWAGE|\bBONUS", text) and "SQ" in text or "SQUARE" in text and re.search(r"PAYROLL", text):
+    # §5.2. (a) steps 11 to 14 (the holder veto does not govern the registry, the recurrence pass, the card forms or
+    # the claim form); (b) holder_named_payer, the holder test's own outcome (with the holder fact, when present).
+    if _steps_11_to_14(base) and method == "holder_named_payer" and facts.get("holder", True):
+        return "holder_veto"
+    # §5.2, T11. (a) steps 11 to 14 (never a processor's settlement or template row); (b) steps 15 and 16, with the
+    # numbered-company fact and not the holder's.
+    if _steps_11_to_14(base) and fallback and facts.get("numbered") and not facts.get("holder"):
+        return "numbered_company"
+    # §7.0, §7.2. (a) the operating registry (Square's alias, its context or its recurrence); (b) no longer verified by
+    # it, on a row that names Square as a word and prints a pay word before its receiver fields.
+    if (
+        base["method"] in REGISTRY_VERIFYING_METHODS and (unlifted or fallback)
+        and (_SQUARE_WORD.search(text) is not None)
+        and (_PAY_WORD.search(_before_receiver(text)) is not None)
+    ):
         return "square_payroll"
-    if _recurrence_vetoed_wording(after):
+    # §7.0. (a) the operating registry (its context, its recurrence or its related activity); (b) no longer verified by
+    # it, on a row the recurrence veto reads (the checkout's own fact when present).
+    if base["method"] in REGISTRY_VERIFYING_METHODS and (unlifted or fallback) and _recurrence_vetoed_wording(after):
         return "recurrence_veto"
-    if base.get("entity") and after.get("entity") and base["entity"] != after["entity"]:
+    # Decisions. (a) a row 5.4's recurrence pass lifted; (b) left unlifted, and its pool split: the row itself, or
+    # another member of its 5.4 pool in this account, is read as another registry entity.
+    if base["method"] in RECURRENCE_LIFT_METHODS and unlifted and key is not None and (
+        (after.get("entity") and after["entity"] != key) or key in context.get("split", ())
+    ):
         return "entity_split"
-    if base["method"] == "recurring_operating_source" and method == "operating_source_requires_context":
+    # Decisions. (a) a row 5.4's recurrence lifted; (b) left unlifted, while another member of its 5.4 pool in this
+    # account was taken out of the pool by a declared veto (_taken_out_of_pool).
+    if (
+        base["method"] == "recurring_operating_source" and unlifted and key is not None
+        and context.get("vetoed", {}).get(key, set()) - {after["i"]}
+    ):
         return "pool_below_recurrence_after_a_declared_veto"
     return "undeclared"
 
 
-def _lender_move_cause(base: dict, after: dict) -> str:
+def _lender_move_cause(base: dict, after: dict, context: dict | None = None) -> str:
     """M2 (§14.2, §11): why a credit entered or left the lender-credit exclusion (and so moved eligible deposits)."""
     if not after.get("lender_credit"):
         return _narrowing(base, after) or f"left:{after['method']}"
     if base["state"] == "verified_revenue":
-        return _demotion_cause(base, after)
+        return _demotion_cause(base, after, context)
     return f"entered:{after['rule'] or after['method']}"
 
 
@@ -745,9 +1016,42 @@ def _basis(snap: dict) -> str:
     return snap.get("basis") or "input"
 
 
-def compare(base: dict, afters: list[dict]) -> dict:
+def _guard_checks(after: dict, failures: dict, tiered: bool) -> dict:
+    """S3.1 review (fix 3): each check of §14.3 in this run: whether it was checked (its facts are carried by the run's
+    credits; G9's tier identity needs the tiers), and its status: held, failed, or not checked, which is never held."""
+    present: set = set()
+    for account in after["accounts"].values():
+        for credit in account["credits"]:
+            present.update((credit.get("facts") or {}).keys())
+    checks: dict = {name: {"checked": True, "facts": []} for name in FACT_FREE_CHECKS}
+    checks["G9 tiers"] = {"checked": tiered, "facts": ["tier"]}
+    for name, keys in GUARD_FACTS.items():
+        checks[name] = {"checked": set(keys) <= present, "facts": list(keys)}
+    for name, check in checks.items():
+        guard = name.split()[0]
+        check["status"] = NOT_CHECKED if not check["checked"] else ("failed" if failures.get(guard) else "held")
+    return dict(sorted(checks.items(), key=lambda item: _guard_order(item[0])))
+
+
+def _guard_order(name: str) -> tuple:
+    guard, _, arm = name.partition(" ")
+    number = re.match(r"G(\d+)", guard)
+    return (int(number.group(1)) if number else 99, guard, arm)
+
+
+def _counted_failures(failures: dict, checks: dict) -> list[str]:
+    """S3.1 review (fix 3): the failed guards the verdict counts: a guard with at least one checked check (a guard every
+    check of which went unchecked cannot fail, and is listed as not checked instead)."""
+    checked = {name.split()[0] for name, check in checks.items() if check["checked"]}
+    return sorted((guard for guard, items in failures.items() if items and guard in checked), key=_guard_order)
+
+
+def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None = None) -> dict:
     """The census report of §14.2 and the guards of §14.3 (G7 excepted), base against each later snapshot, all of one
-    basis (S3.1: a mix raises BasisMismatch)."""
+    basis (S3.1: a mix raises BasisMismatch). `admissions` (S3.1 review) names the entities the S1.5 ledger admissions
+    added or updated (the owner's signed-off list): a verified row 5.5 reads as their financing proceeds is a declared
+    demotion (`ledger_admission`); without it, none is."""
+    admitted = frozenset(admissions or ())
     basis = _basis(base)
     for after in afters:
         if _basis(after) != basis:
@@ -757,7 +1061,7 @@ def compare(base: dict, afters: list[dict]) -> dict:
             )
     report: dict = {"basis": basis, "basis_stats": {"base": base.get("basis_stats"),
                                                     "after": [after.get("basis_stats") for after in afters]},
-                    "base": _summary(base), "runs": []}
+                    "admitted_entities": len(admitted), "base": _summary(base), "runs": []}
     for after in afters:
         moves: dict = defaultdict(lambda: [0, 0, set()])
         left_non_revenue: dict = defaultdict(lambda: [0, 0, set()])
@@ -784,6 +1088,11 @@ def compare(base: dict, afters: list[dict]) -> dict:
                 failures["G9"].append({"account": key, "unmatched": True})
                 continue
             old_by_index = {credit["i"]: credit for credit in old["credits"]}
+            # S3.1 review: the pool causes read the account's other credits.
+            context = _account_context(
+                ((old_by_index[credit["i"]], credit) for credit in new["credits"] if credit["i"] in old_by_index),
+                admitted,
+            )
             old_deposits, new_deposits = old.get("eligible_deposits"), new.get("eligible_deposits")
             if old_deposits is not None and new_deposits is not None:
                 delta = round(new_deposits - old_deposits, 2)
@@ -817,7 +1126,7 @@ def compare(base: dict, afters: list[dict]) -> dict:
                                                 "after": f"{target}|{credit.get('reason') or credit['method']}",
                                                 "shape": shape})
                 if prior["state"] == "verified_revenue" and credit["state"] != "verified_revenue":
-                    cause = _demotion_cause(prior, credit)
+                    cause = _demotion_cause(prior, credit, context)
                     entry = demoted[cause]
                     entry[0] += 1
                     entry[1] += credit["cents"]
@@ -826,7 +1135,7 @@ def compare(base: dict, afters: list[dict]) -> dict:
                         failures["undeclared_demotion"].append({"account": key, "i": credit["i"],
                                                                 "text": credit["text"]})
                 if "lender_credit" in prior and bool(prior["lender_credit"]) != bool(credit.get("lender_credit")):
-                    entry = lender_moves[_lender_move_cause(prior, credit)]
+                    entry = lender_moves[_lender_move_cause(prior, credit, context)]
                     entry[0] += 1
                     entry[1] += credit["cents"] if credit.get("lender_credit") else -credit["cents"]
                     entry[2].add(key)
@@ -892,6 +1201,15 @@ def compare(base: dict, afters: list[dict]) -> dict:
                 for method, value in sorted(g13_apart.items())
             },
             "guards": {guard: {"failures": len(items), "sample": items[:25]} for guard, items in sorted(failures.items())},
+        })
+        # S3.1 review (fix 3): which checks ran, the ones whose facts the run lacks, and the verdict over the checked.
+        checks = _guard_checks(after, failures, tiered)
+        failed = _counted_failures(failures, checks)
+        report["runs"][-1].update({
+            "guard_checks": checks,
+            "unchecked_guards": [name for name, check in checks.items() if not check["checked"]],
+            "failed_guards": failed,
+            "verdict": "fail" if failed else "hold",
         })
     return report
 
@@ -1065,8 +1383,42 @@ def _print(report: dict) -> None:
         print("  lender credits by cause: " + ", ".join(
             f"{cause} {value['rows']} rows/${value['lender_credit_dollars']:,.2f}"
             for cause, value in run["lender_credit_moves_by_cause"].items()))
-        print("  guards: " + (", ".join(f"{guard} FAILED {value['failures']}" for guard, value in run["guards"].items())
-                              or "all hold"))
+        # S3.1 review (fix 3): a check the run could not make is never printed as held.
+        failed = run.get("failed_guards", list(run["guards"]))
+        print("  guards: " + (", ".join(f"{guard} FAILED {run['guards'][guard]['failures']}" for guard in failed)
+                              or "every checked guard holds"))
+        if run.get("unchecked_guards"):
+            print(f"  {NOT_CHECKED}: " + ", ".join(run["unchecked_guards"]))
+
+
+def _output_repository(path: Path) -> Path | None:
+    """S3.1 review (fix 4): the repository an output path would land in, or None. The path is normalised first (the
+    extended-length `\\\\?\\` and device `\\\\.\\` prefixes stripped, resolved); it is inside a repository when it, or any
+    folder above it, holds a `.git` entry (a checkout's directory or a worktree's file), which covers every checkout and
+    worktree of any repository whatever its spelling (a short name, a junction, an admin share); and it is compared
+    with this tool's own checkout case-insensitively on Windows."""
+    text = str(path)
+    for prefix, replacement in (("\\\\?\\UNC\\", "\\\\"), ("//?/UNC/", "//"), ("\\\\?\\", ""), ("//?/", ""),
+                                ("\\\\.\\", ""), ("//./", "")):
+        if text.upper().startswith(prefix):
+            text = replacement + text[len(prefix):]
+            break
+    candidate = Path(text)
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        resolved = Path(os.path.abspath(candidate))
+    for folder in (resolved, *resolved.parents):
+        try:
+            if os.path.lexists(folder / ".git"):
+                return folder
+        except OSError:
+            continue
+    own = os.path.normcase(str(ROOT.resolve()))
+    where = os.path.normcase(str(resolved))
+    if where == own or where.startswith(own.rstrip("\\/") + os.sep):
+        return ROOT
+    return None
 
 
 def _use_code_root(code_root: Path) -> bool:
@@ -1097,13 +1449,18 @@ def main(argv: list[str] | None = None) -> int:
     comp.add_argument("--base", type=Path, required=True)
     comp.add_argument("--after", type=Path, required=True, action="append")
     comp.add_argument("--out", type=Path, required=True, help="the report to write (outside the repo)")
+    comp.add_argument("--admissions", type=Path, default=None,
+                      help="the S1.5 ledger admissions' signed-off entity list (JSON: {\"entities\": [...]} or a list);"
+                           " without it no demotion is declared ledger_admission")
     samp = commands.add_parser("sample", help="draw the precision sample of a 5.6 snapshot (§14.5)")
     samp.add_argument("--snapshot", type=Path, required=True)
     samp.add_argument("--out", type=Path, required=True, help="the sample to write (outside the repo)")
     args = parser.parse_args(argv)
 
-    if args.out.resolve().is_relative_to(ROOT.resolve()):
-        print(f"refused: {args.out} is inside the repository; the census holds statement figures", file=sys.stderr)
+    repository = _output_repository(args.out)
+    if repository is not None:
+        print(f"refused: {args.out} is inside the repository at {repository}; the census holds statement figures",
+              file=sys.stderr)
         return 2
     if args.command == "snapshot":
         if (args.data_dir is None) == (args.jobs_db is None):
@@ -1132,15 +1489,28 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(json.dumps(sample, indent=1) + "\n", encoding="utf-8")
         print("; ".join(f"{stratum} {len(rows)}" for stratum, rows in sample.items()))
         return 0
+    admissions: list[str] = []
+    if args.admissions is not None:
+        try:
+            listed = json.loads(args.admissions.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            print(f"refused: the admissions list {args.admissions} cannot be read ({type(error).__name__})",
+                  file=sys.stderr)
+            return 2
+        admissions = listed.get("entities", []) if isinstance(listed, dict) else listed
+        if not isinstance(admissions, list) or not all(isinstance(name, str) for name in admissions):
+            print(f"refused: the admissions list {args.admissions} holds no list of entity names", file=sys.stderr)
+            return 2
     try:
-        report = compare(_read(args.base), [_read(path) for path in args.after])
+        report = compare(_read(args.base), [_read(path) for path in args.after], admissions=admissions)
     except BasisMismatch as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=1, default=list) + "\n", encoding="utf-8")
     _print(report)
-    return 1 if any(run["guards"] for run in report["runs"]) else 0
+    # S3.1 review (fix 3): the verdict counts the checked guards only; the unchecked are listed, never held.
+    return 1 if any(run["verdict"] == "fail" for run in report["runs"]) else 0
 
 
 if __name__ == "__main__":
