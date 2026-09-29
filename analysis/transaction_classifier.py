@@ -1090,8 +1090,9 @@ _WIRE_WORD = re.compile(r"(?<![A-Z])WIRE\b")
 def _wire_vetoes_apply(text: str) -> bool:
     """S2.3 review (fixes 2 and 3): the wire vetoes (_wire_vetoed) and the wire company-form gate read a wire row
     (_is_wire_row) and, failing closed, any row that prints WIRE, so a reference glued to WIRE never skips them. The
-    verifier's own channel test (N1, _wire_remittance_purpose) keeps _is_wire_row."""
-    return _is_wire_row(text) or _WIRE_WORD.search(text) is not None
+    verifier's own channel test (N1, _wire_remittance_purpose) keeps _is_wire_row. WIRE in the receiver's (the
+    holder's) name makes no row a wire (§5.2; S2.3 re-review minor 1)."""
+    return _is_wire_row(text) or _WIRE_WORD.search(_without_receiver_value(text)) is not None
 
 
 def _is_transfer_or_p2p_row(text: str) -> bool:
@@ -1343,6 +1344,8 @@ _OWN_ACCOUNT_PRODUCT_WORDS = frozenset({
     "SAVS", "SVG", "SVGS", "CHKG", "CHKING", "MMDA", "OPER", "RESERVE", "RESERVES", "TAX", "TAXES", "PAYROLL",
     "PERSONAL", "BUS", "BUSN", "ACCTS", "LOC", "LINE", "HELOC", "SWEEP", "ESCROW", "INVESTMENT", "INVESTMENTS",
     "BROKERAGE", "IRA", "SUB",
+    # S2.3 re-review (minor 2): the adjectives an own account prints before its product word, and a loan account.
+    "PRIMARY", "SECONDARY", "MAIN", "JOINT", "HIGH", "YIELD", "SPENDING", "SHARE", "DRAFT", "LOAN",
 })
 _INTERNAL_ACCOUNT_SOURCE_WORDS = re.compile(rf"\b{_INTERNAL_ACCOUNT_SOURCE}\b")
 

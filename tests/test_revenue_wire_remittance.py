@@ -367,6 +367,16 @@ def test_a_reference_glued_to_wire_answers_to_the_wire_vetoes(printed, anchored_
     assert glued.revenue_classification == "unverified_deposit", glued.revenue_match_method
 
 
+@pytest.mark.parametrize(("printed", "holder"), [
+    # S2.3 re-review (minor 1, §5.2): WIRE in the receiver's (the holder's) name makes no row a wire.
+    ("CONTOSO SUPPLY DES:INVOICE PAYMENT ID:1 INDN:NORTHWIND WIRE & TAX LLC CO ID:1 CCD", "NORTHWIND WIRE & TAX LLC"),
+    ("CONTOSO SUPPLY DES:INVOICE PAYMENT ID:1 INDN:NORTHWIND WIRE CAPITAL LLC CO ID:1 CCD",
+     "NORTHWIND WIRE CAPITAL LLC"),
+])
+def test_wire_in_the_holder_s_name_never_applies_the_wire_vetoes(printed, holder):
+    assert _credit(printed, holder=holder).revenue_classification == "verified_revenue"
+
+
 def test_a_genuine_glued_wire_still_verifies_as_its_anchored_twin():
     printed = "WIRE FROM FABRIKAM SUPPLY LLC PAYMENT INV 1234"
     anchored, glued = _credit(printed), _credit(GLUED_REFERENCE + printed)

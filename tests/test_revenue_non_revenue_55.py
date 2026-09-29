@@ -69,6 +69,14 @@ OWN_ACCOUNT_DESCRIPTIONS = [
     "ONLINE FUNDS TRANSFER FROM BUSINESS CHECKING 1234",
     "BOOK TRANSFER CREDIT FROM TAX RESERVE 1234",
     "FUNDS TRANSFER FROM LINE OF CREDIT 1234",
+    # S2.3 re-review (minors 2 and 5): account adjectives, and the two shapes the corpus moved.
+    "FUNDS TRANSFER FROM PRIMARY CHECKING 1234",
+    "BOOK TRANSFER FROM MAIN ACCOUNT 1234",
+    "FUNDS TRANSFER FROM JOINT SAVINGS 1234",
+    "FUNDS TRANSFER FROM HIGH YIELD SAVINGS 1234",
+    "FUNDS TRANSFER FROM LOAN ACCOUNT 1234",
+    "FUNDS TRANSFER FROM LOC ACCOUNT 1234",
+    "FUNDS TRANSFER CREDIT TT 1234567890 W",
 ]
 
 
@@ -77,6 +85,16 @@ OWN_ACCOUNT_DESCRIPTIONS = [
 def test_a_transfer_from_an_account_description_stays_own_account(printed, holder):
     assert _credit(printed, holder=holder).revenue_classification == "non_revenue"
     assert prints_internal_transfer_designation(printed)
+
+
+@pytest.mark.parametrize("printed", [
+    "FUNDS TRANSFER FROM CONTOSO SUPPLY LLC",
+    "FUNDS TRANSFER FROM CONTOSO BUSINESS SERVICES LLC",   # an account word inside a company name
+    "FUNDS TRANSFER FROM FABRIKAM TAX PARTNERS LLC",
+])
+def test_a_transfer_from_a_named_payer_is_a_third_party(printed):
+    assert _credit(printed, holder="NORTHWIND LLC").revenue_classification == "unverified_deposit"
+    assert not prints_internal_transfer_designation(printed)
 
 
 def test_a_transfer_from_a_named_payer_is_still_a_third_party():
