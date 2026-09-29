@@ -284,11 +284,12 @@ def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
     assert metrics["non_revenue_total"] == 566.0
     assert metrics["maximum_revenue"] == 150.0
     assert metrics["revenue_reconciles"]
+    # 5.6 (§5.4): only a held credit requires review; the mobile deposit is a counted check deposit.
     assert [
         record["source_location"]
         for record in analysis["detection"]["manual_review"]
         if record.get("revenue_review_required")
-    ] == ["transaction:2"]
+    ] == []
     assert len(analysis["detection"]["unverified_deposit_evidence"]) == 1
 
 

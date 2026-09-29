@@ -970,3 +970,24 @@ def test_the_snapshot_masks_the_bank_and_records_the_registry_s_pool_key():
     snap = census.account_snapshot({"statement": Statement.model_validate(payload).model_dump(mode="json")})
     assert snap["bank"] == "FABRICATED BANK ##"
     assert snap["credits"][0]["registry_entity"] == "Square"
+
+
+def test_one_fabricated_statement_snapshots_with_its_tiers_and_facts():
+    from analysis.serialization import document_report_to_dict
+    from tests.test_webapp_studio_views import _report
+
+    rows = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "MOBILE DEPOSIT", 300.0),
+            (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 900.0), (5, "INTERNAL TRANSFER FROM SAVINGS", 100.0),
+            (9, "CARD PURCHASE FABRIKAM SUPPLY", -120.0)]
+    payload = document_report_to_dict(_report("CONTOSO BAKERY LLC", "000000001010", 1500.0, rows))
+    # A statement of one account is served flat; a document of several carries `accounts`.
+    snap = census.snapshot([("s", payload["accounts"][0] if "accounts" in payload else payload)])
+    [account] = snap["accounts"].values()
+    tiers = sorted((credit["tier"], credit["reason"]) for credit in account["credits"])
+    assert tiers == [("counted_flagged", "check_deposit"), ("excluded_pending_review", "financing_named_payer"),
+                     ("non_revenue", None), ("verified", None)]
+    # Every digit is masked in the census output.
+    assert not any(ch.isdigit() for credit in account["credits"] for ch in credit["text"])
+    assert account["credits"][2]["facts"]["financing_root"]
+    assert account["posted_credit_count"] == 4 and account["posted_credit_cents"] == 200000
+    assert _run(snap, snap)["guards"] == {}

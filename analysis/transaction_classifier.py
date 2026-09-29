@@ -40,6 +40,8 @@ from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
+# 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
+from .true_revenue import apply_true_revenue_pass
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -4967,6 +4969,8 @@ def classify_statement_transactions(
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
     records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
+    # 5.6 (§6.2 pass 7): payer facts, the Q5 and Q6 verifications, then the tiers.
+    records = apply_true_revenue_pass(records, set(duplicate_of))
 
     for index, original_index in duplicate_of.items():
         record = records[index]
