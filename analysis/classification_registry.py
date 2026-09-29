@@ -1778,8 +1778,10 @@ class CardSettlementForm:
     bank: str | None = None
 
 
-#: 5.5 (§7.1): the card-settlement forms, in reading order. Left boundary (?<![A-Z]) throughout, so a date glued on
-#: the left ('01 02BANKCARD DEPOSIT') never blocks a form.
+#: 5.5 (§7.0, §7.1): the card-settlement forms, in reading order. Every form's leading token takes the left boundary
+#: (?<![A-Z]), never \b, so a date glued on the left ('01 02BANKCARD DEPOSIT') does not block it while a glued letter
+#: still does. A row-anchored layout keeps its ^ (the row-start branch of brand_dep and dep_brand, and
+#: square_checking_sales) and is not read after a glued date; inner words, lookahead vetoes and refusals keep \b.
 CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
     CardSettlementForm(
         "bankcard",
@@ -1795,33 +1797,36 @@ CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
         "merch_dep",
         r"(?<![A-Z])(?:MERCHANT )?MERCH(?: SVCS)? (?:DEP|DEPOSITS?|SETL|SETTLE|SETLMT|STLMT|SETTLEMENT)(?:SEC)?\b",
     ),
-    CardSettlementForm("mrchntsrvs", r"\bDESCR MRCHNTSRVS(?:SEC)?\b"),
-    CardSettlementForm("merch_svcs_setl_code", r"\bMERCH(?:ANT)? SVCS?(?: DES)? [A-Z0-9]*SETL\b"),
-    CardSettlementForm("merchant_services_mid", r"\bMERCHANT SERVI(?:CES?)?\b.*\b(?:MID ?\d{6,}|TRANS SLIP)\b"),
+    CardSettlementForm("mrchntsrvs", r"(?<![A-Z])DESCR MRCHNTSRVS(?:SEC)?\b"),
+    CardSettlementForm("merch_svcs_setl_code", r"(?<![A-Z])MERCH(?:ANT)? SVCS?(?: DES)? [A-Z0-9]*SETL\b"),
+    CardSettlementForm(
+        "merchant_services_mid", r"(?<![A-Z])MERCHANT SERVI(?:CES?)?\b.*\b(?:MID ?\d{6,}|TRANS SLIP)\b",
+    ),
     CardSettlementForm(
         "brand_dep",
-        r"(?:^|\b(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP"
-        r"|DEBITCD) )+DEP ?\d|(?<![A-Z])(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) )+DEP(?:\d"
-        r"|\b.*\b(?:MSP|DIV|MERCH SVC)\b)",
+        r"(?:^|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC"
+        r"|DCVR|IDP|DEBITCD) )+DEP ?\d|(?<![A-Z])(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) )+DEP"
+        r"(?:\d|\b.*\b(?:MSP|DIV|MERCH SVC)\b)",
     ),
     CardSettlementForm(
         "dep_brand",
-        r"(?:^|\b(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP"
-        r"|DEBITCD) ?\d|(?<![A-Z])DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD)\d*\b.*\b(?:MSP|DIV)\b",
+        r"(?:^|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC"
+        r"|DCVR|IDP|DEBITCD) ?\d|(?<![A-Z])DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD)\d*\b.*"
+        r"\b(?:MSP|DIV)\b",
     ),
     CardSettlementForm(
-        "gbl_brand", r"\b(?:(?:VISA|MC|AMEXO?|IDP|DISC|DCVR) )?GBL (?:VI|MC|AX|IDP|DS|DC)\d*\b",
+        "gbl_brand", r"(?<![A-Z])(?:(?:VISA|MC|AMEXO?|IDP|DISC|DCVR) )?GBL (?:VI|MC|AX|IDP|DS|DC)\d*\b",
         entity="Global Payments",
     ),
     CardSettlementForm(
-        "net_settle", r"\b(?:DES|DESCR) NET (?:SETTLE|SETLMT|STLMT|SETL)(?:SEC)?\b",
+        "net_settle", r"(?<![A-Z])(?:DES|DESCR) NET (?:SETTLE|SETLMT|STLMT|SETL)(?:SEC)?\b",
         refusal=r"\b(?:LAW|ATTORNEYS?|ESQ|TRUST|ESCROW|TITLE|CLAIMS?)\b",
     ),
-    CardSettlementForm("batch_total", r"\b[BM]TOT DEP\b"),
+    CardSettlementForm("batch_total", r"(?<![A-Z])[BM]TOT DEP\b"),
     CardSettlementForm(
         "intuit_deposit",
-        r"\bINTUIT \d{6,}(?: DES)? DEPOSIT\b|\bDEPOSIT FROM INTUIT \d{6,}\b|\bINTUIT PYMT SOLN\b|\bQBOOKS\b"
-        r"|\bORIG CO NAME INTUIT \d+\b.*\bDESCR DEPOSIT\b",
+        r"(?<![A-Z])INTUIT \d{6,}(?: DES)? DEPOSIT\b|(?<![A-Z])DEPOSIT FROM INTUIT \d{6,}\b"
+        r"|(?<![A-Z])INTUIT PYMT SOLN\b|(?<![A-Z])QBOOKS\b|(?<![A-Z])ORIG CO NAME INTUIT \d+\b.*\bDESCR DEPOSIT\b",
         entity="QuickBooks Payments",
         refusal=r"\b(?:TAX|RFND|REFUND|QBC|CAPITAL|LOAN)\b",
     ),
@@ -1830,15 +1835,18 @@ CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
     ),
     CardSettlementForm(
         "network_settlement",
-        r"\b(?:AMERICAN EXPRESS|DISCOVER NETWORK)\b.*\b(?:SETTLEMENT|SETL)\b|\bAMEXO GBL\b"
-        r"|\bMISC PAYMENT AMEX BANK OF CANADA\b",
+        r"(?<![A-Z])(?:AMERICAN EXPRESS|DISCOVER NETWORK)\b.*\b(?:SETTLEMENT|SETL)\b|(?<![A-Z])AMEXO GBL\b"
+        r"|(?<![A-Z])MISC PAYMENT AMEX BANK OF CANADA\b",
     ),
     CardSettlementForm(
         "generic_card_sales",
-        r"\b(?:VISA ?MC|CARD PROCESSING) (?:DEPOSIT|DEP|SETTLEMENT|SETL|STLM|STLMT)\b"
-        r"|^(?!.*\b(?:BALANCE|REFUND|REWARDS?)\b).*\b(?:CREDIT CARD|CR CD|CC) (?:DEPOSIT|DEP|SETTLEMENT|SETL|STLMT)\b",
+        r"(?<![A-Z])(?:VISA ?MC|CARD PROCESSING) (?:DEPOSIT|DEP|SETTLEMENT|SETL|STLM|STLMT)\b"
+        r"|^(?!.*\b(?:BALANCE|REFUND|REWARDS?)\b).*(?<![A-Z])(?:CREDIT CARD|CR CD|CC) (?:DEPOSIT|DEP|SETTLEMENT|SETL"
+        r"|STLMT)\b",
     ),
-    CardSettlementForm("french_card_settlement", r"\bREGLEMENT (?:CARTE|MARCHAND|COMMERCANT)\b|\bDEPOT MARCHAND\b"),
+    CardSettlementForm(
+        "french_card_settlement", r"(?<![A-Z])REGLEMENT (?:CARTE|MARCHAND|COMMERCANT)\b|(?<![A-Z])DEPOT MARCHAND\b",
+    ),
 )
 
 #: 5.5 (§7.8): the observed payout forms of the dealer-only wholesale auctions; any other auction row stays

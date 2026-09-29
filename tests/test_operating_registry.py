@@ -88,6 +88,70 @@ def test_every_form_compiles_and_names_a_typed_entity():
         assert form.entity is None or form.entity in registry.OPERATING_REVENUE_SOURCE_TYPES
 
 
+#: §7.0, §7.1 (owner ruling 2026-09-29): one fabricated row for each branch of every card form, each row beginning with
+#: the branch's leading token, so a prefix glued on the left lands on that token's boundary.
+CARD_FORM_ROWS = [
+    ("bankcard", "BANKCARD DEPOSIT"),
+    ("merch_dep", "MERCH DEP"),
+    ("mrchntsrvs", "DESCR MRCHNTSRVS"),
+    ("merch_svcs_setl_code", "MERCH SVCS DES DAILYSETL"),
+    ("merchant_services_mid", "MERCHANT SERVICES TRANS SLIP"),
+    ("brand_dep", "VISA DEP 1"),
+    ("brand_dep", "MISC PAYMENT VISA DEP 1"),
+    ("brand_dep", "VISA DEP MERCH SVC"),
+    ("dep_brand", "DEP VISA 1"),
+    ("dep_brand", "COMPTE DIVERS DEP VISA 1"),
+    ("dep_brand", "DEP VISA MSP"),
+    ("gbl_brand", "GBL VI"),
+    ("net_settle", "DESCR NET SETTLE"),
+    ("batch_total", "BTOT DEP"),
+    ("intuit_deposit", "INTUIT 123456 DEPOSIT"),
+    ("intuit_deposit", "DEPOSIT FROM INTUIT 123456"),
+    ("intuit_deposit", "INTUIT PYMT SOLN"),
+    ("intuit_deposit", "QBOOKS DEPOSIT"),
+    ("intuit_deposit", "ORIG CO NAME INTUIT 123456 CO ENTRY DESCR DEPOSIT"),
+    ("square_checking_sales", "CARD PAYMENT SALES"),
+    ("network_settlement", "AMERICAN EXPRESS SETTLEMENT"),
+    ("network_settlement", "AMEXO GBL"),
+    ("network_settlement", "MISC PAYMENT AMEX BANK OF CANADA"),
+    ("generic_card_sales", "VISA MC DEPOSIT"),
+    ("generic_card_sales", "CREDIT CARD DEPOSIT"),
+    ("french_card_settlement", "REGLEMENT CARTE"),
+    ("french_card_settlement", "DEPOT MARCHAND"),
+]
+#: Row-anchored layouts keep their `^`: the ruling moves left boundaries, not anchors, so these rows are left out of
+#: the glued-date case (the row-start branch of `brand_dep` and `dep_brand`, and Square's whole-row Activity type).
+ROW_ANCHORED_CARD_ROWS = {
+    ("brand_dep", "VISA DEP 1"),
+    ("dep_brand", "DEP VISA 1"),
+    ("square_checking_sales", "CARD PAYMENT SALES"),
+}
+
+
+def _card_form_pattern(label):
+    return next(form.pattern for form in registry.CARD_SETTLEMENT_CREDIT_FORMS if form.label == label)
+
+
+def test_every_card_form_has_a_fabricated_row():
+    assert {label for label, _ in CARD_FORM_ROWS} == {form.label for form in registry.CARD_SETTLEMENT_CREDIT_FORMS}
+
+
+@pytest.mark.parametrize(("label", "row"), [pair for pair in CARD_FORM_ROWS if pair not in ROW_ANCHORED_CARD_ROWS])
+def test_a_card_form_reads_its_row_with_a_date_glued_on_the_left(label, row):
+    # §7.0: '01/02Bankcard Deposit' normalizes to '01 02BANKCARD DEPOSIT'; the left boundary is (?<![A-Z]), never \b.
+    pattern = _card_form_pattern(label)
+    assert re.search(pattern, row)
+    assert re.search(pattern, "01 02" + row)
+
+
+@pytest.mark.parametrize(("label", "row"), CARD_FORM_ROWS)
+def test_a_letter_glued_on_the_left_still_blocks_a_card_form(label, row):
+    # The boundary lets a digit through, not a letter: the form's leading token is still a whole word on its left.
+    pattern = _card_form_pattern(label)
+    assert re.search(pattern, row)
+    assert not re.search(pattern, "X" + row)
+
+
 def test_the_payer_tables_collide_with_no_ledger_or_insurer_alias(monkeypatch):
     monkeypatch.setattr(registry, "HEALTHCARE_PAYER_ALIASES", {"Fabrikam Care": ("BCBSM",)})
     assert any("insurer alias" in problem for problem in operating_registry.problems())
