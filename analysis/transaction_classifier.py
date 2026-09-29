@@ -2878,12 +2878,40 @@ def _is_membership_or_top_up(text: str, match: PayeeMatch) -> bool:
     return any(re.search(rf"\b{alias}{tail}", text) for tail in _MEMBERSHIP_OR_TOP_UP_AFTER_ALIAS)
 
 
+#: Owner ruling OQ2 (true revenue spec §19, 2026-09-28) put the five BNPL providers in PAYOUT_CREDIT_ENTITIES: a
+#: provider's settlement to the merchant is the merchant's own sale, so revenue. The ruling covers settlements only.
+#: The 5.4 -> 5.5 census (S3.2) found 7 of the 8 corpus credits that left D1 under it consumer-side (a Klarna
+#: WITHDRAWAL, a RETURN FOR ... PURCHASE), and a 9th Klarna WITHDRAWAL that left the lender-credit exclusion: the
+#: account holder as the provider's customer, not its merchant. A credit of one of the five that prints one of
+#: these consumer-side words (a return, a withdrawal, a refund, a balance, cash back, a reward, a card product, a
+#: purchase, or the debt collector TRUEACCORD) keeps its 5.4 reading: D1. Sezzle, American First Finance and
+#: PAYABILITY keep the entity-wide exception of 2026-09-25: the corpus prints WITHDRAWAL on Sezzle's merchant payouts
+#: and CARD on PAYABILITY's transfers.
+_OQ2_BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit"})
+_BNPL_CONSUMER_CREDIT = re.compile(
+    r"\bRETURN\w*|\bWITHDRAW\w*|REFUND\w*|\bRFND\w*|\bREFND\w*|\bRFD\b|\bBALANCE\b|\bCASH ?BACK\b|\bREWARDS?\b"
+    r"|\bAFFIRMCARD\b|\bCARD\b|\bPURCHASES?\b|\bTRUE ?ACCORD\b"
+)
+
+
+def _is_payout_credit(text: str, match: PayeeMatch) -> bool:
+    """Whether a credit of ``match`` is a payout-credit entity's settlement: revenue, not D1 financing proceeds.
+
+    Owner decision 2026-09-25 (PAYOUT_CREDIT_ENTITIES); OQ2 (§19) narrowed to the
+    five BNPL providers' settlements (_BNPL_CONSUMER_CREDIT). Credits only.
+    """
+    if match.entity not in PAYOUT_CREDIT_ENTITIES:
+        return False
+    return not (match.entity in _OQ2_BNPL_ENTITIES and _BNPL_CONSUMER_CREDIT.search(text))
+
+
 def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
     """D1: the known payee whose credit is financing proceeds, or None.
 
     Owner decision 2026-09-25: the credits of a payout-credit entity
     (PAYOUT_CREDIT_ENTITIES) are the account holder's own sales settled by the
-    platform, so they are revenue; that entity's debits keep their group.
+    platform, so they are revenue; that entity's debits keep their group. A BNPL
+    provider's consumer-side credit is not a settlement (OQ2, _is_payout_credit).
     Owner ruling 2026-09-26: a factoring payee's credits are the business's own
     sales paid by the factor, so they are revenue too, and they keep the
     factoring flag (_FLAGGED_REVENUE_CREDIT_STATES).
@@ -2893,7 +2921,7 @@ def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
         match is None
         or match.state not in FINANCING_STATES
         or match.state in _FLAGGED_REVENUE_CREDIT_STATES
-        or match.entity in PAYOUT_CREDIT_ENTITIES
+        or _is_payout_credit(text, match)
     ):
         return None
     return match
@@ -3374,7 +3402,8 @@ def classify_transaction(
 
     # Step 7: the known payee's group (D9 inside). A credit is proceeds only
     # for a financing group (D1), and never for a payout-credit entity (owner
-    # decision 2026-09-25: its credits are the holder's own sales); a card-issuer
+    # decision 2026-09-25: its credits are the holder's own sales; OQ2 covers a
+    # BNPL provider's settlements only, _is_payout_credit); a card-issuer
     # or lease/rental payee on a credit falls through to the rules below. A
     # factoring payee's credit is revenue and keeps the factoring flag (owner
     # ruling 2026-09-26).
@@ -3385,7 +3414,7 @@ def classify_transaction(
             return _known_payee_debit_record(common, text, known_payee)
         if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
             return _flagged_revenue_credit_record(common, known_payee)
-        if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
+        if known_payee.state in FINANCING_STATES and not _is_payout_credit(text, known_payee):
             return _financing_proceeds_credit_record(common, amount, known_payee)
     # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
     # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.
