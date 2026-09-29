@@ -114,7 +114,8 @@ MICRO_DEPOSIT_FLOOR_CENTS = 100
 #: The demotion causes that read the account (the row's recurrence pool), not the row alone.
 _POOL_CAUSES = frozenset({"entity_split", "pool_below_recurrence_after_a_declared_veto"})
 #: S3.1 review (fix 3): the §14.3 facts each guard, or each arm of one, reads. A check whose facts no credit of the run
-#: carries cannot fail, so it is reported "not checked", never as held: the facts of true_revenue.guard_facts arrive
+#: carries is reported "not checked", never as held, unless its guard recorded a failure, which always counts (S3.1
+#: re-review): the facts of true_revenue.guard_facts arrive
 #: in 5.6 (S4.2, S4.3). The pool, holder, numbered, gate and own-transfer facts are the S2.1 readers' (5.5).
 GUARD_FACTS = {
     "G2": ("financing_root", "registry_root"),
@@ -971,17 +972,20 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # numbered-company fact and not the holder's.
     if _steps_11_to_14(base) and fallback and facts.get("numbered") and not facts.get("holder"):
         return "numbered_company"
-    # §7.0, §7.2. (a) the operating registry (Square's alias, its context or its recurrence); (b) no longer verified by
-    # it, on a row that names Square as a word and prints a pay word before its receiver fields.
+    # §7.0, §7.2. (a) a row 5.4's recurrence pass lifted (S3.1 re-review: the veto governs the recurrence pool only; no
+    # 5.5 rule leaves a row verified on its own context, or by the wholesale auction form, unlifted or fallen for a
+    # veto word, so such a row that lost its verification is undeclared); (b) left unlifted or fallen to steps 15 and
+    # 16, on a row that names Square as a word and prints a pay word before its receiver fields.
     if (
-        base["method"] in REGISTRY_VERIFYING_METHODS and (unlifted or fallback)
+        base["method"] in RECURRENCE_LIFT_METHODS and (unlifted or fallback)
         and (_SQUARE_WORD.search(text) is not None)
         and (_PAY_WORD.search(_before_receiver(text)) is not None)
     ):
         return "square_payroll"
-    # §7.0. (a) the operating registry (its context, its recurrence or its related activity); (b) no longer verified by
-    # it, on a row the recurrence veto reads (the checkout's own fact when present).
-    if base["method"] in REGISTRY_VERIFYING_METHODS and (unlifted or fallback) and _recurrence_vetoed_wording(after):
+    # §7.0. (a) a row 5.4's recurrence pass lifted (S3.1 re-review: never a registry row verified on its own context);
+    # (b) left unlifted or fallen to steps 15 and 16, on a row the recurrence veto reads (the checkout's own fact when
+    # present).
+    if base["method"] in RECURRENCE_LIFT_METHODS and (unlifted or fallback) and _recurrence_vetoed_wording(after):
         return "recurrence_veto"
     # Decisions. (a) a row 5.4's recurrence pass lifted; (b) left unlifted, and its pool split: the row itself, or
     # another member of its 5.4 pool in this account, is read as another registry entity.
@@ -1027,8 +1031,14 @@ def _guard_checks(after: dict, failures: dict, tiered: bool) -> dict:
     checks["G9 tiers"] = {"checked": tiered, "facts": ["tier"]}
     for name, keys in GUARD_FACTS.items():
         checks[name] = {"checked": set(keys) <= present, "facts": list(keys)}
+    # S3.1 re-review: a failure recorded on a row proves its guard's check ran, whatever keys the run lacks, so a guard
+    # none of whose checks carries every key is checked by its failure (each of its checks: a failure names no arm);
+    # "not checked" is only a guard with no recorded result at all.
+    carried = {name.split()[0] for name, check in checks.items() if check["checked"]}
     for name, check in checks.items():
         guard = name.split()[0]
+        if failures.get(guard) and guard not in carried:
+            check["checked"] = True
         check["status"] = NOT_CHECKED if not check["checked"] else ("failed" if failures.get(guard) else "held")
     return dict(sorted(checks.items(), key=lambda item: _guard_order(item[0])))
 
@@ -1039,11 +1049,10 @@ def _guard_order(name: str) -> tuple:
     return (int(number.group(1)) if number else 99, guard, arm)
 
 
-def _counted_failures(failures: dict, checks: dict) -> list[str]:
-    """S3.1 review (fix 3): the failed guards the verdict counts: a guard with at least one checked check (a guard every
-    check of which went unchecked cannot fail, and is listed as not checked instead)."""
-    checked = {name.split()[0] for name, check in checks.items() if check["checked"]}
-    return sorted((guard for guard, items in failures.items() if items and guard in checked), key=_guard_order)
+def _counted_failures(failures: dict) -> list[str]:
+    """S3.1 re-review: the failed guards the verdict counts: every guard with a failure recorded on a row, whether or
+    not the run carries every key of its check (the recorded failure proves the check ran)."""
+    return sorted((guard for guard, items in failures.items() if items), key=_guard_order)
 
 
 def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None = None) -> dict:
@@ -1204,7 +1213,7 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
         })
         # S3.1 review (fix 3): which checks ran, the ones whose facts the run lacks, and the verdict over the checked.
         checks = _guard_checks(after, failures, tiered)
-        failed = _counted_failures(failures, checks)
+        failed = _counted_failures(failures)
         report["runs"][-1].update({
             "guard_checks": checks,
             "unchecked_guards": [name for name, check in checks.items() if not check["checked"]],
@@ -1392,22 +1401,25 @@ def _print(report: dict) -> None:
 
 
 def _output_repository(path: Path) -> Path | None:
-    """S3.1 review (fix 4): the repository an output path would land in, or None. The path is normalised first (the
-    extended-length `\\\\?\\` and device `\\\\.\\` prefixes stripped, resolved); it is inside a repository when it, or any
-    folder above it, holds a `.git` entry (a checkout's directory or a worktree's file), which covers every checkout and
-    worktree of any repository whatever its spelling (a short name, a junction, an admin share); and it is compared
+    """S3.1 review (fix 4): the repository an output path would land in, or None. The path is normalised first:
+    resolved (S3.1 re-review: before any prefix is stripped, so a volume's `\\\\?\\Volume{...}\\` name resolves to its
+    drive instead of becoming a relative path), then the extended-length `\\\\?\\` and device `\\\\.\\` prefixes are
+    stripped where what remains is still absolute; it is inside a repository when it, or any folder above it, holds a
+    `.git` entry (a checkout's directory or a worktree's file), which covers every checkout and worktree of any
+    repository whatever its spelling (a short name, a junction, an admin share, a volume name); and it is compared
     with this tool's own checkout case-insensitively on Windows."""
-    text = str(path)
+    try:
+        text = str(Path(path).resolve())
+    except OSError:
+        text = os.path.abspath(path)
     for prefix, replacement in (("\\\\?\\UNC\\", "\\\\"), ("//?/UNC/", "//"), ("\\\\?\\", ""), ("//?/", ""),
                                 ("\\\\.\\", ""), ("//./", "")):
         if text.upper().startswith(prefix):
-            text = replacement + text[len(prefix):]
+            stripped = replacement + text[len(prefix):]
+            if os.path.isabs(stripped):
+                text = stripped
             break
-    candidate = Path(text)
-    try:
-        resolved = candidate.resolve()
-    except OSError:
-        resolved = Path(os.path.abspath(candidate))
+    resolved = Path(text)
     for folder in (resolved, *resolved.parents):
         try:
             if os.path.lexists(folder / ".git"):

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -678,15 +680,40 @@ PUSH = "RTP CREDIT FABRIKAM CUSTOMER PAYMENT"
      _later("unidentified_posted_credit", "MISC PAYMENT ####### MERCHANT DEPOSIT", numbered=True), None, "undeclared"),
     (_registry("operating_source_with_credit_context", "MISC PAYMENT ####### STRIPE PAYOUT"),
      _later("ambiguous_credit_descriptor", "MISC PAYMENT ####### STRIPE PAYOUT", numbered=True), None, "undeclared"),
-    # Square payroll: the registry's Square row with a pay word, Square read as a word (never SQ inside BISQUE).
-    (_registry("operating_source_with_credit_context", "SQUARE INC DES PAYROLL ID #", entity="Square", alias="SQUARE"),
+    # Square payroll: a Square row 5.4's recurrence lifted, with a pay word, Square read as a word (never SQ inside
+    # BISQUE); the veto governs the pool only (S3.1 re-review), so a row verified on its own context that loses its
+    # verification is undeclared whatever it prints.
+    (_registry("recurring_operating_source", "SQUARE INC DES PAYROLL ID #", entity="Square", alias="SQUARE"),
      _later("operating_source_requires_context", "SQUARE INC DES PAYROLL ID #", entity="Square"), None,
      "square_payroll"),
+    (_registry("operating_source_with_credit_context", "SQUARE INC DES PAYROLL ID #", entity="Square", alias="SQUARE"),
+     _later("operating_source_requires_context", "SQUARE INC DES PAYROLL ID #", entity="Square"), None,
+     "undeclared"),
     (_step_11("BISQUE BAKERY DES BONUS CUSTOMER PAYMENT ID #"),
      _later("unidentified_posted_credit", "BISQUE BAKERY DES BONUS CUSTOMER PAYMENT ID #"), None, "undeclared"),
-    (_registry("operating_source_with_credit_context", "BISQUE BAKERY DES BONUS STRIPE PAYOUT"),
+    (_registry("recurring_operating_source", "BISQUE BAKERY DES BONUS STRIPE PAYOUT"),
      _later("operating_source_requires_context", "BISQUE BAKERY DES BONUS STRIPE PAYOUT", entity="Stripe"), None,
      "recurrence_veto"),
+    (_registry("operating_source_related_activity", "STRIPE DES VERIFY PAYOUT"),
+     _later("unidentified_posted_credit", "STRIPE DES VERIFY PAYOUT", recurrence_veto_wording=True), None,
+     "recurrence_veto"),
+    # The recurrence veto never explains a 5.4 single-row context row (its context, or the wholesale auction form):
+    # no 5.5 rule leaves one unlifted or fallen for a veto word, the checkout's fact or the words notwithstanding.
+    (_registry("operating_source_with_credit_context", "BISQUE BAKERY DES BONUS STRIPE PAYOUT"),
+     _later("operating_source_requires_context", "BISQUE BAKERY DES BONUS STRIPE PAYOUT", entity="Stripe"), None,
+     "undeclared"),
+    (_registry("operating_source_with_credit_context", "STRIPE DES VERIFY PAYOUT"),
+     _later("operating_source_requires_context", "STRIPE DES VERIFY PAYOUT", entity="Stripe",
+            recurrence_veto_wording=True), None, "undeclared"),
+    (_registry("operating_source_with_credit_context", "STRIPE DES PAYROLL INDN SQ BAKERY CO ID #"),
+     _later("operating_source_requires_context", "STRIPE DES PAYROLL INDN SQ BAKERY CO ID #", entity="Stripe",
+            recurrence_veto_wording=True), None, "undeclared"),
+    (_registry("wholesale_auction_payout_form", "MANHEIM DES CAPITAL PAYOUT", entity="Manheim", alias="MANHEIM"),
+     _later("operating_source_requires_context", "MANHEIM DES CAPITAL PAYOUT", entity="Manheim",
+            recurrence_veto_wording=True), None, "undeclared"),
+    (_registry("wholesale_auction_payout_form", "MANHEIM DES CAPITAL PAYOUT", entity="Manheim", alias="MANHEIM"),
+     _later("unidentified_posted_credit", "MANHEIM DES CAPITAL PAYOUT", recurrence_veto_wording=True), None,
+     "undeclared"),
     # The recurrence veto governs the registry's rows, never step 11's, whatever the fact or the words say.
     (_step_11("FABRIKAM CAPITAL PARTNERS DES MERCHANT SETTLEMENT ID #"),
      _later("unidentified_posted_credit", "FABRIKAM CAPITAL PARTNERS DES MERCHANT SETTLEMENT ID #",
@@ -825,6 +852,21 @@ def test_a_5_6_snapshot_with_the_guard_facts_checks_every_guard():
     assert run["verdict"] == "fail"
 
 
+def test_a_recorded_guard_failure_counts_though_the_run_lacks_another_key_of_its_check():
+    """S3.1 re-review: a Verified row with financing_root and no registry_root key fails G2; the recorded failure
+    proves the check ran, so it fails the verdict and G2 is not reported as unchecked."""
+    base = _snap("5.4", {"a": _account([_credit(0, 5000, "unverified_deposit", "x")])})
+    after = _snap("5.5", {"a": _account([_credit(0, 5000, "verified_revenue", "named_payer_repeats",
+                                                 **FACTS_55, financing_root=True)])})
+    run = _run(base, after)
+    assert run["guards"]["G2"]["failures"] == 1
+    assert run["failed_guards"] == ["G2"] and run["verdict"] == "fail"
+    assert run["guard_checks"]["G2"] == {"checked": True, "facts": ["financing_root", "registry_root"],
+                                         "status": "failed"}
+    assert "G2" not in run["unchecked_guards"]
+    assert run["unchecked_guards"] == [name for name in UNCHECKED_AT_55 if name != "G2"]
+
+
 def test_the_printed_report_never_shows_an_unchecked_guard_as_held(tmp_path, capsys):
     base, after = tmp_path / "s54.json.gz", tmp_path / "s55.json.gz"
     base.write_bytes(gzip.compress(json.dumps(_snap("5.4", {"a": _account([
@@ -864,6 +906,39 @@ def test_no_output_is_written_inside_any_repository(tmp_path, capsys, entry, dep
 def test_the_extended_length_form_of_this_checkout_is_refused(capsys):
     assert census._output_repository(census.ROOT / "x-census.json") is not None
     assert census._output_repository(Path("\\\\?\\" + str(census.ROOT / "tools" / "x-census.json"))) is not None
+
+
+def _volume_name(drive: str) -> str | None:
+    """The `\\\\?\\Volume{...}\\` name of a drive (Windows), or None."""
+    import ctypes
+
+    buffer = ctypes.create_unicode_buffer(64)
+    if not ctypes.windll.kernel32.GetVolumeNameForVolumeMountPointW(drive, buffer, len(buffer)):
+        return None
+    return buffer.value
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a volume name is a Windows spelling")
+def test_a_volume_name_spelling_of_a_checkout_is_refused(tmp_path, monkeypatch):
+    """S3.1 re-review: the path is resolved before its `\\\\?\\` prefix is stripped, so a volume's name resolves to its
+    drive; stripped first, `Volume{...}\\...` would be a relative path read against the working folder."""
+    volume = _volume_name(tmp_path.anchor)
+    if volume is None:
+        pytest.skip("the temporary folder's drive has no volume name")
+    checkout = tmp_path / "some-checkout"
+    (checkout / ".git").mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    inside = Path(volume + str(checkout / "reports" / "report.json")[len(tmp_path.anchor):])
+    found = census._output_repository(inside)
+    assert found is not None and os.path.samefile(found, checkout)
+    assert census._output_repository(Path(volume + str(elsewhere / "report.json")[len(tmp_path.anchor):])) is None
+    # This checkout, spelled by its volume's name.
+    own = _volume_name(census.ROOT.resolve().anchor)
+    if own is not None:
+        assert census._output_repository(
+            Path(own + str(census.ROOT.resolve() / "x-census.json")[len(census.ROOT.resolve().anchor):])) is not None
 
 
 def test_the_pdf_basis_prefers_the_newest_route_whose_analysis_reconciles(tmp_path):
