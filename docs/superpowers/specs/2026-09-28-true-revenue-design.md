@@ -1210,3 +1210,14 @@ The first independent review returned "changes needed". It simulated 48 fabricat
 | Corpus True, memo rows | 72.7% (memo holds) | 71.3% (every hold the rows can show) | the same |
 | Package gate at 10% | 24.6% | 27.5% measured; 28% to 32% expected | the same |
 | Statements with a held row | 39.9% | 48.6% | the same |
+
+## 19. Owner review (2026-09-28)
+
+The owner approved this spec with every recommendation:
+
+- **OQ1:** payer-wide review ("apply to every row of this payer") is a follow-up release, not this one.
+- **OQ2:** BNPL merchant settlements (Affirm, Klarna, Afterpay, GreenSky, Sunbit) join `PAYOUT_CREDIT_ENTITIES`: their settlements to the merchant are revenue, not financing proceeds.
+- **OQ3:** numbered-company payers are counted in True, flagged, and never verified (T11 as written).
+- **OQ4:** the deferred family items of §15 stay counted and flagged (or held, as §15 says) until the owner rules on each.
+- **OQ5 (T18): yes.** `HCCLAIMPMT_CLAIM_FIRST` ships ON: an insurer's healthcare claim payment to a provider verifies.
+- **OQ6 (T19): yes.** Third-party Chase book transfers and BofA `WIRE TYPE BOOK IN` are read as incoming wires and pass through Q5 and every hold of §8.1.
