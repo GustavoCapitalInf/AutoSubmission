@@ -13,11 +13,19 @@ import unicodedata
 #: tokens, then LN ('12 OAK LN'). Such an LN is a lane, never a loan, unless a loan-product word sits among those
 #: tokens or LN is followed by a loan-payment word ('1234 COMMERCIAL LN PMT', '000123 AUTO LN DISB' read LOAN).
 _STREET_BEFORE_LN = re.compile(r"(?:^| )\d+((?: [A-Z]+){1,3}) $")
+#: The loan-product words include the banks' loan abbreviations (S2.1 review finding 2): CML, COML and COMM
+#: (commercial), SB and SBA (small business), VEH (vehicle), EIDL and PPP (the SBA's disaster and paycheck loans), LOC
+#: (line of credit), CRE (commercial real estate), MORT and MTG (mortgage), EQUIP (equipment).
 _LOAN_PRODUCT_WORDS = frozenset({
     "COMMERCIAL", "COMM", "AUTO", "BUSINESS", "BUS", "TERM", "PERSONAL", "MORTGAGE", "MTG", "EQUIPMENT", "EQUIP",
     "INSTALLMENT", "INSTL", "CONSUMER", "HOME", "HELOC", "STUDENT", "VEHICLE", "SBA", "BRIDGE", "CONSTRUCTION", "LINE",
+    "CML", "COML", "SB", "VEH", "EIDL", "PPP", "LOC", "CRE", "MORT",
 })
-_LOAN_WORD_AFTER_LN = re.compile(r" (?:PMT|PYMT|PAYMENT|DISB|DISBURSEMENT|ADV|ADVANCE|PROCEEDS|DRAW)\b")
+#: Every payment spelling, the ones rewritten below (PAYMT becomes PAYMENT) among them: the LN rule runs before that
+#: rewrite, so it reads the printed spelling, and a row normalized twice reads what it read once (S2.1 review).
+_LOAN_WORD_AFTER_LN = re.compile(
+    r" (?:PMTS?|PYMTS?|PAYMENTS?|PAYMT|PAYMNT|PMNT|PYMNT|REPAYMENTS?|DISB|DISBURSEMENT|ADV|ADVANCE|PROCEEDS|DRAW)\b"
+)
 _LN_WORD = re.compile(r"\bLN\b")
 
 

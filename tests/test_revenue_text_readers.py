@@ -138,11 +138,57 @@ def test_a_round_sum_is_a_whole_hundred_of_at_least_one_hundred():
     ("RTP CREDIT FROM FABRIKAM LLC INV 1234", "push"),
     ("VISA DIRECT FABRIKAM PAYOUT", "push"),
     ("FABRIKAM SUPPLY DES:VENDOR PAY ID:1", None),
-    ("01/02Bankcard Deposit 123456", None),       # a glued date keeps the card word a payer word
+    ("01/02Bankcard Deposit 123456", None),       # a glued date is dropped; the card word is a payer word
     ("WIRE IN DATE 540102 TRN 123", None),        # a wire is tiered, never gated
 ])
 def test_the_channel_gate(printed, gate):
     assert channel_gate(_text(printed)) == gate
+
+
+@pytest.mark.parametrize(("printed", "gate"), [
+    ("Zelle Payment From Fabrikam LLC Conf 99", "closed"),
+    ("Counter Credit", "closed"),
+    ("Teller Deposit", "closed"),
+    ("Cash Deposit", "closed"),
+    ("Remote Deposit", "closed"),
+    ("ATM Deposit", "closed"),
+    ("Visa Direct Fabrikam Payout", "push"),
+    ("RTP Credit From Fabrikam LLC Inv 1234", "push"),
+])
+def test_a_leading_date_never_opens_the_channel_gate(printed, gate):
+    # S2.1 review, finding 1 (§6.1 step 9b, §7.0): a date glued to the row's first word ('01/02Zelle ...') or printed
+    # before it is dropped from the revenue text, so the gate, the payer region, the payer name and the company form
+    # read the dated row as they read the undated one; the gate never fails open.
+    readings = []
+    for variant in (printed, "01/02" + printed, "01/02 " + printed):
+        text = _text(variant)
+        region = payer_region(text)
+        readings.append((text, channel_gate(text), region, payer_name(region), company_form(payer_name(region))))
+    assert readings[0][1] == gate
+    assert readings == [readings[0]] * 3
+
+
+@pytest.mark.parametrize("prefix", ["", "01/02", "01/02 ", "1/2", "12/31"])
+def test_a_leading_date_never_hides_a_row_start_label(prefix):
+    # The readers anchored at the row's start: the incoming-wire label, the revenue template prefix and the
+    # numbered-company template.
+    wire = _text(prefix + "Wire In From Fabrikam Trading LLC OBI Invoice 1234 TRN 99")
+    assert payer_region(wire) == "FABRIKAM TRADING LLC"
+    assert entry_fields(wire) == "INVOICE 1234"
+    assert payer_region(_text(prefix + "Electronic Deposit From Fabrikam LLC Ref 12345")) == "FABRIKAM LLC"
+    assert numbered_company(_text(prefix + "Direct Deposit 1234567")) is True
+
+
+@pytest.mark.parametrize("printed", [
+    "123 FABRIKAM DEPOSIT",            # one leading number is no date
+    "1234567 NEW BRUNSWICK INC",       # a numbered company keeps its number
+    "12 345 FABRIKAM DEPOSIT",         # a second number of three digits is no day
+    "01 02 2054 FABRIKAM DEPOSIT",     # a third number follows: only the two-number shape is removed
+    "45 67 FABRIKAM DEPOSIT",          # neither number is a month or a day
+    "FABRIKAM 01 02 DEPOSIT",          # a date inside the row is kept
+])
+def test_leading_numbers_that_are_no_date_prefix_are_kept(printed):
+    assert _text(printed) == normalize(printed)
 
 
 @pytest.mark.parametrize(("printed", "region"), [
@@ -174,13 +220,69 @@ def test_a_merchant_or_direct_deposit_depot_is_no_branch_deposit(printed, gate):
     assert channel_gate(_text(printed)) == gate
 
 
-@pytest.mark.parametrize(("printed", "normalized"), [
+_STREET_LN_CASES = [
     ("WIRE FROM 12 OAK LN CITY", "WIRE FROM 12 OAK LN CITY"),
     ("ATM DEPOSIT 450 NORTH PINE HILL LN", "ATM DEPOSIT 450 NORTH PINE HILL LN"),
     ("TRUIST LN PYMT", "TRUIST LOAN PYMT"),
     ("1234 COMMERCIAL LN PMT", "1234 COMMERCIAL LOAN PMT"),
     ("000123 AUTO LN DISB", "000123 AUTO LOAN DISB"),
     ("12 OAK LN PAYMENT", "12 OAK LOAN PAYMENT"),
-])
+]
+
+
+@pytest.mark.parametrize(("printed", "normalized"), _STREET_LN_CASES)
 def test_a_street_ln_is_a_lane_and_every_other_ln_a_loan(printed, normalized):
     assert normalize(printed) == normalized
+
+
+#: S2.1 review, finding 2 (§7.11): every payment spelling after LN says loan, the spellings the normalizer later
+#: rewrites (PAYMT) among them, so a second normalization reads what the first did.
+_LN_PAYMENT_SPELLING_CASES = [
+    ("12 OAK LN PAYMT", "12 OAK LOAN PAYMENT"),
+    ("ACH 1234 CML LN PAYMT", "ACH 1234 CML LOAN PAYMENT"),
+    ("12 OAK LN PMNT", "12 OAK LOAN PMNT"),
+    ("12 OAK LN PYMNT", "12 OAK LOAN PYMNT"),
+    ("12 OAK LN PAYMENTS", "12 OAK LOAN PAYMENTS"),
+    ("12 OAK LN REPAYMENT", "12 OAK LOAN REPAYMENT"),
+    ("12 OAK LN PYMTS", "12 OAK LOAN PYMTS"),
+    ("12 OAK LN PMTS", "12 OAK LOAN PMTS"),
+]
+#: ... and a loan-product word or a bank's loan abbreviation before LN says loan with no payment word after it.
+_LN_PRODUCT_WORD_CASES = [
+    ("1234 COMMERCIAL LN", "1234 COMMERCIAL LOAN"),
+    ("ONLINE PMT 1234 CML LN", "ONLINE PMT 1234 CML LOAN"),
+    ("ACH DEBIT 0012345 SB LN", "ACH DEBIT 0012345 SB LOAN"),
+    ("TRANSFER TO 1234 VEH LN", "TRANSFER TO 1234 VEH LOAN"),
+    ("PAYMENT 12345 EIDL LN", "PAYMENT 12345 EIDL LOAN"),
+]
+#: ... while a street address keeps its lane.
+_STREET_LANE_CASES = [
+    ("12 OAK LN", "12 OAK LN"),
+    ("DEPOSIT 7 MILL LN", "DEPOSIT 7 MILL LN"),
+    ("WIRE FROM 88 COUNTRY CLUB LN CITY", "WIRE FROM 88 COUNTRY CLUB LN CITY"),
+    ("CHECK 1234 FABRIKAM 45 CHURCH LN", "CHECK 1234 FABRIKAM 45 CHURCH LN"),
+]
+
+
+@pytest.mark.parametrize(
+    ("printed", "normalized"), _LN_PAYMENT_SPELLING_CASES + _LN_PRODUCT_WORD_CASES + _STREET_LANE_CASES
+)
+def test_a_payment_spelling_or_a_loan_abbreviation_reads_ln_as_loan(printed, normalized):
+    assert normalize(printed) == normalized
+
+
+@pytest.mark.parametrize("word", [
+    "COMMERCIAL", "CML", "COML", "COMM", "SB", "SBA", "VEH", "VEHICLE", "AUTO", "EIDL", "PPP", "LOC", "CRE", "MORT",
+    "MTG", "MORTGAGE", "EQUIP", "TERM",
+])
+def test_each_loan_product_word_before_a_street_shaped_ln_reads_loan(word):
+    assert normalize(f"ACH DEBIT 1234 {word} LN") == f"ACH DEBIT 1234 {word} LOAN"
+
+
+@pytest.mark.parametrize("printed", [
+    case[0]
+    for case in _STREET_LN_CASES + _LN_PAYMENT_SPELLING_CASES + _LN_PRODUCT_WORD_CASES + _STREET_LANE_CASES
+])
+def test_normalizing_twice_reads_what_normalizing_once_did(printed):
+    once = normalize(printed)
+    assert normalize(once) == once
