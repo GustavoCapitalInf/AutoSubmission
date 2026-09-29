@@ -36,7 +36,7 @@ from .classification_registry import (
 )
 from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
-from .revenue import RevenueState, revenue_contribution_flags
+from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
 from .description_text import normalize_transaction_description
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
@@ -214,6 +214,14 @@ class TransactionClassification:
     # statement ('Unidentified lender obligation (weekly, 450.00)'). None for every other row, whose line is its
     # canonical_entity.
     potential_payee_label: str | None = None
+    # 5.6 (true revenue spec §5.4): the per-row contract. Every posted credit carries exactly one tier (verified,
+    # counted_flagged, excluded_pending_review, non_revenue); a counted or held row carries its reason code
+    # (analysis.revenue.REVENUE_TIER_REASONS). The initial tier is the one the rules gave, which a reset restores.
+    revenue_tier: str | None = None
+    revenue_initial_tier: str | None = None
+    revenue_tier_reason: str | None = None
+    contributes_to_counted_flagged: bool = False
+    contributes_to_excluded_pending_review: bool = False
 
     @property
     def is_pos_purchase(self) -> bool:
@@ -2696,7 +2704,8 @@ def _build_record(
         direction_consistent=direction_consistent,
     )
     revenue_state = revenue.classification if revenue is not None else None
-    revenue_flags = revenue_contribution_flags(revenue_state)
+    revenue_tier = tier_of_state(revenue_state)
+    revenue_flags = revenue_contribution_flags(revenue_state, revenue_tier)
     # Contract C4, spec §4.4: a credit whose revenue decision is financing proceeds (D1) is
     # also excluded from eligible deposits, whichever rule named the row. A transfer or an
     # insurance term can claim a financing group's credit before step 7. A payout-credit
@@ -2728,6 +2737,8 @@ def _build_record(
         flagged_group=group_key,
         revenue_classification=revenue_state,
         revenue_initial_classification=revenue_state,
+        revenue_tier=revenue_tier,
+        revenue_initial_tier=revenue_tier,
         revenue_canonical_entity=revenue.canonical_entity if revenue else None,
         revenue_match_method=revenue.match_method if revenue else None,
         revenue_matched_alias=revenue.matched_alias if revenue else None,
@@ -3633,6 +3644,9 @@ def _replace_revenue_state(
         record,
         revenue_classification=state,
         revenue_initial_classification=state,
+        revenue_tier=tier_of_state(state),
+        revenue_initial_tier=tier_of_state(state),
+        revenue_tier_reason=None,
         revenue_match_method=match_method,
         revenue_matched_rule=matched_rule,
         revenue_confidence_score=confidence_score,
@@ -3643,7 +3657,7 @@ def _replace_revenue_state(
         revenue_review_status=(
             "pending" if state == "unverified_deposit" else "not_required"
         ),
-        **revenue_contribution_flags(state),
+        **revenue_contribution_flags(state, tier_of_state(state)),
     )
 
 
@@ -4988,6 +5002,11 @@ def classify_statement_transactions(
             contributes_to_true_revenue=False,
             contributes_to_potential_revenue=False,
             contributes_to_non_revenue=duplicate_revenue,
+            contributes_to_counted_flagged=False,
+            contributes_to_excluded_pending_review=False,
+            revenue_tier="non_revenue" if duplicate_revenue else None,
+            revenue_initial_tier="non_revenue" if duplicate_revenue else None,
+            revenue_tier_reason=None,
         )
 
     return records

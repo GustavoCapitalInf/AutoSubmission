@@ -19,6 +19,48 @@ REVENUE_STATES: tuple[RevenueState, ...] = (
     "unverified_deposit",
     "non_revenue",
 )
+#: 5.6 (true revenue spec §5.3): every posted credit carries exactly one tier. `verified` goes with the state
+#: verified_revenue, `non_revenue` with non_revenue, and the two middle tiers with unverified_deposit.
+RevenueTier = Literal["verified", "counted_flagged", "excluded_pending_review", "non_revenue"]
+REVENUE_TIERS: tuple[RevenueTier, ...] = ("verified", "counted_flagged", "excluded_pending_review", "non_revenue")
+STATE_OF_TIER: dict[str, RevenueState] = {
+    "verified": "verified_revenue",
+    "counted_flagged": "unverified_deposit",
+    "excluded_pending_review": "unverified_deposit",
+    "non_revenue": "non_revenue",
+}
+#: 5.6 (§5.3): the reason codes of the counted and held tiers: code -> (tier, the label on screen). Nothing else lists
+#: them; the dashboard mirrors them (webapp/static/app.js REVENUE_TIER_REASONS).
+REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
+    "direction_conflict": ("excluded_pending_review", "Direction conflicts with the amount"),
+    "insurer_payer": ("excluded_pending_review", "Insurance carrier"),
+    "insurer_named_payer": ("excluded_pending_review", "Payer name reads as an insurer"),
+    "possible_return": ("excluded_pending_review", "Possible return or adjustment"),
+    "financing_named_payer": ("excluded_pending_review", "Payer or entry suggests financing"),
+    "payer_debited_as_lender": ("excluded_pending_review", "Payer is also debited as a lender"),
+    "holder_name": ("excluded_pending_review", "From the holder's own name or brand"),
+    "payroll_or_salary": ("excluded_pending_review", "Payroll, salary or employee reimbursement"),
+    "personal_income": ("excluded_pending_review", "Benefit or pension"),
+    "non_sale_purpose": (
+        "excluded_pending_review", "Not a sale: owner money, investment, grant, refund, claim or interest",
+    ),
+    "payer_also_debited": ("excluded_pending_review", "Payer also debited this account"),
+    "wire_no_sender": ("excluded_pending_review", "Wire, no sender printed"),
+    "transfer_no_counterparty": ("excluded_pending_review", "Transfer, no counterparty"),
+    "transfer_account_designation": ("excluded_pending_review", "Transfer naming an account"),
+    "p2p_round_repeat": ("excluded_pending_review", "Repeated round sums from one sender"),
+    "wire_named_sender": ("counted_flagged", "Wire from a named sender"),
+    "check_deposit": ("counted_flagged", "Check deposit"),
+    "no_payer_printed": ("counted_flagged", "No payer printed"),
+    "p2p": ("counted_flagged", "Person-to-person"),
+    "factoring_payout": ("counted_flagged", "Factoring payout"),
+    "payout_credit_entity": ("counted_flagged", "Platform payout (financing partner)"),
+    "platform_unconfirmed": ("counted_flagged", "Platform payout, not confirmed"),
+    "numbered_company_payer": ("counted_flagged", "Numbered company payer"),
+    "named_payer_purpose_refused": ("counted_flagged", "Named payer, purpose not accepted as proof"),
+    "named_payer_one_off": ("counted_flagged", "One-off payer"),
+    "named_payer_unlabelled": ("counted_flagged", "Payer named, channel not printed"),
+}
 WITHHOLDING_DENOMINATOR_MODES = (
     "legacy_eligible_deposits",
     "verified_revenue",
@@ -38,16 +80,28 @@ def normalize_withholding_denominator_mode(value: object) -> str:
     return mode if mode in WITHHOLDING_DENOMINATOR_MODES else "legacy_eligible_deposits"
 
 
-def revenue_contribution_flags(state: RevenueState | None) -> dict[str, bool]:
+def revenue_contribution_flags(state: RevenueState | None, tier: str | None = None) -> dict[str, bool]:
+    """The contribution flags of one record (§5.4). The state decides the three state flags; the tier (5.6) decides
+    the counted and held flags and the repointed `contributes_to_true_revenue` (verified or counted). A record with
+    no tier contributes to neither middle tier and not to True revenue."""
     return {
         "contributes_to_verified_revenue": state == "verified_revenue",
         "contributes_to_unverified_deposit": state == "unverified_deposit",
         "contributes_to_non_revenue": state == "non_revenue",
+        "contributes_to_counted_flagged": tier == "counted_flagged",
+        "contributes_to_excluded_pending_review": tier == "excluded_pending_review",
         # Deprecated aliases remain serialized for existing API consumers. They
-        # are derived from the canonical state and are never scanned separately.
-        "contributes_to_true_revenue": state == "verified_revenue",
+        # are derived from the canonical state and tier and are never scanned separately.
+        # 5.6 (T9): repointed to the new True revenue, verified plus counted.
+        "contributes_to_true_revenue": tier in ("verified", "counted_flagged"),
         "contributes_to_potential_revenue": state == "unverified_deposit",
     }
+
+
+def tier_of_state(state: RevenueState | None) -> str | None:
+    """The tier a state fixes on its own: verified for verified_revenue and non_revenue for non_revenue; None for an
+    unverified deposit, whose tier the true-revenue pass sets."""
+    return {"verified_revenue": "verified", "non_revenue": "non_revenue"}.get(state or "")
 
 
 def _number(value: object) -> float:
@@ -120,7 +174,7 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
             initial_state,
             initial_state,
         )
-        flags = revenue_contribution_flags(state)
+        flags = revenue_contribution_flags(state, tier_of_state(state))
         record.update(flags)
         serialized_records.append(deepcopy(record))
         totals[state] += amount
@@ -280,7 +334,7 @@ def record_serialized_revenue_review(
     record["revenue_reviewed_at"] = (
         None if decision == "reset" else reviewed_at or datetime.now(UTC).isoformat()
     )
-    record.update(revenue_contribution_flags(state))
+    record.update(revenue_contribution_flags(state, tier_of_state(state)))
     return record
 
 
