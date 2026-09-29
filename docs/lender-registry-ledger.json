@@ -5198,7 +5198,8 @@
    "group": "confirmed_lender",
    "business_type": "mca_or_revenue_based_funder",
    "aliases": [
-    "FAIRFIGURE CARD"
+    "FAIRFIGURE CARD",
+    "FAIRFIGURE LIFT"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -5210,6 +5211,14 @@
     {
      "source": "https://www.fairfigure.com/",
      "note": "verifier re-fetched: the Lift Card is 'neither a traditional credit card nor a charge card'; FairFigure generates offers on expected future revenue, purchases deposits at a discounted rate and funds the card; EIN-only..."
+    },
+    {
+     "source": "https://www.bbb.org/us/fl/miami/profile/credit-cards-and-plans/fairfigure-llc-0633-92037717",
+     "note": "r1 fetched (ledger55): BBB profile of 'FairFigure, LLC', Miami FL, category Credit Cards and Plans."
+    },
+    {
+     "source": "https://www.prnewswire.com/news-releases/business-credit-startup-fairfigure-announces-innovative-new-product-302530441.html",
+     "note": "r1 fetched (ledger55): press release of August 14, 2025: FairFigure Lift 'deposits credit-building funds directly into a business's bank account, providing immediate working capital'."
     }
    ],
    "verdicts": [
@@ -5222,6 +5231,16 @@
      "round": "r3",
      "verdict": "upheld",
      "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "corrected",
+     "confirmed": true
     }
    ],
    "where_looked": [
@@ -5231,9 +5250,14 @@
     "https://www.fairfigure.com/lift-card",
     "https://www.fairfigure.com/faq",
     "https://www.fairfigure.com/terms",
-    "https://www.fairfigure.com/terms-of-service"
+    "https://www.fairfigure.com/terms-of-service",
+    "https://www.bbb.org/us/fl/miami/profile/credit-cards-and-plans/fairfigure-llc-0633-92037717",
+    "https://www.prnewswire.com/news-releases/business-credit-startup-fairfigure-announces-innovative-new-product-302530441.html",
+    "https://fairfigure.com/lift",
+    "https://fairfigure.com/product/card",
+    "https://fairfigure.com/terms-of-service"
    ],
-   "notes": "FairFigure's Lift Card is revenue-based funding: it purchases future deposits at a discount and is repaid from them (r1 and r3 upheld). FAIRFIGURE CARD is the Lift Card's daily/weekly remittance. FairFigure also sells FairFigure Premium, a credit-building subscription paid by card, so bare FAIRFIGURE and the recurring card-purchase spelling are not aliases: a subscription is not a funding position."
+   "notes": "FairFigure's Lift Card is revenue-based funding: it purchases future deposits at a discount and is repaid from them (r1 and r3 upheld). FAIRFIGURE CARD is the Lift Card's daily/weekly remittance. FairFigure also sells FairFigure Premium, a credit-building subscription paid by card, so bare FAIRFIGURE and the recurring card-purchase spelling are not aliases: a subscription is not a funding position. Ledger55 r1 (2026-09-29): FAIRFIGURE LLC is the legal name (BBB) as a wire or ACH originator prints it; FAIRFIGURE LIFT is the funding product's name (the Lift Card, which deposits funds into the business's bank account); neither spelling is seen on a statement. Caution for the verify round: the entity keeps bare FAIRFIGURE out because the FairFigure Premium subscription is not a funding position; if Premium's card charges print FAIRFIGURE LLC, that alias would read them too. Ledger55 r2 corrected (2026-09-29): alias(es) FAIRFIGURE LLC not carried. Ledger check: confirmed_lender, admitted. Lift confirmed (PR Newswire August 14, 2025: deposits credit-building funds into the business's bank account; fairfigure.com/lift: 'Repay over 4 to 8 weeks through automatic withdrawals'). Correction: drop FAIRFIGURE LLC, keep FAIRFIGURE LIFT. Reasons: FairFigure's own terms of use are 'a binding agreement between you and FairFigure Inc.' (New York), so the LLC (BBB, Miami) is not shown to be the party that funds or debits; and the paid Premium monitoring subscription (about 30-35 USD a month per reviews) is charged by FairFigure, so a FAIRFIGURE LLC descriptor would likely read those subscription charges as a funding position, the exact reason the entity keeps bare FAIRFIGURE out."
   },
   {
    "entity": "Family Funding Group",
@@ -7334,7 +7358,10 @@
    "group": "confirmed_lender",
    "business_type": "mca_or_revenue_based_funder",
    "aliases": [
-    "UFCE"
+    "UFCE",
+    "GLOBAL FUNDING EXPERTS",
+    "UNITED FIRST CAPITAL EXPERTS",
+    "UNITED FIRST LLC"
    ],
    "status": "admitted",
    "short_alias_reason": "UFCE is the funder's own abbreviation (United First Capital Experts) and the ACH company name on its debits; in the local payee index it matches no other payee as a whole word.",
@@ -7382,6 +7409,18 @@
     {
      "source": "https://debanked.com/merchant-cash-advance-resource/merchant-cash-advance-directory/",
      "note": "deBanked directory: MCA Funder; VA SCC 2025 registrant United First, LLC d/b/a Global Funding Experts / UFCE"
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "r1 fetched and text-extracted (ledger55): the Virginia SCC 2025 sales-based financing registrant list names 'United First, LLC d/b/a Global Funding Experts d/b/a UFCE d/b/a United First Capital Experts', 27-01 Queens Plaza North, Long Island City, NY."
+    },
+    {
+     "source": "https://www.bbb.org/us/ny/jamaica/profile/financial-services/global-funding-experts-llc-0121-165452",
+     "note": "r1 fetched (ledger55): BBB profile of 'Global Funding Experts LLC', Jamaica NY, Financial Services."
+    },
+    {
+     "source": "https://ratemymcafunder.com/listing/united-first/",
+     "note": "r1 fetched (ledger55): United First / Global Funding Experts (GFE), 'a direct funder of Merchant Cash Advances', 27-01 Queens Plaza N, Long Island City."
     }
    ],
    "verdicts": [
@@ -7403,6 +7442,16 @@
     {
      "round": "r2",
      "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "corrected",
      "confirmed": true
     }
    ],
@@ -7426,9 +7475,12 @@
     "https://www.globalfundingexperts.com/reverse-consolidation",
     "https://www.unitedfirst.com/",
     "https://debanked.com/merchant-cash-advance-resource/merchant-cash-advance-directory/",
-    "https://en.wikipedia.org/wiki/United_First_Financial"
+    "https://en.wikipedia.org/wiki/United_First_Financial",
+    "https://www.bbb.org/us/ny/jamaica/profile/financial-services/global-funding-experts-llc-0121-165452",
+    "https://www.linkedin.com/company/global-funding-experts-gfe",
+    "https://www.utdfirst.com/"
    ],
-   "notes": "United First, LLC, a direct merchant cash advance funder in Long Island City, NY, trades as Global Funding Experts (GFE), UFCE and United First Capital Experts (Virginia SCC sales-based financing registrant). Decision 2026-09-25 (owner delegated to the orchestrator): GFE keeps today's name and place with UFCE, the ACH company name on its debits, as its only alias (short_alias_reason names UFCE only). Move: today's aliases GFE and UNITED FIRST are dropped: neither matches a row of the payee index or the cache while every row of the funder prints UFCE, bare GFE is a three-letter token that could name another payee, and UNITED FIRST's two common words also name unrelated businesses (for example United First Financial, a Utah mortgage-acceleration software company)."
+   "notes": "United First, LLC, a direct merchant cash advance funder in Long Island City, NY, trades as Global Funding Experts (GFE), UFCE and United First Capital Experts (Virginia SCC sales-based financing registrant). Decision 2026-09-25 (owner delegated to the orchestrator): GFE keeps today's name and place with UFCE, the ACH company name on its debits, as its only alias (short_alias_reason names UFCE only). Ledger55 r1 (2026-09-29): the printed legal and trade names of the funder: UNITED FIRST LLC (the registrant's legal name), GLOBAL FUNDING EXPERTS (a d/b/a, also a BBB-listed LLC), UNITED FIRST CAPITAL EXPERTS and UF CAPITAL EXPERTS (d/b/a names on the SCC list and the corporate profile). Caution for the verify round: the 2026-09-25 decision dropped bare UNITED FIRST as two common words; UNITED FIRST LLC is narrower but any other United First, LLC would share it (United First Partners, an unrelated firm, does not match it). Ledger55 r2 corrected (2026-09-29): alias(es) UF CAPITAL EXPERTS not carried. Ledger check: confirmed_lender, admitted. Virginia SCC 2025 list (re-downloaded, p.77): 'United First, LLC d/b/a Global Funding Experts d/b/a UFCE d/b/a United First Capital Experts', 27-01 Queens Plaza North, LIC. ratemymcafunder: United First / GFE, 'a direct funder of Merchant Cash Advances'. BBB: Global Funding Experts LLC (Jamaica NY). A BBB 'United First, LLC.' in Miami FL shares GFE's phone number and management, so it is the same group, not a namesake; UNITED FIRST LLC kept. Correction: drop UF CAPITAL EXPERTS: no public source spells it (the SCC list gives UFCE and UNITED FIRST CAPITAL EXPERTS; an exact-phrase search finds nothing). Keep GLOBAL FUNDING EXPERTS, UNITED FIRST CAPITAL EXPERTS, UNITED FIRST LLC. Note: r1's where_looked utdfirst.com is United First Partners, an unrelated broker-dealer (does not match). Move: today's aliases GFE and UNITED FIRST are dropped: neither matches a row of the payee index or the cache while every row of the funder prints UFCE, bare GFE is a three-letter token that could name another payee, and UNITED FIRST's two common words also name unrelated businesses (for example United First Financial, a Utah mortgage-acceleration software company)."
   },
   {
    "entity": "Giggle Finance",
@@ -13505,7 +13557,10 @@
    "group": "confirmed_lender",
    "business_type": "mca_or_revenue_based_funder",
    "aliases": [
-    "ONE RIVER FUND"
+    "ONE RIVER FUND",
+    "ONE RIVER GROUP",
+    "ONE RIVER SERVICES",
+    "ONE RIVER FUNDING"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -13517,11 +13572,29 @@
     {
      "source": "https://www.oneriverservices.com/",
      "note": "Verifier re-fetch: One River Group Inc.; funding is 'a purchase of future receivables, so there is no maturity date'; offices Miami Beach FL and New York NY."
+    },
+    {
+     "source": "https://www.oneriverservices.com/",
+     "note": "r1 fetched (ledger55): footer '(c) One River Group Inc. 2025'; brand One River Services; 'Funding is a purchase of future receivables, so there is no maturity date'; offices in Miami Beach and New York."
+    },
+    {
+     "source": "https://www.oneriverfunding.com/",
+     "note": "Prior ledger evidence: the One River Funding address redirects to oneriverservices.com."
     }
    ],
    "verdicts": [
     {
      "round": "r1",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
      "verdict": "upheld",
      "confirmed": true
     }
@@ -13530,7 +13603,7 @@
     "https://www.oneriverfunding.com/",
     "https://www.oneriverservices.com/"
    ],
-   "notes": "Revenue-based / merchant cash advance funder (One River Funding, now One River Services; a purchase of future receivables); daily or weekly debits. Bare ONE RIVER is left out as too broad."
+   "notes": "Revenue-based / merchant cash advance funder (One River Funding, now One River Services; a purchase of future receivables); daily or weekly debits. Bare ONE RIVER is left out as too broad. Ledger55 r1 (2026-09-29): ONE RIVER GROUP (the legal name, covering ONE RIVER GROUP INC), ONE RIVER SERVICES (today's brand) and ONE RIVER FUNDING (the former brand); the entity read only the cut ONE RIVER FUND, which as whole words matches none of them. Bare ONE RIVER stays out."
   },
   {
    "entity": "OneView Finance",
@@ -14008,7 +14081,8 @@
     "PIPE TECHNOLOGIES IN",
     "PIPE TECHNOLOGIES INC",
     "PIPE ADVANCE",
-    "PIPE CAPITAL"
+    "PIPE CAPITAL",
+    "PIPE TECHNOLOGIE"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -14032,6 +14106,10 @@
     {
      "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
      "note": "(local text copy va_sbf_2025.txt, re-grepped by verifier) Virginia SCC sales-based financing registrants include 'Pipe Advance LLC', 548 Market Street, San Francisco"
+    },
+    {
+     "source": "https://pipe.com/",
+     "note": "r1 fetched (ledger55): footer 'Copyright (c) 2026 Pipe Technologies Inc. All rights reserved.' The first 16 characters of the legal name are PIPE TECHNOLOGIE."
     }
    ],
    "verdicts": [
@@ -14042,6 +14120,16 @@
     },
     {
      "round": "r4",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
      "verdict": "upheld",
      "confirmed": true
     }
@@ -14061,7 +14149,7 @@
     "https://pipe.com/products/cards/licenses",
     "https://www.housecallpro.com/features/capital/"
    ],
-   "notes": "Merchant cash advance from future sales (US funder Pipe Advance LLC); the rows are funding credits. Consolidated (2026-09-25): Pipe Capital LLC (batch 07) merged into this entity as the same company (Pipe Capital LLC is Pipe's capital arm; both hold Pipe's advance rows); carried over: aliases PIPE CAPITAL, with their evidence and verdicts."
+   "notes": "Merchant cash advance from future sales (US funder Pipe Advance LLC); the rows are funding credits. Consolidated (2026-09-25): Pipe Capital LLC (batch 07) merged into this entity as the same company (Pipe Capital LLC is Pipe's capital arm; both hold Pipe's advance rows); carried over: aliases PIPE CAPITAL, with their evidence and verdicts. Ledger55 r1 (2026-09-29): PIPE TECHNOLOGIE is the 16-character cut of the legal name, the width of Santander's wire-originator field (true revenue spec sections 7.3 and 7.9); the entity already reads the 20-character cut PIPE TECHNOLOGIES IN, and as whole words neither cut matches the other. The cut is derived from the legal name: the corpus credit keys hold no row printing it."
   },
   {
    "entity": "Pitney Bowes Global Financial Services, LLC",
@@ -17468,7 +17556,8 @@
    "business_type": "online_business_term_lender",
    "aliases": [
     "UNCAPPED LTD",
-    "WEAREUNCAPPED"
+    "WEAREUNCAPPED",
+    "UNCAPPED TECHNOLOGIES"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -17480,11 +17569,25 @@
     {
      "source": "https://sell.amazon.com/programs/amazon-lending",
      "note": "Re-fetched this run: Uncapped listed with a lump-sum term loan and a revolving line of credit."
+    },
+    {
+     "source": "https://www.weareuncapped.com/terms-of-use",
+     "note": "r1 fetched with curl (WebFetch was refused) (ledger55): 'By accessing or using the weareuncapped.com website, the Uncapped Technologies Inc. service, or any applications made available by Uncapped Technologies Inc.'; site footer '(c) 2026 Uncapped Ltd.'"
     }
    ],
    "verdicts": [
     {
      "round": "r4",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
      "verdict": "upheld",
      "confirmed": true
     }
@@ -17493,9 +17596,11 @@
     "https://sell.amazon.com/blog/amazon-lending",
     "https://sell.amazon.com/programs/amazon-lending",
     "https://www.weareuncapped.com/funding/fixed-rate-financing",
-    "https://www.weareuncapped.com/"
+    "https://www.weareuncapped.com/",
+    "https://www.weareuncapped.com/terms-of-use",
+    "https://www.weareuncapped.com/legal"
    ],
-   "notes": "Revenue-data-underwritten term lender to ecommerce and Amazon sellers (weareuncapped.com; listed on Amazon's lending page as a third-party lender, not Amazon financing). Researched by name from the public lender universe; no statement in the corpus prints it, so the aliases are the company's own public name spellings, not statement spellings. Each was checked against the local payee index and reaches no other payee. Bare UNCAPPED is not used: it is an ordinary word."
+   "notes": "Revenue-data-underwritten term lender to ecommerce and Amazon sellers (weareuncapped.com; listed on Amazon's lending page as a third-party lender, not Amazon financing). Researched by name from the public lender universe; no statement in the corpus prints it, so the aliases are the company's own public name spellings, not statement spellings. Each was checked against the local payee index and reaches no other payee. Bare UNCAPPED is not used: it is an ordinary word. Ledger55 r1 (2026-09-29): UNCAPPED TECHNOLOGIES, the US operating company's legal name (Uncapped Technologies Inc.), beside the UK UNCAPPED LTD the entity already reads. Bare UNCAPPED stays out."
   },
   {
    "entity": "Unique Funding Solutions LLC",
@@ -29694,7 +29799,8 @@
    "business_type": "auto_or_vehicle_finance",
    "aliases": [
     "SPI AMERICAN CREDIT ACC",
-    "AMERICAN CREDIT ACC"
+    "AMERICAN CREDIT ACC",
+    "AMERICAN CREDIT ACCEPTANCE"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -29726,6 +29832,10 @@
     {
      "source": "https://americancreditacceptance.com/faq",
      "note": "r2 verified: fetched: ACA finances vehicle purchases through retail installment sales contracts, offers AutoPay withdrawals from checking/savings and online payments; NMLS ID <digits>. It does not print its ACH statement name"
+    },
+    {
+     "source": "https://americancreditacceptance.com/",
+     "note": "r1 fetched (ledger55): 'American Credit Acceptance' with a customer portal (Make A Payment) and a dealer portal (Finance Programs)."
     }
    ],
    "verdicts": [
@@ -29753,6 +29863,16 @@
      "round": "r4",
      "verdict": "upheld",
      "confirmed": false
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
     }
    ],
    "where_looked": [
@@ -29768,14 +29888,16 @@
     "https://en.wikipedia.org/wiki/American_Credit_Acceptance",
     "https://efts.sec.gov/LATEST/search-index"
    ],
-   "notes": "American Credit Acceptance, LLC (Spartanburg SC), a subprime auto lender, paid by debit card through ACI Speedpay (SPI, the processor). Only the confirmed card spellings are aliases. Left out: the ACH loan-payment rows printed AMERICAN CREDIT with the entry LOANPYMNT (9 analyses). Rounds 1 to 4 read them as probably this lender (an exact 16-character cut of its name) but never confirmed it, and American Credit, Inc. (a business lender) and American Credit Services share the name, so bare AMERICAN CREDIT is dropped and the LOANPYMNT spellings are not admitted here. For the owner or the orchestrator: those rows would need their own review entity (AMERICAN CREDIT DES LOANPYMNT, LOANPYMNT AMERICAN CREDIT)."
+   "notes": "American Credit Acceptance, LLC (Spartanburg SC), a subprime auto lender, paid by debit card through ACI Speedpay (SPI, the processor). Only the confirmed card spellings are aliases. Left out: the ACH loan-payment rows printed AMERICAN CREDIT with the entry LOANPYMNT (9 analyses). Rounds 1 to 4 read them as probably this lender (an exact 16-character cut of its name) but never confirmed it, and American Credit, Inc. (a business lender) and American Credit Services share the name, so bare AMERICAN CREDIT is dropped and the LOANPYMNT spellings are not admitted here. For the owner or the orchestrator: those rows would need their own review entity (AMERICAN CREDIT DES LOANPYMNT, LOANPYMNT AMERICAN CREDIT). Ledger55 r1 (2026-09-29): AMERICAN CREDIT ACCEPTANCE, the uncut legal name (the entity reads the cut AMERICAN CREDIT ACC, which as whole words does not match ACCEPTANCE). Bare AMERICAN CREDIT stays out, as recorded."
   },
   {
    "entity": "American Honda Finance Corporation",
    "group": "vehicle_financing",
    "business_type": "auto_or_vehicle_finance",
    "aliases": [
-    "HONDA PMT"
+    "HONDA PMT",
+    "HONDA FINANCIAL",
+    "AMERICAN HONDA FINANCE"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -29787,6 +29909,14 @@
     {
      "source": "https://honda.americanhondafinance.com/s/paymentoptions-prelogin",
      "note": "r4 verified: (search result, not opened) AHFC EasyPay recurring/single payments from checking or savings"
+    },
+    {
+     "source": "https://www.consumerfinance.gov/about-us/newsroom/cfpb-orders-hondas-auto-financing-arm-to-pay-128-million-for-covid-19-and-other-credit-reporting-failures/",
+     "note": "r1 fetched (ledger55): CFPB, January 17, 2025: 'Honda Finance is a nonbank automotive finance company for American Honda Motor Co., Inc.' (Torrance, California), which purchases and services loans and leases arranged by Honda and Acura dealerships."
+    },
+    {
+     "source": "https://www.hondafinancialservices.com/",
+     "note": "r1 fetched (ledger55): the Honda Financial Services address redirects to honda.americanhondafinance.com, AHFC's customer site, so Honda Financial Services is AHFC's trade name (a search result also calls it AHFC's DBA)."
     }
    ],
    "verdicts": [
@@ -29794,13 +29924,27 @@
      "round": "r4",
      "verdict": "upheld",
      "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
     }
    ],
    "where_looked": [
     "https://emma-app.com/who-charged-me/honda-finance",
-    "https://honda.americanhondafinance.com/s/paymentoptions-prelogin"
+    "https://honda.americanhondafinance.com/s/paymentoptions-prelogin",
+    "https://www.consumerfinance.gov/about-us/newsroom/cfpb-orders-hondas-auto-financing-arm-to-pay-128-million-for-covid-19-and-other-credit-reporting-failures/",
+    "https://www.hondafinancialservices.com/",
+    "https://www.americanhondafinance.com/",
+    "https://automobiles.honda.com/financial-services"
    ],
-   "notes": "American Honda Finance Corporation (Honda Financial Services): Honda and Acura loans and leases. The ACH entry prints HONDA PMT. Bare HONDA is a bare brand that also sells goods and service (spec section 5), so it is not used. Trailing names on some rows are not part of the alias."
+   "notes": "American Honda Finance Corporation (Honda Financial Services): Honda and Acura loans and leases. The ACH entry prints HONDA PMT. Bare HONDA is a bare brand that also sells goods and service (spec section 5), so it is not used. Trailing names on some rows are not part of the alias. Ledger55 r1 (2026-09-29): HONDA FINANCIAL (the trade name Honda Financial Services, covered as whole words) and AMERICAN HONDA FINANCE (the legal name). AHFC also finances Honda dealers' inventory, so a Honda dealer's debit to AHFC may be floor-plan rather than a vehicle loan."
   },
   {
    "entity": "Audi Financial Services",
@@ -31724,7 +31868,8 @@
     "NISSANMOTORACC BILLPAY NISSAN MOTOR AC",
     "NMAC LOANS",
     "NMAC LOANS ONLINE PMT",
-    "NISSAN RETRY PYMT"
+    "NISSAN RETRY PYMT",
+    "NISSAN MOTOR ACCEPTANCE"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -31752,6 +31897,14 @@
     {
      "source": "https://cssinsuranceservices.com/css-insurance-services-llc/loss-payee/",
      "note": "r4-sweep first: re-fetched this run: names 'NISSAN MOTOR ACCEPT' and 'NISSAN INFINITI LT'"
+    },
+    {
+     "source": "https://usa.nissannews.com/en-US/releases/nissan-motor-acceptance-company-submits-application-to-form-nissan-bank-us-llc",
+     "note": "r1 fetched (ledger55): Nissan newsroom, June 20, 2025: 'Nissan Motor Acceptance Company (NMAC), the financial services arm of Nissan North America', applies to form Nissan Bank U.S., LLC for commercial dealer financing."
+    },
+    {
+     "source": "https://www.bbb.org/us/tx/dallas/profile/consumer-finance-companies/nissan-motor-acceptance-company-llc-0875-20000841",
+     "note": "r1 search result only (ledger55): Nissan Motor Acceptance Company, LLC, consumer finance company."
     }
    ],
    "verdicts": [
@@ -31769,6 +31922,16 @@
      "round": "r5",
      "verdict": "upheld",
      "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
     }
    ],
    "where_looked": [
@@ -31784,9 +31947,11 @@
     "https://en.wikipedia.org/wiki/Special:Search",
     "https://www.nissanusa.com/financing.html",
     "https://en.wikipedia.org/wiki/Nissan_Motor_Acceptance_Company",
-    "https://www.nissanusa.com/shopping-tools/finance-lease.html"
+    "https://www.nissanusa.com/shopping-tools/finance-lease.html",
+    "https://usa.nissannews.com/en-US/releases/nissan-motor-acceptance-company-submits-application-to-form-nissan-bank-us-llc",
+    "https://www.bbb.org/us/tx/dallas/profile/consumer-finance-companies/nissan-motor-acceptance-company-llc-0875-20000841"
    ],
-   "notes": "Nissan Motor Acceptance Company LLC (NMAC; Nissan Financial Services and INFINITI Financial Services), Nissan's captive finance company: loans and leases. Round 1 read the lease rows as a lease or rental; round 5 put them with vehicle financing, which the owner's rulings give auto leases. Bare NMAC and bare NISSAN are not used."
+   "notes": "Nissan Motor Acceptance Company LLC (NMAC; Nissan Financial Services and INFINITI Financial Services), Nissan's captive finance company: loans and leases. Round 1 read the lease rows as a lease or rental; round 5 put them with vehicle financing, which the owner's rulings give auto leases. Bare NMAC and bare NISSAN are not used. Ledger55 r1 (2026-09-29): NISSAN MOTOR ACCEPTANCE, the uncut legal name (the entity reads the cut NISSAN MOTOR ACC, which as whole words does not match ACCEPTANCE). NMAC also finances dealers' inventory, so a Nissan dealer's debit to NMAC may be floor-plan rather than a vehicle loan."
   },
   {
    "entity": "Porsche Financial Services",
@@ -31828,7 +31993,8 @@
    "group": "vehicle_financing",
    "business_type": "auto_or_vehicle_finance",
    "aliases": [
-    "REGIONAL ACCEPTAN"
+    "REGIONAL ACCEPTAN",
+    "REGIONAL ACCEPTANCE"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -31844,6 +32010,10 @@
     {
      "source": "https://www.regionalacceptance.com/",
      "note": "r4-sweep first: re-fetched this run: national auto finance company, affiliate of Truist"
+    },
+    {
+     "source": "https://www.regionalacceptance.com/",
+     "note": "r1 fetched (ledger55): 'Regional Acceptance Corporation, an affiliate of Truist', with customer payment options and a dealer section."
     }
    ],
    "verdicts": [
@@ -31856,6 +32026,16 @@
      "round": "r5",
      "verdict": "upheld",
      "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
     }
    ],
    "where_looked": [
@@ -31863,7 +32043,7 @@
     "https://finance.yahoo.com/economy/policy/articles/regional-acceptance-corp-close-greenville-111734068.html",
     "https://www.regionalacceptance.com/"
    ],
-   "notes": "Regional Acceptance Corporation (Greenville NC, a Truist affiliate), a sub-prime and near-prime indirect auto lender, paid by debit card (the printed name is cut to REGIONAL ACCEPTAN)."
+   "notes": "Regional Acceptance Corporation (Greenville NC, a Truist affiliate), a sub-prime and near-prime indirect auto lender, paid by debit card (the printed name is cut to REGIONAL ACCEPTAN). Ledger55 r1 (2026-09-29): REGIONAL ACCEPTANCE, the uncut legal name (the entity reads the cut REGIONAL ACCEPTAN)."
   },
   {
    "entity": "Roadrunner Financial (Octane)",
@@ -31917,7 +32097,8 @@
     "CHRYSLER CAPITAL BILLPAY",
     "BILLPAY CHRYSLER CAPITAL",
     "CHRYSLER CAPITAL ONLINE PMT",
-    "PNM CHRYSLER CA"
+    "PNM CHRYSLER CA",
+    "SANTANDER CONSUMER"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -31989,6 +32170,10 @@
     {
      "source": "https://lendedu.com/blog/chrysler-capital-financing-review/",
      "note": "r1 verified: Verifier fetched: Chrysler Capital offers auto loans and leases for Chrysler, Dodge, Jeep, RAM and FIAT vehicles at participating dealerships; 'a subsidiary of Banco Santander'"
+    },
+    {
+     "source": "https://santanderconsumerusa.com/",
+     "note": "r1 fetched (ledger55): 'A leader in auto finance', 'Providing consumers with financing for new and used' vehicles; menus for customers (payment options, lease-end) and dealers (Dealer Portal)."
     }
    ],
    "verdicts": [
@@ -32014,6 +32199,16 @@
     },
     {
      "round": "r1",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
      "verdict": "upheld",
      "confirmed": true
     }
@@ -32043,7 +32238,7 @@
     "https://www.bing.com/search",
     "https://en.wikipedia.org/wiki/Santander_Consumer_USA_Holdings"
    ],
-   "notes": "Santander Consumer USA Inc. (Dallas TX; incl. Chrysler Capital), auto loans and leases, paid by card through PayNearMe (PNM*), which prints PNM SANTANDER. Bare SANTANDER is not used (it also names Santander Bank, a deposit bank), and SANTANDER BILLPAY is left out: round 5 left that ACH form unresolved between the auto lender and the bank. Consolidated (2026-09-25): Chrysler Capital (batch 18) merged into this entity as the same company (Chrysler Capital is the auto loan and lease brand of Santander Consumer USA Inc.); carried over: aliases CHRYSLER CAPITAL, CHRYSLER CAPITAL BILLPAY, BILLPAY CHRYSLER CAPITAL, CHRYSLER CAPITAL ONLINE PMT, PNM CHRYSLER CA, with their evidence and verdicts."
+   "notes": "Santander Consumer USA Inc. (Dallas TX; incl. Chrysler Capital), auto loans and leases, paid by card through PayNearMe (PNM*), which prints PNM SANTANDER. Bare SANTANDER is not used (it also names Santander Bank, a deposit bank), and SANTANDER BILLPAY is left out: round 5 left that ACH form unresolved between the auto lender and the bank. Consolidated (2026-09-25): Chrysler Capital (batch 18) merged into this entity as the same company (Chrysler Capital is the auto loan and lease brand of Santander Consumer USA Inc.); carried over: aliases CHRYSLER CAPITAL, CHRYSLER CAPITAL BILLPAY, BILLPAY CHRYSLER CAPITAL, CHRYSLER CAPITAL ONLINE PMT, PNM CHRYSLER CA, with their evidence and verdicts. Ledger55 r1 (2026-09-29): SANTANDER CONSUMER, the first two words of the legal name (it also covers SANTANDER CONSUMER USA as whole words), which the entity lacked; bare SANTANDER stays out (Santander Bank)."
   },
   {
    "entity": "Southeast Toyota Finance",
@@ -53440,7 +53635,8 @@
    "group": "confirmed_lender",
    "business_type": "mca_or_revenue_based_funder (probable; the originator is not publicly tied to the Samson funders)",
    "aliases": [
-    "SAMSONSERVICING"
+    "SAMSONSERVICING",
+    "SAMSON SERVICING"
    ],
    "status": "review",
    "short_alias_reason": null,
@@ -53452,6 +53648,10 @@
     {
      "source": "https://www.samsonfunding.com/",
      "note": "Fetched (r6): Samson Funding, Inc. offers revenue-based financing, lines of credit, equipment financing, invoice factoring, short-term financing and a home-equity line; 'We directly fund most of the capital we provide' and match other products with partners. No servicing entity is named."
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "r1 re-fetched (ledger55): 'Samson MCA LLC', 17 State Street, New York, is a Virginia sales-based financing registrant; the list names no Samson Servicing."
     }
    ],
    "verdicts": [
@@ -53464,6 +53664,16 @@
      "round": "r7",
      "verdict": "unresolved",
      "confirmed": false
+    },
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
     }
    ],
    "where_looked": [
@@ -53473,9 +53683,692 @@
     "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
     "https://opencorporates.com/companies/us_de/6589155",
     "https://www.bizapedia.com/de/samson-servicing-llc.html",
-    "https://www.sec.gov/edgar/search/"
+    "https://www.sec.gov/edgar/search/",
+    "https://www.sec.gov/Archives/edgar/data/895665/000149315222007459/ex10-2.htm"
    ],
-   "notes": "Review: added 2026-09-27 under owner decision 3 of the false-positive hunt as a review alias only, so the Potential Lenders tab names these rows instead of 'Unidentified lender obligation'. The rows are Bank of America CCD debits from the originator SAMSONSERVICING, entry description ACHPAYMENT, fixed weekly amounts at three levels (tryout host, 10 accounts, 54 rows): financing-shaped. Samson is a known MCA family: Samson MCA LLC (New York) is a Virginia sales-based financing provider registrant and Samson Funding, Inc. sells revenue-based financing, but no public source ties the originator to either. A search result lists a Delaware SAMSON SERVICING LLC, whose registry pages returned only a bot check, so its owner is unknown. A 2017 agreement in a public filing (listed under where_looked, not cited because it names a guarantor) named a third-party servicing agent for a 'Samson Funding' contract; it says nothing about the 2026 originator. The SEC's full-text search finds no 'Samson Servicing'. Admit it as a counted lender only when a verified source ties Samson Servicing to a Samson funder. The alias is the glued printed originator (the potential table has no run-together matching); SAMSON alone prints only on card purchases in the corpus and is never an alias."
+   "notes": "Review: added 2026-09-27 under owner decision 3 of the false-positive hunt as a review alias only, so the Potential Lenders tab names these rows instead of 'Unidentified lender obligation'. The rows are Bank of America CCD debits from the originator SAMSONSERVICING, entry description ACHPAYMENT, fixed weekly amounts at three levels (tryout host, 10 accounts, 54 rows): financing-shaped. Samson is a known MCA family: Samson MCA LLC (New York) is a Virginia sales-based financing provider registrant and Samson Funding, Inc. sells revenue-based financing, but no public source ties the originator to either. A search result lists a Delaware SAMSON SERVICING LLC, whose registry pages returned only a bot check, so its owner is unknown. A 2017 agreement in a public filing (listed under where_looked, not cited because it names a guarantor) named a third-party servicing agent for a 'Samson Funding' contract; it says nothing about the 2026 originator. The SEC's full-text search finds no 'Samson Servicing'. Admit it as a counted lender only when a verified source ties Samson Servicing to a Samson funder. The alias is the glued printed originator (the potential table has no run-together matching); SAMSON alone prints only on card purchases in the corpus and is never an alias. Ledger55 r1 (2026-09-29): SAMSON SERVICING, the spaced form of the same originator: the corpus prints an incoming Bank of America-layout wire with 'ORIG:SAMSON SERVICING LLC' (and a cut 'SAMSON SERVIC' form), which the glued alias SAMSONSERVICING does not read. The entity stays in review: a fresh search still ties Samson Servicing LLC to no Samson funder (results name unrelated Samson Services companies). A 2022 SEC exhibit (a Samson MCA LLC revenue purchase agreement, in where_looked) names individuals and does not mention Samson Servicing, so it is not cited."
+  },
+  {
+   "entity": "Jobber Capital",
+   "group": "alternative_position",
+   "business_type": "platform_embedded_financing",
+   "aliases": [
+    "JOBBER CAPITAL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://help.getjobber.com/hc/en-us/articles/4412814742935-Jobber-Capital",
+     "note": "r1 fetched: Jobber's help centre: 'Jobber Capital loans are issued by Celtic Bank and provided in partnership with Stripe or Parafin'; Parafin term loans ('Payments are a fixed amount, deducted bi-weekly from your bank account') and flex loans (a fixed percentage of sales); Stripe Capital (merchant cash advances and loans, some through YouLend) 'automatically deducted from your payouts'; funds deposited to the linked bank account in 1 to 2 business days."
+    },
+    {
+     "source": "https://www.parafin.com/blog/jobber-brings-fast-access-to-capital-to-canadian-home-service-businesses",
+     "note": "r1 search result only: Parafin's post on Jobber extending Jobber Capital to Canadian home-service businesses."
+    },
+    {
+     "source": "https://www.getjobber.com/features/jobber-capital/",
+     "note": "r1 search result only: Jobber's Jobber Capital feature page."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://help.getjobber.com/hc/en-us/articles/4412814742935-Jobber-Capital",
+    "https://help.getjobber.com/en/articles/jobber-capital/",
+    "https://www.getjobber.com/features/jobber-capital/",
+    "https://www.parafin.com/blog/jobber-brings-fast-access-to-capital-to-canadian-home-service-businesses",
+    "https://www.newswire.ca/news-releases/jobber-brings-fast-access-to-capital-to-canadian-home-service-businesses-836973187.html"
+   ],
+   "notes": "Jobber Capital is Jobber's embedded financing for home-service businesses on Jobber Payments, funded by Parafin (bank-issued term loans and flex loans repaid by ACH debits) or by Stripe Capital (repaid from Jobber Payments payouts). No public source shows a printed spelling: JOBBER CAPITAL is the product's trade name. Parafin-funded rows probably print Parafin's own name (the Parafin entity), and Stripe-funded advances may arrive inside a Jobber-by-Stripe payout (the spec's recorded residual). The corpus prints Jobber settlements as 'JOBBER BY STRI' and 'Jobber - By Stri Transfer' forms only. For Task S1.5: PROCESSOR_ADVANCE_PRODUCTS['Jobber Payments']."
+  },
+  {
+   "entity": "Parafin, Inc.",
+   "group": "alternative_position",
+   "business_type": "platform_embedded_financing",
+   "aliases": [
+    "PARAFIN",
+    "PARAFIN INC"
+   ],
+   "status": "admitted",
+   "short_alias_reason": "PARAFIN (7 letters) is the company's coined name (the English word is spelled paraffin), read only as a whole word; Parafin, Inc. is the buyer, payer and ACH debit originator in its own merchant agreement, and no other lender or common payee with this name was found.",
+   "evidence": [
+    {
+     "source": "https://assets.parafin.com/legal/cash_advance_agreement.pdf",
+     "note": "r1 fetched and text-extracted: Parafin's Merchant Capital Advance Agreement (last updated August 14, 2024) is between the merchant and 'Parafin, Inc., a Delaware Corporation' (the 'Buyer'): a purchase of future receivables for which Parafin pays the Capital Amount; the merchant authorises Parafin to debit its linked bank account by ACH for the Debit Amount (a percentage of sales)."
+    },
+    {
+     "source": "https://assets.parafin.com/legal/ParafinCanadaCapitalAdvanceAgreementSep2023.pdf",
+     "note": "r1 fetched: the Canadian agreement (September 2023) is also with Parafin, Inc."
+    },
+    {
+     "source": "https://www.parafin.com/",
+     "note": "r1 fetched: 'A financing program, built for your platform' (white-labelled financing for platforms); a platform partner quoted: 'Through DoorDash Capital, [Parafin] provides fair and convenient access to financing'."
+    },
+    {
+     "source": "https://press.aboutamazon.com/2022/11/amazon-launches-new-merchant-cash-advance-program-provided-by-parafin-doubling-down-on-its-support-for-small-and-medium-sized-businesses",
+     "note": "r1 search result only: Amazon's merchant cash advance programme for sellers is provided by Parafin (November 2022)."
+    },
+    {
+     "source": "https://help.getjobber.com/hc/en-us/articles/4412814742935-Jobber-Capital",
+     "note": "r1 fetched: Jobber Capital is provided in partnership with Stripe or Parafin."
+    },
+    {
+     "source": "https://xplorpay.com/insights/clearent-by-xplor-launches-xplor-capital-enabling-saas-providers-to-easily-embed-business-financing-into-software/",
+     "note": "r1 fetched: Xplor Capital (Xplor Pay, formerly Clearent) is made possible through a strategic partnership with Parafin."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://assets.parafin.com/legal/cash_advance_agreement.pdf",
+    "https://assets.parafin.com/legal/ParafinCanadaCapitalAdvanceAgreementSep2023.pdf",
+    "https://www.parafin.com/cash_advance_agreement",
+    "https://www.parafin.com/",
+    "https://press.aboutamazon.com/2022/11/amazon-launches-new-merchant-cash-advance-program-provided-by-parafin-doubling-down-on-its-support-for-small-and-medium-sized-businesses",
+    "https://merchants.doordash.com/en-us/products/capital",
+    "https://help.getjobber.com/hc/en-us/articles/4412814742935-Jobber-Capital",
+    "https://xplorpay.com/insights/clearent-by-xplor-launches-xplor-capital-enabling-saas-providers-to-easily-embed-business-financing-into-software/",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf"
+   ],
+   "notes": "Parafin, Inc. (Delaware; San Francisco) buys future receivables for platforms' white-label capital programmes (DoorDash Capital, Amazon, Walmart, Mindbody, Jobber Capital, Xplor Capital and others). Some programmes repay from platform payouts, others by Parafin's ACH debits of a percentage of sales. The platform-branded programmes that are already ledger entities (DoorDash Capital, Mindbody Capital) keep their own spellings; this entity reads rows printed with Parafin's own name. No public source shows the printed spelling; PARAFIN INC is the legal name and PARAFIN the name. The corpus credit keys hold no Parafin row. Parafin is not in the Virginia SCC 2025 sales-based financing registrant list (looked)."
+  },
+  {
+   "entity": "United Auto Credit Corporation",
+   "group": "vehicle_financing",
+   "business_type": "auto_or_vehicle_finance",
+   "aliases": [
+    "UNITED AUTO CREDIT",
+    "UNITED AUTO CRED"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.unitedautocredit.net/",
+     "note": "r1 fetched: 'Non-prime auto financing | United Auto Credit'; customer 'Make a payment' and dealer homepage and dealer log-in; footer '(c)2026 United Auto Credit'."
+    },
+    {
+     "source": "https://www.businesswire.com/news/home/20211012005371/en/Online-Automotive-Retailer-Vroom-to-Acquire-United-Auto-Credit-Corporation",
+     "note": "r1 search result only: Vroom to acquire United Auto Credit Corporation (UACC), a nationwide non-prime auto lender serving the independent dealer market (October 2021)."
+    },
+    {
+     "source": "https://ir.vroom.com/news-releases/news-release-details/online-automotive-retailer-vroom-successfully-completes",
+     "note": "r1 search result only: Vroom completed the UACC acquisition (February 2022); UACC keeps its brand and works with thousands of dealers."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.unitedautocredit.net/",
+    "https://www.businesswire.com/news/home/20211012005371/en/Online-Automotive-Retailer-Vroom-to-Acquire-United-Auto-Credit-Corporation",
+    "https://ir.vroom.com/news-releases/news-release-details/online-automotive-retailer-vroom-successfully-completes",
+    "https://www.autofinancenews.net/allposts/capital-funding/vroom-completes-uacc-acquisition/"
+   ],
+   "notes": "United Auto Credit Corporation (UACC), a non-prime indirect auto lender that buys contracts from independent dealers; a Vroom subsidiary since 2022. UNITED AUTO CRED is the 16-character cut; the corpus prints a dealer credit as 'United Auto Cred DES:FundLoan'."
+  },
+  {
+   "entity": "Strike Acceptance, Inc.",
+   "group": "vehicle_financing",
+   "business_type": "auto_or_vehicle_finance",
+   "aliases": [
+    "STRIKE ACCEPTANCE",
+    "STRIKEACCEPTANCE"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.strikeacceptance.com/public-website/SA-231-ACH.pdf",
+     "note": "r1 fetched and text-extracted: Strike's ACH payment terms (form SA-231) govern the payer's relationship 'with Strike Acceptance, Inc. (\"Strike\")', which initiates ACH debits for amounts owed."
+    },
+    {
+     "source": "https://www.strikeacceptance.com/",
+     "note": "r1 fetched: 'With the goal of building an industry leading auto finance company ... Strike one of the fastest growing lenders in the country'; customers 'Make a Payment'; dealers 'Become a Partner and Strike a Deal'."
+    },
+    {
+     "source": "https://asreport.americanbanker.com/news/subprime-lender-strike-acceptance-floats-107-9-million-in-auto-abs",
+     "note": "r1 search result only: subprime lender Strike Acceptance floats an auto ABS backed by auto and powersport loans (2025)."
+    },
+    {
+     "source": "https://www.autofinancenews.net/allposts/capital-funding/strike-acceptance-takes-aim-at-abs-market-under-the-hood/",
+     "note": "r1 search result only (fetch refused): non-prime indirect auto finance through more than 1,100 dealers; Laguna Hills, California."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.strikeacceptance.com/",
+    "https://www.strikeacceptance.com/about_us",
+    "https://www.strikeacceptance.com/auto_dealers",
+    "https://www.strikeacceptance.com/public-website/SA-231-ACH.pdf",
+    "https://asreport.americanbanker.com/news/subprime-lender-strike-acceptance-floats-107-9-million-in-auto-abs",
+    "https://www.autofinancenews.net/allposts/capital-funding/strike-acceptance-takes-aim-at-abs-market-under-the-hood/",
+    "https://www.linkedin.com/company/strike-acceptance-inc."
+   ],
+   "notes": "Strike Acceptance, Inc. (Laguna Hills CA), a subprime indirect auto lender buying dealer contracts. The corpus prints a dealer credit as 'StrikeAcceptance DES:DealFund' (run together), hence both spellings."
+  },
+  {
+   "entity": "Professional Financial Services Corp. (PFS)",
+   "group": "vehicle_financing",
+   "business_type": "auto_or_vehicle_finance",
+   "aliases": [
+    "PROF FIN SER PFS"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.pfs-corp.net/customer/",
+     "note": "r1 fetched (WebFetch; curl was refused): footer 'Professional Financial Services Corp.'; subprime auto financing through more than 2,500 dealership partners; Spartanburg, South Carolina, since 1995, 12 states; payments by the mypfsauto.com portal, the PFSAUTO app, debit card or branch."
+    },
+    {
+     "source": "https://www.consumeraffairs.com/debt/professional_financial_nc.html",
+     "note": "r1 search result only: a vehicle financing and service contract provider partnering with more than 2,500 dealerships in the Southeast; loans negotiated through car dealers."
+    },
+    {
+     "source": "https://www.dnb.com/business-directory/company-profiles.professional_financial_service_corp.6ff6f002eab068f063d34861acdda89c.html",
+     "note": "r1 search result only: Professional Financial Service Corp, Spartanburg SC, purchases finance contracts for used vehicles originated by franchise and independent dealers; also known as PFS Auto Finance."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.pfs-corp.net/",
+    "https://www.pfs-corp.net/customer/",
+    "https://www.pfs-corp.net/dealer/",
+    "https://www.consumeraffairs.com/debt/professional_financial_nc.html",
+    "https://www.dnb.com/business-directory/company-profiles.professional_financial_service_corp.6ff6f002eab068f063d34861acdda89c.html",
+    "https://apps.apple.com/us/app/pfsauto/id1336009526"
+   ],
+   "notes": "Professional Financial Services Corp. (PFS Auto Finance, Spartanburg SC), a subprime indirect auto lender. The alias is the spelling the corpus prints on a dealer credit ('PROF FIN SER/PFS DES:TRADE PAY', normalized PROF FIN SER PFS). Left out: bare PFS (three letters; also inside the IPFS premium finance spellings) and PROFESSIONAL FINANCIAL SERVICES (a common name of unrelated advisers and insurers). How borrowers' loan payments print is not established (MYPFSAUTO or PFSAUTO are the candidates for the verify round)."
+  },
+  {
+   "entity": "Lendbuzz Funding, LLC",
+   "group": "vehicle_financing",
+   "business_type": "auto_or_vehicle_finance",
+   "aliases": [
+    "LENDBUZZ",
+    "LENDBUZZ FUNDING"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.lendbuzz.com/",
+     "note": "r1 fetched: 'Car Loans Made Fast and Simple'; 'All loans are made by Lendbuzz Funding, LLC' (NMLS licensed); a dealer section with 'Floorplanning'; footer '(c) 2026 Lendbuzz Inc.'"
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf",
+     "note": "r1 fetched and text-extracted: the Virginia SCC Bureau of Financial Institutions 2025 annual report lists 'Lendbuzz Funding LLC' (100 Summer Street, Boston) among consumer finance licensees, with a 2025 office relocation."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.lendbuzz.com/",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports-amp-publications/ar03-25.pdf"
+   ],
+   "notes": "Lendbuzz Funding, LLC (Boston), an auto lender for thin-credit-file borrowers that buys dealer contracts. The corpus prints an incoming wire from 'LENDBUZZ FUNDING LL' (a cut originator field). Caution: Lendbuzz also offers dealers floorplanning, so a dealer's debit to Lendbuzz may be a floor-plan repayment rather than a vehicle loan."
+  },
+  {
+   "entity": "Stenn Assets UK Ltd (Stenn)",
+   "group": "factoring",
+   "business_type": "factoring",
+   "aliases": [
+    "STENN ASSETS",
+    "STENN INTERNATIONAL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://find-and-update.company-information.service.gov.uk/company/09964011",
+     "note": "r1 fetched: Companies House: 'STENN ASSETS UK LTD', incorporated 21 January 2016, nature of business Factoring, status 'In Administration' (registered office at the administrators, Interpath)."
+    },
+    {
+     "source": "https://find-and-update.company-information.service.gov.uk/company/09488169",
+     "note": "r1 fetched: Companies House: 'STENN INTERNATIONAL LTD', incorporated 13 March 2015, status 'In Administration'."
+    },
+    {
+     "source": "https://www.gtreview.com/news/europe/stenn-goes-into-administration-following-hsbc-application/",
+     "note": "r1 fetched: Global Trade Review: 'Invoice financing provider Stenn' serves smaller firms that 'may otherwise struggle to secure trade finance'; 'Stenn International and its funding vehicle Stenn Assets UK' entered administration (announced December 4, 2024, after HSBC's application of December 2)."
+    },
+    {
+     "source": "https://www.fintechfutures.com/commercial-sme-lending/stenn-assets-uk-limited-and-stenn-international-limited-enter-administration",
+     "note": "r1 search result only (fetch refused): Stenn Assets UK Limited and Stenn International Limited enter administration."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://find-and-update.company-information.service.gov.uk/company/09964011",
+    "https://find-and-update.company-information.service.gov.uk/company/09488169",
+    "https://www.gtreview.com/news/europe/stenn-goes-into-administration-following-hsbc-application/",
+    "https://www.gtreview.com/news/europe/hsbc-files-to-place-stenn-into-administration/",
+    "https://www.fintechfutures.com/commercial-sme-lending/stenn-assets-uk-limited-and-stenn-international-limited-enter-administration",
+    "https://www.consultancy.uk/news/38984/interpath-selected-for-stenn-assets-administration",
+    "https://www.tradefinanceglobal.com/posts/uk-invoice-financing-startup-stenn-put-into-administration-after-hsbc-application/"
+   ],
+   "notes": "Stenn, a UK invoice-financing provider to small businesses (Companies House classes Stenn Assets UK, its funding vehicle, as factoring), so an incoming wire from Stenn that cites an invoice is financing of the holder's invoice, not the buyer's payment (true revenue spec section 7.9's recorded residual). Both companies have been in administration since December 2024, so rows are historical. Bare STENN stays out (a surname). The corpus holds no Stenn row (the spec's case is fabricated); the aliases are the legal names, which also cover the full forms STENN ASSETS UK LTD and STENN INTERNATIONAL LTD."
+  },
+  {
+   "entity": "Shift4 Capital",
+   "group": "alternative_position",
+   "business_type": "platform_embedded_financing",
+   "aliases": [
+    "SHIFT4 CAPITAL",
+    "SHIFT4 CAP"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.shift4.com/capital",
+     "note": "r1 fetched (curl; WebFetch was refused): Shift4's own page: 'Boost your cash flow in minutes with Shift4 Capital - our interest-free business funding solution'; 'Your balance is paid automatically as a fixed percentage of your business's daily sales'; cash 'in as little as 24 hours'; offers 'up to double your monthly revenue from cards or online sales'. The footer names Shift4 as a registered ISO/MSP of Citizens Bank, N.A.; the page names no separate funder."
+    },
+    {
+     "source": "https://dine.shift4.com/features/capital",
+     "note": "r1 fetched: Shift4 Dine page 'Get Funding Fast with Shift4 Capital'; repayments 'are taken automatically as a fixed percentage of your daily sales'; an online Shift4 Capital dashboard."
+    },
+    {
+     "source": "https://dine.shift4.com/blog/restaurant-financing-playbook",
+     "note": "r1 search result only (fetch refused, HTTP 403): Shift4 offers merchant cash advances through Shift4 Capital to Shift4 Dine and other Shift4-integrated merchants; repayments are deducted automatically from batch settlements."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.shift4.com/capital",
+    "https://dine.shift4.com/features/capital",
+    "https://dine.shift4.com/blog/restaurant-financing-playbook",
+    "https://www.skytab.com/blog/restaurant-financing-playbook",
+    "https://goskytabpos.com/shift4-capital",
+    "https://shift4capital.com/",
+    "https://www.zoominfo.com/c/shift-4-capital-llc/454983770",
+    "https://www.sec.gov/Archives/edgar/data/1794669/000179466924000007/four-20231231.htm"
+   ],
+   "notes": "Shift4's merchant cash advance: a fixed fee, repaid as a fixed percentage of daily card sales that Shift4 deducts from the merchant's batch settlements. Shift4's pages name no separate funder. No public source shows how the advance's deposit prints: SHIFT4 CAPITAL is the product's trade name and SHIFT4 CAP its short form (true revenue spec section 7.1); an advance paid inside a normal settlement would print only the settlement form (the spec's recorded residual). The corpus credit keys hold no Shift4 Capital row. Caution for the verify round: an unrelated merchant bank uses the same name (shift4capital.com, fetched: 'Shift4 Capital is a Palm Beach, FL and New York, NY based merchant bank that consults, invests and restructures private and public companies'; Shift 4 Capital LLC in business directories); its wires would also read as this entity. For Task S1.5: PROCESSOR_ADVANCE_PRODUCTS['Shift4'] would name this entity. Name-clash risk (ledger55 r2 upheld; kept under the owner's delegated ruling of 2026-09-29): an unrelated merchant bank in Palm Beach FL and New York also trades as Shift4 Capital, so its wires or fees would read as this advance. The corpus cache (read 2026-09-29) holds no row of either alias. The group is a flag, never lender math."
+  },
+  {
+   "entity": "SumUp Cash Advance",
+   "group": "alternative_position",
+   "business_type": "platform_embedded_financing",
+   "aliases": [
+    "SUMUP CASH ADVANCE"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.sumup.com/en-gb/merchant-cash-advance/",
+     "note": "r1 fetched: SumUp's UK page 'SumUp Cash Advance: Flexible, fast and transparent funding - repayable directly from your SumUp card reader'; 'you'll receive it in your same payout bank account that you use with SumUp'; 'We automatically deduct a set percentage of your card sales until your Cash Advance is paid off'."
+    },
+    {
+     "source": "https://www.sumup.com/en-gb/terms-cash-advance/",
+     "note": "r1 fetched: the Cash Advance terms are an agreement between the merchant and SumUp Payments Limited, a company incorporated in England and Wales ('SumUp, we or us')."
+    },
+    {
+     "source": "https://www.sumup.com/en-us/",
+     "note": "r1 fetched: the US home page's 'Manage finances' menu lists only SumUp Wealth, no Cash Advance; https://www.sumup.com/en-us/merchant-cash-advance/ returns 404, and the en-US help-centre Cash Advance section lists no article. The en-CA home page mentions no cash advance either."
+    },
+    {
+     "source": "https://www.pymnts.com/news/alternative-financial-services/2023/sumup-raises-100-million-to-offer-merchants-cash-advances/",
+     "note": "r1 search result only: SumUp raised a $100 million credit facility (2023) for its merchant cash advance, launched in the UK with plans for other European countries."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": false
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.sumup.com/en-gb/merchant-cash-advance/",
+    "https://www.sumup.com/en-gb/terms-cash-advance/",
+    "https://www.sumup.com/en-gb/terms-cash-advance-until-2021-10-06/",
+    "https://www.sumup.com/en-us/",
+    "https://www.sumup.com/en-us/merchant-cash-advance/",
+    "https://www.sumup.com/en-us/cash-advance/",
+    "https://www.sumup.com/en-ca/",
+    "https://help.sumup.com/en-US/sections/3ZVKk0NBEaXA8k7w7FPGXx-cash-advance",
+    "https://www.sumup.com/en-gb/press/sumup-cash-advance-expanded/",
+    "https://www.pymnts.com/news/alternative-financial-services/2023/sumup-raises-100-million-to-offer-merchants-cash-advances/"
+   ],
+   "notes": "SumUp Cash Advance is SumUp's merchant cash advance in the UK and Europe: a fixed fee, repaid as a set percentage of card sales, provided by SumUp Payments Limited and paid into the merchant's SumUp payout bank account. Not confirmed (r1): no US or Canadian offer was found (US and Canadian sites list none), and no public source shows a distinct printed spelling: SUMUP CASH ADVANCE is the product's trade name, and because it lands in the payout account from SumUp the advance may print like a settlement (SUMUP). The corpus credit keys print SumUp settlements only (SUMUP SV<suffix> PPD forms). If the verify round confirms that SumUp offers no advance in the US or Canada, a no_product record for SumUp in those markets is the alternative the owner may prefer; r1 could establish neither. For Task S1.5: PROCESSOR_ADVANCE_PRODUCTS['SumUp']. Ledger55 r2 (upheld): SumUp offers this advance in the UK and Europe; no US or Canadian offer is public, and no page says there is none. PROCESSOR_ADVANCE_PRODUCTS names this entity for SumUp under the owner's delegated ruling of 2026-09-29, so the bare SUMUP settlement spelling joins the operating registry. The group is a flag, never lender math."
+  },
+  {
+   "entity": "Xplor Capital",
+   "group": "alternative_position",
+   "business_type": "platform_embedded_financing",
+   "aliases": [
+    "XPLOR CAPITAL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://xplorpay.com/insights/clearent-by-xplor-launches-xplor-capital-enabling-saas-providers-to-easily-embed-business-financing-into-software/",
+     "note": "r1 fetched: Xplor Pay press release, May 8, 2025: 'Xplor Pay, a leading U.S. payment processor under Xplor Technologies, has today announced the launch of Xplor Capital, an innovative embedded financing solution for software providers and their merchants', 'made possible through a strategic partnership with Parafin'."
+    },
+    {
+     "source": "https://xplor.com/press/clearent-xplor-capital/",
+     "note": "r1 fetched: the parent's release: merchants receive pre-approved funding offers based on sales volume, repaid by automatic deduction of a fixed percentage of sales; loans issued by Celtic Bank."
+    },
+    {
+     "source": "https://xplorpay.com/payment-solutions/small-business-loans/",
+     "note": "r1 fetched: Xplor Pay's Merchant Financing page: 'Our funding partners provide business funding options' (small business loan, merchant cash advance, line of credit): third-party funders, not an Xplor product."
+    },
+    {
+     "source": "https://xplorpay.com/clearent/",
+     "note": "r1 search result only: Clearent by Xplor rebranded to Xplor Pay, the US payments division of Xplor Technologies."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://xplorpay.com/insights/clearent-by-xplor-launches-xplor-capital-enabling-saas-providers-to-easily-embed-business-financing-into-software/",
+    "https://xplor.com/press/clearent-xplor-capital/",
+    "https://xplorpay.com/payment-solutions/small-business-loans/",
+    "https://xplorpay.com/clearent/",
+    "https://support.xplorpay.com/knowledge-base/deposit-options/",
+    "https://www.gorspa.org/clearent-by-xplor-launches-xplor-capital-enabling-saas-providers-to-easily-embed-business-financing-into-software/"
+   ],
+   "notes": "Clearent's advance product: Clearent LLC is now Xplor Pay, whose own embedded financing, Xplor Capital (launched May 2025), is powered by Parafin and repaid as a fixed percentage of sales. Xplor Pay also refers merchants to third-party funders (split funding), whose rows print the funders' own names. No public source shows a printed spelling: XPLOR CAPITAL is the trade name; Parafin-funded rows may print Parafin's name. The corpus prints Clearent settlements as 'Clearent LLC' with entry description 'Deposits'. For Task S1.5: PROCESSOR_ADVANCE_PRODUCTS['Clearent']. Name-clash risk (ledger55 r2 upheld; kept under the owner's delegated ruling of 2026-09-29): Xplor Capital Management, LLC, a commodity-trading adviser, shares the words XPLOR CAPITAL; a small business rarely pays it, and the corpus cache (read 2026-09-29) holds no row of the alias. Xplor Capital also serves Xplor's other software brands, not only Clearent merchants. The group is a flag, never lender math."
+  },
+  {
+   "entity": "Westlake Services, LLC (Westlake Financial)",
+   "group": "vehicle_financing",
+   "business_type": "auto_or_vehicle_finance",
+   "aliases": [
+    "WESTLAKE FINANCIAL",
+    "WESTLAKE FINANCI",
+    "WESTLAKE PORTFOLIO",
+    "WESTLAKE PORTFOL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.westlakefinancial.com/",
+     "note": "r1 fetched: Westlake Financial's site: 'Copyright. All rights reserved to Westlake Services, LLC'; dealer menu 'Full Spectrum Indirect Auto Finance'; customer menu 'Make A Payment', 'Pay-Off Request'."
+    },
+    {
+     "source": "https://www.sec.gov/Archives/edgar/data/1000045/000095017024079650/nick-20240331.htm",
+     "note": "r1 fetched: Nicholas Financial's 10-K (fiscal 2024) records the April 26, 2024 sale of substantially all its assets 'to Westlake Services, LLC dba Westlake Financial, a California limited liability company'."
+    },
+    {
+     "source": "https://www.westlakefinancial.com/2023/01/27/westlake-portfolio-management-chosen-to-service-nicholas-financials-165m-loan-portfolio/",
+     "note": "r1 fetched (page title): Westlake Financial's own news item 'Westlake Portfolio Management Chosen to Service Nicholas Financial's $165M Loan Portfolio' (January 2023), published by Westlake itself, which r1 reads as Westlake Portfolio Management being Westlake's loan-servicing company."
+    },
+    {
+     "source": "https://www.westlakeflooringservices.com/",
+     "note": "Prior ledger evidence (search result): Westlake Flooring Services, a division of Westlake Financial, provides dealer floor-plan lines; it is the separate ledger entity Westlake Flooring Company LLC."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.westlakefinancial.com/",
+    "https://www.westlakefinancial.com/news/",
+    "https://www.westlakefinancial.com/2023/01/27/westlake-portfolio-management-chosen-to-service-nicholas-financials-165m-loan-portfolio/",
+    "https://www.sec.gov/Archives/edgar/data/1000045/000095017024079650/nick-20240331.htm",
+    "https://www.westlakeflooringservices.com/",
+    "https://www.doxo.com/u/biller/westlake-services-llc-2490A968/"
+   ],
+   "notes": "Westlake Financial (Westlake Services, LLC, Los Angeles): an indirect auto lender that buys dealer contracts across the credit spectrum; Westlake Portfolio Management services loans (including the Nicholas Financial portfolio). WESTLAKE FINANCI and WESTLAKE PORTFOL are the 16-character cuts of the two names. The corpus prints dealer credits as 'WESTLAKE FINANCI DES:PAYABLES' (dealer funding and payables). Bare WESTLAKE stays out (hardware stores, markets, Westlake Flooring). Westlake Flooring Company LLC (floor plan) keeps its own spellings (WESTLAKE FLOORING, WESTLAKE FLOORIN), which none of these aliases matches. The ledger's review entities 'WESTLAKE (probably Westlake Financial Services)' (WESTLAKE PAYMENT) and the Chase CCD form stay as they are; the owner may merge the first into this entity. Ledger55 r2 caveats (upheld; kept under the owner's delegated ruling of 2026-09-29): Westlake Portfolio Management also services other lenders' portfolios, so a WESTLAKE PORTFOL row is usually but not always a vehicle loan; Westlake also runs dealer credit facilities and commercial-vehicle financing; Westlake Financial Advisors, a wealth adviser's trade name, shares WESTLAKE FINANCIAL. The corpus cache (read 2026-09-29) holds no debit of these aliases; its credits are dealers' funding, financing proceeds under D1 until Q7 (true revenue spec section 8.7) verifies them. The group is a flag, never lender math."
+  },
+  {
+   "entity": "Nicholas Financial, Inc.",
+   "group": "vehicle_financing",
+   "business_type": "auto_or_vehicle_finance",
+   "aliases": [
+    "NICHOLAS FINANCIAL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.sec.gov/Archives/edgar/data/1000045/000095017024079650/nick-20240331.htm",
+     "note": "r1 fetched: 'Nicholas Financial has been a specialized consumer finance company engaged primarily in acquiring and servicing automobile finance installment contracts' for used and new vehicles bought from dealers; on April 26, 2024 it sold substantially all its assets (the Loan Portfolio Sale) to Westlake Services, LLC dba Westlake Financial."
+    },
+    {
+     "source": "https://www.sec.gov/Archives/edgar/data/1000045/000095017024079651/nick-ex99_1.htm",
+     "note": "r1 fetched: press release of July 1, 2024: Nicholas Financial, Inc. (Clearwater, Florida), a specialized consumer finance company engaged primarily in acquiring and servicing automobile finance installment contracts."
+    },
+    {
+     "source": "https://www.westlakefinancial.com/2023/01/27/westlake-portfolio-management-chosen-to-service-nicholas-financials-165m-loan-portfolio/",
+     "note": "r1 fetched (page title): Westlake Portfolio Management chosen to service Nicholas Financial's loan portfolio (January 2023)."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.sec.gov/Archives/edgar/data/1000045/000095017024079650/nick-20240331.htm",
+    "https://www.sec.gov/Archives/edgar/data/1000045/000095017024079651/nick-ex99_1.htm",
+    "https://www.westlakefinancial.com/2023/01/27/westlake-portfolio-management-chosen-to-service-nicholas-financials-165m-loan-portfolio/",
+    "https://www.nicholasfinancial.com/"
+   ],
+   "notes": "Nicholas Financial, Inc. (Clearwater FL), a subprime auto lender buying dealer contracts. Its portfolio has been serviced by Westlake Portfolio Management since 2023 and was sold to Westlake in April 2024 (its site no longer answers), so newer rows print Westlake; this alias reaches older statements. For the privacy review: NICHOLAS is also a given name, but here it is always the company's name followed by FINANCIAL. Ledger55 r2 (upheld): the company renamed itself Old Market Capital Corporation in September 2024 and left auto finance, so this alias reaches only older statements. Name-clash risk (kept under the owner's delegated ruling of 2026-09-29): Nicholas Financial Group, a Massachusetts retirement planner, shares the name; the corpus cache (read 2026-09-29) holds no row of it. The group is a flag, never lender math."
+  },
+  {
+   "entity": "eCapital Corp.",
+   "group": "factoring",
+   "business_type": "factoring",
+   "aliases": [
+    "ECAPITAL",
+    "ECAPITAL CORP",
+    "ECAPITAL FREIGHT FACTORING",
+    "ECAPITAL COMMERCIAL FINANCE",
+    "ECAPITAL HEALTHCARE"
+   ],
+   "status": "admitted",
+   "short_alias_reason": "ECAPITAL (8 letters) is the company's coined brand and the whole originator name the corpus prints on a factoring wire; read as a whole word it does not match E CAPITAL or other Capital names. The one namesake found is eCapital Advisors LLC (Bloomington MN), a finance-technology consultancy whose payments would also read as factoring: the verify round may keep only the longer spellings.",
+   "evidence": [
+    {
+     "source": "https://ecapital.com/news/ecapital-corp-provides-900000-factoring-facility-to-veteran-owned-staffing-company/",
+     "note": "r1 fetched: eCapital's own news item (November 9, 2020): 'eCapital Corp. is committed to supporting small and middle-market companies in the United States and Canada by accelerating their access to capital through alternative financing solutions like invoice factoring, factoring lines of credit and asset-based lending'; based in Miami, Florida."
+    },
+    {
+     "source": "https://ecapital.com/",
+     "note": "r1 fetched: products include freight factoring, invoice factoring, sales ledger financing, reverse factoring, payroll funding and asset-based lending, in the US, Canada and the UK."
+    },
+    {
+     "source": "https://dfpi.ca.gov/enforcement_action/ecapital-freight-factoring-corp-fka-ecapital-llc/",
+     "note": "r1 search result only: eCapital Freight Factoring Corp., formerly eCapital LLC (California DFPI enforcement page, 2023)."
+    },
+    {
+     "source": "https://www.courtlistener.com/docket/69726211/ecapital-commercial-finance-corp-v-wadsworth-glen-inc-dba-wadsworth/",
+     "note": "r1 search result only: a 2025 federal docket names the plaintiff ECapital Commercial Finance Corp."
+    },
+    {
+     "source": "https://www.courtlistener.com/docket/70518126/parties/ecapital-healthcare-corp-v-atlantic-hospice-inc/",
+     "note": "r1 search result only: a 2025 federal docket names the plaintiff eCapital Healthcare Corp."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://ecapital.com/",
+    "https://ecapital.com/news/ecapital-corp-provides-900000-factoring-facility-to-veteran-owned-staffing-company/",
+    "https://en.wikipedia.org/wiki/ECapital",
+    "https://dfpi.ca.gov/enforcement_action/ecapital-freight-factoring-corp-fka-ecapital-llc/",
+    "https://www.bbb.org/us/fl/aventura/profile/factoring-service/ecapital-freight-factoring-corp-0633-90557122",
+    "https://www.courtlistener.com/docket/69726211/ecapital-commercial-finance-corp-v-wadsworth-glen-inc-dba-wadsworth/",
+    "https://www.courtlistener.com/docket/70518126/parties/ecapital-healthcare-corp-v-atlantic-hospice-inc/",
+    "https://find-and-update.company-information.service.gov.uk/company/04206708",
+    "https://www.bbb.org/us/mn/bloomington/profile/management-consultant/ecapital-advisors-llc-0704-96015935"
+   ],
+   "notes": "eCapital Corp. (Miami), a factor and asset-based lender (freight, staffing, healthcare, commercial; US, Canada, UK) through eCapital Freight Factoring Corp., eCapital Commercial Finance Corp. and eCapital Healthcare Corp. A credit from eCapital is the factor's advance on the holder's invoices, not a customer's payment (true revenue spec section 7.9's registry finding). The corpus prints one incoming wire as 'WIRE TSF <reference> ECAPITAL /ROC/<reference>'. The longer spellings are the operating companies' legal names; ECAPITAL covers them all as whole words. Ledger55 r2 (upheld): the namesake eCapital Advisors, a finance-software consultancy, now trades as Thought Logic Consultancy, so the ECAPITAL collision is mostly historical; the corpus cache (read 2026-09-29) holds no debit of these aliases. Kept under the owner's delegated ruling of 2026-09-29; the group is a flag, never lender math."
+  },
+  {
+   "entity": "Global Lending Services LLC (GLS Auto)",
+   "group": "vehicle_financing",
+   "business_type": "auto_or_vehicle_finance",
+   "aliases": [
+    "GLOBAL LENDING SERVICES"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.glsauto.com/",
+     "note": "r1 fetched: 'Customers trust Global Lending Services'; 'More than 20,000 dealers nationwide trust GLS to help them close vehicle sales with financing solutions'; footer 'GLOBAL LENDING SERVICES' with its NMLS licence."
+    },
+    {
+     "source": "https://www.glsauto.com/dealers",
+     "note": "r1 fetched: 'Dealers nationwide count on GLS'; 'Global Lending Services is committed to providing dealers and their customers' financing."
+    },
+    {
+     "source": "https://www.bbb.org/us/sc/greenville/profile/consumer-finance-companies/global-lending-services-llc-0673-90006028",
+     "note": "r1 search result only: Global Lending Services LLC, Greenville SC, a consumer finance company; subprime auto finance through franchise dealers."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "corrected",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.glsauto.com/",
+    "https://www.glsauto.com/dealers",
+    "https://www.bbb.org/us/sc/greenville/profile/consumer-finance-companies/global-lending-services-llc-0673-90006028",
+    "https://www.linkedin.com/company/global-lending-services"
+   ],
+   "notes": "Global Lending Services LLC (GLS, Greenville SC), a subprime indirect auto lender. The corpus credit keys hold no GLS row, so neither spelling is seen on a statement: GLOBAL LENDING SERVICES is the legal name and GLS AUTO the trade name. Ledger55 r2 corrected (2026-09-29): alias(es) GLS AUTO not carried. Entity and group upheld. GLS AUTO is dropped: auto body shops, a used-car dealer and a repair garage trade under that name, a business would pay them, and no statement is known to print it. GLOBAL LENDING SERVICES is kept (the other names found, Global Lending Solutions and Global Lending, do not match it as whole words); the lender's site notes that in Idaho the company is known only as Global Lending Services LLC."
   }
  ]
 }

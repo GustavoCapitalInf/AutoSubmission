@@ -124,7 +124,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "Express Capital Funding, Inc.": ("EXPRESSCAPITAL",),
     "Express Tech-Financing, LLC d/b/a Currency": ("EXPRESS TECH FIN",),
-    "FairFigure": ("FAIRFIGURE CARD",),
+    "FairFigure": ("FAIRFIGURE CARD", "FAIRFIGURE LIFT"),
     "Family Funding Group": ("FAMILY FUNDING G", "FAMILY FUNDING GROUP"),
     "Fast Business Cash Funding Group, LLC": ("FAST BUSINESS CA",),
     "FC Advance": ("FCADVANCE",),
@@ -177,7 +177,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "FUNDWK",
     ),
     "Garden Funding LLC": ("GARDEN FUNDING",),
-    "GFE": ("UFCE",),
+    "GFE": ("UFCE", "GLOBAL FUNDING EXPERTS", "UNITED FIRST CAPITAL EXPERTS", "UNITED FIRST LLC"),
     "Giggle Finance": ("GIGGLE FINANCE",),
     "GOAT ADVANCE LLC": ("GOAT ADVANCE",),
     "Good Funding, LLC": ("GOOD FUNDING LLC",),
@@ -275,7 +275,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Oak Capital Inc": ("OAK CAPITAL ONLINE",),
     "Olympus Business Capital": ("OLYMPUS BUSINESS", "OLYMPUSBUS", "OLYMPUS LENDING"),
     "ONDECK": ("ONDECK",),
-    "One River Group Inc": ("ONE RIVER FUND",),
+    "One River Group Inc": ("ONE RIVER FUND", "ONE RIVER GROUP", "ONE RIVER SERVICES", "ONE RIVER FUNDING"),
     "OneView Finance": ("ONEVIEW FINANCE",),
     "Overton Funding LLC": ("OVERTONFUNDING", "OVERTON FUNDING"),
     "PACCAR Financial Corp.": ("PACCAR FINANCIAL",),
@@ -289,6 +289,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "PIPE TECHNOLOGIES INC",
         "PIPE ADVANCE",
         "PIPE CAPITAL",
+        "PIPE TECHNOLOGIE",
     ),
     "Pitney Bowes Global Financial Services, LLC": ("PBLEASING",),
     "Pitney Bowes of Canada Ltd": ("PITNEYBOWES LEA",),
@@ -348,7 +349,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Travelers Finance Ltd": ("TRAVELERS FINANCE", "TRAVELERS LEASING"),
     "True Advance Funding, Inc": ("TRUEADVANCE", "TRUE ADVANCE FUNDING"),
     "U.S. Bank Equipment Finance": ("USBEQUIPFINANCE", "US BANK EQUIPMEN"),
-    "Uncapped": ("UNCAPPED LTD", "WEAREUNCAPPED"),
+    "Uncapped": ("UNCAPPED LTD", "WEAREUNCAPPED", "UNCAPPED TECHNOLOGIES"),
     "Unique Funding Solutions LLC": ("UNIQUE FUNDING S", "UNIQUE FUNDING SOLUTIONS"),
     "Univest Capital, Inc": ("UNIVEST CAPITAL",),
     "Uplyft Capital": ("UPLYFT CAPITAL",),
@@ -410,6 +411,7 @@ ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {
     "GreenSky": ("GREENSKY",),
     "HASCAP loan": ("BDC HASCAP",),
     "INTUIT FINANCING": ("INTUIT FINANCING", "WEBBANK INTUIT"),
+    "Jobber Capital": ("JOBBER CAPITAL",),
     "Klarna Inc": ("KLARNA", "TRUEACCORD KLARNA"),
     "LendCare Capital Inc": ("LENDCARE",),
     "Lendistry (B.S.D. Capital, Inc.)": ("LENDISTRY",),
@@ -421,15 +423,18 @@ ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {
     "Mountain BizCapital, Inc": ("MOUNTAIN BIZCAPI",),
     "Newtek Small Business Finance, LLC": ("NEWTEK S BUS", "NEWTEK SMALL BUSINESS FINANCE"),
     "Northeast Bank": ("NORTHEAST BANK DES SBA PYMT", "SBA PYMT NORTHEAST BANK"),
+    "Parafin, Inc.": ("PARAFIN", "PARAFIN INC"),
     "PAYPAL WORKING CAPITAL": ("PAYPAL WORKING CAPITAL", "PAYPAL CAPITAL", "WEBBANK PAYPAL"),
     "PayTomorrow LLC": ("PAYTOMORROW",),
     "Preferred Credit, Inc": ("PREFERRED CREDIT",),
     "ReadyCap Lending, LLC": ("READYCAP LENDING",),
     "Sezzle Inc": ("SEZZLE",),
+    "Shift4 Capital": ("SHIFT4 CAPITAL", "SHIFT4 CAP"),
     "SHOPIFY CAPITAL": ("SHOPIFY CAPITAL",),
     "SpotOn Capital": ("SPOTON CAPITAL",),
     "SQUARE CAPITAL": ("SQUARE CAPITAL", "SQUARE LOAN"),
     "Stripe Capital": ("STRIPE CAPITAL", "STRIPE CAP"),
+    "SumUp Cash Advance": ("SUMUP CASH ADVANCE",),
     "Sunbit": ("SUNBIT",),
     "Synchrony Pay Later": ("SYF PAYLTR",),
     "Synchrony Secured Installment Loans": ("SYNCHRONY SECURE",),
@@ -445,6 +450,7 @@ ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "Uplift, Inc": ("UPLIFT INC",),
     "Women's Enterprise Organizations of Canada": ("WOMENS ENTERPRISE ORG CANADA",),
+    "Xplor Capital": ("XPLOR CAPITAL",),
     "Zip Co US Inc": (
         "ZIP APP PAY",
         "ZIP APP PAYLATER",
@@ -706,8 +712,12 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "ALLY DES RETRY PYMT",
         "ACI ALLY BANK",
     ),
-    "American Credit Acceptance, LLC": ("SPI AMERICAN CREDIT ACC", "AMERICAN CREDIT ACC"),
-    "American Honda Finance Corporation": ("HONDA PMT",),
+    "American Credit Acceptance, LLC": (
+        "SPI AMERICAN CREDIT ACC",
+        "AMERICAN CREDIT ACC",
+        "AMERICAN CREDIT ACCEPTANCE",
+    ),
+    "American Honda Finance Corporation": ("HONDA PMT", "HONDA FINANCIAL", "AMERICAN HONDA FINANCE"),
     "Audi Financial Services": ("AUDI FINCL", "AUDI FINCL INC", "AUDI FINCL TEL"),
     "Bank of America Vehicle Loans": ("BANK OF AMERICA VEHICLE LOAN", "AMERICA VEHICLE LOAN"),
     "BMW Financial Services NA, LLC": ("BMW BANK", "BMWFINANCIAL", "BMWFS"),
@@ -739,6 +749,7 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "LINCOLN AFS DES FORDCREDIT",
         "LINCOLN AFS RETRY PYMT",
     ),
+    "Global Lending Services LLC (GLS Auto)": ("GLOBAL LENDING SERVICES",),
     "GM Financial": ("GM FINANCIAL",),
     "Harley-Davidson Financial Services": ("ACI HDFS PAYMENT", "ACI HDFS"),
     "Holand Leasing": ("HOLAND LEASING",),
@@ -746,12 +757,14 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
     "Hyundai Capital America": ("ACI HYNDAI KIA", "HYNDAI KIA"),
     "Hyundai Motor Finance": ("HYUNDAI PMNT", "HYUNDAI PMNT CT", "HMF HMFUSA COM", "HMFUSA COM", "HMFUSA"),
     "Kia Motors Finance": ("KMFUSA COM", "KMFUSA", "KMF KMFUSA COM"),
+    "Lendbuzz Funding, LLC": ("LENDBUZZ", "LENDBUZZ FUNDING"),
     "LENTEGRITY": ("LENTEGRITY", "LENTEGRITY BILLPAY"),
     "Lexus Financial Services": ("PY LFS LEXUS", "PY LFS LEXUS PLANO", "LFS LEXUS"),
     "Lucid Loan and Lease": ("LUCID LOAN AND",),
     "Mazda Financial Services": ("MAZDA FINANCIAL",),
     "Mercedes-Benz Financial Services": ("MBFS", "MBFS COM", "MBFS COM DES AUTO PAY", "MBFS WEB PAY"),
     "Merrick Bank Recreation Lending": ("MERRICK BANK RECREAT",),
+    "Nicholas Financial, Inc.": ("NICHOLAS FINANCIAL",),
     "Nissan Motor Acceptance Company LLC": (
         "NISSAN AUTO LEASE",
         "NISSAN MOTOR ACC",
@@ -760,9 +773,11 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "NMAC LOANS",
         "NMAC LOANS ONLINE PMT",
         "NISSAN RETRY PYMT",
+        "NISSAN MOTOR ACCEPTANCE",
     ),
     "Porsche Financial Services": ("PORSCHE FINANCIA", "PORSCHE FINANCIA PAYMENTS"),
-    "Regional Acceptance Corporation": ("REGIONAL ACCEPTAN",),
+    "Professional Financial Services Corp. (PFS)": ("PROF FIN SER PFS",),
+    "Regional Acceptance Corporation": ("REGIONAL ACCEPTAN", "REGIONAL ACCEPTANCE"),
     "Roadrunner Financial (Octane)": ("ROADRUNNER ACCOU",),
     "Santander Consumer USA Inc": (
         "PNM SANTANDER",
@@ -771,6 +786,7 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "BILLPAY CHRYSLER CAPITAL",
         "CHRYSLER CAPITAL ONLINE PMT",
         "PNM CHRYSLER CA",
+        "SANTANDER CONSUMER",
     ),
     "Southeast Toyota Finance": ("SETOYOTA FIN", "SETOYOTA FIN EZP", "SETOYOTA FIN EZP AUTO FINAN"),
     "Stellantis Financial Services": (
@@ -779,6 +795,7 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "STELLANTIS FUNDI",
         "STELLANTIS FUND",
     ),
+    "Strike Acceptance, Inc.": ("STRIKE ACCEPTANCE", "STRIKEACCEPTANCE"),
     "TD Auto Finance": ("TD AUTO FINANCE",),
     "Titanium Funds": ("TITANIUM FUNDS",),
     "Toyota Financial Services": ("TOYOTA ACH RTL", "TOYOTA FINANCIAL"),
@@ -790,8 +807,15 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "TOYOTA CREDIT CANADA INC",
     ),
     "Tricor Lease & Finance Corp": ("TRICOR LEASE",),
+    "United Auto Credit Corporation": ("UNITED AUTO CREDIT", "UNITED AUTO CRED"),
     "Volvo Car Financial Services U.S., LLC": ("VOLVO CAR FIN", "VOLVO CAR FIN AUTO FINAN"),
     "Wells Fargo Auto": ("WELLS FARGO AUTO", "WELLS FARGO AUTO DRAFT", "WELLS FARGO AUTO FEE AND PMTS"),
+    "Westlake Services, LLC (Westlake Financial)": (
+        "WESTLAKE FINANCIAL",
+        "WESTLAKE FINANCI",
+        "WESTLAKE PORTFOLIO",
+        "WESTLAKE PORTFOL",
+    ),
     "Wilshire Commercial Capital LLC": ("WILSHIRE COMMERCIAL CAPITAL",),
 }
 
@@ -1033,11 +1057,19 @@ FACTORING_ALIASES: dict[str, tuple[str, ...]] = {
     "Capital Now Ventures Inc": ("CAPITAL NOW VENTURES", "CAPITAL NOW CAP"),
     "Carter Funding Corporation": ("CARTER FUNDING",),
     "Coeur Capital, Inc": ("COEUR CAPITAL",),
+    "eCapital Corp.": (
+        "ECAPITAL",
+        "ECAPITAL CORP",
+        "ECAPITAL FREIGHT FACTORING",
+        "ECAPITAL COMMERCIAL FINANCE",
+        "ECAPITAL HEALTHCARE",
+    ),
     "Grimley Financial Corporation": ("GRIMLEY FINANCIAL",),
     "Liquid Capital Corp": ("LIQUID CAPITAL",),
     "OTR Capital LLC": ("OTR CAPITAL", "OTRSCHDPAY", "OTR SOLUTIONS SPV"),
     "RTS Financial Service, Inc": ("RTS FINANCIAL", "RTS FINANCIAL SERVICE"),
     "Scale Funding": ("SCALE FUNDING",),
+    "Stenn Assets UK Ltd (Stenn)": ("STENN ASSETS", "STENN INTERNATIONAL"),
     "Treadstone US Capital, LLC": ("TREADSTONE US CAPITAL",),
 }
 
@@ -1265,7 +1297,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Resolve (probably Resolve Pay)": ("RESOLVE PAYMENT",),
     "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)": ("RESOLVE CAPITAL",),
     "Rewards Network": ("REWARDS NETWORK",),
-    "Samson Servicing (probably Samson MCA / Samson Funding)": ("SAMSONSERVICING",),
+    "Samson Servicing (probably Samson MCA / Samson Funding)": ("SAMSONSERVICING", "SAMSON SERVICING"),
     "Sigma Financial": ("SIGMA FINANCIAL",),
     "States Resources Corp": ("STATES RESOURCES",),
     "STELLANTIS SFA (probably Stellantis Financial Services)": ("STELLANTIS SFA",),
@@ -1547,13 +1579,16 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     "Worldpay": ("WORLDPAY", "WORLD PAY"),
     # 5.5 (true revenue spec §7.1): card processors, in the spellings the corpus prints. A processor's bare name
     # (SHIFT4, SUMUP, CLEARENT, SMARTTAB, BRAINTREE) and Jobber's cut joins only after its advance product is in
-    # the lender ledger (PROCESSOR_ADVANCE_PRODUCTS).
+    # the lender ledger (PROCESSOR_ADVANCE_PRODUCTS). Task S1.5 (ledger55.json r2) cleared Shift4, SumUp, Clearent
+    # and Jobber Payments; SmartTab and Braintree wait.
     "Heartland Payment Systems": (
         "HRTLAND PMT SYS TXNS", "HEARTLAND PMT SYS TXNS", "HEARTLAND PAYMENT SYSTEMS", "HEARTLAND PAYMEN",
     ),
     "SpotOn": ("SPOTON", "SPOTON VIA ASTRA"),
-    "Clearent": ("CLEARENT LLC", "XPLOR PAY"),
-    "Shift4": ("SHIFT4 PAYMENTS", "SHIFT4 PYMT PROC"),
+    "Clearent": ("CLEARENT", "CLEARENT LLC", "XPLOR PAY"),
+    "Shift4": ("SHIFT4", "SHIFT4 PAYMENTS", "SHIFT4 PYMT PROC"),
+    "SumUp": ("SUMUP",),
+    "Jobber Payments": ("JOBBER BY STRI", "JOBBER BY STR", "JOBBER BY STRIPE"),
     "SmartTab": ("SMARTTAB PAY",),
     "TapGoods Payments": ("TGPAYMENTS",),
     "Cents": ("TRYCENTS", "TRYCENTS COM"),
@@ -1629,6 +1664,8 @@ OPERATING_REVENUE_SOURCE_TYPES: dict[str, str] = {
     "SpotOn": "merchant_processor",
     "Clearent": "merchant_processor",
     "Shift4": "merchant_processor",
+    "SumUp": "merchant_processor",
+    "Jobber Payments": "invoice_and_receivables",
     "SmartTab": "merchant_processor",
     "TapGoods Payments": "merchant_processor",
     "Cents": "merchant_processor",
@@ -1686,15 +1723,19 @@ OPERATING_SOURCE_CONTEXT_WORDS: dict[str, tuple[str, ...]] = {
 #: ledger holds neither). tools/operating_registry.py refuses a bare alias in OPERATING_REVENUE_SOURCE_ALIASES
 #: whose entry here names no admitted ledger entity and is not marked none-recorded.
 PROCESSOR_ADVANCE_PRODUCTS: dict[str, tuple[tuple[str, ...], str | None]] = {
-    "Shift4": (("SHIFT4",), None),
-    "SumUp": (("SUMUP",), None),
-    "Jobber Payments": (("JOBBER BY STRI", "JOBBER BY STR", "JOBBER BY STRIPE"), None),
-    "Clearent": (("CLEARENT",), None),
+    # Task S1.5 (research ledger55.json r2; signed off 2026-09-29 under the owner's delegation): the admitted products.
+    "Shift4": (("SHIFT4",), "Shift4 Capital"),
+    "SumUp": (("SUMUP",), "SumUp Cash Advance"),
+    "Jobber Payments": (("JOBBER BY STRI", "JOBBER BY STR", "JOBBER BY STRIPE"), "Jobber Capital"),
+    "Clearent": (("CLEARENT",), "Xplor Capital"),
+    # SmartTab (its no-product record) and Braintree (PayPal Working Capital) are unresolved in ledger55.json r2: they
+    # wait.
     "SmartTab": (("SMARTTAB",), None),
     "Braintree": (("BRAINTREE",), None),
 }
 #: 5.5 (§7.1): processors the ledger's process found to have no advance product of their own (research round and
-#: verdicts recorded in the ledger notes of the entity named there). Empty until S1's research round says so.
+#: verdicts recorded in the ledger notes of the entity named there). Empty: S1.5's research round (ledger55.json r2)
+#: left SmartTab's no-product record unresolved.
 PROCESSORS_WITHOUT_ADVANCE_PRODUCT: frozenset[str] = frozenset()
 #: 5.5 (§7.1, the ledger gate): the bare aliases of the processors the ledger has not cleared yet, by processor.
 #: Derived, never hand-edited. The operating reader refuses an alias read that lies inside one of them ('BY STRI'

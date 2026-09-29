@@ -317,7 +317,8 @@ def test_the_wire_hazards_never_verify(label, bank, holder, printed):
 #: §7.9's recorded residuals: printed words cannot tell these from a sale (the spec states the person's invoice
 #: wire; the others are the neutral-name funder, the root-free factor, a template-named holder's own account and
 #: the MCA 'purchase price' order). They verify; the precision sample (§14.5) reads their strata, and the ledger
-#: round of Task S1.5 carries the receivables financiers (Stenn, eCapital).
+#: round of Task S1.5 carries the receivables financiers (Stenn, eCapital). Stenn's root-free invoice wire left this list
+#: when Task S1.5 admitted Stenn to the ledger's factoring group (the test below).
 RESIDUALS = [
     ("person citing an invoice (stated)", "Chase", "BUSINESS COMPLETE CHECKING",
      FEDWIRE.format(orig="1/John Q Sample 2/US/Tampa", bnf="Northwind Labs LLC", obi="Inv 1042")),
@@ -325,8 +326,6 @@ RESIDUALS = [
      SANTANDER.format(bank="BANCO SAMPLE S.A.", orig="JOHN Q SAMPLE", ref="PAYMENT FOR GOODS")),
     ("a person's holding company citing an invoice", "Bank of America", HOLDER,
      BOFA_IN.format(orig="JQS FAMILY HOLDINGS LLC", bank="SAMPLE BANK", det="INV 1042")),
-    ("invoice financier with no root, until the ledger lists it", "Santander Bank", "NORTHWIND TRADING CORP",
-     SANTANDER.format(bank="SAMPLE BANK UK", orig="STENN ASSETS UK", ref="/INV/10421/54")),
     ("funder name cut before its root", "Santander Bank", "NORTHWIND TRADING CORP",
      SANTANDER.format(bank="SAMPLE BANK", orig="CONTOSO BUSINESS", ref="INV 10421")),
     ("MCA purchase price with an order id", "Bank of America", HOLDER,
@@ -341,6 +340,15 @@ RESIDUALS = [
 @pytest.mark.parametrize(("label", "bank", "holder", "printed"), RESIDUALS)
 def test_the_recorded_wire_residuals_verify_and_are_sampled(label, bank, holder, printed):
     assert _outcome(_one(bank, holder, printed)) == "verified", label
+
+
+def test_a_listed_invoice_financier_s_wire_citing_an_invoice_stays_flagged_as_factoring():
+    # §7.9: Task S1.5 admitted Stenn to the ledger's factoring group, which closes the recorded residual of its root-free
+    # invoice wire: the wire no longer verifies; it stays an unverified deposit, flagged as factoring.
+    record = _one("Santander Bank", "NORTHWIND TRADING CORP",
+                  SANTANDER.format(bank="SAMPLE BANK UK", orig="STENN ASSETS UK", ref="/INV/10421/54"))
+    assert _outcome(record) == "stays"
+    assert (record.revenue_classification, record.classification) == ("unverified_deposit", "factoring")
 
 
 # ---------------------------------------------------------------------------------------------------------------------

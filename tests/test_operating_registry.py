@@ -42,8 +42,11 @@ def test_a_bare_processor_name_is_not_in_the_registry_until_the_ledger_clears_it
 
 
 def test_the_validator_refuses_a_bare_alias_ahead_of_its_advance_product(monkeypatch):
+    # Task S1.5 admitted Shift4 Capital, so the fixture makes Shift4 wait for its product again.
     aliases = {**registry.OPERATING_REVENUE_SOURCE_ALIASES, "Shift4": ("SHIFT4", "SHIFT4 PAYMENTS")}
+    products = {**registry.PROCESSOR_ADVANCE_PRODUCTS, "Shift4": (("SHIFT4",), None)}
     monkeypatch.setattr(registry, "OPERATING_REVENUE_SOURCE_ALIASES", aliases)
+    monkeypatch.setattr(registry, "PROCESSOR_ADVANCE_PRODUCTS", products)
     assert any("SHIFT4" in problem and "advance product" in problem for problem in operating_registry.problems())
 
 

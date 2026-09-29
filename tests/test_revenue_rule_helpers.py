@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification_registry import PROCESSOR_ADVANCE_PRODUCTS, PROCESSORS_WITHOUT_ADVANCE_PRODUCT
 from analysis.description_text import normalize_transaction_description as normalize
 
 
@@ -246,9 +247,14 @@ def test_the_cut_financing_originator(region, cut):
 
 
 def test_an_alias_read_inside_a_waiting_processor_names_no_source():
-    # §7.1, review I4: Stripe's BY STRI cut never reads JOBBER BY STRI while Jobber Payments waits for the ledger.
-    assert tc._read_inside_a_waiting_processor(_text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3"), "Stripe", "BY STRI")
-    assert tc._operating_source(_text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")) is None
+    # §7.1, review I4: Stripe's BY STRI cut never reads JOBBER BY STRI while Jobber Payments waits for the ledger; once
+    # the ledger clears Jobber (Task S1.5 admitted Jobber Capital), the row names Jobber Payments, never Stripe.
+    _bare, product = PROCESSOR_ADVANCE_PRODUCTS["Jobber Payments"]
+    cleared = product is not None or "Jobber Payments" in PROCESSORS_WITHOUT_ADVANCE_PRODUCT
+    jobber = _text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")
+    assert tc._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is not cleared
+    source = tc._operating_source(jobber)
+    assert (source.entity if source is not None else None) == ("Jobber Payments" if cleared else None)
     assert tc._operating_source(_text("FABRIKAM - BY STRI DES:PAYOUT ID:1")).entity == "Stripe"
     assert tc._operating_source(_text("SHIFT4 PAYMENTS DES:DEPOSIT ID:1")).entity == "Shift4"
 
