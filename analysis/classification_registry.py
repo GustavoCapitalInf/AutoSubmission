@@ -1860,6 +1860,72 @@ WHOLESALE_AUCTION_REFUND_NAMES: dict[str, str] = {
     "ACV Auctions": r"\bACV AUCTIONS\b",
     "OPENLANE": r"\bOPENLANE\b|\bBACKLOT ?CARS\b",
 }
+#: 5.5 (§7.7, T18): Blue-plan spellings that escape INSURANCE_PROVIDER_ALIASES. Read only while
+#: HCCLAIMPMT_CLAIM_FIRST is off, when their HCCLAIMPMT claim payments are held with the insurer's.
+BLUE_PLAN_CLAIM_PAYERS: tuple[str, ...] = (
+    r"\bBCBS[A-Z]*\b", r"\bBLUE CROSS\b", r"\bBLUE CARE NETWORK\b", r"\bANTHEM BLUE\b", r"\bCAREFIRST\w*\b",
+)
+
+#: 5.6 (§7.7): healthcare payers that are not in INSURANCE_PROVIDER_ALIASES: Medicare contractors, state Medicaid
+#: programs, TRICARE and VA Community Care, US health plans, pharmacy-benefit managers and claim-payment
+#: platforms. Read on the credit's payer region, on a row with an electronic-payment form (Q6).
+HEALTHCARE_PAYER_ALIASES: dict[str, tuple[str, ...]] = {
+    "Noridian": ("NORIDIAN",),
+    "Palmetto GBA": ("PALMETTO GBA",),
+    "Novitas Solutions": ("NOVITAS",),
+    "WPS Health Solutions": ("WPS",),
+    "National Government Services": ("NATIONAL GOVERNMENT SERV",),
+    "CGS Administrators": ("CGS ADMINISTRATORS",),
+    "First Coast Service Options": ("FIRST COAST SERVICE",),
+    "State Medicaid program": ("MEDICAID", "MEDI CAL"),
+    "Medicare": ("MEDICARE",),
+    "TRICARE": ("TRICARE",),
+    "VA Community Care": ("VA CCN",),
+    "Aetna": ("AETNA",),
+    "Cigna": ("CIGNA",),
+    "Humana": ("HUMANA",),
+    "UnitedHealthcare": ("UNITEDHEALTHCARE", "UNITED HEALTHCARE", "UHC"),
+    "Optum": ("OPTUM", "OPTUMRX", "OPTUMHEALTH"),
+    "Molina Healthcare": ("MOLINA HC", "MOLINA HEALTHCARE"),
+    "WellCare": ("WELLCARE",),
+    "Centene": ("CENTENE",),
+    "Anthem": ("ANTHEM",),
+    "Express Scripts": ("EXPRESS SCRIPTS",),
+    "CVS Caremark": ("CAREMARK",),
+    "Zelis": ("ZELIS",),
+    "ECHO Health": ("ECHO HEALTH", "HNB ECHO", "PNC ECHO"),
+    "InstaMed": ("INSTAMED",),
+    "VPay": ("VPAY",),
+    "PaySpan": ("PAYSPAN",),
+}
+
+#: 5.6 (§8.7, Q7): auto lenders that pay dealers, beside the vehicle_financing registry. A credit from one of them
+#: that prints a dealer-funding word is the dealer's revenue. Until S1 admits one into the ledger's
+#: vehicle-financing group, its other credits are held (financing_named_payer). Never Westlake Flooring.
+DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
+    "Westlake Financial": ("WESTLAKE FINANCIAL", "WESTLAKE FINANCI", "WESTLAKE PORTFOL"),
+    "United Auto Credit": ("UNITED AUTO CREDIT", "UNITED AUTO CRED"),
+    "Strike Acceptance": ("STRIKE ACCEPTANCE", "STRIKEACCEPTANCE"),
+    "Professional Financial Services (PFS)": ("PROF FIN SER PFS",),
+    "Suncoast Credit Union": ("SUNCOAST CREDIT UNION", "SUNCOAST CU"),
+    "CU Direct": ("CU DIRECT", "CUDL"),
+    "Credit Acceptance": ("CREDIT ACCEPTANCE", "CREDITACCEPTANCE"),
+    "Exeter Finance": ("EXETER FINANCE", "EXETERFINANCELLC"),
+    "Flagship Credit Acceptance": ("FLAGSHIP CREDIT",),
+    "GLS Auto": ("GLS AUTO", "GLOBAL LENDING SERVICES"),
+    "Santander Consumer": ("SANTANDER CONSUMER",),
+    "Chrysler Capital": ("CHRYSLER CAPITAL",),
+    "GM Financial": ("GM FINANCIAL",),
+    "Toyota Financial": ("TOYOTA FINANCIAL",),
+    "Honda Financial": ("HONDA FINANCIAL", "AMERICAN HONDA FINANCE"),
+    "Nissan Motor Acceptance": ("NISSAN MOTOR ACC", "NISSAN MOTOR ACCEPTANCE"),
+    "CarMax Auto Finance": ("CARMAX AUTO FINANCE",),
+    "Ally": ("ALLY FINANCIAL",),
+    "American Credit Acceptance": ("AMERICAN CREDIT ACC", "AMERICAN CREDIT ACCEPTANCE"),
+    "Regional Acceptance": ("REGIONAL ACCEPTAN", "REGIONAL ACCEPTANCE"),
+    "Nicholas Financial": ("NICHOLAS FINANCIAL",),
+    "Lendbuzz": ("LENDBUZZ",),
+}
 
 
 # Compatibility import for extensions written against classification version 3.0.

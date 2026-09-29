@@ -1,7 +1,8 @@
 """The operating-revenue registry's validator (true revenue spec §7.4).
 
 The operating registry (`OPERATING_REVENUE_SOURCE_ALIASES` and its types, the sixteen-character cuts, the payout and
-card-settlement forms) is hand-kept in `analysis/classification_registry.py`. This module says what is wrong with it:
+card-settlement forms) and the two 5.6 payer tables (`HEALTHCARE_PAYER_ALIASES`, `DEALER_FUNDING_PAYERS`) are
+hand-kept in `analysis/classification_registry.py`. This module says what is wrong with them:
 
 * every operating entity has a source type, and every typed entity has aliases;
 * every payout form and card form compiles, and the entity it names is typed;
@@ -9,6 +10,8 @@ card-settlement forms) is hand-kept in `analysis/classification_registry.py`. Th
 * a cut equals no other registry or ledger alias;
 * a processor's bare alias waits for its advance product (`PROCESSOR_ADVANCE_PRODUCTS`): it is in the registry only
   when the ledger admits that product or the processor is in `PROCESSORS_WITHOUT_ADVANCE_PRODUCT`;
+* `HEALTHCARE_PAYER_ALIASES` collides with no ledger alias and no insurer alias;
+* `DEALER_FUNDING_PAYERS` collides with no ledger alias outside the vehicle-financing group, which Q7 names on purpose.
 
 It also WARNS (never fails) when a multi-word operating alias spans the originator/entry boundary a bank prints between
 two fields ('HEARTLAND PAYMENT SYSTEMS' printed as 'HEARTLAND DES:PAYMENT'), which a contiguous alias cannot match.
@@ -68,7 +71,7 @@ def _ledger_aliases() -> dict[str, tuple[str, str]]:
 
 
 def problems() -> list[str]:
-    """Every problem of the hand-kept operating registry, as sentences."""
+    """Every problem of the hand-kept operating registry and the 5.6 payer tables, as sentences."""
     found: list[str] = []
     aliases = registry.OPERATING_REVENUE_SOURCE_ALIASES
     types = registry.OPERATING_REVENUE_SOURCE_TYPES
@@ -121,6 +124,16 @@ def problems() -> list[str]:
                 f"the bare alias {present[0]!r} of {processor!r} is in the registry before its advance product is in "
                 "the lender ledger (PROCESSOR_ADVANCE_PRODUCTS)"
             )
+    for alias, entity in _aliases(registry.HEALTHCARE_PAYER_ALIASES).items():
+        if alias in ledger:
+            group, holder = ledger[alias]
+            found.append(f"healthcare payer alias {alias!r} of {entity!r} is a {group} alias of {holder!r}")
+        if alias in insurers:
+            found.append(f"healthcare payer alias {alias!r} of {entity!r} is an insurer alias of {insurers[alias]!r}")
+    for alias, entity in _aliases(registry.DEALER_FUNDING_PAYERS).items():
+        if alias in ledger and ledger[alias][0] != "vehicle_financing":
+            group, holder = ledger[alias]
+            found.append(f"dealer-funding payer alias {alias!r} of {entity!r} is a {group} alias of {holder!r}")
     return found
 
 

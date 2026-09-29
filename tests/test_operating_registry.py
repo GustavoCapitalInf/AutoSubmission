@@ -86,3 +86,8 @@ def test_every_form_compiles_and_names_a_typed_entity():
     assert len(labels) == len(set(labels))
     for form in registry.CARD_SETTLEMENT_CREDIT_FORMS:
         assert form.entity is None or form.entity in registry.OPERATING_REVENUE_SOURCE_TYPES
+
+
+def test_the_payer_tables_collide_with_no_ledger_or_insurer_alias(monkeypatch):
+    monkeypatch.setattr(registry, "HEALTHCARE_PAYER_ALIASES", {"Fabrikam Care": ("BCBSM",)})
+    assert any("insurer alias" in problem for problem in operating_registry.problems())
