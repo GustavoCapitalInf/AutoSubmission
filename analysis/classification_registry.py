@@ -1463,7 +1463,12 @@ REATTRIBUTED_REGISTRY_ALIASES: dict[str, str] = {"SMARTPAY SOL": "SmartPay Solut
 #: platform: revenue, not financing proceeds. A D1 exception that S2 reads; their debits keep their group. The
 #: validator refuses a name that is not an admitted ledger entity of a group whose credits D1 treats as
 #: financing proceeds (analysis.flag_groups.FINANCING_STATES).
-PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = ("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")
+PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = (
+    "Sezzle Inc", "American First Finance, LLC", "PAYABILITY",
+    # Owner ruling 2026-09-28 (true revenue spec, OQ2): a buy-now-pay-later provider's settlement to the merchant is
+    # the merchant's own sale, so it is revenue, not financing proceeds.
+    "AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit",
+)
 
 #: Owner ruling 2026-09-27 (classification 5.3): the printed forms, in the bank's field order, of admitted payees whose
 #: bank prints the originator and the entry description apart, so no contiguous alias can match them (Chase's

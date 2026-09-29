@@ -155,3 +155,7 @@ def test_a_letter_glued_on_the_left_still_blocks_a_card_form(label, row):
 def test_the_payer_tables_collide_with_no_ledger_or_insurer_alias(monkeypatch):
     monkeypatch.setattr(registry, "HEALTHCARE_PAYER_ALIASES", {"Fabrikam Care": ("BCBSM",)})
     assert any("insurer alias" in problem for problem in operating_registry.problems())
+
+
+def test_the_bnpl_settlements_are_payout_credit_entities():
+    assert {"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit"} <= set(registry.PAYOUT_CREDIT_ENTITIES)
