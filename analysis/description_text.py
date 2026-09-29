@@ -9,6 +9,30 @@ from __future__ import annotations
 import re
 import unicodedata
 
+#: 5.5 (true revenue spec §7.11): a street address ends in LN: a token of digits, then one to three alphabetic
+#: tokens, then LN ('12 OAK LN'). Such an LN is a lane, never a loan, unless a loan-product word sits among those
+#: tokens or LN is followed by a loan-payment word ('1234 COMMERCIAL LN PMT', '000123 AUTO LN DISB' read LOAN).
+_STREET_BEFORE_LN = re.compile(r"(?:^| )\d+((?: [A-Z]+){1,3}) $")
+_LOAN_PRODUCT_WORDS = frozenset({
+    "COMMERCIAL", "COMM", "AUTO", "BUSINESS", "BUS", "TERM", "PERSONAL", "MORTGAGE", "MTG", "EQUIPMENT", "EQUIP",
+    "INSTALLMENT", "INSTL", "CONSUMER", "HOME", "HELOC", "STUDENT", "VEHICLE", "SBA", "BRIDGE", "CONSTRUCTION", "LINE",
+})
+_LOAN_WORD_AFTER_LN = re.compile(r" (?:PMT|PYMT|PAYMENT|DISB|DISBURSEMENT|ADV|ADVANCE|PROCEEDS|DRAW)\b")
+_LN_WORD = re.compile(r"\bLN\b")
+
+
+def _loan_or_lane(match: re.Match[str]) -> str:
+    """LN reads LOAN, except where it ends a street address (5.5, §7.11)."""
+    text = match.string
+    street = _STREET_BEFORE_LN.search(text[: match.start()])
+    if (
+        street is not None
+        and not _LOAN_WORD_AFTER_LN.match(text[match.end():])
+        and not set(street.group(1).split()) & _LOAN_PRODUCT_WORDS
+    ):
+        return "LN"
+    return "LOAN"
+
 
 def normalize_transaction_description(description: str) -> str:
     """Normalize matching text while retaining the exact source separately."""
@@ -21,6 +45,6 @@ def normalize_transaction_description(description: str) -> str:
     normalized = re.sub(r"\bA(?:\s)*[T7](?:\s)*M\b", "ATM", normalized)
     normalized = re.sub(r"\b1NSURANCE\b|\bINSURANCF\b", "INSURANCE", normalized)
     normalized = re.sub(r"\bF1NANCE\b", "FINANCE", normalized)
-    normalized = re.sub(r"\bLN\b", "LOAN", normalized)
+    normalized = _LN_WORD.sub(_loan_or_lane, normalized)
     normalized = re.sub(r"\bPAYMT\b", "PAYMENT", normalized)
     return re.sub(r"\s+", " ", normalized).strip()
