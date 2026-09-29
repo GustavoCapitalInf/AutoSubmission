@@ -19,9 +19,11 @@
 
 **Prototype (the code below was run, not only written).** Every code block of Tasks S1.1 to S6.3 was applied, task by task, to a scratch clone of this branch at `4227a76` (`C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/stage`, one local commit per task), and each task's tests were run there: failing before its implementation, passing after. The full suite was run at the end of S2.4, S4.4, S5.2 and S6.3 with every failure bisected to the task that caused it (the pin ledger), and again at the final commits of S2.5, S4.5, S5.2 and S6.3; at those four the only failures are the 16 known ones listed in `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt`. The census figures of S3.2, A1 and A3 were measured with that code on the corpus cache. Of the scratch scripts in S1.5 and A1 to A4: S1.5's guard tests, A1's G7 check and A4's seed script were run; A2's copy script was compiled and its decoding checked on a fabricated jobs table (it was not run against the host); S1.5's gate script waits for its research file. Line numbers are those of the file as the task finds it (after the tasks before it).
 
+**Revised after review (2026-09-29).** Every change listed under "Revision after review" was made in the prototype first; the per-task clone was then rebuilt from `4227a76` by the same scripts (branch `plan-stages-r1`), each task's tests were measured again before and after its implementation, the four selections at every task commit, the full suite at S2.5, S4.5, S5.2 and S6.3, the census at 5.4, 5.5 and 5.6, and the lender census (G7). Every figure below is from that run; S1.5's admission-effect script and A1's G7 check with an allowlist were run on fabricated inputs (a one-record research file, a one-row move).
+
 **Sources (PRIVATE: they hold real payer words; never copy a person's or a private business's name out of them):**
 - `C:/Users/GustavoPrietodePaula/lender-research/revenue/`: `trace_report.md`, `definition_memo.md`, `digest_families.md`, `hunt_result.json`, `fly_credits.json` (the tryout host's per-payer credit dump), `work/spec/` (the spec's review and revision probes).
-- The plan's scratch folder `C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/`: `proto/` (the finished prototype), `stage/` (the per-task clone), `stages/*.py` (the scripts that built each task's commit), `run_snap.py` (the parallel census runner), `census/` (the digit-masked corpus copy and the 5.4, 5.5 and 5.6 snapshots and reports).
+- The plan's scratch folder `C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/`: `proto/` (the finished prototype), `stage/` (the per-task clone), `stages/*.py` (the scripts that built each task's commit), `run_snap.py` (the parallel census runner), `census/` (the digit-masked corpus copy and the first run's snapshots and reports), `rev1/` (the revision's scripts, probes, snapshots, reports and suite runs).
 
 ## Owner rulings this plan implements
 
@@ -32,7 +34,7 @@
 
 - **Where you work.** Only in the worktree `C:/Users/GustavoPrietodePaula/work/true-revenue` (branch `true-revenue`, from `lender-detection` at `c106634`; the plan starts at `4227a76`). A shell starts in the MAIN checkout, so every command starts with `cd C:/Users/GustavoPrietodePaula/work/true-revenue &&` or uses `git -C C:/Users/GustavoPrietodePaula/work/true-revenue`. Never edit, stage, commit, check out, stash or reset anything in the main checkout. After each task, `git -C "C:/Users/GustavoPrietodePaula/OneDrive - Capital Infusion/Desktop/Capital Infusion Projects/bankStatementAnalysis" status --short --branch` must print only `## lender-detection`.
 - **Versions (spec §9.3, verbatim):** "5.5 (the fixes, §7): `CLASSIFICATION_VERSION = "5.5"`, and `ANALYSIS_STAGE_VERSION` 23 → 24 in the same commit." "5.6 (the definition, §5, §8): `CLASSIFICATION_VERSION = "5.6"`, and `ANALYSIS_STAGE_VERSION` 24 → 25 in the same commit." Task S2.5 makes the first bump, Task S4.5 the second. Tasks before a bump change output under the older number: the branch merges as one unit and no intermediate commit is served.
-- **Precedence invariants (spec §6):** "Non-revenue rules run first: loans, transfers, refunds and owner money never become revenue." A row that a non-revenue rule decides stays `non_revenue` "except through exactly these seven named narrowings" of §6.3 (REIMBURSEMENT with a claim signal; HCCLAIMPMT from an insurer, T18; an insurer's customer payment, held; a third-party BOOK or FUNDS TRANSFER, T19; a street `LN`; a released card credit; Q7 dealer funding), plus the owner's OQ2 ruling (BNPL settlements). "Nothing else leaves `non_revenue`." Steps 11 to 14, Q5 and Q6 never verify a row the holder test or the numbered-company guard matches. Every guard G1 to G14 of §14.3 holds (Task A1).
+- **Precedence invariants (spec §6):** "Non-revenue rules run first: loans, transfers, refunds and owner money never become revenue." A row that a non-revenue rule decides stays `non_revenue` "except through exactly these seven named narrowings" of §6.3 (REIMBURSEMENT with a claim signal; HCCLAIMPMT from an insurer, T18; an insurer's customer payment, held; a third-party BOOK or FUNDS TRANSFER, T19; a street `LN`; a released card credit; Q7 dealer funding), plus the owner's OQ2 ruling (BNPL settlements). "Nothing else leaves `non_revenue`." Steps 11 to 14, Q5 and Q6 never verify a row the holder test or the numbered-company guard matches. Every guard G1 to G14 of §14.3, and the review's G15 to G17 (no refund word, no tax refund and no holder's own ACH transfer in True), holds (Task A1).
 - **Constants (verbatim):** `HCCLAIMPMT_CLAIM_FIRST = True` and `THIRD_PARTY_BOOK_TRANSFER_AS_WIRE = True` (§19); `REVENUE_REVIEW_HELD_SHARE = 10`, compared as `held_cents * 100 >= REVENUE_REVIEW_HELD_SHARE * posted_cents` (T7); `OPERATING_ALIAS_CUT = 16` (§7.0); `CREDIT_UNION_DEALER_MIN_CREDITS = 2` (§8.7); the round sum is at least $100 and a whole multiple of $100 (§5.2); the micro-deposit floor is $1 (§7.0); `_NET_SETTLE_MIN_CREDITS = 3` (§7.1).
 - **Withholding (§11):** the default stays `legacy_eligible_deposits`; `verified_revenue` stays selectable; `true_revenue` is added and is never the default.
 - **Field names (T9):** `revenue_classification`, `verified_revenue_*`, `unverified_deposit_*`, `non_revenue_*`, `maximum_revenue`, `confirmed_true_revenue*` and `potential_revenue*` keep their meaning; `true_revenue`, `contributes_to_true_revenue` and `true_revenue_evidence` are repointed to True revenue; a payload analysed before 5.6 has them nulled or removed in its served copy (T10).
@@ -45,8 +47,8 @@
   - Run tests with `C:/Python314/python.exe -m pytest <paths under tests/> -q -p no:cacheprovider` (a bare `pytest` also collects `discovery_reports/`). The dashboard tests need `node` on PATH (`C:/Program Files/nodejs/node.exe`); they skip without it, and a skip is not a pass for S6.
   - Restart Flask after a template edit when checking in a browser (Task A4).
 - **Stop rules.**
-  - Never re-pin a real-statement test to whatever the code produces; stop and report instead. The only assertions that move are the rows of the pin ledger below, each to the value it lists. Any other failing test (for example `tests/test_new_statement_corpus.py`, the ATB/RBC/TD pins of `tests/test_transaction_classifier.py` and `tests/test_revenue_classification.py`, `tests/test_analysis.py`) stops the task: report its id to the orchestrator.
-  - A census guard that fails (A1), a target outside its tolerance that §4 does not explain, or a precision stratum below its bar (A3), stops the release.
+  - Never re-pin a real-statement test to whatever the code produces; stop and report instead. The only assertions that move are the rows of the pin ledger below, each to the value it lists. Row 35 is a real-statement assertion (`tests/test_new_statement_corpus.py:476-478`): it moves only on the owner's word, asked in Task S5.1's first step; without it, S5.1 stops before its commit. Any other failing test (for example `tests/test_new_statement_corpus.py`, the ATB/RBC/TD pins of `tests/test_transaction_classifier.py` and `tests/test_revenue_classification.py`, `tests/test_analysis.py`) stops the task: report its id to the orchestrator.
+  - A census guard that fails (S3.2, A1), an undeclared verified demotion, a debit move G7 cannot trace to the owner's signed-off admission list, a target outside its tolerance that §4 does not explain, or a precision stratum below its bar (A3), stops the release.
   - A research entry that is not VERIFIED is never added to the ledger (Task S1.5).
 - **Commits.** Each task ends with one commit: the exact `git add` paths and the subject it gives, and the attribution as a second message: `-m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`. Never push.
 - **Test selections** (baselines measured at `4227a76`, 2026-09-28):
@@ -62,29 +64,29 @@ Spec §16's order: S1, then S2, then the 5.5 census (S3), then S4, then S5 and S
 
 | Task | Title | Depends on | Its tests prove |
 |---|---|---|---|
-| S1.1 | The operating registry and its validator | — | the new entities are typed, the 16-character cuts, the processor gate, a validator that refuses an untyped entity, a financing collision and a bare alias ahead of its advance product |
+| S1.1 | The operating registry and its validator | — | the new entities are typed, the 16-character cuts, the processor gate and its derived table, the structural-lens processors wait (searched read-only), a validator that refuses an untyped entity, a financing collision and a bare alias ahead of its advance product |
 | S1.2 | The payout, card-settlement and auction forms | S1.1 | every form compiles, names a typed entity and reads no financing or insurer alias |
 | S1.3 | The Blue-plan, healthcare and dealer-funding payer tables | S1.2 | a healthcare alias that is an insurer alias is refused |
 | S1.4 | BNPL settlements are payout-credit entities (OQ2) | S1.3 | the five BNPL entities are payout-credit entities and their debits keep their group |
-| S1.5 | Ledger admissions (research) | S1.1 to S1.3 | the bare processor aliases follow the ledger; admitted products and lenders read as financing |
-| S2.1 | The credit revenue readers and the street-LN guard | S1.4 | 59 reader cases in the banks' formats |
+| S1.5 | Ledger admissions (research, then the owner's sign-off) | S1.1 to S1.3 | the bare processor aliases follow the ledger; admitted products, financiers and lenders read as financing; G7's allowlist is the owner's signed-off list |
+| S2.1 | The credit revenue readers and the street-LN guard | S1.4 | 68 reader cases in the banks' formats (the holder's own ACH transfer, Santander's originator, the French depot among them) |
 | S2.2 | The 5.5 rule vocabulary and the family helpers | S2.1 | each helper on one fabricated row, positives and negatives |
-| S2.3 | The 5.5 credit decision | S2.2 | every family's positives and the verifiers' negatives through `classify_transaction` |
-| S2.4 | The 5.5 statement passes | S2.3 | recurrence, the pool that never shrinks, the vetoes, auctions, property platforms, the counter-debit guard |
+| S2.3 | The 5.5 credit decision | S2.2 | every family's positives and the verifiers' negatives through `classify_transaction`; §7.9's 40 cases, hazard groups G1 to G11, party-name rows and recorded residuals; the ledger gate on Stripe's cut; the glued tax refunds |
+| S2.4 | The 5.5 statement passes | S2.3 | recurrence, the pool that never shrinks, the vetoes (FUNDING outside three platforms), auctions and §14.1's §7.8 negatives, property platforms, the counter-debit guard |
 | S2.5 | Classification 5.5, analysis stage 24 | S2.4 | the version pins; the full suite |
-| S3.1 | The revenue census tool | S2.5 | shares, narrowings, demotions, every row guard, G7b, G9, the sample, the refusal inside the repo |
+| S3.1 | The revenue census tool | S2.5 | shares, narrowings (only the five BNPL entities, only a printed third-party originator), demotions (an undeclared one fails), every row and account guard G1 to G17, G7b, G9's four ways, lender moves by cause, the sample, the refusal inside the repo |
 | S3.2 | The 5.4 to 5.5 census | S3.1, S1.5 | the measured 5.5 figures, `guards: all hold` |
 | S4.1 | The tier vocabulary and the per-row contract | S3.2 accepted | the flags by state and tier, 26 reasons, a record's own tier, a duplicate's tier |
-| S4.2 | The true-revenue pass: holds, Q5, Q6, tiers | S4.1 | every reason code, the holds, Q5 and Q6 and their guards, the four-tier identity |
+| S4.2 | The true-revenue pass: holds, Q5, Q6, tiers | S4.1 | every reason code, the holds, Q5 and Q6 and their guards, the four-tier identity; refunds, platform capital, the holder's own ACH transfer, paychecks, PPD, title and bank payers, card and auction refunds, and a push-rail wire, each alone and repeated |
 | S4.3 | Q7: an auto lender's dealer funding | S4.2 | a listed lender verifies, a lender or insurer outside vehicle financing never does, the credit-union arm needs two |
 | S4.4 | Metrics, detection, serialization, serialized views | S4.3 | the tiered metrics and views, the gate in cents, confirm/reject/reset, the tier-less path, the refusals |
-| S4.5 | Consumers, docs, classification 5.6, stage 25 | S4.4 | the version pins; the full suite |
-| S5.1 | The served copy and the package figures | S4.5 | the package's True revenue, N/A for an older member, the served copy of an older payload, the true-revenue mode |
+| S4.5 | Consumers, docs, classification 5.6, stage 25 | S4.4 | the batch columns, the CLI report, the benchmark's True-revenue row; the version pins; the full suite |
+| S5.1 | The served copy and the package figures | S4.5 (and the owner's word on pin row 35) | the package's True revenue, N/A for an older member, the verified total and its aliases N/A together, the served copy of an older payload, the true-revenue mode |
 | S5.2 | Exports, review routes, replay | S5.1 | readable by-reason rows, the rule-verified reject and refused confirm, the decision-aware replay; the full suite |
 | S6.1 | Cards, credit mix, Held for Review view | S5.2 | the cards in order with N/A, the parity of the reason tables, the held reasons largest first |
 | S6.2 | Tags, chips, filters, review controls | S6.1 | the tier tags and reasons, the five filters, the controls the server allows, the page words |
 | S6.3 | Monthly Statements, chart, settings, script version | S6.2 | True and Verified columns, the three shades, a month without established revenue; the full suite |
-| A1 | The 5.6 census, every guard, G7 | S6.3 | the measured targets, G1 to G14 |
+| A1 | The 5.6 census, every guard, G7 | S6.3 | the measured targets, G1 to G17, G7 against the owner's allowlist |
 | A2 | The tryout host's census (read-only) | A1 | the host's figures beside the spec's reference |
 | A3 | The precision sample | A1 | at least 95% revenue per Verified stratum |
 | A4 | The train | all | the full suite, the dashboard in a browser, the main checkout clean |
@@ -103,7 +105,7 @@ Spec §16's order: S1, then S2, then the 5.5 census (S3), then S4, then S5 and S
 | `analysis/revenue.py` | Modify | tiers, reasons, flags, the gate, the serialized views and the review writer | S4.1, S4.4 |
 | `analysis/true_revenue.py` | Create | statement pass 7: payer facts, holds, Q5, Q6, Q7's credit-union arm, tiers; the census's guard facts | S4.2, S4.3 |
 | `analysis/metrics.py`, `analysis/detect.py`, `analysis/serialization.py` | Modify | the tiered metrics and evidence lists | S4.4 |
-| `batch.py`, `analyze.py`, `benchmark/run.py`, `benchmark/compare.py` | Modify | the consumers of §13 | S4.5 |
+| `batch.py`, `analyze.py`, `benchmark/run.py`, `benchmark/compare.py` | Modify | the consumers of §13 (`benchmark.compare.true_revenue_row`: True revenue against MoneyThumb's true credits) | S4.5 |
 | `docs/transaction-classification.md` | Modify | the revenue section: definition, tiers, precedence, holds, table extension rules | S4.5 |
 | `analysis/revenue_view.py` | Create | the served copy's revenue flags and the older payload's nulled True revenue | S5.1 |
 | `webapp/app.py` | Modify | `_displayed`, `_package_analysis`, the currency keys (S5.1); the exports and the declared refusals (S5.2) | S5.1, S5.2 |
@@ -116,7 +118,7 @@ Spec §16's order: S1, then S2, then the 5.5 census (S3), then S4, then S5 and S
 | `tests/test_revenue_card_settlements.py`, `…_platform_payouts.py`, `…_healthcare_claims.py`, `…_payer_remittance.py`, `…_public_payers.py`, `…_wire_remittance.py`, `…_non_revenue_55.py` | Create | the families through the decision (and, from S2.4, the passes) | S2.3, S2.4 |
 | `tests/test_revenue_recurrence.py` | Create | the recurrence pass | S2.4 |
 | `tests/test_revenue_census.py` | Create | the census tool | S3.1, S4.2 |
-| `tests/test_true_revenue_payload.py`, `tests/test_true_revenue_tiers.py` | Create | the contract, the pass, Q7, the metrics and views | S4.1 to S4.4 |
+| `tests/test_true_revenue_payload.py`, `tests/test_true_revenue_tiers.py` | Create | the contract, the pass, Q7, the metrics and views; the consumers (S4.5's section) | S4.1 to S4.5 |
 | `tests/test_webapp_true_revenue.py`, `tests/test_webapp_true_revenue_ui.py` | Create | the webapp; the dashboard in node | S5.1, S5.2; S6.1 to S6.3 |
 
 ## Spec coverage
@@ -146,14 +148,14 @@ Spec §16's order: S1, then S2, then the 5.5 census (S3), then S4, then S5 and S
 | §5.1 to §5.4 | S2.1 (terms), S4.1 (fields, flags), S4.4 (identity) |
 | §6.1, §6.2, §6.3 | S2.3 (steps 3, 5 to 16), S4.3 (step 4), S2.4 (passes 4 to 6), S4.2 (pass 7), S4.1 (pass 8's tier); §6.3 is checked by the census (S3.1 `NARROWINGS`, A1 G1) |
 | §7.0 | S2.1 (revenue text, joined fields), S1.1 (cuts), S2.4 (recurrence fixes) |
-| §7.1 | S1.1, S1.2, S1.5, S2.2, S2.3 |
+| §7.1 | S1.1 (Step 1: the structural lens, searched read-only; the gate table), S1.2, S1.5, S2.2 (the gate in the reader), S2.3 |
 | §7.2, §7.3 | S1.1, S1.2, S2.2, S2.3, S2.4 |
 | §7.4 | S1.1 to S1.3 (`tools/operating_registry.py`) |
 | §7.5 | S2.2, S2.3, S2.4 (counter-debit guard) |
 | §7.6 | S2.2, S2.3 |
 | §7.7 | S1.3, S2.2, S2.3 |
-| §7.8 | S1.1, S1.2, S2.4 |
-| §7.9 | S2.1 (wire labels), S2.2, S2.3 |
+| §7.8 | S1.1, S1.2, S2.4 (the branch and §14.1's negatives), S4.2 (their tiers) |
+| §7.9 | S2.1 (wire labels, Santander's originator), S2.2 (the financing text, the title veto), S2.3 (the 40 cases, the hazard groups, the residuals); the registry side findings S1.5 |
 | §7.10 | S1.1, S2.4 |
 | §7.11 | S2.1 (street `LN`), S2.2, S2.3 |
 | §7.12 | the structural misses the families took in are in the family tasks S2.2 to S2.4 (their tests carry the structural shapes) |
@@ -164,8 +166,8 @@ Spec §16's order: S1, then S2, then the 5.5 census (S3), then S4, then S5 and S
 | §11 | S4.4, S5.1 |
 | §12 | S4.4, S5.1, S6.1 |
 | §13 | every row of the consumer table is a task above (`analysis/flagged_view.py`, `webapp/jobs.py`, `webapp/storage.py`, `webapp/settings.py`: no change, as the spec says; `tools/lender_census.py` runs as G7 in A1) |
-| §14.1 | the fabricated tests of S1 to S6 (G8) |
-| §14.2, §14.3 | S3.1, S3.2, A1, A2 |
+| §14.1 | the fabricated tests of S1 to S6 (G8), §7.8's list in S2.4 and S4.2, §7.9's list (the 40 cases of `simulate_v3.py`, the hazard groups G1 to G11, the party-name rows, the adversarial rows) in S2.3 |
+| §14.2, §14.3 | S3.1 (G1 to G14 and the review's G15 to G17, lender and eligible-deposit moves by cause), S3.2, A1, A2 |
 | §14.4 | S3.2, A1 |
 | §14.5 | S3.1 (`sample`), A3 |
 | §15 | not implemented, by design: OQ1's payer-wide review and the deferred items stay out; their rows are counted or held as the tasks above decide them |
@@ -174,7 +176,7 @@ Spec §16's order: S1, then S2, then the 5.5 census (S3), then S4, then S5 and S
 
 ## Pin ledger
 
-Every existing assertion this plan moves, measured by running the full suite at each task's commit of the prototype. Line numbers are those of the file as the task finds it. Nothing else may move (Global Constraints, stop rules). The spec's §13 also names `tests/test_factoring_credits.py:47-53` and `tests/l1s3_payloads.py:149-150`; neither moves (Decision 6), so neither is re-pinned.
+Every existing assertion this plan moves, measured by running the full suite at each task's commit of the prototype. Line numbers are those of the file as the task finds it. Nothing else may move (Global Constraints, stop rules). The spec's §13 also names `tests/test_factoring_credits.py:47-53` and `tests/l1s3_payloads.py:149-150`; neither moves (Decision 6), so neither is re-pinned. Row 35 is a real-statement assertion: it moves only on the owner's word, asked in Task S5.1's first step (review I7). The review's revision moved no row: every new test sits in a file this plan creates.
 
 | # | Test (file:line) | Today | After | Task | Cause |
 |---|---|---|---|---|---|
@@ -252,12 +254,122 @@ Every existing assertion this plan moves, measured by running the full suite at 
   - `OPERATING_SOURCES_READ_WITH_VETOES: frozenset[str]`, `OPERATING_ALIASES_READ_WITH_VETOES: frozenset[str]`
   - `OPERATING_SOURCE_CONTEXT_WORDS: dict[str, tuple[str, ...]]`
   - `PROCESSOR_ADVANCE_PRODUCTS: dict[str, tuple[tuple[str, ...], str | None]]`, `PROCESSORS_WITHOUT_ADVANCE_PRODUCT: frozenset[str]`
+  - `GATED_PROCESSOR_ALIASES: dict[str, tuple[str, ...]]` (derived, never hand-edited: the bare aliases of every processor the ledger has not cleared, by processor)
   - `OPERATING_ALIAS_CUT = 16`, `_operating_alias_cut(alias: str) -> str | None`, `OPERATING_REVENUE_TRUNCATIONS: dict[str, tuple[str, ...]]`, `OPERATING_REVENUE_READ_ALIASES: dict[str, tuple[str, ...]]` (aliases plus cuts: what the classifier reads from S2.2 on)
   - `tools/operating_registry.py`: `problems() -> list[str]`, `warnings() -> list[str]`, `main(argv: list[str] | None = None) -> int` (`python -m tools.operating_registry --check`)
 
-**Why:** Spec §7.1 to §7.4, §7.8 and §7.10: the processors, marketplaces, vertical software, transport marketplaces, wholesale auctions and property platforms the corpus prints, in the spellings it prints; the reads that carry the platform vetoes; the 16-character cuts (§7.0); the processor gate ("ledger before aliases", §7.1); and the validator §7.4 asks for. The running classifier reads `OPERATING_REVENUE_SOURCE_ALIASES` at once through today's rules, so some rows start verifying before S2; no existing test moves (measured), and the version moves at S2.5.
+**Why:** Spec §7.1 to §7.4, §7.8 and §7.10: the processors, marketplaces, vertical software, transport marketplaces, wholesale auctions and property platforms the corpus prints, in the spellings it prints; the reads that carry the platform vetoes; the 16-character cuts (§7.0); the processor gate ("ledger before aliases", §7.1) and the gate table the reader honours (`GATED_PROCESSOR_ALIASES`, review I4: an alias read inside a waiting processor's bare alias names no source); the structural-lens processors searched read-only (Step 1, review I3: none prints a credit spelling, so each waits); and the validator §7.4 asks for. The running classifier reads `OPERATING_REVENUE_SOURCE_ALIASES` at once through today's rules, so some rows start verifying before S2; no existing test moves (measured), and the version moves at S2.5.
 
-- [ ] **Step 1: Write the failing tests.**
+- [ ] **Step 1: The structural-lens processors (spec §7.1, review I3).** §7.1 names seventeen processors whose spellings the structural lens fabricated (TSYS / TransFirst, Vantiv, EVO Payments, Paysafe, North American Bancard / Payanywhere, Priority Payment Systems, Payroc, CardConnect, Stax / Fattmerchant, Repay, Paya, NMI, Finix, WePay, TD Merchant Solutions, Desjardins Monetico, Chase QuickAccept): "S1 adds each only in a spelling the corpus or the tryout dump prints, confirmed read-only; a name with no printed spelling waits." Search both, read-only, with this scratch script (Write tool; `C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s11/structural_processors.py`; it prints the matched processor spelling and counts only):
+
+```python
+"""Task S1.1 (scratch, never committed): search the corpus cache and the tryout host's credit dump, read-only, for the
+spellings of spec §7.1's seventeen structural-lens processors. Prints the matched processor spelling and counts only,
+never the rest of a row.
+Usage: python structural_processors.py <webapp_data dir> <fly_credits.json>"""
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+import sys
+from collections import Counter, defaultdict
+from pathlib import Path
+
+sys.path.insert(0, "C:/Users/GustavoPrietodePaula/work/true-revenue")
+from analysis.description_text import normalize_transaction_description as normalize  # noqa: E402
+
+PROCESSORS = {
+    "TSYS / TransFirst": r"\bTSYS\b|\bTRANSFIRST\b|\bTRANS FIRST\b",
+    "Vantiv": r"\bVANTIV\b",
+    "EVO Payments": r"\bEVO (?:PAYMENTS|SNAP|MERCHANT|MERCH|DEP|DEPOSIT|SETTLE\w*)\b|\bEVOPAY\w*",
+    "Paysafe": r"\bPAYSAFE\b",
+    "North American Bancard / Payanywhere": (
+        r"\bNORTH AMERICAN BANCARD\b|\bNAB (?:DEP|DEPOSIT|SETTLE\w*|BANKCARD)\b|\bPAYANYWHERE\b|\bPAY ANYWHERE\b"
+    ),
+    "Priority Payment Systems": r"\bPRIORITY (?:PAYMENT|PMT|PAY|PAYMENTS|TECH)\w*\b",
+    "Payroc": r"\bPAYROC\b",
+    "CardConnect": r"\bCARDCONNECT\b|\bCARD CONNECT\b",
+    "Stax / Fattmerchant": (
+        r"\bSTAX (?:PAYMENTS|PAY|DEP|DEPOSIT|SETTLE\w*|BY FATTMERCHANT)\b|\bFATTMERCHANT\b|\bFATT MERCHANT\b"
+    ),
+    "Repay": r"\bREPAY (?:MANAGEMENT|DEP|DEPOSIT|SETTLE\w*|TECHNOLOGIES)\b|\bREALTIME ELECTRONIC PAYMENTS\b",
+    "Paya": r"\bPAYA (?:SERVICES|DEP|DEPOSIT|SETTLE\w*|INC|LLC)\b|\bSAGE PAYMENT\w*",
+    "NMI": r"\bNMI (?:DEP|DEPOSIT|SETTLE\w*|PAYMENTS|GATEWAY)\b|\bNETWORK MERCHANTS\b",
+    "Finix": r"\bFINIX\b",
+    "WePay": r"\bWEPAY\b|\bWE PAY\b",
+    "TD Merchant Solutions": r"\bTD MERCHANT\w*|\bTD MERCH\b|\bTDMS\b",
+    "Desjardins Monetico": r"\bMONETICO\b|\bDESJARDINS (?:MERCHANT|CARTE|MONETIQUE)\w*",
+    "Chase QuickAccept": r"\bQUICKACCEPT\b|\bQUICK ACCEPT\b|\bQUICKACCPT\b",
+}
+COMPILED = {name: re.compile(pattern) for name, pattern in PROCESSORS.items()}
+
+
+def _transactions(node):
+    """Every transaction of every account payload in one cached analysis."""
+    if isinstance(node, dict):
+        statement = node.get("statement")
+        if isinstance(statement, dict) and isinstance(statement.get("transactions"), list):
+            yield from statement["transactions"]
+            return
+        for value in node.values():
+            yield from _transactions(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _transactions(value)
+
+
+def main(data_dir: Path, dump: Path) -> None:
+    connection = sqlite3.connect(f"{(data_dir / 'webapp.db').resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        paths = [row[0] for row in connection.execute(
+            "SELECT artifact_path FROM artifact_cache WHERE stage = 'analysis'")]
+    finally:
+        connection.close()
+    found: dict = defaultdict(lambda: [Counter(), 0, 0])
+    for relative in paths:
+        try:
+            payload = json.loads((data_dir / "artifacts" / relative).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for txn in _transactions(payload.get("artifact")):
+            text = normalize(txn.get("description") or "")
+            for name, pattern in COMPILED.items():
+                match = pattern.search(text)
+                if match:
+                    found[name][0][match.group(0)] += 1
+                    found[name][1 if (txn.get("amount") or 0) > 0 else 2] += 1
+    print(f"corpus cache ({len(paths)} cached analyses, every copy):")
+    for name in PROCESSORS:
+        spellings, credits, debits = found.get(name, [Counter(), 0, 0])
+        print(f"  {name}: credits {credits}, debits {debits}, spellings {dict(spellings)}")
+    host: dict = defaultdict(lambda: [Counter(), 0])
+    for group in json.loads(dump.read_text(encoding="utf-8"))["keys"]:
+        for text in [group.get("payee_tokens") or "", *(group.get("samples") or [])]:
+            hits = [(name, pattern.search(normalize(text))) for name, pattern in COMPILED.items()]
+            for name, match in hits:
+                if match:
+                    host[name][0][match.group(0)] += 1
+                    host[name][1] += group.get("rows", 0)
+    print("tryout host credit dump:")
+    for name in PROCESSORS:
+        spellings, rows = host.get(name, [Counter(), 0])
+        print(f"  {name}: credit rows {rows}, spellings {dict(spellings)}")
+
+
+if __name__ == "__main__":
+    main(Path(sys.argv[1]), Path(sys.argv[2]))
+```
+
+  Run it (it reads every cached analysis, about ten minutes):
+
+```bash
+C:/Python314/python.exe C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s11/structural_processors.py "C:/Users/GustavoPrietodePaula/OneDrive - Capital Infusion/Desktop/Capital Infusion Projects/bankStatementAnalysis/webapp_data" C:/Users/GustavoPrietodePaula/lender-research/revenue/fly_credits.json
+```
+
+  Expected (measured 2026-09-29 over 31,116 cached analyses and the host's credit dump): every processor `credits 0` in the cache (only debits print: `TSYS` 45, `VANTIV` 106, `PAYROC` 15, `TDMS` 135) and `credit rows 0` on the host. So none is an alias: each waits, as the registry comment this task adds records. If any processor now prints a credit spelling (the cache has grown), stop and report it: a new processor's bare alias waits for its advance product in the ledger (§7.1), so it would join `PROCESSOR_ADVANCE_PRODUCTS` and S1.5's research brief, never the registry directly.
+
+- [ ] **Step 2: Write the failing tests.**
 
 Create `tests/test_operating_registry.py`:
 
@@ -316,15 +428,36 @@ def test_the_validator_refuses_an_untyped_entity_and_a_financing_collision(monke
     found = operating_registry.problems()
     assert "operating entity 'Fabrikam Pay' has no source type" in found
     assert any("'SQUARE CAPITAL'" in problem and "financing alias" in problem for problem in found)
+
+
+def test_a_waiting_processor_s_bare_aliases_are_gated_and_never_read():
+    # §7.1, review I4: the gate lists every processor the ledger has not cleared, and none of its bare aliases reads.
+    admitted = {entity for group in registry.PAYEE_GROUP_REGISTRIES.values() for entity in group}
+    waiting = {
+        processor: bare for processor, (bare, product) in registry.PROCESSOR_ADVANCE_PRODUCTS.items()
+        if not (product in admitted or processor in registry.PROCESSORS_WITHOUT_ADVANCE_PRODUCT)
+    }
+    assert registry.GATED_PROCESSOR_ALIASES == waiting
+    read = {alias for aliases in registry.OPERATING_REVENUE_READ_ALIASES.values() for alias in aliases}
+    assert not read & {alias for bare in waiting.values() for alias in bare}
+
+
+def test_the_structural_lens_processors_wait_for_a_printed_spelling():
+    # §7.1: none of the seventeen prints a credit spelling in the corpus or the tryout dump (Task S1.1, Step 1).
+    read = {word for aliases in registry.OPERATING_REVENUE_READ_ALIASES.values() for alias in aliases
+            for word in alias.split()}
+    for name in ("TSYS", "TRANSFIRST", "VANTIV", "PAYSAFE", "PAYANYWHERE", "PAYROC", "CARDCONNECT", "FATTMERCHANT",
+                 "STAX", "REPAY", "PAYA", "NMI", "FINIX", "WEPAY", "TDMS", "MONETICO", "QUICKACCEPT"):
+        assert name not in read, name
 ```
 
-- [ ] **Step 2: Run them and watch them fail.**
+- [ ] **Step 3: Run them and watch them fail.**
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
 Expected: FAIL: `1 error`, the first with `ImportError: cannot import name 'operating_registry' from 'tools' (unknown location)`.
 
-- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Implement.**
 
 In `analysis/classification_registry.py` (lines 12-14), replace:
 
@@ -539,6 +672,21 @@ PROCESSOR_ADVANCE_PRODUCTS: dict[str, tuple[tuple[str, ...], str | None]] = {
 #: 5.5 (§7.1): processors the ledger's process found to have no advance product of their own (research round and
 #: verdicts recorded in the ledger notes of the entity named there). Empty until S1's research round says so.
 PROCESSORS_WITHOUT_ADVANCE_PRODUCT: frozenset[str] = frozenset()
+#: 5.5 (§7.1, the ledger gate): the bare aliases of the processors the ledger has not cleared yet, by processor.
+#: Derived, never hand-edited. The operating reader refuses an alias read that lies inside one of them ('BY STRI'
+#: inside 'JOBBER BY STRI'), so no other entity reads the row while the processor waits.
+GATED_PROCESSOR_ALIASES: dict[str, tuple[str, ...]] = {
+    processor: bare
+    for processor, (bare, product) in PROCESSOR_ADVANCE_PRODUCTS.items()
+    if not (
+        (product is not None and any(product in group for group in PAYEE_GROUP_REGISTRIES.values()))
+        or processor in PROCESSORS_WITHOUT_ADVANCE_PRODUCT
+    )
+}
+#: 5.5 (§7.1, the structural lens): TSYS / TransFirst, Vantiv, EVO Payments, Paysafe, North American Bancard /
+#: Payanywhere, Priority Payment Systems, Payroc, CardConnect, Stax / Fattmerchant, Repay, Paya, NMI, Finix, WePay,
+#: TD Merchant Solutions, Desjardins Monetico and Chase QuickAccept print no credit spelling in the corpus cache or the
+#: tryout host's credit dump (searched read-only, 2026-09-29): none is an alias, and each waits for a printed spelling.
 
 #: 5.5 (§7.0): the width of the bank field that cuts a long originator name. Every operating alias longer than this
 #: is also read at its first sixteen characters when the cut keeps two words and its last word has three letters.
@@ -719,17 +867,17 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 4: Run the tests again.**
+- [ ] **Step 5: Run the tests again.**
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
-Expected: PASS: `10 passed`.
+Expected: PASS: `12 passed`.
 
-- [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
+- [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-REGISTRY: `357 passed, 4 skipped`
 
-- [ ] **Step 6: Commit.**
+- [ ] **Step 7: Commit.**
 
 ```bash
 cd C:/Users/GustavoPrietodePaula/work/true-revenue
@@ -742,9 +890,9 @@ git commit -m "registry: the operating sources of the true-revenue fixes and the
 ### Task S1.2: The payout, card-settlement and auction forms
 
 **Files:**
-- Modify: `analysis/classification_registry.py:12-14, 1726`
+- Modify: `analysis/classification_registry.py:12-14, 1741`
 - Modify: `tools/operating_registry.py:3-4, 7, 19, 82, 123`
-- Modify (pins): `tests/test_operating_registry.py:5, 54`
+- Modify (pins): `tests/test_operating_registry.py:5, 75`
 
 **Depends on:** S1.1.
 
@@ -793,7 +941,7 @@ def test_every_form_compiles_and_names_a_typed_entity():
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
-Expected: FAIL: `1 failed, 10 passed`, the first with `AttributeError: module 'analysis.classification_registry' has no attribute 'OPERATING_SOURCE_PAYOUT_FORMS'. Did you mean: 'OPERATING_SOURCE_CONTEXT_WORDS'?`.
+Expected: FAIL: `1 failed, 12 passed`, the first with `AttributeError: module 'analysis.classification_registry' has no attribute 'OPERATING_SOURCE_PAYOUT_FORMS'. Did you mean: 'OPERATING_SOURCE_CONTEXT_WORDS'?`.
 
 - [ ] **Step 3: Implement.**
 
@@ -815,7 +963,7 @@ from dataclasses import dataclass
 from .description_text import normalize_transaction_description
 ```
 
-In `analysis/classification_registry.py`, after these lines (line 1726):
+In `analysis/classification_registry.py`, after these lines (line 1741):
 
 ```python
     for entity, aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
@@ -1041,7 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
-Expected: PASS: `11 passed`.
+Expected: PASS: `13 passed`.
 
 - [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
@@ -1060,9 +1208,9 @@ git commit -m "registry: the payout, card-settlement and auction forms" -m "Co-A
 ### Task S1.3: The Blue-plan, healthcare and dealer-funding payer tables
 
 **Files:**
-- Modify: `analysis/classification_registry.py:1847`
+- Modify: `analysis/classification_registry.py:1862`
 - Modify: `tools/operating_registry.py:4, 11, 71, 122-124`
-- Modify (pins): `tests/test_operating_registry.py:67`
+- Modify (pins): `tests/test_operating_registry.py:88`
 
 **Depends on:** S1.2.
 
@@ -1090,11 +1238,11 @@ def test_the_payer_tables_collide_with_no_ledger_or_insurer_alias(monkeypatch):
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
-Expected: FAIL: `1 failed, 11 passed`, the first with `AttributeError: module 'analysis.classification_registry' has no attribute 'HEALTHCARE_PAYER_ALIASES'`.
+Expected: FAIL: `1 failed, 13 passed`, the first with `AttributeError: module 'analysis.classification_registry' has no attribute 'HEALTHCARE_PAYER_ALIASES'`.
 
 - [ ] **Step 3: Implement.**
 
-In `analysis/classification_registry.py`, after these lines (line 1847):
+In `analysis/classification_registry.py`, after these lines (line 1862):
 
 ```python
     "OPENLANE": r"\bOPENLANE\b|\bBACKLOT ?CARS\b",
@@ -1241,7 +1389,7 @@ with:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
-Expected: PASS: `12 passed`.
+Expected: PASS: `14 passed`.
 
 - [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
@@ -1261,7 +1409,7 @@ git commit -m "registry: the Blue-plan, healthcare and dealer-funding payer tabl
 
 **Files:**
 - Modify: `analysis/classification_registry.py:1466`
-- Modify (pins): `tests/test_operating_registry.py:72`
+- Modify (pins): `tests/test_operating_registry.py:93`
 - Modify (pins): `tests/test_lender_registry_content.py:212-213, 217-219`
 
 **Depends on:** S1.3.
@@ -1286,7 +1434,7 @@ def test_the_bnpl_settlements_are_payout_credit_entities():
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
-Expected: FAIL: `1 failed, 12 passed`, the first with `AssertionError: assert {'AFFIRM', 'A...nc', 'Sunbit'} <= {'American Fi... 'Sezzle Inc'}`.
+Expected: FAIL: `1 failed, 14 passed`, the first with `AssertionError: assert {'AFFIRM', 'A...nc', 'Sunbit'} <= {'American Fi... 'Sezzle Inc'}`.
 
 - [ ] **Step 3: Implement.**
 
@@ -1311,7 +1459,7 @@ PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = (
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_operating_registry.py -q -p no:cacheprovider`
 
-Expected: PASS: `13 passed`.
+Expected: PASS: `15 passed`.
 
 - [ ] **Step 5: Re-pin the assertions this task moves (pin ledger rows 1-2).**
 
@@ -1369,10 +1517,10 @@ git commit -m "registry: BNPL settlements are payout-credit entities (owner ruli
 
 ---
 
-### Task S1.5: Ledger admissions: the processors' advance products, Parafin, Pipe's cut and the dealer-funding lenders
+### Task S1.5: Ledger admissions: the processors' advance products, Parafin, Pipe's cut, the receivables financiers and the dealer-funding lenders
 
 **Files:**
-- Create (scratch, never committed): `C:/Users/GustavoPrietodePaula/lender-research/revenue/research/ledger55.json` (written by the research rounds, Steps 1 and 2) and `C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s15/research_ledger.py` (Step 3).
+- Create (scratch, never committed): `C:/Users/GustavoPrietodePaula/lender-research/revenue/research/ledger55.json` (written by the research rounds, Steps 1 and 2), `C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s15/research_ledger.py` (Step 3), `C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s15/admission_effect.py` and the owner's signed-off list `C:/Users/GustavoPrietodePaula/lender-research/revenue/census/g7_allowlist.json` (Step 6; G7 reads it in Task A1).
 - Modify: `docs/lender-registry-ledger.json` (only through the Step 3 script), then `analysis/classification_registry.py` (the GENERATED block, by `python -m tools.build_lender_registry --write`), `docs/lender-registry-evidence.md` (the same command).
 - Modify: `analysis/classification_registry.py`: `PROCESSOR_ADVANCE_PRODUCTS`, `PROCESSORS_WITHOUT_ADVANCE_PRODUCT` and, for each processor the ledger clears, its bare aliases in `OPERATING_REVENUE_SOURCE_ALIASES` and its type in `OPERATING_REVENUE_SOURCE_TYPES` (all added by Task S1.1).
 - Create: `tests/test_registry_additions_55.py`.
@@ -1381,17 +1529,17 @@ git commit -m "registry: BNPL settlements are payout-credit entities (owner ruli
 
 **Interfaces:**
 - Consumes: `PROCESSOR_ADVANCE_PRODUCTS: dict[str, tuple[tuple[str, ...], str | None]]` and `PROCESSORS_WITHOUT_ADVANCE_PRODUCT: frozenset[str]` (S1.1); `DEALER_FUNDING_PAYERS` (S1.3); the ledger's schema and its validator (`tools/lender_ledger.py`, `tools/build_lender_registry.py`).
-- Produces: ledger entities in the `alternative_position` group (the processors' advance products and Parafin), the `PIPE TECHNOLOGIE` alias of `Pipe Technologies Inc`, and `vehicle_financing` entities or aliases for the dealer-funding lenders the ledger lacks; the bare processor aliases the ledger clears.
+- Produces: ledger entities in the `alternative_position` group (the processors' advance products and Parafin), the `PIPE TECHNOLOGIE` alias of `Pipe Technologies Inc`, the receivables financiers of §7.9 in their groups, and `vehicle_financing` entities or aliases for the dealer-funding lenders the ledger lacks, each only on the owner's sign-off; the bare processor aliases the ledger clears (`GATED_PROCESSOR_ALIASES` then drops them by itself); `g7_allowlist.json` (`{"signed_off": "<date and words of the owner's answer>", "entities": [<ledger entity names>]}`).
 
-**Why:** Spec §7.1 ("Ledger before aliases"): a processor's bare alias (`SHIFT4`, `SUMUP`, `JOBBER BY STRI(PE)`, `CLEARENT`, `SMARTTAB`, `BRAINTREE`) joins the operating registry only after its own advance product is admitted as an alternative position, or after the ledger records that it has none; "if the ledger can neither admit the product nor record that there is none, that processor's bare alias is not added". §7.3 proposes Parafin and Pipe's 16-character cut `PIPE TECHNOLOGIE` for the financing registry. §8.7: "S1 admits the `DEALER_FUNDING_PAYERS` lenders the ledger lacks into its vehicle-financing group, through the ledger's process"; until then their credits that Q7 does not verify are held (`financing_named_payer`, Task S4.2). Admission follows the ledger's process: a public source and an independent second agent. Nothing here is decided by this plan: the rounds decide, and the gate takes only VERIFIED entries.
+**Why:** Spec §7.1 ("Ledger before aliases"): a processor's bare alias (`SHIFT4`, `SUMUP`, `JOBBER BY STRI(PE)`, `CLEARENT`, `SMARTTAB`, `BRAINTREE`) joins the operating registry only after its own advance product is admitted as an alternative position, or after the ledger records that it has none; "if the ledger can neither admit the product nor record that there is none, that processor's bare alias is not added". §7.3 proposes Parafin and Pipe's 16-character cut `PIPE TECHNOLOGIE` for the financing registry. §8.7: "S1 admits the `DEALER_FUNDING_PAYERS` lenders the ledger lacks into its vehicle-financing group, through the ledger's process"; until then their credits that Q7 does not verify are held (`financing_named_payer`, Task S4.2). §7.9 sends its registry side findings to the ledger too: eCapital and Stenn as factors, the printed legal names of FairFigure, GFE, One River Group and Uncapped, and the spaced `SAMSON SERVICING` (a Stenn wire citing an invoice verifies until then: the recorded residual of S2.3's wire tests). Admission follows the ledger's process: a public source and an independent second agent. Nothing here is decided by this plan: the rounds decide, the gate takes only VERIFIED entries, and the owner signs off on every admission that moves a debit (review I2), because guard G7 forbids any debit move the owner has not declared.
 
 Measured on 2026-09-28 (the prototype, `match_known_payee` on each `DEALER_FUNDING_PAYERS` alias): the ledger already reads `CREDITACCEPTANCE`, `EXETERFINANCELLC`, `FLAGSHIP CREDIT`, `CHRYSLER CAPITAL`, `GM FINANCIAL`, `TOYOTA FINANCIAL`, `NISSAN MOTOR ACC`, `CARMAX AUTO FINANCE`, `ALLY FINANCIAL`, `AMERICAN CREDIT ACC` and `REGIONAL ACCEPTAN` as `vehicle_financing`. It lacks Westlake Financial (its entities read only `WESTLAKE PAYMENT` and the Chase CCD form), United Auto Credit, Strike Acceptance, Professional Financial Services (PFS), Suncoast Credit Union, CU Direct's `CU DIRECT` and `CUDL` spellings (the entity `CU Direct Corporation` exists), GLS Auto, `SANTANDER CONSUMER` (the entity `Santander Consumer USA Inc` exists), `HONDA FINANCIAL` and `AMERICAN HONDA FINANCE` (the entity `American Honda Finance Corporation` exists), `NISSAN MOTOR ACCEPTANCE`, `AMERICAN CREDIT ACCEPTANCE`, `REGIONAL ACCEPTANCE`, Nicholas Financial and Lendbuzz.
 
-**Debits move, on purpose.** An admitted lender's debits become counted rows of its group (an alternative position, or a vehicle loan), so `tools/lender_census.py` shows them as gained. Guard G7 (Task A1) takes exactly these entities as its declared exceptions; any other debit change still fails it.
+**Debits move, on purpose, and only on the owner's word (review I2).** An admitted lender's debits become counted rows of its group (an alternative position, a vehicle loan, a factor), so `tools/lender_census.py` shows them as gained, and spec §14.3's G7 asks for zero debit moves against 5.4. So the admission list goes to the owner first (Step 6), with what each admission would move measured on the cache; only the entities the owner signs off are admitted, and G7's check (Task A1, Step 3) reads exactly that list as its declared exceptions. Any other debit move fails G7. Without a sign-off, nothing that moves a debit is admitted: the processors whose bare aliases wait keep waiting, Pipe's cut and the lenders stay out, and their credits stay counted or held as S4.2 decides. The census figures of S3.2 and A1 were measured with no admission; with admissions, both tasks re-measure (S3.2 Step 3, A1 Step 1).
 
 - [ ] **Step 1: The research round (r1).** Dispatch one research agent with web access and this brief (the orchestrator keeps the reply):
 
-  > For each item below, find public sources (the company's own pages, regulator or court filings, reputable trade press) and write one JSON record in the ledger's entity schema (`entity`, `group`, `business_type`, `aliases`, `status`, `short_alias_reason`, `evidence` [`{"source": url, "note": what the page says}`], `verdicts` [`{"round": "r1", "verdict": "proposed", "confirmed": true}`], `where_looked` [urls], `notes`). Aliases are the names as a bank statement prints them, upper case, never a person's name, never a digit run of five or more. Items: (a) the advance or capital product of each processor: Shift4 (Shift4 Capital), SumUp (its business cash advance), Jobber (Jobber Capital, paid through Parafin and Stripe), Clearent / Xplor Pay, SmartTab, Braintree; group `alternative_position`, business_type `platform_embedded_financing`; or, where the processor offers none, a record `{"processor": <name>, "none": true, "evidence": [...], "where_looked": [...], "verdicts": [...]}` in `no_product`; (b) Parafin (the capital provider behind several platforms' merchant advances), group `alternative_position`; (c) for the existing ledger entity `Pipe Technologies Inc`, an `entity_updates` record adding the alias `PIPE TECHNOLOGIE` (the 16-character cut of its name); (d) each of these auto lenders as a `vehicle_financing` entity, or as an `entity_updates` alias record for the existing entity named: Westlake Financial, United Auto Credit, Strike Acceptance, Professional Financial Services (PFS), Suncoast Credit Union, CU Direct (`CU Direct Corporation`), GLS Auto, Santander Consumer (`Santander Consumer USA Inc`), American Honda Finance (`American Honda Finance Corporation`), Nissan Motor Acceptance (`Nissan Motor Acceptance Company LLC`), American Credit Acceptance (`American Credit Acceptance, LLC`), Regional Acceptance (`Regional Acceptance Corporation`), Nicholas Financial, Lendbuzz. Write `{"new_entities": [...], "entity_updates": [...], "no_product": [...]}` to `C:/Users/GustavoPrietodePaula/lender-research/revenue/research/ledger55.json`.
+  > For each item below, find public sources (the company's own pages, regulator or court filings, reputable trade press) and write one JSON record in the ledger's entity schema (`entity`, `group`, `business_type`, `aliases`, `status`, `short_alias_reason`, `evidence` [`{"source": url, "note": what the page says}`], `verdicts` [`{"round": "r1", "verdict": "proposed", "confirmed": true}`], `where_looked` [urls], `notes`). Aliases are the names as a bank statement prints them, upper case, never a person's name, never a digit run of five or more. `status` is `admitted` for every record proposed for admission (the ledger renders only `admitted` entities into their group; `review` would render it into the potential-lender table and `rejected` nowhere). Items: (a) the advance or capital product of each processor: Shift4 (Shift4 Capital), SumUp (its business cash advance), Jobber (Jobber Capital, paid through Parafin and Stripe), Clearent / Xplor Pay, SmartTab, Braintree; group `alternative_position`, business_type `platform_embedded_financing`; or, where the processor offers none, a record `{"processor": <name>, "none": true, "evidence": [...], "where_looked": [...], "verdicts": [...]}` in `no_product`; (b) Parafin (the capital provider behind several platforms' merchant advances), group `alternative_position`; (c) for the existing ledger entity `Pipe Technologies Inc`, an `entity_updates` record adding the alias `PIPE TECHNOLOGIE` (the 16-character cut of its name); (d) each of these auto lenders as a `vehicle_financing` entity, or as an `entity_updates` alias record for the existing entity named: Westlake Financial, United Auto Credit, Strike Acceptance, Professional Financial Services (PFS), Suncoast Credit Union, CU Direct (`CU Direct Corporation`), GLS Auto, Santander Consumer (`Santander Consumer USA Inc`), American Honda Finance (`American Honda Finance Corporation`), Nissan Motor Acceptance (`Nissan Motor Acceptance Company LLC`), American Credit Acceptance (`American Credit Acceptance, LLC`), Regional Acceptance (`Regional Acceptance Corporation`), Nicholas Financial, Lendbuzz; (e) §7.9's registry side findings: eCapital and Stenn (group `factoring`), and the printed legal names of FairFigure, GFE, One River Group and Uncapped and the spaced `SAMSON SERVICING` (as `entity_updates` of the existing entities, or new entities in the group the sources give). Write `{"new_entities": [...], "entity_updates": [...], "no_product": [...]}` to `C:/Users/GustavoPrietodePaula/lender-research/revenue/research/ledger55.json`.
 
 - [ ] **Step 2: The independent verify round (r2).** Dispatch a second agent, which has not seen round r1's reasoning, with the file only: "For every record, re-open each source and append a verdict `{"round": "r2", "verdict": "upheld" | "corrected" | "refuted" | "unresolved", "confirmed": true | false}` to its `verdicts` (for an `entity_updates` record, to a new `append_verdicts` list). Correct a record only by appending a verdict and a note; never delete a record." The file stays outside the repository.
 
@@ -1477,7 +1625,7 @@ if __name__ == "__main__":
 
   Run `C:/Python314/python.exe C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s15/research_ledger.py gate` and put its output in the task report. Only VERIFIED lines go further.
 
-- [ ] **Step 4: Write the failing tests.** Create `tests/test_registry_additions_55.py`. They read the ledger, so they hold whichever records the gate lets through:
+- [ ] **Step 4: Write the guard tests.** Create `tests/test_registry_additions_55.py`. These are guards, not failing tests: they read the ledger, so they pass before any admission (nothing is admitted or cleared, so every assertion holds vacuously or on today's tables) and hold whichever records the gate and the owner let through:
 
 ```python
 """Task S1.5 (true revenue spec §7.1, §7.3, §8.7): the ledger admissions of the processors' advance products, Parafin,
@@ -1539,18 +1687,109 @@ def test_every_dealer_funding_lender_the_ledger_reads_is_vehicle_financing():
             assert found is None or found.state == "vehicle_financing", (lender, alias, found)
 ```
 
-- [ ] **Step 5: Run them.** `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_registry_additions_55.py -q -p no:cacheprovider`. Expected before any admission: 4 passed (nothing is admitted and nothing is cleared, so every assertion holds vacuously or on today's tables). This file is a guard: it fails the moment an admission and the code disagree.
+- [ ] **Step 5: Run them.** `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_registry_additions_55.py -q -p no:cacheprovider`. Expected before any admission: 4 passed, by design. The file fails the moment an admission and the code disagree (Step 8 runs it again).
 
-- [ ] **Step 6: Admit the VERIFIED records.**
-  - For each VERIFIED new entity: `C:/Python314/python.exe .../s15/research_ledger.py add "<entity>"`; for each VERIFIED update: `... update "<entity>"`.
+- [ ] **Step 6: The owner's sign-off on the admission list (review I2).** Measure what each VERIFIED record would move, read-only on the cache, with this scratch script (Write tool; `C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s15/admission_effect.py`; it prints entity names, groups and counts only):
+
+```python
+"""Task S1.5 (scratch, never committed): what each VERIFIED admission of the research file would move, measured on the
+corpus cache read-only before anything is admitted: the debit and credit rows whose description names one of the
+candidate's aliases (whole words, the registry's own matcher), by entity. The owner signs off on this list (review I2).
+Prints entity names, groups and counts only.
+Usage: python admission_effect.py <webapp_data dir> <ledger55.json> [--limit N]"""
+from __future__ import annotations
+
+import json
+import sqlite3
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+sys.path.insert(0, "C:/Users/GustavoPrietodePaula/work/true-revenue")
+from analysis.description_text import normalize_transaction_description as normalize  # noqa: E402
+from analysis.payee_matcher import registry_match  # noqa: E402
+
+sys.path.insert(0, "C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s15")
+from research_ledger import _verified  # noqa: E402
+
+
+def _accounts(node):
+    if isinstance(node, dict):
+        statement = node.get("statement")
+        if isinstance(statement, dict) and isinstance(statement.get("transactions"), list):
+            yield statement
+            return
+        for value in node.values():
+            yield from _accounts(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _accounts(value)
+
+
+def candidates(research: dict) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """{entity: (group, aliases)} of the VERIFIED new entities and alias updates."""
+    found = {record["entity"]: (record["group"], tuple(record["aliases"]))
+             for record in research.get("new_entities", []) if _verified(record["verdicts"])}
+    for update in research.get("entity_updates", []):
+        if _verified(update.get("append_verdicts", [])):
+            found[update["entity"]] = ("update", tuple(update.get("add_aliases", [])))
+    return found
+
+
+def main(data_dir: Path, research_path: Path, limit: int | None) -> None:
+    wanted = candidates(json.loads(research_path.read_text(encoding="utf-8")))
+    registry = {entity: aliases for entity, (_group, aliases) in wanted.items() if aliases}
+    connection = sqlite3.connect(f"{(data_dir / 'webapp.db').resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        latest = connection.execute(
+            "SELECT a.artifact_path FROM artifact_cache a JOIN (SELECT input_sha256, MAX(created_at) AS newest "
+            "FROM artifact_cache WHERE stage = 'analysis' GROUP BY input_sha256) b ON a.input_sha256 = b.input_sha256 "
+            "AND a.created_at = b.newest WHERE a.stage = 'analysis'"
+        ).fetchall()
+    finally:
+        connection.close()
+    counts: dict = defaultdict(lambda: [0, 0, 0])
+    for number, (relative,) in enumerate(latest):
+        if limit is not None and number >= limit:
+            break
+        try:
+            payload = json.loads((data_dir / "artifacts" / relative).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for statement in _accounts(payload.get("artifact")):
+            touched = set()
+            for txn in statement["transactions"]:
+                found = registry_match(normalize(txn.get("description") or ""), registry)
+                if found is None:
+                    continue
+                counts[found[0]][0 if (txn.get("amount") or 0) < 0 else 1] += 1
+                touched.add(found[0])
+            for entity in touched:
+                counts[entity][2] += 1
+    print(f"{len(latest) if limit is None else min(limit, len(latest))} cached analyses read")
+    for entity, (group, _aliases) in sorted(wanted.items()):
+        debits, credits, statements = counts.get(entity, [0, 0, 0])
+        print(f"  {entity} ({group}): debit rows {debits}, credit rows {credits}, statements {statements}")
+
+
+if __name__ == "__main__":
+    arguments = sys.argv[1:]
+    cap = int(arguments[arguments.index("--limit") + 1]) if "--limit" in arguments else None
+    main(Path(arguments[0]), Path(arguments[1]), cap)
+```
+
+  Run `C:/Python314/python.exe C:/Users/GustavoPrietodePaula/lender-research/revenue/work/plan/s15/admission_effect.py "C:/Users/GustavoPrietodePaula/OneDrive - Capital Infusion/Desktop/Capital Infusion Projects/bankStatementAnalysis/webapp_data" C:/Users/GustavoPrietodePaula/lender-research/revenue/research/ledger55.json` (about ten minutes; a fabricated one-record file with `--limit 400` was checked on 2026-09-29). The orchestrator sends the owner the gate's VERIFIED lines (Step 3) with these counts and asks: "May these ledger entities be admitted? Each one's debits become counted rows of its group, which guard G7 then accepts as declared." Write the entities the owner signs off, with the date and the owner's words, to `C:/Users/GustavoPrietodePaula/lender-research/revenue/census/g7_allowlist.json` as `{"signed_off": "<date: the owner's words>", "entities": ["<ledger entity name>", ...]}`. A VERIFIED `no_product` record moves no debit (it only clears a processor's bare aliases, which S3.2 measures on credits) and goes through without a sign-off. Everything the owner does not sign off waits; report it as waiting.
+
+- [ ] **Step 7: Admit the VERIFIED, signed-off records.**
+  - For each VERIFIED new entity the owner signed off (Step 6): `C:/Python314/python.exe .../s15/research_ledger.py add "<entity>"`; for each such update: `... update "<entity>"`. Never admit an entity missing from `g7_allowlist.json`.
   - Then `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m tools.build_lender_registry --privacy-review` (read every line: no person's name, no digit run), `--check` (0 problems; the `move:` lines are unchanged from before the edit) and `--write`.
   - For each processor whose advance product was added, set its product in `PROCESSOR_ADVANCE_PRODUCTS` (for example `"Shift4": (("SHIFT4",), "<the admitted entity's name>")`); for each VERIFIED `no_product` record, add the processor to `PROCESSORS_WITHOUT_ADVANCE_PRODUCT` with a comment naming the research file and round (`# SmartTab: research ledger55.json r2, no advance product`).
   - For each processor so cleared, add its bare aliases to `OPERATING_REVENUE_SOURCE_ALIASES` and its type to `OPERATING_REVENUE_SOURCE_TYPES`: `"Shift4": ("SHIFT4", "SHIFT4 PAYMENTS", "SHIFT4 PYMT PROC")`; `"SumUp": ("SUMUP",)` with `"merchant_processor"`; `"Braintree": ("BRAINTREE",)` with `"merchant_processor"`; `"Clearent": ("CLEARENT", "CLEARENT LLC", "XPLOR PAY")`; `"SmartTab": ("SMARTTAB", "SMARTTAB PAY")`; `"Jobber Payments": ("JOBBER BY STRI", "JOBBER BY STR", "JOBBER BY STRIPE")` with `"invoice_and_receivables"`. A processor not cleared keeps today's aliases.
   - Run `C:/Python314/python.exe -m tools.operating_registry --check`: 0 problem(s).
 
-- [ ] **Step 7: Run the tests.** `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_registry_additions_55.py tests/test_operating_registry.py -q -p no:cacheprovider` (and `tests/test_revenue_card_settlements.py` once S2.3 has landed: its `test_a_bare_processor_name_waits_for_its_advance_product` reads the same two tables, so a cleared processor names its entity there too), then SEL-REGISTRY. Expected: all pass; SEL-REGISTRY moves only by the admitted entities' rendered aliases. Any other change stops the task.
+- [ ] **Step 8: Run the tests.** `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_registry_additions_55.py tests/test_operating_registry.py -q -p no:cacheprovider` (and `tests/test_revenue_card_settlements.py` once S2.3 has landed: its `test_a_bare_processor_name_waits_for_its_advance_product` reads the same two tables, so a cleared processor names its entity there too), then SEL-REGISTRY. Expected: all pass; SEL-REGISTRY moves only by the admitted entities' rendered aliases. Any other change stops the task.
 
-- [ ] **Step 8: Commit.**
+- [ ] **Step 9: Commit.**
 
 ```bash
 cd C:/Users/GustavoPrietodePaula/work/true-revenue
@@ -1558,7 +1797,7 @@ git add docs/lender-registry-ledger.json docs/lender-registry-evidence.md analys
 git commit -m "registry: ledger admissions of the processors' advance products, Parafin, Pipe's cut and dealer lenders" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-  With no VERIFIED record at all, commit only the test file (`git add tests/test_registry_additions_55.py`, subject `tests: the ledger-admission guard of the true-revenue registry`) and report every item as waiting.
+  With no VERIFIED and signed-off record at all, commit only the test file (`git add tests/test_registry_additions_55.py`, subject `tests: the ledger-admission guard of the true-revenue registry`), write `g7_allowlist.json` with `"entities": []`, and report every item as waiting.
 
 ---
 
@@ -1584,8 +1823,9 @@ git commit -m "registry: ledger admissions of the processors' advance products, 
   - `channel_gate(text: str) -> str | None` (`'closed'`, `'push'` or None)
   - `REVENUE_GENERIC_WORDS`, `HOLDER_NOISE`, and the patterns `_CONSUMER_P2P_RAIL`, `_PUSH_RAIL`, `_CHECK_DEPOSIT_FORM`, `_CASH_BRANCH_ATM_FORM`, `_TRANSFER_WORDING`, `_ELECTRONIC_PAYMENT_FORM`, `_NUMBERED_COMPANY_REGION`, `_INCOMING_WIRE_LABEL`, `_BOOK_TRANSFER_FROM`, `_FUNDS_TRANSFER_WIRE_LABEL`, `_THIRD_PARTY_ORIGINATOR`
   - `_third_party_originator(text: str) -> str | None`, `_third_party_book_transfer(text: str) -> bool`
+  - `_SANTANDER_WIRE` (groups `bank`, `originator`), `_ACH_ORIGINATOR_FIELD`
 
-**Why:** Spec §5.2 (payer region by channel, payer name, entry fields, the holder test, the numbered-company guard, the company form, the round sum), §6.1 step 9b (the channel gate), §7.0 (the revenue text: Chase's glued `Sec` split; the joined originator and entry fields), §7.11 (the street-`LN` guard in the normaliser: `LN` after a street address is a lane, unless a loan-product word or a loan-payment word says loan). It also sets the owner's two switches (§19: OQ5 and OQ6 yes) and the wire and book-transfer labels the readers need. Every later rule reads these; nothing decides with them yet, except the normaliser, whose change the census lists (G7b).
+**Why:** Spec §5.2 (payer region by channel, payer name, entry fields, the holder test, the numbered-company guard, the company form, the round sum), §6.1 step 9b (the channel gate), §7.0 (the revenue text: Chase's glued `Sec` split; the joined originator and entry fields), §7.11 (the street-`LN` guard in the normaliser: `LN` after a street address is a lane, unless a loan-product word or a loan-payment word says loan). It also sets the owner's two switches (§19: OQ5 and OQ6 yes) and the wire and book-transfer labels the readers need. After the review: a transfer-worded ACH row with no FROM sender reads its originator as its payer (C3), Santander's wire reads its originator after the account number, not its sending bank (I5), and `DEPOT MARCHAND` and `DEPOT DIRECT` are not branch deposits (M3). Every later rule reads these; nothing decides with them yet, except the normaliser, whose change the census lists (G7b).
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -1739,6 +1979,35 @@ def test_the_channel_gate(printed, gate):
     assert channel_gate(_text(printed)) == gate
 
 
+@pytest.mark.parametrize(("printed", "region"), [
+    ("CONTOSO BAKERY LLC DES:TRANSFER ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", "CONTOSO BAKERY LLC"),
+    ("NORTHWIND BAKERY DES:XFER ID:1", "NORTHWIND BAKERY"),
+    ("ORIG CO NAME:CONTOSO BAKERY LLC ORIG ID:1 DESC DATE: CO ENTRY DESCR:TRANSFER SEC:CCD", "CONTOSO BAKERY LLC"),
+    ("ONLINE TRANSFER FROM JOHN SMITH CONF 1", "JOHN SMITH"),
+    ("VENMO DES:CASHOUT ID:1", ""),
+])
+def test_a_transfer_worded_ach_row_with_no_sender_reads_its_originator(printed, region):
+    # Review C3: with no FROM sender, the ACH originator is the payer, so the holder test and the counter-debit
+    # hold read it; a consumer rail's cash-out still prints no sender.
+    assert payer_region(_text(printed)) == region
+
+
+def test_santander_prints_its_sending_bank_before_the_originator():
+    # §5.2, §7.9: 'USD WIRE IN FROM <sending bank> ACCT <n> <originator> REF <purpose>' (review I5's own account).
+    printed = "USD WIRE IN FROM SAMPLE BANK EUROPE ACCT * 1234 CONTOSO GROUP SP REF PO 4521"
+    assert payer_region(_text(printed)) == "CONTOSO GROUP SP"
+
+
+@pytest.mark.parametrize(("printed", "gate"), [
+    ("DEPOT MARCHAND GLOBAL PAIEMENTS 1234567", None),
+    ("DEPOT DIRECT FABRIKAM INC", None),
+    ("DEPOT 1234 SUCCURSALE", "closed"),
+])
+def test_a_merchant_or_direct_deposit_depot_is_no_branch_deposit(printed, gate):
+    # Review M3: §7.1's DEPOT MARCHAND form and a direct deposit are electronic.
+    assert channel_gate(_text(printed)) == gate
+
+
 @pytest.mark.parametrize(("printed", "normalized"), [
     ("WIRE FROM 12 OAK LN CITY", "WIRE FROM 12 OAK LN CITY"),
     ("ATM DEPOSIT 450 NORTH PINE HILL LN", "ATM DEPOSIT 450 NORTH PINE HILL LN"),
@@ -1872,6 +2141,9 @@ _WIRE_ORIGINATOR_LABEL = re.compile(
 )
 #: §5.2: ... and ends at the next wire field. ID is read as a field too: Bank of America prints 'ORIG:<name> ID:<n>'.
 _WIRE_FIELD_END = re.compile(r"\b(?:BNF|NBNF|BENEFICIARY|BBI|OBI|REF|SRF|TRN|RFB|IMAD|ACCT|SND BK|ID)\b")
+#: §5.2, §7.9 (Santander's layout): 'USD WIRE IN FROM <sending bank> ACCT <n> <originator> REF <purpose>'. The words
+#: after WIRE IN FROM name the sending bank; the originator follows the account number (the field §7.9 cuts at 16).
+_SANTANDER_WIRE = re.compile(r"^(?:[A-Z]{3} )?WIRE IN FROM\b(?P<bank>.*?)\bACCT \d+ (?P<originator>.*?)(?=\bREF\b|$)")
 #: §5.2: a person-to-person or transfer sender follows FROM and ends at one of these words.
 _SENDER_END = re.compile(r"\b(?:ON|REF|CONF|MEMO|TRN|ID|FOR|NOTE|PMT INFO|PAYMENT INFO)\b")
 #: §5.2: the entry fields: Bank of America's DES, Chase's CO ENTRY DESCR, a wire's purpose fields, a transfer's memo.
@@ -1972,13 +2244,17 @@ _CASH_BRANCH_ATM_FORM = re.compile(
     r"\bCASH DEP(?:OSIT)?\b|\bATM CASH\b|\bCPS DEVICE\b|\bCURRENCY PROCESSING\b|\bSMART ?SAFE\b|\bCOIN\b|\bCASH IN\b"
     r"|\bCOUNTER (?:CREDIT|DEPOSIT)\b|\bTELLER\b|\bIN BRANCH\b|\bBRANCH\b|\bBRCH\b|\bDEPOSIT AT BR\b"
     r"|\bDEPOSIT THANK YOU\b|\bMAIN OFFICE\b|\bPRE ?ENCODED\b|\bNIGHT (?:DEP|DROP)\b|\bBANKING CENTRE\b"
-    r"|^GC\b.*\bDEPOSIT\b|\bG DEPOT\b|\bDEPOT\b|\bDEPOSIT IBB\b|\bVAULT DEP\w*|\bSTORE DEPOSIT\b|\bDEPOSIT MADE IN\b"
+    # DEPOT MARCHAND (a card settlement, §7.1) and DEPOT DIRECT (a direct deposit) are electronic, never a branch.
+    r"|^GC\b.*\bDEPOSIT\b|\bG DEPOT\b|\bDEPOT\b(?! MARCHAND\b| DIRECT\b)|\bDEPOSIT IBB\b|\bVAULT DEP\w*|\bSTORE DEPOSIT\b"
+    r"|\bDEPOSIT MADE IN\b"
     r"|\bATM\b.*\bDEP(?:OSIT)?\b|\bDEP(?:OSIT)?\b.*\bATM\b|\bABM\b"
 )
 #: §8.2: transfer wording.
 _TRANSFER_WORDING = re.compile(
     r"\b(?:TRANSFER|TRNSFR|XFER|TFR|BR TO BR|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)|FUNDS TRANSFER)\b"
 )
+#: §5.2: the ACH originator and entry fields (Bank of America's DES, Chase's ORIG CO NAME and CO ENTRY DESCR).
+_ACH_ORIGINATOR_FIELD = re.compile(r"\b(?:DES|CO ENTRY DESCR|ORIG CO NAME)\b")
 
 
 def revenue_text(text: str) -> str:
@@ -2038,7 +2314,11 @@ def _is_transfer_or_p2p_row(text: str) -> bool:
 
 
 def _wire_payer_region(text: str) -> str:
-    """5.5 (§5.2): a wire's originator, after its label, up to the next wire field."""
+    """5.5 (§5.2): a wire's originator, after its label, up to the next wire field; on Santander's layout, the words
+    after the account number (the words after WIRE IN FROM are the sending bank)."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        return _leading_name_words(santander.group("originator").strip())
     found = _WIRE_ORIGINATOR_LABEL.search(text)
     if found is None:
         return ""
@@ -2107,7 +2387,18 @@ def payer_region(text: str) -> str:
     if _is_wire_row(text):
         return _wire_payer_region(text)
     if _is_transfer_or_p2p_row(text):
-        return _sender_payer_region(text)
+        sender = _sender_payer_region(text)
+        row = _before_receiver(text)
+        # A transfer-worded row that prints an ACH originator field and no FROM sender names its payer the ACH way
+        # ('CONTOSO BAKERY LLC DES:TRANSFER'), so the holder test and the counter-debit hold read it.
+        if (
+            not sender
+            and _ACH_ORIGINATOR_FIELD.search(row)
+            and not _CONSUMER_P2P_RAIL.search(row)
+            and not _PUSH_RAIL.search(row)
+        ):
+            return _ach_payer_region(text)
+        return sender
     if _prints_no_payer(text):
         return ""
     return _ach_payer_region(text)
@@ -2268,7 +2559,7 @@ def _third_party_book_transfer(text: str) -> bool:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_text_readers.py -q -p no:cacheprovider`
 
-Expected: PASS: `59 passed`.
+Expected: PASS: `68 passed`.
 
 - [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
@@ -2288,7 +2579,7 @@ git commit -m "classifier: the credit revenue readers and the street-LN guard (5
 
 **Files:**
 - Create: `tests/test_revenue_rule_helpers.py`
-- Modify: `analysis/transaction_classifier.py:10-17, 22-23, 1233`
+- Modify: `analysis/transaction_classifier.py:10-17, 22-23, 1255`
 
 **Depends on:** S2.1.
 
@@ -2302,6 +2593,9 @@ git commit -m "classifier: the credit revenue readers and the street-LN guard (5
   - `_refused_by_payer_guards(text, region, account_name) -> 'holder' | 'numbered' | None`
   - `_payer_remittance(text, region, account_name) -> bool`, `_public_payer_remittance(text) -> str | None` (`'treasury_vendor_payment'` or `'public_payer_vendor_or_provider_payment'`)
   - `_wire_remittance_purpose(text, region, account_name) -> bool`, `_wire_vetoed(text, region, account_name) -> bool`, `_cut_financing_originator(region) -> bool`, `_counter_debit_skip_words() -> frozenset[str]`
+  - `_read_inside_a_waiting_processor(text, entity, alias) -> bool` and `_GATED_PROCESSOR_PATTERNS` (the ledger gate, review I4)
+  - `_wire_financing_text(text) -> str` (channel words and the sending, originating and intermediary bank fields removed; Santander's and Chase's OGB included), `_wire_originator_run(text) -> str | None`, `_TITLE_OR_ESCROW_ORIGINATOR`
+  - `_AUCTION_VETO` (§14.1's §7.8 words), `_FUNDING_WORD`, `_FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})`
   - the constants the passes read: `_RECURRENCE_VETO`, `_MICRO_DEPOSIT_FLOOR = 1`, `_LEGAL_FORM_HOLDER`, `_OPERATING_POOL_METHODS`, `_CARD_VETO`, `_NET_SETTLE_MIN_CREDITS = 3`, `_RECURRENCE_MIN_CREDITS = 3`, `_RECURRENCE_MIN_BUSINESS_CREDITS = 2`, `_HCCLAIMPMT`, `_RETURN_CODE_CREDIT_PATTERNS`, `_SQUARE_CAPITAL_CREDIT`, `_SQUARE_NAME`, `_SBA_DISBURSEMENT_CREDIT`, `_BOOK_OR_FUNDS_TRANSFER`, `_EFT_FUNDS_TRANSFER`, `_PUBLIC_PAYER_*`, `_TREASURY_BOILERPLATE`, `_WIRE_*`
 
 **Why:** Spec §7.0 to §7.11: the patterns and helpers the credit decision (S2.3) and the statement passes (S2.4) call: the operating-source reader with the platform vetoes, the card-settlement form reader and the card veto, payout context, the reversal rule with its REIMBURSEMENT and card-credit releases, book and funds transfers, the glued claim entry, the payer guards, accounts-payable remittance, public payers, invoice wires and their vetoes, the cut financing originator. Nothing calls them yet, so this task changes no output; its tests call each helper on one fabricated row.
@@ -2479,6 +2773,40 @@ def test_the_cut_financing_originator(region, cut):
     assert tc._cut_financing_originator(region) is cut
 
 
+def test_an_alias_read_inside_a_waiting_processor_names_no_source():
+    # §7.1, review I4: Stripe's BY STRI cut never reads JOBBER BY STRI while Jobber Payments waits for the ledger.
+    assert tc._read_inside_a_waiting_processor(_text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3"), "Stripe", "BY STRI")
+    assert tc._operating_source(_text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")) is None
+    assert tc._operating_source(_text("FABRIKAM - BY STRI DES:PAYOUT ID:1")).entity == "Stripe"
+    assert tc._operating_source(_text("SHIFT4 PAYMENTS DES:DEPOSIT ID:1")).entity == "Shift4"
+
+
+def test_the_wire_financing_text_drops_the_sending_and_originating_banks():
+    # §7.9: the roots are read after the sending (Santander) and originating (Chase's OGB) bank fields go.
+    santander = _text("USD WIRE IN FROM BANCO DE CREDIT ACCT * 1234 CONTOSO SRL REF INV 10421")
+    assert "CREDIT" not in tc._wire_financing_text(santander) and "CONTOSO SRL" in tc._wire_financing_text(santander)
+    assert tc._wire_originator_run(santander) == "CONTOSOSRL"
+    chips = _text("CHIPS CREDIT VIA SAMPLE BANK 0959 B O CONTOSO SUPPLY LLC REF NBNF NORTHWIND LABS LLC "
+                  "OGB SAMPLE MERCHANTS BANK N A OBI INVOICE 10421")
+    assert "MERCHANTS" not in tc._wire_financing_text(chips)
+
+
+def test_a_wire_from_a_title_or_escrow_firm_is_vetoed():
+    # Review I6 (§8.5's senders): a title or escrow firm's wire carries sale, closing or escrow money.
+    text = _text("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:1 ORIG:CONTOSO TITLE AGENCY LLC ID:1 "
+                 "SND BK:SAMPLE BANK ID:1 PMT DET:INVOICE 1042")
+    assert tc._wire_vetoed(text, tc.payer_region(text), "NORTHWIND LABS LLC")
+
+
+@pytest.mark.parametrize(("printed", "vetoed"), [
+    ("MANHEIM US DES:ACH PAYMNT NGC ID:1", True), ("MANHEIM US DES:ACH PAYMNT FLOORPLAN ID:1", True),
+    ("MANHEIM US DES:ACH PAYMNT ID:1 PPD", True), ("MANHEIM US DES:ACH PAYMNT ID:1", False),
+])
+def test_the_auction_veto(printed, vetoed):
+    # §7.8, §14.1, review C2.
+    assert (tc._AUCTION_VETO.search(_text(printed)) is not None) is vetoed
+
+
 def test_the_counter_debit_skip_words_hold_the_channel_vocabulary():
     words = tc._counter_debit_skip_words()
     assert {"CHECKCARD", "OVERDRAFT", "WITHDRAW", "PURCHASES"} <= words
@@ -2488,7 +2816,7 @@ def test_the_counter_debit_skip_words_hold_the_channel_vocabulary():
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_rule_helpers.py -q -p no:cacheprovider`
 
-Expected: FAIL: `57 failed`, the first with `AttributeError: module 'analysis.transaction_classifier' has no attribute '_operating_source'`.
+Expected: FAIL: `64 failed`, the first with `AttributeError: module 'analysis.transaction_classifier' has no attribute '_operating_source'`.
 
 - [ ] **Step 3: Implement.**
 
@@ -2516,6 +2844,7 @@ from .classification_registry import (
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
     FIELD_ORDER_PAYEE_FORMS,
+    GATED_PROCESSOR_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
     OPERATING_ALIASES_READ_WITH_VETOES,
     OPERATING_REVENUE_READ_ALIASES,
@@ -2542,7 +2871,7 @@ with:
 )
 ```
 
-In `analysis/transaction_classifier.py`, after the end of `_third_party_book_transfer` (line 1233), insert:
+In `analysis/transaction_classifier.py`, after the end of `_third_party_book_transfer` (line 1255), insert:
 
 ```python
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2568,8 +2897,8 @@ _CARD_CREDIT_PUSH_WORD = re.compile(
     r"\b(?:VISA DIRECT|MC SEND|VISA MONEY TRANSFER|FASTPAY|INSTANT PAY|INSTANT PAYOUT)\b"
 )
 _CARD_CREDIT_PAYOUT_WORD = re.compile(r"\b(?:PAYOUTS?|INSTANT (?:PAYOUT|PAY|TRANSFER)|SETTLEMENT|DEPOSIT)\b")
-#: §7.11 (T5): tax-refund abbreviations, SBA and EIDL disbursements, Square Capital's SQ CAP, account verification.
-_TAX_REFUND_CREDIT = re.compile(r"\bTAX ?REF(?:UND)?S?\b|\bTAXRFD\b|\bTAX RFD\b")
+#: §7.11 (T5): account verification, Square Capital's SQ CAP, SBA and EIDL disbursements (the tax-refund forms sit
+#: in _NON_REVENUE_CREDIT_PATTERNS).
 _ACCOUNT_VERIFICATION_CREDIT = re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 _SQUARE_CAPITAL_CREDIT = re.compile(r"\bSQ ?CAP\d*\b")
 _SQUARE_NAME = re.compile(r"\bSQ\b|\bSQUARE\b")
@@ -2587,6 +2916,9 @@ _RECURRENCE_VETO = re.compile(
     r"|REIMB\w*|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY|VERIFICATION|INSUR\w*)\b"
     r"|\bDEBIT CARD CREDIT\b|\bPOS CREDIT\b"
 )
+#: §7.0 (review C2): FUNDING vetoes recurrence too, except on the settlements of the platforms that print it there.
+_FUNDING_WORD = re.compile(r"\b(?:FUNDING|FUNDED)\b")
+_FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})
 #: §7.0, §7.8, §7.10: the absolute micro-deposit floor, in whole dollars.
 _MICRO_DEPOSIT_FLOOR = 1
 #: §7.0: a legal-form holder name is a business account for the recurrence rule.
@@ -2643,6 +2975,11 @@ _ACH_SHAPED_ROW = re.compile(r"\b(?:ACH|CCD|PPD|ORIG CO NAME|DEPOSIT|PAYMENT|PAY
 _TRANSPORT_EXTRA_VETO = re.compile(r"\b(?:CASHOUT|CASH OUT|SUBSCRIPTION|MEMBERSHIP|WIRE|WT|FEDWIRE|OBI|BNF)\b")
 #: §7.8: an ACV credit printing a buyer-payment reference stays unverified.
 _AUCTION_BUYER_PAYMENT = re.compile(r"\bPYMT\d")
+#: §7.8, §14.1: an auction credit printing a floor-plan or financing word (NextGear's NGC, AFC's FUNDNG) or a
+#: consumer entry (PPD) is never the auction's payout, whatever form it prints.
+_AUCTION_VETO = re.compile(
+    r"\b(?:FUNDING|FUNDNG|FUNDED|ADVANCES?|ADV|CAPTL|CAPITAL|FLOOR ?PLAN|FLOORPLAN|FINANC\w*|NGC|LOANS?|PPD)\b"
+)
 #: §7.8: the auction refund pair's window, in days.
 _AUCTION_REFUND_WINDOW_DAYS = 14
 #: §7.10: owner, distribution and deposit wording on a property-management platform's row, and micro-deposits.
@@ -2793,7 +3130,7 @@ _WIRE_PARTY_FIELDS = re.compile(
 _WIRE_NON_SALE_PURPOSE = re.compile(
     r"\b(?:INVEST\w*|DISTRIBUTION|DIVIDEND|EQUITY|MEMBERSHIP INTEREST|SHAREHOLDER|STOCK|CONTRIBUTION|PROCEEDS|ESCROW"
     r"|CLOSING|OVER PAYMENT|REBATE|RETURN(?:ED)?|CREDIT MEMO|DUPLICATE|SALARY|PAYROLL|WAGES|TAX|GRANT|DONATION|GIFT"
-    r"|INTEREST|REPAY\w*|PRINCIPAL|SECURITY DEPOSIT|INTER COMPANY|AFFILIATE|OWNERS?|PERSONAL|COURT|JUDGMENT|INSURANCE"
+    r"|INTEREST|REPAY\w*|PRINCIPAL|SECURITY DEPOSIT|INTER ?COMPANY|INTERCO|AFFILIATE|OWNERS?|PERSONAL|COURT|JUDGMENT|INSURANCE"
     r"|CLAIMS?|RETN|RTN|REJT|REJECT(?:ED)?|RECALL(?:ED)?|UNABLE TO APPLY|DRAWS?|DRAWDOWNS?|DISBURS\w*|FEES?|SCF"
     r"|SUPPLY CHAIN|EARLY PAY(?:MENT)?|DISCOUNT(?:ED|ING)?|PAYOFF|SURPLUS|EARNEST|SUBSCRIPTIONS?|COMPENSATION|ADJ"
     r"|ADJUSTMENTS?|RMA|SHORTAGES?|ALLOWANCES?|PROMISSORY|CONVERTIBLE|BRIDGE|SAFE|TRANCHE|DEPOSIT BACK)\b"
@@ -2804,8 +3141,10 @@ _WIRE_CHANNEL_AND_BANK_FIELDS = re.compile(
     r"|WIRE TRANSFER \S+|INCOMING WIRE|WIRE IN|WIRE FROM|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN)(?: INCOMING)? WIRE"
     r"|INCOMING FUNDS TRANSFER|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER|FUNDS TRANSFER WIRE FROM"
     r"|BOOK TRANSFER CREDIT)\b"
-    r"|\b(?:SND BK|BBI|VIA|INTERMEDIARY|INT BK)\b.*?(?=\b(?:B O|ORIG|ORG|REF|OBI|BNF|TRN|IMAD|PMT DET|RFB|RMR|ID)\b|$)"
+    r"|\b(?:SND BK|BBI|VIA|INTERMEDIARY|INT BK|OGB)\b.*?(?=\b(?:B O|ORIG|ORG|REF|OBI|BNF|TRN|IMAD|PMT DET|RFB|RMR|ID)\b|$)"
 )
+#: §7.9, §8.5: a wire from a title or escrow firm carries sale, closing or escrow money, never a sale of the business.
+_TITLE_OR_ESCROW_ORIGINATOR = re.compile(r"\b(?:TITLE|ESCROW)\b")
 #: §7.9: a cut originator field: the field widths of Santander (16) and Bank of America (25).
 _WIRE_ORIGINATOR_FIELD_WIDTHS = (16, 25)
 _FINANCING_FULL_WORDS = (
@@ -2845,6 +3184,13 @@ _AUCTION_REFUND_NAMES = {entity: re.compile(pattern) for entity, pattern in WHOL
 _OPERATING_CONTEXT_WORDS = {
     entity: re.compile(r"\b(?:" + "|".join(words) + r")\b") for entity, words in OPERATING_SOURCE_CONTEXT_WORDS.items()
 }
+#: §7.1 (the ledger gate): each waiting processor's bare aliases, as whole words, longest first.
+_GATED_PROCESSOR_PATTERNS = {
+    processor: re.compile(r"\b(?:" + "|".join(
+        re.escape(normalize_transaction_description(alias)) for alias in sorted(aliases, key=len, reverse=True)
+    ) + r")\b")
+    for processor, aliases in GATED_PROCESSOR_ALIASES.items()
+}
 _WIRE_INVOICE_SPLITS = tuple(
     dict.fromkeys(word[:cut] + " " + word[cut:] for word in ("INVOICE", "INVOICES") for cut in range(1, len(word)))
 )
@@ -2854,7 +3200,7 @@ _WIRE_SALE_PURPOSE = re.compile(
     r"|\bPO ?(?:NO |NUM |NBR |NUMBER )?\d{3,}|\bPURCHASE ORDERS?\b"
     r"|(?<!\bMONEY )(?<!\bSTANDING )(?<!\bPAYMENT )(?<!\bPMT )(?<!\bCOURT )(?<!\bPAY )(?<!\bTRANSFER )(?<!\bSUPPORT )"
     r"(?<!\bBANK )(?<!\bWIRE )\bORDERS? ?(?:NO\b|NUM\b|NBR\b|NUMBER\b|\d)"
-    r"|\bPAYMENT FOR GOODS\b|\bPAGO PROVEEDOR\b|\bFACTURA\b|\bREF INV\b|\bPRO ?FORMA\b|\bCOMPRA DE MERCAD\w*"
+    r"|\bPAYMENT FOR GOO(?:DS?)?\b|\bPAGO PROVEEDOR\b|\bFACTURA\b|\bREF INV\b|\bPRO ?FORMA\b|\bCOMPRA (?:DE )?MERCAD\w*"
 )
 
 
@@ -2894,11 +3240,20 @@ def _operating_read_vetoed(row: str, entity: str, alias: str, payout_form: bool)
     )
 
 
+def _read_inside_a_waiting_processor(text: str, entity: str, alias: str) -> bool:
+    """5.5 (§7.1, the ledger gate): the operating alias read lies inside the bare alias of another processor the
+    ledger has not cleared ('BY STRI' inside 'JOBBER BY STRI'), so it names no source while that processor waits."""
+    return any(
+        processor != entity and any(alias in found.group(0) for found in pattern.finditer(text))
+        for processor, pattern in _GATED_PROCESSOR_PATTERNS.items()
+    )
+
+
 def _operating_source(text: str) -> _OperatingSource | None:
     """5.5 (§7.2): the operating source a credit's revenue text names: a payout form first (it names the entity and
     counts as payout context), else the longest operating alias or its sixteen-character cut. A wholesale-auction
-    alias counts only on the originator segment. A new read that a veto of §7.2 refuses names no source. One helper
-    for step 10 and the recurrence pass."""
+    alias counts only on the originator segment. A new read that a veto of §7.2 refuses names no source, and so does
+    an alias read inside a waiting processor's bare alias (§7.1). One helper for step 10 and the recurrence pass."""
     row = _before_receiver(text)
     joined = _joined_text(row)
     for entity, label, pattern in _PAYOUT_FORMS:
@@ -2907,7 +3262,7 @@ def _operating_source(text: str) -> _OperatingSource | None:
                 return None
             return _OperatingSource(entity, label, OPERATING_REVENUE_SOURCE_TYPES.get(entity), True)
     found = registry_match(text, OPERATING_REVENUE_READ_ALIASES)
-    if found is None:
+    if found is None or _read_inside_a_waiting_processor(text, *found):
         return None
     entity, alias = found
     source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
@@ -3087,6 +3442,27 @@ def _public_payer_remittance(text: str) -> str | None:
     return "public_payer_vendor_or_provider_payment"
 
 
+def _wire_financing_text(text: str) -> str:
+    """5.5 (§7.9): the wire row the financing roots are read on: the channel words and the sending, originating and
+    intermediary bank fields removed (Santander prints its sending bank after WIRE IN FROM, Chase its originating
+    bank after OGB)."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        text = text[: santander.start("bank")] + " " + text[santander.end("bank"):]
+    return _WIRE_CHANNEL_AND_BANK_FIELDS.sub(" ", text)
+
+
+def _wire_originator_run(text: str) -> str | None:
+    """5.5 (§7.9): the first six words of a wire's originator field run together (wrap-tolerant, so 'CAPI TAL' reads
+    CAPITAL), or None when the row prints no originator label. On Santander's layout the originator follows the
+    account number."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        return "".join(santander.group("originator").split()[:6])
+    label = _WIRE_ORIGINATOR_LABEL.search(text)
+    return None if label is None else "".join(text[label.end():].split()[:6])
+
+
 def _wire_remittance_purpose(text: str, region: str, account_name: str | None) -> bool:
     """5.5 (§7.9): an incoming wire (N1) whose purpose cites an invoice, a PO, an order or goods, and that no wire veto
     refuses (_wire_vetoed)."""
@@ -3106,13 +3482,14 @@ def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
     fields are removed, or in the first six words after the originator label run together (wrap-tolerant); any known
     payee; the own account (the originator's first two words are the beneficiary's or in the account name); a
     brand-word affiliate (the originator's first distinctive word is the beneficiary's first word or the account
-    name's); a cut originator field that starts a financing name. The AP rule reads them on a wire too (§7.5)."""
+    name's); a cut originator field that starts a financing name; a title or escrow firm (§8.5). The AP rule reads
+    them on a wire too (§7.5)."""
     if _WIRE_NON_SALE_PURPOSE.search(text):
         return True
-    if _names_financing(_WIRE_CHANNEL_AND_BANK_FIELDS.sub(" ", text)):
+    if _names_financing(_wire_financing_text(text)):
         return True
-    label = _WIRE_ORIGINATOR_LABEL.search(text)
-    if label is not None and _names_financing("".join(text[label.end():].split()[:6])):
+    run = _wire_originator_run(text)
+    if run is not None and _names_financing(run):
         return True
     if match_known_payee(text) is not None:
         return True
@@ -3132,6 +3509,8 @@ def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
         ):
             return True
         if _cut_financing_originator(region):
+            return True
+        if _TITLE_OR_ESCROW_ORIGINATOR.search(region):
             return True
     return False
 
@@ -3158,7 +3537,7 @@ def _cut_financing_originator(region: str) -> bool:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_rule_helpers.py -q -p no:cacheprovider`
 
-Expected: PASS: `57 passed`.
+Expected: PASS: `64 passed`.
 
 - [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
@@ -3184,7 +3563,7 @@ git commit -m "classifier: the 5.5 rule vocabulary and family helpers" -m "Co-Au
 - Create: `tests/test_revenue_public_payers.py`
 - Create: `tests/test_revenue_wire_remittance.py`
 - Create: `tests/test_revenue_non_revenue_55.py`
-- Modify: `analysis/transaction_classifier.py:662-663, 701, 715-728, 812-815, 1855-2043, 2545-2546`
+- Modify: `analysis/transaction_classifier.py:663-664, 702, 716-729, 813-816, 1928-2116, 2618-2619`
 - Modify (pins): `tests/test_revenue_classification.py:63-64, 106-107, 208-209, 228-230, 259-261, 297`
 - Modify (pins): `tests/test_analysis.py:3361`
 - Modify (pins): `tests/test_webapp_revenue_batch.py:13`
@@ -3200,7 +3579,7 @@ git commit -m "classifier: the 5.5 rule vocabulary and family helpers" -m "Co-Au
   - new revenue methods: `holder_named_payer`, `insurer_customer_payment`, `payer_remittance_descriptor`, `public_payer_remittance`, `wire_remittance_purpose`; matched rules `card_settlement_form_<label>`, `square_capital_credit`, `sba_disbursement_credit`
   - `_CUSTOMER_INVOICE_DESCRIPTORS` (read by the census, G3)
 
-**Why:** Spec §6.1, steps 3 and 5 to 16, as §7 amends them: the return codes, REIMBURSEMENT and the card-credit release (step 3); the insurer registry with claim first (T18) and the customer-payment hold (T14, step 5); `SQ CAP` and SBA/EIDL as financing proceeds (step 7, T5); the narrowed own-account rule for book and funds transfers (T19) and the new strong non-revenue markers (step 9); the channel gate (9b); the operating registry with its forms, vetoes and cuts (10); the card forms and the narrowed customer and invoice descriptors, refused to a holder or numbered payer (11); accounts-payable remittance (12), public payers (13) and invoice wires (14). R-d's own-account designation (`prints_internal_transfer_designation`) follows the narrowed rule. The four family tests that need the statement passes join in S2.4.
+**Why:** Spec §6.1, steps 3 and 5 to 16, as §7 amends them: the return codes, REIMBURSEMENT and the card-credit release (step 3); the insurer registry with claim first (T18) and the customer-payment hold (T14, step 5); `SQ CAP` and SBA/EIDL as financing proceeds (step 7, T5); the narrowed own-account rule for book and funds transfers (T19) and the new strong non-revenue markers (step 9); the channel gate (9b); the operating registry with its forms, vetoes and cuts (10); the card forms and the narrowed customer and invoice descriptors, refused to a holder or numbered payer (11); accounts-payable remittance (12), public payers (13) and invoice wires (14). R-d's own-account designation (`prints_internal_transfer_designation`) follows the narrowed rule. After the review: the glued tax refunds (`CASTTAXRFD`, `TAXEIC`) join T5 (I6), and the wire tests carry §14.1's §7.9 list (I5): the wire verifier's 40 cases, the false-revenue reviewer's hazard groups G1 to G11 and its party-name rows, and the recorded residuals. The four family tests that need the statement passes join in S2.4.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -3333,6 +3712,22 @@ def test_the_sixteen_character_cuts_are_read():
 def test_stripe_connect_s_cut_reads_as_stripe():
     record = _credit("FABRIKAM - BY STRI DES:PAYOUT ID:1")
     assert (record.revenue_classification, record.revenue_canonical_entity) == ("verified_revenue", "Stripe")
+
+
+def test_a_waiting_processor_s_row_never_reads_as_stripe():
+    # §7.1, review I4: JOBBER BY STRI is Jobber Payments' bare alias, which waits for Jobber Capital in the ledger;
+    # Stripe's BY STRI cut inside it never reads the row while Jobber waits.
+    _bare, product = PROCESSOR_ADVANCE_PRODUCTS["Jobber Payments"]
+    cleared = product is not None or "Jobber Payments" in PROCESSORS_WITHOUT_ADVANCE_PRODUCT
+    record = _credit("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3D4E5F6")
+    assert record.revenue_canonical_entity == ("Jobber Payments" if cleared else None)
+    assert record.revenue_classification == ("verified_revenue" if cleared else "unverified_deposit")
+
+
+def test_the_french_merchant_deposit_verifies_through_global_payments():
+    # §7.1, review M3: DEPOT MARCHAND is a card settlement, never a branch deposit.
+    record = _credit("DEPOT MARCHAND GLOBAL PAIEMENTS 1234567", bank="Desjardins")
+    assert (record.revenue_classification, record.revenue_canonical_entity) == ("verified_revenue", "Global Payments")
 
 
 @pytest.mark.parametrize(("printed", "verified"), [
@@ -3764,6 +4159,267 @@ def test_an_incoming_funds_transfer_names_its_sender():
     record = _credit("FUNDS TRANSFER CREDIT TT FABRIKAM EXPORTS LLC REF INVOICE 1234")
     assert record.revenue_classification == "verified_revenue"
     assert _credit("FUNDS TRANSFER FROM SAVINGS 1234").revenue_classification == "non_revenue"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# §14.1 (§7.9, review I5): the wire verifier's 40 cases, the false-revenue reviewer's hazard groups G1 to G11 and its
+# four party-name rows, and the wire verifier's adversarial rows, transcribed (fabricated names, numbers and amounts;
+# the banks' layouts kept). Each is one credit in a statement of its own.
+# ---------------------------------------------------------------------------------------------------------------------
+FEDWIRE = ("Fedwire Credit Via: Sample Bank/123456789 B/O: {orig} Ref: Chase Nyc/Ctr/Bnf={bnf} Tampa FL 33602 "
+           "US/Ac-000012345678 Rfb=Notprovided Obi=/Uri/{obi} Imad: 0105Mmqfmp2B000123 Trn: 1234567890Ff")
+BOFA_IN = ("WIRE TYPE:WIRE IN DATE: 540105 TIME:1012 ET TRN:2054010500123456 SEQ:2054010500654321/004512 "
+           "ORIG:{orig} ID:1234567890 SND BK:{bank} ID:021000021 PMT DET:{det}")
+SANTANDER = "USD WIRE IN FROM {bank} ACCT * 1234 {orig} REF {ref}"
+WELLS = "WT Fed#01234 {bank} /Org={orig} Srf# 0123456789Mfp0123 Trn#0123456789 Rfb# {ref}"
+
+
+def _one(bank: str, holder: str, printed: str):
+    [record] = classify_statement_transactions(Statement(
+        bank=bank, account_name=holder, account_number="XXXX1234", period_start="2054-01-01",
+        period_end="2054-01-31", beginning_balance=1000.0, ending_balance=13345.0,
+        transactions=[Transaction(date="2054-01-05", description=printed, amount=12345.0, direction="credit",
+                                  running_balance=13345.0)]))
+    return record
+
+
+def _outcome(record) -> str:
+    return {"verified_revenue": "verified", "non_revenue": "non_revenue"}.get(record.revenue_classification, "stays")
+
+
+FORTY = [
+    ("verified", "Bank of America", "FABRIKAM FOODS LLC",
+     BOFA_IN.format(orig="CONTOSO TRADING INTL", bank="SAMPLE NATIONAL BANK, NA", det="BMG OF 01/05/54 INV10421,10422")),
+    ("verified", "Bank of America", "FABRIKAM FOODS LLC",
+     BOFA_IN.format(orig="CONTOSO PLACE & TOWERS", bank="SAMPLE CREDIT UNION", det="INVOICE: CPT104 INSTAL LATION")),
+    ("verified", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Supply LLC 12345, US", bnf="Northwind Labs, LLC", obi="Invoice S104")),
+    ("verified", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso For Congress Denver CO 80202", bnf="Northwind Media LLC", obi="Invoic E No.: 10421")),
+    ("verified", "Chase", "BUSINESS COMPLETE CHECKING",
+     "Chips Credit Via: Sample Bank, N.A./0959 B/O: Contoso Marketing Management,Llsampleville CO 80000 Ref: "
+     "Nbnf=Northwind Consulting LLC Sampleton FL 33000-1234 US/Ac-000012345678 Org=/000012345678901 Sampleville CO "
+     "80000 Ogb=Sample Merchants Bank, N.A. San Francisco CA US Obi=/Uri/Inv Oices 10421 And 10422 Paid "
+     "Ssn: 00123456 Trn: 1234567890Fc"),
+    ("verified", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="BANCO DE CREDIT", orig="CONTOSO SRL", ref="/INV/10421/54")),
+    ("verified", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK EUROPE", orig="CONTOSO GROUP SP", ref="PO 4521")),
+    ("verified", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="SAMPLE NBD BANK PJ", orig="CONTOSO GENERAL", ref="Payment for goo")),
+    ("verified", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="BANCO SAMPLE SAN J", orig="CONTOSO COSTA", ref="BALANCE ORDER 2")),
+    ("verified", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="BANCO SAMPLE S.", orig="CONTOSO TRADING", ref="PAGO PROVEEDOR")),
+    ("verified", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="BANCO SAMPLE CONTIN", orig="CONTOSO SRL", ref="/INV/OP.123456789012")),
+    # §7.9 drops the bare 'PI <digits>' pro-forma form: the verifier's positive stays unverified.
+    ("stays", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="BANCO SAMPLE PICHIN", orig="CONTOSO CIA", ref="PI 10421")),
+    ("verified", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="BANCO SAMPLE S.A.", orig="CONTOSO ARCHO", ref="COMPRA MERCADE")),
+    ("stays", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="BANCO SAMPLE S.A.", orig="CONTOSO LENDING SA", ref="/INV/OP.123456789012")),
+    ("verified", "Capital One", "FABRIKAM LLC", "Wire transfer deposit CONTOSO GROUP LLC 540105 INV 10421"),
+    ("verified", "CIBC", "FABRIKAM LTD", "WIRE TSF 1234567 CONTOSO FROZEN FOODS LTD INV-1042-54"),
+    ("stays", "BMO", "FABRIKAM INC", "Incoming Wire Payment, INCOMING WIRE PAYMENT, CA, 1234567 ONTARIO INC"),
+    ("stays", "Bluevine", "FABRIKAM LLC", "Incoming Wire from CONTOSO SUPPLY SER"),
+    ("stays", "Citizens Bank", "BUSINESS ADVISOR CHECKING",
+     "INCOMING WIRE TRANSFER (MTS NO.123456789012) ORIGINATOR NAME : CONTOSO SPE II LLC ORIG TO BNF INFO: "
+     "FED ID# : 20540105MMQFMP2N000123"),
+    ("stays", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="SAMPLE ASIA BANK", orig="CONTOSO OVERSEAS", ref="ADVANCE PAYMEN")),
+    ("stays", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="SAMPLE THAI BANK", orig="CONTOSO HEALTH", ref="COST OF GOODS")),
+    ("stays", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Real Estate Services Ll", bnf="Northwind Development Group LLC",
+                    obi="Ref: 1234 Sample Foun Dat Ion Draw")),
+    ("stays", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Merchant Funding LLC", bnf="Northwind Grocery Corp", obi="Inv 104211")),
+    ("stays", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Capital Partners LLC", bnf="Northwind Freight LLC", obi="Invoice 104211")),
+    ("stays", "Wells Fargo", "FABRIKAM LLC",
+     "WT Fed#01234 Sample Commercial Bank /Org=1/Contoso Road Capital Management I Srf# 0123456789Mfp0123+ "
+     "Trn#0123456789 Rfb# Inv 10421"),
+    ("non_revenue", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Bank Loan Dept", bnf="Northwind Trucks LLC", obi="Inv 104211")),
+    ("stays", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Northwind Industries LLC Jersey City NJ", bnf="Northwind Industries LLC",
+                    obi="Inv 104211")),
+    ("stays", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK NA", orig="NORTHWIND TRADING", ref="INV 10421")),
+    ("non_revenue", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Supply LLC", bnf="Northwind Labs LLC", obi="Refund Inv 104211")),
+    ("stays", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Supply LLC", bnf="Northwind Labs LLC", obi="Return of Overpayment Inv 104211")),
+    ("stays", "Bank of America", "FABRIKAM LLC",
+     BOFA_IN.format(orig="CONTOSO HOLDINGS LP", bank="SAMPLE BANK", det="INV 2054 DISTRIBUTION")),
+    ("stays", "Bank of America", "FABRIKAM LLC",
+     BOFA_IN.format(orig="CONTOSO PROPERTIES LLC", bank="SAMPLE BANK", det="INV 1042 INTEREST")),
+    ("stays", "Bank of America", "FABRIKAM LLC",
+     BOFA_IN.format(orig="CONTOSO PROPERTIES LLC", bank="SAMPLE BANK", det="REPAYMENT INV 1042")),
+    ("stays", "Bank of America", "FABRIKAM LLC",
+     BOFA_IN.format(orig="CONTOSO TENANT LLC", bank="SAMPLE BANK", det="SECURITY DEPOSIT INVOICE 1042")),
+    ("stays", "Bank of America", "FABRIKAM LLC",
+     BOFA_IN.format(orig="CONTOSO SISTER CO LLC", bank="SAMPLE BANK", det="INTERCOMPANY INVOICE 1042")),
+    ("stays", "Bank of America", "FABRIKAM LLC",
+     BOFA_IN.format(orig="CONTOSO LAW PLLC", bank="SAMPLE BANK", det="COURT ORDER 1042")),
+    ("stays", "Bank of America", "FABRIKAM LLC",
+     BOFA_IN.format(orig="CONTOSO SERVICING LLC", bank="SAMPLE TRUST", det="INV 104211")),
+    ("stays", "Santander Bank", "FABRIKAM TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK", orig="CONTOSO FUNDING SPV", ref="ORDER 10421")),
+    ("non_revenue", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Kapitus LLC", bnf="Northwind Labs LLC", obi="Inv 104211")),
+    # Not a wire: §7.5 verifies an ACH credit that prints an invoice number with its channel word.
+    ("verified", "Sample Bank", "FABRIKAM LLC", "ACH CREDIT CONTOSO FOODS INV 10421"),
+]
+
+
+@pytest.mark.parametrize(("expected", "bank", "holder", "printed"), FORTY)
+def test_the_wire_verifier_s_forty_cases(expected, bank, holder, printed):
+    assert _outcome(_one(bank, holder, printed)) == expected
+
+
+HOLDER = "NORTHWIND LABS LLC"
+#: The false-revenue reviewer's hazard rows: none is revenue whose verification the rules may give.
+HAZARDS = [
+    ("G1 returned wire /RETN/", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO COMPONENTS LTD", bank="SAMPLE BANK NA", det="/RETN/AC04/ INV 10421")),
+    ("G1 RTN", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO COMPONENTS LTD", bank="SAMPLE BANK NA", det="RTN WIRE INV 10421 ACCT CLOSED")),
+    ("G1 /REJT/", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="SAMPLE BANK ASIA", bank="SAMPLE BANK NA", det="/REJT/AC01/ PO 4521")),
+    ("G1 recall", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Components Ltd", bnf="Northwind Labs LLC", obi="Recall Of Payment Invoice 10421")),
+    ("G1 RTN on Chase", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Sample Bank", bnf="Northwind Labs LLC", obi="Rtn Inv 104211 Beneficiary Acct Closed")),
+    ("G1 RTN on Santander", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK EUROPE", orig="CONTOSO GROUP SP", ref="RTN PO 4521")),
+    ("G1 unable to apply", "Wells Fargo", HOLDER,
+     WELLS.format(bank="Sample Bank", orig="Contoso Components Ltd", ref="Unable To Apply Inv 10421")),
+    ("G1 RETURN word", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO COMPONENTS LTD", bank="SAMPLE BANK NA", det="RETURN INV 10421")),
+    ("G2 bank draw", "Bank of America", "NORTHWIND DEVELOPMENT LLC",
+     BOFA_IN.format(orig="SAMPLE COMMUNITY BANK", bank="SAMPLE COMMUNITY BANK", det="DRAW 3 INV 10421 PLUMBING")),
+    ("G2 draw via title", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Title Agency LLC", bnf="Northwind Development LLC",
+                    obi="Draw #4 Invoices 10421 10422")),
+    ("G2 drawdown", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK NA", orig="SAMPLE BANK NA", ref="DRAWDOWN PO 4521")),
+    ("G3 bank SCF", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CITIBANK NA", bank="CITIBANK NA", det="SCF EARLY PAYMENT INV 10421 10422")),
+    ("G3 supply chain", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Sample Bank Na Supply Chain", bnf="Northwind Labs LLC", obi="Invoice 10421 Discounted")),
+    ("G3 eCapital", "CIBC", "NORTHWIND LTD", "WIRE TSF 1234567 ECAPITAL CORP INV-1042-54"),
+    ("G3 C2FO", "Bank of America", HOLDER, BOFA_IN.format(orig="C2FO", bank="SAMPLE BANK", det="EARLY PAY INV 10421")),
+    ("G3 Taulia", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="TAULIA INC", bank="SAMPLE BANK", det="INVOICE 10421 EARLY PAYMENT")),
+    ("G3 factor named Solutions", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Business Solutions LLC", bnf="Northwind Freight LLC",
+                    obi="Inv 10421 10422 10423 Less Fee")),
+    ("G4 PI settlement", "Bank of America", "NORTHWIND LAW PLLC IOLTA",
+     BOFA_IN.format(orig="CONTOSO MUTUAL CO", bank="SAMPLE BANK", det="PI 104211 J SAMPLE")),
+    ("G4 PI claim", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Casualty Co", bnf="Northwind Law Group PLLC", obi="PI 1042119 Sample")),
+    ("G5 person goods and services", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="JOHN Q SAMPLE", bank="SAMPLE BANK", det="GOODS AND SERVICES")),
+    ("G6 sister company", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="NORTHWIND HOLDINGS LLC", bank="SAMPLE BANK", det="INV 1042")),
+    ("G6 foreign parent", "Chase", "BUSINESS COMPLETE CHECKING",
+     "Chips Credit Via: Sample Bank/0959 B/O: Northwind Gmbh Hamburg De Ref: Nbnf=Northwind Labs LLC Tampa FL "
+     "33602 US/Ac-000012345678 Org=/DE12345678 Ogb=Sample Bank Ag Obi=/Inv/10421 Ssn: 00123456 Trn: 1234567890Fc"),
+    ("G6 Santander one-word holder", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK PANAMA", orig="NORTHWIND LATAM", ref="INVOICE 1042")),
+    ("G7 compensation", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK EAST", orig="CONTOSO PACKAGING", ref="COMPENSATION PO 4521")),
+    ("G7 price adjustment", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO COMPONENTS LTD", bank="SAMPLE BANK", det="PRICE ADJUSTMENT INV 10421")),
+    ("G7 RMA", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO COMPONENTS LTD", bank="SAMPLE BANK", det="RMA 5521 INV 10421")),
+    ("G7 deposit back", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK EAST", orig="CONTOSO PACKAGING", ref="DEPOSIT BACK PO 4521")),
+    ("G7 shortage", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Foods Inc", bnf="Northwind Grocery Corp", obi="Shortage Inv 10421")),
+    ("G8 pay order", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="JOHN Q SAMPLE", bank="SAMPLE BANK KARACHI", det="PAY ORDER 104211")),
+    ("G8 support order", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="JOHN Q SAMPLE", bank="SAMPLE BANK", det="SUPPORT ORDER 104211")),
+    ("G8 transfer order", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK", orig="JOHN Q SAMPLE", ref="TRANSFER ORDER 1042")),
+    ("G9 payoff surplus", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO BANK", bank="SAMPLE BANK", det="PAYOFF SURPLUS INV 10421")),
+    ("G9 bridge note", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO PARTNERS LP", bank="SAMPLE BANK", det="BRIDGE NOTE INV 1")),
+    ("G9 SAFE", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO VENTURES LP", bank="SAMPLE BANK", det="SAFE INV 2 OF 3")),
+    ("G9 subscription order", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="JOHN Q SAMPLE", bank="SAMPLE BANK", det="SUBSCRIPTION ORDER 1042 SERIES A")),
+    ("G10 Zelle memo wire", "Chase", "BUSINESS COMPLETE CHECKING",
+     "Zelle Payment From John Q Sample 1234567 wire inv 1042"),
+    ("G10 ACH from a company named WIRE", "Chase", "BUSINESS COMPLETE CHECKING",
+     "ORIG CO NAME:CONTOSO WIRE AND CABLE ORIG ID:1234567890 DESC DATE:540105 CO ENTRY DESCR:PAYMENT SEC:CCD "
+     "TRACE#:123456789012345 EED:540105 IND ID:1042 IND NAME:NORTHWIND LABS LLC TRN: 1234567890TC INV 10421"),
+    ("G10 wire fee rebate", "Bank of America", HOLDER, "WIRE FEE ADJ INV 10421"),
+    ("G11 title sale proceeds", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Title Agency LLC", bnf="Northwind Holdings LLC", obi="Invoice 1042 123 Main St Sale")),
+    ("G11 earnest money", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Title Agency LLC", bnf="Northwind Holdings LLC", obi="Earnest Money PO 4521")),
+    ("party: holder named INVOICE", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Business Group LLC", bnf="Northwind Invoice Services LLC", obi="Deal 104211")),
+    ("party: originator GOODS AND SERVICES", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO GOODS AND SERVICES", bank="SAMPLE BANK", det="104211")),
+    ("party: originator Invoice Cloud", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO INVOICE CLOUD INC", bank="SAMPLE BANK", det="104211")),
+    ("party: originator Order 66", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="ORDER 66 HOLDINGS LLC", bank="SAMPLE BANK", det="104211")),
+    ("wrapped CAPI TAL", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Capi Tal Partners LLC", bnf="Northwind Labs LLC", obi="Invoice 104211")),
+    ("wrapped FUN DING", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Fun Ding Group LLC", bnf="Northwind Labs LLC", obi="Inv 104211")),
+    ("sister company sharing its first word", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Northwind Holdings Group LLC", bnf="Northwind Labs LLC", obi="Inv 104211")),
+    ("address PO 4521", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Supply LLC PO 4521 Tampa FL", bnf="Northwind Labs LLC", obi="Notprovided")),
+    ("INV 1234 ADJ", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO SUPPLY INC", bank="SAMPLE BANK", det="INV 1234 ADJ")),
+    ("Zelle memo wire invoice", "Sample Bank", "FABRIKAM LLC",
+     "Zelle payment from JOHN Q SAMPLE memo wire for invoice 1042"),
+    ("unknown wire credit", "Sample Bank", "FABRIKAM LLC", "Unknown wire credit"),
+]
+
+
+@pytest.mark.parametrize(("label", "bank", "holder", "printed"), HAZARDS)
+def test_the_wire_hazards_never_verify(label, bank, holder, printed):
+    assert _outcome(_one(bank, holder, printed)) != "verified", label
+
+
+#: §7.9's recorded residuals: printed words cannot tell these from a sale (the spec states the person's invoice
+#: wire; the others are the neutral-name funder, the root-free factor, a template-named holder's own account and
+#: the MCA 'purchase price' order). They verify; the precision sample (§14.5) reads their strata, and the ledger
+#: round of Task S1.5 carries the receivables financiers (Stenn, eCapital).
+RESIDUALS = [
+    ("person citing an invoice (stated)", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="1/John Q Sample 2/US/Tampa", bnf="Northwind Labs LLC", obi="Inv 1042")),
+    ("person, payment for goods", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="BANCO SAMPLE S.A.", orig="JOHN Q SAMPLE", ref="PAYMENT FOR GOODS")),
+    ("a person's holding company citing an invoice", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="JQS FAMILY HOLDINGS LLC", bank="SAMPLE BANK", det="INV 1042")),
+    ("invoice financier with no root, until the ledger lists it", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK UK", orig="STENN ASSETS UK", ref="/INV/10421/54")),
+    ("funder name cut before its root", "Santander Bank", "NORTHWIND TRADING CORP",
+     SANTANDER.format(bank="SAMPLE BANK", orig="CONTOSO BUSINESS", ref="INV 10421")),
+    ("MCA purchase price with an order id", "Bank of America", HOLDER,
+     BOFA_IN.format(orig="CONTOSO VENTURES LLC", bank="SAMPLE BANK", det="PURCHASE PRICE ORDER 10421")),
+    ("root-free unregistered factor", "Chase", "BUSINESS COMPLETE CHECKING",
+     FEDWIRE.format(orig="Contoso Business Solutions LLC", bnf="Northwind Labs LLC", obi="Inv 104211")),
+    ("own account, holder name a product template", "Bank of America", "BUSINESS ADVANTAGE FUNDAMENTALS",
+     BOFA_IN.format(orig="FABRIKAM LABS LLC", bank="SAMPLE BANK", det="INV 1234")),
+]
+
+
+@pytest.mark.parametrize(("label", "bank", "holder", "printed"), RESIDUALS)
+def test_the_recorded_wire_residuals_verify_and_are_sampled(label, bank, holder, printed):
+    assert _outcome(_one(bank, holder, printed)) == "verified", label
 ```
 
 Create `tests/test_revenue_non_revenue_55.py`:
@@ -3865,6 +4521,8 @@ def test_customer_id_and_a_customer_check_never_verify():
     ("FABRIKAM DES:CHBK REVSL ID:1", "returned_cancelled_reversed_or_provisional_credit"),
     ("IRS TREAS 310 DES:TAX REF ID:1", "non_operating_credit"),
     ("SAMPLE STATE DES:TAXRFD ID:1", "non_operating_credit"),
+    ("FRANCHISE TAX BD DES:CASTTAXRFD ID:1 PPD", "non_operating_credit"),   # glued to the state (review I6)
+    ("IRS TREAS 310 DES:TAXEIC ID:1", "non_operating_credit"),
     ("SQUARE INC DES:SQ CAP1234 ID:1", "square_capital_credit"),
     ("SBAD TREAS 310 DES:MISC PAY ID:1", "sba_disbursement_credit"),
     ("EIDL 1234 SAMPLE", "sba_disbursement_credit"),
@@ -3906,11 +4564,11 @@ def test_a_real_time_payout_verifies_through_the_registry_only():
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_card_settlements.py tests/test_revenue_platform_payouts.py tests/test_revenue_healthcare_claims.py tests/test_revenue_payer_remittance.py tests/test_revenue_public_payers.py tests/test_revenue_wire_remittance.py tests/test_revenue_non_revenue_55.py -q -p no:cacheprovider`
 
-Expected: FAIL: `116 failed, 113 passed`, the first with `AssertionError: ambiguous_credit_descriptor`.
+Expected: FAIL: `143 failed, 189 passed`, the first with `AssertionError: ambiguous_credit_descriptor`.
 
 - [ ] **Step 3: Implement.**
 
-In `analysis/transaction_classifier.py` (lines 715-728), replace:
+In `analysis/transaction_classifier.py` (lines 716-729), replace:
 
 ```python
 _VERIFIED_REVENUE_CREDIT_PATTERNS = (
@@ -3955,7 +4613,7 @@ _CUSTOMER_INVOICE_DESCRIPTORS = (
 )
 ```
 
-In `analysis/transaction_classifier.py` (lines 662-663), replace:
+In `analysis/transaction_classifier.py` (lines 663-664), replace:
 
 ```python
 _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
@@ -3971,7 +4629,7 @@ _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
     re.compile(r"\b(?:INTERNAL|ACCOUNT) TRANSFER\b"),
 ```
 
-In `analysis/transaction_classifier.py` (line 701), replace:
+In `analysis/transaction_classifier.py` (line 702), replace:
 
 ```python
     re.compile(r"\bTAX REFUND\b"),
@@ -3981,12 +4639,13 @@ with:
 
 ```python
     re.compile(r"\bTAX REFUND\b"),
-    # 5.5 (§7.11, T5): the tax-refund abbreviations (Treasury's TAX REF) and account-verification micro-deposits.
-    re.compile(r"\bTAX ?REF(?:UND)?S?\b|\bTAXRFD\b|\bTAX RFD\b"),
+    # 5.5 (§7.11, T5): the tax-refund abbreviations (Treasury's TAX REF; a state's glued TAXRFD, and TAXEIC, review
+    # I6) and account-verification micro-deposits.
+    re.compile(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b"),
     re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b"),
 ```
 
-In `analysis/transaction_classifier.py` (lines 812-815), replace:
+In `analysis/transaction_classifier.py` (lines 813-816), replace:
 
 ```python
     return _matches_any(
@@ -4010,7 +4669,7 @@ with:
     )
 ```
 
-In `analysis/transaction_classifier.py`, replace the whole function `_classify_credit_revenue` (lines 1855-2043) with:
+In `analysis/transaction_classifier.py`, replace the whole function `_classify_credit_revenue` (lines 1928-2116) with:
 
 ```python
 def _classify_credit_revenue(
@@ -4353,7 +5012,7 @@ def _fallback_credit_decision(text: str) -> _RevenueDecision:
     )
 ```
 
-In `analysis/transaction_classifier.py` (lines 2545-2546), replace:
+In `analysis/transaction_classifier.py` (lines 2618-2619), replace:
 
 ```python
     if _BANK_LINE_ADVANCE_CREDIT.search(text):
@@ -4376,7 +5035,7 @@ with:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_card_settlements.py tests/test_revenue_platform_payouts.py tests/test_revenue_healthcare_claims.py tests/test_revenue_payer_remittance.py tests/test_revenue_public_payers.py tests/test_revenue_wire_remittance.py tests/test_revenue_non_revenue_55.py -q -p no:cacheprovider`
 
-Expected: PASS: `229 passed`.
+Expected: PASS: `332 passed`.
 
 - [ ] **Step 5: Re-pin the assertions this task moves (pin ledger rows 3-12).**
 
@@ -4535,7 +5194,7 @@ git commit -m "classifier: the 5.5 credit decision (spec 6.1, 7.1 to 7.11)" -m "
 
 **Files:**
 - Create: `tests/test_revenue_recurrence.py`
-- Modify: `analysis/transaction_classifier.py:20-22, 3430-3432, 3445-3448, 3460-3463, 3536-3606, 4319`
+- Modify: `analysis/transaction_classifier.py:21-23, 3504-3506, 3519-3522, 3534-3537, 3610-3680, 4393`
 - Modify (pins): `tests/test_revenue_platform_payouts.py:86`
 - Modify (pins): `tests/test_revenue_payer_remittance.py:80`
 
@@ -4545,12 +5204,12 @@ git commit -m "classifier: the 5.5 credit decision (spec 6.1, 7.1 to 7.11)" -m "
 - Consumes: S2.2's constants and helpers, S2.3's decision.
 - Produces:
   - `_PAIR_MARKER_PATTERNS`
-  - `_recurrence_vetoed(record, text) -> bool`, `_recurrence_veto_word(text, account_name) -> bool`, `_in_operating_pool(record) -> bool`
+  - `_recurrence_vetoed(record, text) -> bool`, `_recurrence_veto_word(text, account_name, pattern=_RECURRENCE_VETO) -> bool`, `_in_operating_pool(record) -> bool`
   - `_apply_operating_source_context(records, duplicate_indexes)` (rewritten), `_apply_auction_branch`, `_auction_refund_pair`, `_apply_property_branch`
   - `_payer_key(region: str) -> tuple[str, ...]`, `_payer_first_distinctive_word(region) -> str | None`, `_debit_first_distinctive_word(record) -> str | None`
   - `_apply_payer_remittance_counter_debit_guard(records, duplicate_indexes)` (pass 6; method `payer_remittance_with_counter_debit`)
 
-**Why:** Spec §6.2 passes 4 to 6 and §7.0, §7.3, §7.5, §7.8, §7.10: the reversal pair reads the return codes too; the recurrence pass admits only registry rows, never shrinks the pool, keeps vetoed rows, direction conflicts and sub-$1 rows out, reads a legal-form holder as a business, counts NET SETTLE from an unregistered originator at three credits, and gives property platforms and dealer-only auctions their own branches; the accounts-payable counter-debit guard sends a payer the statement also debits back to unverified. After this task the classifier is 5.5 in all but its number.
+**Why:** Spec §6.2 passes 4 to 6 and §7.0, §7.3, §7.5, §7.8, §7.10: the reversal pair reads the return codes too; the recurrence pass admits only registry rows, never shrinks the pool, keeps vetoed rows, direction conflicts and sub-$1 rows out, reads a legal-form holder as a business, counts NET SETTLE from an unregistered originator at three credits, and gives property platforms and dealer-only auctions their own branches; the accounts-payable counter-debit guard sends a payer the statement also debits back to unverified. After the review: FUNDING vetoes recurrence outside the three platforms §7.0 names (C2), the auction branch refuses §14.1's financing and consumer words (C2, rule `auction_credit_prints_financing_or_consumer_word`), and the debit side honours the ledger gate (I4). After this task the classifier is 5.5 in all but its number.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -4561,6 +5220,8 @@ Create `tests/test_revenue_recurrence.py`:
 veto, the absolute micro-deposit floor, legal-form holders, NET SETTLE, the wholesale auctions and the property
 platforms. Fabricated rows only, in the banks' printed formats."""
 from __future__ import annotations
+
+import pytest
 
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -4683,6 +5344,74 @@ def test_a_property_platform_never_pools_push_shapes_micro_deposits_or_owner_wor
     assert {record.revenue_classification for record in micro} == {"non_revenue"}
     owner = _statement([(day, f"BUILDIUM DES:OWNER DIST ID:{day}", 1500.0 + day) for day in (2, 9, 16)])
     assert {record.revenue_matched_rule for record in owner} == {"property_platform_owner_or_deposit_wording"}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# §14.1's §7.8 negatives (review I5), and FUNDING outside the three platforms that print it on settlements (review C2).
+# ---------------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("word", ["FUNDING", "FUNDNG", "ADVANCE", "CAPTL", "FLOORPLAN", "FLOOR PLAN", "FINANCING",
+                                  "NGC", "PPD"])
+def test_an_auction_payout_printing_a_financing_or_consumer_word_never_verifies(word):
+    records = _statement([(2, f"MANHEIM US DES:ACH PAYMNT {word} ID:1", 18000.0),
+                          (9, f"MANHEIM US DES:ACH PAYMNT {word} ID:2", 17000.0),
+                          (16, f"MANHEIM US DES:ACH PAYMNT {word} ID:3", 16000.0)], holder="SAMPLE MOTORS LLC")
+    assert {record.revenue_classification for record in records} == {"unverified_deposit"}
+
+
+@pytest.mark.parametrize("printed", [
+    "MANHEIM US DES:DEALSHIELD ID:1", "MANHEIM US DES:ARB CREDIT ID:1", "MANHEIM US DES:PAYROLL ID:1",
+    "MANHEIM US DES:DIR DEP ID:1", "ACV AUCTIONS INC PAYMENTS PAYROLL", "DEBIT CARD CREDIT MANHEIM US ATLANTA GA",
+])
+def test_the_auction_s_own_negatives_never_verify(printed):
+    records = _statement([(2, printed, 1500.0), (9, printed.replace("ID:1", "ID:2"), 1600.0),
+                          (16, printed.replace("ID:1", "ID:3"), 1700.0)], holder="SAMPLE MOTORS LLC")
+    assert {record.revenue_classification for record in records} <= {"unverified_deposit", "non_revenue"}
+
+
+@pytest.mark.parametrize("printed", [
+    "FABRIKAM MOTORS DES:PAYMENT ID:1 IND NAME:MANHEIM US", "FABRIKAM MOTORS DES:DISBURSEMENT ID:1 INDN:MANHEIM US",
+    "ZELLE PAYMENT FROM JOHN SMITH MEMO MANHEIM US ACH PAYMNT CONF 1",
+    "ZELLE PAYMENT TO MANHEIM US ACH PAYMNT DISBURSEMENT CONF 1",
+])
+def test_an_auction_alias_in_a_receiver_field_a_zelle_field_or_a_memo_never_names_the_auction(printed):
+    records = _statement([(2, printed, 1500.0), (9, printed.replace("ID:1", "ID:2"), 1600.0),
+                          (16, printed.replace("ID:1", "ID:3"), 1700.0)], holder="SAMPLE MOTORS LLC")
+    assert not {record.revenue_canonical_entity for record in records} & {"Manheim", "ACV Auctions", "OPENLANE"}
+
+
+@pytest.mark.parametrize("printed", ["ACV CAPITAL DES:FUNDING ID:1", "NEXTGEAR CAPITAL DES:ADVANCE ID:1",
+                                     "KINETIC ADVANTAGE DES:PAYMENT ID:1", "WESTLAKE FLOORING DES:PAYMENT ID:1"])
+def test_the_floor_plan_lenders_stay_financing_proceeds(printed):
+    [record] = _statement([(2, printed, 15000.0)], holder="SAMPLE MOTORS LLC")
+    assert (record.revenue_classification, record.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+
+
+def test_an_afc_funding_credit_never_verifies():
+    [record] = _statement([(2, "AFC FUNDNG DES:PAYMENT ID:1", 15000.0)], holder="SAMPLE MOTORS LLC")
+    assert record.revenue_classification != "verified_revenue"
+
+
+def test_an_auction_credit_paired_with_a_wire_to_the_auction_stays_unverified():
+    records = _statement([(2, "WIRE TYPE:WIRE OUT DATE:540302 TIME:0900 ET TRN:1 BNF:MANHEIM US ID:1", -18000.0),
+                          (9, "MANHEIM US DES:ACH PAYMNT ID:1", 18000.0)], holder="SAMPLE MOTORS LLC")
+    assert records[1].revenue_matched_rule == "auction_credit_matches_same_source_debit"
+
+
+def test_a_duplicated_auction_payout_is_non_revenue():
+    records = classify_statement_transactions(Statement(account_name="SAMPLE MOTORS LLC", transactions=[
+        Transaction(date="2054-03-02", description="MANHEIM US DES:ACH PAYMNT ID:1", amount=18000.0,
+                    direction="credit", running_balance=19000.0),
+        Transaction(date="2054-03-02", description="MANHEIM US DES:ACH PAYMNT ID:1", amount=18000.0,
+                    direction="credit", running_balance=19000.0),
+    ]))
+    assert [record.revenue_classification for record in records] == ["verified_revenue", "non_revenue"]
+
+
+def test_funding_vetoes_recurrence_except_on_the_three_platforms_that_print_it_on_settlements():
+    etsy = _statement([(day, f"ETSY DES:FUNDING ID:{day}", 900.0 + day) for day in (2, 9, 16)])
+    assert {record.revenue_classification for record in etsy} == {"unverified_deposit"}
+    tapgoods = _statement([(day, f"TGPAYMENTS DES:FUNDING ID:{day}", 900.0 + day) for day in (2, 9, 16)])
+    assert {record.revenue_match_method for record in tapgoods} == {"recurring_operating_source"}
 ```
 
 Append to the end of `tests/test_revenue_platform_payouts.py`:
@@ -4726,11 +5455,11 @@ def test_a_payer_the_statement_also_debits_goes_back_to_unverified():
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_recurrence.py tests/test_revenue_platform_payouts.py tests/test_revenue_payer_remittance.py -q -p no:cacheprovider`
 
-Expected: FAIL: `14 failed, 76 passed`, the first with `AssertionError: assert ['operating_s...ires_context'] == ['operating_s...ating_source']`.
+Expected: FAIL: `31 failed, 86 passed`, the first with `AssertionError: assert ['operating_s...ires_context'] == ['operating_s...ating_source']`.
 
 - [ ] **Step 3: Implement.**
 
-In `analysis/transaction_classifier.py` (lines 20-22), replace:
+In `analysis/transaction_classifier.py` (lines 21-23), replace:
 
 ```python
     OPERATING_REVENUE_READ_ALIASES,
@@ -4745,7 +5474,7 @@ with:
     OPERATING_REVENUE_SOURCE_TYPES,
 ```
 
-In `analysis/transaction_classifier.py` (lines 3430-3432), replace:
+In `analysis/transaction_classifier.py` (lines 3504-3506), replace:
 
 ```python
 
@@ -4765,7 +5494,7 @@ _PAIR_MARKER_PATTERNS = (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_CODE_
 def _apply_reversal_pair_context(
 ```
 
-In `analysis/transaction_classifier.py` (lines 3445-3448), replace:
+In `analysis/transaction_classifier.py` (lines 3519-3522), replace:
 
 ```python
         credit_has_marker = _matches_any(
@@ -4780,7 +5509,7 @@ with:
         credit_has_marker = _matches_any(credit.normalized_description, _PAIR_MARKER_PATTERNS)
 ```
 
-In `analysis/transaction_classifier.py` (lines 3460-3463), replace:
+In `analysis/transaction_classifier.py` (lines 3534-3537), replace:
 
 ```python
             debit_has_marker = _matches_any(
@@ -4795,23 +5524,27 @@ with:
             debit_has_marker = _matches_any(debit.normalized_description, _PAIR_MARKER_PATTERNS)
 ```
 
-In `analysis/transaction_classifier.py`, replace the whole function `_apply_operating_source_context` (lines 3536-3606) with:
+In `analysis/transaction_classifier.py`, replace the whole function `_apply_operating_source_context` (lines 3610-3680) with:
 
 ```python
 def _recurrence_vetoed(record: TransactionClassification, text: str) -> bool:
     """5.5 (§7.0): a credit that never counts toward recurrence and is never lifted by it: payroll, the recurrence
-    veto words and card-credit labels (read on the row before its receiver fields), under the $1 floor, or a
-    direction conflict."""
+    veto words and card-credit labels (read on the row before its receiver fields), FUNDING outside the three
+    platforms that print it on settlements (review C2), under the $1 floor, or a direction conflict."""
     return (
         record.classification == "payroll"
         or _recurrence_veto_word(text, record.account_name)
+        or (
+            record.revenue_canonical_entity not in _FUNDING_SETTLEMENT_ENTITIES
+            and _recurrence_veto_word(text, record.account_name, _FUNDING_WORD)
+        )
         or record.amount < _MICRO_DEPOSIT_FLOOR
         or record.revenue_match_method == "direction_conflict"
         or not record.direction_consistent
     )
 
 
-def _recurrence_veto_word(text: str, account_name: str | None) -> bool:
+def _recurrence_veto_word(text: str, account_name: str | None, pattern: re.Pattern[str] = _RECURRENCE_VETO) -> bool:
     """5.5 (§7.0): the recurrence veto on the row before its receiver fields. A veto word that is one of the holder's
     own words (its account name, or the name the bank prints in the receiver field), or the start of one (four
     letters or more), is not read: a delivery platform prints the merchant's store name, which is the holder's, in
@@ -4820,7 +5553,7 @@ def _recurrence_veto_word(text: str, account_name: str | None) -> bool:
     for found in _RECEIVER_FIELD_VALUE.finditer(text):
         holder.update(_distinctive_words(found.group(0).split()[1:]))
     row = _before_receiver(text)
-    for found in _RECURRENCE_VETO.finditer(row):
+    for found in pattern.finditer(row):
         word = found.group(0)
         if len(word) >= 4 and any(own == word or own.startswith(word) for own in holder):
             continue
@@ -4900,6 +5633,8 @@ def _apply_operating_source_context(
         text = revenue_text(record.normalized_description)
         if record.amount < 0:
             found = registry_match(text, OPERATING_REVENUE_READ_ALIASES)
+            if found is not None and _read_inside_a_waiting_processor(text, *found):
+                found = None
             if found is not None and _matches_any(text, _OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS):
                 activity_by_entity.setdefault(found[0], []).append(index)
             continue
@@ -4971,7 +5706,8 @@ def _apply_auction_branch(
     duplicate_indexes: set[int],
 ) -> None:
     """5.5 (§7.8): a dealer-only wholesale auction verifies only its observed payout form, never a buyer-payment
-    reference and never a credit paired with an equal same-auction debit within 14 days (each debit used once)."""
+    reference, a floor-plan or financing word or a consumer entry (§14.1), and never a credit paired with an equal
+    same-auction debit within 14 days (each debit used once)."""
     forms = _AUCTION_PAYOUT_FORMS.get(entity, ())
     refund_name = _AUCTION_REFUND_NAMES.get(entity)
     used_debits: set[int] = set()
@@ -4981,6 +5717,8 @@ def _apply_auction_branch(
         rule, verified = "auction_credit_without_payout_form", False
         if _AUCTION_BUYER_PAYMENT.search(text):
             rule = "auction_credit_prints_buyer_payment_reference"
+        elif _AUCTION_VETO.search(_before_receiver(text)):
+            rule = "auction_credit_prints_financing_or_consumer_word"
         elif any(form.search(text) for form in forms):
             pair = _auction_refund_pair(records, index, refund_name, used_debits, duplicate_indexes)
             if pair is not None:
@@ -5138,7 +5876,7 @@ def _apply_payer_remittance_counter_debit_guard(
     return updated
 ```
 
-In `analysis/transaction_classifier.py` (line 4319), replace:
+In `analysis/transaction_classifier.py` (line 4393), replace:
 
 ```python
     records = _apply_operating_source_context(records, set(duplicate_of))
@@ -5155,7 +5893,7 @@ with:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_recurrence.py tests/test_revenue_platform_payouts.py tests/test_revenue_payer_remittance.py -q -p no:cacheprovider`
 
-Expected: PASS: `90 passed`.
+Expected: PASS: `117 passed`.
 
 - [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
@@ -5174,7 +5912,7 @@ git commit -m "classifier: the 5.5 statement passes (recurrence, auctions, prope
 ### Task S2.5: Classification 5.5 and analysis stage 24
 
 **Files:**
-- Modify: `analysis/transaction_classifier.py:112-114`
+- Modify: `analysis/transaction_classifier.py:113-115`
 - Modify: `webapp/artifact_cache.py:571-573`
 - Modify (pins): `tests/test_artifact_cache.py:488, 497-499`
 - Modify (pins): `tests/test_flag_group_states.py:60-63`
@@ -5290,7 +6028,7 @@ Expected: FAIL: `4 failed, 212 passed`, the first with `assert 23 == 24`.
 
 - [ ] **Step 3: Implement.**
 
-In `analysis/transaction_classifier.py` (lines 112-114), replace:
+In `analysis/transaction_classifier.py` (lines 113-115), replace:
 
 ```python
 #: CREDIT stay Lines of credit, D9). Moves with
@@ -5345,9 +6083,9 @@ Expected: PASS: `216 passed`.
   - SEL-CLASSIFIER: `755 passed, 2 deselected`
   - SEL-REGISTRY: `362 passed, 4 skipped`
   - SEL-WEBAPP: `856 passed`
-  - SEL-REVENUE: `374 passed`
+  - SEL-REVENUE: `522 passed`
 
-  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 13,754 passed, 55 skipped, 39 deselected, 16 failed).
+  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 13,902 passed, 55 skipped, 39 deselected, 16 failed).
 
 - [ ] **Step 6: Commit.**
 
@@ -5375,9 +6113,10 @@ git commit -m "versions: classification 5.5 and analysis stage 24 for the true-r
   - `python -m tools.revenue_census snapshot --data-dir <dir> | --jobs-db <db> --out <file> [--code-root <dir>] [--limit N]`
   - `python -m tools.revenue_census compare --base <file> --after <file> [--after <file>] --out <file>` (exit 0 when every guard holds, 1 when one fails, 2 when refused)
   - `python -m tools.revenue_census sample --snapshot <file> --out <file>`
-  - `snapshot(accounts) -> dict`, `compare(base, afters) -> dict`, `precision_sample(snap, *, per_stratum=20, largest_counted=50, seed=55) -> dict`, `_row_guards(credit) -> dict[str, bool]`, `NARROWINGS`, `DECLARED_DEMOTIONS`, `PRECISION_STRATA`
+  - `snapshot(accounts) -> dict`, `compare(base, afters) -> dict`, `precision_sample(snap, *, per_stratum=20, largest_counted=50, seed=55) -> dict`, `_row_guards(credit) -> dict[str, bool]`, `_account_guards(account, tiered) -> list[dict]`, `NARROWINGS`, `BNPL_ENTITIES`, `DECLARED_DEMOTIONS`, `REGISTRY_VERIFYING_METHODS`, `IDENTITY_METHODS`, `TIER_STATES`, `PRECISION_STRATA`
+  - per account: `posted_credit_count`, `posted_credit_cents`, `tier_totals`; per credit: `lender_credit` and the facts `third_party_originator`, `own_transfer`, `pool_candidate`, `pool_vetoed`, `pool_threshold`; per run: `lender_credit_moves_by_cause`, the failure key `undeclared_demotion`
 
-**Why:** Spec §14.2 and §14.3: `tools/revenue_census.py` re-classifies every reconciled, de-duplicated cached analysis (or a copy of the tryout host's job store) with one checkout's code, keeps every `non_revenue` row, masks every digit, and compares a base with later snapshots: shares, $0 statements, medians, tiers and reasons, the move matrix, every row that left `non_revenue` by narrowing, every verified demotion by declared cause, eligible-deposit moves, the gate by held reason, the street-`LN` changes (G7b), and the row guards G1 to G14 (G7 is `tools/lender_census.py`; G8 is the suite). `sample` draws §14.5's precision sample. It refuses to write inside the repository. The one test that needs the tiers joins in S4.2.
+**Why:** Spec §14.2 and §14.3: `tools/revenue_census.py` re-classifies every reconciled, de-duplicated cached analysis (or a copy of the tryout host's job store) with one checkout's code, keeps every `non_revenue` row, masks every digit, and compares a base with later snapshots: shares, $0 statements, medians, tiers and reasons, the move matrix, every row that left `non_revenue` by narrowing, every verified demotion by declared cause, eligible-deposit moves, the gate by held reason, the street-`LN` changes (G7b), and the guards G1 to G14 (G7 is `tools/lender_census.py`; G8 is the suite) with the review's G15 to G17 (refund words, tax refunds and the holder's own ACH transfer in True). After the review (I1): G9 checks every posted credit's tier against its state, the metrics' tier totals, and fails an unmatched account or a classification error; an undeclared verified demotion fails; narrowing 4 needs a printed third-party originator and narrowing 8 one of the five BNPL entities; G10 checks the push-rail half; G13 reads the full numbered-company guard; G12 the credit-union count and the loan-word veto; G14 every row that counted toward a lifted pool; G2 a registry row's own root; and the lender-credit and eligible-deposit moves are reported by cause (M2). `sample` draws §14.5's precision sample. It refuses to write inside the repository. The one test that needs the tiers joins in S4.2.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -5397,19 +6136,25 @@ import pytest
 from tools import revenue_census as census
 
 
-def _credit(i, cents, state, method, *, tier=None, reason=None, text="FABRICATED ROW", rule=None, **facts):
-    return {"i": i, "cents": cents, "state": state, "method": method, "rule": rule, "entity": None, "tier": tier,
-            "reason": reason, "class": "other", "text": text, "facts": facts}
+def _credit(i, cents, state, method, *, tier=None, reason=None, text="FABRICATED ROW", rule=None, entity=None,
+            lender_credit=False, **facts):
+    return {"i": i, "cents": cents, "state": state, "method": method, "rule": rule, "entity": entity, "tier": tier,
+            "reason": reason, "class": "other", "lender_credit": lender_credit, "text": text, "facts": facts}
 
 
 def _account(credits, *, gated=False, deposits=1000.0):
     return {"bank": "FABRICATED BANK", "rows": 10, "credits": credits,
             "posted_cents": sum(credit["cents"] for credit in credits), "lender_credits": 0.0,
-            "eligible_deposits": deposits, "revenue_review_required": gated}
+            "posted_credit_count": len(credits), "posted_credit_cents": sum(credit["cents"] for credit in credits),
+            "tier_totals": None, "eligible_deposits": deposits, "revenue_review_required": gated}
 
 
-def _snap(version, accounts):
-    return {"classification_version": version, "accounts": accounts, "skipped": {}}
+def _snap(version, accounts, skipped=None):
+    return {"classification_version": version, "accounts": accounts, "skipped": skipped or {}}
+
+
+def _run(base, after):
+    return census.compare(base, [after])["runs"][0]
 
 
 BASE = _snap("5.4", {"a": _account([
@@ -5425,7 +6170,7 @@ AFTER = _snap("5.6", {"a": _account([
     _credit(2, 90000, "unverified_deposit", "deposit_source_requires_review", tier="excluded_pending_review",
             reason="financing_named_payer", financing_root=True),
     _credit(3, 10000, "unverified_deposit", "wire_requires_review", tier="counted_flagged",
-            reason="wire_named_sender", text="BOOK TRANSFER CREDIT B O FABRIKAM INC"),
+            reason="wire_named_sender", text="BOOK TRANSFER CREDIT B O FABRIKAM INC", third_party_originator=True),
 ], gated=True)})
 
 
@@ -5439,46 +6184,147 @@ def test_the_summary_reports_true_verified_and_the_reasons():
 
 
 def test_a_row_that_leaves_non_revenue_names_its_narrowing():
-    run = census.compare(BASE, [AFTER])["runs"][0]
+    run = _run(BASE, AFTER)
     assert run["left_non_revenue"] == {"4_book_or_funds_transfer": {"rows": 1, "dollars": 100.0, "statements": 1}}
-    assert "G1" not in run["guards"]
+    assert run["guards"] == {}
     assert run["gated_statements_by_held_reason"] == {"financing_named_payer": 1}
 
 
 def test_a_row_that_leaves_non_revenue_by_no_narrowing_fails_g1():
     after = json.loads(json.dumps(AFTER))
     after["accounts"]["a"]["credits"][3]["text"] = "FABRICATED ROW"
-    run = census.compare(BASE, [after])["runs"][0]
+    assert _run(BASE, after)["guards"]["G1"]["failures"] == 1
+
+
+def test_a_book_transfer_leaves_non_revenue_only_on_a_third_party_originator():
+    after = json.loads(json.dumps(AFTER))
+    after["accounts"]["a"]["credits"][3]["facts"]["third_party_originator"] = False
+    run = _run(BASE, after)
+    assert run["left_non_revenue"] == {"outside_the_narrowings": {"rows": 1, "dollars": 100.0, "statements": 1}}
     assert run["guards"]["G1"]["failures"] == 1
+
+
+@pytest.mark.parametrize(("entity", "cause"), [("AFFIRM", "8_oq2_bnpl_settlement"),
+                                               ("FABRIKAM FUNDING LLC", "outside_the_narrowings")])
+def test_only_the_five_bnpl_settlements_leave_d1_by_the_owner_s_ruling(entity, cause):
+    base = _snap("5.4", {"a": _account([_credit(0, 5000, "non_revenue", "financing_proceeds_credit", entity=entity,
+                                                lender_credit=True)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
+                                                 reason="payout_credit_entity", entity=entity)])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [cause]
+    assert ("G1" in run["guards"]) is (cause == "outside_the_narrowings")
+    moved = {"8_oq2_bnpl_settlement": "8_oq2_bnpl_settlement", "outside_the_narrowings": "left:x"}[cause]
+    assert run["lender_credit_moves_by_cause"][moved]["eligible_deposit_dollars"] == 50.0
 
 
 @pytest.mark.parametrize(("guard", "credit"), [
     ("G2", _credit(0, 100, "verified_revenue", "named_payer_company_form", tier="verified", financing_root=True)),
+    ("G2", _credit(0, 100, "verified_revenue", "recurring_operating_source", tier="verified", registry_root=True)),
     ("G3", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="p2p", holder=True)),
     ("G4", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="p2p",
                    transfer_no_counterparty=True)),
     ("G6", _credit(0, 100, "verified_revenue", "direction_conflict", tier="verified")),
     ("G10", _credit(0, 100, "verified_revenue", "operating_income_descriptor", tier="verified", gate="closed")),
+    ("G10", _credit(0, 100, "verified_revenue", "named_payer_repeats", tier="verified", gate="push")),
     ("G11", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="p2p", pay_or_personal=True)),
     ("G12", _credit(0, 100, "verified_revenue", "auto_lender_dealer_funding", tier="verified", q7_payer_ok=False)),
-    ("G13", _credit(0, 100, "verified_revenue", "named_payer_company_form", tier="verified", numbered_region=True)),
+    ("G12", _credit(0, 100, "verified_revenue", "auto_lender_dealer_funding", tier="verified", q7_payer_ok=True,
+                    q7_veto_word=True)),
+    ("G13", _credit(0, 100, "verified_revenue", "named_payer_company_form", tier="verified", numbered=True)),
+    ("G13", _credit(0, 100, "verified_revenue", "recurring_operating_source", tier="verified", numbered_region=True)),
     ("G14", _credit(0, 100, "verified_revenue", "recurring_operating_source", tier="verified",
                     pooled_while_vetoed=True)),
     ("G5", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="p2p", known_financing=True)),
+    ("G15", _credit(0, 100, "verified_revenue", "named_payer_repeats", tier="verified",
+                    text="FABRIKAM INC DES CUSTREFUNDS ID #")),
+    ("G15", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="named_payer_one_off",
+                    text="FABRIKAM INC DES PREFUND ID #")),
+    ("G16", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="named_payer_one_off",
+                    text="FRANCHISE TAX BD DES CASTTAXRFD ID #")),
+    ("G16", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="named_payer_one_off",
+                    text="IRS TREAS ### DES TAXEIC ID #")),
+    ("G17", _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="p2p", own_transfer=True)),
 ])
 def test_each_row_guard_fails_on_its_row(guard, credit):
     assert census._row_guards(credit)[guard] is True
 
 
-def test_the_row_guards_hold_on_a_clean_row_and_list_registry_rows_apart():
-    clean = _credit(0, 100, "verified_revenue", "recurring_operating_source", tier="verified", financing_root=True)
-    assert not any(census._row_guards(clean).values())  # §8.1 skips a registry row; the sample lists it
+def test_the_row_guards_hold_on_clean_rows():
+    clean = [
+        # A registry row reads G2 on its own root (the holder's words and §7.0's FUNDING settlements aside).
+        _credit(0, 100, "verified_revenue", "recurring_operating_source", tier="verified", financing_root=True),
+        # A push-rail row the registry verified.
+        _credit(0, 100, "verified_revenue", "operating_source_with_credit_context", tier="verified", gate="push"),
+        # A refund word the bank prints in the receiver field is the holder's, not the row's.
+        _credit(0, 100, "verified_revenue", "named_payer_repeats", tier="verified",
+                text="FABRIKAM INC DES PAYMENT INDN REFUNDS DEPT"),
+        # A held refund is out of True.
+        _credit(0, 100, "unverified_deposit", "x", tier="excluded_pending_review", reason="non_sale_purpose",
+                text="FABRIKAM INC DES REFUNDS ID #"),
+        # A processor's card settlement printed after BMO's MISC PAYMENT <digits> template: its payer is the processor.
+        _credit(0, 100, "verified_revenue", "operating_income_descriptor", tier="verified", numbered=True,
+                rule="card_settlement_form_gbl_brand", text="MISC PAYMENT ####### GBL VI"),
+    ]
+    assert not any(value for credit in clean for value in census._row_guards(credit).values())
+
+
+def test_a_processor_s_template_row_is_listed_apart_from_g13():
+    base = _snap("5.4", {"a": _account([_credit(0, 5000, "unverified_deposit", "x")])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, "verified_revenue", "operating_income_descriptor",
+                                                 tier="verified", numbered=True, rule="card_settlement_form_gbl_brand",
+                                                 text="MISC PAYMENT ####### GBL VI")])})
+    run = _run(base, after)
+    assert "G13" not in run["guards"]
+    assert run["g13_listed_apart"] == {"operating_income_descriptor": {"rows": 1, "dollars": 50.0, "statements": 1}}
 
 
 def test_the_four_tier_identity_is_checked_on_every_account():
     after = json.loads(json.dumps(AFTER))
     after["accounts"]["a"]["posted_cents"] += 1
-    assert census.compare(BASE, [after])["runs"][0]["guards"]["G9"]["failures"] == 1
+    assert _run(BASE, after)["guards"]["G9"]["failures"] >= 1
+
+
+@pytest.mark.parametrize("breakage", ["tier_state", "no_state", "metrics", "unmatched", "error_skip"])
+def test_g9_fails_on_every_way_an_account_can_fall_out_of_the_identity(breakage):
+    after = json.loads(json.dumps(AFTER))
+    account = after["accounts"]["a"]
+    if breakage == "tier_state":
+        account["credits"][0]["tier"] = "counted_flagged"
+    elif breakage == "no_state":
+        account["posted_credit_count"] += 1
+    elif breakage == "metrics":
+        account["tier_totals"] = {"verified": 70000, "counted_flagged": 40000, "excluded_pending_review": 0,
+                                  "non_revenue": 90000}
+    elif breakage == "unmatched":
+        after["accounts"] = {"b": account}
+    else:
+        after["skipped"] = {"ValueError": 1}
+    assert _run(BASE, after)["guards"]["G9"]["failures"] >= 1
+
+
+def test_the_metrics_tier_totals_that_agree_hold():
+    after = json.loads(json.dumps(AFTER))
+    after["accounts"]["a"]["tier_totals"] = {"verified": 70000, "counted_flagged": 40000,
+                                             "excluded_pending_review": 90000, "non_revenue": 0}
+    assert "G9" not in _run(BASE, after)["guards"]
+
+
+@pytest.mark.parametrize(("rows", "fails"), [(1, True), (2, False)])
+def test_a_credit_union_s_dealer_funding_needs_two_credits(rows, fails):
+    credits = [_credit(i, 3000000, "verified_revenue", "auto_lender_dealer_funding", tier="verified",
+                       q7_payer_ok=True, q7_credit_union=True, q7_listed=False) for i in range(rows)]
+    base = _snap("5.4", {"a": _account([_credit(i, 3000000, "unverified_deposit", "x") for i in range(rows)])})
+    assert ("G12" in _run(base, _snap("5.6", {"a": _account(credits)}))["guards"]) is fails
+
+
+@pytest.mark.parametrize(("vetoed", "fails"), [(2, True), (0, False)])
+def test_a_recurrence_lift_needs_its_count_without_the_vetoed_rows(vetoed, fails):
+    credits = [_credit(i, 50000 + i, "verified_revenue", "recurring_operating_source", tier="verified",
+                       entity="Stripe", pool_candidate=True, pool_vetoed=i < vetoed, pool_threshold=3)
+               for i in range(3)]
+    base = _snap("5.4", {"a": _account([_credit(i, 50000 + i, "unverified_deposit", "x") for i in range(3)])})
+    assert ("G14" in _run(base, _snap("5.6", {"a": _account(credits)}))["guards"]) is fails
 
 
 def test_a_text_the_street_ln_guard_changed_is_listed_and_never_financing_into_true():
@@ -5486,17 +6332,18 @@ def test_a_text_the_street_ln_guard_changed_is_listed_and_never_financing_into_t
                                                 text="DEPOSIT 12 OAK LOAN")])})
     after = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
                                                  reason="no_payer_printed", text="DEPOSIT 12 OAK LN")])})
-    run = census.compare(base, [after])["runs"][0]
+    run = _run(base, after)
     assert run["street_ln_changes"][0]["base"] == "non_revenue|financing_proceeds_credit"
     assert run["guards"]["G7b"]["failures"] == 1
 
 
-def test_a_verified_row_demoted_without_a_declared_cause_is_undeclared():
+def test_a_verified_row_demoted_without_a_declared_cause_fails_the_census():
     base = _snap("5.4", {"a": _account([_credit(0, 5000, "verified_revenue", "operating_income_descriptor")])})
     after = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
                                                  reason="named_payer_one_off")])})
-    assert census.compare(base, [after])["runs"][0]["verified_demotions"] == {
-        "undeclared": {"rows": 1, "dollars": 50.0, "statements": 1}}
+    run = _run(base, after)
+    assert run["verified_demotions"] == {"undeclared": {"rows": 1, "dollars": 50.0, "statements": 1}}
+    assert run["guards"]["undeclared_demotion"]["failures"] == 1
 
 
 def test_the_precision_sample_draws_each_stratum_and_the_largest_counted_rows():
@@ -5508,11 +6355,12 @@ def test_the_precision_sample_draws_each_stratum_and_the_largest_counted_rows():
     accounts["forms"] = _account([
         _credit(0, 900, "verified_revenue", "operating_income_descriptor", tier="verified",
                 rule="card_settlement_form_bankcard"),
-        _credit(1, 800, "verified_revenue", "operating_source_with_credit_context", tier="verified"),
+        _credit(1, 800, "verified_revenue", "operating_source_with_credit_context", tier="verified", numbered=True),
     ])
     accounts["forms"]["credits"][1]["alias"] = "whatnot_fbo_form"
     sample = census.precision_sample(_snap("5.6", accounts))
     assert len(sample["q6b_company_form"]) == 20 and len(sample["holder_test_rows"]) == 20
+    assert [row["dollars"] for row in sample["numbered_template_rows"]] == [8.0]
     assert sorted(row["dollars"] for row in sample["card_and_payout_forms"]) == [8.0, 9.0]
     assert [row["dollars"] for row in sample["largest_counted"][:2]] == [295.0, 290.0]
     assert len(sample["largest_counted"]) == 50 and all(row["sort"] == "" for row in sample["largest_counted"])
@@ -5557,8 +6405,9 @@ Local only; never run in CI.
 entity, amount in cents, the digit-masked normalized text) and, where the checkout has them, the guard facts of
 §14.3 read with that checkout's readers. `compare` reads a base snapshot and one or two later ones and reports the
 shares, the tiers and reasons, the move matrix, every row that left `non_revenue` (by the narrowing of §6.3 that moved
-it), every verified row that lost its verification (by declared cause), the eligible-deposit moves, the package gate,
-and the guards G1 to G14 (G7 is tools/lender_census.py). Every figure it prints is a count, a share or a total;
+it), every verified row that lost its verification (by declared cause), the lender-credit and eligible-deposit moves
+by cause, the package gate, and the guards G1 to G17 (G7 is tools/lender_census.py; G15 to G17 are the review's
+refund, tax-refund and own-account-transfer guards). Every figure it prints is a count, a share or a total;
 descriptors stay in the output file, digit-masked, outside the repository.
 
 Usage, from the repository root of the checkout that holds this tool:
@@ -5608,25 +6457,54 @@ NARROWINGS = (
     ("7_q7_dealer_funding", True),
     ("8_oq2_bnpl_settlement", True),
 )
-#: The declared causes of a verified row losing its verification (§7.0, §7.11, §7.7).
+#: OQ2 (§19): the five BNPL providers whose settlements left D1, by their ledger entity names.
+BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit"})
+#: The declared causes of a verified row losing its verification (§7.0, §7.11, §7.7), and the two consequences of the
+#: recurrence fixes this plan declares (Decisions): a pool that one of its members' re-reading splits between two
+#: entities, and a pool left below the recurrence count once a declared veto takes a member out. Any other cause fails.
 DECLARED_DEMOTIONS = (
     "square_capital", "square_payroll", "acctverify", "channel_gate", "holder_veto", "customer_id",
     "claim_first_off", "recurrence_veto", "sq_cap_or_sba", "new_non_revenue_marker", "reversal_pair",
     "entity_split", "direction_conflict_pool", "micro_deposit_floor", "pool_below_recurrence_after_a_declared_veto",
 )
-#: The operating-registry methods: the rows G2 and G3 list apart for the precision sample (§14.5).
+#: The operating-registry methods (§8.9).
 REGISTRY_METHODS = frozenset({
     "operating_source_requires_context", "operating_source_with_credit_context", "recurring_operating_source",
     "operating_source_related_activity", "wholesale_auction_payout_form",
 })
+#: G10: the methods that may verify a real-time or push-rail row (step 10, the registry, §6.1 step 9b).
+REGISTRY_VERIFYING_METHODS = REGISTRY_METHODS - {"operating_source_requires_context"}
+#: G3: the rules that verify on the payer's identity or remittance (step 11's descriptors, steps 12 to 14, Q5, Q6).
+IDENTITY_METHODS = frozenset({
+    "payer_remittance_descriptor", "public_payer_remittance", "wire_remittance_purpose", "repeat_wire_sender",
+    "named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer",
+})
+#: G9: the four tiers and the state each goes with (§5.4).
+TIER_STATES = {"verified": {"verified_revenue"}, "non_revenue": {"non_revenue"},
+               "counted_flagged": {"unverified_deposit"}, "excluded_pending_review": {"unverified_deposit"}}
+#: G12: a credit union's dealer funding needs this many such credits in the statement (§8.7).
+CREDIT_UNION_DEALER_MIN_CREDITS = 2
+#: The snapshot skips that are the credit census's filter, not a failure (§14.2).
+FILTER_SKIPS = frozenset({"unreconciled", "duplicate"})
 _CLAIM_SIGNAL = re.compile(
     r"\b(?:MEDICAID|MEDICARE|MEDI CAL|TRICARE|CHAMPVA|GEMT|EMS|PROV(?:IDER)? ?PAY(?:MENTS?)?|EDI PYMNTS|CLAIM PMT)\b"
     r"|(?:\bH[CE]?|HC)CLAIMPMT"
 )
+#: The census's own readers (independent of the code under test): the receiver fields, the ACH originator fields.
+_RECEIVER = re.compile(r"\b(?:INDN|IND NAME|IND ID|RECEIVER NAME)\b")
+_ACH_FIELD = re.compile(r"\b(?:DES|CO ENTRY DESCR|ORIG CO NAME)\b")
+#: G15 (review C1): a refund word, glued or not.
+_REFUND_WORD = re.compile(r"[A-Z]*REFUND\w*|\bRFND\w*|\bREFND\w*|\bRFD\b")
+#: G16 (review I6): a tax refund or an earned-income credit, glued or not.
+_TAX_REFUND_WORD = re.compile(r"[A-Z]*TAXRFD\b|\bTAX ?REF\w*|\bTAX ?EIC\b|\bTAX RFD\b")
 
 
 def mask(text: object) -> str:
     return _DIGITS.sub("#", " ".join(str(text or "").split()))
+
+
+def _before_receiver(text: str) -> str:
+    return _RECEIVER.split(text, 1)[0]
 
 
 def _account_payloads(node: object) -> Iterator[dict]:
@@ -5689,6 +6567,20 @@ def _fingerprint(statement) -> tuple:
             statement.ending_balance, len(statement.transactions), statement.account_number)
 
 
+def _pool_threshold(classifier, record) -> int:
+    """§7.0: the recurrence count of the entity's pool: two on a business account (a customer-payment platform reads
+    only the business words), three otherwise."""
+    from analysis.classification_registry import OPERATING_REVENUE_SOURCE_TYPES
+
+    if OPERATING_REVENUE_SOURCE_TYPES.get(record.revenue_canonical_entity or "") == "customer_payment_platform":
+        business = classifier._matches_any(
+            classifier.account_name_text(record.account_name), classifier._BUSINESS_ACCOUNT_PATTERNS
+        )
+    else:
+        business = classifier._business_account(record.account_name)
+    return classifier._RECURRENCE_MIN_BUSINESS_CREDITS if business else classifier._RECURRENCE_MIN_CREDITS
+
+
 def _guard_facts(record, text: str) -> dict:
     """The §14.3 guard facts of one posted credit, read with the checkout's own readers when it has them."""
     from analysis import transaction_classifier as classifier
@@ -5698,9 +6590,21 @@ def _guard_facts(record, text: str) -> dict:
         return facts
     revenue = classifier.revenue_text(text)
     region = classifier.payer_region(revenue)
+    row = _before_receiver(revenue)
     facts["gate"] = classifier.channel_gate(revenue)
     facts["holder"] = classifier.holder_named(region, record.account_name)
     facts["numbered"] = classifier.numbered_company(revenue, region)
+    # G1 (review I1): narrowing 4 needs a third-party originator.
+    facts["third_party_originator"] = classifier._third_party_originator(revenue) is not None
+    # G17 (review C3): the holder's own transfer, read on its ACH originator whatever the payer region says.
+    facts["own_transfer"] = bool(
+        classifier._TRANSFER_WORDING.search(row) and _ACH_FIELD.search(row)
+        and classifier.holder_named(classifier._ach_payer_region(revenue), record.account_name)
+    )
+    # G14 (review I1): the rows that count toward an entity's recurrence pool, and the count it needs.
+    facts["pool_candidate"] = classifier._in_operating_pool(record)
+    facts["pool_vetoed"] = bool(classifier._recurrence_vetoed(record, revenue) or facts["gate"] == "closed")
+    facts["pool_threshold"] = _pool_threshold(classifier, record)
     try:
         from analysis import true_revenue
     except ImportError:
@@ -5719,6 +6623,7 @@ def account_snapshot(account: dict) -> dict:
     records = classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
     credits = []
+    posted = [record for record in records if record.amount > 0 and record.is_posted]
     for index, record in enumerate(records):
         if record.amount <= 0 or not record.is_posted or record.revenue_classification is None:
             continue
@@ -5733,14 +6638,27 @@ def account_snapshot(account: dict) -> dict:
             "tier": getattr(record, "revenue_tier", None),
             "reason": getattr(record, "revenue_tier_reason", None),
             "class": record.classification,
+            "lender_credit": bool(getattr(record, "contributes_to_lender_credit_exclusion", False)),
             "text": mask(record.normalized_description),
             "facts": _guard_facts(record, record.normalized_description),
         })
+    tier_totals = None
+    if hasattr(metrics, "counted_flagged_total"):
+        tier_totals = {
+            "verified": round(metrics.verified_revenue_total * 100),
+            "counted_flagged": round(metrics.counted_flagged_total * 100),
+            "excluded_pending_review": round(metrics.excluded_pending_review_total * 100),
+            "non_revenue": round(metrics.non_revenue_total * 100),
+        }
     return {
         "bank": statement.bank,
         "rows": len(records),
         "credits": credits,
         "posted_cents": sum(credit["cents"] for credit in credits),
+        # G9 (review I1): every posted credit, whatever its state, counted apart from the rows the census kept.
+        "posted_credit_count": len(posted),
+        "posted_credit_cents": sum(round(record.amount * 100) for record in posted),
+        "tier_totals": tier_totals,
         "lender_credits": metrics.lender_credits,
         "eligible_deposits": metrics.legacy_eligible_deposits,
         "revenue_review_required": metrics.revenue_review_required,
@@ -5835,7 +6753,8 @@ def _summary(snap: dict) -> dict:
 
 def _narrowing(base: dict, after: dict) -> str | None:
     """Which §6.3 narrowing (or the OQ2 ruling) moved a base non_revenue row out of non_revenue; None for none."""
-    text, base_method, base_rule = after["text"], base["method"], base["rule"]
+    text, base_method = after["text"], base["method"]
+    facts = after.get("facts") or {}
     if base_method == "reversal_cancellation_exclusion" and "REIMBURSEMENT" in text and _CLAIM_SIGNAL.search(text):
         return "1_reimbursement_claim_signal"
     if base_method == "insurance_provider_credit_exclusion":
@@ -5844,15 +6763,25 @@ def _narrowing(base: dict, after: dict) -> str | None:
         if re.search(r"H[CE]?CLAIMPMT", after["text"]):
             return "2_hcclaimpmt_insurer"
         return "3_insurer_customer_payment"
-    if base_method == "strong_non_revenue_rule" and re.search(r"\b(?:BOOK|FUNDS?) TRANSFER\b", text):
+    # Review I1: a book or funds transfer leaves only on a printed third-party originator (T19, §7.11).
+    if (
+        base_method == "strong_non_revenue_rule"
+        and re.search(r"\b(?:BOOK|FUNDS?) TRANSFER\b", text)
+        and facts.get("third_party_originator")
+    ):
         return "4_book_or_funds_transfer"
-    if after.get("facts", {}).get("street_ln") or (base["text"] != after["text"] and " LN " in f" {after['text']} "):
+    if facts.get("street_ln") or (base["text"] != after["text"] and " LN " in f" {after['text']} "):
         return "5_street_ln"
     if base_method == "reversal_cancellation_exclusion" and re.search(r"\b(?:DEBIT CARD CREDIT|POS CREDIT)\b", text):
         return "6_card_credit_release"
     if base_method == "financing_proceeds_credit" and after["method"] == "auto_lender_dealer_funding":
         return "7_q7_dealer_funding"
-    if base_method == "financing_proceeds_credit" and after["method"] != "financing_proceeds_credit":
+    # Review I1: only the five BNPL providers' settlements leave D1 by the OQ2 ruling.
+    if (
+        base_method == "financing_proceeds_credit"
+        and after["method"] != "financing_proceeds_credit"
+        and base.get("entity") in BNPL_ENTITIES
+    ):
         return "8_oq2_bnpl_settlement"
     return None
 
@@ -5882,13 +6811,23 @@ def _demotion_cause(base: dict, after: dict) -> str:
     if re.search(r"\bPAYROLL|\bPAYRL|\bDIR ?DEP|\bSALAR|\bWAGE|\bBONUS", text) and "SQ" in text or "SQUARE" in text and re.search(r"PAYROLL", text):
         return "square_payroll"
     if re.search(r"\bLOANS?\b|\bCAPITAL\b|\bCAP\d*|\bADV|\bFIN\b|\bFINANC|\bLEND|\bMCA\b|\bPAYROLL|\bPAYRL|\bDIR ?DEP"
-                 r"|\bSALAR|\bWAGE|\bNET ?PAY|\bBONUS|\bREIMB|\bVERIF|\bINSUR|\bDEBIT CARD CREDIT|\bPOS CREDIT", text):
+                 r"|\bSALAR|\bWAGE|\bNET ?PAY|\bBONUS|\bREIMB|\bVERIF|\bINSUR|\bDEBIT CARD CREDIT|\bPOS CREDIT"
+                 r"|\bFUNDING\b|\bFUNDED\b", text):
         return "recurrence_veto"
     if base.get("entity") and after.get("entity") and base["entity"] != after["entity"]:
         return "entity_split"
     if base["method"] == "recurring_operating_source" and method == "operating_source_requires_context":
         return "pool_below_recurrence_after_a_declared_veto"
     return "undeclared"
+
+
+def _lender_move_cause(base: dict, after: dict) -> str:
+    """M2 (§14.2, §11): why a credit entered or left the lender-credit exclusion (and so moved eligible deposits)."""
+    if not after.get("lender_credit"):
+        return _narrowing(base, after) or f"left:{after['method']}"
+    if base["state"] == "verified_revenue":
+        return _demotion_cause(base, after)
+    return f"entered:{after['rule'] or after['method']}"
 
 
 def compare(base: dict, afters: list[dict]) -> dict:
@@ -5899,15 +6838,23 @@ def compare(base: dict, afters: list[dict]) -> dict:
         left_non_revenue: dict = defaultdict(lambda: [0, 0, set()])
         demoted: dict = defaultdict(lambda: [0, 0, set()])
         deposits: Counter = Counter()
+        lender_moves: dict = defaultdict(lambda: [0, 0, set()])
         failures: dict = defaultdict(list)
         street_ln: list = []
         gate: Counter = Counter()
         q6_unlabelled = [0, 0]
+        g13_apart: dict = defaultdict(lambda: [0, 0, set()])
         unmatched = 0
+        tiered = any(credit.get("tier") for account in after["accounts"].values() for credit in account["credits"])
+        # G9 (review I1): an account that failed to classify, or that the base holds and this run lost, fails.
+        for reason, count in (after.get("skipped") or {}).items():
+            if reason not in FILTER_SKIPS and count != (base.get("skipped") or {}).get(reason, 0):
+                failures["G9"].append({"skipped": reason, "count": count})
         for key, old in base["accounts"].items():
             new = after["accounts"].get(key)
             if new is None or new["rows"] != old["rows"]:
                 unmatched += 1
+                failures["G9"].append({"account": key, "unmatched": True})
                 continue
             old_by_index = {credit["i"]: credit for credit in old["credits"]}
             old_deposits, new_deposits = old.get("eligible_deposits"), new.get("eligible_deposits")
@@ -5923,13 +6870,13 @@ def compare(base: dict, afters: list[dict]) -> dict:
                 slot[0] += 1
                 slot[1] += credit["cents"]
                 slot[2].add(key)
+                in_true = credit["state"] == "verified_revenue" or credit.get("tier") == "counted_flagged"
                 if prior["state"] == "non_revenue" and credit["state"] != "non_revenue":
                     cause = _narrowing(prior, credit) or "outside_the_narrowings"
                     entry = left_non_revenue[cause]
                     entry[0] += 1
                     entry[1] += credit["cents"]
                     entry[2].add(key)
-                    in_true = credit["state"] == "verified_revenue" or credit.get("tier") == "counted_flagged"
                     allowed = dict(NARROWINGS).get(cause)
                     if cause == "outside_the_narrowings" or (in_true and allowed is False):
                         failures["G1"].append({"account": key, "i": credit["i"], "cause": cause, "text": credit["text"]})
@@ -5939,6 +6886,14 @@ def compare(base: dict, afters: list[dict]) -> dict:
                     entry[0] += 1
                     entry[1] += credit["cents"]
                     entry[2].add(key)
+                    if cause == "undeclared":
+                        failures["undeclared_demotion"].append({"account": key, "i": credit["i"],
+                                                                "text": credit["text"]})
+                if "lender_credit" in prior and bool(prior["lender_credit"]) != bool(credit.get("lender_credit")):
+                    entry = lender_moves[_lender_move_cause(prior, credit)]
+                    entry[0] += 1
+                    entry[1] += credit["cents"] if credit.get("lender_credit") else -credit["cents"]
+                    entry[2].add(key)
                 for guard, failed in _row_guards(credit).items():
                     if failed:
                         failures[guard].append({"account": key, "i": credit["i"], "text": credit["text"]})
@@ -5947,19 +6902,23 @@ def compare(base: dict, afters: list[dict]) -> dict:
                     street_ln.append({"account": key, "i": credit["i"], "base": f"{prior['state']}|{prior['method']}",
                                       "after": f"{credit.get('tier') or credit['state']}|{credit['method']}",
                                       "text": credit["text"]})
-                    in_true = credit["state"] == "verified_revenue" or credit.get("tier") == "counted_flagged"
                     if prior["method"] == "financing_proceeds_credit" and in_true:
                         failures["G7b"].append({"account": key, "i": credit["i"], "text": credit["text"]})
-            identity = sum(credit["cents"] for credit in new["credits"])
-            if identity != new["posted_cents"]:
-                failures["G9"].append({"account": key})
+            for failure in _account_guards(new, tiered):
+                failures[failure["guard"]].append({"account": key, **failure})
             if new.get("revenue_review_required"):
                 for reason in {c["reason"] for c in new["credits"] if c.get("tier") == "excluded_pending_review"}:
                     gate[reason] += 1
             for credit in new["credits"]:
-                if credit.get("reason") == "named_payer_unlabelled" and (credit.get("facts") or {}).get("q6_shape"):
+                facts = credit.get("facts") or {}
+                if credit.get("reason") == "named_payer_unlabelled" and facts.get("q6_shape"):
                     q6_unlabelled[0] += 1
                     q6_unlabelled[1] += credit["cents"]
+                if credit["state"] == "verified_revenue" and facts.get("numbered") and not _row_guards(credit)["G13"]:
+                    entry = g13_apart[credit["method"]]
+                    entry[0] += 1
+                    entry[1] += credit["cents"]
+                    entry[2].add(key)
         report["runs"].append({
             "summary": _summary(after),
             "accounts_unmatched": unmatched,
@@ -5967,7 +6926,6 @@ def compare(base: dict, afters: list[dict]) -> dict:
                 {"from": source, "to": target, "rows": value[0], "dollars": round(value[1] / 100, 2),
                  "statements": len(value[2])}
                 for (source, target), value in sorted(moves.items(), key=lambda item: -item[1][1])
-                if source.split("|")[0] != target.split("|")[0] or True
             ],
             "left_non_revenue": {
                 cause: {"rows": value[0], "dollars": round(value[1] / 100, 2), "statements": len(value[2])}
@@ -5978,13 +6936,69 @@ def compare(base: dict, afters: list[dict]) -> dict:
                 for cause, value in sorted(demoted.items())
             },
             "eligible_deposits": dict(deposits),
+            # M2 (§14.2, §11): lender credits (so eligible deposits, the other way) by the cause that moved each row.
+            "lender_credit_moves_by_cause": {
+                cause: {"rows": value[0], "lender_credit_dollars": round(value[1] / 100, 2),
+                        "eligible_deposit_dollars": round(-value[1] / 100, 2), "statements": len(value[2])}
+                for cause, value in sorted(lender_moves.items())
+            },
             "street_ln_changes": street_ln,
             "gated_statements_by_held_reason": dict(gate.most_common()),
             "named_payer_unlabelled_with_q6_shape": {"rows": q6_unlabelled[0],
                                                      "dollars": round(q6_unlabelled[1] / 100, 2)},
+            # G13 (review I1): Verified rows the numbered-company template matches that a processor's registry or
+            # card form verified (its payer is the processor, §5.2); the precision sample reads them.
+            "g13_listed_apart": {
+                method: {"rows": value[0], "dollars": round(value[1] / 100, 2), "statements": len(value[2])}
+                for method, value in sorted(g13_apart.items())
+            },
             "guards": {guard: {"failures": len(items), "sample": items[:25]} for guard, items in sorted(failures.items())},
         })
     return report
+
+
+def _account_guards(account: dict, tiered: bool) -> list[dict]:
+    """The account-level guards of §14.3: G9 (the four-tier identity, each tier with its state, every posted credit
+    kept, and the metrics' tier totals), G12's credit-union count and G14's recurrence pools."""
+    found: list[dict] = []
+    credits = account["credits"]
+    posted_count = account.get("posted_credit_count")
+    if posted_count is not None and (posted_count != len(credits)
+                                     or account.get("posted_credit_cents") != account["posted_cents"]):
+        found.append({"guard": "G9", "posted_credits_without_a_revenue_state": posted_count - len(credits)})
+    if tiered:
+        by_tier: Counter = Counter()
+        for credit in credits:
+            tier = credit.get("tier")
+            if tier not in TIER_STATES or credit["state"] not in TIER_STATES[tier]:
+                found.append({"guard": "G9", "i": credit["i"], "tier": tier, "state": credit["state"]})
+            by_tier[tier] += credit["cents"]
+        if sum(by_tier.values()) != account["posted_cents"]:
+            found.append({"guard": "G9", "identity": "rows"})
+        totals = account.get("tier_totals")
+        if totals is not None and (
+            any(abs(totals[tier] - by_tier[tier]) > 1 for tier in TIER_STATES)
+            or abs(sum(totals.values()) - account["posted_cents"]) > len(TIER_STATES)
+        ):
+            found.append({"guard": "G9", "identity": "metrics"})
+    unions = [c for c in credits if c["method"] == "auto_lender_dealer_funding"
+              and (c.get("facts") or {}).get("q7_credit_union") and not (c.get("facts") or {}).get("q7_listed")]
+    if 0 < len(unions) < CREDIT_UNION_DEALER_MIN_CREDITS:
+        found.extend({"guard": "G12", "i": c["i"], "credit_union_rows": len(unions)} for c in unions)
+    pools: dict = defaultdict(list)
+    lifted: dict = defaultdict(list)
+    for credit in credits:
+        facts = credit.get("facts") or {}
+        if credit.get("entity") and facts.get("pool_candidate") and not facts.get("pool_vetoed"):
+            pools[credit["entity"]].append(credit)
+        if credit["method"] == "recurring_operating_source" and credit.get("entity"):
+            lifted[credit["entity"]].append(credit)
+    for entity, rows in lifted.items():
+        needed = min((row.get("facts") or {}).get("pool_threshold", 2) for row in rows)
+        if len(pools.get(entity, [])) < needed:
+            found.extend({"guard": "G14", "i": row["i"], "pool": len(pools.get(entity, [])), "needed": needed}
+                         for row in rows)
+    return found
 
 
 #: §14.5's Verified strata: stratum -> the revenue methods that fill it.
@@ -6008,8 +7022,8 @@ PRECISION_STRATA = {
 
 def precision_sample(snap: dict, *, per_stratum: int = 20, largest_counted: int = 50, seed: int = 55) -> dict:
     """§14.5: a stratified sample of a 5.6 snapshot, digit-masked: `per_stratum` Verified rows of each stratum
-    (every row when it holds fewer), the Verified rows G3 lists (the holder test matched), and the `largest_counted`
-    largest counted rows. Each row carries an empty `sort` for the reviewer: revenue, loan, own_money, refund,
+    (every row when it holds fewer), the Verified rows G3 lists (the holder test matched) and G13 lists apart (the
+    numbered-company template on a processor's settlement), and the `largest_counted` largest counted rows. Each row carries an empty `sort` for the reviewer: revenue, loan, own_money, refund,
     transfer, insurance, other or cannot_tell."""
     import random
 
@@ -6026,6 +7040,8 @@ def precision_sample(snap: dict, *, per_stratum: int = 20, largest_counted: int 
                         pools[stratum].append(row)
                 if (credit.get("facts") or {}).get("holder"):
                     pools["holder_test_rows"].append(row)
+                if (credit.get("facts") or {}).get("numbered"):
+                    pools["numbered_template_rows"].append(row)
             elif credit.get("tier") == "counted_flagged":
                 counted.append(row)
     chooser = random.Random(seed)
@@ -6036,31 +7052,47 @@ def precision_sample(snap: dict, *, per_stratum: int = 20, largest_counted: int 
 
 
 def _row_guards(credit: dict) -> dict[str, bool]:
-    """The row-level guards of §14.3 that a later snapshot's guard facts decide (True means the guard failed)."""
+    """The row-level guards of §14.3 and the review's G15 to G17 (True means the guard failed)."""
     facts = credit.get("facts") or {}
     tier = credit.get("tier")
     in_true = credit["state"] == "verified_revenue" or tier == "counted_flagged"
     verified = credit["state"] == "verified_revenue"
     method = credit["method"]
+    row = _before_receiver(credit["text"])
     guards = {
-        # §8.1 skips a row the operating registry claimed, so G2 does too; the census lists those rows apart.
-        "G2": verified and bool(facts.get("financing_root")) and method != "auto_lender_dealer_funding"
-        and method not in REGISTRY_METHODS,
+        # A registry row reads the root with the holder's own words and §7.0's FUNDING settlements aside (review I1).
+        "G2": verified and method != "auto_lender_dealer_funding" and bool(
+            facts.get("registry_root") if method in REGISTRY_METHODS else facts.get("financing_root")
+        ),
         "G3": bool(facts.get("holder")) and (
-            (verified and method in {
-                "payer_remittance_descriptor", "public_payer_remittance", "wire_remittance_purpose",
-                "repeat_wire_sender", "named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer",
-            })
+            (verified and method in IDENTITY_METHODS)
             or (verified and method == "operating_income_descriptor" and bool(facts.get("customer_descriptor")))
             or tier == "counted_flagged"
         ),
         "G4": in_true and bool(facts.get("transfer_no_counterparty")),
         "G6": in_true and method == "direction_conflict",
-        "G10": verified and facts.get("gate") == "closed",
+        # G10 (review I1): a closed row never verifies; a push-rail row verifies through the registry only.
+        "G10": verified and (
+            facts.get("gate") == "closed" or (facts.get("gate") == "push" and method not in REGISTRY_VERIFYING_METHODS)
+        ),
         "G11": in_true and bool(facts.get("pay_or_personal")),
-        "G12": method == "auto_lender_dealer_funding" and not facts.get("q7_payer_ok", True),
-        "G13": verified and bool(facts.get("numbered_region")),
+        "G12": method == "auto_lender_dealer_funding" and (
+            not facts.get("q7_payer_ok", True) or bool(facts.get("q7_veto_word"))
+        ),
+        # G13 (review I1): the full numbered-company guard, the DIRECT DEPOSIT <digits> template included, on the
+        # rules that read it (§5.2: steps 11 to 14, Q5, Q6); the region form on every Verified row. A processor's
+        # settlement printed after BMO's template (MISC PAYMENT <digits> GBL VI) is listed apart (g13_listed_apart).
+        "G13": verified and (
+            bool(facts.get("numbered_region"))
+            or (bool(facts.get("numbered")) and (
+                method in IDENTITY_METHODS
+                or (method == "operating_income_descriptor" and bool(facts.get("customer_descriptor")))
+            ))
+        ),
         "G14": bool(facts.get("pooled_while_vetoed")),
+        "G15": in_true and _REFUND_WORD.search(row) is not None,
+        "G16": in_true and _TAX_REFUND_WORD.search(row) is not None,
+        "G17": in_true and bool(facts.get("own_transfer")),
     }
     if facts.get("known_financing") and in_true and method not in {"auto_lender_dealer_funding"}:
         guards["G5"] = not facts.get("payout_or_factoring")
@@ -6088,6 +7120,9 @@ def _print(report: dict) -> None:
             f"{cause} {value['rows']} rows/${value['dollars']:,.2f}/{value['statements']} st"
             for cause, value in run["verified_demotions"].items()))
         print("  eligible deposits: " + ", ".join(f"{name} {count}" for name, count in run["eligible_deposits"].items()))
+        print("  lender credits by cause: " + ", ".join(
+            f"{cause} {value['rows']} rows/${value['lender_credit_dollars']:,.2f}"
+            for cause, value in run["lender_credit_moves_by_cause"].items()))
         print("  guards: " + (", ".join(f"{guard} FAILED {value['failures']}" for guard, value in run["guards"].items())
                               or "all hold"))
 
@@ -6164,11 +7199,11 @@ if __name__ == "__main__":
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_revenue_census.py -q -p no:cacheprovider`
 
-Expected: PASS: `20 passed`.
+Expected: PASS: `43 passed`.
 
 - [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
-  - SEL-REVENUE: `394 passed`
+  - SEL-REVENUE: `565 passed`
 
 - [ ] **Step 6: Commit.**
 
@@ -6186,7 +7221,7 @@ git commit -m "tools: the revenue census (spec 14.2, 14.3, 14.5)" -m "Co-Authore
 
 **Depends on:** S2.5, S3.1 and S1.5. S4 starts only after the orchestrator accepts this task's report (spec §16).
 
-**Why:** spec §14.2 and T17: 5.5 carries the fixes under today's definition so that the census can measure them alone. Every row that left `non_revenue` must be one of the named narrowings, every verified row that lost its verification must have a declared cause, and the guards that can already be read at 5.5 (G1, G4 to G6, G9, G10, G13, G14 on verified rows) must hold.
+**Why:** spec §14.2 and T17: 5.5 carries the fixes under today's definition so that the census can measure them alone. Every row that left `non_revenue` must be one of the named narrowings, every verified row that lost its verification must have a declared cause (an undeclared one fails the census), and the guards that can already be read at 5.5 (G1, G4 to G6, G9, G10, G13, G14 and the review's G15 to G17, on verified rows) must hold.
 
 - [ ] **Step 1: The 5.4 code, outside the repository.** A plain copy of `analysis/` at the plan's first commit (no worktree, so the main checkout's git metadata is untouched):
 
@@ -6208,21 +7243,23 @@ C:/Python314/python.exe -m tools.revenue_census compare --base $OUT/s54.json.gz 
 
   Each snapshot prints `classification 5.4: 2493 accounts; skipped: {'duplicate': 4579, 'unreconciled': 169}`, then the same line for 5.5 (measured on the cache of 2026-09-28; a cache that has grown since prints larger numbers, which the report states). `compare` exits 0.
 
-- [ ] **Step 3: Read the report against the measured values.** Measured on the prototype on 2026-09-28 (the same corpus, without S1.5's admissions; rows exact, dollars rounded). A difference that S1.5's admissions explain is reported with the entity; any other difference stops the task.
+- [ ] **Step 3: Read the report against the measured values.** Measured on the revised prototype on 2026-09-29 (the same corpus, without S1.5's admissions; rows exact, dollars rounded). Any difference stops the task, except the one S1.5's admissions explain, measured this way (review I2): if S1.5 admitted or cleared anything, first build `C:/Users/GustavoPrietodePaula/lender-research/revenue/census/noadmit55/` as Step 1 builds `base54` but from `HEAD`, then overwrite its `analysis/classification_registry.py` with the version before S1.5's commit (`git -C C:/Users/GustavoPrietodePaula/work/true-revenue show <S1.5 commit>~1:analysis/classification_registry.py`); snapshot with `--code-root` that folder to `s55_noadmit.json.gz` and compare it with `s54.json.gz`: that report must match the table below. Then `compare --base $OUT/s55_noadmit.json.gz --after $OUT/s55.json.gz`: every row that moved names, in its `entity` or its text, an entity of `g7_allowlist.json` or a processor whose bare aliases S1.5 cleared; list them in the report by entity. Any other moved row stops the task.
 
 | Figure | 5.4 | 5.5 |
 |---|---|---|
 | Statements with credits | 2,468 | 2,468 (0 unmatched) |
-| Verified share of posted credits | 7.17% | 19.50% |
-| Statements at $0 verified | 1,819 | 1,266 |
-| Statements gated (today's rule, `revenue_review_required`) | 96.6% | 93.72% |
-| Rows verified / unverified / non-revenue | | 27,554 / 39,724 / 9,887 |
+| Verified share of posted credits | 7.17% | 19.59% |
+| Statements at $0 verified | 1,819 | 1,271 |
+| Statements gated (today's rule, `revenue_review_required`) | 96.6% | 93.80% (2,315) |
+| Rows verified / unverified / non-revenue | | 27,521 / 39,754 / 9,890 |
 
   - **Left `non_revenue`** (every row one of §6.3's narrowings or the OQ2 ruling; `outside_the_narrowings` must be absent): `2_hcclaimpmt_insurer` 177 rows, about $0.91M, 16 statements (T18); `3_insurer_customer_payment` 4 rows, about $0.08M, 4 statements (unverified at 5.5, held at 5.6); `4_book_or_funds_transfer` 425 rows, about $8.41M, 99 statements (T19); `5_street_ln` 7 rows, about $0.02M, 4 statements; `8_oq2_bnpl_settlement` 8 rows, under $300, 6 statements.
-  - **Verified demotions** (each a declared cause; `undeclared` must be absent): `channel_gate` 37 rows (10 statements); `customer_id` 37 (11); `micro_deposit_floor` 21 (15); `recurrence_veto` 17 (5); `sq_cap_or_sba` 8 (8); `square_payroll` 7 (4); `pool_below_recurrence_after_a_declared_veto` 4 (3).
+  - **Verified demotions** (each a declared cause; `undeclared` must be absent): `channel_gate` 37 rows (10 statements); `customer_id` 37 (11); `micro_deposit_floor` 21 (15); `recurrence_veto` 17 (5); `sq_cap_or_sba` 8 (8); `square_payroll` 7 (4); `pool_below_recurrence_after_a_declared_veto` 4 (3). The last is not in the spec: it is this plan's declared consequence of the recurrence veto (a pool left under its count once a vetoed member leaves it), with `entity_split` (measured 0); see Decision 25.
   - **Eligible deposits:** unchanged 2,474 accounts, down 13 (SQ CAP and SBA become financing proceeds), up 6 (the BNPL settlements leave D1).
-  - **Guards:** `all hold`.
-  - **Targets (§14.4):** Verified after 5.5 "about 14% or more": 19.50%; $0-verified "at most about 1,465": 1,266.
+  - **Lender credits by cause** (`lender_credit_moves_by_cause`, review M2; eligible deposits move the other way): `sq_cap_or_sba` 8 rows, about $0.15M in, 8 statements (verified at 5.4); `entered:square_capital_credit` 5 rows, about $0.12M in, 5 statements (unverified at 5.4); `8_oq2_bnpl_settlement` 9 rows, under $300 out, 6 statements.
+  - **Listed apart:** `g13_listed_apart`: the processors' card and registry settlements printed after BMO's `MISC PAYMENT <digits>` template (their payer is the processor, §5.2): `operating_income_descriptor` 357 rows, about $0.54M, 6 statements; `operating_source_with_credit_context` 83 rows, about $0.13M, 11 statements. A3 samples them.
+  - **Guards:** `all hold` (G1 to G14 as they read at 5.5, G15 to G17, and no `undeclared_demotion`).
+  - **Targets (§14.4):** Verified after 5.5 "about 14% or more": 19.59%; $0-verified "at most about 1,465": 1,271.
 
 - [ ] **Step 4: Report.** Send the orchestrator the printed lines, the table above filled with the run's values, and the path of `cmp55.json` (private). Nothing is committed.
 
@@ -6235,7 +7272,7 @@ C:/Python314/python.exe -m tools.revenue_census compare --base $OUT/s54.json.gz 
 **Files:**
 - Create: `tests/test_true_revenue_payload.py`
 - Modify: `analysis/revenue.py:20-22, 41-50, 123-124, 283-284`
-- Modify: `analysis/transaction_classifier.py:35, 209, 2489, 2520, 3396, 3407, 4626`
+- Modify: `analysis/transaction_classifier.py:36, 210, 2563, 2594, 3470, 3481, 4709`
 
 **Depends on:** S3.2 accepted (spec §16: S4 starts after the 5.5 census report is accepted).
 
@@ -6424,7 +7461,7 @@ with:
     return record
 ```
 
-In `analysis/transaction_classifier.py` (line 35), replace:
+In `analysis/transaction_classifier.py` (line 36), replace:
 
 ```python
 from .revenue import RevenueState, revenue_contribution_flags
@@ -6436,7 +7473,7 @@ with:
 from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 ```
 
-In `analysis/transaction_classifier.py` (line 209), replace:
+In `analysis/transaction_classifier.py` (line 210), replace:
 
 ```python
     potential_payee_label: str | None = None
@@ -6456,7 +7493,7 @@ with:
     contributes_to_excluded_pending_review: bool = False
 ```
 
-In `analysis/transaction_classifier.py` (line 2489), replace:
+In `analysis/transaction_classifier.py` (line 2563), replace:
 
 ```python
     revenue_flags = revenue_contribution_flags(revenue_state)
@@ -6469,7 +7506,7 @@ with:
     revenue_flags = revenue_contribution_flags(revenue_state, revenue_tier)
 ```
 
-In `analysis/transaction_classifier.py` (line 2520), replace:
+In `analysis/transaction_classifier.py` (line 2594), replace:
 
 ```python
         revenue_initial_classification=revenue_state,
@@ -6483,7 +7520,7 @@ with:
         revenue_initial_tier=revenue_tier,
 ```
 
-In `analysis/transaction_classifier.py` (line 3396), replace:
+In `analysis/transaction_classifier.py` (line 3470), replace:
 
 ```python
         revenue_initial_classification=state,
@@ -6498,7 +7535,7 @@ with:
         revenue_tier_reason=None,
 ```
 
-In `analysis/transaction_classifier.py` (line 3407), replace:
+In `analysis/transaction_classifier.py` (line 3481), replace:
 
 ```python
         **revenue_contribution_flags(state),
@@ -6510,7 +7547,7 @@ with:
         **revenue_contribution_flags(state, tier_of_state(state)),
 ```
 
-In `analysis/transaction_classifier.py` (line 4626), replace:
+In `analysis/transaction_classifier.py` (line 4709), replace:
 
 ```python
             contributes_to_non_revenue=duplicate_revenue,
@@ -6553,8 +7590,8 @@ git commit -m "revenue: the tier vocabulary and the per-row contract (5.6)" -m "
 **Files:**
 - Create: `analysis/true_revenue.py`
 - Create: `tests/test_true_revenue_tiers.py`
-- Modify: `analysis/transaction_classifier.py:38, 4602`
-- Modify (pins): `tests/test_revenue_census.py:152`
+- Modify: `analysis/transaction_classifier.py:39, 4685`
+- Modify (pins): `tests/test_revenue_census.py:261`
 - Modify (pins): `tests/test_revenue_classification.py:286-287, 290-292`
 
 **Depends on:** S4.1.
@@ -6565,10 +7602,11 @@ git commit -m "revenue: the tier vocabulary and the per-row contract (5.6)" -m "
   - `analysis/true_revenue.py`: `apply_true_revenue_pass(records, duplicate_indexes) -> list[TransactionClassification]`
   - `CreditFacts` (frozen dataclass), `credit_facts(record, text, *, lender_words, debit_words) -> CreditFacts`
   - `financing_named(text, region, entry, account_name) -> bool`, `non_sale_purpose(text, region) -> bool`, `healthcare_payer(region) -> bool`, `government_payer(region) -> bool`, `public_region(text) -> str`, `DEALER_FUNDING_WORDS`, `_dealer_funding_payer(text) -> str | None`
-  - `guard_facts(record, text) -> dict` (keys `financing_root`, `pay_or_personal`, `transfer_no_counterparty`, `known_financing`, `payout_or_factoring`, `numbered_region`, `customer_descriptor`, `pooled_while_vetoed`, `q6_shape`)
+  - `registry_financing(record, text) -> bool`, `registry_financing_root(record, text) -> bool`
+  - `guard_facts(record, text) -> dict` (keys `financing_root`, `registry_root`, `registry_financing`, `pay_or_personal`, `transfer_no_counterparty`, `known_financing`, `payout_or_factoring`, `numbered_region`, `customer_descriptor`, `pooled_while_vetoed`, `q6_shape`)
   - new revenue methods `repeat_wire_sender`, `named_payer_repeats`, `named_payer_company_form`, `public_or_healthcare_payer`
 
-**Why:** Spec §8.1 to §8.6, §8.8 to §8.10, T2 to T4, T11 to T14: statement pass 7 (§6.2). For each posted credit it reads the payer facts (channel family, payer region, name and key, entry fields) and the first hold of §8.10's order; verifies a company that wires twice or more (Q5) and a named ACH/EFT payer that repeats, prints a company form or is a government or healthcare payer (Q6), never a row a hold names; then gives every posted credit its tier and reason. A lender of `DEALER_FUNDING_PAYERS` and a row printing a dealer-funding word are held as `financing_named_payer` until S4.3's Q7 verifies the dealer's own funding. It also exposes the census's guard facts.
+**Why:** Spec §8.1 to §8.6, §8.8 to §8.10, T2 to T4, T11 to T14: statement pass 7 (§6.2). For each posted credit it reads the payer facts (channel family, payer region, name and key, entry fields) and the first hold of §8.10's order; verifies a company that wires twice or more (Q5) and a named ACH/EFT payer that repeats, prints a company form or is a government or healthcare payer (Q6), never a row a hold names; then gives every posted credit its tier and reason. A lender of `DEALER_FUNDING_PAYERS` and a row printing a dealer-funding word are held as `financing_named_payer` until S4.3's Q7 verifies the dealer's own funding. After the review: a refund word, glued or not, is a non-sale purpose (C1; the financing root's `(?<!RE)FUND` is declared, Decision 19); a registry row that prints a financing word is never claimed and is held as financing (C2); a consumer entry, a bank and a title or escrow firm never verify by their company form, and PAYCHECK, PR PAY and EMPLOYEE PAY are pay words (I6); VISA, CHECKCARD and PURCHASE CREDIT and an auction's DEALSHIELD or ARB CREDIT are possible returns (M6, §7.8); Q5 never verifies a row the channel gate closes or limits to the registry. It also exposes the census's guard facts.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -6759,6 +7797,106 @@ def test_the_four_tiers_add_up_to_the_posted_credits():
     assert tiers == {"verified": 700.0, "counted_flagged": 300.0, "excluded_pending_review": 900.0,
                      "non_revenue": 100.0}
     assert records[4].revenue_tier is None
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The review's holes (2026-09-29): refunds, platform capital, the holder's own ACH transfer, paychecks, title firms,
+# card refunds and the auction's refunds, each alone and repeated.
+# ---------------------------------------------------------------------------------------------------------------------
+REFUNDS = [
+    "FABRIKAM INC DES:REFUNDS ID:1",
+    "FABRIKAM INC DES:REFUNDING ID:1",
+    "FABRIKAM INC DES:CUST REFUNDS ID:1",
+    "FABRIKAM INC DES:REFUNDREQ ID:1",
+    "FABRIKAM INC DES:PREFUND ID:1",
+    "NORTHWIND SUPPLY DES:REFUNDS ID:1 CCD",
+    "ORIG CO NAME:FABRIKAM INC ORIG ID:1 DESC DATE: CO ENTRY DESCR:REFUNDS SEC:CCD",
+]
+
+
+@pytest.mark.parametrize("text", REFUNDS)
+def test_a_refund_word_glued_or_not_is_held_alone_and_repeated(text):
+    # Review C1: the financing root reads FUND only when RE does not precede it (a refund is no funding), so the
+    # refund words hold the row as a non-sale purpose; a repeat or a company form never verifies it.
+    alone = _one(text, 250.0)
+    assert _tier(alone) == ("excluded_pending_review", "non_sale_purpose")
+    repeated = _records([(text, 250.0), (text.replace("ID:1", "ID:2"), 260.0)])
+    assert {_tier(record) for record in repeated} == {("excluded_pending_review", "non_sale_purpose")}
+
+
+@pytest.mark.parametrize("text", [
+    "STRIPE DES:CAPITAL ID:1", "SHOPIFY DES:CAPITAL ID:1", "DOORDASH INC DES:CAPITAL ID:1", "TOAST INC DES:CAPITAL ID:1",
+    "CLOVER DES:CAPITAL ADV ID:1", "SPOTON DES:ADVANCE ID:1", "HEARTLAND PAYMENT SYSTEMS DES:FUNDING ID:1",
+    "UBER DES:ADVANCE ID:1", "ETSY DES:FUNDING ID:1", "MANHEIM US DES:FUNDING ID:1", "MANHEIM US DES:FLOORPLAN ID:1",
+    "MANHEIM US DES:ACH PAYMNT NGC ID:1",
+])
+def test_a_platform_s_capital_or_an_auction_s_floor_plan_credit_is_held(text):
+    # Review C2: the registry never claims a row that prints a financing word, so it is held as financing.
+    records = _records([(text, 15000.0), (text.replace("ID:1", "ID:2"), 15001.0),
+                        (text.replace("ID:1", "ID:3"), 15002.0)], holder="SAMPLE MOTORS LLC")
+    assert {_tier(record) for record in records} == {("excluded_pending_review", "financing_named_payer")}
+
+
+def test_a_platform_s_own_settlement_words_keep_it_counted():
+    # §7.0: TapGoods prints FUNDING on its settlements; a delivery platform prints the merchant's store (the
+    # holder's own words) in its entry field. Neither is financing.
+    tapgoods = _one("TGPAYMENTS DES:FUNDING ID:1", 900.0)
+    assert _tier(tapgoods) == ("counted_flagged", "platform_unconfirmed")
+    store = _one("DOORDASH INC DES:SAMPLE CAPITA ID:1 INDN:SAMPLE CAPITAL GROUP CO ID:1 CCD", 900.0,
+                 holder="SAMPLE CAPITAL GROUP LLC")
+    assert _tier(store) == ("counted_flagged", "platform_unconfirmed")
+
+
+@pytest.mark.parametrize("text", [
+    "CONTOSO BAKERY DES:TRANSFER ID:1",
+    "CONTOSO BAKERY LLC DES:XFER ID:1 CCD",
+    "ORIG CO NAME:CONTOSO BAKERY LLC ORIG ID:1 DESC DATE: CO ENTRY DESCR:TRANSFER SEC:CCD",
+])
+def test_the_holder_s_own_ach_transfer_is_held(text):
+    # Review C3: a transfer-worded ACH row with no FROM sender reads its originator as its payer.
+    assert _tier(_one(text, 10000.0)) == ("excluded_pending_review", "holder_name")
+
+
+def test_an_ach_transfer_from_a_payer_the_statement_also_debits_is_held():
+    records = _records([
+        ("NORTHWIND BAKERY DES:TRANSFER ID:1 INDN:NORTHWIND BAKERY CO ID:1 CCD", 5000.0),
+        ("NORTHWIND BAKERY DES:TRANSFER ID:2 INDN:NORTHWIND BAKERY CO ID:1 CCD", -3000.0),
+    ], holder="BUSINESS CHECKING")
+    assert _tier(records[0]) == ("excluded_pending_review", "payer_also_debited")
+
+
+@pytest.mark.parametrize("text", [
+    "FABRIKAM INC DES:PAYCHECK ID:1 PPD", "FABRIKAM INC DES:PR PAYMENT ID:1", "FABRIKAM INC DES:EMPLOYEE PAY ID:1 PPD",
+])
+def test_a_paycheck_is_payroll(text):
+    # Review I6: PAYCHECK, PR PAY and EMPLOYEE PAY join Q8's pay words.
+    assert _tier(_one(text, 2500.0)) == ("excluded_pending_review", "payroll_or_salary")
+
+
+@pytest.mark.parametrize("text", [
+    "FABRIKAM INC DES:PAYMENT ID:1 PPD",          # a consumer entry never verifies by its company form (review I6)
+    "NORTHWIND TITLE LLC DES:PAYMENT ID:1",       # a title firm is no customer (§8.5's senders)
+    "SAMPLE COMMUNITY BANK INC DES:PAYMENT ID:1",  # nor is a bank
+])
+def test_a_consumer_entry_a_title_firm_or_a_bank_never_verifies_by_its_company_form(text):
+    assert _tier(_one(text, 2500.0)) == ("counted_flagged", "named_payer_one_off")
+
+
+@pytest.mark.parametrize("text", [
+    "VISA CREDIT FABRIKAM STORE", "CHECKCARD CREDIT FABRIKAM STORE", "PURCHASE CREDIT FABRIKAM STORE",
+    "MANHEIM US DES:DEALSHIELD ID:1", "MANHEIM US DES:ARB CREDIT ID:1",
+])
+def test_a_card_refund_and_an_auction_refund_are_possible_returns(text):
+    # Review M6 and §7.8: a card credit's posting label and an auction's guarantee or arbitration refund.
+    assert _tier(_one(text, 80.0, holder="SAMPLE MOTORS LLC")) == ("excluded_pending_review", "possible_return")
+
+
+def test_q5_never_verifies_a_wire_that_prints_a_push_rail():
+    # §6.1 step 9b: a real-time or push rail verifies through the registry only, never by Q5's repeats.
+    wire = ("WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:{n} ORIG:FABRIKAM EXPORTS LLC ID:1 SND BK:SAMPLE BANK "
+            "ID:1 PMT DET:PAYMENT RECEIVED")
+    records = _records([(wire.format(n=1), 20000.0), (wire.format(n=2), 21000.0)])
+    assert {record.revenue_classification for record in records} == {"unverified_deposit"}
 ```
 
 Append to the end of `tests/test_revenue_census.py`:
@@ -6781,13 +7919,15 @@ def test_one_fabricated_statement_snapshots_with_its_tiers_and_facts():
     # Every digit is masked in the census output.
     assert not any(ch.isdigit() for credit in account["credits"] for ch in credit["text"])
     assert account["credits"][2]["facts"]["financing_root"]
+    assert account["posted_credit_count"] == 4 and account["posted_credit_cents"] == 200000
+    assert _run(snap, snap)["guards"] == {}
 ```
 
 - [ ] **Step 2: Run them and watch them fail.**
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_true_revenue_tiers.py tests/test_revenue_census.py -q -p no:cacheprovider`
 
-Expected: FAIL: `53 failed, 21 passed`, the first with `AssertionError: assert (None, None) == ('excluded_pe...nsurer_payer')`.
+Expected: FAIL: `88 failed, 45 passed`, the first with `AssertionError: assert (None, None) == ('excluded_pe...nsurer_payer')`.
 
 - [ ] **Step 3: Implement.**
 
@@ -6827,7 +7967,8 @@ if TYPE_CHECKING:
 #: batch CREDIT labels, and the channel phrases.
 _HOLD_POSTING_LABELS = re.compile(
     r"\b(?:ELECTRONIC|ACH|RTP|ONLINE|WIRE|BOOK|CORP|CORPORATE|ZELLE|MISC|DIRECT|PAYMENT|DEPOSIT|TRANSFER|MOBILE|EFT"
-    r"|CHIPS|FEDWIRE|INSTANT|REAL TIME|COUNTER|POS|ATM|TELLER|BRANCH|CARD|BATCH|MERCHANT)\s+CREDIT\b|^CREDIT\b"
+    r"|CHIPS|FEDWIRE|INSTANT|REAL TIME|COUNTER|POS|ATM|TELLER|BRANCH|CARD|BATCH|MERCHANT|VISA|CHECKCARD|PURCHASE)"
+    r"\s+CREDIT\b|^CREDIT\b"
     r"|\bCREDIT FROM\b|\bFUNDS (?:TRANSFER|AVAILABLE)\b|\bINSTANT FUNDS\b"
 )
 #: §8.1, T4: the credit-side financing roots. A whole-word CREDIT counts only inside a payer name, next to another
@@ -6846,12 +7987,18 @@ DEALER_FUNDING_WORDS = re.compile(
 #: §8.1: an insurer's name on the payer region.
 _INSURER_NAME = re.compile(r"\bINSUR\w*|\bASSURANCE\b|\bMUTUAL\b|\bCASUALTY\b|\bINDEMNITY\b|\bUNDERWRIT\w*")
 _CLAIM_WORD = re.compile(r"\bCLAIMS?\b")
-_POSSIBLE_RETURN = re.compile(r"\bRETURN(?:ED|S)?\b|\bADJ(?:USTMENT|USTED)?\b|\bDISPUTE[DS]?\b|\bCREDIT MEMO\b|\bOVERPA\w*")
-_CARD_CREDIT_LABEL = re.compile(r"\b(?:DEBIT CARD CREDIT|POS CREDIT)\b")
+_POSSIBLE_RETURN = re.compile(
+    r"\bRETURN(?:ED|S)?\b|\bADJ(?:USTMENT|USTED)?\b|\bDISPUTE[DS]?\b|\bCREDIT MEMO\b|\bOVERPA\w*"
+    # §7.8: an auction's guarantee or arbitration refund of a vehicle the dealer bought.
+    r"|\bDEALSHIELD\b|\bARB(?:ITRATION)? CREDIT\b"
+)
+#: §8.1, §7.11: a card credit's posting labels (a refund to the card unless a form or the registry verified it).
+_CARD_CREDIT_LABEL = re.compile(r"\b(?:DEBIT CARD CREDIT|POS CREDIT|VISA CREDIT|CHECKCARD CREDIT|PURCHASE CREDIT)\b")
 #: §8.1 (Q8): pay wording, read on the row before its receiver fields.
 _PAY_WORDS = re.compile(
     r"\bPAYROLL\w*|\bPAYRLL\b|\bPAYROL\b|\bPAYRL\b|\bSALARY\b|\bSALARIES\b|\bREG SAL\b|\bWAGES?\b|\bNET ?PAY\b"
-    r"|\bBONUS(?:ES)?\b|\bPAY PAY\b|\bPAIE\b|\bSALAIRES?\b"
+    r"|\bBONUS(?:ES)?\b|\bPAY PAY\b|\bPAIE\b|\bSALAIRES?\b|\bPAYCHECKS?\b|\bPAYCHK\b|\bPR PAY\w*|\bEMPLOYEE PAY\w*"
+    r"|\bEMP PAY\b"
     r"|\bDIR ?DEP\b|\bDIRDEP\b|\bDIRECT DEP\b(?!OSIT)|\b(?:DES|CO ENTRY DESCR) DIRECT DEPOSIT\b"
     r"|\bEXP(?:ENSE)? REIMB\w*"
 )
@@ -6870,6 +8017,7 @@ _NON_SALE_PURPOSE = re.compile(
     r"|\bESCROW\b|\bEARNEST\b|\bSECURITY DEPOSIT\b|\bDEPOSIT BACK\b|\bSURPLUS\b"
     r"|\bGRANTS?\b|\bDONATION\w*|\bGIFT\b(?! CARD\b)|\bCOURT\b|\bJUDGMENT\b"
     r"|\bREBATES?\b|\bREIMB\w*|\bINTEREST\b|\bREWARDS?\b|\bCASH ?BACK\b"
+    r"|[A-Z]*REFUND\w*|\bRFND\w*|\bREFND\w*"
 )
 #: §8.1: a healthcare payer's member or premium credit.
 _HEALTHCARE_MEMBER_WORDS = re.compile(r"\bREIMB\w*|\bMEMBER\b|\bMBR\b|\bSUBSCRIBER\b|\bPREMIUM\b")
@@ -6899,6 +8047,15 @@ _ENTRY_VERIFICATION_ONLY = re.compile(r"\bFLOOR ?PLAN\b|\bFLOORPLAN\b|\bVIN\b|\b
 _CONSUMER_ENTRY = re.compile(r"\b(?:PPD|WEB)\b")
 #: §8.6 method names.
 _Q6_METHODS = ("named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer")
+#: §8.1 (review C2): the financing words on a registry row: the recurrence veto's financing words (§7.0), the
+#: new-read financing veto (§7.2) and the auction's financing words (§7.8). A platform's or processor's capital,
+#: advance or loan credit and an auction's floor-plan or NextGear credit are never claimed by the registry.
+_REGISTRY_FINANCING_WORDS = re.compile(
+    r"\b(?:LOANS?|CAPITAL|CAP\d*(?:SEC)?|CAPI|CAPIT|CAPITA|CAPTL|FIN|FINANC\w*|LEND\w*|ADVANCE[SD]?|ADVN?C?|ADV|MCA"
+    r"|CASH ADV\w*|FUNDING|FUNDNG|FUNDED|PROCEEDS|DRAW|FLOOR ?PLAN|FLOORPLAN|NGC)\b"
+)
+#: G2 (review I1): a financing root glued inside a word of a registry row (STRIPECAPITAL, SHOPIFYCAPITAL).
+_GLUED_FINANCING_ROOT = re.compile(r"CAPITAL|CAPTL|FINANC|FUNDING|FUNDNG|LENDING|LENDER|LOAN")
 #: The registry-family methods: a platform, processor or payout the operating registry named (§8.9).
 _REGISTRY_METHODS = frozenset({
     "operating_source_requires_context", "operating_source_with_credit_context", "recurring_operating_source",
@@ -7080,10 +8237,44 @@ def _channel(text: str) -> str:
     return "other"
 
 
-def _claimed(record: TransactionClassification, text: str) -> bool:
-    """§8.1, §8.9: the operating registry, a payout-credit entity or a factoring payee claimed the row."""
-    if record.revenue_match_method in _REGISTRY_METHODS:
+def _own_words(record: TransactionClassification, text: str) -> set[str]:
+    """§7.0: the holder's own words, as the recurrence veto reads them: the account name's distinctive words and the
+    name the bank prints in the receiver field (a delivery platform prints the merchant's store there)."""
+    classifier = _classifier()
+    own = set(classifier.holder_words(record.account_name))
+    for found in classifier._RECEIVER_FIELD_VALUE.finditer(text):
+        own.update(classifier._distinctive_words(found.group(0).split()[1:]))
+    return own
+
+
+def _own_word(word: str, own: set[str]) -> bool:
+    """§7.0: a word of four letters or more that is one of the holder's own words or the start of one."""
+    return len(word) >= 4 and any(mine == word or mine.startswith(word) for mine in own)
+
+
+def registry_financing(record: TransactionClassification, text: str) -> bool:
+    """§8.1 (review C2): a registry row whose row before its receiver fields prints a financing word, the holder's own
+    words aside (§7.0) and FUNDING aside on the settlements of the three platforms §7.0 names. Such a row is not
+    claimed by the registry: it is held as financing_named_payer."""
+    if record.revenue_match_method not in _REGISTRY_METHODS:
+        return False
+    classifier = _classifier()
+    own = _own_words(record, text)
+    for found in _REGISTRY_FINANCING_WORDS.finditer(classifier._before_receiver(text)):
+        word = found.group(0)
+        if _own_word(word, own):
+            continue
+        if word in {"FUNDING", "FUNDED"} and record.revenue_canonical_entity in classifier._FUNDING_SETTLEMENT_ENTITIES:
+            continue
         return True
+    return False
+
+
+def _claimed(record: TransactionClassification, text: str) -> bool:
+    """§8.1, §8.9: the operating registry, a payout-credit entity or a factoring payee claimed the row. A registry row
+    that prints a financing word is not claimed (review C2)."""
+    if record.revenue_match_method in _REGISTRY_METHODS:
+        return not registry_financing(record, text)
     if record.classification == "factoring":
         return True
     known = match_known_payee(text)
@@ -7166,7 +8357,8 @@ def _first_hold(
     debit_words: set[str],
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. A row the registry, a payout
-    entity or a factoring payee claimed takes only the insurer, possible-return, pay and benefit holds."""
+    entity or a factoring payee claimed takes only the insurer, possible-return, pay and benefit holds; a registry row
+    that prints a financing word is held as financing_named_payer (review C2)."""
     classifier = _classifier()
     row = _hold_text(text)
     if record.revenue_match_method == "insurer_customer_payment":
@@ -7183,6 +8375,7 @@ def _first_hold(
         return "possible_return"
     if not claimed and (
         financing_named(text, region, entry, record.account_name)
+        or registry_financing(record, text)
         or _dealer_funding_payer(text) is not None
         or DEALER_FUNDING_WORDS.search(row) is not None
     ):
@@ -7213,16 +8406,18 @@ def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFa
     classifier = _classifier()
     if not facts.wire_n1 or facts.hold is not None or not facts.region or facts.numbered:
         return False
+    if classifier.channel_gate(text) is not None:
+        return False
     if not (facts.company_form or facts.public_or_healthcare) or repeats < 2:
         return False
     if _BANK_OR_TITLE_SENDER.search(facts.name) or facts.refused_word:
         return False
     if classifier._WIRE_NON_SALE_PURPOSE.search(text):
         return False
-    if classifier._names_financing(classifier._WIRE_CHANNEL_AND_BANK_FIELDS.sub(" ", text)):
+    if classifier._names_financing(classifier._wire_financing_text(text)):
         return False
-    label = classifier._WIRE_ORIGINATOR_LABEL.search(text)
-    if label is not None and classifier._names_financing("".join(text[label.end():].split()[:6])):
+    run = classifier._wire_originator_run(text)
+    if run is not None and classifier._names_financing(run):
         return False
     if match_known_payee(text) is not None or classifier._cut_financing_originator(facts.region):
         return False
@@ -7240,10 +8435,12 @@ def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFa
 
 
 def _q6_method(facts: CreditFacts, repeats: int, all_consumer: bool) -> str | None:
-    """§8.6 (Q6): the verifying method of an eligible named ACH or EFT payer, or None."""
+    """§8.6 (Q6): the verifying method of an eligible named ACH or EFT payer, or None. A PPD or WEB entry never
+    verifies by repetition alone (a) or by its company form (b, review I6), and neither does a bank or a title or
+    escrow firm's company form (§8.5's senders)."""
     if repeats >= 2 and not all_consumer:
         return "named_payer_repeats"
-    if facts.company_form:
+    if facts.company_form and not facts.consumer_entry and not _BANK_OR_TITLE_SENDER.search(facts.name):
         return "named_payer_company_form"
     if facts.public_or_healthcare:
         return "public_or_healthcare_payer"
@@ -7400,6 +8597,25 @@ _Q6_REASONS = {
 }
 
 
+def registry_financing_root(record: TransactionClassification, text: str) -> bool:
+    """G2 (§14.3, review I1) on a registry row: a registry financing word (registry_financing), or a financing root
+    glued inside a word of the row before its receiver fields, the holder's own words and §7.0's FUNDING settlements
+    aside. A root inside a place name (a city whose name holds LEND) is not one: the registry's reads are whole
+    words."""
+    classifier = _classifier()
+    if registry_financing(record, text):
+        return True
+    own = _own_words(record, text)
+    for word in classifier._before_receiver(text).split():
+        if _own_word(word, own):
+            continue
+        if word in {"FUNDING", "FUNDED"} and record.revenue_canonical_entity in classifier._FUNDING_SETTLEMENT_ENTITIES:
+            continue
+        if _GLUED_FINANCING_ROOT.search(word):
+            return True
+    return False
+
+
 def guard_facts(record: TransactionClassification, text: str) -> dict:
     """The census's §14.3 facts of one posted credit (tools/revenue_census.py), read with these readers."""
     classifier = _classifier()
@@ -7409,6 +8625,8 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
     known = match_known_payee(text)
     return {
         "financing_root": financing_named(text, region, entry, record.account_name),
+        "registry_root": registry_financing_root(record, text),
+        "registry_financing": registry_financing(record, text),
         "pay_or_personal": bool(_PAY_WORDS.search(row) or _PERSONAL_INCOME.search(row)),
         "transfer_no_counterparty": (
             classifier._TRANSFER_WORDING.search(row) is not None
@@ -7431,7 +8649,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
     }
 ```
 
-In `analysis/transaction_classifier.py` (line 38), replace:
+In `analysis/transaction_classifier.py` (line 39), replace:
 
 ```python
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
@@ -7445,7 +8663,7 @@ from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_paye
 from .true_revenue import apply_true_revenue_pass
 ```
 
-In `analysis/transaction_classifier.py` (line 4602), replace:
+In `analysis/transaction_classifier.py` (line 4685), replace:
 
 ```python
     records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
@@ -7463,7 +8681,7 @@ with:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_true_revenue_tiers.py tests/test_revenue_census.py -q -p no:cacheprovider`
 
-Expected: PASS: `74 passed`.
+Expected: PASS: `133 passed`.
 
 - [ ] **Step 5: Re-pin the assertions this task moves (pin ledger row 19).**
 
@@ -7501,7 +8719,7 @@ with:
 - [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-CLASSIFIER: `755 passed, 2 deselected`
-  - SEL-REVENUE: `452 passed`
+  - SEL-REVENUE: `659 passed`
 
 - [ ] **Step 7: Commit.**
 
@@ -7516,8 +8734,8 @@ git commit -m "revenue: the true-revenue pass, its holds and the Q5 and Q6 verif
 ### Task S4.3: Q7: an auto lender's dealer funding
 
 **Files:**
-- Modify: `analysis/true_revenue.py:4-6, 48-49, 244, 390-391, 541, 548-549, 625`
-- Modify: `analysis/transaction_classifier.py:40, 1922, 3191-3192, 4605`
+- Modify: `analysis/true_revenue.py:4-6, 49-50, 261, 443-444, 598, 605-606, 703`
+- Modify: `analysis/transaction_classifier.py:41, 1996, 3265-3266, 4688`
 - Modify (pins): `tests/test_true_revenue_tiers.py:2, 172-174`
 
 **Depends on:** S4.2.
@@ -7528,7 +8746,7 @@ git commit -m "revenue: the true-revenue pass, its holds and the Q5 and Q6 verif
   - `dealer_funding(text: str) -> str | None` (`'listed'`, `'credit_union'` or None)
   - `CREDIT_UNION_DEALER_MIN_CREDITS = 2`
   - revenue methods `auto_lender_dealer_funding` and `credit_union_vehicle_purchase`
-  - the guard fact `q7_payer_ok`
+  - the guard facts `q7_payer_ok`, `q7_listed`, `q7_credit_union`, `q7_veto_word` (G12)
 
 **Why:** Spec §6.1 step 4 and §8.7 (Q7): a listed auto lender (a `vehicle_financing` registry entity or a `DEALER_FUNDING_PAYERS` lender, read on the originator segment) that prints a dealer-funding word pays the dealer's revenue: `verified_revenue`, method `auto_lender_dealer_funding`, source type `auto_dealer_funding`, never financing proceeds (it leaves `lender_credits`). A credit union's `VHCL PURCH` entry is verified by the pass when the statement holds two or more; one alone is held. Never on a row that names a lender outside vehicle financing, a potential lender or an insurer, that prints a loan, proceeds, advance or refund word, or that the channel gate closes.
 
@@ -7592,7 +8810,7 @@ def test_the_four_tiers_add_up_to_the_posted_credits():
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_true_revenue_tiers.py -q -p no:cacheprovider`
 
-Expected: FAIL: `2 failed, 56 passed`, the first with `AssertionError: assert ('unidentifie...credit', None) == ('auto_lender...aler_funding')`.
+Expected: FAIL: `2 failed, 92 passed`, the first with `AssertionError: assert ('unidentifie...credit', None) == ('auto_lender...aler_funding')`.
 
 - [ ] **Step 3: Implement.**
 
@@ -7612,7 +8830,7 @@ Q7's credit-union arm (§8.7) and the Q5 and Q6 verifications (§8.5, §8.6), wh
 gives every posted credit its tier and reason (§5.3), in the order of §8.10.
 ```
 
-In `analysis/true_revenue.py` (lines 48-49), replace:
+In `analysis/true_revenue.py` (lines 49-50), replace:
 
 ```python
     r"|\bDLR PMT\b|\bAUTODLRPMT\b|\bCONTRACT FUND\w*|\bVADMIN FEE\b"
@@ -7635,7 +8853,7 @@ _VEHICLE_PURCHASE_ENTRY = re.compile(r"\bVHCL PURCH(?:ASE)?\b")
 CREDIT_UNION_DEALER_MIN_CREDITS = 2
 ```
 
-In `analysis/true_revenue.py`, after the end of `_dealer_funding_payer` (line 244), insert:
+In `analysis/true_revenue.py`, after the end of `_dealer_funding_payer` (line 261), insert:
 
 ```python
 def dealer_funding(text: str) -> str | None:
@@ -7664,7 +8882,7 @@ def dealer_funding(text: str) -> str | None:
     return None
 ```
 
-In `analysis/true_revenue.py` (lines 390-391), replace:
+In `analysis/true_revenue.py` (lines 443-444), replace:
 
 ```python
         or _dealer_funding_payer(text) is not None
@@ -7679,7 +8897,7 @@ with:
         or record.revenue_match_method == "credit_union_vehicle_purchase"
 ```
 
-In `analysis/true_revenue.py` (line 541), replace:
+In `analysis/true_revenue.py` (line 598), replace:
 
 ```python
     """Statement pass 7 (§6.2): payer facts, the Q5 and Q6 verifications, then the tiers."""
@@ -7691,7 +8909,7 @@ with:
     """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers."""
 ```
 
-In `analysis/true_revenue.py` (lines 548-549), replace:
+In `analysis/true_revenue.py` (lines 605-606), replace:
 
 ```python
     ]
@@ -7714,7 +8932,7 @@ with:
     lender_words, debit_words = _debit_words(records, duplicate_indexes)
 ```
 
-In `analysis/true_revenue.py` (line 625), replace:
+In `analysis/true_revenue.py` (line 703), replace:
 
 ```python
         "customer_descriptor": classifier._matches_any(text, classifier._CUSTOMER_INVOICE_DESCRIPTORS),
@@ -7725,9 +8943,13 @@ with:
 ```python
         "customer_descriptor": classifier._matches_any(text, classifier._CUSTOMER_INVOICE_DESCRIPTORS),
         "q7_payer_ok": _dealer_funding_payer(text) is not None or bool(_CREDIT_UNION_PAYER.search(region)),
+        "q7_listed": _dealer_funding_payer(text) is not None,
+        "q7_credit_union": bool(_CREDIT_UNION_PAYER.search(region))
+        and bool(_VEHICLE_PURCHASE_ENTRY.search(entry or row)),
+        "q7_veto_word": bool(_DEALER_FUNDING_VETO.search(row)),
 ```
 
-In `analysis/transaction_classifier.py` (line 40), replace:
+In `analysis/transaction_classifier.py` (line 41), replace:
 
 ```python
 from .true_revenue import apply_true_revenue_pass
@@ -7739,7 +8961,7 @@ with:
 from .true_revenue import apply_true_revenue_pass, dealer_funding
 ```
 
-In `analysis/transaction_classifier.py` (line 4605), replace:
+In `analysis/transaction_classifier.py` (line 4688), replace:
 
 ```python
     # 5.6 (§6.2 pass 7): payer facts, the Q5 and Q6 verifications, then the tiers.
@@ -7751,7 +8973,7 @@ with:
     # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers.
 ```
 
-In `analysis/transaction_classifier.py` (line 1922), replace:
+In `analysis/transaction_classifier.py` (line 1996), replace:
 
 ```python
     # §7.7: the lookups below read a glued HCCLAIMPMT split from the name before it.
@@ -7790,7 +9012,7 @@ with:
     # §7.7: the lookups below read a glued HCCLAIMPMT split from the name before it.
 ```
 
-In `analysis/transaction_classifier.py` (lines 3191-3192), replace:
+In `analysis/transaction_classifier.py` (lines 3265-3266), replace:
 
 ```python
         if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
@@ -7813,12 +9035,12 @@ with:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_true_revenue_tiers.py -q -p no:cacheprovider`
 
-Expected: PASS: `58 passed`.
+Expected: PASS: `94 passed`.
 
 - [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-CLASSIFIER: `755 passed, 2 deselected`
-  - SEL-REVENUE: `457 passed`
+  - SEL-REVENUE: `664 passed`
 
 - [ ] **Step 6: Commit.**
 
@@ -8999,7 +10221,7 @@ with:
 
   - SEL-CLASSIFIER: `755 passed, 2 deselected`
   - SEL-WEBAPP: `856 passed`
-  - SEL-REVENUE: `468 passed`
+  - SEL-REVENUE: `675 passed`
 
 - [ ] **Step 7: Commit.**
 
@@ -9017,15 +10239,16 @@ git commit -m "revenue: the tiered metrics, detection lists and serialized views
 - Modify: `batch.py:36-40, 102-106, 123-126`
 - Modify: `analyze.py:70-73, 75-80`
 - Modify: `benchmark/run.py:94-97`
-- Modify: `benchmark/compare.py:538-541, 552-557`
+- Modify: `benchmark/compare.py:538-541, 552-557, 561-566, 579-584`
 - Modify: `docs/transaction-classification.md:104-107, 498-505`
-- Modify: `analysis/transaction_classifier.py:118-120`
+- Modify: `analysis/transaction_classifier.py:119-121`
 - Modify: `webapp/artifact_cache.py:580-581`
 - Modify (pins): `tests/test_artifact_cache.py:488, 498-500`
 - Modify (pins): `tests/test_flag_group_states.py:61-64`
 - Modify (pins): `tests/flagged_payloads.py:18-19`
 - Modify (pins): `tests/test_lender_census.py:38-39`
 - Modify (pins): `tests/test_webapp_reanalysis.py:1061-1062`
+- Modify (pins): `tests/test_true_revenue_payload.py:210`
 
 **Depends on:** S4.4.
 
@@ -9034,105 +10257,66 @@ git commit -m "revenue: the tiered metrics, detection lists and serialized views
 - Produces:
   - `CLASSIFICATION_VERSION = "5.6"`, `ANALYSIS_STAGE_VERSION = 25`
   - `batch.py` columns `true_revenue_total`, `counted_flagged_total`, `excluded_pending_review_total`
+  - `benchmark.compare.true_revenue_row(set_name, field_name, metrics, mt_summary) -> ComparisonRow` (field `<prefix>true_revenue`, not material)
 
-**Why:** Spec §13 and §9.3: `batch.py` gains the True, counted and held columns and its review flag reads the gate; `analyze.py` prints True, Verified, Counted and Held; the benchmark compares MoneyThumb's subtraction-based `true_credits` with `true_revenue_total`; `docs/transaction-classification.md` states the definition, the tiers, the precedence, the holds and how to extend each table; and the version moves: "5.6 (the definition, §5, §8): `CLASSIFICATION_VERSION = "5.6"`, and `ANALYSIS_STAGE_VERSION` 24 → 25 in the same commit."
+**Why:** Spec §13 and §9.3: `batch.py` gains the True, counted and held columns and its review flag reads the gate; `analyze.py` prints True, Verified, Counted and Held; the benchmark compares MoneyThumb's subtraction-based `true_credits` with `true_revenue_total` in a row of its own, Verified beside it (review M1, with a test for each consumer); `docs/transaction-classification.md` states the definition, the tiers, the precedence, the holds and how to extend each table; and the version moves: "5.6 (the definition, §5, §8): `CLASSIFICATION_VERSION = "5.6"`, and `ANALYSIS_STAGE_VERSION` 24 → 25 in the same commit."
 
-- [ ] **Step 1: Re-pin the assertions this task moves (pin ledger rows 24-29).**
+- [ ] **Step 1: Write the failing tests.**
 
-In `tests/test_artifact_cache.py` (line 488), replace:
-
-```python
-def test_analysis_stage_version_is_pinned_at_24():
-```
-
-with:
+Append to the end of `tests/test_true_revenue_payload.py`:
 
 ```python
-def test_analysis_stage_version_is_pinned_at_25():
-```
+# ---------------------------------------------------------------------------------------------------------------- S4.5
+def _document_report(rows=None):
+    from tests.test_webapp_studio_views import _report
+    return _report("CONTOSO BAKERY LLC", "000000001010", 1500.0, rows or [
+        (2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "MOBILE DEPOSIT", 300.0),
+        (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 900.0), (5, "INTERNAL TRANSFER FROM SAVINGS", 100.0),
+        (9, "CARD PURCHASE FABRIKAM SUPPLY", -120.0)])
 
-In `tests/test_artifact_cache.py` (lines 498-500), replace:
 
-```python
-    true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24. This is
-    that pin."""
-    assert ANALYSIS_STAGE_VERSION == 24
-```
+def test_the_batch_csv_carries_true_revenue_and_its_counted_and_held_parts():
+    from pathlib import Path
 
-with:
+    import batch
 
-```python
-    true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24, and its
-    definitional rules (classification 5.6: the revenue tiers) go 24 -> 25. This
-    is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 25
-```
+    row = batch._row(Path("fabricated.pdf"), _document_report().accounts[0])
+    assert batch.FIELDS.index("true_revenue_total") < batch.FIELDS.index("verified_revenue_total")
+    assert (row["true_revenue_total"], row["counted_flagged_total"], row["excluded_pending_review_total"],
+            row["verified_revenue_total"]) == ("1000.00", "300.00", "900.00", "700.00")
+    assert row["needs_review"] == "REVIEW"   # the held credit is 45% of the posted credits (T7)
 
-In `tests/test_flag_group_states.py` (lines 61-64), replace:
 
-```python
-    # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7).
-    assert CLASSIFICATION_VERSION == "5.5"
-    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.5"
-    assert ANALYSIS_STAGE_VERSION == 24
-```
+def test_the_cli_report_prints_true_verified_counted_and_held():
+    import analyze
 
-with:
+    text = analyze._render(_document_report().accounts[0])
+    lines = [line.strip() for line in text.splitlines()]
+    true_line = next(line for line in lines if line.startswith("True revenue"))
+    assert "$1,000.00" in true_line
+    assert lines.index(true_line) < lines.index(next(line for line in lines if line.startswith("Verified revenue")))
+    assert any(line.startswith("Counted, not verified") and "$300.00" in line for line in lines)
+    assert any(line.startswith("Held for review") and "$900.00" in line for line in lines)
 
-```python
-    # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7). 5.6/25: its definitional rules (§8).
-    assert CLASSIFICATION_VERSION == "5.6"
-    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
-    assert ANALYSIS_STAGE_VERSION == 25
-```
 
-In `tests/flagged_payloads.py` (lines 18-19), replace:
+def test_the_benchmark_compares_true_revenue_with_moneythumb_s_true_credits():
+    from benchmark.compare import true_revenue_row
+    from benchmark.normalize import MTStatementRow
 
-```python
-#: true-revenue bug fixes.
-CURRENT_VERSION = "5.5"
-```
-
-with:
-
-```python
-#: true-revenue bug fixes, and 5.5 -> 5.6 with its revenue tiers.
-CURRENT_VERSION = "5.6"
-```
-
-In `tests/test_lender_census.py` (lines 38-39), replace:
-
-```python
-    # 5.5: the true-revenue bug fixes (2026-09-28).
-    assert result["classification_version"] == "5.5"
-```
-
-with:
-
-```python
-    # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers.
-    assert result["classification_version"] == "5.6"
-```
-
-In `tests/test_webapp_reanalysis.py` (lines 1061-1062), replace:
-
-```python
-    # 5.5: the true-revenue bug fixes (2026-09-28).
-    assert {record["classification_version"] for record in records.values()} == {"5.5"}
-```
-
-with:
-
-```python
-    # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers.
-    assert {record["classification_version"] for record in records.values()} == {"5.6"}
+    row = true_revenue_row("fabricated_set", "s1.true_revenue",
+                           {"true_revenue_total": 1000.0, "verified_revenue_total": 700.0},
+                           MTStatementRow(raw={}, true_credits=1000.0))
+    assert (row.field, row.ours, row.mt) == ("s1.true_revenue", 1000.0, 1000.0)
+    assert "Verified revenue beside it: 700.0" in row.rationale
+    missing = true_revenue_row("fabricated_set", "s1.true_revenue", {"true_revenue_total": None}, None)
+    assert (missing.ours, missing.mt) == (None, None)
 ```
 
 - [ ] **Step 2: Run them and watch them fail.**
 
-Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_artifact_cache.py tests/test_flag_group_states.py tests/test_lender_census.py tests/test_webapp_reanalysis.py -q -p no:cacheprovider`
+Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_true_revenue_payload.py -q -p no:cacheprovider`
 
-Expected: FAIL: `4 failed, 212 passed`, the first with `assert 24 == 25`.
+Expected: FAIL: `3 failed, 15 passed`, the first with `ValueError: list.index(x): x not in list`.
 
 - [ ] **Step 3: Implement.**
 
@@ -9317,6 +10501,66 @@ with:
                 "moneythumb": "binary true / non-true credit split with no "
 ```
 
+In `benchmark/compare.py` (lines 561-566), replace:
+
+```python
+            "row; the taxonomies themselves are not forced into a winner.",
+        )
+    )
+    rows.append(
+        classify(
+            set_name, field("gross_posted_credits"),
+```
+
+with:
+
+```python
+            "row; the taxonomies themselves are not forced into a winner.",
+        )
+    )
+    rows.append(true_revenue_row(set_name, field("true_revenue"), metrics, mt_summary))
+    rows.append(
+        classify(
+            set_name, field("gross_posted_credits"),
+```
+
+In `benchmark/compare.py` (lines 579-584), replace:
+
+```python
+    )
+
+    return rows
+
+
+def build_revenue_statistics_row(
+```
+
+with:
+
+```python
+    )
+
+    return rows
+
+
+def true_revenue_row(set_name: str, field_name: str, metrics: dict[str, Any],
+                     mt_summary: MTStatementRow | None) -> ComparisonRow:
+    """5.6 (true revenue spec §13): MoneyThumb's true credits are subtraction-based, so they are compared with True
+    revenue (posted credits minus known non-revenue minus the credits held for review); Verified is reported beside
+    it, never compared. Not material: the two definitions are not forced into a winner."""
+    verified = metrics.get("verified_revenue_total")
+    return classify(
+        set_name, field_name,
+        metrics.get("true_revenue_total"),
+        mt_summary.true_credits if mt_summary else None,
+        material=False,
+        note=f"Verified revenue beside it: {verified if verified is not None else 'N/A'}.",
+    )
+
+
+def build_revenue_statistics_row(
+```
+
 In `docs/transaction-classification.md` (lines 104-107), replace:
 
 ```markdown
@@ -9438,7 +10682,7 @@ is not established.
 Credits, funding deposits, duplicates proven by a repeated printed running
 ```
 
-In `analysis/transaction_classifier.py` (lines 118-120), replace:
+In `analysis/transaction_classifier.py` (lines 119-121), replace:
 
 ```python
 #: invoice, auctions and property platforms, and the non-revenue narrowings.
@@ -9480,24 +10724,115 @@ ANALYSIS_STAGE_VERSION = 25
 
 - [ ] **Step 4: Run the tests again.**
 
-Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_artifact_cache.py tests/test_flag_group_states.py tests/test_lender_census.py tests/test_webapp_reanalysis.py -q -p no:cacheprovider`
+Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_true_revenue_payload.py -q -p no:cacheprovider`
 
-Expected: PASS: `216 passed`.
+Expected: PASS: `18 passed`.
 
-- [ ] **Step 5: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
+- [ ] **Step 5: Re-pin the assertions this task moves (pin ledger rows 24-29).**
+
+In `tests/test_artifact_cache.py` (line 488), replace:
+
+```python
+def test_analysis_stage_version_is_pinned_at_24():
+```
+
+with:
+
+```python
+def test_analysis_stage_version_is_pinned_at_25():
+```
+
+In `tests/test_artifact_cache.py` (lines 498-500), replace:
+
+```python
+    true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24. This is
+    that pin."""
+    assert ANALYSIS_STAGE_VERSION == 24
+```
+
+with:
+
+```python
+    true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24, and its
+    definitional rules (classification 5.6: the revenue tiers) go 24 -> 25. This
+    is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 25
+```
+
+In `tests/test_flag_group_states.py` (lines 61-64), replace:
+
+```python
+    # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7).
+    assert CLASSIFICATION_VERSION == "5.5"
+    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.5"
+    assert ANALYSIS_STAGE_VERSION == 24
+```
+
+with:
+
+```python
+    # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7). 5.6/25: its definitional rules (§8).
+    assert CLASSIFICATION_VERSION == "5.6"
+    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
+    assert ANALYSIS_STAGE_VERSION == 25
+```
+
+In `tests/flagged_payloads.py` (lines 18-19), replace:
+
+```python
+#: true-revenue bug fixes.
+CURRENT_VERSION = "5.5"
+```
+
+with:
+
+```python
+#: true-revenue bug fixes, and 5.5 -> 5.6 with its revenue tiers.
+CURRENT_VERSION = "5.6"
+```
+
+In `tests/test_lender_census.py` (lines 38-39), replace:
+
+```python
+    # 5.5: the true-revenue bug fixes (2026-09-28).
+    assert result["classification_version"] == "5.5"
+```
+
+with:
+
+```python
+    # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers.
+    assert result["classification_version"] == "5.6"
+```
+
+In `tests/test_webapp_reanalysis.py` (lines 1061-1062), replace:
+
+```python
+    # 5.5: the true-revenue bug fixes (2026-09-28).
+    assert {record["classification_version"] for record in records.values()} == {"5.5"}
+```
+
+with:
+
+```python
+    # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers.
+    assert {record["classification_version"] for record in records.values()} == {"5.6"}
+```
+
+- [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-CLASSIFIER: `755 passed, 2 deselected`
   - SEL-REGISTRY: `362 passed, 4 skipped`
   - SEL-WEBAPP: `856 passed`
-  - SEL-REVENUE: `468 passed`
+  - SEL-REVENUE: `678 passed`
 
-  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 13,848 passed, 55 skipped, 39 deselected, 16 failed).
+  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 14,058 passed, 55 skipped, 39 deselected, 16 failed).
 
-- [ ] **Step 6: Commit.**
+- [ ] **Step 7: Commit.**
 
 ```bash
 cd C:/Users/GustavoPrietodePaula/work/true-revenue
-git add analysis/transaction_classifier.py analyze.py batch.py benchmark/compare.py benchmark/run.py docs/transaction-classification.md tests/flagged_payloads.py tests/test_artifact_cache.py tests/test_flag_group_states.py tests/test_lender_census.py tests/test_webapp_reanalysis.py webapp/artifact_cache.py
+git add analysis/transaction_classifier.py analyze.py batch.py benchmark/compare.py benchmark/run.py docs/transaction-classification.md tests/flagged_payloads.py tests/test_artifact_cache.py tests/test_flag_group_states.py tests/test_lender_census.py tests/test_true_revenue_payload.py tests/test_webapp_reanalysis.py webapp/artifact_cache.py
 git commit -m "versions: classification 5.6 and analysis stage 25 for true revenue" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
@@ -9517,7 +10852,7 @@ git commit -m "versions: classification 5.6 and analysis stage 25 for true reven
 - Modify (pins): `tests/test_new_statement_corpus.py:476-478`
 - Modify (pins): `tests/test_webapp_app.py:400-402`
 
-**Depends on:** S4.5.
+**Depends on:** S4.5; its commit waits for the owner's word on pin-ledger row 35 (Step 1).
 
 **Interfaces:**
 - Consumes: S4.4's keys, `apply_flagged_groups_to_payload`, `payload_accounts`, `assert_payload_shape`.
@@ -9526,9 +10861,11 @@ git commit -m "versions: classification 5.6 and analysis stage 25 for true reven
   - `_displayed(...)` returns `apply_revenue_view(apply_flagged_groups_to_payload(...))`
   - package document keys `revenue_established`, `true_revenue_total`, `true_revenue_count`, `counted_flagged_total`, `counted_flagged_count`, `excluded_pending_review_total`, `excluded_pending_review_count`, `counted_flagged_by_reason`, `excluded_pending_review_by_reason`, `revenue_review_required`; totals keys the same plus `revenue_review_items` and `revenue_unestablished_documents`; top-level and `detection` `true_revenue_evidence`, `counted_flagged_evidence`, `excluded_pending_review_evidence`
 
-**Why:** Spec §9.2, §10.4, §11, §12: `analysis/revenue_view.py` sets each account's `verified_revenue_established` and `revenue_established` in the served copy, and on a payload analysed before 5.6 nulls every tier figure and `true_revenue_evidence` and drops `contributes_to_true_revenue` (the stored job is untouched). `_package_analysis` gains the True, counted and held totals and their by-reason figures, the members whose revenue is not established (their totals N/A), T7's gate per member (today's rule for an outdated member), the repointed `true_revenue_evidence`, the new currency keys, and the True-revenue withholding mode, which deducts only the R-d internal-transfer credits a member counted; the two `metrics["true_revenue"]` fallbacks are dropped.
+**Why:** Spec §9.2, §10.4, §11, §12: `analysis/revenue_view.py` sets each account's `verified_revenue_established` and `revenue_established` in the served copy, and on a payload analysed before 5.6 nulls every tier figure and `true_revenue_evidence` and drops `contributes_to_true_revenue` (the stored job is untouched). `_package_analysis` gains the True, counted and held totals and their by-reason figures, the members whose revenue is not established (their totals N/A), T7's gate per member (today's rule for an outdated member), the repointed `true_revenue_evidence`, the new currency keys, and the True-revenue withholding mode, which deducts only the R-d internal-transfer credits a member counted; the two `metrics["true_revenue"]` fallbacks are dropped; `confirmed_true_revenue_total` and `confirmed_true_revenue` are N/A with the verified total they alias (T9, review M4). Its commit waits for the owner's word on pin-ledger row 35 (review I7; Step 1).
 
-- [ ] **Step 1: Write the failing tests.**
+- [ ] **Step 1: The owner's word on pin-ledger row 35 (review I7).** This task moves one real-statement assertion: `tests/test_new_statement_corpus.py:476-478`, the package's `verified_revenue_total` for the new-corpus navigant statement, goes from its measured figure to `None` (spec §9.2 and §10.4: the member's captured credits are not the money its bank total counts, so the package's verified total is N/A). The Global Constraints forbid re-pinning a real-statement test without the owner, and spec §13 does not list this one. Before the commit (the last step), the orchestrator asks the owner, quoting the row, the cause and the rule: "May the package's verified total for the navigant statement read N/A (None) instead of its partial figure, as spec §9.2 and §10.4 say?" Record the answer and its date in the task report. With a yes, the task goes on. Without one, stop before the commit and report: the other tasks do not depend on this row, but S5.1 does not land.
+
+- [ ] **Step 2: Write the failing tests.**
 
 Create `tests/test_webapp_true_revenue.py`:
 
@@ -9606,6 +10943,17 @@ def test_an_older_member_leaves_the_package_true_revenue_not_established():
     assert older["revenue_review_required"]
 
 
+def test_the_verified_aliases_are_n_a_with_the_verified_total():
+    # Review M4 (T9): confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so a member
+    # whose verified revenue is not established leaves all three N/A.
+    partial = _payload()
+    partial["statement"]["transactions"][0]["classification"]["revenue_classification"] = None
+    totals = _package(_payload(month=4), partial)["totals"]
+    assert totals["verified_revenue_total"] is None
+    assert totals["confirmed_true_revenue_total"] is None and totals["confirmed_true_revenue"] is None
+    assert totals["revenue_unestablished_documents"] == ["job-2"]
+
+
 def test_the_served_copy_of_an_older_payload_nulls_true_revenue():
     from webapp.app import _displayed
     served = _displayed(_untiered(_payload()), settings={})
@@ -9649,13 +10997,13 @@ def test_the_true_revenue_mode_deducts_only_counted_internal_transfer_credits():
     assert totals["true_revenue_total"] == 4000.0
 ```
 
-- [ ] **Step 2: Run them and watch them fail.**
+- [ ] **Step 3: Run them and watch them fail.**
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_webapp_true_revenue.py -q -p no:cacheprovider`
 
-Expected: FAIL: `5 failed`, the first with `KeyError: 'revenue_established'`.
+Expected: FAIL: `6 failed`, the first with `KeyError: 'revenue_established'`.
 
-- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Implement.**
 
 Create `analysis/revenue_view.py`:
 
@@ -10200,7 +11548,9 @@ with:
                     "counted_flagged_by_reason", "excluded_pending_review_by_reason"):
             totals[key] = None
     if unestablished_verified:
-        totals["verified_revenue_total"] = None
+        # T9: confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so they are N/A with it.
+        for key in ("verified_revenue_total", "confirmed_true_revenue_total", "confirmed_true_revenue"):
+            totals[key] = None
     package_withholding_raw = (
         abs(totals["withholding_numerator"]) / totals["withholding_denominator"] * 100
 ```
@@ -10357,13 +11707,13 @@ with:
     # falls back to the payload itself and `Statement.model_validate` refuses
 ```
 
-- [ ] **Step 4: Run the tests again.**
+- [ ] **Step 5: Run the tests again.**
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_webapp_true_revenue.py -q -p no:cacheprovider`
 
-Expected: PASS: `5 passed`.
+Expected: PASS: `6 passed`.
 
-- [ ] **Step 5: Re-pin the assertions this task moves (pin ledger rows 30-36).**
+- [ ] **Step 6: Re-pin the assertions this task moves (pin ledger rows 30-36).**
 
 In `tests/test_package_currency.py` (lines 76-79), replace:
 
@@ -10519,12 +11869,12 @@ with:
     assert body["funders"] == [{"funder": "ONDECK", "documents": 2, "total_debited": 1500.0}]
 ```
 
-- [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
+- [ ] **Step 7: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-WEBAPP: `856 passed`
-  - SEL-REVENUE: `473 passed`
+  - SEL-REVENUE: `684 passed`
 
-- [ ] **Step 7: Commit.**
+- [ ] **Step 8: Commit.**
 
 ```bash
 cd C:/Users/GustavoPrietodePaula/work/true-revenue
@@ -10537,10 +11887,10 @@ git commit -m "webapp: the served revenue flags and the package's true revenue (
 ### Task S5.2: Exports, the review routes and the replay
 
 **Files:**
-- Modify: `webapp/app.py:387-392, 395-398, 404-406, 441-445, 451-455, 2596-2598`
+- Modify: `webapp/app.py:387-392, 395-398, 404-406, 441-445, 451-455, 2598-2600`
 - Modify: `webapp/reanalysis.py:151-157, 196-200`
 - Modify (pins): `tests/test_privacy3_boundaries.py:1420-1422, 1457-1460`
-- Modify (pins): `tests/test_webapp_true_revenue.py:114`
+- Modify (pins): `tests/test_webapp_true_revenue.py:125`
 
 **Depends on:** S5.1.
 
@@ -10613,7 +11963,7 @@ def test_a_rule_verified_row_awaits_only_a_reject_on_replay():
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_webapp_true_revenue.py -q -p no:cacheprovider`
 
-Expected: FAIL: `3 failed, 5 passed`, the first with `AssertionError: assert ('revenue_tier', 'excluded_pending_review.financing_named_payer.total', 900.0) in [('statement', 'bank', 'FABRICATED COMMUNITY BANK'), ('statement', 'account_name', 'CONTOSO …`.
+Expected: FAIL: `3 failed, 6 passed`, the first with `AssertionError: assert ('revenue_tier', 'excluded_pending_review.financing_named_payer.total', 900.0) in [('statement', 'bank', 'FABRICATED COMMUNITY BANK'), ('statement', 'account_name', 'CONTOSO …`.
 
 - [ ] **Step 3: Implement.**
 
@@ -10744,7 +12094,7 @@ with:
     # not only the JSON payload the dashboard renders.
 ```
 
-In `webapp/app.py` (lines 2596-2598), replace:
+In `webapp/app.py` (lines 2598-2600), replace:
 
 ```python
     "account was not found",
@@ -10825,7 +12175,7 @@ with:
 
 Run: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests/test_webapp_true_revenue.py -q -p no:cacheprovider`
 
-Expected: PASS: `8 passed`.
+Expected: PASS: `9 passed`.
 
 - [ ] **Step 5: Re-pin the assertions this task moves (pin ledger rows 37-38).**
 
@@ -10901,9 +12251,9 @@ with:
 - [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-WEBAPP: `859 passed`
-  - SEL-REVENUE: `476 passed`
+  - SEL-REVENUE: `687 passed`
 
-  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 13,859 passed, 55 skipped, 39 deselected, 16 failed).
+  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 14,070 passed, 55 skipped, 39 deselected, 16 failed).
 
 - [ ] **Step 7: Commit.**
 
@@ -11776,7 +13126,7 @@ with:
 - [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-WEBAPP: `859 passed`
-  - SEL-REVENUE: `481 passed`
+  - SEL-REVENUE: `692 passed`
 
 - [ ] **Step 7: Commit.**
 
@@ -12285,7 +13635,7 @@ with:
 - [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-WEBAPP: `859 passed`
-  - SEL-REVENUE: `487 passed`
+  - SEL-REVENUE: `698 passed`
 
 - [ ] **Step 7: Commit.**
 
@@ -12800,9 +14150,9 @@ with:
 - [ ] **Step 6: Run the selections.** Each is listed under Global Constraints. Expected at this task's commit (the baseline plus this task's tests and pins):
 
   - SEL-WEBAPP: `859 passed`
-  - SEL-REVENUE: `490 passed`
+  - SEL-REVENUE: `701 passed`
 
-  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 13,873 passed, 55 skipped, 39 deselected, 16 failed).
+  Then the full suite: `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (measured at this task's commit: 14,084 passed, 55 skipped, 39 deselected, 16 failed).
 
 - [ ] **Step 7: Commit.**
 
@@ -12822,7 +14172,7 @@ git commit -m "dashboard: monthly true and verified deposits, the three-shade ch
 
 **Depends on:** S4.5, S5.2, S6.3 (the classifier is final at S4.5; A1 runs on the train's code).
 
-**Why:** spec §14.2 to §14.4: the 5.6 run of the census, every guard of §14.3 as an automated check, and the measured targets. G7 is `tools/lender_census.py`.
+**Why:** spec §14.2 to §14.4: the 5.6 run of the census, every guard of §14.3 (and the review's G15 to G17) as an automated check, and the measured targets. G7 is `tools/lender_census.py`, read against the owner's signed-off admission list.
 
 - [ ] **Step 1: The 5.6 snapshot and the report** (S3.2 left `s54.json.gz` and `s55.json.gz` in place):
 
@@ -12834,27 +14184,31 @@ C:/Python314/python.exe -m tools.revenue_census snapshot --data-dir "$DATA" --ou
 C:/Python314/python.exe -m tools.revenue_census compare --base $OUT/s54.json.gz --after $OUT/s55.json.gz --after $OUT/s56.json.gz --out $OUT/cmp56.json
 ```
 
-  Expected: `classification 5.6: 2493 accounts; …`, and `compare` exits 0 with `guards: all hold` on both runs.
+  Expected: `classification 5.6: 2493 accounts; skipped: {'duplicate': 4579, 'unreconciled': 169}`, and `compare` exits 0 with `guards: all hold` on both runs. If S1.5 admitted or cleared anything, first reproduce this task's figures on an admission-free copy of the tree, as S3.2 Step 3 does (`noadmit56/`, `s56_noadmit.json.gz`), then attribute every row that moves from it to HEAD's snapshot to an entity of `g7_allowlist.json` or a cleared processor; any other move stops the release.
 
-- [ ] **Step 2: The guards, one by one.** `compare` checks each on every posted credit of every account and lists failures by guard in `cmp56.json` (`runs[1].guards`); an empty dict is the pass. Expected: empty.
+- [ ] **Step 2: The guards, one by one.** `compare` checks each on every posted credit and every account and lists failures by guard in `cmp56.json` (`runs[1].guards`); an empty dict is the pass. Expected: empty. `g13_listed_apart` and the G3 holder rows are listed for A3, not failures.
 
 | Guard | How the census decides it (`tools/revenue_census.py`) | Expected |
 |---|---|---|
-| G1 | a base `non_revenue` row that is not `non_revenue` at 5.6 is named by `_narrowing`; `outside_the_narrowings`, or a narrowing that may not lead to True (3) with the row in True, fails | 0 failures; `left_non_revenue` as in Step 4 |
-| G2 | a Verified row whose payer region or entry fields carry a financing root (`true_revenue.financing_named`), unless its method is `auto_lender_dealer_funding` or an operating-registry method (listed apart for A3) | 0 |
-| G3 | a row the holder test matches that is `counted_flagged`, or Verified by the customer/invoice descriptors, steps 12 to 14, Q5 or Q6 | 0 |
+| G1 | a base `non_revenue` row that is not `non_revenue` at 5.6 is named by `_narrowing`: narrowing 4 only when the row prints a third-party originator (`third_party_originator`), narrowing 8 only for the five BNPL entities (`BNPL_ENTITIES`); `outside_the_narrowings`, or a narrowing that may not lead to True (3) with the row in True, fails | 0 failures; `left_non_revenue` as in Step 4 |
+| G2 | a Verified row with a financing root: T4's roots (`financing_root`) on a non-registry row; on a registry row, the registry's financing words or a root glued inside a word, the holder's own words and §7.0's FUNDING settlements aside (`registry_root`); a Q7 row is G12's | 0 |
+| G3 | a row the holder test matches that is `counted_flagged`, or Verified by the customer/invoice descriptors, steps 12 to 14, Q5 or Q6 (`IDENTITY_METHODS`) | 0 |
 | G4 | a row in True with transfer wording and no counterparty | 0 |
 | G5 | a row in True that `match_known_payee` places in a financing group, other than a payout-credit entity, a factoring payee or Q7 | 0 |
 | G6 | a row in True whose method is `direction_conflict` | 0 |
-| G7 | Step 3 (the lender census) | as Step 3 |
+| G7 | Step 3 (the lender census and the owner's allowlist) | as Step 3 |
 | G7b | every row whose normalized text the street-`LN` guard changed (`street_ln_changes`); a base financing-proceeds row among them that reaches True fails | 7 rows listed, 0 failures |
 | G8 | the fabricated negatives: the full suite (Task A4) | pass |
-| G9 | the four tiers add up to the posted credits of every account (`G9`) | 0 |
-| G10 | a Verified row the channel gate closes | 0 |
+| G9 | per account: every posted credit kept with a revenue state (`posted_credit_count`, `posted_credit_cents`), every tier one of the four and agreeing with its state, the tiers adding up to the posted credits, and the metrics' own tier totals (`tier_totals`) equal to the rows' within a cent; an account the base holds and the run lost, or a classification error among the snapshot's skips, fails | 0 |
+| G10 | a Verified row the channel gate closes, or a Verified push-rail row that the registry did not verify (`REGISTRY_VERIFYING_METHODS`) | 0 |
 | G11 | a row in True that prints Q8's pay words or the personal-income words | 0 |
-| G12 | an `auto_lender_dealer_funding` row whose payer is neither a listed auto lender nor a credit union | 0 |
-| G13 | a Verified row whose payer region the numbered-company guard matches | 0 |
-| G14 | a row the recurrence pass pooled although the recurrence veto or a card-credit label names it | 0 |
+| G12 | an `auto_lender_dealer_funding` row whose payer is neither a listed auto lender nor a credit union, or that prints a loan, proceeds, advance or refund word (`q7_veto_word`); an account with fewer than two credit-union rows verified by the credit-union arm | 0 |
+| G13 | a Verified row whose payer region the numbered-company form matches, or that the full guard (the `DIRECT DEPOSIT <digits>` template included) matches and an identity rule verified; a processor's settlement after the template is listed apart (`g13_listed_apart`) | 0; 440 rows (about $0.68M) listed apart |
+| G14 | a pooled row the recurrence veto or a card-credit label names (`pooled_while_vetoed`); an entity whose recurrence lift has fewer non-vetoed pool rows than its count (`pool_candidate`, `pool_vetoed`, `pool_threshold`) | 0 |
+| G15 | a row in True that prints a refund word, glued or not (review C1) | 0 |
+| G16 | a row in True that prints a tax refund or an earned-income credit, glued or not (review I6) | 0 |
+| G17 | a row in True whose ACH originator, on a transfer-worded row, is the holder (review C3) | 0 |
+| demotions | a verified 5.4 row that is no longer verified with no declared cause (`undeclared_demotion`) | 0 |
 
 - [ ] **Step 3: G7, the lender census** (debits unchanged against 5.4). With `base54` from S3.2:
 
@@ -12867,61 +14221,200 @@ C:/Python314/python.exe -m tools.lender_census snapshot --data-dir "$DATA" --out
 C:/Python314/python.exe -m tools.lender_census compare --before $OUT/lc54.json --after $OUT/lc56.json --out $OUT/lc_cmp.json
 ```
 
-  Each lender-census snapshot reads every cached analysis (7,241) and takes longer than a revenue snapshot. `compare` reports lenders gained and lost and each group's rows after the change, not a per-row difference, so check the rows with this scratch script (Write tool; `C:/Users/GustavoPrietodePaula/lender-research/revenue/census/g7_check.py`; it prints counts and state names only):
+  Each lender-census snapshot reads every cached analysis (7,241) and takes longer than a revenue snapshot. `compare` reports lenders gained and lost and each group's rows after the change, not a per-row difference, so check the rows with this scratch script (Write tool; `C:/Users/GustavoPrietodePaula/lender-research/revenue/census/g7_check.py`; it prints counts, state names and entity names only). A moved row is allowed only when its known payee, read on the cache with the worktree's matcher, is an entity of the owner's signed-off list (`g7_allowlist.json`, S1.5 Step 6); with no list, nothing may move (review I2):
 
 ```python
-"""Task A1 (scratch): G7 on two lender-census snapshots: every analysis's row states, lender rows and flagged debit
-counts and totals must be equal. Prints counts and state names only.
-Usage: python g7_check.py <lc54.json> <lc56.json>"""
+"""Task A1 (scratch): G7 on two lender-census snapshots. Every analysis's row states, lender rows and flagged debit
+counts and totals must be equal, except the rows whose known payee is an entity on the owner's signed-off admission
+list of Task S1.5 (the allowlist; without one, nothing may move). A moved row's payee is read from the cache with the
+checkout's own `match_known_payee`. Prints counts, state names and entity names only.
+Usage: python g7_check.py <lc54.json> <lc56.json> [--data-dir <webapp_data> --allowlist <g7_allowlist.json>]"""
+import argparse
 import json
+import sqlite3
 import sys
 from collections import Counter
+from pathlib import Path
 
-before = json.load(open(sys.argv[1], encoding="utf-8"))["accounts"]
-after = json.load(open(sys.argv[2], encoding="utf-8"))["accounts"]
-moves, flags, lenders = Counter(), Counter(), 0
-for key, old in before.items():
-    new = after[key]
-    for was, now in zip(old["states"], new["states"]):
-        if was != now:
-            moves[(was, now)] += 1
-    lenders += old["lenders"] != new["lenders"]
-    old_flags = {group: figures[:2] for group, figures in old["flagged"].items()}
-    new_flags = {group: figures[:2] for group, figures in new["flagged"].items()}
-    for group in set(old_flags) | set(new_flags):
-        if old_flags.get(group) != new_flags.get(group):
-            flags[group] += 1
-print(f"analyses {len(before)}; state moves {sum(moves.values())}; analyses whose lender rows differ {lenders}; "
-      f"flag groups whose debits differ {dict(flags)}")
-for (was, now), count in moves.most_common():
-    print(f"  {was} -> {now}: {count}")
-sys.exit(1 if moves or lenders or flags else 0)
+sys.path.insert(0, "C:/Users/GustavoPrietodePaula/work/true-revenue")
+
+
+def _account_payloads(node):
+    if isinstance(node, dict):
+        statement = node.get("statement")
+        if isinstance(statement, dict) and isinstance(statement.get("transactions"), list):
+            yield node
+            return
+        for value in node.values():
+            yield from _account_payloads(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _account_payloads(value)
+
+
+class Payees:
+    """The known payee of a moved row, read from the cache (read-only) with the checkout's matcher."""
+
+    def __init__(self, data_dir: Path):
+        from analysis.description_text import normalize_transaction_description
+        from analysis.payee_matcher import match_known_payee
+
+        self.normalize, self.match = normalize_transaction_description, match_known_payee
+        self.data_dir = data_dir
+        connection = sqlite3.connect(f"{(data_dir / 'webapp.db').resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            self.paths = dict(connection.execute(
+                "SELECT a.input_sha256, a.artifact_path FROM artifact_cache a JOIN (SELECT input_sha256, "
+                "MAX(created_at) AS newest FROM artifact_cache WHERE stage = 'analysis' GROUP BY input_sha256) b "
+                "ON a.input_sha256 = b.input_sha256 AND a.created_at = b.newest WHERE a.stage = 'analysis'"
+            ).fetchall())
+        finally:
+            connection.close()
+
+    def entity(self, key: str, row: int) -> str | None:
+        sha, index = key.rsplit(":", 1)
+        payload = json.loads((self.data_dir / "artifacts" / self.paths[sha]).read_text(encoding="utf-8"))
+        account = list(_account_payloads(payload.get("artifact")))[int(index)]
+        found = self.match(self.normalize(account["statement"]["transactions"][row]["description"] or ""))
+        return None if found is None else found.entity
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("before")
+    parser.add_argument("after")
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--allowlist", type=Path)
+    args = parser.parse_args()
+    before = json.load(open(args.before, encoding="utf-8"))["accounts"]
+    after = json.load(open(args.after, encoding="utf-8"))["accounts"]
+    allowed = set(json.loads(args.allowlist.read_text(encoding="utf-8"))["entities"]) if args.allowlist else set()
+    payees = Payees(args.data_dir) if allowed else None
+    moves, declared, flags, lenders = Counter(), Counter(), Counter(), 0
+    for key, old in before.items():
+        new = after[key]
+        explained, account_declared = True, False
+        for row, (was, now) in enumerate(zip(old["states"], new["states"])):
+            if was == now:
+                continue
+            entity = payees.entity(key, row) if payees else None
+            if entity in allowed:
+                declared[(entity, was, now)] += 1
+                account_declared = True
+            else:
+                moves[(was, now)] += 1
+                explained = False
+        old_lenders = {(row, entity) for row, entity, _alias in old["lenders"]}
+        new_lenders = {(row, entity) for row, entity, _alias in new["lenders"]}
+        if any(entity not in allowed for _row, entity in old_lenders ^ new_lenders):
+            lenders += 1
+        old_flags = {group: figures[:2] for group, figures in old["flagged"].items()}
+        new_flags = {group: figures[:2] for group, figures in new["flagged"].items()}
+        for group in set(old_flags) | set(new_flags):
+            if old_flags.get(group) != new_flags.get(group) and not (explained and account_declared):
+                flags[group] += 1
+    print(f"analyses {len(before)}; state moves {sum(moves.values())}; analyses whose lender rows differ {lenders}; "
+          f"flag groups whose debits differ {dict(flags)}; declared moves {sum(declared.values())}")
+    for (was, now), count in moves.most_common():
+        print(f"  {was} -> {now}: {count}")
+    for (entity, was, now), count in declared.most_common():
+        print(f"  declared {entity}: {was} -> {now}: {count}")
+    return 1 if moves or lenders or flags else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 ```
 
-  Run `C:/Python314/python.exe $OUT/g7_check.py $OUT/lc54.json $OUT/lc56.json`.
+  Run `C:/Python314/python.exe $OUT/g7_check.py $OUT/lc54.json $OUT/lc56.json --data-dir "$DATA" --allowlist $OUT/g7_allowlist.json` (without S1.5's list, drop the last two options). It was run on the prototype's snapshots, and on a fabricated one-row move with and without a one-entity allowlist (refused without it, declared with it).
 
-  Expected (measured on the prototype, without S1.5's admissions): `lenders gained: 0`, `lenders lost: 0`, `lenders gained through a generic word: 0` from `compare`, and from the script `analyses 7241; state moves 0; analyses whose lender rows differ 0; flag groups whose debits differ {}` (the lender census reads every cached analysis, 7,241, without the revenue census's de-duplication). `compare` also prints eligible deposits down 39, unchanged 7,188, up 14 (the `SQ CAP`/SBA credits that become financing proceeds and the BNPL settlements that leave D1, counted over every cached copy) and withholding rates down 3, up 14, not comparable 65, unchanged 7,159, which follow from those deposit moves. The only declared exceptions are the entities Task S1.5 admitted: their rows move to the admitted group and `compare` lists them; any other move stops the release.
+  Expected (measured on the revised prototype, without S1.5's admissions): `lenders gained: 0`, `lenders lost: 0`, `lenders gained through a generic word: 0` from `compare`, and from the script `analyses 7241; state moves 0; analyses whose lender rows differ 0; flag groups whose debits differ {}; declared moves 0` (the lender census reads every cached analysis, 7,241, without the revenue census's de-duplication). `compare` also prints eligible deposits down 39, unchanged 7,188, up 14 (the `SQ CAP`/SBA credits that become financing proceeds and the BNPL settlements that leave D1, counted over every cached copy) and withholding rates down 3, up 14, not comparable 65, unchanged 7,159, which follow from those deposit moves. The only declared exceptions are the entities the owner signed off in Task S1.5: the script prints their moves as `declared <entity>: <state> -> <state>`; any other move stops the release.
 
-- [ ] **Step 4: The measured targets (§14.4).** Measured on the prototype on 2026-09-28 (rows exact, dollars rounded, shares of $276.9M of posted credits in 2,468 statements):
+- [ ] **Step 4: The measured targets (§14.4).** Measured on the revised prototype on 2026-09-29 (rows exact, dollars rounded, shares of $276.9M of posted credits in 2,468 statements):
 
 | Figure | Base (5.4) | Measured | Target |
 |---|---|---|---|
-| Verified, after 5.5 | 7.17% | 19.50% | about 14% or more |
-| $0-verified statements, after 5.5 | 1,819 | 1,266 | at most about 1,465 |
-| True, after 5.6 | — | 67.46% | 71.3% ± 3, less the holds the memo's rows could not show (below) |
-| $0-True statements, after 5.6 | 1,819 | 112 | about 107 |
+| Verified, after 5.5 | 7.17% | 19.59% | about 14% or more |
+| $0-verified statements, after 5.5 | 1,819 | 1,271 | at most about 1,465 |
+| True, after 5.6 | — | 67.58% | §14.4's formula: 69.70% ± 3 (below) |
+| $0-True statements, after 5.6 | 1,819 | 113 | about 107 |
 | Median statement True share | 0% | 85.2% | about 87% |
-| Verified, after 5.6 | 7.17% | 27.19% | 22% to 29% |
-| $0-verified statements, after 5.6 | 1,819 | 1,083 | 945 to 1,281 |
+| Verified, after 5.6 | 7.17% | 27.23% | 22% to 29% |
+| $0-verified statements, after 5.6 | 1,819 | 1,094 | 945 to 1,281 |
 | Package revenue gate (statements gated) | 96.6% | 30.06% (742) | about 28% to 32% |
-| Held share of posted credits | — | 18.82% | (report) |
+| Held share of posted credits | — | 18.69% | (report) |
 
-  **True is below 71.3 − 3 by 0.84 points, and §4 names the reason** (§14.4: "less … the holds the memo's rows cannot show (§14.2)"): the holds that need debits or non-revenue rows, which the memo's unverified rows could not show, hold 4.00% of posted credits: `payer_also_debited` 3.71%, `possible_return` 0.21% (the released card credits among them), `payer_debited_as_lender` 0.05%, `insurer_payer` 0.03%. 71.3 − 4.0 = 67.3, which the measured 67.46% meets. A run more than one point away from 67.46% stops the release.
+  **True, term by term (§14.4, review I8).** The target is "71.3% ± 3 … plus up to 2.3 points if the owner accepts T19 and 0.3 with T18, plus 0.8 for the funds-transfer wires; less the T5 moves and the holds the memo's rows cannot show". Measure it, as shares of posted credits, with this scratch script (Write tool; `C:/Users/GustavoPrietodePaula/lender-research/revenue/census/true_breakdown.py`; it prints figures only), run as `C:/Python314/python.exe $OUT/true_breakdown.py $OUT/s54.json.gz $OUT/s56.json.gz`:
 
-  The reasons (5.6, rows and share of posted credits): counted `no_payer_printed` 5,741 (11.76%), `wire_named_sender` 656 (6.36%), `check_deposit` 3,346 (5.26%), `named_payer_unlabelled` 3,420 (4.73%), `p2p` 12,061 (4.53%), `numbered_company_payer` 389 (4.13%, T11), `named_payer_one_off` 875 (2.05%), `factoring_payout` 391 (0.81%), `named_payer_purpose_refused` 500 (0.45%), `platform_unconfirmed` 211 (0.13%), `payout_credit_entity` 95 (0.03%); held `transfer_no_counterparty` 977 (5.75%), `wire_no_sender` 314 (4.83%), `payer_also_debited` 2,816 (3.71%), `financing_named_payer` 551 (1.32%, T4), `payroll_or_salary` 429 (1.10%), `p2p_round_repeat` 1,221 (0.61%), `non_sale_purpose` 419 (0.50%), `insurer_named_payer` 492 (0.38%), `possible_return` 276 (0.21%), `transfer_account_designation` 771 (0.20%, T13), `holder_name` 198 (0.11%), `payer_debited_as_lender` 55 (0.05%), `insurer_payer` 4 (0.03%), `personal_income` 28 (0.03%).
-  Statements gated, by the held reason they carry: `payer_also_debited` 242, `p2p_round_repeat` 136, `transfer_no_counterparty` 133, `payroll_or_salary` 123, `financing_named_payer` 115, `wire_no_sender` 86, `non_sale_purpose` 73, `transfer_account_designation` 67, `possible_return` 54, `insurer_named_payer` 43, `holder_name` 18, `personal_income` 14, `payer_debited_as_lender` 9, `insurer_payer` 4. `named_payer_unlabelled` rows whose payer name alone Q6 (b) or (c) would verify: 238 rows, about $0.74M.
-  Verified by method at 5.6 (rows): `operating_income_descriptor` 11,907; `operating_source_with_credit_context` 8,112; `recurring_operating_source` 6,521; `named_payer_repeats` 3,070; `payer_remittance_descriptor` 776; `auto_lender_dealer_funding` 215; `wholesale_auction_payout_form` 138; `named_payer_company_form` 127; `wire_remittance_purpose` 80; `repeat_wire_sender` 61; `public_payer_remittance` 20; `public_or_healthcare_payer` 15.
-  `left_non_revenue` and the verified demotions at 5.6 are those of S3.2, except `customer_id` 32 rows (8 statements): five rows 5.5 demoted are verified again by Q6. Eligible deposits: unchanged 2,474, down 13, up 6.
+```python
+"""Task A1 (scratch, never committed): the spec's True-share formula, term by term, on a base (5.4) and a 5.6 census snapshot:
+71.3 +- 3, plus what reached True from non_revenue (T19's book transfers, T18, the funds-transfer wires, the other
+narrowings), less the T5 moves out of the unverified pool, less the holds the memo's rows could not show. Shares of
+posted credits, in points. Prints figures only.
+Usage: python true_breakdown.py <base> <s56>"""
+from __future__ import annotations
+
+import gzip
+import json
+import re
+import sys
+from collections import Counter
+
+sys.path.insert(0, "C:/Users/GustavoPrietodePaula/work/true-revenue")
+from tools.revenue_census import _narrowing  # noqa: E402
+
+UNSEEN = ("payer_also_debited", "possible_return", "payer_debited_as_lender", "insurer_payer")
+
+
+def main(base_path: str, after_path: str) -> None:
+    base = json.load(gzip.open(base_path, "rt", encoding="utf-8"))["accounts"]
+    after = json.load(gzip.open(after_path, "rt", encoding="utf-8"))["accounts"]
+    posted = sum(account["posted_cents"] for account in after.values())
+    terms: Counter = Counter()
+    true_total = 0
+    for key, account in after.items():
+        prior = {credit["i"]: credit for credit in base[key]["credits"]}
+        for credit in account["credits"]:
+            old = prior[credit["i"]]
+            in_true = credit["state"] == "verified_revenue" or credit.get("tier") == "counted_flagged"
+            true_total += credit["cents"] if in_true else 0
+            if old["state"] == "non_revenue" and in_true:
+                cause = _narrowing(old, credit) or "outside"
+                if cause == "4_book_or_funds_transfer":
+                    cause += ":book" if re.search(r"\bBOOK TRANSFER\b", credit["text"]) else ":funds"
+                terms[f"+ reached True from non_revenue: {cause}"] += credit["cents"]
+            if old["state"] != "non_revenue" and credit["state"] == "non_revenue":
+                terms[f"- left the unverified or verified pool for non_revenue: {credit['rule'] or credit['method']}"] += (
+                    credit["cents"])
+            if credit.get("reason") in UNSEEN:
+                terms[f"- held, not visible to the memo's rows: {credit['reason']}"] += credit["cents"]
+    print(f"True {100 * true_total / posted:.2f}% of ${posted / 100:,.0f} posted")
+    for name, cents in sorted(terms.items()):
+        print(f"  {name}: {100 * cents / posted:.2f} pt (${cents / 100:,.0f})")
+    added = sum(cents for name, cents in terms.items() if name.startswith("+"))
+    t5 = sum(cents for name, cents in terms.items() if name.startswith("- left"))
+    unseen = sum(cents for name, cents in terms.items() if name.startswith("- held"))
+    print(f"  total added {100 * added / posted:.2f} pt; T5 and other non-revenue moves {100 * t5 / posted:.2f} pt; "
+          f"unseen holds {100 * unseen / posted:.2f} pt")
+    print(f"  spec formula: 71.3 + {100 * added / posted:.2f} - {100 * t5 / posted:.2f} - {100 * unseen / posted:.2f} = "
+          f"{71.3 + 100 * (added - t5 - unseen) / posted:.2f} (band +- 3)")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1], sys.argv[2])
+```
+
+  Measured on the revised prototype:
+  - reached True from non-revenue: +2.53 points: T19's book transfers +1.81, the funds-transfer wires +0.38, T18's claim payments +0.33, the street `LN` +0.01, the BNPL settlements under 0.01;
+  - left the unverified or verified pool for non-revenue: −0.14 points: Square Capital's `SQ CAP` −0.10, the widened reversal pairs −0.02, the tax refunds, account verification and return codes −0.02;
+  - the holds the memo's rows could not show: −4.00 points: `payer_also_debited` −3.71, `possible_return` −0.21 (the released card credits among them), `payer_debited_as_lender` −0.05, `insurer_payer` −0.03.
+
+  71.3 + 2.53 − 0.14 − 4.00 = 69.70, so the band is 66.70% to 72.70%, and the measured 67.58% is inside it. **The band is the stop condition:** a run outside it stops the release unless §4 names the cause. **Drift detection:** a run more than one point from 67.58% is reported with its causes before anything else, although it is not by itself a spec failure.
+
+  The reasons (5.6, rows and share of posted credits): counted `no_payer_printed` 5,740 (11.76%), `wire_named_sender` 654 (6.35%), `check_deposit` 3,346 (5.26%), `named_payer_unlabelled` 3,419 (4.73%), `p2p` 12,048 (4.56%), `numbered_company_payer` 389 (4.13%, T11), `named_payer_one_off` 943 (2.13%), `factoring_payout` 391 (0.81%), `named_payer_purpose_refused` 500 (0.45%), `platform_unconfirmed` 193 (0.13%), `payout_credit_entity` 95 (0.03%); held `transfer_no_counterparty` 977 (5.75%), `wire_no_sender` 314 (4.83%), `payer_also_debited` 2,829 (3.71%), `financing_named_payer` 566 (1.19%, T4), `payroll_or_salary` 429 (1.10%), `p2p_round_repeat` 1,223 (0.61%), `non_sale_purpose` 423 (0.50%), `insurer_named_payer` 526 (0.38%), `possible_return` 276 (0.21%), `transfer_account_designation` 769 (0.20%, T13), `holder_name` 198 (0.11%), `payer_debited_as_lender` 55 (0.05%), `insurer_payer` 4 (0.03%), `personal_income` 28 (0.03%).
+  Statements gated, by the held reason they carry: `payer_also_debited` 243, `p2p_round_repeat` 136, `transfer_no_counterparty` 133, `payroll_or_salary` 123, `financing_named_payer` 115, `wire_no_sender` 86, `non_sale_purpose` 73, `transfer_account_designation` 66, `possible_return` 54, `insurer_named_payer` 43, `holder_name` 18, `personal_income` 14, `payer_debited_as_lender` 9, `insurer_payer` 4. `named_payer_unlabelled` rows whose payer name alone Q6 (b) or (c) would verify: 238 rows, about $0.74M.
+  Verified by method at 5.6 (rows): `operating_income_descriptor` 11,907; `operating_source_with_credit_context` 8,077; `recurring_operating_source` 6,521; `named_payer_repeats` 3,070; `payer_remittance_descriptor` 778; `auto_lender_dealer_funding` 215; `wholesale_auction_payout_form` 138; `wire_remittance_purpose` 80; `repeat_wire_sender` 63; `named_payer_company_form` 56; `public_payer_remittance` 20; `public_or_healthcare_payer` 15.
+  `left_non_revenue` and the verified demotions at 5.6 are those of S3.2, except `customer_id` 32 rows (8 statements): five rows 5.5 demoted are verified again by Q6. Eligible deposits: unchanged 2,474, down 13, up 6; lender credits by cause as in S3.2. `g13_listed_apart`: 440 rows (about $0.68M), as in S3.2.
 
 - [ ] **Step 5: Report** the printed lines, both tables filled with the run's values, `lc_cmp.json`'s summary, and the private paths. Nothing is committed.
 
@@ -13011,7 +14504,7 @@ OUT=C:/Users/GustavoPrietodePaula/lender-research/revenue/census
 C:/Python314/python.exe -m tools.revenue_census sample --snapshot $OUT/s56.json.gz --out $OUT/sample56.json
 ```
 
-  It prints one count per stratum. Expected (the prototype's 5.6 snapshot): 20 rows in each of `q5_repeat_wires`, `q6a_repeats`, `q6b_company_form`, `ap_remittance`, `public_payers`, `invoice_wires`, `card_and_payout_forms`, `q7_dealer_funding` and `holder_test_rows`, every row of `q6c_government_healthcare` (15), and `largest_counted` 50: about 200 Verified rows and 50 counted rows.
+  It prints one count per stratum. Expected (the revised prototype's 5.6 snapshot): 20 rows in each of `q5_repeat_wires`, `q6a_repeats`, `q6b_company_form`, `ap_remittance`, `public_payers`, `invoice_wires`, `card_and_payout_forms`, `q7_dealer_funding`, `holder_test_rows` and `numbered_template_rows` (G13's rows listed apart), every row of `q6c_government_healthcare` (15), and `largest_counted` 50: about 215 Verified rows and 50 counted rows.
 
 - [ ] **Step 2: The independent sort.** Dispatch a reviewer who has not written or reviewed any task of this plan, with `sample56.json` only, and this brief: "For every row, set `sort` to `revenue`, `loan`, `own_money`, `refund`, `transfer`, `insurance`, `other` or `cannot_tell`, from the digit-masked text alone; write the file back as `sample56_sorted.json`."
 
@@ -13023,8 +14516,8 @@ C:/Python314/python.exe -m tools.revenue_census sample --snapshot $OUT/s56.json.
 
 **Depends on:** every task above.
 
-- [ ] **Step 1: The full suite.** `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (sandbox symlink and external-root tests; `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`; `test_no_statement_hardcodes.py::test_no_literal_account_numbers_in_ocr`; `test_stated_counts.py::test_the_observer_is_not_wired_into_any_production_module`; `test_extraction_quality_admission.py::test_router_implementation_preserves_phase2_extraction_quality_exclusion`). Measured on the prototype at S6.3: 13,873 passed, 55 skipped, 39 deselected, 16 failed; S1.5's guard file adds 4 passing tests (13,877). Compare the failed ids with `comm -23 <(grep ^FAILED … | sort) <(sort …/failed-ld-final.txt)`: empty.
-- [ ] **Step 2: The selections.** SEL-CLASSIFIER, SEL-REGISTRY, SEL-WEBAPP and SEL-REVENUE (Global Constraints); expected counts (the prototype at S6.3): SEL-CLASSIFIER `755 passed, 2 deselected`, SEL-REGISTRY `362 passed, 4 skipped`, SEL-WEBAPP `859 passed`, SEL-REVENUE `490 passed` (S1.5's admissions may add rendered aliases to SEL-REGISTRY's parametrized cases; report the difference).
+- [ ] **Step 1: The full suite.** `cd C:/Users/GustavoPrietodePaula/work/true-revenue && C:/Python314/python.exe -m pytest tests -q -p no:cacheprovider`. Expected: only the 16 known failures of `C:/Users/GustavoPrietodePaula/lender-research/census/failed-ld-final.txt` (sandbox symlink and external-root tests; `test_corpus_gate_outcomes.py::test_every_production_caller_of_the_analysis_is_classified`; `test_no_statement_hardcodes.py::test_no_literal_account_numbers_in_ocr`; `test_stated_counts.py::test_the_observer_is_not_wired_into_any_production_module`; `test_extraction_quality_admission.py::test_router_implementation_preserves_phase2_extraction_quality_exclusion`). Measured on the revised prototype at S6.3: 14,084 passed, 55 skipped, 39 deselected, 16 failed; S1.5's guard file adds 4 passing tests (14,088). Compare the failed ids with `comm -23 <(grep ^FAILED … | sort) <(sort …/failed-ld-final.txt)`: empty.
+- [ ] **Step 2: The selections.** SEL-CLASSIFIER, SEL-REGISTRY, SEL-WEBAPP and SEL-REVENUE (Global Constraints); expected counts (the revised prototype at S6.3): SEL-CLASSIFIER `755 passed, 2 deselected`, SEL-REGISTRY `362 passed, 4 skipped`, SEL-WEBAPP `859 passed`, SEL-REVENUE `701 passed` (S1.5's admissions may add rendered aliases to SEL-REGISTRY's parametrized cases; report the difference).
 - [ ] **Step 3: The dashboard in a browser.** Seed a scratch data folder (never the corpus cache) with two fabricated saved analyses, one analysed under 5.6 and one shaped as before 5.6, with this scratch script (Write tool; the scratchpad folder, never the repository):
 
 ```python
@@ -13053,8 +14546,8 @@ for name, analysis in (("fabricated-march.pdf", _payload()), ("fabricated-april-
 
 Each was taken during prototyping; the owner or a reviewer may overrule any of them.
 
-1. **G7 and S1.5.** §14.3 asks for zero lender, potential-lender and flag changes on debits against 5.4, while §8.7 and §7.1/§7.3 ask S1 to admit dealer lenders, processors' advance products and Parafin into the ledger, which changes those payees' debits. G7's declared exceptions are exactly the entities S1.5 admits (Task A1, Step 3). Without S1.5's admissions, G7 is measured as stated.
-2. **S1.5 is research.** Which products and lenders are admitted is decided by the research and verify rounds, not by the plan; the bare processor aliases join only for a cleared processor, and the guard test `tests/test_registry_additions_55.py` holds whatever the gate lets through. The census expectations were measured without any admission; S3.2 and A1 report an admission's rows under its entity.
+1. **G7 and S1.5 (review I2).** §14.3 asks for zero lender, potential-lender and flag changes on debits against 5.4, while §8.7, §7.1, §7.3 and §7.9 ask S1 to admit dealer lenders, processors' advance products, Parafin and receivables financiers into the ledger, which changes those payees' debits. The owner signs off on the admission list with each entity's measured effect (S1.5 Step 6, `g7_allowlist.json`); G7's only declared exceptions are the signed-off entities, and `g7_check.py` traces every moved row to its payee on the cache (A1 Step 3). Without a sign-off, nothing that moves a debit is admitted, and G7 is measured as stated (0 moves, measured).
+2. **S1.5 is research, then the owner's word.** Which products and lenders are admitted is decided by the research and verify rounds and the owner's sign-off, not by the plan; the bare processor aliases join only for a cleared processor (the gate table drops them by itself), and the guard test `tests/test_registry_additions_55.py` holds whatever the gate lets through. The census expectations were measured without any admission; with admissions, S3.2 and A1 first reproduce them on an admission-free copy of the tree and then attribute every moved row to an admitted entity (S3.2 Step 3, A1 Step 1).
 3. **The wire and book-transfer labels live with the readers.** The channel gate (§6.1 step 9b) must know an incoming wire, so `_INCOMING_WIRE_LABEL`, `_BOOK_TRANSFER_FROM`, `_FUNDS_TRANSFER_WIRE_LABEL`, `_THIRD_PARTY_ORIGINATOR`, `_third_party_originator` and `_third_party_book_transfer` are added in S2.1 with the two owner switches, not in S2.2.
 4. **The healthcare and dealer-funding tables ship in S1** (spec §16 gives them to S1) although only 5.6 reads them; they are inert until S4.2.
 5. **An intermediate pin.** `tests/test_analysis.py:3361` (`m.true_revenue == 10000.0`) moves to `0.0` at S2.3 (the bare teller `CUSTOMER DEPOSIT` prints no payer word, so the 5.5 channel gate leaves it unverified, and `true_revenue` is still the verified total), and back to `10000.0` with `verified_revenue_total == 0.0` at S4.4 (the repointed True revenue counts it). The spec's §13 names only the second move. Both are pin-ledger rows.
@@ -13066,14 +14559,88 @@ Each was taken during prototyping; the owner or a reviewer may overrule any of t
 11. **S6 runs after S5, not beside it** (spec §16 allows parallel). The dashboard's tests read the served flags and package keys S5 adds.
 12. **Older payloads.** A payload analysed before 5.6 is gated by today's rule (a pending unverified deposit, a direction conflict, or revenue that does not reconcile); its `revenue_review_items` is None and the badge falls back to its unverified count; its review writer writes no tier; `_awaits_review` lets only unverified rows await, as today.
 13. **The census population.** The census de-duplicates by statement fingerprint and keeps reconciled accounts: 2,493 accounts, 2,468 with credits, $276.9M of posted credits. Its gate base is 96.6% of statements with credits (the spec's 95.6% is of all 2,493); the shares match the spec's (7.17% verified, 17.0% non-revenue, 1,819 at $0).
-14. **True below the target band.** Measured True is 67.46% against 71.3% ± 3. §14.4 itself subtracts "the holds the memo's rows cannot show"; the census measures them at 4.00 points (`payer_also_debited` 3.71, `possible_return` 0.21, `payer_debited_as_lender` 0.05, `insurer_payer` 0.03), which puts the target at 67.3%. A1 stops the release if a run moves more than a point from 67.46%. T4's hold measures $3.65M (1.32%) against the memo's $2.1M: the census reads the payer region and entry fields of every row, the memo only its deposit types.
+14. **True inside the spec's band, term by term (review I8).** §14.4's target is 71.3% ± 3, plus what reaches True from non-revenue (T19's book transfers, T18, the funds-transfer wires), less the T5 moves and the holds the memo's rows cannot show. Measured (A1 Step 4): +2.53 points reached True from non-revenue (book transfers 1.81, funds-transfer wires 0.38, T18 0.33, street `LN` 0.01), −0.14 left the unverified or verified pool for non-revenue (SQ CAP 0.10, reversal pairs 0.02, tax refunds and other markers 0.02), −4.00 are the unseen holds (`payer_also_debited` 3.71, `possible_return` 0.21, `payer_debited_as_lender` 0.05, `insurer_payer` 0.03): 71.3 + 2.53 − 0.14 − 4.00 = 69.70, band 66.70 to 72.70. Measured True is 67.58%, inside it. The band is the stop condition; a run more than one point from 67.58% is drift to explain, not a spec failure. T4's hold measures $3.29M (1.19%) against the memo's $2.1M: the census reads the payer region and entry fields of every row, the memo only its deposit types.
 15. **The tryout host is not measured by this plan.** Measuring it means copying customer statements off the host; A2 does that read-only as an acceptance step and reports the host's figures beside the spec's reference, without a numeric stop.
 16. **`REVENUE_TIER_REASONS` has a JS mirror.** §5.3 says nothing else lists the codes, and §10.6 asks for one JS table mirroring them; the mirror adds one sentence per code and a parity test (S6.1) holds the two equal.
 17. **Parafin's group** is proposed as `alternative_position` / `platform_embedded_financing`, the group the ledger gives Square Capital and Stripe Capital; the verify round decides.
 18. **Test files.** §14.1 puts the fabricated tests in `tests/test_revenue_classification.py` "unless stated". This plan gives each family and each 5.6 part its own file (the File structure table), so that every task's tests are one reviewable file and `tests/test_revenue_classification.py` changes only by its pin-ledger rows.
+19. **`(?<!RE)FUND` in T4's roots (review C1).** §8.1 lists the root `FUND`; the plan reads `(?<!RE)FUND`, so a refund is never held as financing. Refunds are held instead as `non_sale_purpose`: `[A-Z]*REFUND\w*`, `\bRFND\w*` and `\bREFND\w*` join `_NON_SALE_PURPOSE`'s last group (a glued `PREFUND`, `CUSTREFUND`, Maryland's `MDREFUND` included, which §7.6 already holds there). The reversal rule still decides `REFUND` and `REFUNDED` first, as today. G15 checks that no row in True prints a refund word.
+20. **A registry row with a financing word is not claimed (review C2).** §8.1 skips every row the registry claimed, which let a platform's capital or advance credit (`STRIPE DES:CAPITAL`, `SPOTON DES:ADVANCE`, `MANHEIM US DES:FLOORPLAN`) count as `platform_unconfirmed`. The plan reads the financing words of the recurrence veto (§7.0), the new-read veto (§7.2) and the auction's words (§7.8) on a registry row, the holder's own words aside as the recurrence veto reads them, and holds such a row as `financing_named_payer`. This is a departure from §8.1's wording, recorded for the owner. Measured at 5.6: 17 rows, about $14K, 5 statements.
+21. **FUNDING vetoes recurrence outside three platforms (review C2).** §7.0 keeps `FUNDING` out of the recurrence veto because TapGoods, Braintree and Buildium print it on real settlements. The plan narrows that exception to those three entities (`_FUNDING_SETTLEMENT_ENTITIES`): three `ETSY DES:FUNDING` rows no longer verify each other. Measured: no row verified at 5.4 loses its verification by it.
+22. **The auction branch refuses §14.1's words (review C2).** `_AUCTION_VETO` (`FUNDING`, `FUNDNG`, `FUNDED`, `ADVANCE`, `ADV`, `CAPTL`, `CAPITAL`, `FLOOR PLAN`, `FLOORPLAN`, `FINANC…`, `NGC`, `LOAN`, `PPD`) keeps an auction credit that prints its payout form unverified (rule `auction_credit_prints_financing_or_consumer_word`); at 5.6 the financing ones are held and the PPD one counted. `DEALSHIELD` and `ARB CREDIT` are held as `possible_return` (an auction's refund of a vehicle the dealer bought).
+23. **The holder's own ACH transfer (review C3).** §5.2 reads a transfer row's payer after `FROM`; a transfer-worded row that prints an ACH originator field (`DES`, `CO ENTRY DESCR`, `ORIG CO NAME`) and no `FROM` sender now reads its originator the ACH way, so the holder test and the counter-debit hold see it. It keeps the named-transfer tier. G17 reads the holder test on that originator independently of the payer region.
+24. **Santander's wire layout (review I5).** §5.2 reads a wire's originator after `WIRE IN FROM`; Santander prints its sending bank there (`USD WIRE IN FROM <sending bank> ACCT <n> <originator> REF <purpose>`), so the payer region, the own-account, brand-word and cut-field vetoes and Q5's repeats read the bank. The plan reads the originator after the account number (`_SANTANDER_WIRE`) and removes the sending bank, and Chase's originating bank (`OGB`), before the financing roots are read (`_wire_financing_text`). §7.9's 40 cases need it (a Santander own-account wire verified without it). Measured: 11 rows, about $0.98M, 3 statements move, True +0.14 points.
+25. **Two demotion causes this plan declares.** `pool_below_recurrence_after_a_declared_veto` (a pool left under its count once a declared veto takes a member out: 4 rows, 3 statements) and `entity_split` (a pool split by an entity's re-reading: measured 0) follow from §7.0's declared recurrence fixes. The census lists them; any other cause is `undeclared` and fails it.
+26. **The review's guards G15 to G17.** No row in True prints a refund word (G15), a tax refund or an earned-income credit (G16), or is the holder's own ACH transfer (G17). They read the census's own patterns and facts, not the pass's.
+27. **G2 and G13 on registry and form rows (review I1).** §14.3's G2 reads T4's roots; on a registry row the plan reads the registry's financing words and a root glued inside a word (`STRIPECAPITAL`), the holder's own words and §7.0's FUNDING settlements aside, because T4's substring roots read a root inside a city's name on real DoorDash payouts. G13 reads the numbered-company region form on every Verified row and the full guard (the `DIRECT DEPOSIT <digits>` template included) on the rules that read it (§5.2: steps 11 to 14, Q5, Q6); a processor's settlement printed after BMO's `MISC PAYMENT <digits>` template is listed apart (`g13_listed_apart`: 440 rows, about $0.68M) and sampled (A3, `numbered_template_rows`).
+28. **Q5 honours the channel gate.** §6.1 step 9b says Q5 never verifies a row the gate closes or limits to the registry; the prototype's Q5 did not check it. `_wire_verifies` now refuses a gated row (G10's push-rail half checks it).
+29. **Title, escrow and bank payers never verify by name (review I6).** Q5 refuses a sender naming a bank or a title or escrow firm (§8.5); the plan applies the same list to Q6 (b)'s company form, and refuses a title or escrow originator in §7.9's wire vetoes (read by §7.5 and §7.9). A PPD or WEB entry never verifies by its company form (S50's block extended to Q6 (b); measured: 71 rows, about $0.21M, 15 statements, now counted as `named_payer_one_off`). `PAYCHECK`, `PR PAY` and `EMPLOYEE PAY` are pay words; the glued tax refunds `<STATE>TAXRFD` and `TAXEIC` join T5 (the spaced `TAX EIC` stays held as `non_sale_purpose`, as §14.1 asks).
+30. **§7.9's purposes as the verifier's cases need them (review I5).** `PAYMENT FOR GOO(DS)` (a cut field), `COMPRA (DE) MERCAD…`, the glued `INTERCOMPANY` and `INTERCO` veto; the bare `PI <digits>` stays dropped (the 40th case expects `stays`). The wire tests pin §7.9's recorded residuals (a person's invoice wire, a person's holding company, a neutral-name funder, the MCA "purchase price" order, a root-free factor, a template-named holder's own account, and Stenn until the ledger lists it): they verify, and A3 samples them.
+31. **The ledger gate is read by the reader (review I4).** `GATED_PROCESSOR_ALIASES` is derived from `PROCESSOR_ADVANCE_PRODUCTS`, and an operating alias read inside another waiting processor's bare alias (`BY STRI` inside `JOBBER BY STRI`) names no source. The validator is not changed: it compares whole aliases, and the reader closes the hole for every contained alias. Q6 still reads a waiting processor's repeated rows as any payer's (4 `MISC PAYMENT JOBBER BY STR` rows verify as `named_payer_repeats`): the gate governs the registry, not Q6 (open for the owner).
+32. **M7 is not done.** §5.2 cuts a sender before a sending bank's name, but a printed sender does not mark where the bank's name starts (`JOHN SMITH SAMPLE BANK`), and `BANK_NAME_ALIASES` holds loan and product spellings, not the banks' printed names. The sender feeds only the holder test, the round-sum key and the counted tiers, never a verification; a trailing bank word leaves those as they are or splits a sender's key (the safe direction for the round-sum hold is lost only when the same person pays from two banks). Recorded, not fixed.
+
+## Revision after review (2026-09-29)
+
+The review of this plan returned "changes needed": three critical findings (refunds, platform capital and the holder's own ACH transfers could reach True, and the census could not see them), eight important ones and seven minor ones. This revision applies every critical and important finding and six of the seven minor ones; M7 is declined with its reason. Each change was made in the prototype first, with fabricated tests; the per-task clone was rebuilt from `4227a76`; and every figure of the plan was measured again (each task's tests before and after, the selections at every task, the full suite at four tasks, the census at 5.4, 5.5 and 5.6, and G7).
+
+### What changed, finding by finding
+
+| Finding | What changed | Where |
+|---|---|---|
+| C1 refunds verified or counted | `[A-Z]*REFUND\w*`, `\bRFND\w*`, `\bREFND\w*` hold a row as `non_sale_purpose` (`COMPTROLLER OF MD DES:MDREFUND` stays there); the `(?<!RE)FUND` departure is declared; each of the review's refund rows is tested alone and repeated; G15 fails any refund word in True | S4.2; S3.1; Decision 19 |
+| C2 platform capital and floor plan counted, an NGC credit verified | a registry row that prints a financing word is not claimed and is held as `financing_named_payer`; the auction branch refuses §14.1's words (`FUNDING` … `NGC`, and `PPD`); FUNDING vetoes recurrence outside the three platforms §7.0 names; G2 fails on a registry row's own root; every row of the review is tested; recorded for the owner | S2.2, S2.4, S4.2, S3.1; Decisions 20 to 22, 27 |
+| C3 the holder's own ACH transfer lost its payer | a transfer-worded row with an ACH originator field and no FROM sender reads its originator as its payer (it keeps the named-transfer tier); the holder's own transfer is held `holder_name` and a transfer pair `payer_also_debited`; G17 reads the holder test on the originator independently | S2.1, S4.2, S3.1; Decision 23 |
+| I1 weak census guards | G9 checks every posted credit's tier against its state, the metrics' tier totals and fails an unmatched account or a classification error; an undeclared demotion fails the census; the plan's own causes are declared; narrowing 8 needs a BNPL entity and narrowing 4 a third-party originator; G10 checks the push-rail half; G13 the full guard; G12 the credit-union count and the loan-word veto; G14 every row that counted toward a lifted pool; G15 to G17 added | S3.1, A1; Decisions 25 to 27 |
+| I2 G7 against S1.5 | the owner signs off on the admission list, with each entity's measured effect (`admission_effect.py`); only signed-off entities are admitted; `g7_check.py` reads that list as its only declared exceptions and traces every moved row to its payee on the cache; without a sign-off nothing that moves a debit is admitted; S3.2 and A1 re-measure against an admission-free copy of the tree | S1.5 Steps 6 and 7, S3.2 Step 3, A1 Steps 1 and 3; Decisions 1 and 2 |
+| I3 the structural-lens processors | a read-only search of the cache (31,116 analyses) and the host's dump: none of the seventeen prints a credit spelling, so each waits; the registry records it and a test holds it | S1.1 Step 1 |
+| I4 the Jobber gate bypassed by `BY STRI` | `GATED_PROCESSOR_ALIASES` (derived) and a reader that refuses an alias read inside a waiting processor's bare alias, on credits and on the fee debits of the recurrence pass; tested | S1.1, S2.2, S2.4, S2.3; Decision 31 |
+| I5 G8 not claimable | §14.1's §7.8 negatives (the financing words, the alias in IND NAME, INDN, a Zelle field and a memo, pay and PPD, DEALSHIELD and ARB CREDIT, card credits, the wire-paid pair, the D1 controls, the duplicate) and §7.9's list (the 40 cases, the hazard groups G1 to G11, the party-name rows, the adversarial rows, the recorded residuals) are fabricated tests. They forced five fixes: Santander's originator, the originating bank (`OGB`) removed before the roots, the glued `INTERCOMPANY`, the cut `PAYMENT FOR GOO` and `COMPRA MERCADE`, and a title or escrow originator vetoed; S1.5's brief carries §7.9's receivables financiers | S2.1 to S2.4, S4.2, S1.5; Decisions 24, 29, 30 |
+| I6 spec gaps | a PPD or WEB entry, a bank and a title or escrow firm never verify by their company form; `PAYCHECK`, `PR PAY`, `EMPLOYEE PAY` are pay words; `<STATE>TAXRFD` and `TAXEIC` join T5; G16 fails any tax refund in True; raised for the owner below | S2.3, S4.2, S3.1; Decision 29 |
+| I7 a real-statement re-pin | pin-ledger row 35 moves only on the owner's word, asked in S5.1's first step; the stop rule names it | S5.1 Step 1, Global Constraints |
+| I8 the True-share explanation | the spec's formula term by term (A1 Step 4): the band is the stop condition, and the one-point check against the measured value is drift detection | A1 Step 4; Decision 14 |
+| M1 consumers untested | tests for the batch columns and review flag, the CLI report, and a benchmark row comparing True revenue with MoneyThumb's true credits (`true_revenue_row`), Verified beside it | S4.5 |
+| M2 moves only counted | `lender_credit_moves_by_cause` (lender credits and eligible deposits by the cause that moved each row) | S3.1, S3.2, A1 |
+| M3 `DEPOT` closed the French forms | `DEPOT MARCHAND` and `DEPOT DIRECT` are not branch deposits; `DEPOT MARCHAND GLOBAL PAIEMENTS` verifies through Global Payments | S2.1, S2.3 |
+| M4 the verified aliases | `confirmed_true_revenue_total` and `confirmed_true_revenue` are N/A with the verified total | S5.1 |
+| M5 the S1.5 brief | records carry `"status": "admitted"`; Step 4 writes guard tests that pass by design | S1.5 |
+| M6 card refunds as financing | `VISA`, `CHECKCARD` and `PURCHASE CREDIT` are posting labels and possible returns | S4.2 |
+| M7 the sending bank in a sender | declined (Decision 32) | — |
+
+### Where this revision departs from the review's wording, and why
+
+1. **G2 on registry rows (C2, I1).** The review asked G2 to fail on a registry row that carries a financing root. Read with T4's substring roots, G2 failed on 86 real DoorDash payouts whose row prints a city whose name holds `LEND`. A registry row is read by the registry's financing words and a root glued inside a word, the holder's own words and §7.0's FUNDING settlements aside (Decision 27); that reading fails every row of the review's C2 list.
+2. **G13's template form (I1).** The full guard matches 440 Verified rows (about $0.68M) that the processors' card forms and registry verified after BMO's `MISC PAYMENT <digits>` template: Global Payments, Fiserv and Elavon settlements whose payer is the processor, which §5.2 exempts from the guard. G13 fails the template only on the rules that read the guard, lists the rest apart and samples them (A3's `numbered_template_rows`).
+3. **The gate lives in the reader (I4).** The review offered the validator or the reader. The reader closes the hole for every contained alias; the validator compares whole aliases and cannot. Q6 still verifies a waiting processor's repeated rows as any payer's (4 corpus rows), which is outside the gate's scope: open for the owner.
+4. **Beyond the review's lists.** Transcribing §14.1 found holes the review did not name, and each is fixed and measured here: Santander's layout (Decision 24), Q5's missing channel-gate check (Decision 28), FUNDING in three statements of one platform verifying by recurrence (Decision 21), and a title firm's invoice wire verified by §7.5 (Decision 29).
+5. **I2's two options.** The plan does both: it asks the owner to sign off the list (G7 reads it), and without a sign-off it defers every admission that moves a debit.
+6. **I7.** The re-pin is kept, because §9.2 and §10.4 require it, but it waits for the owner's word; S5.1 stops before its commit without it.
+
+### What the re-measurement changed
+
+| Figure | Before the review | After |
+|---|---|---|
+| 5.5 Verified share; $0-verified statements | 19.50%; 1,266 | 19.59%; 1,271 |
+| 5.5 statements gated (today's rule) | 93.72% | 93.80% |
+| 5.6 True share; held share | 67.46%; 18.82% | 67.58%; 18.69% |
+| 5.6 Verified share; $0-verified; $0-True; median True | 27.19%; 1,083; 112; 85.2% | 27.23%; 1,094; 113; 85.2% |
+| 5.6 statements gated | 30.06% (742) | 30.06% (742) |
+| Full suite at S6.3 (passed; the 16 known failures) | 13,873 | 14,084 |
+| G7 (analyses; state moves; lender rows; flag groups) | 7,241; 0; 0; none | 7,241; 0; 0; none (the same, with the new check) |
+
+At 5.6, against the plan as reviewed (rows, dollars, statements): Santander's originator 11 rows, about $0.98M, 3 statements (True +0.14 points; Q5 and §7.9 now read the originator); the PPD company-form block 71 rows, about $0.21M, 15 statements, verified to counted; the Jobber gate 36 rows, about $94K, 12 statements, verified to counted (none was verified at 5.4); the holder's and payer's ACH transfers 50 rows, about $21K, 10 statements (12 held `payer_also_debited`, 34 `insurer_named_payer`); platform capital 17 rows, about $14K, 5 statements, held; refund words 4 rows, about $12K, held or non-revenue; a title firm's wire, a glued tax refund and a French direct deposit, one row each. G15 to G17 hold on the corpus: no refund word, tax refund or holder's own ACH transfer is left in True.
+
+### Open for the owner
+
+1. §8.1's registry skip does not cover a registry row that prints a financing word (Decision 20); FUNDING vetoes recurrence outside TapGoods, Braintree and Buildium (Decision 21); Santander's originator is read after its account number (Decision 24). Each departs from the spec's wording.
+2. The spec gaps of review I6, fixed narrowly (Decision 29): a PPD or WEB company form, a bank's or a title firm's company form, paychecks and glued tax refunds no longer verify or count.
+3. Pin-ledger row 35 (S5.1 Step 1) and S1.5's admission list (S1.5 Step 6).
+4. §7.9's recorded residuals verify (a person's or a holding company's invoice wire, a neutral-name funder, an MCA "purchase price" order, a root-free factor, a template-named holder's own account, Stenn until the ledger lists it); A3 samples their strata.
+5. Q6 verifies a waiting processor's repeated rows (`MISC PAYMENT JOBBER BY STR`, 4 rows) as any payer's (Decision 31).
+6. M7 is declined (Decision 32).
 
 ## Self-review
 
+- **The review (2026-09-29).** Every finding maps to a change and a task in "Revision after review": C1 to S4.2 and G15; C2 to S2.2, S2.4, S4.2 and G2; C3 to S2.1, S4.2 and G17; I1 to S3.1 and A1; I2 to S1.5, S3.2 and A1; I3 to S1.1 Step 1; I4 to S1.1, S2.2 and S2.4; I5 to S2.1 to S2.4, S4.2 and S1.5; I6 to S2.3, S4.2 and G16; I7 to S5.1 Step 1; I8 to A1 Step 4; M1 to S4.5; M2 to S3.1; M3 to S2.1; M4 to S5.1; M5 to S1.5; M6 to S4.2; M7 declined (Decision 32).
 - **Spec coverage.** Every section of the spec maps to a task in the Spec coverage table above: §1 to §3 (the plan's goal and every service), §4 T1 to T19 (each row names its task; T18 and T19 ship on per §19), §5 (S2.1, S4.1, S4.4), §6 (S2.3, S2.4, S4.2, S4.3; §6.3 through the census's `NARROWINGS` and G1), §7.0 to §7.12 (S1.1 to S1.5, S2.1 to S2.4), §8 (S4.2, S4.3), §9 (S4.4, S5.1, S2.5, S4.5), §10 (S6.1 to S6.3 with the server rules in S4.4, S5.1, S5.2), §11 (S4.4, S5.1), §12 (S4.4, S5.1, S6.1), §13 (every consumer row, including the "none" rows), §14 (S3.1, S3.2, A1 to A4), §15 (out of scope, nothing implemented), §16 (the order), §17 and §19 (OQ1 out, OQ2 S1.4, OQ3 S4.2, OQ4 nothing decided, OQ5 and OQ6 on).
-- **Placeholders.** Every code step carries its full code, taken from the prototype commit that ran it; every run step carries its command and the output measured at that commit. The research task (S1.5) carries the brief, the gate script, the guard tests and the code changes for each outcome; what it admits is the research's to decide, not a gap in the plan.
-- **Names and types.** The interfaces blocks name each function and constant with its signature; later tasks use them as defined (for example `revenue_contribution_flags(state, tier)` from S4.1 in S4.2's `_with_tier` and S4.4's rebuild; `_payer_key` and `_debit_first_distinctive_word` from S2.4 in S4.2; `dealer_funding` from S4.3 in `classify_transaction`; `apply_revenue_view` from S5.1 in `_displayed`; `REVENUE_TIER_REASONS` in `analysis/revenue.py` and its JS mirror in S6.1, held equal by a test). The prototype ran every task in order, so a name used before it is defined would have failed its task's tests.
+- **Placeholders.** Every code step carries its full code, taken from the prototype commit that ran it (the rebuilt clone after the review); every run step carries its command and the output measured at that commit. The research task (S1.5) carries the brief, the gate script, the guard tests and the code changes for each outcome; what it admits is the research's to decide, not a gap in the plan.
+- **Names and types.** The interfaces blocks name each function and constant with its signature; later tasks use them as defined (for example `revenue_contribution_flags(state, tier)` from S4.1 in S4.2's `_with_tier` and S4.4's rebuild; `_payer_key` and `_debit_first_distinctive_word` from S2.4 in S4.2; `dealer_funding` from S4.3 in `classify_transaction`; `apply_revenue_view` from S5.1 in `_displayed`; `REVENUE_TIER_REASONS` in `analysis/revenue.py` and its JS mirror in S6.1, held equal by a test; the review's names: `GATED_PROCESSOR_ALIASES` from S1.1 in S2.2's `_GATED_PROCESSOR_PATTERNS`; `_SANTANDER_WIRE` from S2.1 in S2.2's `_wire_financing_text` and `_wire_originator_run`, read by S4.2's `_wire_verifies`; `_FUNDING_SETTLEMENT_ENTITIES` from S2.2 in S2.4's `_recurrence_vetoed` and S4.2's `registry_financing`; `registry_financing` and `registry_financing_root` from S4.2 in the census facts `registry_financing` and `registry_root`; the Q7 facts from S4.3 in G12). The prototype ran every task in order, so a name used before it is defined would have failed its task's tests.
