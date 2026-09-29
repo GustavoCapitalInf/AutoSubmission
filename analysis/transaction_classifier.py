@@ -9,17 +9,30 @@ from typing import Literal, Sequence, TYPE_CHECKING
 
 from .classification_registry import (
     BANK_NAME_ALIASES,
+    BLUE_PLAN_CLAIM_PAYERS,
+    CARD_SETTLEMENT_CREDIT_FORMS,
+    CardSettlementForm,
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
     FIELD_ORDER_PAYEE_FORMS,
+    GATED_PROCESSOR_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
+    OPERATING_ALIASES_READ_WITH_VETOES,
+    OPERATING_REVENUE_READ_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
+    OPERATING_REVENUE_TRUNCATIONS,
+    OPERATING_SOURCE_CONTEXT_WORDS,
+    OPERATING_SOURCE_PAYOUT_FORMS,
+    OPERATING_SOURCES_READ_WITH_VETOES,
     PAYEE_GROUP_REGISTRIES,
     PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
     PREMIUM_FINANCE_ALIASES,
     REVIEW_FLAG_ENTITIES,
+    WHOLESALE_AUCTION_PAYOUT_FORMS,
+    WHOLESALE_AUCTION_REFUND_NAMES,
+    _operating_alias_cut,
 )
 from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
@@ -1275,6 +1288,680 @@ def _third_party_book_transfer(text: str) -> bool:
         THIRD_PARTY_BOOK_TRANSFER_AS_WIRE
         and _BOOK_TRANSFER_FROM.match(text) is not None
         and _third_party_originator(text) is not None
+    )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Classification 5.5: the credit revenue rules (§6.1 steps 3 to 14, §7.1 to §7.11).
+# ---------------------------------------------------------------------------------------------------------------------
+
+#: §7.11: the unambiguous return codes, read on credits only (the debit rules keep _REFUND_REVERSAL_PATTERNS). The
+#: reversal-pair pass reads them too.
+_RETURN_CODE_CREDIT_PATTERNS = (
+    re.compile(
+        r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RECALL(?:ED)?|UNPAID|REJT|CHBK|CHGBK)\b"
+    ),
+)
+#: §7.11: a claim or provider signal. REIMBURSEMENT on such a row is a provider's claim payment, not a refund.
+_CLAIM_OR_PROVIDER_SIGNAL = re.compile(
+    r"\b(?:MEDICAID|MEDICARE|MEDI CAL|TRICARE|CHAMPVA|GEMT|EMS|PROV(?:IDER)? ?PAY(?:MENTS?)?|EDI PYMNTS|CLAIM PMT)\b"
+    r"|(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b"
+)
+_REIMBURSEMENT_WORD = re.compile(r"\bREIMBURSEMENT\b")
+#: §7.11: push payouts printed as card credits: a push-rail word, or a processor or invoice source with a payout word.
+_CARD_CREDIT_LABEL = re.compile(r"\b(?:DEBIT CARD CREDIT|POS CREDIT)\b")
+_CARD_CREDIT_PUSH_WORD = re.compile(
+    r"\b(?:VISA DIRECT|MC SEND|VISA MONEY TRANSFER|FASTPAY|INSTANT PAY|INSTANT PAYOUT)\b"
+)
+_CARD_CREDIT_PAYOUT_WORD = re.compile(r"\b(?:PAYOUTS?|INSTANT (?:PAYOUT|PAY|TRANSFER)|SETTLEMENT|DEPOSIT)\b")
+#: §7.11 (T5): account verification, Square Capital's SQ CAP, SBA and EIDL disbursements (the tax-refund forms sit
+#: in _NON_REVENUE_CREDIT_PATTERNS).
+_ACCOUNT_VERIFICATION_CREDIT = re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
+_SQUARE_CAPITAL_CREDIT = re.compile(r"\bSQ ?CAP\d*\b")
+_SQUARE_NAME = re.compile(r"\bSQ\b|\bSQUARE\b")
+_SBA_DISBURSEMENT_CREDIT = re.compile(r"\bSBAD TREAS\b|\bSBA (?:EIDL|LOAN|DISB\w*)\b|\bEIDL\b")
+#: §7.11 (T19 and this spec): a book or funds transfer is own-account only when no third-party originator is printed.
+_BOOK_OR_FUNDS_TRANSFER = re.compile(r"\b(?:BOOK|FUNDS?) TRANSFER\b")
+#: §7.11: the Electronic Funds Transfer channel, never a book or funds transfer between accounts.
+_EFT_FUNDS_TRANSFER = re.compile(r"\bELECTRONIC FUNDS TRANSFER DEPOSIT\b")
+
+#: §7.0: the recurrence pass's veto: pay, financing and verification words and the card-credit labels, read on the
+#: row before its receiver fields.
+_RECURRENCE_VETO = re.compile(
+    r"\b(?:LOANS?|CAPITAL|CAP\d*(?:SEC)?|CAPI|CAPIT|CAPITA|FIN|ADVANCE|ADV|FINANC\w*|LEND\w*|MCA|CASH ADV\w*"
+    r"|PAYROLL\w*|PAYRLL|PAYROL|PAYRL|DIR ?DEP|DIRDEP|DIRECT DEP|SALARY|SALARIES|REG SAL|WAGES?|NET ?PAY|BONUS"
+    r"|REIMB\w*|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY|VERIFICATION|INSUR\w*)\b"
+    r"|\bDEBIT CARD CREDIT\b|\bPOS CREDIT\b"
+)
+#: §7.0 (review C2): FUNDING vetoes recurrence too, except on the settlements of the platforms that print it there.
+_FUNDING_WORD = re.compile(r"\b(?:FUNDING|FUNDED)\b")
+_FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})
+#: §7.0, §7.8, §7.10: the absolute micro-deposit floor, in whole dollars.
+_MICRO_DEPOSIT_FLOOR = 1
+#: §7.0: a legal-form holder name is a business account for the recurrence rule.
+_LEGAL_FORM_HOLDER = re.compile(r"\b(?:LLC|INC|CORP|LTD|LLP|PLLC)\b")
+#: §7.0: the operating-source methods whose rows may join the recurrence pool.
+_OPERATING_POOL_METHODS = frozenset({
+    "operating_source_requires_context", "operating_source_with_credit_context", "recurring_operating_source",
+    "operating_source_related_activity", "operating_source_payout_form",
+})
+#: §7.8, §7.10: the operating methods an auction or property branch may touch.
+_OPERATING_SOURCE_METHODS = frozenset({
+    "operating_source_requires_context", "recurring_operating_source", "operating_source_related_activity",
+    "operating_source_with_credit_context",
+})
+
+#: §7.1: the card veto: neither a card form nor the processor payout context fires on a row that prints it.
+_CARD_VETO = re.compile(
+    r"\b(?:CHBK|CHGBK|CHARGEBACKS?|DISPUTE\w*|ADJ|ADJUSTMENT|BILLING|FEES?|DISC|DISCOUNT|MTHLY|INTERCHANGE|PAYROLL"
+    r"|TAX|LOANS?|CAPITAL|ADVANCE|FUNDING|FINANCING|FINANCE|RETURN(?:ED|S)?|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY"
+    r"|VERIFICATION|INSUR\w*|ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC|REWARDS?|REBATES?|CASH ?BACK|INTEREST|CLAIMS?"
+    r"|ADV|ADVN?C?|CAP\d*(?:SEC)?|CAPI|CAPIT|CAPITA|FUNDS?|FUNDED|FNDG|FNDNG|FINANCIAL|FINCL|LEND\w*|PROCEEDS|DISB\w*"
+    r"|PURCH\w*|MCA|CONTRIB\w*|OWNERS?|MEMBER|SHAREHOLDER|RTN|RET|REV\d*|RVSL|RVRSL|CB|INTCHG|DUP\w*|CORR\w*"
+    r"|OVERPAY\w*|XFER|TFR|SWEEP|ZBA|BOOK)\b"
+    r"|\b(?:TRANSFER|XFER|TFR) (?:FROM|TO)\b|\bONLINE TRANSFER\b"
+)
+#: §7.1: processor payout context, for merchant_processor and invoice_and_receivables sources only (context, never
+#: proof on its own).
+_PROCESSOR_PAYOUT_CONTEXT = re.compile(
+    r"\bSQ ?\d{6}\b|\bMISC PAYMENTS?\b|\bMSP(?: DIV)?\b|\bDAILY DEP\b|\bST [A-Z0-9]{6,}\b"
+    r"|\b(?:RTP|FEDNOW|REAL TIME (?:TRANSFER|PAYMENT)|INSTANT (?:PMT|PAYMENT|TRANSFER)|VISA DIRECT|MC SEND"
+    r"|PMNT RCVD|PAYMENT RECEIVED)\b"
+)
+_PROCESSOR_CONTEXT_TYPES = frozenset({"merchant_processor", "invoice_and_receivables"})
+#: §7.2: the vetoes on every new operating read (a payout form, and an alias added in 5.5).
+_OPERATING_PAY_VETO = re.compile(
+    r"\b(?:PAYROLL\w*|PAYRLL|PAYROL|PAYRL|SALARY|SALARIES|REG SAL|WAGES?|DIR ?DEP|DIRDEP|DIRECT DEP|NET ?PAY|BONUS"
+    r"|REIMB\w*)\b"
+)
+_OPERATING_FINANCING_VETO = re.compile(
+    r"\b(?:LOANS?|ADVANCE[SD]?|ADV|CAPITAL|LENDING|LENDER|FINANC\w*|FUNDING|FUNDED|PROCEEDS|DRAW)\b"
+)
+_OPERATING_REVERSAL_VETO = re.compile(
+    r"\b(?:RETURN(?:ED|S)?|RTN|REFUND(?:ED|S)?|RFND|REFND|RFD|REVERS(?:AL|ED|E)|VOID(?:ED)?"
+    r"|CANCEL(?:LED|ED|LATION)?|CNCL|ADJ|ADJUSTMENT|ADJUSTED|DISPUTE[DS]?|CHARGEBACK|CREDIT MEMO|NSF|REJECT(?:ED)?)\b"
+)
+_OPERATING_P2P_VETO = re.compile(r"\b(?:ZELLE|VENMO|CASH APP|E ?TRANSFER|ETRANSFER|INTERAC)\b")
+
+
+def _with_served_cuts(aliases: frozenset[str]) -> frozenset[str]:
+    """5.5 (§7.0, S1.1 review): a sixteen-character cut reads as its alias, so a set of operating aliases that carries
+    a rule of §7.2 carries each alias's served cut (OPERATING_REVENUE_TRUNCATIONS) too. Derived once, at import."""
+    return aliases | frozenset(
+        cut
+        for entity, source_aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
+        for alias in source_aliases
+        if alias in aliases and (cut := _operating_alias_cut(alias)) in OPERATING_REVENUE_TRUNCATIONS.get(entity, ())
+    )
+
+
+#: §7.2: the aliases of older entities whose reads carry the vetoes above, with their cuts ('RTP CREDIT AMAZO').
+_OPERATING_ALIASES_VETOED = _with_served_cuts(OPERATING_ALIASES_READ_WITH_VETOES)
+#: §7.2: an employer-type alias (TikTok, Amazon's RTP alias) also refuses these pay words, and the TikTok aliases count
+#: only on an ACH-shaped row. Each set holds its aliases' cuts too (§7.0).
+_EMPLOYER_PAY_WORDS = re.compile(r"\b(?:DIR DEP|DIRECT DEP|PAYRL|REIMB|EXP REIMB)\b")
+_EMPLOYER_TYPE_ALIASES = _with_served_cuts(
+    frozenset({"TIKTOK INC", "TIKTOK USA", "TIKTOK SHOP", "RTP CREDIT AMAZON COM"})
+)
+_TIKTOK_ALIASES = _with_served_cuts(frozenset({"TIKTOK INC", "TIKTOK USA", "TIKTOK SHOP"}))
+_ACH_SHAPED_ROW = re.compile(r"\b(?:ACH|CCD|PPD|ORIG CO NAME|DEPOSIT|PAYMENT|PAYOUT|CORP|CORPORATE)\b")
+#: §7.3: a transport marketplace's credit never counts toward recurrence with a wallet, subscription or wire word.
+_TRANSPORT_EXTRA_VETO = re.compile(r"\b(?:CASHOUT|CASH OUT|SUBSCRIPTION|MEMBERSHIP|WIRE|WT|FEDWIRE|OBI|BNF)\b")
+#: §7.8: an ACV credit printing a buyer-payment reference stays unverified.
+_AUCTION_BUYER_PAYMENT = re.compile(r"\bPYMT\d")
+#: §7.8, §14.1: an auction credit printing a floor-plan or financing word (NextGear's NGC, AFC's FUNDNG) or a
+#: consumer entry (PPD) is never the auction's payout, whatever form it prints.
+_AUCTION_VETO = re.compile(
+    r"\b(?:FUNDING|FUNDNG|FUNDED|ADVANCES?|ADV|CAPTL|CAPITAL|FLOOR ?PLAN|FLOORPLAN|FINANC\w*|NGC|LOANS?|PPD)\b"
+)
+#: §7.8: the auction refund pair's window, in days.
+_AUCTION_REFUND_WINDOW_DAYS = 14
+#: §7.10: owner, distribution and deposit wording on a property-management platform's row, and micro-deposits.
+_PROPERTY_PLATFORM_GUARD = re.compile(
+    r"\bOWNERS? ?(?:DIST\w*|DISB\w*|DRAWS?\w*|CONT\w*)|\bDISTRIBUT\w*|\bSEC(?:URITY)? ?DEP\w*"
+    r"|\bDEP(?:OSIT)? ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)|\bSD ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)"
+    r"|\bADVANCE\w*|\bORIG CO NAME\b.*\bORIG CO NAME\b"
+)
+_PROPERTY_MICRO_DEPOSIT = re.compile(
+    r"\bACCT ?VERIFY\w*|\bMICRO ?(?:DEP\w*|ENTRY)\b|\bPENNY TEST\b|\bTRIAL (?:DEP\w*|CREDIT)\b"
+)
+_PROPERTY_PUSH_SHAPE = re.compile(r"\b(?:VISA DIRECT|PMNT RCVD|PAYMENT RECEIVED|RTP)\b")
+#: §7.1: an unregistered NET SETTLE originator needs this many NET SETTLE credits in the statement.
+_NET_SETTLE_MIN_CREDITS = 3
+#: §7.0: the operating recurrence rule.
+_RECURRENCE_MIN_CREDITS = 3
+_RECURRENCE_MIN_BUSINESS_CREDITS = 2
+
+#: §7.7: the NACHA claim-payment entry. The unbounded branch takes only the full token (never THECLAIMPMT).
+_HCCLAIMPMT = re.compile(r"(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b")
+#: §7.7: inside the credit decision, the financing, potential-lender and insurer lookups read a glued HCCLAIMPMT
+#: split from the name before it, so a sixteen-character funder name glued to the token is still found.
+_GLUED_CLAIM_ENTRY = re.compile(r"(?<=[A-Z0-9])(H[CE]?CLAIMPMT)")
+#: §8.1 (T14): an insurer's customer-payment wording (a DRP payment, a vendor payment, a commission).
+_INSURER_CUSTOMER_PAYMENT = re.compile(
+    r"\b(?:DRP|VENDOR ?(?:PMT|PAY|PAYMENT)|COMM?ISS?IONS?|AGT ?COMM|AGENT COMP|AGTEFT|REPAIR)\b"
+)
+_BLUE_PLAN_CLAIM_PAYER = re.compile("|".join(BLUE_PLAN_CLAIM_PAYERS))
+
+#: §7.5: the payer's accounts-payable remittance (credits only), read on the revenue text and the joined text.
+_PAYER_REMITTANCE_CREDIT_PATTERNS = (
+    re.compile(r"\bACC(?:OUN)?TS? PAYABLE\b"),
+    re.compile(r"^DIRECT DEPOSIT\b(?=.* AP CC$)"),
+    re.compile(r"\bA ?P (?:PMTS?|PAYMENTS?|PYMTS?)\b"),
+    re.compile(r"\bCO ENTRY DESCR A ?P\b"),
+    re.compile(r"\b(?:CCD)?ACC PAY\b"),
+    re.compile(r"\bVENDOR ?(?:PMTS?|PAYMENTS?|PAY|PYMTS?)(?:SEC)?\b"),
+    re.compile(r"\bTRADE PAY(?:MENTS?)?(?:SEC)?\b"),
+    # PAYABLES is Bill.com's payer-side debit wording: never read on a row that prints BILL COM (_payer_remittance).
+    re.compile(r"\bPAYABLES\b"),
+    re.compile(r"\bPO REMIT(?:TANCE)?\b"),
+    re.compile(r"\bAVID ?PAY\b|\bAVIDXCHANGE\b|\bCOUPA PAY\b|\bPAYMODE\b"),
+    re.compile(r"\bPAYING BILLS? (?:\d|INV)|\bFOR \d+ BILLS\b"),
+    re.compile(r"\bBI ?LL COM (?:INV|MULTIPLE INVOICES|RECEIVABLE)\b|\b(?:DESCR|DES) BI ?LL COM\b"
+               r"|\bRECEIVABLE\b(?=.*\bBI ?LL COM\b)"),
+    re.compile(r"\bINV(?:OICE)? (?:PMT|PYMT)\b|\b(?:OF|FOR) INVOI ?CES?\b"),
+    re.compile(r"\bRMR IV\b"),
+    re.compile(r"\bPAIEMENT (?:DE )?FACTURE\b"),
+)
+_BILL_COM = re.compile(r"\bBI ?LL COM\b")
+#: §7.5: the invoice number counts only with a payment-channel word, and never after CREATED FROM or TRANSFER FROM.
+_INVOICE_NUMBER = re.compile(r"(?<!\bCREATED FROM )(?<!\bTRANSFER FROM )\bINV(?:OICE)?S?(?: (?:NO|NUM|NUMBER|N))? ?\d")
+_PAYMENT_CHANNEL_WORD = re.compile(
+    r"\b(?:ACH|PMT|PAYMENTS?|ZELLE|WIRE|FEDWIRE|CHIPS|CCD|CTX|PPD|EFT|RTP|REMIT)\b"
+)
+#: §7.5: the free-text forms (invoice, bill and 'for invoices') count on a PAYPAL row or a wire from a person only
+#: when the sender prints a company form.
+_FREE_TEXT_REMITTANCE = re.compile(
+    r"\bPAYING BILLS?\b|\bFOR \d+ BILLS\b|\b(?:OF|FOR) INVOI ?CES?\b|\bINV(?:OICE)?S?(?: (?:NO|NUM|NUMBER|N))? ?\d"
+)
+#: §7.5: the credit posting labels removed before the veto reads the row.
+_CREDIT_POSTING_LABELS = re.compile(
+    r"\b(?:ELECTRONIC|ACH|RTP|ONLINE|WIRE|BOOK|CORP|CORPORATE|ZELLE|MISC|DIRECT|PAYMENT|DEPOSIT|TRANSFER|MOBILE|EFT"
+    r"|CHIPS|FEDWIRE)\s+CREDIT\b|^CREDIT\b"
+)
+#: §7.5: the veto of the payer remittance rule.
+_PAYER_REMITTANCE_VETO = re.compile(
+    r"(?:FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|PORTFOL|CREDIT)"
+    r"|CRED(?=ORA|IBLY|\b)|CAPI?\b|LEAS(?:E|ES|ING|IN|I)?\b"
+    r"|\b(?:CAP|FIN|FINA|FINAN|FI|FINL|FNCL|ADV|MTG|MCA|RTR|SPV|FUN|FUNDI|LOA)\b"
+    r"|\b(?:INSUR\w*|INS|ASSURANCE|INVEST\w*|BROKERAGE|SECURITIES|WEALT\w*|TAX(?:ES)?|IRS|CRA|GRANTS?|REBATES?"
+    r"|DIVIDENDS?)\b"
+    r"|\b(?:PAYROLL|SALARY|WAGES?|REIMB\w*|EXPENSES?|BONUS|COMM?ISS?IONS?|CLAIMS?|MUTUAL|INDEMNITY|CASUALTY"
+    r"|UNDERWRIT\w*)\b"
+    r"|\b(?:EQUIP\w*|FLOOR\w*|MERCH\w*|VIN)\b"
+    r"|\bSBAD?\b|\bEIDL\b"
+    r"|\bINTERCO(?:MPANY)?\b|\bDUE FROM\b|\bSHAREHOLDER\b|\bOWNERS?\b|\bZBA\b|\bZERO BAL\w*|\bSWEEP\b"
+    r"|\bCONTROLLED DISB\w*|\b(?:TRANSFER|XFER|TFR) FROM\b|\bINTERNAL\b"
+    r"|\bRTN\b|\bRETURN(?:ED)? ITEM\b|\bRECALL\w*|\bUNPAID\b|\bADJ\b"
+    r"|ACIMA"
+)
+#: §7.5, §8.1: words that never make a payer's or a debit's first distinctive word: the AP words, the public-payer
+#: words, the holder noise (legal suffixes, generic words) and the bank's template and channel words (D11's channel
+#: words, D6's channel vocabulary and bank template words, read at call time: _counter_debit_skip_words).
+_COUNTER_DEBIT_SKIP_WORDS = frozenset({
+    "PAYABLE", "PAYABLES", "ACCOUNTS", "ACCTS", "VENDOR", "TRADE", "REMIT", "REMITTANCE", "STATE", "COUNTY", "CITY",
+    "TOWN", "DEPT", "DEPARTMENT", "TREAS", "GOVERNMENT",
+    "CHECKCARD", "OVERDRAFT", "TRANF", "CHECKG", "TRANSFERS", "WITHDRAW", "OUTGOING", "PURCHASES",
+}) | HOLDER_NOISE
+
+
+@cache
+def _counter_debit_skip_words() -> frozenset[str]:
+    return _COUNTER_DEBIT_SKIP_WORDS | frozenset(_ENTITY_NOISE) | _CHANNEL_VOCABULARY | _BANK_TEMPLATE_WORDS
+
+
+#: §7.6: the public-payer remittance rule. Arm A reads the whole row.
+_PUBLIC_PAYER_ARM_A = (
+    re.compile(r"^(?!.*\bPPD\b).*\bTREAS \d{3}(?: DES)? DOD MISC\b"),
+    re.compile(r"\bTREAS \d{3}\b.*\bMISC PAY(?:SEC)?\b.*\bRMR IV\b"),
+)
+#: §7.6 arm B: a public payer anchored on the payer name.
+_PUBLIC_PAYER_NAME = re.compile(
+    r"^((?:\S+ ){0,3})(?:TREAS \d{3}"
+    r"|(?:STATE|COUNTY|CITY|TOWN|VILLAGE|TOWNSHIP|BOROUGH|PARISH|DISTRICT|PROVINCE|COMMONWEALTH|GOVERNMENT|GOVT"
+    r"|MUNICIPALITY) OF [A-Z]"
+    r"|(?<!\bFROM )(?<!\bTO )(?<!\bTHE )(?<!\bOF )(?<!\bAND )(?<!\bINTO )\b[A-Z]{3,} (?:COUNTY|PARISH|TOWNSHIP|BOROUGH)\b"
+    r"|(?:DEPT|DEPARTMENT|MINISTRY) OF\b|(?:DHS|DHHS|DSHS|DCF|DCFS|DSS)\b|SCHOOL DIST(?:RICT)?\b|DFAS\b)"
+)
+_PUBLIC_PAYER_TEMPLATE = re.compile(
+    r"^(?:ELECTRONIC (?:CREDIT|DEPOSIT)(?: FROM)?|ACH (?:CORP )?CREDIT|ACH DEPOSIT|CCD DEPOSIT|DEPOSIT FROM"
+    r"|PREAUTHORIZED CREDIT|EFT CREDIT)\b ?"
+)
+_PUBLIC_PAYER_PURPOSE = re.compile(
+    r"\bVEN(?:DOR)? ?(?:PAY(?:MENTS?)?|P(?:Y)?MTS?)(?:SEC)?\b|\bPROV(?:IDER)? ?PAY(?:MENTS?)?(?:SEC)?\b"
+    r"|\bEDI ?(?:PYMNTS|PAYMENTS?|PMTS?)(?:SEC)?\b"
+)
+_PUBLIC_PAYER_NAME_VETO = re.compile(
+    r"\b(?:DEPT OF REVENUE|DEPARTMENT OF REVENUE|TAXATION|COMPTROLLER|TREASURER|DEPT OF LABOR|UNEMPLOYMENT"
+    r"|WORKFORCE)\b|FUNDING|FUNDER|FINANC|CAPITAL|LENDING|LENDER"
+)
+_TREASURY_BOILERPLATE = re.compile(
+    r"\bADDITIONAL INFORMATION IS AVAILABLE FOR THIS PMT CONTACT A TREASURY SALES OFFICER FOR ASSISTANCE\b"
+)
+#: §7.6: the whole-row veto, by group; §8.1 holds a public payer's non-sale credit on the first groups.
+_PUBLIC_PAYER_NON_SALE_WORDS = re.compile(
+    r"\b(?:TAX(?:ES)?|TAXRFD|TAX ?REF(?:UND)?S?|REFUNDS?|RFD|STUREFUND|R(?:E)?F(?:U)?ND|EIC|(?:XX)?SOC SEC|SUPP SEC"
+    r"|SSI|(?:XX)?VA BEN\w*|BENEF\w*|BEN)\b|[A-Z]*REFUNDS?\b|[A-Z]*RFND\b"
+    r"|\b(?:FED SAL|SALARY|PAYROLL|WAGES?|STIPENDS?|PER DIEM|RETIRE\w*|PENSION|ANNUIT\w*)\b"
+    r"|\b(?:UNEMPLOY\w*|UI|STIMULUS|GRANTS?|RELIEF|DISASTER|CARES|PPP|SBAD?|EIDL|EIDG|LOANS?|ADVANCES?|ADV"
+    r"|FORGIV\w*)\b"
+    r"|\b(?:CHI?LD ?SUPP\w*|CHILD ?CTC|CTC|JURY|RESTITUTION|FOSTER|ADOPT\w*|KINSHIP|WORK(?:ERS)? ?COMP)\b"
+    r"|\b(?:CLAIMS?|AWARDS?|SUBSID\w*|DISB\w*|PROCEEDS|UNCLAIMED|OVERPA\w*|OVERP(?:Y)?MT|REBATES?|REIMB\w*|BONDS?"
+    r"|ESCROW|RETURN(?:ED)?|STABILI[SZ]\w*|OFFSET|RECOVERY|ARPA|RESCUE|ERT?C|INCENTIVES?|TUITION)\b"
+    r"|\bASSISTANCE\b"
+)
+_PUBLIC_PAYER_OTHER_VETO = re.compile(
+    r"\b(?:ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC)\b"
+    r"|\b(?:FUNDING|FUNDER|LENDING|LENDER|FINANC\w*|CAPITAL|CREDIT UNION|FCU|MORTGAGE|LEASE|LEASING|FACTOR\w*)\b"
+    r"|\bSETTLEMENT\b"
+)
+_PUBLIC_PAYER_ARM_B_TRANSFER = re.compile(r"\b(?:TRANSFER|XFER|TFR)\b")
+
+_WIRE_PARTY_FIELDS = re.compile(
+    r"\bB O\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)|\bN?BNF\b.*?(?=\b(?:REF|OBI|RFB|IMAD|TRN|ORIG)\b|$)"
+    r"|\bORIG\b(?! TO BNF).*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN|SND BK|PMT DET)\b|$)|\bACCT \d+\b"
+    r"|\bORIGINATOR NAME\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)|\bORG\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)"
+)
+_WIRE_NON_SALE_PURPOSE = re.compile(
+    r"\b(?:INVEST\w*|DISTRIBUTION|DIVIDEND|EQUITY|MEMBERSHIP INTEREST|SHAREHOLDER|STOCK|CONTRIBUTION|PROCEEDS|ESCROW"
+    r"|CLOSING|OVER PAYMENT|REBATE|RETURN(?:ED)?|CREDIT MEMO|DUPLICATE|SALARY|PAYROLL|WAGES|TAX|GRANT|DONATION|GIFT"
+    r"|INTEREST|REPAY\w*|PRINCIPAL|SECURITY DEPOSIT|INTER ?COMPANY|INTERCO|AFFILIATE|OWNERS?|PERSONAL|COURT|JUDGMENT|INSURANCE"
+    r"|CLAIMS?|RETN|RTN|REJT|REJECT(?:ED)?|RECALL(?:ED)?|UNABLE TO APPLY|DRAWS?|DRAWDOWNS?|DISBURS\w*|FEES?|SCF"
+    r"|SUPPLY CHAIN|EARLY PAY(?:MENT)?|DISCOUNT(?:ED|ING)?|PAYOFF|SURPLUS|EARNEST|SUBSCRIPTIONS?|COMPENSATION|ADJ"
+    r"|ADJUSTMENTS?|RMA|SHORTAGES?|ALLOWANCES?|PROMISSORY|CONVERTIBLE|BRIDGE|SAFE|TRANCHE|DEPOSIT BACK)\b"
+)
+#: §7.9: the channel and bank fields removed before the financing roots are read on a wire.
+_WIRE_CHANNEL_AND_BANK_FIELDS = re.compile(
+    r"^(?:WIRE TYPE \S+ IN|USD WIRE IN|[A-Z]{3} WIRE IN|FEDWIRE CREDIT|CHIPS CREDIT|WT FED|WIRE TSF"
+    r"|WIRE TRANSFER \S+|INCOMING WIRE|WIRE IN|WIRE FROM|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN)(?: INCOMING)? WIRE"
+    r"|INCOMING FUNDS TRANSFER|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER|FUNDS TRANSFER WIRE FROM"
+    r"|BOOK TRANSFER CREDIT)\b"
+    r"|\b(?:SND BK|BBI|VIA|INTERMEDIARY|INT BK|OGB)\b.*?(?=\b(?:B O|ORIG|ORG|REF|OBI|BNF|TRN|IMAD|PMT DET|RFB|RMR|ID)\b|$)"
+)
+#: §7.9, §8.5: a wire from a title or escrow firm carries sale, closing or escrow money, never a sale of the business.
+_TITLE_OR_ESCROW_ORIGINATOR = re.compile(r"\b(?:TITLE|ESCROW)\b")
+#: §7.9: a cut originator field: the field widths of Santander (16) and Bank of America (25).
+_WIRE_ORIGINATOR_FIELD_WIDTHS = (16, 25)
+_FINANCING_FULL_WORDS = (
+    "FUNDING", "FINANCIAL", "CAPITAL", "LENDING", "LOANS", "ADVANCE", "MERCHANT", "CREDIT", "LEASING", "SERVICING",
+    "FACTORING", "MORTGAGE", "RECEIVABLES", "EQUIPMENT", "ACCEPTANCE", "COLLECTIONS", "RECOVERY", "SETTLEMENT",
+    "REMITTANCE", "EQUITIES", "EQUITY", "VENTURES",
+)
+
+#: §7.9: the financing and potential aliases, run together, for the cut-originator test.
+_FINANCING_RUN_TOGETHER_ALIASES = frozenset(
+    normalize_transaction_description(alias).replace(" ", "")
+    for state, registry in (*PAYEE_GROUP_REGISTRIES.items(), ("potential_lender", POTENTIAL_LENDER_ALIASES))
+    if state in FINANCING_STATES or state == "potential_lender"
+    for aliases in registry.values()
+    for alias in aliases
+)
+#: §7.8: each wholesale auction's aliases as a registry of its own, read on the originator segment.
+_AUCTION_ALIAS_REGISTRIES = {
+    entity: {entity: OPERATING_REVENUE_READ_ALIASES[entity]}
+    for entity, source_type in OPERATING_REVENUE_SOURCE_TYPES.items()
+    if source_type == "wholesale_auto_auction"
+}
+_CARD_FORMS = tuple(
+    (form, re.compile(form.pattern), re.compile(form.refusal) if form.refusal else None)
+    for form in CARD_SETTLEMENT_CREDIT_FORMS
+)
+_PAYOUT_FORMS = tuple(
+    (entity, label, re.compile(pattern))
+    for entity, forms in OPERATING_SOURCE_PAYOUT_FORMS.items()
+    for label, pattern in forms
+)
+_AUCTION_PAYOUT_FORMS = {
+    entity: tuple(re.compile(pattern) for pattern in patterns)
+    for entity, patterns in WHOLESALE_AUCTION_PAYOUT_FORMS.items()
+}
+_AUCTION_REFUND_NAMES = {entity: re.compile(pattern) for entity, pattern in WHOLESALE_AUCTION_REFUND_NAMES.items()}
+_OPERATING_CONTEXT_WORDS = {
+    entity: re.compile(r"\b(?:" + "|".join(words) + r")\b") for entity, words in OPERATING_SOURCE_CONTEXT_WORDS.items()
+}
+#: §7.1 (the ledger gate): each waiting processor's bare aliases, as whole words, longest first.
+_GATED_PROCESSOR_PATTERNS = {
+    processor: re.compile(r"\b(?:" + "|".join(
+        re.escape(normalize_transaction_description(alias)) for alias in sorted(aliases, key=len, reverse=True)
+    ) + r")\b")
+    for processor, aliases in GATED_PROCESSOR_ALIASES.items()
+}
+_WIRE_INVOICE_SPLITS = tuple(
+    dict.fromkeys(word[:cut] + " " + word[cut:] for word in ("INVOICE", "INVOICES") for cut in range(1, len(word)))
+)
+_WIRE_SALE_PURPOSE = re.compile(
+    r"\b(?:INVOICES?|" + "|".join(_WIRE_INVOICE_SPLITS) + r")\b"
+    r"|\bINV(?:OICE)?S? ?(?:NO |NUM |NBR |NUMBER )?\d"
+    r"|\bPO ?(?:NO |NUM |NBR |NUMBER )?\d{3,}|\bPURCHASE ORDERS?\b"
+    r"|(?<!\bMONEY )(?<!\bSTANDING )(?<!\bPAYMENT )(?<!\bPMT )(?<!\bCOURT )(?<!\bPAY )(?<!\bTRANSFER )(?<!\bSUPPORT )"
+    r"(?<!\bBANK )(?<!\bWIRE )\bORDERS? ?(?:NO\b|NUM\b|NBR\b|NUMBER\b|\d)"
+    r"|\bPAYMENT FOR GOO(?:DS?)?\b|\bPAGO PROVEEDOR\b|\bFACTURA\b|\bREF INV\b|\bPRO ?FORMA\b|\bCOMPRA (?:DE )?MERCAD\w*"
+)
+
+
+@dataclass(frozen=True)
+class _OperatingSource:
+    """5.5 (§7.2): what the operating-source reader found on one credit."""
+
+    entity: str
+    alias: str
+    source_type: str | None
+    payout_form: bool
+
+
+def _operating_read_vetoed(row: str, entity: str, alias: str, payout_form: bool) -> bool:
+    """5.5 (§7.2, §7.3): the vetoes of a new operating read (a payout form, or an alias this release added), read on
+    the row before its receiver fields: pay, financing, reversal and adjustment, and person-to-person words. An
+    employer-type alias also refuses DIR DEP, PAYRL and REIMB, and the TikTok aliases count only on an ACH-shaped row.
+    A transport marketplace also refuses wallet, subscription and wire words. A sixteen-character cut carries its
+    alias's vetoes (§7.0)."""
+    new_read = payout_form or entity in OPERATING_SOURCES_READ_WITH_VETOES or alias in _OPERATING_ALIASES_VETOED
+    if not new_read:
+        return False
+    if (
+        _OPERATING_PAY_VETO.search(row)
+        or _matches_any(row, _PAYROLL_PATTERNS)
+        or _is_payroll_provider_row(row)
+        or _OPERATING_FINANCING_VETO.search(row)
+        or _OPERATING_REVERSAL_VETO.search(row)
+        or _OPERATING_P2P_VETO.search(row)
+    ):
+        return True
+    if alias in _EMPLOYER_TYPE_ALIASES and _EMPLOYER_PAY_WORDS.search(row):
+        return True
+    if alias in _TIKTOK_ALIASES and not _ACH_SHAPED_ROW.search(row):
+        return True
+    return OPERATING_REVENUE_SOURCE_TYPES.get(entity) == "transport_marketplace" and bool(
+        _TRANSPORT_EXTRA_VETO.search(row)
+    )
+
+
+def _read_inside_a_waiting_processor(text: str, entity: str, alias: str) -> bool:
+    """5.5 (§7.1, the ledger gate): the operating alias read lies inside the bare alias of another processor the
+    ledger has not cleared ('BY STRI' inside 'JOBBER BY STRI'), so it names no source while that processor waits."""
+    return any(
+        processor != entity and any(alias in found.group(0) for found in pattern.finditer(text))
+        for processor, pattern in _GATED_PROCESSOR_PATTERNS.items()
+    )
+
+
+def _operating_source(text: str) -> _OperatingSource | None:
+    """5.5 (§7.2): the operating source a credit's revenue text names: a payout form first (it names the entity and
+    counts as payout context), else the longest operating alias or its sixteen-character cut. A wholesale-auction
+    alias counts only on the originator segment. A new read that a veto of §7.2 refuses names no source, and so does
+    an alias read inside a waiting processor's bare alias (§7.1). One helper for step 10 and the recurrence pass."""
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    for entity, label, pattern in _PAYOUT_FORMS:
+        if pattern.search(row) or pattern.search(joined):
+            if _operating_read_vetoed(row, entity, label, True):
+                return None
+            return _OperatingSource(entity, label, OPERATING_REVENUE_SOURCE_TYPES.get(entity), True)
+    found = registry_match(text, OPERATING_REVENUE_READ_ALIASES)
+    if found is None or _read_inside_a_waiting_processor(text, *found):
+        return None
+    entity, alias = found
+    source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
+    if source_type == "wholesale_auto_auction" and registry_match(
+        _originator_segment(text), _AUCTION_ALIAS_REGISTRIES[entity]
+    ) is None:
+        return None
+    if _operating_read_vetoed(row, entity, alias, False):
+        return None
+    return _OperatingSource(entity, alias, source_type, False)
+
+
+def _card_settlement_form(text: str, *, bank: str | None) -> CardSettlementForm | None:
+    """5.5 (§7.1): the first card-settlement form a credit prints, read on the row before its receiver fields and on
+    the joined text, unless the form's own refusal or the card veto matches. NET SETTLE is returned too; the caller
+    decides it (an unregistered originator needs three such credits, which the recurrence pass counts)."""
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    if _CARD_VETO.search(row):
+        return None
+    for form, pattern, refusal in _CARD_FORMS:
+        if form.bank is not None and (bank or "").upper() != form.bank:
+            continue
+        if not (pattern.search(row) or pattern.search(joined)):
+            continue
+        if refusal is not None and (refusal.search(row) or refusal.search(joined)):
+            continue
+        # §7.1 (structural S53): the generic credit-card sales words never read on a row that names a card issuer.
+        if form.label == "generic_card_sales" and registry_match(row, CARD_ISSUER_CONTEXT_ALIASES) is not None:
+            continue
+        return form
+    return None
+
+
+def _has_operating_context(text: str, source: _OperatingSource, *, bank: str | None) -> bool:
+    """5.5 (§7.1, §7.2): a registry alias verifies one row with payout context: a payout form, the operating-context
+    words (read on the row and the joined text), a card-settlement form, the entity's own context words, or, for a
+    merchant processor or an invoice platform, the processor payout context. The card veto refuses the last two."""
+    if source.payout_form:
+        return True
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    if _matches_any(text, _OPERATING_CREDIT_CONTEXT_PATTERNS) or _matches_any(joined, _OPERATING_CREDIT_CONTEXT_PATTERNS):
+        return True
+    words = _OPERATING_CONTEXT_WORDS.get(source.entity)
+    if words is not None and words.search(row):
+        return True
+    form = _card_settlement_form(text, bank=bank)
+    if form is not None and form.label != "net_settle":
+        return True
+    return (
+        source.source_type in _PROCESSOR_CONTEXT_TYPES
+        and not _CARD_VETO.search(row)
+        and _PROCESSOR_PAYOUT_CONTEXT.search(row) is not None
+    )
+
+
+def _reversal_credit(text: str) -> bool:
+    """5.5 (§6.1 step 3, §7.11): the reversal, cancellation, NSF and provisional-credit rule, with the return codes.
+    REIMBURSEMENT never fires on a row that prints a claim or provider signal, and DEBIT CARD CREDIT and POS CREDIT
+    never fire on a push payout printed as a card credit (_card_credit_released)."""
+    for pattern in _REVERSAL_CANCELLATION_CREDIT_PATTERNS:
+        found = pattern.search(text)
+        if found is None:
+            continue
+        if pattern.pattern == _REIMBURSEMENT_WORD.pattern and _CLAIM_OR_PROVIDER_SIGNAL.search(text):
+            continue
+        if _CARD_CREDIT_LABEL.fullmatch(found.group(0)) and _card_credit_released(text):
+            continue
+        return True
+    return _matches_any(text, _RETURN_CODE_CREDIT_PATTERNS)
+
+
+def _card_credit_released(text: str) -> bool:
+    """5.5 (§7.11): a DEBIT CARD CREDIT or POS CREDIT row that prints a push-rail word, or names a merchant-processor
+    or invoice source together with a payout word. Naming another source (a marketplace's card refund) is not
+    enough. Such a row is never pooled for recurrence and verifies only by a form or single-row registry context."""
+    if not _CARD_CREDIT_LABEL.search(text):
+        return False
+    if _CARD_CREDIT_PUSH_WORD.search(text):
+        return True
+    source = _operating_source(text)
+    return (
+        source is not None
+        and source.source_type in _PROCESSOR_CONTEXT_TYPES
+        and _CARD_CREDIT_PAYOUT_WORD.search(text) is not None
+    )
+
+
+def _own_book_or_funds_transfer(text: str, account_name: str | None) -> bool:
+    """5.5 (§7.11): BOOK TRANSFER and FUNDS TRANSFER are own-account only when no third-party originator is printed,
+    or when that originator is the holder (§5.2's holder test). ELECTRONIC FUNDS TRANSFER DEPOSIT is an EFT channel.
+    Without the owner's yes to T19, every BOOK TRANSFER stays own-account."""
+    found = _BOOK_OR_FUNDS_TRANSFER.search(text)
+    if found is None or _EFT_FUNDS_TRANSFER.search(text):
+        return False
+    if found.group(0).startswith("BOOK") and not THIRD_PARTY_BOOK_TRANSFER_AS_WIRE:
+        return True
+    originator = _third_party_originator(text)
+    return originator is None or holder_named(originator, account_name)
+
+
+def _split_glued_claim(text: str) -> str:
+    """5.5 (§7.7): the text the financing, potential-lender and insurer lookups read: a space before a glued
+    HCCLAIMPMT, so a sixteen-character name glued to the token is still found."""
+    return _GLUED_CLAIM_ENTRY.sub(r" \1", text)
+
+
+def _refused_by_payer_guards(text: str, region: str, account_name: str | None) -> str | None:
+    """5.5 (§6.1): steps 11 (the customer and invoice descriptors) to 14 refuse a payer the holder test or the
+    numbered-company guard matches. Returns 'holder' or 'numbered', or None."""
+    if holder_named(region, account_name):
+        return "holder"
+    if numbered_company(text, region):
+        return "numbered"
+    return None
+
+
+def _payer_remittance(text: str, region: str, account_name: str | None) -> bool:
+    """5.5 (§7.5): the payer's accounts-payable remittance: an AP pattern, or an invoice number on a row that also
+    prints a payment-channel word; the free-text forms count on a PayPal row or a wire only with a company form; the
+    veto reads the row with the matched words and the credit posting labels removed."""
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    matched = None
+    for pattern in _PAYER_REMITTANCE_CREDIT_PATTERNS:
+        found = pattern.search(row) or pattern.search(joined)
+        if found is not None and not (found.group(0) == "PAYABLES" and _BILL_COM.search(row)):
+            matched = found.group(0)
+            break
+    if matched is None:
+        found = _INVOICE_NUMBER.search(row)
+        if found is not None and _PAYMENT_CHANNEL_WORD.search(row[: found.start()] + " " + row[found.end():]):
+            matched = found.group(0)
+    if matched is None:
+        return False
+    if _FREE_TEXT_REMITTANCE.search(matched) and (re.search(r"\bPAYPAL\b", row) or _is_wire_row(text)):
+        if not company_form(payer_name(region)):
+            return False
+    rest = _CREDIT_POSTING_LABELS.sub(" ", row.replace(matched, " "))
+    if _PAYER_REMITTANCE_VETO.search(rest) is not None:
+        return False
+    if _is_wire_row(text) and _wire_vetoed(text, region, account_name):
+        return False
+    # A public payer's vendor payment also answers to §7.6's whole-row veto (a grant, a refund, a benefit, a
+    # settlement, assistance), so a public payer never verifies here what §7.6 refuses.
+    whole = _TREASURY_BOILERPLATE.sub(" ", text)
+    public = _PUBLIC_PAYER_NAME.match(_PUBLIC_PAYER_TEMPLATE.sub("", region, count=1)) is not None
+    return not (public and (_PUBLIC_PAYER_NON_SALE_WORDS.search(whole) or _PUBLIC_PAYER_OTHER_VETO.search(whole)))
+
+
+def _public_payer_remittance(text: str) -> str | None:
+    """5.5 (§7.6): a public payer's remittance: arm A (Treasury vendor codes, whole row) or arm B (a public payer
+    anchored on the payer name, with a payer-side purpose). Returns the matched rule, or None. Every veto is read on
+    the row after Bank of America's Treasury boilerplate is deleted."""
+    whole = _TREASURY_BOILERPLATE.sub(" ", text)
+    row = _before_receiver(whole)
+    if _PUBLIC_PAYER_NON_SALE_WORDS.search(whole) or _PUBLIC_PAYER_OTHER_VETO.search(whole):
+        return None
+    if any(pattern.search(whole) for pattern in _PUBLIC_PAYER_ARM_A):
+        return "treasury_vendor_payment"
+    name = _PUBLIC_PAYER_TEMPLATE.sub("", _payee_region(row).strip(), count=1)
+    found = _PUBLIC_PAYER_NAME.match(name)
+    if found is None:
+        return None
+    lead = found.group(1)
+    if any(ch.isdigit() for ch in lead) or _PUBLIC_PAYER_PURPOSE.search(name[: found.end()]):
+        return None
+    if _PUBLIC_PAYER_NAME_VETO.search(name) or _PUBLIC_PAYER_ARM_B_TRANSFER.search(whole):
+        return None
+    if not _PUBLIC_PAYER_PURPOSE.search(row):
+        return None
+    return "public_payer_vendor_or_provider_payment"
+
+
+def _wire_financing_text(text: str) -> str:
+    """5.5 (§7.9): the wire row the financing roots are read on: the channel words and the sending, originating and
+    intermediary bank fields removed (Santander prints its sending bank after WIRE IN FROM, Chase its originating
+    bank after OGB)."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        text = text[: santander.start("bank")] + " " + text[santander.end("bank"):]
+    return _WIRE_CHANNEL_AND_BANK_FIELDS.sub(" ", text)
+
+
+def _wire_originator_run(text: str) -> str | None:
+    """5.5 (§7.9): the first six words of a wire's originator field run together (wrap-tolerant, so 'CAPI TAL' reads
+    CAPITAL), or None when the row prints no originator label. On Santander's layout the originator follows the
+    account number."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        return "".join(santander.group("originator").split()[:6])
+    label = _WIRE_ORIGINATOR_LABEL.search(text)
+    return None if label is None else "".join(text[label.end():].split()[:6])
+
+
+def _wire_remittance_purpose(text: str, region: str, account_name: str | None) -> bool:
+    """5.5 (§7.9): an incoming wire (N1) whose purpose cites an invoice, a PO, an order or goods, and that no wire veto
+    refuses (_wire_vetoed)."""
+    if not _is_wire_row(text):
+        return False
+    purpose_text = _WIRE_PARTY_FIELDS.sub(" ", text)
+    holder_text = account_name_text(account_name)
+    if len(holder_text) >= 6:
+        purpose_text = purpose_text.replace(holder_text, " ")
+    if not _WIRE_SALE_PURPOSE.search(purpose_text):
+        return False
+    return not _wire_vetoed(text, region, account_name)
+
+
+def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
+    """5.5 (§7.9): the vetoes of an incoming wire: a non-sale purpose; a financing root after the channel and bank
+    fields are removed, or in the first six words after the originator label run together (wrap-tolerant); any known
+    payee; the own account (the originator's first two words are the beneficiary's or in the account name); a
+    brand-word affiliate (the originator's first distinctive word is the beneficiary's first word or the account
+    name's); a cut originator field that starts a financing name; a title or escrow firm (§8.5). The AP rule reads
+    them on a wire too (§7.5)."""
+    if _WIRE_NON_SALE_PURPOSE.search(text):
+        return True
+    if _names_financing(_wire_financing_text(text)):
+        return True
+    run = _wire_originator_run(text)
+    if run is not None and _names_financing(run):
+        return True
+    if match_known_payee(text) is not None:
+        return True
+    holder_text = account_name_text(account_name)
+    originator = region.split()
+    beneficiary = re.search(r"\bN?BNF\b (\S+)(?: (\S+))?", text)
+    if originator:
+        first_two = " ".join(originator[:2])
+        if beneficiary is not None and " ".join(word for word in beneficiary.groups() if word) == first_two:
+            return True
+        if holder_text and len(originator) >= 2 and first_two in holder_text:
+            return True
+        originator_first = _first_distinctive_word(_distinctive_words(originator))
+        holder_first = holder_text.split()[0] if holder_text else None
+        if originator_first is not None and (
+            (beneficiary is not None and beneficiary.group(1) == originator_first) or originator_first == holder_first
+        ):
+            return True
+        if _cut_financing_originator(region):
+            return True
+        if _TITLE_OR_ESCROW_ORIGINATOR.search(region):
+            return True
+    return False
+
+
+def _cut_financing_originator(region: str) -> bool:
+    """5.5 (§7.9): an originator that fills its field to within two characters of the width (Santander 16, Bank of
+    America 25), whose run-together name starts a financing or potential alias of six or more characters, or whose
+    last word of three or more letters is a proper prefix of a financing word."""
+    name = region.strip()
+    if not any(width - 2 <= len(name) <= width for width in _WIRE_ORIGINATOR_FIELD_WIDTHS):
+        return False
+    run = name.replace(" ", "")
+    if any(
+        len(alias) >= 6 and (alias.startswith(run) or run.startswith(alias)) for alias in _FINANCING_RUN_TOGETHER_ALIASES
+    ):
+        return True
+    last = name.split()[-1] if name.split() else ""
+    return len(last) >= 3 and last.isalpha() and any(
+        word.startswith(last) and word != last for word in _FINANCING_FULL_WORDS
     )
 
 
