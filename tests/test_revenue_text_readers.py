@@ -192,8 +192,9 @@ def test_a_leading_date_never_opens_the_channel_gate(printed, gate):
     ("0102RTP Credit From Fabrikam LLC Inv 1234", "push"),
 ])
 def test_a_dated_or_glued_prefix_never_opens_the_channel_gate(printed, gate):
-    # S2.1 re-review (fix round 3, §6.1 step 9b: a closed row is never verified by any step): the gate fails closed on
-    # whatever the bank glues or prints in front of a rail or a form.
+    # S2.1 re-review (fix round 3, §6.1 step 9b: a closed row is never verified by any step): digits glued in front of
+    # a rail or a form, and a leading MM DD pair before an anchored form, no longer hide it. The residual longer
+    # prefixes before the bare anchored forms are a reported residual (skipped in the parity test above).
     assert channel_gate(_text(printed)) == gate
 
 

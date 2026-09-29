@@ -929,10 +929,13 @@ _NUMBERED_COMPANY_REGION = re.compile(
 )
 #: §6.1 step 9b: consumer person-to-person rails (never verified by any step), and real-time or push rails (verified
 #: by the operating registry only).
-#: S2.1 re-review (fix round 3): the gate fails closed on anything glued in front. In these four gate families every
-#: left boundary is (?<![A-Z]), never \b (the owner's card-form convention), so a date or a reference glued to a rail
-#: or a form ('01/02/2054Zelle', '0102Zelle') still reads it; a right boundary stays \b. A form anchored at the row's
-#: start accepts a leading date, glued or spaced ('01/02 Remote'). These readings only move a row to closed or push.
+#: S2.1 re-review (fix round 3): in these four gate families every left boundary is (?<![A-Z]), never \b (the owner's
+#: card-form convention), so digits glued to a rail or a form ('01/02/2054Zelle', '0102Zelle') no longer hide it; a
+#: right boundary stays \b. A form anchored at the row's start accepts a leading MM DD pair, glued or spaced
+#: ('01/02 Remote'). Residual (0 corpus rows): a longer prefix before the bare anchored REMOTE or GC form
+#: ('0102Remote', '01/02/2054 Remote', '2054 GC 1234 Deposit') still reads no gate. Against the older \b patterns
+#: the gate reading only moves toward closed or push; the shared patterns also move the payer region and entry
+#: fields of those same rows.
 _CONSUMER_P2P_RAIL = re.compile(
     r"(?<![A-Z])(?:ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH"
     r"|APPLE CASH|POPMONEY)\b"
