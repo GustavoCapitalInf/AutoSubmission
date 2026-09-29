@@ -169,6 +169,9 @@ def before_oq2(monkeypatch):
         ("SUNBIT CASHBACK 0001", "Sunbit"),
         ("SUNBIT REWARD 0001", "Sunbit"),
         ("SUNBIT REWARDS 0001", "Sunbit"),
+        # The fix review: a lone balance, and a glued leading date.
+        ("KLARNA BALANCE 0001", "Klarna Inc"),
+        ("01/02RETURN FOR AFFIRM COM FABRIKAM 0001", "AFFIRM"),
     ],
 )
 def test_a_bnpl_providers_consumer_credit_keeps_its_5_4_reading(before_oq2, description, entity):
@@ -186,7 +189,9 @@ def test_a_bnpl_providers_consumer_credit_keeps_its_5_4_reading(before_oq2, desc
     )
 
 
-@pytest.mark.parametrize("description", ["AFFIRM REFUND 0001", "AFTERPAY RFND 0001", "KLARNA REFUND FABRIKAM"])
+@pytest.mark.parametrize("description", [
+    "AFFIRM REFUND 0001", "AFTERPAY RFND 0001", "KLARNA REFUND FABRIKAM", "AFTERPAY RFD 0001", "AFTERPAY REFND 0001",
+])
 def test_a_bnpl_providers_refund_keeps_its_5_4_reading(before_oq2, description):
     record = classify_transaction(description, 25.0)
     assert record == before_oq2(description, 25.0)
@@ -204,6 +209,9 @@ def test_a_bnpl_providers_refund_keeps_its_5_4_reading(before_oq2, description):
         ("AFTERPAY US INC MERCHANT PAYMENT 0001", "Afterpay"),
         ("GREENSKY SETTLEMENT 0001", "GreenSky"),
         ("SUNBIT MERCHANT PAYOUT 0001", "Sunbit"),
+        # The holder's own name in the receiver field never makes a settlement consumer-side (§5.2).
+        ("AFFIRM INC DES:SETTLEMENT ID:0001 INDN:BALANCE DENTAL LLC CO ID:0001 CCD", "AFFIRM"),
+        ("KLARNA INC DES:PAYOUT ID:0001 INDN:CARD CORNER LLC CO ID:0001 CCD", "Klarna Inc"),
     ],
 )
 def test_a_bnpl_providers_settlement_still_leaves_d1(before_oq2, description, entity):

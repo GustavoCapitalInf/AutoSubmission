@@ -2913,7 +2913,10 @@ def _is_payout_credit(text: str, match: PayeeMatch) -> bool:
     """
     if match.entity not in PAYOUT_CREDIT_ENTITIES:
         return False
-    return not (match.entity in _OQ2_BNPL_ENTITIES and _BNPL_CONSUMER_CREDIT.search(text))
+    # Both sites read the same text: the revenue text (a glued leading date dropped) without the receiver's name, so
+    # the holder's own name ('INDN:BALANCE DENTAL LLC') never makes a settlement consumer-side (§5.2).
+    words = _without_receiver_value(revenue_text(text))
+    return not (match.entity in _OQ2_BNPL_ENTITIES and _BNPL_CONSUMER_CREDIT.search(words))
 
 
 def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
