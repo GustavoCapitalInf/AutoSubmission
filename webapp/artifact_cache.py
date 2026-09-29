@@ -570,7 +570,18 @@ OCR_STAGE_VERSION = 5
 # Stored rows change state and entity, so a warm cache keyed on 22 would serve
 # them; a re-analysis recomputes the analysis stage from the cached reading. OCR
 # stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 23
+# 23 -> 24: TRUE-REVENUE bug fixes (2026-09-28 design, §7) — classification
+# version 5.5: credits move between verified_revenue, unverified_deposit and
+# non_revenue (card and payout forms, the recurrence pass, payer remittance,
+# public and healthcare payers, invoice wires, the non-revenue narrowings), and
+# SQ CAP and SBA or EIDL credits become financing proceeds. Stored rows change
+# revenue state, so a warm cache keyed on 23 would serve them; a re-analysis
+# recomputes the analysis stage from the cached reading. OCR stays cached.
+# Pinned in the same change (`tests/test_artifact_cache.py`).
+# Review fixes (2026-09-29): glued dates never change a reading; the holder's
+# name never names a payer; own-account transfers, glued and invoice wires and
+# platform financing words keep their vetoes.
+ANALYSIS_STAGE_VERSION = 24
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

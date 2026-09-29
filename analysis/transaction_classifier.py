@@ -113,9 +113,16 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: unconfirmed flag payees, the D11 naming fixes, the tab's payee labels and the
 #: Debt relief group. 5.4 (2026-09-28): the owner's ruling that Idea Financial is
 #: a counted lender, no longer a line of credit (its rows printing LOC or LINE OF
-#: CREDIT stay Lines of credit, D9). Moves with
-#: `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.4"
+#: CREDIT stay Lines of credit, D9). 5.5 (2026-09-28): the true-revenue bug fixes
+#: (docs/superpowers/specs/2026-09-28-true-revenue-design.md §7): the revenue
+#: text readers, the operating registry, card and payout forms, the recurrence
+#: pass, payer remittance, public and healthcare payers, wires that cite an
+#: invoice, auctions and property platforms, and the non-revenue narrowings.
+#: Review fixes (2026-09-29): glued dates never change a reading; the holder's
+#: name never names a payer; own-account transfers, glued and invoice wires and
+#: platform financing words keep their vetoes.
+#: Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
+CLASSIFICATION_VERSION = "5.5"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
