@@ -282,3 +282,274 @@ def test_q5_never_verifies_a_wire_that_prints_a_push_rail():
             "ID:1 PMT DET:PAYMENT RECEIVED")
     records = _records([(wire.format(n=1), 20000.0), (wire.format(n=2), 21000.0)])
     assert {record.revenue_classification for record in records} == {"unverified_deposit"}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.2 review, fix round 1 (2026-09-29): direction conflicts, leading dates, bare transfers, micro-deposits, loose
+# wires, registry and family rows, deferred sources and owner money, senders printed without FROM, and wires from
+# public or healthcare payers.
+# ---------------------------------------------------------------------------------------------------------------------
+WIRE = "WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:{n} ORIG:{orig} ID:99 SND BK:SAMPLE BANK ID:1"
+
+
+def _directed(rows, *, holder: str | None = HOLDER):
+    """Rows of (text, amount) or (text, amount, direction): a positive amount printed as a debit is a conflict."""
+    return classify_statement_transactions(Statement(account_name=holder, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=row[0], amount=row[1],
+                    direction=row[2] if len(row) > 2 else ("credit" if row[1] > 0 else "debit"))
+        for index, row in enumerate(rows)
+    ]))
+
+
+CONFLICT = ("excluded_pending_review", "direction_conflict")
+
+
+@pytest.mark.parametrize("text", ["NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "SAMPLE COUNTY DES:PAYMENT ID:1",
+                                  "AETNA DES:PAYMENT ID:1"])
+def test_q6_never_lifts_a_direction_conflict(text):
+    # §6.1 step 2, §7.0 (review C1): a direction conflict is never lifted, by this pass or any other.
+    [record] = _directed([(text, 500.0, "debit")])
+    assert record.revenue_classification == "unverified_deposit"
+    assert _tier(record) == CONFLICT
+
+
+def test_a_direction_conflict_beside_two_good_repeats_stays_held_and_never_counts():
+    rows = _directed([("NORTHWIND SUPPLY DES:PAYMENT ID:1 CCD", 500.0), ("NORTHWIND SUPPLY DES:PAYMENT ID:2 CCD", 510.0),
+                      ("NORTHWIND SUPPLY DES:PAYMENT ID:3 CCD", 520.0, "debit")])
+    assert [record.revenue_match_method for record in rows[:2]] == ["named_payer_repeats"] * 2
+    assert _tier(rows[2]) == CONFLICT and rows[2].revenue_classification == "unverified_deposit"
+    # A conflict never makes another row a repeat.
+    one = _directed([("NORTHWIND SUPPLY DES:PAYMENT ID:1 CCD", 500.0), ("NORTHWIND SUPPLY DES:PAYMENT ID:2 CCD", 510.0,
+                                                                        "debit")])
+    assert _tier(one[0]) == ("counted_flagged", "named_payer_one_off")
+    assert _tier(one[1]) == CONFLICT
+
+
+def test_q5_never_lifts_a_direction_conflict_and_never_counts_it():
+    rows = _directed([(WIRE.format(n=1, orig="NORTHWIND EXPORTS LLC"), 25000.0),
+                      (WIRE.format(n=2, orig="NORTHWIND EXPORTS LLC"), 26000.0),
+                      (WIRE.format(n=3, orig="NORTHWIND EXPORTS LLC"), 27000.0, "debit")])
+    assert [record.revenue_match_method for record in rows[:2]] == ["repeat_wire_sender"] * 2
+    assert _tier(rows[2]) == CONFLICT and rows[2].revenue_classification == "unverified_deposit"
+    one = _directed([(WIRE.format(n=1, orig="NORTHWIND EXPORTS LLC"), 25000.0),
+                     (WIRE.format(n=2, orig="NORTHWIND EXPORTS LLC"), 26000.0, "debit")])
+    assert _tier(one[0]) == ("counted_flagged", "wire_named_sender")
+
+
+def test_a_direction_conflict_never_makes_a_round_sum_repeat():
+    rows = _directed([("ZELLE PAYMENT FROM JOHN SMITH CONF 1", 500.0),
+                      ("ZELLE PAYMENT FROM JOHN SMITH CONF 2", 600.0, "debit")])
+    assert [_tier(record) for record in rows] == [("counted_flagged", "p2p"), CONFLICT]
+
+
+@pytest.mark.parametrize("text", [
+    "03/02 1234567 ONTARIO INC DES:PAYMENT ID:1", "0302 1234567 ONTARIO INC DES:PAYMENT ID:1",
+    "03/021234567 ONTARIO INC DES:PAYMENT ID:1",
+])
+def test_a_leading_date_never_hides_a_numbered_company(text):
+    # §5.2, T11 (review I1): the numbered-company guard reads past a leading date, spaced, run together or glued to
+    # the number, so the company form and the repeats never verify the owner's possible holding company.
+    assert _tier(_one(text, 700.0)) == ("counted_flagged", "numbered_company_payer")
+    repeated = _records([(text, 700.0), (text.replace("ID:1", "ID:2"), 710.0)])
+    assert {_tier(record) for record in repeated} == {("counted_flagged", "numbered_company_payer")}
+
+
+def test_the_numbered_guard_reads_past_a_date_only_before_the_number():
+    # A spaced pair before a name (Fifth Third's 5/3 brand prints so) never makes the name a numbered company.
+    from analysis import transaction_classifier as classifier
+
+    assert classifier.numbered_company("03 02 DIRECT DEPOSIT 7654321 CANA AP CC")
+    assert not classifier.numbered_company("5 3 FABRIKAM SUPPLY LLC DES PAYMENT ID 1")
+    assert _one("5/3 FABRIKAM SUPPLY LLC DES:PAYMENT ID:1", 700.0).revenue_match_method == "named_payer_company_form"
+
+
+@pytest.mark.parametrize("text", [
+    "EXTERNAL TRANSFER DES:TRANSFER ID:1234", "WEB TRANSFER DES:TRANSFER ID:1 WEB",
+    "TRANSFER DES:TRANSFER ID:ABC123 CCD", "ORIG CO NAME:TRANSFER ORIG ID:1 DESC DATE: CO ENTRY DESCR:TRANSFER SEC:PPD",
+    "ONLINE TRANSFER REF #IBEABCD", "ONLINE TRANSFER FROM HELOC", "TRANSFER FROM LOC 1234", "TRANSFER FROM TAX RESERVE",
+    "ONLINE TRANSFER FROM OPERATING", "TRANSFER FROM RESERVE", "ONLINE TRANSFER FROM PRIMARY", "TRANSFER FROM PERSONAL",
+    "ONLINE TRANSFER FROM JOINT", "ONLINE TRANSFER FROM IRA",
+])
+def test_a_bare_transfer_or_an_own_account_nickname_is_held(text):
+    # Q2 (review I2): field labels, SEC codes, references and account descriptions are no counterparty.
+    from analysis import true_revenue
+    from analysis.description_text import normalize_transaction_description
+    from analysis.transaction_classifier import revenue_text
+
+    assert _tier(_one(text, 500.0)) == ("excluded_pending_review", "transfer_no_counterparty")
+    record = _one(text, 500.0)
+    facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+    assert facts["transfer_no_counterparty"]
+
+
+def test_a_named_transfer_keeps_its_counterparty():
+    assert _tier(_one("ONLINE TRANSFER FROM JOHN SMITH REF IB0ABCD", 250.0)) == ("counted_flagged", "p2p")
+    assert _tier(_one("TRANSFER JOHN SMITH REF IBEABCD", 250.0)) == ("counted_flagged", "p2p")
+
+
+MICRO = ("excluded_pending_review", "non_sale_purpose")
+
+
+def test_a_credit_under_one_dollar_never_verifies_and_never_counts():
+    # §7.0, §8.10 (review I3): the micro-deposit floor is absolute; a verify entry never makes a payment a repeat.
+    assert _tier(_one("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 0.37)) == MICRO
+    verify = _records([("FABRIKAM INC DES:VERIFY ID:1 CCD", 0.12), ("FABRIKAM INC DES:VERIFY ID:2 CCD", 0.34)])
+    assert [_tier(record) for record in verify] == [MICRO, MICRO]
+    assert {record.revenue_classification for record in verify} == {"unverified_deposit"}
+    repeat = _records([("FABRIKAM SUPPLY DES:VERIFY ID:1 CCD", 0.12), ("FABRIKAM SUPPLY DES:PAYMENT ID:2 CCD", 700.0)])
+    assert [_tier(record) for record in repeat] == [MICRO, ("counted_flagged", "named_payer_one_off")]
+    assert _tier(_one("SQUARE INC DES:TRANSFER ID:1", 0.32)) == MICRO
+    # One dollar is not under the floor.
+    assert _one("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 1.0).revenue_match_method == "named_payer_company_form"
+
+
+@pytest.mark.parametrize("loose", [
+    "FABRIKAM EXPORTS LLC DES:WIRE PMT ID:1",
+    "FABRIKAM EXPORTS LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD PMT INFO:WIRE REF 1",
+    "123456W1234567WIRE FROM FABRIKAM EXPORTS LLC DES:PAYMENT",
+])
+def test_only_an_incoming_wire_counts_toward_a_q5_repeat(loose):
+    # §8.5 (review I4): the loose wire words are for tiering only.
+    rows = _records([(WIRE.format(n=1, orig="FABRIKAM EXPORTS LLC"), 25000.0), (loose, 7000.0)])
+    assert [_tier(record) for record in rows] == [("counted_flagged", "wire_named_sender")] * 2
+
+
+@pytest.mark.parametrize(("rows", "holder"), [
+    ([(WIRE.format(n=1, orig="MANHEIM US INC"), 25000.0), (WIRE.format(n=2, orig="MANHEIM US INC"), 26000.0)],
+     "SAMPLE MOTORS LLC"),
+    ([(WIRE.format(n=1, orig="SUPER DISPATCH INC"), 2500.0), (WIRE.format(n=2, orig="SUPER DISPATCH INC"), 2600.0)],
+     HOLDER),
+    ([("SUPER DISPATCH INC DES:CASHOUT ID:1", 800.0), ("SUPER DISPATCH DES:CASHOUT ID:1 CCD", 810.0),
+      ("SUPER DISPATCH DES:CASHOUT ID:2 CCD", 820.0)], HOLDER),
+    ([("SUPER DISPATCH INC DES:MEMBERSHIP ID:1", 800.0)], HOLDER),
+    ([("TIKTOK INC DES:TIKTOKSHOP ID:1", 800.0)], HOLDER),
+    ([("NORTHWIND LAW GROUP LLC DES:NET SETTLE ID:1", 5000.0)], HOLDER),
+    ([("SAMPLE TRUST DES:NET SETTLE ID:1 CCD", 900.0), ("SAMPLE TRUST DES:NET SETTLE ID:2 CCD", 950.0)], HOLDER),
+    ([("FABRIKAM PAYMENTS LLC DES:NET SETTLE ID:1", 800.0)], HOLDER),
+])
+def test_q5_and_q6_leave_a_registry_or_net_settle_row_to_its_own_rule(rows, holder):
+    # §7.1, §7.3, §7.8, §7.2 (review I5): a row the operating registry names, and a NET SETTLE row, is decided by its
+    # family's rule alone; Q5 and Q6 never verify it.
+    records = _records(rows, holder=holder)
+    assert {record.revenue_classification for record in records} == {"unverified_deposit"}
+    assert {record.revenue_tier for record in records} == {"counted_flagged"}
+
+
+def test_three_net_settle_credits_still_verify_by_the_card_rule():
+    records = _records([(f"FABRIKAM PAYMENTS LLC DES:NET SETTLE ID:{n}", 800.0 + n) for n in (1, 2, 3)])
+    assert {record.revenue_matched_rule for record in records} == {"card_settlement_form_net_settle"}
+
+
+@pytest.mark.parametrize("text", [
+    "LYFT INC DES:PAYMENT ID:1", "SHIPT INC DES:PAYOUT ID:1", "PAYONEER INC DES:WITHDRAWAL ID:1",
+    "GOODLEAP LLC DES:PAYMENT ID:1", "MODIVCARE SOLUTIONS LLC DES:PAYMENT ID:1", "TIPALTI INC DES:PAYMENT ID:1",
+    "MELIO PAYMENTS INC DES:PAYMENT ID:1",
+])
+def test_a_deferred_source_stays_counted_until_ruled(text):
+    # §15, §19 OQ4 (review I6a): the deferred items stay counted and flagged until the owner rules.
+    assert _tier(_one(text, 700.0)) == ("counted_flagged", "named_payer_one_off")
+    repeated = _records([(text + " CCD", 700.0), (text.replace("ID:1", "ID:2") + " CCD", 710.0)])
+    assert {record.revenue_classification for record in repeated} == {"unverified_deposit"}
+
+
+def test_a_healthcare_payer_s_bare_x12_trace_stays_counted():
+    # §7.7: a bare X12 TRN*1* with no entry description is out (counted and flagged); with an entry it verifies.
+    assert _tier(_one("ACH CREDIT AETNA TRN*1*123456789*1234567890", 700.0)) == ("counted_flagged",
+                                                                                  "named_payer_one_off")
+    assert _one("AETNA DES:PAYMENT ID:1", 700.0).revenue_match_method == "public_or_healthcare_payer"
+
+
+@pytest.mark.parametrize("text", [
+    "CHARLES SCHWAB & CO INC DES:MONEYLINK ID:1", "ROBINHOOD SECURITIES LLC DES:WITHDRAWAL ID:1",
+    "COINBASE INC DES:WITHDRAWAL ID:1", "E*TRADE SECURITIES LLC DES:ACH TRNSFR ID:1",
+    "FIDELITY BROKERAGE SERVICES LLC DES:MONEYLINE ID:1", "VANGUARD MARKETING CORP DES:REDEMPTION ID:1",
+    "INTERACTIVE BROKERS LLC DES:PAYMENT ID:1", "WEBULL DES:WITHDRAWAL ID:1", "MERRILL EDGE DES:PAYMENT ID:1",
+    "FABRIKAM WEALTH MANAGEMENT LLC DES:PAYMENT ID:1",
+])
+def test_owner_money_from_a_brokerage_or_an_exchange_is_held(text):
+    # §7.5's investment words and the standing rule (review I6b): owner money never becomes revenue.
+    assert _tier(_one(text, 3000.0)) == ("excluded_pending_review", "non_sale_purpose")
+
+
+def test_q5_never_verifies_a_securities_firm_s_wires():
+    rows = _records([(WIRE.format(n=1, orig="FABRIKAM SECURITIES LLC"), 25000.0),
+                     (WIRE.format(n=2, orig="FABRIKAM SECURITIES LLC"), 26000.0)])
+    assert {_tier(record) for record in rows} == {("excluded_pending_review", "non_sale_purpose")}
+
+
+@pytest.mark.parametrize("rail", ["E TRANSFER AUTODEPOSIT {name} CA1234ABCD", "INTERAC E TRANSFER RECEIVED {name}",
+                                  "ZELLE TRANSFER {name}", "ZELLE CREDIT {name} CONF 1"])
+def test_a_p2p_sender_printed_without_from_takes_the_holder_test_and_the_round_repeat(rail):
+    # Q4 (review I7): the sender printed after the rail label.
+    assert _tier(_one(rail.format(name="CONTOSO BAKERY LLC"), 5000.0)) == ("excluded_pending_review", "holder_name")
+    rows = _records([(rail.format(name="JOHN SMITH"), 500.0), (rail.format(name="JOHN SMITH"), 600.0),
+                     (rail.format(name="JOHN SMITH"), 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+@pytest.mark.parametrize("text", [
+    "VIREMENT INTERAC RECU {n}", "ZELLE DEBIT {n}", "VENMO DES:CASHOUT ID:{n}", "ZELLE TO JOHN SMITH {n}",
+    "FABRIKAM INC 03 02 {n} PMNT RCVD FABRIKAM INC VISA DIRECT CA", "E TRANSFER {n} EPAY",
+])
+def test_a_rail_s_own_words_a_recipient_or_a_platform_before_a_push_rail_are_no_sender(text):
+    # Q4 (review I7): no sender is read, so unrelated round sums are never one sender's repeat.
+    rows = _records([(text.format(n=1), 500.0), (text.format(n=2), 600.0)])
+    assert [_tier(record) for record in rows] == [("counted_flagged", "p2p")] * 2
+
+
+def test_the_sender_follows_the_next_rail_and_a_numbered_sender_keeps_its_number():
+    layout = "NOW NETWORK CREDIT ZELLE CREDIT NOW NET ID {n} ZELLE {name} 5678"
+    rows = _records([(layout.format(n=1, name="JOHN SMITH"), 500.0), (layout.format(n=2, name="JOHN SMITH"), 600.0),
+                     (layout.format(n=3, name="MARY JONES"), 700.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+    numbered = _records([("E TRANSFER AUTODEPOSIT 1234567 ONTARIO INC", 500.0),
+                         ("E TRANSFER AUTODEPOSIT 7654321 ONTARIO INC", 600.0)])
+    assert [_tier(record)[1] for record in numbered] == ["p2p", "p2p"]
+    same = _records([("E TRANSFER AUTODEPOSIT 1234567 ONTARIO INC", 500.0),
+                     ("E TRANSFER AUTODEPOSIT 1234567 ONTARIO INC", 600.0)])
+    assert [_tier(record)[1] for record in same] == ["p2p_round_repeat", "p2p_round_repeat"]
+    holder = _one("E TRANSFER AUTODEPOSIT 1234567 ONTARIO INC", 500.0, holder="1234567 ONTARIO INC")
+    assert _tier(holder) == ("excluded_pending_review", "holder_name")
+
+
+def test_a_sender_read_after_the_rail_never_hides_a_financing_root_on_the_row():
+    # Q4's two holds read the sender; every other hold keeps reading the whole row of a row with no payer region.
+    record = _one("PAYMENT RECEIVED 03 02 NORTHWIND 12AB FUNDING NORTHWIND 123", 900.0)
+    assert _tier(record) == ("excluded_pending_review", "financing_named_payer")
+
+
+def test_a_sender_printed_with_and_without_from_is_one_sender():
+    rows = _records([("ZELLE PAYMENT FROM JOHN SMITH CONF 1", 500.0), ("ZELLE TRANSFER JOHN SMITH", 600.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat"]
+    # A Venmo or Cash App cash-out prints no sender.
+    cashouts = _records([("VENMO CASHOUT", 500.0), ("VENMO CASHOUT", 600.0)])
+    assert [_tier(record)[1] for record in cashouts] == ["p2p", "p2p"]
+
+
+@pytest.mark.parametrize("orig", ["STATE OF OHIO", "SAMPLE COUNTY", "AETNA"])
+def test_q5_verifies_a_public_or_healthcare_payer_that_wires_twice(orig):
+    # §8.5 (review M2): the public-payer test reads the wire's originator.
+    rows = _records([(WIRE.format(n=1, orig=orig), 9000.0), (WIRE.format(n=2, orig=orig), 9100.0)])
+    assert {record.revenue_match_method for record in rows} == {"repeat_wire_sender"}
+
+
+def test_a_public_payer_s_non_sale_wire_is_held():
+    # §7.6, §8.1 (review M2): the public payer's non-sale hold reads a wire's originator too.
+    rows = _records([(WIRE.format(n=1, orig="STATE OF OHIO") + " OBI STIPEND", 9000.0),
+                     (WIRE.format(n=2, orig="STATE OF OHIO") + " OBI STIPEND", 9100.0)])
+    assert {_tier(record) for record in rows} == {("excluded_pending_review", "non_sale_purpose")}
+
+
+def test_the_guard_facts_read_the_known_payee_without_the_receiver_value():
+    # Review M3: the holder's name in the receiver field never names a payout entity or a lender.
+    from analysis import true_revenue
+    from analysis.description_text import normalize_transaction_description
+    from analysis.transaction_classifier import revenue_text
+
+    text = "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1 INDN:SEZZLE SALON LLC CO ID:1 CCD"
+    record = _one(text, 700.0, holder="SEZZLE SALON LLC")
+    facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+    assert not facts["payout_or_factoring"] and not facts["known_financing"]
+    # A registry-claimed row says so, for the census's holder guards (§8.1: the holds skip claimed rows).
+    square = _one("SQUARE INC DES:TRANSFER ID:1", 700.0, holder="SQUARE ONE BAKERY LLC")
+    assert true_revenue.guard_facts(square, "SQUARE INC DES TRANSFER ID 1")["claimed"]

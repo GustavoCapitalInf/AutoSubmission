@@ -991,3 +991,28 @@ def test_one_fabricated_statement_snapshots_with_its_tiers_and_facts():
     assert account["credits"][2]["facts"]["financing_root"]
     assert account["posted_credit_count"] == 4 and account["posted_credit_cents"] == 200000
     assert _run(snap, snap)["guards"] == {}
+
+
+def test_the_holder_guards_skip_a_row_the_registry_or_a_payout_entity_claimed():
+    # §8.1 (S4.2 review M1): the holds skip claimed rows, so G3 and G17 never fail on a platform's payout into a holder
+    # whose name the platform shares; an unclaimed holder row still fails.
+    claimed = _credit(0, 100, "unverified_deposit", "unidentified_posted_credit", tier="counted_flagged",
+                      reason="payout_credit_entity", holder=True, own_transfer=True, claimed=True)
+    assert not census._row_guards(claimed)["G3"] and not census._row_guards(claimed)["G17"]
+    unclaimed = dict(claimed, facts={"holder": True, "own_transfer": True, "claimed": False})
+    assert census._row_guards(unclaimed)["G3"] and census._row_guards(unclaimed)["G17"]
+
+
+@pytest.mark.parametrize(("holder", "text"), [
+    ("SEZZLE SALON LLC", "SEZZLE DES:PAYOUT ID:1"),
+    ("SQUARE ONE BAKERY LLC", "SQUARE INC DES:TRANSFER ID:1"),
+])
+def test_a_platform_payout_into_a_holder_named_like_it_passes_the_guards(holder, text):
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(account_name=holder, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=500.0, direction="credit")])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    [credit] = snap["credits"]
+    assert credit["tier"] == "counted_flagged" and credit["facts"]["claimed"]
+    assert not any(census._row_guards(credit).values())

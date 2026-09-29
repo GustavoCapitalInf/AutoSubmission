@@ -1330,10 +1330,12 @@ def _row_guards(credit: dict) -> dict[str, bool]:
         "G2": verified and method != "auto_lender_dealer_funding" and bool(
             facts.get("registry_root") if method in REGISTRY_METHODS else facts.get("financing_root")
         ),
+        # G3 and G17 (S4.2 review M1): §8.1's holds skip a row the registry, a payout entity or a factoring payee
+        # claimed, so a platform's counted payout into a holder whose name the platform shares is no failure.
         "G3": bool(facts.get("holder")) and (
             (verified and method in IDENTITY_METHODS)
             or (verified and method == "operating_income_descriptor" and bool(facts.get("customer_descriptor")))
-            or tier == "counted_flagged"
+            or (tier == "counted_flagged" and not facts.get("claimed"))
         ),
         "G4": in_true and bool(facts.get("transfer_no_counterparty")),
         "G6": in_true and method == "direction_conflict",
@@ -1358,7 +1360,7 @@ def _row_guards(credit: dict) -> dict[str, bool]:
         "G14": bool(facts.get("pooled_while_vetoed")),
         "G15": in_true and _REFUND_WORD.search(row) is not None,
         "G16": in_true and _TAX_REFUND_WORD.search(row) is not None,
-        "G17": in_true and bool(facts.get("own_transfer")),
+        "G17": in_true and bool(facts.get("own_transfer")) and not facts.get("claimed"),
     }
     if facts.get("known_financing") and in_true and method not in {"auto_lender_dealer_funding"}:
         guards["G5"] = not facts.get("payout_or_factoring")

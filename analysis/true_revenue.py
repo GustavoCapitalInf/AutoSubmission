@@ -20,11 +20,14 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, replace
+from functools import cache
 from typing import TYPE_CHECKING, Sequence
 
 from .classification_registry import (
+    CARD_SETTLEMENT_CREDIT_FORMS,
     DEALER_FUNDING_PAYERS,
     HEALTHCARE_PAYER_ALIASES,
+    OPERATING_REVENUE_READ_ALIASES,
     PAYOUT_CREDIT_ENTITIES,
 )
 from .flag_groups import FINANCING_STATES
@@ -85,9 +88,11 @@ _PERSONAL_INCOME = re.compile(
     r"|(?<![A-Z])CHI?LD ?SUPP\w*\b|(?<![A-Z])CHILD ?CTC\b|(?<![A-Z])PENSION\b|(?<![A-Z])ANNUIT\w*"
     r"|(?<![A-Z])RETIRE\w*"
 )
-#: §8.1: a non-sale purpose.
+#: §8.1: a non-sale purpose. S4.2 review (I6b): §7.5's investment words BROKERAGE, SECURITIES and WEALT join the owner
+#: money group (the standing rule: owner money never becomes revenue).
 _NON_SALE_PURPOSE = re.compile(
     r"(?<![A-Z])(?:INVEST\w*|DISTRIB(?!UTORS?\b|UTING\b)\w*|DIVIDENDS?\b|EQUITY\b|CONTRIB\w*|SHAREHOLDER\w*"
+    r"|BROKERAGE\w*|SECURITIES\b|WEALT\w*"
     r"|OWNERS?\b(?! OP\b| OPERATORS?\b)|STOCK\b|INTERCO\w*|INTER COMPANY\b|DUE FROM\b|SWEEP\b|ZERO BAL\w*"
     r"|REPAY\w*|PRINCIPAL\b|PAYOFF\b|PROMISSORY\b|CONVERTIBLE\b|TRANCHE\b|DRAWS?\b|DRAWDOWNS?\b"
     r"|DISBURS\w*"
@@ -148,6 +153,72 @@ _REGISTRY_METHODS = frozenset({
 _TIER_OF_STATE = {"verified_revenue": "verified", "non_revenue": "non_revenue"}
 #: §8.10: the lender and financing debit states payer_debited_as_lender reads.
 _LENDER_DEBIT_STATES = frozenset({"confirmed_lender", "potential_lender"}) | FINANCING_STATES
+#: §7.5, the standing rule (S4.2 review I6b): brokerage, investing and crypto-exchange platforms. A credit from one is
+#: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose. The classifier's
+#: consumer savings and investing originators (_SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS) are read too.
+_OWNER_MONEY_PLATFORMS = re.compile(
+    r"(?<![A-Z])(?:SCHWAB|ROBINHOOD|COINBASE|WEBULL|AMERITRADE|E ?TRADE|INTERACTIVE BROKERS|MERRILL (?:EDGE|LYNCH)"
+    r"|FIDELITY (?:BROKERAGE|INVESTMENTS?)|VANGUARD (?:MARKETING|GROUP|BROKERAGE|FIDUCIARY|INVESTMENTS?|FUNDS?)"
+    r"|CRYPTO COM|GEMINI TRUST)\b"
+)
+#: §15, §19 OQ4 (S4.2 review I6a): the payers of the deferred family items, which stay counted and flagged until the
+#: owner rules on each: Q5 and Q6 never verify them, and they never count toward a Q5 or Q6 repeat. The registry's
+#: own deferred sources (PayPal, TikTok creator payouts, Super Dispatch's quick-pay, Outdoorsy and RepeatMD, AppFolio,
+#: the auctions' vendor payments) are left to the registry by _left_to_its_family.
+_SECTION_15_DEFERRED_PAYERS = re.compile(
+    # §7.3 (structural S15): individuals' gig income.
+    r"(?<![A-Z])(?:LYFT|SHIPT|POSTMATES|ROADIE|AMAZON FLEX|WALMART SPARK|SPARK DRIVER)\b"
+    # §7.2: fintech EFT, iink and GoodLeap; Payoneer's wallet withdrawals.
+    r"|(?<![A-Z])(?:IINK|GOODLEAP|PAYONEER)\b"
+    # §7.2, §15: tax-preparer fee disbursements and SBTPG.
+    r"|(?<![A-Z])(?:SBTPG|SANTA BARBARA TAX|TAX PRODUCTS|TAX PROC\w*)\b"
+    # §7.6 arm C, §15: EBT settlements and child-care subsidies.
+    r"|\b(?:EBT|CCDF|CACFP)\b"
+    # §7.7: Canadian benefit carriers, RBC's claim label, NEMT brokers and CLMEFT.
+    r"|(?<![A-Z])(?:SUN LIFE|MANULIFE|CANADA LIFE|EQUITABLE LIFE|GREAT WEST LIFE|ALBERTA BLUE CROSS"
+    r"|DESJARDINS (?:INSURANCE|ASSURANCE\w*|SECURITE)|HEALTH DENTAL CLAIM|CLMEFT|MODIVCARE|LOGISTICARE"
+    r"|MEDICAL TRANSPORTATION MANAGEMENT|SOUTHEASTRANS|VERIDA)\b"
+    # §7.12 (structural S58): payables platforms that also move the business's own funds.
+    r"|(?<![A-Z])(?:TIPALTI|MELIO|NVOICEPAY|MINERALTREE|CORPAY)\b"
+    # §7.1, §15: Applied Systems' agency-bill premium, lease-to-own payers, construction draws and progress billing,
+    # eCommission's commission advances.
+    r"|(?<![A-Z])(?:APPLIED SYSTEMS|ACIMA|KATAPULT|KOALAFI|PROGRESS BILLING|ECOMMISSION)\b"
+)
+#: §7.7: a bare X12 TRN*1* with no entry description, from a healthcare payer, is deferred too.
+_BARE_X12_TRACE = re.compile(r"\bTRN 1\b")
+#: §7.1 (S4.2 review I5): the NET SETTLE card form, read whether or not its refusal or the card veto matches: such a
+#: row is decided by §7.1's own rule alone (its refusal and its three-credit count), never by Q5 or Q6.
+_NET_SETTLE_FORM = re.compile(next(form.pattern for form in CARD_SETTLEMENT_CREDIT_FORMS if form.label == "net_settle"))
+#: §8.2 (S4.2 review I2): the field labels, originator-name labels, SEC codes and reference labels a transfer prints
+#: (the classifier's _ACH_FIELD_SEGMENT, _ENTITY_NAME_LABELS and _GLUED_SEC_CODE vocabulary). None names its
+#: counterparty.
+_TRANSFER_FIELD_LABEL_WORDS = frozenset({
+    "DES", "DESC", "DESCR", "ORIG", "ORIGINATOR", "CO", "NAME", "COMPANY", "ENTRY", "DATE", "ID", "IND", "INDN",
+    "TRACE", "SEC", "EED", "TRN", "CONF", "CONFIRMATION", "REF", "REFERENCE", "MEMO", "CUST", "TYPE", "INSTR", "SRF",
+    "RFB", "IMAD", "OMAD", "SEQ", "NO", "NUMBER", "NBR", "NUM", "TRANSACTION",
+    "CCD", "CTX", "PPD", "WEB", "IAT", "TEL", "POP", "BOC", "ARC", "RCK", "CIE", "COR",
+})
+#: §8.2 (S4.2 review I2): a reference label and the value after it, letters only or not ('REF IBEABCD').
+_TRANSFER_REFERENCE_VALUE = re.compile(
+    r"\b(?:REF|REFERENCE|CONF|CONFIRMATION|TRN|TRACE|ID|SEQ|TRANSACTION)\b(?: (?:NO|NUM|NUMBER|NBR))? \S+"
+)
+#: Q4 (S4.2 review I7): the rail, posting and layout words a person-to-person row prints around a sender printed
+#: without FROM ('INTERAC E TRANSFER RECEIVED <sender>', 'ZELLE CREDIT <sender>', 'VIREMENT INTERAC RECU'), besides
+#: the generic words, the field labels and the reference tokens; none is ever a sender's name. A Venmo or Cash App
+#: cash-out prints no sender at all.
+_P2P_NOT_SENDER_WORDS = frozenset({
+    "ZELLE", "INTERAC", "ETRANSFER", "TFR", "VIREMENT", "VFC", "AUTODEPOSIT", "AUTODEP", "VENMO", "CASHAPP", "APP",
+    "POPMONEY", "RTP", "AUTO", "CASHOUT", "CASH", "OUT", "TRANSFERS", "XFER", "BANK", "DEBIT", "EPAY", "INST", "INS",
+    "PURCHASE", "CARD", "NOW", "NET", "NETWORK", "USA",
+    # French posting words (Desjardins, National Bank, TD's French layouts).
+    "RECU", "RECUE", "PAR", "BANQUE", "EN", "LE", "LA", "DE", "DU", "ES",
+})
+#: Q4 (S4.2 review I7): after these the named party is a recipient, or the row is a reversal: no sender is read.
+_P2P_NO_SENDER_WORDS = frozenset({
+    "TO", "CANCEL", "CANCELLED", "CANCELED", "ANNULE", "REFUND", "REFUNDED", "RTN", "RETURN", "RETURNED", "REVERSAL",
+})
+#: Q4 (S4.2 review I7): a sender printed without FROM ends at these (§5.2's sender ends, and the field labels).
+_P2P_SENDER_END_WORDS = frozenset({"ON", "REF", "CONF", "MEMO", "TRN", "ID", "FOR", "NOTE", "INFO"})
 
 
 @dataclass(frozen=True)
@@ -201,9 +272,74 @@ def government_payer(region: str) -> bool:
 
 def public_region(text: str) -> str:
     """§5.2: the region a government payer is read on: the payee region of the row before its receiver fields, with
-    the template prefixes removed, before the digit cut, so 'TREAS 310' keeps its digits."""
+    the template prefixes removed, before the digit cut, so 'TREAS 310' keeps its digits. On an incoming wire it is
+    the originator (S4.2 review M2: the payee region of a wire reads its label, 'WIRE')."""
     classifier = _classifier()
+    if classifier._is_wire_row(text):
+        return _wire_originator_text(text)
     return classifier._payee_region(classifier._strip_revenue_template(classifier._before_receiver(text))).strip()
+
+
+def _wire_originator_text(text: str) -> str:
+    """§5.2 (S4.2 review M2): a wire's originator after its label, up to the next wire field, before the digit cut
+    (the payer region's reading, _wire_payer_region, cuts it at the first reference token)."""
+    classifier = _classifier()
+    santander = classifier._SANTANDER_WIRE.match(text)
+    if santander is not None:
+        return santander.group("originator").strip()
+    found = classifier._WIRE_ORIGINATOR_LABEL.search(text)
+    if found is None:
+        return ""
+    rest = text[found.end():]
+    end = classifier._WIRE_FIELD_END.search(rest)
+    return (rest[: end.start()] if end is not None else rest).strip()
+
+
+@cache
+def _p2p_sender_rail() -> re.Pattern[str]:
+    """Q4 (S4.2 review I7): the rails a sender printed without FROM follows: §8.4's consumer rails and RTP. A push
+    rail a platform's payout prints after the payer's name ('<payer> ... VISA DIRECT <city> <state>') is not read."""
+    return re.compile(_classifier()._CONSUMER_P2P_RAIL.pattern + r"|(?<![A-Z])RTP\b")
+
+
+def _p2p_sender_region(text: str) -> str:
+    """Q4, §5.2 (S4.2 review I7): the sender a person-to-person rail prints without FROM ('E TRANSFER AUTODEPOSIT
+    <sender>', 'INTERAC E TRANSFER RECEIVED <sender>', 'ZELLE TRANSFER <sender>', 'ZELLE CREDIT <sender>'): the name
+    words after a consumer rail or RTP, skipping the rail, posting, layout and generic words and single letters, up
+    to a field label, one of §5.2's sender ends or a reference token after a name word. A numbered company keeps its
+    number (its identity, and the holder test's digit run). When a rail is followed by no name word the next rail is
+    read ('NOW NETWORK CREDIT ZELLE CREDIT NOW NET ID <n> ZELLE <sender>'). '' when the row prints FROM (payer_region
+    reads it), names a recipient or a reversal, or prints no sender (a Venmo or Cash App cash-out)."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    if re.search(r"\bFROM\b", row):
+        return ""
+    for rail in _p2p_sender_rail().finditer(row):
+        words: list[str] = []
+        number = ""
+        for token in row[rail.end():].split():
+            if token in _P2P_SENDER_END_WORDS or token in _TRANSFER_FIELD_LABEL_WORDS:
+                break
+            if token in _P2P_NO_SENDER_WORDS:
+                return ""
+            if classifier._is_reference_token(token):
+                if words:
+                    break
+                number = token if token.isdigit() and len(token) >= 6 else ""
+                continue
+            if token in classifier.REVENUE_GENERIC_WORDS or token in _P2P_NOT_SENDER_WORDS or len(token) < 2:
+                continue
+            words.append(token)
+        if words:
+            return " ".join(([number] if number else []) + words)
+    return ""
+
+
+def _sender_key(sender: str) -> tuple[str, ...]:
+    """Q4 (S4.2 review I7): the key of a sender printed without FROM: its words (a numbered company's number kept, so
+    two numbered companies are never one sender), at most the first four; the payer key of the same name printed
+    after FROM (_payer_key) when it prints no number."""
+    return tuple(sender.split())[:4]
 
 
 def _public_named(region: str) -> bool:
@@ -262,6 +398,11 @@ def non_sale_purpose(text: str, region: str) -> bool:
         return True
     if _public_named(public_region(text)) and classifier._PUBLIC_PAYER_NON_SALE_WORDS.search(
         classifier._TREASURY_BOILERPLATE.sub(" ", text)
+    ):
+        return True
+    # S4.2 review (I6b): a brokerage, investing or crypto-exchange platform returns the owner's own money.
+    if _OWNER_MONEY_PLATFORMS.search(row) or classifier._matches_any(
+        row, classifier._SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS
     ):
         return True
     return healthcare and _HEALTHCARE_MEMBER_WORDS.search(row) is not None
@@ -377,15 +518,20 @@ def _claimed(record: TransactionClassification, text: str) -> bool:
 
 def _transfer_counterparty_words(text: str) -> list[str]:
     """§8.2: the payer words a transfer prints once template prefixes, generic words, account words and reference
-    tokens are removed."""
+    tokens are removed. S4.2 review (I2): the ACH field labels, SEC codes and reference labels are removed with the
+    reference printed after them, letters only or not ('REF IBEABCD'), and what is left is read as S2.3 reads a
+    transfer's originator (_originator_payer_words), so an account description ('FROM HELOC', 'FROM TAX RESERVE',
+    'FROM OPERATING') is never a counterparty."""
     classifier = _classifier()
-    row = classifier._strip_revenue_template(classifier._before_receiver(text))
-    return [
+    row = _TRANSFER_REFERENCE_VALUE.sub(" ", classifier._strip_revenue_template(classifier._before_receiver(text)))
+    words = [
         token for token in row.split()
-        if classifier._is_payer_word(token) and token not in _ACCOUNT_WORDS
+        if classifier._is_payer_word(token) and not classifier._is_reference_token(token)
+        and token not in _ACCOUNT_WORDS and token not in _TRANSFER_FIELD_LABEL_WORDS
         and not classifier._TRANSFER_WORDING.fullmatch(token)
         and token not in {"TRANSFER", "TRNSFR", "XFER", "TFR", "BR", "TO", "BANKING", "INTERNET"}
     ]
+    return classifier._originator_payer_words(" ".join(words))
 
 
 def credit_facts(
@@ -396,15 +542,21 @@ def credit_facts(
     debit_words: set[str],
 ) -> CreditFacts:
     """§8.1 to §8.9: one posted credit's payer facts, including the first hold of §8.10's order 2 to 11. The payer
-    region, name, key and entry fields are the 5.5 readers' (payer_region, payer_name, _payer_key, entry_fields)."""
+    region, name, key and entry fields are the 5.5 readers' (payer_region, payer_name, _payer_key, entry_fields). A
+    person-to-person sender printed without FROM (S4.2 review I7) is read after its rail for Q4's two holds only: the
+    holder test and the round-sum repeat (its key). Every other hold reads the payer region, so such a row's financing
+    root is still read on the whole row."""
     classifier = _classifier()
+    channel = _channel(text)
     region = classifier.payer_region(text)
+    sender = _p2p_sender_region(text) if not region and channel == "person_to_person" else ""
     name = classifier.payer_name(region)
     entry = classifier.entry_fields(text)
-    channel = _channel(text)
     row = classifier._before_receiver(text)
     claimed = _claimed(record, text)
-    healthcare = healthcare_payer(region) and bool(classifier._ELECTRONIC_PAYMENT_FORM.search(row))
+    wire_n1 = classifier._is_wire_row(text)
+    # §8.5 (S4.2 review M2): Q5 reads a healthcare payer on an incoming wire too; Q6 on an electronic-payment form.
+    healthcare = healthcare_payer(region) and (wire_n1 or bool(classifier._ELECTRONIC_PAYMENT_FORM.search(row)))
     public = government_payer(public_region(text))
     transfer_words = _transfer_counterparty_words(text) if channel == "person_to_person" else []
     transfer_row = (
@@ -414,17 +566,17 @@ def credit_facts(
     )
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, lender_words=lender_words,
-        debit_words=debit_words,
+        debit_words=debit_words, sender=sender,
     )
     return CreditFacts(
         channel=channel,
         region=region,
         name=name,
-        key=classifier._payer_key(region),
+        key=classifier._payer_key(region) if region else _sender_key(sender),
         entry=entry,
         hold=hold,
         claimed=claimed,
-        wire_n1=classifier._is_wire_row(text),
+        wire_n1=wire_n1,
         company_form=classifier.company_form(name),
         public_or_healthcare=public or healthcare,
         healthcare=healthcare,
@@ -450,10 +602,12 @@ def _first_hold(
     claimed: bool,
     lender_words: set[str],
     debit_words: set[str],
+    sender: str = "",
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. A row the registry, a payout
     entity or a factoring payee claimed takes only the insurer, possible-return, pay and benefit holds; a registry row
-    that prints a financing word is held as financing_named_payer (review C2)."""
+    that prints a financing word is held as financing_named_payer (review C2). The holder test also reads a
+    person-to-person sender printed without FROM (`sender`, Q4; S4.2 review I7)."""
     classifier = _classifier()
     row = _hold_text(text)
     if record.revenue_match_method == "insurer_customer_payment":
@@ -479,7 +633,7 @@ def _first_hold(
     word = _first_word(region) if region else None
     if not claimed and word is not None and word in lender_words:
         return "payer_debited_as_lender"
-    if not claimed and region and classifier.holder_named(region, record.account_name):
+    if not claimed and (region or sender) and classifier.holder_named(region or sender, record.account_name):
         return "holder_name"
     if _PAY_WORDS.search(classifier._before_receiver(text)) or classifier._is_payroll_provider_row(
         classifier._before_receiver(text)
@@ -494,7 +648,62 @@ def _first_hold(
         or (word is not None and word in debit_words)
     ):
         return "payer_also_debited"
+    # §7.0, §8.10 (S4.2 review I3): under $1 never verifies and never counts, claimed or not. An account-verification
+    # entry is not a sale (T5), so it is held as the nearest reason the table has.
+    if _under_micro_floor(record):
+        return "non_sale_purpose"
     return None
+
+
+def _under_micro_floor(record: TransactionClassification) -> bool:
+    """§7.0 (S4.2 review I3): a credit under the absolute micro-deposit floor ($1, _MICRO_DEPOSIT_FLOOR)."""
+    return record.amount < _classifier()._MICRO_DEPOSIT_FLOOR
+
+
+def _left_to_its_family(text: str) -> bool:
+    """§7.1 to §7.3, §7.8 (S4.2 review I5): a row a family rule decides alone, which Q5 and Q6 never verify: the
+    operating registry names an entity on it (an alias or its cut, read with the receiver field's value removed, or a
+    payout form; whether or not the registry's read was vetoed or named a source, so an auction wire, a transport
+    marketplace's wallet or wire credit and a TikTok row that is not ACH-shaped stay with their own rules), a
+    processor the ledger has not cleared prints its bare alias (§7.1's ledger gate), or it prints the NET SETTLE card
+    form (§7.1: its refusal on law, trust, escrow, title and claims firms, and its three-credit count)."""
+    classifier = _classifier()
+    alias_text = classifier._without_receiver_value(text)
+    if registry_match(alias_text, OPERATING_REVENUE_READ_ALIASES) is not None:
+        return True
+    row = classifier._before_receiver(text)
+    joined = classifier._joined_text(row)
+    if any(pattern.search(row) or pattern.search(joined) for _, _, pattern in classifier._PAYOUT_FORMS):
+        return True
+    if any(pattern.search(alias_text) for pattern in classifier._GATED_PROCESSOR_PATTERNS.values()):
+        return True
+    return _NET_SETTLE_FORM.search(row) is not None or _NET_SETTLE_FORM.search(joined) is not None
+
+
+def _deferred_source(text: str, facts: CreditFacts) -> bool:
+    """§15, §19 OQ4 (S4.2 review I6a): a payer of the deferred family items, counted and flagged until the owner
+    rules: read with the receiver field's value removed, and a healthcare payer's bare X12 trace with no entry (an
+    ACH or EFT shape: a wire's own TRN field is no X12 trace)."""
+    classifier = _classifier()
+    if _SECTION_15_DEFERRED_PAYERS.search(classifier._without_receiver_value(text)):
+        return True
+    return (
+        facts.channel != "wire" and healthcare_payer(facts.region) and not facts.entry
+        and _BARE_X12_TRACE.search(text) is not None
+    )
+
+
+def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditFacts) -> bool:
+    """The rows Q5 and Q6 never verify and never count toward a repeat, whatever their holds: a direction conflict
+    (§6.1 step 2, §7.0: never lifted by any pass; S4.2 review C1), a credit under $1 (§7.0, review I3), a row a family
+    rule decides alone (review I5) and a deferred source (review I6a)."""
+    return (
+        record.revenue_match_method == "direction_conflict"
+        or not record.direction_consistent
+        or _under_micro_floor(record)
+        or _left_to_its_family(text)
+        or _deferred_source(text, facts)
+    )
 
 
 def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFacts, repeats: int) -> bool:
@@ -627,28 +836,33 @@ def apply_true_revenue_pass(
         index: credit_facts(updated[index], texts[index], lender_words=lender_words, debit_words=debit_words)
         for index in credits
     }
-    # §5.2: repeats count a verified credit, or an unverified one no hold names; never a held or conflicting one.
+    # §5.2: repeats count a verified credit, or an unverified one no hold names; never a held or conflicting one, a
+    # credit under $1, a row a family rule decides alone or a deferred source (_never_q5_or_q6), and on the wire
+    # channel only an incoming wire (§8.5: the loose wire words are for tiering only; S4.2 review I4).
+    never = {index: _never_q5_or_q6(updated[index], texts[index], facts[index]) for index in credits}
     counting = Counter()
     consumer_only: dict[tuple[str, tuple[str, ...]], bool] = {}
     for index in credits:
         record, fact = updated[index], facts[index]
-        if not fact.key or record.revenue_classification == "non_revenue":
+        if not fact.key or record.revenue_classification == "non_revenue" or never[index]:
             continue
-        if record.revenue_match_method == "direction_conflict" or (
-            record.revenue_classification == "unverified_deposit" and fact.hold is not None
-        ):
+        if record.revenue_classification == "unverified_deposit" and fact.hold is not None:
+            continue
+        if fact.channel == "wire" and not fact.wire_n1:
             continue
         group = (fact.channel, fact.key)
         counting[group] += 1
         consumer_only[group] = consumer_only.get(group, True) and fact.consumer_entry
-    # §8.4: a sender with two or more round sums on the rails or through named transfers.
+    # §8.4: a sender with two or more round sums on the rails or through named transfers. A direction conflict never
+    # counts toward it (§5.2, §7.0; S4.2 review C1).
     round_sums = Counter(
         facts[index].key for index in credits
         if facts[index].channel == "person_to_person" and facts[index].round_sum and facts[index].key
+        and updated[index].revenue_match_method != "direction_conflict" and updated[index].direction_consistent
     )
     for index in credits:
         record, fact, text = updated[index], facts[index], texts[index]
-        if record.revenue_classification != "unverified_deposit":
+        if record.revenue_classification != "unverified_deposit" or never[index]:
             continue
         group = (fact.channel, fact.key)
         repeats = counting[group] if fact.key else 0
@@ -701,13 +915,17 @@ def registry_financing_root(record: TransactionClassification, text: str) -> boo
 def guard_facts(record: TransactionClassification, text: str) -> dict:
     """The census's §14.3 facts of one posted credit (tools/revenue_census.py), read with these readers. The customer
     descriptor is step 11's reading (the text without the receiver field's value, or the joined originator and entry
-    before the receiver fields), so a descriptor in the holder's name never marks a row."""
+    before the receiver fields), so a descriptor in the holder's name never marks a row. The known payee is read the
+    same way, as the record's claim reads it (S4.2 review M3). `claimed` is the pass's own claim (§8.1: the holds,
+    the holder's included, skip a row the registry, a payout entity or a factoring payee claimed), which the census's
+    holder guards read (review M1)."""
     classifier = _classifier()
     region = classifier.payer_region(text)
     entry = classifier.entry_fields(text)
     row = classifier._before_receiver(text)
-    known = match_known_payee(text)
+    known = match_known_payee(classifier._without_receiver_value(text))
     return {
+        "claimed": _claimed(record, text),
         "financing_root": financing_named(text, region, entry, record.account_name),
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
@@ -719,7 +937,9 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         ),
         "known_financing": known is not None and known.state in FINANCING_STATES,
         "payout_or_factoring": known is not None and (known.entity in PAYOUT_CREDIT_ENTITIES or known.state == "factoring"),
-        "numbered_region": classifier._NUMBERED_COMPANY_REGION.search(region) is not None,
+        "numbered_region": classifier._NUMBERED_COMPANY_REGION.search(
+            classifier._skip_numbered_leading_date(region)
+        ) is not None,
         "customer_descriptor": (
             classifier._matches_any(classifier._without_receiver_value(text), classifier._CUSTOMER_INVOICE_DESCRIPTORS)
             or classifier._matches_any(classifier._joined_text(row), classifier._CUSTOMER_INVOICE_DESCRIPTORS)

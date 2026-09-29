@@ -1283,14 +1283,30 @@ def holder_named(region: str, account_name: str | None) -> bool:
     )
 
 
+#: S4.2 review (I1): a date the bank prints at the row's start, before a numbered company's number or a numbered
+#: template: 'MM DD ', 'MMDD ', or 'MM ' before a day glued to the number ('03/021234567 ONTARIO INC' normalizes to
+#: '03 021234567 ONTARIO INC', whose glued run is itself six or more digits). Only the numbered-company guard reads
+#: past it, failing closed (more rows are numbered); revenue_text keeps a spaced pair, so Fifth Third's '5 3 ...' is
+#: otherwise untouched.
+_NUMBERED_LEADING_DATE = re.compile(
+    r"^(?:\d{1,2} \d{1,2} |\d{4} |\d{1,2} )"
+    r"(?=\d{6,}\b|(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE|MISC PAYMENT|BILL PAYMENT) \d{6,}\b)"
+)
+
+
+def _skip_numbered_leading_date(text: str) -> str:
+    """S4.2 review (I1): the text without a leading date printed before a numbered company's number."""
+    return _NUMBERED_LEADING_DATE.sub("", text, count=1)
+
+
 def numbered_company(text: str, region: str | None = None) -> bool:
     """5.5 (§5.2, T11): the payer is a Canadian numbered company: a template prefix followed by six or more digits,
     or a payer region that begins with six or more digits and then a province, territory, CANADA or a cut of one, or
-    up to four words and a legal form."""
-    if _NUMBERED_COMPANY_TEMPLATE.search(_before_receiver(text)):
+    up to four words and a legal form. Both read past a leading date (S4.2 review, I1)."""
+    if _NUMBERED_COMPANY_TEMPLATE.search(_skip_numbered_leading_date(_before_receiver(text))):
         return True
     region = payer_region(text) if region is None else region
-    return _NUMBERED_COMPANY_REGION.search(region) is not None
+    return _NUMBERED_COMPANY_REGION.search(_skip_numbered_leading_date(region)) is not None
 
 
 def company_form(name: str) -> bool:
