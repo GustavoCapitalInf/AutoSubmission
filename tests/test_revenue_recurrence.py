@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import pytest
 
+from analysis import transaction_classifier as tc
+from analysis.classification_registry import OPERATING_REVENUE_SOURCE_TYPES
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
 
@@ -244,3 +246,42 @@ def test_an_equal_pair_without_a_marker_is_no_reversal_pair():
     records = _statement([(2, "STRIPE DES:TRANSFER ID:1", 300.0), (9, "STRIPE DES:TRANSFER ID:2", 310.0),
                           (16, "STRIPE DES:TRANSFER ID:3", 320.0), (18, "STRIPE DES:TRANSFER ID:3", -320.0)])
     assert [record.revenue_match_method for record in records[:3]] == ["recurring_operating_source"] * 3
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S2.4 review, fix round 2: the recurrence veto spares the holder's own word only on the platforms whose payouts print
+# the merchant's store name (the food-delivery and ordering platforms); on every other source a veto word vetoes.
+# ---------------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize(("printed", "holder"), [
+    ("SQUARE INC DES:CAPITAL ID:{day}", "CAPITAL CITY BAKERY LLC"),
+    ("SQUARE INC DES:SQ CAPI ID:{day}", "CAPITOL DINER LLC"),
+    ("STRIPE DES:LENDING ID:{day}", "SAMPLE LENDING LLC"),
+    ("PAYPAL DES:ADVANCE ID:{day}", "FABRIKAM ADVANCE LLC"),
+    ("SHOPIFY DES:INSURANCE ID:{day}", "FABRIKAM INSURANCE AGENCY LLC"),
+    ("STRIPE DES:FUNDING ID:{day}", "SAMPLE FUNDING GROUP LLC"),
+    ("STRIPE DES:LENDING ID:{day} INDN:FABRIKAM LENDING CO ID:1 CCD", None),
+])
+def test_a_veto_word_the_holder_s_name_shares_still_vetoes_where_no_store_name_prints(printed, holder):
+    rows = [(day, printed.format(day=day), 700.0 + day) for day in (2, 9, 16)]
+    assert {record.revenue_classification for record in _statement(rows, holder=holder)} == {"unverified_deposit"}
+
+
+def test_a_delivery_payout_printing_the_holder_s_cut_store_name_still_verifies():
+    # The store name printed as '<letter> AND <letter> CAPITA', the receiver field as '<initials> CAPITAL GROUP LLC';
+    # the account name prints no CAPITAL.
+    rows = [(day, f"DOORDASH, INC. DES:F AND S CAPITA ID:ST-A1B2C3D4E5F{day} INDN:F S CAPITAL GROUP LLC "
+                  "CO ID:1234567890 CCD", 200.0 + day) for day in (2, 9, 16)]
+    assert set(_methods(_statement(rows, holder="SAMPLE CAFE"))) == {"recurring_operating_source"}
+
+
+def test_a_delivery_payout_printing_a_financing_word_the_holder_s_name_lacks_stays_unverified():
+    rows = [(day, f"DOORDASH DES:CAPITAL ADVANCE ID:{day}", 900.0 + day) for day in (2, 9, 16)]
+    assert {record.revenue_classification for record in _statement(rows, holder="FABRIKAM LLC")} == {
+        "unverified_deposit"}
+
+
+def test_the_store_name_platforms_are_registry_delivery_platforms_and_no_processor():
+    assert "DoorDash" in tc._STORE_NAME_PAYOUT_ENTITIES
+    assert {OPERATING_REVENUE_SOURCE_TYPES.get(entity) for entity in tc._STORE_NAME_PAYOUT_ENTITIES} == {
+        "delivery_marketplace"}
+    assert not tc._STORE_NAME_PAYOUT_ENTITIES & {"Square", "Stripe", "PayPal", "Shopify Payments"}

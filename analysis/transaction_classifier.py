@@ -1423,6 +1423,17 @@ _RECURRENCE_VETO = re.compile(
 #: §7.0 (review C2): FUNDING vetoes recurrence too, except on the settlements of the platforms that print it there.
 _FUNDING_WORD = re.compile(r"(?<![A-Z])(?:FUNDING|FUNDED)\b")
 _FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})
+#: §7.0, §5.2 (S2.4 review): the operating sources whose payout rows print the merchant's store name, which is the
+#: holder's, in the entry field: the food-delivery and ordering platforms of the registry ('DOORDASH INC DES:<store>
+#: CAPITA ... INDN:<store> CAPITAL GROUP'; BMO's 'DIRECT DEPOSIT DOORDASH <store> MSP/DIV'). Only on their rows does
+#: the recurrence veto spare a veto word that is one of the holder's own words. On every other source (Square, Stripe,
+#: PayPal, Shopify, the marketplaces and processors) the entry field is the platform's own wording, and a holder
+#: named like a veto word ('CAPITAL CITY BAKERY LLC', 'SAMPLE LENDING LLC') would otherwise let that source's
+#: financing credits verify ('SQUARE INC DES:CAPITAL'), so a veto word always vetoes there. The registry's Uber
+#: (driver payouts) and Instacart (shopper payouts) pay no store and stay out.
+_STORE_NAME_PAYOUT_ENTITIES = frozenset({
+    "DoorDash", "Uber Eats", "Grubhub", "SkipTheDishes", "ezCater", "Menufy", "Snackpass",
+})
 #: §7.0, §7.8, §7.10: the absolute micro-deposit floor, in whole dollars.
 _MICRO_DEPOSIT_FLOOR = 1
 #: §7.0: a legal-form holder name is a business account for the recurrence rule.
@@ -3741,21 +3752,28 @@ def _recurrence_vetoed(record: TransactionClassification, text: str) -> bool:
 def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bool:
     """5.5 (§7.0): the worded part of the recurrence veto: payroll, a veto word or card-credit label, or FUNDING
     outside the three platforms that print it on settlements (review C2)."""
+    entity = record.revenue_canonical_entity
     return (
         record.classification == "payroll"
-        or _recurrence_veto_word(text, record.account_name)
+        or _recurrence_veto_word(text, record.account_name, entity)
         or (
-            record.revenue_canonical_entity not in _FUNDING_SETTLEMENT_ENTITIES
-            and _recurrence_veto_word(text, record.account_name, _FUNDING_WORD)
+            entity not in _FUNDING_SETTLEMENT_ENTITIES
+            and _recurrence_veto_word(text, record.account_name, entity, _FUNDING_WORD)
         )
     )
 
 
-def _recurrence_veto_word(text: str, account_name: str | None, pattern: re.Pattern[str] = _RECURRENCE_VETO) -> bool:
-    """5.5 (§7.0): the recurrence veto on the row before its receiver fields. A veto word that is one of the holder's
-    own words (its account name, or the name the bank prints in the receiver field), or the start of one (four
-    letters or more), is not read: a delivery platform prints the merchant's store name, which is the holder's, in
-    its entry field ('DOORDASH INC DES:<store> CAPITA ... INDN:<store> CAPITAL GROUP')."""
+def _recurrence_veto_word(
+    text: str, account_name: str | None, entity: str | None, pattern: re.Pattern[str] = _RECURRENCE_VETO
+) -> bool:
+    """5.5 (§7.0): the recurrence veto on the row before its receiver fields. On a store-name platform
+    (_STORE_NAME_PAYOUT_ENTITIES) a veto word that is one of the holder's own words (its account name, or the name the
+    bank prints in the receiver field), or the start of one (four letters or more), is not read: the platform prints
+    the merchant's store name, which is the holder's, in its entry field ('DOORDASH INC DES:<store> CAPITA ...
+    INDN:<store> CAPITAL GROUP'). On every other source, and on a row no registry source decided, a veto word always
+    vetoes (S2.4 review)."""
+    if entity not in _STORE_NAME_PAYOUT_ENTITIES:
+        return pattern.search(_before_receiver(text)) is not None
     holder = set(holder_words(account_name))
     for found in _RECEIVER_FIELD_VALUE.finditer(text):
         holder.update(_distinctive_words(found.group(0).split()[1:]))
