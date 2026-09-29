@@ -1,10 +1,11 @@
 """The operating-revenue registry's validator (true revenue spec §7.4).
 
-The operating registry (`OPERATING_REVENUE_SOURCE_ALIASES` and its types, the sixteen-character cuts) is hand-kept
-in `analysis/classification_registry.py`. This module says what is wrong with it:
+The operating registry (`OPERATING_REVENUE_SOURCE_ALIASES` and its types, the sixteen-character cuts, the payout and
+card-settlement forms) is hand-kept in `analysis/classification_registry.py`. This module says what is wrong with it:
 
 * every operating entity has a source type, and every typed entity has aliases;
-* no operating alias or cut equals a financing alias of the ledger or an insurer's;
+* every payout form and card form compiles, and the entity it names is typed;
+* no operating alias, cut or form equals (or, for a form, matches) a financing alias of the ledger or an insurer's;
 * a cut equals no other registry or ledger alias;
 * a processor's bare alias waits for its advance product (`PROCESSOR_ADVANCE_PRODUCTS`): it is in the registry only
   when the ledger admits that product or the processor is in `PROCESSORS_WITHOUT_ADVANCE_PRODUCT`;
@@ -16,6 +17,7 @@ Usage: python -m tools.operating_registry --check   (exit 0 when there is no pro
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -80,6 +82,17 @@ def problems() -> list[str]:
     insurers = _insurer_aliases()
     ledger = _ledger_aliases()
     own = _aliases(aliases)
+    for entity, forms in registry.OPERATING_SOURCE_PAYOUT_FORMS.items():
+        if entity not in types:
+            found.append(f"payout form entity {entity!r} is not a typed operating entity")
+        for label, pattern in forms:
+            _check_form(found, f"payout form {label!r}", pattern, financing, insurers)
+    for form in registry.CARD_SETTLEMENT_CREDIT_FORMS:
+        if form.entity is not None and form.entity not in types:
+            found.append(f"card form {form.label!r} names {form.entity!r}, which is not a typed operating entity")
+        _check_form(found, f"card form {form.label!r}", form.pattern, financing, insurers)
+        if form.refusal is not None:
+            _compiles(found, f"card form {form.label!r} refusal", form.refusal)
     for alias, entity in own.items():
         if alias in financing:
             found.append(f"operating alias {alias!r} of {entity!r} is a financing alias of {financing[alias]!r}")
@@ -118,6 +131,23 @@ def warnings() -> list[str]:
         for alias, entity in _aliases(registry.OPERATING_REVENUE_SOURCE_ALIASES).items()
         if len(alias.split()) > 1 and any(word in _ENTRY_WORDS for word in alias.split()[1:])
     ]
+
+
+def _compiles(found: list[str], name: str, pattern: str) -> re.Pattern[str] | None:
+    try:
+        return re.compile(pattern)
+    except re.error as error:
+        found.append(f"{name} does not compile: {error}")
+        return None
+
+
+def _check_form(found: list[str], name: str, pattern: str, financing: dict[str, str], insurers: dict[str, str]) -> None:
+    compiled = _compiles(found, name, pattern)
+    if compiled is None:
+        return
+    for alias, entity in (*financing.items(), *insurers.items()):
+        if compiled.fullmatch(alias):
+            found.append(f"{name} reads the financing or insurer alias {alias!r} of {entity!r}")
 
 
 def main(argv: list[str] | None = None) -> int:

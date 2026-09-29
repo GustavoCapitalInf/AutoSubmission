@@ -2,6 +2,8 @@
 card forms, the payer tables and the validator that checks them."""
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from analysis import classification_registry as registry
@@ -73,3 +75,14 @@ def test_the_structural_lens_processors_wait_for_a_printed_spelling():
     for name in ("TSYS", "TRANSFIRST", "VANTIV", "PAYSAFE", "PAYANYWHERE", "PAYROC", "CARDCONNECT", "FATTMERCHANT",
                  "STAX", "REPAY", "PAYA", "NMI", "FINIX", "WEPAY", "TDMS", "MONETICO", "QUICKACCEPT"):
         assert name not in read, name
+
+
+def test_every_form_compiles_and_names_a_typed_entity():
+    for entity, forms in registry.OPERATING_SOURCE_PAYOUT_FORMS.items():
+        assert entity in registry.OPERATING_REVENUE_SOURCE_TYPES
+        for label, pattern in forms:
+            assert re.compile(pattern) and label.endswith("_form")
+    labels = [form.label for form in registry.CARD_SETTLEMENT_CREDIT_FORMS]
+    assert len(labels) == len(set(labels))
+    for form in registry.CARD_SETTLEMENT_CREDIT_FORMS:
+        assert form.entity is None or form.entity in registry.OPERATING_REVENUE_SOURCE_TYPES

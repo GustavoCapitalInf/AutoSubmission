@@ -11,6 +11,8 @@ the curated lender ledger (contract C10). The evidence for every entity is in
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .description_text import normalize_transaction_description
 
 # --- BEGIN GENERATED: tools/build_lender_registry.py ---
@@ -1738,6 +1740,125 @@ OPERATING_REVENUE_TRUNCATIONS: dict[str, tuple[str, ...]] = {
 OPERATING_REVENUE_READ_ALIASES: dict[str, tuple[str, ...]] = {
     entity: aliases + OPERATING_REVENUE_TRUNCATIONS.get(entity, ())
     for entity, aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
+}
+
+#: 5.5 (§7.2): platform payout forms. Each (label, pattern) names the platform together with its payout rail or
+#: field layout, read on the credit's revenue text and on its joined originator and entry fields. A match names
+#: the entity AND counts as payout context, so one row verifies.
+OPERATING_SOURCE_PAYOUT_FORMS: dict[str, tuple[tuple[str, str], ...]] = {
+    "Whatnot": (
+        ("whatnot_fbo_form", r"\bFBO WHATNOT\b"),
+        ("whatnot_rtp_form", r"\bRTP CREDIT WHATNOT INC\b"),
+    ),
+    "Faire": (("faire_order_form", r"\bFAIRE WHOLESALE\b.*\bORDER\b"),),
+    "eBay": (
+        ("ebay_payments_form", r"^(?=.*\bPAYMENTS\b)(?!.*\bRETURN(?:ED)?\b).*\bEBAY COM[A-Z0-9]{8}\b"),
+        ("ebay_rtp_form", r"\bRTP (?:CREDIT|RCVD) EBAY COMMERCE INC\b"),
+    ),
+    "Amazon Marketplace": (
+        ("amazon_payments_form",
+         r"^(?=.*\bPAYMENTS\b)(?!.*\bRETURN(?:ED)?\b).*\bAMAZON C(?!ORPORATE\b|OM|APITAL|REDIT|ASH\b)[A-Z0-9]{8}\b"),
+    ),
+    "ClassPass": (("classpass_edi_form", r"\bCLASSPASS INC\b.*\bEDI PYMNTS\b"),),
+    "ezCater": (("ezcater_payoneer_form", r"\bPAYONEER\b.*\bEZCATER\b"),),
+    "Groupon": (("groupon_merchant_form", r"\bGRPN MERCH SVCS\b"),),
+}
+
+
+@dataclass(frozen=True)
+class CardSettlementForm:
+    """5.5 (§7.1): one card-settlement form. `pattern` is read on the credit's row before its receiver fields and on
+    its joined originator and entry fields; `refusal`, read the same way, refuses the form; `entity` is the
+    processor the form names (None for a generic form); `bank` limits the form to one bank's statements."""
+
+    label: str
+    pattern: str
+    entity: str | None = None
+    refusal: str | None = None
+    bank: str | None = None
+
+
+#: 5.5 (§7.1): the card-settlement forms, in reading order. Left boundary (?<![A-Z]) throughout, so a date glued on
+#: the left ('01 02BANKCARD DEPOSIT') never blocks a form.
+CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
+    CardSettlementForm(
+        "bankcard",
+        r"^(?!.*\b(?:BANKCARD CTR|BANKCARD CENTER|PREMIER BANKCARD|FIRST BANKCARD|ELAN|CARDMEMBER|CARD SERVICES"
+        r"|CARD SVCS|CREDIT CARD)\b)(?=.*(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)\b)"
+        r"(?=.*\b(?:DEP|DEPOSITS?|DEPST|SETTLEMENT|SETTLE|SETLMT|SETL|STLMT|BTOT|MTOT)(?:SEC)?\b)",
+        refusal=(
+            r"(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)(?: [A-Z]+){0,2} (?:LLC|INC|CORP|LTD|GROUP"
+            r"|HOLDINGS|FUNDING|CAPITAL|FINANCIAL|PARTNERS|SOLUTIONS|SERVICES|SVCS|CO)\b"
+        ),
+    ),
+    CardSettlementForm(
+        "merch_dep",
+        r"(?<![A-Z])(?:MERCHANT )?MERCH(?: SVCS)? (?:DEP|DEPOSITS?|SETL|SETTLE|SETLMT|STLMT|SETTLEMENT)(?:SEC)?\b",
+    ),
+    CardSettlementForm("mrchntsrvs", r"\bDESCR MRCHNTSRVS(?:SEC)?\b"),
+    CardSettlementForm("merch_svcs_setl_code", r"\bMERCH(?:ANT)? SVCS?(?: DES)? [A-Z0-9]*SETL\b"),
+    CardSettlementForm("merchant_services_mid", r"\bMERCHANT SERVI(?:CES?)?\b.*\b(?:MID ?\d{6,}|TRANS SLIP)\b"),
+    CardSettlementForm(
+        "brand_dep",
+        r"(?:^|\b(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP"
+        r"|DEBITCD) )+DEP ?\d|(?<![A-Z])(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) )+DEP(?:\d"
+        r"|\b.*\b(?:MSP|DIV|MERCH SVC)\b)",
+    ),
+    CardSettlementForm(
+        "dep_brand",
+        r"(?:^|\b(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP"
+        r"|DEBITCD) ?\d|(?<![A-Z])DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD)\d*\b.*\b(?:MSP|DIV)\b",
+    ),
+    CardSettlementForm(
+        "gbl_brand", r"\b(?:(?:VISA|MC|AMEXO?|IDP|DISC|DCVR) )?GBL (?:VI|MC|AX|IDP|DS|DC)\d*\b",
+        entity="Global Payments",
+    ),
+    CardSettlementForm(
+        "net_settle", r"\b(?:DES|DESCR) NET (?:SETTLE|SETLMT|STLMT|SETL)(?:SEC)?\b",
+        refusal=r"\b(?:LAW|ATTORNEYS?|ESQ|TRUST|ESCROW|TITLE|CLAIMS?)\b",
+    ),
+    CardSettlementForm("batch_total", r"\b[BM]TOT DEP\b"),
+    CardSettlementForm(
+        "intuit_deposit",
+        r"\bINTUIT \d{6,}(?: DES)? DEPOSIT\b|\bDEPOSIT FROM INTUIT \d{6,}\b|\bINTUIT PYMT SOLN\b|\bQBOOKS\b"
+        r"|\bORIG CO NAME INTUIT \d+\b.*\bDESCR DEPOSIT\b",
+        entity="QuickBooks Payments",
+        refusal=r"\b(?:TAX|RFND|REFUND|QBC|CAPITAL|LOAN)\b",
+    ),
+    CardSettlementForm(
+        "square_checking_sales", r"^(?:\d+ ACTIVITIES|CARD PAYMENT) SALES$", entity="Square", bank="SQUARE",
+    ),
+    CardSettlementForm(
+        "network_settlement",
+        r"\b(?:AMERICAN EXPRESS|DISCOVER NETWORK)\b.*\b(?:SETTLEMENT|SETL)\b|\bAMEXO GBL\b"
+        r"|\bMISC PAYMENT AMEX BANK OF CANADA\b",
+    ),
+    CardSettlementForm(
+        "generic_card_sales",
+        r"\b(?:VISA ?MC|CARD PROCESSING) (?:DEPOSIT|DEP|SETTLEMENT|SETL|STLM|STLMT)\b"
+        r"|^(?!.*\b(?:BALANCE|REFUND|REWARDS?)\b).*\b(?:CREDIT CARD|CR CD|CC) (?:DEPOSIT|DEP|SETTLEMENT|SETL|STLMT)\b",
+    ),
+    CardSettlementForm("french_card_settlement", r"\bREGLEMENT (?:CARTE|MARCHAND|COMMERCANT)\b|\bDEPOT MARCHAND\b"),
+)
+
+#: 5.5 (§7.8): the observed payout forms of the dealer-only wholesale auctions; any other auction row stays
+#: unverified. Keyed by operating entity.
+WHOLESALE_AUCTION_PAYOUT_FORMS: dict[str, tuple[str, ...]] = {
+    "Manheim": (r"\bMANHEIM US (?:DES )?(?:ACH PAYMNT|EDI PYMNTS)\b",),
+    "ACV Auctions": (
+        r"\bACV AUCTIONS INC PAYMENTS\b",
+        r"\bORIG CO NAME ACV AUCTIONS INC\b.*\bCO ENTRY DESCR PAYMENTS SEC CCD\b",
+    ),
+    "OPENLANE": (
+        r"\bORIG CO NAME OPENLANE INC\b.*\bCO ENTRY DESCR OPENLANE SEC CCD\b",
+        r"^BACKLOTCARS PAYMENT\b",
+    ),
+}
+#: 5.5 (§7.8): the broad auction names a refund pair is found by, on debits and wire BNF lines.
+WHOLESALE_AUCTION_REFUND_NAMES: dict[str, str] = {
+    "Manheim": r"\bMANHEIM\b",
+    "ACV Auctions": r"\bACV AUCTIONS\b",
+    "OPENLANE": r"\bOPENLANE\b|\bBACKLOT ?CARS\b",
 }
 
 
