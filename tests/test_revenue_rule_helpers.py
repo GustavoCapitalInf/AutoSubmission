@@ -49,8 +49,11 @@ def test_a_cut_read_carries_its_alias_vetoes():
     assert tc._operating_source(_text("RTP CREDIT AMAZO ID:1")).entity == "Amazon Marketplace"
 
 
+
 @pytest.mark.parametrize(("printed", "label"), [
     ("MERCHANT BANKCD DES:DEPOSIT ID:123456 INDN:FABRIKAM BAKERY CO ID:1234567890 CCD", "bankcard"),
+    ("ORIG CO NAME:BANKCARD DESC DATE: CO ENTRY DESCR:DEPOSIT", "bankcard"),   # S2.2 review: CO of a field label
+    ("BANKCARD DES:DEPOSIT CO ID:1234567890 CCD", "bankcard"),
     ("FABRIKAM MERCH DEP 1234567", "merch_dep"),
     ("VSA DEP12345678", "brand_dep"),
     ("MISC PAYMENT 1234567 VISA GBL VI 1234", "gbl_brand"),
@@ -67,10 +70,21 @@ def test_the_card_settlement_forms(printed, label):
     "BANKCARD DEP CB REV",                        # the card veto: a chargeback reversal
     "FABRIKAM LAW GROUP DES:NET SETTLE ID:1",     # NET SETTLE from a law firm
     "INTUIT 12345678 DES:TAX RFND ID:1",          # Intuit's refund
-    "CAPITAL ONE CREDIT CARD DEPOSIT 1234",       # the generic card words beside a card issuer
+    "CAPITAL ONE CREDIT CARD DEPOSIT 1234",       # the card veto: CAPITAL, a financing word, refuses every form
+    "BK OF AMER VISA CREDIT CARD DEPOSIT 1234",   # the generic card words beside a card issuer (no veto word)
+    "ALLY CC CREDIT CARD DEPOSIT 1234",           # the same, beside another card issuer
 ])
 def test_a_refused_card_form_is_none(printed):
     assert tc._card_settlement_form(_text(printed), bank=None) is None
+
+
+def test_the_card_issuer_refusal_is_its_own_branch():
+    # §7.1 (structural S53): these rows print no card-veto word, so the card-issuer check alone refuses them; the same
+    # words without an issuer read generic_card_sales.
+    for printed in ("BK OF AMER VISA CREDIT CARD DEPOSIT 1234", "ALLY CC CREDIT CARD DEPOSIT 1234"):
+        assert tc._CARD_VETO.search(tc._before_receiver(_text(printed))) is None
+        assert tc.registry_match(_text(printed), tc.CARD_ISSUER_CONTEXT_ALIASES) is not None
+    assert tc._card_settlement_form(_text("FABRIKAM CREDIT CARD DEPOSIT 1234"), bank=None).label == "generic_card_sales"
 
 
 def test_the_square_checking_form_reads_only_on_a_square_statement():
@@ -98,6 +112,31 @@ def test_the_payout_context(printed, context):
 ])
 def test_the_reversal_rule_and_the_card_credit_release(printed, reversal):
     assert tc._reversal_credit(_text(printed)) is reversal
+
+
+@pytest.mark.parametrize(("printed", "released"), [
+    ("POS CREDIT STRIPE PAYOUT 1234", True),     # a merchant processor with a payout word, no push-rail word
+    ("POS CREDIT STRIPE 1234", False),           # the same processor without a payout word: a card refund
+])
+def test_a_processor_card_credit_with_a_payout_word_is_released(printed, released):
+    # §7.11: the second release of _card_credit_released (a merchant-processor or invoice source and a payout word).
+    text = _text(printed)
+    assert tc._CARD_CREDIT_PUSH_WORD.search(text) is None
+    assert tc._operating_source(text).source_type == "merchant_processor"
+    assert tc._card_credit_released(text) is released
+    assert tc._reversal_credit(text) is not released
+
+
+@pytest.mark.parametrize(("printed", "reversal"), [
+    ("FABRIKAM SUPPLY DES:RETN ID:1", True),     # a return code the reversal patterns do not print
+    ("FABRIKAM SUPPLY DES:RTNS ID:1", False),    # not a return code: the code is only read as a whole word
+])
+def test_the_return_codes_decide_a_row_on_their_own(printed, reversal):
+    # §7.11: _RETURN_CODE_CREDIT_PATTERNS, on a row no reversal or cancellation pattern reads.
+    text = _text(printed)
+    assert not tc._matches_any(text, tc._REVERSAL_CANCELLATION_CREDIT_PATTERNS)
+    assert tc._matches_any(text, tc._RETURN_CODE_CREDIT_PATTERNS) is reversal
+    assert tc._reversal_credit(text) is reversal
 
 
 @pytest.mark.parametrize(("printed", "own"), [
@@ -204,6 +243,56 @@ def test_a_wire_from_a_title_or_escrow_firm_is_vetoed():
 def test_the_auction_veto(printed, vetoed):
     # §7.8, §14.1, review C2.
     assert (tc._AUCTION_VETO.search(_text(printed)) is not None) is vetoed
+
+
+#: S2.2 review (item A): in the 5.5 veto patterns a veto word of four letters or more reads through digits glued on
+#: its left ((?<![A-Z]), the owner's card-form convention), while a token of three letters or fewer keeps \b: a digit
+#: glued to it is usually an ID's suffix ('ID 1234CB'). Each spelling counts on its own (FEES, not FEE). The card veto's
+#: BOOK and DUP spellings keep \b (measured: glued there, they were a company name or an ID fragment). A letter glued
+#: on the left blocks every word.
+GLUED_VETO_WORDS = [
+    ("_CARD_VETO", "CHBK", True), ("_CARD_VETO", "CB", False),
+    ("_CARD_VETO", "FEES", True), ("_CARD_VETO", "FEE", False),
+    ("_CARD_VETO", "BOOK", False), ("_CARD_VETO", "DUPLICATE", False),
+    ("_RECURRENCE_VETO", "PAYROLL", True), ("_RECURRENCE_VETO", "MCA", False),
+    ("_FUNDING_WORD", "FUNDING", True),
+    ("_OPERATING_PAY_VETO", "SALARY", True),
+    ("_OPERATING_FINANCING_VETO", "LOAN", True), ("_OPERATING_FINANCING_VETO", "ADV", False),
+    ("_OPERATING_REVERSAL_VETO", "REFUND", True), ("_OPERATING_REVERSAL_VETO", "NSF", False),
+    ("_OPERATING_P2P_VETO", "ZELLE", True),
+    ("_EMPLOYER_PAY_WORDS", "PAYRL", True),
+    ("_TRANSPORT_EXTRA_VETO", "CASHOUT", True), ("_TRANSPORT_EXTRA_VETO", "WT", False),
+    ("_AUCTION_VETO", "FLOORPLAN", True), ("_AUCTION_VETO", "NGC", False),
+    ("_AUCTION_BUYER_PAYMENT", "PYMT1", True),
+    ("_PROPERTY_PLATFORM_GUARD", "DISTRIBUTION", True),
+    ("_PROPERTY_MICRO_DEPOSIT", "MICRO DEP", True),
+    ("_PROPERTY_PUSH_SHAPE", "VISA DIRECT", True), ("_PROPERTY_PUSH_SHAPE", "RTP", False),
+    ("_PAYER_REMITTANCE_VETO", "INSURANCE", True), ("_PAYER_REMITTANCE_VETO", "INS", False),
+    ("_PUBLIC_PAYER_NAME_VETO", "TAXATION", True),
+    ("_PUBLIC_PAYER_NON_SALE_WORDS", "GRANT", True), ("_PUBLIC_PAYER_NON_SALE_WORDS", "EIC", False),
+    ("_PUBLIC_PAYER_OTHER_VETO", "SETTLEMENT", True), ("_PUBLIC_PAYER_OTHER_VETO", "FCU", False),
+    ("_PUBLIC_PAYER_ARM_B_TRANSFER", "XFER", True), ("_PUBLIC_PAYER_ARM_B_TRANSFER", "TFR", False),
+    ("_WIRE_NON_SALE_PURPOSE", "INVESTMENT", True), ("_WIRE_NON_SALE_PURPOSE", "TAX", False),
+    ("_TITLE_OR_ESCROW_ORIGINATOR", "ESCROW", True),
+]
+
+
+@pytest.mark.parametrize(("name", "word", "glued"), GLUED_VETO_WORDS)
+def test_a_long_veto_word_reads_through_a_glued_digit(name, word, glued):
+    pattern = getattr(tc, name)
+    assert pattern.search("FABRIKAM ID " + word) is not None
+    assert (pattern.search("FABRIKAM ID 0102" + word) is not None) is glued
+    assert pattern.search("FABRIKAM ID X" + word) is None
+
+
+@pytest.mark.parametrize(("printed", "label"), [
+    ("BANKCARD DEPOSIT 0102CHBK", None),           # a chargeback code glued to a date still refuses the form
+    ("BANKCARD DEPOSIT CHBK", None),
+    ("BANKCARD DEPOSIT ID 1234CB", "bankcard"),    # a two-letter ID suffix is no chargeback
+])
+def test_a_glued_card_veto_word(printed, label):
+    form = tc._card_settlement_form(_text(printed), bank=None)
+    assert (form and form.label) == label
 
 
 def test_the_counter_debit_skip_words_hold_the_channel_vocabulary():

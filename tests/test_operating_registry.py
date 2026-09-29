@@ -207,6 +207,27 @@ def test_a_date_in_front_never_lifts_a_card_refusal_or_veto(label, refused, bare
         assert not _card_form_reads(label, prefix + refused), prefix + refused
 
 
+#: S2.2 review (item B): the CO of the bankcard refusal is a company's legal form, never the CO of a field label
+#: (Chase's CO ENTRY DESCR, Bank of America's CO ID, a CO NAME), so a card deposit whose fields between are absent
+#: still reads. Normalized rows; the Bank of America row is read as printed and joined (' DES ' removed).
+@pytest.mark.parametrize(("row", "reads"), [
+    ("ORIG CO NAME BANKCARD DESC DATE CO ENTRY DESCR DEPOSIT", True),            # Chase, no ORIG ID, blank date
+    ("ORIG CO NAME BANKCARD ORIG ID BKCD DESC DATE CO ENTRY DESCR DEPOSIT SEC CCD", True),
+    ("BANKCARD DES DEPOSIT CO ID 1234567890 CCD", True),                         # Bank of America, no ID field
+    ("BANKCARD DEPOSIT CO ID 1234567890 CCD", True),
+    ("BANKCARD DEPOSIT CO NAME FABRIKAM", True),
+    ("FABRIKAM BANKCARD CO DES DEPOSIT ID 1", False),                            # a company named BANKCARD
+    ("BANKCARD SAMPLE CO DES DEPOSIT ID 1", False),
+    ("BANKCARD SOLUTIONS CO DES DEPOSIT ID 1", False),
+    ("FIRST BANKCARD CO DES DEPOSIT ID 1", False),
+    ("ORIG CO NAME BANKCARD CO DESC DATE CO ENTRY DESCR DEPOSIT", False),
+    ("ORIG CO NAME FABRIKAM BANKCARD CO ORIG ID 1234567890 DESC DATE CO ENTRY DESCR DEPOSIT SEC CCD", False),
+])
+def test_the_bankcard_refusal_spares_the_field_labels(row, reads):
+    for prefix in DATE_PREFIXES:
+        assert _card_form_reads("bankcard", prefix + row) is reads, prefix + row
+
+
 #: A required word inside a card form (bankcard's order-free deposit word, a word after the form's leading token) reads
 #: the same with a date glued in front of it: (form, the row up to that word, the row from that word on). The row does
 #: not start at the form's leading token where that would let a row-start branch read it without the word.

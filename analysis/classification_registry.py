@@ -1794,9 +1794,11 @@ CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
         r"^(?!.*(?<![A-Z])(?:BANKCARD CTR|BANKCARD CENTER|PREMIER BANKCARD|FIRST BANKCARD|ELAN|CARDMEMBER"
         r"|CARD SERVICES|CARD SVCS|CREDIT CARD)\b)(?=.*(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)\b)"
         r"(?=.*(?<![A-Z])(?:DEP|DEPOSITS?|DEPST|SETTLEMENT|SETTLE|SETLMT|SETL|STLMT|BTOT|MTOT)(?:SEC)?\b)",
+        # S2.2 review: CO is a company's legal form, never the CO of a field label (Chase's CO ENTRY DESCR after a
+        # blank DESC DATE, Bank of America's CO ID, a CO NAME), so 'BANKCARD DESC DATE CO ENTRY DESCR DEPOSIT' reads.
         refusal=(
             r"(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)(?: [A-Z]+){0,2} (?:LLC|INC|CORP|LTD|GROUP"
-            r"|HOLDINGS|FUNDING|CAPITAL|FINANCIAL|PARTNERS|SOLUTIONS|SERVICES|SVCS|CO)\b"
+            r"|HOLDINGS|FUNDING|CAPITAL|FINANCIAL|PARTNERS|SOLUTIONS|SERVICES|SVCS|CO\b(?! ENTRY\b| ID\b| NAME\b))\b"
         ),
     ),
     CardSettlementForm(

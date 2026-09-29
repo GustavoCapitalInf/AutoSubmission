@@ -1325,16 +1325,24 @@ _BOOK_OR_FUNDS_TRANSFER = re.compile(r"\b(?:BOOK|FUNDS?) TRANSFER\b")
 #: §7.11: the Electronic Funds Transfer channel, never a book or funds transfer between accounts.
 _EFT_FUNDS_TRANSFER = re.compile(r"\bELECTRONIC FUNDS TRANSFER DEPOSIT\b")
 
+#: S2.2 review (item A): in the 5.5 veto patterns below (the recurrence, card, operating, employer, transport, auction,
+#: property, payer-remittance, public-payer and wire vetoes) a veto spelling of four letters or more (all its words
+#: counted) takes a (?<![A-Z]) left boundary, the owner's card-form convention, so digits glued on its left
+#: ('0102CHBK', '1234PAYROLL') never hide it; a spelling of three letters or fewer keeps \b, since a digit glued to
+#: it is usually an ID's suffix ('ID 1234CB'). Each spelling counts on its own: FEES reads through a glued digit, FEE
+#: does not. Measured exceptions (the cached corpus, S2.2 review): the card veto's BOOK and its DUP spellings keep \b,
+#: since a digit glued to them there was a company name or an ID fragment, never the word. \b stays on the right of
+#: every word.
 #: §7.0: the recurrence pass's veto: pay, financing and verification words and the card-credit labels, read on the
 #: row before its receiver fields.
 _RECURRENCE_VETO = re.compile(
-    r"\b(?:LOANS?|CAPITAL|CAP\d*(?:SEC)?|CAPI|CAPIT|CAPITA|FIN|ADVANCE|ADV|FINANC\w*|LEND\w*|MCA|CASH ADV\w*"
+    r"(?<![A-Z])(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPSEC|ADVANCE|FINANC\w*|LEND\w*|CASH ADV\w*"
     r"|PAYROLL\w*|PAYRLL|PAYROL|PAYRL|DIR ?DEP|DIRDEP|DIRECT DEP|SALARY|SALARIES|REG SAL|WAGES?|NET ?PAY|BONUS"
-    r"|REIMB\w*|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY|VERIFICATION|INSUR\w*)\b"
-    r"|\bDEBIT CARD CREDIT\b|\bPOS CREDIT\b"
+    r"|REIMB\w*|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY|VERIFICATION|INSUR\w*|DEBIT CARD CREDIT|POS CREDIT)\b"
+    r"|\b(?:CAP\d*(?:SEC)?|FIN|ADV|MCA)\b"
 )
 #: §7.0 (review C2): FUNDING vetoes recurrence too, except on the settlements of the platforms that print it there.
-_FUNDING_WORD = re.compile(r"\b(?:FUNDING|FUNDED)\b")
+_FUNDING_WORD = re.compile(r"(?<![A-Z])(?:FUNDING|FUNDED)\b")
 _FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})
 #: §7.0, §7.8, §7.10: the absolute micro-deposit floor, in whole dollars.
 _MICRO_DEPOSIT_FLOOR = 1
@@ -1353,13 +1361,14 @@ _OPERATING_SOURCE_METHODS = frozenset({
 
 #: §7.1: the card veto: neither a card form nor the processor payout context fires on a row that prints it.
 _CARD_VETO = re.compile(
-    r"\b(?:CHBK|CHGBK|CHARGEBACKS?|DISPUTE\w*|ADJ|ADJUSTMENT|BILLING|FEES?|DISC|DISCOUNT|MTHLY|INTERCHANGE|PAYROLL"
-    r"|TAX|LOANS?|CAPITAL|ADVANCE|FUNDING|FINANCING|FINANCE|RETURN(?:ED|S)?|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY"
+    r"(?<![A-Z])(?:CHBK|CHGBK|CHARGEBACKS?|DISPUTE\w*|ADJUSTMENT|BILLING|DISC|DISCOUNT|MTHLY|INTERCHANGE|PAYROLL"
+    r"|LOANS?|CAPITAL|ADVANCE|FUNDING|FINANCING|FINANCE|RETURN(?:ED|S)?|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY"
     r"|VERIFICATION|INSUR\w*|ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC|REWARDS?|REBATES?|CASH ?BACK|INTEREST|CLAIMS?"
-    r"|ADV|ADVN?C?|CAP\d*(?:SEC)?|CAPI|CAPIT|CAPITA|FUNDS?|FUNDED|FNDG|FNDNG|FINANCIAL|FINCL|LEND\w*|PROCEEDS|DISB\w*"
-    r"|PURCH\w*|MCA|CONTRIB\w*|OWNERS?|MEMBER|SHAREHOLDER|RTN|RET|REV\d*|RVSL|RVRSL|CB|INTCHG|DUP\w*|CORR\w*"
-    r"|OVERPAY\w*|XFER|TFR|SWEEP|ZBA|BOOK)\b"
-    r"|\b(?:TRANSFER|XFER|TFR) (?:FROM|TO)\b|\bONLINE TRANSFER\b"
+    r"|CAPI|CAPIT|CAPITA|CAPSEC|FUNDS?|FUNDED|FNDG|FNDNG|FINANCIAL|FINCL|LEND\w*|PROCEEDS|DISB\w*"
+    r"|PURCH\w*|CONTRIB\w*|OWNERS?|MEMBER|SHAREHOLDER|RVSL|RVRSL|INTCHG|CORR\w*|FEES|ADV(?:NC?|C)"
+    r"|OVERPAY\w*|XFER|SWEEP)\b"
+    r"|\b(?:ADJ|FEE|TAX|ADV|CAP\d*(?:SEC)?|MCA|RTN|RET|REV\d*|CB|DUP\w*|TFR|ZBA|BOOK)\b"
+    r"|(?<![A-Z])(?:TRANSFER|XFER|TFR) (?:FROM|TO)\b|(?<![A-Z])ONLINE TRANSFER\b"
 )
 #: §7.1: processor payout context, for merchant_processor and invoice_and_receivables sources only (context, never
 #: proof on its own).
@@ -1371,17 +1380,18 @@ _PROCESSOR_PAYOUT_CONTEXT = re.compile(
 _PROCESSOR_CONTEXT_TYPES = frozenset({"merchant_processor", "invoice_and_receivables"})
 #: §7.2: the vetoes on every new operating read (a payout form, and an alias added in 5.5).
 _OPERATING_PAY_VETO = re.compile(
-    r"\b(?:PAYROLL\w*|PAYRLL|PAYROL|PAYRL|SALARY|SALARIES|REG SAL|WAGES?|DIR ?DEP|DIRDEP|DIRECT DEP|NET ?PAY|BONUS"
-    r"|REIMB\w*)\b"
+    r"(?<![A-Z])(?:PAYROLL\w*|PAYRLL|PAYROL|PAYRL|SALARY|SALARIES|REG SAL|WAGES?|DIR ?DEP|DIRDEP|DIRECT DEP|NET ?PAY"
+    r"|BONUS|REIMB\w*)\b"
 )
 _OPERATING_FINANCING_VETO = re.compile(
-    r"\b(?:LOANS?|ADVANCE[SD]?|ADV|CAPITAL|LENDING|LENDER|FINANC\w*|FUNDING|FUNDED|PROCEEDS|DRAW)\b"
+    r"(?<![A-Z])(?:LOANS?|ADVANCE[SD]?|CAPITAL|LENDING|LENDER|FINANC\w*|FUNDING|FUNDED|PROCEEDS|DRAW)\b|\bADV\b"
 )
 _OPERATING_REVERSAL_VETO = re.compile(
-    r"\b(?:RETURN(?:ED|S)?|RTN|REFUND(?:ED|S)?|RFND|REFND|RFD|REVERS(?:AL|ED|E)|VOID(?:ED)?"
-    r"|CANCEL(?:LED|ED|LATION)?|CNCL|ADJ|ADJUSTMENT|ADJUSTED|DISPUTE[DS]?|CHARGEBACK|CREDIT MEMO|NSF|REJECT(?:ED)?)\b"
+    r"(?<![A-Z])(?:RETURN(?:ED|S)?|REFUND(?:ED|S)?|RFND|REFND|REVERS(?:AL|ED|E)|VOID(?:ED)?"
+    r"|CANCEL(?:LED|ED|LATION)?|CNCL|ADJUSTMENT|ADJUSTED|DISPUTE[DS]?|CHARGEBACK|CREDIT MEMO|REJECT(?:ED)?)\b"
+    r"|\b(?:RTN|RFD|ADJ|NSF)\b"
 )
-_OPERATING_P2P_VETO = re.compile(r"\b(?:ZELLE|VENMO|CASH APP|E ?TRANSFER|ETRANSFER|INTERAC)\b")
+_OPERATING_P2P_VETO = re.compile(r"(?<![A-Z])(?:ZELLE|VENMO|CASH APP|E ?TRANSFER|ETRANSFER|INTERAC)\b")
 
 
 def _with_served_cuts(aliases: frozenset[str]) -> frozenset[str]:
@@ -1399,33 +1409,38 @@ def _with_served_cuts(aliases: frozenset[str]) -> frozenset[str]:
 _OPERATING_ALIASES_VETOED = _with_served_cuts(OPERATING_ALIASES_READ_WITH_VETOES)
 #: §7.2: an employer-type alias (TikTok, Amazon's RTP alias) also refuses these pay words, and the TikTok aliases count
 #: only on an ACH-shaped row. Each set holds its aliases' cuts too (§7.0).
-_EMPLOYER_PAY_WORDS = re.compile(r"\b(?:DIR DEP|DIRECT DEP|PAYRL|REIMB|EXP REIMB)\b")
+_EMPLOYER_PAY_WORDS = re.compile(r"(?<![A-Z])(?:DIR DEP|DIRECT DEP|PAYRL|REIMB|EXP REIMB)\b")
 _EMPLOYER_TYPE_ALIASES = _with_served_cuts(
     frozenset({"TIKTOK INC", "TIKTOK USA", "TIKTOK SHOP", "RTP CREDIT AMAZON COM"})
 )
 _TIKTOK_ALIASES = _with_served_cuts(frozenset({"TIKTOK INC", "TIKTOK USA", "TIKTOK SHOP"}))
 _ACH_SHAPED_ROW = re.compile(r"\b(?:ACH|CCD|PPD|ORIG CO NAME|DEPOSIT|PAYMENT|PAYOUT|CORP|CORPORATE)\b")
 #: §7.3: a transport marketplace's credit never counts toward recurrence with a wallet, subscription or wire word.
-_TRANSPORT_EXTRA_VETO = re.compile(r"\b(?:CASHOUT|CASH OUT|SUBSCRIPTION|MEMBERSHIP|WIRE|WT|FEDWIRE|OBI|BNF)\b")
+_TRANSPORT_EXTRA_VETO = re.compile(
+    r"(?<![A-Z])(?:CASHOUT|CASH OUT|SUBSCRIPTION|MEMBERSHIP|WIRE|FEDWIRE)\b|\b(?:WT|OBI|BNF)\b"
+)
 #: §7.8: an ACV credit printing a buyer-payment reference stays unverified.
-_AUCTION_BUYER_PAYMENT = re.compile(r"\bPYMT\d")
+_AUCTION_BUYER_PAYMENT = re.compile(r"(?<![A-Z])PYMT\d")
 #: §7.8, §14.1: an auction credit printing a floor-plan or financing word (NextGear's NGC, AFC's FUNDNG) or a
 #: consumer entry (PPD) is never the auction's payout, whatever form it prints.
 _AUCTION_VETO = re.compile(
-    r"\b(?:FUNDING|FUNDNG|FUNDED|ADVANCES?|ADV|CAPTL|CAPITAL|FLOOR ?PLAN|FLOORPLAN|FINANC\w*|NGC|LOANS?|PPD)\b"
+    r"(?<![A-Z])(?:FUNDING|FUNDNG|FUNDED|ADVANCES?|CAPTL|CAPITAL|FLOOR ?PLAN|FLOORPLAN|FINANC\w*|LOANS?)\b"
+    r"|\b(?:ADV|NGC|PPD)\b"
 )
 #: §7.8: the auction refund pair's window, in days.
 _AUCTION_REFUND_WINDOW_DAYS = 14
-#: §7.10: owner, distribution and deposit wording on a property-management platform's row, and micro-deposits.
+#: §7.10: owner, distribution and deposit wording on a property-management platform's row, and micro-deposits. The
+#: last branch is a row shape (two originator labels), not a veto word.
 _PROPERTY_PLATFORM_GUARD = re.compile(
-    r"\bOWNERS? ?(?:DIST\w*|DISB\w*|DRAWS?\w*|CONT\w*)|\bDISTRIBUT\w*|\bSEC(?:URITY)? ?DEP\w*"
-    r"|\bDEP(?:OSIT)? ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)|\bSD ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)"
-    r"|\bADVANCE\w*|\bORIG CO NAME\b.*\bORIG CO NAME\b"
+    r"(?<![A-Z])OWNERS? ?(?:DIST\w*|DISB\w*|DRAWS?\w*|CONT\w*)|(?<![A-Z])DISTRIBUT\w*|(?<![A-Z])SEC(?:URITY)? ?DEP\w*"
+    r"|(?<![A-Z])DEP(?:OSIT)? ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)|(?<![A-Z])SD ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)"
+    r"|(?<![A-Z])ADVANCE\w*|\bORIG CO NAME\b.*\bORIG CO NAME\b"
 )
 _PROPERTY_MICRO_DEPOSIT = re.compile(
-    r"\bACCT ?VERIFY\w*|\bMICRO ?(?:DEP\w*|ENTRY)\b|\bPENNY TEST\b|\bTRIAL (?:DEP\w*|CREDIT)\b"
+    r"(?<![A-Z])ACCT ?VERIFY\w*|(?<![A-Z])MICRO ?(?:DEP\w*|ENTRY)\b|(?<![A-Z])PENNY TEST\b"
+    r"|(?<![A-Z])TRIAL (?:DEP\w*|CREDIT)\b"
 )
-_PROPERTY_PUSH_SHAPE = re.compile(r"\b(?:VISA DIRECT|PMNT RCVD|PAYMENT RECEIVED|RTP)\b")
+_PROPERTY_PUSH_SHAPE = re.compile(r"(?<![A-Z])(?:VISA DIRECT|PMNT RCVD|PAYMENT RECEIVED)\b|\bRTP\b")
 #: §7.1: an unregistered NET SETTLE originator needs this many NET SETTLE credits in the statement.
 _NET_SETTLE_MIN_CREDITS = 3
 #: §7.0: the operating recurrence rule.
@@ -1483,16 +1498,16 @@ _CREDIT_POSTING_LABELS = re.compile(
 _PAYER_REMITTANCE_VETO = re.compile(
     r"(?:FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|PORTFOL|CREDIT)"
     r"|CRED(?=ORA|IBLY|\b)|CAPI?\b|LEAS(?:E|ES|ING|IN|I)?\b"
-    r"|\b(?:CAP|FIN|FINA|FINAN|FI|FINL|FNCL|ADV|MTG|MCA|RTR|SPV|FUN|FUNDI|LOA)\b"
-    r"|\b(?:INSUR\w*|INS|ASSURANCE|INVEST\w*|BROKERAGE|SECURITIES|WEALT\w*|TAX(?:ES)?|IRS|CRA|GRANTS?|REBATES?"
-    r"|DIVIDENDS?)\b"
-    r"|\b(?:PAYROLL|SALARY|WAGES?|REIMB\w*|EXPENSES?|BONUS|COMM?ISS?IONS?|CLAIMS?|MUTUAL|INDEMNITY|CASUALTY"
+    r"|(?<![A-Z])(?:FINA|FINAN|FINL|FNCL|FUNDI)\b|\b(?:CAP|FIN|FI|ADV|MTG|MCA|RTR|SPV|FUN|LOA)\b"
+    r"|(?<![A-Z])(?:INSUR\w*|ASSURANCE|INVEST\w*|BROKERAGE|SECURITIES|WEALT\w*|TAXES|GRANTS?|REBATES?|DIVIDENDS?)\b"
+    r"|\b(?:INS|TAX|IRS|CRA)\b"
+    r"|(?<![A-Z])(?:PAYROLL|SALARY|WAGES?|REIMB\w*|EXPENSES?|BONUS|COMM?ISS?IONS?|CLAIMS?|MUTUAL|INDEMNITY|CASUALTY"
     r"|UNDERWRIT\w*)\b"
-    r"|\b(?:EQUIP\w*|FLOOR\w*|MERCH\w*|VIN)\b"
-    r"|\bSBAD?\b|\bEIDL\b"
-    r"|\bINTERCO(?:MPANY)?\b|\bDUE FROM\b|\bSHAREHOLDER\b|\bOWNERS?\b|\bZBA\b|\bZERO BAL\w*|\bSWEEP\b"
-    r"|\bCONTROLLED DISB\w*|\b(?:TRANSFER|XFER|TFR) FROM\b|\bINTERNAL\b"
-    r"|\bRTN\b|\bRETURN(?:ED)? ITEM\b|\bRECALL\w*|\bUNPAID\b|\bADJ\b"
+    r"|(?<![A-Z])(?:EQUIP\w*|FLOOR\w*|MERCH\w*)\b|\bVIN\b"
+    r"|\bSBA\b|(?<![A-Z])(?:SBAD|EIDL)\b"
+    r"|(?<![A-Z])(?:INTERCO(?:MPANY)?|DUE FROM|SHAREHOLDER|OWNERS?|SWEEP|INTERNAL)\b|(?<![A-Z])ZERO BAL\w*|\bZBA\b"
+    r"|(?<![A-Z])CONTROLLED DISB\w*|(?<![A-Z])(?:TRANSFER|XFER|TFR) FROM\b"
+    r"|\bRTN\b|(?<![A-Z])RETURN(?:ED)? ITEM\b|(?<![A-Z])RECALL\w*|(?<![A-Z])UNPAID\b|\bADJ\b"
     r"|ACIMA"
 )
 #: §7.5, §8.1: words that never make a payer's or a debit's first distinctive word: the AP words, the public-payer
@@ -1532,7 +1547,7 @@ _PUBLIC_PAYER_PURPOSE = re.compile(
     r"|\bEDI ?(?:PYMNTS|PAYMENTS?|PMTS?)(?:SEC)?\b"
 )
 _PUBLIC_PAYER_NAME_VETO = re.compile(
-    r"\b(?:DEPT OF REVENUE|DEPARTMENT OF REVENUE|TAXATION|COMPTROLLER|TREASURER|DEPT OF LABOR|UNEMPLOYMENT"
+    r"(?<![A-Z])(?:DEPT OF REVENUE|DEPARTMENT OF REVENUE|TAXATION|COMPTROLLER|TREASURER|DEPT OF LABOR|UNEMPLOYMENT"
     r"|WORKFORCE)\b|FUNDING|FUNDER|FINANC|CAPITAL|LENDING|LENDER"
 )
 _TREASURY_BOILERPLATE = re.compile(
@@ -1540,22 +1555,22 @@ _TREASURY_BOILERPLATE = re.compile(
 )
 #: §7.6: the whole-row veto, by group; §8.1 holds a public payer's non-sale credit on the first groups.
 _PUBLIC_PAYER_NON_SALE_WORDS = re.compile(
-    r"\b(?:TAX(?:ES)?|TAXRFD|TAX ?REF(?:UND)?S?|REFUNDS?|RFD|STUREFUND|R(?:E)?F(?:U)?ND|EIC|(?:XX)?SOC SEC|SUPP SEC"
-    r"|SSI|(?:XX)?VA BEN\w*|BENEF\w*|BEN)\b|[A-Z]*REFUNDS?\b|[A-Z]*RFND\b"
-    r"|\b(?:FED SAL|SALARY|PAYROLL|WAGES?|STIPENDS?|PER DIEM|RETIRE\w*|PENSION|ANNUIT\w*)\b"
-    r"|\b(?:UNEMPLOY\w*|UI|STIMULUS|GRANTS?|RELIEF|DISASTER|CARES|PPP|SBAD?|EIDL|EIDG|LOANS?|ADVANCES?|ADV"
-    r"|FORGIV\w*)\b"
-    r"|\b(?:CHI?LD ?SUPP\w*|CHILD ?CTC|CTC|JURY|RESTITUTION|FOSTER|ADOPT\w*|KINSHIP|WORK(?:ERS)? ?COMP)\b"
-    r"|\b(?:CLAIMS?|AWARDS?|SUBSID\w*|DISB\w*|PROCEEDS|UNCLAIMED|OVERPA\w*|OVERP(?:Y)?MT|REBATES?|REIMB\w*|BONDS?"
-    r"|ESCROW|RETURN(?:ED)?|STABILI[SZ]\w*|OFFSET|RECOVERY|ARPA|RESCUE|ERT?C|INCENTIVES?|TUITION)\b"
-    r"|\bASSISTANCE\b"
+    r"(?<![A-Z])(?:TAXES|TAXRFD|TAX ?REF(?:UND)?S?|REFUNDS?|STUREFUND|R(?:E)?F(?:U)?ND|(?:XX)?SOC SEC|SUPP SEC"
+    r"|(?:XX)?VA BEN\w*|BENEF\w*)\b|\b(?:TAX|RFD|EIC|SSI|BEN)\b|[A-Z]*REFUNDS?\b|[A-Z]*RFND\b"
+    r"|(?<![A-Z])(?:FED SAL|SALARY|PAYROLL|WAGES?|STIPENDS?|PER DIEM|RETIRE\w*|PENSION|ANNUIT\w*)\b"
+    r"|(?<![A-Z])(?:UNEMPLOY\w*|STIMULUS|GRANTS?|RELIEF|DISASTER|CARES|SBAD|EIDL|EIDG|LOANS?|ADVANCES?|FORGIV\w*)\b"
+    r"|\b(?:UI|PPP|SBA|ADV)\b"
+    r"|(?<![A-Z])(?:CHI?LD ?SUPP\w*|CHILD ?CTC|JURY|RESTITUTION|FOSTER|ADOPT\w*|KINSHIP|WORK(?:ERS)? ?COMP)\b|\bCTC\b"
+    r"|(?<![A-Z])(?:CLAIMS?|AWARDS?|SUBSID\w*|DISB\w*|PROCEEDS|UNCLAIMED|OVERPA\w*|OVERP(?:Y)?MT|REBATES?|REIMB\w*"
+    r"|BONDS?|ESCROW|RETURN(?:ED)?|STABILI[SZ]\w*|OFFSET|RECOVERY|ARPA|RESCUE|ERTC|INCENTIVES?|TUITION)\b|\bERC\b"
+    r"|(?<![A-Z])ASSISTANCE\b"
 )
 _PUBLIC_PAYER_OTHER_VETO = re.compile(
-    r"\b(?:ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC)\b"
-    r"|\b(?:FUNDING|FUNDER|LENDING|LENDER|FINANC\w*|CAPITAL|CREDIT UNION|FCU|MORTGAGE|LEASE|LEASING|FACTOR\w*)\b"
-    r"|\bSETTLEMENT\b"
+    r"(?<![A-Z])(?:ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC)\b"
+    r"|(?<![A-Z])(?:FUNDING|FUNDER|LENDING|LENDER|FINANC\w*|CAPITAL|CREDIT UNION|MORTGAGE|LEASE|LEASING|FACTOR\w*)\b"
+    r"|\bFCU\b|(?<![A-Z])SETTLEMENT\b"
 )
-_PUBLIC_PAYER_ARM_B_TRANSFER = re.compile(r"\b(?:TRANSFER|XFER|TFR)\b")
+_PUBLIC_PAYER_ARM_B_TRANSFER = re.compile(r"(?<![A-Z])(?:TRANSFER|XFER)\b|\bTFR\b")
 
 _WIRE_PARTY_FIELDS = re.compile(
     r"\bB O\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)|\bN?BNF\b.*?(?=\b(?:REF|OBI|RFB|IMAD|TRN|ORIG)\b|$)"
@@ -1563,12 +1578,13 @@ _WIRE_PARTY_FIELDS = re.compile(
     r"|\bORIGINATOR NAME\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)|\bORG\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)"
 )
 _WIRE_NON_SALE_PURPOSE = re.compile(
-    r"\b(?:INVEST\w*|DISTRIBUTION|DIVIDEND|EQUITY|MEMBERSHIP INTEREST|SHAREHOLDER|STOCK|CONTRIBUTION|PROCEEDS|ESCROW"
-    r"|CLOSING|OVER PAYMENT|REBATE|RETURN(?:ED)?|CREDIT MEMO|DUPLICATE|SALARY|PAYROLL|WAGES|TAX|GRANT|DONATION|GIFT"
-    r"|INTEREST|REPAY\w*|PRINCIPAL|SECURITY DEPOSIT|INTER ?COMPANY|INTERCO|AFFILIATE|OWNERS?|PERSONAL|COURT|JUDGMENT|INSURANCE"
-    r"|CLAIMS?|RETN|RTN|REJT|REJECT(?:ED)?|RECALL(?:ED)?|UNABLE TO APPLY|DRAWS?|DRAWDOWNS?|DISBURS\w*|FEES?|SCF"
-    r"|SUPPLY CHAIN|EARLY PAY(?:MENT)?|DISCOUNT(?:ED|ING)?|PAYOFF|SURPLUS|EARNEST|SUBSCRIPTIONS?|COMPENSATION|ADJ"
-    r"|ADJUSTMENTS?|RMA|SHORTAGES?|ALLOWANCES?|PROMISSORY|CONVERTIBLE|BRIDGE|SAFE|TRANCHE|DEPOSIT BACK)\b"
+    r"(?<![A-Z])(?:INVEST\w*|DISTRIBUTION|DIVIDEND|EQUITY|MEMBERSHIP INTEREST|SHAREHOLDER|STOCK|CONTRIBUTION|PROCEEDS"
+    r"|ESCROW|CLOSING|OVER PAYMENT|REBATE|RETURN(?:ED)?|CREDIT MEMO|DUPLICATE|SALARY|PAYROLL|WAGES|GRANT|DONATION|GIFT"
+    r"|INTEREST|REPAY\w*|PRINCIPAL|SECURITY DEPOSIT|INTER ?COMPANY|INTERCO|AFFILIATE|OWNERS?|PERSONAL|COURT|JUDGMENT"
+    r"|INSURANCE|CLAIMS?|RETN|REJT|REJECT(?:ED)?|RECALL(?:ED)?|UNABLE TO APPLY|DRAWS?|DRAWDOWNS?|DISBURS\w*"
+    r"|SUPPLY CHAIN|EARLY PAY(?:MENT)?|DISCOUNT(?:ED|ING)?|PAYOFF|SURPLUS|EARNEST|SUBSCRIPTIONS?|COMPENSATION"
+    r"|ADJUSTMENTS?|SHORTAGES?|ALLOWANCES?|PROMISSORY|CONVERTIBLE|BRIDGE|SAFE|TRANCHE|DEPOSIT BACK|FEES)\b"
+    r"|\b(?:TAX|RTN|FEE|SCF|ADJ|RMA)\b"
 )
 #: §7.9: the channel and bank fields removed before the financing roots are read on a wire.
 _WIRE_CHANNEL_AND_BANK_FIELDS = re.compile(
@@ -1579,7 +1595,7 @@ _WIRE_CHANNEL_AND_BANK_FIELDS = re.compile(
     r"|\b(?:SND BK|BBI|VIA|INTERMEDIARY|INT BK|OGB)\b.*?(?=\b(?:B O|ORIG|ORG|REF|OBI|BNF|TRN|IMAD|PMT DET|RFB|RMR|ID)\b|$)"
 )
 #: §7.9, §8.5: a wire from a title or escrow firm carries sale, closing or escrow money, never a sale of the business.
-_TITLE_OR_ESCROW_ORIGINATOR = re.compile(r"\b(?:TITLE|ESCROW)\b")
+_TITLE_OR_ESCROW_ORIGINATOR = re.compile(r"(?<![A-Z])(?:TITLE|ESCROW)\b")
 #: §7.9: a cut originator field: the field widths of Santander (16) and Bank of America (25).
 _WIRE_ORIGINATOR_FIELD_WIDTHS = (16, 25)
 _FINANCING_FULL_WORDS = (
