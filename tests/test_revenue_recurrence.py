@@ -282,6 +282,8 @@ def test_a_delivery_payout_printing_a_financing_word_the_holder_s_name_lacks_sta
 
 def test_the_store_name_platforms_are_registry_delivery_platforms_and_no_processor():
     assert "DoorDash" in tc._STORE_NAME_PAYOUT_ENTITIES
+    assert tc._STORE_NAME_PAYOUT_ENTITIES == {
+        "DoorDash", "Uber Eats", "Grubhub", "SkipTheDishes", "ezCater", "Menufy", "Snackpass"}
     assert {OPERATING_REVENUE_SOURCE_TYPES.get(entity) for entity in tc._STORE_NAME_PAYOUT_ENTITIES} == {
         "delivery_marketplace"}
     assert not tc._STORE_NAME_PAYOUT_ENTITIES & {"Square", "Stripe", "PayPal", "Shopify Payments"}

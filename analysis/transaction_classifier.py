@@ -4129,10 +4129,40 @@ _CARD_FORM_DEBIT_PREFIX = re.compile(
 )
 
 
+#: 5.5 (§7.5, S2.4 re-review): the words of a card purchase's merchant pass 6 reads. The city and state follow them.
+_CARD_MERCHANT_WORDS = 2
+
+
+def _card_processor_code(token: str, printed: str) -> bool:
+    """5.5 (S2.4 re-review): a card purchase's leading token is a processor code ('SQ *', 'TST*'): at most three
+    letters printed right before a star, which normalization drops."""
+    return (
+        token.isalpha() and len(token) <= 3
+        and re.search(rf"(?<![A-Za-z0-9]){re.escape(token)} ?\*", printed, re.IGNORECASE) is not None
+    )
+
+
+def _card_merchant_text(text: str, printed: str) -> str | None:
+    """5.5 (§7.5, S2.4 re-review): a card purchase's merchant, after its card-form prefix and a processor code: its
+    first two words, or None when the merchant's first token is a reference or a short token ('76', 'BP1234567',
+    'SQ *AB'). Never read past the merchant's first words, so the city printed after it is never the debit's word."""
+    tokens = _payee_region(text).split()
+    if tokens and _card_processor_code(tokens[0], printed):
+        tokens = tokens[1:]
+    if not tokens or _is_reference_token(tokens[0]) or len(tokens[0]) <= 2:
+        return None
+    return " ".join(tokens[:_CARD_MERCHANT_WORDS])
+
+
 def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
-    """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words, after a card
-    purchase's leading card-form words and MMDD date (S2.4 review; D11 itself is unchanged)."""
-    text = _CARD_FORM_DEBIT_PREFIX.sub("", record.normalized_description, count=1)
+    """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words; on a card purchase,
+    after its leading card-form words and MMDD date and only on its merchant's first two words (S2.4 review and
+    re-review; D11 itself is unchanged)."""
+    text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
+    if card_form:
+        text = _card_merchant_text(text, record.original_description or "")
+        if text is None:
+            return None
     words = [
         word for word in _distinctive_words(_unknown_payee_tokens(text))
         if word not in _counter_debit_skip_words()

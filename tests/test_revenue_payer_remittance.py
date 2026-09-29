@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import (
+    _debit_first_distinctive_word,
+    classify_statement_transactions,
+    classify_transaction,
+)
 
 
 def _credit(printed: str, *, holder: str | None = "SAMPLE CAFE LLC"):
@@ -102,4 +106,44 @@ def test_a_card_purchase_from_the_payer_is_a_counter_debit_too():
         "unverified_deposit", "payer_remittance_with_counter_debit")
     [alone] = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit]))
     assert (alone.revenue_classification, alone.revenue_match_method) == (
+        "verified_revenue", "payer_remittance_descriptor")
+
+
+def _debit_word(printed: str) -> str | None:
+    return _debit_first_distinctive_word(classify_transaction(printed, -25.0, direction="debit"))
+
+
+@pytest.mark.parametrize(("printed", "word"), [
+    # S2.4 re-review: a card purchase's word is its merchant's, read on the merchant's first two words only.
+    ("CHECKCARD 0302 NORTHWIND GRILL", "NORTHWIND"),
+    ("CHECKCARD 0302 TST* NORTHWIND HOUSTON TX", "NORTHWIND"),
+    ("CHECKCARD 0302 SQ *NORTHWIND BAKERY HOUSTON TX", "NORTHWIND"),
+    ("CHECKCARD 0302 THE HOME DEPOT #1234 HOUSTON TX", "HOME"),
+    # a reference, a short token or a processor code alone never lets the read walk on into the city
+    ("CHECKCARD 0302 76 - HOUSTON TX", None),
+    ("CHECKCARD 0302 SQ *AB HOUSTON TX", None),
+    ("CHECKCARD 0302 BP1234567 HOUSTON TX", None),
+    ("CHECKCARD 0302 TST* 12345 HOUSTON TX", None),
+    ("CHECKCARD 0302 TST*", None),
+    ("CHECKCARD 0302 ABC 1234 HOUSTON TX", None),
+    ("PURCHASE AUTHORIZED ON 03/02 QT123 DALLAS TX S123456789 CARD 1234", None),
+])
+def test_a_card_purchase_s_word_is_its_merchant_s(printed, word):
+    assert _debit_word(printed) == word
+
+
+@pytest.mark.parametrize(("payer", "card"), [
+    ("HOUSTON METHODIST DES:VENDOR PAY ID:1", "CHECKCARD 0302 76 - HOUSTON TX"),
+    ("HOUSTON METHODIST DES:VENDOR PAY ID:1", "CHECKCARD 0302 SQ *AB HOUSTON TX"),
+    ("HOUSTON METHODIST DES:VENDOR PAY ID:1", "CHECKCARD 0302 BP1234567 HOUSTON TX"),
+    ("DALLAS COUNTY HOSPITAL DES:VENDOR PAY ID:1",
+     "PURCHASE AUTHORIZED ON 03/02 QT123 DALLAS TX S123456789 CARD 1234"),
+])
+def test_a_card_purchase_in_the_payer_s_city_is_no_counter_debit(payer, card):
+    # S2.4 re-review: the city a card purchase prints after its merchant is never the debit's word.
+    records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[
+        Transaction(date="2054-03-02", description=payer, amount=5000.0, direction="credit"),
+        Transaction(date="2054-03-03", description=card, amount=-25.0, direction="debit"),
+    ]))
+    assert (records[0].revenue_classification, records[0].revenue_match_method) == (
         "verified_revenue", "payer_remittance_descriptor")
