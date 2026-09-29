@@ -827,7 +827,8 @@ _GLUED_SEC_CODE = re.compile(
 #: §7.0, S2.1 review finding 1: a date the bank prints at the row's start, glued to the first word ('01/02Zelle ...'
 #: normalizes to '01 02ZELLE ...'). Two numbers of one or two digits, each 1 to 31 (a month and a day, in either
 #: order), then a letter with no space before it; no other leading number is removed. A spaced pair is kept: '5 3 ...'
-#: is Fifth Third's 5/3 brand, and the word-bounded rails and forms read a spaced row anyway (fix round 2).
+#: is Fifth Third's 5/3 brand (fix round 2). The channel gate reads a spaced row through its own patterns: their left
+#: boundary is (?<![A-Z]) and a form anchored at the row's start accepts a leading date (fix round 3).
 _LEADING_DATE = re.compile(r"^(?:0?[1-9]|[12]\d|3[01]) (?:0?[1-9]|[12]\d|3[01])(?=[A-Z])")
 #: §7.0: the fields between Chase's originator and its entry description, and Bank of America's DES label.
 _CHASE_FIELDS_BETWEEN = re.compile(r" ORIG ID \S+ DESC DATE(?: \S+)? CO (?:ENTRY )?DESCR ")
@@ -928,32 +929,43 @@ _NUMBERED_COMPANY_REGION = re.compile(
 )
 #: §6.1 step 9b: consumer person-to-person rails (never verified by any step), and real-time or push rails (verified
 #: by the operating registry only).
+#: S2.1 re-review (fix round 3): the gate fails closed on anything glued in front. In these four gate families every
+#: left boundary is (?<![A-Z]), never \b (the owner's card-form convention), so a date or a reference glued to a rail
+#: or a form ('01/02/2054Zelle', '0102Zelle') still reads it; a right boundary stays \b. A form anchored at the row's
+#: start accepts a leading date, glued or spaced ('01/02 Remote'). These readings only move a row to closed or push.
 _CONSUMER_P2P_RAIL = re.compile(
-    r"\b(?:ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH|APPLE CASH"
-    r"|POPMONEY)\b"
+    r"(?<![A-Z])(?:ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH"
+    r"|APPLE CASH|POPMONEY)\b"
 )
 _PUSH_RAIL = re.compile(
-    r"\b(?:RTP|FEDNOW|REAL TIME (?:TRANSFER|PAYMENT)|INSTANT (?:PMT|PAYMENT|TRANSFER)|VISA DIRECT"
+    r"(?<![A-Z])(?:RTP|FEDNOW|REAL TIME (?:TRANSFER|PAYMENT)|INSTANT (?:PMT|PAYMENT|TRANSFER)|VISA DIRECT"
     r"|VISA MONEY TRANSFER|MC SEND|MONEY TRANSFER|PMNT RCVD|PAYMENT RECEIVED)\b"
 )
 #: §8.3: check deposits (Q3: counted, never verified).
 _CHECK_DEPOSIT_FORM = re.compile(
-    r"\bMOBILE (?:CHECK |CHEQUE )?(?:DEPOSIT|DEP)\b|\bMOBILE CHE(?:CK|QUE)\b|\bMB DEP\b|\bBKOFAMERICA MOBILE\b"
-    r"|\bREMOTE (?:ONLINE )?(?:DEPOSIT|CAPTURE)\b|\bDEPOSIT CAPTURE\b|\bMERCHANT CAPTURE\b"
-    r"|\bDESKTOP (?:REMOTE )?DEPOSIT\b|\bEDEPOSIT SCAN\b|\bE ?CHEQUE DEPOSIT\b"
-    r"|\b(?:ATM )?CHE(?:CK|QUE)S? (?:DEPOSIT|DEP|RECEIVED)\b|\bMAIL DEPOSIT\b|^REMOTE$|\bIMAGED DEPOSIT\b"
-    r"|\bDEPOSITED (?:CHECK|ITEM)\b|\bRDC\b|\bSCAN(?:NED)? DEPOSIT\b|\bLOCKBOX\b|\bLBX DEP\b"
+    r"(?<![A-Z])MOBILE (?:CHECK |CHEQUE )?(?:DEPOSIT|DEP)\b|(?<![A-Z])MOBILE CHE(?:CK|QUE)\b|(?<![A-Z])MB DEP\b"
+    r"|(?<![A-Z])BKOFAMERICA MOBILE\b"
+    r"|(?<![A-Z])REMOTE (?:ONLINE )?(?:DEPOSIT|CAPTURE)\b|(?<![A-Z])DEPOSIT CAPTURE\b|(?<![A-Z])MERCHANT CAPTURE\b"
+    r"|(?<![A-Z])DESKTOP (?:REMOTE )?DEPOSIT\b|(?<![A-Z])EDEPOSIT SCAN\b|(?<![A-Z])E ?CHEQUE DEPOSIT\b"
+    r"|(?<![A-Z])(?:ATM )?CHE(?:CK|QUE)S? (?:DEPOSIT|DEP|RECEIVED)\b|(?<![A-Z])MAIL DEPOSIT\b"
+    r"|^(?:\d{1,2} \d{1,2} ?)?REMOTE$|(?<![A-Z])IMAGED DEPOSIT\b"
+    r"|(?<![A-Z])DEPOSITED (?:CHECK|ITEM)\b|(?<![A-Z])RDC\b|(?<![A-Z])SCAN(?:NED)? DEPOSIT\b|(?<![A-Z])LOCKBOX\b"
+    r"|(?<![A-Z])LBX DEP\b"
 )
 #: §8.2: cash, branch and teller, and ATM deposits (Q2: counted, never verified), read only on a row that prints no
 #: electronic-payment form and no person-to-person rail.
 _CASH_BRANCH_ATM_FORM = re.compile(
-    r"\bCASH DEP(?:OSIT)?\b|\bATM CASH\b|\bCPS DEVICE\b|\bCURRENCY PROCESSING\b|\bSMART ?SAFE\b|\bCOIN\b|\bCASH IN\b"
-    r"|\bCOUNTER (?:CREDIT|DEPOSIT)\b|\bTELLER\b|\bIN BRANCH\b|\bBRANCH\b|\bBRCH\b|\bDEPOSIT AT BR\b"
-    r"|\bDEPOSIT THANK YOU\b|\bMAIN OFFICE\b|\bPRE ?ENCODED\b|\bNIGHT (?:DEP|DROP)\b|\bBANKING CENTRE\b"
+    r"(?<![A-Z])CASH DEP(?:OSIT)?\b|(?<![A-Z])ATM CASH\b|(?<![A-Z])CPS DEVICE\b|(?<![A-Z])CURRENCY PROCESSING\b"
+    r"|(?<![A-Z])SMART ?SAFE\b|(?<![A-Z])COIN\b|(?<![A-Z])CASH IN\b"
+    r"|(?<![A-Z])COUNTER (?:CREDIT|DEPOSIT)\b|(?<![A-Z])TELLER\b|(?<![A-Z])IN BRANCH\b|(?<![A-Z])BRANCH\b"
+    r"|(?<![A-Z])BRCH\b|(?<![A-Z])DEPOSIT AT BR\b"
+    r"|(?<![A-Z])DEPOSIT THANK YOU\b|(?<![A-Z])MAIN OFFICE\b|(?<![A-Z])PRE ?ENCODED\b|(?<![A-Z])NIGHT (?:DEP|DROP)\b"
+    r"|(?<![A-Z])BANKING CENTRE\b"
     # DEPOT MARCHAND (a card settlement, §7.1) and DEPOT DIRECT (a direct deposit) are electronic, never a branch.
-    r"|^GC\b.*\bDEPOSIT\b|\bG DEPOT\b|\bDEPOT\b(?! MARCHAND\b| DIRECT\b)|\bDEPOSIT IBB\b|\bVAULT DEP\w*|\bSTORE DEPOSIT\b"
-    r"|\bDEPOSIT MADE IN\b"
-    r"|\bATM\b.*\bDEP(?:OSIT)?\b|\bDEP(?:OSIT)?\b.*\bATM\b|\bABM\b"
+    r"|^(?:\d{1,2} \d{1,2} ?)?GC\b.*(?<![A-Z])DEPOSIT\b|(?<![A-Z])G DEPOT\b|(?<![A-Z])DEPOT\b(?! MARCHAND\b| DIRECT\b)"
+    r"|(?<![A-Z])DEPOSIT IBB\b|(?<![A-Z])VAULT DEP\w*|(?<![A-Z])STORE DEPOSIT\b"
+    r"|(?<![A-Z])DEPOSIT MADE IN\b"
+    r"|(?<![A-Z])ATM\b.*(?<![A-Z])DEP(?:OSIT)?\b|(?<![A-Z])DEP(?:OSIT)?\b.*(?<![A-Z])ATM\b|(?<![A-Z])ABM\b"
 )
 #: §8.2: transfer wording.
 _TRANSFER_WORDING = re.compile(
@@ -1078,8 +1090,8 @@ def _is_bare_row(text: str) -> bool:
 
 def _is_payer_word(token: str) -> bool:
     """5.5 (§8.2): a token that may name a payer: not a generic word, a single letter, a masked number or a month.
-    A token that holds digits names one only through three or more letters glued to them ('02BANKCARD' after a
-    glued date, 'MRCH22064280019')."""
+    A token that holds digits names one only through three or more letters glued to them ('2054BANKCARD' after a
+    glued date with a year, 'MRCH22064280019')."""
     if token in REVENUE_GENERIC_WORDS or len(token) < 2 or _MASKED_TOKEN.fullmatch(token) or token in _ENTITY_MONTHS:
         return False
     if not any(ch.isdigit() for ch in token):

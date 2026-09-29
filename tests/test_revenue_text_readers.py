@@ -152,6 +152,8 @@ def test_the_channel_gate(printed, gate):
     ("Cash Deposit", "closed"),
     ("Remote Deposit", "closed"),
     ("ATM Deposit", "closed"),
+    ("Remote", "closed"),                  # the check form anchored at the row's start
+    ("GC 1234 Deposit", "closed"),         # the cash form anchored at the row's start
     ("Visa Direct Fabrikam Payout", "push"),
     ("RTP Credit From Fabrikam LLC Inv 1234", "push"),
 ])
@@ -159,8 +161,10 @@ def test_a_leading_date_never_opens_the_channel_gate(printed, gate):
     # S2.1 review, finding 1 (§6.1 step 9b, §7.0): a date glued to the row's first word ('01/02Zelle ...') is dropped
     # from the revenue text, so the gate, the payer region, the payer name and the company form read the dated row as
     # they read the undated one. A date printed with a space before the first word is kept (a spaced leading '5 3' is
-    # Fifth Third's 5/3 brand, not a date); the word-bounded rails and forms still read that row, so its gate, payer
-    # name and company form are the undated row's too. The gate never fails open.
+    # Fifth Third's 5/3 brand, not a date), so the gate reads through it (S2.1 re-review, fix round 3): the rails'
+    # and forms' left boundary is (?<![A-Z]), never \b, and a form anchored at the row's start accepts a leading
+    # date, glued or spaced. The spaced row's gate, payer name and company form are the undated row's. A glued shape
+    # the strip leaves in place ('01/02/2054Zelle', '0102Zelle') keeps the undated row's gate too.
     def readings(variant):
         text = _text(variant)
         region = payer_region(text)
@@ -172,6 +176,25 @@ def test_a_leading_date_never_opens_the_channel_gate(printed, gate):
     spaced = readings("01/02 " + printed)
     assert spaced[0] == "01 02 " + undated[0]
     assert (spaced[1], spaced[3], spaced[4]) == (undated[1], undated[3], undated[4])
+    for glued in ("01/02/2054", "0102"):
+        if printed == "Remote":
+            # The bare row's anchored form accepts a leading date only (fix round 3's ruling), so '0102REMOTE' and
+            # '01 02 2054REMOTE' read a payer word; a residual reported in the S2.1 fix-round-3 report.
+            continue
+        assert channel_gate(_text(glued + printed)) == gate
+
+
+@pytest.mark.parametrize(("printed", "gate"), [
+    ("01/02 Remote", "closed"),
+    ("01/02 GC 1234 Deposit", "closed"),
+    ("01/02/2054Zelle Payment From Fabrikam LLC Conf 99", "closed"),
+    ("0102Zelle Payment From Fabrikam LLC Conf 99", "closed"),
+    ("0102RTP Credit From Fabrikam LLC Inv 1234", "push"),
+])
+def test_a_dated_or_glued_prefix_never_opens_the_channel_gate(printed, gate):
+    # S2.1 re-review (fix round 3, §6.1 step 9b: a closed row is never verified by any step): the gate fails closed on
+    # whatever the bank glues or prints in front of a rail or a form.
+    assert channel_gate(_text(printed)) == gate
 
 
 @pytest.mark.parametrize("prefix", ["", "01/02", "1/2", "12/31", "31/12"])
@@ -192,9 +215,23 @@ def test_a_glued_leading_date_never_hides_a_row_start_label(prefix):
     "01 02 2054 FABRIKAM DEPOSIT",     # a third number follows: only the two-number shape is removed
     "45 67 FABRIKAM DEPOSIT",          # neither number is a month or a day
     "FABRIKAM 01 02 DEPOSIT",          # a date inside the row is kept
+    # Glued to the first word, but out of the date shape (fix round 3): only two numbers from 1 to 31 are removed.
+    "45/67Fabrikam",                   # neither number is a month or a day
+    "0/5Abc",                          # 0 is no month or day
+    "00/01Abc",
+    "12/345Fabrikam",                  # a second number of three digits is no day
+    "32/01Abc",                        # 32 is no day
+    "1/32Abc",
+    "01/02/2054Fabrikam",              # a third number is glued: only the two-number shape is removed
 ])
 def test_leading_numbers_that_are_no_date_prefix_are_kept(printed):
     assert _text(printed) == normalize(printed)
+
+
+def test_the_same_glued_row_in_the_date_shape_is_stripped():
+    # The narrowness cases above are kept because of their shape: the same glued row with a month and a day strips.
+    assert _text("01/02Fabrikam") == "FABRIKAM"
+    assert _text("12/31Abc") == "ABC"
 
 
 @pytest.mark.parametrize(("printed", "kept"), [
@@ -284,6 +321,13 @@ _LN_PRODUCT_WORD_CASES = [
     ("ACH DEBIT 0012345 SB LN", "ACH DEBIT 0012345 SB LOAN"),
     ("TRANSFER TO 1234 VEH LN", "TRANSFER TO 1234 VEH LOAN"),
     ("PAYMENT 12345 EIDL LN", "PAYMENT 12345 EIDL LOAN"),
+    # S2.1 re-review (fix round 3): the abbreviations 5.4 read as LOAN.
+    ("SAMPLE BANK 4521 CREDIT LN", "SAMPLE BANK 4521 CREDIT LOAN"),
+    ("ONLINE PMT 1234 PERS LN", "ONLINE PMT 1234 PERS LOAN"),
+    ("ACH DEBIT 0012345 INST LN", "ACH DEBIT 0012345 INST LOAN"),
+    ("TRANSFER TO 1234 CONS LN", "TRANSFER TO 1234 CONS LOAN"),
+    ("PAYMENT 12345 HOME EQUITY LN", "PAYMENT 12345 HOME EQUITY LOAN"),
+    ("PAYMENT 12345 EQUITY LN", "PAYMENT 12345 EQUITY LOAN"),
 ]
 #: ... while a street address keeps its lane.
 _STREET_LANE_CASES = [
@@ -303,7 +347,7 @@ def test_a_payment_spelling_or_a_loan_abbreviation_reads_ln_as_loan(printed, nor
 
 @pytest.mark.parametrize("word", [
     "COMMERCIAL", "CML", "COML", "COMM", "SB", "SBA", "VEH", "VEHICLE", "AUTO", "EIDL", "PPP", "LOC", "CRE", "MORT",
-    "MTG", "MORTGAGE", "EQUIP", "TERM",
+    "MTG", "MORTGAGE", "EQUIP", "TERM", "CREDIT", "PERS", "INST", "CONS", "EQUITY",
 ])
 def test_each_loan_product_word_before_a_street_shaped_ln_reads_loan(word):
     assert normalize(f"ACH DEBIT 1234 {word} LN") == f"ACH DEBIT 1234 {word} LOAN"

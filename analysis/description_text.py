@@ -15,11 +15,19 @@ import unicodedata
 _STREET_BEFORE_LN = re.compile(r"(?:^| )\d+((?: [A-Z]+){1,3}) $")
 #: The loan-product words include the banks' loan abbreviations (S2.1 review finding 2): CML, COML and COMM
 #: (commercial), SB and SBA (small business), VEH (vehicle), EIDL and PPP (the SBA's disaster and paycheck loans), LOC
-#: (line of credit), CRE (commercial real estate), MORT and MTG (mortgage), EQUIP (equipment).
+#: (line of credit), CRE (commercial real estate), MORT and MTG (mortgage), EQUIP (equipment). S2.1 re-review (fix round
+#: 3), loan abbreviations that keep the LOAN reading 5.4 gave them:
+#:   CREDIT: a credit loan or line ('4521 CREDIT LN'), beside LOC and LINE;
+#:   PERS: personal, beside PERSONAL;
+#:   INST: installment, beside INSTALLMENT and INSTL;
+#:   CONS: consumer, beside CONSUMER;
+#:   EQUITY: a home-equity loan, beside HOME and HELOC.
+#: CR is never one: in an address it is County Road.
 _LOAN_PRODUCT_WORDS = frozenset({
     "COMMERCIAL", "COMM", "AUTO", "BUSINESS", "BUS", "TERM", "PERSONAL", "MORTGAGE", "MTG", "EQUIPMENT", "EQUIP",
     "INSTALLMENT", "INSTL", "CONSUMER", "HOME", "HELOC", "STUDENT", "VEHICLE", "SBA", "BRIDGE", "CONSTRUCTION", "LINE",
     "CML", "COML", "SB", "VEH", "EIDL", "PPP", "LOC", "CRE", "MORT",
+    "CREDIT", "PERS", "INST", "CONS", "EQUITY",
 })
 #: Every payment spelling, the ones rewritten below (PAYMT becomes PAYMENT) among them: the LN rule runs before that
 #: rewrite, so it reads the printed spelling, and a row normalized twice reads what it read once (S2.1 review).
