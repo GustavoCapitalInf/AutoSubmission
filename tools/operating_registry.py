@@ -1,0 +1,138 @@
+"""The operating-revenue registry's validator (true revenue spec §7.4).
+
+The operating registry (`OPERATING_REVENUE_SOURCE_ALIASES` and its types, the sixteen-character cuts) is hand-kept
+in `analysis/classification_registry.py`. This module says what is wrong with it:
+
+* every operating entity has a source type, and every typed entity has aliases;
+* no operating alias or cut equals a financing alias of the ledger or an insurer's;
+* a cut equals no other registry or ledger alias;
+* a processor's bare alias waits for its advance product (`PROCESSOR_ADVANCE_PRODUCTS`): it is in the registry only
+  when the ledger admits that product or the processor is in `PROCESSORS_WITHOUT_ADVANCE_PRODUCT`;
+
+It also WARNS (never fails) when a multi-word operating alias spans the originator/entry boundary a bank prints between
+two fields ('HEARTLAND PAYMENT SYSTEMS' printed as 'HEARTLAND DES:PAYMENT'), which a contiguous alias cannot match.
+
+Usage: python -m tools.operating_registry --check   (exit 0 when there is no problem, 1 otherwise)
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from analysis import classification_registry as registry  # noqa: E402
+from analysis.description_text import normalize_transaction_description as normalize  # noqa: E402
+from analysis.flag_groups import FINANCING_STATES  # noqa: E402
+
+#: The entry words a bank prints in its own field after the originator (Bank of America's DES, Chase's CO ENTRY DESCR).
+_ENTRY_WORDS = frozenset({"DEPOSIT", "DEP", "PAYMENT", "PAYMENTS", "SETTLEMENT", "PAYOUT", "TRANSFER", "TXNS"})
+
+
+def _aliases(table: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    """{normalized alias: entity} of one table."""
+    return {normalize(alias): entity for entity, aliases in table.items() for alias in aliases}
+
+
+def _financing_aliases() -> dict[str, str]:
+    table: dict[str, str] = {}
+    for state, group in registry.PAYEE_GROUP_REGISTRIES.items():
+        if state in FINANCING_STATES:
+            table.update(_aliases(group))
+    table.update(_aliases(registry.POTENTIAL_LENDER_ALIASES))
+    return table
+
+
+def _insurer_aliases() -> dict[str, str]:
+    return {**_aliases(registry.INSURANCE_PROVIDER_ALIASES), **_aliases(registry.PREMIUM_FINANCE_ALIASES)}
+
+
+def _ledger_aliases() -> dict[str, tuple[str, str]]:
+    """{normalized alias: (group, entity)} of every table the ledger renders."""
+    table: dict[str, tuple[str, str]] = {}
+    for state, group in registry.PAYEE_GROUP_REGISTRIES.items():
+        for alias, entity in _aliases(group).items():
+            table[alias] = (state, entity)
+    for state, group in (("potential_lender", registry.POTENTIAL_LENDER_ALIASES),
+                         ("bank_name", registry.BANK_NAME_ALIASES),
+                         ("card_issuer_context", registry.CARD_ISSUER_CONTEXT_ALIASES),
+                         ("debt_relief", registry.DEBT_RELIEF_ALIASES),
+                         ("premium_financing", registry.PREMIUM_FINANCE_ALIASES)):
+        for alias, entity in _aliases(group).items():
+            table[alias] = (state, entity)
+    return table
+
+
+def problems() -> list[str]:
+    """Every problem of the hand-kept operating registry, as sentences."""
+    found: list[str] = []
+    aliases = registry.OPERATING_REVENUE_SOURCE_ALIASES
+    types = registry.OPERATING_REVENUE_SOURCE_TYPES
+    for entity in aliases:
+        if entity not in types:
+            found.append(f"operating entity {entity!r} has no source type")
+    for entity in types:
+        if entity not in aliases:
+            found.append(f"source type of {entity!r} names no operating entity")
+    financing = _financing_aliases()
+    insurers = _insurer_aliases()
+    ledger = _ledger_aliases()
+    own = _aliases(aliases)
+    for alias, entity in own.items():
+        if alias in financing:
+            found.append(f"operating alias {alias!r} of {entity!r} is a financing alias of {financing[alias]!r}")
+        if alias in insurers:
+            found.append(f"operating alias {alias!r} of {entity!r} is an insurer alias of {insurers[alias]!r}")
+    for entity, cuts in registry.OPERATING_REVENUE_TRUNCATIONS.items():
+        for cut in cuts:
+            other = own.get(cut)
+            if other is not None and other != entity:
+                found.append(f"the cut {cut!r} of {entity!r} is an operating alias of {other!r}")
+            if cut in ledger:
+                group, holder = ledger[cut]
+                found.append(f"the cut {cut!r} of {entity!r} is a {group} alias of {holder!r}")
+            if cut in insurers:
+                found.append(f"the cut {cut!r} of {entity!r} is an insurer alias of {insurers[cut]!r}")
+    admitted = {
+        entity for group in registry.PAYEE_GROUP_REGISTRIES.values() for entity in group
+    }
+    for processor, (bare, product) in registry.PROCESSOR_ADVANCE_PRODUCTS.items():
+        present = [alias for alias in bare if normalize(alias) in own]
+        if not present:
+            continue
+        cleared = (product is not None and product in admitted) or processor in registry.PROCESSORS_WITHOUT_ADVANCE_PRODUCT
+        if not cleared:
+            found.append(
+                f"the bare alias {present[0]!r} of {processor!r} is in the registry before its advance product is in "
+                "the lender ledger (PROCESSOR_ADVANCE_PRODUCTS)"
+            )
+    return found
+
+
+def warnings() -> list[str]:
+    """The operating aliases that span a bank's originator/entry boundary (never a failure)."""
+    return [
+        f"operating alias {alias!r} of {entity!r} spans the originator/entry boundary"
+        for alias, entity in _aliases(registry.OPERATING_REVENUE_SOURCE_ALIASES).items()
+        if len(alias.split()) > 1 and any(word in _ENTRY_WORDS for word in alias.split()[1:])
+    ]
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args != ["--check"]:
+        print(__doc__)
+        return 2
+    for line in warnings():
+        print(f"warning: {line}")
+    found = problems()
+    for line in found:
+        print(f"problem: {line}")
+    print(f"{len(found)} problem(s)")
+    return 1 if found else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -11,6 +11,8 @@ the curated lender ledger (contract C10). The evidence for every entity is in
 """
 from __future__ import annotations
 
+from .description_text import normalize_transaction_description
+
 # --- BEGIN GENERATED: tools/build_lender_registry.py ---
 # Rendered by tools/build_lender_registry.py from docs/lender-registry-ledger.json (contract C10).
 # Never edit by hand: change the ledger, then run python -m tools.build_lender_registry --write.
@@ -1487,6 +1489,8 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
         "AMAZON MARKETPLACE",
         "AMAZON SELLER",
         "AMZN MARKETPLACE",
+        # 5.5 (true revenue spec §7.2): Amazon's real-time-rail payout, verified by recurrence only.
+        "RTP CREDIT AMAZON COM",
     ),
     "Authorize.Net": ("AUTHORIZE NET", "AUTHORIZENET"),
     "Bambora": ("BAMBORA", "BAMB0RA"),
@@ -1495,9 +1499,9 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     "DoorDash": ("DOORDASH", "DOOR DASH", "D00RDASH"),
     "Elavon": ("ELAVON", "ELAV0N"),
     "Etsy": ("ETSY", "ETSY PAYMENTS"),
-    "Fiserv": ("FISERV", "FIRST DATA MERCHANT"),
+    "Fiserv": ("FISERV", "FIRST DATA MERCHANT", "FIRST DATA CANADA"),
     "FreshBooks Payments": ("FRESHBOOKS PAYMENTS", "FRESH BOOKS PAYMENTS"),
-    "Global Payments": ("GLOBAL PAYMENTS", "GL0BAL PAYMENTS", "GLOBALPAY"),
+    "Global Payments": ("GLOBAL PAYMENTS", "GL0BAL PAYMENTS", "GLOBALPAY", "GLOBAL PAIEMENTS"),
     "GoDaddy Payments": ("GODADDY PAYMENTS", "GO DADDY PAYMENTS"),
     "Grubhub": ("GRUBHUB", "GRUB HUB"),
     "Helcim": ("HELCIM", "HELC1M"),
@@ -1518,7 +1522,9 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
         "SKIPTHED1SHES",
     ),
     "Square": ("SQUARE", "SQUARE INC", "SQUARF", "SQ SETTLEMENT"),
-    "Stripe": ("STRIPE", "STR1PE"),
+    # 5.5 (§7.0, §7.2): Stripe-Treasury payouts of a connected platform (STP FBO) and Stripe Connect's
+    # '<platform> - By Stri' cut read as Stripe.
+    "Stripe": ("STRIPE", "STR1PE", "STP FBO", "BY STRI", "BY STRIPE"),
     "Toast": ("TOAST", "TOASTTAB", "T0AST"),
     "Uber Eats": ("UBER EATS", "UBEREATS", "UBFR EATS"),
     "Uber": (
@@ -1532,6 +1538,51 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "Wave Payments": ("WAVE PAYMENTS", "WAVEAPPS PAYMENTS"),
     "Worldpay": ("WORLDPAY", "WORLD PAY"),
+    # 5.5 (true revenue spec §7.1): card processors, in the spellings the corpus prints. A processor's bare name
+    # (SHIFT4, SUMUP, CLEARENT, SMARTTAB, BRAINTREE) and Jobber's cut joins only after its advance product is in
+    # the lender ledger (PROCESSOR_ADVANCE_PRODUCTS).
+    "Heartland Payment Systems": (
+        "HRTLAND PMT SYS TXNS", "HEARTLAND PMT SYS TXNS", "HEARTLAND PAYMENT SYSTEMS", "HEARTLAND PAYMEN",
+    ),
+    "SpotOn": ("SPOTON", "SPOTON VIA ASTRA"),
+    "Clearent": ("CLEARENT LLC", "XPLOR PAY"),
+    "Shift4": ("SHIFT4 PAYMENTS", "SHIFT4 PYMT PROC"),
+    "SmartTab": ("SMARTTAB PAY",),
+    "TapGoods Payments": ("TGPAYMENTS",),
+    "Cents": ("TRYCENTS", "TRYCENTS COM"),
+    "Esquire Payment Solutions": ("ESQUIRE EPS DAILY DEP", "ESQUIRE EPS HELD DEP"),
+    # 5.5 (§7.2, structural S43): vertical software that settles cards, in the spellings the corpus prints.
+    # Squarespace Payments and Seamless print no corpus spelling and wait.
+    "Vagaro": ("VAGARO",),
+    "Mindbody": ("MINDBODY",),
+    "Housecall Pro": ("HOUSECALL PRO",),
+    "Wix Payments": ("WIX COM",),
+    # 5.5 (§7.2): marketplaces and platforms.
+    "Whatnot": ("WHATNOT INC", "FBO WHATNOT"),
+    "Faire": ("FAIRE WHOLESALE",),
+    "TikTok Shop": ("TIKTOK SHOP", "TIKTOK INC", "TIKTOK USA"),
+    "eBay": ("EBAY COMMERCE INC",),
+    "RepeatMD": ("REPEATMD", "REPEATMD MARKETP"),
+    "Snackpass": ("SNACKPASS",),
+    "ezCater": ("EZCATER",),
+    "Menufy": ("MENUFY", "MENUFY COM"),
+    "Groupon": ("GRPN MERCH SVCS",),
+    "ClassPass": ("CLASSPASS", "CLASSPASS INC"),
+    "Outdoorsy": ("OUTDOORSY",),
+    "Brightwheel": ("BRIGHTWHEEL", "BRIGHTWHEE"),
+    "Buildertrend": ("BUILDERTREND", "BUILDERTREND SOL"),
+    "FieldPulse": ("FIELDPULSE",),
+    # 5.5 (§7.3): vehicle-transport marketplaces paying carriers.
+    "Super Dispatch": ("SUPER DISPATCH", "SUPERDISPATCH"),
+    "Autosled": ("AUTOSLED",),
+    # 5.5 (§7.8): dealer-only wholesale auto auctions, read on the originator segment only.
+    "Manheim": ("MANHEIM US",),
+    "ACV Auctions": ("ACV AUCTIONS",),
+    "OPENLANE": ("OPENLANE INC", "BACKLOTCARS"),
+    # 5.5 (§7.10): property-management payment platforms, verified by recurrence of their ACH payout only.
+    "Buildium": ("BUILDIUM",),
+    "AppFolio": ("APPFOLIO",),
+    "Landlord Studio": ("LANDLORD STUDIO",),
 }
 
 
@@ -1567,6 +1618,126 @@ OPERATING_REVENUE_SOURCE_TYPES: dict[str, str] = {
     "Uber": "delivery_marketplace",
     "Wave Payments": "invoice_and_receivables",
     "Worldpay": "merchant_processor",
+    "Heartland Payment Systems": "merchant_processor",
+    "SpotOn": "merchant_processor",
+    "Clearent": "merchant_processor",
+    "Shift4": "merchant_processor",
+    "SmartTab": "merchant_processor",
+    "TapGoods Payments": "merchant_processor",
+    "Cents": "merchant_processor",
+    "Esquire Payment Solutions": "merchant_processor",
+    "Vagaro": "merchant_processor",
+    "Mindbody": "merchant_processor",
+    "Housecall Pro": "merchant_processor",
+    "Wix Payments": "merchant_processor",
+    "Whatnot": "ecommerce_marketplace",
+    "Faire": "ecommerce_marketplace",
+    "TikTok Shop": "ecommerce_marketplace",
+    "eBay": "ecommerce_marketplace",
+    "RepeatMD": "ecommerce_marketplace",
+    "Snackpass": "delivery_marketplace",
+    "ezCater": "delivery_marketplace",
+    "Menufy": "delivery_marketplace",
+    "Groupon": "booking_marketplace",
+    "ClassPass": "booking_marketplace",
+    "Outdoorsy": "booking_marketplace",
+    "Brightwheel": "customer_payment_platform",
+    "Buildertrend": "invoice_and_receivables",
+    "FieldPulse": "invoice_and_receivables",
+    "Super Dispatch": "transport_marketplace",
+    "Autosled": "transport_marketplace",
+    "Manheim": "wholesale_auto_auction",
+    "ACV Auctions": "wholesale_auto_auction",
+    "OPENLANE": "wholesale_auto_auction",
+    "Buildium": "property_management_payments",
+    "AppFolio": "property_management_payments",
+    "Landlord Studio": "property_management_payments",
+}
+
+#: 5.5 (§7.2, §7.3): the operating reads that carry the platform vetoes (pay, financing, reversal and
+#: person-to-person words): every read of these entities, and these aliases of older entities. A payout form always
+#: carries them.
+OPERATING_SOURCES_READ_WITH_VETOES: frozenset[str] = frozenset({
+    "Whatnot", "Faire", "TikTok Shop", "eBay", "RepeatMD", "Snackpass", "ezCater", "Menufy", "Groupon", "ClassPass",
+    "Outdoorsy", "Brightwheel", "Buildertrend", "FieldPulse", "Vagaro", "Mindbody", "Housecall Pro", "Wix Payments",
+    "Super Dispatch", "Autosled",
+})
+OPERATING_ALIASES_READ_WITH_VETOES: frozenset[str] = frozenset({"RTP CREDIT AMAZON COM", "STP FBO"})
+
+#: 5.5 (§7.2, structural S43): extra words that count as payout context for one operating source (read like
+#: _OPERATING_CREDIT_CONTEXT_PATTERNS, as whole words).
+OPERATING_SOURCE_CONTEXT_WORDS: dict[str, tuple[str, ...]] = {
+    "Vagaro": ("DEPOSIT", "PAYOUT"),
+    "Mindbody": ("DEPOSIT", "PAYOUT"),
+    "Housecall Pro": ("DEPOSIT", "PAYOUT"),
+    "Wix Payments": ("DEPOSIT", "PAYOUT"),
+}
+
+#: 5.5 (§7.1): a processor whose bare name joins OPERATING_REVENUE_SOURCE_ALIASES only once the lender ledger
+#: admits its own advance product (an alternative position) or records, through the ledger's process, that it has
+#: none. Keyed by operating entity: (the bare aliases, the ledger entity of the advance product, or None while the
+#: ledger holds neither). tools/operating_registry.py refuses a bare alias in OPERATING_REVENUE_SOURCE_ALIASES
+#: whose entry here names no admitted ledger entity and is not marked none-recorded.
+PROCESSOR_ADVANCE_PRODUCTS: dict[str, tuple[tuple[str, ...], str | None]] = {
+    "Shift4": (("SHIFT4",), None),
+    "SumUp": (("SUMUP",), None),
+    "Jobber Payments": (("JOBBER BY STRI", "JOBBER BY STR", "JOBBER BY STRIPE"), None),
+    "Clearent": (("CLEARENT",), None),
+    "SmartTab": (("SMARTTAB",), None),
+    "Braintree": (("BRAINTREE",), None),
+}
+#: 5.5 (§7.1): processors the ledger's process found to have no advance product of their own (research round and
+#: verdicts recorded in the ledger notes of the entity named there). Empty until S1's research round says so.
+PROCESSORS_WITHOUT_ADVANCE_PRODUCT: frozenset[str] = frozenset()
+#: 5.5 (§7.1, the ledger gate): the bare aliases of the processors the ledger has not cleared yet, by processor.
+#: Derived, never hand-edited. The operating reader refuses an alias read that lies inside one of them ('BY STRI'
+#: inside 'JOBBER BY STRI'), so no other entity reads the row while the processor waits.
+GATED_PROCESSOR_ALIASES: dict[str, tuple[str, ...]] = {
+    processor: bare
+    for processor, (bare, product) in PROCESSOR_ADVANCE_PRODUCTS.items()
+    if not (
+        (product is not None and any(product in group for group in PAYEE_GROUP_REGISTRIES.values()))
+        or processor in PROCESSORS_WITHOUT_ADVANCE_PRODUCT
+    )
+}
+#: 5.5 (§7.1, the structural lens): TSYS / TransFirst, Vantiv, EVO Payments, Paysafe, North American Bancard /
+#: Payanywhere, Priority Payment Systems, Payroc, CardConnect, Stax / Fattmerchant, Repay, Paya, NMI, Finix, WePay,
+#: TD Merchant Solutions, Desjardins Monetico and Chase QuickAccept print no credit spelling in the corpus cache or the
+#: tryout host's credit dump (searched read-only, 2026-09-29): none is an alias, and each waits for a printed spelling.
+
+#: 5.5 (§7.0): the width of the bank field that cuts a long originator name. Every operating alias longer than this
+#: is also read at its first sixteen characters when the cut keeps two words and its last word has three letters.
+OPERATING_ALIAS_CUT = 16
+
+
+def _operating_alias_cut(alias: str) -> str | None:
+    """The sixteen-character cut of one operating alias, or None when it has none (§7.0)."""
+    normalized = normalize_transaction_description(alias)
+    if len(normalized) <= OPERATING_ALIAS_CUT:
+        return None
+    cut = normalized[:OPERATING_ALIAS_CUT].rstrip()
+    words = cut.split(" ")
+    if len(words) < 2 or len(words[-1]) < 3:
+        return None
+    return cut
+
+
+#: 5.5 (§7.0): the sixteen-character cuts of the operating aliases, by entity. Derived, never hand-edited;
+#: tools/operating_registry.py refuses a cut that equals any other registry or ledger alias.
+OPERATING_REVENUE_TRUNCATIONS: dict[str, tuple[str, ...]] = {
+    entity: cuts
+    for entity, aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
+    if (cuts := tuple(dict.fromkeys(
+        cut for alias in aliases
+        if (cut := _operating_alias_cut(alias)) is not None
+        and cut not in {normalize_transaction_description(other) for other in aliases}
+    )))
+}
+
+#: What the classifier reads for an operating source: every alias and its sixteen-character cut.
+OPERATING_REVENUE_READ_ALIASES: dict[str, tuple[str, ...]] = {
+    entity: aliases + OPERATING_REVENUE_TRUNCATIONS.get(entity, ())
+    for entity, aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
 }
 
 
