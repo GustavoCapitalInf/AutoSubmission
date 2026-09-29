@@ -259,6 +259,23 @@ def test_an_alias_read_inside_a_waiting_processor_names_no_source():
     assert tc._operating_source(_text("SHIFT4 PAYMENTS DES:DEPOSIT ID:1")).entity == "Shift4"
 
 
+def test_a_waiting_processor_s_bare_alias_still_refuses_an_alias_read_inside_it(monkeypatch):
+    # §7.1, review I4 (S1.5 review): the refusal path itself, whatever the ledger clears. Jobber is made to wait again
+    # (its bare aliases gated, its own aliases unread), so Stripe's BY STRI cut inside JOBBER BY STRI names no source.
+    import re
+
+    monkeypatch.setattr(tc, "_GATED_PROCESSOR_PATTERNS", {
+        "Jobber Payments": re.compile(r"\b(?:JOBBER BY STRIPE|JOBBER BY STRI|JOBBER BY STR)\b"),
+    })
+    monkeypatch.setattr(tc, "OPERATING_REVENUE_READ_ALIASES", {
+        entity: aliases for entity, aliases in tc.OPERATING_REVENUE_READ_ALIASES.items() if entity != "Jobber Payments"
+    })
+    jobber = _text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")
+    assert tc._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is True
+    assert tc._operating_source(jobber) is None
+    assert tc._operating_source(_text("FABRIKAM - BY STRI DES:PAYOUT ID:1")).entity == "Stripe"
+
+
 def test_the_wire_financing_text_drops_the_sending_and_originating_banks():
     # §7.9: the roots are read after the sending (Santander) and originating (Chase's OGB) bank fields go.
     santander = _text("USD WIRE IN FROM BANCO DE CREDIT ACCT * 1234 CONTOSO SRL REF INV 10421")
