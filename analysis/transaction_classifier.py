@@ -3624,6 +3624,10 @@ def _descriptions_share_pair_context(left: str, right: str) -> bool:
     return any(pattern.search(left) and pattern.search(right) for pattern in _PAIR_FAMILY_PATTERNS)
 
 
+#: 5.5 (§6.2 pass 4): the reversal pair reads the credit markers of step 3, return codes included.
+_PAIR_MARKER_PATTERNS = (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_CODE_CREDIT_PATTERNS)
+
+
 def _apply_reversal_pair_context(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
@@ -3637,10 +3641,7 @@ def _apply_reversal_pair_context(
             or not credit.is_posted
         ):
             continue
-        credit_has_marker = _matches_any(
-            credit.normalized_description,
-            _REVERSAL_CANCELLATION_CREDIT_PATTERNS,
-        )
+        credit_has_marker = _matches_any(credit.normalized_description, _PAIR_MARKER_PATTERNS)
         candidates: list[tuple[int, int]] = []
         credit_date = parse_date(credit.date)
         for debit_index, debit in enumerate(records):
@@ -3652,10 +3653,7 @@ def _apply_reversal_pair_context(
                 or round(abs(debit.amount), 2) != round(credit.amount, 2)
             ):
                 continue
-            debit_has_marker = _matches_any(
-                debit.normalized_description,
-                _REVERSAL_CANCELLATION_CREDIT_PATTERNS,
-            )
+            debit_has_marker = _matches_any(debit.normalized_description, _PAIR_MARKER_PATTERNS)
             if not credit_has_marker and not debit_has_marker:
                 continue
             debit_date = parse_date(debit.date)
@@ -3728,76 +3726,355 @@ def _apply_reversal_pair_context(
     return updated
 
 
+def _recurrence_vetoed(record: TransactionClassification, text: str) -> bool:
+    """5.5 (§7.0): a credit that never counts toward recurrence and is never lifted by it: payroll, the recurrence
+    veto words and card-credit labels (read on the row before its receiver fields), FUNDING outside the three
+    platforms that print it on settlements (review C2), under the $1 floor, or a direction conflict."""
+    return (
+        record.classification == "payroll"
+        or _recurrence_veto_word(text, record.account_name)
+        or (
+            record.revenue_canonical_entity not in _FUNDING_SETTLEMENT_ENTITIES
+            and _recurrence_veto_word(text, record.account_name, _FUNDING_WORD)
+        )
+        or record.amount < _MICRO_DEPOSIT_FLOOR
+        or record.revenue_match_method == "direction_conflict"
+        or not record.direction_consistent
+    )
+
+
+def _recurrence_veto_word(text: str, account_name: str | None, pattern: re.Pattern[str] = _RECURRENCE_VETO) -> bool:
+    """5.5 (§7.0): the recurrence veto on the row before its receiver fields. A veto word that is one of the holder's
+    own words (its account name, or the name the bank prints in the receiver field), or the start of one (four
+    letters or more), is not read: a delivery platform prints the merchant's store name, which is the holder's, in
+    its entry field ('DOORDASH INC DES:<store> CAPITA ... INDN:<store> CAPITAL GROUP')."""
+    holder = set(holder_words(account_name))
+    for found in _RECEIVER_FIELD_VALUE.finditer(text):
+        holder.update(_distinctive_words(found.group(0).split()[1:]))
+    row = _before_receiver(text)
+    for found in pattern.finditer(row):
+        word = found.group(0)
+        if len(word) >= 4 and any(own == word or own.startswith(word) for own in holder):
+            continue
+        return True
+    return False
+
+
+def _in_operating_pool(record: TransactionClassification) -> bool:
+    """5.5 (§7.0): only a credit the operating registry decided, or that an operating-source method or an
+    entity-naming card form verified, joins an entity's recurrence pool."""
+    if record.revenue_canonical_entity is None:
+        return False
+    if record.revenue_match_method in _OPERATING_POOL_METHODS:
+        return True
+    return record.revenue_match_method == "operating_income_descriptor" and (
+        record.revenue_matched_rule or ""
+    ).startswith("card_settlement_form_")
+
+
+def _upgrade_by_recurrence(
+    record: TransactionClassification,
+    *,
+    entity: str,
+    count: int,
+    recurring: bool,
+    business: bool,
+    related_activity: bool,
+    extra_signals: Sequence[str] = (),
+) -> TransactionClassification:
+    """The recurrence pass's verified record for one pooled credit (today's wording)."""
+    signals = list(record.revenue_context_signals)
+    if recurring:
+        signals.append(f"recurring_source_{count}_credits")
+    if business:
+        signals.append("business_account")
+    if related_activity:
+        signals.append("related_platform_fee_or_chargeback")
+    signals.extend(extra_signals)
+    evidence_text = (
+        f"recurs in {count} posted credits"
+        if recurring
+        else "has a related processing fee, commission, chargeback, or adjustment"
+    )
+    return _replace_revenue_state(
+        record,
+        "verified_revenue",
+        match_method="recurring_operating_source" if recurring else "operating_source_related_activity",
+        matched_rule=(
+            "maintained_source_recurs_across_statement"
+            if recurring
+            else "maintained_source_has_related_operating_debit"
+        ),
+        confidence_score=0.90 if recurring else 0.88,
+        reason=f"Maintained operating source '{entity}' {evidence_text}; the credit is verified as operating revenue.",
+        context_signals=signals,
+    )
+
+
 def _apply_operating_source_context(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
 ) -> list[TransactionClassification]:
+    """Statement pass 5 (§6.2, §7.0): operating-source recurrence and related activity, fixed for every source.
+
+    The pool admits only registry rows and operating-method rows (_in_operating_pool); it counts an entity's credits
+    already verified by an operating-source method and upgrades only the unverified ones, so a per-row upgrade never
+    shrinks it; a vetoed credit never counts and is never lifted (_recurrence_vetoed). A wholesale auction (§7.8) and
+    a property-management platform (§7.10) take their own branches, and an unregistered NET SETTLE originator
+    verifies with three such credits (§7.1). A debit names its platform as the operating reader does, with the
+    receiver field's value removed (§5.2: the holder's name never names a source) and through the ledger gate."""
     updated = list(records)
-    credits_by_entity: dict[str, list[int]] = {}
+    pools: dict[str, list[int]] = {}
     activity_by_entity: dict[str, list[int]] = {}
+    net_settle: dict[tuple[str, ...], list[int]] = {}
     for index, record in enumerate(records):
         if index in duplicate_indexes or not record.is_posted:
             continue
-        match = registry_match(
-            record.normalized_description,
-            OPERATING_REVENUE_SOURCE_ALIASES,
-        )
-        if match is None:
+        text = revenue_text(record.normalized_description)
+        if record.amount < 0:
+            alias_text = _without_receiver_value(text)
+            found = registry_match(alias_text, OPERATING_REVENUE_READ_ALIASES)
+            if found is not None and _read_inside_a_waiting_processor(alias_text, *found):
+                found = None
+            if found is not None and _matches_any(alias_text, _OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS):
+                activity_by_entity.setdefault(found[0], []).append(index)
             continue
-        entity, _ = match
-        if record.amount > 0 and record.revenue_classification == "unverified_deposit":
-            credits_by_entity.setdefault(entity, []).append(index)
-        elif record.amount < 0 and _matches_any(
-            record.normalized_description,
-            _OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS,
+        if record.amount <= 0 or _recurrence_vetoed(record, text):
+            continue
+        if _in_operating_pool(record):
+            pools.setdefault(record.revenue_canonical_entity, []).append(index)
+        elif (
+            record.revenue_classification == "unverified_deposit"
+            and record.revenue_match_method in {"ambiguous_credit_descriptor", "unidentified_posted_credit"}
+            and channel_gate(text) is None
         ):
-            activity_by_entity.setdefault(entity, []).append(index)
+            form = _card_settlement_form(text, bank=record.bank)
+            if form is not None and form.label == "net_settle":
+                key = _payer_key(payer_region(text))
+                if key:
+                    net_settle.setdefault(key, []).append(index)
 
-    for entity, indexes in credits_by_entity.items():
-        business_context = any(
-            "business_account" in records[index].revenue_context_signals
+    for entity, indexes in pools.items():
+        source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
+        if source_type == "wholesale_auto_auction":
+            _apply_auction_branch(updated, records, entity, indexes, duplicate_indexes)
+            continue
+        if source_type == "property_management_payments":
+            _apply_property_branch(updated, records, entity, indexes)
+            continue
+        business = any(
+            _business_account(records[index].account_name)
+            if source_type != "customer_payment_platform"
+            else _matches_any(
+                account_name_text(records[index].account_name), _BUSINESS_ACCOUNT_PATTERNS
+            )
             for index in indexes
         )
-        recurring = len(indexes) >= 3 or (len(indexes) >= 2 and business_context)
-        related_activity = activity_by_entity.get(entity) or []
-        if not recurring and not related_activity:
+        count = len(indexes)
+        recurring = count >= _RECURRENCE_MIN_CREDITS or (count >= _RECURRENCE_MIN_BUSINESS_CREDITS and business)
+        related = bool(activity_by_entity.get(entity))
+        if not recurring and not related:
             continue
         for index in indexes:
             record = updated[index]
-            signals = list(record.revenue_context_signals)
-            if recurring:
-                signals.append(f"recurring_source_{len(indexes)}_credits")
-            if business_context:
-                signals.append("business_account")
-            if related_activity:
-                signals.append("related_platform_fee_or_chargeback")
-            method = (
-                "recurring_operating_source"
-                if recurring
-                else "operating_source_related_activity"
+            if record.revenue_classification != "unverified_deposit":
+                continue
+            updated[index] = _upgrade_by_recurrence(
+                record, entity=entity, count=count, recurring=recurring, business=business, related_activity=related,
             )
-            rule = (
-                "maintained_source_recurs_across_statement"
-                if recurring
-                else "maintained_source_has_related_operating_debit"
+
+    for indexes in net_settle.values():
+        if len(indexes) < _NET_SETTLE_MIN_CREDITS:
+            continue
+        for index in indexes:
+            updated[index] = _replace_revenue_state(
+                updated[index],
+                "verified_revenue",
+                match_method="operating_income_descriptor",
+                matched_rule="card_settlement_form_net_settle",
+                confidence_score=0.90,
+                reason=f"One originator's NET SETTLE entry recurs in {len(indexes)} posted credits: card settlements.",
+                context_signals=(*updated[index].revenue_context_signals, "card_settlement_form"),
             )
-            evidence_text = (
-                f"recurs in {len(indexes)} posted credits"
-                if recurring
-                else "has a related processing fee, commission, chargeback, or adjustment"
-            )
+    return updated
+
+
+def _apply_auction_branch(
+    updated: list[TransactionClassification],
+    records: list[TransactionClassification],
+    entity: str,
+    indexes: Sequence[int],
+    duplicate_indexes: set[int],
+) -> None:
+    """5.5 (§7.8): a dealer-only wholesale auction verifies only its observed payout form, never a buyer-payment
+    reference, a floor-plan or financing word or a consumer entry (§14.1), and never a credit paired with an equal
+    same-auction debit within 14 days (each debit used once). The payout form is read with the receiver field's value
+    removed (§5.2): the holder's name never verifies."""
+    forms = _AUCTION_PAYOUT_FORMS.get(entity, ())
+    refund_name = _AUCTION_REFUND_NAMES.get(entity)
+    used_debits: set[int] = set()
+    for index in indexes:
+        record = updated[index]
+        text = revenue_text(record.normalized_description)
+        rule, verified = "auction_credit_without_payout_form", False
+        if _AUCTION_BUYER_PAYMENT.search(text):
+            rule = "auction_credit_prints_buyer_payment_reference"
+        elif _AUCTION_VETO.search(_before_receiver(text)):
+            rule = "auction_credit_prints_financing_or_consumer_word"
+        elif any(form.search(_without_receiver_value(text)) for form in forms):
+            pair = _auction_refund_pair(records, index, refund_name, used_debits, duplicate_indexes)
+            if pair is not None:
+                used_debits.add(pair)
+                rule = "auction_credit_matches_same_source_debit"
+            else:
+                rule, verified = "wholesale_auto_auction_proceeds", True
+        if verified:
             updated[index] = _replace_revenue_state(
                 record,
                 "verified_revenue",
-                match_method=method,
+                match_method="wholesale_auction_payout_form",
                 matched_rule=rule,
-                confidence_score=0.90 if recurring else 0.88,
-                reason=(
-                    f"Maintained operating source '{entity}' {evidence_text}; "
-                    "the credit is verified as operating revenue."
-                ),
-                context_signals=signals,
+                confidence_score=0.90,
+                reason=f"A dealer-only wholesale auction ('{entity}') pays out in its observed payout form.",
+                context_signals=(*record.revenue_context_signals, "wholesale_auction_payout_form"),
             )
+        else:
+            updated[index] = _replace_revenue_state(
+                record,
+                "unverified_deposit",
+                match_method="operating_source_requires_context",
+                matched_rule=rule,
+                confidence_score=0.60,
+                reason=f"A credit from the wholesale auction '{entity}' that is not its observed payout form.",
+                context_signals=record.revenue_context_signals,
+            )
+
+
+def _auction_refund_pair(
+    records: list[TransactionClassification],
+    credit_index: int,
+    refund_name: re.Pattern[str] | None,
+    used: set[int],
+    duplicate_indexes: set[int],
+) -> int | None:
+    """5.5 (§7.8): the index of an unused posted debit that names the auction (on its row or its wire BNF line), for
+    the same amount to the cent, within 14 days of the credit; or None."""
+    if refund_name is None:
+        return None
+    credit = records[credit_index]
+    credit_date = parse_date(credit.date)
+    for index, debit in enumerate(records):
+        if (
+            index in used or index in duplicate_indexes or debit.amount >= 0 or not debit.is_posted
+            or round(abs(debit.amount), 2) != round(credit.amount, 2)
+            or not refund_name.search(debit.normalized_description)
+            or re.search(r"\bACV CAPITAL\b", debit.normalized_description)
+        ):
+            continue
+        debit_date = parse_date(debit.date)
+        if credit_date is not None and debit_date is not None and abs(
+            (credit_date - debit_date).days
+        ) > _AUCTION_REFUND_WINDOW_DAYS:
+            continue
+        return index
+    return None
+
+
+def _apply_property_branch(
+    updated: list[TransactionClassification],
+    records: list[TransactionClassification],
+    entity: str,
+    indexes: Sequence[int],
+) -> None:
+    """5.5 (§7.10, T15): a property-management platform verifies by recurrence of its ACH payout shape only (three
+    credits, or two in a business account), never by a related fee debit. A row printing owner, distribution or
+    deposit wording is left out of the count and stays unverified; micro-deposits never count; a push-shaped row
+    stays operating_source_requires_context. A verified row carries the property-management chip."""
+    counted: list[int] = []
+    for index in indexes:
+        record = updated[index]
+        text = revenue_text(record.normalized_description)
+        row = _before_receiver(text)
+        if _PROPERTY_PLATFORM_GUARD.search(row):
+            updated[index] = _replace_revenue_state(
+                record,
+                "unverified_deposit",
+                match_method="operating_source_requires_context",
+                matched_rule="property_platform_owner_or_deposit_wording",
+                confidence_score=0.60,
+                reason=f"A '{entity}' credit prints owner, distribution or deposit wording.",
+                context_signals=record.revenue_context_signals,
+            )
+            continue
+        if _PROPERTY_MICRO_DEPOSIT.search(row) or _PROPERTY_PUSH_SHAPE.search(row):
+            continue
+        if not _ELECTRONIC_PAYMENT_FORM.search(row):
+            continue
+        counted.append(index)
+    business = any(_business_account(records[index].account_name) for index in counted)
+    count = len(counted)
+    if not (count >= _RECURRENCE_MIN_CREDITS or (count >= _RECURRENCE_MIN_BUSINESS_CREDITS and business)):
+        return
+    for index in counted:
+        record = updated[index]
+        if record.revenue_classification != "unverified_deposit":
+            continue
+        updated[index] = _upgrade_by_recurrence(
+            record, entity=entity, count=count, recurring=True, business=business, related_activity=False,
+            extra_signals=("property_management_collections",),
+        )
+
+
+def _payer_key(region: str) -> tuple[str, ...]:
+    """5.6 (§5.2): the payer key: the payer name's words without the generic words, at most the first four."""
+    return tuple(word for word in payer_name(region).split() if word not in REVENUE_GENERIC_WORDS)[:4]
+
+
+def _payer_first_distinctive_word(region: str) -> str | None:
+    """5.5 (§7.5, §8.1): the payer's first distinctive word: four or more letters, not an AP, bank-template,
+    legal-suffix, generic or public-payer word, and not a common name-starter."""
+    words = [word for word in _distinctive_words(payer_name(region).split()) if word not in _counter_debit_skip_words()]
+    return _first_distinctive_word(words)
+
+
+def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
+    """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words."""
+    words = [
+        word for word in _distinctive_words(_unknown_payee_tokens(record.normalized_description))
+        if word not in _counter_debit_skip_words()
+    ]
+    return _first_distinctive_word(words)
+
+
+def _apply_payer_remittance_counter_debit_guard(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    """Statement pass 6 (§6.2, §7.5): a credit the payer-remittance rule verified goes back to unverified when a
+    posted debit in the same statement shares the payer's first distinctive word (an own account, an affiliate or a
+    funder that collects)."""
+    debit_words = {
+        word
+        for index, record in enumerate(records)
+        if index not in duplicate_indexes and record.amount < 0 and record.is_posted
+        and (word := _debit_first_distinctive_word(record)) is not None
+    }
+    updated = list(records)
+    for index, record in enumerate(records):
+        if record.revenue_match_method != "payer_remittance_descriptor":
+            continue
+        word = _payer_first_distinctive_word(payer_region(revenue_text(record.normalized_description)))
+        if word is None or word not in debit_words:
+            continue
+        updated[index] = _replace_revenue_state(
+            record,
+            "unverified_deposit",
+            match_method="payer_remittance_with_counter_debit",
+            matched_rule="payer_also_debited_in_statement",
+            confidence_score=0.50,
+            reason="The payer of this accounts-payable remittance is also debited in the statement.",
+            context_signals=(*record.revenue_context_signals, "payer_also_debited"),
+        )
     return updated
 
 
@@ -4512,6 +4789,7 @@ def classify_statement_transactions(
     records = _label_unnamed_potential_payees(records)
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
+    records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
 
     for index, original_index in duplicate_of.items():
         record = records[index]

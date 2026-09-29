@@ -84,3 +84,23 @@ def test_three_super_dispatch_payouts_verify_and_one_does_not():
     rows = [(day, "123456789 FROM SUPER DISPATCH INC REF NOREF", 900.0 + day) for day in (2, 9, 16)]
     assert {record.revenue_match_method for record in _statement(rows)} == {"recurring_operating_source"}
     assert _statement(rows[:1])[0].revenue_classification == "unverified_deposit"
+
+
+def test_a_tiktok_card_refund_three_times_never_recurs():
+    records = _statement([(2, "TIKTOK SHOP 1234567 CULVER CITY CA", 40.0), (9, "TIKTOK SHOP 1234567 CULVER CITY CA", 41.0),
+                          (16, "TIKTOK SHOP 1234567 CULVER CITY CA", 42.0)])
+    assert {record.revenue_classification for record in records} == {"unverified_deposit"}
+
+
+def test_three_mis_signed_form_rows_stay_unverified():
+    records = classify_statement_transactions(Statement(account_name="SAMPLE SHOP LLC", transactions=[
+        Transaction(date=f"2054-03-{day:02d}", description="STP FBO WHATNOT INC FROM WHATNOT INC", amount=300.0,
+                    direction="debit")
+        for day in (2, 9, 16)
+    ]))
+    assert {record.revenue_match_method for record in records} == {"direction_conflict"}
+
+
+def test_transport_rows_with_a_wallet_or_wire_word_never_recur():
+    rows = [(day, f"SUPER DISPATCH CASH OUT {day}", 50.0 + day) for day in (2, 9, 16)]
+    assert {record.revenue_classification for record in _statement(rows)} == {"unverified_deposit"}

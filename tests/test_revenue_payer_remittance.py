@@ -78,3 +78,14 @@ def test_a_numbered_company_never_verifies(printed):
 def test_the_holder_s_own_name_never_verifies():
     record = _credit("CONTOSO BAKERY LLC DES:VENDOR PAY ID:1", holder="CONTOSO BAKERY LLC")
     assert (record.revenue_classification, record.revenue_match_method) == ("unverified_deposit", "holder_named_payer")
+
+
+def test_a_payer_the_statement_also_debits_goes_back_to_unverified():
+    records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[
+        Transaction(date="2054-03-02", description="NORTHWIND SUPPLY DES:VENDOR PAY ID:1", amount=5000.0,
+                    direction="credit"),
+        *(Transaction(date=f"2054-03-{day:02d}", description="NORTHWIND SUPPLY DES:DEBIT ID:2", amount=-250.0,
+                      direction="debit") for day in (3, 4, 5, 6, 9)),
+    ]))
+    assert records[0].revenue_classification == "unverified_deposit"
+    assert records[0].revenue_match_method == "payer_remittance_with_counter_debit"
