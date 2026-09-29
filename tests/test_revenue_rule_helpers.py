@@ -49,6 +49,40 @@ def test_a_cut_read_carries_its_alias_vetoes():
     assert tc._operating_source(_text("RTP CREDIT AMAZO ID:1")).entity == "Amazon Marketplace"
 
 
+_CHASE_FIELDS = "ORIG ID:1234567890 DESC DATE:310102 CO ENTRY DESCR:VENDOR PAYSEC:CCD TRACE#:1 EED:310102 IND ID:1"
+
+
+@pytest.mark.parametrize(("printed", "entity"), [
+    # Bank of America: the holder's name in INDN never names the source; the originator before DES does.
+    ("FABRIKAM SUPPLY DES:VENDOR PAY ID:1 INDN:SQUARE INC CO ID:1 CCD", None),
+    ("SQUARE INC DES:VENDOR PAY ID:1 INDN:FABRIKAM SUPPLY CO ID:1 CCD", "Square"),
+    # Bank of America prints the processor in its PMT INFO addenda, after INDN and CO ID: it still names the source.
+    ("BANKCARD SYS DES:MERCH DEP ID:1234567890 INDN:FABRIKAM BAKERY CO ID:1234567890 CCD "
+     "PMT INFO:WORLDPAY MERCH DEP TERM 1234", "Worldpay"),
+    # Chase: IND ID and IND NAME, up to TRN.
+    (f"ORIG CO NAME:FABRIKAM SUPPLY {_CHASE_FIELDS} IND NAME:SQUARE INC TRN: 1234567890TC", None),
+    (f"ORIG CO NAME:SQUARE INC {_CHASE_FIELDS} IND NAME:FABRIKAM SUPPLY TRN: 1234567890TC", "Square"),
+    # PNC's RECEIVER NAME, at the row's end.
+    ("ACH CREDIT FABRIKAM SUPPLY VENDOR PAY RECEIVER NAME SQUARE INC", None),
+    # The ledger gate reads the same text: a waiting processor's bare alias in the holder's name never refuses a read.
+    ("FABRIKAM - BY STRI DES:PAYOUT ID:1 INDN:JOBBER BY STRI CO ID:1 CCD", "Stripe"),
+])
+def test_the_operating_alias_never_reads_a_receiver_value(printed, entity):
+    # S2.2 review item C (§5.2): the alias reads the row with each receiver field's value removed, the rest kept.
+    found = tc._operating_source(_text(printed))
+    assert (found and found.entity) == entity
+
+
+def test_the_receiver_value_goes_and_the_fields_after_it_stay():
+    bofa = tc._without_receiver_value(_text(
+        "BANKCARD SYS DES:MERCH DEP ID:1 INDN:FABRIKAM BAKERY CO ID:1 CCD PMT INFO:WORLDPAY MERCH DEP"))
+    assert "FABRIKAM" not in bofa and "INDN" not in bofa
+    assert bofa.split() == "BANKCARD SYS DES MERCH DEP ID 1 CO ID 1 CCD PMT INFO WORLDPAY MERCH DEP".split()
+    chase = tc._without_receiver_value(_text(f"ORIG CO NAME:SQUARE INC {_CHASE_FIELDS} IND NAME:FABRIKAM TRN: 1TC"))
+    assert "FABRIKAM" not in chase and "IND" not in chase.split() and chase.split()[-2:] == ["TRN", "1TC"]
+    assert tc._without_receiver_value(_text("SQUARE INC DES:TRANSFER ID:1")) == _text("SQUARE INC DES:TRANSFER ID:1")
+
+
 
 @pytest.mark.parametrize(("printed", "label"), [
     ("MERCHANT BANKCD DES:DEPOSIT ID:123456 INDN:FABRIKAM BAKERY CO ID:1234567890 CCD", "bankcard"),

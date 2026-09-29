@@ -848,6 +848,11 @@ _CHASE_FIELDS_BETWEEN = re.compile(r" ORIG ID \S+ DESC DATE(?: \S+)? CO (?:ENTRY
 _BOFA_DES_FIELD = re.compile(r" DES ")
 #: §5.2: the receiver fields, where the bank prints the account holder (PNC labels its RECEIVER NAME).
 _CREDIT_RECEIVER_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID|RECEIVER NAME)\b")
+#: A receiver field's value ends at the next ACH field: CO ID, TRN, TRACE or the SEC code (5.3, shared with
+#: _RECEIVER_FIELD_VALUE).
+_RECEIVER_VALUE_END = r".*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
+#: §5.2 (S2.2 review): a receiver field of _CREDIT_RECEIVER_FIELD with its value.
+_CREDIT_RECEIVER_VALUE = re.compile(_CREDIT_RECEIVER_FIELD.pattern + _RECEIVER_VALUE_END)
 #: §5.2: the bank's words printed before the payer, removed before the payer is read (with _PAYEE_TEMPLATE_PREFIX).
 _REVENUE_TEMPLATE_PREFIX = re.compile(
     r"^(?:BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
@@ -1008,6 +1013,14 @@ def _joined_text(text: str) -> str:
 def _before_receiver(text: str) -> str:
     """5.5 (§5.2): the row up to its first receiver field (INDN, IND NAME, IND ID, RECEIVER NAME)."""
     return _CREDIT_RECEIVER_FIELD.split(text, 1)[0].rstrip()
+
+
+def _without_receiver_value(text: str) -> str:
+    """5.5 (§5.2, S2.2 review): the text with each receiver field's value removed and every field after it kept, for
+    the operating alias and the ledger gate. The holder's name never names a source ('INDN SQUARE INC CO ID ...' is
+    the holder), while Bank of America's PMT INFO addenda, printed after INDN and CO ID, still does ('... CO ID 1 CCD
+    PMT INFO WORLDPAY ...'): _before_receiver would cut the addenda away with the receiver."""
+    return _CREDIT_RECEIVER_VALUE.sub(" ", text)
 
 
 def _strip_revenue_template(row: str) -> str:
@@ -1703,9 +1716,10 @@ def _read_inside_a_waiting_processor(text: str, entity: str, alias: str) -> bool
 
 def _operating_source(text: str) -> _OperatingSource | None:
     """5.5 (§7.2): the operating source a credit's revenue text names: a payout form first (it names the entity and
-    counts as payout context), else the longest operating alias or its sixteen-character cut. A wholesale-auction
-    alias counts only on the originator segment. A new read that a veto of §7.2 refuses names no source, and so does
-    an alias read inside a waiting processor's bare alias (§7.1). One helper for step 10 and the recurrence pass."""
+    counts as payout context), else the longest operating alias or its sixteen-character cut, read with the receiver
+    field's value removed (§5.2). A wholesale-auction alias counts only on the originator segment. A new read that a
+    veto of §7.2 refuses names no source, and so does an alias read inside a waiting processor's bare alias (§7.1).
+    One helper for step 10 and the recurrence pass."""
     row = _before_receiver(text)
     joined = _joined_text(row)
     for entity, label, pattern in _PAYOUT_FORMS:
@@ -1713,8 +1727,9 @@ def _operating_source(text: str) -> _OperatingSource | None:
             if _operating_read_vetoed(row, entity, label, True):
                 return None
             return _OperatingSource(entity, label, OPERATING_REVENUE_SOURCE_TYPES.get(entity), True)
-    found = registry_match(text, OPERATING_REVENUE_READ_ALIASES)
-    if found is None or _read_inside_a_waiting_processor(text, *found):
+    alias_text = _without_receiver_value(text)
+    found = registry_match(alias_text, OPERATING_REVENUE_READ_ALIASES)
+    if found is None or _read_inside_a_waiting_processor(alias_text, *found):
         return None
     entity, alias = found
     source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
@@ -2232,9 +2247,7 @@ _WIRE_BENEFICIARY_PATTERNS = (
 _RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
 #: 5.3 (owner ruling 2026-09-27): a receiver-name field with its value, up to the next ACH field, removed before the
 #: debt-relief table is read: the account holder's own name never makes a row debt relief.
-_RECEIVER_FIELD_VALUE = re.compile(
-    r"\b(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b.*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
-)
+_RECEIVER_FIELD_VALUE = re.compile(r"\b(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b" + _RECEIVER_VALUE_END)
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
 _LEADING_PREFIX_WORDS = frozenset({
     "BILL", "BILLS", "PRE", "AUTHORIZED", "AUTHORISED", "RECURRING", "RECUR", "INTERNET", "BANKING", "PAIEMENT",
