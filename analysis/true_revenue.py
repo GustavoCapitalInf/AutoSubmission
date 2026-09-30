@@ -63,15 +63,17 @@ _WHOLE_CREDIT = re.compile(r"\bCREDITS?\b")
 #: CREDIT is (never an entry field or a row that prints no payer's name field): never the whole word CRED, and never
 #: the whole words SACRED and ACCRED (an abbreviation of accredited). Any other glued ...CRED name is held.
 _GLUED_CRED_NAME = re.compile(r"(?!(?:SACRED|ACCRED)$)[A-Z]+CRED")
-#: §8.1, §7.9 (A3): a wire's sender whose name a line wrap splits ('F INANCIAL', 'SERVICIN G') is read run together
-#: too, as §7.9's veto reads its first six words: the financing roots without the glued-CREDIT arm (running the words
-#: together would glue a whole-word CREDIT to its neighbour). A3 review, round 2: a joined root counts only when it
-#: spans exactly one join whose shorter word has two letters or fewer (_wrap_split_root), which a line wrap leaves;
-#: two whole words run together make false roots (SERVICE REPAIR reads SERVICER, SOLO ANALYTICS reads LOAN).
-_WRAP_SPLIT_SIDE = 2
-_FINANCING_RUN_ROOT = re.compile(
-    r"(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL"
+#: §8.1, §7.9 (A3): a wire's sender whose name a line wrap splits ('F INANCIAL', 'SERVICIN G') is read across the split
+#: too, as §7.9's veto reads its first six words run together. A3 review, round 3 (_wrap_split_root): a join counts
+#: only when its two words together spell one of these financing words (T4's run roots, spelled out, without the
+#: glued-CREDIT arm and without the abbreviation CAPTL), or a prefix of one of _WRAP_PREFIX_MIN letters or more; two
+#: words that spell none make no root ('SERVICE REPAIR', 'SOLO ANALYTICS', 'ALLEN D', 'CAPT L', 'SERVICE RX').
+_WRAP_FINANCING_WORDS = (
+    "FINANCIAL", "FINANCE", "FINANCING", "FUNDING", "FUNDS", "FUND", "FUNDED", "CAPITAL", "LOAN", "LOANS", "LENDING",
+    "LENDER", "LENDERS", "LEND", "MORTGAGE", "ADVANCE", "ADVANCES", "ACCEPTANCE", "SERVICING", "SERVICER", "LEASING",
+    "PORTFOLIO",
 )
+_WRAP_PREFIX_MIN = 5
 #: §8.7: the dealer-funding words.
 DEALER_FUNDING_WORDS = re.compile(
     r"(?<![A-Z])(?:VHCL PURCH\w*|VEHICLE PURCHASE\b|DEAL ?FUND\w*|FUNDLOAN\b|DEALER (?:FUND\w*|FND|PMT|PAY\w*)\b"
@@ -623,12 +625,14 @@ def financing_named(text: str, region: str, entry: str, account_name: str | None
         name_words = classifier.payer_name(payer).split()
         if len(name_words) >= 2 and _WHOLE_CREDIT.search(" ".join(name_words)):
             return True
-        # A3 review, round 2: a glued ...CRED word, on a payer's name field only.
-        if _prints_payer_name_field(text) and any(_GLUED_CRED_NAME.fullmatch(word) for word in name_words):
+        # A3 review, rounds 2 and 3: a glued ...CRED word, on a payer's name field or a company-formed payer region.
+        if (
+            _prints_payer_name_field(text) or classifier.company_form(" ".join(name_words))
+        ) and any(_GLUED_CRED_NAME.fullmatch(word) for word in name_words):
             return True
-        # A3: a wire's sender split by a line wrap, read run together (§7.9's wrap-tolerant reading); A3 review, round
-        # 2: on every wire sender, labelled or not, across one join whose shorter word is a wrap's split.
-        if classifier._is_wire_row(text) and _wrap_split_root(payer):
+        # A3: a wire's sender split by a line wrap, read across the split (§7.9's wrap-tolerant reading); A3 review,
+        # rounds 2 and 3: on every wire sender, labelled or not, where the two words spell a financing word.
+        if classifier._is_wire_row(text) and _wrap_split_root(text, payer):
             return True
         if entry:
             parts.append(_HOLD_POSTING_LABELS.sub(" ", entry))
@@ -653,20 +657,24 @@ def _prints_payer_name_field(text: str) -> bool:
     return classifier._is_transfer_or_p2p_row(text) and bool(classifier._sender_payer_region(text))
 
 
-def _wrap_split_root(payer: str) -> bool:
-    """§8.1, §7.9 (A3 review, round 2): a financing root (_FINANCING_RUN_ROOT) that a line wrap split across two of the
-    sender's first six words (those with no digit): it starts in one word and ends in the next, and the shorter of the
-    two has _WRAP_SPLIT_SIDE letters or fewer ('F INANCIAL', 'SERVICIN G'). Two whole words run together never make
-    one ('SERVICE REPAIR', 'SOLO ANALYTICS', 'ROYAL ENDEAVORS')."""
-    words = [token for token in payer.split() if not any(ch.isdigit() for ch in token)][:6]
+def _wrap_split_root(text: str, payer: str) -> bool:
+    """§8.1, §7.9 (A3 review, rounds 2 and 3): a financing word that a line wrap split across two of the wire sender's
+    first six words (those with no digit): the two words together spell a financing word (_WRAP_FINANCING_WORDS) or a
+    prefix of one of _WRAP_PREFIX_MIN letters or more, so the join falls inside it ('F INANCIAL', 'SERVICIN G', 'LO AN',
+    'MORT G'). Two words that spell none never make one ('SERVICE REPAIR', 'ALLEN D', 'HELEN DE', 'CAPT L'). A Fedwire
+    or CHIPS sender after B/O prints its city and state last: those two words are never read ('GLEN DE', 'LAMORT
+    GA')."""
+    words = [token for token in payer.split() if not any(ch.isdigit() for ch in token)]
+    label = _classifier()._WIRE_ORIGINATOR_LABEL.search(text)
+    if label is not None and label.group(0).strip() == "B O" and len(words) >= 2 and words[-1] in _US_STATE_TAIL:
+        words = words[:-2]
+    words = words[:6]
     for left, right in zip(words, words[1:]):
-        if min(len(left), len(right)) > _WRAP_SPLIT_SIDE:
-            continue
         joined = left + right
-        for start in range(len(left)):
-            found = _FINANCING_RUN_ROOT.match(joined, start)
-            if found is not None and found.end() > len(left):
-                return True
+        if joined in _WRAP_FINANCING_WORDS or (
+            len(joined) >= _WRAP_PREFIX_MIN and any(word.startswith(joined) for word in _WRAP_FINANCING_WORDS)
+        ):
+            return True
     return False
 
 
@@ -1082,7 +1090,10 @@ def _currency_conversion(text: str, *, bank: str | None = None) -> bool:
 
     A3 review: the statement's bank (`bank`) printing its own name right before the wording names no payer
     (_statement_bank_before_conversion: 'ROYAL FOREIGN EXCHANGE DEPOSIT' on a Royal Bank of Canada statement); a named
-    currency-exchange company does (_named_currency_company: 'CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT')."""
+    currency-exchange company does (_named_currency_company: 'CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT'). A3 review
+    round 3: a legal form or an article alone beside the wording names nobody (_NOT_A_NAME_ALONE, the person-to-person
+    reader's rule), so a legal form names a currency company only on an originator field ('FX CONVERSION LLC <n>' and
+    BMO's 'INCOMING WIRE PAYMENT ... CA FOREIGN EXCHANGE LTD' stay held)."""
     classifier = _classifier()
     if _CURRENCY_CONVERSION.search(_hold_text(text)) is None:
         return False
@@ -1092,7 +1103,8 @@ def _currency_conversion(text: str, *, bank: str | None = None) -> bool:
     if _named_currency_company(text):
         return False
     stripped = _without_currency_conversion(text)
-    if _counterparty_tokens(classifier.payer_region(stripped)):
+    tokens = _counterparty_tokens(classifier.payer_region(stripped))
+    if any(token not in _NOT_A_NAME_ALONE for token in tokens):
         return False
     if _transfer_row(classifier._before_receiver(stripped)) and _transfer_counterparty_words(stripped):
         return False

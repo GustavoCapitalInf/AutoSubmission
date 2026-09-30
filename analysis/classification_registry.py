@@ -2035,12 +2035,13 @@ P2P_SENDING_BANK_NAMES: tuple[str, ...] = (
 #: 5.6 (§8.1, A3 review): the short forms a statement's bank prints for its own name. Each entry is (the words that
 #: name the bank inside the statement's bank field, the forms it prints), all normalized; a bank field (Statement.bank)
 #: that contains one of the first as whole words, in any case, reads the second ('Royal Bank of Canada', 'RBC Royal
-#: Bank' and 'Banque Royale du Canada' all name RBC; A3 review round 2). The bank's whole normalized name is read too,
-#: for every bank. Before currency-conversion wording, the bank's own name names no payer ('ROYAL FOREIGN EXCHANGE
-#: DEPOSIT' on a Royal Bank of Canada statement is the holder's own conversion).
+#: Bank' and 'Banque Royale du Canada' all name RBC; A3 review round 2). A bare ROYAL BANK is no marker: it also names
+#: the Royal Bank of Scotland and Royal Bank America (round 3). The bank's whole normalized name is read too, for every
+#: bank. Before currency-conversion wording, the bank's own name names no payer ('ROYAL FOREIGN EXCHANGE DEPOSIT' on a
+#: Royal Bank of Canada statement is the holder's own conversion).
 STATEMENT_BANK_PRINTED_NAMES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
-        ("ROYAL BANK", "RBC", "BANQUE ROYALE"),
+        ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "RBC", "BANQUE ROYALE"),
         ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "ROYAL BANK", "ROYAL", "RBC", "BANQUE ROYALE DU CANADA",
          "BANQUE ROYALE"),
     ),

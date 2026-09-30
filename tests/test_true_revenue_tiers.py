@@ -1642,7 +1642,9 @@ def test_a3_review_2_a_bank_field_that_contains_rbc_s_name_reads_rbc_s_printed_f
 
 def test_a3_review_2_rbc_s_forms_never_read_on_another_bank_or_an_empty_bank_field():
     text = "ROYAL FOREIGN EXCHANGE DEPOSIT REFERENCE 123456789012345"
-    for bank in ("Chase", "", None):
+    # A3 review round 3: RBC's markers are ROYAL BANK OF CANADA, RBC ROYAL BANK, RBC and BANQUE ROYALE; a bare ROYAL
+    # BANK in another bank's name is no RBC.
+    for bank in ("Chase", "", None, "Royal Bank of Scotland", "Royal Bank America"):
         assert _tier(_banked(text, 20000.0, bank=bank)) == ("counted_flagged", "named_payer_unlabelled")
 
 
@@ -1667,9 +1669,22 @@ def test_a3_review_a_named_currency_exchange_company_is_a_payer(text, reason):
     "INTL FOREIGN EXCHANGE DEPOSIT 12345678",
     "INTERNATIONAL FX CONVERSION 12345678",
     "FX CONVERSION INTL 12345678",
+    # A3 review round 3: a legal form beside the wording names a company only on an originator field (an ACH
+    # originator, a wire's labelled sender), never after a wire's label or on an unlabelled row.
+    "INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT CA FOREIGN EXCHANGE LTD",
+    "INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT CA FOREIGN EXCHANGE LLC",
+    "FX CONVERSION LLC 12345678",
 ])
 def test_a3_review_the_wording_with_no_payer_name_beside_it_stays_held(text):
     assert _tier(_one(text, 8000.0)) == ("excluded_pending_review", "non_sale_purpose")
+
+
+@pytest.mark.parametrize("text", [
+    "FOREIGN EXCHANGE LTD DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    "FX CONVERSION LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+])
+def test_a3_review_3_a_legal_form_on_an_originator_field_names_the_currency_company(text):
+    assert _tier(_one(text, 8000.0)) == ("verified", None)
 
 
 def test_a3_a_currency_conversion_debit_is_untouched():
@@ -1855,11 +1870,25 @@ def _a3_fedwire(orig: str) -> str:
     "INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT CA ROYAL ENDEAVORS INC",
     "WIRE TRANSFER INCOMING SOLO ANALYTICS LLC",
     "WIRE TRANSFER INCOMING FABRIKAM SERVICE REPAIR LLC",
+    # A3 review round 3: a short word beside a name spells no financing word (ALLEN D -> LEND, HELEN DE and GLEN DI
+    # -> LEND, CAPT L -> CAPTL, SERVICE RX -> SERVICER).
+    _A3_WIRE.format(n=1, orig="ALLEN D JOHNSON"),
+    _A3_WIRE.format(n=1, orig="HELEN DE JESUS"),
+    _A3_WIRE.format(n=1, orig="GLEN DI MARCO"),
+    _A3_WIRE.format(n=1, orig="CAPT L SMITH"),
+    _A3_WIRE.format(n=1, orig="FAMILY SERVICE RX LLC"),
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O ALLEN D JOHNSON SAMPLEVILLE CA 12345 US REF SAMPLE NYC CTR BNF "
+    "CONTOSO BAKERY LLC",
+    # A Fedwire sender's city and state are never read for a joined root (GLEN DE -> LEND, LAMORT GA -> MORTG).
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHWIND SUPPLY LLC GLEN DE 12345 US REF SAMPLE NYC CTR BNF "
+    "CONTOSO BAKERY LLC",
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHWIND SUPPLY LLC LAMORT GA 12345 US REF SAMPLE NYC CTR BNF "
+    "CONTOSO BAKERY LLC",
 ])
 def test_a3_review_two_whole_words_run_together_never_make_a_financing_root(text):
     # A3 review: joined words make false roots (SERVICE REPAIR -> SERVICER, SOLO ANALYTICS -> LOAN, ROYAL ENDEAVORS
-    # -> LEND). Round 2: a joined root counts only across one join whose shorter word has two letters or fewer (a line
-    # wrap's split); §7.9's veto still reads the run, so such a wire never verifies by Q5.
+    # -> LEND). Round 3: a join counts only when its two words together spell a financing word, or a prefix of one of
+    # five letters or more (a line wrap's split); §7.9's veto still reads the run, so such a wire never verifies by Q5.
     assert _tier(_one(text, 24950.0)) == ("counted_flagged", "wire_named_sender")
 
 
@@ -1869,6 +1898,10 @@ def test_a3_review_two_whole_words_run_together_never_make_a_financing_root(text
     _A3_WIRE.format(n=1, orig="NORTHWIND F INANCIAL LLC"),
     _a3_fedwire("NORTHWIND F INANCIAL LLC"),
     _A3_WIRE.format(n=1, orig="NORTHWIND SERVICIN G LLC"),
+    # A3 review round 3: the two words spell a financing word (LOAN, FUNDING) or a prefix of one (MORTG); recorded.
+    _A3_WIRE.format(n=1, orig="NORTHWIND LO AN CO"),
+    _A3_WIRE.format(n=1, orig="NORTHWIND MORT G CO"),
+    _A3_WIRE.format(n=1, orig="NORTHWIND FUN DING LLC"),
 ])
 def test_a3_review_2_a_line_wrap_split_financing_root_is_held_on_every_wire_sender(text):
     assert _tier(_one(text, 55000.0)) == ("excluded_pending_review", "financing_named_payer")
@@ -1882,10 +1915,15 @@ def test_a3_review_2_a_line_wrap_split_financing_root_is_held_on_every_wire_send
     "USACRED LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
     "VISACRED INC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
     "NACRED LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    # A3 review round 3: a payer region that prints a company form is a payer's name too.
+    "FABRICRED INC EDI PYMNTS 240115 12345",
+    "ACH CREDIT FABRICRED LLC 12345678",
+    "ELECTRONIC DEPOSIT FABRICRED INC 12345678",
 ])
 def test_a3_review_a_payer_whose_name_ends_in_a_glued_cred_is_held_as_financing(text):
     # §7.9's word-end CRED arm, aligned in T4 with a glued letter on its left (a credit provider's glued name), read on
-    # the payer's name only (an ACH originator, a wire's sender, a transfer's FROM sender).
+    # the payer's name only (an ACH originator, a wire's sender, a transfer's FROM sender, a company-formed payer
+    # region).
     assert _tier(_one(text, 42000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
