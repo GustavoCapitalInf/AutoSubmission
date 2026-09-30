@@ -7,7 +7,7 @@ import pytest
 
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier import _debit_first_distinctive_word, classify_statement_transactions
 
 HOLDER = "CONTOSO BAKERY LLC"
 
@@ -273,6 +273,28 @@ def test_an_ach_transfer_from_a_payer_the_statement_also_debits_is_held():
         ("NORTHWIND BAKERY DES:TRANSFER ID:1 INDN:NORTHWIND BAKERY CO ID:1 CCD", 5000.0),
         ("NORTHWIND BAKERY DES:TRANSFER ID:2 INDN:NORTHWIND BAKERY CO ID:1 CCD", -3000.0),
     ], holder="BUSINESS CHECKING")
+    assert _tier(records[0]) == ("excluded_pending_review", "payer_also_debited")
+
+
+@pytest.mark.parametrize("payer", ["NORTHWIND SUPPLY LLC DES:PAYMENT", "NORTHWIND SUPPLY DES:PAYMENT ID:1"])
+@pytest.mark.parametrize("card", [
+    "CHECKCARD 0302 NORTHWIND GRILL",
+    "CARD PURCHASE 03 02 NORTHWIND GRILL HOUSTON TX CARD 1234",
+    "PURCHASE AUTHORIZED ON 03/02 NORTHWIND GRILL HOUSTON TX S123456789 CARD 1234",
+])
+def test_a_card_purchase_at_a_merchant_sharing_the_payer_s_word_never_holds_the_payer(payer, card):
+    # A1 census: a card purchase is spending at a merchant, never the circular money payer_also_debited holds. Pass 6
+    # still reads the merchant's word (tests/test_revenue_payer_remittance.py); pass 7's hold leaves it out.
+    alone = _one(payer, 5000.0)
+    records = _records([(payer, 5000.0), (card, -25.0)])
+    assert _debit_first_distinctive_word(records[1]) == "NORTHWIND"
+    assert alone.revenue_tier != "excluded_pending_review"
+    assert (records[0].revenue_classification, *_tier(records[0])) == (alone.revenue_classification, *_tier(alone))
+
+
+@pytest.mark.parametrize("payer", ["NORTHWIND SUPPLY LLC DES:PAYMENT", "NORTHWIND SUPPLY DES:PAYMENT ID:1"])
+def test_the_same_payer_beside_an_ach_debit_is_still_held_as_also_debited(payer):
+    records = _records([(payer, 5000.0), ("NORTHWIND SUPPLY LLC DES:INVOICE", -250.0)])
     assert _tier(records[0]) == ("excluded_pending_review", "payer_also_debited")
 
 

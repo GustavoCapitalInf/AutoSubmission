@@ -182,6 +182,7 @@ revenue does not reconcile.
 - The wire vetoes also read a wire glued to its reference and a wire that cites an invoice (§7.9).
 - The recurrence veto's holder-word exemption reads only on store-name platforms (§7.0).
 - Statement pass 6, the counter-debit guard, reads a card purchase's merchant, never its city (§7.5).
+- The true-revenue pass's `payer_also_debited` hold never reads a card purchase: buying at a merchant that shares the payer's word is spending, not the payer's money coming back (§8.1; A1 census, 2026-09-30). A card-form debit the classifier names as a lender still counts for `payer_debited_as_lender`.
 - A buy-now-pay-later consumer credit (a return, withdrawal, refund or card credit) keeps its 5.4 reading; the OQ2 ruling covers settlements only (§19).
 - A direction conflict is never lifted, grouped or counted by any pass (§6.1 step 2, §7.0).
 - A bare transfer is held as `transfer_no_counterparty` (§8.2).

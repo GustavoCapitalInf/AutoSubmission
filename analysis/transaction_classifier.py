@@ -4350,20 +4350,27 @@ def _card_merchant_text(text: str, printed: str) -> str | None:
     return " ".join(tokens[:_CARD_MERCHANT_WORDS])
 
 
-def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
+def _debit_word_reading(record: TransactionClassification) -> tuple[str | None, bool]:
     """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words; on a card purchase,
     after its leading card-form words and MMDD date and only on its merchant's first two words (S2.4 review and
-    re-review; D11 itself is unchanged)."""
+    re-review; D11 itself is unchanged). The second value says whether the debit is a card purchase (its card-form
+    prefix matched): pass 7 leaves a card purchase's merchant out of payer_also_debited (5.6, A1 census)."""
     text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
     if card_form:
         text = _card_merchant_text(text, record.original_description or "")
         if text is None:
-            return None
+            return None, True
     words = [
         word for word in _distinctive_words(_unknown_payee_tokens(text))
         if word not in _counter_debit_skip_words()
     ]
-    return _first_distinctive_word(words)
+    return _first_distinctive_word(words), bool(card_form)
+
+
+def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
+    """5.5 (§7.5, §8.1): a posted debit's first distinctive word (_debit_word_reading), a card purchase's merchant
+    included: pass 6's counter-debit guard reads it."""
+    return _debit_word_reading(record)[0]
 
 
 def _apply_payer_remittance_counter_debit_guard(

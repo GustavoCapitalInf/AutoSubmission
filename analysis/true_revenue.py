@@ -724,18 +724,23 @@ def _first_word(region: str) -> str | None:
 
 
 def _debit_words(records: Sequence[TransactionClassification], duplicates: set[int]) -> tuple[set[str], set[str]]:
-    """The first distinctive words of the statement's posted debits (pass 6's reading, _debit_first_distinctive_word):
-    (lender and financing debits, the others)."""
+    """The first distinctive words of the statement's posted debits (pass 6's reading, _debit_word_reading): (lender
+    and financing debits, the others). The others leave out a card purchase (A1 census): buying at a merchant that
+    shares the payer's word is spending, never the circular money payer_also_debited holds. A card-form debit the
+    classifier names as a lender or financing payee (D8) still counts as a lender debit (§8.1)."""
     classifier = _classifier()
     lender: set[str] = set()
     other: set[str] = set()
     for index, record in enumerate(records):
         if index in duplicates or record.amount >= 0 or not record.is_posted:
             continue
-        word = classifier._debit_first_distinctive_word(record)
+        word, card_purchase = classifier._debit_word_reading(record)
         if word is None:
             continue
-        (lender if record.classification in _LENDER_DEBIT_STATES else other).add(word)
+        if record.classification in _LENDER_DEBIT_STATES:
+            lender.add(word)
+        elif not card_purchase:
+            other.add(word)
     return lender, other
 
 
