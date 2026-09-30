@@ -1850,7 +1850,7 @@ def test_a3_a_company_that_wires_twice_in_bmo_s_layout_verifies_by_q5():
 
 
 def test_a3_a_sender_read_after_the_label_whose_name_a_line_wrap_splits_still_reads_as_financing():
-    record = _one("WIRE TRANSFER DEPOSIT SAMPLE F INANCIAL S 123456 USD1234567XXXXXX1234", 55000.0)
+    record = _one("WIRE TRANSFER DEPOSIT SAMPLE F INANCIAL S 123456 USD1234567XXXXXX1234", 45000.0)
     assert _tier(record) == ("excluded_pending_review", "financing_named_payer")
 
 
@@ -1904,7 +1904,7 @@ def test_a3_review_two_whole_words_run_together_never_make_a_financing_root(text
     _A3_WIRE.format(n=1, orig="NORTHWIND FUN DING LLC"),
 ])
 def test_a3_review_2_a_line_wrap_split_financing_root_is_held_on_every_wire_sender(text):
-    assert _tier(_one(text, 55000.0)) == ("excluded_pending_review", "financing_named_payer")
+    assert _tier(_one(text, 45000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
 @pytest.mark.parametrize("text", [
@@ -1978,7 +1978,7 @@ def _a3g_fedwire(orig: str, obi: str = "1234", place: str = "SAMPLEVILLE CA 1234
 ])
 def test_a3g_a_wire_a_bank_originates_is_held_as_financing(text):
     # A3-G: money a bank sends on its own behalf is more often loan proceeds or the bank's own funds than a sale.
-    assert _tier(_one(text, 438000.0)) == ("excluded_pending_review", "financing_named_payer")
+    assert _tier(_one(text, 257000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
 @pytest.mark.parametrize("text", [
@@ -2001,7 +2001,7 @@ def test_a3g_a_wire_a_bank_originates_is_held_as_financing(text):
     _A3G_BOFA.format(n=1, orig="SUMMIT ROOFING", bank="SUMMIT"),
 ])
 def test_a3g_a_wire_whose_originator_is_no_bank_keeps_its_reading(text):
-    assert _tier(_one(text, 43800.0))[1] != "financing_named_payer"
+    assert _tier(_one(text, 24300.0))[1] != "financing_named_payer"
 
 
 @pytest.mark.parametrize("text", [
@@ -2013,7 +2013,7 @@ def test_a3g_a_wire_whose_originator_is_no_bank_keeps_its_reading(text):
     "BOOK TRANSFER CREDIT B O BANK OF SAMPLELAND LIMITED HEAD OFFICE SAMPLE CITY REF SAMPLE 1 TRN 1234567890JS",
 ])
 def test_a3g_review_a_bank_s_own_wire_stays_held(text):
-    assert _tier(_one(text, 438000.0)) == ("excluded_pending_review", "financing_named_payer")
+    assert _tier(_one(text, 257000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
 _A3G_RELAY = ("BOOK TRANSFER CREDIT B O SAMPLE COMMERCIAL BANK LTD SAMPLE CITY CN ORG {account} {customer} OGB SAMPLE "
@@ -2066,7 +2066,7 @@ def test_a3g_review_the_originator_to_beneficiary_phrase_names_no_relayed_custom
 def test_a3g_review_a_b_o_company_that_ends_in_co_keeps_its_wrap_split_root():
     # A3-G review: the Fedwire city and state skip is gone; a company form CO is no state code.
     text = "BOOK TRANSFER CREDIT B O NORTHWIND F INANCIAL CO REF 1234 TRN 1234567890JS"
-    assert _tier(_one(text, 55000.0)) == ("excluded_pending_review", "financing_named_payer")
+    assert _tier(_one(text, 45000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
 def test_a3g_review_a_digit_without_its_slash_is_part_of_the_name():
@@ -2117,7 +2117,7 @@ def _a3g_receivers(name: str, count: int = 2) -> list[tuple[str, float]]:
 def test_a3g_refinement_the_holder_s_receiver_name_is_the_holder_when_the_account_name_is_a_product():
     rows = _records([
         *_a3g_receivers("NORTHWIND BUILDERS GROU"),
-        (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 160000.0),
+        (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 120000.0),
     ], holder=_A3G_PRODUCT)
     assert _tier(rows[2]) == ("excluded_pending_review", "holder_name")
     # The receiver name is the holder's, never a payer: the payer rows that print it keep their reading.
@@ -2184,7 +2184,7 @@ def test_a3g_refinement_a_receiver_name_needs_two_credits_a_real_name_and_an_unu
     rows = _records([
         *[(_A3G_RECEIVER.format(payer=_A3G_ORIGINATORS[at % 2], n=at + 1, name=name), 10500.0 + at)
           for at, name in enumerate(receivers)],
-        (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 160000.0),
+        (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 120000.0),
         ("ZELLE PAYMENT FROM NORTHWIND BUILDERS BANK CONF 1234567", 1500.0),
     ], holder=holder)
     assert rows[-2].revenue_tier_reason != "holder_name"
@@ -2192,7 +2192,7 @@ def test_a3g_refinement_a_receiver_name_needs_two_credits_a_real_name_and_an_unu
 
 
 def test_a3g_a_bank_s_ach_credit_is_no_wire_and_keeps_its_reading():
-    assert _tier(_one("NORTHWIND BANK DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD", 4380.0))[1] != (
+    assert _tier(_one("NORTHWIND BANK DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD", 2430.0))[1] != (
         "financing_named_payer")
 
 
@@ -2218,7 +2218,7 @@ def test_a3g_a_swift_50f_line_number_never_starts_the_originator():
     ("CONTOSOBAKERYW", "CONTOSOBAKERYWORKS LLC"),
 ])
 def test_a3g_a_sender_that_is_the_holder_s_cut_name_is_the_holder(orig, holder):
-    assert _tier(_one(_A3_WIRE.format(n=1, orig=orig), 160000.0, holder=holder)) == (
+    assert _tier(_one(_A3_WIRE.format(n=1, orig=orig), 120000.0, holder=holder)) == (
         "excluded_pending_review", "holder_name")
 
 
@@ -2311,7 +2311,7 @@ def test_a3g_re_review_an_address_s_state_is_never_a_company_form(place):
     # A3-G re-review: CO (Colorado) and NV (Nevada) at the end of a Fedwire city and state are the address's state.
     from analysis.transaction_classifier import bank_by_form
 
-    assert _tier(_one(_a3g_fedwire("NORTHWIND BANK", place=place), 438000.0)) == (
+    assert _tier(_one(_a3g_fedwire("NORTHWIND BANK", place=place), 257000.0)) == (
         "excluded_pending_review", "financing_named_payer")
     # A3-G re-review 2: the state ends a Fedwire B/O city and state region, or a ZIP or a country code follows it.
     assert bank_by_form("SAMPLE CREDIT UNION BOULDER CO", city_state_end=True)
@@ -2338,7 +2338,7 @@ def test_a3g_re_review_a_bank_with_a_state_address_relays_its_customer():
     "BOOK TRANSFER CREDIT B O NORTHWIND BANK DENVER CO 12345 US TRN 1234567890JS",
 ])
 def test_a3g_re_review_2_a_state_before_its_zip_or_ending_a_fedwire_city_and_state_is_the_address_s(text):
-    assert _tier(_one(text, 438000.0)) == ("excluded_pending_review", "financing_named_payer")
+    assert _tier(_one(text, 257000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
 @pytest.mark.parametrize("text", [
