@@ -1,5 +1,5 @@
 """Classification 5.6 (true revenue spec §5.3, §8, T11 to T14): the tier and reason of every posted credit, the holds,
-the channel tiers, and the Q5 and Q6 verifications with their guards. Fabricated rows only, in the banks' printed
+the channel tiers, and the Q5, Q6 and Q7 verifications with their guards. Fabricated rows only, in the banks' printed
 formats."""
 from __future__ import annotations
 
@@ -169,6 +169,32 @@ def test_a_distributor_and_an_owner_operator_are_customers():
 def test_the_registry_is_exempt_from_the_holder_test():
     record = _one("SQUARE INC DES:SQ540115 ID:1", holder="SQUARE ONE BAKERY LLC")
     assert _tier(record) == ("verified", None)
+
+
+def test_q7_dealer_funding_from_a_listed_auto_lender():
+    record = _one("WESTLAKE FINANCI DES:PAYABLES ID:EFT1234567 INDN:SAMPLE MOTORS LLC CO ID:1 CCD", holder="SAMPLE MOTORS LLC")
+    assert (record.revenue_match_method, record.revenue_source_type) == (
+        "auto_lender_dealer_funding", "auto_dealer_funding")
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize("text", [
+    "KAPITUS DES:CONTRACT FUNDING ID:1",
+    "ONDECK CAPITAL DES:DEAL FUND ID:1",
+    "GEICO DES:VEHICLE PURCHASE ID:1",
+])
+def test_q7_never_fires_on_a_lender_or_insurer_outside_vehicle_financing(text):
+    assert _one(text).revenue_classification == "non_revenue"
+
+
+def test_q7_refuses_a_loan_word_and_the_credit_union_arm_needs_two_credits():
+    loan = _one("SUNCOAST CREDIT UNION DES:VHCL PURCH LOAN PROCEEDS ID:1")
+    assert loan.revenue_classification != "verified_revenue"
+    union = "Orig CO Name:Sample CU Orig ID:1 Desc Date: CO Entry Descr:Vhcl Purchsec:CCD Trace#:{n}"
+    two = _records([(union.format(n=1), 18000.0), (union.format(n=2), 21000.0)], holder="SAMPLE MOTORS LLC")
+    assert {record.revenue_match_method for record in two} == {"auto_lender_dealer_funding"}
+    lone = _records([(union.format(n=1), 18000.0)], holder="SAMPLE MOTORS LLC")
+    assert _tier(lone[0]) == ("excluded_pending_review", "financing_named_payer")
 
 
 def test_the_four_tiers_add_up_to_the_posted_credits():
@@ -1138,3 +1164,144 @@ def test_a_french_cancelled_transfer_in_the_plural_is_a_reversal(text):
     assert record.revenue_classification == "non_revenue"
     assert record.revenue_match_method == "reversal_cancellation_exclusion"
     assert record.revenue_tier == "non_revenue"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.3 (Q7, §8.7): an auto lender's dealer funding. Only a listed auto lender printing a dealer-funding word (or a
+# credit union's VHCL PURCH, two or more a statement) verifies; every other credit of a listed lender, a floor-plan
+# lender's, a funder's and a refund stay financing or held.
+# ---------------------------------------------------------------------------------------------------------------------
+DEALER = "SAMPLE MOTORS LLC"
+UNION = "Orig CO Name:Sample CU Orig ID:1 Desc Date: CO Entry Descr:Vhcl Purchsec:CCD Trace#:{n}"
+
+
+@pytest.mark.parametrize("text", [
+    "ALLY FINANCIAL DES:DEALER PAY ID:1",
+    "WESTLAKE FINANCI DES:TRADE PAYABLE ID:1",
+    "WESTLAKE FINANCIAL DES:ACCT FUNDING ID:1",
+    "GLOBAL LENDING SERVICES DES:DEALER FUNDING ID:1",
+    "SUNCOAST CREDIT UNION DES:VHCL PURCH ID:1",
+    "CU DIRECT DES:VHCL PURCH ID:1",
+])
+def test_q7_verifies_each_listed_arm_on_one_row(text):
+    record = _one(text, 15000.0, holder=DEALER)
+    assert (record.revenue_classification, record.revenue_match_method, record.revenue_source_type) == (
+        "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+    assert _tier(record) == ("verified", None)
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize("text", [
+    "WESTLAKE FINANCI DES:PAYMENT ID:1",
+    "ALLY FINANCIAL DES:PAYMENT ID:1",
+    "WESTLAKE FLOORIN DES:PAYABLES ID:1",
+    "NEXTGEAR CAPITAL DES:DEALER PAY ID:1",
+])
+def test_q7_leaves_a_listed_lender_s_other_credits_and_a_floor_plan_lender_s_to_financing(text):
+    record = _one(text, 15000.0, holder=DEALER)
+    assert (record.revenue_classification, record.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize("text", [
+    "WESTLAKE FINANCI DES:PAYABLES LOAN ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES ID:1 INDN:SAMPLE MOTORS LLC CO ID:1 CCD PMT INFO:LOAN 1234567",
+    "WESTLAKE FINANCI DES:DEALER ADV ID:1",
+    "WESTLAKE FINANCI DES:DEALER PAY REFUNDS ID:1",
+    "WESTLAKE FINANCI DES:DEALER PAY CHARGEBACKS ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES INTEREST PAID ID:1",
+    "WESTLAKE FINANCI DES:ACCT FUND TRANSFER ID:1",
+    "RTP CREDIT WESTLAKE FINANCIAL DEALER PAY",
+    "ZELLE PAYMENT FROM WESTLAKE FINANCIAL DEALER PAY",
+    "ACH CREDIT DEALER PAY RECEIVER NAME ALLY FINANCIAL",
+    "ONE RIVER DES:DEAL FUNDING ID:1",
+    "GLS AUTO DES:DEALER PAY ID:1",
+])
+def test_q7_never_verifies_a_veto_word_a_gated_or_transfer_row_or_a_lender_it_does_not_list(text):
+    # §8.7: a loan, proceeds, advance or refund word anywhere on the row but the holder's name; §6 precedence: the
+    # strong non-revenue rule and a transfer; §6.1 step 9b: a closed row, and a push rail (the registry's alone); the
+    # receiver field's value never names the lender; One River funds merchants; GLS AUTO also names body shops.
+    record = _one(text, 15000.0, holder=DEALER)
+    assert record.revenue_match_method != "auto_lender_dealer_funding"
+    assert record.revenue_classification != "verified_revenue"
+
+
+def test_q7_s_other_readings_hold_or_keep_a_row_as_5_5_did():
+    # A dealer-funding word from an unlisted payer is held; the listed lender's other credits stay financing.
+    assert _tier(_one("GLS AUTO DES:DEALER PAY ID:1", holder=DEALER)) == ("excluded_pending_review",
+                                                                          "financing_named_payer")
+    assert _tier(_one("ONE RIVER DES:DEAL FUNDING ID:1", holder=DEALER)) == ("excluded_pending_review",
+                                                                             "financing_named_payer")
+
+
+def test_the_holder_s_own_name_never_vetoes_q7():
+    # §5.2: the receiver field's value is the holder: a dealer named with a veto word is still paid by the lender.
+    record = _one("WESTLAKE FINANCI DES:PAYABLES ID:1 INDN:ADVANCE AUTO SALES LLC CO ID:1 CCD", 15000.0,
+                  holder="ADVANCE AUTO SALES LLC")
+    assert record.revenue_match_method == "auto_lender_dealer_funding"
+
+
+def test_q7_never_verifies_a_direction_conflict_or_a_credit_under_one_dollar():
+    conflict = classify_statement_transactions(Statement(account_name=DEALER, transactions=[
+        Transaction(date="2054-03-02", description="WESTLAKE FINANCI DES:PAYABLES ID:1", amount=15000.0,
+                    direction="debit")]))[0]
+    assert _tier(conflict) == ("excluded_pending_review", "direction_conflict")
+    # The record keeps its 5.5 reading: a listed lender's credit, excluded from lender credits' eligible deposits.
+    assert (conflict.classification, conflict.match_method) == ("other", "financing_proceeds_credit")
+    assert conflict.contributes_to_lender_credit_exclusion
+    micro = _one("WESTLAKE FINANCI DES:PAYABLES ID:1", 0.37, holder=DEALER)
+    assert (micro.revenue_classification, micro.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert micro.contributes_to_lender_credit_exclusion
+    reversal = _one("WESTLAKE FINANCI DES:PAYABLES REVERSAL ID:1", 15000.0, holder=DEALER)
+    assert reversal.revenue_match_method == "reversal_cancellation_exclusion"
+
+
+def test_the_credit_union_arm_never_counts_a_conflict_a_micro_entry_or_a_vetoed_row():
+    rows = classify_statement_transactions(Statement(account_name=DEALER, transactions=[
+        Transaction(date="2054-03-02", description=UNION.format(n=1), amount=18000.0, direction="credit"),
+        Transaction(date="2054-03-03", description=UNION.format(n=2), amount=21000.0, direction="debit"),
+        Transaction(date="2054-03-04", description=UNION.format(n=3), amount=0.37, direction="credit"),
+        Transaction(date="2054-03-05", description=UNION.format(n=4).replace("Purchsec", "Purch Loansec"),
+                    amount=19000.0, direction="credit"),
+    ]))
+    assert "auto_lender_dealer_funding" not in {record.revenue_match_method for record in rows}
+    assert _tier(rows[0]) == ("excluded_pending_review", "financing_named_payer")
+    assert rows[0].revenue_match_method == "credit_union_vehicle_purchase"
+    assert _tier(rows[1]) == ("excluded_pending_review", "direction_conflict")
+
+
+def test_two_credit_union_rows_verify_beside_other_credits_and_count_once_each():
+    rows = _records([(UNION.format(n=1), 18000.0), ("NORTHWIND SUPPLY DES:CREDIT ID:2", 700.0),
+                     (UNION.format(n=2), 21000.0)], holder=DEALER)
+    assert [record.revenue_match_method for record in rows] == [
+        "auto_lender_dealer_funding", "unidentified_posted_credit", "auto_lender_dealer_funding"]
+    assert {rows[0].revenue_source_type, rows[2].revenue_source_type} == {"auto_dealer_funding"}
+    assert [_tier(record) for record in rows] == [("verified", None), ("counted_flagged", "named_payer_one_off"),
+                                                  ("verified", None)]
+
+
+def test_gls_auto_is_no_dealer_funding_payer_and_its_legal_name_still_is():
+    from analysis.classification_registry import DEALER_FUNDING_PAYERS
+
+    assert DEALER_FUNDING_PAYERS["GLS Auto"] == ("GLOBAL LENDING SERVICES",)
+
+
+def test_the_q7_guard_facts():
+    from analysis import true_revenue
+    from analysis.description_text import normalize_transaction_description
+    from analysis.transaction_classifier import revenue_text
+
+    def facts(text):
+        record = _one(text, 15000.0, holder=DEALER)
+        found = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+        return {key: found[key] for key in ("q7_payer_ok", "q7_listed", "q7_credit_union", "q7_veto_word")}
+
+    assert facts("WESTLAKE FINANCI DES:PAYABLES ID:1 INDN:ADVANCE AUTO SALES LLC CO ID:1 CCD") == {
+        "q7_payer_ok": True, "q7_listed": True, "q7_credit_union": False, "q7_veto_word": False}
+    assert facts(UNION.format(n=1)) == {
+        "q7_payer_ok": True, "q7_listed": False, "q7_credit_union": True, "q7_veto_word": False}
+    assert facts("SUNCOAST CREDIT UNION DES:VHCL PURCH LOAN PROCEEDS ID:1") == {
+        "q7_payer_ok": True, "q7_listed": True, "q7_credit_union": True, "q7_veto_word": True}
+    assert facts("ACH CREDIT DEALER PAY RECEIVER NAME ALLY FINANCIAL") == {
+        "q7_payer_ok": False, "q7_listed": False, "q7_credit_union": False, "q7_veto_word": False}
+    assert true_revenue.CREDIT_UNION_DEALER_MIN_CREDITS == 2

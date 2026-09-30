@@ -41,7 +41,7 @@ from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 from .description_text import normalize_transaction_description
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from .true_revenue import apply_true_revenue_pass
+from .true_revenue import apply_true_revenue_pass, dealer_funding
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -2176,6 +2176,33 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
+    # §6.1 step 4 (Q7, 5.6): a dealer's funding from a listed auto lender is revenue; a credit union's VHCL PURCH
+    # entry waits for the statement pass, which verifies two or more of them. Never under the $1 floor (§7.0).
+    dealer = dealer_funding(text) if amount >= _MICRO_DEPOSIT_FLOOR else None
+    if dealer == "listed":
+        return _RevenueDecision(
+            "verified_revenue",
+            None,
+            "auto_lender_dealer_funding",
+            None,
+            "verified_auto_lender_dealer_funding",
+            0.90,
+            "A listed auto lender pays the dealer's vehicle funding: the dealer's revenue.",
+            source_type="auto_dealer_funding",
+            context_signals=("credit_direction", "auto_lender_dealer_funding"),
+        )
+    if dealer == "credit_union":
+        return _RevenueDecision(
+            "unverified_deposit",
+            None,
+            "credit_union_vehicle_purchase",
+            None,
+            "credit_union_vehicle_purchase_requires_statement_count",
+            0.60,
+            "A credit union prints the VHCL PURCH entry; two or more in the statement are dealer funding.",
+            source_type="auto_dealer_funding",
+            context_signals=("credit_direction", "credit_union_vehicle_purchase"),
+        )
     # §7.7: the lookups below read a glued HCCLAIMPMT split from the name before it.
     lookup_text = _split_glued_claim(text)
     claim_entry = _HCCLAIMPMT.search(text) is not None
@@ -2991,6 +3018,17 @@ def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
     return match
 
 
+def _q7_listed_dealer_funding(text: str, amount: float, direction_consistent: bool) -> bool:
+    """5.6 (§6.1 step 4, Q7): the credit's revenue decision is a listed auto lender's dealer funding, read as
+    _classify_credit_revenue reads it: a credit of $1 or more whose direction agrees and that no reversal marker
+    claims (steps 2 and 3 win), which dealer_funding reads as 'listed' on its revenue text. Such a credit is never
+    financing proceeds (D1), so it leaves the lender credits."""
+    if amount < _MICRO_DEPOSIT_FLOOR or not direction_consistent:
+        return False
+    revenue = revenue_text(text)
+    return not _reversal_credit(revenue) and dealer_funding(revenue) == "listed"
+
+
 #: D1 by descriptor (owner decisions 2026-09-25): credits whose own words say they
 #: are financing proceeds, with no registry payee named. Credits only.
 _BANK_LINE_ADVANCE_CREDIT = re.compile(r"^LOAN CREDIT$")
@@ -3478,7 +3516,12 @@ def classify_transaction(
             return _known_payee_debit_record(common, text, known_payee)
         if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
             return _flagged_revenue_credit_record(common, known_payee)
-        if known_payee.state in FINANCING_STATES and not _is_payout_credit(text, known_payee):
+        if (
+            known_payee.state in FINANCING_STATES
+            and not _is_payout_credit(text, known_payee)
+            # 5.6 (Q7): a listed auto lender's dealer funding is revenue, never financing proceeds.
+            and not _q7_listed_dealer_funding(text, amount, direction_consistent)
+        ):
             return _financing_proceeds_credit_record(common, amount, known_payee)
     # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
     # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.
@@ -5017,7 +5060,7 @@ def classify_statement_transactions(
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
     records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
-    # 5.6 (§6.2 pass 7): payer facts, the Q5 and Q6 verifications, then the tiers.
+    # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers.
     records = apply_true_revenue_pass(records, set(duplicate_of))
 
     for index, original_index in duplicate_of.items():

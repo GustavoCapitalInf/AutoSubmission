@@ -1960,7 +1960,8 @@ HEALTHCARE_PAYER_ALIASES: dict[str, tuple[str, ...]] = {
 
 #: 5.6 (§8.7, Q7): auto lenders that pay dealers, beside the vehicle_financing registry. A credit from one of them
 #: that prints a dealer-funding word is the dealer's revenue. Until S1 admits one into the ledger's
-#: vehicle-financing group, its other credits are held (financing_named_payer). Never Westlake Flooring.
+#: vehicle-financing group, its other credits are held (financing_named_payer). Never Westlake Flooring. Never GLS's
+#: trade name GLS AUTO (S1.5's verify round: body shops and a used-car dealer trade under it; the ledger dropped it too).
 DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
     "Westlake Financial": ("WESTLAKE FINANCIAL", "WESTLAKE FINANCI", "WESTLAKE PORTFOL"),
     "United Auto Credit": ("UNITED AUTO CREDIT", "UNITED AUTO CRED"),
@@ -1971,7 +1972,7 @@ DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
     "Credit Acceptance": ("CREDIT ACCEPTANCE", "CREDITACCEPTANCE"),
     "Exeter Finance": ("EXETER FINANCE", "EXETERFINANCELLC"),
     "Flagship Credit Acceptance": ("FLAGSHIP CREDIT",),
-    "GLS Auto": ("GLS AUTO", "GLOBAL LENDING SERVICES"),
+    "GLS Auto": ("GLOBAL LENDING SERVICES",),
     "Santander Consumer": ("SANTANDER CONSUMER",),
     "Chrysler Capital": ("CHRYSLER CAPITAL",),
     "GM Financial": ("GM FINANCIAL",),
