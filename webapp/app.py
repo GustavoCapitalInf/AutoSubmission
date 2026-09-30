@@ -1514,12 +1514,15 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             posted_credit_count = int(
                 _num(metrics.get("total_posted_credit_count"), metrics.get("effective_num_deposits") or 0)
             )
-            # 5.6 (§9.2): `true_revenue` is True revenue now, never a verified figure; without either verified key the
-            # member's verified figure is not established (verified_revenue_established is false on this path).
+            # 5.6 (§9.2): `true_revenue` is True revenue now, never a verified figure. Without either verified key the
+            # member's verified figure is not established: None, shown as N/A, never 0.0. A member that captured no
+            # credit and whose Total is zero took in nothing, and is established at zero.
             verified_fallback = _num(
                 metrics.get("verified_revenue_total"),
-                _num(metrics.get("confirmed_true_revenue_total")),
+                _num(metrics.get("confirmed_true_revenue_total"), float("nan")),
             )
+            if not isfinite(verified_fallback):
+                verified_fallback = 0.0 if verified_revenue_established else None
             revenue_totals = {
                 "verified_revenue": verified_fallback,
                 "unverified_deposit": _num(
@@ -1605,8 +1608,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             2,
         )
         totals["total_posted_credit_count"] += posted_credit_count
+        # A member without a verified figure (None) adds nothing; the total is N/A with it below (§10.4).
         totals["verified_revenue_total"] = round(
-            totals["verified_revenue_total"] + revenue_totals["verified_revenue"],
+            totals["verified_revenue_total"] + _num(revenue_totals["verified_revenue"]),
             2,
         )
         totals["verified_revenue_count"] += revenue_counts["verified_revenue"]
@@ -1630,8 +1634,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
         if ready and not revenue_established:
             unestablished_revenue.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
-        member_reconciles = round(sum(revenue_totals.values()), 2) == posted_credit_total
+        member_reconciles = round(sum(_num(total) for total in revenue_totals.values()), 2) == posted_credit_total
         if tiered:
+            # T7 over the package's member rows, which leave out R-d's internal-transfer pairs (`excluded_positions`
+            # above), so a held pair credit is neither held nor posted here. The pairing proves the money is the
+            # holder's own, moving between two of its accounts: it is no revenue awaiting review, and its share must
+            # not gate the package. The statement's own gate (analysis/revenue.py) cannot see the sibling account's
+            # debit and counts it.
             member_gated = revenue_review_gate(
                 direction_conflict=direction_conflict,
                 held_total=tier_totals["excluded_pending_review"],
@@ -1849,6 +1858,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 if classification.get("revenue_tier") in package_tier_evidence:
                     package_tier_evidence[classification["revenue_tier"]].append(evidence)
 
+        # 5.6 (§9.2, §10.4): the row's True, Counted and Held figures follow `revenue_established`, as the package's do.
+        # A member with no captured credit and a zero Total is established at zero and holds no tier row.
+        row_tier_totals = {tier: tier_totals.get(tier, 0.0) for tier in ("verified", "counted_flagged",
+                                                                         "excluded_pending_review")}
+        row_tier_counts = {tier: len(tier_rows.get(tier, [])) for tier in row_tier_totals}
+
         doc_row = {
             # One row per MEMBER. An account of a multi-account document is
             # named by the document it came from plus its printed position —
@@ -1893,17 +1908,24 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # 5.6 (§9.2): True revenue and its parts; None for a member whose revenue is not established.
             "revenue_established": revenue_established,
             "true_revenue_total": (
-                round(tier_totals["verified"] + tier_totals["counted_flagged"], 2) if tiered else None
+                round(row_tier_totals["verified"] + row_tier_totals["counted_flagged"], 2)
+                if revenue_established else None
             ),
             "true_revenue_count": (
-                len(tier_rows["verified"]) + len(tier_rows["counted_flagged"]) if tiered else None
+                row_tier_counts["verified"] + row_tier_counts["counted_flagged"] if revenue_established else None
             ),
-            "counted_flagged_total": tier_totals["counted_flagged"] if tiered else None,
-            "counted_flagged_count": len(tier_rows["counted_flagged"]) if tiered else None,
-            "excluded_pending_review_total": tier_totals["excluded_pending_review"] if tiered else None,
-            "excluded_pending_review_count": len(tier_rows["excluded_pending_review"]) if tiered else None,
-            "counted_flagged_by_reason": member_by_reason["counted_flagged"] if tiered else None,
-            "excluded_pending_review_by_reason": member_by_reason["excluded_pending_review"] if tiered else None,
+            "counted_flagged_total": row_tier_totals["counted_flagged"] if revenue_established else None,
+            "counted_flagged_count": row_tier_counts["counted_flagged"] if revenue_established else None,
+            "excluded_pending_review_total": (
+                row_tier_totals["excluded_pending_review"] if revenue_established else None
+            ),
+            "excluded_pending_review_count": (
+                row_tier_counts["excluded_pending_review"] if revenue_established else None
+            ),
+            "counted_flagged_by_reason": member_by_reason["counted_flagged"] if revenue_established else None,
+            "excluded_pending_review_by_reason": (
+                member_by_reason["excluded_pending_review"] if revenue_established else None
+            ),
             "revenue_review_required": member_gated,
             "unverified_deposit_total": revenue_totals["unverified_deposit"],
             "unverified_deposit_count": revenue_counts["unverified_deposit"],
@@ -1914,11 +1936,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "non_revenue_total": revenue_totals["non_revenue"],
             "non_revenue_count": revenue_counts["non_revenue"],
             "maximum_revenue": round(
-                revenue_totals["verified_revenue"]
+                _num(revenue_totals["verified_revenue"])
                 + revenue_totals["unverified_deposit"],
                 2,
             ),
-            "revenue_reconciles": round(sum(revenue_totals.values()), 2) == posted_credit_total,
+            "revenue_reconciles": member_reconciles,
             "debits": debits,
             "cash_flow": cash_flow,
             "average_daily_balance": average_daily_balance,

@@ -10,8 +10,10 @@ every account it sets the two flags the dashboard reads before it prints a reven
 
 A payload analysed before 5.6 carries no tier. Its served copy nulls True revenue and every tier figure
 (`true_revenue`, `true_revenue_total` and the counted and held totals, counts and reasons), nulls every
-`true_revenue_evidence`, and drops `contributes_to_true_revenue` from every row, so no reader takes the old
-verified meaning of those names for the new one (T9, T10). Its verified figures stay as stored.
+`true_revenue_evidence`, and drops `contributes_to_true_revenue` from every copy of a record in the account: the
+statement rows and `classifications`, every evidence list in `metrics` and `detection`, `manual_review`, and the known
+funder, potential lender, insurer and recurring debit matches. Each of those copies stored the old verified meaning,
+so no reader takes it for the new one (T9, T10). Its verified figures stay as stored.
 """
 from __future__ import annotations
 
@@ -61,10 +63,24 @@ def revenue_flags(account: Mapping) -> tuple[bool, bool]:
     return verified, verified and tiered
 
 
+#: The record flag 5.6 repointed from verified to True revenue (T9).
+_REPOINTED_RECORD_FLAG = "contributes_to_true_revenue"
+
+
+def _drop_repointed_flag(node: object) -> None:
+    """Remove `contributes_to_true_revenue` from every dict under `node`, in place. Only ever called on a copy."""
+    if isinstance(node, dict):
+        node.pop(_REPOINTED_RECORD_FLAG, None)
+        for value in node.values():
+            _drop_repointed_flag(value)
+    elif isinstance(node, list):
+        for value in node:
+            _drop_repointed_flag(value)
+
+
 def _served_account(account: Mapping) -> dict:
-    result = dict(account)
     verified, established = revenue_flags(account)
-    statement = result.get("statement")
+    statement = account.get("statement")
     rows = statement.get("transactions") if isinstance(statement, Mapping) else None
     posted = [
         row["classification"] for row in rows or []
@@ -72,21 +88,25 @@ def _served_account(account: Mapping) -> dict:
         and _number(row.get("amount")) > 0 and row["classification"].get("is_posted") is not False
     ]
     tiered = bool(posted) and all(isinstance(record.get("revenue_tier"), str) for record in posted)
-    metrics = copy.deepcopy(dict(result.get("metrics") or {}))
-    metrics["verified_revenue_established"] = verified
-    metrics["revenue_established"] = established and (tiered or not posted)
     if posted and not tiered:
+        # Before 5.6 (T10, §12). The old flag sits on every copy of a record the account stored, not only on the
+        # statement rows (`classifications`, each evidence list, `manual_review`, the funder, potential lender,
+        # insurer and recurring debit matches), so the whole account is copied and the flag dropped from every dict
+        # in it. The stored job is never touched.
+        result = copy.deepcopy(dict(account))
+        _drop_repointed_flag(result)
+        metrics = dict(result.get("metrics") or {})
         for key in TIER_METRIC_KEYS:
             metrics[key] = None
-        transactions = copy.deepcopy(rows)
-        for row in transactions:
-            if isinstance(row, dict) and isinstance(row.get("classification"), dict):
-                row["classification"].pop("contributes_to_true_revenue", None)
-        result["statement"] = {**statement, "transactions": transactions}
-        detection = copy.deepcopy(dict(result.get("detection") or {}))
+        detection = dict(result.get("detection") or {})
         for key in TIER_DETECTION_KEYS:
             detection[key] = None
         result["detection"] = detection
+    else:
+        result = dict(account)
+        metrics = copy.deepcopy(dict(result.get("metrics") or {}))
+    metrics["verified_revenue_established"] = verified
+    metrics["revenue_established"] = established and (tiered or not posted)
     result["metrics"] = metrics
     return result
 

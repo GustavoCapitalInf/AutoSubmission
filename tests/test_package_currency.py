@@ -657,9 +657,11 @@ def test_xlsx_export_carries_the_same_refusal():
 #: `potential_lender_evidence_3` — a per-transaction classification record, and
 #: therefore statement-level — is not mistaken for the `potential_lender_3`
 #: rollup. The flag roll-up (`flagged_<group>_<n>`, lender detection §8.4) is
-#: named group by group for the same reason.
+#: named group by group for the same reason. 5.6 (true revenue spec §9.2,
+#: §10.8): `revenue_tier` holds the package's by-reason figures, summed across
+#: members; `document_<n>.revenue_tier` is one member's, and stays denominated.
 CROSS_DOCUMENT_SECTION = re.compile(
-    r"^(totals|funder_\d+|potential_lender_\d+|insurance_provider_\d+"
+    r"^(totals|revenue_tier|funder_\d+|potential_lender_\d+|insurance_provider_\d+"
     r"|flagged_(?:" + "|".join(group.key for group in FLAG_GROUPS) + r")_\d+)$"
 )
 
@@ -671,6 +673,30 @@ UNIT_FREE_ROLLUP_KEYS = {
     "documents",
     "potential_lender_debit_count",
 }
+
+
+def _cross_document_numbers_not_counts(rows):
+    """Every number a cross-document export section publishes that is not a count: in a refused package, each is a
+    mixed unit."""
+    offenders = []
+    for section, field, value in rows:
+        if not CROSS_DOCUMENT_SECTION.match(section):
+            continue
+        # A bool is a flag, not a quantity — and `float(False)` succeeds, so it
+        # has to be excluded explicitly or every flag reads as money.
+        if isinstance(value, bool):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if field in UNIT_FREE_TOTALS or field in UNIT_FREE_ROLLUP_KEYS:
+            continue
+        # 5.6 (§10.8): a by-reason row is `<tier>.<reason>.count` or `.total`; the count is unit-free.
+        if section == "revenue_tier" and field.endswith(".count"):
+            continue
+        offenders.append(f"{section}.{field} = {number!r}")
+    return offenders
 
 
 def test_every_money_row_the_export_emits_is_covered_by_a_declared_currency():
@@ -696,21 +722,7 @@ def test_every_money_row_the_export_emits_is_covered_by_a_declared_currency():
     rows = _package_rows(package)
     assert package["totals"]["cross_currency_totals_refused"] is True
 
-    offenders = []
-    for section, field, value in rows:
-        if not CROSS_DOCUMENT_SECTION.match(section):
-            continue
-        # A bool is a flag, not a quantity — and `float(False)` succeeds, so it
-        # has to be excluded explicitly or every flag reads as money.
-        if isinstance(value, bool):
-            continue
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            continue
-        if field in UNIT_FREE_TOTALS or field in UNIT_FREE_ROLLUP_KEYS:
-            continue
-        offenders.append(f"{section}.{field} = {number!r}")
+    offenders = _cross_document_numbers_not_counts(rows)
 
     assert offenders == [], (
         "a refused package still publishes cross-document number(s) that are "
@@ -736,6 +748,31 @@ def test_every_money_row_the_export_emits_is_covered_by_a_declared_currency():
     for section in document_sections:
         declared = [f for s, f, _ in rows if s == section and f == "currency"]
         assert declared, f"{section} publishes figures without declaring a currency"
+
+
+def test_the_sweep_reaches_the_package_by_reason_rows():
+    """5.6 (true revenue spec §9.2, §10.8): the package's by-reason figures sum
+    across members, so a refused package's `revenue_tier` rows publish their
+    counts and no money. The members above print no ledger rows and carry no
+    tier, so two fabricated 5.6 statements, one in CAD, exercise the section."""
+    from tests.test_webapp_true_revenue import _payload
+
+    cad = _payload(month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _package_analysis([
+        Job(id="usd", filename="usd.pdf", status="done", analysis=_payload()),
+        Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
+    ])
+    rows = _package_rows(package)
+    assert package["totals"]["cross_currency_totals_refused"] is True
+    assert _cross_document_numbers_not_counts(rows) == []
+    tier_rows = [(field, value) for section, field, value in rows if section == "revenue_tier"]
+    assert ("counted_flagged.check_deposit.count", 2) in tier_rows
+    assert ("counted_flagged.check_deposit.total", "") in tier_rows
+    assert ("excluded_pending_review.financing_named_payer.total", "") in tier_rows
+    # A member's own by-reason rows are denominated by its row's currency and keep their money.
+    assert ("document_2.revenue_tier", "counted_flagged.check_deposit.total", 300.0) in rows
+    assert ("document_2", "currency", "CAD") in rows
 
 
 def test_version_3_deprecated_aliases_degrade_with_their_canonical_names():
