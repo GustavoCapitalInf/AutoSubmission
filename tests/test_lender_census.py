@@ -258,6 +258,42 @@ def test_compare_counts_the_row_flag_moves_and_reads_an_older_snapshot_as_not_co
     }
 
 
+def _flag_move_snapshots():
+    """Two snapshots whose one debit loses its potential-lender and potential-withholding flags (a reversal pair)."""
+    flags = {"potential_lender_rows": [[1, "Tarnmoor Funding"]], "withholding_rows": [],
+             "potential_withholding_rows": [1], "reversed_by": [], "row_entities": {"1": "Tarnmoor Funding"}}
+    before = {"accounts": {"s1:0": {**_account(["other", "potential_lender"], [], {}, 5.0), **flags}}}
+    moved = {**flags, "potential_lender_rows": [], "potential_withholding_rows": [], "reversed_by": [[1, "transaction:3"]]}
+    after = {"accounts": {"s1:0": {**_account(["other", "potential_lender"], [], {}, 5.0), **moved}}}
+    return before, after
+
+
+def test_compare_fails_on_a_row_flag_move_outside_the_allowlist(tmp_path, capsys):
+    # Re-review N5: G7's row-flag check is the tool's own: a potential-lender, withholding or reversed_by move fails
+    # the compare unless the row's payee entity is on the owner's signed-off allowlist.
+    before, after = _flag_move_snapshots()
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["row_flag_moves_outside_the_allowlist"] == 3
+    paths = _files(tmp_path, before, after, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 1
+    assert "row flag moves outside the allowlist: 3" in capsys.readouterr().out
+    allowlist = tmp_path / "allowlist.json"
+    allowlist.write_text(json.dumps({"entities": ["Tarnmoor Funding"]}), encoding="utf-8")
+    assert census.compare(before, after, admitted=frozenset(),
+                          allowlisted=frozenset({"Tarnmoor Funding"}))["row_flag_moves_outside_the_allowlist"] == 0
+    assert census.main(_compare_argv(paths, tmp_path) + ["--allowlist", str(allowlist)]) == 0
+
+
+def test_a_snapshot_records_the_payee_entity_of_each_flagged_row(tmp_path, fake_payees):
+    cache = ArtifactCache(data_dir=tmp_path / "data")
+    cache.put_analysis("d" * 64, "settings", {"statement": {"transactions": [
+        _row("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 10000.0),
+        _row("2054-01-05", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+    ]}})
+    account = census.snapshot(census.cached_accounts(tmp_path / "data"))["accounts"]["d" * 64 + ":0"]
+    assert account["row_entities"] == {"1": "Fabricated Lender"}
+
+
 def test_a_snapshot_run_writes_the_file_it_names(tmp_path, fake_payees):
     out = tmp_path / "local" / "after.json"
     assert census.main(["snapshot", "--data-dir", str(_cache(tmp_path)), "--out", str(out)]) == 0

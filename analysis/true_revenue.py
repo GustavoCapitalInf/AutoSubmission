@@ -204,10 +204,44 @@ _RECEIVER_THROUGH_NEXT_FIELD = re.compile(
 )
 
 
-def consumer_entry(text: str) -> bool:
+#: §8.6 (re-review N1): the code a layout prints as the row's last word, after a receiver value that no later field
+#: ends ('... INDN:CONTOSO BAKERY LLC PPD').
+_TRAILING_CONSUMER_CODE = re.compile(r" (PPD|WEB)$")
+#: §8.6 (re-review N1): the code printed right before Bank of America's DES label, after a company form or a
+#: reference token ('NORTHWIND SUPPLY LLC PPD DES:...'); after a name word it is the payer's name ('NORTHWIND WEB').
+_CODE_BEFORE_DES = re.compile(r"(\S+) (?:PPD|WEB) DES\b")
+_CODE_AFTER_TEMPLATE = re.compile(r"(?:PPD|WEB)\b")
+
+
+def consumer_entry(text: str, account_name: str | None = None) -> bool:
     """§8.6 (final review I1): the row prints a PPD or WEB entry in its SEC code's slot (_CONSUMER_ENTRY), read on
-    the row with every receiver field's value removed (_RECEIVER_THROUGH_NEXT_FIELD)."""
-    return _CONSUMER_ENTRY.search(_RECEIVER_THROUGH_NEXT_FIELD.sub(" ", text)) is not None
+    the row with every receiver field's value removed (_RECEIVER_THROUGH_NEXT_FIELD). Re-review N1: and in three more
+    slots, still never inside a name or a receiver field: the row's last word after a receiver value that no later field
+    ends, unless it is the last word of the holder's own name (`account_name`: 'INDN:CONTOSO WEB' is the holder); the
+    code before DES after a company form or a reference token (_CODE_BEFORE_DES); and the code right after the
+    posting label a row starts with ('ACH CREDIT PPD <payer>', the classifier's revenue template prefixes)."""
+    classifier = _classifier()
+    if _CONSUMER_ENTRY.search(_RECEIVER_THROUGH_NEXT_FIELD.sub(" ", text)) is not None:
+        return True
+    trailing = _TRAILING_CONSUMER_CODE.search(text)
+    if trailing is not None:
+        receiver = None
+        for found in _RECEIVER_THROUGH_NEXT_FIELD.finditer(text):
+            receiver = found
+        holder = classifier.account_name_text(account_name).split() if account_name else []
+        if (
+            receiver is not None and receiver.end() == len(text)
+            and len(receiver.group(0).split()) > 2
+            and not (holder and holder[-1] == trailing.group(1))
+        ):
+            return True
+    before_des = _CODE_BEFORE_DES.search(classifier._before_receiver(text))
+    if before_des is not None and (
+        classifier._BANK_COMPANY_FORM.fullmatch(before_des.group(1)) or classifier._is_reference_token(before_des.group(1))
+    ):
+        return True
+    template = classifier._REVENUE_TEMPLATE_PREFIX.match(text)
+    return template is not None and template.end() > 0 and _CODE_AFTER_TEMPLATE.match(text, template.end()) is not None
 
 
 #: §8.6 method names.
@@ -1718,7 +1752,7 @@ def credit_facts(
             or _premium_coded(text, region)
         ),
         round_sum=classifier.is_round_sum(record.amount),
-        consumer_entry=consumer_entry(text),
+        consumer_entry=consumer_entry(text, record.account_name),
         transfer_no_counterparty=transfer_row and not transfer_words,
         account_designation=transfer_row and bool(transfer_words) and _ACCOUNT_DESIGNATION.search(row) is not None,
         factor=factor,

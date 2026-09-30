@@ -2807,3 +2807,92 @@ def test_a_factor_s_plain_b_o_address_is_still_the_factor():
 def test_a_business_named_with_a_short_healthcare_alias_is_a_one_off_payer(payer):
     # The reviewer's probe: the control NORTHWIND ROOFING stays named_payer_one_off, and so do these now.
     assert _tier(_one(_FW_ACH.format(payer=payer), 2345.0)) == ("counted_flagged", "named_payer_one_off")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The final review's re-review of the fix wave (2026-09-30): I4-R, N6 and N1. Fabricated rows only.
+# ---------------------------------------------------------------------------------------------------------------------
+_RR_HOLDER = "SAMPLE CAPITAL LENDING FUNDING LLC"
+_RR_STORE = "DOORDASH INC DES:{entry} ID:{n} INDN:{holder} CO ID:1234567890 CCD"
+
+
+@pytest.mark.parametrize("entry", ["CAPITAL DISB", "CAPITAL DISBURSE", "CAPITAL OFFER", "CAPITAL XFER",
+                                   "LENDING DAILY"])
+def test_a_veto_word_that_leads_the_entry_field_is_never_the_holder_s_store_word(entry):
+    # Re-review I4-R: the entry field is ten characters, so a platform's financing entry often prints a cut second
+    # word; a veto word that leads the field is never spared as the holder's word, whatever follows it.
+    for holder in (_RR_HOLDER, "SAMPLE BAKERY LLC"):
+        rows = [(_RR_STORE.format(entry="PAYMENTS", n=n, holder=holder), 900.0 + n) for n in range(3)]
+        rows.append((_RR_STORE.format(entry=entry, n=9, holder=holder), 23456.0))
+        records = _records(rows, holder=holder)
+        assert records[3].revenue_classification != "verified_revenue", (holder, entry)
+        assert _tier(records[3]) == ("excluded_pending_review", "financing_named_payer"), (holder, entry)
+
+
+@pytest.mark.parametrize("text", [
+    "SQUARE INC DES:CAPITAL PAYOUT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+    "SHOPIFY DES:CAPITAL PAYOUT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+    "DOORDASH INC DES:ADVANCE PAYOUT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+    "GRUBHUB DES:LENDING PAYOUT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+    "SQUARE INC DES:LOAN DEPOSIT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+    "SHOPIFY DES:FUNDING PAYOUT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+    "SQUARE INC DES:FINANCING SETTLEMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+    "ORIG CO NAME:SHOPIFY ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:CAPITAL SEC:CCD TRACE#:1234 EED:540302 "
+    "IND ID:1 IND NAME:CONTOSO BAKERY LLC TRN: 1234TC",
+])
+def test_a_platform_credit_whose_entry_leads_with_a_financing_word_is_never_verified(text):
+    # Re-review N6 (true revenue spec §20): a processor, marketplace or platform credit whose entry field leads with a
+    # financing word is the platform's financing, never revenue, for any holder: held as financing_named_payer, alone
+    # or among the platform's own settlements.
+    # (A LOAN entry is already non_revenue by the strong non-revenue rule, which runs first.)
+    expected = ("non_revenue", None) if "LOAN" in text else ("excluded_pending_review", "financing_named_payer")
+    alone = _one(text, 23456.0)
+    assert alone.revenue_classification != "verified_revenue"
+    assert _tier(alone) == expected
+    settlements = [(text.replace("ID:1", f"ID:{n}"), 23456.0 + n) for n in range(3)]
+    assert {_tier(record) for record in _records(settlements)} == {expected}
+
+
+@pytest.mark.parametrize(("text", "tier"), [
+    # The platform's own settlement words keep their reading: a store name, a settlement code, FUNDING on the three
+    # platforms that print it on settlements.
+    ("DOORDASH INC DES:SAMPLE CAPITA ID:1 INDN:SAMPLE CAPITAL GROUP LLC CO ID:1234567890 CCD",
+     ("counted_flagged", "platform_unconfirmed")),
+    ("TGPAYMENTS DES:FUNDING ID:1", ("counted_flagged", "platform_unconfirmed")),
+    ("SQUARE INC DES:SQ540302 ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD", ("verified", None)),
+])
+def test_a_platform_s_settlement_words_keep_their_reading(text, tier):
+    holder = "SAMPLE CAPITAL GROUP LLC" if "SAMPLE CAPITA" in text else HOLDER
+    assert _tier(_one(text, 900.0, holder=holder)) == tier
+
+
+@pytest.mark.parametrize("text", [
+    # Re-review N1: a code right after a receiver value at the row's end, before DES, and right after a posting label.
+    "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC PPD",
+    "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC WEB",
+    "NORTHWIND SUPPLY LLC PPD DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890",
+    "NORTHWIND SUPPLY LLC 1234567890 WEB DES:PAYMENT ID:1",
+    "ACH CREDIT PPD NORTHWIND SUPPLY LLC",
+    "ACH CREDIT WEB NORTHWIND SUPPLY LLC 1234",
+])
+def test_a_consumer_code_in_its_other_slots_stays_a_consumer_entry(text):
+    assert _tier(_one(text, 2500.0)) == ("counted_flagged", "named_payer_one_off")
+
+
+@pytest.mark.parametrize(("text", "holder", "method"), [
+    # Still never read inside a name or a receiver field: a holder whose name ends with WEB at the row's end, a payer
+    # whose name ends with WEB before DES, and I1's WEB-named holder and payer.
+    ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1 INDN:CONTOSO WEB", "CONTOSO WEB", "named_payer_company_form"),
+    ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1 INDN:CONTOSO WEB STUDIO LLC CO ID:1234567890 CCD",
+     "CONTOSO WEB STUDIO LLC", "named_payer_company_form"),
+    ("NORTHWIND WEB DESIGN LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD", HOLDER,
+     "named_payer_company_form"),
+])
+def test_a_web_named_holder_or_payer_is_still_no_consumer_entry(text, holder, method):
+    assert _fw_method(_one(text, 2345.0, holder=holder)) == ("verified_revenue", method)
+
+
+def test_a_payer_named_with_web_before_des_still_repeats():
+    rows = [(f"NORTHWIND WEB DES:PAYMENT ID:{n} INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD", 2345.0 + n)
+            for n in (1, 2)]
+    assert {_fw_method(record) for record in _records(rows)} == {("verified_revenue", "named_payer_repeats")}

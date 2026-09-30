@@ -1282,6 +1282,18 @@ def test_every_section_20_demotion_is_declared_by_the_rule_that_fires(prior, lat
     assert causes == {cause: 1}
 
 
+def test_a_platform_credit_whose_entry_leads_with_a_financing_word_is_a_declared_demotion():
+    # Re-review N6: keyed on the registry's own rule for the financing entry; another registry reading is undeclared.
+    text = "SQUARE INC DES CAPITAL PAYOUT ID #"
+    prior = _registry("operating_source_with_credit_context", text, entity="Square", alias="SQUARE")
+    later = _held("operating_source_requires_context", text, cents=5000, reason="financing_named_payer")
+    assert _causes([prior], [{**later, "rule": census.PLATFORM_FINANCING_ENTRY_RULE}]) == {"platform_financing_entry": 1}
+    assert _causes([prior], [{**later, "rule": "operating_source_without_payout_context"}]) == {"undeclared": 1}
+    from analysis.transaction_classifier import PLATFORM_FINANCING_ENTRY_RULE
+
+    assert census.PLATFORM_FINANCING_ENTRY_RULE == PLATFORM_FINANCING_ENTRY_RULE
+
+
 def test_the_cra_refund_is_a_declared_new_non_revenue_marker():
     text = "DIRECT DEPOSIT CANADA RIT ####"
     base = _snap("5.4", {"a": _account([_step_11(text)])})

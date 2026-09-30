@@ -224,6 +224,9 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Final review: Q7 reads the non-revenue patterns without the holder's receiver name (a declared move out of `non_revenue`) and its insurer on step 5's lookup text (§8.7).
 - Final review: a reversal pair's widened markers change the credit's revenue reading only; the debit's lender side keeps classification 5.4's pairs (§6.2 pass 4).
 - Final review: a factor's alias followed by `FOR`, `OF`, `AND` or `THE` names another payer, never the factor at an address (§8.9).
+- Re-review: on a store-name platform a veto word that leads the entry field is never the holder's store word, whatever follows it (`DOORDASH INC DES:CAPITAL DISB` is held as financing) (§7.0).
+- Re-review: a processor, marketplace or platform credit whose entry field leads with a financing word (`CAPITAL`, `LENDING`, `LOAN`, `ADVANCE`, `FUNDING`, `FINANCING` …) is never verified; it is held as `financing_named_payer` (§7.2).
+- Re-review: a PPD or WEB code is also read as the row's last word after a receiver value (never the holder's own last word), before `DES` after a company form or a reference, and right after a row's posting label (`ACH CREDIT PPD`) (§8.6).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record

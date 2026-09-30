@@ -12,6 +12,7 @@ repository.
 Usage, from the repository root of the checkout that holds this tool:
     python -m tools.lender_census snapshot --data-dir <webapp_data> --out <file> [--code-root <checkout>] [--limit N]
     python -m tools.lender_census compare --before <file> --after <file> --out <file> [--ledger <file>]
+                                          [--allowlist <the owner's signed-off admissions>]
 
 `--code-root` names the checkout whose `analysis` package classifies (default: this one), so the
 "before" snapshot runs the code as it stood before the change. `--ledger` is the curated registry
@@ -163,6 +164,17 @@ def account_snapshot(account: dict) -> dict:
             [index, record.reversed_by] for index, record in enumerate(records)
             if getattr(record, "reversed_by", None)
         ],
+        # Re-review N5: the payee entity of each row a flag names, which compare's allowlist reads.
+        "row_entities": {
+            str(index): record.canonical_entity for index, record in enumerate(records)
+            if record.canonical_entity and (
+                getattr(record, "contributes_to_potential_lender_totals", False)
+                or getattr(record, "contributes_to_potential_lender_count", False)
+                or getattr(record, "contributes_to_withholding_rate", False)
+                or getattr(record, "contributes_to_potential_withholding_exposure", False)
+                or getattr(record, "reversed_by", None)
+            )
+        },
     }
 
 
@@ -191,13 +203,19 @@ def compare(
     after: dict,
     admitted: Collection[str],
     merged: Mapping[str, str] | None = None,
+    allowlisted: Collection[str] = (),
 ) -> dict:
     """Lenders gained and lost, generic-word gains, flagged groups, eligible-deposit and withholding moves.
 
     `admitted` holds the ledger's admitted lender entities (`admitted_lenders`). `merged` maps an
     entity of the registry before the change to the ledger entity that absorbed it (S1's
-    MERGED_REGISTRY_ENTITIES): the two are one lender, so a merge is neither a gain nor a loss."""
+    MERGED_REGISTRY_ENTITIES): the two are one lender, so a merge is neither a gain nor a loss.
+    `allowlisted` (true revenue re-review N5) names the entities the owner signed off (S1.5's admissions): a row
+    flag move whose row's payee entity is one of them is declared; any other is counted in
+    `row_flag_moves_outside_the_allowlist`, which fails the compare."""
     merged = merged or {}
+    allowlisted = frozenset(allowlisted)
+    outside = 0
 
     def one_lender(entity: str) -> str:
         return merged.get(entity, entity)
@@ -221,12 +239,18 @@ def compare(
         # Final review I6: the rows whose potential-lender, withholding or reversal reading moved; a snapshot written
         # before the fields is not comparable.
         if all(name in old and name in new for name in ROW_FLAG_FIELDS):
+            entities = {**(old.get("row_entities") or {}), **(new.get("row_entities") or {})}
             for name in ROW_FLAG_FIELDS:
                 was = {json.dumps(item) for item in old[name]}
                 now = {json.dumps(item) for item in new[name]}
                 if was != now:
                     row_flags[name]["analyses"].add(sha)
                     row_flags[name]["rows"] += len(was ^ now)
+                    for item in was ^ now:
+                        row = json.loads(item)
+                        index = row[0] if isinstance(row, list) else row
+                        if entities.get(str(index)) not in allowlisted:
+                            outside += 1
         else:
             row_flags_not_comparable += 1
         old_entities = {one_lender(entity) for _, entity, _ in old["lenders"]}
@@ -297,6 +321,7 @@ def compare(
             **{name: {"analyses": len(slot["analyses"]), "rows": slot["rows"]} for name, slot in sorted(row_flags.items())},
             "not_comparable": row_flags_not_comparable,
         },
+        "row_flag_moves_outside_the_allowlist": outside,
     }
 
 
@@ -328,6 +353,7 @@ def _print_comparison(report: dict) -> None:
             f"{name} {slot['analyses']} analyses/{slot['rows']} rows" if isinstance(slot, dict) else f"{name} {slot}"
             for name, slot in report["row_flag_moves"].items()
         ))
+        print(f"row flag moves outside the allowlist: {report.get('row_flag_moves_outside_the_allowlist', 0)}")
 
 
 def _use_code_root(code_root: Path) -> bool:
@@ -351,6 +377,9 @@ def main(argv: list[str] | None = None) -> int:
     comp.add_argument("--after", type=Path, required=True)
     comp.add_argument("--out", type=Path, required=True, help="the comparison to write (outside the repo)")
     comp.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER, help="the C10 registry ledger (JSON)")
+    comp.add_argument("--allowlist", type=Path, default=None,
+                      help="the owner's signed-off admissions (JSON: {\"entities\": [...]} or a list): a row flag move "
+                           "on one of their rows is declared; without it every row flag move fails")
     args = parser.parse_args(argv)
 
     if _inside(args.out, ROOT):
@@ -374,6 +403,17 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         print(f"refused: {args.ledger} is not a readable C10 ledger ({error})", file=sys.stderr)
         return 2
+    allowlisted: list[str] = []
+    if args.allowlist is not None:
+        try:
+            listed = json.loads(args.allowlist.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            print(f"refused: the allowlist {args.allowlist} cannot be read ({type(error).__name__})", file=sys.stderr)
+            return 2
+        allowlisted = listed.get("entities", []) if isinstance(listed, dict) else listed
+        if not isinstance(allowlisted, list) or not all(isinstance(name, str) for name in allowlisted):
+            print(f"refused: the allowlist {args.allowlist} holds no list of entity names", file=sys.stderr)
+            return 2
     # `compare` loads no other checkout, so this one's registry may be imported here.
     from analysis.classification_registry import MERGED_REGISTRY_ENTITIES
 
@@ -382,11 +422,16 @@ def main(argv: list[str] | None = None) -> int:
         json.loads(args.after.read_text(encoding="utf-8")),
         admitted,
         merged=MERGED_REGISTRY_ENTITIES,
+        allowlisted=allowlisted,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _print_comparison(report)
-    failed = report["gained_through_generic_words"] or not all(slot["admitted"] for slot in report["gained"].values())
+    failed = (
+        report["gained_through_generic_words"] or not all(slot["admitted"] for slot in report["gained"].values())
+        # Re-review N5: a potential-lender, withholding or reversed_by move outside the allowlist fails G7.
+        or report["row_flag_moves_outside_the_allowlist"] > 0
+    )
     return 1 if failed else 0
 
 

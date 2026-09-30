@@ -110,7 +110,12 @@ DECLARED_DEMOTIONS = (
     "q5_q6_held_title_firm", "q5_q6_held_bank_originated_wire", "q5_q6_held_financing_root",
     "q5_q6_held_owner_money", "q5_q6_relayed_customer", "premium_coded_insurer_entry",
     "short_healthcare_alias_in_a_name", "q5_q6_deferred_source", "q5_q6_left_to_its_family", "counter_debit",
+    # Re-review N6: a platform credit whose entry field leads with a financing word.
+    "platform_financing_entry",
 )
+#: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
+#: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
+PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
 #: §8.5, §8.6: the methods Q5 and Q6 verify with.
 Q5_Q6_METHODS = frozenset({
     "repeat_wire_sender", "named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer",
@@ -1212,6 +1217,10 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # §7.5 (pass 6). (a) the accounts-payable remittance; (b) the counter-debit guard's own method.
     if base["method"] == "payer_remittance_descriptor" and method == "payer_remittance_with_counter_debit":
         return "counter_debit"
+    # §7.2 (re-review N6). (a) an operating-registry verification; (b) the registry's own rule for a credit whose entry
+    # field leads with a financing word (never verified; pass 7 holds it as financing).
+    if base["method"] in REGISTRY_METHODS and rule == PLATFORM_FINANCING_ENTRY_RULE:
+        return "platform_financing_entry"
     return "undeclared"
 
 

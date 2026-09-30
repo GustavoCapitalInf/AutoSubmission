@@ -2744,6 +2744,23 @@ def _operating_source_decision(
     recurrence pass decides them."""
     entity, alias, source_type = source.entity, source.alias, source.source_type
     business_account = _business_account(account_name)
+    if platform_entry_leads_with_financing(text, entity):
+        # 5.6 (re-review N6, §20): an entry field that leads with a financing word is the platform's own financing,
+        # never verified here; pass 7 holds it as financing_named_payer (the registry does not claim a financing row).
+        return _RevenueDecision(
+            "unverified_deposit",
+            entity,
+            "operating_source_requires_context",
+            alias,
+            PLATFORM_FINANCING_ENTRY_RULE,
+            0.50,
+            (
+                f"Credit matched maintained {source_type or 'operating-source'} alias '{alias}', but its entry field "
+                "leads with a financing word: the platform's financing is never revenue."
+            ),
+            source_type=source_type,
+            context_signals=("credit_direction", "maintained_operating_source", "financing_entry"),
+        )
     has_context = source_type not in {"property_management_payments", "wholesale_auto_auction"} and (
         _has_operating_context(text, source, bank=bank)
     )
@@ -4352,19 +4369,56 @@ def store_name_printed(text: str, entity: str | None) -> bool:
     or financing word (_RECURRENCE_VETO, _FUNDING_WORD), no generic word, no reference token, no company form and none
     of the platform's own alias words. A veto word that is the whole field, or forms it alone with generic words
     ('DES:CAPITAL', 'DES:CAPITAL ADVANCE', 'DES:LENDING PAYMENT'), is the platform's own financing wording, so the
-    holder's word exemption never reads it."""
+    holder's word exemption never reads it. Re-review (I4-R): nor is a veto word that leads the field, whatever follows
+    it ('DES:CAPITAL DISB', 'DES:LENDING DAILY': the ten-character entry field often cuts a financing entry's second
+    word); a store name prints its own words first ('DES:<store> CAPITA'), so the field must lead with a store word."""
+    words = _platform_entry_words(text, entity)
+    if not words:
+        return False
+    led = " ".join(words)
+    return _RECURRENCE_VETO.match(led) is None and _FUNDING_WORD.match(led) is None
+
+
+def _platform_entry_words(text: str, entity: str | None) -> list[str]:
+    """§7.0, §7.2 (final review I4, re-review N6): the words of the field where a platform prints its entry (the
+    merchant's store on a store-name platform): its entry field (Bank of America's DES, Chase's CO ENTRY DESCR), or the
+    row before its receiver fields on a layout that prints none, without its generic words, reference tokens, company
+    forms and the platform's own alias words."""
     row = _before_receiver(text)
     fields = [found.group(1).strip() for pattern in (_BOFA_ENTRY_FIELD, _CHASE_ENTRY_FIELD)
               if (found := pattern.search(row)) is not None]
     field = " ".join(fields) if any(fields) else row
     platform = {word for alias in OPERATING_REVENUE_SOURCE_ALIASES.get(entity or "", ()) for word in alias.split()}
-    return any(
-        not (
-            _RECURRENCE_VETO.fullmatch(word) or _FUNDING_WORD.fullmatch(word) or word in REVENUE_GENERIC_WORDS
-            or _is_reference_token(word) or _BANK_COMPANY_FORM.fullmatch(word) or word in platform
+    return [
+        word for word in field.split()
+        if not (
+            word in REVENUE_GENERIC_WORDS or _is_reference_token(word) or _BANK_COMPANY_FORM.fullmatch(word)
+            or word in platform
         )
-        for word in field.split()
-    )
+    ]
+
+
+#: §7.2 (re-review N6): the financing words a platform's entry field may lead with: the recurrence veto's financing
+#: words, and FUNDING or FUNDED except on the settlements of the three platforms that print it (§7.0).
+_ENTRY_FINANCING_LEAD = re.compile(
+    r"(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPSEC|ADVANCES?|FINANC\w*|LEND\w*|CASH ADV\w*|FUNDING|FUNDED"
+    r"|CAP\d*(?:SEC)?|FIN|ADV|MCA)\b"
+)
+
+
+#: Re-review N6: the matched rule of an operating-registry credit whose entry leads with a financing word.
+PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
+
+
+def platform_entry_leads_with_financing(text: str, entity: str | None) -> bool:
+    """§7.2 (re-review N6): a processor, marketplace or platform credit whose entry field leads with a financing word
+    (CAPITAL, LENDING, LOAN, ADVANCE, FUNDING, FINANCING and their cuts): the platform's own financing, never its
+    settlement of the business's sales, for any holder."""
+    words = _platform_entry_words(text, entity)
+    found = _ENTRY_FINANCING_LEAD.match(" ".join(words)) if words else None
+    if found is None:
+        return False
+    return not (found.group(0) in {"FUNDING", "FUNDED"} and entity in _FUNDING_SETTLEMENT_ENTITIES)
 
 
 def _in_operating_pool(record: TransactionClassification) -> bool:
