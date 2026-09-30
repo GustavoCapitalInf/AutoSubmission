@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Sequence
 from .classification_registry import (
     CARD_SETTLEMENT_CREDIT_FORMS,
     DEALER_FUNDING_PAYERS,
+    FACTORING_PAYOUT_PAYERS,
     HEALTHCARE_PAYER_ALIASES,
     OPERATING_REVENUE_READ_ALIASES,
     OWNER_MONEY_PLATFORMS,
@@ -142,10 +143,16 @@ _NON_SALE_PURPOSE = re.compile(
 #: paying a vendor from its payables. Such a row is counted and flagged, never verified: §7.5's remittance veto reads
 #: the same words, and Q5 and Q6 refuse them as proof (CreditFacts.refused_word).
 _INVESTMENT_PURPOSE = re.compile(r"(?<![A-Z])(?:BROKERAGE\w*|SECURITIES\b|WEALT\w*)")
-#: §8.1: a healthcare payer's member or premium credit.
+#: §8.1: a healthcare payer's member credit. A3-H: a premium-coded entry is no longer held here; it is counted
+#: and flagged as a named payer Q5 and Q6 refuse (_premium_coded).
 _HEALTHCARE_MEMBER_WORDS = re.compile(
-    r"(?<![A-Z])(?:REIMB\w*|MEMBER\b|SUBSCRIBER\b|PREMIUM\b)|\bMBR\b"
+    r"(?<![A-Z])(?:REIMB\w*|MEMBER\b|SUBSCRIBER\b)|\bMBR\b"
 )
+#: §8.6 Q6c (A3-H): a premium-coded entry (PREM, PREMIUM, and the Chase layout's glued PREMSEC), a commission or a
+#: premium refund the text cannot tell apart, never a claim payment for the provider's services; and the insurer's
+#: abbreviation a payer region prints (_INSURER_NAME reads the spelled-out words).
+_PREMIUM_CODED = re.compile(r"(?<![A-Z])(?:PREM|PREMIUMS?)(?:SEC)?\b")
+_INSURER_ABBREVIATION = re.compile(r"\bINS\b")
 #: §8.4, T13: an account designation printed by a named transfer.
 _ACCOUNT_DESIGNATION = re.compile(
     r"(?<![A-Z])(?:CHECKING|CHKG|SAVINGS|SAVING|SVGS|MONEY MARKET|ACCOUNT|ACCT|EVERYDAY)\b|\b(?:CHK|SAV|MMA|DDA)\b"
@@ -1594,6 +1601,8 @@ def credit_facts(
         refused_word=bool(
             _VERIFICATION_ONLY.search(entry) or _VERIFICATION_ONLY.search(region)
             or _ENTRY_VERIFICATION_ONLY.search(entry) or _INVESTMENT_PURPOSE.search(row)
+            # A3-H: a healthcare, insurer or health-plan payer's premium-coded entry is no claim payment (Q6c).
+            or _premium_coded(row, region)
         ),
         round_sum=classifier.is_round_sum(record.amount),
         consumer_entry=_CONSUMER_ENTRY.search(text) is not None,
@@ -1750,14 +1759,31 @@ def _deferred_source(text: str, facts: CreditFacts) -> bool:
 def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditFacts) -> bool:
     """The rows Q5 and Q6 never verify and never count toward a repeat, whatever their holds: a direction conflict
     (§6.1 step 2, §7.0: never lifted by any pass; S4.2 review C1), a credit under $1 (§7.0, review I3), a row a family
-    rule decides alone (review I5) and a deferred source (review I6a)."""
+    rule decides alone (review I5), a deferred source (review I6a) and a factoring payer's payout (A3-H)."""
     return (
         record.revenue_match_method == "direction_conflict"
         or not record.direction_consistent
         or _under_micro_floor(record)
         or _left_to_its_family(text)
         or _deferred_source(text, facts)
+        or _factoring_payout_payer(text)
     )
+
+
+def _factoring_payout_payer(text: str) -> bool:
+    """§8.9 (A3-H): a freight-factoring payer the registry names for this pass alone (FACTORING_PAYOUT_PAYERS), read
+    with the receiver field's value removed (the holder's name never names a payer). Its credit is the carrier's own
+    invoices paid by the factor: counted and flagged as factoring_payout, never verified."""
+    return registry_match(_classifier()._without_receiver_value(text), FACTORING_PAYOUT_PAYERS) is not None
+
+
+def _premium_coded(row: str, region: str) -> bool:
+    """§8.6 Q6c (A3-H): a healthcare, insurer or health-plan payer (HEALTHCARE_PAYER_ALIASES, an insurer's name or
+    its INS abbreviation) whose entry is premium-coded (_PREMIUM_CODED, read on the row before its receiver fields). A
+    government payer's premium form is not read (reported, never changed)."""
+    if not region or _PREMIUM_CODED.search(row) is None:
+        return False
+    return healthcare_payer(region) or bool(_INSURER_NAME.search(region) or _INSURER_ABBREVIATION.search(region))
 
 
 def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFacts, repeats: int) -> bool:
@@ -1818,6 +1844,9 @@ def _tier_reason(
         return "excluded_pending_review", "direction_conflict"
     if facts.hold is not None:
         return "excluded_pending_review", facts.hold
+    # A3-H: a factoring payer's payout, on any channel (FACTORING_PAYOUT_PAYERS).
+    if _factoring_payout_payer(text):
+        return "counted_flagged", "factoring_payout"
     if facts.channel == "wire" and not facts.claimed:
         if not facts.region:
             return "excluded_pending_review", "wire_no_sender"

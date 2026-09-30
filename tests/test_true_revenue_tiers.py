@@ -2413,3 +2413,92 @@ def test_a3g_re_review_the_originator_label_skips_the_originator_to_beneficiary_
 
     record = _one(f"WIRE TRANSFER INCOMING NORTHWIND SUPPLY LLC {phrase} INFO 1234", 9000.0)
     assert payer_region(revenue_text(record.normalized_description)) == "NORTHWIND SUPPLY LLC"
+
+
+# --- A3-H (the Verified strata's misses at s56c) ---------------------------------------------------------------------
+
+_A3H_BOFA_WIRE = ("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:{orig} ID:99 SND BK:SAMPLE BANK "
+                  "ID:1 PMT DET:AB{n} SCHEDULE 10{n}")
+_A3H_BOFA_ACH = "{payer} DES:{entry} ID:1234567 INDN:CONTOSO TRUCKING INC CO ID:1234567890 CCD"
+
+
+def _a3h_factoring_aliases():
+    from analysis.classification_registry import FACTORING_PAYOUT_PAYERS
+
+    aliases = [alias for entity_aliases in FACTORING_PAYOUT_PAYERS.values() for alias in entity_aliases]
+    assert aliases, "FACTORING_PAYOUT_PAYERS holds no alias"
+    return aliases
+
+
+def test_a3h_a_freight_factor_s_wires_and_ach_payouts_are_counted_as_factoring_payouts():
+    # A3-H: a factoring payer the registry names (FACTORING_PAYOUT_PAYERS, never the lender ledger) pays the carrier's
+    # own invoices: counted and flagged as a factoring payout, never verified by a repeat, on a wire or an ACH entry.
+    for alias in _a3h_factoring_aliases():
+        wires = _records([(_A3H_BOFA_WIRE.format(n=n, orig=f"{alias} LLC"), 5150.0 + 330.0 * n) for n in (1, 2, 3)])
+        achs = _records([(_A3H_BOFA_ACH.format(payer=alias, entry="PAYMENT"), 5150.0 + 330.0 * n) for n in (1, 2)])
+        for record in (*wires, *achs):
+            assert record.revenue_classification == "unverified_deposit"
+            assert _tier(record) == ("counted_flagged", "factoring_payout")
+
+
+def test_a3h_the_factoring_payout_table_never_reads_a_debit_or_the_payee_groups():
+    # A3-H: the table is read by the true-revenue pass alone: a debit to the payer, and the credit's own group, keep
+    # their reading (no ledger entity, so no flag or lender reading moves).
+    alias = _a3h_factoring_aliases()[0]
+    debit, credit = _records([(f"{alias} DES:FUEL ID:1234567 INDN:CONTOSO TRUCKING INC CO ID:1234567890 CCD", -610.0),
+                              (_A3H_BOFA_ACH.format(payer=alias, entry="PAYMENT"), 5150.0)])
+    assert debit.classification not in {"factoring", "confirmed_lender", "potential_lender"}
+    assert debit.revenue_tier is None
+    assert credit.classification == "other"
+
+
+def test_a3h_a_numbered_schedule_alone_names_no_factor():
+    # A3-H: a generic SCHEDULE <n> purpose is out of scope (construction pay applications print schedules too): an
+    # unlisted company that wires twice with a schedule reference still verifies (Q5).
+    rows = _records([(_A3H_BOFA_WIRE.format(n=n, orig="NORTHWIND SOLUTIONS LLC"), 5150.0 + 330.0 * n) for n in (1, 2)])
+    assert rows[-1].revenue_match_method == "repeat_wire_sender"
+
+
+_A3H_CHASE = ("ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE: CO ENTRY DESCR:{entry}SEC:PPD "
+              "TRACE#:123456789012345 EED:540102 IND ID: IND NAME:NORTHWIND INS AGENCY TRN: 1234567890TC")
+_A3H_AGENCY = "{payer} DES:{entry} ID:1234567 INDN:NORTHWIND INS AGENCY CO ID:1234567890 PPD"
+
+
+@pytest.mark.parametrize("text", [
+    # A3-H: a healthcare, insurer or health-plan payer's premium-coded entry (PREM, PREMIUM, the Chase layout's glued
+    # PREMSEC) is a commission or a premium refund: counted and flagged with the named payer, never verified by Q6c.
+    _A3H_CHASE.format(payer="CIGNA", entry="CIGNA PREM"),
+    _A3H_AGENCY.format(payer="HUMANA", entry="PREM"),
+    _A3H_AGENCY.format(payer="HUMANA", entry="PREMIUM"),
+    _A3H_AGENCY.format(payer="NORTHWIND INS CO", entry="PREM"),
+])
+def test_a3h_an_insurer_s_premium_coded_credit_is_no_claim_payment(text):
+    record = _one(text, 640.0)
+    assert record.revenue_classification == "unverified_deposit"
+    assert _tier(record) == ("counted_flagged", "named_payer_purpose_refused")
+
+
+@pytest.mark.parametrize(("text", "method"), [
+    # A claim or plain payment still verifies, and an insurer's commission entry keeps its reading.
+    (_A3H_AGENCY.format(payer="HUMANA", entry="PAYMENT"), "public_or_healthcare_payer"),
+    (_A3H_AGENCY.format(payer="HUMANA", entry="COMM"), "public_or_healthcare_payer"),
+    (_A3H_AGENCY.format(payer="HUMANA", entry="PREMIER"), "public_or_healthcare_payer"),
+    # A government payer's PREM form is reported, never changed.
+    (_A3H_AGENCY.format(payer="SAMPLE COUNTY", entry="PREM"), "public_or_healthcare_payer"),
+])
+def test_a3h_a_claim_a_commission_and_a_government_payer_keep_their_verification(text, method):
+    assert _one(text, 640.0).revenue_match_method == method
+
+
+def test_a3h_a_glued_premium_code_reads_where_no_sec_code_splits_it():
+    # The revenue text splits a glued SEC code before its SEC label ('PREMSEC PPD'); a glued PREMSEC printed elsewhere
+    # is read as the premium code too.
+    from analysis.true_revenue import _premium_coded
+
+    assert _premium_coded("CIGNA DES PREMSEC ID 1234567", "CIGNA")
+    assert not _premium_coded("CIGNA DES PREMIER ID 1234567", "CIGNA")
+
+
+def test_a3h_a_premium_refund_stays_non_revenue():
+    # Non-revenue rules run first: the reversal rule's REFUND takes a premium refund out before any tier.
+    assert _one(_A3H_AGENCY.format(payer="HUMANA", entry="PREM REFUND"), 640.0).revenue_classification == "non_revenue"

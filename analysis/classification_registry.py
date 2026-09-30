@@ -1988,6 +1988,17 @@ DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
     "Lendbuzz": ("LENDBUZZ",),
 }
 
+#: 5.6 (A3-H, §8.9; lender-scope ruling 2026-09-24: factoring payouts are revenue, counted and flagged, never
+#: verified): freight-factoring payers whose credits the true-revenue pass alone reads (analysis/true_revenue.py), in
+#: the spelling the statements print. Not lender-ledger entities (the ledger's factoring group renders
+#: FACTORING_ALIASES, whose payee group reads debits and flags too): a credit from one is counted and flagged as a
+#: factoring payout (factoring_payout), and Q5 and Q6 never verify it nor count it toward a repeat. Evidence: Love's
+#: Solutions, LLC does business as Love's Financial, the Love's travel-stop group's freight-factoring provider
+#: (loves.com/en/financial-services/freight-factoring; the BBB lists it as a factoring service, Oklahoma City).
+FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
+    "Love's Solutions, LLC (Love's Financial)": ("LOVE S SOLUTIONS",),
+}
+
 #: 5.6 (§7.5, the standing rule; S4.2 review I6b): brokerage, investing and crypto-exchange platforms, as a regular
 #: expression read on the row before its receiver fields (analysis/true_revenue.py compiles it). A credit from one is
 #: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose.
