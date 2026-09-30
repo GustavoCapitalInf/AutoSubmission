@@ -38,10 +38,10 @@ from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
 from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
-from .description_text import normalize_transaction_description
+from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from .true_revenue import DealerFunding, apply_true_revenue_pass, dealer_funding_reading
+from .true_revenue import LENDER_DEBIT_STATES, DealerFunding, apply_true_revenue_pass, dealer_funding_reading
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -931,8 +931,11 @@ _LEADING_DATE = re.compile(r"^(?:0?[1-9]|[12]\d|3[01]) (?:0?[1-9]|[12]\d|3[01])(
 #: §7.0: the fields between Chase's originator and its entry description, and Bank of America's DES label.
 _CHASE_FIELDS_BETWEEN = re.compile(r" ORIG ID \S+ DESC DATE(?: \S+)? CO (?:ENTRY )?DESCR ")
 _BOFA_DES_FIELD = re.compile(r" DES ")
-#: §5.2: the receiver fields, where the bank prints the account holder (PNC labels its RECEIVER NAME).
-_CREDIT_RECEIVER_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID|RECEIVER NAME)\b")
+#: §5.2: the receiver fields, where the bank prints the account holder (PNC labels its RECEIVER NAME). 5.6 (final
+#: review I2): every receiver vocabulary is built from description_text's one tuple, RECV NAME included.
+_RECEIVER_FIELD_LABELS = "|".join(RECEIVER_FIELD_LABELS)
+_RECEIVER_NAME_LABELS = "|".join(RECEIVER_NAME_LABELS)
+_CREDIT_RECEIVER_FIELD = re.compile(rf"\b(?:{_RECEIVER_FIELD_LABELS})\b")
 #: A receiver field's value ends at the next ACH field: CO ID, TRN, TRACE or the SEC code (5.3, shared with
 #: _RECEIVER_FIELD_VALUE).
 _RECEIVER_VALUE_END = r".*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
@@ -1122,7 +1125,8 @@ def _joined_text(text: str) -> str:
 
 
 def _before_receiver(text: str) -> str:
-    """5.5 (§5.2): the row up to its first receiver field (INDN, IND NAME, IND ID, RECEIVER NAME)."""
+    """5.5 (§5.2): the row up to its first receiver field (description_text.RECEIVER_FIELD_LABELS: INDN, IND NAME,
+    RECEIVER NAME, RECV NAME, IND ID)."""
     return _CREDIT_RECEIVER_FIELD.split(text, 1)[0].rstrip()
 
 
@@ -1951,11 +1955,24 @@ def _counter_debit_skip_words() -> frozenset[str]:
     return _COUNTER_DEBIT_SKIP_WORDS | frozenset(_ENTITY_NOISE) | _CHANNEL_VOCABULARY | _BANK_TEMPLATE_WORDS
 
 
-#: §7.6: the public-payer remittance rule. Arm A reads the whole row.
-_PUBLIC_PAYER_ARM_A = (
-    re.compile(r"^(?!.*\bPPD\b).*\bTREAS \d{3}(?: DES)? DOD MISC\b"),
-    re.compile(r"\bTREAS \d{3}\b.*\bMISC PAY(?:SEC)?\b.*\bRMR IV\b"),
-)
+#: §7.6: the public-payer remittance rule. Arm A reads the whole row: a DOD MISC Treasury code on a row that prints no
+#: PPD, or a Treasury code, then MISC PAY, then RMR IV. 5.6 (final review M1): the three codes are read by chained
+#: searches (_public_payer_arm_a), each from the end of the one before, which is linear; the '.*' pattern it replaces
+#: was cubic on a long row.
+_PUBLIC_PAYER_ARM_A_DOD = re.compile(r"^(?!.*\bPPD\b).*\bTREAS \d{3}(?: DES)? DOD MISC\b")
+_TREASURY_CODE = re.compile(r"\bTREAS \d{3}\b")
+_MISC_PAY_CODE = re.compile(r"\bMISC PAY(?:SEC)?\b")
+_RMR_IV_CODE = re.compile(r"\bRMR IV\b")
+
+
+def _public_payer_arm_a(text: str) -> bool:
+    """§7.6 arm A (final review M1): the DOD MISC form, or the Treasury code, MISC PAY and RMR IV in this order. The
+    earliest match of each code is the one to chain from: any later one leaves less of the row to the next."""
+    if _PUBLIC_PAYER_ARM_A_DOD.search(text) is not None:
+        return True
+    treasury = _TREASURY_CODE.search(text)
+    misc = _MISC_PAY_CODE.search(text, treasury.end()) if treasury is not None else None
+    return misc is not None and _RMR_IV_CODE.search(text, misc.end()) is not None
 #: §7.6 arm B: a public payer anchored on the payer name.
 _PUBLIC_PAYER_NAME = re.compile(
     r"^((?:\S+ ){0,3})(?:TREAS \d{3}"
@@ -2304,7 +2321,7 @@ def _public_payer_remittance(text: str) -> str | None:
     row = _before_receiver(whole)
     if _PUBLIC_PAYER_NON_SALE_WORDS.search(whole) or _PUBLIC_PAYER_OTHER_VETO.search(whole):
         return None
-    if any(pattern.search(whole) for pattern in _PUBLIC_PAYER_ARM_A):
+    if _public_payer_arm_a(whole):
         return "treasury_vendor_payment"
     name = _PUBLIC_PAYER_TEMPLATE.sub("", _payee_region(row).strip(), count=1)
     found = _PUBLIC_PAYER_NAME.match(name)
@@ -2841,11 +2858,13 @@ _WIRE_BENEFICIARY_PATTERNS = (
     re.compile(r"\bBNF(?: FFC)?\b"),
     re.compile(r"\bWIRE TRANSFER VIA\b.*?\bA C\b"),
 )
-#: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
-_RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
+#: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME). 5.6
+#: (final review I2): the one tuple's field labels, as _CREDIT_RECEIVER_FIELD reads them.
+_RECEIVER_NAME_FIELD = re.compile(rf"\b(?:{_RECEIVER_FIELD_LABELS})\b")
 #: 5.3 (owner ruling 2026-09-27): a receiver-name field with its value, up to the next ACH field, removed before the
-#: debt-relief table is read: the account holder's own name never makes a row debt relief.
-_RECEIVER_FIELD_VALUE = re.compile(r"\b(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b" + _RECEIVER_VALUE_END)
+#: debt-relief table is read: the account holder's own name never makes a row debt relief. 5.6 (final review I2): the
+#: one tuple's name labels.
+_RECEIVER_FIELD_VALUE = re.compile(rf"\b(?:{_RECEIVER_NAME_LABELS})\b" + _RECEIVER_VALUE_END)
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
 _LEADING_PREFIX_WORDS = frozenset({
     "BILL", "BILLS", "PRE", "AUTHORIZED", "AUTHORISED", "RECURRING", "RECUR", "INTERNET", "BANKING", "PAIEMENT",
@@ -4253,7 +4272,7 @@ def _recurrence_veto_word(
     the merchant's store name, which is the holder's, in its entry field ('DOORDASH INC DES:<store> CAPITA ...
     INDN:<store> CAPITAL GROUP'). On every other source, and on a row no registry source decided, a veto word always
     vetoes (S2.4 review)."""
-    if entity not in _STORE_NAME_PAYOUT_ENTITIES:
+    if entity not in _STORE_NAME_PAYOUT_ENTITIES or not store_name_printed(text, entity):
         return pattern.search(_before_receiver(text)) is not None
     holder = set(holder_words(account_name))
     for found in _RECEIVER_FIELD_VALUE.finditer(text):
@@ -4265,6 +4284,28 @@ def _recurrence_veto_word(
             continue
         return True
     return False
+
+
+def store_name_printed(text: str, entity: str | None) -> bool:
+    """§7.0 (final review I4): a store-name platform's row prints a store name where the platform prints the merchant's
+    store: its entry field (Bank of America's DES, Chase's CO ENTRY DESCR), or the row before its receiver fields on a
+    layout that prints none (BMO's 'DIRECT DEPOSIT DOORDASH <store> MSP/DIV'). A store name is a word that is no veto
+    or financing word (_RECURRENCE_VETO, _FUNDING_WORD), no generic word, no reference token, no company form and none
+    of the platform's own alias words. A veto word that is the whole field, or forms it alone with generic words
+    ('DES:CAPITAL', 'DES:CAPITAL ADVANCE', 'DES:LENDING PAYMENT'), is the platform's own financing wording, so the
+    holder's word exemption never reads it."""
+    row = _before_receiver(text)
+    fields = [found.group(1).strip() for pattern in (_BOFA_ENTRY_FIELD, _CHASE_ENTRY_FIELD)
+              if (found := pattern.search(row)) is not None]
+    field = " ".join(fields) if any(fields) else row
+    platform = {word for alias in OPERATING_REVENUE_SOURCE_ALIASES.get(entity or "", ()) for word in alias.split()}
+    return any(
+        not (
+            _RECURRENCE_VETO.fullmatch(word) or _FUNDING_WORD.fullmatch(word) or word in REVENUE_GENERIC_WORDS
+            or _is_reference_token(word) or _BANK_COMPANY_FORM.fullmatch(word) or word in platform
+        )
+        for word in field.split()
+    )
 
 
 def _in_operating_pool(record: TransactionClassification) -> bool:
@@ -4654,7 +4695,7 @@ def _debit_word_reading(record: TransactionClassification) -> tuple[str | None, 
 
 def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
     """5.5 (§7.5, §8.1): a posted debit's first distinctive word (_debit_word_reading), a card purchase's merchant
-    included: pass 6's counter-debit guard reads it."""
+    included. Passes 6 and 7 read _debit_word_reading itself, with its card flag (final review I5)."""
     return _debit_word_reading(record)[0]
 
 
@@ -4664,13 +4705,17 @@ def _apply_payer_remittance_counter_debit_guard(
 ) -> list[TransactionClassification]:
     """Statement pass 6 (§6.2, §7.5): a credit the payer-remittance rule verified goes back to unverified when a
     posted debit in the same statement shares the payer's first distinctive word (an own account, an affiliate or a
-    funder that collects)."""
-    debit_words = {
-        word
-        for index, record in enumerate(records)
-        if index not in duplicate_indexes and record.amount < 0 and record.is_posted
-        and (word := _debit_first_distinctive_word(record)) is not None
-    }
+    funder that collects). 5.6 (final review I5, §20): a card purchase the classifier names as no lender or financing
+    payee is left out (_debit_word_reading's card flag), as pass 7's payer_also_debited leaves it out (8cb733b):
+    buying from a customer by card is spending, never the circular money the guard holds."""
+    debit_words = set()
+    for index, record in enumerate(records):
+        if index in duplicate_indexes or record.amount >= 0 or not record.is_posted:
+            continue
+        word, card_purchase = _debit_word_reading(record)
+        if word is None or (card_purchase and record.classification not in LENDER_DEBIT_STATES):
+            continue
+        debit_words.add(word)
     updated = list(records)
     for index, record in enumerate(records):
         if record.revenue_match_method != "payer_remittance_descriptor":

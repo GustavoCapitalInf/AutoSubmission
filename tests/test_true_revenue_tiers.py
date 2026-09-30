@@ -2073,8 +2073,8 @@ def test_a3g_review_a_digit_without_its_slash_is_part_of_the_name():
     # A3-G review: a SWIFT 50F line number prints with its slash ('1/'); a name that starts with a number keeps it.
     from analysis.transaction_classifier import payer_region, revenue_text
 
-    record = _one(_A3_WIRE.format(n=1, orig="2 BROTHERS PIZZA LLC"), 5000.0)
-    assert payer_region(revenue_text(record.normalized_description)) == "2 BROTHERS PIZZA LLC"
+    record = _one(_A3_WIRE.format(n=1, orig="2 NORTHWIND BAKERS LLC"), 1234.0)
+    assert payer_region(revenue_text(record.normalized_description)) == "2 NORTHWIND BAKERS LLC"
 
 
 _A3G_BOOK_IN = ("WIRE TYPE:BOOK IN DATE:540102 TIME:1200 ET TRN:20540102000012{n} SNDR REF:12345678 ORIG:{orig} "
@@ -2623,3 +2623,187 @@ def test_a3h_review_2_an_apostrophe_spelled_as_a_spaced_s_has_its_run_together_s
         for alias in aliases:
             if " S " in alias:
                 assert alias.replace(" S ", "S ", 1) in aliases
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The final whole-branch review's fix wave (2026-09-30): fabricated rows only.
+# ---------------------------------------------------------------------------------------------------------------------
+_FW_BOFA = "{payer} DES:PAYMENT ID:{n} INDN:{holder} CO ID:1234567890 {sec}"
+_FW_CHASE = ("ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:PAYMENT SEC:{sec} TRACE#:1234 "
+             "EED:540302 IND ID:{n} IND NAME:{holder} TRN: 1234TC")
+
+
+def _fw_method(record):
+    return record.revenue_classification, record.revenue_match_method
+
+
+@pytest.mark.parametrize("layout", [_FW_BOFA, _FW_CHASE])
+def test_a_web_named_holder_never_makes_an_ach_payer_a_consumer_entry(layout):
+    # Final review I1: the PPD/WEB test reads the SEC code's own slot, never the receiver field (the holder's name).
+    holder = "CONTOSO WEB STUDIO LLC"
+    one = _one(layout.format(payer="NORTHWIND SUPPLY LLC", n=1, holder=holder, sec="CCD"), 2345.0, holder=holder)
+    assert _fw_method(one) == ("verified_revenue", "named_payer_company_form")
+    twice = _records([(layout.format(payer="NORTHWIND SUPPLY", n=n, holder=holder, sec="CCD"), 2345.0 + n)
+                      for n in (1, 2)], holder=holder)
+    assert {_fw_method(record) for record in twice} == {("verified_revenue", "named_payer_repeats")}
+
+
+@pytest.mark.parametrize("layout", [_FW_BOFA, _FW_CHASE])
+def test_a_web_named_payer_is_no_consumer_entry(layout):
+    # Final review I1: nor is the payer's own name read as an SEC code.
+    record = _one(layout.format(payer="NORTHWIND WEB DESIGN LLC", n=1, holder=HOLDER, sec="CCD"), 2345.0)
+    assert _fw_method(record) == ("verified_revenue", "named_payer_company_form")
+
+
+@pytest.mark.parametrize("text", [
+    _FW_BOFA.format(payer="NORTHWIND SUPPLY LLC", n=1, holder=HOLDER, sec="PPD"),
+    _FW_BOFA.format(payer="NORTHWIND SUPPLY LLC", n=1, holder=HOLDER, sec="WEB"),
+    _FW_BOFA.format(payer="NORTHWIND SUPPLY LLC", n=1, holder=HOLDER, sec="PPD PMT INFO:INV 1234"),
+    _FW_CHASE.format(payer="NORTHWIND SUPPLY LLC", n=1, holder=HOLDER, sec="PPD"),
+    _FW_CHASE.format(payer="NORTHWIND SUPPLY LLC", n=1, holder=HOLDER, sec="WEB"),
+    "ORIG CO NAME:NORTHWIND SUPPLY LLC ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:PAYMENT PPD TRACE#:1234",
+    "NORTHWIND SUPPLY LLC EFT PAYMENT 540302 WEB ID:1234567890",
+    "FABRIKAM INC DES:PAYMENT ID:1 PPD",
+])
+def test_a_ppd_or_web_entry_in_its_sec_slot_stays_a_consumer_entry(text):
+    # Final review I1: the code in its slot (Chase's SEC <code> or <code> before TRACE or ID, the code Bank of America
+    # prints after the company id or at the row's end) still refuses the company-form verification.
+    assert _tier(_one(text, 2500.0)) == ("counted_flagged", "named_payer_one_off")
+
+
+def test_ppd_repeats_in_their_sec_slot_never_verify_by_repetition():
+    rows = [(_FW_BOFA.format(payer="NORTHWIND SUPPLY", n=n, holder=HOLDER, sec="PPD"), 2345.0 + n) for n in (1, 2)]
+    assert {_tier(record) for record in _records(rows)} == {("counted_flagged", "named_payer_one_off")}
+
+
+def test_recv_name_is_a_receiver_field_so_the_holder_never_names_an_operating_source():
+    # Final review I2: every receiver vocabulary is built from one tuple, RECV NAME included: the holder's name in a
+    # RECV NAME field ('SQUARE ONE BAKERY') never names Square, so nothing verifies by Square's recurrence.
+    holder = "SQUARE ONE BAKERY LLC"
+    rows = [(f"NORTHWIND PAYMENTS DES:DEPOSIT ID:{n} RECV NAME SQUARE ONE BAKERY CO ID:1234567890 CCD", 1200.0 + n)
+            for n in range(3)]
+    records = _records(rows, holder=holder)
+    assert {record.revenue_canonical_entity for record in records} == {None}
+    assert "recurring_operating_source" not in {record.revenue_match_method for record in records}
+    from analysis import transaction_classifier as tc
+    from analysis.description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS
+
+    assert "RECV NAME" in RECEIVER_NAME_LABELS and set(RECEIVER_NAME_LABELS) <= set(RECEIVER_FIELD_LABELS)
+    text = "NORTHWIND PAYMENTS DES DEPOSIT ID 1 RECV NAME SQUARE ONE BAKERY CO ID 1234567890 CCD"
+    assert tc._before_receiver(text) == "NORTHWIND PAYMENTS DES DEPOSIT ID 1"
+    assert "SQUARE" not in tc._without_receiver_value(text)
+
+
+_FW_ACH = "{payer} DES:PAYMENT ID:1234 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD"
+
+
+@pytest.mark.parametrize("payer", [
+    "ANTHEM ROOFING", "WPS INDUSTRIES", "SAMPLE ANTHEM ROOFING", "OPTUM ROOFING", "CIGNA CLEANING", "AETNA LANDSCAPE",
+    "ZELIS TRUCKING", "ANTHEM ROOFING HEALTH", "NORTHWIND UHC", "VPAY SOLUTIONS SAMPLE",
+])
+def test_a_short_healthcare_alias_is_read_only_as_the_whole_payer_name(payer):
+    # Final review I3: WPS, UHC, ANTHEM, VPAY and every other alias of five letters or fewer name a healthcare payer
+    # only as the whole payer name (a company form or a health-plan word may follow), never inside a business name.
+    from analysis.true_revenue import healthcare_payer
+
+    assert not healthcare_payer(payer)
+    assert _one(_FW_ACH.format(payer=payer), 2345.0).revenue_match_method != "public_or_healthcare_payer"
+
+
+@pytest.mark.parametrize("payer", [
+    "WPS", "WPS HEALTH SOLUTIONS", "WPS HEALTH INSURANCE", "UHC", "UHC PLAN OF THE SAMPLE VALLEY", "UHC COMMUNITY PLAN",
+    "UHC BENEFITS", "ANTHEM BLUE CROSS", "ANTHEM INS COMPANIES INC", "ANTHEM HEALTH PLANS", "ANTHEM INC", "VPAY",
+    "VPAY CLAIMS", "AETNA", "AETNA LIFE INS", "AETNA HEALTH INC", "CIGNA", "CIGNA HLTH LIFE", "CIGNA HEALTHCARE",
+    "OPTUM", "OPTUM VA CCN", "ZELIS HEALTHCARE", "HCCLAIMPMT UHC COMMUNITY PLAN", "ANTHEM BCBS", "ANTHEM BCBSGA",
+])
+def test_a_short_healthcare_alias_with_its_plan_words_is_still_a_healthcare_payer(payer):
+    from analysis.true_revenue import healthcare_payer
+
+    assert healthcare_payer(payer)
+
+
+@pytest.mark.parametrize("payer", ["WPS", "WPS HEALTH SOLUTIONS", "UHC COMMUNITY PLAN", "ANTHEM BLUE CROSS", "VPAY",
+                                   "AETNA", "OPTUM VA CCN"])
+def test_a_whole_name_short_healthcare_alias_still_verifies_by_q6c(payer):
+    assert _fw_method(_one(_FW_ACH.format(payer=payer), 2345.0)) == ("verified_revenue", "public_or_healthcare_payer")
+
+
+_FW_STORE = "DOORDASH INC DES:{entry} ID:ST-A1B2C{n} INDN:SAMPLE {word} GROUP LLC CO ID:1234567890 CCD"
+
+
+@pytest.mark.parametrize(("word", "entry"), [
+    ("CAPITAL", "CAPITAL"), ("LENDING", "LENDING"), ("FUNDING", "FUNDING"), ("CAPITAL", "CAPITAL ADVANCE"),
+    ("CAPITAL", "CAPITAL PAYMENT"), ("ADVANCE", "ADVANCE"),
+])
+def test_a_store_name_platform_s_financing_entry_never_takes_the_holder_s_word_exemption(word, entry):
+    # Final review I4: a veto word that is the whole entry field, or forms it alone with generic words, is the
+    # platform's own financing wording, never the holder's store name: the credit is held as financing, as it is for
+    # a holder whose name lacks the word, while the holder's genuine store payouts still verify by recurrence.
+    holder = f"SAMPLE {word} GROUP LLC"
+    rows = [(_FW_STORE.format(entry=f"SAMPLE {word[:6]}", n=n, word=word), 1200.0 + n) for n in range(3)]
+    rows.append((_FW_STORE.format(entry=entry, n=9, word=word), 25000.0))
+    records = _records(rows, holder=holder)
+    assert {record.revenue_match_method for record in records[:3]} == {"recurring_operating_source"}
+    assert _tier(records[3]) == ("excluded_pending_review", "financing_named_payer")
+    neutral = _records([(text.replace(f"SAMPLE {word} GROUP", "SAMPLE BAKERY"), amount) for text, amount in rows],
+                       holder="SAMPLE BAKERY LLC")
+    assert _tier(neutral[3]) == _tier(records[3])
+
+
+@pytest.mark.parametrize("entry", ["NORTHWIND AND CAPITA", "N AND S CAPITA", "SAMPLE CAPITAL GRILL"])
+def test_a_store_name_that_holds_the_holder_s_veto_word_still_verifies(entry):
+    rows = [(f"DOORDASH INC DES:{entry} ID:ST-A1B2C{n} INDN:NORTHWIND CAPITAL GRILL LLC CO ID:1234567890 CCD",
+             1200.0 + n) for n in range(3)]
+    records = _records(rows, holder="NORTHWIND CAPITAL GRILL LLC")
+    assert {record.revenue_match_method for record in records} == {"recurring_operating_source"}
+
+
+def test_a_no_entry_field_store_payout_that_prints_only_a_veto_word_is_held():
+    # BMO prints no entry field ('DIRECT DEPOSIT DOORDASH <store> MSP/DIV'): the row itself is the store's field.
+    rows = [(f"DIRECT DEPOSIT DOORDASH CAPITAL MSP/DIV {n}", 25000.0 + n) for n in range(3)]
+    records = _records(rows, holder="SAMPLE CAPITAL GROUP LLC")
+    assert "verified_revenue" not in {record.revenue_classification for record in records}
+
+
+def test_q7_reads_the_strong_non_revenue_words_without_the_holder_s_receiver_name():
+    # Final review M9 (§20): Q7 reads the strong non-revenue patterns on the row without the receiver field's value,
+    # so a holder named '... LOAN ...' never stops a listed lender's dealer funding (a declared move out of
+    # non_revenue: the whole-row read would decide it non_revenue).
+    holder = "NORTHWIND LOAN CENTER LLC"
+    record = _one(f"CU DIRECT DES:DEALER PMT ID:1 INDN:{holder} CO ID:1234567890 CCD", 25000.0, holder=holder)
+    assert _fw_method(record) == ("verified_revenue", "auto_lender_dealer_funding")
+
+
+def test_q7_reads_an_insurer_glued_to_its_claim_entry_as_step_5_does():
+    # Final review M9: Q7's insurer check reads step 5's lookup text, a glued HCCLAIMPMT split from the name before it.
+    glued = _one("WESTLAKE FINANCIAL DES:DEALER PMT ID:1 INDN:SAMPLE MOTORS LLC CO ID:1234567890 CCD PMT "
+                 "INFO:STATE FARMHCCLAIMPMT 1234", 25000.0, holder="SAMPLE MOTORS LLC")
+    assert glued.revenue_match_method != "auto_lender_dealer_funding"
+    plain = _one("WESTLAKE FINANCIAL DES:DEALER PMT ID:1 INDN:SAMPLE MOTORS LLC CO ID:1234567890 CCD", 25000.0,
+                 holder="SAMPLE MOTORS LLC")
+    assert plain.revenue_match_method == "auto_lender_dealer_funding"
+
+
+@pytest.mark.parametrize("text", [
+    "BOOK TRANSFER CREDIT B O {alias} FOR PETS SAMPLEVILLE OK 12345 US REF INV 1234 TRN 1234567890JS",
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O {alias} FOR PETS SAMPLEVILLE OK 12345 US REF SAMPLE NYC CTR "
+    "BNF CONTOSO TRUCKING INC OBI INV 1234",
+    "BOOK TRANSFER CREDIT B O {alias} OF THE SAMPLE OK 12345 US REF INV 1234 TRN 1234567890JS",
+    "BOOK TRANSFER CREDIT B O {alias} AND PETS OK 12345 US REF INV 1234 TRN 1234567890JS",
+])
+def test_a_connector_word_after_a_factor_s_alias_is_no_address(text):
+    # [A3H-m1]: FOR, OF, AND and THE join a longer name ('<alias> FOR PETS'), never an address's place words.
+    for alias in _a3h_factoring_aliases():
+        assert _a3h_factor(text.format(alias=alias))[1] != "factoring_payout"
+
+
+def test_a_factor_s_plain_b_o_address_is_still_the_factor():
+    for alias in _a3h_factoring_aliases():
+        text = f"BOOK TRANSFER CREDIT B O {alias} SAMPLEVILLE OK 12345 US REF INV 1234 TRN 1234567890JS"
+        assert _a3h_factor(text) == ("counted_flagged", "factoring_payout")
+
+
+@pytest.mark.parametrize("payer", ["ANTHEM ROOFING", "WPS INDUSTRIES"])
+def test_a_business_named_with_a_short_healthcare_alias_is_a_one_off_payer(payer):
+    # The reviewer's probe: the control NORTHWIND ROOFING stays named_payer_one_off, and so do these now.
+    assert _tier(_one(_FW_ACH.format(payer=payer), 2345.0)) == ("counted_flagged", "named_payer_one_off")

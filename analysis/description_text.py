@@ -9,6 +9,14 @@ from __future__ import annotations
 import re
 import unicodedata
 
+#: 5.6 (true revenue spec §5.2, §20; final review I2): the receiver-name labels, where a bank prints the account
+#: holder on an incoming ACH row: Bank of America's INDN, Chase's IND NAME, PNC's RECEIVER NAME and its short RECV
+#: NAME. Every receiver-field vocabulary of the classifier and the true-revenue pass is built from this one tuple.
+RECEIVER_NAME_LABELS: tuple[str, ...] = ("INDN", "IND NAME", "RECEIVER NAME", "RECV NAME")
+#: ... and the labels that open a receiver block: the name labels and Chase's IND ID, the receiver's id, printed
+#: before its IND NAME (it carries no name, so it is no name label).
+RECEIVER_FIELD_LABELS: tuple[str, ...] = (*RECEIVER_NAME_LABELS, "IND ID")
+
 #: 5.5 (true revenue spec §7.11): a street address ends in LN: a token of digits, then one to three alphabetic
 #: tokens, then LN ('12 OAK LN'). Such an LN is a lane, never a loan, unless a loan-product word sits among those
 #: tokens or LN is followed by a loan-payment word ('1234 COMMERCIAL LN PMT', '000123 AUTO LN DISB' read LOAN).
@@ -38,7 +46,7 @@ _LN_WORD = re.compile(r"\bLN\b")
 #: 5.6 (true revenue spec §20, A3-G review): a SWIFT field-50F line number printed with its slash right after a wire's
 #: originator label ('ORIG:1/NORTHWIND', 'B/O 1/NORTHWIND'; lines 1 to 3 hold the name, the address and the country
 #: and town). It is never part of the name, and the slash is lost below, so the number is dropped here, where the
-#: slash still shows. A name that starts with a number ('ORIG:2 BROTHERS PIZZA LLC') keeps it.
+#: slash still shows. A name that starts with a number ('ORIG:2 NORTHWIND BAKERS LLC') keeps it.
 _SWIFT_LINE_NUMBER = re.compile(r"(\b(?:ORIG|ORG|ORIGINATOR|B/O|BY ORDER OF)\b\s*[:=]?\s*)[1-3] ?/ ?(?=[A-Z])")
 
 

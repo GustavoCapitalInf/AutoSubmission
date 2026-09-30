@@ -35,6 +35,7 @@ from .classification_registry import (
     SECTION_15_DEFERRED_PAYERS,
     STATEMENT_BANK_PRINTED_NAMES,
 )
+from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS
 from .flag_groups import FINANCING_STATES
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 from .revenue import revenue_contribution_flags
@@ -189,7 +190,26 @@ _VERIFICATION_ONLY = re.compile(
     r"|\b(?:TAX|IRS|CRA|FEE|SCF|RMA)\b"
 )
 _ENTRY_VERIFICATION_ONLY = re.compile(r"(?<![A-Z])(?:FLOOR ?PLAN\b|FLOORPLAN\b|EQUIP\w*)|\bVIN\b")
-_CONSUMER_ENTRY = re.compile(r"\b(?:PPD|WEB)\b")
+#: §8.6 (final review I1): a PPD or WEB entry is read only in the SEC code's own slot: Chase's 'SEC <code>' (its glued
+#: 'HCCLAIMPMTSEC CCD' split by revenue_text), the code printed right before its TRACE or ID field when a line wrap
+#: drops the label ('... PAYMENT PPD TRACE', '... 540302 WEB ID <id>'), the code Bank of America prints after the
+#: company id or at the row's end ('CO ID <id> PPD', 'ID <id> PPD'), and a layout's 'ACH <code>'. Never a name or a
+#: receiver field: each receiver field's value is removed first, up to the next CO ID, TRN, TRACE or SEC field (not
+#: at a code word, so 'INDN:CONTOSO WEB STUDIO LLC CO ID <id> CCD' is a CCD entry).
+_CONSUMER_ENTRY = re.compile(
+    r"\bSEC (?:PPD|WEB)\b|\b(?:PPD|WEB) (?:TRACE|ID)\b|\bID \S+ (?:PPD|WEB)\b|\bACH (?:PPD|WEB)\b"
+)
+_RECEIVER_THROUGH_NEXT_FIELD = re.compile(
+    rf"\b(?:{'|'.join(RECEIVER_FIELD_LABELS)})\b.*?(?=\b(?:CO ID|TRN|TRACE|SEC)\b|$)"
+)
+
+
+def consumer_entry(text: str) -> bool:
+    """§8.6 (final review I1): the row prints a PPD or WEB entry in its SEC code's slot (_CONSUMER_ENTRY), read on
+    the row with every receiver field's value removed (_RECEIVER_THROUGH_NEXT_FIELD)."""
+    return _CONSUMER_ENTRY.search(_RECEIVER_THROUGH_NEXT_FIELD.sub(" ", text)) is not None
+
+
 #: §8.6 method names.
 _Q6_METHODS = ("named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer")
 #: §8.1 (review C2): the financing words on a registry row: the recurrence veto's financing words (§7.0), the
@@ -209,8 +229,9 @@ _REGISTRY_METHODS = frozenset({
 })
 #: §5.3: tiers by revenue state; the two middle tiers are unverified.
 _TIER_OF_STATE = {"verified_revenue": "verified", "non_revenue": "non_revenue"}
-#: §8.10: the lender and financing debit states payer_debited_as_lender reads.
-_LENDER_DEBIT_STATES = frozenset({"confirmed_lender", "potential_lender"}) | FINANCING_STATES
+#: §8.10: the lender and financing debit states payer_debited_as_lender reads (and, final review I5, the states
+#: whose card purchase pass 6 still reads: transaction_classifier imports it).
+LENDER_DEBIT_STATES = frozenset({"confirmed_lender", "potential_lender"}) | FINANCING_STATES
 #: §7.5, the standing rule (S4.2 review I6b): brokerage, investing and crypto-exchange platforms (the registry's
 #: OWNER_MONEY_PLATFORMS, §7.0: a table that names companies lives there). A credit from one is the owner's own money
 #: coming back (owner money never becomes revenue): held as non_sale_purpose. The classifier's consumer savings and
@@ -378,8 +399,9 @@ _RECEIVER_HOLDER_MIN_CREDITS = 2
 _RECEIVER_HOLDER_MIN_WORDS = 2
 _RECEIVER_HOLDER_MIN_LETTERS = 8
 _RECEIVER_HOLDER_RUN_LETTERS = 12
-#: §8.1 (A3-G refinement): the receiver field's label, before its value.
-_RECEIVER_LABEL = re.compile(r"^\s*(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b\s*")
+#: §8.1 (A3-G refinement): the receiver field's label, before its value (final review I2: the one tuple's name labels,
+#: description_text.RECEIVER_NAME_LABELS).
+_RECEIVER_LABEL = re.compile(rf"^\s*(?:{'|'.join(RECEIVER_NAME_LABELS)})\b\s*")
 #: §8.1 (A3-G refinement): a receiver value that names a bank is never the holder's name.
 _RECEIVER_BANK_WORDS = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|SAVINGS|FCU)\b|\bCU\b")
 #: A3-G: Bank of America's sending-bank field, up to its next field.
@@ -405,7 +427,7 @@ _TRUST_NOT_PLACE_WORDS = frozenset({
     "CUSTODY", "CUSTODIAN", "CUSTODIANS", "ADMINISTRATOR", "ADMINISTRATORS",
     "ROOFING", "LANDSCAPE", "CONSTRUCTION", "CONTRACTING", "CONTRACTORS", "PLUMBING", "ELECTRIC", "ELECTRICAL", "HVAC",
     "LANDSCAPING", "TRUCKING", "TRANSPORT", "LOGISTICS", "CLEANING", "SUPPLY", "SALES", "MARKETING", "CONSULTING",
-    "DESIGN", "AUTO", "MOTORS", "RESTAURANT", "BAKERY", "CAFE", "GRILL", "PIZZA", "DENTAL", "MEDICAL", "CLINIC",
+    "DESIGN", "AUTO", "MOTORS", "RESTAURANT", "BAKERY", "CAFE", "GRILL", "DELI", "DENTAL", "MEDICAL", "CLINIC",
     "PHARMACY", "SALON", "SPA", "FITNESS", "STUDIO", "MEDIA", "PRODUCTIONS", "TECHNOLOGIES", "TECH", "SYSTEMS",
     "ENTERPRISES", "INDUSTRIES", "MANUFACTURING", "FARMS", "RANCH", "TRAVEL", "HOMES", "BUILDERS", "REMODELING",
     "PAINTING", "FLOORING", "STORE", "SHOP", "MARKET", "WHOLESALE", "DISTRIBUTION", "IMPORTS", "EXPORTS", "TRADING",
@@ -469,9 +491,77 @@ def _classifier():
     return transaction_classifier
 
 
+#: §5.2, §8.6 (final review I3): a healthcare alias of this many letters or fewer (WPS, UHC, VPAY, AETNA, CIGNA,
+#: OPTUM, ZELIS, VA CCN), and ANTHEM, a common word in business names, is read only as the whole payer name: the
+#: region is the alias, before it only reference tokens, generic words and health-plan words, and after it nothing, a
+#: reference token, a company form, a health-plan word (_HEALTH_PLAN_WORDS, a Blue-plan form) or another healthcare
+#: alias, which may then run on ('UHC PLAN OF THE <place>'). 'ANTHEM ROOFING' and 'WPS INDUSTRIES' are other
+#: companies. A longer alias keeps the registry's token read.
+_SHORT_HEALTHCARE_ALIAS_LETTERS = 5
+_WHOLE_NAME_HEALTHCARE_ALIASES = frozenset({"ANTHEM"})
+_HEALTH_PLAN_WORDS = frozenset({
+    "HEALTH", "HEALTHCARE", "HLTH", "HLTHCARE", "HC", "PLAN", "PLANS", "INS", "INSURANCE", "INSUR", "CLAIM", "CLAIMS",
+    "CLMS", "HCCLAIMPMT", "BLUE", "BC", "BCBS", "LIFE", "BENEFIT", "BENEFITS", "COMMUNITY", "MEDICARE", "MEDICAID",
+    "DENTAL", "VISION", "RX", "PHARMACY", "PROVIDER", "NETWORK",
+})
+_BLUE_PLAN_WORD = re.compile(r"BCBS[A-Z]*")
+
+
+def _short_healthcare_alias(alias: str) -> bool:
+    return len(alias.replace(" ", "")) <= _SHORT_HEALTHCARE_ALIAS_LETTERS or alias in _WHOLE_NAME_HEALTHCARE_ALIASES
+
+
+@cache
+def _short_healthcare_aliases() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """(entity, alias words) of every short healthcare alias, the longest first."""
+    found = [
+        (entity, tuple(alias.split()))
+        for entity, aliases in HEALTHCARE_PAYER_ALIASES.items()
+        for alias in aliases
+        if _short_healthcare_alias(alias)
+    ]
+    return tuple(sorted(found, key=lambda item: -len(" ".join(item[1]))))
+
+
+def _health_plan_word(word: str) -> bool:
+    return word in _HEALTH_PLAN_WORDS or _BLUE_PLAN_WORD.fullmatch(word) is not None
+
+
+def healthcare_payer_match(region: str) -> tuple[str, str] | None:
+    """§5.2 (final review I3): the (entity, alias) HEALTHCARE_PAYER_ALIASES names on a payer region, a short alias
+    only as the whole payer name (_short_healthcare_alias); or None."""
+    if not region:
+        return None
+    found = registry_match(region, HEALTHCARE_PAYER_ALIASES)
+    if found is None or not _short_healthcare_alias(found[1]):
+        return found
+    classifier = _classifier()
+    words = region.split()
+    start = 0
+    while start < len(words) and (
+        classifier._is_reference_token(words[start]) or _health_plan_word(words[start])
+        or words[start] in classifier.REVENUE_GENERIC_WORDS
+    ):
+        start += 1
+    for entity, alias in _short_healthcare_aliases():
+        if tuple(words[start:start + len(alias)]) != alias:
+            continue
+        rest = words[start + len(alias):]
+        while rest and classifier._is_reference_token(rest[0]):
+            rest = rest[1:]
+        if not rest or _health_plan_word(rest[0]) or classifier._BANK_COMPANY_FORM.fullmatch(rest[0]) is not None:
+            return entity, " ".join(alias)
+        # Another healthcare alias right after it ('OPTUM VA CCN').
+        other = registry_match(" ".join(rest), HEALTHCARE_PAYER_ALIASES)
+        if other is not None and tuple(rest[:len(other[1].split())]) == tuple(other[1].split()):
+            return entity, " ".join(alias)
+    return None
+
+
 def healthcare_payer(region: str) -> bool:
-    """§5.2: a payer region that matches HEALTHCARE_PAYER_ALIASES."""
-    return bool(region) and registry_match(region, HEALTHCARE_PAYER_ALIASES) is not None
+    """§5.2: a payer region that matches HEALTHCARE_PAYER_ALIASES (final review I3: a short alias only as the whole
+    payer name, healthcare_payer_match)."""
+    return healthcare_payer_match(region) is not None
 
 
 def government_payer(region: str) -> bool:
@@ -1194,7 +1284,9 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
         return None
     if registry_match(text, classifier.POTENTIAL_LENDER_ALIASES) is not None:
         return None
-    if classifier._insurance_registry_match(text) is not None:
+    # Final review M9: the insurer is read as step 5 reads it, on the lookup text (a glued HCCLAIMPMT split from the
+    # name before it, _split_glued_claim).
+    if classifier._insurance_registry_match(classifier._split_glued_claim(text)) is not None:
         return None
     lender = _listed_auto_lender(words)
     word = DEALER_FUNDING_WORDS.search(row) or _DEALER_PAYABLES_WORDS.search(row)
@@ -1225,7 +1317,7 @@ def _debit_words(records: Sequence[TransactionClassification], duplicates: set[i
         word, card_purchase = classifier._debit_word_reading(record)
         if word is None:
             continue
-        if record.classification in _LENDER_DEBIT_STATES:
+        if record.classification in LENDER_DEBIT_STATES:
             lender.add(word)
         elif not card_purchase:
             other.add(word)
@@ -1290,6 +1382,10 @@ def _own_words(record: TransactionClassification, text: str) -> set[str]:
     store there). On every other source there are none (S2.4 review: a veto word always vetoes there)."""
     classifier = _classifier()
     if record.revenue_canonical_entity not in classifier._STORE_NAME_PAYOUT_ENTITIES:
+        return set()
+    # Final review I4: a veto word that is the whole entry field, or forms it alone with generic words, is the
+    # platform's own financing wording: no store name prints, so the holder's words spare nothing.
+    if not classifier.store_name_printed(text, record.revenue_canonical_entity):
         return set()
     own = set(classifier.holder_words(record.account_name))
     for found in classifier._RECEIVER_FIELD_VALUE.finditer(text):
@@ -1622,7 +1718,7 @@ def credit_facts(
             or _premium_coded(text, region)
         ),
         round_sum=classifier.is_round_sum(record.amount),
-        consumer_entry=_CONSUMER_ENTRY.search(text) is not None,
+        consumer_entry=consumer_entry(text),
         transfer_no_counterparty=transfer_row and not transfer_words,
         account_designation=transfer_row and bool(transfer_words) and _ACCOUNT_DESIGNATION.search(row) is not None,
         factor=factor,
@@ -1832,7 +1928,8 @@ def _factor_tail(tail: Sequence[str], *, b_o: bool) -> bool:
     """§8.9 (A3-H review, review 2): the words after a factor's alias add nothing to its name: company forms (glued or
     spaced), entry words (_FACTOR_ENTRY_WORDS), dates and numbers (reference tokens), then either nothing, a DBA
     tail (the factor's trade name, any words), or, on a B/O field, an address: place words ending in a US state
-    code, at most _TRUST_ADDRESS_MAX_WORDS of the address's own, as the personal-trust rule reads one."""
+    code, at most _TRUST_ADDRESS_MAX_WORDS of the address's own, as the personal-trust rule reads one, and never a
+    connector word (_FACTOR_CONNECTOR_WORDS: FOR, OF, AND, THE; [A3H-m1])."""
     classifier = _classifier()
     words = list(tail)
     while words and (
@@ -1849,8 +1946,13 @@ def _factor_tail(tail: Sequence[str], *, b_o: bool) -> bool:
     return (
         bool(words) and words[-1] in _US_STATE_TAIL
         and len(_address_words(words[:-1])) <= _TRUST_ADDRESS_MAX_WORDS
-        and not any(_not_a_place_word(word) for word in words[:-1])
+        and not any(_not_a_place_word(word) or word in _FACTOR_CONNECTOR_WORDS for word in words[:-1])
     )
+
+
+#: [A3H-m1] (final review): a connector word after a factor's alias joins a longer name ('<alias> FOR PETS
+#: <city> <state>'), never the sender's address.
+_FACTOR_CONNECTOR_WORDS = frozenset({"FOR", "OF", "AND", "THE"})
 
 
 def _factor_never_verified(record: TransactionClassification) -> TransactionClassification:
@@ -1890,7 +1992,7 @@ def _premium_coded(text: str, region: str) -> bool:
         return False
     if government_payer(public_region(text)):
         return False
-    health = registry_match(region, HEALTHCARE_PAYER_ALIASES)
+    health = healthcare_payer_match(region)
     if health is not None:
         return health[0] not in _PUBLIC_HEALTH_PAYERS
     return bool(_INSURER_NAME.search(region) or _INSURER_ABBREVIATION.search(region))

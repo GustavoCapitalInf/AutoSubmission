@@ -2,6 +2,8 @@
 the numbered-company and holder refusals, and the counter-debit guard. Fabricated rows only."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from analysis.schema import Statement, Transaction
@@ -95,18 +97,45 @@ def test_a_payer_the_statement_also_debits_goes_back_to_unverified():
     assert records[0].revenue_match_method == "payer_remittance_with_counter_debit"
 
 
-def test_a_card_purchase_from_the_payer_is_a_counter_debit_too():
-    # S2.4 review: Bank of America's CHECKCARD and its MMDD date are skipped before the debit's first distinctive word.
+@pytest.mark.parametrize("card", [
+    "CHECKCARD 0302 NORTHWIND GRILL", "CHECKCARD 0302 NORTHWIND SUPPLY SAMPLEVILLE CA",
+    "PURCHASE 0302 NORTHWIND SUPPLY SAMPLEVILLE CA",
+])
+def test_a_card_purchase_from_the_payer_is_no_counter_debit(card):
+    # Final review I5 (true revenue spec §20): pass 6 leaves out a card purchase the classifier names as no lender, as
+    # pass 7's hold does (8cb733b): buying from a customer by card is spending, never the circular money the guard
+    # holds. (S2.4 review: the merchant's word is still read after CHECKCARD and its MMDD date, _debit_word below.)
     credit = Transaction(date="2054-03-02", description="NORTHWIND SUPPLY DES:VENDOR PAY ID:1", amount=5000.0,
                          direction="credit")
-    card = Transaction(date="2054-03-03", description="CHECKCARD 0302 NORTHWIND GRILL", amount=-25.0,
-                       direction="debit")
-    records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit, card]))
+    debit = Transaction(date="2054-03-03", description=card, amount=-25.0, direction="debit")
+    records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit, debit]))
+    assert (records[0].revenue_classification, records[0].revenue_match_method) == (
+        "verified_revenue", "payer_remittance_descriptor")
+
+
+def test_an_ach_debit_to_the_payer_is_still_a_counter_debit():
+    credit = Transaction(date="2054-03-02", description="NORTHWIND SUPPLY DES:VENDOR PAY ID:1", amount=5000.0,
+                         direction="credit")
+    debit = Transaction(date="2054-03-03", description="NORTHWIND SUPPLY DES:BILL PAY ID:9", amount=-120.0,
+                        direction="debit")
+    records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit, debit]))
     assert (records[0].revenue_classification, records[0].revenue_match_method) == (
         "unverified_deposit", "payer_remittance_with_counter_debit")
-    [alone] = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit]))
-    assert (alone.revenue_classification, alone.revenue_match_method) == (
-        "verified_revenue", "payer_remittance_descriptor")
+
+
+def test_a_card_form_debit_the_classifier_names_as_a_lender_is_still_a_counter_debit():
+    # Final review I5: the card flag spares a card purchase only when the classifier names no lender on it (D8).
+    from analysis import transaction_classifier as tc
+
+    debit = classify_transaction("CHECKCARD 0302 NORTHWIND SUPPLY SAMPLEVILLE CA", -120.0, direction="debit")
+    lender = replace(debit, classification="potential_lender")
+    credit = classify_transaction("NORTHWIND SUPPLY DES:VENDOR PAY ID:1", 5000.0, direction="credit",
+                                  account_name="SAMPLE CAFE LLC")
+    assert credit.revenue_match_method == "payer_remittance_descriptor"
+    guarded = tc._apply_payer_remittance_counter_debit_guard([credit, lender], set())
+    assert guarded[0].revenue_match_method == "payer_remittance_with_counter_debit"
+    spared = tc._apply_payer_remittance_counter_debit_guard([credit, debit], set())
+    assert spared[0].revenue_match_method == "payer_remittance_descriptor"
 
 
 def _debit_word(printed: str) -> str | None:

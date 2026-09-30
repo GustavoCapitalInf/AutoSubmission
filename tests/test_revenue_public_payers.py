@@ -74,3 +74,37 @@ def test_a_verified_public_payment_is_still_demoted_by_a_duplicate_and_a_returne
                     direction="debit"),
     ]))
     assert returned[0].revenue_classification == "non_revenue"
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("ORIG CO NAME TREAS 310 ORIG ID 1 DESC DATE CO ENTRY DESCR MISC PAYSEC CCD TRACE 1 RMR IV 1234", True),
+    ("TREAS 310 MISC PAY RMR IV 1234", True),
+    ("TREAS 310 RMR IV 1234 MISC PAY", False),
+    ("MISC PAY TREAS 310 RMR IV 1234", False),
+    ("TREAS 310 X MISC PAY TREAS 999 RMR IV", True),
+    ("RMR IV TREAS 310 MISC PAY", False),
+    ("TREAS 31 MISC PAY RMR IV", False),
+    ("XTREAS 310 MISC PAY RMR IV", False),
+    ("TREAS 310 MISC PAYMENT RMR IV", False),
+    ("TREAS 310 DES DOD MISC ID 1 CCD", True),
+    ("TREAS 310 DES DOD MISC ID 1 PPD", False),
+])
+def test_arm_a_reads_its_three_codes_in_order(text, expected):
+    # Final review M1: arm A's Treasury code, MISC PAY and RMR IV, read by chained searches (the old '.*' pattern).
+    from analysis import transaction_classifier as tc
+
+    assert tc._public_payer_arm_a(text) is expected
+
+
+def test_arm_a_is_linear_on_a_long_row():
+    # Final review M1: the old pattern was cubic ('TREAS 123 MISC PAY' repeated, no RMR IV: 492 ms at 3,800
+    # characters). A 10,000-character row reads in under 50 ms.
+    import time
+
+    from analysis import transaction_classifier as tc
+
+    row = ("TREAS 123 MISC PAY " * 600)[:10000]
+    assert len(row) == 10000
+    started = time.perf_counter()
+    assert tc._public_payer_arm_a(row) is False
+    assert time.perf_counter() - started < 0.05
