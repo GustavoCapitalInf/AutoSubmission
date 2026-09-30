@@ -169,6 +169,14 @@ def test_the_newly_named_non_revenue(printed, rule):
     "DIRECT DEPOSIT CANADA RIT",
     "CANADA RIF 12345678",
     "EFT CREDIT CANADA RIT 1234",
+    # A3-G re-review: after the revenue text's and the template's prefixes, glued dates included.
+    "MISC PAYMENT CANADA RIT",
+    "PAYMENT FROM CANADA RIT",
+    "GC DIRECT DEPOSIT CANADA RIT",
+    "0102DIRECT DEPOSIT CANADA RIT",
+    # The classifier's own template prefixes (_strip_revenue_template), which the posting words do not list.
+    "PREAUTHORIZED CREDIT CANADA RIT",
+    "ELECTRONIC DEPOSIT FROM CANADA RIF 1234",
 ])
 def test_a3g_canada_s_income_tax_refund_is_a_tax_refund(printed):
     record = _credit(printed)

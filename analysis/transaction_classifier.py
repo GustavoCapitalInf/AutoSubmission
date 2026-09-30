@@ -716,6 +716,33 @@ _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
     ),
     re.compile(r"\bTRANSFER (?:INCOMING|CREDIT)\b.*\b(?:SUB )?RESERVE ACCOUNT\b"),
 )
+#: 5.6 (A3-G re-review): the posting words a bank prints before the Canada Revenue Agency's refund, read after the
+#: revenue text and the template prefixes are stripped: a glued or spaced date, Canada's GC (Government of Canada) and
+#: the direct-deposit, EFT and payment words ('0102DIRECT DEPOSIT CANADA RIT', 'GC DIRECT DEPOSIT CANADA RIT',
+#: 'PAYMENT FROM CANADA RIT'). Each number ends at a space or a letter, so no number splits two ways.
+_CRA_POSTING_PREFIX = re.compile(
+    r"^(?:\d+(?: |(?=[A-Z])))*(?:(?:GC|DIRECT DEPOSIT|DIRECT DEP|DEPOSIT|DEP|ELECTRONIC DEPOSIT"
+    r"|EFT(?: CREDIT| DEPOSIT)?|MISC PAYMENT|PAY(?:MENT)?(?: FROM)?) (?:\d+(?: |(?=[A-Z])))*)*"
+)
+_CRA_REFUND_PAYER = re.compile(r"CANADA (?:RIT|RIF)\b")
+
+
+def _canada_tax_refund(text: str) -> bool:
+    """5.6 (A3-G, review and re-review): the refund's form starts the payer, after the posting words only; a payer
+    that names Canada's form after its own name is that payer ('FABRIKAM LIFE CANADA RIF PMT')."""
+    payer = _strip_revenue_template(revenue_text(text))
+    return _CRA_REFUND_PAYER.match(_CRA_POSTING_PREFIX.sub("", payer, count=1)) is not None
+
+
+class _CanadaTaxRefundForm:
+    """5.6 (A3-G re-review): the refund reader in the strong non-revenue list, read as its patterns are (search)."""
+
+    pattern = "CANADA (?:RIT|RIF) after the posting words"
+
+    def search(self, text: str) -> "_CanadaTaxRefundForm | None":
+        return self if _canada_tax_refund(text) else None
+
+
 _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(
         r"\b(?:LOAN|BUSINESS LOAN|MCA|MERCHANT CASH ADVANCE|FINANCING) "
@@ -736,12 +763,8 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b"),
     # 5.6 (A3-G): the Canada Revenue Agency's income-tax refund direct deposit (RIT and RIF are the banks' two labels
     # of one refund, 'DIRECT DEPOSIT CANADA RIT RIF'). Its benefit, credit and payment forms (GST TPS, CCB, EI, CPP,
-    # OAS, CEWS) wait for the owner. A3-G review: the form starts the payer, after the direct-deposit, EFT or payment
-    # posting words only ('NORTHWIND CANADA RIF PAYMENT' is a payer's name, never a refund).
-    re.compile(
-        r"^(?:\d+ )*(?:(?:DIRECT DEPOSIT|DIRECT DEP|DEPOSIT|DEP|EFT(?: CREDIT| DEPOSIT)?|PAY(?:MENT)?|PAY FROM)"
-        r" )?CANADA (?:RIT|RIF)\b"
-    ),
+    # OAS, CEWS) wait for the owner. A3-G review and re-review: the form starts the payer (_CanadaTaxRefundForm).
+    _CanadaTaxRefundForm(),
     re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
     re.compile(
@@ -931,13 +954,20 @@ _REVENUE_TEMPLATE_PREFIX = re.compile(
     r"|ELECTRONIC CREDIT|ACH CORP CREDIT|ACH DEPOSIT|ACH CREDIT|DEPOSIT FROM|PREAUTHORIZED CREDIT|EFT CREDIT"
     r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT)\b ?"
 )
-#: §5.2: a wire's originator starts after one of these labels (never ORIG CO NAME, ORIG ID or ORIG TO BNF).
+#: §5.2: a wire's originator starts after one of these labels (never ORIG CO NAME, ORIG ID or ORIG TO BNF). 5.6 (A3-G
+#: re-review): ORIGINATOR and ORG take the same guards: ORIGINATOR TO BENEFICIARY (ORG TO BNF) is a purpose field's
+#: label, never an originator label.
 _WIRE_ORIGINATOR_LABEL = re.compile(
-    r"\b(?:B O|ORIGINATOR(?: NAME)?|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)|ORG|WIRE IN FROM|WIRE FROM"
+    r"\b(?:B O|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)"
+    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b)|WIRE IN FROM|WIRE FROM"
     r"|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER RECEIVED)\b ?"
 )
 #: §5.2: ... and ends at the next wire field. ID is read as a field too: Bank of America prints 'ORIG:<name> ID:<n>'.
-_WIRE_FIELD_END = re.compile(r"\b(?:BNF|NBNF|BENEFICIARY|BBI|OBI|REF|SRF|TRN|RFB|IMAD|ACCT|SND BK|ID)\b")
+#: 5.6 (A3-G re-review): so does the originator-to-beneficiary phrase, which opens a purpose field.
+_WIRE_FIELD_END = re.compile(
+    r"\b(?:BNF|NBNF|BENEFICIARY|BBI|OBI|REF|SRF|TRN|RFB|IMAD|ACCT|SND BK|ID"
+    r"|(?:ORG|ORIGINATOR) TO (?:BNF|BENEFICIARY))\b"
+)
 #: §5.2, §7.9 (Santander's layout): 'USD WIRE IN FROM <sending bank> ACCT <n> <originator> REF <purpose>'. The words
 #: after WIRE IN FROM name the sending bank; the originator follows the account number (the field §7.9 cuts at 16).
 _SANTANDER_WIRE = re.compile(r"^(?:[A-Z]{3} )?WIRE IN FROM\b(?P<bank>.*?)\bACCT \d+ (?P<originator>.*?)(?=\bREF\b|$)")
@@ -1201,6 +1231,21 @@ _BANK_COMPANY_FORM = re.compile(
 )
 _BANK_OWN_FORM_WORDS = frozenset({"CO", "PUBLIC", "N", "A", "NA", "AND", "TRUST"})
 _BANK_OF_PLACE_WORDS = 4
+#: 5.6 (A3-G re-review): the company-form words that are also US state codes (Colorado, Nevada). Printed as the
+#: address's state (at the end of a Fedwire city and state region, or before a ZIP or a country code) they are never a
+#: company form: 'NORTHWIND BANK DENVER CO 80202 US'.
+_STATE_CODE_FORM_WORDS = frozenset({"CO", "NV"})
+_AFTER_ADDRESS_STATE = re.compile(r"\s*(?:$|\d{5}\b|(?:US|USA)\b)")
+
+
+def company_form_outside_address(region: str) -> re.Match[str] | None:
+    """5.6 (A3-G re-review): the first company form (_BANK_COMPANY_FORM) of the region that is not the address's
+    state: CO or NV at the region's end or before a ZIP or a country code is the state, never a company form."""
+    for form in _BANK_COMPANY_FORM.finditer(region or ""):
+        if form.group(0) in _STATE_CODE_FORM_WORDS and _AFTER_ADDRESS_STATE.match(region, form.end()):
+            continue
+        return form
+    return None
 
 
 def bank_by_form(region: str) -> bool:
@@ -1214,7 +1259,7 @@ def bank_by_form(region: str) -> bool:
     found = BANK_FORM_ORIGINATOR.search(region)
     if found is None or BANK_SETTLEMENT_ORIGINATOR.search(region) or _NOT_A_BANK.search(region):
         return False
-    form = _BANK_COMPANY_FORM.search(region)
+    form = company_form_outside_address(region)
     if form is None:
         return True
     if form.start() < found.start():

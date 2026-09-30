@@ -1959,8 +1959,8 @@ def test_a3_a_wire_that_prints_no_sender_stays_held(text):
 _A3G_BOFA = "WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:{orig} ID:99 SND BK:{bank} ID:1 PMT DET:1234"
 
 
-def _a3g_fedwire(orig: str, obi: str = "1234") -> str:
-    return (f"FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O {orig} SAMPLEVILLE CA 12345 US REF SAMPLE NYC CTR BNF "
+def _a3g_fedwire(orig: str, obi: str = "1234", place: str = "SAMPLEVILLE CA 12345 US") -> str:
+    return (f"FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O {orig} {place} REF SAMPLE NYC CTR BNF "
             f"CONTOSO BAKERY LLC OBI {obi}")
 
 
@@ -2143,6 +2143,15 @@ def test_a3g_refinement_final_the_receiver_name_reads_wires_and_transfers_only()
     assert {record.revenue_tier_reason for record in settlements[2:]}.isdisjoint({"holder_name"})
 
 
+def test_a3g_re_review_one_platform_s_two_spellings_are_one_originator():
+    # A3-G re-review: originators are compared by the payer's grouping word, so two spellings of one platform are one.
+    rent = "{payer} DES:RENT ID:{n} INDN:JONATHAN SAMPLESON CO ID:1234567890 PPD"
+    rows = _records([(rent.format(payer="SAMPLE RENT PAY", n=1), 1500.0),
+                     (rent.format(payer="SAMPLE RENT PAYMENTS", n=2), 1500.0),
+                     ("ZELLE PAYMENT FROM JONATHAN SAMPLESON CONF 1234567", 1500.0)], holder=_A3G_PRODUCT)
+    assert _tier(rows[-1]) == ("counted_flagged", "p2p")
+
+
 def test_a3g_review_a_receiver_name_one_platform_prints_is_no_holder_name():
     # A3-G review: a rent platform prints its tenant as the receiver: one originator only, so no holder's name.
     rent = "SAMPLE RENT PAY DES:RENT ID:{n} INDN:JONATHAN SAMPLESON CO ID:1234567890 PPD"
@@ -2280,3 +2289,48 @@ def test_a3g_an_institutional_or_company_trust_or_a_person_is_no_personal_trust(
 ])
 def test_a3g_review_a_personal_trust_is_a_person_s_name_ending_in_a_trust_form(text):
     assert _tier(_one(text, 7500.0))[1] != "non_sale_purpose"
+
+
+_A3G_TRUST_ADDRESS_NEGATIVES = (
+    "JOHN Q SAMPLE TRUST ACCOUNT", "JOHN Q SAMPLE TRUST SERVICES", "JOHN Q SAMPLE TRUST DEPT",
+    "JOHN Q SAMPLE TRUST IOLTA", "JOHN Q SAMPLE TRUST LLC", "NORTHWIND SAMPLE TRUST ROOFING",
+)
+
+
+@pytest.mark.parametrize("text", [
+    *[_a3g_fedwire(orig, place="SAMPLEVILLE WA 12345 US") for orig in _A3G_TRUST_ADDRESS_NEGATIVES],
+    *[f"BOOK TRANSFER CREDIT B O {orig} SAMPLEVILLE WA 12345 US TRN 1234567890ES" for orig in _A3G_TRUST_ADDRESS_NEGATIVES],
+])
+def test_a3g_re_review_a_trust_s_address_holds_only_place_words(text):
+    # A3-G re-review: after the trust form, a wire's address may hold only city words, a state, a ZIP and a country.
+    assert _tier(_one(text, 75000.0))[1] != "non_sale_purpose"
+
+
+@pytest.mark.parametrize("place", ["DENVER CO 80202 US", "LAS VEGAS NV 89101 US", "SAMPLEVILLE CA 12345 US"])
+def test_a3g_re_review_an_address_s_state_is_never_a_company_form(place):
+    # A3-G re-review: CO (Colorado) and NV (Nevada) at the end of a Fedwire city and state are the address's state.
+    from analysis.transaction_classifier import bank_by_form
+
+    assert _tier(_one(_a3g_fedwire("NORTHWIND BANK", place=place), 438000.0)) == (
+        "excluded_pending_review", "financing_named_payer")
+    assert bank_by_form("SAMPLE CREDIT UNION BOULDER CO")
+    assert bank_by_form("NORTHWIND BANK LAS VEGAS NV")
+
+
+def test_a3g_re_review_a_bank_with_a_state_address_relays_its_customer():
+    from analysis.transaction_classifier import payer_region, revenue_text
+
+    text = ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHWIND BANK DENVER CO ORIGINATOR FABRIKAM TRADING "
+            "LIMITED REF SAMPLE NYC CTR BNF CONTOSO BAKERY LLC")
+    record = _one(text, 13000.0)
+    assert payer_region(revenue_text(record.normalized_description)) == "FABRIKAM TRADING LIMITED"
+    assert _tier(record) == ("counted_flagged", "wire_named_sender")
+
+
+@pytest.mark.parametrize("phrase", ["ORG TO BNF", "ORIGINATOR TO BENEFICIARY"])
+def test_a3g_re_review_the_originator_label_skips_the_originator_to_beneficiary_phrase(phrase):
+    # A3-G re-review: _WIRE_ORIGINATOR_LABEL takes the same TO BNF / TO BENEFICIARY guards as the relay label.
+    from analysis.transaction_classifier import payer_region, revenue_text
+
+    record = _one(f"WIRE TRANSFER INCOMING NORTHWIND SUPPLY LLC {phrase} INFO 1234", 9000.0)
+    assert payer_region(revenue_text(record.normalized_description)) == "NORTHWIND SUPPLY LLC"

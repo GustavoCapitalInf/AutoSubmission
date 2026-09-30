@@ -381,6 +381,18 @@ _PERSONAL_TRUST_MAX_NAME_WORDS = 5
 #: UA, UAD, UTA), a date or a number, a PO box and the country; on a wire's originator field, which prints the
 #: sender's address after the name, an address that ends in a US state code.
 _TRUST_TAIL_WORDS = frozenset({"DTD", "DATED", "U", "A", "UA", "UAD", "UTA", "PO", "BOX", "US", "USA"})
+#: §8.1 (A3-G re-review): the words a trust's address never prints before its state: account, service, department and
+#: office words, and the trades a business names itself by ('... TRUST ROOFING <city> <state>' is a company).
+_TRUST_NOT_PLACE_WORDS = frozenset({
+    "ACCOUNT", "ACCT", "ACCOUNTS", "SERVICES", "SERVICE", "SVCS", "SVC", "DEPT", "DEPARTMENT", "DIV", "DIVISION",
+    "OFFICE", "OPERATING", "OPERATIONS", "ADMIN", "ADMINISTRATION",
+    "ROOFING", "CONSTRUCTION", "CONTRACTING", "CONTRACTORS", "PLUMBING", "ELECTRIC", "ELECTRICAL", "HVAC",
+    "LANDSCAPING", "TRUCKING", "TRANSPORT", "LOGISTICS", "CLEANING", "SUPPLY", "SALES", "MARKETING", "CONSULTING",
+    "DESIGN", "AUTO", "MOTORS", "RESTAURANT", "BAKERY", "CAFE", "GRILL", "PIZZA", "DENTAL", "MEDICAL", "CLINIC",
+    "PHARMACY", "SALON", "SPA", "FITNESS", "STUDIO", "MEDIA", "PRODUCTIONS", "TECHNOLOGIES", "TECH", "SYSTEMS",
+    "ENTERPRISES", "INDUSTRIES", "MANUFACTURING", "FARMS", "RANCH", "TRAVEL", "HOMES", "BUILDERS", "REMODELING",
+    "PAINTING", "FLOORING", "STORE", "SHOP", "MARKET", "WHOLESALE", "DISTRIBUTION", "IMPORTS", "EXPORTS", "TRADING",
+})
 #: A street type right after the trust word makes it a street's name ('12 TRUST RD'), never a trust form.
 _STREET_WORDS = frozenset({
     "RD", "ROAD", "ST", "STREET", "AVE", "AVENUE", "DR", "DRIVE", "LN", "LANE", "BLVD", "WAY", "CT", "COURT", "PL",
@@ -809,7 +821,8 @@ def _personal_trust(text: str, region: str) -> bool:
         if tokens[index] == "TR" or len(names) < 2 or _channel(text) == "person_to_person":
             return False
     # (c) a trust company's or a bank's form after the trust word; a lawyer's or a client trust account.
-    if _TRUST_COMPANY_SUFFIX.search(" ".join(tokens[index:])) or _TRUST_LAWYER_WORDS.search(" ".join(tokens[: index + 1])):
+    # A3-G re-review: the lawyer and client-trust words read across the whole sender.
+    if _TRUST_COMPANY_SUFFIX.search(" ".join(tokens[index:])) or _TRUST_LAWYER_WORDS.search(" ".join(tokens)):
         return False
     # (a) the trust form ends the sender's name.
     if not _trust_form_ends_the_name(tokens[index + 1:], address=wire):
@@ -838,7 +851,29 @@ def _trust_form_ends_the_name(tail: Sequence[str], *, address: bool) -> bool:
         words.pop()
     if all(word in _TRUST_TAIL_WORDS or classifier._is_reference_token(word) for word in words):
         return True
-    return address and words[-1] in _US_STATE_TAIL
+    if not address or words[-1] not in _US_STATE_TAIL:
+        return False
+    # A3-G re-review: the address holds only place words before its state: city words (and a street or PO box), never
+    # a business, lawyer, company-form, account, service, department or institution word.
+    return not any(_not_a_place_word(word) for word in words[:-1])
+
+
+def _not_a_place_word(word: str) -> bool:
+    """§8.1 (A3-G re-review): a word no address prints before its state: a business, trade, lawyer, company-form,
+    account, service, department or institution word (_TRUST_NOT_PLACE_WORDS, _TRUST_BUSINESS_WORDS,
+    _TRUST_LAWYER_WORDS, the classifier's company forms). Numbers (a street or a PO box) and the agreement words
+    (_TRUST_TAIL_WORDS) are place words here; the generic words are not read (a city prints NEW, as NEW YORK)."""
+    classifier = _classifier()
+    if (
+        classifier._is_reference_token(word) or word in _TRUST_TAIL_WORDS or word in _US_STATE_TAIL
+        or word in {"CITY", "COUNTY", "STATE"}
+    ):
+        return False
+    return (
+        word in _TRUST_NOT_PLACE_WORDS
+        or _TRUST_BUSINESS_WORDS.search(word) is not None or _TRUST_LAWYER_WORDS.search(word) is not None
+        or classifier._BANK_COMPANY_FORM.fullmatch(word) is not None
+    )
 
 
 def _wire_sender_after_label_text(text: str) -> str:
@@ -871,7 +906,7 @@ def _bank_originated_wire(text: str, region: str) -> bool:
     if classifier.bank_by_form(region):
         return True
     sending = _SENDING_BANK_FIELD.search(text)
-    if sending is None or classifier._BANK_COMPANY_FORM.search(region):
+    if sending is None or classifier.company_form_outside_address(region):
         return False
     originator = "".join(ch for ch in classifier.payer_name(region) if ch.isalpha())
     bank = "".join(ch for ch in sending.group(1) if ch.isalpha())
@@ -903,14 +938,21 @@ def _receiver_holder_names(records: Sequence[TransactionClassification], credits
     _RECEIVER_HOLDER_MIN_LETTERS letters or more, naming no bank, and holding a word that is no product, noise or
     generic word. Read by the holder hold only (the holder's name is never a payer), never to verify anything. A3-G
     review: the credits must come from _RECEIVER_HOLDER_MIN_CREDITS distinct originators or more: a receiver constant
-    across payers is the holder, while a name one platform prints (a rent platform's tenant) is its customer."""
+    across payers is the holder, while a name one platform prints (a rent platform's tenant) is its customer. A3-G
+    re-review: originators are compared by the payer's first distinctive word, the word the classifier groups a payer
+    by (_payer_first_distinctive_word; the payer key where it holds none), so one platform's two spellings are one
+    originator ('SAMPLE RENT PAY', 'SAMPLE RENT PAYMENTS')."""
     classifier = _classifier()
     if not credits or _usable_holder_name(records[credits[0]].account_name):
         return ()
     originators: dict[str, set[str]] = {}
     for index in credits:
         text = classifier.revenue_text(records[index].normalized_description)
-        payer = classifier.payer_name(classifier.payer_region(text)) or classifier._before_receiver(text)
+        region = classifier.payer_region(text)
+        payer = (
+            classifier._payer_first_distinctive_word(region) or " ".join(classifier._payer_key(region))
+            or classifier._before_receiver(text)
+        )
         for found in classifier._RECEIVER_FIELD_VALUE.finditer(records[index].normalized_description):
             value = _RECEIVER_LABEL.sub("", found.group(0), count=1)
             words = [token for token in value.split() if token.isalpha() and len(token) > 1]
