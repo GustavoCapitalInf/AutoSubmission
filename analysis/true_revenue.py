@@ -351,14 +351,22 @@ _WIRE_PURPOSE_FIELD = re.compile(
     r"\b(?:OBI|RMR|PMT DET|RFB|U ?R ?I)\b (.*?)"
     r"(?=\b(?:BNF|NBNF|BBI|OBI|SRF|TRN|IMAD|ACCT|SND BK|RFB|RMR|PMT DET|REF|ORIG(?! FEE\b)|B O|ORG)\b|$)"
 )
-#: §8.1, T4 (A3-G): a wire's originator that reads as a bank by its own form. Money a bank sends on its own behalf is
-#: more often loan proceeds or the bank's own funds than a customer's payment: held as financing_named_payer.
-_BANK_ORIGINATOR = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|FEDERAL SAVINGS)\b")
-#: A3-G: a bank's merchant-services, bankcard and processor forms, which are settlements, never the bank's own money.
-_BANK_SETTLEMENT_FORM = re.compile(
-    r"(?<![A-Z])(?:MERCHANT\w*|MERCH SVCS|BANKCARD\w*|CARD (?:SERVICES|SVCS)|PAYMENTECH|PROCESSING)\b"
-    r"|\b(?:MERCH|MRCH|BNKCD|BKCD)\b"
-)
+#: §8.1, T4 (A3-G): a wire's originator that reads as a bank by its own form (the classifier's BANK_FORM_ORIGINATOR),
+#: never a bank's settlement form (BANK_SETTLEMENT_ORIGINATOR). Money a bank sends on its own behalf is more often loan
+#: proceeds or the bank's own funds than a customer's payment: held as financing_named_payer. A3-G refinement: a bank
+#: that names the ultimate originator only relays, and the payer region reads that customer (relayed_customer_text).
+#: A3-G refinement: a sender the payer region reads as bare channel words names nobody (credit_facts).
+_BARE_CHANNEL_WORDS = frozenset({"WIRE", "WIRES", "TRANSFER", "BOOK", "CREDIT"})
+#: §8.1 (A3-G refinement): a holder's name read from the statement's own incoming receiver fields (INDN, IND NAME,
+#: RECEIVER NAME) needs this many credits, words and letters; a run-together match needs this many letters.
+_RECEIVER_HOLDER_MIN_CREDITS = 2
+_RECEIVER_HOLDER_MIN_WORDS = 2
+_RECEIVER_HOLDER_MIN_LETTERS = 8
+_RECEIVER_HOLDER_RUN_LETTERS = 12
+#: §8.1 (A3-G refinement): the receiver field's label, before its value.
+_RECEIVER_LABEL = re.compile(r"^\s*(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b\s*")
+#: §8.1 (A3-G refinement): a receiver value that names a bank is never the holder's name.
+_RECEIVER_BANK_WORDS = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|SAVINGS|FCU)\b|\bCU\b")
 #: A3-G: Bank of America's sending-bank field, up to its next field.
 _SENDING_BANK_FIELD = re.compile(r"\bSND BK\b (.*?)(?=\b(?:ID|PMT DET|OBI|RMR|BNF|TRN|IMAD|SRF|RFB)\b|$)")
 #: A3-G: an originator equal to the sending bank keeps at least this many letters.
@@ -454,7 +462,10 @@ def _wire_originator_text(text: str) -> str:
     # A3-G: a SWIFT 50F line number is never part of the originator.
     rest = classifier.without_swift_line_number(text[found.end():])
     end = classifier._WIRE_FIELD_END.search(rest)
-    return (rest[: end.start()] if end is not None else rest).strip()
+    originator = (rest[: end.start()] if end is not None else rest).strip()
+    # A3-G refinement: a relaying bank's customer is the originator (the payer region reads it the same way).
+    customer = classifier.relayed_customer_text(classifier._leading_name_words(originator), rest)
+    return customer.strip() if customer else originator
 
 
 @cache
@@ -804,15 +815,18 @@ def _wire_sender_after_label_text(text: str) -> str:
 
 
 def _bank_originated_wire(text: str, region: str) -> bool:
-    """§8.1, T4 (A3-G): a wire whose originator reads as a bank: by its own form (_BANK_ORIGINATOR: BANK, BANCORP, BANK
-    N A, CREDIT UNION, SAVINGS BANK, FEDERAL SAVINGS), or equal to Bank of America's sending bank (SND BK) with the
-    field's line-wrap splits read run together (the originator's letters start the sending bank's, or the reverse).
-    Only the originator field (the payer region) is read, never the sending or receiving bank field or the text after
-    it, and never a bank's merchant-services, bankcard or processor form (_BANK_SETTLEMENT_FORM), a settlement."""
+    """§8.1, T4 (A3-G): a wire whose originator reads as a bank: by its own form (the classifier's
+    BANK_FORM_ORIGINATOR: BANK, BANCORP, BANK N A, CREDIT UNION, SAVINGS BANK, FEDERAL SAVINGS), or equal to Bank of
+    America's sending bank (SND BK) with the field's line-wrap splits read run together (the originator's letters
+    start the sending bank's, or the reverse). Only the originator field (the payer region) is read, never the sending
+    or receiving bank field or the text after it, and never a bank's merchant-services, bankcard or processor form
+    (BANK_SETTLEMENT_ORIGINATOR), a settlement. A3-G refinement: a bank that names its customer after a relay label
+    only relays; the payer region then reads the customer (relayed_customer_text), so the bank's form is held only when
+    no customer prints."""
     classifier = _classifier()
-    if not region or not classifier._is_wire_row(text) or _BANK_SETTLEMENT_FORM.search(region):
+    if not region or not classifier._is_wire_row(text) or classifier.BANK_SETTLEMENT_ORIGINATOR.search(region):
         return False
-    if _BANK_ORIGINATOR.search(region):
+    if classifier.BANK_FORM_ORIGINATOR.search(region):
         return True
     sending = _SENDING_BANK_FIELD.search(text)
     if sending is None:
@@ -821,6 +835,80 @@ def _bank_originated_wire(text: str, region: str) -> bool:
     bank = "".join(ch for ch in sending.group(1) if ch.isalpha())
     shorter = min(len(originator), len(bank))
     return shorter >= _SENDING_BANK_MIN_LETTERS and (bank.startswith(originator) or originator.startswith(bank))
+
+
+def _usable_holder_name(account_name: str | None) -> bool:
+    """§5.2 (A3-G refinement): the statement's account-name field names its holder: a company form, or a person's
+    name (two to four words of letters, none a product, noise or generic word). A product name ('BUSINESS ADVANTAGE
+    CHECKING') or an empty field names nobody."""
+    classifier = _classifier()
+    name = classifier.account_name_text(account_name)
+    if not name:
+        return False
+    if classifier.company_form(name):
+        return True
+    words = name.split()
+    return 2 <= len(words) <= 4 and all(
+        word.isalpha() and word not in classifier.HOLDER_NOISE and word not in classifier.REVENUE_GENERIC_WORDS
+        for word in words
+    )
+
+
+def _receiver_holder_names(records: Sequence[TransactionClassification], credits: Sequence[int]) -> tuple[str, ...]:
+    """§5.2, §8.1 (A3-G refinement): when the statement's account-name field names nobody (_usable_holder_name), the
+    holder's names its own incoming receiver fields print (INDN, IND NAME, RECEIVER NAME: an ACH credit's receiver is
+    the holder), each on _RECEIVER_HOLDER_MIN_CREDITS credits or more, with _RECEIVER_HOLDER_MIN_WORDS words and
+    _RECEIVER_HOLDER_MIN_LETTERS letters or more, naming no bank, and holding a word that is no product, noise or
+    generic word. Read by the holder hold only (the holder's name is never a payer), never to verify anything."""
+    classifier = _classifier()
+    if not credits or _usable_holder_name(records[credits[0]].account_name):
+        return ()
+    counts: Counter = Counter()
+    for index in credits:
+        names = set()
+        for found in classifier._RECEIVER_FIELD_VALUE.finditer(records[index].normalized_description):
+            value = _RECEIVER_LABEL.sub("", found.group(0), count=1)
+            words = [token for token in value.split() if token.isalpha() and len(token) > 1]
+            if words:
+                names.add(" ".join(words))
+        counts.update(names)
+    return tuple(
+        name for name, count in counts.items()
+        if count >= _RECEIVER_HOLDER_MIN_CREDITS and len(name.split()) >= _RECEIVER_HOLDER_MIN_WORDS
+        and sum(len(word) for word in name.split()) >= _RECEIVER_HOLDER_MIN_LETTERS
+        and _RECEIVER_BANK_WORDS.search(name) is None
+        and any(word not in classifier.HOLDER_NOISE and word not in classifier.REVENUE_GENERIC_WORDS
+                for word in name.split())
+    )
+
+
+def _receiver_alias_reads(record: TransactionClassification, text: str) -> bool:
+    """§5.2 (A3-G refinement, final): the rows a receiver-field holder name is read on: a wire (a book transfer
+    included) or a transfer or person-to-person row (Zelle, Venmo, an online, mobile, book or internal transfer), where
+    the holder moves its own money. Never an ACH, card, processor or marketplace settlement row (a platform prints the
+    store's own name as its payer), and never a row an earlier rule verified on sale evidence (a card settlement, a
+    platform payout, an accounts-payable remittance, a public payer)."""
+    if record.revenue_classification == "verified_revenue":
+        return False
+    channel = _channel(text)
+    if channel == "wire":
+        return True
+    # A real-time or push rail also carries a platform's payout (Visa Direct, RTP): never read there.
+    return channel == "person_to_person" and not _classifier()._PUSH_RAIL.search(_classifier()._before_receiver(text))
+
+
+def _receiver_holder_named(payer: str, holder: str) -> bool:
+    """§5.2 (A3-G refinement, narrowed variant): the payer is the holder that a receiver field names: the two names run
+    together where one starts the other and the shorter keeps _RECEIVER_HOLDER_RUN_LETTERS letters (a receiver field
+    and an originator field cut the same name at different widths). The broad holder test (a shared first word) is not
+    read against a receiver name."""
+    classifier = _classifier()
+    if not payer:
+        return False
+    ours = "".join(ch for ch in classifier.payer_name(payer) if ch.isalpha())
+    theirs = "".join(ch for ch in holder if ch.isalpha())
+    shorter = min(len(ours), len(theirs))
+    return shorter >= _RECEIVER_HOLDER_RUN_LETTERS and (ours.startswith(theirs) or theirs.startswith(ours))
 
 
 def _title_purpose_text(text: str) -> str:
@@ -1312,16 +1400,21 @@ def credit_facts(
     *,
     lender_words: set[str],
     debit_words: set[str],
+    receiver_holders: tuple[str, ...] = (),
 ) -> CreditFacts:
     """§8.1 to §8.9: one posted credit's payer facts, including the first hold of §8.10's order 2 to 11. The payer
     region, name, key and entry fields are the 5.5 readers' (payer_region, payer_name, _payer_key, entry_fields). A
     person-to-person sender printed without FROM (S4.2 review I7) is read after its rail for Q4's two holds only: the
     holder test and the round-sum repeat (its key). So is the counterparty of a named transfer printed without FROM
     (T13, S4.2 fix round 5: _named_transfer_sender), which the FROM form's payer region reads. Every other hold reads
-    the payer region, so such a row's financing root is still read on the whole row."""
+    the payer region, so such a row's financing root is still read on the whole row. A3-G refinement: on the wire
+    channel a region of bare channel words (_BARE_CHANNEL_WORDS: 'WIRE') names no sender; `receiver_holders` are the
+    holder's names the statement's own receiver fields print (_receiver_holder_names), read by the holder hold only."""
     classifier = _classifier()
     channel = _channel(text)
     region = classifier.payer_region(text)
+    if channel == "wire" and region and all(token in _BARE_CHANNEL_WORDS for token in region.split()):
+        region = ""
     sender, holder_sender = (
         _p2p_sender_readings(text) if not region and channel == "person_to_person" else ("", "")
     )
@@ -1340,7 +1433,7 @@ def credit_facts(
         sender = holder_sender = _named_transfer_sender(text)
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, lender_words=lender_words,
-        debit_words=debit_words, sender=sender, holder_sender=holder_sender,
+        debit_words=debit_words, sender=sender, holder_sender=holder_sender, receiver_holders=receiver_holders,
     )
     return CreditFacts(
         channel=channel,
@@ -1380,6 +1473,7 @@ def _first_hold(
     debit_words: set[str],
     sender: str = "",
     holder_sender: str = "",
+    receiver_holders: tuple[str, ...] = (),
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. A row the registry, a payout
     entity or a factoring payee claimed takes only the insurer, possible-return, pay and benefit holds; a registry row
@@ -1419,6 +1513,12 @@ def _first_hold(
     if not claimed and (region or sender) and (
         classifier.holder_named(region or sender, record.account_name)
         or (not region and holder_sender != sender and classifier.holder_named(holder_sender, record.account_name))
+        # A3-G refinement: the holder's names the statement's own receiver fields print (the hold only), on a wire, a
+        # book transfer or a transfer or person-to-person row that no earlier rule verified (_receiver_alias_reads).
+        or (
+            receiver_holders and _receiver_alias_reads(record, text)
+            and any(_receiver_holder_named(region or sender, holder) for holder in receiver_holders)
+        )
     ):
         return "holder_name"
     if _PAY_WORDS.search(classifier._before_receiver(text)) or classifier._is_payroll_provider_row(
@@ -1670,9 +1770,14 @@ def apply_true_revenue_pass(
                 revenue_source_type="auto_dealer_funding",
             )
     lender_words, debit_words = _debit_words(records, duplicate_indexes)
+    # A3-G refinement: the holder's names the statement's own receiver fields print, when its account name names nobody.
+    receiver_holders = _receiver_holder_names(records, credits)
     texts = {index: classifier.revenue_text(updated[index].normalized_description) for index in credits}
     facts = {
-        index: credit_facts(updated[index], texts[index], lender_words=lender_words, debit_words=debit_words)
+        index: credit_facts(
+            updated[index], texts[index], lender_words=lender_words, debit_words=debit_words,
+            receiver_holders=receiver_holders,
+        )
         for index in credits
     }
     # §5.2: repeats count a verified credit, or an unverified one no hold names; never a held or conflicting one, a

@@ -1994,6 +1994,121 @@ def test_a3g_a_wire_whose_originator_is_no_bank_keeps_its_reading(text):
     assert _tier(_one(text, 43800.0))[1] != "financing_named_payer"
 
 
+_A3G_RELAY = ("BOOK TRANSFER CREDIT B O SAMPLE COMMERCIAL BANK LTD SAMPLE CITY CN ORG {account} {customer} OGB SAMPLE "
+              "COMMERCIAL BANK LTD REF SAMPLE {n} TRN 1234567890JS")
+
+
+@pytest.mark.parametrize("text", [
+    _A3G_RELAY.format(account="123456789012 1", customer="FABRIKAM TRADING LIMITED", n=1),
+    _A3G_RELAY.format(account="GB12SAMP12345678901234", customer="FABRIKAM TRADING LIMITED", n=1),
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O SAMPLE BANK NA LONDON GB ORIGINATOR FABRIKAM TRADING LIMITED REF "
+    "SAMPLE NYC CTR BNF CONTOSO BAKERY LLC",
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O SAMPLE BANK NA LONDON GB BY ORDER OF FABRIKAM TRADING LIMITED "
+    "REF SAMPLE NYC CTR BNF CONTOSO BAKERY LLC",
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O SAMPLE BANK NA LONDON GB ORIG CUST FABRIKAM TRADING LIMITED REF "
+    "SAMPLE NYC CTR BNF CONTOSO BAKERY LLC",
+])
+def test_a3g_refinement_a_relaying_bank_s_customer_is_the_wire_s_sender(text):
+    # A3-G refinement: a correspondent bank that names the ultimate originator only relays: that customer is read.
+    from analysis.transaction_classifier import payer_region, revenue_text
+
+    record = _one(text, 13000.0)
+    assert payer_region(revenue_text(record.normalized_description)) == "FABRIKAM TRADING LIMITED"
+    assert _tier(record) == ("counted_flagged", "wire_named_sender")
+
+
+def test_a3g_refinement_a_relayed_customer_that_wires_twice_verifies_by_q5():
+    rows = _records([(_A3G_RELAY.format(account="123456789012 1", customer="FABRIKAM TRADING LIMITED", n=1), 13000.0),
+                     (_A3G_RELAY.format(account="123456789012 1", customer="FABRIKAM TRADING LIMITED", n=2), 12000.0)])
+    assert {record.revenue_match_method for record in rows} == {"repeat_wire_sender"}
+
+
+@pytest.mark.parametrize("text", [
+    # A bank that names no customer after it sends on its own behalf (and an account number alone names nobody).
+    "BOOK TRANSFER CREDIT B O SAMPLE EXPORT BANK SAMPLE CITY CN REF 1234 TRN 1234567890JS",
+    _A3G_RELAY.format(account="123456789012", customer="", n=1),
+    "FUNDS TRANSFER WIRE FROM SAMPLE EXPORT I MPORT BANK MAY 12",
+])
+def test_a3g_refinement_a_bank_that_names_no_customer_stays_held(text):
+    assert _tier(_one(text, 13000.0)) == ("excluded_pending_review", "financing_named_payer")
+
+
+_A3G_BOOK_IN = ("WIRE TYPE:BOOK IN DATE:540102 TIME:1200 ET TRN:20540102000012{n} SNDR REF:12345678 ORIG:{orig} "
+                "ID:123456789012")
+
+
+def test_a3g_refinement_bofa_s_book_in_wire_reads_its_originator():
+    # A3-G refinement: WIRE TYPE BOOK IN is the WIRE TYPE WIRE IN layout: its ORIG is read, the SWIFT 50F prefix
+    # stripped.
+    from analysis.transaction_classifier import payer_region, revenue_text
+
+    record = _one(_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND SUPPLY LLC"), 16000.0)
+    assert payer_region(revenue_text(record.normalized_description)) == "NORTHWIND SUPPLY LLC"
+    assert _tier(record) == ("counted_flagged", "wire_named_sender")
+    held = _one(_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND SUPPLY LLC"), 16000.0, holder="NORTHWIND SUPPLY LLC")
+    assert _tier(held) == ("excluded_pending_review", "holder_name")
+
+
+@pytest.mark.parametrize("text", [
+    "WIRE TYPE:BOOK IN DATE:540102 TIME:1200 ET TRN:2054010200001234 SNDR REF:12345678",
+    "WIRE CREDIT REF123456 BOOK",
+    # A layout that prints only the sending bank and its city after the reference names no sender.
+    "WIRE CREDIT REF123456 SAMPLEBANK NYC 123456B12AB",
+])
+def test_a3g_refinement_a_bare_channel_word_is_no_named_sender(text):
+    assert _tier(_one(text, 16000.0)) == ("excluded_pending_review", "wire_no_sender")
+
+
+_A3G_PRODUCT = "BUSINESS ADVANTAGE RELATIONSHIP BANKING PREFERRED REWARDS"
+_A3G_RECEIVER = "FABRIKAM PAYMENTS DES:DEPOSIT ID:{n} INDN:{name} CO ID:1234567890 CCD"
+
+
+def test_a3g_refinement_the_holder_s_receiver_name_is_the_holder_when_the_account_name_is_a_product():
+    rows = _records([
+        (_A3G_RECEIVER.format(n=1, name="NORTHWIND BUILDERS GROU"), 10500.0),
+        (_A3G_RECEIVER.format(n=2, name="NORTHWIND BUILDERS GROU"), 9800.0),
+        (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 160000.0),
+    ], holder=_A3G_PRODUCT)
+    assert _tier(rows[2]) == ("excluded_pending_review", "holder_name")
+    # The receiver name is the holder's, never a payer: the payer rows that print it keep their reading.
+    assert rows[0].revenue_tier_reason != "holder_name"
+
+
+def test_a3g_refinement_final_the_receiver_name_reads_wires_and_transfers_only():
+    # A3-G refinement (final): read on a wire, a book transfer or a transfer or P2P row, where the holder moves its own
+    # money; never on an ACH, card, processor or marketplace settlement (a platform prints the store's own name as its
+    # payer) nor on a push rail.
+    receivers = [(_A3G_RECEIVER.format(n=at, name="NORTHWIND BUILDERS GROU"), 10500.0) for at in (1, 2)]
+    zelle = _records([*receivers, ("ZELLE PAYMENT FROM NORTHWIND BUILDERS GROUP CONF 1234567", 2500.0)],
+                     holder=_A3G_PRODUCT)
+    assert _tier(zelle[-1]) == ("excluded_pending_review", "holder_name")
+    settlements = _records([
+        *receivers,
+        ("NORTHWIND BUILDERS GROUP DES:DEPOSIT ID:7 INDN:SAMPLE STORE 12 CO ID:1234567890 CCD", 900.0),
+        ("NORTHWIND BUILDERS GROUP DES:DEPOSIT ID:8 INDN:SAMPLE STORE 12 CO ID:1234567890 CCD", 950.0),
+        ("RTP CREDIT NORTHWIND BUILDERS GROUP 1234567", 800.0),
+    ], holder=_A3G_PRODUCT)
+    assert [record.revenue_tier_reason for record in settlements[2:]] != ["holder_name"] * 3
+    assert {record.revenue_tier_reason for record in settlements[2:]}.isdisjoint({"holder_name"})
+
+
+@pytest.mark.parametrize(("receivers", "holder"), [
+    # One credit only.
+    (("NORTHWIND BUILDERS GROU",), _A3G_PRODUCT),
+    # A usable account name (a company form) is the holder's name: the receiver names are not read.
+    (("NORTHWIND BUILDERS GROU", "NORTHWIND BUILDERS GROU"), "CONTOSO BAKERY LLC"),
+    # A generic receiver value (a product or channel word, a bank, or fewer than two words or eight letters).
+    (("BUSINESS CHECKING", "BUSINESS CHECKING"), _A3G_PRODUCT),
+    (("NORTHWIND", "NORTHWIND"), _A3G_PRODUCT),
+])
+def test_a3g_refinement_a_receiver_name_needs_two_credits_a_real_name_and_an_unusable_account_name(receivers, holder):
+    rows = _records([
+        *[(_A3G_RECEIVER.format(n=at, name=name), 10500.0) for at, name in enumerate(receivers, start=1)],
+        (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 160000.0),
+    ], holder=holder)
+    assert rows[-1].revenue_tier_reason != "holder_name"
+
+
 def test_a3g_a_bank_s_ach_credit_is_no_wire_and_keeps_its_reading():
     assert _tier(_one("NORTHWIND BANK DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD", 4380.0))[1] != (
         "financing_named_payer")

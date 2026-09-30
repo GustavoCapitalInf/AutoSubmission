@@ -1171,7 +1171,51 @@ def _wire_payer_region(text: str) -> str:
         return _wire_sender_after_label(text)
     rest = without_swift_line_number(text[found.end():])
     end = _WIRE_FIELD_END.search(rest)
-    return _leading_name_words(rest[: end.start()] if end is not None else rest)
+    region = _leading_name_words(rest[: end.start()] if end is not None else rest)
+    customer = relayed_customer_text(region, rest)
+    return _leading_name_words(customer) if customer else region
+
+
+#: 5.6 (A3-G): a wire originator that reads as a bank by its own form (BANK, BANCORP, BANK N A, CREDIT UNION, SAVINGS
+#: BANK, FEDERAL SAVINGS), and a bank's merchant-services, bankcard and processor forms, which are settlements, never
+#: a bank's own money nor a relay. The true-revenue pass holds a bank originator (financing_named_payer).
+BANK_FORM_ORIGINATOR = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|FEDERAL SAVINGS)\b")
+BANK_SETTLEMENT_ORIGINATOR = re.compile(
+    r"(?<![A-Z])(?:MERCHANT\w*|MERCH SVCS|BANKCARD\w*|CARD (?:SERVICES|SVCS)|PAYMENTECH|PROCESSING)\b"
+    r"|\b(?:MERCH|MRCH|BNKCD|BKCD)\b"
+)
+#: 5.6 (A3-G refinement): the labels after which a relaying (correspondent) bank prints the ultimate originator
+#: ('B O <bank> ... ORG <account> <customer> OGB <bank>'), and the fields the customer's name ends at: a wire field,
+#: the originating bank (OGB) and the relay's charge and amount fields.
+_RELAY_ORIGINATOR_LABEL = re.compile(r"\b(?:ORG|B O|ORIGINATOR(?: NAME)?|ORIG CUST(?:OMER)?|BY ORDER OF)\b ?")
+_RELAY_CUSTOMER_END = re.compile(
+    _WIRE_FIELD_END.pattern + r"|\b(?:OGB|ORIGINATING BANK|OCMT|CHGS|INS|BBK|INT BK|INTERMEDIARY)\b"
+)
+
+
+def relayed_customer_text(region: str, rest: str) -> str:
+    """5.6 (A3-G refinement, §8.5): when a wire's originator (`region`, read from `rest`, the text after the originator
+    label) reads as a bank, and a relay label after it names the ultimate originator, that customer's text up to its
+    end (_RELAY_CUSTOMER_END), after its account number and any SWIFT line number: the bank only relays, so the
+    customer is the sender, read normally. '' when the originator is no bank (or a bank's settlement form), or no relay
+    label names a customer (a bank sending on its own behalf)."""
+    if not region or BANK_FORM_ORIGINATOR.search(region) is None or BANK_SETTLEMENT_ORIGINATOR.search(region):
+        return ""
+    for label in _RELAY_ORIGINATOR_LABEL.finditer(rest):
+        if label.start() == 0:
+            continue
+        after = rest[label.end():]
+        end = _RELAY_CUSTOMER_END.search(after)
+        tokens = (after[: end.start()] if end is not None else after).split()
+        while tokens and _is_reference_token(tokens[0]) and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
+            tokens.pop(0)
+        name = " ".join(tokens)
+        if any(
+            _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
+            for token in _leading_name_words(name).split()
+        ):
+            return name
+    return ""
 
 
 #: 5.6 (A3-G): a SWIFT field-50F line number printed before the originator's name ('ORIG:1/NORTHWIND ...', normalized
@@ -1486,14 +1530,27 @@ def _third_party_originator(text: str) -> str | None:
     WIRE FROM, or one of the four funds-transfer wire labels), when it prints a distinctive payer word; otherwise
     None. S2.3 review (fix 1): an account description is no payer ('FROM BUSINESS SAVINGS', 'FROM LINE OF CREDIT',
     'FROM TAX RESERVE'): _originator_payer_words."""
-    for label in (_FUNDS_TRANSFER_WIRE_LABEL, _THIRD_PARTY_ORIGINATOR):
+    labels: tuple[re.Pattern[str], ...] = (_FUNDS_TRANSFER_WIRE_LABEL, _THIRD_PARTY_ORIGINATOR)
+    if _BOFA_BOOK_IN.match(text):
+        # 5.6 (A3-G refinement): Bank of America's WIRE TYPE BOOK IN is its WIRE TYPE WIRE IN layout: the originator
+        # follows ORIG, after any SWIFT 50F line number.
+        labels = (*labels, _BOFA_BOOK_IN_ORIGINATOR)
+    for label in labels:
         for found in label.finditer(text):
             rest = text[found.end():]
+            if label is _BOFA_BOOK_IN_ORIGINATOR:
+                rest = without_swift_line_number(rest)
             end = _WIRE_FIELD_END.search(rest)
             words = _leading_name_words(rest[: end.start()] if end is not None else rest)
             if _originator_payer_words(words):
                 return words
     return None
+
+
+#: 5.6 (A3-G refinement): Bank of America's book-transfer wire and its originator label (never ORIG CO NAME, ORIG ID or
+#: ORIG TO BNF).
+_BOFA_BOOK_IN = re.compile(r"^WIRE TYPE BOOK IN\b")
+_BOFA_BOOK_IN_ORIGINATOR = re.compile(r"\bORIG\b(?! CO NAME\b)(?! ID\b)(?! TO BNF\b) ?")
 
 
 #: S2.3 review (fix 1, §7.11): the account-type and product words a transfer prints after FROM about one of the
