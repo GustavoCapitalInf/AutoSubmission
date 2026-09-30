@@ -168,6 +168,42 @@ def test_square_capital_and_sba_proceeds_leave_eligible_deposits():
     assert record.contributes_to_lender_credit_exclusion
 
 
+_SBA_CHASE = ("Orig CO Name:{name} Orig ID:1234567890 Desc Date:540102 CO Entry Descr:N/A Creditsec:PPD "
+              "Trace#:123456789012345 Eed:540102 Ind ID: Ind Name:Contoso Bakery 123")
+
+
+@pytest.mark.parametrize("printed", [
+    _SBA_CHASE.format(name="Small Business"),
+    _SBA_CHASE.format(name="Small Business A"),
+    _SBA_CHASE.format(name="Small Business Adm"),
+    "SMALL BUSINESS ADMIN DES:N/A ID:1 INDN:CONTOSO BAKERY CO ID:1 PPD",
+    "WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:1 SEQ:1/2 ORIG:SMALL BUSINESS AD ID:99 SND BK:SAMPLE BANK ID:1",
+])
+def test_a3_the_sba_s_name_cut_to_its_originator_field_is_a_disbursement(printed):
+    # A3 (precision sample): the Small Business Administration's name cut to the originator field is an SBA
+    # disbursement, financing proceeds like SBAD TREAS and EIDL.
+    record = _credit(printed, holder="CONTOSO BAKERY LLC")
+    assert (record.revenue_classification, record.revenue_match_method, record.revenue_matched_rule) == (
+        "non_revenue", "financing_proceeds_credit", "sba_disbursement_credit")
+    assert record.contributes_to_lender_credit_exclusion
+    statement = classify_statement_transactions(Statement(account_name="CONTOSO BAKERY LLC", transactions=[
+        Transaction(date="2054-03-02", description=printed, amount=175000.0, direction="credit")]))
+    assert (statement[0].revenue_tier, statement[0].revenue_matched_rule) == ("non_revenue", "sba_disbursement_credit")
+
+
+@pytest.mark.parametrize("printed", [
+    _SBA_CHASE.format(name="Small Business Solutions LLC").replace("N/A Creditsec:PPD", "Payment Sec:CCD"),
+    "SMALL BUSINESS SOLUTIONS LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    "SMALL BUSINESS SUPPLY CO DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    "ONLINE TRANSFER FROM SMALL BUSINESS XXXXXX1234",
+])
+def test_a3_a_payer_whose_name_merely_starts_with_small_business_is_no_sba_disbursement(printed):
+    record = _credit(printed, holder="CONTOSO BAKERY LLC")
+    assert record.revenue_classification != "non_revenue"
+    assert record.revenue_matched_rule != "sba_disbursement_credit"
+    assert not record.contributes_to_lender_credit_exclusion
+
+
 @pytest.mark.parametrize("printed", [
     "ZELLE PAYMENT FROM JOHN SMITH MEMO INVOICE PAYMENT CONF 99",
     "MOBILE DEPOSIT CUSTOMER PAYMENT REF 1234",

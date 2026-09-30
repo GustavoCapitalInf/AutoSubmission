@@ -57,6 +57,12 @@ _FINANCING_ROOT = re.compile(
     r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
 )
 _WHOLE_CREDIT = re.compile(r"\bCREDITS?\b")
+#: §8.1, §7.9 (A3): a wire's originator whose name a line wrap splits ('F INANCIAL', 'FUNDIN G') is read run together
+#: too, as §7.9's veto reads its first six words: the financing roots without the glued-CREDIT arm (running the words
+#: together would glue a whole-word CREDIT to its neighbour).
+_FINANCING_RUN_ROOT = re.compile(
+    r"(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL"
+)
 #: §8.7: the dealer-funding words.
 DEALER_FUNDING_WORDS = re.compile(
     r"(?<![A-Z])(?:VHCL PURCH\w*|VEHICLE PURCHASE\b|DEAL ?FUND\w*|FUNDLOAN\b|DEALER (?:FUND\w*|FND|PMT|PAY\w*)\b"
@@ -142,6 +148,9 @@ _ACCOUNT_WORDS = frozenset({
 _LOOSE_WIRE = re.compile(
     r"(?<![A-Z])(?:WIRE|FEDWIRE|FED WIRE|CHIPS CREDIT|SWIFT|FOREIGN REMITTANCE|WT FED|FED REF)\b|\bIWT\b"
 )
+#: §8.5 (A3): on a row that prints transfer wording, the loose wire words and a bare CHIPS ('INCOMING CHIPS TRANSFER')
+#: name the wire channel (_channel). A bare CHIPS elsewhere may be a payer's own word, so _LOOSE_WIRE keeps CHIPS CREDIT.
+_TRANSFER_WIRE_WORDS = re.compile(_LOOSE_WIRE.pattern + r"|(?<![A-Z])CHIPS\b")
 #: §8.5: a sender that names a bank, a title or an escrow firm never verifies by repetition.
 _BANK_OR_TITLE_SENDER = re.compile(
     r"\b(?:BANK|BANCO|BANCORP|N A|TRUST COMPANY|CREDIT UNION|FCU|SAVINGS|TITLE|ESCROW|CLOSING|SETTLEMENT)\b"
@@ -288,6 +297,39 @@ _FOUR_DIGITS = re.compile(r"\d{4}")
 #: §8.2 (S4.2 final review, fix 5): a bank branch a transfer prints ('AVIS VIREMENT <n> CTR BANCAIRE <branch>'), never
 #: its counterparty.
 _BANK_BRANCH_WORDS = re.compile(r"(?<![A-Z])(?:CTR BANCAIRE|CENTRE BANCAIRE|SUCCURSALE|BRANCH)\b")
+#: §8.2, §8.5 (A3, the precision sample of the largest counted rows, 2026-09-30): a wire's channel and layout words,
+#: never a transfer's counterparty ('INCOMING FEDWIRE TRANSFER' names nobody). Some are generic words already; the
+#: set names them all, so the rule reads in one place.
+_WIRE_LAYOUT_WORDS = frozenset({
+    "INCOMING", "INBOUND", "INBD", "FEDWIRE", "FED", "WIRE", "WIRES", "WT", "IWT", "TRANSFER", "CREDIT", "CHIPS",
+    "SWIFT", "BOOK", "DOMESTIC", "INTL", "INTERNATIONAL",
+})
+#: §8.1 (A3): the holder's own currency conversion: foreign-exchange and currency-conversion wording, English and
+#: French. It never names a counterparty (_without_currency_conversion); a credit that prints it and names no payer
+#: besides it is the holder's own money converted from one currency to another (_currency_conversion). The corpus
+#: prints ONLINE BANKING FOREIGN EXCHANGE; the other spellings are the banks' common forms, no corpus row yet.
+_CURRENCY_CONVERSION = re.compile(
+    r"(?<![A-Z])(?:FOREIGN (?:EXCHANGE|EXCH|CURRENCY (?:EXCHANGE|CONVERSION))|FX (?:CONVERSION|CONV|EXCHANGE|EXCH|TRADE"
+    r"|DEAL|SPOT|CONTRACT)|CURRENCY (?:EXCHANGE|EXCH|CONVERSION|CONV)|(?:CONVERSION|CHANGE|ACHAT|VENTE) DE DEVISES"
+    r"|CONV(?:ERSION)? DEVISES?)\b"
+)
+#: §8.1 (A3): a title firm named on the payer region, whose payment is property-closing proceeds (an asset sale), never
+#: the business's operating revenue: the whole word TITLE beside a title-firm word or a legal form (either order, AND
+#: between them allowed), or a national title insurer. TITLEIST and TITLE BOXING CLUB are no title firm.
+_TITLE_FIRM = re.compile(
+    r"\bTITLE (?:AND )?(?:AGENCY|AGENCIES|AGCY|CO|COMPANY|COMPANIES|CORP|CORPORATION|INC|LLC|LTD|TRUST|INS|INSURANCE"
+    r"|GUARANTY|GUARANTEE|GTY|SERVICES|SERVICE|SVCS|ESCROW|CLOSING|CLOSINGS|SETTLEMENT|SETTLEMENTS|PARTNERS|GROUP)\b"
+    r"|\b(?:AGENCY|TRUST|INSURANCE|GUARANTY|SERVICES|ESCROW|CLOSING|CLOSINGS|SETTLEMENT|ABSTRACT)(?: AND)? TITLE\b"
+    r"|\b(?:CHICAGO|FIRST AMERICAN|FIDELITY NATIONAL|OLD REPUBLIC|STEWART|TICOR|COMMONWEALTH LAND|LAWYERS|WESTCOR"
+    r"|WESTCOR LAND|NORTH AMERICAN|ATTORNEYS|WFG NATIONAL|DOMA) TITLE\b(?! BOXING\b| CLUB\b)"
+)
+#: §8.1 (A3, orchestrator ruling): a title firm also pays the holder's own fee at closing: a commission, an origination
+#: or broker fee, an invoice, consulting or services rendered, cited in the entry fields (a wire's OBI, RMR, PMT DET,
+#: RFB or REF purpose, an ACH entry). Such a credit is not held by the title hold and takes its normal reading.
+_TITLE_FEE_WORDING = re.compile(
+    r"(?<![A-Z])(?:COMMISSIONS?|COMM|ORIGINATION|ORIG FEE|BROKER\w*|INVOICES?|CONSULT\w*|FEES? FOR SERVICES?"
+    r"|SERVICES RENDERED)\b|\bINV\b|(?<![A-Z])INV ?\d"
+)
 
 
 @dataclass(frozen=True)
@@ -557,6 +599,10 @@ def financing_named(text: str, region: str, entry: str, account_name: str | None
         name_words = classifier.payer_name(payer).split()
         if len(name_words) >= 2 and _WHOLE_CREDIT.search(" ".join(name_words)):
             return True
+        # A3: a wire's originator split by a line wrap, read run together (§7.9's wrap-tolerant reading).
+        run = "".join([token for token in payer.split() if not any(ch.isdigit() for ch in token)][:6])
+        if classifier._is_wire_row(text) and _FINANCING_RUN_ROOT.search(run):
+            return True
         if entry:
             parts.append(_HOLD_POSTING_LABELS.sub(" ", entry))
     else:
@@ -586,12 +632,22 @@ def _accounts_payable_wording(text: str) -> bool:
 
 def non_sale_purpose(text: str, region: str) -> bool:
     """§8.1: a non-sale purpose, a public payer's refund or benefit, or a healthcare payer's member or premium credit.
-    The investment words hold a row unless it prints accounts-payable wording (S4.2 fix measurement)."""
+    The investment words hold a row unless it prints accounts-payable wording (S4.2 fix measurement). A3 (precision
+    sample): a title firm named on the payer region (_TITLE_FIRM: property-closing proceeds, an asset sale), on a
+    wire or an ACH row alike, unless its entry fields cite the holder's fee (_TITLE_FEE_WORDING, the orchestrator's
+    ruling); and the holder's own currency conversion (_currency_conversion)."""
     classifier = _classifier()
     row = _hold_text(text)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
     healthcare = healthcare_payer(region)
     if _NON_SALE_PURPOSE.search(row) is not None:
+        return True
+    if (
+        region and _TITLE_FIRM.search(region) is not None
+        and _TITLE_FEE_WORDING.search(classifier.entry_fields(text)) is None
+    ):
+        return True
+    if _currency_conversion(text):
         return True
     if _INVESTMENT_PURPOSE.search(row) is not None and not _accounts_payable_wording(text):
         return True
@@ -747,7 +803,11 @@ def _debit_words(records: Sequence[TransactionClassification], duplicates: set[i
 def _channel(text: str) -> str:
     """§5.2: the channel family: wire, ach_eft, person_to_person, check, cash_branch_atm or other. A row the 5.5 wire
     vetoes read as a wire (_wire_vetoes_apply: an incoming-wire label, a third-party book transfer, or WIRE printed
-    outside the receiver's value, a glued reference included) is a wire, so Q6 never reads it as an ACH payer."""
+    outside the receiver's value, a glued reference included) is a wire, so Q6 never reads it as an ACH payer.
+
+    A3 (precision sample): a transfer that prints the loose wire words (§8.5: FEDWIRE, WIRE, CHIPS, SWIFT ...) and
+    names no counterparty ('INCOMING FEDWIRE TRANSFER') is a wire with no sender (Q5: held as wire_no_sender); one that
+    names its counterparty keeps the named-transfer reading (T13)."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     if classifier._is_wire_row(text):
@@ -759,6 +819,8 @@ def _channel(text: str) -> str:
     if (not classifier._ELECTRONIC_PAYMENT_FORM.search(row) and classifier._CASH_BRANCH_ATM_FORM.search(row)):
         return "cash_branch_atm"
     if _transfer_wording(row):
+        if _TRANSFER_WIRE_WORDS.search(row) and not _transfer_counterparty_words(text):
+            return "wire"
         return "person_to_person"
     if _LOOSE_WIRE.search(row) or classifier._wire_vetoes_apply(text):
         return "wire"
@@ -851,10 +913,12 @@ def _transfer_counterparty_words(text: str) -> list[str]:
     'FROM OPERATING') is never a counterparty. S4.2 re-review (fix 4): failing that, a short or company-formed name
     after FROM is one (_short_or_formed_counterparty). S4.2 follow-up 2: the French transfer and posting words
     (_VIREMENT_TRANSFER_WORDS) are removed too. S4.2 final review (fix 5): so are a French month and a bank branch.
-    S4.2 fix round 4: a French month only where a date prints it (_without_date_months), on the row's start too."""
+    S4.2 fix round 4: a French month only where a date prints it (_without_date_months), on the row's start too.
+    A3 (precision sample): a wire's channel and layout words (_WIRE_LAYOUT_WORDS: 'INCOMING FEDWIRE TRANSFER') and
+    currency-conversion wording (_CURRENCY_CONVERSION: 'ONLINE BANKING FOREIGN EXCHANGE') are never a counterparty."""
     classifier = _classifier()
     row = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", _without_date_months(
-        classifier._strip_revenue_template(classifier._before_receiver(text)), row=True
+        _without_currency_conversion(classifier._strip_revenue_template(classifier._before_receiver(text))), row=True
     )))
     words = [
         token for token in row.split()
@@ -862,6 +926,7 @@ def _transfer_counterparty_words(text: str) -> list[str]:
         and token not in _ACCOUNT_WORDS and token not in _TRANSFER_FIELD_LABEL_WORDS
         and not classifier._TRANSFER_WORDING.fullmatch(token) and token not in _VIREMENT_TRANSFER_WORDS
         and token not in {"TRANSFER", "TRNSFR", "XFER", "TFR", "BR", "TO", "BANKING", "INTERNET"}
+        and token not in _WIRE_LAYOUT_WORDS
     ]
     return classifier._originator_payer_words(" ".join(words)) or _short_or_formed_counterparty(text)
 
@@ -902,17 +967,44 @@ def _short_or_formed_counterparty(text: str) -> list[str]:
 def _counterparty_tokens(words: str) -> list[str]:
     """§8.2 (S4.2 re-review fix 4): a transfer sender's words without bank branches, reference labels and their
     values, reference tokens, field labels, generic words, account and product words, transfer words, French months
-    printed as a date (S4.2 fix round 4, _without_date_months) and single letters."""
+    printed as a date (S4.2 fix round 4, _without_date_months) and single letters. A3: nor a wire's channel and layout
+    words, nor currency-conversion wording."""
     classifier = _classifier()
-    sender = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", _without_date_months(words)))
+    sender = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", _without_date_months(
+        _without_currency_conversion(words)
+    )))
     return [
         token for token in classifier._INTERNAL_ACCOUNT_SOURCE_WORDS.sub(" ", sender).split()
         if len(token) > 1 and not classifier._is_reference_token(token)
         and token not in _TRANSFER_FIELD_LABEL_WORDS and token not in classifier.REVENUE_GENERIC_WORDS
         and token not in _ACCOUNT_WORDS and token not in classifier._OWN_ACCOUNT_PRODUCT_WORDS
         and token not in _ACCOUNT_DESCRIPTION_WORDS and not classifier._TRANSFER_WORDING.fullmatch(token)
-        and token not in _VIREMENT_TRANSFER_WORDS
+        and token not in _VIREMENT_TRANSFER_WORDS and token not in _WIRE_LAYOUT_WORDS
     ]
+
+
+def _without_currency_conversion(words: str) -> str:
+    """§8.1, §8.2 (A3): the words without currency-conversion wording, which never names a counterparty."""
+    return _CURRENCY_CONVERSION.sub(" ", words)
+
+
+def _currency_conversion(text: str) -> bool:
+    """§8.1 (A3, precision sample): the holder's own currency conversion: currency-conversion wording on the row
+    before its receiver fields (posting labels removed), on a row that names no payer once that wording is removed:
+    no name word in its payer region (_counterparty_tokens), no transfer counterparty and no person-to-person sender.
+    A named payer that prints the wording (a customer's wire converted on arrival, 'ORIG FABRIKAM GMBH ... FOREIGN
+    EXCHANGE') keeps its reading. The standing rule (owner money never becomes revenue) holds it as non_sale_purpose:
+    §5.3's own-money reason, as a SWEEP or a ZBA is held; it names no counterparty and designates no account, so it
+    is no named transfer of T13 (transfer_account_designation)."""
+    classifier = _classifier()
+    if _CURRENCY_CONVERSION.search(_hold_text(text)) is None:
+        return False
+    stripped = _without_currency_conversion(text)
+    if _counterparty_tokens(classifier.payer_region(stripped)):
+        return False
+    if _transfer_row(classifier._before_receiver(stripped)) and _transfer_counterparty_words(stripped):
+        return False
+    return not _p2p_sender_region(stripped)
 
 
 def _without_date_months(words: str, *, row: bool = False) -> str:

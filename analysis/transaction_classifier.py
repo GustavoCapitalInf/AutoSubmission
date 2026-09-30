@@ -1008,6 +1008,9 @@ _QUEBEC = "(?:QUEBEC|QUEBE|QUEB|QUE|QC)"
 _NUMBERED_COMPANY_TEMPLATE = re.compile(
     r"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{6,}\b"
 )
+#: A3: a numbered company's number before its province or territory, or Quebec's NNNN NNNN before QUEBEC (the
+#: province arm of _NUMBERED_COMPANY_REGION), kept when a wire's sender is read after its label.
+_NUMBERED_PROVINCE_START = re.compile(rf"^\d{{6,}} {_PROVINCE}\b|^\d{{4}} \d{{4}} {_QUEBEC}\b")
 _NUMBERED_COMPANY_REGION = re.compile(
     rf"^\d{{6,}}\b(?: {_PROVINCE}\b| (?:[A-Z]+ ){{0,4}}(?:INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO"
     rf"|COMPANY)\b)"
@@ -1161,10 +1164,55 @@ def _wire_payer_region(text: str) -> str:
         return _leading_name_words(santander.group("originator").strip())
     found = _WIRE_ORIGINATOR_LABEL.search(text)
     if found is None:
-        return ""
+        return _wire_sender_after_label(text)
     rest = text[found.end():]
     end = _WIRE_FIELD_END.search(rest)
     return _leading_name_words(rest[: end.start()] if end is not None else rest)
+
+
+#: A3 (orchestrator ruling, 2026-09-30): the incoming-wire layouts that print the sender right after their label, with
+#: no originator label: BMO's label printed twice, then the sender's country code ('INCOMING WIRE PAYMENT INCOMING
+#: WIRE PAYMENT CA <sender>'); a reference, then the sender ('INCOMING WIRE <reference> <sender> NOTPROVIDED'); TD
+#: Bank's 'WIRE TRANSFER INCOMING <sender>'; Wilson & Muir's 'WIRE TRANSFER FROM <sender>'; Capital One's 'WIRE
+#: TRANSFER DEPOSIT <sender> <reference> USD<...>'; Scotiabank's 'INCOMING WIRE TRANSFER <sender> WIRE PAYMENT'; and
+#: SECU's 'DOMESTIC WIRE DEPOSIT WIRE IN <sender>'. Anchored at the row's start, so a sending bank after VIA or a
+#: reference-only row ('DOMESTIC INCOMING WIRE <reference>') is never read as a sender.
+_WIRE_SENDER_AFTER_LABEL = re.compile(
+    r"^(?:INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT [A-Z]{2}|INCOMING WIRE(?= \d+ [A-Z])"
+    r"|WIRE TRANSFER (?:INCOMING|FROM|DEPOSIT)|INCOMING WIRE TRANSFER(?= .*\bWIRE PAYMENT$)"
+    r"|(?:DOMESTIC )?WIRE DEPOSIT WIRE IN)\b ?"
+)
+#: A3: the sender printed after the label ends at a wire field, at NOTPROVIDED, or at Scotiabank's WIRE PAYMENT.
+_WIRE_SENDER_AFTER_LABEL_END = re.compile(_WIRE_FIELD_END.pattern + r"|\b(?:NOTPROVIDED|WIRE PAYMENT)\b")
+#: A3: the words of the label layouts, never a sender's name ('WIRE TRANSFER DEPOSIT WIRE REF ...'), and a legal form
+#: or an article, which alone names nobody (as the person-to-person reader holds: 'WIRE TRANSFER INCOMING 1ABC LLC',
+#: whose name the reference reading drops, stays a wire with no sender).
+_WIRE_LABEL_WORDS = frozenset({
+    "INCOMING", "WIRE", "PAYMENT", "TRANSFER", "DEPOSIT", "CREDIT", "IN", "FROM",
+    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "COMPANY", "CO", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
+    "PLC", "THE", "OF", "AND",
+})
+
+
+def _wire_sender_after_label(text: str) -> str:
+    """A3 (orchestrator ruling): the sender a wire prints right after its label (_WIRE_SENDER_AFTER_LABEL), read as the
+    originator is: up to the next wire field, NOTPROVIDED or WIRE PAYMENT, and to the first reference token after a
+    name word (_leading_name_words). A reference printed before the sender is no part of it, except a numbered
+    company's number before its province ('CA 1234567 ONTARIO INC', §5.2). '' when no payer word is left."""
+    found = _WIRE_SENDER_AFTER_LABEL.match(text)
+    if found is None:
+        return ""
+    rest = text[found.end():]
+    end = _WIRE_SENDER_AFTER_LABEL_END.search(rest)
+    tokens = (rest[: end.start()] if end is not None else rest).split()
+    while tokens and tokens[0].isdigit() and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
+        tokens.pop(0)
+    region = _leading_name_words(" ".join(tokens))
+    named = any(
+        _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
+        for token in region.split()
+    )
+    return region if named else ""
 
 
 def _sender_payer_region(text: str) -> str:
@@ -1469,6 +1517,15 @@ _ACCOUNT_VERIFICATION_CREDIT = re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSIT
 _SQUARE_CAPITAL_CREDIT = re.compile(r"\bSQ ?CAP\d*\b")
 _SQUARE_NAME = re.compile(r"\bSQ\b|\bSQUARE\b")
 _SBA_DISBURSEMENT_CREDIT = re.compile(r"\bSBAD TREAS\b|\bSBA (?:EIDL|LOAN|DISB\w*)\b|\bEIDL\b")
+#: A3 (the precision sample of the largest counted rows, 2026-09-30): the Small Business Administration's name cut to
+#: an originator field, read on the payer region alone: exactly SMALL BUSINESS, or SMALL BUSINESS and a leading cut of
+#: ADMINISTRATION (A, AD, ADM ... ADMIN ... ADMINISTRATION), a U S prefix allowed. A payer whose name goes on in other
+#: words (SMALL BUSINESS SOLUTIONS LLC) is a named payer.
+_SBA_CUT_ORIGINATOR = re.compile(
+    r"^(?:U ?S )?SMALL BUSINESS(?: (?:"
+    + "|".join("ADMINISTRATION"[:length] for length in range(len("ADMINISTRATION"), 0, -1))
+    + r"))?$"
+)
 #: §7.11 (T19 and this spec): a book or funds transfer is own-account only when no third-party originator is printed.
 _BOOK_OR_FUNDS_TRANSFER = re.compile(r"\b(?:BOOK|FUNDS?) TRANSFER\b")
 #: §7.11: the Electronic Funds Transfer channel, never a book or funds transfer between accounts.
@@ -3097,10 +3154,11 @@ def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
     """
     if _BANK_LINE_ADVANCE_CREDIT.search(text):
         return "bank_line_advance_credit", True
-    # 5.5 (§7.11, T5): Square Capital's SQ CAP spelling on a row that names Square, and SBA and EIDL disbursements.
+    # 5.5 (§7.11, T5): Square Capital's SQ CAP spelling on a row that names Square, and SBA and EIDL disbursements
+    # (A3: the SBA's name cut to its originator field too).
     if _SQUARE_CAPITAL_CREDIT.search(text) and _SQUARE_NAME.search(text):
         return "square_capital_credit", False
-    if _SBA_DISBURSEMENT_CREDIT.search(text):
+    if _SBA_DISBURSEMENT_CREDIT.search(text) or _sba_cut_originator(text):
         return "sba_disbursement_credit", False
     if registry_match(text, POTENTIAL_LENDER_ALIASES) is not None or _matches_any(
         text, _NON_REVENUE_CREDIT_PATTERNS
@@ -3111,6 +3169,24 @@ def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
     if _FLOOR_PLAN_ADVANCE_CREDIT.search(text):
         return "floor_plan_advance_credit", False
     return None
+
+
+def _sba_cut_originator(text: str) -> bool:
+    """A3 (precision sample): the payer region of a wire or of a row with an electronic-payment form (an originator
+    field) is the SBA's name cut to the field (_SBA_CUT_ORIGINATOR). Never read on a person-to-person or push rail,
+    nor on a transfer's sender after FROM, which names an account ('ONLINE TRANSFER FROM SMALL BUSINESS XXXXXX1234')."""
+    if "SMALL BUSINESS" not in text:
+        return False
+    text = revenue_text(text)
+    row = _before_receiver(text)
+    if not _is_wire_row(text) and (
+        _ELECTRONIC_PAYMENT_FORM.search(row) is None
+        or _CONSUMER_P2P_RAIL.search(row) is not None
+        or _PUSH_RAIL.search(row) is not None
+        or _sender_payer_region(text)
+    ):
+        return False
+    return _SBA_CUT_ORIGINATOR.match(payer_region(text).strip()) is not None
 
 
 def _financing_proceeds_credit_record(
