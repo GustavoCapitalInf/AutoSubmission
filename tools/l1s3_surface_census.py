@@ -156,6 +156,9 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "the NSF basis is a property of one account's ledger; every account is re-based, a malformed document passes untouched"),
     ("webapp/reanalysis.py", "replay_reviews", "per_account",
      "a decision names one posting of one account; every account is searched through payload_accounts"),
+    ("analysis/revenue_view.py", "apply_revenue_view", "per_account",
+     "the revenue flags and an older payload's nulled True revenue are served per account ledger; every account is "
+     "shown, a malformed document passes untouched"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -182,6 +185,8 @@ EXCUSED: dict[str, str] = {
     "webapp/app.py::_package_analysis": "reads one MEMBER's account payload, supplied by `_package_members`",
     "webapp/reanalysis.py::_records": "one ACCOUNT's records; `replay_reviews` hands it each account from `payload_accounts`",
     "analysis/nsf_days.py::_rebased_account": "one ACCOUNT's ledger and postings; `apply_nsf_basis_to_payload` hands it each account from `payload_accounts`",
+    "analysis/revenue_view.py::_served_account": "one ACCOUNT's revenue view; `apply_revenue_view` hands it each account from `payload_accounts`",
+    "analysis/revenue_view.py::revenue_flags": "one ACCOUNT's revenue flags; reached through `_served_account` with that account in hand",
     # A developer utility that publishes nothing. Handed a document payload it
     # falls back to the payload itself and `Statement.model_validate` refuses
     # it loudly, which is the fail-closed answer this census asks for.

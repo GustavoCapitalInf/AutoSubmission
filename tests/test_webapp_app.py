@@ -398,7 +398,11 @@ def test_package_analysis_aggregates_completed_jobs():
     assert [doc["max_balance"] for doc in body["documents"]] == [1200, 1500]
     assert all(doc["daily_balance_extrema_validated"] for doc in body["documents"])
     assert totals["package_withholding_rate"] == 6.82
-    assert totals["decision"] == "approved"
+    # 5.6 (true revenue spec §9.2): a member with no ledger rows and no verified key has no established verified
+    # revenue (the `true_revenue` fallback is gone), so the package's verified total is N/A and it needs review.
+    assert totals["verified_revenue_total"] is None
+    assert totals["revenue_unestablished_documents"] == sorted([job1.id, job2.id])
+    assert totals["decision"] == "review_required"
     assert body["funders"] == [{"funder": "ONDECK", "documents": 2, "total_debited": 1500.0}]
 
     json_resp = client.get(f"/package_download/json?ids={job1.id},{job2.id}")

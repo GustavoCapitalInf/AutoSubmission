@@ -348,8 +348,8 @@ def test_metrics_api_tables_filters_and_withholding_share_exact_evidence():
     assert totals["potential_lender_debit_count"] == 0
     assert totals["potential_lender_debit_total"] == totals["potential_lender_debits"] == 0.0
     assert not totals["potential_withholding_review_required"]
-    # Still review: the fixture's customer deposit needs revenue review (measured 2026-09-26).
-    assert totals["decision"] == "review_required"
+    # 5.6 (true revenue spec T7): the fixture's customer deposit is counted, and a counted credit never gates review.
+    assert totals["decision"] == "approved"
     assert package["potential_lender_evidence"] == []
     assert totals["insurance_count"] == 2
     assert totals["insurance_total"] == 600.0

@@ -75,6 +75,10 @@ EXPECTED_REFUSED_TOTALS = {
     "total_debits",
     "total_posted_credits",
     "true_revenue",
+    # 5.6 (true revenue spec §9.2): True revenue and its counted and held parts.
+    "true_revenue_total",
+    "counted_flagged_total",
+    "excluded_pending_review_total",
     "unverified_deposit_total",
     "verified_revenue_total",
     "withholding_denominator",
@@ -112,7 +116,15 @@ UNIT_FREE_TOTALS = {
     "total_posted_credit_count",
     "unverified_deposit_count",
     "verified_revenue_count",
+    # 5.6 (§9.2): the tier counts and the held-row count.
+    "true_revenue_count",
+    "counted_flagged_count",
+    "excluded_pending_review_count",
+    "revenue_review_items",
 }
+#: 5.6 (§9.2, §10.4): the tier counts are unit-free, and None whenever a completed member's revenue is not
+#: established, as every metrics-only member of these fixtures is.
+REVENUE_TIER_COUNTS = {"true_revenue_count", "counted_flagged_count", "excluded_pending_review_count"}
 
 
 def statement_payload(currency, *, amount=10_000.0, adb=100.0, days=31, bank="Test Bank"):
@@ -301,8 +313,12 @@ def test_mixed_currency_package_refuses_every_cross_currency_total():
 def test_mixed_currency_refusal_leaves_every_count_intact():
     package = _package_analysis([member("a", "CAD"), member("b", "USD")])
     totals = package["totals"]
-    for key in UNIT_FREE_TOTALS:
+    for key in UNIT_FREE_TOTALS - REVENUE_TIER_COUNTS:
         assert totals[key] is not None, f"{key} is unit-free and must survive"
+    # The members print no ledger rows, so their revenue is not established and the tier counts are N/A (§10.4);
+    # the currency refusal is not what nulls them.
+    for key in REVENUE_TIER_COUNTS:
+        assert totals[key] is None
     assert totals["documents"] == 2
     assert totals["completed"] == 2
     assert totals["insurance_count"] == 2
@@ -800,7 +816,7 @@ def test_the_route_serves_the_undetermined_bucket_end_to_end():
     assert body["currency"]["undeclared_currency_documents"] == 1
     # The code that WAS declared is still reported as evidence.
     assert body["currency"]["currencies"] == ["USD"]
-    assert len(body["currency"]["refused_total_fields"]) == 34
+    assert len(body["currency"]["refused_total_fields"]) == 37
     assert body["totals"]["cross_currency_totals_refused"] is True
     assert body["totals"]["currency"] is None
     assert body["totals"]["total_credits"] is None

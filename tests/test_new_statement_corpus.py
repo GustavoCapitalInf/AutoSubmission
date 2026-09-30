@@ -474,7 +474,11 @@ def test_new_statement_api_and_exports_preserve_authoritative_values():
     # over its members and one member left.
     package = _package_analysis(jobs)
     assert package["totals"]["average_daily_balance"] == 1957.43
-    assert package["totals"]["verified_revenue_total"] == 3563.85
+    # 5.6 (true revenue spec §9.2, §10.4): navigant's captured credits are not the money its bank total counts (its
+    # verified_revenue_established is false, as the Monthly Statements' True deposits already said), so the
+    # package's verified total is N/A rather than a sum that includes a partial figure.
+    assert package["totals"]["verified_revenue_total"] is None
+    assert package["totals"]["revenue_unestablished_documents"] == ["new-corpus-navigant"]
     assert package["totals"]["unverified_deposit_total"] == 114144.70
     assert package["totals"]["non_revenue_total"] == 54281.29
     assert package["totals"]["maximum_revenue"] == 117708.55

@@ -30,12 +30,14 @@ from analysis.revenue import (
     apply_serialized_revenue_review,
     normalize_withholding_denominator_mode,
     REVENUE_STATES,
+    revenue_review_gate,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
 from analysis.cadence import describe_cadence
 from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
 from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group_keys
+from analysis.revenue_view import apply_revenue_view
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
 from .worker import run_job
@@ -218,7 +220,8 @@ def _displayed(
     if carry_over is None:
         carry_over = settings.get("nsf_carry_over", SETTINGS_DEFAULTS["nsf_carry_over"])
     rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over, list_days=not export)
-    return apply_flagged_groups_to_payload(rebased, enabled=settings)
+    # 5.6 (true revenue spec §10.4, §12): each account's revenue flags, and an older payload's True revenue nulled.
+    return apply_revenue_view(apply_flagged_groups_to_payload(rebased, enabled=settings))
 
 
 #: What a package member row carries for the dashboard alone, left out of the package downloads.
@@ -720,6 +723,10 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "total_debits",
     "total_posted_credits",
     "true_revenue",
+    # 5.6 (§9.2): True revenue and its counted and held parts.
+    "true_revenue_total",
+    "counted_flagged_total",
+    "excluded_pending_review_total",
     "unverified_deposit_total",
     "verified_revenue_total",
     "withholding_denominator",
@@ -1123,7 +1130,16 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "unverified_deposit_count": 0,
         "non_revenue_total": 0.0,
         "non_revenue_count": 0,
-        # Deprecated aliases for version 3.0 API consumers.
+        # 5.6 (§9.2): True revenue, verified plus counted, and the held credits. None when a completed member's
+        # revenue is not established (below).
+        "true_revenue_total": 0.0,
+        "true_revenue_count": 0,
+        "counted_flagged_total": 0.0,
+        "counted_flagged_count": 0,
+        "excluded_pending_review_total": 0.0,
+        "excluded_pending_review_count": 0,
+        "revenue_review_items": 0,
+        # Deprecated aliases for version 3.0 API consumers. 5.6 (T9): true_revenue is True revenue.
         "true_revenue": 0.0,
         "confirmed_true_revenue": 0.0,
         "confirmed_true_revenue_total": 0.0,
@@ -1169,6 +1185,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     package_revenue_evidence: dict[str, list[dict]] = {
         state: [] for state in REVENUE_STATES
     }
+    # 5.6 (§9.2): the counted and held credits' evidence, and the members whose revenue is not established.
+    package_tier_evidence: dict[str, list[dict]] = {"counted_flagged": [], "excluded_pending_review": []}
+    package_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {}}
+    unestablished_verified: list[str] = []
+    unestablished_revenue: list[str] = []
+    any_member_gated = False
     #: (group key, payee) -> the running roll-up of the ticked flag groups (lender detection §8.3).
     flagged_rollup: dict[tuple[str, str], dict] = {}
     package_flagged_evidence: list[dict] = []
@@ -1364,7 +1386,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # unknown whole (a summary-only statement, a partly classified one, a payload from before classification
         # records, a failed member), and the table says N/A rather than show it as the month's revenue. A member
         # that captured no credit and whose Total is zero took in nothing, and its True deposits are zero.
-        revenue_established = ready and (
+        verified_revenue_established = ready and (
             (
                 revenue_rows_are_authoritative
                 and (
@@ -1373,6 +1395,31 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 )
             )
             or (bool(statement) and not positive_statement_rows and credits == 0)
+        )
+        # 5.6 (§9.2, §10.4): True revenue is established when the verified figure is and every posted credit carries
+        # a tier; a payload analysed before 5.6 carries none (§12).
+        tiered = revenue_rows_are_authoritative and all(
+            isinstance(row["classification"].get("revenue_tier"), str) for row in posted_credit_rows
+        )
+        revenue_established = verified_revenue_established and (tiered or not posted_credit_rows)
+        tier_rows = {
+            tier: [row for row in posted_credit_rows if row["classification"].get("revenue_tier") == tier]
+            for tier in ("verified", "counted_flagged", "excluded_pending_review")
+        } if tiered else {}
+        tier_totals = {tier: round(sum(_num(row.get("amount")) for row in rows), 2) for tier, rows in tier_rows.items()}
+        member_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {}}
+        for tier in member_by_reason:
+            for row in tier_rows.get(tier, []):
+                reason = row["classification"].get("revenue_tier_reason") or ""
+                slot = member_by_reason[tier].setdefault(reason, {"count": 0, "total": 0.0})
+                slot["count"] += 1
+                slot["total"] = round(slot["total"] + _num(row.get("amount")), 2)
+        # T7, §10.7 (S4.4/S4.5 review): only an undecided direction conflict gates, as the rebuild counts it
+        # (analysis/revenue.py); a confirmed or rejected one no longer does.
+        direction_conflict = any(
+            row["classification"].get("revenue_match_method") == "direction_conflict"
+            and row["classification"].get("revenue_review_status") == "pending"
+            for row in posted_credit_rows
         )
         if authoritative_rows:
             lender_debits = round(sum(abs(_num(row.get("amount"))) for row in lender_rows), 2)
@@ -1438,12 +1485,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             posted_credit_count = int(
                 _num(metrics.get("total_posted_credit_count"), metrics.get("effective_num_deposits") or 0)
             )
+            # 5.6 (§9.2): `true_revenue` is True revenue now, never a verified figure; without either verified key the
+            # member's verified figure is not established (verified_revenue_established is false on this path).
             verified_fallback = _num(
                 metrics.get("verified_revenue_total"),
-                _num(
-                    metrics.get("confirmed_true_revenue_total"),
-                    _num(metrics.get("true_revenue"), posted_credit_total),
-                ),
+                _num(metrics.get("confirmed_true_revenue_total")),
             )
             revenue_totals = {
                 "verified_revenue": verified_fallback,
@@ -1468,9 +1514,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 ),
                 "non_revenue": int(_num(metrics.get("non_revenue_count"))),
             }
+        # 5.6 (§9.2): without a stored denominator, the legacy eligible deposits (never `true_revenue`).
         eligible_deposits = _num(
             metrics.get("withholding_denominator"),
-            _num(metrics.get("true_revenue"), credits),
+            _num(metrics.get("legacy_eligible_deposits"), credits),
         )
         denominator_mode = normalize_withholding_denominator_mode(
             metrics.get("withholding_denominator_mode")
@@ -1487,6 +1534,18 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # `verified_revenue_total` never carried it and subtracting again
             # would remove money the denominator never held.
             eligible_deposits = round(max(eligible_deposits - excluded_credits, 0.0), 2)
+        elif excluded_positions and denominator_mode == "true_revenue":
+            # 5.6 (§11): an R-d pair can hold a credit this member counted (a named transfer between two members), so
+            # the True-revenue denominator loses the pair's credits that it holds: verified or counted, and only those.
+            counted_transfer_credits = round(sum(
+                _num(raw_transactions[position].get("amount"))
+                for position in excluded_positions
+                if position < len(raw_transactions) and isinstance(raw_transactions[position], dict)
+                and _num(raw_transactions[position].get("amount")) > 0
+                and ((raw_transactions[position].get("classification") or {}).get("revenue_tier")
+                     in ("verified", "counted_flagged"))
+            ), 2)
+            eligible_deposits = round(max(eligible_deposits - counted_transfer_credits, 0.0), 2)
         denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         nsf_source = metrics.get("nsf_source")
@@ -1530,7 +1589,6 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         totals["unverified_deposit_count"] += revenue_counts["unverified_deposit"]
         totals["confirmed_true_revenue_total"] = totals["verified_revenue_total"]
         totals["confirmed_true_revenue"] = totals["verified_revenue_total"]
-        totals["true_revenue"] = totals["verified_revenue_total"]
         totals["confirmed_true_revenue_count"] = totals["verified_revenue_count"]
         totals["potential_revenue_total"] = totals["unverified_deposit_total"]
         totals["potential_revenue_count"] = totals["unverified_deposit_count"]
@@ -1539,6 +1597,44 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             2,
         )
         totals["non_revenue_count"] += revenue_counts["non_revenue"]
+        if ready and not verified_revenue_established:
+            unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
+        if ready and not revenue_established:
+            unestablished_revenue.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
+        member_reconciles = round(sum(revenue_totals.values()), 2) == posted_credit_total
+        if tiered:
+            member_gated = revenue_review_gate(
+                direction_conflict=direction_conflict,
+                held_total=tier_totals["excluded_pending_review"],
+                posted_total=posted_credit_total,
+                reconciles=member_reconciles,
+            )
+            totals["true_revenue_total"] = round(
+                totals["true_revenue_total"] + tier_totals["verified"] + tier_totals["counted_flagged"], 2
+            )
+            totals["true_revenue_count"] += len(tier_rows["verified"]) + len(tier_rows["counted_flagged"])
+            totals["counted_flagged_total"] = round(totals["counted_flagged_total"] + tier_totals["counted_flagged"], 2)
+            totals["counted_flagged_count"] += len(tier_rows["counted_flagged"])
+            totals["excluded_pending_review_total"] = round(
+                totals["excluded_pending_review_total"] + tier_totals["excluded_pending_review"], 2
+            )
+            totals["excluded_pending_review_count"] += len(tier_rows["excluded_pending_review"])
+            totals["revenue_review_items"] += len(tier_rows["excluded_pending_review"])
+            for tier, reasons in member_by_reason.items():
+                for reason, slot in reasons.items():
+                    item = package_by_reason[tier].setdefault(reason, {"count": 0, "total": 0.0})
+                    item["count"] += slot["count"]
+                    item["total"] = round(item["total"] + slot["total"], 2)
+        else:
+            # §12: a member analysed before 5.6 is gated by the rule it was analysed under.
+            member_gated = (
+                any(row["classification"].get("revenue_classification") == "unverified_deposit"
+                    and row["classification"].get("revenue_review_status") == "pending"
+                    for row in posted_credit_rows)
+                or direction_conflict
+                or not member_reconciles
+            )
+        any_member_gated = any_member_gated or (ready and member_gated)
         totals["total_debits"] = round(totals["total_debits"] + debits, 2)
         totals["cash_flow"] = round(totals["cash_flow"] + cash_flow, 2)
         totals["lender_debits"] = round(totals["lender_debits"] + lender_debits, 2)
@@ -1721,6 +1817,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             revenue_state = classification.get("revenue_classification")
             if revenue_state in REVENUE_STATES and _num(tx.get("amount")) > 0:
                 package_revenue_evidence[revenue_state].append(evidence)
+                if classification.get("revenue_tier") in package_tier_evidence:
+                    package_tier_evidence[classification["revenue_tier"]].append(evidence)
 
         doc_row = {
             # One row per MEMBER. An account of a multi-account document is
@@ -1762,7 +1860,22 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "total_posted_credit_count": posted_credit_count,
             "verified_revenue_total": revenue_totals["verified_revenue"],
             "verified_revenue_count": revenue_counts["verified_revenue"],
-            "verified_revenue_established": revenue_established,
+            "verified_revenue_established": verified_revenue_established,
+            # 5.6 (§9.2): True revenue and its parts; None for a member whose revenue is not established.
+            "revenue_established": revenue_established,
+            "true_revenue_total": (
+                round(tier_totals["verified"] + tier_totals["counted_flagged"], 2) if tiered else None
+            ),
+            "true_revenue_count": (
+                len(tier_rows["verified"]) + len(tier_rows["counted_flagged"]) if tiered else None
+            ),
+            "counted_flagged_total": tier_totals["counted_flagged"] if tiered else None,
+            "counted_flagged_count": len(tier_rows["counted_flagged"]) if tiered else None,
+            "excluded_pending_review_total": tier_totals["excluded_pending_review"] if tiered else None,
+            "excluded_pending_review_count": len(tier_rows["excluded_pending_review"]) if tiered else None,
+            "counted_flagged_by_reason": member_by_reason["counted_flagged"] if tiered else None,
+            "excluded_pending_review_by_reason": member_by_reason["excluded_pending_review"] if tiered else None,
+            "revenue_review_required": member_gated,
             "unverified_deposit_total": revenue_totals["unverified_deposit"],
             "unverified_deposit_count": revenue_counts["unverified_deposit"],
             "confirmed_true_revenue_total": revenue_totals["verified_revenue"],
@@ -1917,7 +2030,22 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         totals["revenue_reconciliation_delta"] == 0.0
         and totals["revenue_classified_count"] == totals["total_posted_credit_count"]
     )
-    totals["revenue_review_required"] = totals["unverified_deposit_count"] > 0
+    # 5.6 (T7, §9.2): the gate applied to each member; a package needs revenue review when one of them does.
+    totals["revenue_review_required"] = any_member_gated
+    totals["counted_flagged_by_reason"] = package_by_reason["counted_flagged"]
+    totals["excluded_pending_review_by_reason"] = package_by_reason["excluded_pending_review"]
+    totals["revenue_unestablished_documents"] = sorted(set(unestablished_revenue) | set(unestablished_verified))
+    totals["true_revenue"] = totals["true_revenue_total"]
+    if unestablished_revenue:
+        # §10.4: a package's True, Counted and Held figures stand only when every completed member's revenue does.
+        for key in ("true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
+                    "excluded_pending_review_total", "excluded_pending_review_count", "true_revenue",
+                    "counted_flagged_by_reason", "excluded_pending_review_by_reason"):
+            totals[key] = None
+    if unestablished_verified:
+        # T9: confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so they are N/A with it.
+        for key in ("verified_revenue_total", "confirmed_true_revenue_total", "confirmed_true_revenue"):
+            totals[key] = None
     package_withholding_raw = (
         abs(totals["withholding_numerator"]) / totals["withholding_denominator"] * 100
         if totals["withholding_denominator"] > 0
@@ -2076,6 +2204,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "withholding_denominator_label": (
             "Verified revenue"
             if denominator_modes == {"verified_revenue"}
+            else "True revenue"
+            if denominator_modes == {"true_revenue"}
             else "Legacy eligible deposits"
             if denominator_modes == {"legacy_eligible_deposits"}
             else "Mixed denominator configuration"
@@ -2100,6 +2230,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     if refuse_cross_currency:
         for key in _CROSS_CURRENCY_TOTAL_KEYS:
             published_totals[key] = None
+        # 5.6 (§9.2): the by-reason money is refused with the totals; the counts stay.
+        for key in ("counted_flagged_by_reason", "excluded_pending_review_by_reason"):
+            if isinstance(published_totals.get(key), dict):
+                published_totals[key] = {
+                    reason: {**slot, "total": None} for reason, slot in published_totals[key].items()
+                }
         for item in (
             *package_funders,
             *package_potential_lenders,
@@ -2116,6 +2252,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         published_totals["withholding_review_required"] = True
         published_totals["decision"] = "review_required"
 
+    true_revenue_evidence = None if unestablished_revenue else [
+        evidence for evidence in (*package_revenue_evidence["verified_revenue"], *package_tier_evidence["counted_flagged"])
+    ]
     return {
         "totals": published_totals,
         # CURRENCY DOCTRINE §F: the package's currency composition, and — when
@@ -2152,7 +2291,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "flagged_evidence": package_flagged_evidence,
         "verified_revenue_evidence": package_revenue_evidence["verified_revenue"],
         "unverified_deposit_evidence": package_revenue_evidence["unverified_deposit"],
-        "true_revenue_evidence": package_revenue_evidence["verified_revenue"],
+        # 5.6 (§9.2, T9): True revenue's evidence is the members' verified plus counted rows; None when a member's
+        # revenue is not established.
+        "true_revenue_evidence": true_revenue_evidence,
+        "counted_flagged_evidence": package_tier_evidence["counted_flagged"],
+        "excluded_pending_review_evidence": package_tier_evidence["excluded_pending_review"],
         "potential_revenue_evidence": package_revenue_evidence["unverified_deposit"],
         "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         "detection": {
@@ -2164,7 +2307,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "insurance_evidence": package_insurance_evidence,
             "verified_revenue_evidence": package_revenue_evidence["verified_revenue"],
             "unverified_deposit_evidence": package_revenue_evidence["unverified_deposit"],
-            "true_revenue_evidence": package_revenue_evidence["verified_revenue"],
+            "true_revenue_evidence": true_revenue_evidence,
+            "counted_flagged_evidence": package_tier_evidence["counted_flagged"],
+            "excluded_pending_review_evidence": package_tier_evidence["excluded_pending_review"],
             "potential_revenue_evidence": package_revenue_evidence["unverified_deposit"],
             "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         },
