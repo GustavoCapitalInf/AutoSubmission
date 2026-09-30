@@ -573,8 +573,12 @@
   .is-package .revenue-panel .evidence-link::before {
     content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 999px; margin-right: 8px; background: var(--border-2);
   }
+  /* 5.6 (true revenue spec §10.1): each tier's dot, a held reason's the Held one's; Non-Revenue keeps the plain dot. */
+  .is-package .revenue-panel [data-revenue-filter="true_revenue"]::before { background: var(--accent); }
   .is-package .revenue-panel [data-revenue-filter="verified_revenue"]::before { background: var(--accent); }
-  .is-package .revenue-panel [data-revenue-filter="unverified_deposit"]::before { background: var(--amber); }
+  .is-package .revenue-panel [data-revenue-filter="counted_flagged"]::before { background: var(--teal); }
+  .is-package .revenue-panel [data-revenue-filter="excluded_pending_review"]::before { background: var(--amber); }
+  .is-package .revenue-panel [data-revenue-filter^="excluded_pending_review:"]::before { background: var(--amber); }
   .results-content > * { scroll-margin-top: 76px; }
   .is-package .single-only { display: none !important; }
   .results-content:not(.is-package) .package-only { display: none !important; }

@@ -997,8 +997,14 @@ def _idle_main_account(roster: list[dict]) -> dict | None:
     return next((entry for entry in top if entry.get("status") == "idle"), None)
 
 
-def _package_members(jobs, *, settings: dict | None = None) -> tuple[list[tuple], list[dict]]:
+def _package_members(
+    jobs, *, settings: dict | None = None, outdated: dict[str, bool] | None = None
+) -> tuple[list[tuple], list[dict]]:
     """`(members, excluded)` — what enters the package math, and what does not.
+
+    `outdated`, when given, receives each job's `analysis_rules_outdated` (job id -> bool), read off the displayed
+    copy below: the flag sits at the top of a statement, so an account of a statement of several accounts, which is
+    the member, does not carry it.
 
     A member is ONE ACCOUNT. A job publishing today's payload is one member and
     is admitted exactly as it always was — this function cannot change what a
@@ -1037,6 +1043,8 @@ def _package_members(jobs, *, settings: dict | None = None) -> tuple[list[tuple]
         settings = load_settings(store.storage.data_dir)
     for job in jobs:
         analysis = _displayed(job.analysis or {}, settings=settings)
+        if outdated is not None:
+            outdated[job.id] = isinstance(analysis, dict) and analysis.get("analysis_rules_outdated") is True
         roster = _account_roster(analysis)
         unverified, idle = _unverified_main_account(roster), _idle_main_account(roster)
         if unverified is not None or idle is not None:
@@ -1119,7 +1127,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         settings = load_settings(store.storage.data_dir)
     shown_groups = enabled_group_keys(settings)
     duplicate_of, duplicate_groups = _package_duplicates(jobs)
-    members, excluded_accounts = _package_members(jobs, settings=settings)
+    #: 5.6 (§12): job id -> whether it was analysed with older classification rules, from its displayed copy.
+    outdated_jobs: dict[str, bool] = {}
+    members, excluded_accounts = _package_members(jobs, settings=settings, outdated=outdated_jobs)
     #: Q10. Every ratified sibling omission any member document published. The
     #: package says so rather than demoting anything: an omission admitted on
     #: printed evidence beside an independently validated account is a
@@ -1905,6 +1915,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "verified_revenue_total": revenue_totals["verified_revenue"],
             "verified_revenue_count": revenue_counts["verified_revenue"],
             "verified_revenue_established": verified_revenue_established,
+            # 5.6 (§12): its statement was analysed with older classification rules, so re-analysis computes its true
+            # revenue (a member not established for another reason, a summary-only one, is not outdated).
+            "analysis_rules_outdated": outdated_jobs.get(job.id, False),
             # 5.6 (§9.2): True revenue and its parts; None for a member whose revenue is not established.
             "revenue_established": revenue_established,
             "true_revenue_total": (
@@ -2326,6 +2339,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             ),
         },
         "documents": documents,
+        # 5.6 (§12): a member was analysed with older classification rules (its row says which), as a statement's
+        # served copy says of itself.
+        "analysis_rules_outdated": any(row["analysis_rules_outdated"] for row in documents),
         # D-3: one entry per content hash present more than once, listing every
         # member job that carries it (the first occurrence included).
         "duplicates": duplicate_groups,

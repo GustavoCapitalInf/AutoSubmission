@@ -169,6 +169,34 @@ def test_an_older_member_leaves_the_package_true_revenue_not_established():
     assert older["revenue_review_required"]
 
 
+def _summary_only(month):
+    """A 5.6 member whose captured credits fall short of the bank's summary total: not established, not outdated."""
+    partial = _payload(month=month)
+    partial["metrics"]["deposits_source"] = "summary"
+    partial["metrics"]["effective_total_deposits"] = 99999.0
+    return partial
+
+
+def test_a_package_names_each_member_analysed_with_older_rules():
+    # §12: the package note names an outdated member ("Re-analyze to compute true revenue"). Each document row carries
+    # its statement's analysis_rules_outdated, read off the copy the package reads (_displayed), and the package
+    # carries it when any member does. A summary-only member is not established, and not outdated.
+    package = _package(_payload(), _untiered(_payload(month=4)), _summary_only(5))
+    assert [row["analysis_rules_outdated"] for row in package["documents"]] == [False, True, False]
+    assert package["analysis_rules_outdated"] is True
+    assert package["totals"]["revenue_unestablished_documents"] == ["job-2", "job-3"]
+    current = _package(_payload(), _summary_only(4))
+    assert [row["analysis_rules_outdated"] for row in current["documents"]] == [False, False]
+    assert current["analysis_rules_outdated"] is False
+    # A statement of several accounts is marked at its top level, never on an account: each account row carries it.
+    document = _pair_document(700.0, 300.0)
+    document["accounts"] = [_untiered(account) for account in document["accounts"]]
+    older = _package(document)
+    assert [row["id"] for row in older["documents"]] == ["job-1#account_1", "job-1#account_2"]
+    assert [row["analysis_rules_outdated"] for row in older["documents"]] == [True, True]
+    assert older["analysis_rules_outdated"] is True
+
+
 def test_the_verified_aliases_are_n_a_with_the_verified_total():
     # Review M4 (T9): confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so a member
     # whose verified revenue is not established leaves all three N/A.

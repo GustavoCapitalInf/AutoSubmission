@@ -246,33 +246,50 @@ function revenueCardItems(source, currency, {
   ];
 }
 
-// A package's two revenue flags (§10.4): the server nulls its True, Counted and Held totals when any completed member
-// is not established, and its Verified total when any member's verified revenue is not.
+// A package's two revenue flags (§10.4). The server nulls its True, Counted and Held counts only when a completed
+// member is not established; a currency refusal (CURRENCY DOCTRINE §F) nulls their money and keeps the counts, so the
+// True count says whether they are established, and the refused money still reads N/A (a null total formats so). The
+// Verified total is nulled either way: under a refusal it is established when no member is listed as not established.
 function packageRevenueFlags(totals = {}) {
+  const present = (value) => value !== null && value !== undefined;
+  const established = present(totals.true_revenue_count);
+  const unestablished = Array.isArray(totals.revenue_unestablished_documents) ? totals.revenue_unestablished_documents : null;
+  const verifiedEstablished = present(totals.verified_revenue_total)
+    || (totals.cross_currency_totals_refused === true && unestablished !== null && unestablished.length === 0);
   return {
     ...totals,
-    established: totals.true_revenue_total !== null && totals.true_revenue_total !== undefined,
-    verifiedEstablished: totals.verified_revenue_total !== null && totals.verified_revenue_total !== undefined,
-    revenue_established: totals.true_revenue_total !== null && totals.true_revenue_total !== undefined,
-    verified_revenue_established: totals.verified_revenue_total !== null && totals.verified_revenue_total !== undefined,
+    established,
+    verifiedEstablished,
+    revenue_established: established,
+    verified_revenue_established: verifiedEstablished,
   };
 }
 
-// The note under a package's revenue totals: how many completed statements have no established revenue, and, when a
-// member was analysed before 5.6, what to do about it. "" when every member is established.
-function packageUnestablishedNote(totals = {}, outdated = false) {
+// The note under a package's revenue totals: how many completed statements have no established revenue, and, for
+// those analysed with older rules (their `documents` row's analysis_rules_outdated, §12), what to do about it. A
+// statement whose revenue is not established for another reason (a summary-only one) is offered no remedy:
+// re-analysis would not establish it. "" when every member is established.
+function packageUnestablishedNote(totals = {}, documents = []) {
   const listed = Array.isArray(totals.revenue_unestablished_documents) ? totals.revenue_unestablished_documents : [];
-  const statements = new Set(listed.map((id) => String(id).split("#")[0])).size;
+  const statementOf = (id) => String(id).split("#")[0];
+  const unestablished = new Set(listed.map(statementOf));
+  const statements = unestablished.size;
   if (!statements) return "";
+  const outdated = new Set((Array.isArray(documents) ? documents : [])
+    .filter((doc) => doc && doc.analysis_rules_outdated === true && unestablished.has(statementOf(doc.id)))
+    .map((doc) => statementOf(doc.id))).size;
   const completed = numberOrNull(totals.completed) ?? statements;
   const noun = completed === 1 ? "statement" : "statements";
+  const remedy = !outdated ? ""
+    : outdated === statements ? " · Re-analyze to compute true revenue"
+      : ` · Re-analyze ${formatNumber(outdated)} of them to compute true revenue`;
   return `${formatNumber(statements)} of ${formatNumber(completed)} ${noun} ${statements === 1 ? "has" : "have"} no established revenue`
-    + (outdated ? " · Re-analyze to compute true revenue" : "");
+    + remedy;
 }
 
 // 5.6 (true revenue spec §10.7): what the review badge shows. It counts the held credits (`revenue_review_items`)
 // where the held figure is established, and reads N/A where it is not: a statement whose revenue is not established,
-// or a package whose Held total the server left N/A (a member not established), never a partial count. An analysis
+// or a package whose Held count the server left N/A (a member not established), never a partial count. An analysis
 // saved before 5.6 carries no held count (its served copy nulls it), and keeps counting its deposits left unverified.
 function reviewBadgeValue(source = {}, established = false) {
   if (numberOrNull(source.revenue_review_items) === null) return source.unverified_deposit_count;
@@ -701,6 +718,30 @@ function heldReasonFilter(filter) {
   return match ? match[1] : null;
 }
 
+// T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with, so its
+// review view lists the deposits it left unverified, the rows its badge counts. This filter has no pill.
+const OLDER_REVIEW_FILTER = "unverified_deposit";
+
+// Whether a ledger was analysed before 5.6: a credit carries a revenue state and none carries a tier.
+function ledgerCarriesNoTier(transactions) {
+  const credits = (Array.isArray(transactions) ? transactions : [])
+    .filter((tx) => txAmount(tx) > 0 && typeof transactionClassification(tx).revenue_classification === "string");
+  return credits.length > 0 && credits.every((tx) => typeof transactionClassification(tx).revenue_tier !== "string");
+}
+
+// 5.6 (true revenue spec §10.6): the ledger header names a revenue filter in the page's words, the credit mix's tier
+// labels (CREDIT_MIX) and the held reasons' labels (REVENUE_TIER_REASONS), never the filter's value. Null for any
+// other filter.
+function revenueFilterLabel(filter, count) {
+  const lower = (text) => text.charAt(0).toLowerCase() + text.slice(1);
+  if (filter === "true_revenue") return "in true revenue";
+  if (filter === OLDER_REVIEW_FILTER) return count === 1 ? "unverified deposit" : "unverified deposits";
+  const heldReason = heldReasonFilter(filter);
+  if (heldReason) return `held: ${lower(revenueReasonLabel({ revenue_tier_reason: heldReason }))}`;
+  const tier = CREDIT_MIX.find(([state]) => state === filter);
+  return tier ? lower(tier[1]) : null;
+}
+
 // The ledger filter behind one row of the Flagged positions panel is "flagged:<group>": that group's rows that count,
 // of the payee clicked. Null for any other filter.
 function flaggedFilterGroup(filter) {
@@ -831,6 +872,10 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
       const record = transactionClassification(tx);
       return record.revenue_tier === "excluded_pending_review" && record.revenue_tier_reason === heldReason;
     });
+  }
+  if (filter === OLDER_REVIEW_FILTER) {
+    matched = transactions.filter((tx) => txAmount(tx) > 0
+      && transactionClassification(tx).revenue_classification === "unverified_deposit");
   }
   if (!canonicalEntity) return matched;
   if (flagGroup) return matched.filter((tx) => flaggedPayeeOf(tx) === canonicalEntity);
@@ -988,7 +1033,8 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
       ? ` · showing ${formatNumber(visible.length)} of ${formatNumber(matched.length)} rows` : "");
   } else {
     const filterLabel = canonicalEntity || (filter === "all" ? "transactions"
-      : filter === "nsf_fees" ? (matched.length === 1 ? "NSF fee row" : "NSF fee rows") : `${filter} matches`);
+      : filter === "nsf_fees" ? (matched.length === 1 ? "NSF fee row" : "NSF fee rows")
+        : revenueFilterLabel(filter, matched.length) || `${filter} matches`);
     countEl.textContent = visible.length < matched.length
       ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
       : `${formatNumber(matched.length)} ${filterLabel}`;
@@ -1011,6 +1057,8 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     const columns = 5 + (showSource ? 1 : 0) + (showRunningBalance ? 1 : 0) + (pickable ? 1 : 0);
     const note = filter === "all" ? "No statement returned transaction rows."
       : filter === "nsf" && !canonicalEntity ? nsfDaysEmptyNote(nsfDays)
+      : filter === OLDER_REVIEW_FILTER
+        ? "No deposit is left unverified. Analysed with older classification rules: Re-analyze to compute true revenue."
       : "No rows matched this filter.";
     tableEl.innerHTML = `
       <tr>
@@ -3470,8 +3518,8 @@ function renderPackageAnalysis(pkg) {
     ["NSFs", formatNumber(totals.nsf_count), countTone(totals.nsf_count)],
     ["Confirmed withholding", formatPercent(totals.package_withholding_rate), withholdingTone(totals.package_withholding_rate)],
   ]);
-  // 5.6 (true revenue spec §10.7): the held credits; N/A with the Held total (a member not established), never the
-  // partial count of the members that are.
+  // 5.6 (true revenue spec §10.7): the held credits; N/A with the Held figures (a member not established), never the
+  // partial count of the members that are. A currency refusal keeps the count.
   setReviewCount(reviewBadgeValue(totals, packageRevenueFlags(totals).revenue_established));
   if (els.packageProcessingNote) {
     const failed = numberOrNull(totals.failed) || 0;
@@ -3503,7 +3551,7 @@ function renderPackageAnalysis(pkg) {
       // this reads the honest count where there is one and the old one where
       // nothing changed.
       sub: [`${formatNumber(totals.statement_periods ?? totals.months)} statement periods`,
-        packageUnestablishedNote(totals, pkg.analysis_rules_outdated === true)].filter(Boolean).join(" · "),
+        packageUnestablishedNote(totals, documents)].filter(Boolean).join(" · "),
       items: [
         ...revenueCardItems(totals, currency, { ...packageRevenueFlags(totals), note: moneyNote }),
         ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "neutral"],
@@ -4207,8 +4255,10 @@ function navigate(target) {
       return;
     }
     revealOpenAnalysis("review");
-    // 5.6 (true revenue spec §10.7): what needs review now is the held credits.
-    showMainRevenueEvidence("excluded_pending_review");
+    // 5.6 (true revenue spec §10.7): what needs review now is the held credits. An analysis saved before 5.6 carries no
+    // tier: its review opens on the deposits it left unverified, reviewed under its own rules (T10).
+    showMainRevenueEvidence(ledgerCarriesNoTier(mainTransactionContext().transactions)
+      ? OLDER_REVIEW_FILTER : "excluded_pending_review");
     return;
   }
   const wantPackage = target === "packages";

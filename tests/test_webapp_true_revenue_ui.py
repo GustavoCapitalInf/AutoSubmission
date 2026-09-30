@@ -4,7 +4,6 @@ webapp/static/app.js runs in node on a fake page (tests/webapp_js_harness.py). F
 by the real analysis path; every amount is whole dollars."""
 from __future__ import annotations
 
-import copy
 import json
 import re
 from pathlib import Path
@@ -12,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_webapp_studio_views import CELLS, _package, _serve
-from tests.test_webapp_true_revenue import _payload, _untiered
+from tests.test_webapp_true_revenue import _payload, _summary_only, _untiered
 from tests.webapp_js_harness import NODE, run_dashboard
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,7 +118,8 @@ console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML),
 @needs_node
 def test_a_package_with_an_older_member_names_it_and_reads_n_a(tmp_path, monkeypatch):
     package = _package({"new": _payload(), "old": _untiered(_payload(month=4))}, tmp_path, monkeypatch)
-    package["analysis_rules_outdated"] = True
+    # The server marks the member analysed with older rules (§12); nothing is set by hand.
+    assert [doc["analysis_rules_outdated"] for doc in package["documents"]] == [False, True]
     result = run_dashboard(METRIC_ROWS + f"""
 currentJobIds = ['new', 'old']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{grid: els.metricsGrid.innerHTML, rows: metricRows(els.metricsGrid.innerHTML),
@@ -133,6 +133,62 @@ console.log(JSON.stringify({{grid: els.metricsGrid.innerHTML, rows: metricRows(e
     # badge reads N/A with the Held figure.
     assert package["totals"]["revenue_review_items"] == 1
     assert result["badge"] == [False, "N/A"]
+
+
+@needs_node
+def test_a_package_note_offers_re_analysis_only_to_its_older_members(tmp_path, monkeypatch):
+    # §12: re-analysis computes an older member's true revenue. A summary-only member's revenue stays not established
+    # after it, so the note names no remedy for that member.
+    packages = {
+        "summary": _package({"new": _payload(), "partial": _summary_only(4)}, tmp_path, monkeypatch),
+        "both": _package({"new": _payload(), "old": _untiered(_payload(month=4)), "partial": _summary_only(5)},
+                         tmp_path, monkeypatch),
+    }
+    result = run_dashboard(f"""
+const packages = {json.dumps(packages)};
+const out = {{}};
+for (const [name, pkg] of Object.entries(packages)) {{
+  currentJobIds = pkg.documents.map((doc) => doc.id); renderPackageAnalysis(pkg);
+  out[name] = (els.metricsGrid.innerHTML.match(/statement periods[^<]*/) || [""])[0];
+}}
+console.log(JSON.stringify(out));
+""")
+    assert result["summary"] == "statement periods · 1 of 2 statements has no established revenue"
+    assert result["both"] == ("statement periods · 2 of 3 statements have no established revenue · Re-analyze 1 of "
+                              "them to compute true revenue")
+
+
+@needs_node
+def test_a_mixed_currency_package_shows_n_a_money_and_keeps_its_counts(tmp_path, monkeypatch):
+    # CURRENCY DOCTRINE §F refuses a mixed package's money and keeps its counts (tests/test_package_currency.py), and
+    # the counts of an established package still stand. A member not established still reads N/A everywhere (§10.4).
+    cad = _payload(month=4)
+    cad["statement"]["currency"] = "CAD"
+    mixed = _package({"usd": _payload(), "cad": cad}, tmp_path, monkeypatch)
+    older = _package({"new": _payload(), "old": _untiered(_payload(month=4))}, tmp_path, monkeypatch)
+    assert mixed["totals"]["cross_currency_totals_refused"] is True
+    result = run_dashboard(METRIC_ROWS + f"""
+const view = () => ({{cards: metricRows(els.metricsGrid.innerHTML).slice(0, 4).map((row) => row.value),
+  evidence: cells(els.revenueTable.innerHTML).map((row) => row.slice(0, 3)),
+  mix: [...els.creditMixRows.innerHTML.matchAll(/<span class="mix-count">([^<]*)<\\/span>/g)].map((m) => m[1]),
+  badge: [els.reviewCount.hidden, els.reviewCount.textContent]}});
+currentJobIds = ['usd', 'cad']; renderPackageAnalysis({json.dumps(mixed)}); const refused = view();
+currentJobIds = ['new', 'old']; renderPackageAnalysis({json.dumps(older)});
+console.log(JSON.stringify({{refused, older: view()}}));
+""")
+    refused, older_view = result["refused"], result["older"]
+    assert refused["cards"] == ["N/A"] * 4
+    assert refused["evidence"] == [["True Revenue", "4", "N/A"], ["Verified Revenue", "2", "N/A"],
+                                   ["Counted, Not Verified", "2", "N/A"], ["Held for Review", "2", "N/A"],
+                                   ["Payer or entry suggests financing", "2", "N/A"], ["Non-Revenue", "2", "N/A"]]
+    assert refused["mix"] == ["2", "2", "2", "2"]
+    assert refused["badge"] == [False, "2"]
+    assert older_view["cards"] == ["N/A", "$1,400.00", "N/A", "N/A"]
+    assert older_view["evidence"] == [["True Revenue", "N/A", "N/A"], ["Verified Revenue", "2", "$1,400.00"],
+                                      ["Counted, Not Verified", "N/A", "N/A"], ["Held for Review", "N/A", "N/A"],
+                                      ["Non-Revenue", "2", "$200.00"]]
+    assert older_view["mix"] == ["2", "N/A", "N/A", "2"]
+    assert older_view["badge"] == [False, "N/A"]
 
 
 # ---------------------------------------------------------------- S6.2: tags, chips, filters, review controls
@@ -252,6 +308,65 @@ navigate('review');
 console.log(JSON.stringify({filter: transactionFilter}));
 """)
     assert result["filter"] == "excluded_pending_review"
+
+
+REVIEW_VIEW = r"""
+navigate('review');
+const reviewRows = [...els.transactionTable.innerHTML.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1]);
+console.log(JSON.stringify({filter: transactionFilter, count: els.transactionCount.textContent,
+  badge: els.reviewCount.textContent,
+  rows: reviewRows.map((row) => [(row.match(/<td class="tx-desc">([^<]*)<\/td>/) || [])[1] || "",
+    [...row.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1])]),
+  text: els.transactionTable.innerHTML.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}));
+"""
+
+
+@needs_node
+def test_an_older_analysis_opens_its_review_on_its_unverified_deposits():
+    # T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with,
+    # so its review view lists the deposits it left unverified (what its badge counts), each with Confirm and Mark.
+    older = run_dashboard(_open("o", _served(_untiered(_payload()))) + REVIEW_VIEW)
+    assert older["filter"] == "unverified_deposit"
+    assert older["count"] == "2 unverified deposits" and older["badge"] == "2"
+    assert older["rows"] == [["MOBILE DEPOSIT", ["confirm", "reject"]],
+                             ["FABRIKAM FUNDING LLC DES:PAYMENT ID:1", ["confirm", "reject"]]]
+    # With none left, the empty view names the way to true revenue.
+    settled = _served(_untiered(_payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0),
+                                          (5, "INTERNAL TRANSFER FROM SAVINGS", 100.0)])))
+    none_left = run_dashboard(_open("s", settled) + REVIEW_VIEW)
+    assert none_left["filter"] == "unverified_deposit" and none_left["count"] == "0 unverified deposits"
+    assert "Analysed with older classification rules: Re-analyze to compute true revenue." in none_left["text"]
+    # A 5.6 analysis is unchanged: its held credits.
+    current = run_dashboard(_open("c", _served(_payload())) + REVIEW_VIEW)
+    assert current["filter"] == "excluded_pending_review" and current["count"] == "1 held for review"
+    assert current["rows"] == [["FABRIKAM FUNDING LLC DES:PAYMENT ID:1", ["confirm", "reject"]]]
+
+
+@needs_node
+def test_the_ledger_header_names_a_revenue_filter_in_the_page_words():
+    # §10.6: the tier labels of the credit mix and the held reasons' labels, never a filter's value.
+    result = run_dashboard(_open("s", _served(_payload())) + r"""
+const out = {};
+for (const filter of ['true_revenue', 'verified_revenue', 'counted_flagged', 'excluded_pending_review',
+                      'excluded_pending_review:financing_named_payer', 'non_revenue', 'all']) {
+  showMainRevenueEvidence(filter); out[filter] = els.transactionCount.textContent;
+}
+console.log(JSON.stringify(out));
+""")
+    assert result == {"true_revenue": "2 in true revenue", "verified_revenue": "1 verified revenue",
+                      "counted_flagged": "1 counted, not verified", "excluded_pending_review": "1 held for review",
+                      "excluded_pending_review:financing_named_payer": "1 held: payer or entry suggests financing",
+                      "non_revenue": "1 non-revenue", "all": "5 transactions"}
+
+
+def test_the_package_evidence_dots_follow_the_tiers():
+    html = " ".join((ROOT / "webapp/templates/index.html").read_text(encoding="utf-8").split())
+    for selector, token in (('="true_revenue"', "accent"), ('="verified_revenue"', "accent"),
+                            ('="counted_flagged"', "teal"), ('="excluded_pending_review"', "amber"),
+                            ('^="excluded_pending_review:"', "amber")):
+        assert (f".is-package .revenue-panel [data-revenue-filter{selector}]::before {{ background: var(--{token}); }}"
+                in html)
+    assert 'data-revenue-filter="unverified_deposit"' not in html
 
 
 def test_the_page_carries_the_true_revenue_words():
