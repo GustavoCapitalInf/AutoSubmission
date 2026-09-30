@@ -1997,7 +1997,8 @@ DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
 #: Solutions, LLC does business as Love's Financial, the Love's travel-stop group's freight-factoring provider
 #: (loves.com/en/financial-services/freight-factoring; the BBB lists it as a factoring service, Oklahoma City).
 FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
-    "Love's Solutions, LLC (Love's Financial)": ("LOVE S SOLUTIONS",),
+    # A3-H review 2: the entity prints its apostrophe both ways, spaced and dropped.
+    "Love's Solutions, LLC (Love's Financial)": ("LOVE S SOLUTIONS", "LOVES SOLUTIONS"),
 }
 
 #: 5.6 (§7.5, the standing rule; S4.2 review I6b): brokerage, investing and crypto-exchange platforms, as a regular

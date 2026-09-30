@@ -2567,3 +2567,59 @@ def test_a3h_review_a_commission_word_keeps_the_reading_beside_a_premium_code():
 ])
 def test_a3h_review_the_premium_code_is_read_only_in_the_entry_field(text, expected):
     assert _tier(_one(text, 640.0)) == expected
+
+
+# A3-H review 2: the factor's printed variants.
+_A3H_IND = "INDN:CONTOSO TRUCKING INC CO ID:1234567890 CCD"
+
+
+def _a3h_factor(text):
+    return _tier(_one(text, 5480.0, holder="CONTOSO TRUCKING INC"))
+
+
+@pytest.mark.parametrize("layout", ["fedwire", "chase_book_transfer"])
+def test_a3h_review_2_a_factor_is_read_before_its_b_o_address(layout):
+    # A3-H review 2: the B/O field prints the sender's city, state, ZIP and country after its name (and its company
+    # form): the address is dropped before the whole-name test, so the invoice-purpose wire is the factor's payout.
+    alias = _a3h_factoring_aliases()[0]
+    text = (
+        f"FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O {alias} LLC SAMPLEVILLE OK 12345 US REF SAMPLE NYC CTR "
+        "BNF CONTOSO TRUCKING INC OBI INV 1234" if layout == "fedwire"
+        else f"BOOK TRANSFER CREDIT B O {alias} LLC SAMPLEVILLE OK 12345 US REF INV 1234 TRN 1234567890JS"
+    )
+    assert _a3h_factor(text) == ("counted_flagged", "factoring_payout")
+
+
+@pytest.mark.parametrize("tail", [
+    # (a) a DBA tail, (b) a glued company form, (c) an entry word, a date or a number that falls into the region.
+    " LLC DBA NORTHWIND FINANCIAL DES:PAYMENT ID:1234567 " + _A3H_IND,
+    "LLC DES:PAYMENT ID:1234567 " + _A3H_IND,
+    " LLC PAYMENT 240115 1234567 CONTOSO TRUCKING INC",
+])
+def test_a3h_review_2_a_factor_s_dba_glued_form_and_entry_words_are_the_factor(tail):
+    for alias in _a3h_factoring_aliases():
+        assert _a3h_factor(alias + tail) == ("counted_flagged", "factoring_payout")
+
+
+@pytest.mark.parametrize("text", [
+    # A longer name that starts with the alias stays another payer, on every spelling and before an address too.
+    "{alias} FOR PETS LLC DES:PAYMENT ID:1234567 " + _A3H_IND,
+    "BOOK TRANSFER CREDIT B O {alias} FOR PETS LLC SAMPLEVILLE OK 12345 US REF INV 1234 TRN 1234567890JS",
+    "{alias} CLEANING LLC PAYMENT 240115 1234567 CONTOSO TRUCKING INC",
+    # A B/O address holds only place words (a trade word is no place), at most three of its own.
+    "BOOK TRANSFER CREDIT B O {alias} CLEANING SAMPLEVILLE OK 12345 US REF INV 1234 TRN 1234567890JS",
+    "BOOK TRANSFER CREDIT B O {alias} NORTHWIND GARDEN CARE SAMPLEVILLE OK 12345 US REF INV 1234 TRN 1234567890JS",
+])
+def test_a3h_review_2_a_longer_name_that_starts_with_the_alias_is_another_payer(text):
+    for alias in _a3h_factoring_aliases():
+        assert _a3h_factor(text.format(alias=alias))[1] != "factoring_payout"
+
+
+def test_a3h_review_2_an_apostrophe_spelled_as_a_spaced_s_has_its_run_together_spelling():
+    # A3-H review 2: the entity prints its apostrophe both ways, spaced ('<X> S <Y>') and dropped ('<X>S <Y>').
+    from analysis.classification_registry import FACTORING_PAYOUT_PAYERS
+
+    for aliases in FACTORING_PAYOUT_PAYERS.values():
+        for alias in aliases:
+            if " S " in alias:
+                assert alias.replace(" S ", "S ", 1) in aliases

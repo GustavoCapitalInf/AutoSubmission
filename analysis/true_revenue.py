@@ -459,6 +459,8 @@ class CreditFacts:
     consumer_entry: bool
     transfer_no_counterparty: bool
     account_designation: bool
+    #: §8.9 (A3-H review 2): the payer is a factor FACTORING_PAYOUT_PAYERS names (_factoring_payout_payer).
+    factor: bool = False
 
 
 def _classifier():
@@ -1580,7 +1582,10 @@ def credit_facts(
     name = classifier.payer_name(region)
     entry = classifier.entry_fields(text)
     row = classifier._before_receiver(text)
-    claimed = _claimed(record, text)
+    # A3-H review 2: a factor the registry names claims its row as a factoring payee does (only the insurer,
+    # possible-return, pay and benefit holds read it), so its trade name's financing word holds nothing.
+    factor = _factoring_payout_payer(region, text)
+    claimed = _claimed(record, text) or factor
     wire_n1 = classifier._is_wire_row(text)
     # §8.5 (S4.2 review M2): Q5 reads a healthcare payer on an incoming wire too; Q6 on an electronic-payment form.
     healthcare = healthcare_payer(region) and (wire_n1 or bool(classifier._ELECTRONIC_PAYMENT_FORM.search(row)))
@@ -1620,6 +1625,7 @@ def credit_facts(
         consumer_entry=_CONSUMER_ENTRY.search(text) is not None,
         transfer_no_counterparty=transfer_row and not transfer_words,
         account_designation=transfer_row and bool(transfer_words) and _ACCOUNT_DESIGNATION.search(row) is not None,
+        factor=factor,
     )
 
 
@@ -1778,28 +1784,73 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
         or _under_micro_floor(record)
         or _left_to_its_family(text)
         or _deferred_source(text, facts)
-        or _factoring_payout_payer(facts.region)
+        or facts.factor
     )
 
 
-def _factoring_payout_payer(region: str) -> bool:
+def _factoring_payout_payer(region: str, text: str = "") -> bool:
     """§8.9 (A3-H): a freight-factoring payer the registry names for this pass alone (FACTORING_PAYOUT_PAYERS). Its
     credit is the carrier's own invoices paid by the factor: counted and flagged as factoring_payout, never verified by
     any path (A3-H review: _factor_never_verified overrules an earlier rule's verification). A3-H review: read only as
     the payer region (the ACH originator or the wire sender), which is the alias, followed only by company forms: a
-    longer name that starts with it ('<alias> FOR PETS LLC') or another payer's purpose citing it names another payer."""
+    longer name that starts with it ('<alias> FOR PETS LLC') or another payer's purpose citing it names another payer.
+    A3-H review 2: the words after the alias (_factor_tail) may also be a company form glued to its last word
+    ('<alias>LLC'), a DBA tail, an entry word, a date or a number that falls into the region, and on a B/O field
+    (`text`'s originator label) the sender's address: its city, state, ZIP and country (the trust rule's place
+    reading)."""
     words = (region or "").split()
     for aliases in FACTORING_PAYOUT_PAYERS.values():
         for alias in aliases:
             head = alias.split()
-            if words[: len(head)] != head:
+            if not words or len(words) < len(head) or words[: len(head) - 1] != head[:-1]:
                 continue
-            rest = " ".join(words[len(head):])
-            if not rest or _classifier()._BANK_COMPANY_FORM.fullmatch(rest) or all(
-                _classifier()._BANK_COMPANY_FORM.fullmatch(word) for word in rest.split()
-            ):
+            last = words[len(head) - 1]
+            if last == head[-1]:
+                tail = words[len(head):]
+            elif last.startswith(head[-1]) and _classifier()._BANK_COMPANY_FORM.fullmatch(last[len(head[-1]):]):
+                # A company form glued to the alias's last word ('SOLUTIONSLLC').
+                tail = [last[len(head[-1]):], *words[len(head):]]
+            else:
+                continue
+            if _factor_tail(tail, b_o=_b_o_field(text)):
                 return True
     return False
+
+
+#: §8.9 (A3-H review 2): the entry words a layout with no entry field prints into the payer region after its name.
+_FACTOR_ENTRY_WORDS = frozenset({"PAYMENT", "PAYMENTS", "PMT", "PMTS", "PYMT"})
+
+
+def _b_o_field(text: str) -> bool:
+    """A3-H review 2: the wire's originator label is B/O (Fedwire, CHIPS, Chase's book transfer), a field that
+    prints the sender's address after its name."""
+    found = _classifier()._WIRE_ORIGINATOR_LABEL.search(text or "")
+    return found is not None and found.group(0).strip() == "B O"
+
+
+def _factor_tail(tail: Sequence[str], *, b_o: bool) -> bool:
+    """§8.9 (A3-H review, review 2): the words after a factor's alias add nothing to its name: company forms (glued or
+    spaced), entry words (_FACTOR_ENTRY_WORDS), dates and numbers (reference tokens), then either nothing, a DBA
+    tail (the factor's trade name, any words), or, on a B/O field, an address: place words ending in a US state
+    code, at most _TRUST_ADDRESS_MAX_WORDS of the address's own, as the personal-trust rule reads one."""
+    classifier = _classifier()
+    words = list(tail)
+    while words and (
+        classifier._BANK_COMPANY_FORM.fullmatch(words[0]) or words[0] in _FACTOR_ENTRY_WORDS
+        or classifier._is_reference_token(words[0])
+    ):
+        words.pop(0)
+    if not words or words[0] == "DBA":
+        return True
+    if not b_o:
+        return False
+    while words and words[-1] in {"US", "USA"}:
+        words.pop()
+    return (
+        bool(words) and words[-1] in _US_STATE_TAIL
+        and len(_address_words(words[:-1])) <= _TRUST_ADDRESS_MAX_WORDS
+        and not any(_not_a_place_word(word) for word in words[:-1])
+    )
 
 
 def _factor_never_verified(record: TransactionClassification) -> TransactionClassification:
@@ -1904,7 +1955,7 @@ def _tier_reason(
     if facts.hold is not None:
         return "excluded_pending_review", facts.hold
     # A3-H: a factoring payer's payout, on any channel (FACTORING_PAYOUT_PAYERS).
-    if _factoring_payout_payer(facts.region):
+    if facts.factor:
         return "counted_flagged", "factoring_payout"
     if facts.channel == "wire" and not facts.claimed:
         if not facts.region:
@@ -2052,7 +2103,7 @@ def apply_true_revenue_pass(
     for index in credits:
         record, fact = updated[index], facts[index]
         # A3-H review: a factoring payer's credit is never verified, whichever earlier rule verified it.
-        if record.revenue_classification == "verified_revenue" and _factoring_payout_payer(fact.region):
+        if record.revenue_classification == "verified_revenue" and fact.factor:
             updated[index] = _with_tier(_factor_never_verified(record), "counted_flagged", "factoring_payout")
             continue
         tier = _TIER_OF_STATE.get(record.revenue_classification)
