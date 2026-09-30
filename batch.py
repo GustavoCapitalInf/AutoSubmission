@@ -35,7 +35,8 @@ from telemetry import (
 FIELDS = [
     "file", "bank", "account", "period_start", "period_end",
     "summary_reconciles", "average_daily_balance", "total_deposits", "total_debits",
-    "total_posted_credits", "verified_revenue_total", "verified_revenue_count",
+    "total_posted_credits", "true_revenue_total", "counted_flagged_total", "excluded_pending_review_total",
+    "verified_revenue_total", "verified_revenue_count",
     "unverified_deposit_total", "unverified_deposit_count", "non_revenue_total",
     "non_revenue_count", "maximum_revenue", "revenue_reconciles",
     "revenue_reconciliation_delta", "cash_flow", "lender_credits", "lender_debits",
@@ -101,7 +102,9 @@ def _content_sha256(data: bytes) -> str:
 def _row(path: Path, report: Report) -> dict:
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
     # A statement needs human review when the bank's own summary doesn't reconcile
-    # (mis-extracted or internally inconsistent) — the figures can't be trusted.
+    # (mis-extracted or internally inconsistent) — the figures can't be trusted —
+    # or when its revenue gate is set (5.6, T7: a direction conflict, held credits
+    # of ten percent or more of its posted credits, or revenue that does not reconcile).
     needs_review = (
         report.quality.corporate_use == "manual_review_required"
         or m.revenue_review_required
@@ -122,6 +125,10 @@ def _row(path: Path, report: Report) -> dict:
         "total_deposits": f"{m.effective_total_deposits:.2f}",
         "total_debits": f"{m.effective_total_withdrawals:.2f}",
         "total_posted_credits": f"{m.total_posted_credits:.2f}",
+        # 5.6 (true revenue spec §5.1): True revenue and its counted and held parts.
+        "true_revenue_total": f"{m.true_revenue_total:.2f}",
+        "counted_flagged_total": f"{m.counted_flagged_total:.2f}",
+        "excluded_pending_review_total": f"{m.excluded_pending_review_total:.2f}",
         "verified_revenue_total": f"{m.verified_revenue_total:.2f}",
         "verified_revenue_count": m.verified_revenue_count,
         "unverified_deposit_total": f"{m.unverified_deposit_total:.2f}",

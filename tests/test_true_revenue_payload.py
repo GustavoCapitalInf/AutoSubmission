@@ -208,3 +208,49 @@ def test_true_revenue_is_a_selectable_withholding_denominator_never_the_default(
     assert legacy.withholding_denominator_mode == "legacy_eligible_deposits"
     true = compute_metrics(statement, classifications=records, withholding_denominator_mode="true_revenue")
     assert (true.eligible_deposits, true.withholding_denominator_label) == (1000.0, "True revenue")
+
+
+# ---------------------------------------------------------------------------------------------------------------- S4.5
+def _document_report(rows=None):
+    from tests.test_webapp_studio_views import _report
+    return _report("CONTOSO BAKERY LLC", "000000001010", 1500.0, rows or [
+        (2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "MOBILE DEPOSIT", 300.0),
+        (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 900.0), (5, "INTERNAL TRANSFER FROM SAVINGS", 100.0),
+        (9, "CARD PURCHASE FABRIKAM SUPPLY", -120.0)])
+
+
+def test_the_batch_csv_carries_true_revenue_and_its_counted_and_held_parts():
+    from pathlib import Path
+
+    import batch
+
+    row = batch._row(Path("fabricated.pdf"), _document_report().accounts[0])
+    assert batch.FIELDS.index("true_revenue_total") < batch.FIELDS.index("verified_revenue_total")
+    assert (row["true_revenue_total"], row["counted_flagged_total"], row["excluded_pending_review_total"],
+            row["verified_revenue_total"]) == ("1000.00", "300.00", "900.00", "700.00")
+    assert row["needs_review"] == "REVIEW"   # the held credit is 45% of the posted credits (T7)
+
+
+def test_the_cli_report_prints_true_verified_counted_and_held():
+    import analyze
+
+    text = analyze._render(_document_report().accounts[0])
+    lines = [line.strip() for line in text.splitlines()]
+    true_line = next(line for line in lines if line.startswith("True revenue"))
+    assert "$1,000.00" in true_line
+    assert lines.index(true_line) < lines.index(next(line for line in lines if line.startswith("Verified revenue")))
+    assert any(line.startswith("Counted, not verified") and "$300.00" in line for line in lines)
+    assert any(line.startswith("Held for review") and "$900.00" in line for line in lines)
+
+
+def test_the_benchmark_compares_true_revenue_with_moneythumb_s_true_credits():
+    from benchmark.compare import true_revenue_row
+    from benchmark.normalize import MTStatementRow
+
+    row = true_revenue_row("fabricated_set", "s1.true_revenue",
+                           {"true_revenue_total": 1000.0, "verified_revenue_total": 700.0},
+                           MTStatementRow(raw={}, true_credits=1000.0))
+    assert (row.field, row.ours, row.mt) == ("s1.true_revenue", 1000.0, 1000.0)
+    assert "Verified revenue beside it: 700.0" in row.rationale
+    missing = true_revenue_row("fabricated_set", "s1.true_revenue", {"true_revenue_total": None}, None)
+    assert (missing.ours, missing.mt) == (None, None)

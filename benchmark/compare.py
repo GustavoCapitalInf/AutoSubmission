@@ -537,6 +537,9 @@ def build_statement_rows(
         classify(
             set_name, field("revenue_taxonomy"),
             {
+                # 5.6: True revenue is the subtraction-based figure MoneyThumb's true credits are; Verified beside it.
+                "true_revenue": metrics.get("true_revenue_total"),
+                "true_count": metrics.get("true_revenue_count"),
                 "verified_revenue": metrics.get("verified_revenue_total"),
                 "verified_count": metrics.get("verified_revenue_count"),
                 "unverified_deposits": metrics.get("unverified_deposit_total"),
@@ -551,8 +554,9 @@ def build_statement_rows(
                 "num_nontrue_credits": mt_summary.num_nontrue_credits if mt_summary else None,
             },
             different_definition={
-                "ours": "three-state evidence-gated revenue classification "
-                "(verified / unverified / non-revenue) with conservation "
+                "ours": "true revenue (posted credits minus known non-revenue minus the "
+                "credits held for review) with its verified part, over four tiers "
+                "(verified / counted / held / non-revenue) with conservation "
                 "identity and review loop",
                 "moneythumb": "binary true / non-true credit split with no "
                 "published evidence trail",
@@ -561,6 +565,7 @@ def build_statement_rows(
             "row; the taxonomies themselves are not forced into a winner.",
         )
     )
+    rows.append(true_revenue_row(set_name, field("true_revenue"), metrics, mt_summary))
     rows.append(
         classify(
             set_name, field("gross_posted_credits"),
@@ -579,6 +584,21 @@ def build_statement_rows(
     )
 
     return rows
+
+
+def true_revenue_row(set_name: str, field_name: str, metrics: dict[str, Any],
+                     mt_summary: MTStatementRow | None) -> ComparisonRow:
+    """5.6 (true revenue spec §13): MoneyThumb's true credits are subtraction-based, so they are compared with True
+    revenue (posted credits minus known non-revenue minus the credits held for review); Verified is reported beside
+    it, never compared. Not material: the two definitions are not forced into a winner."""
+    verified = metrics.get("verified_revenue_total")
+    return classify(
+        set_name, field_name,
+        metrics.get("true_revenue_total"),
+        mt_summary.true_credits if mt_summary else None,
+        material=False,
+        note=f"Verified revenue beside it: {verified if verified is not None else 'N/A'}.",
+    )
 
 
 def build_revenue_statistics_row(

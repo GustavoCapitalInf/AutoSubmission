@@ -69,13 +69,26 @@ def _render(report: Report) -> str:
     if m.withdrawals_source != "line_items":
         wd += f"   | line items ${m.total_withdrawals:,.2f} ({m.num_withdrawals})"
     L.append(wd)
+    # 5.6 (true revenue spec §5.1): True revenue first, then its verified part, the counted and held credits.
+    L.append(
+        f"  True revenue          : ${m.true_revenue_total:,.2f}  "
+        f"({m.true_revenue_count} credit(s))"
+    )
     L.append(
         f"  Verified revenue      : ${m.verified_revenue_total:,.2f}  "
         f"({m.verified_revenue_count} credit(s))"
     )
     L.append(
+        f"  Counted, not verified : ${m.counted_flagged_total:,.2f}  "
+        f"({m.counted_flagged_count} credit(s))"
+    )
+    L.append(
+        f"  Held for review       : ${m.excluded_pending_review_total:,.2f}  "
+        f"({m.excluded_pending_review_count} credit(s))"
+    )
+    L.append(
         f"  Unverified deposits   : ${m.unverified_deposit_total:,.2f}  "
-        f"({m.unverified_deposit_count} credit(s); review required)"
+        f"({m.unverified_deposit_count} credit(s): counted plus held)"
     )
     L.append(
         f"  Non-revenue credits   : ${m.non_revenue_total:,.2f}  "

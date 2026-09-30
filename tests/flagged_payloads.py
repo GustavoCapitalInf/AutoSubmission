@@ -15,8 +15,8 @@ FLAGGED_DEBIT = 7.0
 #: The classifier version the contract's records carry (C4). Re-pinned 5.0 -> 5.1 with the D6 clarification,
 #: 5.1 -> 5.2 with its second one (2026-09-27: compensation memos, masked recipient accounts), 5.2 -> 5.3 with
 #: the false-positive release, 5.3 -> 5.4 with the Idea Financial ruling (2026-09-28), and 5.4 -> 5.5 with the
-#: true-revenue bug fixes.
-CURRENT_VERSION = "5.5"
+#: true-revenue bug fixes, and 5.5 -> 5.6 with its revenue tiers.
+CURRENT_VERSION = "5.6"
 #: The flag-group keys in contract order.
 GROUP_KEYS = tuple(group.key for group in FLAG_GROUPS)
 #: The state a premium-financing row keeps: it has no state of its own and stays insurance (plan contract C1, C4).

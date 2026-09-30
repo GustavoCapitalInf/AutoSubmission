@@ -93,6 +93,7 @@ def _our_file_summary(our_file: OurFileResult) -> dict[str, Any]:
         "min_balance": metrics.get("min_balance"),
         "max_balance": metrics.get("max_balance"),
         "cash_flow": metrics.get("cash_flow"),
+        "true_revenue_total": metrics.get("true_revenue_total"),
         "verified_revenue_total": metrics.get("verified_revenue_total"),
         "unverified_deposit_total": metrics.get("unverified_deposit_total"),
         "non_revenue_total": metrics.get("non_revenue_total"),

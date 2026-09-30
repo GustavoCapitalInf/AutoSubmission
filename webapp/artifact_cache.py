@@ -581,7 +581,18 @@ OCR_STAGE_VERSION = 5
 # Review fixes (2026-09-29): glued dates never change a reading; the holder's
 # name never names a payer; own-account transfers, glued and invoice wires and
 # platform financing words keep their vetoes.
-ANALYSIS_STAGE_VERSION = 24
+# 24 -> 25: TRUE-REVENUE definitional rules (2026-09-28 design, §8) —
+# classification version 5.6: every posted credit carries revenue_tier,
+# revenue_initial_tier and revenue_tier_reason, the metrics gain True revenue and
+# its counted and held parts, true_revenue is repointed, and
+# revenue_review_required follows the held share (T7). A payload-shape change:
+# a warm cache keyed on 24 would serve tier-less rows; a re-analysis recomputes
+# the analysis stage from the cached reading. OCR stays cached. Pinned in the
+# same change (`tests/test_artifact_cache.py`).
+# Review decisions (2026-09-29): direction conflicts never lifted; bare
+# transfers, micro entries, owner money, deferred sources and round-sum repeats
+# held or counted as ruled; Q7 honours the section 8.1 holds.
+ANALYSIS_STAGE_VERSION = 25
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

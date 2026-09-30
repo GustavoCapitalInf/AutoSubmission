@@ -123,8 +123,13 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: Review fixes (2026-09-29): glued dates never change a reading; the holder's
 #: name never names a payer; own-account transfers, glued and invoice wires and
 #: platform financing words keep their vetoes.
+#: 5.6 (2026-09-28): the definitional rules (§8): every posted credit carries a
+#: revenue tier, True revenue and its counted and held parts, and the review gate.
+#: Review decisions (2026-09-29): direction conflicts never lifted; bare
+#: transfers, micro entries, owner money, deferred sources and round-sum repeats
+#: held or counted as ruled; Q7 honours the section 8.1 holds.
 #: Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.5"
+CLASSIFICATION_VERSION = "5.6"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"

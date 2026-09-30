@@ -485,7 +485,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_24():
+def test_analysis_stage_version_is_pinned_at_25():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -495,9 +495,10 @@ def test_analysis_stage_version_is_pinned_at_24():
     recipient accounts) goes 20 -> 21. The false-positive release (classification
     5.3, 2026-09-27) goes 21 -> 22. The Idea Financial ruling (classification 5.4,
     2026-09-28: a counted lender, no longer a line of credit) goes 22 -> 23. The
-    true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24. This is
-    that pin."""
-    assert ANALYSIS_STAGE_VERSION == 24
+    true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24, and its
+    definitional rules (classification 5.6: the revenue tiers) go 24 -> 25. This
+    is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 25
 
 
 def test_paddle_model_token_is_not_in_free_models():

@@ -104,6 +104,96 @@ checks, cash deposits, and unidentified credits are `unverified_deposit` until
 reviewed. Own-account transfers are excluded when the description identifies
 the internal account or self-service transfer channel.
 
+### True revenue and the revenue tiers (classification 5.5 and 5.6)
+
+True revenue is every posted credit except known non-revenue and the credits
+held for review; Verified revenue is its part with positive proof
+(`docs/superpowers/specs/2026-09-28-true-revenue-design.md`). Since 5.6 every
+posted credit also carries exactly one revenue tier, stored beside its state:
+
+| Tier | State | In True revenue |
+|---|---|---|
+| `verified` | `verified_revenue` | yes |
+| `counted_flagged` | `unverified_deposit` | yes |
+| `excluded_pending_review` | `unverified_deposit` | no |
+| `non_revenue` | `non_revenue` | no |
+
+A counted or held credit names its reason (`revenue_tier_reason`). The codes
+and their labels live in one table, `analysis/revenue.py`
+`REVENUE_TIER_REASONS`, which the dashboard mirrors.
+
+**Precedence.** One credit's decision (`_classify_credit_revenue`) takes the
+first match: a direction conflict, a reversal, an auto lender paying a dealer,
+an insurer, the financing-proceeds rules, the strong non-revenue rules and
+own-account transfers, the channel gate, the operating registry, the
+card-settlement forms, the verified descriptors (the holder's own name never
+verifies), customer and invoice wording, payer accounts-payable remittance,
+public payers, wire remittance, then the fallback. The statement passes then run
+in order: duplicates, reversal pairs, the recurrence pass (pooled operating
+sources verify by recurrence; the pool never shrinks and a veto word keeps a
+row out), the auction and property branches, the payer-remittance counter-debit
+guard, and last the true-revenue pass (`analysis/true_revenue.py`), which tiers
+every posted credit. A `non_revenue` credit stays `non_revenue` except where a
+rule narrows a non-revenue pattern (spec §6.3); a held credit enters True
+revenue only when an analyst confirms it.
+
+**Holds.** The true-revenue pass holds a credit (tier
+`excluded_pending_review`) in this order: insurer payer, insurer-named payer,
+possible return, financing-named payer, payer debited as a lender, the holder's
+own name, payroll or salary, personal income, a non-sale purpose, a payer also
+debited this account; then by channel: a wire with no sender, a transfer with no
+counterparty or naming an account, and repeated round person-to-person sums.
+Every other unverified credit is counted (`counted_flagged`) with its reason. A
+statement needs revenue review (`revenue_review_required`) when it has a
+direction conflict, when its held credits are ten percent or more of its posted
+credits (compared in integer cents, `REVENUE_REVIEW_HELD_SHARE`), or when its
+revenue does not reconcile.
+
+**Extending the tables.** Every table below is checked by
+`python tools/operating_registry.py --check` and by its tests.
+- `OPERATING_REVENUE_SOURCE_ALIASES` and `OPERATING_REVENUE_SOURCE_TYPES`
+  (`analysis/classification_registry.py`): a processor, marketplace or platform
+  that pays a business its own sales. An alias is the name as banks print it, in
+  upper case. A name a bank cuts at 16 characters goes in
+  `OPERATING_REVENUE_TRUNCATIONS`, never as a bare prefix another entity could
+  share. A source whose aliases also name its capital product goes in
+  `OPERATING_SOURCES_READ_WITH_VETOES`, and the capital product in
+  `PROCESSOR_ADVANCE_PRODUCTS`.
+- `OPERATING_SOURCE_PAYOUT_FORMS` and `CARD_SETTLEMENT_CREDIT_FORMS`: a printed
+  payout or settlement shape that verifies on its own. Each form is a whole-row
+  pattern with its refusal words; add a positive and a negative test in the
+  bank's format.
+- `HEALTHCARE_PAYER_ALIASES`: a claims payer (a Medicare contractor, Medicaid,
+  a large insurer or its payment network) whose claim payments are a practice's
+  revenue.
+- `DEALER_FUNDING_PAYERS`: an auto lender whose funding of a dealer's contract
+  is the dealer's sale. A credit union's vehicle-purchase entry is counted, never
+  verified.
+- `PAYOUT_CREDIT_ENTITIES`: a platform whose payout is the business's sales but
+  whose name is also its financing partner (buy-now-pay-later settlements
+  included since 2026-09-28); its credits are counted, never verified.
+
+#### Review decisions (2026-09-29)
+
+- A date glued to a row never changes its reading (spec §7.0).
+- The holder's own name (a receiver field, an incoming wire's beneficiary) never names a payer or a source (§5.2).
+- An own-account transfer leaves `non_revenue` only on a distinctive payer word; account adjectives stay own-account (§6.1 step 9, §7.11).
+- The wire vetoes also read a wire glued to its reference and a wire that cites an invoice (§7.9).
+- The recurrence veto's holder-word exemption reads only on store-name platforms (§7.0).
+- Statement pass 6, the counter-debit guard, reads a card purchase's merchant, never its city (§7.5).
+- A buy-now-pay-later consumer credit (a return, withdrawal, refund or card credit) keeps its 5.4 reading; the OQ2 ruling covers settlements only (§19).
+- A direction conflict is never lifted, grouped or counted by any pass (§6.1 step 2, §7.0).
+- A bare transfer is held as `transfer_no_counterparty` (§8.2).
+- A credit under $1 never verifies and is held as `non_sale_purpose` (§7.0, §8.1).
+- Owner money, a brokerage, investing or crypto-exchange platform's credit included, is held as `non_sale_purpose` (§7.5, §8.1).
+- A deferred source stays counted and flagged, never verified by Q5 or Q6 (§15, §19 OQ4).
+- Repeated round sums from one sender are held as `p2p_round_repeat`, a named transfer printed without FROM included (§8.4).
+- Q5 and Q6 leave a row the operating registry names, and a NET SETTLE row, to its own rule (§7.1, §8.5, §8.6).
+- VIREMENT is a person-to-person rail only in its Interac forms (§8.4).
+- A cancelled French transfer is a reversal (§6.1 step 3).
+- Quebec's numbered companies (`NNNN-NNNN`) are numbered-company payers: counted, never verified (§5.2, T11).
+- Q7 honours the holds of §8.1, keeps its lender's name, and Suncoast Credit Union verifies only through its credit-union arm (§8.7).
+
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
 stores the related source location, revenue source type, context signals, match
@@ -497,10 +587,18 @@ Revenue must reconcile from the authoritative rows:
 
 `verified revenue + unverified deposits + non-revenue = total posted credits`
 
-Reviewer confirmation changes an unverified row to `verified_revenue`; rejection
-changes it to `non_revenue`. Reset restores `unverified_deposit`. The
-API, package aggregation, filters, evidence tables, and exports are rebuilt from
-the updated record.
+and, since 5.6, by tier:
+
+`verified + counted + held + non-revenue = total posted credits`, with
+`True revenue = verified + counted`.
+
+Reviewer confirmation changes a held or counted row to `verified_revenue` (tier
+`verified`); rejection changes it to `non_revenue` (tier `non_revenue`). A credit
+a rule verified can be rejected, never confirmed. Reset restores the row's first
+state and tier. The API, package aggregation, filters, evidence tables, and
+exports are rebuilt from the updated record. An analysis saved before 5.6
+carries no tier: its review follows the three-state rules and its True revenue
+is not established.
 
 Credits, funding deposits, duplicates proven by a repeated printed running
 balance, refunds, reversals, NSF returns, insurance, flagged obligations, fees,

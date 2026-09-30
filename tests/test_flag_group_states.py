@@ -58,10 +58,10 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.2/21: the second D6 clarification (2026-09-27, compensation memos and masked recipient accounts) does too.
     # 5.3/22: the false-positive release (2026-09-27): D6 skips, rule extensions, routing, naming, Debt relief.
     # 5.4/23: the owner ruling of 2026-09-28: Idea Financial is a counted lender, no longer a line of credit.
-    # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7).
-    assert CLASSIFICATION_VERSION == "5.5"
-    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.5"
-    assert ANALYSIS_STAGE_VERSION == 24
+    # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7). 5.6/25: its definitional rules (§8).
+    assert CLASSIFICATION_VERSION == "5.6"
+    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
+    assert ANALYSIS_STAGE_VERSION == 25
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
