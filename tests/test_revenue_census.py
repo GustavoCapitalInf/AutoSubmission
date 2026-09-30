@@ -1016,3 +1016,42 @@ def test_a_platform_payout_into_a_holder_named_like_it_passes_the_guards(holder,
     [credit] = snap["credits"]
     assert credit["tier"] == "counted_flagged" and credit["facts"]["claimed"]
     assert not any(census._row_guards(credit).values())
+
+
+# S4.2 fix round 4: the reversal rule's French cancel words (ANNUL, ANNULE, ANNULEE, ANNULATION), which 5.4 never read,
+# are a new non-revenue marker of that rule, as its return codes are; read as the classifier reads them.
+ANNULE_ROW = "STRIPE DES PAYMENT ANNULE ID #"
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    (_registry("operating_source_with_credit_context", ANNULE_ROW),
+     _later("reversal_cancellation_exclusion", ANNULE_ROW, state="non_revenue"), "new_non_revenue_marker"),
+    (_step_11("FABRIKAM DES CUSTOMER PAYMENT ANNULATION ####"),
+     _later("reversal_cancellation_exclusion", "FABRIKAM DES CUSTOMER PAYMENT ANNULATION ####", state="non_revenue"),
+     "new_non_revenue_marker"),
+    (_step_11("FABRIKAM CUSTOMER PAYMENT ####ANNULEE"),
+     _later("reversal_cancellation_exclusion", "FABRIKAM CUSTOMER PAYMENT ####ANNULEE", state="non_revenue"),
+     "new_non_revenue_marker"),
+    (_step_11("ANNUL FABRIKAM CUSTOMER PAYMENT"),
+     _later("reversal_cancellation_exclusion", "ANNUL FABRIKAM CUSTOMER PAYMENT", state="non_revenue"),
+     "new_non_revenue_marker"),
+    # A reversal pair keeps its own cause.
+    (_registry("operating_source_with_credit_context", ANNULE_ROW),
+     _later("matched_reversal_pair", ANNULE_ROW, state="non_revenue"), "reversal_pair"),
+    # Not the words: a word that only starts like them, or one glued to a digit after it (an ID's prefix).
+    (_step_11("FABRIKAM ANNULUS CUSTOMER PAYMENT"),
+     _later("reversal_cancellation_exclusion", "FABRIKAM ANNULUS CUSTOMER PAYMENT", state="non_revenue"),
+     "undeclared"),
+    (_step_11("FABRIKAM CUSTOMER PAYMENT ANNULE####"),
+     _later("reversal_cancellation_exclusion", "FABRIKAM CUSTOMER PAYMENT ANNULE####", state="non_revenue"),
+     "undeclared"),
+    # Not the rule: the words on a row another rule demoted.
+    (_registry("operating_source_with_credit_context", ANNULE_ROW),
+     _later("strong_non_revenue_rule", ANNULE_ROW, state="non_revenue"), "undeclared"),
+    (_registry("operating_source_with_credit_context", ANNULE_ROW),
+     _later("duplicate_credit_exclusion", ANNULE_ROW, state="non_revenue"), "undeclared"),
+    (_step_11("FABRIKAM DES CUSTOMER PAYMENT ANNULE"),
+     _later("unidentified_posted_credit", "FABRIKAM DES CUSTOMER PAYMENT ANNULE"), "undeclared"),
+])
+def test_the_reversal_rule_s_french_cancel_words_are_a_declared_new_marker(prior, later, cause):
+    assert _causes([prior], [later]) == {cause: 1}

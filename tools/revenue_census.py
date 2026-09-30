@@ -219,6 +219,9 @@ _CUSTOMER_ID = _on_masked(r"\bCUSTOMER ID\b")
 #: (_RETURN_CODE_CREDIT_PATTERNS), the tax-refund abbreviations and the account-verification words that joined the
 #: strong non-revenue rule (_NON_REVENUE_CREDIT_PATTERNS).
 _RETURN_CODES_55 = _on_masked(r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RECALL(?:ED)?|UNPAID|REJT|CHBK|CHGBK)\b")
+#: S4.2 fix round 4: CANCELLED's French words, which joined the reversal rule's credit markers
+#: (_REVERSAL_CANCELLATION_CREDIT_PATTERNS, verbatim; 5.4 never read them).
+_FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULATION)\b")
 _TAX_REFUNDS_55 = _on_masked(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b")
 _ACCOUNT_VERIFICATION_55 = _on_masked(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 #: §7.7: 5.4's claim-payment descriptor, and 5.5's claim entry (glued on either side).
@@ -914,10 +917,12 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     if method == "strong_non_revenue_rule" and _ACCOUNT_VERIFICATION_55.search(text):
         return "acctverify"
     # (a) any verifying rule (§6.1 steps 3 and 9 precede them all); (b) the reversal rule on a row printing a return code
-    # §7.11 adds to its credit markers, or strong non-revenue on a row printing a tax-refund abbreviation it adds.
-    if (method == "reversal_cancellation_exclusion" and _RETURN_CODES_55.search(text)) or (
-        method == "strong_non_revenue_rule" and _TAX_REFUNDS_55.search(text)
-    ):
+    # §7.11 adds to its credit markers or a French cancel word S4.2 adds to them (ANNULE), or strong non-revenue on a
+    # row printing a tax-refund abbreviation it adds.
+    if (
+        method == "reversal_cancellation_exclusion"
+        and (_RETURN_CODES_55.search(text) or _FRENCH_REVERSAL_WORDS_55.search(text))
+    ) or (method == "strong_non_revenue_rule" and _TAX_REFUNDS_55.search(text)):
         return "new_non_revenue_marker"
     # (a) 5.4's step-11 claim-payment descriptor (§7.7); (b) the claim entry held with the insurer's credits
     # (insurer_customer_payment), which 5.5 does only with the T18 switch off.

@@ -1005,3 +1005,65 @@ def test_a_credit_wire_s_beneficiary_value_ends_at_the_originator_label(text):
             f"INCOMING WIRE BNF SQUARE ONE BAKERY {label} NORTHWIND EXPORTS LLC")
     rows = _records([(text, 9000.0), (text, 9100.0)], holder="SQUARE ONE BAKERY LLC")
     assert {record.revenue_canonical_entity for record in rows} == {"Stripe"}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.2 fix round 4 (2026-09-29, under the owner's delegation): a Quebec numbered company (NNNN-NNNN QUEBEC INC) keys
+# by both its numbers, and a French month is dropped from a transfer's counterparty only where a date prints it.
+# ---------------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize(("first", "second"), [
+    ("VIREMENT INTERAC 1234-5678 QUEBEC INC", "VIREMENT INTERAC 8765-4321 QUEBEC INC"),
+    ("E TRANSFER 123456789012 1234-5678 QUEBEC INC", "E TRANSFER 210987654321 8765-4321 QUEBEC INC"),
+    ("INTERAC E TRANSFER RECEIVED 1234-5678 QC INC", "INTERAC E TRANSFER RECEIVED 1234-5679 QC INC"),
+])
+def test_two_quebec_numbered_companies_are_two_senders(first, second):
+    # Q4, §5.2: Quebec registers a numbered company as four digits, a hyphen and four digits ('1234-5678 QUEBEC INC',
+    # normalized to '1234 5678 QUEBEC INC'); both digit groups are its identity, so two such companies never group.
+    rows = _records([(first, 500.0), (second, 600.0)])
+    assert [_tier(record) for record in rows] == [P2P, P2P]
+
+
+@pytest.mark.parametrize("layout", [
+    "VIREMENT INTERAC {ref}1234-5678 QUEBEC INC", "E TRANSFER {ref}1234-5678 QUEBEC INC",
+    "INTERAC E TRANSFER RECEIVED {ref}1234-5678 QUE INC",
+])
+def test_one_quebec_numbered_company_s_round_sums_are_one_sender_s(layout):
+    rows = _records([(layout.format(ref=""), 500.0), (layout.format(ref="123456789012 "), 600.0),
+                     (layout.format(ref="210987654321 "), 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+def test_a_quebec_numbered_holder_is_held_on_its_own_numbers_only():
+    # The holder test reads the key's digit runs: the holder's own numbers hold the row, another company's do not.
+    holder = "1234-5678 QUEBEC INC"
+    assert _tier(_one("VIREMENT INTERAC 1234-5678 QUEBEC INC", 500.0, holder=holder)) == HOLDER_HELD
+    assert _tier(_one("VIREMENT INTERAC 8765-4321 QUEBEC INC", 500.0, holder=holder)) == P2P
+
+
+def test_two_four_digit_references_before_a_company_that_is_not_quebec_s_are_no_number():
+    # Only the Quebec form keeps the pair: any other sender after two short references is one sender.
+    rows = _records([("E TRANSFER 1234 5678 FABRIKAM SUPPLY LTD", 500.0),
+                     ("E TRANSFER 8765 4321 FABRIKAM SUPPLY LTD", 600.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat"]
+
+
+@pytest.mark.parametrize("text", [
+    "TRANSFER FROM MARS INC", "ONLINE TRANSFER FROM MAI LE", "ONLINE TRANSFER MARS INC",
+    "ONLINE TRANSFER FROM MAI VU", "VIREMENT RECU MARS INC",
+])
+def test_a_french_month_word_outside_a_date_is_a_counterparty_s_name(text):
+    # §8.2, T13: MARS or MAI printed as a name, not beside a day number nor at the row's start before the transfer
+    # wording, is the counterparty's own word.
+    record = _one(text, 2500.0)
+    assert _tier(record) == P2P
+    assert record.revenue_classification == "unverified_deposit"
+
+
+@pytest.mark.parametrize("text", [
+    "02 JUIN VIREMENT EN LIGNE TF 1234", "JUIN 02 VIREMENT EN LIGNE TF 1234", "02JUIN VIREMENT EN LIGNE TF 1234",
+    "JANV VIREMENT PAR BANQUE EN DIRECT 1234", "02 JANV VIREMENT PAR BANQUE EN DIRECT 1234",
+    "MARS VIREMENT EN LIGNE TF 1234", "ONLINE TRANSFER FROM 02 MAI", "ONLINE TRANSFER FROM MAI 02",
+    "ONLINE TRANSFER 2 MARS REF 1234",
+])
+def test_a_french_month_printed_as_a_date_is_still_never_a_counterparty(text):
+    assert _tier(_one(text, 2500.0)) == HELD_TRANSFER

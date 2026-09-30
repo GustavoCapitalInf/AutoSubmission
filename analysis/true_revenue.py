@@ -259,10 +259,16 @@ _VIREMENT_TRANSFER_WORDS = frozenset({
 })
 #: §8.2 (S4.2 final review, fix 5): the French month names and abbreviations a date prints ('02 JUIN VIREMENT EN
 #: LIGNE TF <reference>'), never a transfer's counterparty (the English ones are reference tokens already).
+#: S4.2 fix round 4: only where a date prints them (_without_date_months): MARS and MAI are also names.
 _FRENCH_MONTHS = frozenset({
     "JANV", "JANVIER", "FEVR", "FEVRIER", "MARS", "AVR", "AVRIL", "MAI", "JUIN", "JUIL", "JUILLET", "AOUT", "SEPT",
     "SEPTEMBRE", "OCT", "OCTOBRE", "NOV", "NOVEMBRE", "DEC", "DECEMBRE",
 })
+#: §8.2 (S4.2 fix round 4): a day of the month printed as its own word beside a month ('02 JUIN', 'JUIN 2').
+_DAY_NUMBER = re.compile(r"0?[1-9]|[12]\d|3[01]")
+#: Q4, §5.2 (S4.2 fix round 4): Quebec, its cuts and QC, after which a numbered company prints NNNN-NNNN.
+_QUEBEC = "(?:QUEBEC|QUEBE|QUEB|QUE|QC)"
+_FOUR_DIGITS = re.compile(r"\d{4}")
 #: §8.2 (S4.2 final review, fix 5): a bank branch a transfer prints ('AVIS VIREMENT <n> CTR BANCAIRE <branch>'), never
 #: its counterparty.
 _BANK_BRANCH_WORDS = re.compile(r"(?<![A-Z])(?:CTR BANCAIRE|CENTRE BANCAIRE|SUCCURSALE|BRANCH)\b")
@@ -398,18 +404,24 @@ def _p2p_sender_readings(text: str) -> tuple[str, str]:
 @cache
 def _numbered_province_sender() -> re.Pattern[str]:
     """Q4, §5.2 (S4.2 final review, fix 1): the province arm of §5.2's numbered payer region: six or more digits and
-    a province, territory, CANADA or a cut of one."""
-    return re.compile(rf"^\d{{6,}} {_classifier()._PROVINCE}\b")
+    a province, territory, CANADA or a cut of one. S4.2 fix round 4: or Quebec's own form, four digits, a hyphen and
+    four digits before QUEBEC, a cut of it or QC ('1234-5678 QUEBEC INC', normalized to '1234 5678 QUEBEC INC'), both
+    digit groups kept."""
+    return re.compile(rf"^(?:\d{{6,}} {_classifier()._PROVINCE}|\d{{4}} \d{{4}} {_QUEBEC})\b")
 
 
 def _sender_tokens(rest: str) -> tuple[list[tuple[str, bool]], str] | None:
     """Q4: the words of a sender printed after a rail, up to a field label, one of §5.2's sender ends or a reference
     token after a name word, generic words and single letters skipped: each word with whether it is a name word (not
     a rail, posting or layout word), and the reference printed before the name (six or more digits, or ''). None when
-    the row names a recipient or a reversal."""
+    the row names a recipient or a reversal.
+
+    S4.2 fix round 4: two four-digit groups printed one after the other ('1234 5678', Quebec's hyphenated number once
+    normalized) are read as one reference, both groups kept."""
     classifier = _classifier()
     tokens: list[tuple[str, bool]] = []
     number = ""
+    previous = ""
     for token in rest.split():
         if token in _P2P_SENDER_END_WORDS or token in _TRANSFER_FIELD_LABEL_WORDS:
             break
@@ -418,8 +430,13 @@ def _sender_tokens(rest: str) -> tuple[list[tuple[str, bool]], str] | None:
         if classifier._is_reference_token(token):
             if any(name for _, name in tokens):
                 break
-            number = token if token.isdigit() and len(token) >= 6 else ""
+            if _FOUR_DIGITS.fullmatch(token) and _FOUR_DIGITS.fullmatch(previous):
+                number = f"{previous} {token}"
+            else:
+                number = token if token.isdigit() and len(token) >= 6 else ""
+            previous = token
             continue
+        previous = ""
         if token in classifier.REVENUE_GENERIC_WORDS or len(token) < 2:
             continue
         tokens.append((token, token not in _P2P_NOT_SENDER_WORDS and token not in _P2P_LAYOUT_WORDS))
@@ -712,17 +729,17 @@ def _transfer_counterparty_words(text: str) -> list[str]:
     transfer's originator (_originator_payer_words), so an account description ('FROM HELOC', 'FROM TAX RESERVE',
     'FROM OPERATING') is never a counterparty. S4.2 re-review (fix 4): failing that, a short or company-formed name
     after FROM is one (_short_or_formed_counterparty). S4.2 follow-up 2: the French transfer and posting words
-    (_VIREMENT_TRANSFER_WORDS) are removed too. S4.2 final review (fix 5): so are a French month and a bank branch."""
+    (_VIREMENT_TRANSFER_WORDS) are removed too. S4.2 final review (fix 5): so are a French month and a bank branch.
+    S4.2 fix round 4: a French month only where a date prints it (_without_date_months), on the row's start too."""
     classifier = _classifier()
-    row = _TRANSFER_REFERENCE_VALUE.sub(
-        " ", _BANK_BRANCH_WORDS.sub(" ", classifier._strip_revenue_template(classifier._before_receiver(text)))
-    )
+    row = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", _without_date_months(
+        classifier._strip_revenue_template(classifier._before_receiver(text)), row=True
+    )))
     words = [
         token for token in row.split()
         if classifier._is_payer_word(token) and not classifier._is_reference_token(token)
         and token not in _ACCOUNT_WORDS and token not in _TRANSFER_FIELD_LABEL_WORDS
         and not classifier._TRANSFER_WORDING.fullmatch(token) and token not in _VIREMENT_TRANSFER_WORDS
-        and token not in _FRENCH_MONTHS
         and token not in {"TRANSFER", "TRNSFR", "XFER", "TFR", "BR", "TO", "BANKING", "INTERNET"}
     ]
     return classifier._originator_payer_words(" ".join(words)) or _short_or_formed_counterparty(text)
@@ -764,17 +781,40 @@ def _short_or_formed_counterparty(text: str) -> list[str]:
 def _counterparty_tokens(words: str) -> list[str]:
     """§8.2 (S4.2 re-review fix 4): a transfer sender's words without bank branches, reference labels and their
     values, reference tokens, field labels, generic words, account and product words, transfer words, French months
-    and single letters."""
+    printed as a date (S4.2 fix round 4, _without_date_months) and single letters."""
     classifier = _classifier()
-    sender = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", words))
+    sender = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", _without_date_months(words)))
     return [
         token for token in classifier._INTERNAL_ACCOUNT_SOURCE_WORDS.sub(" ", sender).split()
         if len(token) > 1 and not classifier._is_reference_token(token)
         and token not in _TRANSFER_FIELD_LABEL_WORDS and token not in classifier.REVENUE_GENERIC_WORDS
         and token not in _ACCOUNT_WORDS and token not in classifier._OWN_ACCOUNT_PRODUCT_WORDS
         and token not in _ACCOUNT_DESCRIPTION_WORDS and not classifier._TRANSFER_WORDING.fullmatch(token)
-        and token not in _VIREMENT_TRANSFER_WORDS and token not in _FRENCH_MONTHS
+        and token not in _VIREMENT_TRANSFER_WORDS
     ]
+
+
+def _without_date_months(words: str, *, row: bool = False) -> str:
+    """§8.2 (S4.2 fix round 4): the words without a French month printed as a date: beside a day number ('02 JUIN',
+    'JUIN 02'; glued, '02JUIN' is a reference token already) or, read on the row itself (`row`), at its start (after
+    a leading date's digits only) before the transfer wording ('JANV VIREMENT PAR BANQUE EN DIRECT <n>'). A month word
+    anywhere else is a name's ('TRANSFER FROM MARS INC', 'ONLINE TRANSFER FROM MAI LE')."""
+    classifier = _classifier()
+    tokens = words.split()
+    kept = []
+    for index, token in enumerate(tokens):
+        if token in _FRENCH_MONTHS:
+            beside_day = any(
+                _DAY_NUMBER.fullmatch(tokens[at]) for at in (index - 1, index + 1) if 0 <= at < len(tokens)
+            )
+            rest = " ".join(tokens[index + 1:])
+            leading = row and all(classifier._is_reference_token(before) for before in tokens[:index]) and (
+                classifier._TRANSFER_WORDING.search(rest) is not None or _VIREMENT.search(rest) is not None
+            )
+            if beside_day or leading:
+                continue
+        kept.append(token)
+    return " ".join(kept)
 
 
 def _after_transfer_wording(text: str) -> str:
