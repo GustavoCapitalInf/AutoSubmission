@@ -108,6 +108,8 @@ def test_a_transfer_from_a_named_payer_is_still_a_third_party():
 @pytest.mark.parametrize(("printed", "state"), [
     ("DEBIT CARD CREDIT VISA DIRECT SQUARE INC", "verified_revenue"),
     ("Debit Card Credit: Stripe Payout", "verified_revenue"),
+    # §7.11's release rule (true revenue spec §20, final review M5): a processor's card credit leaves the reversal
+    # rule only with a payout word, so a bare 'Stripe' stays non_revenue (§14.1 once said possible_return).
     ("Debit Card Credit: Stripe", "non_revenue"),
     ("DEBIT CARD CREDIT UBER *TRIP HELP.UBER.COM CA", "non_revenue"),
     ("DEBIT CARD CREDIT DOORDASH*FABRIKAM DELI", "non_revenue"),
@@ -224,7 +226,7 @@ def test_a3_the_sba_s_name_cut_to_its_originator_field_is_a_disbursement(printed
         "non_revenue", "financing_proceeds_credit", "sba_disbursement_credit")
     assert record.contributes_to_lender_credit_exclusion
     statement = classify_statement_transactions(Statement(account_name="CONTOSO BAKERY LLC", transactions=[
-        Transaction(date="2054-03-02", description=printed, amount=175000.0, direction="credit")]))
+        Transaction(date="2054-03-02", description=printed, amount=42000.0, direction="credit")]))
     assert (statement[0].revenue_tier, statement[0].revenue_matched_rule) == ("non_revenue", "sba_disbursement_credit")
 
 

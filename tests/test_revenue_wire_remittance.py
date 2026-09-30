@@ -112,7 +112,7 @@ FORTY = [
     ("verified", "Bank of America", "FABRIKAM FOODS LLC",
      BOFA_IN.format(orig="CONTOSO TRADING INTL", bank="SAMPLE NATIONAL BANK, NA", det="BMG OF 01/05/54 INV10421,10422")),
     ("verified", "Bank of America", "FABRIKAM FOODS LLC",
-     BOFA_IN.format(orig="CONTOSO PLACE & TOWERS", bank="SAMPLE CREDIT UNION", det="INVOICE: CPT104 INSTAL LATION")),
+     BOFA_IN.format(orig="NORTHWIND HARBOR SUITES", bank="SAMPLE CREDIT UNION", det="INVOICE: NW204 MAINTEN ANCE")),
     ("verified", "Chase", "BUSINESS COMPLETE CHECKING",
      FEDWIRE.format(orig="Contoso Supply LLC 12345, US", bnf="Northwind Labs, LLC", obi="Invoice S104")),
     ("verified", "Chase", "BUSINESS COMPLETE CHECKING",

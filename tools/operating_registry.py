@@ -1,8 +1,10 @@
 """The operating-revenue registry's validator (true revenue spec §7.4).
 
 The operating registry (`OPERATING_REVENUE_SOURCE_ALIASES` and its types, the sixteen-character cuts, the payout and
-card-settlement forms) and the two 5.6 payer tables (`HEALTHCARE_PAYER_ALIASES`, `DEALER_FUNDING_PAYERS`) are
-hand-kept in `analysis/classification_registry.py`. This module says what is wrong with them:
+card-settlement forms) and the 5.6 tables (`HEALTHCARE_PAYER_ALIASES`, `DEALER_FUNDING_PAYERS`,
+`FACTORING_PAYOUT_PAYERS`, `OWNER_MONEY_PLATFORMS`, `SECTION_15_DEFERRED_PAYERS`, `P2P_SENDING_BANK_NAMES`,
+`STATEMENT_BANK_PRINTED_NAMES`) are hand-kept in `analysis/classification_registry.py`. This module says what is
+wrong with them:
 
 * every operating entity has a source type, and every typed entity has aliases;
 * every payout form and card form compiles, and the entity it names is typed;
@@ -11,7 +13,10 @@ hand-kept in `analysis/classification_registry.py`. This module says what is wro
 * a processor's bare alias waits for its advance product (`PROCESSOR_ADVANCE_PRODUCTS`): it is in the registry only
   when the ledger admits that product or the processor is in `PROCESSORS_WITHOUT_ADVANCE_PRODUCT`;
 * `HEALTHCARE_PAYER_ALIASES` collides with no ledger alias and no insurer alias;
-* `DEALER_FUNDING_PAYERS` collides with no ledger alias outside the vehicle-financing group, which Q7 names on purpose.
+* `DEALER_FUNDING_PAYERS` collides with no ledger alias outside the vehicle-financing group, which Q7 names on purpose;
+* `FACTORING_PAYOUT_PAYERS` collides with no ledger, operating or insurer alias (true revenue final review M3);
+* `OWNER_MONEY_PLATFORMS` and `SECTION_15_DEFERRED_PAYERS` compile and read no operating alias;
+* `P2P_SENDING_BANK_NAMES` and `STATEMENT_BANK_PRINTED_NAMES` are normalized, and name no form twice.
 
 It also WARNS (never fails) when a multi-word operating alias spans the originator/entry boundary a bank prints between
 two fields ('HEARTLAND PAYMENT SYSTEMS' printed as 'HEARTLAND DES:PAYMENT'), which a contiguous alias cannot match.
@@ -134,7 +139,44 @@ def problems() -> list[str]:
         if alias in ledger and ledger[alias][0] != "vehicle_financing":
             group, holder = ledger[alias]
             found.append(f"dealer-funding payer alias {alias!r} of {entity!r} is a {group} alias of {holder!r}")
+    _check_56_tables(found, own, ledger, insurers)
     return found
+
+
+def _check_56_tables(
+    found: list[str], own: dict[str, str], ledger: dict[str, tuple[str, str]], insurers: dict[str, str]
+) -> None:
+    """True revenue final review M3: the five other 5.6 tables. A factoring payer's alias collides with no ledger,
+    operating or insurer alias; the owner-money and deferred-source patterns compile and read no operating alias (a
+    platform that pays a business its sales is neither); the sending banks' and the statement banks' printed names
+    are normalized and unique."""
+    for alias, entity in _aliases(registry.FACTORING_PAYOUT_PAYERS).items():
+        if alias in ledger:
+            group, holder = ledger[alias]
+            found.append(f"factoring payer alias {alias!r} of {entity!r} is a {group} alias of {holder!r}")
+        if alias in own:
+            found.append(f"factoring payer alias {alias!r} of {entity!r} is an operating alias of {own[alias]!r}")
+        if alias in insurers:
+            found.append(f"factoring payer alias {alias!r} of {entity!r} is an insurer alias of {insurers[alias]!r}")
+    for name in ("OWNER_MONEY_PLATFORMS", "SECTION_15_DEFERRED_PAYERS"):
+        compiled = _compiles(found, name, getattr(registry, name))
+        if compiled is None:
+            continue
+        for alias, entity in own.items():
+            if compiled.search(alias):
+                found.append(f"{name} reads the operating alias {alias!r} of {entity!r}")
+    names = list(registry.P2P_SENDING_BANK_NAMES)
+    for name in names:
+        if not name or normalize(name) != name:
+            found.append(f"sending bank name {name!r} is not normalized")
+    if len(names) != len(set(names)):
+        found.append("P2P_SENDING_BANK_NAMES lists a name twice")
+    for words, forms in registry.STATEMENT_BANK_PRINTED_NAMES:
+        for printed in (*words, *forms):
+            if not printed or normalize(printed) != printed:
+                found.append(f"statement bank name {printed!r} is not normalized")
+        if not words or not forms or len(set(forms)) != len(forms):
+            found.append(f"statement bank entry {words!r} names no bank word, no form, or a form twice")
 
 
 def warnings() -> list[str]:

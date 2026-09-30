@@ -1974,7 +1974,7 @@ def _a3g_fedwire(orig: str, obi: str = "1234", place: str = "SAMPLEVILLE CA 1234
     _a3g_fedwire("NORTHWIND BANK N A"),
     # The originator is the sending bank itself (a cut or a line wrap may split the bank field).
     _A3G_BOFA.format(n=1, orig="CONTOSO FEDERAL", bank="CONTOSO FEDERAL"),
-    _A3G_BOFA.format(n=1, orig="FABRIKAMBA FIRST", bank="FABRIKAMBA FIRST NK AKA SAMPLE COMMUNI"),
+    _A3G_BOFA.format(n=1, orig="FABRIKAMBA FIRST", bank="FABRIKAMBA FIRST NK"),
 ])
 def test_a3g_a_wire_a_bank_originates_is_held_as_financing(text):
     # A3-G: money a bank sends on its own behalf is more often loan proceeds or the bank's own funds than a sale.
@@ -2005,8 +2005,8 @@ def test_a3g_a_wire_whose_originator_is_no_bank_keeps_its_reading(text):
 
 
 @pytest.mark.parametrize("text", [
-    # Row 8's shape: the bank sends on its own behalf, its sending-bank field wrapped by a line ('BA NK').
-    _A3G_BOFA.format(n=1, orig="NORTHWIND BANK AP", bank="NORTHWIND BA NK AKA SAMPLE COMMUNI"),
+    # The bank sends on its own behalf, its sending-bank field wrapped by a line ('BA NK').
+    _A3G_BOFA.format(n=1, orig="NORTHWIND BANK AP", bank="NORTHWIND BA NK"),
     # A bank's own legal form after its name keeps it a bank ('<X> BANK LTD', '<X> BANK CO LTD', 'BANK OF <X> LIMITED').
     "BOOK TRANSFER CREDIT B O SAMPLE COMMERCIAL BANK LTD SAMPLE CITY CN REF SAMPLE 1 TRN 1234567890JS",
     "BOOK TRANSFER CREDIT B O SAMPLE INDUSTRIAL BANK CO LTD SAMPLE CITY CN REF SAMPLE 1 TRN 1234567890JS",

@@ -59,6 +59,37 @@ def test_the_validator_refuses_an_untyped_entity_and_a_financing_collision(monke
     assert any("'SQUARE CAPITAL'" in problem and "financing alias" in problem for problem in found)
 
 
+@pytest.mark.parametrize(("alias", "word"), [
+    ("SQUARE", "operating alias"),                    # an operating source is no factor
+    ("SQUARE CAPITAL", "alias of"),                   # nor is a lender (a ledger alias)
+    ("STATE FARM", "insurer alias"),                  # nor an insurer
+])
+def test_the_validator_refuses_a_factoring_payer_alias_another_table_holds(monkeypatch, alias, word):
+    # Final review M3: the five other 5.6 tables are checked too, the factoring aliases against the ledger, the
+    # operating registry and the insurers.
+    monkeypatch.setattr(registry, "FACTORING_PAYOUT_PAYERS", {"Fabrikam Factoring": (alias,)})
+    assert any(f"factoring payer alias {alias!r}" in problem and word in problem
+               for problem in operating_registry.problems())
+
+
+@pytest.mark.parametrize("name", ["OWNER_MONEY_PLATFORMS", "SECTION_15_DEFERRED_PAYERS"])
+def test_the_validator_refuses_an_owner_money_or_deferred_pattern_that_reads_an_operating_source(monkeypatch, name):
+    monkeypatch.setattr(registry, name, r"(?<![A-Z])(?:FABRIKAM WEALTH|SQUARE)\b")
+    assert any(f"{name} reads the operating alias 'SQUARE'" in problem for problem in operating_registry.problems())
+    monkeypatch.setattr(registry, name, r"(?:FABRIKAM")
+    assert any(f"{name} does not compile" in problem for problem in operating_registry.problems())
+
+
+def test_the_validator_refuses_bank_names_that_are_not_normalized_or_repeat(monkeypatch):
+    monkeypatch.setattr(registry, "P2P_SENDING_BANK_NAMES", ("SAMPLE BANK", "Sample Bank", "SAMPLE BANK"))
+    monkeypatch.setattr(registry, "STATEMENT_BANK_PRINTED_NAMES", ((("SAMPLE BANK",), ("S.B.", "SB", "SB")),))
+    found = operating_registry.problems()
+    assert "sending bank name 'Sample Bank' is not normalized" in found
+    assert "P2P_SENDING_BANK_NAMES lists a name twice" in found
+    assert "statement bank name 'S.B.' is not normalized" in found
+    assert any("names no bank word, no form, or a form twice" in problem for problem in found)
+
+
 def test_a_waiting_processor_s_bare_aliases_are_gated_and_never_read():
     # §7.1, review I4: the gate lists every processor the ledger has not cleared, and none of its bare aliases reads.
     admitted = {entity for group in registry.PAYEE_GROUP_REGISTRIES.values() for entity in group}

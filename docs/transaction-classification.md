@@ -143,6 +143,8 @@ possible return, financing-named payer, payer debited as a lender, the holder's
 own name, payroll or salary, personal income, a non-sale purpose, a payer also
 debited this account; then by channel: a wire with no sender, a transfer with no
 counterparty or naming an account, and repeated round person-to-person sums.
+The $1 floor is absolute: a posted credit under $1 is never verified and never
+counted, whichever rule read it, and is held as `non_sale_purpose`.
 Every other unverified credit is counted (`counted_flagged`) with its reason. A
 statement needs revenue review (`revenue_review_required`) when it has an
 undecided direction conflict (one an analyst confirmed or rejected no longer
@@ -151,7 +153,13 @@ credits (compared in integer cents, `REVENUE_REVIEW_HELD_SHARE`), or when its
 revenue does not reconcile.
 
 **Extending the tables.** Every table below is checked by
-`python tools/operating_registry.py --check` and by its tests.
+`python tools/operating_registry.py --check` and by its tests. So are the other
+5.6 tables of `analysis/classification_registry.py`: a factoring payer
+(`FACTORING_PAYOUT_PAYERS`) collides with no ledger, operating or insurer alias;
+the owner-money and deferred-source patterns (`OWNER_MONEY_PLATFORMS`,
+`SECTION_15_DEFERRED_PAYERS`) compile and read no operating alias; and the
+sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
+`STATEMENT_BANK_PRINTED_NAMES`) are normalized and name no form twice.
 - `OPERATING_REVENUE_SOURCE_ALIASES` and `OPERATING_REVENUE_SOURCE_TYPES`
   (`analysis/classification_registry.py`): a processor, marketplace or platform
   that pays a business its own sales. An alias is the name as banks print it, in
@@ -168,8 +176,9 @@ revenue does not reconcile.
   a large insurer or its payment network) whose claim payments are a practice's
   revenue.
 - `DEALER_FUNDING_PAYERS`: an auto lender whose funding of a dealer's contract
-  is the dealer's sale. A credit union's vehicle-purchase entry is counted, never
-  verified.
+  is the dealer's sale. A credit union's vehicle-purchase entry (`VHCL PURCH`)
+  verifies as dealer funding (`auto_lender_dealer_funding`) when the statement
+  prints two or more of them; a lone one is held as `financing_named_payer`.
 - `PAYOUT_CREDIT_ENTITIES`: a platform whose payout is the business's sales but
   whose name is also its financing partner (buy-now-pay-later settlements
   included since 2026-09-28); its credits are counted, never verified.
@@ -181,7 +190,7 @@ revenue does not reconcile.
 - An own-account transfer leaves `non_revenue` only on a distinctive payer word; account adjectives stay own-account (§6.1 step 9, §7.11).
 - The wire vetoes also read a wire glued to its reference and a wire that cites an invoice (§7.9).
 - The recurrence veto's holder-word exemption reads only on store-name platforms (§7.0).
-- Statement pass 6, the counter-debit guard, reads a card purchase's merchant, never its city (§7.5).
+- Statement pass 6, the counter-debit guard, reads a debit's first distinctive word, never a card purchase's city; since the final review it leaves a card purchase out, unless the classifier names it as a lender (§7.5).
 - The true-revenue pass's `payer_also_debited` hold never reads a card purchase: buying at a merchant that shares the payer's word is spending, not the payer's money coming back (§8.1; A1 census, 2026-09-30). A card-form debit the classifier names as a lender still counts for `payer_debited_as_lender`.
 - A buy-now-pay-later consumer credit (a return, withdrawal, refund or card credit) keeps its 5.4 reading; the OQ2 ruling covers settlements only (§19).
 - A direction conflict is never lifted, grouped or counted by any pass (§6.1 step 2, §7.0).
@@ -208,6 +217,13 @@ revenue does not reconcile.
 - A3-G: a credit from a personal trust (a person's name ending in `TRUST`, `TTEE`, or a trust adjective and `TR`; A3-G review: the form ends the name, the words before it read as a person's, and never a trust company's or a bank's form after it, a lawyer's or client trust account, a title or escrow firm; A3-G re-review: a wire originator's address after the form holds only place words, a city, a two-letter state, a ZIP and a country code, never a business, lawyer, company-form, `ACCOUNT`, `SERVICES`, `DEPT` or institution word, and the lawyer and IOLTA words are read across the whole sender; A3-G re-review 2: the banned words are a finite list of trade and institution words (`CUSTODY`, `CUSTODIAN`, `ADMINISTRATOR` and `ADMINISTRATORS` among them), and the address prints at most 3 words of its own before its state, never counting the agreement, date, PO box and country words, a number, a street type or an initial; A3-G re-review 3: two or more single letters in a row that join into a company form, such as a dotted `L.L.C.`, `L.P.`, `P.A.` or `P.C.`, make the sender a company) is owner money, held as `non_sale_purpose` (§8.1).
 - A3-H (the Verified strata's misses at s56c): a freight-factoring payer the registry's `FACTORING_PAYOUT_PAYERS` names (the registry entry carries its name and evidence) pays the carrier's own invoices: its credits, wire or ACH, are `counted_flagged` / `factoring_payout` after the holds, and Q5 and Q6 never verify them nor count them toward a repeat. A3-H review: a factor is never verified by any path (an earlier rule's verification, such as an invoice-purpose wire's or a remittance descriptor's, is overruled: method `factoring_payout_payer`), and its alias is read only as the payer region (the ACH originator or the wire sender), followed only by company forms: `<alias> FOR PETS LLC`, `<alias> CLEANING LLC` and another payer's purpose citing the alias are other payers. A3-H review 2: a glued company form (`<alias>LLC`), a `DBA` tail, an entry word, date or number that falls into the region (`PAYMENT`, `PMT`), and a B/O field's address (place words ending in a US state, at most three of its own, as the personal-trust rule reads one) may follow the alias; the table holds the entity's two spellings of its apostrophe; and a factor claims its row as a factoring payee does, so a financing word in its trade name holds nothing. The table is read by the true-revenue pass alone; it is no lender-ledger entity, so its debits and every payee group, flag and lender reading are unchanged. A `SCHEDULE <n>` purpose alone names no factor.
 - A3-H: a healthcare, insurer or health-plan payer (the healthcare payer table, an insurer's name, or `INS` on the payer region) whose entry field (`DES`, `CO ENTRY DESCR`) prints a premium code (`PREM`, `PREMIUM`, glued `PREMSEC`) is a commission or a premium refund, never a claim payment: Q6c and Q5 refuse it and it is `counted_flagged` / `named_payer_purpose_refused` (on such a row a premium word is no member-word hold). A3-H review: a row with no entry field keeps its reading; a `COMM` or `COMMISSION` word in the entry keeps the reading even beside `PREM`; government payers (state, county or federal public payers, Medicare and its contractors, Medicaid, TRICARE, VA) keep their reading. A `PREM REFUND` the reversal rule reads stays `non_revenue`.
+- Final review (2026-09-30): a PPD or WEB entry is read only in the SEC code's slot (Chase's `SEC <code>` or the code before `TRACE` or `ID`, the code Bank of America prints after the company id or at the row's end, `ACH <code>`), never in a name or receiver field (§8.6).
+- Final review: every receiver vocabulary is built from one tuple (`analysis/description_text.py`), `RECV NAME` included (§5.2).
+- Final review: a healthcare alias of five letters or fewer, and `ANTHEM`, names a healthcare payer only as the whole payer name (a company form, a health-plan word or another healthcare alias may follow): `ANTHEM ROOFING` and `WPS INDUSTRIES` are other companies (§8.6 Q6c).
+- Final review: on a store-name platform, a veto word that is the whole entry field, or forms it alone with generic words, is never spared as the holder's word (`DOORDASH INC DES:CAPITAL` is held as financing) (§7.0).
+- Final review: Q7 reads the non-revenue patterns without the holder's receiver name (a declared move out of `non_revenue`) and its insurer on step 5's lookup text (§8.7).
+- Final review: a reversal pair's widened markers change the credit's revenue reading only; the debit's lender side keeps classification 5.4's pairs (§6.2 pass 4).
+- Final review: a factor's alias followed by `FOR`, `OF`, `AND` or `THE` names another payer, never the factor at an address (§8.9).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
