@@ -1992,7 +1992,8 @@ DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
 #: verified): freight-factoring payers whose credits the true-revenue pass alone reads (analysis/true_revenue.py), in
 #: the spelling the statements print. Not lender-ledger entities (the ledger's factoring group renders
 #: FACTORING_ALIASES, whose payee group reads debits and flags too): a credit from one is counted and flagged as a
-#: factoring payout (factoring_payout), and Q5 and Q6 never verify it nor count it toward a repeat. Evidence: Love's
+#: factoring payout (factoring_payout), never verified by any rule nor counted toward a repeat, and the alias is read
+#: only as the whole payer name (the ACH originator or the wire sender, a company form after it). Evidence: Love's
 #: Solutions, LLC does business as Love's Financial, the Love's travel-stop group's freight-factoring provider
 #: (loves.com/en/financial-services/freight-factoring; the BBB lists it as a factoring service, Oklahoma City).
 FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
