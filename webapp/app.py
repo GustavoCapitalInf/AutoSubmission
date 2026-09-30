@@ -224,14 +224,15 @@ def _displayed(
     return apply_revenue_view(apply_flagged_groups_to_payload(rebased, enabled=settings))
 
 
-#: What a package member row carries for the dashboard alone, left out of the package downloads.
-_PACKAGE_DISPLAY_ONLY_KEYS = ("nsf_days",)
+#: What a package and its member rows carry for the dashboard alone, left out of the package downloads (the
+#: re-analyze note's flag, S6 review, reads off the served copies and names no figure).
+_PACKAGE_DISPLAY_ONLY_KEYS = ("nsf_days", "analysis_rules_outdated")
 
 
 def _package_for_export(package: dict) -> dict:
-    """A copy of a package payload without the fields only the dashboard reads: from its member rows, which it
-    lists twice (`documents`, and `monthly` for the members with a period)."""
-    exported = dict(package)
+    """A copy of a package payload without the fields only the dashboard reads: from the package itself and from
+    its member rows, which it lists twice (`documents`, and `monthly` for the members with a period)."""
+    exported = {key: value for key, value in package.items() if key not in _PACKAGE_DISPLAY_ONLY_KEYS}
     for section in ("documents", "monthly"):
         rows = package.get(section)
         if isinstance(rows, list):

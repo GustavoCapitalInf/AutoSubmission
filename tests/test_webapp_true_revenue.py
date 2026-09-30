@@ -197,6 +197,16 @@ def test_a_package_names_each_member_analysed_with_older_rules():
     assert older["analysis_rules_outdated"] is True
 
 
+def test_the_re_analyze_flag_is_left_out_of_the_package_downloads():
+    # S6 review: the flag feeds the dashboard's note alone; the package downloads keep their shape.
+    from webapp.app import _package_for_export
+
+    exported = _package_for_export(_package(_payload(), _untiered(_payload(month=4))))
+    assert "analysis_rules_outdated" not in exported
+    assert all("analysis_rules_outdated" not in row for section in ("documents", "monthly")
+               for row in exported.get(section) or [])
+
+
 def test_the_verified_aliases_are_n_a_with_the_verified_total():
     # Review M4 (T9): confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so a member
     # whose verified revenue is not established leaves all three N/A.
