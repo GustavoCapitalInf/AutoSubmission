@@ -346,18 +346,19 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: monthly()}}));
     whole = lambda value: f"{round(value):,}"  # noqa: E731  the table's whole-number format
     both, true_only, total_only = result["both"], result["trueOnly"], result["totalOnly"]
     assert both["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month", "True Deposits ($)",
-                            "True Deposits Per Month", "Ledger ($)", "NSF", "Action"]
+                            "True Deposits Per Month", "Verified ($)", "Ledger ($)", "NSF", "Action"]
     assert both["count"] == "2 statements"
     january = documents["jan"]
-    assert both["rows"][0][2:6] == [whole(january["credits"]), str(january["deposit_count"]),
-                                    whole(january["verified_revenue_total"]), str(january["verified_revenue_count"])]
-    # One basis alone keeps the CRM's own headers and names the basis beside the count.
-    for view, shown, amount, count in ((true_only, "True monthly deposits: revenue only", "verified_revenue_total",
-                                        "verified_revenue_count"),
-                                       (total_only, "Total monthly deposits: everything going in", "credits",
-                                        "deposit_count")):
-        assert view["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month", "Ledger ($)", "NSF",
-                                "Action"]
+    assert both["rows"][0][2:7] == [whole(january["credits"]), str(january["deposit_count"]),
+                                    whole(january["true_revenue_total"]), str(january["true_revenue_count"]),
+                                    whole(january["verified_revenue_total"])]
+    # One basis alone keeps the CRM's own headers and names the basis beside the count; the True view adds Verified.
+    for view, shown, amount, count, extra in (
+            (true_only, "True monthly deposits: revenue only", "true_revenue_total", "true_revenue_count",
+             ["Verified ($)"]),
+            (total_only, "Total monthly deposits: everything going in", "credits", "deposit_count", [])):
+        assert view["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month", *extra, "Ledger ($)",
+                                "NSF", "Action"]
         assert view["count"] == f"2 statements · {shown}"
         assert view["rows"][0][2:4] == [whole(january[amount]), str(january[count])]
     assert true_only["stored"] == "true"
@@ -390,16 +391,18 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: {{...monthly(), chart: c
     whole = lambda value: f"{round(value):,}"  # noqa: E731
     jan, feb = documents["jan"], documents["feb"]
     both, true_only, total_only = result["both"], result["trueOnly"], result["totalOnly"]
-    assert len(both["head"]) == 9
-    assert both["chart"]["values"] == [["shown", whole(jan["credits"])], ["true", whole(jan["verified_revenue_total"])],
-                                       ["shown", whole(feb["credits"])], ["true", whole(feb["verified_revenue_total"])]]
-    assert "Total deposits" in both["chart"]["legend"] and "True deposits (revenue only)" in both["chart"]["legend"]
+    assert len(both["head"]) == 10
+    assert both["chart"]["values"] == [["shown", whole(jan["credits"])], ["true", whole(jan["true_revenue_total"])],
+                                       ["shown", whole(feb["credits"])], ["true", whole(feb["true_revenue_total"])]]
+    assert "Total deposits" in both["chart"]["legend"] and "True revenue" in both["chart"]["legend"]
+    assert "of which verified" in both["chart"]["legend"]
     # Storage refused the choice; the page still took it.
     assert true_only["select"] == "true" and true_only["head"][2] == "Monthly Deposits ($)"
     assert true_only["count"] == "2 statements · True monthly deposits: revenue only"
-    assert true_only["chart"]["values"] == [["shown", whole(jan["verified_revenue_total"])],
-                                            ["shown", whole(feb["verified_revenue_total"])]]
-    assert "True deposits (revenue only) and ledger" in true_only["chart"]["legend"]
+    assert true_only["chart"]["values"] == [["shown", whole(jan["true_revenue_total"])],
+                                            ["shown", whole(feb["true_revenue_total"])]]
+    assert "True revenue" in true_only["chart"]["legend"]
+    assert "and ledger (average daily balance) per statement" in true_only["chart"]["legend"]
     assert total_only["chart"]["values"] == [["shown", whole(jan["credits"])], ["shown", whole(feb["credits"])]]
     assert "Total deposits (everything going in) and ledger" in total_only["chart"]["legend"]
 
@@ -418,7 +421,8 @@ console.log(JSON.stringify({before, after: allAccountsView(), toggle: els.allAcc
 def test_true_deposits_not_established_and_a_failed_statement_read_n_a(tmp_path, monkeypatch):
     package = _package({"jan": _single(1), "feb": _single(2)}, tmp_path, monkeypatch)
     jan, feb = sorted(package["documents"], key=lambda doc: doc["id"] != "jan")
-    feb["verified_revenue_established"] = False  # e.g. a credit the classifier left without a revenue state
+    # e.g. a credit the classifier left without a revenue state: neither revenue flag stands.
+    feb["verified_revenue_established"] = feb["revenue_established"] = False
     jan["status"] = "failed"
     result = run_dashboard(CELLS + CHART + f"""
 currentJobIds = ['jan', 'feb']; renderPackageAnalysis({json.dumps(package)});
@@ -426,24 +430,25 @@ console.log(JSON.stringify({{...monthly(), chart: chart()}}));
 """)
     failed, unknown = result["rows"]
     # A failed statement has no figures at all, not a month of zeros.
-    assert failed[2:8] == ["N/A"] * 6 and failed[8] == "Unavailable"
-    assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:6] == ["N/A", "N/A"]
+    assert failed[2:9] == ["N/A"] * 7 and failed[9] == "Unavailable"
+    assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:7] == ["N/A", "N/A", "N/A"]
     # The chart says what the table says: nothing for the failed month, no True deposits for the other.
     assert result["chart"]["values"] == [["shown", "N/A"], ["true", "N/A"],
                                          ["shown", f"{round(feb['credits']):,}"], ["true", "N/A"]]
 
 
 def test_true_deposits_of_a_payload_that_does_not_say_read_n_a(tmp_path, monkeypatch):
-    """A package row without `verified_revenue_established` (none the server sends today) is not taken as
-    established: True deposits read N/A, Total deposits stand."""
+    """A package row without `revenue_established` and `verified_revenue_established` (none the server sends
+    today) is not taken as established: True and Verified deposits read N/A, Total deposits stand."""
     package = _package({"jan": _single(1)}, tmp_path, monkeypatch)
     del package["documents"][0]["verified_revenue_established"]
+    del package["documents"][0]["revenue_established"]
     result = run_dashboard(CELLS + CHART + f"""
 currentJobIds = ['jan']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{...monthly(), chart: chart()}}));
 """)
     row = result["rows"][0]
-    assert row[2] == f"{round(package['documents'][0]['credits']):,}" and row[4:6] == ["N/A", "N/A"]
+    assert row[2] == f"{round(package['documents'][0]['credits']):,}" and row[4:7] == ["N/A", "N/A", "N/A"]
     assert result["chart"]["values"][1] == ["true", "N/A"]
 
 
@@ -505,7 +510,7 @@ console.log(JSON.stringify({{start, ticked, posts, after: {{hidden: els.bulkRevi
         ["/analysis/b/revenue-reviews", [{"source_location": "transaction:2", "decision": "confirm"}]]]
     # Saved: the bar goes away, the deposits no longer await review, and True deposits take them in.
     assert after["hidden"] is True and after["selected"] == 0 and after["boxes"] == 1
-    trues = {doc["id"]: f"{round(doc['verified_revenue_total']):,}" for doc in package_after["documents"]}
+    trues = {doc["id"]: f"{round(doc['true_revenue_total']):,}" for doc in package_after["documents"]}
     assert after["trueAfter"] == [trues["a"], trues["b"]] and after["trueAfter"] != start["trueBefore"]
 
 

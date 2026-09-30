@@ -2682,11 +2682,13 @@ function packageTitle(rows) {
 }
 
 // The monthly chart follows the Monthly Statements basis (Settings) like the table beside it, so the page never shows
-// two different figures as a month's deposits: Total deposits, True deposits, or both (each Total bar holding its
-// True part).
+// two different figures as a month's deposits: Total deposits, True revenue, or both. 5.6 (true revenue spec §10.3):
+// each Total bar holds its True part and the True part its Verified part, in three shades; in the True view the bar is
+// True revenue with its Verified part shaded. A statement whose revenue is not established draws neither part.
 function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
   if (!els.monthlyChart) return;
   const both = view === "both";
+  const nested = view !== "total";
   const plotted = view === "true" ? trueDeposits : totalDeposits;
   const values = rows.map(({ doc }) => numberOrNull(plotted(doc)));
   const largest = Math.max(0, ...values.filter((value) => value !== null));
@@ -2699,14 +2701,21 @@ function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
     const unit = mixedCurrencies && currency && currency !== "USD" ? ` ${currency}` : "";
     const withUnit = (text) => (text === "N/A" ? text : text + unit);
     const heightPx = largest > 0 && value !== null ? Math.max((Math.max(value, 0) / largest) * tallest, 2) : 0;
-    const part = both ? numberOrNull(trueDeposits(doc)) : null;
-    const share = part !== null && value > 0 ? Math.min(Math.max(part, 0) / value, 1) : 0;
+    const truePart = nested ? numberOrNull(trueDeposits(doc)) : null;
+    // The Verified part stands only inside an established True part.
+    const verifiedPart = truePart !== null ? numberOrNull(verifiedDeposits(doc)) : null;
+    const shareOf = (part) => (part !== null && value > 0 ? Math.min(Math.max(part, 0) / value, 1) : 0);
+    const trueShare = both ? shareOf(truePart) : 0;
+    const verifiedShare = shareOf(verifiedPart);
+    const verifiedLabel = nested ? withUnit(formatWhole(truePart !== null ? verifiedDeposits(doc) : null)) : null;
     return `
       <div class="bar-col">
         <span class="bar-value">${escapeHtml(withUnit(formatWhole(plotted(doc))))}</span>
         ${both ? `<span class="bar-value bar-value-true">${escapeHtml(withUnit(formatWhole(trueDeposits(doc))))}</span>` : ""}
+        ${nested ? `<span class="bar-value bar-value-verified">${escapeHtml(verifiedLabel)}</span>` : ""}
         <div class="bar${both ? " bar-total" : value !== null && value === largest && largest > 0 ? " peak" : ""}" style="height: ${heightPx.toFixed(1)}px">${
-          share > 0 ? `<div class="bar-part" style="height: ${(share * 100).toFixed(1)}%"></div>` : ""}</div>
+          trueShare > 0 ? `<div class="bar-part" style="height: ${(trueShare * 100).toFixed(1)}%"></div>` : ""}${
+          verifiedShare > 0 ? `<div class="bar-part bar-part-verified" style="height: ${(verifiedShare * 100).toFixed(1)}%"></div>` : ""}</div>
       </div>
     `;
   }).join("");
@@ -2724,13 +2733,19 @@ function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
       </div>
     `;
   }).join("");
+  const verifiedSwatch = `<span><i class="legend-swatch legend-swatch-verified" aria-hidden="true"></i>of which verified</span>`;
   const legend = both
     ? `<span><i class="legend-swatch" aria-hidden="true"></i>Total deposits</span>`
-      + `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True deposits (revenue only)</span>`
-    : `<span>${view === "true" ? "True deposits (revenue only)" : "Total deposits (everything going in)"}`
-      + " and ledger (average daily balance) per statement</span>";
-  const described = { both: "total and true deposits", true: "true deposits (revenue only)", total: "total deposits" }[view]
-    || "total deposits";
+      + `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True revenue</span>` + verifiedSwatch
+    : view === "true"
+      ? `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True revenue</span>` + verifiedSwatch
+        + "<span>and ledger (average daily balance) per statement</span>"
+      : "<span>Total deposits (everything going in) and ledger (average daily balance) per statement</span>";
+  const described = {
+    both: "total deposits, true revenue and its verified part",
+    true: "true revenue and its verified part",
+    total: "total deposits",
+  }[view] || "total deposits";
   els.monthlyChart.innerHTML = `
     <div class="chart-head">
       <span class="chart-title">Monthly deposits</span>
@@ -3570,8 +3585,8 @@ function renderPackageTables(pkg) {
 
 /* --- Monthly Statements deposits -----------------------------------------
    Which deposits the package's Monthly Statements table shows, chosen on the Settings page and kept in this browser
-   only. Total is everything going in. True is revenue only: the verified revenue, which takes in every deposit
-   confirmed as revenue, and never an own-account transfer, lender funding, or a deposit still awaiting review. */
+   only. Total is everything going in. True is True revenue (5.6): every posted credit except known non-revenue (an
+   own-account transfer, lender funding, a refund) and the deposits held for review, with its Verified part beside it. */
 const MONTHLY_DEPOSITS_KEY = "bsa-monthly-deposits";
 const MONTHLY_DEPOSITS_VIEWS = ["both", "total", "true"];
 // The choice made on this page. Storage only carries it to the next visit: where storage is blocked (a private
@@ -3592,15 +3607,21 @@ function monthFigure(doc, value) {
   return doc.status === "done" ? value : null;
 }
 
-// A statement's True deposits (the verified revenue), or null — shown N/A — unless the package established them:
-// not for a failed statement, nor for one whose captured credits are not all classified or are not the money its
-// Total counts (webapp/app.py `verified_revenue_established`; a payload that does not say reads as not established).
+// 5.6 (true revenue spec §10.2): a statement's True deposits (its True revenue), or null — shown N/A — unless the
+// package established its revenue: not for a failed statement, nor for one analysed before 5.6, nor for one whose
+// captured credits are not all tiered or are not the money its Total counts (webapp/app.py `revenue_established`; a
+// payload that does not say reads as not established).
 function trueDeposits(doc) {
-  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_total) : null;
+  return doc.revenue_established === true ? monthFigure(doc, doc.true_revenue_total) : null;
 }
 
 function trueDepositCount(doc) {
-  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_count) : null;
+  return doc.revenue_established === true ? monthFigure(doc, doc.true_revenue_count) : null;
+}
+
+// Its Verified part, established on its own condition (`verified_revenue_established`, the tier aside).
+function verifiedDeposits(doc) {
+  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_total) : null;
 }
 
 function totalDeposits(doc) {
@@ -3613,10 +3634,14 @@ function monthlyDepositColumns(view) {
   const total = [totalDeposits, (doc) => monthFigure(doc, doc.deposit_count)];
   const revenue = [trueDeposits, trueDepositCount];
   if (view === "total") return [["Monthly Deposits ($)", total[0], "amount"], ["Deposits Per Month", total[1], "count"]];
-  if (view === "true") return [["Monthly Deposits ($)", revenue[0], "amount"], ["Deposits Per Month", revenue[1], "count"]];
+  if (view === "true") {
+    return [["Monthly Deposits ($)", revenue[0], "amount"], ["Deposits Per Month", revenue[1], "count"],
+      ["Verified ($)", verifiedDeposits, "amount"]];
+  }
   return [
     ["Total Deposits ($)", total[0], "amount"], ["Total Deposits Per Month", total[1], "count"],
     ["True Deposits ($)", revenue[0], "amount"], ["True Deposits Per Month", revenue[1], "count"],
+    ["Verified ($)", verifiedDeposits, "amount"],
   ];
 }
 

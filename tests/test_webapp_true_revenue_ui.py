@@ -265,3 +265,58 @@ def test_the_page_carries_the_true_revenue_words():
         assert f'data-transaction-filter="{value}">{label}</button>' in html
         assert f'data-modal-transaction-filter="{value}">{label}</button>' in html
     assert 'data-transaction-filter="unverified_deposit"' not in html
+
+
+# ---------------------------------------------------------------- S6.3: Monthly Statements and the chart
+
+CHART_PARTS = r"""
+const chartParts = () => ({
+  labels: [...els.monthlyChart.innerHTML.matchAll(/<span class="bar-value( bar-value-true| bar-value-verified)?">([^<]*)<\/span>/g)]
+    .map((m) => [m[1] ? m[1].trim() : "bar-value", m[2]]),
+  parts: [...els.monthlyChart.innerHTML.matchAll(/<div class="bar-part( bar-part-verified)?" style="height: ([0-9.]+)%">/g)]
+    .map((m) => [m[1] ? "verified" : "true", m[2]]),
+  legend: els.monthlyChart.innerHTML.match(/<span class="chart-legend">([\s\S]*?)<\/span>\s*<\/div>/)[1],
+});
+"""
+
+
+@needs_node
+def test_the_monthly_statements_show_true_revenue_and_its_verified_part(tmp_path, monkeypatch):
+    package = _package({"mar": _payload()}, tmp_path, monkeypatch)
+    result = run_dashboard(CELLS + CHART_PARTS + f"""
+currentJobIds = ['mar']; renderPackageAnalysis({json.dumps(package)});
+const both = {{...monthly(), chart: chartParts()}};
+setMonthlyDepositsView('true');
+console.log(JSON.stringify({{both, trueOnly: {{...monthly(), chart: chartParts()}}}}));
+""")
+    both, true_only = result["both"], result["trueOnly"]
+    # 2,000 posted: 1,000 True (700 verified, 300 counted), 900 held and 100 non-revenue.
+    assert both["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "700"]
+    assert true_only["head"][2:5] == ["Monthly Deposits ($)", "Deposits Per Month", "Verified ($)"]
+    assert true_only["rows"][0][2:5] == ["1,000", "2", "700"]
+    assert both["chart"]["labels"] == [["bar-value", "2,000"], ["bar-value-true", "1,000"],
+                                       ["bar-value-verified", "700"]]
+    assert both["chart"]["parts"] == [["true", "50.0"], ["verified", "35.0"]]
+    assert all(word in both["chart"]["legend"] for word in ("Total deposits", "True revenue", "of which verified"))
+    assert true_only["chart"]["parts"] == [["verified", "70.0"]]
+
+
+@needs_node
+def test_a_month_without_established_revenue_draws_no_true_or_verified_part(tmp_path, monkeypatch):
+    package = _package({"old": _untiered(_payload())}, tmp_path, monkeypatch)
+    result = run_dashboard(CELLS + CHART_PARTS + f"""
+currentJobIds = ['old']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{...monthly(), chart: chartParts()}}));
+""")
+    assert result["rows"][0][4:7] == ["N/A", "N/A", "700"]  # Verified stands on its own condition
+    assert result["chart"]["parts"] == []
+    assert result["chart"]["labels"][1:] == [["bar-value-true", "N/A"], ["bar-value-verified", "N/A"]]
+
+
+def test_the_settings_say_what_true_revenue_is():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    text = " ".join(html.split())
+    assert ("<strong>True revenue:</strong> every posted credit except known non-revenue (own-account transfers, "
+            "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shown "
+            "beside it.") in text
+    assert '<script src="/static/app.js?v=true-revenue-1"></script>' in html

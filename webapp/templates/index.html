@@ -492,8 +492,12 @@
   .bar.bar-total { background: var(--border-2); }
   .bar-part { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
   .bar-value-true { margin-top: -6px; color: var(--accent-text); }
+  /* 5.6: the Verified part of a True part (or of a True bar), in the third shade. */
+  .bar-part-verified { background: var(--verified); }
+  .bar-value-verified { margin-top: -6px; color: var(--verified); }
   .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--border-2); }
   .legend-swatch-true { background: var(--accent); }
+  .legend-swatch-verified { background: var(--verified); }
   .bar.peak { background: var(--accent); }
   .bar-labels { display: grid; gap: 20px; padding: 0 12px; }
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
@@ -1518,8 +1522,9 @@
                 <label class="setting-title" for="monthlyDepositsView">Monthly Statements show</label>
                 <p class="setting-help" id="monthlyDepositsHelp">
                   <strong>Total monthly deposits:</strong> everything going in, transfers from other accounts and lender
-                  funding included. <strong>True monthly deposits:</strong> revenue only, the verified revenue and the
-                  deposits you confirm; no transfers, no funding, and no deposit still awaiting review.
+                  funding included. <strong>True revenue:</strong> every posted credit except known non-revenue
+                  (own-account transfers, funding, refunds) and the deposits held for review. The verified part, with
+                  positive proof, is shown beside it.
                   <strong>Both</strong> shows the two side by side. The monthly chart follows the same choice, and a
                   statement whose revenue could not be established shows N/A. Saved in this browser only.
                 </p>
@@ -1675,6 +1680,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=lender-detection-2"></script>
+<script src="/static/app.js?v=true-revenue-1"></script>
 </body>
 </html>
