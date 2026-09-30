@@ -239,6 +239,18 @@ _NOT_A_NAME_ALONE = frozenset({
     "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "COMPANY", "CO", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
     "PLC", "THE", "OF", "AND",
 })
+#: §8.4, §8.2 (S4.2 follow-up 2, the owner's delegation): in pass 7 VIREMENT is a person-to-person rail only in its
+#: Interac forms (Interac prints VIREMENT INTERAC, or the e-transfer and autodeposit words). Printed without one
+#: ('VIREMENT EN LIGNE', 'VIREMENT ENTRE COMPTES', 'VIREMENT DE COMPTE', 'VIREMENT DE FONDS', a bare VIREMENT) it is
+#: a French transfer, typically between the holder's own accounts: transfer wording (_p2p_rail, _transfer_wording).
+#: The 5.5 channel gate (the classifier's _CONSUMER_P2P_RAIL) is unchanged.
+_VIREMENT = re.compile(r"(?<![A-Z])VIREMENT\b")
+_INTERAC_FORM = re.compile(r"(?<![A-Z])(?:INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|AUTODEPOSIT)\b")
+#: §8.2 (S4.2 follow-up 2): the French transfer and posting words, never a transfer's counterparty ('VIREMENT EN LIGNE
+#: TF <reference>', 'VIREMENT ENTRE COMPTES', 'VIREMENT DE FONDS', 'VIREMENT RECU', 'VIREMENT PAR BANQUE EN DIRECT').
+_VIREMENT_TRANSFER_WORDS = frozenset({
+    "VIREMENT", "LIGNE", "TF", "ENTRE", "COMPTE", "COMPTES", "FONDS", "RECU", "RECUE", "ENTRANT", "ENTRANTE", "PAR",
+})
 
 
 @dataclass(frozen=True)
@@ -504,19 +516,42 @@ def _channel(text: str) -> str:
     row = classifier._before_receiver(text)
     if classifier._is_wire_row(text):
         return "wire"
-    if classifier._CONSUMER_P2P_RAIL.search(row) or classifier._PUSH_RAIL.search(row):
+    if _p2p_rail(row) or classifier._PUSH_RAIL.search(row):
         return "person_to_person"
     if classifier._CHECK_DEPOSIT_FORM.search(row):
         return "check"
     if (not classifier._ELECTRONIC_PAYMENT_FORM.search(row) and classifier._CASH_BRANCH_ATM_FORM.search(row)):
         return "cash_branch_atm"
-    if classifier._TRANSFER_WORDING.search(row):
+    if _transfer_wording(row):
         return "person_to_person"
     if _LOOSE_WIRE.search(row) or classifier._wire_vetoes_apply(text):
         return "wire"
     if classifier._ELECTRONIC_PAYMENT_FORM.search(row):
         return "ach_eft"
     return "other"
+
+
+def _p2p_rail(row: str) -> bool:
+    """§8.4 in pass 7 (S4.2 follow-up 2): the row prints one of the classifier's consumer person-to-person rails
+    (_CONSUMER_P2P_RAIL), a VIREMENT counting only in its Interac forms (_INTERAC_FORM)."""
+    return any(
+        found.group(0) != "VIREMENT" or _INTERAC_FORM.search(row) is not None
+        for found in _classifier()._CONSUMER_P2P_RAIL.finditer(row)
+    )
+
+
+def _transfer_wording(row: str) -> bool:
+    """§8.2 in pass 7 (S4.2 follow-up 2): the classifier's transfer wording, or a VIREMENT printed without an Interac
+    form ('VIREMENT EN LIGNE', 'VIREMENT ENTRE COMPTES')."""
+    return _classifier()._TRANSFER_WORDING.search(row) is not None or (
+        _VIREMENT.search(row) is not None and _INTERAC_FORM.search(row) is None
+    )
+
+
+def _transfer_row(row: str) -> bool:
+    """§8.2: transfer wording on a row that prints no person-to-person or push rail, which the transfer rules read (a
+    counterparty, or none: transfer_no_counterparty)."""
+    return _transfer_wording(row) and not _p2p_rail(row) and _classifier()._PUSH_RAIL.search(row) is None
 
 
 def _own_words(record: TransactionClassification, text: str) -> set[str]:
@@ -578,14 +613,15 @@ def _transfer_counterparty_words(text: str) -> list[str]:
     reference printed after them, letters only or not ('REF IBEABCD'), and what is left is read as S2.3 reads a
     transfer's originator (_originator_payer_words), so an account description ('FROM HELOC', 'FROM TAX RESERVE',
     'FROM OPERATING') is never a counterparty. S4.2 re-review (fix 4): failing that, a short or company-formed name
-    after FROM is one (_short_or_formed_counterparty)."""
+    after FROM is one (_short_or_formed_counterparty). S4.2 follow-up 2: the French transfer and posting words
+    (_VIREMENT_TRANSFER_WORDS) are removed too."""
     classifier = _classifier()
     row = _TRANSFER_REFERENCE_VALUE.sub(" ", classifier._strip_revenue_template(classifier._before_receiver(text)))
     words = [
         token for token in row.split()
         if classifier._is_payer_word(token) and not classifier._is_reference_token(token)
         and token not in _ACCOUNT_WORDS and token not in _TRANSFER_FIELD_LABEL_WORDS
-        and not classifier._TRANSFER_WORDING.fullmatch(token)
+        and not classifier._TRANSFER_WORDING.fullmatch(token) and token not in _VIREMENT_TRANSFER_WORDS
         and token not in {"TRANSFER", "TRNSFR", "XFER", "TFR", "BR", "TO", "BANKING", "INTERNET"}
     ]
     return classifier._originator_payer_words(" ".join(words)) or _short_or_formed_counterparty(text)
@@ -616,6 +652,7 @@ def _short_or_formed_counterparty(text: str) -> list[str]:
         and token not in _TRANSFER_FIELD_LABEL_WORDS and token not in classifier.REVENUE_GENERIC_WORDS
         and token not in _ACCOUNT_WORDS and token not in classifier._OWN_ACCOUNT_PRODUCT_WORDS
         and token not in _ACCOUNT_DESCRIPTION_WORDS and not classifier._TRANSFER_WORDING.fullmatch(token)
+        and token not in _VIREMENT_TRANSFER_WORDS
     ]
     names = [token for token in tokens if token not in classifier.HOLDER_NOISE]
     if len(names) >= 2 or (tokens and classifier.company_form(" ".join(tokens))):
@@ -648,11 +685,7 @@ def credit_facts(
     healthcare = healthcare_payer(region) and (wire_n1 or bool(classifier._ELECTRONIC_PAYMENT_FORM.search(row)))
     public = government_payer(public_region(text))
     transfer_words = _transfer_counterparty_words(text) if channel == "person_to_person" else []
-    transfer_row = (
-        classifier._TRANSFER_WORDING.search(row) is not None
-        and classifier._CONSUMER_P2P_RAIL.search(row) is None
-        and classifier._PUSH_RAIL.search(row) is None
-    )
+    transfer_row = _transfer_row(row)
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, lender_words=lender_words,
         debit_words=debit_words, sender=sender,
@@ -1026,11 +1059,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
         "pay_or_personal": bool(_PAY_WORDS.search(row) or _PERSONAL_INCOME.search(row)),
-        "transfer_no_counterparty": (
-            classifier._TRANSFER_WORDING.search(row) is not None
-            and not classifier._CONSUMER_P2P_RAIL.search(row) and not classifier._PUSH_RAIL.search(row)
-            and not _transfer_counterparty_words(text)
-        ),
+        "transfer_no_counterparty": _transfer_row(row) and not _transfer_counterparty_words(text),
         "known_financing": known is not None and known.state in FINANCING_STATES,
         "payout_or_factoring": known is not None and (known.entity in PAYOUT_CREDIT_ENTITIES or known.state == "factoring"),
         "numbered_region": classifier._NUMBERED_COMPANY_REGION.search(

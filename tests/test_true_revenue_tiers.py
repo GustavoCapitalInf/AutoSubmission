@@ -661,7 +661,6 @@ def test_a_numbered_company_after_a_reference_keeps_its_number():
     ("INTERAC E TRANSFER REQUEST FULFILLED", "INTERAC E TRANSFER REQUEST FULFILLED"),
     ("VIREMENT INTERAC DEPOT AUTOMATIQUE", "VIREMENT INTERAC DEPOT AUTOMATIQUE"),
     ("VIREMENT INTERAC ENTRANT", "VIREMENT INTERAC ENTRANT"),
-    ("VIREMENT EN LIGNE TF 1234567890", "VIREMENT EN LIGNE TF 0987654321"),
     ("ZELLE BUSINESS PAYMENT", "ZELLE BUSINESS PAYMENT"),
     ("ZELLE RECURRING PAYMENT", "ZELLE RECURRING PAYMENT"),
     ("ZELLE PAY ID 12345", "ZELLE PAY ID 67890"),
@@ -772,3 +771,85 @@ def test_the_beneficiary_is_removed_only_from_an_incoming_wire():
     record = _one("REAL TIME TRANSFER RECD FROM ABA/CONTR BNK-021000021 FROM: BNF-INTUIT PAYMENTS INC REF: 1234 "
                   "INFO: SAMPLE", 700.0)
     assert record.revenue_canonical_entity == "QuickBooks Payments"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.2 follow-up 2 (2026-09-29, under the owner's delegation): pass 7 reads VIREMENT as §8.4's person-to-person rail
+# only in its Interac forms. 'VIREMENT EN LIGNE', 'VIREMENT ENTRE COMPTES', 'VIREMENT DE COMPTE', 'VIREMENT DE FONDS'
+# and a bare VIREMENT are a French transfer (typically between the holder's own accounts): they take the transfer
+# rules. The 5.5 channel gate is unchanged.
+# ---------------------------------------------------------------------------------------------------------------------
+HELD_TRANSFER = ("excluded_pending_review", "transfer_no_counterparty")
+FRENCH_TRANSFERS = [
+    "VIREMENT EN LIGNE TF 1234567", "VIREMENT EN LIGNE TF 1234567890123456789", "VIREMENT ENTRE COMPTES 1234567",
+    "VIREMENT ENTRE COMPTES", "VIREMENT DE COMPTE 1234567", "VIREMENT DE COMPTE A COMPTE 1234567",
+    "VIREMENT DE FONDS 1234567", "VIREMENT 1234567", "VIREMENT", "VIREMENT RECU 1234567",
+    "03 02 VIREMENT EN LIGNE TF 1234", "VIREMENT INTERNET 123456789012", "VIREMENT PAR BANQUE EN DIRECT 1234",
+]
+INTERAC_VIREMENTS = [
+    "VIREMENT INTERAC FABRIKAM LTEE", "VIREMENT INTERAC 123456789012 JOHN SMITH", "VIREMENT INTERAC RECU 1234",
+    "VIREMENT AUTODEPOSIT JOHN SMITH", "VIREMENT E TRANSFER JOHN SMITH", "VIREMENT ETRANSFER JOHN SMITH",
+    "VIREMENT E TFR JOHN SMITH",
+]
+
+
+@pytest.mark.parametrize("text", FRENCH_TRANSFERS)
+def test_a_virement_without_an_interac_form_is_a_transfer_with_no_counterparty(text):
+    # §8.2: the transfer words, the reference TF and the account words name no counterparty, so the row is held.
+    assert _tier(_one(text, 2500.0)) == HELD_TRANSFER
+    # The hold comes before the round-sum repeat, and two references never make one sender.
+    rows = _records([(text, 500.0), (text.replace("1234", "4321"), 600.0)])
+    assert [_tier(record) for record in rows] == [HELD_TRANSFER] * 2
+
+
+@pytest.mark.parametrize("text", ["VIREMENT EN LIGNE FABRIKAM LTEE", "VIREMENT DE FABRIKAM LTEE",
+                                  "VIREMENT ENTRE COMPTES NORTHWIND SUPPLY INC"])
+def test_a_virement_that_names_its_counterparty_is_a_named_transfer(text):
+    # §8.2, §8.4: counted as a named transfer, and round sums from the one counterparty are held as on the rails.
+    assert _tier(_one(text, 250.0)) == P2P
+    rows = _records([(text, 500.0), (text, 600.0), (text, 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+def test_a_virement_in_the_holder_s_name_is_still_held_as_the_holder_s():
+    assert _tier(_one("VIREMENT EN LIGNE CONTOSO BAKERY LLC", 250.0)) == ("excluded_pending_review", "holder_name")
+
+
+@pytest.mark.parametrize("text", INTERAC_VIREMENTS)
+def test_an_interac_virement_keeps_its_person_to_person_reading(text):
+    # §8.4: Interac prints VIREMENT INTERAC; with the e-transfer or autodeposit words a VIREMENT is the rail too.
+    assert _tier(_one(text, 250.0)) == P2P
+
+
+@pytest.mark.parametrize("name", ["FABRIKAM LTEE", "123456789012 JOHN SMITH"])
+def test_an_interac_virement_s_round_repeat_is_unchanged(name):
+    rows = _records([(f"VIREMENT INTERAC {name}", 500.0), (f"VIREMENT INTERAC {name}", 600.0),
+                     (f"VIREMENT INTERAC {name}", 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+@pytest.mark.parametrize("text", FRENCH_TRANSFERS + INTERAC_VIREMENTS)
+def test_the_5_5_channel_gate_of_a_virement_is_unchanged(text):
+    # The 5.5 census was accepted on _CONSUMER_P2P_RAIL: every VIREMENT row is still a closed person-to-person row
+    # there, never verified; only pass 7's tiering reads the Interac forms.
+    from analysis import transaction_classifier as classifier
+    from analysis.description_text import normalize_transaction_description
+
+    normalized = classifier.revenue_text(normalize_transaction_description(text))
+    assert classifier.channel_gate(normalized) == "closed"
+    assert classifier._CONSUMER_P2P_RAIL.search(normalized) is not None
+    assert _one(text, 250.0).revenue_classification == "unverified_deposit"
+
+
+def test_the_census_reads_a_virement_s_transfer_fact_as_pass_7_does():
+    # §14.3 G4 reads the pass's own transfer fact.
+    from analysis import true_revenue
+    from analysis.description_text import normalize_transaction_description
+    from analysis.transaction_classifier import revenue_text
+
+    for text, held in [("VIREMENT EN LIGNE TF 1234567", True), ("VIREMENT ENTRE COMPTES 1234567", True),
+                       ("VIREMENT EN LIGNE FABRIKAM LTEE", False), ("VIREMENT INTERAC FABRIKAM LTEE", False),
+                       ("VIREMENT INTERAC RECU 1234", False)]:
+        record = _one(text, 250.0)
+        facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+        assert facts["transfer_no_counterparty"] is held
