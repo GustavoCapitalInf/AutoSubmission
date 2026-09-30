@@ -1062,3 +1062,82 @@ def test_the_reversal_rule_s_french_cancel_words_are_a_declared_new_marker(prior
 def test_the_reversal_rule_s_french_plural_cancel_words_are_a_declared_new_marker(text):
     later = _later("reversal_cancellation_exclusion", text, state="non_revenue")
     assert _causes([_step_11(text)], [later]) == {"new_non_revenue_marker": 1}
+
+
+# S3.1 privacy fix (the census masks every digit): the per-credit record writes an entity or alias as-is only when the
+# snapshot's code names it in a registry or ledger table; any other name (S4.3: Q7's credit-union arm names the credit
+# union from the payer region; D1's bank line advance names the statement's bank) is written through mask().
+NAMED_ROWS = [
+    (2, "SAMPLE1234 CU DES:VHCL PURCH ID:1", 18000.0),
+    (3, "SAMPLE1234 CU DES:VHCL PURCH ID:2", 21000.0),
+    (4, "LOAN CREDIT", 5000.0),
+    (5, "SHIFT4 CAPITAL DES:FUNDING ID:1", 9000.0),
+    (6, "SHIFT4 PAYMENTS DES:SETTLEMENT ID:1", 700.0),
+    (7, "11 101 SIGNAL R DES:SETTLEMENT ID:1", 800.0),
+]
+
+
+def _named_snapshot():
+    from analysis.schema import Statement
+
+    payload = _statement("XXXX1234", NAMED_ROWS)
+    payload.update(bank="FABRICATED BANK 24", account_name="SAMPLE MOTORS LLC")
+    return census.account_snapshot({"statement": Statement.model_validate(payload).model_dump(mode="json")})
+
+
+def test_the_snapshot_masks_an_entity_or_alias_no_registry_names():
+    snap = _named_snapshot()
+    assert [(credit["method"], credit["entity"], credit["alias"]) for credit in snap["credits"]] == [
+        ("auto_lender_dealer_funding", "CU", "SAMPLE#### CU"),
+        ("auto_lender_dealer_funding", "CU", "SAMPLE#### CU"),
+        ("financing_proceeds_credit", "FABRICATED BANK ##", None),
+        # Registry and ledger names are written as-is, digits and all: the census compares them by name.
+        ("financing_proceeds_credit", "Shift4 Capital", "SHIFT4 CAPITAL"),
+        ("operating_source_with_credit_context", "Shift4", "SHIFT4 PAYMENTS"),
+        ("operating_source_with_credit_context", "11-101 Signal R", "11 101 SIGNAL R"),
+    ]
+    # The registry's reading is always an operating-registry entity.
+    assert [credit["registry_entity"] for credit in snap["credits"]] == [
+        None, None, None, "Shift4", "Shift4", "11-101 Signal R"]
+
+
+def test_a_credit_union_named_with_digits_is_written_masked(monkeypatch):
+    from dataclasses import replace
+
+    from analysis import transaction_classifier
+
+    classify = transaction_classifier.classify_statement_transactions
+
+    def fabricated(*args, **kwargs):
+        return [
+            replace(record, revenue_canonical_entity="SAMPLE CU 1234", revenue_matched_alias="SAMPLE CU 1234")
+            if record.revenue_match_method == "auto_lender_dealer_funding" else record
+            for record in classify(*args, **kwargs)
+        ]
+
+    monkeypatch.setattr(transaction_classifier, "classify_statement_transactions", fabricated)
+    credits = _named_snapshot()["credits"]
+    assert [(credit["entity"], credit["alias"]) for credit in credits[:2]] == [("SAMPLE CU ####", "SAMPLE CU ####")] * 2
+    assert credits[3]["entity"] == "Shift4 Capital"
+
+
+def test_the_ledger_admission_still_reads_shift4_capital_by_name():
+    after = _snap("5.5", {"a": _named_snapshot()})
+    base = json.loads(json.dumps(after))
+    base["classification_version"] = "5.4"
+    base["accounts"]["a"]["credits"][3].update(state="verified_revenue", method="operating_income_descriptor",
+                                               rule="verified_operating_income_descriptor", entity=None, alias=None)
+    demoted = census.compare(base, [after], admissions=["Shift4 Capital"])["runs"][0]["verified_demotions"]
+    assert {cause: value["rows"] for cause, value in demoted.items()} == {"ledger_admission": 1}
+
+
+def test_a_name_masked_in_a_later_snapshot_is_the_name_an_older_snapshot_wrote_unmasked():
+    """A snapshot written before the fix holds every name unmasked: its pool key and the later snapshot's masked
+    spelling of it are one name, so the pool is not split. Two names without a masked digit compare as before."""
+    laters = _unlifted(3, entity="SAMPLE CU ####", facts0={"recurrence_veto_wording": True})
+    assert _causes(_pool(3, entity="SAMPLE CU 1234"), laters) == {
+        "recurrence_veto": 1, "pool_below_recurrence_after_a_declared_veto": 2}
+    assert _causes(_pool(3, entity="Shift4"), _unlifted(3, entity="Shift5")) == {"entity_split": 3}
+    assert census._same_name("SAMPLE CU ####", "SAMPLE CU 1234") and census._same_name(None, None)
+    assert not census._same_name("SAMPLE CU ####", "OTHER CU 1234") and not census._same_name("Shift4", "Shift5")
+    assert not census._same_name(None, "SAMPLE CU ####")

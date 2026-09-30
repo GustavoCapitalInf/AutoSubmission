@@ -3,7 +3,8 @@ Local only; never run in CI.
 
 `snapshot` re-classifies every reconciled, de-duplicated cached analysis with the `analysis` package of one checkout
 (`--code-root`) and records, per account, every posted credit's revenue decision (state, method, rule, tier, reason,
-entity, amount in cents, the digit-masked normalized text) and, where the checkout has them, the guard facts of
+entity and alias (as-is when that checkout's registry or ledger tables name them, digit-masked otherwise), amount in
+cents, the digit-masked normalized text) and, where the checkout has them, the guard facts of
 §14.3 read with that checkout's readers. `compare` reads a base snapshot and one or two later ones and reports the
 shares, the tiers and reasons, the move matrix, every row that left `non_revenue` (by the narrowing of §6.3 that moved
 it), every verified row that lost its verification (by declared cause), the lender-credit and eligible-deposit moves
@@ -43,6 +44,7 @@ refused.
 from __future__ import annotations
 
 import argparse
+import functools
 import gzip
 import json
 import os
@@ -53,6 +55,7 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parent.parent
 _DIGITS = re.compile(r"\d")
@@ -271,6 +274,72 @@ _PUBLIC_WORDS = frozenset({
 
 def mask(text: object) -> str:
     return _DIGITS.sub("#", " ".join(str(text or "").split()))
+
+
+#: S3.1 privacy fix: the alias tables of the snapshot's `analysis.classification_registry` (entity -> aliases, or group
+#: -> such a table) whose entities and aliases a credit's record writes as-is: the operating registry (its 5.4 name and
+#: its sixteen-character cuts), the payee registries (the known-payee groups and the other ledger-generated tables),
+#: the insurers the insurance rule reads and Q7's auto lenders. A table the checkout lacks (`--code-root` may be older
+#: code) is skipped.
+_NAME_TABLES = (
+    "OPERATING_REVENUE_SOURCE_ALIASES", "VERIFIED_REVENUE_ALIASES", "OPERATING_REVENUE_READ_ALIASES",
+    "PAYEE_GROUP_REGISTRIES", "POTENTIAL_LENDER_ALIASES", "PREMIUM_FINANCE_ALIASES", "DEBT_RELIEF_ALIASES",
+    "BANK_NAME_ALIASES", "CARD_ISSUER_CONTEXT_ALIASES", "BANK_SPECIFIC_LENDER_ALIASES", "INSURANCE_PROVIDER_ALIASES",
+    "DEALER_FUNDING_PAYERS",
+)
+
+
+def _registry_names(table: object) -> Iterator[str]:
+    """The entities and aliases of one alias table (entity -> aliases), or of a table of them (group -> table)."""
+    if not isinstance(table, dict):
+        return
+    for key, value in table.items():
+        if isinstance(value, dict):
+            yield from _registry_names(value)
+        elif isinstance(key, str) and isinstance(value, (tuple, list, set, frozenset)):
+            yield key
+            yield from (alias for alias in value if isinstance(alias, str))
+
+
+@functools.lru_cache(maxsize=4)
+def _known_names(registry: ModuleType) -> frozenset[str]:
+    """S3.1 privacy fix: every name the snapshot's code holds in a registry or ledger table, which a credit's entity or
+    alias may be: the alias tables (_NAME_TABLES), the payout-credit entities, the platform payout forms (entity and
+    label) and the card-settlement forms (label and processor)."""
+    names = set()
+    for table in _NAME_TABLES:
+        names.update(_registry_names(getattr(registry, table, None)))
+    names.update(name for name in getattr(registry, "PAYOUT_CREDIT_ENTITIES", ()) if isinstance(name, str))
+    payout_forms = getattr(registry, "OPERATING_SOURCE_PAYOUT_FORMS", None)
+    for entity, forms in (payout_forms.items() if isinstance(payout_forms, dict) else ()):
+        names.add(entity)
+        names.update(form[0] for form in forms if isinstance(form, (tuple, list)) and form and isinstance(form[0], str))
+    for form in getattr(registry, "CARD_SETTLEMENT_CREDIT_FORMS", ()):
+        names.update(name for name in (getattr(form, "label", None), getattr(form, "entity", None))
+                     if isinstance(name, str))
+    return frozenset(names)
+
+
+def _published_name(name: str | None, known: frozenset[str]) -> str | None:
+    """S3.1 privacy fix: a credit's entity or alias as the census writes it: as-is when the snapshot's code holds it in
+    a registry or ledger table (_known_names), since the census compares those by name (the S1.5 admissions' Shift4
+    Capital, the operating entities Shift4 and 11-101 Signal R); any other name digit-masked, like every other text
+    (S4.3: Q7's credit-union arm names the credit union from the payer region; D1's bank line advance names the
+    statement's bank)."""
+    if name is None:
+        return None
+    return name if name in known else mask(name)
+
+
+def _same_name(left: str | None, right: str | None) -> bool:
+    """S3.1 privacy fix: whether two snapshots' names are one name. Equal names are; so are two whose masked forms are
+    equal when either holds a masked digit ('#'): a name no registry holds, which a snapshot written before the fix
+    holds unmasked. No registry name holds '#', so two registry names compare exactly as before."""
+    if left == right:
+        return True
+    if not left or not right:
+        return False
+    return ("#" in left or "#" in right) and mask(left) == mask(right)
 
 
 def public_shape(text: object) -> str:
@@ -593,6 +662,7 @@ def _guard_facts(record, text: str) -> dict:
 
 def account_snapshot(account: dict) -> dict:
     """Re-classify one account payload with the `analysis` package on sys.path."""
+    from analysis import classification_registry
     from analysis.classification_registry import OPERATING_REVENUE_SOURCE_ALIASES
     from analysis.metrics import compute_metrics
     from analysis.payee_matcher import registry_match
@@ -602,13 +672,15 @@ def account_snapshot(account: dict) -> dict:
     statement = Statement.model_validate(account["statement"])
     records = classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
+    known = _known_names(classification_registry)
     credits = []
     posted = [record for record in records if record.amount > 0 and record.is_posted]
     for index, record in enumerate(records):
         if record.amount <= 0 or not record.is_posted or record.revenue_classification is None:
             continue
         # S3.1 review: the operating registry's reading of the whole row, which is 5.4's recurrence-pool key (§7.0:
-        # 5.4 pooled a direction conflict the registry names, whose own decision names no entity).
+        # 5.4 pooled a direction conflict the registry names, whose own decision names no entity). It is always a key of
+        # OPERATING_REVENUE_SOURCE_ALIASES, never a printed string, so it is written as-is (S3.1 privacy fix).
         registry = registry_match(record.normalized_description, OPERATING_REVENUE_SOURCE_ALIASES)
         credits.append({
             "registry_entity": registry[0] if registry else None,
@@ -617,8 +689,9 @@ def account_snapshot(account: dict) -> dict:
             "state": record.revenue_classification,
             "method": record.revenue_match_method,
             "rule": record.revenue_matched_rule,
-            "entity": record.revenue_canonical_entity,
-            "alias": record.revenue_matched_alias,
+            # S3.1 privacy fix: a name no registry or ledger table holds is digit-masked (_published_name).
+            "entity": _published_name(record.revenue_canonical_entity, known),
+            "alias": _published_name(record.revenue_matched_alias, known),
             "tier": getattr(record, "revenue_tier", None),
             "reason": getattr(record, "revenue_tier_reason", None),
             "class": record.classification,
@@ -882,7 +955,7 @@ def _account_context(pairs: Iterable[tuple[dict, dict]], admissions: Iterable[st
             continue
         if _taken_out_of_pool(base, after, admitted):
             context["vetoed"][key].add(after["i"])
-        if after.get("entity") and after["entity"] != key:
+        if after.get("entity") and not _same_name(after["entity"], key):
             context["split"].add(key)
     return context
 
@@ -963,7 +1036,7 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         return "customer_check"
     # §5.2. (a) a registry alias or step 11's descriptors read only in the receiver field's value (the holder's name);
     # (b) steps 15 and 16, or another registry entity read outside that field.
-    if _read_only_in_receiver_value(base) and (fallback or after.get("entity") != base.get("entity")):
+    if _read_only_in_receiver_value(base) and (fallback or not _same_name(after.get("entity"), base.get("entity"))):
         return "receiver_value"
     # §7.9 (S2.3 review). (a) step 11's customer or invoice descriptor, the AP remittance or the invoice wire; (b) the
     # checkout's wire vetoes refuse it (the wire_vetoed fact) and it fell to steps 15 and 16.
@@ -995,7 +1068,7 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # Decisions. (a) a row 5.4's recurrence pass lifted; (b) left unlifted, and its pool split: the row itself, or
     # another member of its 5.4 pool in this account, is read as another registry entity.
     if base["method"] in RECURRENCE_LIFT_METHODS and unlifted and key is not None and (
-        (after.get("entity") and after["entity"] != key) or key in context.get("split", ())
+        (after.get("entity") and not _same_name(after["entity"], key)) or key in context.get("split", ())
     ):
         return "entity_split"
     # Decisions. (a) a row 5.4's recurrence lifted; (b) left unlifted, while another member of its 5.4 pool in this
