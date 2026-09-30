@@ -482,7 +482,8 @@
     display: grid; gap: 20px; align-items: end; height: 190px; padding: 0 12px; border-bottom: 1px solid var(--border-2);
   }
   .bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; min-width: 0; }
-  .bar-value { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); white-space: nowrap; }
+  /* 5.6 (A4): a set line height, so the stacked figures take a known height (app.js monthlyChartTallestBar). */
+  .bar-value { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-2); white-space: nowrap; }
   .bar {
     position: relative; overflow: hidden; width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px;
     background: var(--accent-muted);
@@ -1684,6 +1685,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-1"></script>
+<script src="/static/app.js?v=true-revenue-2"></script>
 </body>
 </html>

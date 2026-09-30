@@ -448,3 +448,37 @@ def test_the_package_gate_holds_at_ten_percent_of_posted_credits(held, gated):
     assert document["revenue_review_required"] is gated
     assert totals["revenue_review_required"] is gated
     assert totals["decision"] == ("review_required" if gated else "approved")
+
+
+def _verified_unestablished(month):
+    partial = _payload(month=month)
+    partial["statement"]["transactions"][0]["classification"]["revenue_classification"] = None
+    return partial
+
+
+@pytest.mark.parametrize(("mode", "member"), [
+    ("true_revenue", lambda: _untiered(_payload(month=4))),
+    ("true_revenue", lambda: _summary_only(4)),
+    ("verified_revenue", lambda: _verified_unestablished(4)),
+])
+def test_a_revenue_withholding_rate_is_never_published_on_a_partial_denominator(mode, member):
+    # Final review M10 (§11): in the True- and Verified-revenue modes a member whose figure is not established adds a
+    # partial figure to the denominator, so the package publishes no rate and asks for review.
+    members = [_payload(), member()]
+    for payload in members:
+        payload["metrics"]["withholding_denominator_mode"] = mode
+    totals = _package(*members)["totals"]
+    assert totals["withholding_denominator_mode"] == mode
+    assert totals["package_withholding_rate"] is None and totals["package_withholding_rate_raw"] is None
+    assert totals["potential_withholding_exposure"] is None
+    assert totals["withholding_review_required"] is True
+    established = [_payload(), _payload(month=4)]
+    for payload in established:
+        payload["metrics"]["withholding_denominator_mode"] = mode
+    assert _package(*established)["totals"]["package_withholding_rate"] is not None
+
+
+def test_the_legacy_withholding_mode_keeps_its_rate_beside_an_unestablished_member():
+    totals = _package(_payload(), _untiered(_payload(month=4)))["totals"]
+    assert totals["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    assert totals["package_withholding_rate"] is not None and totals["withholding_review_required"] is False

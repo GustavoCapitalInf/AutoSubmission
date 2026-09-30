@@ -1230,6 +1230,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     package_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {}}
     unestablished_verified: list[str] = []
     unestablished_revenue: list[str] = []
+    # True revenue final review M10 (§11): a member whose True or Verified figure is not established adds a partial
+    # figure to that mode's denominator, so the package publishes no rate on it.
+    partial_revenue_denominator = False
     any_member_gated = False
     #: (group key, payee) -> the running roll-up of the ticked flag groups (lender detection §8.3).
     flagged_rollup: dict[tuple[str, str], dict] = {}
@@ -1645,6 +1648,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
         if ready and not revenue_established:
             unestablished_revenue.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
+        if ready and (
+            (denominator_mode == "true_revenue" and not revenue_established)
+            or (denominator_mode == "verified_revenue" and not verified_revenue_established)
+        ):
+            partial_revenue_denominator = True
         member_reconciles = round(sum(_num(total) for total in revenue_totals.values()), 2) == posted_credit_total
         if tiered:
             # T7 over the package's member rows, which leave out R-d's internal-transfer pairs (`excluded_positions`
@@ -2130,12 +2138,18 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         if potential_withholding_raw is not None
         else None
     )
+    if partial_revenue_denominator:
+        # Final review M10 (§11): the denominator is partial in the True- or Verified-revenue mode, so neither rate
+        # on it is published, and the package asks for review.
+        package_withholding = package_withholding_raw = None
+        potential_withholding = potential_withholding_raw = None
+        withholding_review_required = True
     potential_withholding_review_required = totals["potential_lender_debit_count"] > 0
     for item in potential_lenders.values():
         item["eligible_deposit_denominator"] = totals["potential_withholding_denominator"]
         item["potential_withholding_exposure"] = (
             abs(item["total_debited"]) / totals["potential_withholding_denominator"] * 100
-            if totals["potential_withholding_denominator"] > 0
+            if totals["potential_withholding_denominator"] > 0 and not partial_revenue_denominator
             else None
         )
         item["potential_withholding_formula"] = (

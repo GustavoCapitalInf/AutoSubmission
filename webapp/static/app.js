@@ -2733,6 +2733,21 @@ function packageTitle(rows) {
 // two different figures as a month's deposits: Total deposits, True revenue, or both. 5.6 (true revenue spec §10.3):
 // each Total bar holds its True part and the True part its Verified part, in three shades; in the True view the bar is
 // True revenue with its Verified part shaded. A statement whose revenue is not established draws neither part.
+// The monthly chart's geometry, as webapp/templates/index.html sets it: the plot box (.bar-chart, 190px border-box
+// with a 1px baseline, so 189px of content), each value figure's line (.bar-value, 16px), the column's flex gap (8px)
+// and the pull of each figure after the first (.bar-value-true and .bar-value-verified, margin-top -6px).
+const MONTHLY_CHART_PLOT_PX = 189;
+const MONTHLY_CHART_FIGURE_PX = 16;
+const MONTHLY_CHART_GAP_PX = 8;
+const MONTHLY_CHART_PULL_PX = 6;
+
+function monthlyChartTallestBar(figures) {
+  // Each figure takes its line and one gap (the last gap sits between the lowest figure and the bar); every figure
+  // after the first is pulled up by its negative margin.
+  return MONTHLY_CHART_PLOT_PX - figures * (MONTHLY_CHART_FIGURE_PX + MONTHLY_CHART_GAP_PX)
+    + (figures - 1) * MONTHLY_CHART_PULL_PX;
+}
+
 function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
   if (!els.monthlyChart) return;
   const both = view === "both";
@@ -2742,7 +2757,9 @@ function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
   const largest = Math.max(0, ...values.filter((value) => value !== null));
   const years = new Set(rows.map((row) => row.month && row.month.year));
   const columns = `grid-template-columns: repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`;
-  const tallest = both ? 128 : 150;  // room for the second figure above each bar
+  // The tallest bar fills the plot box less the figures stacked above it (5.6, A4: the Verified figure is the third in
+  // the Both view and the second in the True view), so the bar, its figures and the baseline fit exactly.
+  const tallest = monthlyChartTallestBar(both ? 3 : nested ? 2 : 1);
   const bars = rows.map(({ doc }, index) => {
     const value = values[index];
     const currency = currencyOfDocument(doc);

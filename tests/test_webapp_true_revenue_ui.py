@@ -428,10 +428,37 @@ console.log(JSON.stringify({{...monthly(), chart: chartParts()}}));
     assert result["chart"]["labels"][1:] == [["bar-value-true", "N/A"], ["bar-value-verified", "N/A"]]
 
 
+@needs_node
+def test_the_tallest_bar_its_figures_and_the_baseline_fit_the_plot_box_in_every_view(tmp_path, monkeypatch):
+    # A4: the Verified figure is a third figure in the Both view and a second in the True view, so the tallest bar is
+    # the plot box less its stacked figures (each a 16px line and an 8px gap, every one after the first pulled up
+    # 6px): 129px, 147px and 165px, which sit exactly on the baseline.
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    assert re.search(r"\.bar-chart \{[^}]*height: 190px;[^}]*border-bottom: 1px", html)
+    assert re.search(r"\.bar-col \{[^}]*gap: 8px;", html)
+    assert re.search(r"\.bar-value \{[^}]*line-height: 16px;", html)
+    assert re.search(r"\.bar-value-true \{ margin-top: -6px;", html)
+    assert re.search(r"\.bar-value-verified \{ margin-top: -6px;", html)
+    package = _package({"mar": _payload(), "apr": _payload(month=4)}, tmp_path, monkeypatch)
+    result = run_dashboard(CELLS + f"""
+const bars = () => [...els.monthlyChart.innerHTML.matchAll(/<div class="bar[^"]*" style="height: ([0-9.]+)px">/g)]
+  .map((m) => Number(m[1]));
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+const both = bars();
+setMonthlyDepositsView('true');
+const trueOnly = bars();
+setMonthlyDepositsView('total');
+console.log(JSON.stringify({{both, trueOnly, total: bars()}}));
+""")
+    assert max(result["both"]) == 129.0 and max(result["trueOnly"]) == 147.0 and max(result["total"]) == 165.0
+    for figures, tallest in ((3, 129.0), (2, 147.0), (1, 165.0)):
+        assert tallest + figures * 16 + figures * 8 - (figures - 1) * 6 == 189
+
+
 def test_the_settings_say_what_true_revenue_is():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     text = " ".join(html.split())
     assert ("<strong>True revenue:</strong> every posted credit except known non-revenue (own-account transfers, "
             "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shown "
             "beside it.") in text
-    assert '<script src="/static/app.js?v=true-revenue-1"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-2"></script>' in html
