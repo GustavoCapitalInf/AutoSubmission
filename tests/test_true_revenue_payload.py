@@ -194,6 +194,42 @@ def test_a_payload_analysed_before_5_6_takes_the_tier_less_path():
         record_serialized_revenue_review(old, source_location="transaction:1", decision="reject")
 
 
+def _conflict_payload() -> dict:
+    statement = Statement(account_name="CONTOSO BAKERY LLC", currency="USD", transactions=[
+        Transaction(date="2054-03-02", description="NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", amount=5000.0,
+                    direction="credit"),
+        # A positive amount printed as a debit: a direction conflict (40 of 5,040 is under the held share).
+        Transaction(date="2054-03-03", description="FABRIKAM SUPPLY LLC DES:PAYMENT ID:1", amount=40.0,
+                    direction="debit"),
+    ])
+    records = classify_statement_transactions(statement)
+    assert compute_metrics(statement, classifications=records).revenue_review_required
+    return rebuild_serialized_revenue_views({
+        "statement": {"currency": "USD", "transactions": [
+            {**transaction.model_dump(), "classification": asdict(record)}
+            for transaction, record in zip(statement.transactions, records)
+        ]},
+        "metrics": {}, "detection": {},
+    })
+
+
+@pytest.mark.parametrize("tiered", [True, False])
+def test_a_direction_conflict_gates_only_while_it_is_undecided(tiered):
+    # S4.4/S4.5 review, fix round 1 (§10.7, T7, §12): what needs review now is the undecided rows, so once the analyst
+    # confirms or rejects the only conflicting credit the statement no longer waits on it; a reset makes it wait again.
+    payload = _conflict_payload() if tiered else rebuild_serialized_revenue_views(_untiered(_conflict_payload()))
+    record = payload["statement"]["transactions"][1]["classification"]
+    assert (record["revenue_match_method"], record["revenue_review_status"]) == ("direction_conflict", "pending")
+    assert payload["metrics"]["revenue_review_required"]
+    for decision in ("confirm", "reject"):
+        decided = apply_serialized_revenue_review(copy.deepcopy(payload), source_location="transaction:2",
+                                                  decision=decision)
+        assert decided["metrics"]["revenue_reconciles"]
+        assert not decided["metrics"]["revenue_review_required"]
+        reset = apply_serialized_revenue_review(decided, source_location="transaction:2", decision="reset")
+        assert reset["metrics"]["revenue_review_required"]
+
+
 def test_a_payload_tiered_only_in_part_is_refused():
     mixed = _payload()
     mixed["statement"]["transactions"][1]["classification"].pop("revenue_tier")

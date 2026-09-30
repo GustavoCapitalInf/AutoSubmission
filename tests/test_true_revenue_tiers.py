@@ -429,6 +429,51 @@ def test_a_credit_under_one_dollar_never_verifies_and_never_counts():
     assert _one("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 1.0).revenue_match_method == "named_payer_company_form"
 
 
+# S4.4/S4.5 review, fix round 1 (2026-09-30): the $1 floor is absolute (§7.0, §7.8, §8.10). A single-row rule that
+# verifies a credit under $1 (the registry's own context, a card settlement form, a verified descriptor, an AP
+# remittance, an invoice wire) is overruled by pass 7's last step: the credit is held, never verified, never counted.
+@pytest.mark.parametrize(("text", "method"), [
+    ("SQUARE INC DES:SQ540115 ID:1", "operating_source_with_credit_context"),
+    ("STRIPE DES:TRANSFER ID:ST-A1B2C3", "operating_source_with_credit_context"),
+    ("MERCHANT BANKCD DES:DEPOSIT ID:1234567", "operating_income_descriptor"),
+    ("NORTHWIND SUPPLY LLC DES:INVOICE PAYMENT ID:1", "operating_income_descriptor"),
+    ("NORTHWIND SUPPLY LLC DES:ACCTS PAYABLE ID:1", "payer_remittance_descriptor"),
+    ("WIRE TYPE:WIRE IN ORIG:NORTHWIND SUPPLY LLC OBI:INV 1234", "payer_remittance_descriptor"),
+])
+def test_the_floor_overrules_every_rule_that_verifies_a_credit_under_one_dollar(text, method):
+    # One dollar is not under the floor: the rule verifies it.
+    whole = _one(text, 1.0)
+    assert (whole.revenue_classification, whole.revenue_match_method, _tier(whole)) == (
+        "verified_revenue", method, ("verified", None))
+    for amount in (0.03, 0.5, 0.99):
+        record = _one(text, amount)
+        assert _tier(record) == MICRO
+        assert (record.revenue_classification, record.revenue_initial_classification) == (
+            "unverified_deposit", "unverified_deposit")
+        assert record.revenue_initial_tier == "excluded_pending_review"
+        assert (record.revenue_match_method, record.revenue_review_status) == ("micro_deposit_floor", "pending")
+        assert method in record.revenue_reason        # the audit keeps the rule the floor overruled
+        assert record.revenue_review_required and record.contributes_to_excluded_pending_review
+        assert not (record.contributes_to_verified_revenue or record.contributes_to_true_revenue
+                    or record.contributes_to_counted_flagged)
+
+
+def test_a_statement_s_figures_never_carry_a_credit_under_one_dollar():
+    from analysis.metrics import compute_metrics
+
+    statement = Statement(account_name=HOLDER, currency="USD", transactions=[
+        Transaction(date="2054-03-02", description="SQUARE INC DES:SQ540115 ID:1", amount=0.03, direction="credit"),
+        Transaction(date="2054-03-03", description="SQUARE INC DES:SQ540115 ID:2", amount=500.0, direction="credit"),
+        Transaction(date="2054-03-04", description="NORTHWIND SUPPLY LLC DES:ACCTS PAYABLE ID:1", amount=0.5,
+                    direction="credit"),
+    ])
+    records = classify_statement_transactions(statement)
+    assert [_tier(record) for record in records] == [MICRO, ("verified", None), MICRO]
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.verified_revenue_total, metrics.true_revenue_total) == (500.0, 500.0)
+    assert metrics.excluded_pending_review_by_reason == {"non_sale_purpose": {"count": 2, "total": 0.53}}
+
+
 @pytest.mark.parametrize("loose", [
     "FABRIKAM EXPORTS LLC DES:WIRE PMT ID:1",
     "FABRIKAM EXPORTS LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD PMT INFO:WIRE REF 1",

@@ -144,8 +144,9 @@ own name, payroll or salary, personal income, a non-sale purpose, a payer also
 debited this account; then by channel: a wire with no sender, a transfer with no
 counterparty or naming an account, and repeated round person-to-person sums.
 Every other unverified credit is counted (`counted_flagged`) with its reason. A
-statement needs revenue review (`revenue_review_required`) when it has a
-direction conflict, when its held credits are ten percent or more of its posted
+statement needs revenue review (`revenue_review_required`) when it has an
+undecided direction conflict (one an analyst confirmed or rejected no longer
+gates), when its held credits are ten percent or more of its posted
 credits (compared in integer cents, `REVENUE_REVIEW_HELD_SHARE`), or when its
 revenue does not reconcile.
 
@@ -184,7 +185,7 @@ revenue does not reconcile.
 - A buy-now-pay-later consumer credit (a return, withdrawal, refund or card credit) keeps its 5.4 reading; the OQ2 ruling covers settlements only (§19).
 - A direction conflict is never lifted, grouped or counted by any pass (§6.1 step 2, §7.0).
 - A bare transfer is held as `transfer_no_counterparty` (§8.2).
-- A credit under $1 never verifies and is held as `non_sale_purpose` (§7.0, §8.1).
+- The $1 floor is absolute: a posted credit under $1 is never verified and never counted, whichever rule read it, and never counts toward a repeat. It is held as `non_sale_purpose` (the reason table has no micro-deposit code); one a rule verified is held by the true-revenue pass's last step (method `micro_deposit_floor`), a credit already held keeps its first hold, and a non-revenue credit stays non-revenue (§7.0, §7.8, §8.10).
 - Owner money, a brokerage, investing or crypto-exchange platform's credit included, is held as `non_sale_purpose` (§7.5, §8.1).
 - A deferred source stays counted and flagged, never verified by Q5 or Q6 (§15, §19 OQ4).
 - Repeated round sums from one sender are held as `p2p_round_repeat`, a named transfer printed without FROM included (§8.4).
@@ -192,7 +193,7 @@ revenue does not reconcile.
 - VIREMENT is a person-to-person rail only in its Interac forms (§8.4).
 - A cancelled French transfer is a reversal (§6.1 step 3).
 - Quebec's numbered companies (`NNNN-NNNN`) are numbered-company payers: counted, never verified (§5.2, T11).
-- Q7 honours the holds of §8.1, keeps its lender's name, and Suncoast Credit Union verifies only through its credit-union arm (§8.7).
+- Q7 honours the wording holds of §8.1 (never the holder's name: the lender is read without the receiver field), keeps its lender's name, and Suncoast Credit Union verifies only through its credit-union arm (§8.7).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record

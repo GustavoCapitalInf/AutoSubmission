@@ -733,6 +733,34 @@ def test_each_declared_cause_explains_only_its_own_rule_and_outcome(prior, later
     assert _causes([prior], [later], admissions) == {cause: 1}
 
 
+def _held(method, text, *, cents=50, reason="non_sale_purpose"):
+    """A 5.6 credit held for review (tier excluded_pending_review) with `reason`."""
+    return _credit(0, cents, "unverified_deposit", method, tier="excluded_pending_review", reason=reason, text=text)
+
+
+INVOICE = "NORTHWIND SUPPLY LLC DES INVOICE PAYMENT ID #"
+PAYABLE = "NORTHWIND SUPPLY LLC DES ACCTS PAYABLE ID #"
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    # S4.4/S4.5 review, fix round 1: the $1 floor is absolute in 5.6 (§7.0, §8.10), so it declares a 5.4-verified credit
+    # of any rule family that 5.6 holds by the floor: under 100 cents, held with the floor's reason (non_sale_purpose).
+    (_registry("operating_source_with_credit_context", "SQUARE INC DES SQ###### ID #", entity="Square", alias="SQUARE",
+               cents=3),
+     _held("micro_deposit_floor", "SQUARE INC DES SQ###### ID #", cents=3), "micro_deposit_floor"),
+    ({**_step_11(INVOICE), "cents": 50}, _held("micro_deposit_floor", INVOICE), "micro_deposit_floor"),
+    (_credit(0, 99, "verified_revenue", "payer_remittance_descriptor", text=PAYABLE),
+     _held("micro_deposit_floor", PAYABLE, cents=99), "micro_deposit_floor"),
+    # Tied to the 5.6 outcome: a dollar is not under the floor, and a credit under it held for another reason is not
+    # the floor's.
+    ({**_step_11(INVOICE), "cents": 100}, _held("unidentified_posted_credit", INVOICE, cents=100), "undeclared"),
+    ({**_step_11(INVOICE), "cents": 50}, _held("ambiguous_credit_descriptor", INVOICE, reason="possible_return"),
+     "undeclared"),
+])
+def test_the_floor_declares_a_credit_of_any_rule_that_5_6_holds_under_one_dollar(prior, later, cause):
+    assert _causes([prior], [later]) == {cause: 1}
+
+
 def _pool(n, *, entity="Stripe", overrides=None):
     overrides = overrides or {}
     rows = []

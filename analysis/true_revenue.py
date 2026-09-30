@@ -1101,17 +1101,45 @@ def _first_hold(
         or (word is not None and word in debit_words)
     ):
         return "payer_also_debited"
-    # §7.0, §8.10 (S4.2 review I3): under $1 never verifies and never counts, claimed or not. An account-verification
-    # entry is not a sale (T5), so it is held as non_sale_purpose: §5.3's table has no micro-deposit code (S4.2
-    # re-review: the nearest reason; a code of its own would be a change to the table).
+    # §7.0, §7.8, §8.10 (S4.2 review I3; S4.4/S4.5 review): the $1 floor is absolute. A posted credit under $1 is never
+    # verified and never counted, whichever rule read it, claimed or not: an unverified one that no earlier hold names
+    # is held here, and one a rule verified is held by the pass's last step (_held_by_the_floor).
     if _under_micro_floor(record):
-        return "non_sale_purpose"
+        return _MICRO_DEPOSIT_REASON
     return None
+
+
+#: §7.0, §8.10 (S4.2 review I3): the reason a credit under the $1 floor is held with. An account-verification entry is
+#: not a sale (T5), so it is non_sale_purpose: §5.3's table has no micro-deposit code (S4.2 re-review: the nearest
+#: reason; a code of its own would be a change to the table).
+_MICRO_DEPOSIT_REASON = "non_sale_purpose"
 
 
 def _under_micro_floor(record: TransactionClassification) -> bool:
     """§7.0 (S4.2 review I3): a credit under the absolute micro-deposit floor ($1, _MICRO_DEPOSIT_FLOOR)."""
     return record.amount < _classifier()._MICRO_DEPOSIT_FLOOR
+
+
+def _held_by_the_floor(record: TransactionClassification) -> TransactionClassification:
+    """§7.0, §7.8, §8.10 (S4.4/S4.5 review): a tiered credit under the $1 floor that a rule verified or counted, held
+    for review with the floor's reason (_MICRO_DEPOSIT_REASON). A verified one leaves verification as a new first
+    state (unverified_deposit, method micro_deposit_floor, pending review, so the analyst may confirm it); its reason
+    names the rule the floor overruled, for the audit."""
+    if record.revenue_classification == "verified_revenue":
+        record = _classifier()._replace_revenue_state(
+            record,
+            "unverified_deposit",
+            match_method="micro_deposit_floor",
+            matched_rule="credit_under_micro_deposit_floor",
+            confidence_score=0.40,
+            reason=(
+                "A credit under $1 is never verified and never counted (the absolute micro-deposit floor): the rule "
+                f"that read it ({record.revenue_match_method}) is overruled, and it is held for review."
+            ),
+            context_signals=(*record.revenue_context_signals, "micro_deposit_floor"),
+            related_transaction=record.revenue_related_transaction,
+        )
+    return _with_tier(record, "excluded_pending_review", _MICRO_DEPOSIT_REASON)
 
 
 def _left_to_its_family(text: str) -> bool:
@@ -1364,6 +1392,14 @@ def apply_true_revenue_pass(
         round_repeat = fact.round_sum and bool(fact.key) and round_sums[fact.key] >= 2
         tier, reason = _tier_reason(record, texts[index], fact, round_repeat, _deferred_source(texts[index], fact))
         updated[index] = _with_tier(record, tier, reason)
+    # §7.0, §7.8, §8.10 (S4.4/S4.5 review): the $1 floor is absolute, so it runs after every verification. A posted
+    # credit under $1 that any rule verified or counted (a single-row rule, the registry's own context, a descriptor or
+    # a remittance, reads no floor of its own) is held as _MICRO_DEPOSIT_REASON; a held one keeps its first hold
+    # (§8.10's order) and a non-revenue one stays non-revenue. None counted toward a repeat above (_never_q5_or_q6).
+    for index in credits:
+        record = updated[index]
+        if _under_micro_floor(record) and record.revenue_tier in {"verified", "counted_flagged"}:
+            updated[index] = _held_by_the_floor(record)
     return updated
 
 

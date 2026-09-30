@@ -29,6 +29,7 @@ from .transaction_classifier import (
 from .revenue import (
     STATE_OF_TIER,
     WITHHOLDING_DENOMINATOR_MODES,
+    _TIER_DISAGREES,
     normalize_withholding_denominator_mode,
     revenue_review_gate,
 )
@@ -396,7 +397,7 @@ def compute_metrics(
             # 5.6 (§5.4): every posted credit carries exactly one tier, and its tier agrees with its state.
             tier = classification.revenue_tier
             if tier is None or STATE_OF_TIER.get(tier) != classification.revenue_classification:
-                raise ValueError("every posted credit's revenue state must agree with its tier")
+                raise ValueError(_TIER_DISAGREES)
             if classification.revenue_match_method == "direction_conflict":
                 direction_conflict = True
             if tier in by_reason:

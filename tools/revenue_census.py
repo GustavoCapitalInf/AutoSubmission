@@ -114,6 +114,9 @@ POOL_54_METHODS = RECURRENCE_LIFT_METHODS | {"operating_source_requires_context"
 STEPS_12_TO_14_METHODS = frozenset({"payer_remittance_descriptor", "public_payer_remittance", "wire_remittance_purpose"})
 #: §7.0: the absolute micro-deposit floor, in cents.
 MICRO_DEPOSIT_FLOOR_CENTS = 100
+#: 5.6 (§8.10, S4.2 review I3): the reason pass 7 holds a credit under the floor with (analysis/true_revenue.py
+#: _MICRO_DEPOSIT_REASON; §5.3's table has no micro-deposit code).
+MICRO_DEPOSIT_FLOOR_REASON = "non_sale_purpose"
 #: The demotion causes that read the account (the row's recurrence pool), not the row alone.
 _POOL_CAUSES = frozenset({"entity_split", "pool_below_recurrence_after_a_declared_veto"})
 #: S3.1 review (fix 3): the §14.3 facts each guard, or each arm of one, reads. A check whose facts no credit of the run
@@ -1007,9 +1010,14 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # (a) a row 5.4's recurrence pass lifted; (b) 5.5 reads it as a direction conflict, which no pass lifts (§7.0).
     if base["method"] in RECURRENCE_LIFT_METHODS and method == "direction_conflict":
         return "direction_conflict_pool"
-    # (a) a row 5.4's recurrence pass lifted (the floor governs the pool, not a row verified on its own context);
-    # (b) left unlifted (operating_source_requires_context) under $1 (§7.0).
-    if base["method"] in RECURRENCE_LIFT_METHODS and unlifted and after["cents"] < MICRO_DEPOSIT_FLOOR_CENTS:
+    # (a) a row 5.4's recurrence pass lifted (in 5.5 the floor governs the pool, not a row verified on its own context);
+    # (b) left unlifted (operating_source_requires_context) under $1 (§7.0). And in 5.6, where the floor is absolute
+    # (S4.4/S4.5 review: pass 7's last step overrules every rule): (a) any verifying rule; (b) held under $1 with the
+    # floor's reason (MICRO_DEPOSIT_FLOOR_REASON).
+    if after["cents"] < MICRO_DEPOSIT_FLOOR_CENTS and (
+        (base["method"] in RECURRENCE_LIFT_METHODS and unlifted)
+        or (after.get("tier") == "excluded_pending_review" and after.get("reason") == MICRO_DEPOSIT_FLOOR_REASON)
+    ):
         return "micro_deposit_floor"
     # §6.1 step 9b. Closed: (a) any verifying rule (no step verifies a closed row, the registry and the recurrence pass
     # included); (b) the row fell to steps 15 and 16. Push: (a) a rule outside the registry (steps 11 to 14 never verify

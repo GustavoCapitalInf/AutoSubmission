@@ -161,6 +161,7 @@ def _tiered(records: list[dict]) -> bool:
 
 
 #: The fixed refusals of the rebuild and the review writer (webapp/app.py _DECLARED_REVIEW_REFUSALS lists them).
+#: analysis/metrics.py raises _TIER_DISAGREES too, so the message has one source.
 _MIXED_TIERS = "every posted credit carries a revenue tier, or none does"
 _TIER_DISAGREES = "every posted credit's revenue state must agree with its tier"
 _ALREADY_VERIFIED = "a credit a rule verified can only be marked non-revenue"
@@ -227,7 +228,12 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         record.update(revenue_contribution_flags(state, tier))
         if not tiered:
             record.pop("contributes_to_true_revenue", None)
-        if record.get("revenue_match_method") == "direction_conflict":
+        # §10.7, T7 (S4.4/S4.5 review): what needs review now is the undecided rows, so a direction conflict gates
+        # only while its decision is pending; a confirmed or rejected one no longer does (a reset makes it wait again).
+        if (
+            record.get("revenue_match_method") == "direction_conflict"
+            and record.get("revenue_review_status") == "pending"
+        ):
             direction_conflict = True
         serialized_records.append(deepcopy(record))
         totals[state] += amount
@@ -374,9 +380,10 @@ def _by_reason(slots: dict[str, list]) -> dict[str, dict[str, float | int]]:
 
 
 def revenue_review_gate(*, direction_conflict: bool, held_total: float, posted_total: float, reconciles: bool) -> bool:
-    """T7: a statement needs revenue review when a credit's direction conflicts with its amount, when its held
-    credits are REVENUE_REVIEW_HELD_SHARE percent or more of all its posted credits (non-revenue included), compared
-    in integer cents, or when its revenue does not reconcile. Counted, flagged credits never gate."""
+    """T7: a statement needs revenue review when an undecided credit's direction conflicts with its amount (§10.7:
+    the rebuild passes only a pending conflict), when its held credits are REVENUE_REVIEW_HELD_SHARE percent or more
+    of all its posted credits (non-revenue included), compared in integer cents, or when its revenue does not
+    reconcile. Counted, flagged credits never gate."""
     held_cents = round(held_total * 100)
     posted_cents = round(posted_total * 100)
     held_share = held_cents > 0 and held_cents * 100 >= REVENUE_REVIEW_HELD_SHARE * posted_cents
@@ -391,8 +398,10 @@ def record_serialized_revenue_review(
     account: int | None = None,
     reviewed_at: str | None = None,
 ) -> dict:
-    """Write a human decision onto one potential credit's classification record
-    and return the record, WITHOUT rebuilding the revenue views.
+    """Write a human decision onto one reviewable posted credit's classification
+    record (a counted or held deposit, or a credit a rule verified, §10.7; an
+    unverified deposit on a payload analysed before 5.6) and return the record,
+    WITHOUT rebuilding the revenue views.
     `apply_serialized_revenue_review` is this followed by the rebuild; a caller
     writing several decisions (the re-analysis replay, `webapp/reanalysis.py`)
     rebuilds once, after the last. Every check below comes before the first
@@ -484,7 +493,7 @@ def apply_serialized_revenue_review(
     decision: Literal["confirm", "reject", "reset"],
     account: int | None = None,
 ) -> dict:
-    """Apply a human decision to one potential credit and rebuild all views:
+    """Apply a human decision to one reviewable credit and rebuild all views:
     `record_serialized_revenue_review`, whose checks and account rules these
     are, followed by one rebuild."""
     record_serialized_revenue_review(
