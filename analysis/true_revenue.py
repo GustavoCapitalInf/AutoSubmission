@@ -51,20 +51,24 @@ _HOLD_POSTING_LABELS = re.compile(
 )
 #: §8.1, T4: the credit-side financing roots. A whole-word CREDIT counts only inside a payer name, next to another
 #: name word; glued, it always counts. The roots have no left boundary; of the whole words, those of four letters or
-#: more take (?<![A-Z]) (the veto convention). A3 review: §7.9's word-end CRED arm, aligned with a glued letter on its
-#: left: a word that ends in CRED (a credit provider's glued name, 'FABRICRED'), never the whole word CRED, and never
-#: SACRED or MASSACRED (the English words that end so).
+#: more take (?<![A-Z]) (the veto convention).
 _FINANCING_ROOT = re.compile(
     r"(?:(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL)"
-    r"|CRED(?=ORA|IBLY)|(?<=[A-Z])(?<!SA)CRED\b|[A-Z]CREDIT|CREDIT[A-Z]"
+    r"|CRED(?=ORA|IBLY)|[A-Z]CREDIT|CREDIT[A-Z]"
     r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
 )
 _WHOLE_CREDIT = re.compile(r"\bCREDITS?\b")
-#: §8.1, §7.9 (A3): a wire's sender whose name a line wrap splits ('F INANCIAL', 'FUNDIN G') is read run together
+#: §8.1, T4 (A3 review, round 2): §7.9's word-end CRED arm, aligned with a glued letter on its left: a payer-name word
+#: that ends in CRED (a credit provider's glued name, 'FABRICRED'), read on the payer's name only, as the whole-word
+#: CREDIT is (never an entry field or a row that prints no payer's name field): never the whole word CRED, and never
+#: the whole words SACRED and ACCRED (an abbreviation of accredited). Any other glued ...CRED name is held.
+_GLUED_CRED_NAME = re.compile(r"(?!(?:SACRED|ACCRED)$)[A-Z]+CRED")
+#: §8.1, §7.9 (A3): a wire's sender whose name a line wrap splits ('F INANCIAL', 'SERVICIN G') is read run together
 #: too, as §7.9's veto reads its first six words: the financing roots without the glued-CREDIT arm (running the words
-#: together would glue a whole-word CREDIT to its neighbour). A3 review: only on a sender read after the wire's label
-#: (the layouts that print no originator label, _wire_sender_after_label), the layout it was written for: on a
-#: labelled originator, joined words make false roots (SERVICE REPAIR reads SERVICER, SOLO ANALYTICS reads LOAN).
+#: together would glue a whole-word CREDIT to its neighbour). A3 review, round 2: a joined root counts only when it
+#: spans exactly one join whose shorter word has two letters or fewer (_wrap_split_root), which a line wrap leaves;
+#: two whole words run together make false roots (SERVICE REPAIR reads SERVICER, SOLO ANALYTICS reads LOAN).
+_WRAP_SPLIT_SIDE = 2
 _FINANCING_RUN_ROOT = re.compile(
     r"(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL"
 )
@@ -338,14 +342,18 @@ _TITLE_FEE_WORDING = re.compile(
 )
 #: §8.1 (A3 review): a wire's purpose fields, each up to the next wire field: OBI, RMR, PMT DET, RFB, and a URI label
 #: wherever it prints (Chase prints its URI inside OBI, a book transfer inside REF, a line wrap may split it: 'U RI').
-#: A REF field is never read: on the Fedwire layout it is the sender's bank reference ('REF COMM BANK NYC').
+#: A REF field is never read: on the Fedwire layout it is the sender's bank reference ('REF COMM BANK NYC'), and Bank
+#: of America's SERVICE REF is its own reference; Santander's REF is its purpose (_title_purpose_text). A3 review round
+#: 2: ORIG FEE is purpose wording, never the start of an originator field.
 _WIRE_PURPOSE_FIELD = re.compile(
     r"\b(?:OBI|RMR|PMT DET|RFB|U ?R ?I)\b (.*?)"
-    r"(?=\b(?:BNF|NBNF|BBI|OBI|SRF|TRN|IMAD|ACCT|SND BK|RFB|RMR|PMT DET|REF|ORIG|B O|ORG)\b|$)"
+    r"(?=\b(?:BNF|NBNF|BBI|OBI|SRF|TRN|IMAD|ACCT|SND BK|RFB|RMR|PMT DET|REF|ORIG(?! FEE\b)|B O|ORG)\b|$)"
 )
-#: §8.1 (A3 review): the organisation words the generic words and the wire's layout words drop, which name a company
-#: on a payer's name field beside currency wording ('CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT').
-_CURRENCY_COMPANY_WORDS = frozenset({"INTERNATIONAL", "INTL"})
+#: §8.1 (A3 review, round 2): the company forms that name a currency-exchange company on an originator field beside
+#: currency wording ('CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT', 'FOREIGN EXCHANGE CO DES:PAYMENT'). INTERNATIONAL
+#: and INTL are organisation words the generic and wire-layout words drop, and CO a field label the transfer reader
+#: drops, so the counterparty reading alone never names such a company.
+_CURRENCY_COMPANY_WORDS = frozenset({"LLC", "INC", "CORP", "CO", "LTD", "INTERNATIONAL", "INTL"})
 
 
 @dataclass(frozen=True)
@@ -615,14 +623,12 @@ def financing_named(text: str, region: str, entry: str, account_name: str | None
         name_words = classifier.payer_name(payer).split()
         if len(name_words) >= 2 and _WHOLE_CREDIT.search(" ".join(name_words)):
             return True
-        # A3: a wire's sender split by a line wrap, read run together (§7.9's wrap-tolerant reading); A3 review: only
-        # when the wire prints no originator label, so its region is the sender read after the label.
-        run = "".join([token for token in payer.split() if not any(ch.isdigit() for ch in token)][:6])
-        if (
-            classifier._is_wire_row(text)
-            and classifier._wire_originator_run(text) is None
-            and _FINANCING_RUN_ROOT.search(run)
-        ):
+        # A3 review, round 2: a glued ...CRED word, on a payer's name field only.
+        if _prints_payer_name_field(text) and any(_GLUED_CRED_NAME.fullmatch(word) for word in name_words):
+            return True
+        # A3: a wire's sender split by a line wrap, read run together (§7.9's wrap-tolerant reading); A3 review, round
+        # 2: on every wire sender, labelled or not, across one join whose shorter word is a wrap's split.
+        if classifier._is_wire_row(text) and _wrap_split_root(payer):
             return True
         if entry:
             parts.append(_HOLD_POSTING_LABELS.sub(" ", entry))
@@ -632,6 +638,36 @@ def financing_named(text: str, region: str, entry: str, account_name: str | None
             row = row.replace(holder, " ")
         parts.append(row)
     return any(_FINANCING_ROOT.search(part) for part in parts)
+
+
+def _prints_payer_name_field(text: str) -> bool:
+    """§8.1, T4 (A3 review, round 2): the payer region is a payer's name field: a wire's sender, an ACH originator (the
+    row prints DES, CO ENTRY DESCR or ORIG CO NAME) or a transfer's sender after FROM. An unlabelled row's words
+    ('ACHCRED 12345678') are no name field."""
+    classifier = _classifier()
+    if classifier._is_wire_row(text):
+        return True
+    row = classifier._before_receiver(text)
+    if classifier._ACH_ORIGINATOR_FIELD.search(row) is not None:
+        return True
+    return classifier._is_transfer_or_p2p_row(text) and bool(classifier._sender_payer_region(text))
+
+
+def _wrap_split_root(payer: str) -> bool:
+    """§8.1, §7.9 (A3 review, round 2): a financing root (_FINANCING_RUN_ROOT) that a line wrap split across two of the
+    sender's first six words (those with no digit): it starts in one word and ends in the next, and the shorter of the
+    two has _WRAP_SPLIT_SIDE letters or fewer ('F INANCIAL', 'SERVICIN G'). Two whole words run together never make
+    one ('SERVICE REPAIR', 'SOLO ANALYTICS', 'ROYAL ENDEAVORS')."""
+    words = [token for token in payer.split() if not any(ch.isdigit() for ch in token)][:6]
+    for left, right in zip(words, words[1:]):
+        if min(len(left), len(right)) > _WRAP_SPLIT_SIDE:
+            continue
+        joined = left + right
+        for start in range(len(left)):
+            found = _FINANCING_RUN_ROOT.match(joined, start)
+            if found is not None and found.end() > len(left):
+                return True
+    return False
 
 
 def _accounts_payable_wording(text: str) -> bool:
@@ -691,7 +727,8 @@ def _title_purpose_text(text: str) -> str:
     """§8.1 (A3 review): the words a payment prints about its purpose, which the title fee exemption reads: Bank of
     America's DES field, Chase's CO ENTRY DESCR field, a wire's purpose fields (_WIRE_PURPOSE_FIELD: OBI, RMR, PMT
     DET, RFB and a URI label, never a REF field), a transfer's memo. entry_fields reads a wire's REF field too, which
-    on the Fedwire layout is the sender's bank reference, never the purpose."""
+    on the Fedwire layout is the sender's bank reference, never the purpose. A3 review round 2: on Santander's layout
+    ('ACCT <n> <originator> REF <purpose>', _SANTANDER_WIRE) the REF field is the purpose, and is read."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     fields = [
@@ -699,6 +736,11 @@ def _title_purpose_text(text: str) -> str:
             pattern.search(row) for pattern in (classifier._BOFA_ENTRY_FIELD, classifier._CHASE_ENTRY_FIELD)
         ) if found is not None
     ]
+    santander = classifier._SANTANDER_WIRE.match(text)
+    if santander is not None:
+        purpose = re.match(r"\s*\bREF\b(.*)$", text[santander.end():])
+        if purpose is not None:
+            fields.append(purpose.group(1))
     if classifier._is_wire_row(text):
         fields.extend(found.group(1) for found in _WIRE_PURPOSE_FIELD.finditer(text))
     elif classifier._is_transfer_or_p2p_row(text):
@@ -1060,10 +1102,15 @@ def _currency_conversion(text: str, *, bank: str | None = None) -> bool:
 @cache
 def _statement_bank_before_conversion(bank: str) -> re.Pattern[str] | None:
     """§8.1 (A3 review): the statement's bank's own name printed right before currency-conversion wording: its whole
-    normalized name, and the short forms it prints (the registry's STATEMENT_BANK_PRINTED_NAMES). None when the bank
-    field normalizes to nothing."""
+    normalized name, and the short forms it prints (the registry's STATEMENT_BANK_PRINTED_NAMES, read when the bank
+    field contains one of the entry's bank words). None when the bank field normalizes to nothing."""
     classifier = _classifier()
-    forms = {classifier.normalize_transaction_description(bank).strip(), *STATEMENT_BANK_PRINTED_NAMES.get(bank, ())}
+    field = classifier.normalize_transaction_description(bank).strip().upper()
+    forms = {field}
+    for markers, printed in STATEMENT_BANK_PRINTED_NAMES:
+        # A3 review round 2: the bank field names the bank by containment (whole words, any case), not exact spelling.
+        if any(re.search(r"(?<![A-Z])" + re.escape(marker) + r"(?![A-Z])", field) for marker in markers):
+            forms.update(printed)
     forms.discard("")
     if not forms:
         return None
@@ -1072,10 +1119,19 @@ def _statement_bank_before_conversion(bank: str) -> re.Pattern[str] | None:
 
 
 def _named_currency_company(text: str) -> bool:
-    """§8.1 (A3 review): a named currency-exchange company: its name field (the payer region) prints the wording with
-    an organisation word beside it that the generic and layout words drop (_CURRENCY_COMPANY_WORDS). Any other name
-    word beside the wording already names the payer (_counterparty_tokens)."""
-    region = _classifier().payer_region(text)
+    """§8.1 (A3 review, round 2): a named currency-exchange company: an originator field names it (an ACH originator,
+    the name before DES or CO ENTRY DESCR, or after ORIG CO NAME; or a wire's labelled sender, _wire_originator_run),
+    and that name prints the wording with a company form beside it (_CURRENCY_COMPANY_WORDS: LLC, INC, CORP, CO, LTD,
+    INTERNATIONAL or INTL). A row with no originator field names no company this way ('INTL FOREIGN EXCHANGE DEPOSIT'
+    stays the holder's own conversion). Any other name word beside the wording already names the payer, on any row
+    (_counterparty_tokens)."""
+    classifier = _classifier()
+    if classifier._is_wire_row(text):
+        if classifier._wire_originator_run(text) is None:
+            return False
+    elif classifier._ACH_ORIGINATOR_FIELD.search(classifier._before_receiver(text)) is None:
+        return False
+    region = classifier.payer_region(text)
     if not region or _CURRENCY_CONVERSION.search(region) is None:
         return False
     return any(token in _CURRENCY_COMPANY_WORDS for token in _without_currency_conversion(region).split())

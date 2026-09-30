@@ -2032,14 +2032,19 @@ P2P_SENDING_BANK_NAMES: tuple[str, ...] = (
     "SCOTIABANK", "BMO", "CIBC", "TD CANADA TRUST", "CAISSE DESJARDINS", "NATIONAL BANK", "BANQUE NATIONALE",
 )
 
-#: 5.6 (§8.1, A3 review): the short forms a statement's bank prints for its own name, keyed by the statement's bank
-#: field (Statement.bank, the parser's name for it), normalized. The bank's whole normalized name is read too, for
-#: every bank. Before currency-conversion wording, the bank's own name names no payer ('ROYAL FOREIGN EXCHANGE
+#: 5.6 (§8.1, A3 review): the short forms a statement's bank prints for its own name. Each entry is (the words that
+#: name the bank inside the statement's bank field, the forms it prints), all normalized; a bank field (Statement.bank)
+#: that contains one of the first as whole words, in any case, reads the second ('Royal Bank of Canada', 'RBC Royal
+#: Bank' and 'Banque Royale du Canada' all name RBC; A3 review round 2). The bank's whole normalized name is read too,
+#: for every bank. Before currency-conversion wording, the bank's own name names no payer ('ROYAL FOREIGN EXCHANGE
 #: DEPOSIT' on a Royal Bank of Canada statement is the holder's own conversion).
-STATEMENT_BANK_PRINTED_NAMES: dict[str, tuple[str, ...]] = {
-    "Royal Bank of Canada": ("ROYAL BANK OF CANADA", "ROYAL BANK", "ROYAL", "RBC", "BANQUE ROYALE"),
-    "Banque Royale du Canada": ("BANQUE ROYALE DU CANADA", "BANQUE ROYALE", "ROYAL BANK", "ROYAL", "RBC"),
-}
+STATEMENT_BANK_PRINTED_NAMES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("ROYAL BANK", "RBC", "BANQUE ROYALE"),
+        ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "ROYAL BANK", "ROYAL", "RBC", "BANQUE ROYALE DU CANADA",
+         "BANQUE ROYALE"),
+    ),
+)
 
 
 # Compatibility import for extensions written against classification version 3.0.
