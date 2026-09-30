@@ -32,6 +32,7 @@ from .classification_registry import (
     P2P_SENDING_BANK_NAMES,
     PAYOUT_CREDIT_ENTITIES,
     SECTION_15_DEFERRED_PAYERS,
+    STATEMENT_BANK_PRINTED_NAMES,
 )
 from .flag_groups import FINANCING_STATES
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
@@ -50,16 +51,20 @@ _HOLD_POSTING_LABELS = re.compile(
 )
 #: §8.1, T4: the credit-side financing roots. A whole-word CREDIT counts only inside a payer name, next to another
 #: name word; glued, it always counts. The roots have no left boundary; of the whole words, those of four letters or
-#: more take (?<![A-Z]) (the veto convention).
+#: more take (?<![A-Z]) (the veto convention). A3 review: §7.9's word-end CRED arm, aligned with a glued letter on its
+#: left: a word that ends in CRED (a credit provider's glued name, 'FABRICRED'), never the whole word CRED, and never
+#: SACRED or MASSACRED (the English words that end so).
 _FINANCING_ROOT = re.compile(
     r"(?:(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL)"
-    r"|CRED(?=ORA|IBLY)|[A-Z]CREDIT|CREDIT[A-Z]"
+    r"|CRED(?=ORA|IBLY)|(?<=[A-Z])(?<!SA)CRED\b|[A-Z]CREDIT|CREDIT[A-Z]"
     r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
 )
 _WHOLE_CREDIT = re.compile(r"\bCREDITS?\b")
-#: §8.1, §7.9 (A3): a wire's originator whose name a line wrap splits ('F INANCIAL', 'FUNDIN G') is read run together
+#: §8.1, §7.9 (A3): a wire's sender whose name a line wrap splits ('F INANCIAL', 'FUNDIN G') is read run together
 #: too, as §7.9's veto reads its first six words: the financing roots without the glued-CREDIT arm (running the words
-#: together would glue a whole-word CREDIT to its neighbour).
+#: together would glue a whole-word CREDIT to its neighbour). A3 review: only on a sender read after the wire's label
+#: (the layouts that print no originator label, _wire_sender_after_label), the layout it was written for: on a
+#: labelled originator, joined words make false roots (SERVICE REPAIR reads SERVICER, SOLO ANALYTICS reads LOAN).
 _FINANCING_RUN_ROOT = re.compile(
     r"(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL"
 )
@@ -324,12 +329,23 @@ _TITLE_FIRM = re.compile(
     r"|WESTCOR LAND|NORTH AMERICAN|ATTORNEYS|WFG NATIONAL|DOMA) TITLE\b(?! BOXING\b| CLUB\b)"
 )
 #: §8.1 (A3, orchestrator ruling): a title firm also pays the holder's own fee at closing: a commission, an origination
-#: or broker fee, an invoice, consulting or services rendered, cited in the entry fields (a wire's OBI, RMR, PMT DET,
-#: RFB or REF purpose, an ACH entry). Such a credit is not held by the title hold and takes its normal reading.
+#: or broker fee, an invoice, consulting or services rendered, cited in the payment's purpose (_title_purpose_text: a
+#: wire's OBI, RMR, PMT DET, RFB or URI purpose, an ACH entry, a transfer's memo). Such a credit is not held by the
+#: title hold and takes its normal reading.
 _TITLE_FEE_WORDING = re.compile(
     r"(?<![A-Z])(?:COMMISSIONS?|COMM|ORIGINATION|ORIG FEE|BROKER\w*|INVOICES?|CONSULT\w*|FEES? FOR SERVICES?"
     r"|SERVICES RENDERED)\b|\bINV\b|(?<![A-Z])INV ?\d"
 )
+#: §8.1 (A3 review): a wire's purpose fields, each up to the next wire field: OBI, RMR, PMT DET, RFB, and a URI label
+#: wherever it prints (Chase prints its URI inside OBI, a book transfer inside REF, a line wrap may split it: 'U RI').
+#: A REF field is never read: on the Fedwire layout it is the sender's bank reference ('REF COMM BANK NYC').
+_WIRE_PURPOSE_FIELD = re.compile(
+    r"\b(?:OBI|RMR|PMT DET|RFB|U ?R ?I)\b (.*?)"
+    r"(?=\b(?:BNF|NBNF|BBI|OBI|SRF|TRN|IMAD|ACCT|SND BK|RFB|RMR|PMT DET|REF|ORIG|B O|ORG)\b|$)"
+)
+#: §8.1 (A3 review): the organisation words the generic words and the wire's layout words drop, which name a company
+#: on a payer's name field beside currency wording ('CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT').
+_CURRENCY_COMPANY_WORDS = frozenset({"INTERNATIONAL", "INTL"})
 
 
 @dataclass(frozen=True)
@@ -599,9 +615,14 @@ def financing_named(text: str, region: str, entry: str, account_name: str | None
         name_words = classifier.payer_name(payer).split()
         if len(name_words) >= 2 and _WHOLE_CREDIT.search(" ".join(name_words)):
             return True
-        # A3: a wire's originator split by a line wrap, read run together (§7.9's wrap-tolerant reading).
+        # A3: a wire's sender split by a line wrap, read run together (§7.9's wrap-tolerant reading); A3 review: only
+        # when the wire prints no originator label, so its region is the sender read after the label.
         run = "".join([token for token in payer.split() if not any(ch.isdigit() for ch in token)][:6])
-        if classifier._is_wire_row(text) and _FINANCING_RUN_ROOT.search(run):
+        if (
+            classifier._is_wire_row(text)
+            and classifier._wire_originator_run(text) is None
+            and _FINANCING_RUN_ROOT.search(run)
+        ):
             return True
         if entry:
             parts.append(_HOLD_POSTING_LABELS.sub(" ", entry))
@@ -630,12 +651,13 @@ def _accounts_payable_wording(text: str) -> bool:
     ) is not None
 
 
-def non_sale_purpose(text: str, region: str) -> bool:
+def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool:
     """§8.1: a non-sale purpose, a public payer's refund or benefit, or a healthcare payer's member or premium credit.
     The investment words hold a row unless it prints accounts-payable wording (S4.2 fix measurement). A3 (precision
     sample): a title firm named on the payer region (_TITLE_FIRM: property-closing proceeds, an asset sale), on a
-    wire or an ACH row alike, unless its entry fields cite the holder's fee (_TITLE_FEE_WORDING, the orchestrator's
-    ruling); and the holder's own currency conversion (_currency_conversion)."""
+    wire or an ACH row alike, unless its purpose cites the holder's fee (_TITLE_FEE_WORDING, the orchestrator's
+    ruling; A3 review: read on the purpose only, _title_purpose_text); and the holder's own currency conversion
+    (_currency_conversion; `bank` is the statement's bank, whose own name names no payer)."""
     classifier = _classifier()
     row = _hold_text(text)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
@@ -644,10 +666,10 @@ def non_sale_purpose(text: str, region: str) -> bool:
         return True
     if (
         region and _TITLE_FIRM.search(region) is not None
-        and _TITLE_FEE_WORDING.search(classifier.entry_fields(text)) is None
+        and _TITLE_FEE_WORDING.search(_title_purpose_text(text)) is None
     ):
         return True
-    if _currency_conversion(text):
+    if _currency_conversion(text, bank=bank):
         return True
     if _INVESTMENT_PURPOSE.search(row) is not None and not _accounts_payable_wording(text):
         return True
@@ -663,6 +685,25 @@ def non_sale_purpose(text: str, region: str) -> bool:
     ):
         return True
     return healthcare and _HEALTHCARE_MEMBER_WORDS.search(row) is not None
+
+
+def _title_purpose_text(text: str) -> str:
+    """§8.1 (A3 review): the words a payment prints about its purpose, which the title fee exemption reads: Bank of
+    America's DES field, Chase's CO ENTRY DESCR field, a wire's purpose fields (_WIRE_PURPOSE_FIELD: OBI, RMR, PMT
+    DET, RFB and a URI label, never a REF field), a transfer's memo. entry_fields reads a wire's REF field too, which
+    on the Fedwire layout is the sender's bank reference, never the purpose."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    fields = [
+        found.group(1) for found in (
+            pattern.search(row) for pattern in (classifier._BOFA_ENTRY_FIELD, classifier._CHASE_ENTRY_FIELD)
+        ) if found is not None
+    ]
+    if classifier._is_wire_row(text):
+        fields.extend(found.group(1) for found in _WIRE_PURPOSE_FIELD.finditer(text))
+    elif classifier._is_transfer_or_p2p_row(text):
+        fields.extend(found.group(1) for found in classifier._MEMO_ENTRY_FIELD.finditer(row))
+    return " ".join(field.strip() for field in fields if field.strip())
 
 
 def _listed_auto_lender(text: str) -> tuple[str, str] | None:
@@ -988,16 +1029,25 @@ def _without_currency_conversion(words: str) -> str:
     return _CURRENCY_CONVERSION.sub(" ", words)
 
 
-def _currency_conversion(text: str) -> bool:
+def _currency_conversion(text: str, *, bank: str | None = None) -> bool:
     """§8.1 (A3, precision sample): the holder's own currency conversion: currency-conversion wording on the row
     before its receiver fields (posting labels removed), on a row that names no payer once that wording is removed:
     no name word in its payer region (_counterparty_tokens), no transfer counterparty and no person-to-person sender.
     A named payer that prints the wording (a customer's wire converted on arrival, 'ORIG FABRIKAM GMBH ... FOREIGN
     EXCHANGE') keeps its reading. The standing rule (owner money never becomes revenue) holds it as non_sale_purpose:
     §5.3's own-money reason, as a SWEEP or a ZBA is held; it names no counterparty and designates no account, so it
-    is no named transfer of T13 (transfer_account_designation)."""
+    is no named transfer of T13 (transfer_account_designation).
+
+    A3 review: the statement's bank (`bank`) printing its own name right before the wording names no payer
+    (_statement_bank_before_conversion: 'ROYAL FOREIGN EXCHANGE DEPOSIT' on a Royal Bank of Canada statement); a named
+    currency-exchange company does (_named_currency_company: 'CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT')."""
     classifier = _classifier()
     if _CURRENCY_CONVERSION.search(_hold_text(text)) is None:
+        return False
+    own_bank = _statement_bank_before_conversion(bank) if bank else None
+    if own_bank is not None:
+        text = own_bank.sub(" ", text)
+    if _named_currency_company(text):
         return False
     stripped = _without_currency_conversion(text)
     if _counterparty_tokens(classifier.payer_region(stripped)):
@@ -1005,6 +1055,30 @@ def _currency_conversion(text: str) -> bool:
     if _transfer_row(classifier._before_receiver(stripped)) and _transfer_counterparty_words(stripped):
         return False
     return not _p2p_sender_region(stripped)
+
+
+@cache
+def _statement_bank_before_conversion(bank: str) -> re.Pattern[str] | None:
+    """§8.1 (A3 review): the statement's bank's own name printed right before currency-conversion wording: its whole
+    normalized name, and the short forms it prints (the registry's STATEMENT_BANK_PRINTED_NAMES). None when the bank
+    field normalizes to nothing."""
+    classifier = _classifier()
+    forms = {classifier.normalize_transaction_description(bank).strip(), *STATEMENT_BANK_PRINTED_NAMES.get(bank, ())}
+    forms.discard("")
+    if not forms:
+        return None
+    names = "|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True))
+    return re.compile(r"(?<![A-Z])(?:" + names + r") (?=" + _CURRENCY_CONVERSION.pattern + ")")
+
+
+def _named_currency_company(text: str) -> bool:
+    """§8.1 (A3 review): a named currency-exchange company: its name field (the payer region) prints the wording with
+    an organisation word beside it that the generic and layout words drop (_CURRENCY_COMPANY_WORDS). Any other name
+    word beside the wording already names the payer (_counterparty_tokens)."""
+    region = _classifier().payer_region(text)
+    if not region or _CURRENCY_CONVERSION.search(region) is None:
+        return False
+    return any(token in _CURRENCY_COMPANY_WORDS for token in _without_currency_conversion(region).split())
 
 
 def _without_date_months(words: str, *, row: bool = False) -> str:
@@ -1191,7 +1265,7 @@ def _first_hold(
         return "payroll_or_salary"
     if _PERSONAL_INCOME.search(classifier._before_receiver(text)):
         return "personal_income"
-    if not claimed and non_sale_purpose(text, region):
+    if not claimed and non_sale_purpose(text, region, bank=record.bank):
         return "non_sale_purpose"
     if not claimed and (
         record.revenue_match_method == "payer_remittance_with_counter_debit"

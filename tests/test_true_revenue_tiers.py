@@ -1593,12 +1593,61 @@ def test_a3_repeated_round_currency_conversions_are_held_as_own_money():
     assert {_tier(record) for record in rows} == {("excluded_pending_review", "non_sale_purpose")}
 
 
+def _banked(text: str, amount: float, *, bank: str | None, holder: str | None = HOLDER):
+    return classify_statement_transactions(Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=amount, direction="credit")]))[0]
+
+
 def test_a3_a_named_payer_that_prints_currency_wording_keeps_its_reading():
     wire = ("WIRE TYPE:FX IN DATE:540102 TIME:1200 ET TRN:1 SEQ:1/2 ORIG:FABRIKAM GMBH ID:99 SND BK:SAMPLE BANK ID:1 "
             "OBI:FOREIGN EXCHANGE")
     assert _tier(_one(wire, 24950.0)) == ("counted_flagged", "wire_named_sender")
-    assert _tier(_one("NORTHWIND FOREIGN EXCHANGE DEPOSIT REFERENCE 123456789", 2500.0)) == (
+    # A payer other than the statement's bank, printed before the wording, names someone (A3 review).
+    for bank in (None, "Royal Bank of Canada"):
+        assert _tier(_banked("NORTHWIND FOREIGN EXCHANGE DEPOSIT REFERENCE 123456789", 2500.0, bank=bank)) == (
+            "counted_flagged", "named_payer_unlabelled")
+    assert _tier(_banked("ROYAL FOREIGN EXCHANGE DEPOSIT REFERENCE 123456789", 2500.0, bank="Chase")) == (
         "counted_flagged", "named_payer_unlabelled")
+
+
+@pytest.mark.parametrize("bank", ["Royal Bank of Canada", "Banque Royale du Canada"])
+@pytest.mark.parametrize("text", [
+    "ROYAL FOREIGN EXCHANGE DEPOSIT REFERENCE 123456789012345",
+    "RBC FOREIGN EXCHANGE DEPOSIT REFERENCE 123456789012345",
+    "ROYAL BANK FOREIGN EXCHANGE DEPOSIT REFERENCE 123456789012345",
+])
+def test_a3_the_statement_bank_s_own_foreign_exchange_deposit_is_held(bank, text):
+    # A3 review: the statement's bank printing its own name before the wording names no payer; the credit is the
+    # holder's own money converted, held like every other conversion.
+    record = _banked(text, 20000.0, bank=bank)
+    assert _tier(record) == ("excluded_pending_review", "non_sale_purpose")
+    assert not record.contributes_to_true_revenue
+
+
+def test_a3_any_statement_bank_s_whole_name_before_the_wording_names_no_payer():
+    text = "CHASE FX CONVERSION DEPOSIT 12345678"
+    assert _tier(_banked(text, 5000.0, bank="Chase")) == ("excluded_pending_review", "non_sale_purpose")
+    assert _tier(_banked(text, 5000.0, bank="Wells Fargo")) == ("counted_flagged", "named_payer_unlabelled")
+
+
+@pytest.mark.parametrize(("text", "reason"), [
+    ("CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD", "named_payer_one_off"),
+    ("Orig CO Name:Foreign Exchange Intl Orig ID:1 Desc Date: CO Entry Descr:Payment Sec:CCD Trace#:1",
+     "named_payer_one_off"),
+    (_A3_WIRE.format(n=1, orig="CURRENCY EXCHANGE INTERNATIONAL"), "wire_named_sender"),
+])
+def test_a3_review_a_named_currency_exchange_company_is_a_payer(text, reason):
+    # A3 review: the wording is the payer's own name when its name field prints an organisation word beside it.
+    assert _tier(_one(text, 8000.0)) == ("counted_flagged", reason)
+
+
+@pytest.mark.parametrize("text", [
+    "ONLINE BANKING FOREIGN EXCHANGE #WW123456789012",
+    "ONLINE TRANSFER INTL FOREIGN EXCHANGE REF 12345678",
+    "CURRENCY EXCHANGE DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+])
+def test_a3_review_the_wording_with_no_payer_name_beside_it_stays_held(text):
+    assert _tier(_one(text, 8000.0)) == ("excluded_pending_review", "non_sale_purpose")
 
 
 def test_a3_a_currency_conversion_debit_is_untouched():
@@ -1646,6 +1695,17 @@ def test_a3_a_payer_named_title_in_another_sense_is_not_held(text):
     assert _tier(_one("WIRE IN FROM TITLE BOXING CLUB LLC TRN 99", 2500.0)) == ("counted_flagged", "wire_named_sender")
 
 
+@pytest.mark.parametrize("payer", ["CHICAGO TITLE BOXING CLUB", "STEWART TITLE CLUB"])
+def test_a3_review_a_title_insurer_s_city_or_name_before_boxing_or_club_is_no_title_firm(payer):
+    from analysis.true_revenue import _TITLE_FIRM
+
+    assert _TITLE_FIRM.search(payer) is None
+    text = f"{payer} DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD"
+    assert _tier(_one(text, 2500.0)) == ("counted_flagged", "named_payer_one_off")
+    insurer = text.replace(" BOXING CLUB", "").replace(" CLUB", "")
+    assert _tier(_one(insurer, 2500.0)) == ("excluded_pending_review", "non_sale_purpose")
+
+
 _A3_TITLE_FEDWIRE = ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O FIRST AMERICAN TITLE COMPANY 12345 REF SAMPLE NYC CTR "
                      "BNF CONTOSO REALTY LLC SAMPLEVILLE CA 12345 US AC 123456789 OBI {obi} IMAD 0102A1B2C3D4 TRN 1234FF")
 
@@ -1666,11 +1726,31 @@ def test_a3_a_title_firm_s_wire_that_cites_the_holder_s_fee_is_not_held(obi, rea
         "counted_flagged", reason)
 
 
-def test_a3_a_title_firm_s_ref_invoice_wire_and_commission_ach_are_not_held():
-    ref_invoice = _A3_WIRE.format(n=1, orig="STEWART TITLE") + " REF INV 1042"
-    assert _tier(_one(ref_invoice, 10000.0)) == ("counted_flagged", "wire_named_sender")
+def test_a3_a_title_firm_s_purpose_invoice_wire_and_commission_ach_are_not_held():
+    purpose_invoice = _A3_WIRE.format(n=1, orig="STEWART TITLE") + " PMT DET:INV 1042"
+    assert _tier(_one(purpose_invoice, 10000.0)) == ("counted_flagged", "wire_named_sender")
     ach = "FIRST AMERICAN TITLE DES:COMMISSION ID:1 INDN:CONTOSO REALTY CO ID:1 CCD"
     assert _tier(_one(ach, 10000.0, holder="CONTOSO REALTY LLC")) == ("counted_flagged", "named_payer_purpose_refused")
+    # A book transfer prints its URI purpose inside its REF field: the URI is read, never the REF text before it.
+    book = ("BOOK TRANSFER CREDIT B O FIRST AMERICAN TITLE COMPANY SAMPLEVILLE CA 12345 US REF 1234ABCD URI COMMISSION "
+            "5678 SAMPLE ST")
+    assert _tier(_one(book, 10000.0, holder="CONTOSO REALTY LLC")) == ("counted_flagged", "named_payer_purpose_refused")
+
+
+_A3_TITLE_FEDWIRE_REF = ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O FIRST AMERICAN TITLE COMPANY 12345 REF {ref} "
+                         "BNF CONTOSO REALTY LLC SAMPLEVILLE CA 12345 US AC 123456789 OBI PROP ADDR 12 SAMPLE ST IMAD "
+                         "0102A1B2C3D4 TRN 1234FF")
+
+
+@pytest.mark.parametrize("text", [
+    # Fedwire's REF field is the sender's bank reference, never the wire's purpose (A3 review).
+    _A3_TITLE_FEDWIRE_REF.format(ref="COMM BANK NYC"),
+    _A3_TITLE_FEDWIRE_REF.format(ref="SAMPLE INV CTR 1234"),
+    _A3_WIRE.format(n=1, orig="STEWART TITLE") + " REF INV 1042",
+    "BOOK TRANSFER CREDIT B O FIRST AMERICAN TITLE COMPANY SAMPLEVILLE CA 12345 US REF COMMISSION 5678 SAMPLE ST",
+])
+def test_a3_review_the_title_fee_exemption_never_reads_a_ref_field(text):
+    assert _tier(_one(text, 150000.0, holder="CONTOSO REALTY LLC")) == ("excluded_pending_review", "non_sale_purpose")
 
 
 def test_a3_a_plain_title_wire_with_closing_proceeds_stays_held():
@@ -1721,6 +1801,37 @@ def test_a3_a_sender_read_after_the_label_whose_name_a_line_wrap_splits_still_re
     assert _tier(record) == ("excluded_pending_review", "financing_named_payer")
 
 
+@pytest.mark.parametrize("orig", ["FABRIKAM SERVICE REPAIR LLC", "SOLO ANALYTICS LLC", "ROYAL ENDEAVORS INC"])
+def test_a3_review_the_run_together_root_never_reads_a_labelled_originator(orig):
+    # A3 review: the wrap-tolerant T4 reading is for the sender read after the label (no originator label); on a
+    # labelled originator, joined words make false roots (SERVICE REPAIR -> SERVICER, SOLO ANALYTICS -> LOAN,
+    # ROYAL ENDEAVORS -> LEND). §7.9's veto still reads the run, so such a wire never verifies by Q5.
+    fedwire = (f"FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O {orig} SAMPLEVILLE CA 12345 US REF SAMPLE NYC CTR "
+               "BNF CONTOSO BAKERY LLC")
+    for text in (_A3_WIRE.format(n=1, orig=orig), fedwire):
+        assert _tier(_one(text, 24950.0)) == ("counted_flagged", "wire_named_sender")
+
+
+@pytest.mark.parametrize("text", [
+    "FABRICRED INC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    _A3_WIRE.format(n=1, orig="NORTHCRED INC"),
+    "WIRE TRANSFER INCOMING FASTCRED LLC",
+])
+def test_a3_review_a_payer_whose_name_ends_in_a_glued_cred_is_held_as_financing(text):
+    # §7.9's word-end CRED arm, aligned in T4 with a glued letter on its left (a credit provider's glued name).
+    assert _tier(_one(text, 42000.0)) == ("excluded_pending_review", "financing_named_payer")
+
+
+@pytest.mark.parametrize("text", [
+    "SACRED HEART ACADEMY DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    "CRED SUPPLY LLC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+])
+def test_a3_review_the_whole_word_cred_and_sacred_are_no_financing_root(text):
+    record = _one(text, 4200.0)
+    assert record.revenue_tier_reason != "financing_named_payer"
+    assert record.revenue_classification == "verified_revenue"
+
+
 @pytest.mark.parametrize("text", [
     "INCOMING WIRE",
     "INCOMING WIRE 12345678 NOTPROVIDED",
@@ -1729,7 +1840,9 @@ def test_a3_a_sender_read_after_the_label_whose_name_a_line_wrap_splits_still_re
     "WIRE TRANSFER IN",
     "WIRE TRANSFER CREDIT",
     "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789",
-    "WIRE TRANSFER INCOMING 1ABC LLC",  # a legal form alone names nobody (the P2P reader's rule)
+    # Its only name-like words are a reference token and a legal form, and a legal form alone names nobody (the P2P
+    # reader's rule): held, so census guard G4 (no transfer-worded row without a counterparty in True) stays green.
+    "WIRE TRANSFER INCOMING 1ABC LLC",
 ])
 def test_a3_a_wire_that_prints_no_sender_stays_held(text):
     assert _tier(_one(text, 24950.0)) == ("excluded_pending_review", "wire_no_sender")
