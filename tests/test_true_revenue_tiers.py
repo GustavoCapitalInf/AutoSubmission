@@ -2313,8 +2313,11 @@ def test_a3g_re_review_an_address_s_state_is_never_a_company_form(place):
 
     assert _tier(_one(_a3g_fedwire("NORTHWIND BANK", place=place), 438000.0)) == (
         "excluded_pending_review", "financing_named_payer")
-    assert bank_by_form("SAMPLE CREDIT UNION BOULDER CO")
-    assert bank_by_form("NORTHWIND BANK LAS VEGAS NV")
+    # A3-G re-review 2: the state ends a Fedwire B/O city and state region, or a ZIP or a country code follows it.
+    assert bank_by_form("SAMPLE CREDIT UNION BOULDER CO", city_state_end=True)
+    assert bank_by_form("NORTHWIND BANK LAS VEGAS NV", city_state_end=True)
+    assert bank_by_form("SAMPLE CREDIT UNION BOULDER CO", " 12345 US REF 1234")
+    assert bank_by_form("NORTHWIND BANK LAS VEGAS NV", " US TRN 1234567890ES")
 
 
 def test_a3g_re_review_a_bank_with_a_state_address_relays_its_customer():
@@ -2325,6 +2328,56 @@ def test_a3g_re_review_a_bank_with_a_state_address_relays_its_customer():
     record = _one(text, 13000.0)
     assert payer_region(revenue_text(record.normalized_description)) == "FABRIKAM TRADING LIMITED"
     assert _tier(record) == ("counted_flagged", "wire_named_sender")
+
+
+@pytest.mark.parametrize("text", [
+    # A Fedwire B/O field: the credit union's state before its ZIP, and a state that ends the city and state region.
+    _a3g_fedwire("SAMPLE CREDIT UNION", place="BOULDER CO 12345 US"),
+    _a3g_fedwire("NORTHWIND BANK", place="LAS VEGAS NV"),
+    # Any other layout: a ZIP or a country code after the state.
+    "BOOK TRANSFER CREDIT B O NORTHWIND BANK DENVER CO 12345 US TRN 1234567890JS",
+])
+def test_a3g_re_review_2_a_state_before_its_zip_or_ending_a_fedwire_city_and_state_is_the_address_s(text):
+    assert _tier(_one(text, 438000.0)) == ("excluded_pending_review", "financing_named_payer")
+
+
+@pytest.mark.parametrize("text", [
+    # A3-G re-review 2: a layout that prints no address, or a CO or NV with no ZIP or country after it outside a
+    # Fedwire B/O city and state: the word is a company form, so the name that holds BANK is a company's.
+    _A3G_BOFA.format(n=1, orig="LEFT BANK TRADING CO", bank="SAMPLE BANK"),
+    "BOOK TRANSFER CREDIT B O WEST BANK OIL CO REF 1234 TRN 1234567890JS",
+    _A3G_BOFA.format(n=1, orig="BANK STREET HOLDINGS NV", bank="SAMPLE BANK"),
+    # ... and an originator that prints a company form is never its sending bank.
+    _A3G_BOFA.format(n=1, orig="NORTHWIND SUPPLY CO", bank="NORTHWIND SUPPLY"),
+])
+def test_a3g_re_review_2_a_trailing_co_or_nv_with_no_address_is_a_company_form(text):
+    from analysis.transaction_classifier import bank_by_form
+
+    assert _tier(_one(text, 9000.0)) == ("counted_flagged", "wire_named_sender")
+    assert not bank_by_form("LEFT BANK TRADING CO")
+    assert not bank_by_form("BANK STREET HOLDINGS NV")
+
+
+@pytest.mark.parametrize("orig", [
+    # A3-G re-review 2: custody and administration words are no place words.
+    "JOHN Q SAMPLE TRUST CUSTODY", "JOHN Q SAMPLE TRUST CUSTODIAN", "JOHN Q SAMPLE TRUST ADMINISTRATOR",
+    "JOHN Q SAMPLE TRUST ADMINISTRATORS", "NORTHWIND SAMPLE TRUST LANDSCAPE",
+    # At most three address words before the state, whatever the words.
+    "JOHN Q SAMPLE TRUST GARDEN CARE PROS",
+])
+def test_a3g_re_review_2_a_trust_s_address_is_at_most_three_place_words(orig):
+    assert _tier(_one(_a3g_fedwire(orig, place="SAMPLEVILLE WA 12345 US"), 75000.0))[1] != "non_sale_purpose"
+
+
+@pytest.mark.parametrize(("orig", "place"), [
+    ("JOHN Q SAMPLE FAMILY TRUST", "SAMPLE LAKE CITY UT 12345 US"),
+    # Only the address's own words count: never the agreement words, a PO box, a number, a street type or an initial.
+    ("THE JANE SAMPLE TRUST U/A DTD PO BOX 123", "SAMPLEVILLE WA 12345-6789 US"),
+    ("JOHN Q SAMPLE TTEE JANE D SAMPLESON9TH AVE", "SAMPLEVILLE WA 12345-6789 USA"),
+    ("JOHN Q SAMPLE REVOCABLE TRUST UAD US/SAMPLE HARBOR", "WA 12345-6789"),
+])
+def test_a3g_re_review_2_a_city_of_three_words_or_fewer_keeps_a_personal_trust(orig, place):
+    assert _tier(_one(_a3g_fedwire(orig, place=place), 75000.0)) == ("excluded_pending_review", "non_sale_purpose")
 
 
 @pytest.mark.parametrize("phrase", ["ORG TO BNF", "ORIGINATOR TO BENEFICIARY"])

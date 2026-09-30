@@ -386,13 +386,18 @@ _TRUST_TAIL_WORDS = frozenset({"DTD", "DATED", "U", "A", "UA", "UAD", "UTA", "PO
 _TRUST_NOT_PLACE_WORDS = frozenset({
     "ACCOUNT", "ACCT", "ACCOUNTS", "SERVICES", "SERVICE", "SVCS", "SVC", "DEPT", "DEPARTMENT", "DIV", "DIVISION",
     "OFFICE", "OPERATING", "OPERATIONS", "ADMIN", "ADMINISTRATION",
-    "ROOFING", "CONSTRUCTION", "CONTRACTING", "CONTRACTORS", "PLUMBING", "ELECTRIC", "ELECTRICAL", "HVAC",
+    # A3-G re-review 2: a trust company's custody and administration words.
+    "CUSTODY", "CUSTODIAN", "CUSTODIANS", "ADMINISTRATOR", "ADMINISTRATORS",
+    "ROOFING", "LANDSCAPE", "CONSTRUCTION", "CONTRACTING", "CONTRACTORS", "PLUMBING", "ELECTRIC", "ELECTRICAL", "HVAC",
     "LANDSCAPING", "TRUCKING", "TRANSPORT", "LOGISTICS", "CLEANING", "SUPPLY", "SALES", "MARKETING", "CONSULTING",
     "DESIGN", "AUTO", "MOTORS", "RESTAURANT", "BAKERY", "CAFE", "GRILL", "PIZZA", "DENTAL", "MEDICAL", "CLINIC",
     "PHARMACY", "SALON", "SPA", "FITNESS", "STUDIO", "MEDIA", "PRODUCTIONS", "TECHNOLOGIES", "TECH", "SYSTEMS",
     "ENTERPRISES", "INDUSTRIES", "MANUFACTURING", "FARMS", "RANCH", "TRAVEL", "HOMES", "BUILDERS", "REMODELING",
     "PAINTING", "FLOORING", "STORE", "SHOP", "MARKET", "WHOLESALE", "DISTRIBUTION", "IMPORTS", "EXPORTS", "TRADING",
 })
+#: §8.1 (A3-G re-review 2): a trust's address prints at most this many words before its state (a city's name: 'LAS
+#: VEGAS', 'SAMPLE LAKE CITY'); a longer tail names something else, whatever its words.
+_TRUST_ADDRESS_MAX_WORDS = 3
 #: A street type right after the trust word makes it a street's name ('12 TRUST RD'), never a trust form.
 _STREET_WORDS = frozenset({
     "RD", "ROAD", "ST", "STREET", "AVE", "AVENUE", "DR", "DRIVE", "LN", "LANE", "BLVD", "WAY", "CT", "COURT", "PL",
@@ -490,8 +495,11 @@ def _wire_originator_text(text: str) -> str:
     rest = text[found.end():]
     end = classifier._WIRE_FIELD_END.search(rest)
     originator = (rest[: end.start()] if end is not None else rest).strip()
-    # A3-G refinement: a relaying bank's customer is the originator (the payer region reads it the same way).
-    customer = classifier.relayed_customer_text(classifier._leading_name_words(originator), rest)
+    # A3-G refinement: a relaying bank's customer is the originator (the payer region reads it the same way, with the
+    # region's address context, A3-G re-review 2).
+    region = classifier._leading_name_words(originator)
+    after, city_state_end = classifier.originator_address(text, region)
+    customer = classifier.relayed_customer_text(region, rest, after=after, city_state_end=city_state_end)
     return customer.strip() if customer else originator
 
 
@@ -854,8 +862,25 @@ def _trust_form_ends_the_name(tail: Sequence[str], *, address: bool) -> bool:
     if not address or words[-1] not in _US_STATE_TAIL:
         return False
     # A3-G re-review: the address holds only place words before its state: city words (and a street or PO box), never
-    # a business, lawyer, company-form, account, service, department or institution word.
+    # a business, lawyer, company-form, account, service, department or institution word. A3-G re-review 2: the list
+    # is finite, so the address is also at most _TRUST_ADDRESS_MAX_WORDS words (_address_words).
+    if len(_address_words(words[:-1])) > _TRUST_ADDRESS_MAX_WORDS:
+        return False
     return not any(_not_a_place_word(word) for word in words[:-1])
+
+
+def _address_words(words: Sequence[str]) -> list[str]:
+    """§8.1 (A3-G re-review 2): the address's own words before its state, the words the cap counts: never the
+    agreement, date, PO box and country words (_TRUST_TAIL_WORDS: '... TRUST U A DTD PO BOX <n> <city>'), a number or
+    a reference token (a street number, a name glued to it), a street type (_STREET_WORDS) or an initial."""
+    classifier = _classifier()
+    return [
+        word for word in words
+        if not (
+            classifier._is_reference_token(word) or word in _TRUST_TAIL_WORDS or word in _STREET_WORDS
+            or len(word) == 1
+        )
+    ]
 
 
 def _not_a_place_word(word: str) -> bool:
@@ -899,14 +924,17 @@ def _bank_originated_wire(text: str, region: str) -> bool:
     only relays; the payer region then reads the customer (relayed_customer_text), so the bank's form is held only when
     no customer prints. A3-G review: the form arm is the classifier's bank_by_form (never a food or blood bank, never a
     company whose name holds the bank word); the sending-bank arm compares the letters with spaces removed, needs
-    _SENDING_BANK_MIN_LETTERS letters on the shorter side and an originator that prints no company form."""
+    _SENDING_BANK_MIN_LETTERS letters on the shorter side and an originator that prints no company form. A3-G
+    re-review 2: both arms read CO or NV as the address's state only in its address context (the classifier's
+    originator_address: a ZIP or the country code after it, or the end of a Fedwire or CHIPS B/O city and state)."""
     classifier = _classifier()
     if not region or not classifier._is_wire_row(text) or classifier.BANK_SETTLEMENT_ORIGINATOR.search(region):
         return False
-    if classifier.bank_by_form(region):
+    after, city_state_end = classifier.originator_address(text, region)
+    if classifier.bank_by_form(region, after, city_state_end=city_state_end):
         return True
     sending = _SENDING_BANK_FIELD.search(text)
-    if sending is None or classifier.company_form_outside_address(region):
+    if sending is None or classifier.company_form_outside_address(region, after, city_state_end=city_state_end):
         return False
     originator = "".join(ch for ch in classifier.payer_name(region) if ch.isalpha())
     bank = "".join(ch for ch in sending.group(1) if ch.isalpha())

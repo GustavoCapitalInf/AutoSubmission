@@ -1207,7 +1207,8 @@ def _wire_payer_region(text: str) -> str:
     rest = text[found.end():]
     end = _WIRE_FIELD_END.search(rest)
     region = _leading_name_words(rest[: end.start()] if end is not None else rest)
-    customer = relayed_customer_text(region, rest)
+    after, city_state_end = originator_address(text, region)
+    customer = relayed_customer_text(region, rest, after=after, city_state_end=city_state_end)
     return _leading_name_words(customer) if customer else region
 
 
@@ -1232,34 +1233,66 @@ _BANK_COMPANY_FORM = re.compile(
 _BANK_OWN_FORM_WORDS = frozenset({"CO", "PUBLIC", "N", "A", "NA", "AND", "TRUST"})
 _BANK_OF_PLACE_WORDS = 4
 #: 5.6 (A3-G re-review): the company-form words that are also US state codes (Colorado, Nevada). Printed as the
-#: address's state (at the end of a Fedwire city and state region, or before a ZIP or a country code) they are never a
-#: company form: 'NORTHWIND BANK DENVER CO 80202 US'.
+#: address's state they are never a company form: 'NORTHWIND BANK DENVER CO 80202 US'. A3-G re-review 2: the word is
+#: the state only when a ZIP or the country code follows it (_AFTER_ADDRESS_STATE, read on the region and the row's
+#: text after it), or when it ends a Fedwire or CHIPS B/O field's city and state (_CITY_STATE_WIRE_LAYOUT); never at
+#: the end of any other field, so Bank of America's 'ORIG:LEFT BANK TRADING CO' and Chase's 'B O WEST BANK OIL CO REF'
+#: print a company form.
 _STATE_CODE_FORM_WORDS = frozenset({"CO", "NV"})
-_AFTER_ADDRESS_STATE = re.compile(r"\s*(?:$|\d{5}\b|(?:US|USA)\b)")
+_AFTER_ADDRESS_STATE = re.compile(r"\s*(?:\d{5}\b|(?:US|USA|UNITED STATES)\b)")
+#: 5.6 (A3-G re-review 2): the wire layouts whose B/O field prints the sender's city and state last.
+_CITY_STATE_WIRE_LAYOUT = re.compile(r"^(?:FEDWIRE|CHIPS) CREDIT\b")
 
 
-def company_form_outside_address(region: str) -> re.Match[str] | None:
-    """5.6 (A3-G re-review): the first company form (_BANK_COMPANY_FORM) of the region that is not the address's
-    state: CO or NV at the region's end or before a ZIP or a country code is the state, never a company form."""
-    for form in _BANK_COMPANY_FORM.finditer(region or ""):
-        if form.group(0) in _STATE_CODE_FORM_WORDS and _AFTER_ADDRESS_STATE.match(region, form.end()):
+def company_form_outside_address(
+    region: str, after: str = "", *, city_state_end: bool = False
+) -> re.Match[str] | None:
+    """5.6 (A3-G re-review, re-review 2): the first company form (_BANK_COMPANY_FORM) of the region that is not the
+    address's state. CO or NV is the state when a ZIP or the country code follows it, in the region or in `after` (the
+    row's text right after the region), or when it ends the region and `city_state_end` says the region is a Fedwire
+    or CHIPS B/O field (originator_address)."""
+    region = region or ""
+    tail = region + after
+    for form in _BANK_COMPANY_FORM.finditer(region):
+        if form.group(0) in _STATE_CODE_FORM_WORDS and (
+            _AFTER_ADDRESS_STATE.match(tail, form.end()) is not None
+            or (city_state_end and not region[form.end():].strip())
+        ):
             continue
         return form
     return None
 
 
-def bank_by_form(region: str) -> bool:
+def originator_address(text: str, region: str) -> tuple[str, bool]:
+    """5.6 (A3-G re-review 2): the address context of a wire's originator region: the row's text right after the
+    region, and whether the region is a Fedwire or CHIPS B/O field, which prints the sender's city and state last.
+    ('', False) when no originator label starts the region (a sender printed after the wire's label, Santander's
+    layout, or a relayed customer)."""
+    found = _WIRE_ORIGINATOR_LABEL.search(text or "")
+    if found is None or not region:
+        return "", False
+    rest = text[found.end():]
+    if not rest.startswith(region):
+        return "", False
+    city_state = found.group(0).strip() == "B O" and _CITY_STATE_WIRE_LAYOUT.match(text) is not None
+    return rest[len(region):], city_state
+
+
+def bank_by_form(region: str, after: str = "", *, city_state_end: bool = False) -> bool:
     """5.6 (A3-G, A3-G review): the originator reads as a bank by its own form (BANK_FORM_ORIGINATOR), never a bank's
     settlement form (BANK_SETTLEMENT_ORIGINATOR), a food or blood bank, or a company whose name holds the bank word:
     a company form (_BANK_COMPANY_FORM) counts only as the bank's own, right after its bank word, after 'OF <place>'
     (_BANK_OF_PLACE_WORDS words) or the bank's own form words (_BANK_OWN_FORM_WORDS). Read on the originator up to a
-    relay label, whose relayed customer is no part of the bank's name."""
+    relay label, whose relayed customer is no part of the bank's name. A3-G re-review 2: `after` and `city_state_end`
+    are the region's address context (originator_address), read for the address's state only."""
     relay = next((label for label in _RELAY_ORIGINATOR_LABEL.finditer(region or "") if label.start() > 0), None)
+    if relay is not None:
+        after = region[relay.start():] + after
     region = (region or "")[: relay.start()] if relay is not None else (region or "")
     found = BANK_FORM_ORIGINATOR.search(region)
     if found is None or BANK_SETTLEMENT_ORIGINATOR.search(region) or _NOT_A_BANK.search(region):
         return False
-    form = company_form_outside_address(region)
+    form = company_form_outside_address(region, after, city_state_end=city_state_end)
     if form is None:
         return True
     if form.start() < found.start():
@@ -1283,13 +1316,14 @@ _RELAY_CUSTOMER_END = re.compile(
 )
 
 
-def relayed_customer_text(region: str, rest: str) -> str:
+def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state_end: bool = False) -> str:
     """5.6 (A3-G refinement, §8.5): when a wire's originator (`region`, read from `rest`, the text after the originator
     label) reads as a bank, and a relay label after it names the ultimate originator, that customer's text up to its
     end (_RELAY_CUSTOMER_END), after its account number and any SWIFT line number: the bank only relays, so the
-    customer is the sender, read normally. '' when the originator is no bank by form (bank_by_form), or no relay
-    label names a customer (a bank sending on its own behalf)."""
-    if not region or not bank_by_form(region):
+    customer is the sender, read normally. '' when the originator is no bank by form (bank_by_form, read with the
+    region's address context, A3-G re-review 2), or no relay label names a customer (a bank sending on its own
+    behalf)."""
+    if not region or not bank_by_form(region, after, city_state_end=city_state_end):
         return ""
     for label in _RELAY_ORIGINATOR_LABEL.finditer(rest):
         if label.start() == 0:
