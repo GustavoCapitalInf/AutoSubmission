@@ -55,7 +55,7 @@ console.log(JSON.stringify({{labels: debits.map((tx) => transactionCategory(tx).
 """)
     assert result["labels"] == [label for _, _, label in states]
     # A credit shows its revenue state first, whoever paid it.
-    assert result["credit"] == "Non-Revenue"
+    assert result["credit"] == "Non-revenue"
     # A premium-financing row keeps its insurance tag, unchanged.
     assert result["premium"] == {"label": "FABRICATED PREMIUM FINANCE", "glyph": "INS", "tone": "blue"}
 
@@ -680,7 +680,7 @@ def test_the_notice_carries_its_words_and_the_re_analyze_button():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     notice = html[html.index('id="rulesOutdatedNotice"'):]
     notice = notice[:notice.index("</section>")]
-    assert "Analysed with older lender rules" in notice and 'id="reanalyzeButton"' in notice
+    assert "Analysed with older classification rules" in notice and 'id="reanalyzeButton"' in notice
     assert notice.split(">")[0].rstrip().endswith("hidden")  # hidden until a served analysis says otherwise
     # The withheld view hides every other panel; the notice is exempt (the node test above shows it stays shown).
     assert ":not(.rules-outdated)" in html
@@ -818,7 +818,7 @@ def test_a_factor_payout_keeps_its_revenue_tag_carries_the_chip_and_is_behind_it
 const tagged = (text) => rowsOf(els.transactionTable.innerHTML)
   .map((row) => row.includes(`<span class="chip-text">${text}</span>`));
 const all = {dates: datesOf(els.transactionTable.innerHTML), flagged: flaggedOf(els.transactionTable.innerHTML),
-  revenue: tagged('Verified Revenue')};
+  revenue: tagged('Verified revenue')};
 transactionFilter = 'flagged'; renderMainTransactions();
 const flagged = datesOf(els.transactionTable.innerHTML);
 clickPayee(els.flaggedTable, 'factoring', 'FABRICATED FACTOR FUNDING');

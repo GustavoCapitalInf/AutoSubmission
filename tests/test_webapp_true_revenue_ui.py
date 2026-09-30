@@ -133,3 +133,135 @@ console.log(JSON.stringify({{grid: els.metricsGrid.innerHTML, rows: metricRows(e
     # badge reads N/A with the Held figure.
     assert package["totals"]["revenue_review_items"] == 1
     assert result["badge"] == [False, "N/A"]
+
+
+# ---------------------------------------------------------------- S6.2: tags, chips, filters, review controls
+
+def _record(tier, *, reason=None, state=None, initial=None, status="not_required", signals=()):
+    state = state or {"verified": "verified_revenue", "non_revenue": "non_revenue"}.get(tier, "unverified_deposit")
+    record = {"classification": "other", "revenue_classification": state, "revenue_tier": tier,
+              "revenue_tier_reason": reason, "revenue_initial_classification": initial or state,
+              "revenue_review_status": status, "source_location": "transaction:1",
+              "contributes_to_true_revenue": tier in ("verified", "counted_flagged"),
+              "revenue_context_signals": list(signals)}
+    if tier is None:
+        for key in ("revenue_tier", "revenue_tier_reason", "contributes_to_true_revenue"):
+            record.pop(key)
+    return {"date": "2031-03-02", "description": "FABRICATED ROW", "amount": 500.0, "source_job": "j",
+            "classification": record}
+
+
+@needs_node
+def test_each_tier_has_its_tag_and_a_middle_tier_names_its_reason():
+    rows = [_record("verified"), _record("counted_flagged", reason="check_deposit"),
+            _record("excluded_pending_review", reason="financing_named_payer"), _record("non_revenue"),
+            _record(None, state="unverified_deposit")]
+    # A decided row keeps its tier reason for the audit while its tier changes: it is tagged, filtered and reviewed by
+    # its tier, never by the reason it kept. A lender's dealer funding (Q7) and a credit under the one-dollar floor
+    # show what their records carry; the page never reads a tier off a match method.
+    q7 = _record("verified")
+    q7["classification"].update(revenue_match_method="auto_lender_dealer_funding",
+                                revenue_canonical_entity="ALLY FINANCIAL")
+    micro = _record("excluded_pending_review", reason="non_sale_purpose")
+    micro["classification"]["revenue_match_method"] = "micro_deposit_floor"
+    decided = [_record("verified", reason="financing_named_payer", initial="unverified_deposit", status="confirmed"),
+               _record("non_revenue", reason="check_deposit", initial="unverified_deposit", status="rejected"),
+               q7, micro]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const decided = {json.dumps(decided)};
+const found = (filter) => filterTransactions(decided, filter).map((tx) => decided.indexOf(tx));
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{tags: rows.map(transactionCategory), reasons: rows.map(revenueReviewReason),
+  decided: {{tags: decided.map((tx) => transactionCategory(tx).label), reasons: decided.map(revenueReviewReason),
+    controls: decided.map((tx) => actions(revenueReviewControls(tx))),
+    filters: Object.fromEntries(["true_revenue", "verified_revenue", "counted_flagged", "non_revenue",
+      "excluded_pending_review:financing_named_payer", "excluded_pending_review:non_sale_purpose"]
+      .map((f) => [f, found(f)]))}}}}));
+""")
+    assert result["tags"] == [
+        {"label": "Verified revenue", "glyph": "VER", "tone": "green"},
+        {"label": "Counted: Check deposit", "glyph": "CNT", "tone": "teal"},
+        {"label": "Held: Payer or entry suggests financing", "glyph": "?", "tone": "amber"},
+        {"label": "Non-revenue", "glyph": "X", "tone": "neutral"},
+        {"label": "Unverified deposit", "glyph": "?", "tone": "amber"},
+    ]
+    assert result["reasons"][1] == "Check deposit. A check deposit: the payer is not printed."
+    assert result["reasons"][2] == ("Payer or entry suggests financing. The payer or the entry names funding, a loan or "
+                                    "an advance.")
+    assert result["reasons"][0] == result["reasons"][3] == ""
+    assert result["reasons"][4] == "Unable to determine whether this deposit represents operating revenue."
+    held_non_sale = "Not a sale: owner money, investment, grant, refund, claim or interest"
+    assert result["decided"]["tags"] == ["Verified revenue", "Non-revenue", "Verified revenue", f"Held: {held_non_sale}"]
+    assert result["decided"]["reasons"] == ["", "", "", f"{held_non_sale}. The entry names owner money, an investment, "
+                                                       "a grant, a refund, a claim or interest."]
+    assert result["decided"]["controls"] == [["reset"], ["reset"], ["reject"], ["confirm", "reject"]]
+    assert result["decided"]["filters"] == {
+        "true_revenue": [0, 2], "verified_revenue": [0, 2], "counted_flagged": [], "non_revenue": [1],
+        "excluded_pending_review:financing_named_payer": [], "excluded_pending_review:non_sale_purpose": [3]}
+
+
+@needs_node
+def test_the_revenue_filters_find_their_rows():
+    rows = [_record("verified"), _record("counted_flagged", reason="p2p"),
+            _record("excluded_pending_review", reason="holder_name"),
+            _record("excluded_pending_review", reason="wire_no_sender"), _record("non_revenue")]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const found = (filter) => filterTransactions(rows, filter).map((tx) => rows.indexOf(tx));
+console.log(JSON.stringify(Object.fromEntries(["true_revenue", "verified_revenue", "counted_flagged",
+  "excluded_pending_review", "non_revenue", "excluded_pending_review:wire_no_sender"].map((f) => [f, found(f)]))));
+""")
+    assert result == {"true_revenue": [0, 1], "verified_revenue": [0], "counted_flagged": [1],
+                      "excluded_pending_review": [2, 3], "non_revenue": [4],
+                      "excluded_pending_review:wire_no_sender": [3]}
+
+
+@needs_node
+def test_the_review_controls_follow_the_server_rules():
+    rows = [_record("excluded_pending_review", reason="holder_name"), _record("counted_flagged", reason="p2p"),
+            _record("verified"), _record("verified", initial="unverified_deposit", status="confirmed"),
+            _record("non_revenue", initial="verified_revenue", status="rejected"), _record("non_revenue"),
+            _record(None, state="verified_revenue")]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{controls: rows.map((tx) => actions(revenueReviewControls(tx))),
+  pickable: rows.map((tx) => pendingReviewTarget(tx) !== null)}}));
+""")
+    assert result["controls"] == [["confirm", "reject"], ["confirm", "reject"], ["reject"], ["reset"], ["reset"], [],
+                                  []]
+    # The multi-select offers the credits left unverified and not yet decided.
+    assert result["pickable"] == [True, True, False, False, False, False, False]
+
+
+@needs_node
+def test_a_property_management_payout_carries_its_chip():
+    row = _record("verified", signals=["recurring_source_3_credits", "property_management_collections"])
+    result = run_dashboard(f"""
+console.log(JSON.stringify({{chip: revenueSourceChip({json.dumps(row)}),
+  none: revenueSourceChip({json.dumps(_record("verified"))})}}));
+""")
+    assert "Property-management collections" in result["chip"] and result["none"] == ""
+
+
+@needs_node
+def test_the_review_view_opens_on_the_held_credits():
+    result = run_dashboard(_open("s", _served(_payload())) + """
+navigate('review');
+console.log(JSON.stringify({filter: transactionFilter}));
+""")
+    assert result["filter"] == "excluded_pending_review"
+
+
+def test_the_page_carries_the_true_revenue_words():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    assert 'title="Deposits held for review"' in html
+    assert "Deposits held for review, and counted deposits, can be confirmed or excluded from the Review column." in html
+    assert "Analysed with older classification rules." in html
+    for value, label in (("true_revenue", "True Revenue"), ("verified_revenue", "Verified"),
+                         ("counted_flagged", "Counted"), ("excluded_pending_review", "Held for Review"),
+                         ("non_revenue", "Non-Revenue")):
+        assert f'data-transaction-filter="{value}">{label}</button>' in html
+        assert f'data-modal-transaction-filter="{value}">{label}</button>' in html
+    assert 'data-transaction-filter="unverified_deposit"' not in html

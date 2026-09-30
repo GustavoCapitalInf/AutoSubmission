@@ -820,15 +820,16 @@ def test_revenue_ui_uses_authoritative_fields_and_exposes_review_controls():
 
     assert 'id="revenueTable"' in html
     assert 'id="statementModalRevenue"' in html
-    for state in REVENUE_STATES:
+    for state in ("true_revenue", "verified_revenue", "counted_flagged", "excluded_pending_review", "non_revenue"):
         assert f'data-transaction-filter="{state}"' in html
         assert f'data-modal-transaction-filter="{state}"' in html
     assert "record.revenue_classification" in javascript
     assert "data-revenue-review-action" in javascript
     assert "/revenue-review" in javascript
-    assert "Verified Revenue" in html
-    assert "Unverified Deposits" in html
+    assert "True Revenue" in html
+    assert "Held for Review" in html
     assert "Revenue Upper Bound" not in javascript
+    assert "Unverified Deposits" not in javascript
     assert "Posted credits minus known non-revenue and the deposits held for review" in javascript
     assert "Kept out of true revenue until you confirm it" in javascript
     assert "Own-account transfers, funding, refunds and other known non-revenue" in javascript

@@ -1185,11 +1185,11 @@
           </div>
         </section>
 
-        <!-- A saved statement analysed with older lender rules (analysis_rules_outdated, set when it is served). -->
+        <!-- A saved statement analysed with older classification rules (analysis_rules_outdated, set when it is served). -->
         <section class="panel rules-outdated single-only" id="rulesOutdatedNotice" aria-labelledby="rulesOutdatedTitle" hidden>
           <p class="rules-outdated-text">
-            <strong id="rulesOutdatedTitle">Analysed with older lender rules.</strong>
-            Its lenders and flagged positions follow the rules it was analysed with, not the current ones.
+            <strong id="rulesOutdatedTitle">Analysed with older classification rules.</strong>
+            Its lenders, flagged positions and revenue follow the rules it was analysed with, not the current ones.
           </p>
           <button class="btn-quiet" type="button" id="reanalyzeButton">Re-analyze</button>
         </section>
@@ -1402,8 +1402,10 @@
             <button class="transaction-filter" type="button" data-transaction-filter="insurance">Insurance</button>
             <button class="transaction-filter" type="button" data-transaction-filter="flagged">Flagged</button>
             <button class="transaction-filter" type="button" data-transaction-filter="pos">POS</button>
-            <button class="transaction-filter" type="button" data-transaction-filter="verified_revenue">Verified Revenue</button>
-            <button class="transaction-filter" type="button" data-transaction-filter="unverified_deposit">Unverified Deposits</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="true_revenue">True Revenue</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="verified_revenue">Verified</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="counted_flagged">Counted</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="excluded_pending_review">Held for Review</button>
             <button class="transaction-filter" type="button" data-transaction-filter="non_revenue">Non-Revenue</button>
           </div>
           <div class="table-wrap">
@@ -1646,8 +1648,10 @@
           <button class="transaction-filter" type="button" data-modal-transaction-filter="insurance">Insurance</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="flagged">Flagged</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="pos">POS</button>
-          <button class="transaction-filter" type="button" data-modal-transaction-filter="verified_revenue">Verified Revenue</button>
-          <button class="transaction-filter" type="button" data-modal-transaction-filter="unverified_deposit">Unverified Deposits</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="true_revenue">True Revenue</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="verified_revenue">Verified</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="counted_flagged">Counted</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="excluded_pending_review">Held for Review</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="non_revenue">Non-Revenue</button>
         </div>
         <div class="table-wrap">

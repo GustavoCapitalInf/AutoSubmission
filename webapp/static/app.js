@@ -603,17 +603,29 @@ function transactionClassification(tx) {
     : { classification: "other" };
 }
 
+// 5.6 (true revenue spec §10.6): a credit's tag is its tier, a middle tier naming its reason. An analysis saved before
+// 5.6 carries no tier, so its credits keep their revenue state's tag.
+const REVENUE_TIER_TAGS = Object.freeze({
+  verified: () => ({ label: "Verified revenue", glyph: "VER", tone: "green" }),
+  counted_flagged: (record) => ({ label: `Counted: ${revenueReasonLabel(record)}`, glyph: "CNT", tone: "teal" }),
+  excluded_pending_review: (record) => ({ label: `Held: ${revenueReasonLabel(record)}`, glyph: "?", tone: "amber" }),
+  non_revenue: () => ({ label: "Non-revenue", glyph: "X", tone: "neutral" }),
+});
+
 function transactionCategory(tx) {
   const record = transactionClassification(tx);
   const revenueState = record.revenue_classification;
+  if (txAmount(tx) > 0 && REVENUE_TIER_TAGS[record.revenue_tier]) {
+    return REVENUE_TIER_TAGS[record.revenue_tier](record);
+  }
   if (txAmount(tx) > 0 && revenueState === "verified_revenue") {
-    return { label: "Verified Revenue", glyph: "REV", tone: "green" };
+    return { label: "Verified revenue", glyph: "VER", tone: "green" };
   }
   if (txAmount(tx) > 0 && revenueState === "unverified_deposit") {
-    return { label: "Unverified Deposit", glyph: "?", tone: "amber" };
+    return { label: "Unverified deposit", glyph: "?", tone: "amber" };
   }
   if (txAmount(tx) > 0 && revenueState === "non_revenue") {
-    return { label: "Non-Revenue", glyph: "X", tone: "neutral" };
+    return { label: "Non-revenue", glyph: "X", tone: "neutral" };
   }
   const state = record.classification || "other";
   const entity = record.canonical_entity || "";
@@ -661,6 +673,32 @@ function contributesToPotentialTotals(tx) {
 // A row of a flagged group ticked in Settings: the server marks it (flag_shown) when it serves the analysis.
 function flaggedChip(tx) {
   return transactionClassification(tx).flag_shown === true ? glassChip("FLG", "Flagged", "blue", "flag-chip") : "";
+}
+
+// 5.5 (true revenue spec §7.10, T15): a property-management platform's verified payout says so beside its tag.
+function revenueSourceChip(tx) {
+  const record = transactionClassification(tx);
+  const signals = Array.isArray(record.revenue_context_signals) ? record.revenue_context_signals : [];
+  return record.revenue_classification === "verified_revenue" && signals.includes("property_management_collections")
+    ? glassChip("PM", "Property-management collections", "blue", "flag-chip") : "";
+}
+
+// 5.6 (true revenue spec §10.6): the revenue filters, value -> test of a row's classification record. A row analysed
+// before 5.6 carries no tier (and its served copy no contributes_to_true_revenue), so only Verified and Non-Revenue
+// find it.
+const REVENUE_FILTERS = Object.freeze({
+  true_revenue: (record) => record.contributes_to_true_revenue === true,
+  verified_revenue: (record) => record.revenue_classification === "verified_revenue",
+  counted_flagged: (record) => record.revenue_tier === "counted_flagged",
+  excluded_pending_review: (record) => record.revenue_tier === "excluded_pending_review",
+  non_revenue: (record) => record.revenue_classification === "non_revenue",
+});
+
+// The ledger filter behind one reason of the Held for Review view is "excluded_pending_review:<reason>". Null for any
+// other filter.
+function heldReasonFilter(filter) {
+  const match = /^excluded_pending_review:([a-z_0-9]+)$/.exec(String(filter || ""));
+  return match ? match[1] : null;
 }
 
 // The ledger filter behind one row of the Flagged positions panel is "flagged:<group>": that group's rows that count,
@@ -784,10 +822,15 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
         && record.contributes_to_flagged_totals === true;
     });
   }
-  if (["verified_revenue", "unverified_deposit", "non_revenue"].includes(filter)) {
-    matched = transactions.filter(
-      (tx) => transactionClassification(tx).revenue_classification === filter
-    );
+  if (REVENUE_FILTERS[filter]) {
+    matched = transactions.filter((tx) => txAmount(tx) > 0 && REVENUE_FILTERS[filter](transactionClassification(tx)));
+  }
+  const heldReason = heldReasonFilter(filter);
+  if (heldReason) {
+    matched = transactions.filter((tx) => {
+      const record = transactionClassification(tx);
+      return record.revenue_tier === "excluded_pending_review" && record.revenue_tier_reason === heldReason;
+    });
   }
   if (!canonicalEntity) return matched;
   if (flagGroup) return matched.filter((tx) => flaggedPayeeOf(tx) === canonicalEntity);
@@ -817,9 +860,20 @@ function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
   return jobId && sourceLocation ? { jobId, account: reviewAccountOf(tx, fallbackAccount), sourceLocation } : null;
 }
 
+// The review a credit may take (true revenue spec §10.7), as the server allows it: "both" (Confirm Revenue and Mark
+// Non-Revenue) for a credit the classifier left unverified (held or counted), "reject" (Mark Non-Revenue only) for a
+// credit a rule verified, "" for anything else. An analysis saved before 5.6 carries no tier and keeps its rules: only
+// a credit left unverified is reviewed.
+function revenueReviewKind(record) {
+  if (record.revenue_initial_classification === "unverified_deposit") return "both";
+  if (record.revenue_initial_classification === "verified_revenue" && typeof record.revenue_tier === "string") return "reject";
+  return "";
+}
+
 function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null) {
   const record = transactionClassification(tx);
-  if (record.revenue_initial_classification !== "unverified_deposit") return "";
+  const kind = revenueReviewKind(record);
+  if (!kind) return "";
   const jobId = tx.source_job || fallbackJobId;
   const sourceLocation = record.source_location;
   if (!jobId || !sourceLocation) return "";
@@ -838,9 +892,12 @@ function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null)
       </div>
     `;
   }
+  const confirm = kind === "both"
+    ? `<button class="table-action review-confirm" type="button" ${common} data-revenue-review-action="confirm" aria-label="Confirm this deposit as operating revenue">Confirm Revenue</button>`
+    : "";
   return `
     <div class="revenue-review-actions">
-      <button class="table-action review-confirm" type="button" ${common} data-revenue-review-action="confirm" aria-label="Confirm this deposit as operating revenue">Confirm Revenue</button>
+      ${confirm}
       <button class="table-action review-reject" type="button" ${common} data-revenue-review-action="reject" aria-label="Exclude this deposit from operating revenue">Mark Non-Revenue</button>
     </div>
   `;
@@ -848,7 +905,13 @@ function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null)
 
 function revenueReviewReason(tx) {
   const record = transactionClassification(tx);
-  if (txAmount(tx) <= 0 || record.revenue_classification !== "unverified_deposit") return "";
+  if (txAmount(tx) <= 0) return "";
+  // 5.6 (true revenue spec §10.6): a counted or held credit names its reason, and one sentence on it.
+  const entry = REVENUE_TIER_REASONS[record.revenue_tier_reason];
+  if (entry && (record.revenue_tier === "counted_flagged" || record.revenue_tier === "excluded_pending_review")) {
+    return `${entry[1]}. ${entry[2]}`;
+  }
+  if (typeof record.revenue_tier === "string" || record.revenue_classification !== "unverified_deposit") return "";
   const reasons = {
     deposit_source_requires_review: "Generic deposit with insufficient source information.",
     unknown_credit_source_requires_review: "Unable to determine whether this deposit represents operating revenue.",
@@ -990,7 +1053,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
         <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
-        <td>${glassChip(category.glyph, category.label, category.tone)}${flaggedChip(tx)}${reviewReasonHtml}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${flaggedChip(tx)}${revenueSourceChip(tx)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
         <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
@@ -4119,7 +4182,8 @@ function navigate(target) {
       return;
     }
     revealOpenAnalysis("review");
-    showMainRevenueEvidence("unverified_deposit");
+    // 5.6 (true revenue spec §10.7): what needs review now is the held credits.
+    showMainRevenueEvidence("excluded_pending_review");
     return;
   }
   const wantPackage = target === "packages";
