@@ -655,6 +655,9 @@ _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
     re.compile(r"\b(?:E TRANSFER|ETRANSFER|TRANSFER) (?:RETURNED|CANCEL(?:LED|ED)?|CNCL)\b"),
     re.compile(r"\b(?:RETURNED|CANCEL(?:LED|ED)?|CNCL) (?:E TRANSFER|ETRANSFER|TRANSFER)\b"),
     re.compile(r"\bCNCL\b"),
+    # S4.2 final review (fix 4): CANCELLED's French words ('VIREMENT ANNULE', 'VIREMENT INTERAC ANNULE', 'ANNUL VFC'),
+    # whole words with the veto convention's (?<![A-Z]) left boundary, so a digit glued on the left never hides one.
+    re.compile(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULATION)\b"),
     re.compile(r"\bREIMBURSEMENT\b"),
     re.compile(r"\bNSF\b"),
     re.compile(r"\bRETURNED (?:PAYMENT|ITEM|CHECK|CHEQUE|DEPOSIT)\b"),
@@ -900,10 +903,13 @@ _RECEIVER_VALUE_END = r".*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\
 _CREDIT_RECEIVER_VALUE = re.compile(_CREDIT_RECEIVER_FIELD.pattern + _RECEIVER_VALUE_END)
 #: §5.2 (S4.2 re-review fix 7): an incoming wire's beneficiary field (BNF, NBNF, BENEFICIARY, BNF NAME, as the wire
 #: readers name them) with its value, up to the next wire field. ORIG TO BNF is the originator's remittance text, not
-#: a beneficiary.
+#: a beneficiary. S4.2 final review (fix 6): the value also ends at every originator label the wire readers read
+#: (_WIRE_ORIGINATOR_LABEL: WIRE IN FROM, WIRE FROM, FUNDS TRANSFER CREDIT TT, INBD FUNDS TRANSFER RECEIVED) and at
+#: FROM, so 'INCOMING WIRE BNF <holder> FROM STRIPE INC' still names its originator.
 _CREDIT_WIRE_BENEFICIARY_VALUE = re.compile(
     r"(?<!\bTO )\b(?:N?BNF|BENEFICIARY)(?: NAME)?\b.*?"
-    r"(?=\b(?:REF|OBI|RFB|IMAD|OMAD|TRN|SRF|BBI|SND BK|PMT DET|RMR|ORIG|ORIGINATOR|ORG|B O)\b|$)"
+    r"(?=\b(?:REF|OBI|RFB|IMAD|OMAD|TRN|SRF|BBI|SND BK|PMT DET|RMR|ORIG|ORIGINATOR|ORG|B O|WIRE IN FROM|WIRE FROM"
+    r"|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER RECEIVED|FROM)\b|$)"
 )
 #: §5.2: the bank's words printed before the payer, removed before the payer is read (with _PAYEE_TEMPLATE_PREFIX).
 _REVENUE_TEMPLATE_PREFIX = re.compile(

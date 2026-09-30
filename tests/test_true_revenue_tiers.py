@@ -853,3 +853,155 @@ def test_the_census_reads_a_virement_s_transfer_fact_as_pass_7_does():
         record = _one(text, 250.0)
         facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
         assert facts["transfer_no_counterparty"] is held
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.2 final review, fix round 3 (2026-09-29, under the owner's delegation): an Interac company sender after a
+# reference groups, a company printed without FROM is a transfer's counterparty, a wallet's city and a state code are
+# tails only and a cash-out voids only a wallet's sender, French cancelled transfers are reversals, French months and
+# bank branches are never a counterparty, and a credit wire's beneficiary value ends at the originator's label.
+# ---------------------------------------------------------------------------------------------------------------------
+HOLDER_HELD = ("excluded_pending_review", "holder_name")
+
+
+@pytest.mark.parametrize("layout", [
+    "E TRANSFER {ref} FABRIKAM SUPPLY LTD", "INTERAC E TRANSFER RECEIVED {ref} NORTHWIND TRADING INC",
+    "E TRANSFER AUTODEPOSIT {ref} FABRIKAM SUPPLY CORP", "VIREMENT INTERAC {ref} SAMPLE SUPPLY LTD",
+])
+def test_an_interac_company_sender_after_a_reference_groups(layout):
+    # Q4, §5.2 (fix 1): only a numbered company proper (six or more digits and a province) keeps its number; any other
+    # reference before a company sender is dropped, so one company's round sums are one sender's.
+    rows = _records([(layout.format(ref="123456789012"), 500.0), (layout.format(ref="210987654321"), 600.0),
+                     (layout.format(ref="112233445566"), 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+def test_a_numbered_company_sender_keeps_its_number():
+    same = _records([("E TRANSFER 123456789012 1234567 ALBERTA LTD", 500.0),
+                     ("E TRANSFER 210987654321 1234567 ALBERTA LTD", 600.0)])
+    assert [_tier(record)[1] for record in same] == ["p2p_round_repeat", "p2p_round_repeat"]
+    two = _records([("E TRANSFER 1234567 QUEBEC INC", 500.0), ("E TRANSFER 7654321 QUEBEC INC", 600.0)])
+    assert [_tier(record) for record in two] == [P2P, P2P]
+    holder = _one("E TRANSFER 123456789012 1234567 ALBERTA LTD", 500.0, holder="1234567 ALBERTA LTD")
+    assert _tier(holder) == HOLDER_HELD
+
+
+@pytest.mark.parametrize("text", [
+    "VIREMENT RECU 1234567 QUEBEC INC", "VIREMENT RECU 1234-5678 QUEBEC INC", "VIREMENT DE 9123-4567 QUEBEC INC",
+    "02 JUIN VIREMENT RECU 1234-5678 QUEBEC INC AB12CD", "ONLINE TRANSFER 1234567 ONTARIO INC",
+    "ONLINE BANKING TRANSFER 1234-5678 QUEBEC INC", "ONLINE TRANSFER REF 1234 NORTHWIND LTD",
+])
+def test_a_company_printed_without_from_is_a_transfer_s_counterparty(text):
+    # §8.2, T13 (fix 2): the company-form arm reads the words after the transfer wording when no FROM prints; a
+    # numbered company is a counterparty too: counted and flagged, never verified (OQ3).
+    from analysis import true_revenue
+    from analysis.description_text import normalize_transaction_description
+    from analysis.transaction_classifier import revenue_text
+
+    record = _one(text, 2500.0)
+    assert _tier(record) == P2P
+    assert record.revenue_classification == "unverified_deposit"
+    facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+    assert facts["transfer_no_counterparty"] is False
+
+
+@pytest.mark.parametrize("text", [
+    "ONLINE TRANSFER 1234567", "ONLINE TRANSFER OPERATING LLC", "VIREMENT RECU 1234567", "ONLINE TRANSFER AB CO",
+    "ONLINE BANKING TRANSFER CREDIT REF 88",
+])
+def test_a_transfer_printing_no_company_without_from_stays_held(text):
+    assert _tier(_one(text, 2500.0)) == HELD_TRANSFER
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    ("ZELLE CREDIT NEW YORK FABRIKAM LLC", "NEW YORK FABRIKAM LLC"),
+    ("INTERAC E TRANSFER RECEIVED SAN JOSE CONTOSO LLC", "SAN JOSE CONTOSO LLC"),
+    ("ZELLE CREDIT OAKLAND AUTO NORTHWIND LLC", "OAKLAND AUTO NORTHWIND LLC"),
+    ("ZELLE CREDIT CUPERTINO SAMPLE LLC", "CUPERTINO SAMPLE LLC"),
+    ("CASH APP*NEW YORK FABRIKAM LLC*OAKLAND CA", "NEW YORK FABRIKAM LLC"),
+    ("ZELLE CREDIT CASH OUT AUTO LLC", "CASH OUT AUTO LLC"),
+    ("ZELLE CREDIT REQUEST FABRIKAM LLC", "REQUEST FABRIKAM LLC"),
+])
+def test_a_sender_named_after_a_city_or_a_layout_word_takes_the_holder_test_and_the_round_repeat(text, holder):
+    # Q4, §5.2 (fix 3): a city ends the sender only as its tail, a cash-out voids only a wallet's sender, and a layout
+    # word inside a name never defeats the holder test.
+    assert _tier(_one(text, 5000.0, holder=holder)) == HOLDER_HELD
+    rows = _records([(text, 500.0), (text, 600.0), (text, 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+@pytest.mark.parametrize(("first", "second"), [
+    ("APPLE CASH INST XFER 12345678901234567890 CUPERTINO CA", "APPLE CASH INST XFER 09876543210987654321 CUPERTINO CA"),
+    ("CARD CREDIT APPLE CASH INST 1234 CUPERTINO CAUS", "CARD CREDIT APPLE CASH INST 5678 CUPERTINO CAUS"),
+    ("RTP CREDIT VENMO SAN JOSE CA 03 12345", "RTP CREDIT VENMO SAN JOSE CA 03 54321"),
+    ("RTP CREDIT 1BOOK INC SOUTH SAN FRANCISCO CA 123456789", "RTP CREDIT 2BOOK INC SOUTH SAN FRANCISCO CA 987654321"),
+    ("PAYMENT RECEIVED 03 02 CASH APP JOHN SMITH CASH OUT OAKLAND CA CARD 1234",
+     "PAYMENT RECEIVED 03 03 CASH APP JOHN SMITH CASH OUT OAKLAND CA CARD 1234"),
+])
+def test_a_wallet_s_own_city_or_cash_out_still_prints_no_sender(first, second):
+    rows = _records([(first, 500.0), (second, 600.0)])
+    assert [_tier(record) for record in rows] == [P2P, P2P]
+
+
+def test_a_state_code_is_a_tail_only_after_two_words():
+    # M7: 'KIM PA' and 'KIM MA' are two senders; 'JOHN SMITH NY' is John Smith.
+    two = _records([("ZELLE CREDIT KIM PA", 500.0), ("ZELLE CREDIT KIM MA", 600.0)])
+    assert [_tier(record) for record in two] == [P2P, P2P]
+    one = _records([("ZELLE CREDIT JOHN SMITH NY", 500.0), ("ZELLE CREDIT JOHN SMITH", 600.0),
+                    ("VENMO FABRIKAM LLC VISA DIRECT NY", 700.0), ("ZELLE CREDIT FABRIKAM LLC", 800.0)])
+    assert [_tier(record)[1] for record in one] == ["p2p_round_repeat"] * 4
+
+
+@pytest.mark.parametrize("text", [
+    "VIREMENT ANNULE JOHN SMITH", "VIREMENT INTERAC ANNULE", "VIREMENT INTERAC ANNULE JOHN SMITH",
+    "VIREMENT ANNULE", "ANNUL VFC 1VT", "VIREMENT ANNULATION 1234", "OPERATION ANNULEE 1234", "1234ANNULE VIREMENT",
+])
+def test_a_french_cancelled_transfer_is_a_reversal(text):
+    # §6 precedence (fix 4): refunds and reversals never become revenue; ANNULE is CANCELLED's French.
+    record = _one(text, 250.0)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+    assert record.revenue_tier == "non_revenue"
+
+
+def test_a_french_cancelled_transfer_pairs_with_its_equal_row_as_a_reversal():
+    # §6.2 pass 4: the reversal pair reads the credit markers on the credit or on the debit it pairs, ANNULE included.
+    cancelled_in = _records([("VIREMENT INTERAC JOHN SMITH", -400.0), ("VIREMENT INTERAC ANNULE JOHN SMITH", 400.0)])
+    assert cancelled_in[1].revenue_match_method == "matched_reversal_pair"
+    cancelled_out = _records([("VIREMENT INTERAC ANNULE JOHN SMITH", -400.0), ("VIREMENT INTERAC JOHN SMITH", 400.0)])
+    assert cancelled_out[1].revenue_match_method == "matched_reversal_pair"
+
+
+def test_a_word_that_only_starts_like_annule_is_no_reversal():
+    assert _one("VIREMENT INTERAC ANNULUS JOHN SMITH", 250.0).revenue_classification == "unverified_deposit"
+
+
+@pytest.mark.parametrize("text", [
+    "02 JUIN VIREMENT EN LIGNE TF 1234", "02 JANV VIREMENT PAR BANQUE EN DIRECT 1234",
+    "02 FEVR VIREMENT PAR BANQUE EN DIRECT 1234", "02 MAI VIREMENT PAR BANQUE EN DIRECT 1234",
+    "02 AOUT VIREMENT PAR BANQUE EN DIRECT 1234", "02 MARS VIREMENT EN LIGNE TF 1234",
+    "02 DECEMBRE VIREMENT PAR BANQUE EN DIRECT 1234", "02 JUIL VIREMENT EN LIGNE TF 1234",
+    "VIREMENT CTR BANCAIRE 1234", "VIREMENT CENTRE BANCAIRE 1234", "VIREMENT SUCCURSALE 1234",
+    "ONLINE TRANSFER BRANCH 1234",
+])
+def test_a_french_month_or_a_bank_branch_is_never_a_transfer_s_counterparty(text):
+    # §8.2 (fix 5): a date's French month and a bank's branch name nobody who pays the business.
+    assert _tier(_one(text, 2500.0)) == HELD_TRANSFER
+
+
+@pytest.mark.parametrize("text", [
+    "INCOMING WIRE BNF SQUARE ONE BAKERY FROM STRIPE INC",
+    "INCOMING WIRE BNF SQUARE ONE BAKERY WIRE FROM STRIPE INC",
+])
+def test_a_credit_wire_s_beneficiary_value_ends_at_the_originator_label(text):
+    # §5.2 (fix 6): the beneficiary field's value ends at an originator label, so the originator still names a source.
+    from analysis import transaction_classifier as classifier
+
+    assert classifier._is_wire_row(text)
+    stripped = classifier._without_receiver_value(text)
+    assert "STRIPE INC" in stripped and "SQUARE" not in stripped
+    for label in ("B O", "ORIGINATOR", "ORG"):
+        assert "NORTHWIND" in classifier._without_receiver_value(
+            f"INCOMING WIRE BNF SQUARE ONE BAKERY {label} NORTHWIND EXPORTS LLC")
+    rows = _records([(text, 9000.0), (text, 9100.0)], holder="SQUARE ONE BAKERY LLC")
+    assert {record.revenue_canonical_entity for record in rows} == {"Stripe"}

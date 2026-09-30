@@ -223,16 +223,22 @@ _P2P_LAYOUT_PHRASES = re.compile(
 )
 #: Q4, §5.2 (S4.2 re-review fix 1b): a wallet's city, printed after its sender ('CASH APP*<sender>*OAKLAND CA', Apple
 #: Cash's CUPERTINO CA, Venmo's NEW YORK CITY NY and SAN JOSE CA, Square's SAN FRANCISCO CA): the sender ends there.
-_P2P_WALLET_CITY = re.compile(r"(?<![A-Z])(?:CUPERTINO|OAKLAND|(?:SOUTH )?SAN FRANCISCO|SAN JOSE|NEW YORK)\b")
+#: S4.2 final review (fix 3): only as the sender's tail (_without_city_tail): a sender whose name starts with the city
+#: ('ZELLE CREDIT NEW YORK FABRIKAM LLC') keeps it.
+_P2P_WALLET_CITY = re.compile(r"(?<![A-Z])(?:CUPERTINO|OAKLAND|(?:SOUTH )?SAN FRANCISCO|SAN JOSE|NEW YORK(?: CITY)?)\b")
 #: Q4, §5.2 (S4.2 re-review fix 1b): the US state codes a wallet prints as a trailing tail ('VENMO <sender> VISA
-#: DIRECT NY'), removed from the sender's end.
+#: DIRECT NY'), removed from the sender's end (_without_state_tail).
 _US_STATE_TAIL = frozenset("""
 AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC
 SD TN TX UT VT VA WA WV WI WY DC PR US CAUS
 """.split())
 #: §5.2 (S4.2 re-review fix 1b): a Venmo or Cash App cash-out prints no sender ('CASH APP*CASH OUT*OAKLAND CA',
-#: 'VENMO CASHOUT <reference> <name>': the name is the wallet's owner).
-_P2P_CASH_OUT = re.compile(r"(?<![A-Z])CASH ?OUT\b")
+#: 'VENMO CASHOUT <reference> <name>': the name is the wallet's owner). S4.2 final review (fix 3): only on a Cash App or
+#: Venmo row: CASH OUT on any other rail is a sender's own words ('ZELLE CREDIT CASH OUT AUTO LLC').
+_P2P_CASH_OUT = re.compile(
+    r"(?<![A-Z])(?:CASH ?APP|SQUARE CASH|VENMO)\b.*?(?<![A-Z])CASH ?OUT\b"
+    r"|(?<![A-Z])CASH ?OUT\b.*?(?<![A-Z])(?:CASH ?APP|SQUARE CASH|VENMO)\b"
+)
 #: Q4 (S4.2 re-review fix 1b): a legal form or an article alone names nobody ('RTP CREDIT 1ABC INC SAN FRANCISCO CA',
 #: whose name the reference reading drops).
 _NOT_A_NAME_ALONE = frozenset({
@@ -251,6 +257,15 @@ _INTERAC_FORM = re.compile(r"(?<![A-Z])(?:INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|A
 _VIREMENT_TRANSFER_WORDS = frozenset({
     "VIREMENT", "LIGNE", "TF", "ENTRE", "COMPTE", "COMPTES", "FONDS", "RECU", "RECUE", "ENTRANT", "ENTRANTE", "PAR",
 })
+#: §8.2 (S4.2 final review, fix 5): the French month names and abbreviations a date prints ('02 JUIN VIREMENT EN
+#: LIGNE TF <reference>'), never a transfer's counterparty (the English ones are reference tokens already).
+_FRENCH_MONTHS = frozenset({
+    "JANV", "JANVIER", "FEVR", "FEVRIER", "MARS", "AVR", "AVRIL", "MAI", "JUIN", "JUIL", "JUILLET", "AOUT", "SEPT",
+    "SEPTEMBRE", "OCT", "OCTOBRE", "NOV", "NOVEMBRE", "DEC", "DECEMBRE",
+})
+#: §8.2 (S4.2 final review, fix 5): a bank branch a transfer prints ('AVIS VIREMENT <n> CTR BANCAIRE <branch>'), never
+#: its counterparty.
+_BANK_BRANCH_WORDS = re.compile(r"(?<![A-Z])(?:CTR BANCAIRE|CENTRE BANCAIRE|SUCCURSALE|BRANCH)\b")
 
 
 @dataclass(frozen=True)
@@ -336,52 +351,135 @@ def _p2p_sender_rail() -> re.Pattern[str]:
 
 def _p2p_sender_region(text: str) -> str:
     """Q4, §5.2 (S4.2 review I7): the sender a person-to-person rail prints without FROM ('E TRANSFER AUTODEPOSIT
-    <sender>', 'INTERAC E TRANSFER RECEIVED <sender>', 'ZELLE TRANSFER <sender>', 'ZELLE CREDIT <sender>'): the name
-    words after a consumer rail or RTP, skipping the rail, posting, layout and generic words and single letters, up
-    to a field label, one of §5.2's sender ends or a reference token after a name word. When a rail is followed by no
-    name word the next rail is read ('NOW NETWORK CREDIT ZELLE CREDIT NOW NET ID <n> ZELLE <sender>'). '' when the row
-    prints FROM (payer_region reads it), names a recipient or a reversal, or prints no sender (a Venmo or Cash App
-    cash-out).
+    <sender>', 'INTERAC E TRANSFER RECEIVED <sender>', 'ZELLE TRANSFER <sender>', 'ZELLE CREDIT <sender>'), as its key
+    reads it (_p2p_sender_readings)."""
+    return _p2p_sender_readings(text)[0]
 
-    S4.2 re-review (fix 1): a reference printed before the sender is kept only as a numbered company's number (the
-    number and the words after it read as §5.2's numbered payer region: its identity, and the holder test's digit
-    run), so a per-row reference never splits one sender ('E TRANSFER <reference> <sender>'). A sending bank's name
-    and Zelle's PAY ID are removed first, the sender ends at a wallet's city, a trailing US state code is dropped, and
-    a legal form or an article alone is no sender."""
+
+def _p2p_sender_readings(text: str) -> tuple[str, str]:
+    """Q4, §5.2 (S4.2 review I7): the sender a person-to-person rail prints without FROM, read two ways: (its key
+    reading, its holder-test reading). The key reading is the name words after a consumer rail or RTP, skipping the
+    rail, posting, layout and generic words and single letters, up to a field label, one of §5.2's sender ends or a
+    reference token after a name word. When a rail is followed by no name word the next rail is read ('NOW NETWORK
+    CREDIT ZELLE CREDIT NOW NET ID <n> ZELLE <sender>'). ('', '') when the row prints FROM (payer_region reads it),
+    names a recipient or a reversal, or prints no sender (a Venmo or Cash App cash-out).
+
+    S4.2 re-review (fix 1): a reference printed before the sender is no part of it, so a per-row reference never
+    splits one sender ('E TRANSFER <reference> <sender>'). A sending bank's name and Zelle's PAY ID are removed first,
+    the sender ends at a wallet's city, a trailing US state code is dropped, and a legal form or an article alone is
+    no sender.
+
+    S4.2 final review (fixes 1 and 3): the number is kept only on §5.2's province arm, the numbered company proper
+    ('1234567 ONTARIO INC': its identity, and the holder test's digit run), so '<reference> FABRIKAM SUPPLY LTD' is one
+    sender. A city ends the sender only as its tail, and a state code only after two words (_without_state_tail). A
+    legal form left alone by the skipped words reads them back ('ZELLE CREDIT CASH OUT AUTO LLC'). The holder test
+    also reads a layout word inside the name ('ZELLE CREDIT REQUEST FABRIKAM LLC'), which the key skips so that one
+    sender's rows printed with and without it stay one sender."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     if re.search(r"\bFROM\b", row) or _P2P_CASH_OUT.search(row):
-        return ""
+        return "", ""
     for rail in _p2p_sender_rail().finditer(row):
-        rest = _P2P_LAYOUT_PHRASES.sub(" ", row[rail.end():])
-        city = _P2P_WALLET_CITY.search(rest)
-        if city is not None:
-            rest = rest[: city.start()]
-        words: list[str] = []
-        number = ""
-        for token in rest.split():
-            if token in _P2P_SENDER_END_WORDS or token in _TRANSFER_FIELD_LABEL_WORDS:
-                break
-            if token in _P2P_NO_SENDER_WORDS:
-                return ""
-            if classifier._is_reference_token(token):
-                if words:
-                    break
-                number = token if token.isdigit() and len(token) >= 6 else ""
-                continue
-            if (
-                token in classifier.REVENUE_GENERIC_WORDS or token in _P2P_NOT_SENDER_WORDS
-                or token in _P2P_LAYOUT_WORDS or len(token) < 2
-            ):
-                continue
-            words.append(token)
-        while words and words[-1] in _US_STATE_TAIL:
-            words.pop()
-        if number and classifier._NUMBERED_COMPANY_REGION.match(" ".join([number, *words])):
-            return " ".join([number, *words])
+        read = _sender_tokens(_without_city_tail(_P2P_LAYOUT_PHRASES.sub(" ", row[rail.end():])))
+        if read is None:
+            return "", ""
+        tokens, number = read
+        words = _without_state_tail([token for token, name in tokens if name])
+        if number and _numbered_province_sender().match(" ".join([number, *words])):
+            return " ".join([number, *words]), " ".join([number, *words])
         if words and not all(word in _NOT_A_NAME_ALONE for word in words):
-            return " ".join(words)
-    return ""
+            return " ".join(words), _holder_reading(tokens)
+        formed = _read_back_legal_form(tokens)
+        if formed:
+            return formed, formed
+    return "", ""
+
+
+@cache
+def _numbered_province_sender() -> re.Pattern[str]:
+    """Q4, §5.2 (S4.2 final review, fix 1): the province arm of §5.2's numbered payer region: six or more digits and
+    a province, territory, CANADA or a cut of one."""
+    return re.compile(rf"^\d{{6,}} {_classifier()._PROVINCE}\b")
+
+
+def _sender_tokens(rest: str) -> tuple[list[tuple[str, bool]], str] | None:
+    """Q4: the words of a sender printed after a rail, up to a field label, one of §5.2's sender ends or a reference
+    token after a name word, generic words and single letters skipped: each word with whether it is a name word (not
+    a rail, posting or layout word), and the reference printed before the name (six or more digits, or ''). None when
+    the row names a recipient or a reversal."""
+    classifier = _classifier()
+    tokens: list[tuple[str, bool]] = []
+    number = ""
+    for token in rest.split():
+        if token in _P2P_SENDER_END_WORDS or token in _TRANSFER_FIELD_LABEL_WORDS:
+            break
+        if token in _P2P_NO_SENDER_WORDS:
+            return None
+        if classifier._is_reference_token(token):
+            if any(name for _, name in tokens):
+                break
+            number = token if token.isdigit() and len(token) >= 6 else ""
+            continue
+        if token in classifier.REVENUE_GENERIC_WORDS or len(token) < 2:
+            continue
+        tokens.append((token, token not in _P2P_NOT_SENDER_WORDS and token not in _P2P_LAYOUT_WORDS))
+    return tokens, number
+
+
+def _without_city_tail(rest: str) -> str:
+    """Q4, §5.2 (S4.2 final review, fix 3): the words after a rail, cut at a wallet's city printed as the sender's
+    tail: after a name word ('CASH APP*<sender>*OAKLAND CA'), or with no name word after it but a state code ('APPLE
+    CASH INST XFER CUPERTINO CA'). A city followed by name words starts the sender's name and is kept ('ZELLE CREDIT
+    NEW YORK FABRIKAM LLC', 'CASH APP*NEW YORK FABRIKAM LLC*OAKLAND CA', which ends at OAKLAND)."""
+    for city in _P2P_WALLET_CITY.finditer(rest):
+        before = _sender_tokens(rest[: city.start()])
+        after = _sender_tokens(rest[city.end():])
+        named_before = before is not None and any(name for _, name in before[0])
+        named_after = after is not None and any(name and token not in _US_STATE_TAIL for token, name in after[0])
+        if named_before or not named_after:
+            return rest[: city.start()]
+    return rest
+
+
+def _without_state_tail(words: list[str]) -> list[str]:
+    """Q4, §5.2 (S4.2 final review, M7): the sender's words without a trailing US state code printed after two words
+    or more ('JOHN SMITH NY', 'FABRIKAM LLC NY'), or with no name word before it (a code alone names nobody). After a
+    single name word it is the name's own ('KIM PA' and 'KIM MA' are two senders)."""
+    words = list(words)
+    while words and words[-1] in _US_STATE_TAIL and (
+        len(words) >= 3 or all(word in _US_STATE_TAIL or word in _NOT_A_NAME_ALONE for word in words[:-1])
+    ):
+        words.pop()
+    return words
+
+
+def _holder_reading(tokens: list[tuple[str, bool]]) -> str:
+    """Q4, §5.2 (S4.2 final review, M7): the sender as the holder test reads it: the name words, and each layout word
+    next to one, so a layout word never defeats the holder test ('REQUEST FABRIKAM LLC' paying Request Fabrikam). A
+    rail or posting word ('AUTO' of AUTO DEPOSIT, 'CASH') is never read back: a holder named with it would be held on
+    every such row."""
+    kept = []
+    for index, (token, name) in enumerate(tokens):
+        beside = [tokens[at][1] for at in (index - 1, index + 1) if 0 <= at < len(tokens)]
+        if name or (token in _P2P_LAYOUT_WORDS and any(beside)):
+            kept.append(token)
+    return " ".join(_without_state_tail(kept))
+
+
+def _read_back_legal_form(tokens: list[tuple[str, bool]]) -> str:
+    """Q4, §5.2 (S4.2 final review, fix 3): a sender whose only name words are a legal form or an article, and whose
+    skipped words stand right before them: those words and the form, when they read as a company form ('CASH OUT AUTO
+    LLC'); '' otherwise ('RTP CREDIT 1ABC INC', 'ZELLE BUSINESS PAYMENT')."""
+    names = [index for index, (_, name) in enumerate(tokens) if name]
+    if not names or not all(tokens[index][0] in _NOT_A_NAME_ALONE for index in names):
+        return ""
+    start = names[0]
+    while start > 0 and not tokens[start - 1][1]:
+        start -= 1
+    if start == names[0]:
+        return ""
+    sender = " ".join(_without_state_tail([token for token, _ in tokens[start:]]))
+    return sender if _classifier().company_form(sender) else ""
 
 
 def _sender_key(sender: str) -> tuple[str, ...]:
@@ -614,14 +712,17 @@ def _transfer_counterparty_words(text: str) -> list[str]:
     transfer's originator (_originator_payer_words), so an account description ('FROM HELOC', 'FROM TAX RESERVE',
     'FROM OPERATING') is never a counterparty. S4.2 re-review (fix 4): failing that, a short or company-formed name
     after FROM is one (_short_or_formed_counterparty). S4.2 follow-up 2: the French transfer and posting words
-    (_VIREMENT_TRANSFER_WORDS) are removed too."""
+    (_VIREMENT_TRANSFER_WORDS) are removed too. S4.2 final review (fix 5): so are a French month and a bank branch."""
     classifier = _classifier()
-    row = _TRANSFER_REFERENCE_VALUE.sub(" ", classifier._strip_revenue_template(classifier._before_receiver(text)))
+    row = _TRANSFER_REFERENCE_VALUE.sub(
+        " ", _BANK_BRANCH_WORDS.sub(" ", classifier._strip_revenue_template(classifier._before_receiver(text)))
+    )
     words = [
         token for token in row.split()
         if classifier._is_payer_word(token) and not classifier._is_reference_token(token)
         and token not in _ACCOUNT_WORDS and token not in _TRANSFER_FIELD_LABEL_WORDS
         and not classifier._TRANSFER_WORDING.fullmatch(token) and token not in _VIREMENT_TRANSFER_WORDS
+        and token not in _FRENCH_MONTHS
         and token not in {"TRANSFER", "TRNSFR", "XFER", "TFR", "BR", "TO", "BANKING", "INTERNET"}
     ]
     return classifier._originator_payer_words(" ".join(words)) or _short_or_formed_counterparty(text)
@@ -643,21 +744,49 @@ def _short_or_formed_counterparty(text: str) -> list[str]:
     LLC'). Read on the sender after FROM (the payer region, cut at §5.2's sender ends), without field labels, reference
     labels and their values, reference tokens, generic words, transfer words, account and product words and single
     letters (payer_name drops those too); the name words also leave out HOLDER_NOISE. An account description or a
-    field label after FROM ('FROM OPERATING LLC', 'FROM NAME COMPANY LLC') is still no counterparty. [] otherwise."""
+    field label after FROM ('FROM OPERATING LLC', 'FROM NAME COMPANY LLC') is still no counterparty. [] otherwise.
+
+    S4.2 final review (fix 2): on a row that prints no FROM, the company form is read on the words after the transfer
+    wording (_after_transfer_wording), so a company, a numbered one included, is a counterparty with or without FROM
+    ('VIREMENT RECU 1234567 QUEBEC INC', 'ONLINE TRANSFER 1234567 ONTARIO INC'): counted and flagged, never verified
+    (§19 OQ3)."""
     classifier = _classifier()
-    sender = _TRANSFER_REFERENCE_VALUE.sub(" ", classifier._sender_payer_region(text))
-    tokens = [
+    if re.search(r"\bFROM\b", classifier._before_receiver(text)) is None:
+        tokens = _counterparty_tokens(_after_transfer_wording(text))
+        return tokens if tokens and classifier.company_form(" ".join(tokens)) else []
+    tokens = _counterparty_tokens(classifier._sender_payer_region(text))
+    names = [token for token in tokens if token not in classifier.HOLDER_NOISE]
+    if len(names) >= 2 or (tokens and classifier.company_form(" ".join(tokens))):
+        return tokens
+    return []
+
+
+def _counterparty_tokens(words: str) -> list[str]:
+    """§8.2 (S4.2 re-review fix 4): a transfer sender's words without bank branches, reference labels and their
+    values, reference tokens, field labels, generic words, account and product words, transfer words, French months
+    and single letters."""
+    classifier = _classifier()
+    sender = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", words))
+    return [
         token for token in classifier._INTERNAL_ACCOUNT_SOURCE_WORDS.sub(" ", sender).split()
         if len(token) > 1 and not classifier._is_reference_token(token)
         and token not in _TRANSFER_FIELD_LABEL_WORDS and token not in classifier.REVENUE_GENERIC_WORDS
         and token not in _ACCOUNT_WORDS and token not in classifier._OWN_ACCOUNT_PRODUCT_WORDS
         and token not in _ACCOUNT_DESCRIPTION_WORDS and not classifier._TRANSFER_WORDING.fullmatch(token)
-        and token not in _VIREMENT_TRANSFER_WORDS
+        and token not in _VIREMENT_TRANSFER_WORDS and token not in _FRENCH_MONTHS
     ]
-    names = [token for token in tokens if token not in classifier.HOLDER_NOISE]
-    if len(names) >= 2 or (tokens and classifier.company_form(" ".join(tokens))):
-        return tokens
-    return []
+
+
+def _after_transfer_wording(text: str) -> str:
+    """§8.2 (S4.2 final review, fix 2): the words a transfer printed without FROM prints after its first transfer
+    wording (the classifier's, or a VIREMENT), before its receiver fields and up to TO (a recipient)."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    found = [match for match in (classifier._TRANSFER_WORDING.search(row), _VIREMENT.search(row)) if match is not None]
+    if not found:
+        return ""
+    rest = row[min(found, key=lambda match: match.start()).end():]
+    return re.split(r"\bTO\b", rest, maxsplit=1)[0]
 
 
 def credit_facts(
@@ -675,7 +804,9 @@ def credit_facts(
     classifier = _classifier()
     channel = _channel(text)
     region = classifier.payer_region(text)
-    sender = _p2p_sender_region(text) if not region and channel == "person_to_person" else ""
+    sender, holder_sender = (
+        _p2p_sender_readings(text) if not region and channel == "person_to_person" else ("", "")
+    )
     name = classifier.payer_name(region)
     entry = classifier.entry_fields(text)
     row = classifier._before_receiver(text)
@@ -688,7 +819,7 @@ def credit_facts(
     transfer_row = _transfer_row(row)
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, lender_words=lender_words,
-        debit_words=debit_words, sender=sender,
+        debit_words=debit_words, sender=sender, holder_sender=holder_sender,
     )
     return CreditFacts(
         channel=channel,
@@ -727,11 +858,13 @@ def _first_hold(
     lender_words: set[str],
     debit_words: set[str],
     sender: str = "",
+    holder_sender: str = "",
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. A row the registry, a payout
     entity or a factoring payee claimed takes only the insurer, possible-return, pay and benefit holds; a registry row
     that prints a financing word is held as financing_named_payer (review C2). The holder test also reads a
-    person-to-person sender printed without FROM (`sender`, Q4; S4.2 review I7)."""
+    person-to-person sender printed without FROM (`sender`, Q4; S4.2 review I7), and its holder-test reading, which
+    keeps a layout word inside the name (`holder_sender`, S4.2 final review M7)."""
     classifier = _classifier()
     row = _hold_text(text)
     if record.revenue_match_method == "insurer_customer_payment":
@@ -757,7 +890,10 @@ def _first_hold(
     word = _first_word(region) if region else None
     if not claimed and word is not None and word in lender_words:
         return "payer_debited_as_lender"
-    if not claimed and (region or sender) and classifier.holder_named(region or sender, record.account_name):
+    if not claimed and (region or sender) and (
+        classifier.holder_named(region or sender, record.account_name)
+        or (not region and holder_sender != sender and classifier.holder_named(holder_sender, record.account_name))
+    ):
         return "holder_name"
     if _PAY_WORDS.search(classifier._before_receiver(text)) or classifier._is_payroll_provider_row(
         classifier._before_receiver(text)
