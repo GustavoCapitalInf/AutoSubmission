@@ -655,15 +655,16 @@ _RELATED_PARTY_LOAN_PATTERNS = (
     re.compile(r"\bDUE TO (?:SHAREHOLDERS?|OWNERS?)\b"),
 )
 
+#: S4.2 final review (fix 4): CANCELLED's French words ('VIREMENT ANNULE', 'VIREMENT INTERAC ANNULE', 'ANNUL VFC'),
+#: whole words with the veto convention's (?<![A-Z]) left boundary, so a digit glued on the left never hides one.
+#: S4.2 fix round 5: and their plurals, ANNULES and ANNULEES.
+_FRENCH_CANCEL_CREDIT_PATTERN = re.compile(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b")
 _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
     *_REFUND_REVERSAL_PATTERNS,
     re.compile(r"\b(?:E TRANSFER|ETRANSFER|TRANSFER) (?:RETURNED|CANCEL(?:LED|ED)?|CNCL)\b"),
     re.compile(r"\b(?:RETURNED|CANCEL(?:LED|ED)?|CNCL) (?:E TRANSFER|ETRANSFER|TRANSFER)\b"),
     re.compile(r"\bCNCL\b"),
-    # S4.2 final review (fix 4): CANCELLED's French words ('VIREMENT ANNULE', 'VIREMENT INTERAC ANNULE', 'ANNUL VFC'),
-    # whole words with the veto convention's (?<![A-Z]) left boundary, so a digit glued on the left never hides one.
-    # S4.2 fix round 5: and their plurals, ANNULES and ANNULEES.
-    re.compile(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b"),
+    _FRENCH_CANCEL_CREDIT_PATTERN,
     re.compile(r"\bREIMBURSEMENT\b"),
     re.compile(r"\bNSF\b"),
     re.compile(r"\bRETURNED (?:PAYMENT|ITEM|CHECK|CHEQUE|DEPOSIT)\b"),
@@ -1207,13 +1208,28 @@ def _wire_payer_region(text: str) -> str:
     found = _WIRE_ORIGINATOR_LABEL.search(text)
     if found is None:
         return _wire_sender_after_label(text)
+    region, customer = _labelled_originator(text, found)
+    return _leading_name_words(customer) if customer else region
+
+
+def _labelled_originator(text: str, found: re.Match[str]) -> tuple[str, str]:
+    """5.5, 5.6 (§5.2, A3-G refinement): a labelled wire originator's region, and the relaying bank's customer it
+    names after a relay label ('' when it names none, relayed_customer_text)."""
     # 5.6 (A3-G review): a SWIFT 50F line number is dropped by the normalizer, where its slash still shows.
     rest = text[found.end():]
     end = _WIRE_FIELD_END.search(rest)
     region = _leading_name_words(rest[: end.start()] if end is not None else rest)
     after, city_state_end = originator_address(text, region)
-    customer = relayed_customer_text(region, rest, after=after, city_state_end=city_state_end)
-    return _leading_name_words(customer) if customer else region
+    return region, relayed_customer_text(region, rest, after=after, city_state_end=city_state_end) or ""
+
+
+def wire_relayed_customer(text: str) -> str:
+    """5.6 (final review I7, a census fact): the relaying bank's customer a labelled wire's payer region reads, or
+    '' (no label, Santander's layout, or no relay)."""
+    if _SANTANDER_WIRE.match(text) is not None:
+        return ""
+    found = _WIRE_ORIGINATOR_LABEL.search(text)
+    return _labelled_originator(text, found)[1] if found is not None else ""
 
 
 #: 5.6 (A3-G): a wire originator that reads as a bank by its own form (BANK, BANCORP, BANK N A, CREDIT UNION, SAVINGS
@@ -4137,13 +4153,32 @@ def _descriptions_share_pair_context(left: str, right: str) -> bool:
 
 #: 5.5 (§6.2 pass 4): the reversal pair reads the credit markers of step 3, return codes included.
 _PAIR_MARKER_PATTERNS = (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_CODE_CREDIT_PATTERNS)
+#: 5.6 (final review I6, §20): the lender side keeps classification 5.4's pairs. A pair the 5.4 credit markers make
+#: (step 3's markers without the return codes and the French cancel words) alone zeroes the debit's lender,
+#: potential-lender, withholding, insurance and flag contributions (setting its reversed_by) and sets the credit's
+#: settlement-reversal fields and flag contribution; the widened markers change the credit's revenue reading only.
+_LENDER_PAIR_MARKER_PATTERNS = tuple(
+    pattern for pattern in _REVERSAL_CANCELLATION_CREDIT_PATTERNS if pattern is not _FRENCH_CANCEL_CREDIT_PATTERN
+)
 
 
-def _apply_reversal_pair_context(
+def _reversal_pairs(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
-) -> list[TransactionClassification]:
-    updated = list(records)
+    markers: Sequence[re.Pattern[str]],
+    marked: dict[int, bool] | None = None,
+) -> list[tuple[int, int]]:
+    """§6.2 pass 4: the (credit index, debit index) pairs, in credit order: an equal posted debit within 14 days that
+    shares the credit's transaction family, where the credit or the debit prints one of `markers`; the nearest date,
+    then the nearest row, wins, and a debit pairs once. `marked` caches each row's marker reading."""
+    marked = {} if marked is None else marked
+
+    def has_marker(index: int) -> bool:
+        if index not in marked:
+            marked[index] = _matches_any(records[index].normalized_description, markers)
+        return marked[index]
+
+    pairs: list[tuple[int, int]] = []
     matched_debit_indexes: set[int] = set()
     for credit_index, credit in enumerate(records):
         if (
@@ -4152,7 +4187,7 @@ def _apply_reversal_pair_context(
             or not credit.is_posted
         ):
             continue
-        credit_has_marker = _matches_any(credit.normalized_description, _PAIR_MARKER_PATTERNS)
+        credit_has_marker = has_marker(credit_index)
         candidates: list[tuple[int, int]] = []
         credit_date = parse_date(credit.date)
         for debit_index, debit in enumerate(records):
@@ -4164,8 +4199,7 @@ def _apply_reversal_pair_context(
                 or round(abs(debit.amount), 2) != round(credit.amount, 2)
             ):
                 continue
-            debit_has_marker = _matches_any(debit.normalized_description, _PAIR_MARKER_PATTERNS)
-            if not credit_has_marker and not debit_has_marker:
+            if not credit_has_marker and not has_marker(debit_index):
                 continue
             debit_date = parse_date(debit.date)
             day_gap = (
@@ -4185,18 +4219,32 @@ def _apply_reversal_pair_context(
             candidates,
             key=lambda item: (item[0], abs(item[1] - credit_index), item[1]),
         )
-        debit = records[debit_index]
         matched_debit_indexes.add(debit_index)
+        pairs.append((credit_index, debit_index))
+    return pairs
+
+
+def _apply_reversal_pair_context(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    updated = list(records)
+    revenue_marked: dict[int, bool] = {}
+    revenue_pairs = _reversal_pairs(records, duplicate_indexes, _PAIR_MARKER_PATTERNS, revenue_marked)
+    # 5.6 (final review I6): the lender side's pairs are 5.4's. A statement where no row prints a widened-only marker
+    # has the same pairs on both sides.
+    widened = any(
+        revenue_marked.get(index) and not _matches_any(records[index].normalized_description,
+                                                        _LENDER_PAIR_MARKER_PATTERNS)
+        for index in revenue_marked
+    )
+    lender_pairs = (
+        _reversal_pairs(records, duplicate_indexes, _LENDER_PAIR_MARKER_PATTERNS) if widened else revenue_pairs
+    )
+    for credit_index, debit_index in revenue_pairs:
+        credit, debit = records[credit_index], records[debit_index]
         related_location = debit.source_location or f"transaction:{debit_index + 1}"
-        credit_location = credit.source_location or f"transaction:{credit_index + 1}"
-        is_settlement_reversal = _matches_any(
-            credit.normalized_description,
-            _SETTLEMENT_REVERSAL_PATTERNS,
-        ) or _matches_any(
-            debit.normalized_description,
-            _SETTLEMENT_REVERSAL_PATTERNS,
-        )
-        updated_credit = _replace_revenue_state(
+        updated[credit_index] = _replace_revenue_state(
             credit,
             "non_revenue",
             match_method="matched_reversal_pair",
@@ -4213,10 +4261,21 @@ def _apply_reversal_pair_context(
             ),
             related_transaction=related_location,
         )
+    for credit_index, debit_index in lender_pairs:
+        credit, debit = records[credit_index], records[debit_index]
+        related_location = debit.source_location or f"transaction:{debit_index + 1}"
+        credit_location = credit.source_location or f"transaction:{credit_index + 1}"
+        is_settlement_reversal = _matches_any(
+            credit.normalized_description,
+            _SETTLEMENT_REVERSAL_PATTERNS,
+        ) or _matches_any(
+            debit.normalized_description,
+            _SETTLEMENT_REVERSAL_PATTERNS,
+        )
         # A credit this pass pairs with a debit is money coming back, not a factor's
         # payout (owner ruling 2026-09-26), so it leaves the flagged totals.
         updated[credit_index] = replace(
-            updated_credit,
+            updated[credit_index],
             reversal_of=related_location if is_settlement_reversal else None,
             settlement_reversal=is_settlement_reversal,
             contributes_to_flagged_totals=False,

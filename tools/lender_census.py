@@ -51,6 +51,12 @@ GENERIC_WORDS = frozenset({
 })
 
 
+#: True revenue final review I6: the per-row flag readings each snapshot records (account_snapshot) and compare
+#: counts: the potential-lender rows (with their entity), the withholding and potential-withholding rows, and the
+#: reversal pairing of a debit (its reversed_by).
+ROW_FLAG_FIELDS = ("potential_lender_rows", "potential_withholding_rows", "reversed_by", "withholding_rows")
+
+
 def _inside(path: Path, root: Path) -> bool:
     return path.resolve().is_relative_to(root.resolve())
 
@@ -137,6 +143,26 @@ def account_snapshot(account: dict) -> dict:
         "lender_debits": metrics.lender_debits,
         "eligible_deposits": metrics.eligible_deposits,
         "withholding_rate": metrics.withholding_rate,
+        # True revenue final review I6: each row's potential-lender and withholding flags and its reversal pairing,
+        # so G7 measures a move of a debit's contributions (a reversal pair zeroing them), not only its state. A
+        # checkout older than a flag reports none for it.
+        "potential_lender_rows": [
+            [index, record.canonical_entity]
+            for index, record in enumerate(records)
+            if getattr(record, "contributes_to_potential_lender_totals", False)
+            or getattr(record, "contributes_to_potential_lender_count", False)
+        ],
+        "withholding_rows": [
+            index for index, record in enumerate(records) if getattr(record, "contributes_to_withholding_rate", False)
+        ],
+        "potential_withholding_rows": [
+            index for index, record in enumerate(records)
+            if getattr(record, "contributes_to_potential_withholding_exposure", False)
+        ],
+        "reversed_by": [
+            [index, record.reversed_by] for index, record in enumerate(records)
+            if getattr(record, "reversed_by", None)
+        ],
     }
 
 
@@ -183,6 +209,8 @@ def compare(
     withholding: Counter = Counter()
     deposits: Counter = Counter()
     moves: list[tuple[float, str]] = []
+    row_flags: dict = {name: {"analyses": set(), "rows": 0} for name in ROW_FLAG_FIELDS}
+    row_flags_not_comparable = 0
     unmatched = 0
     for key, old in sorted(before["accounts"].items()):
         new = after["accounts"].get(key)
@@ -190,6 +218,17 @@ def compare(
             unmatched += 1
             continue
         sha = key.split(":")[0]
+        # Final review I6: the rows whose potential-lender, withholding or reversal reading moved; a snapshot written
+        # before the fields is not comparable.
+        if all(name in old and name in new for name in ROW_FLAG_FIELDS):
+            for name in ROW_FLAG_FIELDS:
+                was = {json.dumps(item) for item in old[name]}
+                now = {json.dumps(item) for item in new[name]}
+                if was != now:
+                    row_flags[name]["analyses"].add(sha)
+                    row_flags[name]["rows"] += len(was ^ now)
+        else:
+            row_flags_not_comparable += 1
         old_entities = {one_lender(entity) for _, entity, _ in old["lenders"]}
         new_entities = {one_lender(entity) for _, entity, _ in new["lenders"]}
         for _, entity, alias in new["lenders"]:
@@ -254,6 +293,10 @@ def compare(
         "eligible_deposits": dict(sorted(deposits.items())),
         "withholding": dict(sorted(withholding.items())),
         "largest_withholding_moves": {"down": [key for _, key in moves[:10]], "up": [key for _, key in moves[-10:][::-1]]},
+        "row_flag_moves": {
+            **{name: {"analyses": len(slot["analyses"]), "rows": slot["rows"]} for name, slot in sorted(row_flags.items())},
+            "not_comparable": row_flags_not_comparable,
+        },
     }
 
 
@@ -280,6 +323,11 @@ def _print_comparison(report: dict) -> None:
         f"{name} {count}" for name, count in report["eligible_deposits"].items()
     ))
     print("withholding rate: " + ", ".join(f"{name} {count}" for name, count in report["withholding"].items()))
+    if "row_flag_moves" in report:
+        print("row flag moves: " + ", ".join(
+            f"{name} {slot['analyses']} analyses/{slot['rows']} rows" if isinstance(slot, dict) else f"{name} {slot}"
+            for name, slot in report["row_flag_moves"].items()
+        ))
 
 
 def _use_code_root(code_root: Path) -> bool:

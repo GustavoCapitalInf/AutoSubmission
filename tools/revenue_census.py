@@ -79,6 +79,9 @@ NARROWINGS = (
     ("7_q7_dealer_funding", True),
     ("8_oq2_bnpl_settlement", True),
 )
+#: Final review I8: the narrowings that lead to True only through verification (§6.3: a claim payment and a released
+#: card credit are verified or held, never counted).
+VERIFIED_ONLY_NARROWINGS = frozenset({"2_hcclaimpmt_insurer", "6_card_credit_release"})
 #: OQ2 (§19): the five BNPL providers whose settlements left D1, by their ledger entity names.
 BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit"})
 #: The declared causes of a verified row losing its verification (§7.0, §7.11, §7.7), and the two consequences of the
@@ -91,12 +94,39 @@ BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunb
 #: guard on steps 11 to 14 (§5.2, T11) and the S1.5 ledger admissions (D1). Each cause is declared only for the 5.4 rule
 #: it governs and the 5.5 outcome it produces (_demotion_cause). Square Capital's SQ CAP is `sq_cap_or_sba` (the plan's
 #: `square_capital` named no rule of its own and is gone). Any other cause fails.
+#: True revenue final review I7: the table is the one the compare reads (a cause off it is undeclared and fails), and
+#: it holds every §20 demotion, each keyed on the new state or reason and the rule that fires (_demotion_cause): the
+#: factor never verified, a Q5 or Q6 row a later 5.6 hold names (the holder test, a personal trust, the holder's
+#: currency conversion, a title firm, a bank-originated wire, a financing root, owner money) or whose relaying bank's
+#: customer the payer region now reads, the premium-coded insurer entry, a short healthcare alias inside a business's
+#: name, a §15 deferred source, a row left to its family, pass 6's counter debit, and the CRA refund among the new
+#: non-revenue markers.
 DECLARED_DEMOTIONS = (
     "square_payroll", "acctverify", "channel_gate", "holder_veto", "customer_id", "customer_check",
     "claim_first_off", "recurrence_veto", "sq_cap_or_sba", "new_non_revenue_marker", "reversal_pair",
     "entity_split", "direction_conflict_pool", "micro_deposit_floor", "pool_below_recurrence_after_a_declared_veto",
     "wire_veto", "receiver_value", "numbered_company", "ledger_admission",
+    "factor_never_verified", "q5_q6_held_holder_name", "q5_q6_held_personal_trust", "q5_q6_held_currency_conversion",
+    "q5_q6_held_title_firm", "q5_q6_held_bank_originated_wire", "q5_q6_held_financing_root",
+    "q5_q6_held_owner_money", "q5_q6_relayed_customer", "premium_coded_insurer_entry",
+    "short_healthcare_alias_in_a_name", "q5_q6_deferred_source", "q5_q6_left_to_its_family", "counter_debit",
 )
+#: §8.5, §8.6: the methods Q5 and Q6 verify with.
+Q5_Q6_METHODS = frozenset({
+    "repeat_wire_sender", "named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer",
+})
+#: I7: the 5.6 holds a Q5 or Q6 row can take (the reason, the pass's own hold reading true_revenue.guard_facts records
+#: as `hold_rule`) and the cause each declares. The holder test's hold is its reason alone (its statement-level
+#: receiver names are no row fact).
+LATER_HOLD_CAUSES = {
+    ("holder_name", None): "q5_q6_held_holder_name",
+    ("non_sale_purpose", "personal_trust"): "q5_q6_held_personal_trust",
+    ("non_sale_purpose", "currency_conversion"): "q5_q6_held_currency_conversion",
+    ("non_sale_purpose", "title_firm"): "q5_q6_held_title_firm",
+    ("non_sale_purpose", "owner_money"): "q5_q6_held_owner_money",
+    ("financing_named_payer", "bank_originated_wire"): "q5_q6_held_bank_originated_wire",
+    ("financing_named_payer", "financing_root"): "q5_q6_held_financing_root",
+}
 #: The operating-registry methods (§8.9).
 REGISTRY_METHODS = frozenset({
     "operating_source_requires_context", "operating_source_with_credit_context", "recurring_operating_source",
@@ -229,6 +259,27 @@ _RETURN_CODES_55 = _on_masked(r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RE
 #: (_REVERSAL_CANCELLATION_CREDIT_PATTERNS, verbatim; 5.4 never read them). S4.2 fix round 5: their plurals too.
 _FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b")
 _TAX_REFUNDS_55 = _on_masked(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b")
+#: 5.6 (§20, A3-G): the Canada Revenue Agency's income-tax refund forms, which joined the strong non-revenue rule.
+_CRA_REFUND_56 = _on_masked(r"\bCANADA RI[TF]\b")
+#: I8 (narrowing 8): the consumer-side words a BNPL provider prints on a customer's own credit (a return, a refund, a
+#: withdrawal of a balance, a card, a debt collector), never on its merchant settlement (the OQ2 ruling's rows).
+_BNPL_CONSUMER_WORDS = re.compile(
+    r"(?<![A-Z])(?:AFFIRMCARD|AFFIRM CARD|SP AFF|TRUEACCORD|BALANCE WITHDRAW\w*|WITHDRAW\w*|REFUND\w*|RFND|REFND|RFD"
+    r"|RETURN\w*|REVERS\w*|CASH ?OUT|CARD|PAYOFF|COLLECTIONS?)\b"
+)
+#: I8 (narrowing 5, G7b): the base methods that read a LOAN, and §7.11's street-LN guard read on the masked text: LN
+#: after a number and one to three alphabetic words, none a loan-product word, and before no loan-payment word.
+LOAN_READING_METHODS = frozenset({
+    "strong_non_revenue_rule", "financing_proceeds_credit", "potential_lender_registry_credit_exclusion",
+})
+_LOAN_PRODUCT_WORDS = frozenset("""
+COMMERCIAL COMM AUTO BUSINESS BUS TERM PERSONAL MORTGAGE MTG EQUIPMENT EQUIP INSTALLMENT INSTL CONSUMER HOME HELOC
+STUDENT VEHICLE SBA BRIDGE CONSTRUCTION LINE CML COML SB VEH EIDL PPP LOC CRE MORT CREDIT PERS INST CONS EQUITY
+""".split())
+_LOAN_PAYMENT_WORDS = frozenset("""
+PMT PMTS PYMT PYMTS PAYMENT PAYMENTS PAYMT PAYMNT PMNT PYMNT REPAYMENT REPAYMENTS DISB DISBURSEMENT ADV ADVANCE
+PROCEEDS DRAW
+""".split())
 _ACCOUNT_VERIFICATION_55 = _on_masked(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 #: §7.7: 5.4's claim-payment descriptor, and 5.5's claim entry (glued on either side).
 _CLAIM_54 = _on_masked(r"\bH(?:C|E)?CLAIMPMT\b")
@@ -833,7 +884,9 @@ def _narrowing(base: dict, after: dict) -> str | None:
         and facts.get("third_party_originator")
     ):
         return "4_book_or_funds_transfer"
-    if facts.get("street_ln") or (base["text"] != after["text"] and " LN " in f" {after['text']} "):
+    # Final review I8: a loan-reading base whose LOAN the later text prints LN (the guard's only rewrite), and no other
+    # change to the text.
+    if base_method in LOAN_READING_METHODS and _ln_where_loan(base["text"], after["text"]):
         return "5_street_ln"
     if base_method == "reversal_cancellation_exclusion" and re.search(r"\b(?:DEBIT CARD CREDIT|POS CREDIT)\b", text):
         return "6_card_credit_release"
@@ -847,6 +900,43 @@ def _narrowing(base: dict, after: dict) -> str | None:
     ):
         return "8_oq2_bnpl_settlement"
     return None
+
+
+def _ln_where_loan(base_text: str, after_text: str) -> list[int]:
+    """I8: the word positions where the base text prints LOAN and the later text LN, when those are the texts' only
+    differences; [] otherwise."""
+    before, after = base_text.split(), after_text.split()
+    if len(before) != len(after):
+        return []
+    positions = []
+    for index, (old, new) in enumerate(zip(before, after)):
+        if old == new:
+            continue
+        if (old, new) != ("LOAN", "LN"):
+            return []
+        positions.append(index)
+    return positions
+
+
+def _street_ln_release(base: dict, after: dict) -> bool:
+    """I8 (G7b): the street-LN guard's own release (§7.11), read on the census's masked text: narrowing 5's LOAN that
+    the later text prints LN, each LN ending a street address (a number, then one to three alphabetic words, none a
+    loan-product word) and followed by no loan-payment word."""
+    positions = _ln_where_loan(base["text"], after["text"]) if base["method"] in LOAN_READING_METHODS else []
+    words = after["text"].split()
+    for index in positions:
+        run = []
+        at = index - 1
+        while at >= 0 and len(run) < 3 and words[at].isalpha():
+            run.append(words[at])
+            at -= 1
+        if (
+            not run or at < 0 or not re.fullmatch(r"[\d#]+", words[at])
+            or set(run) & _LOAN_PRODUCT_WORDS
+            or (index + 1 < len(words) and words[index + 1] in _LOAN_PAYMENT_WORDS)
+        ):
+            return False
+    return bool(positions)
 
 
 def _matches(patterns: Iterable[re.Pattern[str]], text: str) -> bool:
@@ -942,7 +1032,7 @@ def _taken_out_of_pool(base: dict, after: dict, admissions: frozenset) -> bool:
         return True
     if base["state"] == "verified_revenue" and after["state"] != "verified_revenue":
         cause = _demotion_cause(base, after, {"admissions": admissions})
-        return cause != "undeclared" and cause not in _POOL_CAUSES
+        return cause in DECLARED_DEMOTIONS and cause not in _POOL_CAUSES
     return False
 
 
@@ -998,7 +1088,8 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     if (
         method == "reversal_cancellation_exclusion"
         and (_RETURN_CODES_55.search(text) or _FRENCH_REVERSAL_WORDS_55.search(text))
-    ) or (method == "strong_non_revenue_rule" and _TAX_REFUNDS_55.search(text)):
+    ) or (method == "strong_non_revenue_rule" and (_TAX_REFUNDS_55.search(text) or _CRA_REFUND_56.search(text))):
+        # I7: and the CRA's income-tax refund forms, which 5.6 adds to the strong non-revenue rule (§20).
         return "new_non_revenue_marker"
     # (a) 5.4's step-11 claim-payment descriptor (§7.7); (b) the claim entry held with the insurer's credits
     # (insurer_customer_payment), which 5.5 does only with the T18 switch off.
@@ -1017,6 +1108,8 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     if after["cents"] < MICRO_DEPOSIT_FLOOR_CENTS and (
         (base["method"] in RECURRENCE_LIFT_METHODS and unlifted)
         or (after.get("tier") == "excluded_pending_review" and after.get("reason") == MICRO_DEPOSIT_FLOOR_REASON)
+        # I7: pass 7's last step, which gives the floor's own method (§20).
+        or method == "micro_deposit_floor"
     ):
         return "micro_deposit_floor"
     # §6.1 step 9b. Closed: (a) any verifying rule (no step verifies a closed row, the registry and the recurrence pass
@@ -1086,6 +1179,39 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         and context.get("vetoed", {}).get(key, set()) - {after["i"]}
     ):
         return "pool_below_recurrence_after_a_declared_veto"
+    # I7 (§20, A3-H review). (a) any verifying rule; (b) counted and flagged as factoring_payout, by the pass's
+    # overruling of an earlier rule (method factoring_payout_payer) or, for a Q5 or Q6 repeat, by its own factor
+    # reading (the factoring_payer fact).
+    if after.get("tier") == "counted_flagged" and after.get("reason") == "factoring_payout" and (
+        method == "factoring_payout_payer" or (base["method"] in Q5_Q6_METHODS and facts.get("factoring_payer"))
+    ):
+        return "factor_never_verified"
+    if base["method"] in Q5_Q6_METHODS:
+        # I7 (§20). (a) a Q5 or Q6 verification; (b) held by a later 5.6 hold, named by its reason and the pass's own
+        # hold reading (LATER_HOLD_CAUSES).
+        if after.get("tier") == "excluded_pending_review":
+            reason = after.get("reason")
+            cause = LATER_HOLD_CAUSES.get((reason, None if reason == "holder_name" else facts.get("hold_rule")))
+            if cause is not None:
+                return cause
+        # (b) the payer region now reads a relaying bank's customer (A3-G refinement), so the repeat is another's.
+        if base["method"] == "repeat_wire_sender" and facts.get("relayed_customer"):
+            return "q5_q6_relayed_customer"
+        # (b) Q6c refuses a premium-coded insurer entry as proof (A3-H): counted as a refused payer.
+        if after.get("reason") == "named_payer_purpose_refused" and facts.get("premium_coded"):
+            return "premium_coded_insurer_entry"
+        # (b) a §15 deferred source: counted, never verified by Q5 or Q6 (OQ4).
+        if after.get("reason") == "named_payer_purpose_refused" and facts.get("deferred_source"):
+            return "q5_q6_deferred_source"
+        # (b) Q6c reads a short healthcare alias only as the whole payer name (final review I3).
+        if base["method"] == "public_or_healthcare_payer" and facts.get("short_healthcare_alias"):
+            return "short_healthcare_alias_in_a_name"
+        # (b) the operating registry names the row, whose family rule decides it alone (Q5 and Q6 never read it).
+        if method in REGISTRY_METHODS:
+            return "q5_q6_left_to_its_family"
+    # §7.5 (pass 6). (a) the accounts-payable remittance; (b) the counter-debit guard's own method.
+    if base["method"] == "payer_remittance_descriptor" and method == "payer_remittance_with_counter_debit":
+        return "counter_debit"
     return "undeclared"
 
 
@@ -1172,10 +1298,25 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
         bnpl_listed: list = []
         unmatched = 0
         tiered = any(credit.get("tier") for account in after["accounts"].values() for credit in account["credits"])
-        # G9 (review I1): an account that failed to classify, or that the base holds and this run lost, fails.
-        for reason, count in (after.get("skipped") or {}).items():
-            if reason not in FILTER_SKIPS and count != (base.get("skipped") or {}).get(reason, 0):
-                failures["G9"].append({"skipped": reason, "count": count})
+        # G9 (review I1): an account that failed to classify, or that the base holds and this run lost, fails. Final
+        # review M11: an error skip the base recorded and this run lost is a change too (its account is read below).
+        base_skips, after_skips = base.get("skipped") or {}, after.get("skipped") or {}
+        for reason in sorted(set(base_skips) | set(after_skips)):
+            count = after_skips.get(reason, 0)
+            if reason not in FILTER_SKIPS and count != base_skips.get(reason, 0):
+                failures["G9"].append({"skipped": reason, "count": count, "base_count": base_skips.get(reason, 0)})
+        # Final review M11: an account only this run holds (a new input, or one whose error skip vanished) has no base
+        # to compare, but its row and account guards are read like any other's.
+        only_after = sorted(set(after["accounts"]) - set(base["accounts"]))
+        for key in only_after:
+            new = after["accounts"][key]
+            for credit in new["credits"]:
+                for guard, failed in _row_guards(credit).items():
+                    if failed:
+                        failures[guard].append({"account": key, "i": credit["i"], "only_after": True,
+                                                "text": credit["text"]})
+            for failure in _account_guards(new, tiered):
+                failures[failure["guard"]].append({"account": key, "only_after": True, **failure})
         for key, old in base["accounts"].items():
             new = after["accounts"].get(key)
             if new is None or new["rows"] != old["rows"]:
@@ -1209,7 +1350,13 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                     entry[1] += credit["cents"]
                     entry[2].add(key)
                     allowed = dict(NARROWINGS).get(cause)
-                    if cause == "outside_the_narrowings" or (in_true and allowed is False):
+                    if (
+                        cause == "outside_the_narrowings" or (in_true and allowed is False)
+                        # Final review I8: narrowings 2 and 6 lead to True only through verification (§6.3), and
+                        # the OQ2 ruling never releases a BNPL consumer-side credit into True.
+                        or (in_true and cause in VERIFIED_ONLY_NARROWINGS and credit["state"] != "verified_revenue")
+                        or (in_true and cause == "8_oq2_bnpl_settlement" and _BNPL_CONSUMER_WORDS.search(credit["text"]))
+                    ):
                         failures["G1"].append({"account": key, "i": credit["i"], "cause": cause, "text": credit["text"]})
                     if cause == "8_oq2_bnpl_settlement":
                         # S3.1 (addition 3): each OQ2 row's public shape, so S3.2 can check that no consumer-side
@@ -1226,8 +1373,9 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                     entry[0] += 1
                     entry[1] += credit["cents"]
                     entry[2].add(key)
-                    if cause == "undeclared":
-                        failures["undeclared_demotion"].append({"account": key, "i": credit["i"],
+                    # I7: the declared table is the one the compare reads.
+                    if cause not in DECLARED_DEMOTIONS:
+                        failures["undeclared_demotion"].append({"account": key, "i": credit["i"], "cause": cause,
                                                                 "text": credit["text"]})
                 if "lender_credit" in prior and bool(prior["lender_credit"]) != bool(credit.get("lender_credit")):
                     entry = lender_moves[_lender_move_cause(prior, credit, context)]
@@ -1238,11 +1386,13 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                     if failed:
                         failures[guard].append({"account": key, "i": credit["i"], "text": credit["text"]})
                 if prior["text"] != credit["text"]:
-                    # G7b: the street-LN guard is the only 5.5 change to the normalized text.
+                    # G7b: every credit whose normalized text changed (the street-LN guard, and since A3-G the SWIFT
+                    # 50F strip) is listed. Final review I8: any non_revenue base it takes into True fails, except the
+                    # street-LN guard's own release (_street_ln_release).
                     street_ln.append({"account": key, "i": credit["i"], "base": f"{prior['state']}|{prior['method']}",
                                       "after": f"{credit.get('tier') or credit['state']}|{credit['method']}",
                                       "text": credit["text"]})
-                    if prior["method"] == "financing_proceeds_credit" and in_true:
+                    if prior["state"] == "non_revenue" and in_true and not _street_ln_release(prior, credit):
                         failures["G7b"].append({"account": key, "i": credit["i"], "text": credit["text"]})
             for failure in _account_guards(new, tiered):
                 failures[failure["guard"]].append({"account": key, **failure})
@@ -1262,6 +1412,7 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
         report["runs"].append({
             "summary": _summary(after),
             "accounts_unmatched": unmatched,
+            "accounts_only_after": len(only_after),
             "move_matrix": [
                 {"from": source, "to": target, "rows": value[0], "dollars": round(value[1] / 100, 2),
                  "statements": len(value[2])}

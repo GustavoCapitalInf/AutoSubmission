@@ -223,6 +223,41 @@ def test_the_census_refuses_output_inside_the_repository_and_a_directory_without
     assert census.main(["snapshot", "--data-dir", str(tmp_path / "empty"), "--out", str(tmp_path / "s.json")]) == 2
 
 
+def test_a_snapshot_records_each_row_s_potential_lender_withholding_and_reversal_flags(tmp_path, fake_payees):
+    # Final review I6: G7 reads the potential-lender and withholding flags and reversed_by of every row, so a move of
+    # a debit's contributions (a reversal pair zeroing them) is measured, not only its state.
+    cache = ArtifactCache(data_dir=tmp_path / "data")
+    cache.put_analysis("c" * 64, "settings", {"statement": {"transactions": [
+        _row("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 10000.0),
+        _row("2054-01-05", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+        _row("2054-01-08", "ACH CREDIT CARD PAYMENT FABRICATED", -250.0),
+        _row("2054-01-09", "RETURNED ACH CREDIT CARD PAYMENT FABRICATED", 250.0),
+    ]}})
+    account = census.snapshot(census.cached_accounts(tmp_path / "data"))["accounts"]["c" * 64 + ":0"]
+    assert account["withholding_rows"] == [1]
+    assert account["potential_lender_rows"] == []
+    assert account["potential_withholding_rows"] == []
+    assert account["reversed_by"] == [[2, "transaction:4"]]
+
+
+def test_compare_counts_the_row_flag_moves_and_reads_an_older_snapshot_as_not_comparable():
+    flags = {"potential_lender_rows": [[1, "Unidentified lender obligation"]], "withholding_rows": [0],
+             "potential_withholding_rows": [1], "reversed_by": []}
+    before = {"accounts": {"s1:0": {**_account(["other", "potential_lender"], [], {}, 5.0), **flags},
+                           "s2:0": _account(["other"], [], {}, None)}}
+    moved = {**flags, "potential_lender_rows": [], "potential_withholding_rows": [], "reversed_by": [[1, "transaction:3"]]}
+    after = {"accounts": {"s1:0": {**_account(["other", "potential_lender"], [], {}, 5.0), **moved},
+                          "s2:0": {**_account(["other"], [], {}, None), **flags}}}
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["row_flag_moves"] == {
+        "potential_lender_rows": {"analyses": 1, "rows": 1},
+        "potential_withholding_rows": {"analyses": 1, "rows": 1},
+        "reversed_by": {"analyses": 1, "rows": 1},
+        "withholding_rows": {"analyses": 0, "rows": 0},
+        "not_comparable": 1,
+    }
+
+
 def test_a_snapshot_run_writes_the_file_it_names(tmp_path, fake_payees):
     out = tmp_path / "local" / "after.json"
     assert census.main(["snapshot", "--data-dir", str(_cache(tmp_path)), "--out", str(out)]) == 0

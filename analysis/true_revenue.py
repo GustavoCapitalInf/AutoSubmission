@@ -1861,11 +1861,16 @@ def _deferred_source(text: str, facts: CreditFacts) -> bool:
     """§15, §19 OQ4 (S4.2 review I6a): a payer of the deferred family items, counted and flagged until the owner
     rules: read with the receiver field's value removed, and a healthcare payer's bare X12 trace with no entry (an
     ACH or EFT shape: a wire's own TRN field is no X12 trace)."""
+    return _deferred_reading(text, facts.channel, facts.region, facts.entry)
+
+
+def _deferred_reading(text: str, channel: str, region: str, entry: str) -> bool:
+    """§15 (_deferred_source) on the row's channel, payer region and entry fields."""
     classifier = _classifier()
     if _SECTION_15_DEFERRED_PAYERS.search(classifier._without_receiver_value(text)):
         return True
     return (
-        facts.channel != "wire" and healthcare_payer(facts.region) and not facts.entry
+        channel != "wire" and healthcare_payer(region) and not entry
         and _BARE_X12_TRACE.search(text) is not None
     )
 
@@ -2297,4 +2302,39 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
             classifier.company_form(classifier.payer_name(region))
             or government_payer(public_region(text)) or healthcare_payer(region)
         ),
+        # Final review I7: the pass's own readings the census's demotion causes key on (the rule that fires).
+        "hold_rule": hold_rule(record, text, region, entry),
+        "relayed_customer": bool(classifier.wire_relayed_customer(text)),
+        "premium_coded": _premium_coded(text, region),
+        "factoring_payer": _factoring_payout_payer(region, text),
+        "deferred_source": _deferred_reading(text, _channel(text), region, entry),
+        "short_healthcare_alias": (
+            bool(region) and registry_match(region, HEALTHCARE_PAYER_ALIASES) is not None
+            and healthcare_payer_match(region) is None
+        ),
     }
+
+
+def hold_rule(record: TransactionClassification, text: str, region: str, entry: str) -> str | None:
+    """Final review I7 (a census fact): which 5.6 hold reading of §20 names the row, in §8.10's order: a bank that
+    originates the wire, a financing root (the financing holds); a title firm, the holder's currency conversion, a
+    personal trust, owner money (the non-sale holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
+    classifier = _classifier()
+    row = _hold_text(text)
+    if _bank_originated_wire(text, region):
+        return "bank_originated_wire"
+    if financing_named(text, region, entry, record.account_name):
+        return "financing_root"
+    if region and _TITLE_FIRM.search(region) and _TITLE_FEE_WORDING.search(_title_purpose_text(text)) is None:
+        return "title_firm"
+    if _currency_conversion(text, bank=record.bank):
+        return "currency_conversion"
+    if _personal_trust(text, region):
+        return "personal_trust"
+    if (
+        (_INVESTMENT_PURPOSE.search(row) and not _accounts_payable_wording(text))
+        or _OWNER_MONEY_PLATFORMS.search(row)
+        or classifier._matches_any(row, classifier._SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS)
+    ):
+        return "owner_money"
+    return None

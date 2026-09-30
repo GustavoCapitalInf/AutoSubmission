@@ -126,3 +126,33 @@ def test_a_settlement_reversed_flagged_debit_leaves_the_flagged_totals():
     assert credit.settlement_reversal
     assert debit.reversed_by == "transaction:2"
     assert not debit.contributes_to_flagged_totals
+
+
+@pytest.mark.parametrize(("debit_text", "credit_text"), [
+    ("NORTHWIND LOAN PAYMENT ACH DEBIT", "RETURN NORTHWIND LOAN ACH RTN R01"),
+    ("SAMPLE LOAN PYMT ACH", "SAMPLE LOAN PYMT RETURN ACH REJT"),
+    ("VIREMENT SAMPLE LOAN PAIEMENT", "VIREMENT SAMPLE LOAN PAIEMENT ANNULE"),
+])
+def test_a_widened_marker_pair_never_moves_the_debit_s_lender_reading(debit_text, credit_text):
+    # Final review I6 (true revenue spec §20): the widened reversal-pair markers (the return codes, ANNULE) change the
+    # credit's revenue reading only. The debit keeps classification 5.4's lender, potential-lender and withholding
+    # contributions, and no reversed_by, as when no credit prints a 5.4 marker.
+    statement = Statement(transactions=[txn("2054-01-02", debit_text, -500.0), txn("2054-01-03", credit_text, 500.0)])
+    debit, credit = classify_statement_transactions(statement)
+    [alone] = classify_statement_transactions(Statement(transactions=[txn("2054-01-02", debit_text, -500.0)]))
+    assert credit.revenue_classification == "non_revenue"
+    assert debit.reversed_by is None and not credit.settlement_reversal
+    for field in ("classification", "contributes_to_lender_count", "contributes_to_lender_totals",
+                  "contributes_to_potential_lender_count", "contributes_to_potential_lender_totals",
+                  "contributes_to_withholding_rate", "contributes_to_potential_withholding_exposure",
+                  "contributes_to_flagged_totals"):
+        assert getattr(debit, field) == getattr(alone, field), field
+
+
+def test_a_5_4_marker_pair_still_zeroes_the_debit_s_lender_reading():
+    statement = Statement(transactions=[txn("2054-01-02", "NORTHWIND LOAN PAYMENT ACH DEBIT", -500.0),
+                                        txn("2054-01-03", "RETURNED PAYMENT NORTHWIND LOAN ACH", 500.0)])
+    debit, credit = classify_statement_transactions(statement)
+    assert credit.revenue_match_method == "matched_reversal_pair" and credit.settlement_reversal
+    assert debit.reversed_by == "transaction:2"
+    assert not debit.contributes_to_potential_lender_totals and not debit.contributes_to_withholding_rate
