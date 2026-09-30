@@ -1002,6 +1002,8 @@ _NUMBERED_COMPANY_TEMPLATE = re.compile(
 _NUMBERED_COMPANY_REGION = re.compile(
     rf"^\d{{6,}}\b(?: {_PROVINCE}\b| (?:[A-Z]+ ){{0,4}}(?:INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO"
     rf"|COMPANY)\b)"
+    # Quebec prints its numbered companies as NNNN-NNNN (normalized NNNN NNNN), always before the province.
+    rf"|^\d{{4}} \d{{4}} {_PROVINCE}\b"
 )
 #: §6.1 step 9b: consumer person-to-person rails (never verified by any step), and real-time or push rails (verified
 #: by the operating registry only).
@@ -1312,7 +1314,8 @@ def holder_named(region: str, account_name: str | None) -> bool:
 _NUMBERED_LEADING_DATE = re.compile(
     r"^(?:\d{1,2} \d{1,2} |\d{4} |\d{1,2} )"
     # S4.2 re-review (fix 3): the lookahead takes every template of _NUMBERED_COMPANY_TEMPLATE, PMT included.
-    r"(?=\d{6,}\b|(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{6,}\b)"
+    r"(?=\d{6,}\b|\d{4} \d{4} [A-Z]|(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT)"
+    r" \d{6,}\b)"
 )
 
 

@@ -110,6 +110,10 @@ def test_the_holder_test(region, holder, matches):
     ("1234567 ONTA DES:PAYMENT ID:1", True),
     ("1234567 ONTARIOS DES:PAYMENT ID:1", False),
     ("FABRIKAM SUPPLY DES:VENDOR PAY ID:1234567", False),
+    # Quebec prints its numbered companies as NNNN-NNNN (S4.2 round 4), also after a leading date.
+    ("1234-5678 QUEBEC INC DES:VENDOR PAY ID:1", True),
+    ("03/02 1234-5678 QUEBEC INC DES:VENDOR PAY ID:1", True),
+    ("1234-5678 FABRIKAM LLC DES:VENDOR PAY ID:1", False),   # the four-and-four form only with a province
 ])
 def test_the_numbered_company_guard(printed, numbered):
     assert numbered_company(_text(printed)) is numbered
