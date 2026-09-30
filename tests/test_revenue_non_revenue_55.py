@@ -162,6 +162,31 @@ def test_the_newly_named_non_revenue(printed, rule):
     assert (record.revenue_classification, record.revenue_matched_rule) == ("non_revenue", rule)
 
 
+@pytest.mark.parametrize("printed", [
+    # A3-G: the Canada Revenue Agency's income-tax refund direct deposit, bilingual or not (RIT and RIF are the
+    # banks' two labels of one refund).
+    "DIRECT DEPOSIT CANADA RIT RIF",
+    "DIRECT DEPOSIT CANADA RIT",
+    "CANADA RIF 12345678",
+    "EFT CREDIT CANADA RIT 1234",
+])
+def test_a3g_canada_s_income_tax_refund_is_a_tax_refund(printed):
+    record = _credit(printed)
+    assert (record.revenue_classification, record.revenue_matched_rule) == ("non_revenue", "non_operating_credit")
+
+
+@pytest.mark.parametrize("printed", [
+    "CANADA RITE SUPPLY DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    "RIT RIF CONSULTING DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    "DIRECT DEPOSIT CANADA RIFLE CLUB",
+    # The benefit, credit and payment forms wait for the owner (A3-G): unchanged.
+    "DIRECT DEPOSIT CANADA GST TPS",
+    "CANADA CHILD BENEFIT CANADA",
+])
+def test_a3g_a_name_or_a_benefit_form_is_no_canadian_tax_refund(printed):
+    assert _credit(printed).revenue_classification != "non_revenue"
+
+
 def test_square_capital_and_sba_proceeds_leave_eligible_deposits():
     record = _credit("SQUARE INC DES:SQ CAP1234 ID:1")
     assert record.revenue_match_method == "financing_proceeds_credit"

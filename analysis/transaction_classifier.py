@@ -734,6 +734,10 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     # 5.5 (§7.11, T5): the tax-refund abbreviations (Treasury's TAX REF; a state's glued TAXRFD, and TAXEIC, review
     # I6) and account-verification micro-deposits.
     re.compile(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b"),
+    # 5.6 (A3-G): the Canada Revenue Agency's income-tax refund direct deposit (RIT and RIF are the banks' two labels
+    # of one refund, 'DIRECT DEPOSIT CANADA RIT RIF'). Its benefit, credit and payment forms (GST TPS, CCB, EI, CPP,
+    # OAS, CEWS) wait for the owner.
+    re.compile(r"\bCANADA (?:RIT|RIF)\b"),
     re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
     re.compile(
@@ -1165,9 +1169,20 @@ def _wire_payer_region(text: str) -> str:
     found = _WIRE_ORIGINATOR_LABEL.search(text)
     if found is None:
         return _wire_sender_after_label(text)
-    rest = text[found.end():]
+    rest = without_swift_line_number(text[found.end():])
     end = _WIRE_FIELD_END.search(rest)
     return _leading_name_words(rest[: end.start()] if end is not None else rest)
+
+
+#: 5.6 (A3-G): a SWIFT field-50F line number printed before the originator's name ('ORIG:1/NORTHWIND ...', normalized
+#: 'ORIG 1 NORTHWIND ...'; lines 1 to 3 hold the name, the address and the country and town). It is never part of the
+#: name; a numbered company's number (six or more digits) and a name that starts with a number word are untouched.
+_SWIFT_LINE_NUMBER = re.compile(r"^\s*[1-3] (?=[A-Z])")
+
+
+def without_swift_line_number(originator: str) -> str:
+    """5.6 (A3-G): the originator text without a leading SWIFT 50F line number (_SWIFT_LINE_NUMBER)."""
+    return _SWIFT_LINE_NUMBER.sub("", originator, count=1)
 
 
 #: A3 (orchestrator ruling, 2026-09-30): the incoming-wire layouts that print the sender right after their label, with
@@ -1359,9 +1374,35 @@ def holder_named(region: str, account_name: str | None) -> bool:
         if shared >= min(2, len(holder)):
             return True
     printed = account_name_text(account_name)
+    if _holder_cut_name(payer_name(region), printed):
+        return True
     return any(
         re.search(rf"(?<!\d){run}(?!\d)", printed) for run in re.findall(r"\d{4,}", region)
     )
+
+
+#: 5.6 (A3-G): a cut holder name names the holder when it keeps this many whole words before the cut, or this many
+#: letters in all.
+_HOLDER_CUT_WHOLE_WORDS = 2
+_HOLDER_CUT_LETTERS = 12
+
+
+def _holder_cut_name(payer: str, holder: str) -> bool:
+    """5.6 (A3-G, §5.2): the payer name is the holder's normalized name cut short: a word-by-word prefix of it whose
+    last word is a proper prefix of the holder's word there ('GLOBAL AMERICAN NORTHW' against 'GLOBAL AMERICAN
+    NORTHWIND...'), with _HOLDER_CUT_WHOLE_WORDS whole words before the cut or _HOLDER_CUT_LETTERS letters in all, so
+    a single common word never matches."""
+    sender = payer.split()
+    words = holder.split()
+    if not sender or len(sender) > len(words):
+        return False
+    whole, cut = sender[:-1], sender[-1]
+    if whole != words[: len(whole)]:
+        return False
+    target = words[len(whole)]
+    if cut == target or not target.startswith(cut):
+        return False
+    return len(whole) >= _HOLDER_CUT_WHOLE_WORDS or sum(len(word) for word in sender) >= _HOLDER_CUT_LETTERS
 
 
 #: S4.2 review (I1): a date the bank prints at the row's start, before a numbered company's number or a numbered

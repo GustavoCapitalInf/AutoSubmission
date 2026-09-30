@@ -351,6 +351,30 @@ _WIRE_PURPOSE_FIELD = re.compile(
     r"\b(?:OBI|RMR|PMT DET|RFB|U ?R ?I)\b (.*?)"
     r"(?=\b(?:BNF|NBNF|BBI|OBI|SRF|TRN|IMAD|ACCT|SND BK|RFB|RMR|PMT DET|REF|ORIG(?! FEE\b)|B O|ORG)\b|$)"
 )
+#: §8.1, T4 (A3-G): a wire's originator that reads as a bank by its own form. Money a bank sends on its own behalf is
+#: more often loan proceeds or the bank's own funds than a customer's payment: held as financing_named_payer.
+_BANK_ORIGINATOR = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|FEDERAL SAVINGS)\b")
+#: A3-G: a bank's merchant-services, bankcard and processor forms, which are settlements, never the bank's own money.
+_BANK_SETTLEMENT_FORM = re.compile(
+    r"(?<![A-Z])(?:MERCHANT\w*|MERCH SVCS|BANKCARD\w*|CARD (?:SERVICES|SVCS)|PAYMENTECH|PROCESSING)\b"
+    r"|\b(?:MERCH|MRCH|BNKCD|BKCD)\b"
+)
+#: A3-G: Bank of America's sending-bank field, up to its next field.
+_SENDING_BANK_FIELD = re.compile(r"\bSND BK\b (.*?)(?=\b(?:ID|PMT DET|OBI|RMR|BNF|TRN|IMAD|SRF|RFB)\b|$)")
+#: A3-G: an originator equal to the sending bank keeps at least this many letters.
+_SENDING_BANK_MIN_LETTERS = 5
+#: §8.1 (A3-G): a personal trust's words: the trust word, the trustee's TTEE, and the adjectives a personal trust
+#: prints before its trust word. Its name words are a person's, with no company form and no institutional word.
+_PERSONAL_TRUST_WORDS = frozenset({"TRUST", "TRST", "TR", "TTEE"})
+_PERSONAL_TRUST_ADJECTIVES = frozenset({"REVOCABLE", "REV", "LIVING", "FAMILY", "FAM", "IRREVOCABLE", "IRREV"})
+_PERSONAL_TRUST_FILLERS = frozenset({"THE", "AND", "OF", "DTD", "DATED", "UAD", "UTA", "UA"})
+#: A3-G: the institutional words a trust company, a bank, a title or escrow firm or a firm's trust account prints.
+_TRUST_INSTITUTION = re.compile(
+    r"(?<![A-Z])(?:BANK|BANCORP|SAVINGS|NATIONAL|FEDERAL|TITLE|ESCROW|IOLTA|CORPORATE|WEALTH|CAPITAL|INVEST\w*"
+    r"|SECURITIES|FUNDS?|FINANCIAL|ASSET|MANAGEMENT|ADVISORS?|PARTNERS|HOLDINGS|GROUP|SERVICES|LAW|ATTORNEYS?"
+    r"|CANADA|COMPANY|ACCOUNT|ACCT|CLIENT|CLIENTS)\b|\b(?:N A|CO)\b"
+)
+_PERSONAL_TRUST_MAX_NAME_WORDS = 5
 #: §8.1 (A3 review, round 2): the company forms that name a currency-exchange company on an originator field beside
 #: currency wording ('CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT', 'FOREIGN EXCHANGE CO DES:PAYMENT'). INTERNATIONAL
 #: and INTL are organisation words the generic and wire-layout words drop, and CO a field label the transfer reader
@@ -427,7 +451,8 @@ def _wire_originator_text(text: str) -> str:
     found = classifier._WIRE_ORIGINATOR_LABEL.search(text)
     if found is None:
         return ""
-    rest = text[found.end():]
+    # A3-G: a SWIFT 50F line number is never part of the originator.
+    rest = classifier.without_swift_line_number(text[found.end():])
     end = classifier._WIRE_FIELD_END.search(rest)
     return (rest[: end.start()] if end is not None else rest).strip()
 
@@ -715,6 +740,8 @@ def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool
         return True
     if _currency_conversion(text, bank=bank):
         return True
+    if _personal_trust(text, region):
+        return True
     if _INVESTMENT_PURPOSE.search(row) is not None and not _accounts_payable_wording(text):
         return True
     if _CLAIM_WORD.search(row) and not claim_entry and not (healthcare and re.search(r"(?<![A-Z])CLAIM PMT\b", row)):
@@ -729,6 +756,71 @@ def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool
     ):
         return True
     return healthcare and _HEALTHCARE_MEMBER_WORDS.search(row) is not None
+
+
+def _personal_trust(text: str, region: str) -> bool:
+    """§8.1 (A3-G): the named sender is a personal trust, held as non_sale_purpose (owner money: a family's money, an
+    investment or a loan far more often than a customer's purchase). Read on a wire's originator field before its digit
+    cut (_wire_originator_text: 'JANE Q SAMPLE 1234 TRUST <city> ...'), and on any other row's payer region. The
+    sender prints a trust word (_PERSONAL_TRUST_WORDS) after one to _PERSONAL_TRUST_MAX_NAME_WORDS name words (digits,
+    fillers and the trust adjectives aside); a plain TRUST, TRST or TR with no adjective needs two name words (a
+    person's first and last name, never a one-word trust company). Never a company form, and never an institutional
+    word (_TRUST_INSTITUTION) in the name or right after the trust word ('<X> TRUST COMPANY', '<X> BANK AND TRUST',
+    'TITLE TRUST', '... IOLTA TRUST ACCOUNT')."""
+    classifier = _classifier()
+    sender = (_wire_originator_text(text) or _wire_sender_after_label_text(text)) if classifier._is_wire_row(text) else (
+        region
+    )
+    tokens = sender.split()
+    index = next((at for at, token in enumerate(tokens) if token in _PERSONAL_TRUST_WORDS), None)
+    if index is None:
+        return False
+    before = [token for token in tokens[:index] if not any(ch.isdigit() for ch in token)]
+    adjectives = [token for token in before if token in _PERSONAL_TRUST_ADJECTIVES]
+    names = [token for token in before if token not in _PERSONAL_TRUST_ADJECTIVES and token not in _PERSONAL_TRUST_FILLERS]
+    if not 1 <= len(names) <= _PERSONAL_TRUST_MAX_NAME_WORDS:
+        return False
+    if tokens[index] != "TTEE" and not adjectives:
+        # A bare TR is a trust only after a trust adjective (a company's cut word otherwise: '... AUTO TR'); a plain
+        # TRUST needs a person's two names, and never on a person-to-person row, whose sender field also prints the
+        # sending bank ('<sender> <place> TRUST').
+        if tokens[index] == "TR" or len(names) < 2 or _channel(text) == "person_to_person":
+            return False
+    head = " ".join([*before, *tokens[index: index + 2]])
+    return not classifier.company_form(head) and _TRUST_INSTITUTION.search(head) is None
+
+
+def _wire_sender_after_label_text(text: str) -> str:
+    """§5.2 (A3-G): the sender a wire prints right after its label (the classifier's _WIRE_SENDER_AFTER_LABEL layouts),
+    up to its end (a wire field, NOTPROVIDED or WIRE PAYMENT), before the digit cut the payer region makes; '' on any
+    other layout."""
+    classifier = _classifier()
+    found = classifier._WIRE_SENDER_AFTER_LABEL.match(text)
+    if found is None:
+        return ""
+    rest = text[found.end():]
+    end = classifier._WIRE_SENDER_AFTER_LABEL_END.search(rest)
+    return (rest[: end.start()] if end is not None else rest).strip()
+
+
+def _bank_originated_wire(text: str, region: str) -> bool:
+    """§8.1, T4 (A3-G): a wire whose originator reads as a bank: by its own form (_BANK_ORIGINATOR: BANK, BANCORP, BANK
+    N A, CREDIT UNION, SAVINGS BANK, FEDERAL SAVINGS), or equal to Bank of America's sending bank (SND BK) with the
+    field's line-wrap splits read run together (the originator's letters start the sending bank's, or the reverse).
+    Only the originator field (the payer region) is read, never the sending or receiving bank field or the text after
+    it, and never a bank's merchant-services, bankcard or processor form (_BANK_SETTLEMENT_FORM), a settlement."""
+    classifier = _classifier()
+    if not region or not classifier._is_wire_row(text) or _BANK_SETTLEMENT_FORM.search(region):
+        return False
+    if _BANK_ORIGINATOR.search(region):
+        return True
+    sending = _SENDING_BANK_FIELD.search(text)
+    if sending is None:
+        return False
+    originator = "".join(ch for ch in classifier.payer_name(region) if ch.isalpha())
+    bank = "".join(ch for ch in sending.group(1) if ch.isalpha())
+    shorter = min(len(originator), len(bank))
+    return shorter >= _SENDING_BANK_MIN_LETTERS and (bank.startswith(originator) or originator.startswith(bank))
 
 
 def _title_purpose_text(text: str) -> str:
@@ -1317,6 +1409,8 @@ def _first_hold(
         or (_dealer_funding_payer(text) is not None and record.revenue_match_method != "auto_lender_dealer_funding")
         or (DEALER_FUNDING_WORDS.search(row) and record.revenue_match_method != "auto_lender_dealer_funding")
         or record.revenue_match_method == "credit_union_vehicle_purchase"
+        # A3-G: a wire a bank originates on its own behalf.
+        or _bank_originated_wire(text, region)
     ):
         return "financing_named_payer"
     word = _first_word(region) if region else None

@@ -1953,3 +1953,115 @@ def test_a3_review_the_whole_word_cred_sacred_accred_an_entry_and_a_payerless_ro
 ])
 def test_a3_a_wire_that_prints_no_sender_stays_held(text):
     assert _tier(_one(text, 24950.0)) == ("excluded_pending_review", "wire_no_sender")
+
+
+# A3-G (the redrawn largest_counted stratum's misses, 2026-09-30).
+_A3G_BOFA = "WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:{orig} ID:99 SND BK:{bank} ID:1 PMT DET:1234"
+
+
+def _a3g_fedwire(orig: str, obi: str = "1234") -> str:
+    return (f"FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O {orig} SAMPLEVILLE CA 12345 US REF SAMPLE NYC CTR BNF "
+            f"CONTOSO BAKERY LLC OBI {obi}")
+
+
+@pytest.mark.parametrize("text", [
+    # The originator reads as a bank by its own form.
+    _A3G_BOFA.format(n=1, orig="NORTHWIND BANK", bank="NORTHWIND BANK"),
+    _A3G_BOFA.format(n=1, orig="NORTHWIND BANK AP", bank="SAMPLE BANK"),
+    _a3g_fedwire("NORTHWIND BANCORP"),
+    _a3g_fedwire("NORTHWIND FEDERAL SAVINGS"),
+    _a3g_fedwire("FABRIKAM SAVINGS BANK"),
+    _a3g_fedwire("NORTHWIND BANK N A"),
+    # The originator is the sending bank itself (a cut or a line wrap may split the bank field).
+    _A3G_BOFA.format(n=1, orig="CONTOSO FEDERAL", bank="CONTOSO FEDERAL"),
+    _A3G_BOFA.format(n=1, orig="FABRIKAMBA FIRST", bank="FABRIKAMBA FIRST NK AKA SAMPLE COMMUNI"),
+])
+def test_a3g_a_wire_a_bank_originates_is_held_as_financing(text):
+    # A3-G: money a bank sends on its own behalf is more often loan proceeds or the bank's own funds than a sale.
+    assert _tier(_one(text, 438000.0)) == ("excluded_pending_review", "financing_named_payer")
+
+
+@pytest.mark.parametrize("text", [
+    # Only the originator field is read: never the sending bank, the receiving bank or the purpose after it.
+    _A3G_BOFA.format(n=1, orig="FABRIKAM SUPPLY LLC", bank="SAMPLE BANK"),
+    _a3g_fedwire("FABRIKAM SUPPLY LLC", obi="INV 1234 SAMPLE BANK"),
+    # A bank's merchant-services, bankcard and processor forms are settlements.
+    _A3G_BOFA.format(n=1, orig="NORTHWIND BANK MERCHANT SERVICES", bank="NORTHWIND BANK"),
+    _a3g_fedwire("NORTHWIND BANKCARD SERVICES"),
+    _a3g_fedwire("NORTHWIND BANK MERCH SVCS"),
+])
+def test_a3g_a_wire_whose_originator_is_no_bank_keeps_its_reading(text):
+    assert _tier(_one(text, 43800.0))[1] != "financing_named_payer"
+
+
+def test_a3g_a_bank_s_ach_credit_is_no_wire_and_keeps_its_reading():
+    assert _tier(_one("NORTHWIND BANK DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD", 4380.0))[1] != (
+        "financing_named_payer")
+
+
+def test_a3g_a_swift_50f_line_number_never_starts_the_originator():
+    from analysis.transaction_classifier import payer_region, revenue_text
+
+    record = _one(_A3_WIRE.format(n=1, orig="1/NORTHWIND SUPPLY LLC"), 24950.0)
+    assert payer_region(revenue_text(record.normalized_description)) == "NORTHWIND SUPPLY LLC"
+    # One sender, with and without the line number, is one sender: two wires verify by Q5.
+    rows = _records([(_A3_WIRE.format(n=1, orig="1/NORTHWIND SUPPLY LLC"), 24950.0),
+                     (_A3_WIRE.format(n=2, orig="NORTHWIND SUPPLY LLC"), 26950.0)])
+    assert {record.revenue_match_method for record in rows} == {"repeat_wire_sender"}
+    # A numbered company keeps its number.
+    numbered = _one(_A3_WIRE.format(n=1, orig="1234567 ONTARIO INC"), 24950.0)
+    assert payer_region(revenue_text(numbered.normalized_description)) == "1234567 ONTARIO INC"
+
+
+@pytest.mark.parametrize(("orig", "holder"), [
+    # A word-by-word prefix of the holder's name whose last word is cut: two whole words before the cut ...
+    ("1/GLOBAL AMERICAN NORTHWIND", "GLOBAL AMERICAN NORTHWINDING INC"),
+    ("GLOBAL AMERICAN NORTH", "GLOBAL AMERICAN NORTHWINDING INC"),
+    # ... or twelve letters or more.
+    ("CONTOSOBAKERYW", "CONTOSOBAKERYWORKS LLC"),
+])
+def test_a3g_a_sender_that_is_the_holder_s_cut_name_is_the_holder(orig, holder):
+    assert _tier(_one(_A3_WIRE.format(n=1, orig=orig), 160000.0, holder=holder)) == (
+        "excluded_pending_review", "holder_name")
+
+
+@pytest.mark.parametrize(("orig", "holder"), [
+    ("NORTH", "NORTHWIND BAKERY LLC"),
+    ("FIRST CO", "FIRST CONTOSO BAKERY LLC"),
+    ("GLOBAL NORTHWIND", "GLOBAL AMERICAN NORTHWINDING INC"),
+])
+def test_a3g_a_single_common_word_or_a_short_cut_never_names_the_holder(orig, holder):
+    assert _tier(_one(_A3_WIRE.format(n=1, orig=orig), 16000.0, holder=holder))[1] != "holder_name"
+
+
+@pytest.mark.parametrize("text", [
+    "BOOK TRANSFER CREDIT B O JANE Q SAMPLE 1234 TRUST SAMPLEVILLE WA 12345 1234 US TRN 1234567890ES",
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE REVOCABLE TRUST"),
+    _A3_WIRE.format(n=1, orig="SAMPLE FAMILY TRUST"),
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE TTEE"),
+    _a3g_fedwire("JANE SAMPLE LIVING TR"),
+    _a3g_fedwire("JOHN SAMPLE IRREVOCABLE TRUST"),
+    "JOHN Q SAMPLE TRUST DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    # A sender read after the wire's label, before its digit cut.
+    "INCOMING WIRE 20540102 SAMPLE 1234 FAMILY TRUST NOTPROVIDED",
+])
+def test_a3g_a_personal_trust_s_credit_is_held_as_owner_money(text):
+    # A3-G: money from a personal trust is far more often the owner's family money, an investment or a loan.
+    assert _tier(_one(text, 75000.0)) == ("excluded_pending_review", "non_sale_purpose")
+
+
+@pytest.mark.parametrize("text", [
+    _A3_WIRE.format(n=1, orig="NORTHWIND TRUST COMPANY"),
+    _a3g_fedwire("SAMPLE BANK AND TRUST"),
+    _A3_WIRE.format(n=1, orig="NORTHWIND TRUST LLC"),
+    _A3_WIRE.format(n=1, orig="CONTOSO TRUST"),
+    _A3_WIRE.format(n=1, orig="SAMPLE LAW GROUP IOLTA TRUST ACCOUNT"),
+    _A3_WIRE.format(n=1, orig="FABRIKAM TRUST ACCOUNT"),
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE"),
+    # A bare TR is a trust only after a trust adjective ('LIVING TR'); a company's cut word is none ('... MOTOR TR').
+    "Orig CO Name:Fabrikam Motor Tr Orig ID:1 Desc Date: CO Entry Descr:Ach Pmt Sec:CCD Trace#:1",
+    # A person-to-person row prints the sending bank after the sender ('... NORTHWIND TRUST' is a bank's name).
+    "ZELLE PAYMENT FROM JOHN SAMPLE NORTHWIND TRUST ID 1234567890",
+])
+def test_a3g_an_institutional_or_company_trust_or_a_person_is_no_personal_trust(text):
+    assert _tier(_one(text, 7500.0))[1] != "non_sale_purpose"
