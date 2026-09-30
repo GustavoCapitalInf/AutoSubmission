@@ -248,7 +248,8 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
     assert metrics.revenue_classified_count == 3
     assert metrics.revenue_reconciliation_delta == 0.0
     assert metrics.revenue_reconciles
-    assert metrics.revenue_review_required
+    # 5.6 (T7): the mobile deposit is a counted check deposit, and counted credits never gate review.
+    assert not metrics.revenue_review_required
     assert len(metrics.verified_revenue_evidence) == 1
     assert len(metrics.unverified_deposit_evidence) == 1
     assert len(metrics.non_revenue_evidence) == 1
@@ -662,8 +663,10 @@ def test_atb_december_revenue_regression_from_transaction_evidence():
     assert export_row["verified_revenue_total"] == "47195.63"
     assert export_row["unverified_deposit_total"] == "11675.11"
     assert export_row["non_revenue_total"] == "1880.25"
-    assert export_row["needs_review"] == "REVIEW"
-    assert coverage_status(report) == "needs_review"
+    # 5.6 (T7): the statement's eight unverified deposits are two check deposits and six e-Transfers, all counted,
+    # so no credit is held and the revenue gate is clear.
+    assert export_row["needs_review"] == ""
+    assert coverage_status(report) == "clean"
 
     client = app.test_client()
     job = store.create("atb-dec-revenue.pdf")

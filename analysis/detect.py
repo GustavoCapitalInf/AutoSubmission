@@ -90,7 +90,11 @@ class DetectionResult:
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
     verified_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     unverified_deposit_evidence: list[TransactionClassification] = field(default_factory=list)
-    # Deprecated aliases for version 3.0 API consumers.
+    # 5.6 (true revenue spec §9.1): the counted and the held credits.
+    counted_flagged_evidence: list[TransactionClassification] = field(default_factory=list)
+    excluded_pending_review_evidence: list[TransactionClassification] = field(default_factory=list)
+    # Deprecated aliases for version 3.0 API consumers. 5.6 (T9): true_revenue_evidence is True revenue's rows,
+    # verified plus counted.
     true_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     non_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
@@ -313,6 +317,15 @@ def detect(
         record for record in records if record.contributes_to_unverified_deposit
     ]
     non_revenue_evidence = [record for record in records if record.contributes_to_non_revenue]
+    counted_flagged_evidence = [record for record in records if record.contributes_to_counted_flagged]
+    excluded_pending_review_evidence = [
+        record for record in records if record.contributes_to_excluded_pending_review
+    ]
+    true_revenue_evidence = [
+        record for record in records
+        if record.contributes_to_verified_revenue or record.contributes_to_counted_flagged
+    ]
+    # 5.6: a row's revenue_review_required is set for a held credit only (§5.4).
     manual_review = [
         record
         for record in records
@@ -333,7 +346,9 @@ def detect(
         insurance_evidence=insurance_evidence,
         verified_revenue_evidence=verified_revenue_evidence,
         unverified_deposit_evidence=unverified_deposit_evidence,
-        true_revenue_evidence=verified_revenue_evidence,
+        counted_flagged_evidence=counted_flagged_evidence,
+        excluded_pending_review_evidence=excluded_pending_review_evidence,
+        true_revenue_evidence=true_revenue_evidence,
         potential_revenue_evidence=unverified_deposit_evidence,
         non_revenue_evidence=non_revenue_evidence,
         manual_review=manual_review,

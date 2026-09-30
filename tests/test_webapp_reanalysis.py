@@ -290,6 +290,7 @@ def _ruled(analysis, location, account=1):
 
     _records(analysis, account)[location].update(
         revenue_classification="non_revenue", revenue_initial_classification="non_revenue",
+        revenue_tier="non_revenue", revenue_initial_tier="non_revenue", revenue_tier_reason=None,
         revenue_review_required=False, revenue_review_status="not_required",
         revenue_match_method="financing_proceeds_credit")
     return rebuild_serialized_revenue_views(analysis)

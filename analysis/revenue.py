@@ -61,9 +61,23 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "named_payer_one_off": ("counted_flagged", "One-off payer"),
     "named_payer_unlabelled": ("counted_flagged", "Payer named, channel not printed"),
 }
+#: 5.6 (§12): the tier figures a payload analysed before 5.6 cannot have. Its rebuild and its served copy
+#: (analysis/revenue_view.py) set every one to None.
+TIER_METRIC_KEYS = (
+    "true_revenue", "true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
+    "excluded_pending_review_total", "excluded_pending_review_count", "counted_flagged_by_reason",
+    "excluded_pending_review_by_reason", "revenue_review_items", "true_revenue_evidence",
+    "counted_flagged_evidence", "excluded_pending_review_evidence",
+)
+TIER_DETECTION_KEYS = ("true_revenue_evidence", "counted_flagged_evidence", "excluded_pending_review_evidence")
+#: 5.6 (T7): a statement needs revenue review when its held credits are this share, in percent, or more of its
+#: posted credits (non-revenue included), compared in integer cents.
+REVENUE_REVIEW_HELD_SHARE = 10
 WITHHOLDING_DENOMINATOR_MODES = (
     "legacy_eligible_deposits",
     "verified_revenue",
+    # 5.6 (T8): True revenue is selectable, never the default.
+    "true_revenue",
 )
 LEGACY_REVENUE_STATE_MAP = {
     "true_revenue": "verified_revenue",
@@ -137,17 +151,41 @@ def rebuild_serialized_revenue_views(analysis: dict) -> dict:
     return _rebuild_account_revenue_views(analysis)
 
 
+def _tiered(records: list[dict]) -> bool:
+    """5.6 (§12): whether the posted credits carry tiers. A payload analysed before 5.6 carries none, and one whose
+    records carry a tier only in part is refused, as a missing state is."""
+    carrying = {isinstance(record.get("revenue_tier"), str) for record in records}
+    if len(carrying) > 1:
+        raise ValueError(_MIXED_TIERS)
+    return carrying != {False}  # an account with no posted credit has nothing to be tier-less about
+
+
+#: The fixed refusals of the rebuild and the review writer (webapp/app.py _DECLARED_REVIEW_REFUSALS lists them).
+_MIXED_TIERS = "every posted credit carries a revenue tier, or none does"
+_TIER_DISAGREES = "every posted credit's revenue state must agree with its tier"
+_ALREADY_VERIFIED = "a credit a rule verified can only be marked non-revenue"
+
+
 def _rebuild_account_revenue_views(analysis: dict) -> dict:
-    """One ACCOUNT's serialized revenue views, rebuilt in place."""
+    """One ACCOUNT's serialized revenue views, rebuilt in place. A 5.6 payload is rebuilt on its four tiers; a payload
+    analysed before 5.6 takes the tier-less path (§12): today's three states, no tier totals, no agreement check, and
+    no True revenue (its `true_revenue` and `true_revenue_evidence` are None and no row carries
+    `contributes_to_true_revenue`)."""
     statement = analysis["statement"]
     transactions = statement.get("transactions") or []
     evidence: dict[str, list[dict]] = {state: [] for state in REVENUE_STATES}
+    tier_evidence: dict[str, list[dict]] = {tier: [] for tier in REVENUE_TIERS}
     totals: dict[str, float] = {state: 0.0 for state in REVENUE_STATES}
     counts: dict[str, int] = {state: 0 for state in REVENUE_STATES}
+    tier_totals: dict[str, float] = {tier: 0.0 for tier in REVENUE_TIERS}
+    tier_counts: dict[str, int] = {tier: 0 for tier in REVENUE_TIERS}
+    by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
     posted_total = 0.0
     posted_count = 0
+    direction_conflict = False
     serialized_records: list[dict] = []
 
+    posted_records = []
     for transaction in transactions:
         amount = _number(transaction.get("amount"))
         record = transaction.get("classification")
@@ -156,6 +194,15 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
                 raise ValueError(
                     "every posted credit must have an authoritative classification record"
                 )
+            continue
+        if amount > 0 and record.get("is_posted") is not False:
+            posted_records.append(record)
+    tiered = _tiered(posted_records)
+
+    for transaction in transactions:
+        amount = _number(transaction.get("amount"))
+        record = transaction.get("classification")
+        if not isinstance(record, dict):
             continue
         if amount <= 0 or record.get("is_posted") is False:
             serialized_records.append(deepcopy(record))
@@ -174,19 +221,44 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
             initial_state,
             initial_state,
         )
-        flags = revenue_contribution_flags(state, tier_of_state(state))
-        record.update(flags)
+        tier = record.get("revenue_tier") if tiered else None
+        if tiered and STATE_OF_TIER.get(tier) != state:
+            raise ValueError(_TIER_DISAGREES)
+        record.update(revenue_contribution_flags(state, tier))
+        if not tiered:
+            record.pop("contributes_to_true_revenue", None)
+        if record.get("revenue_match_method") == "direction_conflict":
+            direction_conflict = True
         serialized_records.append(deepcopy(record))
         totals[state] += amount
         counts[state] += 1
         evidence[state].append(deepcopy(record))
+        if tiered:
+            tier_totals[tier] += amount
+            tier_counts[tier] += 1
+            tier_evidence[tier].append(deepcopy(record))
+            if tier in by_reason:
+                slot = by_reason[tier].setdefault(record.get("revenue_tier_reason") or "", [0, 0.0])
+                slot[0] += 1
+                slot[1] += amount
 
     posted_total = round(posted_total, 2)
     for state in REVENUE_STATES:
         totals[state] = round(totals[state], 2)
+    for tier in REVENUE_TIERS:
+        tier_totals[tier] = round(tier_totals[tier], 2)
     classified_total = round(sum(totals.values()), 2)
     classified_count = sum(counts.values())
+    if tiered:
+        classified_total = round(sum(tier_totals.values()), 2)
+        classified_count = sum(tier_counts.values())
     delta = round(classified_total - posted_total, 2)
+    reconciles = delta == 0.0 and classified_count == posted_count
+    true_total = round(tier_totals["verified"] + tier_totals["counted_flagged"], 2) if tiered else None
+    true_evidence = (
+        [deepcopy(record) for record in serialized_records if record.get("contributes_to_true_revenue")]
+        if tiered else None
+    )
 
     metrics = analysis.setdefault("metrics", {})
     metrics.update({
@@ -204,33 +276,65 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         "revenue_classified_total": classified_total,
         "revenue_classified_count": classified_count,
         "revenue_reconciliation_delta": delta,
-        "revenue_reconciles": delta == 0.0 and classified_count == posted_count,
-        "revenue_review_required": counts["unverified_deposit"] > 0,
+        "revenue_reconciles": reconciles,
         "verified_revenue_evidence": evidence["verified_revenue"],
         "unverified_deposit_evidence": evidence["unverified_deposit"],
         "non_revenue_evidence": evidence["non_revenue"],
-        # Deprecated aggregate aliases, all derived from canonical records.
-        "true_revenue": totals["verified_revenue"],
+        # Deprecated aggregate aliases, all derived from canonical records. 5.6 (T9): `true_revenue` and
+        # `true_revenue_evidence` are True revenue; None on a payload analysed before 5.6 (§12).
+        "true_revenue": true_total,
         "confirmed_true_revenue": totals["verified_revenue"],
         "confirmed_true_revenue_total": totals["verified_revenue"],
         "confirmed_true_revenue_count": counts["verified_revenue"],
         "potential_revenue_total": totals["unverified_deposit"],
         "potential_revenue_count": counts["unverified_deposit"],
-        "true_revenue_evidence": evidence["verified_revenue"],
+        "true_revenue_evidence": true_evidence,
         "potential_revenue_evidence": evidence["unverified_deposit"],
     })
+    if tiered:
+        metrics.update({
+            "true_revenue_total": true_total,
+            "true_revenue_count": tier_counts["verified"] + tier_counts["counted_flagged"],
+            "counted_flagged_total": tier_totals["counted_flagged"],
+            "counted_flagged_count": tier_counts["counted_flagged"],
+            "excluded_pending_review_total": tier_totals["excluded_pending_review"],
+            "excluded_pending_review_count": tier_counts["excluded_pending_review"],
+            "counted_flagged_by_reason": _by_reason(by_reason["counted_flagged"]),
+            "excluded_pending_review_by_reason": _by_reason(by_reason["excluded_pending_review"]),
+            "revenue_review_items": tier_counts["excluded_pending_review"],
+            "revenue_review_required": revenue_review_gate(
+                direction_conflict=direction_conflict,
+                held_total=tier_totals["excluded_pending_review"],
+                posted_total=posted_total,
+                reconciles=reconciles,
+            ),
+            "counted_flagged_evidence": tier_evidence["counted_flagged"],
+            "excluded_pending_review_evidence": tier_evidence["excluded_pending_review"],
+        })
+    else:
+        # §12: no tier figure, and the gate is the rule the payload was analysed under.
+        metrics.update({key: None for key in TIER_METRIC_KEYS})
+        metrics["revenue_review_required"] = (
+            counts["unverified_deposit"] > 0 or direction_conflict or not reconciles
+        )
 
     denominator_mode = normalize_withholding_denominator_mode(
         metrics.get("withholding_denominator_mode")
     )
     metrics["withholding_denominator_mode"] = denominator_mode
+    denominator = None
     if denominator_mode == "verified_revenue":
         denominator = totals["verified_revenue"]
+        metrics["withholding_denominator_label"] = "Verified revenue"
+        metrics["eligible_deposit_definition"] = "verified classified revenue"
+    elif denominator_mode == "true_revenue" and true_total is not None:
+        denominator = true_total
+        metrics["withholding_denominator_label"] = "True revenue"
+        metrics["eligible_deposit_definition"] = "true revenue: verified plus counted credits"
+    if denominator is not None:
         metrics["eligible_deposits"] = denominator
         metrics["withholding_denominator"] = denominator
         metrics["potential_withholding_denominator"] = denominator
-        metrics["withholding_denominator_label"] = "Verified revenue"
-        metrics["eligible_deposit_definition"] = "verified classified revenue"
         numerator = _number(metrics.get("withholding_numerator"))
         potential_numerator = _number(metrics.get("potential_withholding_numerator"))
         metrics["withholding_rate"] = (
@@ -245,8 +349,13 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
     detection["verified_revenue_evidence"] = evidence["verified_revenue"]
     detection["unverified_deposit_evidence"] = evidence["unverified_deposit"]
     detection["non_revenue_evidence"] = evidence["non_revenue"]
-    detection["true_revenue_evidence"] = evidence["verified_revenue"]
+    detection["true_revenue_evidence"] = deepcopy(true_evidence)
     detection["potential_revenue_evidence"] = evidence["unverified_deposit"]
+    if tiered:
+        detection["counted_flagged_evidence"] = tier_evidence["counted_flagged"]
+        detection["excluded_pending_review_evidence"] = tier_evidence["excluded_pending_review"]
+    else:
+        detection.update({key: None for key in TIER_DETECTION_KEYS})
     detection["manual_review"] = [
         deepcopy(record)
         for record in serialized_records
@@ -258,6 +367,20 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         if isinstance(transaction.get("classification"), dict)
     ]
     return analysis
+
+
+def _by_reason(slots: dict[str, list]) -> dict[str, dict[str, float | int]]:
+    return {reason: {"count": count, "total": round(total, 2)} for reason, (count, total) in sorted(slots.items())}
+
+
+def revenue_review_gate(*, direction_conflict: bool, held_total: float, posted_total: float, reconciles: bool) -> bool:
+    """T7: a statement needs revenue review when a credit's direction conflicts with its amount, when its held
+    credits are REVENUE_REVIEW_HELD_SHARE percent or more of all its posted credits (non-revenue included), compared
+    in integer cents, or when its revenue does not reconcile. Counted, flagged credits never gate."""
+    held_cents = round(held_total * 100)
+    posted_cents = round(posted_total * 100)
+    held_share = held_cents > 0 and held_cents * 100 >= REVENUE_REVIEW_HELD_SHARE * posted_cents
+    return direction_conflict or held_share or not reconciles
 
 
 def record_serialized_revenue_review(
@@ -311,30 +434,46 @@ def record_serialized_revenue_review(
     record = target.get("classification") or {}
     initial_state = record.get("revenue_initial_classification")
     initial_state = LEGACY_REVENUE_STATE_MAP.get(initial_state, initial_state)
-    if initial_state != "unverified_deposit":
+    # 5.6 (T6, §10.7): a counted or held deposit, and a credit a rule verified, are reviewable; a credit a
+    # non-revenue rule decided is not. A payload analysed before 5.6 carries no tier and keeps today's rule.
+    tiered = isinstance(record.get("revenue_tier"), str)
+    reviewable = {"unverified_deposit", "verified_revenue"} if tiered else {"unverified_deposit"}
+    if initial_state not in reviewable:
         raise ValueError("only automatically unverified deposits can be reviewed")
+    if decision == "confirm" and initial_state == "verified_revenue":
+        raise ValueError(_ALREADY_VERIFIED)
 
     if decision == "confirm":
         state: RevenueState = "verified_revenue"
         status = "confirmed"
         note = "Reviewer confirmed this credit as operating revenue."
+        tier = "verified"
     elif decision == "reject":
         state = "non_revenue"
         status = "rejected"
         note = "Reviewer rejected this credit as operating revenue."
+        tier = "non_revenue"
     else:
-        state = "unverified_deposit"
-        status = "pending"
+        state = initial_state
+        status = "pending" if initial_state == "unverified_deposit" else "not_required"
         note = None
+        tier = record.get("revenue_initial_tier")
 
     record["revenue_classification"] = state
-    record["revenue_review_required"] = state == "unverified_deposit"
+    if tiered:
+        record["revenue_tier"] = tier
+        record["revenue_review_required"] = tier == "excluded_pending_review"
+    else:
+        tier = None
+        record["revenue_review_required"] = state == "unverified_deposit"
     record["revenue_review_status"] = status
     record["revenue_review_note"] = note
     record["revenue_reviewed_at"] = (
         None if decision == "reset" else reviewed_at or datetime.now(UTC).isoformat()
     )
-    record.update(revenue_contribution_flags(state, tier_of_state(state)))
+    record.update(revenue_contribution_flags(state, tier))
+    if not tiered:
+        record.pop("contributes_to_true_revenue", None)
     return record
 
 

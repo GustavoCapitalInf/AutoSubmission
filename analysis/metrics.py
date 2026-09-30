@@ -27,8 +27,10 @@ from .transaction_classifier import (
     flagged_payee,
 )
 from .revenue import (
+    STATE_OF_TIER,
     WITHHOLDING_DENOMINATOR_MODES,
     normalize_withholding_denominator_mode,
+    revenue_review_gate,
 )
 
 
@@ -106,7 +108,20 @@ class Metrics:
     verified_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     unverified_deposit_evidence: list[TransactionClassification] = field(default_factory=list)
     non_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
-    # Deprecated aliases retained for consumers of the version 3.0 API.
+    # 5.6 (true revenue spec §5.1, §9.1): True revenue is verified plus counted; the held credits wait for an analyst.
+    true_revenue_total: float = 0.0
+    true_revenue_count: int = 0
+    counted_flagged_total: float = 0.0
+    counted_flagged_count: int = 0
+    excluded_pending_review_total: float = 0.0
+    excluded_pending_review_count: int = 0
+    counted_flagged_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
+    excluded_pending_review_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
+    revenue_review_items: int = 0
+    counted_flagged_evidence: list[TransactionClassification] = field(default_factory=list)
+    excluded_pending_review_evidence: list[TransactionClassification] = field(default_factory=list)
+    # Deprecated aliases retained for consumers of the version 3.0 API. 5.6 (T9): `true_revenue` and
+    # `true_revenue_evidence` are repointed to True revenue (verified plus counted).
     true_revenue: float = 0.0
     confirmed_true_revenue: float = 0.0
     confirmed_true_revenue_total: float = 0.0
@@ -313,8 +328,8 @@ def compute_metrics(
     )
     if withholding_denominator_mode not in WITHHOLDING_DENOMINATOR_MODES:
         raise ValueError(
-            "withholding_denominator_mode must be legacy_eligible_deposits "
-            "or verified_revenue"
+            "withholding_denominator_mode must be legacy_eligible_deposits, "
+            "verified_revenue or true_revenue"
         )
     m = Metrics()
     m.withholding_denominator_mode = withholding_denominator_mode
@@ -330,6 +345,8 @@ def compute_metrics(
     flagged_credited_counts: dict[str, int] = {}
     flagged_credited_totals: dict[str, float] = {}
     flagged_payees: dict[str, set[str]] = {}
+    by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
+    direction_conflict = False
     for t, classification in zip(stmt.transactions, records):
         if t.amount >= 0:
             m.total_deposits += t.amount
@@ -376,6 +393,24 @@ def compute_metrics(
                 raise ValueError(
                     "every posted credit must contribute to exactly one revenue state"
                 )
+            # 5.6 (§5.4): every posted credit carries exactly one tier, and its tier agrees with its state.
+            tier = classification.revenue_tier
+            if tier is None or STATE_OF_TIER.get(tier) != classification.revenue_classification:
+                raise ValueError("every posted credit's revenue state must agree with its tier")
+            if classification.revenue_match_method == "direction_conflict":
+                direction_conflict = True
+            if tier in by_reason:
+                slot = by_reason[tier].setdefault(classification.revenue_tier_reason or "", [0, 0.0])
+                slot[0] += 1
+                slot[1] += t.amount
+            if tier == "counted_flagged":
+                m.counted_flagged_total += t.amount
+                m.counted_flagged_count += 1
+                m.counted_flagged_evidence.append(classification)
+            elif tier == "excluded_pending_review":
+                m.excluded_pending_review_total += t.amount
+                m.excluded_pending_review_count += 1
+                m.excluded_pending_review_evidence.append(classification)
             m.total_posted_credits += t.amount
             m.total_posted_credit_count += 1
             if classification.contributes_to_verified_revenue:
@@ -432,28 +467,47 @@ def compute_metrics(
     m.verified_revenue_total = round(m.verified_revenue_total, 2)
     m.unverified_deposit_total = round(m.unverified_deposit_total, 2)
     m.non_revenue_total = round(m.non_revenue_total, 2)
+    m.counted_flagged_total = round(m.counted_flagged_total, 2)
+    m.excluded_pending_review_total = round(m.excluded_pending_review_total, 2)
+    m.true_revenue_total = round(m.verified_revenue_total + m.counted_flagged_total, 2)
+    m.true_revenue_count = m.verified_revenue_count + m.counted_flagged_count
+    m.counted_flagged_by_reason = {
+        reason: {"count": count, "total": round(total, 2)}
+        for reason, (count, total) in sorted(by_reason["counted_flagged"].items())
+    }
+    m.excluded_pending_review_by_reason = {
+        reason: {"count": count, "total": round(total, 2)}
+        for reason, (count, total) in sorted(by_reason["excluded_pending_review"].items())
+    }
+    m.revenue_review_items = m.excluded_pending_review_count
     m.confirmed_true_revenue_total = m.verified_revenue_total
     m.confirmed_true_revenue_count = m.verified_revenue_count
     m.confirmed_true_revenue = m.verified_revenue_total
-    m.true_revenue = m.verified_revenue_total
+    m.true_revenue = m.true_revenue_total
     m.potential_revenue_total = m.unverified_deposit_total
     m.potential_revenue_count = m.unverified_deposit_count
-    m.true_revenue_evidence = m.verified_revenue_evidence
+    m.true_revenue_evidence = [
+        record for record in records
+        if record.contributes_to_verified_revenue or record.contributes_to_counted_flagged
+    ]
     m.potential_revenue_evidence = m.unverified_deposit_evidence
     m.maximum_revenue = round(
         m.verified_revenue_total + m.unverified_deposit_total,
         2,
     )
     m.total_posted_credits = round(m.total_posted_credits, 2)
+    # 5.6 (§5.1): the four-tier identity, verified + counted + held + non-revenue = posted credits.
     m.revenue_classified_total = round(
         m.verified_revenue_total
-        + m.unverified_deposit_total
+        + m.counted_flagged_total
+        + m.excluded_pending_review_total
         + m.non_revenue_total,
         2,
     )
     m.revenue_classified_count = (
         m.verified_revenue_count
-        + m.unverified_deposit_count
+        + m.counted_flagged_count
+        + m.excluded_pending_review_count
         + m.non_revenue_count
     )
     m.revenue_reconciliation_delta = round(
@@ -464,7 +518,12 @@ def compute_metrics(
         m.revenue_reconciliation_delta == 0.0
         and m.revenue_classified_count == m.total_posted_credit_count
     )
-    m.revenue_review_required = m.unverified_deposit_count > 0
+    m.revenue_review_required = revenue_review_gate(
+        direction_conflict=direction_conflict,
+        held_total=m.excluded_pending_review_total,
+        posted_total=m.total_posted_credits,
+        reconciles=m.revenue_reconciles,
+    )
     m.lenders_detected = len(confirmed_entities)
     m.potential_lenders_detected = len(potential_entities)
     m.effective_total_deposits = m.total_deposits
@@ -580,6 +639,10 @@ def compute_metrics(
         m.eligible_deposits = m.verified_revenue_total
         m.eligible_deposit_definition = "verified classified revenue"
         m.withholding_denominator_label = "Verified revenue"
+    elif withholding_denominator_mode == "true_revenue":
+        m.eligible_deposits = m.true_revenue_total
+        m.eligible_deposit_definition = "true revenue: verified plus counted credits"
+        m.withholding_denominator_label = "True revenue"
     else:
         m.eligible_deposits = m.legacy_eligible_deposits
         m.withholding_denominator_label = "Legacy eligible deposits"

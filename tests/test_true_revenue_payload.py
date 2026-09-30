@@ -3,9 +3,51 @@ flags, the metrics, the detection lists, the serialized views and their rebuild,
 True-revenue withholding mode. Fabricated rows only."""
 from __future__ import annotations
 
-from analysis.revenue import REVENUE_TIER_REASONS, revenue_contribution_flags, tier_of_state
+import copy
+from dataclasses import asdict
+
+import pytest
+
+from analysis.metrics import compute_metrics
+from analysis.revenue import (
+    REVENUE_REVIEW_HELD_SHARE,
+    REVENUE_TIER_REASONS,
+    apply_serialized_revenue_review,
+    rebuild_serialized_revenue_views,
+    record_serialized_revenue_review,
+    revenue_contribution_flags,
+    revenue_review_gate,
+    tier_of_state,
+)
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+
+ROWS = [
+    ("2054-03-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0),     # verified (Q6 company form)
+    ("2054-03-03", "MOBILE DEPOSIT", 300.0),                            # counted: check deposit
+    ("2054-03-04", "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 900.0),     # held: financing-named payer
+    ("2054-03-05", "INTERNAL TRANSFER FROM SAVINGS", 100.0),            # non-revenue
+    ("2054-03-06", "FABRIKAM SUPPLY DES:DEBIT ID:1", -50.0),
+]
+
+
+def _statement(rows=ROWS):
+    return Statement(account_name="CONTOSO BAKERY LLC", currency="USD", transactions=[
+        Transaction(date=day, description=text, amount=amount, direction="credit" if amount > 0 else "debit")
+        for day, text, amount in rows
+    ])
+
+
+def _payload(rows=ROWS) -> dict:
+    statement = _statement(rows)
+    records = classify_statement_transactions(statement)
+    return rebuild_serialized_revenue_views({
+        "statement": {"currency": "USD", "transactions": [
+            {**transaction.model_dump(), "classification": asdict(record)}
+            for transaction, record in zip(statement.transactions, records)
+        ]},
+        "metrics": {}, "detection": {},
+    })
 
 
 def test_the_flags_follow_the_state_and_the_tier():
@@ -45,3 +87,124 @@ def test_a_proven_duplicate_credit_is_tiered_non_revenue():
     ]))
     assert [record.revenue_tier for record in records] == ["verified", "non_revenue"]
     assert not records[1].contributes_to_true_revenue
+
+def test_the_metrics_carry_the_four_tiers_and_true_revenue():
+    statement = _statement()
+    metrics = compute_metrics(statement, classifications=classify_statement_transactions(statement))
+    assert (metrics.verified_revenue_total, metrics.counted_flagged_total, metrics.excluded_pending_review_total,
+            metrics.non_revenue_total) == (700.0, 300.0, 900.0, 100.0)
+    assert metrics.true_revenue_total == metrics.true_revenue == 1000.0
+    assert metrics.true_revenue_count == 2
+    assert metrics.maximum_revenue == 1900.0
+    assert metrics.counted_flagged_by_reason == {"check_deposit": {"count": 1, "total": 300.0}}
+    assert metrics.excluded_pending_review_by_reason == {"financing_named_payer": {"count": 1, "total": 900.0}}
+    assert metrics.revenue_review_items == 1
+    assert metrics.revenue_reconciles
+    assert [record.revenue_tier for record in metrics.true_revenue_evidence] == ["verified", "counted_flagged"]
+
+
+def test_a_record_whose_tier_disagrees_with_its_state_is_refused():
+    statement = _statement()
+    records = classify_statement_transactions(statement)
+    from dataclasses import replace
+    records[1] = replace(records[1], revenue_tier="verified")
+    with pytest.raises(ValueError, match="agree with its tier"):
+        compute_metrics(statement, classifications=records)
+
+
+@pytest.mark.parametrize(("held", "posted", "gated"), [
+    (99.99, 1000.0, False),      # just under ten percent, in cents
+    (100.0, 1000.0, True),       # exactly ten percent
+    (0.0, 0.0, False),           # nothing posted, nothing held
+])
+def test_the_gate_compares_the_held_share_in_integer_cents(held, posted, gated):
+    assert REVENUE_REVIEW_HELD_SHARE == 10
+    assert revenue_review_gate(direction_conflict=False, held_total=held, posted_total=posted, reconciles=True) is gated
+    assert revenue_review_gate(direction_conflict=True, held_total=0.0, posted_total=posted, reconciles=True)
+    assert revenue_review_gate(direction_conflict=False, held_total=0.0, posted_total=posted, reconciles=False)
+
+
+def test_the_serialized_views_carry_the_tiers_and_repoint_true_revenue():
+    payload = _payload()
+    metrics, detection = payload["metrics"], payload["detection"]
+    assert (metrics["true_revenue_total"], metrics["counted_flagged_total"], metrics["excluded_pending_review_total"]) == (
+        1000.0, 300.0, 900.0)
+    assert metrics["true_revenue"] == 1000.0 and metrics["confirmed_true_revenue_total"] == 700.0
+    assert metrics["revenue_review_required"]            # 900 of 2000 posted is held
+    assert metrics["revenue_review_items"] == 1
+    assert len(detection["true_revenue_evidence"]) == 2
+    assert len(detection["counted_flagged_evidence"]) == len(detection["excluded_pending_review_evidence"]) == 1
+    assert [record["source_location"] for record in detection["manual_review"]
+            if record.get("revenue_review_required")] == ["transaction:3"]
+
+
+def test_confirm_reject_and_reset_move_the_tier():
+    payload = _payload()
+    confirmed = apply_serialized_revenue_review(copy.deepcopy(payload), source_location="transaction:3",
+                                                decision="confirm")
+    record = confirmed["statement"]["transactions"][2]["classification"]
+    assert (record["revenue_classification"], record["revenue_tier"], record["revenue_tier_reason"]) == (
+        "verified_revenue", "verified", "financing_named_payer")
+    assert confirmed["metrics"]["true_revenue_total"] == 1900.0
+    rejected = apply_serialized_revenue_review(copy.deepcopy(payload), source_location="transaction:2",
+                                               decision="reject")
+    assert rejected["statement"]["transactions"][1]["classification"]["revenue_tier"] == "non_revenue"
+    reset = apply_serialized_revenue_review(rejected, source_location="transaction:2", decision="reset")
+    reset_record = reset["statement"]["transactions"][1]["classification"]
+    assert (reset_record["revenue_tier"], reset_record["revenue_review_status"]) == ("counted_flagged", "pending")
+    assert not reset_record["revenue_review_required"]
+
+
+def test_a_rule_verified_credit_can_be_rejected_but_not_confirmed():
+    payload = _payload()
+    with pytest.raises(ValueError, match="a credit a rule verified can only be marked non-revenue"):
+        record_serialized_revenue_review(copy.deepcopy(payload), source_location="transaction:1", decision="confirm")
+    rejected = apply_serialized_revenue_review(payload, source_location="transaction:1", decision="reject")
+    record = rejected["statement"]["transactions"][0]["classification"]
+    assert (record["revenue_classification"], record["revenue_tier"]) == ("non_revenue", "non_revenue")
+    reset = apply_serialized_revenue_review(rejected, source_location="transaction:1", decision="reset")
+    record = reset["statement"]["transactions"][0]["classification"]
+    assert (record["revenue_tier"], record["revenue_review_status"]) == ("verified", "not_required")
+    with pytest.raises(ValueError, match="only automatically unverified deposits"):
+        record_serialized_revenue_review(reset, source_location="transaction:4", decision="reject")
+
+
+def _untiered(payload: dict) -> dict:
+    old = copy.deepcopy(payload)
+    for transaction in old["statement"]["transactions"]:
+        record = transaction["classification"]
+        for key in ("revenue_tier", "revenue_initial_tier", "revenue_tier_reason"):
+            record.pop(key, None)
+    return old
+
+
+def test_a_payload_analysed_before_5_6_takes_the_tier_less_path():
+    old = rebuild_serialized_revenue_views(_untiered(_payload()))
+    metrics = old["metrics"]
+    assert metrics["true_revenue"] is None and metrics["true_revenue_evidence"] is None
+    assert metrics["true_revenue_total"] is None and metrics["counted_flagged_by_reason"] is None
+    assert metrics["verified_revenue_total"] == 700.0
+    assert metrics["revenue_review_required"]                # a pending unverified deposit, today's rule
+    assert all("contributes_to_true_revenue" not in transaction["classification"]
+               for transaction in old["statement"]["transactions"] if transaction["amount"] > 0)
+    # Its review follows today's rules: only an unverified deposit is reviewable, and no tier is written.
+    confirmed = apply_serialized_revenue_review(old, source_location="transaction:2", decision="confirm")
+    assert "revenue_tier" not in confirmed["statement"]["transactions"][1]["classification"]
+    with pytest.raises(ValueError, match="only automatically unverified deposits"):
+        record_serialized_revenue_review(old, source_location="transaction:1", decision="reject")
+
+
+def test_a_payload_tiered_only_in_part_is_refused():
+    mixed = _payload()
+    mixed["statement"]["transactions"][1]["classification"].pop("revenue_tier")
+    with pytest.raises(ValueError, match="carries a revenue tier, or none does"):
+        rebuild_serialized_revenue_views(mixed)
+
+
+def test_true_revenue_is_a_selectable_withholding_denominator_never_the_default():
+    statement = _statement()
+    records = classify_statement_transactions(statement)
+    legacy = compute_metrics(statement, classifications=records)
+    assert legacy.withholding_denominator_mode == "legacy_eligible_deposits"
+    true = compute_metrics(statement, classifications=records, withholding_denominator_mode="true_revenue")
+    assert (true.eligible_deposits, true.withholding_denominator_label) == (1000.0, "True revenue")

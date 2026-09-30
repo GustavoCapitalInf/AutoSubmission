@@ -201,8 +201,15 @@ def report_to_dict(report: Report) -> dict:
             "non_revenue_evidence": [
                 asdict(item) for item in detection.non_revenue_evidence
             ],
+            # 5.6 (§9.1): the counted and held credits; true_revenue_evidence is repointed to verified plus counted.
+            "counted_flagged_evidence": [
+                asdict(item) for item in detection.counted_flagged_evidence
+            ],
+            "excluded_pending_review_evidence": [
+                asdict(item) for item in detection.excluded_pending_review_evidence
+            ],
             "true_revenue_evidence": [
-                asdict(item) for item in detection.verified_revenue_evidence
+                asdict(item) for item in detection.true_revenue_evidence
             ],
             "potential_revenue_evidence": [
                 asdict(item) for item in detection.unverified_deposit_evidence
