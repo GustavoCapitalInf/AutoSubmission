@@ -1986,6 +1986,50 @@ DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
     "Lendbuzz": ("LENDBUZZ",),
 }
 
+#: 5.6 (§7.5, the standing rule; S4.2 review I6b): brokerage, investing and crypto-exchange platforms, as a regular
+#: expression read on the row before its receiver fields (analysis/true_revenue.py compiles it). A credit from one is
+#: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose.
+OWNER_MONEY_PLATFORMS: str = (
+    r"(?<![A-Z])(?:SCHWAB|ROBINHOOD|COINBASE|WEBULL|AMERITRADE|E ?TRADE|INTERACTIVE BROKERS|MERRILL (?:EDGE|LYNCH)"
+    r"|FIDELITY (?:BROKERAGE|INVESTMENTS?)|VANGUARD (?:MARKETING|GROUP|BROKERAGE|FIDUCIARY|INVESTMENTS?|FUNDS?)"
+    r"|CRYPTO COM|GEMINI TRUST)\b"
+)
+
+#: 5.6 (§15, §19 OQ4; S4.2 review I6a): the payers of the deferred family items, which stay counted and flagged until
+#: the owner rules on each, as a regular expression read with the receiver field's value removed
+#: (analysis/true_revenue.py compiles it): Q5 and Q6 never verify them, and they never count toward a Q5 or Q6 repeat.
+#: The registry's own deferred sources (PayPal, TikTok creator payouts, Super Dispatch's quick-pay, Outdoorsy and
+#: RepeatMD, AppFolio, the auctions' vendor payments) are left to the operating registry.
+SECTION_15_DEFERRED_PAYERS: str = (
+    # §7.3 (structural S15): individuals' gig income.
+    r"(?<![A-Z])(?:LYFT|SHIPT|POSTMATES|ROADIE|AMAZON FLEX|WALMART SPARK|SPARK DRIVER)\b"
+    # §7.2: fintech EFT, iink and GoodLeap; Payoneer's wallet withdrawals.
+    r"|(?<![A-Z])(?:IINK|GOODLEAP|PAYONEER)\b"
+    # §7.2, §15: tax-preparer fee disbursements and SBTPG.
+    r"|(?<![A-Z])(?:SBTPG|SANTA BARBARA TAX|TAX PRODUCTS|TAX PROC\w*)\b"
+    # §7.6 arm C, §15: EBT settlements and child-care subsidies.
+    r"|\b(?:EBT|CCDF|CACFP)\b"
+    # §7.7: Canadian benefit carriers, RBC's claim label, NEMT brokers and CLMEFT.
+    r"|(?<![A-Z])(?:SUN LIFE|MANULIFE|CANADA LIFE|EQUITABLE LIFE|GREAT WEST LIFE|ALBERTA BLUE CROSS"
+    r"|DESJARDINS (?:INSURANCE|ASSURANCE\w*|SECURITE)|HEALTH DENTAL CLAIM|CLMEFT|MODIVCARE|LOGISTICARE"
+    r"|MEDICAL TRANSPORTATION MANAGEMENT|SOUTHEASTRANS|VERIDA)\b"
+    # §7.12 (structural S58): payables platforms that also move the business's own funds.
+    r"|(?<![A-Z])(?:TIPALTI|MELIO|NVOICEPAY|MINERALTREE|CORPAY)\b"
+    # §7.1, §15: Applied Systems' agency-bill premium, lease-to-own payers, construction draws and progress billing,
+    # eCommission's commission advances.
+    r"|(?<![A-Z])(?:APPLIED SYSTEMS|ACIMA|KATAPULT|KOALAFI|PROGRESS BILLING|ECOMMISSION)\b"
+)
+
+#: 5.6 (§5.2, Q4; S4.2 re-review fix 1b): the sending banks a person-to-person row may print beside or instead of the
+#: sender ('ZELLE CREDIT BANK OF AMERICA'), normalized. A bank's name is never the sender's name. A single word is
+#: listed only when no person or business is commonly named so (Desjardins is also a surname: its caisse is listed).
+P2P_SENDING_BANK_NAMES: tuple[str, ...] = (
+    "BANK OF AMERICA", "BK OF AMERICA", "BOFA", "WELLS FARGO", "JPMORGAN CHASE", "JP MORGAN CHASE", "CHASE BANK",
+    "CITIBANK", "US BANK", "U S BANK", "PNC BANK", "TD BANK", "TRUIST", "CAPITAL ONE", "NAVY FEDERAL", "FIFTH THIRD",
+    "KEYBANK", "CITIZENS BANK", "REGIONS BANK", "HUNTINGTON BANK", "SANTANDER BANK", "USAA", "ROYAL BANK", "RBC",
+    "SCOTIABANK", "BMO", "CIBC", "TD CANADA TRUST", "CAISSE DESJARDINS", "NATIONAL BANK", "BANQUE NATIONALE",
+)
+
 
 # Compatibility import for extensions written against classification version 3.0.
 VERIFIED_REVENUE_ALIASES = OPERATING_REVENUE_SOURCE_ALIASES

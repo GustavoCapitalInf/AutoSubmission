@@ -28,7 +28,10 @@ from .classification_registry import (
     DEALER_FUNDING_PAYERS,
     HEALTHCARE_PAYER_ALIASES,
     OPERATING_REVENUE_READ_ALIASES,
+    OWNER_MONEY_PLATFORMS,
+    P2P_SENDING_BANK_NAMES,
     PAYOUT_CREDIT_ENTITIES,
+    SECTION_15_DEFERRED_PAYERS,
 )
 from .flag_groups import FINANCING_STATES
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
@@ -157,37 +160,17 @@ _REGISTRY_METHODS = frozenset({
 _TIER_OF_STATE = {"verified_revenue": "verified", "non_revenue": "non_revenue"}
 #: §8.10: the lender and financing debit states payer_debited_as_lender reads.
 _LENDER_DEBIT_STATES = frozenset({"confirmed_lender", "potential_lender"}) | FINANCING_STATES
-#: §7.5, the standing rule (S4.2 review I6b): brokerage, investing and crypto-exchange platforms. A credit from one is
-#: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose. The classifier's
-#: consumer savings and investing originators (_SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS) are read too.
-_OWNER_MONEY_PLATFORMS = re.compile(
-    r"(?<![A-Z])(?:SCHWAB|ROBINHOOD|COINBASE|WEBULL|AMERITRADE|E ?TRADE|INTERACTIVE BROKERS|MERRILL (?:EDGE|LYNCH)"
-    r"|FIDELITY (?:BROKERAGE|INVESTMENTS?)|VANGUARD (?:MARKETING|GROUP|BROKERAGE|FIDUCIARY|INVESTMENTS?|FUNDS?)"
-    r"|CRYPTO COM|GEMINI TRUST)\b"
-)
-#: §15, §19 OQ4 (S4.2 review I6a): the payers of the deferred family items, which stay counted and flagged until the
-#: owner rules on each: Q5 and Q6 never verify them, and they never count toward a Q5 or Q6 repeat. The registry's
-#: own deferred sources (PayPal, TikTok creator payouts, Super Dispatch's quick-pay, Outdoorsy and RepeatMD, AppFolio,
-#: the auctions' vendor payments) are left to the registry by _left_to_its_family.
-_SECTION_15_DEFERRED_PAYERS = re.compile(
-    # §7.3 (structural S15): individuals' gig income.
-    r"(?<![A-Z])(?:LYFT|SHIPT|POSTMATES|ROADIE|AMAZON FLEX|WALMART SPARK|SPARK DRIVER)\b"
-    # §7.2: fintech EFT, iink and GoodLeap; Payoneer's wallet withdrawals.
-    r"|(?<![A-Z])(?:IINK|GOODLEAP|PAYONEER)\b"
-    # §7.2, §15: tax-preparer fee disbursements and SBTPG.
-    r"|(?<![A-Z])(?:SBTPG|SANTA BARBARA TAX|TAX PRODUCTS|TAX PROC\w*)\b"
-    # §7.6 arm C, §15: EBT settlements and child-care subsidies.
-    r"|\b(?:EBT|CCDF|CACFP)\b"
-    # §7.7: Canadian benefit carriers, RBC's claim label, NEMT brokers and CLMEFT.
-    r"|(?<![A-Z])(?:SUN LIFE|MANULIFE|CANADA LIFE|EQUITABLE LIFE|GREAT WEST LIFE|ALBERTA BLUE CROSS"
-    r"|DESJARDINS (?:INSURANCE|ASSURANCE\w*|SECURITE)|HEALTH DENTAL CLAIM|CLMEFT|MODIVCARE|LOGISTICARE"
-    r"|MEDICAL TRANSPORTATION MANAGEMENT|SOUTHEASTRANS|VERIDA)\b"
-    # §7.12 (structural S58): payables platforms that also move the business's own funds.
-    r"|(?<![A-Z])(?:TIPALTI|MELIO|NVOICEPAY|MINERALTREE|CORPAY)\b"
-    # §7.1, §15: Applied Systems' agency-bill premium, lease-to-own payers, construction draws and progress billing,
-    # eCommission's commission advances.
-    r"|(?<![A-Z])(?:APPLIED SYSTEMS|ACIMA|KATAPULT|KOALAFI|PROGRESS BILLING|ECOMMISSION)\b"
-)
+#: §7.5, the standing rule (S4.2 review I6b): brokerage, investing and crypto-exchange platforms (the registry's
+#: OWNER_MONEY_PLATFORMS, §7.0: a table that names companies lives there). A credit from one is the owner's own money
+#: coming back (owner money never becomes revenue): held as non_sale_purpose. The classifier's consumer savings and
+#: investing originators (_SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS) are read too.
+_OWNER_MONEY_PLATFORMS = re.compile(OWNER_MONEY_PLATFORMS)
+#: §15, §19 OQ4 (S4.2 review I6a): the payers of the deferred family items (the registry's
+#: SECTION_15_DEFERRED_PAYERS), which stay counted and flagged until the owner rules on each: Q5 and Q6 never verify
+#: them, they never count toward a Q5 or Q6 repeat, and on a wire or an ACH or EFT row their reason is
+#: named_payer_purpose_refused (S4.2 re-review: a payer Q5 and Q6 refuse as proof, §8.9; never "One-off payer", as a
+#: deferred source often repeats). The registry's own deferred sources are left to the registry by _left_to_its_family.
+_SECTION_15_DEFERRED_PAYERS = re.compile(SECTION_15_DEFERRED_PAYERS)
 #: §7.7: a bare X12 TRN*1* with no entry description, from a healthcare payer, is deferred too.
 _BARE_X12_TRACE = re.compile(r"\bTRN 1\b")
 #: §7.1 (S4.2 review I5): the NET SETTLE card form, read whether or not its refusal or the card veto matches: such a
@@ -223,6 +206,39 @@ _P2P_NO_SENDER_WORDS = frozenset({
 })
 #: Q4 (S4.2 review I7): a sender printed without FROM ends at these (§5.2's sender ends, and the field labels).
 _P2P_SENDER_END_WORDS = frozenset({"ON", "REF", "CONF", "MEMO", "TRN", "ID", "FOR", "NOTE", "INFO"})
+#: Q4, §5.2 (S4.2 re-review fix 1b): more layout words, never a sender's name: the posting words a rail prints where
+#: a sender would stand ('ZELLE BUSINESS PAYMENT', 'ZELLE RECURRING PAYMENT', 'INTERAC E TRANSFER REQUEST FULFILLED',
+#: 'RTP CREDIT REMITTANCE INFO'), the French ones ('VIREMENT INTERAC DEPOT AUTOMATIQUE', 'VIREMENT INTERAC ENTRANT',
+#: 'VIREMENT EN LIGNE TF'), Apple Cash's own name printed again after PMNT RCVD, and its card code CKCD.
+_P2P_LAYOUT_WORDS = frozenset({
+    "BUSINESS", "RECURRING", "REQUEST", "FULFILLED", "REMITTANCE",
+    "DEPOT", "AUTOMATIQUE", "ENTRANT", "ENTRANTE", "LIGNE", "TF",
+    "APPLE", "CKCD",
+})
+#: Q4, §5.2 (S4.2 re-review fix 1b): phrases removed before the sender is read: a sending bank's name (the registry's
+#: P2P_SENDING_BANK_NAMES, 'ZELLE CREDIT BANK OF AMERICA') and Zelle's PAY ID label.
+_P2P_LAYOUT_PHRASES = re.compile(
+    r"(?<![A-Z])(?:" + "|".join(re.escape(name) for name in sorted(P2P_SENDING_BANK_NAMES, key=len, reverse=True))
+    + r"|PAY ID)\b"
+)
+#: Q4, §5.2 (S4.2 re-review fix 1b): a wallet's city, printed after its sender ('CASH APP*<sender>*OAKLAND CA', Apple
+#: Cash's CUPERTINO CA, Venmo's NEW YORK CITY NY and SAN JOSE CA, Square's SAN FRANCISCO CA): the sender ends there.
+_P2P_WALLET_CITY = re.compile(r"(?<![A-Z])(?:CUPERTINO|OAKLAND|(?:SOUTH )?SAN FRANCISCO|SAN JOSE|NEW YORK)\b")
+#: Q4, §5.2 (S4.2 re-review fix 1b): the US state codes a wallet prints as a trailing tail ('VENMO <sender> VISA
+#: DIRECT NY'), removed from the sender's end.
+_US_STATE_TAIL = frozenset("""
+AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC
+SD TN TX UT VT VA WA WV WI WY DC PR US CAUS
+""".split())
+#: §5.2 (S4.2 re-review fix 1b): a Venmo or Cash App cash-out prints no sender ('CASH APP*CASH OUT*OAKLAND CA',
+#: 'VENMO CASHOUT <reference> <name>': the name is the wallet's owner).
+_P2P_CASH_OUT = re.compile(r"(?<![A-Z])CASH ?OUT\b")
+#: Q4 (S4.2 re-review fix 1b): a legal form or an article alone names nobody ('RTP CREDIT 1ABC INC SAN FRANCISCO CA',
+#: whose name the reference reading drops).
+_NOT_A_NAME_ALONE = frozenset({
+    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "COMPANY", "CO", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
+    "PLC", "THE", "OF", "AND",
+})
 
 
 @dataclass(frozen=True)
@@ -310,18 +326,28 @@ def _p2p_sender_region(text: str) -> str:
     """Q4, §5.2 (S4.2 review I7): the sender a person-to-person rail prints without FROM ('E TRANSFER AUTODEPOSIT
     <sender>', 'INTERAC E TRANSFER RECEIVED <sender>', 'ZELLE TRANSFER <sender>', 'ZELLE CREDIT <sender>'): the name
     words after a consumer rail or RTP, skipping the rail, posting, layout and generic words and single letters, up
-    to a field label, one of §5.2's sender ends or a reference token after a name word. A numbered company keeps its
-    number (its identity, and the holder test's digit run). When a rail is followed by no name word the next rail is
-    read ('NOW NETWORK CREDIT ZELLE CREDIT NOW NET ID <n> ZELLE <sender>'). '' when the row prints FROM (payer_region
-    reads it), names a recipient or a reversal, or prints no sender (a Venmo or Cash App cash-out)."""
+    to a field label, one of §5.2's sender ends or a reference token after a name word. When a rail is followed by no
+    name word the next rail is read ('NOW NETWORK CREDIT ZELLE CREDIT NOW NET ID <n> ZELLE <sender>'). '' when the row
+    prints FROM (payer_region reads it), names a recipient or a reversal, or prints no sender (a Venmo or Cash App
+    cash-out).
+
+    S4.2 re-review (fix 1): a reference printed before the sender is kept only as a numbered company's number (the
+    number and the words after it read as §5.2's numbered payer region: its identity, and the holder test's digit
+    run), so a per-row reference never splits one sender ('E TRANSFER <reference> <sender>'). A sending bank's name
+    and Zelle's PAY ID are removed first, the sender ends at a wallet's city, a trailing US state code is dropped, and
+    a legal form or an article alone is no sender."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
-    if re.search(r"\bFROM\b", row):
+    if re.search(r"\bFROM\b", row) or _P2P_CASH_OUT.search(row):
         return ""
     for rail in _p2p_sender_rail().finditer(row):
+        rest = _P2P_LAYOUT_PHRASES.sub(" ", row[rail.end():])
+        city = _P2P_WALLET_CITY.search(rest)
+        if city is not None:
+            rest = rest[: city.start()]
         words: list[str] = []
         number = ""
-        for token in row[rail.end():].split():
+        for token in rest.split():
             if token in _P2P_SENDER_END_WORDS or token in _TRANSFER_FIELD_LABEL_WORDS:
                 break
             if token in _P2P_NO_SENDER_WORDS:
@@ -331,11 +357,18 @@ def _p2p_sender_region(text: str) -> str:
                     break
                 number = token if token.isdigit() and len(token) >= 6 else ""
                 continue
-            if token in classifier.REVENUE_GENERIC_WORDS or token in _P2P_NOT_SENDER_WORDS or len(token) < 2:
+            if (
+                token in classifier.REVENUE_GENERIC_WORDS or token in _P2P_NOT_SENDER_WORDS
+                or token in _P2P_LAYOUT_WORDS or len(token) < 2
+            ):
                 continue
             words.append(token)
-        if words:
-            return " ".join(([number] if number else []) + words)
+        while words and words[-1] in _US_STATE_TAIL:
+            words.pop()
+        if number and classifier._NUMBERED_COMPANY_REGION.match(" ".join([number, *words])):
+            return " ".join([number, *words])
+        if words and not all(word in _NOT_A_NAME_ALONE for word in words):
+            return " ".join(words)
     return ""
 
 
@@ -544,7 +577,8 @@ def _transfer_counterparty_words(text: str) -> list[str]:
     tokens are removed. S4.2 review (I2): the ACH field labels, SEC codes and reference labels are removed with the
     reference printed after them, letters only or not ('REF IBEABCD'), and what is left is read as S2.3 reads a
     transfer's originator (_originator_payer_words), so an account description ('FROM HELOC', 'FROM TAX RESERVE',
-    'FROM OPERATING') is never a counterparty."""
+    'FROM OPERATING') is never a counterparty. S4.2 re-review (fix 4): failing that, a short or company-formed name
+    after FROM is one (_short_or_formed_counterparty)."""
     classifier = _classifier()
     row = _TRANSFER_REFERENCE_VALUE.sub(" ", classifier._strip_revenue_template(classifier._before_receiver(text)))
     words = [
@@ -554,7 +588,39 @@ def _transfer_counterparty_words(text: str) -> list[str]:
         and not classifier._TRANSFER_WORDING.fullmatch(token)
         and token not in {"TRANSFER", "TRNSFR", "XFER", "TFR", "BR", "TO", "BANKING", "INTERNET"}
     ]
-    return classifier._originator_payer_words(" ".join(words))
+    return classifier._originator_payer_words(" ".join(words)) or _short_or_formed_counterparty(text)
+
+
+#: §8.2 (S4.2 re-review fix 4): the HOLDER_NOISE words that describe one of the holder's own accounts or a bank
+#: product, never a counterparty's name (a company's name words such as AMERICAN, NATIONAL, HOLDINGS are kept).
+_ACCOUNT_DESCRIPTION_WORDS = frozenset({
+    "BUSINESS", "PLATINUM", "COMPLETE", "ANALYZED", "COMMERCIAL", "ADVANTAGE", "FUNDAMENTALS", "SIMPLE", "BASIC",
+    "PREFERRED", "INTEREST", "OPERATING", "PERFORMANCE", "SELECT", "ESSENTIALS", "CHECK", "TOTAL", "PREMIUM", "SMALL",
+    "STANDARD", "FREE", "PLUS", "ELITE", "COMPTE", "DIVERS", "ENTREPRISE", "AFFAIRES", "OPERATIONS", "BANK", "BANQUE",
+    "CAISSE", "CU", "FCU", "DBA",
+})
+
+
+def _short_or_formed_counterparty(text: str) -> list[str]:
+    """§8.2, T13 (S4.2 re-review fix 4): a counterparty printed after FROM that the distinctive-word reading drops: two
+    name words of any length ('LI WU', 'LE VU'), or a company form ('JD LLC', 'AMERICAN NATIONAL INC', 'USA HOLDINGS
+    LLC'). Read on the sender after FROM (the payer region, cut at §5.2's sender ends), without field labels, reference
+    labels and their values, reference tokens, generic words, transfer words, account and product words and single
+    letters (payer_name drops those too); the name words also leave out HOLDER_NOISE. An account description or a
+    field label after FROM ('FROM OPERATING LLC', 'FROM NAME COMPANY LLC') is still no counterparty. [] otherwise."""
+    classifier = _classifier()
+    sender = _TRANSFER_REFERENCE_VALUE.sub(" ", classifier._sender_payer_region(text))
+    tokens = [
+        token for token in classifier._INTERNAL_ACCOUNT_SOURCE_WORDS.sub(" ", sender).split()
+        if len(token) > 1 and not classifier._is_reference_token(token)
+        and token not in _TRANSFER_FIELD_LABEL_WORDS and token not in classifier.REVENUE_GENERIC_WORDS
+        and token not in _ACCOUNT_WORDS and token not in classifier._OWN_ACCOUNT_PRODUCT_WORDS
+        and token not in _ACCOUNT_DESCRIPTION_WORDS and not classifier._TRANSFER_WORDING.fullmatch(token)
+    ]
+    names = [token for token in tokens if token not in classifier.HOLDER_NOISE]
+    if len(names) >= 2 or (tokens and classifier.company_form(" ".join(tokens))):
+        return tokens
+    return []
 
 
 def credit_facts(
@@ -674,7 +740,8 @@ def _first_hold(
     ):
         return "payer_also_debited"
     # §7.0, §8.10 (S4.2 review I3): under $1 never verifies and never counts, claimed or not. An account-verification
-    # entry is not a sale (T5), so it is held as the nearest reason the table has.
+    # entry is not a sale (T5), so it is held as non_sale_purpose: §5.3's table has no micro-deposit code (S4.2
+    # re-review: the nearest reason; a code of its own would be a change to the table).
     if _under_micro_floor(record):
         return "non_sale_purpose"
     return None
@@ -689,9 +756,10 @@ def _left_to_its_family(text: str) -> bool:
     """§7.1 to §7.3, §7.8 (S4.2 review I5): a row a family rule decides alone, which Q5 and Q6 never verify: the
     operating registry names an entity on it (an alias or its cut, read with the receiver field's value removed, or a
     payout form; whether or not the registry's read was vetoed or named a source, so an auction wire, a transport
-    marketplace's wallet or wire credit and a TikTok row that is not ACH-shaped stay with their own rules), a
-    processor the ledger has not cleared prints its bare alias (§7.1's ledger gate), or it prints the NET SETTLE card
-    form (§7.1: its refusal on law, trust, escrow, title and claims firms, and its three-credit count)."""
+    marketplace's wallet or wire credit and a TikTok row that is not ACH-shaped stay with their own rules), or it
+    prints the NET SETTLE card form (§7.1: its refusal on law, trust, escrow, title and claims firms, and its
+    three-credit count). A waiting processor's bare word (BRAINTREE, SMARTTAB) is no operating-registry alias, so it
+    never takes a row from Q5 or Q6 (S4.2 re-review fix 2: 'BRAINTREE PLUMBING LLC' is a payer like any other)."""
     classifier = _classifier()
     alias_text = classifier._without_receiver_value(text)
     if registry_match(alias_text, OPERATING_REVENUE_READ_ALIASES) is not None:
@@ -699,8 +767,6 @@ def _left_to_its_family(text: str) -> bool:
     row = classifier._before_receiver(text)
     joined = classifier._joined_text(row)
     if any(pattern.search(row) or pattern.search(joined) for _, _, pattern in classifier._PAYOUT_FORMS):
-        return True
-    if any(pattern.search(alias_text) for pattern in classifier._GATED_PROCESSOR_PATTERNS.values()):
         return True
     return _NET_SETTLE_FORM.search(row) is not None or _NET_SETTLE_FORM.search(joined) is not None
 
@@ -777,8 +843,13 @@ def _q6_eligible(record: TransactionClassification, text: str, facts: CreditFact
     )
 
 
-def _tier_reason(record: TransactionClassification, text: str, facts: CreditFacts, round_repeat: bool) -> tuple[str, str]:
-    """§8.10: the tier and reason of an unverified posted credit, in order."""
+def _tier_reason(
+    record: TransactionClassification, text: str, facts: CreditFacts, round_repeat: bool, deferred: bool = False,
+) -> tuple[str, str]:
+    """§8.10: the tier and reason of an unverified posted credit, in order. A deferred source (§15, `deferred`) on a
+    wire or an ACH or EFT row is a named payer Q5 and Q6 refuse as proof, as a verification-only word refuses one:
+    named_payer_purpose_refused (S4.2 re-review), never "One-off payer" (a deferred source often repeats). On a row
+    with no electronic-payment form it keeps named_payer_unlabelled: Q6 never reads such a row, deferred or not."""
     classifier = _classifier()
     if record.revenue_match_method == "direction_conflict":
         return "excluded_pending_review", "direction_conflict"
@@ -787,7 +858,7 @@ def _tier_reason(record: TransactionClassification, text: str, facts: CreditFact
     if facts.channel == "wire" and not facts.claimed:
         if not facts.region:
             return "excluded_pending_review", "wire_no_sender"
-        if facts.refused_word:
+        if facts.refused_word or deferred:
             return "counted_flagged", "named_payer_purpose_refused"
         return "counted_flagged", "wire_named_sender"
     if facts.transfer_no_counterparty and not facts.claimed:
@@ -808,7 +879,7 @@ def _tier_reason(record: TransactionClassification, text: str, facts: CreditFact
         return "counted_flagged", "payout_credit_entity"
     if facts.numbered:
         return "counted_flagged", "numbered_company_payer"
-    if facts.region and facts.refused_word:
+    if facts.region and (facts.refused_word or (deferred and facts.electronic)):
         return "counted_flagged", "named_payer_purpose_refused"
     if facts.region and facts.electronic:
         return "counted_flagged", "named_payer_one_off"
@@ -906,7 +977,7 @@ def apply_true_revenue_pass(
             updated[index] = _with_tier(record, tier, None)
             continue
         round_repeat = fact.round_sum and bool(fact.key) and round_sums[fact.key] >= 2
-        tier, reason = _tier_reason(record, texts[index], fact, round_repeat)
+        tier, reason = _tier_reason(record, texts[index], fact, round_repeat, _deferred_source(texts[index], fact))
         updated[index] = _with_tier(record, tier, reason)
     return updated
 

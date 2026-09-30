@@ -898,6 +898,13 @@ _CREDIT_RECEIVER_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID|RECEIVER NAME)\b
 _RECEIVER_VALUE_END = r".*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
 #: §5.2 (S2.2 review): a receiver field of _CREDIT_RECEIVER_FIELD with its value.
 _CREDIT_RECEIVER_VALUE = re.compile(_CREDIT_RECEIVER_FIELD.pattern + _RECEIVER_VALUE_END)
+#: §5.2 (S4.2 re-review fix 7): an incoming wire's beneficiary field (BNF, NBNF, BENEFICIARY, BNF NAME, as the wire
+#: readers name them) with its value, up to the next wire field. ORIG TO BNF is the originator's remittance text, not
+#: a beneficiary.
+_CREDIT_WIRE_BENEFICIARY_VALUE = re.compile(
+    r"(?<!\bTO )\b(?:N?BNF|BENEFICIARY)(?: NAME)?\b.*?"
+    r"(?=\b(?:REF|OBI|RFB|IMAD|OMAD|TRN|SRF|BBI|SND BK|PMT DET|RMR|ORIG|ORIGINATOR|ORG|B O)\b|$)"
+)
 #: §5.2: the bank's words printed before the payer, removed before the payer is read (with _PAYEE_TEMPLATE_PREFIX).
 _REVENUE_TEMPLATE_PREFIX = re.compile(
     r"^(?:BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
@@ -1064,8 +1071,16 @@ def _without_receiver_value(text: str) -> str:
     """5.5 (§5.2, S2.2 review): the text with each receiver field's value removed and every field after it kept, for
     the operating alias and the ledger gate. The holder's name never names a source ('INDN SQUARE INC CO ID ...' is
     the holder), while Bank of America's PMT INFO addenda, printed after INDN and CO ID, still does ('... CO ID 1 CCD
-    PMT INFO WORLDPAY ...'): _before_receiver would cut the addenda away with the receiver."""
-    return _CREDIT_RECEIVER_VALUE.sub(" ", text)
+    PMT INFO WORLDPAY ...'): _before_receiver would cut the addenda away with the receiver.
+
+    S4.2 re-review (fix 7): on an incoming wire (_is_wire_row: labels only a credit prints) the beneficiary field's
+    value goes too, as a receiver's does: a credit wire's beneficiary is the holder ('... ORIG NORTHWIND EXPORTS LLC
+    ... BNF SQUARE ONE BAKERY'). Any other row keeps it: Chase's real-time layout prints the originator there ('FROM
+    BNF INTUIT PAYMENTS INC'), and a debit's beneficiary is its payee."""
+    stripped = _CREDIT_RECEIVER_VALUE.sub(" ", text)
+    if _is_wire_row(text):
+        stripped = _CREDIT_WIRE_BENEFICIARY_VALUE.sub(" ", stripped)
+    return stripped
 
 
 def _strip_revenue_template(row: str) -> str:
@@ -1290,7 +1305,8 @@ def holder_named(region: str, account_name: str | None) -> bool:
 #: otherwise untouched.
 _NUMBERED_LEADING_DATE = re.compile(
     r"^(?:\d{1,2} \d{1,2} |\d{4} |\d{1,2} )"
-    r"(?=\d{6,}\b|(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE|MISC PAYMENT|BILL PAYMENT) \d{6,}\b)"
+    # S4.2 re-review (fix 3): the lookahead takes every template of _NUMBERED_COMPANY_TEMPLATE, PMT included.
+    r"(?=\d{6,}\b|(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{6,}\b)"
 )
 
 

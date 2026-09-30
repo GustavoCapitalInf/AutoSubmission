@@ -446,16 +446,27 @@ def test_three_net_settle_credits_still_verify_by_the_card_rule():
     "MELIO PAYMENTS INC DES:PAYMENT ID:1",
 ])
 def test_a_deferred_source_stays_counted_until_ruled(text):
-    # §15, §19 OQ4 (review I6a): the deferred items stay counted and flagged until the owner rules.
-    assert _tier(_one(text, 700.0)) == ("counted_flagged", "named_payer_one_off")
+    # §15, §19 OQ4 (review I6a): the deferred items stay counted and flagged until the owner rules. S4.2 re-review
+    # (fix round 2): Q5 and Q6 refuse them as proof whatever their count, so their reason is §8.9's
+    # named_payer_purpose_refused, never "One-off payer" (a deferred source often repeats).
+    assert _tier(_one(text, 700.0)) == ("counted_flagged", "named_payer_purpose_refused")
     repeated = _records([(text + " CCD", 700.0), (text.replace("ID:1", "ID:2") + " CCD", 710.0)])
     assert {record.revenue_classification for record in repeated} == {"unverified_deposit"}
+    assert {_tier(record) for record in repeated} == {("counted_flagged", "named_payer_purpose_refused")}
+
+
+def test_a_deferred_source_s_wires_are_refused_and_its_unlabelled_row_keeps_its_channel_reason():
+    # S4.2 re-review (fix round 2): Q5 refuses a deferred sender's repeated wires as proof; a row with no
+    # electronic-payment form is never read by Q6, deferred or not, so it keeps named_payer_unlabelled.
+    wires = _records([(WIRE.format(n=1, orig="LYFT INC"), 9000.0), (WIRE.format(n=2, orig="LYFT INC"), 9100.0)])
+    assert {_tier(record) for record in wires} == {("counted_flagged", "named_payer_purpose_refused")}
+    assert _tier(_one("MODIVCARE SOLUTIONS 1234", 700.0)) == ("counted_flagged", "named_payer_unlabelled")
 
 
 def test_a_healthcare_payer_s_bare_x12_trace_stays_counted():
     # §7.7: a bare X12 TRN*1* with no entry description is out (counted and flagged); with an entry it verifies.
     assert _tier(_one("ACH CREDIT AETNA TRN*1*123456789*1234567890", 700.0)) == ("counted_flagged",
-                                                                                  "named_payer_one_off")
+                                                                                  "named_payer_purpose_refused")
     assert _one("AETNA DES:PAYMENT ID:1", 700.0).revenue_match_method == "public_or_healthcare_payer"
 
 
@@ -517,13 +528,15 @@ def test_a_brokerage_platform_s_accounts_payable_wording_stays_held_by_the_platf
     assert _tier(_one(text, 3000.0)) == ("excluded_pending_review", "non_sale_purpose")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Pre-existing on 167c83d, outside pass 7: §7.5's payer remittance (payer_remittance_descriptor) verifies it "
-    "before pass 7, as its veto reads no platform name; pass 7 never demotes a verified row. Awaits a ruling."
-))
-def test_schwab_s_accounts_payable_wording_stays_held_by_the_platform_list():
-    assert _tier(_one("CHARLES SCHWAB & CO INC DES:PAYABLES ID:1", 3000.0)) == (
-        "excluded_pending_review", "non_sale_purpose")
+def test_schwab_s_accounts_payable_wording_is_the_payer_s_vendor_payment():
+    # S4.2 re-review (fix round 2, the orchestrator's ruling under the owner's delegation): accounts-payable wording is
+    # the payer's vendor payment, revenue even from a brokerage. Owner money from Schwab prints as a transfer or a
+    # MoneyLink (held by the platform list above); a PAYABLES entry is Schwab paying the business as its vendor, so
+    # §7.5's payer remittance rule verifies it before pass 7.
+    record = _one("CHARLES SCHWAB & CO INC DES:PAYABLES ID:1", 3000.0)
+    assert (record.revenue_classification, record.revenue_match_method) == (
+        "verified_revenue", "payer_remittance_descriptor")
+    assert _tier(record) == ("verified", None)
 
 
 @pytest.mark.parametrize("rail", ["E TRANSFER AUTODEPOSIT {name} CA1234ABCD", "INTERAC E TRANSFER RECEIVED {name}",
@@ -602,3 +615,160 @@ def test_the_guard_facts_read_the_known_payee_without_the_receiver_value():
     # A registry-claimed row says so, for the census's holder guards (§8.1: the holds skip claimed rows).
     square = _one("SQUARE INC DES:TRANSFER ID:1", 700.0, holder="SQUARE ONE BAKERY LLC")
     assert true_revenue.guard_facts(square, "SQUARE INC DES TRANSFER ID 1")["claimed"]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.2 re-review, fix round 2 (2026-09-29): the P2P sender reader (references and layout words), Q6 and the gated
+# processors' words, the accounts-payable template after a leading date, short and company-formed transfer
+# counterparties, the registry's tables, the deferred sources' reason, and a credit wire's beneficiary.
+# ---------------------------------------------------------------------------------------------------------------------
+P2P = ("counted_flagged", "p2p")
+
+
+@pytest.mark.parametrize("layout", [
+    "E TRANSFER {ref} {name}", "INTERAC E TRANSFER RECEIVED {ref} {name}", "VIREMENT INTERAC {ref} {name}",
+    "E TRANSFER AUTODEPOSIT {ref} {name}",
+])
+def test_a_per_row_reference_before_the_sender_never_splits_one_sender(layout):
+    # Q4, §5.2 (re-review fix 1a): a reference printed before the sender is no part of the sender's key.
+    rows = _records([(layout.format(ref="123456789012", name="JOHN SMITH"), 500.0),
+                     (layout.format(ref="210987654321", name="JOHN SMITH"), 600.0),
+                     (layout.format(ref="112233445566", name="MARY JONES"), 700.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+def test_a_numbered_company_after_a_reference_keeps_its_number():
+    # The number stays when a numbered-company form follows it: one company groups, two never do.
+    same = _records([("E TRANSFER 123456789012 1234567 ONTARIO INC", 500.0),
+                     ("E TRANSFER 210987654321 1234567 ONTARIO INC", 600.0)])
+    assert [_tier(record)[1] for record in same] == ["p2p_round_repeat", "p2p_round_repeat"]
+    two = _records([("E TRANSFER 123456789012 1234567 ONTARIO INC", 500.0),
+                    ("E TRANSFER 210987654321 7654321 ONTARIO INC", 600.0)])
+    assert [_tier(record) for record in two] == [P2P, P2P]
+    llc = _records([("ZELLE CR NORTHWIND SUPPLY LLC", 500.0), ("ZELLE CR NORTHWIND SUPPLY LLC", 600.0)])
+    assert [_tier(record)[1] for record in llc] == ["p2p_round_repeat", "p2p_round_repeat"]
+
+
+@pytest.mark.parametrize(("first", "second"), [
+    ("APPLE CASH TRANSFER CUPERTINO CA", "APPLE CASH SENT MONEY CUPERTINO CA"),
+    ("CARD CREDIT APPLE CASH INST 1234 CUPERTINO CA12345 1234", "CARD CREDIT APPLE CASH INST 5678 CUPERTINO CA12345 5678"),
+    ("APPLE CASH INS 03/02 123456789 PMNT RCVD APPLE CASH INST X 8005551234 CA",
+     "APPLE CASH INS 03/03 987654321 PMNT RCVD APPLE CASH INST X 8005551234 CA"),
+    ("CASH APP*CASH OUT*OAKLAND CA", "CASH APP*CASH OUT*OAKLAND CA 2"),
+    ("VENMO CASHOUT 123456 1234567890123 JOHN SMITH", "VENMO CASHOUT 654321 3210987654321 JOHN SMITH"),
+    ("RTP CREDIT VENMO NEW YORK CITY 03 12345", "RTP CREDIT VENMO NEW YORK CITY 03 54321"),
+    ("ZELLE CREDIT BANK OF AMERICA", "ZELLE CREDIT BANK OF AMERICA 2"),
+    ("INTERAC E TRANSFER REQUEST FULFILLED", "INTERAC E TRANSFER REQUEST FULFILLED"),
+    ("VIREMENT INTERAC DEPOT AUTOMATIQUE", "VIREMENT INTERAC DEPOT AUTOMATIQUE"),
+    ("VIREMENT INTERAC ENTRANT", "VIREMENT INTERAC ENTRANT"),
+    ("VIREMENT EN LIGNE TF 1234567890", "VIREMENT EN LIGNE TF 0987654321"),
+    ("ZELLE BUSINESS PAYMENT", "ZELLE BUSINESS PAYMENT"),
+    ("ZELLE RECURRING PAYMENT", "ZELLE RECURRING PAYMENT"),
+    ("ZELLE PAY ID 12345", "ZELLE PAY ID 67890"),
+    ("RTP CREDIT REMITTANCE INFO", "RTP CREDIT REMITTANCE INFO"),
+    ("RTP CREDIT 1ABC INC SAN FRANCISCO CA", "RTP CREDIT 2XYZ INC SAN FRANCISCO CA"),
+])
+def test_layout_words_a_cash_out_and_a_bare_legal_form_are_never_a_sender(first, second):
+    # Q4, §5.2 (re-review fix 1b): a wallet's city and state, a sending bank, the French and English layout words and
+    # a legal form alone name no sender, and a cash-out prints none, so unrelated round sums are never one sender's.
+    rows = _records([(first, 500.0), (second, 600.0)])
+    assert [_tier(record) for record in rows] == [P2P, P2P]
+
+
+@pytest.mark.parametrize(("holder", "text"), [
+    ("OAKLAND CAFE LLC", "CASH APP*CASH OUT*OAKLAND CA"),
+    ("OAKLAND CAFE LLC", "CASH APP*JOHN SMITH*OAKLAND CA"),
+    ("CUPERTINO BAKERY LLC", "APPLE CASH TRANSFER CUPERTINO CA"),
+    ("AMERICA FIRST PLUMBING LLC", "ZELLE CREDIT BANK OF AMERICA"),
+])
+def test_a_holder_named_after_a_wallet_city_or_a_bank_is_never_the_sender(holder, text):
+    assert _tier(_one(text, 250.0, holder=holder)) == P2P
+
+
+def test_a_wallet_s_city_state_and_bank_tails_end_the_sender_and_the_sender_still_groups():
+    cash_app = _records([("CASH APP*JOHN SMITH*OAKLAND CA", 500.0), ("CASH APP*JOHN SMITH*OAKLAND CA", 600.0),
+                         ("CASH APP*MARY JONES*OAKLAND CA", 700.0)])
+    assert [_tier(record)[1] for record in cash_app] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+    venmo = _records([("PAYMENT RECEIVED 03/02 VENMO JOHN SMITH NEW YORK CITY NY CARD 1234", 500.0),
+                      ("PAYMENT RECEIVED 03/03 VENMO JOHN SMITH VISA DIRECT NY CARD 1234", 600.0)])
+    assert [_tier(record)[1] for record in venmo] == ["p2p_round_repeat", "p2p_round_repeat"]
+    zelle = _records([("ZELLE CREDIT JOHN SMITH WELLS FARGO", 500.0), ("ZELLE CREDIT JOHN SMITH", 600.0)])
+    assert [_tier(record)[1] for record in zelle] == ["p2p_round_repeat", "p2p_round_repeat"]
+    # The holder test still reads the sender before the city.
+    assert _tier(_one("CASH APP*CONTOSO BAKERY*OAKLAND CA", 250.0)) == ("excluded_pending_review", "holder_name")
+
+
+def test_a_gated_processor_s_word_inside_a_payer_s_name_never_skips_q6():
+    # §7.1 (re-review fix 2): a waiting processor's bare word (BRAINTREE, SMARTTAB) is no operating-registry alias,
+    # so Q6 reads the payer as it reads any other; the registry and NET SETTLE rows stay with their own rules.
+    assert _one("BRAINTREE PLUMBING LLC DES:PAYMENT ID:1", 700.0).revenue_match_method == "named_payer_company_form"
+    rows = _records([("SMARTTAB SUPPLY DES:PAYMENT ID:1 CCD", 700.0), ("SMARTTAB SUPPLY DES:PAYMENT ID:2 CCD", 710.0)])
+    assert {record.revenue_match_method for record in rows} == {"named_payer_repeats"}
+
+
+def test_a_leading_date_never_hides_the_accounts_payable_pmt_numbered_template():
+    # §5.2, T11 (re-review fix 3): 'ACC(OUN)TS PAYABLE PMT <digits>' after a leading date reads as its undated twin.
+    from analysis import transaction_classifier as classifier
+    from analysis.description_text import normalize_transaction_description
+
+    for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD", "ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD",
+                 "0302 ACCTS PAYABLE PMT 1234567 NORTHWIND LTD"):
+        assert classifier.numbered_company(classifier.revenue_text(normalize_transaction_description(text)))
+        record = _one(text, 700.0)
+        assert record.revenue_classification == "unverified_deposit"
+        assert _tier(record) == ("counted_flagged", "numbered_company_payer")
+
+
+@pytest.mark.parametrize("text", [
+    "ONLINE TRANSFER FROM LI WU", "ONLINE TRANSFER FROM LE VU", "TRANSFER FROM JD LLC",
+    "TRANSFER FROM AMERICAN NATIONAL INC", "TRANSFER FROM USA HOLDINGS LLC",
+])
+def test_a_short_or_company_formed_counterparty_is_a_named_transfer(text):
+    # §8.2, T13 (re-review fix 4): two name words of any length, or a company form, after FROM name a counterparty.
+    assert _tier(_one(text, 250.0)) == P2P
+
+
+@pytest.mark.parametrize("text", [
+    "TRANSFER FROM OPERATING LLC", "TRANSFER FROM NATIONAL TRUST", "TRANSFER FROM TYPE A LLC",
+    "TRANSFER FROM NAME COMPANY LLC", "ONLINE TRANSFER FROM ID 12345", "TRANSFER FROM OPERATIONS TRANSFER IN",
+    "ONLINE TRANSFER FROM TAX RESERVE", "TRANSFER FROM AB CO",
+])
+def test_an_account_description_or_a_field_label_after_from_is_still_no_counterparty(text):
+    assert _tier(_one(text, 250.0)) == ("excluded_pending_review", "transfer_no_counterparty")
+
+
+def test_the_owner_money_and_deferred_payer_tables_live_in_the_registry():
+    # §7.0 "Where vocabulary lives" (re-review fix 5): the tables that name companies are the registry's.
+    from analysis import classification_registry as registry
+    from analysis import true_revenue
+
+    assert true_revenue._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
+    assert true_revenue._SECTION_15_DEFERRED_PAYERS.pattern == registry.SECTION_15_DEFERRED_PAYERS
+    assert "BANK OF AMERICA" in registry.P2P_SENDING_BANK_NAMES
+
+
+def test_a_credit_wire_s_beneficiary_never_names_a_source():
+    # §5.2 (re-review fix 7): on an incoming wire the beneficiary is the holder, so a holder named after a platform
+    # never makes its customer's wires that platform's settlements.
+    rows = _records([(WIRE.format(n=1, orig="NORTHWIND EXPORTS LLC") + " BNF:SQUARE ONE BAKERY", 9000.0),
+                     (WIRE.format(n=2, orig="NORTHWIND EXPORTS LLC") + " BNF:SQUARE ONE BAKERY", 9100.0)],
+                    holder="SQUARE ONE BAKERY LLC")
+    assert {record.revenue_canonical_entity for record in rows} == {None}
+    assert {record.revenue_match_method for record in rows} == {"repeat_wire_sender"}
+
+
+def test_the_beneficiary_is_removed_only_from_an_incoming_wire():
+    # Chase's real-time layout prints 'From: Bnf-<originator>': there the field names the payer, not the holder.
+    from analysis import transaction_classifier as classifier
+
+    wire = "WIRE TYPE WIRE IN DATE 540102 TRN 1 ORIG NORTHWIND EXPORTS LLC ID 99 BNF SQUARE ONE BAKERY OBI INV 12"
+    assert "SQUARE" not in classifier._without_receiver_value(wire)
+    assert "NORTHWIND" in classifier._without_receiver_value(wire)
+    assert "OBI INV 12" in classifier._without_receiver_value(wire)
+    rtp = "REAL TIME TRANSFER RECD FROM ABA CONTR BNK 021000021 FROM BNF INTUIT PAYMENTS INC REF 1234 INFO SAMPLE"
+    assert classifier._without_receiver_value(rtp) == rtp
+    remittance = "WIRE IN FROM NORTHWIND EXPORTS LLC ORIG TO BNF INFO SQUARE PAYOUT"
+    assert "SQUARE PAYOUT" in classifier._without_receiver_value(remittance)
+    record = _one("REAL TIME TRANSFER RECD FROM ABA/CONTR BNK-021000021 FROM: BNF-INTUIT PAYMENTS INC REF: 1234 "
+                  "INFO: SAMPLE", 700.0)
+    assert record.revenue_canonical_entity == "QuickBooks Payments"
