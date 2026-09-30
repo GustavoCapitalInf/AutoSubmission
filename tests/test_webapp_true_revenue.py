@@ -123,3 +123,54 @@ def test_the_true_revenue_mode_deducts_only_counted_internal_transfer_credits():
     # The pair's credit is an own-account transfer, non-revenue, so True revenue never held it: nothing comes off.
     assert totals["withholding_denominator"] == 4000.0
     assert totals["true_revenue_total"] == 4000.0
+
+
+def test_the_exports_write_the_by_reason_figures_as_readable_rows():
+    from webapp.app import _analysis_rows, _package_rows
+    rows = _analysis_rows(_payload())
+    assert ("revenue_tier", "excluded_pending_review.financing_named_payer.total", 900.0) in rows
+    assert ("revenue_tier", "counted_flagged.check_deposit.count", 1) in rows
+    assert not any(field == "counted_flagged_by_reason" for _section, field, _value in rows)
+    package_rows = _package_rows(_package(_payload()))
+    assert ("revenue_tier", "excluded_pending_review.financing_named_payer.total", 900.0) in package_rows
+    assert ("document_1.revenue_tier", "counted_flagged.check_deposit.total", 300.0) in package_rows
+
+
+def test_the_review_routes_reject_a_rule_verified_credit_and_refuse_its_confirm():
+    from webapp.app import app, store
+    job = store.create("true-revenue.pdf")
+    store.set_result(job.id, "# Fabricated", "<p>Fabricated</p>", analysis=_payload())
+    client = app.test_client()
+    refused = client.post(f"/analysis/{job.id}/revenue-review",
+                          json={"source_location": "transaction:1", "decision": "confirm"})
+    assert refused.status_code == 400
+    assert refused.get_json()["error"] == "a credit a rule verified can only be marked non-revenue"
+    rejected = client.post(f"/analysis/{job.id}/revenue-review",
+                           json={"source_location": "transaction:1", "decision": "reject"})
+    record = rejected.get_json()["analysis"]["statement"]["transactions"][0]["classification"]
+    assert (record["revenue_classification"], record["revenue_tier"]) == ("non_revenue", "non_revenue")
+    confirmed = client.post(f"/analysis/{job.id}/revenue-reviews",
+                            json={"decisions": [{"source_location": "transaction:3", "decision": "confirm"}]})
+    metrics = confirmed.get_json()["analysis"]["metrics"]
+    assert (metrics["verified_revenue_total"], metrics["excluded_pending_review_total"]) == (900.0, 0.0)
+
+
+def test_a_rule_verified_row_awaits_only_a_reject_on_replay():
+    import json
+    from webapp.reanalysis import _awaits_review, replay_reviews
+
+    payload = _payload()
+    verified = payload["statement"]["transactions"][0]["classification"]
+    assert _awaits_review(verified, "reject") and not _awaits_review(verified, "confirm")
+    counted = payload["statement"]["transactions"][1]["classification"]
+    assert _awaits_review(counted, "confirm") and _awaits_review(counted, "reject")
+    prior = json.dumps(verified)
+    history = [{"id": 7, "source_location": "transaction:1", "decision": "reject", "prior_state": prior,
+                "decided_at": "2031-04-01T00:00:00+00:00"},
+               {"id": 8, "source_location": "transaction:1", "decision": "confirm", "prior_state": prior,
+                "decided_at": "2031-03-31T00:00:00+00:00"}]
+    replay = replay_reviews(_payload(), history[:1])
+    assert replay.replayed == (7,)
+    assert replay.analysis["statement"]["transactions"][0]["classification"]["revenue_tier"] == "non_revenue"
+    ruled = replay_reviews(_payload(), history[1:])
+    assert (ruled.replayed, ruled.not_replayed, ruled.decided_by_rules) == ((), (), (8,))

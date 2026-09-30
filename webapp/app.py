@@ -386,14 +386,15 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
             for key, item in value.items():
                 if (section, key) in _EXPORT_SUPPRESSED_KEYS:
                     continue
-                if section == "metrics" and key == "adb":
-                    continue  # emitted as its own section below
+                if section == "metrics" and key in ("adb", *_TIER_REASON_KEYS):
+                    continue  # emitted as their own sections below
                 if isinstance(item, (dict, list)):
                     item = json.dumps(item)
                 rows.append((section, key, "" if item is None else item))
     metrics = analysis.get("metrics")
     if isinstance(metrics, dict):
         rows.extend(_adb_rows(metrics))
+        rows.extend(_tier_reason_rows(metrics))
     detection = analysis.get("detection")
     if isinstance(detection, dict):
         for key, item in detection.items():
@@ -403,6 +404,24 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
                 item = json.dumps(item)
             rows.append(("detection", key, "" if item is None else item))
         rows.extend(_flagged_position_rows(detection.get("flagged_positions")))
+    return rows
+
+
+#: 5.6 (true revenue spec §10.8): the by-reason figures of the counted and held tiers, exported as readable rows.
+_TIER_REASON_KEYS = ("counted_flagged_by_reason", "excluded_pending_review_by_reason")
+
+
+def _tier_reason_rows(figures: dict, section: str = "revenue_tier") -> list[tuple[str, str, object]]:
+    """One row per tier, reason and figure: `(revenue_tier, <tier>.<reason>.count | .total, value)`. A reason code
+    is a constant of analysis/revenue.py; the rows still reach a file only through `_escaped_rows`."""
+    rows: list[tuple[str, str, object]] = []
+    for key in _TIER_REASON_KEYS:
+        reasons = figures.get(key)
+        tier = key[: -len("_by_reason")]
+        for reason, slot in (reasons.items() if isinstance(reasons, dict) else ()):
+            for field in ("count", "total"):
+                value = slot.get(field) if isinstance(slot, dict) else None
+                rows.append((section, f"{tier}.{reason}.{field}", "" if value is None else value))
     return rows
 
 
@@ -440,7 +459,12 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     rows: list[tuple[str, str, object]] = []
     totals = package.get("totals") or {}
     for key, value in totals.items():
+        if key in _TIER_REASON_KEYS:
+            continue  # emitted as readable rows below
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value)
         rows.append(("totals", key, "" if value is None else value))
+    rows.extend(_tier_reason_rows(totals))
     # CURRENCY DOCTRINE §F: a refusal that only exists in the JSON payload is
     # invisible to the underwriter reading the sheet, who would see the empty
     # money cells and read them as missing data rather than as refused units.
@@ -450,7 +474,12 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
         rows.append(("currency", key, "" if value is None else value))
     for idx, document in enumerate(package.get("documents") or [], start=1):
         for key, value in document.items():
+            if key in _TIER_REASON_KEYS:
+                continue  # emitted as readable rows below
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
             rows.append((f"document_{idx}", key, "" if value is None else value))
+        rows.extend(_tier_reason_rows(document, f"document_{idx}.revenue_tier"))
     # D-3: duplicate content must survive into the export an underwriter reads,
     # not only the JSON payload the dashboard renders.
     for idx, duplicate in enumerate(package.get("duplicates") or [], start=1):
@@ -2601,6 +2630,11 @@ _DECLARED_REVIEW_REFUSALS: tuple[str, ...] = (
     "every posted credit must have a valid revenue classification",
     "account was not found",
     "transaction source location is in more than one account; name the account",
+    # 5.6 (true revenue spec §10.7, §12): a confirm on a rule-verified credit; a record whose state and tier disagree;
+    # a payload whose posted credits carry a tier only in part.
+    "a credit a rule verified can only be marked non-revenue",
+    "every posted credit's revenue state must agree with its tier",
+    "every posted credit carries a revenue tier, or none does",
 )
 
 

@@ -150,11 +150,17 @@ def _redone(identity: tuple | None, later: Sequence[tuple | None]) -> bool:
                for other in later)
 
 
-def _awaits_review(record: Mapping) -> bool:
-    """The row is a deposit the analyst decides, not one a rule decided: the review writer refuses any other
-    (analysis/revenue.py), so the analyst could not redo a decision on it."""
+def _awaits_review(record: Mapping, decision: object) -> bool:
+    """The row awaits this decision (true revenue spec §10.7): a deposit the rules left unverified awaits any
+    decision, as it always has; a credit a rule verified (5.6, a record with a tier) awaits only a reject, because the
+    analyst's word wins over a rule. A confirm on a rule-verified row, or any decision on a row a non-revenue rule
+    decided, does not await review: the review writer would refuse it (analysis/revenue.py), so it is reported as
+    decided by the rules, never as needing redoing."""
     initial = record.get("revenue_initial_classification")
-    return LEGACY_REVENUE_STATE_MAP.get(initial, initial) == "unverified_deposit"
+    initial = LEGACY_REVENUE_STATE_MAP.get(initial, initial)
+    if initial == "unverified_deposit":
+        return True
+    return initial == "verified_revenue" and decision == "reject" and isinstance(record.get("revenue_tier"), str)
 
 
 def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
@@ -195,7 +201,7 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
                 redo.append(index)
             continue
         number, record = places[0]
-        if not _awaits_review(record):
+        if not _awaits_review(record, history[index].get("decision")):
             ruled.append(index)
             continue
         waiting.append((index, number))
