@@ -119,6 +119,23 @@ def test_the_numbered_company_guard(printed, numbered):
     assert numbered_company(_text(printed)) is numbered
 
 
+@pytest.mark.parametrize(("printed", "numbered"), [
+    ("1234-5678 QUEBEC INC DES:PAYMENT ID:1", True),
+    ("1234-5678 QC INC DES:PAYMENT ID:1", True),
+    ("1234-5678 QUE INC DES:PAYMENT ID:1", True),
+    ("1234-5678 QUEB INC DES:PAYMENT ID:1", True),
+    ("1234 5678 NORTH STAR LLC DES:PAYMENT ID:1", False),
+    ("1234 5678 NEW ERA LLC DES:PAYMENT ID:1", False),
+    ("1234 5678 CAN AM LLC DES:PAYMENT ID:1", False),
+    ("1234 5678 AB CONSULTING DES:PAYMENT ID:1", False),
+    ("1234-5678 CANADA INC DES:PAYMENT ID:1", False),
+])
+def test_the_numbered_company_guard_s_four_and_four_form_reads_quebec_only(printed, numbered):
+    # S4.2 fix round 5: only Quebec registers its numbered companies as NNNN-NNNN, so that arm reads QUEBEC, its cuts
+    # and QC (the P2P sender key's set), never another province's word or code starting a company's name.
+    assert numbered_company(_text(printed)) is numbered
+
+
 @pytest.mark.parametrize(("name", "form"), [
     ("FABRIKAM SUPPLY LLC", True), ("FABRIKAM SUPPLY L L C", True), ("SAMPLE UNIVERSITY", True),
     ("FABRIKAM SUPPLY CO", False), ("FABRIKAM FAMILY TRUST", False), ("LLC FABRIKAM", False), ("JOHN SMITH", False),

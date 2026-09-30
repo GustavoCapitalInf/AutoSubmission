@@ -220,8 +220,8 @@ _CUSTOMER_ID = _on_masked(r"\bCUSTOMER ID\b")
 #: strong non-revenue rule (_NON_REVENUE_CREDIT_PATTERNS).
 _RETURN_CODES_55 = _on_masked(r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RECALL(?:ED)?|UNPAID|REJT|CHBK|CHGBK)\b")
 #: S4.2 fix round 4: CANCELLED's French words, which joined the reversal rule's credit markers
-#: (_REVERSAL_CANCELLATION_CREDIT_PATTERNS, verbatim; 5.4 never read them).
-_FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULATION)\b")
+#: (_REVERSAL_CANCELLATION_CREDIT_PATTERNS, verbatim; 5.4 never read them). S4.2 fix round 5: their plurals too.
+_FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b")
 _TAX_REFUNDS_55 = _on_masked(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b")
 _ACCOUNT_VERIFICATION_55 = _on_masked(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 #: §7.7: 5.4's claim-payment descriptor, and 5.5's claim entry (glued on either side).

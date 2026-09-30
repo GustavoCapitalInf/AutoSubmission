@@ -266,8 +266,8 @@ _FRENCH_MONTHS = frozenset({
 })
 #: §8.2 (S4.2 fix round 4): a day of the month printed as its own word beside a month ('02 JUIN', 'JUIN 2').
 _DAY_NUMBER = re.compile(r"0?[1-9]|[12]\d|3[01]")
-#: Q4, §5.2 (S4.2 fix round 4): Quebec, its cuts and QC, after which a numbered company prints NNNN-NNNN.
-_QUEBEC = "(?:QUEBEC|QUEBE|QUEB|QUE|QC)"
+#: Q4, §5.2 (S4.2 fix round 4): the four-digit group Quebec's numbered companies print twice (NNNN-NNNN). The Quebec
+#: words after it are the classifier's _QUEBEC (S4.2 fix round 5: one set for the key and the numbered-company guard).
 _FOUR_DIGITS = re.compile(r"\d{4}")
 #: §8.2 (S4.2 final review, fix 5): a bank branch a transfer prints ('AVIS VIREMENT <n> CTR BANCAIRE <branch>'), never
 #: its counterparty.
@@ -406,8 +406,10 @@ def _numbered_province_sender() -> re.Pattern[str]:
     """Q4, §5.2 (S4.2 final review, fix 1): the province arm of §5.2's numbered payer region: six or more digits and
     a province, territory, CANADA or a cut of one. S4.2 fix round 4: or Quebec's own form, four digits, a hyphen and
     four digits before QUEBEC, a cut of it or QC ('1234-5678 QUEBEC INC', normalized to '1234 5678 QUEBEC INC'), both
-    digit groups kept."""
-    return re.compile(rf"^(?:\d{{6,}} {_classifier()._PROVINCE}|\d{{4}} \d{{4}} {_QUEBEC})\b")
+    digit groups kept. S4.2 fix round 5: the Quebec words are the classifier's _QUEBEC, which the numbered-company
+    guard reads too."""
+    classifier = _classifier()
+    return re.compile(rf"^(?:\d{{6,}} {classifier._PROVINCE}|\d{{4}} \d{{4}} {classifier._QUEBEC})\b")
 
 
 def _sender_tokens(rest: str) -> tuple[list[tuple[str, bool]], str] | None:
@@ -766,7 +768,7 @@ def _short_or_formed_counterparty(text: str) -> list[str]:
     S4.2 final review (fix 2): on a row that prints no FROM, the company form is read on the words after the transfer
     wording (_after_transfer_wording), so a company, a numbered one included, is a counterparty with or without FROM
     ('VIREMENT RECU 1234567 QUEBEC INC', 'ONLINE TRANSFER 1234567 ONTARIO INC'): counted and flagged, never verified
-    (§19 OQ3)."""
+    (§19 OQ3), under T13's two holds (S4.2 fix round 5, _named_transfer_sender)."""
     classifier = _classifier()
     if re.search(r"\bFROM\b", classifier._before_receiver(text)) is None:
         tokens = _counterparty_tokens(_after_transfer_wording(text))
@@ -829,6 +831,36 @@ def _after_transfer_wording(text: str) -> str:
     return re.split(r"\bTO\b", rest, maxsplit=1)[0]
 
 
+#: T13 (S4.2 fix round 5): a numbered company's number printed right before its name: six or more digits, or Quebec's
+#: two four-digit groups.
+_NUMBER_BEFORE_NAME = re.compile(r"(?:^|\s)(\d{6,}|\d{4} \d{4})\s*$")
+
+
+def _named_transfer_sender(text: str) -> str:
+    """T13, §8.2 (S4.2 fix round 5): the counterparty of a named transfer printed without FROM, read for the two holds
+    a counted named transfer stays under (the holder test and the round-sum repeat's key), as the FROM form's payer
+    region is read: the words after the transfer wording, up to TO (_after_transfer_wording), from the first word the
+    company-form arm keeps (_counterparty_tokens) up to a reference token or one of §5.2's sender ends, read as that
+    arm reads them. A numbered company's number printed right before the name is kept on §5.2's province arm
+    (_numbered_province_sender), so the holder test reads its digit run and two numbered companies are two senders
+    ('ONLINE TRANSFER 1234567 ONTARIO INC', 'ONLINE BANKING TRANSFER 1234-5678 QUEBEC INC'). '' when no word is kept."""
+    classifier = _classifier()
+    words = _after_transfer_wording(text)
+    tokens = _counterparty_tokens(words)
+    if not tokens:
+        return ""
+    first = re.search(rf"(?<!\S){re.escape(tokens[0])}(?!\S)", words)
+    if first is None:
+        return ""
+    rest = classifier._leading_name_words(words[first.start():])
+    end = classifier._SENDER_END.search(rest)
+    names = _counterparty_tokens(rest[: end.start()] if end is not None else rest)
+    number = _NUMBER_BEFORE_NAME.search(words[: first.start()])
+    if names and number is not None and _numbered_province_sender().match(" ".join([number.group(1), *names])):
+        return " ".join([number.group(1), *names])
+    return " ".join(names)
+
+
 def credit_facts(
     record: TransactionClassification,
     text: str,
@@ -839,8 +871,9 @@ def credit_facts(
     """§8.1 to §8.9: one posted credit's payer facts, including the first hold of §8.10's order 2 to 11. The payer
     region, name, key and entry fields are the 5.5 readers' (payer_region, payer_name, _payer_key, entry_fields). A
     person-to-person sender printed without FROM (S4.2 review I7) is read after its rail for Q4's two holds only: the
-    holder test and the round-sum repeat (its key). Every other hold reads the payer region, so such a row's financing
-    root is still read on the whole row."""
+    holder test and the round-sum repeat (its key). So is the counterparty of a named transfer printed without FROM
+    (T13, S4.2 fix round 5: _named_transfer_sender), which the FROM form's payer region reads. Every other hold reads
+    the payer region, so such a row's financing root is still read on the whole row."""
     classifier = _classifier()
     channel = _channel(text)
     region = classifier.payer_region(text)
@@ -857,6 +890,9 @@ def credit_facts(
     public = government_payer(public_region(text))
     transfer_words = _transfer_counterparty_words(text) if channel == "person_to_person" else []
     transfer_row = _transfer_row(row)
+    if not region and not sender and transfer_row and transfer_words and re.search(r"\bFROM\b", row) is None:
+        # T13 (S4.2 fix round 5): a named transfer printed without FROM takes the same two holds.
+        sender = holder_sender = _named_transfer_sender(text)
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, lender_words=lender_words,
         debit_words=debit_words, sender=sender, holder_sender=holder_sender,
@@ -904,7 +940,8 @@ def _first_hold(
     entity or a factoring payee claimed takes only the insurer, possible-return, pay and benefit holds; a registry row
     that prints a financing word is held as financing_named_payer (review C2). The holder test also reads a
     person-to-person sender printed without FROM (`sender`, Q4; S4.2 review I7), and its holder-test reading, which
-    keeps a layout word inside the name (`holder_sender`, S4.2 final review M7)."""
+    keeps a layout word inside the name (`holder_sender`, S4.2 final review M7); or a named transfer's counterparty
+    printed without FROM (T13, S4.2 fix round 5), both readings one."""
     classifier = _classifier()
     row = _hold_text(text)
     if record.revenue_match_method == "insurer_customer_payment":

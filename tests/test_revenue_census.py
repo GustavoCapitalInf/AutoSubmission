@@ -1055,3 +1055,10 @@ ANNULE_ROW = "STRIPE DES PAYMENT ANNULE ID #"
 ])
 def test_the_reversal_rule_s_french_cancel_words_are_a_declared_new_marker(prior, later, cause):
     assert _causes([prior], [later]) == {cause: 1}
+
+
+# S4.2 fix round 5: the plurals ANNULES and ANNULEES joined the reversal rule's French cancel words.
+@pytest.mark.parametrize("text", ["FABRIKAM DES CUSTOMER PAYMENT ANNULES ####", "FABRIKAM CUSTOMER PAYMENT ANNULEES"])
+def test_the_reversal_rule_s_french_plural_cancel_words_are_a_declared_new_marker(text):
+    later = _later("reversal_cancellation_exclusion", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {"new_non_revenue_marker": 1}

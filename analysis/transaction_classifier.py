@@ -657,7 +657,8 @@ _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
     re.compile(r"\bCNCL\b"),
     # S4.2 final review (fix 4): CANCELLED's French words ('VIREMENT ANNULE', 'VIREMENT INTERAC ANNULE', 'ANNUL VFC'),
     # whole words with the veto convention's (?<![A-Z]) left boundary, so a digit glued on the left never hides one.
-    re.compile(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULATION)\b"),
+    # S4.2 fix round 5: and their plurals, ANNULES and ANNULEES.
+    re.compile(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b"),
     re.compile(r"\bREIMBURSEMENT\b"),
     re.compile(r"\bNSF\b"),
     re.compile(r"\bRETURNED (?:PAYMENT|ITEM|CHECK|CHEQUE|DEPOSIT)\b"),
@@ -994,6 +995,9 @@ _PROVINCE = "(?:" + "|".join(sorted(
     | set(_PROVINCE_ABBREVIATIONS),
     key=lambda value: (-len(value), value),
 )) + ")"
+#: §5.2, T11 (S4.2 fix round 5): QUEBEC, its cuts and QC: the only province that prints a numbered company as
+#: NNNN-NNNN. The P2P sender key reads the same set (true_revenue._numbered_province_sender).
+_QUEBEC = "(?:QUEBEC|QUEBE|QUEB|QUE|QC)"
 #: §5.2, T11: a numbered company. The template form is read on the row before the receiver fields (BMO cuts the name
 #: to the field, so the digits alone decide); the payer-region form keeps the region's leading digit token.
 _NUMBERED_COMPANY_TEMPLATE = re.compile(
@@ -1002,8 +1006,9 @@ _NUMBERED_COMPANY_TEMPLATE = re.compile(
 _NUMBERED_COMPANY_REGION = re.compile(
     rf"^\d{{6,}}\b(?: {_PROVINCE}\b| (?:[A-Z]+ ){{0,4}}(?:INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO"
     rf"|COMPANY)\b)"
-    # Quebec prints its numbered companies as NNNN-NNNN (normalized NNNN NNNN), always before the province.
-    rf"|^\d{{4}} \d{{4}} {_PROVINCE}\b"
+    # Quebec prints its numbered companies as NNNN-NNNN (normalized NNNN NNNN), always before the province. S4.2 fix
+    # round 5: Quebec's words only, so another province's word or code starting a name ('NORTH STAR', 'AB') is none.
+    rf"|^\d{{4}} \d{{4}} {_QUEBEC}\b"
 )
 #: §6.1 step 9b: consumer person-to-person rails (never verified by any step), and real-time or push rails (verified
 #: by the operating registry only).
@@ -1327,7 +1332,9 @@ def _skip_numbered_leading_date(text: str) -> str:
 def numbered_company(text: str, region: str | None = None) -> bool:
     """5.5 (§5.2, T11): the payer is a Canadian numbered company: a template prefix followed by six or more digits,
     or a payer region that begins with six or more digits and then a province, territory, CANADA or a cut of one, or
-    up to four words and a legal form. Both read past a leading date (S4.2 review, I1)."""
+    up to four words and a legal form, or with Quebec's form: four digits, a hyphen and four digits, then QUEBEC, a
+    cut of it or QC (S4.2 round 4; fix round 5: Quebec's words only, '1234-5678 QUEBEC INC'). Both read past a leading
+    date (S4.2 review, I1)."""
     if _NUMBERED_COMPANY_TEMPLATE.search(_skip_numbered_leading_date(_before_receiver(text))):
         return True
     region = payer_region(text) if region is None else region

@@ -1067,3 +1067,74 @@ def test_a_french_month_word_outside_a_date_is_a_counterparty_s_name(text):
 ])
 def test_a_french_month_printed_as_a_date_is_still_never_a_counterparty(text):
     assert _tier(_one(text, 2500.0)) == HELD_TRANSFER
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.2 fix round 5 (2026-09-29, under the owner's delegation): T13's two holds on a named transfer printed without FROM
+# (the holder test and the round-sum repeat), read on its counterparty words as the FROM form reads its payer region;
+# and CANCELLED's French plurals.
+# ---------------------------------------------------------------------------------------------------------------------
+NAMED_WITHOUT_FROM = [
+    "ONLINE TRANSFER 1234567 ONTARIO INC", "ONLINE BANKING TRANSFER 1234-5678 QUEBEC INC", "ONLINE TRANSFER FABRIKAM LLC",
+    "INTERNET TRANSFER FABRIKAM HOLDINGS LLC",
+]
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    ("ONLINE TRANSFER 1234567 ONTARIO INC", "1234567 ONTARIO INC"),
+    ("ONLINE BANKING TRANSFER 1234-5678 QUEBEC INC", "1234-5678 QUEBEC INC"),
+    ("ONLINE TRANSFER FABRIKAM LLC", "FABRIKAM LLC"),
+    ("INTERNET TRANSFER FABRIKAM HOLDINGS LLC", "FABRIKAM HOLDINGS LLC"),
+    ("ONLINE TRANSFER FABRIKAM LLC MEMO INVOICE 1234", "FABRIKAM LLC"),
+])
+def test_a_named_transfer_printed_without_from_takes_the_holder_test(text, holder):
+    # T13: a counted named transfer stays under the holder's name, with or without FROM; a numbered company's number
+    # is read, as the FROM form's payer region reads it.
+    assert _tier(_one(text, 2500.0, holder=holder)) == HOLDER_HELD
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    ("ONLINE TRANSFER 7654321 ONTARIO INC", "1234567 ONTARIO INC"),
+    ("ONLINE BANKING TRANSFER 8765-4321 QUEBEC INC", "1234-5678 QUEBEC INC"),
+    ("TRANSFER FABRIKAM LLC TO CONTOSO BAKERY", HOLDER),
+])
+def test_another_company_or_a_recipient_after_to_is_not_the_holder(text, holder):
+    # Another numbered company's number is not the holder's, and a name printed after TO is the recipient's.
+    assert _tier(_one(text, 2500.0, holder=holder)) == P2P
+
+
+@pytest.mark.parametrize("text", NAMED_WITHOUT_FROM)
+def test_a_named_transfer_printed_without_from_takes_the_round_repeat(text):
+    # T13: one company's round sums printed without FROM are one sender's, into a holder of another name.
+    rows = _records([(text, 500.0), (text, 600.0), (text, 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
+
+
+@pytest.mark.parametrize("text", NAMED_WITHOUT_FROM)
+def test_a_single_named_transfer_printed_without_from_is_still_counted(text):
+    assert _tier(_one(text, 1234.0)) == P2P
+
+
+def test_one_company_printed_with_and_without_from_or_a_memo_is_one_sender():
+    # The key is the FROM form's (_payer_key of the same name); the sender ends at §5.2's sender ends.
+    rows = _records([("ONLINE TRANSFER FROM FABRIKAM LLC", 500.0), ("ONLINE TRANSFER FABRIKAM LLC", 600.0),
+                     ("ONLINE TRANSFER FABRIKAM LLC FOR JOB 88", 700.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat"] * 3
+
+
+@pytest.mark.parametrize(("first", "second"), [
+    ("ONLINE TRANSFER 1234567 ONTARIO INC", "ONLINE TRANSFER 7654321 ONTARIO INC"),
+    ("ONLINE BANKING TRANSFER 1234-5678 QUEBEC INC", "ONLINE BANKING TRANSFER 8765-4321 QUEBEC INC"),
+])
+def test_two_numbered_companies_printed_without_from_are_two_senders(first, second):
+    rows = _records([(first, 500.0), (second, 600.0)])
+    assert [_tier(record) for record in rows] == [P2P, P2P]
+
+
+@pytest.mark.parametrize("text", ["VIREMENT ANNULES JOHN SMITH", "VIREMENT INTERAC ANNULEES"])
+def test_a_french_cancelled_transfer_in_the_plural_is_a_reversal(text):
+    # §6 precedence: ANNULES and ANNULEES are the plurals of CANCELLED's French words.
+    record = _one(text, 250.0)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+    assert record.revenue_tier == "non_revenue"
