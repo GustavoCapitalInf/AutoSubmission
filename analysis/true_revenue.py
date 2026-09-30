@@ -863,10 +863,34 @@ def _trust_form_ends_the_name(tail: Sequence[str], *, address: bool) -> bool:
         return False
     # A3-G re-review: the address holds only place words before its state: city words (and a street or PO box), never
     # a business, lawyer, company-form, account, service, department or institution word. A3-G re-review 2: the list
-    # is finite, so the address is also at most _TRUST_ADDRESS_MAX_WORDS words (_address_words).
-    if len(_address_words(words[:-1])) > _TRUST_ADDRESS_MAX_WORDS:
+    # is finite, so the address is also at most _TRUST_ADDRESS_MAX_WORDS words (_address_words). A3-G re-review 3: a
+    # dotted company form ('L.L.C.', 'P.A.') prints as single letters, which the cap skips: joined, they are a form.
+    if len(_address_words(words[:-1])) > _TRUST_ADDRESS_MAX_WORDS or _joined_letters_company_form(words[:-1]):
         return False
     return not any(_not_a_place_word(word) for word in words[:-1])
+
+
+#: §8.1 (A3-G re-review 3): the company forms a dotted spelling joins into besides the classifier's (_BANK_COMPANY_FORM
+#: has LLC, LP, INC, CO ...): a professional association and a professional corporation. Read on joined letters only:
+#: a lone PA is Pennsylvania.
+_DOTTED_COMPANY_FORMS = frozenset({"LP", "PA", "PC"})
+
+
+def _joined_letters_company_form(words: Sequence[str]) -> bool:
+    """§8.1 (A3-G re-review 3): two or more single letters in a row that join into a company form (a dotted 'L.L.C.',
+    'L.P.', 'P.A.' or 'P.C.', which the normalizer prints 'L L C'). Initials that join into none keep their skip (the
+    agreement's 'U A', a middle initial)."""
+    classifier = _classifier()
+    run: list[str] = []
+    for word in [*words, ""]:
+        if len(word) == 1 and word.isalpha():
+            run.append(word)
+            continue
+        joined = "".join(run)
+        if len(run) >= 2 and (joined in _DOTTED_COMPANY_FORMS or classifier._BANK_COMPANY_FORM.fullmatch(joined)):
+            return True
+        run = []
+    return False
 
 
 def _address_words(words: Sequence[str]) -> list[str]:

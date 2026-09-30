@@ -2380,6 +2380,32 @@ def test_a3g_re_review_2_a_city_of_three_words_or_fewer_keeps_a_personal_trust(o
     assert _tier(_one(_a3g_fedwire(orig, place=place), 75000.0)) == ("excluded_pending_review", "non_sale_purpose")
 
 
+_A3G_DOTTED_FORMS = (
+    ("JOHN Q SAMPLE TRUST L.L.C.", "SAMPLEVILLE WA 12345 US"),
+    ("JOHN Q SAMPLE TRUST L.P.", "SAMPLEVILLE WA 12345 US"),
+    ("JOHN Q SAMPLE TRUST P.A.", "SAMPLEVILLE FL 12345 US"),
+    ("JOHN Q SAMPLE TRUST P.C. 123 MAIN ST", "SAMPLEVILLE WA 12345 US"),
+)
+
+
+@pytest.mark.parametrize("text", [
+    *[_a3g_fedwire(orig, place=place) for orig, place in _A3G_DOTTED_FORMS],
+    *[f"BOOK TRANSFER CREDIT B O {orig} {place} TRN 1234567890ES" for orig, place in _A3G_DOTTED_FORMS],
+])
+def test_a3g_re_review_3_a_dotted_company_form_in_a_trust_s_address_is_a_company_form(text):
+    # A3-G re-review 3: two or more single letters in a row that join into a company form (L L C, L P, P A, P C).
+    assert _tier(_one(text, 75000.0))[1] != "non_sale_purpose"
+
+
+@pytest.mark.parametrize("orig", [
+    # Initials that join into no company form keep their skip: the agreement's U A, a trustee's middle initial.
+    "JOHN Q SAMPLE TRUST U/A DTD", "JOHN Q SAMPLE TTEE JANE D SAMPLESON",
+])
+def test_a3g_re_review_3_initials_that_spell_no_company_form_keep_a_personal_trust(orig):
+    assert _tier(_one(_a3g_fedwire(orig, place="SAMPLEVILLE WA 12345 US"), 75000.0)) == (
+        "excluded_pending_review", "non_sale_purpose")
+
+
 @pytest.mark.parametrize("phrase", ["ORG TO BNF", "ORIGINATOR TO BENEFICIARY"])
 def test_a3g_re_review_the_originator_label_skips_the_originator_to_beneficiary_phrase(phrase):
     # A3-G re-review: _WIRE_ORIGINATOR_LABEL takes the same TO BNF / TO BENEFICIARY guards as the relay label.
