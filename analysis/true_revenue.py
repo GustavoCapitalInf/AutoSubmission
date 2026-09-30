@@ -76,6 +76,8 @@ _CREDIT_UNION_PAYER = re.compile(r"\bCU\b|\bCREDIT UNION\b|\bFCU\b|\bCU DIRECT\b
 _VEHICLE_PURCHASE_ENTRY = re.compile(r"\bVHCL PURCH(?:ASE)?\b")
 #: §8.7: a statement's credit-union dealer funding needs this many credits.
 CREDIT_UNION_DEALER_MIN_CREDITS = 2
+#: §8.7 (S4.3 review): a lender's floor-plan (wholesale) financing of the dealer's inventory is never dealer funding.
+_DEALER_FLOOR_PLAN_WORDS = re.compile(r"(?<![A-Z])(?:FLOOR\w*|WHOLESALE\w*)")
 #: §8.1: an insurer's name on the payer region.
 _INSURER_NAME = re.compile(
     r"(?<![A-Z])(?:INSUR\w*|ASSURANCE\b|MUTUAL\b|CASUALTY\b|INDEMNITY\b|UNDERWRIT\w*)"
@@ -607,23 +609,71 @@ def non_sale_purpose(text: str, region: str) -> bool:
     return healthcare and _HEALTHCARE_MEMBER_WORDS.search(row) is not None
 
 
-def _dealer_funding_payer(text: str) -> str | None:
-    """§8.7: the listed auto lender the originator segment names: a vehicle_financing registry entity or a
-    DEALER_FUNDING_PAYERS entry; or None."""
+def _listed_auto_lender(text: str) -> tuple[str, str] | None:
+    """§8.7: the listed auto lender the originator segment names, and the alias that named it: a vehicle_financing
+    registry entity or a DEALER_FUNDING_PAYERS entry; or None."""
     classifier = _classifier()
     segment = classifier._originator_segment(text)
     known = match_known_payee(segment)
     if known is not None and known.state == "vehicle_financing":
-        return known.entity
-    found = registry_match(segment, DEALER_FUNDING_PAYERS)
+        return known.entity, known.alias
+    return registry_match(segment, DEALER_FUNDING_PAYERS)
+
+
+def _dealer_funding_payer(text: str) -> str | None:
+    """§8.7: the listed auto lender the originator segment names (_listed_auto_lender), or None."""
+    found = _listed_auto_lender(text)
     return found[0] if found is not None else None
 
 
+@dataclass(frozen=True)
+class DealerFunding:
+    """§6.1 step 4 (Q7): a dealer-funding credit's reading. `arm` is 'listed' or 'credit_union'; `entity` and `alias`
+    are the listed lender and the alias that named it, or the credit union as its payer region prints it (both the
+    same); `word` is the dealer-funding word (or the VHCL PURCH entry) the row prints (S4.3 review: a Q7 record keeps
+    its lender's name, as the financing-proceeds record it replaces did)."""
+
+    arm: str
+    entity: str
+    alias: str
+    word: str
+
+
+def _q7_refused_by_a_hold(text: str, words: str, region: str) -> bool:
+    """S4.3 review (§8.1, G11): Q7 decides at step 4, before any hold of §8.1 reads the row, so it refuses a row whose
+    wording one of those holds names, fail closed: the pay and personal-income words and the payroll providers (Q8,
+    G11), a non-sale purpose, a possible return (an overpaid payoff refunded, an adjustment, a credit memo, a dispute),
+    an insurer or claim word, and a floor-plan word (FLOOR..., WHOLESALE). Each reads as §8.1 reads it, on the row
+    before its receiver fields, and again on the whole row without the receiver field's value, as the Q7 veto words
+    do (a BofA PMT INFO addenda after the receiver prints the lender's own words; the holder's name never refuses).
+    Such a row keeps the reading it has without Q7: a ledger lender's financing proceeds, or a held row."""
+    classifier = _classifier()
+    if _CARD_CREDIT_LABEL.search(text) or non_sale_purpose(text, region) or non_sale_purpose(words, region):
+        return True
+    for row in (classifier._before_receiver(text), words):
+        hold = _HOLD_POSTING_LABELS.sub(" ", row)
+        if (
+            _PAY_WORDS.search(row) or classifier._is_payroll_provider_row(row) or _PERSONAL_INCOME.search(row)
+            or _POSSIBLE_RETURN.search(hold)
+            or _INSURER_NAME.search(hold) or _CLAIM_WORD.search(hold)
+            or _DEALER_FLOOR_PLAN_WORDS.search(row)
+        ):
+            return True
+    return False
+
+
 def dealer_funding(text: str) -> str | None:
-    """§6.1 step 4 (Q7), read on a credit's revenue text: 'listed' when a listed auto lender pays dealer-funding
-    words, 'credit_union' when a credit union (or CU Direct) prints the VHCL PURCH entry (the statement pass decides
-    it), or None. Never on a row that names a lender outside vehicle financing, a potential lender or an insurer, that
-    prints a loan, proceeds, advance or refund word, or that the channel gate closes.
+    """§6.1 step 4 (Q7): the arm of dealer_funding_reading ('listed' or 'credit_union'), or None."""
+    reading = dealer_funding_reading(text)
+    return reading.arm if reading is not None else None
+
+
+def dealer_funding_reading(text: str) -> DealerFunding | None:
+    """§6.1 step 4 (Q7), read on a credit's revenue text: arm 'listed' when a listed auto lender pays dealer-funding
+    words, 'credit_union' when a credit union prints the VHCL PURCH entry (the statement pass decides it), each with
+    the lender it names; or None. Never on a row that names a lender outside vehicle financing, a potential lender or
+    an insurer, that prints a loan, proceeds, advance or refund word, or that the channel gate closes; nor on a row
+    whose wording a hold of §8.1 names (S4.3 review: _q7_refused_by_a_hold).
 
     The lender is read on the originator segment without the receiver field's value, and the veto words on the whole
     row without it (S4.3, §5.2: the holder's name never names a payer, and never vetoes one; a BofA PMT INFO addenda
@@ -648,6 +698,9 @@ def dealer_funding(text: str) -> str | None:
         or _transfer_wording(row)
     ):
         return None
+    region = classifier.payer_region(text)
+    if _q7_refused_by_a_hold(text, words, region):
+        return None
     known = match_known_payee(text)
     if known is not None and known.state in FINANCING_STATES and known.state != "vehicle_financing":
         return None
@@ -655,13 +708,14 @@ def dealer_funding(text: str) -> str | None:
         return None
     if classifier._insurance_registry_match(text) is not None:
         return None
-    if _dealer_funding_payer(words) is not None and (
-        DEALER_FUNDING_WORDS.search(row) or _DEALER_PAYABLES_WORDS.search(row)
-    ):
-        return "listed"
-    region = classifier.payer_region(text)
-    if _CREDIT_UNION_PAYER.search(region) and _VEHICLE_PURCHASE_ENTRY.search(classifier.entry_fields(text) or row):
-        return "credit_union"
+    lender = _listed_auto_lender(words)
+    word = DEALER_FUNDING_WORDS.search(row) or _DEALER_PAYABLES_WORDS.search(row)
+    if lender is not None and word is not None:
+        return DealerFunding("listed", lender[0], lender[1], word.group(0))
+    entry = _VEHICLE_PURCHASE_ENTRY.search(classifier.entry_fields(text) or row)
+    if _CREDIT_UNION_PAYER.search(region) and entry is not None:
+        # The credit union as its payer region prints it (§5.2: never a receiver field): no registry names it.
+        return DealerFunding("credit_union", classifier.payer_name(region) or region, region, entry.group(0))
     return None
 
 
@@ -1244,9 +1298,14 @@ def apply_true_revenue_pass(
     ]
     if len(union_rows) >= CREDIT_UNION_DEALER_MIN_CREDITS:
         for index in union_rows:
+            record = updated[index]
+            # S4.3 review: the reason names the credit union step 4 read (its revenue entity and alias stay); the
+            # count is the statement's, across credit unions (§8.7).
             updated[index] = replace(
-                _verify(updated[index], "auto_lender_dealer_funding",
-                        "A credit union funds the dealer's indirect auto loans (VHCL PURCH, two or more).", 0.90),
+                _verify(record, "auto_lender_dealer_funding",
+                        f"Credit union '{record.revenue_canonical_entity}' funds the dealer's indirect auto loans: its "
+                        f"VHCL PURCH entry, one of {len(union_rows)} such credit-union credits in the statement (two "
+                        "or more are dealer funding).", 0.90),
                 revenue_source_type="auto_dealer_funding",
             )
     lender_words, debit_words = _debit_words(records, duplicate_indexes)
@@ -1257,13 +1316,16 @@ def apply_true_revenue_pass(
     }
     # §5.2: repeats count a verified credit, or an unverified one no hold names; never a held or conflicting one, a
     # credit under $1, a row a family rule decides alone or a deferred source (_never_q5_or_q6), and on the wire
-    # channel only an incoming wire (§8.5: the loose wire words are for tiering only; S4.2 review I4).
+    # channel only an incoming wire (§8.5: the loose wire words are for tiering only; S4.2 review I4). Never a Q7 row
+    # either (S4.3 review): a lender's dealer funding verifies by §8.7 alone, and Q6's lenders never count.
     never = {index: _never_q5_or_q6(updated[index], texts[index], facts[index]) for index in credits}
     counting = Counter()
     consumer_only: dict[tuple[str, tuple[str, ...]], bool] = {}
     for index in credits:
         record, fact = updated[index], facts[index]
         if not fact.key or record.revenue_classification == "non_revenue" or never[index]:
+            continue
+        if record.revenue_match_method == "auto_lender_dealer_funding":
             continue
         if record.revenue_classification == "unverified_deposit" and fact.hold is not None:
             continue

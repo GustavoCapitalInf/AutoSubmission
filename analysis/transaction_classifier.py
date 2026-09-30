@@ -41,7 +41,7 @@ from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 from .description_text import normalize_transaction_description
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from .true_revenue import apply_true_revenue_pass, dealer_funding
+from .true_revenue import DealerFunding, apply_true_revenue_pass, dealer_funding_reading
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -2177,29 +2177,36 @@ def _classify_credit_revenue(
         )
 
     # §6.1 step 4 (Q7, 5.6): a dealer's funding from a listed auto lender is revenue; a credit union's VHCL PURCH
-    # entry waits for the statement pass, which verifies two or more of them. Never under the $1 floor (§7.0).
-    dealer = dealer_funding(text) if amount >= _MICRO_DEPOSIT_FLOOR else None
-    if dealer == "listed":
+    # entry waits for the statement pass, which verifies two or more of them. Never under the $1 floor (§7.0). The
+    # decision names the lender and its alias (S4.3 review), as the financing-proceeds decision it replaces did.
+    dealer = dealer_funding_reading(text) if amount >= _MICRO_DEPOSIT_FLOOR else None
+    if dealer is not None and dealer.arm == "listed":
         return _RevenueDecision(
             "verified_revenue",
-            None,
+            dealer.entity,
             "auto_lender_dealer_funding",
-            None,
+            dealer.alias,
             "verified_auto_lender_dealer_funding",
             0.90,
-            "A listed auto lender pays the dealer's vehicle funding: the dealer's revenue.",
+            (
+                f"Listed auto lender '{dealer.entity}' (alias '{dealer.alias}') pays the dealer on a vehicle contract "
+                f"it financed ({dealer.word}): the dealer's revenue, not financing proceeds."
+            ),
             source_type="auto_dealer_funding",
             context_signals=("credit_direction", "auto_lender_dealer_funding"),
         )
-    if dealer == "credit_union":
+    if dealer is not None:
         return _RevenueDecision(
             "unverified_deposit",
-            None,
+            dealer.entity,
             "credit_union_vehicle_purchase",
-            None,
+            dealer.alias,
             "credit_union_vehicle_purchase_requires_statement_count",
             0.60,
-            "A credit union prints the VHCL PURCH entry; two or more in the statement are dealer funding.",
+            (
+                f"Credit union '{dealer.entity}' prints the {dealer.word} entry, a credit union's funding of a dealer's "
+                "indirect auto loan; two or more such credits in the statement are dealer funding."
+            ),
             source_type="auto_dealer_funding",
             context_signals=("credit_direction", "credit_union_vehicle_purchase"),
         )
@@ -3018,15 +3025,49 @@ def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
     return match
 
 
-def _q7_listed_dealer_funding(text: str, amount: float, direction_consistent: bool) -> bool:
-    """5.6 (§6.1 step 4, Q7): the credit's revenue decision is a listed auto lender's dealer funding, read as
-    _classify_credit_revenue reads it: a credit of $1 or more whose direction agrees and that no reversal marker
-    claims (steps 2 and 3 win), which dealer_funding reads as 'listed' on its revenue text. Such a credit is never
-    financing proceeds (D1), so it leaves the lender credits."""
+def _q7_dealer_funding(text: str, amount: float, direction_consistent: bool) -> DealerFunding | None:
+    """5.6 (§6.1 step 4, Q7): the credit's dealer-funding reading, read as _classify_credit_revenue reads it: a credit
+    of $1 or more whose direction agrees and that no reversal marker claims (steps 2 and 3 win), which
+    dealer_funding_reading reads on its revenue text; or None."""
     if amount < _MICRO_DEPOSIT_FLOOR or not direction_consistent:
-        return False
+        return None
     revenue = revenue_text(text)
-    return not _reversal_credit(revenue) and dealer_funding(revenue) == "listed"
+    dealer = dealer_funding_reading(revenue)
+    return None if dealer is None or _reversal_credit(revenue) else dealer
+
+
+def _dealer_funding_credit_record(
+    common: dict[str, object],
+    dealer: DealerFunding,
+) -> TransactionClassification:
+    """5.6 (Q7; S4.3 review): a dealer-funding credit's record keeps its lender, as the financing-proceeds record it
+    replaces did: the listed auto lender and its alias, or the credit union its payer region prints. A listed lender's
+    dealer funding is never financing proceeds (D1), so it leaves the lender credits; a credit union's VHCL PURCH
+    entry is decided by the statement pass (two or more verify, one alone is held)."""
+    if dealer.arm == "listed":
+        method, rule, confidence = "auto_lender_dealer_funding", "auto_lender_dealer_funding_credit", 0.90
+        reason = (
+            f"Matched listed auto lender '{dealer.entity}' (alias '{dealer.alias}') on a dealer-funding credit "
+            f"({dealer.word}): the lender pays the dealer on a vehicle contract it financed, the dealer's revenue, "
+            "never financing proceeds."
+        )
+    else:
+        method, rule, confidence = "credit_union_vehicle_purchase", "credit_union_vehicle_purchase_credit", 0.60
+        reason = (
+            f"Credit union '{dealer.entity}' prints the {dealer.word} entry, a credit union's funding of a dealer's "
+            "indirect auto loan; the statement pass counts such credits (two or more are dealer funding, one alone "
+            "is held)."
+        )
+    return _build_record(
+        **common,
+        classification="other",
+        canonical_entity=dealer.entity,
+        match_method=method,
+        matched_alias=dealer.alias,
+        matched_rule=rule,
+        confidence_score=confidence,
+        reason=reason,
+    )
 
 
 #: D1 by descriptor (owner decisions 2026-09-25): credits whose own words say they
@@ -3450,6 +3491,14 @@ def classify_transaction(
             reason="The posted debit is explicitly identified as an ATM cash withdrawal.",
         )
 
+    # 5.6 (§6.1 step 4, Q7; S4.3 review): a dealer-funding credit takes its lender's record ahead of the fee, transfer,
+    # tax, payroll and utility rules and of D1 (CU Direct's VADMIN FEE is the dealer's fee income, never a bank fee;
+    # a listed auto lender's dealer funding is never financing proceeds), as its revenue decision runs ahead of D1.
+    if amount > 0:
+        dealer = _q7_dealer_funding(text, amount, direction_consistent)
+        if dealer is not None:
+            return _dealer_funding_credit_record(common, dealer)
+
     if _matches_any(text, _FEE_PATTERNS):
         return _build_record(
             **common,
@@ -3516,12 +3565,8 @@ def classify_transaction(
             return _known_payee_debit_record(common, text, known_payee)
         if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
             return _flagged_revenue_credit_record(common, known_payee)
-        if (
-            known_payee.state in FINANCING_STATES
-            and not _is_payout_credit(text, known_payee)
-            # 5.6 (Q7): a listed auto lender's dealer funding is revenue, never financing proceeds.
-            and not _q7_listed_dealer_funding(text, amount, direction_consistent)
-        ):
+        # 5.6 (Q7): a listed auto lender's dealer funding took its own record above, never financing proceeds.
+        if known_payee.state in FINANCING_STATES and not _is_payout_credit(text, known_payee):
             return _financing_proceeds_credit_record(common, amount, known_payee)
     # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
     # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.

@@ -1180,7 +1180,6 @@ UNION = "Orig CO Name:Sample CU Orig ID:1 Desc Date: CO Entry Descr:Vhcl Purchse
     "WESTLAKE FINANCI DES:TRADE PAYABLE ID:1",
     "WESTLAKE FINANCIAL DES:ACCT FUNDING ID:1",
     "GLOBAL LENDING SERVICES DES:DEALER FUNDING ID:1",
-    "SUNCOAST CREDIT UNION DES:VHCL PURCH ID:1",
     "CU DIRECT DES:VHCL PURCH ID:1",
 ])
 def test_q7_verifies_each_listed_arm_on_one_row(text):
@@ -1215,12 +1214,15 @@ def test_q7_leaves_a_listed_lender_s_other_credits_and_a_floor_plan_lender_s_to_
     "ZELLE PAYMENT FROM WESTLAKE FINANCIAL DEALER PAY",
     "ACH CREDIT DEALER PAY RECEIVER NAME ALLY FINANCIAL",
     "ONE RIVER DES:DEAL FUNDING ID:1",
+    "ONE RIVER FUNDING DES:PAYABLES DEALER PAY ID:1",
+    "ONE RIVER GROUP DES:DEAL FUNDING ID:1",
     "GLS AUTO DES:DEALER PAY ID:1",
 ])
 def test_q7_never_verifies_a_veto_word_a_gated_or_transfer_row_or_a_lender_it_does_not_list(text):
     # §8.7: a loan, proceeds, advance or refund word anywhere on the row but the holder's name; §6 precedence: the
     # strong non-revenue rule and a transfer; §6.1 step 9b: a closed row, and a push rail (the registry's alone); the
-    # receiver field's value never names the lender; One River funds merchants; GLS AUTO also names body shops.
+    # receiver field's value never names the lender; One River funds merchants (the ledger's spellings, and one it does
+    # not list); GLS AUTO also names body shops.
     record = _one(text, 15000.0, holder=DEALER)
     assert record.revenue_match_method != "auto_lender_dealer_funding"
     assert record.revenue_classification != "verified_revenue"
@@ -1300,8 +1302,163 @@ def test_the_q7_guard_facts():
         "q7_payer_ok": True, "q7_listed": True, "q7_credit_union": False, "q7_veto_word": False}
     assert facts(UNION.format(n=1)) == {
         "q7_payer_ok": True, "q7_listed": False, "q7_credit_union": True, "q7_veto_word": False}
+    # S4.3 fix round 1: Suncoast is no listed lender; it is a credit union like any other.
     assert facts("SUNCOAST CREDIT UNION DES:VHCL PURCH LOAN PROCEEDS ID:1") == {
-        "q7_payer_ok": True, "q7_listed": True, "q7_credit_union": True, "q7_veto_word": True}
+        "q7_payer_ok": True, "q7_listed": False, "q7_credit_union": True, "q7_veto_word": True}
     assert facts("ACH CREDIT DEALER PAY RECEIVER NAME ALLY FINANCIAL") == {
         "q7_payer_ok": False, "q7_listed": False, "q7_credit_union": False, "q7_veto_word": False}
     assert true_revenue.CREDIT_UNION_DEALER_MIN_CREDITS == 2
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# S4.3 review, fix round 1 (2026-09-29): a Q7 row names its lender on the record and the revenue fields; Q7 honours
+# the section 8.1 holds and G11; Suncoast verifies only through the credit-union arm; a Q7 row is never a Q6 repeat;
+# One River's ledger spellings stay financing.
+# ---------------------------------------------------------------------------------------------------------------------
+WESTLAKE = ("Westlake Services, LLC (Westlake Financial)", "WESTLAKE FINANCI")
+
+
+@pytest.mark.parametrize(("text", "lender"), [
+    ("WESTLAKE FINANCI DES:PAYABLES ID:EFT1234567 INDN:SAMPLE MOTORS LLC CO ID:1 CCD", WESTLAKE),
+    ("CU DIRECT DES:VHCL PURCH ID:1", ("CU Direct", "CU DIRECT")),
+    ("UNITED AUTO CREDIT DES:DEALER FUNDING ID:1", ("United Auto Credit Corporation", "UNITED AUTO CREDIT")),
+])
+def test_a_q7_row_names_its_listed_lender_on_the_record_and_the_revenue_fields(text, lender):
+    record = _one(text, 15000.0, holder=DEALER)
+    assert record.revenue_match_method == "auto_lender_dealer_funding"
+    assert (record.canonical_entity, record.matched_alias) == lender
+    assert (record.revenue_canonical_entity, record.revenue_matched_alias) == lender
+    assert (record.classification, record.match_method) == ("other", "auto_lender_dealer_funding")
+    # A truthful reason: the lender and the dealer-funding reading, never "no rule matched".
+    for reason in (record.reason, record.revenue_reason):
+        assert lender[0] in reason and "dealer" in reason.lower()
+        assert "No verified lender" not in reason
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+def test_cu_direct_s_vadmin_fee_is_a_q7_record_not_a_bank_fee():
+    record = _one("CU DIRECT DES:VADMIN FEE ID:1", 250.0, holder=DEALER)
+    assert record.revenue_match_method == "auto_lender_dealer_funding"
+    assert (record.classification, record.match_method, record.canonical_entity) == (
+        "other", "auto_lender_dealer_funding", "CU Direct")
+    assert "VADMIN FEE" in record.reason
+
+
+def test_the_credit_union_arm_names_its_credit_union():
+    rows = _records([(UNION.format(n=1), 18000.0), (UNION.format(n=2), 21000.0)], holder=DEALER)
+    for record in rows:
+        assert record.revenue_match_method == "auto_lender_dealer_funding"
+        assert (record.canonical_entity, record.revenue_canonical_entity) == ("SAMPLE CU", "SAMPLE CU")
+        assert record.revenue_matched_alias == record.matched_alias == "SAMPLE CU"
+        assert record.match_method == "credit_union_vehicle_purchase"
+        assert "SAMPLE CU" in record.reason and "VHCL PURCH" in record.reason
+        assert "SAMPLE CU" in record.revenue_reason and "2 " in record.revenue_reason
+    lone = _one(UNION.format(n=1), 18000.0, holder=DEALER)
+    assert _tier(lone) == ("excluded_pending_review", "financing_named_payer")
+    assert (lone.canonical_entity, lone.revenue_canonical_entity) == ("SAMPLE CU", "SAMPLE CU")
+    assert "No verified lender" not in lone.reason
+
+
+def test_a_q7_lender_never_joins_an_operating_pool():
+    from analysis.classification_registry import DEALER_FUNDING_PAYERS, OPERATING_REVENUE_SOURCE_TYPES
+    from analysis.transaction_classifier import _in_operating_pool
+
+    rows = _records([(f"WESTLAKE FINANCI DES:PAYABLES ID:{n}", 15000.0 + n) for n in range(1, 5)]
+                    + [(UNION.format(n=n), 18000.0 + n) for n in range(1, 4)], holder=DEALER)
+    assert {record.revenue_match_method for record in rows} == {"auto_lender_dealer_funding"}
+    assert not any(_in_operating_pool(record) for record in rows)
+    assert not set(DEALER_FUNDING_PAYERS) & set(OPERATING_REVENUE_SOURCE_TYPES)
+    assert WESTLAKE[0] not in OPERATING_REVENUE_SOURCE_TYPES
+
+
+@pytest.mark.parametrize("text", [
+    # Q8 pay words (G11), before the receiver and in a BofA PMT INFO addenda after it.
+    "WESTLAKE FINANCI DES:DEALER PAY BONUS ID:1",
+    "ALLY FINANCIAL DES:DEALER PAY SALARY ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES DIR DEP ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES ID:1 INDN:SAMPLE MOTORS LLC CO ID:1 CCD PMT INFO:PAYROLL 12",
+    # Personal income (G11).
+    "WESTLAKE FINANCI DES:PAYABLES PENSION ID:1",
+    # Owner money and financing that carries no root (non_sale_purpose).
+    "WESTLAKE FINANCI DES:PAYABLES INVESTMENT ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES DIVIDEND ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES PAYOFF ID:1",
+    # A lender refunding an overpaid payoff (possible_return).
+    "WESTLAKE FINANCI DES:PAYABLES OVERPAYMENT ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES ADJUSTMENT ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES CREDIT MEMO ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES DISPUTE ID:1",
+    # Insurer and claim words.
+    "WESTLAKE FINANCI DES:PAYABLES INSURANCE ID:1",
+    "WESTLAKE FINANCI DES:PAYABLES CLAIM ID:1",
+    # Floor-plan financing.
+    "ALLY FINANCIAL DES:FLOOR PLAN PAYABLES ID:1",
+    "ALLY FINANCIAL DES:FLOORPLAN DEALER PAY ID:1",
+    "ALLY FINANCIAL DES:WHOLESALE PAYABLES ID:1",
+])
+def test_q7_honours_the_section_8_1_holds_and_a_listed_lender_s_row_stays_financing(text):
+    record = _one(text, 15000.0, holder=DEALER)
+    assert record.revenue_match_method != "auto_lender_dealer_funding"
+    assert (record.revenue_classification, record.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert record.contributes_to_lender_credit_exclusion
+    assert record.match_method != "auto_lender_dealer_funding"
+
+
+@pytest.mark.parametrize("text", [
+    "Orig CO Name:Sample CU Orig ID:1 Desc Date: CO Entry Descr:Vhcl Purch Payroll Sec:CCD Trace#:{n}",
+    "Orig CO Name:Sample Mutual Insurance CU Orig ID:1 Desc Date: CO Entry Descr:Vhcl Purchsec:CCD Trace#:{n}",
+    "Orig CO Name:Sample CU Orig ID:1 Desc Date: CO Entry Descr:Vhcl Purch Dividend Sec:CCD Trace#:{n}",
+    "Orig CO Name:Sample CU Orig ID:1 Desc Date: CO Entry Descr:Vhcl Purch Adj Sec:CCD Trace#:{n}",
+    "CU DIRECT DES:VHCL PURCH PAYROLL ID:{n}",
+])
+def test_the_credit_union_arm_and_cu_direct_honour_the_section_8_1_holds(text):
+    rows = _records([(text.format(n=1), 18000.0), (text.format(n=2), 21000.0)], holder=DEALER)
+    for record in rows:
+        assert record.revenue_match_method not in {"auto_lender_dealer_funding", "credit_union_vehicle_purchase"}
+        assert record.revenue_classification != "verified_revenue"
+        assert record.revenue_tier == "excluded_pending_review"
+        assert record.match_method not in {"auto_lender_dealer_funding", "credit_union_vehicle_purchase"}
+
+
+def test_suncoast_verifies_only_through_the_credit_union_arm():
+    from analysis.classification_registry import DEALER_FUNDING_PAYERS
+
+    assert "Suncoast Credit Union" not in DEALER_FUNDING_PAYERS
+    # S1.5: Suncoast prints the holder's own funding transfers as ACCT FUND: never dealer funding, alone or repeated.
+    for text in ("SUNCOAST CU DES:ACCT FUND ID:1", "SUNCOAST CREDIT UNION DES:ACCT FUNDING ID:1"):
+        record = _one(text, 15000.0, holder=DEALER)
+        assert record.revenue_classification != "verified_revenue"
+        assert record.revenue_match_method != "auto_lender_dealer_funding"
+    repeated = _records([("SUNCOAST CU DES:ACCT FUND ID:1", 15000.0), ("SUNCOAST CU DES:ACCT FUND ID:2", 16000.0)],
+                        holder=DEALER)
+    assert "verified_revenue" not in {record.revenue_classification for record in repeated}
+    lone = _one("SUNCOAST CREDIT UNION DES:VHCL PURCH ID:1", 18000.0, holder=DEALER)
+    assert _tier(lone) == ("excluded_pending_review", "financing_named_payer")
+    two = _records([("SUNCOAST CREDIT UNION DES:VHCL PURCH ID:1", 18000.0),
+                    ("SUNCOAST CREDIT UNION DES:VHCL PURCH ID:2", 21000.0)], holder=DEALER)
+    for record in two:
+        assert (record.revenue_classification, record.revenue_match_method) == (
+            "verified_revenue", "auto_lender_dealer_funding")
+        assert record.revenue_canonical_entity == "SUNCOAST CREDIT UNION"
+        assert record.match_method == "credit_union_vehicle_purchase"
+
+
+def test_a_q7_verified_row_never_makes_a_q6_repeat():
+    neutral = "Orig CO Name:Contoso CU Orig ID:1 Desc Date: CO Entry Descr:Payment Sec:CCD Trace#:7"
+    union = UNION.replace("Sample CU", "Contoso CU")
+    alone = _one(neutral, 5000.0, holder=DEALER)
+    rows = _records([(union.format(n=1), 18000.0), (union.format(n=2), 21000.0), (neutral, 5000.0)], holder=DEALER)
+    assert [record.revenue_match_method for record in rows[:2]] == ["auto_lender_dealer_funding"] * 2
+    assert rows[2].revenue_classification != "verified_revenue"
+    assert _tier(rows[2]) == _tier(alone) == ("counted_flagged", "named_payer_one_off")
+
+
+@pytest.mark.parametrize("text", [
+    "ONE RIVER FUNDING DES:PAYABLES DEALER PAY ID:1",
+    "ONE RIVER GROUP DES:PAYABLES DEAL FUNDING ID:1",
+])
+def test_one_river_s_ledger_spellings_with_payables_and_a_dealer_word_stay_financing(text):
+    record = _one(text, 15000.0, holder=DEALER)
+    assert (record.revenue_classification, record.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert record.canonical_entity == "One River Group Inc"
+    assert record.contributes_to_lender_credit_exclusion

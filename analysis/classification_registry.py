@@ -1962,12 +1962,13 @@ HEALTHCARE_PAYER_ALIASES: dict[str, tuple[str, ...]] = {
 #: that prints a dealer-funding word is the dealer's revenue. Until S1 admits one into the ledger's
 #: vehicle-financing group, its other credits are held (financing_named_payer). Never Westlake Flooring. Never GLS's
 #: trade name GLS AUTO (S1.5's verify round: body shops and a used-car dealer trade under it; the ledger dropped it too).
+#: Never Suncoast Credit Union (S4.3 review): S1.5 did not admit it, and its statements print the holder's own funding
+#: transfers as ACCT FUND; its dealer funding verifies through Q7's credit-union arm alone (two or more VHCL PURCH).
 DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
     "Westlake Financial": ("WESTLAKE FINANCIAL", "WESTLAKE FINANCI", "WESTLAKE PORTFOL"),
     "United Auto Credit": ("UNITED AUTO CREDIT", "UNITED AUTO CRED"),
     "Strike Acceptance": ("STRIKE ACCEPTANCE", "STRIKEACCEPTANCE"),
     "Professional Financial Services (PFS)": ("PROF FIN SER PFS",),
-    "Suncoast Credit Union": ("SUNCOAST CREDIT UNION", "SUNCOAST CU"),
     "CU Direct": ("CU DIRECT", "CUDL"),
     "Credit Acceptance": ("CREDIT ACCEPTANCE", "CREDITACCEPTANCE"),
     "Exeter Finance": ("EXETER FINANCE", "EXETERFINANCELLC"),
