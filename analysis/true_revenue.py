@@ -369,20 +369,35 @@ _RECEIVER_LABEL = re.compile(r"^\s*(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b\s
 _RECEIVER_BANK_WORDS = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|SAVINGS|FCU)\b|\bCU\b")
 #: A3-G: Bank of America's sending-bank field, up to its next field.
 _SENDING_BANK_FIELD = re.compile(r"\bSND BK\b (.*?)(?=\b(?:ID|PMT DET|OBI|RMR|BNF|TRN|IMAD|SRF|RFB)\b|$)")
-#: A3-G: an originator equal to the sending bank keeps at least this many letters.
-_SENDING_BANK_MIN_LETTERS = 5
+#: A3-G: an originator equal to the sending bank keeps at least this many letters on its shorter side (A3-G review: 8).
+_SENDING_BANK_MIN_LETTERS = 8
 #: §8.1 (A3-G): a personal trust's words: the trust word, the trustee's TTEE, and the adjectives a personal trust
-#: prints before its trust word. Its name words are a person's, with no company form and no institutional word.
+#: prints before its trust word.
 _PERSONAL_TRUST_WORDS = frozenset({"TRUST", "TRST", "TR", "TTEE"})
 _PERSONAL_TRUST_ADJECTIVES = frozenset({"REVOCABLE", "REV", "LIVING", "FAMILY", "FAM", "IRREVOCABLE", "IRREV"})
-_PERSONAL_TRUST_FILLERS = frozenset({"THE", "AND", "OF", "DTD", "DATED", "UAD", "UTA", "UA"})
-#: A3-G: the institutional words a trust company, a bank, a title or escrow firm or a firm's trust account prints.
-_TRUST_INSTITUTION = re.compile(
-    r"(?<![A-Z])(?:BANK|BANCORP|SAVINGS|NATIONAL|FEDERAL|TITLE|ESCROW|IOLTA|CORPORATE|WEALTH|CAPITAL|INVEST\w*"
-    r"|SECURITIES|FUNDS?|FINANCIAL|ASSET|MANAGEMENT|ADVISORS?|PARTNERS|HOLDINGS|GROUP|SERVICES|LAW|ATTORNEYS?"
-    r"|CANADA|COMPANY|ACCOUNT|ACCT|CLIENT|CLIENTS)\b|\b(?:N A|CO)\b"
-)
+_PERSONAL_TRUST_FILLERS = frozenset({"THE", "AND", "OF"})
 _PERSONAL_TRUST_MAX_NAME_WORDS = 5
+#: §8.1 (A3-G review, a): the words a trust form may print after it: its agreement and date words (DTD, DATED, U A,
+#: UA, UAD, UTA), a date or a number, a PO box and the country; on a wire's originator field, which prints the
+#: sender's address after the name, an address that ends in a US state code.
+_TRUST_TAIL_WORDS = frozenset({"DTD", "DATED", "U", "A", "UA", "UAD", "UTA", "PO", "BOX", "US", "USA"})
+#: A street type right after the trust word makes it a street's name ('12 TRUST RD'), never a trust form.
+_STREET_WORDS = frozenset({
+    "RD", "ROAD", "ST", "STREET", "AVE", "AVENUE", "DR", "DRIVE", "LN", "LANE", "BLVD", "WAY", "CT", "COURT", "PL",
+    "PLACE", "HWY", "PKWY", "CIR", "TER", "TRL",
+})
+#: §8.1 (A3-G review, b): the business, institutional and benefit words that make the words before the trust form no
+#: person's name (with the classifier's company form and its holder-noise business and product words).
+_TRUST_BUSINESS_WORDS = re.compile(
+    r"(?<![A-Z])(?:BANK|BANCORP|SAVINGS|NATIONAL|FEDERAL|TITLE|ESCROW|CORPORATE|WEALTH|CAPITAL|INVEST\w*|SECURITIES"
+    r"|FUNDS?|FINANCIAL|ASSET|MANAGEMENT|ADVISORS?|PARTNERS|HOLDINGS|GROUP|SERVICES|CANADA|COMPANY|ACCOUNT|ACCT"
+    r"|CLIENTS?|REALTY|PROPERTIES|PROPERTY|HEALTH|WELFARE|PENSION|BENEFITS?|UNION|LOCAL|PLAN|CARPENTERS|ANNUITY"
+    r"|ACADEMY|SCHOOL|CHURCH|FOUNDATION|UNIVERSITY|COLLEGE|HOSPITAL|ASSOCIATION|SOCIETY|COUNTY|CITY|STATE)\b"
+)
+#: §8.1 (A3-G review, c): a bank's or a trust company's form right after the trust word, and a lawyer's or a client
+#: trust account anywhere in the sender.
+_TRUST_COMPANY_SUFFIX = re.compile(r"^(?:TRUST|TRST|TR) (?:N A|NA|FSB|BANK|COMPANY|CO)\b")
+_TRUST_LAWYER_WORDS = re.compile(r"(?<![A-Z])(?:ESQ|ATTORNEYS?|LAW|LEGAL|IOLTA|IOTA|IOLA)\b")
 #: §8.1 (A3 review, round 2): the company forms that name a currency-exchange company on an originator field beside
 #: currency wording ('CURRENCY EXCHANGE INTERNATIONAL DES:PAYMENT', 'FOREIGN EXCHANGE CO DES:PAYMENT'). INTERNATIONAL
 #: and INTL are organisation words the generic and wire-layout words drop, and CO a field label the transfer reader
@@ -459,8 +474,8 @@ def _wire_originator_text(text: str) -> str:
     found = classifier._WIRE_ORIGINATOR_LABEL.search(text)
     if found is None:
         return ""
-    # A3-G: a SWIFT 50F line number is never part of the originator.
-    rest = classifier.without_swift_line_number(text[found.end():])
+    # A3-G: a SWIFT 50F line number is never part of the originator (the normalizer drops it with its slash).
+    rest = text[found.end():]
     end = classifier._WIRE_FIELD_END.search(rest)
     originator = (rest[: end.start()] if end is not None else rest).strip()
     # A3-G refinement: a relaying bank's customer is the originator (the payer region reads it the same way).
@@ -697,14 +712,10 @@ def _wrap_split_root(text: str, payer: str) -> bool:
     """§8.1, §7.9 (A3 review, rounds 2 and 3): a financing word that a line wrap split across two of the wire sender's
     first six words (those with no digit): the two words together spell a financing word (_WRAP_FINANCING_WORDS) or a
     prefix of one of _WRAP_PREFIX_MIN letters or more, so the join falls inside it ('F INANCIAL', 'SERVICIN G', 'LO AN',
-    'MORT G'). Two words that spell none never make one ('SERVICE REPAIR', 'ALLEN D', 'HELEN DE', 'CAPT L'). A Fedwire
-    or CHIPS sender after B/O prints its city and state last: those two words are never read ('GLEN DE', 'LAMORT
-    GA')."""
-    words = [token for token in payer.split() if not any(ch.isdigit() for ch in token)]
-    label = _classifier()._WIRE_ORIGINATOR_LABEL.search(text)
-    if label is not None and label.group(0).strip() == "B O" and len(words) >= 2 and words[-1] in _US_STATE_TAIL:
-        words = words[:-2]
-    words = words[:6]
+    'MORT G'). Two words that spell none never make one ('SERVICE REPAIR', 'ALLEN D', 'HELEN DE', 'CAPT L', and a
+    Fedwire sender's city and state, 'GLEN DE', 'LAMORT GA'). A3-G review: no city and state skip (a company form CO is
+    no state code: 'NORTHWIND F INANCIAL CO' is held)."""
+    words = [token for token in payer.split() if not any(ch.isdigit() for ch in token)][:6]
     for left, right in zip(words, words[1:]):
         joined = left + right
         if joined in _WRAP_FINANCING_WORDS or (
@@ -770,18 +781,21 @@ def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool
 
 
 def _personal_trust(text: str, region: str) -> bool:
-    """§8.1 (A3-G): the named sender is a personal trust, held as non_sale_purpose (owner money: a family's money, an
-    investment or a loan far more often than a customer's purchase). Read on a wire's originator field before its digit
-    cut (_wire_originator_text: 'JANE Q SAMPLE 1234 TRUST <city> ...'), and on any other row's payer region. The
-    sender prints a trust word (_PERSONAL_TRUST_WORDS) after one to _PERSONAL_TRUST_MAX_NAME_WORDS name words (digits,
-    fillers and the trust adjectives aside); a plain TRUST, TRST or TR with no adjective needs two name words (a
-    person's first and last name, never a one-word trust company). Never a company form, and never an institutional
-    word (_TRUST_INSTITUTION) in the name or right after the trust word ('<X> TRUST COMPANY', '<X> BANK AND TRUST',
-    'TITLE TRUST', '... IOLTA TRUST ACCOUNT')."""
+    """§8.1 (A3-G, A3-G review): the named sender is a personal trust, held as non_sale_purpose (owner money: a family's
+    money, an investment or a loan far more often than a customer's purchase). Read on a wire's originator field before
+    its digit cut (_wire_originator_text: 'JANE Q SAMPLE 1234 TRUST <city> <state> ...', or the sender printed right
+    after the label), and on any other row's payer region. The sender prints a trust form (_PERSONAL_TRUST_WORDS) after
+    one to _PERSONAL_TRUST_MAX_NAME_WORDS name words (digits, fillers and the trust adjectives aside); a plain TRUST or
+    TRST with no adjective needs two name words and never reads a person-to-person row (whose sender field also prints
+    the sending bank), and a bare TR needs an adjective. And all of these hold:
+    (a) the trust form ends the sender's name (_trust_form_ends_the_name: 'IN GOD WE TRUST ROOFING' is no trust);
+    (b) the words before it read as a person's name: no business, institutional or benefit word (_TRUST_BUSINESS_WORDS,
+        the classifier's holder-noise words) and no company form;
+    (c) no bank's or trust company's form after the trust word (_TRUST_COMPANY_SUFFIX: TRUST NA, FSB, BANK, COMPANY,
+        CO) and no lawyer's or client trust account (_TRUST_LAWYER_WORDS: ESQ, ATTORNEY, LAW, LEGAL, IOLTA, IOTA, IOLA)."""
     classifier = _classifier()
-    sender = (_wire_originator_text(text) or _wire_sender_after_label_text(text)) if classifier._is_wire_row(text) else (
-        region
-    )
+    wire = classifier._is_wire_row(text)
+    sender = (_wire_originator_text(text) or _wire_sender_after_label_text(text)) if wire else region
     tokens = sender.split()
     index = next((at for at, token in enumerate(tokens) if token in _PERSONAL_TRUST_WORDS), None)
     if index is None:
@@ -792,13 +806,39 @@ def _personal_trust(text: str, region: str) -> bool:
     if not 1 <= len(names) <= _PERSONAL_TRUST_MAX_NAME_WORDS:
         return False
     if tokens[index] != "TTEE" and not adjectives:
-        # A bare TR is a trust only after a trust adjective (a company's cut word otherwise: '... AUTO TR'); a plain
-        # TRUST needs a person's two names, and never on a person-to-person row, whose sender field also prints the
-        # sending bank ('<sender> <place> TRUST').
         if tokens[index] == "TR" or len(names) < 2 or _channel(text) == "person_to_person":
             return False
-    head = " ".join([*before, *tokens[index: index + 2]])
-    return not classifier.company_form(head) and _TRUST_INSTITUTION.search(head) is None
+    # (c) a trust company's or a bank's form after the trust word; a lawyer's or a client trust account.
+    if _TRUST_COMPANY_SUFFIX.search(" ".join(tokens[index:])) or _TRUST_LAWYER_WORDS.search(" ".join(tokens[: index + 1])):
+        return False
+    # (a) the trust form ends the sender's name.
+    if not _trust_form_ends_the_name(tokens[index + 1:], address=wire):
+        return False
+    # (b) the words before the form read as a person's name.
+    return not (
+        classifier.company_form(" ".join([*before, tokens[index]]))
+        or any(_TRUST_BUSINESS_WORDS.search(name) or name in classifier.HOLDER_NOISE for name in names)
+    )
+
+
+def _trust_form_ends_the_name(tail: Sequence[str], *, address: bool) -> bool:
+    """§8.1 (A3-G review, a): the words after a trust form add nothing to the sender's name: only its agreement and
+    date words, dates, numbers, a PO box and the country (_TRUST_TAIL_WORDS), or, on a wire's originator field (which
+    prints the sender's address after its name), an address that ends in a US state code ('... TRUST SAMPLEVILLE WA
+    12345 US')."""
+    classifier = _classifier()
+    words = list(tail)
+    if words and words[0] in _STREET_WORDS:
+        # A street named TRUST ('12 TRUST RD'): the trust word is the address's, not a trust form.
+        return False
+    if "FBO" in words:
+        # The trust's beneficiary ('... FAMILY TRUST FBO <name>') names no other sender.
+        words = words[: words.index("FBO")]
+    while words and (classifier._is_reference_token(words[-1]) or words[-1] in {"US", "USA"}):
+        words.pop()
+    if all(word in _TRUST_TAIL_WORDS or classifier._is_reference_token(word) for word in words):
+        return True
+    return address and words[-1] in _US_STATE_TAIL
 
 
 def _wire_sender_after_label_text(text: str) -> str:
@@ -822,14 +862,16 @@ def _bank_originated_wire(text: str, region: str) -> bool:
     or receiving bank field or the text after it, and never a bank's merchant-services, bankcard or processor form
     (BANK_SETTLEMENT_ORIGINATOR), a settlement. A3-G refinement: a bank that names its customer after a relay label
     only relays; the payer region then reads the customer (relayed_customer_text), so the bank's form is held only when
-    no customer prints."""
+    no customer prints. A3-G review: the form arm is the classifier's bank_by_form (never a food or blood bank, never a
+    company whose name holds the bank word); the sending-bank arm compares the letters with spaces removed, needs
+    _SENDING_BANK_MIN_LETTERS letters on the shorter side and an originator that prints no company form."""
     classifier = _classifier()
     if not region or not classifier._is_wire_row(text) or classifier.BANK_SETTLEMENT_ORIGINATOR.search(region):
         return False
-    if classifier.BANK_FORM_ORIGINATOR.search(region):
+    if classifier.bank_by_form(region):
         return True
     sending = _SENDING_BANK_FIELD.search(text)
-    if sending is None:
+    if sending is None or classifier._BANK_COMPANY_FORM.search(region):
         return False
     originator = "".join(ch for ch in classifier.payer_name(region) if ch.isalpha())
     bank = "".join(ch for ch in sending.group(1) if ch.isalpha())
@@ -859,22 +901,24 @@ def _receiver_holder_names(records: Sequence[TransactionClassification], credits
     holder's names its own incoming receiver fields print (INDN, IND NAME, RECEIVER NAME: an ACH credit's receiver is
     the holder), each on _RECEIVER_HOLDER_MIN_CREDITS credits or more, with _RECEIVER_HOLDER_MIN_WORDS words and
     _RECEIVER_HOLDER_MIN_LETTERS letters or more, naming no bank, and holding a word that is no product, noise or
-    generic word. Read by the holder hold only (the holder's name is never a payer), never to verify anything."""
+    generic word. Read by the holder hold only (the holder's name is never a payer), never to verify anything. A3-G
+    review: the credits must come from _RECEIVER_HOLDER_MIN_CREDITS distinct originators or more: a receiver constant
+    across payers is the holder, while a name one platform prints (a rent platform's tenant) is its customer."""
     classifier = _classifier()
     if not credits or _usable_holder_name(records[credits[0]].account_name):
         return ()
-    counts: Counter = Counter()
+    originators: dict[str, set[str]] = {}
     for index in credits:
-        names = set()
+        text = classifier.revenue_text(records[index].normalized_description)
+        payer = classifier.payer_name(classifier.payer_region(text)) or classifier._before_receiver(text)
         for found in classifier._RECEIVER_FIELD_VALUE.finditer(records[index].normalized_description):
             value = _RECEIVER_LABEL.sub("", found.group(0), count=1)
             words = [token for token in value.split() if token.isalpha() and len(token) > 1]
             if words:
-                names.add(" ".join(words))
-        counts.update(names)
+                originators.setdefault(" ".join(words), set()).add(payer)
     return tuple(
-        name for name, count in counts.items()
-        if count >= _RECEIVER_HOLDER_MIN_CREDITS and len(name.split()) >= _RECEIVER_HOLDER_MIN_WORDS
+        name for name, payers in originators.items()
+        if len(payers) >= _RECEIVER_HOLDER_MIN_CREDITS and len(name.split()) >= _RECEIVER_HOLDER_MIN_WORDS
         and sum(len(word) for word in name.split()) >= _RECEIVER_HOLDER_MIN_LETTERS
         and _RECEIVER_BANK_WORDS.search(name) is None
         and any(word not in classifier.HOLDER_NOISE and word not in classifier.REVENUE_GENERIC_WORDS
@@ -887,14 +931,16 @@ def _receiver_alias_reads(record: TransactionClassification, text: str) -> bool:
     included) or a transfer or person-to-person row (Zelle, Venmo, an online, mobile, book or internal transfer), where
     the holder moves its own money. Never an ACH, card, processor or marketplace settlement row (a platform prints the
     store's own name as its payer), and never a row an earlier rule verified on sale evidence (a card settlement, a
-    platform payout, an accounts-payable remittance, a public payer)."""
+    platform payout, an accounts-payable remittance, a public payer). A3-G review: the wire is the classified wire
+    layout (an incoming-wire label or a third-party book transfer, _is_wire_row), never the word WIRE printed anywhere
+    ('<payer> DES:WIRE PMT' is an ACH row)."""
+    classifier = _classifier()
     if record.revenue_classification == "verified_revenue":
         return False
-    channel = _channel(text)
-    if channel == "wire":
+    if classifier._is_wire_row(text):
         return True
     # A real-time or push rail also carries a platform's payout (Visa Direct, RTP): never read there.
-    return channel == "person_to_person" and not _classifier()._PUSH_RAIL.search(_classifier()._before_receiver(text))
+    return _channel(text) == "person_to_person" and not classifier._PUSH_RAIL.search(classifier._before_receiver(text))
 
 
 def _receiver_holder_named(payer: str, holder: str) -> bool:

@@ -179,6 +179,10 @@ def test_a3g_canada_s_income_tax_refund_is_a_tax_refund(printed):
     "CANADA RITE SUPPLY DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
     "RIT RIF CONSULTING DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
     "DIRECT DEPOSIT CANADA RIFLE CLUB",
+    # A3-G review: the refund form starts the payer (after DIRECT DEPOSIT, DEP, EFT or PAY), never inside a name.
+    "FABRIKAM LIFE CANADA RIF PMT",
+    "NORTHWIND CANADA RIF PAYMENT",
+    "ZELLE PAYMENT FROM CANADA RIT CONF 1234",
     # The benefit, credit and payment forms wait for the owner (A3-G): unchanged.
     "DIRECT DEPOSIT CANADA GST TPS",
     "CANADA CHILD BENEFIT CANADA",

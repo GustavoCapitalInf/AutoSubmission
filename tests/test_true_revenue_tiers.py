@@ -1985,13 +1985,35 @@ def test_a3g_a_wire_a_bank_originates_is_held_as_financing(text):
     # Only the originator field is read: never the sending bank, the receiving bank or the purpose after it.
     _A3G_BOFA.format(n=1, orig="FABRIKAM SUPPLY LLC", bank="SAMPLE BANK"),
     _a3g_fedwire("FABRIKAM SUPPLY LLC", obi="INV 1234 SAMPLE BANK"),
-    # A bank's merchant-services, bankcard and processor forms are settlements.
+    # A bank's merchant-services, bankcard, processor and settlement forms are settlements.
     _A3G_BOFA.format(n=1, orig="NORTHWIND BANK MERCHANT SERVICES", bank="NORTHWIND BANK"),
-    _a3g_fedwire("NORTHWIND BANKCARD SERVICES"),
+    _a3g_fedwire("NORTHWIND BANK BANKCARD SERVICES"),
     _a3g_fedwire("NORTHWIND BANK MERCH SVCS"),
+    _A3G_BOFA.format(n=1, orig="NORTHWIND BANK SETTLEMENT", bank="NORTHWIND BANK"),
+    _a3g_fedwire("NORTHWIND BANK STLMT"),
+    # A3-G review: a company whose name holds the word BANK is no bank, nor is a food or blood bank.
+    _A3G_BOFA.format(n=1, orig="LEFT BANK BAKERY LLC", bank="SAMPLE BANK"),
+    _a3g_fedwire("BANK STREET PARTNERS LLC"),
+    _A3G_BOFA.format(n=1, orig="NORTHWIND FOOD BANK", bank="SAMPLE BANK"),
+    _a3g_fedwire("NORTHWIND BLOOD BANK"),
+    # A3-G review: the sending-bank arm needs eight letters on its shorter side and an originator with no company form.
+    _A3G_BOFA.format(n=1, orig="SUMMIT ROOFING LLC", bank="SUMMIT"),
+    _A3G_BOFA.format(n=1, orig="SUMMIT ROOFING", bank="SUMMIT"),
 ])
 def test_a3g_a_wire_whose_originator_is_no_bank_keeps_its_reading(text):
     assert _tier(_one(text, 43800.0))[1] != "financing_named_payer"
+
+
+@pytest.mark.parametrize("text", [
+    # Row 8's shape: the bank sends on its own behalf, its sending-bank field wrapped by a line ('BA NK').
+    _A3G_BOFA.format(n=1, orig="NORTHWIND BANK AP", bank="NORTHWIND BA NK AKA SAMPLE COMMUNI"),
+    # A bank's own legal form after its name keeps it a bank ('<X> BANK LTD', '<X> BANK CO LTD', 'BANK OF <X> LIMITED').
+    "BOOK TRANSFER CREDIT B O SAMPLE COMMERCIAL BANK LTD SAMPLE CITY CN REF SAMPLE 1 TRN 1234567890JS",
+    "BOOK TRANSFER CREDIT B O SAMPLE INDUSTRIAL BANK CO LTD SAMPLE CITY CN REF SAMPLE 1 TRN 1234567890JS",
+    "BOOK TRANSFER CREDIT B O BANK OF SAMPLELAND LIMITED HEAD OFFICE SAMPLE CITY REF SAMPLE 1 TRN 1234567890JS",
+])
+def test_a3g_review_a_bank_s_own_wire_stays_held(text):
+    assert _tier(_one(text, 438000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
 _A3G_RELAY = ("BOOK TRANSFER CREDIT B O SAMPLE COMMERCIAL BANK LTD SAMPLE CITY CN ORG {account} {customer} OGB SAMPLE "
@@ -2033,6 +2055,28 @@ def test_a3g_refinement_a_bank_that_names_no_customer_stays_held(text):
     assert _tier(_one(text, 13000.0)) == ("excluded_pending_review", "financing_named_payer")
 
 
+@pytest.mark.parametrize("obi", ["ORIGINATOR TO BENEFICIARY INFO 1234", "ORG TO BNF INFO 1234"])
+def test_a3g_review_the_originator_to_beneficiary_phrase_names_no_relayed_customer(obi):
+    # A3-G review: ORIGINATOR TO BENEFICIARY (ORG TO BNF) is the purpose's label, never a relay label.
+    text = ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O SAMPLE BANK NA LONDON GB REF SAMPLE NYC CTR BNF CONTOSO "
+            f"BAKERY LLC OBI {obi}")
+    assert _tier(_one(text, 50000.0)) == ("excluded_pending_review", "financing_named_payer")
+
+
+def test_a3g_review_a_b_o_company_that_ends_in_co_keeps_its_wrap_split_root():
+    # A3-G review: the Fedwire city and state skip is gone; a company form CO is no state code.
+    text = "BOOK TRANSFER CREDIT B O NORTHWIND F INANCIAL CO REF 1234 TRN 1234567890JS"
+    assert _tier(_one(text, 55000.0)) == ("excluded_pending_review", "financing_named_payer")
+
+
+def test_a3g_review_a_digit_without_its_slash_is_part_of_the_name():
+    # A3-G review: a SWIFT 50F line number prints with its slash ('1/'); a name that starts with a number keeps it.
+    from analysis.transaction_classifier import payer_region, revenue_text
+
+    record = _one(_A3_WIRE.format(n=1, orig="2 BROTHERS PIZZA LLC"), 5000.0)
+    assert payer_region(revenue_text(record.normalized_description)) == "2 BROTHERS PIZZA LLC"
+
+
 _A3G_BOOK_IN = ("WIRE TYPE:BOOK IN DATE:540102 TIME:1200 ET TRN:20540102000012{n} SNDR REF:12345678 ORIG:{orig} "
                 "ID:123456789012")
 
@@ -2060,13 +2104,19 @@ def test_a3g_refinement_a_bare_channel_word_is_no_named_sender(text):
 
 
 _A3G_PRODUCT = "BUSINESS ADVANTAGE RELATIONSHIP BANKING PREFERRED REWARDS"
-_A3G_RECEIVER = "FABRIKAM PAYMENTS DES:DEPOSIT ID:{n} INDN:{name} CO ID:1234567890 CCD"
+#: A3-G review: a receiver name counts only when credits from two distinct originators print it.
+_A3G_ORIGINATORS = ("FABRIKAM PAYMENTS", "SAMPLE MARKETS INC")
+_A3G_RECEIVER = "{payer} DES:DEPOSIT ID:{n} INDN:{name} CO ID:1234567890 CCD"
+
+
+def _a3g_receivers(name: str, count: int = 2) -> list[tuple[str, float]]:
+    return [(_A3G_RECEIVER.format(payer=_A3G_ORIGINATORS[at % 2], n=at + 1, name=name), 10500.0 + at)
+            for at in range(count)]
 
 
 def test_a3g_refinement_the_holder_s_receiver_name_is_the_holder_when_the_account_name_is_a_product():
     rows = _records([
-        (_A3G_RECEIVER.format(n=1, name="NORTHWIND BUILDERS GROU"), 10500.0),
-        (_A3G_RECEIVER.format(n=2, name="NORTHWIND BUILDERS GROU"), 9800.0),
+        *_a3g_receivers("NORTHWIND BUILDERS GROU"),
         (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 160000.0),
     ], holder=_A3G_PRODUCT)
     assert _tier(rows[2]) == ("excluded_pending_review", "holder_name")
@@ -2078,7 +2128,7 @@ def test_a3g_refinement_final_the_receiver_name_reads_wires_and_transfers_only()
     # A3-G refinement (final): read on a wire, a book transfer or a transfer or P2P row, where the holder moves its own
     # money; never on an ACH, card, processor or marketplace settlement (a platform prints the store's own name as its
     # payer) nor on a push rail.
-    receivers = [(_A3G_RECEIVER.format(n=at, name="NORTHWIND BUILDERS GROU"), 10500.0) for at in (1, 2)]
+    receivers = _a3g_receivers("NORTHWIND BUILDERS GROU")
     zelle = _records([*receivers, ("ZELLE PAYMENT FROM NORTHWIND BUILDERS GROUP CONF 1234567", 2500.0)],
                      holder=_A3G_PRODUCT)
     assert _tier(zelle[-1]) == ("excluded_pending_review", "holder_name")
@@ -2087,25 +2137,48 @@ def test_a3g_refinement_final_the_receiver_name_reads_wires_and_transfers_only()
         ("NORTHWIND BUILDERS GROUP DES:DEPOSIT ID:7 INDN:SAMPLE STORE 12 CO ID:1234567890 CCD", 900.0),
         ("NORTHWIND BUILDERS GROUP DES:DEPOSIT ID:8 INDN:SAMPLE STORE 12 CO ID:1234567890 CCD", 950.0),
         ("RTP CREDIT NORTHWIND BUILDERS GROUP 1234567", 800.0),
+        # A3-G review: WIRE printed in an ACH entry makes no wire layout.
+        ("NORTHWIND BUILDERS GROUP DES:WIRE PMT ID:9 INDN:SAMPLE STORE 12 CO ID:1234567890 CCD", 700.0),
     ], holder=_A3G_PRODUCT)
-    assert [record.revenue_tier_reason for record in settlements[2:]] != ["holder_name"] * 3
     assert {record.revenue_tier_reason for record in settlements[2:]}.isdisjoint({"holder_name"})
+
+
+def test_a3g_review_a_receiver_name_one_platform_prints_is_no_holder_name():
+    # A3-G review: a rent platform prints its tenant as the receiver: one originator only, so no holder's name.
+    rent = "SAMPLE RENT PAY DES:RENT ID:{n} INDN:JONATHAN SAMPLESON CO ID:1234567890 PPD"
+    rows = _records([(rent.format(n=1), 1500.0), (rent.format(n=2), 1500.0),
+                     ("ZELLE PAYMENT FROM JONATHAN SAMPLESON CONF 1234567", 1500.0)], holder=_A3G_PRODUCT)
+    assert _tier(rows[-1]) == ("counted_flagged", "p2p")
+
+
+def test_a3g_review_a_row_an_earlier_rule_verified_keeps_its_verification():
+    # A3-G review: the receiver name never demotes a row a sale-evidence rule verified (an invoice wire, §7.9).
+    rows = _records([
+        *_a3g_receivers("NORTHWIND BUILDERS GROU"),
+        (_A3G_BOOK_IN.format(n=34, orig="NORTHWIND BUILDERS GROUP") + " PMT DET:INV 1234", 16000.0),
+    ], holder=_A3G_PRODUCT)
+    assert rows[-1].revenue_classification == "verified_revenue"
 
 
 @pytest.mark.parametrize(("receivers", "holder"), [
     # One credit only.
     (("NORTHWIND BUILDERS GROU",), _A3G_PRODUCT),
-    # A usable account name (a company form) is the holder's name: the receiver names are not read.
+    # A usable account name (a company form, or a person's name) is the holder's name: the receiver names are not read.
     (("NORTHWIND BUILDERS GROU", "NORTHWIND BUILDERS GROU"), "CONTOSO BAKERY LLC"),
+    (("NORTHWIND BUILDERS GROU", "NORTHWIND BUILDERS GROU"), "JANE Q SAMPLE"),
     # A generic receiver value (a product or channel word, a bank, or fewer than two words or eight letters).
     (("BUSINESS CHECKING", "BUSINESS CHECKING"), _A3G_PRODUCT),
     (("NORTHWIND", "NORTHWIND"), _A3G_PRODUCT),
+    (("NORTHWIND BUILDERS BANK", "NORTHWIND BUILDERS BANK"), _A3G_PRODUCT),
 ])
 def test_a3g_refinement_a_receiver_name_needs_two_credits_a_real_name_and_an_unusable_account_name(receivers, holder):
     rows = _records([
-        *[(_A3G_RECEIVER.format(n=at, name=name), 10500.0) for at, name in enumerate(receivers, start=1)],
+        *[(_A3G_RECEIVER.format(payer=_A3G_ORIGINATORS[at % 2], n=at + 1, name=name), 10500.0 + at)
+          for at, name in enumerate(receivers)],
         (_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND BUILDERS GROUP"), 160000.0),
+        ("ZELLE PAYMENT FROM NORTHWIND BUILDERS BANK CONF 1234567", 1500.0),
     ], holder=holder)
+    assert rows[-2].revenue_tier_reason != "holder_name"
     assert rows[-1].revenue_tier_reason != "holder_name"
 
 
@@ -2159,6 +2232,8 @@ def test_a3g_a_single_common_word_or_a_short_cut_never_names_the_holder(orig, ho
     "JOHN Q SAMPLE TRUST DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
     # A sender read after the wire's label, before its digit cut.
     "INCOMING WIRE 20540102 SAMPLE 1234 FAMILY TRUST NOTPROVIDED",
+    # A3-G review: the trust's beneficiary after FBO names no other sender.
+    "INCOMING WIRE 20540102 SAMPLE 1234 FAMILY TRUST FBO JANE Q SAMPLE 12345678",
 ])
 def test_a3g_a_personal_trust_s_credit_is_held_as_owner_money(text):
     # A3-G: money from a personal trust is far more often the owner's family money, an investment or a loan.
@@ -2179,4 +2254,29 @@ def test_a3g_a_personal_trust_s_credit_is_held_as_owner_money(text):
     "ZELLE PAYMENT FROM JOHN SAMPLE NORTHWIND TRUST ID 1234567890",
 ])
 def test_a3g_an_institutional_or_company_trust_or_a_person_is_no_personal_trust(text):
+    assert _tier(_one(text, 7500.0))[1] != "non_sale_purpose"
+
+
+@pytest.mark.parametrize("text", [
+    # A3-G review (c): a bank's or a trust company's form after the trust word.
+    _A3_WIRE.format(n=1, orig="NORTHWIND COUNTY TRUST NA"),
+    _A3_WIRE.format(n=1, orig="NORTHWIND SAMPLE TRUST FSB"),
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE TRUST COMPANY"),
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE TRUST CO"),
+    # (c): a lawyer's or a client trust account.
+    _A3_WIRE.format(n=1, orig="JOHN SAMPLE ESQ IOTA TRUST"),
+    _A3_WIRE.format(n=1, orig="JOHN SAMPLE ESQ IOLA TRUST"),
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE IOLTA TRUST"),
+    # (b): a business, institutional or benefit word before the trust word, or a company form.
+    "NORTHWIND REALTY TRUST DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    _A3_WIRE.format(n=1, orig="SAMPLE CARPENTERS HEALTH WELFARE TRUST"),
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE TRUST LLC"),
+    # (a): the trust word does not end the sender's name.
+    _A3_WIRE.format(n=1, orig="IN GOD WE TRUST ROOFING"),
+    _A3_WIRE.format(n=1, orig="JOHN Q SAMPLE TRUST ACCOUNT"),
+    # (a): a street named TRUST in a Fedwire sender's address.
+    "FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O JOHN SAMPLE 12 TRUST RD SAMPLEVILLE CA 12345 US REF SAMPLE NYC "
+    "CTR BNF CONTOSO BAKERY LLC OBI 1234",
+])
+def test_a3g_review_a_personal_trust_is_a_person_s_name_ending_in_a_trust_form(text):
     assert _tier(_one(text, 7500.0))[1] != "non_sale_purpose"

@@ -35,6 +35,11 @@ _LOAN_WORD_AFTER_LN = re.compile(
     r" (?:PMTS?|PYMTS?|PAYMENTS?|PAYMT|PAYMNT|PMNT|PYMNT|REPAYMENTS?|DISB|DISBURSEMENT|ADV|ADVANCE|PROCEEDS|DRAW)\b"
 )
 _LN_WORD = re.compile(r"\bLN\b")
+#: 5.6 (true revenue spec §20, A3-G review): a SWIFT field-50F line number printed with its slash right after a wire's
+#: originator label ('ORIG:1/NORTHWIND', 'B/O 1/NORTHWIND'; lines 1 to 3 hold the name, the address and the country
+#: and town). It is never part of the name, and the slash is lost below, so the number is dropped here, where the
+#: slash still shows. A name that starts with a number ('ORIG:2 BROTHERS PIZZA LLC') keeps it.
+_SWIFT_LINE_NUMBER = re.compile(r"(\b(?:ORIG|ORG|ORIGINATOR|B/O|BY ORDER OF)\b\s*[:=]?\s*)[1-3] ?/ ?(?=[A-Z])")
 
 
 def _loan_or_lane(match: re.Match[str]) -> str:
@@ -55,6 +60,7 @@ def normalize_transaction_description(description: str) -> str:
     decomposed = unicodedata.normalize("NFKD", description or "")
     ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
     normalized = ascii_text.upper().replace("&", " AND ")
+    normalized = _SWIFT_LINE_NUMBER.sub(r"\1", normalized)
     normalized = re.sub(r"[^A-Z0-9]+", " ", normalized)
     normalized = re.sub(r"\bP0S\b", "POS", normalized)
     normalized = re.sub(r"\bN(?:\s|5)*S(?:\s)*F\b|\bN5F\b", "NSF", normalized)
