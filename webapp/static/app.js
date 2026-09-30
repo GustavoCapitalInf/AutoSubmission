@@ -171,25 +171,125 @@ function parseModeLabel(value) {
   return value === "deterministic" ? "Deterministic only" : "Auto";
 }
 
+// 5.6 (true revenue spec §10.5): the note under each revenue figure.
 const REVENUE_METRIC_COPY = Object.freeze({
   totalCredits: "All posted credit transactions",
-  verifiedRevenue: "Confirmed operating revenue",
-  unverifiedDeposits: "Deposits requiring analyst review",
-  nonRevenue: "Excluded from revenue analysis",
-  revenueUpperBound: "Upper-bound estimate: verified revenue plus unverified deposits",
+  trueRevenue: "Posted credits minus known non-revenue and the deposits held for review",
+  verifiedRevenue: "Revenue with proof: settlements, platform payouts, repeat or institutional payers, invoices, and deposits you confirmed",
+  countedFlagged: "Counted in true revenue without proof of the payer: cash, checks, person-to-person, one-off payers",
+  heldForReview: "Kept out of true revenue until you confirm it",
+  nonRevenue: "Own-account transfers, funding, refunds and other known non-revenue",
   achCredits: "Posted ACH credit transactions",
 });
+
+// 5.6 (true revenue spec §5.3, §10.6): the reason codes of the two middle tiers, code -> [tier, label, sentence]. It
+// mirrors analysis/revenue.py REVENUE_TIER_REASONS (code -> tier and label); tests/test_webapp_true_revenue_ui.py
+// holds the two equal. The sentence is the ledger's one line on the code.
+const REVENUE_TIER_REASONS = Object.freeze({
+  direction_conflict: ["excluded_pending_review", "Direction conflicts with the amount", "The bank prints this row in the other direction from its amount."],
+  insurer_payer: ["excluded_pending_review", "Insurance carrier", "An insurance carrier paid it: a claim or a refund unless you confirm it pays for a sale."],
+  insurer_named_payer: ["excluded_pending_review", "Payer name reads as an insurer", "The payer's name reads as an insurer."],
+  possible_return: ["excluded_pending_review", "Possible return or adjustment", "The row reads as a return, a reversal or an adjustment of an earlier item."],
+  financing_named_payer: ["excluded_pending_review", "Payer or entry suggests financing", "The payer or the entry names funding, a loan or an advance."],
+  payer_debited_as_lender: ["excluded_pending_review", "Payer is also debited as a lender", "This payer is also debited from the account as a lender."],
+  holder_name: ["excluded_pending_review", "From the holder's own name or brand", "The credit comes from the account holder's own name or brand."],
+  payroll_or_salary: ["excluded_pending_review", "Payroll, salary or employee reimbursement", "The entry reads as payroll, salary or an employee reimbursement."],
+  personal_income: ["excluded_pending_review", "Benefit or pension", "The entry reads as a benefit or a pension."],
+  non_sale_purpose: ["excluded_pending_review", "Not a sale: owner money, investment, grant, refund, claim or interest", "The entry names owner money, an investment, a grant, a refund, a claim or interest."],
+  payer_also_debited: ["excluded_pending_review", "Payer also debited this account", "The same payer is also debited from this account."],
+  wire_no_sender: ["excluded_pending_review", "Wire, no sender printed", "A wire with no sender printed."],
+  transfer_no_counterparty: ["excluded_pending_review", "Transfer, no counterparty", "A transfer that names no counterparty."],
+  transfer_account_designation: ["excluded_pending_review", "Transfer naming an account", "A transfer that names an account, not a payer."],
+  p2p_round_repeat: ["excluded_pending_review", "Repeated round sums from one sender", "Round sums repeated by one person-to-person sender."],
+  wire_named_sender: ["counted_flagged", "Wire from a named sender", "A wire from a named sender, counted without proof of the sale."],
+  check_deposit: ["counted_flagged", "Check deposit", "A check deposit: the payer is not printed."],
+  no_payer_printed: ["counted_flagged", "No payer printed", "A cash, branch, ATM or bare deposit: no payer is printed."],
+  p2p: ["counted_flagged", "Person-to-person", "A person-to-person payment."],
+  factoring_payout: ["counted_flagged", "Factoring payout", "A factor's payout of the business's own invoices."],
+  payout_credit_entity: ["counted_flagged", "Platform payout (financing partner)", "A payout from a platform's financing partner."],
+  platform_unconfirmed: ["counted_flagged", "Platform payout, not confirmed", "A registered platform's payout without the context that confirms it."],
+  numbered_company_payer: ["counted_flagged", "Numbered company payer", "A numbered company paid it: counted, never verified."],
+  named_payer_purpose_refused: ["counted_flagged", "Named payer, purpose not accepted as proof", "A named payer whose printed purpose is not accepted as proof."],
+  named_payer_one_off: ["counted_flagged", "One-off payer", "A named payer seen once on this statement."],
+  named_payer_unlabelled: ["counted_flagged", "Payer named, channel not printed", "A named payer on a channel the bank does not print."],
+});
+
+function revenueReasonLabel(record) {
+  const entry = REVENUE_TIER_REASONS[record && record.revenue_tier_reason];
+  return entry ? entry[1] : "Reason not recorded";
+}
+
+// The revenue cards of true revenue spec §10.1, in order: True Revenue (the headline), Verified Revenue with its share
+// of True, Counted, Held and Non-Revenue, each a button to its rows. `source` is a statement's metrics or a package's
+// totals. A True, Counted or Held figure reads N/A unless `established`, a Verified one unless `verifiedEstablished`
+// (§10.4). `note` wraps each note (a package's currency refusal replaces them); `unestablishedNote` replaces the True
+// note where revenue is not established; `counts` prints "count / total", as the statement window does.
+function revenueCardItems(source, currency, {
+  established, verifiedEstablished, note = (text) => text, unestablishedNote = "", counts = false,
+}) {
+  const figure = (kind, shown) => {
+    if (!shown) return "N/A";
+    const total = formatMoney(source[`${kind}_total`], currency);
+    return counts ? `${formatNumber(source[`${kind}_count`])} / ${total}` : total;
+  };
+  const trueTotal = numberOrNull(source.true_revenue_total);
+  const verifiedTotal = numberOrNull(source.verified_revenue_total);
+  const share = established && verifiedEstablished && trueTotal !== null && trueTotal > 0 && verifiedTotal !== null
+    ? `${((verifiedTotal / trueTotal) * 100).toFixed(1)}% of true revenue · ` : "";
+  const trueNote = !established && unestablishedNote ? unestablishedNote : REVENUE_METRIC_COPY.trueRevenue;
+  return [
+    ["True Revenue", figure("true_revenue", established), note(trueNote), "REV", "green", { revenueFilter: "true_revenue", headline: true }],
+    ["Verified Revenue", figure("verified_revenue", verifiedEstablished), note(share + REVENUE_METRIC_COPY.verifiedRevenue), "VER", "green", { revenueFilter: "verified_revenue" }],
+    ["Counted, Not Verified", figure("counted_flagged", established), note(REVENUE_METRIC_COPY.countedFlagged), "CNT", "teal", { revenueFilter: "counted_flagged" }],
+    ["Held for Review", figure("excluded_pending_review", established), note(REVENUE_METRIC_COPY.heldForReview), "?", "amber", { revenueFilter: "excluded_pending_review" }],
+    ["Non-Revenue", figure("non_revenue", true), note(REVENUE_METRIC_COPY.nonRevenue), "X", "neutral", { revenueFilter: "non_revenue" }],
+  ];
+}
+
+// A package's two revenue flags (§10.4): the server nulls its True, Counted and Held totals when any completed member
+// is not established, and its Verified total when any member's verified revenue is not.
+function packageRevenueFlags(totals = {}) {
+  return {
+    ...totals,
+    established: totals.true_revenue_total !== null && totals.true_revenue_total !== undefined,
+    verifiedEstablished: totals.verified_revenue_total !== null && totals.verified_revenue_total !== undefined,
+    revenue_established: totals.true_revenue_total !== null && totals.true_revenue_total !== undefined,
+    verified_revenue_established: totals.verified_revenue_total !== null && totals.verified_revenue_total !== undefined,
+  };
+}
+
+// The note under a package's revenue totals: how many completed statements have no established revenue, and, when a
+// member was analysed before 5.6, what to do about it. "" when every member is established.
+function packageUnestablishedNote(totals = {}, outdated = false) {
+  const listed = Array.isArray(totals.revenue_unestablished_documents) ? totals.revenue_unestablished_documents : [];
+  const statements = new Set(listed.map((id) => String(id).split("#")[0])).size;
+  if (!statements) return "";
+  const completed = numberOrNull(totals.completed) ?? statements;
+  const noun = completed === 1 ? "statement" : "statements";
+  return `${formatNumber(statements)} of ${formatNumber(completed)} ${noun} ${statements === 1 ? "has" : "have"} no established revenue`
+    + (outdated ? " · Re-analyze to compute true revenue" : "");
+}
+
+// 5.6 (true revenue spec §10.7): what the review badge shows. It counts the held credits (`revenue_review_items`)
+// where the held figure is established, and reads N/A where it is not: a statement whose revenue is not established,
+// or a package whose Held total the server left N/A (a member not established), never a partial count. An analysis
+// saved before 5.6 carries no held count (its served copy nulls it), and keeps counting its deposits left unverified.
+function reviewBadgeValue(source = {}, established = false) {
+  if (numberOrNull(source.revenue_review_items) === null) return source.unverified_deposit_count;
+  return established ? source.revenue_review_items : "N/A";
+}
 
 const emptyMetricSections = [
   {
     title: "Credits",
     sub: "Posted credit transactions",
     items: [
-      ["Total Credits", "N/A", REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
-      ["Verified Revenue", "N/A", REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green"],
-      ["Unverified Deposits", "N/A", REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber"],
+      ["True Revenue", "N/A", REVENUE_METRIC_COPY.trueRevenue, "REV", "green", { headline: true }],
+      ["Verified Revenue", "N/A", REVENUE_METRIC_COPY.verifiedRevenue, "VER", "green"],
+      ["Counted, Not Verified", "N/A", REVENUE_METRIC_COPY.countedFlagged, "CNT", "teal"],
+      ["Held for Review", "N/A", REVENUE_METRIC_COPY.heldForReview, "?", "amber"],
       ["Non-Revenue", "N/A", REVENUE_METRIC_COPY.nonRevenue, "X", "neutral"],
-      ["Revenue Upper Bound", "N/A", REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
+      ["Total Credits", "N/A", REVENUE_METRIC_COPY.totalCredits, "CR", "neutral"],
       ["ACH Credits", "N/A", REVENUE_METRIC_COPY.achCredits, "ACH", "neutral"],
     ],
   },
@@ -1363,10 +1463,16 @@ function setInitialState() {
   renderFlaggedPositions([], null, false);
   renderRevenueEvidence({
     total_posted_credit_count: 0,
+    revenue_established: true,
+    verified_revenue_established: true,
+    true_revenue_count: 0,
+    true_revenue_total: 0,
     verified_revenue_count: 0,
     verified_revenue_total: 0,
-    unverified_deposit_count: 0,
-    unverified_deposit_total: 0,
+    counted_flagged_count: 0,
+    counted_flagged_total: 0,
+    excluded_pending_review_count: 0,
+    excluded_pending_review_total: 0,
     non_revenue_count: 0,
     non_revenue_total: 0,
   });
@@ -1442,7 +1548,8 @@ const CHIP_VOCABULARY = {
   OK: ["✓", "Approved"],
   REV: ["◐", "Revenue"],
   REVIEW: ["◐", "Review"],
-  MAX: ["", "Upper Bound"],
+  VER: ["✓", "Verified"],
+  CNT: ["+", "Counted"],
   ERR: ["✕", "Error"],
   DOC: ["◈", "Integrity"],
   LEN: ["⌂", "Lender"],
@@ -1455,7 +1562,7 @@ const CHIP_VOCABULARY = {
   "%": ["%", "Rate"],
 };
 
-const CHIP_TONES = { green: "success", red: "error", blue: "info", amber: "warning", violet: "violet", neutral: "neutral" };
+const CHIP_TONES = { green: "success", red: "error", blue: "info", amber: "warning", violet: "violet", teal: "teal", neutral: "neutral" };
 
 /* Colour restraint: a chip is tinted only when it reports something the
    reviewer should act on. Anything purely informational stays neutral
@@ -1573,8 +1680,9 @@ function renderMetricCard([label, value, sub, icon, tone, action]) {
   const attributes = actionable
     ? ` type="button" data-revenue-filter="${escapeHtml(action.revenueFilter)}" aria-label="Show exact ${escapeHtml(label)} transactions"`
     : "";
+  const headline = action && action.headline ? " metric-headline" : "";
   return `
-    <${tag} class="metric${actionable ? " metric-action" : ""}"${attributes}>
+    <${tag} class="metric${actionable ? " metric-action" : ""}${headline}"${attributes}>
       <div class="metric-top">
         <div class="metric-label">${escapeHtml(label)}</div>
         ${metricChip(icon, tone)}
@@ -1597,8 +1705,10 @@ function metricRowHtml([label, value, sub, , tone, action]) {
   const attributes = actionable
     ? ` type="button" data-revenue-filter="${escapeHtml(action.revenueFilter)}" aria-label="Show exact ${escapeHtml(label)} transactions"`
     : "";
+  // 5.6 (true revenue spec §10.1): True Revenue is the headline, first and larger.
+  const headline = action && action.headline ? " metric-headline" : "";
   return `
-    <${tag} class="metric-row"${attributes}>
+    <${tag} class="metric-row${headline}"${attributes}>
       <span class="metric-text">
         <span class="metric-label">${escapeHtml(label)}</span>
         ${sub ? `<span class="metric-note">${escapeHtml(sub)}</span>` : ""}
@@ -1847,29 +1957,47 @@ function renderFlaggedPositions(positions, currency, isPackage = false) {
   els.flaggedTable.innerHTML = flaggedPositionRowsHtml(entries, currency, isPackage);
 }
 
+// 5.6 (true revenue spec §10.1, §10.7): the Revenue evidence rows, [filter, label, glyph, status, tone, which flag
+// establishes the figure]. Held for Review is followed by its reasons, largest total first: the Held for Review view.
 const revenueRows = [
-  ["verified_revenue", "Verified Revenue", "REV", "Verified", "green"],
-  ["unverified_deposit", "Unverified Deposits", "?", "Review Required", "amber"],
-  ["non_revenue", "Non-Revenue", "X", "Excluded", "neutral"],
+  ["true_revenue", "True Revenue", "REV", "Revenue", "green", "revenue_established"],
+  ["verified_revenue", "Verified Revenue", "VER", "Verified", "green", "verified_revenue_established"],
+  ["counted_flagged", "Counted, Not Verified", "CNT", "Counted", "teal", "revenue_established"],
+  ["excluded_pending_review", "Held for Review", "?", "Review Required", "amber", "revenue_established"],
+  ["non_revenue", "Non-Revenue", "X", "Excluded", "neutral", null],
 ];
 
+// The held credits of a statement or a package by reason, largest total first (ties by code), or [] where they are
+// not established.
+function heldReasonEntries(source = {}) {
+  const byReason = source && source.revenue_established === true && source.excluded_pending_review_by_reason
+    && typeof source.excluded_pending_review_by_reason === "object" ? source.excluded_pending_review_by_reason : {};
+  return Object.entries(byReason)
+    .map(([reason, figures]) => ({ reason, count: figures && figures.count, total: numberOrNull(figures && figures.total) }))
+    .sort((a, b) => (b.total ?? 0) - (a.total ?? 0) || a.reason.localeCompare(b.reason));
+}
+
 function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) {
-  return revenueRows.map(([state, label, glyph, status, tone]) => {
-    const countKey = state === "verified_revenue"
-      ? "verified_revenue_count"
-      : `${state}_count`;
-    const totalKey = state === "verified_revenue"
-      ? "verified_revenue_total"
-      : `${state}_total`;
-    const filterAttribute = modal ? "data-modal-revenue-filter" : "data-revenue-filter";
-    return `
+  const filterAttribute = modal ? "data-modal-revenue-filter" : "data-revenue-filter";
+  return revenueRows.map(([filter, label, glyph, status, tone, flag]) => {
+    const shown = flag === null || metrics[flag] === true;
+    const row = `
       <tr>
-        <td><button class="evidence-link" type="button" ${filterAttribute}="${state}" aria-label="Show exact ${escapeHtml(label)} transactions">${escapeHtml(label)}</button></td>
-        <td>${escapeHtml(formatNumber(metrics[countKey]))}</td>
-        <td>${escapeHtml(formatMoney(metrics[totalKey], currency))}</td>
+        <td><button class="evidence-link" type="button" ${filterAttribute}="${filter}" aria-label="Show exact ${escapeHtml(label)} transactions">${escapeHtml(label)}</button></td>
+        <td>${escapeHtml(shown ? formatNumber(metrics[`${filter}_count`]) : "N/A")}</td>
+        <td>${escapeHtml(shown ? formatMoney(metrics[`${filter}_total`], currency) : "N/A")}</td>
         <td>${glassChip(glyph, status, tone)}</td>
       </tr>
     `;
+    if (filter !== "excluded_pending_review") return row;
+    return row + heldReasonEntries(metrics).map(({ reason, count, total }) => `
+      <tr class="evidence-subrow">
+        <td><button class="evidence-link" type="button" ${filterAttribute}="excluded_pending_review:${escapeHtml(reason)}" aria-label="Show the held ${escapeHtml(revenueReasonLabel({ revenue_tier_reason: reason }))} transactions">${escapeHtml(revenueReasonLabel({ revenue_tier_reason: reason }))}</button></td>
+        <td>${escapeHtml(formatNumber(count))}</td>
+        <td>${escapeHtml(formatMoney(total, currency))}</td>
+        <td></td>
+      </tr>
+    `).join("");
   }).join("");
 }
 
@@ -2309,24 +2437,32 @@ function renderCredits({ label, value, meta }) {
   els.creditsMeta.innerHTML = meta;
 }
 
+// 5.6 (true revenue spec §10.1): the four tiers of the posted credits.
 const CREDIT_MIX = [
   ["verified_revenue", "Verified revenue", "dot-green"],
-  ["unverified_deposit", "Unverified deposits", "dot-amber"],
+  ["counted_flagged", "Counted, not verified", "dot-teal"],
+  ["excluded_pending_review", "Held for review", "dot-amber"],
   ["non_revenue", "Non-revenue", "dot-muted"],
 ];
 
-// The three revenue classes of the posted credits, each as its share of the three together. A row is a
-// button to that class's transactions, like the Revenue evidence rows.
+// The four tiers of the posted credits, each as its share of the four together. A row is a button to that tier's
+// transactions, like the Revenue evidence rows. Where revenue is not established the tiers are not known, so the
+// counted and held rows read N/A and no share is drawn (§10.4).
 function renderCreditMix(source = {}, currency = "USD") {
-  const parts = CREDIT_MIX.map(([state, label, dot]) => ({
-    state,
-    label,
-    dot,
-    count: source[`${state}_count`],
-    total: source[`${state}_total`],
-    size: Math.max(numberOrNull(source[`${state}_total`]) || 0, 0),
-  }));
-  const sum = parts.reduce((total, part) => total + part.size, 0);
+  const established = source.revenue_established === true;
+  const parts = CREDIT_MIX.map(([state, label, dot]) => {
+    const known = established || state === "non_revenue"
+      || (state === "verified_revenue" && source.verified_revenue_established === true);
+    return {
+      state,
+      label,
+      dot,
+      count: known ? source[`${state}_count`] : null,
+      total: known ? source[`${state}_total`] : null,
+      size: Math.max(numberOrNull(known ? source[`${state}_total`] : null) || 0, 0),
+    };
+  });
+  const sum = established ? parts.reduce((total, part) => total + part.size, 0) : 0;
   const share = (part) => (sum > 0 ? `${((part.size / sum) * 100).toFixed(1)}%` : "N/A");
   els.creditMixBar.innerHTML = parts
     .filter((part) => sum > 0 && part.size > 0)
@@ -2544,6 +2680,12 @@ function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
 
 function setReviewCount(value) {
   if (!els.reviewCount) return;
+  // 5.6 (true revenue spec §10.4): a held count that is not established is shown as N/A, never as a partial count.
+  if (value === "N/A") {
+    els.reviewCount.textContent = "N/A";
+    els.reviewCount.hidden = false;
+    return;
+  }
   const count = numberOrNull(value) || 0;
   els.reviewCount.textContent = formatNumber(count);
   els.reviewCount.hidden = count <= 0;
@@ -2641,6 +2783,10 @@ function renderAccount(report) {
   const validation = validationLabel(report);
   const elapsed = startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Complete";
   const decision = accountDecision(report);
+  // Analysed with older rules (the server sets it at the top of the payload): of a statement of several accounts the
+  // account drawn is its own payload, so the statement on screen (currentDocument) says it.
+  const rulesOutdated = report.analysis_rules_outdated === true
+    || Boolean(currentDocument && currentDocument.analysis_rules_outdated === true);
 
   els.statusHeading.textContent = "OCR completed";
   setBanner("done", "Extraction completed", validation);
@@ -2668,11 +2814,12 @@ function renderAccount(report) {
   });
   analysisCrumbs = ["Statements", statement.bank || "Statement", month || period(statement)];
   resultsCrumbs = analysisCrumbs;
+  const revenueEstablished = metrics.revenue_established === true;
   renderCredits({
     label: "Total credits",
     value: formatMoney(totalCredits, currency),
-    meta: `${escapeHtml(formatNumber(metrics.total_posted_credit_count))} credit transactions · Revenue upper bound `
-      + `<span class="mono">${escapeHtml(formatMoney(metrics.maximum_revenue, currency))}</span>`,
+    meta: `${escapeHtml(formatNumber(metrics.total_posted_credit_count))} credit transactions · True revenue `
+      + `<span class="mono">${escapeHtml(revenueEstablished ? formatMoney(metrics.true_revenue_total, currency) : "N/A")}</span>`,
   });
   renderCreditMix(metrics, currency);
   renderBalanceChart(transactions, metrics, currency);
@@ -2684,7 +2831,9 @@ function renderAccount(report) {
     ["NSFs", formatNumber(metrics.effective_nsf_count), countTone(metrics.effective_nsf_count)],
     ["Confirmed withholding", formatPercent(metrics.withholding_rate), withholdingTone(metrics.withholding_rate)],
   ]);
-  setReviewCount(metrics.unverified_deposit_count);
+  // 5.6 (true revenue spec §10.7): the badge counts the held credits, N/A where they are not established; an analysis
+  // saved before 5.6 has none, and keeps counting its deposits left unverified.
+  setReviewCount(reviewBadgeValue(metrics, revenueEstablished));
 
   setStatusRows([
     ["OCR completed", "Yes"],
@@ -2705,11 +2854,12 @@ function renderAccount(report) {
       title: "Credits",
       sub: "Posted credit transactions",
       items: [
+        ...revenueCardItems(metrics, currency, {
+          established: revenueEstablished,
+          verifiedEstablished: metrics.verified_revenue_established === true,
+          unestablishedNote: rulesOutdated ? "Re-analyze to compute true revenue" : "",
+        }),
         ["Total Credits", formatMoney(totalCredits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "neutral"],
-        ["Verified Revenue", formatMoney(metrics.verified_revenue_total, currency), REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
-        ["Unverified Deposits", formatMoney(metrics.unverified_deposit_total, currency), REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber", { revenueFilter: "unverified_deposit" }],
-        ["Non-Revenue", formatMoney(metrics.non_revenue_total, currency), REVENUE_METRIC_COPY.nonRevenue, "X", "neutral", { revenueFilter: "non_revenue" }],
-        ["Revenue Upper Bound", formatMoney(metrics.maximum_revenue, currency), REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
         ["ACH Credits", formatNumber(metrics.ach_credit_count), REVENUE_METRIC_COPY.achCredits, "ACH", "neutral"],
       ],
     },
@@ -3229,9 +3379,9 @@ function renderPackageAnalysis(pkg) {
     meta: refusalNote
       ? escapeHtml(refusalNote)
       : `Avg monthly credits <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_credits, currency))}</span>`
-        + ` · Revenue upper bound <span class="mono">${escapeHtml(formatMoney(totals.maximum_revenue, currency))}</span>`,
+        + ` · True revenue <span class="mono">${escapeHtml(formatMoney(totals.true_revenue_total, currency))}</span>`,
   });
-  renderCreditMix(totals, currency);
+  renderCreditMix(packageRevenueFlags(totals), currency);
   // The monthly chart is drawn with the Monthly Statements table (renderMonthlyStatements): both follow the basis
   // chosen in Settings.
   renderTotals([
@@ -3242,7 +3392,9 @@ function renderPackageAnalysis(pkg) {
     ["NSFs", formatNumber(totals.nsf_count), countTone(totals.nsf_count)],
     ["Confirmed withholding", formatPercent(totals.package_withholding_rate), withholdingTone(totals.package_withholding_rate)],
   ]);
-  setReviewCount(totals.unverified_deposit_count);
+  // 5.6 (true revenue spec §10.7): the held credits; N/A with the Held total (a member not established), never the
+  // partial count of the members that are.
+  setReviewCount(reviewBadgeValue(totals, packageRevenueFlags(totals).revenue_established));
   if (els.packageProcessingNote) {
     const failed = numberOrNull(totals.failed) || 0;
     els.packageProcessingNote.textContent = failed
@@ -3272,13 +3424,11 @@ function renderPackageAnalysis(pkg) {
       // The server publishes `statement_periods` only when the two differ, so
       // this reads the honest count where there is one and the old one where
       // nothing changed.
-      sub: `${formatNumber(totals.statement_periods ?? totals.months)} statement periods`,
+      sub: [`${formatNumber(totals.statement_periods ?? totals.months)} statement periods`,
+        packageUnestablishedNote(totals, pkg.analysis_rules_outdated === true)].filter(Boolean).join(" · "),
       items: [
+        ...revenueCardItems(totals, currency, { ...packageRevenueFlags(totals), note: moneyNote }),
         ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "neutral"],
-        ["Verified Revenue", formatMoney(totals.verified_revenue_total, currency), moneyNote(REVENUE_METRIC_COPY.verifiedRevenue), "REV", "green", { revenueFilter: "verified_revenue" }],
-        ["Unverified Deposits", formatMoney(totals.unverified_deposit_total, currency), moneyNote(REVENUE_METRIC_COPY.unverifiedDeposits), "?", "amber", { revenueFilter: "unverified_deposit" }],
-        ["Non-Revenue", formatMoney(totals.non_revenue_total, currency), moneyNote(REVENUE_METRIC_COPY.nonRevenue), "X", "neutral", { revenueFilter: "non_revenue" }],
-        ["Revenue Upper Bound", formatMoney(totals.maximum_revenue, currency), moneyNote(REVENUE_METRIC_COPY.revenueUpperBound), "MAX", "neutral"],
         ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits, currency), moneyNote("Average posted credits per statement period"), "AVG", "neutral"],
       ],
     },
@@ -3351,7 +3501,7 @@ function renderPackageTables(pkg) {
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(pkg.flagged_positions, currency, true);
-  renderRevenueEvidence(pkg.totals || {}, currency);
+  renderRevenueEvidence(packageRevenueFlags(pkg.totals || {}), currency);
   renderMonthlyStatements(pkg);
 }
 
@@ -3655,6 +3805,8 @@ function setModalAnalysis(report) {
 
 function renderStatementModal(jobId, report, markdown) {
   let accountNote = "";
+  // Read before an account of the statement stands in for it below: the server sets it at the top of the payload.
+  const rulesOutdated = Boolean(report && report.analysis_rules_outdated === true);
   const unverifiedMain = unverifiedMainAccount(accountRoster(report));
   if (unverifiedMain) {
     els.statementModalTitle.textContent = "Main account needs review";
@@ -3721,11 +3873,13 @@ function renderStatementModal(jobId, report, markdown) {
   els.statementModalTitle.textContent = title;
   els.statementModalSubtitle.textContent = `${accountNote}${period(statement)} - ${labelize(decision)}`;
   els.statementModalMetrics.innerHTML = [
-    ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
-    ["Verified Revenue", `${formatNumber(metrics.verified_revenue_count)} / ${formatMoney(metrics.verified_revenue_total, currency)}`, REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
-    ["Unverified Deposits", `${formatNumber(metrics.unverified_deposit_count)} / ${formatMoney(metrics.unverified_deposit_total, currency)}`, REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber", { revenueFilter: "unverified_deposit" }],
-    ["Non-Revenue", `${formatNumber(metrics.non_revenue_count)} / ${formatMoney(metrics.non_revenue_total, currency)}`, REVENUE_METRIC_COPY.nonRevenue, "X", "neutral", { revenueFilter: "non_revenue" }],
-    ["Revenue Upper Bound", formatMoney(metrics.maximum_revenue, currency), REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
+    ...revenueCardItems(metrics, currency, {
+      established: metrics.revenue_established === true,
+      verifiedEstablished: metrics.verified_revenue_established === true,
+      unestablishedNote: rulesOutdated ? "Re-analyze to compute true revenue" : "",
+      counts: true,
+    }),
+    ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "neutral"],
     ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "All posted debit transactions", "DB", "neutral"],
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
     ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],

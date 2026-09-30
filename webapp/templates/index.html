@@ -41,6 +41,9 @@
     --blue-soft: rgba(124, 180, 255, .13);
     --violet: #b69cff;
     --violet-soft: rgba(182, 156, 255, .13);
+    --teal: #5eead4;
+    --teal-soft: rgba(94, 234, 212, .13);
+    --verified: #10b46a;
     --track: #2e2e2e;
     --paper: #161616;
     --rail: #0a0a0a;
@@ -79,6 +82,9 @@
     --blue-soft: rgba(40, 110, 220, .1);
     --violet: #6a47c9;
     --violet-soft: rgba(110, 70, 210, .1);
+    --teal: #0f766e;
+    --teal-soft: rgba(15, 118, 110, .12);
+    --verified: #07703f;
     --track: #d2d2cc;
     --paper: #fafaf8;
     --rail: #f6f6f3;
@@ -442,6 +448,7 @@
   .mix-total { font-family: var(--font-mono); text-align: right; }
   .dot-green { background: var(--accent); }
   .dot-amber { background: var(--amber); }
+  .dot-teal { background: var(--teal); }
   .dot-muted { background: var(--border-2); }
 
   .chart-block { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -508,6 +515,10 @@
   .tone-red { color: var(--red); }
   .tone-blue { color: var(--blue); }
   .tone-violet { color: var(--violet); }
+  .tone-teal { color: var(--teal); }
+  /* 5.6: True Revenue is the headline figure of the Credits cards. */
+  .metric-row.metric-headline .metric-value, .metric.metric-headline .metric-value { font-size: 20px; font-weight: 600; }
+  .evidence-subrow td:first-child { padding-left: 20px; }
 
   .metrics-section { display: flex; flex-direction: column; gap: 16px; }
   .metric-groups { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 16px; align-items: stretch; }
@@ -630,6 +641,7 @@
   .glass-chip.error { background: var(--red-soft); color: var(--red); }
   .glass-chip.info { background: var(--blue-soft); color: var(--blue); }
   .glass-chip.violet { background: var(--violet-soft); color: var(--violet); }
+  .glass-chip.teal { background: var(--teal-soft); color: var(--teal); }
   .glass-chip.flag-chip { margin-left: 6px; }
   .data-table .chip-glyph { display: none; }
   .table-action {
@@ -922,7 +934,7 @@
         <div class="popover" id="helpPopover" role="dialog" aria-label="Help" hidden style="top:auto;bottom:0;right:auto;left:calc(100% + 10px)">
           <div class="popover-title">How it works</div>
           <p>Drop one statement for a single analysis, or several months at once to build a package.</p>
-          <p>Click any revenue figure, lender or evidence row to see the exact transactions behind it. Unverified deposits can be confirmed or excluded from the Review column.</p>
+          <p>Click any revenue figure, lender or evidence row to see the exact transactions behind it. Deposits held for review, and counted deposits, can be confirmed or excluded from the Review column.</p>
           <p>Press <span class="kbd">/</span> to search statements and <span class="kbd">Esc</span> to close a dialog.</p>
         </div>
       </div>
@@ -962,7 +974,7 @@
         <button class="side-link" type="button" data-nav="review">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14l1 8v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6z"/></svg>
           <span class="side-link-label">Revenue review</span>
-          <span class="side-badge" id="reviewCount" title="Unverified deposits awaiting review" hidden>0</span>
+          <span class="side-badge" id="reviewCount" title="Deposits held for review" hidden>0</span>
         </button>
         <button class="side-link" type="button" data-nav="settings">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
