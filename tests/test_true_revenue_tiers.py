@@ -2439,6 +2439,8 @@ def test_a3h_a_freight_factor_s_wires_and_ach_payouts_are_counted_as_factoring_p
         for record in (*wires, *achs):
             assert record.revenue_classification == "unverified_deposit"
             assert _tier(record) == ("counted_flagged", "factoring_payout")
+            # Q5 and Q6 never verify it, so no verification is overruled (A3-H review: factoring_payout_payer).
+            assert record.revenue_match_method == "unidentified_posted_credit"
 
 
 def test_a3h_the_factoring_payout_table_never_reads_a_debit_or_the_payee_groups():
@@ -2502,3 +2504,66 @@ def test_a3h_a_glued_premium_code_reads_where_no_sec_code_splits_it():
 def test_a3h_a_premium_refund_stays_non_revenue():
     # Non-revenue rules run first: the reversal rule's REFUND takes a premium refund out before any tier.
     assert _one(_A3H_AGENCY.format(payer="HUMANA", entry="PREM REFUND"), 640.0).revenue_classification == "non_revenue"
+
+
+_A3H_WIRE_PURPOSE = ("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:{orig} ID:99 SND BK:SAMPLE BANK "
+                     "ID:1 PMT DET:{purpose}")
+
+
+@pytest.mark.parametrize("shape", ["invoice_wire", "ach_remittance"])
+def test_a3h_review_a_factor_is_never_verified_by_any_path(shape):
+    # A3-H review: a factor's payout is counted and flagged whichever earlier rule verified it (an invoice-purpose wire,
+    # an accounts-payable remittance descriptor).
+    alias = _a3h_factoring_aliases()[0]
+    text = (
+        _A3H_WIRE_PURPOSE.format(n=1, orig=f"{alias} LLC", purpose="INV 1234") if shape == "invoice_wire"
+        else _A3H_BOFA_ACH.format(payer=alias, entry="VENDOR PAY")
+    )
+    record = _one(text, 5480.0, holder="CONTOSO TRUCKING INC")
+    assert record.revenue_classification == "unverified_deposit"
+    assert _tier(record) == ("counted_flagged", "factoring_payout")
+
+
+def test_a3h_review_a_factor_s_alias_before_a_company_form_is_the_factor():
+    alias = _a3h_factoring_aliases()[0]
+    record = _one(_A3H_BOFA_ACH.format(payer=f"{alias} LLC", entry="PAYMENT"), 5480.0, holder="CONTOSO TRUCKING INC")
+    assert _tier(record) == ("counted_flagged", "factoring_payout")
+
+
+@pytest.mark.parametrize("shape", ["longer_ach_name", "longer_wire_name", "cited_in_purpose"])
+def test_a3h_review_the_alias_is_read_only_as_the_payer(shape):
+    # A3-H review: the alias names the factor only as the whole payer region (the ACH originator or the wire sender),
+    # a company form aside; a longer name that starts with it, or another payer's purpose citing it, is another payer.
+    alias = _a3h_factoring_aliases()[0]
+    if shape == "longer_ach_name":
+        rows = [(_A3H_BOFA_ACH.format(payer=f"{alias} FOR PETS LLC", entry="PAYMENT"), 610.0)]
+    elif shape == "longer_wire_name":
+        rows = [(_A3H_WIRE_PURPOSE.format(n=n, orig=f"{alias} CLEANING LLC", purpose=f"12{n}"), 5150.0 + n)
+                for n in (1, 2)]
+    else:
+        rows = [(_A3H_WIRE_PURPOSE.format(n=n, orig="NORTHWIND FREIGHT LLC", purpose=f"REF {alias} {n}"), 5150.0 + n)
+                for n in (1, 2)]
+    assert _tier(_records(rows, holder="CONTOSO TRUCKING INC")[-1])[1] != "factoring_payout"
+
+
+@pytest.mark.parametrize("payer", ["MEDICARE", "STATE OF SAMPLE MEDICAID", "TRICARE"])
+def test_a3h_review_a_public_health_payer_s_premium_form_keeps_its_reading(payer):
+    # A3-H review: a government payer (Medicare, Medicaid, TRICARE, VA, a state, county or federal public payer) keeps
+    # its reading whatever its entry prints.
+    assert _one(_A3H_AGENCY.format(payer=payer, entry="PREM"), 640.0).revenue_match_method == (
+        "public_or_healthcare_payer")
+
+
+def test_a3h_review_a_commission_word_keeps_the_reading_beside_a_premium_code():
+    assert _one(_A3H_AGENCY.format(payer="HUMANA", entry="PREM COMM"), 640.0).revenue_match_method == (
+        "public_or_healthcare_payer")
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # A3-H review: the premium code is read only in the entry field (DES, CO ENTRY DESCR); a layout that prints none
+    # keeps its reading: an insurer's named payer stays unlabelled, a healthcare payer's PREMIUM stays held.
+    ("NORTHWIND INS CO PREM 1234567 CUSTOMER ID N1234567", ("counted_flagged", "named_payer_unlabelled")),
+    ("HUMANA PREMIUM 1234567 CUSTOMER ID N1234567", ("excluded_pending_review", "non_sale_purpose")),
+])
+def test_a3h_review_the_premium_code_is_read_only_in_the_entry_field(text, expected):
+    assert _tier(_one(text, 640.0)) == expected
