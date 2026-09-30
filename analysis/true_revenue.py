@@ -209,7 +209,8 @@ _RECEIVER_THROUGH_NEXT_FIELD = re.compile(
 _TRAILING_CONSUMER_CODE = re.compile(r" (PPD|WEB)$")
 #: §8.6 (re-review N1): the code printed right before Bank of America's DES label, after a company form or a
 #: reference token ('NORTHWIND SUPPLY LLC PPD DES:...'); after a name word it is the payer's name ('NORTHWIND WEB').
-_CODE_BEFORE_DES = re.compile(r"(\S+) (?:PPD|WEB) DES\b")
+#: FW wave 3: PPD is never a name word, so it is the code after any word ('NORTHWIND SUPPLY PPD DES:...').
+_CODE_BEFORE_DES = re.compile(r"(\S+) (PPD|WEB) DES\b")
 _CODE_AFTER_TEMPLATE = re.compile(r"(?:PPD|WEB)\b")
 
 
@@ -237,7 +238,8 @@ def consumer_entry(text: str, account_name: str | None = None) -> bool:
             return True
     before_des = _CODE_BEFORE_DES.search(classifier._before_receiver(text))
     if before_des is not None and (
-        classifier._BANK_COMPANY_FORM.fullmatch(before_des.group(1)) or classifier._is_reference_token(before_des.group(1))
+        before_des.group(2) == "PPD"
+        or classifier._BANK_COMPANY_FORM.fullmatch(before_des.group(1)) or classifier._is_reference_token(before_des.group(1))
     ):
         return True
     template = classifier._REVENUE_TEMPLATE_PREFIX.match(text)
@@ -1410,26 +1412,37 @@ def _transfer_row(row: str) -> bool:
     return _transfer_wording(row) and not _p2p_rail(row) and _classifier()._PUSH_RAIL.search(row) is None
 
 
-def _own_words(record: TransactionClassification, text: str) -> set[str]:
+@dataclass(frozen=True)
+class _OwnWords:
+    """§7.0: the holder's own words on a store-name platform (`words`), and (FW wave 3) the platform entry's words when
+    they are a consecutive run of the holder's name (`run`: the store's own name, spared at any length)."""
+
+    words: frozenset[str] = frozenset()
+    run: frozenset[str] = frozenset()
+
+
+def _own_words(record: TransactionClassification, text: str) -> _OwnWords:
     """§7.0: the holder's own words, as the recurrence veto reads them on a store-name platform: the account name's
     distinctive words and the name the bank prints in the receiver field (a delivery platform prints the merchant's
     store there). On every other source there are none (S2.4 review: a veto word always vetoes there)."""
     classifier = _classifier()
-    if record.revenue_canonical_entity not in classifier._STORE_NAME_PAYOUT_ENTITIES:
-        return set()
+    entity = record.revenue_canonical_entity
+    if entity not in classifier._STORE_NAME_PAYOUT_ENTITIES:
+        return _OwnWords()
     # Final review I4: a veto word that is the whole entry field, or forms it alone with generic words, is the
     # platform's own financing wording: no store name prints, so the holder's words spare nothing.
-    if not classifier.store_name_printed(text, record.revenue_canonical_entity):
-        return set()
+    if not classifier.store_name_printed(text, entity, record.account_name):
+        return _OwnWords()
     own = set(classifier.holder_words(record.account_name))
     for found in classifier._RECEIVER_FIELD_VALUE.finditer(text):
         own.update(classifier._distinctive_words(found.group(0).split()[1:]))
-    return own
+    return _OwnWords(frozenset(own), classifier.store_name_run_words(text, entity, record.account_name))
 
 
-def _own_word(word: str, own: set[str]) -> bool:
-    """§7.0: a word of four letters or more that is one of the holder's own words or the start of one."""
-    return len(word) >= 4 and any(mine == word or mine.startswith(word) for mine in own)
+def _own_word(word: str, own: _OwnWords) -> bool:
+    """§7.0: a word of four letters or more that is one of the holder's own words or the start of one; FW wave 3: or a
+    word of the store's own name, the entry's run of the holder's name ('FIN AND FORK'), at any length."""
+    return word in own.run or (len(word) >= 4 and any(mine == word or mine.startswith(word) for mine in own.words))
 
 
 def registry_financing(record: TransactionClassification, text: str) -> bool:

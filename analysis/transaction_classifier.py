@@ -2744,7 +2744,7 @@ def _operating_source_decision(
     recurrence pass decides them."""
     entity, alias, source_type = source.entity, source.alias, source.source_type
     business_account = _business_account(account_name)
-    if platform_entry_leads_with_financing(text, entity):
+    if platform_entry_leads_with_financing(text, entity, account_name):
         # 5.6 (re-review N6, §20): an entry field that leads with a financing word is the platform's own financing,
         # never verified here; pass 7 holds it as financing_named_payer (the registry does not claim a financing row).
         return _RevenueDecision(
@@ -2898,6 +2898,8 @@ _RECEIVER_NAME_FIELD = re.compile(rf"\b(?:{_RECEIVER_FIELD_LABELS})\b")
 #: debt-relief table is read: the account holder's own name never makes a row debt relief. 5.6 (final review I2): the
 #: one tuple's name labels.
 _RECEIVER_FIELD_VALUE = re.compile(rf"\b(?:{_RECEIVER_NAME_LABELS})\b" + _RECEIVER_VALUE_END)
+#: FW wave 3: a receiver-name field's label, before its value.
+_RECEIVER_NAME_LABEL = re.compile(rf"^(?:{_RECEIVER_NAME_LABELS})\b\s*")
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
 _LEADING_PREFIX_WORDS = frozenset({
     "BILL", "BILLS", "PRE", "AUTHORIZED", "AUTHORISED", "RECURRING", "RECUR", "INTERNET", "BANKING", "PAIEMENT",
@@ -4348,21 +4350,23 @@ def _recurrence_veto_word(
     the merchant's store name, which is the holder's, in its entry field ('DOORDASH INC DES:<store> CAPITA ...
     INDN:<store> CAPITAL GROUP'). On every other source, and on a row no registry source decided, a veto word always
     vetoes (S2.4 review)."""
-    if entity not in _STORE_NAME_PAYOUT_ENTITIES or not store_name_printed(text, entity):
+    if entity not in _STORE_NAME_PAYOUT_ENTITIES or not store_name_printed(text, entity, account_name):
         return pattern.search(_before_receiver(text)) is not None
     holder = set(holder_words(account_name))
     for found in _RECEIVER_FIELD_VALUE.finditer(text):
         holder.update(_distinctive_words(found.group(0).split()[1:]))
+    # FW wave 3 (W2-1): the words of a store name that is a run of the holder's name are spared at any length.
+    run = store_name_run_words(text, entity, account_name)
     row = _before_receiver(text)
     for found in pattern.finditer(row):
         word = found.group(0)
-        if len(word) >= 4 and any(own == word or own.startswith(word) for own in holder):
+        if word in run or (len(word) >= 4 and any(own == word or own.startswith(word) for own in holder)):
             continue
         return True
     return False
 
 
-def store_name_printed(text: str, entity: str | None) -> bool:
+def store_name_printed(text: str, entity: str | None, account_name: str | None = None) -> bool:
     """§7.0 (final review I4): a store-name platform's row prints a store name where the platform prints the merchant's
     store: its entry field (Bank of America's DES, Chase's CO ENTRY DESCR), or the row before its receiver fields on a
     layout that prints none (BMO's 'DIRECT DEPOSIT DOORDASH <store> MSP/DIV'). A store name is a word that is no veto
@@ -4371,12 +4375,44 @@ def store_name_printed(text: str, entity: str | None) -> bool:
     ('DES:CAPITAL', 'DES:CAPITAL ADVANCE', 'DES:LENDING PAYMENT'), is the platform's own financing wording, so the
     holder's word exemption never reads it. Re-review (I4-R): nor is a veto word that leads the field, whatever follows
     it ('DES:CAPITAL DISB', 'DES:LENDING DAILY': the ten-character entry field often cuts a financing entry's second
-    word); a store name prints its own words first ('DES:<store> CAPITA'), so the field must lead with a store word."""
+    word); a store name prints its own words first ('DES:<store> CAPITA'), so the field must lead with a store word.
+    FW wave 3 (W2-1): a store whose own name starts with a financing word ('DES:CAPITAL GRILLE' for a holder named
+    '... CAPITAL GRILLE ...') leads with it too: the field leads with a store word when its words (two or more) are a
+    consecutive run of the holder's name (_store_name_run)."""
     words = _platform_entry_words(text, entity)
     if not words:
         return False
     led = " ".join(words)
-    return _RECURRENCE_VETO.match(led) is None and _FUNDING_WORD.match(led) is None
+    if _RECURRENCE_VETO.match(led) is None and _FUNDING_WORD.match(led) is None:
+        return True
+    return _store_name_run(words, text, account_name)
+
+
+def store_name_run_words(text: str, entity: str | None, account_name: str | None) -> frozenset[str]:
+    """FW wave 3 (W2-1): the store-name platform's entry words when they are a run of the holder's name
+    (_store_name_run): the store's own name, whose words the recurrence veto and the registry's financing words spare
+    at any length ('FIN AND FORK'); empty otherwise."""
+    if entity not in _STORE_NAME_PAYOUT_ENTITIES:
+        return frozenset()
+    words = _platform_entry_words(text, entity)
+    return frozenset(words) if _store_name_run(words, text, account_name) else frozenset()
+
+
+def _store_name_run(words: Sequence[str], text: str, account_name: str | None) -> bool:
+    """FW wave 3 (W2-1): the platform's entry words, two or more, are a consecutive run of whole words of the holder's
+    own name as the classifier knows it: the statement's account name (its trade name after DBA included), or a name
+    the row's receiver fields print (a product-name account). A bare financing word is one word; a financing entry
+    ('CAPITAL DISB', 'LENDING DAILY') or a store the holder is not ('CAPITAL GRILLE' for 'SAMPLE BAKERY LLC') is no
+    run."""
+    if len(words) < 2:
+        return False
+    names = [account_name_text(account_name).split()] if account_name else []
+    for found in _RECEIVER_FIELD_VALUE.finditer(text):
+        names.append(_RECEIVER_NAME_LABEL.sub("", found.group(0), count=1).split())
+    run = list(words)
+    return any(
+        name[start:start + len(run)] == run for name in names for start in range(len(name) - len(run) + 1)
+    )
 
 
 def _platform_entry_words(text: str, entity: str | None) -> list[str]:
@@ -4410,13 +4446,17 @@ _ENTRY_FINANCING_LEAD = re.compile(
 PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
 
 
-def platform_entry_leads_with_financing(text: str, entity: str | None) -> bool:
+def platform_entry_leads_with_financing(text: str, entity: str | None, account_name: str | None = None) -> bool:
     """§7.2 (re-review N6): a processor, marketplace or platform credit whose entry field leads with a financing word
     (CAPITAL, LENDING, LOAN, ADVANCE, FUNDING, FINANCING and their cuts): the platform's own financing, never its
-    settlement of the business's sales, for any holder."""
+    settlement of the business's sales, for any holder. FW wave 3 (W2-1): on a store-name platform, an entry whose
+    words are a consecutive run of the holder's own name is the store's name ('DES:CAPITAL GRILLE'), never financing
+    (_store_name_run)."""
     words = _platform_entry_words(text, entity)
     found = _ENTRY_FINANCING_LEAD.match(" ".join(words)) if words else None
     if found is None:
+        return False
+    if entity in _STORE_NAME_PAYOUT_ENTITIES and _store_name_run(words, text, account_name):
         return False
     return not (found.group(0) in {"FUNDING", "FUNDED"} and entity in _FUNDING_SETTLEMENT_ENTITIES)
 

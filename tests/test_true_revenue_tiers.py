@@ -2896,3 +2896,71 @@ def test_a_payer_named_with_web_before_des_still_repeats():
     rows = [(f"NORTHWIND WEB DES:PAYMENT ID:{n} INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD", 2345.0 + n)
             for n in (1, 2)]
     assert {_fw_method(record) for record in _records(rows)} == {("verified_revenue", "named_payer_repeats")}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# FW wave 3 (the wave 2 confirmation's W2-1): a store named with a financing word keeps its payouts. Fabricated rows.
+# ---------------------------------------------------------------------------------------------------------------------
+_W3_STORES = [
+    ("SAMPLE CAPITAL GRILLE LLC", "CAPITAL GRILLE"), ("CAPITAL CITY SAMPLE DINER LLC", "CAPITAL CITY"),
+    ("FIN AND FORK SAMPLE LLC", "FIN AND FORK"), ("NORTHWIND ADVANCE PIZZA LLC", "ADVANCE PIZZA"),
+]
+_W3_PLATFORMS = ["DOORDASH INC", "UBER EATS", "GRUBHUB"]
+
+
+def _w3_payouts(platform, store, holder, receiver=None):
+    return [(f"{platform} DES:{store} ID:{n} INDN:{receiver or holder} CO ID:1234567890 CCD", 900.0 + n)
+            for n in range(3)]
+
+
+@pytest.mark.parametrize("platform", _W3_PLATFORMS)
+@pytest.mark.parametrize(("holder", "store"), _W3_STORES)
+def test_a_store_named_with_a_financing_word_keeps_its_payouts(platform, holder, store):
+    # W2-1: the entry field's words (two or more) are a consecutive run of the holder's own name, so the leading
+    # financing word is the store's own word: its payouts verify, and the statement is not gated.
+    records = _records(_w3_payouts(platform, store, holder), holder=holder)
+    assert {_fw_method(record) for record in records} == {("verified_revenue", "recurring_operating_source")}
+
+
+@pytest.mark.parametrize(("holder", "store"), _W3_STORES)
+def test_a_store_name_the_receiver_field_prints_keeps_its_payouts(holder, store):
+    # The holder's name as the classifier knows it: the account name, or the name the bank prints in the receiver
+    # field (a product-name account).
+    records = _records(_w3_payouts("DOORDASH INC", store, holder), holder="BUSINESS CHECKING")
+    assert {_fw_method(record) for record in records} == {("verified_revenue", "recurring_operating_source")}
+
+
+@pytest.mark.parametrize("platform", _W3_PLATFORMS)
+@pytest.mark.parametrize(("holder", "store"), _W3_STORES)
+def test_a_store_entry_that_matches_no_holder_name_is_still_held(platform, holder, store):
+    records = _records(_w3_payouts(platform, store, "SAMPLE BAKERY LLC"), holder="SAMPLE BAKERY LLC")
+    assert {_tier(record) for record in records} == {("excluded_pending_review", "financing_named_payer")}
+
+
+@pytest.mark.parametrize("entry", ["CAPITAL", "CAPITAL DISBURSE", "CAPITAL DISB", "CAPITAL DI", "CAPITAL OFFER",
+                                   "CAPITAL XFER", "LENDING DAILY", "CAPITAL PAYOUT"])
+def test_the_doordash_financing_entries_stay_held_for_a_holder_who_shares_the_word(entry):
+    # I4-R's eight entries: a financing entry is no run of the holder's name (a bare word is one word, and DISB, OFFER,
+    # XFER, DAILY or PAYOUT is no word of 'SAMPLE CAPITAL LENDING FUNDING LLC'), so it stays held.
+    rows = [(_RR_STORE.format(entry="PAYMENTS", n=n, holder=_RR_HOLDER), 900.0 + n) for n in range(3)]
+    rows.append((_RR_STORE.format(entry=entry, n=9, holder=_RR_HOLDER), 23456.0))
+    assert _tier(_records(rows, holder=_RR_HOLDER)[3]) == ("excluded_pending_review", "financing_named_payer")
+
+
+@pytest.mark.parametrize(("holder", "fails"), [("FIN AND FORK SAMPLE LLC", False), ("SAMPLE BAKERY LLC", True)])
+def test_a_no_entry_field_store_named_with_a_financing_word_keeps_its_payouts(holder, fails):
+    # BMO prints no entry field; the store words after the platform are the run.
+    records = _records([(f"DIRECT DEPOSIT DOORDASH FIN AND FORK MSP/DIV {n}", 900.0 + n) for n in range(3)],
+                       holder=holder)
+    held = {_tier(record) for record in records} == {("excluded_pending_review", "financing_named_payer")}
+    assert held is fails
+    if not fails:
+        assert {_fw_method(record) for record in records} == {("verified_revenue", "recurring_operating_source")}
+
+
+def test_ppd_before_des_is_the_sec_code_after_any_word():
+    # Wave 2 concern 1: PPD is never a name word, so it is read as the code wherever it sits before DES; WEB after a
+    # name word stays the payer's name.
+    rows = [(f"NORTHWIND SUPPLY PPD DES:PAYMENT ID:{n} INDN:CONTOSO BAKERY LLC CO ID:1234567890", 2345.0 + n)
+            for n in (1, 2)]
+    assert {_tier(record) for record in _records(rows)} == {("counted_flagged", "named_payer_one_off")}
