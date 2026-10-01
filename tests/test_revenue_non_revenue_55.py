@@ -212,11 +212,17 @@ def test_a3g_a_name_or_a_benefit_form_is_no_canadian_tax_refund(printed):
     "GST CANADA 12345678",
     "RQ GST",
     "ELECTRONIC DEPOSIT FROM RQ GST",
-    # A payment the IRS issues through the Treasury is a tax refund, whether or not the row prints a refund word.
+    # GOV review (M4): the CRA's name after the form, a country code, and the GST program account after it.
+    "CANADA GST TPS CANADA",
+    "GST CANADA CA",
+    "DEPOSIT CANADA GST TPS RT0001",
+    # A payment the IRS issues through the Treasury with no entry, or a refund-worded entry, is a tax refund. GOV
+    # review (I1): an IRS entry such as MISC PAY or VENDOR PAY is a vendor payment, tested below.
     "ELECTRONIC DEPOSIT FROM IRS TREAS 310",
     "ACH CREDIT IRS TREAS 310 XXXXXXXXXXX1234 5678",
-    "Orig CO Name:IRS Treas 310 Orig ID:1234567890 Desc Date:540102 CO Entry Descr:Misc Pay Sec:CCD Trace#:1",
+    "Orig CO Name:IRS Treas 310 Orig ID:1234567890 Desc Date:540102 CO Entry Descr: Sec:PPD Trace#:1",
     "IRS TREAS 310 DES:TAX EIC ID:1",
+    "IRS TREAS310 DES:TAX EIC ID:1",
 ])
 def test_gov_a_government_tax_refund_is_non_revenue(printed):
     record = _credit(printed)
@@ -241,6 +247,25 @@ def test_gov_a_government_tax_refund_is_non_revenue(printed):
 ])
 def test_gov_a_name_or_a_benefit_is_no_government_tax_refund(printed):
     assert _credit(printed).revenue_classification != "non_revenue"
+
+
+@pytest.mark.parametrize(("printed", "reading"), [
+    # GOV review (I1): Treasury's Green Book gives MISC PAY to federal vendor payments, and the IRS pays its
+    # contractors that way, so an IRS credit whose entry is MISC PAY, VENDOR or VENDOR PAY keeps the reading it had
+    # before the owner's ruling: counted, or a public payer's vendor payment.
+    ("IRS TREAS 310 DES:MISC PAY ID:1", ("unverified_deposit", "named_payer_purpose_refused")),
+    ("IRS TREAS 310 DES:VENDOR ID:1", ("unverified_deposit", "named_payer_purpose_refused")),
+    ("IRS TREAS 310 MISC PAY 1234", ("unverified_deposit", "named_payer_purpose_refused")),
+    ("Orig CO Name:IRS Treas 310 Orig ID:1234567890 Desc Date:540102 CO Entry Descr:Misc Pay Sec:CCD Trace#:1",
+     ("unverified_deposit", "named_payer_purpose_refused")),
+    ("IRS TREAS 310 DES:VENDOR PAY ID:1", ("verified_revenue", "public_payer_remittance")),
+])
+def test_gov_review_an_irs_vendor_payment_keeps_its_reading(printed, reading):
+    [record] = classify_statement_transactions(Statement(account_name="CONTOSO BAKERY LLC", transactions=[
+        Transaction(date="2054-03-02", description=printed, amount=1234.0, direction="credit")]))
+    state, detail = reading
+    assert record.revenue_classification == state
+    assert (record.revenue_match_method if state == "verified_revenue" else record.revenue_tier_reason) == detail
 
 
 def test_square_capital_and_sba_proceeds_leave_eligible_deposits():

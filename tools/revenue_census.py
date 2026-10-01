@@ -273,10 +273,21 @@ _TAX_REFUNDS_55 = _on_masked(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b
 _CRA_REFUND_56 = _on_masked(r"\bCANADA RI[TF]\b")
 #: 5.6 (§20, GOV: the owner's ruling of 2026-09-30, class C): a business's GST/HST refund as the whole payer (the CRA's
 #: and Revenu Quebec's forms, a posting code or a reference after it), and a payment the IRS issues through the Treasury,
-#: which joined the strong non-revenue rule.
+#: which joined the strong non-revenue rule. GOV review (M3): the words before the form mirror the classifier's, copied
+#: (the census reads other checkouts): its template prefixes (_REVENUE_TEMPLATE_PREFIX) and the posting words it strips
+#: before a government's form (_CRA_POSTING_PREFIX: a glued or spaced date, GC and its number, EFT, PAY ...); (M4) the
+#: forms take the CRA's name, a country code and the GST program account after them (_GST_REFUND_PAYER).
+_GOVERNMENT_FORM_PREFIX_56 = (
+    r"^(?:(?:BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
+    r"|ELECTRONIC CREDIT|ACH CORP CREDIT|ACH DEPOSIT|ACH CREDIT|DEPOSIT FROM|PREAUTHORIZED CREDIT|EFT CREDIT"
+    r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT) )*"
+    r"(?:\d+(?: |(?=[A-Z])))*(?:(?:GC|DIRECT DEPOSIT|DIRECT DEP|DEPOSIT|DEP|ELECTRONIC DEPOSIT"
+    r"|EFT(?: CREDIT| DEPOSIT)?|MISC PAYMENT|PAY(?:MENT)?(?: FROM)?) (?:\d+(?: |(?=[A-Z])))*)*"
+)
 _GOVERNMENT_TAX_REFUNDS_56 = _on_masked(
-    r"(?:^|\b(?:DEPOSIT|DEP|PAYMENT|FROM|CREDIT|GC) )(?:CANADA GST(?: TPS)?|GST(?: TPS)? CANADA|RQ GST)"
-    r"(?: (?:MSP|DIV|\d+))*$|(?<![A-Z])IRS TREAS ?\d{3}\b"
+    _GOVERNMENT_FORM_PREFIX_56
+    + r"(?:CANADA GST(?: TPS)?(?: CANADA)?|GST(?: TPS)? CANADA(?: CA)?|RQ GST)(?: (?:MSP|DIV|RT\d{4}|\d+))*$"
+    r"|(?<![A-Z])IRS TREAS ?\d{3}\b"
 )
 #: I8 (narrowing 8): the consumer-side words a BNPL provider prints on a customer's own credit (a return, a refund, a
 #: withdrawal of a balance, a card, a debt collector), never on its merchant settlement (the OQ2 ruling's rows).

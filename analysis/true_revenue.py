@@ -120,35 +120,57 @@ _PAY_WORDS = re.compile(
     r"|EXP(?:ENSE)? REIMB\w*)"
 )
 #: §8.1, §20 (GOV, the owner's ruling of 2026-09-30, class B: government money paid to a person is no revenue of the
-#: business): the government's personal-benefit forms. The Canadian Payments Association's federal benefit descriptors,
-#: which the banks print before the Canada Revenue Agency's originator name (CANADA): the child, essentials (the GST/HST
-#: credit's name since 2026, in full 'CANADA GROCERIES AND ESSENTIALS BENEFIT'), workers and disability benefits, and
-#: Old Age Security; a provincial benefit the CRA pays on a province's behalf, the provincial payment code with the
-#: CRA's originator as the whole row ('PROV LOCAL GVT PAYMENT CANADA'); a state's unemployment-insurance direct deposit
-#: ('NYS DOL UI DD'); and the IRS's economic impact payment ('TAX EIP3'). Word boundaries are strict: 'CANADA CHILD
-#: CARE CENTRE INC' and 'PROVINCIAL PAYMENT CANADA GOOSE SUPPLY' are payers, and a provincial payment from a province
-#: names no benefit (its purpose is not printed).
-_GOVERNMENT_BENEFIT = re.compile(
-    r"(?<![A-Z])CANADA (?:CHILD|(?:GROCERIES (?:AND )?)?ESSENTIALS|WORKERS|DISABILITY) BENEFITS?\b"
-    r"|(?<![A-Z])OLD AGE SECURITY\b"
-    r"|(?<![A-Z])(?:PROV LOCAL GVT PAYMENT|PROVINCIAL PAYMENT) CANADA(?: \d+)*$"
-    r"|\bUI DD\b|(?<![A-Z])TAX ?EIP ?\d?\b"
+#: business; GOV review I2, M4): the government's personal-benefit descriptors, read as the whole payer
+#: (government_benefit) after the posting words and template prefixes (classifier.government_form_payer), with the
+#: CRA's originator name (CANADA) before or after them and a posting code or a reference after them. The Canadian
+#: Payments Association's federal benefit descriptors: the child, essentials (the GST/HST credit's name since 2026, in
+#: full 'CANADA GROCERIES AND ESSENTIALS BENEFIT'), workers and disability benefits, and Old Age Security. A provincial
+#: benefit the CRA pays on a province's behalf ("Canada PRO"): the provincial payment code with the CRA's originator
+#: ('PROV LOCAL GVT PAYMENT CANADA', '... CANADA PRO'), its PRO label ('PROV LOCAL GVT PRO ONTARIO') and 'CANADA PRO
+#: DEPOSIT'. So 'CANADA CHILD CARE CENTRE INC', 'CANADA DISABILITY BENEFITS CONSULTING INC', 'OLD AGE SECURITY SYSTEMS
+#: LTD' and 'PROVINCIAL PAYMENT CANADA GOOSE SUPPLY' are payers, and a provincial payment from a province names no
+#: benefit (its purpose is not printed).
+_PROVINCES = (
+    r"(?:ONTARIO|QUEBEC|NOVA SCOTIA|NEW BRUNSWICK|MANITOBA|BRITISH COLUMBIA|BC|PRINCE EDWARD ISLAND|PEI|SASKATCHEWAN"
+    r"|ALBERTA|NEWFOUNDLAND(?: AND LABRADOR)?|YUKON|NORTHWEST TERRITORIES|NUNAVUT)"
 )
-#: §8.1: benefit and pension credits, and (GOV) the government's personal-benefit forms (_GOVERNMENT_BENEFIT).
+_GOVERNMENT_BENEFIT_PAYER = re.compile(
+    r"(?:(?:CANADA )?(?:CANADA (?:CHILD|(?:GROCERIES (?:AND )?)?ESSENTIALS|WORKERS|DISABILITY) BENEFITS?"
+    r"|OLD AGE SECURITY)(?: CANADA)?"
+    rf"|(?:PROV LOCAL GVT(?: PAYMENT)?|PROVINCIAL PAYMENT) (?:CANADA(?: PRO)?|PRO(?: {_PROVINCES})?)"
+    r"|CANADA PRO(?: DEPOSIT)?)"
+    r"(?: (?:MSP|DIV|\d+))*"
+)
+#: GOV (B; GOV review I2): the benefit entries read inside a row: a state's unemployment-insurance direct deposit ('NYS
+#: DOL UI DD') and the IRS's economic impact payment ('TAX EIP3'), this one on an IRS Treasury row only. A company form
+#: after the entry, before the row's next field, vetoes it ('NORTHWIND UI DD LLC'); 'FABRIKAM TAX EIP SERVICES' prints
+#: no IRS form.
+_GOVERNMENT_BENEFIT_ENTRY = re.compile(r"\bUI DD\b|(?<![A-Z])(?P<eip>TAX ?EIP ?\d?)\b")
+_ENTRY_FIELD_LABEL = re.compile(r"\b(?:CO ID|DES|ID|INDN|IND ID|IND NAME|ORIG ID|SEC|TRACE|EED|TRN|CCD|PPD|CTX|WEB)\b")
+_ENTRY_COMPANY_FORM = re.compile(
+    r"\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC)\b"
+)
+#: §8.1: benefit and pension credits. GOV: the government's personal-benefit forms are read by government_benefit.
 _PERSONAL_INCOME = re.compile(
     r"(?<![A-Z])(?:XX)?SOC SEC\b|\bSSA\b|\bSSI\b|(?<![A-Z])SUPP SEC\b|(?<![A-Z])(?:XX)?VA BEN\w*"
     r"|(?<![A-Z])UNEMPLOY\w*|(?<![A-Z])UI BEN\w*"
     r"|(?<![A-Z])CHI?LD ?SUPP\w*\b|(?<![A-Z])CHILD ?CTC\b|(?<![A-Z])PENSION\b|(?<![A-Z])ANNUIT\w*"
     r"|(?<![A-Z])RETIRE\w*"
-    rf"|{_GOVERNMENT_BENEFIT.pattern}"
 )
 #: §8.1, §20 (GOV, the owner's ruling of 2026-09-30, class D: a grant or subsidy is no sale): HHS's CARES Act Provider
-#: Relief Fund ('US HHS STIMULUS', its glued entry 'HHSPAYMENT') and a USDA Farm Service Agency program payment
-#: ('FSA TREAS 310'). §8.1's GRANT word already holds a row that prints it. Never a name that holds the letters:
-#: 'HHS SUPPLY CO', 'NORTHWIND FSA SERVICES LLC'.
+#: Relief Fund ('US HHS STIMULUS', its glued entry 'HHSPAYMENT') and the USDA's farm programs, the Farm Service
+#: Agency's and (GOV review M4) the Commodity Credit Corporation's Treasury forms ('FSA TREAS 310', 'CCC TREAS 310';
+#: USDA's own 'USDA TREAS 310' also pays vendors and keeps its reading); and (the coordinator's ruling on the class-E
+#: form) ESDC's federal payment code, its grants and contributions ('GOVERNMENT ESDC ... FEDERAL PMT'). §8.1's GRANT
+#: word already holds a row that prints it. Never a name that holds the letters: 'HHS SUPPLY CO', 'NORTHWIND FSA
+#: SERVICES LLC'.
 _GOVERNMENT_GRANT = re.compile(
-    r"(?<![A-Z])HHS ?STIMULUS\b|(?<![A-Z])HHSPAYMENT(?:SEC)?\b|(?<![A-Z])FSA TREAS ?\d{3}\b"
+    r"(?<![A-Z])HHS ?STIMULUS\b|(?<![A-Z])HHSPAYMENT(?:SEC)?\b|(?<![A-Z])(?:FSA|CCC) TREAS ?\d{3}\b"
+    r"|(?<![A-Z])GOVERNMENT ESDC\b(?=.*(?<![A-Z])(?:FEDERAL PMT|PAIEMENT FEDERAL)\b)"
 )
+#: GOV review (M4): the CRA's Canada Emergency Wage Subsidy, read as the whole payer (government_form_payer) with the
+#: CRA's name before or after it, so 'CANADA CEWS CONSULTING INC' is a payer.
+_WAGE_SUBSIDY_PAYER = re.compile(r"(?:CANADA )?CEWS(?: CANADA)?(?: (?:MSP|DIV|\d+))*")
 #: §8.1: a non-sale purpose.
 _NON_SALE_PURPOSE = re.compile(
     r"(?<![A-Z])(?:INVEST\w*|DISTRIB(?!UTORS?\b|UTING\b)\w*|DIVIDENDS?\b|EQUITY\b|CONTRIB\w*|SHAREHOLDER\w*"
@@ -847,6 +869,42 @@ def _hold_text(text: str) -> str:
     return _HOLD_POSTING_LABELS.sub(" ", classifier._before_receiver(text))
 
 
+def government_benefit(text: str) -> bool:
+    """§8.1 personal_income, §20 (GOV, class B; GOV review I2): a government's personal-benefit form names the row: a
+    benefit descriptor as the whole payer of the row before its receiver fields (_GOVERNMENT_BENEFIT_PAYER, read on
+    classifier.government_form_payer), or a benefit entry (_GOVERNMENT_BENEFIT_ENTRY) that no company form follows
+    before the row's next field, the IRS's TAX EIP on an IRS Treasury row only."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    if _GOVERNMENT_BENEFIT_PAYER.fullmatch(classifier.government_form_payer(row)) is not None:
+        return True
+    for found in _GOVERNMENT_BENEFIT_ENTRY.finditer(row):
+        if found.group("eip") and classifier.IRS_TREASURY_FORM.search(row) is None:
+            continue
+        rest = row[found.end():]
+        label = _ENTRY_FIELD_LABEL.search(rest)
+        if _ENTRY_COMPANY_FORM.search(rest[: label.start()] if label is not None else rest) is None:
+            return True
+    return False
+
+
+def _personal_income(text: str, row: str) -> bool:
+    """§8.1 personal_income: a benefit or pension word on `row` (_PERSONAL_INCOME), or (GOV) a government's
+    personal-benefit form on the credit's text (government_benefit)."""
+    return _PERSONAL_INCOME.search(row) is not None or government_benefit(text)
+
+
+def government_grant(text: str) -> bool:
+    """§8.1 non_sale_purpose, §20 (GOV, class D; GOV review M4): a government grant or subsidy names the row: a grant
+    form on the row before its receiver fields (_GOVERNMENT_GRANT), or the CRA's wage subsidy as the whole payer
+    (_WAGE_SUBSIDY_PAYER)."""
+    classifier = _classifier()
+    row = _hold_text(text)
+    return _GOVERNMENT_GRANT.search(row) is not None or _WAGE_SUBSIDY_PAYER.fullmatch(
+        classifier.government_form_payer(classifier._before_receiver(text))
+    ) is not None
+
+
 def financing_named(text: str, region: str, entry: str, account_name: str | None) -> bool:
     """§8.1, T4: a financing root in the payer region or the entry fields (posting labels removed, and a run equal to
     the holder's whole account name removed first), or, on a row with no payer region, in the row before its
@@ -942,7 +1000,7 @@ def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool
     if _NON_SALE_PURPOSE.search(row) is not None:
         return True
     # GOV (owner ruling 2026-09-30, class D): a government grant or subsidy.
-    if _GOVERNMENT_GRANT.search(row) is not None:
+    if government_grant(text):
         return True
     if (
         region and _TITLE_FIRM.search(region) is not None
@@ -1293,7 +1351,7 @@ def _q7_refused_by_a_hold(text: str, words: str, region: str) -> bool:
     for row in (classifier._before_receiver(text), words):
         hold = _HOLD_POSTING_LABELS.sub(" ", row)
         if (
-            _PAY_WORDS.search(row) or classifier._is_payroll_provider_row(row) or _PERSONAL_INCOME.search(row)
+            _PAY_WORDS.search(row) or classifier._is_payroll_provider_row(row) or _personal_income(text, row)
             or _POSSIBLE_RETURN.search(hold)
             or _INSURER_NAME.search(hold) or _CLAIM_WORD.search(hold)
             or _DEALER_FLOOR_PLAN_WORDS.search(row)
@@ -1861,7 +1919,7 @@ def _first_hold(
         classifier._before_receiver(text)
     ):
         return "payroll_or_salary"
-    if _PERSONAL_INCOME.search(classifier._before_receiver(text)):
+    if _personal_income(text, classifier._before_receiver(text)):
         return "personal_income"
     if not claimed and non_sale_purpose(text, region, bank=record.bank):
         return "non_sale_purpose"
@@ -2351,7 +2409,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "financing_root": financing_named(text, region, entry, record.account_name),
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
-        "pay_or_personal": bool(_PAY_WORDS.search(row) or _PERSONAL_INCOME.search(row)),
+        "pay_or_personal": bool(_PAY_WORDS.search(row) or _personal_income(text, row)),
         "transfer_no_counterparty": _transfer_row(row) and not _transfer_counterparty_words(text),
         "known_financing": known is not None and known.state in FINANCING_STATES,
         "payout_or_factoring": known is not None and (known.entity in PAYOUT_CREDIT_ENTITIES or known.state == "factoring"),
@@ -2399,9 +2457,9 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
         return "bank_originated_wire"
     if financing_named(text, region, entry, record.account_name):
         return "financing_root"
-    if _GOVERNMENT_BENEFIT.search(classifier._before_receiver(text)):
+    if government_benefit(text):
         return "government_benefit"
-    if _GOVERNMENT_GRANT.search(row):
+    if government_grant(text):
         return "government_grant"
     if region and _TITLE_FIRM.search(region) and _TITLE_FEE_WORDING.search(_title_purpose_text(text)) is None:
         return "title_firm"

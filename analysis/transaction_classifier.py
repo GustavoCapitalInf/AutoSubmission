@@ -729,16 +729,28 @@ _CRA_REFUND_PAYER = re.compile(r"CANADA (?:RIT|RIF)\b")
 #: 5.6 (GOV, the owner's ruling of 2026-09-30, class C: a tax refund is no revenue): a business's GST/HST refund, the
 #: Canada Revenue Agency's ('CANADA GST TPS', 'GST CANADA') and Revenu Quebec's ('RQ GST'). The form is the whole
 #: payer after the posting words, with only a posting code or a reference after it ('... MSP DIV', '... 12345678'), so
-#: GST inside a name ('GST CANADA LOGISTICS INC', 'NORTHWIND GST SERVICES') is never a refund.
-_GST_REFUND_PAYER = re.compile(r"(?:CANADA GST(?: TPS)?|GST(?: TPS)? CANADA|RQ GST)(?: (?:MSP|DIV|\d+))*")
+#: GST inside a name ('GST CANADA LOGISTICS INC', 'NORTHWIND GST SERVICES') is never a refund. GOV review (M4): the
+#: CRA's name after the form ('CANADA GST TPS CANADA'), a country code ('GST CANADA CA') and the GST program account
+#: ('... RT0001') too.
+_GST_REFUND_PAYER = re.compile(
+    r"(?:CANADA GST(?: TPS)?(?: CANADA)?|GST(?: TPS)? CANADA(?: CA)?|RQ GST)(?: (?:MSP|DIV|RT\d{4}|\d+))*"
+)
+
+
+def government_form_payer(text: str) -> str:
+    """5.6 (A3-G re-review; GOV review): the payer a government's form is read on as the whole payer: the revenue text
+    with the bank's template prefixes (_strip_revenue_template) and the posting words a bank prints before a
+    government's form (_CRA_POSTING_PREFIX: a glued or spaced date, GC, DIRECT DEPOSIT, EFT, MISC PAYMENT, PAYMENT
+    FROM ...) removed."""
+    return _CRA_POSTING_PREFIX.sub("", _strip_revenue_template(revenue_text(text)), count=1).strip()
 
 
 def _canada_tax_refund(text: str) -> bool:
     """5.6 (A3-G, review and re-review): the refund's form starts the payer, after the posting words only; a payer
     that names Canada's form after its own name is that payer ('FABRIKAM LIFE CANADA RIF PMT'). GOV (owner ruling
     2026-09-30): or the GST/HST refund form is the whole payer (_GST_REFUND_PAYER)."""
-    payer = _CRA_POSTING_PREFIX.sub("", _strip_revenue_template(revenue_text(text)), count=1)
-    return _CRA_REFUND_PAYER.match(payer) is not None or _GST_REFUND_PAYER.fullmatch(payer.strip()) is not None
+    payer = government_form_payer(text)
+    return _CRA_REFUND_PAYER.match(payer) is not None or _GST_REFUND_PAYER.fullmatch(payer) is not None
 
 
 class _CanadaTaxRefundForm:
@@ -748,6 +760,43 @@ class _CanadaTaxRefundForm:
 
     def search(self, text: str) -> "_CanadaTaxRefundForm | None":
         return self if _canada_tax_refund(text) else None
+
+
+#: 5.6 (GOV, the owner's ruling of 2026-09-30, class C; GOV review I1): the IRS's Treasury form, and the entries that
+#: make one of its credits a tax refund or a benefit. The child tax credit and the stimulus (TAX EIP) are personal
+#: benefits the true-revenue pass holds (class B). The refund wording is the tax-refund forms' (5.5's TAXEIC spaced or
+#: not, a refund word glued or not). The layout words are Chase's and Bank of America's field labels, which name no
+#: entry.
+IRS_TREASURY_FORM = re.compile(r"(?<![A-Z])IRS TREAS ?\d{3}\b")
+_IRS_BENEFIT_ENTRY = re.compile(r"(?<![A-Z])(?:CHI?LD ?CTC|TAX ?EIP ?\d?)\b")
+_IRS_REFUND_WORDING = re.compile(r"(?<![A-Z])(?:TAX ?REF\w*|TAX ?EIC|[A-Z]*REFUNDS?|RFND|REFND|RFD)\b")
+_IRS_LAYOUT_WORDS = frozenset("ORIG CO NAME ID DESC DATE ENTRY DESCR SEC CCD CTX PPD WEB TRACE EED IND TRN DES".split())
+
+
+def _irs_tax_refund(text: str) -> bool:
+    """5.6 (GOV; GOV review I1): a credit the IRS issues through the Treasury is a tax refund when its entry is a
+    refund's wording or it prints no entry at all ('ELECTRONIC DEPOSIT FROM IRS TREAS 310', 'ACH CREDIT IRS TREAS 310
+    <reference>'). Treasury's Green Book gives MISC PAY to federal vendor payments, and the IRS pays its contractors
+    that way, so an entry such as MISC PAY, VENDOR or VENDOR PAY keeps the row's own reading. The entry is the DES or
+    CO ENTRY DESCR field (entry_fields), or on a layout with no field the words printed after the form, references
+    and field labels left out."""
+    row = _before_receiver(text)
+    found = IRS_TREASURY_FORM.search(row)
+    if found is None or _IRS_BENEFIT_ENTRY.search(text):
+        return False
+    entry = entry_fields(text) or " ".join(
+        word for word in row[found.end():].split() if not _is_reference_token(word) and word not in _IRS_LAYOUT_WORDS
+    )
+    return not entry.strip() or _IRS_REFUND_WORDING.search(entry) is not None
+
+
+class _IrsTaxRefundForm:
+    """5.6 (GOV review I1): the IRS refund reader in the strong non-revenue list, read as its patterns are (search)."""
+
+    pattern = "IRS TREAS nnn with no entry or a refund-worded entry"
+
+    def search(self, text: str) -> "_IrsTaxRefundForm | None":
+        return self if _irs_tax_refund(text) else None
 
 
 _NON_REVENUE_CREDIT_PATTERNS = (
@@ -773,10 +822,10 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     # (_CanadaTaxRefundForm). GOV (owner ruling 2026-09-30, class C): and a business's GST/HST refund is the whole payer;
     # the CRA's benefit forms are personal income, held by the true-revenue pass (class B), never non_revenue.
     _CanadaTaxRefundForm(),
-    # GOV (owner ruling 2026-09-30, class C): a payment the IRS issues through the Treasury ('IRS TREAS 310') is a tax
-    # refund, whether or not the row prints a refund word; the child tax credit and the stimulus (TAX EIP) it also pays
-    # are personal benefits, which the true-revenue pass holds (class B), so they are left out here.
-    re.compile(r"(?<![A-Z])IRS TREAS ?\d{3}\b(?!.*(?<![A-Z])(?:CHI?LD ?CTC|TAX ?EIP ?\d?)\b)"),
+    # GOV (owner ruling 2026-09-30, class C): a payment the IRS issues through the Treasury ('IRS TREAS 310') with no
+    # entry or a refund-worded one is a tax refund; GOV review (I1): an IRS vendor payment (MISC PAY, VENDOR PAY) keeps
+    # its reading, and the child tax credit and the stimulus are personal benefits (class B) (_IrsTaxRefundForm).
+    _IrsTaxRefundForm(),
     re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
     re.compile(

@@ -2995,9 +2995,33 @@ _GOV_HHS = ("Orig CO Name:US Hhs Stimulus Orig ID:1234567890 Desc Date: CO Entry
     _GOV_UI,
     "IRS TREAS 310 DES:TAX EIP3 ID:1",
     "IRS TREAS 310 DES:CHILD CTC ID:1",
+    # GOV review (I2, M4): the descriptor as the whole payer, after the posting words and template prefixes or with
+    # the CRA's name around it; the Canada PRO labels; Bank of America's entry layout and a glued EIP.
+    "DIRECT DEPOSIT CANADA OLD AGE SECURITY",
+    "MISC PAYMENT CANADA WORKERS BENEFIT 1234",
+    "PROV LOCAL GVT PAYMENT CANADA PRO",
+    "PROV./LOCAL GVT PRO ONTARIO",
+    "CANADA PRO DEPOSIT",
+    "NYS DOL DES:UI DD ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD",
+    "IRS TREAS 310 TAXEIP3 1234",
 ])
 def test_gov_a_personal_benefit_is_held_as_personal_income(text):
     assert _tier(_one(text)) == ("excluded_pending_review", "personal_income")
+
+
+@pytest.mark.parametrize("text", [
+    # GOV review (I2): a business named with a benefit descriptor's words is a payer: the descriptor is read as the
+    # whole payer, and a company form after UI DD or TAX EIP vetoes it; TAX EIP is read on an IRS Treasury row only.
+    "CANADA DISABILITY BENEFITS CONSULTING INC DES:PAYMENT ID:1",
+    "OLD AGE SECURITY SYSTEMS LTD DES:PAYMENT ID:1",
+    "CANADA WORKERS BENEFIT PLAN TRUST DES:PAYMENT ID:1",
+    "NORTHWIND UI DD LLC DES:PAYMENT ID:1",
+    "FABRIKAM TAX EIP SERVICES DES:PAYMENT ID:1",
+    "CANADA CHILD BENEFIT SOCIETY DES:PAYMENT ID:1",
+    "IRS TREAS 310 DES:TAX EIP CONSULTING LLC ID:1",
+])
+def test_gov_review_a_business_named_like_a_benefit_is_no_personal_income(text):
+    assert _one(text).revenue_tier_reason != "personal_income"
 
 
 def test_gov_a_repeated_unemployment_deposit_is_never_verified():
@@ -3029,6 +3053,12 @@ def test_gov_a_name_is_no_personal_benefit(text, reason):
     _GOV_HHS,
     "HHSSTIMULUS DES:HHSPAYMENT ID:1",
     "FSA TREAS 310 MISC PAY 1234",
+    # GOV review (M4): the CRA's wage subsidy and the Commodity Credit Corporation's farm-program payments; and the
+    # coordinator's E ruling: ESDC's federal payment code, its grants and contributions (a wage reimbursement).
+    "CANADA CEWS CANADA",
+    "DIRECT DEPOSIT CANADA CEWS",
+    "CCC TREAS 310 MISC PAY 1234",
+    "GOVERNMENT ESDC 123-456 Paiement federal/Federal Pmt",
 ])
 def test_gov_a_government_grant_or_subsidy_is_held_as_not_a_sale(text):
     assert _tier(_one(text)) == ("excluded_pending_review", "non_sale_purpose")
@@ -3043,6 +3073,9 @@ def test_gov_a_repeated_provider_relief_payment_is_never_verified():
 @pytest.mark.parametrize("text", [
     "NORTHWIND FSA SERVICES LLC DES:PAYMENT ID:1",
     "HHS SUPPLY CO DES:PAYMENT ID:1",
+    "CANADA CEWS CONSULTING INC DES:PAYMENT ID:1",
+    # GOV review (M4): USDA's own Treasury form also pays vendors, so it keeps its reading.
+    "USDA TREAS 310 MISC PAY 1234",
 ])
 def test_gov_a_name_is_no_government_grant(text):
     record = _one(text)
@@ -3062,8 +3095,7 @@ def test_gov_a_name_is_no_government_grant(text):
     ([("GOUV. QUEBEC MSP", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
     ([("PROVINCIAL PAYMENT PROVINCE OF BC", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
     ([("Work. Comp. Board WSIB", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
-    ([("GOVERNMENT ESDC 123-456 Paiement federal/Federal Pmt", 1234.0)],
-     ("unverified_deposit", "named_payer_unlabelled")),
+    ([("WORKFORCE SAFETY 1234", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
 ])
 def test_gov_a_payment_for_services_or_an_unclear_form_keeps_its_reading(rows, expected):
     for record in _records(rows):

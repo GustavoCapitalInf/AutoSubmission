@@ -1332,6 +1332,16 @@ def test_the_cra_refund_is_a_declared_new_non_revenue_marker():
     ("RQ GST", "new_non_revenue_marker"),
     ("ELECTRONIC DEPOSIT FROM IRS TREAS ###", "new_non_revenue_marker"),
     ("ACH CREDIT IRS TREAS ### XXXXXXXXXXX#### ####", "new_non_revenue_marker"),
+    # GOV review (M3): the classifier's posting words before the form (EFT, PAY, GC and its number, a glued date), and
+    # (M4) the CRA's name, a country code and the GST program account after it.
+    ("EFT GST CANADA", "new_non_revenue_marker"),
+    ("PAY GST CANADA", "new_non_revenue_marker"),
+    ("GC #### GST CANADA", "new_non_revenue_marker"),
+    ("####GST CANADA", "new_non_revenue_marker"),
+    ("PREAUTHORIZED CREDIT RQ GST", "new_non_revenue_marker"),
+    ("CANADA GST TPS CANADA", "new_non_revenue_marker"),
+    ("GST CANADA CA", "new_non_revenue_marker"),
+    ("DEPOSIT CANADA GST TPS RT####", "new_non_revenue_marker"),
     # GST inside a name is no refund form.
     ("GST CANADA LOGISTICS INC DES PAYMENT ID #", "undeclared"),
     ("NORTHWIND RQ GST SUPPLY", "undeclared"),
@@ -1439,6 +1449,14 @@ def test_g7b_fails_for_any_non_revenue_base_a_text_change_takes_into_true(base_m
     ("FSA TREAS 310 MISC PAY 1234", "hold_rule", "government_grant"),
     ("HHSSTIMULUS DES:HHSPAYMENT ID:1", "hold_rule", "government_grant"),
     ("SSA TREAS 310 DES:XXSOC SEC ID:1", "hold_rule", None),
+    # GOV review: the wage subsidy, the farm-program and ESDC payments are grants; a business named like a benefit
+    # names none.
+    ("CANADA CEWS CANADA", "hold_rule", "government_grant"),
+    ("CCC TREAS 310 MISC PAY 1234", "hold_rule", "government_grant"),
+    ("GOVERNMENT ESDC 123-456 Paiement federal/Federal Pmt", "hold_rule", "government_grant"),
+    ("PROV LOCAL GVT PAYMENT CANADA PRO", "hold_rule", "government_benefit"),
+    ("OLD AGE SECURITY SYSTEMS LTD DES:PAYMENT ID:1", "hold_rule", None),
+    ("NORTHWIND UI DD LLC DES:PAYMENT ID:1", "hold_rule", None),
     ("ANTHEM ROOFING DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", "short_healthcare_alias", True),
     ("WPS DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", "short_healthcare_alias", False),
 ])
