@@ -56,11 +56,11 @@ _HOLD_POSTING_LABELS = re.compile(
 )
 #: §8.1, T4: the credit-side financing roots. A whole-word CREDIT counts only inside a payer name, next to another
 #: name word; glued, it always counts. The roots have no left boundary; of the whole words, those of four letters or
-#: more take (?<![A-Z]) (the veto convention). Audit B6 (I08): FIN glued to USA (a funder's run-together ACH name,
-#: '<NAME>FINUSA<ref>'; FINANC is a root already) and a special-purpose entity's SPE (a funder's financing vehicle, as
-#: SPV is), the whole word.
+#: more take (?<![A-Z]) (the veto convention). Audit B6 (I08): a special-purpose entity's SPE (a funder's financing
+#: vehicle, as SPV is), the whole word. B6 review round 1: FIN glued to USA is no root: with no left boundary it read
+#: any run-together name ending in FIN + USA (a muffin or griffin brand), and Forward's FORWARDFINUSA is its ledger alias.
 _FINANCING_ROOT = re.compile(
-    r"(?:(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|FINUSA|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL)"
+    r"(?:(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL)"
     r"|CRED(?=ORA|IBLY)|[A-Z]CREDIT|CREDIT[A-Z]"
     r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPE|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
 )

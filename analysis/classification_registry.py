@@ -1390,8 +1390,13 @@ PAYEE_GROUP_REGISTRIES: dict[str, dict[str, tuple[str, ...]]] = {
 #: token with a digit) or nothing follows them, in their spaced and run-together forms. Tilt's cash advance printed on
 #: the RTP network as 'RTP CREDIT EMPOWER <reference>', or as PNC's instant payment 'INSTPMNTIN EMPOWER <mm> <dd>
 #: <reference>', is the app's; a company named Empower... paying by RTP or instant payment prints its name after the
-#: word ('RTP CREDIT EMPOWER SOLUTIONS ...') and is no advance. Each is a ledger alias.
-REFERENCE_TIED_ALIASES: frozenset[str] = frozenset({"RTP CREDIT EMPOWER", "INSTPMNTIN EMPOWER"})
+#: word ('RTP CREDIT EMPOWER SOLUTIONS ...') and is no advance. B6 review round 1: Brigit's two rail forms and Tilt's
+#: card-network push 'TILT CASH <reference>' are tied the same way: BRIGIT is a given name (a person or company named
+#: Brigit... paid by RTP or instant payment prints a name after it) and TILT CASH two ordinary words (a company named
+#: TILT CASH ... paying by ACH). Each is a ledger alias.
+REFERENCE_TIED_ALIASES: frozenset[str] = frozenset({
+    "RTP CREDIT EMPOWER", "INSTPMNTIN EMPOWER", "TILT CASH", "RTP CREDIT BRIGIT", "INSTPMNTIN BRIGIT",
+})
 
 #: Audit B6 (I22; lender detection spec §4.6): ledger aliases the known-payee matcher reads on credits only
 #: (analysis.payee_matcher's credit index). The LCF Group's run-together name is printed on its funding credits; on a

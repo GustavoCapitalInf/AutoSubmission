@@ -153,12 +153,20 @@ def test_the_digit_arm_reads_only_a_whole_run_together_token_and_its_trailing_di
 
 @pytest.mark.parametrize(("word", "root"), [
     ("FF SPE II LLC", True), ("FUNDAMENTAL SPE LLC", True), ("CONTOSO SPV LLC", True),
-    ("FABRIKAMFINUSA", True), ("FABRIKAMFINUSA1", True),
     ("SPECIALTY FOODS LLC", False), ("SPEED SHOP INC", False), ("CONTOSO SPE CO", True),
     ("FINUS SUPPLY", False),
+    # B6 review round 1: a glued FIN USA is no root. With no left boundary it read any run-together name ending in
+    # FIN + USA (a muffin or griffin brand); Forward's FORWARDFINUSA is its ledger alias, read with the reference on.
+    ("FABRIKAMFINUSA", False), ("FABRIKAMFINUSA1", False), ("MUFFINUSA LLC", False),
 ])
-def test_the_financing_root_reads_a_special_purpose_entity_and_a_glued_fin_usa(word, root):
+def test_the_financing_root_reads_a_special_purpose_entity_never_a_glued_fin_usa(word, root):
     assert bool(true_revenue._FINANCING_ROOT.search(word)) is root
+
+
+def test_a_repeat_payer_whose_run_together_name_ends_in_fin_usa_stays_verified():
+    rows = [(f"MUFFINUSA LLC DES:PAYMENT ID:{n} INDN:NORTHWIND LABS INC CO ID:1234567890 CCD", 2000.0 + n)
+            for n in (1, 2)]
+    assert [_tier(credit) for credit in _credits(_records(rows))] == [("verified", "named_payer_repeats")] * 2
 
 
 # --- I22: a funder's cut or glued spelling -----------------------------------------------------------------------------
@@ -251,6 +259,53 @@ def test_every_reference_tied_alias_is_a_known_payee_alias():
     aliases = {alias for group in registry.PAYEE_GROUP_REGISTRIES.values() for spellings in group.values()
                for alias in spellings}
     assert registry.REFERENCE_TIED_ALIASES <= aliases
+
+
+TILT = "Tilt (formerly Empower Finance)"
+
+
+@pytest.mark.parametrize(("alias", "entity"), [
+    ("RTP CREDIT EMPOWER", TILT), ("INSTPMNTIN EMPOWER", TILT), ("TILT CASH", TILT),
+    ("RTP CREDIT BRIGIT", "Brigit"), ("INSTPMNTIN BRIGIT", "Brigit"),
+])
+def test_every_app_instant_payment_and_card_push_form_is_tied_to_a_reference_code(alias, entity):
+    # B6 review round 1: BRIGIT is a given name and TILT CASH two ordinary words, so the app's rail forms are read
+    # only where a reference code (a token with a digit) or nothing follows them, as the Empower forms are.
+    assert registry.REFERENCE_TIED_ALIASES == {
+        "RTP CREDIT EMPOWER", "INSTPMNTIN EMPOWER", "TILT CASH", "RTP CREDIT BRIGIT", "INSTPMNTIN BRIGIT"}
+    assert match_known_payee(alias).entity == entity
+    assert match_known_payee(f"{alias} AB12CD34EF56GH7", credit=True).entity == entity
+    assert match_known_payee(f"{alias} 02 03 12345").entity == entity
+    assert match_known_payee(f"{alias} SAMPLE AB12CD34EF56GH7") is None
+    assert match_known_payee(f"{alias} CONTOSO LLC", credit=True) is None
+    # The run-together form is tied too.
+    assert match_known_payee(f"{alias.replace(' ', '')} AB12CD34EF56GH7").entity == entity
+    assert match_known_payee(f"{alias.replace(' ', '')} CONTOSO", credit=True) is None
+
+
+@pytest.mark.parametrize("text", [
+    # A person whose given name is Brigit, paid on the RTP network or by PNC's instant payment.
+    "RTP CREDIT BRIGIT SAMPLE AB12CD34EF56GH7",
+    "INSTPMNTIN BRIGIT SAMPLE 02 03 12345 AB12CD34EF56GH7",
+    # A company whose name starts with BRIGIT, paid on the RTP network.
+    "RTP CREDIT BRIGIT CONTOSO LLC AB12CD34EF56GH7",
+    # A company whose name starts with the words TILT CASH, paying by ACH.
+    "TILT CASH REGISTERS INC DES:PAYMENT ID:1 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD",
+])
+def test_a_payer_whose_name_starts_like_an_app_s_rail_form_is_no_cash_advance_app(text):
+    [credit] = _credits(_records([(text, 400.0)]))
+    assert credit.revenue_tier != "non_revenue"
+    assert credit.revenue_match_method != "financing_proceeds_credit"
+    assert not credit.contributes_to_lender_credit_exclusion
+    found = match_known_payee(normalize(text), credit=True)
+    assert found is None or found.entity not in {"Brigit", TILT}
+
+
+def test_tilt_s_full_advance_spelling_is_read_before_any_word():
+    # TILT CASH ADVANCE is a longer alias, never tied: the app's own product name reads whatever follows it.
+    [credit] = _credits(_records([("TILT CASH ADVANCE SAN FRANCISCO CA", 150.0)]))
+    assert (credit.revenue_tier, credit.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert credit.revenue_canonical_entity == TILT
 
 
 def test_a_customer_named_empower_paying_by_accounts_payable_stays_verified():
@@ -483,6 +538,31 @@ def test_each_factoring_review_entity_s_credit_takes_the_factoring_payout(text):
     [record] = _records([(text, 2000.0)])
     assert _tier(record) == ("counted_flagged", "factoring_payout")
     assert record.review_required and record.flagged_group == "factoring"
+
+
+@pytest.mark.parametrize("text", [
+    # The credit-side reversal rule reads a trailing RETURNED ITEM that step 3's row rule does not.
+    "TEXOMA CAPITAL LLC DES:PAYMENT ID:1 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD RETURNED ITEM",
+    "EAGLE CAPITAL DES:EAGLE CAP ID:1 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD RETURNED ITEM",
+])
+def test_a_factoring_review_entity_s_reversed_credit_is_no_factoring_payout(text):
+    # B6 review round 1: a reversed credit is no payout, so it takes no Factoring flag and no review mark: the row
+    # keeps the reversal rule's non-revenue decision and the reading it had before the routing.
+    statement = _statement([(text, 2000.0)])
+    [record] = classify_statement_transactions(statement)
+    assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "reversal_cancellation_exclusion")
+    assert record.classification != "factoring" and record.flagged_group is None
+    assert not record.contributes_to_flagged_totals and not record.review_required
+    assert not find_flagged_positions(statement, [record])
+
+
+def test_a_factoring_review_entity_s_payout_beside_its_reversal_is_still_flagged():
+    statement = _statement([(EAGLE.format(n=1), 3000.0), (EAGLE.format(n=2) + " RETURNED ITEM", 3100.0)])
+    payout, reversal = classify_statement_transactions(statement)
+    assert _tier(payout) == ("counted_flagged", "factoring_payout") and payout.flagged_group == "factoring"
+    assert reversal.revenue_match_method == "reversal_cancellation_exclusion" and reversal.flagged_group is None
+    [position] = find_flagged_positions(statement, [payout, reversal])
+    assert (position.group, position.count_credited) == ("factoring", 1)
 
 
 def test_a_factoring_review_entity_s_debits_keep_the_potential_tier():

@@ -4394,9 +4394,11 @@ def classify_transaction(
             return _financing_proceeds_credit_record(common, amount, known_payee)
     # Audit B6 (I10; lender detection spec §5, amended): a factoring review entity's credit is a factor's payout,
     # flagged and marked unconfirmed; its aliases stay in the potential table, so its debits keep the potential tier.
+    # B6 review round 1: a credit the revenue path's reversal rule reads (§6.1 step 3: a trailing RETURNED ITEM that
+    # step 3's row rule above does not read) is no payout: it takes no Factoring flag and no review mark.
     if amount > 0:
         review_factor = _factoring_review_payee(text)
-        if review_factor is not None:
+        if review_factor is not None and not _reversal_credit(revenue_text(text)):
             return _unconfirmed_factoring_credit_record(common, review_factor)
     # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
     # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.
