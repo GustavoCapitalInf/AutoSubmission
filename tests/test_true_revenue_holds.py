@@ -86,6 +86,56 @@ def test_a_deposit_s_branch_or_credit_union_location_is_no_root(text):
     assert _one(text, 500.0, bank="Wells Fargo") == NO_PAYER
 
 
+@pytest.mark.parametrize(("text", "bank", "expected"), [
+    # B7 review round 2: a town printed with its state at the row's end (or before a ZIP or a reference).
+    ("ATM DEPOSIT 123 MAIN ST CAPITAL HEIGHTS MD", "Wells Fargo", NO_PAYER),
+    ("ATM CASH DEPOSIT 1 ADVANCE NC", "Wells Fargo", NO_PAYER),
+    ("ATM CASH DEPOSIT ON 01 02 1 SAMPLE RD CAPITAL HEIGHTS MD 1234567 ATM ID 1234D CARD 1234", "Wells Fargo",
+     NO_PAYER),
+    # A place a suffix names, and a branch's name before BRANCH.
+    ("ATM DEPOSIT 1 FINANCIAL PLAZA SAMPLEVILLE CA", "Wells Fargo", NO_PAYER),
+    ("ATM DEPOSIT 1 FINANCIAL DISTRICT SAMPLEVILLE CA", "Wells Fargo", NO_PAYER),
+    ("CASH DEPOSIT BRANCH 123 CAPITAL CIR SAMPLEVILLE", "Wells Fargo", NO_PAYER),
+    ("CASH DEPOSIT BRANCH 123 CAPITAL PLAZA SAMPLEVILLE", "Wells Fargo", NO_PAYER),
+    ("ATM DEPOSIT 1 CAPITAL MALL SAMPLEVILLE", "Wells Fargo", NO_PAYER),
+    ("COUNTER CREDIT CAPITAL CITY BRANCH", "Bank of America", NO_PAYER),
+    # The statement's own bank, or a listed bank, owning the ATM.
+    ("ATM CASH DEPOSIT CAPITAL ONE 123 SAMPLE ST SAMPLEVILLE", "Capital One", NO_PAYER),
+    ("ATM CASH DEPOSIT CAPITAL ONE 123 SAMPLE ST SAMPLEVILLE", "Wells Fargo", NO_PAYER),
+    # A hold notice's FUNDS, and a buyer's advance purchase, are no funder's name.
+    ("MOBILE DEPOSIT FUNDS ON HOLD", "Wells Fargo", CHECK),
+    ("REMOTE DEPOSIT FUNDS HELD 2 DAYS", "Chase", CHECK),
+    ("CHECK DEPOSIT FUNDS AVAIL NEXT DAY", "Chase", CHECK),
+    ("CASH DEPOSIT ADVANCE TICKET SALES", "Wells Fargo", NO_PAYER),
+])
+def test_a_deposit_s_town_place_branch_bank_or_notice_is_no_root(text, bank, expected):
+    assert _one(text, 500.0, bank=bank) == expected
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    # B7 review round 2: a funder's name with a company form still holds past the location's removal.
+    ("MOBILE DEPOSIT FABRIKAM FUNDS LLC", "Wells Fargo"),
+    ("ATM CHECK DEPOSIT 1 FABRIKAM CAPITAL LLC SAMPLEVILLE CA", "Wells Fargo"),
+    ("ATM CHECK DEPOSIT CAPITAL ONE 1 FABRIKAM FUNDING LLC", "Capital One"),
+    # A lessor's LEASE rent printed on a deposit keeps its hold: the owner's ruling on audit I16 is awaited.
+    ("CHECK DEPOSIT LEASE PMT UNIT 2", "Wells Fargo"),
+])
+def test_a_funder_s_formed_name_on_a_payer_less_deposit_still_holds(text, bank):
+    assert _one(text, 4000.0, bank=bank) == FINANCING
+
+
+def test_the_deposit_reading_keeps_only_a_funder_s_words():
+    # Unit: the words a payer-less deposit's roots are read on (B7 review round 2).
+    read = tr._deposit_location_reading
+    assert read("ATM DEPOSIT 123 MAIN ST CAPITAL HEIGHTS MD", HOLDER, "Wells Fargo") == ""
+    assert read("ATM CASH DEPOSIT CAPITAL ONE 123 SAMPLE ST SAMPLEVILLE", HOLDER, "Capital One") == ""
+    assert read("MOBILE DEPOSIT FUNDS ON HOLD", HOLDER, "Wells Fargo") == ""
+    assert read("MOBILE DEPOSIT FABRIKAM FUNDING LLC", HOLDER, "Wells Fargo") == "FUNDING"
+    assert read("MOBILE DEPOSIT FABRIKAM FUNDS LLC", HOLDER, "Wells Fargo") == "FUNDS"
+    # CO is a company form, never read as Colorado's code.
+    assert read("MOBILE DEPOSIT FABRIKAM FUNDING CO", HOLDER, "Wells Fargo") == "FUNDING"
+
+
 @pytest.mark.parametrize("text", [
     "BOFA FIN CTR DEPOSIT",
     "BOFA FIN CTR 01 02 000123456 DEPOSIT 123PINEST SAMPLEVILLE OK",
@@ -220,6 +270,8 @@ def test_a_one_off_or_a_loan_escrow_or_lender_disbursement_keeps_its_hold():
 @pytest.mark.parametrize("payer", [
     "CONTOSO HOLDINGS", "FABRIKAM PARTNERS LP", "CONTOSO VENTURES", "SAMPLE FAMILY OFFICE", "SAMPLE ESTATE",
     "FABRIKAM LIMITED PARTNERSHIP", "CONTOSO GROUP LLP",
+    # B7 review round 2 (accepted, fail closed): an owner-shaped word holds beside a trade word too.
+    "FABRIKAM PAYMENTS HOLDINGS", "FABRIKAM FAMILY DENTAL",
 ])
 def test_an_owner_shaped_payer_s_recurring_disbursement_keeps_its_hold(payer):
     # B7 review round 1: a holding, partnership, venture, family or estate payer's disbursement is owner money.
@@ -300,6 +352,15 @@ def test_a_non_sale_purpose_still_holds(text):
      "BANK ID 1 PMT DET 123 MEMBER DISTRIBUTION SAMPLE INC", "Bank of America"),
     ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO 12 DISTRIBUTION SAMPLE LLC", None),
     ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO PARTNER DISTRIBUTION", None),
+    # B7 review round 2: a tax, year-end, month, partnership or preferred distribution, and a period code.
+    ("TAX DISTRIBUTION CONTOSO LLC", "Wells Fargo"),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO YEAR END DISTRIBUTION SAMPLE LLC", None),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO DEC DISTRIBUTION SAMPLE LLC", None),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO PARTNERSHIP DISTRIBUTION SAMPLE LLC", None),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO SEMIANNUAL DISTRIBUTION SAMPLE LLC", None),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO PREFERRED DISTRIBUTION SAMPLE LLC", None),
+    ("Q4 DISTRIBUTION SAMPLE LLC 540115 1234567", "Wells Fargo"),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO AB1234 DISTRIBUTION SAMPLE LLC", None),
 ])
 def test_a_distribution_purpose_before_a_formed_name_still_holds(text, bank):
     assert _one(text, 1600.0, holder="NORTHWIND GRILL LLC", bank=bank) == NON_SALE
@@ -307,6 +368,12 @@ def test_a_distribution_purpose_before_a_formed_name_still_holds(text, bank):
 
 def test_a_distributor_s_formed_name_with_a_trade_word_is_still_a_name():
     assert _one("CONTOSO FOOD DISTRIBUTION GROUP LLC 1", 800.0, holder="NORTHWIND GRILL LLC") == UNLABELLED
+
+
+@pytest.mark.parametrize("text", ["A1 DISTRIBUTION LLC 540115 1234567", "H2O DISTRIBUTION INC 540115 1234567"])
+def test_a_distributor_s_name_word_with_a_digit_is_still_a_name(text):
+    # B7 review round 2: a name word that holds a letter and is no period code (Q4, K1, FY...) is a name word.
+    assert _one(text, 1600.0, holder="NORTHWIND GRILL LLC", bank="Wells Fargo") == UNLABELLED
 
 
 def test_owner_money_and_loans_stay_out_of_true():
@@ -489,6 +556,13 @@ _FEDWIRE = ("FEDWIRE CREDIT VIA CONTOSO CREDIT UNION/123456789 B/O: {sender} SAM
 def test_a_customer_s_vehicle_purchase_wire_is_counted():
     assert _one(_FEDWIRE.format(sender="PAT SAMPLE"), 3700.0, holder=_TRUCKS) == REFUSED
     assert _one(_FEDWIRE.format(sender="FABRIKAM MOTORS LLC"), 3700.0, holder=_TRUCKS) == REFUSED
+
+
+@pytest.mark.parametrize("sender", ["FABRIKAM FLOORING LLC", "CONTOSO FLOORS AND MORE", "SAMPLE WHOLESALE GROCERS INC"])
+def test_a_flooring_or_wholesale_trade_customer_s_vehicle_wire_is_counted(sender):
+    # B7 review round 2: only a floor-plan form, or WHOLESALE beside a lender's or a vehicle trade's word, is a
+    # floor-plan lender's name.
+    assert _one(_FEDWIRE.format(sender=sender), 3700.0, holder=_TRUCKS) == REFUSED
 
 
 @pytest.mark.parametrize("sender", [

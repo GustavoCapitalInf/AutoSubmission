@@ -93,8 +93,31 @@ _CUT_NAME_ENTRY_CREDIT = re.compile(r"(?<=\b[A-Z]) CREDIT$")
 #: name (_STREET_NAME: '<n> CAPITAL BLVD'). What is left is read for a financing word only: a word that starts with one
 #: (_FINANCING_NAME_STARTS, CREDIT aside: a posting word there) or a whole-word root, never a root inside a word (a
 #: town's name, 'GLENDALE'). So a funder's name printed on a deposit ('MOBILE DEPOSIT <NAME> FUNDING LLC') still holds.
+#: B7 review round 2 widens the location (below) and the words never kept.
 _DEPOSIT_BRANCH_LABEL = re.compile(r"(?:(?<![A-Z])[A-Z]+ )?" + _BRANCH_LABEL_WORDS + r"\b")
 _DEPOSIT_CREDIT_UNION = re.compile(r"(?:(?<![A-Z])[A-Z]+ )?(?:FIN(?:ANCIAL)? )?(?:CREDIT UNION|F?CU)\b")
+#: §8.1, T4 (B7 review round 2, I16): more of a deposit's location: a place a suffix names ('<n> CAPITAL CIR', '1
+#: FINANCIAL PLAZA', '... FINANCIAL DISTRICT', '... CAPITAL HEIGHTS'), up to two words before BRANCH (a branch's
+#: name, 'CAPITAL CITY BRANCH'), and a town printed with its state (_DEPOSIT_TOWN_TAIL). The ATM's or branch's bank
+#: (the statement's own, a listed sending bank) is removed too (_root_reading's person-to-person removal: a bank's name
+#: is never the payer).
+_DEPOSIT_PLACE = re.compile(
+    r"(?<![A-Z])[A-Z]+(?= (?:PLAZA|MALL|CIR|CIRCLE|CTR|CENTER|CENTRE|SQ|SQUARE|DISTRICT|HEIGHTS|PARK)\b)"
+)
+_DEPOSIT_BRANCH_NAME = re.compile(r"(?<![A-Z])(?:[A-Z]+ ){1,2}(?=BRANCH\b)")
+#: §8.1, T4 (B7 review round 2, I16): a buyer's advance purchase printed on a deposit ('ADVANCE TICKET SALES') and,
+#: as on a wire's purpose (_WIRE_TRADE_PURPOSE), an advance payment or prepayment for goods: no financing.
+_DEPOSIT_TRADE_PURPOSE = re.compile(
+    r"(?<![A-Z])ADVANCE (?:TICKETS?|SALES?|ORDERS?|BOOKINGS?|RESERVATIONS?|REGISTRATIONS?|PURCHASES?)\b"
+)
+#: §8.1, T4 (B7 review round 2, I16): the financing words a deposit's reading keeps: _FINANCING_NAME_STARTS without
+#: CREDIT (a posting word there) and without FUNDS and FUNDED (a hold notice's words: 'FUNDS ON HOLD', 'FUNDS AVAIL
+#: NEXT DAY'), which are kept only before a company form ('<NAME> FUNDS LLC').
+_DEPOSIT_FINANCING_STARTS = (
+    "FUNDING", "CAPITAL", "CAPTL", "FINANC", "LENDING", "LENDER", "LOAN", "ADVANCE", "MORTGAGE", "LEASING",
+    "ACCEPTANCE", "SERVICING", "PORTFOLIO",
+)
+_DEPOSIT_NOTICE_FUNDS = frozenset({"FUNDS", "FUNDED"})
 #: §8.1, T4 (audit B7: I16): on a person-to-person row the sender's bank: a credit union's name printed beside the
 #: sender ('<sender> <NAME> CREDIT UNION ID ...'), one name word with its form; the listed sending banks are read with
 #: _P2P_LAYOUT_PHRASES.
@@ -148,6 +171,14 @@ _VEHICLE_PURCHASE_ENTRY = re.compile(r"\bVHCL PURCH(?:ASE)?\b")
 CREDIT_UNION_DEALER_MIN_CREDITS = 2
 #: §8.7 (S4.3 review): a lender's floor-plan (wholesale) financing of the dealer's inventory is never dealer funding.
 _DEALER_FLOOR_PLAN_WORDS = re.compile(r"(?<![A-Z])(?:FLOOR\w*|WHOLESALE\w*)")
+#: §8.1, §8.7 (B7 review round 2, I36): a floor-plan lender's name on a wire's sender (_dealer_word_lender): a
+#: floor-plan form, or WHOLESALE beside a lender's or a vehicle trade's word ('<NAME> WHOLESALE AUTO LLC'); never a
+#: flooring contractor's or a wholesale grocer's name ('<NAME> FLOORING LLC', '<NAME> WHOLESALE GROCERS INC').
+_FLOOR_PLAN_LENDER_NAME = re.compile(
+    r"(?<![A-Z])FLOOR ?PLAN\w*"
+    r"|(?<![A-Z])WHOLESALE\w* (?:FUND|FIN|LEND|CAP|CREDIT|AUTO|MOTOR|DEALER)\w*"
+    r"|(?<![A-Z])(?:FUND|FIN|LEND|CAP|CREDIT|AUTO|MOTOR|DEALER)\w* WHOLESALE\w*"
+)
 #: §8.1: an insurer's name on the payer region.
 _INSURER_NAME = re.compile(
     r"(?<![A-Z])(?:INSUR\w*|ASSURANCE\b|MUTUAL\b|CASUALTY\b|INDEMNITY\b|UNDERWRIT\w*)"
@@ -323,7 +354,18 @@ _NOT_A_NAME_WORD_BEFORE = frozenset({
     "PARTNER", "PARTNERS", "OWNER", "OWNERS", "SHAREHOLDER", "SHAREHOLDERS", "PROFIT", "PROFITS", "CAPITAL", "EQUITY",
     "CASH", "INCOME", "DIVIDEND", "TRUST", "ESTATE", "MEMO", "OBI", "DET", "REF", "RE", "INFO", "NOTE", "DESC", "DES",
     "RMK", "FOR", "OF", "TO", "FROM", "BY", "PER", "AND", "THE", "LLC", "INC", "CORP", "LP", "LLP", "LTD",
+    # B7 review round 2: a tax, year-end, partnership, half-year, preferred, estimated or retained distribution, and
+    # the months (the classifier's _ENTITY_MONTHS, copied: the classifier imports this module).
+    "TAX", "TAXES", "PARTNERSHIP", "YEAR", "END", "YEAREND", "YE", "SEMIANNUAL", "BIANNUAL", "PREFERRED", "ESTIMATED",
+    "RETAINED",
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "SEPT", "OCT", "NOV", "DEC", "JANUARY", "FEBRUARY",
+    "MARCH", "APRIL", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
 })
+#: B7 review round 2: a period's code before DISTRIB... or STOCK is no name word ('Q4 DISTRIBUTION', 'K1', 'FY2054',
+#: '2054Q4', '4TH'), nor a reference (a word of three digits or more, 'AB1234'), while a name word that holds a letter
+#: and one or two digits is one ('A1 DISTRIBUTION LLC', 'H2O DISTRIBUTION INC').
+_PERIOD_CODE = re.compile(r"Q[1-4]|[1-4]Q|H[12]|K1|FY\d*|\d{2,4}Q[1-4]|Q[1-4]\d{2,4}|\d+(?:ST|ND|RD|TH)")
+_NAME_WORD_MAX_DIGITS = 2
 _STOCK_WORD = re.compile(r"(?<![A-Z])STOCK\b")
 _INVOICE_WORD = re.compile(r"(?<![A-Z])(?:INVOICES?|INV)\b|(?<![A-Z])INV ?\d")
 #: §8.1 non_sale_purpose (audit B7: I18): DISBURS... is the payer's own account ('DISBURSEMENT ACCOUNT', an importer's
@@ -594,6 +636,15 @@ _US_STATE_TAIL = frozenset("""
 AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC
 SD TN TX UT VT VA WA WV WI WY DC PR US CAUS
 """.split())
+#: §8.1, T4 (B7 review round 2, I16): a deposit's town, one or two words before a state's code (_US_STATE_TAIL without
+#: US and CAUS, and without CO, a company form there, never Colorado's code) that ends the row or comes before a ZIP, a
+#: reference, a country or 'ON <date>' ('<n> ADVANCE NC', '... CAPITAL HEIGHTS MD 1234567 ATM ID ...'). A company form
+#: is no town's word ('<NAME> FUNDING LLC NY' keeps its name).
+_DEPOSIT_TOWN_TAIL = re.compile(
+    r"(?<![A-Z])(?:(?!(?:LLC|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC)\b)[A-Z]+ ){1,2}(?:"
+    + "|".join(sorted(_US_STATE_TAIL - {"US", "CAUS", "CO"}))
+    + r")(?=\s*$| \d| US\b| USA\b| ON \d)"
+)
 #: §5.2 (S4.2 re-review fix 1b): a Venmo or Cash App cash-out prints no sender ('CASH APP*CASH OUT*OAKLAND CA',
 #: 'VENMO CASHOUT <reference> <name>': the name is the wallet's owner). S4.2 final review (fix 3): only on a Cash App or
 #: Venmo row: CASH OUT on any other rail is a sender's own words ('ZELLE CREDIT CASH OUT AUTO LLC').
@@ -1186,7 +1237,8 @@ def financing_named(
     originator name prints ('<NAME> P CREDIT'), and the plural CREDITS is no root (_WHOLE_CREDIT) unless a company form
     follows it in the payer region (B7 review round 1, _FORMED_CREDITS: '<NAME> CREDITS LLC'). B7 review round 1: a
     payer-less deposit row is read once its location is removed (_deposit_location_reading), for whole financing words
-    only, so a funder's name printed on it still holds."""
+    only, so a funder's name printed on it still holds; B7 review round 2: its bank, a place, a branch's name, a town
+    printed with its state, a buyer's advance purchase and a hold notice's FUNDS are removed or never kept too."""
     classifier = _classifier()
     channel = _channel(text, bank)
     if not region and channel in _DEPOSIT_CHANNELS:
@@ -1255,15 +1307,26 @@ def _deposit_location_reading(text: str, account_name: str | None, bank: str | N
     """§8.1, T4 (B7 review round 1, I16): the words a payer-less check, cash, branch or ATM row's roots are read on: the
     row's root reading (_root_reading) without its location (a branch's label, a credit union's name, a street's name),
     keeping only the words that start with a financing word (CREDIT aside) or are a whole-word root. A town's name
-    holding a root ('GLENDALE') is never read."""
-    words = _root_reading(_hold_text(text), account_name, bank, p2p=False)
+    holding a root ('GLENDALE') is never read. B7 review round 2: nor the ATM's or branch's bank (the statement's own, a
+    listed sending bank: the person-to-person removal), a place a suffix names (_DEPOSIT_PLACE), a branch's name
+    (_DEPOSIT_BRANCH_NAME), a town printed with its state (_DEPOSIT_TOWN_TAIL), a buyer's advance purchase or payment
+    (_DEPOSIT_TRADE_PURPOSE, _WIRE_TRADE_PURPOSE), or a hold notice's FUNDS or FUNDED (kept only before a company
+    form: _DEPOSIT_FINANCING_STARTS)."""
+    words = _root_reading(_hold_text(text), account_name, bank, p2p=True)
     words = _DEPOSIT_BRANCH_LABEL.sub(" ", words)
     words = _DEPOSIT_CREDIT_UNION.sub(" ", words)
     words = _STREET_NAME.sub(" ", words)
+    words = _DEPOSIT_PLACE.sub(" ", words)
+    words = _DEPOSIT_BRANCH_NAME.sub(" ", words)
+    words = _DEPOSIT_TOWN_TAIL.sub(" ", words)
+    words = _DEPOSIT_TRADE_PURPOSE.sub(" ", words)
+    words = _WIRE_TRADE_PURPOSE.sub(" ", words)
+    split = words.split()
     return " ".join(
-        word for word in words.split()
-        if (word.startswith(_FINANCING_NAME_STARTS) and not word.startswith("CREDIT"))
+        word for index, word in enumerate(split)
+        if word.startswith(_DEPOSIT_FINANCING_STARTS)
         or _WHOLE_WORD_ROOT.fullmatch(word) is not None
+        or (word in _DEPOSIT_NOTICE_FUNDS and _ENTRY_COMPANY_FORM.match(" ".join(split[index + 1:])) is not None)
     )
 
 
@@ -1423,10 +1486,16 @@ def _non_sale_reading(text: str, row: str, region: str, *, disbursing: bool = Fa
 
 def _spare_a_formed_name_word(found: re.Match[str]) -> str:
     """§8.1 non_sale_purpose (B7 review round 1, I18): a _FORMED_NAME_NON_SALE match keeps its word before and drops
-    DISTRIB... or STOCK only when that word is a name word (letters only, not in _NOT_A_NAME_WORD_BEFORE); otherwise
-    the match is left as printed, so a purpose before a formed name still holds."""
+    DISTRIB... or STOCK only when that word is a name word (not in _NOT_A_NAME_WORD_BEFORE; B7 review round 2: holding
+    a letter, at most _NAME_WORD_MAX_DIGITS digits and no period's code, _PERIOD_CODE, so 'A1 DISTRIBUTION LLC' is a
+    name and 'Q4 DISTRIBUTION' or 'AB1234 DISTRIBUTION' is not); otherwise the match is left as printed, so a purpose
+    before a formed name still holds."""
     before = found.group("before")
-    if before.isalpha() and before not in _NOT_A_NAME_WORD_BEFORE:
+    if (
+        any(character.isalpha() for character in before)
+        and sum(character.isdigit() for character in before) <= _NAME_WORD_MAX_DIGITS
+        and _PERIOD_CODE.fullmatch(before) is None and before not in _NOT_A_NAME_WORD_BEFORE
+    ):
         return before + " "
     return found.group(0)
 
@@ -2035,16 +2104,18 @@ def _dealer_word_lender(text: str, region: str) -> bool:
     """§8.1, §8.7 (audit B7: I36): the dealer-word hold reads every row but a wire whose purpose alone prints the word
     and whose sender is a named non-lender ('B/O <person> ... OBI VEHICLE PURCHASE', a customer's own wire to the
     dealer): Q5 reads that wire. A wire is still held when it names no sender, when the sender's own name prints the
-    word, or when the sender reads as a lender, a credit union or a bank: a financing root, a floor-plan (wholesale)
-    lender's word (_DEALER_FLOOR_PLAN_WORDS: B7 review round 1), a credit union's or a bank's, title or escrow firm's
-    form, a financing payee of the registry or a potential lender. An ACH or EFT entry printing the word from an
-    unlisted originator stays held ('<NAME> AUTO DES:DEALER PAY': an auto lender the registry does not list)."""
+    word, or when the sender reads as a lender, a credit union or a bank: a financing root, a floor-plan lender's name
+    (B7 review round 1; round 2, _FLOOR_PLAN_LENDER_NAME: a floor-plan form, or WHOLESALE beside a lender's or a
+    vehicle trade's word, never a flooring contractor or a wholesale grocer), a credit union's or a bank's, title or
+    escrow firm's form, a financing payee of the registry or a potential lender. An ACH or EFT entry printing the word
+    from an unlisted originator stays held ('<NAME> AUTO DES:DEALER PAY': an auto lender the registry does not
+    list)."""
     classifier = _classifier()
     if not region or _channel(text) != "wire" or DEALER_FUNDING_WORDS.search(region):
         return True
     if (
         _CREDIT_UNION_PAYER.search(region) or _BANK_OR_TITLE_SENDER.search(region) or _FINANCING_ROOT.search(region)
-        or _DEALER_FLOOR_PLAN_WORDS.search(region)
+        or _FLOOR_PLAN_LENDER_NAME.search(region)
     ):
         return True
     known = match_known_payee(classifier._without_receiver_value(text), credit=True)
