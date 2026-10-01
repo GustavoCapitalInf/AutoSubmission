@@ -162,11 +162,32 @@ def test_a_fee_or_bill_debit_for_the_credit_s_own_amount_still_holds_it():
     assert fee[0].revenue_tier_reason == "payer_also_debited"
 
 
-def test_recurring_same_amount_fee_or_bill_debits_still_hold():
-    fees = _records([*PAYOUTS, *[("FABRIKAM PAY DES:FEE ID:2 INDN:NORTHWIND LABS CO ID:1234567890 CCD", -45.0)] * 2])
-    assert {record.revenue_tier_reason for record in _credits(fees)} == {"payer_also_debited"}
+def test_recurring_same_amount_bill_debits_still_hold():
+    # A bill paid at one amount again and again can be a collector's draw: it keeps holding.
     bills = _records([("CONTOSO UTILITIES DES:PAYMENT ID:1", 17500.0), *[("BILL PAY CONTOSO UTILITIES", -94.0)] * 2])
     assert bills[0].revenue_tier_reason == "payer_also_debited"
+    weekly = _records([("CONTOSO UTILITIES DES:PAYMENT ID:1", 17500.0),
+                       *[("CONTOSO UTILITIES DES:AUTOPAY ID:2", -94.0)] * 3], days=[2, 9, 16, 23])
+    assert weekly[0].revenue_tier_reason == "payer_also_debited"
+
+
+@pytest.mark.parametrize("fees", [
+    [("FABRIKAM PAY DES:FEE ID:2 INDN:NORTHWIND LABS CO ID:1234567890 CCD", -45.0)] * 2,
+    [("FABRIKAM PAY DES:FEE ID:2 INDN:NORTHWIND LABS CO ID:1234567890 CCD", -45.0)] * 4,
+])
+def test_a_processor_s_fixed_fee_at_one_amount_never_holds_its_settlements(fees):
+    # Review round 1 (finding 4; standard §4.2): a processor's fixed monthly or per-batch fee posts at one amount, so
+    # printed twice in a two-month statement (or once a batch) it is still the processor's own fee.
+    with_fees, control = _same_as_without(PAYOUTS, fees)
+    assert with_fees == control
+    assert {reading[3] for reading in with_fees} == {"named_payer_repeats"}
+
+
+def test_the_brief_s_settlements_beside_a_fee_printed_twice_read_as_they_do_without_it():
+    settlements = [("FABRIKAM PAY SETTLEMENT MID 1", amount) for amount in (2215.0, 1985.0, 2415.0, 2055.0)]
+    with_fees, control = _same_as_without(settlements, [("FABRIKAM PAY FEE", -96.0)] * 2)
+    assert with_fees == control
+    assert {reading[1] for reading in with_fees} == {"counted_flagged"}
 
 
 def test_a_registered_processor_s_settlement_beside_its_fee_stays_verified():
@@ -219,6 +240,17 @@ def test_an_ap_remittance_from_a_payer_the_holder_pays_by_ach_is_still_demoted()
         "payer_remittance_with_counter_debit", "payer_also_debited")
 
 
+@pytest.mark.parametrize("provider", ["ADP", "PAYCHEX", "FABRIKAM"])
+def test_a_payroll_provider_s_remittance_beside_the_holder_s_fee_to_it_reads_as_any_payer_s(provider):
+    # Review round 1 (finding 5): ADP is a counter-debit word like PAYCHEX and any four-letter name, so its
+    # remittance beside the holder's payroll fee to it is demoted as theirs always was (no settlement wording).
+    records = _records([(f"{provider} INC DES:VENDOR PAY ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", 5000.0),
+                        (f"{provider} PAYROLL FEES DES:{provider} FEES ID:2 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", -85.0)],
+                       holder="CONTOSO BAKERY LLC")
+    assert (records[0].revenue_match_method, records[0].revenue_tier_reason) == (
+        "payer_remittance_with_counter_debit", "payer_also_debited")
+
+
 @pytest.mark.parametrize("debit", [
     "FABRIKAM LIFE DES:INS PREM ID:2 INDN:CONTOSO BAKERY LLC CO ID:1 PPD",
     "FABRIKAM LIFE DES:AUTOPAY ID:2 INDN:CONTOSO BAKERY LLC CO ID:1 PPD",
@@ -230,6 +262,70 @@ def test_an_insurer_s_credit_beside_its_premium_or_bill_stays_held(debit):
                        holder="CONTOSO BAKERY LLC")
     assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("excluded_pending_review",
                                                                          "payer_also_debited")
+
+
+# Review round 1 (finding 1): the debit's kind is read without its receiver field's value, the holder's own name.
+
+@pytest.mark.parametrize("holder", [
+    "CONTOSO CABLE LLC", "CONTOSO UTILITY SERVICES INC", "CONTOSO WIRELESS LLC", "CONTOSO TELECOM INC",
+    "CONTOSO VOIP LLC", "CONTOSO SUBSCRIPTIONS LLC", "CONTOSO AUTOPAY LLC",
+])
+def test_a_holder_named_for_a_bill_word_never_turns_an_affiliate_s_debit_into_a_bill(holder):
+    rows = [(f"NORTHWIND HOLDINGS LLC DES:PAYMENT ID:1 INDN:{holder} CO ID:1 CCD", 20000.0),
+            (f"NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:{holder} CO ID:1 CCD", -5000.0)]
+    records = _records(rows, holder=holder)
+    assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("excluded_pending_review",
+                                                                         "payer_also_debited")
+
+
+def test_a_holder_named_for_a_bill_word_in_chase_s_ind_name_field_keeps_the_affiliate_held():
+    rows = [("ORIG CO NAME:NORTHWIND HOLDINGS ORIG ID:1 DESC DATE:540302 CO ENTRY DESCR:PAYMENT SEC:CCD TRACE#:1 "
+             "EED:540302 IND ID:1 IND NAME:CONTOSO CABLE LLC", 20000.0),
+            ("ORIG CO NAME:NORTHWIND HOLDINGS ORIG ID:1 DESC DATE:540303 CO ENTRY DESCR:PAYMENT SEC:CCD TRACE#:1 "
+             "EED:540303 IND ID:1 IND NAME:CONTOSO CABLE LLC", -5000.0)]
+    records = _records(rows, holder="CONTOSO CABLE LLC")
+    assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("excluded_pending_review",
+                                                                         "payer_also_debited")
+
+
+def test_a_funder_collecting_from_a_holder_named_for_a_bill_word_keeps_its_funding_held():
+    rows = [("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:1 INDN:CONTOSO CABLE LLC CO ID:1 CCD", 20000.0),
+            *[("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:CONTOSO CABLE LLC CO ID:1 CCD", -500.0 - cents)
+              for cents in range(3)]]
+    records = _records(rows, holder="CONTOSO CABLE LLC")
+    assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("excluded_pending_review",
+                                                                         "payer_also_debited")
+
+
+@pytest.mark.parametrize("holder", ["CONTOSO RETURNS LLC", "CONTOSO FEES LLC", "CONTOSO ADJ INC", "CONTOSO DISC INC"])
+def test_a_holder_named_for_a_fee_word_never_turns_an_affiliate_s_debit_into_a_processor_fee(holder):
+    rows = [(f"NORTHWIND HOLDINGS LLC DES:SETTLEMENT ID:1 INDN:{holder} CO ID:1 CCD", 20000.0),
+            (f"NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:{holder} CO ID:1 CCD", -5000.0)]
+    records = _records(rows, holder=holder)
+    assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("excluded_pending_review",
+                                                                         "payer_also_debited")
+
+
+@pytest.mark.parametrize(("text", "kind"), [
+    # The kind word only in the receiver field's value (the holder's name) reads no kind.
+    ("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:CONTOSO CABLE LLC CO ID:1 CCD", "other"),
+    ("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:CONTOSO UTILITY SERVICES INC CO ID:1 CCD", "other"),
+    ("ORIG CO NAME:NORTHWIND HOLDINGS ORIG ID:1 DESC DATE:540303 CO ENTRY DESCR:PAYMENT SEC:CCD TRACE#:1 "
+     "EED:540303 IND ID:1 IND NAME:CONTOSO TELECOM INC", "other"),
+    ("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:CONTOSO RETURNS LLC CO ID:1 CCD", "other"),
+    ("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 RECEIVER NAME:CONTOSO FEES LLC CO ID:1 CCD", "other"),
+    ("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:CONTOSO INCOMING WIRE FEES LLC CO ID:1 CCD", "other"),
+    ("NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:CONTOSO TRANSFER LLC CO ID:1 CCD", "other"),
+    # The kind word in the payer's own fields, or in the addenda after the receiver, still reads.
+    ("FABRIKAM PAY DES:FEE ID:2 INDN:NORTHWIND LABS CO ID:1234567890 CCD", "processor_fee"),
+    ("CONTOSO SUPPLY DES:CABLE SVCS ID:2 INDN:NORTHWIND LABS CO ID:1 CCD", "bill"),
+    ("NORTHWIND HOLDINGS DES:PAYMENT ID:2 INDN:CONTOSO BAKERY CO ID:1 CCD PMT INFO:CABLE SVCS", "bill"),
+    ("NORTHWIND HOLDINGS DES:TRANSFER ID:2 INDN:CONTOSO BAKERY CO ID:1 CCD", "circular"),
+])
+def test_the_debit_kind_is_read_without_the_receiver_s_value(text, kind):
+    from analysis.true_revenue import _counter_debit_kind
+
+    assert _counter_debit_kind(text) == kind
 
 
 # I02: generic words and banks' names that let unrelated payers match.
@@ -325,6 +421,21 @@ def test_a_verified_card_settlement_never_moves_beside_a_funder_sharing_its_pref
         ("verified", "operating_income_descriptor")] * 2
 
 
+@pytest.mark.parametrize("debit", ["CONTOSOFUNDING DES:DEBIT ID:2", "CONTOSO FUNDING DES:DEBIT ID:2"])
+def test_the_funder_prefix_holds_a_q6_payer_before_q6_as_the_spaced_name_does(debit):
+    # Review round 1 (finding 3): "for unverified credits only" means a credit no rule verified, as 5.6's exact-word
+    # hold reads it: like that hold, the prefix hold comes before Q5 and Q6, so a glued funder name holds a
+    # company-form or repeat payer exactly as the spaced name does (the census declares it,
+    # q5_q6_held_lender_counter_debit).
+    one = _records([("CONTOSO EVENTS LLC DES:PAYMENT ID:1", 5000.0), *[(debit, -300.0)] * 4], days=WEEKLY)
+    repeat = _records([("CONTOSO EVENTS DES:PAYMENT ID:1", 5000.0), ("CONTOSO EVENTS DES:PAYMENT ID:3", 4000.0),
+                       *[(debit, -300.0)] * 4], days=[2, 3, 9, 16, 23, 30])
+    assert {record.classification for record in one[1:]} == {"potential_lender"}
+    for record in (one[0], *repeat[:2]):
+        assert (record.revenue_tier, record.revenue_tier_reason) == ("excluded_pending_review",
+                                                                     "payer_debited_as_lender")
+
+
 def test_the_prefix_never_demotes_an_ap_remittance_in_pass_6():
     # Pass 6 demotes a verified row: it compares whole words (and glued forms), never a prefix.
     records = _records([("CONTOSO UT LLC DES:VENDOR PAY ID:1", 9000.0),
@@ -373,6 +484,7 @@ def test_an_adp_tax_credit_beside_adp_tax_debits_is_held():
     "GUSTO DES:TAX 540302 ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD",
     "INTUIT 12345678 DES:TAX ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD",
     "TAX INTUIT 12345678",
+    "ACH TAXES 123456 PAYCHEX TPS 12345",   # review round 1: the entry printed before the provider's name
 ])
 def test_a_payroll_provider_s_tax_credit_with_no_matching_debit_is_held_as_non_sale(credit):
     records = _records([(credit, 270.0)], holder="CONTOSO BAKERY LLC")
@@ -387,6 +499,36 @@ def test_a_payroll_provider_s_tax_credit_with_no_matching_debit_is_held_as_non_s
 def test_other_tax_words_and_provider_credits_are_not_read_as_payroll_tax(credit):
     records = _records([(credit, 270.0)], holder="CONTOSO BAKERY LLC")
     assert records[0].revenue_tier_reason != "non_sale_purpose"
+
+
+@pytest.mark.parametrize("credit", [
+    "INTUIT PYMT SOLN DEPOSIT 540302 ABC123 CONTOSO TAX SERVICES LLC",
+    "GUSTO CONTRACTOR 540302 ABC123 CONTOSO TAX SERVICES LLC",
+    "ADP INC VENDOR PAY 540302 ABC123 CONTOSO TAX SERVICES LLC",
+])
+def test_a_payroll_provider_paying_a_holder_named_for_taxes_on_a_label_less_row_is_counted(credit):
+    # Review round 1 (finding 2): a layout that prints the holder's name inline, with no receiver label, puts the
+    # holder's TAX inside the row; the tax word is read on the payer region and the entry fields only.
+    records = _records([(credit, 1500.0)], holder="CONTOSO TAX SERVICES LLC")
+    assert records[0].revenue_tier_reason != "non_sale_purpose"
+    assert records[0].revenue_tier in {"verified", "counted_flagged"}
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("ADP TAX ADP TAX 123456 CONTOSO BAKERY", True),
+    ("ACH DEPOSIT PAYCHEX TPS TAXES 123456 CONTOSO BAKERY AUTO 1 LLC", True),
+    ("PAYCHEX TPS DES:TAXES ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", True),
+    ("INTUIT 12345678 DES:TAX ID:1 INDN:CONTOSO TAX SERVICES CO ID:1 CCD", True),
+    ("ACH TAXES 123456 PAYCHEX TPS 12345", True),   # the entry printed first reads as the payer region
+    ("INTUIT PYMT SOLN DEPOSIT 540302 ABC123 CONTOSO TAX SERVICES LLC", False),
+    ("ADP INC VENDOR PAY 540302 ABC123 CONTOSO TAX SERVICES LLC", False),
+    ("ADP DES:SALES ID:1 INDN:CONTOSO TAX SERVICES CO ID:1 CCD", False),
+])
+def test_the_payroll_tax_word_is_read_on_the_payer_region_and_the_entry_fields(text, expected):
+    from analysis.true_revenue import payroll_tax_credit
+
+    revenue = tc.revenue_text(tc.normalize_transaction_description(text))
+    assert payroll_tax_credit(revenue, tc.payer_region(revenue)) is expected
 
 
 def test_a_three_letter_word_other_than_a_payroll_provider_is_still_no_counter_debit_word():
@@ -500,7 +642,9 @@ def test_also_debited_reads_each_kind():
     assert held("circular") and held("other")
     assert held("processor_fee") and not held("processor_fee", settlement=True)
     assert held("processor_fee", settlement=True, cents=100000)
-    assert held("processor_fee", settlement=True, recurring=True)
+    # Review round 1 (finding 4): a processor's fee at one amount, again and again, is still its fee.
+    assert not held("processor_fee", settlement=True, recurring=True)
+    assert held("processor_fee", recurring=True)
     assert not held("bill") and held("bill", insurer=True)
     assert held("bill", cents=100000) and held("bill", recurring=True)
     # A generic word: a transfer matches it as 5.6 read it, any other debit only for the credit's own amount.

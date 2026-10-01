@@ -1539,7 +1539,8 @@ _PREFIX_MIN_LETTERS = 5
 #: 'FABRIK EVENTS' against 'FABRIKAM').
 _FINANCING_REMAINDER = re.compile(r"^(?:FUND|FIN|CAP|LEND|LOAN|ADV|CRED|MCA)")
 #: Audit B4 (I56): a payroll provider's tax-service credit (ADP TAX, PAYCHEX TPS TAX[ES], GUSTO TAX, INTUIT TAX), read
-#: on the row before its receiver fields: the holder's own tax impound coming back, never a sale.
+#: with its tax word on the payer region and the entry fields (B4 review round 1, payroll_tax_credit): the holder's
+#: own tax impound coming back, never a sale.
 _PAYROLL_PROVIDER_WORD = re.compile(r"(?<![A-Z])(?:ADP|PAYCHEX|GUSTO|INTUIT)\b")
 _PAYROLL_TAX_WORD = re.compile(r"(?<![A-Z])TAX(?:ES)?\b")
 
@@ -1589,8 +1590,14 @@ def _lender_entity(text: str) -> str | None:
 def _counter_debit_kind(text: str) -> str:
     """Audit B4 (I02): a posted non-lender debit's kind. The bank's receiving fee first (it prints transfer or wire
     wording, never circular money), then a transfer, wire, person-to-person or own-account debit (circular), a
-    processor's fee, a bill, or another debit (an ACH payment, a purchase...)."""
+    processor's fee, a bill, or another debit (an ACH payment, a purchase...).
+
+    B4 review round 1 (finding 1): read without the receiver fields' values (§5.2: INDN, IND NAME, RECEIVER NAME, RECV
+    NAME, IND ID print the holder's own name), as _lender_entity reads a lender debit, every field after them kept (an
+    addenda's PMT INFO): a holder named for a bill or fee word ('<NAME> CABLE LLC', '<NAME> RETURNS LLC') never turns
+    an affiliate's or a collector's debit into a bill or a processor's fee."""
     classifier = _classifier()
+    text = classifier._without_receiver_value(text)
     if _RECEIVING_FEE_DEBIT.search(text) and not _OUTGOING_WIRE_FEE.search(text):
         return "receiving_fee"
     if (
@@ -1626,7 +1633,8 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
             lender.append(_CounterDebit(reading, "lender", _cents(record.amount), entity, False))
         elif not card_purchase:
             other.append((reading, _counter_debit_kind(text), _cents(record.amount)))
-    # "Recurring same-amount debits keep holding": two or more debits of one payer word at one amount.
+    # "Recurring same-amount debits keep holding": two or more debits of one payer word at one amount (a bill's; B4
+    # review round 1: never a processor's fee beside its settlement, also_debited).
     amounts = Counter((_head_word(reading), cents) for reading, _, cents in other)
     return CounterDebits(
         tuple(lender),
@@ -1709,15 +1717,18 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
       ever lost).
     - Any other debit matches by the B4 forms; one for the credit's own amount matches as 5.6 read it too (the credit
       undoes it).
-    - A processor's fee beside a settlement, and a bill to a payer that is no insurer, never hold, unless the debit is
-      for the credit's own amount or recurs at one amount."""
+    - A processor's fee beside a settlement never holds unless the debit is for the credit's own amount; a bill to a
+      payer that is no insurer never holds unless the debit is for the credit's own amount or recurs at one amount.
+      B4 review round 1 (finding 4; standard §4.2): a processor's fixed monthly or per-batch fee posts at one amount,
+      so its recurrence is the processor's shape, never a collector's; a bill recurring at one amount can be a
+      collector's draw and keeps holding."""
     for debit in debits.other:
         if debit.kind == "receiving_fee":
             continue
         same_amount = debit.cents == credit.cents
         if not _same_payer(credit.reading, debit.reading, legacy=debit.kind == "circular" or same_amount):
             continue
-        if debit.kind == "processor_fee" and credit.settlement and not same_amount and not debit.recurring:
+        if debit.kind == "processor_fee" and credit.settlement and not same_amount:
             continue
         if debit.kind == "bill" and not credit.insurer and not same_amount and not debit.recurring:
             continue
@@ -1725,11 +1736,16 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
     return False
 
 
-def payroll_tax_credit(text: str) -> bool:
-    """§8.1 non_sale_purpose (audit B4: I56): a payroll provider's tax-service credit (_PAYROLL_PROVIDER_WORD with a
-    TAX or TAXES word), read on the row before its receiver fields."""
-    row = _classifier()._before_receiver(text)
-    return _PAYROLL_PROVIDER_WORD.search(row) is not None and _PAYROLL_TAX_WORD.search(row) is not None
+def payroll_tax_credit(text: str, region: str) -> bool:
+    """§8.1 non_sale_purpose (audit B4: I56): a payroll provider's tax-service credit: _PAYROLL_PROVIDER_WORD on the
+    row before its receiver fields, with a TAX or TAXES word. B4 review round 1 (finding 2): the tax word is read on
+    the payer region (`region`, payer_region) and the entry fields only, never on the rest of the row, where a layout
+    with no receiver label prints the holder's own name ('<PROVIDER> DEPOSIT <ref> <NAME> TAX SERVICES LLC' is the
+    provider paying a holder named for taxes); a layout that prints its entry first ('ACH TAXES <ref> PAYCHEX TPS')
+    reads it as the payer region."""
+    if _PAYROLL_PROVIDER_WORD.search(_classifier()._before_receiver(text)) is None:
+        return False
+    return _PAYROLL_TAX_WORD.search(f"{region} {_classifier().entry_fields(text)}") is not None
 
 
 #: §8.2, §8.3 (audit B2: I48): an explicit cash, ATM or check deposit form, which Q2 and Q3 count even when the row
@@ -2468,7 +2484,7 @@ def _first_hold(
         record.revenue_match_method == "payer_remittance_with_counter_debit" or also_debited(counter, debits)
     ):
         return "payer_also_debited"
-    if payroll_tax_credit(text):
+    if payroll_tax_credit(text, region):
         return "non_sale_purpose"
     # §7.0, §7.8, §8.10 (S4.2 review I3; S4.4/S4.5 review): the $1 floor is absolute. A posted credit under $1 is never
     # verified and never counted, whichever rule read it, claimed or not: an unverified one that no earlier hold names
@@ -3052,6 +3068,6 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
         or classifier._matches_any(row, classifier._SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS)
     ):
         return "owner_money"
-    if payroll_tax_credit(text):
+    if payroll_tax_credit(text, region):
         return "payroll_tax"
     return None
