@@ -396,12 +396,26 @@ def test_a_funder_whose_debits_glue_its_name_is_held():
 
 def test_a_funding_whose_name_carries_a_glued_reference_is_held():
     # Forward Financing (a registry lender): its funding prints FORWARDFINUSA<digits>, its debits FORWARD FIN USA.
+    # Audit B6 (I08): the ledger's FORWARDFINUSA alias, read with the reference glued on, names the funding first, so
+    # it is the funder's financing proceeds (non_revenue), no longer only held beside its debits.
     rows = [("ORIG CO NAME:FORWARDFINUSA1 ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:PAYMENTS SEC:CCD TRACE#:1 "
              "EED:540302 IND ID: IND NAME:NORTHWIND LABS", 9000.0),
             *[("ORIG CO NAME:FORWARD FIN USA ORIG ID:RPP1234567 DESC DATE:540309 CO ENTRY DESCR:FF SEC:CCD TRACE#:1 "
                "EED:540309 IND ID: IND NAME:NORTHWIND LABS", -300.0)] * 4]
     records = _records(rows, days=WEEKLY)
     assert {record.classification for record in records[1:]} == {"confirmed_lender"}
+    assert (records[0].revenue_tier, records[0].revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+
+
+def test_an_unregistered_funding_whose_name_carries_a_glued_reference_is_held():
+    # The B4 reading the test above pinned, for a funder no alias lists: the credit's glued reference split off, its
+    # name matches the lender debits' (a fabricated potential lender, its fixed weekly pulls, D6).
+    rows = [("ORIG CO NAME:FABRIKAMFINCO1 ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:PAYMENTS SEC:CCD TRACE#:1 "
+             "EED:540302 IND ID: IND NAME:NORTHWIND LABS", 9000.0),
+            *[("ORIG CO NAME:FABRIKAMFINCO ORIG ID:RPP1234567 DESC DATE:540309 CO ENTRY DESCR:DEBIT SEC:CCD TRACE#:1 "
+               "EED:540309 IND ID: IND NAME:NORTHWIND LABS", -300.0)] * 4]
+    records = _records(rows, days=WEEKLY)
+    assert {record.classification for record in records[1:]} == {"potential_lender"}
     assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("excluded_pending_review",
                                                                          "payer_debited_as_lender")
 

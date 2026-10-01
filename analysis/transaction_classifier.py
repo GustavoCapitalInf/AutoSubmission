@@ -14,6 +14,7 @@ from .classification_registry import (
     CardSettlementForm,
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
+    FACTORING_REVIEW_ENTITIES,
     FIELD_ORDER_PAYEE_FORMS,
     GATED_PROCESSOR_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
@@ -294,14 +295,17 @@ _PREMIUM_FINANCING_GROUP = "premium_financing"
 _FLAGGED_REVENUE_CREDIT_STATES: frozenset[str] = frozenset({"factoring"})
 
 
-def _insurance_registry_match(text: str) -> tuple[str, str, bool] | None:
+def _insurance_registry_match(text: str, *, glued_digits: bool = False) -> tuple[str, str, bool] | None:
     """Spec §4.3 step 4: the insurer of an insurance row, as (entity, alias, premium_finance).
 
     Premium-finance payees (`PREMIUM_FINANCE_ALIASES`, spec §4.2) are consulted
     first, so a premium financier whose name contains an insurer's name is still
-    the premium financier.
+    the premium financier. Audit B6 (I24): with `glued_digits` (a credit), the
+    premium-finance lookup also reads a one-word alias with a digit run glued after
+    it ('IPFS888', 'IPFSFLP12'), so every spelling of a premium financier's credit
+    takes the one insurance treatment; a debit keeps today's reading.
     """
-    premium = registry_match(text, PREMIUM_FINANCE_ALIASES)
+    premium = registry_match(text, PREMIUM_FINANCE_ALIASES, glued_digits=glued_digits)
     if premium is not None:
         return premium[0], premium[1], True
     insurer = registry_match(text, INSURANCE_PROVIDER_ALIASES)
@@ -2831,7 +2835,7 @@ def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
     run = _wire_originator_run(text)
     if run is not None and _names_financing(run):
         return True
-    if match_known_payee(text) is not None:
+    if match_known_payee(text, credit=True) is not None:
         return True
     holder_text = account_name_text(account_name)
     originator = region.split()
@@ -2948,7 +2952,7 @@ def _classify_credit_revenue(
     claim_entry = _HCCLAIMPMT.search(text) is not None
     # A premium-finance credit keeps the insurance credit treatment (spec §4.2). T18: a claim payment skips the
     # insurer registry when the owner's switch is on; T14: an insurer's customer payment is held, not decided.
-    insurance_match = _insurance_registry_match(lookup_text)
+    insurance_match = _insurance_registry_match(lookup_text, glued_digits=True)
     if insurance_match is not None and not (claim_entry and HCCLAIMPMT_CLAIM_FIRST):
         entity, alias, _premium_finance = insurance_match
         if claim_entry or _INSURER_CUSTOMER_PAYMENT.search(_before_receiver(text)):
@@ -3024,7 +3028,9 @@ def _classify_credit_revenue(
             context_signals=("credit_direction", "financing_proceeds"),
         )
     potential_lender_match = registry_match(lookup_text, POTENTIAL_LENDER_ALIASES)
-    if potential_lender_match is not None:
+    # Audit B6 (I10; §6.3 narrowing 10, lender detection §5): a factoring review entity's credit is a factor's payout,
+    # never the potential tier's exclusion: it goes on to the operating-revenue path, as an admitted factor's does.
+    if potential_lender_match is not None and potential_lender_match[0] not in FACTORING_REVIEW_ENTITIES:
         entity, alias = potential_lender_match
         return _RevenueDecision(
             "non_revenue",
@@ -3775,7 +3781,7 @@ def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
     sales paid by the factor, so they are revenue too, and they keep the
     factoring flag (_FLAGGED_REVENUE_CREDIT_STATES).
     """
-    match = match_known_payee(text)
+    match = match_known_payee(text, credit=True)
     if (
         match is None
         or match.state not in FINANCING_STATES
@@ -3934,6 +3940,41 @@ def _flagged_revenue_credit_record(
             "factor's payout is the business's own sales, so it stays revenue and in eligible "
             "deposits, and it is flagged as a factoring position (owner ruling)."
         ),
+    )
+
+
+def _factoring_review_payee(text: str) -> PayeeMatch | None:
+    """Audit B6 (I10; lender detection spec §5, amended): the factoring review entity (FACTORING_REVIEW_ENTITIES) whose
+    potential alias wins on the row, as a factoring payee, or None."""
+    found = registry_match(text, POTENTIAL_LENDER_ALIASES)
+    if found is None or found[0] not in FACTORING_REVIEW_ENTITIES:
+        return None
+    return PayeeMatch(found[0], "factoring", found[1])
+
+
+def _unconfirmed_factoring_credit_record(
+    common: dict[str, object],
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """Audit B6 (I10; the factoring ruling of 2026-09-26): a factoring review entity's credit is a factor's payout, as
+    an admitted factor's is (_flagged_revenue_credit_record): the row takes the factoring group, carries its flag and
+    counts in the flagged totals as a credit, and its revenue decision is the operating-revenue path's. The ledger has
+    not confirmed the factor, so the row is marked unconfirmed (review_required), as a 5.3 review entity's debit is.
+    Its debits keep the potential tier."""
+    return _build_record(
+        **common,
+        classification=match.state,
+        canonical_entity=match.entity,
+        match_method="unconfirmed_flag_payee_alias",
+        matched_alias=match.alias,
+        matched_rule="factoring_review_revenue_credit",
+        confidence_score=0.82,
+        reason=(
+            f"Matched maintained candidate alias '{match.alias}' of an unconfirmed factor on a credit: a factor's "
+            "payout is the business's own sales, so it stays revenue and in eligible deposits; it is flagged as a "
+            "factoring position, marked unconfirmed."
+        ),
+        review_required=True,
     )
 
 
@@ -4168,7 +4209,8 @@ def classify_transaction(
             reason="A refund, reversal, void, cancellation, or returned-payment rule matched.",
         )
 
-    insurance_match = _insurance_registry_match(text)
+    # Audit B6 (I24): a credit's premium-finance lookup reads a glued digit run; a debit keeps today's reading.
+    insurance_match = _insurance_registry_match(text, glued_digits=amount > 0)
     # Owner decision 2026-09-25: premium-finance wording on a row no premium-finance
     # alias claimed is premium financing too, under the insurer when one is named.
     premium_wording = (insurance_match is None or not insurance_match[2]) and _matches_any(
@@ -4219,8 +4261,10 @@ def classify_transaction(
         )
 
     # Spec §4.6: one lookup over every group registry. A known payee is excepted
-    # from the POS and ATM rules (D8) and takes its group at step 7 below.
-    known_payee = match_known_payee(text)
+    # from the POS and ATM rules (D8) and takes its group at step 7 below. Audit
+    # B6 (I08, I22): a credit is read with the credit index (a run-together alias
+    # with a digit run glued after it, the credit-only aliases).
+    known_payee = match_known_payee(text, credit=amount > 0)
     # Owner decision 2026-09-25: a membership or balance top-up debit of an
     # alternative-position payee matches no known payee (steps 5 and 7).
     if known_payee is not None and amount < 0 and _is_membership_or_top_up(text, known_payee):
@@ -4348,6 +4392,12 @@ def classify_transaction(
         # 5.6 (Q7): a listed auto lender's dealer funding took its own record above, never financing proceeds.
         if known_payee.state in FINANCING_STATES and not _is_payout_credit(text, known_payee):
             return _financing_proceeds_credit_record(common, amount, known_payee)
+    # Audit B6 (I10; lender detection spec §5, amended): a factoring review entity's credit is a factor's payout,
+    # flagged and marked unconfirmed; its aliases stay in the potential table, so its debits keep the potential tier.
+    if amount > 0:
+        review_factor = _factoring_review_payee(text)
+        if review_factor is not None:
+            return _unconfirmed_factoring_credit_record(common, review_factor)
     # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
     # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.
     if amount > 0:

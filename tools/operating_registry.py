@@ -15,7 +15,8 @@ wrong with them:
 * `HEALTHCARE_PAYER_ALIASES` collides with no ledger alias and no insurer alias;
 * `DEALER_FUNDING_PAYERS` collides with no ledger alias outside the vehicle-financing group, which Q7 names on purpose;
 * `FACTORING_PAYOUT_PAYERS` collides with no ledger, operating or insurer alias (true revenue final review M3);
-* `OWNER_MONEY_PLATFORMS` and `SECTION_15_DEFERRED_PAYERS` compile and read no operating alias;
+* `OWNER_MONEY_PLATFORMS`, `SECTION_15_DEFERRED_PAYERS` and (audit B6) `LENDING_BANK_CREDIT_PAYERS` and
+  `EARNED_WAGE_ACCESS_PAYERS` compile and read no operating alias;
 * `P2P_SENDING_BANK_NAMES` and `STATEMENT_BANK_PRINTED_NAMES` are normalized, and name no form twice.
 
 It also WARNS (never fails) when a multi-word operating alias spans the originator/entry boundary a bank prints between
@@ -158,7 +159,9 @@ def _check_56_tables(
             found.append(f"factoring payer alias {alias!r} of {entity!r} is an operating alias of {own[alias]!r}")
         if alias in insurers:
             found.append(f"factoring payer alias {alias!r} of {entity!r} is an insurer alias of {insurers[alias]!r}")
-    for name in ("OWNER_MONEY_PLATFORMS", "SECTION_15_DEFERRED_PAYERS"):
+    # Audit B6 (I23, I49): the lending banks and the earned-wage access providers likewise.
+    for name in ("OWNER_MONEY_PLATFORMS", "SECTION_15_DEFERRED_PAYERS", "LENDING_BANK_CREDIT_PAYERS",
+                 "EARNED_WAGE_ACCESS_PAYERS"):
         compiled = _compiles(found, name, getattr(registry, name))
         if compiled is None:
             continue

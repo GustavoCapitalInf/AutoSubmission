@@ -27,8 +27,10 @@ from .classification_registry import (
     CARD_PAYOUT_PROCESSOR_NAMES,
     CARD_SETTLEMENT_CREDIT_FORMS,
     DEALER_FUNDING_PAYERS,
+    EARNED_WAGE_ACCESS_PAYERS,
     FACTORING_PAYOUT_PAYERS,
     HEALTHCARE_PAYER_ALIASES,
+    LENDING_BANK_CREDIT_PAYERS,
     OPERATING_REVENUE_READ_ALIASES,
     OWNER_MONEY_PLATFORMS,
     P2P_SENDING_BANK_NAMES,
@@ -54,11 +56,13 @@ _HOLD_POSTING_LABELS = re.compile(
 )
 #: §8.1, T4: the credit-side financing roots. A whole-word CREDIT counts only inside a payer name, next to another
 #: name word; glued, it always counts. The roots have no left boundary; of the whole words, those of four letters or
-#: more take (?<![A-Z]) (the veto convention).
+#: more take (?<![A-Z]) (the veto convention). Audit B6 (I08): FIN glued to USA (a funder's run-together ACH name,
+#: '<NAME>FINUSA<ref>'; FINANC is a root already) and a special-purpose entity's SPE (a funder's financing vehicle, as
+#: SPV is), the whole word.
 _FINANCING_ROOT = re.compile(
-    r"(?:(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL)"
+    r"(?:(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|FINUSA|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL)"
     r"|CRED(?=ORA|IBLY)|[A-Z]CREDIT|CREDIT[A-Z]"
-    r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
+    r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPE|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
 )
 _WHOLE_CREDIT = re.compile(r"\bCREDITS?\b")
 #: §8.1, T4 (A3 review, round 2): §7.9's word-end CRED arm, aligned with a glued letter on its left: a payer-name word
@@ -397,6 +401,19 @@ LENDER_DEBIT_STATES = frozenset({"confirmed_lender", "potential_lender"}) | FINA
 #: coming back (owner money never becomes revenue): held as non_sale_purpose. The classifier's consumer savings and
 #: investing originators (_SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS) are read too.
 _OWNER_MONEY_PLATFORMS = re.compile(OWNER_MONEY_PLATFORMS)
+#: §8.1, T4 (audit B6: I23; Q6 "lenders never count"): a bank that lends to small businesses on its own account or as
+#: a fintech's lender of record (the registry's LENDING_BANK_CREDIT_PAYERS) named as the payer: held as
+#: financing_named_payer (lending_bank_payer).
+_LENDING_BANK_PAYER = re.compile(LENDING_BANK_CREDIT_PAYERS)
+#: §8.1, Q8 (audit B6: I49): an earned-wage access provider's push (the registry's EARNED_WAGE_ACCESS_PAYERS) is a
+#: worker's wages from another company: pay wording (_pay_wording), held as payroll_or_salary.
+_EARNED_WAGE_ACCESS = re.compile(EARNED_WAGE_ACCESS_PAYERS)
+#: §8.1 (audit B6: I49): the instant-payment rail labels a layout prints before the payer's name, never the payer:
+#: PNC's INSTPMNTIN at the start of the payer region, and the RTP network's RTP CREDIT at the start of a row whose
+#: payer region is empty (not RTP CREDIT FROM, whose sender the person-to-person readers read). The counter-debit holds
+#: read the name after them (_counter_region), so an app's advance no alias lists is read against the app's debits.
+_INSTANT_PAYMENT_LABEL = re.compile(r"^INSTPMNTIN\s+")
+_RTP_CREDIT_NAME = re.compile(r"^RTP CREDIT\s+(?!FROM\b)(\S.*)$")
 #: §15, §19 OQ4 (S4.2 review I6a): the payers of the deferred family items (the registry's
 #: SECTION_15_DEFERRED_PAYERS), which stay counted and flagged until the owner rules on each: Q5 and Q6 never verify
 #: them, they never count toward a Q5 or Q6 repeat, and on a wire or an ACH or EFT row their reason is
@@ -1285,9 +1302,19 @@ def cpa_payroll_code(row: str, bank: str | None) -> bool:
 
 
 def _pay_wording(row: str, bank: str | None) -> bool:
-    """§8.1, Q8: pay wording on the row before its receiver fields (_PAY_WORDS), a payroll provider, or (audit B5: I37)
-    TD Canada Trust's payroll-deposit code."""
-    return bool(_PAY_WORDS.search(row) or _classifier()._is_payroll_provider_row(row) or cpa_payroll_code(row, bank))
+    """§8.1, Q8: pay wording on the row before its receiver fields (_PAY_WORDS), a payroll provider, (audit B5: I37)
+    TD Canada Trust's payroll-deposit code, or (audit B6: I49) an earned-wage access provider's push."""
+    return bool(
+        _PAY_WORDS.search(row) or _EARNED_WAGE_ACCESS.search(row) or _classifier()._is_payroll_provider_row(row)
+        or cpa_payroll_code(row, bank)
+    )
+
+
+def lending_bank_payer(text: str, region: str) -> bool:
+    """§8.1, T4 (audit B6: I23): a lending bank (_LENDING_BANK_PAYER) is the payer: read on the payer region, or, on a
+    row with no payer region, on the row before its receiver fields with the posting labels removed (_hold_text), as
+    financing_named reads it. Celtic Bank's Bluevine line (DES BV LOAN) is the registry's financing proceeds already."""
+    return _LENDING_BANK_PAYER.search(region or _hold_text(text)) is not None
 
 
 def _wire_label_only(region: str) -> bool:
@@ -1461,7 +1488,7 @@ def _listed_auto_lender(text: str) -> tuple[str, str] | None:
     registry entity or a DEALER_FUNDING_PAYERS entry; or None."""
     classifier = _classifier()
     segment = classifier._originator_segment(text)
-    known = match_known_payee(segment)
+    known = match_known_payee(segment, credit=True)
     if known is not None and known.state == "vehicle_financing":
         return known.entity, known.alias
     return registry_match(segment, DEALER_FUNDING_PAYERS)
@@ -1548,14 +1575,14 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
     region = classifier.payer_region(text)
     if _q7_refused_by_a_hold(text, words, region):
         return None
-    known = match_known_payee(text)
+    known = match_known_payee(text, credit=True)
     if known is not None and known.state in FINANCING_STATES and known.state != "vehicle_financing":
         return None
     if registry_match(text, classifier.POTENTIAL_LENDER_ALIASES) is not None:
         return None
     # Final review M9: the insurer is read as step 5 reads it, on the lookup text (a glued HCCLAIMPMT split from the
     # name before it, _split_glued_claim).
-    if classifier._insurance_registry_match(classifier._split_glued_claim(text)) is not None:
+    if classifier._insurance_registry_match(classifier._split_glued_claim(text), glued_digits=True) is not None:
         return None
     lender = _listed_auto_lender(words)
     word = DEALER_FUNDING_WORDS.search(row) or _DEALER_PAYABLES_WORDS.search(row)
@@ -1651,9 +1678,10 @@ def _cents(amount: float) -> int:
     return round(abs(amount) * 100)
 
 
-def _lender_entity(text: str) -> str | None:
-    """Audit B4 (I22): the registry lender or financing entity a text names (its glued digit runs split off)."""
-    known = match_known_payee(_classifier()._split_glued_digits(text))
+def _lender_entity(text: str, *, credit: bool = False) -> str | None:
+    """Audit B4 (I22): the registry lender or financing entity a text names (its glued digit runs split off). Audit B6
+    (I22): a credit's (`credit`) is read with the credit index, as the classifier reads the credit."""
+    known = match_known_payee(_classifier()._split_glued_digits(text), credit=credit)
     return known.entity if known is not None and known.state in LENDER_DEBIT_STATES else None
 
 
@@ -1719,14 +1747,25 @@ def _head_word(reading: CounterDebitReading) -> str | None:
     return reading.heads[0][0] if reading.heads else reading.legacy
 
 
+def _counter_region(text: str, region: str) -> str:
+    """Audit B6 (I49): the payer words the counter-debit reading reads: the payer region without PNC's leading
+    INSTPMNTIN label, or, where the payer region is empty, the words after a leading RTP CREDIT label
+    (_INSTANT_PAYMENT_LABEL, _RTP_CREDIT_NAME)."""
+    if region:
+        return _INSTANT_PAYMENT_LABEL.sub("", region)
+    found = _RTP_CREDIT_NAME.match(_classifier()._before_receiver(text))
+    return found.group(1) if found is not None else ""
+
+
 def counter_credit(record: TransactionClassification, text: str, region: str) -> CounterCredit:
-    """Audit B4: a posted credit's counter-debit reading, on its payer region, and the facts the debit kinds read."""
+    """Audit B4: a posted credit's counter-debit reading, on its payer region, and the facts the debit kinds read.
+    Audit B6 (I49): the reading reads past an instant-payment rail label (_counter_region)."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     return CounterCredit(
-        reading=classifier.counter_debit_payer_reading(region),
+        reading=classifier.counter_debit_payer_reading(_counter_region(text, region)),
         cents=_cents(record.amount),
-        entity=_lender_entity(region) if region else None,
+        entity=_lender_entity(region, credit=True) if region else None,
         settlement=_SETTLEMENT_CREDIT.search(row) is not None,
         insurer=_INSURER_CREDIT.search(row) is not None,
     )
@@ -2020,7 +2059,7 @@ def registry_financing(record: TransactionClassification, text: str) -> bool:
 def _payout_entity(text: str) -> PayeeMatch | None:
     """§8.9: the payout-credit entity (PAYOUT_CREDIT_ENTITIES) the row names, read without the receiver field's value
     (§5.2: the holder's name never names a payer, as the 5.5 readers read the operating alias); or None."""
-    known = match_known_payee(_classifier()._without_receiver_value(text))
+    known = match_known_payee(_classifier()._without_receiver_value(text), credit=True)
     return known if known is not None and known.entity in PAYOUT_CREDIT_ENTITIES else None
 
 
@@ -2535,6 +2574,8 @@ def _first_hold(
         or record.revenue_match_method == "credit_union_vehicle_purchase"
         # A3-G: a wire a bank originates on its own behalf.
         or _bank_originated_wire(text, region, wire=wire)
+        # Audit B6 (I23): a bank that lends to small businesses, named as the payer.
+        or lending_bank_payer(text, region)
     ):
         return "financing_named_payer"
     counter = counter_credit(record, text, region)
@@ -3013,8 +3054,11 @@ def apply_true_revenue_pass(
                 updated[index] = _verify(record, method, _Q6_REASONS[method], 0.85)
     for index in credits:
         record, fact = updated[index], facts[index]
-        # A3-H review: a factoring payer's credit is never verified, whichever earlier rule verified it.
-        if record.revenue_classification == "verified_revenue" and fact.factor:
+        # A3-H review: a factoring payer's credit is never verified, whichever earlier rule verified it. Audit B6 (I25,
+        # I10): nor is a factoring payee's (the ledger's factoring aliases, a factoring review entity), whose name may
+        # print no financing word ('<factor> OPER DES:INVOICE PMT' is an invoice descriptor's).
+        factor = fact.factor or record.classification == "factoring"
+        if record.revenue_classification == "verified_revenue" and factor:
             updated[index] = _with_tier(_factor_never_verified(record), "counted_flagged", "factoring_payout")
             continue
         tier = _TIER_OF_STATE.get(record.revenue_classification)
@@ -3073,7 +3117,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
     entry = classifier.entry_fields(text)
     row = classifier._before_receiver(text)
     words = classifier._without_receiver_value(text)
-    known = match_known_payee(words)
+    known = match_known_payee(words, credit=True)
     # G12 (§8.7): Q7's payer and veto words, read as dealer_funding reads them (the holder's name never names a lender).
     listed = _dealer_funding_payer(words) is not None
     union = bool(_CREDIT_UNION_PAYER.search(region))
@@ -3082,7 +3126,10 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "financing_root": financing_named(text, region, entry, record.account_name),
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
-        "pay_or_personal": bool(_PAY_WORDS.search(row) or cpa_payroll_code(row, record.bank) or _personal_income(text, row)),
+        "pay_or_personal": bool(
+            _PAY_WORDS.search(row) or _EARNED_WAGE_ACCESS.search(row) or cpa_payroll_code(row, record.bank)
+            or _personal_income(text, row)
+        ),
         # Audit B2: the pass's own reading (_transfer_reading): the statement's bank, the explicit deposit forms.
         "transfer_no_counterparty": _transfer_reading(record, text, _channel(text, record.bank), region)[2],
         "known_financing": known is not None and known.state in FINANCING_STATES,
@@ -3114,6 +3161,10 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "payer_label_layout": classifier.payer_label_layout(text),
         "premium_coded": _premium_coded(text, region),
         "factoring_payer": _factoring_payout_payer(region, text),
+        # Audit B6 (I10): the row is a factoring review entity's credit, routed to the factoring payout, unconfirmed.
+        "factoring_review": (
+            record.classification == "factoring" and record.match_method == "unconfirmed_flag_payee_alias"
+        ),
         "deferred_source": _deferred_reading(text, _channel(text), region, entry),
         "short_healthcare_alias": (
             bool(region) and registry_match(region, HEALTHCARE_PAYER_ALIASES) is not None
@@ -3124,7 +3175,8 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
 
 def hold_rule(record: TransactionClassification, text: str, region: str, entry: str) -> str | None:
     """Final review I7 (a census fact): which 5.6 hold reading of §20 names the row, in §8.10's order: a bank that
-    originates the wire, a financing root (the financing holds); a government benefit (GOV, the personal-income hold);
+    originates the wire, a financing root, a lending bank (audit B6: I23; the financing holds); a government benefit
+    (GOV, the personal-income hold);
     a government grant (GOV), a title firm, the holder's currency conversion, a personal trust, owner money (the
     non-sale holds); a payroll provider's tax-service credit (audit B4: I56, the non-sale hold after the counter-debit
     holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
@@ -3134,6 +3186,9 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
         return "bank_originated_wire"
     if financing_named(text, region, entry, record.account_name):
         return "financing_root"
+    # Audit B6 (I23): a lending bank named as the payer (the financing hold).
+    if lending_bank_payer(text, region):
+        return "lending_bank"
     if government_benefit(text):
         return "government_benefit"
     if government_grant(text):

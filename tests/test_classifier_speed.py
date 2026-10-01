@@ -12,9 +12,9 @@ def test_the_classifier_matches_through_the_compiled_registry_index(monkeypatch)
     calls = []
     compiled = transaction_classifier.registry_match
 
-    def spy(text, registry):
+    def spy(text, registry, **options):
         calls.append(text)
-        return compiled(text, registry)
+        return compiled(text, registry, **options)
 
     monkeypatch.setattr(transaction_classifier, "registry_match", spy)
     transaction_classifier.classify_statement_transactions(fabricated_statement(3))

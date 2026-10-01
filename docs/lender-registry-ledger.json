@@ -4123,7 +4123,8 @@
    "business_type": "mca_or_revenue_based_funder",
    "aliases": [
     "ESENOW",
-    "EAST SHORE EQUITIES"
+    "EAST SHORE EQUITIES",
+    "EAST SHORE EQU"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -4150,7 +4151,7 @@
     "https://esenow.com/",
     "https://www.eastshoreequities.com/"
    ],
-   "notes": "Centereach NY business funder buying future receivables (r2 upheld). ESENOW is its web alias (esenow.com), the name its ACH debits print."
+   "notes": "Centereach NY business funder buying future receivables (r2 upheld). ESENOW is its web alias (esenow.com), the name its ACH debits print. Audit fix batch B6 (I22, 2026-10-01): adds EAST SHORE EQU, the ACH originator field's cut of its name on a credit, printed beside this funder's daily ESENOW debits in the same statement; a whole-token alias, so a payer named EAST SHORE EQUIPMENT is not read."
   },
   {
    "entity": "Econolease",
@@ -6210,7 +6211,10 @@
     "FORWARDFINANCIN",
     "FORWARD FINANCINFF",
     "FORWARDFINANCING",
-    "FORWARD FIN"
+    "FORWARD FIN",
+    "FORWARDFINUSA",
+    "FORWARD FIN USA",
+    "FORWARD FINANCING USA"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -6272,7 +6276,7 @@
     "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/",
     "https://www.forwardfinancing.com/privacy-policy/"
    ],
-   "notes": "Revenue-based financing / MCA funder (Forward Financing LLC, Boston MA; affiliate Forward Financing USA, LLC), Virginia sales-based financing registrant. Keeps today's aliases and adds two printed spellings: FORWARDFINANCING (spec section 1) and FORWARD FIN (the ACH name cut short, printed as FORWARD FIN LLC and FORWARD FIN USA), which in the payee index reach only this funder's rows."
+   "notes": "Revenue-based financing / MCA funder (Forward Financing LLC, Boston MA; affiliate Forward Financing USA, LLC), Virginia sales-based financing registrant. Keeps today's aliases and adds two printed spellings: FORWARDFINANCING (spec section 1) and FORWARD FIN (the ACH name cut short, printed as FORWARD FIN LLC and FORWARD FIN USA), which in the payee index reach only this funder's rows. Audit fix batch B6 (I08, 2026-10-01): adds the affiliate's run-together ACH name FORWARDFINUSA (printed with a reference glued after it, which the known-payee index's digit arm reads) and its spaced forms FORWARD FIN USA and FORWARD FINANCING USA; the affiliate's funding credits printed so were counted as customers' payments beside this funder's own collection debits. The wires of a special-purpose vehicle with Forward-like timing are not aliased: the SPE financing root holds them until the vehicle is identified."
   },
   {
    "entity": "Forward Funding",
@@ -16610,7 +16614,8 @@
    "business_type": "mca_or_revenue_based_funder",
    "aliases": [
     "LCF",
-    "LCFGROUPIN"
+    "LCFGROUPIN",
+    "LCFGROUPINC"
    ],
    "status": "admitted",
    "short_alias_reason": "LCF is the ACH company name The LCF Group, Inc. (formerly Last Chance Funding) prints with its LC-numbered contracts and SCHEDULED REMITTANCE; in the payee index every row with the word LCF is this funder's, and the research found no other financial company called LCF.",
@@ -16718,7 +16723,7 @@
     "https://debanked.com/tag/lcf-group/",
     "https://debanked.com/tag/last-chance-funding/"
    ],
-   "notes": "Merchant cash advance / revenue-based funder (Lake Success / New Hyde Park NY; formerly Last Chance Funding; parent of Reliant Funding), Virginia sales-based financing registrant. LCFGROUPIN is its PayPal card-payment form. Decision 2026-09-25 (owner delegated to the orchestrator): bare LCF stays: the funder's ACH rows print LCF followed only by digits and contract numbers (no longer name), and every key with the word LCF in both sources is this funder's."
+   "notes": "Merchant cash advance / revenue-based funder (Lake Success / New Hyde Park NY; formerly Last Chance Funding; parent of Reliant Funding), Virginia sales-based financing registrant. LCFGROUPIN is its PayPal card-payment form. Decision 2026-09-25 (owner delegated to the orchestrator): bare LCF stays: the funder's ACH rows print LCF followed only by digits and contract numbers (no longer name), and every key with the word LCF in both sources is this funder's. Audit fix batch B6 (I22, 2026-10-01): adds LCFGROUPINC, the run-together ACH name of a credit from this funder (printed with a reference glued after it, which the known-payee index's digit arm reads), beside its LCF debits in the same statement."
   },
   {
    "entity": "THORO CORP",
@@ -37940,7 +37945,9 @@
    "business_type": "personal_or_consumer_loan",
    "aliases": [
     "BRIGIT COM",
-    "BRIGIT NEW YORK"
+    "BRIGIT NEW YORK",
+    "INSTPMNTIN BRIGIT",
+    "RTP CREDIT BRIGIT"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -37986,7 +37993,7 @@
     "https://chargeondebitcard.com/brigit-protection-charge-on-debit-card/",
     "https://www.hellobrigit.com/"
    ],
-   "notes": "A consumer cash-advance app: the owner's rulings (2026-09-24) put consumer lenders and cash-advance apps in Personal loans. Brigit (Bridge IT, Inc., New York) offers Instant Cash advances, a credit builder and a line of credit with a monthly membership (r4 upheld). Bare BRIGIT is not used (a personal name); the two aliases cover every spelling in the corpus."
+   "notes": "A consumer cash-advance app: the owner's rulings (2026-09-24) put consumer lenders and cash-advance apps in Personal loans. Brigit (Bridge IT, Inc., New York) offers Instant Cash advances, a credit builder and a line of credit with a monthly membership (r4 upheld). Bare BRIGIT is not used (a personal name); the two aliases cover every spelling in the corpus. Audit fix batch B6 (I49, 2026-10-01): adds the instant-payment forms of its advances, INSTPMNTIN BRIGIT (PNC's instant-payment credit) and RTP CREDIT BRIGIT (the RTP network's), each the rail label before the app's name, beside the app's own debits in the same statements; bare BRIGIT is still never used."
   },
   {
    "entity": "Cash 4 You Corp",
@@ -39715,7 +39722,8 @@
    "group": "personal_loan",
    "business_type": "personal_or_consumer_loan",
    "aliases": [
-    "MONEYLION"
+    "MONEYLION",
+    "ML PLUS LLC"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -39740,7 +39748,7 @@
     "https://www.moneylion.com/",
     "https://www.nerdwallet.com/personal-loans/learn/moneylion-cash-advance"
    ],
-   "notes": "MoneyLion (MoneyLion Technologies Inc.): consumer fintech with Instacash cash advances, Credit Builder Plus loans and a paid membership, besides banking; cash-advance apps are personal loans under the owner's rulings. The ACH originator prints MONEYLION alone, so a debit may be an advance repayment, a Credit Builder payment or the membership fee; a row with transfer wording stays a transfer (spec 4.3 step 6 runs before the payee matcher)."
+   "notes": "MoneyLion (MoneyLion Technologies Inc.): consumer fintech with Instacash cash advances, Credit Builder Plus loans and a paid membership, besides banking; cash-advance apps are personal loans under the owner's rulings. The ACH originator prints MONEYLION alone, so a debit may be an advance repayment, a Credit Builder payment or the membership fee; a row with transfer wording stays a transfer (spec 4.3 step 6 runs before the payee matcher). Audit fix batch B6 (I49, 2026-10-01): adds ML PLUS LLC, the company that pays its Instacash advances by instant payment and RTP (the rows print INSTACASH FUNDS beside it, and the same statements repay through INSTACASH REPAYMENT and MONEYLION debits); not INSTACASH alone, which misses the RTP form."
   },
   {
    "entity": "NATIONAL MONEY (probably Money Mart)",
@@ -40571,7 +40579,8 @@
    "group": "personal_loan",
    "business_type": "personal_or_consumer_loan",
    "aliases": [
-    "SOFI BANK PL"
+    "SOFI BANK PL",
+    "SOFI PL DISB"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -40607,7 +40616,7 @@
     "https://www.sofi.com/credit-card/",
     "https://www.credible.com/lending-partners"
    ],
-   "notes": "SoFi Bank, N.A.: consumer personal-loan (PL) payments. Only the PL spelling is used: SOFI BANK ONLINE PMT could pay a loan or the SoFi card (round 4 unresolved), and bare SOFI or SOFI BANK would catch transfers to SoFi bank accounts, the SoFi card (candidate C0982) and the SoFi Plus membership (candidate C0767)."
+   "notes": "SoFi Bank, N.A.: consumer personal-loan (PL) payments. Only the PL spelling is used: SOFI BANK ONLINE PMT could pay a loan or the SoFi card (round 4 unresolved), and bare SOFI or SOFI BANK would catch transfers to SoFi bank accounts, the SoFi card (candidate C0982) and the SoFi Plus membership (candidate C0767). Audit fix batch B6 (I49, 2026-10-01): adds SOFI PL DISB, the personal loan's disbursement (PL DISB) as an ACH credit prints it; anchored to SOFI, never a bare DISB, which also names factoring payouts and other counted rows."
   },
   {
    "entity": "SoFi Plus",
@@ -40999,7 +41008,10 @@
     "EMPOWER TILT",
     "TILTFIN",
     "PAID TO TILT",
-    "PULL TILT"
+    "PULL TILT",
+    "TILT CASH",
+    "INSTPMNTIN EMPOWER",
+    "RTP CREDIT EMPOWER"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -41089,7 +41101,7 @@
     "https://tilt.com/terms",
     "https://cdn.tilt.com/legal/Tilt%20Subscription%20Agreement.pdf"
    ],
-   "notes": "A consumer cash-advance app: the owner's rulings (2026-09-24) put consumer lenders and cash-advance apps in Personal loans. Tilt (Empower Finance until August 2025) offers cash advances, a line of credit and credit cards (r1, r3 and r4 upheld). Bare TILT is never used (an ordinary word; it reaches other payees), so rows printing only TILT with a reference stay unmatched. Decision 2026-09-25 (owner delegated to the orchestrator): Takes PAID TO TILT and PULL TILT from the folded review records. The pinned Navy Fed June 2026 statement prints one PAID TO TILT debit, so S2 Task 0's EXPECTED 'Navy Fed June' becomes (1, 0, 0.0, 0): one non-card debit row claimed (personal_loan), no lender row, no potential-registry hit."
+   "notes": "A consumer cash-advance app: the owner's rulings (2026-09-24) put consumer lenders and cash-advance apps in Personal loans. Tilt (Empower Finance until August 2025) offers cash advances, a line of credit and credit cards (r1, r3 and r4 upheld). Bare TILT is never used (an ordinary word; it reaches other payees), so rows printing only TILT with a reference stay unmatched. Decision 2026-09-25 (owner delegated to the orchestrator): Takes PAID TO TILT and PULL TILT from the folded review records. The pinned Navy Fed June 2026 statement prints one PAID TO TILT debit, so S2 Task 0's EXPECTED 'Navy Fed June' becomes (1, 0, 0.0, 0): one non-card debit row claimed (personal_loan), no lender row, no potential-registry hit. Audit fix batch B6 (I49, 2026-10-01): adds TILT CASH (its card-network push, TILT CASH <reference>) and its advances' instant-payment forms under its former name: INSTPMNTIN EMPOWER (PNC's instant-payment credit) and RTP CREDIT EMPOWER, which the known-payee index reads only where a reference code or nothing follows them (REFERENCE_TIED_ALIASES), so a company named Empower paying by instant payment or RTP is never read; bare EMPOWER is never used (a customer named Empower pays by accounts payable)."
   },
   {
    "entity": "Time Financing Service",
@@ -42972,7 +42984,8 @@
    "group": "factoring",
    "business_type": "factoring",
    "aliases": [
-    "TREADSTONE US CAPITAL"
+    "TREADSTONE US CAPITAL",
+    "TREADSTONE OPER"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -42997,7 +43010,7 @@
     "https://www.treadstonecap.com/",
     "https://www.treadstoneus.com/"
    ],
-   "notes": "Boutique transportation factoring company (Marietta, Georgia; remittance entity in Cincinnati). For the orchestrator: the frequent TREADSTONE OPER payment credits in the same accounts are probably this factor's operating account, but no round confirmed that spelling, so it is not an alias and awaits an alias review. Bare TREADSTONE is not an alias: Treadstone Funding is an unrelated mortgage lender."
+   "notes": "Boutique transportation factoring company (Marietta, Georgia; remittance entity in Cincinnati). For the orchestrator: the frequent TREADSTONE OPER payment credits in the same accounts are probably this factor's operating account, but no round confirmed that spelling, so it is not an alias and awaits an alias review. Bare TREADSTONE is not an alias: Treadstone Funding is an unrelated mortgage lender. Audit fix batch B6 (I25, 2026-10-01; the alias review): TREADSTONE OPER is added. The audit's three verifiers found the spelling paying one trucking carrier month after month, beside one wire from TREADSTONE US CAPITAL to the same carrier, with no freight broker paying it directly, and the firm's site describes transportation factoring with fuel advances; the operating account is the factor's. The spelling is matched whole, so Treadstone Transport or Treadstone Logistics, carriers of their own, never are."
   },
   {
    "entity": "AFCO Credit Corporation",
@@ -43628,7 +43641,9 @@
     "IPFSPMTMOK",
     "IPFSPMTSCC",
     "IPFSPMTTXH",
-    "IPFSPMTWAS"
+    "IPFSPMTWAS",
+    "IPFSFNDFLP",
+    "IPFSFLP"
    ],
    "status": "admitted",
    "short_alias_reason": "IPFS is the company's own name as statements print it and the spelling the owner named (spec section 2); the premium-finance table is read only inside the insurance rule, and in the local corpus IPFS reaches only IPFS premium-finance payments.",
@@ -43725,7 +43740,7 @@
     "https://ipfscanada.com/for-customers/",
     "https://www.hubinternational.com/landing-pages/financial/premium-payments/"
    ],
-   "notes": "Insurance premium finance company (IPFS Corporation, formerly Imperial PFS, Kansas City; with Imperial PFS Canada). IPFS is the owner-named spelling. Statements also print IPFS fused with an office code (IPFSPMT and a state code), which bare IPFS cannot match, so those spellings are kept; broker-prefixed spellings (ZENSURANCE IPFS, MANGO IPFS, MAXXCANN IPFS, HUB IPFS) are matched by IPFS. IPFS of New York, LLC is a separate entity of another batch with longer spellings. Rows that print IPFS fused with a long digit run cannot be aliased (privacy rule)."
+   "notes": "Insurance premium finance company (IPFS Corporation, formerly Imperial PFS, Kansas City; with Imperial PFS Canada). IPFS is the owner-named spelling. Statements also print IPFS fused with an office code (IPFSPMT and a state code), which bare IPFS cannot match, so those spellings are kept; broker-prefixed spellings (ZENSURANCE IPFS, MANGO IPFS, MAXXCANN IPFS, HUB IPFS) are matched by IPFS. IPFS of New York, LLC is a separate entity of another batch with longer spellings. Rows that print IPFS fused with a long digit run cannot be aliased (privacy rule). Audit fix batch B6 (I24, 2026-10-01): on a credit, the premium-finance lookup reads a one-word alias with a digit run glued after it (IPFS and its office number, IPFSFLP and its code), and the funding spellings IPFSFNDFLP and IPFSFLP are added, so every IPFS credit takes the one insurance treatment (spec section 4.2); debits keep their reading."
   },
   {
    "entity": "IPFS of New York, LLC",

@@ -1825,6 +1825,85 @@ def test_narrowing_10_counts_a_processor_s_card_payout(text, state, method, tier
     assert census.PROCESSOR_CARD_PAYOUT_METHOD == PROCESSOR_CARD_PAYOUT_METHOD
 
 
+FACTOR_REVIEW_ROW = "SAMPLE CAPITAL DES SAMPLE CAP ID ## INDN NORTHWIND PLUMBING LLC CO ID ########## CCD"
+
+
+@pytest.mark.parametrize(("state", "tier", "reason", "facts", "narrowing", "fails"), [
+    # Audit B6 (I10, §6.3 narrowing 10, the census's eleventh): a factoring review entity's credit leaves the potential
+    # tier's exclusion, counted and flagged as a factoring payout (the pass's own factoring_review fact).
+    ("unverified_deposit", "counted_flagged", "factoring_payout", {"factoring_review": True},
+     "11_factoring_review_payout", False),
+    # Held (a hold that names it first) stays out of True: still the narrowing, no failure.
+    ("unverified_deposit", "excluded_pending_review", "possible_return", {"factoring_review": True},
+     "11_factoring_review_payout", False),
+    # Never verified.
+    ("verified_revenue", "verified", None, {"factoring_review": True}, "11_factoring_review_payout", True),
+    # Without the fact, a potential-tier credit that left non_revenue is outside the narrowings.
+    ("unverified_deposit", "counted_flagged", "factoring_payout", {}, "outside_the_narrowings", True),
+])
+def test_narrowing_11_counts_a_factoring_review_entity_s_payout(state, tier, reason, facts, narrowing, fails):
+    base = _snap("5.6", {"a": _account([_credit(0, 300000, "non_revenue", "potential_lender_registry_credit_exclusion",
+                                                tier="non_revenue", text=FACTOR_REVIEW_ROW)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 300000, state, "unidentified_posted_credit", tier=tier,
+                                                 reason=reason, text=FACTOR_REVIEW_ROW, **facts)])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+    assert dict(census.NARROWINGS)["11_factoring_review_payout"] is True
+
+
+def test_b6_the_snapshot_reads_a_factoring_review_payout_with_no_guard_failure():
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="Bank of America", account_name="NORTHWIND PLUMBING LLC", transactions=[
+        Transaction(date=f"2054-03-0{day}", description=(
+            f"EAGLE CAPITAL DES:EAGLE CAP ID:{day} INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD"),
+            amount=3000.0 + day, direction="credit")
+        for day in (2, 3)
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    for credit in snap["credits"]:
+        assert (credit["tier"], credit["reason"]) == ("counted_flagged", "factoring_payout")
+        assert credit["facts"]["factoring_review"] and credit["facts"]["claimed"]
+        assert not any(census._row_guards(credit).values())
+    base = {**snap, "credits": [
+        {**credit, "state": "non_revenue", "method": "potential_lender_registry_credit_exclusion",
+         "tier": "non_revenue", "reason": None}
+        for credit in snap["credits"]
+    ]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert list(run["left_non_revenue"]) == ["11_factoring_review_payout"] and "G1" not in run["guards"]
+
+
+CELTIC_ROW = "CELTIC BANK DES XXXXXXXXX ID # INDN NORTHWIND PLUMBING LLC CO ID ########## CCD"
+TREADSTONE_ROW = "TREADSTONE OPER DES PAYMENT ID # INDN NORTHWIND PLUMBING LLC CO ID ########## CCD"
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    # Audit B6 (I23): a Q6 repeat of a lending bank, now held as financing (the pass's own lending_bank reading).
+    (_q56("named_payer_repeats", CELTIC_ROW),
+     _after56("unidentified_posted_credit", CELTIC_ROW, tier="excluded_pending_review",
+              reason="financing_named_payer", hold_rule="lending_bank"), "q5_q6_held_lending_bank"),
+    (_q56("named_payer_repeats", CELTIC_ROW),
+     _after56("unidentified_posted_credit", CELTIC_ROW, tier="excluded_pending_review",
+              reason="financing_named_payer"), "undeclared"),
+    (_q56("named_payer_repeats", CELTIC_ROW),
+     _after56("unidentified_posted_credit", CELTIC_ROW, tier="excluded_pending_review",
+              reason="payer_also_debited", hold_rule="lending_bank"), "undeclared"),
+    # Audit B6 (I25): a Q6 repeat of a factor's spelling the ledger now names, counted and flagged as its payout (the
+    # payout_or_factoring fact: a factoring known payee).
+    (_q56("named_payer_repeats", TREADSTONE_ROW),
+     _after56("unidentified_posted_credit", TREADSTONE_ROW, tier="counted_flagged", reason="factoring_payout",
+              payout_or_factoring=True), "factor_never_verified"),
+    (_q56("named_payer_repeats", TREADSTONE_ROW),
+     _after56("unidentified_posted_credit", TREADSTONE_ROW, tier="counted_flagged", reason="named_payer_one_off",
+              payout_or_factoring=True), "undeclared"),
+])
+def test_b6_the_lending_bank_hold_and_the_factor_alias_are_declared_demotions(prior, later, cause):
+    causes, _ = _cause56(prior, later)
+    assert causes == {cause: 1}
+
+
 @pytest.mark.parametrize(("text", "cause"), [
     # Audit B3 (I04): step 3's 5.6 return, correction and refund spellings, read as the classifier reads them, are a
     # declared new non-revenue marker of the reversal rule.

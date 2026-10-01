@@ -796,6 +796,30 @@ def test_the_routing_keeps_every_routed_alias_in_the_potential_table():
     assert "Rivett Motor Credit" not in tables["VEHICLE_FINANCE_ALIASES"]
 
 
+# --- audit B6 (I10): factoring review entities, their credits a factoring payout ----------------------------------
+
+
+def test_review_entities_of_the_factoring_group_are_the_factoring_review_entities():
+    # Loxley is factoring (routed); Rivett is vehicle financing (5.3's debit routing, not this one); an admitted factor
+    # is in its own table already.
+    entities = _entities((11, "status", "review"), (6, "status", "review"))
+    assert lender_ledger.factoring_review_entities(entities) == ("Loxley Factoring",)
+    assert lender_ledger.factoring_review_entities(_entities()) == ()
+
+
+def test_a_factoring_review_entity_of_unknown_business_type_is_never_routed():
+    entities = _entities((11, "status", "review"), (11, "business_type", "unknown (payment code only)"))
+    assert lender_ledger.factoring_review_entities(entities) == ()
+
+
+def test_a_factoring_review_entity_keeps_its_aliases_in_the_potential_table():
+    entities = _entities((11, "status", "review"))
+    tables = lender_ledger.render_tables(entities)
+    assert tables["POTENTIAL_LENDER_ALIASES"]["Loxley Factoring"] == ("LOXLEY FACTORING",)
+    assert "Loxley Factoring" not in tables["FACTORING_ALIASES"]
+    assert "Loxley Factoring" not in lender_ledger.review_flag_entities(entities)
+
+
 # --- 5.3 (owner ruling 2026-09-27): the Debt relief group --------------------------------------------------------
 
 

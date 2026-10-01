@@ -72,7 +72,11 @@ def test_the_validator_refuses_a_factoring_payer_alias_another_table_holds(monke
                for problem in operating_registry.problems())
 
 
-@pytest.mark.parametrize("name", ["OWNER_MONEY_PLATFORMS", "SECTION_15_DEFERRED_PAYERS"])
+@pytest.mark.parametrize("name", [
+    "OWNER_MONEY_PLATFORMS", "SECTION_15_DEFERRED_PAYERS",
+    # Audit B6 (I23, I49): the lending banks and the earned-wage access providers.
+    "LENDING_BANK_CREDIT_PAYERS", "EARNED_WAGE_ACCESS_PAYERS",
+])
 def test_the_validator_refuses_an_owner_money_or_deferred_pattern_that_reads_an_operating_source(monkeypatch, name):
     monkeypatch.setattr(registry, name, r"(?<![A-Z])(?:FABRIKAM WEALTH|SQUARE)\b")
     assert any(f"{name} reads the operating alias 'SQUARE'" in problem for problem in operating_registry.problems())

@@ -133,11 +133,14 @@ def test_registry_match_agrees_with_the_legacy_matcher_on_every_alias_of_the_liv
 
 
 def test_match_known_payee_is_the_index_over_payee_group_registries():
-    index = AliasIndex(registry.PAYEE_GROUP_REGISTRIES)
+    # Audit B6: the debit (default) index leaves out the credit-only aliases; the credit index reads every alias.
+    index = AliasIndex(registry.PAYEE_GROUP_REGISTRIES, excluded=registry.CREDIT_ONLY_ALIASES)
+    credit_index = AliasIndex(registry.PAYEE_GROUP_REGISTRIES)
     texts = [normalize(f"ACH DEBIT {alias}") for table in registry.PAYEE_GROUP_REGISTRIES.values()
              for aliases in table.values() for alias in aliases]
     for text in [*texts, *TEXTS]:
         assert match_known_payee(text) == index.match(text)
+        assert match_known_payee(text, credit=True) == credit_index.match(text)
 
 
 # --- 5.3 (owner ruling 2026-09-27): digits glued to the last word of a multi-word alias --------------------------

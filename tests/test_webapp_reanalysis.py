@@ -1018,7 +1018,7 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
 
     keys = {group.key for group in FLAG_GROUPS}
     rows, deposits = _every_group_rows()
-    monkeypatch.setattr(transaction_classifier, "match_known_payee", lambda normalized_text: None)
+    monkeypatch.setattr(transaction_classifier, "match_known_payee", lambda normalized_text, *, credit=False: None)
     monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES", {})
     job_id = pipeline.upload(_saved_under_old_rules(_payload(rows)))
     for location in deposits:

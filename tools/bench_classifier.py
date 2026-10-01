@@ -26,9 +26,12 @@ from analysis.schema import Statement, Transaction  # noqa: E402
 REQUIRED_SPEEDUP = 10.0
 
 
-def legacy_registry_match(text: str, registry: dict[str, tuple[str, ...]]) -> tuple[str, str] | None:
+def legacy_registry_match(
+    text: str, registry: dict[str, tuple[str, ...]], *, glued_digits: bool = False,
+) -> tuple[str, str] | None:
     """The classifier's ``_registry_match`` before S1, verbatim in behaviour: re-normalizes and re-sorts
-    every alias on every call. Kept only as the reference for parity and speed."""
+    every alias on every call. Kept only as the reference for parity and speed. `glued_digits` (audit B6) is
+    accepted and ignored: the pre-S1 algorithm had no glued-digit arm."""
     candidates = ((canonical, alias) for canonical, aliases in registry.items() for alias in aliases)
     for canonical, alias in sorted(
         candidates,
@@ -43,8 +46,9 @@ def legacy_registry_match(text: str, registry: dict[str, tuple[str, ...]]) -> tu
     return None
 
 
-def legacy_match_known_payee(normalized_text: str) -> PayeeMatch | None:
-    """The known-payee lookup done the pre-S1 way: one legacy scan per group registry."""
+def legacy_match_known_payee(normalized_text: str, *, credit: bool = False) -> PayeeMatch | None:
+    """The known-payee lookup done the pre-S1 way: one legacy scan per group registry. `credit` (audit B6) is
+    accepted and ignored: the pre-S1 algorithm read credits and debits alike."""
     best: tuple[int, PayeeMatch] | None = None
     for state, registry in PAYEE_GROUP_REGISTRIES.items():
         found = legacy_registry_match(normalized_text, registry)

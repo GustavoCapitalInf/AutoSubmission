@@ -93,7 +93,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "DLP Funding LLC": ("DLP FUND", "DLP FUNDING", "DLPBUS FUND"),
     "DMS Equities LLC": ("DMS EQUITIES LLC", "DMS EQUITIES"),
     "Driven Financial Technologies Corporation": ("DRIVEN FINANCIA",),
-    "East Shore Equities LLC": ("ESENOW", "EAST SHORE EQUITIES"),
+    "East Shore Equities LLC": ("ESENOW", "EAST SHORE EQUITIES", "EAST SHORE EQU"),
     "Econolease": ("VLFC ECONOLEASE", "VLFC ECONO LEASE", "ECONOLEASE"),
     "Edge Capital": ("CRC EDGE",),
     "Elect Capital": ("ELECT CAPITAL", "ELECT CANADA"),
@@ -149,6 +149,9 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "FORWARD FINANCINFF",
         "FORWARDFINANCING",
         "FORWARD FIN",
+        "FORWARDFINUSA",
+        "FORWARD FIN USA",
+        "FORWARD FINANCING USA",
     ),
     "Forward Funding": ("FORWARD FUNDING",),
     "Fox Funding Group, LLC": ("FOX FUNDING GRP", "FOX FUNDING GROUP", "FOXFUNDINGGROUPL"),
@@ -337,7 +340,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Tandem Finance, Inc": ("TANDEM FINANCE",),
     "Targeted Lending Co., LLC": ("TARGETED LENDING",),
     "TFG Financial Corporation": ("TFG FINANCIAL CORPORATION",),
-    "The LCF Group, Inc": ("LCF", "LCFGROUPIN"),
+    "The LCF Group, Inc": ("LCF", "LCFGROUPIN", "LCFGROUPINC"),
     "THORO CORP": ("THORO CORP",),
     "Thriveway Funding Group, LLC": ("THRIVEWAYFUNDING", "THRIVEWAY FUNDING"),
     "TIAA Commercial Finance, Inc.": ("TIAA COMM FINANC",),
@@ -948,7 +951,7 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
     "Borrowell": ("BORROWELL PAY",),
     "Bright Lending": ("BRIGHTLENDING", "BRGHT LENDING"),
     "Bright Money": ("BRIGHT MONEY",),
-    "Brigit": ("BRIGIT COM", "BRIGIT NEW YORK"),
+    "Brigit": ("BRIGIT COM", "BRIGIT NEW YORK", "INSTPMNTIN BRIGIT", "RTP CREDIT BRIGIT"),
     "Cash 4 You Corp": ("CASH 4 YOU",),
     "Cashli": ("CASHLI",),
     "Cleo AI": (
@@ -990,7 +993,7 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
     "LOANME": ("LOANME",),
     "Mariner Finance, LLC": ("MARINER FINANCE",),
     "MaxLend": ("MAXLEND",),
-    "MoneyLion": ("MONEYLION",),
+    "MoneyLion": ("MONEYLION", "ML PLUS LLC"),
     "NETCREDIT": ("NETCREDIT", "CCBANK NTC"),
     "New Southern Loans, Inc": ("NEW SOUTHERN LOANS",),
     "New York Life Insurance Company": ("NYLIC LOAN BAL",),
@@ -1006,7 +1009,7 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
     "RushApprove": ("RUSHAPPROVE",),
     "Sallie Mae Bank": ("SLMLOANPMT", "AUTOPAY SALLIE MAE BANK"),
     "Self Financial, Inc (credit builder)": ("SELF LENDER", "SELF FINANCIAL", "LEADBANKSELFLEND PAYMENTS"),
-    "SoFi Bank, N.A.": ("SOFI BANK PL",),
+    "SoFi Bank, N.A.": ("SOFI BANK PL", "SOFI PL DISB"),
     "SoLo Funds": ("SOLOFUND",),
     "Speedy Cash": ("SPEEDY CASH",),
     "Spotloan": ("SPOTLOAN",),
@@ -1022,6 +1025,9 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
         "TILTFIN",
         "PAID TO TILT",
         "PULL TILT",
+        "TILT CASH",
+        "INSTPMNTIN EMPOWER",
+        "RTP CREDIT EMPOWER",
     ),
     "Time Financing Service": ("TIME FINANCING",),
     "TitleMax": ("TITLEMAX",),
@@ -1070,7 +1076,7 @@ FACTORING_ALIASES: dict[str, tuple[str, ...]] = {
     "RTS Financial Service, Inc": ("RTS FINANCIAL", "RTS FINANCIAL SERVICE"),
     "Scale Funding": ("SCALE FUNDING",),
     "Stenn Assets UK Ltd (Stenn)": ("STENN ASSETS", "STENN INTERNATIONAL"),
-    "Treadstone US Capital, LLC": ("TREADSTONE US CAPITAL",),
+    "Treadstone US Capital, LLC": ("TREADSTONE US CAPITAL", "TREADSTONE OPER"),
 }
 
 #: Debt relief: debt-settlement account processors and debt-relief firms (flagged, never lender math).
@@ -1143,6 +1149,8 @@ PREMIUM_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "IPFSPMTSCC",
         "IPFSPMTTXH",
         "IPFSPMTWAS",
+        "IPFSFNDFLP",
+        "IPFSFLP",
     ),
     "IPFS of New York, LLC": ("IPFS OF NEW YORK",),
     "Johnson & Johnson Preferred Financing, Inc": ("JJPF PAYMENTS",),
@@ -1350,6 +1358,13 @@ REVIEW_FLAG_ENTITIES: dict[str, str] = {
     "WESTLAKE (probably Westlake Financial Services)": "vehicle_financing",
 }
 
+#: Audit B6 (I10): factoring review entities, their credits a factoring payout, unconfirmed.
+FACTORING_REVIEW_ENTITIES: tuple[str, ...] = (
+    "EAGLE CAPITAL (unconfirmed factoring payer)",
+    "Primary Capital Solutions",
+    "Texoma Capital LLC",
+)
+
 # --- END GENERATED: tools/build_lender_registry.py ---
 
 #: Compatibility name (spec section 5): the lender table under its old name.
@@ -1370,6 +1385,19 @@ PAYEE_GROUP_REGISTRIES: dict[str, dict[str, tuple[str, ...]]] = {
     "lease_or_rental": LEASE_RENTAL_ALIASES,
     "credit_card_payment": CARD_ISSUER_ALIASES,
 }
+
+#: Audit B6 (I49; lender detection spec §4.6): known-payee aliases the matcher reads only where a reference code (a
+#: token with a digit) or nothing follows them, in their spaced and run-together forms. Tilt's cash advance printed on
+#: the RTP network as 'RTP CREDIT EMPOWER <reference>', or as PNC's instant payment 'INSTPMNTIN EMPOWER <mm> <dd>
+#: <reference>', is the app's; a company named Empower... paying by RTP or instant payment prints its name after the
+#: word ('RTP CREDIT EMPOWER SOLUTIONS ...') and is no advance. Each is a ledger alias.
+REFERENCE_TIED_ALIASES: frozenset[str] = frozenset({"RTP CREDIT EMPOWER", "INSTPMNTIN EMPOWER"})
+
+#: Audit B6 (I22; lender detection spec §4.6): ledger aliases the known-payee matcher reads on credits only
+#: (analysis.payee_matcher's credit index). The LCF Group's run-together name is printed on its funding credits; on a
+#: debit it is also the receiver id of a PayPal eCheck to the funder, a lender debit the G7 allowlist has not signed
+#: off, so debits keep today's reading until the owner rules.
+CREDIT_ONLY_ALIASES: frozenset[str] = frozenset({"LCFGROUPINC"})
 
 
 # --- Hand-kept inputs of the ledger validator (tools/lender_ledger.py) ---
@@ -2027,6 +2055,23 @@ OWNER_MONEY_PLATFORMS: str = (
     r"|FIDELITY (?:BROKERAGE|INVESTMENTS?)|VANGUARD (?:MARKETING|GROUP|BROKERAGE|FIDUCIARY|INVESTMENTS?|FUNDS?)"
     r"|CRYPTO COM|GEMINI TRUST)\b"
 )
+
+#: Audit B6 (I23; §8.1 T4, Q6 "lenders never count", standard C2): banks that lend to small businesses on their own
+#: account or as a fintech's lender of record, as a regular expression read on a credit's payer region
+#: (analysis/true_revenue.py compiles it). Their credit is more often loan proceeds or the holder's own funds than a
+#: customer's payment: held as financing_named_payer, which a person may review. Credits only: no debit alias (the
+#: delegated decision of 2026-09-25 keeps a bare CELTIC BANK out of the debit tables). Celtic Bank (Salt Lake City, an
+#: SBA lender and the issuing bank of OnDeck's loans and of Bluevine's line of credit, celticbank.com; the ledger's
+#: 'Celtic Bank [bank name]' and 'Celtic Bank (Bluevine line of credit)' records); Newtek Bank, N.A. (Newtek One's
+#: national bank, an SBA 7(a) lender, newtekone.com).
+LENDING_BANK_CREDIT_PAYERS: str = r"(?<![A-Z])(?:CELTIC BANK|NEWTEK BANK)\b"
+
+#: Audit B6 (I49; Q8, §8.1 payroll_or_salary): earned-wage access providers, whose push to an account is a worker's
+#: wages from another company paid early, as a regular expression read on the row before its receiver fields
+#: (analysis/true_revenue.py compiles it): held as payroll_or_salary. PayActiv (payactiv.com) and DailyPay
+#: (dailypay.com) are employer-sponsored earned-wage access providers. Glued as they print; a spaced 'DAILY PAY' is
+#: a payer's own words.
+EARNED_WAGE_ACCESS_PAYERS: str = r"(?<![A-Z])(?:PAYACTIV|DAILYPAY)\b"
 
 #: 5.6 (§15, §19 OQ4; S4.2 review I6a): the payers of the deferred family items, which stay counted and flagged until
 #: the owner rules on each, as a regular expression read with the receiver field's value removed

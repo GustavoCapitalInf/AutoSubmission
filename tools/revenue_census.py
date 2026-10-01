@@ -99,7 +99,12 @@ NARROWINGS = (
     # Audit B3 (I11): §6.3's narrowing 9: a merchant processor's instant payout printed as a card credit, beside the
     # processor's own ACH activity, leaves the reversal rule counted and flagged, never verified.
     ("10_processor_card_payout", True),
+    # Audit B6 (I10): §6.3's narrowing 10: a factoring review entity's credit leaves the potential tier's exclusion,
+    # counted and flagged as a factoring payout (the factoring ruling of 2026-09-26), never verified.
+    ("11_factoring_review_payout", True),
 )
+#: The narrowings that lead to True only counted and flagged, never verified (audit B3: I11; audit B6: I10).
+COUNTED_ONLY_NARROWINGS = frozenset({"10_processor_card_payout", "11_factoring_review_payout"})
 #: Audit B3 (I11): the method the true-revenue pass gives a released processor card payout
 #: (analysis/true_revenue.py PROCESSOR_CARD_PAYOUT_METHOD, copied: the census reads other checkouts).
 PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
@@ -143,6 +148,8 @@ DECLARED_DEMOTIONS = (
     # Audit B5 (I15, I55): a Q5 or Q6 repeat keyed on a bank's label, entry or reference, now that the payer region
     # reads the payer printed after it (or no payer, where only an empty label prints).
     "q5_q6_payer_after_a_label",
+    # Audit B6 (I23): a Q5 or Q6 repeat of a bank that lends to small businesses, now held as financing.
+    "q5_q6_held_lending_bank",
 )
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
 #: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
@@ -162,6 +169,8 @@ LATER_HOLD_CAUSES = {
     ("non_sale_purpose", "owner_money"): "q5_q6_held_owner_money",
     ("financing_named_payer", "bank_originated_wire"): "q5_q6_held_bank_originated_wire",
     ("financing_named_payer", "financing_root"): "q5_q6_held_financing_root",
+    # Audit B6 (I23): a bank that lends to small businesses, named as the payer.
+    ("financing_named_payer", "lending_bank"): "q5_q6_held_lending_bank",
     # GOV (the owner's ruling of 2026-09-30): government money the business did not earn.
     ("personal_income", "government_benefit"): "q5_q6_held_government_benefit",
     ("non_sale_purpose", "government_grant"): "q5_q6_held_government_grant",
@@ -1357,6 +1366,10 @@ def _narrowing(base: dict, after: dict) -> str | None:
         return "6_card_credit_release"
     if base_method == "financing_proceeds_credit" and after["method"] == "auto_lender_dealer_funding":
         return "7_q7_dealer_funding"
+    # Audit B6 (I10, §6.3 narrowing 10): a factoring review entity's credit, routed to the factoring payout (the pass's
+    # own factoring_review fact).
+    if base_method == "potential_lender_registry_credit_exclusion" and facts.get("factoring_review"):
+        return "11_factoring_review_payout"
     # Review I1: only the five BNPL providers' settlements leave D1 by the OQ2 ruling.
     if (
         base_method == "financing_proceeds_credit"
@@ -1658,9 +1671,13 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         return "pool_below_recurrence_after_a_declared_veto"
     # I7 (§20, A3-H review). (a) any verifying rule; (b) counted and flagged as factoring_payout, by the pass's
     # overruling of an earlier rule (method factoring_payout_payer) or, for a Q5 or Q6 repeat, by its own factor
-    # reading (the factoring_payer fact).
+    # reading (the factoring_payer fact), or (audit B6: I25, I10) by a factoring payee the ledger names (the
+    # payout_or_factoring fact) or a factoring review entity (the factoring_review fact).
     if after.get("tier") == "counted_flagged" and after.get("reason") == "factoring_payout" and (
-        method == "factoring_payout_payer" or (base["method"] in Q5_Q6_METHODS and facts.get("factoring_payer"))
+        method == "factoring_payout_payer" or (
+            base["method"] in Q5_Q6_METHODS
+            and (facts.get("factoring_payer") or facts.get("payout_or_factoring") or facts.get("factoring_review"))
+        )
     ):
         return "factor_never_verified"
     if base["method"] in Q5_Q6_METHODS:
@@ -1903,8 +1920,9 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                         # the OQ2 ruling never releases a BNPL consumer-side credit into True.
                         or (in_true and cause in VERIFIED_ONLY_NARROWINGS and credit["state"] != "verified_revenue")
                         or (in_true and cause == "8_oq2_bnpl_settlement" and _BNPL_CONSUMER_WORDS.search(credit["text"]))
-                        # Audit B3 (I11): a released processor card payout is counted and flagged, never verified.
-                        or (cause == "10_processor_card_payout" and credit["state"] == "verified_revenue")
+                        # Audit B3 (I11), B6 (I10): a released processor card payout and a factoring review entity's
+                        # payout are counted and flagged, never verified.
+                        or (cause in COUNTED_ONLY_NARROWINGS and credit["state"] == "verified_revenue")
                     ):
                         failures["G1"].append({"account": key, "i": credit["i"], "cause": cause, "text": credit["text"]})
                     if cause == "8_oq2_bnpl_settlement":
