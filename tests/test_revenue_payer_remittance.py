@@ -114,13 +114,21 @@ def test_a_card_purchase_from_the_payer_is_no_counter_debit(card):
 
 
 def test_an_ach_debit_to_the_payer_is_still_a_counter_debit():
+    # Audit B4 (true revenue spec §20): the ACH debit pays the payer itself (DES:PAYMENT). A bill the holder pays it
+    # (DES:BILL PAY, EBPP, AUTOPAY...) is never circular money and leaves the remittance verified
+    # (tests/test_true_revenue_counter_debit.py).
     credit = Transaction(date="2054-03-02", description="NORTHWIND SUPPLY DES:VENDOR PAY ID:1", amount=5000.0,
                          direction="credit")
-    debit = Transaction(date="2054-03-03", description="NORTHWIND SUPPLY DES:BILL PAY ID:9", amount=-120.0,
+    debit = Transaction(date="2054-03-03", description="NORTHWIND SUPPLY DES:PAYMENT ID:9", amount=-120.0,
                         direction="debit")
     records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit, debit]))
     assert (records[0].revenue_classification, records[0].revenue_match_method) == (
         "unverified_deposit", "payer_remittance_with_counter_debit")
+    bill = Transaction(date="2054-03-03", description="NORTHWIND SUPPLY DES:BILL PAY ID:9", amount=-120.0,
+                       direction="debit")
+    records = classify_statement_transactions(Statement(account_name="SAMPLE CAFE LLC", transactions=[credit, bill]))
+    assert (records[0].revenue_classification, records[0].revenue_match_method) == (
+        "verified_revenue", "payer_remittance_descriptor")
 
 
 def test_a_card_form_debit_the_classifier_names_as_a_lender_is_still_a_counter_debit():

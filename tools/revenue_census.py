@@ -138,6 +138,8 @@ DECLARED_DEMOTIONS = (
     "platform_financing_entry",
     # GOV (the owner's ruling of 2026-09-30): a Q5 or Q6 row that is a government benefit (class B) or grant (class D).
     "q5_q6_held_government_benefit", "q5_q6_held_government_grant",
+    # Audit B4 (I38, I22, I56): a Q5 or Q6 row whose payer a debit now names (§8.1's counter-debit holds).
+    "q5_q6_held_counter_debit", "q5_q6_held_lender_counter_debit",
 )
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
 #: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
@@ -160,6 +162,11 @@ LATER_HOLD_CAUSES = {
     # GOV (the owner's ruling of 2026-09-30): government money the business did not earn.
     ("personal_income", "government_benefit"): "q5_q6_held_government_benefit",
     ("non_sale_purpose", "government_grant"): "q5_q6_held_government_grant",
+    # Audit B4 (I38, I22, I56): the counter-debit holds, which read the statement's debits (no row reading of their
+    # own): the glued and spaced spellings of one name, a reference split off a name, a funder's cut name read by
+    # prefix, a three-letter payroll provider.
+    ("payer_also_debited", None): "q5_q6_held_counter_debit",
+    ("payer_debited_as_lender", None): "q5_q6_held_lender_counter_debit",
 }
 #: The operating-registry methods (§8.9).
 REGISTRY_METHODS = frozenset({

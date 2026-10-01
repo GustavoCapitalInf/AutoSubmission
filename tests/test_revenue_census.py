@@ -1294,6 +1294,21 @@ def _cause56(prior, later):
     (_q56("payer_remittance_descriptor", PAYABLE),
      _after56("payer_remittance_with_counter_debit", PAYABLE, tier="excluded_pending_review",
               reason="payer_also_debited"), "counter_debit"),
+    # Audit B4 (I38, I22, I56): a Q5 or Q6 row whose payer a debit now names (a glued or spaced name, a split
+    # reference, a funder's cut name by prefix, a three-letter payroll provider): the counter-debit holds of §8.1.
+    (_q56("named_payer_company_form", ACH_ROW),
+     _after56("unidentified_posted_credit", ACH_ROW, tier="excluded_pending_review", reason="payer_also_debited"),
+     "q5_q6_held_counter_debit"),
+    (_q56("repeat_wire_sender", Q5_WIRE),
+     _after56("unidentified_posted_credit", Q5_WIRE, tier="excluded_pending_review", reason="payer_debited_as_lender"),
+     "q5_q6_held_lender_counter_debit"),
+    # Keyed on the hold alone: a counter-debit hold beside another hold reading, or another rule's row, is undeclared.
+    (_q56("named_payer_company_form", ACH_ROW),
+     _after56("unidentified_posted_credit", ACH_ROW, tier="excluded_pending_review", reason="payer_also_debited",
+              hold_rule="owner_money"), "undeclared"),
+    (_step_11(INVOICE),
+     _after56("unidentified_posted_credit", INVOICE, tier="excluded_pending_review", reason="payer_also_debited"),
+     "undeclared"),
     # The $1 floor's own method (pass 7's last step).
     ({**_q56("named_payer_repeats", ACH_ROW), "cents": 40},
      {**_after56("micro_deposit_floor", ACH_ROW, tier="excluded_pending_review", reason="non_sale_purpose"),

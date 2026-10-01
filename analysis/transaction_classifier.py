@@ -41,7 +41,15 @@ from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from .true_revenue import LENDER_DEBIT_STATES, DealerFunding, apply_true_revenue_pass, dealer_funding_reading
+from .true_revenue import (
+    DealerFunding,
+    also_debited,
+    apply_true_revenue_pass,
+    counter_credit,
+    counter_debits,
+    dealer_funding_reading,
+    debited_as_lender,
+)
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -5310,6 +5318,103 @@ def _debit_first_distinctive_word(record: TransactionClassification) -> str | No
     return _debit_word_reading(record)[0]
 
 
+#: Audit B4 (I02; standard A1, A5): words that never make a payer's or a debit's first distinctive word when passes 6
+#: and 7 compare a payer with the statement's debits (counter_debit_payer_reading), beside _counter_debit_skip_words.
+#: Generic words let unrelated companies match: '<initials> EXPRESS INC' against American Express, 'MERCHANT SERVICES'
+#: against another processor's 'MERCHANT SERVICE ... FEE', a utility against another utility, INCOME, PAIEMENT,
+#: POSTED, SERVICE, TRSFR. A bank's own name prints as its channel (a bank's online payment, its merchant deposit, its
+#: card, its ATM, its pay product), never as the payer the holder also pays; only the names the corpus prints that way
+#: are listed (a bank's name printed as the holder's own account at it, a transfer to or from the holder's savings
+#: there, keeps matching: the guard of audit B4 keeps every transfer and lender match as 5.6 read it).
+_COUNTER_DEBIT_GENERIC_WORDS = frozenset({
+    "MERCHANT", "UTILITIES", "EXPRESS", "INCOME", "PAIEMENT", "POSTED", "SERVICE", "SERVICES", "TRSFR",
+    "CHASE", "TRUIST", "BLUEVINE",
+})
+#: Audit B4 (I56): a payroll provider whose name has three letters is still a counter-debit word: an 'ADP TAX' credit
+#: beside the holder's own 'ADP TAX' debits is its tax impound coming back.
+_SHORT_PAYROLL_PROVIDER_WORDS = frozenset({"ADP"})
+#: Audit B4 (I22): a name with a reference glued after it ('FABRIKAMGROUPINC1', 'FORWARDFINUSA1'): its three or more
+#: letters, never a masked run of X, read as a word once the digits are split off.
+_GLUED_DIGIT_RUN = re.compile(r"(?<![A-Z0-9])(?!X+\d)([A-Z]{3,})(\d+)(?![A-Z0-9])")
+#: Audit B4 (I38): the words after the first distinctive word that its glued forms take ('CONTOSO RIDGE' is
+#: 'CONTOSORIDGE').
+_GLUED_FORM_WORDS = 2
+
+
+def _split_glued_digits(text: str) -> str:
+    """Audit B4 (I22): the text with each glued digit run split off its name ('FABRIKAMUSA1' reads 'FABRIKAMUSA 1')."""
+    return _GLUED_DIGIT_RUN.sub(r"\1 \2", text)
+
+
+@dataclass(frozen=True)
+class CounterDebitReading:
+    """Audit B4: how passes 6 and 7 compare a payer with a posted debit. `legacy` is the 5.6 first distinctive word
+    (_payer_first_distinctive_word, _debit_word_reading); a transfer, wire, person-to-person or lender debit still
+    matches on it. `keys` are the B4 forms: the first distinctive word read without _COUNTER_DEBIT_GENERIC_WORDS, a
+    three-letter payroll provider allowed (I56), and that word glued to the next one or two (I38: 'CONTOSO RIDGE'
+    matches 'CONTOSORIDGE'), read on the text as printed and with its glued digit runs split off (I22). `heads` are
+    each first word with the words after it, which payer_debited_as_lender's prefix comparison reads."""
+
+    legacy: str | None
+    keys: frozenset[str]
+    heads: tuple[tuple[str, tuple[str, ...]], ...]
+
+
+_NO_COUNTER_DEBIT_READING = CounterDebitReading(None, frozenset(), ())
+
+
+def _counter_debit_head(words: Sequence[str]) -> tuple[str, tuple[str, ...]] | None:
+    """Audit B4: the first distinctive word of `words` (four letters or more and no name-starter, or a three-letter
+    payroll provider), the generic words and banks' names left out, with the distinctive words after it."""
+    skip = _counter_debit_skip_words() | _COUNTER_DEBIT_GENERIC_WORDS
+    kept = [word for word in _distinctive_words(words) if word not in skip]
+    for index, word in enumerate(kept):
+        if (len(word) >= 4 and word not in _NAME_STARTERS) or word in _SHORT_PAYROLL_PROVIDER_WORDS:
+            return word, tuple(kept[index + 1:])
+    return None
+
+
+def _counter_debit_reading(legacy: str | None, readings: Sequence[Sequence[str]]) -> CounterDebitReading:
+    heads: list[tuple[str, tuple[str, ...]]] = []
+    for words in readings:
+        head = _counter_debit_head(words)
+        if head is not None and head not in heads:
+            heads.append(head)
+    keys = frozenset(
+        word + "".join(following[:count]) for word, following in heads for count in range(_GLUED_FORM_WORDS + 1)
+        if count <= len(following)
+    )
+    return CounterDebitReading(legacy, keys, tuple(heads))
+
+
+def counter_debit_payer_reading(region: str) -> CounterDebitReading:
+    """Audit B4: a credit's counter-debit reading, on its payer region (§5.2: never a receiver field)."""
+    if not region:
+        return _NO_COUNTER_DEBIT_READING
+    return _counter_debit_reading(
+        _payer_first_distinctive_word(region),
+        (payer_name(region).split(), payer_name(_split_glued_digits(region)).split()),
+    )
+
+
+def counter_debit_debit_reading(record: TransactionClassification) -> tuple[CounterDebitReading, bool]:
+    """Audit B4: a posted debit's counter-debit reading on its D11 payee words (a card purchase's merchant, as
+    _debit_word_reading reads it), and whether it is a card purchase. The glued-digit reading is taken only when the
+    printed one finds no word: D11 stops a name at its first reference, so splitting a leading reference
+    ('CHECK1234 <name>') would cut the name the printed text reads."""
+    legacy, card_purchase = _debit_word_reading(record)
+    text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
+    if card_form:
+        text = _card_merchant_text(text, record.original_description or "")
+        if text is None:
+            return _NO_COUNTER_DEBIT_READING, card_purchase
+    printed = _unknown_payee_tokens(text)
+    readings: list[Sequence[str]] = [printed]
+    if _counter_debit_head(printed) is None:
+        readings.append(_unknown_payee_tokens(_split_glued_digits(text)))
+    return _counter_debit_reading(legacy, readings), card_purchase
+
+
 def _apply_payer_remittance_counter_debit_guard(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
@@ -5318,21 +5423,19 @@ def _apply_payer_remittance_counter_debit_guard(
     posted debit in the same statement shares the payer's first distinctive word (an own account, an affiliate or a
     funder that collects). 5.6 (final review I5, §20): a card purchase the classifier names as no lender or financing
     payee is left out (_debit_word_reading's card flag), as pass 7's payer_also_debited leaves it out (8cb733b):
-    buying from a customer by card is spending, never the circular money the guard holds."""
-    debit_words = set()
-    for index, record in enumerate(records):
-        if index in duplicate_indexes or record.amount >= 0 or not record.is_posted:
-            continue
-        word, card_purchase = _debit_word_reading(record)
-        if word is None or (card_purchase and record.classification not in LENDER_DEBIT_STATES):
-            continue
-        debit_words.add(word)
+    buying from a customer by card is spending, never the circular money the guard holds. Audit B4 (I02, I38, I56):
+    the debits are read by kind as pass 7's holds read them (true_revenue.counter_debits, debited_as_lender,
+    also_debited): the bank's receiving fee, a processor's fee beside a settlement and a bill the holder pays never
+    demote the remittance; a lender debit is compared by whole words and registry entity, never by prefix (this pass
+    demotes a verified row)."""
+    debits = counter_debits(records, duplicate_indexes)
     updated = list(records)
     for index, record in enumerate(records):
         if record.revenue_match_method != "payer_remittance_descriptor":
             continue
-        word = _payer_first_distinctive_word(payer_region(revenue_text(record.normalized_description)))
-        if word is None or word not in debit_words:
+        text = revenue_text(record.normalized_description)
+        credit = counter_credit(record, text, payer_region(text))
+        if not (debited_as_lender(credit, debits, prefix=False) or also_debited(credit, debits)):
             continue
         updated[index] = _replace_revenue_state(
             record,

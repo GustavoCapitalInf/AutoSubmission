@@ -42,7 +42,7 @@ from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 from .revenue import revenue_contribution_flags
 
 if TYPE_CHECKING:
-    from .transaction_classifier import TransactionClassification
+    from .transaction_classifier import CounterDebitReading, TransactionClassification
 
 #: §8.1: the posting labels removed before a hold reads a row: §7.5's credit posting labels, the branch, card and
 #: batch CREDIT labels, and the channel phrases.
@@ -390,7 +390,7 @@ _REGISTRY_METHODS = frozenset({
 #: §5.3: tiers by revenue state; the two middle tiers are unverified.
 _TIER_OF_STATE = {"verified_revenue": "verified", "non_revenue": "non_revenue"}
 #: §8.10: the lender and financing debit states payer_debited_as_lender reads (and, final review I5, the states
-#: whose card purchase pass 6 still reads: transaction_classifier imports it).
+#: whose card purchase passes 6 and 7 still read: counter_debits, which pass 6 calls since audit B4).
 LENDER_DEBIT_STATES = frozenset({"confirmed_lender", "potential_lender"}) | FINANCING_STATES
 #: §7.5, the standing rule (S4.2 review I6b): brokerage, investing and crypto-exchange platforms (the registry's
 #: OWNER_MONEY_PLATFORMS, §7.0: a table that names companies lives there). A credit from one is the owner's own money
@@ -1498,29 +1498,238 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
     return None
 
 
-def _first_word(region: str) -> str | None:
-    return _classifier()._payer_first_distinctive_word(region)
+#: Audit B4 (I02; standard A5): the bank's own fee for an incoming wire or funds transfer, which reprints the sender's
+#: name (RBC's 'FUNDS TRANSFER FEE TT <sender>', 'WIRE TRANSFER FEE [FROM] <sender>', '[DOMESTIC] INCOMING WIRE FEE',
+#: 'WIRE FEE'): never circular money, so it never holds the wire (_COUNTER_DEBIT_KINDS).
+_RECEIVING_FEE_DEBIT = re.compile(
+    r"(?<![A-Z])(?:FUNDS TRANSFER|WIRE(?: TRANSFER| TRANS| TFR| IN)?) (?:FEES?|CHG|CHARGE|SVC CHARGE)\b"
+    r"|(?<![A-Z])INCOMING (?:FUNDS TRANSFER |WIRE (?:TRANSFER )?)?(?:FEES?|CHG|CHARGE)\b"
+)
+#: Audit B4 (I02): the fee for the holder's own outgoing wire names its beneficiary: it still holds the payer (the
+#: holder sent that payer money).
+_OUTGOING_WIRE_FEE = re.compile(r"(?<![A-Z])(?:OUTGOING|OUT|TO|BNF|BENEFICIARY)\b")
+#: Audit B4 (I02; standard A1, A2, §4.2): a processor's own debit beside its settlements: its fee, discount,
+#: chargeback, adjustment or returns. A monthly-discount processor posts one such debit a month.
+_PROCESSOR_FEE_DEBIT = re.compile(
+    r"(?<![A-Z])(?:FEES?|DISCOUNT|DISC|CHBK|CHGBK|CHRGBACK|CHARGEBACKS?|CHG BACK|ADJ|ADJUSTMENTS?|RETURNS?)\b"
+)
+#: Audit B4 (I02): a credit printing settlement, payout, MID or merchant-services wording is a processor's
+#: settlement, which its own fee debits never hold.
+_SETTLEMENT_CREDIT = re.compile(
+    r"(?<![A-Z])(?:SETTLE\w*|SETTLMT|SETLMT|STLMT|STLMNT|PAYOUTS?|MERCHANT SERVI\w*)\b|(?<![A-Z])MID(?=\d|\b)"
+)
+#: Audit B4 (I02): a bill the holder pays: bill pay, an electronic bill (EBPP), autopay, a utility, a telecom, cable or
+#: wireless service, a subscription.
+_BILL_DEBIT = re.compile(
+    r"(?<![A-Z])(?:BILL ?PAY(?:MENTS?|MT|MNT)?|BILL PAID|BILL PMT|EBPP|AUTOPAY\w*|AUTO PAY|UTILIT\w*|UTIL"
+    r"|TELECOM\w*|WIRELESS|CABLE|VOIP|SUBSCRIPTIONS?|SUBSCR)\b"
+)
+#: Audit B4 (I02; Q6): a payer that reads as an insurer keeps the bill exclusion off: an insurer's credit beside the
+#: holder's premium or bill to it stays held (insurers never count).
+_INSURER_CREDIT = re.compile(r"(?<![A-Z])(?:INS|INSUR\w*|ASSUR\w*)\b")
+#: Audit B4 (guard): a transfer, wire or person-to-person debit, or an own-account move ('TO CHKG', 'DDA TO DDA'):
+#: it can be circular money, so it also matches a payer as 5.6 read it (CounterDebitReading.legacy).
+_OWN_ACCOUNT_DEBIT = re.compile(
+    r"(?<![A-Z])(?:FR|FROM|TO) (?:CHKG|CHK|CHECKING|SAV|SAVINGS|SHARES?|DDA)\b|(?<![A-Z])ZEL\b"
+)
+#: Audit B4 (I22): payer_debited_as_lender compares a cut or glued funder name by prefix, five letters or more ...
+_PREFIX_MIN_LETTERS = 5
+#: ... when the longer word runs on into a financing root ('CONTOSOFUNDING' after 'CONTOSO') or into the shorter side's
+#: next word ('FABRIKAMVENTUREHO' after 'FABRIKAM VENTURE'), never into anything else (a customer named like a funder:
+#: 'FABRIK EVENTS' against 'FABRIKAM').
+_FINANCING_REMAINDER = re.compile(r"^(?:FUND|FIN|CAP|LEND|LOAN|ADV|CRED|MCA)")
+#: Audit B4 (I56): a payroll provider's tax-service credit (ADP TAX, PAYCHEX TPS TAX[ES], GUSTO TAX, INTUIT TAX), read
+#: on the row before its receiver fields: the holder's own tax impound coming back, never a sale.
+_PAYROLL_PROVIDER_WORD = re.compile(r"(?<![A-Z])(?:ADP|PAYCHEX|GUSTO|INTUIT)\b")
+_PAYROLL_TAX_WORD = re.compile(r"(?<![A-Z])TAX(?:ES)?\b")
 
 
-def _debit_words(records: Sequence[TransactionClassification], duplicates: set[int]) -> tuple[set[str], set[str]]:
-    """The first distinctive words of the statement's posted debits (pass 6's reading, _debit_word_reading): (lender
-    and financing debits, the others). The others leave out a card purchase (A1 census): buying at a merchant that
-    shares the payer's word is spending, never the circular money payer_also_debited holds. A card-form debit the
-    classifier names as a lender or financing payee (D8) still counts as a lender debit (§8.1)."""
+@dataclass(frozen=True)
+class _CounterDebit:
+    """Audit B4: one posted debit as the counter-debit holds read it: its reading, its kind (lender, receiving_fee,
+    circular, processor_fee, bill or other), its amount in cents, the registry lender it names (a lender debit) and
+    whether another debit of the payer's word posts the same amount (recurring)."""
+
+    reading: CounterDebitReading
+    kind: str
+    cents: int
+    entity: str | None
+    recurring: bool
+
+
+@dataclass(frozen=True)
+class CounterDebits:
+    """Audit B4: the statement's posted debits that may hold a payer: the lender and financing debits, the others."""
+
+    lender: tuple[_CounterDebit, ...]
+    other: tuple[_CounterDebit, ...]
+
+
+@dataclass(frozen=True)
+class CounterCredit:
+    """Audit B4: one posted credit as the counter-debit holds read it."""
+
+    reading: CounterDebitReading
+    cents: int
+    entity: str | None
+    settlement: bool
+    insurer: bool
+
+
+def _cents(amount: float) -> int:
+    return round(abs(amount) * 100)
+
+
+def _lender_entity(text: str) -> str | None:
+    """Audit B4 (I22): the registry lender or financing entity a text names (its glued digit runs split off)."""
+    known = match_known_payee(_classifier()._split_glued_digits(text))
+    return known.entity if known is not None and known.state in LENDER_DEBIT_STATES else None
+
+
+def _counter_debit_kind(text: str) -> str:
+    """Audit B4 (I02): a posted non-lender debit's kind. The bank's receiving fee first (it prints transfer or wire
+    wording, never circular money), then a transfer, wire, person-to-person or own-account debit (circular), a
+    processor's fee, a bill, or another debit (an ACH payment, a purchase...)."""
     classifier = _classifier()
-    lender: set[str] = set()
-    other: set[str] = set()
+    if _RECEIVING_FEE_DEBIT.search(text) and not _OUTGOING_WIRE_FEE.search(text):
+        return "receiving_fee"
+    if (
+        classifier._TRANSFER_WORDING.search(text) or classifier._WIRE_WORD.search(text)
+        or classifier._CONSUMER_P2P_RAIL.search(text) or classifier._PUSH_RAIL.search(text)
+        or _OWN_ACCOUNT_DEBIT.search(text)
+    ):
+        return "circular"
+    if _PROCESSOR_FEE_DEBIT.search(text):
+        return "processor_fee"
+    if _BILL_DEBIT.search(text):
+        return "bill"
+    return "other"
+
+
+def counter_debits(records: Sequence[TransactionClassification], duplicates: set[int]) -> CounterDebits:
+    """Audit B4 (§8.1, amends the 5.6 reading of pass 6 and pass 7): the statement's posted debits that may hold a
+    payer, with their counter-debit readings (CounterDebitReading). A card purchase the classifier names as no lender
+    or financing payee is left out (A1 census: buying at a merchant that shares the payer's word is spending, never
+    circular money); a card-form debit it names as a lender (D8) is still a lender debit."""
+    classifier = _classifier()
+    lender: list[_CounterDebit] = []
+    other: list[tuple[CounterDebitReading, str, int]] = []
     for index, record in enumerate(records):
         if index in duplicates or record.amount >= 0 or not record.is_posted:
             continue
-        word, card_purchase = classifier._debit_word_reading(record)
-        if word is None:
+        reading, card_purchase = classifier.counter_debit_debit_reading(record)
+        if reading.legacy is None and not reading.keys:
             continue
+        text = record.normalized_description
         if record.classification in LENDER_DEBIT_STATES:
-            lender.add(word)
+            entity = _lender_entity(classifier._without_receiver_value(text))
+            lender.append(_CounterDebit(reading, "lender", _cents(record.amount), entity, False))
         elif not card_purchase:
-            other.add(word)
-    return lender, other
+            other.append((reading, _counter_debit_kind(text), _cents(record.amount)))
+    # "Recurring same-amount debits keep holding": two or more debits of one payer word at one amount.
+    amounts = Counter((_head_word(reading), cents) for reading, _, cents in other)
+    return CounterDebits(
+        tuple(lender),
+        tuple(
+            _CounterDebit(reading, kind, cents, None, amounts[(_head_word(reading), cents)] >= 2)
+            for reading, kind, cents in other
+        ),
+    )
+
+
+def _head_word(reading: CounterDebitReading) -> str | None:
+    return reading.heads[0][0] if reading.heads else reading.legacy
+
+
+def counter_credit(record: TransactionClassification, text: str, region: str) -> CounterCredit:
+    """Audit B4: a posted credit's counter-debit reading, on its payer region, and the facts the debit kinds read."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    return CounterCredit(
+        reading=classifier.counter_debit_payer_reading(region),
+        cents=_cents(record.amount),
+        entity=_lender_entity(region) if region else None,
+        settlement=_SETTLEMENT_CREDIT.search(row) is not None,
+        insurer=_INSURER_CREDIT.search(row) is not None,
+    )
+
+
+def _same_payer(credit: CounterDebitReading, debit: CounterDebitReading, *, legacy: bool) -> bool:
+    """Audit B4: the payer and the debit name one payer: by the B4 forms (I38's glued forms included), or, where 5.6's
+    reading still governs (`legacy`), by 5.6's first distinctive word."""
+    if legacy and credit.legacy is not None and credit.legacy == debit.legacy:
+        return True
+    return not credit.keys.isdisjoint(debit.keys)
+
+
+def _prefix_payer(credit: CounterDebitReading, debit: CounterDebitReading) -> bool:
+    """Audit B4 (I22): one side's first word, five letters or more, starts the other's, and the longer word runs on
+    into a financing root or into the shorter side's next word (_FINANCING_REMAINDER)."""
+    for credit_word, credit_next in credit.heads:
+        for debit_word, debit_next in debit.heads:
+            if credit_word == debit_word:
+                continue
+            short, long, following = (
+                (credit_word, debit_word, credit_next) if len(credit_word) < len(debit_word)
+                else (debit_word, credit_word, debit_next)
+            )
+            if len(short) < _PREFIX_MIN_LETTERS or not long.startswith(short):
+                continue
+            rest = long[len(short):]
+            if _FINANCING_REMAINDER.match(rest) or (
+                following and (rest.startswith(following[0]) or (len(rest) >= 3 and following[0].startswith(rest)))
+            ):
+                return True
+    return False
+
+
+def debited_as_lender(credit: CounterCredit, debits: CounterDebits, *, prefix: bool) -> bool:
+    """§8.1 payer_debited_as_lender (audit B4: I22, I38): a lender or financing debit names the payer. When both name a
+    registry entity, they match when it is one entity; 5.6's first-word match still holds either way. Otherwise the
+    B4 forms match, and with `prefix` (pass 7, an unverified credit) a cut or glued spelling (_prefix_payer)."""
+    for debit in debits.lender:
+        if credit.reading.legacy is not None and credit.reading.legacy == debit.reading.legacy:
+            return True
+        if credit.entity is not None and debit.entity is not None:
+            if credit.entity == debit.entity:
+                return True
+            continue
+        if _same_payer(credit.reading, debit.reading, legacy=False):
+            return True
+        if prefix and _prefix_payer(credit.reading, debit.reading):
+            return True
+    return False
+
+
+def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
+    """§8.1 payer_also_debited (audit B4: I02, I38, I56): a debit that can be circular money names the payer (an own
+    account, an affiliate, a funder that collects).
+    - The bank's receiving fee never holds the payer.
+    - A transfer, wire, person-to-person or own-account debit matches as 5.6 read it too (the guard: no such match is
+      ever lost).
+    - Any other debit matches by the B4 forms; one for the credit's own amount matches as 5.6 read it too (the credit
+      undoes it).
+    - A processor's fee beside a settlement, and a bill to a payer that is no insurer, never hold, unless the debit is
+      for the credit's own amount or recurs at one amount."""
+    for debit in debits.other:
+        if debit.kind == "receiving_fee":
+            continue
+        same_amount = debit.cents == credit.cents
+        if not _same_payer(credit.reading, debit.reading, legacy=debit.kind == "circular" or same_amount):
+            continue
+        if debit.kind == "processor_fee" and credit.settlement and not same_amount and not debit.recurring:
+            continue
+        if debit.kind == "bill" and not credit.insurer and not same_amount and not debit.recurring:
+            continue
+        return True
+    return False
+
+
+def payroll_tax_credit(text: str) -> bool:
+    """§8.1 non_sale_purpose (audit B4: I56): a payroll provider's tax-service credit (_PAYROLL_PROVIDER_WORD with a
+    TAX or TAXES word), read on the row before its receiver fields."""
+    row = _classifier()._before_receiver(text)
+    return _PAYROLL_PROVIDER_WORD.search(row) is not None and _PAYROLL_TAX_WORD.search(row) is not None
 
 
 #: §8.2, §8.3 (audit B2: I48): an explicit cash, ATM or check deposit form, which Q2 and Q3 count even when the row
@@ -2111,8 +2320,7 @@ def credit_facts(
     record: TransactionClassification,
     text: str,
     *,
-    lender_words: set[str],
-    debit_words: set[str],
+    debits: CounterDebits,
     receiver_holders: tuple[str, ...] = (),
 ) -> CreditFacts:
     """§8.1 to §8.9: one posted credit's payer facts, including the first hold of §8.10's order 2 to 11. The payer
@@ -2147,8 +2355,8 @@ def credit_facts(
         # T13 (S4.2 fix round 5): a named transfer printed without FROM takes the same two holds.
         sender = holder_sender = _named_transfer_sender(text)
     hold = _first_hold(
-        record, text, region=region, entry=entry, claimed=claimed, lender_words=lender_words,
-        debit_words=debit_words, sender=sender, holder_sender=holder_sender, receiver_holders=receiver_holders,
+        record, text, region=region, entry=entry, claimed=claimed, debits=debits,
+        sender=sender, holder_sender=holder_sender, receiver_holders=receiver_holders,
     )
     return CreditFacts(
         channel=channel,
@@ -2187,8 +2395,7 @@ def _first_hold(
     region: str,
     entry: str,
     claimed: bool,
-    lender_words: set[str],
-    debit_words: set[str],
+    debits: CounterDebits,
     sender: str = "",
     holder_sender: str = "",
     receiver_holders: tuple[str, ...] = (),
@@ -2198,7 +2405,9 @@ def _first_hold(
     that prints a financing word is held as financing_named_payer (review C2). The holder test also reads a
     person-to-person sender printed without FROM (`sender`, Q4; S4.2 review I7), and its holder-test reading, which
     keeps a layout word inside the name (`holder_sender`, S4.2 final review M7); or a named transfer's counterparty
-    printed without FROM (T13, S4.2 fix round 5), both readings one."""
+    printed without FROM (T13, S4.2 fix round 5), both readings one. Audit B4: the counter-debit holds read the
+    statement's debits by kind (debited_as_lender, also_debited), and a payroll provider's tax-service credit no
+    debit holds is non_sale_purpose (I56), on a claimed row too (the pay holds' convention)."""
     classifier = _classifier()
     row = _hold_text(text)
     if record.revenue_match_method == "insurer_customer_payment":
@@ -2231,8 +2440,10 @@ def _first_hold(
         or _bank_originated_wire(text, region)
     ):
         return "financing_named_payer"
-    word = _first_word(region) if region else None
-    if not claimed and word is not None and word in lender_words:
+    counter = counter_credit(record, text, region)
+    if not claimed and debited_as_lender(
+        counter, debits, prefix=record.revenue_classification == "unverified_deposit"
+    ):
         return "payer_debited_as_lender"
     if not claimed and (region or sender) and (
         classifier.holder_named(region or sender, record.account_name)
@@ -2254,10 +2465,11 @@ def _first_hold(
     if not claimed and non_sale_purpose(text, region, bank=record.bank):
         return "non_sale_purpose"
     if not claimed and (
-        record.revenue_match_method == "payer_remittance_with_counter_debit"
-        or (word is not None and word in debit_words)
+        record.revenue_match_method == "payer_remittance_with_counter_debit" or also_debited(counter, debits)
     ):
         return "payer_also_debited"
+    if payroll_tax_credit(text):
+        return "non_sale_purpose"
     # §7.0, §7.8, §8.10 (S4.2 review I3; S4.4/S4.5 review): the $1 floor is absolute. A posted credit under $1 is never
     # verified and never counted, whichever rule read it, claimed or not: an unverified one that no earlier hold names
     # is held here, and one a rule verified is held by the pass's last step (_held_by_the_floor).
@@ -2651,13 +2863,13 @@ def apply_true_revenue_pass(
                         "or more are dealer funding).", 0.90),
                 revenue_source_type="auto_dealer_funding",
             )
-    lender_words, debit_words = _debit_words(records, duplicate_indexes)
+    debits = counter_debits(records, duplicate_indexes)
     # A3-G refinement: the holder's names the statement's own receiver fields print, when its account name names nobody.
     receiver_holders = _receiver_holder_names(records, credits)
     texts = {index: classifier.revenue_text(updated[index].normalized_description) for index in credits}
     facts = {
         index: credit_facts(
-            updated[index], texts[index], lender_words=lender_words, debit_words=debit_words,
+            updated[index], texts[index], debits=debits,
             receiver_holders=receiver_holders,
         )
         for index in credits
@@ -2816,7 +3028,8 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
     """Final review I7 (a census fact): which 5.6 hold reading of §20 names the row, in §8.10's order: a bank that
     originates the wire, a financing root (the financing holds); a government benefit (GOV, the personal-income hold);
     a government grant (GOV), a title firm, the holder's currency conversion, a personal trust, owner money (the
-    non-sale holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
+    non-sale holds); a payroll provider's tax-service credit (audit B4: I56, the non-sale hold after the counter-debit
+    holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
     classifier = _classifier()
     row = _hold_text(text)
     if _bank_originated_wire(text, region):
@@ -2839,4 +3052,6 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
         or classifier._matches_any(row, classifier._SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS)
     ):
         return "owner_money"
+    if payroll_tax_credit(text):
+        return "payroll_tax"
     return None
