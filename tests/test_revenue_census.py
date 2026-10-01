@@ -1187,6 +1187,10 @@ def test_a_name_masked_in_a_later_snapshot_is_the_name_an_older_snapshot_wrote_u
 FACTOR_WIRE = "WIRE TYPE WIRE IN ORIG SAMPLE FACTOR LLC ID # PMT DET INV ####"
 Q5_WIRE = "WIRE TYPE WIRE IN ORIG FABRIKAM EXPORTS LLC ID # SND BK SAMPLE BANK ID #"
 ACH_ROW = "NORTHWIND SUPPLY LLC DES PAYMENT ID # INDN CONTOSO BAKERY LLC CO ID ########## CCD"
+#: GOV (owner ruling 2026-09-30): a state's unemployment deposit (class B) and a Farm Service Agency payment (class D),
+#: digit-masked.
+GOV_UI = "ACH DEPOSIT NYS DOL UI DD UI DD #######"
+GOV_GRANT = "FSA TREAS ### MISC PAY ####"
 
 
 def _q56(method, text, **extra):
@@ -1240,6 +1244,19 @@ def _cause56(prior, later):
     (_q56("repeat_wire_sender", Q5_WIRE),
      _after56("unidentified_posted_credit", Q5_WIRE, tier="counted_flagged", reason="wire_named_sender",
               relayed_customer=True), "q5_q6_relayed_customer"),
+    # GOV (owner ruling 2026-09-30): a Q6 repeat that is a personal benefit (class B) or a grant (class D).
+    (_q56("named_payer_repeats", GOV_UI),
+     _after56("unidentified_posted_credit", GOV_UI, tier="excluded_pending_review", reason="personal_income",
+              hold_rule="government_benefit"), "q5_q6_held_government_benefit"),
+    (_q56("named_payer_repeats", GOV_GRANT),
+     _after56("unidentified_posted_credit", GOV_GRANT, tier="excluded_pending_review", reason="non_sale_purpose",
+              hold_rule="government_grant"), "q5_q6_held_government_grant"),
+    (_q56("named_payer_repeats", GOV_UI),
+     _after56("unidentified_posted_credit", GOV_UI, tier="excluded_pending_review", reason="personal_income"),
+     "undeclared"),
+    (_q56("named_payer_repeats", GOV_GRANT),
+     _after56("unidentified_posted_credit", GOV_GRANT, tier="excluded_pending_review", reason="personal_income",
+              hold_rule="government_grant"), "undeclared"),
     # Keyed on the rule that fires: a hold with no such reading, or another rule's row, is undeclared.
     (_q56("repeat_wire_sender", Q5_WIRE),
      _after56("unidentified_posted_credit", Q5_WIRE, tier="excluded_pending_review", reason="non_sale_purpose"),
@@ -1305,6 +1322,25 @@ def test_the_cra_refund_is_a_declared_new_non_revenue_marker():
                                                   tier="non_revenue", text="DIRECT DEPOSIT CANADA RITE ####")])})
     assert "undeclared" in _run(_snap("5.4", {"a": _account([_step_11("DIRECT DEPOSIT CANADA RITE ####")])}),
                                 other)["verified_demotions"]
+
+
+@pytest.mark.parametrize(("text", "cause"), [
+    # GOV (owner ruling 2026-09-30, class C): the GST/HST refund forms and a payment the IRS issues joined the strong
+    # non-revenue rule, so a verified row they take is a declared new non-revenue marker.
+    ("DIRECT DEPOSIT CANADA GST TPS", "new_non_revenue_marker"),
+    ("GST CANADA ####", "new_non_revenue_marker"),
+    ("RQ GST", "new_non_revenue_marker"),
+    ("ELECTRONIC DEPOSIT FROM IRS TREAS ###", "new_non_revenue_marker"),
+    ("ACH CREDIT IRS TREAS ### XXXXXXXXXXX#### ####", "new_non_revenue_marker"),
+    # GST inside a name is no refund form.
+    ("GST CANADA LOGISTICS INC DES PAYMENT ID #", "undeclared"),
+    ("NORTHWIND RQ GST SUPPLY", "undeclared"),
+])
+def test_gov_the_government_tax_refunds_are_declared_new_non_revenue_markers(text, cause):
+    base = _snap("5.4", {"a": _account([_step_11(text)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule",
+                                                 tier="non_revenue", text=text)])})
+    assert {name: value["rows"] for name, value in _run(base, after)["verified_demotions"].items()} == {cause: 1}
 
 
 def test_the_declared_table_is_the_one_the_compare_reads(monkeypatch):
@@ -1397,6 +1433,12 @@ def test_g7b_fails_for_any_non_revenue_base_a_text_change_takes_into_true(base_m
     ("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:1 SEQ:1/2 ORIG:SAMPLE BANK NA ID:99 SND BK:SAMPLE BANK ID:1",
      "hold_rule", "bank_originated_wire"),
     ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "hold_rule", None),
+    # GOV (owner ruling 2026-09-30): a personal benefit (class B) and a grant or subsidy (class D).
+    ("ACH DEPOSIT NYS DOL UI DD UI DD 1234567", "hold_rule", "government_benefit"),
+    ("CANADA CHILD BENEFIT CANADA", "hold_rule", "government_benefit"),
+    ("FSA TREAS 310 MISC PAY 1234", "hold_rule", "government_grant"),
+    ("HHSSTIMULUS DES:HHSPAYMENT ID:1", "hold_rule", "government_grant"),
+    ("SSA TREAS 310 DES:XXSOC SEC ID:1", "hold_rule", None),
     ("ANTHEM ROOFING DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", "short_healthcare_alias", True),
     ("WPS DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", "short_healthcare_alias", False),
 ])

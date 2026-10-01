@@ -193,11 +193,53 @@ def test_a3g_canada_s_income_tax_refund_is_a_tax_refund(printed):
     "FABRIKAM LIFE CANADA RIF PMT",
     "NORTHWIND CANADA RIF PAYMENT",
     "ZELLE PAYMENT FROM CANADA RIT CONF 1234",
-    # The benefit, credit and payment forms wait for the owner (A3-G): unchanged.
-    "DIRECT DEPOSIT CANADA GST TPS",
+    # A benefit form is no tax refund: the owner's ruling of 2026-09-30 holds it as personal income (class B), never
+    # non_revenue. (The GST/HST refund forms became tax refunds by the same ruling, class C: tested below.)
     "CANADA CHILD BENEFIT CANADA",
 ])
 def test_a3g_a_name_or_a_benefit_form_is_no_canadian_tax_refund(printed):
+    assert _credit(printed).revenue_classification != "non_revenue"
+
+
+@pytest.mark.parametrize("printed", [
+    # GOV (owner ruling 2026-09-30, class C): a business's GST/HST refund, the Canada Revenue Agency's and Revenu
+    # Quebec's, read as the whole payer after the posting words and template prefixes.
+    "DIRECT DEPOSIT CANADA GST TPS",
+    "Direct Deposit, CANADA GST/TPS",
+    "DIRECT DEPOSIT CANADA GST TPS MSP DIV",
+    "GST CANADA",
+    "MISC PAYMENT GST CANADA",
+    "GST CANADA 12345678",
+    "RQ GST",
+    "ELECTRONIC DEPOSIT FROM RQ GST",
+    # A payment the IRS issues through the Treasury is a tax refund, whether or not the row prints a refund word.
+    "ELECTRONIC DEPOSIT FROM IRS TREAS 310",
+    "ACH CREDIT IRS TREAS 310 XXXXXXXXXXX1234 5678",
+    "Orig CO Name:IRS Treas 310 Orig ID:1234567890 Desc Date:540102 CO Entry Descr:Misc Pay Sec:CCD Trace#:1",
+    "IRS TREAS 310 DES:TAX EIC ID:1",
+])
+def test_gov_a_government_tax_refund_is_non_revenue(printed):
+    record = _credit(printed)
+    assert (record.revenue_classification, record.revenue_match_method, record.revenue_matched_rule) == (
+        "non_revenue", "strong_non_revenue_rule", "non_operating_credit")
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize("printed", [
+    # GOV: GST inside a name, after a payer's name or on a person-to-person rail is no GST/HST refund.
+    "GST CANADA LOGISTICS INC DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD",
+    "NORTHWIND GST SERVICES DES:PAYMENT ID:1",
+    "DIRECT DEPOSIT CANADA GST TPS CONSULTING INC",
+    "FABRIKAM RQ GST",
+    "ZELLE PAYMENT FROM RQ GST CONF 1234",
+    "INTERAC E-TRANSFER FROM NORTHWIND GST",
+    # The IRS's child tax credit and stimulus are benefits (class B), held as personal income, never non_revenue; and
+    # IRS inside a word is no IRS.
+    "IRS TREAS 310 DES:CHILD CTC ID:1",
+    "IRS TREAS 310 DES:TAX EIP3 ID:1",
+    "SIRS TREASURE SUPPLY DES:PAYMENT ID:1",
+])
+def test_gov_a_name_or_a_benefit_is_no_government_tax_refund(printed):
     assert _credit(printed).revenue_classification != "non_revenue"
 
 

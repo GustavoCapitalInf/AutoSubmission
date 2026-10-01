@@ -112,6 +112,8 @@ DECLARED_DEMOTIONS = (
     "short_healthcare_alias_in_a_name", "q5_q6_deferred_source", "q5_q6_left_to_its_family", "counter_debit",
     # Re-review N6: a platform credit whose entry field leads with a financing word.
     "platform_financing_entry",
+    # GOV (the owner's ruling of 2026-09-30): a Q5 or Q6 row that is a government benefit (class B) or grant (class D).
+    "q5_q6_held_government_benefit", "q5_q6_held_government_grant",
 )
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
 #: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
@@ -131,6 +133,9 @@ LATER_HOLD_CAUSES = {
     ("non_sale_purpose", "owner_money"): "q5_q6_held_owner_money",
     ("financing_named_payer", "bank_originated_wire"): "q5_q6_held_bank_originated_wire",
     ("financing_named_payer", "financing_root"): "q5_q6_held_financing_root",
+    # GOV (the owner's ruling of 2026-09-30): government money the business did not earn.
+    ("personal_income", "government_benefit"): "q5_q6_held_government_benefit",
+    ("non_sale_purpose", "government_grant"): "q5_q6_held_government_grant",
 }
 #: The operating-registry methods (§8.9).
 REGISTRY_METHODS = frozenset({
@@ -266,6 +271,13 @@ _FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNUL
 _TAX_REFUNDS_55 = _on_masked(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b")
 #: 5.6 (§20, A3-G): the Canada Revenue Agency's income-tax refund forms, which joined the strong non-revenue rule.
 _CRA_REFUND_56 = _on_masked(r"\bCANADA RI[TF]\b")
+#: 5.6 (§20, GOV: the owner's ruling of 2026-09-30, class C): a business's GST/HST refund as the whole payer (the CRA's
+#: and Revenu Quebec's forms, a posting code or a reference after it), and a payment the IRS issues through the Treasury,
+#: which joined the strong non-revenue rule.
+_GOVERNMENT_TAX_REFUNDS_56 = _on_masked(
+    r"(?:^|\b(?:DEPOSIT|DEP|PAYMENT|FROM|CREDIT|GC) )(?:CANADA GST(?: TPS)?|GST(?: TPS)? CANADA|RQ GST)"
+    r"(?: (?:MSP|DIV|\d+))*$|(?<![A-Z])IRS TREAS ?\d{3}\b"
+)
 #: I8 (narrowing 8): the consumer-side words a BNPL provider prints on a customer's own credit (a return, a refund, a
 #: withdrawal of a balance, a card, a debt collector), never on its merchant settlement (the OQ2 ruling's rows).
 _BNPL_CONSUMER_WORDS = re.compile(
@@ -1093,8 +1105,11 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     if (
         method == "reversal_cancellation_exclusion"
         and (_RETURN_CODES_55.search(text) or _FRENCH_REVERSAL_WORDS_55.search(text))
-    ) or (method == "strong_non_revenue_rule" and (_TAX_REFUNDS_55.search(text) or _CRA_REFUND_56.search(text))):
-        # I7: and the CRA's income-tax refund forms, which 5.6 adds to the strong non-revenue rule (§20).
+    ) or (method == "strong_non_revenue_rule" and (
+        _TAX_REFUNDS_55.search(text) or _CRA_REFUND_56.search(text) or _GOVERNMENT_TAX_REFUNDS_56.search(text)
+    )):
+        # I7: and the CRA's income-tax refund forms, which 5.6 adds to the strong non-revenue rule (§20); GOV: and the
+        # GST/HST refund forms and the IRS's payments (the owner's ruling of 2026-09-30).
         return "new_non_revenue_marker"
     # (a) 5.4's step-11 claim-payment descriptor (§7.7); (b) the claim entry held with the insurer's credits
     # (insurer_customer_payment), which 5.5 does only with the T18 switch off.

@@ -119,12 +119,35 @@ _PAY_WORDS = re.compile(
     r"|DIR ?DEP\b|DIRDEP\b|DIRECT DEP\b(?!OSIT)|(?:DES|CO ENTRY DESCR) DIRECT DEPOSIT\b"
     r"|EXP(?:ENSE)? REIMB\w*)"
 )
-#: §8.1: benefit and pension credits.
+#: §8.1, §20 (GOV, the owner's ruling of 2026-09-30, class B: government money paid to a person is no revenue of the
+#: business): the government's personal-benefit forms. The Canadian Payments Association's federal benefit descriptors,
+#: which the banks print before the Canada Revenue Agency's originator name (CANADA): the child, essentials (the GST/HST
+#: credit's name since 2026, in full 'CANADA GROCERIES AND ESSENTIALS BENEFIT'), workers and disability benefits, and
+#: Old Age Security; a provincial benefit the CRA pays on a province's behalf, the provincial payment code with the
+#: CRA's originator as the whole row ('PROV LOCAL GVT PAYMENT CANADA'); a state's unemployment-insurance direct deposit
+#: ('NYS DOL UI DD'); and the IRS's economic impact payment ('TAX EIP3'). Word boundaries are strict: 'CANADA CHILD
+#: CARE CENTRE INC' and 'PROVINCIAL PAYMENT CANADA GOOSE SUPPLY' are payers, and a provincial payment from a province
+#: names no benefit (its purpose is not printed).
+_GOVERNMENT_BENEFIT = re.compile(
+    r"(?<![A-Z])CANADA (?:CHILD|(?:GROCERIES (?:AND )?)?ESSENTIALS|WORKERS|DISABILITY) BENEFITS?\b"
+    r"|(?<![A-Z])OLD AGE SECURITY\b"
+    r"|(?<![A-Z])(?:PROV LOCAL GVT PAYMENT|PROVINCIAL PAYMENT) CANADA(?: \d+)*$"
+    r"|\bUI DD\b|(?<![A-Z])TAX ?EIP ?\d?\b"
+)
+#: §8.1: benefit and pension credits, and (GOV) the government's personal-benefit forms (_GOVERNMENT_BENEFIT).
 _PERSONAL_INCOME = re.compile(
     r"(?<![A-Z])(?:XX)?SOC SEC\b|\bSSA\b|\bSSI\b|(?<![A-Z])SUPP SEC\b|(?<![A-Z])(?:XX)?VA BEN\w*"
     r"|(?<![A-Z])UNEMPLOY\w*|(?<![A-Z])UI BEN\w*"
     r"|(?<![A-Z])CHI?LD ?SUPP\w*\b|(?<![A-Z])CHILD ?CTC\b|(?<![A-Z])PENSION\b|(?<![A-Z])ANNUIT\w*"
     r"|(?<![A-Z])RETIRE\w*"
+    rf"|{_GOVERNMENT_BENEFIT.pattern}"
+)
+#: §8.1, §20 (GOV, the owner's ruling of 2026-09-30, class D: a grant or subsidy is no sale): HHS's CARES Act Provider
+#: Relief Fund ('US HHS STIMULUS', its glued entry 'HHSPAYMENT') and a USDA Farm Service Agency program payment
+#: ('FSA TREAS 310'). §8.1's GRANT word already holds a row that prints it. Never a name that holds the letters:
+#: 'HHS SUPPLY CO', 'NORTHWIND FSA SERVICES LLC'.
+_GOVERNMENT_GRANT = re.compile(
+    r"(?<![A-Z])HHS ?STIMULUS\b|(?<![A-Z])HHSPAYMENT(?:SEC)?\b|(?<![A-Z])FSA TREAS ?\d{3}\b"
 )
 #: §8.1: a non-sale purpose.
 _NON_SALE_PURPOSE = re.compile(
@@ -917,6 +940,9 @@ def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
     healthcare = healthcare_payer(region)
     if _NON_SALE_PURPOSE.search(row) is not None:
+        return True
+    # GOV (owner ruling 2026-09-30, class D): a government grant or subsidy.
+    if _GOVERNMENT_GRANT.search(row) is not None:
         return True
     if (
         region and _TITLE_FIRM.search(region) is not None
@@ -2364,14 +2390,19 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
 
 def hold_rule(record: TransactionClassification, text: str, region: str, entry: str) -> str | None:
     """Final review I7 (a census fact): which 5.6 hold reading of §20 names the row, in §8.10's order: a bank that
-    originates the wire, a financing root (the financing holds); a title firm, the holder's currency conversion, a
-    personal trust, owner money (the non-sale holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
+    originates the wire, a financing root (the financing holds); a government benefit (GOV, the personal-income hold);
+    a government grant (GOV), a title firm, the holder's currency conversion, a personal trust, owner money (the
+    non-sale holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
     classifier = _classifier()
     row = _hold_text(text)
     if _bank_originated_wire(text, region):
         return "bank_originated_wire"
     if financing_named(text, region, entry, record.account_name):
         return "financing_root"
+    if _GOVERNMENT_BENEFIT.search(classifier._before_receiver(text)):
+        return "government_benefit"
+    if _GOVERNMENT_GRANT.search(row):
+        return "government_grant"
     if region and _TITLE_FIRM.search(region) and _TITLE_FEE_WORDING.search(_title_purpose_text(text)) is None:
         return "title_firm"
     if _currency_conversion(text, bank=record.bank):

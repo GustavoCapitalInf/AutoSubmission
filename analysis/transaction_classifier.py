@@ -726,19 +726,25 @@ _CRA_POSTING_PREFIX = re.compile(
     r"|EFT(?: CREDIT| DEPOSIT)?|MISC PAYMENT|PAY(?:MENT)?(?: FROM)?) (?:\d+(?: |(?=[A-Z])))*)*"
 )
 _CRA_REFUND_PAYER = re.compile(r"CANADA (?:RIT|RIF)\b")
+#: 5.6 (GOV, the owner's ruling of 2026-09-30, class C: a tax refund is no revenue): a business's GST/HST refund, the
+#: Canada Revenue Agency's ('CANADA GST TPS', 'GST CANADA') and Revenu Quebec's ('RQ GST'). The form is the whole
+#: payer after the posting words, with only a posting code or a reference after it ('... MSP DIV', '... 12345678'), so
+#: GST inside a name ('GST CANADA LOGISTICS INC', 'NORTHWIND GST SERVICES') is never a refund.
+_GST_REFUND_PAYER = re.compile(r"(?:CANADA GST(?: TPS)?|GST(?: TPS)? CANADA|RQ GST)(?: (?:MSP|DIV|\d+))*")
 
 
 def _canada_tax_refund(text: str) -> bool:
     """5.6 (A3-G, review and re-review): the refund's form starts the payer, after the posting words only; a payer
-    that names Canada's form after its own name is that payer ('FABRIKAM LIFE CANADA RIF PMT')."""
-    payer = _strip_revenue_template(revenue_text(text))
-    return _CRA_REFUND_PAYER.match(_CRA_POSTING_PREFIX.sub("", payer, count=1)) is not None
+    that names Canada's form after its own name is that payer ('FABRIKAM LIFE CANADA RIF PMT'). GOV (owner ruling
+    2026-09-30): or the GST/HST refund form is the whole payer (_GST_REFUND_PAYER)."""
+    payer = _CRA_POSTING_PREFIX.sub("", _strip_revenue_template(revenue_text(text)), count=1)
+    return _CRA_REFUND_PAYER.match(payer) is not None or _GST_REFUND_PAYER.fullmatch(payer.strip()) is not None
 
 
 class _CanadaTaxRefundForm:
     """5.6 (A3-G re-review): the refund reader in the strong non-revenue list, read as its patterns are (search)."""
 
-    pattern = "CANADA (?:RIT|RIF) after the posting words"
+    pattern = "CANADA (?:RIT|RIF) after the posting words, or the whole payer a GST/HST refund form"
 
     def search(self, text: str) -> "_CanadaTaxRefundForm | None":
         return self if _canada_tax_refund(text) else None
@@ -763,9 +769,14 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     # I6) and account-verification micro-deposits.
     re.compile(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b"),
     # 5.6 (A3-G): the Canada Revenue Agency's income-tax refund direct deposit (RIT and RIF are the banks' two labels
-    # of one refund, 'DIRECT DEPOSIT CANADA RIT RIF'). Its benefit, credit and payment forms (GST TPS, CCB, EI, CPP,
-    # OAS, CEWS) wait for the owner. A3-G review and re-review: the form starts the payer (_CanadaTaxRefundForm).
+    # of one refund, 'DIRECT DEPOSIT CANADA RIT RIF'). A3-G review and re-review: the form starts the payer
+    # (_CanadaTaxRefundForm). GOV (owner ruling 2026-09-30, class C): and a business's GST/HST refund is the whole payer;
+    # the CRA's benefit forms are personal income, held by the true-revenue pass (class B), never non_revenue.
     _CanadaTaxRefundForm(),
+    # GOV (owner ruling 2026-09-30, class C): a payment the IRS issues through the Treasury ('IRS TREAS 310') is a tax
+    # refund, whether or not the row prints a refund word; the child tax credit and the stimulus (TAX EIP) it also pays
+    # are personal benefits, which the true-revenue pass holds (class B), so they are left out here.
+    re.compile(r"(?<![A-Z])IRS TREAS ?\d{3}\b(?!.*(?<![A-Z])(?:CHI?LD ?CTC|TAX ?EIP ?\d?)\b)"),
     re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
     re.compile(

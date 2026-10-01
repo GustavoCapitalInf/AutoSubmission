@@ -50,7 +50,9 @@ def _tier(record):
     ("FABRIKAM PARTNERS LP DES:DISTRIB ID:1", "non_sale_purpose"),
     ("FABRIKAM SUPPLY INC DES:REBATE ID:1", "non_sale_purpose"),
     ("COMPTROLLER OF MD DES:MDREFUND ID:1", "non_sale_purpose"),
-    ("IRS TREAS 310 DES:TAX EIC ID:1", "non_sale_purpose"),
+    # GOV (owner ruling 2026-09-30): a payment the IRS issues is a tax refund, non_revenue (tests/
+    # test_revenue_non_revenue_55.py); a state's earned-income credit is still the public payer's non-sale credit.
+    ("STATE OF OHIO DES:TAX EIC ID:1", "non_sale_purpose"),
     ("STATE OF OHIO DES:GRANT ID:1", "non_sale_purpose"),
     ("DIVIDEND", "non_sale_purpose"),
     ("WIRE IN DATE 540102 TRN 123", "wire_no_sender"),
@@ -2964,3 +2966,107 @@ def test_ppd_before_des_is_the_sec_code_after_any_word():
     rows = [(f"NORTHWIND SUPPLY PPD DES:PAYMENT ID:{n} INDN:CONTOSO BAKERY LLC CO ID:1234567890", 2345.0 + n)
             for n in (1, 2)]
     assert {_tier(record) for record in _records(rows)} == {("counted_flagged", "named_payer_one_off")}
+
+
+# GOV (owner ruling 2026-09-30): government money the business did not earn by selling goods or services leaves True
+# revenue. Class B, a personal benefit, is held as personal_income; class D, a grant or subsidy, as non_sale_purpose;
+# class C, a tax refund, is non_revenue (tests/test_revenue_non_revenue_55.py). Class A, a government or public program
+# paying the business for its goods or services, and class E, a form whose purpose the row does not print, keep their
+# readings.
+_GOV_UI = "ACH DEPOSIT NYS DOL UI DD UI DD 1234567"
+_GOV_HHS = ("Orig CO Name:US Hhs Stimulus Orig ID:1234567890 Desc Date: CO Entry Descr:Hhspaymentsec:CCD "
+            "Trace#:123456789012345 Eed:540102 Ind ID:1234 Ind Name:Contoso Clinic")
+
+
+@pytest.mark.parametrize("text", [
+    # The Canadian Payments Association's federal benefit descriptors, which the banks print before the CRA's
+    # originator name (CANADA); the GST/HST credit's new name in full too.
+    "CANADA CHILD BENEFIT CANADA",
+    "CANADA ESSENTIALS BENEFIT CANADA",
+    "CANADA GROCERIES AND ESSENTIALS BENEFIT CANADA",
+    "CANADA WORKERS BENEFIT CANADA",
+    "CANADA DISABILITY BENEFIT CANADA",
+    "OLD AGE SECURITY CANADA",
+    "DIRECT DEPOSIT CANADA CHILD BENEFIT",
+    # A provincial benefit the CRA pays on a province's behalf: the provincial payment code with the CRA's originator.
+    "Prov/Local Gvt Payment CANADA",
+    "PROVINCIAL PAYMENT CANADA",
+    # A state's unemployment insurance direct deposit, and the IRS's stimulus and child tax credit.
+    _GOV_UI,
+    "IRS TREAS 310 DES:TAX EIP3 ID:1",
+    "IRS TREAS 310 DES:CHILD CTC ID:1",
+])
+def test_gov_a_personal_benefit_is_held_as_personal_income(text):
+    assert _tier(_one(text)) == ("excluded_pending_review", "personal_income")
+
+
+def test_gov_a_repeated_unemployment_deposit_is_never_verified():
+    # Q6 verified two NYS UI deposits as a repeat payer; a benefit is no payer of the business.
+    records = _records([(_GOV_UI, 450.0), (_GOV_UI, 450.0)])
+    assert {(record.revenue_classification, *_tier(record)) for record in records} == {
+        ("unverified_deposit", "excluded_pending_review", "personal_income")}
+
+
+@pytest.mark.parametrize(("text", "reason"), [
+    # Word boundaries are strict: a business named with a benefit's words pays the business.
+    ("CANADA CHILD CARE CENTRE INC DES:PAYMENT ID:1", None),
+    ("CHILD BENEFIT CONSULTING INC DES:PAYMENT ID:1", None),
+    ("NORTHWIND UI DESIGN LLC DES:PAYMENT ID:1", None),
+    # A provincial payment from a province names no CRA benefit: its purpose is not printed (class E).
+    ("Prov/Local Gvt Payment ONTARIO", "named_payer_unlabelled"),
+    ("PROVINCIAL PAYMENT CANADA GOOSE SUPPLY", "named_payer_unlabelled"),
+])
+def test_gov_a_name_is_no_personal_benefit(text, reason):
+    record = _one(text)
+    assert record.revenue_tier_reason != "personal_income"
+    assert record.revenue_tier in ("verified", "counted_flagged")
+    if reason is not None:
+        assert record.revenue_tier_reason == reason
+
+
+@pytest.mark.parametrize("text", [
+    # The CARES Act Provider Relief Fund (HHS's stimulus to providers), and a USDA Farm Service Agency program payment.
+    _GOV_HHS,
+    "HHSSTIMULUS DES:HHSPAYMENT ID:1",
+    "FSA TREAS 310 MISC PAY 1234",
+])
+def test_gov_a_government_grant_or_subsidy_is_held_as_not_a_sale(text):
+    assert _tier(_one(text)) == ("excluded_pending_review", "non_sale_purpose")
+
+
+def test_gov_a_repeated_provider_relief_payment_is_never_verified():
+    records = _records([(_GOV_HHS, 23456.0), (_GOV_HHS, 3456.0)], holder="CONTOSO CLINIC LLC")
+    assert {(record.revenue_classification, *_tier(record)) for record in records} == {
+        ("unverified_deposit", "excluded_pending_review", "non_sale_purpose")}
+
+
+@pytest.mark.parametrize("text", [
+    "NORTHWIND FSA SERVICES LLC DES:PAYMENT ID:1",
+    "HHS SUPPLY CO DES:PAYMENT ID:1",
+])
+def test_gov_a_name_is_no_government_grant(text):
+    record = _one(text)
+    assert record.revenue_tier in ("verified", "counted_flagged")
+    assert record.revenue_tier_reason != "non_sale_purpose"
+
+
+@pytest.mark.parametrize(("rows", "expected"), [
+    # Class A: a government or public program paying the business for its goods or services keeps its reading.
+    ([("MISC PAYMENT GC CDCP ASO FABRIKAM LIFE", 812.0), ("MISC PAYMENT GC CDCP ASO FABRIKAM LIFE", 455.0)],
+     ("verified_revenue", "named_payer_repeats")),
+    ([("TREAS 310 DES:DOD MISC ID:1", 1234.0)], ("verified_revenue", "public_payer_remittance")),
+    ([("SAMPLE STATE DHS DES:PROV PAY ID:1", 1234.0)], ("verified_revenue", "public_payer_remittance")),
+    ([("SAMPLE COUNTY DHHS DES:VENDOR PAY ID:1", 1234.0)], ("verified_revenue", "payer_remittance_descriptor")),
+    # Class E: the row prints no purpose, so the form waits for the owner, counted and flagged as before.
+    ([("36 TREAS 310 MISC PAY 12345678901", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
+    ([("GOUV. QUEBEC MSP", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
+    ([("PROVINCIAL PAYMENT PROVINCE OF BC", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
+    ([("Work. Comp. Board WSIB", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
+    ([("GOVERNMENT ESDC 123-456 Paiement federal/Federal Pmt", 1234.0)],
+     ("unverified_deposit", "named_payer_unlabelled")),
+])
+def test_gov_a_payment_for_services_or_an_unclear_form_keeps_its_reading(rows, expected):
+    for record in _records(rows):
+        state, reading = expected
+        assert record.revenue_classification == state
+        assert (record.revenue_match_method if state == "verified_revenue" else record.revenue_tier_reason) == reading
