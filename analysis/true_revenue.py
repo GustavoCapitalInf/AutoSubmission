@@ -61,10 +61,39 @@ _HOLD_POSTING_LABELS = re.compile(
 #: any run-together name ending in FIN + USA (a muffin or griffin brand), and Forward's FORWARDFINUSA is its ledger alias.
 _FINANCING_ROOT = re.compile(
     r"(?:(?<!RE)FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|LEASING|PORTFOL)"
-    r"|CRED(?=ORA|IBLY)|[A-Z]CREDIT|CREDIT[A-Z]"
+    r"|CRED(?=ORA|IBLY)|[A-Z]CREDIT|CREDIT(?!S\b)[A-Z]"
     r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPE|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
 )
-_WHOLE_CREDIT = re.compile(r"\bCREDITS?\b")
+#: §8.1, T4: the whole-word CREDIT a payer name may print. Audit B7 (I16): the plural CREDITS is a statement's section
+#: word ('DEPOSITS AND CREDITS', 'OTHER CREDITS', printed after a deposit when a page header or footer is glued on, or
+#: as a layout's posting word), never a lender's name word: it is no root, glued or whole (the glued arm above spares
+#: it too).
+_WHOLE_CREDIT = re.compile(r"\bCREDIT\b")
+#: §8.1, T4 (audit B7: I16): text the roots are never read on, because it never names the payer. A bank's branch label
+#: after a bank's name ('BOFA FIN CTR', a Bank of America financial center); the banks' page furniture ('MEMBER FDIC',
+#: 'EQUAL HOUSING LENDER'); a fundraising purpose; and Wave Payments' payout entry, the forms its payouts print ('WAVE
+#: <code> FUNDIN WAVE', 'WAVE FUNDING INSTRU...'; Wave Payments is the operating registry's invoice-and-receivables
+#: processor). On a wire's purpose text a buyer's advance payment or prepayment for goods is no financing either
+#: (_WIRE_TRADE_PURPOSE).
+_BRANCH_LABEL_WORDS = r"(?:FIN CTR|FIN CENTER|FINANCIAL CENTER|FINANCIAL CTR)"
+_ROOT_FURNITURE = re.compile(r"(?<![A-Z])(?:MEMBER FDIC|EQUAL HOUSING LENDER)\b")
+_FUNDRAISING = re.compile(r"(?<![A-Z])FUNDRAIS\w*")
+_WAVE_PAYOUT_ENTRY = re.compile(r"(?<![A-Z])WAVE (?:[A-Z0-9]{2,6} )?FUNDIN WAVE\b|(?<![A-Z])WAVE FUNDING INSTRU\w*")
+_WIRE_TRADE_PURPOSE = re.compile(r"(?<![A-Z])(?:ADVANCE PAYMEN\w*|ADVANCE PMTS?|PRE ?PAYMENTS?)(?![A-Z])")
+#: §8.1, T4 (audit B7: I16): a whole-word CREDIT after a single letter that ends the payer region is the entry word a
+#: layout prints after an originator name its field cut ('<NAME> P CREDIT', a sixteen-character name and its entry).
+_CUT_NAME_ENTRY_CREDIT = re.compile(r"(?<=\b[A-Z]) CREDIT$")
+#: §8.1, T4 (audit B7: I16): on a person-to-person row the sender's bank: a credit union's name printed beside the
+#: sender ('<sender> <NAME> CREDIT UNION ID ...'), one name word with its form; the listed sending banks are read with
+#: _P2P_LAYOUT_PHRASES.
+_P2P_CREDIT_UNION = re.compile(r"(?:(?<![A-Z])[A-Z]+ )?(?:CREDIT UNION|FCU)\b")
+#: §8.1, T4 (audit B7: I16): the financing words a person's name never starts with; a person-to-person sender whose
+#: name holds one (or a whole-word root) is read as a name that may be a lender's ('TRUE FINANCE', 'FAST FUNDING').
+_FINANCING_NAME_STARTS = (
+    "FUNDING", "FUNDS", "FUNDED", "CAPITAL", "CAPTL", "FINANC", "LENDING", "LENDER", "LOAN", "ADVANCE", "MORTGAGE",
+    "LEASING", "CREDIT", "ACCEPTANCE", "SERVICING", "PORTFOLIO",
+)
+_WHOLE_WORD_ROOT = re.compile(r"(?:CAP|FIN|ADV|MTG|MCA|RTR|SPE|SPV|CAPI|FINA|FINAN|FINL|FNCL|LEASE|FUND)")
 #: §8.1, T4 (A3 review, round 2): §7.9's word-end CRED arm, aligned with a glued letter on its left: a payer-name word
 #: that ends in CRED (a credit provider's glued name, 'FABRICRED'), read on the payer's name only, as the whole-word
 #: CREDIT is (never an entry field or a row that prints no payer's name field): never the whole word CRED, and never
@@ -95,8 +124,13 @@ _DEALER_FUNDING_VETO = re.compile(
     r"(?<![A-Z])(?:LOANS?|PROCEEDS|ADVANCES?|CASH ADV\w*|RETURN\w*|REVERSAL\w*|RVSL|CHARGEBACK\w*|CHBK)\b"
     r"|\b(?:ADV|MCA|RFD|RTN)\b|[A-Z]*REFUND\w*|(?<![A-Z])(?:RFND|REFND)\w*"
 )
-#: §8.7: the credit-union arm's payer region and entry field.
-_CREDIT_UNION_PAYER = re.compile(r"\bCU\b|\bCREDIT UNION\b|\bFCU\b|\bCU DIRECT\b|\bCUDL\b")
+#: §8.7: the credit-union arm's payer region and entry field. Audit B7 (I36): and a credit union's glued acronym, one to
+#: three letters before CU or FCU as one word (BECU, SECU, PSECU, GECU, DCU), read with the arm's VHCL PURCH entry and
+#: its two-credit count as every credit union is.
+_CREDIT_UNION_PAYER = re.compile(r"\bCU\b|\bCREDIT UNION\b|\bFCU\b|\bCU DIRECT\b|\bCUDL\b|\b[A-Z]{1,3}F?CU\b")
+#: §8.7 (audit B7: I36): a deal's ID on Chase's credit-union layout ('IND ID:<deal>'), which a credit union prints on
+#: the vehicle purchase and on the same deal's admin fee.
+_DEAL_ID = re.compile(r"\bIND ID (\S+)")
 _VEHICLE_PURCHASE_ENTRY = re.compile(r"\bVHCL PURCH(?:ASE)?\b")
 #: §8.7: a statement's credit-union dealer funding needs this many credits.
 CREDIT_UNION_DEALER_MIN_CREDITS = 2
@@ -168,8 +202,17 @@ _CARD_PAYOUT_NAMES = {
 _PAY_WORDS = re.compile(
     r"(?<![A-Z])(?:PAYROLL\w*|PAYRLL\b|PAYROL\b|PAYRL\b|SALARY\b|SALARIES\b|REG SAL\b|WAGES?\b|NET ?PAY\b"
     r"|BONUS(?:ES)?\b|PAY PAY\b|PAIE\b|SALAIRES?\b|PAYCHECKS?\b|PAYCHK\b|PR PAY\w*|EMPLOYEE PAY\w*|EMP PAY\b"
-    r"|DIR ?DEP\b|DIRDEP\b|DIRECT DEP\b(?!OSIT)|(?:DES|CO ENTRY DESCR) DIRECT DEPOSIT\b"
     r"|EXP(?:ENSE)? REIMB\w*)"
+)
+#: §8.1, §8.8 (Q8; audit B7: I09, amends review I4's reading): the direct-deposit words, DIR DEP, DIRDEP and DIRECT
+#: DEP anywhere and the whole phrase DIRECT DEPOSIT as an entry description. A direct deposit is a payment channel, not
+#: a purpose: a company settles with a business by direct deposit as it pays an employee. They are pay wording only
+#: with a sign the credit is a person's pay (_direct_deposit_pay): another pay word or a payroll provider (_pay_wording
+#: reads those anyway), a person named in the receiver field or after the deposit's references, a consumer (PPD or WEB)
+#: entry, or an account that does not read as a business's (_business_shape). Q7's refusal still reads them alone
+#: (_q7_refused_by_a_hold: a listed lender's dealer funding never verifies beside pay wording).
+_DIRECT_DEPOSIT_WORDS = re.compile(
+    r"(?<![A-Z])(?:DIR ?DEP\b|DIRDEP\b|DIRECT DEP\b(?!OSIT)|(?:DES|CO ENTRY DESCR) DIRECT DEPOSIT\b)"
 )
 #: §8.1, §20 (GOV, the owner's ruling of 2026-09-30, class B: government money paid to a person is no revenue of the
 #: business; GOV review I2, M4): the government's personal-benefit descriptors, read as the whole payer
@@ -223,10 +266,14 @@ _GOVERNMENT_GRANT = re.compile(
 #: GOV review (M4): the CRA's Canada Emergency Wage Subsidy, read as the whole payer (government_form_payer) with the
 #: CRA's name before or after it, so 'CANADA CEWS CONSULTING INC' is a payer.
 _WAGE_SUBSIDY_PAYER = re.compile(r"(?:CANADA )?CEWS(?: CANADA)?(?: (?:MSP|DIV|\d+))*")
-#: §8.1: a non-sale purpose.
+#: §8.1: a non-sale purpose. Audit B7 (I18): OWNER is no owner money in the ordering platform's name OWNER COM, and
+#: neither OWNER nor OWNERS in an owners' or homeowners' association's name ('<NAME> OWNERS ASSOC', cut to 'OWNERS A'
+#: by a sixteen-character originator field); the other words read only as a purpose (_non_sale_reading).
 _NON_SALE_PURPOSE = re.compile(
     r"(?<![A-Z])(?:INVEST\w*|DISTRIB(?!UTORS?\b|UTING\b)\w*|DIVIDENDS?\b|EQUITY\b|CONTRIB\w*|SHAREHOLDER\w*"
-    r"|OWNERS?\b(?! OP\b| OPERATORS?\b)|STOCK\b|INTERCO\w*|INTER COMPANY\b|DUE FROM\b|SWEEP\b|ZERO BAL\w*"
+    r"|OWNER\b(?! OP\b| OPERATORS?\b| COM\b| ASS(?:OC|N)\w*)"
+    r"|OWNERS\b(?! OP\b| OPERATORS?\b| ASS(?:OC|N)\w*| AS\b| A\b)"
+    r"|STOCK\b|INTERCO\w*|INTER COMPANY\b|DUE FROM\b|SWEEP\b|ZERO BAL\w*"
     r"|REPAY\w*|PRINCIPAL\b|PAYOFF\b|PROMISSORY\b|CONVERTIBLE\b|TRANCHE\b|DRAWS?\b|DRAWDOWNS?\b"
     r"|DISBURS\w*"
     r"|ESCROW\b|EARNEST\b|SECURITY DEPOSIT\b|DEPOSIT BACK\b|SURPLUS\b"
@@ -235,6 +282,43 @@ _NON_SALE_PURPOSE = re.compile(
     r"|RFND\w*|REFND\w*)"
     r"|\bZBA\b|[A-Z]*REFUND\w*"
 )
+#: §8.1 non_sale_purpose (audit B7: I18, the precedent of §7.11's street guard): a word followed by a street suffix is a
+#: street's name in an address ('<n> GRANT AVE', an ATM's or a branch's location), never a purpose.
+_STREET_NAME = re.compile(
+    r"(?<![A-Z])[A-Z]+(?= (?:AVE|AVENUE|ST|STREET|RD|ROAD|BLVD|BOULEVARD|DR|DRIVE|LN|LANE|WAY|CT|PL|HWY|PKWY)\b)"
+)
+#: §8.1 non_sale_purpose (audit B7: I18): DISTRIB... and STOCK are a business's name words (a distributor, a goods
+#: stock) more often than owner money. They are not read inside the payer's name field (an ACH originator, a wire's
+#: sender, a transfer's sender after FROM), inside a name that a company form ends ('<NAME> DISTRIBUTION INC', after a
+#: name word, with at most one more name word and no connector word before the form: never 'DISTRIBUTION FROM <NAME>
+#: LLC'), in
+#: a joint-stock company's or bank's legal form ('JOINT STOCK COMPANY', 'JOINT STOCK COMMERCIAL BANK'), or, STOCK, on a
+#: row that cites an invoice ('INV <n> STOCK AND FREIGHT': goods). A purpose or entry field still holds them
+#: ('DES:DISTRIB', 'QUARTERLY PARTNER DISTRIBUTION').
+_NAME_NON_SALE_WORDS = re.compile(r"(?<![A-Z])(?:DISTRIB(?!UTORS?\b|UTING\b)\w*|STOCK\b)")
+_JOINT_STOCK = re.compile(r"(?<![A-Z])JOINT STOCK\b")
+_FORMED_NAME_NON_SALE = re.compile(
+    r"(?<=[A-Z0-9] )(?:DISTRIB(?!UTORS?\b|UTING\b)\w*|STOCK)"
+    r"(?= (?:(?!(?:FROM|TO|OF|FOR|BY|PER|AND|THE)\b)[A-Z]+ )?(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO"
+    r"|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC|GMBH)\b)"
+)
+_STOCK_WORD = re.compile(r"(?<![A-Z])STOCK\b")
+_INVOICE_WORD = re.compile(r"(?<![A-Z])(?:INVOICES?|INV)\b|(?<![A-Z])INV ?\d")
+#: §8.1 non_sale_purpose (audit B7: I18): DISBURS... is the payer's own account ('DISBURSEMENT ACCOUNT', an importer's
+#: paying account), or an ordinary company's recurring payout entry ('PSP <phone> DISBURSMNT', a processor's
+#: payouts), no non-sale purpose. It stays one beside a loan, escrow, title or proceeds word, on a one-off credit, and
+#: on a row whose payer reads as a lender, an insurer, a title or escrow firm, a bank, a lawyer or a government
+#: (_disbursing_payer).
+_DISBURSEMENT_ACCOUNT = re.compile(r"(?<![A-Z])DISBURS\w* (?:ACCOUNT|ACCT|ACCNT)\b")
+_DISBURSEMENT_WORD = re.compile(r"(?<![A-Z])DISBURS\w*")
+_DISBURSEMENT_KEEP = re.compile(
+    r"(?<![A-Z])(?:LOANS?|ESCROW|TITLE|PROCEEDS) DISBURS\w*|(?<![A-Z])DISBURS\w* (?:LOANS?|ESCROW|TITLE|PROCEEDS)\b"
+)
+#: §8.1 (A3-G, audit B7: the orchestrator's delegated ruling on audit I57): a personal trust's payment whose purpose
+#: cites the holder's service, a school's tuition or a student's ID, is a customer's payment, not owner money; it is
+#: read on the payment's purpose (_title_purpose_text) with a line wrap's split joined ('TUITIO N'). A trust's invoice
+#: or PO payment is already verified by §7.9 before the holds read it.
+_TRUST_SERVICE_PURPOSE = re.compile(r"TUITION|STUDENTID")
 #: §8.1, S4.2 review (I6b): §7.5's investment words BROKERAGE, SECURITIES and WEALT join the owner money group (the
 #: standing rule: owner money never becomes revenue), except on a row that prints §7.5's accounts-payable or
 #: vendor-payment wording (_accounts_payable_wording; S4.2 fix measurement): a wealth, brokerage or securities firm
@@ -985,6 +1069,39 @@ def _hold_text(text: str) -> str:
     return _HOLD_POSTING_LABELS.sub(" ", classifier._before_receiver(text))
 
 
+#: §8.1 (audit B7: I47): the legal forms a holder's name run may print after it, or leave off.
+_HOLDER_RUN_FORM = r"(?: (?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC))?"
+
+
+@cache
+def _holder_runs(account_name: str | None, whole_name: bool) -> re.Pattern[str] | None:
+    """§8.1 (audit B7: I47): the holder's own name as a row prints it when the bank prints the receiver with no label:
+    the account name's whole run (`whole_name`: any name of two or more words, as T4's root test always removed it),
+    and, when the account name names the holder (_usable_holder_name: a company form or a person's name, never a
+    product name such as 'BUSINESS REWARDS CHECKING'), each run of its first two words or more, with the legal form
+    printed or left off ('NORTHWIND DISTRIBUTION' for 'NORTHWIND DISTRIBUTION LLC'). Longest first; None when there is
+    none."""
+    holder = _classifier().account_name_text(account_name)
+    words = holder.split()
+    runs = set()
+    if whole_name and len(words) >= 2:
+        runs.add(holder)
+    if _usable_holder_name(account_name):
+        runs.update(" ".join(words[:count]) for count in range(2, len(words) + 1))
+    if not runs:
+        return None
+    names = "|".join(re.escape(run) for run in sorted(runs, key=len, reverse=True))
+    return re.compile(r"(?<![A-Z0-9])(?:" + names + r")" + _HOLDER_RUN_FORM + r"(?![A-Z0-9])")
+
+
+def _without_holder_name(row: str, account_name: str | None, *, whole_name: bool = False) -> str:
+    """§8.1 (audit B7: I47): `row` with the holder's own name runs removed (_holder_runs), so a hold word inside the
+    holder's name (DISTRIBUTION, CAPITAL, PAYROLL, RETIREMENT, RETURNS) never holds a third party's payment printed with
+    an unlabelled receiver. Read before the possible-return, financing-root, pay, personal-income and non-sale tests."""
+    runs = _holder_runs(account_name, whole_name) if account_name else None
+    return runs.sub(" ", row) if runs is not None else row
+
+
 def government_benefit(text: str) -> bool:
     """§8.1 personal_income, §20 (GOV, class B; GOV review I2): a government's personal-benefit form names the row: a
     benefit descriptor as the whole payer of the row before its receiver fields (_GOVERNMENT_BENEFIT_PAYER, read on
@@ -1021,17 +1138,36 @@ def government_grant(text: str) -> bool:
     ) is not None
 
 
-def financing_named(text: str, region: str, entry: str, account_name: str | None) -> bool:
-    """§8.1, T4: a financing root in the payer region or the entry fields (posting labels removed, and a run equal to
-    the holder's whole account name removed first), or, on a row with no payer region, in the row before its
-    receiver fields. A whole-word CREDIT counts only inside a payer name, next to another name word."""
+def financing_named(
+    text: str, region: str, entry: str, account_name: str | None, *, bank: str | None = None
+) -> bool:
+    """§8.1, T4: a financing root in the payer region or the entry fields (posting labels removed, and the holder's
+    own name runs removed first: its whole account name, and audit B7 (I47) a run of its first two words or more,
+    _without_holder_name), or, on a row with no payer region, in the row before its receiver fields. A whole-word
+    CREDIT counts only inside a payer name, next to another name word.
+
+    Audit B7 (I16): the roots are never read on text that names no payer. A cash, branch, ATM or check deposit with no
+    payer region prints its location ('<n> GLENDALE <state>', '<n> CAPITAL BLVD', '<NAME> FIN CU <street>'), so it is
+    never read. On every row a bank's branch label after a bank's name ('BOFA FIN CTR'), the banks' page furniture
+    (MEMBER FDIC, EQUAL HOUSING LENDER), a fundraising purpose and Wave Payments' payout entry are removed
+    (_root_reading). On a person-to-person row the sender's bank (a listed sending bank, the statement's bank, a credit
+    union's name) is removed, and a sender that reads as a person's name is not read (_p2p_person_name: a surname that
+    holds LEND or FUND). On a wire's purpose text a buyer's advance payment or prepayment for goods is removed
+    (_WIRE_TRADE_PURPOSE). A whole-word CREDIT ending the payer region after a single letter is the entry word a cut
+    originator name prints ('<NAME> P CREDIT'), and the plural CREDITS is no root (_WHOLE_CREDIT)."""
     classifier = _classifier()
-    holder = classifier.account_name_text(account_name)
+    channel = _channel(text, bank)
+    if not region and channel in _DEPOSIT_CHANNELS:
+        return False
+    row = classifier._before_receiver(text)
+    p2p = channel == "person_to_person" and _p2p_rail(row)
+    wire = classifier._is_wire_row(text)
     parts = []
     if region:
-        payer = _HOLD_POSTING_LABELS.sub(" ", region)
-        if len(holder.split()) >= 2:
-            payer = payer.replace(holder, " ")
+        payer = _root_reading(_HOLD_POSTING_LABELS.sub(" ", region), account_name, bank, p2p=p2p)
+        if p2p and _p2p_person_name(payer):
+            payer = ""
+        payer = _CUT_NAME_ENTRY_CREDIT.sub("", payer.strip())
         parts.append(payer)
         name_words = classifier.payer_name(payer).split()
         if len(name_words) >= 2 and _WHOLE_CREDIT.search(" ".join(name_words)):
@@ -1043,16 +1179,73 @@ def financing_named(text: str, region: str, entry: str, account_name: str | None
             return True
         # A3: a wire's sender split by a line wrap, read across the split (§7.9's wrap-tolerant reading); A3 review,
         # rounds 2 and 3: on every wire sender, labelled or not, where the two words spell a financing word.
-        if classifier._is_wire_row(text) and _wrap_split_root(text, payer):
+        if wire and _wrap_split_root(text, payer):
             return True
         if entry:
-            parts.append(_HOLD_POSTING_LABELS.sub(" ", entry))
+            purpose = _HOLD_POSTING_LABELS.sub(" ", entry)
+            if wire:
+                purpose = _WIRE_TRADE_PURPOSE.sub(" ", purpose)
+            parts.append(_root_reading(purpose, account_name, bank, p2p=False))
     else:
-        row = _hold_text(text)
-        if len(holder.split()) >= 2:
-            row = row.replace(holder, " ")
-        parts.append(row)
+        reading = _root_reading(_hold_text(text), account_name, bank, p2p=p2p)
+        if p2p:
+            # A sender printed without FROM (its rail's reading, _p2p_sender_region): a person's name words are removed
+            # one by one (the reading skips single letters and generic words between them).
+            sender = _p2p_sender_region(text)
+            if sender and _p2p_person_name(sender):
+                for word in sender.split():
+                    reading = re.sub(r"(?<![A-Z0-9])" + re.escape(word) + r"(?![A-Z0-9])", " ", reading)
+        parts.append(reading)
     return any(_FINANCING_ROOT.search(part) for part in parts)
+
+
+def _root_reading(words: str, account_name: str | None, bank: str | None, *, p2p: bool) -> str:
+    """§8.1, T4 (audit B7: I16, I47): the words the financing roots are read on: without the holder's own name runs
+    (_without_holder_name, its whole account name always), a bank's branch label after a bank's name, the banks' page
+    furniture, a fundraising purpose and Wave Payments' payout entry; on a person-to-person row (`p2p`) without the
+    sender's bank too: a listed sending bank (_P2P_LAYOUT_PHRASES), the statement's own bank and a credit union's
+    name (_P2P_CREDIT_UNION)."""
+    words = _without_holder_name(words, account_name, whole_name=True)
+    words = _branch_label(bank).sub(" ", words)
+    words = _ROOT_FURNITURE.sub(" ", words)
+    words = _FUNDRAISING.sub(" ", words)
+    words = _WAVE_PAYOUT_ENTRY.sub(" ", words)
+    if p2p:
+        words = _P2P_LAYOUT_PHRASES.sub(" ", words)
+        own = _statement_bank_names(bank) if bank else None
+        if own is not None:
+            words = own.sub(" ", words)
+        words = _P2P_CREDIT_UNION.sub(" ", words)
+    return words
+
+
+@cache
+def _branch_label(bank: str | None) -> re.Pattern[str]:
+    """§8.1, T4 (audit B7: I16): a bank's branch label printed after a bank's name, a listed sending bank's or the
+    statement's own ('BOFA FIN CTR', 'BANK OF AMERICA FINANCIAL CENTER')."""
+    names = set(P2P_SENDING_BANK_NAMES) | {"BKOFAMERICA"}
+    if bank:
+        names.update(_statement_bank_forms(bank))
+    alternatives = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
+    return re.compile(r"(?<![A-Z])(?:" + alternatives + r") " + _BRANCH_LABEL_WORDS + r"\b")
+
+
+def _p2p_person_name(name: str) -> bool:
+    """§8.1, T4 (audit B7: I16): a person-to-person sender that reads as a person's name: two to five name words once
+    its reference tokens are skipped, each of letters only, no company form, no holder-noise, generic, business or
+    institution word, and no word that is a whole-word root or starts with a financing word
+    (_FINANCING_NAME_STARTS: 'TRUE FINANCE', 'FAST FUNDING' and 'NORTHWIND CAPITALCO' are no person). A root inside a
+    surname ('MELENDEZ', 'FUNDORA') is never read on it."""
+    classifier = _classifier()
+    words = [word for word in name.split() if not classifier._is_reference_token(word)]
+    if not 2 <= len(words) <= 5 or classifier.company_form(" ".join(words)):
+        return False
+    return all(
+        word.isalpha() and word not in classifier.HOLDER_NOISE and word not in classifier.REVENUE_GENERIC_WORDS
+        and _TRUST_BUSINESS_WORDS.search(word) is None and _WHOLE_WORD_ROOT.fullmatch(word) is None
+        and not word.startswith(_FINANCING_NAME_STARTS)
+        for word in words
+    )
 
 
 def _prints_payer_name_field(text: str) -> bool:
@@ -1102,18 +1295,27 @@ def _accounts_payable_wording(text: str) -> bool:
     ) is not None
 
 
-def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool:
+def non_sale_purpose(
+    text: str, region: str, *, bank: str | None = None, account_name: str | None = None, disbursing: bool = False
+) -> bool:
     """§8.1: a non-sale purpose, a public payer's refund or benefit, or a healthcare payer's member or premium credit.
     The investment words hold a row unless it prints accounts-payable wording (S4.2 fix measurement). A3 (precision
     sample): a title firm named on the payer region (_TITLE_FIRM: property-closing proceeds, an asset sale), on a
     wire or an ACH row alike, unless its purpose cites the holder's fee (_TITLE_FEE_WORDING, the orchestrator's
     ruling; A3 review: read on the purpose only, _title_purpose_text); and the holder's own currency conversion
-    (_currency_conversion; `bank` is the statement's bank, whose own name names no payer)."""
+    (_currency_conversion; `bank` is the statement's bank, whose own name names no payer).
+
+    Audit B7: the row is read without the holder's own name runs (I47, _without_holder_name: `account_name`), and the
+    non-sale words only as a purpose (I18, _non_sale_reading): never a street's name, a payer's name word
+    (DISTRIB..., STOCK), a joint-stock company's form, the payer's own DISBURSEMENT ACCOUNT, or the recurring
+    disbursement entry of an ordinary payer (`disbursing`: the statement pass's _recurring_disbursers). A personal
+    trust's payment that cites the holder's service is no owner money (the orchestrator's ruling on audit I57,
+    _held_personal_trust)."""
     classifier = _classifier()
-    row = _hold_text(text)
+    row = _without_holder_name(_hold_text(text), account_name)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
     healthcare = healthcare_payer(region)
-    if _NON_SALE_PURPOSE.search(row) is not None:
+    if _NON_SALE_PURPOSE.search(_non_sale_reading(text, row, region, disbursing=disbursing)) is not None:
         return True
     # GOV (owner ruling 2026-09-30, class D): a government grant or subsidy.
     if government_grant(text):
@@ -1125,7 +1327,7 @@ def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool
         return True
     if _currency_conversion(text, bank=bank):
         return True
-    if _personal_trust(text, region):
+    if _held_personal_trust(text, region):
         return True
     if _INVESTMENT_PURPOSE.search(row) is not None and not _accounts_payable_wording(text):
         return True
@@ -1145,6 +1347,73 @@ def non_sale_purpose(text: str, region: str, *, bank: str | None = None) -> bool
     if healthcare and _premium_coded(text, region):
         row = _PREMIUM_CODED.sub(" ", row)
     return healthcare and _HEALTHCARE_MEMBER_WORDS.search(row) is not None
+
+
+def _non_sale_reading(text: str, row: str, region: str, *, disbursing: bool = False) -> str:
+    """§8.1 non_sale_purpose (audit B7: I18): the words _NON_SALE_PURPOSE reads, the non-sale words only as a purpose:
+    without a street's name (_STREET_NAME: '<n> GRANT AVE'), a joint-stock company's or bank's form (_JOINT_STOCK),
+    DISTRIB... or STOCK inside a name a company form ends (_FORMED_NAME_NON_SALE) or inside the payer's name field
+    (the payer region of a row that prints one, _prints_payer_name_field: 'ORIG CO NAME:<NAME> DISTRIBUTIO'), STOCK on a
+    row citing an invoice (_INVOICE_WORD), the payer's own DISBURSEMENT ACCOUNT, and (`disbursing`) the disbursement
+    entry of an ordinary payer that repeats in the statement (_recurring_disbursers), which no loan, escrow, title or
+    proceeds word stands beside (_DISBURSEMENT_KEEP)."""
+    row = _STREET_NAME.sub(" ", row)
+    row = _JOINT_STOCK.sub(" ", row)
+    row = _FORMED_NAME_NON_SALE.sub(" ", row)
+    if region and _prints_payer_name_field(text):
+        named = _NAME_NON_SALE_WORDS.sub(" ", region)
+        if named != region:
+            row = row.replace(region, named)
+    if _INVOICE_WORD.search(row):
+        row = _STOCK_WORD.sub(" ", row)
+    row = _DISBURSEMENT_ACCOUNT.sub(" ", row)
+    if disbursing and _DISBURSEMENT_KEEP.search(row) is None:
+        row = _DISBURSEMENT_WORD.sub(" ", row)
+    return row
+
+
+def _recurring_disbursers(texts: dict[int, str]) -> frozenset[tuple[str, ...]]:
+    """§8.1 non_sale_purpose (audit B7: I18): the payer keys of the statement's ordinary payers (_disbursing_payer) whose
+    disbursement entry prints on two or more credits (§5.2's repeats): a processor's or a platform's recurring payout
+    ('PSP <phone> DISBURSMNT'). A one-off disbursement keeps its hold."""
+    classifier = _classifier()
+    counts: Counter = Counter()
+    for text in texts.values():
+        if _DISBURSEMENT_WORD.search(_hold_text(text)) is None:
+            continue
+        region = classifier.payer_region(text)
+        if region and _disbursing_payer(text, region):
+            counts[classifier._payer_key(region)] += 1
+    return frozenset(key for key, count in counts.items() if key and count >= 2)
+
+
+def _disbursing_payer(text: str, region: str) -> bool:
+    """§8.1 non_sale_purpose (audit B7: I18): an ACH or EFT payer whose disbursement entry is its ordinary payout (a
+    processor's 'PSP <phone> DISBURSMNT', an association's 'DISBURSEMENT'): the row is on the ACH or EFT channel and its
+    payer region names a payer that reads as none of a lender (a financing root, a financing payee of the registry), an
+    insurer or a claim payer, a bank, a title, escrow, closing or settlement firm, a lawyer's account or a public
+    payer."""
+    classifier = _classifier()
+    if not region or _channel(text) != "ach_eft":
+        return False
+    if (
+        _FINANCING_ROOT.search(region) or _INSURER_NAME.search(region) or _CLAIM_WORD.search(region)
+        or _BANK_OR_TITLE_SENDER.search(region) or _TRUST_LAWYER_WORDS.search(region)
+        or _public_named(public_region(text))
+    ):
+        return False
+    known = match_known_payee(classifier._without_receiver_value(text), credit=True)
+    return known is None or known.state not in FINANCING_STATES
+
+
+def _held_personal_trust(text: str, region: str) -> bool:
+    """§8.1 (A3-G; the orchestrator's delegated ruling on audit I57): a personal trust that the hold names
+    (_personal_trust), unless the payment's purpose (_title_purpose_text, a line wrap's split joined) cites the holder's
+    service: a school's tuition or a student's ID (_TRUST_SERVICE_PURPOSE). A trust's payment with no purpose stays
+    held."""
+    if not _personal_trust(text, region):
+        return False
+    return _TRUST_SERVICE_PURPOSE.search(_title_purpose_text(text).replace(" ", "")) is None
 
 
 def _personal_trust(text: str, region: str) -> bool:
@@ -1301,12 +1570,78 @@ def cpa_payroll_code(row: str, bank: str | None) -> bool:
     return _cpa_code_bank(bank) and _CPA_PAYROLL_CODE.search(row) is not None
 
 
-def _pay_wording(row: str, bank: str | None) -> bool:
+def _pay_wording(
+    row: str, bank: str | None, *, text: str = "", account_name: str | None = None, business: bool = False
+) -> bool:
     """§8.1, Q8: pay wording on the row before its receiver fields (_PAY_WORDS), a payroll provider, (audit B5: I37)
-    TD Canada Trust's payroll-deposit code, or (audit B6: I49) an earned-wage access provider's push."""
-    return bool(
+    TD Canada Trust's payroll-deposit code, or (audit B6: I49) an earned-wage access provider's push. Audit B7 (I09):
+    or the direct-deposit words with a sign of a person's pay (_direct_deposit_pay; `text` is the credit's revenue
+    text with its receiver fields, `business` the statement's _business_shape)."""
+    if (
         _PAY_WORDS.search(row) or _EARNED_WAGE_ACCESS.search(row) or _classifier()._is_payroll_provider_row(row)
         or cpa_payroll_code(row, bank)
+    ):
+        return True
+    return _direct_deposit_pay(text or row, row, account_name, business=business)
+
+
+def _direct_deposit_pay(text: str, row: str, account_name: str | None, *, business: bool) -> bool:
+    """§8.1, §8.8 (Q8; audit B7: I09): the direct-deposit words (_DIRECT_DEPOSIT_WORDS) on `row` are a person's pay when
+    the account does not read as a business's (`business` False, _business_shape), when a payroll provider is named on
+    the row, when the receiver is a person (_person_receiver), or on a consumer (PPD or WEB) entry (consumer_entry).
+    The rest of the pay words (_PAY_WORDS) and the payroll providers of _is_payroll_provider_row are read by
+    _pay_wording before these. On a business's account a company's
+    direct deposit to the business ('<payer> DIR DEP <date> <id>', a carrier's settlement to its contractor) is no pay
+    wording: the credit takes its payer's reading (Q6, or named_payer_unlabelled on a layout with no ACH form)."""
+    found = _DIRECT_DEPOSIT_WORDS.search(row)
+    if found is None:
+        return False
+    if not business:
+        return True
+    classifier = _classifier()
+    # A payroll provider named on the row (the classifier's payroll words: ADP, PAYCHEX, GUSTO, CERIDIAN), whose
+    # direct deposit is the employer's payroll it runs.
+    if classifier._matches_any(row, classifier._PAYROLL_PATTERNS):
+        return True
+    return _person_receiver(text, row[found.end():], account_name) or consumer_entry(text, account_name)
+
+
+def _person_receiver(text: str, tail: str, account_name: str | None) -> bool:
+    """§8.1, §8.8 (audit B7: I09): the direct deposit's receiver is a person: a receiver field's value (INDN, IND NAME,
+    RECEIVER NAME) that reads as a person's name, or, on a layout that prints the receiver after the deposit's
+    references with no label (Wells Fargo's '<payer> DIR DEP <date> <id> <receiver>'), the words after those
+    references (`tail`), each a letters-only word, reading as one (_p2p_person_name). The holder's own name is never
+    the person (a business's name printed without its form)."""
+    classifier = _classifier()
+    names = [
+        " ".join(word for word in _RECEIVER_LABEL.sub("", found.group(0), count=1).split() if word.isalpha())
+        for found in classifier._RECEIVER_FIELD_VALUE.finditer(text)
+    ]
+    words = tail.split()
+    while words and classifier._is_reference_token(words[0]):
+        words.pop(0)
+    if words and all(word.isalpha() for word in words):
+        names.append(" ".join(words))
+    return any(
+        name and _p2p_person_name(name) and not classifier.holder_named(name, account_name)
+        and _without_holder_name(name, account_name).strip() == name
+        for name in names
+    )
+
+
+def _business_shape(records: Sequence[TransactionClassification], duplicates: set[int]) -> bool:
+    """§8.1, §8.8 (audit B7: I09): the statement's account reads as a business's: its account name prints a business
+    product word or a legal form (the classifier's _business_account) or a company form, or the statement shows the
+    holder's own payroll (a posted debit the classifier reads as payroll). Any other account is consumer-shaped, and a
+    direct deposit to it is a person's pay (_direct_deposit_pay)."""
+    classifier = _classifier()
+    account_name = records[0].account_name if records else None
+    holder = classifier.account_name_text(account_name)
+    if classifier._business_account(account_name) or (holder and classifier.company_form(holder)):
+        return True
+    return any(
+        index not in duplicates and record.amount < 0 and record.is_posted and record.classification == "payroll"
+        for index, record in enumerate(records)
     )
 
 
@@ -1527,7 +1862,9 @@ def _q7_refused_by_a_hold(text: str, words: str, region: str) -> bool:
     for row in (classifier._before_receiver(text), words):
         hold = _HOLD_POSTING_LABELS.sub(" ", row)
         if (
-            _PAY_WORDS.search(row) or classifier._is_payroll_provider_row(row) or _personal_income(text, row)
+            # Audit B7 (I09): the direct-deposit words still refuse Q7 alone (G11, fail closed).
+            _PAY_WORDS.search(row) or _DIRECT_DEPOSIT_WORDS.search(row) or classifier._is_payroll_provider_row(row)
+            or _personal_income(text, row)
             or _POSSIBLE_RETURN.search(hold)
             or _INSURER_NAME.search(hold) or _CLAIM_WORD.search(hold)
             or _DEALER_FLOOR_PLAN_WORDS.search(row)
@@ -1564,6 +1901,25 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
     ):
         return None
     words = classifier._without_receiver_value(text)
+    region = _dealer_funding_region(text, row, words)
+    if region is None:
+        return None
+    lender = _listed_auto_lender(words)
+    word = DEALER_FUNDING_WORDS.search(row) or _DEALER_PAYABLES_WORDS.search(row)
+    if lender is not None and word is not None:
+        return DealerFunding("listed", lender[0], lender[1], word.group(0))
+    entry = _VEHICLE_PURCHASE_ENTRY.search(classifier.entry_fields(text) or row)
+    if _CREDIT_UNION_PAYER.search(region) and entry is not None:
+        # The credit union as its payer region prints it (§5.2: never a receiver field): no registry names it.
+        return DealerFunding("credit_union", classifier.payer_name(region) or region, region, entry.group(0))
+    return None
+
+
+def _dealer_funding_region(text: str, row: str, words: str) -> str | None:
+    """§6.1 step 4 (Q7): the payer region of a credit Q7 may read, or None when one of its refusals names the row (the
+    loan, proceeds, advance and refund words, the channel gate, the strong non-revenue rule and D1's descriptors,
+    transfer wording, a hold's wording, a lender outside vehicle financing, a potential lender, an insurer)."""
+    classifier = _classifier()
     if (
         _DEALER_FUNDING_VETO.search(words)
         or classifier.channel_gate(text) is not None
@@ -1584,15 +1940,45 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
     # name before it, _split_glued_claim).
     if classifier._insurance_registry_match(classifier._split_glued_claim(text), glued_digits=True) is not None:
         return None
-    lender = _listed_auto_lender(words)
-    word = DEALER_FUNDING_WORDS.search(row) or _DEALER_PAYABLES_WORDS.search(row)
-    if lender is not None and word is not None:
-        return DealerFunding("listed", lender[0], lender[1], word.group(0))
-    entry = _VEHICLE_PURCHASE_ENTRY.search(classifier.entry_fields(text) or row)
-    if _CREDIT_UNION_PAYER.search(region) and entry is not None:
-        # The credit union as its payer region prints it (§5.2: never a receiver field): no registry names it.
-        return DealerFunding("credit_union", classifier.payer_name(region) or region, region, entry.group(0))
-    return None
+    return region
+
+
+def credit_union_dealer_entry(text: str) -> DealerFunding | None:
+    """§8.7 (audit B7: I36): a credit union's other dealer-funding entry, read on a credit's revenue text: a credit union
+    named on the payer region (_CREDIT_UNION_PAYER, no listed auto lender) prints a dealer-funding word other than the
+    VHCL PURCH entry ('VADMIN FEE', the same deal's admin fee), and none of Q7's refusals names the row
+    (_dealer_funding_region). Arm 'credit_union_entry', with the credit union as its payer region prints it; or None.
+    The statement pass verifies it beside the same credit union's verified VHCL PURCH credits, or one that prints its
+    deal ID (_DEAL_ID)."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    word = DEALER_FUNDING_WORDS.search(row)
+    if word is None or _VEHICLE_PURCHASE_ENTRY.search(classifier.entry_fields(text) or row):
+        return None
+    words = classifier._without_receiver_value(text)
+    region = _dealer_funding_region(text, row, words)
+    if region is None or not _CREDIT_UNION_PAYER.search(region) or _listed_auto_lender(words) is not None:
+        return None
+    return DealerFunding("credit_union_entry", classifier.payer_name(region) or region, region, word.group(0))
+
+
+def _dealer_word_lender(text: str, region: str) -> bool:
+    """§8.1, §8.7 (audit B7: I36): the dealer-word hold reads every row but a wire whose purpose alone prints the word
+    and whose sender is a named non-lender ('B/O <person> ... OBI VEHICLE PURCHASE', a customer's own wire to the
+    dealer): Q5 reads that wire. A wire is still held when it names no sender, when the sender's own name prints the
+    word, or when the sender reads as a lender, a credit union or a bank: a financing root, a credit union's or a
+    bank's, title or escrow firm's form, a financing payee of the registry or a potential lender. An ACH or EFT entry
+    printing the word from an unlisted originator stays held ('<NAME> AUTO DES:DEALER PAY': an auto lender the
+    registry does not list)."""
+    classifier = _classifier()
+    if not region or _channel(text) != "wire" or DEALER_FUNDING_WORDS.search(region):
+        return True
+    if _CREDIT_UNION_PAYER.search(region) or _BANK_OR_TITLE_SENDER.search(region) or _FINANCING_ROOT.search(region):
+        return True
+    known = match_known_payee(classifier._without_receiver_value(text), credit=True)
+    if known is not None and known.state in FINANCING_STATES:
+        return True
+    return registry_match(region, classifier.POTENTIAL_LENDER_ALIASES) is not None
 
 
 #: Audit B4 (I02; standard A5): the bank's own fee for an incoming wire or funds transfer, which reprints the sender's
@@ -2452,6 +2838,8 @@ def credit_facts(
     *,
     debits: CounterDebits,
     receiver_holders: tuple[str, ...] = (),
+    business: bool = False,
+    disbursers: frozenset[tuple[str, ...]] = frozenset(),
 ) -> CreditFacts:
     """§8.1 to §8.9: one posted credit's payer facts, including the first hold of §8.10's order 2 to 11. The payer
     region, name, key and entry fields are the 5.5 readers' (payer_region, payer_name, _payer_key, entry_fields). A
@@ -2460,7 +2848,9 @@ def credit_facts(
     (T13, S4.2 fix round 5: _named_transfer_sender), which the FROM form's payer region reads. Every other hold reads
     the payer region, so such a row's financing root is still read on the whole row. A3-G refinement: on the wire
     channel a region of bare channel words (_BARE_CHANNEL_WORDS: 'WIRE') names no sender; `receiver_holders` are the
-    holder's names the statement's own receiver fields print (_receiver_holder_names), read by the holder hold only."""
+    holder's names the statement's own receiver fields print (_receiver_holder_names), read by the holder hold only.
+    Audit B7: `business` is the statement's _business_shape, which the direct-deposit words read (I09), and
+    `disbursers` the statement's _recurring_disbursers, whose disbursement entry is no non-sale purpose (I18)."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
     region = classifier.payer_region(text)
@@ -2490,6 +2880,7 @@ def credit_facts(
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, debits=debits,
         sender=sender, holder_sender=holder_sender, receiver_holders=receiver_holders, wire=channel == "wire",
+        business=business, disbursing=bool(region) and classifier._payer_key(region) in disbursers,
     )
     return CreditFacts(
         channel=channel,
@@ -2533,6 +2924,8 @@ def _first_hold(
     holder_sender: str = "",
     receiver_holders: tuple[str, ...] = (),
     wire: bool = False,
+    business: bool = False,
+    disbursing: bool = False,
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. Audit B5: a bank's own wire is
     read on every row pass 7's wire channel reads (`wire`, I14, I23), and TD Canada Trust's payroll-deposit code is pay
@@ -2543,9 +2936,15 @@ def _first_hold(
     keeps a layout word inside the name (`holder_sender`, S4.2 final review M7); or a named transfer's counterparty
     printed without FROM (T13, S4.2 fix round 5), both readings one. Audit B4: the counter-debit holds read the
     statement's debits by kind (debited_as_lender, also_debited), and a payroll provider's tax-service credit no
-    debit holds is non_sale_purpose (I56), on a claimed row too (the pay holds' convention)."""
+    debit holds is non_sale_purpose (I56), on a claimed row too (the pay holds' convention).
+
+    Audit B7: the possible-return, financing-root, pay, personal-income and non-sale tests read the row without the
+    holder's own name runs (I47, _without_holder_name); the direct-deposit words are pay wording only with a sign of a
+    person's pay (I09, _direct_deposit_pay, `business` the statement's _business_shape); and the dealer-word hold
+    never reads a named non-lender's wire purpose (I36, _dealer_word_lender)."""
     classifier = _classifier()
-    row = _hold_text(text)
+    row = _without_holder_name(_hold_text(text), record.account_name)
+    before = _without_holder_name(classifier._before_receiver(text), record.account_name)
     if record.revenue_match_method == "insurer_customer_payment":
         return "insurer_payer"
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
@@ -2566,11 +2965,15 @@ def _first_hold(
     ):
         return "possible_return"
     if not claimed and (
-        financing_named(text, region, entry, record.account_name)
+        financing_named(text, region, entry, record.account_name, bank=record.bank)
         or registry_financing(record, text)
         # §8.7: a listed lender's or a dealer-funding word's row that Q7 did not verify, and a lone credit union's.
+        # Audit B7 (I36): never on a named non-lender's wire purpose (_dealer_word_lender).
         or (_dealer_funding_payer(text) is not None and record.revenue_match_method != "auto_lender_dealer_funding")
-        or (DEALER_FUNDING_WORDS.search(row) and record.revenue_match_method != "auto_lender_dealer_funding")
+        or (
+            DEALER_FUNDING_WORDS.search(row) and record.revenue_match_method != "auto_lender_dealer_funding"
+            and _dealer_word_lender(text, region)
+        )
         or record.revenue_match_method == "credit_union_vehicle_purchase"
         # A3-G: a wire a bank originates on its own behalf.
         or _bank_originated_wire(text, region, wire=wire)
@@ -2594,11 +2997,13 @@ def _first_hold(
         )
     ):
         return "holder_name"
-    if _pay_wording(classifier._before_receiver(text), record.bank):
+    if _pay_wording(before, record.bank, text=text, account_name=record.account_name, business=business):
         return "payroll_or_salary"
-    if _personal_income(text, classifier._before_receiver(text)):
+    if _personal_income(text, before):
         return "personal_income"
-    if not claimed and non_sale_purpose(text, region, bank=record.bank):
+    if not claimed and non_sale_purpose(
+        text, region, bank=record.bank, account_name=record.account_name, disbursing=disbursing
+    ):
         return "non_sale_purpose"
     if not claimed and (
         record.revenue_match_method == "payer_remittance_with_counter_debit" or also_debited(counter, debits)
@@ -3000,14 +3405,44 @@ def apply_true_revenue_pass(
                         "or more are dealer funding).", 0.90),
                 revenue_source_type="auto_dealer_funding",
             )
+        # Audit B7 (I36): the same credit unions' other dealer-funding entries (a deal's VADMIN FEE), beside their
+        # verified VHCL PURCH credits or printing one's deal ID.
+        unions = {records[index].revenue_canonical_entity for index in union_rows}
+        deals = {found.group(1) for index in union_rows
+                 if (found := _DEAL_ID.search(classifier.revenue_text(records[index].normalized_description)))}
+        for index in credits:
+            record = updated[index]
+            if (
+                index in union_rows or record.revenue_classification != "unverified_deposit"
+                or not record.direction_consistent or _under_micro_floor(record)
+                or record.revenue_match_method == "direction_conflict"
+            ):
+                continue
+            text = classifier.revenue_text(record.normalized_description)
+            entry = credit_union_dealer_entry(text)
+            deal = _DEAL_ID.search(text)
+            if entry is None or not (entry.entity in unions or (deal is not None and deal.group(1) in deals)):
+                continue
+            updated[index] = replace(
+                _verify(record, "auto_lender_dealer_funding",
+                        f"Credit union '{entry.entity}' funds the dealer's indirect auto loans (its VHCL PURCH credits "
+                        f"verify in the statement): its {entry.word} entry is the same dealer funding.", 0.90),
+                revenue_source_type="auto_dealer_funding",
+                revenue_canonical_entity=entry.entity,
+                revenue_matched_alias=entry.alias,
+            )
     debits = counter_debits(records, duplicate_indexes)
+    # Audit B7 (I09): whether the account reads as a business's, which the direct-deposit words read.
+    business = _business_shape(records, duplicate_indexes)
     # A3-G refinement: the holder's names the statement's own receiver fields print, when its account name names nobody.
     receiver_holders = _receiver_holder_names(records, credits)
     texts = {index: classifier.revenue_text(updated[index].normalized_description) for index in credits}
+    # Audit B7 (I18): the ordinary payers whose disbursement entry repeats in the statement.
+    disbursers = _recurring_disbursers(texts)
     facts = {
         index: credit_facts(
             updated[index], texts[index], debits=debits,
-            receiver_holders=receiver_holders,
+            receiver_holders=receiver_holders, business=business, disbursers=disbursers,
         )
         for index in credits
     }
@@ -3121,14 +3556,20 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
     # G12 (§8.7): Q7's payer and veto words, read as dealer_funding reads them (the holder's name never names a lender).
     listed = _dealer_funding_payer(words) is not None
     union = bool(_CREDIT_UNION_PAYER.search(region))
+    # Audit B7 (I47): the pay and benefit words are read as the holds read them, without the holder's own name runs.
+    pay_row = _without_holder_name(row, record.account_name)
     return {
         "claimed": _claimed(record, text),
-        "financing_root": financing_named(text, region, entry, record.account_name),
+        "financing_root": financing_named(text, region, entry, record.account_name, bank=record.bank),
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
         "pay_or_personal": bool(
-            _PAY_WORDS.search(row) or _EARNED_WAGE_ACCESS.search(row) or cpa_payroll_code(row, record.bank)
-            or _personal_income(text, row)
+            _PAY_WORDS.search(pay_row) or _EARNED_WAGE_ACCESS.search(pay_row) or cpa_payroll_code(pay_row, record.bank)
+            or _personal_income(text, pay_row)
+            # Audit B7 (I09): the direct-deposit words with the row's own sign of a person's pay (a person receiver, a
+            # consumer entry); the account's shape is the statement's, which the pass alone reads (a row it holds on
+            # that shape is out of True).
+            or _direct_deposit_pay(text, pay_row, record.account_name, business=True)
         ),
         # Audit B2: the pass's own reading (_transfer_reading): the statement's bank, the explicit deposit forms.
         "transfer_no_counterparty": _transfer_reading(record, text, _channel(text, record.bank), region)[2],
@@ -3181,10 +3622,10 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
     non-sale holds); a payroll provider's tax-service credit (audit B4: I56, the non-sale hold after the counter-debit
     holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
     classifier = _classifier()
-    row = _hold_text(text)
+    row = _without_holder_name(_hold_text(text), record.account_name)
     if _bank_originated_wire(text, region, wire=_channel(text, record.bank) == "wire"):
         return "bank_originated_wire"
-    if financing_named(text, region, entry, record.account_name):
+    if financing_named(text, region, entry, record.account_name, bank=record.bank):
         return "financing_root"
     # Audit B6 (I23): a lending bank named as the payer (the financing hold).
     if lending_bank_payer(text, region):
@@ -3197,7 +3638,7 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
         return "title_firm"
     if _currency_conversion(text, bank=record.bank):
         return "currency_conversion"
-    if _personal_trust(text, region):
+    if _held_personal_trust(text, region):
         return "personal_trust"
     if (
         (_INVESTMENT_PURPOSE.search(row) and not _accounts_payable_wording(text))
