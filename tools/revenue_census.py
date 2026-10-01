@@ -96,7 +96,13 @@ NARROWINGS = (
     # Audit B2 (I20): §6.3's narrowing 8 (the census lists OQ2's ruling eighth): a named sender printed after an
     # own-account designation leaves the strong non-revenue rule only to be held (T13), never into True.
     ("9_named_transfer_after_designation", False),
+    # Audit B3 (I11): §6.3's narrowing 9: a merchant processor's instant payout printed as a card credit, beside the
+    # processor's own ACH activity, leaves the reversal rule counted and flagged, never verified.
+    ("10_processor_card_payout", True),
 )
+#: Audit B3 (I11): the method the true-revenue pass gives a released processor card payout
+#: (analysis/true_revenue.py PROCESSOR_CARD_PAYOUT_METHOD, copied: the census reads other checkouts).
+PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
 #: Final review I8: the narrowings that lead to True only through verification (§6.3: a claim payment and a released
 #: card credit are verified or held, never counted).
 VERIFIED_ONLY_NARROWINGS = frozenset({"2_hcclaimpmt_insurer", "6_card_credit_release"})
@@ -294,6 +300,38 @@ _RETURN_CODES_55 = _on_masked(r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RE
 #: S4.2 fix round 4: CANCELLED's French words, which joined the reversal rule's credit markers
 #: (_REVERSAL_CANCELLATION_CREDIT_PATTERNS, verbatim; 5.4 never read them). S4.2 fix round 5: their plurals too.
 _FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b")
+#: Audit B3 (I04, §20): step 3's 5.6 return, correction and refund spellings (analysis/transaction_classifier.py
+#: _RETURN_REFUND_CREDIT_PATTERNS, copied: the census reads other checkouts), on the masked text, which keeps a glued or
+#: spaced leading date the classifier's revenue text drops before the forms printed first. REMBOURSEMENT's provider
+#: carve-out only keeps rows out of the rule, so the word alone declares the rule's own demotion.
+_LEADING_MASKED_DATE = r"^(?:#{1,2} #{1,2} ?)?"
+_REVERSAL_MARKERS_56 = tuple(_on_masked(pattern) for pattern in (
+    r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)",
+    r"\bNOT PAID\b",
+    r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b",
+    r"\b(?:ERROR|TRANSACTION) CORRECTION\b",
+    _LEADING_MASKED_DATE + r"CORRECTION(?![A-Z])",
+    r"\bPURCHASE RET\b",
+    r"\bDEBIT CARD CREDI\b",
+    _LEADING_MASKED_DATE + r"CHECKCARD \d{4}\b",
+    r"\bPOINT OF SALE DEPOSIT [A-Z]",
+    r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b",
+    r"\bUNAUTHORI[SZ]ED\b",
+    r"(?<![A-Z])RECLAIM(?![A-Z])",
+    _LEADING_MASKED_DATE + r"REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b",
+    r"(?<![A-Z])(?:RENV|RENVERSEMENT|RETOUR|REMBOURSEMENT)\b",
+    r"\bFEES? WAIVE[DR]?\b",
+    r"\bCOURTESY REF(?:UND)?\b",
+))
+#: Audit B3 (I43, §20): the card-rewards redemptions that joined the strong non-revenue rule (the classifier's, copied):
+#: Chase's whole-row CASH REDEMPTION, PNC's PURCHASE PAYBACK [AWARD], POINTS REDEMPTION and Membership Rewards' words
+#: (the classifier reads the last only beside a card issuer's name; the method keys the cause).
+_REWARD_REDEMPTIONS_56 = tuple(_on_masked(pattern) for pattern in (
+    _LEADING_MASKED_DATE + r"CASH REDEMPTION(?: \S*\d\S*)*$",
+    r"\bPURCHASE PAYBACK(?: AWARD)?\b",
+    r"\bPOINTS REDEMPTION\b",
+    r"\b(?:MR REDEEM|MEMBERSHIP REWARDS?)\b",
+))
 _TAX_REFUNDS_55 = _on_masked(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b")
 #: 5.6 (§20, A3-G): the Canada Revenue Agency's income-tax refund forms, which joined the strong non-revenue rule.
 _CRA_REFUND_56 = _on_masked(r"\bCANADA RI[TF]\b")
@@ -1291,6 +1329,13 @@ def _narrowing(base: dict, after: dict) -> str | None:
     # change to the text.
     if base_method in LOAN_READING_METHODS and _ln_where_loan(base["text"], after["text"]):
         return "5_street_ln"
+    # Audit B3 (I11, §6.3 narrowing 9): a processor's instant payout printed as a card credit, released by the pass
+    # beside the processor's own ACH activity (its method), before narrowing 6 reads the same card label.
+    if (
+        base_method == "reversal_cancellation_exclusion" and after["method"] == PROCESSOR_CARD_PAYOUT_METHOD
+        and re.search(r"\b(?:DEBIT CARD CREDIT?|POS CREDIT)\b", text)
+    ):
+        return "10_processor_card_payout"
     if base_method == "reversal_cancellation_exclusion" and re.search(r"\b(?:DEBIT CARD CREDIT|POS CREDIT)\b", text):
         return "6_card_credit_release"
     if base_method == "financing_proceeds_credit" and after["method"] == "auto_lender_dealer_funding":
@@ -1493,9 +1538,15 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # row printing a tax-refund abbreviation it adds.
     if (
         method == "reversal_cancellation_exclusion"
-        and (_RETURN_CODES_55.search(text) or _FRENCH_REVERSAL_WORDS_55.search(text))
+        and (
+            _RETURN_CODES_55.search(text) or _FRENCH_REVERSAL_WORDS_55.search(text)
+            # Audit B3 (I04): step 3's 5.6 return, correction and refund spellings.
+            or _matches(_REVERSAL_MARKERS_56, text)
+        )
     ) or (method == "strong_non_revenue_rule" and (
         _TAX_REFUNDS_55.search(text) or _CRA_REFUND_56.search(text) or _GOVERNMENT_TAX_REFUNDS_56.search(text)
+        # Audit B3 (I43): the card-rewards redemptions.
+        or _matches(_REWARD_REDEMPTIONS_56, text)
     )):
         # I7: and the CRA's income-tax refund forms, which 5.6 adds to the strong non-revenue rule (§20); GOV: and the
         # GST/HST refund forms and the IRS's payments (the owner's ruling of 2026-09-30).
@@ -1830,6 +1881,8 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                         # the OQ2 ruling never releases a BNPL consumer-side credit into True.
                         or (in_true and cause in VERIFIED_ONLY_NARROWINGS and credit["state"] != "verified_revenue")
                         or (in_true and cause == "8_oq2_bnpl_settlement" and _BNPL_CONSUMER_WORDS.search(credit["text"]))
+                        # Audit B3 (I11): a released processor card payout is counted and flagged, never verified.
+                        or (cause == "10_processor_card_payout" and credit["state"] == "verified_revenue")
                     ):
                         failures["G1"].append({"account": key, "i": credit["i"], "cause": cause, "text": credit["text"]})
                     if cause == "8_oq2_bnpl_settlement":

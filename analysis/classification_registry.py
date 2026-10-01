@@ -1753,6 +1753,21 @@ GATED_PROCESSOR_ALIASES: dict[str, tuple[str, ...]] = {
 #: TD Merchant Solutions, Desjardins Monetico and Chase QuickAccept print no credit spelling in the corpus cache or the
 #: tryout host's credit dump (searched read-only, 2026-09-29): none is an alias, and each waits for a printed spelling.
 
+#: 5.6 (audit B3: I11, §7.11, §20): the merchant processors whose instant payout a bank may print as a card credit
+#: (Thread Bank's Relay layout: 'Debit Card Credit: Stripe'), with the names each prints on that card credit, on its
+#: ACH payout and on its ACH pull, read as whole words by the true-revenue pass's processor card-payout release alone
+#: (analysis/true_revenue.py _processor_card_payouts). The bare INTUIT and POCKETSUITE are no operating-registry
+#: aliases (a bare INTUIT also prints Intuit's financing and tax products), so they are read here only, and only beside
+#: the statement's own ACH activity of that processor. Evidence: each pushes a merchant's balance to its debit card on
+#: request (Stripe Instant Payouts; QuickBooks Payments Instant Deposit; Square Instant Transfer; PocketSuite's instant
+#: payouts), so such a card credit is the merchant's own sales, not a card refund.
+CARD_PAYOUT_PROCESSOR_NAMES: dict[str, tuple[str, ...]] = {
+    "Stripe": ("STRIPE",),
+    "QuickBooks Payments": ("INTUIT", "QUICKBOOKS", "QUICK BOOKS", "QBOOKS"),
+    "Square": ("SQUARE", "SQUARE INC"),
+    "PocketSuite": ("POCKETSUITE", "POCKET SUITE"),
+}
+
 #: 5.5 (§7.0): the width of the bank field that cuts a long originator name. Every operating alias longer than this
 #: is also read at its first sixteen characters when the cut keeps two words and its last word has three letters.
 OPERATING_ALIAS_CUT = 16

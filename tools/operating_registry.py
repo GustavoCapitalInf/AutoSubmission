@@ -165,6 +165,17 @@ def _check_56_tables(
         for alias, entity in own.items():
             if compiled.search(alias):
                 found.append(f"{name} reads the operating alias {alias!r} of {entity!r}")
+    # Audit B3 (I11): the card-payout processors' names are normalized and name no ledger or insurer alias (the
+    # release reads them beside the processor's own ACH activity only).
+    for entity, card_names in getattr(registry, "CARD_PAYOUT_PROCESSOR_NAMES", {}).items():
+        for name in card_names:
+            if not name or normalize(name) != name:
+                found.append(f"card-payout processor name {name!r} of {entity!r} is not normalized")
+            if name in ledger:
+                group, holder = ledger[name]
+                found.append(f"card-payout processor name {name!r} of {entity!r} is a {group} alias of {holder!r}")
+            if name in insurers:
+                found.append(f"card-payout processor name {name!r} of {entity!r} is an insurer alias of {insurers[name]!r}")
     names = list(registry.P2P_SENDING_BANK_NAMES)
     for name in names:
         if not name or normalize(name) != name:

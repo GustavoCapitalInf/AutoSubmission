@@ -24,6 +24,7 @@ from functools import cache
 from typing import TYPE_CHECKING, Sequence
 
 from .classification_registry import (
+    CARD_PAYOUT_PROCESSOR_NAMES,
     CARD_SETTLEMENT_CREDIT_FORMS,
     DEALER_FUNDING_PAYERS,
     FACTORING_PAYOUT_PAYERS,
@@ -107,11 +108,44 @@ _POSSIBLE_RETURN = re.compile(
     r"|(?<![A-Z])CREDIT MEMO\b|(?<![A-Z])OVERPA\w*"
     # §7.8: an auction's guarantee or arbitration refund of a vehicle the dealer bought.
     r"|(?<![A-Z])DEALSHIELD\b|(?<![A-Z])ARB(?:ITRATION)? CREDIT\b"
+    # 5.6 (audit B3: I04): a backstop for step 3's 5.6 return, correction and refund spellings (the classifier's
+    # _RETURN_REFUND_CREDIT_PATTERNS, read on the hold text, a correction or a reversed purchase printed first after
+    # the posting labels are removed), so such a row that reaches the pass is held, never counted. REMBOURSEMENT is
+    # not read (a provider's REMBOURSEMENT left step 3 by §7.11's carve-out), nor the card labels (their own arm).
+    r"|(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)|(?<![A-Z])NOT PAID\b|(?<![A-Z])RET DEP ITEMS?\b"
+    r"|(?<![A-Z])(?:ERROR|TRANSACTION|DEPOSIT) CORRECTION\b|^\s*(?:\d{1,2} \d{1,2} )?CORRECTION(?![A-Z])"
+    r"|(?<![A-Z])PURCHASE RET\b|(?<![A-Z])(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b|(?<![A-Z])UNAUTHORI[SZ]ED\b"
+    r"|(?<![A-Z])RECLAIM(?![A-Z])|^\s*(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b"
+    r"|(?<![A-Z])(?:RENV|RENVERSEMENT|RETOUR)\b|\bFEES? WAIVE[DR]?\b|(?<![A-Z])COURTESY REF(?:UND)?\b"
 )
-#: §8.1, §7.11: a card credit's posting labels (a refund to the card unless a form or the registry verified it).
+#: §8.1, §7.11: a card credit's posting labels (a refund to the card unless a form or the registry verified it). 5.6
+#: (audit B3: I04): and the card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's
+#: credit-side CHECKCARD <mmdd>, a point-of-sale deposit), whichever a push word released.
 _CARD_CREDIT_LABEL = re.compile(
-    r"(?<![A-Z])(?:DEBIT CARD CREDIT|POS CREDIT|VISA CREDIT|CHECKCARD CREDIT|PURCHASE CREDIT)\b"
+    r"(?<![A-Z])(?:DEBIT CARD CREDIT?|POS CREDIT|VISA CREDIT|CHECKCARD CREDIT|PURCHASE CREDIT)\b"
+    r"|^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b|(?<![A-Z])POINT OF SALE DEPOSIT\b"
 )
+#: §8.1 (audit B3: I04): a card credit printed first, BMO's and Regions' 'CARD CREDIT ...': a refund to the card, or a
+#: push the parser cut from its payer (BMO prints the merchant on a line the parser drops), held as a possible return
+#: unless a push or person-to-person rail is printed (Regions' 'CARD CREDIT CASH APP ...' and '... APPLE CASH ...' stay
+#: Q4's counted pushes).
+_LEADING_CARD_CREDIT = re.compile(r"^(?:\d{1,2} \d{1,2} )?CARD CREDIT\b")
+#: 5.6 (audit B3: I11, §7.11, §6.3 narrowing 9, §20): the method of a card credit released as its merchant processor's
+#: instant payout (_processor_card_payouts), the card labels it reads, and each processor's names as whole words
+#: (CARD_PAYOUT_PROCESSOR_NAMES).
+PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
+#: Audit B3 (I11): the release ships off. On the corpus it moves the pinned figures of a real statement
+#: (tests/test_new_statement_corpus.py, the Relay fixture, whose processor card credits it counts), which only the
+#: owner's word may re-pin; turned on, it counts 119 rows in 9 statements of the corpus cache (census narrowing 10).
+PROCESSOR_CARD_PAYOUT_RELEASE = False
+_PROCESSOR_CARD_PAYOUT_RULE = "processor_card_credit_beside_its_ach_activity"
+_CARD_PAYOUT_LABEL = re.compile(r"(?<![A-Z])(?:DEBIT CARD CREDIT?|POS CREDIT)\b")
+_CARD_PAYOUT_NAMES = {
+    entity: re.compile(
+        r"(?<![A-Z])(?:" + "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True)) + r")(?![A-Z])"
+    )
+    for entity, names in CARD_PAYOUT_PROCESSOR_NAMES.items()
+}
 #: §8.1 (Q8): pay wording, read on the row before its receiver fields.
 _PAY_WORDS = re.compile(
     r"(?<![A-Z])(?:PAYROLL\w*|PAYRLL\b|PAYROL\b|PAYRL\b|SALARY\b|SALARIES\b|REG SAL\b|WAGES?\b|NET ?PAY\b"
@@ -1678,12 +1712,108 @@ def _payout_entity(text: str) -> PayeeMatch | None:
 
 def _claimed(record: TransactionClassification, text: str) -> bool:
     """§8.1, §8.9: the operating registry, a payout-credit entity or a factoring payee claimed the row. A registry row
-    that prints a financing word is not claimed (review C2)."""
+    that prints a financing word is not claimed (review C2). Audit B3 (I11): a card credit released as its processor's
+    instant payout is claimed by that processor (its pulls and fees never hold it as the payer also debited)."""
+    if record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD:
+        return True
     if record.revenue_match_method in _REGISTRY_METHODS:
         return not registry_financing(record, text)
     if record.classification == "factoring":
         return True
     return _payout_entity(text) is not None
+
+
+def _leading_card_credit(text: str) -> bool:
+    """§8.1 (audit B3: I04): a card credit printed first ('CARD CREDIT', BMO's with its merchant line dropped, or
+    Regions' 'CARD CREDIT <merchant>'), with no push word (§7.11's) and no person-to-person or push rail (Cash App and
+    Apple Cash are person-to-person rails, so Regions' pushes stay counted): held as a possible return."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    return _LEADING_CARD_CREDIT.match(row) is not None and not (
+        classifier._CARD_CREDIT_PUSH_WORD.search(row)
+        or classifier._CONSUMER_P2P_RAIL.search(row)
+        or classifier._PUSH_RAIL.search(row)
+    )
+
+
+def _card_payout_processor(row: str) -> str | None:
+    """Audit B3 (I11): the processor (CARD_PAYOUT_PROCESSOR_NAMES) a row names, as a whole word; None for none."""
+    for entity, pattern in _CARD_PAYOUT_NAMES.items():
+        if pattern.search(row):
+            return entity
+    return None
+
+
+def _card_payout_credit_processor(text: str) -> str | None:
+    """Audit B3 (I11): the processor a card credit names as its whole payer, when step 3 read the card label alone: the
+    row prints DEBIT CARD CREDIT (or Citibank's cut CREDI) or POS CREDIT, after it only the processor's name with
+    reference tokens and generic words (never a financing or other word: 'STRIPE CAPITAL' is not the processor's
+    payout), and no other reversal marker once the label is removed. None otherwise."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    label = _CARD_PAYOUT_LABEL.search(row)
+    if label is None or classifier._reversal_credit(_CARD_PAYOUT_LABEL.sub(" ", text)):
+        return None
+    rest = row[label.end():]
+    for entity, pattern in _CARD_PAYOUT_NAMES.items():
+        found = pattern.search(rest)
+        if found is None:
+            continue
+        others = (rest[:found.start()] + " " + rest[found.end():]).split()
+        if not any(classifier._is_payer_word(word) for word in others):
+            return entity
+    return None
+
+
+def _processor_card_payouts(
+    records: Sequence[TransactionClassification], duplicate_indexes: set[int],
+) -> dict[int, str]:
+    """§7.11, §6.3 narrowing 9 (audit B3: I11; MCA principle and standard A1/A2: a processor's payout is sales): the
+    card credits the reversal rule (step 3) took as a card refund, or a push word released and §8.1 would hold, that
+    name a merchant processor as their whole payer (_card_payout_credit_processor) on a statement that also prints that
+    processor's own ACH activity (its ACH payout, its ACH pull or a returned pull: any posted row naming it with an
+    electronic-payment form, never another card credit) and no card purchase at it (a posted debit naming it that is a
+    card purchase: a refund of that purchase cannot be told from a payout). {credit index: processor}. Never a row a
+    rule verified, a pair pass 4 made, a duplicate or a direction conflict. A marketplace or a retailer (Uber, DoorDash,
+    Amazon) names no processor of the table, so its card credits keep the refund reading."""
+    classifier = _classifier()
+    candidates: dict[int, str] = {}
+    activity: set[str] = set()
+    purchases: set[str] = set()
+    for index, record in enumerate(records):
+        if (
+            index in duplicate_indexes or not record.is_posted or record.amount == 0
+            or _card_payout_processor(record.normalized_description) is None
+        ):
+            continue
+        text = classifier.revenue_text(record.normalized_description)
+        row = classifier._before_receiver(text)
+        entity = _card_payout_processor(row)
+        if entity is None:
+            continue
+        if record.amount < 0:
+            if record.classification == "pos" or classifier._matches_any(row, classifier._POS_PATTERNS):
+                purchases.add(entity)
+            elif classifier._ELECTRONIC_PAYMENT_FORM.search(row):
+                activity.add(entity)
+            continue
+        if _CARD_PAYOUT_LABEL.search(row) or _CARD_CREDIT_LABEL.search(text) or _LEADING_CARD_CREDIT.match(row):
+            if (
+                record.direction_consistent
+                and record.revenue_classification != "verified_revenue"
+                and record.revenue_match_method not in {"matched_reversal_pair", "direction_conflict"}
+                and (
+                    record.revenue_match_method == "reversal_cancellation_exclusion"
+                    or record.revenue_classification == "unverified_deposit"
+                )
+            ):
+                processor = _card_payout_credit_processor(text)
+                if processor is not None:
+                    candidates[index] = processor
+            continue
+        if classifier._ELECTRONIC_PAYMENT_FORM.search(row):
+            activity.add(entity)
+    return {index: entity for index, entity in candidates.items() if entity in activity and entity not in purchases}
 
 
 #: §8.2, §20 (audit B2: I01, I21): the online-banking channel codes and account descriptions a transfer prints, never
@@ -2067,7 +2197,13 @@ def _first_hold(
         return "insurer_named_payer"
     if record.revenue_match_method != "reversal_cancellation_exclusion" and (
         _POSSIBLE_RETURN.search(row)
-        or (_CARD_CREDIT_LABEL.search(text) and record.revenue_classification != "verified_revenue")
+        or (
+            _CARD_CREDIT_LABEL.search(text) and record.revenue_classification != "verified_revenue"
+            # Audit B3 (I11): a processor's instant payout, released beside its ACH activity, is counted.
+            and record.revenue_match_method != PROCESSOR_CARD_PAYOUT_METHOD
+        )
+        # Audit B3 (I04): a card credit printed first, with no push or person-to-person rail.
+        or (_leading_card_credit(text) and record.revenue_classification != "verified_revenue")
     ):
         return "possible_return"
     if not claimed and (
@@ -2189,9 +2325,11 @@ def _deferred_reading(text: str, channel: str, region: str, entry: str) -> bool:
 def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditFacts) -> bool:
     """The rows Q5 and Q6 never verify and never count toward a repeat, whatever their holds: a direction conflict
     (§6.1 step 2, §7.0: never lifted by any pass; S4.2 review C1), a credit under $1 (§7.0, review I3), a row a family
-    rule decides alone (review I5), a deferred source (review I6a) and a factoring payer's payout (A3-H)."""
+    rule decides alone (review I5), a deferred source (review I6a) and a factoring payer's payout (A3-H). Audit B3
+    (I11): and a processor's instant payout released from a card credit (counted, never verified)."""
     return (
         record.revenue_match_method == "direction_conflict"
+        or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
         or not record.direction_consistent
         or _under_micro_floor(record)
         or _left_to_its_family(text)
@@ -2378,6 +2516,10 @@ def _tier_reason(
     # rule only to be held (T13), on any channel and whoever the sender is: it never enters True.
     if classifier._named_sender_after_designation(text, record.account_name):
         return "excluded_pending_review", "transfer_account_designation"
+    # Audit B3 (I11, §6.3 narrowing 9): a processor's instant payout printed as a card credit, released beside the
+    # processor's own ACH activity: a platform payout no form confirms.
+    if record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD:
+        return "counted_flagged", "platform_unconfirmed"
     # A3-H: a factoring payer's payout, on any channel (FACTORING_PAYOUT_PAYERS).
     if facts.factor:
         return "counted_flagged", "factoring_payout"
@@ -2444,8 +2586,31 @@ def apply_true_revenue_pass(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
 ) -> list[TransactionClassification]:
-    """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers."""
+    """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit
+    B3 (I11): first, with the owner's switch on (PROCESSOR_CARD_PAYOUT_RELEASE), a processor's instant payouts printed
+    as card credits leave the reversal rule (_processor_card_payouts)."""
     classifier = _classifier()
+    updated = list(records)
+    releases = _processor_card_payouts(records, duplicate_indexes) if PROCESSOR_CARD_PAYOUT_RELEASE else {}
+    for index, entity in releases.items():
+        record = records[index]
+        updated[index] = replace(
+            classifier._replace_revenue_state(
+                record,
+                "unverified_deposit",
+                match_method=PROCESSOR_CARD_PAYOUT_METHOD,
+                matched_rule=_PROCESSOR_CARD_PAYOUT_RULE,
+                confidence_score=0.60,
+                reason=(
+                    f"A card credit naming {entity} beside {entity}'s own ACH payout or pull, with no card purchase "
+                    "at it: the processor's instant payout of the business's sales, counted and flagged, never "
+                    "verified."
+                ),
+                context_signals=(*record.revenue_context_signals, PROCESSOR_CARD_PAYOUT_METHOD),
+            ),
+            revenue_canonical_entity=entity,
+        )
+    records = updated
     updated = list(records)
     credits = [
         index for index, record in enumerate(records)

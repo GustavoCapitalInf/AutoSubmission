@@ -59,7 +59,7 @@ def test_a_label_less_holder_name_never_supplies_the_public_payer():
     assert record.revenue_match_method != "public_payer_remittance"
 
 
-def test_a_verified_public_payment_is_still_demoted_by_a_duplicate_and_a_returned_item():
+def test_a_verified_public_payment_is_still_demoted_by_a_duplicate_and_its_reversal():
     duplicate = classify_statement_transactions(Statement(account_name="CONTOSO CLINIC", transactions=[
         Transaction(date="2054-03-02", description="SAMPLE COUNTY DES:VENDOR PAY ID:1", amount=1400.0,
                     direction="credit", running_balance=5400.0),
@@ -67,13 +67,23 @@ def test_a_verified_public_payment_is_still_demoted_by_a_duplicate_and_a_returne
                     direction="credit", running_balance=5400.0),
     ]))
     assert [record.revenue_classification for record in duplicate] == ["verified_revenue", "non_revenue"]
-    returned = classify_statement_transactions(Statement(account_name="CONTOSO CLINIC", transactions=[
+    # Audit B3 (I03): the payer's own reversal of its ACH payment, as Bank of America prints it (the originator's name
+    # and a REVERSAL entry), pairs in pass 4. A bank's bare returned item prints no payer's words: it undoes a
+    # deposit-channel credit only (tests/test_revenue_reversals.py), never this electronic payment.
+    reversed_payment = classify_statement_transactions(Statement(account_name="CONTOSO CLINIC", transactions=[
         Transaction(date="2054-03-02", description="SAMPLE COUNTY DES:VENDOR PAY ID:1", amount=1400.0,
                     direction="credit"),
-        Transaction(date="2054-03-04", description="RETURNED ITEM SAMPLE COUNTY VENDOR PAY", amount=-1400.0,
+        Transaction(date="2054-03-04", description="SAMPLE COUNTY DES:REVERSAL ID:1", amount=-1400.0,
                     direction="debit"),
     ]))
-    assert returned[0].revenue_classification == "non_revenue"
+    assert reversed_payment[0].revenue_classification == "non_revenue"
+    assert reversed_payment[0].revenue_match_method == "matched_reversal_pair"
+    bare_return = classify_statement_transactions(Statement(account_name="CONTOSO CLINIC", transactions=[
+        Transaction(date="2054-03-02", description="SAMPLE COUNTY DES:VENDOR PAY ID:1", amount=1400.0,
+                    direction="credit"),
+        Transaction(date="2054-03-04", description="RETURNED ITEM", amount=-1400.0, direction="debit"),
+    ]))
+    assert bare_return[0].revenue_classification == "verified_revenue"
 
 
 @pytest.mark.parametrize(("text", "expected"), [

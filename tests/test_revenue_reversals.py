@@ -1,0 +1,589 @@
+"""Classification 5.6 (true revenue spec §6.1 step 3, §6.2 pass 4, §6.3, §7.11, §8.1, §20; audit fix batch B3: I03,
+I04, I11, I43): returns, reversals, refunds and rewards.
+
+- I03: a returned deposited item or a deposit correction takes the deposit it undoes out of True (pass 4, revenue side
+  only): the undo debit pairs with an equal deposit-channel credit 0 to 14 days before it, the earliest one, with no
+  shared word, so a redeposit stays counted. The lender side of pass 4 keeps classification 5.4's pairs (§20 I6).
+- I04: step 3 reads more reversal, correction and refund spellings; a bare CARD CREDIT is held as a possible return;
+  Cash App and Apple Cash pushes stay counted.
+- I11: a card credit naming a merchant processor is that processor's instant payout (counted, flagged, never
+  verified) when the statement shows the processor's ACH payout or ACH pull and no card purchase at it.
+- I43: card-rewards redemptions are non-revenue, read on the whole row or beside a card issuer only.
+
+Fabricated rows only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE names; 2054 dates; whole-dollar amounts), in the banks'
+printed formats."""
+from __future__ import annotations
+
+import pytest
+
+from analysis.metrics import compute_metrics
+from analysis.schema import Statement, Transaction
+from analysis.transaction_classifier import classify_statement_transactions
+
+HOLDER = "NORTHWIND PLUMBING LLC"
+HELD = "excluded_pending_review"
+COUNTED = "counted_flagged"
+
+
+def _statement(rows, bank: str | None = "Fabrikam Bank", holder: str | None = HOLDER):
+    """`rows` are (date, description, signed amount)."""
+    return Statement(bank=bank, account_name=holder, transactions=[
+        Transaction(date=date, description=text, amount=amount, direction="credit" if amount > 0 else "debit")
+        for date, text, amount in rows
+    ])
+
+
+def _classify(rows, bank: str | None = "Fabrikam Bank", holder: str | None = HOLDER):
+    return classify_statement_transactions(_statement(rows, bank, holder))
+
+
+def _one(text: str, bank: str | None = "Fabrikam Bank", amount: float = 400.0):
+    return _classify([("2054-03-02", text, amount)], bank)[0]
+
+
+def _tier(record):
+    return record.revenue_tier, record.revenue_tier_reason
+
+
+def _true(records) -> float:
+    return sum(record.amount for record in records if record.amount > 0 and record.contributes_to_true_revenue)
+
+
+def _lender_fields(record):
+    return (
+        record.classification, record.canonical_entity, record.contributes_to_lender_count,
+        record.contributes_to_potential_lender_count, record.contributes_to_lender_totals,
+        record.contributes_to_withholding_rate, record.contributes_to_potential_lender_totals,
+        record.contributes_to_potential_withholding_exposure, record.contributes_to_insurance_totals,
+        record.contributes_to_flagged_totals, record.reversed_by,
+    )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# I03: a returned deposited item or a deposit correction takes its deposit out of True.
+# ---------------------------------------------------------------------------------------------------------------------
+
+def test_a_branch_deposit_returned_two_days_later_leaves_true():
+    records = _classify([
+        ("2054-03-02", "DEPOSIT AT BR 1234", 12345.0),
+        ("2054-03-04", "RETURNED ITEM", -12345.0),
+    ], "BMO")
+    credit, debit = records
+    assert credit.revenue_classification == "non_revenue"
+    assert credit.revenue_match_method == "matched_reversal_pair"
+    assert credit.revenue_related_transaction == "transaction:2"
+    assert _true(records) == 0
+    # The lender side of pass 4 is untouched: the undo debit reverses nothing a lender total reads.
+    assert debit.reversed_by is None and credit.reversal_of is None
+
+
+def test_a_corrected_mobile_cheque_and_its_branch_redeposit_count_once():
+    records = _classify([
+        ("2054-03-02", "MOBILE CHEQUE DEPOSIT", 7500.0),
+        ("2054-03-02", "ERROR CORRECTION MOBILE CHEQUE DEPOSIT", -7500.0),
+        ("2054-03-02", "DEPOSIT AT BR 1234", 7500.0),
+    ], "BMO")
+    mobile, _, branch = records
+    assert mobile.revenue_classification == "non_revenue"
+    assert mobile.revenue_match_method == "matched_reversal_pair"
+    assert _tier(branch) == (COUNTED, "no_payer_printed")
+    assert _true(records) == 7500.0
+
+
+def test_the_redeposit_printed_first_still_counts_one_cheque_once():
+    records = _classify([
+        ("2054-03-02", "DEPOSIT AT BR 1234", 7500.0),
+        ("2054-03-02", "MOBILE CHEQUE DEPOSIT", 7500.0),
+        ("2054-03-02", "ERROR CORRECTION MOBILE CHEQUE DEPOSIT", -7500.0),
+    ], "BMO")
+    assert _true(records) == 7500.0
+    assert sum(record.revenue_match_method == "matched_reversal_pair" for record in records) == 1
+
+
+@pytest.mark.parametrize(("bank", "deposit", "undo", "gap"), [
+    # Wells Fargo: an unpaid paper item, a mobile-deposit adjustment, a check posted twice.
+    ("Wells Fargo", "MOBILE DEPOSIT REF NUMBER 123456789012", "DEPOSITED ITEM RETN UNPAID PAPER 123456", 1),
+    ("Wells Fargo", "MOBILE DEPOSIT REF NUMBER 123456789012", "MOBILE DEPOSIT ADJUSTMENT", 0),
+    ("Wells Fargo", "MOBILE DEPOSIT REF NUMBER 123456789012",
+     "TRANSACTION CORRECTION MOBILE DEPOSIT CHECK POSTED TWICE REF A 1234567", 12),
+    # PNC's returned deposited item.
+    ("PNC Bank", "MOBILE DEPOSIT 123456789", "RET DEP ITEM 123456 1234567890123", 2),
+    # Bank of America: a returned item charged back, and a correction of a posted item.
+    ("Bank of America", "BKOFAMERICA MOBILE 03 02 1234567890 DEPOSIT MOBILE", "RETURN ITEM CHARGEBACK", 5),
+    ("Bank of America", "BKOFAMERICA MOBILE 03 02 1234567890 DEPOSIT MOBILE", "ADJUSTMENT CORRECTION OF POSTED ITEM", 0),
+    # Chase: a remote deposit returned to the maker, and a bare deposit returned under a stop payment.
+    ("Chase", "REMOTE ONLINE DEPOSIT 1", "DEPOSITED ITEM RETURNED REFER TO MAKER 123456789 OF ITEMS 1 CK 12345", 3),
+    ("Chase", "DEPOSIT", "DEPOSITED ITEM RETURNED STOP PAYMENT 123456789", 1),
+    # Huntington's branch ATM deposit, RBC's unpaid cheque, a Citizens returned deposited check.
+    ("Huntington National Bank", "BRCH ATM", "RETURNED DEPOSIT ITEM", 2),
+    ("Royal Bank of Canada", "MOBILE CHEQUE DEPOSIT 1234", "ITEM RETURNED UNPAID S12345", 1),
+    ("Citizens Bank", "MOBILE DEPOSIT", "DEPOSITED CHECK RETURNED", 6),
+    # BMO's bare correction of a bare deposit.
+    ("BMO", "DEPOSIT", "ERROR CORRECTION", 0),
+    # A returned check charged back against a bare deposit.
+    ("Fabrikam Bank", "DEPOSIT", "RETURNED CHECK 1234 MAKER CONTOSO MOTORS RETURN REASON REFER TO MAKER", 0),
+])
+def test_each_bank_s_returned_item_or_correction_pairs_with_its_deposit(bank, deposit, undo, gap):
+    day = 2 + gap
+    records = _classify([("2054-03-02", deposit, 2400.0), (f"2054-03-{day:02d}", undo, -2400.0)], bank)
+    assert records[0].revenue_classification == "non_revenue"
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert records[1].reversed_by is None
+
+
+def test_a_redeposit_after_the_return_stays_counted():
+    records = _classify([
+        ("2054-03-02", "MOBILE DEPOSIT REF NUMBER 123456789012", 2400.0),
+        ("2054-03-04", "DEPOSITED ITEM RETN UNPAID PAPER 123456", -2400.0),
+        ("2054-03-06", "MOBILE DEPOSIT REF NUMBER 123456789013", 2400.0),
+    ], "Wells Fargo")
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert _tier(records[2]) == (COUNTED, "check_deposit")
+    assert _true(records) == 2400.0
+
+
+def test_the_earliest_equal_deposit_is_the_one_returned():
+    records = _classify([
+        ("2054-03-02", "MOBILE DEPOSIT", 2400.0),
+        ("2054-03-06", "MOBILE DEPOSIT", 2400.0),
+        ("2054-03-08", "RETURNED ITEM", -2400.0),
+    ], "Fabrikam Bank")
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert _tier(records[1]) == (COUNTED, "check_deposit")
+
+
+@pytest.mark.parametrize(("rows", "why"), [
+    # Fifteen days is outside the window.
+    ([("2054-03-02", "MOBILE DEPOSIT", 2400.0), ("2054-03-17", "RETURNED ITEM", -2400.0)], "window"),
+    # A deposit after the return is no deposit the return undoes.
+    ([("2054-03-04", "RETURNED ITEM", -2400.0), ("2054-03-06", "MOBILE DEPOSIT", 2400.0)], "after"),
+    # Another amount (a partial return is the owner's decision I42).
+    ([("2054-03-02", "MOBILE DEPOSIT", 2400.0), ("2054-03-04", "RETURNED ITEM", -2000.0)], "amount"),
+    # The bank's fee for the returned item is no undo of the deposit.
+    ([("2054-03-02", "MOBILE DEPOSIT", 15.0), ("2054-03-04", "RETURNED ITEM FEE", -15.0)], "fee"),
+    # TD's RTN NSF is unconfirmed (audit I41): it is no returned-deposit form.
+    ([("2054-03-02", "DEPOSIT", 2400.0), ("2054-03-02", "RTN NSF", -2400.0)], "td"),
+])
+def test_a_deposit_with_no_returned_item_of_its_own_stays_counted(rows, why):
+    records = _classify(rows)
+    deposit = next(record for record in records if record.amount > 0)
+    assert deposit.revenue_match_method != "matched_reversal_pair", why
+    assert deposit.contributes_to_true_revenue, why
+
+
+def test_a_returned_item_never_pairs_with_an_electronic_payment():
+    # A bare return names no payer, so it only undoes a deposit-channel credit; a customer's ACH payment of the same
+    # amount keeps its reading.
+    records = _classify([
+        ("2054-03-02", "CONTOSO SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1 CCD", 2400.0),
+        ("2054-03-04", "RETURNED ITEM", -2400.0),
+    ], "Bank of America")
+    assert records[0].revenue_match_method != "matched_reversal_pair"
+    assert records[0].contributes_to_true_revenue
+
+
+def test_the_check_family_still_pairs_a_returned_check_with_its_check_deposit():
+    # Control (unchanged): both rows print CHECK, so the shared family pairs them.
+    records = _classify([
+        ("2054-03-02", "ATM CHECK DEPOSIT", 2400.0),
+        ("2054-03-09", "RETURNED CHECK", -2400.0),
+    ])
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+
+
+def test_a_funder_debit_and_a_returned_nsf_keep_their_lender_reading():
+    # Control: a registered funder's debit, then the bank's RTN NSF; the deposit pairing never reads the lender side.
+    rows = [
+        ("2054-03-02", "DEPOSIT", 500.0),
+        ("2054-03-03", "ONDECK CAPITAL DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1 CCD", -500.0),
+        ("2054-03-04", "RTN NSF", -500.0),
+    ]
+    records = _classify(rows)
+    alone = _classify(rows[1:])
+    assert _lender_fields(records[1]) == _lender_fields(alone[0])
+    assert records[1].contributes_to_lender_totals and records[1].reversed_by is None
+    assert records[0].contributes_to_true_revenue
+
+
+def test_an_undo_debit_s_lender_reading_never_moves():
+    rows = [("2054-03-02", "DEPOSIT AT BR 1234", 12345.0), ("2054-03-04", "RETURNED ITEM", -12345.0)]
+    paired = _classify(rows, "BMO")
+    alone = _classify(rows[1:], "BMO")
+    assert _lender_fields(paired[1]) == _lender_fields(alone[0])
+
+
+def test_a_correction_debit_that_shares_the_payer_s_words_undoes_its_payment():
+    # The undo markers are pass 4's revenue-side markers on either row: a correction debit that prints the credit's
+    # payer pairs with it as any marked pair does (the shared words), deposit channel or not.
+    records = _classify([
+        ("2054-03-02", "CONTOSO SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1 CCD", 2400.0),
+        ("2054-03-03", "ERROR CORRECTION CONTOSO SUPPLY LLC", -2400.0),
+    ], "BMO")
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert records[0].revenue_matched_rule == "opposite_direction_amount_date_description_match"
+    assert records[1].reversed_by is None
+
+
+def test_a_verified_payer_s_reversal_debit_still_demotes_it():
+    # Spec §14.1 (§7.6), audit I03: a payer's own reversal of its payment prints its name and pairs; a bare return
+    # prints none (the deposit tests above).
+    records = _classify([
+        ("2054-03-02", "SAMPLE COUNTY DES:VENDOR PAY ID:1", 1400.0),
+        ("2054-03-04", "SAMPLE COUNTY DES:REVERSAL ID:1", -1400.0),
+    ], holder="CONTOSO CLINIC")
+    assert records[0].revenue_classification == "non_revenue"
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+
+
+def test_the_metrics_count_a_corrected_cheque_once():
+    statement = _statement([
+        ("2054-03-02", "MOBILE CHEQUE DEPOSIT", 7500.0),
+        ("2054-03-02", "ERROR CORRECTION MOBILE CHEQUE DEPOSIT", -7500.0),
+        ("2054-03-02", "DEPOSIT AT BR 1234", 7500.0),
+    ], "BMO")
+    metrics = compute_metrics(statement, classifications=classify_statement_transactions(statement))
+    assert metrics.counted_flagged_total == 7500.0
+    assert metrics.non_revenue_total == 7500.0
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# I04: step 3's other reversal, correction and refund spellings.
+# ---------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("bank", "text"), [
+    # Zions' bounced outgoing payment credited back; the control spelling ITEM RTN NOT PAID was already one.
+    ("Zions Bancorporation", "ITEM RET NOT PAID"),
+    ("Zions Bancorporation", "ITEM RTN NOT PAID"),
+    ("PNC Bank", "RET DEP ITEM 123456"),
+    # Bank error and transaction corrections, and a correction printed first (glued to its reference too).
+    ("BMO", "ERROR CORRECTION BR 1234"),
+    ("Scotiabank", "ERROR CORRECTION OPOS CONTOSO HARDWARE SAMPLEVILLE ON CA"),
+    ("Wells Fargo", "TRANSACTION CORRECTION"),
+    ("CIBC", "CORRECTION 12345 SAMPLE AND MAIN BANKING CE"),
+    ("CIBC", "CORRECTION123456789012 CONTOSO SAMPLEVILLE 1234 567"),
+    # Card-purchase refunds: U.S. Bank, Citibank's cut label, Bank of America's credit-side CHECKCARD, a point-of-sale
+    # deposit from a retailer, a reversed mobile purchase.
+    ("U.S. Bank", "DEBIT PURCHASE RET VISA ON 123456 SAMPLEVILLE CA 1234567890"),
+    ("Citibank", "DEBIT CARD CREDI CARD ENDING IN 1234 CONTOSO HARDWARE 1234 SAMPLEVILLE NC 12345"),
+    ("Bank of America", "CHECKCARD 0115 CONTOSO HARDWARE SAMPLEVILLE MO 12345678901234567890123"),
+    ("Fabrikam Credit Union", "POINT OF SALE DEPOSIT CONTOSO AUTO PARTS 123 W MAIN ST SAMPLEVILLE NDUS"),
+    ("Capital One", "REV MOBILE DEBIT PURCHASE 123456 FABRIKAM MARKET SAMPLEVILLE CA"),
+    # A provisional credit, an unauthorized-ACH settlement, an e-Transfer the holder reclaimed.
+    ("Capital One", "BANKING CARD PROVISIONAL CR"),
+    ("First Citizens Bank", "SETTLEMENT ACH UNAUTHORIZED"),
+    ("CIBC", "E TRANSFER RECLAIM123456789012 1234 ABC"),
+    # French reversals and refunds: a returned debit (RENV), a merchandise return, a contactless refund.
+    (None, "RENV TFE DEBIT"),
+    (None, "RENV VIRDT IT"),
+    (None, "RENVERSEMENT PRELEVEMENT CONTOSO"),
+    ("CIBC", "RETOUR MDSE 123456789012 CONTOSO ST SAMPLE"),
+    (None, "C RETOUR 12345678901 FABRIKAM 12345"),
+    ("Banque Royale du Canada", "REMBOURSEMENT INTERAC SANS CONTACT 1234 FABRIKAM"),
+    # Fee waivers and a courtesy refund of a wire fee.
+    ("Huntington National Bank", "24 HOUR GRACE OVERDRAFT FEE WAIVER"),
+    ("U.S. Bank", "OVERDRAFT PAID FEE WAIVED 1234567890"),
+    ("Huntington National Bank", "TOTAL RELATIONSHIP SERVICE FEE WAIVE"),
+    ("TD Bank", "WIRE OUT COURTESY REF"),
+])
+def test_step_3_reads_the_return_correction_and_refund_spellings(bank, text):
+    record = _one(text, bank)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+    assert _tier(record) == ("non_revenue", None)
+
+
+@pytest.mark.parametrize(("bank", "text"), [
+    # A payer whose name only starts like a marker keeps its reading.
+    ("Fabrikam Bank", "RECLAIMED WOOD CONTOSO LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1 CCD"),
+    ("Fabrikam Bank", "DEPT OF CORRECTION DES:VENDOR PAY ID:1"),
+    ("Fabrikam Bank", "CORRECTIONAL CONTOSO SERVICES DES:PAYMENT ID:1"),
+    ("Fabrikam Bank", "REVERE CONTOSO LLC DES:PAYMENT ID:1"),
+    ("Fabrikam Bank", "CONTOSO RETOURS INC DES:PAYMENT ID:1"),
+])
+def test_a_payer_named_like_a_marker_is_no_reversal(bank, text):
+    assert _one(text, bank).revenue_match_method != "reversal_cancellation_exclusion"
+
+
+def test_a_quebec_health_payer_s_remboursement_to_a_clinic_is_counted():
+    # §7.11's provider carve-out, as REIMBURSEMENT has it: the Quebec health insurance board pays a clinic for its
+    # claims (French REMBOURSEMENT).
+    for text in ("RAMQ REMBOURSEMENT 1234567", "MEDICAID REMBOURSEMENT 1234567"):
+        record = _classify([("2054-03-02", text, 1400.0)], "Banque Royale du Canada", "CONTOSO CLINIQUE INC")[0]
+        assert record.revenue_classification != "non_revenue", text
+        assert record.contributes_to_true_revenue, text
+    # The board's full name prints ASSURANCE, which §8.1's insurer hold reads (the owner's decision I27 stands): it
+    # leaves the reversal rule and is held, never non-revenue.
+    record = _classify([("2054-03-02", "REGIE DE L ASSURANCE MALADIE DU QUEBEC REMBOURSEMENT 1234567", 1400.0)],
+                       "Banque Royale du Canada", "CONTOSO CLINIQUE INC")[0]
+    assert record.revenue_classification != "non_revenue"
+
+
+@pytest.mark.parametrize(("hold_text", "held"), [
+    # §8.1's possible-return backstop reads step 3's 5.6 spellings on the hold text (the posting labels removed), so a
+    # row that reaches the pass with one is held, never counted.
+    (" NOT PAID", True),
+    ("ITEM RET NOT PAID", True),
+    (" CORRECTION 12345 SAMPLE AND MAIN BANKING CE", True),
+    ("TRANSACTION CORRECTION", True),
+    ("DEBIT PURCHASE RET VISA ON 123456", True),
+    ("BANKING PROVISIONAL CR", True),
+    ("SETTLEMENT ACH UNAUTHORIZED", True),
+    ("E TRANSFER RECLAIM123456", True),
+    (" REV POS PURCHASE 123456", True),
+    ("RENV TFE DEBIT", True),
+    ("RETOUR MDSE 123", True),
+    ("24 HOUR GRACE OVERDRAFT FEE WAIVER", True),
+    ("WIRE OUT COURTESY REF", True),
+    # Not REMBOURSEMENT (a provider's left step 3 by §7.11's carve-out), and never a name.
+    ("RAMQ REMBOURSEMENT 1234", False),
+    ("RECLAIMED WOOD CONTOSO LLC", False),
+    ("DEPT OF CORRECTION VENDOR PAY", False),
+    ("REVERE CONTOSO LLC", False),
+])
+def test_the_possible_return_backstop_reads_step_3_s_new_spellings(hold_text, held):
+    from analysis import true_revenue
+
+    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+
+
+def test_a_card_marker_on_a_debit_pairs_nothing():
+    # The credit-side markers (a CHECKCARD purchase line, a point-of-sale deposit) are read on the credit only: the
+    # holder's card purchase at a customer's store never takes that customer's payment out of True.
+    records = _classify([
+        ("2054-03-02", "CONTOSO HARDWARE LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1 CCD", 400.0),
+        ("2054-03-04", "CHECKCARD 0303 CONTOSO HARDWARE SAMPLEVILLE MO 12345678901234567890123", -400.0),
+    ], "Bank of America")
+    assert records[0].revenue_match_method != "matched_reversal_pair"
+    assert records[0].contributes_to_true_revenue
+
+
+# I04: card credits.
+@pytest.mark.parametrize("text", ["CARD CREDIT", "CARD CREDIT 1234", "CARD CREDIT CONTOSO HARDWARE 1234 SAMPLEVILLE TX"])
+def test_a_card_credit_whose_payer_is_lost_or_a_store_is_held_as_a_possible_return(text):
+    record = _one(text, "BMO")
+    assert record.revenue_classification == "unverified_deposit"
+    assert _tier(record) == (HELD, "possible_return")
+
+
+@pytest.mark.parametrize("text", [
+    "CARD CREDIT CASH APP SAMPLE 1234 OAKLAND CA 12345 1234",
+    "CARD CREDIT APPLE CASH INST 1234 CUPERTINO CA12345 1234",
+])
+def test_a_cash_app_or_apple_cash_push_stays_a_counted_p2p_credit(text):
+    assert _tier(_one(text, "Regions Bank", 410.0)) == (COUNTED, "p2p")
+
+
+@pytest.fixture
+def cash_app_release(monkeypatch):
+    """The owner's switch for Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT (it ships off: it moves a
+    real statement's pinned figures)."""
+    from analysis import transaction_classifier
+
+    monkeypatch.setattr(transaction_classifier, "CASH_APP_CARD_PUSH_RELEASE", True)
+
+
+@pytest.mark.usefixtures("cash_app_release")
+@pytest.mark.parametrize("text", ["DEBIT CARD CREDIT CASH APP", "POS CREDIT APPLE CASH INST XF CUPERTINO CA"])
+def test_a_cash_app_push_printed_as_a_debit_card_credit_leaves_the_reversal_rule(text):
+    # With the switch on, Cash App and Apple Cash join the push-word release (§7.11): such a card credit is held,
+    # never non-revenue.
+    record = _one(text, "Thread Bank (Relay)")
+    assert record.revenue_classification == "unverified_deposit"
+    assert _tier(record) == (HELD, "possible_return")
+
+
+@pytest.mark.parametrize("text", [
+    "CHECKCARD 0115 VISA DIRECT CONTOSO SAMPLEVILLE MO 12345678901234567890123",
+    "DEBIT CARD CREDI CARD ENDING IN 1234 VISA DIRECT FABRIKAM",
+    "POINT OF SALE DEPOSIT VISA DIRECT FABRIKAM SAMPLEVILLE",
+])
+def test_a_card_shaped_refund_label_with_a_push_word_is_released_and_held(text):
+    # §7.11: the card-shaped labels step 3 adds are released by a push-rail word as a card credit is; §8.1 then holds
+    # the released row as a possible return (no form verified it).
+    record = _one(text, "Fabrikam Bank")
+    assert record.revenue_classification == "unverified_deposit"
+    assert _tier(record) == (HELD, "possible_return")
+
+
+def test_the_cash_app_card_push_release_ships_off():
+    from analysis import transaction_classifier
+
+    assert transaction_classifier.CASH_APP_CARD_PUSH_RELEASE is False
+    record = _one("DEBIT CARD CREDIT CASH APP", "Thread Bank (Relay)")
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# I11: a processor's instant payout printed as a card credit (the owner's switch PROCESSOR_CARD_PAYOUT_RELEASE: it
+# ships off, since it moves a real statement's pinned figures; these tests turn it on).
+# ---------------------------------------------------------------------------------------------------------------------
+
+RELAY = "Thread Bank (Relay)"
+
+
+@pytest.fixture
+def processor_release(monkeypatch):
+    from analysis import true_revenue
+
+    monkeypatch.setattr(true_revenue, "PROCESSOR_CARD_PAYOUT_RELEASE", True)
+
+
+def test_the_processor_card_payout_release_ships_off():
+    from analysis import true_revenue
+
+    assert true_revenue.PROCESSOR_CARD_PAYOUT_RELEASE is False
+    records = _classify([
+        ("2054-03-02", "Debit Card Credit: Stripe", 2100.0),
+        ("2054-03-20", "ACH Pull: Stripe", -50.0),
+    ], RELAY)
+    assert records[0].revenue_classification == "non_revenue"
+    assert records[0].revenue_match_method == "reversal_cancellation_exclusion"
+
+
+@pytest.mark.usefixtures("processor_release")
+def test_relay_stripe_card_payouts_with_a_stripe_pull_are_counted():
+    records = _classify([
+        ("2054-03-02", "Debit Card Credit: Stripe", 2100.0),
+        ("2054-03-09", "Debit Card Credit: Stripe", 2200.0),
+        ("2054-03-16", "Debit Card Credit: Stripe", 2300.0),
+        ("2054-03-20", "ACH Pull: Stripe", -50.0),
+    ], RELAY)
+    for record in records[:3]:
+        assert record.revenue_classification == "unverified_deposit"
+        assert record.revenue_match_method == "processor_card_payout"
+        assert _tier(record) == (COUNTED, "platform_unconfirmed")
+    assert _true(records) == 6600.0
+
+
+@pytest.mark.usefixtures("processor_release")
+@pytest.mark.parametrize("activity", [
+    ("2054-03-20", "ACH Pull: Intuit Pymt Soln", -40.0),
+    ("2054-03-20", "ACH Pull: Intuit 12345678", -40.0),
+    ("2054-03-20", "ACH Credit: Intuit Payments 12345678", 900.0),
+    ("2054-03-20", "Returned ACH Pull: Intuit Pymt Soln", 40.0),
+])
+def test_bare_intuit_card_payouts_count_with_intuit_s_ach_activity(activity):
+    records = _classify([
+        ("2054-03-02", "Debit Card Credit: Intuit", 1100.0),
+        ("2054-03-09", "Debit Card Credit: Intuit", 1200.0),
+        activity,
+    ], RELAY)
+    for record in records[:2]:
+        assert _tier(record) == (COUNTED, "platform_unconfirmed")
+
+
+@pytest.mark.usefixtures("processor_release")
+def test_a_pocketsuite_card_payout_counts_with_its_ach_pull():
+    records = _classify([
+        ("2054-03-02", "Debit Card Credit: Pocket Suite", 1100.0),
+        ("2054-03-20", "ACH Pull: PocketSuite", -30.0),
+    ], RELAY)
+    assert _tier(records[0]) == (COUNTED, "platform_unconfirmed")
+
+
+@pytest.mark.usefixtures("processor_release")
+@pytest.mark.parametrize(("rows", "why"), [
+    # No processor activity on the statement: a card refund cannot be told from a payout.
+    ([("2054-03-02", "Debit Card Credit: Stripe", 2100.0)], "no activity"),
+    # A card purchase at the processor makes the credit that purchase's refund.
+    ([("2054-03-02", "Debit Card Credit: Stripe", 2100.0), ("2054-03-20", "ACH Pull: Stripe", -50.0),
+      ("2054-03-21", "Debit Card Purchase: Stripe", -2100.0)], "a purchase at it"),
+    ([("2054-03-02", "Debit Card Credit: Pocket Suite", 1100.0), ("2054-03-20", "ACH Pull: PocketSuite", -30.0),
+      ("2054-03-21", "Debit Card Purchase: PocketSuite", -30.0)], "a purchase at it"),
+    # Another processor's activity names nobody's payout.
+    ([("2054-03-02", "Debit Card Credit: Stripe", 2100.0), ("2054-03-20", "ACH Pull: Intuit Pymt Soln", -40.0)],
+     "another processor"),
+    # A marketplace or a retailer keeps the refund reading.
+    ([("2054-03-02", "Debit Card Credit: Uber", 21.0), ("2054-03-09", "Debit Card Credit: Uber", 22.0),
+      ("2054-03-16", "Debit Card Credit: Uber", 23.0), ("2054-03-20", "ACH Pull: Uber", -50.0)], "Uber"),
+    # A row that prints another reversal word stays a reversal, before the label too.
+    ([("2054-03-02", "Debit Card Credit: Stripe Refund", 2100.0), ("2054-03-20", "ACH Pull: Stripe", -50.0)],
+     "refund word"),
+    ([("2054-03-02", "REVERSAL DEBIT CARD CREDIT STRIPE", 2100.0), ("2054-03-20", "ACH Pull: Stripe", -50.0)],
+     "reversal word before the label"),
+    # The processor's name with another word is not its payout (a capital advance pushed to the card).
+    ([("2054-03-02", "Debit Card Credit: Stripe Capital", 2100.0), ("2054-03-20", "ACH Pull: Stripe", -50.0)],
+     "financing word"),
+])
+def test_a_card_credit_without_its_processor_s_payout_or_pull_stays_a_refund(rows, why):
+    credit = _classify(rows, RELAY)[0]
+    assert credit.revenue_classification == "non_revenue", why
+    assert credit.revenue_match_method == "reversal_cancellation_exclusion", why
+
+
+@pytest.mark.usefixtures("processor_release")
+def test_a_released_card_payout_is_never_verified_nor_held_as_the_payer_also_debited():
+    records = _classify([
+        ("2054-03-02", "Debit Card Credit: Stripe", 2100.0),
+        ("2054-03-05", "Debit Card Credit: Stripe", 2100.0),
+        ("2054-03-09", "Debit Card Credit: Stripe", 2100.0),
+        ("2054-03-12", "Debit Card Credit: Stripe", 2100.0),
+        ("2054-03-20", "ACH Pull: Stripe", -50.0),
+        ("2054-03-21", "ACH Credit: Stripe", 900.0),
+    ], RELAY)
+    for record in records[:4]:
+        assert record.revenue_classification == "unverified_deposit"
+        assert _tier(record) == (COUNTED, "platform_unconfirmed")
+
+
+def test_the_card_payout_processor_names_are_checked_by_the_registry_validator(monkeypatch):
+    from analysis import classification_registry as registry
+    from tools import operating_registry
+
+    assert not any("card-payout processor" in problem for problem in operating_registry.problems())
+    monkeypatch.setattr(registry, "CARD_PAYOUT_PROCESSOR_NAMES", {
+        "Stripe": ("Stripe",), "Square": ("SQUARE CAPITAL",), "Fabrikam": ("STATE FARM",)})
+    found = operating_registry.problems()
+    assert "card-payout processor name 'Stripe' of 'Stripe' is not normalized" in found
+    assert any("card-payout processor name 'SQUARE CAPITAL'" in problem and "alias of" in problem for problem in found)
+    assert any("card-payout processor name 'STATE FARM'" in problem and "insurer alias" in problem for problem in found)
+
+
+@pytest.mark.usefixtures("processor_release")
+def test_a_card_payout_the_processor_pulls_back_stays_paired():
+    # Pass 4 still pairs a card credit with an equal pull of the same processor (the payout taken back).
+    records = _classify([
+        ("2054-03-02", "Debit Card Credit: Stripe", 2100.0),
+        ("2054-03-04", "ACH Pull: Stripe", -2100.0),
+    ], RELAY)
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# I43: card-rewards redemptions.
+# ---------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("bank", "texts"), [
+    ("Chase", ["CASH REDEMPTION"]),
+    ("Chase", ["CASH REDEMPTION 1234567"]),
+    ("PNC Bank", ["PNC PURCHASE PAYBACK AWARD"]),
+    ("PNC Bank", ["PURCHASE PAYBACK"]),
+    ("Fabrikam Bank", ["POINTS REDEMPTION"]),
+    ("Bank of America", [
+        "AMERICAN EXPRESS DES:MR REDEEM ID:1234567890 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 PPD",
+        "AMERICAN EXPRESS DES:MR REDEEM ID:1234567891 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 PPD",
+    ]),
+    ("Fabrikam Bank", ["AMEX DES:MEMBERSHIP REWARDS ID:1234"]),
+])
+def test_card_rewards_redemptions_are_non_revenue(bank, texts):
+    records = _classify([(f"2054-03-{2 + index:02d}", text, 40.0 + index) for index, text in enumerate(texts)], bank)
+    for record in records:
+        assert record.revenue_classification == "non_revenue"
+        assert record.revenue_match_method == "strong_non_revenue_rule"
+
+
+def test_a_payer_named_redemption_stays_verified():
+    record = _one("REDEMPTION FABRIKAM CHURCH INC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1 CCD",
+                  "Bank of America", 1400.0)
+    assert record.revenue_classification == "verified_revenue"
+
+
+@pytest.mark.parametrize("text", [
+    # A redemption word inside a payer's name or a person's payback is no reward.
+    "CASH REDEMPTION CONTOSO LLC DES:PAYMENT ID:1",
+    "FABRIKAM DES:MR REDEEM ID:1",
+    "ZELLE FROM PAT SAMPLE ON 03 02 REF 1234 PAYBACK",
+])
+def test_a_reward_word_without_its_anchor_is_no_reward(text):
+    assert _one(text).revenue_match_method != "strong_non_revenue_rule"

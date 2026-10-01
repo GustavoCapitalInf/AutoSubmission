@@ -837,6 +837,27 @@ class _IrsTaxRefundForm:
         return self if _irs_tax_refund(text) else None
 
 
+#: 5.6 (audit B3: I43, standard D4): American Express's Membership Rewards redemption, read only beside a card issuer's
+#: name (American Express, Amex, or a card issuer's context alias), so a payer whose entry happens to print MR REDEEM
+#: keeps its reading.
+_CARD_REWARD_PROGRAM = re.compile(r"\b(?:MR REDEEM|MEMBERSHIP REWARDS?)\b")
+_CARD_ISSUER_NAME = re.compile(r"(?<![A-Z])(?:AMERICAN EXPRESS|AMEX)\b")
+
+
+class _CardIssuerRewardRedemption:
+    """5.6 (audit B3: I43): a card issuer's rewards redemption in the strong non-revenue list, read as its patterns
+    are (search)."""
+
+    pattern = "MR REDEEM or MEMBERSHIP REWARDS beside a card issuer's name"
+
+    def search(self, text: str) -> "_CardIssuerRewardRedemption | None":
+        if _CARD_REWARD_PROGRAM.search(text) is None:
+            return None
+        if _CARD_ISSUER_NAME.search(text) or registry_match(text, CARD_ISSUER_CONTEXT_ALIASES) is not None:
+            return self
+        return None
+
+
 _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(
         r"\b(?:LOAN|BUSINESS LOAN|MCA|MERCHANT CASH ADVANCE|FINANCING) "
@@ -871,6 +892,13 @@ _NON_REVENUE_CREDIT_PATTERNS = (
         r"\b(?:CASH ?BACK|CASH ?REWARDS?|CARD REWARDS?|CREDIT CARD REWARDS?)"
         r"(?: CREDIT|REDEMPTION|REBATE)?\b"
     ),
+    # 5.6 (audit B3: I43, standard D4): card-rewards redemptions the patterns above miss, each anchored so a payer named
+    # REDEMPTION ... is never read: Chase's payer-less CASH REDEMPTION as the whole row (a reference after it), PNC's
+    # PURCHASE PAYBACK [AWARD], a POINTS REDEMPTION, and a card issuer's MR REDEEM or MEMBERSHIP REWARDS.
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?CASH REDEMPTION(?: \S*\d\S*)*$"),
+    re.compile(r"\bPURCHASE PAYBACK(?: AWARD)?\b"),
+    re.compile(r"\bPOINTS REDEMPTION\b"),
+    _CardIssuerRewardRedemption(),
     re.compile(r"\bINTEREST (?:CREDIT(?:ED)?|PAID|PAYMENT|DEPOSIT|EARNED)\b"),
     re.compile(r"\bCREDIT INTEREST\b"),
     re.compile(r"\b(?:BANK |SERVICE |ACCOUNT )?FEES? (?:REFUND|REBATE|REVERSAL|CREDIT)\b"),
@@ -1838,11 +1866,68 @@ _CLAIM_OR_PROVIDER_SIGNAL = re.compile(
     r"|(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b"
 )
 _REIMBURSEMENT_WORD = re.compile(r"\bREIMBURSEMENT\b")
+#: 5.6 (audit B3: I04, §7.11): the Quebec health insurance board (the Régie de l'assurance maladie du Québec, a public
+#: body that pays health professionals and clinics for the insured services they bill; ramq.gouv.qc.ca), the French
+#: rows' provider signal: REMBOURSEMENT on such a row is the clinic's claim payment, as REIMBURSEMENT is beside a claim
+#: or provider signal (_CLAIM_OR_PROVIDER_SIGNAL).
+_QUEBEC_HEALTH_PAYER = re.compile(r"(?<![A-Z])(?:RAMQ|REGIE (?:DE L )?ASSURANCE MALADIE(?: DU QUEBEC)?)\b")
+#: 5.6 (audit B3: I04): the card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's
+#: credit-side CHECKCARD <mmdd>, a point-of-sale deposit naming its merchant), released as a card credit is
+#: (_card_credit_released).
+_CARD_REFUND_LABELS = (
+    re.compile(r"\bDEBIT CARD CREDI\b"),
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b"),
+    re.compile(r"\bPOINT OF SALE DEPOSIT [A-Z]"),
+)
+_REMBOURSEMENT_WORD = re.compile(r"(?<![A-Z])REMBOURSEMENT\b")
+#: 5.6 (audit B3: I04, §6.1 step 3, §7.11, §20; standard D1, D3, D5): the reversal, correction and refund spellings
+#: step 3 also reads on a credit, beside its 5.4 patterns and the return codes:
+#: - a bounced outgoing payment credited back (Zions' ITEM RET NOT PAID; never ITEM RETURNED before a fee, the bank's
+#:   charge), NOT PAID, and a returned deposited item (PNC's RET DEP ITEM);
+#: - a bank's error or transaction correction, and a correction printed first, glued to its reference too (never a
+#:   name that only starts with it: CORRECTIONAL ...; never DEPT OF CORRECTION, which prints it last);
+#: - card-purchase refunds: U.S. Bank's DEBIT PURCHASE RET, a reversed card or mobile purchase printed first (REV
+#:   MOBILE, POS, DEBIT, PURCHASE, ACH or CARD) and the card-shaped labels (_CARD_REFUND_LABELS);
+#: - a provisional credit cut to CR, an unauthorized-ACH settlement, and an e-Transfer the holder reclaimed (RECLAIM,
+#:   digits glued after it; never a name such as RECLAIMED ...);
+#: - the French reversal, return and refund words RENV, RENVERSEMENT, RETOUR and REMBOURSEMENT (REMBOURSEMENT with
+#:   §7.11's provider carve-out, _remboursement_from_a_provider);
+#: - a fee waiver (FEE WAIVE, WAIVED, WAIVER) and a courtesy refund (TD's WIRE OUT COURTESY REF).
+#: Read on credits only, by step 3 and, on the credit row, by pass 4's revenue side (_CREDIT_PAIR_MARKER_PATTERNS); the
+#: lender side of pass 4 never reads them (§20, final review I6).
+_RETURN_REFUND_CREDIT_PATTERNS = (
+    re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)"),
+    re.compile(r"\bNOT PAID\b"),
+    re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
+    re.compile(r"\b(?:ERROR|TRANSACTION) CORRECTION\b"),
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?CORRECTION(?![A-Z])"),
+    re.compile(r"\bPURCHASE RET\b"),
+    *_CARD_REFUND_LABELS,
+    re.compile(r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b"),
+    re.compile(r"\bUNAUTHORI[SZ]ED\b"),
+    re.compile(r"(?<![A-Z])RECLAIM(?![A-Z])"),
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b"),
+    re.compile(r"(?<![A-Z])(?:RENV|RENVERSEMENT|RETOUR)\b"),
+    _REMBOURSEMENT_WORD,
+    re.compile(r"\bFEES? WAIVE[DR]?\b"),
+    re.compile(r"\bCOURTESY REF(?:UND)?\b"),
+)
 #: §7.11: push payouts printed as card credits: a push-rail word, or a processor or invoice source with a payout word.
-_CARD_CREDIT_LABEL = re.compile(r"\b(?:DEBIT CARD CREDIT|POS CREDIT)\b")
+#: 5.6 (audit B3: I04): the card-credit labels include Citibank's cut DEBIT CARD CREDI and the card-shaped refund labels
+#: step 3 adds (_CARD_REFUND_LABELS).
+_CARD_CREDIT_LABEL = re.compile(
+    r"\b(?:DEBIT CARD CREDIT?|POS CREDIT)\b|^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b|\bPOINT OF SALE DEPOSIT\b"
+)
 _CARD_CREDIT_PUSH_WORD = re.compile(
     r"\b(?:VISA DIRECT|MC SEND|VISA MONEY TRANSFER|FASTPAY|INSTANT PAY|INSTANT PAYOUT)\b"
 )
+#: 5.6 (audit B3: I04, §7.11): Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT or POS CREDIT join the push
+#: words (released from the reversal rule, then held by §8.1 as any released card credit is) only with
+#: CASH_APP_CARD_PUSH_RELEASE on. It ships off: it moves the pinned figures of a real statement
+#: (tests/test_new_statement_corpus.py, the Relay fixture), which only the owner's word may re-pin. A card credit printed
+#: first ('CARD CREDIT CASH APP ...') stays a counted person-to-person push either way (true_revenue._leading_card_credit).
+CASH_APP_CARD_PUSH_RELEASE = False
+_CARD_CREDIT_P2P_PUSH_WORD = re.compile(r"(?<![A-Z])(?:CASH ?APP|APPLE CASH)\b")
 _CARD_CREDIT_PAYOUT_WORD = re.compile(r"\b(?:PAYOUTS?|INSTANT (?:PAYOUT|PAY|TRANSFER)|SETTLEMENT|DEPOSIT)\b")
 #: §7.11 (T5): account verification, Square Capital's SQ CAP, SBA and EIDL disbursements (the tax-refund forms sit
 #: in _NON_REVENUE_CREDIT_PATTERNS).
@@ -2340,17 +2425,32 @@ def _has_operating_context(text: str, source: _OperatingSource, *, bank: str | N
 def _reversal_credit(text: str) -> bool:
     """5.5 (§6.1 step 3, §7.11): the reversal, cancellation, NSF and provisional-credit rule, with the return codes.
     REIMBURSEMENT never fires on a row that prints a claim or provider signal, and DEBIT CARD CREDIT and POS CREDIT
-    never fire on a push payout printed as a card credit (_card_credit_released)."""
-    for pattern in _REVERSAL_CANCELLATION_CREDIT_PATTERNS:
+    never fire on a push payout printed as a card credit (_card_credit_released).
+
+    5.6 (audit B3: I04): and step 3's other return, correction and refund spellings (_RETURN_REFUND_CREDIT_PATTERNS):
+    REMBOURSEMENT with REIMBURSEMENT's provider carve-out (_remboursement_from_a_provider), and the card-shaped refund
+    labels (_CARD_REFUND_LABELS) released as a card credit is."""
+    for pattern in (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_REFUND_CREDIT_PATTERNS):
         found = pattern.search(text)
         if found is None:
             continue
         if pattern.pattern == _REIMBURSEMENT_WORD.pattern and _CLAIM_OR_PROVIDER_SIGNAL.search(text):
             continue
-        if _CARD_CREDIT_LABEL.fullmatch(found.group(0)) and _card_credit_released(text):
+        if pattern is _REMBOURSEMENT_WORD and _remboursement_from_a_provider(text):
+            continue
+        if (
+            _CARD_CREDIT_LABEL.fullmatch(found.group(0)) or any(pattern is label for label in _CARD_REFUND_LABELS)
+        ) and _card_credit_released(text):
             continue
         return True
     return _matches_any(text, _RETURN_CODE_CREDIT_PATTERNS)
+
+
+def _remboursement_from_a_provider(text: str) -> bool:
+    """5.6 (audit B3: I04, §7.11): French REMBOURSEMENT is a claim payment, not a refund, on a row that prints
+    REIMBURSEMENT's claim or provider signal (_CLAIM_OR_PROVIDER_SIGNAL) or names the Quebec health insurance board
+    (_QUEBEC_HEALTH_PAYER)."""
+    return _CLAIM_OR_PROVIDER_SIGNAL.search(text) is not None or _QUEBEC_HEALTH_PAYER.search(text) is not None
 
 
 def _card_credit_released(text: str) -> bool:
@@ -2360,6 +2460,9 @@ def _card_credit_released(text: str) -> bool:
     if not _CARD_CREDIT_LABEL.search(text):
         return False
     if _CARD_CREDIT_PUSH_WORD.search(text):
+        return True
+    # 5.6 (audit B3: I04): Cash App and Apple Cash pushes, on the owner's switch.
+    if CASH_APP_CARD_PUSH_RELEASE and _CARD_CREDIT_P2P_PUSH_WORD.search(text):
         return True
     source = _operating_source(text)
     return (
@@ -4313,8 +4416,113 @@ def _descriptions_share_pair_context(left: str, right: str) -> bool:
     return any(pattern.search(left) and pattern.search(right) for pattern in _PAIR_FAMILY_PATTERNS)
 
 
-#: 5.5 (§6.2 pass 4): the reversal pair reads the credit markers of step 3, return codes included.
-_PAIR_MARKER_PATTERNS = (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_CODE_CREDIT_PATTERNS)
+#: 5.6 (audit B3: I03, §6.2 pass 4, §20): the undo wordings of a deposit, read as pass 4's revenue-side markers on either
+#: row: a returned deposited item (PNC's RET DEP ITEM, RETURNED DEPOSIT ITEM, Wells Fargo's DEPOSITED ITEM RETN and
+#: Chase's DEPOSITED ITEM RETURNED), an error, transaction or deposit correction, a mobile, remote or ATM deposit
+#: adjustment, and Bank of America's ADJUSTMENT CORRECTION.
+_DEPOSIT_UNDO_MARKERS = (
+    re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
+    re.compile(r"\bDEPOSITED ITEMS? RET\w*"),
+    re.compile(r"\b(?:ERROR|TRANSACTION|DEPOSIT) CORRECTION\b"),
+    re.compile(r"\b(?:MOBILE|REMOTE|ATM) DEPOSIT ADJUSTMENT\b"),
+    re.compile(r"\bADJUSTMENT CORRECTION\b"),
+)
+#: 5.6 (audit B3: I03): the debits that undo a deposit, which pair with the deposit itself (_deposit_return_pairs): the
+#: undo markers, a deposited check returned, a bare RETURNED ITEM (and Bank of America's RETURN ITEM CHARGEBACK), RBC's
+#: ITEM RETURNED UNPAID and a returned check; never the bank's fee for the return (_DEPOSIT_UNDO_FEE). TD's RTN NSF is
+#: not one (audit I41: its sign is unconfirmed).
+_DEPOSIT_RETURN_DEBIT_PATTERNS = (
+    *_DEPOSIT_UNDO_MARKERS,
+    re.compile(r"\bDEPOSITED (?:CHECK|CHEQUE)S? RET\w*"),
+    re.compile(r"\bRETURN(?:ED)? ITEMS?\b"),
+    re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b"),
+    re.compile(r"\bRETURNED (?:CHECK|CHEQUE)S?\b|\b(?:CHECK|CHEQUE)S? RETURNED\b"),
+)
+_DEPOSIT_UNDO_FEE = re.compile(r"\b(?:FEES?|FRAIS|SVC|CHG|SERVICE CHARGE)\b")
+#: 5.6 (audit B3: I03): a returned deposit pairs with a deposit up to this many days before it, the same day included.
+_DEPOSIT_RETURN_DAYS = 14
+#: 5.6 (audit B3: I03): a mobile or electronic deposit capture glued to its word (MDEPOSIT, EDEPOSIT IN BRANCH), a
+#: deposit word, and the card words a bare deposit never prints (a card settlement's VISA DEPOSIT is no deposit channel).
+_DEPOSIT_CAPTURE_WORD = re.compile(r"(?<![A-Z])(?:MDEPOSIT|EDEPOSIT)\b")
+_DEPOSIT_WORD = re.compile(r"(?<![A-Z])(?:DEP|DEPOSITS?)\b")
+_CARD_WORD = re.compile(r"(?<![A-Z])(?:CARDS?|VISA|MC|MASTERCARD|AMEX|DISCOVER|BANKCARD|POS)\b")
+
+
+def _deposit_return_debit(text: str) -> bool:
+    """5.6 (audit B3: I03): a debit that undoes a deposit (_DEPOSIT_RETURN_DEBIT_PATTERNS), never the bank's fee for it."""
+    return _matches_any(text, _DEPOSIT_RETURN_DEBIT_PATTERNS) and _DEPOSIT_UNDO_FEE.search(text) is None
+
+
+def _deposit_channel_credit(text: str) -> bool:
+    """5.6 (audit B3: I03): a credit a returned item may undo: a check deposit (§8.3), a cash, branch, teller or ATM
+    deposit (§8.2), a deposit capture glued to its word (_DEPOSIT_CAPTURE_WORD), or a bare deposit that names no payer
+    (§8.2's bare row printing a deposit word and no card word); never a wire, a person-to-person or push rail, or an
+    electronic payment (a returned item names no payer, so it never undoes a named payer's payment)."""
+    text = revenue_text(text)
+    row = _before_receiver(text)
+    if _is_wire_row(text) or _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
+        return False
+    if _CHECK_DEPOSIT_FORM.search(row) or _DEPOSIT_CAPTURE_WORD.search(row):
+        return True
+    if _ELECTRONIC_PAYMENT_FORM.search(row):
+        return False
+    if _CASH_BRANCH_ATM_FORM.search(row):
+        return True
+    return _DEPOSIT_WORD.search(row) is not None and _CARD_WORD.search(row) is None and _is_bare_row(text)
+
+
+def _deposit_return_pairs(
+    records: list[TransactionClassification], duplicate_indexes: set[int],
+) -> list[tuple[int, int]]:
+    """5.6 (audit B3: I03, §6.2 pass 4, revenue side only): the (credit index, debit index) pairs of a debit that undoes
+    a deposit (_deposit_return_debit) and an equal posted deposit-channel credit (_deposit_channel_credit) 0 to
+    _DEPOSIT_RETURN_DAYS days before it. No shared word is needed: a returned item never prints the depositor's words.
+    Each such debit, in row order, takes the earliest such credit not yet taken (then the first row), so a redeposit
+    after the return, or beside a corrected deposit, stays counted."""
+    pairs: list[tuple[int, int]] = []
+    taken: set[int] = set()
+    for debit_index, debit in enumerate(records):
+        if (
+            debit_index in duplicate_indexes
+            or debit.amount >= 0
+            or not debit.is_posted
+            or not _deposit_return_debit(debit.normalized_description)
+        ):
+            continue
+        amount = round(abs(debit.amount), 2)
+        debit_date = parse_date(debit.date)
+        best: tuple[tuple[date, int], int] | None = None
+        for credit_index, credit in enumerate(records):
+            if (
+                credit_index in duplicate_indexes
+                or credit_index in taken
+                or credit.amount <= 0
+                or not credit.is_posted
+                or round(credit.amount, 2) != amount
+            ):
+                continue
+            credit_date = parse_date(credit.date)
+            if credit_date is not None and debit_date is not None and not (
+                0 <= (debit_date - credit_date).days <= _DEPOSIT_RETURN_DAYS
+            ):
+                continue
+            if not _deposit_channel_credit(credit.normalized_description):
+                continue
+            key = (credit_date or debit_date or date.min, credit_index)
+            if best is None or key < best[0]:
+                best = (key, credit_index)
+        if best is not None:
+            taken.add(best[1])
+            pairs.append((best[1], debit_index))
+    return pairs
+
+
+#: 5.5 (§6.2 pass 4): the reversal pair reads the credit markers of step 3, return codes included. 5.6 (audit B3: I03,
+#: §20): on the revenue side, the deposit undo markers too, read on either row.
+_PAIR_MARKER_PATTERNS = (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_CODE_CREDIT_PATTERNS, *_DEPOSIT_UNDO_MARKERS)
+#: 5.6 (audit B3: I04, §20): the revenue side also reads step 3's 5.6 credit markers, on the credit row only: on a debit
+#: several of them are a purchase (CHECKCARD <mmdd>), a repayment (REMBOURSEMENT) or a charge.
+_CREDIT_PAIR_MARKER_PATTERNS = _RETURN_REFUND_CREDIT_PATTERNS
 #: 5.6 (final review I6, §20): the lender side keeps classification 5.4's pairs. A pair the 5.4 credit markers make
 #: (step 3's markers without the return codes and the French cancel words) alone zeroes the debit's lender,
 #: potential-lender, withholding, insurance and flag contributions (setting its reversed_by) and sets the credit's
@@ -4329,22 +4537,34 @@ def _reversal_pairs(
     duplicate_indexes: set[int],
     markers: Sequence[re.Pattern[str]],
     marked: dict[int, bool] | None = None,
+    *,
+    credit_markers: Sequence[re.Pattern[str]] = (),
+    seeded: Sequence[tuple[int, int]] = (),
 ) -> list[tuple[int, int]]:
     """§6.2 pass 4: the (credit index, debit index) pairs, in credit order: an equal posted debit within 14 days that
     shares the credit's transaction family, where the credit or the debit prints one of `markers`; the nearest date,
-    then the nearest row, wins, and a debit pairs once. `marked` caches each row's marker reading."""
+    then the nearest row, wins, and a debit pairs once. `marked` caches each row's marker reading.
+
+    5.6 (audit B3, revenue side only): `credit_markers` are read on a credit row only (step 3's 5.6 credit markers), and
+    the `seeded` pairs (the returned deposits, _deposit_return_pairs) are made first: their credits and debits pair no
+    further."""
     marked = {} if marked is None else marked
 
     def has_marker(index: int) -> bool:
         if index not in marked:
-            marked[index] = _matches_any(records[index].normalized_description, markers)
+            text = records[index].normalized_description
+            marked[index] = _matches_any(text, markers) or (
+                records[index].amount > 0 and _matches_any(text, credit_markers)
+            )
         return marked[index]
 
-    pairs: list[tuple[int, int]] = []
-    matched_debit_indexes: set[int] = set()
+    pairs: list[tuple[int, int]] = list(seeded)
+    matched_debit_indexes: set[int] = {debit_index for _, debit_index in seeded}
+    seeded_credits = {credit_index for credit_index, _ in seeded}
     for credit_index, credit in enumerate(records):
         if (
             credit_index in duplicate_indexes
+            or credit_index in seeded_credits
             or credit.amount <= 0
             or not credit.is_posted
         ):
@@ -4383,7 +4603,7 @@ def _reversal_pairs(
         )
         matched_debit_indexes.add(debit_index)
         pairs.append((credit_index, debit_index))
-    return pairs
+    return sorted(pairs)
 
 
 def _apply_reversal_pair_context(
@@ -4392,10 +4612,15 @@ def _apply_reversal_pair_context(
 ) -> list[TransactionClassification]:
     updated = list(records)
     revenue_marked: dict[int, bool] = {}
-    revenue_pairs = _reversal_pairs(records, duplicate_indexes, _PAIR_MARKER_PATTERNS, revenue_marked)
-    # 5.6 (final review I6): the lender side's pairs are 5.4's. A statement where no row prints a widened-only marker
-    # has the same pairs on both sides.
-    widened = any(
+    # 5.6 (audit B3: I03): the revenue side pairs each returned deposit with its deposit first.
+    deposit_pairs = _deposit_return_pairs(records, duplicate_indexes)
+    revenue_pairs = _reversal_pairs(
+        records, duplicate_indexes, _PAIR_MARKER_PATTERNS, revenue_marked,
+        credit_markers=_CREDIT_PAIR_MARKER_PATTERNS, seeded=deposit_pairs,
+    )
+    # 5.6 (final review I6): the lender side's pairs are 5.4's. A statement where no row prints a widened-only marker,
+    # and where no returned deposit paired (audit B3: I03), has the same pairs on both sides.
+    widened = bool(deposit_pairs) or any(
         revenue_marked.get(index) and not _matches_any(records[index].normalized_description,
                                                         _LENDER_PAIR_MARKER_PATTERNS)
         for index in revenue_marked
@@ -4403,23 +4628,30 @@ def _apply_reversal_pair_context(
     lender_pairs = (
         _reversal_pairs(records, duplicate_indexes, _LENDER_PAIR_MARKER_PATTERNS) if widened else revenue_pairs
     )
+    deposit_returns = set(deposit_pairs)
     for credit_index, debit_index in revenue_pairs:
         credit, debit = records[credit_index], records[debit_index]
         related_location = debit.source_location or f"transaction:{debit_index + 1}"
+        returned_deposit = (credit_index, debit_index) in deposit_returns
         updated[credit_index] = _replace_revenue_state(
             credit,
             "non_revenue",
             match_method="matched_reversal_pair",
-            matched_rule="opposite_direction_amount_date_description_match",
+            matched_rule=(
+                "returned_deposit_amount_date_match" if returned_deposit
+                else "opposite_direction_amount_date_description_match"
+            ),
             confidence_score=1.0,
             reason=(
+                f"Deposit undone by the returned-item or correction row {related_location} (the same amount, 0 to "
+                f"{_DEPOSIT_RETURN_DAYS} days later)." if returned_deposit else
                 f"Credit matches reversal or cancellation row {related_location} by "
                 "amount, date proximity, and transaction-family description."
             ),
             context_signals=(
                 *credit.revenue_context_signals,
                 "matched_opposite_direction_row",
-                "amount_date_description_match",
+                "returned_deposit" if returned_deposit else "amount_date_description_match",
             ),
             related_transaction=related_location,
         )

@@ -1756,3 +1756,112 @@ def test_narrowing_9_holds_a_named_transfer_after_an_own_account_designation(tex
     assert list(run["left_non_revenue"]) == [narrowing]
     assert ("G1" in run["guards"]) is fails
     assert dict(census.NARROWINGS)["9_named_transfer_after_designation"] is False
+
+
+@pytest.mark.parametrize(("text", "state", "method", "tier", "reason", "narrowing", "fails"), [
+    # Audit B3 (I11, §6.3 narrowing 9, the census's tenth): a processor's instant payout printed as a card credit,
+    # released by the pass beside the processor's own ACH activity, is counted and flagged.
+    ("DEBIT CARD CREDIT STRIPE", "unverified_deposit", "processor_card_payout", "counted_flagged",
+     "platform_unconfirmed", "10_processor_card_payout", False),
+    ("DEBIT CARD CREDIT INTUIT", "unverified_deposit", "processor_card_payout", "counted_flagged",
+     "platform_unconfirmed", "10_processor_card_payout", False),
+    # Never verified.
+    ("DEBIT CARD CREDIT STRIPE", "verified_revenue", "processor_card_payout", "verified", None,
+     "10_processor_card_payout", True),
+    # Another method counted from a card credit is still narrowing 6, which reaches True only verified.
+    ("DEBIT CARD CREDIT STRIPE", "unverified_deposit", "unidentified_posted_credit", "counted_flagged",
+     "named_payer_unlabelled", "6_card_credit_release", True),
+    # A Cash App push released by the push words (§7.11) is held: narrowing 6, out of True.
+    ("DEBIT CARD CREDIT CASH APP", "unverified_deposit", "unidentified_posted_credit", "excluded_pending_review",
+     "possible_return", "6_card_credit_release", False),
+])
+def test_narrowing_10_counts_a_processor_s_card_payout(text, state, method, tier, reason, narrowing, fails):
+    from analysis.true_revenue import PROCESSOR_CARD_PAYOUT_METHOD
+
+    base = _snap("5.6", {"a": _account([_credit(0, 5000, "non_revenue", "reversal_cancellation_exclusion",
+                                                tier="non_revenue", text=text)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, state, method, tier=tier, reason=reason, text=text)])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+    assert dict(census.NARROWINGS)["10_processor_card_payout"] is True
+    assert census.PROCESSOR_CARD_PAYOUT_METHOD == PROCESSOR_CARD_PAYOUT_METHOD
+
+
+@pytest.mark.parametrize(("text", "cause"), [
+    # Audit B3 (I04): step 3's 5.6 return, correction and refund spellings, read as the classifier reads them, are a
+    # declared new non-revenue marker of the reversal rule.
+    ("ITEM RET NOT PAID", "new_non_revenue_marker"),
+    ("RET DEP ITEM ######", "new_non_revenue_marker"),
+    ("ERROR CORRECTION OPOS UBER CANADA UBERTRIPTORONTO ONCA", "new_non_revenue_marker"),
+    ("TRANSACTION CORRECTION", "new_non_revenue_marker"),
+    ("CORRECTION UBER CANADA UBE ############", "new_non_revenue_marker"),
+    ("CORRECTION############ CONTOSO", "new_non_revenue_marker"),
+    ("DEBIT PURCHASE RET VISA ON ###### SAMPLEVILLE CA ##########", "new_non_revenue_marker"),
+    ("DEBIT CARD CREDI CARD ENDING IN #### CONTOSO HARDWARE", "new_non_revenue_marker"),
+    ("CHECKCARD #### CONTOSO HARDWARE SAMPLEVILLE MO", "new_non_revenue_marker"),
+    ("## ##CHECKCARD #### CONTOSO HARDWARE", "new_non_revenue_marker"),
+    ("POINT OF SALE DEPOSIT CONTOSO AUTO PARTS", "new_non_revenue_marker"),
+    ("BANKING CARD PROVISIONAL CR", "new_non_revenue_marker"),
+    ("SETTLEMENT ACH UNAUTHORIZED", "new_non_revenue_marker"),
+    ("E TRANSFER RECLAIM############ #### ###", "new_non_revenue_marker"),
+    ("REV MOBILE DEBIT PURCHASE ###### FABRIKAM", "new_non_revenue_marker"),
+    ("RENV TFE DEBIT", "new_non_revenue_marker"),
+    ("RETOUR MDSE ############ CONTOSO", "new_non_revenue_marker"),
+    ("REMBOURSEMENT INTERAC SANS CONTACT #### FABRIKAM", "new_non_revenue_marker"),
+    ("## HOUR GRACE OVERDRAFT FEE WAIVER", "new_non_revenue_marker"),
+    ("WIRE OUT COURTESY REF", "new_non_revenue_marker"),
+    # Not the spellings: a name that only starts like one, or a marker word printed elsewhere.
+    ("RECLAIMED WOOD CONTOSO LLC DES PAYMENT ID #", "undeclared"),
+    ("DEPT OF CORRECTION DES VENDOR PAY ID #", "undeclared"),
+    ("CONTOSO CHECKCARD #### SUPPLY", "undeclared"),
+])
+def test_b3_the_reversal_rule_s_new_spellings_are_a_declared_new_marker(text, cause):
+    later = _later("reversal_cancellation_exclusion", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
+@pytest.mark.parametrize(("text", "cause"), [
+    # Audit B3 (I43): the card-rewards redemptions that joined the strong non-revenue rule.
+    ("CASH REDEMPTION", "new_non_revenue_marker"),
+    ("CASH REDEMPTION #######", "new_non_revenue_marker"),
+    ("PNC PURCHASE PAYBACK AWARD", "new_non_revenue_marker"),
+    ("POINTS REDEMPTION", "new_non_revenue_marker"),
+    ("AMERICAN EXPRESS DES MR REDEEM ID ########## INDN NORTHWIND PLUMBING LLC CO ID ########## PPD",
+     "new_non_revenue_marker"),
+    # A payer named REDEMPTION is never one.
+    ("REDEMPTION FABRIKAM CHURCH INC DES PAYMENT ID #", "undeclared"),
+    ("CASH REDEMPTION CONTOSO LLC DES PAYMENT ID #", "undeclared"),
+])
+def test_b3_the_card_rewards_redemptions_are_a_declared_new_marker(text, cause):
+    later = _later("strong_non_revenue_rule", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
+def test_b3_a_returned_deposit_s_pair_is_the_declared_reversal_pair_cause():
+    # Audit B3 (I03): pass 4's returned-deposit pairs keep the pair's own method, so a verified row they take is the
+    # declared reversal_pair cause (none in the corpus: a deposit is never verified).
+    later = _later("matched_reversal_pair", "MOBILE DEPOSIT", state="non_revenue", rule="returned_deposit_amount_date_match")
+    assert _causes([_step_11("MOBILE DEPOSIT")], [later]) == {"reversal_pair": 1}
+
+
+def test_b3_the_snapshot_reads_a_released_processor_payout_with_no_guard_failure(monkeypatch):
+    from analysis import true_revenue
+    from analysis.schema import Statement, Transaction
+
+    # The owner's switch (it ships off: the release moves a real statement's pinned figures).
+    monkeypatch.setattr(true_revenue, "PROCESSOR_CARD_PAYOUT_RELEASE", True)
+    statement = Statement(bank="Thread Bank (Relay)", account_name="NORTHWIND PLUMBING LLC", transactions=[
+        Transaction(date="2054-03-02", description="Debit Card Credit: Stripe", amount=2100.0, direction="credit"),
+        Transaction(date="2054-03-20", description="ACH Pull: Stripe", amount=-50.0, direction="debit"),
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    [credit] = snap["credits"]
+    assert (credit["method"], credit["tier"], credit["reason"]) == (
+        "processor_card_payout", "counted_flagged", "platform_unconfirmed")
+    assert credit["facts"]["claimed"]
+    assert not any(census._row_guards(credit).values())
+    base = {**snap, "credits": [{**credit, "state": "non_revenue", "method": "reversal_cancellation_exclusion",
+                                 "tier": "non_revenue", "reason": None}]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert list(run["left_non_revenue"]) == ["10_processor_card_payout"] and "G1" not in run["guards"]
