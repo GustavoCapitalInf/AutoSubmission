@@ -93,6 +93,9 @@ NARROWINGS = (
     ("6_card_credit_release", True),
     ("7_q7_dealer_funding", True),
     ("8_oq2_bnpl_settlement", True),
+    # Audit B2 (I20): §6.3's narrowing 8 (the census lists OQ2's ruling eighth): a named sender printed after an
+    # own-account designation leaves the strong non-revenue rule only to be held (T13), never into True.
+    ("9_named_transfer_after_designation", False),
 )
 #: Final review I8: the narrowings that lead to True only through verification (§6.3: a claim payment and a released
 #: card credit are verified or held, never counted).
@@ -311,6 +314,15 @@ _GOVERNMENT_TAX_REFUNDS_56 = _on_masked(
     _GOVERNMENT_FORM_PREFIX_56
     + r"(?:CANADA GST(?: TPS)?(?: CANADA)?|GST(?: TPS)? CANADA(?: CA)?|RQ GST)(?: (?:MSP|DIV|RT\d{4}|\d+))*$"
     r"|(?<![A-Z])IRS TREAS ?\d{3}\b"
+)
+#: Audit B2 (I20, §6.3 narrowing 8, the census's ninth): the two layouts that print a named sender after an
+#: own-account designation (analysis/transaction_classifier.py _NAMED_DESIGNATION_TRANSFERS, copied: the census reads
+#: other checkouts), read on the masked text: Bank of America's 'ONLINE|MOBILE [BANKING] TRANSFER FROM CHK|SAV <n>
+#: CONFIRMATION <reference> <sender>' and a credit union's 'TFR FROM X...<n> TRANSFER DEPOSIT <sender>', the sender
+#: printing a word of three letters or more.
+_NAMED_DESIGNATION_TRANSFERS_56 = (
+    _on_masked(r"\b(?:ONLINE|MOBILE) (?:BANKING )?TRANSFER FROM (?:CHK|SAV) \d+ CONFIRMATION \S+ (?=.*[A-Z]{3})\S.*$"),
+    _on_masked(r"\bTFR FROM X+\d* TRANSFER DEPOSIT (?=.*[A-Z]{3})\S.*$"),
 )
 #: I8 (narrowing 8): the consumer-side words a BNPL provider prints on a customer's own credit (a return, a refund, a
 #: withdrawal of a balance, a card, a debt collector), never on its merchant settlement (the OQ2 ruling's rows).
@@ -1290,6 +1302,9 @@ def _narrowing(base: dict, after: dict) -> str | None:
         and base.get("entity") in BNPL_ENTITIES
     ):
         return "8_oq2_bnpl_settlement"
+    # Audit B2 (I20): Bank of America's and a credit union's layouts that print a named sender after the designation.
+    if base_method == "strong_non_revenue_rule" and any(form.search(text) for form in _NAMED_DESIGNATION_TRANSFERS_56):
+        return "9_named_transfer_after_designation"
     return None
 
 

@@ -216,6 +216,37 @@ _ACCOUNT_WORDS = frozenset({
     "CHECKING", "CHK", "CHKG", "SAVINGS", "SAVING", "SAV", "SVGS", "MONEY", "MARKET", "MMA", "DDA", "ACCOUNT", "ACCT",
     "EVERYDAY",
 })
+#: T13 (audit B2: I01): a bare 'FROM <3+ digits>' designates an account too ('ONLINE TRANSFER FROM 1234 <name>'),
+#: unless the digits start a numbered company's name (§5.2, T11: 'TRANSFER FROM 1234567 ONTARIO INC').
+_FROM_ACCOUNT_DIGITS = re.compile(r"(?<![A-Z])FROM (?=\d{3,}\b)")
+#: §8.4, T13 (audit B2: I21): Square prints a move from one of the holder's savings folders as 'TRANSFER IN <folder>'
+#: ('TRANSFER IN GENERAL SAVINGS', 'TRANSFER IN TAX', 'TRANSFER IN RAINY DAY', 'TRANSFER IN RENT'): on a Square
+#: statement, a folder name with no company form designates the holder's own account. Never read on another bank
+#: (Wealthsimple prints its memo there: 'TRANSFER IN <memo>').
+_SQUARE_BANK = re.compile(r"(?<![A-Z])SQUARE\b")
+_SQUARE_FOLDER_TRANSFER = re.compile(r"^TRANSFER IN (?!FROM\b)(?P<folder>[A-Z]+(?: [A-Z]+)*)$")
+
+
+def _account_designation(row: str, bank: str | None = None) -> bool:
+    """§8.4, T13: the row prints an account designation (_ACCOUNT_DESIGNATION); audit B2: or a bare 'FROM <3+ digits>'
+    that starts no numbered company (_FROM_ACCOUNT_DIGITS), or Square's savings-folder transfer (_square_folder)."""
+    if _ACCOUNT_DESIGNATION.search(row) is not None or _square_folder(row, bank):
+        return True
+    classifier = _classifier()
+    return any(
+        classifier._NUMBERED_COMPANY_REGION.match(row[found.end():]) is None
+        for found in _FROM_ACCOUNT_DIGITS.finditer(row)
+    )
+
+
+def _square_folder(row: str, bank: str | None) -> bool:
+    """§8.4, T13 (audit B2: I21): on a Square statement, 'TRANSFER IN <folder>' whose folder prints no company form."""
+    if not bank or _SQUARE_BANK.search(bank.upper()) is None:
+        return False
+    found = _SQUARE_FOLDER_TRANSFER.match(row)
+    return found is not None and not _classifier().company_form(found.group("folder"))
+
+
 #: §8.5: the loose wire words, for tiering only (a row the 5.5 wire vetoes read as a wire is one too: _channel).
 _LOOSE_WIRE = re.compile(
     r"(?<![A-Z])(?:WIRE|FEDWIRE|FED WIRE|CHIPS CREDIT|SWIFT|FOREIGN REMITTANCE|WT FED|FED REF)\b|\bIWT\b"
@@ -1444,26 +1475,49 @@ def _debit_words(records: Sequence[TransactionClassification], duplicates: set[i
     return lender, other
 
 
-def _channel(text: str) -> str:
+#: §8.2, §8.3 (audit B2: I48): an explicit cash, ATM or check deposit form, which Q2 and Q3 count even when the row
+#: also prints transfer wording (Square's 'CASH DEPOSIT TRANSFER IN', 'MOBILE CHECK DEPOSIT TRANSFER'). A teller,
+#: branch or counter transfer prints none and stays held (M4: 'TELLER TRANSFER').
+_EXPLICIT_DEPOSIT_FORM = re.compile(
+    r"(?<![A-Z])CASH DEP(?:OSIT)?\b|(?<![A-Z])ATM\b.*(?<![A-Z])DEP(?:OSIT)?\b|(?<![A-Z])DEP(?:OSIT)?\b.*(?<![A-Z])ATM\b"
+    r"|(?<![A-Z])(?:MOBILE|REMOTE)(?: ONLINE)? (?:CHECK |CHEQUE )?(?:DEPOSIT|DEP)\b"
+    r"|(?<![A-Z])(?:ATM )?CHE(?:CK|QUE)S? (?:DEPOSIT|DEP)\b"
+)
+_DEPOSIT_CHANNELS = frozenset({"check", "cash_branch_atm"})
+
+
+def _channel(text: str, bank: str | None = None) -> str:
     """§5.2: the channel family: wire, ach_eft, person_to_person, check, cash_branch_atm or other. A row the 5.5 wire
     vetoes read as a wire (_wire_vetoes_apply: an incoming-wire label, a third-party book transfer, or WIRE printed
     outside the receiver's value, a glued reference included) is a wire, so Q6 never reads it as an ACH payer.
 
     A3 (precision sample): a transfer that prints the loose wire words (§8.5: FEDWIRE, WIRE, CHIPS, SWIFT ...) and
     names no counterparty ('INCOMING FEDWIRE TRANSFER') is a wire with no sender (Q5: held as wire_no_sender); one that
-    names its counterparty keeps the named-transfer reading (T13)."""
+    names its counterparty keeps the named-transfer reading (T13).
+
+    Audit B2 (I48): a check, cash, branch or ATM row that prints transfer wording, no explicit deposit form
+    (_EXPLICIT_DEPOSIT_FORM) and names its counterparty once its deposit-channel words are removed ('BRANCH TRANSFER
+    FROM <company>') is a named transfer (T13); the statement's bank (`bank`) names no counterparty."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     if classifier._is_wire_row(text):
         return "wire"
     if _p2p_rail(row) or classifier._PUSH_RAIL.search(row):
         return "person_to_person"
+    deposit = None
     if classifier._CHECK_DEPOSIT_FORM.search(row):
-        return "check"
-    if (not classifier._ELECTRONIC_PAYMENT_FORM.search(row) and classifier._CASH_BRANCH_ATM_FORM.search(row)):
-        return "cash_branch_atm"
+        deposit = "check"
+    elif (not classifier._ELECTRONIC_PAYMENT_FORM.search(row) and classifier._CASH_BRANCH_ATM_FORM.search(row)):
+        deposit = "cash_branch_atm"
+    if deposit is not None:
+        if (
+            _transfer_wording(row) and _EXPLICIT_DEPOSIT_FORM.search(row) is None
+            and _transfer_counterparty_words(_without_deposit_channel_words(text), bank)
+        ):
+            return "person_to_person"
+        return deposit
     if _transfer_wording(row):
-        if _TRANSFER_WIRE_WORDS.search(row) and not _transfer_counterparty_words(text):
+        if _TRANSFER_WIRE_WORDS.search(row) and not _transfer_counterparty_words(text, bank):
             return "wire"
         return "person_to_person"
     if _LOOSE_WIRE.search(row) or classifier._wire_vetoes_apply(text):
@@ -1471,6 +1525,74 @@ def _channel(text: str) -> str:
     if classifier._ELECTRONIC_PAYMENT_FORM.search(row):
         return "ach_eft"
     return "other"
+
+
+def _without_deposit_channel_words(text: str) -> str:
+    """§8.2, §8.3 (audit B2: I48): the text without its check, cash, branch, teller and ATM forms (the classifier's
+    _CHECK_DEPOSIT_FORM and _CASH_BRANCH_ATM_FORM), which never name a transfer's counterparty ('TELLER TRANSFER')."""
+    classifier = _classifier()
+    return classifier._CASH_BRANCH_ATM_FORM.sub(" ", classifier._CHECK_DEPOSIT_FORM.sub(" ", text))
+
+
+def _explicit_deposit(channel: str, row: str) -> bool:
+    """§8.2, §8.3 (audit B2: I48): a check, cash, branch or ATM row that prints an explicit deposit form."""
+    return channel in _DEPOSIT_CHANNELS and _EXPLICIT_DEPOSIT_FORM.search(row) is not None
+
+
+def _transfer_reading(
+    record: TransactionClassification, text: str, channel: str, region: str,
+) -> tuple[bool, list[str], bool]:
+    """§8.2, T13: (transfer row, its counterparty words, transfer_no_counterparty), as the pass and the census's G4
+    read them. Audit B2: an explicit check, cash or ATM deposit form is no bare transfer (I48: Q2 and Q3 count it); the
+    counterparty is read with the statement's bank (I01); and an ACH or unlabelled payer region that is only a bank's
+    name and an account description (_bank_account_payer, I01) names no payer either. A wire is decided by Q5 before
+    this hold (§8.10), so a wire row never carries it."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    transfer_row = _transfer_row(row) and not _explicit_deposit(channel, row)
+    words = _transfer_counterparty_words(text, record.bank) if channel == "person_to_person" else []
+    bank_account = channel in {"ach_eft", "other"} and _bank_account_payer(region, record.bank)
+    return transfer_row, words, channel != "wire" and ((transfer_row and not words) or bank_account)
+
+
+#: §8.2 (audit B2: I01): the account-description words a bank prints after its own name on a pull from another of
+#: the holder's bank accounts ('<bank> SAVINGS <n> ACH', '<bank> BUSINESS BANKING OPERATING ACCOUNT ACH'), and the
+#: product words one of them must be; a bank's own form ends its name.
+_BANK_ACCOUNT_DESCRIPTION_WORDS = frozenset({
+    "SAVINGS", "SAVING", "SVGS", "SAV", "CHECKING", "CHKG", "CHK", "BUSINESS", "BANKING", "OPERATING", "ACCOUNT",
+    "ACCT", "MONEY", "MARKET", "ACH",
+})
+_BANK_PRODUCT_WORDS = frozenset({"SAVINGS", "SAVING", "SVGS", "CHECKING", "CHKG", "BANKING"})
+_BANK_FORM_WORDS = frozenset({"BANK", "BANCORP", "FSB", "CU", "FCU"})
+
+
+def _bank_account_payer(region: str, bank: str | None) -> bool:
+    """§8.2 (audit B2: I01; a bank's name is never the payer's name): an ACH or unlabelled payer region that is only a
+    bank's name and an account description: a sending bank's or the statement's own bank's name, or one to four words
+    ending in a bank's form (BANK, BANCORP, FSB, CU, FCU), or one word before a BANKING product ('<brand> BUSINESS
+    BANKING OPERATING ACCOUNT'), followed only by account-description words (_BANK_ACCOUNT_DESCRIPTION_WORDS), one of
+    them a product word (SAVINGS, CHECKING, BANKING), references and digits. Such a credit is the holder's pull from
+    another of its own bank accounts: no payer is printed (held as transfer_no_counterparty, Q2)."""
+    if not region:
+        return False
+    classifier = _classifier()
+    named = _P2P_LAYOUT_PHRASES.sub(" BANK ", region)
+    own = _statement_bank_names(bank) if bank else None
+    if own is not None:
+        named = own.sub(" BANK ", named)
+    tokens = [
+        token for token in named.split()
+        if not classifier._is_reference_token(token) and not any(ch.isdigit() for ch in token)
+    ]
+    split = next((at for at, token in enumerate(tokens) if token in _BANK_ACCOUNT_DESCRIPTION_WORDS), len(tokens))
+    name, description = tokens[:split], tokens[split:]
+    if not description or any(token not in _BANK_ACCOUNT_DESCRIPTION_WORDS for token in description):
+        return False
+    if not any(token in _BANK_PRODUCT_WORDS for token in description):
+        return False
+    if name and name[-1] in _BANK_FORM_WORDS and len(name) <= 4:
+        return True
+    return len(name) == 1 and "BANKING" in description
 
 
 def _p2p_rail(row: str) -> bool:
@@ -1564,7 +1686,44 @@ def _claimed(record: TransactionClassification, text: str) -> bool:
     return _payout_entity(text) is not None
 
 
-def _transfer_counterparty_words(text: str) -> list[str]:
+#: §8.2, §20 (audit B2: I01, I21): the online-banking channel codes and account descriptions a transfer prints, never
+#: its counterparty: Citi Business Online (CBUSOL), online banking (OLB), an external transfer (EXT, EXTERNAL), CIBC's
+#: CMO, telephone banking (and TELEPHONE before transfer wording), PHONE, a card (CRD), a federal savings bank (FSB),
+#: an overdraft sweep's PROTECTION and OVERDRAFT, Found's name, BUSINESS BANKING and OPERATING ACCOUNT, and FUNDING
+#: beside TRANSFER ('FUNDING TRANSFER CREDIT'). A custodian's name is not one (audit I01, I28: unconfirmed).
+_TRANSFER_CHANNEL_CODES = re.compile(
+    r"(?<![A-Z])(?:CBUSOL|OLB|EXT|EXTERNAL|CMO|TELEPHONE BANKING|PHONE|CRD|FSB|PROTECTION|OVERDRAFT|FOUND"
+    r"|BUSINESS BANKING|OPERATING ACCOUNT)\b"
+    r"|(?<![A-Z])TELEPHONE(?= (?:TRANSFER|TRNSFR|TRSFR|TRANSF|XFER|XFR|TFR|TRF)\b)"
+    r"|(?<![A-Z])FUNDING(?= (?:TRANSFER|XFER)\b)|(?<=\bTRANSFER )FUNDING\b"
+)
+#: §8.2 (audit B2: I01): a credit union's institution name, the one word before CU or FCU ('ACH TRANSFER FROM <name>
+#: CU'): a bank's name, never a sender's. A person's name before it keeps its other words.
+_CREDIT_UNION_NAME = re.compile(r"(?<![A-Z])[A-Z]+ F?CU\b")
+#: §8.2 (audit B2: I01): a sending bank's name glued to its transfer wording ('USAAFSBTRNSFER').
+_GLUED_BANK_TRANSFER = re.compile(
+    r"(?<![A-Z])(?:"
+    + "|".join(re.escape(name.replace(" ", "")) for name in sorted(P2P_SENDING_BANK_NAMES, key=len, reverse=True))
+    + r")(?:FSB)?(?:TRANSFER|TRNSFER|TRNSFR|TRSFR|XFER|XFR|TFR|TRF)\b"
+)
+
+
+def _without_bank_and_channel_words(text: str, bank: str | None = None) -> str:
+    """§8.2, §20 (audit B2: I01; the registry's note: a bank's name is never the sender's name): the text without a
+    sending bank's name (the registry's P2P_SENDING_BANK_NAMES, _P2P_LAYOUT_PHRASES), the statement's own bank's names
+    (`bank`, _statement_bank_names), a bank's name glued to its transfer wording, a credit union's institution name,
+    the receiver fields' bank words (_RECEIVER_BANK_WORDS) and the channel codes and account descriptions
+    (_TRANSFER_CHANNEL_CODES), so none of them names a transfer's counterparty."""
+    stripped = _P2P_LAYOUT_PHRASES.sub(" ", text)
+    own = _statement_bank_names(bank) if bank else None
+    if own is not None:
+        stripped = own.sub(" ", stripped)
+    for pattern in (_GLUED_BANK_TRANSFER, _CREDIT_UNION_NAME, _RECEIVER_BANK_WORDS, _TRANSFER_CHANNEL_CODES):
+        stripped = pattern.sub(" ", stripped)
+    return " ".join(stripped.split())
+
+
+def _transfer_counterparty_words(text: str, bank: str | None = None) -> list[str]:
     """§8.2: the payer words a transfer prints once template prefixes, generic words, account words and reference
     tokens are removed. S4.2 review (I2): the ACH field labels, SEC codes and reference labels are removed with the
     reference printed after them, letters only or not ('REF IBEABCD'), and what is left is read as S2.3 reads a
@@ -1574,8 +1733,11 @@ def _transfer_counterparty_words(text: str) -> list[str]:
     (_VIREMENT_TRANSFER_WORDS) are removed too. S4.2 final review (fix 5): so are a French month and a bank branch.
     S4.2 fix round 4: a French month only where a date prints it (_without_date_months), on the row's start too.
     A3 (precision sample): a wire's channel and layout words (_WIRE_LAYOUT_WORDS: 'INCOMING FEDWIRE TRANSFER') and
-    currency-conversion wording (_CURRENCY_CONVERSION: 'ONLINE BANKING FOREIGN EXCHANGE') are never a counterparty."""
+    currency-conversion wording (_CURRENCY_CONVERSION: 'ONLINE BANKING FOREIGN EXCHANGE') are never a counterparty.
+    Audit B2 (I01): nor is a bank's name, the statement's own bank (`bank`) included, a channel code or an account
+    description (_without_bank_and_channel_words)."""
     classifier = _classifier()
+    text = _without_bank_and_channel_words(text, bank)
     row = _TRANSFER_REFERENCE_VALUE.sub(" ", _BANK_BRANCH_WORDS.sub(" ", _without_date_months(
         _without_currency_conversion(classifier._strip_revenue_template(classifier._before_receiver(text))), row=True
     )))
@@ -1674,16 +1836,16 @@ def _currency_conversion(text: str, *, bank: str | None = None) -> bool:
     tokens = _counterparty_tokens(classifier.payer_region(stripped))
     if any(token not in _NOT_A_NAME_ALONE for token in tokens):
         return False
-    if _transfer_row(classifier._before_receiver(stripped)) and _transfer_counterparty_words(stripped):
+    if _transfer_row(classifier._before_receiver(stripped)) and _transfer_counterparty_words(stripped, bank):
         return False
     return not _p2p_sender_region(stripped)
 
 
 @cache
-def _statement_bank_before_conversion(bank: str) -> re.Pattern[str] | None:
-    """§8.1 (A3 review): the statement's bank's own name printed right before currency-conversion wording: its whole
-    normalized name, and the short forms it prints (the registry's STATEMENT_BANK_PRINTED_NAMES, read when the bank
-    field contains one of the entry's bank words). None when the bank field normalizes to nothing."""
+def _statement_bank_forms(bank: str) -> tuple[str, ...]:
+    """§8.1 (A3 review): the names the statement's bank prints for itself: its whole normalized name, and the short
+    forms it prints (the registry's STATEMENT_BANK_PRINTED_NAMES, read when the bank field contains one of the entry's
+    bank words), longest first. Empty when the bank field normalizes to nothing."""
     classifier = _classifier()
     field = classifier.normalize_transaction_description(bank).strip().upper()
     forms = {field}
@@ -1692,10 +1854,29 @@ def _statement_bank_before_conversion(bank: str) -> re.Pattern[str] | None:
         if any(re.search(r"(?<![A-Z])" + re.escape(marker) + r"(?![A-Z])", field) for marker in markers):
             forms.update(printed)
     forms.discard("")
+    return tuple(sorted(forms, key=len, reverse=True))
+
+
+@cache
+def _statement_bank_before_conversion(bank: str) -> re.Pattern[str] | None:
+    """§8.1 (A3 review): the statement's bank's own name (_statement_bank_forms) printed right before
+    currency-conversion wording. None when the bank field normalizes to nothing."""
+    forms = _statement_bank_forms(bank)
     if not forms:
         return None
-    names = "|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True))
+    names = "|".join(re.escape(form) for form in forms)
     return re.compile(r"(?<![A-Z])(?:" + names + r") (?=" + _CURRENCY_CONVERSION.pattern + ")")
+
+
+@cache
+def _statement_bank_names(bank: str) -> re.Pattern[str] | None:
+    """§8.2 (audit B2: I01): the statement's bank's own names (_statement_bank_forms) as whole words, which never name
+    a transfer's counterparty ('TRUIST ONLINE TRANSFER ...' on a Truist statement). None when the bank field normalizes
+    to nothing."""
+    forms = _statement_bank_forms(bank)
+    if not forms:
+        return None
+    return re.compile(r"(?<![A-Z])(?:" + "|".join(re.escape(form) for form in forms) + r")\b")
 
 
 def _named_currency_company(text: str) -> bool:
@@ -1799,7 +1980,7 @@ def credit_facts(
     channel a region of bare channel words (_BARE_CHANNEL_WORDS: 'WIRE') names no sender; `receiver_holders` are the
     holder's names the statement's own receiver fields print (_receiver_holder_names), read by the holder hold only."""
     classifier = _classifier()
-    channel = _channel(text)
+    channel = _channel(text, record.bank)
     region = classifier.payer_region(text)
     if channel == "wire" and region and all(token in _BARE_CHANNEL_WORDS for token in region.split()):
         region = ""
@@ -1817,8 +1998,7 @@ def credit_facts(
     # §8.5 (S4.2 review M2): Q5 reads a healthcare payer on an incoming wire too; Q6 on an electronic-payment form.
     healthcare = healthcare_payer(region) and (wire_n1 or bool(classifier._ELECTRONIC_PAYMENT_FORM.search(row)))
     public = government_payer(public_region(text))
-    transfer_words = _transfer_counterparty_words(text) if channel == "person_to_person" else []
-    transfer_row = _transfer_row(row)
+    transfer_row, transfer_words, no_counterparty = _transfer_reading(record, text, channel, region)
     if not region and not sender and transfer_row and transfer_words and re.search(r"\bFROM\b", row) is None:
         # T13 (S4.2 fix round 5): a named transfer printed without FROM takes the same two holds.
         sender = holder_sender = _named_transfer_sender(text)
@@ -1850,8 +2030,8 @@ def credit_facts(
         ),
         round_sum=classifier.is_round_sum(record.amount),
         consumer_entry=consumer_entry(text, record.account_name),
-        transfer_no_counterparty=transfer_row and not transfer_words,
-        account_designation=transfer_row and bool(transfer_words) and _ACCOUNT_DESIGNATION.search(row) is not None,
+        transfer_no_counterparty=no_counterparty,
+        account_designation=transfer_row and bool(transfer_words) and _account_designation(row, record.bank),
         factor=factor,
     )
 
@@ -2177,6 +2357,8 @@ def _q6_eligible(record: TransactionClassification, text: str, facts: CreditFact
         and classifier.channel_gate(text) is None
         and not classifier._TRANSFER_WORDING.search(facts.entry)
         and not facts.wire_n1 and not facts.claimed and facts.hold is None and not facts.numbered
+        # Audit B2 (I01): a payer region that is only a bank's name and an account description names no payer.
+        and not facts.transfer_no_counterparty
     )
 
 
@@ -2192,6 +2374,10 @@ def _tier_reason(
         return "excluded_pending_review", "direction_conflict"
     if facts.hold is not None:
         return "excluded_pending_review", facts.hold
+    # Audit B2 (I20, §6.3 narrowing 8): a named sender after an own-account designation left the strong non-revenue
+    # rule only to be held (T13), on any channel and whoever the sender is: it never enters True.
+    if classifier._named_sender_after_designation(text, record.account_name):
+        return "excluded_pending_review", "transfer_account_designation"
     # A3-H: a factoring payer's payout, on any channel (FACTORING_PAYOUT_PAYERS).
     if facts.factor:
         return "counted_flagged", "factoring_payout"
@@ -2410,7 +2596,8 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
         "pay_or_personal": bool(_PAY_WORDS.search(row) or _personal_income(text, row)),
-        "transfer_no_counterparty": _transfer_row(row) and not _transfer_counterparty_words(text),
+        # Audit B2: the pass's own reading (_transfer_reading): the statement's bank, the explicit deposit forms.
+        "transfer_no_counterparty": _transfer_reading(record, text, _channel(text, record.bank), region)[2],
         "known_financing": known is not None and known.state in FINANCING_STATES,
         "payout_or_factoring": known is not None and (known.entity in PAYOUT_CREDIT_ENTITIES or known.state == "factoring"),
         "numbered_region": classifier._NUMBERED_COMPANY_REGION.search(

@@ -686,23 +686,38 @@ _SETTLEMENT_REVERSAL_PATTERNS = (
     re.compile(r"\bCHARGEBACK\b"),
 )
 
+#: 5.6 (audit B2: I01, I21): the own-account sources a transfer names after FROM also include DDA, a cut CHECKG, TD's
+#: credit-line CL, a loan account LN, and the holder's card or credit line (CRD, CREDIT CARD, CREDIT LINE, LINE OF
+#: CREDIT, LOC): a draw on the holder's own card or line is no sale.
 _INTERNAL_ACCOUNT_SOURCE = (
-    r"(?:ACCOUNTS?|CHK|CHECKING|CK|SAV|SAVINGS|SV|SHARES?|MMA|"
-    r"MONEY MARKET|PCA|(?:SUB )?RESERVE ACCOUNTS?)"
+    r"(?:ACCOUNTS?|CHK|CHECKING|CHECKG|CK|SAV|SAVINGS|SV|SHARES?|MMA|DDA|"
+    r"MONEY MARKET|PCA|(?:SUB )?RESERVE ACCOUNTS?|CL|LOC|LN|CRD|CREDIT CARD|CREDIT LINE|LINE OF CREDIT)"
 )
+#: 5.6 (audit B2: I21): FRM is FROM in the own-account forms ('TFR FRM CHECKING', 'INTERNET XFR FRM CHECKG').
+_FROM_WORD = r"(?:FROM|FRM)"
+#: 5.6 (audit B2: I20): the own-account forms whose sender a bank may print after the designation (Bank of America's
+#: 'ONLINE TRANSFER FROM CHK <n> CONFIRMATION <reference> <sender>', a credit union's 'TFR FROM X...<n> TRANSFER
+#: DEPOSIT <sender>'): named, so the strong rule refuses them when that sender is not the holder
+#: (_named_sender_after_designation).
+_TRANSFER_FROM_ACCOUNT = re.compile(rf"\b(?:TRANSFER|XFER|XFR|TFR) {_FROM_WORD} {_INTERNAL_ACCOUNT_SOURCE}\b")
+_CHANNEL_TRANSFER_FROM_ACCOUNT = re.compile(
+    # 5.6 (audit B2: I01): Truist's own-account layout repeats its channel word between TRANSFER and FROM ('ONLINE
+    # TRANSFER ONLINE FROM <n>', the layout analysis/bank_repairs.py names). A MOBILE there is not read (no corpus
+    # layout confirms it as own-account): such a row names no counterparty and is held under Q2.
+    rf"\b(?:BRANCH|ONLINE|MOBILE|INTERNET|HOME|BUSINESS ONLINE|TELEPHONE)"
+    rf"(?: BANKING)?(?: ACCOUNT)? (?:TRANSFER|XFER)(?: TRANSFER| ONLINE)? {_FROM_WORD} "
+    rf"(?:{_INTERNAL_ACCOUNT_SOURCE}|X+\d*|\d{{3,}})\b"
+)
+_TFR_TRANSFER_DEPOSIT = re.compile(r"\bTFR FROM (?:X+\d*|\d{3,})\b.*\bTRANSFER DEPOSIT\b")
 _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
     # 5.5 (§7.11): BOOK TRANSFER and FUNDS TRANSFER are own-account only without a third-party originator
     # (_own_book_or_funds_transfer).
     re.compile(r"\b(?:INTERNAL|ACCOUNT) TRANSFER\b"),
     re.compile(r"\bTRANSFER (?:FROM|BETWEEN) (?:OWN|MY|INTERNAL) ACCOUNTS?\b"),
-    re.compile(rf"\b(?:TRANSFER|XFER|TFR) FROM {_INTERNAL_ACCOUNT_SOURCE}\b"),
-    re.compile(
-        rf"\b(?:BRANCH|ONLINE|MOBILE|INTERNET|HOME|BUSINESS ONLINE|TELEPHONE)"
-        rf"(?: BANKING)?(?: ACCOUNT)? (?:TRANSFER|XFER)(?: TRANSFER)? FROM "
-        rf"(?:{_INTERNAL_ACCOUNT_SOURCE}|X+\d*|\d{{3,}})\b"
-    ),
+    _TRANSFER_FROM_ACCOUNT,
+    _CHANNEL_TRANSFER_FROM_ACCOUNT,
     re.compile(r"\bTRANSFER DEPOSIT FROM (?:ACCOUNT )?(?:X+\d*|\d{3,})\b"),
-    re.compile(r"\bTFR FROM (?:X+\d*|\d{3,})\b.*\bTRANSFER DEPOSIT\b"),
+    _TFR_TRANSFER_DEPOSIT,
     re.compile(r"\bDEPOSIT TRANSFER FROM (?:X+\d*|\d{3,})\b"),
     re.compile(r"\b(?:ATM )?(?:SH TO SH|SHARE TO SHARE|ACCOUNT TO ACCOUNT) TRANSFER\b"),
     re.compile(r"\bTRANSFER FROM X+\d* TO X+\d*\b"),
@@ -717,6 +732,29 @@ _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
     ),
     re.compile(r"\bTRANSFER (?:INCOMING|CREDIT)\b.*\b(?:SUB )?RESERVE ACCOUNT\b"),
 )
+#: 5.6 (audit B2: I21): the holder's own-account sweeps that print no transfer source the patterns above read: an
+#: overdraft-protection sweep from the holder's own account, card or line ('OVERDRAFT PROTECTION FROM <n>', 'OD
+#: PROTECTION TRANSFER FROM CREDIT CARD', 'OVERDRAFT XFER FROM CREDIT CARD OR LINE', Chase's 'ODP TRANSFER'), and
+#: Regions' electronic banking from the holder's checking or savings ('EB FROM CHECKING <n>'). Read by the strong
+#: non-revenue rule only (R-d's package pairing keeps _INTERNAL_TRANSFER_CREDIT_PATTERNS).
+_OWN_ACCOUNT_SWEEP_CREDIT_PATTERNS = (
+    re.compile(r"\bOVERDRAFT PROTECTION(?: (?:TRANSFER|XFER))? FROM\b"),
+    re.compile(r"\bOD PROTECTION (?:TRANSFER|XFER)\b"),
+    re.compile(r"\bOVERDRAFT (?:XFER|TRANSFER) FROM\b"),
+    re.compile(r"\bODP (?:TRANSFER|XFER)\b"),
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?EB FROM (?:CHECKING|SAVINGS)\b"),
+)
+#: 5.6 (audit B2: I20, §6.3 narrowing 8): the two layouts that print a named sender after an own-account designation,
+#: and the sender's words: Bank of America's 'ONLINE|MOBILE [BANKING] TRANSFER FROM CHK|SAV <n> CONFIRMATION
+#: <reference> <sender>' (its own-account form prints only the reference, ten digits) and a credit union's 'TFR FROM
+#: X...<n> TRANSFER DEPOSIT <sender>'. Navy Federal's 'TRANSFER FROM SHARES|CHECKING <name>' is neither: its holder
+#: test is blind, so it stays the holder's own transfer.
+_NAMED_DESIGNATION_TRANSFERS = (
+    re.compile(r"\b(?:ONLINE|MOBILE) (?:BANKING )?TRANSFER FROM (?:CHK|SAV) \d+ CONFIRMATION \S+ (?P<sender>\S.*)$"),
+    re.compile(r"\bTFR FROM X+\d* TRANSFER DEPOSIT (?P<sender>\S.*)$"),
+)
+#: 5.6 (audit B2: I20): the own-account patterns a named sender after the designation refuses.
+_NAMED_DESIGNATION_PATTERNS = (_TRANSFER_FROM_ACCOUNT, _CHANNEL_TRANSFER_FROM_ACCOUNT, _TFR_TRANSFER_DEPOSIT)
 #: 5.6 (A3-G re-review): the posting words a bank prints before the Canada Revenue Agency's refund, read after the
 #: revenue text and the template prefixes are stripped: a glued or spaced date, Canada's GC (Government of Canada) and
 #: the direct-deposit, EFT and payment words ('0102DIRECT DEPOSIT CANADA RIT', 'GC DIRECT DEPOSIT CANADA RIT',
@@ -809,6 +847,7 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bCASH ADVANCE\b"),
     re.compile(r"\b(?:LOAN|MCA) ORIGINATION CREDIT\b"),
     *_INTERNAL_TRANSFER_CREDIT_PATTERNS,
+    *_OWN_ACCOUNT_SWEEP_CREDIT_PATTERNS,
     re.compile(r"\bOWNER(?:S)? (?:CONTRIBUTION|CAPITAL|DEPOSIT|TRANSFER)\b"),
     re.compile(r"\bSHAREHOLDER (?:CONTRIBUTION|LOAN|DEPOSIT)\b"),
     re.compile(r"\bCAPITAL CONTRIBUTION\b"),
@@ -1163,9 +1202,14 @@ _CASH_BRANCH_ATM_FORM = re.compile(
     r"|(?<![A-Z])DEPOSIT MADE IN\b"
     r"|(?<![A-Z])ATM\b.*(?<![A-Z])DEP(?:OSIT)?\b|(?<![A-Z])DEP(?:OSIT)?\b.*(?<![A-Z])ATM\b|(?<![A-Z])ABM\b"
 )
-#: §8.2: transfer wording.
+#: §8.2: transfer wording. 5.6 (audit B2: I21): and its other spellings TRF, TRSFR, TRANSF and XFR ('TRF CT INTERNET',
+#: 'INTERNET PHONE TRSFR', 'TRANSF FONDS CT', 'INTERNET XFR FRM CHECKG'), and TRANSFER glued to a reference's digits
+#: (CIBC's 'CMO TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail). TRANSFERS
+#: waits for audit batch B8 (a TD footer prints FUNDS TRANSFERS).
 _TRANSFER_WORDING = re.compile(
-    r"\b(?:TRANSFER|TRNSFR|XFER|TFR|BR TO BR|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)|FUNDS TRANSFER)\b"
+    r"\b(?:TRANSFER|TRNSFR|TRSFR|TRANSF|XFER|XFR|TFR|TRF|BR TO BR|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)"
+    r"|FUNDS TRANSFER)\b"
+    r"|(?<!(?<![A-Z])E )(?<![A-Z])TRANSFER(?=\d)"
 )
 #: §5.2: the ACH originator and entry fields (Bank of America's DES, Chase's ORIG CO NAME and CO ENTRY DESCR).
 _ACH_ORIGINATOR_FIELD = re.compile(r"\b(?:DES|CO ENTRY DESCR|ORIG CO NAME)\b")
@@ -2338,6 +2382,38 @@ def _own_book_or_funds_transfer(text: str, account_name: str | None) -> bool:
     return originator is None or holder_named(originator, account_name)
 
 
+def named_designation_sender(text: str) -> str | None:
+    """5.6 (audit B2: I20, §6.3 narrowing 8): the sender one of the two layouts prints after an own-account designation
+    (_NAMED_DESIGNATION_TRANSFERS), up to its first reference token after a name word, when it prints a word that may
+    name a payer (_originator_payer_words, as a book or funds transfer's originator is read); otherwise None."""
+    row = _before_receiver(text)
+    for pattern in _NAMED_DESIGNATION_TRANSFERS:
+        found = pattern.search(row)
+        if found is None:
+            continue
+        sender = _leading_name_words(found.group("sender"))
+        if _originator_payer_words(sender):
+            return sender
+    return None
+
+
+def _named_sender_after_designation(text: str, account_name: str | None) -> bool:
+    """5.6 (audit B2: I20, §6.3 narrowing 8; T13): the strong rule's own-account patterns read the whole row and never
+    who sent the money. A named sender printed after the designation (named_designation_sender) that the holder test
+    does not match (§5.2) refuses them, when no other non-revenue pattern reads the row: the credit then falls to the
+    pass's T13 hold (transfer_account_designation), which an analyst may review. No sender, or the holder's own name,
+    keeps the own-account reading."""
+    if not _matches_any(text, _NAMED_DESIGNATION_PATTERNS):
+        return False
+    sender = named_designation_sender(text)
+    if sender is None or holder_named(sender, account_name):
+        return False
+    return not any(
+        pattern.search(text) is not None
+        for pattern in _NON_REVENUE_CREDIT_PATTERNS if pattern not in _NAMED_DESIGNATION_PATTERNS
+    )
+
+
 def _split_glued_claim(text: str) -> str:
     """5.5 (§7.7): the text the financing, potential-lender and insurer lookups read: a space before a glued
     HCCLAIMPMT, so a sixteen-character name glued to the token is still found."""
@@ -2667,7 +2743,12 @@ def _classify_credit_revenue(
             f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
             context_signals=("credit_direction", "potential_lender_source"),
         )
-    if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS) or _own_book_or_funds_transfer(text, account_name):
+    # 5.6 (audit B2: I20, §6.3 narrowing 8): a named sender after an own-account designation refuses the own-account
+    # patterns; such a credit is no sale the text proves either, so no later step verifies it: the pass holds it (T13).
+    named_after_designation = _named_sender_after_designation(text, account_name)
+    if (
+        _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
+    ) or _own_book_or_funds_transfer(text, account_name):
         return _RevenueDecision(
             "non_revenue",
             None,
@@ -2681,6 +2762,8 @@ def _classify_credit_revenue(
             ),
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
+    if named_after_designation:
+        return _fallback_credit_decision(text)
 
     # §6.1 step 9b, the channel gate: a consumer rail, a check, cash, branch or ATM deposit, or a row with no payer
     # word is never verified; a real-time or push rail is verified by the operating registry only.

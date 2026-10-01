@@ -1729,3 +1729,30 @@ def test_the_compare_and_the_sweep_command_report_the_sweep(tmp_path, capsys):
     assert census.main(["sweep", "--snapshot", str(after), "--out", str(swept)]) == 0
     assert json.loads(swept.read_text(encoding="utf-8"))["classes"]["D"]["rows"] == 1
     assert census.main(["sweep", "--snapshot", str(after), "--out", str(census.ROOT / "x-sweep.json")]) == 2
+
+
+@pytest.mark.parametrize(("text", "tier", "reason", "narrowing", "fails"), [
+    # Audit B2 (I20, §6.3 narrowing 8, the census's ninth): a named sender after an own-account designation leaves
+    # the strong non-revenue rule only to be held (T13), never into True.
+    ("ONLINE TRANSFER FROM CHK #### CONFIRMATION AB##CD##E CONTOSO SEAFOOD CORP", "excluded_pending_review",
+     "transfer_account_designation", "9_named_transfer_after_designation", False),
+    ("MOBILE TRANSFER FROM SAV #### CONFIRMATION ABCDEFGHI PAT SAMPLE", "excluded_pending_review", "holder_name",
+     "9_named_transfer_after_designation", False),
+    ("TFR FROM XXXXXX#### TRANSFER DEPOSIT CONTOSO LAWN CARE LLC", "excluded_pending_review",
+     "transfer_account_designation", "9_named_transfer_after_designation", False),
+    ("ONLINE TRANSFER FROM CHK #### CONFIRMATION AB##CD##E CONTOSO SEAFOOD CORP", "counted_flagged", "p2p",
+     "9_named_transfer_after_designation", True),
+    # The own-account forms with no name after the designation are no narrowing.
+    ("ONLINE BANKING TRANSFER FROM CHK #### CONFIRMATION ##########", "excluded_pending_review",
+     "transfer_account_designation", "outside_the_narrowings", True),
+    ("TRANSFER FROM SHARES PAT SAMPLE", "excluded_pending_review", "transfer_account_designation",
+     "outside_the_narrowings", True),
+])
+def test_narrowing_9_holds_a_named_transfer_after_an_own_account_designation(text, tier, reason, narrowing, fails):
+    base = _snap("5.6", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule", text=text)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "unidentified_posted_credit",
+                                                 tier=tier, reason=reason, text=text)])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+    assert dict(census.NARROWINGS)["9_named_transfer_after_designation"] is False

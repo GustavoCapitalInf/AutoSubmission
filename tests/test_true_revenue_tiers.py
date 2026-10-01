@@ -420,7 +420,9 @@ def test_the_numbered_guard_reads_past_a_date_only_before_the_number():
 @pytest.mark.parametrize("text", [
     "EXTERNAL TRANSFER DES:TRANSFER ID:1234", "WEB TRANSFER DES:TRANSFER ID:1 WEB",
     "TRANSFER DES:TRANSFER ID:ABC123 CCD", "ORIG CO NAME:TRANSFER ORIG ID:1 DESC DATE: CO ENTRY DESCR:TRANSFER SEC:PPD",
-    "ONLINE TRANSFER REF #IBEABCD", "ONLINE TRANSFER FROM HELOC", "TRANSFER FROM LOC 1234", "TRANSFER FROM TAX RESERVE",
+    # Audit B2 (I21): 'TRANSFER FROM LOC 1234' left this list: a transfer from the holder's line of credit is now
+    # the strong rule's own-account source (non_revenue, tests/test_true_revenue_transfers.py).
+    "ONLINE TRANSFER REF #IBEABCD", "ONLINE TRANSFER FROM HELOC", "TRANSFER FROM TAX RESERVE",
     "ONLINE TRANSFER FROM OPERATING", "TRANSFER FROM RESERVE", "ONLINE TRANSFER FROM PRIMARY", "TRANSFER FROM PERSONAL",
     "ONLINE TRANSFER FROM JOINT", "ONLINE TRANSFER FROM IRA",
 ])
