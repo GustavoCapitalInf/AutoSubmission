@@ -1880,34 +1880,51 @@ _CARD_REFUND_LABELS = (
     re.compile(r"\bPOINT OF SALE DEPOSIT [A-Z]"),
 )
 _REMBOURSEMENT_WORD = re.compile(r"(?<![A-Z])REMBOURSEMENT\b")
+#: B3 review round 1: no legal-form word later on the row. A marker word that starts a company's name (REV MOBILE
+#: LLC, RETOUR CONTOSO INC, UNAUTHORIZED CONTOSO LLC) is no reversal. Copied in true_revenue._POSSIBLE_RETURN and in
+#: tools/revenue_census.py.
+_NO_LEGAL_FORM_LATER = (
+    r"(?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP|LLLP|PLLC|ULC|PLC|GMBH)\b)"
+)
 #: 5.6 (audit B3: I04, §6.1 step 3, §7.11, §20; standard D1, D3, D5): the reversal, correction and refund spellings
 #: step 3 also reads on a credit, beside its 5.4 patterns and the return codes:
 #: - a bounced outgoing payment credited back (Zions' ITEM RET NOT PAID; never ITEM RETURNED before a fee, the bank's
-#:   charge), NOT PAID, and a returned deposited item (PNC's RET DEP ITEM);
+#:   charge), and a returned deposited item (PNC's RET DEP ITEM). NOT PAID is read only after an item or return word,
+#:   or as the whole row with its references (review round 1: never inside a memo or a wire's remittance field);
 #: - a bank's error or transaction correction, and a correction printed first, glued to its reference too (never a
 #:   name that only starts with it: CORRECTIONAL ...; never DEPT OF CORRECTION, which prints it last);
 #: - card-purchase refunds: U.S. Bank's DEBIT PURCHASE RET, a reversed card or mobile purchase printed first (REV
-#:   MOBILE, POS, DEBIT, PURCHASE, ACH or CARD) and the card-shaped labels (_CARD_REFUND_LABELS);
-#: - a provisional credit cut to CR, an unauthorized-ACH settlement, and an e-Transfer the holder reclaimed (RECLAIM,
-#:   digits glued after it; never a name such as RECLAIMED ...);
+#:   MOBILE, POS, DEBIT, PURCHASE, ACH or CARD) and the card-shaped labels (_CARD_REFUND_LABELS). Review round 1: the
+#:   leading REV form needs a transaction word, a reference or the row's end after the rail word, or no legal-form word
+#:   later on the row (never REV MOBILE LLC ...);
+#: - a provisional credit cut to CR, an unauthorized-ACH settlement (never a company's name: no legal-form word
+#:   later), and an e-Transfer the holder reclaimed (RECLAIM with its reference glued after it, or last on the row:
+#:   CIBC's E TRANSFER RECLAIM<digits>; review round 1: never a payer's word, RECLAIM CONTOSO LLC or RECLAIMED ...);
 #: - the French reversal, return and refund words RENV, RENVERSEMENT, RETOUR and REMBOURSEMENT (REMBOURSEMENT with
-#:   §7.11's provider carve-out, _remboursement_from_a_provider);
+#:   §7.11's provider carve-out, _remboursement_from_a_provider). Review round 1: RETOUR needs a reference, MDSE or
+#:   MARCHANDISE, or the row's end after it, or no legal-form word later (never RETOUR CONTOSO INC);
 #: - a fee waiver (FEE WAIVE, WAIVED, WAIVER) and a courtesy refund (TD's WIRE OUT COURTESY REF).
 #: Read on credits only, by step 3 and, on the credit row, by pass 4's revenue side (_CREDIT_PAIR_MARKER_PATTERNS); the
 #: lender side of pass 4 never reads them (§20, final review I6).
 _RETURN_REFUND_CREDIT_PATTERNS = (
     re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)"),
-    re.compile(r"\bNOT PAID\b"),
+    re.compile(
+        r"(?<![A-Z])(?:ITEMS?|RET|RETN|RTN|RETURN(?:ED)?) NOT PAID\b|^(?:\d{1,2} \d{1,2} )?NOT PAID(?: \S*\d\S*)*$"
+    ),
     re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
     re.compile(r"\b(?:ERROR|TRANSACTION) CORRECTION\b"),
     re.compile(r"^(?:\d{1,2} \d{1,2} )?CORRECTION(?![A-Z])"),
     re.compile(r"\bPURCHASE RET\b"),
     *_CARD_REFUND_LABELS,
     re.compile(r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b"),
-    re.compile(r"\bUNAUTHORI[SZ]ED\b"),
-    re.compile(r"(?<![A-Z])RECLAIM(?![A-Z])"),
-    re.compile(r"^(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b"),
-    re.compile(r"(?<![A-Z])(?:RENV|RENVERSEMENT|RETOUR)\b"),
+    re.compile(r"\bUNAUTHORI[SZ]ED\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])RECLAIM(?=\d|\s*$)"),
+    re.compile(
+        r"^(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b(?:(?= (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD"
+        r"|CREDIT|PMT|PAYMENT|TRANSACTION|TXN|WITHDRAWAL)\b| ?\d|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"
+    ),
+    re.compile(r"(?<![A-Z])(?:RENV|RENVERSEMENT)\b"),
+    re.compile(r"(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"),
     _REMBOURSEMENT_WORD,
     re.compile(r"\bFEES? WAIVE[DR]?\b"),
     re.compile(r"\bCOURTESY REF(?:UND)?\b"),
@@ -4420,12 +4437,15 @@ def _descriptions_share_pair_context(left: str, right: str) -> bool:
 #: row: a returned deposited item (PNC's RET DEP ITEM, RETURNED DEPOSIT ITEM, Wells Fargo's DEPOSITED ITEM RETN and
 #: Chase's DEPOSITED ITEM RETURNED), an error, transaction or deposit correction, a mobile, remote or ATM deposit
 #: adjustment, and Bank of America's ADJUSTMENT CORRECTION.
-_DEPOSIT_UNDO_MARKERS = (
-    re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
-    re.compile(r"\bDEPOSITED ITEMS? RET\w*"),
+_DEPOSIT_CORRECTION_MARKERS = (
     re.compile(r"\b(?:ERROR|TRANSACTION|DEPOSIT) CORRECTION\b"),
     re.compile(r"\b(?:MOBILE|REMOTE|ATM) DEPOSIT ADJUSTMENT\b"),
     re.compile(r"\bADJUSTMENT CORRECTION\b"),
+)
+_DEPOSIT_UNDO_MARKERS = (
+    re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
+    re.compile(r"\bDEPOSITED ITEMS? RET\w*"),
+    *_DEPOSIT_CORRECTION_MARKERS,
 )
 #: 5.6 (audit B3: I03): the debits that undo a deposit, which pair with the deposit itself (_deposit_return_pairs): the
 #: undo markers, a deposited check returned, a bare RETURNED ITEM (and Bank of America's RETURN ITEM CHARGEBACK), RBC's
@@ -4438,7 +4458,10 @@ _DEPOSIT_RETURN_DEBIT_PATTERNS = (
     re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b"),
     re.compile(r"\bRETURNED (?:CHECK|CHEQUE)S?\b|\b(?:CHECK|CHEQUE)S? RETURNED\b"),
 )
-_DEPOSIT_UNDO_FEE = re.compile(r"\b(?:FEES?|FRAIS|SVC|CHG|SERVICE CHARGE)\b")
+#: B3 review round 1: and the CHARGE (never CHARGE BACK, the chargeback) and CHRG wordings of the fee.
+_DEPOSIT_UNDO_FEE = re.compile(r"\b(?:FEES?|FRAIS|SVC|CHG|CHRG|SERVICE CHARGE)\b|\bCHARGES?\b(?! ?BACK)")
+#: B3 review round 1: a paid check printed first with its number (the holder's own check, whatever its memo says).
+_PAID_CHECK_FIRST = re.compile(r"^(?:\d{1,2} \d{1,2} )?(?:CHECK|CHEQUE|CHK|CHQ) ?#? ?\d")
 #: 5.6 (audit B3: I03): a returned deposit pairs with a deposit up to this many days before it, the same day included.
 _DEPOSIT_RETURN_DAYS = 14
 #: 5.6 (audit B3: I03): a mobile or electronic deposit capture glued to its word (MDEPOSIT, EDEPOSIT IN BRANCH), a
@@ -4449,8 +4472,18 @@ _CARD_WORD = re.compile(r"(?<![A-Z])(?:CARDS?|VISA|MC|MASTERCARD|AMEX|DISCOVER|B
 
 
 def _deposit_return_debit(text: str) -> bool:
-    """5.6 (audit B3: I03): a debit that undoes a deposit (_DEPOSIT_RETURN_DEBIT_PATTERNS), never the bank's fee for it."""
-    return _matches_any(text, _DEPOSIT_RETURN_DEBIT_PATTERNS) and _DEPOSIT_UNDO_FEE.search(text) is None
+    """5.6 (audit B3: I03): a debit that undoes a deposit (_DEPOSIT_RETURN_DEBIT_PATTERNS), never the bank's fee for it.
+
+    B3 review round 1: and only the bank's own return, never the holder's payment that prints a 'return item' memo: a
+    person-to-person or push rail, WIRE, an electronic payment's mark (which names its payee) or a paid check printed
+    first with its number refuses it. A credit union's returned check prints the check's number and its maker after
+    RETURNED CHECK; that stays a return."""
+    if not _matches_any(text, _DEPOSIT_RETURN_DEBIT_PATTERNS) or _DEPOSIT_UNDO_FEE.search(text) is not None:
+        return False
+    return not (
+        _CONSUMER_P2P_RAIL.search(text) or _PUSH_RAIL.search(text) or _WIRE_WORD.search(text)
+        or _ELECTRONIC_PAYMENT_FORM.search(text) or _PAID_CHECK_FIRST.search(text)
+    )
 
 
 def _deposit_channel_credit(text: str) -> bool:
@@ -4478,7 +4511,10 @@ def _deposit_return_pairs(
     a deposit (_deposit_return_debit) and an equal posted deposit-channel credit (_deposit_channel_credit) 0 to
     _DEPOSIT_RETURN_DAYS days before it. No shared word is needed: a returned item never prints the depositor's words.
     Each such debit, in row order, takes the earliest such credit not yet taken (then the first row), so a redeposit
-    after the return, or beside a corrected deposit, stays counted."""
+    after the return, or beside a corrected deposit, stays counted.
+
+    B3 review round 1: an undated credit or debit reads the row order (the deposit printed before the return), and an
+    undo debit that names an equal credit's payer (_undo_debit_names_a_credit) is left to the shared-word pairing."""
     pairs: list[tuple[int, int]] = []
     taken: set[int] = set()
     for debit_index, debit in enumerate(records):
@@ -4487,6 +4523,7 @@ def _deposit_return_pairs(
             or debit.amount >= 0
             or not debit.is_posted
             or not _deposit_return_debit(debit.normalized_description)
+            or _undo_debit_names_a_credit(records, duplicate_indexes, debit_index)
         ):
             continue
         amount = round(abs(debit.amount), 2)
@@ -4502,9 +4539,10 @@ def _deposit_return_pairs(
             ):
                 continue
             credit_date = parse_date(credit.date)
-            if credit_date is not None and debit_date is not None and not (
-                0 <= (debit_date - credit_date).days <= _DEPOSIT_RETURN_DAYS
-            ):
+            if credit_date is None or debit_date is None:
+                if credit_index >= debit_index:
+                    continue
+            elif not 0 <= (debit_date - credit_date).days <= _DEPOSIT_RETURN_DAYS:
                 continue
             if not _deposit_channel_credit(credit.normalized_description):
                 continue
@@ -4517,11 +4555,56 @@ def _deposit_return_pairs(
     return pairs
 
 
+def _undo_debit_names_a_credit(
+    records: list[TransactionClassification], duplicate_indexes: set[int], debit_index: int,
+) -> bool:
+    """B3 review round 1 (§6.2 pass 4): a correction debit (_DEPOSIT_CORRECTION_MARKERS, one of pass 4's revenue-side
+    markers) that shares a word or a family with an equal posted credit, 14 days either side, that is no
+    deposit-channel credit. Such a correction undoes that credit ('ERROR CORRECTION CONTOSO SUPPLY LLC' undoes
+    Contoso's payment), so the deposit mode never seizes it for an equal deposit; pass 4's shared-word pairing takes
+    it. A returned item is never one: the name it prints is the returned check's maker, so it undoes the deposited
+    check, never the maker's equal electronic payment. A deposit-channel credit sharing the correction's words is left
+    to the deposit mode, which reads only deposits printed before the undo."""
+    debit = records[debit_index]
+    debit_text = debit.normalized_description
+    if not _matches_any(debit_text, _DEPOSIT_CORRECTION_MARKERS):
+        return False
+    amount = round(abs(debit.amount), 2)
+    debit_date = parse_date(debit.date)
+    for credit_index, credit in enumerate(records):
+        if (
+            credit_index in duplicate_indexes
+            or credit.amount <= 0
+            or not credit.is_posted
+            or round(credit.amount, 2) != amount
+        ):
+            continue
+        credit_date = parse_date(credit.date)
+        if credit_date is not None and debit_date is not None and abs((credit_date - debit_date).days) > 14:
+            continue
+        text = credit.normalized_description
+        if not _deposit_channel_credit(text) and _descriptions_share_pair_context(text, debit_text):
+            return True
+    return False
+
+
+def _credit_pair_marker(text: str, credit_markers: Sequence[re.Pattern[str]]) -> bool:
+    """5.6 (audit B3: I04): a credit-row-only pass-4 marker (`credit_markers`: step 3's 5.6 credit markers on the
+    revenue side, none on the lender side). B3 review round 1 (§7.11): with step 3's carve-out, so a provider's
+    REMBOURSEMENT (_remboursement_from_a_provider), which leaves step 3, marks no pair either."""
+    return any(
+        pattern.search(text) is not None
+        and not (pattern is _REMBOURSEMENT_WORD and _remboursement_from_a_provider(text))
+        for pattern in credit_markers
+    )
+
+
 #: 5.5 (§6.2 pass 4): the reversal pair reads the credit markers of step 3, return codes included. 5.6 (audit B3: I03,
 #: §20): on the revenue side, the deposit undo markers too, read on either row.
 _PAIR_MARKER_PATTERNS = (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_CODE_CREDIT_PATTERNS, *_DEPOSIT_UNDO_MARKERS)
 #: 5.6 (audit B3: I04, §20): the revenue side also reads step 3's 5.6 credit markers, on the credit row only: on a debit
-#: several of them are a purchase (CHECKCARD <mmdd>), a repayment (REMBOURSEMENT) or a charge.
+#: several of them are a purchase (CHECKCARD <mmdd>), a repayment (REMBOURSEMENT) or a charge. B3 review round 1:
+#: with step 3's REMBOURSEMENT carve-out (_credit_pair_marker).
 _CREDIT_PAIR_MARKER_PATTERNS = _RETURN_REFUND_CREDIT_PATTERNS
 #: 5.6 (final review I6, §20): the lender side keeps classification 5.4's pairs. A pair the 5.4 credit markers make
 #: (step 3's markers without the return codes and the French cancel words) alone zeroes the debit's lender,
@@ -4545,16 +4628,16 @@ def _reversal_pairs(
     shares the credit's transaction family, where the credit or the debit prints one of `markers`; the nearest date,
     then the nearest row, wins, and a debit pairs once. `marked` caches each row's marker reading.
 
-    5.6 (audit B3, revenue side only): `credit_markers` are read on a credit row only (step 3's 5.6 credit markers), and
-    the `seeded` pairs (the returned deposits, _deposit_return_pairs) are made first: their credits and debits pair no
-    further."""
+    5.6 (audit B3, revenue side only): `credit_markers` are read on a credit row only (step 3's 5.6 credit markers, with
+    its REMBOURSEMENT carve-out: _credit_pair_marker), and the `seeded` pairs (the returned deposits,
+    _deposit_return_pairs) are made first: their credits and debits pair no further."""
     marked = {} if marked is None else marked
 
     def has_marker(index: int) -> bool:
         if index not in marked:
             text = records[index].normalized_description
             marked[index] = _matches_any(text, markers) or (
-                records[index].amount > 0 and _matches_any(text, credit_markers)
+                records[index].amount > 0 and _credit_pair_marker(text, credit_markers)
             )
         return marked[index]
 

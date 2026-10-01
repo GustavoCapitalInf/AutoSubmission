@@ -103,6 +103,11 @@ _INSURER_NAME = re.compile(
     r"(?<![A-Z])(?:INSUR\w*|ASSURANCE\b|MUTUAL\b|CASUALTY\b|INDEMNITY\b|UNDERWRIT\w*)"
 )
 _CLAIM_WORD = re.compile(r"(?<![A-Z])CLAIMS?\b")
+#: B3 review round 1: the classifier's _NO_LEGAL_FORM_LATER (copied: the classifier imports this module): no
+#: legal-form word later on the row.
+_NO_LEGAL_FORM_LATER = (
+    r"(?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP|LLLP|PLLC|ULC|PLC|GMBH)\b)"
+)
 _POSSIBLE_RETURN = re.compile(
     r"(?<![A-Z])RETURN(?:ED|S)?\b|\bADJ\b|(?<![A-Z])ADJ(?:USTMENT|USTED)\b|(?<![A-Z])DISPUTE[DS]?\b"
     r"|(?<![A-Z])CREDIT MEMO\b|(?<![A-Z])OVERPA\w*"
@@ -112,18 +117,27 @@ _POSSIBLE_RETURN = re.compile(
     # _RETURN_REFUND_CREDIT_PATTERNS, read on the hold text, a correction or a reversed purchase printed first after
     # the posting labels are removed), so such a row that reaches the pass is held, never counted. REMBOURSEMENT is
     # not read (a provider's REMBOURSEMENT left step 3 by §7.11's carve-out), nor the card labels (their own arm).
-    r"|(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)|(?<![A-Z])NOT PAID\b|(?<![A-Z])RET DEP ITEMS?\b"
+    # B3 review round 1: NOT PAID, UNAUTHORIZED, RECLAIM, the leading REV form and RETOUR narrowed as the classifier's
+    # (never a company's name or a memo; _NO_LEGAL_FORM_LATER is the classifier's, copied).
+    r"|(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)|(?<![A-Z])RET DEP ITEMS?\b"
+    r"|(?<![A-Z])(?:ITEMS?|RET|RETN|RTN|RETURN(?:ED)?) NOT PAID\b|^\s*(?:\d{1,2} \d{1,2} )?NOT PAID(?: \S*\d\S*)*\s*$"
     r"|(?<![A-Z])(?:ERROR|TRANSACTION|DEPOSIT) CORRECTION\b|^\s*(?:\d{1,2} \d{1,2} )?CORRECTION(?![A-Z])"
-    r"|(?<![A-Z])PURCHASE RET\b|(?<![A-Z])(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b|(?<![A-Z])UNAUTHORI[SZ]ED\b"
-    r"|(?<![A-Z])RECLAIM(?![A-Z])|^\s*(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b"
-    r"|(?<![A-Z])(?:RENV|RENVERSEMENT|RETOUR)\b|\bFEES? WAIVE[DR]?\b|(?<![A-Z])COURTESY REF(?:UND)?\b"
+    r"|(?<![A-Z])PURCHASE RET\b|(?<![A-Z])(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b"
+    r"|(?<![A-Z])UNAUTHORI[SZ]ED\b" + _NO_LEGAL_FORM_LATER
+    + r"|(?<![A-Z])RECLAIM(?=\d|\s*$)"
+    r"|^\s*(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b(?:(?= (?:MOBILE|POS|DEBIT|PURCHASE|ACH"
+    r"|CARD|CREDIT|PMT|PAYMENT|TRANSACTION|TXN|WITHDRAWAL)\b| ?\d|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"
+    r"|(?<![A-Z])(?:RENV|RENVERSEMENT)\b"
+    r"|(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"
+    r"|\bFEES? WAIVE[DR]?\b|(?<![A-Z])COURTESY REF(?:UND)?\b"
 )
 #: §8.1, §7.11: a card credit's posting labels (a refund to the card unless a form or the registry verified it). 5.6
 #: (audit B3: I04): and the card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's
-#: credit-side CHECKCARD <mmdd>, a point-of-sale deposit), whichever a push word released.
+#: credit-side CHECKCARD <mmdd>, a point-of-sale deposit before its merchant's name, as step 3 reads it; B3 review
+#: round 1: a bare one names no merchant and keeps Q2's counted reading), whichever a push word released.
 _CARD_CREDIT_LABEL = re.compile(
     r"(?<![A-Z])(?:DEBIT CARD CREDIT?|POS CREDIT|VISA CREDIT|CHECKCARD CREDIT|PURCHASE CREDIT)\b"
-    r"|^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b|(?<![A-Z])POINT OF SALE DEPOSIT\b"
+    r"|^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b|(?<![A-Z])POINT OF SALE DEPOSIT [A-Z]"
 )
 #: §8.1 (audit B3: I04): a card credit printed first, BMO's and Regions' 'CARD CREDIT ...': a refund to the card, or a
 #: push the parser cut from its payer (BMO prints the merchant on a line the parser drops), held as a possible return

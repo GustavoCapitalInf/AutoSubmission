@@ -305,9 +305,14 @@ _FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNUL
 #: spaced leading date the classifier's revenue text drops before the forms printed first. REMBOURSEMENT's provider
 #: carve-out only keeps rows out of the rule, so the word alone declares the rule's own demotion.
 _LEADING_MASKED_DATE = r"^(?:#{1,2} #{1,2} ?)?"
+#: B3 review round 1: the classifier's _NO_LEGAL_FORM_LATER (copied), which NOT PAID's, UNAUTHORIZED's, RECLAIM's, the
+#: leading REV form's and RETOUR's narrowed readings use (never a company's name or a memo).
+_NO_LEGAL_FORM_LATER = (
+    r"(?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP|LLLP|PLLC|ULC|PLC|GMBH)\b)"
+)
 _REVERSAL_MARKERS_56 = tuple(_on_masked(pattern) for pattern in (
     r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)",
-    r"\bNOT PAID\b",
+    r"(?<![A-Z])(?:ITEMS?|RET|RETN|RTN|RETURN(?:ED)?) NOT PAID\b|" + _LEADING_MASKED_DATE + r"NOT PAID(?: \S*\d\S*)*$",
     r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b",
     r"\b(?:ERROR|TRANSACTION) CORRECTION\b",
     _LEADING_MASKED_DATE + r"CORRECTION(?![A-Z])",
@@ -316,10 +321,12 @@ _REVERSAL_MARKERS_56 = tuple(_on_masked(pattern) for pattern in (
     _LEADING_MASKED_DATE + r"CHECKCARD \d{4}\b",
     r"\bPOINT OF SALE DEPOSIT [A-Z]",
     r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b",
-    r"\bUNAUTHORI[SZ]ED\b",
-    r"(?<![A-Z])RECLAIM(?![A-Z])",
-    _LEADING_MASKED_DATE + r"REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b",
-    r"(?<![A-Z])(?:RENV|RENVERSEMENT|RETOUR|REMBOURSEMENT)\b",
+    r"\bUNAUTHORI[SZ]ED\b" + _NO_LEGAL_FORM_LATER,
+    r"(?<![A-Z])RECLAIM(?=\d|\s*$)",
+    _LEADING_MASKED_DATE + r"REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b(?:(?= (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD"
+    r"|CREDIT|PMT|PAYMENT|TRANSACTION|TXN|WITHDRAWAL)\b| ?\d|\s*$)|" + _NO_LEGAL_FORM_LATER + ")",
+    r"(?<![A-Z])(?:RENV|RENVERSEMENT|REMBOURSEMENT)\b",
+    r"(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")",
     r"\bFEES? WAIVE[DR]?\b",
     r"\bCOURTESY REF(?:UND)?\b",
 ))

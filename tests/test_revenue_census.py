@@ -1815,6 +1815,20 @@ def test_narrowing_10_counts_a_processor_s_card_payout(text, state, method, tier
     ("RECLAIMED WOOD CONTOSO LLC DES PAYMENT ID #", "undeclared"),
     ("DEPT OF CORRECTION DES VENDOR PAY ID #", "undeclared"),
     ("CONTOSO CHECKCARD #### SUPPLY", "undeclared"),
+    # Review round 1: the narrowed spellings, as the classifier reads them. Still read: a reclaim printed last, a
+    # reversed purchase at a merchant with a company form, a merchandise return at a company, a returned item printed
+    # as the whole row, a bare unauthorized entry.
+    ("E TRANSFER RECLAIM", "new_non_revenue_marker"),
+    ("REV MOBILE DEBIT PURCHASE ###### CONTOSO HARDWARE INC", "new_non_revenue_marker"),
+    ("RETOUR MDSE ############ CONTOSO INC", "new_non_revenue_marker"),
+    ("NOT PAID ######", "new_non_revenue_marker"),
+    ("UNAUTHORIZED", "new_non_revenue_marker"),
+    # Never a company's name or a memo.
+    ("RECLAIM CONTOSO LLC DES PAYMENT ID # INDN NORTHWIND PLUMBING LLC CO ID # CCD", "undeclared"),
+    ("REV MOBILE LLC DES PAYMENT ID # INDN NORTHWIND PLUMBING LLC CO ID # CCD", "undeclared"),
+    ("RETOUR CONTOSO INC DES PAYMENT ID #", "undeclared"),
+    ("ZELLE FROM PAT SAMPLE ON ## ## REF #### INVOICE NOT PAID LAST MONTH", "undeclared"),
+    ("UNAUTHORIZED CONTOSO LLC DES PAYMENT ID #", "undeclared"),
 ])
 def test_b3_the_reversal_rule_s_new_spellings_are_a_declared_new_marker(text, cause):
     later = _later("reversal_cancellation_exclusion", text, state="non_revenue")
