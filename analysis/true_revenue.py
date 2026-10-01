@@ -553,6 +553,26 @@ _WIRE_PURPOSE_FIELD = re.compile(
 #: that names the ultimate originator only relays, and the payer region reads that customer (relayed_customer_text).
 #: A3-G refinement: a sender the payer region reads as bare channel words names nobody (credit_facts).
 _BARE_CHANNEL_WORDS = frozenset({"WIRE", "WIRES", "TRANSFER", "BOOK", "CREDIT"})
+#: §8.5, Q5 (audit B5: I14): on the wire channel, a sender the payer region reads only as a bank's or a layout's labels
+#: names nobody (Navy Federal's 'BANK WIRE DEPOSIT', 'INCOMING BANK WIRE'), and neither does a region with no name
+#: word (TD's glued '<reference>S<reference>WIRE'): wire_no_sender. IWT waits for audit batch B10, which keeps the
+#: sender Falcon Bank prints after its 'INTERNATIONAL IWT' label; until then that row keeps its reading.
+_WIRE_LABEL_ONLY_WORDS = _BARE_CHANNEL_WORDS | frozenset({
+    "BANK", "DEPOSIT", "INTERNATIONAL", "IN", "INCOMING", "RECEIVED", "DEP",
+})
+#: §8.5, Q5 (audit B5: I61): the Fedwire and CHIPS originator field's width. A legal form the field cuts to LL and
+#: glues to the address after it ('<name> MANAGEMENT LL<city>') ends within two to four characters of the width (the
+#: normalizer drops the name's punctuation); a word that starts with LL earlier in the name is a name word ('LLOYD').
+_WIRE_ORIGINATOR_WIDTH = 35
+_WIRE_CUT_FORM_SLACK = 4
+_CUT_LLC = re.compile(r"LL[A-Z]{2,}")
+#: §8.6, Q6, Q8 (audit B5: I37; Payments Canada Standard 007): TD Canada Trust prints the CPA transaction code as the
+#: row's last word, with no ACH word: AP (460, accounts payable), MSP (450, miscellaneous payment), BPY (430, bill
+#: payment) and APY (439) are an electronic-payment form; PAY (the 200 family, payroll deposit) is pay wording. DIV
+#: (250, a dividend) is neither. Read on TD Canada Trust's statements only: a US row's last word is its own.
+_CPA_CODE_BANK = re.compile(r"(?<![A-Z])(?:TD )?CANADA TRUST\b", re.IGNORECASE)
+_CPA_PAYMENT_CODE = re.compile(r"(?<= )(?:AP|MSP|BPY|APY)$")
+_CPA_PAYROLL_CODE = re.compile(r"(?<= )PAY$")
 #: §8.1 (A3-G refinement): a holder's name read from the statement's own incoming receiver fields (INDN, IND NAME,
 #: RECEIVER NAME) needs this many credits, words and letters; a run-together match needs this many letters.
 _RECEIVER_HOLDER_MIN_CREDITS = 2
@@ -1248,7 +1268,50 @@ def _wire_sender_after_label_text(text: str) -> str:
     return (rest[: end.start()] if end is not None else rest).strip()
 
 
-def _bank_originated_wire(text: str, region: str) -> bool:
+def _cpa_code_bank(bank: str | None) -> bool:
+    """Audit B5 (I37): the statement is TD Canada Trust's, which prints the CPA transaction code as the row's last
+    word (_CPA_CODE_BANK)."""
+    return bool(bank) and _CPA_CODE_BANK.search(bank) is not None
+
+
+def cpa_payment_code(row: str, bank: str | None) -> bool:
+    """§8.6 (audit B5: I37): TD Canada Trust's row ends with an electronic-payment CPA code (AP, MSP, BPY, APY)."""
+    return _cpa_code_bank(bank) and _CPA_PAYMENT_CODE.search(row) is not None
+
+
+def cpa_payroll_code(row: str, bank: str | None) -> bool:
+    """§8.1, Q8 (audit B5: I37): TD Canada Trust's row ends with the CPA payroll-deposit code (PAY)."""
+    return _cpa_code_bank(bank) and _CPA_PAYROLL_CODE.search(row) is not None
+
+
+def _pay_wording(row: str, bank: str | None) -> bool:
+    """§8.1, Q8: pay wording on the row before its receiver fields (_PAY_WORDS), a payroll provider, or (audit B5: I37)
+    TD Canada Trust's payroll-deposit code."""
+    return bool(_PAY_WORDS.search(row) or _classifier()._is_payroll_provider_row(row) or cpa_payroll_code(row, bank))
+
+
+def _wire_label_only(region: str) -> bool:
+    """§8.5, Q5 (audit B5: I14): a wire's payer region that names nobody: no name word (payer_name is empty), or only
+    a bank's or a layout's labels (_WIRE_LABEL_ONLY_WORDS)."""
+    words = _classifier().payer_name(region).split()
+    return all(word in _WIRE_LABEL_ONLY_WORDS for word in words)
+
+
+def _cut_wire_legal_form(region: str) -> bool:
+    """§8.5, Q5's repeat arm (audit B5: I61): a wire sender whose LLC the originator field cut to LL and glued to the
+    address after it ('<name> MANAGEMENT LL<city>'): a word after the first that is LL and two or more letters, ending
+    the field (its LL within _WIRE_CUT_FORM_SLACK characters of _WIRE_ORIGINATOR_WIDTH). Never a two-letter prefix of
+    another form (CO, IN, LI), never a name word that starts with LL earlier in the name ('JOHN LLOYD'), and never
+    read by Q6's company form (company_form)."""
+    words = region.split()
+    for index in range(1, len(words)):
+        if _CUT_LLC.fullmatch(words[index]):
+            width = len(" ".join(words[:index])) + len(" LL")
+            return _WIRE_ORIGINATOR_WIDTH - _WIRE_CUT_FORM_SLACK <= width <= _WIRE_ORIGINATOR_WIDTH
+    return False
+
+
+def _bank_originated_wire(text: str, region: str, *, wire: bool = False) -> bool:
     """§8.1, T4 (A3-G): a wire whose originator reads as a bank: by its own form (the classifier's
     BANK_FORM_ORIGINATOR: BANK, BANCORP, BANK N A, CREDIT UNION, SAVINGS BANK, FEDERAL SAVINGS), or equal to Bank of
     America's sending bank (SND BK) with the field's line-wrap splits read run together (the originator's letters
@@ -1260,9 +1323,16 @@ def _bank_originated_wire(text: str, region: str) -> bool:
     company whose name holds the bank word); the sending-bank arm compares the letters with spaces removed, needs
     _SENDING_BANK_MIN_LETTERS letters on the shorter side and an originator that prints no company form. A3-G
     re-review 2: both arms read CO or NV as the address's state only in its address context (the classifier's
-    originator_address: a ZIP or the country code after it, or the end of a Fedwire or CHIPS B/O city and state)."""
+    originator_address: a ZIP or the country code after it, or the end of a Fedwire or CHIPS B/O city and state).
+
+    Audit B5 (I14, I23; the orchestrator's ruling): read on every row pass 7's wire channel reads (`wire`), not only
+    on a row an incoming-wire label starts ('<BANK> N A WIRE', Mercury's '<sender> WIRE' layout); never on a region of
+    labels alone ('BANK WIRE DEPOSIT' names no sender: _wire_label_only)."""
     classifier = _classifier()
-    if not region or not classifier._is_wire_row(text) or classifier.BANK_SETTLEMENT_ORIGINATOR.search(region):
+    if (
+        not region or not (wire or classifier._is_wire_row(text)) or classifier.BANK_SETTLEMENT_ORIGINATOR.search(region)
+        or _wire_label_only(region)
+    ):
         return False
     after, city_state_end = classifier.originator_address(text, region)
     if classifier.bank_by_form(region, after, city_state_end=city_state_end):
@@ -1770,7 +1840,12 @@ def _channel(text: str, bank: str | None = None) -> str:
 
     Audit B2 (I48): a check, cash, branch or ATM row that prints transfer wording, no explicit deposit form
     (_EXPLICIT_DEPOSIT_FORM) and names its counterparty once its deposit-channel words are removed ('BRANCH TRANSFER
-    FROM <company>') is a named transfer (T13); the statement's bank (`bank`) names no counterparty."""
+    FROM <company>') is a named transfer (T13); the statement's bank (`bank`) names no counterparty.
+
+    Audit B5: American Express's incoming-ACH label ('ONLINE TRANSFER PAYMENT CREDIT' at the row's start, I19) is no
+    transfer wording and is an electronic-payment form, so its template is ACH; the originator's own entry word
+    (TRANSFER) still reads as transfer wording, as Bank of America's 'DES:TRANSFER' does. A TD Canada Trust row that
+    ends with an electronic-payment CPA code is ACH too (I37, cpa_payment_code)."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     if classifier._is_wire_row(text):
@@ -1795,7 +1870,7 @@ def _channel(text: str, bank: str | None = None) -> str:
         return "person_to_person"
     if _LOOSE_WIRE.search(row) or classifier._wire_vetoes_apply(text):
         return "wire"
-    if classifier._ELECTRONIC_PAYMENT_FORM.search(row):
+    if classifier._ELECTRONIC_PAYMENT_FORM.search(row) or cpa_payment_code(row, bank):
         return "ach_eft"
     return "other"
 
@@ -2350,7 +2425,8 @@ def credit_facts(
     classifier = _classifier()
     channel = _channel(text, record.bank)
     region = classifier.payer_region(text)
-    if channel == "wire" and region and all(token in _BARE_CHANNEL_WORDS for token in region.split()):
+    # Audit B5 (I14): a wire's region of labels alone, or with no name word, names no sender (_wire_label_only).
+    if channel == "wire" and region and _wire_label_only(region):
         region = ""
     sender, holder_sender = (
         _p2p_sender_readings(text) if not region and channel == "person_to_person" else ("", "")
@@ -2363,8 +2439,10 @@ def credit_facts(
     factor = _factoring_payout_payer(region, text)
     claimed = _claimed(record, text) or factor
     wire_n1 = classifier._is_wire_row(text)
+    # Audit B5 (I37): TD Canada Trust's trailing CPA code is an electronic-payment form.
+    electronic = bool(classifier._ELECTRONIC_PAYMENT_FORM.search(row)) or cpa_payment_code(row, record.bank)
     # §8.5 (S4.2 review M2): Q5 reads a healthcare payer on an incoming wire too; Q6 on an electronic-payment form.
-    healthcare = healthcare_payer(region) and (wire_n1 or bool(classifier._ELECTRONIC_PAYMENT_FORM.search(row)))
+    healthcare = healthcare_payer(region) and (wire_n1 or electronic)
     public = government_payer(public_region(text))
     transfer_row, transfer_words, no_counterparty = _transfer_reading(record, text, channel, region)
     if not region and not sender and transfer_row and transfer_words and re.search(r"\bFROM\b", row) is None:
@@ -2372,7 +2450,7 @@ def credit_facts(
         sender = holder_sender = _named_transfer_sender(text)
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, debits=debits,
-        sender=sender, holder_sender=holder_sender, receiver_holders=receiver_holders,
+        sender=sender, holder_sender=holder_sender, receiver_holders=receiver_holders, wire=channel == "wire",
     )
     return CreditFacts(
         channel=channel,
@@ -2387,7 +2465,7 @@ def credit_facts(
         public_or_healthcare=public or healthcare,
         healthcare=healthcare,
         numbered=classifier.numbered_company(text, region),
-        electronic=classifier._ELECTRONIC_PAYMENT_FORM.search(row) is not None,
+        electronic=electronic,
         # An investment word an accounts-payable row spared from the holds (S4.2 fix measurement) is no proof either:
         # §7.5's remittance veto reads it, so Q5 and Q6 never verify the row.
         refused_word=bool(
@@ -2415,8 +2493,11 @@ def _first_hold(
     sender: str = "",
     holder_sender: str = "",
     receiver_holders: tuple[str, ...] = (),
+    wire: bool = False,
 ) -> str | None:
-    """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. A row the registry, a payout
+    """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. Audit B5: a bank's own wire is
+    read on every row pass 7's wire channel reads (`wire`, I14, I23), and TD Canada Trust's payroll-deposit code is pay
+    wording (I37). A row the registry, a payout
     entity or a factoring payee claimed takes only the insurer, possible-return, pay and benefit holds; a registry row
     that prints a financing word is held as financing_named_payer (review C2). The holder test also reads a
     person-to-person sender printed without FROM (`sender`, Q4; S4.2 review I7), and its holder-test reading, which
@@ -2453,7 +2534,7 @@ def _first_hold(
         or (DEALER_FUNDING_WORDS.search(row) and record.revenue_match_method != "auto_lender_dealer_funding")
         or record.revenue_match_method == "credit_union_vehicle_purchase"
         # A3-G: a wire a bank originates on its own behalf.
-        or _bank_originated_wire(text, region)
+        or _bank_originated_wire(text, region, wire=wire)
     ):
         return "financing_named_payer"
     counter = counter_credit(record, text, region)
@@ -2472,9 +2553,7 @@ def _first_hold(
         )
     ):
         return "holder_name"
-    if _PAY_WORDS.search(classifier._before_receiver(text)) or classifier._is_payroll_provider_row(
-        classifier._before_receiver(text)
-    ):
+    if _pay_wording(classifier._before_receiver(text), record.bank):
         return "payroll_or_salary"
     if _personal_income(text, classifier._before_receiver(text)):
         return "personal_income"
@@ -2707,7 +2786,8 @@ def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFa
         return False
     if classifier.channel_gate(text) is not None:
         return False
-    if not (facts.company_form or facts.public_or_healthcare) or repeats < 2:
+    # Audit B5 (I61): an LLC the originator field cut and glued to the address counts as the company form here only.
+    if not (facts.company_form or facts.public_or_healthcare or _cut_wire_legal_form(facts.region)) or repeats < 2:
         return False
     if _BANK_OR_TITLE_SENDER.search(facts.name) or facts.refused_word:
         return False
@@ -3002,7 +3082,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "financing_root": financing_named(text, region, entry, record.account_name),
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
-        "pay_or_personal": bool(_PAY_WORDS.search(row) or _personal_income(text, row)),
+        "pay_or_personal": bool(_PAY_WORDS.search(row) or cpa_payroll_code(row, record.bank) or _personal_income(text, row)),
         # Audit B2: the pass's own reading (_transfer_reading): the statement's bank, the explicit deposit forms.
         "transfer_no_counterparty": _transfer_reading(record, text, _channel(text, record.bank), region)[2],
         "known_financing": known is not None and known.state in FINANCING_STATES,
@@ -3030,6 +3110,8 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         # Final review I7: the pass's own readings the census's demotion causes key on (the rule that fires).
         "hold_rule": hold_rule(record, text, region, entry),
         "relayed_customer": bool(classifier.wire_relayed_customer(text)),
+        # Audit B5 (I15, I19, I26, I55, I59): the payer region reads past a bank's label, entry or reference.
+        "payer_label_layout": classifier.payer_label_layout(text),
         "premium_coded": _premium_coded(text, region),
         "factoring_payer": _factoring_payout_payer(region, text),
         "deferred_source": _deferred_reading(text, _channel(text), region, entry),
@@ -3048,7 +3130,7 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
     holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
     classifier = _classifier()
     row = _hold_text(text)
-    if _bank_originated_wire(text, region):
+    if _bank_originated_wire(text, region, wire=_channel(text, record.bank) == "wire"):
         return "bank_originated_wire"
     if financing_named(text, region, entry, record.account_name):
         return "financing_root"

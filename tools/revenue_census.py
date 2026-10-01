@@ -140,6 +140,9 @@ DECLARED_DEMOTIONS = (
     "q5_q6_held_government_benefit", "q5_q6_held_government_grant",
     # Audit B4 (I38, I22, I56): a Q5 or Q6 row whose payer a debit now names (§8.1's counter-debit holds).
     "q5_q6_held_counter_debit", "q5_q6_held_lender_counter_debit",
+    # Audit B5 (I15, I55): a Q5 or Q6 repeat keyed on a bank's label, entry or reference, now that the payer region
+    # reads the payer printed after it (or no payer, where only an empty label prints).
+    "q5_q6_payer_after_a_label",
 )
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
 #: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
@@ -1671,6 +1674,11 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         # (b) the payer region now reads a relaying bank's customer (A3-G refinement), so the repeat is another's.
         if base["method"] == "repeat_wire_sender" and facts.get("relayed_customer"):
             return "q5_q6_relayed_customer"
+        # (b) audit B5 (I15, I55): the repeat was keyed on a bank's label, entry or reference (PNC's entry word, an
+        # empty ORIG CO label); the payer region now reads the payer printed after it, or no payer (the pass's own
+        # payer_label_layout fact), and the row is counted.
+        if after.get("tier") == "counted_flagged" and facts.get("payer_label_layout"):
+            return "q5_q6_payer_after_a_label"
         # (b) Q6c refuses a premium-coded insurer entry as proof (A3-H): counted as a refused payer.
         if after.get("reason") == "named_payer_purpose_refused" and facts.get("premium_coded"):
             return "premium_coded_insurer_entry"

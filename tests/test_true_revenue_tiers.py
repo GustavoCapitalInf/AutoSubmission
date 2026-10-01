@@ -808,15 +808,20 @@ def test_a_gated_processor_s_word_inside_a_payer_s_name_never_skips_q6():
 
 def test_a_leading_date_never_hides_the_accounts_payable_pmt_numbered_template():
     # §5.2, T11 (re-review fix 3): 'ACC(OUN)TS PAYABLE PMT <digits>' after a leading date reads as its undated twin.
+    # Audit B5 (I59): the template reads a number that nothing, a province (or a cut of one) or BMO's code tail
+    # follows; a reference before a named payer ('... PMT 1234567 NORTHWIND LTD') is no numbered company, dated or not.
     from analysis import transaction_classifier as classifier
     from analysis.description_text import normalize_transaction_description
 
-    for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD", "ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD",
-                 "0302 ACCTS PAYABLE PMT 1234567 NORTHWIND LTD"):
+    for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567", "ACCOUNTS PAYABLE PMT 1234567", "0302 ACCTS PAYABLE PMT 1234567",
+                 "03/02 ACCOUNTS PAYABLE PMT 1234567 ONTA", "0302 ACCTS PAYABLE PMT 1234567 ONTA"):
         assert classifier.numbered_company(classifier.revenue_text(normalize_transaction_description(text)))
         record = _one(text, 700.0)
         assert record.revenue_classification == "unverified_deposit"
         assert _tier(record) == ("counted_flagged", "numbered_company_payer")
+    for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD", "ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD",
+                 "0302 ACCTS PAYABLE PMT 1234567 NORTHWIND LTD"):
+        assert not classifier.numbered_company(classifier.revenue_text(normalize_transaction_description(text)))
 
 
 @pytest.mark.parametrize("text", [

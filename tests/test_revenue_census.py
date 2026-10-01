@@ -1192,6 +1192,9 @@ def test_a_name_masked_in_a_later_snapshot_is_the_name_an_older_snapshot_wrote_u
 FACTOR_WIRE = "WIRE TYPE WIRE IN ORIG SAMPLE FACTOR LLC ID # PMT DET INV ####"
 Q5_WIRE = "WIRE TYPE WIRE IN ORIG FABRIKAM EXPORTS LLC ID # SND BK SAMPLE BANK ID #"
 ACH_ROW = "NORTHWIND SUPPLY LLC DES PAYMENT ID # INDN CONTOSO BAKERY LLC CO ID ########## CCD"
+#: Audit B5 (I15, I55): PNC's CORPORATE ACH layout and a Chase export's empty ORIG CO label, digit-masked.
+PNC_ROW = "CORPORATE ACH PAYMENTS ################# NORTHWIND SUPPLY ##########"
+EMPTY_LABEL_ROW = "ORIG CO ACH CREDIT"
 #: GOV (owner ruling 2026-09-30): a state's unemployment deposit (class B) and a Farm Service Agency payment (class D),
 #: digit-masked.
 GOV_UI = "ACH DEPOSIT NYS DOL UI DD UI DD #######"
@@ -1309,6 +1312,25 @@ def _cause56(prior, later):
     (_step_11(INVOICE),
      _after56("unidentified_posted_credit", INVOICE, tier="excluded_pending_review", reason="payer_also_debited"),
      "undeclared"),
+    # Audit B5 (I15, I55): a Q5 or Q6 repeat keyed on a bank's label, entry or reference (PNC's entry word, an empty
+    # ORIG CO label), now that the payer region reads the payer printed after it (the pass's payer_label_layout fact):
+    # counted as a one-off payer, or as no payer printed.
+    (_q56("named_payer_repeats", PNC_ROW),
+     _after56("unidentified_posted_credit", PNC_ROW, tier="counted_flagged", reason="named_payer_one_off",
+              payer_label_layout=True), "q5_q6_payer_after_a_label"),
+    (_q56("named_payer_repeats", EMPTY_LABEL_ROW),
+     _after56("unidentified_posted_credit", EMPTY_LABEL_ROW, tier="counted_flagged", reason="no_payer_printed",
+              payer_label_layout=True), "q5_q6_payer_after_a_label"),
+    # Keyed on the fact and the counted tier: without the fact, or held, the demotion is undeclared.
+    (_q56("named_payer_repeats", PNC_ROW),
+     _after56("unidentified_posted_credit", PNC_ROW, tier="counted_flagged", reason="named_payer_one_off"),
+     "undeclared"),
+    (_q56("named_payer_repeats", PNC_ROW),
+     _after56("unidentified_posted_credit", PNC_ROW, tier="excluded_pending_review", reason="non_sale_purpose",
+              payer_label_layout=True), "undeclared"),
+    (_step_11(INVOICE),
+     _after56("unidentified_posted_credit", INVOICE, tier="counted_flagged", reason="named_payer_one_off",
+              payer_label_layout=True), "undeclared"),
     # The $1 floor's own method (pass 7's last step).
     ({**_q56("named_payer_repeats", ACH_ROW), "cents": 40},
      {**_after56("micro_deposit_floor", ACH_ROW, tier="excluded_pending_review", reason="non_sale_purpose"),

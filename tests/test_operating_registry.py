@@ -144,6 +144,8 @@ CARD_FORM_ROWS = [
     ("intuit_deposit", "INTUIT PYMT SOLN"),
     ("intuit_deposit", "QBOOKS DEPOSIT"),
     ("intuit_deposit", "ORIG CO NAME INTUIT 123456 CO ENTRY DESCR DEPOSIT"),
+    # Audit B5 (I15): PNC prints the entry before the payer.
+    ("intuit_deposit", "CORPORATE ACH DEPOSIT 123456 INTUIT 123456"),
     ("square_checking_sales", "CARD PAYMENT SALES"),
     ("network_settlement", "AMERICAN EXPRESS SETTLEMENT"),
     ("network_settlement", "AMEXO GBL"),

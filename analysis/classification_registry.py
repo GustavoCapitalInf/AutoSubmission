@@ -1888,11 +1888,14 @@ CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
         refusal=r"(?<![A-Z])(?:LAW|ATTORNEYS?|ESQ|TRUST|ESCROW|TITLE|CLAIMS?)\b",
     ),
     CardSettlementForm("batch_total", r"(?<![A-Z])[BM]TOT DEP\b"),
+    # Audit B5 (I15): PNC prints the entry before the payer ('CORPORATE ACH DEPOSIT <ref> INTUIT <ref>'), the same
+    # QuickBooks Payments merchant deposit the other layouts print 'INTUIT <ref> DEPOSIT'.
     CardSettlementForm(
         "intuit_deposit",
         r"(?<![A-Z])INTUIT \d{6,}(?: DES)? DEPOSIT\b|(?<![A-Z])DEPOSIT FROM INTUIT \d{6,}\b"
         r"|(?<![A-Z])INTUIT PYMT SOLN\b|(?<![A-Z])QBOOKS\b"
-        r"|(?<![A-Z])ORIG CO NAME INTUIT \d+\b.*(?<![A-Z])DESCR DEPOSIT\b",
+        r"|(?<![A-Z])ORIG CO NAME INTUIT \d+\b.*(?<![A-Z])DESCR DEPOSIT\b"
+        r"|(?<![A-Z])CORPORATE ACH DEPOSIT \d{6,} INTUIT \d{6,}\b",
         entity="QuickBooks Payments",
         refusal=r"(?<![A-Z])(?:TAX|RFND|REFUND|QBC|CAPITAL|LOAN)\b",
     ),

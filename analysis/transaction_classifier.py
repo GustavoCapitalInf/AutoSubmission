@@ -1088,10 +1088,22 @@ _CREDIT_WIRE_BENEFICIARY_VALUE = re.compile(
     r"|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER RECEIVED|FROM)\b|$)"
 )
 #: §5.2: the bank's words printed before the payer, removed before the payer is read (with _PAYEE_TEMPLATE_PREFIX).
+#: Audit B5 (I19): and American Express's incoming-ACH label (_AMEX_ACH_CREDIT).
 _REVENUE_TEMPLATE_PREFIX = re.compile(
     r"^(?:BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
     r"|ELECTRONIC CREDIT|ACH CORP CREDIT|ACH DEPOSIT|ACH CREDIT|DEPOSIT FROM|PREAUTHORIZED CREDIT|EFT CREDIT"
-    r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT)\b ?"
+    r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT|ONLINE TRANSFER PAYMENT CREDIT)\b ?"
+)
+#: Audit B5 (I19; standard A4, A16): American Express Business Checking prints every incoming ACH credit as
+#: 'ONLINE TRANSFER PAYMENT CREDIT <originator> <entry> <id> [<receiver account>] <receiver name> EXTERNAL <originating
+#: bank> ID <trace>' (the NACHA company name, entry description, a four-digit id it prints masked as '*****NNNN', the
+#: receiver's own account and name, the sending bank). It is an ACH template, never a transfer: the label's TRANSFER
+#: names no counterparty. The originator and its entry are the text before the id (the payer region); the receiver
+#: block, up to EXTERNAL, is a receiver field (_before_receiver, _without_receiver_value), so the receiver's masked
+#: account and the holder's own name never read as the payer. The id is the last four-digit token before the receiver
+#: block.
+_AMEX_ACH_CREDIT = re.compile(
+    r"^ONLINE TRANSFER PAYMENT CREDIT (?P<payer>\S.*) (?P<id>\d{4})(?P<receiver>(?: (?!\d{4}\b)\S+)*) EXTERNAL\b"
 )
 #: §5.2: a wire's originator starts after one of these labels (never ORIG CO NAME, ORIG ID or ORIG TO BNF). 5.6 (A3-G
 #: re-review): ORIGINATOR and ORG take the same guards: ORIGINATOR TO BENEFICIARY (ORG TO BNF) is a purpose field's
@@ -1160,7 +1172,9 @@ _COMPANY_FORM = re.compile(
 _ELECTRONIC_PAYMENT_FORM = re.compile(
     r"\b(?:ORIG CO NAME|CO ENTRY DESCR|DES|CCD|CTX|PPD|IAT|ACH|EFT|ELECTRONIC DEPOSIT|ELECTRONIC CREDIT|ELECTRONIC PMT"
     r"|ELECTRONIC PAYMENT|DIRECT DEPOSIT|MISC PAYMENT|CORPORATE ACH|BILL PAYMENT|EDI|INDN|PREAUTHORIZED CREDIT"
-    r"|DEPOSIT FROM|PAID FROM|PAYMENT FROM|CREDIT FROM|MSP DIV|AP CC)\b"
+    r"|DEPOSIT FROM|PAID FROM|PAYMENT FROM|CREDIT FROM|MSP DIV|AP CC"
+    # Audit B5 (I19): American Express's incoming-ACH label (_AMEX_ACH_CREDIT).
+    r"|ONLINE TRANSFER PAYMENT CREDIT)\b"
 )
 #: §5.2, T11: the provinces and territories and CANADA, whole or cut to three or more leading letters, and their
 #: postal and common abbreviations.
@@ -1180,16 +1194,31 @@ _PROVINCE = "(?:" + "|".join(sorted(
 #: §5.2, T11 (S4.2 fix round 5): QUEBEC, its cuts and QC: the only province that prints a numbered company as
 #: NNNN-NNNN. The P2P sender key reads the same set (true_revenue._numbered_province_sender).
 _QUEBEC = "(?:QUEBEC|QUEBE|QUEB|QUE|QC)"
+#: Audit B5 (I59): the CPA transaction codes BMO prints after a cut numbered company's number ('DIRECT DEPOSIT <n>
+#: ONTA AP CC', '... MSP DIV', '... EDI EED'): no name word.
+_BMO_CODE_TAIL = r"(?:AP|CC|MSP|DIV|APY|EDI|EED)"
 #: §5.2, T11: a numbered company. The template form is read on the row before the receiver fields (BMO cuts the name
-#: to the field, so the digits alone decide); the payer-region form keeps the region's leading digit token.
+#: to the field, so the digits alone decide); the payer-region form keeps the region's leading digit token. Audit B5
+#: (I59): Scotiabank, RBC and CIBC print a payment reference in the template's digit slot and then the payer's name
+#: ('BILL PAYMENT <reference> <payer> INC', 'MISC PAYMENT <reference> TOWN OF <town>'): the template form fires only
+#: when nothing, a province or territory (or a cut of one) or BMO's code tail follows the digits, and both forms read
+#: a number of six to ten digits (a Canadian corporation number has at most ten; a longer run is a reference).
 _NUMBERED_COMPANY_TEMPLATE = re.compile(
-    r"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{6,}\b"
+    rf"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{{6,10}}"
+    rf"(?:$| (?:{_PROVINCE}|{_QUEBEC}|{_BMO_CODE_TAIL})\b)"
 )
+#: Audit B5 (I59): a reference of six to fifteen digits printed in the same slot, before the payer's name: no part of
+#: the payer region, unless a province or territory (or a cut of one), Quebec's form or BMO's code tail follows it
+#: (a numbered company's number, or BMO's merchant reference before its code, which names no payer).
+_REFERENCE_BEFORE_PAYER = re.compile(
+    r"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) (?P<reference>\d{6,15}) (?=\S)"
+)
+_KEEPS_ITS_NUMBER = re.compile(rf"(?:{_PROVINCE}|{_QUEBEC}|{_BMO_CODE_TAIL})\b")
 #: A3: a numbered company's number before its province or territory, or Quebec's NNNN NNNN before QUEBEC (the
 #: province arm of _NUMBERED_COMPANY_REGION), kept when a wire's sender is read after its label.
 _NUMBERED_PROVINCE_START = re.compile(rf"^\d{{6,}} {_PROVINCE}\b|^\d{{4}} \d{{4}} {_QUEBEC}\b")
 _NUMBERED_COMPANY_REGION = re.compile(
-    rf"^\d{{6,}}\b(?: {_PROVINCE}\b| (?:[A-Z]+ ){{0,4}}(?:INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO"
+    rf"^\d{{6,10}}\b(?: {_PROVINCE}\b| (?:[A-Z]+ ){{0,4}}(?:INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO"
     rf"|COMPANY)\b)"
     # Quebec prints its numbered companies as NNNN-NNNN (normalized NNNN NNNN), always before the province. S4.2 fix
     # round 5: Quebec's words only, so another province's word or code starting a name ('NORTH STAR', 'AB') is none.
@@ -1241,9 +1270,12 @@ _CASH_BRANCH_ATM_FORM = re.compile(
 #: §8.2: transfer wording. 5.6 (audit B2: I21): and its other spellings TRF, TRSFR, TRANSF and XFR ('TRF CT INTERNET',
 #: 'INTERNET PHONE TRSFR', 'TRANSF FONDS CT', 'INTERNET XFR FRM CHECKG'), and TRANSFER glued to a reference's digits
 #: (CIBC's 'CMO TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail). TRANSFERS
-#: waits for audit batch B8 (a TD footer prints FUNDS TRANSFERS).
+#: waits for audit batch B8 (a TD footer prints FUNDS TRANSFERS). Audit B5 (I19): never American Express's
+#: incoming-ACH label, 'ONLINE TRANSFER PAYMENT CREDIT' at the row's start (_AMEX_ACH_CREDIT); the same words
+#: anywhere else stay transfer wording.
 _TRANSFER_WORDING = re.compile(
-    r"\b(?:TRANSFER|TRNSFR|TRSFR|TRANSF|XFER|XFR|TFR|TRF|BR TO BR|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)"
+    r"\b(?:(?<!^ONLINE )TRANSFER|TRANSFER(?! PAYMENT CREDIT\b)|TRNSFR|TRSFR|TRANSF|XFER|XFR|TFR|TRF|BR TO BR"
+    r"|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)"
     r"|FUNDS TRANSFER)\b"
     r"|(?<!(?<![A-Z])E )(?<![A-Z])TRANSFER(?=\d)"
 )
@@ -1267,7 +1299,11 @@ def _joined_text(text: str) -> str:
 
 def _before_receiver(text: str) -> str:
     """5.5 (§5.2): the row up to its first receiver field (description_text.RECEIVER_FIELD_LABELS: INDN, IND NAME,
-    RECEIVER NAME, RECV NAME, IND ID)."""
+    RECEIVER NAME, RECV NAME, IND ID). Audit B5 (I19): on American Express's incoming-ACH template, up to its id: the
+    receiver block that follows prints no label (_AMEX_ACH_CREDIT)."""
+    amex = _AMEX_ACH_CREDIT.match(text)
+    if amex is not None:
+        return text[: amex.end("id")]
     return _CREDIT_RECEIVER_FIELD.split(text, 1)[0].rstrip()
 
 
@@ -1280,7 +1316,13 @@ def _without_receiver_value(text: str) -> str:
     S4.2 re-review (fix 7): on an incoming wire (_is_wire_row: labels only a credit prints) the beneficiary field's
     value goes too, as a receiver's does: a credit wire's beneficiary is the holder ('... ORIG NORTHWIND EXPORTS LLC
     ... BNF SQUARE ONE BAKERY'). Any other row keeps it: Chase's real-time layout prints the originator there ('FROM
-    BNF INTUIT PAYMENTS INC'), and a debit's beneficiary is its payee."""
+    BNF INTUIT PAYMENTS INC'), and a debit's beneficiary is its payee.
+
+    Audit B5 (I19): American Express's incoming-ACH template loses its unlabelled receiver block, the sending bank and
+    trace after it kept (_AMEX_ACH_CREDIT)."""
+    amex = _AMEX_ACH_CREDIT.match(text)
+    if amex is not None:
+        text = text[: amex.end("id")] + text[amex.end("receiver"):]
     stripped = _CREDIT_RECEIVER_VALUE.sub(" ", text)
     if _is_wire_row(text):
         stripped = _CREDIT_WIRE_BENEFICIARY_VALUE.sub(" ", stripped)
@@ -1547,10 +1589,16 @@ def _wire_sender_after_label(text: str) -> str:
     return region if named else ""
 
 
+#: Audit B5 (I15): Chase's real-time layout prints the contra bank's label and routing number before the sender ('REAL
+#: TIME TRANSFER RECD FROM ABA/CONTR BNK-<routing> FROM: <sender> REF ...'): never a sender.
+_CONTRA_BANK_FIELD = re.compile(r"\bFROM ABA CONTR BNK\b(?: \d+\b)?")
+
+
 def _sender_payer_region(text: str) -> str:
     """5.5 (§5.2): a person-to-person or transfer sender: the words after FROM, up to ON, REF, CONF, MEMO, TRN, ID,
-    FOR or a reference token. Venmo and Cash App cash-outs print no sender."""
-    row = _before_receiver(text)
+    FOR or a reference token. Venmo and Cash App cash-outs print no sender. Audit B5 (I15): the sender after the next
+    FROM when the first prints Chase's contra-bank label (_CONTRA_BANK_FIELD)."""
+    row = _CONTRA_BANK_FIELD.sub(" ", _before_receiver(text), count=1)
     found = re.search(r"\bFROM\b ?", row)
     if found is None:
         return ""
@@ -1559,10 +1607,116 @@ def _sender_payer_region(text: str) -> str:
     return _leading_name_words(rest[: end.start()] if end is not None else rest)
 
 
+#: Audit B5 (I15): PNC prints 'CORPORATE ACH <entry> <reference(s)> <payer> <reference>': its entry description (ten
+#: characters at most, one or two words) and a reference before the payer's name. A row whose words after the label
+#: are no such entry and reference ('CORPORATE ACH PAYROLL <payer> <reference>') keeps its reading.
+_PNC_CORPORATE_ACH = "CORPORATE ACH "
+_PNC_ENTRY_WIDTH = 10
+
+
+def pnc_corporate_ach(row: str) -> tuple[str, str] | None:
+    """Audit B5 (I15): PNC's CORPORATE ACH layout read as (entry, the text from the payer's name on), or None."""
+    if not row.startswith(_PNC_CORPORATE_ACH):
+        return None
+    tokens = row[len(_PNC_CORPORATE_ACH):].split()
+    for size in (1, 2):
+        entry = tokens[:size]
+        if len(entry) < size or len(" ".join(entry)) > _PNC_ENTRY_WIDTH:
+            return None
+        rest = tokens[size:]
+        references = 0
+        while references < len(rest) and _is_reference_token(rest[references]):
+            references += 1
+        if references and references < len(rest):
+            return " ".join(entry), " ".join(rest[references:])
+    return None
+
+
+#: Audit B5 (I26's reader): Navy Federal's 'DEPOSIT ACH PAID FROM <digits> <payer>' and Symitar's 'EXTERNAL DEPOSIT
+#: <digits> <payer>' print a block of four or more digits before the payer's name: the payer is read past it (a
+#: numbered company's number before its province is kept).
+_DIGIT_BLOCK_BEFORE_PAYER = re.compile(r"^(?:DEPOSIT ACH PAID FROM|EXTERNAL DEPOSIT) (?P<reference>\d{4,}) (?=[A-Z])")
+#: Audit B5 (I55): an ACH originator label printed with no value ('ORIG CO ACH CREDIT', a Chase export that keeps only
+#: the label) is no payer, and CO ENTRY DESCR starts the entry field ('CO ENTRY' is no payer either). CO alone stays a
+#: possible name word (_EMPTY_ACH_FIELD_LABELS reads label sequences only).
+_BARE_ORIG_CO_LABEL = re.compile(r"\bORIG CO\b(?! NAME\b)")
+_CO_ENTRY_DESCR_LABEL = re.compile(r"\bCO ENTRY DESCR\b")
+_EMPTY_ACH_FIELD_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIG CO|CO ENTRY DESCR|ORIG ID|IND NAME|IND ID)\b")
+
+
+def _without_reference_before_payer(row: str) -> str:
+    """Audit B5 (I59, I26's reader): the row without the reference printed before the payer's name (after DIRECT
+    DEPOSIT, ACCOUNTS PAYABLE, MISC PAYMENT or BILL PAYMENT, unless a province, Quebec's form or BMO's code tail follows
+    it: _REFERENCE_BEFORE_PAYER, _KEEPS_ITS_NUMBER), and without Navy Federal's or Symitar's digit block
+    (_DIGIT_BLOCK_BEFORE_PAYER)."""
+    found = _REFERENCE_BEFORE_PAYER.match(row)
+    if found is not None and _KEEPS_ITS_NUMBER.match(row, found.end()) is None:
+        return row[: found.start("reference")] + row[found.end():]
+    found = _DIGIT_BLOCK_BEFORE_PAYER.match(row)
+    if found is not None and _NUMBERED_PROVINCE_START.match(row[found.start("reference"):]) is None:
+        return row[: found.start("reference")] + row[found.end():]
+    return row
+
+
 def _ach_payer_region(text: str) -> str:
     """5.5 (§5.2): an ACH or EFT payer: the row before its receiver fields, template prefixes removed, originator
-    labels removed, cut at the first ACH field, up to the first reference token after a name word."""
-    return _leading_name_words(_payee_region(_strip_revenue_template(_before_receiver(text))))
+    labels removed, cut at the first ACH field, up to the first reference token after a name word. Audit B5: PNC's
+    payer after its entry and reference (I15, pnc_corporate_ach); no reference printed before the payer's name (I59,
+    I26's reader, _without_reference_before_payer); an empty ORIG CO label removed and CO ENTRY DESCR read as the
+    entry field it starts (I55)."""
+    row = _before_receiver(text)
+    pnc = pnc_corporate_ach(row)
+    if pnc is not None:
+        return _leading_name_words(_payee_region(pnc[1]))
+    row = _CO_ENTRY_DESCR_LABEL.sub("DESCR", _BARE_ORIG_CO_LABEL.sub("", row)).strip()
+    return _leading_name_words(_payee_region(_strip_revenue_template(_without_reference_before_payer(row))))
+
+
+def _amex_ach_credit(text: str) -> bool:
+    """Audit B5 (I19): American Express's incoming-ACH template (_AMEX_ACH_CREDIT) on a row that prints no
+    person-to-person or push rail."""
+    if _AMEX_ACH_CREDIT.match(text) is None:
+        return False
+    row = _before_receiver(text)
+    return _CONSUMER_P2P_RAIL.search(row) is None and _PUSH_RAIL.search(row) is None
+
+
+def payer_label_layout(text: str) -> bool:
+    """Audit B5 (a census fact: tools/revenue_census.py's q5_q6_payer_after_a_label): the row prints a layout whose
+    payer the payer region reads past a bank's label, entry, reference or code, or where only an empty label prints:
+    Chase's contra-bank field (I15, _CONTRA_BANK_FIELD), PNC's CORPORATE ACH entry and reference (I15,
+    pnc_corporate_ach), an empty ORIG CO label or a row that starts with CO ENTRY DESCR (I55), a reference before the
+    payer or Navy Federal's or Symitar's digit block (I59, I26's reader: _without_reference_before_payer) and American
+    Express's incoming-ACH template (I19, _amex_ach_credit)."""
+    row = _before_receiver(text)
+    return bool(
+        _CONTRA_BANK_FIELD.search(row)
+        or pnc_corporate_ach(row) is not None
+        or _BARE_ORIG_CO_LABEL.search(row)
+        or row.startswith("CO ENTRY DESCR")
+        or _without_reference_before_payer(row) != row
+        or _amex_ach_credit(text)
+    )
+
+
+#: Audit B5 (I14): the originator labels a loose-wire row may print (Bank of America's ORIG, ORG, Fedwire's B O,
+#: ORIGINATOR), never an ACH layout's ORIG CO or ORIG ID.
+_LOOSE_WIRE_ORIGINATOR_LABEL = re.compile(
+    r"\b(?:B O|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO\b)(?! ID\b)(?! TO BNF\b)"
+    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b))\b"
+)
+
+
+def _loose_wire_originator(text: str) -> bool:
+    """Audit B5 (I14): a row no incoming-wire label starts that prints WIRE outside the receiver's value and an
+    originator label ('DEPOSIT WIRE IN <reference> ORG <sender>'): its sender is read after the label, as an incoming
+    wire's is (_wire_payer_region). Never a person-to-person or push rail."""
+    if _is_wire_row(text) or _WIRE_WORD.search(_without_receiver_value(text)) is None:
+        return False
+    row = _before_receiver(text)
+    if _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
+        return False
+    return _LOOSE_WIRE_ORIGINATOR_LABEL.search(row) is not None
 
 
 def _prints_no_payer(text: str) -> bool:
@@ -1585,6 +1739,8 @@ def _is_bare_row(text: str) -> bool:
     row = _before_receiver(text)
     if _TRANSFER_WORDING.search(row):
         return False
+    # Audit B5 (I55): an ACH field label printed with no value names no payer.
+    row = _EMPTY_ACH_FIELD_LABELS.sub(" ", row).strip()
     return not any(_is_payer_word(token) for token in _strip_revenue_template(row).split())
 
 
@@ -1603,10 +1759,12 @@ def _is_payer_word(token: str) -> bool:
 def payer_region(text: str) -> str:
     """5.5 (§5.2): the payer region of a credit's revenue text, read by its channel: a wire's originator, a
     person-to-person or transfer sender, an ACH or EFT payer, or nothing on a check, cash, branch, ATM or bare row.
-    Read before any token is filtered, so a numbered company's leading digits and a legal word are kept."""
-    if _is_wire_row(text):
+    Read before any token is filtered, so a numbered company's leading digits and a legal word are kept. Audit B5: a
+    loose-wire row's originator label is read as an incoming wire's (I14, _loose_wire_originator), and American
+    Express's incoming-ACH template is read as ACH, its entry's transfer word aside (I19, _amex_ach_credit)."""
+    if _is_wire_row(text) or _loose_wire_originator(text):
         return _wire_payer_region(text)
-    if _is_transfer_or_p2p_row(text):
+    if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text):
         sender = _sender_payer_region(text)
         row = _before_receiver(text)
         # A transfer-worded row that prints an ACH originator field and no FROM sender names its payer the ACH way
@@ -1641,6 +1799,10 @@ def entry_fields(text: str) -> str:
         found = pattern.search(row)
         if found is not None:
             fields.append(found.group(1).strip())
+    # Audit B5 (I15): PNC's entry description, printed before its reference and the payer (pnc_corporate_ach).
+    pnc = pnc_corporate_ach(row)
+    if pnc is not None:
+        fields.append(pnc[0])
     if _is_wire_row(text):
         fields.extend(found.group(1).strip() for found in _WIRE_ENTRY_FIELD.finditer(text))
     elif _is_transfer_or_p2p_row(text):
@@ -1783,12 +1945,15 @@ def channel_gate(text: str) -> str | None:
 #: §7.9 N1 and §7.11 (T19): the labels a reader needs to tell an incoming wire, and the originator a book or
 #: funds transfer prints after B O, CUSTOMER, ORIGINATOR, ORG, TT, FROM or WIRE FROM.
 _THIRD_PARTY_ORIGINATOR = re.compile(r"\b(?:B O|CUSTOMER|ORIGINATOR|ORG|TT|FROM|WIRE FROM)\b ?")
-#: §7.9 N1 and §7.11: the incoming-wire labels a row begins with.
+#: §7.9 N1 and §7.11: the incoming-wire labels a row begins with. Audit B5 (I14, I12's reader): and Columbia Bank's
+#: 'WIRE DEPOSIT WIRE IN <reference> ORG <sender>', Navy Federal's 'BANK WIRE DEPOSIT' (which prints no sender) and
+#: U.S. Bank's 'WIRE CREDIT REF<n> <sending bank> <reference>' (whose sender prints after ORG= when the line is kept).
 _INCOMING_WIRE_LABEL = re.compile(
     r"^(?:WIRE TYPE (?:WIRE|INTL|FX) IN\b|USD WIRE IN\b|[A-Z]{3} WIRE IN\b|FEDWIRE CREDIT\b|CHIPS CREDIT\b|WT FED"
     r"|WIRE TSF\b|WIRE TRANSFER (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
     r"|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN) (?:INCOMING )?WIRE\b|INCOMING FUNDS TRANSFER\b"
-    r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b)"
+    r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b"
+    r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?\d+\b)"
 )
 _BOOK_TRANSFER_FROM = re.compile(r"^(?:BOOK TRANSFER CREDIT B O|WIRE TYPE BOOK IN\b.*\bORIG)\b ?")
 #: §7.11: the funds-transfer labels of an incoming wire (the label stands for FROM).
