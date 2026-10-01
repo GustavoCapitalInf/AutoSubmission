@@ -20,6 +20,7 @@ Usage, from the repository root of the checkout that holds this tool:
     python -m tools.revenue_census compare --base <file> --after <file> [--after <file>] --out <file>
                                            [--admissions <the S1.5 admissions' signed-off entity list>]
     python -m tools.revenue_census sample --snapshot <5.6 file> --out <file>
+    python -m tools.revenue_census sweep --snapshot <file> --out <file>
 
 Every output is refused inside any repository: a path that is, or sits below, a folder holding a `.git` entry (S3.1
 review). A guard whose facts the run's snapshot lacks is reported "not checked (facts arrive in 5.6)", never as held,
@@ -35,10 +36,24 @@ kept only when no statement already kept has its identity (bank, the account num
 period). Of a job store, `pdf` keeps each PDF's newest job. A snapshot records its basis, and `compare` refuses to
 compare two bases.
 
+B1 (audit I60): on every basis, among the analyses that read one statement (one fingerprint: bank, period, balances,
+row count, account number), the snapshot keeps the newest-created, whatever order the reader yields them in (the input
+basis reads the newest first); before B1 it kept the first in input-hash order, so a stale parse could win over a newer
+one. Every account records its analysis stage (the leading digits of the settings key it was cached under, which
+carries webapp.artifact_cache.ANALYSIS_STAGE_VERSION; the basis counts rank the stages by their first analysis), when it
+was analysed and the parser route that published it (`model_used`). The snapshot maps each analysis it set aside to the
+one it kept (`duplicates`), and lists apart the set-aside analyses whose parse differs from the kept one
+(`stale_parses`). `compare` follows a base account the later run set aside to the analysis it kept, and compares one
+whose parse differs apart, as a parse change, never as a rule's move.
+
+B1 (audit I39): every summary carries the standing sweep of the non-revenue a credit's wording identifies inside True
+(NON_REVENUE_IN_TRUE_CLASSES, classes A to H), so a regression shows as a number; class H, a government payment that
+prints no purpose, is the owner's and is reported apart, never in the overstatement. `sweep` prints it for one snapshot.
+
 `sample` draws §14.5's precision sample (up to 20 Verified rows of each stratum, the Verified rows the holder test
 matches, and the 50 largest counted rows), digit-masked, with an empty `sort` for the reviewer.
 
-Exit codes: snapshot and sample 0, or 2 when refused. compare 0 when every guard holds, 1 when one fails, 2 when
+Exit codes: snapshot, sample and sweep 0, or 2 when refused. compare 0 when every guard holds, 1 when one fails, 2 when
 refused.
 """
 from __future__ import annotations
@@ -197,6 +212,14 @@ CREDIT_UNION_DEALER_MIN_CREDITS = 2
 FILTER_SKIPS = frozenset({"unreconciled", "duplicate"})
 #: S3.1: the snapshot bases (see the module docstring).
 BASES = ("input", "pdf")
+#: B1 (audit I60): the key under which the account readers hand the snapshot what the cache or the job store says of an
+#: account's analysis (added on reading, never a key of a stored payload): when it was created and its stage.
+CENSUS_META = "_census"
+#: B1 (I60): the leading hex digits of a settings key (webapp.artifact_cache.analysis_settings_key, which carries
+#: ANALYSIS_STAGE_VERSION) the census records as the analysis stage an account was cached under.
+STAGE_PREFIX = 10
+#: B1 (I60): a cut name prefix this long reads as the whole name (Chase cuts ORIG CO NAME at sixteen characters).
+_CUT_NAME = 15
 #: S3.1: §6.1 steps 15 and 16, where a credit lands when every rule before them refuses it.
 FALLBACK_METHODS = frozenset({"ambiguous_credit_descriptor", "unidentified_posted_credit"})
 #: S3.1 (wire_veto): the rules the §7.9 wire vetoes govern since the S2.3 review: step 11's customer and invoice
@@ -473,23 +496,62 @@ def _artifact(data_dir: Path, relative: str) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _stage(settings_key: object) -> str | None:
+    """B1 (I60): an analysis's stage as the census records it: its settings key's leading digits."""
+    return str(settings_key)[:STAGE_PREFIX] if settings_key else None
+
+
+def _current_stages() -> frozenset[str] | None:
+    """B1 (I60): the settings keys this checkout caches a deterministic or an automatic analysis under, or None when it
+    cannot derive them (an older checkout, or a settings error)."""
+    try:
+        from webapp.artifact_cache import analysis_settings_key
+
+        return frozenset(analysis_settings_key(parse_mode=mode) for mode in ("deterministic", "auto"))
+    except Exception:  # noqa: BLE001  (informational only)
+        return None
+
+
+def _analysis_stages(connection: sqlite3.Connection) -> dict:
+    """B1 (I60): every stage the cache's analyses were made under (stage -> its generation, 1 for the stage whose first
+    analysis is the oldest; the day of that first analysis; its analyses; whether it is this checkout's stage)."""
+    rows = connection.execute(
+        "SELECT settings_key, MIN(created_at), COUNT(*) FROM artifact_cache WHERE stage = 'analysis'"
+        " GROUP BY settings_key ORDER BY MIN(created_at), settings_key"
+    ).fetchall()
+    current = _current_stages()
+    return {
+        _stage(key): {"generation": number, "first_created": str(first)[:10], "analyses": count,
+                      "current": None if current is None else key in current}
+        for number, (key, first, count) in enumerate(rows, start=1)
+    }
+
+
+def _with_meta(account: dict, created: object, settings_key: object = None) -> dict:
+    """B1 (I60): the account payload with what its reader knows of its analysis (CENSUS_META)."""
+    account[CENSUS_META] = {"created": None if created is None else str(created), "stage": _stage(settings_key)}
+    return account
+
+
 def cached_accounts(
     data_dir: Path, limit: int | None = None, *, basis: str = "input", stats: dict | None = None
 ) -> Iterator[tuple[str, dict]]:
-    """(id, account payload) for the latest cached analysis of each input (basis `input`), or of each source PDF
-    (basis `pdf`, S3.1); the cache is opened read-only. `stats`, when given, receives the basis's counts."""
+    """(id, account payload) for the latest cached analysis of each input (basis `input`, the newest analyses first:
+    B1, I60), or of each source PDF (basis `pdf`, S3.1); the cache is opened read-only. `stats`, when given, receives
+    the basis's counts and the cache's analysis stages."""
     if basis not in BASES:
         raise ValueError(f"unknown basis {basis!r}")
     stats = {} if stats is None else stats
     connection = _read_only(data_dir / "webapp.db")
     try:
         latest = connection.execute(
-            "SELECT a.input_sha256, a.artifact_path, a.created_at FROM artifact_cache a JOIN ("
+            "SELECT a.input_sha256, a.artifact_path, a.created_at, a.settings_key FROM artifact_cache a JOIN ("
             " SELECT input_sha256, MAX(created_at) AS newest FROM artifact_cache"
             " WHERE stage = 'analysis' GROUP BY input_sha256) b"
             " ON a.input_sha256 = b.input_sha256 AND a.created_at = b.newest"
-            " WHERE a.stage = 'analysis' ORDER BY a.input_sha256"
+            " WHERE a.stage = 'analysis' ORDER BY a.created_at DESC, a.input_sha256, a.settings_key"
         ).fetchall()
+        stats["analysis_stages"] = _analysis_stages(connection)
         routes: dict[str, list[str]] = defaultdict(list)
         if basis == "pdf":
             # Each PDF's OCR artifacts (one per route), newest first.
@@ -500,19 +562,22 @@ def cached_accounts(
                 routes[pdf].append(relative)
     finally:
         connection.close()
-    stats["analysis_inputs"] = len({sha for sha, _relative, _created in latest})
+    # B1 (I60): one analysis per input (two cached at one instant under two settings: the first in the order above).
+    unique: dict[str, tuple[str, str, str]] = {}
+    for sha, relative, created, settings in latest:
+        unique.setdefault(sha, (relative, created, settings))
+    stats["analysis_inputs"] = len(unique)
     if basis == "pdf":
-        newest = {sha: (relative, created) for sha, relative, created in latest}
-        yield from _pdf_accounts(data_dir, newest, routes, limit, stats)
+        yield from _pdf_accounts(data_dir, unique, routes, limit, stats)
         return
-    for number, (sha, relative, _created) in enumerate(latest):
+    for number, (sha, (relative, created, settings)) in enumerate(unique.items()):
         if limit is not None and number >= limit:
             return
         payload = _artifact(data_dir, relative)
         if payload is None:
             continue
         for index, account in enumerate(_account_payloads(payload.get("artifact"))):
-            yield f"c{sha[:12]}.{index}", account
+            yield f"c{sha[:12]}.{index}", _with_meta(account, created, settings)
 
 
 def _analysis_inputs_of(document: dict) -> list[str]:
@@ -555,7 +620,7 @@ def _reconciles(payload: dict) -> bool:
 
 
 def _pdf_route(
-    data_dir: Path, latest: dict[str, tuple[str, str]], candidates: list[tuple[str, int]]
+    data_dir: Path, latest: dict[str, tuple[str, str, str]], candidates: list[tuple[str, int]]
 ) -> tuple[str, int, dict | None, bool]:
     """S3.1 review: of a PDF's analysed routes (newest first), the newest whose analysis reconciles (passes the
     snapshot's filter); the newest when none does. (sha, route position, payload, reconciles)."""
@@ -571,7 +636,8 @@ def _pdf_route(
 
 
 def _pdf_accounts(
-    data_dir: Path, latest: dict[str, tuple[str, str]], routes: dict[str, list[str]], limit: int | None, stats: dict
+    data_dir: Path, latest: dict[str, tuple[str, str, str]], routes: dict[str, list[str]], limit: int | None,
+    stats: dict,
 ) -> Iterator[tuple[str, dict]]:
     """S3.1: the pdf basis. Each PDF (in hash order) yields the latest analysis of one analysis input its OCR routes
     are analysed under, once (two PDFs that read to one markdown share one analysis, which the first yields): the
@@ -623,7 +689,7 @@ def _pdf_accounts(
             identity = _statement_identity(account)
             if identity is not None:
                 identities.add(identity)
-            yield f"p{pdf[:12]}.{index}", account
+            yield f"p{pdf[:12]}.{index}", _with_meta(account, latest[sha][1], latest[sha][2])
     orphans = sorted((sha for sha in latest if sha not in reached), key=lambda sha: (latest[sha][1], sha), reverse=True)
     stats["orphan_inputs"] = len(orphans)
     for sha in orphans:
@@ -644,12 +710,12 @@ def _pdf_accounts(
             else:
                 identities.add(identity)
             stats["orphan_accounts_kept"] += 1
-            yield f"o{sha[:12]}.{index}", account
+            yield f"o{sha[:12]}.{index}", _with_meta(account, latest[sha][1], latest[sha][2])
 
 
 def job_accounts(database: Path, *, basis: str = "input", stats: dict | None = None) -> Iterator[tuple[str, dict]]:
-    """(id, account payload) for every saved job of a copy of the tryout host's job store, opened read-only; with the
-    pdf basis (S3.1), only each PDF's newest job (a job without a document is kept)."""
+    """(id, account payload) for every saved job of a copy of the tryout host's job store, opened read-only, the newest
+    first (B1, I60); with the pdf basis (S3.1), only each PDF's newest job (a job without a document is kept)."""
     if basis not in BASES:
         raise ValueError(f"unknown basis {basis!r}")
     stats = {} if stats is None else stats
@@ -657,17 +723,18 @@ def job_accounts(database: Path, *, basis: str = "input", stats: dict | None = N
     try:
         if basis == "pdf":
             rows = connection.execute(
-                "SELECT j.id, j.analysis_json, d.content_sha256 FROM jobs j LEFT JOIN documents d"
+                "SELECT j.id, j.analysis_json, d.content_sha256, j.created_at FROM jobs j LEFT JOIN documents d"
                 " ON d.id = j.document_id WHERE j.analysis_json IS NOT NULL ORDER BY j.created_at DESC, j.id DESC"
             ).fetchall()
         else:
-            rows = [(job_id, text, None) for job_id, text in connection.execute(
-                "SELECT id, analysis_json FROM jobs WHERE analysis_json IS NOT NULL").fetchall()]
+            rows = [(job_id, text, None, created) for job_id, text, created in connection.execute(
+                "SELECT id, analysis_json, created_at FROM jobs WHERE analysis_json IS NOT NULL"
+                " ORDER BY created_at DESC, id DESC").fetchall()]
     finally:
         connection.close()
     stats["jobs"] = len(rows)
     seen: set[str] = set()
-    for job_id, text, pdf in rows:
+    for job_id, text, pdf, created in rows:
         if pdf is not None:
             if pdf in seen:
                 stats["jobs_repeating_a_pdf"] = stats.get("jobs_repeating_a_pdf", 0) + 1
@@ -679,7 +746,7 @@ def job_accounts(database: Path, *, basis: str = "input", stats: dict | None = N
         except ValueError:
             continue
         for index, account in enumerate(_account_payloads(analysis)):
-            yield f"j{job_id[:8]}.{index}", account
+            yield f"j{job_id[:8]}.{index}", _with_meta(account, created)
 
 
 def _fingerprint(statement) -> tuple:
@@ -805,40 +872,334 @@ def account_snapshot(account: dict) -> dict:
     }
 
 
+def _analysis_fields(account: dict) -> dict:
+    """B1 (I60): what the snapshot records of an account's analysis: its stage, when it was created (CENSUS_META, from
+    the reader) and the parser route that published it (`model_used`)."""
+    meta = account.get(CENSUS_META) or {}
+    route = account.get("model_used")
+    return {"analysis_stage": meta.get("stage"), "analysis_created": meta.get("created"),
+            "parser_route": route if isinstance(route, str) else None}
+
+
+def _parse(statement) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """B1 (I60): a statement's parse, compared within one run only: every row's (digit-masked description, cents),
+    hashed, sorted; and its credits' alone."""
+    rows = [(hash((mask(transaction.description), round((transaction.amount or 0) * 100))), transaction.amount or 0)
+            for transaction in statement.transactions]
+    return tuple(sorted(row for row, _amount in rows)), tuple(sorted(row for row, amount in rows if amount > 0))
+
+
+def _differing(rows: tuple[int, ...], kept: tuple[int, ...]) -> int:
+    """B1 (I60): the rows of one parse the kept parse does not hold (counted with their repeats)."""
+    return sum((Counter(rows) - Counter(kept)).values())
+
+
+def _set_aside(groups: Iterable[list[dict]]) -> tuple[dict, list]:
+    """B1 (I60): each statement's set-aside analyses mapped to the one kept (the first of its group), and the stale
+    parses: the set-aside analyses whose parse differs from the kept one."""
+    duplicates: dict[str, str] = {}
+    stale: list[dict] = []
+    for members in groups:
+        kept = members[0]
+        for member in members[1:]:
+            duplicates[member["key"]] = kept["key"]
+            rows = _differing(member["parse"][0], kept["parse"][0])
+            if not rows:
+                continue
+            stale.append({
+                "account": member["key"], "kept": kept["key"], "rows_differing": rows,
+                "credit_rows_differing": _differing(member["parse"][1], kept["parse"][1]),
+                **{name: member[name] for name in ("analysis_stage", "analysis_created", "parser_route")},
+                **{f"kept_{name}": kept[name] for name in ("analysis_stage", "analysis_created", "parser_route")},
+            })
+    return duplicates, stale
+
+
+def _analysis_stage_version() -> int | None:
+    """B1 (I60): the analysis stage of the checkout that classifies (None when it has none)."""
+    try:
+        from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
+    except Exception:  # noqa: BLE001
+        return None
+    return ANALYSIS_STAGE_VERSION
+
+
 def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basis_stats: dict | None = None) -> dict:
-    """{"classification_version", "basis", "basis_stats", "accounts": {id: account snapshot}, "skipped": {reason: n}},
-    over the reconciled, de-duplicated accounts (the credit census's filter). `basis_stats` is the dict the account
-    reader fills (S3.1); it is read once every account is read."""
+    """{"classification_version", "analysis_stage_version", "basis", "basis_stats", "accounts": {id: account snapshot},
+    "skipped": {reason: n}, "duplicates": {set-aside id: kept id}, "stale_parses": [...]}, over the reconciled,
+    de-duplicated accounts (the credit census's filter). `basis_stats` is the dict the account reader fills (S3.1); it
+    is read once every account is read.
+
+    B1 (I60): of the analyses that read one statement (one fingerprint), the newest-created is kept, in whatever order
+    the reader yields them (a later, newer one replaces the one kept; equal times keep the first); the others are
+    duplicates, and one whose parse differs from the kept one is a stale parse."""
     from analysis.schema import Statement
     from analysis.transaction_classifier import CLASSIFICATION_VERSION
 
-    result: dict = {"classification_version": CLASSIFICATION_VERSION, "basis": basis, "accounts": {}, "skipped": {}}
+    result: dict = {"classification_version": CLASSIFICATION_VERSION, "analysis_stage_version": _analysis_stage_version(),
+                    "basis": basis, "accounts": {}, "skipped": {}}
     skipped: Counter = Counter()
-    seen: set = set()
+    groups: dict[tuple, list[dict]] = {}
     for key, account in accounts:
         if not bool((account.get("reconciliation") or {}).get("ok")):
             skipped["unreconciled"] += 1
             continue
         try:
-            fingerprint = _fingerprint(Statement.model_validate(account["statement"]))
+            statement = Statement.model_validate(account["statement"])
+            fingerprint = _fingerprint(statement)
         except Exception:  # noqa: BLE001  (a stored payload the schema no longer reads)
             skipped["unreadable"] += 1
             continue
-        if fingerprint in seen:
+        fields = _analysis_fields(account)
+        member = {"key": key, **fields, "parse": _parse(statement)}
+        members = groups.setdefault(fingerprint, [])
+        if members:
             skipped["duplicate"] += 1
-            continue
-        seen.add(fingerprint)
+            if (member["analysis_created"] or "") <= (members[0]["analysis_created"] or ""):
+                members.append(member)
+                continue
+            # B1 (I60): a newer analysis of a statement already read replaces the one kept.
+            result["accounts"].pop(members[0]["key"], None)
+        members.insert(0, member)
         try:
-            result["accounts"][key] = account_snapshot(account)
+            result["accounts"][key] = {**account_snapshot(account), **fields}
         except Exception as error:  # noqa: BLE001
             skipped[type(error).__name__] += 1
     result["skipped"] = dict(sorted(skipped.items()))
     result["basis_stats"] = dict(basis_stats or {})
+    result["duplicates"], result["stale_parses"] = _set_aside(groups.values())
     return result
 
 
 def _share(part: int, whole: int) -> float:
     return round(100.0 * part / whole, 2) if whole else 0.0
+
+
+#: B1 (audit I39): the standing sweep of the non-revenue a credit's wording identifies inside True (a verified or a
+#: counted credit), so a regression shows as a number. Each True credit lands in the first class (A to H, in order) one
+#: of whose wordings reads it; each wording carries its confidence. The wording is the census's own, read on the
+#: digit-masked text (independent of the code under test): bank and government forms and public companies only, each
+#: with its source, never a holder's or a private payer's name. Class H (a government payment that prints no purpose:
+#: task GOV's class E, standard E5) is the owner's to rule: reported apart as "unclear, owner", never in the
+#: overstatement. The standard is the audit's reference standard (§3 and §7, its section letters and pointers P1 to P9).
+SWEEP_UNCLEAR = "unclear"
+UNCLEAR_OWNER_CLASS = "H"
+NON_REVENUE_IN_TRUE_CLASSES = (
+    ("A", "own-account wording", (
+        # Standard B1 (P1 to P5) and audit I01, I21: overdraft sweeps, card and credit-line transfers, Square's savings
+        # folders, and the banks' own-account transfer forms that print no counterparty.
+        ("high", r"\bOVERDRAFT (?:PROTECTION|XFER|TRANSFER)\b|\bOD PROTECTION\b|\bODP TRANSFER\b"),
+        ("high", r"\b(?:TRANSFER|XFER|TRSFR|TRNSFR|TFR) FROM (?:CRD|CREDIT CARD|CREDIT LINE)\b"),
+        ("high", r"^EB FROM (?:CHECKING|SAVINGS)\b"),
+        ("high", r"^TRANSFER IN (?:RAINY DAY|RENT)$"),
+        ("high", r"^TRUIST ONLINE TRANSFER (?:MOBILE|ONLINE) FROM \d+$"),
+        ("high", r"^CBUSOL TRANSFER CREDIT ONLINE REFERENCE \d+$"),
+        ("high", r"^JPMORGAN CHASE EXT TRNSFR\b|^EXT TFR DEPOSIT\b"),
+        ("high", r"^FUNDING TRANSFER CREDIT TRANSFER FROM \d+$"),
+        ("high", r"\bOLB XFER FROM\b|^TRF CT INTERNET\b|^INTERNET PHONE TRSFR\b|^CMO TRANSFER\d|^INTERNET TRANSFER\d"),
+        ("high", r"\bONLINE XFER TRANSFER FROM (?:CL|CK|SV)\b"),
+        # Bank-originated (audit I39's verifiers): softer.
+        ("medium", r"\bJPMC INTERNAL ACCOUNTS\b|^BANK OF AMERICA SAVINGS \d+ ACH\b"),
+    )),
+    # Standard B7 and audit I13: the ACH originator is the receiver, the holder (read by _own_ach).
+    ("B", "holder's own ACH", ()),
+    ("C", "financing", (
+        # Standard C1 and C2. Audit I08: Forward Financing's fundings (FORWARDFINUSA<reference>, and its funding
+        # vehicle FF SPE II, in statements that repay Forward). Audit I23: Celtic Bank and Newtek Bank, SBA and fintech
+        # lenders.
+        ("high", r"\bFORWARDFINUSA|\bFORWARD FINANCING\b|\bFF SPE II\b|^CELTIC BANK\b|\bNEWTEK BANK\b"),
+        ("high", r"\bLOAN (?:PROCEEDS|DISB\w*|ADVANCE)\b|\b(?:LINE OF CREDIT|LOC) (?:ADVANCE|DRAW)\b|\bLINE OF CR\b"),
+    )),
+    ("D", "refunds and corrections", (
+        # Standard D1, D3, D5 (P6 to P8) and audit I04: returned items, bank corrections, provisional credits,
+        # reversed card purchases, fee waivers, card-purchase refunds and returned funder debits (French RENV).
+        ("high", r"\bITEM RET(?:URNED)? NOT PAID\b|\b(?:ERROR|TRANSACTION) CORRECTION\b|^CORRECTION\b"),
+        ("high", r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR(?:EDIT)?\b|^REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b"),
+        ("high", r"\bFEE WAIVE[DR]?\b|\bWAIVE[DR]? FEE\b|^CREDIT BR \d+ WAIVE|\bRTNOFFSETS?\b|\bE ?TRANSFER RECLAIM\b"),
+        ("high", r"^CHECKCARD \d|\bDEBIT PURCHASE RET\b|\bRENV(?:ERSEMENT)?\b"),
+        # Standard D4: card rewards redeemed into the account (Chase's CASH REDEMPTION).
+        ("medium", r"\bCASH REDEMPTION\b|\bREWARDS? REDEMPTION\b"),
+    )),
+    ("E", "investment and crypto", (
+        # Standard G2 and audit I28: crypto exchanges and brokerages (Coinbase, Kraken's operator Payward, Binance.US's
+        # operator BAM Trading, Bitstamp, Apex Clearing, Fidelity's brokerage form) and bitcoin that is not a sale.
+        ("medium", r"\bCOINBA ?SE\b|\bPAYWARD\b|\bBINANCE\b|\bBAM TRADING\b|\bBITSTAMP\b|\bAPEX CLEARING\b"),
+        ("medium", r"\bP FIDELITY\b|\bBITCOIN\b(?!.*\bSALES?\b)"),
+    )),
+    ("F", "gambling and prediction markets", (
+        # Standard G3 (P9) and audit I28: sportsbooks and prediction markets paying out, not paying a vendor.
+        ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE)\b).*"
+                 r"\b(?:DRAFTKINGS|FANDUEL|KALSHI|PRIZEPICKS|BETMGM|POLYMARKET|SPORTSBOOK)\b"),
+    )),
+    ("G", "government money not earned", (
+        # Task GOV (the owner's ruling of 2026-09-30): personal benefits (class B), tax refunds (class C), grants and
+        # subsidies (class D); standard E1, E3, E4. A government paying for services is revenue (class A), never here.
+        ("high", r"\bCANADA (?:CHILD|ESSENTIALS|GROCERIES AND ESSENTIALS|WORKERS|DISABILITY) BENEFITS?\b"
+                 r"|\bOLD AGE SECURITY\b|\bUI DD\b|\bTAX ?EIP\d*\b|\bCHILD CTC\b"),
+        ("high", r"\bSSA TREAS\b|(?:\bXX|\b)SOC SEC\b|(?:\bXX|\b)VA BENEF"),
+        ("high", r"\bHHS ?STIMULUS\b|\bHHSPAYMENT|\b(?:FSA|CCC) TREAS \d+\b|\bCEWS\b|\bGOVERNMENT ESDC\b"),
+        ("high", r"\bCANADA GST\b|\bGST (?:TPS )?CANADA\b|\bRQ GST\b|\bCANADA RI[TF]\b"),
+        ("high", r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAX ?EIC\b"
+                 r"|\bIRS TREAS ?\d{3}\b(?!.*\b(?:MISC PAY|VENDOR)\b)"),
+        # Audit I56 (GOV's gaps): payroll-tax refunds through a payroll provider, and the glued carbon rebate.
+        ("medium", r"\bADP TAX\b|\bPAYCHEX TPS\b.*\bTAXES\b|\bTAXES\b.*\bPAYCHEX\b|CARBON ?REBATE"),
+    )),
+    (UNCLEAR_OWNER_CLASS, "government payment, purpose not printed (unclear, owner)", (
+        # Task GOV's class E and audit I39's class H: Minnesota Management and Budget's state vendor payments, an
+        # agency's Treasury MISC PAY with no invoice (VA's), a province's or Quebec's payment, workers' compensation
+        # boards, and Wisconsin DCF's direct deposits.
+        (SWEEP_UNCLEAR, r"\bSTATE MMB\b|^\d+ TREAS \d+ MISC PAY\b|\bPROVINCIAL PAYMENT PROVINCE OF\b"
+                        r"|\bPROV(?:INCIAL)? LOCAL GVT\b|\bGOUV(?:ERNEMENT)? (?:DU )?QUEBEC\b"),
+        (SWEEP_UNCLEAR, r"\bWSIB\b|\bWORK COMP BOARD\b|\bWCB\b|\bWORKFORCE SAFETY\b|\bWIDCF DD\b"),
+    )),
+)
+#: The wording is read on the masked text with each '#' read as the digit 0, which keeps a classifier's \d, \w and \b
+#: on a masked digit exactly as _on_masked does, at the regex engine's own speed.
+_SWEEP_WORDING = tuple(
+    (letter, tuple((confidence, re.compile(pattern)) for confidence, pattern in wordings))
+    for letter, _label, wordings in NON_REVENUE_IN_TRUE_CLASSES
+)
+#: Every class's wording at once: a row none of it reads (and that prints no own push) lands in no class, read once.
+_SWEEP_ANY = re.compile("|".join(
+    f"(?:{pattern})" for _letter, _label, wordings in NON_REVENUE_IN_TRUE_CLASSES for _confidence, pattern in wordings
+))
+#: B1 (I39, class B): an ACH row's originator and receiver fields (BofA's '<originator> DES ... INDN <receiver> CO ID',
+#: Chase's 'ORIG CO NAME <originator> ORIG ID ... IND NAME <receiver> TRN'), on the masked text.
+_OWN_ACH_FORMS = (
+    re.compile(r"^(?:(?:ACH|CCD|PPD) (?:CREDIT|DEPOSIT) )?(?P<originator>.+?) DES\b.*?\bINDN (?P<receiver>.+?)"
+               r"(?= CO ID\b|$)"),
+    re.compile(r"\bORIG CO NAME (?P<originator>.+?) ORIG ID\b.*?\bIND NAME (?P<receiver>.+?)(?= TRN\b|$)"),
+)
+#: B1 (I39, class B): the entry wording of the holder's own push, read before the receiver field: an ACH push, a
+#: bank's ACH product sending from the holder's other account (Mercury's MERCURYACH), transfer wording, or a credit
+#: line's payment. A processor or platform that originates its settlement or payout under the merchant's own name
+#: (NET SETTLE, NETSWEEP, a payout id, a distributor's EFT) prints none of these, and stays out.
+_OWN_ACH_ENTRY = re.compile(r"(?<![A-Z])(?:ACH ?PUSH|MERCURYACH|LINE OF CR|(?:TRANSFERS?|XFER|TRNSFR|TRSFR|TFR)\b)")
+_SWEEP_SHAPES = 8
+
+
+def _own_ach(text: str) -> bool:
+    """B1 (I39, class B): an ACH row whose originator is its receiver (the holder), with the entry wording of an own
+    push (_OWN_ACH_ENTRY): the two names are equal, or one is the other's start, whole words of two or more, or a cut
+    of _CUT_NAME characters or more."""
+    if not _OWN_ACH_ENTRY.search(_before_receiver(text)):
+        return False
+    for form in _OWN_ACH_FORMS:
+        match = form.search(text)
+        if match is None:
+            continue
+        originator, receiver = (" ".join(match.group(name).split()) for name in ("originator", "receiver"))
+        if not re.search(r"[A-Z]{3}", originator) or not re.search(r"[A-Z]{3}", receiver):
+            continue
+        shorter, longer = sorted((originator, receiver), key=len)
+        if longer == shorter:
+            return True
+        if longer.startswith(shorter) and (
+            len(shorter) >= _CUT_NAME or (longer[len(shorter)] == " " and len(shorter.split()) >= 2)
+        ):
+            return True
+    return False
+
+
+def _sweep_shape(text: str, span: tuple[int, int] | None) -> str:
+    """B1 (I39): a swept row's shape: the class's own wording and the public words kept, a word that holds a digit
+    printed '#', any other word '*', and a run of one mark printed once."""
+    words: list[str] = []
+    for token in re.finditer(r"\S+", text):
+        word = token.group()
+        if set(word) == {"#"}:
+            word = "#"
+        elif not ((span is not None and span[0] <= token.start() and token.end() <= span[1]) or word in _PUBLIC_WORDS):
+            word = "#" if "#" in word else "*"
+        if not (word in {"#", "*"} and words and words[-1] == word):
+            words.append(word)
+    return " ".join(words)
+
+
+def _sweep_class(text: str) -> tuple[str, str, str] | None:
+    """B1 (I39): the first class whose wording reads a True credit's masked text: (class, confidence, shape)."""
+    zeroed = text.replace("#", "0")
+    if _SWEEP_ANY.search(zeroed) is None and _OWN_ACH_ENTRY.search(text) is None:
+        return None
+    for letter, wordings in _SWEEP_WORDING:
+        if letter == "B":
+            if _own_ach(text):
+                return letter, "high", public_shape(text)
+            continue
+        for confidence, wording in wordings:
+            match = wording.search(zeroed)
+            if match is not None:
+                return letter, confidence, _sweep_shape(text, match.span())
+    return None
+
+
+def sweep(snap: dict) -> dict:
+    """B1 (I39): the non-revenue a credit's wording identifies inside True, by class (rows, dollars, statements, the
+    verified dollars, the dollars of each confidence, the share of True and the largest shapes); the overstatement
+    (classes A to G: the high-confidence wording, and all of it); and class H apart, as the owner's."""
+    true_cents = 0
+    slots: dict = {letter: {"rows": Counter(), "cents": Counter(), "statements": set(), "verified": 0,
+                            "shapes": Counter()} for letter, _label, _wordings in NON_REVENUE_IN_TRUE_CLASSES}
+    for key, account in snap["accounts"].items():
+        for credit in account["credits"]:
+            verified = credit["state"] == "verified_revenue"
+            if not (verified or credit.get("tier") == "counted_flagged"):
+                continue
+            true_cents += credit["cents"]
+            found = _sweep_class(credit["text"])
+            if found is None:
+                continue
+            letter, confidence, shape = found
+            slot = slots[letter]
+            slot["rows"][confidence] += 1
+            slot["cents"][confidence] += credit["cents"]
+            slot["statements"].add(key)
+            slot["verified"] += credit["cents"] if verified else 0
+            slot["shapes"][shape] += credit["cents"]
+
+    def share(cents: int) -> float:
+        return round(100.0 * cents / true_cents, 3) if true_cents else 0.0
+
+    classes = {
+        letter: {
+            "label": label, "rows": sum(slots[letter]["rows"].values()),
+            "dollars": round(sum(slots[letter]["cents"].values()) / 100, 2),
+            "statements": len(slots[letter]["statements"]),
+            "verified_dollars": round(slots[letter]["verified"] / 100, 2),
+            **{f"{confidence}_dollars": round(slots[letter]["cents"][confidence] / 100, 2)
+               for confidence in ("high", "medium")},
+            "share_of_true": share(sum(slots[letter]["cents"].values())),
+            "shapes": {shape: round(cents / 100, 2) for shape, cents in slots[letter]["shapes"].most_common(_SWEEP_SHAPES)},
+        }
+        for letter, label, _wordings in NON_REVENUE_IN_TRUE_CLASSES
+    }
+
+    def total(confidences: tuple[str, ...]) -> dict:
+        rows = sum(slots[letter]["rows"][c] for letter in slots if letter != UNCLEAR_OWNER_CLASS for c in confidences)
+        cents = sum(slots[letter]["cents"][c] for letter in slots if letter != UNCLEAR_OWNER_CLASS for c in confidences)
+        return {"rows": rows, "dollars": round(cents / 100, 2), "share_of_true": share(cents)}
+
+    unclear = slots[UNCLEAR_OWNER_CLASS]
+    return {
+        "true_dollars": round(true_cents / 100, 2),
+        "classes": classes,
+        "overstatement": {"high": total(("high",)), "all": total(("high", "medium"))},
+        "unclear_owner": {"class": UNCLEAR_OWNER_CLASS, "rows": sum(unclear["rows"].values()),
+                          "dollars": round(sum(unclear["cents"].values()) / 100, 2),
+                          "verified_dollars": round(unclear["verified"] / 100, 2),
+                          "share_of_true": share(sum(unclear["cents"].values()))},
+    }
+
+
+def _sweep_line(result: dict) -> str:
+    """B1 (I39): the sweep in one printed line (counts, shares and totals only)."""
+    over, unclear = result["overstatement"], result["unclear_owner"]
+    by_class = ", ".join(f"{letter} {row['rows']} rows/${row['dollars']:,.2f}"
+                         for letter, row in result["classes"].items() if row["rows"] and letter != UNCLEAR_OWNER_CLASS)
+    return (f"non-revenue in True: high ${over['high']['dollars']:,.2f} ({over['high']['share_of_true']}% of True),"
+            f" all ${over['all']['dollars']:,.2f} ({over['all']['share_of_true']}%); by class: {by_class or 'none'};"
+            f" class H (unclear, owner) {unclear['rows']} rows/${unclear['dollars']:,.2f}"
+            f" ({unclear['share_of_true']}%), verified ${unclear['verified_dollars']:,.2f}")
 
 
 def _summary(snap: dict) -> dict:
@@ -890,6 +1251,8 @@ def _summary(snap: dict) -> dict:
         "gated_share": _share(gated, with_credits),
         "rows": dict(rows),
         "reasons": {key: {"rows": value[0], "dollars": round(value[1] / 100, 2)} for key, value in sorted(reasons.items())},
+        # B1 (I39): the standing sweep of the non-revenue wording left in True.
+        "non_revenue_in_true": sweep(snap),
     }
 
 
@@ -1259,6 +1622,52 @@ def _lender_move_cause(base: dict, after: dict, context: dict | None = None) -> 
     return f"entered:{after['rule'] or after['method']}"
 
 
+def _rekeyed(base: dict, after: dict) -> dict[str, str]:
+    """B1 (I60): each base account the later run set aside as a duplicate (its `duplicates`) mapped to the analysis the
+    later run kept, when the base holds no account of that id itself (each kept analysis answers one base account)."""
+    duplicates = after.get("duplicates") or {}
+    rekeyed: dict[str, str] = {}
+    for key in base["accounts"]:
+        target = duplicates.get(key)
+        if (
+            key not in after["accounts"] and target in after["accounts"] and target not in base["accounts"]
+            and target not in rekeyed.values()
+        ):
+            rekeyed[key] = target
+    return rekeyed
+
+
+def _parse_changed(old: dict, new: dict) -> bool:
+    """B1 (I60): whether two snapshots of one statement read different credits (index, amount or masked text)."""
+    def credits(account: dict) -> list[tuple]:
+        return [(credit["i"], credit["cents"], credit["text"]) for credit in account["credits"]]
+
+    return credits(old) != credits(new)
+
+
+def _tier_label(credit: dict) -> str:
+    return f"{credit.get('tier') or credit['state']}|{credit.get('reason') or credit['method']}"
+
+
+def _record_reparse(reparsed: dict, old: dict, new: dict) -> None:
+    """B1 (I60): one reparsed account's tiers on each side (in cents), its rows' moves by position (the statement's
+    rows, read twice), and its eligible-deposit move."""
+    for side, account in (("base", old), ("after", new)):
+        for credit in account["credits"]:
+            reparsed[side][credit.get("tier") or credit["state"]] += credit["cents"]
+    old_by_index = {credit["i"]: credit for credit in old["credits"]}
+    for credit in new["credits"]:
+        prior = old_by_index.get(credit["i"])
+        if prior is not None:
+            slot = reparsed["moves"][(_tier_label(prior), _tier_label(credit))]
+            slot[0] += 1
+            slot[1] += credit["cents"]
+    old_deposits, new_deposits = old.get("eligible_deposits"), new.get("eligible_deposits")
+    if old_deposits is not None and new_deposits is not None:
+        delta = round(new_deposits - old_deposits, 2)
+        reparsed["eligible_deposits"]["unchanged" if delta == 0 else ("up" if delta > 0 else "down")] += 1
+
+
 class BasisMismatch(ValueError):
     """S3.1: a compare of snapshots taken on two bases (their account ids name different things)."""
 
@@ -1340,9 +1749,14 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
             count = after_skips.get(reason, 0)
             if reason not in FILTER_SKIPS and count != base_skips.get(reason, 0):
                 failures["G9"].append({"skipped": reason, "count": count, "base_count": base_skips.get(reason, 0)})
+        # B1 (I60): a base account this run set aside as a duplicate is compared with the analysis this run kept; one
+        # whose parse differs is a parse change, compared apart (`reparsed`), never as a rule's move.
+        rekeyed = _rekeyed(base, after)
+        reparsed: dict = {"accounts": [], "base": Counter(), "after": Counter(), "moves": defaultdict(lambda: [0, 0]),
+                          "eligible_deposits": Counter()}
         # Final review M11: an account only this run holds (a new input, or one whose error skip vanished) has no base
         # to compare, but its row and account guards are read like any other's.
-        only_after = sorted(set(after["accounts"]) - set(base["accounts"]))
+        only_after = sorted(set(after["accounts"]) - set(base["accounts"]) - set(rekeyed.values()))
         for key in only_after:
             new = after["accounts"][key]
             for credit in new["credits"]:
@@ -1353,19 +1767,29 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
             for failure in _account_guards(new, tiered):
                 failures[failure["guard"]].append({"account": key, "only_after": True, **failure})
         for key, old in base["accounts"].items():
-            new = after["accounts"].get(key)
+            new = after["accounts"].get(rekeyed.get(key, key))
             if new is None or new["rows"] != old["rows"]:
                 unmatched += 1
                 failures["G9"].append({"account": key, "unmatched": True})
                 continue
-            old_by_index = {credit["i"]: credit for credit in old["credits"]}
+            reparse = key in rekeyed and _parse_changed(old, new)
+            if reparse:
+                reparsed["accounts"].append({"base_account": key, "account": rekeyed[key]})
+                _record_reparse(reparsed, old, new)
+                # Its rows moved with the parse, not by a rule: only the guards that read the later row alone apply.
+                for credit in new["credits"]:
+                    for guard, failed in _row_guards(credit).items():
+                        if failed:
+                            failures[guard].append({"account": key, "i": credit["i"], "text": credit["text"]})
+            # B1 (I60): a reparsed account pairs no row with its base (the rule moves below read none of its rows).
+            old_by_index = {} if reparse else {credit["i"]: credit for credit in old["credits"]}
             # S3.1 review: the pool causes read the account's other credits.
             context = _account_context(
                 ((old_by_index[credit["i"]], credit) for credit in new["credits"] if credit["i"] in old_by_index),
                 admitted,
             )
             old_deposits, new_deposits = old.get("eligible_deposits"), new.get("eligible_deposits")
-            if old_deposits is not None and new_deposits is not None:
+            if old_deposits is not None and new_deposits is not None and not reparse:
                 delta = round(new_deposits - old_deposits, 2)
                 deposits["unchanged" if delta == 0 else ("up" if delta > 0 else "down")] += 1
             for credit in new["credits"]:
@@ -1448,6 +1872,21 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
             "summary": _summary(after),
             "accounts_unmatched": unmatched,
             "accounts_only_after": len(only_after),
+            # B1 (I60): the base accounts compared with the analysis this run kept, and those whose parse differs.
+            "rekeyed": {
+                "accounts": len(rekeyed),
+                "reparsed": {
+                    "accounts": len(reparsed["accounts"]),
+                    "listed": reparsed["accounts"],
+                    "tiers": {side: {tier: round(cents / 100, 2) for tier, cents in reparsed[side].items() if cents}
+                              for side in ("base", "after")},
+                    "move_matrix": [
+                        {"from": source, "to": target, "rows": value[0], "dollars": round(value[1] / 100, 2)}
+                        for (source, target), value in sorted(reparsed["moves"].items(), key=lambda item: -item[1][1])
+                    ],
+                    "eligible_deposits": dict(reparsed["eligible_deposits"]),
+                },
+            },
             "move_matrix": [
                 {"from": source, "to": target, "rows": value[0], "dollars": round(value[1] / 100, 2),
                  "statements": len(value[2])}
@@ -1652,8 +2091,18 @@ def _print(report: dict) -> None:
 
     print(f"basis: {report['basis']}")
     print("base: " + line(report["base"]))
+    if report["base"].get("non_revenue_in_true"):
+        print("  " + _sweep_line(report["base"]["non_revenue_in_true"]))
     for run in report["runs"]:
         print("after: " + line(run["summary"]) + f"; unmatched {run['accounts_unmatched']}")
+        # B1 (I39, I60): the sweep, and the statements read from the analysis this run kept.
+        print("  " + _sweep_line(run["summary"]["non_revenue_in_true"]))
+        rekeyed = run.get("rekeyed") or {}
+        if rekeyed.get("accounts"):
+            reparsed = rekeyed["reparsed"]
+            print(f"  rekeyed: {rekeyed['accounts']} statements read from the analysis this run kept;"
+                  f" {reparsed['accounts']} with another parse (base tiers {reparsed['tiers']['base']},"
+                  f" after {reparsed['tiers']['after']})")
         print("  left non_revenue: " + ", ".join(
             f"{cause} {value['rows']} rows/${value['dollars']:,.2f}/{value['statements']} st"
             for cause, value in run["left_non_revenue"].items()))
@@ -1741,6 +2190,9 @@ def main(argv: list[str] | None = None) -> int:
     samp = commands.add_parser("sample", help="draw the precision sample of a 5.6 snapshot (§14.5)")
     samp.add_argument("--snapshot", type=Path, required=True)
     samp.add_argument("--out", type=Path, required=True, help="the sample to write (outside the repo)")
+    swp = commands.add_parser("sweep", help="the non-revenue wording left in True of one snapshot, by class (B1)")
+    swp.add_argument("--snapshot", type=Path, required=True)
+    swp.add_argument("--out", type=Path, required=True, help="the sweep to write (outside the repo)")
     args = parser.parse_args(argv)
 
     repository = _output_repository(args.out)
@@ -1767,13 +2219,20 @@ def main(argv: list[str] | None = None) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_bytes(gzip.compress(json.dumps(result).encode("utf-8")))
         print(f"classification {result['classification_version']} ({result['basis']} basis): "
-              f"{len(result['accounts'])} accounts; skipped: {result['skipped']}; basis: {result['basis_stats']}")
+              f"{len(result['accounts'])} accounts; skipped: {result['skipped']}; "
+              f"stale parses: {len(result['stale_parses'])}; basis: {result['basis_stats']}")
         return 0
     if args.command == "sample":
         sample = precision_sample(_read(args.snapshot))
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(sample, indent=1) + "\n", encoding="utf-8")
         print("; ".join(f"{stratum} {len(rows)}" for stratum, rows in sample.items()))
+        return 0
+    if args.command == "sweep":
+        swept = sweep(_read(args.snapshot))
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(swept, indent=1) + "\n", encoding="utf-8")
+        print(_sweep_line(swept))
         return 0
     admissions: list[str] = []
     if args.admissions is not None:

@@ -412,7 +412,7 @@ class _FabricatedCache:
         self.connection.execute(_ARTIFACT_TABLE)
         self.count = 0
 
-    def _put(self, stage, input_sha, artifact, created_at):
+    def _put(self, stage, input_sha, artifact, created_at, settings="S"):
         self.count += 1
         key = f"{self.count:064X}"
         path = self.root / "artifacts" / stage / key[:2] / f"{key}.json"
@@ -421,8 +421,8 @@ class _FabricatedCache:
         path.write_text(text, encoding="utf-8")
         self.connection.execute(
             "INSERT INTO artifact_cache (stage, cache_key, input_sha256, settings_key, format_version, artifact_path,"
-            " byte_size, created_at) VALUES (?, ?, ?, 'S', 1, ?, ?, ?)",
-            (stage, key, input_sha, f"{stage}\\{key[:2]}\\{key}.json", len(text), created_at),
+            " byte_size, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+            (stage, key, input_sha, settings, f"{stage}\\{key[:2]}\\{key}.json", len(text), created_at),
         )
         self.connection.commit()
 
@@ -438,9 +438,12 @@ class _FabricatedCache:
         markdown = StatementMarkdown(source_file="fabricated.pdf", model="fabricated", pages=pages).to_markdown()
         return analysis_input_sha(markdown, pages)
 
-    def analysis(self, input_sha, statements, created_at):
-        self._put("analysis", input_sha, {"analysis": {"accounts": [
-            {"statement": statement, "reconciliation": {"ok": True}} for statement in statements]}}, created_at)
+    def analysis(self, input_sha, statements, created_at, settings="S", model_used=None):
+        accounts = [{"statement": statement, "reconciliation": {"ok": True}} for statement in statements]
+        if model_used is not None:
+            for account in accounts:
+                account["model_used"] = model_used
+        self._put("analysis", input_sha, {"analysis": {"accounts": accounts}}, created_at, settings)
 
 
 PDF_G, PDF_A, PDF_B, PDF_C, PDF_H = "0" * 64, "A" * 64, "B" * 64, "C" * 64, "F" * 64
@@ -485,6 +488,8 @@ def test_the_pdf_basis_reads_one_analysis_per_source_pdf(fabricated_cache):
         f"p{PDF_G[:12]}.0", f"p{PDF_A[:12]}.0", f"p{PDF_B[:12]}.0", f"o{'E' * 12}.0", f"o{'1' * 12}.0"]
     # PDF A counts once, from its newest OCR route.
     assert len(accounts[1][1]["statement"]["transactions"]) == len(ROWS)
+    # B1 (I60): the stages the cache's analyses were made under are recorded beside the basis's counts.
+    assert list(stats.pop("analysis_stages")) == ["S"]
     assert stats == {"analysis_inputs": 7, "pdfs": 5, "pdfs_joined": 4, "pdfs_joined_on_newest_route": 3,
                      "pdfs_on_an_older_reconciling_route": 0, "pdfs_without_a_reconciling_route": 0,
                      "pdfs_without_an_analysis": 1, "pdfs_sharing_an_analysis": 1, "analysis_inputs_joined": 4,
@@ -510,7 +515,7 @@ def test_the_snapshot_command_records_its_basis_and_compare_refuses_two(fabricat
     pdf, per_input = census._read(by_pdf), census._read(by_input)
     assert (pdf["basis"], per_input["basis"]) == ("pdf", "input")
     assert (len(pdf["accounts"]), len(per_input["accounts"])) == (5, 7)
-    assert pdf["basis_stats"]["pdfs_joined"] == 4 and per_input["basis_stats"] == {"analysis_inputs": 7}
+    assert pdf["basis_stats"]["pdfs_joined"] == 4 and per_input["basis_stats"]["analysis_inputs"] == 7
     report = tmp_path / "report.json"
     assert census.main(["compare", "--base", str(by_pdf), "--after", str(by_pdf), "--out", str(report)]) == 0
     assert json.loads(report.read_text(encoding="utf-8"))["basis"] == "pdf"
@@ -1486,3 +1491,241 @@ def test_the_guards_read_an_account_only_the_later_run_holds_and_a_vanished_erro
     assert any(item.get("skipped") == "ValueError" for item in run["guards"]["G9"]["sample"])
     same = _snap("5.6", {"a": after["accounts"]["a"]}, skipped={"ValueError": 1})
     assert "G9" not in _run(base, same)["guards"]
+
+
+# B1 (audit I60): among the analyses of one statement (one fingerprint), the census keeps the newest, records each
+# account's analysis stage and parser route, and lists an older analysis whose parse differs as a stale parse.
+STALE_ROWS = [(5, "OTHER CREDIT", 4200.0), (9, "CARD PURCHASE FABRICATED SUPPLY", -300.0)]
+ROUTE = "fabricated-bank-deterministic"
+
+
+@pytest.fixture
+def restated_cache(tmp_path):
+    """Three analyses of one fabricated statement, and one of another. The oldest has the lowest input sha and prints
+    the parser's section label ('Other Credit'); the newest prints the described rows; a middle one reads the newest's
+    rows exactly. The other statement has a single analysis."""
+    cache = _FabricatedCache(tmp_path / "webapp_data")
+    cache.analysis("1" * 64, [_statement("XXXX1234", STALE_ROWS)], "2031-03-03T00:00:00", "STAGEOLD0001", ROUTE)
+    cache.analysis("E" * 64, [_statement("XXXX1234")], "2031-03-09T00:00:00", "STAGENEW0002", ROUTE)
+    cache.analysis("7" * 64, [_statement("XXXX1234")], "2031-03-05T00:00:00", "STAGEOLD0001", ROUTE)
+    cache.analysis("2" * 64, [_statement("XXXX5678")], "2031-03-04T00:00:00", "STAGEOLD0001", ROUTE)
+    cache.connection.close()
+    return cache.root
+
+
+def test_the_input_basis_keeps_each_statement_s_newest_analysis_and_lists_an_older_parse_as_stale(restated_cache):
+    stats: dict = {}
+    accounts = list(census.cached_accounts(restated_cache, stats=stats))
+    # The input basis reads the newest analyses first.
+    assert [key for key, _ in accounts] == [f"c{'E' * 12}.0", f"c{'7' * 12}.0", f"c{'2' * 12}.0", f"c{'1' * 12}.0"]
+    snap = census.snapshot(iter(accounts), basis_stats=stats)
+    newest, single = f"c{'E' * 12}.0", f"c{'2' * 12}.0"
+    assert set(snap["accounts"]) == {newest, single}
+    assert [credit["text"] for credit in snap["accounts"][newest]["credits"]] == ["ACH CREDIT NORTHWIND CUSTOMER PAYMENT"]
+    # The oldest parse (the section label) is stale; the middle one reads the kept rows exactly, a plain duplicate.
+    assert snap["skipped"]["duplicate"] == 2
+    assert snap["duplicates"] == {f"c{'7' * 12}.0": newest, f"c{'1' * 12}.0": newest}
+    [stale] = snap["stale_parses"]
+    assert (stale["account"], stale["kept"], stale["rows_differing"], stale["credit_rows_differing"]) == (
+        f"c{'1' * 12}.0", newest, 1, 1)
+    assert (stale["analysis_stage"], stale["kept_analysis_stage"]) == ("STAGEOLD00", "STAGENEW00")
+    assert (stale["parser_route"], stale["kept_parser_route"]) == (ROUTE, ROUTE)
+    # Each account records its analysis stage, when it was analysed and the parser route that published it; the
+    # stages are ranked by their first analysis.
+    kept = snap["accounts"][newest]
+    assert (kept["analysis_stage"], kept["analysis_created"], kept["parser_route"]) == (
+        "STAGENEW00", "2031-03-09T00:00:00", ROUTE)
+    assert snap["accounts"][single]["analysis_stage"] == "STAGEOLD00"
+    stages = snap["basis_stats"]["analysis_stages"]
+    assert {stage: (row["generation"], row["analyses"], row["first_created"]) for stage, row in stages.items()} == {
+        "STAGEOLD00": (1, 3, "2031-03-03"), "STAGENEW00": (2, 1, "2031-03-09")}
+    assert not any(row["current"] for row in stages.values())
+
+
+def test_a_statement_with_a_single_analysis_keeps_its_id_and_is_never_stale(restated_cache):
+    snap = census.snapshot(census.cached_accounts(restated_cache))
+    single = snap["accounts"][f"c{'2' * 12}.0"]
+    assert [credit["text"] for credit in single["credits"]] == ["ACH CREDIT NORTHWIND CUSTOMER PAYMENT"]
+    assert f"c{'2' * 12}.0" not in snap["duplicates"] and f"c{'2' * 12}.0" not in snap["duplicates"].values()
+    assert all(f"c{'2' * 12}.0" not in (row["account"], row["kept"]) for row in snap["stale_parses"])
+
+
+def test_the_newest_analysis_of_a_statement_wins_in_any_reading_order(restated_cache):
+    accounts = list(census.cached_accounts(restated_cache))
+    for order in (accounts, accounts[::-1]):
+        snap = census.snapshot(iter([(key, json.loads(json.dumps(account))) for key, account in order]))
+        assert set(snap["accounts"]) == {f"c{'E' * 12}.0", f"c{'2' * 12}.0"}
+        assert [row["account"] for row in snap["stale_parses"]] == [f"c{'1' * 12}.0"]
+        assert snap["duplicates"] == {f"c{'7' * 12}.0": f"c{'E' * 12}.0", f"c{'1' * 12}.0": f"c{'E' * 12}.0"}
+
+
+def test_a_job_store_keeps_each_statement_s_newest_job(tmp_path):
+    import sqlite3
+
+    database = tmp_path / "webapp.db"
+    connection = sqlite3.connect(database)
+    connection.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY, document_id INTEGER, analysis_json TEXT,"
+                       " created_at TEXT NOT NULL)")
+    old = json.dumps({"accounts": [{"statement": _statement("XXXX1234", STALE_ROWS), "reconciliation": {"ok": True}}]})
+    new = json.dumps({"accounts": [{"statement": _statement("XXXX1234"), "reconciliation": {"ok": True}}]})
+    connection.executemany("INSERT INTO jobs VALUES (?, ?, ?, ?)", [
+        ("job-new", None, new, "2031-03-02T00:00:00"), ("job-old", None, old, "2031-03-01T00:00:00")])
+    connection.commit()
+    connection.close()
+    snap = census.snapshot(census.job_accounts(database))
+    assert list(snap["accounts"]) == ["jjob-new.0"]
+    assert [(row["account"], row["kept"]) for row in snap["stale_parses"]] == [("jjob-old.0", "jjob-new.0")]
+
+
+def test_the_compare_follows_a_statement_to_the_analysis_the_later_run_keeps():
+    # A base snapshot built before B1 keyed a statement by the analysis it kept then; the later run names the analysis
+    # it keeps now and maps the older id to it (`duplicates`). An analysis whose parse differs is compared apart, as a
+    # parse change (no rule moved its rows, so no G1, G7b or demotion cause is read on them); one whose parse is the
+    # same is compared as usual.
+    stale = _account([
+        _credit(0, 420000, "unverified_deposit", "x", tier="counted_flagged", reason="no_payer_printed",
+                text="OTHER CREDIT"),
+        _credit(1, 30000, "verified_revenue", "named_payer_repeats", tier="verified", text="OTHER CREDIT"),
+        _credit(2, 20000, "non_revenue", "strong_non_revenue_rule", tier="non_revenue", text="OTHER CREDIT"),
+    ])
+    described = _account([
+        _credit(0, 420000, "verified_revenue", "named_payer_company_form", tier="verified",
+                text="ACH CREDIT NORTHWIND CUSTOMER PAYMENT"),
+        _credit(1, 30000, "unverified_deposit", "x", tier="excluded_pending_review", reason="transfer_no_counterparty",
+                text="TRANSFER INTERNET"),
+        _credit(2, 20000, "unverified_deposit", "x", tier="counted_flagged", reason="p2p",
+                text="TRANSFER FROM FABRIKAM SUPPLY"),
+    ])
+    same = _account([_credit(0, 5000, "verified_revenue", "named_payer_repeats", tier="verified")])
+    moved = _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged", reason="named_payer_one_off")])
+    base = _snap("5.6", {"cOLD.0": stale, "cKEEP.0": same, "cSAME.0": same})
+    after = dict(_snap("5.6", {"cNEW.0": described, "cKEEP.0": same, "cTWIN.0": moved}),
+                 duplicates={"cOLD.0": "cNEW.0", "cSAME.0": "cTWIN.0"})
+    run = _run(base, after)
+    assert (run["accounts_unmatched"], run["accounts_only_after"]) == (0, 0)
+    rekeyed = run["rekeyed"]
+    assert rekeyed["accounts"] == 2 and rekeyed["reparsed"]["accounts"] == 1
+    assert rekeyed["reparsed"]["tiers"] == {
+        "base": {"counted_flagged": 4200.0, "verified": 300.0, "non_revenue": 200.0},
+        "after": {"verified": 4200.0, "excluded_pending_review": 300.0, "counted_flagged": 200.0}}
+    assert {(row["from"], row["to"], row["rows"]) for row in rekeyed["reparsed"]["move_matrix"]} == {
+        ("counted_flagged|no_payer_printed", "verified|named_payer_company_form", 1),
+        ("verified|named_payer_repeats", "excluded_pending_review|transfer_no_counterparty", 1),
+        ("non_revenue|strong_non_revenue_rule", "counted_flagged|p2p", 1)}
+    assert {"G1", "G7b", "G9"}.isdisjoint(run["guards"])
+    assert run["left_non_revenue"] == {} and run["street_ln_changes"] == []
+    # The same parse under another id is compared as usual: its verified row lost its verification by no rule.
+    assert run["verified_demotions"] == {"undeclared": {"rows": 1, "dollars": 50.0, "statements": 1}}
+    # Without the later run's map, both statements are unmatched, as before.
+    assert _run(base, dict(after, duplicates={}))["accounts_unmatched"] == 2
+
+
+# B1 (audit I39): the standing sweep of the non-revenue a credit's wording identifies inside True, by class; class H
+# (a government payment that prints no purpose) is the owner's, reported apart and never in the overstatement.
+def _swept(*rows):
+    """A 5.6 snapshot of one account whose credits are (text, tier, cents), digit-masked as the census writes them."""
+    states = {"verified": "verified_revenue", "non_revenue": "non_revenue"}
+    return _snap("5.6", {"a": _account([
+        _credit(index, cents, states.get(tier, "unverified_deposit"), "x", tier=tier,
+                reason=None if tier in states else "named_payer_one_off", text=census.mask(text))
+        for index, (text, tier, cents) in enumerate(rows)])})
+
+
+@pytest.mark.parametrize(("text", "letter"), [
+    ("OVERDRAFT PROTECTION FROM 9999999999", "A"),
+    ("OD PROTECTION TRANSFER FROM CREDIT CARD", "A"),
+    ("TRANSFER IN RAINY DAY", "A"),
+    ("EB FROM CHECKING 1234567890 REF 12 34", "A"),
+    ("NORTHWIND BAKERY LLC DES MERCURYACH ID MRCR ABCDE INDN NORTHWIND BAKERY LLC CO ID 1234567890 CCD", "B"),
+    ("ORIG CO NAME CONTOSO TRADING C ORIG ID 1234567890 DESC DATE 310301 CO DESCR ACH PUSH SEC CCD TRACE 1"
+     " EED 310301 IND ID IND NAME CONTOSO TRADING CO LLC TRN 1234567890TC", "B"),
+    ("ORIG CO NAME CONTOSO TRADING C ORIG ID 1234567890 DESC DATE 310301 CO ENTRY DESCR LINE OF CRSEC CCD TRACE 1"
+     " EED 310301 IND ID IND NAME CONTOSO TRADING CO LINE OF CREDIT PAYMENT TRN 1234567890TC", "B"),
+    ("LOAN PROCEEDS SAMPLE BANK", "C"),
+    ("ITEM RET NOT PAID", "D"),
+    ("ERROR CORRECTION BR 1234", "D"),
+    ("CASH REDEMPTION", "D"),
+    ("WIRE FROM COINBASE INC REF 1234", "E"),
+    ("VISA DIRECT DRAFTKINGS 1234567890", "F"),
+    ("CANADA CHILD BENEFIT CANADA", "G"),
+    ("ADP TAX DES ADP TAX ID ABCDE 123456VV", "G"),
+    ("CONTOSO STATE MMB", "H"),
+    ("12 TREAS 310 MISC PAY 1234567890", "H"),
+    ("WORK COMP BOARD WSIB 1234", "H"),
+])
+def test_each_class_of_the_sweep_reads_its_own_wording(text, letter):
+    sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
+    assert {name: row["rows"] for name, row in sweep["classes"].items() if row["rows"]} == {letter: 1}
+
+
+@pytest.mark.parametrize("text", [
+    "BITCOIN PAYMENT SALES",
+    "DRAFTKINGS DES AP PAYMENT ID 1",
+    "NORTHWIND BAKERY LLC DES PAYMENT ID 1 INDN CONTOSO DINER LLC CO ID 1 CCD",
+    "ORIG CO NAME FABRIKAM SUPPLY ORIG ID 1 DESC DATE 1 CO ENTRY DESCR PAYMENT SEC CCD TRACE 1 EED 1 IND ID IND NAME"
+    " CONTOSO DINER LLC TRN 1TC",
+    # A processor's settlement or payout originated under the holder's own name is revenue, not the holder's push.
+    "ORIG CO NAME CONTOSO TRADING C ORIG ID 1234567890 DESC DATE 310301 CO DESCR NET SETTLESEC CCD TRACE 1 EED 310301"
+    " IND ID 1 IND NAME CONTOSO TRADING CO LLC TRN 1234567890TC",
+    "NORTHWIND BAKERY LLC DES NORTHWIND BAKE ID ST-ABCDE INDN NORTHWIND BAKERY LLC CO ID 1234567890 CCD",
+    "FEDWIRE CREDIT VIA SAMPLE TRUST COMPANY B O FABRIKAM INC",
+    "IRS TREAS 310 DES VENDOR PAY ID 1",
+    "COUNTY OF CONTOSO DES VENDOR PAY ID 1",
+    "NORTHWIND OVERDRAFT SERVICES LLC DES PAYMENT ID 1",
+    "ACH CREDIT NORTHWIND CUSTOMER PAYMENT",
+])
+def test_the_sweep_leaves_revenue_wording_alone(text):
+    sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
+    assert not any(row["rows"] for row in sweep["classes"].values())
+
+
+@pytest.mark.parametrize(("text", "own"), [
+    ("NORTHWIND BAKERY LLC DES MERCURYACH ID MRCR ABCDE INDN NORTHWIND BAKERY LLC CO ID 1234567890 CCD", True),
+    ("NORTHWIND BAKERY DES TRANSFER ID 1 INDN NORTHWIND BAKERY LLC CO ID 1 CCD", True),
+    # The originator is the holder, but the entry is a processor's settlement or payout under the holder's name.
+    ("ORIG CO NAME CONTOSO TRADING C ORIG ID 1234567890 DESC DATE 310301 CO DESCR NET SETTLESEC CCD TRACE 1 EED 310301"
+     " IND ID 1 IND NAME CONTOSO TRADING CO LLC TRN 1234567890TC", False),
+    ("NORTHWIND BAKERY LLC DES NORTHWIND BAKE ID ST-ABCDE INDN NORTHWIND BAKERY LLC CO ID 1234567890 CCD", False),
+    # One shared first word is not the holder's name.
+    ("NORTHWIND DES TRANSFER ID 1 INDN NORTHWIND BAKERY LLC CO ID 1 CCD", False),
+    ("NORTHWIND BAKERY LLC DES TRANSFER ID 1 INDN CONTOSO DINER LLC CO ID 1 CCD", False),
+])
+def test_the_holder_s_own_push_reads_the_originator_the_receiver_and_the_entry(text, own):
+    assert census._own_ach(census.mask(text)) is own
+
+
+def test_the_sweep_reads_true_only_and_reports_class_h_apart():
+    sweep = census.sweep(_swept(
+        ("OVERDRAFT PROTECTION FROM 9999999999", "counted_flagged", 10000),
+        ("ITEM RET NOT PAID", "verified", 20000),
+        ("CASH REDEMPTION", "counted_flagged", 3000),
+        ("CONTOSO STATE MMB", "verified", 90000),
+        ("OVERDRAFT PROTECTION FROM 9999999999", "excluded_pending_review", 50000),
+        ("ITEM RET NOT PAID", "non_revenue", 70000),
+        ("ACH CREDIT NORTHWIND CUSTOMER PAYMENT", "counted_flagged", 400000),
+    ))
+    assert sweep["true_dollars"] == 5230.0
+    assert sweep["overstatement"]["high"] == {"rows": 2, "dollars": 300.0, "share_of_true": round(100 * 300 / 5230, 3)}
+    assert sweep["overstatement"]["all"] == {"rows": 3, "dollars": 330.0, "share_of_true": round(100 * 330 / 5230, 3)}
+    assert sweep["unclear_owner"] == {"class": "H", "rows": 1, "dollars": 900.0, "verified_dollars": 900.0,
+                                      "share_of_true": round(100 * 900 / 5230, 3)}
+    assert (sweep["classes"]["D"]["verified_dollars"], sweep["classes"]["D"]["medium_dollars"]) == (200.0, 30.0)
+    assert sweep["classes"]["A"]["shapes"] == {"OVERDRAFT PROTECTION FROM #": 100.0}
+
+
+def test_the_compare_and_the_sweep_command_report_the_sweep(tmp_path, capsys):
+    base, after = tmp_path / "base.json.gz", tmp_path / "after.json.gz"
+    base.write_bytes(gzip.compress(json.dumps(_swept(
+        ("ACH CREDIT NORTHWIND CUSTOMER PAYMENT", "counted_flagged", 10000))).encode("utf-8")))
+    after.write_bytes(gzip.compress(json.dumps(_swept(
+        ("ITEM RET NOT PAID", "counted_flagged", 10000))).encode("utf-8")))
+    report = tmp_path / "report.json"
+    census.main(["compare", "--base", str(base), "--after", str(after), "--out", str(report)])
+    written = json.loads(report.read_text(encoding="utf-8"))
+    assert written["base"]["non_revenue_in_true"]["overstatement"]["all"]["dollars"] == 0
+    assert written["runs"][0]["summary"]["non_revenue_in_true"]["overstatement"]["all"]["dollars"] == 100.0
+    assert "non-revenue in True" in capsys.readouterr().out
+    swept = tmp_path / "sweep.json"
+    assert census.main(["sweep", "--snapshot", str(after), "--out", str(swept)]) == 0
+    assert json.loads(swept.read_text(encoding="utf-8"))["classes"]["D"]["rows"] == 1
+    assert census.main(["sweep", "--snapshot", str(after), "--out", str(census.ROOT / "x-sweep.json")]) == 2
