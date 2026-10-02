@@ -49,6 +49,10 @@ EXPECTED_REFUSED_TOTALS = {
     "avg_monthly_cash_flow",
     "avg_monthly_credits",
     "avg_monthly_debits",
+    # Audit B11 (I07): the per-month True, Verified and Non-revenue.
+    "avg_monthly_true_revenue",
+    "avg_monthly_verified_revenue",
+    "avg_monthly_non_revenue",
     "cash_flow",
     "confirmed_true_revenue",
     "confirmed_true_revenue_total",
@@ -107,6 +111,9 @@ UNIT_FREE_TOTALS = {
     "lenders_detected",
     "manual_review",
     "months",
+    # Audit B11 (I33): the statements beside the distinct calendar months, published when the two differ (these
+    # fixtures' two statements both print January).
+    "statement_periods",
     "non_revenue_count",
     "nsf_count",
     "potential_lender_debit_count",
@@ -853,7 +860,8 @@ def test_the_route_serves_the_undetermined_bucket_end_to_end():
     assert body["currency"]["undeclared_currency_documents"] == 1
     # The code that WAS declared is still reported as evidence.
     assert body["currency"]["currencies"] == ["USD"]
-    assert len(body["currency"]["refused_total_fields"]) == 37
+    # 40 since audit B11 (I07) added the per-month True, Verified and Non-revenue.
+    assert len(body["currency"]["refused_total_fields"]) == 40
     assert body["totals"]["cross_currency_totals_refused"] is True
     assert body["totals"]["currency"] is None
     assert body["totals"]["total_credits"] is None

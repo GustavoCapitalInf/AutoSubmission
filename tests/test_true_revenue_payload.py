@@ -119,10 +119,61 @@ def test_a_record_whose_tier_disagrees_with_its_state_is_refused():
     (0.0, 0.0, False),           # nothing posted, nothing held
 ])
 def test_the_gate_compares_the_held_share_in_integer_cents(held, posted, gated):
+    # Audit B11 (I31): the identity term is named for what it is, the four tiers summing to the posted credits.
     assert REVENUE_REVIEW_HELD_SHARE == 10
-    assert revenue_review_gate(direction_conflict=False, held_total=held, posted_total=posted, reconciles=True) is gated
-    assert revenue_review_gate(direction_conflict=True, held_total=0.0, posted_total=posted, reconciles=True)
-    assert revenue_review_gate(direction_conflict=False, held_total=0.0, posted_total=posted, reconciles=False)
+    assert revenue_review_gate(direction_conflict=False, held_total=held, posted_total=posted,
+                               tiers_sum_to_posted=True) is gated
+    assert revenue_review_gate(direction_conflict=True, held_total=0.0, posted_total=posted, tiers_sum_to_posted=True)
+    assert revenue_review_gate(direction_conflict=False, held_total=0.0, posted_total=posted,
+                               tiers_sum_to_posted=False)
+
+
+@pytest.mark.parametrize(("held", "true", "posted", "gated"), [
+    # The brief's case: $9,000 held beside $31,000 True and $60,000 of financing is 9% of the posted credits but 22.5%
+    # of True plus held.
+    (9000.0, 31000.0, 100000.0, True),
+    # True $0 with four cents held never gates: the share is 100%, the floor is not reached.
+    (0.04, 0.0, 1000.04, False),
+    # At the floor, exactly ten percent of True plus held, in cents, gates; a cent under either does not.
+    (500.0, 4500.0, 50000.0, True),
+    (499.99, 4499.91, 50000.0, False),
+    (500.0, 4500.01, 50000.0, False),
+    # The posted-credit share still gates on its own (no floor there).
+    (100.0, 900.0, 1000.0, True),
+])
+def test_the_gate_also_reads_held_against_true_plus_held_above_a_floor(held, true, posted, gated):
+    """Audit B11 (I50, T7 amended): an MCA advance is sized on True, so held credits of 10% or more of True plus held
+    gate too, when they are $500 or more."""
+    from analysis.revenue import REVENUE_REVIEW_HELD_FLOOR
+
+    assert REVENUE_REVIEW_HELD_FLOOR == 500
+    assert revenue_review_gate(direction_conflict=False, held_total=held, posted_total=posted,
+                               tiers_sum_to_posted=True, true_total=true) is gated
+
+
+def test_a_statement_heavy_with_financing_is_gated_on_its_true_revenue():
+    """The analysis pass and the rebuild apply the amended gate: a fabricated statement whose $60,000 financing credit
+    dilutes the posted base still needs review when its held credit is a fifth of True plus held."""
+    rows = [
+        ("2031-03-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 31000.0),
+        ("2031-03-03", "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 9000.0),
+        ("2031-03-04", "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 60000.0),
+    ]
+    statement = _statement(rows)
+    metrics = compute_metrics(statement, classifications=classify_statement_transactions(statement))
+    assert metrics.excluded_pending_review_total == 9000.0
+    assert metrics.true_revenue_total == 31000.0
+    assert metrics.non_revenue_total == 60000.0
+    assert metrics.revenue_review_required is True
+    assert metrics.revenue_tiers_sum_to_posted is True and metrics.revenue_reconciles is True
+    rebuilt = _payload(rows)["metrics"]
+    assert rebuilt["revenue_review_required"] is True
+    assert rebuilt["revenue_tiers_sum_to_posted"] is True and rebuilt["revenue_reconciles"] is True
+    # Below the floor the same shares do not gate: $400 held beside $1,600 True and $60,000 of financing.
+    small = _payload([("2031-03-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 1600.0),
+                      ("2031-03-03", "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 400.0),
+                      ("2031-03-04", "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 60000.0)])["metrics"]
+    assert small["excluded_pending_review_total"] == 400.0 and small["revenue_review_required"] is False
 
 
 def test_the_serialized_views_carry_the_tiers_and_repoint_true_revenue():

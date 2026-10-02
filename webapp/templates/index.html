@@ -446,6 +446,9 @@
   .mix-dot { width: 8px; height: 8px; border-radius: 999px; }
   .mix-count, .mix-share { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); text-align: right; }
   .mix-total { font-family: var(--font-mono); text-align: right; }
+  /* Audit B11 (I53): what the shares are of. A package draws no share, so no caption. */
+  .mix-caption { margin: 6px 0 0; font-size: 12px; color: var(--text-3); text-align: right; }
+  .is-package .mix-caption { display: none; }
   .dot-green { background: var(--accent); }
   .dot-amber { background: var(--amber); }
   .dot-teal { background: var(--teal); }
@@ -580,6 +583,8 @@
   .is-package .revenue-panel [data-revenue-filter="counted_flagged"]::before { background: var(--teal); }
   .is-package .revenue-panel [data-revenue-filter="excluded_pending_review"]::before { background: var(--amber); }
   .is-package .revenue-panel [data-revenue-filter^="excluded_pending_review:"]::before { background: var(--amber); }
+  /* Audit B11 (I53): a counted reason's dot is the Counted one's. */
+  .is-package .revenue-panel [data-revenue-filter^="counted_flagged:"]::before { background: var(--teal); }
   .results-content > * { scroll-margin-top: 76px; }
   .is-package .single-only { display: none !important; }
   .results-content:not(.is-package) .package-only { display: none !important; }
@@ -1203,6 +1208,12 @@
           <button class="btn-quiet" type="button" id="reanalyzeButton">Re-analyze</button>
         </section>
 
+        <!-- Audit B11 (I06): a package that lists one statement twice says which, and that the repeat is left out of
+             every figure (app.js renderDuplicateNotice). -->
+        <section class="panel rules-outdated duplicate-notice package-only" id="duplicateNotice" aria-live="polite" hidden>
+          <p class="rules-outdated-text" id="duplicateNoticeText"></p>
+        </section>
+
         <!-- The accounts of a statement that holds several: the main account first, the others with All accounts -->
         <section class="panel accounts-panel single-only" id="accountsPanel" aria-label="Accounts in this statement" hidden></section>
 
@@ -1685,6 +1696,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-2"></script>
+<script src="/static/app.js?v=true-revenue-3"></script>
 </body>
 </html>

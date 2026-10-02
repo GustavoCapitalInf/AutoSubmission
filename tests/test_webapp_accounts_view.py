@@ -199,7 +199,8 @@ def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_a
     # summary box (the actions') is left to the loader and to Generate Summary, which lead with the note.
     helpers = ("setBanner", "setStatusMessage", "kvRowsHtml", "statusRowHtml", "renderAnalysis", "labelize",
                "formatPercent", "potentialLenderDebitTotal", "hasMaterialPotentialLenderDebits", "period",
-               "generateSummary")
+               # Audit B11 (I07): the summary's revenue sentence (True, Verified and Non-revenue).
+               "revenueSummarySentence", "generateSummary")
     # Each function up to its closing brace (top-level code follows some of them).
     source = _harness("off") + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
                                        for name in helpers) + f"""

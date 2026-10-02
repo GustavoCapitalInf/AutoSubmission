@@ -376,8 +376,25 @@ def test_statement_xlsx_escapes_a_formula_description():
     store.set_result(job.id, "# md", "<h1>md</h1>", analysis=analysis)
 
     sheet = _sheet_xml(app.test_client().get(f"/download/{job.id}/xlsx").get_data())
-    assert "<t>'=1+1</t>" in sheet
+    # Audit B11 (I52): the XLSX types its cells, and text stays an inline string, which a spreadsheet never evaluates.
+    # The apostrophe is therefore literal text there, kept on purpose: a Save As CSV writes it out with the cell, so
+    # the text stays inert when the sheet is written back out as a CSV.
+    assert "t=\"inlineStr\"><is><t>'=1+1</t>" in sheet
     assert "<t>=1+1</t>" not in sheet
+    assert "<f>" not in sheet
+
+
+def test_xlsx_money_cells_are_numbers_and_text_never_a_formula():
+    """Audit B11 (I52): a number, negative money included, is a numeric cell; a numeric-looking STRING stays text."""
+    job = store.create("numeric-xlsx.pdf")
+    analysis = _analysis_payload()
+    analysis["metrics"]["effective_total_withdrawals"] = -1234.5
+    analysis["statement"]["bank"] = "-1234.56"
+    store.set_result(job.id, "# md", "<h1>md</h1>", analysis=analysis)
+    sheet = _sheet_xml(app.test_client().get(f"/download/{job.id}/xlsx").get_data())
+    assert "><v>-1234.5</v></c>" in sheet
+    assert 't="inlineStr"><is><t>-1234.56</t>' in sheet
+    assert "<f>" not in sheet
 
 
 def test_package_csv_and_xlsx_escape_a_formula_bank_name():
@@ -392,8 +409,10 @@ def test_package_csv_and_xlsx_escape_a_formula_bank_name():
     assert ",=1+1" not in csv_body
 
     sheet = _sheet_xml(client.get(f"/package_download/xlsx?ids={job.id}").get_data())
-    assert "<t>'=1+1</t>" in sheet
+    # Audit B11 (I52): a literal apostrophe inside an inline string, never a formula (see the statement test above).
+    assert "t=\"inlineStr\"><is><t>'=1+1</t>" in sheet
     assert "<t>=1+1</t>" not in sheet
+    assert "<f>" not in sheet
 
 
 def test_csv_export_still_reports_negative_money_as_a_number():

@@ -62,9 +62,11 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.6/26: the audit's holder-identity batch (B9) changes two parsers and the payload's statement shape (the
     # holder's name as its own field); the classification version stays 5.6 on the true-revenue branch.
     # 5.6/27: the audit's lost-payer-text batch (B10) changes six parsers' credit descriptions.
+    # 5.6/28: the audit's package and review-gate batch (B11) changes the stored revenue gate (T7) and adds the
+    # four-tier identity's own name to the metrics.
     assert CLASSIFICATION_VERSION == "5.6"
     assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
-    assert ANALYSIS_STAGE_VERSION == 27
+    assert ANALYSIS_STAGE_VERSION == 28
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)

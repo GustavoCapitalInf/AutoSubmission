@@ -56,7 +56,9 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "payer_text_not_read": ("counted_flagged", "Payer text not read"),
     "p2p": ("counted_flagged", "Person-to-person"),
     "factoring_payout": ("counted_flagged", "Factoring payout"),
-    "payout_credit_entity": ("counted_flagged", "Platform payout (financing partner)"),
+    # Audit B11 (I53): the payer's own settlement of the merchant's sales (OQ2's BNPL providers, marketplaces), counted;
+    # the label keeps the caution that the payer also lends, and never reads as financing counted in True.
+    "payout_credit_entity": ("counted_flagged", "BNPL or marketplace settlement (payer also lends)"),
     "platform_unconfirmed": ("counted_flagged", "Platform payout, not confirmed"),
     "numbered_company_payer": ("counted_flagged", "Numbered company payer"),
     "named_payer_purpose_refused": ("counted_flagged", "Named payer, purpose not accepted as proof"),
@@ -75,6 +77,10 @@ TIER_DETECTION_KEYS = ("true_revenue_evidence", "counted_flagged_evidence", "exc
 #: 5.6 (T7): a statement needs revenue review when its held credits are this share, in percent, or more of its
 #: posted credits (non-revenue included), compared in integer cents.
 REVENUE_REVIEW_HELD_SHARE = 10
+#: Audit B11 (I50, T7 amended): it also needs review when its held credits are REVENUE_REVIEW_HELD_SHARE percent or
+#: more of True plus held (the base an MCA advance is sized on, so heavy non-revenue no longer dilutes the share), and
+#: at least this many dollars, so a statement whose True is $0 is never gated on held cents.
+REVENUE_REVIEW_HELD_FLOOR = 500
 WITHHOLDING_DENOMINATOR_MODES = (
     "legacy_eligible_deposits",
     "verified_revenue",
@@ -284,6 +290,9 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         "revenue_classified_total": classified_total,
         "revenue_classified_count": classified_count,
         "revenue_reconciliation_delta": delta,
+        # Audit B11 (I31): the four-tier identity under its own name; `revenue_reconciles` stays as its deprecated
+        # alias for API consumers. Neither is a reconciliation against the bank's figures (that is `reconciliation.ok`).
+        "revenue_tiers_sum_to_posted": reconciles,
         "revenue_reconciles": reconciles,
         "verified_revenue_evidence": evidence["verified_revenue"],
         "unverified_deposit_evidence": evidence["unverified_deposit"],
@@ -314,7 +323,8 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
                 direction_conflict=direction_conflict,
                 held_total=tier_totals["excluded_pending_review"],
                 posted_total=posted_total,
-                reconciles=reconciles,
+                tiers_sum_to_posted=reconciles,
+                true_total=true_total,
             ),
             "counted_flagged_evidence": tier_evidence["counted_flagged"],
             "excluded_pending_review_evidence": tier_evidence["excluded_pending_review"],
@@ -381,15 +391,32 @@ def _by_reason(slots: dict[str, list]) -> dict[str, dict[str, float | int]]:
     return {reason: {"count": count, "total": round(total, 2)} for reason, (count, total) in sorted(slots.items())}
 
 
-def revenue_review_gate(*, direction_conflict: bool, held_total: float, posted_total: float, reconciles: bool) -> bool:
+def revenue_review_gate(
+    *,
+    direction_conflict: bool,
+    held_total: float,
+    posted_total: float,
+    tiers_sum_to_posted: bool,
+    true_total: float | None = None,
+) -> bool:
     """T7: a statement needs revenue review when an undecided credit's direction conflicts with its amount (§10.7:
     the rebuild passes only a pending conflict), when its held credits are REVENUE_REVIEW_HELD_SHARE percent or more
-    of all its posted credits (non-revenue included), compared in integer cents, or when its revenue does not
-    reconcile. Counted, flagged credits never gate."""
+    of all its posted credits (non-revenue included), compared in integer cents, or when its tiers do not sum to its
+    posted credits (the four-tier identity of §5.1: a classification left incomplete). Counted, flagged credits never
+    gate.
+
+    Audit B11 (I50): it also needs review when its held credits are REVENUE_REVIEW_HELD_SHARE percent or more of
+    `true_total` plus held, in integer cents, and at least REVENUE_REVIEW_HELD_FLOOR dollars. An MCA advance is sized
+    on True, so a statement heavy with transfers or financing no longer passes with a material share of its potential
+    True held; the floor keeps a $0-True statement from gating on held cents. Without `true_total` (a caller that
+    has none) the second share is not read."""
     held_cents = round(held_total * 100)
     posted_cents = round(posted_total * 100)
     held_share = held_cents > 0 and held_cents * 100 >= REVENUE_REVIEW_HELD_SHARE * posted_cents
-    return direction_conflict or held_share or not reconciles
+    if true_total is not None and not held_share and held_cents >= REVENUE_REVIEW_HELD_FLOOR * 100:
+        true_cents = round(true_total * 100)
+        held_share = held_cents * 100 >= REVENUE_REVIEW_HELD_SHARE * (max(true_cents, 0) + held_cents)
+    return direction_conflict or held_share or not tiers_sum_to_posted
 
 
 def record_serialized_revenue_review(

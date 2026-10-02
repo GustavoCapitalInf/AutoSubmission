@@ -482,3 +482,237 @@ def test_the_legacy_withholding_mode_keeps_its_rate_beside_an_unestablished_memb
     totals = _package(_payload(), _untiered(_payload(month=4)))["totals"]
     assert totals["withholding_denominator_mode"] == "legacy_eligible_deposits"
     assert totals["package_withholding_rate"] is not None and totals["withholding_review_required"] is False
+
+
+# ---------------------------------------------------------------- Audit B11: months, averages, the gate and the exports
+
+def _account_payload(number, rows, month=3):
+    """A fabricated statement of another account of the same business (its own number), month `month` of 2031."""
+    from analysis.serialization import document_report_to_dict
+    from tests.test_webapp_studio_views import _report
+    return document_report_to_dict(_report("CONTOSO BAKERY LLC", number, 1500.0, rows, month))
+
+
+_SECOND_ACCOUNT_ROWS = [(5, "FABRIKAM STORES INC DES:PAYMENT ID:2", 2000.0), (6, "MOBILE DEPOSIT", 500.0)]
+
+
+def test_two_accounts_uploaded_separately_for_one_month_are_one_month():
+    """I33: months counted members, so two accounts of one business for March read "2 months" and halved every
+    monthly average. They are one calendar month; the per-month True is the two accounts' March summed."""
+    package = _package(_payload(), _account_payload("000000002020", _SECOND_ACCOUNT_ROWS))
+    totals = package["totals"]
+    assert totals["months"] == 1 and totals["statement_periods"] == 2
+    assert totals["true_revenue_total"] == 1000.0 + 2500.0
+    assert totals["avg_monthly_true_revenue"] == 3500.0
+    assert totals["avg_monthly_verified_revenue"] == 700.0 + 2000.0
+    assert totals["avg_monthly_credits"] == totals["total_credits"]
+    assert totals["avg_monthly_non_revenue"] == totals["non_revenue_total"] == 100.0
+    assert totals["has_duplicate_documents"] is False
+
+
+def test_a_duplicated_middle_month_leaves_the_averages_unchanged():
+    months = {month: _payload(month=month) for month in (1, 2, 3)}
+    clean = _package(months[1], months[2], months[3])["totals"]
+    repeated = _package(months[1], months[2], copy.deepcopy(months[2]), months[3])["totals"]
+    keys = ("months", "true_revenue_total", "verified_revenue_total", "avg_monthly_true_revenue",
+            "avg_monthly_verified_revenue", "avg_monthly_credits", "avg_monthly_debits", "avg_monthly_cash_flow",
+            "avg_monthly_non_revenue", "total_credits")
+    assert {key: repeated[key] for key in keys} == {key: clean[key] for key in keys}
+    assert clean["months"] == 3 and clean["avg_monthly_true_revenue"] == 1000.0
+    assert repeated["duplicate_documents"] == 1 and repeated["decision"] == "review_required"
+
+
+def test_a_statement_period_spanning_two_months_counts_in_the_month_holding_most_of_its_days():
+    from webapp.app import _statement_month
+
+    assert _statement_month("2031-03-02", "2031-04-01") == 2031 * 12 + 2
+    assert _statement_month("2030-12-01", "2031-01-02") == 2030 * 12 + 11
+    assert _statement_month("2031-02-15", "2031-03-14") == 2031 * 12 + 1  # 14 days each: the earlier month
+    assert _statement_month(None, "2031-05-31") == 2031 * 12 + 4
+    assert _statement_month("2031-02-30", None) is None and _statement_month(None, None) is None
+
+
+def test_the_per_month_true_revenue_is_n_a_where_true_revenue_is():
+    totals = _package(_payload(), _summary_only(4))["totals"]
+    assert totals["true_revenue_total"] is None
+    assert totals["avg_monthly_true_revenue"] is None and totals["avg_monthly_verified_revenue"] is None
+    assert totals["avg_monthly_non_revenue"] is not None
+
+
+def test_the_per_month_figures_are_refused_with_the_other_averages():
+    from tests.test_webapp_studio_views import _document
+    cad = _payload(month=4)
+    cad["statement"]["currency"] = "CAD"
+    mixed = _package(_payload(), cad)["totals"]
+    one_document = _package(_document("published"))["totals"]
+    for totals in (mixed, one_document):
+        assert totals["avg_monthly_true_revenue"] is None and totals["avg_monthly_verified_revenue"] is None
+        assert totals["avg_monthly_non_revenue"] is None
+
+
+def test_the_package_gate_reads_held_against_true_plus_held():
+    """I50: $9,000 held beside $31,000 True and $60,000 of financing is 9% of the posted credits, 22.5% of True plus
+    held: the member and the package need review."""
+    package = _package(_payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 31000.0),
+                                 (3, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 9000.0),
+                                 (4, "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 60000.0)]))
+    document, totals = package["documents"][0], package["totals"]
+    assert (document["true_revenue_total"], document["excluded_pending_review_total"],
+            document["non_revenue_total"]) == (31000.0, 9000.0, 60000.0)
+    assert document["revenue_review_required"] is True and totals["revenue_review_required"] is True
+    assert totals["decision"] == "review_required"
+
+
+def test_the_tier_identity_has_its_own_name_and_the_package_lists_its_unreconciled_members():
+    """I31: the four-tier identity is published as revenue_tiers_sum_to_posted (revenue_reconciles its alias), and the
+    members whose own rows do not reconcile to their bank's figures are listed for the Revenue chip."""
+    unreconciled = _payload(month=4)
+    unreconciled["reconciliation"]["ok"] = False
+    package = _package(_payload(), unreconciled)
+    totals = package["totals"]
+    assert totals["revenue_tiers_sum_to_posted"] is True and totals["revenue_reconciles"] is True
+    assert totals["unreconciled_documents"] == ["job-2"]
+    assert [row["revenue_tiers_sum_to_posted"] for row in package["documents"]] == [True, True]
+    assert _payload()["metrics"]["revenue_tiers_sum_to_posted"] is True
+
+
+def test_the_package_lists_the_members_whose_holder_or_payer_text_was_not_read():
+    unscreened = _payload(month=4)
+    unscreened["metrics"]["holder_unscreened"] = True
+    unread = _payload(month=5)
+    unread["metrics"]["payer_text_unread"] = True
+    package = _package(_payload(), unscreened, unread)
+    assert package["totals"]["holder_unscreened_documents"] == ["job-2"]
+    assert package["totals"]["payer_text_unread_documents"] == ["job-3"]
+    assert [(row["holder_unscreened"], row["payer_text_unread"]) for row in package["documents"]] == [
+        (False, False), (True, False), (False, True)]
+
+
+def _csv_cells(text):
+    import csv
+    import io
+    csv.field_size_limit(10_000_000)
+    return list(csv.reader(io.StringIO(text)))
+
+
+def test_a_statement_download_leaves_unestablished_revenue_empty():
+    """I51: a short capture's True, Counted and Held, and every alias, are empty in the downloads (the dashboard reads
+    them as N/A); Non-revenue stays, captured rows only; its Verified figure, not established either, is empty too."""
+    from webapp.app import _analysis_csv, _displayed
+
+    short = _summary_only(3)
+    served = _displayed(short, settings={})
+    exported = _displayed(short, settings={}, export=True)
+    assert served["metrics"]["revenue_established"] is False and served["metrics"]["true_revenue_total"] == 1000.0
+    cells = {(row[0], row[1]): row[2] for row in _csv_cells(_analysis_csv(exported)) if len(row) == 3}
+    for key in ("true_revenue", "true_revenue_total", "true_revenue_count", "counted_flagged_total",
+                "counted_flagged_count", "excluded_pending_review_total", "excluded_pending_review_count",
+                "revenue_review_items", "unverified_deposit_total", "potential_revenue_total", "maximum_revenue",
+                "verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total"):
+        assert cells[("metrics", key)] == "", key
+    assert cells[("metrics", "non_revenue_total")] == "100.0"
+    assert cells[("metrics", "revenue_established")] == "False"
+    assert not any(row[0] == "revenue_tier" for row in _csv_cells(_analysis_csv(exported)))
+    # An established statement's download keeps every figure.
+    fresh = {(row[0], row[1]): row[2] for row in _csv_cells(_analysis_csv(_displayed(_payload(), settings={},
+                                                                                     export=True)))
+             if len(row) == 3}
+    assert (fresh[("metrics", "true_revenue_total")], fresh[("metrics", "maximum_revenue")]) == ("1000.0", "1900.0")
+
+
+def test_a_package_download_leaves_the_partial_figures_empty():
+    from webapp.app import _package_for_export
+
+    package = _package(_payload(month=4), _summary_only(3))
+    exported = _package_for_export(package)
+    totals = exported["totals"]
+    for key in ("maximum_revenue", "potential_revenue_total", "unverified_deposit_total", "revenue_review_items",
+                "true_revenue_total", "verified_revenue_total"):
+        assert totals[key] is None, key
+    assert package["totals"]["maximum_revenue"] is not None  # the served package keeps it; the dashboard reads flags
+    rows = {row["id"]: row for row in exported["documents"]}
+    short = rows["job-2"]
+    for key in ("verified_revenue_total", "confirmed_true_revenue_total", "unverified_deposit_total",
+                "potential_revenue_total", "maximum_revenue", "true_revenue_total"):
+        assert short[key] is None, key
+    assert rows["job-1"]["verified_revenue_total"] == 700.0 and rows["job-1"]["maximum_revenue"] == 1900.0
+
+
+def test_the_xlsx_writes_money_as_numbers_and_flags_as_booleans():
+    """I52: SUM and a pivot add the money; NaN, inf and every numeric-looking string stay text."""
+    openpyxl = pytest.importorskip("openpyxl")
+    import io
+    from webapp.app import _analysis_xlsx, _displayed, _package_xlsx, _xlsx_cell
+
+    def sheet(blob):
+        workbook = openpyxl.load_workbook(io.BytesIO(blob))
+        return {(row[0].value, row[1].value): row[2] for row in workbook.active.iter_rows(min_row=2)
+                if len(row) >= 3}
+
+    cells = sheet(_analysis_xlsx(_displayed(_payload(), settings={}, export=True)))
+    true_cell = cells[("metrics", "true_revenue_total")]
+    assert (true_cell.data_type, true_cell.value) == ("n", 1000)
+    assert cells[("metrics", "true_revenue_count")].data_type == "n"
+    flag = cells[("metrics", "revenue_established")]
+    assert (flag.data_type, flag.value) == ("b", True)
+    assert cells[("statement", "bank")].data_type == "s"
+    package_cells = sheet(_package_xlsx(_package(_payload())))
+    assert package_cells[("document_1", "true_revenue_total")].data_type == "n"
+    assert package_cells[("totals", "true_revenue_total")].value == 1000
+    assert 't="inlineStr"' in _xlsx_cell("C2", float("nan")) and 't="inlineStr"' in _xlsx_cell("C2", float("inf"))
+    assert 't="inlineStr"' in _xlsx_cell("C2", "-1234.56") and 't="inlineStr"' in _xlsx_cell("C2", "0012")
+    assert _xlsx_cell("C2", True) == '<c r="C2" t="b"><v>1</v></c>'
+    assert _xlsx_cell("C2", -1234.5) == '<c r="C2"><v>-1234.5</v></c>'
+
+
+def test_the_statement_downloads_list_every_posted_credit_on_its_own_row():
+    """I32: one row per posted credit with its date, description, amount, currency, tier, reason, state and review
+    status, so True can be checked deposit by deposit."""
+    from webapp.app import _analysis_csv, _displayed
+
+    rows = [row for row in _csv_cells(_analysis_csv(_displayed(_payload(), settings={}, export=True)))
+            if row[0] == "posted_credit"]
+    assert rows[0] == ["posted_credit", "columns", "date", "description", "amount", "currency", "tier", "reason",
+                       "state", "review_status"]
+    credits = rows[1:]
+    assert [(row[3], row[4], row[5], row[6], row[7]) for row in credits] == [
+        ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "700.0", "USD", "verified", ""),
+        ("MOBILE DEPOSIT", "300.0", "USD", "counted_flagged", "check_deposit"),
+        ("FABRIKAM FUNDING LLC DES:PAYMENT ID:1", "900.0", "USD", "excluded_pending_review", "financing_named_payer"),
+        ("INTERNAL TRANSFER FROM SAVINGS", "100.0", "USD", "non_revenue", ""),
+    ]
+    assert sum(float(row[4]) for row in credits if row[6] in ("verified", "counted_flagged")) == 1000.0
+    # A document of several accounts writes one block per account, each under its section prefix.
+    document_rows = _csv_cells(_analysis_csv(_pair_document(4000.0, 500.0)))
+    assert {row[0] for row in document_rows if row[0].endswith("posted_credit")} == {"account_1.posted_credit"}
+
+
+def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_account():
+    """I32: counted (in True) and held (out of it) credits get their own sections, each record naming its currency
+    and account; the combined ledger is written one posting a row."""
+    from webapp.app import _package_csv, _package_rows
+
+    package = _package(_payload(), _untiered(_payload(month=4)))
+    rows = _package_rows(package)
+    sections = {section.rsplit("_", 1)[0] for section, _field, _value in rows if section.endswith(tuple("0123456789"))}
+    assert {"verified_revenue_evidence", "counted_flagged_evidence", "excluded_pending_review_evidence",
+            "non_revenue_evidence", "unverified_deposit_evidence"} <= sections
+    counted = {field: value for section, field, value in rows if section == "counted_flagged_evidence_1"}
+    assert (counted["revenue_tier"], counted["source_currency"], counted["source_account"]) == (
+        "counted_flagged", "USD", "")
+    held = {field: value for section, field, value in rows if section == "excluded_pending_review_evidence_1"}
+    assert held["revenue_tier"] == "excluded_pending_review"
+    # The older member's unverified credits carry no tier and stay in the state's section.
+    older = {field: value for section, field, value in rows if section == "unverified_deposit_evidence_1"}
+    assert "revenue_tier" not in older and older["source_job"] == "job-2"
+    ledger = [row for row in _csv_cells(_package_csv(package)) if row[0] == "package_transaction"]
+    assert ledger[0][2:] == ["source_document", "source_account", "source_currency", "date", "description", "amount",
+                             "classification", "tier", "reason", "state", "review_status"]
+    assert len(ledger) - 1 == len(package["transactions"])
+    first = ledger[1]
+    assert first[1] == "1" and first[2:8] == ["statement-1.pdf", "", "USD", "2031-03-02",
+                                              "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "700.0"]
+    assert first[9:] == ["verified", "", "verified_revenue", package["transactions"][0]["classification"][
+        "revenue_review_status"]]
+    two_accounts = _package(_pair_document(4000.0, 500.0))
+    assert {record["source_account"] for record in two_accounts["verified_revenue_evidence"]} == {1}

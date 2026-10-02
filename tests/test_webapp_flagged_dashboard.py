@@ -713,7 +713,8 @@ def test_the_dashboard_labels_every_flag_group_as_the_analysis_does():
 
 def test_the_page_asks_browsers_for_the_new_script():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
-    assert '<script src="/static/app.js?v=true-revenue-2"></script>' in html
+    # Audit B11: the package, copy and export changes ship as a new script.
+    assert '<script src="/static/app.js?v=true-revenue-3"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in

@@ -361,7 +361,12 @@ console.log(JSON.stringify({{alerts, disabled: button.disabled}}));
 
 
 def test_a_refusal_names_the_file_when_two_statements_share_a_month(tmp_path, monkeypatch):
-    before = {"a": _pending(3), "b": _pending(3)}
+    from analysis.serialization import document_report_to_dict
+    from tests.test_webapp_studio_views import PENDING_ROWS, _report
+
+    # Audit B11 (I06): two statements of one month are two accounts' (the same statement twice is one, left out).
+    before = {"a": _pending(3), "b": document_report_to_dict(
+        _report("FABRICATED BUSINESS SAVINGS", "000000002020", 1500.0, PENDING_ROWS, 3))}
     package = _package(before, tmp_path, monkeypatch)
     responses = {"/analysis/b/revenue-reviews": {"status": 400, "json": {"error": "fabricated refusal"}}}
     result = run_dashboard(DRAWN + f"""

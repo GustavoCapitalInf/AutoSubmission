@@ -125,6 +125,8 @@ const els = {
   allAccountsToggle: document.getElementById("allAccountsToggle"),
   accountsPanel: document.getElementById("accountsPanel"),
   rulesOutdatedNotice: document.getElementById("rulesOutdatedNotice"),
+  duplicateNotice: document.getElementById("duplicateNotice"),
+  duplicateNoticeText: document.getElementById("duplicateNoticeText"),
 };
 
 let currentJobId = null;
@@ -171,16 +173,25 @@ function parseModeLabel(value) {
   return value === "deterministic" ? "Deterministic only" : "Auto";
 }
 
-// 5.6 (true revenue spec §10.5): the note under each revenue figure.
+// 5.6 (true revenue spec §10.5): the note under each revenue figure. Audit B11 (I53): the Counted note names every kind
+// of counted credit (cash, checks and person-to-person were 55% of counted dollars; wires, unlabelled and numbered
+// payers, factoring and platform payouts the rest) and says what is missing is proof of the sale, the payer being
+// printed on most; the Verified note claims confirmed platform payouts only (an unconfirmed one is counted).
 const REVENUE_METRIC_COPY = Object.freeze({
   totalCredits: "All posted credit transactions",
   trueRevenue: "Posted credits minus known non-revenue and the deposits held for review",
-  verifiedRevenue: "Revenue with proof: settlements, platform payouts, repeat or institutional payers, invoices, and deposits you confirmed",
-  countedFlagged: "Counted in true revenue without proof of the payer: cash, checks, person-to-person, one-off payers",
+  verifiedRevenue: "Revenue with proof: card settlements, confirmed platform payouts, repeat or institutional payers, invoices, and deposits you confirmed",
+  countedFlagged: "Counted in true revenue without proof of the sale: cash, checks, person-to-person, wires, one-off, unlabelled and numbered-company payers, factoring and platform payouts",
   heldForReview: "Kept out of true revenue until you confirm it",
   nonRevenue: "Own-account transfers, funding, refunds and other known non-revenue",
+  // Audit B11 (I51): where revenue is not established, Non-Revenue is a figure of the captured rows only.
+  nonRevenueCaptured: "Captured rows only: own-account transfers, funding, refunds and other known non-revenue",
   achCredits: "Posted ACH credit transactions",
 });
+
+// Audit B11 (I34, copy only; the basis is the owner's): the legacy withholding denominator is gross deposits less
+// lender funding, never True revenue.
+const LEGACY_ELIGIBLE_DEPOSITS_NOTE = "Gross deposits less lender funding (not True revenue)";
 
 // 5.6 (true revenue spec §5.3, §10.6): the reason codes of the two middle tiers, code -> [tier, label, sentence]. It
 // mirrors analysis/revenue.py REVENUE_TIER_REASONS (code -> tier and label); tests/test_webapp_true_revenue_ui.py
@@ -207,7 +218,7 @@ const REVENUE_TIER_REASONS = Object.freeze({
   payer_text_not_read: ["counted_flagged", "Payer text not read", "The statement prints a payer for this row that the reader could not read: counted without proof of the sale."],
   p2p: ["counted_flagged", "Person-to-person", "A person-to-person payment."],
   factoring_payout: ["counted_flagged", "Factoring payout", "A factor's payout of the business's own invoices."],
-  payout_credit_entity: ["counted_flagged", "Platform payout (financing partner)", "A payout from a platform's financing partner."],
+  payout_credit_entity: ["counted_flagged", "BNPL or marketplace settlement (payer also lends)", "A buy-now-pay-later or marketplace settlement of the business's own sales, counted; the payer also lends."],
   platform_unconfirmed: ["counted_flagged", "Platform payout, not confirmed", "A registered platform's payout without the context that confirms it."],
   numbered_company_payer: ["counted_flagged", "Numbered company payer", "A numbered company paid it: counted, never verified."],
   named_payer_purpose_refused: ["counted_flagged", "Named payer, purpose not accepted as proof", "A named payer whose printed purpose is not accepted as proof."],
@@ -226,7 +237,7 @@ function revenueReasonLabel(record) {
 // (§10.4). `note` wraps each note (a package's currency refusal replaces them); `unestablishedNote` replaces the True
 // note where revenue is not established; `counts` prints "count / total", as the statement window does.
 function revenueCardItems(source, currency, {
-  established, verifiedEstablished, note = (text) => text, unestablishedNote = "", counts = false,
+  established, verifiedEstablished, note = (text) => text, unestablishedNote = "", counts = false, facts = [],
 }) {
   const figure = (kind, shown) => {
     if (!shown) return "N/A";
@@ -237,14 +248,75 @@ function revenueCardItems(source, currency, {
   const verifiedTotal = numberOrNull(source.verified_revenue_total);
   const share = established && verifiedEstablished && trueTotal !== null && trueTotal > 0 && verifiedTotal !== null
     ? `${((verifiedTotal / trueTotal) * 100).toFixed(1)}% of true revenue · ` : "";
-  const trueNote = !established && unestablishedNote ? unestablishedNote : REVENUE_METRIC_COPY.trueRevenue;
+  // Audit B11 (B9's I13, B10's I05): the statement integrity facts True rests on follow its note.
+  const trueNote = [!established && unestablishedNote ? unestablishedNote : REVENUE_METRIC_COPY.trueRevenue,
+    ...facts].join(" · ");
+  // Audit B11 (I51): Non-Revenue stays a figure where revenue is not established, and says it covers the captured rows.
+  const nonRevenueNote = established ? REVENUE_METRIC_COPY.nonRevenue : REVENUE_METRIC_COPY.nonRevenueCaptured;
   return [
     ["True Revenue", figure("true_revenue", established), note(trueNote), "REV", "green", { revenueFilter: "true_revenue", headline: true }],
     ["Verified Revenue", figure("verified_revenue", verifiedEstablished), note(share + REVENUE_METRIC_COPY.verifiedRevenue), "VER", "green", { revenueFilter: "verified_revenue" }],
     ["Counted, Not Verified", figure("counted_flagged", established), note(REVENUE_METRIC_COPY.countedFlagged), "CNT", "teal", { revenueFilter: "counted_flagged" }],
     ["Held for Review", figure("excluded_pending_review", established), note(REVENUE_METRIC_COPY.heldForReview), "?", "amber", { revenueFilter: "excluded_pending_review" }],
-    ["Non-Revenue", figure("non_revenue", true), note(REVENUE_METRIC_COPY.nonRevenue), "X", "neutral", { revenueFilter: "non_revenue" }],
+    ["Non-Revenue", figure("non_revenue", true), note(nonRevenueNote), "X", "neutral", { revenueFilter: "non_revenue" }],
   ];
+}
+
+// Audit B11 (I07): the revenue sentence of a copied summary (the credit-memo artefact): True revenue (the headline, Q1),
+// Verified beside it and Non-revenue, each in total and per calendar month (`monthly`: {trueMonthly, verifiedMonthly,
+// nonRevenueMonthly}); N/A where not established (§10.4), and Non-revenue named as captured rows only there.
+function revenueSummarySentence(source = {}, currency = "USD", { established, verifiedEstablished } = {}, monthly = {}) {
+  const pair = (total, perMonth, shown) => (shown
+    ? `${formatMoney(total, currency)} (${formatMoney(perMonth, currency)} a month)` : "N/A");
+  const nonRevenue = `${formatMoney(source.non_revenue_total, currency)} `
+    + `(${formatMoney(monthly.nonRevenueMonthly, currency)} a month${established ? "" : ", captured rows only"})`;
+  return `True revenue ${pair(source.true_revenue_total, monthly.trueMonthly, established === true)}, `
+    + `verified revenue ${pair(source.verified_revenue_total, monthly.verifiedMonthly, verifiedEstablished === true)}, `
+    + `non-revenue ${nonRevenue}.`;
+}
+
+// Audit B11 (I31): whether a statement's revenue reads "Balanced": its own rows reconcile to the bank's printed figures
+// (`reconciliation.ok`) and its revenue is established. The four tiers summing to the posted credits
+// (`revenue_tiers_sum_to_posted`, formerly read here as `revenue_reconciles`) holds on every tiered statement, so it
+// said "Balanced" beside a shortfall or an unreconciled ledger.
+function statementRevenueBalanced(report = {}) {
+  const reconciliation = report.reconciliation || {};
+  const metrics = report.metrics || {};
+  return reconciliation.ok === true && metrics.revenue_established === true;
+}
+
+// The same for a package: every counted member reconciles (`unreconciled_documents` empty), the package's revenue is
+// established, and its currencies are not refused (a refused package's judgement never reads as a pass).
+function packageRevenueBalanced(pkg = {}) {
+  const totals = pkg.totals || {};
+  const unreconciled = Array.isArray(totals.unreconciled_documents) ? totals.unreconciled_documents : null;
+  return unreconciled !== null && unreconciled.length === 0 && packageRevenueFlags(totals).revenue_established
+    && !packageCurrencyInfo(pkg).refused;
+}
+
+// Audit B11 (B9's I13, B10's I05): what the True card says True rests on, from a statement's metrics: no holder's name
+// read (the holds that keep the holder's own money out cannot see it), and the share of credits whose printed payer
+// no parser read.
+function statementRevenueFacts(metrics = {}) {
+  const facts = [];
+  if (metrics.holder_unscreened === true) facts.push("No holder name read: the holder's own deposits are not screened");
+  if (metrics.payer_text_unread === true) {
+    const count = numberOrNull(metrics.payer_text_unread_count);
+    facts.push(`${count === null ? "Many" : formatNumber(count)} credits' payer text not read`);
+  }
+  return facts;
+}
+
+// The same facts for a package, from its totals' member lists.
+function packageRevenueFacts(totals = {}) {
+  const statements = (list) => new Set((Array.isArray(list) ? list : []).map((id) => String(id).split("#")[0])).size;
+  const noun = (n) => (n === 1 ? "statement" : "statements");
+  const facts = [];
+  const unscreened = statements(totals.holder_unscreened_documents);
+  if (unscreened) facts.push(`${formatNumber(unscreened)} ${noun(unscreened)} with no holder name read`);
+  const unread = statements(totals.payer_text_unread_documents);
+  if (unread) facts.push(`${formatNumber(unread)} ${noun(unread)} with payer text not read`);
+  return facts;
 }
 
 // A package's two revenue flags (§10.4). The server nulls its True, Counted and Held counts only when a completed
@@ -316,7 +388,7 @@ const emptyMetricSections = [
     sub: "Posted debit transactions",
     items: [
       ["Total Debits", "N/A", "All posted debit transactions", "DB", "neutral"],
-      ["Confirmed Withholding", "N/A", "Confirmed lender debits as a share of revenue", "%", "neutral"],
+      ["Confirmed Withholding", "N/A", "Confirmed lender debits as a share of eligible deposits", "%", "neutral"],
       ["ACH Debits", "N/A", "Posted ACH debit transactions", "ACH", "neutral"],
       ["POS Transactions", "N/A", "Card purchase transactions", "POS", "neutral"],
       ["ATM Withdrawals", "N/A", "Posted ATM withdrawals", "ATM", "neutral"],
@@ -345,7 +417,7 @@ const emptyMetricSections = [
       ["Confirmed Lender Debits", "N/A", "Total paid to confirmed lenders", "$", "neutral"],
       ["Potential Lender Debit Count", "N/A", "Transactions linked to possible lenders", "DB", "neutral"],
       ["Potential Lender Debits", "N/A", "Excluded until lender status is confirmed", "$", "neutral"],
-      ["Eligible Deposits", "N/A", "Deposits used to calculate withholding rates", "DEP", "neutral"],
+      ["Eligible Deposits", "N/A", LEGACY_ELIGIBLE_DEPOSITS_NOTE, "DEP", "neutral"],
       ["Potential Withholding Exposure", "N/A", "Possible lender debits as a share of eligible deposits", "%", "neutral"],
       ["Insurance Debits", "N/A", "Insurance debit transactions", "INS", "neutral"],
       ["Insurance Total", "N/A", "Excluded from lender payment totals", "$", "neutral"],
@@ -520,7 +592,12 @@ function withholdingAuditNote(metrics = {}, currency = "USD") {
   return `${numerator} confirmed lender debits divided by ${denominator} ${label.toLowerCase()}`;
 }
 
+// The Eligible Deposits card's note: the basis the withholding rates divide by. Audit B11 (I34): the default, legacy
+// basis is named for what it is, gross deposits less lender funding and never True revenue; a selected Verified or True
+// basis keeps the analysis's own definition.
 function activeDenominatorNote(metrics = {}) {
+  const mode = metrics.withholding_denominator_mode;
+  if (!mode || mode === "legacy_eligible_deposits") return LEGACY_ELIGIBLE_DEPOSITS_NOTE;
   return metrics.eligible_deposit_definition || "Deposits used to calculate withholding rates";
 }
 
@@ -719,6 +796,13 @@ function heldReasonFilter(filter) {
   return match ? match[1] : null;
 }
 
+// Audit B11 (I53): the ledger filter behind one reason of the counted tier is "counted_flagged:<reason>". Null for any
+// other filter.
+function countedReasonFilter(filter) {
+  const match = /^counted_flagged:([a-z_0-9]+)$/.exec(String(filter || ""));
+  return match ? match[1] : null;
+}
+
 // T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with, so its
 // review view lists the deposits it left unverified, the rows its badge counts. This filter has no pill.
 const OLDER_REVIEW_FILTER = "unverified_deposit";
@@ -739,6 +823,8 @@ function revenueFilterLabel(filter, count) {
   if (filter === OLDER_REVIEW_FILTER) return count === 1 ? "unverified deposit" : "unverified deposits";
   const heldReason = heldReasonFilter(filter);
   if (heldReason) return `held: ${lower(revenueReasonLabel({ revenue_tier_reason: heldReason }))}`;
+  const countedReason = countedReasonFilter(filter);
+  if (countedReason) return `counted: ${lower(revenueReasonLabel({ revenue_tier_reason: countedReason }))}`;
   const tier = CREDIT_MIX.find(([state]) => state === filter);
   return tier ? lower(tier[1]) : null;
 }
@@ -872,6 +958,13 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
     matched = transactions.filter((tx) => {
       const record = transactionClassification(tx);
       return record.revenue_tier === "excluded_pending_review" && record.revenue_tier_reason === heldReason;
+    });
+  }
+  const countedReason = countedReasonFilter(filter);
+  if (countedReason) {
+    matched = transactions.filter((tx) => {
+      const record = transactionClassification(tx);
+      return txAmount(tx) > 0 && record.revenue_tier === "counted_flagged" && record.revenue_tier_reason === countedReason;
     });
   }
   if (filter === OLDER_REVIEW_FILTER) {
@@ -1289,7 +1382,7 @@ async function responseJson(response) {
 function reviewedStatementName(jobId) {
   const pkg = currentAnalysis && currentAnalysis.package;
   if (!pkg) return null;
-  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  const documents = countedDocuments(pkg.documents);
   const doc = documents.find((item) => packageMember(item.id).jobId === jobId);
   const month = doc ? statementMonth(doc.period_start, doc.period_end) : null;
   if (!month) return (doc && doc.filename) || "a statement";
@@ -2079,15 +2172,24 @@ const revenueRows = [
   ["non_revenue", "Non-Revenue", "X", "Excluded", "neutral", null],
 ];
 
-// The held credits of a statement or a package by reason, largest total first (ties by code), or [] where they are
-// not established.
-function heldReasonEntries(source = {}) {
-  const byReason = source && source.revenue_established === true && source.excluded_pending_review_by_reason
-    && typeof source.excluded_pending_review_by_reason === "object" ? source.excluded_pending_review_by_reason : {};
+// The credits of one middle tier of a statement or a package by reason, largest total first (ties by code), or []
+// where they are not established. `tier` is counted_flagged or excluded_pending_review.
+function tierReasonEntries(source = {}, tier = "excluded_pending_review") {
+  const key = `${tier}_by_reason`;
+  const byReason = source && source.revenue_established === true && source[key]
+    && typeof source[key] === "object" ? source[key] : {};
   return Object.entries(byReason)
     .map(([reason, figures]) => ({ reason, count: figures && figures.count, total: numberOrNull(figures && figures.total) }))
     .sort((a, b) => (b.total ?? 0) - (a.total ?? 0) || a.reason.localeCompare(b.reason));
 }
+
+// The held credits by reason: the Held for Review view.
+function heldReasonEntries(source = {}) {
+  return tierReasonEntries(source, "excluded_pending_review");
+}
+
+// The words naming one middle tier's reason rows in the evidence table.
+const TIER_REASON_ROW_WORDS = Object.freeze({ counted_flagged: "counted", excluded_pending_review: "held" });
 
 function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) {
   const filterAttribute = modal ? "data-modal-revenue-filter" : "data-revenue-filter";
@@ -2101,10 +2203,11 @@ function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) 
         <td>${glassChip(glyph, status, tone)}</td>
       </tr>
     `;
-    if (filter !== "excluded_pending_review") return row;
-    return row + heldReasonEntries(metrics).map(({ reason, count, total }) => `
+    // Audit B11 (I53): Counted is broken down by reason, as Held is, so the card that headlines it can be read.
+    if (!TIER_REASON_ROW_WORDS[filter]) return row;
+    return row + tierReasonEntries(metrics, filter).map(({ reason, count, total }) => `
       <tr class="evidence-subrow">
-        <td><button class="evidence-link" type="button" ${filterAttribute}="excluded_pending_review:${escapeHtml(reason)}" aria-label="Show the held ${escapeHtml(revenueReasonLabel({ revenue_tier_reason: reason }))} transactions">${escapeHtml(revenueReasonLabel({ revenue_tier_reason: reason }))}</button></td>
+        <td><button class="evidence-link" type="button" ${filterAttribute}="${filter}:${escapeHtml(reason)}" aria-label="Show the ${TIER_REASON_ROW_WORDS[filter]} ${escapeHtml(revenueReasonLabel({ revenue_tier_reason: reason }))} transactions">${escapeHtml(revenueReasonLabel({ revenue_tier_reason: reason }))}</button></td>
         <td>${escapeHtml(formatNumber(count))}</td>
         <td>${escapeHtml(formatMoney(total, currency))}</td>
         <td></td>
@@ -2580,9 +2683,10 @@ function renderCreditMix(source = {}, currency = "USD") {
     .filter((part) => sum > 0 && part.size > 0)
     .map((part) => `<span class="${part.dot}" style="width: ${((part.size / sum) * 100).toFixed(2)}%"></span>`)
     .join("");
+  // Audit B11 (I53): each share is of the posted credits (the four tiers together), and says so.
   els.creditMixBar.setAttribute(
     "aria-label",
-    sum > 0 ? `Credit mix: ${parts.map((part) => `${share(part)} ${part.label.toLowerCase()}`).join(", ")}` : "Credit mix unavailable",
+    sum > 0 ? `Credit mix, as a share of posted credits: ${parts.map((part) => `${share(part)} ${part.label.toLowerCase()}`).join(", ")}` : "Credit mix unavailable",
   );
   els.creditMixRows.innerHTML = parts.map((part) => `
     <button class="mix-row" type="button" data-revenue-filter="${part.state}" aria-label="Show exact ${escapeHtml(part.label)} transactions">
@@ -2590,9 +2694,9 @@ function renderCreditMix(source = {}, currency = "USD") {
       <span class="mix-label">${escapeHtml(part.label)}</span>
       <span class="mix-count">${escapeHtml(formatNumber(part.count))}</span>
       <span class="mix-total">${escapeHtml(formatMoney(part.total, currency))}</span>
-      <span class="mix-share">${escapeHtml(share(part))}</span>
+      <span class="mix-share" title="${escapeHtml(sum > 0 ? `${share(part)} of posted credits` : "Share of posted credits unavailable")}">${escapeHtml(share(part))}</span>
     </button>
-  `).join("");
+  `).join("") + (sum > 0 ? `<p class="mix-caption">Shares of posted credits</p>` : "");
 }
 
 function renderTotals(items) {
@@ -2712,6 +2816,17 @@ function currencyOfDocument(doc) {
   return "currency" in doc ? doc.currency : "USD";
 }
 
+// Audit B11 (I06): the package's statements that count: every row but a repeated statement the server left out of
+// its figures (`is_duplicate`), which the duplicate notice lists instead.
+function countedDocuments(documents) {
+  return (Array.isArray(documents) ? documents : []).filter((doc) => doc && doc.is_duplicate !== true);
+}
+
+// The rows a package lists as repeated statements, left out of its figures.
+function duplicateDocuments(documents) {
+  return (Array.isArray(documents) ? documents : []).filter((doc) => doc && doc.is_duplicate === true);
+}
+
 // A package's statements in calendar order, each with the month it stands for.
 function packageMonthRows(documents) {
   const rows = documents.map((doc) => ({ doc, month: statementMonth(doc.period_start, doc.period_end) }));
@@ -2749,13 +2864,23 @@ function monthlyChartTallestBar(figures) {
     + (figures - 1) * MONTHLY_CHART_PULL_PX;
 }
 
-function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
+// `unitsShown` is true for a package that refuses to combine its currencies (CURRENCY DOCTRINE §F: several currencies,
+// or a member that declared none beside one that did). Audit B11 (I54): such a package's bars are scaled, and its peak
+// chosen, within each currency (an undeclared member is a group of its own), never across them, and every bar names its
+// unit, USD included; an undeclared member's stays undeclared.
+function renderMonthlyChart(rows, unitsShown, view = "both") {
   if (!els.monthlyChart) return;
   const both = view === "both";
   const nested = view !== "total";
   const plotted = view === "true" ? trueDeposits : totalDeposits;
   const values = rows.map(({ doc }) => numberOrNull(plotted(doc)));
-  const largest = Math.max(0, ...values.filter((value) => value !== null));
+  const groupOf = (doc) => currencyOfDocument(doc) || "";
+  const largestByGroup = new Map();
+  rows.forEach(({ doc }, index) => {
+    const value = values[index];
+    if (value === null) return;
+    largestByGroup.set(groupOf(doc), Math.max(largestByGroup.get(groupOf(doc)) ?? 0, value));
+  });
   const years = new Set(rows.map((row) => row.month && row.month.year));
   const columns = `grid-template-columns: repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`;
   // The tallest bar fills the plot box less the figures stacked above it (5.6, A4: the Verified figure is the third in
@@ -2764,7 +2889,8 @@ function renderMonthlyChart(rows, mixedCurrencies, view = "both") {
   const bars = rows.map(({ doc }, index) => {
     const value = values[index];
     const currency = currencyOfDocument(doc);
-    const unit = mixedCurrencies && currency && currency !== "USD" ? ` ${currency}` : "";
+    const largest = Math.max(0, largestByGroup.get(groupOf(doc)) ?? 0);
+    const unit = unitsShown && currency ? ` ${currency}` : "";
     const withUnit = (text) => (text === "N/A" ? text : text + unit);
     const heightPx = largest > 0 && value !== null ? Math.max((Math.max(value, 0) / largest) * tallest, 2) : 0;
     const truePart = nested ? numberOrNull(trueDeposits(doc)) : null;
@@ -2945,12 +3071,15 @@ function renderAccount(report) {
   const accountName = [account["Account Type"], account["Account Number (masked)"]]
     .filter((value) => value && value !== "N/A")
     .join(" ");
+  // Audit B11 (I31): "Balanced" only where the statement's own rows reconcile to the bank's figures and its revenue is
+  // established; the four tiers summing to the posted credits (`revenue_tiers_sum_to_posted`) holds by construction.
+  const revenueBalanced = statementRevenueBalanced(report);
   renderHero({
     icon: BANK_ICON,
     kicker: [statement.bank || "Bank statement", accountName].filter(Boolean).join(" · "),
     title: month ? `${month} statement` : "Bank statement",
     chips: [
-      [`Revenue · ${metrics.revenue_reconciles ? "Balanced" : "Review required"}`],
+      [`Revenue · ${revenueBalanced ? "Balanced" : "Review required"}`],
       [`Integrity · ${integrityLabel(integrity)}`],
       [period(statement), true],
       [pageCount ? `${currency} · ${formatNumber(pageCount)} pages` : currency],
@@ -2986,7 +3115,7 @@ function renderAccount(report) {
     ["Parsing mode", parseModeLabel(report.parse_mode || selectedParseMode())],
     ["Parser used", report.model_used || "N/A"],
     ["Document integrity", integrityLabel(integrity)],
-    ["Revenue reconciliation", metrics.revenue_reconciles ? "Balanced" : "Review required"],
+    ["Revenue reconciliation", revenueBalanced ? "Balanced" : "Review required"],
     ["Eligible deposits basis", metrics.withholding_denominator_label || "Eligible deposits"],
     ["Validation", validation],
     ["Text blocks detected", formatNumber(transactions.length || metrics.effective_num_deposits || "--")],
@@ -3002,6 +3131,7 @@ function renderAccount(report) {
           established: revenueEstablished,
           verifiedEstablished: metrics.verified_revenue_established === true,
           unestablishedNote: rulesOutdated ? "Re-analyze to compute true revenue" : "",
+          facts: statementRevenueFacts(metrics),
         }),
         ["Total Credits", formatMoney(totalCredits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "neutral"],
         ["ACH Credits", formatNumber(metrics.ach_credit_count), REVENUE_METRIC_COPY.achCredits, "ACH", "neutral"],
@@ -3085,15 +3215,26 @@ function queueState(entry) {
   return { chip: "Processing", tone: "green", detail: processingStageLabel(entry.stage || entry.status), bar: "busy", width: 0 };
 }
 
+// Audit B11 (I06): the queue entry an entry repeats: the same bytes uploaded earlier in this batch (the server's
+// `duplicate_of`), or null. A file uploaded on another day is not a repeat of this package.
+function queueRepeatOf(entry) {
+  if (!entry || !entry.duplicateOf) return null;
+  return queueEntries.find((other) => other !== entry && other.jobId === entry.duplicateOf) || null;
+}
+
 function renderQueue() {
   if (!els.queueCard || !els.queueList) return;
   els.queueCard.hidden = !queueEntries.length;
   const pages = queueEntries.reduce((sum, entry) => sum + (numberOrNull(entry.pageCount) || 0), 0);
+  const repeats = queueEntries.filter((entry) => queueRepeatOf(entry)).length;
   els.queueMeta.textContent = `${formatNumber(queueEntries.length)} ${queueEntries.length === 1 ? "file" : "files"}`
-    + (pages ? ` · ${formatNumber(pages)} pages` : "");
+    + (pages ? ` · ${formatNumber(pages)} pages` : "")
+    + (repeats ? ` · ${formatNumber(repeats)} repeated ${repeats === 1 ? "file" : "files"}, counted once` : "");
   els.queueList.innerHTML = queueEntries.map((entry, index) => {
     const state = queueState(entry);
+    const repeat = queueRepeatOf(entry);
     const details = [
+      repeat ? `Same file as ${repeat.name}: left out of the package figures` : "",
       sentenceCase(state.detail),
       numberOrNull(entry.pageCount) ? `${formatNumber(entry.pageCount)} pages` : "",
       formatBytes(entry.size),
@@ -3223,6 +3364,7 @@ function showSelectedFile(file) {
     status: "uploading",
     stage: null,
     pageCount: null,
+    duplicateOf: null,
   }));
   setPreviewJob(null, 0);
   setStatusRows([
@@ -3301,6 +3443,8 @@ function uploadFiles(fileList) {
         entry.jobId = job.id;
         entry.status = "queued";
         entry.pageCount = job.page_count;
+        // Audit B11 (I06): the earliest job holding these exact bytes; the queue names a repeat inside this batch.
+        entry.duplicateOf = job.duplicate_of || null;
       });
       setPreviewJob(payload.jobs[0].id, payload.jobs[0].page_count);
       const isPackage = currentJobIds.length > 1;
@@ -3444,6 +3588,51 @@ function appendStatusExports(base) {
   );
 }
 
+// Audit B11 (I07, I33): "N statements · M months": the statements the package counts (one per document and printed
+// cycle, `statement_periods`, published when it differs from the months) and the distinct calendar months they cover.
+function packageSpanLabel(totals = {}, fallbackStatements = 0) {
+  const months = numberOrNull(totals.months);
+  const statements = numberOrNull(totals.statement_periods ?? totals.months) ?? fallbackStatements;
+  const monthCount = months ?? statements;
+  return `${formatNumber(statements)} ${statements === 1 ? "statement" : "statements"} · `
+    + `${formatNumber(monthCount)} ${monthCount === 1 ? "month" : "months"}`;
+}
+
+// Audit B11 (I06): the package's repeated statements, which the server left out of every figure (MCA practice removes a
+// duplicate statement, standard §4.6(3)): each named with the statement it repeats, and the package sent to review.
+const DUPLICATE_REASON_WORDS = Object.freeze({
+  same_content: "the same file",
+  same_statement: "the same statement, downloaded again",
+});
+
+function renderDuplicateNotice(pkg = {}) {
+  if (!els.duplicateNotice) return;
+  const listed = Array.isArray(pkg.documents) ? pkg.documents : [];
+  const repeats = duplicateDocuments(listed);
+  const accounts = (Array.isArray(pkg.excluded_accounts) ? pkg.excluded_accounts : [])
+    .filter((entry) => entry && entry.is_duplicate === true);
+  const count = repeats.length + accounts.length;
+  els.duplicateNotice.hidden = count === 0;
+  if (!els.duplicateNoticeText) return;
+  if (!count) {
+    els.duplicateNoticeText.innerHTML = "";
+    return;
+  }
+  const nameOf = (jobId) => {
+    const doc = listed.find((item) => packageMember(item.id).jobId === String(jobId));
+    return doc && doc.filename ? doc.filename : "an earlier statement";
+  };
+  const lines = [
+    ...repeats.map((doc) => `${doc.filename || "A statement"} repeats ${nameOf(doc.duplicate_of)} `
+      + `(${DUPLICATE_REASON_WORDS[doc.duplicate_reason] || "the same statement"})`),
+    ...accounts.map((entry) => `account ${formatNumber(entry.account_index)} of ${nameOf(entry.job_id)} repeats `
+      + `${nameOf(entry.duplicate_of)}`),
+  ];
+  els.duplicateNoticeText.innerHTML = `<strong>${escapeHtml(formatNumber(count))} repeated `
+    + `${count === 1 ? "statement" : "statements"} left out of every figure.</strong> `
+    + `${escapeHtml(lines.join("; "))}. The package needs review.`;
+}
+
 function packagePeriod(documents) {
   const starts = documents.map((doc) => doc.period_start).filter(Boolean).sort();
   const ends = documents.map((doc) => doc.period_end).filter(Boolean).sort();
@@ -3481,7 +3670,9 @@ function renderPackageAnalysis(pkg) {
   currentMarkdown = "";
   renderMainTransactions();
   const totals = pkg.totals || {};
-  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  // Audit B11 (I06): a repeated statement the server left out of every figure is listed by the duplicate notice, never
+  // as a statement or a month of the package.
+  const documents = countedDocuments(pkg.documents);
   const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
   const potentialLenders = Array.isArray(pkg.potential_lenders) ? pkg.potential_lenders : [];
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
@@ -3497,13 +3688,16 @@ function renderPackageAnalysis(pkg) {
   setBanner("done", "Package analysis completed", validation);
   els.decisionPill.textContent = `Package decision · ${sentenceCase(labelize(totals.decision || "review required"))}`;
   els.decisionPill.className = `decision-pill ${totals.decision || ""}`.trim();
+  renderDuplicateNotice(pkg);
 
   setResultsMode("package");
   showResultsContent();
   const monthRows = packageMonthRows(documents);
   const title = packageTitle(monthRows);
   const banks = [...new Set(documents.map((doc) => doc.bank).filter(Boolean))];
-  const periods = numberOrNull(totals.statement_periods ?? totals.months) ?? documents.length;
+  const span = packageSpanLabel(totals, documents.length);
+  // Audit B11 (I31): "Balanced" only where every statement reconciles to its bank's figures and revenue is established.
+  const revenueBalanced = packageRevenueBalanced(pkg);
   renderHero({
     icon: PACKAGE_ICON,
     kicker: ["Package", `${formatNumber(documents.length)} ${documents.length === 1 ? "statement" : "statements"}`, banks.join(", ")]
@@ -3512,18 +3706,21 @@ function renderPackageAnalysis(pkg) {
     chips: [
       [packagePeriod(documents), true],
       [packageCurrencyLabel(currencyInfo)],
-      [`Revenue · ${totals.revenue_reconciles ? "Balanced" : "Review required"}`],
+      [`Revenue · ${revenueBalanced ? "Balanced" : "Review required"}`],
     ],
   });
   analysisCrumbs = ["Packages", title];
   resultsCrumbs = analysisCrumbs;
+  // Audit B11 (I07, I33): "N statements · M months" (distinct calendar months), the gross monthly figure named gross,
+  // and True per month beside the package's True: what an MCA advance is sized on.
   renderCredits({
-    label: `Total credits · ${formatNumber(periods)} ${periods === 1 ? "month" : "months"}`,
+    label: `Total credits · ${span}`,
     value: formatMoney(totals.total_credits, currency),
     meta: refusalNote
       ? escapeHtml(refusalNote)
-      : `Avg monthly credits <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_credits, currency))}</span>`
-        + ` · True revenue <span class="mono">${escapeHtml(formatMoney(totals.true_revenue_total, currency))}</span>`,
+      : `Avg monthly gross credits <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_credits, currency))}</span>`
+        + ` · True revenue <span class="mono">${escapeHtml(formatMoney(totals.true_revenue_total, currency))}</span>`
+        + ` · True per month <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_true_revenue, currency))}</span>`,
   });
   renderCreditMix(packageRevenueFlags(totals), currency);
   // The monthly chart is drawn with the Monthly Statements table (renderMonthlyStatements): both follow the basis
@@ -3547,7 +3744,8 @@ function renderPackageAnalysis(pkg) {
   }
 
   setStatusRows([
-    ["Statements completed", `${formatNumber(totals.completed)} / ${formatNumber(totals.documents)}`],
+    // Audit B11 (I06): a repeated statement left out is no statement of the package.
+    ["Statements completed", `${formatNumber(totals.completed)} / ${formatNumber(totals.distinct_documents ?? totals.documents)}`],
     ["Package currency", packageCurrencyLabel(currencyInfo)],
     ["Approved", formatNumber(totals.approved)],
     ["Manual review", formatNumber(totals.manual_review)],
@@ -3555,25 +3753,24 @@ function renderPackageAnalysis(pkg) {
     ["Processing errors", formatNumber(totals.failed)],
     ["Confirmed withholding", formatPercent(totals.package_withholding_rate)],
     ["Potential exposure", formatPercent(totals.potential_withholding_exposure)],
-    ["Revenue reconciliation", totals.revenue_reconciles ? "Balanced" : "Review required"],
+    ["Revenue reconciliation", revenueBalanced ? "Balanced" : "Review required"],
     ["Eligible deposits basis", totals.withholding_denominator_label || "Eligible deposits"],
   ]);
 
   renderMetricSections([
     {
       title: "Package revenue",
-      // MINOR-10 (the L1-S3 review): `months` counts MEMBERS and this label
-      // says PERIODS. They are the same number until a document publishes two
-      // accounts, and two accounts of one document are one statement period.
-      // The server publishes `statement_periods` only when the two differ, so
-      // this reads the honest count where there is one and the old one where
-      // nothing changed.
-      sub: [`${formatNumber(totals.statement_periods ?? totals.months)} statement periods`,
-        packageUnestablishedNote(totals, documents)].filter(Boolean).join(" · "),
+      // Audit B11 (I07, I33): the statements and the distinct calendar months they cover (`months`); each per-month
+      // figure is the package's total divided by those months.
+      sub: [span, packageUnestablishedNote(totals, documents)].filter(Boolean).join(" · "),
       items: [
-        ...revenueCardItems(totals, currency, { ...packageRevenueFlags(totals), note: moneyNote }),
+        ...revenueCardItems(totals, currency, {
+          ...packageRevenueFlags(totals), note: moneyNote, facts: packageRevenueFacts(totals),
+        }),
+        ["True Revenue Per Month", formatMoney(totals.avg_monthly_true_revenue, currency), moneyNote("True revenue per calendar month, across the package's accounts"), "AVG", "green", { revenueFilter: "true_revenue" }],
+        ["Verified Revenue Per Month", formatMoney(totals.avg_monthly_verified_revenue, currency), moneyNote("Verified revenue per calendar month, across the package's accounts"), "AVG", "green", { revenueFilter: "verified_revenue" }],
         ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "neutral"],
-        ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits, currency), moneyNote("Average posted credits per statement period"), "AVG", "neutral"],
+        ["Avg Monthly Gross Credits", formatMoney(totals.avg_monthly_credits, currency), moneyNote("Gross posted credits per calendar month (not True revenue)"), "AVG", "neutral"],
       ],
     },
     {
@@ -3581,9 +3778,9 @@ function renderPackageAnalysis(pkg) {
       sub: "Package-level affordability signals",
       items: [
         ["Total Debits", formatMoney(totals.total_debits, currency), moneyNote("All posted debit transactions"), "DB", "neutral"],
-        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits, currency), moneyNote("Average posted debits per statement period"), "AVG", "neutral"],
+        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits, currency), moneyNote("Average posted debits per calendar month"), "AVG", "neutral"],
         ["Total Cash Flow", formatMoney(totals.cash_flow, currency), moneyNote("Credits minus debits"), "CF", negativeTone(totals.cash_flow)],
-        ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow, currency), moneyNote("Average statement cash flow"), "AVG", negativeTone(totals.avg_monthly_cash_flow)],
+        ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow, currency), moneyNote("Average cash flow per calendar month"), "AVG", negativeTone(totals.avg_monthly_cash_flow)],
         ["Average Daily Balance", formatMoney(totals.average_daily_balance, currency), moneyNote(packageAverageBalanceNote(documents)), "ADB", currencyInfo.refused ? "amber" : packageAverageBalanceTone(documents)],
         ["NSFs", formatNumber(totals.nsf_count), totals.nsf_source === "mixed" ? "Members counted on different bases" : nsfSourceLabel(totals.nsf_source), "NSF", countTone(totals.nsf_count)],
         ["Confirmed Withholding", formatPercent(totals.package_withholding_rate), moneyNote(withholdingAuditNote(totals, currency)), "%", withholdingTone(totals.package_withholding_rate)],
@@ -3717,10 +3914,12 @@ const MONTHLY_DEPOSITS_NOTES = {
 };
 
 function renderMonthlyStatements(pkg) {
-  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  // Audit B11 (I06): a repeated statement left out of the package's figures is no month of its own.
+  const documents = countedDocuments(pkg.documents);
   const view = monthlyDepositsView();
   const columns = monthlyDepositColumns(view);
-  renderMonthlyChart(packageMonthRows(documents), packageCurrencyInfo(pkg).currencies.length > 1, view);
+  const currencyInfo = packageCurrencyInfo(pkg);
+  renderMonthlyChart(packageMonthRows(documents), currencyInfo.refused || currencyInfo.currencies.length > 1, view);
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
     const note = MONTHLY_DEPOSITS_NOTES[view];
@@ -4032,6 +4231,7 @@ function renderStatementModal(jobId, report, markdown) {
       verifiedEstablished: metrics.verified_revenue_established === true,
       unestablishedNote: rulesOutdated ? "Re-analyze to compute true revenue" : "",
       counts: true,
+      facts: statementRevenueFacts(metrics),
     }),
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "neutral"],
     ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "All posted debit transactions", "DB", "neutral"],
@@ -4145,9 +4345,20 @@ function generateSummary() {
     const lenderSummary = funders.length
       ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
       : "No lenders detected across the package.";
+    const counted = countedDocuments(pkg.documents);
+    const repeats = duplicateDocuments(pkg.documents).length;
+    // Audit B11 (I07): the memo carries True, Verified and Non-revenue, in total and per calendar month, ahead of the
+    // gross figures, which are named gross; and the repeated statements left out (I06).
     els.summaryBox.textContent =
-      `Package ${packagePeriod(pkg.documents || [])}: ${formatNumber(totals.completed)} of ${formatNumber(totals.documents)} statements completed, ` +
-      `${formatMoney(totals.avg_monthly_credits, currency)} average monthly credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
+      `Package ${packagePeriod(counted)} (${packageSpanLabel(totals, counted.length)}): ` +
+      `${formatNumber(totals.completed)} of ${formatNumber(totals.distinct_documents ?? totals.documents)} statements completed` +
+      (repeats ? `, ${formatNumber(repeats)} repeated ${repeats === 1 ? "statement" : "statements"} left out` : "") + ". " +
+      `${revenueSummarySentence(totals, currency, packageRevenueFlags(totals), {
+        trueMonthly: totals.avg_monthly_true_revenue,
+        verifiedMonthly: totals.avg_monthly_verified_revenue,
+        nonRevenueMonthly: totals.avg_monthly_non_revenue,
+      })} ` +
+      `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
       `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
@@ -4170,9 +4381,17 @@ function generateSummary() {
     : q.corporate_use || q.level || "review_required";
   const lead = idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: `
     : unverifiedNote ? `${unverifiedNote}Figures for the selected account, ${accountDisplayName(s, null)}: ` : "";
+  // Audit B11 (I07): the statement stands for one calendar month (the Monthly Statements rule), so its monthly figures
+  // are its totals.
+  const established = { established: m.revenue_established === true,
+    verifiedEstablished: m.verified_revenue_established === true };
   els.summaryBox.textContent =
     lead +
-    `${s.bank || "Statement"} ${period(s)}: average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
+    `${s.bank || "Statement"} ${period(s)}: ` +
+    `${revenueSummarySentence(m, currency, established, {
+      trueMonthly: m.true_revenue_total, verifiedMonthly: m.verified_revenue_total, nonRevenueMonthly: m.non_revenue_total,
+    })} ` +
+    `Average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
     `${formatMoney(m.lender_debits, currency)} confirmed lender debits, and ` +
@@ -4393,7 +4612,7 @@ function rememberHeldStatement(jobId, message) {
 }
 
 function rememberPackage(jobIds, pkg) {
-  const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
+  const documents = countedDocuments(pkg.documents);
   rememberAnalysis({
     kind: "package",
     key: jobIds.join(","),

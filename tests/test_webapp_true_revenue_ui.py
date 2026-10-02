@@ -76,9 +76,12 @@ console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML), meta: e
     assert "True revenue" in result["meta"] and "$1,000.00" in result["meta"]
     assert result["badge"] == [False, "1"]  # the held credit, not every unverified deposit
     evidence = result["evidence"]
+    # Audit B11 (I53): Counted is broken down by reason, as Held is.
     assert [row[0] for row in evidence] == ["True Revenue", "Verified Revenue", "Counted, Not Verified",
-                                            "Held for Review", "Payer or entry suggests financing", "Non-Revenue"]
-    assert evidence[4][1:3] == ["1", "$900.00"]
+                                            "Check deposit", "Held for Review", "Payer or entry suggests financing",
+                                            "Non-Revenue"]
+    assert evidence[3][1:3] == ["1", "$300.00"]
+    assert evidence[5][1:3] == ["1", "$900.00"]
 
 
 @needs_node
@@ -149,13 +152,14 @@ const packages = {json.dumps(packages)};
 const out = {{}};
 for (const [name, pkg] of Object.entries(packages)) {{
   currentJobIds = pkg.documents.map((doc) => doc.id); renderPackageAnalysis(pkg);
-  out[name] = (els.metricsGrid.innerHTML.match(/statement periods[^<]*/) || [""])[0];
+  out[name] = (els.metricsGrid.innerHTML.match(/\\d+ statements? · \\d+ months?[^<]*/) || [""])[0];
 }}
 console.log(JSON.stringify(out));
 """)
-    assert result["summary"] == "statement periods · 1 of 2 statements has no established revenue"
-    assert result["both"] == ("statement periods · 2 of 3 statements have no established revenue · Re-analyze 1 of "
-                              "them to compute true revenue")
+    # Audit B11 (I07, I33): the section names its statements and the calendar months they cover.
+    assert result["summary"] == "2 statements · 2 months · 1 of 2 statements has no established revenue"
+    assert result["both"] == ("3 statements · 3 months · 2 of 3 statements have no established revenue · Re-analyze 1 "
+                              "of them to compute true revenue")
 
 
 @needs_node
@@ -179,7 +183,8 @@ console.log(JSON.stringify({{refused, older: view()}}));
     refused, older_view = result["refused"], result["older"]
     assert refused["cards"] == ["N/A"] * 4
     assert refused["evidence"] == [["True Revenue", "4", "N/A"], ["Verified Revenue", "2", "N/A"],
-                                   ["Counted, Not Verified", "2", "N/A"], ["Held for Review", "2", "N/A"],
+                                   ["Counted, Not Verified", "2", "N/A"], ["Check deposit", "2", "N/A"],
+                                   ["Held for Review", "2", "N/A"],
                                    ["Payer or entry suggests financing", "2", "N/A"], ["Non-Revenue", "2", "N/A"]]
     assert refused["mix"] == ["2", "2", "2", "2"]
     assert refused["badge"] == [False, "2"]
@@ -461,4 +466,246 @@ def test_the_settings_say_what_true_revenue_is():
     assert ("<strong>True revenue:</strong> every posted credit except known non-revenue (own-account transfers, "
             "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shown "
             "beside it.") in text
-    assert '<script src="/static/app.js?v=true-revenue-2"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-3"></script>' in html
+
+
+# ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
+
+HERO = r"""
+const hero = () => ({chips: [...els.heroChips.innerHTML.matchAll(/<span class="hero-chip[^"]*">([^<]*)<\/span>/g)]
+    .map((m) => m[1]),
+  status: Object.fromEntries([...els.statusList.innerHTML.matchAll(
+    /<span class="kv-key">([^<]*)<\/span>\s*<span class="kv-value"[^>]*>([^<]*)<\/span>/g)].map((m) => [m[1], m[2]])),
+  label: els.creditsLabel.textContent, meta: els.creditsMeta.innerHTML.replace(/<[^>]+>/g, "")});
+"""
+
+
+@needs_node
+def test_the_revenue_chip_reads_balanced_only_where_the_statement_reconciles_and_revenue_is_established():
+    """I31: the four tiers summing to the posted credits held on every tiered statement, so the chip said "Balanced"
+    beside a short capture or an unreconciled ledger."""
+    reconciled = _served(_payload())
+    assert reconciled["reconciliation"]["ok"] is True and reconciled["metrics"]["revenue_established"] is True
+    unreconciled = _served(_payload())
+    unreconciled["reconciliation"]["ok"] = False
+    short = _served(_summary_only(3))
+    assert short["metrics"]["revenue_tiers_sum_to_posted"] is True  # the identity holds; the chip no longer reads it
+    out = {}
+    for name, payload in (("reconciled", reconciled), ("unreconciled", unreconciled), ("short", short)):
+        out[name] = run_dashboard(METRIC_ROWS + HERO + _open(name, payload) + """
+console.log(JSON.stringify({...hero(), rows: metricRows(els.metricsGrid.innerHTML)}));
+""")
+    assert "Revenue · Balanced" in out["reconciled"]["chips"]
+    assert out["reconciled"]["status"]["Revenue reconciliation"] == "Balanced"
+    for name in ("unreconciled", "short"):
+        assert "Revenue · Review required" in out[name]["chips"], name
+        assert out[name]["status"]["Revenue reconciliation"] == "Review required", name
+    # I51: where revenue is not established, Non-Revenue stays a figure and says it covers the captured rows only.
+    figures = {row["label"]: row for row in out["short"]["rows"]}
+    assert figures["Non-Revenue"]["value"] == "$100.00"
+    assert figures["Non-Revenue"]["note"].startswith("Captured rows only")
+    assert {row["label"]: row for row in out["reconciled"]["rows"]}["Non-Revenue"]["note"] == (
+        "Own-account transfers, funding, refunds and other known non-revenue")
+
+
+@needs_node
+def test_the_package_hero_prints_statements_months_and_true_per_month(tmp_path, monkeypatch):
+    """I07, I33: two accounts uploaded as two files for March are 2 statements and 1 month; the gross monthly figure is
+    named gross, and True per month sits beside the package's True."""
+    from tests.test_webapp_true_revenue import _SECOND_ACCOUNT_ROWS, _account_payload
+
+    package = _package({"chk": _payload(), "sav": _account_payload("000000002020", _SECOND_ACCOUNT_ROWS)},
+                       tmp_path, monkeypatch)
+    result = run_dashboard(METRIC_ROWS + HERO + f"""
+currentJobIds = ['chk', 'sav']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{...hero(), rows: metricRows(els.metricsGrid.innerHTML),
+  sub: (els.metricsGrid.innerHTML.match(/\\d+ statements? · \\d+ months?[^<]*/) || [""])[0]}}));
+""")
+    assert result["label"] == "Total credits · 2 statements · 1 month"
+    # Gross: the two accounts' posted credits, held and non-revenue included (2,000 + 2,500).
+    assert result["meta"] == ("Avg monthly gross credits $4,500.00 · True revenue $3,500.00 · True per month "
+                              "$3,500.00")
+    assert result["sub"] == "2 statements · 1 month"
+    figures = {row["label"]: row for row in result["rows"]}
+    assert figures["True Revenue Per Month"]["value"] == "$3,500.00"
+    assert figures["Verified Revenue Per Month"]["value"] == "$2,700.00"
+    assert figures["Avg Monthly Gross Credits"]["note"] == "Gross posted credits per calendar month (not True revenue)"
+    assert "Avg Monthly Credits" not in figures
+
+
+@needs_node
+def test_the_copy_names_every_counted_kind_and_the_withholding_basis():
+    """I53, I34: the Counted note names every kind of counted credit and says the missing proof is of the sale; the
+    Verified note claims confirmed platform payouts only; the withholding placeholders name eligible deposits, gross
+    deposits less lender funding."""
+    result = run_dashboard(METRIC_ROWS + """
+setInitialState();
+console.log(JSON.stringify({copy: REVENUE_METRIC_COPY, rows: metricRows(els.metricsGrid.innerHTML),
+  payout: REVENUE_TIER_REASONS.payout_credit_entity,
+  legacy: activeDenominatorNote({withholding_denominator_mode: 'legacy_eligible_deposits',
+    eligible_deposit_definition: 'effective total deposits minus recognized lender funding credits'}),
+  verified: activeDenominatorNote({withholding_denominator_mode: 'verified_revenue',
+    eligible_deposit_definition: 'verified classified revenue'})}));
+""")
+    copy = result["copy"]
+    assert copy["countedFlagged"] == (
+        "Counted in true revenue without proof of the sale: cash, checks, person-to-person, wires, one-off, "
+        "unlabelled and numbered-company payers, factoring and platform payouts")
+    assert copy["verifiedRevenue"] == ("Revenue with proof: card settlements, confirmed platform payouts, repeat or "
+                                       "institutional payers, invoices, and deposits you confirmed")
+    assert result["payout"][1] == "BNPL or marketplace settlement (payer also lends)"
+    assert result["legacy"] == "Gross deposits less lender funding (not True revenue)"
+    assert result["verified"] == "verified classified revenue"
+    figures = {row["label"]: row["note"] for row in result["rows"]}
+    assert figures.get("Confirmed Withholding", "Confirmed lender debits as a share of eligible deposits") == (
+        "Confirmed lender debits as a share of eligible deposits")
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert '"Confirmed lender debits as a share of eligible deposits"' in source
+    assert "Confirmed lender debits as a share of revenue" not in source
+
+
+@needs_node
+def test_the_credit_mix_share_is_of_posted_credits_and_counted_has_its_reasons():
+    result = run_dashboard(_open("s", _served(_payload())) + """
+showMainRevenueEvidence('counted_flagged:check_deposit');
+console.log(JSON.stringify({bar: els.creditMixBar.getAttribute('aria-label'), mix: els.creditMixRows.innerHTML,
+  evidence: els.revenueTable.innerHTML, header: els.transactionCount.textContent}));
+""")
+    assert result["bar"].startswith("Credit mix, as a share of posted credits: ")
+    assert '<p class="mix-caption">Shares of posted credits</p>' in result["mix"]
+    assert 'title="35.0% of posted credits"' in result["mix"]
+    assert 'data-revenue-filter="counted_flagged:check_deposit"' in result["evidence"]
+    assert result["header"] == "1 counted: check deposit"
+
+
+@needs_node
+def test_the_true_card_names_an_unscreened_holder_and_unread_payer_text(tmp_path, monkeypatch):
+    payload = _served(_payload())
+    payload["metrics"].update(holder_unscreened=True, payer_text_unread=True, payer_text_unread_count=3)
+    statement = run_dashboard(METRIC_ROWS + _open("s", payload) + """
+console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
+""")
+    note = {row["label"]: row["note"] for row in statement}["True Revenue"].replace("&#39;", "'")
+    assert note == ("Posted credits minus known non-revenue and the deposits held for review · No holder name read: the "
+                    "holder's own deposits are not screened · 3 credits' payer text not read")
+    unscreened = _payload(month=4)
+    unscreened["metrics"]["holder_unscreened"] = True
+    package = _package({"mar": _payload(), "apr": unscreened}, tmp_path, monkeypatch)
+    rows = run_dashboard(METRIC_ROWS + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
+""")
+    assert {row["label"]: row["note"] for row in rows}["True Revenue"].endswith("1 statement with no holder name read")
+
+
+@needs_node
+def test_a_mixed_currency_chart_scales_and_peaks_within_each_currency():
+    """I54: CAD 100,000 and USD 80,000 each fill the tallest bar of their own currency, and every bar names its unit,
+    USD included; CAD beside a member that declared none is refused, and scaled apart too."""
+    def doc(job, currency, credits):
+        row = {"id": job, "filename": f"{job}.pdf", "status": "done", "period_start": "2031-03-01",
+               "period_end": "2031-03-28", "credits": credits, "deposit_count": 1, "revenue_established": False,
+               "verified_revenue_established": False, "average_daily_balance": None, "nsf_count": 0}
+        if currency is not False:
+            row["currency"] = currency
+        return row
+
+    def package(docs, currencies, refused):
+        return {"documents": docs, "totals": {"cross_currency_totals_refused": refused},
+                "currency": {"currencies": currencies, "cross_currency_totals_refused": refused}}
+
+    mixed = package([doc("cad", "CAD", 100000.0), doc("usd", "USD", 80000.0)], ["CAD", "USD"], True)
+    undeclared = package([doc("cad", "CAD", 100000.0), doc("raw", None, 80000.0)], ["CAD"], True)
+    single = package([doc("a", "USD", 100000.0), doc("b", "USD", 80000.0)], ["USD"], False)
+    result = run_dashboard(f"""
+setMonthlyDepositsView('total');
+const view = (pkg) => {{ renderMonthlyStatements(pkg); const html = els.monthlyChart.innerHTML; return {{
+  heights: [...html.matchAll(/<div class="bar([^"]*)" style="height: ([0-9.]+)px">/g)].map((m) => [m[1].trim(), Number(m[2])]),
+  labels: [...html.matchAll(/<span class="bar-value">([^<]*)<\\/span>/g)].map((m) => m[1])}}; }};
+console.log(JSON.stringify({{mixed: view({json.dumps(mixed)}), undeclared: view({json.dumps(undeclared)}),
+  single: view({json.dumps(single)})}}));
+""")
+    tallest = 165.0  # the Total view's tallest bar (test_the_tallest_bar_its_figures_and_the_baseline_fit_the_plot_box…)
+    assert result["mixed"]["heights"] == [["peak", tallest], ["peak", tallest]]
+    assert result["mixed"]["labels"] == ["100,000 CAD", "80,000 USD"]
+    assert result["undeclared"]["heights"] == [["peak", tallest], ["peak", tallest]]
+    assert result["undeclared"]["labels"] == ["100,000 CAD", "80,000"]
+    # One currency: one scale, one peak, no unit (the table's "($)" convention).
+    assert result["single"]["heights"] == [["peak", tallest], ["", tallest * 0.8]]
+    assert result["single"]["labels"] == ["100,000", "80,000"]
+
+
+@needs_node
+def test_a_repeated_statement_is_named_once_and_left_out_of_the_months(tmp_path, monkeypatch):
+    """I06: the server leaves a repeat out of every figure; the page says which, and the Monthly Statements, the
+    chart, the title and the counts never show it as a month."""
+    from webapp.app import _package_analysis, store
+    from webapp.jobs import Job
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    package = _package_analysis([
+        Job(id="mar", filename="mar.pdf", status="done", analysis=_payload(), content_sha256="h1"),
+        Job(id="copy", filename="mar-copy.pdf", status="done", analysis=_payload(), content_sha256="h1"),
+        Job(id="redl", filename="mar-download.pdf", status="done", analysis=_payload(), content_sha256="h2"),
+        Job(id="apr", filename="apr.pdf", status="done", analysis=_payload(month=4), content_sha256="h3"),
+    ])
+    result = run_dashboard(CELLS + HERO + f"""
+currentJobIds = ['mar', 'copy', 'redl', 'apr']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{...monthly(), ...hero(), notice: [els.duplicateNotice.hidden,
+  els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")], title: els.resultsTitle.textContent,
+  kicker: els.heroKicker.innerHTML.replace(/<[^>]+>/g, "")}}));
+""")
+    assert result["notice"] == [False, (
+        "2 repeated statements left out of every figure. mar-copy.pdf repeats mar.pdf (the same file); "
+        "mar-download.pdf repeats mar.pdf (the same statement, downloaded again). The package needs review.")]
+    assert [row[0] for row in result["rows"]] == ["March", "April"]
+    assert result["count"] == "2 statements"
+    assert result["label"] == "Total credits · 2 statements · 2 months"
+    assert result["status"]["Statements completed"] == "2 / 2"
+    assert result["kicker"].startswith("Package · 2 statements")
+    clean = run_dashboard(f"""
+renderPackageAnalysis({json.dumps(_package({"mar": _payload()}, tmp_path, monkeypatch))});
+console.log(JSON.stringify(els.duplicateNotice.hidden));
+""")
+    assert clean is True
+
+
+@needs_node
+def test_the_upload_queue_names_a_file_repeated_in_its_batch():
+    result = run_dashboard("""
+queueEntries = [
+  {name: "mar.pdf", size: 1000, jobId: "a", status: "queued", stage: null, pageCount: 2, duplicateOf: "old"},
+  {name: "mar-copy.pdf", size: 1000, jobId: "b", status: "queued", stage: null, pageCount: 2, duplicateOf: "a"},
+];
+renderQueue();
+console.log(JSON.stringify({meta: els.queueMeta.textContent,
+  details: [...els.queueList.innerHTML.matchAll(/<span class="queue-detail">([^<]*)<\\/span>/g)].map((m) => m[1])}));
+""")
+    assert result["meta"] == "2 files · 4 pages · 1 repeated file, counted once"
+    # A file uploaded on another day ("old") is not a repeat of this batch.
+    assert not result["details"][0].startswith("Same file as")
+    assert result["details"][1].startswith("Same file as mar.pdf: left out of the package figures")
+
+
+@needs_node
+def test_the_copied_summaries_carry_true_verified_and_non_revenue(tmp_path, monkeypatch):
+    """I07: the credit-memo text carries True, Verified and Non-revenue, in total and per month, and names the gross
+    monthly figure gross."""
+    statement = run_dashboard(_open("s", _served(_payload())) + """
+generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
+""")
+    assert ("True revenue $1,000.00 ($1,000.00 a month), verified revenue $700.00 ($700.00 a month), non-revenue "
+            "$100.00 ($100.00 a month).") in statement
+    short = run_dashboard(_open("s", _served(_summary_only(3))) + """
+generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
+""")
+    assert "True revenue N/A, verified revenue N/A, non-revenue $100.00 ($100.00 a month, captured rows only)." in short
+    package = _package({"mar": _payload(), "apr": _payload(month=4)}, tmp_path, monkeypatch)
+    text = run_dashboard(f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)}); generateSummary();
+console.log(JSON.stringify(els.summaryBox.textContent));
+""")
+    assert text.startswith("Package 2031-03-01 to 2031-04-28 (2 statements · 2 months): 2 of 2 statements completed. ")
+    assert ("True revenue $2,000.00 ($1,000.00 a month), verified revenue $1,400.00 ($700.00 a month), non-revenue "
+            "$200.00 ($100.00 a month).") in text
+    assert "average monthly gross credits" in text and "average monthly credits" not in text

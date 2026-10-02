@@ -793,6 +793,150 @@ def test_duplicate_flag_reaches_the_package_exports():
     assert "document_2,is_duplicate,True" in csv_body
 
 
+# ---------------------------------------------------------------------------
+# Audit B11 (I06): a repeated statement is left out of every figure, listed, and sends the package to review.
+# Fabricated statements (tests/test_webapp_true_revenue.py `_payload`: 1,000 True, 700 Verified, March 2031).
+# ---------------------------------------------------------------------------
+
+
+def _analysed(filename, analysis, pdf_bytes=None):
+    job = store.create(filename, pdf_bytes=pdf_bytes)
+    store.set_result(job.id, f"# {filename}", f"<h1>{filename}</h1>", analysis=analysis)
+    return job
+
+
+def _package_json(*job_ids):
+    return app.test_client().get(f"/package_analysis?ids={','.join(job_ids)}").get_json()
+
+
+def _figures(totals):
+    keys = ("true_revenue_total", "verified_revenue_total", "counted_flagged_total", "excluded_pending_review_total",
+            "non_revenue_total", "total_credits", "months", "avg_monthly_true_revenue")
+    return {key: totals[key] for key in keys}
+
+
+#: Fabricated rows whose statement is approved alone (no held credit), so a repeat is what sends it to review.
+_APPROVED_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 7000.0), (3, "MOBILE DEPOSIT", 3000.0)]
+
+
+def test_the_same_pdf_twice_counts_once_and_needs_review():
+    from tests.test_webapp_true_revenue import _payload
+
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    first = _analysed("mar.pdf", _payload(_APPROVED_ROWS), content)
+    copy = _analysed("mar-again.pdf", _payload(_APPROVED_ROWS), content)
+    single = _package_json(first.id)["totals"]
+    assert single["decision"] == "approved"
+    body = _package_json(first.id, copy.id)
+    totals = body["totals"]
+    assert _figures(totals) == _figures(single)
+    assert (totals["true_revenue_total"], totals["months"], totals["avg_monthly_true_revenue"]) == (
+        10000.0, 1, 10000.0)
+    assert (totals["documents"], totals["duplicate_documents"], totals["distinct_documents"]) == (2, 1, 1)
+    assert totals["has_duplicate_documents"] is True and totals["completed"] == 1
+    assert totals["decision"] == "review_required"
+    rows = {doc["id"]: doc for doc in body["documents"]}
+    assert rows[first.id]["is_duplicate"] is False
+    assert (rows[copy.id]["is_duplicate"], rows[copy.id]["duplicate_of"], rows[copy.id]["duplicate_reason"]) == (
+        True, first.id, "same_content")
+    # The left-out repeat carries no figure, and is never a month of the Monthly Statements.
+    assert "true_revenue_total" not in rows[copy.id] and "credits" not in rows[copy.id]
+    assert [doc["id"] for doc in body["monthly"]] == [first.id]
+
+
+def test_a_re_download_with_other_bytes_is_the_same_statement():
+    from tests.test_webapp_true_revenue import _payload
+
+    first = _analysed("mar.pdf", _payload(), b"%PDF-" + _uuid.uuid4().hex.encode())
+    again = _analysed("mar-download.pdf", _payload(), b"%PDF-" + _uuid.uuid4().hex.encode())
+    assert first.content_sha256 != again.content_sha256
+    body = _package_json(first.id, again.id)
+    totals = body["totals"]
+    assert (totals["true_revenue_total"], totals["verified_revenue_total"], totals["months"]) == (1000.0, 700.0, 1)
+    assert totals["duplicate_documents"] == 1 and totals["decision"] == "review_required"
+    repeat = next(doc for doc in body["documents"] if doc["is_duplicate"])
+    assert (repeat["id"], repeat["duplicate_of"], repeat["duplicate_reason"]) == (again.id, first.id, "same_statement")
+    assert body["duplicates"][0]["job_ids"] == [first.id, again.id]
+
+
+def test_a_statement_printing_the_same_key_is_the_same_statement_whatever_its_reading():
+    """The statement key (bank, account's last four, period, opening and closing balance) matches two readings of one
+    statement whose content differs, an analyst's review on one of them for instance."""
+    from tests.test_webapp_true_revenue import _payload
+
+    reviewed = _payload()
+    reviewed["statement"]["transactions"][1]["classification"]["revenue_review_status"] = "confirmed"
+    first = _analysed("mar.pdf", _payload(), b"%PDF-" + _uuid.uuid4().hex.encode())
+    other = _analysed("mar-reviewed.pdf", reviewed, b"%PDF-" + _uuid.uuid4().hex.encode())
+    totals = _package_json(first.id, other.id)["totals"]
+    assert totals["duplicate_documents"] == 1 and totals["true_revenue_total"] == 1000.0
+
+
+def test_a_job_listed_twice_is_one_job():
+    from tests.test_webapp_true_revenue import _payload
+
+    job = _analysed("mar.pdf", _payload(), b"%PDF-" + _uuid.uuid4().hex.encode())
+    single = _package_json(job.id)
+    twice = _package_json(job.id, job.id)
+    assert _figures(twice["totals"]) == _figures(single["totals"])
+    assert [doc["id"] for doc in twice["documents"]] == [job.id]
+    assert twice["totals"]["documents"] == 1 and twice["totals"]["has_duplicate_documents"] is False
+    # A durable package never lists one job twice, and a package id beside one of its own members adds nothing.
+    minted = app.test_client().post("/package", json={"ids": [job.id, job.id]}).get_json()
+    assert minted["ids"] == [job.id]
+    beside = app.test_client().get(f"/package_analysis?ids={minted['package_id']},{job.id}").get_json()
+    assert _figures(beside["totals"]) == _figures(single["totals"])
+
+
+def test_the_package_code_drops_a_repeated_job_even_when_called_directly():
+    from tests.test_webapp_true_revenue import _payload
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+
+    job = Job(id="mar", filename="mar.pdf", status="done", analysis=_payload(), content_sha256="mar")
+    package = _package_analysis([job, job])
+    assert package["totals"]["true_revenue_total"] == 1000.0 and package["totals"]["months"] == 1
+    assert package["totals"]["duplicate_documents"] == 1 and package["totals"]["decision"] == "review_required"
+    assert [doc["id"] for doc in package["documents"]] == ["mar"]
+    assert package["duplicates"][0]["job_ids"] == ["mar", "mar"]
+
+
+def test_the_sibling_accounts_of_one_document_are_never_duplicates():
+    """Every account of a multi-account document carries the job's hash; none is left out on it."""
+    from tests.test_webapp_studio_views import _document
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+
+    package = _package_analysis([Job(id="doc", filename="doc.pdf", status="done", analysis=_document("published"),
+                                     content_sha256="doc")])
+    assert [doc["id"] for doc in package["documents"]] == ["doc#account_1", "doc#account_2"]
+    assert package["totals"]["has_duplicate_documents"] is False
+    assert all(doc["is_duplicate"] is False for doc in package["documents"])
+    assert package["totals"]["months"] == 1
+
+
+def test_a_document_repeating_one_statement_keeps_its_other_account():
+    """A checking statement uploaded alone, then the document that prints it beside savings: the document's checking
+    account is left out as a duplicate, its savings account counts."""
+    from tests.test_webapp_studio_views import CHECKING_ROWS, _document, _report
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+
+    checking = document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, CHECKING_ROWS))
+    jobs = [Job(id="chk", filename="chk.pdf", status="done", analysis=checking, content_sha256="chk"),
+            Job(id="doc", filename="doc.pdf", status="done", analysis=_document("published"), content_sha256="doc")]
+    package = _package_analysis(jobs)
+    assert [doc["id"] for doc in package["documents"]] == ["chk", "doc#account_2"]
+    excluded = package["excluded_accounts"]
+    assert [(entry["job_id"], entry["account_index"], entry["reason"], entry["duplicate_of"]) for entry in excluded] == [
+        ("doc", 1, "duplicate_statement", "chk")]
+    assert package["totals"]["duplicate_accounts"] == 1 and package["totals"]["decision"] == "review_required"
+    alone = _package_analysis([Job(id="doc", filename="doc.pdf", status="done", analysis=_document("published"),
+                                   content_sha256="doc")])
+    assert package["totals"]["total_credits"] == alone["totals"]["total_credits"]
+
+
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()

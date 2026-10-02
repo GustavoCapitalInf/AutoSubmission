@@ -136,6 +136,10 @@ class Metrics:
     revenue_classified_total: float = 0.0
     revenue_classified_count: int = 0
     revenue_reconciliation_delta: float = 0.0
+    #: Audit B11 (I31): the four-tier identity of §5.1 (verified + counted + held + non-revenue = posted credits),
+    #: under its own name. It is no reconciliation against the bank's printed figures (that is `reconciliation.ok`);
+    #: `revenue_reconciles` stays as its deprecated alias for API consumers.
+    revenue_tiers_sum_to_posted: bool = True
     revenue_reconciles: bool = True
     revenue_review_required: bool = False
     #: Audit B9 (I13): no holder's name is known for the statement (true_revenue.holder_unscreened), so the holds that
@@ -528,11 +532,14 @@ def compute_metrics(
         m.revenue_reconciliation_delta == 0.0
         and m.revenue_classified_count == m.total_posted_credit_count
     )
+    # Audit B11 (I31): the identity under its own name; `revenue_reconciles` is its deprecated alias.
+    m.revenue_tiers_sum_to_posted = m.revenue_reconciles
     m.revenue_review_required = revenue_review_gate(
         direction_conflict=direction_conflict,
         held_total=m.excluded_pending_review_total,
         posted_total=m.total_posted_credits,
-        reconciles=m.revenue_reconciles,
+        tiers_sum_to_posted=m.revenue_tiers_sum_to_posted,
+        true_total=m.true_revenue_total,
     )
     m.holder_unscreened = holder_unscreened(records)
     m.payer_text_unread, m.payer_text_unread_count = payer_text_unread(stmt.transactions, records)

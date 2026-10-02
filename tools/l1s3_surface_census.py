@@ -159,6 +159,13 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
     ("analysis/revenue_view.py", "apply_revenue_view", "per_account",
      "the revenue flags and an older payload's nulled True revenue are served per account ledger; every account is "
      "shown, a malformed document passes untouched"),
+    # Audit B11 (true revenue §9.2, §10.4, §10.8).
+    ("webapp/app.py", "_stored_accounts", "per_account",
+     "a package job's accounts for its duplicate test (I06): every account of a document, through payload_accounts"),
+    ("webapp/app.py", "_posted_credit_table", "per_account",
+     "the downloads' posted-credit table (I32): one block per account, under its section prefix"),
+    ("webapp/app.py", "_export_revenue_view", "per_account",
+     "the downloads' N/A rule (I51): every account's figures follow its own revenue flags"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -183,6 +190,10 @@ EXCUSED: dict[str, str] = {
     "benchmark/ourside.py::statement": "one account's view, reached only through the taught `_account`",
     "webapp/app.py::_statement_currency": "one MEMBER's currency; members come from the taught `_package_members`",
     "webapp/app.py::_package_analysis": "reads one MEMBER's account payload, supplied by `_package_members`",
+    # Audit B11 (I06): one ACCOUNT's statement identity, and a left-out job's identifying fields from the first
+    # account; each is handed its account by the taught `_stored_accounts`.
+    "webapp/app.py::_account_identities": "one ACCOUNT's identity; `_stored_accounts` hands it each account",
+    "webapp/app.py::_duplicate_row": "a left-out job's identifying fields, from the first account `_stored_accounts` lists",
     "webapp/reanalysis.py::_records": "one ACCOUNT's records; `replay_reviews` hands it each account from `payload_accounts`",
     "analysis/nsf_days.py::_rebased_account": "one ACCOUNT's ledger and postings; `apply_nsf_basis_to_payload` hands it each account from `payload_accounts`",
     "analysis/revenue_view.py::_served_account": "one ACCOUNT's revenue view; `apply_revenue_view` hands it each account from `payload_accounts`",

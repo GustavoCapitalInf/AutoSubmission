@@ -485,7 +485,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_27():
+def test_analysis_stage_version_is_pinned_at_28():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -502,8 +502,11 @@ def test_analysis_stage_version_is_pinned_at_27():
     the account name) and the payload's statement shape, so it goes 25 -> 26. The
     lost-payer-text batch (B10) changes what six parsers publish for a credit (the
     payer printed beside its posting-type label, and the mark of a payer the parser
-    could not read), so it goes 26 -> 27. This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 27
+    could not read), so it goes 26 -> 27. The package and review-gate batch (B11)
+    changes the stored revenue gate (T7 also reads held against True plus held)
+    and adds the four-tier identity's own name to the metrics, so it goes
+    27 -> 28. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 28
 
 
 def test_paddle_model_token_is_not_in_free_models():

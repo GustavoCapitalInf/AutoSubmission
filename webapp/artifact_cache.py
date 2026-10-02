@@ -625,7 +625,17 @@ OCR_STAGE_VERSION = 5
 # Descriptions and tiers move, so a warm cache keyed on 26 would serve the bare
 # labels; a re-analysis recomputes the analysis stage from the cached reading.
 # OCR stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 27
+# 27 -> 28: TRUE-REVENUE audit batch B11 (the review gate) — T7 also gates a
+# statement whose held credits are 10% or more of True plus held and at least
+# $500 (`REVENUE_REVIEW_HELD_FLOOR`), so `metrics.revenue_review_required`
+# moves on statements heavy with non-revenue; the metrics gain
+# `revenue_tiers_sum_to_posted`, the four-tier identity under its own name
+# (`revenue_reconciles` stays as its alias), and the BNPL or marketplace
+# settlement reason gets its new label. No tier and no figure moves. A warm
+# cache keyed on 27 would serve the old gate; a re-analysis recomputes the
+# analysis stage from the cached reading. OCR stays cached. Pinned in the same
+# change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 28
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
