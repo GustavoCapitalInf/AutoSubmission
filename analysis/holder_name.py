@@ -41,6 +41,8 @@ _PO_BOX = re.compile(r"^(?:P\.? ?O\.?|POST OFFICE) BOX\b", re.IGNORECASE)
 _MAIL_HANDLING = re.compile(r"^HOLD\s*-?\s*RETURN(?:ED)? MAIL\s+", re.IGNORECASE)
 #: A name line that ends on one of these continues on the next line ('NORTHWIND HEART &' / 'VASCULAR LLC').
 _CONTINUED = frozenset({"&", "AND", "OF", "-", "/", "THE"})
+#: A contact the bank prints after the holder's name (an attention line, care of), never part of the name.
+_CONTACT_MARKERS = frozenset({"ATTN", "ATTENTION", "C/O"})
 
 
 def _word(token: str) -> str:
@@ -88,8 +90,21 @@ def _without_designation(tokens: list[str]) -> list[str]:
     return tokens
 
 
+def _without_contact(tokens: list[str]) -> list[str]:
+    """The name's tokens before a contact the bank prints after it: an attention or care-of line (ATTN, ATTENTION,
+    C/O) or a court case and its number (a debtor's account: 'CASE 12-34567')."""
+    for index in range(1, len(tokens)):
+        word = tokens[index].upper().rstrip(":")
+        if word in _CONTACT_MARKERS or (
+            word == "CASE" and index + 1 < len(tokens) and any(ch.isdigit() for ch in tokens[index + 1])
+        ):
+            return tokens[:index]
+    return tokens
+
+
 def _name(tokens: list[str]) -> str | None:
     """The holder's name from its tokens: the DBA split once, each part without its designation, joined as printed."""
+    tokens = _without_contact(tokens)
     split = next(((index, width) for index in range(1, len(tokens)) if (width := _dba(tokens, index))), None)
     if split is None:
         parts = [_without_designation(tokens)]
@@ -105,6 +120,12 @@ def _name(tokens: list[str]) -> str | None:
         words.extend([marker, *part])
     name = " ".join(words).strip(" ,;:")
     return name if sum(character.isalpha() for character in name) >= 2 else None
+
+
+def holder_from_name(text: str) -> str | None:
+    """The holder's name from a line that prints only the name (and perhaps a designation or a contact after it): the
+    name without them (a bank that labels the holder's line, such as TD Bank's '<holder> Account #')."""
+    return _name(_MAIL_HANDLING.sub("", text.strip()).split())
 
 
 def _continued(line: str) -> bool:

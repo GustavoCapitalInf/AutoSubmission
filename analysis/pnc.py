@@ -35,6 +35,7 @@ import re
 from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day_strict
+from .holder_name import holder_from_name
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -440,6 +441,26 @@ def _product(markdown: str) -> str | None:
     found = [(markdown.find(product), product)
              for product in _PRODUCTS if product in markdown]
     return min(found)[1] if found else None
+
+
+#: Audit B9 (I13): the line PNC titles its account summary with: the holder's name in capitals, the product in title
+#: case, then 'Summary Account number'.
+_SUMMARY_TITLE = re.compile(r"^(?P<line>[^\n]*?)Summary Account number", re.MULTILINE)
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit B9 (I13): the holder's name before the product on PNC's summary title line: its leading words that print no
+    lower-case letter, without a designation or a contact after the name. None when the line prints no name (only the
+    product)."""
+    for match in _SUMMARY_TITLE.finditer(markdown):
+        words: list[str] = []
+        for word in match.group("line").split():
+            if any(character.islower() for character in word):
+                break
+            words.append(word)
+        if words:
+            return holder_from_name(" ".join(words))
+    return None
 
 
 def _opens_a_section(text: str, match: "re.Match[str]") -> bool:
@@ -869,6 +890,7 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="PNC Bank",
         account_name=_product(markdown),
+        holder_name=_holder_name(markdown),
         period_start=period[0],
         period_end=period[1],
         beginning_balance=beginning,

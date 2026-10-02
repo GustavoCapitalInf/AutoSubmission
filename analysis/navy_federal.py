@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import holder_from_address_block
 from .money import STRICT_EITHER_MINUS_OR_PLUS_SPACED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -393,6 +394,38 @@ DETECTION_MARKERS = (
 
 detect = make_detector(DETECTION_MARKERS)
 
+#: Audit B9 (I13): the mailing block Navy Federal prints after its 'Questions about this Statement?' heading: the
+#: holder's name, its street and its city, state and ZIP, with the toll-free panel's lines between them.
+_QUESTIONS_HEADING = re.compile(r"^Questions about this Statement\?[ \t]*$", re.MULTILINE)
+_SERVICE_PANEL_LINE = re.compile(
+    r"^(?:Toll-free in the U\.S\..*|For toll-free numbers when overseas,?|visit|navyfederal\.org/overseas/?"
+    r"|Collect internationally.*)$",
+    re.IGNORECASE,
+)
+_CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\s*$")
+#: The mailing block's lines (the name, two address lines and a wrapped name or a care-of line at most).
+_MAILING_BLOCK_LINES = 6
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit B9 (I13): the holder's name, the first line of the mailing block after the 'Questions about this
+    Statement?' heading (the toll-free panel's lines aside), read when the block closes on a city, state and ZIP within
+    _MAILING_BLOCK_LINES lines. `account_name` keeps the parser's product."""
+    heading = _QUESTIONS_HEADING.search(markdown)
+    if heading is None:
+        return None
+    block: list[str] = []
+    for raw in markdown[heading.end():].splitlines():
+        line = raw.strip()
+        if not line or _SERVICE_PANEL_LINE.match(line):
+            continue
+        block.append(line)
+        if _CITY_STATE_ZIP.search(line):
+            return holder_from_address_block(block)
+        if len(block) >= _MAILING_BLOCK_LINES:
+            break
+    return None
+
 
 def parse_navy_federal_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
@@ -427,6 +460,7 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="Navy Federal Credit Union",
         account_name=product,
+        holder_name=_holder_name(markdown),
         account_number=account,
         period_start=start,
         period_end=end,

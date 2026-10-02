@@ -3851,3 +3851,141 @@ def test_the_address_block_reader_keeps_the_name_lines_before_the_street(lines, 
     from analysis.holder_name import holder_from_address_block
 
     assert holder_from_address_block(lines) == holder
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    # A contact or a case printed after the name is no part of it.
+    ("NORTHWIND PDR ATTN SAMPLE PERSON 100 SAMPLE ST STE 2 SAMPLEVILLE TX 75001-0001", "NORTHWIND PDR"),
+    ("CONTOSO TRADING LLC C/O SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE TX 75001-0001", "CONTOSO TRADING LLC"),
+    ("SAMPLE PERSON CASE 12-34567-AB 100 SAMPLE LN SAMPLEVILLE SC 29000-0001", "SAMPLE PERSON"),
+    # A numbered company keeps its number.
+    ("1234567 ONTARIO INC. 100 SAMPLE ST W UNIT 2 SAMPLEVILLE ON L1M 2L3", "1234567 ONTARIO INC."),
+    ("1234-5678 QUEBEC INC. SAMPLE PERSON 100A SAINT-SAMPLE BOUL SAMPLEVILLE PQ H1R 2J3", "1234-5678 QUEBEC INC."),
+])
+def test_the_address_line_reader_cuts_a_contact_and_keeps_a_numbered_company(line, holder):
+    from analysis.holder_name import holder_from_address_line
+
+    assert holder_from_address_line(line) == holder
+
+
+@pytest.mark.parametrize(("name", "holder"), [
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC OPERATING ACCOUNT", "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("NORTHWIND TRANSPORT CO.", "NORTHWIND TRANSPORT CO."),
+    ("SAMPLE PERSON DBA SAMPLE PERSON CONSULTING", "SAMPLE PERSON DBA SAMPLE PERSON CONSULTING"),
+    ("", None),
+])
+def test_a_bare_name_line_loses_only_its_designation(name, holder):
+    from analysis.holder_name import holder_from_name
+
+    assert holder_from_name(name) == holder
+
+
+# Audit B9 (I13): the other parsers that publish a product name read the holder's line their banks print.
+
+def test_td_bank_reads_the_holder_line_before_its_account_number():
+    from analysis import td_us
+
+    header = (
+        "STATEMENT OF ACCOUNT\n"
+        "Page: 1 of 2 Statement Period: Mar 01 2054-Mar 31 2054 Cust Ref #: 1234567890-000-E-*** "
+        "Primary Account #: 123-4567890\n"
+        "CONTOSO TRADING LLC 100 SAMPLE AVE UNIT 2 SAMPLEVILLE NJ 07000\n"
+        "TD Business Convenience Plus\n"
+        "CONTOSO TRADING LLC Account # 123-4567890\n"
+        "ACCOUNT SUMMARY Beginning Balance 100.00\n"
+    )
+    assert td_us._holder_name(header) == "CONTOSO TRADING LLC"
+    assert td_us._holder_name(header.replace("CONTOSO TRADING LLC Account #", "Account #")) is None
+    document = td_us_statement_with_holder("CONTOSO TRADING LLC Account # 9999999999\n")
+    assert parse_td_us_statement(document).holder_name == "CONTOSO TRADING LLC"
+
+
+def td_us_statement_with_holder(holder_line: str) -> str:
+    """tests/test_parser_crash_shapes.py's fabricated TD Bank document with a holder line."""
+    from tests.test_parser_crash_shapes import td_us_document
+
+    return td_us_document().replace("Primary Account #: 9999999999\n", "Primary Account #: 9999999999\n" + holder_line)
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    ("123-45-67-89  12345   1  C  123  45  S    67  890 CONTOSO TRADING LLC 1000 SAMPLE CIR SAMPLEVILLE FL  34000-0001",
+     "CONTOSO TRADING LLC"),
+    ("123-45-67-89  12345  U  1  C  123  45  S  T  67  890 NORTHWIND PDR ATTN SAMPLE PERSON 100 S SAMPLE ST STE 1 "
+     "SAMPLEVILLE TX  75000-0001", "NORTHWIND PDR"),
+    ("123-45-67-89  12345    12  C  123  45       67  890 FABRIKAM CONST PO BOX 1000 SAMPLEVILLE TX  78700-0001",
+     "FABRIKAM CONST"),
+])
+def test_truist_reads_the_holder_after_its_mail_routing_code(line, holder):
+    from analysis import truist
+
+    assert truist._holder_name(f"Page 1 of 2 01/01/54 FL 1234567890123\n{line}\nContact us\n") == holder
+    assert truist._holder_name("Page 1 of 2\nContact us\n") is None
+
+
+def test_pnc_reads_the_holder_before_its_product_summary():
+    from analysis import pnc
+
+    for product in ("Business Checking", "Business Checking Plus", "Treasury Enterprise Plan"):
+        line = f"CONTOSO TRADING LLC {product} Summary Account number:   XX-XXXX-0000\n"
+        assert pnc._holder_name("PNC Bank\n" + line) == "CONTOSO TRADING LLC"
+    assert pnc._holder_name("PNC Bank\nBusiness Checking Summary Account number:\n") is None
+    from tests.test_pnc_layouts import TREASURY_DOC
+
+    document = TREASURY_DOC.replace(
+        "Balance Summary\n", "CONTOSO TRADING LLC Treasury Enterprise Plan Summary Account number: XX-XXXX-0000\n"
+        "Balance Summary\n", 1,
+    )
+    statement = parse_pnc_statement(document)
+    assert statement is not None and statement.holder_name == "CONTOSO TRADING LLC"
+    assert statement.account_name == "Treasury Enterprise Plan"
+
+
+def test_navy_federal_reads_the_holder_from_its_mailing_block():
+    from analysis import navy_federal
+
+    block = (
+        "Questions about this Statement?\n"
+        "CONTOSO TRADING LLC\n"
+        "Toll-free in the U.S. 1-888-555-0100\n"
+        "1000 SAMPLE CT\n"
+        "For toll-free numbers when overseas,\n"
+        "SAMPLEVILLE MD 21000-0001\n"
+        "visit\n"
+        "navyfederal.org/overseas/\n"
+    )
+    assert navy_federal._holder_name("Statement of Account\n" + block) == "CONTOSO TRADING LLC"
+    # A block whose first line is already the street names no holder.
+    assert navy_federal._holder_name("Statement of Account\n" + block.replace("CONTOSO TRADING LLC\n", "")) is None
+    from tests.test_declines_c_variants import _navy_federal
+
+    statement = parse_navy_federal_statement(block + _navy_federal("Business Checking"))
+    assert statement is not None and statement.holder_name == "CONTOSO TRADING LLC"
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    ("CONTOSO CONSTRUCTION LTD. 1000 SAMPLE DR SAMPLEVILLE BC V1E 2C3", "CONTOSO CONSTRUCTION LTD."),
+    ("1234567 ONTARIO INC 10 SAMPLE CRES SAMPLEVILLE ON L1P 2W3", "1234567 ONTARIO INC"),
+    ("SAMPLE DELUXE S.E.N.C. 1000 SAMPLE RUE O SUITE 100 SAMPLEVILLE PQ H1P 2N3", "SAMPLE DELUXE S.E.N.C."),
+])
+def test_td_canada_trust_reads_the_holder_after_its_mail_routing_code(line, holder):
+    from analysis import td_can
+
+    markdown = f"Tel: 1-800-555-0100\nTDCDA12345_1234567_123 E R 12345 12345\n{line}\nStatement of Account\n"
+    assert td_can._holder_name(markdown) == holder
+    assert td_can._holder_name(markdown.replace("TDCDA12345_1234567_123", "TDXX")) is None
+
+
+def test_td_canada_trust_s_native_entry_point_reads_the_holder_too():
+    # The registry dispatches the native layout straight to its own entry point, never through
+    # parse_td_canada_statement: the holder is read there as well (the frozen oracle of the row reader is untouched).
+    from analysis import td_can
+    from tests.test_row_grouping import TD_DOCUMENTS
+
+    routing = "TDCDA12345_1234567_123 E R 12345 12345\nCONTOSO CONSTRUCTION LTD. 1000 SAMPLE DR SAMPLEVILLE BC V1E 2C3\n"
+    parsed = [td_can.parse_native_td_canada_statement(routing + document) for document in TD_DOCUMENTS]
+    assert any(statement is not None for statement in parsed)
+    assert all(statement.holder_name == "CONTOSO CONSTRUCTION LTD." for statement in parsed if statement is not None)
+    assert all(
+        statement is None or statement.holder_name is None
+        for statement in map(td_can.parse_native_td_canada_statement, TD_DOCUMENTS)
+    )

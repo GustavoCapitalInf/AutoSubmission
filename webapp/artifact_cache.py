@@ -596,7 +596,9 @@ OCR_STAGE_VERSION = 5
 # gains `holder_name` (the holder's name read from the header or the mailing
 # block, apart from the product in `account_name`); the Chase parser stops
 # publishing its CHECKING SUMMARY grid header as the account name and reads the
-# holder from its mailing block, and First Citizens reads its holder line. A
+# holder from its mailing block, and First Citizens reads its holder line; TD
+# Bank, Truist, PNC, Navy Federal and TD Canada Trust read theirs too (the
+# batch's second code commit, under the same bump). A
 # payload-shape change (the statement, each classification record and the
 # metrics' `holder_unscreened`), and the holder holds read the new name, so a
 # warm cache keyed on 25 would serve rows held or counted without it; a

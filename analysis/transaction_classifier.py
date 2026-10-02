@@ -1973,22 +1973,31 @@ _HOLDER_RUN_LEGAL_FORMS = frozenset({
 _PAYER_BEFORE_HOLDER_RUN_WORDS = 2
 
 
+#: Audit B9 (I13): a run of the holder's name inside another payer's region starts with the holder's first two name
+#: words, the second whole or cut to this many letters or more.
+_HOLDER_RUN_CUT_LETTERS = 3
+
+
 def _without_trailing_holder_run(payer: str, names: Sequence[str]) -> str:
     """Audit B9 (I13; B7's I47 for the holder test): a payer name that prints another payer's name first (two name
-    words or more, _PAYER_BEFORE_HOLDER_RUN_WORDS) and then a run of one of the holder's names (two words or more, its
-    last word whole or cut: an unlabelled receiver, 'FABRIKAM INSURANCE MISC NORTHWIND HARBOR AGENC'), read without that
-    run; any other payer name as it is."""
+    words or more, _PAYER_BEFORE_HOLDER_RUN_WORDS) and then a run of one of the holder's names (its first two words, the
+    second whole or cut): the unlabelled receiver block, read without that run and whatever follows it ('FABRIKAM
+    INSURANCE MISC NORTHWIND HARBOR AGENC'; Truist's company field running on into the holder's name and a person's,
+    'INVOICES SAMPLE CHURC NORTHWIND HARBOR SAMPLE P'); any other payer name as it is."""
     words = [word for word in payer.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
-    for name in names:
-        held = [word for word in name.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
-        for start in range(1, len(words) - 1):
-            tail = words[start:]
-            if (
-                len(tail) <= len(held) and tail[:-1] == held[: len(tail) - 1]
-                and held[len(tail) - 1].startswith(tail[-1])
-                and len(_holder_test_words(words[:start])) >= _PAYER_BEFORE_HOLDER_RUN_WORDS
-            ):
-                return " ".join(words[:start])
+    held_names = [
+        held for held in ([word for word in name.split() if word not in _HOLDER_RUN_LEGAL_FORMS] for name in names)
+        if len(held) >= 2
+    ]
+    for start in range(1, len(words) - 1):
+        if len(_holder_test_words(words[:start])) < _PAYER_BEFORE_HOLDER_RUN_WORDS:
+            continue
+        first, second = words[start], words[start + 1]
+        if any(
+            held[0] == first and len(second) >= _HOLDER_RUN_CUT_LETTERS and held[1].startswith(second)
+            for held in held_names
+        ):
+            return " ".join(words[:start])
     return payer
 
 

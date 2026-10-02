@@ -266,6 +266,17 @@ def test_the_holder_s_name_printed_after_another_payer_is_its_unlabelled_receive
     assert tc.holder_named("DEPOSIT ACH PAID FROM 1234 NORTHWIND HARBOR AGENCY", holder)
 
 
+@pytest.mark.parametrize("region", [
+    # Truist's company field runs on into the receiver block: the holder's name, cut or followed by a person's name.
+    "INVOICES SAMPLE CHURC NORTHWIND HARBOR SAMPLE P",
+    "PAYOUT FABRIKAM LLC NORTHWIND HARBOR CORPORATIO",
+    "INS PREM FABRIKAM MUTUAL NORTHWIND HARBOR CORPORATI",
+])
+def test_the_holder_s_name_inside_another_payer_s_receiver_block_is_never_the_payer(region):
+    assert not tc.holder_named(region, "NORTHWIND HARBOR CORP")
+    assert tc.holder_named("NORTHWIND HARBOR CORP PAYMENT", "NORTHWIND HARBOR CORP")
+
+
 def test_the_receiver_fields_name_the_holder_of_a_statement_that_prints_none():
     statement = _statement([
         ("FABRIKAM SUPPLY DES PAYMENT ID 1 INDN NORTHWIND FISH LLC CO ID 1234567890 CCD", 700.0),

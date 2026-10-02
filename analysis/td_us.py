@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day_strict
+from .holder_name import holder_from_name
 from .money import PARENS_OR_LEADING_MINUS, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -308,6 +309,20 @@ DETECTION_MARKERS = (
 detect = make_detector(DETECTION_MARKERS)
 
 
+#: Audit B9 (I13): TD's holder line above the account summary, '<holder> Account # <number>' (the page header's
+#: 'Primary Account #:' prints a colon and never matches), read only in the header, before the summary or the activity.
+_HOLDER_LINE = re.compile(r"^(?P<name>[^\n]*?\S)[ \t]+Account #[ \t]*\d[\d-]*", re.MULTILINE)
+_HEADER_END = re.compile(r"ACCOUNT SUMMARY|DAILY ACCOUNT ACTIVITY")
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit B9 (I13): the holder's name TD prints before its account number in the header (the product it prints
+    above it is not read: `account_name` keeps the parser's product)."""
+    end = _HEADER_END.search(markdown)
+    match = _HOLDER_LINE.search(markdown[: end.start()] if end else markdown)
+    return holder_from_name(match.group("name")) if match else None
+
+
 def parse_td_us_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
@@ -316,6 +331,7 @@ def parse_td_us_statement(markdown: str) -> Statement | None:
         return None
     year = int(period[1][:4])
     stmt = Statement(bank="TD Bank", account_name="TD Business Simple Checking", period_start=period[0], period_end=period[1])
+    stmt.holder_name = _holder_name(markdown)
     acct = re.search(r"Primary Account #:\s*([0-9-]+)", markdown)
     if acct:
         stmt.account_number = acct.group(1)
