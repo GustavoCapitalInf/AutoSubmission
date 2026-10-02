@@ -81,10 +81,22 @@ _LEDGER_CLOSES = re.compile(r"^ENDING BALANCE(?!\s+AS OF)", re.IGNORECASE)
 #: header — and the check grid's footnote. Issuer furniture, never a row's
 #: description: a continuation line is read past these, never with them.
 _CONTINUATION_FURNITURE = re.compile(
-    r"^(?:CONTINUED ON NEXT PAGE$|\d+ of \d+$|--- Page \d+|bmo\.com/contact\b"
+    r"^(?:CONTINUED ON NEXT PAGE$|(?:Page )?\d+ of \d+$|--- Page \d+|bmo\.com/contact\b"
     r"|Monthly Activity Details\b|Date Transaction description\b|\* Indicates a skip in sequence)",
     re.IGNORECASE,
 )
+#: Audit B10 (review round 1): the furniture that OPENS a page break inside the
+#: grid (the continuation notice, the page counter, the text layer's page
+#: marker, the next page's contact header and continued heading). Everything
+#: from it to the reprinted column header (`_GRID_COLUMN_HEADER`) is the page
+#: break's — the holder's name and address, the account number, the period —
+#: whatever it prints, so it is skipped whole rather than line by line.
+_PAGE_BREAK_OPENS = re.compile(
+    r"^(?:CONTINUED ON NEXT PAGE$|(?:Page )?\d+ of \d+$|--- Page \d+|bmo\.com/contact\b"
+    r"|Monthly Activity Details\b)",
+    re.IGNORECASE,
+)
+_GRID_COLUMN_HEADER = re.compile(r"^Date Transaction description\b", re.IGNORECASE)
 #: Audit B10 (I05): the record and card numbers the grid prints in a row's
 #: Description column (`RECORD NO. P0A0B0`, `RECORD NO. 000001   CARD NO. 0001`):
 #: references, never the payer, and the card's last four digits are the
@@ -166,14 +178,27 @@ def _with_printed_payer(
     """Audit B10 (I05): a deposit's label with the text the grid prints for it
     in the Description column: on the row's own line after the amount (the
     Balance cell aside), and on the continuation lines below it, without the
-    record and card numbers and the page furniture a page break reprints."""
+    record and card numbers and the page furniture a page break reprints.
+
+    B10 review (round 1): a page break is skipped whole, from the line that
+    opens it (`_PAGE_BREAK_OPENS`) to the reprinted column header, since the
+    lines between are the page's furniture whatever they print; the
+    description resumes after the header. A break whose header never prints
+    has no end, so nothing after it is read (fail closed)."""
     if len(cells) >= 2:
         balance = cells[-1]
         after = f"{head[amount.end(): balance.start()]} {head[balance.end():]}"
     else:
         after = head[amount.end():]
     parts = [label, after]
+    in_page_break = False
     for line in below:
+        if in_page_break:
+            in_page_break = not _GRID_COLUMN_HEADER.match(line)
+            continue
+        if _PAGE_BREAK_OPENS.match(line):
+            in_page_break = True
+            continue
         if _CONTINUATION_FURNITURE.match(line):
             continue
         parts.append(_RECORD_AND_CARD_NUMBERS.sub(" ", line))

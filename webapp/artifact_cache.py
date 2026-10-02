@@ -616,6 +616,12 @@ OCR_STAGE_VERSION = 5
 # a credit whose printed payer a parser could not read is marked
 # (`Transaction.payer_text_unread`, serialized only where set) and counted as
 # `payer_text_not_read`; the metrics gain `payer_text_unread` and its count.
+# The batch's review round 1 lands under the same version (nothing between
+# was released): the daily core-processor template marks the credits whose
+# block it does not read yet, U.S. Bank reads the ORG= field up to the sender's
+# address or the next field, the community platform's tail stops at a heading
+# and reads published credits only, BMO US skips a page break whole, and a
+# marked cash, branch, teller or ATM label keeps `no_payer_printed`.
 # Descriptions and tiers move, so a warm cache keyed on 26 would serve the bare
 # labels; a re-analysis recomputes the analysis stage from the cached reading.
 # OCR stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).

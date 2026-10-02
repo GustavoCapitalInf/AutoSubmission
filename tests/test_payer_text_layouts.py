@@ -7,8 +7,8 @@ the payer the statement printed after the amount or on the lines below it, so pa
 platform, the balance-by-date template and U.S. Bank now keep that text on their credits (a debit keeps its label until
 the owner admits the debit readings, G7), and a credit whose printed payer a reader could not attribute is marked
 (`Transaction.payer_text_unread`), which pass 7 counts as 'payer text not read'. The daily core-processor template's
-own reading waits on G7 (its restored text pairs a returned credit with a debit), so only the shared count it would
-use is pinned here.
+text reading waits on G7 (its restored text pairs a returned credit with a debit); since the B10 review (round 1) it
+marks the credits whose block it does not read, which moves no text.
 
 Every fixture is synthetic: CONTOSO, FABRIKAM, NORTHWIND and SAMPLE names, invented amounts and 2054 dates. The
 platforms' own furniture words and the processors' public names are the only real words.
@@ -32,6 +32,7 @@ from analysis.true_revenue import PAYER_TEXT_NOT_READ
 from analysis.us_bank import parse_us_bank_statement
 from tests import test_balance_by_date as bbd_fixture
 from tests import test_core_processor_counted as cpc_fixture
+from tests import test_core_processor_daily as cpd_fixture
 from tests.test_bmo_layouts import us_statement
 from tests.test_community_section_layouts import PLATFORM_HEAD
 from tests.test_first_citizens_layouts import REPORTED, flattened
@@ -106,6 +107,17 @@ def test_a_marked_row_that_names_its_payer_keeps_its_named_reading():
     )
 
 
+def test_a_marked_cash_teller_or_atm_label_keeps_q2s_no_payer_printed():
+    """B10 review (round 1): the swap is §8.10's bare-row fall-through only. A cash, branch, teller or ATM label says
+    itself that the statement printed no payer (Q2), whatever the parser marked; a bare 'Deposit' label does not."""
+    tiers = _tiers(_credits([("ATM DEPOSIT", True), ("TELLER DEPOSIT", True), ("DEPOSIT", True)]))
+    assert [tier[:2] for tier in tiers] == [
+        ("counted_flagged", "no_payer_printed"),
+        ("counted_flagged", "no_payer_printed"),
+        ("counted_flagged", PAYER_TEXT_NOT_READ),
+    ]
+
+
 def test_the_reason_is_a_counted_reason_of_the_one_reason_table():
     assert REVENUE_TIER_REASONS[PAYER_TEXT_NOT_READ] == ("counted_flagged", "Payer text not read")
 
@@ -163,6 +175,14 @@ def test_a_row_with_nothing_printed_under_it_is_no_longer_outstanding_on_a_block
     run = "\n02-03 Deposit 300.00\n02-04 Deposit 50.00 02-04 ACH Credit 400.00\nCONTOSO SUPPLY 540204\n"
     _texts, unread = _attributed(run, below=lambda lines: True, block_under_its_row=True)
     assert unread == [False, True, True]
+
+
+def test_a_block_the_template_proves_names_no_payer_is_published_on_no_row_and_marks_none():
+    """B10 review (round 1): `below` answering None says the block holds no payer (a teller's own reference)."""
+    run = "\n02-03 Deposit 300.00\nTLR 00 BR 00\n02-04 Deposit 50.00 02-04 ACH Credit 400.00\nTLR 00 BR 00\n"
+    assert _attributed(run, below=lambda lines: None, block_under_its_row=True) == (
+        ["Deposit", "Deposit", "ACH Credit"], [False, False, False],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +246,50 @@ def test_bmo_us_page_furniture_and_record_numbers_never_join_a_description():
         assert furniture not in joined
 
 
+def _bmo_rows(*rows: str) -> Statement:
+    statement = parse_bmo_us_activity_statement(us_statement(
+        credit_count=1, credits="$500.00", debit_count=1, debits="$200.00", ending="$1,300.00", rows=rows,
+    ))
+    assert statement is not None
+    return statement
+
+
+def test_bmo_us_a_page_break_is_skipped_whole_up_to_the_reprinted_column_header():
+    """B10 review (round 1): every line a page break prints, listed or not (a page counter with its word, a holder
+    line, an account or period line), is furniture up to the reprinted column header; the description resumes after
+    it."""
+    statement = _bmo_rows(
+        "Apr 03 ACH DEPOSIT $500.00",
+        "CCD CONTOSO SUPPLY",
+        "CONTINUED ON NEXT PAGE",
+        "Page 1 of 2",
+        "--- Page 2 ---",
+        "bmo.com/contact 000-000-0000",
+        "NORTHWIND SUPPLY LLC",
+        "Account Number XXXXXX0000",
+        "Statement Period April 01, 2054 through April 30, 2054",
+        "Monthly Activity Details (cont'd)",
+        "Date Transaction description Withdrawal Deposit Balance",
+        "PAYABLES 540403",
+        "Apr 04 TRANSFER OUT ($200.00) $1,300.00",
+    )
+    assert [t.description for t in statement.transactions] == [
+        "ACH DEPOSIT CCD CONTOSO SUPPLY PAYABLES 540403", "TRANSFER OUT",
+    ]
+
+
+def test_bmo_us_a_page_break_whose_column_header_never_prints_drops_the_rest_of_the_group():
+    """Fail closed: with no reprinted column header the furniture has no end, so nothing after the break is read."""
+    statement = _bmo_rows(
+        "Apr 03 ACH DEPOSIT $500.00",
+        "CCD CONTOSO SUPPLY",
+        "Page 1 of 2",
+        "NORTHWIND SUPPLY LLC",
+        "Apr 04 TRANSFER OUT ($200.00) $1,300.00",
+    )
+    assert statement.transactions[0].description == "ACH DEPOSIT CCD CONTOSO SUPPLY"
+
+
 # ---------------------------------------------------------------------------
 # The counted core-processor template: the merchant block printed below a credit's amount
 # ---------------------------------------------------------------------------
@@ -250,6 +314,81 @@ def test_core_processor_counted_attributes_one_ach_block_and_never_a_welded_line
         ("Preauthorized Credit", True),
         ("Preauthorized Credit SAMPLE GOODS INC PAYMENT 1234567890 NORTHWIND CCD", False),
     ]
+
+
+# ---------------------------------------------------------------------------
+# The daily core-processor template: its text reading waits on G7, its marks do not
+# ---------------------------------------------------------------------------
+
+def _daily(credits: str, *, grid: str) -> Statement:
+    statement = cpd_fixture.parse(cpd_fixture.document(
+        summary=("Beginning balance $100.00 Total additions 800.00 "
+                 "Total subtractions 250.00 Ending balance $650.00\n"),
+        credits=credits, grid=grid,
+    ))
+    assert statement is not None
+    return statement
+
+
+DAILY_GRID = "DAILY BALANCES\nDate Amount\n03-31 100.00 04-02 -150.00 04-03 150.00\n04-06 650.00\n"
+
+
+def _daily_credits(statement: Statement) -> list[tuple[str, bool]]:
+    return [(t.description, t.payer_text_unread) for t in statement.transactions if t.amount > 0]
+
+
+def test_core_processor_daily_credits_with_a_block_below_are_marked_and_publish_only_their_label():
+    """B10 review (round 1): the statement prints each credit's payer below its amount; the reader does not read it
+    yet (G7), so the credit is marked, never read as Q2's bare deposit, and the 30% fact fires."""
+    statement = _daily(
+        "CREDITS\nDate Description Additions\n"
+        "04-03 ' ACH Credit 300.00\nCONTOSO SUPPLY 540403\n"
+        "04-06 ' ACH Credit 500.00\nFABRIKAM TOOLS 540406\n",
+        grid=DAILY_GRID,
+    )
+    assert _daily_credits(statement) == [("ACH Credit", True), ("ACH Credit", True)]
+    assert [(t.description, t.payer_text_unread) for t in statement.transactions if t.amount < 0] == [
+        ("ACH Debit", False),
+    ]
+    assert [tier[:2] for tier in _tiers(statement)] == [("counted_flagged", PAYER_TEXT_NOT_READ)] * 2
+    metrics = compute_metrics(statement)
+    assert (metrics.payer_text_unread, metrics.payer_text_unread_count) == (True, 2)
+
+
+def test_core_processor_daily_two_credits_on_one_line_with_a_block_below_are_both_marked():
+    statement = _daily(
+        "CREDITS\nDate Description Additions\n"
+        "04-03 Deposit 300.00 04-06 ' ACH Credit 500.00\nCONTOSO SUPPLY 540406\n",
+        grid=DAILY_GRID,
+    )
+    assert _daily_credits(statement) == [("Deposit", True), ("ACH Credit", True)]
+
+
+def test_core_processor_daily_a_credit_with_nothing_printed_under_it_keeps_q2s_reading():
+    statement = _daily(
+        "CREDITS\nDate Description Additions\n"
+        "04-03 ' Deposit 300.00\n"
+        "04-06 ' ACH Credit 500.00\nCONTOSO SUPPLY 540406\n",
+        grid=DAILY_GRID,
+    )
+    assert _daily_credits(statement) == [("Deposit", False), ("ACH Credit", True)]
+    assert [tier[:2] for tier in _tiers(statement)] == [
+        ("counted_flagged", "no_payer_printed"), ("counted_flagged", PAYER_TEXT_NOT_READ),
+    ]
+    metrics = compute_metrics(statement)
+    assert (metrics.payer_text_unread, metrics.payer_text_unread_count) == (True, 1)  # one of two credits: 50%
+
+
+def test_core_processor_daily_a_teller_reference_below_a_deposit_is_no_payer_and_marks_nothing():
+    """The template prints a teller and branch reference below a counter deposit: the statement printed no payer."""
+    statement = _daily(
+        "CREDITS\nDate Description Additions\n"
+        "04-03 ' Deposit 300.00\nTLR 00 BR 00\n"
+        "04-06 ' Deposit 500.00\nTLR 00 BR 00\n",
+        grid=DAILY_GRID,
+    )
+    assert _daily_credits(statement) == [("Deposit", False), ("Deposit", False)]
+    assert [tier[:2] for tier in _tiers(statement)] == [("counted_flagged", "no_payer_printed")] * 2
 
 
 def test_core_processor_counted_two_class_codes_on_a_single_rows_line_are_not_one_block():
@@ -298,6 +437,46 @@ def test_the_platforms_furniture_on_the_next_printed_line_never_joins_a_credit()
     assert [t.description for t in statement.transactions] == ["Mobile Deposit", "SERVICE CHARGE"]
 
 
+def _platform_lines(*sections: str, count: int = 1, total: str = "10.00", ending: str = "105.00") -> Statement:
+    statement = parse_community_section_statement(
+        PLATFORM_HEAD
+        + "Business Checking - XXXXXX1234\n"
+        + "Account Summary Date Description Amount 01/01/2054 Beginning Balance $100.00"
+        + f" {count} Credit(s) This Period ${total} 1 Debit(s) This Period $5.00"
+        + f" 01/30/2054 Ending Balance ${ending}\n"
+        + "".join(f"{section}\n" for section in sections)
+    )
+    assert statement is not None
+    return statement
+
+
+def test_a_heading_printed_on_a_credits_own_line_never_joins_it():
+    """B10 review (round 1): the next section's header, the Daily Balances grid and the account's continued heading
+    end a credit's printed tail even when the layer prints them on the row's own line."""
+    debits = "Other Debits Date Description Amount 01/03/2054 SERVICE CHARGE $5.00"
+    credit = "Electronic Credits Date Description Amount 01/02/2054 ACH Credit $10.00 CONTOSO SUPPLY PAYMENT"
+    for statement in (
+        _platform_lines(f"{credit} {debits}"),
+        _platform_lines(f"{credit} Daily Balances Date Amount 01/02/2054 $110.00", debits),
+        _platform_lines(f"{credit} Business Checking - XXXXXX1234 (continued)", debits),
+    ):
+        assert [t.description for t in statement.transactions] == ["ACH Credit CONTOSO SUPPLY PAYMENT", "SERVICE CHARGE"]
+
+
+def test_a_zero_amount_return_printed_under_deposits_keeps_its_label():
+    """B10 review (round 1): the tail is read for a published credit only; the platform's $0.00 returned ACH, printed
+    under Deposits and counted there, keeps its label as a debit does (G7)."""
+    statement = _platform_lines(
+        "Deposits Date Description Amount 01/02/2054 ACH Credit $10.00 CONTOSO SUPPLY PAYMENT"
+        " 01/05/2054 ACH Return $0.00 CONTOSO SUPPLY PAYROLL",
+        "Other Debits Date Description Amount 01/03/2054 SERVICE CHARGE $5.00",
+        count=2,
+    )
+    assert [t.description for t in statement.transactions if t.direction == "credit"] == [
+        "ACH Credit CONTOSO SUPPLY PAYMENT", "ACH Return",
+    ]
+
+
 def test_falcon_style_wires_read_their_sender_after_the_banks_own_wire_field():
     statement = _platform(
         "01/02/2054 International IWT $2,000.00 Falcon Internati Wires CONTOSO TRADING SA"
@@ -339,7 +518,7 @@ def _us_bank(org: str) -> Statement:
 
 def test_us_bank_wires_keep_their_org_sender_and_are_counted():
     statement = _us_bank("NORTHWIND SUPPLY INC")
-    assert statement.transactions[0].description.endswith("ORG=NORTHWIND SUPPLY INC 100 MAIN ST SAMPLEVILLE")
+    assert statement.transactions[0].description.endswith("ORG=NORTHWIND SUPPLY INC")
     assert _tiers(statement)[0][:2] == ("counted_flagged", "wire_named_sender")
 
 
@@ -347,6 +526,60 @@ def test_us_bank_a_funder_named_after_org_is_held():
     assert _tiers(_us_bank("CONTOSO FINANCIAL SOLUTIONS"))[0][:2] == (
         "excluded_pending_review", "financing_named_payer",
     )
+
+
+def _us_bank_wires(*wires: list[str]) -> Statement:
+    """U.S. Bank wires of $2,500.00 each, each followed by its own ORG= field lines."""
+    rows = "".join(
+        f"Mar {3 + 6 * index} Wire Credit REF00000{index + 1}\n"
+        f"FABRIKAM BANK SAMPLEVILLE 5403{3 + 6 * index:02d}B000000{index + 1}\n"
+        "$ 2,500.00\n" + "".join(f"{line}\n" for line in lines)
+        for index, lines in enumerate(wires)
+    )
+    total = f"{2500 * len(wires):,}.00"
+    statement = parse_us_bank_statement(us_bank_document(
+        summary=f"Other Deposits {len(wires)} {total} Other Withdrawals 1 80.00-",
+        closing=f"{1000 + 2500 * len(wires) - 80:,}.00",
+        sections=(
+            "Other Deposits\n" f"{DESCRIBED_HEADER}\n" + rows + f"Total Other Deposits $ {total}\n"
+            "Other Withdrawals\n" f"{DESCRIBED_HEADER}\n"
+            "Mar 6 Electronic Withdrawal\n" "To A COUNTERPARTY\n" "$ 80.00-\n" "Total Other Withdrawals $ 80.00-\n"
+        ),
+    ))
+    assert statement is not None
+    return statement
+
+
+def test_us_bank_the_org_field_is_the_name_up_to_its_address_or_the_next_field():
+    """B10 review (round 1): the ORG= field wraps the sender's name and address together; the sender is the name,
+    read across the wrap up to the street number, and never a later field (BNF=, OBI=, REF=)."""
+    statement = _us_bank_wires(
+        ["ORG=NORTHWIND SUPPLY", "INC. 100 MAIN ST SAMPLEVILLE"],
+        ["ORG=NORTHWIND SUPPLY INC", "100 MAIN ST SAMPLEVILLE", "BNF=SAMPLE HOLDER LLC"],
+        ["ORG=FABRIKAM TOOLS LLC REF=INV 1234"],
+        ["ORG=1000001 SAMPLE INC", "100 MAIN ST SAMPLEVILLE"],
+    )
+    assert [t.description.split(" ORG=")[1] for t in statement.transactions if t.amount > 0] == [
+        "NORTHWIND SUPPLY INC.", "NORTHWIND SUPPLY INC", "FABRIKAM TOOLS LLC", "1000001 SAMPLE INC",
+    ]
+
+
+def test_us_bank_an_org_field_that_prints_no_name_names_no_sender():
+    """B10 review (round 1): an empty ORG= is no sender, so its address is never read as one (Q5: held)."""
+    statement = _us_bank("")
+    assert "MAIN ST" not in statement.transactions[0].description
+    assert _tiers(statement)[0][:2] == ("excluded_pending_review", "wire_no_sender")
+
+
+def test_us_bank_two_wires_from_one_org_company_name_one_sender_whatever_their_address_wrap():
+    """B10 review (round 1): Q5's repeat reads the sender, so the address the field wraps onto never makes one company
+    two senders. (Whether the repeat then verifies is the wire vetoes' reading of the whole row, not the field's.)"""
+    statement = _us_bank_wires(
+        ["ORG=NORTHWIND SUPPLY INC", "100 MAIN ST SAMPLEVILLE"],
+        ["ORG=NORTHWIND SUPPLY INC", "100 MAIN"],
+    )
+    senders = [t.description.split(" ORG=")[1] for t in statement.transactions if t.amount > 0]
+    assert senders == ["NORTHWIND SUPPLY INC"] * 2
 
 
 # ---------------------------------------------------------------------------

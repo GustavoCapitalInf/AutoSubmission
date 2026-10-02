@@ -3788,10 +3788,12 @@ def _tier_reason(
     named_payer_purpose_refused (S4.2 re-review), never "One-off payer" (a deferred source often repeats). On a row
     with no electronic-payment form it keeps named_payer_unlabelled: Q6 never reads such a row, deferred or not.
     Audit B10 (I05, I60): a row the parser marked as read only by its label (`unread`) that would be counted as Q2's
-    no_payer_printed is counted as payer_text_not_read instead: the statement printed a payer the parser did not
-    read. Every hold before it still applies (a bare transfer label stays transfer_no_counterparty)."""
+    no_payer_printed at the bare-row fall-through is counted as payer_text_not_read instead: the statement printed a
+    payer the parser did not read. Every hold before it still applies (a bare transfer label stays
+    transfer_no_counterparty). B10 review (round 1): a cash, branch, teller or ATM row (the cash_branch_atm channel)
+    keeps no_payer_printed, marked or not: its own label says the statement printed no payer (Q2)."""
     tier, reason = _tier_reason_read(record, text, facts, round_repeat, deferred)
-    if unread and reason == "no_payer_printed":
+    if unread and reason == "no_payer_printed" and facts.channel != "cash_branch_atm":
         return tier, PAYER_TEXT_NOT_READ
     return tier, reason
 

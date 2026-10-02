@@ -360,7 +360,7 @@ def _clip_at_a_token_boundary(text: str, limit: int) -> str:
 
 def attributed_descriptions(
     runs: Sequence[Sequence[DatedCell]], *, strip: str, limit: int,
-    below: Callable[[list[str]], bool] | None = None,
+    below: Callable[[list[str]], bool | None] | None = None,
     block_under_its_row: bool = False,
     unread: list[list[bool]] | None = None,
 ) -> list[list[str]]:
@@ -428,21 +428,30 @@ def attributed_descriptions(
     templates print most rows' merchant block on the lines under the amount,
     where no span reaches, so the rule above publishes the bare label and the
     payer the statement printed is lost. A caller that passes `below` (the
-    counted template's reader does, for its credit sections; the daily
-    template's reading waits on the owner's G7 admission, since its restored
-    text pairs a returned credit with a debit) has that flush read by the same
-    count: the complete lines after the amount's own line, up to the next
-    row's line or the first blank line (a page break's furniture follows it),
-    are a flush; when the count is 1 — this row alone has opened since the
-    last flush — and `below(lines)` says the template proves the flush is one
-    block, it is this row's own and is published after its label. Otherwise
-    it is indeterminate and published on no row. `below` is template
-    knowledge, as `strip` is: how many lines one block may wrap onto, and
-    what proves a line holds one block rather than several welded together.
-    So is `block_under_its_row`: a template that prints every block directly
-    under its own row (never flushed later) proves a line with NOTHING printed
-    under it, before the next row's line, holds no block at all, so its rows
-    are no longer outstanding.
+    counted template's reader does, for its credit sections; so does the
+    daily template's, which reads no text yet, see below) has that flush read
+    by the same count: the complete lines after the amount's own line, up to
+    the next row's line or the first blank line (a page break's furniture
+    follows it), are a flush; when the count is 1 — this row alone has opened
+    since the last flush — and `below(lines)` says the template proves the
+    flush is one block, it is this row's own and is published after its
+    label. Otherwise it is indeterminate and published on no row. `below` is
+    template knowledge, as `strip` is: how many lines one block may wrap
+    onto, and what proves a line holds one block rather than several welded
+    together.
+
+    `below` may also answer None: the template proves the flush names no
+    payer at all (the daily template's teller and branch reference under a
+    counter deposit), so it is published on no row and marks none, since no
+    payer was lost. A rule that never answers True reads no text and marks
+    every row the statement printed a block for: the daily template's reading
+    while its restored text waits on the owner's G7 admission (that text
+    pairs a returned credit with a debit; B10 review, round 1).
+
+    So is `block_under_its_row` template knowledge: a template that prints
+    every block directly under its own row (never flushed later) proves a
+    line with NOTHING printed under it, before the next row's line, holds no
+    block at all, so its rows are no longer outstanding.
 
     `unread`, when given, receives one flag per row, run by run: True where
     the row was outstanding at an indeterminate flush, so text the statement
@@ -473,7 +482,10 @@ def attributed_descriptions(
             if below is not None:
                 block = _block_below(cell.trailing, last=row_index == len(cells) - 1)
                 if block and outstanding:
-                    if outstanding == [(run_index, row_index)] and below(block):
+                    verdict = below(block)
+                    if verdict is None:
+                        pass  # the block names no payer: no row's payer text was lost
+                    elif outstanding == [(run_index, row_index)] and verdict:
                         printed = f"{printed} {' '.join(block)}"
                     else:
                         for run_at, row_at in outstanding:

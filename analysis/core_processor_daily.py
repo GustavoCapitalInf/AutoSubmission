@@ -600,14 +600,27 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
     # blocks the flattened layer still had in hand when it flushed into that
     # span, and a block outstanding when a page break ends one run lands in the
     # FIRST span of the next (W3 §DESCATTRIB DA4.1). This template prints its
-    # blocks below the amount rather than inside the span, so the rule
+    # blocks below the amount rather than inside the span, so the span rule
     # attributes nothing here — and that is a measurement, not an assumption:
     # the same call is what the sibling grammar needs.
+    #
+    # Audit B10 (review round 1, I05): on the CREDITS section the block printed
+    # below a credit's amount names its payer, and reading it waits on the
+    # owner's G7 admission (the restored text pairs a returned credit with a
+    # debit). Until then the credit is MARKED as read only by its label
+    # (`_block_below_names_a_payer` never attributes), so pass 7 counts it as
+    # 'payer text not read' rather than as Q2's bare deposit. The mark moves no
+    # text, no pairing and no debit. Debit sections are read as before.
+    unread: list[list[bool]] = []
     described = attributed_descriptions(
         [cells for _run, cells in read],
         strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT,
+        below=_block_below_names_a_payer if credit else None,
+        block_under_its_row=True, unread=unread,
     )
-    for (run, cells), texts in zip(read, described):
+    if len(unread) != len(read):
+        unread = [[False] * len(cells) for _run, cells in read]
+    for (run, cells), texts, marks in zip(read, described, unread):
         cursor = 0
         for index, cell in enumerate(cells):
             iso = iso_within_period(cell.date.replace("-", "/"), start, end)
@@ -629,8 +642,26 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
                 description=description,
                 amount=round(amount if credit else -amount, 2),
                 direction="credit" if credit else "debit",
+                payer_text_unread=bool(credit) and marks[index],
             ))
     return rows
+
+
+#: Audit B10 (review round 1, I05): the teller and branch reference this
+#: template prints below a counter deposit (`TLR <n> BR <n>`): layout grammar,
+#: and the statement's own word that the deposit names no payer (Q2).
+_TELLER_REFERENCE = re.compile(r"TLR \d+ BR \d+")
+
+
+def _block_below_names_a_payer(lines: list[str]) -> bool | None:
+    """Audit B10 (review round 1, I05): the daily template's rule for the block
+    printed below a credit's amount (`tables.attributed_descriptions`), while
+    its text waits on the owner's G7 admission: never attributed (False, so
+    every row the block may belong to is marked), except a teller reference,
+    which names no payer and marks nothing (None)."""
+    if len(lines) == 1 and _TELLER_REFERENCE.fullmatch(lines[0]):
+        return None
+    return False
 
 
 def _grid(runs: list[str], *, seed: date, end: date) -> list[StatementDailyBalance] | None:

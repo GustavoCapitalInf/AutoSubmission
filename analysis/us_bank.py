@@ -333,6 +333,37 @@ _TRAILING_MONEY_RE = re.compile(_MONEY_RE + r"\s*$")
 #: Audit B10 (I12): the originator field an incoming wire prints below its
 #: amount (`ORG=<sender>`).
 _ORIGINATOR_LINE_RE = re.compile(r"(?<![A-Z0-9])ORG=")
+#: Audit B10 (review round 1): the next wire field after ORG= (`BNF=`, `OBI=`,
+#: `REF=` ...), which ends the originator's own field.
+_NEXT_WIRE_FIELD_RE = re.compile(r"(?<![A-Z0-9])[A-Z]{2,5}=")
+
+
+def _originator_field(rest: str) -> str | None:
+    """Audit B10 (I12; review round 1): the sender an incoming wire prints in
+    its ORG= field below the amount, or None when the field names nobody.
+
+    `rest` is what the row printed after its amount, one printed line per
+    line. The field wraps the sender's name and its address together onto the
+    lines below (`ORG=<name>` / `INC. <number> <street>`), so the sender is
+    the field's text up to the next wire field and up to the street number
+    (the first all-digit token after a name word; a numbered company's
+    leading number is its name). An ORG= that prints nothing on its own line
+    names nobody: its address is never read as the sender."""
+    found = _ORIGINATOR_LINE_RE.search(rest)
+    if found is None:
+        return None
+    field = rest[found.end():]
+    following = _NEXT_WIRE_FIELD_RE.search(field)
+    if following is not None:
+        field = field[: following.start()]
+    if not field.split("\n", 1)[0].strip():
+        return None
+    words: list[str] = []
+    for token in field.split():
+        if token.isdigit() and any(not word.isdigit() for word in words):
+            break
+        words.append(token)
+    return f"ORG={' '.join(words)}" if any(not word.isdigit() for word in words) else None
 
 
 def _amount_cell(parts: list[str]) -> tuple[str, int] | None:
@@ -392,13 +423,15 @@ def _rows(lines: list[str], *, year: int, sign: int) -> list[Transaction]:
                 # Audit B10 (I12): an incoming wire prints its sender on the
                 # continuation lines BELOW its amount (`ORG=<sender>`, the
                 # name wrapping onto the next line with the start of its
-                # address), so the row is read on to the end; nothing else
-                # printed after a credit's amount is kept. A debit keeps its
-                # description until the owner admits the debit readings (G7).
-                rest = " ".join(parts)[cut + len(amount_text):]
-                sender = _ORIGINATOR_LINE_RE.search(rest)
+                # address), so the row's ORG= field is read
+                # (`_originator_field`); nothing else printed after a credit's
+                # amount is kept. A debit keeps its description until the
+                # owner admits the debit readings (G7). The parts are joined
+                # with line breaks here, which keeps every offset of the
+                # space-joined row (`cut`) and the field's own line.
+                sender = _originator_field("\n".join(parts)[cut + len(amount_text):])
                 if sender is not None:
-                    description = f"{description} {rest[sender.start():]}"
+                    description = f"{description} {sender}"
         txns.append(
             Transaction(
                 date=_iso(month_day, year),

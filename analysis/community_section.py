@@ -296,6 +296,19 @@ def _sections(text: str) -> list[tuple[str, int, str]]:
 #: the evidence that check depends on.
 _SECTION_TRAILER_RE = re.compile(r"\s*\d+\s+item\(s\) totaling\s+" + _MONEY, re.IGNORECASE)
 
+#: Audit B10 (review round 1): the headings that end a credit's printed tail
+#: (`_printed_tail`) when the layer prints them on the row's own line: a
+#: transaction section's grid header, a non-transaction block's header, and
+#: the account's continued heading (the one `_clean` removes).
+_TAIL_HEADING_RE = re.compile(
+    "|".join((
+        _SECTION_RE.pattern,
+        _SECTION_END_RE.pattern,
+        r"(?:Small Business Checking|Business Checking) - [X0-9]+ \(continued\)",
+    )),
+    re.IGNORECASE,
+)
+
 
 def _dated_amount_rows(
     body: str, *, sign: int, year: int, printed: str | None = None,
@@ -315,17 +328,19 @@ def _dated_amount_rows(
             continue
         amount_match = amounts[-1]
         desc = re.sub(r"\s+", " ", chunk[len(match.group()):amount_match.start()]).strip()
-        if sign > 0:
+        amount = _money(amount_match.group())
+        if amount is None:
+            continue
+        if sign > 0 and amount > 0:
             # Audit B10 (I05, I14): this platform prints a credit's payer AFTER
             # its amount, on the row's own printed line (`ACH Credit $X <payer>
             # <entry> <receiver>`, Falcon's `International IWT $X Falcon
             # Internati Wires <sender>`). A debit keeps its label until the
-            # owner admits the debit readings (G7).
+            # owner admits the debit readings (G7), and so does the $0.00
+            # returned ACH the platform prints under Deposits (B10 review,
+            # round 1): only a published credit reads its payer.
             tail, cursor = _printed_tail(source, chunk[: amount_match.end()], cursor)
             desc = re.sub(r"\s+", " ", f"{desc} {tail}").strip()
-        amount = _money(amount_match.group())
-        if amount is None:
-            continue
         if _strptime(match.group(), "_dated_amount_rows").year != year:
             return []
         txns.append(
@@ -351,19 +366,20 @@ def _printed_tail(source: str, row: str, cursor: int) -> tuple[str, int]:
     So the row — its date, label and amount, as `_clean` read them — is found
     again in the printed text `source` (the document, or the block, with its
     line breaks), at or after `cursor` so two identical rows are read in order,
-    and its tail is the rest of that printed line up to the next row's date or
-    a section trailer. A row not found prints no tail (fail closed)."""
+    and its tail is the rest of that printed line up to the next row's date, a
+    section trailer, or a heading the layer printed on the same line (B10
+    review, round 1: the next section's grid header, a non-transaction block's
+    header such as Daily Balances, the account's continued heading). A row not
+    found prints no tail (fail closed)."""
     pattern = r"\s+".join(re.escape(token) for token in row.split())
     found = re.compile(pattern).search(source, cursor) if pattern else None
     if found is None:
         return "", cursor
     line = source[found.end():].split("\n", 1)[0]
-    stop = re.search(r"\b" + _DATE + r"\b", line)
-    if stop is not None:
-        line = line[: stop.start()]
-    trailer = _SECTION_TRAILER_RE.search(line)
-    if trailer is not None:
-        line = line[: trailer.start()]
+    for stop_at in (_TAIL_HEADING_RE, re.compile(r"\b" + _DATE + r"\b"), _SECTION_TRAILER_RE):
+        stop = stop_at.search(line)
+        if stop is not None:
+            line = line[: stop.start()]
     return re.sub(r"\s+", " ", line).strip(), found.end()
 
 
