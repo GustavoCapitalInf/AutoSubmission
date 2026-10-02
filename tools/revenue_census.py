@@ -102,6 +102,9 @@ NARROWINGS = (
     # Audit B6 (I10): §6.3's narrowing 10: a factoring review entity's credit leaves the potential tier's exclusion,
     # counted and flagged as a factoring payout (the factoring ruling of 2026-09-26), never verified.
     ("11_factoring_review_payout", True),
+    # Audit B8 (I46): §6.3's narrowing 11: a deposit whose non-revenue rule fired only on the statement furniture a
+    # parser glued onto it is read alone, past the furniture (the revenue text's cut).
+    ("12_statement_furniture", True),
 )
 #: The narrowings that lead to True only counted and flagged, never verified (audit B3: I11; audit B6: I10).
 COUNTED_ONLY_NARROWINGS = frozenset({"10_processor_card_payout", "11_factoring_review_payout"})
@@ -150,6 +153,10 @@ DECLARED_DEMOTIONS = (
     "q5_q6_payer_after_a_label",
     # Audit B6 (I23): a Q5 or Q6 repeat of a bank that lends to small businesses, now held as financing.
     "q5_q6_held_lending_bank",
+    # Audit B8 (I28, I44; the B7 review round 2's routing): a Q5 or Q6 row that is a gambling payout, a legal
+    # settlement or an owner-shaped payer's DISB; (I46, Q2) a repeat that printed the plural TRANSFERS bare.
+    "q5_q6_held_gambling_payout", "q5_q6_held_legal_settlement", "q5_q6_held_owner_disbursement",
+    "q5_q6_bare_transfers",
 )
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
 #: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
@@ -179,6 +186,11 @@ LATER_HOLD_CAUSES = {
     # prefix, a three-letter payroll provider.
     ("payer_also_debited", None): "q5_q6_held_counter_debit",
     ("payer_debited_as_lender", None): "q5_q6_held_lender_counter_debit",
+    # Audit B8 (I28, I44; the B7 review round 2's routing): a gambling or prediction-market payout, a legal settlement,
+    # and an owner-shaped payer's DISB.
+    ("non_sale_purpose", "gambling_payout"): "q5_q6_held_gambling_payout",
+    ("non_sale_purpose", "legal_settlement"): "q5_q6_held_legal_settlement",
+    ("non_sale_purpose", "owner_disbursement"): "q5_q6_held_owner_disbursement",
 }
 #: The operating-registry methods (§8.9).
 REGISTRY_METHODS = frozenset({
@@ -388,6 +400,32 @@ _NAMED_DESIGNATION_TRANSFERS_56 = (
     _on_masked(r"\b(?:ONLINE|MOBILE) (?:BANKING )?TRANSFER FROM (?:CHK|SAV) \d+ CONFIRMATION \S+ (?=.*[A-Z]{3})\S.*$"),
     _on_masked(r"\bTFR FROM X+\d* TRANSFER DEPOSIT (?=.*[A-Z]{3})\S.*$"),
 )
+#: Audit B8 (I46, §6.3 narrowing 11, the census's twelfth): the statement furniture the classifier's revenue text cuts
+#: (analysis/transaction_classifier.py _STATEMENT_FURNITURE, copied: the census reads other checkouts), on the masked
+#: text: TD's footer and back panel, a Symitar credit union's balance, check-recap and fee summaries, a page header,
+#: Citizens' continued-page header and footer, Fifth Third's disclosure line and a page number.
+_STATEMENT_FURNITURE_56 = _on_masked(
+    r"(?<![A-Z])(?:"
+    r"CALL \d \d{3} \d{3} \d{4} FOR \d{2} HOUR BANK BY PHONE\b"
+    r"|BANK DEPOSITS FDIC INSURED\b"
+    r"|HOW TO BALANCE YOUR ACCOUNT\b"
+    r"|(?:\d+ )*ENDING BALANCE (?=CLEARED CHECK RECAP\b|YOUR MINIMUM BALANCE\b)"
+    r"|CLEARED CHECK RECAP\b"
+    r"|FEE SUMMARY THIS PERIOD\b"
+    r"|THIS PERIOD YEAR TO DATE TOTAL (?:OVERDRAFT|RETURNED ITEM) FEES\b"
+    r"|(?:\d{1,3} )?STATEMENT OF ACCOUNT\b(?=.*\bSTATEMENT PERIOD\b)"
+    r"|PLEASE SEE ADDITIONAL INFORMATION ON NEXT PAGE\b"
+    r"|MEMBER FDIC(?: (?:[A-Z]|\d))? EQUAL HOUSING LENDER\b"
+    r"|CONTINUED DEPOSITS AND CREDITS\b|DEPOSITS AND CREDITS CONTINUED\b"
+    r"|FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES\b"
+    r"|(?:\d{3} R\d \d{2}F\d{3} )?(?:PAGE \d+ )?PAGE \d+ OF \d+\b"
+    r")"
+)
+#: Audit B8 (I46): the base methods the furniture fired: the strong non-revenue rule (a footer's LOAN or INTEREST
+#: EARNED) and the reversal rule (a fee summary's RETURNED ITEM).
+_FURNITURE_BASE_METHODS = frozenset({"strong_non_revenue_rule", "reversal_cancellation_exclusion"})
+#: Audit B8 (I46, Q2): the plural TRANSFERS, transfer wording since B8 (the classifier's _TRANSFER_WORDING).
+_TRANSFERS_WORD = _on_masked(r"(?<![A-Z])TRANSFERS\b")
 #: I8 (narrowing 8): the consumer-side words a BNPL provider prints on a customer's own credit (a return, a refund, a
 #: withdrawal of a balance, a card, a debt collector), never on its merchant settlement (the OQ2 ruling's rows).
 _BNPL_CONSUMER_WORDS = re.compile(
@@ -1192,8 +1230,21 @@ def _sweep_shape(text: str, span: tuple[int, int] | None) -> str:
     return " ".join(words)
 
 
+def _without_furniture_56(text: str) -> str:
+    """Audit B8 (I46): the masked text up to its first statement furniture (_STATEMENT_FURNITURE_56), as the
+    classifier's revenue text reads the row; a text the cut would leave with no letter is kept."""
+    found = _STATEMENT_FURNITURE_56.search(text)
+    if found is None:
+        return text
+    kept = text[: found.start()].rstrip()
+    return kept if any(character.isalpha() for character in kept) else text
+
+
 def _sweep_class(text: str) -> tuple[str, str, str] | None:
-    """B1 (I39): the first class whose wording reads a True credit's masked text: (class, confidence, shape)."""
+    """B1 (I39): the first class whose wording reads a True credit's masked text: (class, confidence, shape). Audit
+    B8 (I46): read past the statement furniture a parser glued onto the row (_without_furniture_56), whose own words
+    (TD's back panel: '... OVERDRAFT PROTECTION ...') are no credit's wording."""
+    text = _without_furniture_56(text)
     zeroed = text.replace("#", "0")
     if _SWEEP_ANY.search(zeroed) is None and _OWN_ACH_ENTRY.search(text) is None:
         return None
@@ -1380,6 +1431,10 @@ def _narrowing(base: dict, after: dict) -> str | None:
     # Audit B2 (I20): Bank of America's and a credit union's layouts that print a named sender after the designation.
     if base_method == "strong_non_revenue_rule" and any(form.search(text) for form in _NAMED_DESIGNATION_TRANSFERS_56):
         return "9_named_transfer_after_designation"
+    # Audit B8 (I46, §6.3 narrowing 11): the strong non-revenue or reversal rule fired on a deposit that prints the
+    # statement furniture the revenue text now cuts.
+    if base_method in _FURNITURE_BASE_METHODS and _STATEMENT_FURNITURE_56.search(text):
+        return "12_statement_furniture"
     return None
 
 
@@ -1691,6 +1746,13 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         # (b) the payer region now reads a relaying bank's customer (A3-G refinement), so the repeat is another's.
         if base["method"] == "repeat_wire_sender" and facts.get("relayed_customer"):
             return "q5_q6_relayed_customer"
+        # (b) audit B8 (I46, Q2): the plural TRANSFERS is transfer wording, so a repeat that printed it with no
+        # counterparty is held as a bare transfer.
+        if (
+            after.get("tier") == "excluded_pending_review" and after.get("reason") == "transfer_no_counterparty"
+            and _TRANSFERS_WORD.search(_before_receiver(text))
+        ):
+            return "q5_q6_bare_transfers"
         # (b) audit B5 (I15, I55): the repeat was keyed on a bank's label, entry or reference (PNC's entry word, an
         # empty ORIG CO label); the payer region now reads the payer printed after it, or no payer (the pass's own
         # payer_label_layout fact), and the row is counted.

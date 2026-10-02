@@ -819,7 +819,9 @@ class _CanadaTaxRefundForm:
 #: entry.
 IRS_TREASURY_FORM = re.compile(r"(?<![A-Z])IRS TREAS ?\d{3}\b")
 _IRS_BENEFIT_ENTRY = re.compile(r"(?<![A-Z])(?:CHI?LD ?CTC|TAX ?EIP ?\d?)\b")
-_IRS_REFUND_WORDING = re.compile(r"(?<![A-Z])(?:TAX ?REF\w*|TAX ?EIC|[A-Z]*REFUNDS?|RFND|REFND|RFD)\b")
+#: Audit B8 (the GOV follow-up, the orchestrator's): and the IRS's interest entry, the interest it pays on a refund it
+#: paid late ('IRS TREAS 310 DES:INT'), interest and no sale (§8.1, standard G5), never an IRS vendor payment's word.
+_IRS_REFUND_WORDING = re.compile(r"(?<![A-Z])(?:TAX ?REF\w*|TAX ?EIC|[A-Z]*REFUNDS?|RFND|REFND|RFD|INT|INTEREST)\b")
 _IRS_LAYOUT_WORDS = frozenset("ORIG CO NAME ID DESC DATE ENTRY DESCR SEC CCD CTX PPD WEB TRACE EED IND TRN DES".split())
 
 
@@ -829,7 +831,8 @@ def _irs_tax_refund(text: str) -> bool:
     <reference>'). Treasury's Green Book gives MISC PAY to federal vendor payments, and the IRS pays its contractors
     that way, so an entry such as MISC PAY, VENDOR or VENDOR PAY keeps the row's own reading. The entry is the DES or
     CO ENTRY DESCR field (entry_fields), or on a layout with no field the words printed after the form, references
-    and field labels left out."""
+    and field labels left out. Audit B8 (the GOV follow-up): an interest entry (INT, INTEREST), the interest on a
+    refund, is no revenue either."""
     row = _before_receiver(text)
     found = IRS_TREASURY_FORM.search(row)
     if found is None or _IRS_BENEFIT_ENTRY.search(text):
@@ -843,7 +846,7 @@ def _irs_tax_refund(text: str) -> bool:
 class _IrsTaxRefundForm:
     """5.6 (GOV review I1): the IRS refund reader in the strong non-revenue list, read as its patterns are (search)."""
 
-    pattern = "IRS TREAS nnn with no entry or a refund-worded entry"
+    pattern = "IRS TREAS nnn with no entry or a refund- or interest-worded entry"
 
     def search(self, text: str) -> "_IrsTaxRefundForm | None":
         return self if _irs_tax_refund(text) else None
@@ -1273,15 +1276,45 @@ _CASH_BRANCH_ATM_FORM = re.compile(
 )
 #: §8.2: transfer wording. 5.6 (audit B2: I21): and its other spellings TRF, TRSFR, TRANSF and XFR ('TRF CT INTERNET',
 #: 'INTERNET PHONE TRSFR', 'TRANSF FONDS CT', 'INTERNET XFR FRM CHECKG'), and TRANSFER glued to a reference's digits
-#: (CIBC's 'CMO TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail). TRANSFERS
-#: waits for audit batch B8 (a TD footer prints FUNDS TRANSFERS). Audit B5 (I19): never American Express's
-#: incoming-ACH label, 'ONLINE TRANSFER PAYMENT CREDIT' at the row's start (_AMEX_ACH_CREDIT); the same words
-#: anywhere else stay transfer wording.
+#: (CIBC's 'CMO TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail). Audit B8 (I46,
+#: Q2): and the plural TRANSFERS ('EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT', '... FUNDS TRANSFERS'), once revenue_text
+#: cuts the statement furniture that printed it (TD's back panel: '... ELECTRONIC FUNDS TRANSFERS'). Audit B5 (I19):
+#: never American Express's incoming-ACH label, 'ONLINE TRANSFER PAYMENT CREDIT' at the row's start
+#: (_AMEX_ACH_CREDIT); the same words anywhere else stay transfer wording.
 _TRANSFER_WORDING = re.compile(
-    r"\b(?:(?<!^ONLINE )TRANSFER|TRANSFER(?! PAYMENT CREDIT\b)|TRNSFR|TRSFR|TRANSF|XFER|XFR|TFR|TRF|BR TO BR"
+    r"\b(?:(?<!^ONLINE )TRANSFER|TRANSFER(?! PAYMENT CREDIT\b)|TRANSFERS|TRNSFR|TRSFR|TRANSF|XFER|XFR|TFR|TRF|BR TO BR"
     r"|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)"
     r"|FUNDS TRANSFER)\b"
     r"|(?<!(?<![A-Z])E )(?<![A-Z])TRANSFER(?=\d)"
+)
+#: Audit B8 (I46; standard P14; the brief's classifier guard, the parsers' own fixes waiting for audit batch B10): the
+#: statement furniture a parser glues onto a row's description, each form starting a tail that runs to the row's end,
+#: never a transaction's words: TD's footer and its "How to balance your account" back panel ('CALL 1 <phone> FOR 24
+#: HOUR BANK BY PHONE ...', 'BANK DEPOSITS FDIC INSURED ...', 'HOW TO BALANCE YOUR ACCOUNT ... FOR CONSUMER LOAN
+#: ACCOUNTS ONLY ... ADD ANY INTEREST EARNED ...'); a Symitar credit union's balance summary, check recap and fee
+#: summary (the ending balance's date and amount before ENDING BALANCE, 'CLEARED CHECK RECAP', 'FEE SUMMARY THIS
+#: PERIOD', '... TOTAL RETURNED ITEM FEES'); a statement's page header ('<n> STATEMENT OF ACCOUNT ... STATEMENT
+#: PERIOD', TD's and Symitar's), Citizens' continued-page header and footer ('PLEASE SEE ADDITIONAL INFORMATION ON NEXT
+#: PAGE', 'MEMBER FDIC <mark> EQUAL HOUSING LENDER', 'CONTINUED DEPOSITS AND CREDITS'), Fifth Third's disclosure line
+#: ('FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES ...') and a page number ('PAGE <n> OF <n>', after Citibank's
+#: form code '<nnn> R<n> <nn>F<nnn>' and a repeated 'PAGE <n>'). A row the furniture would leave with no letter keeps
+#: its text (without_statement_furniture).
+_STATEMENT_FURNITURE = re.compile(
+    r"(?<![A-Z])(?:"
+    r"CALL \d \d{3} \d{3} \d{4} FOR \d{2} HOUR BANK BY PHONE\b"
+    r"|BANK DEPOSITS FDIC INSURED\b"
+    r"|HOW TO BALANCE YOUR ACCOUNT\b"
+    r"|(?:\d+ )*ENDING BALANCE (?=CLEARED CHECK RECAP\b|YOUR MINIMUM BALANCE\b)"
+    r"|CLEARED CHECK RECAP\b"
+    r"|FEE SUMMARY THIS PERIOD\b"
+    r"|THIS PERIOD YEAR TO DATE TOTAL (?:OVERDRAFT|RETURNED ITEM) FEES\b"
+    r"|(?:\d{1,3} )?STATEMENT OF ACCOUNT\b(?=.*\bSTATEMENT PERIOD\b)"
+    r"|PLEASE SEE ADDITIONAL INFORMATION ON NEXT PAGE\b"
+    r"|MEMBER FDIC(?: (?:[A-Z]|\d))? EQUAL HOUSING LENDER\b"
+    r"|CONTINUED DEPOSITS AND CREDITS\b|DEPOSITS AND CREDITS CONTINUED\b"
+    r"|FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES\b"
+    r"|(?:\d{3} R\d \d{2}F\d{3} )?(?:PAGE \d+ )?PAGE \d+ OF \d+\b"
+    r")"
 )
 #: §5.2: the ACH originator and entry fields (Bank of America's DES, Chase's ORIG CO NAME and CO ENTRY DESCR).
 _ACH_ORIGINATOR_FIELD = re.compile(r"\b(?:DES|CO ENTRY DESCR|ORIG CO NAME)\b")
@@ -1291,8 +1324,21 @@ def revenue_text(text: str) -> str:
     """5.5 (§7.0): the text every credit revenue rule reads: the normalized row without a glued leading date
     ('01 02ZELLE PAYMENT' becomes 'ZELLE PAYMENT', so a glued date never hides a rail from the channel gate or a label
     from a reader anchored at the row's start; a spaced '5 3 ...' is kept), and with Chase's glued SEC code split
-    ('CO ENTRY DESCR HCCLAIMPMTSEC CCD' becomes 'CO ENTRY DESCR HCCLAIMPMT SEC CCD')."""
-    return _GLUED_SEC_CODE.sub(r"\1 SEC \2", _LEADING_DATE.sub("", text, count=1))
+    ('CO ENTRY DESCR HCCLAIMPMTSEC CCD' becomes 'CO ENTRY DESCR HCCLAIMPMT SEC CCD'). Audit B8 (I46): and without the
+    statement furniture a parser glued onto it (without_statement_furniture), so a footer's LOAN, INTEREST EARNED or
+    RETURNED ITEM never decides a deposit."""
+    return _GLUED_SEC_CODE.sub(r"\1 SEC \2", without_statement_furniture(_LEADING_DATE.sub("", text, count=1)))
+
+
+def without_statement_furniture(text: str) -> str:
+    """Audit B8 (I46, §7.0): the row up to the first statement furniture a parser glued onto it (_STATEMENT_FURNITURE:
+    a footer, a back panel, a balance or fee summary, a page header or number), every word after it dropped. A row
+    whose words before the furniture hold no letter keeps its text (the furniture would leave it nothing to read)."""
+    found = _STATEMENT_FURNITURE.search(text)
+    if found is None:
+        return text
+    kept = text[: found.start()].rstrip()
+    return kept if any(character.isalpha() for character in kept) else text
 
 
 def _joined_text(text: str) -> str:

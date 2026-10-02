@@ -1995,3 +1995,129 @@ def test_b3_the_snapshot_reads_a_released_processor_payout_with_no_guard_failure
                                  "tier": "non_revenue", "reason": None}]}
     run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
     assert list(run["left_non_revenue"]) == ["10_processor_card_payout"] and "G1" not in run["guards"]
+
+
+TD_PANEL_MASKED = (
+    "SBB MDEPOSIT CALL # ### ### #### FOR ## HOUR BANK BY PHONE SERVICES OR CONNECT TO WWW TDBANK COM BANK DEPOSITS"
+    " FDIC INSURED TD BANK N A EQUAL HOUSING LENDER PAGE # HOW TO BALANCE YOUR ACCOUNT PAGE # OF # FOR CONSUMER LOAN"
+    " ACCOUNTS ONLY"
+)
+SYMITAR_RECAP_MASKED = (
+    "CHECK DEPOSIT ## ## ## # ### ## ENDING BALANCE CLEARED CHECK RECAP CHECK DATE AMOUNT TOTAL RETURNED ITEM FEES # ##"
+)
+
+
+@pytest.mark.parametrize(("base_method", "text", "state", "tier", "reason", "narrowing", "fails"), [
+    # Audit B8 (I46, §6.3 narrowing 11, the census's twelfth): statement furniture a parser glued onto a deposit fired
+    # a non-revenue rule; cut before classification, the deposit is read alone.
+    ("strong_non_revenue_rule", TD_PANEL_MASKED, "unverified_deposit", "counted_flagged", "named_payer_unlabelled",
+     "12_statement_furniture", False),
+    ("reversal_cancellation_exclusion", SYMITAR_RECAP_MASKED, "unverified_deposit", "counted_flagged",
+     "check_deposit", "12_statement_furniture", False),
+    ("strong_non_revenue_rule", "ACH DEPOSIT VENMO CASHOUT ############# CALL # ### ### #### FOR ## HOUR BANK BY"
+     " PHONE SERVICES", "unverified_deposit", "counted_flagged", "p2p", "12_statement_furniture", False),
+    ("strong_non_revenue_rule", "MOBILE DEPOSIT PLEASE SEE ADDITIONAL INFORMATION ON NEXT PAGE PAGE # PAGE # OF #",
+     "unverified_deposit", "counted_flagged", "check_deposit", "12_statement_furniture", False),
+    # A row that prints no furniture leaving the rule is outside the narrowings.
+    ("strong_non_revenue_rule", "SBB MDEPOSIT FABRIKAM LOAN", "unverified_deposit", "counted_flagged",
+     "named_payer_unlabelled", "outside_the_narrowings", True),
+    # Furniture on a row another rule decided (a loan's proceeds) is no narrowing of that rule.
+    ("financing_proceeds_credit", TD_PANEL_MASKED, "unverified_deposit", "counted_flagged", "named_payer_unlabelled",
+     "outside_the_narrowings", True),
+])
+def test_narrowing_12_reads_a_deposit_past_its_glued_statement_furniture(base_method, text, state, tier, reason,
+                                                                         narrowing, fails):
+    base = _snap("5.6", {"a": _account([_credit(0, 50000, "non_revenue", base_method, tier="non_revenue",
+                                                text=text)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 50000, state, "unidentified_posted_credit", tier=tier,
+                                                 reason=reason, text=text)])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+    assert dict(census.NARROWINGS)["12_statement_furniture"] is True
+
+
+@pytest.mark.parametrize("text", [
+    "SBB MDEPOSIT CALL 1 800 555 0100 FOR 24 HOUR BANK BY PHONE SERVICES",
+    "DEPOSIT BANK DEPOSITS FDIC INSURED TD BANK N A EQUAL HOUSING LENDER",
+    "CHECK DEPOSIT 01 31 54 1 234 56 ENDING BALANCE CLEARED CHECK RECAP CHECK DATE AMOUNT",
+    "CHECK DEPOSIT 3 STATEMENT OF ACCOUNT ACCOUNT NUMBER STATEMENT PERIOD PAGE 01 01 54",
+    "MOBILE DEPOSIT MEMBER FDIC 2 EQUAL HOUSING LENDER PAGE 6 PAGE 6 OF 10",
+    "CBUSOL TRANSFER CREDIT ONLINE REFERENCE 1 000 R1 01F001 PAGE 3 OF 5 NORTHWIND BAKERY LLC ACCOUNT 1234567890",
+    "CPS DEVICE DEPOSIT B1234 FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES PLEASE VISIT",
+    # No furniture.
+    "FABRIKAM INC DES PAYMENT ID 1 PMT INFO STATEMENT OF ACCOUNT 1234",
+    "WT FED 01234 SAMPLE BANK ORG FABRIKAM INC OBI INVOICE 1234 PAGE ONE",
+    "SBB MDEPOSIT",
+])
+def test_b8_the_census_reads_the_classifier_s_furniture_on_the_masked_text(text):
+    # The census's copy (it reads other checkouts) finds the furniture where the classifier's cut does, on the
+    # digit-masked text it records.
+    from analysis.transaction_classifier import _STATEMENT_FURNITURE
+
+    found = _STATEMENT_FURNITURE.search(text)
+    masked = census._STATEMENT_FURNITURE_56.search(re.sub(r"\d", "#", text))
+    assert (found is None) == (masked is None)
+    if found is not None:
+        assert found.start() == masked.start()
+
+
+@pytest.mark.parametrize(("text", "letters"), [
+    # Audit B8 (I46): the sweep reads a True credit past the statement furniture glued onto it: TD's back panel prints
+    # '... OVERDRAFT PROTECTION ...', which names no own-account sweep of the deposit.
+    ("SBB MDEPOSIT CALL 1 800 555 0100 FOR 24 HOUR BANK BY PHONE SERVICES HOW TO BALANCE YOUR ACCOUNT THE TERM ODP"
+     " OR OD REFERS TO OVERDRAFT PROTECTION", {}),
+    ("DEPOSIT BANK DEPOSITS FDIC INSURED TD BANK N A EQUAL HOUSING LENDER OVERDRAFT PROTECTION", {}),
+    # The credit's own words still read.
+    ("OVERDRAFT PROTECTION FROM 9999999999 CALL 1 800 555 0100 FOR 24 HOUR BANK BY PHONE", {"A": 1}),
+])
+def test_b8_the_sweep_reads_a_credit_past_its_statement_furniture(text, letters):
+    sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
+    assert {name: row["rows"] for name, row in sweep["classes"].items() if row["rows"]} == letters
+
+
+TRANSFERS_ROW = "EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT ######"
+KALSHI_ROW = "KALSHI DES WITHDRAWAL ID ####### INDN NORTHWIND PLUMBING LLC CO ID ########## CCD"
+EPIQ_ROW = "EPIQ CLASS ACTION DES SETTLEMENT ID ####### INDN NORTHWIND PLUMBING LLC CO ID ########## PPD"
+PARTNERS_ROW = "FABRIKAM PARTNERS LP DES PARTNER DISB ID ####### INDN NORTHWIND PLUMBING LLC CO ID ########## CCD"
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    # Audit B8 (I46, Q2): the plural TRANSFERS is transfer wording, so a Q6 repeat that printed it bare is held as a
+    # transfer with no counterparty.
+    (_q56("named_payer_repeats", TRANSFERS_ROW),
+     _after56("unidentified_posted_credit", TRANSFERS_ROW, tier="excluded_pending_review",
+              reason="transfer_no_counterparty"), "q5_q6_bare_transfers"),
+    (_q56("named_payer_repeats", "EXTERNAL DEPOSIT ACH TRANSFER PAYMENT ######"),
+     _after56("unidentified_posted_credit", "EXTERNAL DEPOSIT ACH TRANSFER PAYMENT ######",
+              tier="excluded_pending_review", reason="transfer_no_counterparty"), "undeclared"),
+    (_q56("named_payer_repeats", TRANSFERS_ROW),
+     _after56("unidentified_posted_credit", TRANSFERS_ROW, tier="counted_flagged", reason="p2p"), "undeclared"),
+    # Audit B8 (I28, I44; the B7 review round 2 routing): a gambling payout, a legal settlement and an owner-shaped
+    # payer's DISB entry, held by the pass's own readings.
+    (_q56("named_payer_repeats", KALSHI_ROW),
+     _after56("unidentified_posted_credit", KALSHI_ROW, tier="excluded_pending_review", reason="non_sale_purpose",
+              hold_rule="gambling_payout"), "q5_q6_held_gambling_payout"),
+    (_q56("named_payer_company_form", EPIQ_ROW),
+     _after56("unidentified_posted_credit", EPIQ_ROW, tier="excluded_pending_review", reason="non_sale_purpose",
+              hold_rule="legal_settlement"), "q5_q6_held_legal_settlement"),
+    (_q56("named_payer_repeats", PARTNERS_ROW),
+     _after56("unidentified_posted_credit", PARTNERS_ROW, tier="excluded_pending_review", reason="non_sale_purpose",
+              hold_rule="owner_disbursement"), "q5_q6_held_owner_disbursement"),
+    (_q56("named_payer_repeats", KALSHI_ROW),
+     _after56("unidentified_posted_credit", KALSHI_ROW, tier="excluded_pending_review", reason="non_sale_purpose"),
+     "undeclared"),
+])
+def test_b8_the_new_holds_and_the_plural_transfers_are_declared_demotions(prior, later, cause):
+    causes, _ = _cause56(prior, later)
+    assert causes == {cause: 1}
+
+
+@pytest.mark.parametrize(("text", "cause"), [
+    # GOV follow-up (audit B8): the IRS's interest on a refund joined the strong non-revenue rule with the IRS's other
+    # Treasury forms, a declared new non-revenue marker.
+    ("IRS TREAS ### DES INT ID ####### INDN NORTHWIND PLUMBING LLC CO ID ########## PPD", "new_non_revenue_marker"),
+])
+def test_b8_the_irs_interest_is_a_declared_new_marker(text, cause):
+    later = _later("strong_non_revenue_rule", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}

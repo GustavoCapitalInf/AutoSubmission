@@ -2054,11 +2054,20 @@ FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
 
 #: 5.6 (§7.5, the standing rule; S4.2 review I6b): brokerage, investing and crypto-exchange platforms, as a regular
 #: expression read on the row before its receiver fields (analysis/true_revenue.py compiles it). A credit from one is
-#: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose.
+#: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose. Audit B8 (I28;
+#: standard G2): and the crypto exchanges and retail brokerages it did not name, each public: Kraken and its operator
+#: Payward, Inc. (kraken.com/legal: 'Payward Interactive, Inc.', printed after FBO on its wires), Binance.US and its
+#: operator BAM Trading Services Inc. (binance.us/terms), Bitstamp, Uphold, BlockFi, Bakkt, Paxos, Apex Clearing
+#: (apexfintechsolutions.com, a retail brokerages' clearing firm), M1 Finance (m1.com); Coinbase's name split by a line
+#: wrap ('COINBA SE'); and Fidelity's brokerage ACH form ('P FIDELITY'; a bare FIDELITY is a bank's or a title firm's
+#: name too). Never a custodian or a private bank (BNY Mellon, Pershing, Northern Trust): a customer's tuition or
+#: invoice paid from a brokerage account is still the customer's payment.
 OWNER_MONEY_PLATFORMS: str = (
     r"(?<![A-Z])(?:SCHWAB|ROBINHOOD|COINBASE|WEBULL|AMERITRADE|E ?TRADE|INTERACTIVE BROKERS|MERRILL (?:EDGE|LYNCH)"
     r"|FIDELITY (?:BROKERAGE|INVESTMENTS?)|VANGUARD (?:MARKETING|GROUP|BROKERAGE|FIDUCIARY|INVESTMENTS?|FUNDS?)"
-    r"|CRYPTO COM|GEMINI TRUST)\b"
+    r"|CRYPTO COM|GEMINI TRUST"
+    r"|KRAKEN|PAYWARD|BINANCE|BAM TRADING|BITSTAMP|UPHOLD|BLOCKFI|BAKKT|PAXOS|APEX CLEARING|M1 FINANCE|COINBA SE"
+    r"|P FIDELITY)\b"
 )
 
 #: Audit B6 (I23; §8.1 T4, Q6 "lenders never count", standard C2): banks that lend to small businesses on their own
@@ -2101,6 +2110,14 @@ SECTION_15_DEFERRED_PAYERS: str = (
     # §7.1, §15: Applied Systems' agency-bill premium, lease-to-own payers, construction draws and progress billing,
     # eCommission's commission advances.
     r"|(?<![A-Z])(?:APPLIED SYSTEMS|ACIMA|KATAPULT|KOALAFI|PROGRESS BILLING|ECOMMISSION)\b"
+    # Audit B8 (I45; §15 "auction vendor payments and non-dealer consignors", OQ4): the equipment auctions' and the
+    # consumer car buyers' seller payouts, each public: Ritchie Bros. (RB Global) and its IronPlanet, Purple Wave,
+    # BigIron, GovDeals and Proxibid, Carvana's payout to a car's seller, CarMax (never its auto-finance arm, CarMax
+    # Auto Finance, an auto lender paying dealers, §8.7), Peddle and Vroom. Copart and IAA (Insurance Auto Auctions)
+    # also pay their towing and transport vendors, so only their seller payments (a seller or consignor word) are read.
+    r"|(?<![A-Z])(?:RITCHIE BROS|RB GLOBAL|IRON ?PLANET|PURPLE WAVE|BIG ?IRON|GOV ?DEALS|PROXIBID|CARVANA PAYOUT"
+    r"|CARMAX(?! AUTO\b)|PEDDLE|VROOM)\b"
+    r"|(?:(?<![A-Z])(?:COPART|INSURANCE AUTO AUCTIONS?)|\bIAA)\b(?=.*(?<![A-Z])(?:SELLER|CONSIGN\w*)\b)"
 )
 
 #: 5.6 (§5.2, Q4; S4.2 re-review fix 1b): the sending banks a person-to-person row may print beside or instead of the

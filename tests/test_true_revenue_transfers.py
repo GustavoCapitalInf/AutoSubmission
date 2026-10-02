@@ -125,8 +125,9 @@ def test_the_holder_s_own_account_forms_are_non_revenue(bank, text):
 @pytest.mark.parametrize(("bank", "text", "reading"), [
     # Q4: CIBC's glued e-transfer is the e-transfer rail's own form, never the glued TRANSFER I21 reads.
     ("CIBC", "E TRANSFER123456789012 PAT SAMPLE 1234 567", (COUNTED, "named_payer_unlabelled")),
-    # TRANSFERS waits for audit batch B8 (a TD footer prints FUNDS TRANSFERS).
-    ("Fabrikam Bank", "CONTOSO SEAFOOD TRANSFERS", (COUNTED, "named_payer_unlabelled")),
+    # Audit B8 (I46): TRANSFERS is transfer wording once revenue_text cuts a TD footer's FUNDS TRANSFERS; with a named
+    # counterparty it is a named transfer (T13, Q4).
+    ("Fabrikam Bank", "CONTOSO SEAFOOD TRANSFERS", (COUNTED, "p2p")),
     # A company that holds a word of the strip lists keeps its name.
     ("Fabrikam Bank", "ONLINE TRANSFER FROM CONTOSO OVERDRAFT SERVICES LLC", (COUNTED, "p2p")),
     # A teller or branch transfer still prints no counterparty (M4).

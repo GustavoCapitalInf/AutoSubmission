@@ -47,12 +47,13 @@ if TYPE_CHECKING:
     from .transaction_classifier import CounterDebitReading, TransactionClassification
 
 #: §8.1: the posting labels removed before a hold reads a row: §7.5's credit posting labels, the branch, card and
-#: batch CREDIT labels, and the channel phrases.
+#: batch CREDIT labels, and the channel phrases. Audit B8 (I46): the plural FUNDS TRANSFERS too, transfer wording since
+#: B8 (a bank's channel phrase, never a funder's FUNDS).
 _HOLD_POSTING_LABELS = re.compile(
     r"\b(?:ELECTRONIC|ACH|RTP|ONLINE|WIRE|BOOK|CORP|CORPORATE|ZELLE|MISC|DIRECT|PAYMENT|DEPOSIT|TRANSFER|MOBILE|EFT"
     r"|CHIPS|FEDWIRE|INSTANT|REAL TIME|COUNTER|POS|ATM|TELLER|BRANCH|CARD|BATCH|MERCHANT|VISA|CHECKCARD|PURCHASE)"
     r"\s+CREDIT\b|^CREDIT\b"
-    r"|\bCREDIT FROM\b|\bFUNDS (?:TRANSFER|AVAILABLE)\b|\bINSTANT FUNDS\b"
+    r"|\bCREDIT FROM\b|\bFUNDS (?:TRANSFERS?|AVAILABLE)\b|\bINSTANT FUNDS\b"
 )
 #: §8.1, T4: the credit-side financing roots. A whole-word CREDIT counts only inside a payer name, next to another
 #: name word; glued, it always counts. The roots have no left boundary; of the whole words, those of four letters or
@@ -272,10 +273,13 @@ _PROVINCES = (
     r"(?:ONTARIO|QUEBEC|NOVA SCOTIA|NEW BRUNSWICK|MANITOBA|BRITISH COLUMBIA|BC|PRINCE EDWARD ISLAND|PEI|SASKATCHEWAN"
     r"|ALBERTA|NEWFOUNDLAND(?: AND LABRADOR)?|YUKON|NORTHWEST TERRITORIES|NUNAVUT)"
 )
+#: Audit B8 (the GOV follow-up, the orchestrator's): RBC's cut label of the same provincial payment code,
+#: 'Prov./Loc.G.Paym' ('PROV LOC G PAYM CANADA'), read as its spelled-out form is.
 _GOVERNMENT_BENEFIT_PAYER = re.compile(
     r"(?:(?:CANADA )?(?:CANADA (?:CHILD|(?:GROCERIES (?:AND )?)?ESSENTIALS|WORKERS|DISABILITY) BENEFITS?"
     r"|OLD AGE SECURITY)(?: CANADA)?"
-    rf"|(?:PROV LOCAL GVT(?: PAYMENT)?|PROVINCIAL PAYMENT) (?:CANADA(?: PRO)?|PRO(?: {_PROVINCES})?)"
+    rf"|(?:PROV LOCAL GVT(?: PAYMENT)?|PROV LOC G(?:VT)? PAYM(?:ENT)?|PROVINCIAL PAYMENT)"
+    rf" (?:CANADA(?: PRO)?|PRO(?: {_PROVINCES})?)"
     r"|CANADA PRO(?: DEPOSIT)?)"
     r"(?: (?:MSP|DIV|\d+))*"
 )
@@ -289,11 +293,15 @@ _ENTRY_COMPANY_FORM = re.compile(
     r"\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC)\b"
 )
 #: §8.1: benefit and pension credits. GOV: the government's personal-benefit forms are read by government_benefit.
+#: Audit B8 (I28): and a health savings account's distribution ('HSADISTRIB', 'HSA DISTRIB...': a person's own medical
+#: savings) and a life insurer's annuity payment cut by a sixteen-character originator field ('<insurer> LIFE AN
+#: DISBPYMT', the whole ANNUIT... word cut away).
 _PERSONAL_INCOME = re.compile(
     r"(?<![A-Z])(?:XX)?SOC SEC\b|\bSSA\b|\bSSI\b|(?<![A-Z])SUPP SEC\b|(?<![A-Z])(?:XX)?VA BEN\w*"
     r"|(?<![A-Z])UNEMPLOY\w*|(?<![A-Z])UI BEN\w*"
     r"|(?<![A-Z])CHI?LD ?SUPP\w*\b|(?<![A-Z])CHILD ?CTC\b|(?<![A-Z])PENSION\b|(?<![A-Z])ANNUIT\w*"
     r"|(?<![A-Z])RETIRE\w*"
+    r"|(?<![A-Z])HSA ?DISTRIB\w*|(?<![A-Z])LIFE AN DISB\w*"
 )
 #: §8.1, §20 (GOV, the owner's ruling of 2026-09-30, class D: a grant or subsidy is no sale): HHS's CARES Act Provider
 #: Relief Fund ('US HHS STIMULUS', its glued entry 'HHSPAYMENT') and the USDA's farm programs, the Farm Service
@@ -302,9 +310,13 @@ _PERSONAL_INCOME = re.compile(
 #: form) ESDC's federal payment code, its grants and contributions ('GOVERNMENT ESDC ... FEDERAL PMT'). §8.1's GRANT
 #: word already holds a row that prints it. Never a name that holds the letters: 'HHS SUPPLY CO', 'NORTHWIND FSA
 #: SERVICES LLC'.
+#: Audit B8 (I56; GOV class D, the owner's ruling of 2026-09-30): the CRA's Canada Carbon Rebate, glued as TD Canada
+#: Trust prints it ('CDACARBONREBATE CCR') or spaced, read with no left word boundary (its spaced spelling's REBATE
+#: word holds it too); a name that only holds CARBON ('<NAME> CARBON WORKS LLC') is no rebate.
 _GOVERNMENT_GRANT = re.compile(
     r"(?<![A-Z])HHS ?STIMULUS\b|(?<![A-Z])HHSPAYMENT(?:SEC)?\b|(?<![A-Z])(?:FSA|CCC) TREAS ?\d{3}\b"
     r"|(?<![A-Z])GOVERNMENT ESDC\b(?=.*(?<![A-Z])(?:FEDERAL PMT|PAIEMENT FEDERAL)\b)"
+    r"|(?:CANADA ?|CDA ?)CARBON ?REBATE\b"
 )
 #: GOV review (M4): the CRA's Canada Emergency Wage Subsidy, read as the whole payer (government_form_payer) with the
 #: CRA's name before or after it, so 'CANADA CEWS CONSULTING INC' is a payer.
@@ -390,6 +402,43 @@ _OWNER_SHAPED_PAYER = re.compile(
 #: read on the payment's purpose (_title_purpose_text) with a line wrap's split joined ('TUITIO N'). A trust's invoice
 #: or PO payment is already verified by §7.9 before the holds read it.
 _TRUST_SERVICE_PURPOSE = re.compile(r"TUITION|STUDENTID")
+#: §8.1 non_sale_purpose (audit B8: I28; the MCA principle of 2026-09-30, standard G3): a gambling or prediction-market
+#: payout is no money the business earned from its operations, held for review (the owner may make it non_revenue).
+#: Read on the row before its receiver fields: the sportsbooks', casinos' and prediction markets' names, each public
+#: (DraftKings and its Massachusetts entity Crown <state> Gaming, FanDuel, BetMGM, Caesars Sportsbook, Fanatics'
+#: betting forms, ESPN BET, bet365, BetRivers, PrizePicks, Underdog's fantasy and sports forms, Kalshi, Polymarket,
+#: the Chumba and Pulsz social casinos), and a casino's JACKPOT, WINNINGS and a LOTTERY PRIZE. A bare FANATICS or
+#: UNDERDOG is a retailer's or any business's name, and CAESARS alone the casino company paying its vendors.
+_GAMBLING_PAYOUT = re.compile(
+    r"(?<![A-Z])(?:DRAFT ?KINGS|CROWN (?:[A-Z]{2} )?GAMING|FAN ?DUEL|BET ?MGM|CAESARS SPORTSBOOK"
+    r"|FANATICS (?:SPORTSBOOK|BETTING|BET|GAMING|CASINO)|ESPN ?BET|BET ?365|BET ?RIVERS|PRIZE ?PICKS"
+    r"|UNDERDOG (?:FANTASY|SPORTS)|KALSHI|POLYMARKET|CHUMBA|PULSZ|JACKPOT|WINNINGS|LOTTERY PRIZES?)\b"
+)
+#: Audit B8 (I28, I44): a gambling payer, a claims administrator or a law firm paying a vendor's invoice from its
+#: payables pays its vendor (§7.5's accounts-payable wording, _accounts_payable_wording, or these words), and a
+#: lottery's settlement with its retailer (standard G4: the store sells tickets and cashes prizes) is no prize.
+_VENDOR_PAYMENT_WORDING = re.compile(r"(?<![A-Z])(?:VENDORS?|INVOICES?|PAYABLES?)\b|\bINV\b|(?<![A-Z])INV ?\d")
+_LOTTERY_RETAILER_SETTLEMENT = re.compile(
+    r"(?<![A-Z])LOTTERY\b(?=.*(?<![A-Z])(?:SETTLEMENT|SETTLMT|SWEEP|COMMISSIONS?|RETAILER)\b)"
+)
+#: §8.1 non_sale_purpose (audit B8: I44; the MCA principle: a legal windfall is no operating earning, standard G):
+#: a lawsuit's, a class action's or a claims administrator's settlement, held for review (a law firm or a contractor
+#: may earn such money). Read on the row before its receiver fields: LAWSUIT, LITIGAT..., CLASS ACTION, DATA BREACH,
+#: SETTLEMENT ADMIN..., and the claims administrators' names, each public (Epiq, JND Legal Administration, KCC (only
+#: with LLC, CLASS or SETTLEMENT after it: three letters are many companies' initials), Angeion, Simpluris, Rust
+#: Consulting, Kroll Settlement Administration, A.B. Data, Verita). A bare SETTLEMENT is a processor's, a carrier's or
+#: an operating settlement and stays counted, never verified (§8.6). A lawyer's or a client trust account's payer
+#: (IOLTA, ESQ, LAW, ATTORNEY: _TRUST_LAWYER_WORDS on the payer region) paying SETTLEMENT PROCEEDS or FUNDS is held
+#: too.
+_LEGAL_SETTLEMENT = re.compile(
+    r"(?<![A-Z])(?:LAWSUITS?|LITIGAT\w*|CLASS ACTION|DATA BREACH|SETTLEMENT ADMIN\w*|EPIQ|JND LEGAL|ANGEION"
+    r"|SIMPLURIS|RUST CONSULTING|KROLL SETTLEMENT|A B DATA|VERITA)\b|\bKCC(?= (?:LLC|CLASS|SETTLEMENT)\b)"
+)
+_LAWYER_SETTLEMENT_PROCEEDS = re.compile(r"(?<![A-Z])SETTLEMENT (?:PROCEEDS|FUNDS?)\b")
+#: §8.1 non_sale_purpose (audit B8, routed by the B7 review round 2, §20): DISB, the abbreviation of a disbursement,
+#: on an owner-shaped payer (_OWNER_SHAPED_PAYER: '<NAME> PARTNERS LP DES:PARTNER DISB') is owner money, as its
+#: DISBURSEMENT is. An ordinary payer's 'CASH DISB' is its payment to a vendor and keeps its reading.
+_DISB_ABBREVIATION = re.compile(r"(?<![A-Z])DISB(?![A-Z])")
 #: §8.1, S4.2 review (I6b): §7.5's investment words BROKERAGE, SECURITIES and WEALT join the owner money group (the
 #: standing rule: owner money never becomes revenue), except on a row that prints §7.5's accounts-payable or
 #: vendor-payment wording (_accounts_payable_wording; S4.2 fix measurement): a wealth, brokerage or securities firm
@@ -703,13 +752,16 @@ _CURRENCY_CONVERSION = re.compile(
 )
 #: §8.1 (A3): a title firm named on the payer region, whose payment is property-closing proceeds (an asset sale), never
 #: the business's operating revenue: the whole word TITLE beside a title-firm word or a legal form (either order, AND
-#: between them allowed), or a national title insurer. TITLEIST and TITLE BOXING CLUB are no title firm.
+#: between them allowed), or a national title insurer. TITLEIST and TITLE BOXING CLUB are no title firm. Audit B8
+#: (I44): and a settlement or closing agent named without the word TITLE ('<NAME> SETTLEMENT SERVICES', '<NAME>
+#: CLOSING SERVICES'); a bare '<NAME> SETTLEMENT' (a carrier's contractor settlement) is none.
 _TITLE_FIRM = re.compile(
     r"\bTITLE (?:AND )?(?:AGENCY|AGENCIES|AGCY|CO|COMPANY|COMPANIES|CORP|CORPORATION|INC|LLC|LTD|TRUST|INS|INSURANCE"
     r"|GUARANTY|GUARANTEE|GTY|SERVICES|SERVICE|SVCS|ESCROW|CLOSING|CLOSINGS|SETTLEMENT|SETTLEMENTS|PARTNERS|GROUP)\b"
     r"|\b(?:AGENCY|TRUST|INSURANCE|GUARANTY|SERVICES|ESCROW|CLOSING|CLOSINGS|SETTLEMENT|ABSTRACT)(?: AND)? TITLE\b"
     r"|\b(?:CHICAGO|FIRST AMERICAN|FIDELITY NATIONAL|OLD REPUBLIC|STEWART|TICOR|COMMONWEALTH LAND|LAWYERS|WESTCOR"
     r"|WESTCOR LAND|NORTH AMERICAN|ATTORNEYS|WFG NATIONAL|DOMA) TITLE\b(?! BOXING\b| CLUB\b)"
+    r"|\b[A-Z]+ (?:SETTLEMENT|CLOSING) SERVICES?\b"
 )
 #: §8.1 (A3, orchestrator ruling): a title firm also pays the holder's own fee at closing: a commission, an origination
 #: or broker fee, an invoice, consulting or services rendered, cited in the payment's purpose (_title_purpose_text: a
@@ -1406,6 +1458,39 @@ def _accounts_payable_wording(text: str) -> bool:
     ) is not None
 
 
+def _vendor_payment(text: str, row: str) -> bool:
+    """Audit B8 (I28, I44): the row is a payer's payment of a vendor's invoice from its payables: §7.5's
+    accounts-payable wording (_accounts_payable_wording) or a vendor, invoice or payables word (_VENDOR_PAYMENT_WORDING)."""
+    return _accounts_payable_wording(text) or _VENDOR_PAYMENT_WORDING.search(row) is not None
+
+
+def gambling_payout(text: str, row: str) -> bool:
+    """§8.1 non_sale_purpose (audit B8: I28): a sportsbook's, a casino's, a lottery's or a prediction market's payout
+    (_GAMBLING_PAYOUT) on `row` (the hold text without the holder's name), unless the row is the payer's payment of a
+    vendor (_vendor_payment) or a lottery's settlement with its retailer (_LOTTERY_RETAILER_SETTLEMENT)."""
+    if _GAMBLING_PAYOUT.search(row) is None:
+        return False
+    return not (_vendor_payment(text, row) or _LOTTERY_RETAILER_SETTLEMENT.search(row))
+
+
+def legal_settlement(text: str, row: str, region: str) -> bool:
+    """§8.1 non_sale_purpose (audit B8: I44): a lawsuit's, a class action's or a claims administrator's settlement
+    (_LEGAL_SETTLEMENT) on `row`, or a lawyer's or client trust account's payer (_TRUST_LAWYER_WORDS on `region`, the
+    payer region) paying settlement proceeds or funds (_LAWYER_SETTLEMENT_PROCEEDS); never a payer's payment of a
+    vendor (_vendor_payment)."""
+    if _LEGAL_SETTLEMENT.search(row) is None and not (
+        region and _TRUST_LAWYER_WORDS.search(region) and _LAWYER_SETTLEMENT_PROCEEDS.search(row)
+    ):
+        return False
+    return not _vendor_payment(text, row)
+
+
+def owner_disbursement(row: str, region: str) -> bool:
+    """§8.1 non_sale_purpose (audit B8, routed by the B7 review round 2): an owner-shaped payer (_OWNER_SHAPED_PAYER on
+    the payer region) printing DISB, a disbursement's abbreviation (_DISB_ABBREVIATION), is owner money."""
+    return bool(region) and _OWNER_SHAPED_PAYER.search(region) is not None and _DISB_ABBREVIATION.search(row) is not None
+
+
 def non_sale_purpose(
     text: str, region: str, *, bank: str | None = None, account_name: str | None = None, disbursing: bool = False
 ) -> bool:
@@ -1421,7 +1506,11 @@ def non_sale_purpose(
     (DISTRIB..., STOCK), a joint-stock company's form, the payer's own DISBURSEMENT ACCOUNT, or the recurring
     disbursement entry of an ordinary payer (`disbursing`: the statement pass's _recurring_disbursers). A personal
     trust's payment that cites the holder's service is no owner money (the orchestrator's ruling on audit I57,
-    _held_personal_trust)."""
+    _held_personal_trust).
+
+    Audit B8: a gambling or prediction-market payout (I28, gambling_payout), a legal settlement (I44,
+    legal_settlement) and an owner-shaped payer's DISB (owner_disbursement) are no sale either; a settlement or
+    closing agent is a title firm (I44, _TITLE_FIRM)."""
     classifier = _classifier()
     row = _without_holder_name(_hold_text(text), account_name)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
@@ -1430,6 +1519,9 @@ def non_sale_purpose(
         return True
     # GOV (owner ruling 2026-09-30, class D): a government grant or subsidy.
     if government_grant(text):
+        return True
+    # Audit B8 (I28, I44; the B7 review round 2's routing): a gambling payout, a legal settlement, an owner's DISB.
+    if gambling_payout(text, row) or legal_settlement(text, row, region) or owner_disbursement(row, region):
         return True
     if (
         region and _TITLE_FIRM.search(region) is not None
@@ -2222,9 +2314,13 @@ def _counter_debit_kind(text: str) -> str:
     B4 review round 1 (finding 1): read without the receiver fields' values (§5.2: INDN, IND NAME, RECEIVER NAME, RECV
     NAME, IND ID print the holder's own name), as _lender_entity reads a lender debit, every field after them kept (an
     addenda's PMT INFO): a holder named for a bill or fee word ('<NAME> CABLE LLC', '<NAME> RETURNS LLC') never turns
-    an affiliate's or a collector's debit into a bill or a processor's fee."""
+    an affiliate's or a collector's debit into a bill or a processor's fee.
+
+    Audit B8 (I46): read without the statement furniture a parser glued onto the debit
+    (classifier.without_statement_furniture), so a footer's words (TD's back panel prints 'ELECTRONIC FUNDS
+    TRANSFERS') never make a fee or a bill circular money."""
     classifier = _classifier()
-    text = classifier._without_receiver_value(text)
+    text = classifier.without_statement_furniture(classifier._without_receiver_value(text))
     if _RECEIVING_FEE_DEBIT.search(text) and not _OUTGOING_WIRE_FEE.search(text):
         return "receiving_fee"
     if (
@@ -3763,7 +3859,8 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
     (GOV, the personal-income hold);
     a government grant (GOV), a title firm, the holder's currency conversion, a personal trust, owner money (the
     non-sale holds); a payroll provider's tax-service credit (audit B4: I56, the non-sale hold after the counter-debit
-    holds); or None. The census keys a Q5 or Q6 row's later hold on it."""
+    holds); or None. The census keys a Q5 or Q6 row's later hold on it. Audit B8: a gambling payout (I28), a legal
+    settlement (I44) and an owner-shaped payer's DISB, after a personal trust and before owner money."""
     classifier = _classifier()
     row = _without_holder_name(_hold_text(text), record.account_name)
     if _bank_originated_wire(text, region, wire=_channel(text, record.bank) == "wire"):
@@ -3783,6 +3880,12 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
         return "currency_conversion"
     if _held_personal_trust(text, region):
         return "personal_trust"
+    if gambling_payout(text, row):
+        return "gambling_payout"
+    if legal_settlement(text, row, region):
+        return "legal_settlement"
+    if owner_disbursement(row, region):
+        return "owner_disbursement"
     if (
         (_INVESTMENT_PURPOSE.search(row) and not _accounts_payable_wording(text))
         or _OWNER_MONEY_PLATFORMS.search(row)
