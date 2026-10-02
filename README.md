@@ -230,15 +230,21 @@ branch runs only behind the operator opt-in documented in `analysis/pipeline.py`
 (Phase 2.2, P22-FENCE; Ruling A). `GEMINI_ESCALATION_MODEL` is retained for
 settings-key stability only and is no longer read: the reconciliation-driven
 re-extraction with a second model was removed (ruling R9). Withholding continues to
-use legacy eligible deposits by default; explicitly set
-`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to use verified classified
-revenue instead. Extend maintained lender, candidate, insurance, operating-revenue,
-and exclusion aliases in
+use legacy eligible deposits (`legacy_eligible_deposits`: deposits less lender
+funding) by default. Explicitly set `WITHHOLDING_DENOMINATOR_MODE=verified_revenue`
+to use verified classified revenue, or `WITHHOLDING_DENOMINATOR_MODE=true_revenue`
+to use True revenue (verified plus counted credits) instead; in either revenue
+mode `eligible_deposits` carries the selected denominator, and the legacy figure
+stays in `legacy_eligible_deposits`. Extend maintained lender, candidate,
+insurance, operating-revenue, and exclusion aliases in
 `analysis/classification_registry.py`.
 
-Transaction categories, lender/insurance precedence, contribution flags, and the
+Transaction categories, lender/insurance precedence, contribution flags, the
+revenue tiers and their reason codes (True and Verified revenue), and the
 eligible-deposit denominator are defined in
-[`docs/transaction-classification.md`](docs/transaction-classification.md).
+[`docs/transaction-classification.md`](docs/transaction-classification.md); the
+True revenue design is
+[`docs/superpowers/specs/2026-09-28-true-revenue-design.md`](docs/superpowers/specs/2026-09-28-true-revenue-design.md).
 
 ## Tests
 

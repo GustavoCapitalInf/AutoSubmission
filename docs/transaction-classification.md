@@ -97,8 +97,19 @@ returned e-transfer remains `refund_or_reversal` and is also `non_revenue`.
 Revenue classification applies cancellations, reversals, financing proceeds,
 and strong non-revenue exclusions before operating-income rules. Identifiable
 card credits and refunds, purchase/payment/ACH returns, chargebacks, own-account
-transfers, financing and insurance proceeds, tax refunds, rewards, fee refunds,
-interest, and reimbursements bypass manual revenue review as `non_revenue`.
+transfers, financing and insurance proceeds, tax refunds, card rewards and their
+redemptions (`CASH REWARDS`, `CARD REWARDS`, `CASH BACK`, `CASH REDEMPTION` …),
+fee refunds, the interest forms the strong rules name (`INTEREST PAID`,
+`INTEREST CREDIT(ED)`, `INTEREST PAYMENT`, `INTEREST DEPOSIT`,
+`INTEREST EARNED`, `CREDIT INTEREST`) and a `REIMBURSEMENT` the reversal rule
+reads bypass manual revenue review as `non_revenue`. Since 5.6 the residual,
+payer-less forms are not named non-revenue: a bare `INTEREST`,
+`INTEREST RECEIVED` or `MONTHLY INTEREST`, a credit union's bare `DIVIDEND`, a
+bare `REWARDS` and an entry code `REIMB…` are held as `non_sale_purpose` by the
+true-revenue pass (spec §8.1, §18.2 item 7: out of True revenue, and
+reviewable), and so is a wire or transfer whose purpose prints such a word (an
+interest, dividend or investment-income purpose; audit I62). An employee's
+expense reimbursement (`EXP REIMB`) is held as `payroll_or_salary`.
 A maintained operating-source alias is supporting evidence, not sufficient
 evidence by itself. Verification also requires credit direction plus
 settlement, payout, merchant-deposit, or similar context; alternatively,
@@ -106,8 +117,11 @@ statement-level recurrence on a business account or related processing fees,
 commissions, chargebacks, and adjustments can supply that context. Generic ACH,
 wire, RTP, Zelle, and e-transfer credits, mobile/branch/ATM/night deposits,
 checks, cash deposits, and unidentified credits are `unverified_deposit` until
-reviewed. Own-account transfers are excluded when the description identifies
-the internal account or self-service transfer channel.
+reviewed; since 5.6 each is also counted in True revenue (`counted_flagged`) or
+held for review (`excluded_pending_review`) by the tier rules below, and Q5 and
+Q6 verify the named wires and ACH payers they admit. Own-account transfers are
+excluded when the description identifies the internal account or self-service
+transfer channel.
 
 ### True revenue and the revenue tiers (classification 5.5 and 5.6)
 
@@ -125,7 +139,40 @@ posted credit also carries exactly one revenue tier, stored beside its state:
 
 A counted or held credit names its reason (`revenue_tier_reason`). The codes
 and their labels live in one table, `analysis/revenue.py`
-`REVENUE_TIER_REASONS`, which the dashboard mirrors.
+`REVENUE_TIER_REASONS`, which the dashboard mirrors. The table below repeats
+it, in its order, and `tests/test_classification_contract_doc.py` fails when
+the two differ (audit fix batch B12). A `verified` or `non_revenue` credit
+carries no reason: its rule is its `revenue_match_method`.
+
+| Reason code | Tier | Label | When (true revenue spec) |
+|---|---|---|---|
+| `direction_conflict` | `excluded_pending_review` | Direction conflicts with the amount | the printed direction disagrees with the amount; no pass lifts it (§6.1 step 2) |
+| `insurer_payer` | `excluded_pending_review` | Insurance carrier | a listed insurer's credit with customer-payment wording (T14) |
+| `insurer_named_payer` | `excluded_pending_review` | Payer name reads as an insurer | an unlisted payer named `… INSURANCE`, `… MUTUAL`, `… ASSURANCE`, `… CASUALTY` (T14, Q6) |
+| `possible_return` | `excluded_pending_review` | Possible return or adjustment | bare return or adjustment wording, or a card credit no form verifies (T3, §7.11) |
+| `financing_named_payer` | `excluded_pending_review` | Payer or entry suggests financing | a financing root on the payer's name or entry, a bank's own wire, a lending bank (T4, §8.1) |
+| `payer_debited_as_lender` | `excluded_pending_review` | Payer is also debited as a lender | the statement debits the same payer as a lender (§8.1) |
+| `holder_name` | `excluded_pending_review` | From the holder's own name or brand | the holder's own name, push or wire as the payer (Q4 to Q6, §5.2) |
+| `payroll_or_salary` | `excluded_pending_review` | Payroll, salary or employee reimbursement | pay wording from another company, an earned-wage push (Q8) |
+| `personal_income` | `excluded_pending_review` | Benefit or pension | a personal benefit or pension, a government benefit included (T3; GOV class B) |
+| `non_sale_purpose` | `excluded_pending_review` | Not a sale: owner money, investment, grant, refund, claim or interest | owner money, investment, intercompany money, grants, legal settlements, gambling payouts, residual interest, dividends, rewards and reimbursements, and a posted credit under $1 that no non-revenue rule took (the $1 floor) (T3, §8.1) |
+| `payer_also_debited` | `excluded_pending_review` | Payer also debited this account | a debit to the same payer that can be circular money: an own account, an affiliate, a funder that collects (§8.1, T3) |
+| `wire_no_sender` | `excluded_pending_review` | Wire, no sender printed | a wire whose payer region names nobody (Q5) |
+| `transfer_no_counterparty` | `excluded_pending_review` | Transfer, no counterparty | bare transfer wording (Q2) |
+| `transfer_account_designation` | `excluded_pending_review` | Transfer naming an account | a named transfer that prints an account designation (T13, §6.3 narrowing 8) |
+| `p2p_round_repeat` | `excluded_pending_review` | Repeated round sums from one sender | two or more whole $100 multiples from one person-to-person or transfer sender (Q4, T13) |
+| `wire_named_sender` | `counted_flagged` | Wire from a named sender | a named sender's wire Q5 does not verify (Q5) |
+| `check_deposit` | `counted_flagged` | Check deposit | a mobile, remote, ATM or branch check deposit (Q3) |
+| `no_payer_printed` | `counted_flagged` | No payer printed | a cash, branch, teller, ATM or bare deposit (Q2) |
+| `payer_text_not_read` | `counted_flagged` | Payer text not read | the parser marked the credit's printed payer unread (§8.2, §8.10) |
+| `p2p` | `counted_flagged` | Person-to-person | a person-to-person rail or a named transfer (Q4, T13) |
+| `factoring_payout` | `counted_flagged` | Factoring payout | a factor's payout of the invoices it bought, never verified (§8.9) |
+| `payout_credit_entity` | `counted_flagged` | BNPL or marketplace settlement (payer also lends) | a settlement from a platform that also finances the merchant (OQ2) |
+| `platform_unconfirmed` | `counted_flagged` | Platform payout, not confirmed | a platform payout no form or recurrence confirms (§7.2, §6.3 narrowing 9) |
+| `numbered_company_payer` | `counted_flagged` | Numbered company payer | a numbered company paying the holder, never verified (T11, OQ3) |
+| `named_payer_purpose_refused` | `counted_flagged` | Named payer, purpose not accepted as proof | a named payer whose purpose words Q5 or Q6 refuse as proof, a §15 deferred source included (§18.2 item 2, §15) |
+| `named_payer_one_off` | `counted_flagged` | One-off payer | an informal name that pays once (Q6) |
+| `named_payer_unlabelled` | `counted_flagged` | Payer named, channel not printed | a payer printed with no channel label (§8.9) |
 
 **Precedence.** One credit's decision (`_classify_credit_revenue`) takes the
 first match: a direction conflict, a reversal, an auto lender paying a dealer,
@@ -134,11 +181,14 @@ own-account transfers, the channel gate, the operating registry, the
 card-settlement forms, the verified descriptors (the holder's own name never
 verifies), customer and invoice wording, payer accounts-payable remittance,
 public payers, wire remittance, then the fallback. The statement passes then run
-in order: duplicates, reversal pairs, the recurrence pass (pooled operating
+in order (the full list is under "Statement passes run in this order" below):
+duplicates, the lender recurrence and the labels for unnamed potential payees
+(debits), reversal pairs, the operating-source recurrence pass (pooled operating
 sources verify by recurrence; the pool never shrinks and a veto word keeps a
-row out), the auction and property branches, the payer-remittance counter-debit
-guard, and last the true-revenue pass (`analysis/true_revenue.py`), which tiers
-every posted credit. A `non_revenue` credit stays `non_revenue` except where a
+row out) with the auction and property branches, the payer-remittance
+counter-debit guard (pass 6), and the true-revenue pass (pass 7,
+`analysis/true_revenue.py`), which tiers every posted credit, before duplicate
+finalisation. A `non_revenue` credit stays `non_revenue` except where a
 rule narrows a non-revenue pattern (spec §6.3); a held credit enters True
 revenue only when an analyst confirms it.
 
@@ -270,6 +320,10 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Audit fix batch B9 (I13, I38; 8607e54): the statement carries the holder's name as its own field (`holder_name`, read by Chase from its mailing block and by First Citizens from its holder line, apart from the product in `account_name`; Chase no longer publishes its summary grid header as the account name), every record carries it, and the holder tests read it first (`holder_reading`); each side of a DBA name is a name of the holder's; a row whose ACH or EFT originator is its own receiver field, or whose incoming wire's sender is its beneficiary, is held as `holder_name`, a processor's settlement or payout under the merchant's own name (`NET SETTLE`, `NETSWEEP`, `FINTECHEFT`, `BANKCARD`, `MERCH`, a statement descriptor) aside; the receiver fields' holder names are still read beside a parser's holder name; `metrics.holder_unscreened` says when no holder name is known (true revenue spec §5.2, §8.1, §9.1, §20).
 - Audit fix batch B9 (I13; 1c94ff3): TD Bank, Truist, PNC, Navy Federal and TD Canada Trust read the holder's name from the line or mailing block they print (TD Canada Trust on both entry points); the holder test reads a payer region without the holder's name run printed after another payer's name and whatever follows it, Truist's receiver block (true revenue spec §5.2, §20).
 - Audit fix batch B9 (I58; 8607e54): the holder test compares the leading words of two names as printed when either leads with a short initialism (a different initialism is a different company, the same one a likely affiliate), matches a one-word holder only when it leads the payer's name, reads `BMO`, `ADV`, `BUS`, `CKG` and `GENERAL` as noise on both sides, and never reads the holder's name printed after another payer's name (its unlabelled receiver) (true revenue spec §5.2, §20).
+- Audit fix batch B9, review rounds 1 and 2 (fe1ed9d, ebd4ba3): a processor's settlement words exempt a row from the holder holds only where they print outside the holder's own names, never on an incoming wire or a person-to-person or push rail; the row's layout says where another payer's receiver block can print (never inside a labelled sender; one name word on Truist's receiver slot, read on a Truist statement only; two on any other row); an incoming wire is the holder's own only when its sender's and its beneficiary's whole names are one (each cut after its first legal form, or read without its town and state when no legal form ends it); a product name a holder reader publishes (PNC's `Treasury Enterprise Plan`) never names the holder, and an account name that names a holder is a second holder name beside the parser's; a one-word holder whose lead word the test drops is read with that word (true revenue spec §5.2, §8.1, §9.3, §20).
+- Audit fix batch B10 (I05, I12, I14, I60; 7ac84c8, ed0a9ad): a credit a deterministic parser publishes with only its posting-type or section label, because it could not read the payer the statement printed, is marked (`Transaction.payer_text_unread`, written only where set, kept out of the extraction schema); where pass 7 would read it as a bare deposit (§8.10's last step) it is `counted_flagged` / `payer_text_not_read`, never verified, every hold before it still applying, and a marked cash, branch, teller or ATM deposit keeps `no_payer_printed`. `metrics.payer_text_unread` says when more than 30% of a statement's posted credit rows are marked (`payer_text_unread_count` counts them). The parsers keep the payer printed beside a credit's label: BMO US's activity grid (a page break skipped whole), the counted core-processor template's block below a credit's amount where the attribution count proves it one row's (the daily template marks the rows whose block it cannot attribute), the community platform's rest of a published credit's printed line (Falcon's `International IWT` an incoming-wire label, its sender read after the bank's own wire field), the balance-by-date template's transfer field and U.S. Bank's `ORG=` wire sender (the field's name, up to its address or the next field). Debits keep their labels until the owner admits the debit readings (G7) (true revenue spec §5.2, §5.3, §8.2, §8.5, §8.10, §9.1, §20).
+- Audit fix batch B11 (I06, I07, I31, I33, I50 to I54; f97e607): the review gate's held-share test above (T7) also reads True plus held; the four-tier identity is `revenue_tiers_sum_to_posted` (`revenue_reconciles` its deprecated alias), and "Balanced" means `reconciliation.ok` with established revenue; a package leaves a repeated statement out of every figure, counts calendar months and publishes True, Verified and Non-revenue per month; the downloads leave unestablished figures empty and list every posted credit with its tier and reason (true revenue spec T7, §9.1, §9.2, §10, §20).
+- Audit fix batch B12 (I62): this document and the README describe the code as built after the fix batches (the residual interest forms held, unverified deposits as counted plus held, both revenue withholding modes and the denominator `eligible_deposits` carries, every statement pass, the reason table); no behavior changes (true revenue spec §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -392,8 +446,14 @@ Classification is applied in this order; the first match wins:
    - an `MCA SERVICING` payee carries the fixed name 'MCA servicer (funder not
      identified)' (D10): the words print for two unrelated funders.
 
-Statement passes run in this order: duplicates; recurrence; reversal pairs;
-operating-source context; duplicate finalisation. Recurrence promotes to
+Statement passes run in this order: duplicates (proven by a repeated printed
+running balance); recurrence (D6 and the financing-keyword groups, debits
+only); the labels for unnamed potential payees; reversal pairs;
+operating-source context (pass 5, with its auction and property-management
+branches); the accounts-payable counter-debit guard (pass 6); the true-revenue
+pass (pass 7), which tiers every posted credit; duplicate finalisation. The
+true revenue spec numbers them in its section 6.2, and audit fix batch B12
+(I62) added the last three here. Recurrence promotes to
 `potential_lender`, review only, two kinds of same-amount debit groups on at
 least three different dates on a daily or weekly cadence (several rows on one
 date count as one): financing-keyword rows of one payee
@@ -637,11 +697,21 @@ status, flagged group, and every metric contribution flag.
 - `verified_revenue_total` and `verified_revenue_count`: posted credits marked
   `contributes_to_verified_revenue`.
 - `unverified_deposit_total` and `unverified_deposit_count`: posted credits that
-  could be operating revenue but require review.
+  could be operating revenue but carry no proof (`unverified_deposit`). Since
+  5.6 this is counted plus held: the counted part (`counted_flagged_total`) is
+  in True revenue and only flagged, and only the held part needs review: its
+  total (`excluded_pending_review_total`) and its rows (`revenue_review_items`)
+  feed `revenue_review_required` (spec T2, T7). `potential_revenue_total` is its
+  deprecated alias.
+- `true_revenue_total` and `true_revenue_count` (5.6): verified plus counted
+  credits, the headline; `true_revenue` is its deprecated alias (T9). The
+  counted and held figures are also split by reason
+  (`counted_flagged_by_reason`, `excluded_pending_review_by_reason`).
 - `non_revenue_total` and `non_revenue_count`: funding, identifiable own-account
-  transfers, contributions, returns, refunds, corrections, rewards, interest,
-  proceeds, and proven duplicate credits.
-- `maximum_revenue`: verified revenue plus unverified deposits.
+  transfers, contributions, returns, refunds, corrections, identifiable rewards
+  and interest, proceeds, and proven duplicate credits.
+- `maximum_revenue`: verified revenue plus unverified deposits, that is True
+  revenue plus the held credits.
 - `effective_nsf_count` (R18): the days that end with a negative balance in the
   validated daily ledger, on the basis in `nsf_source` (printed days by default,
   every calendar day when Settings carries the balance over inactive days;
@@ -685,9 +755,13 @@ may be legitimate repeated transactions.
 
 ## Withholding rate
 
-The existing eligible-deposit policy is preserved:
+The existing eligible-deposit policy is preserved as the default mode,
+`legacy_eligible_deposits`:
 
 `eligible_deposits = effective_total_deposits - recognized_lender_funding_credits`
+
+This legacy figure is always published as `legacy_eligible_deposits`; in the
+default mode `eligible_deposits` equals it.
 
 `effective_total_deposits` uses a reconciled bank-printed total when available
 and otherwise uses parsed credit rows. Recognized lender funding credits are
@@ -709,10 +783,24 @@ floor-plan advance. Any other credit whose descriptor names no listed payee (an
 unnamed loan advance, for example) keeps its revenue rule and is not subtracted
 here.
 
-The default mode is explicitly exposed as `legacy_eligible_deposits`. Set
-`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to opt into verified classified
-revenue instead. The legacy value `confirmed_true_revenue` is accepted and
-normalized to `verified_revenue`. API and UI output include
+The default mode is explicitly exposed as `legacy_eligible_deposits`.
+`WITHHOLDING_DENOMINATOR_MODE` selects one of two revenue bases instead:
+`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` (verified classified revenue,
+label "Verified revenue") or, since 5.6, `WITHHOLDING_DENOMINATOR_MODE=true_revenue`
+(True revenue: verified plus counted credits, label "True revenue"; true revenue
+spec T8, §11). Neither is ever the default, and the tryout host sets none. In
+either revenue mode `eligible_deposits` carries the selected denominator: the
+metrics (`analysis/metrics.py`) and the revenue rebuild (`analysis/revenue.py`)
+overwrite it with the Verified or True revenue total, and `withholding_denominator`, `potential_withholding_denominator` and
+`eligible_deposit_definition` follow it, so the subtraction above describes the
+default mode only and the legacy figure stays in `legacy_eligible_deposits`
+(audit I62). A package in the `true_revenue` mode deducts only the members'
+internal-transfer credits that are verified or counted (the legacy mode deducts
+them all, the verified mode none), and in a revenue mode a member whose figure is
+not established leaves the package with no withholding rate and no potential
+exposure and sets `withholding_review_required` (spec §11, §20). The legacy value
+`confirmed_true_revenue` is accepted and normalized to `verified_revenue`; any
+other unknown value reads as the default. API and UI output include
 `withholding_denominator_mode` and `withholding_denominator_label`; the mode is
 never switched implicitly when revenue classification is available.
 
