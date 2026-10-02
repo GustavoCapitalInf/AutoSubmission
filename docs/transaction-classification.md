@@ -154,8 +154,14 @@ Every other unverified credit is counted (`counted_flagged`) with its reason. A
 statement needs revenue review (`revenue_review_required`) when it has an
 undecided direction conflict (one an analyst confirmed or rejected no longer
 gates), when its held credits are ten percent or more of its posted
-credits (compared in integer cents, `REVENUE_REVIEW_HELD_SHARE`), or when its
-revenue does not reconcile.
+credits (compared in integer cents, `REVENUE_REVIEW_HELD_SHARE`), when they are
+ten percent or more of True revenue plus held and at least $500
+(`REVENUE_REVIEW_HELD_FLOOR`; audit B11: an advance is sized on True, so heavy
+non-revenue no longer dilutes the share, and a $0-True statement never gates on
+held cents), or when its four tiers do not sum to its posted credits
+(`revenue_tiers_sum_to_posted`; `revenue_reconciles` is its deprecated alias,
+and neither is a reconciliation against the bank's figures, which is
+`reconciliation.ok`).
 
 **Extending the tables.** Every table below is checked by
 `python tools/operating_registry.py --check` and by its tests. So are the other
