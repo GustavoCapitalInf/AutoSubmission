@@ -485,7 +485,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_26():
+def test_analysis_stage_version_is_pinned_at_27():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -499,9 +499,11 @@ def test_analysis_stage_version_is_pinned_at_26():
     definitional rules (classification 5.6: the revenue tiers) go 24 -> 25. The
     audit's holder-identity batch (B9) changes what the Chase and First Citizens
     parsers publish (the holder's name as its own field, no summary grid header as
-    the account name) and the payload's statement shape, so it goes 25 -> 26. This
-    is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 26
+    the account name) and the payload's statement shape, so it goes 25 -> 26. The
+    lost-payer-text batch (B10) changes what six parsers publish for a credit (the
+    payer printed beside its posting-type label, and the mark of a payer the parser
+    could not read), so it goes 26 -> 27. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 27
 
 
 def test_paddle_model_token_is_not_in_free_models():

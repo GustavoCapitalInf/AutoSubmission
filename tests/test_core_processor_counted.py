@@ -683,8 +683,13 @@ def test_two_rows_printed_on_one_line_are_both_read():
 
 
 def test_a_description_printed_below_its_amount_is_not_swallowed_into_the_next_row():
+    """Audit B10 (I05): the block printed below a credit's amount is that credit's own (it alone is outstanding
+    and the line holds one ACH block), so the credit publishes it; the next row never takes it."""
     statement = published()
-    assert statement.transactions[1].description == "Preauthorized Credit"
+    assert statement.transactions[1].description == (
+        "Preauthorized Credit EXAMPLE ORIGINATOR PAYABLES CCD EXAMPLE HOLDER"
+    )
+    assert statement.transactions[2].description == "Preauthorized Debit"
 
 
 #: The interleaving printing, in the pieces the archive prints it in: two

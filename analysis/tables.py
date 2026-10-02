@@ -276,6 +276,11 @@ class DatedCell:
     `start` and `end` bound the whole cell, so a caller can recover what was
     printed to the LEFT of a row (the cheque serial in a `Number Date Amount`
     grid) as `run[previous.end:cell.start]`.
+
+    `trailing` (audit B10: I05) is what the layer printed AFTER the value and
+    before the next date opens — the merchant block a core-processor template
+    prints below a row's amount, or the next row's lead. Only
+    `attributed_descriptions` reads it, and only when its caller asks it to.
     """
 
     date: str
@@ -283,6 +288,7 @@ class DatedCell:
     start: int
     end: int
     described: str
+    trailing: str = ""
 
 
 def dated_cells(
@@ -328,6 +334,7 @@ def dated_cells(
             start=found.start(),
             end=found.end() + value.end(),
             described=after[: value.start()],
+            trailing=after[value.end():],
         ))
     return cells
 
@@ -352,7 +359,10 @@ def _clip_at_a_token_boundary(text: str, limit: int) -> str:
 
 
 def attributed_descriptions(
-    runs: Sequence[Sequence[DatedCell]], *, strip: str, limit: int
+    runs: Sequence[Sequence[DatedCell]], *, strip: str, limit: int,
+    below: Callable[[list[str]], bool] | None = None,
+    block_under_its_row: bool = False,
+    unread: list[list[bool]] | None = None,
 ) -> list[list[str]]:
     """What each row of a dated ledger printed for ITSELF, run by run.
 
@@ -413,25 +423,89 @@ def attributed_descriptions(
     prints as column furniture is template knowledge; the whitespace collapse
     is not, since a description is what the bank printed and the layer's
     spacing is not part of it.
+
+    **The block printed BELOW a row's amount (audit B10: I05).** Both
+    templates print most rows' merchant block on the lines under the amount,
+    where no span reaches, so the rule above publishes the bare label and the
+    payer the statement printed is lost. A caller that passes `below` (the
+    counted template's reader does, for its credit sections; the daily
+    template's reading waits on the owner's G7 admission, since its restored
+    text pairs a returned credit with a debit) has that flush read by the same
+    count: the complete lines after the amount's own line, up to the next
+    row's line or the first blank line (a page break's furniture follows it),
+    are a flush; when the count is 1 — this row alone has opened since the
+    last flush — and `below(lines)` says the template proves the flush is one
+    block, it is this row's own and is published after its label. Otherwise
+    it is indeterminate and published on no row. `below` is template
+    knowledge, as `strip` is: how many lines one block may wrap onto, and
+    what proves a line holds one block rather than several welded together.
+    So is `block_under_its_row`: a template that prints every block directly
+    under its own row (never flushed later) proves a line with NOTHING printed
+    under it, before the next row's line, holds no block at all, so its rows
+    are no longer outstanding.
+
+    `unread`, when given, receives one flag per row, run by run: True where
+    the row was outstanding at an indeterminate flush, so text the statement
+    printed for it may have been dropped — the parser's 'payer text not read'
+    mark (`Transaction.payer_text_unread`).
     """
     published: list[list[str]] = []
-    outstanding = 0
-    for cells in runs:
+    flags: list[list[bool]] = []
+    #: (run, row) of every row opened since the last flush.
+    outstanding: list[tuple[int, int]] = []
+    for run_index, cells in enumerate(runs):
         this_run: list[str] = []
-        for cell in cells:
+        flags.append([False] * len(cells))
+        for row_index, cell in enumerate(cells):
             label, _newline, flushed = cell.described.partition("\n")
-            outstanding += 1
+            outstanding.append((run_index, row_index))
             lines = [line for line in flushed.split("\n") if line.strip()]
             if not lines:
                 printed = label
             else:
-                printed = (cell.described
-                           if outstanding == 1 and len(lines) == 1 else label)
-                outstanding = 0
+                if len(outstanding) == 1 and len(lines) == 1:
+                    printed = cell.described
+                else:
+                    printed = label
+                    for run_at, row_at in outstanding:
+                        flags[run_at][row_at] = True
+                outstanding = []
+            if below is not None:
+                block = _block_below(cell.trailing, last=row_index == len(cells) - 1)
+                if block and outstanding:
+                    if outstanding == [(run_index, row_index)] and below(block):
+                        printed = f"{printed} {' '.join(block)}"
+                    else:
+                        for run_at, row_at in outstanding:
+                            flags[run_at][row_at] = True
+                    outstanding = []
+                elif block_under_its_row and "\n" in cell.trailing and not cell.trailing.strip():
+                    # Nothing at all is printed between this row's line and the
+                    # next row's: on a template that prints every block directly
+                    # under its own row, no row of that line has a block.
+                    outstanding = []
             printed = re.sub(r"\s+", " ", printed).strip(strip)
             this_run.append(_clip_at_a_token_boundary(printed, limit).strip())
         published.append(this_run)
+    if unread is not None:
+        unread.extend(flags)
     return published
+
+
+def _block_below(trailing: str, *, last: bool) -> list[str]:
+    """Audit B10 (I05): the complete lines a layer printed after a row's amount,
+    the amount's own line and the next row's line aside, up to the first blank
+    line. `last` is the run's last row, whose trailing text runs to the end of
+    the run rather than to another row's date."""
+    segments = trailing.split("\n")[1:]
+    if not last:
+        segments = segments[:-1]
+    block: list[str] = []
+    for segment in segments:
+        if not segment.strip():
+            break
+        block.append(segment.strip())
+    return block
 
 
 def section_runs(markdown: str, heading: re.Pattern[str]) -> dict[str, list[str]]:

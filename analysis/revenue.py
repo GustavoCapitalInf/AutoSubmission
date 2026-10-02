@@ -52,6 +52,8 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "wire_named_sender": ("counted_flagged", "Wire from a named sender"),
     "check_deposit": ("counted_flagged", "Check deposit"),
     "no_payer_printed": ("counted_flagged", "No payer printed"),
+    # Audit B10 (I05, I60): the statement printed a payer the parser did not read (true_revenue.PAYER_TEXT_NOT_READ).
+    "payer_text_not_read": ("counted_flagged", "Payer text not read"),
     "p2p": ("counted_flagged", "Person-to-person"),
     "factoring_payout": ("counted_flagged", "Factoring payout"),
     "payout_credit_entity": ("counted_flagged", "Platform payout (financing partner)"),

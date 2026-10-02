@@ -8,7 +8,8 @@ money leaving the account (debit), positive = money entering (credit).
 from __future__ import annotations
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, model_serializer
+from pydantic.json_schema import SkipJsonSchema
 
 # ---------------------------------------------------------------------------
 # WHERE A PUBLISHED CURRENCY CAME FROM (CURRENCY_DOCTRINE §B, made explicit)
@@ -111,6 +112,21 @@ class Transaction(BaseModel):
     running_balance: float | None = Field(
         default=None, description="Account balance printed after this transaction, if any."
     )
+    # Audit B10 (I05, I60): a deterministic parser sets this on a CREDIT whose published description is only its own
+    # type or section label because the payer text the statement printed for the row could not be read (an
+    # indeterminate flush of merchant blocks, a description overlay that failed closed). The true-revenue pass then
+    # counts the row as 'payer text not read', never as Q2's 'no payer printed', which is for a row whose statement
+    # prints no payer. Kept out of the extraction response schema (`SkipJsonSchema`, so the extractor is told nothing
+    # new and tests/test_extraction_schema_prompt_surface.py's digest holds) and out of every serialized transaction
+    # that does not carry it (`_serialize`), so no stored payload gains a key it did not have.
+    payer_text_unread: SkipJsonSchema[bool] = False
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if not self.payer_text_unread and isinstance(data, dict):
+            data.pop("payer_text_unread", None)
+        return data
 
 
 class StatementDailyBalance(BaseModel):

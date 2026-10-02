@@ -788,8 +788,9 @@ _WIRE_PURPOSE_FIELD = re.compile(
 _BARE_CHANNEL_WORDS = frozenset({"WIRE", "WIRES", "TRANSFER", "BOOK", "CREDIT"})
 #: §8.5, Q5 (audit B5: I14): on the wire channel, a sender the payer region reads only as a bank's or a layout's labels
 #: names nobody (Navy Federal's 'BANK WIRE DEPOSIT', 'INCOMING BANK WIRE'), and neither does a region with no name
-#: word (TD's glued '<reference>S<reference>WIRE'): wire_no_sender. IWT waits for audit batch B10, which keeps the
-#: sender Falcon Bank prints after its 'INTERNATIONAL IWT' label; until then that row keeps its reading.
+#: word (TD's glued '<reference>S<reference>WIRE'): wire_no_sender. Audit B10 (I14): Falcon Bank's 'INTERNATIONAL IWT'
+#: is an incoming-wire label whose sender the classifier reads after the bank's own wire field, now that the reader
+#: keeps the text Falcon prints after the amount; a row that prints none names nobody.
 _WIRE_LABEL_ONLY_WORDS = _BARE_CHANNEL_WORDS | frozenset({
     "BANK", "DEPOSIT", "INTERNATIONAL", "IN", "INCOMING", "RECEIVED", "DEP",
 })
@@ -2004,6 +2005,39 @@ def _holder_name_known(name: str | None) -> bool:
     classifier = _classifier()
     text = classifier.account_name_text(name)
     return classifier.company_form(text) or len(text.split()) > 2
+
+
+#: §8.2, §8.10 (audit B10: I05, I60): the reason of a counted credit whose payer text the parser could not read (the
+#: parser's own mark, Transaction.payer_text_unread). Q2's no_payer_printed is for a row whose statement prints no payer;
+#: this one is for a row whose statement printed one the parser lost. Counted and flagged, never Verified.
+PAYER_TEXT_NOT_READ = "payer_text_not_read"
+#: Audit B10 (I05): the share of a statement's posted credit rows whose payer text was not read above which the
+#: statement carries the payer_text_unread fact (metrics.payer_text_unread): its True rests on rows nobody read.
+PAYER_TEXT_UNREAD_SHARE = 0.30
+
+
+def payer_text_unread_indexes(transactions: Sequence) -> frozenset[int]:
+    """Audit B10 (I05, I60): the ledger indexes of the credits the parser marked as read only by their label
+    (Transaction.payer_text_unread)."""
+    return frozenset(
+        index for index, transaction in enumerate(transactions)
+        if getattr(transaction, "payer_text_unread", False) and transaction.amount > 0
+    )
+
+
+def payer_text_unread(
+    transactions: Sequence, records: Sequence[TransactionClassification],
+) -> tuple[bool, int]:
+    """Audit B10 (I05): (the statement's payer text is mostly unread, the count of its unread posted credits): more
+    than PAYER_TEXT_UNREAD_SHARE of its posted credit rows (duplicates aside) carry the parser's mark. Published as
+    metrics.payer_text_unread and metrics.payer_text_unread_count."""
+    unread = payer_text_unread_indexes(transactions)
+    posted = [
+        index for index, record in enumerate(records)
+        if record.amount > 0 and record.is_posted and record.duplicate_of is None
+    ]
+    count = sum(1 for index in posted if index in unread)
+    return (bool(posted) and count / len(posted) > PAYER_TEXT_UNREAD_SHARE), count
 
 
 def holder_unscreened(records: Sequence[TransactionClassification]) -> bool:
@@ -3747,11 +3781,25 @@ def _q6_eligible(record: TransactionClassification, text: str, facts: CreditFact
 
 def _tier_reason(
     record: TransactionClassification, text: str, facts: CreditFacts, round_repeat: bool, deferred: bool = False,
+    unread: bool = False,
 ) -> tuple[str, str]:
     """§8.10: the tier and reason of an unverified posted credit, in order. A deferred source (§15, `deferred`) on a
     wire or an ACH or EFT row is a named payer Q5 and Q6 refuse as proof, as a verification-only word refuses one:
     named_payer_purpose_refused (S4.2 re-review), never "One-off payer" (a deferred source often repeats). On a row
-    with no electronic-payment form it keeps named_payer_unlabelled: Q6 never reads such a row, deferred or not."""
+    with no electronic-payment form it keeps named_payer_unlabelled: Q6 never reads such a row, deferred or not.
+    Audit B10 (I05, I60): a row the parser marked as read only by its label (`unread`) that would be counted as Q2's
+    no_payer_printed is counted as payer_text_not_read instead: the statement printed a payer the parser did not
+    read. Every hold before it still applies (a bare transfer label stays transfer_no_counterparty)."""
+    tier, reason = _tier_reason_read(record, text, facts, round_repeat, deferred)
+    if unread and reason == "no_payer_printed":
+        return tier, PAYER_TEXT_NOT_READ
+    return tier, reason
+
+
+def _tier_reason_read(
+    record: TransactionClassification, text: str, facts: CreditFacts, round_repeat: bool, deferred: bool,
+) -> tuple[str, str]:
+    """§8.10's order (_tier_reason), on the row's text alone."""
     classifier = _classifier()
     if record.revenue_match_method == "direction_conflict":
         return "excluded_pending_review", "direction_conflict"
@@ -3830,10 +3878,13 @@ def _verify(record: TransactionClassification, method: str, reason: str, confide
 def apply_true_revenue_pass(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
+    unread_indexes: frozenset[int] = frozenset(),
 ) -> list[TransactionClassification]:
     """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit
     B3 (I11): first, with the owner's switch on (PROCESSOR_CARD_PAYOUT_RELEASE), a processor's instant payouts printed
-    as card credits leave the reversal rule (_processor_card_payouts)."""
+    as card credits leave the reversal rule (_processor_card_payouts). Audit B10 (I05, I60): `unread_indexes` are the
+    credits the parser marked as read only by their label (payer_text_unread_indexes); their tier reason reads them
+    (_tier_reason)."""
     classifier = _classifier()
     updated = list(records)
     releases = _processor_card_payouts(records, duplicate_indexes) if PROCESSOR_CARD_PAYOUT_RELEASE else {}
@@ -3978,7 +4029,10 @@ def apply_true_revenue_pass(
             updated[index] = _with_tier(record, tier, None)
             continue
         round_repeat = fact.round_sum and bool(fact.key) and round_sums[fact.key] >= 2
-        tier, reason = _tier_reason(record, texts[index], fact, round_repeat, _deferred_source(texts[index], fact))
+        tier, reason = _tier_reason(
+            record, texts[index], fact, round_repeat, _deferred_source(texts[index], fact),
+            unread=index in unread_indexes,
+        )
         updated[index] = _with_tier(record, tier, reason)
     # §7.0, §7.8, §8.10 (S4.4/S4.5 review): the $1 floor is absolute, so it runs after every verification. A posted
     # credit under $1 that any rule verified or counted (a single-row rule, the registry's own context, a descriptor or

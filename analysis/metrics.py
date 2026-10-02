@@ -33,7 +33,7 @@ from .revenue import (
     normalize_withholding_denominator_mode,
     revenue_review_gate,
 )
-from .true_revenue import holder_unscreened
+from .true_revenue import holder_unscreened, payer_text_unread
 
 
 @dataclass
@@ -141,6 +141,11 @@ class Metrics:
     #: Audit B9 (I13): no holder's name is known for the statement (true_revenue.holder_unscreened), so the holds that
     #: read the holder's name cannot see the holder's own money. A fact for the True card and the exports (audit B11).
     holder_unscreened: bool = False
+    #: Audit B10 (I05): more than true_revenue.PAYER_TEXT_UNREAD_SHARE of the statement's posted credit rows carry the
+    #: parser's 'payer text not read' mark (Transaction.payer_text_unread), so its True rests on credits whose payer
+    #: nobody read; and how many posted credits carry it. A statement integrity fact for the True card (audit B11).
+    payer_text_unread: bool = False
+    payer_text_unread_count: int = 0
     cash_flow: float = 0.0
     withholding_rate: float | None = None
     withholding_numerator: float = 0.0
@@ -530,6 +535,7 @@ def compute_metrics(
         reconciles=m.revenue_reconciles,
     )
     m.holder_unscreened = holder_unscreened(records)
+    m.payer_text_unread, m.payer_text_unread_count = payer_text_unread(stmt.transactions, records)
     m.lenders_detected = len(confirmed_entities)
     m.potential_lenders_detected = len(potential_entities)
     m.effective_total_deposits = m.total_deposits

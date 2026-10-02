@@ -75,6 +75,21 @@ _ROW_DATE = re.compile(
 #: apart by the label rather than by where they happen to fall in the document.
 _LEDGER_OPENS = re.compile(r"^BEGINNING BALANCE(?!\s+AS OF)", re.IGNORECASE)
 _LEDGER_CLOSES = re.compile(r"^ENDING BALANCE(?!\s+AS OF)", re.IGNORECASE)
+#: Audit B10 (I05): the page furniture this layout reprints INSIDE the grid at
+#: a page break — the continuation notice, the page counter, the text layer's
+#: page marker, the contact header, the continued heading and the column
+#: header — and the check grid's footnote. Issuer furniture, never a row's
+#: description: a continuation line is read past these, never with them.
+_CONTINUATION_FURNITURE = re.compile(
+    r"^(?:CONTINUED ON NEXT PAGE$|\d+ of \d+$|--- Page \d+|bmo\.com/contact\b"
+    r"|Monthly Activity Details\b|Date Transaction description\b|\* Indicates a skip in sequence)",
+    re.IGNORECASE,
+)
+#: Audit B10 (I05): the record and card numbers the grid prints in a row's
+#: Description column (`RECORD NO. P0A0B0`, `RECORD NO. 000001   CARD NO. 0001`):
+#: references, never the payer, and the card's last four digits are the
+#: holder's own.
+_RECORD_AND_CARD_NUMBERS = re.compile(r"\b(?:RECORD NO\.\s*\S+|CARD NO\.\s*\d+)", re.IGNORECASE)
 
 
 def detection_text(markdown: str) -> str:
@@ -143,6 +158,26 @@ def _ledger_lines(lines: list[str]) -> list[str]:
             break
         body.append(line)
     return body
+
+
+def _with_printed_payer(
+    label: str, head: str, amount: re.Match[str], cells: list[re.Match[str]], below: list[str],
+) -> str:
+    """Audit B10 (I05): a deposit's label with the text the grid prints for it
+    in the Description column: on the row's own line after the amount (the
+    Balance cell aside), and on the continuation lines below it, without the
+    record and card numbers and the page furniture a page break reprints."""
+    if len(cells) >= 2:
+        balance = cells[-1]
+        after = f"{head[amount.end(): balance.start()]} {head[balance.end():]}"
+    else:
+        after = head[amount.end():]
+    parts = [label, after]
+    for line in below:
+        if _CONTINUATION_FURNITURE.match(line):
+            continue
+        parts.append(_RECORD_AND_CARD_NUMBERS.sub(" ", line))
+    return compact_whitespace(" ".join(parts))
 
 
 def parse_bmo_us_activity_statement(markdown: str) -> Statement | None:
@@ -216,6 +251,16 @@ def parse_bmo_us_activity_statement(markdown: str) -> Statement | None:
         description = compact_whitespace(head[match.end(): first.start()])
         if not description:
             continue
+        if amount > 0:
+            # Audit B10 (I05): a deposit's label is only its posting type
+            # (`ACH DEPOSIT`, `REAL TIME CREDIT`, `TRANSFER IN`); the payer
+            # the bank printed is on the row's own line after the amount
+            # (`RTP CREDIT <payer> INST ID=…`) or on the lines below it
+            # (`CCD <originator> <entry>`, `ZELLE FROM <sender>`), which the
+            # grid's Description column carries. Both are read, past the
+            # record and card numbers and the page furniture. A withdrawal
+            # keeps its label until the owner admits the debit readings (G7).
+            description = _with_printed_payer(description, head, first, cells, group[1:])
         day = int(match.group(2))
         year = resolve_year(month, day, period_start, period_end)
         if year is None:

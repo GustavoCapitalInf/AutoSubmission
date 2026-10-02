@@ -330,6 +330,9 @@ def _section_lines(markdown: str, categories: list[str]) -> dict[str, list[str]]
 
 
 _TRAILING_MONEY_RE = re.compile(_MONEY_RE + r"\s*$")
+#: Audit B10 (I12): the originator field an incoming wire prints below its
+#: amount (`ORG=<sender>`).
+_ORIGINATOR_LINE_RE = re.compile(r"(?<![A-Z0-9])ORG=")
 
 
 def _amount_cell(parts: list[str]) -> tuple[str, int] | None:
@@ -385,6 +388,17 @@ def _rows(lines: list[str], *, year: int, sign: int) -> list[Transaction]:
             description = f"Check {number}{marker}"
         else:
             description = " ".join(parts)[:cut]
+            if sign > 0:
+                # Audit B10 (I12): an incoming wire prints its sender on the
+                # continuation lines BELOW its amount (`ORG=<sender>`, the
+                # name wrapping onto the next line with the start of its
+                # address), so the row is read on to the end; nothing else
+                # printed after a credit's amount is kept. A debit keeps its
+                # description until the owner admits the debit readings (G7).
+                rest = " ".join(parts)[cut + len(amount_text):]
+                sender = _ORIGINATOR_LINE_RE.search(rest)
+                if sender is not None:
+                    description = f"{description} {rest[sender.start():]}"
         txns.append(
             Transaction(
                 date=_iso(month_day, year),

@@ -204,6 +204,7 @@ const REVENUE_TIER_REASONS = Object.freeze({
   wire_named_sender: ["counted_flagged", "Wire from a named sender", "A wire from a named sender, counted without proof of the sale."],
   check_deposit: ["counted_flagged", "Check deposit", "A check deposit: the payer is not printed."],
   no_payer_printed: ["counted_flagged", "No payer printed", "A cash, branch, ATM or bare deposit: no payer is printed."],
+  payer_text_not_read: ["counted_flagged", "Payer text not read", "The statement prints a payer for this row that the reader could not read: counted without proof of the sale."],
   p2p: ["counted_flagged", "Person-to-person", "A person-to-person payment."],
   factoring_payout: ["counted_flagged", "Factoring payout", "A factor's payout of the business's own invoices."],
   payout_credit_entity: ["counted_flagged", "Platform payout (financing partner)", "A payout from a platform's financing partner."],

@@ -606,7 +606,20 @@ OCR_STAGE_VERSION = 5
 # warm cache keyed on 25 would serve rows held or counted without it; a
 # re-analysis recomputes the analysis stage from the cached reading. OCR stays
 # cached. Pinned in the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 26
+# 26 -> 27: TRUE-REVENUE audit batch B10 (lost payer text) — the parsers keep
+# the payer a credit prints beside its posting-type label: BMO US's activity
+# grid (the head line after the amount and the Description column's lines
+# below it), the counted core-processor template (the merchant block printed
+# below a credit's amount, by the attribution count), the community platform's
+# same-line text after a credit's amount (Arbor, Falcon's wire sender), the
+# balance-by-date template's transfer field and U.S. Bank's `ORG=` wire sender;
+# a credit whose printed payer a parser could not read is marked
+# (`Transaction.payer_text_unread`, serialized only where set) and counted as
+# `payer_text_not_read`; the metrics gain `payer_text_unread` and its count.
+# Descriptions and tiers move, so a warm cache keyed on 26 would serve the bare
+# labels; a re-analysis recomputes the analysis stage from the cached reading.
+# OCR stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 27
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

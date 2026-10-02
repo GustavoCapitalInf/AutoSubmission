@@ -572,11 +572,23 @@ def _rows(runs: list[str], *, category: _Category,
     # span, and a block outstanding when a page break ends one run lands in the
     # FIRST span of the next (W3 §DESCATTRIB DA4.1;
     # `tables.attributed_descriptions`).
+    #
+    # Audit B10 (I05): on a CREDIT section the flush printed below a row's
+    # amount is read by the same count (`_block_below_is_one`), so a credit
+    # carries the originator the bank printed under its `Preauthorized Credit`
+    # label; a credit whose block the count cannot attribute is marked as read
+    # only by its label. Debit sections keep their labels until the owner
+    # admits the debit readings (G7).
+    unread: list[list[bool]] = []
     described = attributed_descriptions(
         [cells for _run, cells in read],
         strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT,
+        below=_block_below_is_one if category.credit and not category.serialled else None,
+        unread=unread,
     )
-    for (run, cells), texts in zip(read, described):
+    if len(unread) != len(read):
+        unread = [[False] * len(cells) for _run, cells in read]
+    for (run, cells), texts, marks in zip(read, described, unread):
         cursor = 0
         for index, cell in enumerate(cells):
             iso = iso_within_period(cell.date.replace("-", "/"), start, end)
@@ -599,8 +611,27 @@ def _rows(runs: list[str], *, category: _Category,
                 description=description,
                 amount=round(amount if category.credit else -amount, 2),
                 direction="credit" if category.credit else "debit",
+                payer_text_unread=category.credit and marks[index],
             ))
     return postings
+
+
+#: Audit B10 (I05): the ACH standard entry class codes this template prints as
+#: the LAST field of every ACH block (`<originator> <entry> <id> <receiver>
+#: CCD`): layout grammar, never a payer's name.
+_ACH_CLASS_CODE = re.compile(r"(?<![A-Za-z0-9])(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)(?![A-Za-z0-9])")
+
+
+def _block_below_is_one(lines: list[str]) -> bool:
+    """Audit B10 (I05): a flush printed below a row's amount, read when that row
+    alone is outstanding (`tables.attributed_descriptions`), is one block on
+    this template only when it is ONE line holding at most one ACH class code.
+    The layer welds several rows' blocks onto one line with a single space, and
+    it can flush the blocks of rows whose dates open BELOW, after a row printed
+    alone on its line (measured on the archive's debits), so the count alone
+    does not prove the line is this row's; the class code each ACH block closes
+    on does, where it prints once."""
+    return len(lines) == 1 and len(_ACH_CLASS_CODE.findall(lines[0])) <= 1
 
 
 def _grid(runs: list[str], *, seed: date, end: date) -> dict[str, float] | None:

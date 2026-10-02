@@ -70,9 +70,13 @@ def test_a_loose_wire_that_prints_only_layout_labels_names_no_sender(text):
     assert _tiers([(text, 2500.0)]) == [NO_SENDER]
 
 
-def test_falcon_international_iwt_keeps_its_reading_until_its_reader_keeps_the_sender():
-    # Audit B10 keeps the sender Falcon prints after the amount; until then the row is counted as it was.
-    assert _tiers([("INTERNATIONAL IWT", 2500.0)], bank="falconbank.com") == [NAMED]
+def test_falcon_international_iwt_reads_the_sender_its_reader_now_keeps():
+    # Audit B10 (I14): the community platform's reader keeps the sender Falcon prints after the amount, behind the
+    # bank's own wire field ('Falcon Internati Wires'), and IWT is an incoming-wire label: the sender is read after
+    # the field, and a row that prints no sender names none (Q5's hold, as for every other label).
+    assert _tiers([("INTERNATIONAL IWT FALCON INTERNATI WIRES CONTOSO TRADING SA", 2500.0)],
+                  bank="falconbank.com") == [NAMED]
+    assert _tiers([("INTERNATIONAL IWT", 2500.0)], bank="falconbank.com") == [NO_SENDER]
 
 
 def test_a_named_sender_glued_to_wire_stays_named():

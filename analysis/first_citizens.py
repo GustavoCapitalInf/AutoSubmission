@@ -544,15 +544,20 @@ def _flattened_postings(
             when = _resolve(int(mmdd[:2]), int(mmdd[3:]), start, end)
             if when is None:
                 return None
-            description = (
-                compact_whitespace(run) if len(dates) == 1 and run else label
-            )
+            described = len(dates) == 1 and bool(run)
+            description = compact_whitespace(run) if described else label
             postings.append(
                 Transaction(
                     date=when.isoformat(),
                     description=description,
                     amount=amount if credit else -amount,
                     direction="credit" if credit else "debit",
+                    # Audit B10 (I60): the section label stands in for a
+                    # description the bank printed and this reader did not
+                    # read; `_described` lifts the mark where the overlay
+                    # reads the column. (The deposits grid prints no
+                    # description column, so its label marks nothing.)
+                    payer_text_unread=credit and not described,
                 )
             )
     return postings
@@ -738,8 +743,10 @@ def _described(
         # A COPY with one field replaced, not a rebuild: `Transaction` carries
         # `running_balance` as well, and a rebuild naming four fields would
         # silently drop a fifth the day this parser starts populating one.
+        # Audit B10 (I60): the column was read, so the row is no longer marked
+        # as read only by its label (an empty column printed no payer).
         described.append(
-            posting.model_copy(update={"description": text or posting.description})
+            posting.model_copy(update={"description": text or posting.description, "payer_text_unread": False})
         )
     return described
 

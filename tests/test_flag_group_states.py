@@ -61,9 +61,10 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7). 5.6/25: its definitional rules (§8).
     # 5.6/26: the audit's holder-identity batch (B9) changes two parsers and the payload's statement shape (the
     # holder's name as its own field); the classification version stays 5.6 on the true-revenue branch.
+    # 5.6/27: the audit's lost-payer-text batch (B10) changes six parsers' credit descriptions.
     assert CLASSIFICATION_VERSION == "5.6"
     assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
-    assert ANALYSIS_STAGE_VERSION == 26
+    assert ANALYSIS_STAGE_VERSION == 27
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)

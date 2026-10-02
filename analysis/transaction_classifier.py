@@ -50,6 +50,7 @@ from .true_revenue import (
     counter_debits,
     dealer_funding_reading,
     debited_as_lender,
+    payer_text_unread_indexes,
 )
 
 if TYPE_CHECKING:
@@ -1628,10 +1629,14 @@ def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state
 #: TRANSFER DEPOSIT <sender> <reference> USD<...>'; Scotiabank's 'INCOMING WIRE TRANSFER <sender> WIRE PAYMENT'; and
 #: SECU's 'DOMESTIC WIRE DEPOSIT WIRE IN <sender>'. Anchored at the row's start, so a sending bank after VIA or a
 #: reference-only row ('DOMESTIC INCOMING WIRE <reference>') is never read as a sender.
+#: Audit B10 (I14): Falcon International Bank prints an incoming wire as '<label> <amount> Falcon Internati Wires
+#: <sender>' (its own name cut to sixteen characters and its wire field, then the sender, cut too): the bank's field
+#: is a label, never the sender.
+_FALCON_WIRE_FIELD = r"(?:INTERNATIONAL IWT|INCOMING WIRE(?: TRF)?) FALCON INTERNATI WIRES"
 _WIRE_SENDER_AFTER_LABEL = re.compile(
     r"^(?:INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT [A-Z]{2}|INCOMING WIRE(?= \d+ [A-Z])"
     r"|WIRE TRANSFER (?:INCOMING|FROM|DEPOSIT)|INCOMING WIRE TRANSFER(?= .*\bWIRE PAYMENT$)"
-    r"|(?:DOMESTIC )?WIRE DEPOSIT WIRE IN)\b ?"
+    r"|(?:DOMESTIC )?WIRE DEPOSIT WIRE IN|" + _FALCON_WIRE_FIELD + r")\b ?"
 )
 #: A3: the sender printed after the label ends at a wire field, at NOTPROVIDED, or at Scotiabank's WIRE PAYMENT.
 _WIRE_SENDER_AFTER_LABEL_END = re.compile(_WIRE_FIELD_END.pattern + r"|\b(?:NOTPROVIDED|WIRE PAYMENT)\b")
@@ -2226,7 +2231,10 @@ _INCOMING_WIRE_LABEL = re.compile(
     r"|WIRE TSF\b|WIRE TRANSFER (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
     r"|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN) (?:INCOMING )?WIRE\b|INCOMING FUNDS TRANSFER\b"
     r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b"
-    r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?\d+\b)"
+    r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?\d+\b"
+    # Audit B10 (I14): Falcon International Bank's incoming international wire (IWT), which prints its sender after
+    # the bank's own wire field once its reader keeps the text after the amount (_FALCON_WIRE_FIELD).
+    r"|INTERNATIONAL IWT\b)"
 )
 _BOOK_TRANSFER_FROM = re.compile(r"^(?:BOOK TRANSFER CREDIT B O|WIRE TYPE BOOK IN\b.*\bORIG)\b ?")
 #: §7.11: the funds-transfer labels of an incoming wire (the label stands for FROM).
@@ -6675,8 +6683,11 @@ def classify_statement_transactions(
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
     records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
-    # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers.
-    records = apply_true_revenue_pass(records, set(duplicate_of))
+    # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit B10
+    # (I05, I60): with the credits the parser marked as read only by their label.
+    records = apply_true_revenue_pass(
+        records, set(duplicate_of), payer_text_unread_indexes(statement.transactions)
+    )
 
     for index, original_index in duplicate_of.items():
         record = records[index]
