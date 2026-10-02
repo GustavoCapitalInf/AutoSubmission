@@ -1938,25 +1938,55 @@ def _bank_originated_wire(text: str, region: str, *, wire: bool = False) -> bool
     return shorter >= _SENDING_BANK_MIN_LETTERS and (bank.startswith(originator) or originator.startswith(bank))
 
 
+def _holder(record: TransactionClassification) -> str | None:
+    """Audit B9 (I13): the holder's name the holds read: the statement's holder name when its parser read one, else
+    its account-name field (classifier.holder_reading)."""
+    return _classifier().holder_reading(record.account_name, record.holder_name)
+
+
 def _usable_holder_name(account_name: str | None) -> bool:
-    """§5.2 (A3-G refinement): the statement's account-name field names its holder: a company form, or a person's
-    name (two to four words of letters, none a product, noise or generic word). A product name ('BUSINESS ADVANTAGE
-    CHECKING') or an empty field names nobody."""
+    """§5.2 (A3-G refinement): the holder's name (`account_name`: holder_reading's name) names its holder: a company
+    form, or a person's name (two to four words of letters, none a product, noise or generic word). A product name
+    ('BUSINESS ADVANTAGE CHECKING') or an empty field names nobody. Audit B9 (I13): nor does Chase's summary grid header
+    ('INSTANCES AMOUNT') or a name of the holder test's bank and product abbreviations (BMO BUS CKG, GENERAL)."""
     classifier = _classifier()
     name = classifier.account_name_text(account_name)
-    if not name:
+    if not name or classifier._summary_grid_header(name):
         return False
     if classifier.company_form(name):
         return True
     words = name.split()
     return 2 <= len(words) <= 4 and all(
-        word.isalpha() and word not in classifier.HOLDER_NOISE and word not in classifier.REVENUE_GENERIC_WORDS
+        word.isalpha() and word not in classifier._HOLDER_TEST_NOISE and word not in classifier.REVENUE_GENERIC_WORDS
         for word in words
     )
 
 
+def _holder_name_known(name: str | None) -> bool:
+    """§5.2, §8.1 (audit B9: I13): the holder's name is known well enough to switch the receiver fields' holder names
+    off (_receiver_holder_names): a usable name (_usable_holder_name) with a company form or three words or more. A
+    bare two-word fragment needs corroboration, so the receiver fields are still read beside it."""
+    if not _usable_holder_name(name):
+        return False
+    classifier = _classifier()
+    text = classifier.account_name_text(name)
+    return classifier.company_form(text) or len(text.split()) > 2
+
+
+def holder_unscreened(records: Sequence[TransactionClassification]) -> bool:
+    """§8.1 (audit B9: I13): no holder's name is known for the statement, so no holder test can see the holder's own
+    money: the holder's name (_holder) names nobody (_usable_holder_name) and the statement's receiver fields name no
+    holder (_receiver_holder_names). Published as metrics.holder_unscreened."""
+    if records and _usable_holder_name(_holder(records[0])):
+        return False
+    credits = [index for index, record in enumerate(records) if record.amount > 0 and record.is_posted]
+    return not _receiver_holder_names(records, credits)
+
+
 def _receiver_holder_names(records: Sequence[TransactionClassification], credits: Sequence[int]) -> tuple[str, ...]:
-    """§5.2, §8.1 (A3-G refinement): when the statement's account-name field names nobody (_usable_holder_name), the
+    """§5.2, §8.1 (A3-G refinement): when the statement's account-name field names nobody (audit B9:
+    _holder_name_known, which lets a bare two-word fragment through to corroboration, and is read beside the parser's
+    holder name, never instead of it), the
     holder's names its own incoming receiver fields print (INDN, IND NAME, RECEIVER NAME: an ACH credit's receiver is
     the holder), each on _RECEIVER_HOLDER_MIN_CREDITS credits or more, with _RECEIVER_HOLDER_MIN_WORDS words and
     _RECEIVER_HOLDER_MIN_LETTERS letters or more, naming no bank, and holding a word that is no product, noise or
@@ -1967,7 +1997,10 @@ def _receiver_holder_names(records: Sequence[TransactionClassification], credits
     by (_payer_first_distinctive_word; the payer key where it holds none), so one platform's two spellings are one
     originator ('SAMPLE RENT PAY', 'SAMPLE RENT PAYMENTS')."""
     classifier = _classifier()
-    if not credits or _usable_holder_name(records[credits[0]].account_name):
+    # Audit B9 (I13): an account name that names the holder beyond a bare two-word fragment (_holder_name_known)
+    # switches the receiver fields off. A holder's name the parser read never does: the receiver fields can name the
+    # holder's owner (the bank prints the owner as the receiver), whose own money the holder hold keeps.
+    if not credits or _holder_name_known(records[credits[0]].account_name):
         return ()
     originators: dict[str, set[str]] = {}
     for index in credits:
@@ -2021,6 +2054,92 @@ def _receiver_holder_named(payer: str, holder: str) -> bool:
     theirs = "".join(ch for ch in holder if ch.isalpha())
     shorter = min(len(ours), len(theirs))
     return shorter >= _RECEIVER_HOLDER_RUN_LETTERS and (ours.startswith(theirs) or theirs.startswith(ours))
+
+
+#: §8.1 (audit B9: I13): a processor's or a platform's settlement or payout entry, which prints the merchant's own
+#: name as its originator and its receiver (Worldpay's NET SETTLE, Stripe's NETSWEEP, a beverage distributor's
+#: FINTECHEFT, the BANKCARD and MERCH deposit forms): never the holder's own push, never held as the holder's name.
+_MERCHANT_SETTLEMENT_ENTRY = re.compile(
+    r"(?<![A-Z])(?:NET (?:SETTLE|SETLMT|STLMT|SETL)|NETSWEEP|FINTECHEFT|BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD"
+    r"|MERCH|MERCHANT|MERCHPAYO\w*|MRCHNTSRVS)(?:SEC)?(?![A-Z])"
+)
+#: §8.1 (audit B9: I13): Capital One's incoming ACH row, which prints the receiver (the holder) with no label after the
+#: originator, its entry and a digit run.
+_CAPITAL_ONE_BANK = re.compile(r"(?<![A-Z])CAPITAL ONE\b", re.IGNORECASE)
+_CAPITAL_ONE_TRAILING_RECEIVER = re.compile(
+    r"^ACH DEPOSIT (?P<originator>[A-Z][A-Z ]*?) \d{4,} (?P<receiver>[A-Z][A-Z ]*?)(?= \S*\d|$)"
+)
+#: §8.1 (audit B9: I13): the legal forms an originator or a receiver field prints after the name or leaves off (a
+#: field cut inside L L C leaves a single letter). CO and COMPANY stay: left off, they would make an insurer's 'X INS
+#: CO' the start of an agency's 'X INS AGENCY'.
+_SELF_TEST_LEGAL_FORMS = frozenset({"LLC", "INC", "CORP", "LTD", "LIMITED", "LP", "LLP", "PLLC", "L", "C"})
+#: §8.1 (audit B9: I13): a name one field cut names the other's holder with this many characters or more.
+_SELF_TEST_CUT_CHARACTERS = 15
+
+
+def _self_test_name(name: str) -> str:
+    """§8.1 (audit B9: I13): a name as the self test compares it: its words of letters, the legal forms at its end
+    left off."""
+    words = [word for word in name.split() if word.isalpha()]
+    while words and words[-1] in _SELF_TEST_LEGAL_FORMS:
+        words.pop()
+    return " ".join(words)
+
+
+def _same_name(originator: str, receiver: str) -> bool:
+    """§8.1 (audit B9: I13): two fields print one name: equal, or one starts the other at a word with two words or more,
+    or as a cut of _SELF_TEST_CUT_CHARACTERS characters or more (the census's class B reading). One shared first word
+    is not one name ('NORTHWIND' and 'NORTHWIND MARINE')."""
+    ours, theirs = _self_test_name(originator), _self_test_name(receiver)
+    if len(ours.replace(" ", "")) < 3 or len(theirs.replace(" ", "")) < 3:
+        return False
+    shorter, longer = sorted((ours, theirs), key=len)
+    if shorter == longer:
+        return True
+    return longer.startswith(shorter) and (
+        len(shorter) >= _SELF_TEST_CUT_CHARACTERS or (longer[len(shorter)] == " " and len(shorter.split()) >= 2)
+    )
+
+
+def merchant_settlement(text: str) -> bool:
+    """§8.1 (audit B9: I13): the row prints a processor's or a platform's settlement or payout entry under the
+    merchant's own name (_MERCHANT_SETTLEMENT_ENTRY), read before the receiver fields: the holder holds skip it."""
+    return _MERCHANT_SETTLEMENT_ENTRY.search(_classifier()._before_receiver(text)) is not None
+
+
+def _processor_descriptor_entry(text: str, region: str) -> bool:
+    """§8.1 (audit B9: I13): the entry field leads with the originator's own first word, as printed or as the payer
+    name reads it (a numbered name's leading token included): a processor's payout printing the merchant's statement
+    descriptor ('<merchant> DES:<descriptor> ID:<payout id>'), never the holder's push."""
+    classifier = _classifier()
+    entry = classifier.entry_fields(text).split()
+    firsts = {words[0] for words in (region.split(), classifier.payer_name(region).split()) if words}
+    return bool(entry) and entry[0] in firsts
+
+
+def self_originated(text: str, region: str, bank: str | None = None) -> bool:
+    """§8.1 (audit B9: I13): the row moves the holder's own money in, read on the row alone: an incoming wire whose
+    sender is its beneficiary (classifier.wire_sender_is_beneficiary, the reading _wire_vetoed refuses Q5 with), or an
+    ACH or EFT credit whose originator is the row's own receiver field (INDN, IND NAME, RECEIVER NAME; Capital One's
+    unlabelled trailing receiver), one name by _same_name. A processor's or a platform's settlement or payout under the
+    merchant's own name (merchant_settlement, _processor_descriptor_entry) is no own push. Held as holder_name."""
+    classifier = _classifier()
+    if classifier._is_wire_row(text):
+        return bool(region) and classifier.wire_sender_is_beneficiary(text, region)
+    if merchant_settlement(text) or (region and _processor_descriptor_entry(text, region)):
+        return False
+    pairs: list[tuple[str, str]] = []
+    if region:
+        originator = classifier.payer_name(region)
+        pairs.extend(
+            (originator, _RECEIVER_LABEL.sub("", found.group(0), count=1))
+            for found in classifier._RECEIVER_FIELD_VALUE.finditer(text)
+        )
+    if bank and _CAPITAL_ONE_BANK.search(bank):
+        trailing = _CAPITAL_ONE_TRAILING_RECEIVER.match(text)
+        if trailing is not None:
+            pairs.append((trailing.group("originator"), trailing.group("receiver")))
+    return any(_same_name(originator, receiver) for originator, receiver in pairs)
 
 
 def _title_purpose_text(text: str) -> str:
@@ -2649,12 +2768,12 @@ def _own_words(record: TransactionClassification, text: str) -> _OwnWords:
         return _OwnWords()
     # Final review I4: a veto word that is the whole entry field, or forms it alone with generic words, is the
     # platform's own financing wording: no store name prints, so the holder's words spare nothing.
-    if not classifier.store_name_printed(text, entity, record.account_name):
+    if not classifier.store_name_printed(text, entity, _holder(record)):
         return _OwnWords()
-    own = set(classifier.holder_words(record.account_name))
+    own = set(classifier.holder_words(_holder(record)))
     for found in classifier._RECEIVER_FIELD_VALUE.finditer(text):
         own.update(classifier._distinctive_words(found.group(0).split()[1:]))
-    return _OwnWords(frozenset(own), classifier.store_name_run_words(text, entity, record.account_name))
+    return _OwnWords(frozenset(own), classifier.store_name_run_words(text, entity, _holder(record)))
 
 
 def _own_word(word: str, own: _OwnWords) -> bool:
@@ -3144,7 +3263,7 @@ def credit_facts(
             or _premium_coded(text, region)
         ),
         round_sum=classifier.is_round_sum(record.amount),
-        consumer_entry=consumer_entry(text, record.account_name),
+        consumer_entry=consumer_entry(text, _holder(record)),
         transfer_no_counterparty=no_counterparty,
         account_designation=transfer_row and bool(transfer_words) and _account_designation(row, record.bank),
         factor=factor,
@@ -3182,8 +3301,8 @@ def _first_hold(
     person's pay (I09, _direct_deposit_pay, `business` the statement's _business_shape); and the dealer-word hold
     never reads a named non-lender's wire purpose (I36, _dealer_word_lender)."""
     classifier = _classifier()
-    row = _without_holder_name(_hold_text(text), record.account_name)
-    before = _without_holder_name(classifier._before_receiver(text), record.account_name)
+    row = _without_holder_name(_hold_text(text), _holder(record))
+    before = _without_holder_name(classifier._before_receiver(text), _holder(record))
     if record.revenue_match_method == "insurer_customer_payment":
         return "insurer_payer"
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
@@ -3204,7 +3323,7 @@ def _first_hold(
     ):
         return "possible_return"
     if not claimed and (
-        financing_named(text, region, entry, record.account_name, bank=record.bank)
+        financing_named(text, region, entry, _holder(record), bank=record.bank)
         or registry_financing(record, text)
         # §8.7: a listed lender's or a dealer-funding word's row that Q7 did not verify, and a lone credit union's.
         # Audit B7 (I36): never on a named non-lender's wire purpose (_dealer_word_lender).
@@ -3225,23 +3344,30 @@ def _first_hold(
         counter, debits, prefix=record.revenue_classification == "unverified_deposit"
     ):
         return "payer_debited_as_lender"
-    if not claimed and (region or sender) and (
-        classifier.holder_named(region or sender, record.account_name)
-        or (not region and holder_sender != sender and classifier.holder_named(holder_sender, record.account_name))
-        # A3-G refinement: the holder's names the statement's own receiver fields print (the hold only), on a wire, a
-        # book transfer or a transfer or person-to-person row that no earlier rule verified (_receiver_alias_reads).
-        or (
-            receiver_holders and _receiver_alias_reads(record, text)
-            and any(_receiver_holder_named(region or sender, holder) for holder in receiver_holders)
+    # Audit B9 (I13): a processor's or a platform's settlement or payout under the merchant's own name is never the
+    # holder's own money (merchant_settlement).
+    if not claimed and not merchant_settlement(text) and (
+        (region or sender) and (
+            classifier.holder_named(region or sender, _holder(record))
+            or (not region and holder_sender != sender and classifier.holder_named(holder_sender, _holder(record)))
+            # A3-G refinement: the holder's names the statement's own receiver fields print (the hold only), on a
+            # wire, a book transfer or a transfer or person-to-person row that no earlier rule verified
+            # (_receiver_alias_reads).
+            or (
+                receiver_holders and _receiver_alias_reads(record, text)
+                and any(_receiver_holder_named(region or sender, holder) for holder in receiver_holders)
+            )
         )
+        # Audit B9 (I13): the row's own originator is its receiver field, or a wire's sender its beneficiary.
+        or self_originated(text, region, record.bank)
     ):
         return "holder_name"
-    if _pay_wording(before, record.bank, text=text, account_name=record.account_name, business=business):
+    if _pay_wording(before, record.bank, text=text, account_name=_holder(record), business=business):
         return "payroll_or_salary"
     if _personal_income(text, before):
         return "personal_income"
     if not claimed and non_sale_purpose(
-        text, region, bank=record.bank, account_name=record.account_name, disbursing=disbursing
+        text, region, bank=record.bank, account_name=_holder(record), disbursing=disbursing
     ):
         return "non_sale_purpose"
     if not claimed and (
@@ -3467,7 +3593,7 @@ def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFa
     classifier = _classifier()
     if not facts.wire_n1 or facts.hold is not None or not facts.region or facts.numbered:
         return False
-    if classifier.holder_named(facts.region, record.account_name):
+    if classifier.holder_named(facts.region, _holder(record)):
         return False
     if classifier.channel_gate(text) is not None:
         return False
@@ -3476,7 +3602,7 @@ def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFa
         return False
     if _BANK_OR_TITLE_SENDER.search(facts.name) or facts.refused_word:
         return False
-    return not classifier._wire_vetoed(text, facts.region, record.account_name)
+    return not classifier._wire_vetoed(text, facts.region, _holder(record))
 
 
 def _q6_method(facts: CreditFacts, repeats: int, all_consumer: bool) -> str | None:
@@ -3521,7 +3647,7 @@ def _tier_reason(
         return "excluded_pending_review", facts.hold
     # Audit B2 (I20, §6.3 narrowing 8): a named sender after an own-account designation left the strong non-revenue
     # rule only to be held (T13), on any channel and whoever the sender is: it never enters True.
-    if classifier._named_sender_after_designation(text, record.account_name):
+    if classifier._named_sender_after_designation(text, _holder(record)):
         return "excluded_pending_review", "transfer_account_designation"
     # Audit B3 (I11, §6.3 narrowing 9): a processor's instant payout printed as a card credit, released beside the
     # processor's own ACH activity: a platform payout no form confirms.
@@ -3796,10 +3922,10 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
     listed = _dealer_funding_payer(words) is not None
     union = bool(_CREDIT_UNION_PAYER.search(region))
     # Audit B7 (I47): the pay and benefit words are read as the holds read them, without the holder's own name runs.
-    pay_row = _without_holder_name(row, record.account_name)
+    pay_row = _without_holder_name(row, _holder(record))
     return {
         "claimed": _claimed(record, text),
-        "financing_root": financing_named(text, region, entry, record.account_name, bank=record.bank),
+        "financing_root": financing_named(text, region, entry, _holder(record), bank=record.bank),
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
         "pay_or_personal": bool(
@@ -3808,7 +3934,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
             # Audit B7 (I09): the direct-deposit words with the row's own sign of a person's pay (a person receiver, a
             # consumer entry); the account's shape is the statement's, which the pass alone reads (a row it holds on
             # that shape is out of True).
-            or _direct_deposit_pay(text, pay_row, record.account_name, business=True)
+            or _direct_deposit_pay(text, pay_row, _holder(record), business=True)
         ),
         # Audit B2: the pass's own reading (_transfer_reading): the statement's bank, the explicit deposit forms.
         "transfer_no_counterparty": _transfer_reading(record, text, _channel(text, record.bank), region)[2],
@@ -3862,10 +3988,10 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
     holds); or None. The census keys a Q5 or Q6 row's later hold on it. Audit B8: a gambling payout (I28), a legal
     settlement (I44) and an owner-shaped payer's DISB, after a personal trust and before owner money."""
     classifier = _classifier()
-    row = _without_holder_name(_hold_text(text), record.account_name)
+    row = _without_holder_name(_hold_text(text), _holder(record))
     if _bank_originated_wire(text, region, wire=_channel(text, record.bank) == "wire"):
         return "bank_originated_wire"
-    if financing_named(text, region, entry, record.account_name, bank=record.bank):
+    if financing_named(text, region, entry, _holder(record), bank=record.bank):
         return "financing_root"
     # Audit B6 (I23): a lending bank named as the payer (the financing hold).
     if lending_bank_payer(text, region):

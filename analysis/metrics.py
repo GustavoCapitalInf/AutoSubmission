@@ -33,6 +33,7 @@ from .revenue import (
     normalize_withholding_denominator_mode,
     revenue_review_gate,
 )
+from .true_revenue import holder_unscreened
 
 
 @dataclass
@@ -137,6 +138,9 @@ class Metrics:
     revenue_reconciliation_delta: float = 0.0
     revenue_reconciles: bool = True
     revenue_review_required: bool = False
+    #: Audit B9 (I13): no holder's name is known for the statement (true_revenue.holder_unscreened), so the holds that
+    #: read the holder's name cannot see the holder's own money. A fact for the True card and the exports (audit B11).
+    holder_unscreened: bool = False
     cash_flow: float = 0.0
     withholding_rate: float | None = None
     withholding_numerator: float = 0.0
@@ -525,6 +529,7 @@ def compute_metrics(
         posted_total=m.total_posted_credits,
         reconciles=m.revenue_reconciles,
     )
+    m.holder_unscreened = holder_unscreened(records)
     m.lenders_detected = len(confirmed_entities)
     m.potential_lenders_detected = len(potential_entities)
     m.effective_total_deposits = m.total_deposits

@@ -485,7 +485,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_25():
+def test_analysis_stage_version_is_pinned_at_26():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -496,9 +496,12 @@ def test_analysis_stage_version_is_pinned_at_25():
     5.3, 2026-09-27) goes 21 -> 22. The Idea Financial ruling (classification 5.4,
     2026-09-28: a counted lender, no longer a line of credit) goes 22 -> 23. The
     true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24, and its
-    definitional rules (classification 5.6: the revenue tiers) go 24 -> 25. This
+    definitional rules (classification 5.6: the revenue tiers) go 24 -> 25. The
+    audit's holder-identity batch (B9) changes what the Chase and First Citizens
+    parsers publish (the holder's name as its own field, no summary grid header as
+    the account name) and the payload's statement shape, so it goes 25 -> 26. This
     is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 25
+    assert ANALYSIS_STAGE_VERSION == 26
 
 
 def test_paddle_model_token_is_not_in_free_models():

@@ -592,7 +592,17 @@ OCR_STAGE_VERSION = 5
 # Review decisions (2026-09-29): direction conflicts never lifted; bare
 # transfers, micro entries, owner money, deferred sources and round-sum repeats
 # held or counted as ruled; Q7 honours the section 8.1 holds.
-ANALYSIS_STAGE_VERSION = 25
+# 25 -> 26: TRUE-REVENUE audit batch B9 (holder identity) — the statement
+# gains `holder_name` (the holder's name read from the header or the mailing
+# block, apart from the product in `account_name`); the Chase parser stops
+# publishing its CHECKING SUMMARY grid header as the account name and reads the
+# holder from its mailing block, and First Citizens reads its holder line. A
+# payload-shape change (the statement, each classification record and the
+# metrics' `holder_unscreened`), and the holder holds read the new name, so a
+# warm cache keyed on 25 would serve rows held or counted without it; a
+# re-analysis recomputes the analysis stage from the cached reading. OCR stays
+# cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 26
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

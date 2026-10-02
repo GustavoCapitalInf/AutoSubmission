@@ -2121,3 +2121,51 @@ def test_b8_the_new_holds_and_the_plural_transfers_are_declared_demotions(prior,
 def test_b8_the_irs_interest_is_a_declared_new_marker(text, cause):
     later = _later("strong_non_revenue_rule", text, state="non_revenue")
     assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
+# Audit B9 (I13, I38, I58): the holder's name is the statement's own field; the census's holder facts read it as the
+# classifier does, and the holder's own push or wire held as holder_name is the declared holder-name demotion.
+
+MERCURY_ROW = "NORTHWIND MARINE LLC DES MERCURYACH ID MRCR * INDN NORTHWIND MARINE LLC CO ID ########## CCD"
+
+
+def test_b9_the_holder_facts_read_the_holder_s_name_field():
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="FABRICATED BANK", account_name=None, holder_name="NORTHWIND FISH LLC", transactions=[
+        Transaction(date="2031-03-02", description="ZELLE PAYMENT FROM NORTHWIND FISH LLC CONF 1234567890",
+                    amount=900.0, direction="credit"),
+        Transaction(date="2031-03-03", description="NORTHWIND FISH LLC DES:TRANSFER ID:1 INDN:CONTOSO DINER LLC "
+                    "CO ID:1234567890 CCD", amount=700.0, direction="credit"),
+        Transaction(date="2031-03-04", description="ZELLE PAYMENT FROM CONTOSO DINER LLC CONF 1234567890",
+                    amount=600.0, direction="credit"),
+    ])
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert [credit["facts"]["holder"] for credit in credits] == [True, True, False]
+    assert [credit["facts"]["own_transfer"] for credit in credits] == [False, True, False]
+    assert [(credit["tier"], credit["reason"]) for credit in credits][0] == ("excluded_pending_review", "holder_name")
+
+
+def test_b9_a_processor_s_settlement_under_the_holder_s_name_is_no_holder_fact():
+    # G3 reads the holder fact as the pass reads the holder hold: a processor's settlement or payout under the
+    # merchant's own name (NETSWEEP) is never the holder's own money, so the pass may verify it.
+    from analysis.schema import Statement, Transaction
+
+    row = ("ORIG CO NAME:CONTOSO TRADING CO ORIG ID:1234567890 DESC DATE: CO ENTRY DESCR:NETSWEEP SEC:CCD "
+           "TRACE#:111000020000001 EED:540302 IND ID:1 IND NAME:CONTOSO TRADING CO TRN: 1234567890TC")
+    statement = Statement(bank="FABRICATED BANK", holder_name="CONTOSO TRADING CO LLC", transactions=[
+        Transaction(date=f"2031-03-0{day}", description=row, amount=300.0 + day, direction="credit") for day in (2, 3)
+    ])
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert [credit["facts"]["holder"] for credit in credits] == [False, False]
+    assert [credit["tier"] for credit in credits] == ["verified", "verified"]
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    (_q56("named_payer_repeats", MERCURY_ROW),
+     _after56("unidentified_posted_credit", MERCURY_ROW, tier="excluded_pending_review", reason="holder_name"),
+     "q5_q6_held_holder_name"),
+])
+def test_b9_the_holder_s_own_push_held_as_holder_name_is_a_declared_demotion(prior, later, cause):
+    causes, _ = _cause56(prior, later)
+    assert causes == {cause: 1}

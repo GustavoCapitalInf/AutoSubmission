@@ -892,15 +892,28 @@ def _guard_facts(record, text: str) -> dict:
     revenue = classifier.revenue_text(text)
     region = classifier.payer_region(revenue)
     row = _before_receiver(revenue)
+    # Audit B9 (I13): the holder's name the checkout's holder tests read (the statement's holder name when its parser
+    # read one), or the account name on a checkout from before B9.
+    holder = (
+        classifier.holder_reading(record.account_name, getattr(record, "holder_name", None))
+        if hasattr(classifier, "holder_reading") else record.account_name
+    )
+    # Audit B9 (I13): a processor's settlement or payout under the merchant's own name is never the holder's own money,
+    # as the pass's holder hold reads it (true_revenue.merchant_settlement, on a checkout that has it).
+    try:
+        from analysis import true_revenue as pass_7
+    except ImportError:
+        pass_7 = None
+    settlement = bool(getattr(pass_7, "merchant_settlement", None) and pass_7.merchant_settlement(revenue))
     facts["gate"] = classifier.channel_gate(revenue)
-    facts["holder"] = classifier.holder_named(region, record.account_name)
+    facts["holder"] = classifier.holder_named(region, holder) and not settlement
     facts["numbered"] = classifier.numbered_company(revenue, region)
     # G1 (review I1): narrowing 4 needs a third-party originator.
     facts["third_party_originator"] = classifier._third_party_originator(revenue) is not None
     # G17 (review C3): the holder's own transfer, read on its ACH originator whatever the payer region says.
     facts["own_transfer"] = bool(
         classifier._TRANSFER_WORDING.search(row) and _ACH_FIELD.search(row)
-        and classifier.holder_named(classifier._ach_payer_region(revenue), record.account_name)
+        and classifier.holder_named(classifier._ach_payer_region(revenue), holder)
     )
     # G14 (review I1): the rows that count toward an entity's recurrence pool, and the count it needs.
     facts["pool_candidate"] = classifier._in_operating_pool(record)
@@ -910,7 +923,7 @@ def _guard_facts(record, text: str) -> dict:
     # WIRE), read with the checkout's own code on the text and payer region the credit decision reads.
     if hasattr(classifier, "_wire_vetoes_apply"):
         facts["wire_vetoed"] = bool(
-            classifier._wire_vetoes_apply(revenue) and classifier._wire_vetoed(revenue, region, record.account_name)
+            classifier._wire_vetoes_apply(revenue) and classifier._wire_vetoed(revenue, region, holder)
         )
     # S3.1 (recurrence_veto): the worded recurrence veto (§7.0, S2.2-A, S2.4), read with the checkout's own code.
     if hasattr(classifier, "_recurrence_veto_wording"):

@@ -145,7 +145,14 @@ class Statement(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     bank: str | None = Field(default=None, description="Bank name, e.g. 'Chase'.")
-    account_name: str | None = Field(default=None, description="Account holder / product name.")
+    account_name: str | None = Field(
+        default=None, description="The name printed for the account: a product, a nickname, or on some layouts a person."
+    )
+    #: Audit B9 (I13): the holder's own name, kept apart from `account_name` (which a parser fills with a product, a
+    #: nickname or nothing), so the revenue holds can read who owns the account. None when the parser reads none.
+    holder_name: str | None = Field(
+        default=None, description="Account holder's name as printed in the header or mailing address block."
+    )
     account_number: str | None = Field(default=None, description="Account number as printed.")
     period_start: str | None = Field(default=None, description="Statement period start, ISO YYYY-MM-DD.")
     period_end: str | None = Field(default=None, description="Statement period end, ISO YYYY-MM-DD.")

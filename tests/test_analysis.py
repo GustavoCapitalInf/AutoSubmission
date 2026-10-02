@@ -3657,3 +3657,197 @@ def test_r18_underwriting_nsf_is_unavailable_without_a_validated_ledger():
     m = compute_metrics(stmt, trust_running_balances=False)
     assert m.nsf_count == 1 and m.effective_nsf_count == 0 and m.nsf_source == "negative_ending_days_unavailable"
     assert any("not computable" in note for note in m.notes)
+
+
+# --- Audit B9 (I13, I38): the holder's name is its own field, read from the header or the address block -------------
+# Fabricated statements only: invented names, the 555 telephone range, zero-filled mail-routing codes.
+
+_CHASE_SUMMARY_LINES = """Beginning Balance $1,000.00
+Deposits and Additions 2 800.00
+Fees 1 -15.00
+Ending Balance 3 $1,785.00
+*end*summary
+*start*deposits and additions
+DEPOSITS AND ADDITIONS
+DATE DESCRIPTION AMOUNT 01/02 Deposit 500.00 01/03 Zelle Payment From Client 300.00
+Total Deposits and Additions $800.00
+*end*deposits and additions
+*start*fees section
+FEES
+DATE DESCRIPTION AMOUNT 01/31 Monthly Service Fee $15.00
+Total Fees $15.00
+*end*fees section
+"""
+
+_CHASE_MAILING_BLOCK = """
+January 01, 2054 through January 31, 2054
+JPMorgan Chase Bank, N.A. P O Box 100000 Sampleville, TX 75001 - 0001
+000000123456789
+Account Number:
+CUSTOMER SERVICE INFORMATION
+Chase.com
+Web site:
+1-800-555-0100
+Service Center:
+Para Espanol: 1-888-555-0101
+00000001 DRE 001 001 00001 NNNNNNNNNNN T 1 000000001 01 0001
+International Calls:
+1-713-555-0102
+NORTHWIND MARINE LLC
+We accept operator relay calls
+DBA NORTHWIND BOATWORKS
+100 SAMPLE ST
+SAMPLEVILLE TX 75001-0001
+00000000000000000000
+*start*summary
+Chase Business Complete Checking
+CHECKING SUMMARY
+INSTANCES AMOUNT
+""" + _CHASE_SUMMARY_LINES
+
+_CHASE_FLAT_MAILING_LINE = """
+January 01, 2054 through January 31, 2054
+JPMorgan Chase Bank, N.A. P O Box 100000 Sampleville, TX 75001 - 0001
+Account Number: 000000123456789
+CUSTOMER SERVICE INFORMATION
+Web site: Chase.com Service Center: 1-800-555-0100 Para Espanol: 1-888-555-0101 We accept operator relay calls
+00000001 DRI 001 001 00001 NNNNNNNNNNN 1 000000001 01 0001 CONTOSO TRADING CO LLC 100 SAMPLE ST STE 2 SAMPLEVILLE TX 75001-0001
+00000000000000000000
+*start*summary
+CHECKING SUMMARY Chase Business Complete Checking
+INSTANCES AMOUNT Beginning Balance $1,000.00
+Deposits and Additions 2 800.00 Fees 1 -15.00 Ending Balance 3 $1,785.00
+*end*summary
+*start*deposits and additions
+DEPOSITS AND ADDITIONS
+DATE DESCRIPTION AMOUNT 01/02 Deposit 500.00 01/03 Zelle Payment From Client 300.00
+Total Deposits and Additions $800.00
+*end*deposits and additions
+*start*fees section
+FEES
+DATE DESCRIPTION AMOUNT 01/31 Monthly Service Fee $15.00
+Total Fees $15.00
+*end*fees section
+"""
+
+
+def test_chase_never_publishes_its_summary_grid_header_as_the_account_name():
+    stmt = parse_chase_statement(_CHASE_MAILING_BLOCK)
+    assert stmt is not None
+    assert reconcile(stmt).ok
+    assert stmt.account_name is None
+    assert [t.amount for t in stmt.transactions] == [500.0, 300.0, -15.0]
+
+
+@pytest.mark.parametrize("header", [
+    "INSTANCES AMOUNT\nBeginning Balance $1,000.00",
+    "AMOUNT\nBeginning Balance $1,000.00",
+    "INSTANCES AMOUNT Beginning Balance $1,000.00",
+])
+def test_chase_reads_no_grid_header_spelling_as_the_account_name(header):
+    md = _CHASE_MAILING_BLOCK.replace("INSTANCES AMOUNT\nBeginning Balance $1,000.00\n", f"{header}\n")
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.account_name is None
+
+
+def test_chase_reads_the_holder_from_its_mailing_block():
+    stmt = parse_chase_statement(_CHASE_MAILING_BLOCK)
+    assert stmt is not None
+    assert stmt.holder_name == "NORTHWIND MARINE LLC DBA NORTHWIND BOATWORKS"
+
+
+def test_chase_reads_the_holder_from_a_mailing_block_flattened_onto_one_line():
+    stmt = parse_chase_statement(_CHASE_FLAT_MAILING_LINE)
+    assert stmt is not None
+    assert reconcile(stmt).ok
+    assert stmt.holder_name == "CONTOSO TRADING CO LLC"
+    assert stmt.account_name is None
+
+
+def test_chase_reads_no_holder_without_its_mailing_block():
+    md = "\n".join(line for line in _CHASE_MAILING_BLOCK.splitlines() if " DRE " not in line)
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.holder_name is None
+
+
+def test_chase_s_owner_line_after_the_holder_is_no_part_of_the_holder_s_name():
+    md = _CHASE_MAILING_BLOCK.replace("DBA NORTHWIND BOATWORKS", "SAMPLE PERSON NAME")
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.holder_name == "NORTHWIND MARINE LLC"
+
+
+def test_a_chase_product_line_after_the_summary_heading_is_still_the_account_name():
+    md = _CHASE_MAILING_BLOCK.replace(
+        "Chase Business Complete Checking\nCHECKING SUMMARY\nINSTANCES AMOUNT\n",
+        "CHECKING SUMMARY\nChase Business Complete Checking\nINSTANCES AMOUNT\n",
+    )
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.account_name == "Chase Business Complete Checking"
+
+
+_FIRST_CITIZENS_HOLDER_LINE = (
+    "CONTOSO LLC DBA NORTHWIND AGENCY, LLC PREMIUM TRUST ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001 1,234.56"
+)
+
+
+def test_first_citizens_reads_the_holder_line_before_its_summary():
+    import re
+
+    real = parse_first_citizens_statement(_artifact_markdown("064_First Citizens Bank.md"))
+    md = re.sub(
+        r"^[^\n]*\n(?=Your Account\(s\) At A Glance)", _FIRST_CITIZENS_HOLDER_LINE + "\n",
+        _artifact_markdown("064_First Citizens Bank.md"), count=1, flags=re.MULTILINE,
+    )
+    stmt = parse_first_citizens_statement(md)
+    assert stmt is not None and real is not None
+    assert stmt.holder_name == "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"
+    # The holder line changes nothing else the parser reads.
+    assert stmt.model_dump(exclude={"holder_name"}) == real.model_dump(exclude={"holder_name"})
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    (_FIRST_CITIZENS_HOLDER_LINE, "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"),
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC OPERATING ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001",
+     "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC WIRE ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001 12.00",
+     "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("CONTOSO LLC DBA NORTHWIND AGENCY, LLC PRODUCER PAYABLE ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001",
+     "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"),
+    # A designation printed after the legal form is never part of the name, whatever its words.
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC SAMPLE SYNDICATE PO BOX 100 SAMPLEVILLE SC 29000-0001",
+     "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("CONTOSO LLC PO BOX 100 SAMPLEVILLE SC 29000-0001", "CONTOSO LLC"),
+    ("FABRIKAM HOMES INC 1000 SAMPLE HAVEN DR SAMPLEVILLE NC 27000-0001", "FABRIKAM HOMES INC"),
+    ("FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY 1000 SAMPLE TRAIL RD STE 100 SAMPLEVILLE GA 30000-0001",
+     "FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY"),
+    ("SAMPLE J PERSON DMD PA 10000 SAMPLE POINT DR UNIT C SAMPLEVILLE NC 28000-0001", "SAMPLE J PERSON DMD PA"),
+    ("NORTHWIND SERVICES TRUST ACCOUNT P O BOX 100 SAMPLEVILLE SC 29000-0001", "NORTHWIND SERVICES"),
+    # An address with no name before it names nobody.
+    ("PO BOX 100 SAMPLEVILLE SC 29000-0001", None),
+    ("", None),
+])
+def test_the_address_line_reader_keeps_the_name_and_drops_the_designation_and_the_address(line, holder):
+    from analysis.holder_name import holder_from_address_line
+
+    assert holder_from_address_line(line) == holder
+
+
+@pytest.mark.parametrize(("lines", "holder"), [
+    (["NORTHWIND MARINE LLC", "DBA NORTHWIND BOATWORKS", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "NORTHWIND MARINE LLC DBA NORTHWIND BOATWORKS"),
+    (["NORTHWIND MARINE LLC", "SAMPLE PERSON NAME", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "NORTHWIND MARINE LLC"),
+    (["CONTOSO TRADING CO LLC", "PO BOX 100", "SAMPLEVILLE KS 66000-0001"], "CONTOSO TRADING CO LLC"),
+    # A name wrapped after a connector continues on the next line; a returned-mail hold is no part of the name.
+    (["NORTHWIND HEART &", "VASCULAR CARE LLC", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "NORTHWIND HEART & VASCULAR CARE LLC"),
+    (["HOLD - RETURN MAIL CONTOSO BUILDERS GROUP LLC", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "CONTOSO BUILDERS GROUP LLC"),
+    (["SAMPLE PERSON", "OR SAMPLE OTHER PERSON", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"], "SAMPLE PERSON"),
+    (["100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"], None),
+    ([], None),
+])
+def test_the_address_block_reader_keeps_the_name_lines_before_the_street(lines, holder):
+    from analysis.holder_name import holder_from_address_block
+
+    assert holder_from_address_block(lines) == holder

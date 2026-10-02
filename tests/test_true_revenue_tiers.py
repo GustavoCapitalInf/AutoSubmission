@@ -271,8 +271,10 @@ def test_the_holder_s_own_ach_transfer_is_held(text):
 
 
 def test_an_ach_transfer_from_a_payer_the_statement_also_debits_is_held():
+    # Audit B9 (I13): the credit's receiver is the holder, never the payer again (a row whose originator is its own
+    # receiver is the holder's own push, held as holder_name first).
     records = _records([
-        ("NORTHWIND BAKERY DES:TRANSFER ID:1 INDN:NORTHWIND BAKERY CO ID:1 CCD", 5000.0),
+        ("NORTHWIND BAKERY DES:TRANSFER ID:1 INDN:CONTOSO DINER CO ID:1 CCD", 5000.0),
         ("NORTHWIND BAKERY DES:TRANSFER ID:2 INDN:NORTHWIND BAKERY CO ID:1 CCD", -3000.0),
     ], holder="BUSINESS CHECKING")
     assert _tier(records[0]) == ("excluded_pending_review", "payer_also_debited")

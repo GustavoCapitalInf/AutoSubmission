@@ -172,6 +172,9 @@ class TransactionClassification:
     bank: str | None = None
     account: str | None = None
     account_name: str | None = None
+    #: Audit B9 (I13): the statement's holder name (Statement.holder_name); the holder tests read
+    #: holder_reading(account_name, holder_name).
+    holder_name: str | None = None
     source_direction: str | None = None
     direction_consistent: bool = True
     source_page: int | None = None
@@ -1167,6 +1170,22 @@ _NAME_STARTERS = frozenset({
     "FIRST", "NORTH", "SOUTH", "EAST", "WEST", "CENTRAL", "UNITED", "GLOBAL", "PREMIER", "ROYAL", "GOLDEN", "GREAT",
     "CITY", "STATE", "COUNTY",
 })
+#: Audit B9 (I58): the holder test's noise: HOLDER_NOISE, the bank and product abbreviations that lead account names
+#: (BMO, ADV for Advantage, BUS for Business, CKG for Checking) and GENERAL (a product or nickname's word), read on
+#: both the holder's and the payer's side of the holder test (holder_words, holder_named). The payer, debit and lender
+#: readers keep HOLDER_NOISE, so no payer key, debit reading or lender name moves.
+_HOLDER_TEST_NOISE: frozenset[str] = HOLDER_NOISE | frozenset({"BMO", "ADV", "BUS", "CKG", "GENERAL"})
+#: Audit B9 (I58): name particles, never a brand's initialism: a three-letter word the holder test skips when it reads
+#: the word a name leads with.
+_NAME_PARTICLES = frozenset({"DEL", "LOS", "LAS", "LES", "VAN", "VON", "DOS", "DAS", "SAN"})
+#: Audit B9 (I13): Chase's CHECKING SUMMARY grid header, which its parser published as the account name before B9
+#: ('INSTANCES AMOUNT', alone or with the grid's first row glued on, or 'AMOUNT'): never a holder's name.
+_SUMMARY_GRID_HEADER_NAME = re.compile(r"^(?:INSTANCES|AMOUNT)\b")
+#: Audit B9 (I38): a trade-name marker inside a holder's name ('CONTOSO LLC DBA NORTHWIND AGENCY'); each side is a
+#: name of the holder's.
+_HOLDER_TRADE_NAME = re.compile(r" (?:DBA|D B A|AKA) ")
+#: Audit B9 (I58): a word of fewer letters is a short initialism when a name leads with it.
+_INITIALISM_LETTERS = 3
 #: §5.2: a legal-form word after the payer name's first word, or an institution word. CO is never one (Colorado's
 #: state code, D11) and TRUST is never one (a family trust is owner money).
 _COMPANY_FORM = re.compile(
@@ -1880,29 +1899,117 @@ def account_name_text(account_name: str | None) -> str:
     return normalize_transaction_description(account_name) if account_name else ""
 
 
+def holder_reading(account_name: str | None, holder_name: str | None = None) -> str | None:
+    """Audit B9 (I13): the name the holder tests read: the holder's own name when the parser read it from the header
+    or the mailing block (Statement.holder_name), else the account-name field (a product, a nickname or, on some
+    layouts, the holder). The account-name field keeps every product reading (_business_account)."""
+    if holder_name and holder_name.strip():
+        return holder_name
+    return account_name
+
+
+def _holder_test_words(words: Sequence[str]) -> list[str]:
+    """Audit B9 (I58): a name's words as the holder test reads them, on either side: no holder-test noise word, no
+    digit, three letters or more."""
+    return [
+        word for word in words
+        if word not in _HOLDER_TEST_NOISE and not any(ch.isdigit() for ch in word) and len(word) > 2
+    ]
+
+
+def _summary_grid_header(text: str) -> bool:
+    """Audit B9 (I13): a normalized account name that is Chase's summary grid header, not a name."""
+    return _SUMMARY_GRID_HEADER_NAME.match(text) is not None
+
+
 def holder_words(account_name: str | None) -> tuple[str, ...]:
-    """5.5 (§5.2): the statement's account name, normalized, without holder noise, digit tokens and short tokens.
-    Often empty: account_name is frequently only a product name."""
-    return tuple(_distinctive_words(account_name_text(account_name).split()))
+    """5.5 (§5.2): the holder's name (holder_reading), normalized, without holder-test noise, digit tokens and short
+    tokens. Often empty: the account-name field is frequently only a product name. Audit B9: a summary grid header names
+    nobody (I13), and the bank and product abbreviations are noise (I58)."""
+    text = account_name_text(account_name)
+    if not text or _summary_grid_header(text):
+        return ()
+    return tuple(_holder_test_words(text.split()))
+
+
+def _lead_word(words: Sequence[str]) -> str | None:
+    """Audit B9 (I58): the word a name leads with: its first word that is no common name-starter and no particle."""
+    return next((word for word in words if word not in _NAME_STARTERS and word not in _NAME_PARTICLES), None)
+
+
+def _holder_name_words_match(payer: Sequence[str], holder: Sequence[str]) -> bool:
+    """§5.2's holder test on one name of the holder's (audit B9, I58). A one-word holder must be the word the payer's
+    name leads with. When either name leads with a short initialism, the two lead words are compared as printed: the
+    same initialism is a likely affiliate, a different one a different company (never the industry word after it);
+    otherwise the first distinctive words (four letters or more) are compared, the brand-word affiliate arm of §5.2.
+    Two shared words always match."""
+    if not holder:
+        return False
+    payer_lead = _lead_word(payer)
+    if len(holder) == 1:
+        return payer_lead == holder[0]
+    holder_lead = _lead_word(holder)
+    if holder_lead is not None and payer_lead is not None and (
+        len(holder_lead) <= _INITIALISM_LETTERS or len(payer_lead) <= _INITIALISM_LETTERS
+    ):
+        if holder_lead == payer_lead:
+            return True
+    else:
+        holder_first = _first_distinctive_word(holder)
+        if holder_first is not None and _first_distinctive_word(payer) == holder_first:
+            return True
+    return sum(1 for word in dict.fromkeys(payer) if word in holder) >= 2
+
+
+#: Audit B9 (I13): the legal forms a holder's name run may print or leave off, read out of both names before a payer's
+#: trailing run of the holder's name is looked for.
+_HOLDER_RUN_LEGAL_FORMS = frozenset({
+    "LLC", "INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "PLC", "DBA",
+})
+
+
+#: Audit B9 (I13): another payer's name before a trailing run of the holder's name holds this many name words (letters,
+#: no generic or noise word): a layout's labels before the holder's own name ('DEPOSIT ACH PAID FROM') name no payer.
+_PAYER_BEFORE_HOLDER_RUN_WORDS = 2
+
+
+def _without_trailing_holder_run(payer: str, names: Sequence[str]) -> str:
+    """Audit B9 (I13; B7's I47 for the holder test): a payer name that prints another payer's name first (two name
+    words or more, _PAYER_BEFORE_HOLDER_RUN_WORDS) and then a run of one of the holder's names (two words or more, its
+    last word whole or cut: an unlabelled receiver, 'FABRIKAM INSURANCE MISC NORTHWIND HARBOR AGENC'), read without that
+    run; any other payer name as it is."""
+    words = [word for word in payer.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
+    for name in names:
+        held = [word for word in name.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
+        for start in range(1, len(words) - 1):
+            tail = words[start:]
+            if (
+                len(tail) <= len(held) and tail[:-1] == held[: len(tail) - 1]
+                and held[len(tail) - 1].startswith(tail[-1])
+                and len(_holder_test_words(words[:start])) >= _PAYER_BEFORE_HOLDER_RUN_WORDS
+            ):
+                return " ".join(words[:start])
+    return payer
 
 
 def holder_named(region: str, account_name: str | None) -> bool:
     """5.5 (§5.2): the holder test, read on a payer region (never on a check, cash, branch, ATM or bare row, which has
-    none). It matches when the payer's first distinctive word is the holder's, when the payer name holds
-    min(2, number of holder words) holder words, or when the region prints a run of four or more digits that the
-    account name also prints."""
+    none) against the holder's name (`account_name`: holder_reading's name). It matches when the payer's words name the
+    holder (_holder_name_words_match), when the payer is the holder's name cut short, or when the region prints a run of
+    four or more digits that the holder's name also prints. Audit B9: a DBA name's sides are each a name of the
+    holder's (I38), a summary grid header names nobody (I13), and the holder's name printed after another payer's words
+    is that payer's unlabelled receiver, never the payer (_without_trailing_holder_run, I13)."""
     if not region or not account_name:
         return False
-    holder = holder_words(account_name)
-    payer = _distinctive_words(payer_name(region).split())
-    if holder:
-        holder_first = _first_distinctive_word(holder)
-        if holder_first is not None and _first_distinctive_word(payer) == holder_first:
-            return True
-        shared = sum(1 for word in dict.fromkeys(payer) if word in holder)
-        if shared >= min(2, len(holder)):
-            return True
     printed = account_name_text(account_name)
+    if not printed or _summary_grid_header(printed):
+        return False
+    names: tuple[str, ...] = (printed,)
+    if _HOLDER_TRADE_NAME.search(printed):
+        names = (printed, *_HOLDER_TRADE_NAME.split(printed, maxsplit=1))
+    payer = _holder_test_words(_without_trailing_holder_run(payer_name(region), names).split())
+    if any(_holder_name_words_match(payer, _holder_test_words(name.split())) for name in names):
+        return True
     if _holder_cut_name(payer_name(region), printed):
         return True
     return any(
@@ -2885,10 +2992,10 @@ def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
         return True
     holder_text = account_name_text(account_name)
     originator = region.split()
-    beneficiary = re.search(r"\bN?BNF\b (\S+)(?: (\S+))?", text)
+    beneficiary = _WIRE_BENEFICIARY_WORDS.search(text)
     if originator:
         first_two = " ".join(originator[:2])
-        if beneficiary is not None and " ".join(word for word in beneficiary.groups() if word) == first_two:
+        if wire_sender_is_beneficiary(text, region):
             return True
         if holder_text and len(originator) >= 2 and first_two in holder_text:
             return True
@@ -2903,6 +3010,21 @@ def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
         if _TITLE_OR_ESCROW_ORIGINATOR.search(region):
             return True
     return False
+
+
+#: §7.9: an incoming wire's beneficiary field and its first two words.
+_WIRE_BENEFICIARY_WORDS = re.compile(r"\bN?BNF\b (\S+)(?: (\S+))?")
+
+
+def wire_sender_is_beneficiary(text: str, region: str) -> bool:
+    """§7.9 (audit B9: I13): an incoming wire's originator is its own beneficiary, the holder sending from its account
+    at another bank: the originator's first two words are the beneficiary's. _wire_vetoed refuses Q5 on it, and pass
+    7 holds it as the holder's own money (holder_name)."""
+    originator = region.split()
+    beneficiary = _WIRE_BENEFICIARY_WORDS.search(text)
+    if not originator or beneficiary is None:
+        return False
+    return " ".join(word for word in beneficiary.groups() if word) == " ".join(originator[:2])
 
 
 def _cut_financing_originator(region: str) -> bool:
@@ -2931,10 +3053,14 @@ def _classify_credit_revenue(
     account_name: str | None,
     direction_consistent: bool,
     bank: str | None = None,
+    holder_name: str | None = None,
 ) -> _RevenueDecision | None:
     if amount <= 0 or not posted:
         return None
     text = revenue_text(text)
+    # Audit B9 (I13): the holder tests read the holder's own name when the parser read it; the account-name field keeps
+    # its product readings (_business_account).
+    holder = holder_reading(account_name, holder_name)
 
     if not direction_consistent:
         return _RevenueDecision(
@@ -3090,10 +3216,10 @@ def _classify_credit_revenue(
         )
     # 5.6 (audit B2: I20, §6.3 narrowing 8): a named sender after an own-account designation refuses the own-account
     # patterns; such a credit is no sale the text proves either, so no later step verifies it: the pass holds it (T13).
-    named_after_designation = _named_sender_after_designation(text, account_name)
+    named_after_designation = _named_sender_after_designation(text, holder)
     if (
         _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
-    ) or _own_book_or_funds_transfer(text, account_name):
+    ) or _own_book_or_funds_transfer(text, holder):
         return _RevenueDecision(
             "non_revenue",
             None,
@@ -3117,7 +3243,7 @@ def _classify_credit_revenue(
         source_text = _before_receiver(text) if gate == "push" else text
         source = _operating_source(source_text)
         if source is not None:
-            return _operating_source_decision(text, source, account_name=account_name, bank=bank)
+            return _operating_source_decision(text, source, account_name=account_name, bank=bank, holder=holder)
     if gate is not None:
         return _fallback_credit_decision(text)
 
@@ -3141,7 +3267,7 @@ def _classify_credit_revenue(
     customer_or_invoice = (
         _matches_any(_without_receiver_value(text), _CUSTOMER_INVOICE_DESCRIPTORS)
         or _matches_any(joined, _CUSTOMER_INVOICE_DESCRIPTORS)
-    ) and not (_wire_vetoes_apply(text) and _wire_vetoed(text, region, account_name))
+    ) and not (_wire_vetoes_apply(text) and _wire_vetoed(text, region, holder))
     if _matches_any(text, _VERIFIED_REVENUE_CREDIT_PATTERNS) or _matches_any(joined, _VERIFIED_REVENUE_CREDIT_PATTERNS):
         return _RevenueDecision(
             "verified_revenue",
@@ -3153,12 +3279,12 @@ def _classify_credit_revenue(
             "Credit has a merchant-settlement, card-sales, claim-payment, or verified business-deposit descriptor.",
             context_signals=("credit_direction", "operating_income_descriptor"),
         )
-    guard = _refused_by_payer_guards(text, region, account_name)
+    guard = _refused_by_payer_guards(text, region, holder)
     if guard == "holder" and (
         customer_or_invoice
-        or _payer_remittance(text, region, account_name)
+        or _payer_remittance(text, region, holder)
         or _public_payer_remittance(text) is not None
-        or _wire_remittance_purpose(text, region, account_name)
+        or _wire_remittance_purpose(text, region, holder)
     ):
         return _RevenueDecision(
             "unverified_deposit",
@@ -3182,7 +3308,7 @@ def _classify_credit_revenue(
                 "Credit has a customer-payment or invoice descriptor.",
                 context_signals=("credit_direction", "operating_income_descriptor"),
             )
-        if _payer_remittance(text, region, account_name):
+        if _payer_remittance(text, region, holder):
             return _RevenueDecision(
                 "verified_revenue",
                 None,
@@ -3206,7 +3332,7 @@ def _classify_credit_revenue(
                 source_type="government_payer",
                 context_signals=("credit_direction", "public_payer_remittance"),
             )
-        if _wire_remittance_purpose(text, region, account_name):
+        if _wire_remittance_purpose(text, region, holder):
             return _RevenueDecision(
                 "verified_revenue",
                 None,
@@ -3226,13 +3352,14 @@ def _operating_source_decision(
     *,
     account_name: str | None,
     bank: str | None,
+    holder: str | None = None,
 ) -> _RevenueDecision:
     """5.5 (§6.1 step 10): a credit the operating registry names: verified with payout context, otherwise it needs
     recurrence or related activity. Property-management platforms and wholesale auctions never verify here: the
     recurrence pass decides them."""
     entity, alias, source_type = source.entity, source.alias, source.source_type
     business_account = _business_account(account_name)
-    if platform_entry_leads_with_financing(text, entity, account_name):
+    if platform_entry_leads_with_financing(text, entity, account_name if holder is None else holder):
         # 5.6 (re-review N6, §20): an entry field that leads with a financing word is the platform's own financing,
         # never verified here; pass 7 holds it as financing_named_payer (the registry does not claim a financing row).
         return _RevenueDecision(
@@ -3567,6 +3694,7 @@ def _build_record(
     direction_consistent: bool,
     source_page: int | None,
     source_location: str | None,
+    holder_name: str | None = None,
     canonical_entity: str | None = None,
     match_method: str,
     matched_alias: str | None = None,
@@ -3599,6 +3727,7 @@ def _build_record(
         bank=bank,
         account_name=account_name,
         direction_consistent=direction_consistent,
+        holder_name=holder_name,
     )
     revenue_state = revenue.classification if revenue is not None else None
     revenue_tier = tier_of_state(revenue_state)
@@ -3619,6 +3748,7 @@ def _build_record(
         bank=bank,
         account=account,
         account_name=account_name,
+        holder_name=holder_name,
         source_direction=source_direction,
         direction_consistent=direction_consistent,
         source_page=source_page,
@@ -4205,6 +4335,7 @@ def classify_transaction(
     source_page: int | None = None,
     source_location: str | None = None,
     posted: bool = True,
+    holder_name: str | None = None,
 ) -> TransactionClassification:
     text = normalize_transaction_description(description)
     derived_direction = "credit" if amount >= 0 else "debit"
@@ -4218,6 +4349,7 @@ def classify_transaction(
         "bank": bank,
         "account": account,
         "account_name": account_name,
+        "holder_name": holder_name,
         "source_direction": source_direction,
         "direction_consistent": direction_consistent,
         "source_page": source_page,
@@ -5060,12 +5192,14 @@ def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bo
     """5.5 (§7.0): the worded part of the recurrence veto: payroll, a veto word or card-credit label, or FUNDING
     outside the three platforms that print it on settlements (review C2)."""
     entity = record.revenue_canonical_entity
+    # Audit B9 (I13): the holder's own words are read on the holder's name when the parser read it.
+    holder = holder_reading(record.account_name, record.holder_name)
     return (
         record.classification == "payroll"
-        or _recurrence_veto_word(text, record.account_name, entity)
+        or _recurrence_veto_word(text, holder, entity)
         or (
             entity not in _FUNDING_SETTLEMENT_ENTITIES
-            and _recurrence_veto_word(text, record.account_name, entity, _FUNDING_WORD)
+            and _recurrence_veto_word(text, holder, entity, _FUNDING_WORD)
         )
     )
 
@@ -6321,6 +6455,7 @@ def classify_statement_transactions(
             bank=statement.bank,
             account=statement.account_number,
             account_name=statement.account_name,
+            holder_name=statement.holder_name,
             direction=transaction.direction,
             source_location=f"transaction:{index + 1}",
         )

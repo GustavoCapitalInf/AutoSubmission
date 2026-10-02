@@ -72,6 +72,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import holder_from_address_line
 from .money import parse_grouped_float
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -225,6 +226,23 @@ def _account_name(markdown: str) -> str | None:
         re.IGNORECASE | re.MULTILINE,
     )
     return compact_whitespace(match.group(1)) if match else None
+
+
+#: Audit B9 (I13, I38): the holder's line, printed directly above the summary heading: the holder's name, an account
+#: designation the bank prints after it (a premium trust, an operating, a wire or a producer-payable account) and the
+#: mailing address, run together, sometimes with a balance after the ZIP. Read only when it closes on a state and ZIP.
+_HOLDER_LINE = re.compile(r"^([^\n]*)\n(?=Your Account\(s\) At A Glance)", re.MULTILINE)
+_STATE_ZIP = re.compile(r"\b[A-Z]{2} \d{5}(?:-\d{4})?\b")
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit B9 (I13, I38): the account holder's name from the line above `Your Account(s) At A Glance`, without the
+    account designation and the address (analysis.holder_name.holder_from_address_line); None when that line is no
+    mailing address. `_account_name` keeps publishing the product line."""
+    match = _HOLDER_LINE.search(markdown)
+    if match is None or not _STATE_ZIP.search(match.group(1)):
+        return None
+    return holder_from_address_line(match.group(1))
 
 
 def _resolve(month: int, day: int, start: date, end: date) -> date | None:
@@ -819,6 +837,7 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
     return Statement(
         bank="First Citizens Bank",
         account_name=_account_name(markdown),
+        holder_name=_holder_name(markdown),
         account_number=account,
         period_start=start.isoformat(),
         period_end=end.isoformat(),
