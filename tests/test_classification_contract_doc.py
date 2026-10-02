@@ -8,8 +8,12 @@ the code as built after the audit's fix batches. A grep check, no statement data
 - the contract lists the statement passes in the order `classify_statement_transactions` runs them;
 - the stale sentences the audit found (identifiable interest standing for every interest form, every unverified
   deposit needing review, a verified-only opt-in, five statement passes) are gone;
-- the true revenue spec's section 20 records every audit fix batch, and section 19 the owner's decisions taken since
-  its review."""
+- the true revenue spec's section 20 records every audit fix batch, section 19.1 the owner's decisions taken since
+  its review, and section 17.1's open section 15 items say how the code reads them today.
+
+B12 review round 1: the reason table is parsed and compared with REVENUE_TIER_REASONS row by row, in its order; the
+insurer row names every word the code's insurer hold reads; the metric, withholding and section 17.1 sentences say
+what the code does (fabricated rows, CONTOSO, NORTHWIND and SAMPLE, for the section 15 readings)."""
 from __future__ import annotations
 
 import inspect
@@ -18,8 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis import transaction_classifier, true_revenue
 from analysis.revenue import REVENUE_TIER_REASONS, REVENUE_TIERS, WITHHOLDING_DENOMINATOR_MODES
+from analysis.schema import Statement, Transaction
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "docs" / "transaction-classification.md"
@@ -37,10 +42,36 @@ def _section(text: str, heading: str, next_heading: str) -> str:
     return text[start:text.index(next_heading, start + len(heading))]
 
 
-@pytest.mark.parametrize("code", sorted(REVENUE_TIER_REASONS))
-def test_every_reason_code_is_a_row_of_the_contracts_reason_table(code):
-    tier, label = REVENUE_TIER_REASONS[code]
-    assert f"| `{code}` | `{tier}` | {label} |" in CONTRACT.read_text(encoding="utf-8")
+REASON_TABLE_HEADER = "| Reason code | Tier | Label | When (true revenue spec) |"
+
+
+def _reason_table() -> list[list[str]]:
+    """The contract's reason table, one list of four stripped cells per row (header and rule left out)."""
+    text = CONTRACT.read_text(encoding="utf-8")
+    start = text.index(REASON_TABLE_HEADER)
+    end = text.find("\n\n", start)
+    lines = text[start:end if end >= 0 else len(text)].splitlines()
+    assert re.fullmatch(r"\|(?:-+\|){4}", lines[1]), lines[1]
+    return [[cell.strip() for cell in line.strip().strip("|").split("|")] for line in lines[2:]]
+
+
+def test_the_contracts_reason_table_repeats_revenue_tier_reasons_in_its_order():
+    rows = _reason_table()
+    assert all(len(cells) == 4 and cells[3] for cells in rows), [cells for cells in rows if len(cells) != 4]
+    assert [tuple(cells[:3]) for cells in rows] == [
+        (f"`{code}`", f"`{tier}`", label) for code, (tier, label) in REVENUE_TIER_REASONS.items()
+    ]
+
+
+def test_the_insurer_named_payer_row_names_every_word_the_insurer_hold_reads():
+    """The row's When cell names each name word of true_revenue._INSURER_NAME and the claim-word arm."""
+    when = {cells[0]: cells[3] for cells in _reason_table()}["`insurer_named_payer`"]
+    words = re.findall(r"[A-Z]{4,}", true_revenue._INSURER_NAME.pattern)
+    assert words == ["INSUR", "ASSURANCE", "MUTUAL", "CASUALTY", "INDEMNITY", "UNDERWRIT"]
+    for word in words:
+        assert f"`{word}" in when, word
+    assert "CLAIM" in true_revenue._CLAIM_WORD.pattern
+    assert "`CLAIM`" in when and "`HCCLAIMPMT`" in when and "healthcare payer" in when
 
 
 @pytest.mark.parametrize("tier", REVENUE_TIERS)
@@ -66,6 +97,26 @@ def test_the_contract_says_only_held_credits_need_review():
     assert "`unverified_deposit_total` and `unverified_deposit_count`" in metrics
     assert "counted plus held" in metrics
     assert "only the held part needs review" in metrics
+    # B12 review round 1: the gate reads the held total; revenue_review_items is the held-row count, no gate input.
+    assert "its total (`excluded_pending_review_total`) feeds `revenue_review_required`" in metrics
+    assert "`revenue_review_items` is the held-row count" in metrics
+
+
+#: The run and deploy files of this repository (B12 review round 1: the contract says none sets the mode).
+RUN_AND_DEPLOY_PATTERNS = (
+    "*.toml", "*.yml", "*.yaml", "*.ini", "*.cfg", "*.ps1", "*.sh", ".env*", "Dockerfile*", "Procfile",
+    ".github/**/*", "tools/**/*.sh", "tools/**/*.ps1", "webapp/**/*.sh", "webapp/**/*.ps1", "webapp/**/*.toml",
+)
+
+
+def test_no_run_or_deploy_file_of_the_repository_sets_the_withholding_mode():
+    contract = _section(_flat(CONTRACT), "## Withholding rate", "## Extension rule")
+    assert "no run or deploy file in this repository sets `WITHHOLDING_DENOMINATOR_MODE`" in contract
+    files = {path for pattern in RUN_AND_DEPLOY_PATTERNS for path in ROOT.glob(pattern) if path.is_file()}
+    assert ROOT / "run.ps1" in files and ROOT / "pytest.ini" in files
+    setting = sorted(str(path.relative_to(ROOT)) for path in files
+                     if "WITHHOLDING_DENOMINATOR_MODE" in path.read_text(encoding="utf-8", errors="replace"))
+    assert setting == []
 
 
 def test_the_contract_says_the_residual_interest_dividend_reward_and_reimbursement_forms_are_held():
@@ -112,6 +163,12 @@ STALE_SENTENCES = (
     (README, "`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to use verified classified revenue instead"),
     # (d) line 354: five statement passes.
     (CONTRACT, "duplicates; recurrence; reversal pairs; operating-source context; duplicate finalisation"),
+    # B12 review round 1: the held rows' count read as a gate input.
+    (CONTRACT, "and its rows (`revenue_review_items`) feed `revenue_review_required`"),
+    # B12 review round 1: a tryout-host claim this repository cannot show.
+    (CONTRACT, "and the tryout host sets none"),
+    # B12 review round 1: a builder's DRAW read as counted (the code holds it as non_sale_purpose).
+    (SPEC, "Both stay counted and flagged, never verified (OQ4)"),
 )
 
 
@@ -127,7 +184,69 @@ def test_the_spec_section_20_records_every_audit_fix_batch():
         assert re.search(rf"[Aa]udit fix batch B{batch}\b", amendments), f"B{batch}"
 
 
-def test_the_spec_section_19_records_the_owners_decisions_taken_since_its_review():
-    review = _section(_flat(SPEC), "## 19. Owner review", "## 20. Implementation amendments")
-    for decision in ("2026-09-29", "2026-09-30", "MCA", "Q5", "Q6", "government"):
-        assert decision in review, decision
+#: Spec §19.1's decision lines: each bold lead-in, and words its line must carry (B12 review round 1).
+SECTION_19_1_DECISIONS = (
+    ("**2026-09-29, the plan.**", ("implementation plan", "delegated")),
+    ("**2026-09-30, Q5 and Q6 kept.**", ("kept Q5 and Q6", "waived the A3 bar")),
+    ("**2026-09-30, the MCA principle.**", (
+        "MCA underwriting tool", "Government money unrelated to the business is never revenue",
+        "a government or an insurer paying the business for its goods or services still is",
+    )),
+    ("**2026-09-30, government money (GOV).**", (
+        "held as `personal_income` (class B)", "a tax refund is `non_revenue` (class C)",
+        "held as `non_sale_purpose` (class D)", "(class A)", "(class E) wait for the owner",
+    )),
+    ("**2026-09-30 to 2026-10-02, decisions the owner delegated during the audit fix run**", (
+        "the owner may overrule each", "`TUITION`", "`STUDENT ID`", "audit I57", "a trust payment with no purpose stays held",
+        "`IRS TREAS 310`", "`INT`", "`Prov./Loc.G.Paym Canada`", "`personal_income`",
+    )),
+)
+
+
+def test_the_spec_section_19_1_records_the_owners_decisions_taken_since_its_review():
+    text = SPEC.read_text(encoding="utf-8")
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    bullets = [line for line in review.splitlines() if line.startswith("- **")]
+    assert [line[2:].split("**", 2)[1] for line in bullets] == [lead[2:-2] for lead, _ in SECTION_19_1_DECISIONS]
+    for line, (lead, words) in zip(bullets, SECTION_19_1_DECISIONS):
+        assert line.startswith(f"- {lead}"), lead
+        for word in words:
+            assert word in line, (lead, word)
+
+
+#: Spec §17.1's I18 and I45 line against the code (B12 review round 1). Fabricated Bank of America rows: a builder's
+#: DRAW, as an ACH entry and as a wire's purpose, is held as non_sale_purpose (§8.1's financing words without a root;
+#: §20, B7 I18); the same wire without DRAW is a named sender's counted wire; an equipment auction's seller payout
+#: (Ritchie Bros, a public company in SECTION_15_DEFERRED_PAYERS) is counted and flagged, never verified (I45).
+SECTION_15_HOLDER = "CONTOSO CONSTRUCTION LLC"
+_BOFA_ACH = "{payer} DES:{entry} ID:1234567 INDN:CONTOSO CONSTRUCTION LLC CO ID:1234567890 CCD"
+_BOFA_WIRE = ("WIRE TYPE WIRE IN DATE 540302 TIME 1200 ET TRN 2054030200012345 SEQ 123456/000001 ORIG NORTHWIND HOMES "
+              "LLC ID 1234 SND BK SAMPLE BANK ID 123456789 PMT DET {purpose}")
+SECTION_15_ROWS = (
+    (_BOFA_ACH.format(payer="NORTHWIND HOMES LLC", entry="DRAW 3"), "excluded_pending_review", "non_sale_purpose"),
+    (_BOFA_WIRE.format(purpose="DRAW 4 PROGRESS PAYMENT"), "excluded_pending_review", "non_sale_purpose"),
+    (_BOFA_WIRE.format(purpose="PROGRESS PAYMENT 4"), "counted_flagged", "wire_named_sender"),
+    (_BOFA_ACH.format(payer="RITCHIE BROS", entry="SELLER PMT"), "counted_flagged", "named_payer_purpose_refused"),
+)
+
+
+def _section_15_record(text: str):
+    return transaction_classifier.classify_statement_transactions(Statement(
+        account_name=SECTION_15_HOLDER, bank="Bank of America", transactions=[
+            Transaction(date="2054-03-02", description=text, amount=12000.0, direction="credit"),
+            Transaction(date="2054-03-03", description="MOBILE DEPOSIT", amount=300.0, direction="credit"),
+        ],
+    ))[0]
+
+
+@pytest.mark.parametrize(("text", "tier", "reason"), SECTION_15_ROWS)
+def test_the_section_15_rows_read_as_spec_17_1_says(text, tier, reason):
+    record = _section_15_record(text)
+    assert (record.revenue_tier, record.revenue_tier_reason) == (tier, reason)
+
+
+def test_the_spec_section_17_1_says_a_draw_is_held_and_a_seller_payout_counted():
+    open_items = _section(SPEC.read_text(encoding="utf-8"), "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    line = next(line for line in open_items.splitlines() if line.startswith("- **I18 (`DRAW`) and I45"))
+    assert "The seller payouts stay counted and flagged, never verified (OQ4, `named_payer_purpose_refused`)" in line
+    assert "a builder's `DRAW` stays held as `non_sale_purpose`" in line

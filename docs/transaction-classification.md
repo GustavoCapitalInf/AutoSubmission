@@ -148,7 +148,7 @@ carries no reason: its rule is its `revenue_match_method`.
 |---|---|---|---|
 | `direction_conflict` | `excluded_pending_review` | Direction conflicts with the amount | the printed direction disagrees with the amount; no pass lifts it (§6.1 step 2) |
 | `insurer_payer` | `excluded_pending_review` | Insurance carrier | a listed insurer's credit with customer-payment wording (T14) |
-| `insurer_named_payer` | `excluded_pending_review` | Payer name reads as an insurer | an unlisted payer named `… INSURANCE`, `… MUTUAL`, `… ASSURANCE`, `… CASUALTY` (T14, Q6) |
+| `insurer_named_payer` | `excluded_pending_review` | Payer name reads as an insurer | an unlisted payer whose payer region prints an insurer's name word (`INSUR…`, `ASSURANCE`, `MUTUAL`, `CASUALTY`, `INDEMNITY`, `UNDERWRIT…`), or a `CLAIM` or `CLAIMS` word on a row that is neither an `HCCLAIMPMT` entry nor from a healthcare payer (T14, Q6, §8.1) |
 | `possible_return` | `excluded_pending_review` | Possible return or adjustment | bare return or adjustment wording, or a card credit no form verifies (T3, §7.11) |
 | `financing_named_payer` | `excluded_pending_review` | Payer or entry suggests financing | a financing root on the payer's name or entry, a bank's own wire, a lending bank (T4, §8.1) |
 | `payer_debited_as_lender` | `excluded_pending_review` | Payer is also debited as a lender | the statement debits the same payer as a lender (§8.1) |
@@ -324,6 +324,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Audit fix batch B10 (I05, I12, I14, I60; 7ac84c8, ed0a9ad): a credit a deterministic parser publishes with only its posting-type or section label, because it could not read the payer the statement printed, is marked (`Transaction.payer_text_unread`, written only where set, kept out of the extraction schema); where pass 7 would read it as a bare deposit (§8.10's last step) it is `counted_flagged` / `payer_text_not_read`, never verified, every hold before it still applying, and a marked cash, branch, teller or ATM deposit keeps `no_payer_printed`. `metrics.payer_text_unread` says when more than 30% of a statement's posted credit rows are marked (`payer_text_unread_count` counts them). The parsers keep the payer printed beside a credit's label: BMO US's activity grid (a page break skipped whole), the counted core-processor template's block below a credit's amount where the attribution count proves it one row's (the daily template marks the rows whose block it cannot attribute), the community platform's rest of a published credit's printed line (Falcon's `International IWT` an incoming-wire label, its sender read after the bank's own wire field), the balance-by-date template's transfer field and U.S. Bank's `ORG=` wire sender (the field's name, up to its address or the next field). Debits keep their labels until the owner admits the debit readings (G7) (true revenue spec §5.2, §5.3, §8.2, §8.5, §8.10, §9.1, §20).
 - Audit fix batch B11 (I06, I07, I31, I33, I50 to I54; f97e607): the review gate's held-share test above (T7) also reads True plus held; the four-tier identity is `revenue_tiers_sum_to_posted` (`revenue_reconciles` its deprecated alias), and "Balanced" means `reconciliation.ok` with established revenue; a package leaves a repeated statement out of every figure, counts calendar months and publishes True, Verified and Non-revenue per month; the downloads leave unestablished figures empty and list every posted credit with its tier and reason (true revenue spec T7, §9.1, §9.2, §10, §20).
 - Audit fix batch B12 (I62): this document and the README describe the code as built after the fix batches (the residual interest forms held, unverified deposits as counted plus held, both revenue withholding modes and the denominator `eligible_deposits` carries, every statement pass, the reason table); no behavior changes (true revenue spec §20).
+- Audit fix batch B12, review round 1: the reason table's `insurer_named_payer` row names every word the hold reads and its claim-word arm, the metric definitions say the review gate reads the held total (`revenue_review_items` is the held-row count), the withholding section says no run or deploy file here sets the mode, and the docs test compares the reason table with `REVENUE_TIER_REASONS` row by row, in its order; no behavior changes (true revenue spec §20, §17.1).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -700,9 +701,9 @@ status, flagged group, and every metric contribution flag.
   could be operating revenue but carry no proof (`unverified_deposit`). Since
   5.6 this is counted plus held: the counted part (`counted_flagged_total`) is
   in True revenue and only flagged, and only the held part needs review: its
-  total (`excluded_pending_review_total`) and its rows (`revenue_review_items`)
-  feed `revenue_review_required` (spec T2, T7). `potential_revenue_total` is its
-  deprecated alias.
+  total (`excluded_pending_review_total`) feeds `revenue_review_required` (spec
+  T2, T7), and `revenue_review_items` is the held-row count the review badge
+  shows, not a gate input. `potential_revenue_total` is its deprecated alias.
 - `true_revenue_total` and `true_revenue_count` (5.6): verified plus counted
   credits, the headline; `true_revenue` is its deprecated alias (T9). The
   counted and held figures are also split by reason
@@ -788,7 +789,10 @@ The default mode is explicitly exposed as `legacy_eligible_deposits`.
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` (verified classified revenue,
 label "Verified revenue") or, since 5.6, `WITHHOLDING_DENOMINATOR_MODE=true_revenue`
 (True revenue: verified plus counted credits, label "True revenue"; true revenue
-spec T8, §11). Neither is ever the default, and the tryout host sets none. In
+spec T8, §11). Neither is ever the default, and no run or deploy file in this
+repository sets `WITHHOLDING_DENOMINATOR_MODE` (the tryout host's environment
+is the `fly.toml` on its deploy branch, whose `[env]` did not set it either on
+2026-10-02). In
 either revenue mode `eligible_deposits` carries the selected denominator: the
 metrics (`analysis/metrics.py`) and the revenue rebuild (`analysis/revenue.py`)
 overwrite it with the Verified or True revenue total, and `withholding_denominator`, `potential_withholding_denominator` and
