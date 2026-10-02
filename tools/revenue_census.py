@@ -14,11 +14,12 @@ descriptors stay in the output file, digit-masked, outside the repository.
 
 Usage, from the repository root of the checkout that holds this tool:
     python -m tools.revenue_census snapshot --data-dir <webapp_data> --out <file> [--code-root <checkout>] [--limit N]
-                                            [--basis input|pdf]
+                                            [--basis input|pdf] [--reparse [--workers N]]
     python -m tools.revenue_census snapshot --jobs-db <webapp.db copy> --out <file> [--code-root <checkout>]
                                             [--basis input|pdf]
     python -m tools.revenue_census compare --base <file> --after <file> [--after <file>] --out <file>
                                            [--admissions <the S1.5 admissions' signed-off entity list>]
+                                           [--explained-parse <file>]
     python -m tools.revenue_census sample --snapshot <5.6 file> --out <file>
     python -m tools.revenue_census sweep --snapshot <file> --out <file>
 
@@ -36,12 +37,14 @@ kept only when no statement already kept has its identity (bank, the account num
 period). Of a job store, `pdf` keeps each PDF's newest job. A snapshot records its basis, and `compare` refuses to
 compare two bases.
 
-B1 (audit I60): on every basis, among the analyses that read one statement (one fingerprint: bank, period, balances,
-row count, account number), the snapshot keeps the newest-created, whatever order the reader yields them in (the input
-basis reads the newest first); before B1 it kept the first in input-hash order, so a stale parse could win over a newer
-one. Every account records its analysis stage (the leading digits of the settings key it was cached under, which
-carries webapp.artifact_cache.ANALYSIS_STAGE_VERSION; the basis counts rank the stages by their first analysis), when it
-was analysed and the parser route that published it (`model_used`). The snapshot maps each analysis it set aside to the
+B1 (audit I60): among what each basis's reader yields, of the analyses that read one statement (one fingerprint: bank,
+period, balances, row count, account number), the snapshot keeps the newest-created, whatever order the reader yields
+them in (the input basis reads the newest first); before B1 it kept the first in input-hash order, so a stale parse
+could win over a newer one. The pdf basis keeps one analysis per source PDF before the snapshot reads it, and counts the
+orphans newer than the statement it kept in `orphan_accounts_newer_than_kept` (audit round 2, R2-B01: R30). Every
+account records its analysis stage (the leading digits of the settings key it was cached under, which carries
+webapp.artifact_cache.ANALYSIS_STAGE_VERSION; the basis counts rank the stages by their first analysis), when it was
+analysed and the parser route that published it (`model_used`). The snapshot maps each analysis it set aside to the
 one it kept (`duplicates`), and lists apart the set-aside analyses whose parse differs from the kept one
 (`stale_parses`). `compare` follows a base account the later run set aside to the analysis it kept, and compares one
 whose parse differs apart, as a parse change, never as a rule's move.
@@ -49,6 +52,33 @@ whose parse differs apart, as a parse change, never as a rule's move.
 B1 (audit I39): every summary carries the standing sweep of the non-revenue a credit's wording identifies inside True
 (NON_REVENUE_IN_TRUE_CLASSES, classes A to H), so a regression shows as a number; class H, a government payment that
 prints no purpose, is the owner's and is reported apart, never in the overstatement. `sweep` prints it for one snapshot.
+
+Audit round 2, R2-B01 (R12, R30): the census keeps a parse's moves apart from a rule's.
+- Each credit records its raw parse (`raw`: a hash of its digit-masked printed description and its cents) and each
+  account its parse over every row, credits and debits (`parse_sha`: a hash of every row's digit-masked printed
+  description, cents and direction, sorted); both are hashlib digests, the same in every process.
+- `compare` pairs a statement's credits by position. A credit whose raw parse differs from its partner's, or that has
+  no partner, is a parse move: it is compared apart (`rekeyed.reparsed`, the move matrix of the rows read twice), and
+  only the guards that read the later row alone read it, never G1, G7b or a demotion cause. A credit whose raw parse is
+  its partner's is a rule's move, as before (G7b keeps reading a change of its normalized text). A compare in which
+  either snapshot carries no raw parse (written before audit round 2) pairs every credit as before.
+- G18: an account with a parse move, or whose parse over every row differs, fails unless `--explained-parse` names it:
+  a JSON file {"routes": [parser routes], "accounts": {account id: the source check that explains it}}. A route
+  explains an account only when both snapshots were re-parsed (`--reparse`); a compare that reads the cache on either
+  side needs a note for each account. `parse_moves` lists each such account (bank, parser route, rows, dollars, the
+  True delta of its moved rows) and totals them by bank.
+- `snapshot` keeps §14.2's filter (reconciled, de-duplicated) and summarises the unreconciled accounts apart
+  (`unreconciled_summary`: their count, banks, posted credits and tiers, and each account's), and `compare` lists the
+  accounts that reconcile on one side only (`reconcile_flips`, both ways, with their True).
+- `snapshot --reparse` (both censuses) re-parses every latest analysis input a cached OCR reading reaches, offline and
+  with no model: the reading's markdown is rebuilt (ocr.document.StatementMarkdown, as `_analysis_inputs_of` rebuilds
+  it) and the checkout's analysis stage runs on it (analysis.pipeline.analyze_document, parse mode deterministic, then
+  analysis.serialization.document_report_to_dict). Every other input, and one whose re-parse fails, is read from the
+  cache; `basis_stats.reparse` counts them. `--workers` runs the re-parse in that many processes (run the tool as
+  `python -m tools.revenue_census`, whose spawned workers import this module); a `--code-root` whose own copy of this
+  tool differs from this one is re-parsed in this process.
+- When an analysis that `account_snapshot` cannot read is the newest of its statement, the statement counts one error
+  skip and no older analysis stands in for it; one replaced by a newer analysis counts none (R30).
 
 `sample` draws §14.5's precision sample (up to 20 Verified rows of each stratum, the Verified rows the holder test
 matches, and the 50 largest counted rows), digit-masked, with an empty `sort` for the reviewer.
@@ -59,8 +89,10 @@ refused.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import functools
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -235,8 +267,22 @@ GUARD_FACTS = {
     "G17": ("own_transfer",),
 }
 #: The checks that read no fact (a row's state, method, tier, amount or text), always checked; G9's tier identity
-#: ("G9 tiers") is checked when the run carries tiers (5.6).
-FACT_FREE_CHECKS = ("G1", "G6", "G7b", "G9", "G15", "G16", "undeclared_demotion")
+#: ("G9 tiers") is checked when the run carries tiers (5.6). Audit round 2, R2-B01 (R12): G18, every parse move
+#: explained.
+FACT_FREE_CHECKS = ("G1", "G6", "G7b", "G9", "G15", "G16", "G18", "undeclared_demotion")
+#: R2-B01 (R12): the hex digits a credit's raw parse and an account's parse keep (hashlib digests: never Python's
+#: hash(), which is salted per process).
+PARSE_HASH_DIGITS = 16
+#: R2-B01 (R12): the side of a parse move that has no partner, in the move matrix of the rows read twice.
+UNPAIRED = "unpaired"
+#: R2-B01 (R12): what an explanation of the parse moves (`--explained-parse`) may hold.
+EXPLANATION_KEYS = frozenset({"routes", "accounts"})
+#: R2-B01 (R12): the account payload keys a re-parsed analysis keeps, which are every key both censuses read of one.
+REPARSE_ACCOUNT_KEYS = ("statement", "reconciliation", "model_used")
+#: R2-B01 (R12): the worker's analysis stage, offline and with no model.
+REPARSE_PARSE_MODE = "deterministic"
+#: R2-B01 (R12): the processes a re-parse runs in by default.
+DEFAULT_REPARSE_WORKERS = max(1, min(10, os.cpu_count() or 1))
 NOT_CHECKED = "not checked (facts arrive in 5.6)"
 #: G3: the rules that verify on the payer's identity or remittance (step 11's descriptors, steps 12 to 14, Q5, Q6).
 IDENTITY_METHODS = frozenset({
@@ -495,6 +541,21 @@ def mask(text: object) -> str:
     return _DIGITS.sub("#", " ".join(str(text or "").split()))
 
 
+def raw_parse(description: object, cents: int) -> str:
+    """Audit round 2, R2-B01 (R12): a credit's raw parse: a hash of what its row printed (digit-masked) and its cents,
+    the same in every process and every checkout."""
+    return hashlib.sha256(f"{mask(description)}|{cents}".encode("utf-8")).hexdigest()[:PARSE_HASH_DIGITS]
+
+
+def parse_sha(rows: Iterable[tuple[object, int, object]]) -> str:
+    """Audit round 2, R2-B01 (R12, R30): an account's parse: a hash over every row's (digit-masked printed description,
+    cents, direction), credits and debits, sorted, so the order a reader yields the rows in never changes it."""
+    material = sorted((mask(description), int(cents), str(direction or "")) for description, cents, direction in rows)
+    return hashlib.sha256(
+        json.dumps(material, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:PARSE_HASH_DIGITS]
+
+
 #: S3.1 privacy fix: the alias tables of the snapshot's `analysis.classification_registry` (entity -> aliases, or group
 #: -> such a table) whose entities and aliases a credit's record writes as-is: the operating registry (its 5.4 name and
 #: its sixteen-character cuts), the payee registries (the known-payee groups and the other ledger-generated tables),
@@ -648,11 +709,14 @@ def _with_meta(account: dict, created: object, settings_key: object = None) -> d
 
 
 def cached_accounts(
-    data_dir: Path, limit: int | None = None, *, basis: str = "input", stats: dict | None = None
+    data_dir: Path, limit: int | None = None, *, basis: str = "input", stats: dict | None = None,
+    reparse: bool = False, workers: int = 1,
 ) -> Iterator[tuple[str, dict]]:
     """(id, account payload) for the latest cached analysis of each input (basis `input`, the newest analyses first:
     B1, I60), or of each source PDF (basis `pdf`, S3.1); the cache is opened read-only. `stats`, when given, receives
-    the basis's counts and the cache's analysis stages."""
+    the basis's counts and the cache's analysis stages. Audit round 2, R2-B01 (R12): with `reparse`, every latest
+    input a cached OCR reading reaches is read from its re-parse with the checkout's code (reparse_inputs, in `workers`
+    processes) instead of its cached analysis; `stats["reparse"]` counts the inputs re-parsed, failed and cached."""
     if basis not in BASES:
         raise ValueError(f"unknown basis {basis!r}")
     stats = {} if stats is None else stats
@@ -681,13 +745,18 @@ def cached_accounts(
     for sha, relative, created, settings in latest:
         unique.setdefault(sha, (relative, created, settings))
     stats["analysis_inputs"] = len(unique)
+    reparsed: dict[str, bytes] = {}
+    if reparse:
+        # The input basis reads its first `limit` inputs only; the pdf basis may read any of them.
+        wanted = list(unique) if basis == "pdf" or limit is None else list(unique)[:limit]
+        reparsed = reparse_inputs(data_dir, wanted, workers=workers, stats=stats)
     if basis == "pdf":
-        yield from _pdf_accounts(data_dir, unique, routes, limit, stats)
+        yield from _pdf_accounts(data_dir, unique, routes, limit, stats, reparsed)
         return
     for number, (sha, (relative, created, settings)) in enumerate(unique.items()):
         if limit is not None and number >= limit:
             return
-        payload = _artifact(data_dir, relative)
+        payload = _analysis_payload(data_dir, relative, reparsed.get(sha))
         if payload is None:
             continue
         for index, account in enumerate(_account_payloads(payload.get("artifact"))):
@@ -715,6 +784,143 @@ def _analysis_inputs_of(document: dict) -> list[str]:
     return shas
 
 
+def _ocr_document(data_dir: Path, relative: str) -> dict | None:
+    """R2-B01 (R12): a cached OCR artifact's document, or None when it holds none or cannot be read."""
+    document = ((_artifact(data_dir, relative) or {}).get("artifact") or {}).get("document")
+    return document if isinstance(document, dict) else None
+
+
+def _ocr_analysis_inputs(item: tuple[str, str]) -> tuple[str, list[str] | None]:
+    """R2-B01 (R12), a re-parse worker: the analysis inputs one cached OCR artifact's document is analysed under
+    (_analysis_inputs_of), or None when it holds no document or its inputs cannot be derived."""
+    data_dir, relative = item
+    document = _ocr_document(Path(data_dir), relative)
+    if document is None:
+        return relative, None
+    try:
+        return relative, _analysis_inputs_of(document)
+    except Exception:  # noqa: BLE001  (an OCR document the checkout's reader refuses reaches no input)
+        return relative, None
+
+
+def _reparse_document(document: dict) -> dict:
+    """R2-B01 (R12): one cached OCR reading analysed again with the checkout's code, as the worker analyses it: the
+    markdown rebuilt as _analysis_inputs_of rebuilds it, then the deterministic analysis stage (no model, no network)
+    and its JSON payload."""
+    from analysis.pipeline import analyze_document
+    from analysis.serialization import document_report_to_dict
+    from ocr.document import StatementMarkdown
+
+    pages = [str(page) for page in document.get("pages") or []]
+    markdown = StatementMarkdown(
+        source_file="census.pdf", model=str(document.get("model") or ""), pages=pages
+    ).to_markdown()
+    return document_report_to_dict(analyze_document(markdown, parse_mode=REPARSE_PARSE_MODE, sheets=pages))
+
+
+def _reparse_one(item: tuple[str, str, str]) -> tuple[str, bytes | None, str | None]:
+    """R2-B01 (R12), a re-parse worker: (input sha, the re-parsed payload, None), its accounts kept to the keys the
+    censuses read (REPARSE_ACCOUNT_KEYS) and gzip-compressed, or (input sha, None, why it failed)."""
+    data_dir, sha, relative = item
+    document = _ocr_document(Path(data_dir), relative)
+    if document is None:
+        return sha, None, "unreadable"
+    try:
+        analysis = _reparse_document(document)
+    except Exception as error:  # noqa: BLE001  (a refusal of the checkout's reader: the cache is read instead)
+        return sha, None, type(error).__name__
+    accounts = [
+        {key: account[key] for key in REPARSE_ACCOUNT_KEYS if key in account} for account in _account_payloads(analysis)
+    ]
+    if not accounts:
+        return sha, None, "no_account"
+    return sha, gzip.compress(json.dumps({"artifact": accounts}).encode("utf-8")), None
+
+
+def reparsed_payload(blob: bytes) -> dict:
+    """R2-B01 (R12): a re-parsed payload as reparse_inputs keeps it."""
+    return json.loads(gzip.decompress(blob))
+
+
+def _analysis_payload(data_dir: Path, relative: str, blob: bytes | None) -> dict | None:
+    """R2-B01 (R12): an analysis input's payload: its re-parse when it has one, its cached analysis otherwise."""
+    return reparsed_payload(blob) if blob is not None else _artifact(data_dir, relative)
+
+
+def pool_workers(code_root: Path, workers: int) -> int:
+    """R2-B01 (R12): the processes a re-parse may use. A spawned worker imports this module by its name, with the
+    checkout's folder first on its path, so a `--code-root` whose own copy of this tool differs from this one would
+    hand it that copy's code: such a re-parse runs in this process."""
+    if workers <= 1:
+        return 1
+    if Path(code_root).resolve() == ROOT.resolve():
+        return workers
+    other = Path(code_root) / "tools" / Path(__file__).name
+    if other.is_file() and other.read_bytes() != Path(__file__).read_bytes():
+        print(f"note: {other} differs from this tool, so the re-parse runs in this process", file=sys.stderr)
+        return 1
+    return workers
+
+
+@contextlib.contextmanager
+def _reparse_pool(workers: int) -> Iterator[object]:
+    """R2-B01 (R12): a pool of `workers` spawned processes, or None to work in this process."""
+    if workers <= 1:
+        yield None
+        return
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn")) as pool:
+        yield pool
+
+
+def reparse_inputs(data_dir: Path, shas: Iterable[str], *, workers: int = 1, stats: dict | None = None) -> dict:
+    """R2-B01 (R12): the re-parse of each of `shas` (latest analysis inputs) that a cached OCR reading reaches, as
+    {input sha: payload blob} (reparsed_payload reads one). Each input is routed to the first OCR artifact that reaches
+    it, the artifacts read by PDF, newest first (the pdf basis's order); its document is analysed again with the
+    checkout's code (_reparse_document). An input no OCR reading reaches, or whose re-parse fails, has no entry: the
+    census reads its cached analysis. `stats["reparse"]` receives the counts. The cache is opened read-only."""
+    stats = {} if stats is None else stats
+    wanted = list(dict.fromkeys(shas))
+    targets = set(wanted)
+    connection = _read_only(data_dir / "webapp.db")
+    try:
+        readings = [relative for (relative,) in connection.execute(
+            "SELECT artifact_path FROM artifact_cache WHERE stage = 'ocr' ORDER BY input_sha256, created_at DESC,"
+            " cache_key"
+        )]
+    finally:
+        connection.close()
+    route: dict[str, str] = {}
+    unreadable = 0
+    reparsed: dict[str, bytes] = {}
+    failures: Counter = Counter()
+    with _reparse_pool(workers) as pool:
+        mapper = map if pool is None else functools.partial(pool.map, chunksize=16)
+        for relative, inputs in mapper(_ocr_analysis_inputs, [(str(data_dir), relative) for relative in readings]):
+            if inputs is None:
+                unreadable += 1
+                continue
+            for sha in inputs:
+                if sha in targets:
+                    route.setdefault(sha, relative)
+        items = [(str(data_dir), sha, route[sha]) for sha in wanted if sha in route]
+        mapper = map if pool is None else functools.partial(pool.map, chunksize=4)
+        for sha, blob, failure in mapper(_reparse_one, items):
+            if blob is None:
+                failures[failure] += 1
+            else:
+                reparsed[sha] = blob
+    stats["reparse"] = {
+        "parse_mode": REPARSE_PARSE_MODE, "inputs": len(wanted), "reached": len(items), "reparsed": len(reparsed),
+        "failed": sum(failures.values()), "cached": len(wanted) - len(reparsed),
+        "failures": dict(sorted(failures.items())), "ocr_readings": len(readings),
+        "ocr_readings_without_a_document": unreadable,
+    }
+    return reparsed
+
+
 def _statement_identity(account: dict) -> tuple | None:
     """S3.1 (the pdf basis): a statement's identity read from its payload: the bank, the account number's last four
     digits and the printed period. None when the payload prints no period or fewer than four account digits: such an
@@ -734,13 +940,16 @@ def _reconciles(payload: dict) -> bool:
 
 
 def _pdf_route(
-    data_dir: Path, latest: dict[str, tuple[str, str, str]], candidates: list[tuple[str, int]]
+    data_dir: Path, latest: dict[str, tuple[str, str, str]], candidates: list[tuple[str, int]],
+    reparsed: dict[str, bytes] | None = None,
 ) -> tuple[str, int, dict | None, bool]:
     """S3.1 review: of a PDF's analysed routes (newest first), the newest whose analysis reconciles (passes the
-    snapshot's filter); the newest when none does. (sha, route position, payload, reconciles)."""
+    snapshot's filter); the newest when none does. (sha, route position, payload, reconciles). R2-B01 (R12): an input
+    re-parsed is read from its re-parse."""
+    reparsed = reparsed or {}
     newest: tuple[str, int, dict | None] | None = None
     for sha, position in candidates:
-        payload = _artifact(data_dir, latest[sha][0])
+        payload = _analysis_payload(data_dir, latest[sha][0], reparsed.get(sha))
         if newest is None:
             newest = (sha, position, payload)
         if payload is not None and _reconciles(payload):
@@ -751,23 +960,29 @@ def _pdf_route(
 
 def _pdf_accounts(
     data_dir: Path, latest: dict[str, tuple[str, str, str]], routes: dict[str, list[str]], limit: int | None,
-    stats: dict,
+    stats: dict, reparsed: dict[str, bytes] | None = None,
 ) -> Iterator[tuple[str, dict]]:
     """S3.1: the pdf basis. Each PDF (in hash order) yields the latest analysis of one analysis input its OCR routes
     are analysed under, once (two PDFs that read to one markdown share one analysis, which the first yields): the
     newest route whose analysis reconciles, or the newest analysed route when none does (S3.1 review). Then every
     analysis input no cached OCR route reaches (an orphan: its route is no longer cached), newest first, yields each
     account whose statement identity no account yielded before holds (an account without an identity is always
-    yielded). `limit` caps the analyses read."""
+    yielded). `limit` caps the analyses read. Audit round 2, R2-B01 (R30): an orphan whose identity an account yielded
+    before holds is still dropped, and counted in `orphan_accounts_newer_than_kept` when it was analysed after the
+    newest analysis kept with that identity (the input basis keeps the newest; acceptance expects none here). An input
+    re-parsed (R12) is read from its re-parse."""
+    reparsed = reparsed or {}
     for name in ("pdfs_joined", "pdfs_joined_on_newest_route", "pdfs_on_an_older_reconciling_route",
                  "pdfs_without_a_reconciling_route", "pdfs_without_an_analysis", "pdfs_sharing_an_analysis",
                  "analysis_inputs_joined", "orphan_inputs", "orphan_accounts_kept",
-                 "orphan_accounts_matching_a_kept_statement", "orphan_accounts_without_identity"):
+                 "orphan_accounts_matching_a_kept_statement", "orphan_accounts_newer_than_kept",
+                 "orphan_accounts_without_identity"):
         stats[name] = 0
     stats["pdfs"] = len(routes)
     reached: set[str] = set()
     taken: set[str] = set()
-    identities: set[tuple] = set()
+    # R30: each identity kept, mapped to the newest time an analysis kept with it was created.
+    identities: dict[tuple, str] = {}
     read = 0
     for pdf in sorted(routes):
         candidates: list[tuple[str, int]] = []
@@ -788,7 +1003,7 @@ def _pdf_accounts(
         if limit is not None and read >= limit:
             stats["limit_reached"] = True
             return
-        sha, position, payload, reconciles = _pdf_route(data_dir, latest, candidates)
+        sha, position, payload, reconciles = _pdf_route(data_dir, latest, candidates, reparsed)
         stats["pdfs_joined_on_newest_route"] += position == 0
         stats["pdfs_on_an_older_reconciling_route"] += reconciles and sha != candidates[0][0]
         stats["pdfs_without_a_reconciling_route"] += not reconciles
@@ -799,10 +1014,11 @@ def _pdf_accounts(
         read += 1
         if payload is None:
             continue
+        created = str(latest[sha][1])
         for index, account in enumerate(_account_payloads(payload.get("artifact"))):
             identity = _statement_identity(account)
             if identity is not None:
-                identities.add(identity)
+                identities[identity] = max(identities.get(identity, created), created)
             yield f"p{pdf[:12]}.{index}", _with_meta(account, latest[sha][1], latest[sha][2])
     orphans = sorted((sha for sha in latest if sha not in reached), key=lambda sha: (latest[sha][1], sha), reverse=True)
     stats["orphan_inputs"] = len(orphans)
@@ -811,18 +1027,21 @@ def _pdf_accounts(
             stats["limit_reached"] = True
             return
         read += 1
-        payload = _artifact(data_dir, latest[sha][0])
+        payload = _analysis_payload(data_dir, latest[sha][0], reparsed.get(sha))
         if payload is None:
             continue
+        created = str(latest[sha][1])
         for index, account in enumerate(_account_payloads(payload.get("artifact"))):
             identity = _statement_identity(account)
             if identity is None:
                 stats["orphan_accounts_without_identity"] += 1
             elif identity in identities:
                 stats["orphan_accounts_matching_a_kept_statement"] += 1
+                # R30: the orphan is still dropped; one analysed after the statement kept is counted.
+                stats["orphan_accounts_newer_than_kept"] += created > identities[identity]
                 continue
             else:
-                identities.add(identity)
+                identities[identity] = created
             stats["orphan_accounts_kept"] += 1
             yield f"o{sha[:12]}.{index}", _with_meta(account, latest[sha][1], latest[sha][2])
 
@@ -962,10 +1181,13 @@ def account_snapshot(account: dict) -> dict:
         # 5.4 pooled a direction conflict the registry names, whose own decision names no entity). It is always a key of
         # OPERATING_REVENUE_SOURCE_ALIASES, never a printed string, so it is written as-is (S3.1 privacy fix).
         registry = registry_match(record.normalized_description, OPERATING_REVENUE_SOURCE_ALIASES)
+        cents = round(record.amount * 100)
         credits.append({
             "registry_entity": registry[0] if registry else None,
             "i": index,
-            "cents": round(record.amount * 100),
+            "cents": cents,
+            # Audit round 2, R2-B01 (R12): what the row printed, hashed with its cents (raw_parse).
+            "raw": raw_parse(record.original_description, cents),
             "state": record.revenue_classification,
             "method": record.revenue_match_method,
             "rule": record.revenue_matched_rule,
@@ -991,6 +1213,10 @@ def account_snapshot(account: dict) -> dict:
         # S3.1 review: the bank as printed can hold digits; it is masked like every other text.
         "bank": mask(statement.bank),
         "rows": len(records),
+        # Audit round 2, R2-B01 (R12, R30): the parse over every row, credits and debits (parse_sha).
+        "parse_sha": parse_sha(
+            (record.original_description, round(record.amount * 100), record.direction) for record in records
+        ),
         "credits": credits,
         "posted_cents": sum(credit["cents"] for credit in credits),
         # G9 (review I1): every posted credit, whatever its state, counted apart from the rows the census kept.
@@ -1055,15 +1281,61 @@ def _analysis_stage_version() -> int | None:
     return ANALYSIS_STAGE_VERSION
 
 
+def _true_cents(credits: Iterable[dict]) -> int:
+    """The True credits' cents: the verified and the counted (§5.1)."""
+    return sum(
+        credit["cents"] for credit in credits
+        if credit["state"] == "verified_revenue" or credit.get("tier") == "counted_flagged"
+    )
+
+
+def _unreconciled_account(account: dict) -> dict:
+    """Audit round 2, R2-B01 (R12): what the snapshot records of an account its filter leaves out as unreconciled: its
+    bank, posted credits, True and tiers (in cents), read like any other's, or the error that kept it unread."""
+    try:
+        snap = account_snapshot(account)
+    except Exception as error:  # noqa: BLE001  (a stored payload the schema no longer reads)
+        return {"bank": mask((account.get("statement") or {}).get("bank")), "error": type(error).__name__}
+    tiers: Counter = Counter()
+    for credit in snap["credits"]:
+        tiers[credit.get("tier") or credit["state"]] += credit["cents"]
+    return {"bank": snap["bank"], "posted_cents": snap["posted_credit_cents"], "true_cents": _true_cents(snap["credits"]),
+            "tiers": dict(sorted(tiers.items()))}
+
+
+def _unreconciled_summary(entries: dict[str, dict]) -> dict:
+    """R2-B01 (R12): the unreconciled accounts apart from the shares: their count, banks, posted credits, True and tiers
+    (in dollars), the errors that kept any unread, and each account's entry (which compare reads for the flips)."""
+    banks: Counter = Counter()
+    errors: Counter = Counter()
+    tiers: Counter = Counter()
+    posted = true = 0
+    for entry in entries.values():
+        banks[entry["bank"]] += 1
+        if "error" in entry:
+            errors[entry["error"]] += 1
+            continue
+        posted += entry["posted_cents"]
+        true += entry["true_cents"]
+        tiers.update(entry["tiers"])
+    return {"count": len(entries), "banks": dict(sorted(banks.items())), "posted_dollars": round(posted / 100, 2),
+            "true_dollars": round(true / 100, 2),
+            "tier_dollars": {tier: round(cents / 100, 2) for tier, cents in sorted(tiers.items())},
+            "errors": dict(sorted(errors.items())), "accounts": entries}
+
+
 def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basis_stats: dict | None = None) -> dict:
     """{"classification_version", "analysis_stage_version", "basis", "basis_stats", "accounts": {id: account snapshot},
-    "skipped": {reason: n}, "duplicates": {set-aside id: kept id}, "stale_parses": [...]}, over the reconciled,
-    de-duplicated accounts (the credit census's filter). `basis_stats` is the dict the account reader fills (S3.1); it
-    is read once every account is read.
+    "skipped": {reason: n}, "duplicates": {set-aside id: kept id}, "stale_parses": [...], "unreconciled_summary"},
+    over the reconciled, de-duplicated accounts (the credit census's filter). `basis_stats` is the dict the account
+    reader fills (S3.1); it is read once every account is read.
 
     B1 (I60): of the analyses that read one statement (one fingerprint), the newest-created is kept, in whatever order
     the reader yields them (a later, newer one replaces the one kept; equal times keep the first); the others are
-    duplicates, and one whose parse differs from the kept one is a stale parse."""
+    duplicates, and one whose parse differs from the kept one is a stale parse. Audit round 2, R2-B01 (R30): a
+    statement whose newest analysis `account_snapshot` cannot read counts one error skip (by the error's name) and
+    no older analysis stands in for it; an analysis that raised and was replaced by a newer one counts none. (R12) The
+    accounts the filter leaves out as unreconciled are summarised apart (`unreconciled_summary`), never in the shares."""
     from analysis.schema import Statement
     from analysis.transaction_classifier import CLASSIFICATION_VERSION
 
@@ -1071,9 +1343,11 @@ def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basi
                     "basis": basis, "accounts": {}, "skipped": {}}
     skipped: Counter = Counter()
     groups: dict[tuple, list[dict]] = {}
+    unreconciled: dict[str, dict] = {}
     for key, account in accounts:
         if not bool((account.get("reconciliation") or {}).get("ok")):
             skipped["unreconciled"] += 1
+            unreconciled[key] = _unreconciled_account(account)
             continue
         try:
             statement = Statement.model_validate(account["statement"])
@@ -1082,7 +1356,7 @@ def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basi
             skipped["unreadable"] += 1
             continue
         fields = _analysis_fields(account)
-        member = {"key": key, **fields, "parse": _parse(statement)}
+        member = {"key": key, **fields, "parse": _parse(statement), "error": None}
         members = groups.setdefault(fingerprint, [])
         if members:
             skipped["duplicate"] += 1
@@ -1095,10 +1369,15 @@ def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basi
         try:
             result["accounts"][key] = {**account_snapshot(account), **fields}
         except Exception as error:  # noqa: BLE001
-            skipped[type(error).__name__] += 1
+            # R30: counted once the statement's newest analysis is known (below), never for one replaced.
+            member["error"] = type(error).__name__
+    for members in groups.values():
+        if members[0]["error"]:
+            skipped[members[0]["error"]] += 1
     result["skipped"] = dict(sorted(skipped.items()))
     result["basis_stats"] = dict(basis_stats or {})
     result["duplicates"], result["stale_parses"] = _set_aside(groups.values())
+    result["unreconciled_summary"] = _unreconciled_summary(unreconciled)
     return result
 
 
@@ -1822,11 +2101,142 @@ def _rekeyed(base: dict, after: dict) -> dict[str, str]:
 
 
 def _parse_changed(old: dict, new: dict) -> bool:
-    """B1 (I60): whether two snapshots of one statement read different credits (index, amount or masked text)."""
+    """B1 (I60): whether two snapshots of one statement read it differently. Audit round 2, R2-B01 (R30): by their
+    parse over every row (`parse_sha`, debits included) when both carry it; otherwise, as before, by their credits
+    (index, amount and masked text)."""
+    if old.get("parse_sha") and new.get("parse_sha"):
+        return old["parse_sha"] != new["parse_sha"]
+
     def credits(account: dict) -> list[tuple]:
         return [(credit["i"], credit["cents"], credit["text"]) for credit in account["credits"]]
 
     return credits(old) != credits(new)
+
+
+def _parse_moves(old: dict, new: dict) -> tuple[set[int], list[dict]]:
+    """Audit round 2, R2-B01 (R12): one statement's parse moves, its credits paired by position: the later credits
+    whose raw parse differs from their partner's or that have none (their positions), and the base credits with no
+    later partner. Only a pair of snapshots that both carry the raw parse has any (`parse_sha` marks one)."""
+    if "parse_sha" not in old or "parse_sha" not in new:
+        return set(), []
+    before = {credit["i"]: credit for credit in old["credits"]}
+    moved = {credit["i"] for credit in new["credits"]
+             if credit["i"] not in before or before[credit["i"]].get("raw") != credit.get("raw")}
+    later = {credit["i"] for credit in new["credits"]}
+    return moved, [credit for credit in old["credits"] if credit["i"] not in later]
+
+
+def _true_of(credit: dict | None) -> int:
+    """A credit's cents in True (verified or counted), 0 otherwise or for none."""
+    return 0 if credit is None else _true_cents((credit,))
+
+
+def _record_parse_moves(reparsed: dict, old: dict, new: dict, moved: set[int], base_only: list[dict]) -> dict:
+    """R2-B01 (R12): a same-statement account's parse moves compared apart (the rows read twice: each side's tiers,
+    the move matrix, UNPAIRED for a side with no partner), and the account's G18 figures: its rows, their dollars
+    (each moved later credit and each base credit with no partner) and the True delta of those rows."""
+    before = {credit["i"]: credit for credit in old["credits"]}
+    rows = cents = delta = 0
+    for credit in new["credits"]:
+        if credit["i"] not in moved:
+            continue
+        prior = before.get(credit["i"])
+        slot = reparsed["moves"][(UNPAIRED if prior is None else _tier_label(prior), _tier_label(credit))]
+        slot[0] += 1
+        slot[1] += credit["cents"]
+        reparsed["after"][credit.get("tier") or credit["state"]] += credit["cents"]
+        if prior is not None:
+            reparsed["base"][prior.get("tier") or prior["state"]] += prior["cents"]
+        rows += 1
+        cents += credit["cents"]
+        delta += _true_of(credit) - _true_of(prior)
+    for prior in base_only:
+        slot = reparsed["moves"][(_tier_label(prior), UNPAIRED)]
+        slot[0] += 1
+        slot[1] += prior["cents"]
+        reparsed["base"][prior.get("tier") or prior["state"]] += prior["cents"]
+        rows += 1
+        cents += prior["cents"]
+        delta -= _true_of(prior)
+    return {"rows": rows, "cents": cents, "true_delta_cents": delta}
+
+
+def _explanation(explained: object) -> dict:
+    """R2-B01 (R12): an explanation of the parse moves, checked: {"routes": [parser routes], "accounts": {account id:
+    the source check that explains it}}; either may be left out. Raises ValueError on any other shape."""
+    if not isinstance(explained, dict) or set(explained) - EXPLANATION_KEYS:
+        raise ValueError('an explanation is {"routes": [...], "accounts": {account id: note}}')
+    routes = explained.get("routes", [])
+    accounts = explained.get("accounts", {})
+    if not isinstance(routes, list) or not all(isinstance(route, str) and route for route in routes):
+        raise ValueError("the explanation's routes are a list of parser routes")
+    if not isinstance(accounts, dict) or not all(
+        isinstance(key, str) and isinstance(note, str) and note.strip() for key, note in accounts.items()
+    ):
+        raise ValueError("the explanation's accounts map each account id to the source check that explains it")
+    return {"routes": frozenset(routes), "accounts": dict(accounts)}
+
+
+def _reparsed_basis(snap: dict) -> bool:
+    """R2-B01 (R12): whether a snapshot was taken with `--reparse` (its basis counts record the re-parse)."""
+    return bool((snap.get("basis_stats") or {}).get("reparse"))
+
+
+def _parse_move_report(entries: list[dict], without_raw: int, routes_explain: bool) -> dict:
+    """R2-B01 (R12): G18's report: the accounts with a parse change (each listed with its bank, parser route, rows,
+    dollars, the True delta of its moved rows and what explained it), their totals and their totals by bank; the
+    accounts compared without a raw parse on one side (a snapshot written before audit round 2), whose credits pair as
+    before; and whether a parser route may explain an account (both snapshots re-parsed)."""
+    by_bank: dict = defaultdict(lambda: {"accounts": 0, "rows": 0, "dollars": 0.0, "true_delta": 0.0})
+    for entry in entries:
+        slot = by_bank[entry["bank"]]
+        slot["accounts"] += 1
+        slot["rows"] += entry["rows"]
+        slot["dollars"] = round(slot["dollars"] + entry["dollars"], 2)
+        slot["true_delta"] = round(slot["true_delta"] + entry["true_delta"], 2)
+    return {
+        "accounts": len(entries),
+        "rows": sum(entry["rows"] for entry in entries),
+        "dollars": round(sum(entry["dollars"] for entry in entries), 2),
+        "true_delta": round(sum(entry["true_delta"] for entry in entries), 2),
+        "unexplained": sum(entry.get("explained_by") is None for entry in entries),
+        "routes_explain": routes_explain,
+        "accounts_without_a_raw_parse": without_raw,
+        "by_bank": {bank: by_bank[bank] for bank in sorted(by_bank, key=lambda name: (name is None, str(name)))},
+        "listed": entries,
+    }
+
+
+def _reconcile_flips(base: dict, after: dict) -> dict:
+    """R2-B01 (R12): the accounts that reconcile in one snapshot only, both ways, each with its True on each side
+    (read from the other side's `unreconciled_summary`); not comparable when either snapshot holds no summary (written
+    before audit round 2)."""
+    base_out = (base.get("unreconciled_summary") or {}).get("accounts")
+    after_out = (after.get("unreconciled_summary") or {}).get("accounts")
+    if base_out is None or after_out is None:
+        return {"comparable": False, "to_reconciled": [], "to_unreconciled": []}
+
+    def dollars(cents: int | None) -> float | None:
+        return None if cents is None else round(cents / 100, 2)
+
+    # An unreconciled account the summary could not read carries no True (None).
+    to_reconciled = [
+        {"account": key, "bank": account.get("bank"), "base_true_dollars": dollars(base_out[key].get("true_cents")),
+         "true_dollars": dollars(_true_cents(account["credits"]))}
+        for key, account in sorted(after["accounts"].items()) if key in base_out
+    ]
+    to_unreconciled = [
+        {"account": key, "bank": account.get("bank"), "base_true_dollars": dollars(_true_cents(account["credits"])),
+         "true_dollars": dollars(after_out[key].get("true_cents"))}
+        for key, account in sorted(base["accounts"].items()) if key in after_out
+    ]
+    return {
+        "comparable": True,
+        "to_reconciled": to_reconciled,
+        "to_unreconciled": to_unreconciled,
+        "to_reconciled_true_dollars": round(sum(row["true_dollars"] or 0 for row in to_reconciled), 2),
+        "to_unreconciled_base_true_dollars": round(sum(row["base_true_dollars"] or 0 for row in to_unreconciled), 2),
+    }
 
 
 def _tier_label(credit: dict) -> str:
@@ -1895,12 +2305,15 @@ def _counted_failures(failures: dict) -> list[str]:
     return sorted((guard for guard, items in failures.items() if items), key=_guard_order)
 
 
-def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None = None) -> dict:
+def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None = None,
+            explained: dict | None = None) -> dict:
     """The census report of §14.2 and the guards of §14.3 (G7 excepted), base against each later snapshot, all of one
     basis (S3.1: a mix raises BasisMismatch). `admissions` (S3.1 review) names the entities the S1.5 ledger admissions
     added or updated (the owner's signed-off list): a verified row 5.5 reads as their financing proceeds is a declared
-    demotion (`ledger_admission`); without it, none is."""
+    demotion (`ledger_admission`); without it, none is. `explained` (audit round 2, R2-B01: R12) is the explanation of
+    the parse moves G18 reads ({"routes": [...], "accounts": {account id: note}}, checked by _explanation)."""
     admitted = frozenset(admissions or ())
+    explanation = _explanation(explained if explained is not None else {})
     basis = _basis(base)
     for after in afters:
         if _basis(after) != basis:
@@ -1938,6 +2351,11 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
         rekeyed = _rekeyed(base, after)
         reparsed: dict = {"accounts": [], "base": Counter(), "after": Counter(), "moves": defaultdict(lambda: [0, 0]),
                           "eligible_deposits": Counter()}
+        # Audit round 2, R2-B01 (R12): each account with a parse change, for G18; a route explains one only when both
+        # snapshots were re-parsed.
+        parse_accounts: list[dict] = []
+        without_raw = 0
+        routes_explain = _reparsed_basis(base) and _reparsed_basis(after)
         # Final review M11: an account only this run holds (a new input, or one whose error skip vanished) has no base
         # to compare, but its row and account guards are read like any other's.
         only_after = sorted(set(after["accounts"]) - set(base["accounts"]) - set(rekeyed.values()))
@@ -1951,12 +2369,15 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
             for failure in _account_guards(new, tiered):
                 failures[failure["guard"]].append({"account": key, "only_after": True, **failure})
         for key, old in base["accounts"].items():
-            new = after["accounts"].get(rekeyed.get(key, key))
+            new_key = rekeyed.get(key, key)
+            new = after["accounts"].get(new_key)
             if new is None or new["rows"] != old["rows"]:
                 unmatched += 1
                 failures["G9"].append({"account": key, "unmatched": True})
                 continue
             reparse = key in rekeyed and _parse_changed(old, new)
+            moved: set[int] = set()
+            base_only: list[dict] = []
             if reparse:
                 reparsed["accounts"].append({"base_account": key, "account": rekeyed[key]})
                 _record_reparse(reparsed, old, new)
@@ -1965,8 +2386,45 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                     for guard, failed in _row_guards(credit).items():
                         if failed:
                             failures[guard].append({"account": key, "i": credit["i"], "text": credit["text"]})
-            # B1 (I60): a reparsed account pairs no row with its base (the rule moves below read none of its rows).
-            old_by_index = {} if reparse else {credit["i"]: credit for credit in old["credits"]}
+                later = {credit["i"] for credit in new["credits"]}
+                figures = {"rows": len(new["credits"]) + sum(credit["i"] not in later for credit in old["credits"]),
+                           "cents": sum(credit["cents"] for credit in new["credits"])
+                           + sum(credit["cents"] for credit in old["credits"] if credit["i"] not in later),
+                           "true_delta_cents": _true_cents(new["credits"]) - _true_cents(old["credits"])}
+            else:
+                # Audit round 2, R2-B01 (R12): the credits whose raw parse changed, or that have no partner, moved
+                # with the parse: compared apart, read by the later row's own guards only.
+                without_raw += "parse_sha" not in old or "parse_sha" not in new
+                moved, base_only = _parse_moves(old, new)
+                figures = _record_parse_moves(reparsed, old, new, moved, base_only)
+                if moved or base_only:
+                    reparsed["accounts"].append({"base_account": key, "account": new_key, "same_statement": True})
+                    for credit in new["credits"]:
+                        if credit["i"] not in moved:
+                            continue
+                        for guard, failed in _row_guards(credit).items():
+                            if failed:
+                                failures[guard].append({"account": key, "i": credit["i"], "parse_move": True,
+                                                        "text": credit["text"]})
+            # R2-B01 (R12, R30): every credit reads as before, yet the parse over every row differs (a debit or an
+            # unposted row changed): the account is listed, and its credits stay rule moves.
+            other_rows_only = bool(
+                not reparse and not (moved or base_only) and old.get("parse_sha") and new.get("parse_sha")
+                and old["parse_sha"] != new["parse_sha"]
+            )
+            if reparse or moved or base_only or other_rows_only:
+                parse_accounts.append({
+                    "account": key, "after_account": new_key, "bank": new.get("bank"),
+                    "parser_route": new.get("parser_route"), "base_parser_route": old.get("parser_route"),
+                    "rekeyed": reparse, "other_rows_only": other_rows_only, "rows": figures["rows"],
+                    "dollars": round(figures["cents"] / 100, 2),
+                    "true_delta": round(figures["true_delta_cents"] / 100, 2),
+                })
+            # B1 (I60): a reparsed account pairs no row with its base (the rule moves below read none of its rows);
+            # R2-B01 (R12): nor does a parse move.
+            old_by_index = {} if reparse else {
+                credit["i"]: credit for credit in old["credits"] if credit["i"] not in moved
+            }
             # S3.1 review: the pool causes read the account's other credits.
             context = _account_context(
                 ((old_by_index[credit["i"]], credit) for credit in new["credits"] if credit["i"] in old_by_index),
@@ -1975,7 +2433,9 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
             old_deposits, new_deposits = old.get("eligible_deposits"), new.get("eligible_deposits")
             if old_deposits is not None and new_deposits is not None and not reparse:
                 delta = round(new_deposits - old_deposits, 2)
-                deposits["unchanged" if delta == 0 else ("up" if delta > 0 else "down")] += 1
+                # R2-B01 (R12): an account whose credits moved with the parse moves its deposits with it.
+                counter = reparsed["eligible_deposits"] if moved or base_only else deposits
+                counter["unchanged" if delta == 0 else ("up" if delta > 0 else "down")] += 1
             for credit in new["credits"]:
                 prior = old_by_index.get(credit["i"])
                 if prior is None:
@@ -2055,6 +2515,19 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                     entry[0] += 1
                     entry[1] += credit["cents"]
                     entry[2].add(key)
+        # Audit round 2, R2-B01 (R12): G18, every account with a parse change explained, by its account (a source
+        # check) or, when both snapshots were re-parsed, by its parser route.
+        for entry in parse_accounts:
+            if entry["account"] in explanation["accounts"] or entry["after_account"] in explanation["accounts"]:
+                entry["explained_by"] = "account"
+            elif routes_explain and entry["parser_route"] in explanation["routes"]:
+                entry["explained_by"] = "route"
+            else:
+                entry["explained_by"] = None
+                failures["G18"].append({
+                    **entry, "route_needs_both_snapshots_re_parsed": (
+                        not routes_explain and entry["parser_route"] in explanation["routes"]),
+                })
         report["runs"].append({
             "summary": _summary(after),
             "accounts_unmatched": unmatched,
@@ -2074,6 +2547,10 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                     "eligible_deposits": dict(reparsed["eligible_deposits"]),
                 },
             },
+            # Audit round 2, R2-B01 (R12): the accounts with a parse change, which G18 reads.
+            "parse_moves": _parse_move_report(parse_accounts, without_raw, routes_explain),
+            # R2-B01 (R12): the accounts that reconcile in one snapshot only.
+            "reconcile_flips": _reconcile_flips(base, after),
             "move_matrix": [
                 {"from": source, "to": target, "rows": value[0], "dollars": round(value[1] / 100, 2),
                  "statements": len(value[2])}
@@ -2290,6 +2767,22 @@ def _print(report: dict) -> None:
             print(f"  rekeyed: {rekeyed['accounts']} statements read from the analysis this run kept;"
                   f" {reparsed['accounts']} with another parse (base tiers {reparsed['tiers']['base']},"
                   f" after {reparsed['tiers']['after']})")
+        # Audit round 2, R2-B01 (R12): the parse moves G18 reads, and the accounts that reconcile on one side only.
+        moves = run.get("parse_moves")
+        if moves is not None:
+            print(f"  parse moves (G18): {moves['accounts']} accounts, {moves['rows']} rows, ${moves['dollars']:,.2f},"
+                  f" True delta ${moves['true_delta']:,.2f}, {moves['unexplained']} unexplained"
+                  + (f"; by bank: " + ", ".join(
+                      f"{bank} {slot['accounts']} accts/{slot['rows']} rows/${slot['dollars']:,.2f}"
+                      f"/True ${slot['true_delta']:,.2f}" for bank, slot in moves["by_bank"].items())
+                     if moves["by_bank"] else "")
+                  + (f"; {moves['accounts_without_a_raw_parse']} accounts compared without a raw parse"
+                     if moves["accounts_without_a_raw_parse"] else ""))
+        flips = run.get("reconcile_flips")
+        if flips is not None and flips["comparable"]:
+            print(f"  reconcile flips: {len(flips['to_reconciled'])} now reconcile (True"
+                  f" ${flips['to_reconciled_true_dollars']:,.2f}), {len(flips['to_unreconciled'])} no longer"
+                  f" (base True ${flips['to_unreconciled_base_true_dollars']:,.2f})")
         print("  left non_revenue: " + ", ".join(
             f"{cause} {value['rows']} rows/${value['dollars']:,.2f}/{value['statements']} st"
             for cause, value in run["left_non_revenue"].items()))
@@ -2367,6 +2860,11 @@ def main(argv: list[str] | None = None) -> int:
     snap.add_argument("--limit", type=int, default=None, help="read only the first N analyses")
     snap.add_argument("--basis", choices=BASES, default="input",
                       help="input: every cached analysis input (the default); pdf: one analysis per source PDF")
+    snap.add_argument("--reparse", action="store_true",
+                      help="re-parse every latest input a cached OCR reading reaches with the checkout's deterministic "
+                           "analysis stage (no model); the rest are read from the cache (audit round 2, R2-B01)")
+    snap.add_argument("--workers", type=int, default=DEFAULT_REPARSE_WORKERS,
+                      help="the processes a re-parse runs in (default %(default)s)")
     comp = commands.add_parser("compare", help="compare a base snapshot with later ones")
     comp.add_argument("--base", type=Path, required=True)
     comp.add_argument("--after", type=Path, required=True, action="append")
@@ -2374,6 +2872,10 @@ def main(argv: list[str] | None = None) -> int:
     comp.add_argument("--admissions", type=Path, default=None,
                       help="the S1.5 ledger admissions' signed-off entity list (JSON: {\"entities\": [...]} or a list);"
                            " without it no demotion is declared ledger_admission")
+    comp.add_argument("--explained-parse", type=Path, default=None,
+                      help="the explanation of the parse moves G18 reads (JSON: {\"routes\": [parser routes],"
+                           " \"accounts\": {account id: the source check}}); a route counts only when both snapshots"
+                           " were re-parsed (audit round 2, R2-B01)")
     samp = commands.add_parser("sample", help="draw the precision sample of a 5.6 snapshot (§14.5)")
     samp.add_argument("--snapshot", type=Path, required=True)
     samp.add_argument("--out", type=Path, required=True, help="the sample to write (outside the repo)")
@@ -2391,6 +2893,10 @@ def main(argv: list[str] | None = None) -> int:
         if (args.data_dir is None) == (args.jobs_db is None):
             print("refused: name exactly one of --data-dir and --jobs-db", file=sys.stderr)
             return 2
+        if args.reparse and args.jobs_db is not None:
+            print("refused: --reparse re-parses the artifact cache's OCR readings, which a job store does not hold",
+                  file=sys.stderr)
+            return 2
         if args.data_dir is not None and not (args.data_dir / "webapp.db").is_file():
             print(f"refused: {args.data_dir} holds no webapp.db", file=sys.stderr)
             return 2
@@ -2399,7 +2905,10 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         stats: dict = {}
         if args.data_dir is not None:
-            accounts = cached_accounts(args.data_dir, args.limit, basis=args.basis, stats=stats)
+            accounts = cached_accounts(
+                args.data_dir, args.limit, basis=args.basis, stats=stats, reparse=args.reparse,
+                workers=pool_workers(args.code_root, args.workers) if args.reparse else 1,
+            )
         else:
             accounts = job_accounts(args.jobs_db, basis=args.basis, stats=stats)
         result = snapshot(accounts, basis=args.basis, basis_stats=stats)
@@ -2433,8 +2942,19 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(admissions, list) or not all(isinstance(name, str) for name in admissions):
             print(f"refused: the admissions list {args.admissions} holds no list of entity names", file=sys.stderr)
             return 2
+    # Audit round 2, R2-B01 (R12): the explanation of the parse moves G18 reads.
+    explained: dict | None = None
+    if args.explained_parse is not None:
+        try:
+            explained = json.loads(args.explained_parse.read_text(encoding="utf-8"))
+            _explanation(explained)
+        except (OSError, ValueError) as error:
+            print(f"refused: the explained-parse file {args.explained_parse} cannot be read ({error})",
+                  file=sys.stderr)
+            return 2
     try:
-        report = compare(_read(args.base), [_read(path) for path in args.after], admissions=admissions)
+        report = compare(_read(args.base), [_read(path) for path in args.after], admissions=admissions,
+                         explained=explained)
     except BasisMismatch as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2

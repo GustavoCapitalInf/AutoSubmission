@@ -11,12 +11,18 @@ repository.
 
 Usage, from the repository root of the checkout that holds this tool:
     python -m tools.lender_census snapshot --data-dir <webapp_data> --out <file> [--code-root <checkout>] [--limit N]
+                                           [--reparse [--workers N]]
     python -m tools.lender_census compare --before <file> --after <file> --out <file> [--ledger <file>]
                                           [--allowlist <the owner's signed-off admissions>]
 
 `--code-root` names the checkout whose `analysis` package classifies (default: this one), so the
 "before" snapshot runs the code as it stood before the change. `--ledger` is the curated registry
 ledger the alias tables are rendered from (master plan C10; default docs/lender-registry-ledger.json).
+
+`--reparse` (true revenue audit round 2, R2-B01: R12) re-parses every latest input a cached OCR reading
+reaches with the checkout's deterministic analysis stage, as the revenue census does
+(tools.revenue_census.reparse_inputs), and reads every other input from the cache; the snapshot records
+the counts in `basis_stats.reparse`.
 
 Exit codes: snapshot 0, or 2 when refused. compare 0 when the ledger admits every gained lender as a
 lender (status `admitted`, group `confirmed_lender`) and none was gained through a generic word,
@@ -32,6 +38,9 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from pathlib import Path
+
+# Imported before `snapshot --code-root` puts another checkout first on the path (it loads no `analysis` package).
+from tools import revenue_census
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LEDGER = ROOT / "docs" / "lender-registry-ledger.json"
@@ -92,9 +101,14 @@ def _account_payloads(node: object) -> Iterator[dict]:
             yield from _account_payloads(value)
 
 
-def cached_accounts(data_dir: Path, limit: int | None = None) -> Iterator[tuple[str, int, dict]]:
+def cached_accounts(
+    data_dir: Path, limit: int | None = None, *, reparse: bool = False, workers: int = 1, stats: dict | None = None
+) -> Iterator[tuple[str, int, dict]]:
     """(input sha, account index, account payload) for the latest cached analysis of each input.
-    Opens the cache database read-only and never writes to the data directory."""
+    Opens the cache database read-only and never writes to the data directory. Audit round 2, R2-B01
+    (R12): with `reparse`, an input a cached OCR reading reaches is read from its re-parse with the
+    checkout's code (tools.revenue_census.reparse_inputs, in `workers` processes); `stats["reparse"]`
+    counts the inputs re-parsed, failed and cached."""
     database = data_dir / "webapp.db"
     connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
     try:
@@ -107,13 +121,22 @@ def cached_accounts(data_dir: Path, limit: int | None = None) -> Iterator[tuple[
         ).fetchall()
     finally:
         connection.close()
+    reparsed: dict[str, bytes] = {}
+    if reparse:
+        read = latest if limit is None else latest[:limit]
+        reparsed = revenue_census.reparse_inputs(
+            data_dir, [sha for sha, _relative in read], workers=workers, stats={} if stats is None else stats
+        )
     for number, (sha, relative) in enumerate(latest):
         if limit is not None and number >= limit:
             return
-        try:
-            payload = json.loads((data_dir / "artifacts" / relative).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
+        if sha in reparsed:
+            payload = revenue_census.reparsed_payload(reparsed[sha])
+        else:
+            try:
+                payload = json.loads((data_dir / "artifacts" / relative).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
         for index, account in enumerate(_account_payloads(payload.get("artifact"))):
             yield sha, index, account
 
@@ -372,6 +395,11 @@ def main(argv: list[str] | None = None) -> int:
     snap.add_argument("--out", type=Path, required=True, help="the snapshot to write (outside the repo)")
     snap.add_argument("--code-root", type=Path, default=ROOT, help="the checkout whose analysis package classifies")
     snap.add_argument("--limit", type=int, default=None, help="read only the first N analyses")
+    snap.add_argument("--reparse", action="store_true",
+                      help="re-parse every latest input a cached OCR reading reaches with the checkout's deterministic "
+                           "analysis stage (no model); the rest are read from the cache (true revenue audit round 2)")
+    snap.add_argument("--workers", type=int, default=revenue_census.DEFAULT_REPARSE_WORKERS,
+                      help="the processes a re-parse runs in (default %(default)s)")
     comp = commands.add_parser("compare", help="compare a before and an after snapshot")
     comp.add_argument("--before", type=Path, required=True)
     comp.add_argument("--after", type=Path, required=True)
@@ -392,7 +420,13 @@ def main(argv: list[str] | None = None) -> int:
         if not _use_code_root(args.code_root):
             print(f"refused: another analysis package is already loaded, not {args.code_root}", file=sys.stderr)
             return 2
-        result = snapshot(cached_accounts(args.data_dir, args.limit))
+        stats: dict = {}
+        workers = revenue_census.pool_workers(args.code_root, args.workers) if args.reparse else 1
+        result = snapshot(cached_accounts(args.data_dir, args.limit, reparse=args.reparse, workers=workers,
+                                          stats=stats))
+        if args.reparse:
+            # True revenue audit round 2, R2-B01 (R12): what the re-parse read, and what it left to the cache.
+            result["basis_stats"] = stats
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(result) + "\n", encoding="utf-8")
         print(f"classification {result['classification_version']}: {len(result['accounts'])} accounts; "

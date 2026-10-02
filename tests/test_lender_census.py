@@ -299,3 +299,35 @@ def test_a_snapshot_run_writes_the_file_it_names(tmp_path, fake_payees):
     assert census.main(["snapshot", "--data-dir", str(_cache(tmp_path)), "--out", str(out)]) == 0
     written = json.loads(out.read_text(encoding="utf-8"))
     assert sorted(written["accounts"]) == ["a" * 64 + ":0", "b" * 64 + ":0"]
+    # A snapshot of the cache alone records no re-parse.
+    assert "basis_stats" not in written
+
+
+def test_r2_b01_a_re_parsed_snapshot_reads_a_routed_input_from_its_re_parse(tmp_path, monkeypatch, fake_payees):
+    # Audit round 2, R2-B01 (R12): `snapshot --reparse` re-parses every latest input a cached OCR reading reaches, with
+    # the checkout's deterministic analysis stage (the revenue census's re-parse), and reads every other from the cache.
+    from tests.test_revenue_census import _FabricatedCache, _statement
+    from tools import revenue_census
+
+    deposit = (5, "CUSTOMER DEPOSIT FABRICATED", 10000.0)
+    cache = _FabricatedCache(tmp_path / "data")
+    routed = cache.ocr("A" * 64, ["FABRICATED PAGE A"], "2054-01-01T00:00:00")
+    cache.analysis(routed, [_statement("XXXX1234", [deposit])], "2054-01-03T00:00:00")
+    cache.analysis("e" * 64, [_statement("XXXX5678", [deposit])], "2054-01-03T00:00:00")
+    cache.connection.close()
+
+    def reparse(document):
+        assert document["pages"] == ["FABRICATED PAGE A"]
+        return {"accounts": [{"statement": _statement("XXXX1234", [deposit, (9, "ACH DEBIT FABRICATED LENDER 0001",
+                                                                            -1000.0)])}]}
+
+    monkeypatch.setattr(revenue_census, "_reparse_document", reparse)
+    out = tmp_path / "reparsed.json"
+    assert census.main(["snapshot", "--data-dir", str(cache.root), "--reparse", "--workers", "1",
+                        "--out", str(out)]) == 0
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert (written["accounts"][f"{routed}:0"]["rows"], written["accounts"]["e" * 64 + ":0"]["rows"]) == (2, 1)
+    assert written["accounts"][f"{routed}:0"]["lenders"] == [[1, "Fabricated Lender", "FABRICATED LENDER"]]
+    stats = written["basis_stats"]["reparse"]
+    assert {name: stats[name] for name in ("inputs", "reached", "reparsed", "failed", "cached")} == {
+        "inputs": 2, "reached": 1, "reparsed": 1, "failed": 0, "cached": 1}

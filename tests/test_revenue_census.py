@@ -490,11 +490,12 @@ def test_the_pdf_basis_reads_one_analysis_per_source_pdf(fabricated_cache):
     assert len(accounts[1][1]["statement"]["transactions"]) == len(ROWS)
     # B1 (I60): the stages the cache's analyses were made under are recorded beside the basis's counts.
     assert list(stats.pop("analysis_stages")) == ["S"]
+    # Audit round 2, R2-B01 (R30): the orphan of A's statement (dated after the analysis kept) is counted as newer.
     assert stats == {"analysis_inputs": 7, "pdfs": 5, "pdfs_joined": 4, "pdfs_joined_on_newest_route": 3,
                      "pdfs_on_an_older_reconciling_route": 0, "pdfs_without_a_reconciling_route": 0,
                      "pdfs_without_an_analysis": 1, "pdfs_sharing_an_analysis": 1, "analysis_inputs_joined": 4,
                      "orphan_inputs": 3, "orphan_accounts_kept": 2, "orphan_accounts_matching_a_kept_statement": 1,
-                     "orphan_accounts_without_identity": 1}
+                     "orphan_accounts_newer_than_kept": 1, "orphan_accounts_without_identity": 1}
     # Read-only: the cache is byte for byte what it was, and no journal was left beside it.
     assert _tree(data_dir) == before
 
@@ -875,8 +876,9 @@ def test_a_5_5_snapshot_reports_the_guards_its_facts_cannot_check():
     assert run["unchecked_guards"] == UNCHECKED_AT_55
     assert run["guard_checks"]["G2"] == {"checked": False, "facts": ["financing_root", "registry_root"],
                                          "status": "not checked (facts arrive in 5.6)"}
+    # Audit round 2, R2-B01 (R12): G18 reads no fact, so it is always checked.
     assert {name: check["status"] for name, check in run["guard_checks"].items() if check["checked"]} == {
-        name: "held" for name in ("G1", "G3", "G6", "G7b", "G9", "G10", "G13", "G14", "G15", "G16", "G17",
+        name: "held" for name in ("G1", "G3", "G6", "G7b", "G9", "G10", "G13", "G14", "G15", "G16", "G17", "G18",
                                   "undeclared_demotion")}
     assert run["verdict"] == "hold" and run["failed_guards"] == []
 
@@ -2212,3 +2214,380 @@ def test_b9_review_2_a_product_in_the_account_name_field_is_no_holder_fact():
 def test_b9_the_holder_s_own_push_held_as_holder_name_is_a_declared_demotion(prior, later, cause):
     causes, _ = _cause56(prior, later)
     assert causes == {cause: 1}
+
+
+# Audit round 2, R2-B01 (R12): a credit whose printed row changed between two snapshots moved with the parse, not by a
+# rule. Each credit records its raw parse (a hash of its digit-masked printed description and its cents) and each
+# account its parse over every row; compare pairs rows by position, and a row whose raw parse differs, or that has no
+# partner, is a parse move: only the guards that read the later row alone read it (never G1, G7b or a demotion cause),
+# and G18 fails its account unless an explanation names its parser route (both snapshots re-parsed) or the account.
+R2_ROUTE = "fabricated-bank-deterministic"
+R2_REPARSED = {"reparse": {"inputs": 1, "reached": 1, "reparsed": 1, "failed": 0, "cached": 0}}
+
+
+def _r2_row(i, cents, state, method, printed, *, text=None, **fields):
+    """A credit as an R2-B01 snapshot writes it: its masked normalized text, and the raw parse of what it printed."""
+    credit = _credit(i, cents, state, method, text=census.mask(printed if text is None else text), **fields)
+    credit["raw"] = census.raw_parse(printed, cents)
+    return credit
+
+
+def _r2_account(credits, parse="P0", route=R2_ROUTE):
+    account = _account(credits)
+    account.update(parse_sha=parse, parser_route=route)
+    return account
+
+
+def _r2_snap(accounts, *, reparsed=True, **extra):
+    snap = _snap("5.6", accounts, extra.pop("skipped", None))
+    snap.update(basis="input", basis_stats=json.loads(json.dumps(R2_REPARSED)) if reparsed else {}, **extra)
+    return snap
+
+
+def _without_parse(snap):
+    """The same snapshot as one written before audit round 2: no credit's raw parse, no account's parse."""
+    old = json.loads(json.dumps(snap))
+    for account in old["accounts"].values():
+        account.pop("parse_sha", None)
+        for credit in account["credits"]:
+            credit.pop("raw", None)
+    return old
+
+
+def _r2_pair():
+    """A held wire and a non_revenue transfer whose printed rows a later parse reads as two counted credits."""
+    base = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 125000, "unverified_deposit", "wire_requires_review", "BANK WIRE DEPOSIT FABRIKAM",
+                tier="excluded_pending_review", reason="wire_no_sender"),
+        _r2_row(1, 50000, "non_revenue", "strong_non_revenue_rule", "TRANSFER TO SAMPLE SAVINGS", tier="non_revenue"),
+    ], parse="P0")})
+    after = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 125000, "unverified_deposit", "x", "POS DEBIT CARD NORTHWIND", tier="counted_flagged",
+                reason="no_payer_printed"),
+        _r2_row(1, 50000, "unverified_deposit", "x", "ACH CREDIT NORTHWIND CUSTOMER PAYMENT", tier="counted_flagged",
+                reason="named_payer_one_off"),
+    ], parse="P1")})
+    return base, after
+
+
+def test_r2_b01_a_credit_whose_printed_row_changed_is_a_parse_move_that_g18_reads():
+    base_snap, after_snap = _r2_pair()
+    run = _run(base_snap, after_snap)
+    # No rule moved the rows: nothing left non_revenue, no G1, no G7b, no rule move.
+    assert {"G1", "G7b"}.isdisjoint(run["guards"])
+    assert (run["left_non_revenue"], run["street_ln_changes"], run["move_matrix"]) == ({}, [], [])
+    # The parse moves are compared apart, and G18 fails the account: no explanation names it.
+    assert run["failed_guards"] == ["G18"] and run["verdict"] == "fail"
+    assert run["guard_checks"]["G18"]["status"] == "failed"
+    assert {(row["from"], row["to"], row["rows"]) for row in run["rekeyed"]["reparsed"]["move_matrix"]} == {
+        ("excluded_pending_review|wire_no_sender", "counted_flagged|no_payer_printed", 1),
+        ("non_revenue|strong_non_revenue_rule", "counted_flagged|named_payer_one_off", 1)}
+    moves = run["parse_moves"]
+    assert (moves["accounts"], moves["rows"], moves["dollars"], moves["true_delta"]) == (1, 2, 1750.0, 1750.0)
+    assert moves["by_bank"] == {"FABRICATED BANK": {"accounts": 1, "rows": 2, "dollars": 1750.0, "true_delta": 1750.0}}
+    [listed] = moves["listed"]
+    assert (listed["account"], listed["parser_route"], listed["explained_by"]) == ("cK.0", R2_ROUTE, None)
+    # The row guards still read the later rows alone.
+    bad = json.loads(json.dumps(after_snap))
+    bad["accounts"]["cK.0"]["credits"][1]["facts"] = {"transfer_no_counterparty": True}
+    assert "G4" in _run(base_snap, bad)["guards"]
+    # An explanation that names the parser route holds G18, both snapshots being re-parsed.
+    explained = census.compare(base_snap, [after_snap], explained={"routes": [R2_ROUTE]})["runs"][0]
+    assert "G18" not in explained["guards"] and explained["verdict"] == "hold"
+    assert explained["parse_moves"]["listed"][0]["explained_by"] == "route"
+
+
+def test_r2_b01_a_snapshot_written_before_round_2_pairs_its_rows_as_before():
+    # Without the raw parse (an older snapshot on either side), the rows pair by position as rule moves, as before.
+    base_snap, after_snap = _r2_pair()
+    for base, after in ((_without_parse(base_snap), _without_parse(after_snap)), (_without_parse(base_snap), after_snap)):
+        run = _run(base, after)
+        assert {"G1", "G7b"} <= set(run["guards"]) and "G18" not in run["guards"]
+        assert run["parse_moves"]["accounts"] == 0 and run["parse_moves"]["accounts_without_a_raw_parse"] == 1
+
+
+def test_r2_b01_a_cached_basis_compare_needs_a_note_for_each_account_not_a_route():
+    base_snap, after_snap = _r2_pair()
+    cached = dict(after_snap, basis_stats={})
+    routed = census.compare(base_snap, [cached], explained={"routes": [R2_ROUTE]})["runs"][0]
+    assert routed["failed_guards"] == ["G18"]
+    assert routed["guards"]["G18"]["sample"][0]["route_needs_both_snapshots_re_parsed"] is True
+    noted = census.compare(base_snap, [cached], explained={"accounts": {"cK.0": "read against its PDF"}})["runs"][0]
+    assert "G18" not in noted["guards"]
+    assert noted["parse_moves"]["listed"][0]["explained_by"] == "account"
+
+
+def test_r2_b01_a_credit_with_no_partner_is_a_parse_move_and_the_debits_alone_name_their_account():
+    # A credit only the later parse holds (a row read as a credit now) and one only the base holds are parse moves.
+    base = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 40000, "verified_revenue", "named_payer_repeats", "ACH CREDIT FABRIKAM INVOICE 1", tier="verified"),
+    ])})
+    after = _r2_snap({"cK.0": _r2_account([
+        _r2_row(1, 40000, "unverified_deposit", "x", "ACH CREDIT FABRIKAM INVOICE 1", tier="counted_flagged",
+                reason="named_payer_one_off"),
+    ], parse="P1")})
+    run = _run(base, after)
+    assert run["verified_demotions"] == {} and "undeclared_demotion" not in run["guards"]
+    assert (run["parse_moves"]["rows"], run["parse_moves"]["true_delta"]) == (2, 0.0)
+    assert {(row["from"], row["to"]) for row in run["rekeyed"]["reparsed"]["move_matrix"]} == {
+        ("verified|named_payer_repeats", census.UNPAIRED), (census.UNPAIRED, "counted_flagged|named_payer_one_off")}
+    # Every credit reads the same but the parse over every row differs (a debit changed): the account is named, and
+    # its credits stay rule moves.
+    same = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 40000, "unverified_deposit", "x", "ACH CREDIT FABRIKAM INVOICE 1", tier="counted_flagged",
+                reason="named_payer_one_off"),
+    ], parse="P1")})
+    run = _run(base, same)
+    assert run["verified_demotions"] == {"undeclared": {"rows": 1, "dollars": 400.0, "statements": 1}}
+    [listed] = run["parse_moves"]["listed"]
+    assert (listed["rows"], listed["other_rows_only"]) == (0, True) and "G18" in run["failed_guards"]
+
+
+def test_r2_b01_a_rule_move_on_the_same_raw_parse_still_fails_g1():
+    base = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 50000, "non_revenue", "strong_non_revenue_rule", "SAMPLE PAYMENT", tier="non_revenue")])})
+    after = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 50000, "unverified_deposit", "x", "SAMPLE PAYMENT", tier="counted_flagged",
+                reason="named_payer_one_off")])})
+    run = _run(base, after)
+    assert "G1" in run["guards"] and "G18" not in run["guards"]
+    assert run["left_non_revenue"] == {"outside_the_narrowings": {"rows": 1, "dollars": 500.0, "statements": 1}}
+    assert run["parse_moves"]["accounts"] == 0
+
+
+@pytest.mark.parametrize(("base_text", "after_text", "fails"), [
+    ("DEPOSIT ## SAMPLE LOAN", "DEPOSIT ## SAMPLE LN", False),
+    ("DEPOSIT ## SAMPLE LOAN PMT", "DEPOSIT ## SAMPLE LN PMT", True),
+])
+def test_r2_b01_a_street_ln_text_change_on_the_same_raw_parse_stays_g7b_s(base_text, after_text, fails):
+    printed = after_text.replace("##", "12")
+    base = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 5000, "non_revenue", "strong_non_revenue_rule", printed, text=base_text, tier="non_revenue")])})
+    after = _r2_snap({"cK.0": _r2_account([
+        _r2_row(0, 5000, "unverified_deposit", "x", printed, text=after_text, tier="counted_flagged",
+                reason="no_payer_printed")])})
+    run = _run(base, after)
+    assert len(run["street_ln_changes"]) == 1 and ("G7b" in run["guards"]) is fails
+    assert "G18" not in run["guards"] and run["parse_moves"]["accounts"] == 0
+
+
+def test_r2_b01_the_explanations_file_is_read_and_a_malformed_one_refused(tmp_path, capsys):
+    base, after, out = tmp_path / "base.json", tmp_path / "after.json", tmp_path / "report.json"
+    base_snap, after_snap = _r2_pair()
+    base.write_text(json.dumps(base_snap), encoding="utf-8")
+    after.write_text(json.dumps(after_snap), encoding="utf-8")
+    argv = ["compare", "--base", str(base), "--after", str(after), "--out", str(out)]
+    assert census.main(argv) == 1
+    explained = tmp_path / "explained.json"
+    explained.write_text(json.dumps({"routes": [R2_ROUTE], "accounts": {}}), encoding="utf-8")
+    assert census.main(argv + ["--explained-parse", str(explained)]) == 0
+    assert "parse moves" in capsys.readouterr().out
+    for malformed in ({"routes": "one"}, {"accounts": {"cK.0": ""}}, ["cK.0"], {"routes": [], "extra": 1}):
+        explained.write_text(json.dumps(malformed), encoding="utf-8")
+        assert census.main(argv + ["--explained-parse", str(explained)]) == 2
+        assert "explained" in capsys.readouterr().err
+
+
+def test_r2_b01_the_snapshot_records_each_credit_s_raw_parse_and_the_account_s_parse():
+    from analysis.schema import Statement
+
+    rows = [(5, "ACH CREDIT FABRIKAM INVOICE 1234", 500.0), (9, "SAMPLE SUPPLY ACH DEBIT", -300.0)]
+    snap = census.account_snapshot({"statement": Statement.model_validate(_statement("XXXX1234", rows)).model_dump(
+        mode="json")})
+    [credit] = snap["credits"]
+    assert credit["raw"] == census.raw_parse("ACH CREDIT FABRIKAM INVOICE 1234", 50000)
+    assert credit["raw"] == census.raw_parse("ACH CREDIT FABRIKAM INVOICE 9999", 50000) != census.raw_parse(
+        "ACH CREDIT FABRIKAM INVOICE 1234", 50100)
+    assert re.fullmatch(r"[0-9a-f]{16}", credit["raw"]) and re.fullmatch(r"[0-9a-f]{16}", snap["parse_sha"])
+    assert snap["parse_sha"] == census.parse_sha([
+        ("ACH CREDIT FABRIKAM INVOICE 1234", 50000, "credit"), ("SAMPLE SUPPLY ACH DEBIT", -30000, "debit")])
+
+
+def test_r2_b01_the_parse_hash_is_the_same_in_another_process_and_in_any_row_order():
+    rows = [("ACH CREDIT FABRIKAM INVOICE 1234", 50000, "credit"), ("SAMPLE SUPPLY ACH DEBIT", -30000, "debit"),
+            ("SAMPLE SUPPLY ACH DEBIT", -30000, "debit")]
+    here = census.parse_sha(rows)
+    assert census.parse_sha(rows[::-1]) == here != census.parse_sha(rows[:2])
+    import subprocess
+
+    code = ("from tools import revenue_census as census; "
+            f"print(census.parse_sha({rows!r}), census.raw_parse('SAMPLE SUPPLY ACH DEBIT', -30000))")
+    for seed in ("1", "2"):
+        printed = subprocess.run([sys.executable, "-c", code], cwd=census.ROOT, capture_output=True, text=True,
+                                 env={**os.environ, "PYTHONHASHSEED": seed}, check=True).stdout.split()
+        assert printed == [here, census.raw_parse("SAMPLE SUPPLY ACH DEBIT", -30000)]
+
+
+def test_r2_b01_an_unreconciled_account_is_summarised_apart_and_its_flip_is_listed(tmp_path):
+    snaps = []
+    for name, ok in (("before", False), ("after", True)):
+        cache = _FabricatedCache(tmp_path / name)
+        cache._put("analysis", "A" * 64, {"analysis": {"accounts": [
+            {"statement": _statement("XXXX1234"), "reconciliation": {"ok": ok}}]}}, "2031-03-03T00:00:00")
+        cache.analysis("B" * 64, [_statement("XXXX5678", [(5, "ACH CREDIT FABRIKAM PAYMENT", 1000.0)])],
+                       "2031-03-03T00:00:00")
+        cache.connection.close()
+        snaps.append(census.snapshot(census.cached_accounts(cache.root)))
+    before, after = snaps
+    # The unreconciled account stays out of the shares and the accounts, and the filter's count is unchanged.
+    assert list(before["accounts"]) == [f"c{'B' * 12}.0"] and before["skipped"] == {"unreconciled": 1}
+    assert census._summary(before)["posted_dollars"] == 1000.0
+    summary = before["unreconciled_summary"]
+    assert (summary["count"], summary["banks"], summary["posted_dollars"]) == (1, {"FABRICATED BANK": 1}, 4200.0)
+    assert sum(summary["tier_dollars"].values()) == 4200.0
+    assert after["unreconciled_summary"]["count"] == 0
+    # The flip is listed both ways, with its True.
+    true = census._true_cents(after["accounts"][f"c{'A' * 12}.0"]["credits"]) / 100
+    flips = _run(before, after)["reconcile_flips"]
+    assert flips["comparable"] is True and flips["to_unreconciled"] == []
+    assert [(row["account"], row["true_dollars"]) for row in flips["to_reconciled"]] == [(f"c{'A' * 12}.0", true)]
+    back = _run(after, before)["reconcile_flips"]
+    assert [(row["account"], row["base_true_dollars"]) for row in back["to_unreconciled"]] == [(f"c{'A' * 12}.0", true)]
+    assert back["to_reconciled"] == []
+    # A snapshot written before audit round 2 holds no summary: the flips are not comparable.
+    assert _run({k: v for k, v in before.items() if k != "unreconciled_summary"}, after)["reconcile_flips"][
+        "comparable"] is False
+
+
+def _r2_reparse_cache(root):
+    cache = _FabricatedCache(root)
+    routed = cache.ocr(PDF_A, ["FABRICATED PAGE A"], "2031-03-01T00:00:00")
+    cache.analysis(routed, [_statement("XXXX1234", STALE_ROWS)], "2031-03-03T00:00:00", model_used=ROUTE)
+    cache.analysis("E" * 64, [_statement("XXXX5678", STALE_ROWS)], "2031-03-04T00:00:00", model_used=ROUTE)
+    cache.connection.close()
+    return cache.root, routed
+
+
+def test_r2_b01_reparse_reads_a_routed_input_from_its_re_parse_and_the_rest_from_the_cache(tmp_path, monkeypatch):
+    data_dir, routed = _r2_reparse_cache(tmp_path / "webapp_data")
+    seen = []
+
+    def reparse(document):
+        seen.append(document["pages"])
+        return {"document": {"pages": 1}, "accounts": [
+            {"statement": _statement("XXXX1234"), "reconciliation": {"ok": True}, "model_used": ROUTE,
+             "metrics": {"dropped": True}}]}
+
+    monkeypatch.setattr(census, "_reparse_document", reparse)
+    before, out = _tree(data_dir), tmp_path / "reparsed.json.gz"
+    assert census.main(["snapshot", "--data-dir", str(data_dir), "--reparse", "--workers", "1", "--out",
+                        str(out)]) == 0
+    snap = census._read(out)
+    assert seen == [["FABRICATED PAGE A"]]
+    assert {key: [credit["text"] for credit in account["credits"]] for key, account in snap["accounts"].items()} == {
+        f"c{routed[:12]}.0": ["ACH CREDIT NORTHWIND CUSTOMER PAYMENT"], f"c{'E' * 12}.0": ["OTHER CREDIT"]}
+    # The re-parsed account keeps its analysis's stage and time, and the parser route the re-parse names.
+    assert snap["accounts"][f"c{routed[:12]}.0"]["analysis_created"] == "2031-03-03T00:00:00"
+    stats = snap["basis_stats"]["reparse"]
+    assert {name: stats[name] for name in ("inputs", "reached", "reparsed", "failed", "cached", "failures")} == {
+        "inputs": 2, "reached": 1, "reparsed": 1, "failed": 0, "cached": 1, "failures": {}}
+    assert stats["parse_mode"] == "deterministic"
+    assert _tree(data_dir) == before
+    # A snapshot of the cache alone records no re-parse.
+    cached = tmp_path / "cached.json.gz"
+    assert census.main(["snapshot", "--data-dir", str(data_dir), "--out", str(cached)]) == 0
+    assert "reparse" not in census._read(cached)["basis_stats"]
+
+
+def test_r2_b01_a_failed_re_parse_reads_the_cache_and_is_counted(tmp_path):
+    # The real deterministic pipeline (in two worker processes) refuses the fabricated page: the input is read from
+    # the cache and counted as failed.
+    data_dir, routed = _r2_reparse_cache(tmp_path / "webapp_data")
+    stats: dict = {}
+    accounts = dict(census.cached_accounts(data_dir, stats=stats, reparse=True, workers=2))
+    assert [credit["description"] for credit in accounts[f"c{routed[:12]}.0"]["statement"]["transactions"]] == [
+        description for _day, description, _amount in STALE_ROWS]
+    assert (stats["reparse"]["reached"], stats["reparse"]["reparsed"], stats["reparse"]["failed"],
+            stats["reparse"]["cached"]) == (1, 0, 1, 2)
+    assert sum(stats["reparse"]["failures"].values()) == 1
+
+
+def test_r2_b01_the_re_parse_is_refused_on_a_job_store(tmp_path, capsys):
+    assert census.main(["snapshot", "--jobs-db", str(tmp_path / "webapp.db"), "--reparse",
+                        "--out", str(tmp_path / "x.json.gz")]) == 2
+    assert "reparse" in capsys.readouterr().err
+
+
+# Audit round 2, R2-B01 (R30): the census half of I60.
+def _r30_cache(root, orphan_created):
+    cache = _FabricatedCache(root)
+    route = cache.ocr(PDF_A, ["FABRICATED PAGE ONE"], "2031-03-02T00:00:00")
+    cache.analysis(route, [_statement("XXXX1234", [(5, "OTHER CREDIT", 1000.0)])], "2031-03-03T00:00:00")
+    cache.analysis("D" * 64, [_statement("XXXX1234", [(5, "ACH CREDIT NORTHWIND CUSTOMER PAYMENT", 1000.0)])],
+                   orphan_created)
+    cache.connection.close()
+    return cache.root, route
+
+
+@pytest.mark.parametrize(("orphan_created", "newer", "input_text"), [
+    ("2031-03-09T00:00:00", 1, "ACH CREDIT NORTHWIND CUSTOMER PAYMENT"),
+    ("2031-03-01T00:00:00", 0, "OTHER CREDIT"),
+])
+def test_r2_b01_the_pdf_basis_counts_an_orphan_newer_than_the_statement_it_kept(tmp_path, orphan_created, newer,
+                                                                               input_text):
+    data_dir, _route = _r30_cache(tmp_path / "webapp_data", orphan_created)
+    stats: dict = {}
+    accounts = list(census.cached_accounts(data_dir, basis="pdf", stats=stats))
+    # The pdf basis keeps the route's analysis and drops the orphan, counting it when it is newer.
+    assert [key for key, _ in accounts] == [f"p{PDF_A[:12]}.0"]
+    assert accounts[0][1]["statement"]["transactions"][0]["description"] == "OTHER CREDIT"
+    assert (stats["orphan_accounts_matching_a_kept_statement"], stats["orphan_accounts_newer_than_kept"]) == (1, newer)
+    # The input basis still keeps the newest analysis of the statement.
+    snap = census.snapshot(census.cached_accounts(data_dir))
+    [account] = snap["accounts"].values()
+    assert [credit["text"] for credit in account["credits"]] == [input_text]
+
+
+def _r30_accounts(raising):
+    from analysis.schema import Statement
+
+    accounts = []
+    for key, created in (("cOLD.0", "2031-03-03T00:00:00"), ("cNEW.0", "2031-03-09T00:00:00")):
+        payload = {"statement": Statement.model_validate(_statement("XXXX1234")).model_dump(mode="json"),
+                   "reconciliation": {"ok": True}, "fabricated_raise": key in raising}
+        accounts.append((key, census._with_meta(payload, created)))
+    return accounts
+
+
+@pytest.mark.parametrize(("raising", "order", "kept", "skipped"), [
+    ((), 1, ["cNEW.0"], {"duplicate": 1}),
+    (("cOLD.0",), 1, ["cNEW.0"], {"duplicate": 1}),
+    (("cOLD.0",), -1, ["cNEW.0"], {"duplicate": 1}),
+    (("cNEW.0",), 1, [], {"ValueError": 1, "duplicate": 1}),
+    (("cNEW.0",), -1, [], {"ValueError": 1, "duplicate": 1}),
+])
+def test_r2_b01_an_analysis_that_raises_is_counted_once_and_never_replaced_by_an_older_parse(monkeypatch, raising,
+                                                                                            order, kept, skipped):
+    real = census.account_snapshot
+
+    def fabricated(account):
+        if account.get("fabricated_raise"):
+            raise ValueError("fabricated")
+        return real(account)
+
+    monkeypatch.setattr(census, "account_snapshot", fabricated)
+    snap = census.snapshot(iter(_r30_accounts(raising)[::order]))
+    assert (list(snap["accounts"]), snap["skipped"]) == (kept, skipped)
+
+
+def test_r2_b01_a_set_aside_analysis_whose_debits_alone_changed_is_a_parse_change():
+    from analysis.schema import Statement
+
+    credit_row = (5, "ACH CREDIT FABRIKAM INVOICE 1234", 500.0)
+    old, new, twin = (census.account_snapshot({"statement": Statement.model_validate(_statement(
+        "XXXX1234", [credit_row, (9, debit, -300.0)])).model_dump(mode="json")})
+        for debit in ("SAMPLE SUPPLY ACH DEBIT", "SAMPLE SUPPLY ACH DEBIT REF 5678", "SAMPLE SUPPLY ACH DEBIT"))
+    assert old["parse_sha"] != new["parse_sha"] and census._parse_changed(old, new)
+    assert not census._parse_changed(old, twin)
+    # A debit the later parse reads otherwise moved the credit: a parse change, never an undeclared demotion.
+    old["credits"][0].update(state="verified_revenue", method="named_payer_repeats", tier="verified", reason=None)
+    new["credits"][0].update(state="unverified_deposit", method="x", tier="counted_flagged",
+                             reason="named_payer_one_off")
+    base = _snap("5.6", {"cOLD.0": old})
+    after = dict(_snap("5.6", {"cNEW.0": new}), duplicates={"cOLD.0": "cNEW.0"})
+    run = _run(base, after)
+    assert run["rekeyed"]["reparsed"]["accounts"] == 1 and "undeclared_demotion" not in run["guards"]
+    # A base written before audit round 2 has no parse hash: its credits are compared, as before.
+    older = {key: value for key, value in old.items() if key != "parse_sha"}
+    run = _run(_snap("5.6", {"cOLD.0": older}), after)
+    assert run["rekeyed"]["reparsed"]["accounts"] == 0 and "undeclared_demotion" in run["guards"]
