@@ -1175,6 +1175,14 @@ _NAME_STARTERS = frozenset({
 #: both the holder's and the payer's side of the holder test (holder_words, holder_named). The payer, debit and lender
 #: readers keep HOLDER_NOISE, so no payer key, debit reading or lender name moves.
 _HOLDER_TEST_NOISE: frozenset[str] = HOLDER_NOISE | frozenset({"BMO", "ADV", "BUS", "CKG", "GENERAL"})
+#: Audit B9 review round 2 (I13): the words the holder readers' published products print beyond the holder test's noise:
+#: PNC's product lines (analysis/pnc.py _PRODUCTS: 'PNC Core Commercial Checking', 'Virtual Wallet With Performance
+#: Spend', 'Treasury Enterprise Plan'). Every other product those readers publish ('Checking', 'TD Business Simple
+#: Checking', 'Business Chequing Account', First Citizens' and Navy Federal's printed product lines) prints a noise word,
+#: which already makes it name nobody as a holder's name (true_revenue._usable_holder_name).
+_ACCOUNT_PRODUCT_WORDS: frozenset[str] = frozenset({
+    "PNC", "CORE", "VIRTUAL", "WALLET", "WITH", "SPEND", "TREASURY", "ENTERPRISE", "PLAN",
+})
 #: Audit B9 (I58): name particles, never a brand's initialism: a three-letter word the holder test skips when it reads
 #: the word a name leads with.
 _NAME_PARTICLES = frozenset({"DEL", "LOS", "LAS", "LES", "VAN", "VON", "DOS", "DAS", "SAN"})
@@ -1922,12 +1930,22 @@ def _summary_grid_header(text: str) -> bool:
     return _SUMMARY_GRID_HEADER_NAME.match(text) is not None
 
 
+def account_product(text: str) -> bool:
+    """Audit B9 review round 2 (I13): a normalized account name that is a product a holder reader publishes, never a
+    holder's name: no company form, and every word the holder test reads (_holder_test_words) a product word
+    (_ACCOUNT_PRODUCT_WORDS), so PNC's 'Treasury Enterprise Plan' names nobody while 'TREASURY SAMPLE PLAN LLC' does."""
+    if not text or company_form(text):
+        return False
+    return all(word in _ACCOUNT_PRODUCT_WORDS for word in _holder_test_words(text.split()))
+
+
 def holder_words(account_name: str | None) -> tuple[str, ...]:
     """5.5 (§5.2): the holder's name (holder_reading), normalized, without holder-test noise, digit tokens and short
     tokens. Often empty: the account-name field is frequently only a product name. Audit B9: a summary grid header names
-    nobody (I13), and the bank and product abbreviations are noise (I58)."""
+    nobody (I13), and the bank and product abbreviations are noise (I58). Review round 2: nor does a product a holder
+    reader publishes (account_product)."""
     text = account_name_text(account_name)
-    if not text or _summary_grid_header(text):
+    if not text or _summary_grid_header(text) or account_product(text):
         return ()
     return tuple(_holder_test_words(text.split()))
 
@@ -1982,16 +2000,20 @@ _HOLDER_RUN_CUT_LETTERS = 3
 #: CUSTOMER ID <id>': the receiver (the holder) after the originator's company field, with no label, the bank printing
 #: no padding, so a short originator runs straight on into the holder's name.
 _RECEIVER_SLOT_LABEL = re.compile(r" CUSTOMER ID\b")
+#: Audit B9 review round 2 (I13): the statement's bank that prints that receiver slot (Truist's own reader publishes
+#: 'Truist'); another bank printing CUSTOMER ID keeps the two-word reading.
+_RECEIVER_SLOT_BANK = re.compile(r"\bTRUIST\b", re.IGNORECASE)
 
 
-def holder_receiver_block(text: str) -> int | None:
+def holder_receiver_block(text: str, bank: str | None = None) -> int | None:
     """Audit B9 review round 1 (I13): how the row's payer reading may print the holder's name as another payer's
     unlabelled receiver block (holder_named's `receiver_block`: the name words of another payer's that must print before
     a run of the holder's name for the run to be read as the receiver). None on a labelled sender, which prints the
     sender alone, so a run of the holder's name inside it is the holder's ('ZELLE PAYMENT FROM <owner> <holder>'): an
     incoming wire's originator field, a person-to-person or push rail, a transfer's sender after FROM. One on Truist's
     layout, whose receiver slot follows a company field that may print one word (_RECEIVER_SLOT_LABEL: 'TRANSFER
-    <originator> INC <holder> CUSTOMER ID <id>'). Two (_PAYER_BEFORE_HOLDER_RUN_WORDS) on any other row."""
+    <originator> INC <holder> CUSTOMER ID <id>'). Two (_PAYER_BEFORE_HOLDER_RUN_WORDS) on any other row. Review round 2:
+    the one-word slot is read on a Truist statement only (`bank`, _RECEIVER_SLOT_BANK)."""
     if _is_wire_row(text) or _loose_wire_originator(text):
         return None
     row = _before_receiver(text)
@@ -1999,7 +2021,7 @@ def holder_receiver_block(text: str) -> int | None:
         return None
     if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text) and _sender_payer_region(text):
         return None
-    if _RECEIVER_SLOT_LABEL.search(row):
+    if _RECEIVER_SLOT_LABEL.search(row) and bank and _RECEIVER_SLOT_BANK.search(bank):
         return 1
     return _PAYER_BEFORE_HOLDER_RUN_WORDS
 
@@ -2025,12 +2047,19 @@ def _without_trailing_holder_run(
         if len(_holder_test_words(words[:start])) < payer_words:
             continue
         first, second = words[start], words[start + 1]
-        if any(
-            held[0] == first and len(second) >= _HOLDER_RUN_CUT_LETTERS and held[1].startswith(second)
-            for held in held_names
-        ):
-            return " ".join(words[:start])
+        for held in held_names:
+            if held[0] == first and len(second) >= _HOLDER_RUN_CUT_LETTERS and held[1].startswith(second):
+                # Review round 2: a field printing the holder's own name glued is the holder's, never another payer.
+                return payer if _glued_holder_name(words[:start], held) else " ".join(words[:start])
     return payer
+
+
+def _glued_holder_name(field: Sequence[str], held: Sequence[str]) -> bool:
+    """Audit B9 review round 2 (I13): the words before a run of the holder's name print the holder's name with its
+    spaces removed, whole, with a legal form glued on, or cut to _HOLDER_CUT_LETTERS letters or more (Truist's company
+    field printing the holder's own name: 'TRANSFER CONTOSOGAMES CONTOSO GAMES CUSTOMER ID ...')."""
+    glued, name = "".join(field), "".join(held)
+    return glued.startswith(name) or (len(glued) >= _HOLDER_CUT_LETTERS and name.startswith(glued))
 
 
 #: Audit B9 review round 1 (I58): a word the holder test drops that can still lead the holder's own name: GENERAL (a
@@ -2075,11 +2104,12 @@ def holder_named(
     is that payer's unlabelled receiver, never the payer (_without_trailing_holder_run, I13). Audit B9 review round 1:
     the row's layout says where that receiver can print (`receiver_block`, holder_receiver_block: never on a labelled
     sender, after one name word on Truist's receiver slot), and a one-word holder left by a dropped lead word is read
-    with that word (_dropped_lead_run, I58)."""
+    with that word (_dropped_lead_run, I58). Review round 2: a product a holder reader publishes names nobody
+    (account_product)."""
     if not region or not account_name:
         return False
     printed = account_name_text(account_name)
-    if not printed or _summary_grid_header(printed):
+    if not printed or _summary_grid_header(printed) or account_product(printed):
         return False
     names: tuple[str, ...] = (printed,)
     if _HOLDER_TRADE_NAME.search(printed):

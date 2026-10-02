@@ -79,7 +79,7 @@ def test_the_holder_reading_prefers_the_printed_holder_name():
 
 @pytest.mark.parametrize("name", [
     "INSTANCES AMOUNT", "AMOUNT", "INSTANCES AMOUNT BEGINNING BALANCE 1,234.56", "Business Complete Checking",
-    "BMO BUS CKG", "GENERAL CHECKING",
+    "BMO BUS CKG", "GENERAL CHECKING", "Treasury Enterprise Plan", "Virtual Wallet With Performance Spend",
 ])
 def test_a_grid_header_or_a_product_never_names_the_holder(name):
     assert not tr._usable_holder_name(name)
@@ -451,9 +451,20 @@ def test_a_platform_printing_the_store_s_descriptor_before_truist_s_receiver_slo
     # The holder's own account elsewhere: the company field and the receiver slot both print the holder.
     "TRANSFER CONTOSO GAMES INC CONTOSO GAMES CUSTOMER ID 123456",
     "TRANSFER CONTOSO CONTOSO GAMES CUSTOMER ID 123456",
+    # Review round 2: the company field printing the holder's own name glued, or glued with its legal form.
+    "TRANSFER CONTOSOGAMES CONTOSO GAMES CUSTOMER ID 123456",
+    "TRANSFER CONTOSOGAMESINC CONTOSO GAMES CUSTOMER ID 123456",
 ])
 def test_truist_s_own_money_stays_held(text):
     assert _tiers([(text, 300.0)], holder_name=TRUIST_HOLDER, bank="Truist") == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize("bank", ["Regions Bank", None])
+def test_the_one_word_receiver_slot_is_truist_s_alone(bank):
+    # Review round 2: another layout printing CUSTOMER ID keeps the two-word reading of a receiver block.
+    text = "TRANSFER FABRIKAM INC CONTOSO GAMES CUSTOMER ID SAMPLEPAY1"
+    assert _tiers([(text, 300.0)], holder_name=TRUIST_HOLDER, bank=bank) == [HOLDER_NAME]
+    assert tc.holder_receiver_block(_revenue(text), bank) == 2
 
 
 @pytest.mark.parametrize(("text", "block"), [
@@ -465,7 +476,7 @@ def test_truist_s_own_money_stays_held(text):
     ("FABRIKAM INSURANCE MISC NORTHWIND HARBOR AGENC", 2),
 ])
 def test_the_layout_says_where_a_receiver_block_can_print(text, block):
-    assert tc.holder_receiver_block(_revenue(text)) == block
+    assert tc.holder_receiver_block(_revenue(text), "Truist") == block
 
 
 # A labelled sender (a sender after FROM, a wire's originator field) prints the sender alone: the owner's name printed
@@ -509,6 +520,41 @@ def test_the_holder_s_own_wire_is_held_whatever_town_its_beneficiary_prints():
     assert _twice(no_form, 6000.0) == [HOLDER_NAME, HOLDER_NAME]
 
 
+@pytest.mark.parametrize("name", ["NORTHWIND MARINE", "SAMPLE PERSON"])
+def test_the_holder_s_own_wire_with_no_legal_form_is_held_whatever_town_its_beneficiary_prints(name):
+    # Review round 2: a name with no legal form is read without the town and state its address prints after it.
+    text = LOOKALIKE_WIRE.format(bo=name, bnf=name, city="OTHERTOWN")
+    assert _twice(text, 6000.0) == [HOLDER_NAME, HOLDER_NAME]
+    assert tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)))
+
+
+def test_two_names_with_no_legal_form_sharing_two_first_words_are_never_one_wire_sender():
+    text = LOOKALIKE_WIRE.format(bo="NORTHWIND MARINE SUPPLY", bnf="NORTHWIND MARINE REPAIR", city="OTHERTOWN")
+    tiers = _twice(text, 6000.0)
+    assert HOLDER_NAME not in tiers
+    assert all(tier[0] == "counted_flagged" for tier in tiers)
+
+
+@pytest.mark.parametrize(("value", "party"), [
+    ("NORTHWIND MARINE SAMPLEVILLE TX", "NORTHWIND MARINE"),
+    ("NORTHWIND MARINE SAMPLEVILLE TX US", "NORTHWIND MARINE"),
+    ("NORTHWIND MARINE LLC SAMPLEVILLE TX", "NORTHWIND MARINE LLC"),
+    ("SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE TX", "SAMPLE PERSON"),
+    # Too short to print a town after the name: read as printed.
+    ("SAMPLE PERSON TX", "SAMPLE PERSON TX"),
+    ("NORTHWIND MARINE SUPPLY", "NORTHWIND MARINE SUPPLY"),
+    # A two-word town leaves its first word, which one name read with a one-word town still starts.
+    ("NORTHWIND MARINE SAN SAMPLE TX", "NORTHWIND MARINE SAN"),
+])
+def test_a_wire_party_is_read_without_its_address(value, party):
+    assert tr._wire_party(value) == party
+
+
+def test_a_two_word_town_on_one_side_still_reads_one_wire_party():
+    two_word_town = tr._wire_party("NORTHWIND MARINE SAN SAMPLE TX")
+    assert tr._same_name(two_word_town, tr._wire_party("NORTHWIND MARINE OTHERTOWN TX"))
+
+
 # A person the account-name field prints beside the parser's holder name is a holder's name too.
 
 def test_a_person_in_the_account_name_field_is_read_beside_the_parser_s_holder_name():
@@ -516,6 +562,61 @@ def test_a_person_in_the_account_name_field_is_read_beside_the_parser_s_holder_n
     assert _tiers(rows, account_name="SAMPLE PERSON", holder_name="NORTHWIND MARINE LLC") == [HOLDER_NAME]
     # A product in the account-name field names nobody.
     assert _tiers(rows, account_name="Business Complete Checking", holder_name="NORTHWIND MARINE LLC") == [P2P]
+
+
+# Review round 2: a product the readers publish in the account-name field (PNC's Treasury Enterprise Plan) never names
+# the holder, beside the parser's holder name or alone.
+
+PNC_HOLDER = "CONTOSO TRADING LLC"
+PNC_PRODUCT = "Treasury Enterprise Plan"
+
+
+@pytest.mark.parametrize(("text", "tier"), [
+    ("ACH CREDIT US TREASURY 310 MISC PAY 123456789 CCD", REPEATS),
+    ("CORPORATE ACH MISC PAY 123456789 US TREASURY 310 123456789", REPEATS),
+    ("ACH CREDIT TREASURY SAMPLE GROUP INC 123456789 CCD", REPEATS),
+    ("ZELLE PAYMENT FROM ENTERPRISE PLAN SAMPLE LLC CONF 1234567890", P2P),
+])
+@pytest.mark.parametrize("holder_name", [PNC_HOLDER, None])
+def test_a_product_in_the_account_name_field_never_holds_a_payer_sharing_its_words(text, tier, holder_name):
+    assert _twice(text, 900.0, account_name=PNC_PRODUCT, holder_name=holder_name, bank="PNC Bank") == [tier, tier]
+    assert _twice(text, 900.0, account_name="Business Checking", holder_name=holder_name, bank="PNC Bank") == [
+        tier, tier
+    ]
+
+
+def test_the_holder_hold_never_reads_a_product_as_a_second_holder_name():
+    record = classify_statement_transactions(_statement(
+        [("ACH CREDIT FABRIKAM SUPPLY INC 123456789 CCD", 900.0)], account_name=PNC_PRODUCT, holder_name=PNC_HOLDER,
+        bank="PNC Bank",
+    ))[0]
+    assert tr._holder_names(record) == (PNC_HOLDER,)
+    assert tc.holder_words(PNC_PRODUCT) == ()
+    assert not tc.holder_named("US TREASURY", PNC_PRODUCT)
+    # The holder's own money is still held beside the product.
+    own = "ZELLE PAYMENT FROM CONTOSO TRADING LLC CONF 1234567890"
+    assert _tiers([(own, 900.0)], account_name=PNC_PRODUCT, holder_name=PNC_HOLDER, bank="PNC Bank") == [HOLDER_NAME]
+
+
+def test_a_company_whose_name_prints_product_words_still_names_the_holder():
+    for holder in ("TREASURY SAMPLE PLAN LLC", "TREASURY ENTERPRISE PLAN LLC"):
+        assert tr._usable_holder_name(holder)
+        assert tc.holder_words(holder) != ()
+    text = "ZELLE PAYMENT FROM TREASURY SAMPLE PLAN LLC CONF 1234567890"
+    assert _tiers([(text, 900.0)], holder_name="TREASURY SAMPLE PLAN LLC") == [HOLDER_NAME]
+    assert _tiers([(text, 900.0)], account_name="TREASURY SAMPLE PLAN LLC") == [HOLDER_NAME]
+
+
+def test_no_product_a_holder_reader_publishes_names_a_holder():
+    from analysis import pnc
+
+    published = (*pnc._PRODUCTS, "Checking", "TD Business Simple Checking", "Business Chequing Account",
+                 "Business Banking II", "Professional Business Checking", "Analysis Business Checking",
+                 "Business Checking")
+    for product in published:
+        assert not tr._usable_holder_name(product), product
+    for product in pnc._PRODUCTS:
+        assert tc.holder_words(product) == (), product
 
 
 # A one-word holder left by a dropped lead word (GENERAL, a two-letter initialism) is read with that word.

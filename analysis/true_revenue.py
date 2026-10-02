@@ -1947,8 +1947,9 @@ def _holder(record: TransactionClassification) -> str | None:
 def _holder_names(record: TransactionClassification) -> tuple[str, ...]:
     """§5.2, §8.1 (audit B9 review round 1: I13): the names the holder hold reads: the holder's name (_holder), and,
     beside a parser's holder name, the account-name field when it names a holder too (_usable_holder_name: a person or a
-    company, never a product), as each side of a DBA name is read: a layout that prints the owner there keeps the
-    owner's own money held."""
+    company, never a product; review round 2: never a product a holder reader publishes, PNC's 'Treasury Enterprise
+    Plan' included), as each side of a DBA name is read: a layout that prints the owner there keeps the owner's own
+    money held."""
     holder = _holder(record)
     names = [holder] if holder else []
     account = record.account_name
@@ -1968,7 +1969,7 @@ def region_names_holder(record: TransactionClassification, text: str, region: st
     names = _holder_names(record)
     if not region or not names or merchant_settlement(text, names):
         return False
-    block = classifier.holder_receiver_block(text)
+    block = classifier.holder_receiver_block(text, record.bank)
     return any(classifier.holder_named(region, name, receiver_block=block) for name in names)
 
 
@@ -1976,13 +1977,17 @@ def _usable_holder_name(account_name: str | None) -> bool:
     """§5.2 (A3-G refinement): the holder's name (`account_name`: holder_reading's name) names its holder: a company
     form, or a person's name (two to four words of letters, none a product, noise or generic word). A product name
     ('BUSINESS ADVANTAGE CHECKING') or an empty field names nobody. Audit B9 (I13): nor does Chase's summary grid header
-    ('INSTANCES AMOUNT') or a name of the holder test's bank and product abbreviations (BMO BUS CKG, GENERAL)."""
+    ('INSTANCES AMOUNT') or a name of the holder test's bank and product abbreviations (BMO BUS CKG, GENERAL). Review
+    round 2: nor a product a holder reader publishes, whose words are no noise (classifier.account_product: PNC's
+    'Treasury Enterprise Plan')."""
     classifier = _classifier()
     name = classifier.account_name_text(account_name)
     if not name or classifier._summary_grid_header(name):
         return False
     if classifier.company_form(name):
         return True
+    if classifier.account_product(name):
+        return False
     words = name.split()
     return 2 <= len(words) <= 4 and all(
         word.isalpha() and word not in classifier._HOLDER_TEST_NOISE and word not in classifier.REVENUE_GENERIC_WORDS
@@ -2168,16 +2173,33 @@ _WIRE_PARTY_LEGAL_FORMS = frozenset({
 _WIRE_BENEFICIARY_LABEL = re.compile(r"^(?:N?BNF|BENEFICIARY)(?: NAME)?\s*")
 
 
+#: §8.1 (audit B9 review round 2: I13): the state codes a wire party's address prints after its town (_US_STATE_TAIL
+#: without the country codes), and the country codes it may print after the state.
+_WIRE_PARTY_STATES = _US_STATE_TAIL - {"US", "CAUS"}
+_WIRE_PARTY_COUNTRIES = frozenset({"US", "USA"})
+#: §8.1 (audit B9 review round 2: I13): the fewest words a party's field prints when a town and a state follow its name
+#: (two name words, the town, the state).
+_WIRE_PARTY_TOWN_STATE_WORDS = 4
+
+
 def _wire_party(value: str) -> str:
     """§8.1 (audit B9 review round 1: I13): the name a wire's sender or beneficiary field prints: its words up to its
-    first token with a digit (the address's number), cut after its first legal form."""
+    first token with a digit (the address's number), cut after its first legal form. Review round 2: a name no legal
+    form ends is read without the town and state its address prints after it ('NORTHWIND MARINE SAMPLEVILLE TX', a
+    country code after the state included), read as one town word before the state (a two-word town leaves its first
+    word, which the class-B prefix reading of _same_name still matches against a one-word town), when two name words
+    stay before them."""
     words: list[str] = []
     for word in value.split():
         if any(character.isdigit() for character in word):
             break
         words.append(word)
         if word in _WIRE_PARTY_LEGAL_FORMS:
-            break
+            return " ".join(words)
+    if len(words) >= 2 and words[-1] in _WIRE_PARTY_COUNTRIES and words[-2] in _WIRE_PARTY_STATES:
+        words.pop()
+    if len(words) >= _WIRE_PARTY_TOWN_STATE_WORDS and words[-1] in _WIRE_PARTY_STATES:
+        words = words[:-2]
     return " ".join(words)
 
 
@@ -3432,7 +3454,7 @@ def _first_hold(
     # (_holder_names), and the row's layout sets where another payer's receiver block can print
     # (holder_receiver_block).
     names = _holder_names(record)
-    block = classifier.holder_receiver_block(text)
+    block = classifier.holder_receiver_block(text, record.bank)
     if not claimed and (
         (region or sender) and not merchant_settlement(text, (*names, *receiver_holders)) and (
             any(classifier.holder_named(region or sender, name, receiver_block=block) for name in names)

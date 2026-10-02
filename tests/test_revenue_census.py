@@ -2189,6 +2189,21 @@ def test_b9_review_1_the_holder_fact_reads_truist_s_receiver_slot_as_the_pass_do
     assert [(credit["facts"]["holder"], credit["tier"]) for credit in credits] == [(False, "counted_flagged")]
 
 
+def test_b9_review_2_a_product_in_the_account_name_field_is_no_holder_fact():
+    # PNC's Treasury Enterprise Plan beside the parser's holder name names nobody, so a government payer printing
+    # TREASURY is no holder fact and still verifies on repeat.
+    from analysis.schema import Statement, Transaction
+
+    row = "ACH CREDIT US TREASURY 310 MISC PAY 123456789 CCD"
+    statement = Statement(bank="PNC Bank", account_name="Treasury Enterprise Plan", holder_name="CONTOSO TRADING LLC",
+                          transactions=[
+                              Transaction(date="2031-03-02", description=row, amount=900.0, direction="credit"),
+                              Transaction(date="2031-03-09", description=row, amount=950.0, direction="credit"),
+                          ])
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert [(credit["facts"]["holder"], credit["tier"]) for credit in credits] == [(False, "verified")] * 2
+
+
 @pytest.mark.parametrize(("prior", "later", "cause"), [
     (_q56("named_payer_repeats", MERCURY_ROW),
      _after56("unidentified_posted_credit", MERCURY_ROW, tier="excluded_pending_review", reason="holder_name"),
