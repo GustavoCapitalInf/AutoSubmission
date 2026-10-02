@@ -2161,6 +2161,34 @@ def test_b9_a_processor_s_settlement_under_the_holder_s_name_is_no_holder_fact()
     assert [credit["tier"] for credit in credits] == ["verified", "verified"]
 
 
+def test_b9_review_1_a_holder_named_merchant_keeps_its_own_zelle_a_holder_fact():
+    # The settlement words are read outside the holder's own name, as the pass reads them: a holder whose name prints
+    # MERCHANT is still the payer of its own Zelle (G3 reads the fact).
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="FABRICATED BANK", holder_name="NORTHWIND MERCHANT GROUP LLC", transactions=[
+        Transaction(date="2031-03-02", description="ZELLE PAYMENT FROM NORTHWIND MERCHANT GROUP LLC CONF 1234567890",
+                    amount=900.0, direction="credit"),
+    ])
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert [(credit["facts"]["holder"], credit["tier"], credit["reason"]) for credit in credits] == [
+        (True, "excluded_pending_review", "holder_name")
+    ]
+
+
+def test_b9_review_1_the_holder_fact_reads_truist_s_receiver_slot_as_the_pass_does():
+    # A platform printing the store's descriptor before Truist's receiver slot is counted by the pass, and the census's
+    # holder fact reads the same layout, so G3 never reads the counted row as the holder's.
+    from analysis.schema import Statement, Transaction
+
+    row = "FABRIKAMLIVE CONTOSO GAMES SHOP CONTOSO GAMES INC CUSTOMER ID ST A1B2C3D4E5F6"
+    statement = Statement(bank="Truist", holder_name="CONTOSO GAMES INC", transactions=[
+        Transaction(date="2031-03-02", description=row, amount=300.0, direction="credit"),
+    ])
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert [(credit["facts"]["holder"], credit["tier"]) for credit in credits] == [(False, "counted_flagged")]
+
+
 @pytest.mark.parametrize(("prior", "later", "cause"), [
     (_q56("named_payer_repeats", MERCURY_ROW),
      _after56("unidentified_posted_credit", MERCURY_ROW, tier="excluded_pending_review", reason="holder_name"),

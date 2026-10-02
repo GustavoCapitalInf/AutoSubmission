@@ -3940,6 +3940,17 @@ def test_pnc_reads_the_holder_before_its_product_summary():
     assert statement.account_name == "Treasury Enterprise Plan"
 
 
+def test_pnc_never_reads_its_own_product_in_capitals_as_the_holder():
+    # Audit B9 review round 1: a summary title whose product prints in capitals names no holder.
+    from analysis import pnc
+
+    for line in ("TREASURY ENTERPRISE PLAN", "ANALYSIS BUSINESS CHECKING", "BUSINESS CHECKING PLUS",
+                 "PNC CORE COMMERCIAL CHECKING"):
+        assert pnc._holder_name(f"PNC Bank\n{line} Summary Account number: XX-XXXX-0000\n") is None
+    line = "CONTOSO TRADING LLC TREASURY ENTERPRISE PLAN Summary Account number: XX-XXXX-0000\n"
+    assert pnc._holder_name("PNC Bank\n" + line) == "CONTOSO TRADING LLC"
+
+
 def test_navy_federal_reads_the_holder_from_its_mailing_block():
     from analysis import navy_federal
 

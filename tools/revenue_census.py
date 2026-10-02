@@ -907,6 +907,10 @@ def _guard_facts(record, text: str) -> dict:
     settlement = bool(getattr(pass_7, "merchant_settlement", None) and pass_7.merchant_settlement(revenue))
     facts["gate"] = classifier.channel_gate(revenue)
     facts["holder"] = classifier.holder_named(region, holder) and not settlement
+    # Audit B9 review round 1 (I13): the pass's own reading of the holder hold on the payer region, on a checkout that
+    # has it (the holder's names, the layout's receiver block, the settlement words read outside the holder's name).
+    if getattr(pass_7, "region_names_holder", None) is not None:
+        facts["holder"] = pass_7.region_names_holder(record, revenue, region)
     facts["numbered"] = classifier.numbered_company(revenue, region)
     # G1 (review I1): narrowing 4 needs a third-party originator.
     facts["third_party_originator"] = classifier._third_party_originator(revenue) is not None

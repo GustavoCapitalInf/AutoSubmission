@@ -361,3 +361,178 @@ def test_a_product_word_left_alone_in_the_account_name_holds_no_customer():
 ])
 def test_the_holder_test_reads_names_not_industry_words(holder, payer, named):
     assert tc.holder_named(payer, holder) is named
+
+
+# --- Audit B9 review round 1 ----------------------------------------------------------------------------------------
+
+def _revenue(text):
+    return tc.revenue_text(tc.normalize_transaction_description(text))
+
+
+def _own_rows(holder):
+    zelle = f"ZELLE PAYMENT FROM {holder} CONF 1234567890"
+    push = f"{holder} DES:TRANSFER ID:1 INDN:{holder} CO ID:1234567890 CCD"
+    wire = f"WIRE TYPE:WIRE IN DATE: 540302 TIME:1015 ET TRN:2054030200123456 ORIG:{holder} ID:1234567890"
+    return zelle, push, wire
+
+
+# A processor's settlement word is read outside the holder's own name: a holder whose name prints MERCHANT, MERCH or
+# BANKCARD keeps its own Zelle, push and wire held.
+
+@pytest.mark.parametrize("holder", ["NORTHWIND MERCHANT GROUP LLC", "CONTOSO MERCH LLC", "SAMPLE BANKCARD SUPPLY INC"])
+def test_a_holder_whose_name_prints_a_settlement_word_keeps_its_own_money_held(holder):
+    zelle, push, wire = _own_rows(holder)
+    assert _tiers([(zelle, 900.0)], holder_name=holder) == [HOLDER_NAME]
+    assert _twice(push, 900.0, holder_name=holder) == [HOLDER_NAME, HOLDER_NAME]
+    assert _twice(wire, 9000.0, holder_name=holder) == [HOLDER_NAME, HOLDER_NAME]
+    # On the row alone: the push's originator is its own receiver field, whatever words the name prints.
+    assert _twice(push, 900.0) == [HOLDER_NAME, HOLDER_NAME]
+
+
+def test_a_person_holder_surnamed_merchant_keeps_its_own_zelle_held():
+    text = "ZELLE PAYMENT FROM SAMPLE MERCHANT CONF 1234567890"
+    assert _tiers([(text, 900.0)], holder_name="SAMPLE MERCHANT") == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize("holder_name", [None, "CONTOSO MERCHANT SUPPLY LLC"])
+def test_a_processor_s_entry_under_a_merchant_named_holder_is_still_never_held(holder_name):
+    text = CHASE_ACH.format(orig="CONTOSO MERCHANT SUPPLY", entry="NETSWEEP ", receiver="CONTOSO MERCHANT SUPPLY LLC")
+    tiers = _twice(text, 300.0, holder_name=holder_name)
+    assert HOLDER_NAME not in tiers
+    assert all(tier[0] in ("verified", "counted_flagged") for tier in tiers)
+
+
+def test_a_processor_s_word_printed_after_the_holder_s_name_on_an_unlabelled_row_is_never_held():
+    # A layout with no entry field prints the processor's word after the merchant's own name.
+    text = "CONTOSO TRADING LLC SAMPLE FINTECHEFT 123456"
+    tiers = _tiers([(text, 300.0)], holder_name="CONTOSO TRADING LLC")
+    assert tiers != [HOLDER_NAME]
+    assert tiers[0][0] == "counted_flagged"
+
+
+def test_the_settlement_words_are_read_outside_the_holder_s_own_name():
+    holder = "NORTHWIND MERCHANT GROUP LLC"
+    zelle, push, wire = _own_rows(holder)
+    for text in (zelle, push, wire):
+        assert not tr.merchant_settlement(_revenue(text), (holder,))
+    netsweep = CHASE_ACH.format(orig="NORTHWIND MERCHANT GRO", entry="NETSWEEP ", receiver=holder)
+    assert tr.merchant_settlement(_revenue(netsweep), (holder,))
+    assert tr.merchant_settlement(_revenue(netsweep))
+    # A person-to-person or wire row never prints a processor's settlement.
+    assert not tr.merchant_settlement(_revenue("ZELLE PAYMENT FROM FABRIKAM MERCHANT SERVICES CONF 1234567890"))
+    assert not tr.merchant_settlement(_revenue(_own_rows("FABRIKAM MERCHANT SERVICES")[2]))
+
+
+# Truist prints '<entry> <company field> <receiver> CUSTOMER ID <id>': the holder's name in the receiver slot after a
+# one-word originator is the receiver, never the payer.
+
+TRUIST_HOLDER = "CONTOSO GAMES INC"
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    ("TRANSFER FABRIKAM INC CONTOSO GAMES CUSTOMER ID SAMPLEPAY1", TRUIST_HOLDER),
+    ("TRANSFER SAMPLEBOOK CONTOSO GAMES IN CUSTOMER ID ST A1B2C3D4E5F6", TRUIST_HOLDER),
+    ("TRANSFER FABRIKAM INC CONTOSO SAMPLE GAMES CUSTOMER ID SAMPLEPAY1", "CONTOSO SAMPLE GAMES INC"),
+])
+def test_truist_s_receiver_slot_after_a_one_word_originator_is_never_the_payer(text, holder):
+    assert _tiers([(text, 300.0)], holder_name=holder, bank="Truist") == [P2P]
+    assert _tiers([(text, 300.0)], account_name="Checking", bank="Truist") == [P2P]
+
+
+def test_a_platform_printing_the_store_s_descriptor_before_truist_s_receiver_slot_is_never_the_holder():
+    text = "FABRIKAMLIVE CONTOSO GAMES SHOP CONTOSO GAMES INC CUSTOMER ID ST A1B2C3D4E5F6"
+    tiers = _tiers([(text, 300.0)], holder_name=TRUIST_HOLDER, bank="Truist")
+    assert tiers != [HOLDER_NAME]
+    assert tiers[0][0] == "counted_flagged"
+
+
+@pytest.mark.parametrize("text", [
+    "ZELLE BUSINESS PAYMENT FROM CONTOSO GAMES INC PAYMENT ID 1234",
+    # The holder's own account elsewhere: the company field and the receiver slot both print the holder.
+    "TRANSFER CONTOSO GAMES INC CONTOSO GAMES CUSTOMER ID 123456",
+    "TRANSFER CONTOSO CONTOSO GAMES CUSTOMER ID 123456",
+])
+def test_truist_s_own_money_stays_held(text):
+    assert _tiers([(text, 300.0)], holder_name=TRUIST_HOLDER, bank="Truist") == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize(("text", "block"), [
+    ("TRANSFER FABRIKAM INC CONTOSO GAMES CUSTOMER ID SAMPLEPAY1", 1),
+    ("ZELLE PAYMENT FROM SAMPLE PERSON NORTHWIND MARINE LLC CONF 1234567890", None),
+    ("ONLINE TRANSFER FROM SAMPLE PERSON NORTHWIND MARINE LLC REF 1234567890", None),
+    ("WIRE TYPE:WIRE IN DATE: 540302 TIME:1015 ET TRN:2054030200123456 ORIG:SAMPLE PERSON NORTHWIND MARINE LLC ID:1",
+     None),
+    ("FABRIKAM INSURANCE MISC NORTHWIND HARBOR AGENC", 2),
+])
+def test_the_layout_says_where_a_receiver_block_can_print(text, block):
+    assert tc.holder_receiver_block(_revenue(text)) == block
+
+
+# A labelled sender (a sender after FROM, a wire's originator field) prints the sender alone: the owner's name printed
+# before the holder's is the holder's own money, never another payer's receiver block.
+
+@pytest.mark.parametrize("text", [
+    "ZELLE PAYMENT FROM SAMPLE PERSON NORTHWIND MARINE LLC CONF 1234567890",
+    "ONLINE TRANSFER FROM SAMPLE PERSON NORTHWIND MARINE LLC REF 1234567890",
+    "WIRE TYPE:WIRE IN DATE: 540302 TIME:1015 ET TRN:2054030200123456 ORIG:SAMPLE PERSON NORTHWIND MARINE LLC ID:1",
+])
+def test_a_labelled_sender_printing_the_owner_and_the_holder_is_the_holder_s_own_money(text):
+    assert _tiers([(text, 900.0)], holder_name="NORTHWIND MARINE LLC") == [HOLDER_NAME]
+
+
+# The wire hold compares the whole sender with the whole beneficiary: two companies sharing two first words are two.
+
+LOOKALIKE_WIRE = (
+    "FEDWIRE CREDIT VIA: SAMPLE BANK/012345678 B/O: {bo} SAMPLEVILLE TX 75001 US REF: CHASE "
+    "NYC/CTR/BNF={bnf} {city} TX 75001 US/AC-000000001234 RFB=NOTPROVIDED IMAD: 0302MMQFMP2N000123 TRN: 1234567890FF"
+)
+
+
+@pytest.mark.parametrize(("bo", "bnf"), [
+    ("NEW SAMPLE CITY HOSPITAL", "NEW SAMPLE MEDICAL SUPPLY LLC"),
+    ("THE SAMPLE COMPANY INC", "THE SAMPLE BAKERY LLC"),
+    ("SOUTH SAMPLE CONSTRUCTION INC", "SOUTH SAMPLE ELECTRIC LLC"),
+])
+def test_two_companies_sharing_two_first_words_are_never_one_wire_sender(bo, bnf):
+    text = LOOKALIKE_WIRE.format(bo=bo, bnf=bnf, city="SAMPLEVILLE")
+    tiers = _twice(text, 6000.0)
+    assert HOLDER_NAME not in tiers
+    # Q5's own-account veto still refuses them as proof.
+    assert all(tier[0] == "counted_flagged" for tier in tiers)
+    assert not tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)))
+
+
+def test_the_holder_s_own_wire_is_held_whatever_town_its_beneficiary_prints():
+    text = LOOKALIKE_WIRE.format(bo="NORTHWIND MARINE LLC", bnf="NORTHWIND MARINE LLC", city="OTHERTOWN")
+    assert _twice(text, 6000.0) == [HOLDER_NAME, HOLDER_NAME]
+    no_form = LOOKALIKE_WIRE.format(bo="NORTHWIND MARINE", bnf="NORTHWIND MARINE LLC", city="OTHERTOWN")
+    assert _twice(no_form, 6000.0) == [HOLDER_NAME, HOLDER_NAME]
+
+
+# A person the account-name field prints beside the parser's holder name is a holder's name too.
+
+def test_a_person_in_the_account_name_field_is_read_beside_the_parser_s_holder_name():
+    rows = [("ZELLE PAYMENT FROM SAMPLE PERSON CONF 1234567890", 900.0)]
+    assert _tiers(rows, account_name="SAMPLE PERSON", holder_name="NORTHWIND MARINE LLC") == [HOLDER_NAME]
+    # A product in the account-name field names nobody.
+    assert _tiers(rows, account_name="Business Complete Checking", holder_name="NORTHWIND MARINE LLC") == [P2P]
+
+
+# A one-word holder left by a dropped lead word (GENERAL, a two-letter initialism) is read with that word.
+
+@pytest.mark.parametrize(("holder", "payer", "named"), [
+    ("GENERAL PLUMBING LLC", "PLUMBING SUPPLY HOUSE INC", False),
+    ("GENERAL PLUMBING LLC", "GENERAL PLUMBING", True),
+    ("GENERAL CONTRACTORS LLC", "CONTRACTORS DEPOT INC", False),
+    ("JB TRUCKING LLC", "TRUCKING PARTNERS INC", False),
+    ("JB TRUCKING LLC", "JB TRUCKING", True),
+    # A one-word holder printed alone keeps the one-word reading.
+    ("LANDSCAPING SERVICES LLC", "LANDSCAPING SERVICES", True),
+])
+def test_a_one_word_holder_left_by_a_dropped_lead_word_must_print_with_it(holder, payer, named):
+    assert tc.holder_named(payer, holder) is named
+
+
+def test_a_customer_leading_with_the_holder_s_industry_word_is_counted():
+    text = "ZELLE PAYMENT FROM PLUMBING SUPPLY HOUSE INC CONF 1234567890"
+    assert _tiers([(text, 750.0)], holder_name="GENERAL PLUMBING LLC") == [P2P]

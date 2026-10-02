@@ -1978,19 +1978,51 @@ _PAYER_BEFORE_HOLDER_RUN_WORDS = 2
 _HOLDER_RUN_CUT_LETTERS = 3
 
 
-def _without_trailing_holder_run(payer: str, names: Sequence[str]) -> str:
+#: Audit B9 review round 1 (I13): Truist's receiver slot. Its credit rows print '<entry> <company field> <receiver>
+#: CUSTOMER ID <id>': the receiver (the holder) after the originator's company field, with no label, the bank printing
+#: no padding, so a short originator runs straight on into the holder's name.
+_RECEIVER_SLOT_LABEL = re.compile(r" CUSTOMER ID\b")
+
+
+def holder_receiver_block(text: str) -> int | None:
+    """Audit B9 review round 1 (I13): how the row's payer reading may print the holder's name as another payer's
+    unlabelled receiver block (holder_named's `receiver_block`: the name words of another payer's that must print before
+    a run of the holder's name for the run to be read as the receiver). None on a labelled sender, which prints the
+    sender alone, so a run of the holder's name inside it is the holder's ('ZELLE PAYMENT FROM <owner> <holder>'): an
+    incoming wire's originator field, a person-to-person or push rail, a transfer's sender after FROM. One on Truist's
+    layout, whose receiver slot follows a company field that may print one word (_RECEIVER_SLOT_LABEL: 'TRANSFER
+    <originator> INC <holder> CUSTOMER ID <id>'). Two (_PAYER_BEFORE_HOLDER_RUN_WORDS) on any other row."""
+    if _is_wire_row(text) or _loose_wire_originator(text):
+        return None
+    row = _before_receiver(text)
+    if _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
+        return None
+    if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text) and _sender_payer_region(text):
+        return None
+    if _RECEIVER_SLOT_LABEL.search(row):
+        return 1
+    return _PAYER_BEFORE_HOLDER_RUN_WORDS
+
+
+def _without_trailing_holder_run(
+    payer: str, names: Sequence[str], payer_words: int | None = _PAYER_BEFORE_HOLDER_RUN_WORDS,
+) -> str:
     """Audit B9 (I13; B7's I47 for the holder test): a payer name that prints another payer's name first (two name
     words or more, _PAYER_BEFORE_HOLDER_RUN_WORDS) and then a run of one of the holder's names (its first two words, the
     second whole or cut): the unlabelled receiver block, read without that run and whatever follows it ('FABRIKAM
     INSURANCE MISC NORTHWIND HARBOR AGENC'; Truist's company field running on into the holder's name and a person's,
-    'INVOICES SAMPLE CHURC NORTHWIND HARBOR SAMPLE P'); any other payer name as it is."""
+    'INVOICES SAMPLE CHURC NORTHWIND HARBOR SAMPLE P'); any other payer name as it is. Audit B9 review round 1: the
+    layout sets how many name words of another payer's must print first (`payer_words`, holder_receiver_block): one on
+    Truist's receiver slot, and None on a labelled sender, which is read as it is."""
+    if payer_words is None:
+        return payer
     words = [word for word in payer.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
     held_names = [
         held for held in ([word for word in name.split() if word not in _HOLDER_RUN_LEGAL_FORMS] for name in names)
         if len(held) >= 2
     ]
     for start in range(1, len(words) - 1):
-        if len(_holder_test_words(words[:start])) < _PAYER_BEFORE_HOLDER_RUN_WORDS:
+        if len(_holder_test_words(words[:start])) < payer_words:
             continue
         first, second = words[start], words[start + 1]
         if any(
@@ -2001,13 +2033,49 @@ def _without_trailing_holder_run(payer: str, names: Sequence[str]) -> str:
     return payer
 
 
-def holder_named(region: str, account_name: str | None) -> bool:
+#: Audit B9 review round 1 (I58): a word the holder test drops that can still lead the holder's own name: GENERAL (a
+#: product's or a nickname's word, and a business's) and, by length, a two-letter initialism ('JB TRUCKING LLC'). A
+#: single letter never is: the payer reading drops it (payer_name).
+_DROPPED_NAME_LEADS = frozenset({"GENERAL"})
+_DROPPED_INITIALISM_LETTERS = 2
+
+
+def _dropped_lead_run(name: str, holder: Sequence[str]) -> tuple[str, ...] | None:
+    """Audit B9 review round 1 (I58): a one-word holder whose printed name leads with a word the holder test drops
+    (_DROPPED_NAME_LEADS, a two-letter initialism): the printed run from that word to the holder's one word ('GENERAL
+    PLUMBING' for 'GENERAL PLUMBING LLC', 'JB TRUCKING' for 'JB TRUCKING LLC'), which the payer must print, so another
+    company leading with the industry word is never the holder. None for any other holder (a one-word holder printed
+    alone, or after a bank's or a product's abbreviation, keeps the one-word reading)."""
+    if len(holder) != 1:
+        return None
+    words = [word for word in name.split() if word.isalpha() and word not in _HOLDER_RUN_LEGAL_FORMS]
+    if holder[0] not in words:
+        return None
+    end = words.index(holder[0])
+    start = next((
+        index for index, word in enumerate(words[:end])
+        if word in _DROPPED_NAME_LEADS or len(word) == _DROPPED_INITIALISM_LETTERS
+    ), None)
+    return None if start is None else tuple(words[start:end + 1])
+
+
+def _prints_run(words: Sequence[str], run: Sequence[str]) -> bool:
+    """Audit B9 review round 1 (I58): `words` print `run` as consecutive words."""
+    return any(tuple(words[index:index + len(run)]) == tuple(run) for index in range(len(words) - len(run) + 1))
+
+
+def holder_named(
+    region: str, account_name: str | None, *, receiver_block: int | None = _PAYER_BEFORE_HOLDER_RUN_WORDS,
+) -> bool:
     """5.5 (§5.2): the holder test, read on a payer region (never on a check, cash, branch, ATM or bare row, which has
     none) against the holder's name (`account_name`: holder_reading's name). It matches when the payer's words name the
     holder (_holder_name_words_match), when the payer is the holder's name cut short, or when the region prints a run of
     four or more digits that the holder's name also prints. Audit B9: a DBA name's sides are each a name of the
     holder's (I38), a summary grid header names nobody (I13), and the holder's name printed after another payer's words
-    is that payer's unlabelled receiver, never the payer (_without_trailing_holder_run, I13)."""
+    is that payer's unlabelled receiver, never the payer (_without_trailing_holder_run, I13). Audit B9 review round 1:
+    the row's layout says where that receiver can print (`receiver_block`, holder_receiver_block: never on a labelled
+    sender, after one name word on Truist's receiver slot), and a one-word holder left by a dropped lead word is read
+    with that word (_dropped_lead_run, I58)."""
     if not region or not account_name:
         return False
     printed = account_name_text(account_name)
@@ -2016,9 +2084,18 @@ def holder_named(region: str, account_name: str | None) -> bool:
     names: tuple[str, ...] = (printed,)
     if _HOLDER_TRADE_NAME.search(printed):
         names = (printed, *_HOLDER_TRADE_NAME.split(printed, maxsplit=1))
-    payer = _holder_test_words(_without_trailing_holder_run(payer_name(region), names).split())
-    if any(_holder_name_words_match(payer, _holder_test_words(name.split())) for name in names):
-        return True
+    reading = _without_trailing_holder_run(payer_name(region), names, receiver_block)
+    payer = _holder_test_words(reading.split())
+    printed_payer = [word for word in reading.split() if word.isalpha()]
+    for name in names:
+        holder = _holder_test_words(name.split())
+        run = _dropped_lead_run(name, holder)
+        if run is not None:
+            if _prints_run(printed_payer, run):
+                return True
+            continue
+        if _holder_name_words_match(payer, holder):
+            return True
     if _holder_cut_name(payer_name(region), printed):
         return True
     return any(

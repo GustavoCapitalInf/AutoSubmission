@@ -1944,6 +1944,34 @@ def _holder(record: TransactionClassification) -> str | None:
     return _classifier().holder_reading(record.account_name, record.holder_name)
 
 
+def _holder_names(record: TransactionClassification) -> tuple[str, ...]:
+    """§5.2, §8.1 (audit B9 review round 1: I13): the names the holder hold reads: the holder's name (_holder), and,
+    beside a parser's holder name, the account-name field when it names a holder too (_usable_holder_name: a person or a
+    company, never a product), as each side of a DBA name is read: a layout that prints the owner there keeps the
+    owner's own money held."""
+    holder = _holder(record)
+    names = [holder] if holder else []
+    account = record.account_name
+    if record.holder_name and account and _usable_holder_name(account):
+        classifier = _classifier()
+        if classifier.account_name_text(account) != classifier.account_name_text(holder):
+            names.append(account)
+    return tuple(names)
+
+
+def region_names_holder(record: TransactionClassification, text: str, region: str) -> bool:
+    """§14.3 G3 (audit B9 review round 1: I13): the census's holder fact, read as pass 7's holder hold reads the payer
+    region: any of the holder's names (_holder_names), the row's layout setting where another payer's receiver block
+    can print (classifier.holder_receiver_block), a processor's settlement under the merchant's own name aside
+    (merchant_settlement)."""
+    classifier = _classifier()
+    names = _holder_names(record)
+    if not region or not names or merchant_settlement(text, names):
+        return False
+    block = classifier.holder_receiver_block(text)
+    return any(classifier.holder_named(region, name, receiver_block=block) for name in names)
+
+
 def _usable_holder_name(account_name: str | None) -> bool:
     """§5.2 (A3-G refinement): the holder's name (`account_name`: holder_reading's name) names its holder: a company
     form, or a person's name (two to four words of letters, none a product, noise or generic word). A product name
@@ -2101,10 +2129,24 @@ def _same_name(originator: str, receiver: str) -> bool:
     )
 
 
-def merchant_settlement(text: str) -> bool:
+def merchant_settlement(text: str, names: Sequence[str] = ()) -> bool:
     """§8.1 (audit B9: I13): the row prints a processor's or a platform's settlement or payout entry under the
-    merchant's own name (_MERCHANT_SETTLEMENT_ENTRY), read before the receiver fields: the holder holds skip it."""
-    return _MERCHANT_SETTLEMENT_ENTRY.search(_classifier()._before_receiver(text)) is not None
+    merchant's own name (_MERCHANT_SETTLEMENT_ENTRY), read before the receiver fields: the holder holds skip it. Audit
+    B9 review round 1: the entry is read outside the holder's own name (each of `names`, each side of a DBA name, its
+    runs as _without_holder_name removes them), so a holder whose name prints MERCHANT, MERCH or BANKCARD keeps its own
+    money held, and never on an incoming wire or a person-to-person or push rail, which print no processor's
+    settlement."""
+    classifier = _classifier()
+    if classifier._is_wire_row(text) or classifier._loose_wire_originator(text):
+        return False
+    row = classifier._before_receiver(text)
+    if _p2p_rail(row) or classifier._PUSH_RAIL.search(row):
+        return False
+    for name in names:
+        printed = classifier.account_name_text(name)
+        for side in (printed, *classifier._HOLDER_TRADE_NAME.split(printed)) if printed else ():
+            row = _without_holder_name(row, side, whole_name=True)
+    return _MERCHANT_SETTLEMENT_ENTRY.search(row) is not None
 
 
 def _processor_descriptor_entry(text: str, region: str) -> bool:
@@ -2117,16 +2159,53 @@ def _processor_descriptor_entry(text: str, region: str) -> bool:
     return bool(entry) and entry[0] in firsts
 
 
+#: §8.1 (audit B9 review round 1: I13): the legal forms a wire's sender or beneficiary name ends with, before its
+#: address.
+_WIRE_PARTY_LEGAL_FORMS = frozenset({
+    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "PLC",
+})
+#: §8.1 (audit B9 review round 1: I13): the label a wire's beneficiary field prints before its value.
+_WIRE_BENEFICIARY_LABEL = re.compile(r"^(?:N?BNF|BENEFICIARY)(?: NAME)?\s*")
+
+
+def _wire_party(value: str) -> str:
+    """§8.1 (audit B9 review round 1: I13): the name a wire's sender or beneficiary field prints: its words up to its
+    first token with a digit (the address's number), cut after its first legal form."""
+    words: list[str] = []
+    for word in value.split():
+        if any(character.isdigit() for character in word):
+            break
+        words.append(word)
+        if word in _WIRE_PARTY_LEGAL_FORMS:
+            break
+    return " ".join(words)
+
+
+def _wire_sent_by_its_beneficiary(text: str, region: str) -> bool:
+    """§8.1 (audit B9: I13; review round 1): an incoming wire whose sender is its beneficiary, the holder sending from
+    its account at another bank: the originator's first two words are the beneficiary's (classifier.
+    wire_sender_is_beneficiary, the reading _wire_vetoed refuses Q5 with) and the two whole names are one (_same_name,
+    each read by _wire_party), so two companies sharing two first words ('THE SAMPLE COMPANY INC' and 'THE SAMPLE
+    BAKERY LLC') are never one sender."""
+    classifier = _classifier()
+    if not region or not classifier.wire_sender_is_beneficiary(text, region):
+        return False
+    beneficiary = classifier._CREDIT_WIRE_BENEFICIARY_VALUE.search(text)
+    if beneficiary is None:
+        return False
+    return _same_name(_wire_party(region), _wire_party(_WIRE_BENEFICIARY_LABEL.sub("", beneficiary.group(0).strip())))
+
+
 def self_originated(text: str, region: str, bank: str | None = None) -> bool:
     """§8.1 (audit B9: I13): the row moves the holder's own money in, read on the row alone: an incoming wire whose
-    sender is its beneficiary (classifier.wire_sender_is_beneficiary, the reading _wire_vetoed refuses Q5 with), or an
-    ACH or EFT credit whose originator is the row's own receiver field (INDN, IND NAME, RECEIVER NAME; Capital One's
-    unlabelled trailing receiver), one name by _same_name. A processor's or a platform's settlement or payout under the
-    merchant's own name (merchant_settlement, _processor_descriptor_entry) is no own push. Held as holder_name."""
+    sender is its beneficiary (_wire_sent_by_its_beneficiary), or an ACH or EFT credit whose originator is the row's own
+    receiver field (INDN, IND NAME, RECEIVER NAME; Capital One's unlabelled trailing receiver), one name by _same_name.
+    A processor's or a platform's settlement or payout under the merchant's own name (merchant_settlement, read outside
+    that name; _processor_descriptor_entry) is no own push. Held as holder_name."""
     classifier = _classifier()
     if classifier._is_wire_row(text):
-        return bool(region) and classifier.wire_sender_is_beneficiary(text, region)
-    if merchant_settlement(text) or (region and _processor_descriptor_entry(text, region)):
+        return _wire_sent_by_its_beneficiary(text, region)
+    if region and _processor_descriptor_entry(text, region):
         return False
     pairs: list[tuple[str, str]] = []
     if region:
@@ -2139,7 +2218,10 @@ def self_originated(text: str, region: str, bank: str | None = None) -> bool:
         trailing = _CAPITAL_ONE_TRAILING_RECEIVER.match(text)
         if trailing is not None:
             pairs.append((trailing.group("originator"), trailing.group("receiver")))
-    return any(_same_name(originator, receiver) for originator, receiver in pairs)
+    return any(
+        _same_name(originator, receiver) and not merchant_settlement(text, (receiver, originator))
+        for originator, receiver in pairs
+    )
 
 
 def _title_purpose_text(text: str) -> str:
@@ -3345,11 +3427,19 @@ def _first_hold(
     ):
         return "payer_debited_as_lender"
     # Audit B9 (I13): a processor's or a platform's settlement or payout under the merchant's own name is never the
-    # holder's own money (merchant_settlement).
-    if not claimed and not merchant_settlement(text) and (
-        (region or sender) and (
-            classifier.holder_named(region or sender, _holder(record))
-            or (not region and holder_sender != sender and classifier.holder_named(holder_sender, _holder(record)))
+    # holder's own money (merchant_settlement). Review round 1: read outside the holder's own names, never on a wire or
+    # a person-to-person rail; the holder's names include an account-name field naming a holder beside the parser's
+    # (_holder_names), and the row's layout sets where another payer's receiver block can print
+    # (holder_receiver_block).
+    names = _holder_names(record)
+    block = classifier.holder_receiver_block(text)
+    if not claimed and (
+        (region or sender) and not merchant_settlement(text, (*names, *receiver_holders)) and (
+            any(classifier.holder_named(region or sender, name, receiver_block=block) for name in names)
+            or (
+                not region and holder_sender != sender
+                and any(classifier.holder_named(holder_sender, name, receiver_block=block) for name in names)
+            )
             # A3-G refinement: the holder's names the statement's own receiver fields print (the hold only), on a
             # wire, a book transfer or a transfer or person-to-person row that no earlier rule verified
             # (_receiver_alias_reads).

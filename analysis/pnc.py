@@ -448,16 +448,36 @@ def _product(markdown: str) -> str | None:
 _SUMMARY_TITLE = re.compile(r"^(?P<line>[^\n]*?)Summary Account number", re.MULTILINE)
 
 
+#: Audit B9 review round 1 (I13): the words a PNC product prints (its product lines' words and the product words a
+#: summary title adds to them), which name no holder.
+_PRODUCT_WORDS = frozenset(word.upper() for product in _PRODUCTS for word in product.split()) | frozenset({
+    "PNC", "ANALYSIS", "PLUS", "ACCOUNT", "SAVINGS", "INTEREST", "MONEY", "MARKET", "PREMIER", "SELECT",
+})
+
+
+def _without_product(words: list[str]) -> list[str]:
+    """Audit B9 review round 1 (I13): the summary title's capitals without a product printed in capitals after the
+    name ('CONTOSO TRADING LLC TREASURY ENTERPRISE PLAN'); none at all when every word is a product's word."""
+    if all(word.upper() in _PRODUCT_WORDS for word in words):
+        return []
+    for product in _PRODUCTS:
+        tail = product.upper().split()
+        if len(words) > len(tail) and [word.upper() for word in words[-len(tail):]] == tail:
+            return words[:-len(tail)]
+    return words
+
+
 def _holder_name(markdown: str) -> str | None:
     """Audit B9 (I13): the holder's name before the product on PNC's summary title line: its leading words that print no
     lower-case letter, without a designation or a contact after the name. None when the line prints no name (only the
-    product)."""
+    product). Review round 1: a product printed in capitals is never the name (_without_product)."""
     for match in _SUMMARY_TITLE.finditer(markdown):
         words: list[str] = []
         for word in match.group("line").split():
             if any(character.islower() for character in word):
                 break
             words.append(word)
+        words = _without_product(words)
         if words:
             return holder_from_name(" ".join(words))
     return None
