@@ -29,9 +29,35 @@ import re
 from datetime import date
 
 from .date_tokens import iso_unique_in_period
+from .holder_name import CITY_STATE_ZIP, first_page, holder_from_address_line, page_lines
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: Audit round 2, R2-B05 (R04 part 2): Citibank's page-1 header line, from its statement period to the relationship
+#: manager's label; a reading that ran the mailing block onto it prints the holder's name and street between them (the
+#: name can open before the period's dates: 'Statement Period CONTOSO LLC Jun 1 - Jun 30, 2054 DBA NORTHWIND 100
+#: SAMPLE RD Relationship Manager').
+_HEADER_LINE = re.compile(r"CITIBANK, N\. ?A\. Account\b.*?\bStatement Period\b(?P<between>.*?)\bRelationship Manager\b")
+#: The statement period inside that header ('Jun 1 - Jun 30, 2054').
+_HEADER_PERIOD = re.compile(r"\b[A-Z][a-z]{2} \d{1,2} - [A-Z][a-z]{2} \d{1,2}, \d{4}\b")
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from page 1's mailing address: the name and street the
+    header line prints between its period and the relationship manager's label (the period's dates aside), or, where
+    the header prints none, the next line when it closes on a state and ZIP, without the address; None otherwise."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines):
+        match = _HEADER_LINE.search(line)
+        if match is None:
+            continue
+        between = " ".join(_HEADER_PERIOD.sub(" ", match.group("between")).split())
+        if between:
+            return holder_from_address_line(between)
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        return holder_from_address_line(following) if CITY_STATE_ZIP.search(following) else None
+    return None
 
 _MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -221,6 +247,7 @@ def parse_citibusiness_statement(markdown: str, base: Statement | None = None) -
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Citibank"
+    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
     stmt.beginning_balance = beginning

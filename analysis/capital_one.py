@@ -4,10 +4,26 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
+from .holder_name import CITY_STATE_ZIP, first_page, holder_from_address_line, page_lines
 from .money import parse_digit_scrubbed
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, table_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the summary heading that ends the page-1 header where Capital One prints the
+#: holder's mailing line (before or after its business-solutions line).
+_SUMMARY_HEADING = re.compile(r"^ACCOUNT SUMMARY\b", re.IGNORECASE)
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from page 1's mailing line, the first line before the
+    account summary that closes on a state and ZIP, without the address; None without one."""
+    for line in page_lines(first_page(markdown)):
+        if _SUMMARY_HEADING.match(line):
+            return None
+        if CITY_STATE_ZIP.search(line):
+            return holder_from_address_line(line)
+    return None
 
 
 
@@ -308,6 +324,7 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="Capital One",
         account_name=product,
+        holder_name=_holder_name(markdown),
         period_start=period_start,
         period_end=period_end,
     )

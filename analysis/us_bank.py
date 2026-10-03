@@ -3,10 +3,35 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import CITY_STATE_ZIP, first_page, holder_from_address_line, page_lines
 from .money import EITHER_MINUS_SPACED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, group_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the customer-service panel's heading U.S. Bank prints right after the mailing
+#: address on page 1.
+_CONTACT_HEADING = re.compile(r"^To Contact U\.?\s?S\.? Bank\b", re.IGNORECASE)
+#: The lines read back from the heading for the mailing line (a barcode remnant such as '%' between them).
+_MAILING_LINE_WINDOW = 3
+#: An attention line the bank prints before the holder's name ('ATTN: JORDAN SAMPLE CONTOSO LLC' reads no person).
+_ATTENTION_PREFIX = re.compile(r"^(?:ATTN|ATTENTION)\b:?\s*", re.IGNORECASE)
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from the mailing line U.S. Bank prints before page 1's
+    'To Contact U.S. Bank' panel: the nearest line within _MAILING_LINE_WINDOW lines before it that closes on a state
+    and ZIP, without the address (analysis.holder_name.holder_from_address_line, which drops an ATTN contact after the
+    name). A line that opens on an attention contact names no holder we can place: None. `account_name` keeps the
+    product."""
+    lines = page_lines(first_page(markdown))
+    anchor = next((index for index, line in enumerate(lines) if _CONTACT_HEADING.match(line)), None)
+    if anchor is None:
+        return None
+    for line in reversed(lines[max(0, anchor - _MAILING_LINE_WINDOW):anchor]):
+        if CITY_STATE_ZIP.search(line):
+            return None if _ATTENTION_PREFIX.match(line) else holder_from_address_line(line)
+    return None
 
 _MONTHS = {
     "Jan": 1,
@@ -504,6 +529,7 @@ def parse_us_bank_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="U.S. Bank",
         account_name=_product_name(markdown),
+        holder_name=_holder_name(markdown),
         period_start=period_start,
         period_end=period_end,
         days_in_period=int(summary.get("days") or period_days),

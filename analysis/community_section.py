@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from .date_tokens import parsed_datetime
+from .holder_name import first_page, holder_from_name, page_lines
 from .money import STRICT_LEADING_SIGN, STRICT_UNSIGNED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -795,7 +796,24 @@ def parse_mission_valley_statement(markdown: str) -> Statement | None:
     if stmt is None or ledger.refused:
         return None
     publish_omissions(ledger.omissions)
+    stmt.holder_name = _mission_valley_holder_name(markdown)
     return stmt
+
+
+#: Audit round 2, R2-B05 (R04 part 2): Mission Valley's page-1 header line, the holder's name and the page counter
+#: ('CONTOSO TRADING INC Page 1 of 4').
+_MISSION_VALLEY_HOLDER_LINE = re.compile(r"^(?P<name>\S.*?)\s+Page 1 of \d+$", re.IGNORECASE)
+
+
+def _mission_valley_holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name Mission Valley prints before page 1's page counter (the
+    mailing line below it can print a location between the name and the street, so it is not read); None without that
+    line. `account_name` keeps the product."""
+    for line in page_lines(first_page(markdown)):
+        match = _MISSION_VALLEY_HOLDER_LINE.match(line)
+        if match is not None:
+            return holder_from_name(match.group("name"))
+    return None
 
 
 #: Section headings of this platform: "<product> (Checking|Savings) - <acct>"

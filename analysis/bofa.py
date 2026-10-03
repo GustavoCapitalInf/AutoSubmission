@@ -5,12 +5,32 @@ from datetime import date
 from typing import NamedTuple
 
 from .date_tokens import iso_or_none
+from .holder_name import first_page, holder_from_name, page_lines
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import table_rows, tables_after
 
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+#: Audit round 2, R2-B05 (R04 part 2): the period line Bank of America prints above the holder's name on page 1
+#: ('for May 1, 2054 to May 31, 2054 Account number: 0000 0000 0000').
+_HOLDER_ANCHOR = re.compile(
+    r"^for [A-Z][a-z]+ \d{1,2}, \d{4} to [A-Z][a-z]+ \d{1,2}, \d{4} Account number:", re.IGNORECASE
+)
+#: The page's own headings that can follow the period line where no name prints.
+_NOT_A_HOLDER_LINE = re.compile(r"^(?:Account summary|Your |Page \d)", re.IGNORECASE)
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name, the line Bank of America prints after page 1's period
+    line ('for <period> Account number: <number>'). None without that line or where a heading follows it.
+    `account_name` keeps the product line ('Your <product> for <period>')."""
+    lines = page_lines(first_page(_IMG_RE.sub("", markdown)))
+    for index, line in enumerate(lines[:-1]):
+        if _HOLDER_ANCHOR.match(line):
+            following = lines[index + 1]
+            return None if _NOT_A_HOLDER_LINE.match(following) else holder_from_name(following)
+    return None
 
 
 def _money(value: str) -> float | None:
@@ -531,7 +551,9 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
     if period is None:
         return None
 
-    stmt = Statement(bank="Bank of America", period_start=period[0], period_end=period[1])
+    stmt = Statement(
+        bank="Bank of America", holder_name=_holder_name(markdown), period_start=period[0], period_end=period[1]
+    )
     acct = re.search(r"Account number:\s*([0-9 ]+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = re.sub(r"\s+", "", acct.group(1))

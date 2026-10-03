@@ -14,10 +14,28 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import first_page, holder_from_name, page_lines
 from .money import parse_french_amount, parse_money, read_money
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
 from .tables import glyph_damaged, read_grid_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the title CIBC prints at the top of page 1, in English or French (its accented
+#: letter read either way), which the holder's name line follows.
+_STATEMENT_TITLE = re.compile(r"^(?:CIBC Account Statement|Relev\S{1,2} de compte CIBC)$", re.IGNORECASE)
+#: The period line, which follows the title where no name prints.
+_PERIOD_LINE = re.compile(r"^(?:For\s+[A-Za-z]{3,9}\.?\s+\d|Du\s+\d)", re.IGNORECASE)
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name, the line after page 1's statement title; None without the
+    title or where the period line follows it."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines[:-1]):
+        if _STATEMENT_TITLE.match(line):
+            following = lines[index + 1]
+            return None if _PERIOD_LINE.match(following) else holder_from_name(following)
+    return None
 
 _MONTHS = {
     "jan": 1,
@@ -181,6 +199,7 @@ def parse_cibc_french_statement(markdown: str) -> Statement | None:
     beginning, credits, debits, ending = summary
     stmt = Statement(
         bank="CIBC",
+        holder_name=_holder_name(markdown),
         currency="CAD",
         currency_source="institution_default",
         period_start=date(year, _month(start_month), int(start_day)).isoformat(),
@@ -406,6 +425,7 @@ def parse_cibc_statement(markdown: str, base: Statement | None = None) -> Statem
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "CIBC"
+    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
     stmt.currency = "CAD"

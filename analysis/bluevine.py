@@ -4,9 +4,24 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day_year
+from .holder_name import first_page, holder_from_name, page_lines
 from .money import LEADING_MINUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: Audit round 2, R2-B05 (R04 part 2): Bluevine's phone line in its page-1 letterhead, which the holder's name follows
+#: on the same line ('+1 (555) 000-0000 CONTOSO TRADING LLC'); the mailing block's next line (an owner's or a
+#: contact's name) is never read.
+_PHONE_NAME_LINE = re.compile(r"^\+1 \(\d{3}\) \d{3}-\d{4}\s+(?P<name>\S.*)$")
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name after page 1's phone line; None without it."""
+    for line in page_lines(first_page(markdown)):
+        match = _PHONE_NAME_LINE.match(line)
+        if match is not None:
+            return holder_from_name(match.group("name"))
+    return None
 
 
 def _money(value: str | None) -> float | None:
@@ -106,6 +121,7 @@ def parse_bluevine_statement(markdown: str) -> Statement | None:
 
     stmt = Statement(
         bank="Bluevine",
+        holder_name=_holder_name(markdown),
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
         days_in_period=(period_end - period_start).days + 1,

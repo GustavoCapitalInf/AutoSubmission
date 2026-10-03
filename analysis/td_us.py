@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day_strict
-from .holder_name import holder_from_name
+from .holder_name import CITY_STATE_ZIP, first_page, holder_from_name, page_lines
 from .money import PARENS_OR_LEADING_MINUS, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -315,12 +315,31 @@ _HOLDER_LINE = re.compile(r"^(?P<name>[^\n]*?\S)[ \t]+Account #[ \t]*\d[\d-]*", 
 _HEADER_END = re.compile(r"ACCOUNT SUMMARY|DAILY ACCOUNT ACTIVITY")
 
 
+#: Audit round 2, R2-B05 (R04 part 2): page 1's block fallback, the account number on a line of its own under the
+#: holder's line ('CONTOSO TRADING LLC' / 'Account # 0000000000').
+_ACCOUNT_NUMBER_LINE = re.compile(r"^Account #[ \t]*\d")
+
+
 def _holder_name(markdown: str) -> str | None:
     """Audit B9 (I13): the holder's name TD prints before its account number in the header (the product it prints
-    above it is not read: `account_name` keeps the parser's product)."""
+    above it is not read: `account_name` keeps the parser's product). Audit round 2, R2-B05 (R04 part 2): where the
+    header prints the account number on a line of its own, page 1's line above it, read only when page 1's mailing line
+    opens on that same name and closes on a state and ZIP (the product line above the number never does)."""
     end = _HEADER_END.search(markdown)
     match = _HOLDER_LINE.search(markdown[: end.start()] if end else markdown)
-    return holder_from_name(match.group("name")) if match else None
+    if match:
+        return holder_from_name(match.group("name"))
+    page = first_page(markdown)
+    end = _HEADER_END.search(page)
+    lines = page_lines(page[: end.start()] if end else page)
+    for index, line in enumerate(lines[1:], start=1):
+        if not _ACCOUNT_NUMBER_LINE.match(line):
+            continue
+        name = lines[index - 1]
+        if any(other.startswith(name + " ") and CITY_STATE_ZIP.search(other) for other in lines[:index - 1]):
+            return holder_from_name(name)
+        return None
+    return None
 
 
 def parse_td_us_statement(markdown: str) -> Statement | None:

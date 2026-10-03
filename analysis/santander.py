@@ -4,9 +4,24 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
+from .holder_name import first_page, holder_from_name, page_lines
 from .money import PARENS_OR_LEADING_MINUS_OR_PLUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: Audit round 2, R2-B05 (R04 part 2): Santander's holder line above the balances on page 1, '<holder> Account #
+#: <number>' (the header's 'Primary Account #:' prints a colon and never matches).
+_HOLDER_LINE = re.compile(r"^(?P<name>\S.*?)\s+Account #\s*\d")
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name Santander prints before its account number on page 1;
+    None without that line. `account_name` keeps the product."""
+    for line in page_lines(first_page(markdown)):
+        match = _HOLDER_LINE.match(line)
+        if match is not None:
+            return holder_from_name(match.group("name"))
+    return None
 
 
 def _money(value: str | None) -> float | None:
@@ -140,6 +155,7 @@ def parse_santander_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="Santander Bank",
         account_name="Business Banking Analyzed Checking",
+        holder_name=_holder_name(markdown),
         period_start=period_start,
         period_end=period_end,
         days_in_period=days,

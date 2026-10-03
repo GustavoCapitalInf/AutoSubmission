@@ -35,7 +35,7 @@ import re
 from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day_strict
-from .holder_name import holder_from_name
+from .holder_name import first_page, holder_from_name, page_lines
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -467,7 +467,37 @@ def _without_product(words: list[str]) -> list[str]:
     return words
 
 
+#: Audit round 2, R2-B05 (R04 part 2): page 1's block fallback: the enclosure count line, which the holder's mailing
+#: block follows, the online-banking panel PNC prints beside it (run onto the name line by a reading), and a street line
+#: (a house number or a post-office box) under the name.
+_ENCLOSURES_LINE = re.compile(r"^Number of enclosures:\s*\d+$", re.IGNORECASE)
+_ONLINE_BANKING_PANEL = re.compile(r"\s+PNC Online Banking\b.*$", re.IGNORECASE)
+_STREET_LINE = re.compile(r"^(?:\d+[A-Z]?|P\.? ?O\.? BOX)\b", re.IGNORECASE)
+
+
 def _holder_name(markdown: str) -> str | None:
+    """Audit B9 (I13): the holder's name before the product on PNC's summary title line, or (audit round 2, R2-B05: R04
+    part 2) where that reads none, page 1's mailing block (_mailing_block_holder_name)."""
+    return _summary_title_holder_name(markdown) or _mailing_block_holder_name(markdown)
+
+
+def _mailing_block_holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): page 1's block fallback: the line after the enclosure count, without the
+    online-banking panel run onto it, read when the next line opens on a street; None otherwise. A product printed in
+    capitals is never the name (_without_product)."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines[:-2]):
+        if not _ENCLOSURES_LINE.match(line):
+            continue
+        name = _ONLINE_BANKING_PANEL.sub("", lines[index + 1])
+        words = _without_product(name.split())
+        if not words or not _STREET_LINE.match(lines[index + 2]):
+            return None
+        return holder_from_name(" ".join(words))
+    return None
+
+
+def _summary_title_holder_name(markdown: str) -> str | None:
     """Audit B9 (I13): the holder's name before the product on PNC's summary title line: its leading words that print no
     lower-case letter, without a designation or a contact after the name. None when the line prints no name (only the
     product). Review round 1: a product printed in capitals is never the name (_without_product)."""

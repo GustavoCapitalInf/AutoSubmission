@@ -30,10 +30,21 @@ import re
 from datetime import date
 
 from .dates import resolve_year
+from .holder_name import mailing_line_after
 from .money import parse_grouped_float
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, group_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the contact line of BMO's page-1 'How to reach us' panel, which the holder's
+#: mailing line follows ('bmo.com/contact 800-000-0000').
+_CONTACT_LINE = re.compile(r"^bmo\.com/contact\b", re.IGNORECASE)
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from the mailing line after page 1's contact line, when it
+    closes on a state and ZIP, without the address; None otherwise. `account_name` keeps the product."""
+    return mailing_line_after(markdown, _CONTACT_LINE)
 
 _MONTHS = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
@@ -227,6 +238,7 @@ def parse_bmo_us_activity_statement(markdown: str) -> Statement | None:
     ending = _amount(summary.group(7))
 
     stmt = Statement(bank="BMO", currency="USD", currency_source="institution_default")
+    stmt.holder_name = _holder_name(markdown)
     stmt.period_start = period_start.isoformat()
     stmt.period_end = period_end.isoformat()
     stmt.beginning_balance = beginning

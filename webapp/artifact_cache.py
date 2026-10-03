@@ -650,7 +650,19 @@ OCR_STAGE_VERSION = 5
 # cache keyed on 28 would serve them; a re-analysis recomputes the analysis
 # stage from the cached reading. OCR stays cached. No parser changes. Pinned in
 # the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 29
+# 29 -> 30: TRUE-REVENUE audit round 2, batch R2-B05 (R04 parts 2 and 4: the
+# holder-name readers) — fourteen more parsers publish `Statement.holder_name`
+# from page 1's mailing address (Bank of America, Wells Fargo, U.S. Bank, RBC
+# and Banque Royale, Scotiabank, Bluevine, Huntington, Capital One, CIBC,
+# Square, Mission Valley, BMO's US activity layout, Santander and Citibank;
+# Desjardins' reader is held for the owner), TD Canada Trust's French issue reads the
+# English issue's mail-routing anchor, and Chase, Navy Federal, TD Bank and PNC
+# gain a page-1 block fallback where their anchor reads none. Only the holder
+# name moves in the extraction (every transaction is byte-identical); the holder
+# holds read it, so a warm cache keyed on 29 would serve the old tiers; a
+# re-analysis recomputes the analysis stage from the cached reading. OCR stays
+# cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 30
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

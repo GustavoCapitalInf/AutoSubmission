@@ -975,3 +975,105 @@ def test_r04_a_platform_s_word_inside_the_holder_s_own_name_is_the_holder_s():
 def test_r04_platform_credit_reads_the_originator_and_the_fee_words_outside_the_holder_s_names(text, named):
     revenue = _revenue(text)
     assert tr.platform_credit(revenue, tc.payer_region(revenue), (R04_HOLDER,)) is named
+
+
+# --- Audit round 2, R2-B05 (R04 part 2): the holder's name read from page 1 on the banks that printed none ---------
+
+def _page_one(text: str) -> str:
+    from ocr.document import StatementMarkdown
+
+    return StatementMarkdown(source_file="sample.pdf", model="sample", pages=[text]).to_markdown()
+
+
+def _bofa_holder() -> str | None:
+    from analysis import bofa
+
+    return bofa._holder_name(_page_one(
+        "CONTOSO TRADING LLC 100 SAMPLE LN SAMPLEVILLE, TX 75000-0001\nYour Business Advantage Fundamentals Banking\n"
+        "for May 1, 2054 to May 31, 2054 Account number: 0000 0000 0000\nCONTOSO TRADING LLC\nAccount summary\n"
+    ))
+
+
+def _wells_holder() -> str | None:
+    from analysis import wells
+
+    return wells._holder_name(_page_one(
+        "Questions?\nAvailable by phone 24 hours a day\n"
+        "CONTOSO TRADING LLC 100 SAMPLE PKWY SAMPLEVILLE TX 75000-0001\nWrite: Wells Fargo Bank, N.A. (000)\n"
+    ))
+
+
+def _rbc_holder() -> str | None:
+    from analysis import rbc
+
+    return rbc._holder_name(_page_one(
+        "Business Account Statement\n"
+        "RBBDA00000_0000000 E D 00000 00000 CONTOSO TRADING INC. 100 SAMPLE DR SAMPLEVILLE ON X0X 0X0\n"
+    ))
+
+
+BOFA = "Bank of America"
+BOFA_PRODUCT = "Business Advantage Fundamentals Banking"
+R2B05_ZELLE = "ZELLE PAYMENT FROM CONTOSO TRADING LLC CONF# 0A0B0C0D0"
+R2B05_WIRE = "WIRE TYPE:WIRE IN DATE: 540302 TIME:1015 ET TRN:2054030200123456 ORIG:CONTOSO TRADING LLC ID:0000000000"
+
+
+def test_r2b05_the_page_one_readers_read_the_holder():
+    assert _bofa_holder() == "CONTOSO TRADING LLC"
+    assert _wells_holder() == "CONTOSO TRADING LLC"
+    assert _rbc_holder() == "CONTOSO TRADING INC."
+
+
+def test_r2b05_bank_of_america_s_own_zelle_is_held_once_page_one_names_the_holder():
+    assert _tiers([(R2B05_ZELLE, 1234.56)], bank=BOFA, account_name=BOFA_PRODUCT) == [P2P]
+    assert _tiers([(R2B05_ZELLE, 1234.56)], bank=BOFA, account_name=BOFA_PRODUCT, holder_name=_bofa_holder()) == [
+        HOLDER_NAME
+    ]
+
+
+def test_r2b05_bank_of_america_s_own_wires_verified_today_are_held_once_page_one_names_the_holder():
+    rows = [(R2B05_WIRE, 9000.0), (R2B05_WIRE.replace("0123456", "0123457"), 9000.0)]
+    assert _tiers(rows, bank=BOFA, account_name=BOFA_PRODUCT) == [WIRE_REPEATS, WIRE_REPEATS]
+    assert _tiers(rows, bank=BOFA, account_name=BOFA_PRODUCT, holder_name=_bofa_holder()) == [HOLDER_NAME, HOLDER_NAME]
+
+
+def test_r2b05_wells_fargo_s_own_instant_payment_is_held_once_page_one_names_the_holder():
+    text = "INSTANT PMT FROM CONTOSO TRADING LLC ON 05/02 REF # 0000000000"
+    assert _tiers([(text, 2500.0)], bank="Wells Fargo") != [HOLDER_NAME]
+    assert _tiers([(text, 2500.0)], bank="Wells Fargo", holder_name=_wells_holder()) == [HOLDER_NAME]
+
+
+def test_r2b05_rbc_s_own_e_transfer_is_held_once_page_one_names_the_holder():
+    text = "E-TRANSFER RECEIVED CONTOSO TRADING INC 0A0B0C"
+    assert _tiers([(text, 2500.0)], bank="Royal Bank of Canada") != [HOLDER_NAME]
+    assert _tiers([(text, 2500.0)], bank="Royal Bank of Canada", holder_name=_rbc_holder()) == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("CONTOSO DES:CONTOSO ID:ST-AB12CD34EF56 INDN:CONTOSO TRADING LLC CO ID:0000000000 CCD", BOFA),
+    ("MISC PAYMENT CONTOSO TRADING LIGHTSPEE", "Scotiabank"),
+    ("INTUIT TRANSFER CONTOSO TRADING", "Wells Fargo"),
+    ("TECHNOLOGY CONTOSO TRADING INC TECHNOLOGY FEES SAMPLEVILLE", "Mission Valley Bank"),
+    ("FABRIKAM INC DES:PAYMENT ID:0001 INDN:CONTOSO TRADING LLC CO ID:0000000000 CCD", BOFA),
+    ("ZELLE PAYMENT FROM NORTHWIND DINER CONF 1234567890", BOFA),
+])
+def test_r2b05_the_r2b04_controls_keep_their_tier_once_page_one_names_the_holder(text, bank):
+    holder = _bofa_holder()
+    assert _tiers([(text, 1500.0)], bank=bank, holder_name=holder) == _tiers([(text, 1500.0)], bank=bank)
+    assert _tiers([(text, 1500.0)], bank=bank, holder_name=holder) != [HOLDER_NAME]
+
+
+def test_r2b05_a_customer_s_ach_naming_the_holder_as_receiver_stays_verified_once_page_one_names_the_holder():
+    text = "FABRIKAM INC DES:PAYMENT ID:0001 INDN:CONTOSO TRADING LLC CO ID:0000000000 CCD"
+    assert _twice(text, bank=BOFA, holder_name=_bofa_holder()) == [REPEATS, REPEATS] == _twice(text, bank=BOFA)
+
+
+def test_r2b05_a_northwind_zelle_stays_counted_once_page_one_names_the_holder():
+    text = "ZELLE PAYMENT FROM NORTHWIND DINER CONF 1234567890"
+    assert _tiers([(text, 1500.0)], bank=BOFA, holder_name=_bofa_holder()) == [P2P]
+
+
+def test_r2b05_a_page_that_prints_only_a_product_leaves_the_holder_unread():
+    from analysis import bofa
+
+    assert bofa._holder_name(_page_one("Your Business Advantage Fundamentals Banking\nAccount summary\n")) is None

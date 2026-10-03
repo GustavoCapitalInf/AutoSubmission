@@ -45,9 +45,34 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
+from .holder_name import CITY_STATE_ZIP, first_page, holder_from_address_line, page_lines
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: Audit round 2, R2-B05 (R04 part 2): the heading of the customer-service panel Wells Fargo prints beside the mailing
+#: address on page 1, and the panel line that opens the bank's own address ('Write: Wells Fargo Bank, N.A. (000)').
+_QUESTIONS_HEADING = re.compile(r"^Questions\?$", re.IGNORECASE)
+_BANK_ADDRESS_LINE = re.compile(r"^Write:", re.IGNORECASE)
+#: The panel lines read before the mailing line at most (the phone hours, a relay line).
+_MAILING_LINE_WINDOW = 4
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from the mailing line Wells Fargo prints after page 1's
+    'Questions?' heading: the first line within _MAILING_LINE_WINDOW lines that closes on a state and ZIP, before the
+    bank's own 'Write:' address, without the address (analysis.holder_name.holder_from_address_line). None without the
+    heading or such a line."""
+    lines = page_lines(first_page(markdown))
+    start = next((index for index, line in enumerate(lines) if _QUESTIONS_HEADING.match(line)), None)
+    if start is None:
+        return None
+    for line in lines[start + 1:start + 1 + _MAILING_LINE_WINDOW]:
+        if _BANK_ADDRESS_LINE.match(line):
+            return None
+        if CITY_STATE_ZIP.search(line):
+            return holder_from_address_line(line)
+    return None
 
 #: Opens an account's section. The trailing marker is the bank's own
 #: designation of which account the statement is for.
@@ -245,6 +270,7 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
         return None
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Wells Fargo"
+    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
 
     section = _published_section(markdown.splitlines())
     account = next(

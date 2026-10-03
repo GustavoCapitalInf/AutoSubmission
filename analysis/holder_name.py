@@ -14,11 +14,51 @@ module reads the second. Two shapes are read:
   owner's or a contact's name) is not the holder.
 
 Both read nothing they cannot place: no address after the name, or no letter in it, is None. The readers carry no
-memory of any statement's names; every bank keeps its own anchor (the line or block the reader is handed)."""
+memory of any statement's names; every bank keeps its own anchor (the line or block the reader is handed).
+
+Audit round 2, R2-B05 (R04 part 2): the banks' readers read page 1 (`first_page`, the reading's own page marker), as
+lines with their whitespace runs collapsed (`page_lines`), and close an address on a US state and ZIP code
+(`CITY_STATE_ZIP`) or a Canadian province and postal code (`PROVINCE_POSTAL_CODE`)."""
 from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+
+#: Audit round 2, R2-B05 (R04 part 2): the marker the statement reading prints before each page's text
+#: (ocr.document.StatementMarkdown: '--- Page 1 ---', '--- Page 2 (empty) ---').
+_PAGE_MARKER = re.compile(r"^--- Page \d+(?: \(empty\))? ---[ \t]*$", re.MULTILINE)
+#: Audit round 2, R2-B05 (R04 part 2): a US state and ZIP code closing a mailing address ('SAMPLEVILLE SC 29000-0001').
+CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2},?\s+\d{5}(?:-\d{4})?\s*$")
+#: Audit round 2, R2-B05 (R04 part 2): a Canadian province and postal code closing a mailing address
+#: ('SAMPLEVILLE ON A1A 1A1', or with no space in the code).
+PROVINCE_POSTAL_CODE = re.compile(r"\b[A-Z]{2},?\s+[A-Z]\d[A-Z]\s?\d[A-Z]\d\s*$")
+
+
+def first_page(markdown: str) -> str:
+    """Audit round 2, R2-B05 (R04 part 2): page 1's text, the text between the reading's first page marker and its
+    second; the whole text when it prints no page marker (a parser handed one page)."""
+    markers = list(_PAGE_MARKER.finditer(markdown))
+    if not markers:
+        return markdown
+    end = markers[1].start() if len(markers) > 1 else len(markdown)
+    return markdown[markers[0].end():end]
+
+
+def page_lines(text: str) -> list[str]:
+    """Audit round 2, R2-B05 (R04 part 2): a page's non-blank lines, each with its whitespace runs collapsed."""
+    return [line for line in (" ".join(raw.split()) for raw in text.splitlines()) if line]
+
+
+def mailing_line_after(markdown: str, anchor: re.Pattern[str], closes: re.Pattern[str] = CITY_STATE_ZIP) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from page 1's mailing line, the line right after the first
+    line `anchor` matches (a bank's own return address, a contact line, a mail-routing code), read when it closes on
+    `closes` (a state and ZIP by default), without the address (holder_from_address_line); None otherwise."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines[:-1]):
+        if anchor.match(line):
+            mailing = lines[index + 1]
+            return holder_from_address_line(mailing) if closes.search(mailing) else None
+    return None
 
 #: The legal forms a business name ends with. CO is one (CONTOSO TRADING CO); the address never reaches this reader's
 #: name tokens, so Colorado's code is not read here.
@@ -35,6 +75,8 @@ _ACCOUNT_WORDS = frozenset({"ACCOUNT", "ACCT"})
 _MAX_DESIGNATION_WORDS = 3
 #: A house number: digits, optionally a letter or a second number after a hyphen ('100', '100A', '10-20').
 _HOUSE_NUMBER = re.compile(r"^\d+(?:-?[A-Z]|-\d+)?$")
+#: Audit round 2, R2-B05 (R04 part 2): the unit words an address can print before its street number.
+_UNIT_WORDS = frozenset({"SUITE", "STE", "UNIT", "APT"})
 #: A post-office box, spelled the ways the banks print it.
 _PO_BOX = re.compile(r"^(?:P\.? ?O\.?|POST OFFICE) BOX\b", re.IGNORECASE)
 #: A mail-handling instruction a bank prints before the name (the returned-mail hold).
@@ -66,11 +108,18 @@ def _dba(tokens: Sequence[str], index: int) -> int:
 
 def _address_start(tokens: Sequence[str]) -> int | None:
     """The index where the address starts: a house number that no legal form follows within two tokens (a name can
-    print a number: 'CONTOSO 100 LLC'), or a post-office box."""
+    print a number: 'CONTOSO 100 LLC'), or a post-office box. Audit round 2, R2-B05 (R04 part 2): or a unit printed
+    before the street ('SUITE 200 100 SAMPLE RD'), a unit word and a number that no legal form follows within two
+    tokens."""
     for index, token in enumerate(tokens):
         if _PO_BOX.match(" ".join(tokens[index:index + 3])):
             return index
         if _HOUSE_NUMBER.match(_word(token)) and not any(_legal_form(after) for after in tokens[index + 1:index + 3]):
+            return index
+        if (
+            _word(token) in _UNIT_WORDS and index + 1 < len(tokens) and _HOUSE_NUMBER.match(_word(tokens[index + 1]))
+            and not any(_legal_form(after) for after in tokens[index + 2:index + 4])
+        ):
             return index
     return None
 

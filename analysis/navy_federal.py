@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .holder_name import holder_from_address_block
+from .holder_name import first_page, holder_from_address_block, holder_from_address_line, page_lines
 from .money import STRICT_EITHER_MINUS_OR_PLUS_SPACED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -407,10 +407,49 @@ _CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\s*$")
 _MAILING_BLOCK_LINES = 6
 
 
+#: Audit round 2, R2-B05 (R04 part 2): page 1's mail-routing code line ('#AAAAAAA #000000AAAA#000AAA00A'), which the
+#: holder's name and address follow, run on after it or as a block with the panel's lines between, and the panel lines
+#: such a block can interleave (the routing number, the questions heading).
+_MAIL_CODE_LINE = re.compile(r"^#[A-Z0-9]+ #[A-Z0-9]+#[A-Z0-9]+(?:\s+(?P<rest>\S.*))?$")
+_PAGE_ONE_PANEL_LINE = re.compile(r"^(?:Routing Number:.*|Questions about this Statement\?.*)$", re.IGNORECASE)
+
+
 def _holder_name(markdown: str) -> str | None:
     """Audit B9 (I13): the holder's name, the first line of the mailing block after the 'Questions about this
     Statement?' heading (the toll-free panel's lines aside), read when the block closes on a city, state and ZIP within
-    _MAILING_BLOCK_LINES lines. `account_name` keeps the parser's product."""
+    _MAILING_BLOCK_LINES lines. `account_name` keeps the parser's product. Audit round 2, R2-B05 (R04 part 2): where
+    that reads none, page 1's block after the mail-routing code (_page_one_holder_name)."""
+    return _questions_block_holder_name(markdown) or _page_one_holder_name(markdown)
+
+
+def _page_one_holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): page 1's block fallback where the questions heading reads no holder: the
+    name after the mail-routing code line, before the address it runs on into (when that closes on a state and ZIP), or
+    the first line of the block after it (the panel's lines aside) when the block closes on a state and ZIP within
+    _MAILING_BLOCK_LINES lines; None otherwise."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines):
+        code = _MAIL_CODE_LINE.match(line)
+        if code is None:
+            continue
+        rest = code.group("rest")
+        if rest:
+            return holder_from_address_line(rest) if _CITY_STATE_ZIP.search(rest) else None
+        block: list[str] = []
+        for following in lines[index + 1:]:
+            if _SERVICE_PANEL_LINE.match(following) or _PAGE_ONE_PANEL_LINE.match(following):
+                continue
+            block.append(following)
+            if _CITY_STATE_ZIP.search(following):
+                return holder_from_address_block(block)
+            if len(block) >= _MAILING_BLOCK_LINES:
+                break
+        return None
+    return None
+
+
+def _questions_block_holder_name(markdown: str) -> str | None:
+    """Audit B9 (I13): the holder's name from the mailing block after the questions heading (_holder_name)."""
     heading = _QUESTIONS_HEADING.search(markdown)
     if heading is None:
         return None

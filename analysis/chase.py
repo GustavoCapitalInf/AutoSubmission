@@ -15,7 +15,7 @@ from datetime import date
 from .chase_savings import _grid_lines, _grid_rows, _transaction
 from .date_tokens import (
     date_refusal, iso_from_month_day, iso_or_none, period_from_long_dates)
-from .holder_name import holder_from_address_block, holder_from_address_line
+from .holder_name import first_page, holder_from_address_block, holder_from_address_line
 from .money import MINUS_CLASS, money_refusal, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -796,6 +796,11 @@ _SUMMARY_GRID_HEADER = re.compile(r"^(?:INSTANCES|AMOUNT)\b", re.IGNORECASE)
 _MAIL_ROUTING_LINE = re.compile(
     r"^\d{8} DR[A-Z] \d{3} \d{3} \d{5} [A-Z]{11}(?: [A-Z])?\s+\d \d{9} [A-Z0-9]{2}(?: \d{4})?(?=\s|$)"
 )
+#: Audit round 2, R2-B05 (R04 part 2): page 1's block fallback, the same code line where the plant code's place prints
+#: the account type (DDA); read only on page 1 and only where the mail-routing code line reads no holder.
+_MAIL_ROUTING_LINE_ACCOUNT_TYPE = re.compile(
+    r"^\d{8} DDA \d{3} \d{3} \d{5} [A-Z]{11}(?: [A-Z])?\s+\d \d{9} [A-Z0-9]{2}(?: \d{4})?(?=\s|$)"
+)
 #: The block ends at the barcode line (twenty digits) or the summary's section marker.
 _MAILING_BLOCK_END = re.compile(r"^(?:\d{20}|\*start\*)")
 #: The customer-service panel Chase prints beside the mailing block, interleaved with its lines in the text layer.
@@ -811,12 +816,21 @@ _CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2} \d{5}(?:-\d{4})?\s*$")
 def _holder_name(text: str) -> str | None:
     """Audit B9 (I13): the holder's name from the mailing address block that follows the mail-routing code line: the
     first name line before the street (and a DBA line after it), or, where the reading flattened the block onto the
-    code's line, the name before the address there. None without the code line or a city, state and ZIP line."""
+    code's line, the name before the address there. None without the code line or a city, state and ZIP line. Audit
+    round 2, R2-B05 (R04 part 2): where that reads none, page 1's block after the code line that prints the account
+    type in the plant code's place (_MAIL_ROUTING_LINE_ACCOUNT_TYPE), read the same way."""
+    return _holder_after_code(text, _MAIL_ROUTING_LINE) or _holder_after_code(
+        first_page(text), _MAIL_ROUTING_LINE_ACCOUNT_TYPE
+    )
+
+
+def _holder_after_code(text: str, routing: re.Pattern[str]) -> str | None:
+    """Audit B9 (I13): the holder's name from the mailing block after the first line `routing` matches (_holder_name)."""
     lines = text.splitlines()
-    start = next((index for index, line in enumerate(lines) if _MAIL_ROUTING_LINE.match(line.strip())), None)
+    start = next((index for index, line in enumerate(lines) if routing.match(line.strip())), None)
     if start is None:
         return None
-    code = _MAIL_ROUTING_LINE.match(lines[start].strip())
+    code = routing.match(lines[start].strip())
     tail = lines[start].strip()[code.end():].strip()
     if tail:
         return holder_from_address_line(tail) if _CITY_STATE_ZIP.search(tail) else None

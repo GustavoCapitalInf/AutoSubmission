@@ -35,6 +35,7 @@ from datetime import date
 from typing import NamedTuple
 
 from .dates import resolve_year
+from .holder_name import PROVINCE_POSTAL_CODE, mailing_line_after
 from .money import parse_french_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -49,6 +50,18 @@ from .schema import Statement, Transaction
 # tests/test_no_parser_helper_clones.py reads `from .x import ...` line by
 # line, and a parenthesised import would hide this dependency from it.
 from .td_can import _resolve_directions_from_balances, normalize_mojibake
+
+#: Audit round 2, R2-B05 (R04 part 2): TD Canada Trust's mail-routing code line on page 1 ('TDCDA00000_0000000_000
+#: F R 00000 00000'), which the holder's name and mailing address follow on the next line, as on the English layout.
+_MAIL_ROUTING_LINE = re.compile(r"^TDCDA\d+_\d+_\d+\b")
+
+
+def _holder_name(markdown: str) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): page 1's block after the mail-routing code: the holder's name before its
+    address (a numbered company keeps its number), read when the line closes on a province and postal code; None
+    otherwise. The English reader's anchor (td_can._holder_name), read on this issue's page 1."""
+    return mailing_line_after(normalize_mojibake(markdown), _MAIL_ROUTING_LINE, PROVINCE_POSTAL_CODE)
+
 
 #: TD prints this statement's month tokens as three unaccented letters in every
 #: document measured, but the accented spellings are the correct French
@@ -368,6 +381,7 @@ def parse_td_canada_french_statement(
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "TD Canada Trust"
+    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
     stmt.currency = "CAD"
     stmt.currency_source = "institution_default"
     stmt.period_start = period_start.isoformat()
