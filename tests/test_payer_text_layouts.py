@@ -185,6 +185,55 @@ def test_a_block_the_template_proves_names_no_payer_is_published_on_no_row_and_m
     )
 
 
+# Audit round 2, R2-B07 (R07): `unread_text`, parallel to `unread`, gives every row marked at an indeterminate flush
+# that flush's joined text; the published descriptions do not change.
+
+def _attributed_with_text(run: str, *, below, block_under_its_row=False):
+    cells = tables.dated_cells(run, date_pattern=cpd._DATE_RE, value_pattern=cpd._FIGURE_RE)
+    assert cells is not None
+    unread: list[list[bool]] = []
+    unread_text: list[list[str]] = []
+    texts = tables.attributed_descriptions(
+        [cells], strip=cpd._DESCRIPTION_FURNITURE, limit=cpd._DESCRIPTION_LIMIT,
+        below=below, block_under_its_row=block_under_its_row, unread=unread, unread_text=unread_text,
+    )
+    without = tables.attributed_descriptions(
+        [cells], strip=cpd._DESCRIPTION_FURNITURE, limit=cpd._DESCRIPTION_LIMIT,
+        below=below, block_under_its_row=block_under_its_row,
+    )
+    assert texts == without  # the out-parameter never changes a published description
+    return texts[0], unread[0], unread_text[0]
+
+
+def test_a_welded_block_below_gives_every_row_it_marks_the_flushs_joined_text():
+    """The below-the-amount branch, the template's rule answering False (two blocks welded on one line)."""
+    run = "\n02-03 Deposit 300.00 02-03 ACH Credit 400.00\nCONTOSO SUPPLY 540203  FABRIKAM TOOLS 540204\n"
+    assert _attributed_with_text(run, below=lambda lines: False) == (
+        ["Deposit", "ACH Credit"], [True, True],
+        ["CONTOSO SUPPLY 540203 FABRIKAM TOOLS 540204"] * 2,
+    )
+
+
+def test_a_welded_flush_inside_a_span_gives_every_row_it_marks_the_flushs_joined_text():
+    """The span branch: a flush printed before the amount of the last of two outstanding rows, on two lines."""
+    run = "\n02-03 ACH Credit 300.00 02-04 ACH Credit\nCONTOSO SUPPLY 540203\nFABRIKAM TOOLS 540204\n400.00\n"
+    assert _attributed_with_text(run, below=None) == (
+        ["ACH Credit", "ACH Credit"], [True, True],
+        ["CONTOSO SUPPLY 540203 FABRIKAM TOOLS 540204"] * 2,
+    )
+
+
+def test_an_attributed_block_and_a_block_naming_no_payer_give_no_unread_text():
+    attributed = "\n02-03 ACH Credit 300.00\nCONTOSO SUPPLY 540203\n"
+    assert _attributed_with_text(attributed, below=lambda lines: True) == (
+        ["ACH Credit CONTOSO SUPPLY 540203"], [False], [""],
+    )
+    teller = "\n02-03 Deposit 300.00 02-04 ACH Credit 400.00\nTLR 00 BR 00\n"
+    assert _attributed_with_text(teller, below=lambda lines: None) == (
+        ["Deposit", "ACH Credit"], [False, False], ["", ""],
+    )
+
+
 # ---------------------------------------------------------------------------
 # BMO Bank N.A. (US): the head line after the amount and the Description column's lines below it
 # ---------------------------------------------------------------------------

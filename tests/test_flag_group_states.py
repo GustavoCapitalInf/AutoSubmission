@@ -67,9 +67,10 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.6/29: audit round 2's holder batch (R2-B04) changes the stored holder_unscreened metric and the holder holds.
     # 5.6/30: audit round 2's holder-reader batch (R2-B05) has fourteen more parsers publish the holder's name.
     # 5.6/31: audit round 2's Navy Federal batch (R2-B06) reads a retail product's amount-first rows as printed.
+    # 5.6/32: audit round 2's welded-run batch (R2-B07) stores the counted template's unread payer text on a credit.
     assert CLASSIFICATION_VERSION == "5.6"
     assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
-    assert ANALYSIS_STAGE_VERSION == 31
+    assert ANALYSIS_STAGE_VERSION == 32
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)

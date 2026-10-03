@@ -363,6 +363,7 @@ def attributed_descriptions(
     below: Callable[[list[str]], bool | None] | None = None,
     block_under_its_row: bool = False,
     unread: list[list[bool]] | None = None,
+    unread_text: list[list[str]] | None = None,
 ) -> list[list[str]]:
     """What each row of a dated ledger printed for ITSELF, run by run.
 
@@ -457,14 +458,33 @@ def attributed_descriptions(
     the row was outstanding at an indeterminate flush, so text the statement
     printed for it may have been dropped — the parser's 'payer text not read'
     mark (`Transaction.payer_text_unread`).
+
+    `unread_text`, when given, receives one string per row, parallel to
+    `unread` (audit round 2, R2-B07: R07): every row marked at an
+    indeterminate flush, in a span or below an amount, gets that flush's
+    lines joined with one space, whitespace collapsed and the template's
+    furniture stripped as a description's is; every other row gets "". It is
+    the text the statement printed for SOME row of that flush, never proven
+    this row's, so it is no description: what the reader publishes is
+    unchanged, and a caller keeps it apart (`Transaction.unread_payer_text`).
+    A flush `below` proves names no payer marks no row and gives none.
     """
     published: list[list[str]] = []
     flags: list[list[bool]] = []
+    flush_texts: list[list[str]] = []
     #: (run, row) of every row opened since the last flush.
     outstanding: list[tuple[int, int]] = []
+
+    def mark(flush: list[str]) -> None:
+        joined = re.sub(r"\s+", " ", " ".join(flush)).strip().strip(strip).strip()
+        for run_at, row_at in outstanding:
+            flags[run_at][row_at] = True
+            flush_texts[run_at][row_at] = joined
+
     for run_index, cells in enumerate(runs):
         this_run: list[str] = []
         flags.append([False] * len(cells))
+        flush_texts.append([""] * len(cells))
         for row_index, cell in enumerate(cells):
             label, _newline, flushed = cell.described.partition("\n")
             outstanding.append((run_index, row_index))
@@ -476,8 +496,7 @@ def attributed_descriptions(
                     printed = cell.described
                 else:
                     printed = label
-                    for run_at, row_at in outstanding:
-                        flags[run_at][row_at] = True
+                    mark(lines)
                 outstanding = []
             if below is not None:
                 block = _block_below(cell.trailing, last=row_index == len(cells) - 1)
@@ -488,8 +507,7 @@ def attributed_descriptions(
                     elif outstanding == [(run_index, row_index)] and verdict:
                         printed = f"{printed} {' '.join(block)}"
                     else:
-                        for run_at, row_at in outstanding:
-                            flags[run_at][row_at] = True
+                        mark(block)
                     outstanding = []
                 elif block_under_its_row and "\n" in cell.trailing and not cell.trailing.strip():
                     # Nothing at all is printed between this row's line and the
@@ -501,6 +519,8 @@ def attributed_descriptions(
         published.append(this_run)
     if unread is not None:
         unread.extend(flags)
+    if unread_text is not None:
+        unread_text.extend(flush_texts)
     return published
 
 

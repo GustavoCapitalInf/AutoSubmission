@@ -677,7 +677,17 @@ OCR_STAGE_VERSION = 5
 # B) drops the page header both readers glued into the last row before a page
 # break ('Statement of Account', 'Joint Owner(s): NONE'); it ships under the
 # same stage, as nothing was released between the two commits.
-ANALYSIS_STAGE_VERSION = 31
+# 31 -> 32: TRUE-REVENUE audit round 2, batch R2-B07 (R07) — the counted
+# core-processor template keeps, on each credit it marks 'payer text not read'
+# at a welded flush, that flush's joined text in a new stored transaction field
+# (`Transaction.unread_payer_text`, written only where set and kept out of the
+# extraction schema), and the true-revenue pass holds such a credit when the
+# run prints a registry lender's or a lending bank's block. Every amount and
+# every published description is unchanged; a warm cache keyed on 31 would
+# serve stored transactions without the field, so those credits would stay
+# counted. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 32
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

@@ -120,12 +120,22 @@ class Transaction(BaseModel):
     # new and tests/test_extraction_schema_prompt_surface.py's digest holds) and out of every serialized transaction
     # that does not carry it (`_serialize`), so no stored payload gains a key it did not have.
     payer_text_unread: SkipJsonSchema[bool] = False
+    # Audit round 2, R2-B07 (R07): on a credit the parser marked (`payer_text_unread`) because a flush of several rows'
+    # merchant blocks could not be attributed, the flush's text, joined: what the statement printed for SOME row of
+    # that flush, never proven this row's, so it is no description. The true-revenue pass reads it only to hold a
+    # marked credit whose run prints a lender's block (never to verify, to name a payer or to count a lender credit),
+    # and the review card prints it so a reviewer can release a customer's row. Kept out of the extraction response
+    # schema and out of every serialized transaction that does not carry it, as `payer_text_unread` is.
+    unread_payer_text: SkipJsonSchema[str] = ""
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler):
         data = handler(self)
-        if not self.payer_text_unread and isinstance(data, dict):
-            data.pop("payer_text_unread", None)
+        if isinstance(data, dict):
+            if not self.payer_text_unread:
+                data.pop("payer_text_unread", None)
+            if not self.unread_payer_text:
+                data.pop("unread_payer_text", None)
         return data
 
 

@@ -579,16 +579,27 @@ def _rows(runs: list[str], *, category: _Category,
     # label; a credit whose block the count cannot attribute is marked as read
     # only by its label. Debit sections keep their labels until the owner
     # admits the debit readings (G7).
+    #
+    # Audit round 2, R2-B07 (R07): a marked credit also keeps the text of the
+    # flush it was marked at (`Transaction.unread_payer_text`), kept apart from
+    # its description because the flush is several rows' blocks welded
+    # together, so the true-revenue pass can hold a run that prints a lender's
+    # block. Credit sections only: a debit keeps its label and no text (G7).
+    credit_text = category.credit and not category.serialled
     unread: list[list[bool]] = []
+    unread_text: list[list[str]] = []
     described = attributed_descriptions(
         [cells for _run, cells in read],
         strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT,
-        below=_block_below_is_one if category.credit and not category.serialled else None,
+        below=_block_below_is_one if credit_text else None,
         unread=unread,
+        unread_text=unread_text if credit_text else None,
     )
     if len(unread) != len(read):
         unread = [[False] * len(cells) for _run, cells in read]
-    for (run, cells), texts, marks in zip(read, described, unread):
+    if len(unread_text) != len(read):
+        unread_text = [[""] * len(cells) for _run, cells in read]
+    for (run, cells), texts, marks, flushes in zip(read, described, unread, unread_text):
         cursor = 0
         for index, cell in enumerate(cells):
             iso = iso_within_period(cell.date.replace("-", "/"), start, end)
@@ -612,6 +623,7 @@ def _rows(runs: list[str], *, category: _Category,
                 amount=round(amount if category.credit else -amount, 2),
                 direction="credit" if category.credit else "debit",
                 payer_text_unread=category.credit and marks[index],
+                unread_payer_text=flushes[index] if credit_text and marks[index] else "",
             ))
     return postings
 
