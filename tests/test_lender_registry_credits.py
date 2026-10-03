@@ -105,6 +105,10 @@ def test_forward_s_new_aliases_are_ledger_aliases(alias):
     # A multi-word alias's run-together form, a digit run glued after it.
     ("ACH DEPOSIT FORWARDFIN12 PAYMENTS", "Forward Financing"),
     ("LCFGROUPINC7 DES:REF1", "The LCF Group, Inc"),
+    # Audit round 2, R2-B08 (R47 (b)): and a digit run with one or two letters after it.
+    ("ACH DEPOSIT FORWARDFINUSA1X PAYMENTS", "Forward Financing"),
+    ("FORWARDFINUSA12AB DES:PAYMENTS ID:ACH123456", "Forward Financing"),
+    ("LCFGROUPINC7A DES:REF1", "The LCF Group, Inc"),
 ])
 def test_a_run_together_alias_reads_a_digit_run_glued_after_it(text, entity):
     found = match_known_payee(normalize(text), credit=True)
@@ -115,6 +119,8 @@ def test_a_run_together_alias_reads_a_digit_run_glued_after_it(text, entity):
     "ACH DEPOSIT FORWARDFINUSA1 PAYMENTS",
     "ACH DEPOSIT FORWARDFIN12 PAYMENTS",
     "LCFGROUPINC7 DES:REF1",
+    # Audit round 2, R2-B08 (R47 (b)): the letter-tail arm is the credit index's only.
+    "ACH DEPOSIT FORWARDFINUSA1X PAYMENTS",
     # The credit-only alias, whole.
     "ORIG CO NAME:SAMPLEPAY ORIG ID:1234 CO ENTRY DESCR:ECHECK SEC:WEB IND ID:LCFGROUPINC IND NAME:NORTHWIND",
 ])
@@ -142,10 +148,16 @@ def test_the_credit_only_aliases_are_ledger_aliases():
 @pytest.mark.parametrize("text", [
     # A one-word alias shorter than a run-together form keeps whole-token matching ('ONDECK' is six letters).
     "ACH DEPOSIT ONDECK123 PAYMENTS",
-    # The digit run must end the token.
-    "ACH DEPOSIT FORWARDFINUSA1X PAYMENTS",
+    "ACH DEPOSIT ONDECK123X PAYMENTS",
+    # The digit run must end the token, or one or two letters after it (audit round 2, R2-B08: R47 (b)); three
+    # letters or more after it are a word, a documented limit.
+    "ACH DEPOSIT FORWARDFINUSA1XYZ PAYMENTS",
+    "ACH DEPOSIT FORWARDFINUSAX1 PAYMENTS",
     # A run-together alias inside a longer word is no match.
     "ACH DEPOSIT XFORWARDFINUSA1 PAYMENTS",
+    "ACH DEPOSIT XFORWARDFINUSA1X PAYMENTS",
+    # A payer no alias names keeps no reading.
+    "FABRIKAMSUPPLY1X DES:PAYMENTS ID:ACH123456",
 ])
 def test_the_digit_arm_reads_only_a_whole_run_together_token_and_its_trailing_digits(text):
     assert match_known_payee(normalize(text), credit=True) is None

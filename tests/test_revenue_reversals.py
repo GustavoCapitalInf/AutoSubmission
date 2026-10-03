@@ -783,3 +783,352 @@ def test_a_store_s_remboursement_still_pairs_with_its_purchase():
         ("2054-03-01", "ACHAT INTERAC SANS CONTACT 1234 FABRIKAM", -40.0),
     ], "Banque Royale du Canada")
     assert records[0].revenue_match_method == "matched_reversal_pair"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B08 (R08; standard D1, D3, D5): the French return, reversal and refusal wordings (EFFET RETOURNE,
+# CONTRE-PASSATION, EFFET or CHEQUE REFUSE SANS PROVISION) and the English check-word NOT PAID are step 3's credit
+# markers, which pass 4 reads on the credit row; the French interest and fee rebate are strong non-revenue, as their
+# English twins (INTEREST CREDIT, FEE REBATE) are.
+# ---------------------------------------------------------------------------------------------------------------------
+
+_REVERSAL_METHODS = {"reversal_cancellation_exclusion", "matched_reversal_pair"}
+
+
+def test_r08_cibc_s_reversal_of_a_cheque_pairs_with_the_cheque():
+    rows = [("2054-03-01", "CHEQUE 123 45678901", -5500.0), ("2054-03-02", "CONTRE-PASSATION DE CHEQUE", 5500.0)]
+    records = _classify(rows, "CIBC")
+    assert records[1].revenue_classification == "non_revenue"
+    assert records[1].revenue_match_method == "matched_reversal_pair"
+    assert _true(records) == 0
+    # The lender side of pass 4 never reads the new markers: the cheque's own reading is untouched.
+    assert _lender_fields(records[0]) == _lender_fields(_classify(rows[:1], "CIBC")[0])
+
+
+@pytest.mark.parametrize(("bank", "rows"), [
+    # CIBC's reversal of a cheque, alone, with its hyphen dropped.
+    ("CIBC", [("2054-03-02", "CONTREPASSATION DE CHEQUE", 5500.0)]),
+    # CIBC's reversal of a pre-authorized debit, twice, beside the equal debits it undoes.
+    ("CIBC", [("2054-03-01", "DEBIT TLV CONTOSO", -300.0),
+              ("2054-03-02", "CONTRE-PASSATION DE DEBIT TLV CONTOSO", 300.0),
+              ("2054-03-08", "DEBIT TLV CONTOSO", -310.0),
+              ("2054-03-09", "CONTRE-PASSATION DE DEBIT TLV CONTOSO", 310.0)]),
+    # RBC's French refused item, beside the payment it refuses and the bank's NSF fee: accented, with the replacement
+    # character a lost accent leaves, and the cheque form.
+    ("Banque Royale du Canada", [("2054-03-01", "Paiement divers SAMPLE", -235.0),
+                                 ("2054-03-02", "Effet refusé sans provision", 235.0),
+                                 ("2054-03-02", "Frais pour effet sans provision", -45.0)]),
+    ("Banque Royale du Canada", [("2054-03-01", "Paiement divers SAMPLE", -235.0),
+                                 ("2054-03-02", "Effet refus� sans provision", 235.0),
+                                 ("2054-03-02", "Frais pour effet sans provision", -45.0)]),
+    ("Banque Royale du Canada", [("2054-03-01", "Paiement divers SAMPLE", -235.0),
+                                 ("2054-03-02", "Chèque refusé sans provision", 235.0),
+                                 ("2054-03-02", "Frais pour effet sans provision", -45.0)]),
+    # A Quebec returned item, alone and beside the bank's fee for it, and its plural.
+    (None, [("2054-03-02", "EFFET RETOURNE", 410.0)]),
+    (None, [("2054-03-02", "EFFET RETOURNE", 410.0), ("2054-03-02", "FR EFFET RET", -45.0)]),
+    (None, [("2054-03-02", "EFFETS RETOURNES", 410.0)]),
+    # The English check-word forms of NOT PAID.
+    ("Fabrikam Bank", [("2054-03-02", "CHECK 1234 NOT PAID", 400.0)]),
+    ("Fabrikam Bank", [("2054-03-02", "CHEQUE NOT PAID", 400.0)]),
+    ("Fabrikam Bank", [("2054-03-02", "CHK 1234 NOT PAID", 400.0)]),
+])
+def test_r08_a_french_return_reversal_or_refusal_and_a_check_not_paid_are_non_revenue(bank, rows):
+    records = _classify(rows, bank)
+    credits = [record for record in records if record.amount > 0]
+    assert credits
+    for record in credits:
+        assert record.revenue_classification == "non_revenue", record.description
+        assert record.revenue_match_method in _REVERSAL_METHODS, record.description
+    assert _true(records) == 0
+
+
+@pytest.mark.parametrize(("text", "amount"), [
+    ("RABAIS SUR LES FRAIS MENSUELS", 6.0),
+    ("CREDIT D'INTERET", 1.43),
+    ("INTERET CREDITE", 1.43),
+    # Under the $1 floor too: the non-revenue rule runs first.
+    ("CREDIT D'INTERET", 0.42),
+])
+def test_r08_the_french_fee_rebate_and_interest_are_strong_non_revenue(text, amount):
+    record = _one(text, "TD Canada Trust", amount)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "strong_non_revenue_rule"
+
+
+@pytest.mark.parametrize("text", ["ITEM RET NOT PAID", "RETURNED CHEQUE NOT PAID", "Item returned NSF"])
+def test_r08_the_english_returned_items_stay_non_revenue(text):
+    record = _one(text)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+
+
+@pytest.mark.parametrize("rows", [
+    # A word of a marker inside a deposit, a name or a transfer's memo, and a paid check, keep their readings.
+    [("2054-03-02", "DEPOT CONTOSO PASSATION INC", 400.0)],
+    [("2054-03-02", "DEPOT CHEQUE 1234", 400.0)],
+    [("2054-03-02", "VIREMENT EFFETS SPECIAUX FABRIKAM INC", 400.0)],
+    [("2054-03-02", "CHECK 1234 PAID TO NORTHWIND", 400.0)],
+    [("2054-03-02", "CONTOSO LTD PAYMENT", 400.0), ("2054-03-09", "CONTOSO LTD PAYMENT", 410.0)],
+])
+def test_r08_a_marker_word_outside_the_return_wordings_keeps_the_credit_counted(rows):
+    records = _classify(rows)
+    for record in records:
+        assert record.revenue_match_method not in _REVERSAL_METHODS, record.description
+        assert record.revenue_tier == COUNTED, record.description
+    assert _true(records) == sum(amount for _, _, amount in rows)
+
+
+@pytest.mark.parametrize("text", ["CONTRE-PASSATION DE DEPOT", "EFFET RETOURNE", "CHEQUE NOT PAID"])
+def test_r08_a_debit_printing_a_new_marker_stays_untiered_and_undoes_no_deposit(text):
+    rows = [("2054-03-01", "DEPOT", 400.0), ("2054-03-02", text, -400.0)]
+    records = _classify(rows, "CIBC")
+    deposit, debit = records
+    assert (debit.revenue_tier, debit.revenue_classification) == (None, None)
+    assert _lender_fields(debit) == _lender_fields(_classify(rows[1:], "CIBC")[0])
+    assert deposit.revenue_match_method != "matched_reversal_pair"
+    assert deposit.contributes_to_true_revenue
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B08 (R22; I03's ground, standard D1, D3, §4.3): the deposit mode's undo debits also read TD Bank's
+# DEP RETURN CHARGEBACK, a credit union's cut DEPOSIT TYPE CORRECT and a bank's row-leading CHARGE BACK of a deposited
+# item (CHARGE BACK ITEM, CHARGE BACK - <return reason>); never a bare CHARGEBACK, a processor's chargeback (owner
+# decision I42), the bank's fee, a bare DEP RETURN or TD's RTN NSF.
+# ---------------------------------------------------------------------------------------------------------------------
+
+def test_r22_td_bank_s_returned_deposit_chargeback_undoes_its_deposit():
+    records = _classify([
+        ("2054-03-02", "SBB MDEPOSIT", 600.0),
+        ("2054-03-05", "DEP RETURN CHARGEBACK", -600.0),
+        ("2054-03-05", "DEP RETURN FEE", -20.0),
+    ], "TD Bank")
+    assert records[0].revenue_classification == "non_revenue"
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert records[0].revenue_matched_rule == "returned_deposit_amount_date_match"
+    assert _true(records) == 0
+    assert records[1].reversed_by is None
+
+
+def test_r22_a_cut_deposit_type_correction_undoes_one_of_two_equal_deposits():
+    records = _classify([
+        ("2054-03-02", "DEPOSIT", 1700.0),
+        ("2054-03-02", "DEPOSIT TYPE CORRECT", -1700.0),
+        ("2054-03-02", "DEPOSIT", 1700.0),
+    ], "Fabrikam Credit Union")
+    first, _, second = records
+    assert first.revenue_classification == "non_revenue"
+    assert first.revenue_match_method == "matched_reversal_pair"
+    assert _tier(second) == (COUNTED, "no_payer_printed")
+    assert _true(records) == 1700.0
+
+
+def test_r22_a_bank_s_charge_back_of_a_deposited_check_undoes_the_deposit():
+    records = _classify([
+        ("2054-03-02", "FIRST DESKTOP REMOTE DEPOSIT", 900.0),
+        ("2054-03-04", "CHARGE BACK ITEM CHECK 12345", -900.0),
+    ])
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert _true(records) == 0
+
+
+def test_r22_a_charge_back_for_an_irregular_signature_undoes_the_deposit_not_its_redeposit():
+    records = _classify([
+        ("2054-03-02", "DEPOSIT", 450.0),
+        ("2054-03-04", "CHARGE BACK - SIGNATURE(S) IRREGULAR", -450.0),
+        ("2054-03-06", "DEPOSIT", 450.0),
+    ])
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert _tier(records[2]) == (COUNTED, "no_payer_printed")
+    assert _true(records) == 450.0
+
+
+@pytest.mark.parametrize(("rows", "why"), [
+    # A processor's chargeback (owner decision I42) and a bare CHARGEBACK name no returned deposited item.
+    ([("2054-03-02", "DEPOSIT", 450.0), ("2054-03-04", "HRTLAND PMT SYS CHARGEBACK 123456", -450.0)], "processor"),
+    ([("2054-03-02", "DEPOSIT", 450.0), ("2054-03-04", "CHARGEBACK", -450.0)], "bare"),
+    # The bank's fee for the return.
+    ([("2054-03-02", "DEPOSIT", 20.0), ("2054-03-04", "DEP RETURN FEE", -20.0)], "fee"),
+    # A card settlement is no deposit channel.
+    ([("2054-03-02", "FABRIKAM MERCHANT SVCS VISA DEPOSIT", 450.0), ("2054-03-04", "CHARGE BACK ITEM", -450.0)], "card"),
+    # Fifteen days is outside the window, and a return printed before the deposit undoes nothing after it.
+    ([("2054-03-02", "DEPOSIT", 450.0), ("2054-03-17", "CHARGE BACK ITEM", -450.0)], "window"),
+    ([("2054-03-01", "CHARGE BACK ITEM", -450.0), ("2054-03-02", "DEPOSIT", 450.0)], "before"),
+    # TD's RTN NSF stays unconfirmed (audit I41).
+    ([("2054-03-02", "DEPOSIT", 450.0), ("2054-03-04", "RTN NSF", -450.0)], "rtn nsf"),
+])
+def test_r22_a_deposit_with_no_returned_item_of_its_own_stays_counted(rows, why):
+    records = _classify(rows)
+    deposit = next(record for record in records if record.amount > 0)
+    assert deposit.revenue_match_method != "matched_reversal_pair", why
+    assert deposit.contributes_to_true_revenue, why
+
+
+def test_r22_a_charge_back_item_never_undoes_a_named_payer_s_ach_payment():
+    records = _classify([
+        ("2054-03-02", "ACH CREDIT CONTOSO LTD PAYMENT", 450.0),
+        ("2054-03-04", "CHARGE BACK ITEM", -450.0),
+    ])
+    assert records[0].revenue_classification == "verified_revenue"
+
+
+def test_r22_a_deposit_correction_still_undoes_the_first_of_two_equal_deposits():
+    # Control (no change): the full DEPOSIT CORRECTION was one of B3's correction markers.
+    records = _classify([
+        ("2054-03-02", "DEPOSIT", 1700.0),
+        ("2054-03-02", "DEPOSIT CORRECTION", -1700.0),
+        ("2054-03-02", "DEPOSIT", 1700.0),
+    ], "Fabrikam Credit Union")
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert _tier(records[2]) == (COUNTED, "no_payer_printed")
+
+
+@pytest.mark.parametrize(("text", "undoes"), [
+    ("DEP RETURN CHARGEBACK", True),
+    ("DEPOSIT RETURN CHARGE BACK", True),
+    ("DEPOSIT TYPE CORRECT", True),
+    ("DEPOSIT TYPE CORRECTION", True),
+    ("DEPOSIT CORRECT", True),
+    ("CHARGE BACK ITEM CHECK 12345", True),
+    ("CHARGEBACK ITEMS", True),
+    ("CHARGE BACK SIGNATURE S IRREGULAR", True),
+    ("CHARGE BACK ENDORSEMENT MISSING", True),
+    ("CHARGE BACK NSF", True),
+    ("CHARGE BACK INSUFFICIENT FUNDS", True),
+    ("CHARGE BACK UNCOLLECTED FUNDS", True),
+    ("CHARGE BACK ACCOUNT CLOSED", True),
+    ("CHARGE BACK ACCT CLOSED", True),
+    ("CHARGE BACK STOP PAYMENT", True),
+    ("CHARGE BACK REFER TO MAKER", True),
+    ("03 04 CHARGE BACK ITEM", True),
+    ("CHARGEBACK", False),
+    ("HRTLAND PMT SYS CHARGEBACK 123456", False),
+    ("MERCHANT CHARGEBACK ITEM 123456", False),
+    ("CHARGE BACK FEE", False),
+    ("CHARGE BACK ITEM FEE", False),
+    ("DEP RETURN FEE", False),
+    ("DEP RETURN", False),
+    ("DEPOSIT RETURN", False),
+    ("RTN NSF", False),
+    ("ZELLE PAYMENT TO PAT SAMPLE CHARGE BACK ITEM", False),
+])
+def test_r22_the_undo_debit_reads_the_new_bank_forms_only(text, undoes):
+    from analysis import transaction_classifier as tc
+
+    assert tc._deposit_return_debit(text) is undoes
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B08 (R47 (a); standard D1, D3): an e-Transfer reclaim is the holder's own money coming back, read
+# with the rail word directly before RECLAIM and a reference with a digit after it (spaced or colon-separated), or
+# TD's RECLAIM E-TFR; never RECLAIM as a payer's word, nor RECLAIM after a reference (a sender's name follows it).
+# ---------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("bank", "text"), [
+    ("CIBC", "E-TRANSFER RECLAIM 123456789012"),
+    ("CIBC", "E-TRANSFER RECLAIM: 123456789012"),
+    ("Royal Bank of Canada", "INTERAC E-TRANSFER RECLAIM 123456789012"),
+    ("TD Canada Trust", "RECLAIM E-TFR ***ABC"),
+    # Controls: the glued and the bare forms stay non-revenue.
+    ("CIBC", "E TRANSFER RECLAIM123456789012"),
+    ("CIBC", "E TRANSFER RECLAIM"),
+])
+def test_r47_an_e_transfer_reclaim_is_non_revenue(bank, text):
+    record = _one(text, bank)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+
+
+@pytest.mark.parametrize(("bank", "text", "tier"), [
+    ("CIBC", "E-TRANSFER 123456789012 CONTOSO SUPPLY", (COUNTED, "p2p")),
+    # A reference between the rail word and RECLAIM: RECLAIM starts the sender's name.
+    ("CIBC", "E-TRANSFER 123456789012 RECLAIM CONTOSO LLC", (COUNTED, "p2p")),
+    ("Bank of America", ACH_PAYER.format(name="RECLAIM CONTOSO LLC"), ("verified", None)),
+])
+def test_r47_reclaim_as_a_sender_s_word_keeps_the_credit_s_reading(bank, text, tier):
+    record = _one(text, bank)
+    assert record.revenue_match_method != "reversal_cancellation_exclusion"
+    assert _tier(record) == tier
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B08 (R48 part 2): a fee waiver is no company's name either (no legal-form word later on the row),
+# as RETOUR, REV and UNAUTHORIZED already read.
+# ---------------------------------------------------------------------------------------------------------------------
+
+def test_r48_a_company_named_fee_waiver_keeps_its_verified_payment():
+    record = _one("FABRIKAM FEE WAIVER CONSULTING INC DES:INVOICE PMT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1 CCD",
+                  "Bank of America", 1400.0)
+    assert record.revenue_classification == "verified_revenue"
+
+
+@pytest.mark.parametrize("text", ["NSF FEE WAIVER", "SERVICE FEE WAIVED", "24 HOUR GRACE OVERDRAFT FEE WAIVER"])
+def test_r48_the_bank_s_fee_waivers_stay_non_revenue(text):
+    record = _one(text, amount=35.0)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B08 (R08, R47 (a), R48 part 2): the backstop and the census read the same new spellings as step 3.
+# ---------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("hold_text", "held"), [
+    ("EFFET RETOURNE", True),
+    ("EFFETS RETOURNES", True),
+    ("FR EFFET RET", True),
+    ("CONTRE PASSATION DE CHEQUE", True),
+    ("CONTREPASSATION DE DEBIT TLV CONTOSO", True),
+    ("EFFET REFUSE SANS PROVISION", True),
+    ("EFFET REFUS SANS PROVISION", True),
+    ("CHEQUE REFUSE SANS PROVISION", True),
+    ("CHQ REFUSEE SANS PROV", True),
+    ("CHECK 1234 NOT PAID", True),
+    ("CHEQUE NOT PAID", True),
+    ("CHK 1234 NOT PAID", True),
+    ("E TRANSFER RECLAIM 123456789012", True),
+    ("INTERAC E TRANSFER RECLAIM 123456789012", True),
+    ("E TFR RECLAIM ABC1234", True),
+    ("RECLAIM E TFR ABC", True),
+    ("RECLAIM INTERAC", True),
+    ("NSF FEE WAIVER", True),
+    # Never a name, a memo or a deposit.
+    ("DEPOT CONTOSO PASSATION INC", False),
+    ("VIREMENT EFFETS SPECIAUX FABRIKAM INC", False),
+    ("CHECK 1234 PAID TO NORTHWIND", False),
+    ("E TRANSFER 123456789012 RECLAIM CONTOSO LLC", False),
+    ("E TRANSFER RECLAIM CONTOSO LLC", False),
+    ("RECLAIM E TFRS CONTOSO", False),
+    ("FABRIKAM FEE WAIVER CONSULTING INC INVOICE PMT", False),
+])
+def test_r2_b08_the_possible_return_backstop_reads_the_new_spellings(hold_text, held):
+    from analysis import true_revenue
+
+    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+
+
+def test_r2_b08_the_three_readers_hold_the_same_new_arms():
+    """The classifier's step-3 credit markers, the pass's possible-return backstop and the census's declared markers
+    each carry the batch's arms verbatim (the census's on the digit-masked text), so the copies stay in step."""
+    from analysis import transaction_classifier as tc
+    from analysis import true_revenue
+    from tools import revenue_census as census
+
+    arms = tc._RETURN_REFUND_R2_B08_ARMS
+    assert len(arms) == 7
+    classifier = {pattern.pattern for pattern in tc._RETURN_REFUND_CREDIT_PATTERNS}
+    masked = {pattern.pattern for pattern in census._REVERSAL_MARKERS_56}
+    for arm in arms:
+        assert arm in classifier, arm
+        assert arm in true_revenue._POSSIBLE_RETURN.pattern, arm
+        assert census._on_masked(arm).pattern in masked, arm
+    assert census._RETURN_REFUND_R2_B08_ARMS == true_revenue._RETURN_REFUND_R2_B08_ARMS == arms
+    # The fee waiver arm carries the no-legal-form guard in all three.
+    waiver = r"\bFEES? WAIVE[DR]?\b" + tc._NO_LEGAL_FORM_LATER
+    assert waiver in arms
+    assert tc._NO_LEGAL_FORM_LATER == true_revenue._NO_LEGAL_FORM_LATER == census._NO_LEGAL_FORM_LATER
+    # The old unguarded arm is gone from every copy.
+    bare = r"\bFEES? WAIVE[DR]?\b"
+    assert bare not in classifier
+    assert census._on_masked(bare).pattern not in masked
+    assert r"|\bFEES? WAIVE[DR]?\b|" not in true_revenue._POSSIBLE_RETURN.pattern

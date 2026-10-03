@@ -400,6 +400,21 @@ _LEADING_MASKED_DATE = r"^(?:#{1,2} #{1,2} ?)?"
 _NO_LEGAL_FORM_LATER = (
     r"(?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP|LLLP|PLLC|ULC|PLC|GMBH)\b)"
 )
+#: Audit round 2, R2-B08 (R08, R47 (a), R48 part 2): the classifier's _RETURN_REFUND_R2_B08_ARMS (copied verbatim: the
+#: census reads other checkouts), read on the masked text: a Quebec returned item, CIBC's CONTRE-PASSATION, RBC's
+#: refused item SANS PROVISION, the check-word NOT PAID, an e-Transfer reclaim with the rail word right before RECLAIM
+#: and a reference after it or TD's RECLAIM E-TFR, and the fee waiver with no legal-form word later (it replaces the
+#: bare fee-waiver arm). A test keeps the copies in step.
+_RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
+_RETURN_REFUND_R2_B08_ARMS = (
+    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
+    r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
+    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
+    r"(?<![A-Z])(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
+    r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
+    r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
+    r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,
+)
 _REVERSAL_MARKERS_56 = tuple(_on_masked(pattern) for pattern in (
     r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)",
     r"(?<![A-Z])(?:ITEMS?|RET|RETN|RTN|RETURN(?:ED)?) NOT PAID\b|" + _LEADING_MASKED_DATE + r"NOT PAID(?: \S*\d\S*)*$",
@@ -417,8 +432,14 @@ _REVERSAL_MARKERS_56 = tuple(_on_masked(pattern) for pattern in (
     r"|CREDIT|PMT|PAYMENT|TRANSACTION|TXN|WITHDRAWAL)\b| ?\d|\s*$)|" + _NO_LEGAL_FORM_LATER + ")",
     r"(?<![A-Z])(?:RENV|RENVERSEMENT|REMBOURSEMENT)\b",
     r"(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")",
-    r"\bFEES? WAIVE[DR]?\b",
     r"\bCOURTESY REF(?:UND)?\b",
+    *_RETURN_REFUND_R2_B08_ARMS,
+))
+#: Audit round 2, R2-B08 (R08): the French interest credit and fee rebate that joined the strong non-revenue rule (the
+#: classifier's, copied), on the masked text.
+_FRENCH_INTEREST_AND_REBATE_R2_B08 = tuple(_on_masked(pattern) for pattern in (
+    r"(?<![A-Z])CREDIT D ?INTERETS?\b|(?<![A-Z])INTERETS? CREDITES?\b",
+    r"(?<![A-Z])RABAIS (?:SUR )?(?:LES )?FRAIS\b",
 ))
 #: Audit B3 (I43, §20): the card-rewards redemptions that joined the strong non-revenue rule (the classifier's, copied):
 #: Chase's whole-row CASH REDEMPTION, PNC's PURCHASE PAYBACK [AWARD], POINTS REDEMPTION and Membership Rewards' words
@@ -1440,6 +1461,11 @@ NON_REVENUE_IN_TRUE_CLASSES = (
         ("high", r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR(?:EDIT)?\b|^REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b"),
         ("high", r"\bFEE WAIVE[DR]?\b|\bWAIVE[DR]? FEE\b|^CREDIT BR \d+ WAIVE|\bRTNOFFSETS?\b|\bE ?TRANSFER RECLAIM\b"),
         ("high", r"^CHECKCARD \d|\bDEBIT PURCHASE RET\b|\bRENV(?:ERSEMENT)?\b"),
+        # Audit round 2, R2-B08 (R08): a Quebec returned item, CIBC's reversal of a cheque or a debit, RBC's refused item
+        # (SANS PROVISION, a lost accent leaving REFUS) and the check-word NOT PAID.
+        ("high", r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b|(?<![A-Z])CONTRE ?PASSATIONS?\b"
+                 r"|(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b"
+                 r"|(?<![A-Z])(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b"),
         # Standard D4: card rewards redeemed into the account (Chase's CASH REDEMPTION).
         ("medium", r"\bCASH REDEMPTION\b|\bREWARDS? REDEMPTION\b"),
     )),
@@ -1941,6 +1967,8 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         _TAX_REFUNDS_55.search(text) or _CRA_REFUND_56.search(text) or _GOVERNMENT_TAX_REFUNDS_56.search(text)
         # Audit B3 (I43): the card-rewards redemptions.
         or _matches(_REWARD_REDEMPTIONS_56, text)
+        # Audit round 2, R2-B08 (R08): the French interest credit and fee rebate.
+        or _matches(_FRENCH_INTEREST_AND_REBATE_R2_B08, text)
     )):
         # I7: and the CRA's income-tax refund forms, which 5.6 adds to the strong non-revenue rule (§20); GOV: and the
         # GST/HST refund forms and the IRS's payments (the owner's ruling of 2026-09-30).

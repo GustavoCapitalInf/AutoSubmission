@@ -192,6 +192,20 @@ _CLAIM_WORD = re.compile(r"(?<![A-Z])CLAIMS?\b")
 _NO_LEGAL_FORM_LATER = (
     r"(?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP|LLLP|PLLC|ULC|PLC|GMBH)\b)"
 )
+#: Audit round 2, R2-B08 (R08, R47 (a), R48 part 2): the classifier's _RETURN_REFUND_R2_B08_ARMS, copied verbatim (the
+#: classifier imports this module): a Quebec returned item, CIBC's CONTRE-PASSATION, RBC's refused item SANS
+#: PROVISION, the check-word NOT PAID, an e-Transfer reclaim with the rail word right before RECLAIM and a reference
+#: after it or TD's RECLAIM E-TFR, and the fee waiver with no legal-form word later. A test keeps the copies in step.
+_RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
+_RETURN_REFUND_R2_B08_ARMS = (
+    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
+    r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
+    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
+    r"(?<![A-Z])(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
+    r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
+    r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
+    r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,
+)
 _POSSIBLE_RETURN = re.compile(
     r"(?<![A-Z])RETURN(?:ED|S)?\b|\bADJ\b|(?<![A-Z])ADJ(?:USTMENT|USTED)\b|(?<![A-Z])DISPUTE[DS]?\b"
     r"|(?<![A-Z])CREDIT MEMO\b|(?<![A-Z])OVERPA\w*"
@@ -213,7 +227,9 @@ _POSSIBLE_RETURN = re.compile(
     r"|CARD|CREDIT|PMT|PAYMENT|TRANSACTION|TXN|WITHDRAWAL)\b| ?\d|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"
     r"|(?<![A-Z])(?:RENV|RENVERSEMENT)\b"
     r"|(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"
-    r"|\bFEES? WAIVE[DR]?\b|(?<![A-Z])COURTESY REF(?:UND)?\b"
+    r"|(?<![A-Z])COURTESY REF(?:UND)?\b"
+    # Audit round 2, R2-B08: the classifier's new step-3 arms (the fee waiver's guarded arm replaces the bare one).
+    + "".join("|" + arm for arm in _RETURN_REFUND_R2_B08_ARMS)
 )
 #: §8.1, §7.11: a card credit's posting labels (a refund to the card unless a form or the registry verified it). 5.6
 #: (audit B3: I04): and the card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's
@@ -402,8 +418,12 @@ _OWNER_SHAPED_PAYER = re.compile(
 #: §8.1 (A3-G, audit B7: the orchestrator's delegated ruling on audit I57): a personal trust's payment whose purpose
 #: cites the holder's service, a school's tuition or a student's ID, is a customer's payment, not owner money; it is
 #: read on the payment's purpose (_title_purpose_text) with a line wrap's split joined ('TUITIO N'). A trust's invoice
-#: or PO payment is already verified by §7.9 before the holds read it.
-_TRUST_SERVICE_PURPOSE = re.compile(r"TUITION|STUDENTID")
+#: or PO payment is already verified by §7.9 before the holds read it. Audit round 2, R2-B08 (R47 (c)): the ruling names
+#: TUITION and STUDENT ID only: TUITION is read on the space-stripped purpose (a wrap's split joined, glued after a word
+#: as in FORTUITION) but never after IN (INTUITION, a cross-word join INTUIT ION...), and STUDENT ID on the printed
+#: purpose as whole words (STUDENT ID 12345, STUDENTID12345; never STUDENT IDEAS). IN TUITION is held, the safe side.
+_TRUST_SERVICE_PURPOSE = re.compile(r"(?<!IN)TUITION")
+_TRUST_STUDENT_ID_PURPOSE = re.compile(r"(?<![A-Z])STUDENT ?ID(?![A-Z])")
 #: §8.1 non_sale_purpose (audit B8: I28; the MCA principle of 2026-09-30, standard G3): a gambling or prediction-market
 #: payout is no money the business earned from its operations, held for review (the owner may make it non_revenue).
 #: Read on the row before its receiver fields: the sportsbooks', casinos' and prediction markets' names, each public
@@ -1707,11 +1727,16 @@ def _disbursing_payer(text: str, region: str) -> bool:
 def _held_personal_trust(text: str, region: str) -> bool:
     """§8.1 (A3-G; the orchestrator's delegated ruling on audit I57): a personal trust that the hold names
     (_personal_trust), unless the payment's purpose (_title_purpose_text, a line wrap's split joined) cites the holder's
-    service: a school's tuition or a student's ID (_TRUST_SERVICE_PURPOSE). A trust's payment with no purpose stays
-    held."""
+    service: a school's tuition or a student's ID (_TRUST_SERVICE_PURPOSE, _TRUST_STUDENT_ID_PURPOSE). A trust's payment
+    with no purpose stays held. Audit round 2, R2-B08 (R47 (c)): TUITION never read after IN, STUDENT ID only as whole
+    words on the printed purpose."""
     if not _personal_trust(text, region):
         return False
-    return _TRUST_SERVICE_PURPOSE.search(_title_purpose_text(text).replace(" ", "")) is None
+    purpose = _title_purpose_text(text)
+    return (
+        _TRUST_SERVICE_PURPOSE.search(purpose.replace(" ", "")) is None
+        and _TRUST_STUDENT_ID_PURPOSE.search(purpose) is None
+    )
 
 
 def _personal_trust(text: str, region: str) -> bool:

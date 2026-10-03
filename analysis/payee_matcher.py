@@ -31,6 +31,10 @@ _TOKEN = re.compile(r"[A-Z0-9]+")
 #: RUN_TOGETHER_MIN_LENGTH letters or more (a one-word alias, or a multi-word alias's run-together form), in the
 #: known-payee index a credit is read with only ('FORWARDFINUSA1', 'LCFGROUPINC7').
 _GLUED_DIGITS = re.compile(r"([A-Z]{3,})[0-9]+")
+#: Audit round 2, R2-B08 (R47 (b)): in the credit index only (run_together_digits), a whole run-together alias may also
+#: carry one or two letters after its digit run ('FORWARDFINUSA1X', 'FORWARDFINUSA12AB'). Three letters or more are a
+#: word and keep no reading (a documented limit).
+_GLUED_DIGITS_LETTER_TAIL = re.compile(r"([A-Z]{3,})[0-9]+[A-Z]{1,2}")
 #: Audit B6 (I24): the premium-finance lookup's glued-digit arm (registry_match(..., glued_digits=True)) reads a
 #: one-word alias of this many letters or more with a digit run glued after it ('IPFS888' is IPFS).
 REGISTRY_GLUED_MIN_LETTERS = 4
@@ -65,7 +69,10 @@ class AliasIndex:
     that token with digits glued on. `single_glued_min` (audit B6: I24) lets a one-word alias of that many letters or
     more match with digits glued on (the premium-finance lookup). An alias in `tied` (audit B6: I49) matches only where
     a reference code (a token with a digit) or nothing follows it, in its spaced and its run-together form; an alias in
-    `excluded` (audit B6: the debit index leaves out CREDIT_ONLY_ALIASES) is not indexed."""
+    `excluded` (audit B6: the debit index leaves out CREDIT_ONLY_ALIASES) is not indexed. Audit round 2, R2-B08 (R47
+    (b)): with run_together_digits, a single token that is no alias with digits glued on is read once more with one or
+    two letters after its digit run (_GLUED_DIGITS_LETTER_TAIL), the same tied-alias rule applying; the premium-finance
+    lookup's single_glued_min arm and the multi-word glued arm never read that tail."""
 
     def __init__(
         self,
@@ -112,6 +119,7 @@ class AliasIndex:
         self._table = table
         self._glued = glued
         self._single = single
+        self._letter_tail = run_together_digits
         self._longest = max((len(tokens) for tokens in table), default=0)
 
     def match(self, normalized_text: str) -> PayeeMatch | None:
@@ -132,6 +140,10 @@ class AliasIndex:
                         entry = self._glued.get((*tokens[:-1], split.group(1)))
                     elif split is not None:
                         entry = self._single.get(split.group(1))
+                    elif self._letter_tail and position == start:
+                        tail = _GLUED_DIGITS_LETTER_TAIL.fullmatch(tokens[-1])
+                        if tail is not None:
+                            entry = self._single.get(tail.group(1))
                 if entry is not None and entry.tied and not _reference_follows(normalized_text, runs, position):
                     entry = None
                 if entry is not None and (

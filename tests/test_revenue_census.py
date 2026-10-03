@@ -1970,6 +1970,70 @@ def test_b3_the_card_rewards_redemptions_are_a_declared_new_marker(text, cause):
     assert _causes([_step_11(text)], [later]) == {cause: 1}
 
 
+@pytest.mark.parametrize(("text", "cause"), [
+    # Audit round 2, R2-B08 (R08, R47 (a), R48 part 2): the French return, reversal and refusal wordings, the check-word
+    # NOT PAID, the rail-word reclaims and the guarded fee waiver are declared new markers of the reversal rule, read as
+    # the classifier reads them, on the masked text.
+    ("CONTRE PASSATION DE DEBIT TLV CONTOSO", "new_non_revenue_marker"),
+    ("CONTREPASSATION DE CHEQUE", "new_non_revenue_marker"),
+    ("EFFET RETOURNE", "new_non_revenue_marker"),
+    ("EFFETS RETOURNES", "new_non_revenue_marker"),
+    ("EFFET REFUSE SANS PROVISION", "new_non_revenue_marker"),
+    ("EFFET REFUS SANS PROVISION", "new_non_revenue_marker"),
+    ("CHEQUE REFUSE SANS PROVISION", "new_non_revenue_marker"),
+    ("CHECK #### NOT PAID", "new_non_revenue_marker"),
+    ("CHK #### NOT PAID", "new_non_revenue_marker"),
+    ("CHEQUE NOT PAID", "new_non_revenue_marker"),
+    ("E TRANSFER RECLAIM ############", "new_non_revenue_marker"),
+    ("INTERAC E TRANSFER RECLAIM ############", "new_non_revenue_marker"),
+    ("RECLAIM E TFR ABC", "new_non_revenue_marker"),
+    ("## HOUR GRACE OVERDRAFT FEE WAIVER", "new_non_revenue_marker"),
+    # Never a name, a memo or a deposit.
+    ("E TRANSFER ############ RECLAIM CONTOSO LLC", "undeclared"),
+    ("VIREMENT EFFETS SPECIAUX FABRIKAM INC", "undeclared"),
+    ("DEPOT CONTOSO PASSATION INC", "undeclared"),
+    ("CHECK #### PAID TO NORTHWIND", "undeclared"),
+    ("FABRIKAM FEE WAIVER CONSULTING INC DES INVOICE PMT ID #", "undeclared"),
+])
+def test_r2_b08_the_reversal_rule_s_new_spellings_are_a_declared_new_marker(text, cause):
+    later = _later("reversal_cancellation_exclusion", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
+@pytest.mark.parametrize(("text", "cause"), [
+    # Audit round 2, R2-B08 (R08): the French interest and fee rebate joined the strong non-revenue rule.
+    ("RABAIS SUR LES FRAIS MENSUELS", "new_non_revenue_marker"),
+    ("RABAIS FRAIS", "new_non_revenue_marker"),
+    ("CREDIT D INTERET", "new_non_revenue_marker"),
+    ("CREDIT DINTERETS", "new_non_revenue_marker"),
+    ("INTERET CREDITE", "new_non_revenue_marker"),
+    ("FABRIKAM CREDIT DESK DES PAYMENT ID #", "undeclared"),
+])
+def test_r2_b08_the_french_interest_and_fee_rebate_are_a_declared_new_marker(text, cause):
+    later = _later("strong_non_revenue_rule", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
+@pytest.mark.parametrize(("text", "letter"), [
+    # Audit round 2, R2-B08 (R08): the sweep's refunds-and-corrections class reads the French return, reversal and
+    # refusal wordings and the check-word NOT PAID.
+    ("CONTRE PASSATION DE CHEQUE", "D"),
+    ("CONTREPASSATION DE DEBIT TLV CONTOSO", "D"),
+    ("EFFET RETOURNE", "D"),
+    ("EFFET REFUSE SANS PROVISION", "D"),
+    ("CHEQUE REFUSE SANS PROVISION", "D"),
+    ("CHECK 1234 NOT PAID", "D"),
+    ("CHEQUE NOT PAID", "D"),
+    ("DEPOT CONTOSO PASSATION INC", None),
+    ("VIREMENT EFFETS SPECIAUX FABRIKAM INC", None),
+    ("CHECK 1234 PAID TO NORTHWIND", None),
+])
+def test_r2_b08_the_sweep_reads_the_french_returns_and_the_check_not_paid(text, letter):
+    sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
+    assert {name: row["rows"] for name, row in sweep["classes"].items() if row["rows"]} == (
+        {letter: 1} if letter else {})
+
+
 def test_b3_a_returned_deposit_s_pair_is_the_declared_reversal_pair_cause():
     # Audit B3 (I03): pass 4's returned-deposit pairs keep the pair's own method, so a verified row they take is the
     # declared reversal_pair cause (none in the corpus: a deposit is never verified).

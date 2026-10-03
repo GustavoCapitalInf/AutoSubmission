@@ -602,6 +602,37 @@ def test_a_trust_s_wire_with_no_service_purpose_stays_held(obi):
     assert _one(_CHIPS.format(sender="PAT SAMPLE TTEE", obi=obi), 12000.0, holder=_SCHOOL) == NON_SALE
 
 
+_ACADEMY = "NORTHWIND ACADEMY LLC"
+_TRUST_CHIPS = ("CHIPS CREDIT VIA CITIBANK N A/0008 B/O: SAMPLE FAMILY TRUST IL REF: NBNF=NORTHWIND ACADEMY LLC NEW YORK "
+                "NY 10001{obi}")
+
+
+@pytest.mark.parametrize("obi", [
+    # Audit round 2, R2-B08 (R47 (c)): the ruling names TUITION and STUDENT ID only. The letters of TUITION inside
+    # another word (INTUITION, a cross-word join INTUIT IONA) and STUDENT before IDEAS are no such purpose.
+    " OBI=INTUITION RETREAT",
+    " OBI=INTUIT IONA",
+    " OBI=STUDENT IDEAS WORKSHOP",
+    # Controls: a gift and no purpose stay held.
+    " OBI=GIFT FOR SAMPLE",
+    "",
+])
+def test_r47_a_trust_s_wire_citing_no_tuition_or_student_id_is_held(obi):
+    assert _one(_TRUST_CHIPS.format(obi=obi), 12000.0, holder=_ACADEMY) == NON_SALE
+
+
+@pytest.mark.parametrize("obi", [
+    " OBI=TUITION SPRING",
+    # A line wrap's split, and TUITION glued after a word, still cite it.
+    " OBI=TUITIO N SPRING",
+    " OBI=PAYMENT FORTUITION",
+    " OBI=STUDENT ID 12345",
+    " OBI=STUDENTID12345",
+])
+def test_r47_a_trust_s_wire_citing_tuition_or_a_student_id_is_still_counted(obi):
+    assert _one(_TRUST_CHIPS.format(obi=obi), 12000.0, holder=_ACADEMY) == WIRE
+
+
 def test_a_parent_s_tuition_wire_is_counted_as_before():
     assert _one(_CHIPS.format(sender="PAT SAMPLE", obi=" OBI=URI SAMPLE CHILD TUITION"), 12000.0,
                 holder=_SCHOOL) == WIRE

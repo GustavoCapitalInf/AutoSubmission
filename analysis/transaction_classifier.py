@@ -921,7 +921,14 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     _CardIssuerRewardRedemption(),
     re.compile(r"\bINTEREST (?:CREDIT(?:ED)?|PAID|PAYMENT|DEPOSIT|EARNED)\b"),
     re.compile(r"\bCREDIT INTEREST\b"),
+    # Audit round 2, R2-B08 (R08; standard D1): the French interest credit (TD Canada Trust's CREDIT D'INTERET, the
+    # apostrophe dropped or glued, and INTERET CREDITE), as INTEREST CREDIT and CREDIT INTEREST read. Copied in
+    # tools/revenue_census.py.
+    re.compile(r"(?<![A-Z])CREDIT D ?INTERETS?\b|(?<![A-Z])INTERETS? CREDITES?\b"),
     re.compile(r"\b(?:BANK |SERVICE |ACCOUNT )?FEES? (?:REFUND|REBATE|REVERSAL|CREDIT)\b"),
+    # Audit round 2, R2-B08 (R08; standard D3): the French fee rebate (RABAIS SUR LES FRAIS MENSUELS), as FEE REBATE
+    # reads. Copied in tools/revenue_census.py.
+    re.compile(r"(?<![A-Z])RABAIS (?:SUR )?(?:LES )?FRAIS\b"),
     re.compile(r"\bDAILY CAP OF \d+ FEES?\b"),
     re.compile(r"\bINVEST(?:MENT)? TRANSFER\b"),
     re.compile(r"\b(?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE (?:PROCEEDS|DEPOSIT)\b"),
@@ -2412,6 +2419,31 @@ _NO_LEGAL_FORM_LATER = (
 #: - a fee waiver (FEE WAIVE, WAIVED, WAIVER) and a courtesy refund (TD's WIRE OUT COURTESY REF).
 #: Read on credits only, by step 3 and, on the credit row, by pass 4's revenue side (_CREDIT_PAIR_MARKER_PATTERNS); the
 #: lender side of pass 4 never reads them (§20, final review I6).
+#:
+#: Audit round 2, R2-B08 (R08, R47 (a), R48 part 2; standard D1, D3, D5): and these arms, each copied verbatim in
+#: true_revenue._POSSIBLE_RETURN and in tools/revenue_census.py (_REVERSAL_MARKERS_56, on the masked text), where a test
+#: keeps the three copies in step:
+#: - a Quebec returned item (EFFET RETOURNE, EFFETS RETOURNES, the bank's cut EFFET RET);
+#: - CIBC's reversal of the holder's cheque or pre-authorized debit (CONTRE-PASSATION DE CHEQUE|DEBIT ..., its hyphen
+#:   normalized to a space or dropped);
+#: - RBC's French refused item, the bank crediting back a payment refused for no funds (EFFET|CHEQUE REFUSE SANS
+#:   PROVISION; a lost accent leaves REFUS);
+#: - the English check-word form of NOT PAID (CHECK|CHEQUE|CHK|CHQ [<n>] NOT PAID);
+#: - an e-Transfer the holder reclaimed with a spaced or colon-separated reference, the rail word (INTERAC, E TRANSFER,
+#:   E TFR) printed right before RECLAIM and a reference holding a digit right after it, or TD's RECLAIM E-TFR. Never
+#:   RECLAIM as a payer's word, nor after a reference (a sender's name follows it there);
+#: - the fee waiver, now with no legal-form word later on the row (never a company named <word> FEE WAIVER ... INC), as
+#:   RETOUR, REV and UNAUTHORIZED read.
+_RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
+_RETURN_REFUND_R2_B08_ARMS = (
+    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
+    r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
+    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
+    r"(?<![A-Z])(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
+    r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
+    r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
+    r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,
+)
 _RETURN_REFUND_CREDIT_PATTERNS = (
     re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)"),
     re.compile(
@@ -2432,8 +2464,8 @@ _RETURN_REFUND_CREDIT_PATTERNS = (
     re.compile(r"(?<![A-Z])(?:RENV|RENVERSEMENT)\b"),
     re.compile(r"(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"),
     _REMBOURSEMENT_WORD,
-    re.compile(r"\bFEES? WAIVE[DR]?\b"),
     re.compile(r"\bCOURTESY REF(?:UND)?\b"),
+    *(re.compile(arm) for arm in _RETURN_REFUND_R2_B08_ARMS),
 )
 #: §7.11: push payouts printed as card credits: a push-rail word, or a processor or invoice source with a payout word.
 #: 5.6 (audit B3: I04): the card-credit labels include Citibank's cut DEBIT CARD CREDI and the card-shaped refund labels
@@ -5015,11 +5047,13 @@ def _descriptions_share_pair_context(left: str, right: str) -> bool:
 #: 5.6 (audit B3: I03, §6.2 pass 4, §20): the undo wordings of a deposit, read as pass 4's revenue-side markers on either
 #: row: a returned deposited item (PNC's RET DEP ITEM, RETURNED DEPOSIT ITEM, Wells Fargo's DEPOSITED ITEM RETN and
 #: Chase's DEPOSITED ITEM RETURNED), an error, transaction or deposit correction, a mobile, remote or ATM deposit
-#: adjustment, and Bank of America's ADJUSTMENT CORRECTION.
+#: adjustment, and Bank of America's ADJUSTMENT CORRECTION. Audit round 2, R2-B08 (R22): and a credit union's deposit
+#: correction cut short or with its type between the words (DEPOSIT TYPE CORRECT, DEPOSIT CORRECT).
 _DEPOSIT_CORRECTION_MARKERS = (
     re.compile(r"\b(?:ERROR|TRANSACTION|DEPOSIT) CORRECTION\b"),
     re.compile(r"\b(?:MOBILE|REMOTE|ATM) DEPOSIT ADJUSTMENT\b"),
     re.compile(r"\bADJUSTMENT CORRECTION\b"),
+    re.compile(r"\bDEPOSIT (?:TYPE )?CORRECT(?:ION)?\b"),
 )
 _DEPOSIT_UNDO_MARKERS = (
     re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
@@ -5029,13 +5063,23 @@ _DEPOSIT_UNDO_MARKERS = (
 #: 5.6 (audit B3: I03): the debits that undo a deposit, which pair with the deposit itself (_deposit_return_pairs): the
 #: undo markers, a deposited check returned, a bare RETURNED ITEM (and Bank of America's RETURN ITEM CHARGEBACK), RBC's
 #: ITEM RETURNED UNPAID and a returned check; never the bank's fee for the return (_DEPOSIT_UNDO_FEE). TD's RTN NSF is
-#: not one (audit I41: its sign is unconfirmed).
+#: not one (audit I41: its sign is unconfirmed). Audit round 2, R2-B08 (R22; standard D1, D3): and TD Bank's returned
+#: deposited item, DEP RETURN CHARGEBACK (its DEP RETURN FEE prints beside it), and a bank's row-leading two-word
+#: CHARGE BACK of a deposited item, with ITEM or a return reason after it (CHARGE BACK ITEM CHECK <n>, CHARGE BACK -
+#: SIGNATURE(S) IRREGULAR, ... NSF, INSUFFICIENT, UNCOLLECTED, ACCOUNT CLOSED, STOP PAY, REFER TO MAKER); read on
+#: debits only, never a bare CHARGEBACK, a processor's or a merchant's chargeback (owner decision I42), the bank's fee,
+#: a bare DEP RETURN or RTN NSF.
 _DEPOSIT_RETURN_DEBIT_PATTERNS = (
     *_DEPOSIT_UNDO_MARKERS,
     re.compile(r"\bDEPOSITED (?:CHECK|CHEQUE)S? RET\w*"),
     re.compile(r"\bRETURN(?:ED)? ITEMS?\b"),
     re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b"),
     re.compile(r"\bRETURNED (?:CHECK|CHEQUE)S?\b|\b(?:CHECK|CHEQUE)S? RETURNED\b"),
+    re.compile(r"\bDEP(?:OSIT)? RETURN CHARGE ?BACK\b"),
+    re.compile(
+        r"^(?:\d{1,2} \d{1,2} )?CHARGE ?BACK (?:ITEMS?\b|SIGNATURE|ENDORSE|NSF\b|INSUFFICIENT|UNCOLLECTED"
+        r"|ACC(?:OUN)?T CLOSED|STOP PAY|REFER TO MAKER)"
+    ),
 )
 #: B3 review round 1: and the CHARGE (never CHARGE BACK, the chargeback) and CHRG wordings of the fee.
 _DEPOSIT_UNDO_FEE = re.compile(r"\b(?:FEES?|FRAIS|SVC|CHG|CHRG|SERVICE CHARGE)\b|\bCHARGES?\b(?! ?BACK)")

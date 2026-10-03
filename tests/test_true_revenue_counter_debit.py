@@ -410,6 +410,29 @@ def test_a_funding_whose_name_carries_a_glued_reference_is_held():
     assert (records[0].revenue_tier, records[0].revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
 
 
+@pytest.mark.parametrize("credit", [
+    # Audit round 2, R2-B08 (R47 (b); Q6 "lenders never count", standard C1): Forward's run-together name with a digit
+    # run and a letter tail glued on, on Bank of America's and Chase's layouts, is its financing proceeds too.
+    "FORWARDFINUSA1X DES:PAYMENTS ID:ACH123456 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD",
+    "FORWARDFINUSA12AB DES:PAYMENTS ID:ACH123456 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD",
+    "ORIG CO NAME:FORWARDFINUSA1X ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:PAYMENTS SEC:CCD TRACE#:1 "
+    "EED:540302 IND ID: IND NAME:NORTHWIND LABS",
+])
+def test_r47_a_funding_whose_glued_reference_ends_in_letters_is_financing_proceeds(credit):
+    debit = ("ORIG CO NAME:FORWARD FIN USA ORIG ID:RPP1234567 DESC DATE:540309 CO ENTRY DESCR:FF SEC:CCD TRACE#:1 "
+             "EED:540309 IND ID: IND NAME:NORTHWIND LABS")
+    for rows in ([(credit, 27000.0), *[(debit, -300.0)] * 4], [(credit, 27000.0)]):
+        records = _records(rows, days=WEEKLY[:len(rows)])
+        assert (records[0].revenue_tier, records[0].revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+        assert {record.classification for record in records[1:]} <= {"confirmed_lender"}
+
+
+def test_r47_a_payer_no_alias_names_keeps_its_letter_tail_reading():
+    records = _records([("FABRIKAMSUPPLY1X DES:PAYMENTS ID:ACH123456 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD",
+                         2700.0)])
+    assert records[0].revenue_tier == "counted_flagged"
+
+
 def test_an_unregistered_funding_whose_name_carries_a_glued_reference_is_held():
     # The B4 reading the test above pinned, for a funder no alias lists: the credit's glued reference split off, its
     # name matches the lender debits' (a fabricated potential lender, its fixed weekly pulls, D6).
