@@ -637,3 +637,96 @@ def test_a_one_word_holder_left_by_a_dropped_lead_word_must_print_with_it(holder
 def test_a_customer_leading_with_the_holder_s_industry_word_is_counted():
     text = "ZELLE PAYMENT FROM PLUMBING SUPPLY HOUSE INC CONF 1234567890"
     assert _tiers([(text, 750.0)], holder_name="GENERAL PLUMBING LLC") == [P2P]
+
+
+# --- Audit round 2, R2-B02 (R18): a processor's payout is known by its payout id, never by its entry word ---------
+# A platform's payout can print the merchant's statement descriptor as its ACH originator and entry, with the
+# platform's payout id ('ID:ST-<id>', Bank of America's ID field and Chase's IND ID field). The id, not an entry that
+# repeats the originator's first word, lifts the holder holds and the counter-debit hold; it never verifies.
+
+BOFA_ST = "{orig} DES:{entry} ID:ST-{payout} INDN:{receiver} CO ID:0000000000 CCD"
+CHASE_ST = (
+    "ORIG CO NAME:{orig} ORIG ID:0000000000 DESC DATE:310302 CO ENTRY DESCR:{entry}SEC:CCD TRACE#:000000000000000 "
+    "EED:310302 IND ID:ST-{payout} IND NAME:{receiver} TRN: 0000000000TC"
+)
+PAYOUT_IDS = ("A0B0C0D0E1F0", "A0B0C0D0E2F0", "A0B0C0D0E3F0")
+PAYOUT_AMOUNTS = (800.0, 900.0, 1000.0)
+BAKERY = "CONTOSO BAKERY LLC"
+PAYOUT_FIELDS = {"orig": "CONTOSO BAKERY", "receiver": BAKERY}
+
+
+def _payouts(layout, **fields):
+    values = {**PAYOUT_FIELDS, "entry": "CONTOSO BAK " if layout is CHASE_ST else "CONTOSO BAK", **fields}
+    return [(layout.format(payout=payout, **values), amount) for payout, amount in zip(PAYOUT_IDS, PAYOUT_AMOUNTS)]
+
+
+@pytest.mark.parametrize("layout", [BOFA_ST, CHASE_ST])
+def test_r18_a_payout_under_the_merchant_s_descriptor_verifies_beside_the_holder_s_name(layout):
+    rows = _payouts(layout)
+    assert _tiers(rows, holder_name=BAKERY) == [REPEATS] * 3
+    assert _tiers(rows) == [REPEATS] * 3
+    # The census's holder fact (G3) reads it as pass 7 does: no holder.
+    records = classify_statement_transactions(_statement(rows, holder_name=BAKERY))
+    for record in records:
+        revenue = _revenue(record.normalized_description)
+        assert not tr.region_names_holder(record, revenue, tc.payer_region(revenue))
+        assert not tr.self_originated(revenue, tc.payer_region(revenue))
+
+
+def test_r18_a_payout_whose_descriptor_prints_another_entry_is_not_held_as_the_holder():
+    rows = _payouts(BOFA_ST, orig="CONTOSO BAKERY B", entry="CN 00000", receiver="SAMPLE OWNER")
+    tiers = _tiers(rows, holder_name=BAKERY)
+    assert HOLDER_NAME not in tiers
+    assert all(tier[0] in ("verified", "counted_flagged") for tier in tiers)
+
+
+@pytest.mark.parametrize("layout", [BOFA_ST, CHASE_ST])
+def test_r18_the_holder_s_own_push_echoing_its_name_is_held_on_the_row_alone(layout):
+    # No payout id: the entry repeating the originator's first word no longer passes the self test.
+    entry = "NORTHWIND " if layout is CHASE_ST else "NORTHWIND"
+    text = layout.format(orig="NORTHWIND MARINE", entry=entry, payout="0000000001",
+                         receiver="NORTHWIND MARINE LLC").replace("ST-0000000001", "0000000001")
+    assert _twice(text, 900.0) == [HOLDER_NAME, HOLDER_NAME]
+    assert tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)))
+
+
+@pytest.mark.parametrize(("text", "payout"), [
+    (BOFA_ST.format(payout="A0B0C0D0E1F0", entry="CONTOSO BAK", **PAYOUT_FIELDS), True),
+    (CHASE_ST.format(payout="A0B0C0D0E1F0", entry="CONTOSO BAK ", **PAYOUT_FIELDS), True),
+    (BOFA_ST.format(payout="ABCDE12345", entry="CONTOSO BAK", **PAYOUT_FIELDS), True),
+    # No payout id, a short one, or a payout id on a wire, a person-to-person or a push rail.
+    (BOFA_ST.format(payout="A0B0C0D0E1F0", entry="CONTOSO BAK", **PAYOUT_FIELDS).replace("ST-", ""), False),
+    (BOFA_ST.format(payout="A0B0C0", entry="CONTOSO BAK", **PAYOUT_FIELDS), False),
+    ("WIRE TYPE:WIRE IN DATE: 310302 TIME:1015 ET TRN:2031030200123456 ORIG:CONTOSO BAKERY LLC ID:ST-A0B0C0D0E1F0",
+     False),
+    ("ZELLE PAYMENT FROM CONTOSO BAKERY LLC CONF ID ST A0B0C0D0E1F0", False),
+    ("RTP CREDIT CONTOSO BAKERY LLC ID ST A0B0C0D0E1F0", False),
+])
+def test_r18_processor_payout_reads_the_payout_id(text, payout):
+    assert tr.processor_payout(_revenue(text)) is payout
+
+
+@pytest.mark.parametrize("text", [
+    "ZELLE PAYMENT FROM CONTOSO BAKERY LLC CONF ID ST A0B0C0D0E1F0",
+    "WIRE TYPE:WIRE IN DATE: 310302 TIME:1015 ET TRN:2031030200123456 ORIG:CONTOSO BAKERY LLC ID:ST-A0B0C0D0E1F0",
+])
+def test_r18_the_holder_s_own_zelle_or_wire_printing_a_payout_id_is_still_held(text):
+    assert _tiers([(text, 900.0)], holder_name=BAKERY) == [HOLDER_NAME]
+
+
+def test_r18_the_holder_s_own_transfer_push_is_still_held():
+    text = BOFA_ST.format(orig="CONTOSO BAKERY LLC", entry="TRANSFER", payout="0", receiver=BAKERY).replace(
+        "ST-0", "0")
+    assert _tiers([(text, 400.0)]) == [HOLDER_NAME]
+
+
+def test_r18_a_stripe_originated_payout_on_chase_stays_verified_beside_the_holder_s_name():
+    rows = _payouts(CHASE_ST, orig="STRIPE", entry="TRANSFER ")
+    assert {tier[0] for tier in _tiers(rows, holder_name=BAKERY)} == {"verified"}
+
+
+def test_r18_a_platform_s_financing_printing_a_payout_id_is_never_revenue():
+    rows = _payouts(BOFA_ST, orig="STRIPE CAPITAL")
+    tiers = _tiers(rows, holder_name=BAKERY)
+    assert all(tier[0] in ("excluded_pending_review", "non_revenue") for tier in tiers)
+    assert HOLDER_NAME not in tiers

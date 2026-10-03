@@ -299,8 +299,11 @@ def test_a_funder_collecting_from_a_holder_named_for_a_bill_word_keeps_its_fundi
 
 @pytest.mark.parametrize("holder", ["CONTOSO RETURNS LLC", "CONTOSO FEES LLC", "CONTOSO ADJ INC", "CONTOSO DISC INC"])
 def test_a_holder_named_for_a_fee_word_never_turns_an_affiliate_s_debit_into_a_processor_fee(holder):
+    # Audit round 2, R2-B02 (R01): a one-off debit of the payer's no longer holds a settlement-worded credit whatever
+    # its kind, so the affiliate's debit recurs at one amount here: a recurring 'other' debit holds the settlement,
+    # while a recurring processor's fee would not.
     rows = [(f"NORTHWIND HOLDINGS LLC DES:SETTLEMENT ID:1 INDN:{holder} CO ID:1 CCD", 20000.0),
-            (f"NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:{holder} CO ID:1 CCD", -5000.0)]
+            *[(f"NORTHWIND HOLDINGS LLC DES:PAYMENT ID:2 INDN:{holder} CO ID:1 CCD", -5000.0)] * 2]
     records = _records(rows, holder=holder)
     assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("excluded_pending_review",
                                                                          "payer_also_debited")
@@ -667,3 +670,281 @@ def test_also_debited_reads_each_kind():
                                   ("bill", 100000, True)):
         debits = _debits(other=[("EXPRESS", ["AMERICAN", "EXPRESS"], kind, cents, False)])
         assert also_debited(generic, debits) is expected, (kind, cents)
+
+
+# --- Audit round 2, R2-B02 ------------------------------------------------------------------------------------------
+# R18: a platform's payout under the merchant's descriptor, beside the platform's own pull under the same descriptor
+# (each printing its own payout id), is no circular money; a pull for the payout's own amount still holds it.
+# R01: a processor's or a platform's payout (its settlement wording, its payout forms or a merchant-ID field read
+# anywhere on the row) is held only by a circular debit, a debit for its own amount or a recurring non-card debit: a
+# card charge or a one-off debit of the processor's own never holds it. R48 part 1: the bank's receiving fee reprints
+# the sender after TT or FROM, and words of that sender's name are never read as the fee's outgoing words.
+
+HELD_ALSO = ("excluded_pending_review", "payer_also_debited")
+BOFA_PAYOUT = "{orig} DES:{entry} ID:ST-{payout} INDN:{receiver} CO ID:0000000000 CCD"
+
+
+def _tier(record):
+    return record.revenue_tier, record.revenue_tier_reason
+
+
+def _bakery(payout, amount):
+    return (BOFA_PAYOUT.format(orig="CONTOSO BAKERY", entry="CONTOSO BAK", payout=payout,
+                               receiver="CONTOSO BAKERY LLC"), amount)
+
+
+BAKERY_PAYOUTS = [_bakery("A0B0C0D0E1F0", 800.0), _bakery("A0B0C0D0E2F0", 900.0), _bakery("A0B0C0D0E3F0", 1000.0)]
+
+
+def test_r18_a_platform_s_own_pull_under_the_descriptor_never_holds_its_payouts():
+    records = _credits(_records([*BAKERY_PAYOUTS, _bakery("B0C0D0E0F1A0", -250.0)], holder=None))
+    assert [(record.revenue_tier, record.revenue_match_method) for record in records] == [
+        ("verified", "named_payer_repeats")] * 3
+
+
+def test_r18_a_pull_for_a_payout_s_own_amount_still_holds_that_payout():
+    records = _credits(_records([*BAKERY_PAYOUTS, _bakery("B0C0D0E0F1A0", -900.0)], holder=None))
+    assert _tier(records[1]) == HELD_ALSO
+    assert [_tier(record) != HELD_ALSO for record in (records[0], records[2])] == [True, True]
+
+
+def test_r18_a_transfer_to_the_descriptor_still_holds_every_payout():
+    records = _credits(_records([*BAKERY_PAYOUTS, ("ONLINE BANKING TRANSFER TO CONTOSO BAKERY", -250.0)], holder=None))
+    assert [_tier(record) for record in records] == [HELD_ALSO] * 3
+
+
+CHASE_MID = (
+    "ORIG CO NAME:CONTOSOPAY SV1T ORIG ID:0000000000 DESC DATE:310302 CO ENTRY DESCR:0000000000SEC:PPD "
+    "TRACE#:000000000000000 EED:310302 IND ID: IND NAME:FABRIKAM ACADEMY MID:12345678-CONTOSOPAY 0000000000000 "
+    "TRN: 0000000000TC"
+)
+# Payment Brands (a card payment facilitator: a registered ISO / member service provider of Fifth Third Bank,
+# paymentbrands.com; its card services agreement credits the merchant's settlement account with its card sales and
+# debits it for refunds, chargebacks and processing fees) prints its Truist settlements with this originator.
+TRUIST_PAYMENT_BRANDS = "0000000000 PymntBrdMin SV1T XXXX NORTHWIND"
+
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    # Chase: the merchant-ID field prints after the receiver; one same-text debit of the processor's.
+    ([(CHASE_MID, 2400.0), (CHASE_MID, 2600.0), (CHASE_MID, -30.0)], "Chase"),
+    # Truist: the payout form alone, beside the processor's monthly debit.
+    ([(TRUIST_PAYMENT_BRANDS, 1200.0), (TRUIST_PAYMENT_BRANDS, 1400.0), (TRUIST_PAYMENT_BRANDS, 1600.0),
+      (TRUIST_PAYMENT_BRANDS, -48.0)], "Truist"),
+    # A platform's payout beside the platform's card charge (CARD PMT), or its charges printed '<city> <ST> USA'.
+    ([("CONTOSOFIELD INC PAYOUT", 1800.0), ("CONTOSOFIELD INC PAYOUT", 2100.0), ("CONTOSOFIELD CARD PMT", -97.0)],
+     None),
+    ([("FABRIKAMCARE PAYOUT 0000 ST A1B2C3D4E5F6", 900.0), ("FABRIKAMCARE NEW YORK NY USA", -125.0),
+      ("FABRIKAMCARE NEW YORK NY USA", -125.0)], None),
+    # A bank's merchant deposit beside a card purchase from a merchant sharing its word.
+    ([("DEPOSIT TRUIST MERCHANT CONTOSO HARDWARE CUSTOMER ID 123456789012345", 2000.0),
+      ("DEBIT CARD PURCHASE CONTOSO HARDWARE SE 0302 SAMPLEVILLE", -500.0)], "Truist"),
+    # A processor's combined deposit beside its FEES debit.
+    ([("FABRIKAMMERCHANT COMB DEP 123456", 1500.0), ("FABRIKAMMERCHANT FEES 123456", -40.0)], None),
+    # RBC's glued merchant-services payment beside a same-text debit.
+    ([("MISC PAYMENT 123456 MRCHNTSVCS", 600.0), ("MISC PAYMENT 123457 MRCHNTSVCS", -40.0)], "Royal Bank of Canada"),
+])
+def test_r01_a_processor_s_payout_is_counted_beside_its_own_non_circular_debit(rows, bank):
+    records = _credits(_records(rows, bank=bank))
+    assert [record.revenue_tier for record in records] == ["counted_flagged"] * len(records)
+    without = _credits(_records([row for row in rows if row[1] > 0], bank=bank))
+    assert [_tier(record) for record in records] == [_tier(record) for record in without]
+
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    ([("NORTHWIND STUDIO DES:NORTHWIND ID:ST-A1B2C3D4E5F6 INDN:SAMPLE OWNER CO ID:0000000000 CCD", 1300.0),
+      ("NORTHWIND STUDIO DES:NORTHWIND ID:ST-A1B2C3D4E5F7 INDN:SAMPLE OWNER CO ID:0000000000 CCD", 1500.0),
+      ("NORTHWIND STUDIO DES:NORTHWIND ID:ST-B1C2D3E4F5G6 INDN:SAMPLE OWNER CO ID:0000000000 CCD", -250.0)],
+     "Bank of America"),
+    # QuickBooks Payments in Canada beside Intuit's per-payout fee debit (Intuit Canada ULC).
+    ([("ACCOUNTS PAYABLE INTUIT 123456 INTUIT CANADA PAYMENTS INC", 1000.0),
+      ("ACCOUNTS PAYABLE INTUIT 123456 INTUIT CANADA ULC", -29.0)], "Scotiabank"),
+    ([("ACCOUNT PAYABLE PMT INTUIT CANADA P INTUIT 123456", 1000.0),
+      ("ACCOUNT PAYABLE PMT INTUIT CANADA U INTUIT 123457", -29.0)], "Royal Bank of Canada"),
+])
+def test_r01_a_payout_that_verifies_without_the_debit_verifies_beside_it(rows, bank):
+    records = _credits(_records(rows, bank=bank))
+    assert {record.revenue_tier for record in records} == {"verified"}
+
+
+def test_r01_a_pull_for_the_payout_s_own_amount_still_holds_it():
+    rows = [("NORTHWIND STUDIO DES:NORTHWIND ID:ST-A1B2C3D4E5F6 INDN:SAMPLE OWNER CO ID:0000000000 CCD", 1300.0),
+            ("NORTHWIND STUDIO DES:NORTHWIND ID:ST-A1B2C3D4E5F7 INDN:SAMPLE OWNER CO ID:0000000000 CCD", 1500.0),
+            ("NORTHWIND STUDIO DES:NORTHWIND ID:ST-B1C2D3E4F5G6 INDN:SAMPLE OWNER CO ID:0000000000 CCD", -1300.0)]
+    records = _credits(_records(rows, bank="Bank of America"))
+    assert _tier(records[0]) == HELD_ALSO
+
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    # A debit for the payout's own amount.
+    ([("CONTOSOFIELD INC PAYOUT", 500.0), ("CONTOSOFIELD CARD PMT", -500.0)], None),
+    # A transfer to the payer (circular, at any size).
+    ([("CONTOSOFIELD INC PAYOUT", 500.0), ("ONLINE TRANSFER TO CONTOSOFIELD INC REF 1", -200.0)], None),
+    # The processor's own debit recurring at one amount.
+    ([("CONTOSO MERCHANT SERVICES DES:DEPOSIT ID:1 INDN:NORTHWIND LABS CO ID:1 CCD", 2215.0),
+      *[("CONTOSO MERCHANT SERVICES DES:BILLING ID:2 INDN:NORTHWIND LABS CO ID:1 CCD", -30.0)] * 2], None),
+    # A customer's ACH beside a card purchase or a wire to it: no payout form, so the card holds as any debit does.
+    ([("FABRIKAM TOOLS DES:PAYMENT ID:1", 1500.0), ("POS DB FABRIKAM TOOLS 0302 SAMPLEVILLE", -60.0)], None),
+    ([("FABRIKAM TOOLS DES:PAYMENT ID:1", 1500.0), ("WIRE TO FABRIKAM TOOLS NEW YORK NY USA", -600.0)], None),
+    # A payment platform's E SERVICE credit (no payout form) beside its RETURNS debit.
+    ([("CONTOSO PAYMENT DES:E SERVICE ID:0001 INDN:NORTHWIND LABS CO ID:0000000000 CCD", 500.0),
+      ("CONTOSO PAYMENT DES:RETURNS ID:0002 INDN:NORTHWIND LABS CO ID:0000000000 CCD", -30.0)], None),
+])
+def test_r01_circular_same_amount_recurring_and_non_payout_holds_stay(rows, bank):
+    records = _credits(_records(rows, bank=bank))
+    assert _tier(records[0]) == HELD_ALSO
+
+
+def test_r01_three_equal_debits_of_the_processor_s_keep_its_settlement_held():
+    # Three debits at one amount also read as a potential lender's pulls (D6): the lender hold names the row first.
+    rows = [("CONTOSO MERCHANT SERVICES DES:DEPOSIT ID:1 INDN:NORTHWIND LABS CO ID:1 CCD", 2215.0),
+            *[("CONTOSO MERCHANT SERVICES DES:BILLING ID:2 INDN:NORTHWIND LABS CO ID:1 CCD", -30.0)] * 3]
+    records = _credits(_records(rows))
+    assert _tier(records[0]) == ("excluded_pending_review", "payer_debited_as_lender")
+
+
+def test_r01_a_card_credit_beside_a_card_purchase_stays_held():
+    records = _credits(_records([("POS CR CONTOSO MART 0302", 40.0), ("POS DB CONTOSO MART 0302", -60.0)]))
+    assert records[0].revenue_tier == "excluded_pending_review"
+
+
+def test_r01_intuit_s_push_beside_its_transfer_fee_stays_held():
+    rows = [("MONEY TRANSFER AUTHORIZED ON 03/02 FROM INTUIT INC SAMPLEVILLE CA S000000000000000 CARD 0000", 2600.0),
+            ("BUSINESS TO BUSINESS ACH DEBIT INTUIT 000000 TRAN FEE 000000 NORTHWIND LABS", -26.0)]
+    records = _credits(_records(rows, bank="Wells Fargo"))
+    assert records[0].revenue_tier == "excluded_pending_review"
+
+
+def test_r01_intuit_canada_payroll_stays_pay():
+    rows = [("ACCOUNT PAYABLE PMT INTUIT CANADA PAYROLL 123456", 1000.0),
+            ("ACCOUNT PAYABLE PMT INTUIT CANADA U INTUIT 123457", -29.0)]
+    records = _credits(_records(rows, bank="Royal Bank of Canada"))
+    assert _tier(records[0]) == ("excluded_pending_review", "payroll_or_salary")
+
+
+@pytest.mark.parametrize(("text", "settlement"), [
+    ("ORIG CO NAME CONTOSOPAY SV1T IND NAME FABRIKAM ACADEMY MID 12345678 CONTOSOPAY", True),
+    ("0000000000 PYMNTBRDMIN SV1T XXXX NORTHWIND", True),
+    ("ORIG CO NAME PAYMNTBRAND SV1T CO ENTRY DESCR 0000000000", True),
+    ("MISC PAYMENT 123456 MRCHNTSVCS", True),
+    ("FABRIKAM MRCH SVCS 123456", True),
+    ("FABRIKAMMERCHANT COMB DEP 123456", True),
+    ("FABRIKAM COMBINED DEPOSIT 123456", True),
+    ("DEPOSIT TRUIST MERCHANT CONTOSO DELI CUSTOMER ID 123456789012345", True),
+    ("ACCOUNTS PAYABLE INTUIT 123456 INTUIT CANADA PAYMENTS INC", True),
+    ("ACCOUNT PAYABLE PMT INTUIT CANADA P INTUIT 123456", True),
+    ("NORTHWIND STUDIO DES NORTHWIND ID ST A1B2C3D4E5F6 INDN SAMPLE OWNER", True),
+    # No payout form: Intuit's payroll, a reference of letters or digits alone, a merchant-ID field of five digits
+    # after the receiver.
+    ("ACCOUNT PAYABLE PMT INTUIT CANADA PAYROLL 123456", False),
+    ("NORTHWIND STUDIO DES NORTHWIND ID ST ABCDEFGHIJKL", False),
+    ("NORTHWIND STUDIO DES NORTHWIND ID ST 123456789012", False),
+    ("CONTOSO SUPPLY DES PAYMENT INDN NORTHWIND LABS MID 12345", False),
+    ("CONTOSO PAYMENT DES E SERVICE ID 0001", False),
+])
+def test_r01_the_credit_s_payout_forms(text, settlement):
+    from analysis.true_revenue import counter_credit
+
+    record = tc.classify_transaction(text, 500.0, direction="credit")
+    revenue = tc.revenue_text(record.normalized_description)
+    assert counter_credit(record, revenue, tc.payer_region(revenue)).settlement is settlement
+
+
+@pytest.mark.parametrize(("text", "kind"), [
+    ("DEBIT CARD PURCHASE CONTOSO HARDWARE SE 0302 SAMPLEVILLE", "card"),
+    ("DBCRD PUR AP CONTOSO HARDWARE 0302", "card"),
+    ("POS DB CONTOSO MART 0302 SAMPLEVILLE", "card"),
+    ("POS DEBIT CONTOSO MART 0302", "card"),
+    ("POS PURCHASE CONTOSO MART 0302", "card"),
+    ("POINT OF SALE CONTOSO MART 0302", "card"),
+    ("PURCHASE0302123456 CONTOSO TIRE SAMPLEVILLE", "card"),
+    ("FABRIKAMCARE NEW YORK NY USA", "card"),
+    ("FABRIKAM WEBSITES SAMPLEVILLE BC CAN", "card"),
+    # A card form never turns circular money or the bank's receiving fee into a card charge.
+    ("WIRE TO NORTHWIND TOOLS NEW YORK NY USA", "circular"),
+    ("ONLINE TRANSFER TO CONTOSO MART NY USA", "circular"),
+    ("FUNDS TRANSFER FEE TT CONTOSO NY USA", "receiving_fee"),
+    # No card form: the kind is unchanged.
+    ("CONTOSOFIELD CARD PMT", "other"),
+    ("FABRIKAMMERCHANT FEES 123456", "processor_fee"),
+])
+def test_r01_a_card_purchase_in_another_bank_s_form_reads_kind_card(text, kind):
+    from analysis.true_revenue import counter_debits
+
+    record = tc.classify_transaction(text, -60.0, direction="debit")
+    debits = counter_debits([record], set())
+    assert [debit.kind for debit in debits.other] == [kind]
+
+
+def test_r01_a_card_charge_recurs_with_the_other_debits():
+    from analysis.true_revenue import counter_debits
+
+    records = [tc.classify_transaction(text, -125.0, direction="debit")
+               for text in ("FABRIKAMCARE NEW YORK NY USA", "FABRIKAMCARE NEW YORK NY USA")]
+    assert [(debit.kind, debit.recurring) for debit in counter_debits(records, set()).other] == [("card", True)] * 2
+
+
+def test_r01_also_debited_reads_the_card_kind_and_a_settlement():
+    from analysis.true_revenue import also_debited
+
+    def held(kind, *, settlement, cents=2500, recurring=False):
+        return also_debited(_counter("CONTOSO", ["CONTOSO"], settlement=settlement),
+                            _debits(other=[("CONTOSO", ["CONTOSO"], kind, cents, recurring)]))
+
+    # A payout is never held by a card charge or a one-off other debit; a recurring other debit still holds it.
+    assert not held("card", settlement=True) and not held("card", settlement=True, recurring=True)
+    assert not held("other", settlement=True) and held("other", settlement=True, recurring=True)
+    # The payout's own amount, a circular debit and a credit with no payout form keep holding.
+    assert held("card", settlement=True, cents=100000) and held("other", settlement=True, cents=100000)
+    assert held("circular", settlement=True)
+    assert held("card", settlement=False) and held("other", settlement=False)
+
+
+# R48 part 1: the bank's receiving fee reprints the sender, whose name may hold TO, OUT or BNF.
+
+@pytest.mark.parametrize(("sender", "cut"), [
+    ("CONTOSO TO GO INC", "CONTOSO TO G"),
+    ("SAMPLE TO TABLE FOODS INC", "SAMPLE TO TA"),
+    ("SAMPLE OUT WEST LTD", "SAMPLE OUT W"),
+])
+def test_r48_a_sender_whose_name_holds_an_outgoing_word_still_verifies_on_repeat(sender, cut):
+    wire = f"FUNDS TRANSFER CREDIT TT {sender}"
+    fee = f"FUNDS TRANSFER FEE TT {cut}"
+    rows = [(wire, 5000.0), (fee, -17.0), (wire, 5200.0), (fee, -17.0)]
+    records = _credits(_records(rows, bank="Royal Bank of Canada"))
+    assert [(record.revenue_tier, record.revenue_match_method) for record in records] == [
+        ("verified", "repeat_wire_sender")] * 2
+    one = _credits(_records([(wire, 5000.0), (fee, -17.0)], bank="Royal Bank of Canada"))
+    assert _tier(one[0]) == ("counted_flagged", "wire_named_sender")
+
+
+def test_r48_a_wire_from_a_sender_named_with_to_verifies_beside_the_fee_from_it():
+    wire = "WIRE FROM SAMPLE TO TABLE FOODS INC"
+    fee = "WIRE TRANSFER FEE FROM SAMPLE TO TABLE FOODS INC"
+    records = _credits(_records([(wire, 5000.0), (fee, -15.0), (wire, 5200.0), (fee, -15.0)], bank="Mercury"))
+    assert {record.revenue_tier for record in records} == {"verified"}
+
+
+@pytest.mark.parametrize(("text", "kind"), [
+    ("FUNDS TRANSFER FEE TT CONTOSO TO G", "receiving_fee"),
+    ("FUNDS TRANSFER FEE TT SAMPLE OUT W", "receiving_fee"),
+    ("WIRE TRANSFER FEE FROM SAMPLE TO TABLE FOODS INC", "receiving_fee"),
+    # The fee's own outgoing words, before any sender, keep it circular.
+    ("WIRE TRANSFER FEE TO CONTOSO LLC", "circular"),
+    ("WIRE FEE FOR WIRE TRANSFER TO CONTOSO LAW GROUP", "circular"),
+    ("WIRE TRANSFER FEE DOMESTIC OUTGOING ID 1234", "circular"),
+    ("WIRE FEE (OUTGOING)", "circular"),
+    ("WIRE FEE 1234 BNF:CONTOSO", "circular"),
+    ("OUTGOING WIRE FEE CONTOSO PHARMA INC", "circular"),
+])
+def test_r48_the_receiving_fee_reads_its_outgoing_words_before_the_sender(text, kind):
+    from analysis.true_revenue import _counter_debit_kind
+
+    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == kind
+
+
+def test_r48_a_lead_bank_fee_for_the_holder_s_wire_to_the_payer_still_holds_its_repeat():
+    wire = "WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:CONTOSO TOOLS INC ID:99 SND BK:SAMPLE BANK ID:1"
+    rows = [(wire.format(n=1), 5000.0), (wire.format(n=2), 5200.0),
+            ("WIRE FEE FOR WIRE TRANSFER TO CONTOSO TOOLS INC", -25.0)]
+    records = _credits(_records(rows))
+    assert [_tier(record) for record in records] == [HELD_ALSO] * 2

@@ -350,6 +350,11 @@ def test_the_counter_debit_reading_reads_past_an_instant_payment_rail_label(text
     # A label elsewhere on the row is no rail label before the payer.
     ("CONTOSO INSTPMNTIN 1234", "CONTOSO INSTPMNTIN", "CONTOSO INSTPMNTIN"),
     ("ACH CREDIT RTP CREDIT CONTOSO", "", ""),
+    # Audit round 2, R2-B02 (R02): an e-Transfer's sender printed without FROM is read as Q4's sender reader reads it,
+    # and a wallet's cash-out names no sender.
+    ("E TRANSFER RECEIVED CONTOSO SAMPLE", "", "CONTOSO SAMPLE"),
+    ("RTP CREDIT VENMO NEW YORK CITY 01 12345", "", ""),
+    ("ELECTRONIC DEPOSIT FROM VENMO", "VENMO", ""),
 ])
 def test_the_counter_region_drops_only_a_leading_rail_label(text, region, words):
     assert true_revenue._counter_region(text, region) == words

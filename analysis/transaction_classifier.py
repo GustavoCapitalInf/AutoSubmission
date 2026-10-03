@@ -5816,18 +5816,21 @@ def _card_merchant_text(text: str, printed: str) -> str | None:
     return " ".join(tokens[:_CARD_MERCHANT_WORDS])
 
 
-def _debit_word_reading(record: TransactionClassification) -> tuple[str | None, bool]:
+def _debit_word_reading(
+    record: TransactionClassification, *, keep_places: bool = False,
+) -> tuple[str | None, bool]:
     """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words; on a card purchase,
     after its leading card-form words and MMDD date and only on its merchant's first two words (S2.4 review and
     re-review; D11 itself is unchanged). The second value says whether the debit is a card purchase (its card-form
-    prefix matched): pass 7 leaves a card purchase's merchant out of payer_also_debited (5.6, A1 census)."""
+    prefix matched): pass 7 leaves a card purchase's merchant out of payer_also_debited (5.6, A1 census). Audit round
+    2, R2-B02 (R02): never a rail's, a bank label's or (unless `keep_places`) a place's word (_without_not_a_payer)."""
     text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
     if card_form:
         text = _card_merchant_text(text, record.original_description or "")
         if text is None:
             return None, True
     words = [
-        word for word in _distinctive_words(_unknown_payee_tokens(text))
+        word for word in _distinctive_words(_without_not_a_payer(_unknown_payee_tokens(text), keep_places=keep_places))
         if word not in _counter_debit_skip_words()
     ]
     return _first_distinctive_word(words), bool(card_form)
@@ -5851,6 +5854,45 @@ _COUNTER_DEBIT_GENERIC_WORDS = frozenset({
     "MERCHANT", "UTILITIES", "EXPRESS", "INCOME", "PAIEMENT", "POSTED", "SERVICE", "SERVICES", "TRSFR",
     "CHASE", "TRUIST", "BLUEVINE",
 })
+#: Audit round 2, R2-B02 (R02; §5.2, standard A6, A8, A16): words that name no counterparty, which the counter-debit
+#: readings skip (counter_debit_payer_reading's legacy word, _debit_word_reading, _counter_debit_head; never the payer's
+#: first distinctive word other readers group payers by, nor _counter_debit_skip_words): the person-to-person rails'
+#: and RBC's French label's own words (a Zelle or e-Transfer debit keeps its recipient's name;
+#: _COUNTER_DEBIT_LABEL_WORDS), and the place words (_COUNTER_DEBIT_PLACE_WORDS): the US states (the words of a
+#: two-word state that are no generic word or name-starter), the provinces and territories, CANADA, CANADIAN and
+#: AMERICAN (a town's or a nation's adjective names a place, never a payer). The CASH APP phrase is skipped whole
+#: (_without_not_a_payer). The lender hold (payer_debited_as_lender) keeps the place words (`keep_places`): a funder
+#: may carry a state's name ('<STATE> VENTURE'), and that hold never lets a funder's money into True.
+_COUNTER_DEBIT_LABEL_WORDS = frozenset({"ZELLE", "INTERAC", "VENMO", "POPMONEY", "AUTODEPOSIT", "CASHAPP", "PAIEMENT"})
+_COUNTER_DEBIT_PLACE_WORDS = frozenset("""
+ALABAMA ALASKA ARIZONA ARKANSAS CALIFORNIA COLORADO CONNECTICUT DELAWARE FLORIDA GEORGIA HAWAII IDAHO ILLINOIS INDIANA
+IOWA KANSAS KENTUCKY LOUISIANA MAINE MARYLAND MASSACHUSETTS MICHIGAN MINNESOTA MISSISSIPPI MISSOURI MONTANA NEBRASKA
+NEVADA HAMPSHIRE JERSEY MEXICO YORK CAROLINA DAKOTA OHIO OKLAHOMA OREGON PENNSYLVANIA RHODE TENNESSEE TEXAS UTAH
+VERMONT VIRGINIA WASHINGTON WISCONSIN WYOMING
+ONTARIO QUEBEC ALBERTA MANITOBA SASKATCHEWAN BRITISH COLUMBIA NOVA SCOTIA BRUNSWICK NEWFOUNDLAND LABRADOR PRINCE EDWARD
+YUKON NORTHWEST TERRITORIES NUNAVUT CANADA CANADIAN AMERICAN
+""".split())
+_COUNTER_DEBIT_NOT_A_PAYER = _COUNTER_DEBIT_LABEL_WORDS | _COUNTER_DEBIT_PLACE_WORDS
+
+
+def _without_not_a_payer(words: Sequence[str], *, keep_places: bool = False) -> list[str]:
+    """Audit round 2, R2-B02 (R02): `words` without _COUNTER_DEBIT_NOT_A_PAYER (with `keep_places`, without the label
+    words only) and the CASH APP phrase."""
+    skip = _COUNTER_DEBIT_LABEL_WORDS if keep_places else _COUNTER_DEBIT_NOT_A_PAYER
+    kept: list[str] = []
+    skip_next = False
+    for index, word in enumerate(words):
+        if skip_next:
+            skip_next = False
+            continue
+        if word == "CASH" and index + 1 < len(words) and words[index + 1] == "APP":
+            skip_next = True
+            continue
+        if word not in skip:
+            kept.append(word)
+    return kept
+
+
 #: Audit B4 (I56): a payroll provider whose name has three letters is still a counter-debit word: an 'ADP TAX' credit
 #: beside the holder's own 'ADP TAX' debits is its tax impound coming back.
 _SHORT_PAYROLL_PROVIDER_WORDS = frozenset({"ADP"})
@@ -5884,21 +5926,29 @@ class CounterDebitReading:
 _NO_COUNTER_DEBIT_READING = CounterDebitReading(None, frozenset(), ())
 
 
-def _counter_debit_head(words: Sequence[str]) -> tuple[str, tuple[str, ...]] | None:
+def _counter_debit_head(
+    words: Sequence[str], *, keep_places: bool = False,
+) -> tuple[str, tuple[str, ...]] | None:
     """Audit B4: the first distinctive word of `words` (four letters or more and no name-starter, or a three-letter
-    payroll provider), the generic words and banks' names left out, with the distinctive words after it."""
+    payroll provider), the generic words and banks' names left out, with the distinctive words after it. Audit round 2,
+    R2-B02 (R02): and the words that name no counterparty (_without_not_a_payer; the place words kept with
+    `keep_places`)."""
     skip = _counter_debit_skip_words() | _COUNTER_DEBIT_GENERIC_WORDS
-    kept = [word for word in _distinctive_words(words) if word not in skip]
+    kept = [
+        word for word in _distinctive_words(_without_not_a_payer(words, keep_places=keep_places)) if word not in skip
+    ]
     for index, word in enumerate(kept):
         if (len(word) >= 4 and word not in _NAME_STARTERS) or word in _SHORT_PAYROLL_PROVIDER_WORDS:
             return word, tuple(kept[index + 1:])
     return None
 
 
-def _counter_debit_reading(legacy: str | None, readings: Sequence[Sequence[str]]) -> CounterDebitReading:
+def _counter_debit_reading(
+    legacy: str | None, readings: Sequence[Sequence[str]], *, keep_places: bool = False,
+) -> CounterDebitReading:
     heads: list[tuple[str, tuple[str, ...]]] = []
     for words in readings:
-        head = _counter_debit_head(words)
+        head = _counter_debit_head(words, keep_places=keep_places)
         if head is not None and head not in heads:
             heads.append(head)
     keys = frozenset(
@@ -5908,22 +5958,31 @@ def _counter_debit_reading(legacy: str | None, readings: Sequence[Sequence[str]]
     return CounterDebitReading(legacy, keys, tuple(heads))
 
 
-def counter_debit_payer_reading(region: str) -> CounterDebitReading:
-    """Audit B4: a credit's counter-debit reading, on its payer region (§5.2: never a receiver field)."""
+def counter_debit_payer_reading(region: str, *, keep_places: bool = False) -> CounterDebitReading:
+    """Audit B4: a credit's counter-debit reading, on its payer region (§5.2: never a receiver field). Audit round 2,
+    R2-B02 (R02): its legacy word is the payer's first distinctive word (_payer_first_distinctive_word) read without
+    the words that name no counterparty (_without_not_a_payer; with `keep_places`, the label words only: the lender
+    hold's reading)."""
     if not region:
         return _NO_COUNTER_DEBIT_READING
+    legacy = _first_distinctive_word([
+        word for word in _distinctive_words(_without_not_a_payer(payer_name(region).split(), keep_places=keep_places))
+        if word not in _counter_debit_skip_words()
+    ])
     return _counter_debit_reading(
-        _payer_first_distinctive_word(region),
-        (payer_name(region).split(), payer_name(_split_glued_digits(region)).split()),
+        legacy, (payer_name(region).split(), payer_name(_split_glued_digits(region)).split()), keep_places=keep_places,
     )
 
 
-def counter_debit_debit_reading(record: TransactionClassification) -> tuple[CounterDebitReading, bool]:
+def counter_debit_debit_reading(
+    record: TransactionClassification, *, keep_places: bool = False,
+) -> tuple[CounterDebitReading, bool]:
     """Audit B4: a posted debit's counter-debit reading on its D11 payee words (a card purchase's merchant, as
     _debit_word_reading reads it), and whether it is a card purchase. The glued-digit reading is taken only when the
     printed one finds no word: D11 stops a name at its first reference, so splitting a leading reference
-    ('CHECK1234 <name>') would cut the name the printed text reads."""
-    legacy, card_purchase = _debit_word_reading(record)
+    ('CHECK1234 <name>') would cut the name the printed text reads. Audit round 2, R2-B02 (R02): `keep_places` keeps
+    the place words (the lender hold's reading, _without_not_a_payer)."""
+    legacy, card_purchase = _debit_word_reading(record, keep_places=keep_places)
     text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
     if card_form:
         text = _card_merchant_text(text, record.original_description or "")
@@ -5931,9 +5990,9 @@ def counter_debit_debit_reading(record: TransactionClassification) -> tuple[Coun
             return _NO_COUNTER_DEBIT_READING, card_purchase
     printed = _unknown_payee_tokens(text)
     readings: list[Sequence[str]] = [printed]
-    if _counter_debit_head(printed) is None:
+    if _counter_debit_head(printed, keep_places=keep_places) is None:
         readings.append(_unknown_payee_tokens(_split_glued_digits(text)))
-    return _counter_debit_reading(legacy, readings), card_purchase
+    return _counter_debit_reading(legacy, readings, keep_places=keep_places), card_purchase
 
 
 def _apply_payer_remittance_counter_debit_guard(
