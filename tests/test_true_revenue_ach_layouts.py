@@ -241,6 +241,82 @@ def test_the_numbered_company_number_is_capped_at_ten_digits():
     assert tc.numbered_company("1234567890 ONTARIO INC", "1234567890 ONTARIO INC")
 
 
+# Audit round 2, R2-B11 (R33; §5.2 numbered company, T11, OQ3; amends B5's I59 line): a province word, its cut or a
+# province code after the template's reference names a numbered company only when nothing but a legal form or its cut,
+# BMO's code tail, a trade-name marker, a remittance word, a token holding digits, a one- or two-letter token or the
+# field's end follows it. A letters-only word of three letters or more after it starts the payer's own name, so the
+# reference is dropped and the payer read (NORTH MOUNTAIN, NEW HORIZON, NOVA SCOTIA POWER). A one- or two-letter second
+# word ('CAN DO PLUMBING LTD') still reads numbered, the recorded residual.
+
+R33_HOLDER = "FABRIKAM LTD"
+REMITTANCE = ("verified", "payer_remittance_descriptor")
+
+
+def test_r33_an_accounts_payable_payer_named_with_a_province_s_cut_verifies_by_its_remittance():
+    rows = [("ACCOUNTS PAYABLE 0123456789 NORTH MOUNTAIN PAVING", 1234.56)]
+    assert _tiers(rows, holder=R33_HOLDER, bank="Scotiabank") == [REMITTANCE]
+
+
+@pytest.mark.parametrize("text", [
+    "BILL PAYMENT 0123456789 NEW HORIZON PAVING INC",
+    "BILL PAYMENT 0123456789 AB CONSTRUCTION LTD",
+    "MISC PAYMENT 0123456789 NOVA SCOTIA POWER",
+    "MISC PAYMENT 0123456789 NEW BRUNSWICK POWER",
+    "BILL PAYMENT 0123456789 CONTOSO SUPPLY INC",
+])
+def test_r33_a_payer_named_with_a_province_word_after_a_reference_verifies_on_repeat(text):
+    rows = [(text, 1234.56), (text, 1234.57)]
+    assert _tiers(rows, holder=R33_HOLDER, bank="Scotiabank") == [REPEATS] * 2
+    assert not tc.numbered_company(text)
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("BILL PAYMENT 1234567 ONTARIO INC", "Scotiabank"),
+    ("BILL PAYMENT 1234567 ONTARIO LIMI", "Scotiabank"),
+    ("BILL PAYMENT 1234567 NOVA SCOTIA LIMITED", "Scotiabank"),
+    ("BILL PAYMENT 1234567 NOVA SCOTIA UNLIMITED CO", "Scotiabank"),
+    ("BILL PAYMENT 1234567 NEW BRUNSWICK INC", "Scotiabank"),
+    ("BILL PAYMENT 1234567 BRITISH COLUMBIA LTD", "Scotiabank"),
+    ("DIRECT DEPOSIT 1234567 ONTA AP CC", "BMO"),
+    ("DIRECT DEPOSIT 1234567 ONTARIO MSP DIV", "BMO"),
+    ("DIRECT DEPOSIT 1234567 ONTARIO EDI EED", "BMO"),
+    ("DIRECT DEPOSIT 1234567 B C LTD", "BMO"),
+    ("DIRECT DEPOSIT 1234567 CANADA MSP", "BMO"),
+    ("BILL PAYMENT 1234567 ONTARIO INC O/A NORTHWIND", "Scotiabank"),
+    ("BILL PAYMENT 1234567 ONTARIO DBA NORTHWIND", "Scotiabank"),
+    ("ACCOUNT PAYABLE PMT 123456 ONTARIO", "Royal Bank of Canada"),
+    # RBC prints its payer in a fifteen-character field and the reference after it: a numbered company cut short.
+    ("MISC PAYMENT 1234567 ALBERTA RMOD12345678", "Royal Bank of Canada"),
+    ("BILL PAYMENT 1234567 ONTARIO 55512345", "Scotiabank"),
+    ("BILL PAYMENT 1234567 ONTARIO INVOICE 1234", "Scotiabank"),
+    ("BILL PAYMENT 1234567", "Scotiabank"),
+    # The recorded residual: a one- or two-letter second word keeps the number.
+    ("BILL PAYMENT 1234567 CAN DO PLUMBING LTD", "Scotiabank"),
+])
+def test_r33_a_genuine_numbered_company_keeps_its_number(text, bank):
+    rows = [(text, 1234.56), (text, 1234.57)]
+    assert _tiers(rows, holder=R33_HOLDER, bank=bank) == [NUMBERED] * 2
+    assert tc.numbered_company(text)
+
+
+@pytest.mark.parametrize(("text", "keeps"), [
+    ("ONTARIO INC", True),
+    ("ONTARIO", True),
+    ("NOVA SCOTIA LIMITED", True),
+    ("NOVA SCOTIA POWER", False),
+    ("NEW BRUNSWICK POWER", False),
+    ("NEW HORIZON PAVING", False),
+    ("AB CONSTRUCTION LTD", False),
+    ("ALBERTA RMOD12345678", True),
+    ("ONTARIO PMT 1", True),
+    ("ONTARIO REF 1", True),
+    ("ONTA AP CC", True),
+    ("CAN DO PLUMBING LTD", True),
+])
+def test_r33_the_guard_reads_the_token_after_the_province(text, keeps):
+    assert (tc._KEEPS_ITS_NUMBER.match(text) is not None) is keeps
+
+
 # I19: American Express's incoming ACH template.
 
 AMEX_HOLDER = "NORTHWIND DISTRIBUTION"

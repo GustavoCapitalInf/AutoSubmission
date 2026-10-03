@@ -508,7 +508,10 @@ _FROM_ACCOUNT_DIGITS = re.compile(r"(?<![A-Z])FROM (?=\d{3,}\b)")
 #: §8.4, T13 (audit B2: I21): Square prints a move from one of the holder's savings folders as 'TRANSFER IN <folder>'
 #: ('TRANSFER IN GENERAL SAVINGS', 'TRANSFER IN TAX', 'TRANSFER IN RAINY DAY', 'TRANSFER IN RENT'): on a Square
 #: statement, a folder name with no company form designates the holder's own account. Never read on another bank
-#: (Wealthsimple prints its memo there: 'TRANSFER IN <memo>').
+#: (Wealthsimple prints its memo there: 'TRANSFER IN <memo>'). Audit round 2, R2-B11 (R29, no behaviour change): the
+#: B02 brief's person test is not applied. Square prints an outside sender in Details before its activity type
+#: ('<sender> TRANSFER IN', which is read like any named transfer), so only a folder move prints TRANSFER IN first, and
+#: a folder named for a person is still the holder's own money.
 _SQUARE_BANK = re.compile(r"(?<![A-Z])SQUARE\b")
 _SQUARE_FOLDER_TRANSFER = re.compile(r"^TRANSFER IN (?!FROM\b)(?P<folder>[A-Z]+(?: [A-Z]+)*)$")
 
@@ -840,6 +843,10 @@ _CUT_LLC = re.compile(r"LL[A-Z]{2,}")
 _CPA_CODE_BANK = re.compile(r"(?<![A-Z])(?:TD )?CANADA TRUST\b", re.IGNORECASE)
 _CPA_PAYMENT_CODE = re.compile(r"(?<= )(?:AP|MSP|BPY|APY)$")
 _CPA_PAYROLL_CODE = re.compile(r"(?<= )PAY$")
+#: Audit round 2, R2-B11 (R09 part A; §5.2, §8.4, Q4): TD Canada Trust prints an incoming e-Transfer with a per-transfer
+#: code of two to four letters or digits after masked asterisks, where a sender would stand ('E-TRANSFER ***<code>',
+#: 'E-TFR ***<code> EPAY'), read on the row's original description: never a sender, a payer word or a CPA code.
+_TD_TRANSFER_CODE = re.compile(r"^E[- ]?(?:TRANSFER|TFR)\s+\*{2,}(?P<code>[A-Za-z0-9]{2,4})\b")
 #: §8.1 (A3-G refinement): a holder's name read from the statement's own incoming receiver fields (INDN, IND NAME,
 #: RECEIVER NAME) needs this many credits, words and letters; a run-together match needs this many letters.
 _RECEIVER_HOLDER_MIN_CREDITS = 2
@@ -1902,6 +1909,28 @@ def cpa_payment_code(row: str, bank: str | None) -> bool:
 def cpa_payroll_code(row: str, bank: str | None) -> bool:
     """§8.1, Q8 (audit B5: I37): TD Canada Trust's row ends with the CPA payroll-deposit code (PAY)."""
     return _cpa_code_bank(bank) and _CPA_PAYROLL_CODE.search(row) is not None
+
+
+def _transfer_code(record: TransactionClassification) -> str | None:
+    """Audit round 2, R2-B11 (R09 part A): the per-transfer code a TD Canada Trust e-Transfer credit prints after its
+    rail (_TD_TRANSFER_CODE, on the original description), upper-cased as the normalized text prints it; None on any
+    other row or bank."""
+    if not _cpa_code_bank(record.bank):
+        return None
+    found = _TD_TRANSFER_CODE.match(record.original_description or "")
+    return found.group("code").upper() if found is not None else None
+
+
+def without_transfer_code(record: TransactionClassification, text: str) -> str:
+    """Audit round 2, R2-B11 (R09 part A; §5.2, §8.4, Q4): a credit's revenue text without TD Canada Trust's
+    per-transfer code after its e-Transfer rail ('E TRANSFER PAY' reads 'E TRANSFER'), the text pass 7's payer facts,
+    holds, CPA-code readers and counter-debit reading read (and the census's facts, guard_facts), so a code that spells
+    a word (PAY, CAP, MTG) is never pay wording, a financing root or a payer's name. Every other row's text is
+    returned as it is; the reversal and cancel rules, which decided before pass 7, stay first."""
+    code = _transfer_code(record)
+    if code is None:
+        return text
+    return re.sub(rf"^(E ?(?:TRANSFER|TFR)) {re.escape(code)}(?= |$)", r"\1", text, count=1)
 
 
 def _pay_wording(
@@ -3137,7 +3166,8 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     round 1) whose sender prints no company form: a company's push is compared by the B4 forms as before."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
-    words = _counter_region(text, region)
+    # Audit round 2, R2-B11 (R09 part A): TD Canada Trust's e-Transfer code is no sender, so never a counter-debit key.
+    words = _counter_region(text, region) if _transfer_code(record) is None else region
     reading = classifier.counter_debit_payer_reading(words)
     person_key = None
     if (
@@ -4021,8 +4051,11 @@ def credit_facts(
     # or FROM): it left the own-account reading only to be held as a wire with no sender, never counted.
     if channel == "wire" and region and (_wire_label_only(region) or classifier._bare_incoming_wire(text)):
         region = ""
+    # Audit round 2, R2-B11 (R09 part A): a TD Canada Trust e-Transfer prints a per-transfer code where a sender would
+    # stand, which the pass's text no longer prints (without_transfer_code): the row reads no sender and no key.
     sender, holder_sender = (
-        _p2p_sender_readings(text) if not region and channel == "person_to_person" else ("", "")
+        _p2p_sender_readings(text)
+        if not region and channel == "person_to_person" and _transfer_code(record) is None else ("", "")
     )
     name = classifier.payer_name(region)
     entry = classifier.entry_fields(text)
@@ -4689,7 +4722,11 @@ def apply_true_revenue_pass(
     business = _business_shape(records, duplicate_indexes)
     # A3-G refinement: the holder's names the statement's own receiver fields print, when its account name names nobody.
     receiver_holders = _receiver_holder_names(records, credits)
-    texts = {index: classifier.revenue_text(updated[index].normalized_description) for index in credits}
+    # Audit round 2, R2-B11 (R09 part A): without TD Canada Trust's e-Transfer code (without_transfer_code).
+    texts = {
+        index: without_transfer_code(updated[index], classifier.revenue_text(updated[index].normalized_description))
+        for index in credits
+    }
     # Audit B7 (I18): the ordinary payers whose disbursement entry repeats in the statement.
     disbursers = _recurring_disbursers(texts)
     facts = {
@@ -4809,8 +4846,10 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
     before the receiver fields), so a descriptor in the holder's name never marks a row. The known payee is read the
     same way, as the record's claim reads it (S4.2 review M3). `claimed` is the pass's own claim (§8.1: the holds,
     the holder's included, skip a row the registry, a payout entity or a factoring payee claimed), which the census's
-    holder guards read (review M1)."""
+    holder guards read (review M1). Audit round 2, R2-B11 (R09 part A): the facts read the pass's own text, TD Canada
+    Trust's e-Transfer code dropped (without_transfer_code)."""
     classifier = _classifier()
+    text = without_transfer_code(record, text)
     region = classifier.payer_region(text)
     entry = classifier.entry_fields(text)
     row = classifier._before_receiver(text)

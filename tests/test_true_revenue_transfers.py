@@ -123,8 +123,9 @@ def test_the_holder_s_own_account_forms_are_non_revenue(bank, text):
 
 
 @pytest.mark.parametrize(("bank", "text", "reading"), [
-    # Q4: CIBC's glued e-transfer is the e-transfer rail's own form, never the glued TRANSFER I21 reads.
-    ("CIBC", "E TRANSFER123456789012 PAT SAMPLE 1234 567", (COUNTED, "named_payer_unlabelled")),
+    # Q4: CIBC's glued e-transfer is the e-transfer rail's own form, never the glued TRANSFER I21 reads. Audit round 2,
+    # R2-B11 (R44): the revenue text splits the reference off the rail, so the rail reads it as a person-to-person row.
+    ("CIBC", "E TRANSFER123456789012 PAT SAMPLE 1234 567", (COUNTED, "p2p")),
     # Audit B8 (I46): TRANSFERS is transfer wording once revenue_text cuts a TD footer's FUNDS TRANSFERS; with a named
     # counterparty it is a named transfer (T13, Q4).
     ("Fabrikam Bank", "CONTOSO SEAFOOD TRANSFERS", (COUNTED, "p2p")),
@@ -179,6 +180,30 @@ def test_two_pulls_from_one_bank_account_are_never_verified_by_repetition():
 @pytest.mark.parametrize("text", ["TRANSFER IN RAINY DAY", "TRANSFER IN RENT", "TRANSFER IN GENERAL SAVINGS"])
 def test_a_square_savings_folder_is_held(text):
     assert _tier(_one(text, "Square")) == (HELD, "transfer_account_designation")
+
+
+# Audit round 2, R2-B11 (R29; no behaviour change, §20's B2 I21 line): Square prints an outside sender in Details
+# before its activity type ('<sender> TRANSFER IN', read like any named transfer), so only a folder move prints
+# TRANSFER IN first, and a folder named for a person, or any custom folder name, is still the holder's own money.
+@pytest.mark.parametrize(("bank", "text", "reading"), [
+    # A person's name or a custom name after TRANSFER IN is a folder of the holder's (the B02 brief's person test is
+    # not applied).
+    ("Square", "TRANSFER IN PAT SAMPLE", (HELD, "transfer_account_designation")),
+    ("Square", "TRANSFER IN SAMPLE HOME", (HELD, "transfer_account_designation")),
+    # The layout: an outside sender prints before the activity type.
+    ("Square", "PAT SAMPLE TRANSFER IN", (COUNTED, "p2p")),
+    ("Square", "FABRIKAM INC TRANSFER IN", (COUNTED, "p2p")),
+    # Controls: a company form after TRANSFER IN, the known folders, the tax folder, and other banks.
+    ("Square", "TRANSFER IN CONTOSO SUPPLY LLC", (COUNTED, "p2p")),
+    ("Square", "TRANSFER IN RAINY DAY", (HELD, "transfer_account_designation")),
+    ("Square", "TRANSFER IN RENT", (HELD, "transfer_account_designation")),
+    ("Square", "TRANSFER IN GENERAL SAVINGS", (HELD, "transfer_account_designation")),
+    ("Square", "TRANSFER IN TAX", (HELD, "transfer_no_counterparty")),
+    ("Wealthsimple", "TRANSFER IN PAT SAMPLE", (COUNTED, "p2p")),
+    ("Fabrikam Bank", "TRANSFER IN PAT SAMPLE", (COUNTED, "p2p")),
+])
+def test_r29_square_prints_an_outside_sender_before_transfer_in(bank, text, reading):
+    assert _tier(_one(text, bank, amount=750.0)) == reading
 
 
 def test_a_square_folder_is_held_even_when_its_round_sums_repeat():
@@ -522,3 +547,234 @@ def test_r25_a_branch_transfer_printing_a_reference_and_a_town_is_held(text):
 def test_r25_the_controls_keep_their_readings(text, reading):
     record = _one(text, holder=R25_HOLDER)
     assert (record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method) == reading
+
+
+# Audit round 2, R2-B11 (R44; §7.0, §8.4, Q4): CIBC prints its e-Transfer reference glued to the rail word
+# ('E-TRANSFER<reference> <sender> <card>'). The revenue text splits a reference glued after a consumer rail, so the
+# rail reads the row as a person-to-person credit on every bank, as the spaced twin reads: the sender is read, Q4's
+# holder and round-repeat holds and the financing hold run, and the row is never verified. Debits keep their text.
+
+R44_HOLDER = "NORTHWIND PLUMBING LTD"
+R44_GLUED = "E-TRANSFER10000000000{n} {sender} 4500*********100"
+R44_SPACED = "E-TRANSFER 10000000000{n} {sender} 4500*********100"
+ROUND_REPEAT = (HELD, "p2p_round_repeat")
+P2P = (COUNTED, "p2p")
+
+
+def _statement(rows, *, bank, holder=None):
+    return classify_statement_transactions(Statement(bank=bank, account_name=holder, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ]))
+
+
+def _cibc(layout, sender, amounts, *, holder=None):
+    rows = [(layout.format(n=index + 1, sender=sender), amount) for index, amount in enumerate(amounts)]
+    return [_tier(record) for record in _statement(rows, bank="CIBC", holder=holder)]
+
+
+@pytest.mark.parametrize("layout", [R44_GLUED, R44_SPACED])
+@pytest.mark.parametrize(("sender", "amounts", "holder", "readings"), [
+    ("JANE SAMPLE", (5000.0, 5000.0, 5000.0), None, [ROUND_REPEAT] * 3),
+    ("JANE SAMPLE", (3000.0, 2000.0), None, [ROUND_REPEAT] * 2),
+    ("JANE SAMPLE", (1234.56,), None, [P2P]),
+    ("NORTHWIND PLUMBING LTD", (1234.56,), R44_HOLDER, [(HELD, "holder_name")]),
+    ("CONTOSO FUNDING LLC", (1234.56,), None, [(HELD, "financing_named_payer")]),
+    # A platform's or a company's name sent over the rail is a person-to-person credit: counted, never verified.
+    ("SHOPIFY PAYMENTS CANADA", (1234.56, 1234.57, 1234.58), None, [P2P] * 3),
+    ("CONTOSO SUPPLY INC", (1234.56, 1234.57, 1234.58), None, [P2P] * 3),
+])
+def test_r44_a_cibc_e_transfer_reads_as_its_spaced_twin(layout, sender, amounts, holder, readings):
+    assert _cibc(layout, sender, amounts, holder=holder) == readings
+
+
+def test_r44_a_glued_zelle_reference_is_split_on_every_bank():
+    rows = [("ZELLE1234567 PAYMENT FROM JANE SAMPLE", 5000.0)] * 2
+    assert [_tier(record) for record in _statement(rows, bank="Chase")] == [ROUND_REPEAT] * 2
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("E TRANSFER100000000001 JANE SAMPLE 4500 100", "E TRANSFER 100000000001 JANE SAMPLE 4500 100"),
+    ("ZELLE1234567 PAYMENT FROM JANE SAMPLE", "ZELLE 1234567 PAYMENT FROM JANE SAMPLE"),
+    ("01 02ETRANSFER123 PAT SAMPLE", "ETRANSFER 123 PAT SAMPLE"),
+    # Only a consumer rail's word is split: a glued TRANSFER after another word stays as printed.
+    ("CMO TRANSFER123456789012 CONTOSO LTD", "CMO TRANSFER123456789012 CONTOSO LTD"),
+    ("INTERNET TRANSFER000000123456", "INTERNET TRANSFER000000123456"),
+    ("ONLINE TRANSFER123", "ONLINE TRANSFER123"),
+    ("E TRANSFER RECLAIM123456", "E TRANSFER RECLAIM123456"),
+])
+def test_r44_the_revenue_text_splits_a_reference_glued_after_a_rail(text, expected):
+    assert revenue_text(text) == expected
+
+
+def test_r44_the_rail_is_built_from_its_word_list_unchanged():
+    from analysis import transaction_classifier
+
+    assert transaction_classifier._CONSUMER_P2P_RAIL.pattern == (
+        r"(?<![A-Z])(?:ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH"
+        r"|APPLE CASH|POPMONEY)\b"
+    )
+
+
+@pytest.mark.parametrize(("text", "reading"), [
+    ("INTERNET TRANSFER000000123456", (HELD, "transfer_no_counterparty")),
+    ("CMO TRANSFER123456789012 CONTOSO LTD", P2P),
+    ("E-TRANSFER RECLAIM123456", ("non_revenue", "reversal_cancellation_exclusion")),
+])
+def test_r44_the_controls_keep_their_readings(text, reading):
+    record = _statement([(text, 1234.56)], bank="CIBC")[0]
+    assert (record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method) == reading
+
+
+def test_r44_a_glued_e_transfer_debit_is_unchanged():
+    [debit] = _statement([("E-TRANSFER100000000001 FABRIKAM CAPITAL INC 4500*********100", -1234.56)], bank="CIBC")
+    assert (debit.classification, debit.canonical_entity, debit.contributes_to_lender_count,
+            debit.contributes_to_potential_lender_count, debit.contributes_to_lender_totals,
+            debit.contributes_to_withholding_rate, debit.revenue_tier) == (
+        "other", None, False, False, False, False, None)
+    assert debit.normalized_description == "E TRANSFER100000000001 FABRIKAM CAPITAL INC 4500 100"
+
+
+# Audit round 2, R2-B11 (R24; §8.2, §8.4 T13, §7.11 T5): a short own-account source after FROM (CHK, CHECKG, CK, SAV,
+# SV, MMA, DDA, PCA, CL, LOC, LN, CRD) designates the holder's own account only before an account number, a masked
+# account, ACCOUNT or ACCT, or at the row's end; a company whose name starts with one of those letters is a named
+# transfer's counterparty (T13, Q4, Q5). The long spellings (CHECKING, SAVINGS, SHARES, CREDIT CARD ...) read as before.
+
+R24_HOLDER = "NORTHWIND PLUMBING LLC"
+
+
+@pytest.mark.parametrize(("text", "reading"), [
+    ("ONLINE TRANSFER FROM CL FABRIKAM INC", P2P),
+    ("TRANSFER FROM LOC CONTOSO LLC", P2P),
+    ("TFR FRM CRD FABRIKAM LLC", P2P),
+    ("ONLINE TRANSFER FROM CK CONTOSO LLC", P2P),
+    ("ZELLE TRANSFER FROM CL CONTOSO LLC", P2P),
+    # DDA and CHK are §8.4's account-type words: the named transfer is held as naming an account.
+    ("ONLINE TRANSFER FROM DDA FABRIKAM INC", (HELD, "transfer_account_designation")),
+    ("ONLINE TRANSFER FROM CHK CONTOSO LLC", (HELD, "transfer_account_designation")),
+    ("WIRE TRANSFER FROM CL FABRIKAM INC", (COUNTED, "wire_named_sender")),
+])
+def test_r24_a_company_named_with_a_short_source_s_letters_is_a_named_counterparty(text, reading):
+    assert _tier(_one(text, holder=R24_HOLDER)) == reading
+
+
+@pytest.mark.parametrize("text", [
+    "ONLINE TRANSFER FROM CL 1234567",
+    "ONLINE TRANSFER FROM SV 1234567",
+    "ONLINE TRANSFER FROM CK 1234 REF 1234",
+    "ONLINE TRANSFER FROM LOC XXXXXX1234",
+    "FUNDS TRANSFER FROM LOC ACCOUNT 1234",
+    "ONLINE TRANSFER FROM CRD 1234 CONFIRMATION 1",
+    "ONLINE TRANSFER FROM CK ACCT 1234",
+    "ONLINE TRANSFER FROM CL",
+    "TRANSFER FROM SHARES CONTOSO",
+    "OVERDRAFT XFER FROM CREDIT CARD OR LINE",
+    # LN reads LOAN before any pattern (description_text), a separate path R24 leaves as it is.
+    "ONLINE TRANSFER FROM LN CONTOSO LLC",
+])
+def test_r24_the_own_account_designations_stay_non_revenue(text):
+    record = _one(text, holder=R24_HOLDER)
+    assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "strong_non_revenue_rule")
+
+
+def test_r24_the_named_sender_layouts_after_a_designation_stay_held():
+    for bank, text in (
+        ("Bank of America", "ONLINE TRANSFER FROM CHK 1234 CONFIRMATION AB12CD34E CONTOSO SUPPLY LLC"),
+        ("Fabrikam Credit Union", "TFR FROM XXXXXX1234 TRANSFER DEPOSIT CONTOSO SUPPLY LLC"),
+    ):
+        assert _tier(_one(text, bank, holder=R24_HOLDER)) == (HELD, "transfer_account_designation"), text
+
+
+def test_r24_the_package_pairing_designation_reads_the_same_sources():
+    assert prints_internal_transfer_designation("ONLINE TRANSFER FROM CL 1234567")
+    assert not prints_internal_transfer_designation("ONLINE TRANSFER FROM CL FABRIKAM INC")
+
+
+def test_r24_the_short_and_long_sources_are_the_whole_source_list():
+    from analysis import transaction_classifier as tc
+
+    sources = tc._INTERNAL_ACCOUNT_SOURCE
+    assert sources.startswith("(?:") and sources.endswith(")")
+    short = tc._SHORT_ACCOUNT_SOURCES.split("|")
+    long = tc._LONG_ACCOUNT_SOURCES.split("|")
+    assert not set(short) & set(long)
+    assert sorted(short + long) == sorted(sources[3:-1].split("|"))
+
+
+# Audit round 2, R2-B11 (R09 part A; §5.2, §8.4, Q4): TD Canada Trust prints an incoming e-Transfer with a per-transfer
+# code after its masked asterisks ('E-TRANSFER ***<code>', 'E-TFR ***<code> ...'), never a sender: pass 7 drops the
+# code from the text it reads, so a code that spells a word (PAY, CAP, MTG) holds nothing and the row reads no sender
+# and no key. The reversal and cancel rules stay first. Whether a keyless row's repeated round sums are held (R09 part
+# B) is the owner's call.
+
+TD_BANK = "TD Canada Trust"
+TD_HOLDER = "CONTOSO BAKERY LLC"
+
+
+def _td(rows, *, holder=TD_HOLDER):
+    return _statement(rows, bank=TD_BANK, holder=holder)
+
+
+@pytest.mark.parametrize("code", ["PAY", "CAP", "MTG", "aBc", "Zs4"])
+def test_r09_a_td_e_transfer_code_names_no_payer(code):
+    assert [_tier(record) for record in _td([(f"E-TRANSFER ***{code}", 1234.56)])] == [P2P]
+
+
+def test_r09_a_td_e_transfer_code_is_no_round_repeat_key():
+    records = _td([("E-TRANSFER ***BFD", 3000.0)] * 3)
+    assert [_tier(record) for record in records] == [P2P] * 3
+    facts = true_revenue.credit_facts(
+        records[0], true_revenue.without_transfer_code(records[0], revenue_text(records[0].normalized_description)),
+        debits=true_revenue.counter_debits(records, set()),
+    )
+    assert (facts.region, facts.key, facts.channel) == ("", (), "person_to_person")
+
+
+@pytest.mark.parametrize("word", ["EPAY", "CONTOSO"])
+def test_r09_a_td_e_tfr_code_before_another_word_names_no_payer(word):
+    # The word TD prints after the code is no sender either: two transfers never group as one sender's round sums.
+    rows = [(f"E-TFR ***aBc {word}", 3000.0), (f"E-TFR ***xYz {word}", 3000.0)]
+    assert [_tier(record) for record in _td(rows)] == [P2P] * 2
+
+
+def test_r09_a_the_word_after_a_td_code_is_no_counter_debit_key():
+    rows = [("E-TFR ***aBc CONTOSO", 3000.0), ("TRANSFER TO CONTOSO 1234", -500.0)]
+    assert [_tier(record) for record in _td(rows) if record.amount > 0] == [P2P]
+
+
+@pytest.mark.parametrize(("rows", "readings"), [
+    # The cancel rule stays first.
+    ([("CANCEL E TFR ***ABC", 3000.0)], [("non_revenue", "reversal_cancellation_exclusion")]),
+    # A sender TD prints is still read, and its repeated round sums held (Q4).
+    ([("INTERAC e-Transfer Received NORTHWIND TRADERS", 3000.0)] * 2, [ROUND_REPEAT] * 2),
+])
+def test_r09_a_the_controls_keep_their_readings(rows, readings):
+    assert [(record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method)
+            for record in _td(rows) if record.amount > 0] == readings
+
+
+@pytest.mark.parametrize("bank", ["Fabrikam Bank", "Royal Bank of Canada"])
+@pytest.mark.parametrize("code", ["CAP", "MTG"])
+def test_r09_a_reads_td_canada_trust_s_code_only(bank, code):
+    # Another bank's '***<word>' after the rail keeps its reading (the financing hold reads it).
+    [record] = _statement([(f"E-TRANSFER ***{code}", 1234.56)], bank=bank, holder=TD_HOLDER)
+    assert _tier(record) == (HELD, "financing_named_payer")
+
+
+@pytest.mark.parametrize(("credit", "debit"), [
+    ("E-TRANSFER ***PAY", ("PAY ACH", -1234.56)),
+    ("E-TRANSFER ***PAY", ("SEND E-TFR ***PAY", -500.0)),
+    # A four-character code reads as a counter-debit payer word when it is read at all.
+    ("E-TRANSFER ***CONT", ("TRANSFER TO CONT 1234", -500.0)),
+    ("E-TRANSFER ***CONT", ("CONT ACH", -1234.56)),
+])
+def test_r09_a_td_code_is_never_a_counter_debit_key(credit, debit):
+    assert [_tier(record) for record in _td([(credit, 1234.56), debit]) if record.amount > 0] == [P2P]
+
+
+def test_r09_a_the_census_reads_the_pass_s_text():
+    [record] = _td([("E-TRANSFER ***PAY", 1234.56)])
+    facts = true_revenue.guard_facts(record, revenue_text(record.normalized_description))
+    assert facts["pay_or_personal"] is False
+    assert facts["financing_root"] is False

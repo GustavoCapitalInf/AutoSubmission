@@ -178,6 +178,60 @@ def test_a_financing_sender_or_memo_on_a_person_to_person_or_ach_row_still_holds
     assert _one(text, 150.0, bank="American Express") == FINANCING
 
 
+# Audit round 2, R2-B11 (R38; §5.2's sender ends, B7's I16 line): Truist's business-Zelle layout prints 'FROM <sender>
+# PAYMENT ID <reference>'. The sender ends at its PAYMENT ID label, so the label's PAYMENT never joins the sender and a
+# person's name (a sole proprietor's trade word after it too) is read as a person's: a root inside the surname holds
+# nothing. A funder's name, a glued funder, a root at a name word's start, a holder-noise trade word, a company form or
+# a funding memo still holds.
+
+R38_TRUIST = "ZELLE BUSINESS PAYMENT FROM {sender} PAYMENT ID BAC1X2Y3Z"
+
+
+@pytest.mark.parametrize(("layout", "sender", "bank"), [
+    (R38_TRUIST, "PAT SAMPLELENDEZ TRANSPORT", "Truist"),
+    (R38_TRUIST, "PAT SAMPLELENDEZ", "Truist"),
+    ("ZELLE PAYMENT FROM {sender} PAYMENT ID BAC1X2Y3Z", "DANA SAMPLEFUNDORA", "Truist"),
+    (R38_TRUIST, "PAT SAMPLELENDEZ TRANSPORT", "Huntington National Bank"),
+])
+def test_r38_a_root_inside_a_surname_on_the_payment_id_layout_holds_nothing(layout, sender, bank):
+    assert _one(layout.format(sender=sender), 1234.56, bank=bank) == P2P
+
+
+def test_r38_a_surname_s_repeated_round_sums_are_held_as_round_repeats():
+    rows = [(R38_TRUIST.format(sender="PAT SAMPLELENDEZ TRANSPORT"), 200.0)] * 2
+    assert _tiers(rows, bank="Truist") == [("excluded_pending_review", "p2p_round_repeat")] * 2
+
+
+@pytest.mark.parametrize("text", [
+    R38_TRUIST.format(sender="FAST FUNDING LLC"),
+    R38_TRUIST.format(sender="CONTOSO CAPITAL"),
+    R38_TRUIST.format(sender="QUICKFUND LLC"),
+    R38_TRUIST.format(sender="PAT LENDER TRANSPORT"),
+    R38_TRUIST.format(sender="PAT SAMPLELENDEZ SERVICES"),
+    R38_TRUIST.format(sender="SAMPLELENDEZ TRANSPORT LLC"),
+    "ZELLE BUSINESS PAYMENT FROM PAT SAMPLELENDEZ PAYMENT ID BAC1X2Y3Z FOR FUNDING",
+])
+def test_r38_a_funder_or_a_funding_memo_on_the_payment_id_layout_still_holds(text):
+    assert _one(text, 1234.56, bank="Truist") == FINANCING
+
+
+@pytest.mark.parametrize(("text", "bank", "expected"), [
+    (R38_TRUIST.format(sender="NORTHWIND BAKERY LLC"), "Truist", ("excluded_pending_review", "holder_name")),
+    (R38_TRUIST.format(sender="PAT SAMPLEMAN"), "Truist", P2P),
+    (R38_TRUIST.format(sender="FABRIKAM LANDSCAPING LLC"), "Truist", P2P),
+    ("ZELLE PAYMENT FROM PAT SAMPLELENDEZ CONF 123456", "Bank of America", P2P),
+])
+def test_r38_the_controls_keep_their_readings(text, bank, expected):
+    assert _one(text, 1234.56, bank=bank) == expected
+
+
+def test_r38_the_sender_ends_at_the_payment_id_label():
+    from analysis import transaction_classifier as tc
+
+    assert tc.payer_region(R38_TRUIST.format(sender="PAT SAMPLELENDEZ TRANSPORT")) == "PAT SAMPLELENDEZ TRANSPORT"
+    assert tc.payer_region("ZELLE PAYMENT FROM PAT SAMPLE PAYMENT INFO RENT") == "PAT SAMPLE"
+
+
 def test_a_layout_s_entry_word_after_a_cut_name_is_no_credit_root():
     assert _one("CONTOSO BOOKS P CREDIT", 1000.0) == UNLABELLED
     # A lender's whole-word CREDIT inside its name, and a glued CREDIT, still hold.

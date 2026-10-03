@@ -712,18 +712,36 @@ _INTERNAL_ACCOUNT_SOURCE = (
 )
 #: 5.6 (audit B2: I21): FRM is FROM in the own-account forms ('TFR FRM CHECKING', 'INTERNET XFR FRM CHECKG').
 _FROM_WORD = r"(?:FROM|FRM)"
+#: Audit round 2, R2-B11 (R24; §8.2, §8.4 T13): _INTERNAL_ACCOUNT_SOURCE's spellings in two lists (a test keeps them
+#: equal to it): the short tokens, which can be a company's first letters ('CL FABRIKAM INC', 'LOC CONTOSO LLC'), and
+#: the long spellings, read as before. The source list itself is unchanged: its account words, _counterparty_tokens'
+#: and the 'FROM <n> <source>' form read it whole.
+_SHORT_ACCOUNT_SOURCES = r"CHK|CHECKG|CK|SAV|SV|MMA|DDA|PCA|CL|LOC|LN|CRD"
+_LONG_ACCOUNT_SOURCES = (
+    r"ACCOUNTS?|CHECKING|SAVINGS|SHARES?|MONEY MARKET|(?:SUB )?RESERVE ACCOUNTS?|CREDIT CARD|CREDIT LINE|LINE OF CREDIT"
+)
+#: Audit round 2, R2-B11 (R24): an own-account source a transfer designates after FROM: a long spelling as a whole word
+#: (Navy Federal's 'FROM SHARES <name>' stays the holder's own transfer), or a short token only before an account
+#: number, a masked account, ACCOUNT or ACCT, or at the row's end ('FROM CL 1234567', 'FROM LOC XXXXXX1234', 'FROM CK
+#: ACCT 1234', 'FROM CL'). A short token before a name ('FROM CL FABRIKAM INC') is that company's name: the row falls to
+#: the named-transfer readings (T13, Q4, Q5), never the strong rule.
+_DESIGNATED_ACCOUNT_SOURCE = (
+    rf"(?:(?:{_LONG_ACCOUNT_SOURCES})\b|(?:{_SHORT_ACCOUNT_SOURCES})(?= (?:\d|X+\d*\b|ACCOUNTS?\b|ACCT\b)|$))"
+)
 #: 5.6 (audit B2: I20): the own-account forms whose sender a bank may print after the designation (Bank of America's
 #: 'ONLINE TRANSFER FROM CHK <n> CONFIRMATION <reference> <sender>', a credit union's 'TFR FROM X...<n> TRANSFER
 #: DEPOSIT <sender>'): named, so the strong rule refuses them when that sender is not the holder
-#: (_named_sender_after_designation).
-_TRANSFER_FROM_ACCOUNT = re.compile(rf"\b(?:TRANSFER|XFER|XFR|TFR) {_FROM_WORD} {_INTERNAL_ACCOUNT_SOURCE}\b")
+#: (_named_sender_after_designation). Audit round 2, R2-B11 (R24): the source is a designated one
+#: (_DESIGNATED_ACCOUNT_SOURCE).
+_TRANSFER_FROM_ACCOUNT = re.compile(rf"\b(?:TRANSFER|XFER|XFR|TFR) {_FROM_WORD} {_DESIGNATED_ACCOUNT_SOURCE}")
 _CHANNEL_TRANSFER_FROM_ACCOUNT = re.compile(
     # 5.6 (audit B2: I01): Truist's own-account layout repeats its channel word between TRANSFER and FROM ('ONLINE
     # TRANSFER ONLINE FROM <n>', the layout analysis/bank_repairs.py names). A MOBILE there is not read (no corpus
-    # layout confirms it as own-account): such a row names no counterparty and is held under Q2.
+    # layout confirms it as own-account): such a row names no counterparty and is held under Q2. Audit round 2, R2-B11
+    # (R24): the source is a designated one (_DESIGNATED_ACCOUNT_SOURCE).
     rf"\b(?:BRANCH|ONLINE|MOBILE|INTERNET|HOME|BUSINESS ONLINE|TELEPHONE)"
     rf"(?: BANKING)?(?: ACCOUNT)? (?:TRANSFER|XFER)(?: TRANSFER| ONLINE)? {_FROM_WORD} "
-    rf"(?:{_INTERNAL_ACCOUNT_SOURCE}|X+\d*|\d{{3,}})\b"
+    rf"(?:{_DESIGNATED_ACCOUNT_SOURCE}|(?:X+\d*|\d{{3,}})\b)"
 )
 _TFR_TRANSFER_DEPOSIT = re.compile(r"\bTFR FROM (?:X+\d*|\d{3,})\b.*\bTRANSFER DEPOSIT\b")
 _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
@@ -1160,8 +1178,10 @@ _WIRE_FIELD_END = re.compile(
 #: §5.2, §7.9 (Santander's layout): 'USD WIRE IN FROM <sending bank> ACCT <n> <originator> REF <purpose>'. The words
 #: after WIRE IN FROM name the sending bank; the originator follows the account number (the field §7.9 cuts at 16).
 _SANTANDER_WIRE = re.compile(r"^(?:[A-Z]{3} )?WIRE IN FROM\b(?P<bank>.*?)\bACCT \d+ (?P<originator>.*?)(?=\bREF\b|$)")
-#: §5.2: a person-to-person or transfer sender follows FROM and ends at one of these words.
-_SENDER_END = re.compile(r"\b(?:ON|REF|CONF|MEMO|TRN|ID|FOR|NOTE|PMT INFO|PAYMENT INFO)\b")
+#: §5.2: a person-to-person or transfer sender follows FROM and ends at one of these words. Audit round 2, R2-B11 (R38):
+#: and at Truist's 'PAYMENT ID' label ('ZELLE BUSINESS PAYMENT FROM <sender> PAYMENT ID <reference>'): the leftmost
+#: match ends the sender at PAYMENT, so the label's PAYMENT never joins a person's name (B7's surname reading).
+_SENDER_END = re.compile(r"\b(?:ON|REF|CONF|MEMO|TRN|ID|FOR|NOTE|PMT INFO|PAYMENT INFO|PAYMENT ID)\b")
 #: §5.2: the entry fields: Bank of America's DES, Chase's CO ENTRY DESCR, a wire's purpose fields, a transfer's memo.
 _BOFA_ENTRY_FIELD = re.compile(
     r"\bDES (.*?)(?=\b(?:ID|INDN|CO ID|IND NAME|IND ID|CCD|CTX|PPD|WEB|IAT|TEL|POP|BOC|ARC|RCK|CIE)\b|$)"
@@ -1265,18 +1285,43 @@ _BMO_CODE_TAIL = r"(?:AP|CC|MSP|DIV|APY|EDI|EED)"
 #: (I59): Scotiabank, RBC and CIBC print a payment reference in the template's digit slot and then the payer's name
 #: ('BILL PAYMENT <reference> <payer> INC', 'MISC PAYMENT <reference> TOWN OF <town>'): the template form fires only
 #: when nothing, a province or territory (or a cut of one) or BMO's code tail follows the digits, and both forms read
-#: a number of six to ten digits (a Canadian corporation number has at most ten; a longer run is a reference).
+#: a number of six to ten digits (a Canadian corporation number has at most ten; a longer run is a reference). Audit
+#: round 2, R2-B11 (R33): the province, its cut or the code counts only when it is no name's first word
+#: (_PROVINCE_NOT_A_NAME_START).
+#: Audit round 2, R2-B11 (R33; §5.2, T11): the tokens after a numbered company's province (or its cut, or BMO's code)
+#: that still name no payer: every leading cut of three letters or more of INCORPORATED, LIMITED, LIMITEE, CORPORATION,
+#: COMPANY and UNLIMITED, the other legal forms, BMO's code tail, a trade-name marker and the remittance words.
+_NUMBERED_TAIL_WORDS = "(?:" + "|".join(sorted(
+    {form[:length] for form in ("INCORPORATED", "LIMITED", "LIMITEE", "CORPORATION", "COMPANY", "UNLIMITED")
+     for length in range(3, len(form) + 1)}
+    | {"LTD", "LTEE", "ULC", "LLC", "LLP", "MSP", "DIV", "APY", "EDI", "EED", "DBA", "AKA", "INV", "INVOICE", "PMT",
+       "PAYMENT", "REF"},
+    key=lambda value: (-len(value), value),
+)) + ")"
+#: Audit round 2, R2-B11 (R33): a province or territory (or a cut of one), Quebec's form or BMO's code tail after the
+#: number that is no payer's first name word: the next token is not a letters-only word of three letters or more
+#: outside _NUMBERED_TAIL_WORDS. A token holding digits (RBC's 'ALBERTA RMOD<n>', a reference), a one- or two-letter
+#: token (BMO's 'ONTA AP CC'), a legal form or its cut, BMO's code, a trade-name marker, a remittance word or the
+#: field's end keep the number; a name word ('NORTH MOUNTAIN PAVING', 'NEW HORIZON PAVING INC', 'NOVA SCOTIA POWER')
+#: drops it, so the payer is read. The group is atomic, so the longest spelling decides (NOVA SCOTIA, NEW BRUNSWICK,
+#: never NOVA or NEW alone). Residual: a name whose second word has one or two letters ('CAN DO PLUMBING LTD') still
+#: reads numbered.
+_PROVINCE_NOT_A_NAME_START = (
+    rf"(?>(?:{_PROVINCE}|{_QUEBEC}|{_BMO_CODE_TAIL})\b)"
+    rf"(?! (?!{_NUMBERED_TAIL_WORDS}(?: |$))[A-Z]{{3,}}(?: |$))"
+)
 _NUMBERED_COMPANY_TEMPLATE = re.compile(
     rf"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{{6,10}}"
-    rf"(?:$| (?:{_PROVINCE}|{_QUEBEC}|{_BMO_CODE_TAIL})\b)"
+    rf"(?:$| {_PROVINCE_NOT_A_NAME_START})"
 )
 #: Audit B5 (I59): a reference of six to fifteen digits printed in the same slot, before the payer's name: no part of
 #: the payer region, unless a province or territory (or a cut of one), Quebec's form or BMO's code tail follows it
-#: (a numbered company's number, or BMO's merchant reference before its code, which names no payer).
+#: (a numbered company's number, or BMO's merchant reference before its code, which names no payer). Audit round 2,
+#: R2-B11 (R33): only when that word is no name's first word (_PROVINCE_NOT_A_NAME_START).
 _REFERENCE_BEFORE_PAYER = re.compile(
     r"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) (?P<reference>\d{6,15}) (?=\S)"
 )
-_KEEPS_ITS_NUMBER = re.compile(rf"(?:{_PROVINCE}|{_QUEBEC}|{_BMO_CODE_TAIL})\b")
+_KEEPS_ITS_NUMBER = re.compile(_PROVINCE_NOT_A_NAME_START)
 #: A3: a numbered company's number before its province or territory, or Quebec's NNNN NNNN before QUEBEC (the
 #: province arm of _NUMBERED_COMPANY_REGION), kept when a wire's sender is read after its label.
 _NUMBERED_PROVINCE_START = re.compile(rf"^\d{{6,}} {_PROVINCE}\b|^\d{{4}} \d{{4}} {_QUEBEC}\b")
@@ -1296,10 +1341,17 @@ _NUMBERED_COMPANY_REGION = re.compile(
 #: ('0102Remote', '01/02/2054 Remote', '2054 GC 1234 Deposit') still reads no gate. Against the older \b patterns
 #: the gate reading only moves toward closed or push; the shared patterns also move the payer region and entry
 #: fields of those same rows.
-_CONSUMER_P2P_RAIL = re.compile(
-    r"(?<![A-Z])(?:ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH"
-    r"|APPLE CASH|POPMONEY)\b"
+#: Audit round 2, R2-B11 (R44): the consumer rails' words, one list the rail and the glued-reference split read.
+_CONSUMER_P2P_RAIL_WORDS = (
+    r"ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH"
+    r"|APPLE CASH|POPMONEY"
 )
+_CONSUMER_P2P_RAIL = re.compile(r"(?<![A-Z])(?:" + _CONSUMER_P2P_RAIL_WORDS + r")\b")
+#: Audit round 2, R2-B11 (R44; §7.0, §8.4, Q4): a consumer rail's word with a reference's digits glued after it, as CIBC
+#: prints its e-Transfer ('E-TRANSFER<reference> <sender> <card>'; Chase's 'ZELLE<reference>' reads the same way). The
+#: revenue text splits the digits off (revenue_text), so the rail, whose right boundary stays \b, reads the row as it
+#: reads the spaced twin. Only a rail's word is split: CIBC's 'CMO TRANSFER<n>' stays glued transfer wording.
+_GLUED_RAIL_REFERENCE = re.compile(r"(?<![A-Z])(" + _CONSUMER_P2P_RAIL_WORDS + r")(?=\d)")
 _PUSH_RAIL = re.compile(
     r"(?<![A-Z])(?:RTP|FEDNOW|REAL TIME (?:TRANSFER|PAYMENT)|INSTANT (?:PMT|PAYMENT|TRANSFER)|VISA DIRECT"
     r"|VISA MONEY TRANSFER|MC SEND|MONEY TRANSFER|PMNT RCVD|PAYMENT RECEIVED)\b"
@@ -1332,7 +1384,8 @@ _CASH_BRANCH_ATM_FORM = re.compile(
 )
 #: §8.2: transfer wording. 5.6 (audit B2: I21): and its other spellings TRF, TRSFR, TRANSF and XFR ('TRF CT INTERNET',
 #: 'INTERNET PHONE TRSFR', 'TRANSF FONDS CT', 'INTERNET XFR FRM CHECKG'), and TRANSFER glued to a reference's digits
-#: (CIBC's 'CMO TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail). Audit B8 (I46,
+#: (CIBC's 'CMO TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail, which the
+#: revenue text splits since audit round 2, R2-B11: R44, _GLUED_RAIL_REFERENCE). Audit B8 (I46,
 #: Q2): and the plural TRANSFERS ('EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT', '... FUNDS TRANSFERS'), once revenue_text
 #: cuts the statement furniture that printed it (TD's back panel: '... ELECTRONIC FUNDS TRANSFERS'). Audit B5 (I19):
 #: never American Express's incoming-ACH label, 'ONLINE TRANSFER PAYMENT CREDIT' at the row's start
@@ -1397,8 +1450,11 @@ def revenue_text(text: str) -> str:
     from a reader anchored at the row's start; a spaced '5 3 ...' is kept), and with Chase's glued SEC code split
     ('CO ENTRY DESCR HCCLAIMPMTSEC CCD' becomes 'CO ENTRY DESCR HCCLAIMPMT SEC CCD'). Audit B8 (I46): and without the
     statement furniture a parser glued onto it (without_statement_furniture), so a footer's LOAN, INTEREST EARNED or
-    RETURNED ITEM never decides a deposit."""
-    return _GLUED_SEC_CODE.sub(r"\1 SEC \2", without_statement_furniture(_LEADING_DATE.sub("", text, count=1)))
+    RETURNED ITEM never decides a deposit. Audit round 2, R2-B11 (R44): and with a reference glued after a consumer
+    rail's word split off it (_GLUED_RAIL_REFERENCE: CIBC's 'E TRANSFER<n> <sender>' reads 'E TRANSFER <n> <sender>'),
+    so the rail reads the row on every bank as it reads the spaced form. Debits keep their text."""
+    text = _GLUED_RAIL_REFERENCE.sub(r"\1 ", _LEADING_DATE.sub("", text, count=1))
+    return _GLUED_SEC_CODE.sub(r"\1 SEC \2", without_statement_furniture(text))
 
 
 def without_statement_furniture(text: str) -> str:
@@ -1771,8 +1827,9 @@ _CONTRA_BANK_FIELD = re.compile(r"\bFROM ABA CONTR BNK\b(?: \d+\b)?")
 
 def _sender_payer_region(text: str) -> str:
     """5.5 (§5.2): a person-to-person or transfer sender: the words after FROM, up to ON, REF, CONF, MEMO, TRN, ID,
-    FOR or a reference token. Venmo and Cash App cash-outs print no sender. Audit B5 (I15): the sender after the next
-    FROM when the first prints Chase's contra-bank label (_CONTRA_BANK_FIELD)."""
+    FOR, NOTE, PMT INFO, PAYMENT INFO, PAYMENT ID (audit round 2, R2-B11: R38, Truist's business-Zelle label, whose
+    PAYMENT is no part of the sender) or a reference token. Venmo and Cash App cash-outs print no sender. Audit B5
+    (I15): the sender after the next FROM when the first prints Chase's contra-bank label (_CONTRA_BANK_FIELD)."""
     row = _CONTRA_BANK_FIELD.sub(" ", _before_receiver(text), count=1)
     found = re.search(r"\bFROM\b ?", row)
     if found is None:
