@@ -2428,7 +2428,9 @@ _NO_LEGAL_FORM_LATER = (
 #:   normalized to a space or dropped);
 #: - RBC's French refused item, the bank crediting back a payment refused for no funds (EFFET|CHEQUE REFUSE SANS
 #:   PROVISION; a lost accent leaves REFUS);
-#: - the English check-word form of NOT PAID (CHECK|CHEQUE|CHK|CHQ [<n>] NOT PAID);
+#: - the English check-word form of NOT PAID (CHECK|CHEQUE|CHK|CHQ [<n>] NOT PAID). Review round 1: at the row's head
+#:   only (a spaced or glued leading date before it, spaces the backstop's label removal leaves), as the whole-row NOT
+#:   PAID is read: never inside a wire's remittance field, a person-to-person memo or an ACH entry description;
 #: - an e-Transfer the holder reclaimed with a spaced or colon-separated reference, the rail word (INTERAC, E TRANSFER,
 #:   E TFR) printed right before RECLAIM and a reference holding a digit right after it, or TD's RECLAIM E-TFR. Never
 #:   RECLAIM as a payer's word, nor after a reference (a sender's name follows it there);
@@ -2439,7 +2441,7 @@ _RETURN_REFUND_R2_B08_ARMS = (
     r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
     r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
     r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
-    r"(?<![A-Z])(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
+    r"^\s*(?:\d{1,2} \d{1,2} ?)?(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
     r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
     r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
     r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,

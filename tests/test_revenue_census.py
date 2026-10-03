@@ -2034,6 +2034,21 @@ def test_r2_b08_the_sweep_reads_the_french_returns_and_the_check_not_paid(text, 
         {letter: 1} if letter else {})
 
 
+@pytest.mark.parametrize(("text", "cause"), [
+    # Audit round 2, R2-B08 review round 1 (R08): the check-word NOT PAID is a declared new marker at the row's head
+    # only (a spaced or glued masked date before it), as the classifier reads it.
+    ("CHECK #### NOT PAID", "new_non_revenue_marker"),
+    ("## ## CHECK #### NOT PAID", "new_non_revenue_marker"),
+    ("## ##CHK #### NOT PAID", "new_non_revenue_marker"),
+    ("ZELLE PAYMENT FROM PAT SAMPLE ######## CHECK #### NOT PAID", "undeclared"),
+    ("FEDWIRE CREDIT VIA SAMPLE BANK B O CONTOSO SUPPLY INC OBI CHECK #### NOT PAID REISSUE", "undeclared"),
+    ("ORIG CO NAME CONTOSO SUPPLY INC CO ENTRY DESCR CHECK NOT PAID SEC CCD", "undeclared"),
+])
+def test_r2_b08_review_the_check_word_not_paid_is_declared_at_the_row_s_head_only(text, cause):
+    later = _later("reversal_cancellation_exclusion", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
 def test_b3_a_returned_deposit_s_pair_is_the_declared_reversal_pair_cause():
     # Audit B3 (I03): pass 4's returned-deposit pairs keep the pair's own method, so a verified row they take is the
     # declared reversal_pair cause (none in the corpus: a deposit is never verified).

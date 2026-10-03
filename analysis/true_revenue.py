@@ -194,14 +194,15 @@ _NO_LEGAL_FORM_LATER = (
 )
 #: Audit round 2, R2-B08 (R08, R47 (a), R48 part 2): the classifier's _RETURN_REFUND_R2_B08_ARMS, copied verbatim (the
 #: classifier imports this module): a Quebec returned item, CIBC's CONTRE-PASSATION, RBC's refused item SANS
-#: PROVISION, the check-word NOT PAID, an e-Transfer reclaim with the rail word right before RECLAIM and a reference
-#: after it or TD's RECLAIM E-TFR, and the fee waiver with no legal-form word later. A test keeps the copies in step.
+#: PROVISION, the check-word NOT PAID at the row's head (review round 1: never in a memo, a wire's remittance field or an
+#: ACH entry description), an e-Transfer reclaim with the rail word right before RECLAIM and a reference after it or
+#: TD's RECLAIM E-TFR, and the fee waiver with no legal-form word later. A test keeps the copies in step.
 _RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
 _RETURN_REFUND_R2_B08_ARMS = (
     r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
     r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
     r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
-    r"(?<![A-Z])(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
+    r"^\s*(?:\d{1,2} \d{1,2} ?)?(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
     r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
     r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
     r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,
@@ -422,8 +423,10 @@ _OWNER_SHAPED_PAYER = re.compile(
 #: TUITION and STUDENT ID only: TUITION is read on the space-stripped purpose (a wrap's split joined, glued after a word
 #: as in FORTUITION) but never after IN (INTUITION, a cross-word join INTUIT ION...), and STUDENT ID on the printed
 #: purpose as whole words (STUDENT ID 12345, STUDENTID12345; never STUDENT IDEAS). IN TUITION is held, the safe side.
+#: Review round 1: a line wrap's split inside STUDENT or ID is joined, as TUITION's reader joins one (STUDEN T ID,
+#: STUDENT I D), the two ends staying whole words (never STUDENT I DEAS, STUDENT IDENTIFICATION or STUDENTS ID).
 _TRUST_SERVICE_PURPOSE = re.compile(r"(?<!IN)TUITION")
-_TRUST_STUDENT_ID_PURPOSE = re.compile(r"(?<![A-Z])STUDENT ?ID(?![A-Z])")
+_TRUST_STUDENT_ID_PURPOSE = re.compile(r"(?<![A-Z])S ?T ?U ?D ?E ?N ?T ?I ?D(?![A-Z])")
 #: §8.1 non_sale_purpose (audit B8: I28; the MCA principle of 2026-09-30, standard G3): a gambling or prediction-market
 #: payout is no money the business earned from its operations, held for review (the owner may make it non_revenue).
 #: Read on the row before its receiver fields: the sportsbooks', casinos' and prediction markets' names, each public
@@ -1729,7 +1732,7 @@ def _held_personal_trust(text: str, region: str) -> bool:
     (_personal_trust), unless the payment's purpose (_title_purpose_text, a line wrap's split joined) cites the holder's
     service: a school's tuition or a student's ID (_TRUST_SERVICE_PURPOSE, _TRUST_STUDENT_ID_PURPOSE). A trust's payment
     with no purpose stays held. Audit round 2, R2-B08 (R47 (c)): TUITION never read after IN, STUDENT ID only as whole
-    words on the printed purpose."""
+    words on the printed purpose (review round 1: a line wrap's split inside it joined)."""
     if not _personal_trust(text, region):
         return False
     purpose = _title_purpose_text(text)

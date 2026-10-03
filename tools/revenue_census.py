@@ -402,15 +402,16 @@ _NO_LEGAL_FORM_LATER = (
 )
 #: Audit round 2, R2-B08 (R08, R47 (a), R48 part 2): the classifier's _RETURN_REFUND_R2_B08_ARMS (copied verbatim: the
 #: census reads other checkouts), read on the masked text: a Quebec returned item, CIBC's CONTRE-PASSATION, RBC's
-#: refused item SANS PROVISION, the check-word NOT PAID, an e-Transfer reclaim with the rail word right before RECLAIM
-#: and a reference after it or TD's RECLAIM E-TFR, and the fee waiver with no legal-form word later (it replaces the
-#: bare fee-waiver arm). A test keeps the copies in step.
+#: refused item SANS PROVISION, the check-word NOT PAID at the row's head (review round 1; a spaced or glued masked date
+#: before it), an e-Transfer reclaim with the rail word right before RECLAIM and a reference after it or TD's RECLAIM
+#: E-TFR, and the fee waiver with no legal-form word later (it replaces the bare fee-waiver arm). A test keeps the
+#: copies in step.
 _RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
 _RETURN_REFUND_R2_B08_ARMS = (
     r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
     r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
     r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
-    r"(?<![A-Z])(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
+    r"^\s*(?:\d{1,2} \d{1,2} ?)?(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
     r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
     r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
     r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,

@@ -633,6 +633,27 @@ def test_r47_a_trust_s_wire_citing_tuition_or_a_student_id_is_still_counted(obi)
     assert _one(_TRUST_CHIPS.format(obi=obi), 12000.0, holder=_ACADEMY) == WIRE
 
 
+@pytest.mark.parametrize("obi", [
+    # Audit round 2, R2-B08 review round 1 (R47 (c); the I57 ruling reads the purpose with a line wrap's split joined):
+    # a split inside STUDENT or ID, as TUITION's reader joins one, still cites a student ID.
+    " OBI=STUDEN T ID 12345",
+    " OBI=STU DENT ID 12345",
+    " OBI=STUDENT I D 12345",
+])
+def test_r2_b08_review_a_trust_s_student_id_split_by_a_line_wrap_is_still_counted(obi):
+    assert _one(_TRUST_CHIPS.format(obi=obi), 12000.0, holder=_ACADEMY) == WIRE
+
+
+@pytest.mark.parametrize("obi", [
+    # The ends stay whole words: a split never makes STUDENT IDEAS or STUDENT IDENTIFICATION a student ID.
+    " OBI=STUDENT I DEAS WORKSHOP",
+    " OBI=STUDENT IDENTIFICATION 12345",
+    " OBI=STUDENTS ID 12345",
+])
+def test_r2_b08_review_a_split_never_makes_another_word_a_student_id(obi):
+    assert _one(_TRUST_CHIPS.format(obi=obi), 12000.0, holder=_ACADEMY) == NON_SALE
+
+
 def test_a_parent_s_tuition_wire_is_counted_as_before():
     assert _one(_CHIPS.format(sender="PAT SAMPLE", obi=" OBI=URI SAMPLE CHILD TUITION"), 12000.0,
                 holder=_SCHOOL) == WIRE

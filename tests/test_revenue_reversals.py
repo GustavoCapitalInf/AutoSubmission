@@ -1132,3 +1132,90 @@ def test_r2_b08_the_three_readers_hold_the_same_new_arms():
     assert bare not in classifier
     assert census._on_masked(bare).pattern not in masked
     assert r"|\bFEES? WAIVE[DR]?\b|" not in true_revenue._POSSIBLE_RETURN.pattern
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B08 review round 1 (R08; the B3 review round 1 line of §20): the check-word NOT PAID is read at the
+# row's head only (a spaced or glued leading date before it), as the whole-row NOT PAID is: never inside a wire's
+# remittance field, a person-to-person memo or an ACH entry description, where a customer's payment may mention a
+# check that was not paid.
+# ---------------------------------------------------------------------------------------------------------------------
+
+_R1_FEDWIRE = ("FEDWIRE CREDIT VIA: SAMPLE BANK/123456789 B/O: CONTOSO SUPPLY INC SAMPLEVILLE NY REF: CHASE NYC/CTR/BNF="
+               "NORTHWIND PLUMBING LLC SAMPLEVILLE NY 10001 RFB=O/B SAMPLE BANK OBI={obi} IMAD: 1")
+_R1_CHASE_ACH = ("ORIG CO NAME:CONTOSO SUPPLY INC ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:{entry} SEC:CCD "
+                 "TRACE#:1 EED:540302 IND ID: IND NAME:NORTHWIND PLUMBING")
+
+
+@pytest.mark.parametrize("text", [
+    "CHECK 1234 NOT PAID",
+    "CHEQUE NOT PAID",
+    "CHK 1234 NOT PAID",
+    "CHQ NOT PAID",
+    # A spaced or a glued leading date before it.
+    "03 02 CHECK 1234 NOT PAID",
+    "03 02CHECK 1234 NOT PAID",
+])
+def test_r2_b08_review_the_check_word_not_paid_at_the_row_s_head_is_non_revenue(text):
+    record = _one(text)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "reversal_cancellation_exclusion"
+
+
+def test_r2_b08_review_the_check_word_not_paid_still_pairs_with_its_check():
+    records = _classify([("2054-03-01", "CHECK 1234", -400.0), ("2054-03-02", "CHECK 1234 NOT PAID", 400.0)])
+    assert records[1].revenue_match_method == "matched_reversal_pair"
+    assert _true(records) == 0
+
+
+@pytest.mark.parametrize(("bank", "text", "tier"), [
+    # A wire's remittance field.
+    ("Chase", _R1_FEDWIRE.format(obi="CHECK 1234 NOT PAID REISSUE"), (COUNTED, "wire_named_sender")),
+    # A person-to-person memo.
+    ("Chase", "ZELLE PAYMENT FROM PAT SAMPLE 12345678 CHECK 1234 NOT PAID", (COUNTED, "p2p")),
+    # An ACH entry description.
+    ("Chase", _R1_CHASE_ACH.format(entry="CHECK NOT PAID"), ("verified", None)),
+])
+def test_r2_b08_review_the_check_word_not_paid_inside_a_payment_s_free_text_keeps_its_reading(bank, text, tier):
+    record = _one(text, bank, 4000.0)
+    assert record.revenue_match_method not in _REVERSAL_METHODS
+    assert _tier(record) == tier
+    assert record.contributes_to_true_revenue
+
+
+def test_r2_b08_review_the_controls_of_the_payment_forms_read_as_before():
+    assert _tier(_one(_R1_FEDWIRE.format(obi="INVOICE 55"), "Chase", 4000.0)) == ("verified", None)
+    assert _tier(_one(_R1_CHASE_ACH.format(entry="PAYMENT"), "Chase", 4000.0)) == ("verified", None)
+
+
+@pytest.mark.parametrize(("hold_text", "held"), [
+    ("CHECK 1234 NOT PAID", True),
+    ("03 02 CHECK 1234 NOT PAID", True),
+    # The hold text after the posting labels are removed may start with a space.
+    ("  CHK 1234 NOT PAID", True),
+    ("ZELLE PAYMENT FROM PAT SAMPLE 12345678 CHECK 1234 NOT PAID", False),
+    ("FEDWIRE CREDIT VIA SAMPLE BANK B O CONTOSO SUPPLY INC OBI CHECK 1234 NOT PAID REISSUE", False),
+    ("ORIG CO NAME CONTOSO SUPPLY INC CO ENTRY DESCR CHECK NOT PAID SEC CCD", False),
+])
+def test_r2_b08_review_the_backstop_reads_the_check_word_not_paid_at_the_row_s_head_only(hold_text, held):
+    from analysis import true_revenue
+
+    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B08 review round 1 (R48 part 2): the guarded fee waiver's residual, recorded in §20 (0 corpus rows).
+# The backstop reads the row without the holder's name, so a waiver printing the holder's company name is held; a
+# waiver printing any other legal-form word leaves step 3 and the backstop and is counted, as UNAUTHORIZED and REV
+# with a legal-form word later are.
+# ---------------------------------------------------------------------------------------------------------------------
+
+def test_r2_b08_review_a_waiver_printing_the_holder_s_company_name_is_held_as_a_possible_return():
+    assert _tier(_one("MONTHLY FEE WAIVED NORTHWIND PLUMBING LLC", amount=35.0)) == (HELD, "possible_return")
+
+
+@pytest.mark.parametrize("text", ["OVERDRAFT FEE WAIVED LIMITED TIME", "OD FEE WAIVED COURTESY SAMPLE HOLDINGS INC"])
+def test_r2_b08_review_a_waiver_printing_another_legal_form_word_is_the_documented_residual(text):
+    record = _one(text, amount=35.0)
+    assert record.revenue_match_method != "reversal_cancellation_exclusion"
+    assert _tier(record) == (COUNTED, "named_payer_purpose_refused")
