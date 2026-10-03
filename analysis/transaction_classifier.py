@@ -1106,12 +1106,26 @@ _CREDIT_WIRE_BENEFICIARY_VALUE = re.compile(
     r"(?=\b(?:REF|OBI|RFB|IMAD|OMAD|TRN|SRF|BBI|SND BK|PMT DET|RMR|ORIG|ORIGINATOR|ORG|B O|WIRE IN FROM|WIRE FROM"
     r"|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER RECEIVED|FROM)\b|$)"
 )
+#: Audit round 2, R2-B09 (R31): an originator word follows American Express's incoming-ACH label: a letter, never FROM,
+#: TO, an account word (CHK, CHECKING, CHECKG, SAV, SAVINGS, SVGS, ACCT, ACCOUNT, DDA, MMA), ID or a masked account
+#: ('XXXX1234'). The label's three exceptions (_TRANSFER_WORDING, _ELECTRONIC_PAYMENT_FORM, _REVENUE_TEMPLATE_PREFIX)
+#: read it, so the bare label, or the label before an account designation, an id or digits, keeps its transfer reading.
+_AMEX_LABEL_ORIGINATOR = (
+    r" (?!(?:FROM|TO|CHK|CHECKING|CHECKG|SAV|SAVINGS|SVGS|ACCT|ACCOUNT|DDA|MMA|ID)\b)(?!X+\d)[A-Z]"
+)
 #: §5.2: the bank's words printed before the payer, removed before the payer is read (with _PAYEE_TEMPLATE_PREFIX).
-#: Audit B5 (I19): and American Express's incoming-ACH label (_AMEX_ACH_CREDIT).
+#: Audit B5 (I19): and American Express's incoming-ACH label (_AMEX_ACH_CREDIT); audit round 2, R2-B09 (R31): only when
+#: an originator word follows it (_AMEX_LABEL_ORIGINATOR). Audit round 2, R2-B09 (R06): and the layouts' posting or
+#: channel labels that print CREDIT, first and longest first: BMO's 'EDI EFT CCD CREDIT [CCD]', 'INTERNET CREDIT', CIBC's
+#: 'PREAUTH CREDIT', Huntington's 'HIP CREDIT RCVD FROM' and 'HIP CREDIT', the French '[I] AVIS DE CREDIT' and
+#: 'AUTOMATED CREDIT', so the payer region starts after the label (a bare label names no payer) and the label's CREDIT
+#: is never a lender's name word (true_revenue.financing_named).
 _REVENUE_TEMPLATE_PREFIX = re.compile(
-    r"^(?:BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
+    r"^(?:EDI EFT CCD CREDIT(?: CCD)?|INTERNET CREDIT|PREAUTH CREDIT|HIP CREDIT RCVD FROM|HIP CREDIT"
+    r"|(?:I )?AVIS DE CREDIT|AUTOMATED CREDIT"
+    r"|BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
     r"|ELECTRONIC CREDIT|ACH CORP CREDIT|ACH DEPOSIT|ACH CREDIT|DEPOSIT FROM|PREAUTHORIZED CREDIT|EFT CREDIT"
-    r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT|ONLINE TRANSFER PAYMENT CREDIT)\b ?"
+    r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT|ONLINE TRANSFER PAYMENT CREDIT(?=" + _AMEX_LABEL_ORIGINATOR + r"))\b ?"
 )
 #: Audit B5 (I19; standard A4, A16): American Express Business Checking prints every incoming ACH credit as
 #: 'ONLINE TRANSFER PAYMENT CREDIT <originator> <entry> <id> [<receiver account>] <receiver name> EXTERNAL <originating
@@ -1216,8 +1230,9 @@ _ELECTRONIC_PAYMENT_FORM = re.compile(
     r"\b(?:ORIG CO NAME|CO ENTRY DESCR|DES|CCD|CTX|PPD|IAT|ACH|EFT|ELECTRONIC DEPOSIT|ELECTRONIC CREDIT|ELECTRONIC PMT"
     r"|ELECTRONIC PAYMENT|DIRECT DEPOSIT|MISC PAYMENT|CORPORATE ACH|BILL PAYMENT|EDI|INDN|PREAUTHORIZED CREDIT"
     r"|DEPOSIT FROM|PAID FROM|PAYMENT FROM|CREDIT FROM|MSP DIV|AP CC"
-    # Audit B5 (I19): American Express's incoming-ACH label (_AMEX_ACH_CREDIT).
-    r"|ONLINE TRANSFER PAYMENT CREDIT)\b"
+    # Audit B5 (I19): American Express's incoming-ACH label (_AMEX_ACH_CREDIT); audit round 2, R2-B09 (R31): only when
+    # an originator word follows it (_AMEX_LABEL_ORIGINATOR).
+    r"|ONLINE TRANSFER PAYMENT CREDIT(?=" + _AMEX_LABEL_ORIGINATOR + r"))\b"
 )
 #: §5.2, T11: the provinces and territories and CANADA, whole or cut to three or more leading letters, and their
 #: postal and common abbreviations.
@@ -1316,12 +1331,20 @@ _CASH_BRANCH_ATM_FORM = re.compile(
 #: Q2): and the plural TRANSFERS ('EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT', '... FUNDS TRANSFERS'), once revenue_text
 #: cuts the statement furniture that printed it (TD's back panel: '... ELECTRONIC FUNDS TRANSFERS'). Audit B5 (I19):
 #: never American Express's incoming-ACH label, 'ONLINE TRANSFER PAYMENT CREDIT' at the row's start
-#: (_AMEX_ACH_CREDIT); the same words anywhere else stay transfer wording.
+#: (_AMEX_ACH_CREDIT); the same words anywhere else stay transfer wording. Audit round 2, R2-B09 (R31): the label is
+#: exempt only when an originator word follows it (_AMEX_LABEL_ORIGINATOR): the bare label, or the label before FROM,
+#: an account word, an ID, a masked account or digits, is transfer wording (Q2). R2-B09 (R45): and the glued
+#: ONLINETRANSFER, MOBILETRANSFER and INTERNETTRANSFER (singular or plural) a bank or its OCR prints for an online
+#: transfer ('COMM ONLINETRANSFER FROM COMM BUS CHCKING ...'), the glued label at the row's start under the same
+#: originator rule; no other glued word (WEBXFR stays as it is).
 _TRANSFER_WORDING = re.compile(
-    r"\b(?:(?<!^ONLINE )TRANSFER|TRANSFER(?! PAYMENT CREDIT\b)|TRANSFERS|TRNSFR|TRSFR|TRANSF|XFER|XFR|TFR|TRF|BR TO BR"
+    r"\b(?:(?<!^ONLINE )TRANSFER|TRANSFER(?! PAYMENT CREDIT" + _AMEX_LABEL_ORIGINATOR + r")|TRANSFERS|TRNSFR|TRSFR"
+    r"|TRANSF|XFER|XFR|TFR|TRF|BR TO BR"
     r"|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)"
     r"|FUNDS TRANSFER)\b"
     r"|(?<!(?<![A-Z])E )(?<![A-Z])TRANSFER(?=\d)"
+    r"|(?<![A-Z])(?:ONLINE|MOBILE|INTERNET)TRANSFERS?\b(?!(?<=^ONLINETRANSFER) PAYMENT CREDIT"
+    + _AMEX_LABEL_ORIGINATOR + r")"
 )
 #: Audit B8 (I46; standard P14; the brief's classifier guard, the parsers' own fixes waiting for audit batch B10): the
 #: statement furniture a parser glues onto a row's description, each form starting a tail that runs to the row's end,
@@ -1460,11 +1483,39 @@ def _wire_vetoes_apply(text: str) -> bool:
 
 
 def _is_transfer_or_p2p_row(text: str) -> bool:
-    """5.5 (§8.4): a person-to-person rail, or transfer wording, on a row that is no wire."""
+    """5.5 (§8.4): a person-to-person rail, or transfer wording, on a row that is no wire. Audit round 2, R2-B09 (R28):
+    the transfer wording a credit's row prints outside a company-formed ACH originator's own name
+    (credit_transfer_wording)."""
     row = _before_receiver(text)
     return _CONSUMER_P2P_RAIL.search(row) is not None or _PUSH_RAIL.search(row) is not None or (
-        _TRANSFER_WORDING.search(row) is not None
+        credit_transfer_wording(row) is not None
     )
+
+
+def credit_transfer_wording(row: str) -> re.Match[str] | None:
+    """Audit round 2, R2-B09 (R28; §8.2, §8.6 Q6): the transfer wording a credit's row prints (_TRANSFER_WORDING),
+    a company-formed ACH originator's own name aside. On a row that prints an ACH originator field
+    (_ACH_ORIGINATOR_FIELD: DES, CO ENTRY DESCR, ORIG CO NAME) whose originator name (_ach_payer_region) prints transfer
+    wording and, that wording removed, a company form (_COMPANY_FORM: 'CONTOSO TRF LLC', 'TRF INDUSTRIES INC',
+    'CONTOSO TRANSFER INC'), the name's transfer tokens are blanked inside the name's span only (the row's length kept,
+    so the match's positions are the row's own) before the row is read: the entry field's wording ('DES:TRANSFER', 'CO
+    ENTRY DESCR:BANK XFER') is still read, and a name with no company form ('SAMPLE BANK XFER', 'TRANSFER AND STORAGE
+    CO', 'ONLINE TRANSFER') keeps its transfer reading. Any other row is read as _TRANSFER_WORDING reads it. The
+    credit's readers use it (the channel, the transfer row, the bare row, the payer region); a debit's reader, the
+    token filters and Q6's entry-field refusal keep _TRANSFER_WORDING."""
+    found = _TRANSFER_WORDING.search(row)
+    if found is None or _ACH_ORIGINATOR_FIELD.search(row) is None:
+        return found
+    name = _ach_payer_region(row)
+    if not name or _TRANSFER_WORDING.search(name) is None:
+        return found
+    if _COMPANY_FORM.search(" ".join(_TRANSFER_WORDING.sub(" ", name).split())) is None:
+        return found
+    span = re.search(r"(?<!\S)" + re.escape(name) + r"(?!\S)", row)
+    if span is None:
+        return found
+    blanked = _TRANSFER_WORDING.sub(lambda token: " " * len(token.group(0)), name)
+    return _TRANSFER_WORDING.search(row[: span.start()] + blanked + row[span.end():])
 
 
 def _wire_payer_region(text: str) -> str:
@@ -1825,9 +1876,10 @@ def _prints_no_payer(text: str) -> bool:
 
 def _is_bare_row(text: str) -> bool:
     """5.5 (§8.2): a bare deposit, credit or EFT: once the template prefixes, the generic words, the reference tokens
-    and single letters are removed, no payer word remains, and the row prints no transfer wording."""
+    and single letters are removed, no payer word remains, and the row prints no transfer wording. Audit round 2, R2-B09
+    (R28): no transfer wording outside a company-formed ACH originator's own name (credit_transfer_wording)."""
     row = _before_receiver(text)
-    if _TRANSFER_WORDING.search(row):
+    if credit_transfer_wording(row):
         return False
     # Audit B5 (I55): an ACH field label printed with no value names no payer.
     row = _EMPTY_ACH_FIELD_LABELS.sub(" ", row).strip()
@@ -2791,8 +2843,12 @@ _WIRE_NON_SALE_PURPOSE = re.compile(
     r"|ADJUSTMENTS?|SHORTAGES?|ALLOWANCES?|PROMISSORY|CONVERTIBLE|BRIDGE|SAFE|TRANCHE|DEPOSIT BACK|FEES)\b"
     r"|\b(?:TAX|RTN|FEE|SCF|ADJ|RMA)\b"
 )
-#: §7.9: the channel and bank fields removed before the financing roots are read on a wire.
+#: §7.9: the channel and bank fields removed before the financing roots are read on a wire. Audit round 2, R2-B09
+#: (R06): and U.S. Bank's 'WIRE CREDIT REF<n>' and the '<INCOMING|DOMESTIC|INTL|INTERNATIONAL|FOREIGN> WIRE CREDIT'
+#: labels, whose CREDIT is the channel's word, never a lender's name (removed from the veto's text only: the row keeps
+#: its label and reads as a wire).
 _WIRE_CHANNEL_AND_BANK_FIELDS = re.compile(
+    r"^(?:WIRE CREDIT REF ?\d+|(?:INCOMING|DOMESTIC|INTL|INTERNATIONAL|FOREIGN) WIRE CREDIT)\b|"
     r"^(?:WIRE TYPE \S+ IN|USD WIRE IN|[A-Z]{3} WIRE IN|FEDWIRE CREDIT|CHIPS CREDIT|WT FED|WIRE TSF"
     r"|WIRE TRANSFER \S+|INCOMING WIRE|WIRE IN|WIRE FROM|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN)(?: INCOMING)? WIRE"
     r"|INCOMING FUNDS TRANSFER|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER|FUNDS TRANSFER WIRE FROM"

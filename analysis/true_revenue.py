@@ -89,7 +89,9 @@ _WAVE_PAYOUT_ENTRY = re.compile(r"(?<![A-Z])WAVE (?:[A-Z0-9]{2,6} )?FUNDIN WAVE\
 _WIRE_TRADE_PURPOSE = re.compile(r"(?<![A-Z])(?:ADVANCE PAYMEN\w*|ADVANCE PMTS?|PRE ?PAYMENTS?)(?![A-Z])")
 #: §8.1, T4 (audit B7: I16): a whole-word CREDIT after a single letter that ends the payer region is the entry word a
 #: layout prints after an originator name its field cut ('<NAME> P CREDIT', a sixteen-character name and its entry).
-_CUT_NAME_ENTRY_CREDIT = re.compile(r"(?<=\b[A-Z]) CREDIT$")
+#: Audit round 2, R2-B09 (R06): so is the ACH entry 'CREDIT NONE' ending the region after a cut name ('<NAME> CREDIT
+#: NONE'), and a credit union's DIVIDEND CREDIT is a dividend (its CREDIT no root).
+_CUT_NAME_ENTRY_CREDIT = re.compile(r"(?<=\b[A-Z]) CREDIT$| CREDIT NONE$|(?<=\bDIVIDEND) CREDIT\b")
 #: §8.1, T4 (B7 review round 1, I16): a check, cash, branch or ATM row that prints no payer region is read once its
 #: location is removed (_deposit_location_reading): a branch's label ('<NAME> FIN CTR', '... FINANCIAL CENTER') and a
 #: credit union's name ('<NAME> FIN CU', '... CREDIT UNION', '... FCU'), the ATM's or branch's owner, and a street's
@@ -488,14 +490,17 @@ _PUBLIC_HEALTH_PAYERS = frozenset({
     "Novitas Solutions", "WPS Health Solutions", "National Government Services", "CGS Administrators",
     "First Coast Service Options",
 })
-#: §8.4, T13: an account designation printed by a named transfer.
+#: §8.4, T13: an account designation printed by a named transfer. Audit round 2, R2-B09 (R45): and the checking
+#: abbreviations CHCKING, CHKING and CKG ('COMM ONLINETRANSFER FROM COMM BUS CHCKING ...'), which are never a transfer's
+#: counterparty words either (_ACCOUNT_WORDS).
 _ACCOUNT_DESIGNATION = re.compile(
     r"(?<![A-Z])(?:CHECKING|CHKG|SAVINGS|SAVING|SVGS|MONEY MARKET|ACCOUNT|ACCT|EVERYDAY)\b|\b(?:CHK|SAV|MMA|DDA)\b"
     r"|\bX{2,}\d{2,}\b|(?<![A-Z])ENDING (?:IN )?\d{3,}\b"
+    r"|(?<![A-Z])(?:CHCKING|CHKING)\b|\bCKG\b"
 )
 _ACCOUNT_WORDS = frozenset({
     "CHECKING", "CHK", "CHKG", "SAVINGS", "SAVING", "SAV", "SVGS", "MONEY", "MARKET", "MMA", "DDA", "ACCOUNT", "ACCT",
-    "EVERYDAY",
+    "EVERYDAY", "CHCKING", "CHKING", "CKG",
 })
 #: T13 (audit B2: I01): a bare 'FROM <3+ digits>' designates an account too ('ONLINE TRANSFER FROM 1234 <name>'),
 #: unless the digits start a numbered company's name (§5.2, T11: 'TRANSFER FROM 1234567 ONTARIO INC').
@@ -3305,7 +3310,10 @@ def _channel(text: str, bank: str | None = None) -> str:
 
     Audit B2 (I48): a check, cash, branch or ATM row that prints transfer wording, no explicit deposit form
     (_EXPLICIT_DEPOSIT_FORM) and names its counterparty once its deposit-channel words are removed ('BRANCH TRANSFER
-    FROM <company>') is a named transfer (T13); the statement's bank (`bank`) names no counterparty.
+    FROM <company>') is a named transfer (T13); the statement's bank (`bank`) names no counterparty. Audit round 2,
+    R2-B09 (R25; M4, Q2): 'names its counterparty' is FROM and a sender, or a company form
+    (_deposit_transfer_names_counterparty): a reference and a town printed after a branch's transfer ('BRANCH TRANSFER
+    <ref> <town>', the booking branch) name nobody, so the row stays held.
 
     Audit B5: American Express's incoming-ACH label ('ONLINE TRANSFER PAYMENT CREDIT' at the row's start, I19) is no
     transfer wording and is an electronic-payment form, so its template is ACH; the originator's own entry word
@@ -3325,7 +3333,7 @@ def _channel(text: str, bank: str | None = None) -> str:
     if deposit is not None:
         if (
             _transfer_wording(row) and _EXPLICIT_DEPOSIT_FORM.search(row) is None
-            and _transfer_counterparty_words(_without_deposit_channel_words(text), bank)
+            and _deposit_transfer_names_counterparty(text, bank)
         ):
             return "person_to_person"
         return deposit
@@ -3338,6 +3346,24 @@ def _channel(text: str, bank: str | None = None) -> str:
     if classifier._ELECTRONIC_PAYMENT_FORM.search(row) or cpa_payment_code(row, bank):
         return "ach_eft"
     return "other"
+
+
+def _deposit_transfer_names_counterparty(text: str, bank: str | None = None) -> bool:
+    """§8.2, T13 (audit round 2, R2-B09: R25; M4, Q2; amends audit B2's I48 release): a check, cash, branch or ATM row's
+    transfer names its counterparty once its deposit-channel words are removed (_without_deposit_channel_words): it
+    prints a counterparty word (_transfer_counterparty_words) and, after FROM, a sender (_counterparty_tokens of the
+    sender region), or, with no FROM, a company form among the words after its transfer wording
+    (_after_transfer_wording). A reference and a town, a street or a name with no form printed after a teller's, a
+    branch's or a counter's transfer ('BRANCH TRANSFER 00123 <town>', 'BRANCH TRANSFER <two words>') name nobody: the
+    bank prints the booking branch there, and the row stays held (transfer_no_counterparty)."""
+    classifier = _classifier()
+    stripped = _without_deposit_channel_words(text)
+    if not _transfer_counterparty_words(stripped, bank):
+        return False
+    if re.search(r"\bFROM\b", classifier._before_receiver(stripped)) is not None:
+        return bool(_counterparty_tokens(classifier._sender_payer_region(stripped)))
+    tokens = _counterparty_tokens(_after_transfer_wording(stripped))
+    return bool(tokens) and classifier.company_form(" ".join(tokens))
 
 
 def _without_deposit_channel_words(text: str) -> str:
@@ -3504,8 +3530,10 @@ def _p2p_rail(row: str) -> bool:
 
 def _transfer_wording(row: str) -> bool:
     """§8.2 in pass 7 (S4.2 follow-up 2): the classifier's transfer wording, or a VIREMENT printed without an Interac
-    form ('VIREMENT EN LIGNE', 'VIREMENT ENTRE COMPTES')."""
-    return _classifier()._TRANSFER_WORDING.search(row) is not None or (
+    form ('VIREMENT EN LIGNE', 'VIREMENT ENTRE COMPTES'). Audit round 2, R2-B09 (R28): the transfer wording outside a
+    company-formed ACH originator's own name (classifier.credit_transfer_wording), so a company whose name prints TRF,
+    XFR or TRANSFER is an ACH payer Q6 reads (the channel, the transfer row and reading, Q7's refusals)."""
+    return _classifier().credit_transfer_wording(row) is not None or (
         _VIREMENT.search(row) is not None and _INTERAC_FORM.search(row) is None
     )
 
@@ -3906,8 +3934,9 @@ def _without_date_months(words: str, *, row: bool = False) -> str:
                 _DAY_NUMBER.fullmatch(tokens[at]) for at in (index - 1, index + 1) if 0 <= at < len(tokens)
             )
             rest = " ".join(tokens[index + 1:])
+            # Audit round 2, R2-B09 (R28): the transfer wording outside a company-formed ACH originator's own name.
             leading = row and all(classifier._is_reference_token(before) for before in tokens[:index]) and (
-                classifier._TRANSFER_WORDING.search(rest) is not None or _VIREMENT.search(rest) is not None
+                classifier.credit_transfer_wording(rest) is not None or _VIREMENT.search(rest) is not None
             )
             if beside_day or leading:
                 continue
@@ -3917,10 +3946,14 @@ def _without_date_months(words: str, *, row: bool = False) -> str:
 
 def _after_transfer_wording(text: str) -> str:
     """§8.2 (S4.2 final review, fix 2): the words a transfer printed without FROM prints after its first transfer
-    wording (the classifier's, or a VIREMENT), before its receiver fields and up to TO (a recipient)."""
+    wording (the classifier's, or a VIREMENT), before its receiver fields and up to TO (a recipient). Audit round 2,
+    R2-B09 (R28): the classifier's wording outside a company-formed ACH originator's own name
+    (credit_transfer_wording)."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
-    found = [match for match in (classifier._TRANSFER_WORDING.search(row), _VIREMENT.search(row)) if match is not None]
+    found = [
+        match for match in (classifier.credit_transfer_wording(row), _VIREMENT.search(row)) if match is not None
+    ]
     if not found:
         return ""
     rest = row[min(found, key=lambda match: match.start()).end():]

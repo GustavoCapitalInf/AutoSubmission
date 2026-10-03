@@ -557,3 +557,178 @@ def test_r41_an_own_push_under_one_dollar_takes_the_floor_s_hold():
     [record] = _records([(OWN_AP.format(entry="VENDOR PMT"), 0.5)], holder=PRODUCT, bank="Bank of America")
     assert (record.revenue_tier, record.revenue_tier_reason) == ("excluded_pending_review", "non_sale_purpose")
     assert record.revenue_match_method != "self_originated_holder"
+
+
+# Audit round 2, R2-B09 (R06): a bank's posting or channel label that prints CREDIT (BMO's EDI EFT CCD CREDIT, INTERNET
+# CREDIT, PREAUTH CREDIT, Huntington's HIP CREDIT RCVD FROM, the French AVIS DE CREDIT, AUTOMATED CREDIT) is a template
+# prefix, so the payer region starts after it and the label is never a lender's name word; an ACH entry's CREDIT NONE
+# after a cut name and a credit union's DIVIDEND CREDIT are no financing root; U.S. Bank's WIRE CREDIT label is a wire
+# channel field the financing veto never reads, while the row keeps reading as a wire.
+
+R06_HOLDER = "NORTHWIND BAKERY LLC"
+PUBLIC_PAYER = ("verified", "public_or_healthcare_payer")
+REPEAT_WIRE = ("verified", "repeat_wire_sender")
+US_WIRE = "WIRE CREDIT REF12345{n} SAMPLE BANK 0123B456{n}AB ORG {sender}"
+
+
+def _us_wires(sender):
+    return [(US_WIRE.format(n=1, sender=sender), 1500.0), (US_WIRE.format(n=2, sender=sender), 2500.0)]
+
+
+@pytest.mark.parametrize(("bank", "rows", "expected"), [
+    # A city's vendor payment and a supplier on BMO's EDI layout: Q6 reads the payer after the label.
+    ("BMO", [("EDI EFT CCD CREDIT CCD CITY OF SAMPLEVILLE PAYMENT", 1500.0)], [PUBLIC_PAYER]),
+    ("BMO", [("EDI EFT CCD CREDIT CCD FABRIKAM SUPPLY INC 1234", 1500.0)], [COMPANY]),
+    # A bare label prints no payer.
+    ("BMO", [("EDI EFT CCD CREDIT", 120.0)], [NO_PAYER]),
+    ("CIBC", [("PREAUTH CREDIT", 120.0)], [NO_PAYER]),
+    ("Desjardins", [("I AVIS DE CREDIT 12345", 120.0)], [NO_PAYER]),
+    # A named payer after an unlabelled channel's label.
+    ("Sample Bank", [("INTERNET CREDIT CONTOSO 1 23 45 ORDER", 2500.0)], [UNLABELLED]),
+    ("CIBC", [("PREAUTH CREDIT CONTOSO SUPPLY", 300.0)], [UNLABELLED]),
+    ("Fifth Third Bank", [("AUTOMATED CREDIT CONTOSO SUPPLY", 600.0)], [UNLABELLED]),
+    # The ACH entry CREDIT NONE printed after a cut originator name.
+    ("Sample Bank", [("ACH CREDIT FABRIKAM SUPPLY CREDIT NONE", 2500.0)], [ONE_OFF]),
+    # A credit union's dividend is held as no sale, never as a lender's credit.
+    ("Sample Federal Credit Union", [("DIVIDEND CREDIT", 2.5)], [("excluded_pending_review", "non_sale_purpose")]),
+    # U.S. Bank's two wires from one company verify as a repeat sender.
+    ("U.S. Bank", _us_wires("FABRIKAM SUPPLY INC"), [REPEAT_WIRE, REPEAT_WIRE]),
+])
+def test_r06_a_credit_posting_label_is_no_lender_s_name(bank, rows, expected):
+    assert _tiers(rows, holder=R06_HOLDER, bank=bank) == expected
+
+
+@pytest.mark.parametrize(("bank", "rows"), [
+    # A lender named after the label is still held.
+    ("BMO", [("EDI EFT CCD CREDIT CCD SAMPLE CAPITAL FUNDING LLC 1234", 9000.0)]),
+    ("Sample Bank", [("INTERNET CREDIT SAMPLE LENDING LLC", 2400.0)]),
+    ("Sample Bank", [("PREAUTH CREDIT SAMPLE ADVANCE LLC", 900.0)]),
+    ("Sample Bank", [("ACH CREDIT SAMPLE CREDIT CORP", 900.0)]),
+    ("Sample Bank", [("ACH CREDIT SAMPLE CREDIT UNIO CREDIT NONE", 900.0)]),
+    ("U.S. Bank", _us_wires("SAMPLE CREDIT CORP")),
+    # A credit union's own cut name as the originator (with the owner, I16) and a bank's name stay held.
+    ("Contoso Credit Union", [("ACH CREDIT DIRECT PAY CONTOSO CREDIT ID1234567890 ZZ 123456 INV 123456", 4000.0)]),
+    ("Brex", [("CAPITAL ONE ACH", 500.0)]),
+])
+def test_r06_a_lender_named_after_a_credit_label_is_still_held(bank, rows):
+    assert _tiers(rows, holder=R06_HOLDER, bank=bank) == [FINANCING] * len(rows)
+
+
+@pytest.mark.parametrize(("bank", "text", "expected"), [
+    ("Sample Bank", "INTERNET CREDIT NORTHWIND BAKERY LLC", HOLDER_HELD),
+    ("Chase", "ONLINE TRANSFER FROM LINE OF CREDIT 1234", ("non_revenue", "strong_non_revenue_rule")),
+    ("Sample Federal Credit Union", "INTEREST CREDIT", ("non_revenue", "strong_non_revenue_rule")),
+])
+def test_r06_the_other_readings_beside_the_labels_are_unchanged(bank, text, expected):
+    assert _tiers([(text, 900.0)], holder=R06_HOLDER, bank=bank) == [expected]
+
+
+@pytest.mark.parametrize(("text", "region"), [
+    ("EDI EFT CCD CREDIT CCD FABRIKAM SUPPLY INC 1234", "FABRIKAM SUPPLY INC"),
+    ("EDI EFT CCD CREDIT FABRIKAM SUPPLY INC", "FABRIKAM SUPPLY INC"),
+    ("INTERNET CREDIT CONTOSO 1 23 45 ORDER", "CONTOSO"),
+    ("PREAUTH CREDIT CONTOSO SUPPLY", "CONTOSO SUPPLY"),
+    ("HIP CREDIT RCVD FROM CONTOSO HEALTH PLAN", "CONTOSO HEALTH PLAN"),
+    ("HIP CREDIT CONTOSO HEALTH PLAN", "CONTOSO HEALTH PLAN"),
+    ("AVIS DE CREDIT CONTOSO SUPPLY", "CONTOSO SUPPLY"),
+    ("I AVIS DE CREDIT CONTOSO SUPPLY 12345", "CONTOSO SUPPLY"),
+    ("AUTOMATED CREDIT CONTOSO SUPPLY", "CONTOSO SUPPLY"),
+    ("EDI EFT CCD CREDIT", ""),
+    ("PREAUTH CREDIT", ""),
+])
+def test_r06_the_payer_region_starts_after_the_label(text, region):
+    assert tc.payer_region(text) == region
+
+
+@pytest.mark.parametrize("text", [
+    "WIRE CREDIT REF123456 SAMPLE BANK 0123B4567AB ORG FABRIKAM SUPPLY INC",
+    "WIRE CREDIT REF 123456 SAMPLE BANK ORG FABRIKAM SUPPLY INC",
+    "INCOMING WIRE CREDIT ORG FABRIKAM SUPPLY INC",
+    "DOMESTIC WIRE CREDIT ORG FABRIKAM SUPPLY INC",
+    "INTL WIRE CREDIT ORG FABRIKAM SUPPLY INC",
+])
+def test_r06_a_wire_credit_label_is_no_financing_root_and_the_row_stays_a_wire(text):
+    assert not tc._names_financing(tc._wire_financing_text(text))
+    # The label is removed from the veto's text only: the row still reads as a wire, its sender after ORG.
+    assert tc._is_wire_row(text)
+    assert tc.payer_region(text) == "FABRIKAM SUPPLY INC"
+    # A lender's name after the label still vetoes.
+    assert tc._names_financing(tc._wire_financing_text(text.replace("FABRIKAM SUPPLY INC", "SAMPLE CREDIT CORP")))
+
+
+def test_r06_a_cut_name_s_entry_and_a_dividend_are_no_financing_root():
+    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "FABRIKAM SUPPLY CREDIT NONE") == "FABRIKAM SUPPLY"
+    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE FUNDIN P CREDIT") == "SAMPLE FUNDIN P"
+    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "DIVIDEND CREDIT") == "DIVIDEND"
+    # CREDIT inside a lender's name stays.
+    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE CREDIT CORP") == "SAMPLE CREDIT CORP"
+    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE CREDIT UNIO CREDIT NONE") == "SAMPLE CREDIT UNIO"
+
+
+@pytest.mark.parametrize("text", ["PREAUTH CREDIT GST CANADA", "EDI EFT CCD CREDIT CCD GST CANADA",
+                                  "AUTOMATED CREDIT RQ GST"])
+def test_r06_a_government_s_refund_form_after_a_label_is_still_read(text):
+    assert _tiers([(text, 900.0)], holder=R06_HOLDER, bank="Sample Bank") == [("non_revenue", "strong_non_revenue_rule")]
+
+
+# Audit round 2, R2-B09 (R31): American Express's label 'ONLINE TRANSFER PAYMENT CREDIT' is no transfer wording, an
+# electronic-payment form and a template prefix only when an originator word follows it; the bare label, or the label
+# followed only by FROM, an account word, a masked account, an ID or digits, keeps its transfer reading (Q2: held).
+
+R31_TAILS = (" FROM CHK XXXX1234", " FROM SAVINGS 1234", "", " CHECKING XXXX1234", " XXXX1234", " ID 123456789012345",
+             " 1234")
+
+
+@pytest.mark.parametrize("bank", ["American Express", "Sample Bank"])
+@pytest.mark.parametrize("tail", R31_TAILS)
+def test_r31_the_label_with_no_originator_after_it_is_a_bare_transfer(bank, tail):
+    text = "ONLINE TRANSFER PAYMENT CREDIT" + tail
+    assert _tiers([(text, 5000.0)], holder=AMEX_HOLDER, bank=bank) == [
+        ("excluded_pending_review", "transfer_no_counterparty")]
+    assert tc._TRANSFER_WORDING.search(text)
+    assert not tc._REVENUE_TEMPLATE_PREFIX.match(text)
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    (_amex("CONTOSO SRE INC", "EFT"), COMPANY),
+    # Cut before EXTERNAL, or right after the id: the originator still follows the label.
+    ("ONLINE TRANSFER PAYMENT CREDIT CONTOSO SRE INC EFT 1234 XXXX5678 NORTHWIND DISTRIBUTION", COMPANY),
+    ("ONLINE TRANSFER PAYMENT CREDIT CONTOSO SRE INC EFT 1234", COMPANY),
+    (_amex("SAMPLE SUPPLY CO", "PAYMENT"), ONE_OFF),
+    ("ONLINE TRANSFER PAYMENT CREDIT NORTHWIND DISTRIBUTION XXXX1234", HOLDER_HELD),
+    (_amex("FABRIKAM CAPITAL FUNDING", "PAYMENT"), FINANCING),
+    (_amex("IRS TREAS 310", "TAX REF"), ("non_revenue", "strong_non_revenue_rule")),
+    ("ONLINE TRANSFER FROM CHK XXXX1234", ("non_revenue", "strong_non_revenue_rule")),
+    ("ONLINE TRANSFER CREDIT CONTOSO LLC TRANSFER 1234 CONTOSO LLC CHECKING XXXXXXXX1234 FABRIKAM BANK",
+     ("excluded_pending_review", "transfer_account_designation")),
+])
+def test_r31_the_label_before_an_originator_keeps_its_ach_reading(text, expected):
+    assert _tiers([(text, 5000.0)], holder=AMEX_HOLDER, bank="American Express") == [expected]
+
+
+@pytest.mark.parametrize(("text", "exempt"), [
+    ("ONLINE TRANSFER PAYMENT CREDIT CONTOSO SRE INC EFT 1234", True),
+    ("ONLINE TRANSFER PAYMENT CREDIT C", True),
+    ("ONLINE TRANSFER PAYMENT CREDIT", False),
+    ("ONLINE TRANSFER PAYMENT CREDIT TO CONTOSO", False),
+    ("ONLINE TRANSFER PAYMENT CREDIT CHECKG 1234", False),
+    ("ONLINE TRANSFER PAYMENT CREDIT SVGS 1234", False),
+    ("ONLINE TRANSFER PAYMENT CREDIT DDA 1234", False),
+    ("ONLINE TRANSFER PAYMENT CREDIT MMA 1234", False),
+    ("ONLINE TRANSFER PAYMENT CREDIT ACCOUNT 1234", False),
+    ("ONLINE TRANSFER PAYMENT CREDIT XXX1234", False),
+    # A word that only starts like an account word is an originator's.
+    ("ONLINE TRANSFER PAYMENT CREDIT CHKSTAR LLC EFT 1234", True),
+    ("ONLINE TRANSFER PAYMENT CREDIT IDEAL SUPPLY INC EFT 1234", True),
+])
+def test_r31_the_three_label_exceptions_read_one_originator_gate(text, exempt):
+    assert (tc._TRANSFER_WORDING.search(text) is None) is exempt
+    assert (tc._REVENUE_TEMPLATE_PREFIX.match(text) is not None) is exempt
+    assert bool(tc._ELECTRONIC_PAYMENT_FORM.search(text)) is exempt
+
+
+def test_r31_the_label_followed_by_from_keeps_its_transfer_wording():
+    # 'CREDIT FROM' is an electronic-payment form of its own (unchanged); the label's TRANSFER stays transfer wording.
+    text = "ONLINE TRANSFER PAYMENT CREDIT FROM CONTOSO"
+    assert tc._TRANSFER_WORDING.search(text)
+    assert not tc._REVENUE_TEMPLATE_PREFIX.match(text)

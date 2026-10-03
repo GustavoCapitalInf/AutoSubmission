@@ -2745,3 +2745,51 @@ def test_r2_b03_the_snapshot_records_the_bank_only_payer_fact(bank, text, kind):
     [credit] = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
     assert credit["facts"]["bank_only_payer"] == kind
     assert not census._row_guards(credit)["G4"]
+
+
+# Audit round 2, R2-B09 (R06): the census's copy of the classifier's template prefixes, which the government's refund
+# forms are read after, carries the layouts' CREDIT labels the classifier now removes before the payer.
+@pytest.mark.parametrize(("text", "cause"), [
+    ("EDI EFT CCD CREDIT CCD GST CANADA", "new_non_revenue_marker"),
+    ("EDI EFT CCD CREDIT GST CANADA ####", "new_non_revenue_marker"),
+    ("INTERNET CREDIT RQ GST", "new_non_revenue_marker"),
+    ("PREAUTH CREDIT GST CANADA", "new_non_revenue_marker"),
+    ("HIP CREDIT RCVD FROM GST CANADA", "new_non_revenue_marker"),
+    ("HIP CREDIT GST CANADA", "new_non_revenue_marker"),
+    ("I AVIS DE CREDIT RQ GST", "new_non_revenue_marker"),
+    ("AVIS DE CREDIT GST CANADA", "new_non_revenue_marker"),
+    ("AUTOMATED CREDIT GST CANADA", "new_non_revenue_marker"),
+    # A label the classifier does not remove still declares nothing.
+    ("EFT CCD CREDIT GST CANADA", "undeclared"),
+])
+def test_r2_b09_the_government_forms_are_read_after_the_new_credit_labels(text, cause):
+    base = _snap("5.4", {"a": _account([_step_11(text)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule",
+                                                 tier="non_revenue", text=text)])})
+    assert {name: value["rows"] for name, value in _run(base, after)["verified_demotions"].items()} == {cause: 1}
+
+
+def test_r2_b09_the_census_prefix_copy_holds_every_classifier_label():
+    from analysis import transaction_classifier
+
+    for label in ("EDI EFT CCD CREDIT", "INTERNET CREDIT", "PREAUTH CREDIT", "HIP CREDIT RCVD FROM", "HIP CREDIT",
+                  "AVIS DE CREDIT", "AUTOMATED CREDIT"):
+        assert transaction_classifier._REVENUE_TEMPLATE_PREFIX.match(f"{label} CONTOSO"), label
+        assert re.match(census._GOVERNMENT_FORM_PREFIX_56 + r"RQ GST$", f"{label} RQ GST"), label
+
+
+# Audit round 2, R2-B09 (R28): the census's own-transfer fact (G17) reads the pass's transfer wording, so a company whose
+# originator name prints a transfer word is no own transfer, while the entry field's transfer wording still is one.
+@pytest.mark.parametrize(("text", "own_transfer"), [
+    ("NORTHWIND PLUMBING TRF LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", False),
+    ("NORTHWIND PLUMBING LLC DES:TRANSFER ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", True),
+    ("NORTHWIND PLUMBING TRF LLC DES:TRANSFER ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", True),
+    ("NORTHWIND PLUMBING XFER DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", True),
+])
+def test_r2_b09_the_own_transfer_fact_reads_the_pass_s_transfer_wording(text, own_transfer):
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="Bank of America", account_name="NORTHWIND PLUMBING LLC", transactions=[
+        Transaction(date="2054-03-02", description=text, amount=900.0, direction="credit")])
+    [credit] = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert credit["facts"]["own_transfer"] is own_transfer

@@ -459,9 +459,12 @@ _CRA_REFUND_56 = _on_masked(r"\bCANADA RI[TF]\b")
 #: which joined the strong non-revenue rule. GOV review (M3): the words before the form mirror the classifier's, copied
 #: (the census reads other checkouts): its template prefixes (_REVENUE_TEMPLATE_PREFIX) and the posting words it strips
 #: before a government's form (_CRA_POSTING_PREFIX: a glued or spaced date, GC and its number, EFT, PAY ...); (M4) the
-#: forms take the CRA's name, a country code and the GST program account after them (_GST_REFUND_PAYER).
+#: forms take the CRA's name, a country code and the GST program account after them (_GST_REFUND_PAYER). Audit round 2,
+#: R2-B09 (R06): the layouts' CREDIT labels the classifier's template prefixes gained, first and longest first.
 _GOVERNMENT_FORM_PREFIX_56 = (
-    r"^(?:(?:BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
+    r"^(?:(?:EDI EFT CCD CREDIT(?: CCD)?|INTERNET CREDIT|PREAUTH CREDIT|HIP CREDIT RCVD FROM|HIP CREDIT"
+    r"|(?:I )?AVIS DE CREDIT|AUTOMATED CREDIT"
+    r"|BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
     r"|ELECTRONIC CREDIT|ACH CORP CREDIT|ACH DEPOSIT|ACH CREDIT|DEPOSIT FROM|PREAUTHORIZED CREDIT|EFT CREDIT"
     r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT) )*"
     r"(?:\d+(?: |(?=[A-Z])))*(?:(?:GC|DIRECT DEPOSIT|DIRECT DEP|DEPOSIT|DEP|ELECTRONIC DEPOSIT"
@@ -1168,9 +1171,12 @@ def _guard_facts(record, text: str) -> dict:
     facts["numbered"] = classifier.numbered_company(revenue, region)
     # G1 (review I1): narrowing 4 needs a third-party originator.
     facts["third_party_originator"] = classifier._third_party_originator(revenue) is not None
-    # G17 (review C3): the holder's own transfer, read on its ACH originator whatever the payer region says.
+    # G17 (review C3): the holder's own transfer, read on its ACH originator whatever the payer region says. Audit round
+    # 2, R2-B09 (R28): with the pass's own transfer wording on a checkout that has it (credit_transfer_wording: a
+    # company-formed originator's name aside), so the census agrees with the pass.
+    transfer_wording = getattr(classifier, "credit_transfer_wording", None) or classifier._TRANSFER_WORDING.search
     facts["own_transfer"] = bool(
-        classifier._TRANSFER_WORDING.search(row) and _ACH_FIELD.search(row)
+        transfer_wording(row) and _ACH_FIELD.search(row)
         and classifier.holder_named(classifier._ach_payer_region(revenue), holder)
     )
     # G14 (review I1): the rows that count toward an entity's recurrence pool, and the count it needs.

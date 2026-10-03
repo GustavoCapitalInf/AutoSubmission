@@ -259,3 +259,201 @@ def test_the_census_reads_the_same_transfer_fact_as_the_pass():
         record = _one(text, bank)
         facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
         assert facts["transfer_no_counterparty"] is expected, text
+
+
+# Audit round 2, R2-B09 (R45): a glued ONLINETRANSFER, MOBILETRANSFER or INTERNETTRANSFER is transfer wording, and
+# CHCKING, CHKING and CKG designate an account, so the holder's own-account transfer is held on its own text (T13, Q2),
+# not by an accident of the account-name field.
+
+def _reading(record):
+    return record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method
+
+
+R45_HOLDER = "CONTOSO TRADING LLC"
+R45_ROW = "COMM ONLINETRANSFER FROM COMM BUS CHCKING 00000000 ON 1 12 31 AT 9 30"
+
+
+def _rows(rows, *, bank="Fabrikam Bank", holder=R45_HOLDER):
+    return classify_statement_transactions(Statement(bank=bank, account_name=holder, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ]))
+
+
+@pytest.mark.parametrize("holder", [R45_HOLDER, None])
+def test_r45_a_glued_online_transfer_from_a_product_account_is_held_on_its_own_text(holder):
+    assert _reading(_one(R45_ROW, amount=5000.0, holder=holder)) == (HELD, "transfer_account_designation")
+
+
+def test_r45_a_product_account_name_still_reads_as_the_holder():
+    assert _reading(_one(R45_ROW, amount=5000.0, holder="COMM BUS CHCKING")) == (HELD, "holder_name")
+
+
+@pytest.mark.parametrize("text", ["MOBILETRANSFER FROM BUS CKG 00000000", "INTERNETTRANSFER FROM CHKING 00000000"])
+def test_r45_a_glued_transfer_from_an_account_abbreviation_names_no_counterparty(text):
+    assert _reading(_one(text, amount=5000.0, holder=R45_HOLDER)) == (HELD, "transfer_no_counterparty")
+
+
+def test_r45_the_matching_debit_holds_the_credit_and_is_itself_unchanged():
+    credit, debit = _rows([(R45_ROW, 5000.0), ("COMM ONLINETRANSFER TO COMM BUS CHCKING 00000000", -5000.0)])
+    assert _reading(credit) == (HELD, "payer_also_debited")
+    assert (debit.classification, debit.canonical_entity, debit.contributes_to_lender_count,
+            debit.contributes_to_potential_lender_count, debit.contributes_to_lender_totals,
+            debit.contributes_to_withholding_rate, debit.reversed_by, debit.revenue_tier) == (
+        "other", None, False, False, False, False, None, None)
+
+
+@pytest.mark.parametrize(("text", "reading"), [
+    ("ONLINETRANSFER FROM FABRIKAM SUPPLY LLC 00000000", (COUNTED, "p2p")),
+    ("ONLINE TRANSFER FROM BUSINESS CHECKING 00000000", (HELD, "transfer_no_counterparty")),
+    ("ONLINE TRANSFER PAYMENT CREDIT NORTHWIND", (COUNTED, "named_payer_one_off")),
+    ("NORTHWIND SUPPLY DES:PAYMENT ID:1 INDN:CONTOSO TRADING LLC CO ID:1 CCD", (COUNTED, "named_payer_one_off")),
+])
+def test_r45_the_controls_keep_their_readings(text, reading):
+    assert _reading(_one(text, amount=5000.0, holder=R45_HOLDER)) == reading
+
+
+@pytest.mark.parametrize(("text", "transfer"), [
+    ("COMM ONLINETRANSFER FROM COMM BUS CHCKING", True),
+    ("MOBILETRANSFER FROM BUS CKG", True),
+    ("INTERNETTRANSFERS 1234", True),
+    # The glued AmEx label keeps the label's rule: exempt only before an originator.
+    ("ONLINETRANSFER PAYMENT CREDIT CONTOSO SRE INC EFT 1234", False),
+    ("ONLINETRANSFER PAYMENT CREDIT", True),
+    ("CONTOSOTRANSFER LLC", False),
+    ("ONLINETRANSFERX", False),
+])
+def test_r45_the_glued_transfer_wording(text, transfer):
+    from analysis import transaction_classifier
+
+    assert bool(transaction_classifier._TRANSFER_WORDING.search(text)) is transfer
+
+
+@pytest.mark.parametrize(("text", "designation"), [
+    ("FROM COMM BUS CHCKING 1234", True),
+    ("FROM CHKING 1234", True),
+    ("FROM BUS CKG 1234", True),
+    ("FROM CKGROUP LLC", False),
+    ("FROM CONTOSO CHKINGS", False),
+])
+def test_r45_the_account_abbreviations(text, designation):
+    assert true_revenue._account_designation(text) is designation
+
+
+# Audit round 2, R2-B09 (R28): transfer wording inside a company-formed ACH originator's name (before DES, after ORIG CO
+# NAME) is the company's name, never a transfer: the row is an ACH payment Q6 reads. The entry field's transfer wording
+# (DES:TRANSFER, CO ENTRY DESCR:BANK XFER) is still read, and a name with no company form keeps the transfer reading.
+
+R28_HOLDER = "NORTHWIND PLUMBING LLC"
+R28_BOFA = "{name} DES {entry} ID 1 INDN NORTHWIND PLUMBING CO ID 1 CCD"
+R28_CHASE = ("ORIG CO NAME {name} ORIG ID 1234567890 DESC DATE CO ENTRY DESCR {entry} SEC CCD TRACE NO 1 EED 540302 "
+             "IND ID 1 IND NAME NORTHWIND PLUMBING LLC TRN 1 TC")
+VERIFIED_COMPANY = ("verified", "named_payer_company_form")
+
+
+def _r28(layout, name, entry, amounts=(1234.56,)):
+    bank = "Chase" if layout is R28_CHASE else "Bank of America"
+    return [_reading(record) for record in _rows(
+        [(layout.format(name=name, entry=entry), amount) for amount in amounts], bank=bank, holder=R28_HOLDER)]
+
+
+@pytest.mark.parametrize(("layout", "name"), [
+    (R28_BOFA, "CONTOSO TRF LLC"),
+    (R28_BOFA, "CONTOSO TRANSFER INC"),
+    (R28_BOFA, "TRF INDUSTRIES INC"),
+    (R28_CHASE, "CONTOSO XFR LLC"),
+])
+def test_r28_a_company_whose_name_prints_a_transfer_word_verifies_by_its_form(layout, name):
+    assert _r28(layout, name, "PAYMENT") == [VERIFIED_COMPANY]
+
+
+def test_r28_such_a_company_paying_twice_verifies_as_a_repeat():
+    assert _r28(R28_BOFA, "CONTOSO TRF LLC", "PAYMENT", (2000.0, 3000.0)) == [("verified", "named_payer_repeats")] * 2
+
+
+@pytest.mark.parametrize(("layout", "name", "entry", "reading"), [
+    (R28_BOFA, "CONTOSO SEAFOOD CORP", "PAYMENT", VERIFIED_COMPANY),
+    (R28_BOFA, "CONTOSO TRANSFORM LLC", "PAYMENT", VERIFIED_COMPANY),
+    # The entry field's transfer wording is still read.
+    (R28_BOFA, "CONTOSO BAKERY LLC", "TRANSFER", (COUNTED, "p2p")),
+    (R28_BOFA, "FABRIKAM TRF LLC", "TRANSFER", (COUNTED, "p2p")),
+    (R28_CHASE, "CONTOSO SEAFOOD CORP", "TRANSFER", (COUNTED, "p2p")),
+    (R28_CHASE, "SAMPLE CASH", "BANK XFER", (COUNTED, "p2p")),
+    # A name with no company form keeps its transfer reading (CO is no form).
+    (R28_BOFA, "SAMPLE BANK XFER", "PAYMENT", (COUNTED, "p2p")),
+    (R28_BOFA, "TRANSFER AND STORAGE CO", "PAYMENT", (COUNTED, "p2p")),
+    (R28_BOFA, "ONLINE TRANSFER", "PAYMENT", (HELD, "transfer_no_counterparty")),
+    # The holds read the original text.
+    (R28_BOFA, "NORTHWIND PLUMBING TRF LLC", "PAYMENT", (HELD, "holder_name")),
+])
+def test_r28_the_controls_keep_their_readings(layout, name, entry, reading):
+    assert _r28(layout, name, entry) == [reading]
+
+
+@pytest.mark.parametrize("text", ["INTERNET XFR FRM CHECKG 1234", "TRF CT INTERNET D123"])
+def test_r28_rows_with_no_originator_field_keep_their_transfer_wording(text):
+    from analysis import transaction_classifier
+
+    found = transaction_classifier.credit_transfer_wording(text)
+    assert found is not None and found.span() == transaction_classifier._TRANSFER_WORDING.search(text).span()
+
+
+def test_r28_the_helper_blanks_only_the_originator_name_s_transfer_tokens():
+    from analysis import transaction_classifier
+
+    assert transaction_classifier.credit_transfer_wording("CONTOSO TRF LLC DES PAYMENT ID 1") is None
+    row = "CONTOSO TRF LLC DES TRANSFER ID 1"
+    found = transaction_classifier.credit_transfer_wording(row)
+    assert found is not None and found.group(0) == "TRANSFER" and found.start() == row.index("DES TRANSFER") + 4
+    # No company form once the token is out: the name's own word is read.
+    assert transaction_classifier.credit_transfer_wording("SAMPLE BANK XFER DES PAYMENT ID 1").group(0) == "XFER"
+
+
+# Audit round 2, R2-B09 (R25): a teller, branch or counter transfer that prints no explicit deposit form names its
+# counterparty only by FROM and a sender, or by a company form; a reference and a town (the booking branch) name nobody
+# (M4, Q2: held).
+
+R25_HOLDER = "NORTHWIND BAKERY LLC"
+
+
+@pytest.mark.parametrize("text", [
+    "BRANCH TRANSFER 00123 SAMPLEVILLE",
+    "BRANCH TRANSFER SAMPLEVILLE",
+    "BRANCH TRANSFER 00123 NORTH SAMPLEVILLE",
+    "BRANCH TRANSFER 00123 SAMPLEVILLE NY",
+    "IN BRANCH TRANSFER 00123 SAMPLEVILLE",
+    "TELLER TRANSFER SAMPLEVILLE",
+    "COUNTER CREDIT TRANSFER 00123 SAMPLEVILLE",
+    "BRANCH TRANSFER 123 OAK AVE SAMPLEVILLE NY",
+    # The deliberate trade-off: two name words with no FROM and no company form are held for review.
+    "BRANCH TRANSFER CONTOSO BAKERY",
+])
+def test_r25_a_branch_transfer_printing_a_reference_and_a_town_is_held(text):
+    assert _reading(_one(text, holder=R25_HOLDER)) == (HELD, "transfer_no_counterparty")
+
+
+@pytest.mark.parametrize(("text", "reading"), [
+    ("BRANCH TRANSFER", (HELD, "transfer_no_counterparty")),
+    ("TELLER TRANSFER", (HELD, "transfer_no_counterparty")),
+    ("TELLER TRANSFER MAIN OFFICE", (HELD, "transfer_no_counterparty")),
+    ("BRANCH TRANSFER DEPOSIT", (HELD, "transfer_no_counterparty")),
+    ("COUNTER CREDIT TRANSFER", (HELD, "transfer_no_counterparty")),
+    ("BRANCH TRANSFER 00123", (HELD, "transfer_no_counterparty")),
+    ("BRANCH TRANSFER 00123 MAIN ST", (HELD, "transfer_no_counterparty")),
+    ("BRANCH TRANSFER FROM CONTOSO BAKERY LLC", (COUNTED, "p2p")),
+    ("TELLER TRANSFER FROM CONTOSO BAKERY LLC", (COUNTED, "p2p")),
+    ("BRANCH TRANSFER 00123 CONTOSO BAKERY LLC", (COUNTED, "p2p")),
+    ("BRANCH TRANSFER FROM SAMPLE PERSON", (COUNTED, "p2p")),
+    ("BRANCH TRANSFER FROM SAMPLEVILLE", (COUNTED, "p2p")),
+    ("BRANCH TRANSFER FROM CHECKING 1234", ("non_revenue", "strong_non_revenue_rule")),
+    ("CASH DEPOSIT TRANSFER IN", (COUNTED, "no_payer_printed")),
+    ("BRANCH DEPOSIT 00123 SAMPLEVILLE", (COUNTED, "no_payer_printed")),
+    ("MOBILE CHECK DEPOSIT TRANSFER", (COUNTED, "check_deposit")),
+    # The generic transfer path keeps T13's reading.
+    ("ONLINE TRANSFER 00123 SAMPLEVILLE", (COUNTED, "p2p")),
+    ("ONLINE TRANSFER 00123", (HELD, "transfer_no_counterparty")),
+])
+def test_r25_the_controls_keep_their_readings(text, reading):
+    record = _one(text, holder=R25_HOLDER)
+    assert (record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method) == reading
