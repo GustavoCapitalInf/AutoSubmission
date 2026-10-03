@@ -317,7 +317,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "ROCKSTONE FUNDING GROUP",
         "CREDORA CAPITAL",
     ),
-    "Rook Bristol Financial LLC": ("ROOK BRISTOL FINANCIAL",),
+    "Rook Bristol Financial LLC": ("ROOK BRISTOL FINANCIAL", "ROOK BRISTOL FI"),
     "Royal Funding Group": ("ROYAL FUNDING GR",),
     "SBG Funding": ("SBG FUNDING",),
     "Seamless Capital Group, Inc": ("SEAMLESS CAPITAL",),

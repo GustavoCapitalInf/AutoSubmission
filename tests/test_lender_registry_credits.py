@@ -583,3 +583,71 @@ def test_the_factoring_review_entities_are_the_ledger_s_factoring_review_entitie
         "EAGLE CAPITAL (unconfirmed factoring payer)", "Primary Capital Solutions", "Texoma Capital LLC"}
     assert set(registry.FACTORING_REVIEW_ENTITIES) <= set(registry.POTENTIAL_LENDER_ALIASES)
     assert not set(registry.FACTORING_REVIEW_ENTITIES) & set(registry.REVIEW_FLAG_ENTITIES)
+
+
+# --- Audit round 2, R2-B03 (R10): Rook Bristol Financial's name cut at 15 characters (CPA-005 short name) ------------
+# Canadian banks print a pre-authorized payment's originator short name, which cuts ROOK BRISTOL FINANCIAL LLC to
+# ROOK BRISTOL FI; the ledger admits that spelling (as Sheffield Financial's SHEFFIELD FI), so a funding credit is the
+# lender's financing proceeds whichever spelling the bank prints. Each statement carries two customer credits too.
+
+ROOK = "Rook Bristol Financial LLC"
+ROOK_LAYOUTS = {
+    # bank: (the layout's credit with the payer's name in {payer}).
+    "BMO Bank of Montreal": "Direct Deposit, {payer} MSP/DIV",
+    "Desjardins": "COMPTE DIVERS {payer}",
+    "TD Canada Trust": "{payer} DIV",
+    "RBC Royal Bank": "Misc Payment {payer}",
+    "Scotiabank": "MISC PAYMENT {payer}",
+}
+
+
+def _rook_records(bank, payer, amount=9500.0):
+    layout = ROOK_LAYOUTS[bank]
+    rows = [(layout.format(payer=payer), amount), (layout.format(payer="CONTOSO ROOFING"), 1200.0),
+            (layout.format(payer="CONTOSO ROOFING"), 1300.0)]
+    return _records(rows, bank=bank)
+
+
+@pytest.mark.parametrize(("bank", "payer"), [
+    ("BMO Bank of Montreal", "ROOK BRISTOL FI"),
+    ("Desjardins", "ROOK BRISTOL FI"),
+    ("TD Canada Trust", "ROOK BRISTOL FI"),
+    ("RBC Royal Bank", "ROOK BRISTOL FI"),
+    ("BMO Bank of Montreal", "ROOKBRISTOLFI"),
+    # The full spelling, as before.
+    ("Scotiabank", "ROOK BRISTOL FINANCIAL LL"),
+], ids=["bmo", "desjardins", "td", "rbc", "bmo-run-together", "scotiabank-full-spelling"])
+def test_rook_bristol_s_cut_name_is_its_financing_proceeds(bank, payer):
+    funding = _rook_records(bank, payer)[0]
+    assert (funding.revenue_tier, funding.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert funding.revenue_canonical_entity == ROOK
+
+
+def test_rook_bristol_s_cut_name_on_a_debit_is_the_confirmed_lender():
+    [record] = _records([("Pre-Authorized Payment, ROOK BRISTOL FI MSP/DIV", -950.0)], bank="BMO Bank of Montreal")
+    assert (record.classification, record.canonical_entity) == ("confirmed_lender", ROOK)
+
+
+@pytest.mark.parametrize(("bank", "payer", "expected"), [
+    # A payer whose name only starts like the cut is no lender; the customers' credits keep their readings; another
+    # lender's registered cut (Sheffield Financial's SHEFFIELD FI) stays its financing proceeds.
+    ("TD Canada Trust", "ROOK BRISTOL FITNESS", ("counted_flagged", "named_payer_unlabelled")),
+    ("BMO Bank of Montreal", "SHEFFIELD FI", ("non_revenue", "financing_proceeds_credit")),
+])
+def test_the_cut_reads_no_lookalike_and_other_cuts_keep_their_readings(bank, payer, expected):
+    records = _rook_records(bank, payer)
+    assert _tier(records[0]) == expected
+    if expected[0] != "non_revenue":
+        assert records[0].revenue_canonical_entity != ROOK
+
+
+def test_the_customers_beside_rook_bristol_s_funding_stay_verified():
+    records = _rook_records("BMO Bank of Montreal", "ROOK BRISTOL FI")
+    assert [record.revenue_tier for record in records[1:]] == ["verified", "verified"]
+
+
+def test_the_cut_is_a_ledger_alias_read_on_both_sides():
+    assert registry.LENDER_ALIASES[ROOK] == ("ROOK BRISTOL FINANCIAL", "ROOK BRISTOL FI")
+    assert "ROOK BRISTOL FI" not in registry.CREDIT_ONLY_ALIASES
+    assert registry_match("ROOK BRISTOL FITNESS", registry.LENDER_ALIASES) is None
+    assert registry_match("ROOK BRISTOL FI MSP DIV", registry.LENDER_ALIASES) == (ROOK, "ROOK BRISTOL FI")

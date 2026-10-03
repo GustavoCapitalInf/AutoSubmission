@@ -15251,7 +15251,8 @@
    "group": "confirmed_lender",
    "business_type": "online_business_term_lender",
    "aliases": [
-    "ROOK BRISTOL FINANCIAL"
+    "ROOK BRISTOL FINANCIAL",
+    "ROOK BRISTOL FI"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -15311,7 +15312,7 @@
     "https://lite.duckduckgo.com/lite/",
     "https://efts.sec.gov/LATEST/search-index"
    ],
-   "notes": "Lending entity of Rook Bristol, a cross-border SME lending group (business loans, revolving credit, revenue-based, asset and invoice finance); a lender under the owner's 2026-09-25 amendment (online business term lenders count as lenders). Seen only on incoming credits (financing proceeds). r3 could not tie the US LLC to the UK brand; r4 did (a job posting naming its US and UK entities, and UK Companies House charges that name Rook Bristol Financial LLC as the secured lender; those charge records are not linked here because each names a borrower)."
+   "notes": "Lending entity of Rook Bristol, a cross-border SME lending group (business loans, revolving credit, revenue-based, asset and invoice finance); a lender under the owner's 2026-09-25 amendment (online business term lenders count as lenders). Seen only on incoming credits (financing proceeds). r3 could not tie the US LLC to the UK brand; r4 did (a job posting naming its US and UK entities, and UK Companies House charges that name Rook Bristol Financial LLC as the secured lender; those charge records are not linked here because each names a borrower). ROOK BRISTOL FI is the name cut at 15 characters (CPA-005 originator short name), printed on Canadian funding credits."
   },
   {
    "entity": "Royal Funding Group",
