@@ -616,3 +616,41 @@ def test_the_census_reads_a_released_trust_as_no_personal_trust():
     record = _records([(held, 12000.0)], holder=_SCHOOL)[0]
     assert tr.guard_facts(record, revenue_text(normalize_transaction_description(held)))["hold_rule"] == (
         "personal_trust")
+
+
+# Audit round 2, R2-B03 (R05 part C; Q6 "lenders never count", standard C2/C3): Northeast Bank, a national SBA lender
+# the ledger lists by its repayment spellings only, is a lending bank on the credit side too (the registry's
+# LENDING_BANK_CREDIT_PAYERS): its credit is held as financing, so a statement it dominates is sent to review.
+
+_NORTHEAST = "PREAUTHORIZED CREDIT NORTHEAST BANK GTL 1234567 NORTHWIND PLUMBING LLC CCD"
+_PLUMBER = "NORTHWIND PLUMBING LLC"
+
+
+def test_a_northeast_bank_credit_is_held_as_financing_and_gates_its_statement():
+    from analysis.metrics import compute_metrics
+
+    statement = Statement(account_name=_PLUMBER, bank="", currency="USD", transactions=[
+        Transaction(date="2054-03-02", description=_NORTHEAST, amount=250000.0, direction="credit"),
+        Transaction(date="2054-03-03", description="ORIG CO NAME:CONTOSO SUPPLY LLC CO ENTRY DESCR:PAYMENT SEC:CCD",
+                    amount=3000.0, direction="credit"),
+    ])
+    records = classify_statement_transactions(statement)
+    assert [(record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method) for record in records] == [
+        FINANCING, COMPANY]
+    assert compute_metrics(statement, classifications=records).revenue_review_required
+    revenue = revenue_text(normalize_transaction_description(_NORTHEAST))
+    assert tr.guard_facts(records[0], revenue)["hold_rule"] == "lending_bank"
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # The ledger's SBA repayment spelling stays its financing proceeds, and its wire stays a bank's own wire.
+    ("NORTHEAST BANK DES:SBA PYMT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD",
+     ("non_revenue", "financing_proceeds_credit")),
+    ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHEAST BANK SAMPLEVILLE ME 12345 US REF SAMPLE NYC CTR BNF "
+     "NORTHWIND PLUMBING LLC OBI 1234", FINANCING),
+    # A payer whose name only starts like the lending bank is no lending bank.
+    ("NORTHEAST BANKING SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", COMPANY),
+])
+def test_northeast_bank_s_other_spellings_keep_their_readings(text, expected):
+    [record] = _records([(text, 50000.0)], holder=_PLUMBER, bank="Bank of America")
+    assert (record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method) == expected

@@ -2077,8 +2077,10 @@ OWNER_MONEY_PLATFORMS: str = (
 #: delegated decision of 2026-09-25 keeps a bare CELTIC BANK out of the debit tables). Celtic Bank (Salt Lake City, an
 #: SBA lender and the issuing bank of OnDeck's loans and of Bluevine's line of credit, celticbank.com; the ledger's
 #: 'Celtic Bank [bank name]' and 'Celtic Bank (Bluevine line of credit)' records); Newtek Bank, N.A. (Newtek One's
-#: national bank, an SBA 7(a) lender, newtekone.com).
-LENDING_BANK_CREDIT_PAYERS: str = r"(?<![A-Z])(?:CELTIC BANK|NEWTEK BANK)\b"
+#: national bank, an SBA 7(a) lender, newtekone.com). Audit round 2, R2-B03 (R05): Northeast Bank (Portland ME, a
+#: national SBA and USDA lender, northeastbank.com; the ledger's 'Northeast Bank' alternative position, whose aliases
+#: are its SBA repayment spellings only), whose credit printing its bare name is held the same way.
+LENDING_BANK_CREDIT_PAYERS: str = r"(?<![A-Z])(?:CELTIC BANK|NEWTEK BANK|NORTHEAST BANK)\b"
 
 #: Audit B6 (I49; Q8, §8.1 payroll_or_salary): earned-wage access providers, whose push to an account is a worker's
 #: wages from another company paid early, as a regular expression read on the row before its receiver fields
@@ -2123,11 +2125,15 @@ SECTION_15_DEFERRED_PAYERS: str = (
 #: 5.6 (§5.2, Q4; S4.2 re-review fix 1b): the sending banks a person-to-person row may print beside or instead of the
 #: sender ('ZELLE CREDIT BANK OF AMERICA'), normalized. A bank's name is never the sender's name. A single word is
 #: listed only when no person or business is commonly named so (Desjardins is also a surname: its caisse is listed).
+#: Audit round 2, R2-B03 (R05): MSPBNA (Morgan Stanley Private Bank, National Association, Morgan Stanley's national
+#: bank, morganstanley.com) and ALLY BANK (Ally Financial's online bank, ally.com), which the same layouts print as a
+#: transfer's or an ACH pull's only name.
 P2P_SENDING_BANK_NAMES: tuple[str, ...] = (
     "BANK OF AMERICA", "BK OF AMERICA", "BOFA", "WELLS FARGO", "JPMORGAN CHASE", "JP MORGAN CHASE", "CHASE BANK",
     "CITIBANK", "US BANK", "U S BANK", "PNC BANK", "TD BANK", "TRUIST", "CAPITAL ONE", "NAVY FEDERAL", "FIFTH THIRD",
     "KEYBANK", "CITIZENS BANK", "REGIONS BANK", "HUNTINGTON BANK", "SANTANDER BANK", "USAA", "ROYAL BANK", "RBC",
     "SCOTIABANK", "BMO", "CIBC", "TD CANADA TRUST", "CAISSE DESJARDINS", "NATIONAL BANK", "BANQUE NATIONALE",
+    "MSPBNA", "ALLY BANK",
 )
 
 #: 5.6 (§8.1, A3 review): the short forms a statement's bank prints for its own name. Each entry is (the words that

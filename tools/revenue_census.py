@@ -189,7 +189,14 @@ DECLARED_DEMOTIONS = (
     # settlement or an owner-shaped payer's DISB; (I46, Q2) a repeat that printed the plural TRANSFERS bare.
     "q5_q6_held_gambling_payout", "q5_q6_held_legal_settlement", "q5_q6_held_owner_disbursement",
     "q5_q6_bare_transfers",
+    # Audit round 2, R2-B03 (R05): a Q6 repeat whose payer region names only a bank (a bank's name, or the statement's
+    # own bank's channel), counted as no payer printed or held as the holder's pull with no counterparty.
+    "q5_q6_bank_only_payer",
 )
+#: Audit round 2, R2-B03 (R05): the reasons a counted bank-only payer takes (pass 7's no_payer_printed, or the
+#: parser's unread payer text in its place: true_revenue.PAYER_TEXT_NOT_READ, copied: the census reads other
+#: checkouts).
+_BANK_ONLY_COUNTED_REASONS = frozenset({"no_payer_printed", "payer_text_not_read"})
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
 #: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
 PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
@@ -2049,6 +2056,14 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
             and _TRANSFERS_WORD.search(_before_receiver(text))
         ):
             return "q5_q6_bare_transfers"
+        # (b) audit round 2, R2-B03 (R05): the payer region names only a bank (the pass's own bank_only_payer fact), so
+        # Q6 never verifies it: counted as no payer printed (or as the parser's unread payer text), or held as the
+        # holder's pull with no counterparty.
+        if facts.get("bank_only_payer") and (
+            (after.get("tier") == "counted_flagged" and after.get("reason") in _BANK_ONLY_COUNTED_REASONS)
+            or (after.get("tier") == "excluded_pending_review" and after.get("reason") == "transfer_no_counterparty")
+        ):
+            return "q5_q6_bank_only_payer"
         # (b) audit B5 (I15, I55): the repeat was keyed on a bank's label, entry or reference (PNC's entry word, an
         # empty ORIG CO label); the payer region now reads the payer printed after it, or no payer (the pass's own
         # payer_label_layout fact), and the row is counted.

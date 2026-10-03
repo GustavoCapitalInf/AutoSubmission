@@ -897,6 +897,9 @@ class CreditFacts:
     account_designation: bool
     #: §8.9 (A3-H review 2): the payer is a factor FACTORING_PAYOUT_PAYERS names (_factoring_payout_payer).
     factor: bool = False
+    #: §8.2, §8.6 (audit round 2, R2-B03: R05): the payer region names only a bank (_bank_only_payer): 'sending',
+    #: 'own', 'form', or None.
+    bank_only: str | None = None
 
 
 def _classifier():
@@ -3061,13 +3064,98 @@ def _transfer_reading(
     read them. Audit B2: an explicit check, cash or ATM deposit form is no bare transfer (I48: Q2 and Q3 count it); the
     counterparty is read with the statement's bank (I01); and an ACH or unlabelled payer region that is only a bank's
     name and an account description (_bank_account_payer, I01) names no payer either. A wire is decided by Q5 before
-    this hold (§8.10), so a wire row never carries it."""
+    this hold (§8.10), so a wire row never carries it.
+
+    Audit round 2, R2-B03 (R05; I01, Q2: a bank's name is never the payer's): nor does an ACH or unlabelled payer
+    region that is only a sending bank's name or a bank by its own form (_bank_only_payer: 'sending' or 'form'), on a
+    row that prints no entry field, which no rule verified and nothing claimed: the holder's pull from another of its
+    own bank accounts ('ACH CREDIT <bank>', '<bank> ACH'). The statement's own bank's channel ('own': 'CHASE ONLINE' on
+    a Chase statement) is never held: it is a customer's bill payment through the bank (counted, never verified)."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     transfer_row = _transfer_row(row) and not _explicit_deposit(channel, row)
     words = _transfer_counterparty_words(text, record.bank) if channel == "person_to_person" else []
-    bank_account = channel in {"ach_eft", "other"} and _bank_account_payer(region, record.bank)
+    bank_account = channel in {"ach_eft", "other"} and (
+        _bank_account_payer(region, record.bank) or _bank_only_pull(record, text, region)
+    )
     return transfer_row, words, channel != "wire" and ((transfer_row and not words) or bank_account)
+
+
+def _bank_only_pull(record: TransactionClassification, text: str, region: str) -> bool:
+    """§8.2 (audit round 2, R2-B03: R05): an ACH or unlabelled credit whose payer region is only a sending bank's name
+    or a bank by its own form (_bank_only_payer), on a row that prints no entry field, which no rule verified and no
+    registry, payout, factoring payee or factor claimed: no payer is printed (held as transfer_no_counterparty, Q2)."""
+    if not region or record.revenue_classification == "verified_revenue":
+        return False
+    classifier = _classifier()
+    if classifier.entry_fields(text).strip():
+        return False
+    if _bank_only_payer(region, "", record.bank, row=classifier._before_receiver(text)) not in {"sending", "form"}:
+        return False
+    return not (_claimed(record, text) or _factoring_payout_payer(region, text))
+
+
+#: §8.6 (audit round 2, R2-B03: R05): the entry words of a bank's merchant deposit or card settlement ('<bank>
+#: DES:DEPOSIT', Synchrony's 'MTOT DEP', 'BTOT', 'NET SETTLE', 'STLMT', a merchant word): a bank named before such an
+#: entry pays the business's own sales, and keeps its reading.
+_BANK_SETTLEMENT_ENTRY = re.compile(r"(?<![A-Z])(?:DEPOSIT|DEP|MTOT|BTOT|SETTLE\w*|STLMT|MERCH\w*)\b")
+#: §8.6 (R2-B03: R05): the channel words a bank prints after its own name in an ACH payer region ('<bank> ACH',
+#: 'CHASE ONLINE', '<bank> N A'), dropped from the end of the name.
+_BANK_ONLY_TAIL = frozenset({"ACH", "ONLINE", "N", "A", "NA"})
+#: §8.6 (R2-B03: R05): the last word of a bank's own form, and the most words such a name may print.
+_BANK_ONLY_FORM_ENDS = frozenset({"BANK", "BANCORP", "FSB"})
+_BANK_ONLY_MAX_WORDS = 4
+#: §8.6 (R2-B03: R05): the listed sending banks' names alone (the registry's P2P_SENDING_BANK_NAMES; Zelle's PAY ID,
+#: which _P2P_LAYOUT_PHRASES also removes, names no bank).
+_SENDING_BANK_NAME = re.compile(
+    r"(?<![A-Z])(?:" + "|".join(re.escape(name) for name in sorted(P2P_SENDING_BANK_NAMES, key=len, reverse=True))
+    + r")\b"
+)
+#: The marks _bank_only_payer puts where a bank's name stood (lowercase: no upper-case reader ever matches them).
+_SENDING_MARK = "sending-bank"
+_OWN_MARK = "own-bank"
+#: §8.6 (R2-B03: R05): a person-to-person label printed on the row ('<bank> P2P <reference> <sender>', Bank of
+#: America's P2P payment received at another bank): the bank is a person's sending bank (Q4), never the payer alone.
+_P2P_LABEL = re.compile(r"(?<![A-Z0-9])P2P(?![A-Z0-9])")
+
+
+def _bank_only_payer(region: str, entry: str, bank: str | None, *, row: str = "") -> str | None:
+    """§8.2, §8.6 (audit round 2, R2-B03: R05; I01 and the registry's note: a bank's name is never the payer's name):
+    the payer region names only a bank. On its name (payer_name: no token holding a digit, no single letter) the listed
+    sending banks' names (P2P_SENDING_BANK_NAMES) are marked, then the statement's own bank's names
+    (_statement_bank_names); reference tokens are dropped, and a trailing channel word (_BANK_ONLY_TAIL: ACH, ONLINE,
+    N A, NA). 'sending' when only a sending bank's name is left, 'own' when only the statement's own bank's, 'form' when
+    one to four words ending BANK, BANCORP, FSB or CREDIT UNION are left (no marked name among them) and the classifier
+    reads the region as a bank by its own form (bank_by_form: never a food or blood bank, never a company whose name
+    holds the bank word, never a bank's settlement form). None otherwise, for an empty region, for a bank's settlement
+    or merchant-services originator (BANK_SETTLEMENT_ORIGINATOR), for an entry of a merchant deposit or card
+    settlement (_BANK_SETTLEMENT_ENTRY: '<bank> DES:DEPOSIT', 'MTOT DEP'), which pay the business's own sales, and for
+    a row (`row`, the row before its receiver fields) that prints a person-to-person label (_P2P_LABEL: the bank is a
+    person's sending bank, whose payment Q4 reads, never the holder's pull).
+
+    Q6 never verifies such a payer, which is counted as no_payer_printed (a bank's name names no customer); a sending
+    bank or a bank by its form on a row with no entry field is the holder's own pull (_bank_only_pull, held)."""
+    classifier = _classifier()
+    if not region or classifier.BANK_SETTLEMENT_ORIGINATOR.search(region) or _BANK_SETTLEMENT_ENTRY.search(entry or ""):
+        return None
+    if _P2P_LABEL.search(row):
+        return None
+    marked = _SENDING_BANK_NAME.sub(f" {_SENDING_MARK} ", classifier.payer_name(region))
+    own = _statement_bank_names(bank) if bank else None
+    if own is not None:
+        marked = own.sub(f" {_OWN_MARK} ", marked)
+    words = [word for word in marked.split() if not classifier._is_reference_token(word)]
+    while words and words[-1] in _BANK_ONLY_TAIL:
+        words.pop()
+    if words == [_SENDING_MARK]:
+        return "sending"
+    if words == [_OWN_MARK]:
+        return "own"
+    if not words or _SENDING_MARK in words or _OWN_MARK in words or len(words) > _BANK_ONLY_MAX_WORDS:
+        return None
+    if words[-1] not in _BANK_ONLY_FORM_ENDS and words[-2:] != ["CREDIT", "UNION"]:
+        return None
+    return "form" if classifier.bank_by_form(region) else None
 
 
 #: §8.2 (audit B2: I01): the account-description words a bank prints after its own name on a pull from another of
@@ -3651,6 +3739,8 @@ def credit_facts(
         transfer_no_counterparty=no_counterparty,
         account_designation=transfer_row and bool(transfer_words) and _account_designation(row, record.bank),
         factor=factor,
+        # Audit round 2, R2-B03 (R05): a payer region that names only a bank names no customer.
+        bank_only=_bank_only_payer(region, entry, record.bank, row=row),
     )
 
 
@@ -4024,7 +4114,9 @@ def _q6_method(facts: CreditFacts, repeats: int, all_consumer: bool) -> str | No
 def _q6_eligible(record: TransactionClassification, text: str, facts: CreditFacts) -> bool:
     """§8.6: an unverified posted credit with an electronic-payment form and a payer region, which the channel gate
     leaves open, no transfer wording in its entry fields, no wire, no registry, payout or factoring claim, no hold,
-    and no numbered company."""
+    and no numbered company. Audit round 2, R2-B03 (R05): nor a payer region that names only a bank (_bank_only_payer):
+    a bank's name, or the statement's own bank's channel ('CHASE ONLINE'), is no customer, so its repetition proves
+    nothing (Q6 refused a bank on its company-form arm only before)."""
     classifier = _classifier()
     return (
         facts.electronic and bool(facts.region) and facts.channel == "ach_eft"
@@ -4033,6 +4125,7 @@ def _q6_eligible(record: TransactionClassification, text: str, facts: CreditFact
         and not facts.wire_n1 and not facts.claimed and facts.hold is None and not facts.numbered
         # Audit B2 (I01): a payer region that is only a bank's name and an account description names no payer.
         and not facts.transfer_no_counterparty
+        and not facts.bank_only
     )
 
 
@@ -4101,6 +4194,10 @@ def _tier_reason_read(
         return "counted_flagged", "numbered_company_payer"
     if facts.region and (facts.refused_word or (deferred and facts.electronic)):
         return "counted_flagged", "named_payer_purpose_refused"
+    # Audit round 2, R2-B03 (R05): a payer region that names only a bank names no customer (Q2): counted as
+    # no_payer_printed, never as a named payer.
+    if facts.region and facts.bank_only:
+        return "counted_flagged", "no_payer_printed"
     if facts.region and facts.electronic:
         return "counted_flagged", "named_payer_one_off"
     if facts.region and not classifier._is_bare_row(text):
@@ -4361,8 +4458,11 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
             # that shape is out of True).
             or _direct_deposit_pay(text, pay_row, _holder(record), business=True)
         ),
-        # Audit B2: the pass's own reading (_transfer_reading): the statement's bank, the explicit deposit forms.
+        # Audit B2: the pass's own reading (_transfer_reading): the statement's bank, the explicit deposit forms. Audit
+        # round 2, R2-B03 (R05): and an ACH pull whose payer region is only a bank (_bank_only_pull).
         "transfer_no_counterparty": _transfer_reading(record, text, _channel(text, record.bank), region)[2],
+        # Audit round 2, R2-B03 (R05): the payer region names only a bank (_bank_only_payer), which Q6 never verifies.
+        "bank_only_payer": _bank_only_payer(region, entry, record.bank, row=row),
         "known_financing": known is not None and known.state in FINANCING_STATES,
         "payout_or_factoring": known is not None and (known.entity in PAYOUT_CREDIT_ENTITIES or known.state == "factoring"),
         "numbered_region": classifier._NUMBERED_COMPANY_REGION.search(

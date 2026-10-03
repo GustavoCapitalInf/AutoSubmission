@@ -8,6 +8,8 @@ ACH template (I19); TD Canada Trust's trailing CPA code is an electronic-payment
 banks' printed formats; public names only where a bank prints its own or a registry lists them (Intuit)."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from analysis import transaction_classifier as tc
@@ -373,3 +375,110 @@ def test_navy_federal_payer_printed_without_a_digit_block_keeps_its_region():
 ])
 def test_payer_label_layout(text, layout):
     assert tc.payer_label_layout(tc.revenue_text(tc.normalize_transaction_description(text))) is layout
+
+
+# Audit round 2, R2-B03 (R05; I01, Q2, the registry's note: a bank's name is never the payer's name): a payer region
+# that names only a bank names no customer. Relay's 'ACH CREDIT <payer>' layout prints its bank as Thread Bank.
+
+RELAY = "Thread Bank (Relay)"
+NO_COUNTERPARTY = ("excluded_pending_review", "transfer_no_counterparty")
+CHASE_ONLINE = ("ORIG CO NAME:CHASE ONLINE ORIG ID:1234567890 DESC DATE: CO ENTRY DESCR:ONLINE PMTSEC:CTX TRACE#:{n} "
+                "EED:540305 IND ID:1234 IND NAME:NORTHWIND LABS INC TRN: {n}")
+BANK_BILL_PAY = ("ORIG CO NAME:FABRIKAM BANK ORIG ID:1234567890 DESC DATE: CO ENTRY DESCR:INTD SEC:CIE TRACE#:{n} "
+                 "EED:540305 IND NAME:NORTHWIND LABS")
+
+
+@pytest.mark.parametrize(("bank", "texts"), [
+    (RELAY, ["ACH CREDIT JPMORGAN CHASE"] * 2),
+    (RELAY, ["ACH CREDIT SAMPLE STATE BANK"] * 2),
+    (RELAY, ["ACH CREDIT ALLY BANK"]),
+    ("U.S. Bank", ["ELECTRONIC DEPOSIT FROM FABRIKAM BANK"]),
+    ("Brex", ["FABRIKAM BANK ACH"] * 2),
+    ("Bank of America", ["MSPBNA DES:ACH TRNSFR ID:1234 INDN:NORTHWIND LABS INC CO ID:1234567890 PPD"]),
+], ids=["relay-sending-bank-x2", "relay-bank-form-x2", "relay-ally", "usbank-bank-form", "brex-bank-ach-x2",
+        "bofa-mspbna-transfer"])
+def test_a_pull_naming_only_a_bank_is_held_as_a_transfer_with_no_counterparty(bank, texts):
+    amounts = (5200.0, 1100.0)
+    rows = [(text, amounts[index]) for index, text in enumerate(texts)]
+    assert _tiers(rows, bank=bank) == [NO_COUNTERPARTY] * len(rows)
+
+
+@pytest.mark.parametrize("text", [CHASE_ONLINE, BANK_BILL_PAY], ids=["own-bank-channel", "bank-bill-pay-entry"])
+def test_a_bank_named_payer_with_an_entry_is_counted_with_no_payer_and_never_verified(text):
+    rows = [(text.format(n=1), 3000.0), (text.format(n=2), 2000.0)]
+    assert _tiers(rows, bank="Chase") == [NO_PAYER] * 2
+
+
+@pytest.mark.parametrize(("bank", "texts", "expected"), [
+    # A customer's repeated ACH stays Verified; a bank's merchant deposit and a card settlement keep their readings.
+    (RELAY, ["ACH CREDIT CONTOSO SUPPLY LLC"] * 2, [REPEATS] * 2),
+    ("Bank of America", ["BANK OF AMERICA DES:DEPOSIT ID:1234 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD"] * 2,
+     [REPEATS] * 2),
+    ("Bank of America", ["SYNCHRONY BANK DES:MTOT DEP ID:1234 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD"],
+     [("verified", "operating_income_descriptor")]),
+    # A company or a food bank whose name holds the bank word is no bank.
+    (RELAY, ["ACH CREDIT LEFT BANK BAKERY LLC"] * 2, [REPEATS] * 2),
+    (RELAY, ["ACH CREDIT SAMPLE FOOD BANK"] * 2, [REPEATS] * 2),
+    # B02's account-description arm and B6's lending bank hold as before; a Zelle sender's bank is no sender.
+    ("Brex", ["JPMORGAN CHASE SAVINGS 1234 ACH"], [NO_COUNTERPARTY]),
+    ("Bank of America", ["NEWTEK BANK DES:GTL ID:1234 INDN:NORTHWIND LABS INC CO ID:1234567890 CCD"],
+     [("excluded_pending_review", "financing_named_payer")]),
+    ("Chase", ["ZELLE PAYMENT FROM CONTOSO SUPPLY BANK OF AMERICA 1234"], [("counted_flagged", "p2p")]),
+    # A person's payment through a bank's P2P service names that bank as the sender's bank, never as a pull (Q4).
+    ("Wells Fargo", ["BANK OF AMERICA P2P AB12345CD DEPOSIT", "BANK OF AMERICA P2P 1AB23CD45E PAT SAMPLE"],
+     [UNLABELLED] * 2),
+], ids=["customer-x2", "bofa-merchant-deposit-x2", "synchrony-mtot", "left-bank-bakery-x2", "food-bank-x2",
+        "bank-savings-account", "newtek", "zelle", "bank-p2p-payments"])
+def test_the_bank_only_reading_leaves_customers_settlements_and_named_banks_as_they_were(bank, texts, expected):
+    amounts = (5200.0, 1100.0)
+    rows = [(text, amounts[index]) for index, text in enumerate(texts)]
+    assert _tiers(rows, bank=bank) == expected
+
+
+@pytest.mark.parametrize(("region", "entry", "bank", "kind"), [
+    ("JPMORGAN CHASE", "", RELAY, "sending"),
+    ("ALLY BANK", "", RELAY, "sending"),
+    ("MSPBNA", "ACH TRNSFR", "Bank of America", "sending"),
+    ("CHASE ONLINE", "ONLINE PMT", "Chase", "own"),
+    ("FABRIKAM BANK ACH", "", "Brex", "form"),
+    ("SAMPLE STATE BANK N A", "", RELAY, "form"),
+    ("MOUNTAIN SAMPLE CREDIT UNION", "", RELAY, "form"),
+    ("SAMPLE BANCORP 1234", "", RELAY, "form"),
+    # Not a bank alone: a settlement entry or originator, a company, a food bank, a bank's product word, a long name.
+    ("BANK OF AMERICA", "DEPOSIT", "Bank of America", None),
+    ("SYNCHRONY BANK", "MTOT DEP", "Bank of America", None),
+    ("FABRIKAM MERCHANT BANK", "", RELAY, None),
+    ("LEFT BANK BAKERY LLC", "", RELAY, None),
+    ("SAMPLE FOOD BANK", "", RELAY, None),
+    ("JPMORGAN CHASE SAVINGS", "", RELAY, None),
+    ("NORTH SAMPLE VALLEY STATE BANK", "", RELAY, None),
+    ("CONTOSO SUPPLY LLC", "", RELAY, None),
+    ("", "", RELAY, None),
+])
+def test_bank_only_payer(region, entry, bank, kind):
+    assert tr._bank_only_payer(region, entry, bank) == kind
+
+
+def test_a_row_printing_a_p2p_label_names_no_bank_only_payer():
+    assert tr._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA P2P AB12345CD DEPOSIT") is None
+    assert tr._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA AB12345CD") == "sending"
+
+
+def test_a_claimed_or_verified_row_never_takes_the_bank_only_pull():
+    [record] = _records([("ACH CREDIT SAMPLE STATE BANK", 2600.0)], bank=RELAY)
+    text = tc.revenue_text(record.normalized_description)
+    region = tc.payer_region(text)
+    assert tr._bank_only_pull(record, text, region)
+    assert not tr._bank_only_pull(replace(record, revenue_match_method="recurring_operating_source"), text, region)
+    assert not tr._bank_only_pull(replace(record, revenue_classification="verified_revenue"), text, region)
+
+
+def test_g4_no_counted_or_verified_row_carries_the_bank_only_transfer_fact():
+    # The census's G4 (§14.3): a row in True never reads transfer_no_counterparty, the new arm included.
+    rows = [("ACH CREDIT JPMORGAN CHASE", 5200.0), ("ACH CREDIT JPMORGAN CHASE", 1100.0),
+            ("ACH CREDIT CONTOSO SUPPLY LLC", 900.0), ("ACH CREDIT CONTOSO SUPPLY LLC", 800.0),
+            (CHASE_ONLINE.format(n=1), 300.0), (BANK_BILL_PAY.format(n=1), 400.0)]
+    for record in _records(rows, bank=RELAY):
+        facts = tr.guard_facts(record, tc.revenue_text(record.normalized_description))
+        in_true = record.revenue_tier in {"verified", "counted_flagged"}
+        assert not (in_true and facts["transfer_no_counterparty"]), record.description

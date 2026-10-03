@@ -2591,3 +2591,52 @@ def test_r2_b01_a_set_aside_analysis_whose_debits_alone_changed_is_a_parse_chang
     older = {key: value for key, value in old.items() if key != "parse_sha"}
     run = _run(_snap("5.6", {"cOLD.0": older}), after)
     assert run["rekeyed"]["reparsed"]["accounts"] == 0 and "undeclared_demotion" in run["guards"]
+
+
+# Audit round 2, R2-B03 (R05): a Q6 repeat whose payer region names only a bank (the pass's own bank_only_payer fact)
+# is never verified: counted as no payer printed (or the parser's unread payer text), or held as the holder's pull.
+RELAY_BANK_ROW = "ACH CREDIT JPMORGAN CHASE"
+CHASE_ONLINE_ROW = ("ORIG CO NAME CHASE ONLINE ORIG ID ########## DESC DATE CO ENTRY DESCR ONLINE PMTSEC CTX TRACE "
+                    "########## EED ###### IND ID #### IND NAME NORTHWIND PLUMBING LLC TRN ##########")
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    (_q56("named_payer_repeats", RELAY_BANK_ROW),
+     _after56("unidentified_posted_credit", RELAY_BANK_ROW, tier="excluded_pending_review",
+              reason="transfer_no_counterparty", bank_only_payer="sending"), "q5_q6_bank_only_payer"),
+    (_q56("named_payer_repeats", CHASE_ONLINE_ROW),
+     _after56("unidentified_posted_credit", CHASE_ONLINE_ROW, tier="counted_flagged", reason="no_payer_printed",
+              bank_only_payer="own"), "q5_q6_bank_only_payer"),
+    (_q56("named_payer_repeats", CHASE_ONLINE_ROW),
+     _after56("unidentified_posted_credit", CHASE_ONLINE_ROW, tier="counted_flagged", reason="payer_text_not_read",
+              bank_only_payer="own"), "q5_q6_bank_only_payer"),
+    # Without the fact, or with another outcome, the cause is not declared.
+    (_q56("named_payer_repeats", RELAY_BANK_ROW),
+     _after56("unidentified_posted_credit", RELAY_BANK_ROW, tier="excluded_pending_review",
+              reason="transfer_no_counterparty"), "undeclared"),
+    (_q56("named_payer_repeats", CHASE_ONLINE_ROW),
+     _after56("unidentified_posted_credit", CHASE_ONLINE_ROW, tier="counted_flagged", reason="named_payer_one_off",
+              bank_only_payer="own"), "undeclared"),
+    (_q56("named_payer_repeats", RELAY_BANK_ROW),
+     _after56("unidentified_posted_credit", RELAY_BANK_ROW, tier="excluded_pending_review",
+              reason="payer_also_debited", bank_only_payer="sending"), "q5_q6_held_counter_debit"),
+])
+def test_r2_b03_a_bank_only_payer_s_repeat_is_a_declared_demotion(prior, later, cause):
+    causes, _ = _cause56(prior, later)
+    assert causes == {cause: 1}
+
+
+@pytest.mark.parametrize(("bank", "text", "kind"), [
+    ("Thread Bank (Relay)", RELAY_BANK_ROW, "sending"),
+    ("Chase", "ORIG CO NAME:CHASE ONLINE ORIG ID:1234567890 DESC DATE: CO ENTRY DESCR:ONLINE PMTSEC:CTX TRACE#:1 "
+              "EED:540305 IND ID:1234 IND NAME:NORTHWIND PLUMBING LLC TRN: 1", "own"),
+    ("Thread Bank (Relay)", "ACH CREDIT CONTOSO SUPPLY LLC", None),
+])
+def test_r2_b03_the_snapshot_records_the_bank_only_payer_fact(bank, text, kind):
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank=bank, account_name="NORTHWIND PLUMBING LLC", transactions=[
+        Transaction(date="2054-03-02", description=text, amount=900.0, direction="credit")])
+    [credit] = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert credit["facts"]["bank_only_payer"] == kind
+    assert not census._row_guards(credit)["G4"]
