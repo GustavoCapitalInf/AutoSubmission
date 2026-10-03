@@ -2785,6 +2785,9 @@ def test_r2_b09_the_census_prefix_copy_holds_every_classifier_label():
     ("NORTHWIND PLUMBING LLC DES:TRANSFER ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", True),
     ("NORTHWIND PLUMBING TRF LLC DES:TRANSFER ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", True),
     ("NORTHWIND PLUMBING XFER DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", True),
+    # R2-B09 review round 1: a transfer's phrase is never an originator's own name, and a town's DES no field.
+    ("TRANSFER FROM NORTHWIND PLUMBING LLC DES MOINES IA", True),
+    ("XFER FROM NORTHWIND PLUMBING LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", True),
 ])
 def test_r2_b09_the_own_transfer_fact_reads_the_pass_s_transfer_wording(text, own_transfer):
     from analysis.schema import Statement, Transaction

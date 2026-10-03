@@ -304,6 +304,19 @@ def test_r45_the_matching_debit_holds_the_credit_and_is_itself_unchanged():
         "other", None, False, False, False, False, None, None)
 
 
+# R2-B09 review round 1 (R45, a recorded residual, §20): the glued wording is read on credits; the debit reader's payee
+# keys do not yet read past a glued ONLINETRANSFER, so a glued transfer debit to a named payer does not hold that payer's
+# credit as the spaced form does (0 corpus rows: no other bank prints the glued spellings).
+@pytest.mark.parametrize(("debit", "reading"), [
+    ("ONLINE TRANSFER TO FABRIKAM SUPPLY LLC 00000000", (HELD, "payer_also_debited")),
+    ("ONLINETRANSFER TO FABRIKAM SUPPLY LLC 00000000", ("verified", "named_payer_company_form")),
+])
+def test_r45_a_glued_transfer_debit_to_a_named_payer_is_a_recorded_residual(debit, reading):
+    credit, _ = _rows([("FABRIKAM SUPPLY LLC DES PAYMENT ID 1 INDN CONTOSO TRADING LLC CO ID 1 CCD", 1000.0),
+                       (debit, -700.0)], bank="Bank of America")
+    assert _reading(credit) == reading
+
+
 @pytest.mark.parametrize(("text", "reading"), [
     ("ONLINETRANSFER FROM FABRIKAM SUPPLY LLC 00000000", (COUNTED, "p2p")),
     ("ONLINE TRANSFER FROM BUSINESS CHECKING 00000000", (HELD, "transfer_no_counterparty")),
@@ -408,6 +421,58 @@ def test_r28_the_helper_blanks_only_the_originator_name_s_transfer_tokens():
     assert found is not None and found.group(0) == "TRANSFER" and found.start() == row.index("DES TRANSFER") + 4
     # No company form once the token is out: the name's own word is read.
     assert transaction_classifier.credit_transfer_wording("SAMPLE BANK XFER DES PAYMENT ID 1").group(0) == "XFER"
+
+
+# Audit round 2, R2-B09 review round 1 (R28): a transfer's phrase (FROM, FRM, FR, TO, BETWEEN) is never a company's own
+# name, and a DES with none of Bank of America's fields after its entry is no originator field (a town's word: DES
+# MOINES, DES PLAINES), so a named transfer keeps its transfer reading: counted and flagged, never verified (Q4), held
+# with an account designation (T13) or as a repeated round sum (Q4).
+R28_LOOK = "TRANSFER FROM CONTOSO LLC DES MOINES IA"
+
+
+@pytest.mark.parametrize(("bank", "text", "reading"), [
+    ("Fabrikam Bank", R28_LOOK, (COUNTED, "p2p")),
+    ("Fabrikam Bank", "ONLINE TRANSFER FROM CONTOSO LLC DES MOINES IA 1234", (COUNTED, "p2p")),
+    ("Fabrikam Bank", "XFER FROM CONTOSO HOLDINGS LLC DES PLAINES IL", (COUNTED, "p2p")),
+    # No phrase word: the DES before a town opens no originator field.
+    ("Fabrikam Bank", "TRANSFER CONTOSO LLC DES MOINES IA", (COUNTED, "p2p")),
+    ("Fabrikam Bank", "ONLINE TRANSFER CONTOSO LLC DES MOINES IA", (COUNTED, "p2p")),
+    ("Fabrikam Bank", "XFER CONTOSO LLC DES PLAINES IL", (COUNTED, "p2p")),
+    ("Fabrikam Bank", R28_LOOK + " CHECKING 1234", (HELD, "transfer_account_designation")),
+    # Bank of America's and Chase's real fields, the originator's (cut) name a transfer's phrase.
+    ("Bank of America", "XFER FROM CONTOSO LLC DES PAYMENT ID 1 INDN NORTHWIND PLUMBING CO ID 1 CCD", (COUNTED, "p2p")),
+    ("Bank of America", "TRANSFER FR CONTOSO LLC DES PAYMENT ID 1 INDN NORTHWIND PLUMBING CO ID 1 CCD", (COUNTED, "p2p")),
+    ("Bank of America", "TRF TO CONTOSO INC DES PAYMENT ID 1 INDN NORTHWIND PLUMBING CO ID 1 CCD", (COUNTED, "p2p")),
+    ("Chase", R28_CHASE.format(name="TRANSFER FROM CONTOSO LLC", entry="PAYMENT"), (COUNTED, "p2p")),
+])
+def test_r28_a_named_transfer_s_phrase_or_town_never_reads_as_an_originator_name(bank, text, reading):
+    [record] = _rows([(text, 1234.56)], bank=bank, holder=R28_HOLDER)
+    assert _reading(record) == reading
+
+
+def test_r28_a_named_transfer_s_round_repeats_printing_a_town_stay_held():
+    records = _rows([(R28_LOOK, 2000.0), (R28_LOOK, 3000.0)], holder=R28_HOLDER)
+    assert [_reading(record) for record in records] == [(HELD, "p2p_round_repeat")] * 2
+
+
+@pytest.mark.parametrize(("row", "wording"), [
+    (R28_LOOK, "TRANSFER"),
+    ("TRANSFER CONTOSO LLC DES MOINES IA", "TRANSFER"),
+    ("XFER FROM CONTOSO LLC DES PAYMENT ID 1", "XFER"),
+    ("ORIG CO NAME TRANSFER FROM CONTOSO LLC ORIG ID 1 CO ENTRY DESCR PAYMENT", "TRANSFER"),
+    # A cut row with no field after DES's entry keeps the transfer reading it had before R28.
+    ("CONTOSO TRF LLC DES PAYMENT", "TRF"),
+    # Bank of America's layout after DES (an ID, a receiver field or a class code, the entry a few words): the name's
+    # token is blanked.
+    ("CONTOSO TRF LLC DES PAYMENT CCD", None),
+    ("CONTOSO TRF LLC DES A P PMT ID 1", None),
+    ("CONTOSO TRF LLC DES CORP PAY INDN NORTHWIND PLUMBING LLC", None),
+])
+def test_r28_the_helper_reads_a_phrase_or_a_town_s_des_as_transfer_wording(row, wording):
+    from analysis import transaction_classifier
+
+    found = transaction_classifier.credit_transfer_wording(row)
+    assert (found.group(0) if found is not None else None) == wording
 
 
 # Audit round 2, R2-B09 (R25): a teller, branch or counter transfer that prints no explicit deposit form names its

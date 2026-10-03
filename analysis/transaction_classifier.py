@@ -1492,6 +1492,21 @@ def _is_transfer_or_p2p_row(text: str) -> bool:
     )
 
 
+#: Audit round 2, R2-B09 review round 1 (R28): the ACH originator fields that open an originator's own name for
+#: credit_transfer_wording: Chase's labels, or Bank of America's DES with a field of its layout after its entry (ID,
+#: INDN, CO ID, IND NAME, IND ID or an ACH class code, the entry five words at most, as _BOFA_ENTRY_FIELD ends it). A DES
+#: with none of them after it is no field: a town's word ('TRANSFER FROM CONTOSO LLC DES MOINES IA', 'XFER CONTOSO LLC
+#: DES PLAINES IL'), a French word or a wire's cut text.
+_ORIGINATOR_NAME_FIELD = re.compile(
+    r"\b(?:CO ENTRY DESCR|ORIG CO NAME)\b"
+    r"|\bDES(?: \S+){0,5}? (?:ID|INDN|CO ID|IND NAME|IND ID|CCD|CTX|PPD|WEB|IAT|TEL|POP|BOC|ARC|RCK|CIE)\b"
+)
+#: Audit round 2, R2-B09 review round 1 (R28): a transfer's phrase words ('TRANSFER FROM CONTOSO LLC', 'XFER FRM ...',
+#: 'TRANSFER FR ...', 'TRF TO ...', 'TRANSFER BETWEEN ...'): a name that prints one is a transfer's text, never a
+#: company's own name.
+_TRANSFER_PHRASE_WORD = re.compile(r"\b(?:FROM|FRM|FR|TO|BETWEEN)\b")
+
+
 def credit_transfer_wording(row: str) -> re.Match[str] | None:
     """Audit round 2, R2-B09 (R28; §8.2, §8.6 Q6): the transfer wording a credit's row prints (_TRANSFER_WORDING),
     a company-formed ACH originator's own name aside. On a row that prints an ACH originator field
@@ -1502,12 +1517,16 @@ def credit_transfer_wording(row: str) -> re.Match[str] | None:
     ENTRY DESCR:BANK XFER') is still read, and a name with no company form ('SAMPLE BANK XFER', 'TRANSFER AND STORAGE
     CO', 'ONLINE TRANSFER') keeps its transfer reading. Any other row is read as _TRANSFER_WORDING reads it. The
     credit's readers use it (the channel, the transfer row, the bare row, the payer region); a debit's reader, the
-    token filters and Q6's entry-field refusal keep _TRANSFER_WORDING."""
+    token filters and Q6's entry-field refusal keep _TRANSFER_WORDING.
+
+    Review round 1: the field is Chase's label or Bank of America's DES with its layout after the entry
+    (_ORIGINATOR_NAME_FIELD), never a town's DES, and a name printing a transfer's phrase word (_TRANSFER_PHRASE_WORD:
+    'TRANSFER FROM CONTOSO LLC') is no company's own name: such a named transfer keeps its transfer reading (Q4, T13)."""
     found = _TRANSFER_WORDING.search(row)
-    if found is None or _ACH_ORIGINATOR_FIELD.search(row) is None:
+    if found is None or _ORIGINATOR_NAME_FIELD.search(row) is None:
         return found
     name = _ach_payer_region(row)
-    if not name or _TRANSFER_WORDING.search(name) is None:
+    if not name or _TRANSFER_WORDING.search(name) is None or _TRANSFER_PHRASE_WORD.search(name) is not None:
         return found
     if _COMPANY_FORM.search(" ".join(_TRANSFER_WORDING.sub(" ", name).split())) is None:
         return found

@@ -665,6 +665,19 @@ def test_r06_a_cut_name_s_entry_and_a_dividend_are_no_financing_root():
     assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE CREDIT UNIO CREDIT NONE") == "SAMPLE CREDIT UNIO"
 
 
+# R2-B09 review round 1 (R06, a recorded residual, §20): a lender whose own name ends in CREDIT, printed with no entry
+# word before the addenda's NONE, loses that word to the CREDIT NONE arm and is counted (0 corpus rows; the corpus's one
+# CREDIT NONE row prints a cut sixteen-character name, and the brief's fifteen-character supplier must read the same).
+# With an entry word printed it is still held, and a registry lender is read before T4.
+@pytest.mark.parametrize(("text", "expected"), [
+    ("ACH CREDIT SAMPLE AUTO CREDIT CREDIT NONE", FINANCING),
+    ("ACH CREDIT SAMPLE AUTO CREDIT PAYMENT NONE", FINANCING),
+    ("ACH CREDIT SAMPLE AUTO CREDIT NONE", ONE_OFF),
+])
+def test_r06_a_lender_name_ending_in_credit_before_none_is_a_recorded_residual(text, expected):
+    assert _tiers([(text, 1000.0)], holder=R06_HOLDER, bank="Sample Bank") == [expected]
+
+
 @pytest.mark.parametrize("text", ["PREAUTH CREDIT GST CANADA", "EDI EFT CCD CREDIT CCD GST CANADA",
                                   "AUTOMATED CREDIT RQ GST"])
 def test_r06_a_government_s_refund_form_after_a_label_is_still_read(text):
