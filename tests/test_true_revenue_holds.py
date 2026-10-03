@@ -303,9 +303,11 @@ def test_the_root_readers_strip_only_what_names_no_payer():
 
 # I18: the non-sale words read only as a purpose.
 
-def test_a_processor_s_recurring_disbursement_payouts_verify():
+def test_a_processor_s_recurring_disbursement_payouts_are_counted_never_verified():
+    # Audit round 2, R2-B12 (R17; amends B7's I18 pin, which verified them): a spared disbursement entry is counted and
+    # flagged as a refused purpose, as §8.6 counts an unregistered payer's SETTLEMENT; repetition proves nothing.
     rows = [(f"ACH DEPOSIT PSP 800-555-0100 DISBURSMNT {n} NORTHWIND SALON", 500.0 + n) for n in (1, 2, 3)]
-    assert _tiers(rows, holder="NORTHWIND SALON LLC") == [REPEATS] * 3
+    assert _tiers(rows, holder="NORTHWIND SALON LLC") == [REFUSED] * 3
 
 
 def test_a_one_off_or_a_loan_escrow_or_lender_disbursement_keeps_its_hold():
@@ -333,10 +335,57 @@ def test_an_owner_shaped_payer_s_recurring_disbursement_keeps_its_hold(payer):
     assert _tiers(rows, holder="NORTHWIND GRILL LLC") == [NON_SALE] * 2
 
 
-def test_a_processor_s_recurring_disbursement_entry_still_verifies():
+def test_a_processor_s_recurring_disbursement_entry_is_counted_never_verified():
+    # Audit round 2, R2-B12 (R17; amends B7's I18 pin, which verified it).
     rows = [(f"FABRIKAM MERCHANT SOLUTIONS DES:DISBURSEMENT ID:{n} INDN:NORTHWIND GRILL LLC CO ID:1 CCD", 5000.0 + n)
             for n in (1, 2)]
-    assert _tiers(rows, holder="NORTHWIND GRILL LLC") == [REPEATS] * 2
+    assert _tiers(rows, holder="NORTHWIND GRILL LLC") == [REFUSED] * 2
+
+
+# Audit round 2, R2-B12 (R17): a spared disbursement entry is counted, never verified, whoever repeats it; a retirement
+# account's disbursement is never spared.
+
+def _grill(payer, entry, times=2):
+    return [(f"{payer} DES:{entry} ID:{n} INDN:NORTHWIND GRILL LLC CO ID:1 CCD", 5000.0 + n) for n in range(1, times + 1)]
+
+
+@pytest.mark.parametrize(("payer", "entry", "times", "expected"), [
+    ("CONTOSO ADVISORS", "DISBURSEMT", 2, REFUSED),
+    ("SAMPLE 529 PLAN", "DISBURSEMT", 2, REFUSED),
+    ("SAMPLE 401K PLAN", "DISBURSEMT", 2, NON_SALE),
+    ("SAMPLE IRA CUSTODIAN", "DISBURSEMT", 2, NON_SALE),
+    ("SAMPLE ROTH SERVICES", "DISBURSEMENT", 2, NON_SALE),
+    # Controls: a payout entry verifies; a bare SETTLEMENT is counted (§8.6); a one-off disbursement, an owner-shaped
+    # or escrow payer's, a lender's and a loan's keep their readings.
+    ("FABRIKAM MERCHANT SOLUTIONS", "PAYOUT", 2, REPEATS),
+    ("CONTOSO PAYMENTS", "SETTLEMENT", 2, REFUSED),
+    ("FABRIKAM MERCHANT SOLUTIONS", "DISBURSEMENT", 1, NON_SALE),
+    ("CONTOSO HOLDINGS", "DISBURSEMENT", 2, NON_SALE),
+    ("CONTOSO ESCROW", "DISBURSEMENT", 2, NON_SALE),
+    ("FABRIKAM FUNDING", "DISBURSEMENT", 2, FINANCING),
+])
+def test_r17_a_spared_disbursement_entry_is_counted_never_verified(payer, entry, times, expected):
+    assert _tiers(_grill(payer, entry, times), holder="NORTHWIND GRILL LLC") == [expected] * times
+
+
+def test_r17_a_loan_disbursement_stays_non_revenue():
+    records = _records(_grill("CONTOSO", "LOAN DISBURS"), holder="NORTHWIND GRILL LLC")
+    assert [record.revenue_tier for record in records] == ["non_revenue", "non_revenue"]
+
+
+@pytest.mark.parametrize(("payer", "entry", "fact"), [
+    ("FABRIKAM MERCHANT SOLUTIONS", "DISBURSEMENT", True),
+    ("FABRIKAM MERCHANT SOLUTIONS", "DISBURSEMENT ACCOUNT", False),
+    ("FABRIKAM MERCHANT SOLUTIONS", "PAYOUT", False),
+    ("SAMPLE 401K PLAN", "DISBURSEMT", False),
+    ("CONTOSO HOLDINGS", "DISBURSEMENT", False),
+    ("CONTOSO ESCROW", "DISBURSEMENT", False),
+    ("CONTOSO", "LOAN DISBURS", False),
+])
+def test_r17_the_census_reads_the_spared_disbursement_fact(payer, entry, fact):
+    record = _records(_grill(payer, entry, 1), holder="NORTHWIND GRILL LLC")[0]
+    facts = tr.guard_facts(record, revenue_text(record.normalized_description))
+    assert facts["spared_disbursement"] is fact
 
 
 def test_the_payer_s_own_disbursement_account_is_no_purpose():
@@ -839,3 +888,76 @@ def test_r40_the_strip_names_are_the_holder_s_business_names(account_name, holde
         transactions=[Transaction(date="2054-03-02", description="CONTOSO DINER", amount=100.0, direction="credit")],
     ))
     assert tr._holder_strip_names(record) == names
+
+
+# Audit round 2, R2-B12 (R42): RETIRE... inside a payer's own name is no personal income when an operator's word follows
+# it (a retirement residence, community, village or home paying its vendor), or on TD Canada Trust when it ends the
+# fifteen-character payer field TD cuts before an electronic-payment CPA code; a pension, an annuity, an entry or
+# purpose word, a recordkeeper's or advisor's name and every other bank keep the hold.
+
+TD = "TD Canada Trust"
+ONE_OFF_CREDIT = ("counted_flagged", "named_payer_one_off")
+_R42_BOFA = "{payer} DES:{entry} ID:1234 INDN:NORTHWIND BAKERY LLC CO ID:1234567890 CCD"
+_R42_CHASE = ("ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE:540301 CO ENTRY DESCR:PAYMENT SEC:CCD "
+              "TRACE#:123456789012345 EED:540301 IND ID:1234 IND NAME:NORTHWIND BAKERY LLC TRN: 1234567890TC")
+
+
+def _r42(texts, bank):
+    return _tiers([(text, 1500.0) for text in texts], bank=bank)
+
+
+@pytest.mark.parametrize(("texts", "bank", "expected"), [
+    (["CONTOSO RETIREM MSP"], TD, [ONE_OFF_CREDIT]),
+    (["CONTOSO RETIREM MSP"] * 2, TD, [REPEATS, REPEATS]),
+    (["SAMPLE RETIREME AP"], TD, [ONE_OFF_CREDIT]),
+    ([_R42_BOFA.format(payer="SAMPLE RETIREMENT COMMUNITY LLC", entry="VENDOR")], "Bank of America", [COMPANY]),
+    ([_R42_CHASE.format(payer="CONTOSO RETIREMENT VILLAGE CORP")], "Chase", [COMPANY]),
+    ([_R42_BOFA.format(payer="FABRIKAM RETIREMENT HOMES", entry="PAYMENT")], "Bank of America", [ONE_OFF_CREDIT]),
+])
+def test_r42_a_retirement_operator_s_or_a_cut_payer_s_name_is_no_personal_income(texts, bank, expected):
+    assert _r42(texts, bank) == expected
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("ABC RETIREMENT MSP", TD),
+    ("CONTOSO RETIREM", TD),
+    ("CONTOSO RETIREM MSP", "Bank of America"),
+    ("CONTOSO PENSION MSP", TD),
+    ("FABRIKAM ANNUITY SERVICES LTD MSP", TD),
+    (_R42_BOFA.format(payer="CONTOSO RETIREMENT SERVICES LLC", entry="PAYMENT"), "Bank of America"),
+    (_R42_BOFA.format(payer="FABRIKAM STATE RETIREMENT SYS", entry="ANNUITY"), "Bank of America"),
+    (_R42_BOFA.format(payer="CONTOSO RETIREMENT ADVISORS INC", entry="INVOICE"), "Bank of America"),
+    (_R42_BOFA.format(payer="CONTOSO INC", entry="RETIREMENT HOME"), "Bank of America"),
+    (_R42_BOFA.format(payer="CONTOSO INC", entry="RETIREMENT"), "Bank of America"),
+    ("SSA TREAS 310 DES:XXSOC SEC ID:123456789A INDN:PAT SAMPLE CO ID:1234567890 PPD", "Bank of America"),
+])
+def test_r42_controls_keep_the_personal_income_hold(text, bank):
+    assert _r42([text], bank) == [PERSONAL]
+
+
+def test_r42_the_pay_code_and_the_holder_s_own_name_keep_their_readings():
+    assert _r42(["CONTOSO RETIREM PAY"], TD) == [PAY]
+    text = "FABRIKAM SUPPLY INC DES:PAYMENT ID:1234 INDN:SAMPLE RETIREMENT HOMES LLC CO ID:1234567890 CCD"
+    assert _tiers([(text, 1500.0)], holder="SAMPLE RETIREMENT HOMES LLC", bank="Bank of America") == [COMPANY]
+
+
+@pytest.mark.parametrize(("text", "bank", "fact"), [
+    ("CONTOSO RETIREM MSP", TD, False),
+    ("SAMPLE RETIREME AP", TD, False),
+    (_R42_BOFA.format(payer="SAMPLE RETIREMENT COMMUNITY LLC", entry="VENDOR"), "Bank of America", False),
+    ("ABC RETIREMENT MSP", TD, True),
+    ("CONTOSO RETIREM MSP", "Bank of America", True),
+    ("CONTOSO PENSION MSP", TD, True),
+    (_R42_BOFA.format(payer="CONTOSO RETIREMENT SERVICES LLC", entry="PAYMENT"), "Bank of America", True),
+    (_R42_BOFA.format(payer="CONTOSO INC", entry="RETIREMENT HOME"), "Bank of America", True),
+])
+def test_r42_g11_reads_the_hold_s_own_spare(text, bank, fact):
+    [record] = _records([(text, 1500.0)], bank=bank)
+    assert tr.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
+
+
+def test_r42_the_td_payer_field_s_width_is_fifteen_characters():
+    assert tr._TD_PAYER_WIDTH == 15
+    # Q7 reads no bank, so TD's cut never spares a word there (fail closed); an operator's word still does.
+    assert tr._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP")
+    assert not tr._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP", TD)

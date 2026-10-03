@@ -2117,8 +2117,10 @@ SECTION_15_DEFERRED_PAYERS: str = (
     # BigIron, GovDeals and Proxibid, Carvana's payout to a car's seller, CarMax (never its auto-finance arm, CarMax
     # Auto Finance, an auto lender paying dealers, §8.7), Peddle and Vroom. Copart and IAA (Insurance Auto Auctions)
     # also pay their towing and transport vendors, so only their seller payments (a seller or consignor word) are read.
-    r"|(?<![A-Z])(?:RITCHIE BROS|RB GLOBAL|IRON ?PLANET|PURPLE WAVE|BIG ?IRON|GOV ?DEALS|PROXIBID|CARVANA PAYOUT"
-    r"|CARMAX(?! AUTO\b)|PEDDLE|VROOM)\b"
+    # Audit round 2, R2-B12 (R37): BigIron as it prints its own name, glued (BIGIRON) or spaced before AUCTION or
+    # AUCTIONS (bigiron.com, BigIron Auctions); a spaced 'BIG IRON <name>' is another business ('BIG IRON TRUCKING LLC').
+    r"|(?<![A-Z])(?:RITCHIE BROS|RB GLOBAL|IRON ?PLANET|PURPLE WAVE|BIGIRON|BIG IRON AUCTIONS?|GOV ?DEALS|PROXIBID"
+    r"|CARVANA PAYOUT|CARMAX(?! AUTO\b)|PEDDLE|VROOM)\b"
     r"|(?:(?<![A-Z])(?:COPART|INSURANCE AUTO AUCTIONS?)|\bIAA)\b(?=.*(?<![A-Z])(?:SELLER|CONSIGN\w*)\b)"
 )
 

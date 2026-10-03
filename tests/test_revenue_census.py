@@ -2898,3 +2898,70 @@ def test_r2_b09_the_own_transfer_fact_reads_the_pass_s_transfer_wording(text, ow
         Transaction(date="2054-03-02", description=text, amount=900.0, direction="credit")])
     [credit] = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
     assert credit["facts"]["own_transfer"] is own_transfer
+
+
+# Audit round 2, R2-B12 (R17): a Q6 repeat verified through the spared disbursement entry (the pass's own
+# spared_disbursement fact) is counted as a refused purpose, a declared demotion.
+DISBURSEMENT_ROW = "ACH DEPOSIT PSP ### ### #### DISBURSMNT # NORTHWIND SALON"
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    (_q56("named_payer_repeats", DISBURSEMENT_ROW),
+     _after56("unidentified_posted_credit", DISBURSEMENT_ROW, tier="counted_flagged",
+              reason="named_payer_purpose_refused", spared_disbursement=True), "q6_spared_disbursement_refused"),
+    # Without the fact, or with another outcome, the cause is not declared.
+    (_q56("named_payer_repeats", DISBURSEMENT_ROW),
+     _after56("unidentified_posted_credit", DISBURSEMENT_ROW, tier="counted_flagged",
+              reason="named_payer_purpose_refused"), "undeclared"),
+    (_q56("named_payer_repeats", DISBURSEMENT_ROW),
+     _after56("unidentified_posted_credit", DISBURSEMENT_ROW, tier="counted_flagged", reason="named_payer_one_off",
+              spared_disbursement=True), "undeclared"),
+    (_step_11(DISBURSEMENT_ROW),
+     _after56("unidentified_posted_credit", DISBURSEMENT_ROW, tier="counted_flagged",
+              reason="named_payer_purpose_refused", spared_disbursement=True), "undeclared"),
+])
+def test_r2_b12_a_spared_disbursement_s_repeat_is_a_declared_demotion(prior, later, cause):
+    causes, _ = _cause56(prior, later)
+    assert causes == {cause: 1}
+    assert cause == "undeclared" or cause in census.DECLARED_DEMOTIONS
+
+
+def test_r2_b12_the_snapshot_records_the_spared_disbursement_fact():
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="Bank of America", account_name="NORTHWIND GRILL LLC", transactions=[
+        Transaction(date=f"2054-03-0{n}", description=f"{payer} DES:DISBURSEMENT ID:{n} INDN:NORTHWIND GRILL LLC CO ID:1"
+                    " CCD", amount=5000.0 + n, direction="credit")
+        for n, payer in ((2, "FABRIKAM MERCHANT SOLUTIONS"), (3, "FABRIKAM MERCHANT SOLUTIONS"), (4, "SAMPLE 401K PLAN"))])
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert [credit["facts"]["spared_disbursement"] for credit in credits] == [True, True, False]
+    assert [(credit["tier"], credit["reason"]) for credit in credits] == [
+        ("counted_flagged", "named_payer_purpose_refused"), ("counted_flagged", "named_payer_purpose_refused"),
+        ("excluded_pending_review", "non_sale_purpose")]
+
+
+@pytest.mark.parametrize(("text", "letter"), [
+    # Audit round 2, R2-B12 (R36): the gambling class reads the unlisted sportsbooks and the generic shapes (a lottery's
+    # prize, a sportsbook's, a casino's or an online gaming payer's withdrawal or payout), never a vendor payment or a
+    # lottery's retailer settlement.
+    ("HARD ROCK DIGITAL INC DES WITHDRAWAL ID 1", "F"),
+    ("VISA MONEY TRANSFER C HARDROCKBET 12345678901234567890 VISA DIRECT FL", "F"),
+    ("VISA MONEY TRANSFER C BETPARX 12345678901234567890 VISA DIRECT PA", "F"),
+    ("BALLY BET DES WITHDRAWAL ID 1", "F"),
+    ("POINTSBET DES WITHDRAWAL ID 1", "F"),
+    ("GOLDEN NUGGET ONLINE GAMING DES WITHDRAWAL ID 1", "F"),
+    ("FLIFF INC DES REDEMPTION ID 1", "F"),
+    ("CONTOSO STATE LOTTERY DES PRIZE PMT ID 1", "F"),
+    ("FABRIKAM CASINO LLC DES PAYOUT ID 1", "F"),
+    ("FABRIKAM ONLINE GAMING DES CASHOUT ID 1", "F"),
+    ("FABRIKAM SPORTS BOOK DES WDRL ID 1", "F"),
+    ("CONTOSO LOTTERY DES RETAILER SETTLEMENT ID 1", None),
+    ("CONTOSO STATE LOTTERY DES PAYMENT ID 1", None),
+    ("FABRIKAM CASINO RESORT LLC DES PAYMENT ID 1", None),
+    ("HARD ROCK DIGITAL INC DES VENDOR PAY ID 1", None),
+    ("FABRIKAM CASINO DES AP PAYMENT ID 1", None),
+])
+def test_r2_b12_the_sweep_reads_the_new_sportsbooks_and_the_generic_gambling_shapes(text, letter):
+    sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
+    assert {name: row["rows"] for name, row in sweep["classes"].items() if row["rows"]} == (
+        {letter: 1} if letter else {})

@@ -198,6 +198,9 @@ DECLARED_DEMOTIONS = (
     # Audit round 2, R2-B04 (R41): the holder's own push (its originator is its own receiver) that an earlier rule
     # verified, overruled by pass 7 and held as the holder's name.
     "holder_own_push_never_verified",
+    # Audit round 2, R2-B12 (R17): a Q6 repeat whose recurring disbursement entry B7's I18 spare dropped (the pass's own
+    # spared_disbursement fact), counted as a refused purpose: it counts, never proves (§8.6).
+    "q6_spared_disbursement_refused",
 )
 #: Audit round 2, R2-B04 (R41): the method pass 7 gives the holder's own push it overrules
 #: (analysis/true_revenue.py _holder_never_verified, copied: the census reads other checkouts).
@@ -1507,6 +1510,15 @@ NON_REVENUE_IN_TRUE_CLASSES = (
         # Standard G3 (P9) and audit I28: sportsbooks and prediction markets paying out, not paying a vendor.
         ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE)\b).*"
                  r"\b(?:DRAFTKINGS|FANDUEL|KALSHI|PRIZEPICKS|BETMGM|POLYMARKET|SPORTSBOOK)\b"),
+        # Audit round 2, R2-B12 (R36): the licensed sportsbooks the pass's list adds (Hard Rock Digital, BetParx, Bally
+        # Bet, PointsBet, Golden Nugget Online Gaming, Fliff), a lottery's prize (never beside a retailer's settlement
+        # word) and a sportsbook's, a casino's or an online gaming payer's withdrawal or payout.
+        ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE)\b).*"
+                 r"\b(?:HARD ?ROCK ?(?:BET|DIGITAL)|BET ?PARX|BALLY ?BET|POINTS ?BET|GOLDEN NUGGET ONLINE|FLIFF)\b"),
+        ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE|SETTLEMENT|SETTLMT|SWEEP|COMMISSIONS?|RETAILER)\b)"
+                 r"(?=.*\bLOTTERY\b).*\b(?:PRIZES?|WINNINGS?|JACKPOTS?)\b"),
+        ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE)\b).*\b(?:SPORTS ?BOOK|CASINO|BETTING|ONLINE GAMING)\b"
+                 r".*\b(?:WITHDRAWALS?|WITHDRAW|WDRL|PAYOUTS?|CASH ?OUT)\b"),
     )),
     ("G", "government money not earned", (
         # Task GOV (the owner's ruling of 2026-09-30): personal benefits (class B), tax refunds (class C), grants and
@@ -2197,6 +2209,13 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         # (b) Q6c refuses a premium-coded insurer entry as proof (A3-H): counted as a refused payer.
         if after.get("reason") == "named_payer_purpose_refused" and facts.get("premium_coded"):
             return "premium_coded_insurer_entry"
+        # (b) audit round 2, R2-B12 (R17): a recurring disbursement entry the I18 spare dropped (the pass's own
+        # spared_disbursement fact) counts, never proves (§8.6): counted as a refused purpose.
+        if (
+            after.get("tier") == "counted_flagged" and after.get("reason") == "named_payer_purpose_refused"
+            and facts.get("spared_disbursement")
+        ):
+            return "q6_spared_disbursement_refused"
         # (b) a §15 deferred source: counted, never verified by Q5 or Q6 (OQ4).
         if after.get("reason") == "named_payer_purpose_refused" and facts.get("deferred_source"):
             return "q5_q6_deferred_source"

@@ -8,8 +8,10 @@ payouts are §15's deferred sources, counted and never verified (I45, OQ4); stat
 row is cut before classification (I46), and the plural TRANSFERS is transfer wording (I46, Q2); a glued Canada Carbon
 Rebate is held (I56, GOV); and the GOV follow-ups: the IRS's interest on a refund is non_revenue, RBC's cut provincial
 payment code is a personal benefit (class B). Audit round 2, R2-B10 (R21): Zions' legal-name footer before a page
-counter and Navy Federal's page header are furniture too, and the cut's recorded residual is pinned. Fabricated rows only, in the banks' printed formats; public names only
-where a bank prints its own or a registry lists them (sportsbooks, prediction markets, crypto exchanges, brokerages,
+counter and Navy Federal's page header are furniture too, and the cut's recorded residual is pinned. Audit round 2, R2-B12 (R37, R36): the B8 readers spare a customer's trade
+name, an accounts-payable or vendor DISB and a processor's or a carrier's settlement services, and the gambling reader
+reads a lottery's prize entry, the unlisted sportsbooks and a betting payer's withdrawal or payout. Fabricated rows
+only, in the banks' printed formats; public names only where a bank prints its own or a registry lists them (sportsbooks, prediction markets, crypto exchanges, brokerages,
 claims administrators, auctioneers and car buyers, each public)."""
 from __future__ import annotations
 
@@ -617,3 +619,236 @@ def test_the_hold_rule_fact_names_the_new_readings(text, rule):
     record = next(record for record in _records([(text, 900.0)]) if record.amount > 0)
     revenue = revenue_text(record.normalized_description)
     assert tr.hold_rule(record, revenue, payer_region(revenue), entry_fields(revenue)) == rule
+
+
+# Audit round 2, R2-B12 (R37): B8's readers read a legal, gambling or owner-money word as the payer's or the purpose's,
+# never inside a customer's trade name (a company form and a name word of its own in the payer region, or a name word
+# right after it on the purpose); a processor's or a carrier's '<word> SETTLEMENT SERVICES' is no title firm; an
+# accounts-payable or vendor DISB is no owner money; BigIron's deferral reads its own spellings only.
+
+#: Chase's incoming-ACH layout, with the holder in the receiver field.
+CHASE = ("ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:{entry}SEC:CCD "
+         "TRACE#:123456789012345 EED:540102 IND ID:12345 IND NAME:NORTHWIND BAKERY LLC TRN: 1234567890TC")
+
+
+def _chase(payer: str, entry: str) -> str:
+    return CHASE.format(payer=payer, entry=entry)
+
+
+def _twice(payer: str, entry: str, amount: float = 900.0):
+    return [(_bofa(payer, entry, "1234567"), amount), (_bofa(payer, entry, "7654321"), amount + 1)]
+
+
+@pytest.mark.parametrize(("payer", "entry"), [
+    ("CONTOSO LITIGATION SUPPORT LLC", "PAYMENT"),
+    ("FABRIKAM DATA BREACH RESPONSE LLC", "PAYMENT"),
+    ("VERITA HEALTH LLC", "PAYMENT"),
+    ("EPIQ PLUMBING INC", "PAYMENT"),
+    ("JACKPOT DIGITAL INC", "PAYMENT"),
+    ("FABRIKAM WINNINGS LLC", "PAYMENT"),
+    ("KRAKEN ROBOTICS INC", "INV 1234"),
+    ("PAXOS CLEANING LLC", "PAYMENT"),
+    ("CONTOSO UPHOLD SERVICES LLC", "PAYMENT"),
+    ("FABRIKAM FAMILY DENTAL", "AP DISB"),
+    ("CONTOSO HOLDINGS INC", "VENDOR DISB"),
+    ("BIG IRON TRUCKING LLC", "PAYMENT"),
+])
+def test_r37_a_customer_s_trade_name_or_vendor_disb_holds_nothing(payer, entry):
+    assert _tiers(_twice(payer, entry), bank="Bank of America") == [REPEATS, REPEATS]
+
+
+@pytest.mark.parametrize("payer", ["CONTOSO CARD SETTLEMENT SERVICES", "FABRIKAM FREIGHT SETTLEMENT SERVICES LLC"])
+def test_r37_a_processor_s_or_a_carrier_s_settlement_services_is_no_title_firm(payer):
+    entry = "DEPOSIT" if "CARD" in payer else "PAYMENT"
+    assert _tiers(_twice(payer, entry), bank="Bank of America") == [REFUSED, REFUSED]
+
+
+def test_r37_a_product_named_on_a_person_to_person_memo_holds_nothing():
+    assert _one("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT CANDLES CONF 1234", 180.0, bank="Bank of America") == P2P
+
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    (_twice("SAMPLE CASINO", "JACKPOT"), "Bank of America"),
+    (_twice("FABRIKAM JACKPOT CASINO", "PAYOUT"), "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR YOUR WINNINGS CONF 1234", 900.0)], "Bank of America"),
+    (_twice("EPIQ SYSTEMS INC", "PAYMENT"), "Bank of America"),
+    (_twice("VERITA GLOBAL", "PAYMENT"), "Bank of America"),
+    (_twice("FABRIKAM INC", "LITIGATION"), "Bank of America"),
+    (_twice("KRAKEN", "WITHDRAWAL"), "Bank of America"),
+    (_twice("UPHOLD HQ INC", "WITHDRAWAL"), "Bank of America"),
+    (_twice("PAXOS TRUST CO", "WITHDRAWAL"), "Bank of America"),
+    ([("WT FED 01234 SAMPLE BANK ORG FABRIKAM SETTLEMENT SERVICES INC SRF 2054010200000 TRN 540102000001 RFB AB12",
+       4000.0)], "Wells Fargo"),
+    (_twice("CONTOSO CLOSING SERVICES LLC", "PAYMENT"), "Bank of America"),
+    (_twice("CONTOSO HOLDINGS LLC", "DISB"), "Bank of America"),
+    (_twice("CONTOSO HOLDINGS INC", "CASH DISB"), "Bank of America"),
+    (_twice("FABRIKAM FAMILY DENTAL", "DISBURSEMENT"), "Bank of America"),
+])
+def test_r37_controls_keep_their_holds(rows, bank):
+    assert _tiers(rows, bank=bank) == [NON_SALE] * len(rows)
+
+
+def test_r37_an_equipment_auction_s_seller_payout_is_still_never_verified():
+    for payer in ("BIG IRON AUCTION CO", "BIG IRON AUCTIONS LLC", "BIGIRON AUCTIONS LLC"):
+        assert _tiers(_twice(payer, "PAYMENT", 15000.0), bank="Bank of America") == [REFUSED, REFUSED], payer
+    deferred = tr._SECTION_15_DEFERRED_PAYERS
+    assert deferred.pattern == registry.SECTION_15_DEFERRED_PAYERS
+    for text in ("BIG IRON AUCTION CO", "BIG IRON AUCTIONS", "BIGIRON", "BIGIRON AUCTIONS LLC"):
+        assert deferred.search(text), text
+    for text in ("BIG IRON TRUCKING LLC", "BIG IRON FABRIKAM LLC", "FABRIKAM BIG IRONSAMPLE"):
+        assert not deferred.search(text), text
+
+
+@pytest.mark.parametrize(("text", "words", "keep", "trade"), [
+    # (a) in a payer region that prints a company form and a name word of its own.
+    (_bofa("CONTOSO LITIGATION SUPPORT LLC", "PAYMENT"), "LEGAL", "LEGAL", True),
+    (_bofa("EPIQ SYSTEMS INC", "PAYMENT"), "LEGAL", "LEGAL", False),
+    (_bofa("VERITA GLOBAL", "PAYMENT"), "LEGAL", "LEGAL", False),
+    (_bofa("UPHOLD HQ INC", "WITHDRAWAL"), "PLATFORM", "PLATFORM", False),
+    (_bofa("PAXOS TRUST CO", "WITHDRAWAL"), "PLATFORM", "PLATFORM", False),
+    (_bofa("THE KRAKEN USA LLC", "WITHDRAWAL"), "PLATFORM", "PLATFORM", False),
+    (_bofa("KRAKEN 123 LLC", "WITHDRAWAL"), "PLATFORM", "PLATFORM", False),
+    (_bofa("PAXOS CLEANING LLC", "PAYMENT"), "PLATFORM", "PLATFORM", True),
+    # (b) on the purpose, with a name word right after it.
+    ("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT CANDLES CONF 1234", "GAMBLING", "GAMBLING", True),
+    ("ZELLE PAYMENT FROM A SAMPLE FOR YOUR WINNINGS CONF 1234", "GAMBLING", "GAMBLING", False),
+    ("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT PAYOUT CONF 1234", "GAMBLING", "GAMBLING", False),
+    ("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT 1234", "GAMBLING", "GAMBLING", False),
+    (_bofa("FABRIKAM INC", "LITIGATION"), "LEGAL", "LEGAL", False),
+    (_bofa("FABRIKAM INC", "LITIGATION SUPPORT"), "LEGAL", "LEGAL", True),
+    (_bofa("FABRIKAM INC", "LITIGATION FUNDS"), "LEGAL", "LEGAL", False),
+    # Anywhere else it holds: a payer region with no company form, or a second occurrence outside the name.
+    (_bofa("CONTOSO LITIGATION SUPPORT", "PAYMENT"), "LEGAL", "LEGAL", False),
+    (_bofa("CONTOSO LITIGATION SUPPORT LLC", "LITIGATION"), "LEGAL", "LEGAL", False),
+])
+def test_r37_the_trade_name_reader(text, words, keep, trade):
+    from analysis.transaction_classifier import payer_region
+
+    tables = {
+        "LEGAL": (tr._LEGAL_NAME_WORDS, tr._LEGAL_NAME_KEEP),
+        "GAMBLING": (tr._GAMBLING_NAME_WORDS, tr._GAMBLING_CONTEXT),
+        "PLATFORM": (tr._PLATFORM_NAME_WORDS, tr._PLATFORM_NAME_KEEP),
+    }
+    revenue = revenue_text(normalize_transaction_description(text))
+    row = tr._hold_text(revenue)
+    assert tr._trade_name(revenue, row, payer_region(revenue), tables[words][0], tables[keep][1]) is trade
+
+
+def test_r37_the_title_firm_s_settlement_services_arm_spares_a_processor_s_and_a_carrier_s_word():
+    title = tr._TITLE_FIRM
+    for name in ("FABRIKAM SETTLEMENT SERVICES INC", "CONTOSO CLOSING SERVICES LLC", "CONTOSO CLOSING SERVICE",
+                 "SAMPLE TITLE AND ESCROW", "FABRIKAM SETTLEMENT SERVICE"):
+        assert title.search(name), name
+    for name in ("CONTOSO CARD SETTLEMENT SERVICES", "FABRIKAM FREIGHT SETTLEMENT SERVICES LLC",
+                 "CONTOSO MERCHANT SETTLEMENT SERVICES", "CONTOSO PAYMENT SETTLEMENT SERVICES",
+                 "CONTOSO TRANSPORTATION SETTLEMENT SERVICES", "CONTOSO DEBT SETTLEMENT SERVICES",
+                 "CONTOSO CLAIMS SETTLEMENT SERVICES"):
+        assert not title.search(name), name
+
+
+@pytest.mark.parametrize(("text", "rule"), [
+    (_bofa("KRAKEN", "WITHDRAWAL"), "owner_money"),
+    (_bofa("PAXOS CLEANING LLC", "PAYMENT"), None),
+    (_bofa("BITSTAMP USA INC", "INV 1234"), None),
+    # The classifier's savings and investing originators are read as before, an invoice word or not.
+    (_bofa("COINBASE INC", "INV 1234"), "owner_money"),
+    (_bofa("JACKPOT DIGITAL INC", "PAYMENT"), None),
+    (_bofa("SAMPLE CASINO", "JACKPOT"), "gambling_payout"),
+    (_bofa("VERITA HEALTH LLC", "PAYMENT"), None),
+    (_bofa("VERITA GLOBAL", "PAYMENT"), "legal_settlement"),
+    (_bofa("CONTOSO HOLDINGS INC", "VENDOR DISB"), None),
+    (_bofa("CONTOSO HOLDINGS INC", "CASH DISB"), "owner_disbursement"),
+    (_bofa("CONTOSO CARD SETTLEMENT SERVICES", "DEPOSIT"), None),
+])
+def test_r37_the_hold_rule_fact_reads_the_guarded_readers(text, rule):
+    from analysis.transaction_classifier import entry_fields, payer_region
+
+    record = next(record for record in _records([(text, 900.0)], bank="Bank of America") if record.amount > 0)
+    revenue = revenue_text(record.normalized_description)
+    assert tr.hold_rule(record, revenue, payer_region(revenue), entry_fields(revenue)) == rule
+
+
+def test_r37_the_owner_money_platforms_table_is_unchanged():
+    assert tr._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
+    for name in ("KRAKEN", "UPHOLD", "PAXOS"):
+        assert tr._PLATFORM_NAME_WORDS.fullmatch(name) and tr._OWNER_MONEY_PLATFORMS.fullmatch(name), name
+
+
+# Audit round 2, R2-B12 (R36): the gambling reader reads a lottery's prize entry, the unlisted sportsbooks and a
+# sportsbook's, a casino's or an online gaming payer's withdrawal or payout; the lottery's retailer spare reads the
+# entry, never the agency's name.
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    ([(_bofa("CONTOSO STATE LOTTERY", "PRIZE PMT"), 5000.0)], "Bank of America"),
+    (_twice("CONTOSO STATE LOTTERY", "PRIZE PMT", 5000.0), "Bank of America"),
+    ([(_chase("CONTOSO STATE LOTTERY", "PRIZE PMT"), 5000.0)], "Chase"),
+    (_twice("CONTOSO LOTTERY CORPORATION", "PRIZE", 5000.0), "Bank of America"),
+    (_twice("CONTOSO LOTTERY COMMISSION", "PRIZE PMT", 5000.0), "Bank of America"),
+    ([(_bofa("CONTOSO LOTTERY COMMISSION", "WINNINGS"), 5000.0)], "Bank of America"),
+    ([(_bofa("HARD ROCK DIGITAL INC", "WITHDRAWAL"), 900.0)], "Bank of America"),
+    (_twice("HARD ROCK DIGITAL INC", "WITHDRAWAL"), "Bank of America"),
+    (_twice("BETPARX", "WITHDRAWAL"), "Bank of America"),
+    (_twice("BALLY BET", "WITHDRAWAL"), "Bank of America"),
+    (_twice("POINTSBET", "WITHDRAWAL"), "Bank of America"),
+    ([("VISA MONEY TRANSFER C HARDROCKBET 12345678901234567890 VISA DIRECT FL", 900.0)], "PNC Bank"),
+    ([("VISA MONEY TRANSFER C BETPARX 12345678901234567890 VISA DIRECT PA", 900.0)], "PNC Bank"),
+    (_twice("FABRIKAM SPORTSBOOK LLC", "WITHDRAWAL"), "Bank of America"),
+    (_twice("FABRIKAM CASINO LLC", "PAYOUT"), "Bank of America"),
+    (_twice("FABRIKAM ONLINE GAMING", "CASHOUT"), "Bank of America"),
+])
+def test_r36_a_lottery_prize_or_a_betting_payer_s_withdrawal_is_held(rows, bank):
+    assert _tiers(rows, bank=bank) == [NON_SALE] * len(rows)
+
+
+@pytest.mark.parametrize(("rows", "expected"), [
+    # A lottery or a comptroller paying with no prize word, and a retailer's settlement or commission entry.
+    (_twice("CONTOSO STATE LOTTERY", "PAYMENT", 5000.0), [REPEATS, REPEATS]),
+    (_twice("CONTOSO STATE COMPTROLLER", "LOTTERY", 5000.0), [REPEATS, REPEATS]),
+    ([(_bofa("CONTOSO LOTTERY", "RETAILER SETTLEMENT"), 5000.0)], [REFUSED]),
+    ([(_bofa("CONTOSO LOTTERY COMMISSION", "COMMISSION"), 5000.0)], [REFUSED]),
+    ([(_bofa("CONTOSO STATE LOTTERY", "PRIZE REIMB"), 5000.0)], [NON_SALE]),
+    # A casino company's own payments and a casino's payables.
+    (_twice("FABRIKAM CASINO RESORT LLC", "PAYMENT"), [REPEATS, REPEATS]),
+    ([(_bofa("FABRIKAM CASINO RESORT LLC", "AP PAYMENT"), 900.0)], [REMITTANCE]),
+    ([(_bofa("FABRIKAM CASINO", "VENDOR PAY"), 900.0)], [REMITTANCE]),
+    (_twice("DRAFTKINGS INC", "WITHDRAWAL"), [NON_SALE, NON_SALE]),
+    (_twice("SAMPLE GAMING AND LIQUOR", "ACCOUNTS PAYABLE"), [REMITTANCE, REMITTANCE]),
+    # A name that only holds a gambling or a prize word.
+    (_twice("FABRIKAM SPORTS BAR", "PAYMENT"), [REPEATS, REPEATS]),
+    (_twice("FABRIKAM PRIZE FOODS INC", "PAYMENT"), [REPEATS, REPEATS]),
+    (_twice("SAMPLE BETTING SUPPLY INC", "PAYMENT"), [REPEATS, REPEATS]),
+])
+def test_r36_controls_keep_their_readings(rows, expected):
+    assert _tiers(rows, bank="Bank of America") == expected
+
+
+@pytest.mark.parametrize(("text", "held"), [
+    (_bofa("CONTOSO STATE LOTTERY", "PRIZE PMT"), True),
+    (_chase("CONTOSO STATE LOTTERY", "PRIZE PMT"), True),
+    (_bofa("CONTOSO LOTTERY COMMISSION", "WINNINGS"), True),
+    (_bofa("CONTOSO LOTTERY COMMISSION", "COMMISSION"), False),
+    (_bofa("STATE LOTTERY", "RETAILER WINNINGS SETTLEMENT"), False),
+    (_chase("CONTOSO LOTTERY", "SWEEP"), False),
+    # With no entry field the whole row is the retailer spare's scope.
+    ("ACH CREDIT STATE LOTTERY PRIZE PAYMENT 12345", True),
+    ("ACH CREDIT STATE LOTTERY COMMISSION 12345", False),
+    (_bofa("GOLDEN NUGGET ONLINE GAMING", "WITHDRAWAL"), True),
+    (_bofa("FLIFF INC", "REDEMPTION"), True),
+    (_bofa("FABRIKAM CASINO RESORT LLC", "PAYMENT"), False),
+    (_bofa("FABRIKAM CASINO", "WITHDRAWAL"), True),
+    (_bofa("FABRIKAM SPORTS BOOK", "WDRL"), True),
+    (_bofa("FABRIKAM ONLINE GAMING", "CASH OUT"), True),
+    (_bofa("FABRIKAM SUPPLY INC", "CASINO PAYOUT"), False),
+    (_bofa("FABRIKAM CASINO", "VENDOR PAYOUT"), False),
+])
+def test_r36_the_gambling_reader(text, held):
+    revenue = revenue_text(normalize_transaction_description(text))
+    assert tr.gambling_payout(revenue, tr._hold_text(revenue)) is held
+
+
+def test_r36_the_entry_field_reader_is_the_premium_reader_s():
+    text = revenue_text(normalize_transaction_description(_bofa("CONTOSO STATE LOTTERY", "PRIZE PMT")))
+    assert tr._layout_entry(text).strip() == "PRIZE PMT"
+    text = revenue_text(normalize_transaction_description(_chase("CONTOSO STATE LOTTERY", "PRIZE PMT")))
+    assert tr._layout_entry(text).strip() == "PRIZE PMT"
+    assert tr._layout_entry("ACH CREDIT STATE LOTTERY PRIZE PAYMENT 12345") == ""

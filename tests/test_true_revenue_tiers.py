@@ -623,12 +623,21 @@ def test_every_other_non_sale_word_still_holds_an_accounts_payable_payment(text)
 
 
 @pytest.mark.parametrize("text", [
-    "E*TRADE SECURITIES LLC DES:ACCOUNTS PAYABLE ID:1", "ROBINHOOD SECURITIES LLC DES:PAYABLES ID:1",
-    "FIDELITY BROKERAGE SERVICES LLC DES:VENDOR PAYMENT ID:1",
+    "E*TRADE SECURITIES LLC DES:ACCOUNTS PAYABLE ID:1", "FIDELITY BROKERAGE SERVICES LLC DES:VENDOR PAYMENT ID:1",
 ])
-def test_a_brokerage_platform_s_accounts_payable_wording_stays_held_by_the_platform_list(text):
-    # The investment word is spared by the AP wording; the platform list still holds the owner's money.
-    assert _tier(_one(text, 3000.0)) == ("excluded_pending_review", "non_sale_purpose")
+def test_a_brokerage_platform_s_accounts_payable_wording_is_counted_never_verified(text):
+    # The investment word is spared by the AP wording. Audit round 2, R2-B12 (R37; amends this test's S4.2 pin, under
+    # which the platform list still held the row): the owner-money platforms hold no vendor payment either, as the
+    # S4.2 re-review's ruling reads accounts-payable wording ("the payer's vendor payment, revenue even from a
+    # brokerage"); the investment word keeps it counted and flagged, never verified.
+    assert _tier(_one(text, 3000.0)) == ("counted_flagged", "named_payer_purpose_refused")
+
+
+def test_a_savings_or_investing_app_s_accounts_payable_wording_stays_held():
+    # The classifier's consumer savings and investing originators are read as before (R2-B12 spares only the
+    # registry's owner-money platforms).
+    assert _tier(_one("ROBINHOOD SECURITIES LLC DES:PAYABLES ID:1", 3000.0)) == (
+        "excluded_pending_review", "non_sale_purpose")
 
 
 def test_schwab_s_accounts_payable_wording_is_the_payer_s_vendor_payment():
