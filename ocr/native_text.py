@@ -165,6 +165,52 @@ _NAVY_AMOUNT_BALANCE_RE = re.compile(
     r"^(.*?)([\d,]+\.\d{2})\s*(-)?\s+([\d,]+\.\d{2})\s*(-)?\s*$"
 )
 _NAVY_PERIOD_RE = re.compile(r"\d{2}/\d{2}/\d{2}\s+-\s+\d{2}/\d{2}/\d{2}")
+#: Audit round 2, R2-B06 (R03 part 2): the deposit table the statement declares its accounts in, a deposit product's
+#: own line ('<qualifier> Checking' / '<qualifier> Savings') and the account number that opens the line under it, as
+#: analysis.navy_federal reads them (`_SUMMARY_HEADING`, `_PRODUCT_LINE_RE`, `_ACCOUNT_LINE_RE`; ocr never imports
+#: analysis, so the rule is restated here).
+_NAVY_SUMMARY_HEADING_RE = re.compile(r"Summary of your deposit accounts", re.IGNORECASE)
+_NAVY_PRODUCT_LINE_RE = re.compile(r"[A-Za-z][A-Za-z0-9&'./ -]{0,30}?(?:Checking|Savings)")
+_NAVY_ACCOUNT_LINE_RE = re.compile(r"(\d{6,})(?:\s|$)")
+#: Audit round 2, R2-B06 (R03 part 2): the grid's column header a section heading can be merged into
+#: (analysis.navy_federal._GRID_HEADER).
+_NAVY_GRID_HEADER = r"(?:Date\s+Transaction Detail\s+Amount\(\$\)\s+Balance\(\$\)\s+)?"
+#: Audit round 2, R2-B06 (R03 part 2): any account's section heading, '<name> - <digits>' on its own line (a
+#: continuation marker after it), where the next account's section begins whatever its product.
+_NAVY_SECTION_HEADING_RE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9&'./ -]{0,30}\s+-\s+\d{4,}(?:\s+\(Continued from previous page\))?$"
+)
+
+
+def _navy_checking_account(full_text: str) -> tuple[str, str] | None:
+    """Audit round 2, R2-B06 (R03 part 2): (product, account) of the one checking product the summary table declares,
+    confirmed by its own '<product> - <account>' section heading (analysis.navy_federal._checking_account's rule); None
+    for no checking product, for two or more checking products, or for a product no section heading confirms."""
+    text = "\n".join(re.sub(r"\s+", " ", line).strip() for line in full_text.splitlines())
+    heading = _NAVY_SUMMARY_HEADING_RE.search(text)
+    if heading is None:
+        return None
+    region = text[heading.end():]
+    stops = [index for index in (region.find("\nTotals"), region.find("REMITTANCE")) if index > 0]
+    if stops:
+        region = region[:min(stops)]
+    checking: list[tuple[str, str]] = []
+    product: str | None = None
+    for line in region.splitlines():
+        if not line:
+            continue
+        name = _NAVY_PRODUCT_LINE_RE.fullmatch(line)
+        if name:
+            product = name.group(0)
+            continue
+        account = _NAVY_ACCOUNT_LINE_RE.match(line)
+        if account and product and product.lower().endswith("checking"):
+            checking.append((product, account.group(1)))
+    if len({name for name, _ in checking}) != 1:
+        return None
+    product, account_number = checking[0]
+    confirmed = re.search(r"(?m)^" + _NAVY_GRID_HEADER + re.escape(f"{product} - {account_number}") + r"(?!\d)", text)
+    return (product, account_number) if confirmed else None
 
 
 class _NavyPendingRow(TypedDict):
@@ -174,13 +220,18 @@ class _NavyPendingRow(TypedDict):
     balance: str | None
 
 
-def _navy_transaction_rows(doc, account: str) -> tuple[list[str], list[str]]:
+def _navy_transaction_rows(doc, account: str, product: str) -> tuple[list[str], list[str]]:
     """Recover Navy Federal's primary checking rows from the PDF's geometry.
 
     Generic block sorting loses row ownership because the date/description and
     amount/balance columns have slightly different baselines. Layout-sorted text
     preserves that ownership, including descriptions and amounts that wrap onto
     the next line or page.
+
+    Audit round 2, R2-B06 (R03 part 2): the section opens on the checking
+    product's own heading, `<product> - <account>` (it opened on 'Business
+    Checking' alone, so a retail product's statement was never read here), and
+    it also ends at any other account's `<name> - <digits>` heading.
     """
     rows: list[str] = []
     source_dates: list[str] = []
@@ -218,12 +269,14 @@ def _navy_transaction_rows(doc, account: str) -> tuple[list[str], list[str]]:
             if not line:
                 continue
 
-            if line.startswith(f"Business Checking - {account}"):
+            if line.startswith(f"{product} - {account}"):
                 active = True
                 continue
             if not active:
                 continue
-            if line.startswith(("Mbr Business Savings", "Bus Money Mkt Savings", "Savings")):
+            if line.startswith(("Mbr Business Savings", "Bus Money Mkt Savings", "Savings")) or (
+                _NAVY_SECTION_HEADING_RE.match(line)
+            ):
                 flush()
                 active = False
                 continue
@@ -303,18 +356,18 @@ def parse_native_navy_federal(
     except _UnreadableTextLayer:
         return None
     upper = full_text.upper()
-    if (
-        "NAVY FEDERAL" not in upper
-        or "SUMMARY OF YOUR DEPOSIT ACCOUNTS" not in upper
-        or "BUSINESS CHECKING" not in upper
-    ):
+    if "NAVY FEDERAL" not in upper or "SUMMARY OF YOUR DEPOSIT ACCOUNTS" not in upper:
         return None
-    account_match = re.search(r"Business Checking\s+(\d{6,})", full_text)
-    if account_match is None:
+    # Audit round 2, R2-B06 (R03 part 2): the one checking product the summary declares, confirmed by its own section
+    # heading, as the analysis parser reads it; 'Business Checking' was the only product read here, so every retail
+    # statement fell through to the generic rung's block text.
+    checking = _navy_checking_account(full_text)
+    if checking is None:
         return None
+    product, account = checking
 
     try:
-        rows, source_dates = _navy_transaction_rows(doc, account_match.group(1))
+        rows, source_dates = _navy_transaction_rows(doc, account, product)
     except _UnreadableTextLayer:
         return None
     pages = _native_pages(pdf_bytes)

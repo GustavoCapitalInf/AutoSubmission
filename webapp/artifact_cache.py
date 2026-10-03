@@ -662,7 +662,19 @@ OCR_STAGE_VERSION = 5
 # holds read it, so a warm cache keyed on 29 would serve the old tiers; a
 # re-analysis recomputes the analysis stage from the cached reading. OCR stays
 # cached. Pinned in the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 30
+# 30 -> 31: TRUE-REVENUE audit round 2, batch R2-B06 (R03; R21 part B's parser
+# line) — Navy Federal's compatibility path reads its block text as tokens with
+# one token of lookahead, so a retail product's amount-first text gives each
+# row its own date and description (the old line reader runs only where that
+# reading does not fit), and the native layout rung reads the one checking
+# product the summary declares instead of 'Business Checking' alone. The
+# cached readings of the four EveryDay Checking statements are the generic
+# block text, so their rows move on re-analysis; a warm cache keyed on 30
+# would serve the shifted rows. OCR stays cached and OCR_STAGE_VERSION is not
+# bumped (a fresh upload reads the layout rung; Business Checking's native
+# output is byte-identical). Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 31
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

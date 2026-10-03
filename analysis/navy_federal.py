@@ -306,6 +306,136 @@ def _parse_transactions(section: str, heading: str, *, year: int, beginning: flo
     else:
         return None
 
+    # Audit round 2, R2-B06 (R03): the lookahead reading first; the line reader below only where it does not fit.
+    rows = _rows_by_lookahead(_ledger_tokens(lines, idx))
+    if rows is not None:
+        txns = _ledger_transactions(rows, year=year, beginning=beginning)
+        if txns is not None:
+            return txns
+    return _parse_transactions_by_line(lines, idx, year=year, beginning=beginning)
+
+
+#: Audit round 2, R2-B06 (R03): the compatibility path's tokens. A money pair (P), a date with the description lines
+#: printed after it (G), and a description line with no date before it (D).
+_PAIR_TOKEN, _GROUP_TOKEN, _LINE_TOKEN = "P", "G", "D"
+_LONE_MONEY_RE = re.compile(r"[\d,]+\.\d{2}" + _TRAILING_MINUS)
+
+
+def _ledger_tokens(lines: list[str], idx: int) -> list[tuple]:
+    """Audit round 2, R2-B06 (R03): the ledger after the Beginning Balance anchor, up to the Ending Balance line, as
+    tokens: ("P", amount, balance) for a money pair (one line or two, a detached '-' after it skipped), ("G", date,
+    [lines]) for a date and the description lines after it, ("D", line) for a description line with no date before it.
+    A money figure printed right above the Ending Balance's own date, equal to the last pair's balance, is that balance
+    printed amount-first and no description line."""
+    tokens: list[tuple] = []
+    while idx < len(lines):
+        line = lines[idx]
+        if "Ending Balance" in line:
+            break
+        if line == "-":
+            idx += 1
+            continue
+        if _is_date(line):
+            tokens.append((_GROUP_TOKEN, line, []))
+            idx += 1
+            continue
+        pair = _amount_balance(line)
+        next_idx = idx + 1
+        if pair is None:
+            separate = _separate_amount_balance(lines, idx)
+            if separate is not None:
+                amount, balance, next_idx = separate
+                pair = amount, balance
+        if pair is not None:
+            tokens.append((_PAIR_TOKEN, *pair))
+            idx = next_idx
+            continue
+        if _is_ending_balance_figure(lines, idx, tokens):
+            idx += 1
+            continue
+        if tokens and tokens[-1][0] == _GROUP_TOKEN:
+            tokens[-1][2].append(line)
+        else:
+            tokens.append((_LINE_TOKEN, line))
+        idx += 1
+    return tokens
+
+
+def _is_ending_balance_figure(lines: list[str], idx: int, tokens: list[tuple]) -> bool:
+    """Audit round 2, R2-B06 (R03): a lone money figure followed by the Ending Balance's date and label, equal to the
+    last pair's balance."""
+    if not _LONE_MONEY_RE.fullmatch(lines[idx]) or idx + 2 >= len(lines):
+        return False
+    if not _is_date(lines[idx + 1]) or "Ending Balance" not in lines[idx + 2]:
+        return False
+    pairs = [token for token in tokens if token[0] == _PAIR_TOKEN]
+    figure = _money(lines[idx])
+    return bool(pairs) and figure is not None and abs(figure - pairs[-1][2]) <= 0.01
+
+
+def _rows_by_lookahead(tokens: list[tuple]) -> list[tuple[float, float, str, str]] | None:
+    """Audit round 2, R2-B06 (R03): the tokens read with one token of lookahead, as [(amount, balance, date, text)].
+
+    A pair followed by a date group is one row with that group's date and text (the amount-first arrangement: the
+    generic block text sorts a row's money cells above its own date). A date group followed by a pair, then any lone
+    description lines, is one row with the group's date and text plus those lines (the date-first arrangement, and its
+    wrap lines). A last date group with no text is the Ending Balance's date. None when the reading does not fit: a
+    pair with no date group after it, a date group with no pair after it, or a description line that opens a row."""
+    if tokens and tokens[-1][0] == _GROUP_TOKEN and not tokens[-1][2]:
+        tokens = tokens[:-1]
+    rows: list[tuple[float, float, str, str]] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
+        if token[0] == _PAIR_TOKEN:
+            if following is None or following[0] != _GROUP_TOKEN:
+                return None
+            rows.append((token[1], token[2], following[1], " ".join(following[2])))
+            index += 2
+        elif token[0] == _GROUP_TOKEN:
+            if following is None or following[0] != _PAIR_TOKEN:
+                return None
+            parts = list(token[2])
+            index += 2
+            while index < len(tokens) and tokens[index][0] == _LINE_TOKEN:
+                parts.append(tokens[index][1])
+                index += 1
+            rows.append((following[1], following[2], token[1], " ".join(parts)))
+        else:
+            return None
+    return rows
+
+
+def _ledger_transactions(
+    rows: list[tuple[float, float, str, str]], *, year: int, beginning: float
+) -> list[Transaction] | None:
+    """Audit round 2, R2-B06 (R03): the lookahead reading's rows walked by balance (the line reader's check), or None
+    where a pair's amount is not its balance step."""
+    prev_balance = beginning
+    txns: list[Transaction] = []
+    for amount, balance, txn_date, text in rows:
+        signed = round(balance - prev_balance, 2)
+        if abs(abs(signed) - abs(amount)) > 0.01:
+            return None
+        txns.append(
+            Transaction(
+                date=date(year, int(txn_date[:2]), int(txn_date[3:])).isoformat(),
+                description=re.sub(r"\s+", " ", text).strip() or "Navy Federal transaction",
+                amount=signed,
+                direction="credit" if signed >= 0 else "debit",
+                running_balance=balance,
+            )
+        )
+        prev_balance = balance
+    return txns
+
+
+def _parse_transactions_by_line(
+    lines: list[str], idx: int, *, year: int, beginning: float
+) -> list[Transaction] | None:
+    """The line reader: each pair takes the date and the description read before it (a credit with neither takes the
+    group after it). Audit round 2, R2-B06 (R03): run only where the lookahead reading does not fit, unchanged."""
     prev_balance = beginning
     current_date: str | None = None
     desc_parts: list[str] = []

@@ -485,7 +485,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_30():
+def test_analysis_stage_version_is_pinned_at_31():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -509,8 +509,11 @@ def test_analysis_stage_version_is_pinned_at_30():
     `holder_unscreened` metric (a holder name the parser read is known, whatever
     its shape) and the holder holds, so it goes 28 -> 29. Its holder-reader batch
     (R2-B05) has fourteen more parsers publish the holder's name from page 1 and
-    four readers gain a page-1 fallback, so it goes 29 -> 30. This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 30
+    four readers gain a page-1 fallback, so it goes 29 -> 30. Its Navy Federal
+    batch (R2-B06) reads a retail product's amount-first block text row by row,
+    so the four cached EveryDay Checking readings re-analyse to new rows, and it
+    goes 30 -> 31. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 31
 
 
 def test_paddle_model_token_is_not_in_free_models():
