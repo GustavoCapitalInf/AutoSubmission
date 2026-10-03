@@ -137,6 +137,9 @@ NARROWINGS = (
     # Audit B8 (I46): §6.3's narrowing 11: a deposit whose non-revenue rule fired only on the statement furniture a
     # parser glued onto it is read alone, past the furniture (the revenue text's cut).
     ("12_statement_furniture", True),
+    # Audit round 2, R2-B10 (R11): §6.3's narrowing 4 as amended: a funds transfer an incoming-wire label starts that
+    # prints only a reference is an incoming wire with no sender, held as wire_no_sender (Q5), never into True.
+    ("13_bare_incoming_wire", False),
 )
 #: The narrowings that lead to True only counted and flagged, never verified (audit B3: I11; audit B6: I10).
 COUNTED_ONLY_NARROWINGS = frozenset({"10_processor_card_payout", "11_factoring_review_payout"})
@@ -487,7 +490,8 @@ _NAMED_DESIGNATION_TRANSFERS_56 = (
 #: Audit B8 (I46, §6.3 narrowing 11, the census's twelfth): the statement furniture the classifier's revenue text cuts
 #: (analysis/transaction_classifier.py _STATEMENT_FURNITURE, copied: the census reads other checkouts), on the masked
 #: text: TD's footer and back panel, a Symitar credit union's balance, check-recap and fee summaries, a page header,
-#: Citizens' continued-page header and footer, Fifth Third's disclosure line and a page number.
+#: Citizens' continued-page header and footer, Fifth Third's disclosure line and a page number. Audit round 2, R2-B10
+#: (R21 parts A and B): and Zions' legal-name footer before a page counter and Navy Federal's JOINT OWNER(S) header.
 _STATEMENT_FURNITURE_56 = _on_masked(
     r"(?<![A-Z])(?:"
     r"CALL \d \d{3} \d{3} \d{4} FOR \d{2} HOUR BANK BY PHONE\b"
@@ -503,11 +507,21 @@ _STATEMENT_FURNITURE_56 = _on_masked(
     r"|CONTINUED DEPOSITS AND CREDITS\b|DEPOSITS AND CREDITS CONTINUED\b"
     r"|FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES\b"
     r"|(?:\d{3} R\d \d{2}F\d{3} )?(?:PAGE \d+ )?PAGE \d+ OF \d+\b"
+    r"|A DIVISION OF ZIONS BANCORPORATION N A(?=(?: \d+)* PAGE \d+\b)"
+    r"|(?:STATEMENT OF ACCOUNT )?JOINT OWNER S\b"
     r")"
 )
 #: Audit B8 (I46): the base methods the furniture fired: the strong non-revenue rule (a footer's LOAN or INTEREST
 #: EARNED) and the reversal rule (a fee summary's RETURNED ITEM).
 _FURNITURE_BASE_METHODS = frozenset({"strong_non_revenue_rule", "reversal_cancellation_exclusion"})
+#: Audit round 2, R2-B10 (R21 part D): the furniture forms that mark no page break: TD's back panel and a Symitar
+#: credit union's end-of-statement summaries (the ending balance before its recap, the check recap, the fee summary),
+#: whose own words (INTEREST EARNED, CONSUMER LOAN, RETURNED ITEM FEES) run on after the form. Every other furniture form
+#: (a page number, a page header or footer, a continued-page header) is a page break's.
+_SUMMARY_FURNITURE_R2_B10 = re.compile(
+    r"(?:\d+ )*(?:HOW TO BALANCE YOUR ACCOUNT|ENDING BALANCE|CLEARED CHECK RECAP|FEE SUMMARY THIS PERIOD"
+    r"|THIS PERIOD YEAR TO DATE TOTAL)\b"
+)
 #: Audit B8 (I46, Q2): the plural TRANSFERS, transfer wording since B8 (the classifier's _TRANSFER_WORDING).
 _TRANSFERS_WORD = _on_masked(r"(?<![A-Z])TRANSFERS\b")
 #: I8 (narrowing 8): the consumer-side words a BNPL provider prints on a customer's own credit (a return, a refund, a
@@ -1171,6 +1185,13 @@ def _guard_facts(record, text: str) -> dict:
     facts["numbered"] = classifier.numbered_company(revenue, region)
     # G1 (review I1): narrowing 4 needs a third-party originator.
     facts["third_party_originator"] = classifier._third_party_originator(revenue) is not None
+    # Audit round 2, R2-B10 (R11): narrowing 4's bare incoming wire (an incoming-wire label that prints only a
+    # reference), read with the checkout's own reader when it has one.
+    bare_incoming_wire = getattr(classifier, "_bare_incoming_wire", None)
+    facts["bare_incoming_wire"] = bool(bare_incoming_wire is not None and bare_incoming_wire(revenue))
+    # Audit round 2, R2-B10 (R21 part D): the cut's recorded residual: the reversal rule or the strong non-revenue
+    # patterns fire on the text after the row's last page-break form (_furniture_tail_non_revenue).
+    facts["furniture_tail_non_revenue"] = _furniture_tail_non_revenue(classifier, text)
     # G17 (review C3): the holder's own transfer, read on its ACH originator whatever the payer region says. Audit round
     # 2, R2-B09 (R28): with the pass's own transfer wording on a checkout that has it (credit_transfer_wording: a
     # company-formed originator's name aside), so the census agrees with the pass.
@@ -1582,6 +1603,51 @@ def _without_furniture_56(text: str) -> str:
     return kept if any(character.isalpha() for character in kept) else text
 
 
+def _furniture_tail_non_revenue(classifier, text: str) -> bool:
+    """Audit round 2, R2-B10 (R21 part D; §6.3 narrowing 11's recorded residual): the revenue text cuts a row at its
+    first statement furniture form and drops every word after it, so a loan, a refund or an own transfer printed after a
+    page break inside a description would be read as the deposit alone. True when the checkout's reversal rule
+    (_reversal_credit) or its strong non-revenue patterns (_NON_REVENUE_CREDIT_PATTERNS) fire on the normalized row's
+    text after its last page-break form (the checkout's _STATEMENT_FURNITURE, the summaries and TD's back panel aside:
+    _SUMMARY_FURNITURE_R2_B10), up to the summary form that follows it, if any (a summary's own words, a Symitar fee
+    summary's 'TOTAL RETURNED ITEM FEES', are furniture to the row's end); False on a row with no such form, or on a
+    checkout with no furniture cut. The census counts the counted and Verified credits it marks
+    (_furniture_tail_count): the corpus prints none."""
+    furniture = getattr(classifier, "_STATEMENT_FURNITURE", None)
+    if furniture is None:
+        return False
+    breaks = [found for found in furniture.finditer(text) if _SUMMARY_FURNITURE_R2_B10.match(found.group(0)) is None]
+    if not breaks:
+        return False
+    summary = furniture.search(text, breaks[-1].end())
+    tail = text[breaks[-1].end(): summary.start() if summary is not None else len(text)].strip()
+    return bool(
+        tail
+        and (classifier._reversal_credit(tail) or classifier._matches_any(tail, classifier._NON_REVENUE_CREDIT_PATTERNS))
+    )
+
+
+def _furniture_tail_count(snap: dict) -> dict | None:
+    """Audit round 2, R2-B10 (R21 part D): the counted and Verified credits whose text after the last page-break form
+    a non-revenue rule reads (the snapshot's furniture_tail_non_revenue fact): rows, dollars, statements. None on a
+    snapshot written before the fact (no credit carries it)."""
+    rows = cents = 0
+    statements: set[str] = set()
+    read = False
+    for key, account in snap["accounts"].items():
+        for credit in account["credits"]:
+            facts = credit.get("facts") or {}
+            if "furniture_tail_non_revenue" not in facts:
+                continue
+            read = True
+            in_true = credit["state"] == "verified_revenue" or credit.get("tier") == "counted_flagged"
+            if in_true and facts["furniture_tail_non_revenue"]:
+                rows += 1
+                cents += credit["cents"]
+                statements.add(key)
+    return {"rows": rows, "dollars": round(cents / 100, 2), "statements": len(statements)} if read else None
+
+
 def _sweep_class(text: str) -> tuple[str, str, str] | None:
     """B1 (I39): the first class whose wording reads a True credit's masked text: (class, confidence, shape). Audit
     B8 (I46): read past the statement furniture a parser glued onto the row (_without_furniture_56), whose own words
@@ -1722,6 +1788,8 @@ def _summary(snap: dict) -> dict:
         "reasons": {key: {"rows": value[0], "dollars": round(value[1] / 100, 2)} for key, value in sorted(reasons.items())},
         # B1 (I39): the standing sweep of the non-revenue wording left in True.
         "non_revenue_in_true": sweep(snap),
+        # Audit round 2, R2-B10 (R21 part D): the cut's recorded residual, which should read 0 rows.
+        "furniture_tail_non_revenue": _furniture_tail_count(snap),
     }
 
 
@@ -1744,6 +1812,15 @@ def _narrowing(base: dict, after: dict) -> str | None:
         and facts.get("third_party_originator")
     ):
         return "4_book_or_funds_transfer"
+    # Audit round 2, R2-B10 (R11, §6.3 narrowing 4 as amended): a funds transfer an incoming-wire label starts that
+    # prints only a reference (the checkout's _bare_incoming_wire, the pass's own reading) leaves the own-account
+    # reading only to be held as a wire with no sender (Q5).
+    if (
+        base_method == "strong_non_revenue_rule"
+        and re.search(r"\b(?:BOOK|FUNDS?) TRANSFER\b", text)
+        and facts.get("bare_incoming_wire")
+    ):
+        return "13_bare_incoming_wire"
     # Final review I8: a loan-reading base whose LOAN the later text prints LN (the guard's only rewrite), and no other
     # change to the text.
     if base_method in LOAN_READING_METHODS and _ln_where_loan(base["text"], after["text"]):
@@ -2816,14 +2893,24 @@ def _print(report: dict) -> None:
         parts.append(f"gated {summary['gated_share']}%")
         return "; ".join(parts)
 
+    def furniture_tail(summary: dict) -> None:
+        # Audit round 2, R2-B10 (R21 part D): the counted and Verified credits a non-revenue rule reads after their
+        # last page-break form (printed only for a snapshot that records the fact).
+        tail = summary.get("furniture_tail_non_revenue")
+        if tail is not None:
+            print(f"  furniture tail (non-revenue after the last page break, in True): {tail['rows']} rows/"
+                  f"${tail['dollars']:,.2f}/{tail['statements']} st")
+
     print(f"basis: {report['basis']}")
     print("base: " + line(report["base"]))
     if report["base"].get("non_revenue_in_true"):
         print("  " + _sweep_line(report["base"]["non_revenue_in_true"]))
+    furniture_tail(report["base"])
     for run in report["runs"]:
         print("after: " + line(run["summary"]) + f"; unmatched {run['accounts_unmatched']}")
         # B1 (I39, I60): the sweep, and the statements read from the analysis this run kept.
         print("  " + _sweep_line(run["summary"]["non_revenue_in_true"]))
+        furniture_tail(run["summary"])
         rekeyed = run.get("rekeyed") or {}
         if rekeyed.get("accounts"):
             reparsed = rekeyed["reparsed"]

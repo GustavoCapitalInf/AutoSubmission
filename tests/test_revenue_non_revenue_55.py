@@ -76,7 +76,8 @@ OWN_ACCOUNT_DESCRIPTIONS = [
     "FUNDS TRANSFER FROM HIGH YIELD SAVINGS 1234",
     "FUNDS TRANSFER FROM LOAN ACCOUNT 1234",
     "FUNDS TRANSFER FROM LOC ACCOUNT 1234",
-    "FUNDS TRANSFER CREDIT TT 1234567890 W",
+    # Audit round 2, R2-B10 (R11): 'FUNDS TRANSFER CREDIT TT 1234567890 W' left this list: a bare reference after an
+    # incoming-wire label is no account description, and the wire is held with no sender (Q5; tests below).
 ]
 
 
@@ -103,6 +104,90 @@ def test_a_transfer_from_a_named_payer_is_still_a_third_party():
     assert not prints_internal_transfer_designation(printed)
     # ... unless the named payer is the holder (§5.2's holder test).
     assert _credit(printed, holder="CONTOSO SUPPLY LLC").revenue_classification == "non_revenue"
+
+
+# Audit round 2, R2-B10 (R11; Q5, §7.11): an incoming wire printed on a funds-transfer wire label (or any incoming-wire
+# label) that prints only a reference, no originator, no account word and no own-account product word, is a wire with
+# no sender: held as wire_no_sender for review, never the holder's own transfer (non_revenue), and no own-account
+# designation for R-d. Holder FABRIKAM TRADING LTD, RBC's layout, $2,500 a row.
+
+TT_HOLDER = "FABRIKAM TRADING LTD"
+TT_BANK = "Royal Bank of Canada"
+NO_SENDER = ("excluded_pending_review", "wire_no_sender")
+
+
+def _statement(rows, *, holder: str | None = TT_HOLDER, bank: str | None = TT_BANK) -> Statement:
+    return Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=printed, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (printed, amount) in enumerate(rows)
+    ])
+
+
+def _tier(printed: str, amount: float = 2500.0) -> tuple[str | None, str | None]:
+    [record] = classify_statement_transactions(_statement([(printed, amount)]))
+    return record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method
+
+
+BARE_WIRE_LABELS = [
+    "FUNDS TRANSFER CREDIT TT 1234567890 O",
+    "FUNDS TRANSFER CREDIT TT 1234567891",
+    "FUNDS TRANSFER CREDIT TT RBC123456789",
+    "FUNDS TRANSFER CREDIT TT 1234567890 W",
+    "INCOMING FUNDS TRANSFER 1234",
+    "INBD FUNDS TRANSFER RECEIVED 1234",
+    "FUNDS TRANSFER WIRE FROM 1234",
+]
+
+
+@pytest.mark.parametrize("printed", BARE_WIRE_LABELS)
+def test_r11_a_funds_transfer_wire_label_with_only_a_reference_is_held_with_no_sender(printed):
+    assert _tier(printed) == NO_SENDER
+    assert not prints_internal_transfer_designation(printed)
+
+
+@pytest.mark.parametrize("printed", BARE_WIRE_LABELS)
+def test_r11_the_bare_incoming_wire_reader(printed):
+    from analysis.transaction_classifier import _bare_incoming_wire, normalize_transaction_description
+
+    assert _bare_incoming_wire(normalize_transaction_description(printed))
+
+
+def test_r11_control_a_named_sender_after_the_tt_label_is_counted():
+    assert _tier("FUNDS TRANSFER CREDIT TT 1234 CONTOSO SUPPLY INC") == ("counted_flagged", "wire_named_sender")
+
+
+@pytest.mark.parametrize(("printed", "designation"), [
+    # The holder's own name as the originator (§5.2's holder test), an account word or product word after the label,
+    # a loan's proceeds, a funds or book transfer with no incoming-wire label: all stay the holder's own money.
+    ("FUNDS TRANSFER CREDIT TT 1234 FABRIKAM TRADING LTD", False),
+    ("FUNDS TRANSFER CREDIT TT SAVINGS 1234", True),
+    ("INCOMING FUNDS TRANSFER FROM BUSINESS SAVINGS 1234", True),
+    ("INCOMING FUNDS TRANSFER 1234 LOAN PROCEEDS", False),
+    ("FUNDS TRANSFER 1234567", True),
+    ("BOOK TRANSFER CREDIT B O 1234567", True),
+])
+def test_r11_controls_stay_non_revenue(printed, designation):
+    assert _tier(printed)[0] == "non_revenue"
+    assert prints_internal_transfer_designation(printed) is designation
+
+
+def test_r11_control_a_registry_funder_after_the_tt_label_stays_financing_proceeds():
+    assert _tier("FUNDS TRANSFER CREDIT TT KM CAPITAL C") == ("non_revenue", "financing_proceeds_credit")
+
+
+def test_r11_control_an_incoming_wire_with_only_a_reference_stays_held():
+    assert _tier("INCOMING WIRE 1234") == NO_SENDER
+
+
+def test_r11_the_held_no_sender_wire_reaches_the_review_gate():
+    from analysis.metrics import compute_metrics
+
+    statement = _statement([("MISC PAYMENT SHOPIFY", 6000.0), ("FUNDS TRANSFER CREDIT TT 1234567890 O", 25000.0)])
+    metrics = compute_metrics(statement, classifications=classify_statement_transactions(statement))
+    assert metrics.verified_revenue_total + metrics.counted_flagged_total == 6000.0
+    assert metrics.excluded_pending_review_total == 25000.0
+    assert metrics.revenue_review_required
 
 
 @pytest.mark.parametrize(("printed", "state"), [

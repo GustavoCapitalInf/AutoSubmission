@@ -1023,7 +1023,10 @@ def prints_internal_transfer_designation(description: str) -> bool:
     own account only when it prints no third-party originator
     (`_third_party_originator`): an account description after FROM
     (`BUSINESS SAVINGS`, `LINE OF CREDIT`) names no payer, a payer's name does.
-    Without the owner's yes to T19 every `BOOK TRANSFER` designates one. No
+    Without the owner's yes to T19 every `BOOK TRANSFER` designates one. Audit
+    round 2, R2-B10 (R11): a funds transfer an incoming-wire label starts that
+    prints only a reference (`_bare_incoming_wire`) designates none: it is an
+    incoming wire whose sender is not printed. No
     account name is read here, so `_own_book_or_funds_transfer`'s holder test
     does not apply: a transfer that prints the holder's own name as its
     originator designates no own account for R-d, the conservative direction.
@@ -1049,12 +1052,14 @@ def prints_internal_transfer_designation(description: str) -> bool:
     """
     text = normalize_transaction_description(description)
     # 5.5 (§7.11): a book or funds transfer designates an own account only when it prints no third-party originator.
+    # Audit round 2, R2-B10 (R11): nor when an incoming-wire label starts it and prints only a reference
+    # (_bare_incoming_wire), the rule _own_book_or_funds_transfer reads.
     return _matches_any(text, _INTERNAL_TRANSFER_CREDIT_PATTERNS) or (
         _BOOK_OR_FUNDS_TRANSFER.search(text) is not None
         and _EFT_FUNDS_TRANSFER.search(text) is None
         and (
             (_BOOK_OR_FUNDS_TRANSFER.search(text).group(0).startswith("BOOK") and not THIRD_PARTY_BOOK_TRANSFER_AS_WIRE)
-            or _third_party_originator(text) is None
+            or (_third_party_originator(text) is None and not _bare_incoming_wire(text))
         )
     )
 
@@ -1357,7 +1362,12 @@ _TRANSFER_WORDING = re.compile(
 #: PAGE', 'MEMBER FDIC <mark> EQUAL HOUSING LENDER', 'CONTINUED DEPOSITS AND CREDITS'), Fifth Third's disclosure line
 #: ('FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES ...') and a page number ('PAGE <n> OF <n>', after Citibank's
 #: form code '<nnn> R<n> <nn>F<nnn>' and a repeated 'PAGE <n>'). A row the furniture would leave with no letter keeps
-#: its text (without_statement_furniture).
+#: its text (without_statement_furniture). Audit round 2, R2-B10 (R21 part A): and Zions' legal-name footer, which its
+#: reader glues with the page break's counters onto the last row before it ('DEPOSIT A DIVISION OF ZIONS
+#: BANCORPORATION N A <n> PAGE <n> PAGE <n> OF <n> ...'), only before a page counter, so a wire relayed by a Zions
+#: division ('... VIA <bank> A DIVISION OF ZIONS BANCORPORATION N A REF ...') is never cut; (R21 part B, the classifier's
+#: guard beside R2-B06's parser fix) Navy Federal's page header, 'JOINT OWNER(S): <names|NONE>' after or without
+#: 'STATEMENT OF ACCOUNT', so its OWNER never holds a deposit.
 _STATEMENT_FURNITURE = re.compile(
     r"(?<![A-Z])(?:"
     r"CALL \d \d{3} \d{3} \d{4} FOR \d{2} HOUR BANK BY PHONE\b"
@@ -1373,6 +1383,8 @@ _STATEMENT_FURNITURE = re.compile(
     r"|CONTINUED DEPOSITS AND CREDITS\b|DEPOSITS AND CREDITS CONTINUED\b"
     r"|FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES\b"
     r"|(?:\d{3} R\d \d{2}F\d{3} )?(?:PAGE \d+ )?PAGE \d+ OF \d+\b"
+    r"|A DIVISION OF ZIONS BANCORPORATION N A(?=(?: \d+)* PAGE \d+\b)"
+    r"|(?:STATEMENT OF ACCOUNT )?JOINT OWNER S\b"
     r")"
 )
 #: §5.2: the ACH originator and entry fields (Bank of America's DES, Chase's ORIG CO NAME and CO ENTRY DESCR).
@@ -1537,13 +1549,14 @@ def credit_transfer_wording(row: str) -> re.Match[str] | None:
     return _TRANSFER_WORDING.search(row[: span.start()] + blanked + row[span.end():])
 
 
-def _wire_payer_region(text: str) -> str:
+def _wire_payer_region(text: str, start: int = 0) -> str:
     """5.5 (§5.2): a wire's originator, after its label, up to the next wire field; on Santander's layout, the words
-    after the account number (the words after WIRE IN FROM are the sending bank)."""
+    after the account number (the words after WIRE IN FROM are the sending bank). Audit round 2, R2-B10 (R26): the
+    label is searched from `start` (a loose-wire row's own label, _loose_wire_label; 0 on an incoming-wire row)."""
     santander = _SANTANDER_WIRE.match(text)
     if santander is not None:
         return _leading_name_words(santander.group("originator").strip())
-    found = _WIRE_ORIGINATOR_LABEL.search(text)
+    found = _WIRE_ORIGINATOR_LABEL.search(text, start)
     if found is None:
         return _wire_sender_after_label(text)
     region, customer = _labelled_originator(text, found)
@@ -1711,9 +1724,11 @@ def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state
 #: <sender>' (its own name cut to sixteen characters and its wire field, then the sender, cut too): the bank's field
 #: is a label, never the sender.
 _FALCON_WIRE_FIELD = r"(?:INTERNATIONAL IWT|INCOMING WIRE(?: TRF)?) FALCON INTERNATI WIRES"
+#: Audit round 2, R2-B10 (R21 part C): the plural 'WIRE TRANSFERS <INCOMING|FROM|DEPOSIT|IN>' too, and 'WIRE TRANSFER[S]
+#: IN <sender>', whose sender was never read (a reference alone after IN is still no sender).
 _WIRE_SENDER_AFTER_LABEL = re.compile(
     r"^(?:INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT [A-Z]{2}|INCOMING WIRE(?= \d+ [A-Z])"
-    r"|WIRE TRANSFER (?:INCOMING|FROM|DEPOSIT)|INCOMING WIRE TRANSFER(?= .*\bWIRE PAYMENT$)"
+    r"|WIRE TRANSFERS? (?:INCOMING|FROM|DEPOSIT|IN)|INCOMING WIRE TRANSFER(?= .*\bWIRE PAYMENT$)"
     r"|(?:DOMESTIC )?WIRE DEPOSIT WIRE IN|" + _FALCON_WIRE_FIELD + r")\b ?"
 )
 #: A3: the sender printed after the label ends at a wire field, at NOTPROVIDED, or at Scotiabank's WIRE PAYMENT.
@@ -1867,16 +1882,28 @@ _LOOSE_WIRE_ORIGINATOR_LABEL = re.compile(
 )
 
 
-def _loose_wire_originator(text: str) -> bool:
-    """Audit B5 (I14): a row no incoming-wire label starts that prints WIRE outside the receiver's value and an
-    originator label ('DEPOSIT WIRE IN <reference> ORG <sender>'): its sender is read after the label, as an incoming
-    wire's is (_wire_payer_region). Never a person-to-person or push rail."""
+def _loose_wire_label(text: str) -> re.Match[str] | None:
+    """Audit B5 (I14): on a row no incoming-wire label starts that prints WIRE outside the receiver's value and no
+    person-to-person or push rail, the originator label ('DEPOSIT WIRE IN <reference> ORG <sender>') whose sender is read
+    as an incoming wire's is (_wire_payer_region). Audit round 2, R2-B10 (R26): the first label after the row's first
+    WIRE word (searched from that position, the label's left boundary still read), never one before it: on the
+    '<sender> WIRE' layout (Mercury, Brex) ORG, ORIG, ORIGINATOR or B O before a row-final WIRE is a word of the sender's
+    own name ('CONTOSO ORG LLC WIRE', a '.org' domain), never a label. None when the row has no such label."""
     if _is_wire_row(text) or _WIRE_WORD.search(_without_receiver_value(text)) is None:
-        return False
+        return None
     row = _before_receiver(text)
     if _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
-        return False
-    return _LOOSE_WIRE_ORIGINATOR_LABEL.search(row) is not None
+        return None
+    wire = _WIRE_WORD.search(row)
+    if wire is None:
+        return None
+    return _LOOSE_WIRE_ORIGINATOR_LABEL.search(row, wire.end())
+
+
+def _loose_wire_originator(text: str) -> bool:
+    """Audit B5 (I14): a loose-wire row that prints an originator label (_loose_wire_label; audit round 2, R2-B10:
+    after the row's first WIRE word only)."""
+    return _loose_wire_label(text) is not None
 
 
 def _prints_no_payer(text: str) -> bool:
@@ -1922,9 +1949,15 @@ def payer_region(text: str) -> str:
     person-to-person or transfer sender, an ACH or EFT payer, or nothing on a check, cash, branch, ATM or bare row.
     Read before any token is filtered, so a numbered company's leading digits and a legal word are kept. Audit B5: a
     loose-wire row's originator label is read as an incoming wire's (I14, _loose_wire_originator), and American
-    Express's incoming-ACH template is read as ACH, its entry's transfer word aside (I19, _amex_ach_credit)."""
-    if _is_wire_row(text) or _loose_wire_originator(text):
+    Express's incoming-ACH template is read as ACH, its entry's transfer word aside (I19, _amex_ach_credit). Audit
+    round 2, R2-B10 (R26): a loose-wire row is read from its own label, the first after the row's first WIRE word
+    (_loose_wire_label), so a label word inside a '<sender> WIRE' row's name never cuts it."""
+    if _is_wire_row(text):
         return _wire_payer_region(text)
+    loose = _loose_wire_label(text)
+    if loose is not None:
+        # _before_receiver returns a prefix of the text, so the label's offset is the text's own.
+        return _wire_payer_region(text, loose.start())
     if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text):
         sender = _sender_payer_region(text)
         row = _before_receiver(text)
@@ -2356,15 +2389,21 @@ _THIRD_PARTY_ORIGINATOR = re.compile(r"\b(?:B O|CUSTOMER|ORIGINATOR|ORG|TT|FROM|
 #: §7.9 N1 and §7.11: the incoming-wire labels a row begins with. Audit B5 (I14, I12's reader): and Columbia Bank's
 #: 'WIRE DEPOSIT WIRE IN <reference> ORG <sender>', Navy Federal's 'BANK WIRE DEPOSIT' (which prints no sender) and
 #: U.S. Bank's 'WIRE CREDIT REF<n> <sending bank> <reference>' (whose sender prints after ORG= when the line is kept).
+#: Audit round 2, R2-B10 (R21 part C): the plural 'WIRE TRANSFERS <DEPOSIT|CREDIT|IN|INCOMING|FROM>' is the same wire
+#: label, never a person-to-person transfer (TRANSFERS stays transfer wording on any other row). R2-B10 (R32): and
+#: 'INCOMING FEDWIRE', 'INBOUND FEDWIRE', 'INBOUND WIRE' and 'INCOMING CHIPS', so a sender printed after them (ORG, B O,
+#: WIRE FROM) reaches Q5 as 'FEDWIRE CREDIT ORG <sender>' does; a row that prints none is held as a wire with no sender
+#: (Huntington's bare 'INCOMING FEDWIRE TRANSFER' among them). CHIPS alone is no label.
 _INCOMING_WIRE_LABEL = re.compile(
     r"^(?:WIRE TYPE (?:WIRE|INTL|FX) IN\b|USD WIRE IN\b|[A-Z]{3} WIRE IN\b|FEDWIRE CREDIT\b|CHIPS CREDIT\b|WT FED"
-    r"|WIRE TSF\b|WIRE TRANSFER (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
+    r"|WIRE TSF\b|WIRE TRANSFERS? (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
     r"|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN) (?:INCOMING )?WIRE\b|INCOMING FUNDS TRANSFER\b"
     r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b"
     r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?\d+\b"
     # Audit B10 (I14): Falcon International Bank's incoming international wire (IWT), which prints its sender after
     # the bank's own wire field once its reader keeps the text after the amount (_FALCON_WIRE_FIELD).
-    r"|INTERNATIONAL IWT\b)"
+    r"|INTERNATIONAL IWT\b"
+    r"|INCOMING FEDWIRE\b|INBOUND (?:FEDWIRE|WIRE)\b|INCOMING CHIPS\b)"
 )
 _BOOK_TRANSFER_FROM = re.compile(r"^(?:BOOK TRANSFER CREDIT B O|WIRE TYPE BOOK IN\b.*\bORIG)\b ?")
 #: §7.11: the funds-transfer labels of an incoming wire (the label stands for FROM).
@@ -2421,6 +2460,23 @@ def _originator_payer_words(words: str) -> list[str]:
         word for word in _distinctive_words(_INTERNAL_ACCOUNT_SOURCE_WORDS.sub(" ", words).split())
         if word not in _OWN_ACCOUNT_PRODUCT_WORDS and not _is_reference_token(word)
     ]
+
+
+def _bare_incoming_wire(text: str) -> bool:
+    """Audit round 2, R2-B10 (R11; Q5, §7.11): a row an incoming-wire label starts (_INCOMING_WIRE_LABEL: RBC's 'FUNDS
+    TRANSFER CREDIT TT <reference> [O]', 'INCOMING FUNDS TRANSFER <reference>', 'WIRE TRANSFER IN <reference>') that
+    prints no third-party originator (_third_party_originator), and, after its label, no account word
+    (_INTERNAL_ACCOUNT_SOURCE_WORDS: SAVINGS, CHECKING, ACCOUNT, LOC ...) and no own-account product word
+    (_OWN_ACCOUNT_PRODUCT_WORDS: RESERVE, TAX, PAYROLL, LOAN ...): an incoming wire whose sender is not printed, which pass
+    7 holds as wire_no_sender (Q5), never the holder's own transfer. A row that names the holder as its originator, or an
+    own account after its label ('FUNDS TRANSFER CREDIT TT SAVINGS <n>'), is not one."""
+    found = _INCOMING_WIRE_LABEL.match(text)
+    if found is None or _third_party_originator(text) is not None:
+        return False
+    after = text[found.end():]
+    if _INTERNAL_ACCOUNT_SOURCE_WORDS.search(after):
+        return False
+    return not any(token in _OWN_ACCOUNT_PRODUCT_WORDS for token in after.split())
 
 
 def _third_party_book_transfer(text: str) -> bool:
@@ -3107,14 +3163,19 @@ def _card_credit_released(text: str) -> bool:
 def _own_book_or_funds_transfer(text: str, account_name: str | None) -> bool:
     """5.5 (§7.11): BOOK TRANSFER and FUNDS TRANSFER are own-account only when no third-party originator is printed,
     or when that originator is the holder (§5.2's holder test). ELECTRONIC FUNDS TRANSFER DEPOSIT is an EFT channel.
-    Without the owner's yes to T19, every BOOK TRANSFER stays own-account."""
+    Without the owner's yes to T19, every BOOK TRANSFER stays own-account. Audit round 2, R2-B10 (R11; Q5): a row an
+    incoming-wire label starts that prints only a reference (_bare_incoming_wire: 'FUNDS TRANSFER CREDIT TT <reference>
+    O', 'INCOMING FUNDS TRANSFER <reference>') is an incoming wire with no sender, never own-account: pass 7 holds it as
+    wire_no_sender."""
     found = _BOOK_OR_FUNDS_TRANSFER.search(text)
     if found is None or _EFT_FUNDS_TRANSFER.search(text):
         return False
     if found.group(0).startswith("BOOK") and not THIRD_PARTY_BOOK_TRANSFER_AS_WIRE:
         return True
     originator = _third_party_originator(text)
-    return originator is None or holder_named(originator, account_name)
+    if originator is None:
+        return not _bare_incoming_wire(text)
+    return holder_named(originator, account_name)
 
 
 def named_designation_sender(text: str) -> str | None:

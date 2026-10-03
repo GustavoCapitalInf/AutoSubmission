@@ -7,7 +7,8 @@ counted (I44); a settlement or closing agent's payment is a title firm's (I44); 
 payouts are §15's deferred sources, counted and never verified (I45, OQ4); statement furniture a parser glued onto a
 row is cut before classification (I46), and the plural TRANSFERS is transfer wording (I46, Q2); a glued Canada Carbon
 Rebate is held (I56, GOV); and the GOV follow-ups: the IRS's interest on a refund is non_revenue, RBC's cut provincial
-payment code is a personal benefit (class B). Fabricated rows only, in the banks' printed formats; public names only
+payment code is a personal benefit (class B). Audit round 2, R2-B10 (R21): Zions' legal-name footer before a page
+counter and Navy Federal's page header are furniture too, and the cut's recorded residual is pinned. Fabricated rows only, in the banks' printed formats; public names only
 where a bank prints its own or a registry lists them (sportsbooks, prediction markets, crypto exchanges, brokerages,
 claims administrators, auctioneers and car buyers, each public)."""
 from __future__ import annotations
@@ -424,6 +425,64 @@ def test_text_that_only_resembles_furniture_is_kept(text):
 ])
 def test_the_cut_reads_the_earliest_furniture_and_keeps_the_row_before_it(text, kept):
     assert revenue_text(normalize_transaction_description(text)) == kept
+
+
+# Audit round 2, R2-B10 (R21 part A): Zions' legal-name footer, glued before a page break's counters, is furniture; the
+# same words a wire prints after its sending bank (no page counter after them) are not.
+
+ZIONS = "Zions Bancorporation"
+ZIONS_HOLDER = HOLDER
+ZIONS_FOOTER = " A DIVISION OF ZIONS BANCORPORATION N A 1234567 PAGE 2 PAGE 2 OF 4 MARCH 31 2054 NORTHWIND BAKERY LLC"
+
+
+def test_r21_a_bare_zions_deposit_with_the_footer_glued_names_no_payer():
+    assert _one("DEPOSIT" + ZIONS_FOOTER, 5000.0, holder=ZIONS_HOLDER, bank=ZIONS) == NO_PAYER
+    assert revenue_text(normalize_transaction_description("DEPOSIT" + ZIONS_FOOTER)) == "DEPOSIT"
+
+
+def test_r21_control_a_zions_bankcard_settlement_with_the_footer_stays_verified():
+    text = "BANKCARD 1234 MTOT DEP REF 12345 1234567890 BANKCARD 1234" + ZIONS_FOOTER
+    assert _one(text, 300.0, holder=ZIONS_HOLDER, bank=ZIONS)[0] == "verified"
+
+
+def test_r21_control_a_wire_relayed_by_a_zions_division_keeps_its_sender():
+    text = "WIRE TRANSFER FROM FABRIKAM INC VIA SAMPLE BANK A DIVISION OF ZIONS BANCORPORATION N A REF 1"
+    assert revenue_text(normalize_transaction_description(text)) == text
+    assert _one(text, 5000.0, holder=ZIONS_HOLDER, bank=ZIONS) == WIRE
+
+
+def test_r21_control_the_zions_footer_alone_keeps_its_text():
+    text = "A DIVISION OF ZIONS BANCORPORATION N A 1234567 PAGE 2 PAGE 2 OF 4"
+    assert revenue_text(text) == text
+
+
+# Audit round 2, R2-B10 (R21 part B, the classifier's guard): Navy Federal's page header ('STATEMENT OF ACCOUNT',
+# 'JOINT OWNER(S): <names|NONE>') glued onto a row is furniture, so its OWNER never holds a deposit.
+
+NAVY_FEDERAL = "Navy Federal Credit Union"
+
+
+@pytest.mark.parametrize("header", [" STATEMENT OF ACCOUNT JOINT OWNER S NONE", " JOINT OWNER S NONE"])
+def test_r21_a_navy_federal_mobile_deposit_with_the_header_glued_is_a_counted_check_deposit(header):
+    assert _one("MOBILE DEPOSIT" + header, 500.0, bank=NAVY_FEDERAL) == CHECK
+
+
+def test_r21_a_navy_federal_ach_payer_with_the_header_glued_verifies_beside_its_clean_twin():
+    rows = [("ACH TRANSACTION CONTOSO SUPPLY LLC PAYMENT 1234 STATEMENT OF ACCOUNT JOINT OWNER S NONE", 500.0),
+            ("ACH TRANSACTION CONTOSO SUPPLY LLC PAYMENT 1234", 600.0)]
+    assert [tier for tier, _reason in _tiers(rows, bank=NAVY_FEDERAL)] == ["verified", "verified"]
+
+
+def test_r21_control_an_own_account_transfer_with_the_header_glued_stays_non_revenue():
+    assert _one("TRANSFER FROM SHARES JOINT OWNER S NONE", 500.0, bank=NAVY_FEDERAL)[0] == "non_revenue"
+
+
+# Audit round 2, R2-B10 (R21 part D): the cut drops every word after the first form, so a loan's proceeds printed
+# after a page counter are read as a bare deposit (§6.3 narrowing 11's recorded residual; the census counts such rows,
+# which the corpus does not print).
+
+def test_r21_the_recorded_residual_a_loan_after_a_page_counter_is_a_counted_bare_deposit():
+    assert _one("DEPOSIT PAGE 2 OF 8 LOAN PROCEEDS", 5000.0) == NO_PAYER
 
 
 # I46 (Q2): the plural TRANSFERS is transfer wording.

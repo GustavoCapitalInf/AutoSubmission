@@ -820,9 +820,12 @@ _BARE_CHANNEL_WORDS = frozenset({"WIRE", "WIRES", "TRANSFER", "BOOK", "CREDIT"})
 #: names nobody (Navy Federal's 'BANK WIRE DEPOSIT', 'INCOMING BANK WIRE'), and neither does a region with no name
 #: word (TD's glued '<reference>S<reference>WIRE'): wire_no_sender. Audit B10 (I14): Falcon Bank's 'INTERNATIONAL IWT'
 #: is an incoming-wire label whose sender the classifier reads after the bank's own wire field, now that the reader
-#: keeps the text Falcon prints after the amount; a row that prints none names nobody.
-_WIRE_LABEL_ONLY_WORDS = _BARE_CHANNEL_WORDS | frozenset({
-    "BANK", "DEPOSIT", "INTERNATIONAL", "IN", "INCOMING", "RECEIVED", "DEP",
+#: keeps the text Falcon prints after the amount; a row that prints none names nobody. Audit round 2, R2-B10 (R32):
+#: the label words are the bare channel words, every wire layout word (_WIRE_LAYOUT_WORDS: FEDWIRE, FED, INBOUND,
+#: INBD, CHIPS, SWIFT, WT, IWT, DOMESTIC, INTL, INTERNATIONAL, INCOMING ...) and BANK, DEPOSIT, DEP, IN, RECEIVED and
+#: CR, so the label rule reads in one place: 'INCOMING FEDWIRE', 'FEDWIRE CR', 'INBOUND WIRE' name no sender.
+_WIRE_LABEL_ONLY_WORDS = _BARE_CHANNEL_WORDS | _WIRE_LAYOUT_WORDS | frozenset({
+    "BANK", "DEPOSIT", "DEP", "IN", "RECEIVED", "CR",
 })
 #: §8.5, Q5 (audit B5: I61): the Fedwire and CHIPS originator field's width. A legal form the field cuts to LL and
 #: glues to the address after it ('<name> MANAGEMENT LL<city>') ends within two to four characters of the width (the

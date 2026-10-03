@@ -2157,6 +2157,108 @@ def test_b8_the_sweep_reads_a_credit_past_its_statement_furniture(text, letters)
     assert {name: row["rows"] for name, row in sweep["classes"].items() if row["rows"]} == letters
 
 
+@pytest.mark.parametrize("text", [
+    # Audit round 2, R2-B10 (R21 parts A and B): Zions' legal-name footer before a page counter and Navy Federal's page
+    # header are furniture in both copies, found at the same place.
+    "DEPOSIT A DIVISION OF ZIONS BANCORPORATION N A 1234567 PAGE 2 PAGE 2 OF 4 MARCH 31 2054 NORTHWIND BAKERY LLC",
+    "BANKCARD 1234 MTOT DEP REF 12345 A DIVISION OF ZIONS BANCORPORATION N A 1234567 1234567 PAGE 2 PAGE 2 OF 4",
+    "MOBILE DEPOSIT STATEMENT OF ACCOUNT JOINT OWNER S NONE",
+    "ACH TRANSACTION CONTOSO SUPPLY LLC PAYMENT 1234 JOINT OWNER S NONE",
+    # A wire's sending bank printed with the division's name, no page counter after it, is no furniture.
+    "WIRE TRANSFER FROM FABRIKAM INC VIA SAMPLE BANK A DIVISION OF ZIONS BANCORPORATION N A REF 1",
+])
+def test_r2_b10_the_census_copy_reads_the_zions_footer_and_the_navy_federal_header(text):
+    from analysis.transaction_classifier import _STATEMENT_FURNITURE
+
+    found = _STATEMENT_FURNITURE.search(text)
+    masked = census._STATEMENT_FURNITURE_56.search(re.sub(r"\d", "#", text))
+    assert (found is None) == (masked is None) == text.startswith("WIRE")
+    if found is not None:
+        assert found.start() == masked.start()
+
+
+def _furniture_tail_snapshot(text: str, amount: float = 5000.0) -> dict:
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="Sample Bank", account_name="NORTHWIND PLUMBING LLC", transactions=[
+        Transaction(date="2054-03-02", description=text, amount=amount, direction="credit"),
+    ])
+    return census.account_snapshot({"statement": statement.model_dump(mode="json")})
+
+
+def test_r2_b10_the_furniture_tail_counter_flags_a_loan_printed_after_a_page_counter():
+    # Audit round 2, R2-B10 (R21 part D): the cut drops every word after the first furniture form (§6.3 narrowing 11's
+    # recorded residual), so a loan's proceeds printed after a page counter are counted as a bare deposit; the census
+    # counts each counted or Verified credit whose reversal or strong non-revenue rule fires on the text after its last
+    # page-break form.
+    snap = _furniture_tail_snapshot("DEPOSIT PAGE 2 OF 8 LOAN PROCEEDS")
+    [credit] = snap["credits"]
+    assert (credit["tier"], credit["reason"]) == ("counted_flagged", "no_payer_printed")
+    assert credit["facts"]["furniture_tail_non_revenue"] is True
+    summary = census.compare(_snap("5.6", {"a": snap}), [_snap("5.6", {"a": snap})])["runs"][0]["summary"]
+    assert summary["furniture_tail_non_revenue"] == {"rows": 1, "dollars": 5000.0, "statements": 1}
+    # The row's own words before a later summary form are still read.
+    [summarised] = _furniture_tail_snapshot(
+        "DEPOSIT PAGE 2 OF 8 LOAN PROCEEDS THIS PERIOD YEAR TO DATE TOTAL OVERDRAFT FEES 0 00 0 00")["credits"]
+    assert summarised["facts"]["furniture_tail_non_revenue"] is True
+
+
+@pytest.mark.parametrize("text", [
+    # The furniture's own words after its form (TD's back panel, a Symitar fee summary) are no row's words: the
+    # summaries and the back panel are no page-break form, and the next page's header ends the tail.
+    "SBB MDEPOSIT CALL 1 800 555 0100 FOR 24 HOUR BANK BY PHONE SERVICES PAGE 2 HOW TO BALANCE YOUR ACCOUNT PAGE 2 OF 8"
+    " ADD ANY INTEREST EARNED FOR CONSUMER LOAN ACCOUNTS ONLY RETURNED ITEM PAGE 3 STATEMENT OF ACCOUNT NORTHWIND"
+    " PLUMBING LLC PAGE 3 OF 8 STATEMENT PERIOD JAN 01 2054 JAN 31 2054",
+    "CHECK DEPOSIT 01 31 54 1 234 56 ENDING BALANCE CLEARED CHECK RECAP CHECK DATE AMOUNT THIS PERIOD YEAR TO DATE"
+    " TOTAL OVERDRAFT FEES 0 00 0 00 TOTAL RETURNED ITEM FEES 0 00 0 00",
+    # A fee summary printed after the next page's header ends the tail: its own words run to the row's end.
+    "CHECK DEPOSIT 01 31 54 1 234 56 ENDING BALANCE CLEARED CHECK RECAP CHECK DATE AMOUNT INDICATES CHECKS OUT OF"
+    " SEQUENCE 3 STATEMENT OF ACCOUNT ACCOUNT NUMBER STATEMENT PERIOD PAGE 01 01 54 01 31 54 1234 3 OF 5 THIS PERIOD"
+    " YEAR TO DATE TOTAL OVERDRAFT FEES 0 00 0 00 TOTAL RETURNED ITEM FEES 0 00 0 00",
+    "DEPOSIT PAGE 2 OF 8 CONTOSO SUPPLY LLC",
+    "DEPOSIT LOAN PROCEEDS",
+    "MOBILE DEPOSIT",
+])
+def test_r2_b10_the_furniture_tail_counter_reads_no_furniture_s_own_words(text):
+    [credit] = _furniture_tail_snapshot(text)["credits"]
+    assert credit["facts"]["furniture_tail_non_revenue"] is False
+
+
+def test_r2_b10_the_furniture_tail_counter_is_none_on_a_snapshot_without_the_fact():
+    run = _run(BASE, AFTER)
+    assert run["summary"]["furniture_tail_non_revenue"] is None
+
+
+def test_r2_b10_a_bare_incoming_wire_leaves_the_strong_rule_only_to_be_held():
+    # Audit round 2, R2-B10 (R11, §6.3 narrowing 4 as amended, the census's thirteenth cause): a funds-transfer wire
+    # label that prints only a reference leaves the own-account reading for Q5's hold (wire_no_sender), never True.
+    text = "FUNDS TRANSFER CREDIT TT ########## O"
+    base = _snap("5.6", {"a": _account([_credit(0, 2500000, "non_revenue", "strong_non_revenue_rule",
+                                                tier="non_revenue", text=text)])})
+    held = _snap("5.6", {"a": _account([_credit(0, 2500000, "unverified_deposit", "wire_requires_review",
+                                                tier="excluded_pending_review", reason="wire_no_sender", text=text,
+                                                bare_incoming_wire=True)])})
+    run = _run(base, held)
+    assert list(run["left_non_revenue"]) == ["13_bare_incoming_wire"] and "G1" not in run["guards"]
+    assert dict(census.NARROWINGS)["13_bare_incoming_wire"] is False
+    counted = json.loads(json.dumps(held))
+    counted["accounts"]["a"]["credits"][0].update(tier="counted_flagged", reason="wire_named_sender")
+    assert "G1" in _run(base, counted)["guards"]
+    unread = json.loads(json.dumps(held))
+    unread["accounts"]["a"]["credits"][0]["facts"]["bare_incoming_wire"] = False
+    run = _run(base, unread)
+    assert list(run["left_non_revenue"]) == ["outside_the_narrowings"] and "G1" in run["guards"]
+
+
+def test_r2_b10_the_bare_incoming_wire_fact_reads_the_checkout_s_own_reader():
+    snap = _furniture_tail_snapshot("FUNDS TRANSFER CREDIT TT 1234567890 O", 2500.0)
+    [credit] = snap["credits"]
+    assert (credit["tier"], credit["reason"]) == ("excluded_pending_review", "wire_no_sender")
+    assert credit["facts"]["bare_incoming_wire"] is True
+    [named] = _furniture_tail_snapshot("FUNDS TRANSFER CREDIT TT 1234 CONTOSO SUPPLY INC", 2500.0)["credits"]
+    assert named["facts"]["bare_incoming_wire"] is False
+
+
 TRANSFERS_ROW = "EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT ######"
 KALSHI_ROW = "KALSHI DES WITHDRAWAL ID ####### INDN NORTHWIND PLUMBING LLC CO ID ########## CCD"
 EPIQ_ROW = "EPIQ CLASS ACTION DES SETTLEMENT ID ####### INDN NORTHWIND PLUMBING LLC CO ID ########## PPD"
