@@ -287,6 +287,9 @@ def _navy_transaction_rows(doc, account: str, product: str) -> tuple[list[str], 
                         "Statement Period",
                         "Access No.",
                         "Statement of Account",
+                        # Audit round 2, R2-B06 (R21 part B): the joint owners' line a retail statement prints
+                        # under every continued section heading, after the last row of the page before.
+                        "Joint Owner",
                         "For ",
                         "(Continued",
                         "Date Transaction Detail",

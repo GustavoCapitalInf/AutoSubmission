@@ -870,3 +870,73 @@ def test_the_layout_rung_stops_at_any_other_account_s_heading(navy_layout, produ
     rows = _nfcu_rows(document)
     assert len(rows) == 6
     assert not any("Dividend" in row for row in rows)
+
+
+# ------------- navy_federal page header (audit round 2, R2-B06: R21 part B, parser line)
+
+#: The page header Navy Federal prints at the top of every page, as the generic
+#: block text glues it into the last row before a page break: the statement's
+#: title, then the joint owners' label with its value on the line after it.
+NAVY_PAGE_HEADER = "Statement of Account\nJoint Owner(s):\nNONE\n"
+
+
+def test_the_page_header_is_no_part_of_a_row_s_description():
+    """R21 part B: 'Statement of Account' and 'Joint Owner(s): NONE', glued
+    after a credit's and a debit's own text at a page break, are furniture;
+    every amount and date reads as without them."""
+    ledger = NAVY_AMOUNT_FIRST_LEDGER.replace(
+        "Bank Wire Deposit\n", "Bank Wire Deposit\n" + NAVY_PAGE_HEADER
+    ).replace(
+        "POS Debit- Debit Card 0000 FABRIKAM STORE\n",
+        "POS Debit- Debit Card 0000 FABRIKAM STORE\n" + NAVY_PAGE_HEADER,
+    )
+
+    statement = parse_navy_federal_statement(_navy_federal_amount_first(ledger=ledger))
+
+    assert statement is not None
+    assert [(t.date, t.amount, t.description) for t in statement.transactions] == NAVY_AMOUNT_FIRST_ROWS
+
+
+def test_a_mobile_deposit_ending_a_page_is_counted_as_a_check_deposit():
+    """R21 part B: the joint owners' label glued to a mobile deposit read as a
+    purpose (OWNER) and held it; its own text is a check deposit (Q3)."""
+    ledger = NAVY_AMOUNT_FIRST_LEDGER.replace(
+        "01-15\nDeposit\n", "01-15\nMobile Deposit\n" + NAVY_PAGE_HEADER
+    )
+
+    statement = parse_navy_federal_statement(_navy_federal_amount_first(ledger=ledger))
+
+    assert statement is not None
+    assert statement.transactions[-1].description == "Mobile Deposit"
+    assert _credit_tiers(statement)[-1] == (75.00, "counted_flagged", "check_deposit")
+
+
+def test_a_none_line_the_owner_label_did_not_print_stays_text():
+    """R21 part B control: only the joint owners' value after its label is
+    furniture; a description line that happens to read NONE elsewhere stays."""
+    ledger = NAVY_AMOUNT_FIRST_LEDGER.replace("01-15\nDeposit\n", "01-15\nDeposit\nNONE\n")
+
+    statement = parse_navy_federal_statement(_navy_federal_amount_first(ledger=ledger))
+
+    assert statement is not None
+    assert statement.transactions[-1].description == "Deposit NONE"
+
+
+def test_the_layout_rung_reads_no_page_header_into_the_row_before_a_page_break(navy_layout):
+    """R21 part B: the layout-sorted text prints the joint owners' line under a
+    continued section's heading, after the last row of the page before."""
+    text = _navy_layout_text().replace(
+        "01-09 Bank Wire Deposit 2,500.00 4,050.00\n",
+        "01-09 Bank Wire Deposit 2,500.00 4,050.00\n"
+        "Statement of Account\n"
+        "EveryDay Checking - 7000000001 (Continued from previous page)\n"
+        "Joint Owner(s): NONE\n"
+        "Date Transaction Detail Amount($) Balance($)\n",
+    )
+    raw = navy_layout(text)
+
+    document = native_text.parse_native_navy_federal(raw, source_file="x.pdf")
+
+    assert document is not None
+    assert "01-09|2,500.00|4,050.00|Bank Wire Deposit" in _nfcu_rows(document)
+    assert not any("Owner" in row for row in _nfcu_rows(document))

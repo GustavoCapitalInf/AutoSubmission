@@ -193,7 +193,26 @@ def _line_is_noise(line: str, heading: str) -> bool:
         or line == heading
         or line in {"Date", "Transaction Detail", "Amount($)", "Balance($)", "Items Paid", "Item"}
         or line.startswith("Average Daily Balance")
+        # Audit round 2, R2-B06 (R21 part B): the page header the generic block text glues into the last row before
+        # a page break, the statement's title and the joint owners' label (its value: _without_noise).
+        or line.startswith("Statement of Account")
+        or line.startswith("Joint Owner")
     )
+
+
+#: Audit round 2, R2-B06 (R21 part B): the joint owners' label printed with no value, which prints on the next line.
+_JOINT_OWNER_LABEL_RE = re.compile(r"Joint Owner\(s\):?")
+
+
+def _without_noise(lines: list[str], heading: str) -> list[str]:
+    """The section's lines without the grid's and the page's furniture (`_line_is_noise`). Audit round 2, R2-B06 (R21
+    part B): nor the joint owners' value 'NONE' on the line after their bare label."""
+    return [
+        line
+        for index, line in enumerate(lines)
+        if not _line_is_noise(line, heading)
+        and not (line == "NONE" and index > 0 and _JOINT_OWNER_LABEL_RE.fullmatch(lines[index - 1]))
+    ]
 
 
 #: This platform writes an overdrawn balance with a TRAILING minus, and the
@@ -286,8 +305,7 @@ def _parse_native_transactions(
 
 
 def _parse_transactions(section: str, heading: str, *, year: int, beginning: float) -> list[Transaction] | None:
-    lines = [line.strip() for line in section.splitlines() if line.strip()]
-    lines = [line for line in lines if not _line_is_noise(line, heading)]
+    lines = _without_noise([line.strip() for line in section.splitlines() if line.strip()], heading)
 
     idx = 0
     while idx < len(lines):

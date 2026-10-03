@@ -673,7 +673,10 @@ OCR_STAGE_VERSION = 5
 # would serve the shifted rows. OCR stays cached and OCR_STAGE_VERSION is not
 # bumped (a fresh upload reads the layout rung; Business Checking's native
 # output is byte-identical). Pinned in the same change
-# (`tests/test_artifact_cache.py`).
+# (`tests/test_artifact_cache.py`). The batch's second parser commit (R21 part
+# B) drops the page header both readers glued into the last row before a page
+# break ('Statement of Account', 'Joint Owner(s): NONE'); it ships under the
+# same stage, as nothing was released between the two commits.
 ANALYSIS_STAGE_VERSION = 31
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
