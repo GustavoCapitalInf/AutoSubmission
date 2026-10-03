@@ -192,7 +192,13 @@ DECLARED_DEMOTIONS = (
     # Audit round 2, R2-B03 (R05): a Q6 repeat whose payer region names only a bank (a bank's name, or the statement's
     # own bank's channel), counted as no payer printed or held as the holder's pull with no counterparty.
     "q5_q6_bank_only_payer",
+    # Audit round 2, R2-B04 (R41): the holder's own push (its originator is its own receiver) that an earlier rule
+    # verified, overruled by pass 7 and held as the holder's name.
+    "holder_own_push_never_verified",
 )
+#: Audit round 2, R2-B04 (R41): the method pass 7 gives the holder's own push it overrules
+#: (analysis/true_revenue.py _holder_never_verified, copied: the census reads other checkouts).
+HOLDER_OWN_PUSH_METHOD = "self_originated_holder"
 #: Audit round 2, R2-B03 (R05): the reasons a counted bank-only payer takes (pass 7's no_payer_printed, or the
 #: parser's unread payer text in its place: true_revenue.PAYER_TEXT_NOT_READ, copied: the census reads other
 #: checkouts).
@@ -2038,6 +2044,13 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         )
     ):
         return "factor_never_verified"
+    # Audit round 2, R2-B04 (R41). (a) any verifying rule; (b) held as holder_name by the pass's overruling of the
+    # holder's own push (method self_originated_holder).
+    if (
+        method == HOLDER_OWN_PUSH_METHOD and after.get("tier") == "excluded_pending_review"
+        and after.get("reason") == "holder_name"
+    ):
+        return "holder_own_push_never_verified"
     if base["method"] in Q5_Q6_METHODS:
         # I7 (§20). (a) a Q5 or Q6 verification; (b) held by a later 5.6 hold, named by its reason and the pass's own
         # hold reading (LATER_HOLD_CAUSES).

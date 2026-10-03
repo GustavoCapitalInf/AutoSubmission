@@ -654,3 +654,82 @@ def test_a_northeast_bank_credit_is_held_as_financing_and_gates_its_statement():
 def test_northeast_bank_s_other_spellings_keep_their_readings(text, expected):
     [record] = _records([(text, 50000.0)], holder=_PLUMBER, bank="Bank of America")
     assert (record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method) == expected
+
+
+# Audit round 2, R2-B04 (R40): the I47 strip reads every business name of the holder's (the account field's business
+# beside the parser's holder name, each side of a DBA name), never a person's.
+
+HOLDER_HELD = ("excluded_pending_review", "holder_name")
+PERSONAL = ("excluded_pending_review", "personal_income")
+VERIFIED = ("verified", "named_payer_company_form")
+TRUIST_DEP = "ACH CORP DEP {payer} CUSTOMER ID 00012"
+WF_PAYMENT = "FABRIKAM INC PAYMENT 000000 0000000 {receiver}"
+
+
+def _r40(text, *, account_name, holder_name, bank):
+    [record] = classify_statement_transactions(Statement(
+        account_name=account_name, holder_name=holder_name, bank=bank,
+        transactions=[Transaction(date="2054-03-02", description=text, amount=4200.0, direction="credit")],
+    ))
+    return record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method
+
+
+@pytest.mark.parametrize("holder_name", ["JOHN SAMPLE", "JOHN SAMPLE DBA NORTHWIND CAPITAL LLC"])
+def test_r40_the_account_field_s_business_is_stripped_beside_the_owner_s_name(holder_name):
+    text = TRUIST_DEP.format(payer="FABRIKAM INC NORTHWIND CAPITAL")
+    assert _r40(text, account_name="NORTHWIND CAPITAL LLC", holder_name=holder_name, bank="Truist") == VERIFIED
+
+
+@pytest.mark.parametrize("business", ["NORTHWIND DISTRIBUTION", "NORTHWIND PAYROLL SERVICES",
+                                      "NORTHWIND RETIREMENT ADVISORS"])
+def test_r40_a_customer_paying_the_account_field_s_business_is_counted(business):
+    text = WF_PAYMENT.format(receiver=business)
+    assert _r40(text, account_name=f"{business} LLC", holder_name="JOHN SAMPLE", bank="Wells Fargo") == UNLABELLED
+
+
+def test_r40_a_sole_proprietor_s_trade_name_is_stripped():
+    text = TRUIST_DEP.format(payer="FABRIKAM INC NORTHWIND DISTRIBUTION")
+    assert _r40(text, account_name="Checking", holder_name="JOHN SAMPLE DBA NORTHWIND DISTRIBUTION",
+                bank="Truist") == VERIFIED
+    text = WF_PAYMENT.format(receiver="NORTHWIND PAYROLL SERVICES")
+    assert _r40(text, account_name="BUSINESS BANKING", holder_name="JOHN SAMPLE DBA NORTHWIND PAYROLL SERVICES",
+                bank="First Citizens Bank")[0] == "counted_flagged"
+
+
+@pytest.mark.parametrize(("text", "account_name", "holder_name", "bank", "expected"), [
+    # A lender's own name keeps its financing word; a payroll payer and the owner's pay keep the pay hold.
+    (TRUIST_DEP.format(payer="CONTOSO CAPITAL FUNDING"), "Checking", "JOHN SAMPLE DBA NORTHWIND DISTRIBUTION",
+     "Truist", FINANCING),
+    ("DIRECT DEP FABRIKAM INC PAYROLL JOHN SAMPLE CUSTOMER ID 00012", "Checking",
+     "JOHN SAMPLE DBA NORTHWIND DISTRIBUTION", "Truist", PAY),
+    ("FABRIKAM INC PAYROLL 000000 0000000 NORTHWIND DISTRIBUTION", "BUSINESS BANKING",
+     "JOHN SAMPLE DBA NORTHWIND DISTRIBUTION", "First Citizens Bank", PAY),
+    # The holder's own deposit stays the holder's.
+    (TRUIST_DEP.format(payer="NORTHWIND DISTRIBUTION"), "Checking", "JOHN SAMPLE DBA NORTHWIND DISTRIBUTION",
+     "Truist", HOLDER_HELD),
+    # No parser holder: B7's strip of the account name, as before.
+    (TRUIST_DEP.format(payer="FABRIKAM INC NORTHWIND CAPITAL"), "NORTHWIND CAPITAL LLC", None, "Truist", VERIFIED),
+    # A person's name is never stripped beside the owner's own (the owner's pay from another company, Q8).
+    ("DIRECT DEP FABRIKAM INC JOHN SAMPLE CUSTOMER ID 00012", "NAVIGATE BUSINESS CHECKING", "JOHN SAMPLE", "Truist",
+     UNLABELLED),
+])
+def test_r40_controls_keep_their_holds(text, account_name, holder_name, bank, expected):
+    assert _r40(text, account_name=account_name, holder_name=holder_name, bank=bank) == expected
+
+
+@pytest.mark.parametrize(("account_name", "holder_name", "names"), [
+    ("NORTHWIND CAPITAL LLC", "JOHN SAMPLE", ("NORTHWIND CAPITAL LLC",)),
+    ("Checking", "JOHN SAMPLE DBA NORTHWIND DISTRIBUTION", ("NORTHWIND DISTRIBUTION",)),
+    ("Checking", "CONTOSO LLC DBA NORTHWIND DISTRIBUTION", ("NORTHWIND DISTRIBUTION", "CONTOSO LLC")),
+    # A person-shaped account field, a product and a one-word trade name add nothing.
+    ("JANE SAMPLE", "JOHN SAMPLE", ()),
+    ("Checking", "JOHN SAMPLE", ()),
+    ("Checking", "JOHN SAMPLE DBA NORTHWIND", ()),
+    ("NORTHWIND CAPITAL LLC", None, ()),
+])
+def test_r40_the_strip_names_are_the_holder_s_business_names(account_name, holder_name, names):
+    [record] = classify_statement_transactions(Statement(
+        account_name=account_name, holder_name=holder_name, bank="Truist",
+        transactions=[Transaction(date="2054-03-02", description="CONTOSO DINER", amount=100.0, direction="credit")],
+    ))
+    assert tr._holder_strip_names(record) == names

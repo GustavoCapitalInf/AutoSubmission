@@ -541,7 +541,8 @@ def compute_metrics(
         tiers_sum_to_posted=m.revenue_tiers_sum_to_posted,
         true_total=m.true_revenue_total,
     )
-    m.holder_unscreened = holder_unscreened(records)
+    # Audit round 2, R2-B04 (R19): the statement's own names, so a statement with no transaction is read too.
+    m.holder_unscreened = holder_unscreened(records, holder_name=stmt.holder_name, account_name=stmt.account_name)
     m.payer_text_unread, m.payer_text_unread_count = payer_text_unread(stmt.transactions, records)
     m.lenders_detected = len(confirmed_entities)
     m.potential_lenders_detected = len(potential_entities)

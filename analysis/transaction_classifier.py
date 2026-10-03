@@ -1960,28 +1960,77 @@ def _lead_word(words: Sequence[str]) -> str | None:
     return next((word for word in words if word not in _NAME_STARTERS and word not in _NAME_PARTICLES), None)
 
 
-def _holder_name_words_match(payer: Sequence[str], holder: Sequence[str]) -> bool:
+def _person_name_reading(text: str) -> bool:
+    """§5.2 (audit round 2, R2-B04: R20): a name that reads as a person's: no company form and no trade-name marker
+    (_HOLDER_TRADE_NAME), and, its digit tokens and generic words (REVENUE_GENERIC_WORDS) dropped, two to four words
+    of letters, none a holder-test noise word (_HOLDER_TEST_NOISE)."""
+    if not text or company_form(text) or _HOLDER_TRADE_NAME.search(text):
+        return False
+    words = [
+        word for word in text.split()
+        if not any(character.isdigit() for character in word) and word not in REVENUE_GENERIC_WORDS
+    ]
+    return 2 <= len(words) <= 4 and all(word.isalpha() and word not in _HOLDER_TEST_NOISE for word in words)
+
+
+def _holder_name_words_match(payer: Sequence[str], holder: Sequence[str], *, people: bool = False) -> bool:
     """§5.2's holder test on one name of the holder's (audit B9, I58). A one-word holder must be the word the payer's
     name leads with. When either name leads with a short initialism, the two lead words are compared as printed: the
     same initialism is a likely affiliate, a different one a different company (never the industry word after it);
     otherwise the first distinctive words (four letters or more) are compared, the brand-word affiliate arm of §5.2.
-    Two shared words always match."""
+    Two shared words always match.
+
+    Audit round 2, R2-B04 (R20): when both names read as a person's (`people`, holder_named), the initialism and
+    brand-word arms are skipped: a person sharing only the holder's given name is another person. And two shared words
+    match only when they include the word the holder's name leads with, or when the payer's own first distinctive word
+    is a holder word (or it has none): another company leading with its own name and sharing the holder's trailing
+    trade words ('<A> YACHT SERVICE' paying '<B> YACHT SERVICE LLC') is a customer, while the holder's own words after a
+    label or the owner's name ('SAMPLE PERSON NORTHWIND MARINE LLC', 'SAMPLEMAN TRUCKING') stay the holder's."""
     if not holder:
         return False
     payer_lead = _lead_word(payer)
     if len(holder) == 1:
         return payer_lead == holder[0]
     holder_lead = _lead_word(holder)
+    if not people and _brand_word_match(payer, holder, payer_lead, holder_lead):
+        return True
+    shared = _shared_holder_words(payer, holder, cuts=people)
+    if len(shared) < 2:
+        return False
+    if holder_lead not in shared:
+        payer_first = _first_distinctive_word(payer)
+        if payer_first is not None and payer_first not in holder:
+            return False
+    return True
+
+
+def _shared_holder_words(payer: Sequence[str], holder: Sequence[str], *, cuts: bool) -> list[str]:
+    """§5.2 (audit round 2, R2-B04: R20): the holder's words the payer prints, in the payer's order. With `cuts` (two
+    names read as a person's, whose given-name arm is skipped), a payer word the bank's field cut, a proper prefix of
+    a holder word of _HOLDER_RUN_CUT_LETTERS letters or more, is that holder word, so the holder's own name cut short
+    ('NORTHWIND DISTRIB' for 'NORTHWIND DISTRIBUTION', the B5 American Express pull) stays the holder's."""
+    shared: list[str] = []
+    for word in dict.fromkeys(payer):
+        if word in holder:
+            shared.append(word)
+        elif cuts and len(word) >= _HOLDER_RUN_CUT_LETTERS:
+            whole = next((held for held in holder if held != word and held.startswith(word)), None)
+            if whole is not None:
+                shared.append(whole)
+    return list(dict.fromkeys(shared))
+
+
+def _brand_word_match(
+    payer: Sequence[str], holder: Sequence[str], payer_lead: str | None, holder_lead: str | None,
+) -> bool:
+    """§5.2 (audit B9, I58): the initialism and brand-word affiliate arms of _holder_name_words_match: when either name
+    leads with a short initialism, the two lead words as printed; otherwise the first distinctive words."""
     if holder_lead is not None and payer_lead is not None and (
         len(holder_lead) <= _INITIALISM_LETTERS or len(payer_lead) <= _INITIALISM_LETTERS
     ):
-        if holder_lead == payer_lead:
-            return True
-    else:
-        holder_first = _first_distinctive_word(holder)
-        if holder_first is not None and _first_distinctive_word(payer) == holder_first:
-            return True
-    return sum(1 for word in dict.fromkeys(payer) if word in holder) >= 2
+        return holder_lead == payer_lead
+    holder_first = _first_distinctive_word(holder)
+    return holder_first is not None and _first_distinctive_word(payer) == holder_first
 
 
 #: Audit B9 (I13): the legal forms a holder's name run may print or leave off, read out of both names before a payer's
@@ -2110,7 +2159,8 @@ def holder_named(
     the row's layout says where that receiver can print (`receiver_block`, holder_receiver_block: never on a labelled
     sender, after one name word on Truist's receiver slot), and a one-word holder left by a dropped lead word is read
     with that word (_dropped_lead_run, I58). Review round 2: a product a holder reader publishes names nobody
-    (account_product)."""
+    (account_product). Audit round 2, R2-B04 (R20): a name of the holder's and a payer reading that both read as a
+    person's (_person_name_reading) are compared on their shared words only, never by the given name they lead with."""
     if not region or not account_name:
         return False
     printed = account_name_text(account_name)
@@ -2122,6 +2172,7 @@ def holder_named(
     reading = _without_trailing_holder_run(payer_name(region), names, receiver_block)
     payer = _holder_test_words(reading.split())
     printed_payer = [word for word in reading.split() if word.isalpha()]
+    person_payer = _person_name_reading(reading)
     for name in names:
         holder = _holder_test_words(name.split())
         run = _dropped_lead_run(name, holder)
@@ -2129,7 +2180,7 @@ def holder_named(
             if _prints_run(printed_payer, run):
                 return True
             continue
-        if _holder_name_words_match(payer, holder):
+        if _holder_name_words_match(payer, holder, people=person_payer and _person_name_reading(name)):
             return True
     if _holder_cut_name(payer_name(region), printed):
         return True

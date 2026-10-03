@@ -482,3 +482,78 @@ def test_g4_no_counted_or_verified_row_carries_the_bank_only_transfer_fact():
         facts = tr.guard_facts(record, tc.revenue_text(record.normalized_description))
         in_true = record.revenue_tier in {"verified", "counted_flagged"}
         assert not (in_true and facts["transfer_no_counterparty"]), record.description
+
+
+# Audit round 2, R2-B04 (R41): the holder's own push is held on the row alone, even where an earlier rule verified it
+# (an accounts-payable entry, step 11) and on American Express's unlabelled receiver block; it never seeds a repeat.
+
+PRODUCT = "BUSINESS CHECKING"
+OWN_AP = "CONTOSO HARDWARE INC DES:{entry} ID:0001 INDN:CONTOSO HARDWARE INC CO ID:0000000000 CCD"
+OWN_CHASE_AP = (
+    "ORIG CO NAME:CONTOSO HARDWARE INC ORIG ID:0000000000 DESC DATE:540302 CO ENTRY DESCR:VENDOR PAYSEC:CCD "
+    "TRACE#:000000000000000 EED:540302 IND ID:1 IND NAME:CONTOSO HARDWARE INC TRN: 0000000000TC"
+)
+AMEX_OWN = (
+    "ONLINE TRANSFER PAYMENT CREDIT {originator} {entry} 0001 XXXXX0001 {receiver} EXTERNAL WELLS FARGO BANK "
+    "ID 000000000000000"
+)
+
+
+def _reason_and_method(rows, bank):
+    return [(record.revenue_tier, record.revenue_tier_reason, record.revenue_match_method)
+            for record in _records(rows, holder=PRODUCT, bank=bank) if record.amount > 0]
+
+
+@pytest.mark.parametrize("text", [
+    *(OWN_AP.format(entry=entry) for entry in ("VENDOR PMT", "AP PAYMENT", "ACCOUNTS PAYABLE", "INVOICE PMT")),
+    OWN_CHASE_AP,
+])
+def test_r41_the_holder_s_own_accounts_payable_push_is_never_verified(text):
+    bank = "Chase" if text.startswith("ORIG CO NAME") else "Bank of America"
+    held = ("excluded_pending_review", "holder_name", "self_originated_holder")
+    assert _reason_and_method([(text, 1000.0)], bank) == [held]
+    assert _reason_and_method([(text, 1000.0), (text, 1250.0)], bank) == [held, held]
+
+
+@pytest.mark.parametrize("text", [
+    AMEX_OWN.format(originator="CONTOSO HARDWARE INC", entry="PAYMENT", receiver="CONTOSO HARDWARE INC"),
+    AMEX_OWN.format(originator="CONTOSO HARDWARE INC", entry="TRANSFER", receiver="CONTOSO HARDWARE INC"),
+    AMEX_OWN.format(originator="CONTOSO LLC", entry="PAYMENT", receiver="CONTOSO LLC"),
+])
+def test_r41_the_holder_funding_its_american_express_account_is_held(text):
+    assert _tiers([(text, 1000.0)], holder=PRODUCT, bank="American Express") == [HOLDER_HELD]
+    assert _tiers([(text, 1000.0), (text, 1250.0)], holder=PRODUCT, bank="American Express") == [HOLDER_HELD] * 2
+    assert tr.self_originated(text, tc.payer_region(text), "American Express")
+
+
+def test_r41_an_own_push_never_makes_another_row_a_repeat():
+    # One payer key: the holder's own accounts-payable push (verified by step 11 before) and a row of that name to
+    # another receiver. The own push is held and counts toward no repeat, so the other row is a one-off.
+    own = "CONTOSO HARDWARE DES:VENDOR PMT ID:0001 INDN:CONTOSO HARDWARE CO ID:0000000000 CCD"
+    other = "CONTOSO HARDWARE DES:PAYMENT ID:0002 INDN:SAMPLE OWNER CO ID:0000000000 CCD"
+    tiers = _tiers([(own, 1000.0), (other, 1250.0)], holder=PRODUCT, bank="Bank of America")
+    assert tiers == [HOLDER_HELD, ONE_OFF]
+
+
+@pytest.mark.parametrize(("text", "bank", "expected"), [
+    ("FABRIKAM SUPPLY LLC DES:VENDOR PMT ID:0001 INDN:CONTOSO HARDWARE INC CO ID:0000000000 CCD", "Bank of America",
+     ("verified", "payer_remittance_descriptor")),
+    (AMEX_OWN.format(originator="FABRIKAM SUPPLY LLC", entry="EFT", receiver="CONTOSO HARDWARE INC"),
+     "American Express", COMPANY),
+    (AMEX_OWN.format(originator="NORTHWIND HARDWARE INC", entry="PAYMENT", receiver="CONTOSO HARDWARE INC"),
+     "American Express", COMPANY),
+])
+def test_r41_a_customer_s_payment_to_the_holder_keeps_its_verification(text, bank, expected):
+    assert _tiers([(text, 1000.0)], holder=PRODUCT, bank=bank) == [expected]
+
+
+def test_r41_a_processor_s_settlement_under_the_merchant_s_own_name_stays_verified():
+    text = "SAMPLE MERCHANT DES:NET SETTLE ID:0001 INDN:SAMPLE MERCHANT CO ID:0000000000 CCD"
+    rows = [(text, 300.0 + index) for index in range(3)]
+    assert {tier[0] for tier in _tiers(rows, holder=PRODUCT, bank="Bank of America")} == {"verified"}
+
+
+def test_r41_an_own_push_under_one_dollar_takes_the_floor_s_hold():
+    [record] = _records([(OWN_AP.format(entry="VENDOR PMT"), 0.5)], holder=PRODUCT, bank="Bank of America")
+    assert (record.revenue_tier, record.revenue_tier_reason) == ("excluded_pending_review", "non_sale_purpose")
+    assert record.revenue_match_method != "self_originated_holder"

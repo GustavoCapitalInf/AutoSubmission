@@ -2626,6 +2626,32 @@ def test_r2_b03_a_bank_only_payer_s_repeat_is_a_declared_demotion(prior, later, 
     assert causes == {cause: 1}
 
 
+# Audit round 2, R2-B04 (R41): the holder's own push that an earlier rule verified (an accounts-payable entry read by
+# step 11) is overruled by pass 7 and held as the holder's name (method self_originated_holder).
+OWN_AP_ROW = "CONTOSO HARDWARE INC DES VENDOR PMT ID #### INDN CONTOSO HARDWARE INC CO ID ########## CCD"
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    (_q56("payer_remittance_descriptor", OWN_AP_ROW),
+     _after56("self_originated_holder", OWN_AP_ROW, tier="excluded_pending_review", reason="holder_name",
+              rule="holder_own_push_never_verified"), "holder_own_push_never_verified"),
+    (_q56("named_payer_repeats", OWN_AP_ROW),
+     _after56("self_originated_holder", OWN_AP_ROW, tier="excluded_pending_review", reason="holder_name",
+              rule="holder_own_push_never_verified"), "holder_own_push_never_verified"),
+    # The overruling method with another outcome, or the hold with no overruling, is not this cause.
+    (_q56("payer_remittance_descriptor", OWN_AP_ROW),
+     _after56("self_originated_holder", OWN_AP_ROW, tier="counted_flagged", reason="named_payer_one_off"),
+     "undeclared"),
+    (_q56("payer_remittance_descriptor", OWN_AP_ROW),
+     _after56("unidentified_posted_credit", OWN_AP_ROW, tier="excluded_pending_review", reason="holder_name"),
+     "undeclared"),
+])
+def test_r2_b04_the_holder_s_own_push_never_verified_is_a_declared_demotion(prior, later, cause):
+    causes, _ = _cause56(prior, later)
+    assert causes == {cause: 1}
+    assert cause == "undeclared" or cause in census.DECLARED_DEMOTIONS
+
+
 @pytest.mark.parametrize(("bank", "text", "kind"), [
     ("Thread Bank (Relay)", RELAY_BANK_ROW, "sending"),
     ("Chase", "ORIG CO NAME:CHASE ONLINE ORIG ID:1234567890 DESC DATE: CO ENTRY DESCR:ONLINE PMTSEC:CTX TRACE#:1 "

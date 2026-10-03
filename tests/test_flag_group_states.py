@@ -64,9 +64,10 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.6/27: the audit's lost-payer-text batch (B10) changes six parsers' credit descriptions.
     # 5.6/28: the audit's package and review-gate batch (B11) changes the stored revenue gate (T7) and adds the
     # four-tier identity's own name to the metrics.
+    # 5.6/29: audit round 2's holder batch (R2-B04) changes the stored holder_unscreened metric and the holder holds.
     assert CLASSIFICATION_VERSION == "5.6"
     assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
-    assert ANALYSIS_STAGE_VERSION == 28
+    assert ANALYSIS_STAGE_VERSION == 29
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)

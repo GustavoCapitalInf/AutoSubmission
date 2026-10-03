@@ -734,3 +734,244 @@ def test_r18_a_platform_s_financing_printing_a_payout_id_is_never_revenue():
     tiers = _tiers(rows, holder_name=BAKERY)
     assert all(tier[0] in ("excluded_pending_review", "non_revenue") for tier in tiers)
     assert HOLDER_NAME not in tiers
+
+
+# --- Audit round 2, R2-B04 (R19): a holder's name the parser read is a known name, whatever its shape -------------
+# A trailing CO, an AND or & partnership, a DBA or 'Operating as' name, a dotted S.E.N.C. and a name of five words or
+# more are real holder names: the holder hold reads them already, so the statement never says no holder's name is
+# known; and the I47 strip removes them, a cut last word at the row's end included.
+
+UNLABELLED = ("counted_flagged", "named_payer_unlabelled")
+NON_SALE = ("excluded_pending_review", "non_sale_purpose")
+PAY = ("excluded_pending_review", "payroll_or_salary")
+
+
+def _pnc_zelles(own):
+    return [(f"ZELLE FROM {own} CONF 1", 2500.0), ("ZELLE FROM FABRIKAM DINER LLC CONF 2", 310.0)]
+
+
+def _unscreened(rows, **kwargs):
+    statement = _statement(rows, **kwargs)
+    records = classify_statement_transactions(statement)
+    return tr.holder_unscreened(records), compute_metrics(statement, classifications=records).holder_unscreened
+
+
+@pytest.mark.parametrize(("account_name", "holder_name", "own"), [
+    ("Business Checking", "CONTOSO TRADING CO.", "CONTOSO TRADING CO"),
+    ("Business Checking", "THE NORTHWIND SAMPLE TRADING CO.", "THE NORTHWIND SAMPLE TRADING CO"),
+    ("Business Checking", "NORTHWIND AND SAMPLE PARTNERS", "NORTHWIND AND SAMPLE PARTNERS"),
+    ("Business Checking", "SAMPLE NORTHWIND & CONTOSO PARTNERS", "SAMPLE NORTHWIND & CONTOSO PARTNERS"),
+    ("Business Checking", "SAMPLE PERSON DBA NORTHWIND PLUMBING", "NORTHWIND PLUMBING"),
+    ("Business Checking", "NORTHWIND SAMPLE CONTOSO FABRIKAM TRADING", "NORTHWIND SAMPLE CONTOSO FABRIKAM TRADING"),
+    ("SAMPLE PERSON Operating as: NORTHWIND PLUMBING", None, "NORTHWIND PLUMBING"),
+    ("NORTHWIND CONTOSO S.E.N.C.", None, "NORTHWIND CONTOSO S.E.N.C."),
+])
+def test_r19_a_holder_s_name_of_any_shape_is_known(account_name, holder_name, own):
+    rows = _pnc_zelles(own)
+    kwargs = {"account_name": account_name, "holder_name": holder_name, "bank": "PNC"}
+    # The holder hold reads the name already: the tiers are unchanged.
+    assert _tiers(rows, **kwargs) == [HOLDER_NAME, P2P]
+    assert _unscreened(rows, **kwargs) == (False, False)
+
+
+def test_r19_a_zero_transaction_statement_with_a_holder_s_name_is_screened():
+    statement = Statement(account_name="Business Checking", holder_name="NORTHWIND PLUMBING LLC", bank="PNC")
+    assert compute_metrics(statement, classifications=[]).holder_unscreened is False
+    assert tr.holder_unscreened([], holder_name="NORTHWIND PLUMBING LLC", account_name="Business Checking") is False
+    assert tr.holder_unscreened([], account_name="NORTHWIND PLUMBING LLC") is False
+    assert tr.holder_unscreened([], account_name="Business Checking") is True
+
+
+@pytest.mark.parametrize("account_name", [
+    None, "Business Complete Checking", "INSTANCES AMOUNT", "SAMPLEVILLE CO", "NORTHWIND CO", "NORTHWINDLTD",
+])
+def test_r19_a_product_a_city_and_state_or_a_glued_word_still_names_nobody(account_name):
+    rows = [("ZELLE FROM FABRIKAM DINER LLC CONF 2", 310.0)]
+    assert _unscreened(rows, account_name=account_name, bank="PNC") == (True, True)
+    statement = Statement(account_name=account_name, bank="PNC")
+    assert compute_metrics(statement, classifications=[]).holder_unscreened is True
+
+
+@pytest.mark.parametrize(("name", "usable"), [
+    ("CONTOSO TRADING CO.", True),
+    ("THE NORTHWIND SAMPLE TRADING CO.", True),
+    ("NORTHWIND AND SAMPLE PARTNERS", True),
+    ("SAMPLE NORTHWIND & CONTOSO PARTNERS", True),
+    ("SAMPLE PERSON DBA NORTHWIND PLUMBING", True),
+    ("SAMPLE PERSON Operating as: NORTHWIND PLUMBING", True),
+    ("NORTHWIND CONTOSO S.E.N.C.", True),
+    ("NORTHWIND CONTOSO SENC", True),
+    # A city and state, a glued legal form, a product and five words with no form name nobody.
+    ("SAMPLEVILLE CO", False),
+    ("NORTHWIND CO", False),
+    ("NORTHWINDLTD", False),
+    ("Business Complete Checking", False),
+    ("NORTHWIND SAMPLE CONTOSO FABRIKAM TRADING", False),
+])
+def test_r19_the_usable_holder_name_reads_a_trailing_co_partners_a_dba_and_senc(name, usable):
+    assert tr._usable_holder_name(name) is usable
+
+
+WF_UNLABELLED = "CONTOSO PTO PAYMENT 540115 1234567 {receiver}"
+
+
+@pytest.mark.parametrize("parser", [False, True])
+@pytest.mark.parametrize(("holder", "receiver", "tier"), [
+    ("NORTHWIND DISTRIBUTION CO", "NORTHWIND DISTRIBUTION", UNLABELLED),
+    ("NORTHWIND PAYROLL CO", "NORTHWIND PAYROLL", UNLABELLED),
+    ("NORTHWIND DISTRIBUTION LLC", "NORTHWIND DISTRIBUTIO", UNLABELLED),
+    ("NORTHWIND DISTRIBUTION LLC", "NORTHWIND DISTRIB", UNLABELLED),
+    ("SAMPLE PERSON DBA NORTHWIND DISTRIBUTION", "NORTHWIND DISTRIBUTION", UNLABELLED),
+    # A third party's own hold word is no holder's name; a cut name followed by another word is not at the row's end.
+    ("NORTHWIND PLUMBING LLC", "CONTOSO DISTRIBUTION", NON_SALE),
+    ("NORTHWIND PLUMBING CO", "CONTOSO PAYROLL", PAY),
+    ("NORTHWIND DISTRIBUTION LLC", "NORTHWIND DISTRIBUTIO SAMPLE", NON_SALE),
+])
+def test_r19_the_holder_s_own_name_never_holds_a_customer_s_unlabelled_payment(holder, receiver, tier, parser):
+    kwargs = (
+        {"account_name": "Business Checking", "holder_name": holder} if parser else {"account_name": holder}
+    )
+    assert _tiers([(WF_UNLABELLED.format(receiver=receiver), 4000.0)], bank="Wells Fargo", **kwargs) == [tier]
+
+
+# --- Audit round 2, R2-B04 (R20): two shared trade words, or a person's given name, are not the holder ------------
+
+YACHT = "NORTHWIND YACHT SERVICE LLC"
+PERSON_HELD = [
+    ("ZELLE PAYMENT FROM SAMPLE PERSON NORTHWIND MARINE LLC CONF 1234567890", "Chase", "NORTHWIND MARINE LLC"),
+    ("Zel From Northwind Yacht Service WFCT0A0B0C04", "PNC", YACHT),
+    ("ZELLE PAYMENT FROM SAMPLEMAN TRUCKING CONF 1234567890", "Chase", "JORDAN SAMPLEMAN TRUCKING LLC"),
+    ("CORPORATE ACH PAYROLL 0000012345 Jordan Sampleman 0000012345", "PNC", "JORDAN SAMPLEMAN JR"),
+    ("ZELLE PAYMENT FROM ALEXIS NORTHWINDER CONF 1234567890", "Chase", "JORDAN SAMPLEMAN ALEXIS NORTHWINDER"),
+    ("ZELLE PAYMENT FROM JORDAN SAMPLEMAN CONF 1234567890", "Chase", "JORDAN SAMPLEMAN"),
+    ("ZELLE PAYMENT FROM SAMPLEMAN JORDAN CONF 1234567890", "Chase", "JORDAN SAMPLEMAN"),
+    # The holder's own name cut short by the bank's field stays the holder's when both names read as a person's.
+    ("ZELLE PAYMENT FROM JORDAN SAMPL CONF 1234567890", "Chase", "JORDAN SAMPLEMAN"),
+    (CHASE_ACH.format(orig="CONTOSO HOLDINGS LLC", entry="PAYMENT ", receiver="CONTOSO BAKERY"), "Chase",
+     "CONTOSO BAKERY"),
+    (CHASE_ACH.format(orig="JORDAN FABRIKAM INC", entry="PAYMENT ", receiver="JORDAN SAMPLEMAN"), "Chase",
+     "JORDAN SAMPLEMAN"),
+]
+
+
+@pytest.mark.parametrize(("text", "tier"), [
+    ("Zel From First Sample Yacht Service WFCT0A0B0C01", UNLABELLED),
+    ("Zel From Contoso Yacht Service WFCT0A0B0C02", UNLABELLED),
+])
+def test_r20_another_company_sharing_two_trade_words_is_a_customer(text, tier):
+    assert _tiers([(text, 600.0)], bank="PNC", holder_name=YACHT) == [tier]
+
+
+def test_r20_a_trade_namesake_the_holder_also_pays_is_held_by_its_counter_debit():
+    rows = [("Zel From First Sample Yacht Service WFCT0A0B0C01", 600.0),
+            ("Zel To First Sample Yacht Service WFCT0A0B0C03", -200.0)]
+    assert _tiers(rows, bank="PNC", holder_name=YACHT) == [("excluded_pending_review", "payer_also_debited")]
+
+
+@pytest.mark.parametrize(("text", "holder", "tier"), [
+    (CHASE_ACH.format(orig="FABRIKAM AUTO REPAIR", entry="PAYMENT ", receiver="NORTHWIND AUTO REPAIR INC"),
+     "NORTHWIND AUTO REPAIR INC", ONE_OFF),
+    ("ZELLE PAYMENT FROM CONTOSO HOME IMPROVEMENT CONF 1234567890", "NORTHWIND HOME IMPROVEMENT LLC", P2P),
+    ("ZELLE PAYMENT FROM CONTOSO YACHT SERVICE CONF 1234567890", "QZX YACHT SERVICE LLC", P2P),
+])
+def test_r20_a_payer_leading_with_another_name_is_never_the_holder_on_trade_words(text, holder, tier):
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name=holder) == [tier]
+
+
+@pytest.mark.parametrize(("text", "bank", "holder"), [
+    ("ZELLE PAYMENT FROM JORDAN NORTHWINDER CONF 1234567890", "Chase", "JORDAN SAMPLEMAN"),
+    ("ZELLE PAYMENT FROM JORDAN NORTHWINDER PAYMENT ID 1234", "Truist", "JORDAN SAMPLEMAN"),
+    ("ZELLE PAYMENT FROM JORDAN NORTHWINDER CONF 1234567890", "Chase", "JORDAN LEE SAMPLEMAN"),
+    ("ZELLE PAYMENT FROM ANA NORTHWINDER CONF 1234567890", "Chase", "ANA SAMPLEMAN"),
+])
+def test_r20_a_person_sharing_only_the_holder_s_given_name_is_another_person(text, bank, holder):
+    assert _tiers([(text, 900.0)], bank=bank, holder_name=holder) == [P2P]
+
+
+@pytest.mark.parametrize(("text", "bank", "holder"), PERSON_HELD)
+def test_r20_the_holder_s_own_name_words_still_hold(text, bank, holder):
+    assert _tiers([(text, 900.0)], bank=bank, holder_name=holder) == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize(("text", "person"), [
+    ("JORDAN SAMPLEMAN", True),
+    ("JORDAN LEE SAMPLEMAN", True),
+    ("JORDAN NORTHWINDER 1234", True),
+    ("JORDAN SAMPLEMAN ALEXIS NORTHWINDER", True),
+    # A company form, a trade-name marker, a noise word, five words or one word read as no person.
+    ("JORDAN FABRIKAM INC", False),
+    ("JORDAN SAMPLEMAN DBA NORTHWIND", False),
+    ("NORTHWIND HOLDINGS", False),
+    ("JORDAN LEE ALEXIS SAMPLE NORTHWINDER", False),
+    ("JORDAN", False),
+])
+def test_r20_the_person_name_reading(text, person):
+    assert tc._person_name_reading(text) is person
+
+
+# --- Audit round 2, R2-B04 (R04 parts 1 and 3): a processor's credit printing the holder's name, Capital One's tails -
+
+R04_HOLDER = "CONTOSO TRADING LLC"
+
+
+def test_r04_capital_one_s_mercury_tails_never_hide_the_holder_s_own_push():
+    text = "ACH DEPOSIT CONTOSO TRADING LLC MERCURYACH 000000 CONTOSO TRADING LLC MRCR G0ABC0"
+    assert _tiers([(text, 1500.0)], bank="Capital One") == [HOLDER_NAME]
+    assert tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)), "Capital One")
+    other = "ACH DEPOSIT FABRIKAM SUPPLY LLC MERCURYACH 000000 CONTOSO TRADING LLC MRCR G0ABC0"
+    assert _tiers([(other, 1500.0)], bank="Capital One") != [HOLDER_NAME]
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("CONTOSO DES:CONTOSO ID:ST-AB12CD34EF56 INDN:CONTOSO TRADING LLC CO ID:0000000000 CCD", "Bank of America"),
+    ("MISC PAYMENT CONTOSO TRADING LIGHTSPEE", "Scotiabank"),
+    ("INTUIT TRANSFER CONTOSO TRADING", "Wells Fargo"),
+    ("TECHNOLOGY CONTOSO TRADING INC TECHNOLOGY FEES SAMPLEVILLE", "Mission Valley Bank"),
+    ("MARKETING CONTOSO TRADING FRAN 0012 MARKETING FEE 0001 TO 0002 SAMPLEVILLE", "Mission Valley Bank"),
+    ("FABRIKAM INC DES:PAYMENT ID:0001 INDN:CONTOSO TRADING LLC CO ID:0000000000 CCD", "Bank of America"),
+    ("ZELLE PAYMENT FROM NORTHWIND DINER CONF 1234567890", "Bank of America"),
+])
+def test_r04_a_processor_s_or_a_franchisor_s_credit_printing_the_holder_s_name_keeps_its_tier(text, bank):
+    tiers = _tiers([(text, 1500.0)], bank=bank, holder_name=R04_HOLDER)
+    assert tiers == _tiers([(text, 1500.0)], bank=bank)
+    assert tiers != [HOLDER_NAME]
+    records = classify_statement_transactions(_statement([(text, 1500.0)], bank=bank, holder_name=R04_HOLDER))
+    revenue = _revenue(records[0].normalized_description)
+    assert not tr.region_names_holder(records[0], revenue, tc.payer_region(revenue))
+
+
+@pytest.mark.parametrize("text", [
+    "ZELLE PAYMENT FROM CONTOSO TRADING LLC CONF 1234567890",
+    "WIRE TYPE:WIRE IN DATE: 540302 TIME:1015 ET TRN:2054030200123456 ORIG:CONTOSO TRADING LLC ID:1234567890",
+    "RTP CREDIT CONTOSO TRADING LLC MARKETING FEE",
+    "CONTOSO TRADING LLC DES:TRANSFER ID:0001 INDN:SAMPLE OWNER CO ID:0000000000 CCD",
+])
+def test_r04_the_holder_s_own_push_wire_and_rails_keep_the_holder_hold(text):
+    assert _tiers([(text, 1500.0)], bank="Bank of America", holder_name=R04_HOLDER) == [HOLDER_NAME]
+
+
+def test_r04_a_platform_s_word_inside_the_holder_s_own_name_is_the_holder_s():
+    holder = "NORTHWIND INTUIT GROUP LLC"
+    text = "NORTHWIND INTUIT GROUP LLC DES:TRANSFER ID:0001 INDN:SAMPLE OWNER CO ID:0000000000 CCD"
+    assert _tiers([(text, 1500.0)], bank="Bank of America", holder_name=holder) == [HOLDER_NAME]
+    revenue = _revenue(text)
+    assert not tr.platform_credit(revenue, tc.payer_region(revenue), (holder,))
+
+
+@pytest.mark.parametrize(("text", "named"), [
+    ("MISC PAYMENT CONTOSO TRADING LIGHTSPEE", True),
+    ("MISC PAYMENT CONTOSO TRADING LIGHTSPEED", True),
+    ("INTUIT TRANSFER CONTOSO TRADING", True),
+    ("TECHNOLOGY CONTOSO TRADING INC TECHNOLOGY FEES SAMPLEVILLE", True),
+    # A cut keeps seven letters or more; a whole word that starts an alias is no cut.
+    ("MISC PAYMENT CONTOSO TRADING LIGHTS", False),
+    ("MISC PAYMENT CONTOSO TRADING SHOP", False),
+    # A whole word that starts a longer name is no cut of it, nor is a generic word (PAYMENT, for PAYMENTECH).
+    ("MISC PAYMENT CONTOSO TRADING BUILDER", False),
+    ("ACH CREDIT CONTOSO TRADING RENT PAYMENT", False),
+    ("ZELLE PAYMENT FROM CONTOSO TRADING LIGHTSPEED", False),
+    ("CONTOSO TRADING LLC DES:TRANSFER ID:0001 INDN:SAMPLE OWNER CO ID:0000000000 CCD", False),
+])
+def test_r04_platform_credit_reads_the_originator_and_the_fee_words_outside_the_holder_s_names(text, named):
+    revenue = _revenue(text)
+    assert tr.platform_credit(revenue, tc.payer_region(revenue), (R04_HOLDER,)) is named

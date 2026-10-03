@@ -635,7 +635,22 @@ OCR_STAGE_VERSION = 5
 # cache keyed on 27 would serve the old gate; a re-analysis recomputes the
 # analysis stage from the cached reading. OCR stays cached. Pinned in the same
 # change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 28
+# 28 -> 29: TRUE-REVENUE audit round 2, batch R2-B04 (holder screening, the
+# holder-name strip and the holder's own push) — `metrics.holder_unscreened`
+# reads a holder name the parser read as known whatever its shape (a trailing
+# CO, a partnership, a DBA or 'Operating as' name, S.E.N.C., five words or
+# more) and reads a statement with no transaction (R19); the I47 strip reads
+# each side of such a name, a cut last word at the row's end and the holder's
+# business names beside a person's (R19, R40); the holder test reads two shared
+# trade words, and a person's given name, as no holder (R20); the holder's own
+# push is held where an earlier rule verified it and on American Express's
+# receiver block (R41); a processor's or a franchisor's credit printing the
+# holder's name is no holder's own money, and Capital One's Mercury tails never
+# hide one (R04 parts 1 and 3). The stored metric and the holds move, so a warm
+# cache keyed on 28 would serve them; a re-analysis recomputes the analysis
+# stage from the cached reading. OCR stays cached. No parser changes. Pinned in
+# the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 29
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

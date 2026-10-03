@@ -485,7 +485,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_28():
+def test_analysis_stage_version_is_pinned_at_29():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -505,8 +505,10 @@ def test_analysis_stage_version_is_pinned_at_28():
     could not read), so it goes 26 -> 27. The package and review-gate batch (B11)
     changes the stored revenue gate (T7 also reads held against True plus held)
     and adds the four-tier identity's own name to the metrics, so it goes
-    27 -> 28. This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 28
+    27 -> 28. Audit round 2's holder batch (R2-B04) changes the stored
+    `holder_unscreened` metric (a holder name the parser read is known, whatever
+    its shape) and the holder holds, so it goes 28 -> 29. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 29
 
 
 def test_paddle_model_token_is_not_in_free_models():
