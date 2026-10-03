@@ -2462,6 +2462,18 @@ def _originator_payer_words(words: str) -> list[str]:
     ]
 
 
+#: Audit round 2, R2-B10 review round 1 (R11): the words besides a reference that a bare incoming wire may print after
+#: its label: the wire label words (true_revenue's _WIRE_LABEL_ONLY_WORDS, made one list by R32: the bare channel words,
+#: every wire layout word, BANK, DEPOSIT, DEP, IN, RECEIVED and CR; a test keeps the two lists in step) and the
+#: funds-transfer labels' own originator labels, TT and FROM. Never a legal form, an article, a currency or a generic
+#: or holder-noise word (BUSINESS, TRUST, OPERATING, USD, CAD, ONLINE, PAYMENT, INC, LLC, THE): those are no reference.
+_BARE_WIRE_LABEL_WORDS = frozenset({
+    "WIRE", "WIRES", "TRANSFER", "BOOK", "CREDIT", "INCOMING", "INBOUND", "INBD", "FEDWIRE", "FED", "WT", "IWT",
+    "CHIPS", "SWIFT", "DOMESTIC", "INTL", "INTERNATIONAL", "BANK", "DEPOSIT", "DEP", "IN", "RECEIVED", "CR",
+    "TT", "FROM",
+})
+
+
 def _bare_incoming_wire(text: str) -> bool:
     """Audit round 2, R2-B10 (R11; Q5, §7.11): a row an incoming-wire label starts (_INCOMING_WIRE_LABEL: RBC's 'FUNDS
     TRANSFER CREDIT TT <reference> [O]', 'INCOMING FUNDS TRANSFER <reference>', 'WIRE TRANSFER IN <reference>') that
@@ -2469,14 +2481,26 @@ def _bare_incoming_wire(text: str) -> bool:
     (_INTERNAL_ACCOUNT_SOURCE_WORDS: SAVINGS, CHECKING, ACCOUNT, LOC ...) and no own-account product word
     (_OWN_ACCOUNT_PRODUCT_WORDS: RESERVE, TAX, PAYROLL, LOAN ...): an incoming wire whose sender is not printed, which pass
     7 holds as wire_no_sender (Q5), never the holder's own transfer. A row that names the holder as its originator, or an
-    own account after its label ('FUNDS TRANSFER CREDIT TT SAVINGS <n>'), is not one."""
+    own account after its label ('FUNDS TRANSFER CREDIT TT SAVINGS <n>'), is not one.
+
+    R2-B10 review round 1: the row prints only a reference, so every word after the label is a reference token
+    (_is_reference_token: digits, a masked token, a month), a single letter (RBC's trailing O or W) or a wire label word
+    (_BARE_WIRE_LABEL_WORDS); any other word ('<n> BUSINESS', '<n> USD', '<n> PAYMENT', '<n> INC') makes no bare
+    incoming wire, and the row keeps its own-account reading (true_revenue's credit_facts blanks a bare row's payer
+    region, so its reference or label words are never a counted sender)."""
     found = _INCOMING_WIRE_LABEL.match(text)
     if found is None or _third_party_originator(text) is not None:
         return False
     after = text[found.end():]
     if _INTERNAL_ACCOUNT_SOURCE_WORDS.search(after):
         return False
-    return not any(token in _OWN_ACCOUNT_PRODUCT_WORDS for token in after.split())
+    tokens = after.split()
+    if any(token in _OWN_ACCOUNT_PRODUCT_WORDS for token in tokens):
+        return False
+    return all(
+        _is_reference_token(token) or (len(token) == 1 and token.isalpha()) or token in _BARE_WIRE_LABEL_WORDS
+        for token in tokens
+    )
 
 
 def _third_party_book_transfer(text: str) -> bool:

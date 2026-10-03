@@ -190,6 +190,74 @@ def test_r11_the_held_no_sender_wire_reaches_the_review_gate():
     assert metrics.revenue_review_required
 
 
+# Audit round 2, R2-B10 review round 1 (R11): the reader reads the ruling's words, a row that 'prints only a
+# reference': every word after the label is a reference (digits, a masked token, a month), a single letter (RBC's O or
+# W) or a wire label word (the wire label list R32 made one, and the funds-transfer labels' own TT and FROM). Any other
+# word after the label (a holder-noise, generic, currency or legal-form word) is no reference, so the row keeps its
+# own-account reading, never counted as a wire from a named sender with that word as its 'sender'.
+
+NOT_ONLY_A_REFERENCE = [
+    "FUNDS TRANSFER CREDIT TT 1234 BUSINESS",
+    "FUNDS TRANSFER CREDIT TT 1234 TRUST",
+    "FUNDS TRANSFER CREDIT TT 1234 OPERATING",
+    "FUNDS TRANSFER CREDIT TT 1234 USD",
+    "FUNDS TRANSFER CREDIT TT 1234 CAD",
+    "FUNDS TRANSFER CREDIT TT USD 1234567890",
+    "FUNDS TRANSFER CREDIT TT 1234 ONLINE",
+    "FUNDS TRANSFER CREDIT TT 1234 PAYMENT",
+    "FUNDS TRANSFER CREDIT TT 1234 INC",
+    "FUNDS TRANSFER CREDIT TT 1234 LLC",
+    "FUNDS TRANSFER CREDIT TT 1234 THE",
+    "FUNDS TRANSFER WIRE FROM 1234 USD",
+    "INBD FUNDS TRANSFER RECEIVED 1234 USD",
+    "INCOMING FUNDS TRANSFER 1234 USD",
+    "INCOMING FUNDS TRANSFER 1234 BUSINESS",
+    "INCOMING FUNDS TRANSFER FROM BUSINESS",
+]
+
+
+def _revenue_text(printed: str) -> str:
+    from analysis.transaction_classifier import normalize_transaction_description, revenue_text
+
+    return revenue_text(normalize_transaction_description(printed))
+
+
+@pytest.mark.parametrize("printed", NOT_ONLY_A_REFERENCE)
+def test_r11_review_a_word_besides_a_reference_keeps_the_own_account_reading(printed):
+    from analysis.transaction_classifier import _bare_incoming_wire
+
+    assert not _bare_incoming_wire(_revenue_text(printed))
+    assert _tier(printed) == ("non_revenue", "strong_non_revenue_rule")
+    assert prints_internal_transfer_designation(printed)
+
+
+@pytest.mark.parametrize("printed", [
+    # A month is a reference, and a stray originator or wire label names nobody: the row prints only a reference, so
+    # it is held with no sender even where the payer reader keeps the word (pass 7 blanks a bare row's region).
+    "FUNDS TRANSFER CREDIT TT 1234 MARCH",
+    "FUNDS TRANSFER CREDIT TT 1234 FROM",
+    "FUNDS TRANSFER CREDIT TT 1234 TT",
+    "FUNDS TRANSFER CREDIT TT 1234 WIRE FROM 12345",
+    "FUNDS TRANSFER CREDIT TT 1234 TRANSFER",
+    "FUNDS TRANSFER CREDIT TT 1234 O W",
+    "INBD FUNDS TRANSFER RECEIVED 1234 O",
+    "INCOMING FUNDS TRANSFER FROM 1234",
+])
+def test_r11_review_a_row_of_references_and_labels_is_held_never_counted(printed):
+    from analysis.transaction_classifier import _bare_incoming_wire
+
+    assert _bare_incoming_wire(_revenue_text(printed))
+    assert _tier(printed) == NO_SENDER
+    assert not prints_internal_transfer_designation(printed)
+
+
+def test_r11_review_the_reader_s_label_words_are_the_wire_label_list_and_the_originator_labels():
+    from analysis import transaction_classifier as tc
+    from analysis import true_revenue as tr
+
+    assert tc._BARE_WIRE_LABEL_WORDS == tr._WIRE_LABEL_ONLY_WORDS | {"TT", "FROM"}
+
+
 @pytest.mark.parametrize(("printed", "state"), [
     ("DEBIT CARD CREDIT VISA DIRECT SQUARE INC", "verified_revenue"),
     ("Debit Card Credit: Stripe Payout", "verified_revenue"),

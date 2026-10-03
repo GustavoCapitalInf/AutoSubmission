@@ -4016,7 +4016,10 @@ def credit_facts(
     channel = _channel(text, record.bank)
     region = classifier.payer_region(text)
     # Audit B5 (I14): a wire's region of labels alone, or with no name word, names no sender (_wire_label_only).
-    if channel == "wire" and region and _wire_label_only(region):
+    # Audit round 2, R2-B10 review round 1 (R11): nor does a row an incoming-wire label starts that prints only a
+    # reference (the classifier's _bare_incoming_wire), whatever word of it the payer reader keeps (a month, a stray TT
+    # or FROM): it left the own-account reading only to be held as a wire with no sender, never counted.
+    if channel == "wire" and region and (_wire_label_only(region) or classifier._bare_incoming_wire(text)):
         region = ""
     sender, holder_sender = (
         _p2p_sender_readings(text) if not region and channel == "person_to_person" else ("", "")

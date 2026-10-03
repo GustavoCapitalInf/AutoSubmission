@@ -309,6 +309,9 @@ def test_r32_controls_bank_wire_deposit_and_the_holder_s_own_fedwire():
     "INCOMING WIRE TRANSFER FROM CONTOSO BUILDERS LLC",
     "INCOMING WIRE CONTOSO BUILDERS LLC",
     "FEDWIRE CREDIT CONTOSO BUILDERS LLC",
+    # R2-B10 review round 1: R21 part C's plural CREDIT label joins the singular, which was held before it.
+    "WIRE TRANSFERS CREDIT CONTOSO BUILDERS LLC",
+    "WIRE TRANSFER CREDIT CONTOSO BUILDERS LLC",
 ])
 def test_r32_recorded_residual_an_unlabelled_sender_after_an_incoming_wire_label_is_not_read(text):
     assert _tiers([(text, 4000.0)]) == [NO_SENDER]
@@ -438,3 +441,20 @@ def test_r26_control_the_chase_reversal_still_reads_its_b_o_sender():
 def test_r11_a_bare_incoming_wire_label_is_held_never_non_revenue(text):
     assert tc._bare_incoming_wire(text)
     assert _tiers([(text, 2500.0)], holder="FABRIKAM TRADING LTD", bank="Royal Bank of Canada") == [NO_SENDER]
+
+
+# R2-B10 review round 1 (R11): a word after the label that is no reference and no wire label (a currency, generic,
+# holder-noise or legal-form word) makes no bare incoming wire, so it never becomes the counted 'sender' of a wire.
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # No funds-transfer label: the wire keeps its own reading, a wire with no sender.
+    ("WIRE TRANSFER IN 1234 USD", NO_SENDER),
+    ("INCOMING FEDWIRE 1234 BUSINESS", NO_SENDER),
+    ("INBOUND WIRE 1234 PAYMENT", NO_SENDER),
+    # A funds-transfer label: the row keeps its own-account reading, as before R11.
+    ("FUNDS TRANSFER CREDIT TT 1234 BUSINESS", ("non_revenue", "strong_non_revenue_rule")),
+    ("FUNDS TRANSFER WIRE FROM 1234 USD", ("non_revenue", "strong_non_revenue_rule")),
+])
+def test_r11_review_a_word_besides_a_reference_is_no_bare_incoming_wire(text, expected):
+    assert not tc._bare_incoming_wire(text)
+    assert _tiers([(text, 2500.0)], holder="FABRIKAM TRADING LTD", bank="Royal Bank of Canada") == [expected]
