@@ -5,9 +5,12 @@ bank labels' words, the US states, the provinces, CANADA, CANADIAN and AMERICAN 
 is read by (_COUNTER_DEBIT_NOT_A_PAYER); a person-to-person or push credit whose sender prints a name of two words or
 more matches a debit only on that whole name (its glued first two words), and then the same person's Zelle or
 e-Transfer round trip is held as the hold's design says; an ATM, ABM or cash withdrawal never holds a deposit; RBC's
-'Paiement divers COMPTE CHEQUE <n>' is the holder's own account. Fabricated rows only (CONTOSO, FABRIKAM, NORTHWIND,
-SAMPLE, invented given names and towns), in the banks' printed formats; public names only where a bank or a rail
-prints its own (Venmo, Zelle, Interac, Cash App) or a registry lists a lender (LendCare)."""
+'Paiement divers COMPTE CHEQUE <n>' is the holder's own account. Review round 1: the whole name is one more arm of
+the lender hold, never the only one; a company's push and a debit for the credit's own amount are matched as before;
+a company named ATM or ABM is a payee; a banking-centre credit 'FR SAV' or 'FR CHKG' names an account. Fabricated rows
+only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE, invented given names and towns), in the banks' printed formats; public names
+only where a bank or a rail prints its own (Venmo, Zelle, Interac, Cash App, Bank of America) or a registry lists a
+lender (LendCare)."""
 from __future__ import annotations
 
 import pytest
@@ -174,27 +177,29 @@ def test_the_sender_s_whole_name_key(region, key):
     assert tr._sender_name_key(region) == key
 
 
-def test_a_named_p2p_credit_matches_a_lender_debit_only_on_the_whole_name():
+def test_a_named_p2p_credit_matches_a_lender_debit_by_its_whole_name_and_as_before():
+    # Review round 1 (finding 1): the whole name is one more way a person-to-person or push credit names a lender
+    # debit, never the only one. The lender hold never lets a funder's money into True, so a lender debit sharing the
+    # sender's first word still holds it, for review (the hold's safe direction).
     reading = tc._counter_debit_reading("QUILLAN", [["QUILLAN", "SAMPLE"]])
-    credit = tr.CounterCredit(reading, 90000, None, False, False, person_key="QUILLANSAMPLE",
-                              lender_person_key="QUILLANSAMPLE")
+    credit = tr.CounterCredit(reading, 90000, None, False, False, person_key="QUILLANSAMPLE")
 
     def lender(words, entity=None):
         return tr.CounterDebits((tr._CounterDebit(tc._counter_debit_reading(words[0], [words]), "lender", 30000,
                                                   entity, False),), ())
 
-    assert not tr.debited_as_lender(credit, lender(["QUILLAN", "FUNDING"]), prefix=True)
+    assert tr.debited_as_lender(credit, lender(["QUILLAN", "FUNDING"]), prefix=True)
     assert tr.debited_as_lender(credit, lender(["QUILLAN", "SAMPLE"]), prefix=True)
-    named = tr.CounterCredit(reading, 90000, "Sample Lender", False, False, person_key="QUILLANSAMPLE",
-                             lender_person_key="QUILLANSAMPLE")
+    assert not tr.debited_as_lender(credit, lender(["FABRIKAM", "FUNDING"]), prefix=True)
+    named = tr.CounterCredit(reading, 90000, "Sample Lender", False, False, person_key="QUILLANSAMPLE")
     assert tr.debited_as_lender(named, lender(["FABRIKAM"], "Sample Lender"), prefix=False)
 
 
 WEEKLY = [2, 9, 16, 23, 30]
 
 
-def _weekly(rows):
-    statement = Statement(account_name=HOLDER, transactions=[
+def _weekly(rows, *, bank=None):
+    statement = Statement(account_name=HOLDER, bank=bank, transactions=[
         Transaction(date=f"2031-03-{day:02d}", description=text, amount=amount,
                     direction="credit" if amount > 0 else "debit")
         for day, (text, amount) in zip(WEEKLY, rows)
@@ -217,6 +222,62 @@ def test_a_funder_named_for_a_state_is_still_held_beside_its_glued_pulls():
                        *[("ACH WITHDRAWAL TEXASSAMPLEHO ACHPAYMENT TS1234 NORTHWIND BAKERY", -1600.0)] * 4])
     assert {record.classification for record in records[1:]} == {"potential_lender"}
     assert _tier(records[0]) == ("excluded_pending_review", "payer_debited_as_lender")
+
+
+# Review round 1 (finding 1): a funder that prints no legal form and no financing root, pushing by a real-time,
+# Zelle or Chase real-time rail and pulling under a glued or one-word name, is still held as a funder's.
+VENTURE_PULL = "ACH WITHDRAWAL CONTOSOVENTUREHO ACHPAYMENT TS1234 NORTHWIND BAKERY"
+CHASE_RTP_VENTURE = (
+    "REAL TIME TRANSFER RECD FROM ABA CONTR BNK 000000000 FROM CONTOSO VENTURE REF 20310305123456789 INFO TEXT "
+    "RMTINF FUNDING IID 20310305000000000P1BRJPC00000000001 RECD 12 34 56 TRN 1234567890GC"
+)
+
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    ([("RTP CREDIT CONTOSO VENTURE", 9000.0), *[(VENTURE_PULL, -300.0)] * 4], None),
+    ([("ZELLE PAYMENT FROM CONTOSO VENTURE CONF 1234567890", 9000.0), *[(VENTURE_PULL, -300.0)] * 4], None),
+    ([("RTP CREDIT CONTOSO VENTURE", 9000.0), *[("CONTOSO DES:DEBIT ID:2", -300.0)] * 4], None),
+    ([(CHASE_RTP_VENTURE, 9000.0), *[(VENTURE_PULL, -300.0)] * 4], "Chase"),
+    ([("ZELLE PAYMENT FROM CONTOSO VENTURE CONF 1234567890", 9000.0), *[(VENTURE_PULL, -300.0)] * 3,
+      (VENTURE_PULL, -9000.0)], None),
+])
+def test_a_funder_s_push_without_a_legal_form_is_still_held_beside_its_pulls(rows, bank):
+    records = _weekly(rows, bank=bank)
+    assert "potential_lender" in {record.classification for record in records[1:]}
+    assert _tier(records[0]) == ("excluded_pending_review", "payer_debited_as_lender")
+
+
+# Review round 1 (finding 3): the whole-name match never drops a match the holds made before the batch: a company's
+# push (its sender prints a legal form) is compared by the B4 forms, and a debit for the credit's own amount still
+# matches the sender's first word (the credit undoes it).
+
+COMPANY_ZELLE = "ZELLE PAYMENT FROM CONTOSO PARTNERS LLC CONF 1234567890"
+
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    ([(COMPANY_ZELLE, 9000.0), ("CONTOSO DES:DEBIT ID:2", -9000.0)], None),
+    ([(COMPANY_ZELLE, 9000.0), ("CONTOSO DES:DEBIT ID:2", -300.0)], None),
+    ([(COMPANY_ZELLE, 9000.0), ("ONLINE TRANSFER TO CONTOSO REF 1", -300.0)], None),
+    ([(ZELLE_IN_WF, 900.0),
+      ("ONLINE TRANSFER TO QUILLAN EVERYDAY CHECKING XXXXXX1234 REF #IB0ABCDEF1 ON 03/04/31", -900.0)], "Wells Fargo"),
+])
+def test_a_company_s_push_and_a_debit_for_the_credit_s_own_amount_are_matched_as_before(rows, bank):
+    assert [_tier(record) for record in _credits(rows, bank=bank)] == [HELD_ALSO]
+
+
+def test_a_person_s_push_beside_another_amount_to_the_given_name_alone_is_still_counted():
+    rows = [(ZELLE_IN_WF, 900.0),
+            ("ONLINE TRANSFER TO QUILLAN EVERYDAY CHECKING XXXXXX1234 REF #IB0ABCDEF1 ON 03/04/31", -300.0)]
+    assert [_tier(record) for record in _credits(rows, bank="Wells Fargo")] == [P2P]
+
+
+def test_the_whole_name_key_is_a_person_s_never_a_company_s():
+    company = tc.classify_transaction(COMPANY_ZELLE, 9000.0, direction="credit")
+    revenue = tc.revenue_text(company.normalized_description)
+    assert tr.counter_credit(company, revenue, tc.payer_region(revenue)).person_key is None
+    person = tc.classify_transaction("ZELLE PAYMENT FROM QUILLAN SAMPLE CONF 1234567890", 900.0, direction="credit")
+    revenue = tc.revenue_text(person.normalized_description)
+    assert tr.counter_credit(person, revenue, tc.payer_region(revenue)).person_key == "QUILLANSAMPLE"
 
 
 @pytest.mark.parametrize(("credit", "debit", "tier"), [
@@ -243,10 +304,39 @@ def test_a_branch_deposit_is_counted_beside_a_cash_withdrawal_in_its_town():
     ("ABM WITHDRAWAL SAMPLEVILLE ON SAMPLEVILLE", False),
     ("BKOFAMERICA ATM 03/02 #000000000 WITHDRWL SAMPLEVILLE", False),
     ("CASH WITHDRAWAL SAMPLEVILLE BRANCH", False),
+    ("ATM WITHDRAWAL SAMPLEVILLE CO", False),
     ("ATM SH TO SH TRANSFER - SAMPLEVILLE", True),
     ("CONTOSO SUPPLY DES:INVOICE ID:2", True),
+    # Review round 1 (finding 6b): a company named ATM or ABM, or an ACH entry printing one, is a payee.
+    ("ABM FABRIKAM DES:PAYMENT ID:2", True),
+    ("ATM FABRIKAM INC 1234", True),
+    ("ABM SAMPLE SUPPLY LLC INVOICE 1234", True),
 ])
 def test_the_counter_debits_leave_out_atm_abm_and_cash_withdrawals(text, kept):
     record = tc.classify_transaction(text, -200.0, direction="debit")
     debits = tr.counter_debits([record], set())
     assert bool(debits.other) is kept
+
+
+def test_a_company_named_abm_paid_and_paying_stays_held():
+    rows = [("ABM FABRIKAM DES:PAYMENT ID:1", 2000.0), ("ABM FABRIKAM DES:PAYMENT ID:2", -500.0)]
+    assert _tier(_credits(rows)[0]) == HELD_ALSO
+
+
+# Review round 1 (finding 2): a banking-centre credit from an account ('BKOFAMERICA BC <date> <ref> FR SAV', 'FR CHKG')
+# names an account, never a payer: held as transfer_account_designation (T13), whatever debits the statement prints
+# (it no longer depends on an ATM withdrawal at the same bank holding it by the bank's word).
+
+@pytest.mark.parametrize("debits", [
+    [],
+    [("BKOFAMERICA ATM 03/03 #000000001 WITHDRWL SAMPLEVILLE", -200.0)],
+    [("ONLINE BANKING TRANSFER TO SAV 1234", -200.0)],
+])
+@pytest.mark.parametrize("credit", [
+    "BKOFAMERICA BC 03/02 #000000000 FR SAV",
+    "BKOFAMERICA BC 03/02 #000000000 FR CHKG",
+])
+def test_a_banking_centre_credit_from_an_account_is_held_as_naming_an_account(credit, debits):
+    rows = [(credit, 1300.0), *debits]
+    assert [_tier(record) for record in _credits(rows, bank="Bank of America")] == [
+        ("excluded_pending_review", "transfer_account_designation")]

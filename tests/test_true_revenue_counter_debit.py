@@ -713,6 +713,14 @@ def test_r18_a_transfer_to_the_descriptor_still_holds_every_payout():
     assert [_tier(record) for record in records] == [HELD_ALSO] * 3
 
 
+def test_r18_a_town_after_an_id_label_is_no_payout_id():
+    # Review round 1 (finding 6a): a payout id holds letters and digits; a town after an ID label ('ID:ST <town>')
+    # is none, so the customer's own debit still holds its payment.
+    row = "CONTOSO SUPPLY DES:PAYMENT ID:ST SAMPLEVILLE INDN:NORTHWIND LABS INC CO ID:0000000000 CCD"
+    records = _credits(_records([(row, 900.0), (row, -200.0)], bank="Bank of America"))
+    assert _tier(records[0]) == HELD_ALSO
+
+
 CHASE_MID = (
     "ORIG CO NAME:CONTOSOPAY SV1T ORIG ID:0000000000 DESC DATE:310302 CO ENTRY DESCR:0000000000SEC:PPD "
     "TRACE#:000000000000000 EED:310302 IND ID: IND NAME:FABRIKAM ACADEMY MID:12345678-CONTOSOPAY 0000000000000 "
@@ -849,30 +857,34 @@ def test_r01_the_credit_s_payout_forms(text, settlement):
     assert counter_credit(record, revenue, tc.payer_region(revenue)).settlement is settlement
 
 
-@pytest.mark.parametrize(("text", "kind"), [
-    ("DEBIT CARD PURCHASE CONTOSO HARDWARE SE 0302 SAMPLEVILLE", "card"),
-    ("DBCRD PUR AP CONTOSO HARDWARE 0302", "card"),
-    ("POS DB CONTOSO MART 0302 SAMPLEVILLE", "card"),
-    ("POS DEBIT CONTOSO MART 0302", "card"),
-    ("POS PURCHASE CONTOSO MART 0302", "card"),
-    ("POINT OF SALE CONTOSO MART 0302", "card"),
-    ("PURCHASE0302123456 CONTOSO TIRE SAMPLEVILLE", "card"),
-    ("FABRIKAMCARE NEW YORK NY USA", "card"),
-    ("FABRIKAM WEBSITES SAMPLEVILLE BC CAN", "card"),
+@pytest.mark.parametrize(("text", "kind", "card"), [
+    ("DEBIT CARD PURCHASE CONTOSO HARDWARE SE 0302 SAMPLEVILLE", "other", True),
+    ("DBCRD PUR AP CONTOSO HARDWARE 0302", "other", True),
+    ("POS DB CONTOSO MART 0302 SAMPLEVILLE", "other", True),
+    ("POS DEBIT CONTOSO MART 0302", "other", True),
+    ("POS PURCHASE CONTOSO MART 0302", "other", True),
+    ("POINT OF SALE CONTOSO MART 0302", "other", True),
+    ("PURCHASE0302123456 CONTOSO TIRE SAMPLEVILLE", "other", True),
+    ("FABRIKAMCARE NEW YORK NY USA", "other", True),
+    ("FABRIKAM WEBSITES SAMPLEVILLE BC CAN", "other", True),
+    # Review round 1 (finding 4): the card form keeps the debit's own kind (a bill, a fee) and marks it a card charge.
+    ("BILL PAY CONTOSO UTILITIES NEW YORK NY USA", "bill", True),
+    ("CONTOSO SOFTWARE SUBSCRIPTION SAMPLEVILLE CA USA", "bill", True),
+    ("POS DB FABRIKAMMERCHANT FEES 0302", "processor_fee", True),
     # A card form never turns circular money or the bank's receiving fee into a card charge.
-    ("WIRE TO NORTHWIND TOOLS NEW YORK NY USA", "circular"),
-    ("ONLINE TRANSFER TO CONTOSO MART NY USA", "circular"),
-    ("FUNDS TRANSFER FEE TT CONTOSO NY USA", "receiving_fee"),
+    ("WIRE TO NORTHWIND TOOLS NEW YORK NY USA", "circular", False),
+    ("ONLINE TRANSFER TO CONTOSO MART NY USA", "circular", False),
+    ("FUNDS TRANSFER FEE TT CONTOSO NY USA", "receiving_fee", False),
     # No card form: the kind is unchanged.
-    ("CONTOSOFIELD CARD PMT", "other"),
-    ("FABRIKAMMERCHANT FEES 123456", "processor_fee"),
+    ("CONTOSOFIELD CARD PMT", "other", False),
+    ("FABRIKAMMERCHANT FEES 123456", "processor_fee", False),
 ])
-def test_r01_a_card_purchase_in_another_bank_s_form_reads_kind_card(text, kind):
+def test_r01_a_card_purchase_in_another_bank_s_form_is_marked_a_card_charge(text, kind, card):
     from analysis.true_revenue import counter_debits
 
     record = tc.classify_transaction(text, -60.0, direction="debit")
     debits = counter_debits([record], set())
-    assert [debit.kind for debit in debits.other] == [kind]
+    assert [(debit.kind, debit.card) for debit in debits.other] == [(kind, card)]
 
 
 def test_r01_a_card_charge_recurs_with_the_other_debits():
@@ -880,23 +892,45 @@ def test_r01_a_card_charge_recurs_with_the_other_debits():
 
     records = [tc.classify_transaction(text, -125.0, direction="debit")
                for text in ("FABRIKAMCARE NEW YORK NY USA", "FABRIKAMCARE NEW YORK NY USA")]
-    assert [(debit.kind, debit.recurring) for debit in counter_debits(records, set()).other] == [("card", True)] * 2
+    assert [(debit.kind, debit.card, debit.recurring) for debit in counter_debits(records, set()).other] == [
+        ("other", True, True)] * 2
 
 
-def test_r01_also_debited_reads_the_card_kind_and_a_settlement():
-    from analysis.true_revenue import also_debited
+def test_r01_also_debited_reads_a_card_charge_and_a_settlement():
+    from analysis.true_revenue import CounterDebits, _CounterDebit, also_debited
 
-    def held(kind, *, settlement, cents=2500, recurring=False):
-        return also_debited(_counter("CONTOSO", ["CONTOSO"], settlement=settlement),
-                            _debits(other=[("CONTOSO", ["CONTOSO"], kind, cents, recurring)]))
+    def held(kind, *, settlement, card=False, cents=2500, recurring=False, insurer=False):
+        debit = _CounterDebit(tc._counter_debit_reading("CONTOSO", [["CONTOSO"]]), kind, cents, None, recurring,
+                              card=card)
+        return also_debited(_counter("CONTOSO", ["CONTOSO"], settlement=settlement, insurer=insurer),
+                            CounterDebits((), (debit,)))
 
     # A payout is never held by a card charge or a one-off other debit; a recurring other debit still holds it.
-    assert not held("card", settlement=True) and not held("card", settlement=True, recurring=True)
+    assert not held("other", card=True, settlement=True) and not held("other", card=True, settlement=True,
+                                                                      recurring=True)
+    assert not held("bill", card=True, settlement=True, recurring=True)
     assert not held("other", settlement=True) and held("other", settlement=True, recurring=True)
     # The payout's own amount, a circular debit and a credit with no payout form keep holding.
-    assert held("card", settlement=True, cents=100000) and held("other", settlement=True, cents=100000)
+    assert held("other", card=True, settlement=True, cents=100000) and held("other", settlement=True, cents=100000)
     assert held("circular", settlement=True)
-    assert held("card", settlement=False) and held("other", settlement=False)
+    assert held("other", card=True, settlement=False) and held("other", settlement=False)
+    assert held("processor_fee", card=True, settlement=False)
+    # Review round 1 (finding 4): beside a credit with no payout form a card-form bill reads the bill rule (B4): it
+    # holds only an insurer, a debit for the credit's own amount or a recurring one.
+    assert not held("bill", card=True, settlement=False)
+    assert held("bill", card=True, settlement=False, insurer=True)
+    assert held("bill", card=True, settlement=False, cents=100000)
+    assert held("bill", card=True, settlement=False, recurring=True)
+
+
+@pytest.mark.parametrize(("credit", "debit"), [
+    ("CONTOSO UTILITIES DES:VENDOR PAY ID:1", "BILL PAY CONTOSO UTILITIES NEW YORK NY USA"),
+    ("CONTOSO SOFTWARE DES:VENDOR PAY ID:1", "CONTOSO SOFTWARE SUBSCRIPTION SAMPLEVILLE CA USA"),
+])
+def test_r01_a_bill_printed_in_a_card_form_never_holds_a_customer_s_remittance(credit, debit):
+    with_debit, without = _same_as_without([(credit, 900.0)], [(debit, -120.0)])
+    assert with_debit == without
+    assert with_debit[0][1:4:2] == ("verified", "payer_remittance_descriptor")
 
 
 # R48 part 1: the bank's receiving fee reprints the sender, whose name may hold TO, OUT or BNF.
@@ -935,11 +969,25 @@ def test_r48_a_wire_from_a_sender_named_with_to_verifies_beside_the_fee_from_it(
     ("WIRE FEE (OUTGOING)", "circular"),
     ("WIRE FEE 1234 BNF:CONTOSO", "circular"),
     ("OUTGOING WIRE FEE CONTOSO PHARMA INC", "circular"),
+    # Review round 1 (finding 5): FROM before the holder's own account is the wire's source, never a sender's name,
+    # so the words after it are the fee's own; an outgoing word no name prints (OUTGOING, BNF, BENEFICIARY) is read
+    # after the sender too.
+    ("WIRE TRANSFER FEE FROM CHECKING TO CONTOSO LLC", "circular"),
+    ("WIRE TRANSFER FEE FROM CHK 1234 TO CONTOSO LLC", "circular"),
+    ("FUNDS TRANSFER FEE FROM XXXXXX1234 TO CONTOSO", "circular"),
+    ("FUNDS TRANSFER FEE TT CONTOSO BNF FABRIKAM", "circular"),
 ])
 def test_r48_the_receiving_fee_reads_its_outgoing_words_before_the_sender(text, kind):
     from analysis.true_revenue import _counter_debit_kind
 
     assert _counter_debit_kind(tc.normalize_transaction_description(text)) == kind
+
+
+def test_r48_the_fee_for_the_holder_s_wire_from_its_account_still_holds_the_payer():
+    wire = "WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:CONTOSO TOOLS INC ID:99 SND BK:SAMPLE BANK ID:1"
+    rows = [(wire.format(n=1), 5000.0), (wire.format(n=2), 5200.0),
+            ("WIRE TRANSFER FEE FROM CHECKING TO CONTOSO TOOLS INC", -25.0)]
+    assert [_tier(record) for record in _credits(_records(rows))] == [HELD_ALSO] * 2
 
 
 def test_r48_a_lead_bank_fee_for_the_holder_s_wire_to_the_payer_still_holds_its_repeat():

@@ -701,6 +701,10 @@ def test_r18_the_holder_s_own_push_echoing_its_name_is_held_on_the_row_alone(lay
      False),
     ("ZELLE PAYMENT FROM CONTOSO BAKERY LLC CONF ID ST A0B0C0D0E1F0", False),
     ("RTP CREDIT CONTOSO BAKERY LLC ID ST A0B0C0D0E1F0", False),
+    # Review round 1 (finding 6a): a payout id holds letters and digits, never a town or a number alone.
+    ("CONTOSO SUPPLY DES:PAYMENT ID:ST SAMPLEVILLE INDN:CONTOSO BAKERY LLC CO ID:0000000000 CCD", False),
+    (BOFA_ST.format(payout="ABCDEFGHIJKL", entry="CONTOSO BAK", **PAYOUT_FIELDS), False),
+    (BOFA_ST.format(payout="123456789012", entry="CONTOSO BAK", **PAYOUT_FIELDS), False),
 ])
 def test_r18_processor_payout_reads_the_payout_id(text, payout):
     assert tr.processor_payout(_revenue(text)) is payout
