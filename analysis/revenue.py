@@ -37,6 +37,11 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "insurer_named_payer": ("excluded_pending_review", "Payer name reads as an insurer"),
     "possible_return": ("excluded_pending_review", "Possible return or adjustment"),
     "financing_named_payer": ("excluded_pending_review", "Payer or entry suggests financing"),
+    # Audit round 2, R2-B07 (R07): a credit the parser marked unread whose run of payer blocks prints a lender's or a
+    # lending bank's block (true_revenue.UNREAD_RUN_NAMES_FINANCING).
+    "unread_run_names_financing": (
+        "excluded_pending_review", "A lender is printed among this credit's unread payer blocks",
+    ),
     "payer_debited_as_lender": ("excluded_pending_review", "Payer is also debited as a lender"),
     "holder_name": ("excluded_pending_review", "From the holder's own name or brand"),
     "payroll_or_salary": ("excluded_pending_review", "Payroll, salary or employee reimbursement"),

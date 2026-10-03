@@ -263,6 +263,33 @@ console.log(JSON.stringify({{tags: rows.map(transactionCategory), reasons: rows.
 
 
 @needs_node
+def test_a_credit_marked_unread_shows_the_payer_blocks_the_reader_could_not_attribute():
+    """Audit round 2, R2-B07 (R07): the review card prints a marked credit's unread payer blocks
+    (`unread_payer_text`), so a reviewer can release a customer's row that a lender's block in the same run held."""
+    held = _record("excluded_pending_review", reason="unread_run_names_financing")
+    held["unread_payer_text"] = "CONTOSO INC. PAYABLES 1 NORTHWIND CCD KAPITUS LLC FUNDING 2 NORTHWIND CCD"
+    counted = _record("counted_flagged", reason="payer_text_not_read")
+    counted["unread_payer_text"] = "FABRIKAM INC. PAYABLES 3 NORTHWIND CCD SAMPLE INC 4 NORTHWIND CCD"
+    plain = _record("counted_flagged", reason="payer_text_not_read")
+    result = run_dashboard(f"""
+const rows = {json.dumps([held, counted, plain])};
+console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason),
+  tags: rows.map((tx) => transactionCategory(tx).label)}}));
+""")
+    label = "A lender is printed among this credit's unread payer blocks"
+    assert result["tags"] == [f"Held: {label}", "Counted: Payer text not read", "Counted: Payer text not read"]
+    unread_sentence = ("Payer text not read. The statement prints a payer for this row that the reader could not read: "
+                       "counted without proof of the sale.")
+    assert result["reasons"] == [
+        f"{label}. The statement prints a lender's or a lending bank's block among payer blocks the reader could not "
+        "attribute to one row: held until you confirm whose credit this is. Unread payer blocks: "
+        "CONTOSO INC. PAYABLES 1 NORTHWIND CCD KAPITUS LLC FUNDING 2 NORTHWIND CCD",
+        f"{unread_sentence} Unread payer blocks: FABRIKAM INC. PAYABLES 3 NORTHWIND CCD SAMPLE INC 4 NORTHWIND CCD",
+        unread_sentence,
+    ]
+
+
+@needs_node
 def test_the_revenue_filters_find_their_rows():
     rows = [_record("verified"), _record("counted_flagged", reason="p2p"),
             _record("excluded_pending_review", reason="holder_name"),

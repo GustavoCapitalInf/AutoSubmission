@@ -51,6 +51,7 @@ from .true_revenue import (
     dealer_funding_reading,
     debited_as_lender,
     payer_text_unread_indexes,
+    payer_text_unread_texts,
 )
 
 if TYPE_CHECKING:
@@ -6794,9 +6795,11 @@ def classify_statement_transactions(
     records = _apply_operating_source_context(records, set(duplicate_of))
     records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
     # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit B10
-    # (I05, I60): with the credits the parser marked as read only by their label.
+    # (I05, I60): with the credits the parser marked as read only by their label. Audit round 2, R2-B07 (R07): and
+    # their unread payer text.
     records = apply_true_revenue_pass(
-        records, set(duplicate_of), payer_text_unread_indexes(statement.transactions)
+        records, set(duplicate_of), payer_text_unread_indexes(statement.transactions),
+        payer_text_unread_texts(statement.transactions),
     )
 
     for index, original_index in duplicate_of.items():

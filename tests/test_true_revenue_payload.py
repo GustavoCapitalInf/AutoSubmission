@@ -63,8 +63,9 @@ def test_the_flags_follow_the_state_and_the_tier():
 
 def test_every_reason_code_names_a_middle_tier():
     assert {tier for tier, _label in REVENUE_TIER_REASONS.values()} == {"counted_flagged", "excluded_pending_review"}
-    # Audit B10 (I05, I60): payer_text_not_read is the 27th.
-    assert len(REVENUE_TIER_REASONS) == 27
+    # Audit B10 (I05, I60): payer_text_not_read is the 27th. Audit round 2, R2-B07 (R07): unread_run_names_financing
+    # the 28th.
+    assert len(REVENUE_TIER_REASONS) == 28
 
 
 def test_a_record_carries_the_tier_its_state_fixes():

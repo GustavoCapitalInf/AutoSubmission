@@ -40,7 +40,7 @@ from .classification_registry import (
     SECTION_15_DEFERRED_PAYERS,
     STATEMENT_BANK_PRINTED_NAMES,
 )
-from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS
+from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .flag_groups import FINANCING_STATES
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 from .revenue import revenue_contribution_flags
@@ -2133,6 +2133,55 @@ def payer_text_unread_indexes(transactions: Sequence) -> frozenset[int]:
         index for index, transaction in enumerate(transactions)
         if getattr(transaction, "payer_text_unread", False) and transaction.amount > 0
     )
+
+
+#: Audit round 2, R2-B07 (R07): the reason of a credit the parser marked unread whose unread run of payer blocks prints
+#: a lender's or a lending bank's block (unread_run_names_financing): held, never counted, since one row of the run is
+#: that lender's money and the text cannot say which.
+UNREAD_RUN_NAMES_FINANCING = "unread_run_names_financing"
+#: Audit round 2, R2-B07 (R07): the ACH standard entry class code an ACH block closes on (`<originator> <entry> <id>
+#: <receiver> CCD`), read on the normalized text: layout grammar, where a run of welded blocks splits into its blocks.
+_UNREAD_BLOCK_END = re.compile(r"\b(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)\b")
+#: Audit round 2, R2-B07 (R07): the registry states whose block in an unread run holds its rows: the lender and
+#: financing states (LENDER_DEBIT_STATES) without an alternative position (a platform's own settlement of the
+#: merchant's sales) and a factor (whose payout is counted and flagged, never held).
+_UNREAD_RUN_LENDER_STATES = LENDER_DEBIT_STATES - {"alternative_position", "factoring"}
+
+
+def payer_text_unread_texts(transactions: Sequence) -> dict[int, str]:
+    """Audit round 2, R2-B07 (R07): the unread payer text (Transaction.unread_payer_text) of each credit the parser
+    marked as read only by its label, by ledger index."""
+    return {
+        index: text for index, transaction in enumerate(transactions)
+        if getattr(transaction, "payer_text_unread", False) and transaction.amount > 0
+        and (text := getattr(transaction, "unread_payer_text", "") or "")
+    }
+
+
+def unread_run_blocks(text: str) -> list[str]:
+    """Audit round 2, R2-B07 (R07): an unread run of welded payer blocks, normalized and split after each ACH class
+    code (_UNREAD_BLOCK_END); words after the last code are one more block."""
+    normalized = normalize_transaction_description(text)
+    blocks: list[str] = []
+    start = 0
+    for found in _UNREAD_BLOCK_END.finditer(normalized):
+        blocks.append(normalized[start:found.end()].strip())
+        start = found.end()
+    blocks.append(normalized[start:].strip())
+    return [block for block in blocks if block]
+
+
+def unread_run_names_financing(text: str) -> bool:
+    """Audit round 2, R2-B07 (R07): one block of an unread run (unread_run_blocks) names a registry lender of
+    _UNREAD_RUN_LENDER_STATES (match_known_payee, read as a credit) or a lending bank (_LENDING_BANK_PAYER). The bare
+    financing root is never read: a customer named CAPITAL is no lender."""
+    for block in unread_run_blocks(text):
+        known = match_known_payee(block, credit=True)
+        if known is not None and known.state in _UNREAD_RUN_LENDER_STATES:
+            return True
+        if _LENDING_BANK_PAYER.search(block):
+            return True
+    return False
 
 
 def payer_text_unread(
@@ -4375,7 +4424,7 @@ def _q6_eligible(record: TransactionClassification, text: str, facts: CreditFact
 
 def _tier_reason(
     record: TransactionClassification, text: str, facts: CreditFacts, round_repeat: bool, deferred: bool = False,
-    unread: bool = False,
+    unread: bool = False, unread_text: str = "",
 ) -> tuple[str, str]:
     """§8.10: the tier and reason of an unverified posted credit, in order. A deferred source (§15, `deferred`) on a
     wire or an ACH or EFT row is a named payer Q5 and Q6 refuse as proof, as a verification-only word refuses one:
@@ -4385,9 +4434,15 @@ def _tier_reason(
     no_payer_printed at the bare-row fall-through is counted as payer_text_not_read instead: the statement printed a
     payer the parser did not read. Every hold before it still applies (a bare transfer label stays
     transfer_no_counterparty). B10 review (round 1): a cash, branch, teller or ATM row (the cash_branch_atm channel)
-    keeps no_payer_printed, marked or not: its own label says the statement printed no payer (Q2)."""
+    keeps no_payer_printed, marked or not: its own label says the statement printed no payer (Q2). Audit round 2,
+    R2-B07 (R07): such a marked row whose unread run of payer blocks (`unread_text`, Transaction.unread_payer_text)
+    prints a lender's or a lending bank's block (unread_run_names_financing) is held as unread_run_names_financing
+    instead: one row of the run is that lender's money and the text cannot say which (Q6: lenders never count). It is
+    never a lender credit and names no payer."""
     tier, reason = _tier_reason_read(record, text, facts, round_repeat, deferred)
     if unread and reason == "no_payer_printed" and facts.channel != "cash_branch_atm":
+        if unread_text and unread_run_names_financing(unread_text):
+            return "excluded_pending_review", UNREAD_RUN_NAMES_FINANCING
         return tier, PAYER_TEXT_NOT_READ
     return tier, reason
 
@@ -4479,12 +4534,15 @@ def apply_true_revenue_pass(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
     unread_indexes: frozenset[int] = frozenset(),
+    unread_texts: dict[int, str] | None = None,
 ) -> list[TransactionClassification]:
     """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit
     B3 (I11): first, with the owner's switch on (PROCESSOR_CARD_PAYOUT_RELEASE), a processor's instant payouts printed
     as card credits leave the reversal rule (_processor_card_payouts). Audit B10 (I05, I60): `unread_indexes` are the
     credits the parser marked as read only by their label (payer_text_unread_indexes); their tier reason reads them
-    (_tier_reason)."""
+    (_tier_reason). Audit round 2, R2-B07 (R07): `unread_texts` are those credits' unread payer text
+    (payer_text_unread_texts), which only _tier_reason reads."""
+    unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
     releases = _processor_card_payouts(records, duplicate_indexes) if PROCESSOR_CARD_PAYOUT_RELEASE else {}
@@ -4638,7 +4696,7 @@ def apply_true_revenue_pass(
         round_repeat = fact.round_sum and bool(fact.key) and round_sums[fact.key] >= 2
         tier, reason = _tier_reason(
             record, texts[index], fact, round_repeat, _deferred_source(texts[index], fact),
-            unread=index in unread_indexes,
+            unread=index in unread_indexes, unread_text=unread_texts.get(index, ""),
         )
         updated[index] = _with_tier(record, tier, reason)
     # §7.0, §7.8, §8.10 (S4.4/S4.5 review): the $1 floor is absolute, so it runs after every verification. A posted

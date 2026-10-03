@@ -151,6 +151,7 @@ carries no reason: its rule is its `revenue_match_method`.
 | `insurer_named_payer` | `excluded_pending_review` | Payer name reads as an insurer | an unlisted payer whose payer region prints an insurer's name word (`INSUR…`, `ASSURANCE`, `MUTUAL`, `CASUALTY`, `INDEMNITY`, `UNDERWRIT…`), or a `CLAIM` or `CLAIMS` word on a row that is neither an `HCCLAIMPMT` entry nor from a healthcare payer (T14, Q6, §8.1) |
 | `possible_return` | `excluded_pending_review` | Possible return or adjustment | bare return or adjustment wording, or a card credit no form verifies (T3, §7.11) |
 | `financing_named_payer` | `excluded_pending_review` | Payer or entry suggests financing | a financing root on the payer's name or entry, a bank's own wire, a lending bank (T4, §8.1) |
+| `unread_run_names_financing` | `excluded_pending_review` | A lender is printed among this credit's unread payer blocks | a credit the parser marked unread whose run of welded payer blocks prints a registry lender's or a lending bank's block (§8.2, §8.10; audit round 2, R2-B07) |
 | `payer_debited_as_lender` | `excluded_pending_review` | Payer is also debited as a lender | the statement debits the same payer as a lender (§8.1) |
 | `holder_name` | `excluded_pending_review` | From the holder's own name or brand | the holder's own name, push or wire as the payer (Q4 to Q6, §5.2) |
 | `payroll_or_salary` | `excluded_pending_review` | Payroll, salary or employee reimbursement | pay wording from another company, an earned-wage push (Q8) |

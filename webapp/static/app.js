@@ -202,6 +202,7 @@ const REVENUE_TIER_REASONS = Object.freeze({
   insurer_named_payer: ["excluded_pending_review", "Payer name reads as an insurer", "The payer's name reads as an insurer."],
   possible_return: ["excluded_pending_review", "Possible return or adjustment", "The row reads as a return, a reversal or an adjustment of an earlier item."],
   financing_named_payer: ["excluded_pending_review", "Payer or entry suggests financing", "The payer or the entry names funding, a loan or an advance."],
+  unread_run_names_financing: ["excluded_pending_review", "A lender is printed among this credit's unread payer blocks", "The statement prints a lender's or a lending bank's block among payer blocks the reader could not attribute to one row: held until you confirm whose credit this is."],
   payer_debited_as_lender: ["excluded_pending_review", "Payer is also debited as a lender", "This payer is also debited from the account as a lender."],
   holder_name: ["excluded_pending_review", "From the holder's own name or brand", "The credit comes from the account holder's own name or brand."],
   payroll_or_salary: ["excluded_pending_review", "Payroll, salary or employee reimbursement", "The entry reads as payroll, salary or an employee reimbursement."],
@@ -1048,7 +1049,10 @@ function revenueReviewReason(tx) {
   // 5.6 (true revenue spec §10.6): a counted or held credit names its reason, and one sentence on it.
   const entry = REVENUE_TIER_REASONS[record.revenue_tier_reason];
   if (entry && (record.revenue_tier === "counted_flagged" || record.revenue_tier === "excluded_pending_review")) {
-    return `${entry[1]}. ${entry[2]}`;
+    // Audit round 2, R2-B07 (R07): a credit the reader marked unread carries the payer blocks it could not attribute
+    // to one row (unread_payer_text), printed so a reviewer can release a customer's row a lender's block held.
+    const unread = typeof tx.unread_payer_text === "string" ? tx.unread_payer_text.trim() : "";
+    return unread ? `${entry[1]}. ${entry[2]} Unread payer blocks: ${unread}` : `${entry[1]}. ${entry[2]}`;
   }
   if (typeof record.revenue_tier === "string" || record.revenue_classification !== "unverified_deposit") return "";
   const reasons = {

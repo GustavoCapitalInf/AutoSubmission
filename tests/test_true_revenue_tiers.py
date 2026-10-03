@@ -3111,3 +3111,110 @@ def test_gov_a_payment_for_services_or_an_unclear_form_keeps_its_reading(rows, e
         state, reading = expected
         assert record.revenue_classification == state
         assert (record.revenue_match_method if state == "verified_revenue" else record.revenue_tier_reason) == reading
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 2, R2-B07 (R07): a welded run of unread payer blocks that names a lender is held, never counted
+# ---------------------------------------------------------------------------------------------------------------------
+
+UNREAD_FINANCING = "unread_run_names_financing"
+
+
+def _welded_tiers(**lines):
+    """The counted core-processor template's welded credit run (tests/test_core_processor_counted.py), classified:
+    (tier, reason) of every credit in ledger order, the statement's lender credits, and whether any credit was put
+    toward them."""
+    from analysis.metrics import compute_metrics
+    from tests import test_core_processor_counted as counted
+
+    statement = counted.welded(**lines)
+    records = classify_statement_transactions(statement)
+    metrics = compute_metrics(statement, classifications=records)
+    credits = [record for record in records if record.amount > 0]
+    return ([_tier(record) for record in credits], metrics.lender_credits,
+            any(record.contributes_to_lender_credit_exclusion for record in credits))
+
+
+def test_a_welded_run_printing_a_funder_holds_every_row_of_its_flush():
+    tiers, lender_credits, toward = _welded_tiers()
+    assert tiers == [("verified", None)] + [("excluded_pending_review", UNREAD_FINANCING)] * 4 + [
+        ("counted_flagged", "payer_text_not_read")] * 2
+    # No amount is put toward lender credits from text the parser could not attribute to a row.
+    assert (lender_credits, toward) == (0.0, False)
+
+
+def _blocks(*names: str) -> tuple[str, ...]:
+    from tests.test_core_processor_counted import RECEIVER
+
+    return tuple(f"{name} 300000000{index} {RECEIVER} CCD" for index, name in enumerate(names, start=1))
+
+
+_CUSTOMERS = ("CONTOSO INC. PAYABLES", "FABRIKAM INC. PAYABLES", "NORTHWIND INC. PAYABLES", "SAMPLE INC. PAYABLES")
+
+
+@pytest.mark.parametrize(("first_line", "second_line", "held"), [
+    # A lending bank (the registry's LENDING_BANK_CREDIT_PAYERS) in the second flush holds both of its rows.
+    (_blocks(*_CUSTOMERS), _blocks("CELTIC BANK 600000001 NORTHWIND BAKERY LLC", "SAMPLE INC. PAYABLES"), "second"),
+    # A lender's name the bank glued to its next word (a line of credit in the registry) at the start of the flush.
+    (_blocks("HEADWAYCAPITAL 1", *_CUSTOMERS[:3]), _blocks(*_CUSTOMERS[:2]), "first"),
+    # A confirmed lender anywhere in the flush.
+    (_blocks(*_CUSTOMERS[:3], "ONDECK CAPITAL"), _blocks(*_CUSTOMERS[:2]), "first"),
+    # A customer whose name holds a financing root is no registry lender: the bare root is not read.
+    (_blocks(*_CUSTOMERS), _blocks("SAMPLE CAPITAL SUPPLY INC PAYABLES", "CONTOSO INC. PAYABLES"), None),
+    # An alternative position or a factor names no lender for this hold (a platform's settlement, a factor's payout).
+    (_blocks("SQUARE CAPITAL", *_CUSTOMERS[:3]), _blocks("OTR CAPITAL", "CONTOSO INC. PAYABLES"), None),
+])
+def test_a_welded_run_is_held_only_where_a_lender_or_a_lending_bank_is_printed(first_line, second_line, held):
+    tiers, lender_credits, toward = _welded_tiers(first_line=first_line, second_line=second_line)
+    unread = ("counted_flagged", "payer_text_not_read")
+    hold = ("excluded_pending_review", UNREAD_FINANCING)
+    assert tiers == [("verified", None)] + [hold if held == "first" else unread] * 4 + [
+        hold if held == "second" else unread] * 2
+    assert (lender_credits, toward) == (0.0, False)
+
+
+def test_a_funder_block_printed_alone_under_its_row_is_still_financing_proceeds():
+    """The control: attributed, the funder's block is the row's own text and the row is a lender credit."""
+    from analysis.metrics import compute_metrics
+    from tests import test_core_processor_counted as counted
+
+    statement = counted.published(credits=(
+        "ELECTRONIC CREDITS\nDate Description Credits\n2-3 Preauthorized Credit 300.00\n"
+        f"{counted.KAPITUS_BLOCK}\n"
+    ))
+    records = classify_statement_transactions(statement)
+    credit = next(record for record in records if record.amount > 0)
+    assert (credit.revenue_tier, credit.contributes_to_lender_credit_exclusion) == ("non_revenue", True)
+    assert compute_metrics(statement, classifications=records).lender_credits > 0
+
+
+def _marked(text: str, unread_text: str, *, marked: bool = True):
+    return classify_statement_transactions(Statement(account_name=HOLDER, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=1234.0, direction="credit",
+                    payer_text_unread=marked, unread_payer_text=unread_text if marked else ""),
+    ]))[0]
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # A cash, branch, teller or ATM label says itself that no payer was printed (Q2).
+    ("TELLER DEPOSIT", ("counted_flagged", "no_payer_printed")),
+    ("ATM DEPOSIT", ("counted_flagged", "no_payer_printed")),
+    # Every earlier hold keeps its precedence: a bare transfer label stays a transfer with no counterparty.
+    ("TRANSFER IN", ("excluded_pending_review", "transfer_no_counterparty")),
+    # A bare label is held.
+    ("PREAUTHORIZED CREDIT", ("excluded_pending_review", UNREAD_FINANCING)),
+])
+def test_the_unread_run_hold_replaces_only_the_payer_text_not_read_reading(text, expected):
+    unread = f"CONTOSO INC. PAYABLES 1 NORTHWIND BAKERY CCD KAPITUS LLC FUNDING 2 NORTHWIND BAKERY CCD"
+    assert _tier(_marked(text, unread)) == expected
+
+
+def test_an_unread_run_naming_no_lender_keeps_payer_text_not_read():
+    record = _marked("PREAUTHORIZED CREDIT", "CONTOSO INC. PAYABLES 1 NORTHWIND BAKERY CCD FABRIKAM INC 2 CCD")
+    assert _tier(record) == ("counted_flagged", "payer_text_not_read")
+
+
+def test_the_unread_run_reason_is_a_held_reason_of_the_one_reason_table():
+    assert REVENUE_TIER_REASONS[UNREAD_FINANCING] == (
+        "excluded_pending_review", "A lender is printed among this credit's unread payer blocks",
+    )
