@@ -749,7 +749,11 @@ def test_r37_the_title_firm_s_settlement_services_arm_spares_a_processor_s_and_a
 @pytest.mark.parametrize(("text", "rule"), [
     (_bofa("KRAKEN", "WITHDRAWAL"), "owner_money"),
     (_bofa("PAXOS CLEANING LLC", "PAYMENT"), None),
-    (_bofa("BITSTAMP USA INC", "INV 1234"), None),
+    # Review round 1: a platform the registry names by its own name is spared by §7.5's accounts-payable wording only
+    # (S4.2's exception), never by a bare invoice word; KRAKEN, UPHOLD or PAXOS alone takes the legal and gambling
+    # readers' vendor spare.
+    (_bofa("BITSTAMP USA INC", "INV 1234"), "owner_money"),
+    (_bofa("KRAKEN", "INV 1234"), None),
     # The classifier's savings and investing originators are read as before, an invoice word or not.
     (_bofa("COINBASE INC", "INV 1234"), "owner_money"),
     (_bofa("JACKPOT DIGITAL INC", "PAYMENT"), None),
@@ -772,6 +776,131 @@ def test_r37_the_owner_money_platforms_table_is_unchanged():
     assert tr._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
     for name in ("KRAKEN", "UPHOLD", "PAXOS"):
         assert tr._PLATFORM_NAME_WORDS.fullmatch(name) and tr._OWNER_MONEY_PLATFORMS.fullmatch(name), name
+
+
+# Audit round 2, R2-B12 review round 1 (R37): a purpose noun, a function word or a word a hold reads, right after the
+# hold word on the purpose, is the purpose's, never a trade name's (_TRADE_NAME_PURPOSE_WORD), so a legal windfall, a
+# gambling win or an owner's crypto withdrawal named on an entry, a wire's OBI, a person-to-person or a transfer memo
+# keeps its hold; a claims administrator's form words (SERVICES, SOLUTIONS, RESTRUCTURING, GROUP) are the legal
+# reader's keep words; a platform the registry names by its own name is spared by §7.5's accounts-payable wording only.
+
+#: Wells Fargo's incoming Fedwire layout, with the originator's free text after OBI.
+WF_WIRE = "WT FED 01234 SAMPLE BANK ORG {org} SRF 2054010200000 TRN 540102000001 RFB AB12 OBI {obi}"
+#: Chase's incoming-ACH layout, with its SEC code.
+CHASE_SEC = ("ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:{entry}SEC:{sec} "
+             "TRACE#:123456789012345 EED:540102 IND ID:12345 IND NAME:NORTHWIND BAKERY LLC TRN: 1234567890TC")
+
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    # An ACH entry (Bank of America's DES, Chase's CO ENTRY DESCR), a company's or a person's.
+    (_twice("FABRIKAM INC", "LAWSUIT PROCEEDS"), "Bank of America"),
+    (_twice("FABRIKAM INC", "LITIGATION PROCEEDS"), "Bank of America"),
+    ([(_chase("FABRIKAM INC", "LAWSUIT PROCEEDS"), 9000.0)], "Chase"),
+    ([(CHASE_SEC.format(payer="PAT SAMPLE", entry="JACKPOT WIN", sec="PPD"), 900.0)], "Chase"),
+    ([(_bofa("PAT SAMPLE", "JACKPOT WIN", sec="PPD"), 900.0)], "Bank of America"),
+    ([(_bofa("PAT SAMPLE", "KRAKEN WITHDRAWAL", sec="PPD"), 9000.0)], "Bank of America"),
+    # A wire's originator text.
+    ([(WF_WIRE.format(org="SAMPLE LAW LLP", obi="LAWSUIT PROCEEDS"), 25000.0)], "Wells Fargo"),
+    ([(WF_WIRE.format(org="SAMPLE LAW LLP", obi="LITIGATION PROCEEDS"), 25000.0)], "Wells Fargo"),
+    ([(WF_WIRE.format(org="SAMPLE HOLDINGS INC", obi="CLASS ACTION RECOVERY"), 25000.0)], "Wells Fargo"),
+    ([(WF_WIRE.format(org="PAT SAMPLE", obi="KRAKEN WITHDRAWAL"), 9000.0)], "Wells Fargo"),
+    ([(WF_WIRE.format(org="PAT SAMPLE", obi="UPHOLD CASHOUT"), 9000.0)], "Wells Fargo"),
+    # A person-to-person memo and a transfer's memo.
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT WIN CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR WINNINGS FROM BET CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR WINNINGS LAST NIGHT CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR LAWSUIT MONEY CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR KRAKEN WITHDRAWAL CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR UPHOLD TRANSFER CONF 1234", 900.0)], "Bank of America"),
+    ([("ONLINE TRANSFER FROM PAT SAMPLE MEMO LAWSUIT PROCEEDS CONF 1234", 9000.0)], "Bank of America"),
+    ([("ONLINE TRANSFER FROM PAT SAMPLE MEMO KRAKEN CASHOUT CONF 1234", 9000.0)], "Bank of America"),
+])
+def test_r37_review_a_purpose_noun_after_the_hold_word_keeps_the_hold(rows, bank):
+    assert _tiers(rows, bank=bank) == [NON_SALE] * len(rows)
+
+
+@pytest.mark.parametrize(("rows", "bank", "expected"), [
+    # A name word after the hold word on the purpose is still a trade name's (the brief's own controls).
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT CANDLES CONF 1234", 180.0)], "Bank of America", [P2P]),
+    ([(_bofa("FABRIKAM INC", "LITIGATION SUPPORT"), 900.0)], "Bank of America", [COMPANY]),
+    (_twice("FABRIKAM INC", "LITIGATION SUPPORT"), "Bank of America", [REPEATS, REPEATS]),
+])
+def test_r37_review_a_name_word_after_the_hold_word_is_still_a_trade_name(rows, bank, expected):
+    assert _tiers(rows, bank=bank) == expected
+
+
+@pytest.mark.parametrize("word", [
+    "WIN", "WINS", "WON", "WINNER", "WINNINGS", "PRIZE", "PRIZES", "BONUS", "WITHDRAWAL", "WITHDRAWALS", "WITHDRAW",
+    "WDRL", "WD", "CASH", "CASHOUT", "TRANSFER", "TRANSFERS", "XFER", "TFR", "PROCEEDS", "RECOVERY", "RECOVERIES",
+    "MONEY", "FUNDS", "FUNDING", "CHECK", "CHEQUE", "DISTRIBUTION", "DISBURSEMENT", "DISB", "DEPOSIT", "REFUND",
+    "REIMBURSEMENT", "PAYMENTS", "PAYOUTS", "PAY", "PAID", "SETTLEMENT", "CLAIM", "AWARD", "SHARE", "SALE", "BALANCE",
+    "ACCOUNT", "ACCT", "BTC", "BITCOIN", "FROM", "TO", "ON", "MY", "LAST", "TONIGHT",
+])
+def test_r37_review_the_purpose_words_are_no_name_words(word):
+    assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
+
+
+@pytest.mark.parametrize("word", ["CANDLES", "SUPPORT", "RESPONSE", "HEALTH", "PLUMBING", "ROBOTICS", "CLEANING"])
+def test_r37_review_a_name_word_is_no_purpose_word(word):
+    assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word) is None, word
+
+
+@pytest.mark.parametrize(("text", "words", "trade"), [
+    ("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT WIN CONF 1234", "GAMBLING", False),
+    ("ZELLE PAYMENT FROM A SAMPLE FOR WINNINGS FROM BET CONF 1234", "GAMBLING", False),
+    (WF_WIRE.format(org="SAMPLE LAW LLP", obi="LAWSUIT PROCEEDS"), "LEGAL", False),
+    (_bofa("FABRIKAM INC", "LITIGATION SERVICES"), "LEGAL", False),
+    ("ZELLE PAYMENT FROM A SAMPLE FOR KRAKEN WITHDRAWAL CONF 1234", "PLATFORM", False),
+    (_bofa("EPIQ CORPORATE RESTRUCTURING LLC", "PAYMENT"), "LEGAL", False),
+    # Controls: a name word right after the hold word, or a name word of the region's own.
+    ("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT CANDLES CONF 1234", "GAMBLING", True),
+    (_bofa("FABRIKAM INC", "LITIGATION SUPPORT"), "LEGAL", True),
+    (_bofa("CONTOSO LITIGATION SUPPORT LLC", "PAYMENT"), "LEGAL", True),
+])
+def test_r37_review_the_trade_name_reader_reads_a_purpose_word_as_the_purpose_s(text, words, trade):
+    from analysis.transaction_classifier import payer_region
+
+    tables = {
+        "LEGAL": (tr._LEGAL_NAME_WORDS, tr._LEGAL_NAME_KEEP),
+        "GAMBLING": (tr._GAMBLING_NAME_WORDS, tr._GAMBLING_CONTEXT),
+        "PLATFORM": (tr._PLATFORM_NAME_WORDS, tr._PLATFORM_NAME_KEEP),
+    }
+    revenue = revenue_text(normalize_transaction_description(text))
+    row = tr._hold_text(revenue)
+    assert tr._trade_name(revenue, row, payer_region(revenue), *tables[words]) is trade
+
+
+@pytest.mark.parametrize(("rows", "expected"), [
+    # A claims administrator's or a restructuring unit's form words are the legal reader's keep words.
+    (_twice("EPIQ CORPORATE RESTRUCTURING LLC", "PAYMENT"), [NON_SALE, NON_SALE]),
+    (_twice("EPIQ GROUP INC", "PAYMENT"), [NON_SALE, NON_SALE]),
+    (_twice("CLASS ACTION SERVICES LLC", "PAYMENT"), [NON_SALE, NON_SALE]),
+    (_twice("LITIGATION SOLUTIONS GROUP LLC", "PAYMENT"), [NON_SALE, NON_SALE]),
+    ([(_bofa("FABRIKAM INC", "LITIGATION SERVICES"), 900.0)], [NON_SALE]),
+    # Recorded residual (§20): a name word of the payer's own beside the legal word and the form words still reads as a
+    # customer's trade name, a claims administrator's ('<NAME> CLASS ACTION SERVICES LLC') as a litigation-support
+    # vendor's ('<NAME> LITIGATION SERVICES LLC').
+    (_twice("CONTOSO CLASS ACTION SERVICES LLC", "PAYMENT"), [REPEATS, REPEATS]),
+    (_twice("FABRIKAM LITIGATION SERVICES LLC", "PAYMENT"), [REPEATS, REPEATS]),
+])
+def test_r37_review_a_claims_administrator_s_form_words_are_keep_words(rows, expected):
+    assert _tiers(rows, bank="Bank of America") == expected
+
+
+@pytest.mark.parametrize(("rows", "expected"), [
+    # A platform the registry names by its own name: a bare invoice or vendor word spares nothing (S4.2's platform hold),
+    # §7.5's accounts-payable wording does (S4.2's exception: counted by the investment word or verified by §7.5).
+    (_twice("BITSTAMP USA INC", "INV 1234"), [NON_SALE, NON_SALE]),
+    (_twice("BITSTAMP USA INC", "INVOICE"), [NON_SALE, NON_SALE]),
+    (_twice("BITSTAMP USA INC", "VENDOR"), [NON_SALE, NON_SALE]),
+    (_twice("BITSTAMP USA INC", "ACCOUNTS PAYABLE"), [REMITTANCE, REMITTANCE]),
+    ([("E*TRADE SECURITIES LLC DES:ACCOUNTS PAYABLE ID:1", 3000.0)], [REFUSED]),
+    # KRAKEN, UPHOLD or PAXOS alone, whose names are other businesses' too, takes the vendor spare (the brief's).
+    (_twice("KRAKEN", "INV 1234"), [REPEATS, REPEATS]),
+    (_twice("KRAKEN ROBOTICS INC", "INV 1234"), [REPEATS, REPEATS]),
+])
+def test_r37_review_a_registry_platform_is_spared_by_accounts_payable_wording_only(rows, expected):
+    assert _tiers(rows, bank="Bank of America") == expected
 
 
 # Audit round 2, R2-B12 (R36): the gambling reader reads a lottery's prize entry, the unlisted sportsbooks and a
@@ -832,6 +961,13 @@ def test_r36_controls_keep_their_readings(rows, expected):
     # With no entry field the whole row is the retailer spare's scope.
     ("ACH CREDIT STATE LOTTERY PRIZE PAYMENT 12345", True),
     ("ACH CREDIT STATE LOTTERY COMMISSION 12345", False),
+    # Review round 1: but never the agency's name (LOTTERY COMMISSION), so a prize it pays holds; a retailer word after
+    # the name, or a commission after the prize word, keeps the retailer's reading.
+    ("ACH CREDIT STATE LOTTERY COMMISSION PRIZE PAYMENT 12345", True),
+    ("ACH CREDIT CONTOSO LOTTERY COMMISSION WINNINGS 12345", True),
+    ("ACH CREDIT STATE LOTTERY COMMISSION RETAILER SETTLEMENT 12345", False),
+    ("ACH CREDIT STATE LOTTERY COMMISSION COMMISSION 12345", False),
+    ("ACH CREDIT STATE LOTTERY PRIZE COMMISSION 12345", False),
     (_bofa("GOLDEN NUGGET ONLINE GAMING", "WITHDRAWAL"), True),
     (_bofa("FLIFF INC", "REDEMPTION"), True),
     (_bofa("FABRIKAM CASINO RESORT LLC", "PAYMENT"), False),
@@ -844,6 +980,16 @@ def test_r36_controls_keep_their_readings(rows, expected):
 def test_r36_the_gambling_reader(text, held):
     revenue = revenue_text(normalize_transaction_description(text))
     assert tr.gambling_payout(revenue, tr._hold_text(revenue)) is held
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # Audit round 2, R2-B12 review round 1 (R36): on a layout that prints no entry field, the agency's name supplies no
+    # retailer word, so its prize is held as on Bank of America's and Chase's layouts; its bare row keeps its reading.
+    ("ACH CREDIT STATE LOTTERY COMMISSION PRIZE PAYMENT 12345", NON_SALE),
+    ("ACH CREDIT STATE LOTTERY COMMISSION 12345", REFUSED),
+])
+def test_r36_review_an_agency_s_name_on_a_row_with_no_entry_spares_no_prize(text, expected):
+    assert _one(text, 5000.0, bank="PNC Bank") == expected
 
 
 def test_r36_the_entry_field_reader_is_the_premium_reader_s():

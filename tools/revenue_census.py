@@ -1512,10 +1512,12 @@ NON_REVENUE_IN_TRUE_CLASSES = (
                  r"\b(?:DRAFTKINGS|FANDUEL|KALSHI|PRIZEPICKS|BETMGM|POLYMARKET|SPORTSBOOK)\b"),
         # Audit round 2, R2-B12 (R36): the licensed sportsbooks the pass's list adds (Hard Rock Digital, BetParx, Bally
         # Bet, PointsBet, Golden Nugget Online Gaming, Fliff), a lottery's prize (never beside a retailer's settlement
-        # word) and a sportsbook's, a casino's or an online gaming payer's withdrawal or payout.
+        # word) and a sportsbook's, a casino's or an online gaming payer's withdrawal or payout. Review round 1: the
+        # agency's name (LOTTERY COMMISSION) is no retailer word, as the pass reads it.
         ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE)\b).*"
                  r"\b(?:HARD ?ROCK ?(?:BET|DIGITAL)|BET ?PARX|BALLY ?BET|POINTS ?BET|GOLDEN NUGGET ONLINE|FLIFF)\b"),
-        ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE|SETTLEMENT|SETTLMT|SWEEP|COMMISSIONS?|RETAILER)\b)"
+        ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE|SETTLEMENT|SETTLMT|SWEEP|COMMISSIONS"
+                 r"|(?<!LOTTERY )COMMISSION|RETAILER)\b)"
                  r"(?=.*\bLOTTERY\b).*\b(?:PRIZES?|WINNINGS?|JACKPOTS?)\b"),
         ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE)\b).*\b(?:SPORTS ?BOOK|CASINO|BETTING|ONLINE GAMING)\b"
                  r".*\b(?:WITHDRAWALS?|WITHDRAW|WDRL|PAYOUTS?|CASH ?OUT)\b"),

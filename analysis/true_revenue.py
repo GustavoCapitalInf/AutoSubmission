@@ -466,6 +466,10 @@ _GAMBLING_CONTEXT = re.compile(
 _LOTTERY_WORD = re.compile(r"(?<![A-Z])LOTTERY\b")
 _LOTTERY_PRIZE_WORD = re.compile(r"(?<![A-Z])(?:PRIZES?|WINNINGS?|JACKPOTS?)\b")
 _LOTTERY_RETAILER_WORDING = re.compile(r"(?<![A-Z])(?:SETTLEMENT|SETTLMT|SWEEP|COMMISSIONS?|RETAILER)\b")
+#: Review round 1 (R36): many states' lottery agency is a LOTTERY COMMISSION; on a row that prints no entry field its
+#: name supplies no retailer word, so the agency's prize ('<STATE> LOTTERY COMMISSION PRIZE PAYMENT') holds as it does on
+#: Bank of America's and Chase's layouts.
+_LOTTERY_AGENCY_NAME = re.compile(r"(?<![A-Z])LOTTERY COMMISSION\b")
 _BETTING_PAYER = re.compile(r"(?<![A-Z])(?:SPORTS ?BOOK|CASINO|BETTING|ONLINE GAMING)\b")
 _BETTING_WITHDRAWAL = re.compile(r"(?<![A-Z])(?:WITHDRAWALS?|WITHDRAW|WDRL|PAYOUTS?|CASH ?OUT)\b")
 #: The entry labels the payer before them is read up to (Bank of America's DES, Chase's CO ENTRY DESCR).
@@ -485,7 +489,9 @@ _VENDOR_PAYMENT_WORDING = re.compile(r"(?<![A-Z])(?:VENDORS?|INVOICES?|PAYABLES?
 #: ACTION, DATA BREACH and the administrators Epiq and Verita (whose names are other businesses' too) hold beside a
 #: settlement, claim or award word on the row (_LEGAL_CONTEXT) or anywhere but a customer's trade name (_trade_name:
 #: '<NAME> LITIGATION SUPPORT LLC', 'VERITA HEALTH LLC'; never 'EPIQ SYSTEMS INC' or 'VERITA GLOBAL', whose other words
-#: are _LEGAL_NAME_KEEP's).
+#: are _LEGAL_NAME_KEEP's). Review round 1: a claims administrator's or a restructuring unit's form words (SERVICES,
+#: SOLUTIONS, RESTRUCTURING, GROUP) are keep words too ('EPIQ CORPORATE RESTRUCTURING LLC', 'CLASS ACTION SERVICES
+#: LLC'); a name word of the payer's own beside them still reads as a trade name (a recorded residual, §20).
 _LEGAL_SETTLEMENT = re.compile(
     r"(?<![A-Z])(?:SETTLEMENT ADMIN\w*|JND LEGAL|ANGEION|SIMPLURIS|RUST CONSULTING|KROLL SETTLEMENT|A B DATA)\b"
     r"|\bKCC(?= (?:LLC|CLASS|SETTLEMENT)\b)"
@@ -493,7 +499,8 @@ _LEGAL_SETTLEMENT = re.compile(
 _LEGAL_NAME_WORDS = re.compile(r"(?<![A-Z])(?:LAWSUITS?|LITIGAT\w*|CLASS ACTION|DATA BREACH|EPIQ|VERITA)\b")
 _LEGAL_CONTEXT = re.compile(r"(?<![A-Z])(?:SETTLEMENT\w*|SETTLMT|CLAIMS?|AWARDS?)\b")
 _LEGAL_NAME_KEEP = re.compile(
-    r"(?<![A-Z])(?:SETTLEMENT\w*|SETTLMT|CLAIMS?|AWARDS?|FUNDS?|ADMIN\w*|SYSTEMS|GLOBAL|CORPORATE)\b"
+    r"(?<![A-Z])(?:SETTLEMENT\w*|SETTLMT|CLAIMS?|AWARDS?|FUNDS?|ADMIN\w*|SYSTEMS|GLOBAL|CORPORATE"
+    r"|SERVICES|SOLUTIONS|RESTRUCTURING|GROUP)\b"
 )
 _LAWYER_SETTLEMENT_PROCEEDS = re.compile(r"(?<![A-Z])SETTLEMENT (?:PROCEEDS|FUNDS?)\b")
 #: §8.1 non_sale_purpose (audit B8, routed by the B7 review round 2, §20): DISB, the abbreviation of a disbursement,
@@ -515,6 +522,21 @@ _TRADE_NAME_NOT_A_NAME = frozenset({
 })
 _TRADE_NAME_NOT_AFTER = frozenset({"CONF", "REF", "ID", "TRN", "PMT", "PAYMENT", "PAYOUT"})
 _TRADE_NAME_WORD = re.compile(r"[A-Z]{2,}")
+#: Audit round 2, R2-B12 review round 1 (R37): a word right after a hold word on the purpose that names the purpose,
+#: never a trade name: a win, a prize or a bonus; a withdrawal, a cash-out, a transfer, proceeds, a recovery, money,
+#: funds, a check, a distribution, a disbursement, a deposit, a refund or a reimbursement; a payment or a payout; the
+#: legal reader's settlement, claim and award words; a share, a sale, a balance or an account; a coin; a preposition,
+#: a possessive or a time word ('FOR JACKPOT WIN', 'OBI LAWSUIT PROCEEDS', 'DES:KRAKEN WITHDRAWAL', 'FOR WINNINGS FROM
+#: BET', 'FOR WINNINGS LAST NIGHT'), so the occurrence before it holds. Read whole (fullmatch) by _trade_name's
+#: purpose arm only; a name word ('FOR JACKPOT CANDLES', 'DES:LITIGATION SUPPORT') keeps the trade-name reading.
+_TRADE_NAME_PURPOSE_WORD = re.compile(
+    r"WINS?|WON|WINNERS?|WINNINGS?|PRIZES?|BONUS\w*|JACKPOTS?"
+    r"|WITHDRAW\w*|WDRLS?|WD|CASH\w*|TRANSF\w*|TRNSFR|XFE?RS?|TFR|PROCEEDS?|RECOVER\w*|MONEY|MONIES|FUNDS?|FUNDING"
+    r"|CHECKS?|CHEQUES?|CHK|DISTRIB\w*|DISBURS\w*|DISB|DEPOSITS?|DEP|REFUNDS?|REIMB\w*|REBATES?"
+    r"|PAYMENTS?|PAYOUTS?|PAY|PAID|PMTS?|PYMTS?|SETTLEMENT\w*|SETTLMT|CLAIMS?|AWARDS?"
+    r"|SHARES?|SPLIT|SALES?|SOLD|BALANCE|ACCOUNTS?|ACCT|BTC|ETH|BITCOIN|USDC|USDT"
+    r"|FROM|TO|IN|ON|AT|BY|WITH|MY|OUR|HIS|HER|THEIR|THIS|THAT|LAST|NEXT|TODAY|TONIGHT|YESTERDAY"
+)
 #: Audit round 2, R2-B12 (R37): the owner-money platforms whose names are other businesses' too (a robotics maker, a
 #: cleaner, a services firm): KRAKEN, UPHOLD and PAXOS hold, when no other platform is named, only outside a customer's
 #: trade name (_trade_name; never 'UPHOLD HQ INC' or 'PAXOS TRUST CO', whose other words are _PLATFORM_NAME_KEEP's).
@@ -1694,8 +1716,9 @@ def _trade_name(text: str, row: str, region: str, words: re.Pattern[str], keep: 
     never the payer's or the purpose's: (a) it sits in `region`, the payer region, which prints a company form
     (_TRADE_NAME_FORM) and still holds a name word (_trade_name_word) once `words`, the forms, the fillers and `keep`
     are removed; or (b) it sits on the payment's purpose (_title_purpose_text) with a name word right after it (never a
-    form, a filler, a `keep` word, another of `words` or a field's word, _TRADE_NAME_NOT_AFTER). An occurrence anywhere
-    else, or one the row no longer prints as read, is no trade name, so the hold that reads it holds."""
+    form, a filler, a `keep` word, another of `words` or a field's word, _TRADE_NAME_NOT_AFTER; review round 1: nor a
+    word that names the purpose, _TRADE_NAME_PURPOSE_WORD). An occurrence anywhere else, or one the row no longer prints
+    as read, is no trade name, so the hold that reads it holds."""
     rest = row
     if region and _TRADE_NAME_FORM.search(region) and any(
         _trade_name_word(word, keep) for word in words.sub(" ", region).split()
@@ -1706,7 +1729,10 @@ def _trade_name(text: str, row: str, region: str, words: re.Pattern[str], keep: 
         after = re.match(r" (\S+)", purpose[found.end():])
         if after is None or words.fullmatch(after.group(1)) is not None:
             continue
-        if _trade_name_word(after.group(1), keep, _TRADE_NAME_NOT_AFTER):
+        if (
+            _trade_name_word(after.group(1), keep, _TRADE_NAME_NOT_AFTER)
+            and _TRADE_NAME_PURPOSE_WORD.fullmatch(after.group(1)) is None
+        ):
             rest = rest.replace(f"{found.group(0)} {after.group(1)}", f" {after.group(1)}", 1)
     return words.search(rest) is None
 
@@ -1727,16 +1753,18 @@ def gambling_payout(text: str, row: str) -> bool:
     on `row` (the hold text without the holder's name), read in this order (audit round 2, R2-B12: R36, R37): never the
     payer's payment of a vendor (_vendor_payment), nor a lottery's settlement with its retailer (LOTTERY on the row and a
     retailer word, _LOTTERY_RETAILER_WORDING, on the entry the layout prints, _layout_entry, or on the row where it
-    prints none: never on the agency's name); then a listed payer (_GAMBLING_PAYOUT); a lottery's prize (LOTTERY and a
-    prize word anywhere on the row); a sportsbook's, a casino's or an online gaming payer (_BETTING_PAYER on the row
-    before its entry label) whose entry, or row, prints a withdrawal or payout (_BETTING_WITHDRAWAL); and a JACKPOT or
-    WINNINGS beside a gambling word (_GAMBLING_CONTEXT) or outside a customer's trade name (_trade_name)."""
+    prints none: never on the agency's name; review round 1: on a row with no entry, nor its LOTTERY COMMISSION,
+    _LOTTERY_AGENCY_NAME); then a listed payer (_GAMBLING_PAYOUT); a lottery's prize (LOTTERY and a prize word anywhere
+    on the row); a sportsbook's, a casino's or an online gaming payer (_BETTING_PAYER on the row before its entry
+    label) whose entry, or row, prints a withdrawal or payout (_BETTING_WITHDRAWAL); and a JACKPOT or WINNINGS beside a
+    gambling word (_GAMBLING_CONTEXT) or outside a customer's trade name (_trade_name)."""
     if _vendor_payment(text, row):
         return False
     entry = _layout_entry(text)
     scope = entry if entry.strip() else row
     lottery = _LOTTERY_WORD.search(row) is not None
-    if lottery and _LOTTERY_RETAILER_WORDING.search(scope):
+    retailer_scope = entry if entry.strip() else _LOTTERY_AGENCY_NAME.sub("LOTTERY", row, count=1)
+    if lottery and _LOTTERY_RETAILER_WORDING.search(retailer_scope):
         return False
     if _GAMBLING_PAYOUT.search(row) is not None:
         return True
@@ -1784,13 +1812,19 @@ def owner_disbursement(text: str, row: str, region: str) -> bool:
 def owner_money_platform(text: str, row: str, region: str) -> bool:
     """§7.5's standing rule, §8.1 non_sale_purpose (S4.2 review I6b; audit B8: I28): a brokerage, investing or
     crypto-exchange platform the registry names (_OWNER_MONEY_PLATFORMS) on `row` returns the owner's own money. Audit
-    round 2, R2-B12 (R37): never a payer's payment of a vendor (_vendor_payment), and when the only platform the row
-    names is KRAKEN, UPHOLD or PAXOS (_PLATFORM_NAME_WORDS), only outside a customer's trade name (_trade_name, keeping
-    _PLATFORM_NAME_KEEP's words). The registry's table is unchanged."""
-    if _OWNER_MONEY_PLATFORMS.search(row) is None or _vendor_payment(text, row):
+    round 2, R2-B12 (R37): never a payer's payment of a vendor, and when the only platform the row names is KRAKEN,
+    UPHOLD or PAXOS (_PLATFORM_NAME_WORDS), only outside a customer's trade name (_trade_name, keeping
+    _PLATFORM_NAME_KEEP's words). Review round 1: a platform the row names by a name that is only the platform's is
+    spared by §7.5's accounts-payable wording alone (_accounts_payable_wording, S4.2's exception for the investment
+    words and its re-review's ruling: accounts-payable wording is the payer's vendor payment), never by a bare vendor,
+    invoice or payables word; KRAKEN, UPHOLD or PAXOS alone, whose names are other businesses' too, takes the legal and
+    gambling readers' vendor spare (_vendor_payment). The registry's table is unchanged."""
+    if _OWNER_MONEY_PLATFORMS.search(row) is None or _accounts_payable_wording(text):
         return False
     if _OWNER_MONEY_PLATFORMS.search(_PLATFORM_NAME_WORDS.sub(" ", row)) is not None:
         return True
+    if _vendor_payment(text, row):
+        return False
     return not _trade_name(text, row, region, _PLATFORM_NAME_WORDS, _PLATFORM_NAME_KEEP)
 
 
@@ -1936,11 +1970,18 @@ def _disbursing_payer(text: str, region: str) -> bool:
     return known is None or known.state not in FINANCING_STATES
 
 
-def _disbursement_entry(text: str) -> bool:
+def _disbursement_entry(text: str, region: str) -> bool:
     """§8.1, §8.6 (audit round 2, R2-B12: R17): the row's hold text prints a disbursement word (_DISBURSEMENT_WORD)
     outside the payer's own DISBURSEMENT ACCOUNT and beside no loan, escrow, title or proceeds word
-    (_DISBURSEMENT_KEEP): the entry B7's I18 spare drops from the non-sale reading."""
-    row = _DISBURSEMENT_ACCOUNT.sub(" ", _hold_text(text))
+    (_DISBURSEMENT_KEEP): the entry B7's I18 spare drops from the non-sale reading. Review round 1: read outside the
+    payer's own name field (`region` on a row that prints one, _prints_payer_name_field, as B7 reads DISTRIB... and
+    STOCK), so a payer named for disbursement services ('<NAME> DISBURSEMENT SERVICES LLC DES:PAYMENT') prints no
+    disbursement entry; a row that prints no name field, or whose hold text no longer prints the region, is read whole
+    (fail closed)."""
+    row = _hold_text(text)
+    if region and _prints_payer_name_field(text):
+        row = row.replace(region, " ")
+    row = _DISBURSEMENT_ACCOUNT.sub(" ", row)
     return _DISBURSEMENT_WORD.search(row) is not None and _DISBURSEMENT_KEEP.search(row) is None
 
 
@@ -4305,7 +4346,7 @@ def credit_facts(
             or _premium_coded(text, region)
             # Audit round 2, R2-B12 (R17): a recurring disbursement entry B7's I18 spare dropped from the non-sale
             # reading counts, never proves (§8.6, as an unregistered payer's SETTLEMENT).
-            or (disbursing and _disbursement_entry(text))
+            or (disbursing and _disbursement_entry(text, region))
         ),
         round_sum=classifier.is_round_sum(record.amount),
         consumer_entry=consumer_entry(text, _holder(record)),
@@ -5123,7 +5164,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         ),
         # Audit round 2, R2-B12 (R17): an ordinary payer's disbursement entry, which B7's I18 spare drops from the
         # non-sale reading when it repeats in the statement (the pass's spared refused word; read here on the row).
-        "spared_disbursement": bool(region) and _disbursing_payer(text, region) and _disbursement_entry(text),
+        "spared_disbursement": bool(region) and _disbursing_payer(text, region) and _disbursement_entry(text, region),
     }
 
 

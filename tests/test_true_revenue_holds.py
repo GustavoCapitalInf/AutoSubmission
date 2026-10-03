@@ -388,6 +388,40 @@ def test_r17_the_census_reads_the_spared_disbursement_fact(payer, entry, fact):
     assert facts["spared_disbursement"] is fact
 
 
+# Audit round 2, R2-B12 review round 1 (R17): the refused disbursement word is the entry's, read outside the payer's own
+# name field (an ACH originator, a wire's sender, a transfer's sender), as B7 reads DISTRIB... and STOCK; a row that
+# prints no name field is read whole (fail closed).
+
+CHASE_GRILL = ("ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:{entry}SEC:CCD "
+               "TRACE#:12345678901234{n} EED:540102 IND ID:12345 IND NAME:NORTHWIND GRILL LLC TRN: 123456789{n}TC")
+
+
+@pytest.mark.parametrize(("rows", "expected"), [
+    # A payer named for disbursement services keeps the reading B7's spare gave it.
+    (_grill("SAMPLE DISBURSEMENT SERVICES LLC", "PAYMENT"), [REPEATS, REPEATS]),
+    ([(CHASE_GRILL.format(payer="SAMPLE DISBURSEMENT SERVICES LLC", entry="PAYMENT", n=n), 5000.0 + n)
+      for n in (1, 2)], [REPEATS, REPEATS]),
+    # Its disbursement entry, and an entry a row with no name field prints, count and never prove.
+    (_grill("SAMPLE DISBURSEMENT SERVICES LLC", "DISBURSEMENT"), [REFUSED, REFUSED]),
+    ([(f"ACH CREDIT FABRIKAM MERCHANT SOLUTIONS DISBURSEMENT 123{n}", 5000.0 + n) for n in (1, 2)],
+     [REFUSED, REFUSED]),
+    # A one-off keeps B7's hold.
+    (_grill("SAMPLE DISBURSEMENT SERVICES LLC", "PAYMENT", 1), [NON_SALE]),
+])
+def test_r17_review_a_disbursement_word_in_the_payer_s_own_name_is_no_refused_entry(rows, expected):
+    assert _tiers(rows, holder="NORTHWIND GRILL LLC") == expected
+
+
+@pytest.mark.parametrize(("payer", "entry", "fact"), [
+    ("SAMPLE DISBURSEMENT SERVICES LLC", "PAYMENT", False),
+    ("SAMPLE DISBURSEMENT SERVICES LLC", "DISBURSEMENT", True),
+])
+def test_r17_review_the_spared_disbursement_fact_reads_the_entry(payer, entry, fact):
+    record = _records(_grill(payer, entry, 1), holder="NORTHWIND GRILL LLC")[0]
+    facts = tr.guard_facts(record, revenue_text(record.normalized_description))
+    assert facts["spared_disbursement"] is fact
+
+
 def test_the_payer_s_own_disbursement_account_is_no_purpose():
     text = ("WIRE TYPE INTL IN DATE 540102 TIME 1234 ET TRN 1234 SNDR REF 1 ORIG CONTOSO IMPORTS LLC DISBURSEMENT "
             "ACCOUNT ID 1234")
