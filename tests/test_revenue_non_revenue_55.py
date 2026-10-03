@@ -251,6 +251,16 @@ def test_r11_review_a_row_of_references_and_labels_is_held_never_counted(printed
     assert not prints_internal_transfer_designation(printed)
 
 
+def test_r11_review_recorded_residual_a_numbered_company_after_the_tt_label_keeps_the_own_account_reading():
+    # The funds-transfer originator reader drops a numbered company's words, so the row reads as before R11; reading it
+    # as a counted sender (OQ3) belongs to that reader. No corpus row prints one.
+    from analysis.transaction_classifier import _bare_incoming_wire
+
+    printed = "FUNDS TRANSFER CREDIT TT 1234567 ONTARIO INC"
+    assert not _bare_incoming_wire(_revenue_text(printed))
+    assert _tier(printed) == ("non_revenue", "strong_non_revenue_rule")
+
+
 def test_r11_review_the_reader_s_label_words_are_the_wire_label_list_and_the_originator_labels():
     from analysis import transaction_classifier as tc
     from analysis import true_revenue as tr
