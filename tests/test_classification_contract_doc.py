@@ -169,6 +169,10 @@ STALE_SENTENCES = (
     (CONTRACT, "and the tryout host sets none"),
     # B12 review round 1: a builder's DRAW read as counted (the code holds it as non_sale_purpose).
     (SPEC, "Both stay counted and flagged, never verified (OQ4)"),
+    # The owner's ruling of 2026-10-02 (the underwriter's Q12): GOV class E no longer waits for the owner, and WSIB's
+    # no-purpose payment is non_revenue.
+    (CONTRACT, "which waits for the owner"),
+    (SPEC, "WSIB paying a clinic stays counted"),
 )
 
 
@@ -199,6 +203,14 @@ SECTION_19_1_DECISIONS = (
     ("**2026-09-30 to 2026-10-02, decisions the owner delegated during the audit fix run**", (
         "the owner may overrule each", "`TUITION`", "`STUDENT ID`", "audit I57", "a trust payment with no purpose stays held",
         "`IRS TREAS 310`", "`INT`", "`Prov./Loc.G.Paym Canada`", "`personal_income`",
+    )),
+    # The owner's rulings of 2026-10-02 (the underwriter's answers), in the order their batches land.
+    ("**2026-10-02, government payments that print no purpose (Q12).**", (
+        "`non_revenue`", "`MN STATE MMB`", "`36 TREAS 310 MISC PAY`", "WSIB", "keeps counting",
+    )),
+    ("**2026-10-02, the underwriter's Q13: a processor payout printed as a bare card credit stays excluded.**", (
+        "keep them excluded", "`PROCESSOR_CARD_PAYOUT_RELEASE`", "`CASH_APP_CARD_PUSH_RELEASE`", "stays off",
+        "the owner may overrule it", "`VISA DIRECT`", "audit I11",
     )),
 )
 
@@ -250,3 +262,31 @@ def test_the_spec_section_17_1_says_a_draw_is_held_and_a_seller_payout_counted()
     line = next(line for line in open_items.splitlines() if line.startswith("- **I18 (`DRAW`) and I45"))
     assert "The seller payouts stay counted and flagged, never verified (OQ4, `named_payer_purpose_refused`)" in line
     assert "a builder's `DRAW` stays held as `non_sale_purpose`" in line
+
+
+def test_the_spec_records_the_card_push_switches_as_kept_off():
+    """The underwriter's Q13 (2026-10-02, spec §19.1): both card-push switches stay off, §6.3 says so, and §17.1 asks
+    only about the push forms the question did not show."""
+    text = SPEC.read_text(encoding="utf-8")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ").splitlines()
+    assert not any("Two switches that ship off" in line for line in open_items)
+    assert any(line.startswith("- **Card pushes that print their rail**") for line in open_items)
+    lines = text.splitlines()
+    narrowing_9 = next(line for line in lines if line.startswith("9. a merchant processor's instant payout"))
+    assert "the owner keeps off" in narrowing_9 and "§19.1" in narrowing_9
+    narrowing_6 = next(line for line in lines if line.startswith("6. a card-credit row that prints a push-rail word"))
+    assert "stays off" in narrowing_6 and "ships off" not in narrowing_6
+
+
+def test_the_spec_closes_gov_class_e_with_the_owner_s_ruling():
+    """The underwriter's Q12 (2026-10-02): §17.1's I40 question is closed, §6.1 carries step 3a and §2 the new
+    rulings' table."""
+    text = SPEC.read_text(encoding="utf-8")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "**I40 (GOV class E).**" not in open_items
+    assert "**Wisconsin Shares card settlements**" in open_items
+    precedence = _section(text, "\n### 6.1 One credit's decision", "\n### 6.2 ")
+    assert "3a. **New (owner ruling 2026-10-02, Q12):**" in precedence
+    rulings = _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
+    assert "Owner rulings (2026-10-02, the underwriter's answers)" in rulings
+    assert "| Q12 (2026-10-02) |" in rulings and "| Q13 (2026-10-02) |" in rulings
