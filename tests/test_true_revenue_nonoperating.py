@@ -295,6 +295,8 @@ def test_a_settlement_agent_s_payment_of_the_holder_s_fee_keeps_its_reading():
 
 ASSET_SALE = ("non_revenue", "asset_sale_proceeds")
 SOLAR = "NORTHWIND SOLAR LLC"
+FUEL_STOP = "NORTHWIND FUEL STOP LLC"
+BROKERS = "NORTHWIND BROKERS LLC"
 
 
 def test_a_repeated_equipment_auction_seller_payout_is_asset_sale_proceeds():
@@ -337,7 +339,7 @@ def _q11(rows, holder: str = SOLAR):
     ([(_q11_bofa("RITCHIE BROS", "SELLER PMT"), 15000.0),
       (_q11_bofa("RITCHIE BROS", "SELLER PMT", ref="7654321"), 12000.0)], SOLAR, "payer"),
     # B2: a car buyer's payout (was counted named_payer_purpose_refused).
-    ([(_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)], SOLAR, "payer"),
+    ([(_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1850.0)], SOLAR, "payer"),
     # B3: a car buyer's company-form payment on Chase's layout (was Q6's verification: the declared demotion).
     ([(_q11_chase("CARVANA LLC", "PAYMENT"), 14000.0)], SOLAR, "payer"),
     # B4, B5, B6: a printed equipment or vehicle sale (B5 was Q6's company-form verification).
@@ -377,6 +379,11 @@ def _q11(rows, holder: str = SOLAR):
     # A vehicle-trade holder name that prints a recovery word is no dealer (R2-OW05's _DEALER_HOLDER_VETO).
     ([(_q11_bofa("COPART INC", "SELLER PMT", holder="SAMPLE AUTOMOTIVE RECOVERY LLC"), 3000.0)],
      "SAMPLE AUTOMOTIVE RECOVERY LLC", "payer"),
+    # Review round 1: FLEET alone is no asset noun, but a fleet's vehicles or trucks still are.
+    ([(_q11_wire("CONTOSO LLC", "SALE OF FLEET VEHICLES"), 9000.0)], SOLAR, "purpose"),
+    ([(_q11_wire("CONTOSO LLC", "FLEET TRUCK SALE"), 9000.0)], SOLAR, "purpose"),
+    # Review round 1: a fee printed apart from the sale leaves the row a sale's proceeds.
+    ([(_q11_wire("FABRIKAM FREIGHT LLC", "TRUCK SALE NET OF FEES"), 9000.0)], SOLAR, "purpose"),
 ])
 def test_a_non_dealer_s_asset_sale_is_non_revenue(rows, holder, arm):
     records = _q11_records(rows, holder)
@@ -402,7 +409,7 @@ def test_a_payables_only_lender_credit_is_no_dealer_evidence_for_an_asset_sale()
     # R2-OW05: a listed auto lender's payables-only credit is no dealer evidence, so a car buyer's payout beside it
     # is still asset-sale proceeds.
     records = _q11_records([(_q11_bofa("WESTLAKE FINANCI", "PAYABLES"), 4000.0),
-                            (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)])
+                            (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1850.0)])
     assert rules_reading(records[1], method=True) == ASSET_SALE
 
 
@@ -417,7 +424,7 @@ def test_a_payables_only_lender_credit_is_no_dealer_evidence_for_an_asset_sale()
     ([("NEXTGEAR CAPITAL DES:PAYOFF ID:1 CO ID:1 CCD", -5000.0), (_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE"), 18000.0)],
      SOLAR, [COMPANY]),
     # D4: a dealer-only wholesale auction's payout credit (§7.8).
-    ([("ACV AUCTIONS INC PAYMENTS 123456 12 123456789012", 4000.0), (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)],
+    ([("ACV AUCTIONS INC PAYMENTS 123456 12 123456789012", 4000.0), (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1850.0)],
      SOLAR, [("verified", "wholesale_auction_payout_form"), REFUSED]),
     # D5: a platform's vendor payment; D6, D7, D8: a transporter's or a hauler's fee.
     ([(_q11_bofa("CARVANA LLC", "VENDOR PAY"), 9000.0)], SOLAR, [REMITTANCE]),
@@ -453,7 +460,7 @@ def test_a_payables_only_lender_credit_is_no_dealer_evidence_for_an_asset_sale()
       ("INTERAC E-TRANSFER FROM PAT SAMPLE TRUCK SALE", 5000.0)], SOLAR,
      [("excluded_pending_review", "p2p_round_repeat")] * 2),
     # R1, R3, R4: a purchase at a dealer-only wholesale auction (a posted debit) is dealer evidence.
-    ([("MANHEIM US DES:ACH PAYMNT ID:1 CO ID:1 CCD", -4000.0), (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)],
+    ([("MANHEIM US DES:ACH PAYMNT ID:1 CO ID:1 CCD", -4000.0), (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1850.0)],
      SOLAR, [REFUSED]),
     ([("ACV AUCTIONS INC DES:PAYMENTS ID:1 CO ID:1 CCD", -3000.0), (_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE"), 18000.0)],
      SOLAR, [COMPANY]),
@@ -479,9 +486,34 @@ def test_a_payables_only_lender_credit_is_no_dealer_evidence_for_an_asset_sale()
      [REFUSED]),
     # Q1: a parts seller's 'SALE OF PARTS FOR TRUCK'.
     ([(_q11_wire("FABRIKAM FLEET LLC", "SALE OF PARTS FOR TRUCK"), 9000.0)], SOLAR, [WIRE]),
+    # Review round 1: a fleet card's settlement wording is no asset sale (FLEET alone is no asset noun).
+    ([(_q11_bofa("FABRIKAM FUEL CARDS INC", "FLEET SALE", holder=FUEL_STOP), 9000.0)], FUEL_STOP, [COMPANY]),
+    ([(_q11_wire("CONTOSO LLC", "FLEET SALE"), 9000.0)], SOLAR, [WIRE]),
+    ([(_q11_wire("CONTOSO LLC", "FLEET SOLD"), 9000.0)], SOLAR, [WIRE]),
+    ([("FLEET SALE SETTLEMENT 123456 NORTHWIND FUEL", 9000.0)], FUEL_STOP, [REFUSED]),
+    # Review round 1: a commission or a fee printed next to a sale is a broker's or an agent's earned revenue.
+    ([(_q11_bofa("FABRIKAM MOTORS INC", "CAR SALE COMMISSION", holder=BROKERS), 3000.0)], BROKERS, [REFUSED]),
+    ([(_q11_wire("FABRIKAM AUTO GROUP LLC", "VEHICLE SALE COMMISSION"), 3000.0)], BROKERS, [REFUSED]),
+    ([(_q11_wire("FABRIKAM AUTO GROUP LLC", "COMMISSION ON TRUCK SALE"), 3000.0)], BROKERS, [REFUSED]),
+    ([(_q11_wire("FABRIKAM AUTO GROUP LLC", "TRUCK SALE FEE"), 3000.0)], BROKERS, [REFUSED]),
+    ([(_q11_wire("FABRIKAM AUTO GROUP LLC", "EQUIPMENT SALE COMMISSIONS"), 3000.0)], BROKERS, [REFUSED]),
 ])
 def test_a_dealer_s_sale_or_no_asset_sale_keeps_its_reading(rows, holder, expected):
     assert _q11(rows, holder) == expected
+
+
+def test_an_iaa_seller_payout_a_later_hold_names_stays_held():
+    # Review round 1: IAA's insurer-name hold yields to Q11 only when no later hold names the row; beside an IAA
+    # purchase debit (a buyer and seller) the row stays held and reviewable, as Copart's stays held payer_also_debited.
+    assert _q11([(_q11_bofa("INSURANCE AUTO AUCTIONS", "SELLER PMT"), 3000.0),
+                 ("INSURANCE AUTO AUCTIONS DES:PURCHASE ID:1 CO ID:1 CCD", -2000.0)]) == [
+        ("excluded_pending_review", "insurer_named_payer")]
+    assert _q11([(_q11_bofa("COPART INC", "SELLER PMT"), 3000.0),
+                 ("COPART INC DES:PURCHASE ID:1 CO ID:1 CCD", -2000.0)]) == [
+        ("excluded_pending_review", "payer_also_debited")]
+    # IAA's seller payments with no later hold are still asset-sale proceeds.
+    assert _q11([(_q11_bofa("INSURANCE AUTO AUCTIONS", "SELLER PMT"), 3000.0),
+                 (_q11_bofa("INSURANCE AUTO AUCTIONS", "SELLER PMT", ref="7654321"), 2500.0)]) == [ASSET_SALE] * 2
 
 
 def test_a_zelle_truck_sale_is_q3_s_never_an_asset_sale():

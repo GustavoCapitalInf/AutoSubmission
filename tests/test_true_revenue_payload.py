@@ -136,7 +136,7 @@ def test_the_non_revenue_breakdown_names_a_non_dealer_s_asset_sales():
     # breakdown beside the Zelle policy's code, by compute_metrics and by the rebuild alike.
     rows = [
         ("2054-03-01", "MOBILE DEPOSIT", 500.0),
-        ("2054-03-02", "CARVANA PAYOUT DES:CVNA 12345 ID:1234567 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 1869.17),
+        ("2054-03-02", "CARVANA PAYOUT DES:CVNA 12345 ID:1234567 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 1850.0),
         ("2054-03-03", "RITCHIE BROS DES:SELLER PMT ID:1234567 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 15000.0),
         ("2054-03-04", "ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 300.0),
     ]
@@ -144,10 +144,10 @@ def test_the_non_revenue_breakdown_names_a_non_dealer_s_asset_sales():
         Transaction(date=day, description=text, amount=amount, direction="credit") for day, text, amount in rows
     ])
     records = classify_statement_transactions(statement)
-    expected = {"asset_sale_proceeds": {"count": 2, "total": 16869.17}, "zelle_excluded": {"count": 1, "total": 300.0}}
+    expected = {"asset_sale_proceeds": {"count": 2, "total": 16850.0}, "zelle_excluded": {"count": 1, "total": 300.0}}
     metrics = compute_metrics(statement, classifications=records)
     assert metrics.non_revenue_by_reason == expected
-    assert (metrics.non_revenue_total, metrics.true_revenue_total) == (17169.17, 500.0)
+    assert (metrics.non_revenue_total, metrics.true_revenue_total) == (17150.0, 500.0)
     assert metrics.revenue_reconciles
     rebuilt = rebuild_serialized_revenue_views({
         "statement": {"currency": "USD", "transactions": [
@@ -157,7 +157,7 @@ def test_the_non_revenue_breakdown_names_a_non_dealer_s_asset_sales():
         "metrics": {}, "detection": {},
     })["metrics"]
     assert rebuilt["non_revenue_by_reason"] == expected
-    assert rebuilt["non_revenue_total"] == 17169.17 and rebuilt["revenue_reconciles"]
+    assert rebuilt["non_revenue_total"] == 17150.0 and rebuilt["revenue_reconciles"]
 
 
 def test_a_record_whose_tier_disagrees_with_its_state_is_refused():

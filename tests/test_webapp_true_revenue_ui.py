@@ -1329,12 +1329,12 @@ console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).labe
 # ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW06 (the underwriter's
 # Q11): a builder's progress draw is counted (its own reason), and a non-dealer's asset sale is non_revenue with its
 # reason code, tagged on its row and broken out under Non-Revenue (the R2-OW03 breakdown), with no review path.
-# CONTOSO's fabricated bakery March: a company payer (700), a check deposit (300), a car buyer's payout (1,869) and an
-# equipment auction's seller payment (15,000), so True is 1,000 and the asset sales 16,869.
+# CONTOSO's fabricated bakery March: a company payer (700), a check deposit (300), a car buyer's payout (1,850) and an
+# equipment auction's seller payment (15,000), so True is 1,000 and the asset sales 16,850.
 
 _ASSET_SALE_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "MOBILE DEPOSIT", 300.0),
                     (4, "CARVANA PAYOUT DES:CVNA 12345 ID:1234567 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
-                     1869.0),
+                     1850.0),
                     (5, "RITCHIE BROS DES:SELLER PMT ID:1234567 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
                      15000.0)]
 _ASSET_SALE_LABEL = "Sale of equipment or vehicles (not a dealer)"
@@ -1366,9 +1366,9 @@ showMainRevenueEvidence('non_revenue:asset_sale_proceeds');
 console.log(JSON.stringify({rows, evidenceHtml, evidence, header: els.transactionCount.textContent, filtered: ledger()}));
 """)
     figures = {row["label"]: row for row in result["rows"]}
-    assert figures["True Revenue"]["value"] == "$1,000.00" and figures["Non-Revenue"]["value"] == "$16,869.00"
-    assert [row[:3] for row in result["evidence"]][-2:] == [["Non-Revenue", "2", "$16,869.00"],
-                                                           [_ASSET_SALE_LABEL, "2", "$16,869.00"]]
+    assert figures["True Revenue"]["value"] == "$1,000.00" and figures["Non-Revenue"]["value"] == "$16,850.00"
+    assert [row[:3] for row in result["evidence"]][-2:] == [["Non-Revenue", "2", "$16,850.00"],
+                                                           [_ASSET_SALE_LABEL, "2", "$16,850.00"]]
     assert 'data-revenue-filter="non_revenue:asset_sale_proceeds"' in result["evidenceHtml"]
     assert result["header"] == f"2 excluded: {_ASSET_SALE_LABEL.lower()}"
     # Each row is listed with no review control (no confirm-dealer path: the Q11 card's open point 4).
@@ -1399,7 +1399,7 @@ console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).labe
 
 def test_a_package_sums_its_members_asset_sales(tmp_path, monkeypatch):
     package = _package({"mar": _payload(_ASSET_SALE_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch)
-    assert package["totals"]["non_revenue_by_reason"] == {"asset_sale_proceeds": {"count": 2, "total": 16869.0}}
+    assert package["totals"]["non_revenue_by_reason"] == {"asset_sale_proceeds": {"count": 2, "total": 16850.0}}
 
 
 @needs_node

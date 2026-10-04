@@ -574,7 +574,7 @@ def test_a_builder_s_repeated_progress_draws_are_counted_never_verified():
     ([(_q11_bofa("CONTOSO BUILDERS INC", "EQUITY DRAW"), 9000.0)], SOLAR, [NON_SALE]),
     # C5, C6: a hard-money lender's and an address-named project LLC's draw (no builder; §17.1's follow-up).
     ([(_q11_wire("SAMPLE HARD MONEY LLC", "FRAMING DRAW 3"), 30000.0)], SOLAR, [NON_SALE]),
-    ([(_q11_wire("1234 W SAMPLE LLC", "1234 W SAMPLE FRAMING DRAW"), 20000.0)], "NORTHWIND DEVELOPMENT GROUP LLC",
+    ([(_q11_wire("5678 N SAMPLE LLC", "5678 N SAMPLE ROOF DRAW"), 18000.0)], "NORTHWIND DEVELOPMENT LLC",
      [NON_SALE]),
     # C7: a builders' trust (an owner-shaped payer).
     ([(_q11_bofa("CONTOSO BUILDERS TRUST", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
@@ -602,9 +602,36 @@ def test_a_builder_s_repeated_progress_draws_are_counted_never_verified():
     # A draw on the business's line, and a builders' supplier's DRAW.
     ([(_q11_bofa("CONTOSO BUILDERS INC", "DRAW ON LINE"), 9000.0)], SOLAR, [NON_SALE]),
     ([(_q11_bofa("BUILDERS FIRSTSOURCE INC", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
+    # Review round 1: a realty firm whose name prints HOMES or BUILDERS is no builder (the brief's MUST NOT CHANGE (a)),
+    # and a commission draw is a salesperson's advance against its commissions, never a progress draw.
+    ([(_q11_bofa("CONTOSO HOMES REALTY LLC", "DRAW"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("CONTOSO HOMES REAL ESTATE LLC", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("CONTOSO BUILDERS REALTY INC", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("CONTOSO HOMES INC", "COMM DRAW"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "COMMISSION DRAW"), 9000.0)], SOLAR, [NON_SALE]),
 ])
 def test_a_draw_that_is_no_builder_s_progress_draw_keeps_its_reading(rows, holder, expected):
     assert _q11(rows, holder) == expected
+
+
+@pytest.mark.parametrize("entry", ["A P PMT DRAW 3", "VENDOR PAY DRAW 3", "PAYABLES DRAW 3"])
+def test_a_builder_s_progress_draw_a_remittance_descriptor_verified_is_counted_never_verified(entry):
+    # Review round 1: the ruling's "never verified" reaches a builder's DRAW that §7.5's accounts-payable descriptor
+    # verified before pass 7, as it reaches a factor's or a financier's: counted and flagged, the rule it overrules named.
+    record, = _q11_records([(_q11_bofa("CONTOSO BUILDERS INC", entry), 9000.0)])
+    assert rules_reading(record, method=True) == DRAW_COUNTED
+    assert record.revenue_classification == "unverified_deposit" and record.contributes_to_true_revenue
+    assert record.revenue_match_method == tr.CONSTRUCTION_PROGRESS_DRAW_REASON
+    assert record.revenue_matched_rule == "construction_progress_draw_never_verified"
+    assert record.revenue_confidence_score == 0.50 and not record.revenue_review_required
+    assert "payer_remittance_descriptor" in record.revenue_reason and "Q11" in record.revenue_reason
+    assert tr.CONSTRUCTION_PROGRESS_DRAW_REASON in record.revenue_context_signals
+
+
+def test_a_non_builder_s_remittance_descriptor_draw_keeps_its_verification():
+    # Control: a developer is no builder (§17.1's follow-up), so §7.5's verification of its DRAW stands.
+    assert _q11([(_q11_bofa("CONTOSO DEVELOPMENT LLC", "A P PMT DRAW 3"), 9000.0)]) == [
+        ("verified", "payer_remittance_descriptor")]
 
 
 def test_a_later_hold_still_wins_over_a_builder_s_progress_draw():
@@ -638,6 +665,11 @@ def test_a_zelle_draw_from_a_builder_is_q3_s_never_a_progress_draw():
     (_q11_bofa("CONTOSO CONSTRUCTION LENDING LLC", "DRAW 3"), "CONTOSO CONSTRUCTION LENDING LLC", False),
     (_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3"), "", False),
     ("ZELLE PAYMENT FROM CONTOSO BUILDERS INC FOR DRAW 3 CONF ABC123", "CONTOSO BUILDERS INC", False),
+    # Review round 1: a realty firm, and a commission draw.
+    (_q11_bofa("CONTOSO HOMES REALTY LLC", "DRAW"), "CONTOSO HOMES REALTY LLC", False),
+    (_q11_bofa("CONTOSO BUILDERS REAL ESTATE LLC", "DRAW 3"), "CONTOSO BUILDERS REAL ESTATE LLC", False),
+    (_q11_bofa("CONTOSO HOMES INC", "COMM DRAW"), "CONTOSO HOMES INC", False),
+    (_q11_bofa("CONTOSO HOMES INC", "COMMISSIONS DRAW"), "CONTOSO HOMES INC", False),
 ])
 def test_the_progress_draw_reader(text, region, expected):
     assert tr.construction_progress_draw(revenue_text(normalize_transaction_description(text)), region) is expected

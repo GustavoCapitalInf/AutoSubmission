@@ -3394,3 +3394,87 @@ def test_ow06_the_snapshot_reads_a_progress_draw_and_an_asset_sale_with_no_guard
     run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
     assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {"asset_sale_proceeds": 1}
     assert run["guards"] == {}
+
+
+# Review round 1 (R2-OW06): Q11 keeps a non-dealer's asset sale and a builder's progress draw from Q5's and Q6's
+# repeats, so a same-payer row whose repeat rested on such a row loses that repeat and is counted: the declared demotion
+# q5_q6_q11_repeat_partner, read on the after snapshot's payer_key_digest fact (a digest of the pass's channel and
+# payer key, never a name) shared with an asset sale or a progress draw of the same account.
+
+PARTNER_KEY = "0123456789abcdef"
+
+
+def _partner_run(first_after, *, base_method="named_payer_repeats", partner_key=PARTNER_KEY):
+    base = _snap("5.6", {"a": _account([
+        {**_q56(base_method, "FABRICATED FIRST ROW"), "i": 0},
+        {**_q56(base_method, "FABRICATED PARTNER ROW"), "i": 1},
+    ])})
+    after = _snap("5.6", {"a": _account([
+        first_after,
+        _credit(1, 500000, "unverified_deposit", "unidentified_posted_credit", tier="counted_flagged",
+                reason="named_payer_one_off", text="FABRICATED PARTNER ROW", payer_key_digest=partner_key),
+    ])})
+    run = _run(base, after)
+    return {cause: value["rows"] for cause, value in run["verified_demotions"].items()}, run
+
+
+def test_ow06_r1_the_partner_of_an_asset_sale_is_a_declared_demotion():
+    sale = {**_asset_sale_after(text="FABRICATED FIRST ROW"), "facts": {"payer_key_digest": PARTNER_KEY}}
+    causes, run = _partner_run(sale)
+    assert causes == {"asset_sale_proceeds": 1, "q5_q6_q11_repeat_partner": 1}
+    assert "undeclared_demotion" not in run["guards"]
+    assert "q5_q6_q11_repeat_partner" in census.DECLARED_DEMOTIONS
+
+
+def test_ow06_r1_the_partner_of_a_progress_draw_is_a_declared_demotion():
+    # The draw was verified by the accounts-payable descriptor and is now counted (its own declared demotion).
+    draw = _credit(0, 500000, "unverified_deposit", "construction_progress_draw", tier="counted_flagged",
+                   reason="construction_progress_draw", text="FABRICATED FIRST ROW",
+                   rule="construction_progress_draw_never_verified", progress_draw=True,
+                   payer_key_digest=PARTNER_KEY)
+    causes, run = _partner_run(draw, base_method="payer_remittance_descriptor")
+    assert causes == {"construction_progress_draw_never_verified": 1, "undeclared": 1}
+    causes, run = _partner_run(draw)
+    assert causes == {"construction_progress_draw_never_verified": 1, "q5_q6_q11_repeat_partner": 1}
+    assert "undeclared_demotion" not in run["guards"]
+
+
+def test_ow06_r1_a_partner_with_another_payer_key_or_no_repeat_stays_undeclared():
+    sale = {**_asset_sale_after(text="FABRICATED FIRST ROW"), "facts": {"payer_key_digest": PARTNER_KEY}}
+    causes, run = _partner_run(sale, partner_key="fedcba9876543210")
+    assert causes == {"asset_sale_proceeds": 1, "undeclared": 1}
+    assert run["guards"]["undeclared_demotion"]["failures"] == 1
+    # A company-form verification never rested on a repeat.
+    causes, _run_ = _partner_run(sale, base_method="named_payer_company_form")
+    assert causes == {"asset_sale_proceeds": 1, "undeclared": 1}
+    # A row with no digest (an older checkout's snapshot) is never a partner.
+    causes, _run_ = _partner_run(sale, partner_key=None)
+    assert causes == {"asset_sale_proceeds": 1, "undeclared": 1}
+
+
+def test_ow06_r1_the_snapshot_declares_a_trailer_sale_s_freight_partner():
+    from analysis.schema import Statement, Transaction
+
+    rows = [
+        ("FABRIKAM HAULING DES:TRAILER SALE ID:1234567 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 9000.0),
+        ("FABRIKAM HAULING DES:FREIGHT PMT ID:7654321 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 5000.0),
+    ]
+    statement = Statement(bank="Bank of America", account_name="NORTHWIND SOLAR LLC", transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount, direction="credit")
+        for index, (text, amount) in enumerate(rows)
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    readings = [(credit["state"], credit["tier"], credit["reason"]) for credit in snap["credits"]]
+    assert readings == [("non_revenue", "non_revenue", "asset_sale_proceeds"),
+                        ("unverified_deposit", "counted_flagged", "named_payer_one_off")]
+    digests = {credit["facts"]["payer_key_digest"] for credit in snap["credits"]}
+    assert len(digests) == 1 and len(next(iter(digests))) == 16 and "FABRIKAM" not in next(iter(digests))
+    # Before the ruling both rows were Q6's repeats.
+    base = {**snap, "credits": [
+        {**credit, "state": "verified_revenue", "method": "named_payer_repeats", "tier": "verified", "reason": None,
+         "rule": "verified_named_payer_repeats"} for credit in snap["credits"]
+    ]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
+        "asset_sale_proceeds": 1, "q5_q6_q11_repeat_partner": 1}
+    assert run["guards"] == {}

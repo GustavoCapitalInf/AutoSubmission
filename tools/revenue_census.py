@@ -237,7 +237,16 @@ DECLARED_DEMOTIONS = (
     # an invoice or customer-payment descriptor's single-row verification of a printed vehicle sale, now non_revenue
     # (method and reason asset_sale_proceeds).
     "asset_sale_proceeds",
+    # R2-OW06 review round 1: (a) a builder's progress draw an earlier rule verified (§7.5's accounts-payable
+    # remittance), now counted and flagged as construction_progress_draw, never verified; (Q11 (a)) and (b) a Q5 or Q6
+    # repeat whose same-payer row Q11 now keeps from the repeat (an asset sale, a builder's progress draw), counted.
+    "construction_progress_draw_never_verified", "q5_q6_q11_repeat_partner",
 )
+#: R2-OW06 review round 1: the method and reason of a builder's progress draw the pass overrules (analysis/true_revenue.py
+#: CONSTRUCTION_PROGRESS_DRAW_REASON, copied: the census reads other checkouts), and the Q5 and Q6 methods that rest on
+#: a repeat (a company form or a public or healthcare payer verifies alone).
+CONSTRUCTION_PROGRESS_DRAW = "construction_progress_draw"
+Q5_Q6_REPEAT_METHODS = frozenset({"repeat_wire_sender", "named_payer_repeats"})
 #: Owner ruling 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: the method pass 7 gives a non-dealer's asset sale (also
 #: its non_revenue reason code), and the single-row verifications a printed vehicle sale is read on
 #: (analysis/true_revenue.py ASSET_SALE_METHOD and ASSET_SALE_INVOICE_METHODS, copied: the census reads other checkouts).
@@ -2111,8 +2120,13 @@ def _account_context(pairs: Iterable[tuple[dict, dict]], admissions: Iterable[st
     pool key, the rows 5.5 took out of the pool by a declared veto (`vetoed`: key -> row indexes), and the keys whose
     pool one member's re-reading split (`split`: a member 5.5 reads as another registry entity)."""
     admitted = frozenset(admissions)
-    context: dict = {"admissions": admitted, "vetoed": defaultdict(set), "split": set()}
+    context: dict = {"admissions": admitted, "vetoed": defaultdict(set), "split": set(), "q11_kept": set()}
     for base, after in pairs:
+        # R2-OW06 review round 1: the payer keys (the pass's payer_key_digest fact) of the rows Q11 keeps from Q5's and
+        # Q6's repeats, an asset sale or a counted builder's progress draw.
+        digest = (after.get("facts") or {}).get("payer_key_digest")
+        if digest and (after["method"] == ASSET_SALE_METHOD or after.get("reason") == CONSTRUCTION_PROGRESS_DRAW):
+            context["q11_kept"].add(digest)
         key = _pool_key(base)
         if key is None or base["method"] not in POOL_54_METHODS:
             continue
@@ -2320,6 +2334,22 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         base["method"] in Q5_Q6_METHODS or base["method"] in ASSET_SALE_INVOICE_METHODS
     ):
         return "asset_sale_proceeds"
+    # R2-OW06 review round 1 (owner ruling 2026-10-02, Q11 (a)). (a) any verifying rule (§7.5's accounts-payable
+    # remittance before pass 7) or, for a Q5 or Q6 row, its own progress-draw reading (the progress_draw fact);
+    # (b) counted and flagged as construction_progress_draw, by the pass's overruling (method
+    # construction_progress_draw) or by Q5's and Q6's refusal.
+    if (after.get("tier"), after.get("reason")) == ("counted_flagged", CONSTRUCTION_PROGRESS_DRAW) and (
+        method == CONSTRUCTION_PROGRESS_DRAW or (base["method"] in Q5_Q6_METHODS and facts.get("progress_draw"))
+    ):
+        return "construction_progress_draw_never_verified"
+    # R2-OW06 review round 1 (Q11). (a) a Q5 or Q6 repeat (Q5_Q6_REPEAT_METHODS); (b) counted, while a row of the same
+    # payer key in this account (the payer_key_digest fact) is an asset sale or a counted builder's progress draw,
+    # which Q11 keeps from the repeat the row rested on.
+    if (
+        base["method"] in Q5_Q6_REPEAT_METHODS and after.get("tier") == "counted_flagged"
+        and facts.get("payer_key_digest") and facts["payer_key_digest"] in context.get("q11_kept", ())
+    ):
+        return "q5_q6_q11_repeat_partner"
     if base["method"] in Q5_Q6_METHODS:
         # I7 (§20). (a) a Q5 or Q6 verification; (b) held by a later 5.6 hold, named by its reason and the pass's own
         # hold reading (LATER_HOLD_CAUSES).
