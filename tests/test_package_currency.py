@@ -786,6 +786,29 @@ def test_the_sweep_reaches_the_package_by_reason_rows():
     assert ("document_2", "currency", "CAD") in rows
 
 
+def test_the_sweep_reaches_the_package_non_revenue_breakdown():
+    """Owner ruling 2026-10-02, R2-OW03 (spec §9.2, §10.8): the package's non-revenue breakdown sums across members
+    too, so a refused package's `non_revenue.<code>` rows publish their counts (unit-free) and no money (refused),
+    and each member's own rows keep theirs, denominated by its row. Fabricated CONTOSO statements, a USD March and a
+    CAD April, each with Zelle deposits the owner's policy excludes."""
+    from tests.test_webapp_true_revenue import _ZELLE_APRIL, _ZELLE_MARCH, _payload
+
+    cad = _payload(_ZELLE_APRIL, month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _package_analysis([
+        Job(id="usd", filename="usd.pdf", status="done", analysis=_payload(_ZELLE_MARCH)),
+        Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
+    ])
+    rows = _package_rows(package)
+    assert package["totals"]["cross_currency_totals_refused"] is True
+    assert package["totals"]["non_revenue_by_reason"] == {"zelle_excluded": {"count": 3, "total": None}}
+    assert _cross_document_numbers_not_counts(rows) == []
+    tier_rows = [(field, value) for section, field, value in rows if section == "revenue_tier"]
+    assert ("non_revenue.zelle_excluded.count", 3) in tier_rows
+    assert ("non_revenue.zelle_excluded.total", "") in tier_rows
+    assert ("document_2.revenue_tier", "non_revenue.zelle_excluded.total", 500.0) in rows
+
+
 def test_the_sweep_reaches_the_overlapping_statement_rows():
     """Audit round 2, R2-B14 review round 1 (R14): a pair of overlapping statements of one account publishes the
     credits the two share, statement-level money, so its section declares its account's currency and its words name

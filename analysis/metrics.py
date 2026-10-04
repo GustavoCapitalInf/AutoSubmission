@@ -30,6 +30,7 @@ from .revenue import (
     STATE_OF_TIER,
     WITHHOLDING_DENOMINATOR_MODES,
     _TIER_DISAGREES,
+    non_revenue_reason,
     normalize_withholding_denominator_mode,
     revenue_review_gate,
 )
@@ -119,6 +120,10 @@ class Metrics:
     excluded_pending_review_count: int = 0
     counted_flagged_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
     excluded_pending_review_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
+    # R2-OW03 (true revenue spec §9.1): the non_revenue rows that carry a code REVENUE_TIER_REASONS files under
+    # non_revenue (analysis/revenue.py NON_REVENUE_REASONS: the Zelle policy's, Q12's display reason), by code; its own
+    # dict, never a slot of the counted or held maps.
+    non_revenue_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
     revenue_review_items: int = 0
     counted_flagged_evidence: list[TransactionClassification] = field(default_factory=list)
     excluded_pending_review_evidence: list[TransactionClassification] = field(default_factory=list)
@@ -360,6 +365,7 @@ def compute_metrics(
     flagged_credited_totals: dict[str, float] = {}
     flagged_payees: dict[str, set[str]] = {}
     by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
+    non_revenue_by_reason: dict[str, list] = {}
     direction_conflict = False
     for t, classification in zip(stmt.transactions, records):
         if t.amount >= 0:
@@ -415,6 +421,11 @@ def compute_metrics(
                 direction_conflict = True
             if tier in by_reason:
                 slot = by_reason[tier].setdefault(classification.revenue_tier_reason or "", [0, 0.0])
+                slot[0] += 1
+                slot[1] += t.amount
+            elif tier == "non_revenue" and non_revenue_reason(classification.revenue_tier_reason):
+                # R2-OW03: the rebuild's rule (analysis/revenue.py), so the stored and the rebuilt figures agree.
+                slot = non_revenue_by_reason.setdefault(classification.revenue_tier_reason, [0, 0.0])
                 slot[0] += 1
                 slot[1] += t.amount
             if tier == "counted_flagged":
@@ -492,6 +503,10 @@ def compute_metrics(
     m.excluded_pending_review_by_reason = {
         reason: {"count": count, "total": round(total, 2)}
         for reason, (count, total) in sorted(by_reason["excluded_pending_review"].items())
+    }
+    m.non_revenue_by_reason = {
+        reason: {"count": count, "total": round(total, 2)}
+        for reason, (count, total) in sorted(non_revenue_by_reason.items())
     }
     m.revenue_review_items = m.excluded_pending_review_count
     m.confirmed_true_revenue_total = m.verified_revenue_total

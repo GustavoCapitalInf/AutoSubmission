@@ -174,6 +174,44 @@ def test_a_decision_is_replayed_where_its_posting_is_unchanged():
     assert [item["revenue_reviewed_at"] for item in copies] == [DECIDED_AT]
 
 
+#: Owner ruling 2026-10-02, R2-OW03 (the underwriter's Q3, spec §10.7): a Zelle deposit the policy excluded may be
+#: confirmed (CONTOSO's fabricated March: a company payer, a Zelle deposit, a check deposit).
+ZELLE_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 400.0),
+              (4, "MOBILE DEPOSIT", 300.0)]
+
+
+def test_a_zelle_deposit_awaits_a_confirm_only():
+    from webapp.reanalysis import _awaits_review
+
+    zelle = _records(_payload(ZELLE_ROWS))["transaction:2"]
+    assert (zelle["revenue_tier"], zelle["revenue_tier_reason"]) == ("non_revenue", "zelle_excluded")
+    assert [_awaits_review(zelle, decision) for decision in ("confirm", "reject", "reset")] == [True, False, False]
+    # Any other non-revenue row awaits nothing.
+    transfer = _records(_payload(ROWS))["transaction:1"] | {"revenue_initial_classification": "non_revenue",
+                                                            "revenue_tier": "non_revenue", "revenue_tier_reason": None}
+    assert not any(_awaits_review(transfer, decision) for decision in ("confirm", "reject", "reset"))
+    for reason in ("government_no_purpose", "check_deposit"):
+        assert not _awaits_review({**zelle, "revenue_tier_reason": reason}, "confirm"), reason
+
+
+def test_a_stored_confirm_on_a_zelle_deposit_is_replayed_and_a_stored_reject_is_decided_by_the_rules():
+    from webapp.reanalysis import replay_reviews
+
+    old = _payload(ZELLE_ROWS)
+    before = old["metrics"]["true_revenue_total"]
+    confirmed = replay_reviews(_payload(ZELLE_ROWS), [_decision(11, old, "transaction:2", "confirm")])
+    assert (confirmed.replayed, confirmed.not_replayed, confirmed.decided_by_rules) == ((11,), (), ())
+    record = _records(confirmed.analysis)["transaction:2"]
+    assert (record["revenue_tier"], record["revenue_tier_reason"], record["revenue_review_status"]) == (
+        "verified", "zelle_excluded", "confirmed")
+    assert confirmed.analysis["metrics"]["true_revenue_total"] == before + 400.0
+    assert confirmed.analysis["metrics"]["non_revenue_by_reason"] == {}
+    # The writer refuses a reject on such a row (it is already non-revenue), so a stored one is the rules' decision.
+    rejected = replay_reviews(_payload(ZELLE_ROWS), [_decision(12, old, "transaction:2", "reject")])
+    assert (rejected.replayed, rejected.not_replayed, rejected.decided_by_rules) == ((), (), (12,))
+    assert rejected.analysis["metrics"]["non_revenue_by_reason"] == {"zelle_excluded": {"count": 1, "total": 400.0}}
+
+
 def test_a_decision_is_not_replayed_where_the_row_at_its_location_changed():
     from webapp.reanalysis import replay_reviews
 

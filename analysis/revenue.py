@@ -30,8 +30,9 @@ STATE_OF_TIER: dict[str, RevenueState] = {
     "non_revenue": "non_revenue",
 }
 #: 5.6 (§5.3): the reason codes of the counted and held tiers: code -> (tier, the label on screen). Nothing else lists
-#: them; the dashboard mirrors them (webapp/static/app.js REVENUE_TIER_REASONS). Since the owner's ruling of 2026-10-02
-#: (the underwriter's Q3) one non_revenue code, zelle_excluded, ends the table.
+#: them; the dashboard mirrors them (webapp/static/app.js REVENUE_TIER_REASONS). Since the owner's rulings of
+#: 2026-10-02 the non_revenue codes end the table (NON_REVENUE_REASONS): the underwriter's Q3's zelle_excluded, then
+#: Q12's display reason, government_no_purpose (R2-OW03).
 REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "direction_conflict": ("excluded_pending_review", "Direction conflicts with the amount"),
     "insurer_payer": ("excluded_pending_review", "Insurance carrier"),
@@ -74,14 +75,36 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     # (true_revenue.ZELLE_EXCLUDED), the one non_revenue row that carries a reason; a Zelle row another non-revenue
     # rule decided keeps that rule and no reason.
     "zelle_excluded": ("non_revenue", "Zelle deposit (excluded by policy)"),
+    # The owner's ruling of 2026-10-02 (the underwriter's Q12), R2-OW03: the display reason of a government payment
+    # that prints no purpose (§6.1 step 3a, method government_no_purpose_exclusion), which the non-revenue breakdown
+    # names (true_revenue.GOVERNMENT_NO_PURPOSE). Display only: no tier, state, method or flag moves.
+    "government_no_purpose": ("non_revenue", "Government payment, no purpose printed"),
 }
+#: R2-OW03 (owner ruling 2026-10-02; §5.3, §9.1): the reason codes REVENUE_TIER_REASONS files under non_revenue. A
+#: non_revenue row carries one only when an owner ruling decided it (the Zelle policy, Q12's no-purpose government
+#: payments); every other non_revenue row carries none, and a reviewer's rejection keeps the counted or held reason it
+#: had, which is no such code. `non_revenue_by_reason` counts the rows of these codes alone.
+NON_REVENUE_REASONS: frozenset[str] = frozenset(
+    code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "non_revenue"
+)
+#: R2-OW03 (the underwriter's Q3: "I can review"; §10.7): the non_revenue codes the underwriter may confirm back into
+#: revenue (confirm and reset only; a reject is refused, the row being non-revenue already). Every other non_revenue
+#: row keeps the review refusal: a non-revenue rule's, Q12's no-purpose government payment's.
+REVIEWABLE_NON_REVENUE_REASONS: frozenset[str] = frozenset({"zelle_excluded"})
+
+
+def non_revenue_reason(code: object) -> bool:
+    """R2-OW03: whether `code` is a reason code REVENUE_TIER_REASONS files under non_revenue (NON_REVENUE_REASONS)."""
+    return isinstance(code, str) and code in NON_REVENUE_REASONS
+
+
 #: 5.6 (§12): the tier figures a payload analysed before 5.6 cannot have. Its rebuild and its served copy
-#: (analysis/revenue_view.py) set every one to None.
+#: (analysis/revenue_view.py) set every one to None. R2-OW03: and the non-revenue breakdown, which reads the tiers.
 TIER_METRIC_KEYS = (
     "true_revenue", "true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
     "excluded_pending_review_total", "excluded_pending_review_count", "counted_flagged_by_reason",
     "excluded_pending_review_by_reason", "revenue_review_items", "true_revenue_evidence",
-    "counted_flagged_evidence", "excluded_pending_review_evidence",
+    "counted_flagged_evidence", "excluded_pending_review_evidence", "non_revenue_by_reason",
 )
 TIER_DETECTION_KEYS = ("true_revenue_evidence", "counted_flagged_evidence", "excluded_pending_review_evidence")
 #: 5.6 (T7): a statement needs revenue review when its held credits are this share, in percent, or more of its
@@ -199,6 +222,8 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
     tier_totals: dict[str, float] = {tier: 0.0 for tier in REVENUE_TIERS}
     tier_counts: dict[str, int] = {tier: 0 for tier in REVENUE_TIERS}
     by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
+    # R2-OW03: the non_revenue rows that carry a non_revenue code, apart from the counted and held reasons.
+    non_revenue_by_reason: dict[str, list] = {}
     posted_total = 0.0
     posted_count = 0
     direction_conflict = False
@@ -265,6 +290,10 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
                 slot = by_reason[tier].setdefault(record.get("revenue_tier_reason") or "", [0, 0.0])
                 slot[0] += 1
                 slot[1] += amount
+            elif tier == "non_revenue" and non_revenue_reason(record.get("revenue_tier_reason")):
+                slot = non_revenue_by_reason.setdefault(record["revenue_tier_reason"], [0, 0.0])
+                slot[0] += 1
+                slot[1] += amount
 
     posted_total = round(posted_total, 2)
     for state in REVENUE_STATES:
@@ -328,6 +357,8 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
             "excluded_pending_review_count": tier_counts["excluded_pending_review"],
             "counted_flagged_by_reason": _by_reason(by_reason["counted_flagged"]),
             "excluded_pending_review_by_reason": _by_reason(by_reason["excluded_pending_review"]),
+            # R2-OW03 (§9.1): the non-revenue breakdown, {code: {"count", "total"}} over NON_REVENUE_REASONS.
+            "non_revenue_by_reason": _by_reason(non_revenue_by_reason),
             "revenue_review_items": tier_counts["excluded_pending_review"],
             "revenue_review_required": revenue_review_gate(
                 direction_conflict=direction_conflict,
@@ -439,7 +470,8 @@ def record_serialized_revenue_review(
 ) -> dict:
     """Write a human decision onto one reviewable posted credit's classification
     record (a counted or held deposit, or a credit a rule verified, §10.7; an
-    unverified deposit on a payload analysed before 5.6) and return the record,
+    unverified deposit on a payload analysed before 5.6; R2-OW03: a confirm or a
+    reset of a Zelle deposit the owner's policy excluded) and return the record,
     WITHOUT rebuilding the revenue views.
     `apply_serialized_revenue_review` is this followed by the rebuild; a caller
     writing several decisions (the re-analysis replay, `webapp/reanalysis.py`)
@@ -486,7 +518,15 @@ def record_serialized_revenue_review(
     # non-revenue rule decided is not. A payload analysed before 5.6 carries no tier and keeps today's rule.
     tiered = isinstance(record.get("revenue_tier"), str)
     reviewable = {"unverified_deposit", "verified_revenue"} if tiered else {"unverified_deposit"}
-    if initial_state not in reviewable:
+    # R2-OW03 (the underwriter's Q3, "I can review"; §10.7): a Zelle deposit the owner's policy excluded may be
+    # confirmed (the deposits you confirmed: Verified, its reason kept) and reset (back to non_revenue and its
+    # reason). A reject is refused: the row is non-revenue already, and the replay reads a confirm only
+    # (webapp/reanalysis.py _awaits_review), so the writer and the replay agree.
+    valve = (
+        tiered and initial_state == "non_revenue"
+        and record.get("revenue_tier_reason") in REVIEWABLE_NON_REVENUE_REASONS
+    )
+    if (initial_state not in reviewable and not valve) or (valve and decision == "reject"):
         raise ValueError("only automatically unverified deposits can be reviewed")
     if decision == "confirm" and initial_state == "verified_revenue":
         raise ValueError(_ALREADY_VERIFIED)

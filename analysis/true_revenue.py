@@ -2687,6 +2687,12 @@ _ZELLE_PRIOR = "zelle_prior:"
 #: ZELLER, EZELL) is never read. The classifier's _CONSUMER_P2P_RAIL, shared with the legacy classes and the debits,
 #: does not read PNC's ZEL and is not changed.
 _ZELLE_RAIL = re.compile(r"(?<![A-Z])ZELLE(?![A-Z])|(?<![A-Z])ZEL (?:FROM|TO)\b")
+#: The owner's ruling of 2026-10-02 (the underwriter's Q12), R2-OW03 (spec §5.3; the Q12 card's open point 2, its
+#: default): the display reason a government payment that prints no purpose carries (§6.1 step 3a decided it
+#: non_revenue, method GOVERNMENT_NO_PURPOSE_METHOD), so the non-revenue breakdown names the excluded government money.
+#: Display only: the row's tier, state, method, rule and flags are step 3a's, and it has no review path.
+GOVERNMENT_NO_PURPOSE = "government_no_purpose"
+GOVERNMENT_NO_PURPOSE_METHOD = "government_no_purpose_exclusion"
 
 
 def zelle_deposit(text: str) -> bool:
@@ -5192,7 +5198,8 @@ def apply_true_revenue_pass(
     credits the parser marked as read only by their label (payer_text_unread_indexes); their tier reason reads them
     (_tier_reason). Audit round 2, R2-B07 (R07): `unread_texts` are those credits' unread payer text
     (payer_text_unread_texts), which only _tier_reason reads. The owner's ruling of 2026-10-02 (the underwriter's Q3):
-    every Zelle deposit is excluded after the tiers and before the $1 floor (_zelle_excluded)."""
+    every Zelle deposit is excluded after the tiers and before the $1 floor (_zelle_excluded). R2-OW03: a government
+    payment that prints no purpose (Q12) takes its display reason, GOVERNMENT_NO_PURPOSE, with its non_revenue tier."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -5346,7 +5353,10 @@ def apply_true_revenue_pass(
             continue
         tier = _TIER_OF_STATE.get(record.revenue_classification)
         if tier is not None:
-            updated[index] = _with_tier(record, tier, None)
+            # R2-OW03 (Q12's display reason): a government payment that prints no purpose is named in the non-revenue
+            # breakdown; every other verified or non_revenue row carries no reason, as before.
+            no_purpose = tier == "non_revenue" and record.revenue_match_method == GOVERNMENT_NO_PURPOSE_METHOD
+            updated[index] = _with_tier(record, tier, GOVERNMENT_NO_PURPOSE if no_purpose else None)
             continue
         round_repeat = fact.round_sum and bool(fact.key) and round_sums[fact.key] >= 2
         tier, reason = _tier_reason(

@@ -531,8 +531,12 @@ console.log(JSON.stringify({...hero(), rows: metricRows(els.metricsGrid.innerHTM
     figures = {row["label"]: row for row in out["short"]["rows"]}
     assert figures["Non-Revenue"]["value"] == "$100.00"
     assert figures["Non-Revenue"]["note"].startswith("Captured rows only")
+    # R2-OW03: the note names the Zelle deposits the owner's policy excludes (the underwriter's Q3).
     assert {row["label"]: row for row in out["reconciled"]["rows"]}["Non-Revenue"]["note"] == (
-        "Own-account transfers, funding, refunds and other known non-revenue")
+        "Own-account transfers, funding, refunds and other known non-revenue, Zelle deposits included")
+    assert figures["Non-Revenue"]["note"] == (
+        "Captured rows only: own-account transfers, funding, refunds and other known non-revenue, Zelle deposits "
+        "included")
 
 
 @needs_node
@@ -1180,3 +1184,168 @@ def test_two_single_statements_read_as_before(tmp_path, monkeypatch):
     assert failed_view["card"]["Statements"] == "1 completed of 2"
     assert "1 of 2 statements completed." in failed_view["memo"]
     assert failed_view["processing"] == "1 statement failed"
+
+
+# ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW03: the non-revenue
+# breakdown, the statement of the Zelle exclusion and the Zelle confirm (the underwriter's Q3; spec §10.1, §10.2,
+# §10.5 to §10.7). CONTOSO's fabricated March: a company payer (700), a check deposit (300) and three Zelle deposits
+# (1,000, 400 and 100), so True is 1,000 and the excluded Zelle deposits 1,500.
+
+_ZELLE_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "MOBILE DEPOSIT", 300.0),
+               (4, "ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 1000.0),
+               (5, "ZELLE PAYMENT FROM SAMPLE CATERING CONF 2", 400.0),
+               (6, "ZELLE PAYMENT FROM FABRIKAM SUPPLY CONF 3", 100.0)]
+_ZELLE_LABEL = "Zelle deposit (excluded by policy)"
+_ZELLE_SENTENCE = ("A Zelle deposit, excluded from true revenue by policy; confirm it if this business takes customer "
+                   "payments by Zelle.")
+_GOVERNMENT_LABEL = "Government payment, no purpose printed"
+_GOVERNMENT_SENTENCE = ("A government payment that prints no purpose (MN State MMB, the VA's 36 TREAS 310 MISC PAY, "
+                        "Wisconsin DCF WIDCF DD, BC provincial payment, WSIB, Gouv. Quebec MSP, North Dakota Workforce "
+                        "Safety): excluded by the owner's ruling of 2026-10-02 (Q12).")
+
+LEDGER = r"""
+const ledger = () => [...els.transactionTable.innerHTML.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1])
+  .map((row) => [(row.match(/<td class="tx-desc">([^<]*)<\/td>/) || [])[1] || "",
+    [...row.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1])]);
+const zelleDetails = () => [...els.monthlyTable.innerHTML.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) =>
+  [...m[1].matchAll(/<div class="table-cell-detail">Zelle excluded ([^<]*)<\/div>/g)].map((d) => d[1]));
+"""
+#: CELLS' Monthly Statements reader, for a run that already has METRIC_ROWS' `cells`.
+MONTHLY = r"""
+const monthly = () => ({head: cells(els.monthlyHead.innerHTML)[0], rows: cells(els.monthlyTable.innerHTML),
+                        count: els.monthlyCount.textContent});
+"""
+
+
+def test_the_js_reviewable_non_revenue_codes_mirror_the_analysis():
+    from analysis.revenue import REVIEWABLE_NON_REVENUE_REASONS
+
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    found = re.search(r"const REVIEWABLE_NON_REVENUE_REASONS = Object\.freeze\(\[([^\]]*)\]\);", source)
+    assert found and set(re.findall(r'"([a-z_0-9]+)"', found[1])) == set(REVIEWABLE_NON_REVENUE_REASONS)
+
+
+@needs_node
+def test_a_statement_states_its_excluded_zelle_deposits():
+    result = run_dashboard(METRIC_ROWS + LEDGER + _open("z", _served(_payload(_ZELLE_ROWS))) + """
+const rows = metricRows(els.metricsGrid.innerHTML);
+const evidenceHtml = els.revenueTable.innerHTML;
+const evidence = cells(evidenceHtml);
+showMainRevenueEvidence('non_revenue:zelle_excluded');
+const header = els.transactionCount.textContent;
+const filtered = ledger();
+generateSummary();
+console.log(JSON.stringify({rows, evidenceHtml, evidence, header, filtered, memo: els.summaryBox.textContent}));
+""")
+    figures = {row["label"]: row for row in result["rows"]}
+    assert figures["True Revenue"]["value"] == "$1,000.00" and figures["Non-Revenue"]["value"] == "$1,500.00"
+    assert figures["True Revenue"]["note"] == ("Posted credits minus known non-revenue and the deposits held for review"
+                                               " · Zelle deposits excluded: $1,500.00 (3)")
+    assert figures["Non-Revenue"]["note"] == (
+        "Own-account transfers, funding, refunds and other known non-revenue, Zelle deposits included")
+    # The evidence table breaks Non-Revenue down by its reason codes, as it does Counted and Held.
+    assert [row[:3] for row in result["evidence"]][-2:] == [["Non-Revenue", "3", "$1,500.00"],
+                                                           [_ZELLE_LABEL, "3", "$1,500.00"]]
+    assert 'data-revenue-filter="non_revenue:zelle_excluded"' in result["evidenceHtml"]
+    assert f'aria-label="Show the excluded {_ZELLE_LABEL} transactions"' in result["evidenceHtml"]
+    # Its filter lists only those rows, each with Confirm Revenue only.
+    assert result["header"] == "3 excluded: zelle deposit (excluded by policy)"
+    assert result["filtered"] == [["ZELLE PAYMENT FROM PAT SAMPLE CONF 1", ["confirm"]],
+                                  ["ZELLE PAYMENT FROM SAMPLE CATERING CONF 2", ["confirm"]],
+                                  ["ZELLE PAYMENT FROM FABRIKAM SUPPLY CONF 3", ["confirm"]]]
+    assert ("non-revenue $1,500.00 ($1,500.00 a month), of which Zelle deposits excluded $1,500.00.") in result["memo"]
+
+
+@needs_node
+def test_a_statement_without_a_zelle_deposit_says_nothing_of_it():
+    result = run_dashboard(METRIC_ROWS + _open("s", _served(_payload())) + """
+generateSummary();
+console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML), evidence: cells(els.revenueTable.innerHTML),
+  memo: els.summaryBox.textContent}));
+""")
+    note = {row["label"]: row["note"] for row in result["rows"]}["True Revenue"]
+    assert "Zelle" not in note and "Zelle" not in result["memo"]
+    assert result["evidence"][-1][:3] == ["Non-Revenue", "1", "$100.00"]
+
+
+@needs_node
+def test_a_coded_non_revenue_row_is_tagged_with_its_reason_and_only_a_zelle_deposit_may_be_confirmed():
+    rows = [_record("non_revenue", reason="zelle_excluded"),
+            _record("verified", reason="zelle_excluded", initial="non_revenue", status="confirmed"),
+            _record("non_revenue", reason="government_no_purpose"),
+            _record("non_revenue", reason="check_deposit", initial="unverified_deposit", status="rejected"),
+            _record("non_revenue")]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const found = (filter) => filterTransactions(rows, filter).map((tx) => rows.indexOf(tx));
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).label), reasons: rows.map(revenueReviewReason),
+  controls: rows.map((tx) => actions(revenueReviewControls(tx))), confirm: revenueReviewControls(rows[0]),
+  pickable: rows.map((tx) => pendingReviewTarget(tx) !== null), kinds: rows.map((tx) => revenueReviewKind(tx.classification)),
+  filters: Object.fromEntries(["non_revenue:zelle_excluded", "non_revenue:government_no_purpose", "non_revenue",
+    "non_revenue:check_deposit"].map((f) => [f, found(f)])),
+  labels: ["non_revenue:zelle_excluded", "non_revenue:government_no_purpose"].map((f) => revenueFilterLabel(f, 1))}}));
+""")
+    assert result["tags"] == [f"Non-revenue: {_ZELLE_LABEL}", "Verified revenue", f"Non-revenue: {_GOVERNMENT_LABEL}",
+                              "Non-revenue", "Non-revenue"]
+    assert result["reasons"] == [f"{_ZELLE_LABEL}. {_ZELLE_SENTENCE}", "",
+                                 f"{_GOVERNMENT_LABEL}. {_GOVERNMENT_SENTENCE}", "", ""]
+    # A Zelle deposit shows Confirm Revenue only (the server refuses a reject); a confirmed one its decision and Reset;
+    # a government payment, a reviewer's rejection and an uncoded non-revenue row are as before.
+    assert result["kinds"] == ["confirm", "confirm", "", "both", ""]
+    assert result["controls"] == [["confirm"], ["reset"], [], ["reset"], []]
+    assert "Mark Non-Revenue" not in result["confirm"] and ">Confirm Revenue</button>" in result["confirm"]
+    assert result["pickable"] == [False] * 5  # never pending, never in the multi-select
+    assert result["filters"] == {"non_revenue:zelle_excluded": [0], "non_revenue:government_no_purpose": [2],
+                                 "non_revenue": [0, 2, 3, 4], "non_revenue:check_deposit": [3]}
+    assert result["labels"] == [f"excluded: {_ZELLE_LABEL.lower()}", f"excluded: {_GOVERNMENT_LABEL.lower()}"]
+
+
+@needs_node
+def test_a_package_states_its_excluded_zelle_deposits_and_each_month_its_own(tmp_path, monkeypatch):
+    package = _package({"mar": _payload(_ZELLE_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch)
+    assert package["totals"]["non_revenue_by_reason"] == {"zelle_excluded": {"count": 3, "total": 1500.0}}
+    result = run_dashboard(METRIC_ROWS + MONTHLY + LEDGER + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+const rows = metricRows(els.metricsGrid.innerHTML);
+const evidence = cells(els.revenueTable.innerHTML);
+const both = {{...monthly(), details: zelleDetails()}};
+setMonthlyDepositsView('true');
+const trueOnly = {{...monthly(), details: zelleDetails()}};
+setMonthlyDepositsView('total');
+const totalOnly = zelleDetails();
+generateSummary();
+console.log(JSON.stringify({{rows, evidence, both, trueOnly, totalOnly, memo: els.summaryBox.textContent}}));
+""")
+    note = {row["label"]: row["note"] for row in result["rows"]}["True Revenue"]
+    assert note.endswith(" · Zelle deposits excluded: $1,500.00 (3)")
+    assert [_ZELLE_LABEL, "3", "$1,500.00"] in [row[:3] for row in result["evidence"]]
+    # The Monthly Statements' True cell names the month's excluded Zelle deposits, only where there are some, in the
+    # both and true views (never in the total view, which shows no True cell).
+    assert result["both"]["details"] == [["1,500"], []]
+    assert result["both"]["rows"][0][4] == "1,000Zelle excluded 1,500" and result["both"]["rows"][1][4] == "1,000"
+    assert result["trueOnly"]["details"] == [["1,500"], []]
+    assert result["trueOnly"]["rows"][0][2] == "1,000Zelle excluded 1,500"
+    assert result["totalOnly"] == [[], []]
+    assert ", of which Zelle deposits excluded $1,500.00." in result["memo"]
+
+
+@needs_node
+def test_a_mixed_currency_package_names_each_month_s_unit_and_counts_the_refused_zelle_money(tmp_path, monkeypatch):
+    cad = _payload(_ZELLE_ROWS, month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _package({"usd": _payload(_ZELLE_ROWS), "cad": cad}, tmp_path, monkeypatch)
+    totals = package["totals"]
+    assert totals["cross_currency_totals_refused"] is True
+    assert totals["non_revenue_by_reason"] == {"zelle_excluded": {"count": 6, "total": None}}
+    result = run_dashboard(CELLS + LEDGER + f"""
+currentJobIds = ['usd', 'cad']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{details: zelleDetails(), evidence: cells(els.revenueTable.innerHTML),
+  facts: packageRevenueFacts({json.dumps(totals)}, null),
+  statementFacts: statementRevenueFacts({{non_revenue_by_reason: {{zelle_excluded: {{count: 3, total: 1500}}}}}}, 'CAD')}}));
+""")
+    # Each row is in its own statement's currency (a non-USD row names its unit), and the package's money is refused.
+    assert result["details"] == [["1,500"], ["1,500 CAD"]]
+    assert [_ZELLE_LABEL, "6", "N/A"] in [row[:3] for row in result["evidence"]]
+    assert result["facts"] == ["Zelle deposits excluded: 6"]
+    assert result["statementFacts"] == ["Zelle deposits excluded: CA$1,500.00 (3)"]

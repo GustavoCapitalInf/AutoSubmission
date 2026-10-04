@@ -4,7 +4,10 @@ Zelle included. Pass 7 excludes it after every tier and before the $1 floor, kee
 record (`zelle_prior_reading`); a row a non-revenue rule already decided keeps that rule and no reason, and a direction
 conflict keeps its hold. Only the revenue fields and the contribution flags move: the legacy classification, the
 entity, the flag group, the lender-credit exclusion and the debits stay. Other person-to-person rails are unchanged.
-Fabricated rows only, in the banks' printed formats (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE; 2054)."""
+R2-OW03 (spec §9.1, §10.7): the metrics and the served payload publish the excluded total and count by reason
+(`non_revenue_by_reason`), and the underwriter may confirm a Zelle deposit (confirm and reset only); every other
+non-revenue row keeps the review refusal. Fabricated rows only, in the banks' printed formats (CONTOSO, FABRIKAM,
+NORTHWIND, SAMPLE; 2054)."""
 from __future__ import annotations
 
 import copy
@@ -14,7 +17,15 @@ import pytest
 
 from analysis import true_revenue
 from analysis.metrics import compute_metrics
-from analysis.revenue import REVENUE_TIER_REASONS, rebuild_serialized_revenue_views, record_serialized_revenue_review
+from analysis.revenue import (
+    NON_REVENUE_REASONS,
+    REVENUE_TIER_REASONS,
+    REVIEWABLE_NON_REVENUE_REASONS,
+    apply_serialized_revenue_review,
+    non_revenue_reason,
+    rebuild_serialized_revenue_views,
+    record_serialized_revenue_review,
+)
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import (
     TransactionClassification,
@@ -261,25 +272,36 @@ def test_q3_the_prior_reading_of_any_other_row_is_none():
         [("MOBILE DEPOSIT", 300.0), ("VENMO FROM PAT SAMPLE", 230.0)], "Chase")] == [None, None]
 
 
-def test_q3_the_reason_table_ends_with_the_zelle_code():
-    assert list(REVENUE_TIER_REASONS)[-1] == "zelle_excluded"
+def test_q3_the_reason_table_ends_with_its_non_revenue_codes():
+    """The non_revenue codes end the table (R2-OW02's Zelle code, then R2-OW03's display code for Q12's rows), and
+    NON_REVENUE_REASONS is exactly them; only the Zelle code may be reviewed (owner ruling 2026-10-02, R2-OW03)."""
+    non_revenue = [code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "non_revenue"]
+    assert non_revenue == ["zelle_excluded", "government_no_purpose"]
+    assert list(REVENUE_TIER_REASONS)[-len(non_revenue):] == non_revenue
     assert REVENUE_TIER_REASONS["zelle_excluded"] == ("non_revenue", "Zelle deposit (excluded by policy)")
+    assert NON_REVENUE_REASONS == frozenset(non_revenue)
+    assert [non_revenue_reason(code) for code in ("zelle_excluded", "government_no_purpose", "check_deposit",
+                                                  "p2p_round_repeat", None, "")] == [
+        True, True, False, False, False, False]
+    assert REVIEWABLE_NON_REVENUE_REASONS == frozenset({"zelle_excluded"}) <= NON_REVENUE_REASONS
     assert true_revenue.ZELLE_EXCLUDED == "zelle_excluded"
     assert true_revenue.ZELLE_POLICY_METHOD == "zelle_deposit_excluded"
 
 
-# The metrics and the served payload read an excluded Zelle deposit as non-revenue; the review refusal for a
-# non-revenue row stays (R2-OW03 opens it for zelle_excluded).
+# Owner ruling 2026-10-02, R2-OW03 (the underwriter's Q3; spec §9.1, §9.2, §10.1, §10.7): the figures state the
+# exclusion (`non_revenue_by_reason`, beside `non_revenue_total`), and the underwriter may confirm a single Zelle deposit
+# back into revenue ("I can review"). Every other non-revenue row keeps the review refusal.
 ROWS = [
     ("ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 1000.0),
     ("ZELLE PAYMENT FROM SAMPLE CATERING CONF 2", 400.0),
     ("ZELLE PAYMENT FROM FABRIKAM SUPPLY CONF 3", 100.0),
     ("MOBILE DEPOSIT", 300.0),
 ]
+ZELLE_BY_REASON = {"zelle_excluded": {"count": 3, "total": 1500.0}}
 
 
-def _statement():
-    return Statement(account_name=HOLDER, bank="Bank of America", currency="USD", transactions=_transactions(ROWS))
+def _statement(rows=ROWS, bank="Bank of America"):
+    return Statement(account_name=HOLDER, bank=bank, currency="USD", transactions=_transactions(rows))
 
 
 def test_q3_the_metrics_read_the_excluded_rows_as_non_revenue():
@@ -288,10 +310,16 @@ def test_q3_the_metrics_read_the_excluded_rows_as_non_revenue():
     assert (metrics.non_revenue_total, metrics.non_revenue_count) == (1500.0, 3)
     assert (metrics.counted_flagged_total, metrics.excluded_pending_review_total) == (300.0, 0.0)
     assert metrics.true_revenue_total == 300.0
+    # The breakdown: its own dict, never a slot of the counted or held maps; the four tiers still sum to posted.
+    assert metrics.non_revenue_by_reason == ZELLE_BY_REASON
+    assert metrics.counted_flagged_by_reason == {"check_deposit": {"count": 1, "total": 300.0}}
+    assert metrics.excluded_pending_review_by_reason == {}
+    assert metrics.revenue_tiers_sum_to_posted is True
+    assert metrics.revenue_classified_total == metrics.total_posted_credits == 1800.0
 
 
-def _payload():
-    statement = _statement()
+def _payload(rows=ROWS, bank="Bank of America"):
+    statement = _statement(rows, bank)
     records = classify_statement_transactions(statement)
     return rebuild_serialized_revenue_views({
         "statement": {"currency": "USD", "transactions": [
@@ -302,13 +330,108 @@ def _payload():
     })
 
 
-def test_q3_the_served_payload_rebuilds_and_refuses_a_review_of_an_excluded_row():
+def _row(payload, text):
+    return next(transaction["classification"] for transaction in payload["statement"]["transactions"]
+                if transaction["description"] == text)
+
+
+def _figures(payload):
+    metrics = payload["metrics"]
+    return {key: metrics[key] for key in ("true_revenue_total", "verified_revenue_total", "counted_flagged_total",
+                                          "excluded_pending_review_total", "non_revenue_total", "non_revenue_count",
+                                          "non_revenue_by_reason", "revenue_review_required")}
+
+
+def test_q3_the_served_payload_rebuilds_the_breakdown():
     payload = _payload()
     metrics = payload["metrics"]
     assert (metrics["non_revenue_total"], metrics["non_revenue_count"]) == (1500.0, 3)
     assert metrics["true_revenue_total"] == 300.0 and metrics["revenue_tiers_sum_to_posted"] is True
+    assert metrics["non_revenue_by_reason"] == ZELLE_BY_REASON
     assert "zelle_excluded" not in metrics["counted_flagged_by_reason"]
     assert "zelle_excluded" not in metrics["excluded_pending_review_by_reason"]
-    location = payload["statement"]["transactions"][0]["classification"]["source_location"]
+
+
+def test_q3_a_reviewer_rejected_counted_deposit_is_not_in_the_breakdown():
+    """A rejected counted row keeps its counted reason (check_deposit), which is no non-revenue code: it joins the
+    non-revenue total, never the breakdown."""
+    payload = _payload()
+    apply_serialized_revenue_review(payload, source_location=_row(payload, "MOBILE DEPOSIT")["source_location"],
+                                    decision="reject")
+    rejected = _row(payload, "MOBILE DEPOSIT")
+    assert (rejected["revenue_tier"], rejected["revenue_tier_reason"]) == ("non_revenue", "check_deposit")
+    assert (payload["metrics"]["non_revenue_total"], payload["metrics"]["non_revenue_count"]) == (1800.0, 4)
+    assert payload["metrics"]["non_revenue_by_reason"] == ZELLE_BY_REASON
+
+
+def test_q3_a_payload_analysed_before_5_6_has_no_breakdown():
+    """§12: a payload with no tier has no breakdown, in its rebuild and in its served copy (TIER_METRIC_KEYS)."""
+    from analysis.revenue_view import apply_revenue_view
+
+    old = _payload()
+    for transaction in old["statement"]["transactions"]:
+        for key in ("revenue_tier", "revenue_initial_tier", "revenue_tier_reason"):
+            transaction["classification"].pop(key, None)
+    served = apply_revenue_view(copy.deepcopy(old))  # the stored breakdown, served from an untiered ledger
+    assert served["metrics"]["non_revenue_by_reason"] is None
+    assert rebuild_serialized_revenue_views(old)["metrics"]["non_revenue_by_reason"] is None
+
+
+def test_q3_the_underwriter_may_confirm_a_zelle_deposit_and_reset_it():
+    payload = _payload()
+    before = _figures(payload)
+    location = _row(payload, "ZELLE PAYMENT FROM PAT SAMPLE CONF 1")["source_location"]
+    apply_serialized_revenue_review(payload, source_location=location, decision="confirm")
+    record = _row(payload, "ZELLE PAYMENT FROM PAT SAMPLE CONF 1")
+    # The 'deposits you confirmed' contract: Verified, the reason kept for the audit.
+    assert (record["revenue_classification"], record["revenue_tier"], record["revenue_tier_reason"],
+            record["revenue_review_status"], record["revenue_initial_classification"],
+            record["revenue_initial_tier"]) == (
+        "verified_revenue", "verified", "zelle_excluded", "confirmed", "non_revenue", "non_revenue")
+    assert record["contributes_to_true_revenue"] is True and record["revenue_review_required"] is False
+    metrics = payload["metrics"]
+    assert metrics["non_revenue_by_reason"] == {"zelle_excluded": {"count": 2, "total": 500.0}}
+    assert metrics["true_revenue_total"] == before["true_revenue_total"] + 1000.0
+    assert metrics["verified_revenue_total"] == before["verified_revenue_total"] + 1000.0
+    assert (metrics["non_revenue_total"], metrics["non_revenue_count"]) == (500.0, 2)
+    assert metrics["revenue_tiers_sum_to_posted"] is True
+    apply_serialized_revenue_review(payload, source_location=location, decision="reset")
+    record = _row(payload, "ZELLE PAYMENT FROM PAT SAMPLE CONF 1")
+    assert (record["revenue_classification"], record["revenue_tier"], record["revenue_tier_reason"],
+            record["revenue_review_status"], record["revenue_reviewed_at"]) == (
+        "non_revenue", "non_revenue", "zelle_excluded", "not_required", None)
+    assert _figures(payload) == before
+
+
+def test_q3_a_reject_on_a_zelle_deposit_is_refused_and_writes_nothing():
+    """The row is already non-revenue, and the replay reads a confirm only: the writer refuses a reject, with
+    today's message, before and after a confirm."""
+    payload = _payload()
+    location = _row(payload, "ZELLE PAYMENT FROM SAMPLE CATERING CONF 2")["source_location"]
+    unchanged = copy.deepcopy(payload)
     with pytest.raises(ValueError, match="only automatically unverified deposits can be reviewed"):
-        record_serialized_revenue_review(copy.deepcopy(payload), source_location=location, decision="confirm")
+        record_serialized_revenue_review(payload, source_location=location, decision="reject")
+    assert payload == unchanged
+    apply_serialized_revenue_review(payload, source_location=location, decision="confirm")
+    confirmed = copy.deepcopy(payload)
+    with pytest.raises(ValueError, match="only automatically unverified deposits can be reviewed"):
+        record_serialized_revenue_review(payload, source_location=location, decision="reject")
+    assert payload == confirmed
+
+
+@pytest.mark.parametrize("decision", ["confirm", "reject", "reset"])
+def test_q3_every_other_non_revenue_row_keeps_the_refusal(decision):
+    """A Zelle refund a non-revenue rule decided carries no reason, and a government payment that prints no purpose
+    carries its display reason only: neither may be reviewed."""
+    refund = _payload([("ZELLE PAYMENT FROM PAT SAMPLE FOR REFUND CONF 1", 800.0), ("MOBILE DEPOSIT", 300.0)])
+    government = _payload([("ELECTRONIC DEPOSIT FROM MN STATE-MMB", 4000.0), ("MOBILE DEPOSIT", 300.0)], "U.S. Bank")
+    for payload, text, reason in (
+        (refund, "ZELLE PAYMENT FROM PAT SAMPLE FOR REFUND CONF 1", None),
+        (government, "ELECTRONIC DEPOSIT FROM MN STATE-MMB", "government_no_purpose"),
+    ):
+        record = _row(payload, text)
+        assert (record["revenue_tier"], record["revenue_tier_reason"]) == ("non_revenue", reason)
+        unchanged = copy.deepcopy(payload)
+        with pytest.raises(ValueError, match="only automatically unverified deposits can be reviewed"):
+            record_serialized_revenue_review(payload, source_location=record["source_location"], decision=decision)
+        assert payload == unchanged

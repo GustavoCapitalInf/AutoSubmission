@@ -843,3 +843,82 @@ def test_the_covered_days_of_a_period():
     assert _covered_days("2031-03-02", "2031-03-01") == set()  # an end before the start reads no day
     assert _covered_days(None, "2031-03-01") == set() and _covered_days("2031-03-01", "2031-02-30") == set()
     assert len(_covered_days("2030-01-01", "2032-12-31")) == 400  # capped as _statement_month is
+
+
+# ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW03: the non-revenue
+# breakdown of the package (the underwriter's Q3; spec §9.2, §10.8). Fabricated CONTOSO statements: March prints two
+# Zelle deposits (600 and 400), April one (500).
+
+_ZELLE_MARCH = ROWS + [(10, "ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 600.0),
+                       (11, "ZELLE PAYMENT FROM SAMPLE CATERING CONF 2", 400.0)]
+_ZELLE_APRIL = ROWS + [(10, "ZELLE PAYMENT FROM FABRIKAM SUPPLY CONF 3", 500.0)]
+_ZELLE_TOTAL = {"zelle_excluded": {"count": 3, "total": 1500.0}}
+
+
+def test_the_package_sums_the_non_revenue_breakdown_over_its_members():
+    from webapp.app import _analysis_rows, _package_rows
+    package = _package(_payload(_ZELLE_MARCH), _payload(_ZELLE_APRIL, month=4))
+    totals = package["totals"]
+    assert [document["non_revenue_by_reason"] for document in package["documents"]] == [
+        {"zelle_excluded": {"count": 2, "total": 1000.0}}, {"zelle_excluded": {"count": 1, "total": 500.0}}]
+    assert totals["non_revenue_by_reason"] == _ZELLE_TOTAL
+    assert (totals["non_revenue_total"], totals["non_revenue_count"]) == (1700.0, 5)
+    assert totals["true_revenue_total"] == 2000.0  # no tier or figure moves: the breakdown only names what is there
+    rows = _package_rows(package)
+    assert ("revenue_tier", "non_revenue.zelle_excluded.count", 3) in rows
+    assert ("revenue_tier", "non_revenue.zelle_excluded.total", 1500.0) in rows
+    assert ("document_1.revenue_tier", "non_revenue.zelle_excluded.total", 1000.0) in rows
+    assert ("document_2.revenue_tier", "non_revenue.zelle_excluded.count", 1) in rows
+    assert not any(field == "non_revenue_by_reason" for _section, field, _value in rows)
+    statement_rows = _analysis_rows(_payload(_ZELLE_MARCH))
+    assert ("revenue_tier", "non_revenue.zelle_excluded.count", 2) in statement_rows
+    assert ("revenue_tier", "non_revenue.zelle_excluded.total", 1000.0) in statement_rows
+
+
+def test_a_repeated_statement_adds_nothing_to_the_breakdown():
+    march, april = _payload(_ZELLE_MARCH), _payload(_ZELLE_APRIL, month=4)
+    totals = _package(march, copy.deepcopy(march), april)["totals"]
+    assert totals["duplicate_documents"] == 1
+    assert totals["non_revenue_by_reason"] == _ZELLE_TOTAL
+
+
+def test_a_member_whose_revenue_is_not_established_still_shows_its_non_revenue():
+    """§10.4: Non-revenue stays where True is N/A (its rows are known non-revenue), so the breakdown does too."""
+    partial = _payload(_ZELLE_APRIL, month=4)
+    partial["metrics"]["deposits_source"] = "summary"
+    partial["metrics"]["effective_total_deposits"] = 99999.0
+    package = _package(_payload(_ZELLE_MARCH), partial)
+    totals = package["totals"]
+    assert totals["true_revenue_total"] is None and totals["revenue_unestablished_documents"] == ["job-2"]
+    assert totals["non_revenue_by_reason"] == _ZELLE_TOTAL
+    unestablished = package["documents"][1]
+    assert not unestablished["revenue_established"]
+    assert unestablished["non_revenue_by_reason"] == {"zelle_excluded": {"count": 1, "total": 500.0}}
+
+
+def test_a_package_with_no_statement_analysed_keeps_an_empty_breakdown():
+    """Audit round 2, R2-B15 (R54): with no completed member True, Verified, Counted and Held are None; the
+    non-revenue breakdown is not nulled with them (it is empty: no member counted a row)."""
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+    totals = _package_analysis([Job(id="sample", filename="sample.pdf", status="error", analysis=None,
+                                    error="fabricated failure")])["totals"]
+    assert totals["completed"] == 0 and totals["true_revenue_total"] is None
+    assert totals["non_revenue_by_reason"] == {}
+
+
+def test_a_mixed_currency_package_refuses_the_breakdown_s_money_and_keeps_its_counts():
+    from webapp.app import _package_rows
+    cad = _payload(_ZELLE_APRIL, month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _package(_payload(_ZELLE_MARCH), cad)
+    totals = package["totals"]
+    assert totals["cross_currency_totals_refused"] is True
+    assert totals["non_revenue_by_reason"] == {"zelle_excluded": {"count": 3, "total": None}}
+    # Each document row keeps its own denominated figures.
+    assert [document["non_revenue_by_reason"] for document in package["documents"]] == [
+        {"zelle_excluded": {"count": 2, "total": 1000.0}}, {"zelle_excluded": {"count": 1, "total": 500.0}}]
+    rows = _package_rows(package)
+    assert ("revenue_tier", "non_revenue.zelle_excluded.total", "") in rows
+    assert ("revenue_tier", "non_revenue.zelle_excluded.count", 3) in rows
+    assert ("document_2.revenue_tier", "non_revenue.zelle_excluded.total", 500.0) in rows

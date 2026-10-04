@@ -10,8 +10,10 @@ import pytest
 
 from analysis.metrics import compute_metrics
 from analysis.revenue import (
+    NON_REVENUE_REASONS,
     REVENUE_REVIEW_HELD_SHARE,
     REVENUE_TIER_REASONS,
+    TIER_METRIC_KEYS,
     apply_serialized_revenue_review,
     rebuild_serialized_revenue_views,
     record_serialized_revenue_review,
@@ -62,14 +64,19 @@ def test_the_flags_follow_the_state_and_the_tier():
 
 
 def test_every_reason_code_names_a_middle_tier():
-    # The owner's ruling of 2026-10-02 (the underwriter's Q3): zelle_excluded, the one non_revenue code, ends the table.
+    # The owner's rulings of 2026-10-02: the non_revenue codes end the table, the underwriter's Q3's zelle_excluded
+    # (R2-OW02), then the display reason of Q12's rows, government_no_purpose (R2-OW03).
     assert {tier for tier, _label in REVENUE_TIER_REASONS.values()} == {
         "counted_flagged", "excluded_pending_review", "non_revenue"}
     assert [code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "non_revenue"] == [
-        "zelle_excluded"]
+        "zelle_excluded", "government_no_purpose"]
+    assert list(REVENUE_TIER_REASONS)[-2:] == ["zelle_excluded", "government_no_purpose"]
+    assert NON_REVENUE_REASONS == frozenset({"zelle_excluded", "government_no_purpose"})
     # Audit B10 (I05, I60): payer_text_not_read is the 27th. Audit round 2, R2-B07 (R07): unread_run_names_financing
-    # the 28th. The owner's ruling of 2026-10-02 (the underwriter's Q3): zelle_excluded, the 29th.
-    assert len(REVENUE_TIER_REASONS) == 29
+    # the 28th. The owner's ruling of 2026-10-02 (the underwriter's Q3): zelle_excluded, the 29th; R2-OW03:
+    # government_no_purpose, the 30th.
+    assert len(REVENUE_TIER_REASONS) == 30
+    assert "non_revenue_by_reason" in TIER_METRIC_KEYS
 
 
 def test_a_record_carries_the_tier_its_state_fixes():
@@ -104,6 +111,8 @@ def test_the_metrics_carry_the_four_tiers_and_true_revenue():
     assert metrics.maximum_revenue == 1900.0
     assert metrics.counted_flagged_by_reason == {"check_deposit": {"count": 1, "total": 300.0}}
     assert metrics.excluded_pending_review_by_reason == {"financing_named_payer": {"count": 1, "total": 900.0}}
+    # R2-OW03: the own-account transfer a non-revenue rule decided carries no reason, so the breakdown is empty.
+    assert metrics.non_revenue_by_reason == {}
     assert metrics.revenue_review_items == 1
     assert metrics.revenue_reconciles
     assert [record.revenue_tier for record in metrics.true_revenue_evidence] == ["verified", "counted_flagged"]
@@ -240,6 +249,7 @@ def test_a_payload_analysed_before_5_6_takes_the_tier_less_path():
     metrics = old["metrics"]
     assert metrics["true_revenue"] is None and metrics["true_revenue_evidence"] is None
     assert metrics["true_revenue_total"] is None and metrics["counted_flagged_by_reason"] is None
+    assert metrics["non_revenue_by_reason"] is None  # R2-OW03: a tier figure (TIER_METRIC_KEYS)
     assert metrics["verified_revenue_total"] == 700.0
     assert metrics["revenue_review_required"]                # a pending unverified deposit, today's rule
     assert all("contributes_to_true_revenue" not in transaction["classification"]

@@ -102,7 +102,10 @@ def test_a_government_payment_that_prints_no_purpose_is_non_revenue(label, bank,
         assert record.revenue_classification == "non_revenue", label
         assert (record.revenue_match_method, record.revenue_matched_rule, record.revenue_matched_alias) == (
             METHOD, RULE, alias), label
-        assert (record.revenue_tier, record.revenue_tier_reason) == ("non_revenue", None), label
+        # R2-OW03: the display reason the non-revenue breakdown reads (the tier, state, method and flags unchanged).
+        assert (record.revenue_tier, record.revenue_tier_reason) == ("non_revenue", "government_no_purpose"), label
+        assert (record.revenue_initial_classification, record.revenue_initial_tier) == ("non_revenue", "non_revenue")
+        assert record.revenue_review_status == "not_required" and not record.revenue_review_required, label
         assert not record.contributes_to_true_revenue, label
         assert not record.contributes_to_lender_credit_exclusion and not record.contributes_to_lender_totals, label
 
@@ -280,3 +283,65 @@ def test_the_reader_names_no_form_on_a_control(text):
 def test_the_seven_forms_are_the_owner_s():
     assert [name for name, _form in GOVERNMENT_NO_PURPOSE_FORMS] == [
         "mn_mmb", "va_treasury", "wi_dcf", "bc_provincial", "ontario_wsib", "quebec_government", "nd_workforce_safety"]
+
+
+# Owner ruling 2026-10-02, R2-OW03 (the brief's Q12 open point 2, its default): the excluded government payments are
+# shown in the non-revenue breakdown under their own display reason, `government_no_purpose` ("Government payment, no
+# purpose printed"); a sub-$1 form row too. No figure moves, and no review path opens.
+_BREAKDOWN_ROWS = (
+    ("ELECTRONIC DEPOSIT FROM MN STATE-MMB", 4000.0),
+    ("ELECTRONIC DEPOSIT FROM MN STATE-MMB 1234", 4500.0),
+    ("36 TREAS 310 MISC PAY 123456789012345", 0.5),
+    ("MN STATE MMB REFUND", 200.0),
+    ("MOBILE DEPOSIT", 300.0),
+)
+
+
+def _breakdown_statement():
+    return Statement(bank="U.S. Bank", account_name=HOLDER, currency="USD", transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount, direction="credit")
+        for index, (text, amount) in enumerate(_BREAKDOWN_ROWS)])
+
+
+def test_the_display_reason_is_in_the_non_revenue_breakdown():
+    from dataclasses import asdict
+
+    from analysis.metrics import compute_metrics
+    from analysis.revenue import REVENUE_TIER_REASONS, rebuild_serialized_revenue_views
+
+    assert REVENUE_TIER_REASONS["government_no_purpose"] == ("non_revenue", "Government payment, no purpose printed")
+    statement = _breakdown_statement()
+    records = classify_statement_transactions(statement)
+    assert [(record.revenue_tier, record.revenue_tier_reason, record.revenue_match_method) for record in records] == [
+        ("non_revenue", "government_no_purpose", METHOD), ("non_revenue", "government_no_purpose", METHOD),
+        ("non_revenue", "government_no_purpose", METHOD),
+        # A row another non-revenue rule decided keeps no reason, and is not in the breakdown.
+        ("non_revenue", None, "reversal_cancellation_exclusion"), (COUNTED, "check_deposit", AMBIGUOUS),
+    ]
+    expected = {"government_no_purpose": {"count": 3, "total": 8500.5}}
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.non_revenue_by_reason == expected
+    assert (metrics.non_revenue_total, metrics.non_revenue_count) == (8700.5, 4)
+    assert metrics.true_revenue_total == 300.0 and metrics.revenue_tiers_sum_to_posted is True
+    payload = rebuild_serialized_revenue_views({
+        "statement": {"currency": "USD", "transactions": [
+            {**transaction.model_dump(), "classification": asdict(record)}
+            for transaction, record in zip(statement.transactions, records)]},
+        "metrics": {}, "detection": {},
+    })
+    assert payload["metrics"]["non_revenue_by_reason"] == expected
+
+
+@pytest.mark.parametrize("decision", ["confirm", "reject", "reset"])
+def test_a_government_payment_that_prints_no_purpose_has_no_review_path(decision):
+    from dataclasses import asdict
+
+    from analysis.revenue import record_serialized_revenue_review
+
+    statement = _breakdown_statement()
+    records = classify_statement_transactions(statement)
+    payload = {"statement": {"transactions": [
+        {**transaction.model_dump(), "classification": asdict(record)}
+        for transaction, record in zip(statement.transactions, records)]}}
+    with pytest.raises(ValueError, match="only automatically unverified deposits can be reviewed"):
+        record_serialized_revenue_review(payload, source_location=records[0].source_location, decision=decision)

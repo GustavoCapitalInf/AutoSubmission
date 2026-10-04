@@ -144,9 +144,15 @@ and their labels live in one table, `analysis/revenue.py`
 `REVENUE_TIER_REASONS`, which the dashboard mirrors. The table below repeats
 it, in its order, and `tests/test_classification_contract_doc.py` fails when
 the two differ (audit fix batch B12). A `verified` or `non_revenue` credit
-carries no reason: its rule is its `revenue_match_method`. The one exception is
-a Zelle deposit the owner's Zelle policy of 2026-10-02 excluded (the
-underwriter's Q3): `non_revenue` with the reason `zelle_excluded`.
+carries no reason: its rule is its `revenue_match_method`. The exceptions are
+the `non_revenue` codes the owner's rulings of 2026-10-02 decided
+(`NON_REVENUE_REASONS`, the table's last rows): a Zelle deposit the owner's
+Zelle policy excluded (the underwriter's Q3), `non_revenue` with the reason
+`zelle_excluded`, and a government payment that prints no purpose (the
+underwriter's Q12), `non_revenue` with the display reason
+`government_no_purpose` (audit round 2, R2-OW03). A reviewer's rejection keeps
+the counted or held reason it had, which is none of them. The metrics count
+these rows by code (`non_revenue_by_reason`, below).
 
 | Reason code | Tier | Label | When (true revenue spec) |
 |---|---|---|---|
@@ -179,6 +185,7 @@ underwriter's Q3): `non_revenue` with the reason `zelle_excluded`.
 | `named_payer_one_off` | `counted_flagged` | One-off payer | an informal name that pays once (Q6) |
 | `named_payer_unlabelled` | `counted_flagged` | Payer named, channel not printed | a payer printed with no channel label (§8.9) |
 | `zelle_excluded` | `non_revenue` | Zelle deposit (excluded by policy) | excluded by the Zelle policy: a posted Zelle deposit (`ZELLE`, or PNC's `ZEL FROM`, before the receiver fields) the rules verified, counted or held, the rules' reading kept on the record; a Zelle credit another non-revenue rule decided keeps that rule and no reason (owner ruling 2026-10-02, the underwriter's Q3; §8.4, §8.10 step 26) |
+| `government_no_purpose` | `non_revenue` | Government payment, no purpose printed | display only: a government payment that prints no purpose, which §6.1 step 3a made `non_revenue` (method `government_no_purpose_exclusion`, the seven forms of the underwriter's Q12 of 2026-10-02), carries this reason so the non-revenue breakdown names it; no tier, state, method or flag moves, and the row has no review path (R2-OW03; §5.3, §6.1 step 3a) |
 
 **Precedence.** One credit's decision (`_classify_credit_revenue`) takes the
 first match: a direction conflict, a reversal, a government payment that prints
@@ -306,7 +313,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - GOV (the owner's ruling of 2026-09-30: true revenue is the money the business earns by selling goods or services, as the MCA industry counts it, so government money it did not earn leaves True revenue). Class B, a personal benefit, is held as `personal_income`: the federal benefit descriptors the banks print before the CRA's name (`CANADA CHILD BENEFIT`, `CANADA ESSENTIALS BENEFIT` and its full name `CANADA GROCERIES AND ESSENTIALS BENEFIT`, `CANADA WORKERS BENEFIT`, `CANADA DISABILITY BENEFIT`, `OLD AGE SECURITY`), a provincial benefit the CRA pays (`PROV LOCAL GVT PAYMENT CANADA`, the Canada PRO labels `… CANADA PRO`, `PROV LOCAL GVT PRO <province>` and `CANADA PRO DEPOSIT`), a state's unemployment deposit (`UI DD`) and the IRS's stimulus (`TAX EIP`, on an IRS Treasury row). GOV review: a descriptor is read as the whole payer after the posting words, with the CRA's name around it, and a company form after `UI DD` or `TAX EIP` vetoes it, so `CANADA CHILD CARE CENTRE INC`, `CANADA DISABILITY BENEFITS CONSULTING INC`, `OLD AGE SECURITY SYSTEMS LTD` and `NORTHWIND UI DD LLC` are payers (§8.1).
 - GOV, class C: a tax refund is `non_revenue` (strong non-revenue rule): a business's GST/HST refund as the whole payer after the posting words (`CANADA GST TPS`, `GST CANADA`, Revenu Quebec's `RQ GST`, and with the CRA's name, a country code or the GST program account after them; `GST CANADA LOGISTICS INC` is a payer), and a payment the IRS issues through the Treasury (`IRS TREAS 310`) that prints no entry or a refund-worded one; GOV review: an IRS vendor payment (`MISC PAY`, `VENDOR`, `VENDOR PAY`, any other entry) keeps its reading, and the child tax credit and stimulus are class B (§7.11 T5).
 - GOV, class D: a grant or subsidy is held as `non_sale_purpose`: HHS's Provider Relief Fund (`US HHS STIMULUS`, `HHSPAYMENT`), the USDA's farm programs (`FSA TREAS 310`, and GOV review `CCC TREAS 310`; `USDA TREAS 310` keeps its reading), the CRA's wage subsidy (`CANADA CEWS` as the whole payer) and ESDC's federal payment code (`GOVERNMENT ESDC … FEDERAL PMT`, its grants and contributions) (§8.1).
-- GOV, classes A and E: a government or public program paying the business for its goods or services keeps its reading (a Treasury vendor payment, `DOD MISC`, a county's or a ministry's accounts payable, `GC CDCP` paying a dentist, Medicaid and TRICARE plans paying a provider, a state's provider pay, a parent's child-care subsidy card such as `FIS EBT … WIDCF EBT` paying the provider). Class E, by the owner's ruling of 2026-10-02 (the underwriter's Q12): the seven government payments that print no purpose are `non_revenue` (§6.1 step 3a, method `government_no_purpose_exclusion`, the form in `matched_alias`): `MN STATE MMB`, the VA's `36 TREAS 310 MISC PAY` (agency code 36 only), Wisconsin DCF's `WI DCF … WIDCF DD`, `PROVINCIAL PAYMENT PROVINCE OF BC`, Ontario's WSIB, `GOUV QUEBEC MSP` and North Dakota's `WORKFORCE SAFETY`. The step reads the row with the receiver's value removed and every field after it kept, so a purpose in Bank of America's `PMT INFO` addenda is read, and the VA's entry codes (`XXVA CH33`, `CH31`, `BENEF`, `EDU`) are purposes; a purpose printed anywhere (`VENDOR PAY`, `PROV PAY`, `RMR IV`, an invoice, a grant, a rebate, a claim) keeps the row's reading, as does every form the ruling did not name (another agency's Treasury code, another province, another workers' compensation board). It decides at any amount, after the direction conflict and the reversal, before every other rule.
+- GOV, classes A and E: a government or public program paying the business for its goods or services keeps its reading (a Treasury vendor payment, `DOD MISC`, a county's or a ministry's accounts payable, `GC CDCP` paying a dentist, Medicaid and TRICARE plans paying a provider, a state's provider pay, a parent's child-care subsidy card such as `FIS EBT … WIDCF EBT` paying the provider). Class E, by the owner's ruling of 2026-10-02 (the underwriter's Q12): the seven government payments that print no purpose are `non_revenue` (§6.1 step 3a, method `government_no_purpose_exclusion`, the form in `matched_alias`): `MN STATE MMB`, the VA's `36 TREAS 310 MISC PAY` (agency code 36 only), Wisconsin DCF's `WI DCF … WIDCF DD`, `PROVINCIAL PAYMENT PROVINCE OF BC`, Ontario's WSIB, `GOUV QUEBEC MSP` and North Dakota's `WORKFORCE SAFETY`. The step reads the row with the receiver's value removed and every field after it kept, so a purpose in Bank of America's `PMT INFO` addenda is read, and the VA's entry codes (`XXVA CH33`, `CH31`, `BENEF`, `EDU`) are purposes; a purpose printed anywhere (`VENDOR PAY`, `PROV PAY`, `RMR IV`, an invoice, a grant, a rebate, a claim) keeps the row's reading, as does every form the ruling did not name (another agency's Treasury code, another province, another workers' compensation board). It decides at any amount, after the direction conflict and the reversal, before every other rule. Since audit round 2, R2-OW03 such a row carries the display reason `government_no_purpose` ("Government payment, no purpose printed"), so the non-revenue breakdown names it; it has no review path.
 - Audit fix batch B2 (I01): a bank's name never names a transfer's counterparty (a sending bank's, the statement's own, a bank's name glued to `TRNSFER`, a credit union's one-word name before `CU` or `FCU`, `BANK` or `SAVINGS`), nor does an online-banking channel code or account description (`CBUSOL`, `OLB`, `EXT`, `CMO`, `TELEPHONE BANKING`, `PHONE`, `CRD`, `FSB`, `PROTECTION`, `OVERDRAFT`, `FOUND`, `BUSINESS BANKING`, `OPERATING ACCOUNT`, `FUNDING` beside `TRANSFER`): such a transfer is held as `transfer_no_counterparty`; a company or person after `FROM` keeps the named reading, and a custodian's name is not removed. A bare `FROM <digits>` designates an account (T13) unless it starts a numbered company. An ACH payer that is only a bank's name and an account description (`<bank> SAVINGS <n> ACH`) is held as `transfer_no_counterparty` and never verified by repetition. The own-account sources add `DDA`, `CHECKG`, `CL`, `LN`, `CRD`, `CREDIT CARD`, `CREDIT LINE`, `LINE OF CREDIT` and `LOC`, `FRM` reads as `FROM` and `XFR` as transfer wording, and Truist's `ONLINE TRANSFER ONLINE FROM <n>` is own-account (`MOBILE` between them is not read) (§8.2, §7.11).
 - Audit fix batch B2 (I21): the holder's overdraft-protection sweeps (`OVERDRAFT PROTECTION FROM`, `OD PROTECTION TRANSFER`, `OVERDRAFT XFER FROM`, `ODP TRANSFER`) and Regions' `EB FROM CHECKING|SAVINGS` are `non_revenue`; `TRF`, `TRSFR`, `TRANSF`, `XFR` and `TRANSFER` glued to digits are transfer wording (never the e-transfer rail's glued `E TRANSFER<n>`; `TRANSFERS` waits for B8); a Square savings folder (`TRANSFER IN RAINY DAY`, `TRANSFER IN RENT`) is held as `transfer_account_designation`, never on Wealthsimple (§7.11, §8.2, T13).
 - Audit fix batch B2 (I20, §6.3 narrowing 8): a named sender printed after an own-account designation (Bank of America's `… TRANSFER FROM CHK|SAV <n> CONFIRMATION <reference> <sender>`, a credit union's `TFR FROM X…<n> TRANSFER DEPOSIT <sender>`) that the holder test does not match is no own-account transfer: it is held as `transfer_account_designation` for review, never counted or verified; with no sender, or the holder's own name, it stays `non_revenue`, and Navy Federal's `TRANSFER FROM SHARES <name>` stays `non_revenue` (§6.3, T13).
@@ -745,6 +752,13 @@ status, flagged group, and every metric contribution flag.
   credits, the headline; `true_revenue` is its deprecated alias (T9). The
   counted and held figures are also split by reason
   (`counted_flagged_by_reason`, `excluded_pending_review_by_reason`).
+- `non_revenue_by_reason` (audit round 2, R2-OW03): the `non_revenue` credits
+  that carry a code `REVENUE_TIER_REASONS` files under `non_revenue`
+  (`zelle_excluded`, `government_no_purpose`), `{code: {count, total}}`, so the
+  dashboard and the exports state the excluded Zelle deposits beside True; the
+  package sums it over its kept members, never nulls it where revenue is not
+  established, and refuses its money (keeping its counts) under a currency
+  refusal. `None` on an analysis saved before 5.6.
 - `non_revenue_total` and `non_revenue_count`: funding, identifiable own-account
   transfers, contributions, returns, refunds, corrections, identifiable rewards
   and interest, proceeds, and proven duplicate credits.
@@ -780,7 +794,13 @@ and, since 5.6, by tier:
 Reviewer confirmation changes a held or counted row to `verified_revenue` (tier
 `verified`); rejection changes it to `non_revenue` (tier `non_revenue`). A credit
 a rule verified can be rejected, never confirmed. Reset restores the row's first
-state and tier. The API, package aggregation, filters, evidence tables, and
+state and tier. A Zelle deposit the owner's policy excluded (`zelle_excluded`,
+`REVIEWABLE_NON_REVENUE_REASONS`) can be confirmed back into revenue
+(`verified_revenue`, tier `verified`, its reason kept) and reset to
+`non_revenue`, never rejected (it is non-revenue already); the re-analysis
+replays a confirm on it and reports a stored reject as decided by the rules.
+Every other `non_revenue` credit has no review (audit round 2, R2-OW03; the
+underwriter's Q3 of 2026-10-02, "I can review"). The API, package aggregation, filters, evidence tables, and
 exports are rebuilt from the updated record. An analysis saved before 5.6
 carries no tier: its review follows the three-state rules and its True revenue
 is not established.

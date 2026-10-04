@@ -28,6 +28,7 @@ from analysis.payload_shape import (
 )
 from analysis.revenue import (
     apply_serialized_revenue_review,
+    non_revenue_reason,
     normalize_withholding_denominator_mode,
     REVENUE_STATES,
     revenue_review_gate,
@@ -476,7 +477,8 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
 
 
 #: 5.6 (true revenue spec §10.8): the by-reason figures of the counted and held tiers, exported as readable rows.
-_TIER_REASON_KEYS = ("counted_flagged_by_reason", "excluded_pending_review_by_reason")
+#: R2-OW03 (owner ruling 2026-10-02): and the non-revenue breakdown (`non_revenue.<code>.count` / `.total`).
+_TIER_REASON_KEYS = ("counted_flagged_by_reason", "excluded_pending_review_by_reason", "non_revenue_by_reason")
 
 
 def _tier_reason_rows(figures: dict, section: str = "revenue_tier") -> list[tuple[str, str, object]]:
@@ -2005,7 +2007,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     }
     # 5.6 (§9.2): the counted and held credits' evidence, and the members whose revenue is not established.
     package_tier_evidence: dict[str, list[dict]] = {"counted_flagged": [], "excluded_pending_review": []}
-    package_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {}}
+    # R2-OW03 (owner ruling 2026-10-02, §9.2): and the non-revenue breakdown, summed over the kept members whatever
+    # their revenue's standing (Non-revenue stays where True is N/A, §10.4).
+    package_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {},
+                                                     "non_revenue": {}}
     unestablished_verified: list[str] = []
     unestablished_revenue: list[str] = []
     # True revenue final review M10 (§11): a member whose True or Verified figure is not established adds a partial
@@ -2232,13 +2237,31 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             for tier in ("verified", "counted_flagged", "excluded_pending_review")
         } if tiered else {}
         tier_totals = {tier: round(sum(_num(row.get("amount")) for row in rows), 2) for tier, rows in tier_rows.items()}
-        member_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {}}
-        for tier in member_by_reason:
+        member_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {},
+                                                        "non_revenue": {}}
+        for tier in ("counted_flagged", "excluded_pending_review"):
             for row in tier_rows.get(tier, []):
                 reason = row["classification"].get("revenue_tier_reason") or ""
                 slot = member_by_reason[tier].setdefault(reason, {"count": 0, "total": 0.0})
                 slot["count"] += 1
                 slot["total"] = round(slot["total"] + _num(row.get("amount")), 2)
+        # R2-OW03 (owner ruling 2026-10-02, §9.2): the non-revenue breakdown, the rebuild's rule (a non_revenue row that
+        # carries a code REVENUE_TIER_REASONS files under non_revenue), from the member's rows when it has them (the
+        # rows `non_revenue_total` reads, its internal-transfer pairs left out), else from its stored metrics.
+        if authoritative_rows:
+            for row in posted_credit_rows:
+                record = row["classification"]
+                if record.get("revenue_tier") == "non_revenue" and non_revenue_reason(record.get("revenue_tier_reason")):
+                    slot = member_by_reason["non_revenue"].setdefault(
+                        record["revenue_tier_reason"], {"count": 0, "total": 0.0})
+                    slot["count"] += 1
+                    slot["total"] = round(slot["total"] + _num(row.get("amount")), 2)
+        elif isinstance(metrics.get("non_revenue_by_reason"), dict):
+            for reason, figures in metrics["non_revenue_by_reason"].items():
+                if non_revenue_reason(reason) and isinstance(figures, dict):
+                    member_by_reason["non_revenue"][reason] = {
+                        "count": int(_num(figures.get("count"))), "total": round(_num(figures.get("total")), 2)}
+        member_by_reason["non_revenue"] = dict(sorted(member_by_reason["non_revenue"].items()))
         # T7, §10.7 (S4.4/S4.5 review): only an undecided direction conflict gates, as the rebuild counts it
         # (analysis/revenue.py); a confirmed or rejected one no longer does.
         direction_conflict = any(
@@ -2426,6 +2449,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             2,
         )
         totals["non_revenue_count"] += revenue_counts["non_revenue"]
+        # R2-OW03: the non-revenue breakdown beside it, never gated on the member's revenue being established.
+        for reason, slot in member_by_reason["non_revenue"].items():
+            item = package_by_reason["non_revenue"].setdefault(reason, {"count": 0, "total": 0.0})
+            item["count"] += slot["count"]
+            item["total"] = round(item["total"] + slot["total"], 2)
         if ready and not verified_revenue_established:
             unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
         if ready and not revenue_established:
@@ -2460,8 +2488,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             )
             totals["excluded_pending_review_count"] += len(tier_rows["excluded_pending_review"])
             totals["revenue_review_items"] += len(tier_rows["excluded_pending_review"])
-            for tier, reasons in member_by_reason.items():
-                for reason, slot in reasons.items():
+            for tier in ("counted_flagged", "excluded_pending_review"):
+                for reason, slot in member_by_reason[tier].items():
                     item = package_by_reason[tier].setdefault(reason, {"count": 0, "total": 0.0})
                     item["count"] += slot["count"]
                     item["total"] = round(item["total"] + slot["total"], 2)
@@ -2742,6 +2770,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "potential_revenue_count": revenue_counts["unverified_deposit"],
             "non_revenue_total": revenue_totals["non_revenue"],
             "non_revenue_count": revenue_counts["non_revenue"],
+            # R2-OW03 (owner ruling 2026-10-02, §9.2): its non-revenue breakdown, kept where its revenue is not
+            # established (its rows are known non-revenue, captured rows only).
+            "non_revenue_by_reason": member_by_reason["non_revenue"],
             "maximum_revenue": round(
                 _num(revenue_totals["verified_revenue"])
                 + revenue_totals["unverified_deposit"],
@@ -2929,6 +2960,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     totals["revenue_review_required"] = any_member_gated
     totals["counted_flagged_by_reason"] = package_by_reason["counted_flagged"]
     totals["excluded_pending_review_by_reason"] = package_by_reason["excluded_pending_review"]
+    # R2-OW03 (owner ruling 2026-10-02, §9.2): the kept members' non-revenue breakdown. It is left out of the two nulling
+    # blocks below (§10.4's and R2-B15 R54's: Non-revenue stays), and its money is refused with the totals under a
+    # currency refusal, its counts kept.
+    totals["non_revenue_by_reason"] = dict(sorted(package_by_reason["non_revenue"].items()))
     totals["revenue_unestablished_documents"] = sorted(set(unestablished_revenue) | set(unestablished_verified))
     totals["true_revenue"] = totals["true_revenue_total"]
     if unestablished_revenue:
@@ -3186,8 +3221,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     if refuse_cross_currency:
         for key in _CROSS_CURRENCY_TOTAL_KEYS:
             published_totals[key] = None
-        # 5.6 (§9.2): the by-reason money is refused with the totals; the counts stay.
-        for key in ("counted_flagged_by_reason", "excluded_pending_review_by_reason"):
+        # 5.6 (§9.2): the by-reason money is refused with the totals; the counts stay. R2-OW03: the non-revenue
+        # breakdown's too.
+        for key in _TIER_REASON_KEYS:
             if isinstance(published_totals.get(key), dict):
                 published_totals[key] = {
                     reason: {**slot, "total": None} for reason, slot in published_totals[key].items()

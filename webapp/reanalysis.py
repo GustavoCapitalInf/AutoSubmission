@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from analysis.payload_shape import payload_accounts
 from analysis.revenue import (
     LEGACY_REVENUE_STATE_MAP,
+    REVIEWABLE_NON_REVENUE_REASONS,
     rebuild_serialized_revenue_views,
     record_serialized_revenue_review,
 )
@@ -155,12 +156,20 @@ def _awaits_review(record: Mapping, decision: object) -> bool:
     decision, as it always has; a credit a rule verified (5.6, a record with a tier) awaits only a reject, because the
     analyst's word wins over a rule. A confirm on a rule-verified row, or any decision on a row a non-revenue rule
     decided, does not await review: the review writer would refuse it (analysis/revenue.py), so it is reported as
-    decided by the rules, never as needing redoing."""
+    decided by the rules, never as needing redoing. R2-OW03 (the underwriter's Q3): a Zelle deposit the owner's policy
+    excluded (REVIEWABLE_NON_REVENUE_REASONS) awaits a confirm only, so a stored confirm is replayed and a stored
+    reject, which the writer refuses on a row already non-revenue, is reported as decided by the rules."""
     initial = record.get("revenue_initial_classification")
     initial = LEGACY_REVENUE_STATE_MAP.get(initial, initial)
     if initial == "unverified_deposit":
         return True
-    return initial == "verified_revenue" and decision == "reject" and isinstance(record.get("revenue_tier"), str)
+    tiered = isinstance(record.get("revenue_tier"), str)
+    if initial == "non_revenue":
+        return (
+            tiered and decision == "confirm"
+            and record.get("revenue_tier_reason") in REVIEWABLE_NON_REVENUE_REASONS
+        )
+    return initial == "verified_revenue" and decision == "reject" and tiered
 
 
 def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
