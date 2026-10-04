@@ -179,6 +179,10 @@ STALE_SENTENCES = (
     (CONTRACT, "until then such a row is non-revenue like any other"),
     (SPEC, "A `non_revenue` row carries a reason only when an owner ruling of 2026-10-02 decided it (the Zelle"),
     (SPEC, "Non-revenue rows have no controls (§15). "),
+    # Owner ruling 2026-10-02, R2-OW04 (the underwriter's Q8): §6.3 has twelve narrowings, and §15 no longer defers the
+    # lease-to-own payers' merchant payouts.
+    (SPEC, "except through exactly these eleven named narrowings"),
+    (SPEC, "lease-to-own payers (Acima), and the other accounts-payable items"),
 )
 
 
@@ -220,6 +224,9 @@ SECTION_19_1_DECISIONS = (
     )),
     ("**2026-10-02, Zelle and no-sender e-Transfers (Q3, Q3b).**", (
         "`zelle_excluded`", "whoever sent it", "`p2p_round_repeat_no_sender`", "keyed on the amount",
+    )),
+    ("**2026-10-02, lease-to-own and patient-financing payouts (Q8).**", (
+        "lease-to-own", "`customer_financing_payout`", "never verified", "`customer_financing_lump_sum`", "one-off",
     )),
 )
 
@@ -337,4 +344,30 @@ def test_the_spec_states_the_non_revenue_breakdown_and_the_zelle_confirm():
     contract = _flat(CONTRACT)
     for words in ("`non_revenue_by_reason`", "`REVIEWABLE_NON_REVENUE_REASONS`", "`government_no_purpose`",
                   "Owner ruling 2026-10-02, R2-OW03"):
+        assert words in contract, words
+
+
+def test_the_spec_closes_i17_with_the_lease_to_own_ruling():
+    """Owner ruling 2026-10-02, R2-OW04 (the underwriter's Q8): §17.1's I17 question is closed and its follow-ups
+    listed, §2.1 carries the row, §5.3 the two codes, §6.3 the twelfth narrowing, §8.9 the financiers and §8.10 the
+    lump-sum step and its thresholds; the contract states the claim, the lump-sum step and the batch."""
+    text = SPEC.read_text(encoding="utf-8")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "**I17, lease-to-own and patient financiers.**" not in open_items
+    assert "I17 (the underwriter's Q8 of 2026-10-02" in open_items
+    assert "**Lease-to-own and patient financiers' follow-ups (the underwriter's Q8 of 2026-10-02, §8.9).**" in open_items
+    assert "| Q8 (2026-10-02) |" in _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
+    codes = _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    assert "| `excluded_pending_review` | `customer_financing_lump_sum` |" in codes
+    assert "| `counted_flagged` | `customer_financing_payout` |" in codes
+    narrowings = _section(text, "\n### 6.3 ", "\n## 7. ")
+    assert "except through exactly these twelve named narrowings" in narrowings
+    assert "\n12. a lease-to-own financier's merchant funding printed with the strong LOAN word" in narrowings
+    assert "`CUSTOMER_FINANCING_PAYERS`" in _section(text, "\n### 8.9 ", "\n### 8.10 ")
+    tiering = _section(text, "\n### 8.10 ", "\n## 9. ")
+    assert "a one-off lump sum among the `customer_financing_payout` rows" in tiering
+    assert "| Customer-financing lump sum |" in tiering and "| Customer-financing series |" in tiering
+    assert "19. `factoring_payout` (a credit the classifier reads as factoring)" in tiering
+    contract = _flat(CONTRACT)
+    for words in ("`CUSTOMER_FINANCING_PAYERS`", "`customer_financing_lump_sum`", "Owner ruling 2026-10-02, R2-OW04"):
         assert words in contract, words
