@@ -201,6 +201,9 @@ DECLARED_DEMOTIONS = (
     # Audit round 2, R2-B12 (R17): a Q6 repeat whose recurring disbursement entry B7's I18 spare dropped (the pass's own
     # spared_disbursement fact), counted as a refused purpose: it counts, never proves (§8.6).
     "q6_spared_disbursement_refused",
+    # Audit round 2, R2-B12 review round 2 (R37): a Q5 or Q6 row a legal, gambling or owner-money word would hold but
+    # for the trade-name reader's purpose arm (the pass's own purpose_trade_name fact), counted as a refused purpose.
+    "q5_q6_purpose_trade_name_refused",
 )
 #: Audit round 2, R2-B04 (R41): the method pass 7 gives the holder's own push it overrules
 #: (analysis/true_revenue.py _holder_never_verified, copied: the census reads other checkouts).
@@ -2218,6 +2221,13 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
             and facts.get("spared_disbursement")
         ):
             return "q6_spared_disbursement_refused"
+        # (b) audit round 2, R2-B12 review round 2 (R37): a hold word only the trade-name reader's purpose arm spared
+        # (the pass's own purpose_trade_name fact) counts, never proves: counted as a refused purpose.
+        if (
+            after.get("tier") == "counted_flagged" and after.get("reason") == "named_payer_purpose_refused"
+            and facts.get("purpose_trade_name")
+        ):
+            return "q5_q6_purpose_trade_name_refused"
         # (b) a §15 deferred source: counted, never verified by Q5 or Q6 (OQ4).
         if after.get("reason") == "named_payer_purpose_refused" and facts.get("deferred_source"):
             return "q5_q6_deferred_source"

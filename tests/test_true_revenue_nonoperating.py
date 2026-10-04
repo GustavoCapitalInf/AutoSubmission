@@ -820,10 +820,11 @@ def test_r37_review_a_purpose_noun_after_the_hold_word_keeps_the_hold(rows, bank
 
 
 @pytest.mark.parametrize(("rows", "bank", "expected"), [
-    # A name word after the hold word on the purpose is still a trade name's (the brief's own controls).
+    # A name word after the hold word on the purpose is still a trade name's (the brief's own controls). Review round 2:
+    # a row only the purpose arm spares counts and never proves (named_payer_purpose_refused).
     ([("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT CANDLES CONF 1234", 180.0)], "Bank of America", [P2P]),
-    ([(_bofa("FABRIKAM INC", "LITIGATION SUPPORT"), 900.0)], "Bank of America", [COMPANY]),
-    (_twice("FABRIKAM INC", "LITIGATION SUPPORT"), "Bank of America", [REPEATS, REPEATS]),
+    ([(_bofa("FABRIKAM INC", "LITIGATION SUPPORT"), 900.0)], "Bank of America", [REFUSED]),
+    (_twice("FABRIKAM INC", "LITIGATION SUPPORT"), "Bank of America", [REFUSED, REFUSED]),
 ])
 def test_r37_review_a_name_word_after_the_hold_word_is_still_a_trade_name(rows, bank, expected):
     assert _tiers(rows, bank=bank) == expected
@@ -901,6 +902,134 @@ def test_r37_review_a_claims_administrator_s_form_words_are_keep_words(rows, exp
 ])
 def test_r37_review_a_registry_platform_is_spared_by_accounts_payable_wording_only(rows, expected):
     assert _tiers(rows, bank="Bank of America") == expected
+
+
+# Audit round 2, R2-B12 review round 2 (R37): the legal reader's settlement words are the classifier's own settlement
+# spellings (_SETTLEMENT_CREDIT's, and SETL), so a legal word beside an abbreviated settlement holds by context; the
+# purpose words read those spellings, the payment cuts the statements print and a handpay, a distribution, proceeds, a
+# judgment, a redemption, a compensation, a bet or a rail word as the purpose's; and a row only the purpose arm spares
+# counts and never proves (CreditFacts.refused_word), so a purpose noun no list names is at worst counted and flagged.
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    # One credit from a formed payer (Bank of America's DES, Chase's CO ENTRY DESCR).
+    ([(_bofa("SAMPLE ADMINISTRATION LLC", "CLASS ACTION STLMT"), 900.0)], "Bank of America"),
+    ([(_bofa("SAMPLE ADMINISTRATION LLC", "DATA BREACH STLMT"), 900.0)], "Bank of America"),
+    ([(_bofa("SAMPLE ADMINISTRATION LLC", "CLASS ACTION SETTLE"), 900.0)], "Bank of America"),
+    ([(_bofa("SAMPLE ADMINISTRATION LLC", "CLASS ACTION SETLMT"), 900.0)], "Bank of America"),
+    ([(_bofa("SAMPLE ADMINISTRATION LLC", "LAWSUIT PYMNT"), 900.0)], "Bank of America"),
+    ([(_chase("SAMPLE ADMINISTRATION INC", "CLASS ACTION STLMNT"), 900.0)], "Chase"),
+    ([(_bofa("SAMPLE RESORTS INC", "JACKPOT HANDPAY"), 3000.0)], "Bank of America"),
+    ([(_bofa("SAMPLE RESORTS INC", "WINNINGS PYMNT"), 3000.0)], "Bank of America"),
+    # A repeat.
+    (_twice("FABRIKAM INC", "LAWSUIT STLMT"), "Bank of America"),
+    (_twice("SAMPLE QSF", "CLASS ACTION STLMT"), "Bank of America"),
+    (_twice("FABRIKAM INC", "CLASS ACTION SETL"), "Bank of America"),
+    (_twice("FABRIKAM INC", "LITIGATION STLMNT"), "Bank of America"),
+    (_twice("FABRIKAM INC", "CLASS ACTION PMNT"), "Bank of America"),
+    (_twice("FABRIKAM INC", "CLASS ACTION PYMNTS"), "Bank of America"),
+    (_twice("FABRIKAM INC", "LITIGATION DIST"), "Bank of America"),
+    (_twice("FABRIKAM INC", "CLASS ACTION DISTR"), "Bank of America"),
+    (_twice("FABRIKAM INC", "LAWSUIT PROC"), "Bank of America"),
+    (_twice("FABRIKAM INC", "LAWSUIT JUDGMENT"), "Bank of America"),
+    (_twice("FABRIKAM INC", "DATA BREACH COMP"), "Bank of America"),
+    (_twice("FABRIKAM INC", "WINNINGS PYMNT"), "Bank of America"),
+    (_twice("FABRIKAM INC", "JACKPOT HANDPAY"), "Bank of America"),
+    # A wire's originator text, a person-to-person memo and a person's PPD entry.
+    ([(WF_WIRE.format(org="SAMPLE LAW LLP", obi="LAWSUIT STLMT"), 25000.0)], "Wells Fargo"),
+    ([(WF_WIRE.format(org="SAMPLE LAW LLP", obi="CLASS ACTION PYMNT"), 25000.0)], "Wells Fargo"),
+    ([(WF_WIRE.format(org="PAT SAMPLE", obi="KRAKEN REDEMPTION"), 9000.0)], "Wells Fargo"),
+    ([(WF_WIRE.format(org="PAT SAMPLE", obi="KRAKEN USD"), 9000.0)], "Wells Fargo"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR LAWSUIT STLMT CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT HANDPAY CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR WINNINGS FANTASY FOOTBALL CONF 1234", 900.0)], "Bank of America"),
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR WINNINGS POOL CONF 1234", 900.0)], "Bank of America"),
+    ([(_bofa("PAT SAMPLE", "CLASS ACTION STLMT", sec="PPD"), 900.0)], "Bank of America"),
+    ([(_bofa("PAT SAMPLE", "JACKPOT PYMNT", sec="PPD"), 900.0)], "Bank of America"),
+    ([(_bofa("PAT SAMPLE", "KRAKEN ACH", sec="PPD"), 900.0)], "Bank of America"),
+])
+def test_r37_review_2_an_abbreviated_purpose_after_the_hold_word_keeps_the_hold(rows, bank):
+    assert _tiers(rows, bank=bank) == [NON_SALE] * len(rows)
+
+
+@pytest.mark.parametrize(("rows", "bank", "expected"), [
+    # A purpose noun no list names: the purpose arm alone spares the row, which counts and never proves.
+    (_twice("FABRIKAM INC", "LAWSUIT WINDFALL"), "Bank of America", [REFUSED, REFUSED]),
+    ([(_bofa("SAMPLE ADMINISTRATION LLC", "CLASS ACTION WINDFALL"), 900.0)], "Bank of America", [REFUSED]),
+    ([(_chase("SAMPLE RESORTS INC", "JACKPOT WINDFALL"), 3000.0)], "Chase", [REFUSED]),
+    ([(WF_WIRE.format(org="FABRIKAM INC", obi="LAWSUIT WINDFALL"), 25000.0),
+      (WF_WIRE.format(org="FABRIKAM INC", obi="LAWSUIT WINDFALL").replace("AB12", "CD34"), 25001.0)],
+     "Wells Fargo", [REFUSED, REFUSED]),
+    ([(_bofa("PAT SAMPLE", "KRAKEN WINDFALL", sec="PPD"), 900.0)], "Bank of America", [REFUSED]),
+    # A person-to-person memo is counted whatever it prints: no Q5 or Q6 reads it.
+    ([("ZELLE PAYMENT FROM A SAMPLE FOR LAWSUIT WINDFALL CONF 1234", 900.0)], "Bank of America", [P2P]),
+    # Controls: the payer region's own trade name (arm (a)) and the vendor spare are no purpose-arm spare.
+    (_twice("CONTOSO LITIGATION SUPPORT LLC", "PAYMENT"), "Bank of America", [REPEATS, REPEATS]),
+    (_twice("JACKPOT DIGITAL INC", "PAYMENT"), "Bank of America", [REPEATS, REPEATS]),
+    (_twice("FABRIKAM INC", "KRAKEN ROBOTICS INV 1234"), "Bank of America", [REPEATS, REPEATS]),
+    (_twice("FABRIKAM INC", "SUPPORT SERVICES"), "Bank of America", [REPEATS, REPEATS]),
+])
+def test_r37_review_2_a_row_only_the_purpose_arm_spares_counts_never_proves(rows, bank, expected):
+    assert _tiers(rows, bank=bank) == expected
+
+
+@pytest.mark.parametrize("word", [
+    "SETTLE", "SETTLED", "SETTLEMENT", "SETTLEMENTS", "SETTLMT", "SETLMT", "STLMT", "STLMNT", "SETL",
+    "PYMNT", "PYMNTS", "PMNT", "PMNTS", "PAYMNT", "PAYMNTS", "PAYMT", "PAYMTS",
+    "HANDPAY", "DIST", "DISTR", "PROC", "PRCDS", "JUDGMENT", "JUDGEMENT", "REDEMPTION", "REDEEM", "COMP",
+    "COMPENSATION", "BET", "BETS", "WAGER", "PARLAY", "FANTASY", "POOL", "SUPERBOWL", "LOTTO", "RAFFLE", "ACH", "EFT",
+    "WIRE", "USD", "REWARDS", "STAKING",
+])
+def test_r37_review_2_the_abbreviated_purpose_words_are_no_name_words(word):
+    assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
+
+
+@pytest.mark.parametrize("word", ["SETTLE", "SETTLEMENT", "SETTLMT", "SETLMT", "STLMT", "STLMNT", "SETL", "CLAIM", "AWARDS"])
+def test_r37_review_2_the_legal_context_reads_every_settlement_spelling(word):
+    assert tr._LEGAL_CONTEXT.fullmatch(word), word
+    assert tr._LEGAL_NAME_KEEP.fullmatch(word), word
+
+
+def test_r37_review_2_the_legal_reader_reads_the_classifier_s_settlement_spellings():
+    """The legal context and the purpose words read every settlement spelling a processor's settlement credit reads
+    (_SETTLEMENT_CREDIT), so the two lists stay in step."""
+    for word in ("SETTLE", "SETTLED", "SETTLEMENT", "SETTLEMENTS", "SETTLMT", "SETLMT", "STLMT", "STLMNT"):
+        assert tr._SETTLEMENT_CREDIT.fullmatch(word), word
+        assert tr._LEGAL_CONTEXT.fullmatch(word), word
+        assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
+
+
+@pytest.mark.parametrize(("text", "spared"), [
+    # The purpose arm alone spares the row.
+    (_bofa("FABRIKAM INC", "LITIGATION SUPPORT"), True),
+    (_bofa("FABRIKAM INC", "LAWSUIT WINDFALL"), True),
+    (_bofa("SAMPLE RESORTS INC", "JACKPOT WINDFALL"), True),
+    (_bofa("PAT SAMPLE", "KRAKEN WINDFALL", sec="PPD"), True),
+    ("ZELLE PAYMENT FROM A SAMPLE FOR JACKPOT CANDLES CONF 1234", True),
+    # A hold (a purpose word, a context word), the payer region's trade name, a vendor spare or no hold word.
+    (_bofa("FABRIKAM INC", "LAWSUIT STLMT"), False),
+    (_bofa("FABRIKAM INC", "LITIGATION SUPPORT SETTLEMENT"), False),
+    (_bofa("CONTOSO LITIGATION SUPPORT LLC", "PAYMENT"), False),
+    (_bofa("JACKPOT DIGITAL INC", "PAYMENT"), False),
+    (_bofa("FABRIKAM INC", "KRAKEN ROBOTICS INV 1234"), False),
+    (_bofa("FABRIKAM INC", "PAYMENT"), False),
+])
+def test_r37_review_2_the_purpose_trade_name_reader(text, spared):
+    from analysis.transaction_classifier import payer_region
+
+    revenue = revenue_text(normalize_transaction_description(text))
+    row = tr._hold_text(revenue)
+    assert tr.purpose_trade_name(revenue, row, payer_region(revenue)) is spared
+
+
+@pytest.mark.parametrize(("text", "fact"), [
+    (_bofa("FABRIKAM INC", "LITIGATION SUPPORT"), True),
+    (_bofa("FABRIKAM INC", "LAWSUIT STLMT"), False),
+    (_bofa("CONTOSO LITIGATION SUPPORT LLC", "PAYMENT"), False),
+])
+def test_r37_review_2_the_census_reads_the_purpose_trade_name_fact(text, fact):
+    record = next(record for record in _records([(text, 900.0)], bank="Bank of America") if record.amount > 0)
+    facts = tr.guard_facts(record, revenue_text(record.normalized_description))
+    assert facts["purpose_trade_name"] is fact
 
 
 # Audit round 2, R2-B12 (R36): the gambling reader reads a lottery's prize entry, the unlisted sportsbooks and a

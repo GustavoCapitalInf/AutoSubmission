@@ -2940,6 +2940,50 @@ def test_r2_b12_the_snapshot_records_the_spared_disbursement_fact():
         ("excluded_pending_review", "non_sale_purpose")]
 
 
+# Audit round 2, R2-B12 review round 2 (R37): a Q5 or Q6 row a legal, gambling or owner-money reader would hold but for
+# the trade-name reader's purpose arm (the pass's own purpose_trade_name fact) is counted as a refused purpose, a
+# declared demotion.
+PURPOSE_TRADE_NAME_ROW = "FABRIKAM INC DES LITIGATION SUPPORT ID ####### INDN CONTOSO BAKERY LLC CO ID ########## CCD"
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    (_q56("named_payer_repeats", PURPOSE_TRADE_NAME_ROW),
+     _after56("unidentified_posted_credit", PURPOSE_TRADE_NAME_ROW, tier="counted_flagged",
+              reason="named_payer_purpose_refused", purpose_trade_name=True), "q5_q6_purpose_trade_name_refused"),
+    (_q56("repeat_wire_sender", Q5_WIRE),
+     _after56("unidentified_posted_credit", Q5_WIRE, tier="counted_flagged",
+              reason="named_payer_purpose_refused", purpose_trade_name=True), "q5_q6_purpose_trade_name_refused"),
+    # Without the fact, or with another outcome, the cause is not declared.
+    (_q56("named_payer_repeats", PURPOSE_TRADE_NAME_ROW),
+     _after56("unidentified_posted_credit", PURPOSE_TRADE_NAME_ROW, tier="counted_flagged",
+              reason="named_payer_purpose_refused"), "undeclared"),
+    (_q56("named_payer_repeats", PURPOSE_TRADE_NAME_ROW),
+     _after56("unidentified_posted_credit", PURPOSE_TRADE_NAME_ROW, tier="counted_flagged",
+              reason="named_payer_one_off", purpose_trade_name=True), "undeclared"),
+    (_step_11(PURPOSE_TRADE_NAME_ROW),
+     _after56("unidentified_posted_credit", PURPOSE_TRADE_NAME_ROW, tier="counted_flagged",
+              reason="named_payer_purpose_refused", purpose_trade_name=True), "undeclared"),
+])
+def test_r2_b12_review_2_a_purpose_trade_name_s_repeat_is_a_declared_demotion(prior, later, cause):
+    causes, _ = _cause56(prior, later)
+    assert causes == {cause: 1}
+    assert cause == "undeclared" or cause in census.DECLARED_DEMOTIONS
+
+
+def test_r2_b12_review_2_the_snapshot_records_the_purpose_trade_name_fact():
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="Bank of America", account_name="NORTHWIND BAKERY LLC", transactions=[
+        Transaction(date=f"2054-03-0{n}", description=f"FABRIKAM INC DES:{entry} ID:{n} INDN:NORTHWIND BAKERY LLC CO ID:1"
+                    " CCD", amount=900.0 + n, direction="credit")
+        for n, entry in ((2, "LITIGATION SUPPORT"), (3, "LITIGATION SUPPORT"), (4, "LAWSUIT STLMT"))])
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    assert [credit["facts"]["purpose_trade_name"] for credit in credits] == [True, True, False]
+    assert [(credit["tier"], credit["reason"]) for credit in credits] == [
+        ("counted_flagged", "named_payer_purpose_refused"), ("counted_flagged", "named_payer_purpose_refused"),
+        ("excluded_pending_review", "non_sale_purpose")]
+
+
 @pytest.mark.parametrize(("text", "letter"), [
     # Audit round 2, R2-B12 (R36): the gambling class reads the unlisted sportsbooks and the generic shapes (a lottery's
     # prize, a sportsbook's, a casino's or an online gaming payer's withdrawal or payout), never a vendor payment or a
