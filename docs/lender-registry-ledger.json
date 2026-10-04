@@ -19993,7 +19993,7 @@
     "https://www.cherryfunding.com/",
     "http://cherrypaymentplans.com/"
    ],
-   "notes": "Cherry Technologies, Inc. (San Francisco): patient payment plans (BNPL for healthcare). The aliases are the debit spellings (card and ACH payments to Cherry). The credit spelling CHERRY FUNDING is deliberately not aliased: those credits are Cherry paying a practice for patient-financed treatment, which is the practice's revenue, and a financing alias would make them financing proceeds (spec D1). Decision 2026-09-25 (owner delegated to the orchestrator): point-of-sale consumer financing arranged by the merchant, dealer or contractor at the sale (BNPL, retail instalment contracts, pay-over-time plans) is one family under Alternative positions, as the owner ruled for 'Affirm and other BNPL', while loans taken directly from a lender (and student loans) are Personal loans and lenders that finance only vehicles (autos, RVs, boats, powersports: Merrick Bank Recreation Lending, Roadrunner Financial) stay Vehicle loans & leases. Kept an alternative position."
+   "notes": "Cherry Technologies, Inc. (San Francisco): patient payment plans (BNPL for healthcare). The aliases are the debit spellings (card and ACH payments to Cherry). The credit spelling CHERRY FUNDING is deliberately not aliased: those credits are Cherry paying a practice for patient-financed treatment, which is the practice's revenue, and a financing alias would make them financing proceeds (spec D1). Decision 2026-09-25 (owner delegated to the orchestrator): point-of-sale consumer financing arranged by the merchant, dealer or contractor at the sale (BNPL, retail instalment contracts, pay-over-time plans) is one family under Alternative positions, as the owner ruled for 'Affirm and other BNPL', while loans taken directly from a lender (and student loans) are Personal loans and lenders that finance only vehicles (autos, RVs, boats, powersports: Merrick Bank Recreation Lending, Roadrunner Financial) stay Vehicle loans & leases. Kept an alternative position. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings. It joins PAYOUT_CREDIT_ENTITIES under OQ2's consumer-side veto."
   },
   {
    "entity": "Clover Capital",
@@ -22097,7 +22097,7 @@
     "https://terracefinance.com/",
     "https://www.terracefinance.com/"
    ],
-   "notes": "Rejected, kept as evidence: Terrace Finance is a payment-plan marketplace ('not a lender') that connects merchants with pay-later, lease-to-own and commercial financing providers. The corpus rows are single ACH credits into a card-accepting merchant's account, which both passes read as settlements of the merchant's customers' financed purchases: sales revenue. Rendering the alias would turn them into financing proceeds (spec D1). The spelling is kept only as evidence; unrelated TERRACE rows are the town of Terrace, BC."
+   "notes": "Rejected, kept as evidence: Terrace Finance is a payment-plan marketplace ('not a lender') that connects merchants with pay-later, lease-to-own and commercial financing providers. The corpus rows are single ACH credits into a card-accepting merchant's account, which both passes read as settlements of the merchant's customers' financed purchases: sales revenue. Rendering the alias would turn them into financing proceeds (spec D1). The spelling is kept only as evidence; unrelated TERRACE rows are the town of Terrace, BC. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings. Its alias stays unrendered."
   },
   {
    "entity": "Toast Capital",
@@ -34883,7 +34883,7 @@
     "https://www.consumerfinance.gov/enforcement/actions/acima-holdings-llc/",
     "https://dallasinnovates.com/plano-based-rent-a-center-rebrands-its-corporate-entity-as-upbound-group/"
    ],
-   "notes": "Acima Digital, LLC (Upbound Group): lease-to-own, which the owner's rulings put under Leases & rentals. ACIMA matches only Acima rows in the corpus (ACH, Navy Federal PAID TO and card spellings). Privacy 2026-09-26 (orchestrator ruling): a source or where-looked URL that named a private individual was removed."
+   "notes": "Acima Digital, LLC (Upbound Group): lease-to-own, which the owner's rulings put under Leases & rentals. ACIMA matches only Acima rows in the corpus (ACH, Navy Federal PAID TO and card spellings). Privacy 2026-09-26 (orchestrator ruling): a source or where-looked URL that named a private individual was removed. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings."
   },
   {
    "entity": "BKM Capital Partners",
@@ -35712,7 +35712,7 @@
     "https://katapult.com/",
     "https://www.katapultengineering.com/"
    ],
-   "notes": "Katapult (Katapult Group, Inc.; Katapult Holdings), a lease-to-own programme at 200+ retailers, collecting lease instalments directly (the rows are an ACH pull). Katapult sells no goods itself, so the bare name is not a retail brand; it reaches only these rows. Namesake: Katapult Engineering (KatapultPro), pole-attachment software sold to utilities, fiber and OSP engineering firms, uses the same word; a subscription printed KATAPULT ENGINEERING would be read as this lessor. No corpus row shows it, and the one-word alias is the whole printed payee name, so it is kept; the S1 collision audit reviews any other KATAPULT key. Decision 2026-09-25 (owner delegated to the orchestrator): KATAPULT stays: its only corpus rows are one same-day ACH PULL debit and ACH IN credit of equal amount (two analyses of what looks like the same statement), no other payee prints the word, and the engineering-software namesake does not appear; the lease group never reads the credit, and an equal same-day pair is what the statement-level reversal-pair pass clears."
+   "notes": "Katapult (Katapult Group, Inc.; Katapult Holdings), a lease-to-own programme at 200+ retailers, collecting lease instalments directly (the rows are an ACH pull). Katapult sells no goods itself, so the bare name is not a retail brand; it reaches only these rows. Namesake: Katapult Engineering (KatapultPro), pole-attachment software sold to utilities, fiber and OSP engineering firms, uses the same word; a subscription printed KATAPULT ENGINEERING would be read as this lessor. No corpus row shows it, and the one-word alias is the whole printed payee name, so it is kept; the S1 collision audit reviews any other KATAPULT key. Decision 2026-09-25 (owner delegated to the orchestrator): KATAPULT stays: its only corpus rows are one same-day ACH PULL debit and ACH IN credit of equal amount (two analyses of what looks like the same statement), no other payee prints the word, and the engineering-software namesake does not appear; the lease group never reads the credit, and an equal same-day pair is what the statement-level reversal-pair pass clears. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings."
   },
   {
    "entity": "Koalafi",
@@ -35764,7 +35764,7 @@
     "https://help.koalafi.com/en/articles/8550066-what-is-lease-to-own-financing",
     "https://www.koalafi.com/"
    ],
-   "notes": "Koalafi (formerly West Creek Financial): lease-to-own point-of-sale provider, under Leases & rentals. In the corpus the credits KOALAFI LEASE FUND, each naming an end customer, are Koalafi funding the account holder, a retailer, for lease-to-own sales; the lease list never applies to credits (spec D1), and those credit spellings are not aliases. The debits print KOALAFI with the entry description LEASE FUND and come from other statements, which show no Koalafi funding credits; whether they are the account holder's own lease payments or reversals of merchant funding is not public. Either way they already read as leases today, and their LEASE wording files them under Leases & rentals by spec section 4.3 step 8 even without this alias."
+   "notes": "Koalafi (formerly West Creek Financial): lease-to-own point-of-sale provider, under Leases & rentals. In the corpus the credits KOALAFI LEASE FUND, each naming an end customer, are Koalafi funding the account holder, a retailer, for lease-to-own sales; the lease list never applies to credits (spec D1), and those credit spellings are not aliases. The debits print KOALAFI with the entry description LEASE FUND and come from other statements, which show no Koalafi funding credits; whether they are the account holder's own lease payments or reversals of merchant funding is not public. Either way they already read as leases today, and their LEASE wording files them under Leases & rentals by spec section 4.3 step 8 even without this alias. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings."
   },
   {
    "entity": "LADCO Leasing",
@@ -36328,7 +36328,7 @@
     "https://www.progressiveleasingbreachsettlement.com/",
     "https://www.bing.com/search"
    ],
-   "notes": "Move: spec section 4.1 retires lease_or_equipment_financing, and the owner's ruling (spec section 2) names Progressive under Leases & rentals (lease-to-own). Prog Leasing, LLC (PROG Holdings). The other spellings (PMTS PROGRESSIVELEASE, the truncated card names) add today's missed rows. Credits naming Progressive Leasing in the corpus are a data-breach settlement payout, not lease money; the lease list never applies to credits (spec D1). No alias equals the hand-kept insurer Progressive's spellings."
+   "notes": "Move: spec section 4.1 retires lease_or_equipment_financing, and the owner's ruling (spec section 2) names Progressive under Leases & rentals (lease-to-own). Prog Leasing, LLC (PROG Holdings). The other spellings (PMTS PROGRESSIVELEASE, the truncated card names) add today's missed rows. Credits naming Progressive Leasing in the corpus are a data-breach settlement payout, not lease money; the lease list never applies to credits (spec D1). No alias equals the hand-kept insurer Progressive's spellings. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings."
   },
   {
    "entity": "Rent-A-Center",
@@ -36665,7 +36665,7 @@
     "https://www.consumerfinance.gov/enforcement/actions/snap-finance-llc/",
     "https://www.consumerfinance.gov/enforcement/actions/snap-finance/"
    ],
-   "notes": "Move: owner ruling 2026-09-24 (spec section 2) names Snap under Leases & rentals (lease-to-own); today it is a potential lender. Snap Finance LLC markets and services Snap RTO lease-to-own agreements and also services Quill Bank's Snap Loan instalment loans; the debit rows do not say which product, and the owner's group is kept. The credit spellings SNAP FINANCE FUNDING and SNAP LOAN FUNDING are not aliases: they are Snap paying the account holder, a retailer, for customer-financed sales (sales proceeds, not financing), and leaving the potential tier stops those credits being read as non-revenue."
+   "notes": "Move: owner ruling 2026-09-24 (spec section 2) names Snap under Leases & rentals (lease-to-own); today it is a potential lender. Snap Finance LLC markets and services Snap RTO lease-to-own agreements and also services Quill Bank's Snap Loan instalment loans; the debit rows do not say which product, and the owner's group is kept. The credit spellings SNAP FINANCE FUNDING and SNAP LOAN FUNDING are not aliases: they are Snap paying the account holder, a retailer, for customer-financed sales (sales proceeds, not financing), and leaving the potential tier stops those credits being read as non-revenue. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings. SNAP LOAN FUNDING F<n> <merchant> leaves the strong LOAN rule."
   },
   {
    "entity": "Sunbelt Rentals",
@@ -54385,6 +54385,37 @@
     "https://www.linkedin.com/company/global-lending-services"
    ],
    "notes": "Global Lending Services LLC (GLS, Greenville SC), a subprime indirect auto lender. The corpus credit keys hold no GLS row, so neither spelling is seen on a statement: GLOBAL LENDING SERVICES is the legal name and GLS AUTO the trade name. Ledger55 r2 corrected (2026-09-29): alias(es) GLS AUTO not carried. Entity and group upheld. GLS AUTO is dropped: auto body shops, a used-car dealer and a repair garage trade under that name, a business would pay them, and no statement is known to print it. GLOBAL LENDING SERVICES is kept (the other names found, Global Lending Solutions and Global Lending, do not match it as whole words); the lender's site notes that in Idaho the company is known only as Global Lending Services LLC."
+  },
+  {
+   "entity": "Wisetack",
+   "group": "alternative_position",
+   "business_type": "bnpl_or_consumer_finance",
+   "aliases": [
+    "WISETACK"
+   ],
+   "status": "rejected",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://support.contractorplus.app/en/articles/8646950-wisetack-fees-explained",
+     "note": "fetched 2026-10-02: 'You pay a 3.9% fee per transaction when a customer chooses to finance a job through Wisetack'; financing options 'from $500 to $25,000'; approved funds are transferred to the contractor's account"
+    },
+    {
+     "source": "https://www.wisetack.com/faqs-merchants",
+     "note": "fetched 2026-10-02: 'Once the customer confirms, the funds will be sent to you the next business day via ACH (bank) transfer'"
+    },
+    {
+     "source": "https://help.housecallpro.com/en/articles/3836158-wisetack-how-you-get-paid",
+     "note": "fetched 2026-10-02: Wisetack transfers the money to the contractor's bank account on file, sent in 2 business days"
+    }
+   ],
+   "verdicts": [],
+   "where_looked": [
+    "https://support.contractorplus.app/en/articles/8646950-wisetack-fees-explained",
+    "https://www.wisetack.com/faqs-merchants",
+    "https://help.housecallpro.com/en/articles/3836158-wisetack-how-you-get-paid"
+   ],
+   "notes": "Rejected, kept as evidence (owner ruling 2026-10-02, Q8): Wisetack is a consumer-financing platform for contractors and service businesses. The customer finances the job (from $500 to $25,000) and Wisetack pays the business by ACH, less its fee. Its corpus credits (HATCH WISETACK ACH PAYMEN, WISETACK USBANK PAYOUT) are the business's own sales: counted and flagged as customer_financing_payout, never verified (CUSTOMER_FINANCING_PAYERS). No alias is rendered: an alias would make its credits financing proceeds (spec D1) and flag its debits as an alternative position."
   }
  ]
 }

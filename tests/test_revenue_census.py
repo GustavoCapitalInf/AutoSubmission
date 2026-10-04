@@ -3135,3 +3135,105 @@ def test_r2_b12_the_sweep_reads_the_new_sportsbooks_and_the_generic_gambling_sha
     sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
     assert {name: row["rows"] for name, row in sweep["classes"].items() if row["rows"]} == (
         {letter: 1} if letter else {})
+
+
+# Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout is counted and flagged
+# (customer_financing_payout), never verified; a one-off lump sum is held (customer_financing_lump_sum). The census
+# declares Snap's merchant funding leaving the strong LOAN rule (§6.3 narrowing 12, the census's fourteenth), a verified
+# financier's payout overruled, and a Cherry Technologies credit leaving D1 under OQ2's narrowing.
+SNAP_LOAN_ROW = census.mask("SNAP LOAN FUNDING F12345 NORTHWIND FURNITURE")
+WISETACK_ROW = census.mask("ACH DEPOSIT HATCH WISETACK ACH PAYMEN 1234 NORTHWIND PLUMBING 123XXXXX4")
+
+
+@pytest.mark.parametrize(("state", "tier", "reason", "facts", "narrowing", "fails"), [
+    ("unverified_deposit", "counted_flagged", "customer_financing_payout", {"customer_financing_payer": "SNAP Finance"},
+     "14_customer_financing_payout", False),
+    # Counted only: never verified.
+    ("verified_revenue", "verified", None, {"customer_financing_payer": "SNAP Finance"},
+     "14_customer_financing_payout", True),
+    # Without the pass's own financier reading, a strong-rule row that left non_revenue is outside the narrowings.
+    ("unverified_deposit", "counted_flagged", "customer_financing_payout", {"customer_financing_payer": None},
+     "outside_the_narrowings", True),
+])
+def test_q8_narrowing_14_counts_snap_s_merchant_funding_that_left_the_strong_loan_rule(state, tier, reason, facts,
+                                                                                         narrowing, fails):
+    base = _snap("5.6", {"a": _account([_credit(0, 170000, "non_revenue", "strong_non_revenue_rule",
+                                                tier="non_revenue", text=SNAP_LOAN_ROW)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 170000, state, "unidentified_posted_credit", tier=tier,
+                                                 reason=reason, text=SNAP_LOAN_ROW, **facts)])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+    assert dict(census.NARROWINGS)["14_customer_financing_payout"] is True
+    assert "14_customer_financing_payout" in census.COUNTED_ONLY_NARROWINGS
+
+
+@pytest.mark.parametrize(("prior", "later", "cause"), [
+    # A Q6 repeat of a financier's payouts, counted by the pass's own financier reading.
+    (_q56("named_payer_repeats", WISETACK_ROW),
+     _after56("ambiguous_credit_descriptor", WISETACK_ROW, tier="counted_flagged", reason="customer_financing_payout",
+              customer_financing_payer="Wisetack"), "customer_financing_never_verified"),
+    # And held as a one-off lump sum (before the Q5/Q6 block, whose later-hold causes would not declare it).
+    (_q56("named_payer_repeats", WISETACK_ROW),
+     _after56("ambiguous_credit_descriptor", WISETACK_ROW, tier="excluded_pending_review",
+              reason="customer_financing_lump_sum", customer_financing_payer="Wisetack"),
+     "customer_financing_never_verified"),
+    # An earlier rule's verification overruled by the pass (method customer_financing_payer).
+    (_q56("operating_income_descriptor", WISETACK_ROW),
+     _after56("customer_financing_payer", WISETACK_ROW, tier="counted_flagged", reason="customer_financing_payout",
+              rule="customer_financing_never_verified"), "customer_financing_never_verified"),
+    # Without the reading, a Q6 repeat counted as a financier's payout is undeclared.
+    (_q56("named_payer_repeats", WISETACK_ROW),
+     _after56("ambiguous_credit_descriptor", WISETACK_ROW, tier="counted_flagged", reason="customer_financing_payout"),
+     "undeclared"),
+])
+def test_q8_a_verified_financier_payout_the_pass_overrules_is_a_declared_demotion(prior, later, cause):
+    causes, run = _cause56(prior, later)
+    assert causes == {cause: 1}
+    assert ("undeclared_demotion" in run["guards"]) is (cause == "undeclared")
+    assert "customer_financing_never_verified" in census.DECLARED_DEMOTIONS
+
+
+@pytest.mark.parametrize(("text", "cause"), [
+    ("CHERRY TECHNOLOGIES DES FUNDING ID ### INDN NORTHWIND DENTAL CO ID ### CCD", "8_oq2_bnpl_settlement"),
+])
+def test_q8_a_cherry_technologies_credit_leaves_d1_under_oq2_s_narrowing(text, cause):
+    assert "Cherry Technologies, Inc." in census.BNPL_ENTITIES
+    base = _snap("5.6", {"a": _account([_credit(0, 130000, "non_revenue", "financing_proceeds_credit",
+                                                entity="Cherry Technologies, Inc.", lender_credit=True, text=text)])})
+    after = _snap("5.6", {"a": _account([_credit(0, 130000, "unverified_deposit", "unidentified_posted_credit",
+                                                 tier="counted_flagged", reason="customer_financing_payout", text=text,
+                                                 customer_financing_payer="Cherry Technologies, Inc.")])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [cause] and "G1" not in run["guards"]
+    assert run["lender_credit_moves_by_cause"][cause]["eligible_deposit_dollars"] == 1300.0
+
+
+def test_q8_the_snapshot_reads_snap_s_merchant_funding_and_a_wisetack_repeat_with_no_guard_failure():
+    from analysis.schema import Statement, Transaction
+
+    statement = Statement(bank="Wells Fargo", account_name="NORTHWIND FURNITURE LLC", transactions=[
+        Transaction(date="2054-03-02", description="SNAP LOAN FUNDING F12345 NORTHWIND FURNITURE", amount=1700.0,
+                    direction="credit"),
+        Transaction(date="2054-03-03", description=WISETACK_ROW.replace("#", "1"), amount=4400.0, direction="credit"),
+        Transaction(date="2054-03-04", description=WISETACK_ROW.replace("#", "2"), amount=4450.0, direction="credit"),
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    readings = [(credit["tier"], credit["reason"], credit["facts"]["customer_financing_payer"])
+                for credit in snap["credits"]]
+    assert readings == [("counted_flagged", "customer_financing_payout", "SNAP Finance"),
+                        ("counted_flagged", "customer_financing_payout", "Wisetack"),
+                        ("counted_flagged", "customer_financing_payout", "Wisetack")]
+    for credit in snap["credits"]:
+        assert credit["facts"]["claimed"] and not any(census._row_guards(credit).values())
+    base = {**snap, "credits": [
+        {**snap["credits"][0], "state": "non_revenue", "method": "strong_non_revenue_rule", "tier": "non_revenue",
+         "reason": None},
+        *({**credit, "state": "verified_revenue", "method": "named_payer_repeats", "tier": "verified", "reason": None}
+          for credit in snap["credits"][1:]),
+    ]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert list(run["left_non_revenue"]) == ["14_customer_financing_payout"]
+    assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
+        "customer_financing_never_verified": 2}
+    assert run["guards"] == {}

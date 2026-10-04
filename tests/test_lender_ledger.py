@@ -347,6 +347,61 @@ def test_no_payout_credit_problem_quotes_a_run_of_five_or_more_digits():
     ]
 
 
+# --- the customer-financing payers (owner ruling 2026-10-02, Q8: "registry evidence per entity") -------------------
+
+
+def test_a_customer_financing_payer_is_a_ledger_entity_of_a_lessor_or_an_alternative_position_of_any_status():
+    # Westfen Leasing is an admitted lessor, Ruledco an admitted alternative position; a rejected record kept as
+    # evidence counts too (its alias never renders).
+    rules = dataclasses.replace(RULES, customer_financing=("Westfen Leasing", "Ruledco"))
+    assert _problems(rules=rules) == []
+    rejected = _entities((2, "status", "rejected"), (8, "status", "rejected"))
+    assert lender_ledger.customer_financing_problems(rejected, ("Westfen Leasing", "Ruledco")) == []
+
+
+NOT_CUSTOMER_FINANCING = ("a customer-financing payer needs a ledger entity of a lease-to-own or alternative-position "
+                          "group")
+
+
+@pytest.mark.parametrize("name,problem", [
+    ("Fabrikam Lease Pay", "CUSTOMER_FINANCING_PAYERS names 'Fabrikam Lease Pay', which is not a ledger entity"),
+    ("Quillon Funding", f"CUSTOMER_FINANCING_PAYERS names entity 0 ('Quillon Funding'), admitted in confirmed_lender: "
+                        f"{NOT_CUSTOMER_FINANCING}"),
+    ("Kelder Loans", f"CUSTOMER_FINANCING_PAYERS names entity 9 ('Kelder Loans'), admitted in personal_loan: "
+                     f"{NOT_CUSTOMER_FINANCING}"),
+])
+def test_a_customer_financing_payer_outside_those_groups_or_off_the_ledger_is_refused(name, problem):
+    assert _problems(rules=dataclasses.replace(RULES, customer_financing=(name,))) == [problem]
+
+
+def test_no_customer_financing_problem_quotes_a_run_of_five_or_more_digits():
+    rules = dataclasses.replace(RULES, customer_financing=("Fabrikam 7777777",))
+    assert _problems(rules=rules) == [
+        f"CUSTOMER_FINANCING_PAYERS names {lender_ledger.WITHHELD}, which is not a ledger entity"]
+
+
+def test_the_committed_ledger_holds_every_customer_financing_payer_and_validates():
+    """The committed ledger, with the rejected Wisetack record kept as evidence and Cherry Technologies among the
+    payout-credit entities, passes every rule; each of the eight financiers is a ledger entity of its group."""
+    import json
+
+    from analysis import classification_registry as registry
+
+    data = json.loads(lender_ledger.LEDGER_PATH.read_text(encoding="utf-8"))
+    rules = lender_ledger.current_rules()
+    assert rules.customer_financing == tuple(registry.CUSTOMER_FINANCING_PAYERS)
+    assert "Cherry Technologies, Inc." in rules.payout_credit
+    assert lender_ledger.validate(data, rules) == []
+    entities, problems = lender_ledger.parse_ledger(data)
+    assert problems == []
+    named = {entity.entity: entity for entity in entities}
+    assert lender_ledger.customer_financing_problems(entities, rules.customer_financing) == []
+    wisetack = named["Wisetack"]
+    assert (wisetack.group, wisetack.status, wisetack.aliases) == ("alternative_position", "rejected", ("WISETACK",))
+    for name in rules.customer_financing:
+        assert "Decision 2026-10-02 (owner, Q8)" in named[name].notes or name == "Wisetack", name
+
+
 # --- the field-order forms (owner ruling 2026-09-27, classification 5.3) -----------------------------------------
 
 

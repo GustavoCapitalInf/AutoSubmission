@@ -216,6 +216,9 @@ def test_ebf_holdings_is_merged_into_everest_business_funding_and_counts_once():
     ("GREENSKY PAYMENT", "GreenSky", "alternative_position"),
     ("KLARNA PAYMENT", "Klarna Inc", "alternative_position"),
     ("SUNBIT PAYMENT", "Sunbit", "alternative_position"),
+    # Owner ruling 2026-10-02 (Q8): Cherry's payout to a practice for a patient-financed treatment is the practice's
+    # own sale; its debits stay an alternative position.
+    ("CHERRY TECHNOLOGIES PAYMENT", "Cherry Technologies, Inc.", "alternative_position"),
 ])
 def test_the_payout_credit_entities_are_admitted_financing_payees_whose_debits_keep_their_group(
         descriptor, entity, state):
@@ -223,7 +226,7 @@ def test_the_payout_credit_entities_are_admitted_financing_payees_whose_debits_k
     # as revenue (PAYOUT_CREDIT_ENTITIES, a D1 exception); the matcher still gives every row the entity's group.
     assert registry.PAYOUT_CREDIT_ENTITIES == (
         "Sezzle Inc", "American First Finance, LLC", "PAYABILITY", "AFFIRM", "Afterpay", "GreenSky", "Klarna Inc",
-        "Sunbit",
+        "Sunbit", "Cherry Technologies, Inc.",
     )
     assert BY_NAME[entity].status == "admitted" and BY_NAME[entity].group in FINANCING_STATES
     found = _known(descriptor)

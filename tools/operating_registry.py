@@ -17,6 +17,8 @@ wrong with them:
 * `FACTORING_PAYOUT_PAYERS` collides with no ledger, operating or insurer alias (true revenue final review M3);
 * `OWNER_MONEY_PLATFORMS`, `SECTION_15_DEFERRED_PAYERS` and (audit B6) `LENDING_BANK_CREDIT_PAYERS` and
   `EARNED_WAGE_ACCESS_PAYERS` compile and read no operating alias;
+* (owner ruling 2026-10-02, Q8) each `CUSTOMER_FINANCING_PAYERS` spelling and `CUSTOMER_FINANCING_NAMES` compile and
+  read no operating alias, no insurer alias and no rendered ledger alias of an entity other than the financiers';
 * `P2P_SENDING_BANK_NAMES` and `STATEMENT_BANK_PRINTED_NAMES` are normalized, and name no form twice.
 
 It also WARNS (never fails) when a multi-word operating alias spans the originator/entry boundary a bank prints between
@@ -150,7 +152,9 @@ def _check_56_tables(
     """True revenue final review M3: the five other 5.6 tables. A factoring payer's alias collides with no ledger,
     operating or insurer alias; the owner-money and deferred-source patterns compile and read no operating alias (a
     platform that pays a business its sales is neither); the sending banks' and the statement banks' printed names
-    are normalized and unique."""
+    are normalized and unique. Owner ruling 2026-10-02 (Q8): the lease-to-own and patient financiers' payer spellings
+    (CUSTOMER_FINANCING_PAYERS) and their name sweep (CUSTOMER_FINANCING_NAMES) compile and read no operating alias, no
+    insurer alias and no rendered ledger alias of another entity (a spelling may read its own entity's)."""
     for alias, entity in _aliases(registry.FACTORING_PAYOUT_PAYERS).items():
         if alias in ledger:
             group, holder = ledger[alias]
@@ -168,6 +172,25 @@ def _check_56_tables(
         for alias, entity in own.items():
             if compiled.search(alias):
                 found.append(f"{name} reads the operating alias {alias!r} of {entity!r}")
+    # Owner ruling 2026-10-02 (Q8): the lease-to-own and patient financiers' payer spellings and their name sweep compile,
+    # read no operating or insurer alias, and read no rendered ledger alias of an entity other than the financiers'.
+    financiers = getattr(registry, "CUSTOMER_FINANCING_PAYERS", {})
+    readers = [(f"CUSTOMER_FINANCING_PAYERS[{entity!r}]", pattern, {entity}) for entity, pattern in financiers.items()]
+    if hasattr(registry, "CUSTOMER_FINANCING_NAMES"):
+        readers.append(("CUSTOMER_FINANCING_NAMES", registry.CUSTOMER_FINANCING_NAMES, set(financiers)))
+    for name, pattern, allowed in readers:
+        compiled = _compiles(found, name, pattern)
+        if compiled is None:
+            continue
+        for alias, entity in own.items():
+            if compiled.search(alias):
+                found.append(f"{name} reads the operating alias {alias!r} of {entity!r}")
+        for alias, entity in insurers.items():
+            if compiled.search(alias):
+                found.append(f"{name} reads the insurer alias {alias!r} of {entity!r}")
+        for alias, (group, holder) in ledger.items():
+            if holder not in allowed and compiled.search(alias):
+                found.append(f"{name} reads the {group} alias {alias!r} of {holder!r}")
     # Audit B3 (I11): the card-payout processors' names are normalized and name no ledger or insurer alias (the
     # release reads them beside the processor's own ACH activity only).
     for entity, card_names in getattr(registry, "CARD_PAYOUT_PROCESSOR_NAMES", {}).items():

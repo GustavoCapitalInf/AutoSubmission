@@ -55,6 +55,20 @@ def test_the_dashboard_reason_table_mirrors_the_analysis():
     assert _js_reasons() == {code: tuple(entry) for code, entry in REVENUE_TIER_REASONS.items()}
 
 
+def test_the_dashboard_reason_table_keeps_the_analysis_order_and_names_the_customer_financing_reasons():
+    """Owner ruling 2026-10-02 (Q8), R2-OW04: the mirror keeps REVENUE_TIER_REASONS' order, and its sentences say what
+    a lease-to-own or patient financier's payout and its one-off lump sum are."""
+    from analysis.revenue import REVENUE_TIER_REASONS
+
+    assert list(_js_reasons()) == list(REVENUE_TIER_REASONS)
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert ("A lease-to-own or patient-financing company paid a one-off lump sum ($10,000 or more; by wire, in whole "
+            "thousands or half the statement's credits; not one of three or more payouts of its size): held until its "
+            "source is confirmed.") in source
+    assert ("A lease-to-own or patient-financing company paid the business for a customer's financed purchase: "
+            "counted, never verified.") in source
+
+
 @needs_node
 def test_a_statement_shows_true_revenue_first_and_its_parts():
     result = run_dashboard(METRIC_ROWS + _open("s", _served(_payload())) + """

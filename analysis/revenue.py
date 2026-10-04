@@ -39,6 +39,11 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "insurer_named_payer": ("excluded_pending_review", "Payer name reads as an insurer"),
     "possible_return": ("excluded_pending_review", "Possible return or adjustment"),
     "financing_named_payer": ("excluded_pending_review", "Payer or entry suggests financing"),
+    # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's payout that is a large one-off lump sum, held
+    # until sourced (true_revenue.CUSTOMER_FINANCING_LUMP_SUM).
+    "customer_financing_lump_sum": (
+        "excluded_pending_review", "One-off lump sum from a lease-to-own or patient financier",
+    ),
     # Audit round 2, R2-B07 (R07): a credit the parser marked unread whose run of payer blocks prints a lender's or a
     # lending bank's block (true_revenue.UNREAD_RUN_NAMES_FINANCING).
     "unread_run_names_financing": (
@@ -66,6 +71,9 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     # Audit B11 (I53): the payer's own settlement of the merchant's sales (OQ2's BNPL providers, marketplaces), counted;
     # the label keeps the caution that the payer also lends, and never reads as financing counted in True.
     "payout_credit_entity": ("counted_flagged", "BNPL or marketplace settlement (payer also lends)"),
+    # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's payout to the merchant for a customer's
+    # financed purchase, counted, never verified (true_revenue.CUSTOMER_FINANCING_PAYOUT).
+    "customer_financing_payout": ("counted_flagged", "Lease-to-own or patient-financing payout"),
     "platform_unconfirmed": ("counted_flagged", "Platform payout, not confirmed"),
     "numbered_company_payer": ("counted_flagged", "Numbered company payer"),
     "named_payer_purpose_refused": ("counted_flagged", "Named payer, purpose not accepted as proof"),

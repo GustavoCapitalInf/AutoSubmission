@@ -84,6 +84,28 @@ def test_the_validator_refuses_an_owner_money_or_deferred_pattern_that_reads_an_
     assert any(f"{name} does not compile" in problem for problem in operating_registry.problems())
 
 
+def test_the_customer_financing_tables_read_no_operating_insurer_or_other_ledger_alias(monkeypatch):
+    """Owner ruling 2026-10-02 (Q8): the lease-to-own and patient financiers' payer spellings and their name sweep pass
+    M3 as committed (each reads only its own entity's ledger aliases); a spelling or a sweep that reads an operating
+    source, an insurer or another entity's ledger alias, or that does not compile, fails."""
+    assert not [problem for problem in operating_registry.problems() if "CUSTOMER_FINANCING" in problem]
+    payers = {**registry.CUSTOMER_FINANCING_PAYERS, "Koalafi": r"(?<![A-Z])(?:KOALAFI|STRIPE)\b"}
+    monkeypatch.setattr(registry, "CUSTOMER_FINANCING_PAYERS", payers)
+    assert any("CUSTOMER_FINANCING_PAYERS['Koalafi'] reads the operating alias 'STRIPE'" in problem
+               for problem in operating_registry.problems())
+    monkeypatch.setattr(registry, "CUSTOMER_FINANCING_PAYERS", {"Koalafi": r"(?<![A-Z])(?:KOALAFI|STATE FARM)\b"})
+    assert any("reads the insurer alias 'STATE FARM'" in problem for problem in operating_registry.problems())
+    monkeypatch.setattr(registry, "CUSTOMER_FINANCING_PAYERS", {"Koalafi": r"(?<![A-Z])(?:KOALAFI|SNAP FINANCE)\b"})
+    assert any("reads the lease_or_rental alias 'SNAP FINANCE' of 'SNAP Finance'" in problem
+               for problem in operating_registry.problems())
+    monkeypatch.setattr(registry, "CUSTOMER_FINANCING_PAYERS", {"Koalafi": r"(?:KOALAFI"})
+    assert any("CUSTOMER_FINANCING_PAYERS['Koalafi'] does not compile" in problem
+               for problem in operating_registry.problems())
+    monkeypatch.setattr(registry, "CUSTOMER_FINANCING_NAMES", r"(?<![A-Z])(?:KOALAFI|SQUARE)\b")
+    assert any("CUSTOMER_FINANCING_NAMES reads the operating alias 'SQUARE'" in problem
+               for problem in operating_registry.problems())
+
+
 def test_the_validator_refuses_bank_names_that_are_not_normalized_or_repeat(monkeypatch):
     monkeypatch.setattr(registry, "P2P_SENDING_BANK_NAMES", ("SAMPLE BANK", "Sample Bank", "SAMPLE BANK"))
     monkeypatch.setattr(registry, "STATEMENT_BANK_PRINTED_NAMES", ((("SAMPLE BANK",), ("S.B.", "SB", "SB")),))

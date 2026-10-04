@@ -27,6 +27,8 @@ from .classification_registry import (
     BARE_PLATFORM_NAMES,
     CARD_PAYOUT_PROCESSOR_NAMES,
     CARD_SETTLEMENT_CREDIT_FORMS,
+    CUSTOMER_FINANCING_NAMES,
+    CUSTOMER_FINANCING_PAYERS,
     DEALER_FUNDING_PAYERS,
     EARNED_WAGE_ACCESS_PAYERS,
     FACTORING_PAYOUT_PAYERS,
@@ -792,6 +794,22 @@ _RTP_CREDIT_NAME = re.compile(r"^RTP CREDIT\s+(?!FROM\b)(\S.*)$")
 #: named_payer_purpose_refused (S4.2 re-review: a payer Q5 and Q6 refuse as proof, §8.9; never "One-off payer", as a
 #: deferred source often repeats). The registry's own deferred sources are left to the registry by _left_to_its_family.
 _SECTION_15_DEFERRED_PAYERS = re.compile(SECTION_15_DEFERRED_PAYERS)
+#: Owner ruling 2026-10-02 (Q8; §8.9): the lease-to-own and patient financiers whose merchant payouts are the merchant's
+#: sales (the registry's CUSTOMER_FINANCING_PAYERS: ledger entity -> its spelling on the payer region), read by
+#: _customer_financier; and their names anywhere on the row without the receiver field's value
+#: (CUSTOMER_FINANCING_NAMES), which keep a row from Q5 and Q6 (_never_q5_or_q6).
+_CUSTOMER_FINANCING_PAYERS = {entity: re.compile(pattern) for entity, pattern in CUSTOMER_FINANCING_PAYERS.items()}
+_CUSTOMER_FINANCING_NAMES = re.compile(CUSTOMER_FINANCING_NAMES)
+#: Owner ruling 2026-10-02 (Q8): the class-action words that make a financier's credit consumer-side (Progressive
+#: Leasing's data-breach settlement paid to its customers): Q8's own claim veto, read whatever R2-B12's
+#: legal_settlement reads.
+_LEGAL_SETTLEMENT_WORDS = re.compile(r"(?<![A-Z])(?:BREACH|LITIGAT\w*|CLASS ACTION)\b")
+#: Owner ruling 2026-10-02 (Q8): the channels a financier's merchant payout comes on (never a check, a cash or branch
+#: deposit or a person-to-person rail).
+_CUSTOMER_FINANCING_CHANNELS = frozenset({"wire", "ach_eft", "other"})
+#: Owner ruling 2026-10-02 (Q8; §5.3): the reasons of a financier's payout and of its one-off lump sum.
+CUSTOMER_FINANCING_PAYOUT = "customer_financing_payout"
+CUSTOMER_FINANCING_LUMP_SUM = "customer_financing_lump_sum"
 #: §7.7: a bare X12 TRN*1* with no entry description, from a healthcare payer, is deferred too.
 _BARE_X12_TRACE = re.compile(r"\bTRN 1\b")
 #: §7.1 (S4.2 review I5): the NET SETTLE card form, read whether or not its refusal or the card veto matches: such a
@@ -1094,6 +1112,9 @@ class CreditFacts:
     #: §8.1 (audit round 2, R2-B04: R41): the row moves the holder's own money in on its face (self_originated) and
     #: nothing claimed it, the guard _first_hold reads: never verified, never a repeat.
     self_own: bool = False
+    #: §8.9 (owner ruling 2026-10-02, Q8): the lease-to-own or patient financier whose merchant payout the row is
+    #: (_customer_financier: the ledger entity CUSTOMER_FINANCING_PAYERS names), or None.
+    financier: str | None = None
 
 
 def _classifier():
@@ -4185,17 +4206,57 @@ def _payout_entity(text: str) -> PayeeMatch | None:
     return known if known is not None and known.entity in PAYOUT_CREDIT_ENTITIES else None
 
 
+def _customer_financier(record: TransactionClassification, text: str) -> str | None:
+    """§8.9 (owner ruling 2026-10-02, Q8; audit I17): the lease-to-own or patient financier (CUSTOMER_FINANCING_PAYERS:
+    Snap Finance, Koalafi, Cherry, Acima, Terrace Finance, Wisetack, Katapult, Progressive Leasing) whose payout to the
+    merchant for a customer's financed purchase the row is, read on the payer region; or None. None, in this order, on a
+    credit under the $1 floor; on a channel other than a wire, an ACH or EFT row or an unlabelled one; on a row with no
+    payer region, or a wire's region that names nobody (blanked as credit_facts blanks it); on a consumer-side row (OQ2's
+    consumer words, _BNPL_CONSUMER_CREDIT: a refund, a return, a withdrawal, a reward, a card or a purchase) or a
+    class-action payout (_LEGAL_SETTLEMENT_WORDS), read without the receiver field's value; and on a consumer (PPD or
+    WEB) entry to a person who is not the holder. Otherwise the first financier whose spelling the region prints; a
+    spelling that holds LOAN (Snap's SNAP LOAN FUNDING) only in Snap's merchant form (_SNAP_MERCHANT_FUNDING)."""
+    classifier = _classifier()
+    if record.amount < classifier._MICRO_DEPOSIT_FLOOR:
+        return None
+    channel = _channel(text, record.bank)
+    if channel not in _CUSTOMER_FINANCING_CHANNELS:
+        return None
+    region = classifier.payer_region(text)
+    if channel == "wire" and region and (_wire_label_only(region) or classifier._bare_incoming_wire(text)):
+        region = ""
+    if not region:
+        return None
+    words = classifier._without_receiver_value(text)
+    if classifier._BNPL_CONSUMER_CREDIT.search(words) or _LEGAL_SETTLEMENT_WORDS.search(words):
+        return None
+    holder = _holder(record)
+    if consumer_entry(text, holder) and _person_receiver(text, "", holder):
+        return None
+    for entity, spelling in _CUSTOMER_FINANCING_PAYERS.items():
+        found = spelling.search(region)
+        if found is None:
+            continue
+        if "LOAN" in found.group(0) and not classifier._SNAP_MERCHANT_FUNDING.search(classifier._before_receiver(text)):
+            continue
+        return entity
+    return None
+
+
 def _claimed(record: TransactionClassification, text: str) -> bool:
     """§8.1, §8.9: the operating registry, a payout-credit entity or a factoring payee claimed the row. A registry row
     that prints a financing word is not claimed (review C2). Audit B3 (I11): a card credit released as its processor's
-    instant payout is claimed by that processor (its pulls and fees never hold it as the payer also debited)."""
+    instant payout is claimed by that processor (its pulls and fees never hold it as the payer also debited). Owner
+    ruling 2026-10-02 (Q8): and a lease-to-own or patient financier's merchant payout (_customer_financier), which skips
+    the holds a payout entity or a factor skips (the insurer name, the financing, counter-debit, holder and non-sale
+    holds); the insurer, possible-return, pay, personal-income and payroll-tax holds and the $1 floor still read it."""
     if record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD:
         return True
     if record.revenue_match_method in _REGISTRY_METHODS:
         return not registry_financing(record, text)
     if record.classification == "factoring":
         return True
-    return _payout_entity(text) is not None
+    return _payout_entity(text) is not None or _customer_financier(record, text) is not None
 
 
 def _leading_card_credit(text: str) -> bool:
@@ -4613,6 +4674,8 @@ def credit_facts(
     # A3-H review 2: a factor the registry names claims its row as a factoring payee does (only the insurer,
     # possible-return, pay and benefit holds read it), so its trade name's financing word holds nothing.
     factor = _factoring_payout_payer(region, text)
+    # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout, which _claimed claims too.
+    financier = _customer_financier(record, text)
     claimed = _claimed(record, text) or factor
     wire_n1 = classifier._is_wire_row(text)
     # Audit B5 (I37): TD Canada Trust's trailing CPA code is an electronic-payment form.
@@ -4666,6 +4729,7 @@ def credit_facts(
         transfer_no_counterparty=no_counterparty,
         account_designation=transfer_row and bool(transfer_words) and _account_designation(row, record.bank),
         factor=factor,
+        financier=financier,
         # Audit round 2, R2-B03 (R05): a payer region that names only a bank names no customer.
         bank_only=_bank_only_payer(region, entry, record.bank, row=row),
         # Audit round 2, R2-B04 (R41): the holder's own push, read on the row alone, as _first_hold reads it.
@@ -4884,7 +4948,9 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
     """The rows Q5 and Q6 never verify and never count toward a repeat, whatever their holds: a direction conflict
     (§6.1 step 2, §7.0: never lifted by any pass; S4.2 review C1), a credit under $1 (§7.0, review I3), a row a family
     rule decides alone (review I5), a deferred source (review I6a) and a factoring payer's payout (A3-H). Audit B3
-    (I11): and a processor's instant payout released from a card credit (counted, never verified)."""
+    (I11): and a processor's instant payout released from a card credit (counted, never verified). Owner ruling
+    2026-10-02 (Q8): and a lease-to-own or patient financier's merchant payout, or any row that names one of them
+    (CUSTOMER_FINANCING_NAMES, read without the receiver field's value)."""
     return (
         record.revenue_match_method == "direction_conflict"
         or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
@@ -4893,6 +4959,8 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
         or _left_to_its_family(text)
         or _deferred_source(text, facts)
         or facts.factor
+        or facts.financier is not None
+        or _CUSTOMER_FINANCING_NAMES.search(_classifier()._without_receiver_value(text)) is not None
     )
 
 
@@ -4985,6 +5053,57 @@ def _factor_never_verified(record: TransactionClassification) -> TransactionClas
         context_signals=(*record.revenue_context_signals, "factoring_payout"),
         related_transaction=record.revenue_related_transaction,
     )
+
+
+def _financier_never_verified(record: TransactionClassification) -> TransactionClassification:
+    """§8.9 (owner ruling 2026-10-02, Q8): a lease-to-own or patient financier's merchant payout that an earlier rule
+    verified (a repeat, a company form, an operating-income descriptor) leaves verification as a new first state
+    (unverified_deposit, method customer_financing_payer), as _factor_never_verified does; its reason names the rule it
+    overruled, for the audit. The pass tiers it counted_flagged / customer_financing_payout."""
+    return _classifier()._replace_revenue_state(
+        record,
+        "unverified_deposit",
+        match_method="customer_financing_payer",
+        matched_rule="customer_financing_never_verified",
+        confidence_score=0.50,
+        reason=(
+            "A lease-to-own or patient-financing company pays the merchant for a customer's financed purchase: counted "
+            f"and flagged, never verified; the rule that read it ({record.revenue_match_method}) is overruled."
+        ),
+        context_signals=(*record.revenue_context_signals, CUSTOMER_FINANCING_PAYOUT),
+        related_transaction=record.revenue_related_transaction,
+    )
+
+
+def _customer_financing_lump(
+    index: int,
+    payouts: dict[int, str],
+    records: Sequence[TransactionClassification],
+    channel: str,
+    posted_cents: int,
+) -> bool:
+    """§8.9 (owner ruling 2026-10-02, Q8: "Keep large one-off lump sums held until sourced"): a financier's payout
+    (`payouts`: the statement's customer_financing_payout rows, index -> financier) that is large and one-off. Large:
+    CUSTOMER_FINANCING_LUMP_FLOOR dollars or more, and an incoming wire, a whole multiple of
+    CUSTOMER_FINANCING_LUMP_ROUND dollars or at least CUSTOMER_FINANCING_LUMP_SHARE percent of the statement's posted
+    credits (`posted_cents`, non-revenue included, the T7 base). One-off: the same financier makes fewer than
+    CUSTOMER_FINANCING_SERIES_MIN payouts in the statement, the row included, of at least
+    CUSTOMER_FINANCING_SERIES_SHARE percent of its amount. Read over every payout at once, so the hold never depends on
+    the rows' order (a pair of lumps holds both); compared in integer cents."""
+    classifier = _classifier()
+    cents = _cents(records[index].amount)
+    if cents < classifier.CUSTOMER_FINANCING_LUMP_FLOOR * 100:
+        return False
+    if not (
+        channel == "wire" or cents % (classifier.CUSTOMER_FINANCING_LUMP_ROUND * 100) == 0
+        or cents * 100 >= classifier.CUSTOMER_FINANCING_LUMP_SHARE * posted_cents
+    ):
+        return False
+    series = sum(
+        1 for other, entity in payouts.items()
+        if entity == payouts[index] and _cents(records[other].amount) * 100 >= classifier.CUSTOMER_FINANCING_SERIES_SHARE * cents
+    )
+    return series < classifier.CUSTOMER_FINANCING_SERIES_MIN
 
 
 def _holder_never_verified(record: TransactionClassification) -> TransactionClassification:
@@ -5123,6 +5242,10 @@ def _tier_reason_read(
     # A3-H: a factoring payer's payout, on any channel (FACTORING_PAYOUT_PAYERS).
     if facts.factor:
         return "counted_flagged", "factoring_payout"
+    # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout (CUSTOMER_FINANCING_PAYERS),
+    # on a wire, an ACH or EFT row or an unlabelled one; a one-off lump sum is held after the tiers.
+    if facts.financier:
+        return "counted_flagged", CUSTOMER_FINANCING_PAYOUT
     if facts.channel == "wire" and not facts.claimed:
         if not facts.region:
             return "excluded_pending_review", "wire_no_sender"
@@ -5199,7 +5322,11 @@ def apply_true_revenue_pass(
     (_tier_reason). Audit round 2, R2-B07 (R07): `unread_texts` are those credits' unread payer text
     (payer_text_unread_texts), which only _tier_reason reads. The owner's ruling of 2026-10-02 (the underwriter's Q3):
     every Zelle deposit is excluded after the tiers and before the $1 floor (_zelle_excluded). R2-OW03: a government
-    payment that prints no purpose (Q12) takes its display reason, GOVERNMENT_NO_PURPOSE, with its non_revenue tier."""
+    payment that prints no purpose (Q12) takes its display reason, GOVERNMENT_NO_PURPOSE, with its non_revenue tier.
+    Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout is counted and flagged
+    (customer_financing_payout), an earlier verification overruled after the factoring and self-own demotions, and
+    after the tiers, before the Zelle step, a large one-off lump sum among those payouts is held
+    (customer_financing_lump_sum)."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -5336,6 +5463,10 @@ def apply_true_revenue_pass(
             method = _q6_method(fact, repeats, consumer_only.get(group, True))
             if method is not None:
                 updated[index] = _verify(record, method, _Q6_REASONS[method], 0.85)
+    # Owner ruling 2026-10-02 (Q8): the statement's posted credits in cents, non-revenue included (the T7 base), which
+    # the lump-sum test reads, and the financiers' payouts the tiers give (index -> financier).
+    posted_cents = sum(_cents(records[index].amount) for index in credits)
+    financier_payouts: dict[int, str] = {}
     for index in credits:
         record, fact = updated[index], facts[index]
         # A3-H review: a factoring payer's credit is never verified, whichever earlier rule verified it. Audit B6 (I25,
@@ -5351,6 +5482,14 @@ def apply_true_revenue_pass(
         if record.revenue_classification == "verified_revenue" and fact.self_own and not _under_micro_floor(record):
             updated[index] = _with_tier(_holder_never_verified(record), "excluded_pending_review", "holder_name")
             continue
+        # Owner ruling 2026-10-02 (Q8): nor is a lease-to-own or patient financier's merchant payout, whichever earlier
+        # rule verified it: counted and flagged, and read by the lump-sum test below.
+        if record.revenue_classification == "verified_revenue" and fact.financier:
+            updated[index] = _with_tier(
+                _financier_never_verified(record), "counted_flagged", CUSTOMER_FINANCING_PAYOUT
+            )
+            financier_payouts[index] = fact.financier
+            continue
         tier = _TIER_OF_STATE.get(record.revenue_classification)
         if tier is not None:
             # R2-OW03 (Q12's display reason): a government payment that prints no purpose is named in the non-revenue
@@ -5364,6 +5503,13 @@ def apply_true_revenue_pass(
             unread=index in unread_indexes, unread_text=unread_texts.get(index, ""),
         )
         updated[index] = _with_tier(record, tier, reason)
+        if reason == CUSTOMER_FINANCING_PAYOUT:
+            financier_payouts[index] = fact.financier
+    # Owner ruling 2026-10-02 (Q8; §8.9, §8.10): after the tiers and before the Zelle step, a financier's payout that is
+    # a large one-off lump sum is held until sourced (_customer_financing_lump), read over every payout the tiers gave.
+    for index in financier_payouts:
+        if _customer_financing_lump(index, financier_payouts, updated, facts[index].channel, posted_cents):
+            updated[index] = _with_tier(updated[index], "excluded_pending_review", CUSTOMER_FINANCING_LUMP_SUM)
     # The owner's ruling of 2026-10-02 (the underwriter's Q3; §8.4, §8.10 step 26): the last tier step, after every
     # tier and before the $1 floor. Every Zelle deposit the rules tiered is excluded (_zelle_excluded), a hold or a
     # count alike; a row a non-revenue rule decided keeps that rule, and a direction conflict keeps its hold. Nothing
@@ -5483,6 +5629,9 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "payer_label_layout": classifier.payer_label_layout(text),
         "premium_coded": _premium_coded(text, region),
         "factoring_payer": _factoring_payout_payer(region, text),
+        # Owner ruling 2026-10-02 (Q8): the lease-to-own or patient financier whose merchant payout the row is (a
+        # ledger entity name, or None), which the census's narrowing and declared demotion read.
+        "customer_financing_payer": _customer_financier(record, text),
         # Audit B6 (I10): the row is a factoring review entity's credit, routed to the factoring payout, unconfirmed.
         "factoring_review": (
             record.classification == "factoring" and record.match_method == "unconfirmed_flag_payee_alias"

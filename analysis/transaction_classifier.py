@@ -2806,6 +2806,17 @@ _STORE_NAME_PAYOUT_ENTITIES = frozenset({
 })
 #: §7.0, §7.8, §7.10: the absolute micro-deposit floor, in whole dollars.
 _MICRO_DEPOSIT_FLOOR = 1
+#: Owner ruling 2026-10-02 (Q8; §8.9, §8.10): a lease-to-own or patient financier's payout (customer_financing_payout)
+#: is a large one-off lump sum, held until sourced (customer_financing_lump_sum), when it is this many whole dollars or
+#: more and is an incoming wire, a whole multiple of CUSTOMER_FINANCING_LUMP_ROUND dollars or at least
+#: CUSTOMER_FINANCING_LUMP_SHARE percent of the statement's posted credits; and the financier makes fewer than
+#: CUSTOMER_FINANCING_SERIES_MIN payouts in the statement (the row included) of at least
+#: CUSTOMER_FINANCING_SERIES_SHARE percent of its amount (three or more similar-size payouts are an ordinary series).
+CUSTOMER_FINANCING_LUMP_FLOOR = 10_000
+CUSTOMER_FINANCING_LUMP_ROUND = 1_000
+CUSTOMER_FINANCING_LUMP_SHARE = 50
+CUSTOMER_FINANCING_SERIES_MIN = 3
+CUSTOMER_FINANCING_SERIES_SHARE = 50
 #: §7.0: a legal-form holder name is a business account for the recurrence rule.
 _LEGAL_FORM_HOLDER = re.compile(r"\b(?:LLC|INC|CORP|LTD|LLP|PLLC)\b")
 #: §7.0: the operating-source methods whose rows may join the recurrence pool.
@@ -3723,8 +3734,12 @@ def _classify_credit_revenue(
     # 5.6 (audit B2: I20, §6.3 narrowing 8): a named sender after an own-account designation refuses the own-account
     # patterns; such a credit is no sale the text proves either, so no later step verifies it: the pass holds it (T13).
     named_after_designation = _named_sender_after_designation(text, holder)
+    # Owner ruling 2026-10-02 (Q8; §6.3 narrowing 12): Snap's merchant funding printed with the strong LOAN word ('SNAP
+    # LOAN FUNDING F<digits> <merchant>') is a lease-to-own financier's payout of the merchant's sale, which the
+    # true-revenue pass claims (CUSTOMER_FINANCING_PAYERS): the strong rule reads the row without that form only. Every
+    # other reader (the designation test above, the descriptor proceeds, the lender-credit reader) keeps the full text.
     if (
-        _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
+        _matches_any(_SNAP_MERCHANT_FUNDING.sub(" ", text), _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
     ) or _own_book_or_funds_transfer(text, holder):
         return _RevenueDecision(
             "non_revenue",
@@ -4430,12 +4445,18 @@ def _is_membership_or_top_up(text: str, match: PayeeMatch) -> bool:
 #: these consumer-side words (a return, a withdrawal, a refund, a balance, cash back, a reward, a card product, a
 #: purchase, or the debt collector TRUEACCORD) keeps its 5.4 reading: D1. Sezzle, American First Finance and
 #: PAYABILITY keep the entity-wide exception of 2026-09-25: the corpus prints WITHDRAWAL on Sezzle's merchant payouts
-#: and CARD on PAYABILITY's transfers.
-_OQ2_BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit"})
+#: and CARD on PAYABILITY's transfers. Owner ruling 2026-10-02 (Q8): Cherry Technologies joins PAYOUT_CREDIT_ENTITIES
+#: under the same consumer-side veto, so a Cherry consumer credit (a refund, a card credit) keeps its D1 reading.
+_OQ2_BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit", "Cherry Technologies, Inc."})
 _BNPL_CONSUMER_CREDIT = re.compile(
     r"\bRETURN\w*|\bWITHDRAW\w*|REFUND\w*|\bRFND\w*|\bREFND\w*|\bRFD\b|\bBALANCE\b|\bCASH ?BACK\b|\bREWARDS?\b"
     r"|\bAFFIRMCARD\b|\bCARD\b|\bPURCHASES?\b|\bTRUE ?ACCORD\b"
 )
+#: Owner ruling 2026-10-02 (Q8; §6.3 narrowing 12): Snap's merchant funding as Wells Fargo prints it, 'SNAP LOAN FUNDING
+#: F<digits> <merchant>': the strong non-revenue rule reads the row without it (_classify_credit_revenue), and the
+#: true-revenue pass reads a SNAP LOAN FUNDING payer as Snap's payout only in this form (_customer_financier). A SNAP LOAN
+#: FUNDING with no merchant form is a loan, as before.
+_SNAP_MERCHANT_FUNDING = re.compile(r"(?<![A-Z])SNAP LOAN FUNDING(?= F\d)")
 
 
 def _is_payout_credit(text: str, match: PayeeMatch) -> bool:

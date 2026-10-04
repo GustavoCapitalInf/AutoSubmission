@@ -210,6 +210,8 @@ const REVENUE_TIER_REASONS = Object.freeze({
   insurer_named_payer: ["excluded_pending_review", "Payer name reads as an insurer", "The payer's name reads as an insurer."],
   possible_return: ["excluded_pending_review", "Possible return or adjustment", "The row reads as a return, a reversal or an adjustment of an earlier item."],
   financing_named_payer: ["excluded_pending_review", "Payer or entry suggests financing", "The payer or the entry names funding, a loan or an advance."],
+  // Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's one-off lump sum, held until sourced.
+  customer_financing_lump_sum: ["excluded_pending_review", "One-off lump sum from a lease-to-own or patient financier", "A lease-to-own or patient-financing company paid a one-off lump sum ($10,000 or more; by wire, in whole thousands or half the statement's credits; not one of three or more payouts of its size): held until its source is confirmed."],
   unread_run_names_financing: ["excluded_pending_review", "A lender is printed among this credit's unread payer blocks", "The statement prints a lender's or a lending bank's block among payer blocks the reader could not attribute to one row: held until you confirm whose credit this is."],
   payer_debited_as_lender: ["excluded_pending_review", "Payer is also debited as a lender", "This payer is also debited from the account as a lender."],
   holder_name: ["excluded_pending_review", "From the holder's own name or brand", "The credit comes from the account holder's own name or brand."],
@@ -228,6 +230,8 @@ const REVENUE_TIER_REASONS = Object.freeze({
   p2p: ["counted_flagged", "Person-to-person", "A person-to-person payment."],
   factoring_payout: ["counted_flagged", "Factoring payout", "A factor's payout of the business's own invoices."],
   payout_credit_entity: ["counted_flagged", "BNPL or marketplace settlement (payer also lends)", "A buy-now-pay-later or marketplace settlement of the business's own sales, counted; the payer also lends."],
+  // Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout, counted, never verified.
+  customer_financing_payout: ["counted_flagged", "Lease-to-own or patient-financing payout", "A lease-to-own or patient-financing company paid the business for a customer's financed purchase: counted, never verified."],
   platform_unconfirmed: ["counted_flagged", "Platform payout, not confirmed", "A registered platform's payout without the context that confirms it."],
   numbered_company_payer: ["counted_flagged", "Numbered company payer", "A numbered company paid it: counted, never verified."],
   named_payer_purpose_refused: ["counted_flagged", "Named payer, purpose not accepted as proof", "A named payer whose printed purpose is not accepted as proof."],

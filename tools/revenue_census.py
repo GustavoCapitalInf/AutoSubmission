@@ -147,17 +147,25 @@ NARROWINGS = (
     # Audit round 2, R2-B10 (R11): §6.3's narrowing 4 as amended: a funds transfer an incoming-wire label starts that
     # prints only a reference is an incoming wire with no sender, held as wire_no_sender (Q5), never into True.
     ("13_bare_incoming_wire", False),
+    # Owner ruling 2026-10-02 (Q8): §6.3's narrowing 12: Snap's merchant funding printed with the strong LOAN word
+    # ('SNAP LOAN FUNDING F<digits> <merchant>') leaves the strong non-revenue rule, claimed by the true-revenue pass as
+    # a lease-to-own financier's payout: counted and flagged, never verified.
+    ("14_customer_financing_payout", True),
 )
-#: The narrowings that lead to True only counted and flagged, never verified (audit B3: I11; audit B6: I10).
-COUNTED_ONLY_NARROWINGS = frozenset({"10_processor_card_payout", "11_factoring_review_payout"})
+#: The narrowings that lead to True only counted and flagged, never verified (audit B3: I11; audit B6: I10; owner
+#: ruling 2026-10-02, Q8).
+COUNTED_ONLY_NARROWINGS = frozenset({
+    "10_processor_card_payout", "11_factoring_review_payout", "14_customer_financing_payout",
+})
 #: Audit B3 (I11): the method the true-revenue pass gives a released processor card payout
 #: (analysis/true_revenue.py PROCESSOR_CARD_PAYOUT_METHOD, copied: the census reads other checkouts).
 PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
 #: Final review I8: the narrowings that lead to True only through verification (§6.3: a claim payment and a released
 #: card credit are verified or held, never counted).
 VERIFIED_ONLY_NARROWINGS = frozenset({"2_hcclaimpmt_insurer", "6_card_credit_release"})
-#: OQ2 (§19): the five BNPL providers whose settlements left D1, by their ledger entity names.
-BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit"})
+#: OQ2 (§19): the five BNPL providers whose settlements left D1, by their ledger entity names. Owner ruling 2026-10-02
+#: (Q8): and Cherry Technologies, which joins PAYOUT_CREDIT_ENTITIES under OQ2's consumer-side veto.
+BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit", "Cherry Technologies, Inc."})
 #: The declared causes of a verified row losing its verification (§7.0, §7.11, §7.7), and the two consequences of the
 #: recurrence fixes this plan declares (Decisions): a pool that one of its members' re-reading splits between two
 #: entities, and a pool left below the recurrence count once a declared veto takes a member out. S3.1 (the owner's
@@ -217,6 +225,9 @@ DECLARED_DEMOTIONS = (
     # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit, non_revenue by the Zelle policy, pass
     # 7's last tier step (no corpus Zelle row is verified; a safeguard).
     "zelle_policy",
+    # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout, counted and flagged
+    # (customer_financing_payout) or held as a one-off lump sum (customer_financing_lump_sum), never verified.
+    "customer_financing_never_verified",
 )
 #: The owner's ruling of 2026-10-02 (the underwriter's Q3): the method pass 7 gives a Zelle deposit the Zelle policy
 #: excluded (analysis/true_revenue.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
@@ -1926,6 +1937,11 @@ def _narrowing(base: dict, after: dict) -> str | None:
         and base.get("entity") in BNPL_ENTITIES
     ):
         return "8_oq2_bnpl_settlement"
+    # Owner ruling 2026-10-02 (Q8; §6.3 narrowing 12): Snap's merchant funding printed with the strong LOAN word leaves
+    # the strong non-revenue rule, the true-revenue pass reading it as a lease-to-own financier's payout (the pass's own
+    # customer_financing_payer fact).
+    if base_method == "strong_non_revenue_rule" and facts.get("customer_financing_payer"):
+        return "14_customer_financing_payout"
     # Audit B2 (I20): Bank of America's and a credit union's layouts that print a named sender after the designation.
     if base_method == "strong_non_revenue_rule" and any(form.search(text) for form in _NAMED_DESIGNATION_TRANSFERS_56):
         return "9_named_transfer_after_designation"
@@ -2243,6 +2259,21 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         )
     ):
         return "factor_never_verified"
+    # Owner ruling 2026-10-02 (Q8). (a) any verifying rule; (b) counted and flagged as customer_financing_payout, or held
+    # as a one-off customer_financing_lump_sum, by the pass's overruling of an earlier rule (method
+    # customer_financing_payer) or, for a Q5 or Q6 repeat, by its own financier reading (the customer_financing_payer
+    # fact). Before the Q5/Q6 block, whose later-hold causes would call a lump sum undeclared.
+    if (
+        (after.get("tier"), after.get("reason")) in {
+            ("counted_flagged", "customer_financing_payout"),
+            ("excluded_pending_review", "customer_financing_lump_sum"),
+        }
+        and (
+            method == "customer_financing_payer"
+            or (base["method"] in Q5_Q6_METHODS and facts.get("customer_financing_payer"))
+        )
+    ):
+        return "customer_financing_never_verified"
     # Audit round 2, R2-B04 (R41). (a) any verifying rule; (b) held as holder_name by the pass's overruling of the
     # holder's own push (method self_originated_holder).
     if (

@@ -1533,6 +1533,9 @@ PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = (
     # Owner ruling 2026-09-28 (true revenue spec, OQ2): a buy-now-pay-later provider's settlement to the merchant is
     # the merchant's own sale, so it is revenue, not financing proceeds.
     "AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit",
+    # Owner ruling 2026-10-02 (Q8): Cherry's payout to a practice for a patient-financed treatment is the practice's
+    # own sale (CUSTOMER_FINANCING_PAYERS), under OQ2's consumer-side veto (the classifier's _OQ2_BNPL_ENTITIES).
+    "Cherry Technologies, Inc.",
 )
 
 #: Owner ruling 2026-09-27 (classification 5.3): the printed forms, in the bank's field order, of admitted payees whose
@@ -2052,6 +2055,38 @@ FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
     # A3-H review 2: the entity prints its apostrophe both ways, spaced and dropped.
     "Love's Solutions, LLC (Love's Financial)": ("LOVE S SOLUTIONS", "LOVES SOLUTIONS"),
 }
+
+#: Owner ruling 2026-10-02 (Q8; I17): lease-to-own and patient financiers whose merchant payouts are the merchant's
+#: sales, counted and flagged, never verified, like OQ2's BNPL settlements; a one-off lump sum is held until sourced;
+#: read by the true-revenue pass alone (analysis/true_revenue.py _customer_financier), on the payer region; no debit,
+#: flag or lender reading; each key is a ledger entity (tools/lender_ledger.customer_financing_problems). A bare CHERRY
+#: is Cherry only when the whole region is CHERRY plus company or entry words ('CHERRY FUNDING', 'CHERRY INC'); a
+#: longer name is another payer ('CHERRY HILL PLUMBING LLC'). KATAPULT ENGINEERING and KATAPULT PRO (KatapultPro,
+#: pole-attachment software) are a namesake, never this lessor. SNAP LOAN FUNDING is read only in Snap's merchant form
+#: (the pass's _SNAP_MERCHANT_FUNDING: 'SNAP LOAN FUNDING F<digits> <merchant>'); a loan to the holder stays a loan.
+CUSTOMER_FINANCING_PAYERS: dict[str, str] = {
+    "SNAP Finance": r"(?<![A-Z])SNAP (?:FINANCE|LOAN FUNDING)\b",
+    "Koalafi": r"(?<![A-Z])KOALAFI\b",
+    "Cherry Technologies, Inc.": (
+        r"^CHERRY(?: (?:TECHNOLOGIES|TECHNOLOGI|TECHNOLOG|TECHNOL|TECH|INC|FUNDING|PAYMENTS?|PMT|PAYOUTS?|MERCHANT"
+        r"|CCD|PPD))*$|(?<![A-Z])(?:CHERRY TECHNOL\w*|CHERRYPAY)\b"
+    ),
+    "Acima": r"(?<![A-Z])ACIMA\b",
+    "Terrace Finance": r"(?<![A-Z])TERRACE FINANCE\b",
+    "Wisetack": r"(?<![A-Z])WISETACK\b",
+    "Katapult": r"(?<![A-Z])KATAPULT\b(?! (?:ENGINEERING|PRO)\b)",
+    "Progressive Leasing": r"(?<![A-Z])(?:PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING)\b",
+}
+
+#: Owner ruling 2026-10-02 (Q8): the names of CUSTOMER_FINANCING_PAYERS' financiers, read with the receiver field's
+#: value removed (analysis/true_revenue.py compiles it): a row that names one of them is never verified by Q5 or Q6 and
+#: never counts toward a Q5 or Q6 repeat, wherever the name prints (KATAPULT with the same namesake lookahead).
+#: SECTION_15_DEFERRED_PAYERS' ACIMA|KATAPULT|KOALAFI line overlaps it and is left as it is.
+CUSTOMER_FINANCING_NAMES: str = (
+    r"(?<![A-Z])(?:SNAP FINANCE|SNAP LOAN FUNDING|KOALAFI|ACIMA|TERRACE FINANCE|WISETACK"
+    r"|KATAPULT(?! (?:ENGINEERING|PRO)\b)|PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING|CHERRY TECHNOL\w*"
+    r"|CHERRYPAY)\b"
+)
 
 #: 5.6 (§7.5, the standing rule; S4.2 review I6b): brokerage, investing and crypto-exchange platforms, as a regular
 #: expression read on the row before its receiver fields (analysis/true_revenue.py compiles it). A credit from one is

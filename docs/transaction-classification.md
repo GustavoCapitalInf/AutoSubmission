@@ -161,6 +161,7 @@ these rows by code (`non_revenue_by_reason`, below).
 | `insurer_named_payer` | `excluded_pending_review` | Payer name reads as an insurer | an unlisted payer whose payer region prints an insurer's name word (`INSUR…`, `ASSURANCE`, `MUTUAL`, `CASUALTY`, `INDEMNITY`, `UNDERWRIT…`), or a `CLAIM` or `CLAIMS` word on a row that is neither an `HCCLAIMPMT` entry nor from a healthcare payer (T14, Q6, §8.1) |
 | `possible_return` | `excluded_pending_review` | Possible return or adjustment | bare return or adjustment wording, or a card credit no form verifies (T3, §7.11) |
 | `financing_named_payer` | `excluded_pending_review` | Payer or entry suggests financing | a financing root on the payer's name or entry, a bank's own wire, a lending bank (T4, §8.1) |
+| `customer_financing_lump_sum` | `excluded_pending_review` | One-off lump sum from a lease-to-own or patient financier | a lease-to-own or patient financier's payout of $10,000 or more, by wire, in whole thousands or at least half the statement's posted credits, that is not one of three or more payouts of at least half its size from that financier (owner ruling 2026-10-02, Q8; §8.9) |
 | `unread_run_names_financing` | `excluded_pending_review` | A lender is printed among this credit's unread payer blocks | a credit the parser marked unread whose run of welded payer blocks prints a registry lender's or a lending bank's block (§8.2, §8.10; audit round 2, R2-B07) |
 | `payer_debited_as_lender` | `excluded_pending_review` | Payer is also debited as a lender | the statement debits the same payer as a lender (§8.1) |
 | `holder_name` | `excluded_pending_review` | From the holder's own name or brand | the holder's own name, push or wire as the payer (Q4 to Q6, §5.2) |
@@ -179,6 +180,7 @@ these rows by code (`non_revenue_by_reason`, below).
 | `p2p` | `counted_flagged` | Person-to-person | a person-to-person rail or a named transfer (Q4, T13) |
 | `factoring_payout` | `counted_flagged` | Factoring payout | a factor's payout of the invoices it bought, never verified (§8.9) |
 | `payout_credit_entity` | `counted_flagged` | BNPL or marketplace settlement (payer also lends) | a settlement from a platform that also finances the merchant (OQ2) |
+| `customer_financing_payout` | `counted_flagged` | Lease-to-own or patient-financing payout | a lease-to-own or patient financier (`CUSTOMER_FINANCING_PAYERS`) paying the merchant for a customer's financed purchase, never verified (owner ruling 2026-10-02, Q8; §8.9) |
 | `platform_unconfirmed` | `counted_flagged` | Platform payout, not confirmed | a platform payout no form or recurrence confirms (§7.2, §6.3 narrowing 9) |
 | `numbered_company_payer` | `counted_flagged` | Numbered company payer | a numbered company paying the holder, never verified (T11, OQ3) |
 | `named_payer_purpose_refused` | `counted_flagged` | Named payer, purpose not accepted as proof | a named payer whose purpose words Q5 or Q6 refuse as proof, a §15 deferred source included (§18.2 item 2, §15) |
