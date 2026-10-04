@@ -115,11 +115,13 @@ evidence by itself. Verification also requires credit direction plus
 settlement, payout, merchant-deposit, or similar context; alternatively,
 statement-level recurrence on a business account or related processing fees,
 commissions, chargebacks, and adjustments can supply that context. Generic ACH,
-wire, RTP, Zelle, and e-transfer credits, mobile/branch/ATM/night deposits,
+wire, RTP and e-transfer credits, mobile/branch/ATM/night deposits,
 checks, cash deposits, and unidentified credits are `unverified_deposit` until
 reviewed; since 5.6 each is also counted in True revenue (`counted_flagged`) or
 held for review (`excluded_pending_review`) by the tier rules below, and Q5 and
-Q6 verify the named wires and ACH payers they admit. Own-account transfers are
+Q6 verify the named wires and ACH payers they admit. A Zelle credit is
+`non_revenue` by the owner's Zelle policy of 2026-10-02 (`zelle_excluded`,
+below). Own-account transfers are
 excluded when the description identifies the internal account or self-service
 transfer channel.
 
@@ -203,7 +205,12 @@ possible return, financing-named payer, payer debited as a lender, the holder's
 own name, payroll or salary, personal income, a non-sale purpose, a payer also
 debited this account; then by channel: a wire with no sender, a transfer with no
 counterparty or naming an account, and repeated round person-to-person sums.
-The $1 floor is absolute: a posted credit under $1 is never verified and never
+After the tiers and before the $1 floor, the pass excludes every Zelle deposit
+the tiers verified, counted or held (owner ruling 2026-10-02, the underwriter's
+Q3): `non_revenue` with the reason `zelle_excluded`, the rules' own tier and
+reason kept in its reason and its `zelle_prior:` context signal; a Zelle credit
+a non-revenue rule decided keeps that rule, and a direction conflict keeps its
+hold. The $1 floor is absolute: a posted credit under $1 is never verified and never
 counted, whichever rule read it, and is held as `non_sale_purpose`.
 Every other unverified credit is counted (`counted_flagged`) with its reason. A
 statement needs revenue review (`revenue_review_required`) when it has an
@@ -265,6 +272,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Owner money, a brokerage, investing or crypto-exchange platform's credit included, is held as `non_sale_purpose` (§7.5, §8.1).
 - A deferred source stays counted and flagged, never verified by Q5 or Q6 (§15, §19 OQ4).
 - Repeated round sums from one sender are held as `p2p_round_repeat`, a named transfer printed without FROM included (§8.4).
+- Every Zelle deposit is `non_revenue` (`zelle_excluded`), whoever sent it, a lender or processor paying through Zelle included: the pass's last tier step, before the $1 floor, keeps the rules' reading on the record (`zelle_prior_reading`); a row a non-revenue rule decided keeps that rule, and a direction conflict keeps its hold (owner ruling 2026-10-02, the underwriter's Q3; §8.4, §8.10).
 - Q5 and Q6 leave a row the operating registry names, and a NET SETTLE row, to its own rule (§7.1, §8.5, §8.6).
 - VIREMENT is a person-to-person rail only in its Interac forms (§8.4).
 - A cancelled French transfer is a reversal (§6.1 step 3).
@@ -353,6 +361,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Audit round 2, R2-B14 review round 1 (b4ea8df): package mechanics only, no classification change. The package tests a printout of more than a month (31 days) first, the longest first, so a quarterly printout or a multi-month export whose every posted row the account's monthly statements print is left out (`superseded_long_printout`) and the monthly statements stay, each its own calendar month; the rest keep the shortest-first order (`superseded_interim`), so a full month is never left out for partial printouts of it; each overlapping pair names its account's currency (`overlapping_statements[].currency`), which the package downloads' section and words print (true revenue spec §9.2, §10.1, §10.8, §20).
 - Audit round 2, R2-B15 (R13, R15, R54, R55, R50; 14e7d2d): package mechanics and the dashboard only, no classification change, no tier or total moves. A package's `months` is floored by the days each account's statements cover, as whole months of 30.4375 days, half up, so consecutive statements of one account or a statement longer than a month never read fewer months than their days (the Month/Year labels unchanged), and a statement's copied summary reads its monthly figures over the months its period covers; an account left out for another reason than a repeat is named (`filename`, `completeness` `partial`, `excluded_account_count`, an `excluded_account_<n>` download section, a dashboard notice) and sends the package to review, its membership unchanged; a package with no statement analysed publishes no True, Verified, Counted or Held figure, and a job still queued or processing is `pending`, never `failed`; `monthly_lender_debits` is the lender debits per calendar month; the dashboard counts statements and accounts apart (true revenue spec §9.2, §10.1, §10.4, §10.8, §20).
 - Owner ruling 2026-10-02, R2-OW01 (the underwriter's Q12 and Q13; 8c78f05): §6.1 step 3a: a government payment that prints no purpose is `non_revenue` (`government_no_purpose`: one of the seven forms of `GOVERNMENT_NO_PURPOSE_FORMS`, the row read with the receiver's value removed and every field after it kept, American Express's template from its originator up to its id; method `government_no_purpose_exclusion`, rule `government_payment_no_purpose`, the form's key in `matched_alias`), after the direction conflict and the reversal and before every other rule, at any amount; no source type and no tier reason are added, and a purpose printed anywhere or a form the ruling did not name keeps its reading (the GOV bullet above). The census's class G reads the seven forms (the Treasury form at medium confidence), class H keeps the forms the ruling did not name, `government_no_purpose` is a declared demotion and guard G19 fails a True credit printing one of the six other forms. The underwriter's Q13 changes no behaviour: `PROCESSOR_CARD_PAYOUT_RELEASE` and `CASH_APP_CARD_PUSH_RELEASE` stay off, so a processor's payout printed as a bare card credit stays a card refund (true revenue spec §2.1, §6.1, §6.3, §7.6, §7.11, §8.6, §14.2, §14.3, §17.1, §19.1, §20).
+- Owner ruling 2026-10-02, R2-OW02 (the underwriter's Q3; ecbcd28): every posted Zelle deposit is `non_revenue` with the reason `zelle_excluded` (method and rule `zelle_deposit_excluded`), whoever sent it, a lender or processor paying through Zelle included. `true_revenue.zelle_deposit` reads the Zelle rail on the revenue text before the receiver fields (`ZELLE` with no letter on either side, a glued date or reference included, or PNC's `ZEL FROM|TO`; never `HAZEL`, `ROSZELL`, `MAZZELLA`, `ZELLER`), and pass 7 excludes such a row as its last tier step, after Q5, Q6 and every hold and before the $1 floor: a count, a verification or a hold (round-sum repeats, the holder's name, a payer also debited, financing, a payer debited as a lender, the floor's) becomes the exclusion, the rules' own tier and reason kept in the reason sentence and the `zelle_prior:<tier>:<reason>` context signal (`zelle_prior_reading`). A row a non-revenue rule decided (a refund, a reversal, an opposite-direction pair, an own-account transfer, a listed funder's financing proceeds with the lender-credit exclusion, a non-operating credit) keeps that rule and no reason; a direction conflict keeps its hold. The legacy classification, the entity, the flag group, the lender fields, the withholding flags and the debits are unchanged; `_CONSUMER_P2P_RAIL` is unchanged; the other person-to-person rails keep their reading. `REVENUE_TIER_REASONS` ends with `zelle_excluded` (tier `non_revenue`), mirrored by the dashboard; the dashboard's statement of the exclusion and the confirm valve land with R2-OW03, and until then such a row is non-revenue like any other (no review control). The census declares a Verified Zelle row the policy excluded as `zelle_policy`. The underwriter's Q3b (no-sender e-Transfers' round-sum repeats) is ruled and held back from the code: the real-statement pin it would move moves only on the owner's word (true revenue spec §2.1, §5.3, §8.4, §8.10, §17.1, §19.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record

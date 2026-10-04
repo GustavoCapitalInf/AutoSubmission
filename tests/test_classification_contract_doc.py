@@ -212,6 +212,9 @@ SECTION_19_1_DECISIONS = (
         "keep them excluded", "`PROCESSOR_CARD_PAYOUT_RELEASE`", "`CASH_APP_CARD_PUSH_RELEASE`", "stays off",
         "the owner may overrule it", "`VISA DIRECT`", "audit I11",
     )),
+    ("**2026-10-02, Zelle and no-sender e-Transfers (Q3, Q3b).**", (
+        "`zelle_excluded`", "whoever sent it", "`p2p_round_repeat_no_sender`", "keyed on the amount",
+    )),
 )
 
 
@@ -290,3 +293,21 @@ def test_the_spec_closes_gov_class_e_with_the_owner_s_ruling():
     rulings = _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
     assert "Owner rulings (2026-10-02, the underwriter's answers)" in rulings
     assert "| Q12 (2026-10-02) |" in rulings and "| Q13 (2026-10-02) |" in rulings
+
+
+def test_the_spec_closes_i35_with_the_zelle_ruling_and_holds_q3b_for_the_owner():
+    """The underwriter's Q3 and Q3b (2026-10-02, R2-OW02): §17.1's I35 question is answered, §2.1 carries both rows,
+    §8.4 the Zelle policy and §8.10 its step 26, and §17.1 asks the owner about Q3b's held code."""
+    text = SPEC.read_text(encoding="utf-8")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "**I35, round-sum repeats.**" not in open_items
+    assert "Answered 2026-10-02 (§2.1, §19.1): I35, with round-2 R09" in open_items
+    assert "**No-sender e-Transfers' round-sum repeats (the underwriter's Q3b of 2026-10-02" in open_items
+    rulings = _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
+    assert "| Q3 (2026-10-02) |" in rulings and "| Q3b (2026-10-02, round-2 R09) |" in rulings
+    assert "Amended 2026-10-02 (§2.1, §19.1): Zelle deposits are `non_revenue` (`zelle_excluded`)." in rulings
+    assert "- **Zelle (owner ruling 2026-10-02, the underwriter's Q3):**" in _section(text, "\n### 8.4 ", "\n### 8.5 ")
+    assert "26. Then, after every step above and before the $1 floor, the Zelle policy" in _section(
+        text, "\n### 8.10 ", "\n## 9. ")
+    assert "| `non_revenue` | `zelle_excluded` | Zelle deposit (excluded by policy) |" in _section(
+        text, "\n### 5.3 ", "\n### 5.4 ")
