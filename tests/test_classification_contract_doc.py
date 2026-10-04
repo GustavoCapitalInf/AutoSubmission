@@ -173,6 +173,12 @@ STALE_SENTENCES = (
     # no-purpose payment is non_revenue.
     (CONTRACT, "which waits for the owner"),
     (SPEC, "WSIB paying a clinic stays counted"),
+    # The owner's ruling of 2026-10-02, R2-OW03: Q12's rows carry a display reason, and a Zelle deposit may be
+    # confirmed, so the Zelle code is no longer the one exception and non-revenue rows are no longer all control-free.
+    (CONTRACT, "The one exception is a Zelle deposit"),
+    (CONTRACT, "until then such a row is non-revenue like any other"),
+    (SPEC, "A `non_revenue` row carries a reason only when an owner ruling of 2026-10-02 decided it (the Zelle"),
+    (SPEC, "Non-revenue rows have no controls (§15). "),
 )
 
 
@@ -311,3 +317,24 @@ def test_the_spec_closes_i35_with_the_zelle_ruling_and_holds_q3b_for_the_owner()
         text, "\n### 8.10 ", "\n## 9. ")
     assert "| `non_revenue` | `zelle_excluded` | Zelle deposit (excluded by policy) |" in _section(
         text, "\n### 5.3 ", "\n### 5.4 ")
+
+
+def test_the_spec_states_the_non_revenue_breakdown_and_the_zelle_confirm():
+    """Owner ruling 2026-10-02, R2-OW03 (the underwriter's Q3 and the Q12 card's open point 2): §5.3 lists Q12's
+    display reason and says which non_revenue rows carry a code, §9.1 and §9.2 the breakdown, §10.1 the True card's
+    Zelle fact, §10.2 the Monthly detail, §10.7 the Zelle confirm and §10.8 the export rows; the contract follows."""
+    text = SPEC.read_text(encoding="utf-8")
+    codes = _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    assert "| `non_revenue` | `government_no_purpose` | Government payment, no purpose printed |" in codes
+    assert "`NON_REVENUE_REASONS`" in codes and "every other `non_revenue` row carries none" in codes
+    assert "`non_revenue_by_reason`" in _section(text, "\n### 9.1 ", "\n### 9.2 ")
+    assert "`non_revenue_by_reason`" in _section(text, "\n### 9.2 ", "\n### 9.3 ")
+    assert "Zelle deposits excluded:" in _section(text, "\n### 10.1 ", "\n### 10.2 ")
+    assert "Zelle excluded" in _section(text, "\n### 10.2 ", "\n### 10.3 ")
+    review = _section(text, "\n### 10.7 ", "\n### 10.8 ")
+    assert "with one exception" in review and "a `zelle_excluded` row shows Confirm Revenue only" in review
+    assert "`non_revenue.<code>.count`" in _section(text, "\n### 10.8 ", "\n## 11. ")
+    contract = _flat(CONTRACT)
+    for words in ("`non_revenue_by_reason`", "`REVIEWABLE_NON_REVENUE_REASONS`", "`government_no_purpose`",
+                  "Owner ruling 2026-10-02, R2-OW03"):
+        assert words in contract, words
