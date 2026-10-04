@@ -995,3 +995,322 @@ def test_r42_the_td_payer_field_s_width_is_fifteen_characters():
     # Q7 reads no bank, so TD's cut never spares a word there (fail closed); an operator's word still does.
     assert tr._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP")
     assert not tr._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP", TD)
+
+
+# Audit round 2, R2-B13 (R34): B7's I18 spares read DISTRIB... and STOCK as a name word only inside the payer's name
+# proper (a wire's or an ACH originator's whole field; a transfer's FROM sender up to its company form, or, with no
+# form, only when a label or a reference closes it), never after an earnings, liquidation or pro-rata word or a
+# month-year code, and a street's name only after a street number: an owner's distribution printed as the purpose is
+# held, a distributor's name is still a customer.
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("ONLINE TRANSFER FROM CONTOSO HOLDINGS LLC PROFIT DISTRIBUTION", "Wells Fargo"),
+    ("ONLINE TRANSFER FROM CONTOSO HOLDINGS LLC DISTRIBUTION", "Wells Fargo"),
+    ("TRANSFER FROM CONTOSO HOLDINGS LLC STOCK SALE PROCEEDS", "Mercury"),
+    ("ONLINE TRANSFER FROM PAT SAMPLE DISTRIBUTION", "Wells Fargo"),
+    ("TRANSFER IN FROM PAT SAMPLE PROFIT DISTRIBUTION", "Wealthsimple"),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO EARNINGS DISTRIBUTION SAMPLE LLC", "Wells Fargo"),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO JAN54 DISTRIBUTION SAMPLE LLC", "Wells Fargo"),
+    ("WIRE TYPE WIRE IN DATE 540102 TIME 1200 ET TRN 2054010200001 ORIG FABRIKAM HOLDINGS LLC ID 123 PMT DET EARNINGS "
+     "DISTRIBUTION SAMPLE LLC", "Bank of America"),
+    ("FABRIKAM HOLDINGS DISTRIBUTION ST-A1B2C3D4", "Wells Fargo"),
+    ("FABRIKAM GRANT ST-A1B2C3D4", "Wells Fargo"),
+    ("CONTOSO EQUITY DR 12345", "Wells Fargo"),
+    ("SAMPLE REWARDS WAY 12345", "Wells Fargo"),
+    # The stop-list's other new words and the month-year code's other spellings.
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO LIQUIDATING DISTRIBUTION SAMPLE LLC", "Wells Fargo"),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO PRORATA DISTRIBUTION SAMPLE LLC", "Wells Fargo"),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO SEPT54 DISTRIBUTION SAMPLE LLC", "Wells Fargo"),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO 15JAN DISTRIBUTION SAMPLE LLC", "Wells Fargo"),
+    # A company form ends the sender's name proper, a closing label or not.
+    ("ONLINE TRANSFER FROM CONTOSO LLC DISTRIBUTION REF IB0ABCDEF", "Wells Fargo"),
+])
+def test_r34_an_owner_distribution_outside_the_payer_s_name_proper_is_held(text, bank):
+    assert _one(text, 5000.0, bank=bank) == NON_SALE
+
+
+@pytest.mark.parametrize(("text", "bank", "expected"), [
+    ("TRANSFER FROM CONTOSO DISTRIBUTION LLC", "Mercury", P2P),
+    ("ZELLE PAYMENT FROM CONTOSO DISTRIBUTION CONF AB1234", "Bank of America", P2P),
+    # The recorded residue: a sender a label closes is read as the account's name.
+    ("ONLINE TRANSFER FROM CONTOSO PARTNERS DISTRIBUTION REF IB0ABCDEF ON 01 02 54", "Wells Fargo", P2P),
+    ("ORIG CO NAME:CONTOSO DISTRIBUTIO ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:PAYMENT SEC:CCD "
+     "TRACE#:123456789012345 EED:540102 IND ID:1 IND NAME:NORTHWIND BAKERY", "Chase", ONE_OFF),
+    ("WT FED#01234 SAMPLE BANK /ORG=CONTOSO DISTRIBUTION SRF# 2054010200000 TRN#540102000001 RFB# INV 1234",
+     "Wells Fargo", WIRE),
+    ("ACH CREDIT FABRIKAM DISTRIBUTION INC PAYMENT", "Wells Fargo", COMPANY),
+    ("ACH CREDIT FABRIKAM A1 DISTRIBUTION LLC PAYMENT", "Wells Fargo", ONE_OFF),
+    ("STRIPE TRANSFER ST-A1B2C3D4 NORTHWIND BAKERY", "Wells Fargo", ("verified", "operating_source_with_credit_context")),
+    ("ATM CHECK DEPOSIT ON 01/02 1 GRANT AVE SAMPLETOWN CA 1234567 ATM ID 1234A CARD 1234", "Wells Fargo", CHECK),
+    ("EDEPOSIT IN BRANCH 01/02/54 10:30:00 AM 100 GRANT AVE SAMPLETOWN CA", "Wells Fargo", NO_PAYER),
+    ("ATM CASH DEPOSIT ON 01 02 1 N GRANT AVE SAMPLEVILLE CA 1234567 ATM ID 1234D CARD 1234", "Wells Fargo", NO_PAYER),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO QUARTERLY DISTRIBUTION SAMPLE LLC", "Wells Fargo", NON_SALE),
+    ("CONTOSO FOOD DISTRIBUTION GROUP LLC 1", "Wells Fargo", UNLABELLED),
+    ("A1 DISTRIBUTION LLC 540115 1234567", "Wells Fargo", UNLABELLED),
+    ("TRANSFER IN FROM CONTOSO DISTRIBUTION LLC", "Wealthsimple", P2P),
+    ("CASH BACK ST A1B2C3D4", "Wells Fargo", ("non_revenue", "strong_non_revenue_rule")),
+])
+def test_r34_controls_keep_their_readings(text, bank, expected):
+    assert _one(text, 5000.0, bank=bank) == expected
+
+
+def test_r34_a_distributor_with_no_form_on_an_open_ended_sender_is_held():
+    # The recorded risk: on a layout that prints the sender's memo straight after its name with no label (Wealthsimple's
+    # 'TRANSFER IN FROM <sender> <memo>'), a distributor printing no company form is held (fail closed).
+    assert _one("TRANSFER IN FROM CONTOSO DISTRIBUTION", 5000.0, bank="Wealthsimple") == NON_SALE
+
+
+@pytest.mark.parametrize(("text", "proper"), [
+    # A wire's or an ACH originator's whole field.
+    ("WT FED 01234 SAMPLE BANK ORG CONTOSO DISTRIBUTION SRF 2054010200000 TRN 540102000001 RFB INV 1234",
+     "CONTOSO DISTRIBUTION"),
+    ("CONTOSO PARTNERS DES:DISTRIB ID:1 INDN:NORTHWIND GRILL LLC CO ID:1 CCD", None),
+    # A transfer's sender: up to and including its first company form.
+    ("ONLINE TRANSFER FROM CONTOSO HOLDINGS LLC PROFIT DISTRIBUTION", "CONTOSO HOLDINGS LLC"),
+    ("TRANSFER FROM CONTOSO DISTRIBUTION LLC", "CONTOSO DISTRIBUTION LLC"),
+    # With no form: the whole sender when a label or a reference closes it, else nothing.
+    ("ZELLE PAYMENT FROM CONTOSO DISTRIBUTION CONF AB1234", "CONTOSO DISTRIBUTION"),
+    ("ONLINE TRANSFER FROM CONTOSO DISTRIBUTION 12345", "CONTOSO DISTRIBUTION"),
+    ("ONLINE TRANSFER FROM PAT SAMPLE DISTRIBUTION", ""),
+    ("TRANSFER IN FROM CONTOSO DISTRIBUTION", ""),
+])
+def test_r34_the_payer_s_name_proper(text, proper):
+    from analysis import transaction_classifier as classifier
+
+    region = classifier.payer_region(text)
+    assert tr._payer_name_proper(text, region) == (region if proper is None else proper)
+
+
+def test_r34_the_formed_name_s_word_before_and_the_numbered_street():
+    for word in ("EARNINGS", "EARNING", "LIQUIDATING", "LIQUIDATION", "PRORATA"):
+        assert word in tr._NOT_A_NAME_WORD_BEFORE
+    for code in ("JAN54", "SEP2054", "SEPT54", "DEC54", "15JAN", "1JAN54", "2054MAR", "Q4", "K1", "2054Q4", "4TH"):
+        assert tr._PERIOD_CODE.fullmatch(code), code
+    for word in ("A1", "H2O", "JANE", "MAYO", "DECK1", "JAN", "J4N"):
+        assert not tr._PERIOD_CODE.fullmatch(word), word
+    street = tr._NUMBERED_STREET_NAME
+    assert street.sub(r"\g<number> ", "ATM CHECK DEPOSIT 1 GRANT AVE SAMPLEVILLE").split() == [
+        "ATM", "CHECK", "DEPOSIT", "1", "AVE", "SAMPLEVILLE"]
+    assert street.sub(r"\g<number> ", "ATM DEPOSIT 123 N GRANT ST").split() == ["ATM", "DEPOSIT", "123", "N", "ST"]
+    assert street.sub(r"\g<number> ", "ATM DEPOSIT 12B EQUITY DR").split() == ["ATM", "DEPOSIT", "12B", "DR"]
+    for text in ("FABRIKAM HOLDINGS DISTRIBUTION ST A1B2C3D4", "CONTOSO EQUITY DR 12345", "AB12 GRANT AVE",
+                 "1 OLD SAMPLE GRANT AVE"):
+        assert street.sub(r"\g<number> ", text) == text, text
+    # B7's street name (no number needed) is unchanged: the deposit reading still removes it.
+    assert tr._STREET_NAME.sub(" ", "ATM DEPOSIT SAMPLE ST SAMPLEVILLE").split() == ["ATM", "DEPOSIT", "ST",
+                                                                                      "SAMPLEVILLE"]
+    assert tr._deposit_location_reading("ATM CASH DEPOSIT CAPITAL BLVD", HOLDER, "Wells Fargo") == ""
+
+
+# Audit round 2, R2-B13 (R35; B7 review round 3, minor 1): a deposit's location removal keeps a funder's financing word
+# that a name word stands before ('MOBILE DEPOSIT <NAME> FUNDING <town> <ST>'); a location whose first word alone is a
+# financing word after the deposit's own words, a number or the row's start is still a place ('1 ADVANCE NC').
+
+@pytest.mark.parametrize("text", [
+    "MOBILE DEPOSIT FABRIKAM FUNDING SAMPLEVILLE CA",
+    "MOBILE DEPOSIT FABRIKAM FUNDING NY",
+    "MOBILE DEPOSIT CONTOSO CAPITAL PA",
+    "MOBILE DEPOSIT FABRIKAM CAPITAL PLAZA",
+    "ATM CHECK DEPOSIT 1 FABRIKAM CAPITAL CENTER",
+    "REMOTE ONLINE DEPOSIT 1 FABRIKAM CAPITAL BRANCH",
+    "DEPOSIT FABRIKAM CAPITAL CITY BRANCH",
+    "COUNTER CREDIT CONTOSO LENDING PARK",
+    "MOBILE DEPOSIT FABRIKAM MERCHANT FUNDING SAMPLEVILLE CA 12345",
+])
+def test_r35_a_funder_s_name_before_a_location_still_holds(text):
+    assert _one(text, 4000.0, bank="Wells Fargo") == FINANCING
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("ATM CHECK DEPOSIT 1 CAPITAL HEIGHTS MD 1234567 ATM ID 1234", CHECK),
+    ("ATM CASH DEPOSIT CAPITAL HEIGHTS MD", NO_PAYER),
+    ("MOBILE DEPOSIT 1 ADVANCE NC", CHECK),
+    ("EDEPOSIT IN BRANCH 1 FINANCIAL PLAZA", NO_PAYER),
+    ("DEPOSIT CAPITAL CITY BRANCH", NO_PAYER),
+    ("BRANCH DEPOSIT FINANCIAL DISTRICT BRANCH", NO_PAYER),
+    ("CASH DEPOSIT BRANCH 12 CAPITAL CIR", NO_PAYER),
+    ("ABM DEPOSIT SAMPLE SQUARE SAMPLEVILLE BC", NO_PAYER),
+    ("MOBILE DEPOSIT FABRIKAM SAMPLEVILLE CA", CHECK),
+    ("MOBILE DEPOSIT FUNDS ON HOLD SAMPLEVILLE CA", CHECK),
+    # A word inside a deposit form ('NIGHT DROP'), or Wells Fargo's ATM layout, whose address and town sit between
+    # DEPOSIT and its trailing ATM ID (the form's DEPOSIT ... ATM arm), and the street suffix ending a numbered address.
+    ("NIGHT DROP CAPITAL PLAZA", NO_PAYER),
+    ("ATM CHECK DEPOSIT ON 01 02 SAMPLE CAPITAL PLAZA SAMPLEVILLE CA 1234567 ATM ID 1234A CARD 1234", CHECK),
+    ("ATM DEPOSIT 123 MAIN ST CAPITAL HEIGHTS MD", NO_PAYER),
+    ("ATM DEPOSIT 123 N MAIN ST CAPITAL HEIGHTS MD", NO_PAYER),
+    # The recorded residuals: a one-word glued funder's name right after DEPOSIT, before a place word, and a name word
+    # inside the DEPOSIT ... ATM arm's gap, still count.
+    ("MOBILE DEPOSIT CAPITALFAB PLAZA", CHECK),
+    ("DEPOSIT FABRIKAM CAPITAL PLAZA ATM 1234", NO_PAYER),
+    # A street suffix with no number before it ends no address.
+    ("MOBILE DEPOSIT FABRIKAM WAY CAPITAL PLAZA", FINANCING),
+    # Unchanged controls.
+    ("MOBILE DEPOSIT FABRIKAM FUNDING LLC", FINANCING),
+    ("MOBILE DEPOSIT FABRIKAM FUNDING", FINANCING),
+    ("MOBILE DEPOSIT FABRIKAM CAPITAL ADVANCE SAMPLEVILLE CA", FINANCING),
+    ("MOBILE DEPOSIT FORA FINANCIAL SAMPLEVILLE CA", ("non_revenue", "financing_proceeds_credit")),
+    # The recorded risk (fail closed): a place whose financing word follows another place word is held.
+    ("ATM DEPOSIT US BANK EASTGATE ADVANCE NC", FINANCING),
+])
+def test_r35_a_deposit_s_location_controls(text, expected):
+    assert _one(text, 4000.0, bank="Wells Fargo") == expected
+
+
+def test_r35_the_guarded_location_removal():
+    read = tr._deposit_location_reading
+    assert read("MOBILE DEPOSIT FABRIKAM FUNDING SAMPLEVILLE CA", HOLDER, "Wells Fargo") == "FUNDING"
+    assert read("MOBILE DEPOSIT FABRIKAM CAPITAL PLAZA", HOLDER, "Wells Fargo") == "CAPITAL"
+    assert read("DEPOSIT FABRIKAM CAPITAL CITY BRANCH", HOLDER, "Wells Fargo") == "CAPITAL"
+    assert read("MOBILE DEPOSIT 1 ADVANCE NC", HOLDER, "Wells Fargo") == ""
+    assert read("ATM CASH DEPOSIT CAPITAL HEIGHTS MD", HOLDER, "Wells Fargo") == ""
+    assert read("CAPITAL HEIGHTS MD", HOLDER, "Wells Fargo") == ""
+    assert read("ATM DEPOSIT 1# CAPITAL PLAZA", HOLDER, "Wells Fargo") == ""
+    assert read("TELLER CAPITAL PLAZA", HOLDER, "Wells Fargo") == ""
+    # Two financing words in one match: never removed.
+    assert read("MOBILE DEPOSIT CAPITAL FUNDING NY", HOLDER, "Wells Fargo") == "CAPITAL FUNDING"
+    for word in ("DEPOSIT", "ATM", "ABM", "BRANCH", "COUNTER", "CREDIT", "TELLER", "MOBILE", "REMOTE", "IN", "AT"):
+        assert word in tr._DEPOSIT_LEAD_WORDS
+    # The numbered street's suffixes are B7's street name's, kept in step.
+    assert tr._STREET_NAME.pattern == (r"(?<![A-Z])[A-Z]+(?= (?:" + tr._STREET_SUFFIXES + r")\b)")
+
+
+# Audit round 2, R2-B13 (R39; B7 review round 3, minor 3): a floor-plan lender's name is a floor-plan form or WHOLESALE
+# beside a lender's or a vehicle trade's whole word, never a customer's FINE, CAPE, FINCH or AUTOMATION.
+
+_R39_WF = "WT FED#01234 SAMPLE BANK /ORG={sender} SRF# 2054010200000 TRN#540102000001 RFB# VEHICLE PURCHASE"
+
+
+@pytest.mark.parametrize("sender", [
+    "CONTOSO FINE WHOLESALE LLC", "CAPE WHOLESALE FOODS INC", "SAMPLE AUTOMATION WHOLESALE LLC",
+    "FABRIKAM WHOLESALE FINCH LLC", "CAPTAIN WHOLESALE SEAFOOD INC", "CONTOSO MOTORSPORTS WHOLESALE INC",
+    # DEALERSHIP is no lender's word (the card: an over-match).
+    "CONTOSO DEALERSHIP WHOLESALE INC",
+    # Never held before: a grocer, a flooring contractor, a person.
+    "CONTOSO WHOLESALE GROCERS INC", "CONTOSO FLOORING LLC", "PAT SAMPLE",
+])
+def test_r39_a_customer_named_with_a_lender_word_s_letters_is_counted(sender):
+    assert _one(_FEDWIRE.format(sender=sender), 1000.0, holder=_TRUCKS) == REFUSED
+
+
+@pytest.mark.parametrize("sender", [
+    "CONTOSO WHOLESALE AUTO LLC", "CONTOSO WHOLESALE AUTOS LLC", "SAMPLE AUTO WHOLESALE INC",
+    "NORTHWIND WHOLESALE MOTORS LLC", "FABRIKAM WHOLESALE FUNDING LLC", "FABRIKAM WHOLESALE FINANCE LLC",
+    "CONTOSO DEALER WHOLESALE INC", "FABRIKAM FLOORPLAN FUNDING LLC", "FABRIKAM FLOOR PLAN SERVICES",
+    # Held by the financing root's unanchored FUND, a separate reach.
+    "FUNDAMENTAL WHOLESALE LLC",
+])
+def test_r39_a_floor_plan_lender_s_vehicle_wire_stays_held(sender):
+    assert _one(_FEDWIRE.format(sender=sender), 1000.0, holder=_TRUCKS) == FINANCING
+
+
+def test_r39_the_same_sender_s_invoice_wire_and_the_wells_fargo_layout():
+    invoice = _FEDWIRE.format(sender="CAPE WHOLESALE FOODS INC").replace("UR I VEHICLE PURCHASE VIN 1", "INV 1234")
+    assert _one(invoice, 1000.0, holder=_TRUCKS) == ("verified", "wire_remittance_purpose")
+    for sender in ("CAPE WHOLESALE FOODS INC", "CONTOSO WHOLESALE GROCERS INC"):
+        assert _one(_R39_WF.format(sender=sender), 1000.0, holder=_TRUCKS, bank="Wells Fargo") == WIRE
+    assert _one(_R39_WF.format(sender="CONTOSO WHOLESALE AUTO LLC"), 1000.0, holder=_TRUCKS,
+                bank="Wells Fargo") == FINANCING
+
+
+def test_r39_the_floor_plan_lender_name_reads_whole_words():
+    name = tr._FLOOR_PLAN_LENDER_NAME
+    for text in ("CONTOSO FINE WHOLESALE LLC", "CAPE WHOLESALE FOODS INC", "FABRIKAM WHOLESALE FINCH LLC",
+                 "SAMPLE AUTOMATION WHOLESALE LLC", "CAPTAIN WHOLESALE SEAFOOD", "CONTOSO DEALERSHIP WHOLESALE INC",
+                 "CONTOSO WHOLESALE GROCERS INC", "CONTOSO FLOORING LLC"):
+        assert not name.search(text), text
+    for text in ("CONTOSO WHOLESALE AUTO LLC", "SAMPLE AUTO WHOLESALE INC", "CONTOSO WHOLESALERS CAPITAL LLC",
+                 "FABRIKAM FLOORPLAN LLC", "FABRIKAM FLOOR PLAN SERVICES", "CONTOSO WHOLESALE DEALERS INC",
+                 "CONTOSO WHOLESALE CREDIT LLC"):
+        assert name.search(text), text
+    # The Q7 veto's floor-plan words are unchanged.
+    assert tr._DEALER_FLOOR_PLAN_WORDS.pattern == r"(?<![A-Z])(?:FLOOR\w*|WHOLESALE\w*)"
+
+
+# Audit round 2, R2-B13 (R23): a company's direct deposit on a consumer (PPD or WEB) entry is pay only when its receiver
+# is no company: a receiver field that prints a company form, or names a company-formed holder, is the business.
+
+ROUTES = "NORTHWIND ROUTES LLC"
+PLATFORM = ("counted_flagged", "platform_unconfirmed")
+_R23_BOFA = "{payer} DES:{entry} ID:{n} INDN:{indn} CO ID:1234567890 {sec}"
+_R23_CHASE = ("ORIG CO NAME:FABRIKAM SVC ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:DIR DEPSEC:{sec} "
+              "TRACE#:123456789012345 EED:540102 IND ID:{n} IND NAME:{indn} TRN: 1234567890TC")
+
+
+def _r23(layout, holder=ROUTES, **fields):
+    rows = [(layout.format(n=1, **fields), 3500.0), (layout.format(n=2, **fields), 3600.0)]
+    return _tiers(rows, holder=holder)
+
+
+@pytest.mark.parametrize(("layout", "fields", "expected"), [
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES LLC", "sec": "PPD"}, ONE_OFF),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES LLC", "sec": "WEB"}, ONE_OFF),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES", "sec": "PPD"}, ONE_OFF),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES L", "sec": "PPD"}, ONE_OFF),
+    (_R23_CHASE, {"indn": "NORTHWIND ROUTES LLC", "sec": "PPD"}, ONE_OFF),
+    (_R23_BOFA, {"payer": "UBER USA", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES LLC", "sec": "PPD"}, PLATFORM),
+])
+def test_r23_a_company_s_direct_deposit_to_a_business_receiver_is_counted(layout, fields, expected):
+    assert _r23(layout, **fields) == [expected] * 2
+
+
+@pytest.mark.parametrize(("layout", "fields", "holder"), [
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "JOHN SAMPLE", "sec": "PPD"}, ROUTES),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "JOHN SAMPLE", "sec": "WEB"}, ROUTES),
+    (_R23_CHASE, {"indn": "JOHN SAMPLE", "sec": "PPD"}, ROUTES),
+    ("FABRIKAM SVC DES:DIR DEP ID:{n} CO ID:1234567890 PPD", {}, ROUTES),
+    (_R23_BOFA, {"payer": "ADP", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES LLC", "sec": "PPD"}, ROUTES),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "PAYROLL", "indn": "NORTHWIND ROUTES LLC", "sec": "PPD"}, ROUTES),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "CONTOSO HAULING", "sec": "PPD"}, ROUTES),
+    # A person holder, or a DBA holder with no form, on a business product's account.
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "JOHN SAMPLE", "sec": "PPD"}, "JOHN SAMPLE"),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "JOHN SAMPLE", "sec": "PPD"},
+     "JOHN SAMPLE DBA SAMPLE PLUMBING"),
+])
+def test_r23_a_direct_deposit_to_a_person_stays_pay(layout, fields, holder):
+    assert _r23(layout, holder=holder, **fields) == [PAY] * 2
+
+
+def test_r23_a_person_holder_on_a_business_product_s_account_stays_pay():
+    text = _R23_BOFA.format(n=1, payer="FABRIKAM SVC", entry="DIR DEP", indn="JOHN SAMPLE", sec="PPD")
+    for holder_name in ("JOHN SAMPLE", "JOHN SAMPLE DBA SAMPLE PLUMBING"):
+        [record] = classify_statement_transactions(Statement(
+            account_name="NAVIGATE BUSINESS CHECKING", holder_name=holder_name, bank="Bank of America",
+            transactions=[Transaction(date="2054-03-02", description=text, amount=3500.0, direction="credit")]))
+        assert (record.revenue_tier, record.revenue_tier_reason) == PAY
+
+
+@pytest.mark.parametrize(("layout", "fields", "expected"), [
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES LLC", "sec": "CCD"}, REPEATS),
+    (_R23_BOFA, {"payer": "FABRIKAM SVC", "entry": "PAYMENT", "indn": "NORTHWIND ROUTES LLC", "sec": "PPD"}, ONE_OFF),
+    (_R23_BOFA, {"payer": "DOORDASH INC", "entry": "DIR DEP", "indn": "NORTHWIND ROUTES LLC", "sec": "CCD"}, PLATFORM),
+])
+def test_r23_controls_that_were_never_held(layout, fields, expected):
+    assert _r23(layout, **fields) == [expected] * 2
+
+
+@pytest.mark.parametrize(("indn", "holder", "fact"), [
+    ("NORTHWIND ROUTES LLC", ROUTES, False),
+    ("NORTHWIND ROUTES", ROUTES, False),
+    ("CONTOSO HAULING LLC", ROUTES, False),
+    ("JOHN SAMPLE", ROUTES, True),
+    ("CONTOSO HAULING", ROUTES, True),
+    ("JOHN SAMPLE", "JOHN SAMPLE", True),
+])
+def test_r23_g11_reads_the_business_receiver(indn, holder, fact):
+    text = _R23_BOFA.format(n=1, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec="PPD")
+    [record] = _records([(text, 3500.0)], holder=holder)
+    assert tr.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
+
+
+def test_r23_the_business_receiver():
+    def business(receiver, holder=ROUTES):
+        text = f"FABRIKAM SVC DES:DIR DEP ID:1 {receiver}CO ID:1234567890 PPD"
+        return tr._business_receiver(revenue_text(normalize_transaction_description(text)), holder)
+
+    assert business("INDN:CONTOSO HAULING LLC ")
+    assert business("INDN:NORTHWIND ROUTES ")
+    assert business("INDN:NORTHWIND ROUTES L ")
+    assert not business("INDN:CONTOSO HAULING ")
+    assert not business("INDN:JOHN SAMPLE ", "JOHN SAMPLE")
+    assert not business("INDN:JOHN SAMPLE ", "JOHN SAMPLE DBA SAMPLE PLUMBING")
+    assert not business("")
