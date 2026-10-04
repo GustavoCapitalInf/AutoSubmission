@@ -254,6 +254,10 @@ SECTION_19_1_DECISIONS = (
     ("**2026-10-02, builder progress draws and asset sales (Q11).**", (
         "`construction_progress_draw`", "`asset_sale_proceeds`", "dealer evidence", "go straight to non-revenue",
     )),
+    # Audit I26 (R2-OW07), attributed apart from the underwriter's Q2 answer, which it was not asked in.
+    ("**2026-10-02, every insurer spelling (I26, by Q6 of 2026-09-28; not asked in Q2 (2026-10-02)).**", (
+        "`insurer_named_payer`", "INS", "LOSS PMT", "not asked",
+    )),
 )
 
 
@@ -478,3 +482,30 @@ def test_the_spec_records_that_an_auto_lender_s_payables_need_dealer_evidence():
     for words in ("| `lender_paid_for_services` | `counted_flagged` | Lender paid for services |",
                   "A listed lender's credit read on a payables word alone", "Owner ruling 2026-10-02, R2-OW05"):
         assert words in contract, words
+
+
+def test_the_spec_records_every_insurer_spelling_apart_from_the_q2_answer():
+    """Audit I26 (R2-OW07; by Q6 of 2026-09-28, not asked in the underwriter's Q2): §8.1 gives the reading, its arms
+    and the brand table; §7.7 keeps the §15 deferred carriers on today's words; §17.1 asks the owner to confirm the hold
+    and names the alternative; §20 records the batch; the contract notes it."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("`insurer_payer_reading`", "without the holder's own names", "`_INSURER_SPELLINGS`",
+                  "`INSURER_CREDIT_BRANDS`", "`LOSS PMT`", "`SUBRO…`", "`P AND C`", "`MUTUA`", "the `INS` abbreviation",
+                  "`ASSURED`", "`CLM`", "`q5_q6_held_insurer`", "not as `payroll_or_salary`",
+                  "the Q2 question did not ask it"):
+        assert words in holds, words
+    healthcare = re.sub(r"\s+", " ", _section(text, "\n### 7.7 ", "\n### 7.8 "))
+    assert ("the Canadian benefit carriers and the other §15 deferred payers are read as insurers only by §8.1's "
+            "spelled-out words and `CLAIM`") in healthcare
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    line = next(line for line in open_items.splitlines()
+                if line.startswith("- **Every insurer spelling (audit I26, R2-OW07), for the owner to confirm.**"))
+    for words in ("Default in the code: hold", "Alternative:", "only for the Q2 release", "Q6 of 2026-09-28"):
+        assert words in line, words
+    i27 = next(line for line in open_items.splitlines() if line.startswith("- **I27 (with I26)"))
+    assert "Its spelling half, I26, is in the code" in i27
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert "owner ruling 2026-10-02, R2-OW07" in amendments
+    assert "**Audit I26, R2-OW07 in all**" in amendments
+    assert "Owner ruling 2026-10-02, R2-OW07 (audit I26" in _flat(CONTRACT)
