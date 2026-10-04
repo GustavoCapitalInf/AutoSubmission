@@ -3108,14 +3108,10 @@ def test_gov_a_name_is_no_government_grant(text):
     ([("TREAS 310 DES:DOD MISC ID:1", 1234.0)], ("verified_revenue", "public_payer_remittance")),
     ([("SAMPLE STATE DHS DES:PROV PAY ID:1", 1234.0)], ("verified_revenue", "public_payer_remittance")),
     ([("SAMPLE COUNTY DHHS DES:VENDOR PAY ID:1", 1234.0)], ("verified_revenue", "payer_remittance_descriptor")),
-    # Class E: the row prints no purpose, so the form waits for the owner, counted and flagged as before.
-    ([("36 TREAS 310 MISC PAY 12345678901", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
-    ([("GOUV. QUEBEC MSP", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
-    ([("PROVINCIAL PAYMENT PROVINCE OF BC", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
-    ([("Work. Comp. Board WSIB", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
-    ([("WORKFORCE SAFETY 1234", 1234.0)], ("unverified_deposit", "named_payer_unlabelled")),
+    # Class E (the forms that print no purpose) is non_revenue since the owner's ruling of 2026-10-02 (the
+    # underwriter's Q12): tests/test_true_revenue_government_no_purpose.py.
 ])
-def test_gov_a_payment_for_services_or_an_unclear_form_keeps_its_reading(rows, expected):
+def test_gov_a_payment_for_services_keeps_its_reading(rows, expected):
     for record in _records(rows):
         state, reading = expected
         assert record.revenue_classification == state

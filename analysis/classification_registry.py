@@ -1789,11 +1789,12 @@ GATED_PROCESSOR_ALIASES: dict[str, tuple[str, ...]] = {
 #: 5.6 (audit B3: I11, §7.11, §20): the merchant processors whose instant payout a bank may print as a card credit
 #: (Thread Bank's Relay layout: 'Debit Card Credit: Stripe'), with the names each prints on that card credit, on its
 #: ACH payout and on its ACH pull, read as whole words by the true-revenue pass's processor card-payout release alone
-#: (analysis/true_revenue.py _processor_card_payouts). The bare INTUIT and POCKETSUITE are no operating-registry
-#: aliases (a bare INTUIT also prints Intuit's financing and tax products), so they are read here only, and only beside
-#: the statement's own ACH activity of that processor. Evidence: each pushes a merchant's balance to its debit card on
-#: request (Stripe Instant Payouts; QuickBooks Payments Instant Deposit; Square Instant Transfer; PocketSuite's instant
-#: payouts), so such a card credit is the merchant's own sales, not a card refund.
+#: (analysis/true_revenue.py _processor_card_payouts), which the owner keeps off (2026-10-02, spec §19.1). The bare
+#: INTUIT and POCKETSUITE are no operating-registry aliases (a bare INTUIT also prints Intuit's financing and tax
+#: products), so they are read here only, and only beside the statement's own ACH activity of that processor.
+#: Evidence: each pushes a merchant's balance to its debit card on request (Stripe Instant Payouts; QuickBooks Payments
+#: Instant Deposit; Square Instant Transfer; PocketSuite's instant payouts), so such a card credit is the merchant's own
+#: sales, not a card refund.
 CARD_PAYOUT_PROCESSOR_NAMES: dict[str, tuple[str, ...]] = {
     "Stripe": ("STRIPE",),
     "QuickBooks Payments": ("INTUIT", "QUICKBOOKS", "QUICK BOOKS", "QBOOKS"),

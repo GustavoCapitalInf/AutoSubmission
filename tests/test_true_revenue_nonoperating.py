@@ -511,7 +511,9 @@ def test_square_s_loan_transfers_stay_non_revenue():
     assert _one("SQUARE LOAN TRANSFERS", 4000.0, bank="Square")[0] == "non_revenue"
 
 
-# I56 (GOV class D): a glued Canada Carbon Rebate is held, as its spaced spelling is; WSIB to a clinic is counted.
+# I56 (GOV class D): a glued Canada Carbon Rebate is held, as its spaced spelling is; a payer whose name holds CARBON
+# keeps its reading. (WSIB's no-purpose payment is non_revenue since the owner's ruling of 2026-10-02, the underwriter's
+# Q12: tests/test_true_revenue_government_no_purpose.py.)
 
 @pytest.mark.parametrize("text", ["CDACARBONREBATE CCR", "CDA CARBON REBATE CCR", "CANADA CARBON REBATE",
                                   "DIRECT DEPOSIT CDACARBONREBATE"])
@@ -521,9 +523,8 @@ def test_a_canada_carbon_rebate_is_held(text):
 
 @pytest.mark.parametrize("text", [
     "CONTOSO CARBON WORKS LLC DES:PAYMENT ID:1234567 INDN:NORTHWIND BAKERY LLC CO ID:1234567890 CCD",
-    "WORK COMP BOARD WSIB EME",
 ])
-def test_a_carbon_surname_or_a_wsib_payment_keeps_its_reading(text):
+def test_a_carbon_surname_keeps_its_reading(text):
     tier = _one(text, 120.0, bank="Royal Bank of Canada")
     assert tier != NON_SALE and _in_true(tier)
 

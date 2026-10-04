@@ -6,8 +6,10 @@ I04, I11, I43): returns, reversals, refunds and rewards.
   shared word, so a redeposit stays counted. The lender side of pass 4 keeps classification 5.4's pairs (§20 I6).
 - I04: step 3 reads more reversal, correction and refund spellings; a bare CARD CREDIT is held as a possible return;
   Cash App and Apple Cash pushes stay counted.
-- I11: a card credit naming a merchant processor is that processor's instant payout (counted, flagged, never
-  verified) when the statement shows the processor's ACH payout or ACH pull and no card purchase at it.
+- I11: with the owner's switch on, a card credit naming a merchant processor is that processor's instant payout
+  (counted, flagged, never verified) when the statement shows the processor's ACH payout or ACH pull and no card
+  purchase at it. The owner kept the switch off on 2026-10-02 (the underwriter's Q13, spec §19.1): such a card
+  credit stays a card refund.
 - I43: card-rewards redemptions are non-revenue, read on the whole row or beside a card issuer only.
 
 Fabricated rows only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE names; 2054 dates; whole-dollar amounts), in the banks'
@@ -375,8 +377,9 @@ def test_a_cash_app_or_apple_cash_push_stays_a_counted_p2p_credit(text):
 
 @pytest.fixture
 def cash_app_release(monkeypatch):
-    """The owner's switch for Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT (it ships off: it moves a
-    real statement's pinned figures)."""
+    """The owner's switch for Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT. It stays off: the owner
+    kept these credits excluded on 2026-10-02 (the underwriter's Q13, spec §19.1); these tests turn it on to keep the
+    declined option's code honest."""
     from analysis import transaction_classifier
 
     monkeypatch.setattr(transaction_classifier, "CASH_APP_CARD_PUSH_RELEASE", True)
@@ -415,8 +418,9 @@ def test_the_cash_app_card_push_release_ships_off():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# I11: a processor's instant payout printed as a card credit (the owner's switch PROCESSOR_CARD_PAYOUT_RELEASE: it
-# ships off, since it moves a real statement's pinned figures; these tests turn it on).
+# I11: a processor's instant payout printed as a card credit (the owner's switch PROCESSOR_CARD_PAYOUT_RELEASE). It
+# stays off: the owner kept these credits excluded on 2026-10-02 (the underwriter's Q13, spec §19.1); the tests with
+# the processor_release fixture turn it on to keep the declined option's code honest.
 # ---------------------------------------------------------------------------------------------------------------------
 
 RELAY = "Thread Bank (Relay)"
@@ -548,6 +552,99 @@ def test_a_card_payout_the_processor_pulls_back_stays_paired():
         ("2054-03-04", "ACH Pull: Stripe", -2100.0),
     ], RELAY)
     assert records[0].revenue_match_method == "matched_reversal_pair"
+
+
+# The owner's ruling of 2026-10-02 (the underwriter's Q13, spec §19.1, audit I11): a processor's payout printed as a
+# bare card credit ('Debit Card Credit: Stripe') stays excluded, non_revenue as a card refund, and both card-push
+# switches stay off. These tests run with the switches as shipped: no fixture turns them on.
+
+def test_the_owner_kept_both_card_push_switches_off():
+    from analysis import transaction_classifier, true_revenue
+
+    assert true_revenue.PROCESSOR_CARD_PAYOUT_RELEASE is False
+    assert transaction_classifier.CASH_APP_CARD_PUSH_RELEASE is False
+
+
+#: (holder, bank, rows, the index of each card credit the ruling keeps excluded, the statement's True).
+CARD_PUSH_EXCLUDED = {
+    "CONTOSO: Stripe card payouts beside Stripe's own ACH pull and payout": (
+        "CONTOSO STUDIO LLC", RELAY, [
+            ("2054-03-02", "Debit Card Credit: Stripe", 1240.55),
+            ("2054-03-09", "Debit Card Credit: Stripe", 1310.00),
+            ("2054-03-20", "ACH Pull: Stripe", -50.0),
+            ("2054-03-21", "ACH Credit: Stripe", 900.0),
+        ], (0, 1), 900.0),
+    "FABRIKAM: Intuit card payouts beside Intuit's pull": (
+        "FABRIKAM CLEANING LLC", RELAY, [
+            ("2054-03-02", "Debit Card Credit: Intuit", 1100.0),
+            ("2054-03-09", "Debit Card Credit: Intuit", 1200.0),
+            ("2054-03-20", "ACH Pull: Intuit Pymt Soln", -40.0),
+        ], (0, 1), 0.0),
+    "NORTHWIND: a Square POS CREDIT beside Square's pull (the switch's other processors stay off too)": (
+        HOLDER, "Fabrikam Bank", [
+            ("2054-03-02", "POS CREDIT SQUARE", 640.0),
+            ("2054-03-20", "ACH PULL SQUARE INC", -25.0),
+        ], (0,), 0.0),
+    "SAMPLE: a PocketSuite card payout beside its pull": (
+        "SAMPLE SALON LLC", RELAY, [
+            ("2054-03-02", "Debit Card Credit: Pocket Suite", 1100.0),
+            ("2054-03-20", "ACH Pull: PocketSuite", -30.0),
+        ], (0,), 0.0),
+    "SAMPLE: a Cash App push printed as a DEBIT CARD CREDIT (the Cash App switch stays off)": (
+        "SAMPLE SALON LLC", RELAY, [("2054-03-02", "DEBIT CARD CREDIT CASH APP", 75.0)], (0,), 0.0),
+    "SAMPLE: an Apple Cash push printed as a POS CREDIT": (
+        "SAMPLE SALON LLC", RELAY, [("2054-03-02", "POS CREDIT APPLE CASH INST XF CUPERTINO CA", 120.0)], (0,), 0.0),
+}
+
+
+@pytest.mark.parametrize("case", list(CARD_PUSH_EXCLUDED))
+def test_a_card_pushed_processor_or_wallet_payout_stays_excluded(case):
+    holder, bank, rows, excluded, true = CARD_PUSH_EXCLUDED[case]
+    records = _classify(rows, bank, holder)
+    for index in excluded:
+        record = records[index]
+        assert record.revenue_classification == "non_revenue", case
+        assert record.revenue_match_method == "reversal_cancellation_exclusion", case
+        assert _tier(record) == ("non_revenue", None), case
+        assert not record.contributes_to_true_revenue, case
+    assert _true(records) == true, case
+
+
+#: Forms the ruling does not reach keep today's reading: (bank, text, amount, state, method, tier, reason), each beside
+#: an 'ACH Pull: Stripe' debit.
+CARD_PUSH_CONTROLS = (
+    # The processor's own ACH payout on the same statement still verifies (in the CONTOSO case above too).
+    (RELAY, "ACH Credit: Stripe", 900.0, "verified_revenue", "operating_source_with_credit_context", "verified", None),
+    # A push rail printed: a Visa Direct push of Stripe or Intuit was not the question's form (spec §19.1).
+    ("Royal Bank of Canada", "VISA DIRECT DEPOSIT STRIPE", 610.0, "verified_revenue",
+     "operating_source_with_credit_context", "verified", None),
+    ("Woodforest National Bank", "POS CR POS INTUIT INC VISA DIRECT CA US", 1500.0, "unverified_deposit",
+     "unidentified_posted_credit", COUNTED, "p2p"),
+    ("Fabrikam Bank", "DEBIT CARD CREDIT VISA DIRECT SQUARE INC", 700.0, "verified_revenue",
+     "operating_source_with_credit_context", "verified", None),
+    # A payout word printed (§7.11's release, §6.3 narrowing 6).
+    (RELAY, "Debit Card Credit: Stripe Payout", 1500.0, "verified_revenue", "operating_source_with_credit_context",
+     "verified", None),
+    # Wells Fargo's instant payment from Stripe (no card label).
+    ("Wells Fargo", "INSTANT PMT FROM STRIPE PAYMENTS COMPANY CONTOSO INC ON 03 02 REF 20540302ABC ST ABCDEF123456 "
+     "CONTOSO", 2300.0, "verified_revenue", "operating_source_with_credit_context", "verified", None),
+    # A card credit printed first with a wallet rail: Regions' Cash App push stays a counted p2p credit.
+    ("Regions Bank", "CARD CREDIT CASH APP SAMPLE 1234 OAKLAND CA 12345 1234", 410.0, "unverified_deposit",
+     "unidentified_posted_credit", COUNTED, "p2p"),
+    # BMO's bare card credit stays held as a possible return.
+    ("BMO", "CARD CREDIT", 400.0, "unverified_deposit", "unidentified_posted_credit", HELD, "possible_return"),
+    # A marketplace's card refund and a processor's financing word stay refunds.
+    (RELAY, "Debit Card Credit: Uber", 21.0, "non_revenue", "reversal_cancellation_exclusion", "non_revenue", None),
+    (RELAY, "Debit Card Credit: Stripe Capital", 2100.0, "non_revenue", "reversal_cancellation_exclusion",
+     "non_revenue", None),
+)
+
+
+@pytest.mark.parametrize(("bank", "text", "amount", "state", "method", "tier", "reason"), CARD_PUSH_CONTROLS)
+def test_forms_the_card_push_ruling_does_not_reach_keep_their_reading(bank, text, amount, state, method, tier, reason):
+    record = _classify([("2054-03-02", text, amount), ("2054-03-20", "ACH Pull: Stripe", -50.0)], bank)[0]
+    assert (record.revenue_classification, record.revenue_match_method) == (state, method)
+    assert _tier(record) == (tier, reason)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

@@ -52,6 +52,10 @@ whose parse differs apart, as a parse change, never as a rule's move.
 B1 (audit I39): every summary carries the standing sweep of the non-revenue a credit's wording identifies inside True
 (NON_REVENUE_IN_TRUE_CLASSES, classes A to H), so a regression shows as a number; class H, a government payment that
 prints no purpose, is the owner's and is reported apart, never in the overstatement. `sweep` prints it for one snapshot.
+The owner's ruling of 2026-10-02 (the underwriter's Q12) made the seven no-purpose forms it names non_revenue: class G
+reads them (the VA's Treasury form at medium confidence, its masked agency code unread), guard G19 fails a True credit
+printing one of the six others, and class H covers only the forms the ruling did not name and a named form printing a
+word the classifier's reader does not read.
 
 Audit round 2, R2-B01 (R12, R30): the census keeps a parse's moves apart from a rule's.
 - Each credit records its raw parse (`raw`: a hash of its digit-masked printed description and its cents) and each
@@ -113,6 +117,9 @@ NON_REVENUE_METHODS = frozenset({
     "reversal_cancellation_exclusion", "insurance_provider_credit_exclusion", "financing_proceeds_credit",
     "potential_lender_registry_credit_exclusion", "strong_non_revenue_rule", "duplicate_credit_exclusion",
     "matched_reversal_pair",
+    # The owner's ruling of 2026-10-02 (the underwriter's Q12; §6.1 step 3a): a government payment that prints no
+    # purpose, which no narrowing of §6.3 releases.
+    "government_no_purpose_exclusion",
 })
 #: §6.3's narrowings, plus the owner's OQ2 ruling (BNPL settlements join PAYOUT_CREDIT_ENTITIES), in the order the
 #: census tests them. Each is (name, whether it may lead to True).
@@ -204,6 +211,9 @@ DECLARED_DEMOTIONS = (
     # Audit round 2, R2-B12 review round 2 (R37): a Q5 or Q6 row a legal, gambling or owner-money word would hold but
     # for the trade-name reader's purpose arm (the pass's own purpose_trade_name fact), counted as a refused purpose.
     "q5_q6_purpose_trade_name_refused",
+    # The owner's ruling of 2026-10-02 (the underwriter's Q12): a government payment that prints no purpose, now
+    # non_revenue by §6.1 step 3a, which precedes every verifying rule.
+    "government_no_purpose",
 )
 #: Audit round 2, R2-B04 (R41): the method pass 7 gives the holder's own push it overrules
 #: (analysis/true_revenue.py _holder_never_verified, copied: the census reads other checkouts).
@@ -290,8 +300,9 @@ GUARD_FACTS = {
 }
 #: The checks that read no fact (a row's state, method, tier, amount or text), always checked; G9's tier identity
 #: ("G9 tiers") is checked when the run carries tiers (5.6). Audit round 2, R2-B01 (R12): G18, every parse move
-#: explained.
-FACT_FREE_CHECKS = ("G1", "G6", "G7b", "G9", "G15", "G16", "G18", "undeclared_demotion")
+#: explained. The owner's ruling of 2026-10-02 (the underwriter's Q12): G19, no True credit printing one of the six
+#: non-Treasury no-purpose government forms (_GOVERNMENT_NO_PURPOSE_HIGH_57).
+FACT_FREE_CHECKS = ("G1", "G6", "G7b", "G9", "G15", "G16", "G18", "G19", "undeclared_demotion")
 #: R2-B01 (R12): the hex digits a credit's raw parse and an account's parse keep (hashlib digests: never Python's
 #: hash(), which is salted per process).
 PARSE_HASH_DIGITS = 16
@@ -1462,6 +1473,44 @@ def _share(part: int, whole: int) -> float:
 #: overstatement. The standard is the audit's reference standard (§3 and §7, its section letters and pointers P1 to P9).
 SWEEP_UNCLEAR = "unclear"
 UNCLEAR_OWNER_CLASS = "H"
+#: The owner's ruling of 2026-10-02 (the underwriter's Q12; §6.1 step 3a): the classifier's no-purpose government forms
+#: (analysis/transaction_classifier.py GOVERNMENT_NO_PURPOSE_FORMS and government_no_purpose, copied: the census reads
+#: other checkouts), on the masked text with each '#' read as 0. The form follows the government template prefixes
+#: (_GOVERNMENT_FORM_PREFIX_56) and a credit union's DESCRIPTIVE DEPOSIT or Chase's ORIG CO NAME; after it only the
+#: reader's words print (posting words, the ACH field labels, SEC codes, the X12 segment names, the no-purpose entries,
+#: an all-X mask, a month or a word with a digit, as _is_reference_token reads a reference), then at most a receiver
+#: field, whose value runs to the first ACH field (as the classifier's _RECEIVER_VALUE_END ends it), followed by those
+#: words only, so a Bank of America PMT INFO addenda keeps the row out. The receiver is read in a lookahead, never
+#: consumed, so a sweep shape never prints it. The Treasury form is medium: the masked agency code cannot be read (the
+#: classifier reads 36 only).
+_GOVERNMENT_NO_PURPOSE_LEAD_57 = _GOVERNMENT_FORM_PREFIX_56 + r"(?:(?:DESCRIPTIVE DEPOSIT|ORIG CO NAME) )?"
+_GOVERNMENT_NO_PURPOSE_WORD_57 = (
+    r"(?:ORIG ID|DESC DATE|CO ENTRY DESCR|CO ID|ELECTRONIC|DEPOSIT|FROM|DESCRIPTIVE|ACH|CREDIT|DIRECT|DEP|EFT|GC"
+    r"|PREAUTHORIZED|MISC|PAY|PAYSEC|PAYMENT|PAYMENTS|PMT|DD|WIDCF|EME|MSP|DIV|DES|ID|SEC|CCD|CTX|PPD|WEB|TRACE|EED"
+    r"|TRN|ISA|IEA|GS|GE|ST|SE|X{2,}|JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUNE?|JULY?|AUG(?:UST)?"
+    r"|SEPT?(?:EMBER)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?|[A-Z]*\d\S*)"
+)
+_GOVERNMENT_NO_PURPOSE_RECEIVER_57 = (
+    r" (?:INDN|IND ID|IND NAME|RECEIVER NAME)\b(?:(?! (?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b).)*"
+)
+_GOVERNMENT_NO_PURPOSE_TAIL_57 = (
+    rf"(?: {_GOVERNMENT_NO_PURPOSE_WORD_57})*"
+    rf"(?=(?:{_GOVERNMENT_NO_PURPOSE_RECEIVER_57}(?: {_GOVERNMENT_NO_PURPOSE_WORD_57})*)?$)"
+)
+_GOVERNMENT_NO_PURPOSE_HIGH_WORDING_57 = (
+    _GOVERNMENT_NO_PURPOSE_LEAD_57
+    + r"(?:MN STATE MMB|WI ?DCF|(?:PROVINCIAL PAYMENT )?PROVINCE OF (?:BC|BRITISH COLUMBIA)|(?:WORK COMP BOARD )?WSIB"
+    r"|WORKPLACE SAFETY AND INSURANCE BOARD|GOUV(?:ERNEMENT)?(?: DU)? QUEBEC"
+    r"|(?:ND |NORTH DAKOTA )?WORKFORCE SAFETY(?: AND INS(?:URANCE)?| INS(?:URANCE)?)?)"
+    + _GOVERNMENT_NO_PURPOSE_TAIL_57
+)
+_GOVERNMENT_NO_PURPOSE_TREASURY_WORDING_57 = (
+    _GOVERNMENT_NO_PURPOSE_LEAD_57 + r"\d{2} TREAS ?\d{3}" + _GOVERNMENT_NO_PURPOSE_TAIL_57
+)
+#: Q12 (2026-10-02): guard G19 reads the six non-Treasury forms only; the Treasury form is reported in the sweep's
+#: medium column, never gated (another agency's '12 TREAS 310 MISC PAY', which the classifier keeps, cannot be told
+#: from the VA's 36 on masked text).
+_GOVERNMENT_NO_PURPOSE_HIGH_57 = re.compile(_GOVERNMENT_NO_PURPOSE_HIGH_WORDING_57)
 NON_REVENUE_IN_TRUE_CLASSES = (
     ("A", "own-account wording", (
         # Standard B1 (P1 to P5) and audit I01, I21: overdraft sweeps, card and credit-line transfers, Square's savings
@@ -1525,7 +1574,7 @@ NON_REVENUE_IN_TRUE_CLASSES = (
         ("high", r"^(?!.*\b(?:AP PAYMENT|VENDOR|PAYABLES?|INVOICE)\b).*\b(?:SPORTS ?BOOK|CASINO|BETTING|ONLINE GAMING)\b"
                  r".*\b(?:WITHDRAWALS?|WITHDRAW|WDRL|PAYOUTS?|CASH ?OUT)\b"),
     )),
-    ("G", "government money not earned", (
+    ("G", "government money not earned (GOV B-D; Q12's no-purpose forms)", (
         # Task GOV (the owner's ruling of 2026-09-30): personal benefits (class B), tax refunds (class C), grants and
         # subsidies (class D); standard E1, E3, E4. A government paying for services is revenue (class A), never here.
         ("high", r"\bCANADA (?:CHILD|ESSENTIALS|GROCERIES AND ESSENTIALS|WORKERS|DISABILITY) BENEFITS?\b"
@@ -1537,14 +1586,21 @@ NON_REVENUE_IN_TRUE_CLASSES = (
                  r"|\bIRS TREAS ?\d{3}\b(?!.*\b(?:MISC PAY|VENDOR)\b)"),
         # Audit I56 (GOV's gaps): payroll-tax refunds through a payroll provider, and the glued carbon rebate.
         ("medium", r"\bADP TAX\b|\bPAYCHEX TPS\b.*\bTAXES\b|\bTAXES\b.*\bPAYCHEX\b|CARBON ?REBATE"),
+        # The owner's ruling of 2026-10-02 (the underwriter's Q12; §6.1 step 3a): the seven government payments that
+        # print no purpose are non_revenue (GOV class E, formerly class H here). The Treasury form is medium.
+        ("high", _GOVERNMENT_NO_PURPOSE_HIGH_WORDING_57),
+        ("medium", _GOVERNMENT_NO_PURPOSE_TREASURY_WORDING_57),
     )),
-    (UNCLEAR_OWNER_CLASS, "government payment, purpose not printed (unclear, owner)", (
-        # Task GOV's class E and audit I39's class H: Minnesota Management and Budget's state vendor payments, an
-        # agency's Treasury MISC PAY with no invoice (VA's), a province's or Quebec's payment, workers' compensation
-        # boards, and Wisconsin DCF's direct deposits.
-        (SWEEP_UNCLEAR, r"\bSTATE MMB\b|^\d+ TREAS \d+ MISC PAY\b|\bPROVINCIAL PAYMENT PROVINCE OF\b"
+    (UNCLEAR_OWNER_CLASS, "government payment, purpose not printed: a form the Q12 ruling did not name, or a named form"
+                          " printing a word the reader does not read (unclear, owner)", (
+        # Task GOV's class E and audit I39's class H, narrowed by the owner's ruling of 2026-10-02 (the underwriter's
+        # Q12), whose seven forms class G reads first when they print no purpose: another state's MMB, an agency's
+        # Treasury MISC PAY whose row the class-G wording does not read, another province's provincial payment, a
+        # provincial benefit's code, Quebec's other payments, and the other workers' compensation boards.
+        (SWEEP_UNCLEAR, r"(?<!MN )\bSTATE MMB\b|^\d+ TREAS \d+ MISC PAY\b"
+                        r"|\bPROVINCIAL PAYMENT PROVINCE OF\b(?! (?:BC|BRITISH COLUMBIA)\b)"
                         r"|\bPROV(?:INCIAL)? LOCAL GVT\b|\bGOUV(?:ERNEMENT)? (?:DU )?QUEBEC\b"),
-        (SWEEP_UNCLEAR, r"\bWSIB\b|\bWORK COMP BOARD\b|\bWCB\b|\bWORKFORCE SAFETY\b|\bWIDCF DD\b"),
+        (SWEEP_UNCLEAR, r"\bWORK COMP BOARD\b(?! WSIB\b)|\bWCB\b|\bWORKFORCE SAFETY\b"),
     )),
 )
 #: The wording is read on the masked text with each '#' read as the digit 0, which keeps a classifier's \d, \w and \b
@@ -2050,6 +2106,10 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # (b) matched_reversal_pair.
     if method == "matched_reversal_pair":
         return "reversal_pair"
+    # The owner's ruling of 2026-10-02 (the underwriter's Q12): (a) any verifying rule (§6.1 step 3a precedes them all);
+    # (b) a government payment that prints no purpose, non_revenue by step 3a.
+    if method == "government_no_purpose_exclusion":
+        return "government_no_purpose"
     # (a) any verifying rule: strong non-revenue precedes them all (§6.1 step 9); (b) that rule on a row printing the
     # account-verification words §7.11 adds to it.
     if method == "strong_non_revenue_rule" and _ACCOUNT_VERIFICATION_55.search(text):
@@ -2907,6 +2967,11 @@ def _row_guards(credit: dict) -> dict[str, bool]:
         "G15": in_true and _REFUND_WORD.search(row) is not None,
         "G16": in_true and _TAX_REFUND_WORD.search(row) is not None,
         "G17": in_true and bool(facts.get("own_transfer")) and not facts.get("claimed"),
+        # The owner's ruling of 2026-10-02 (the underwriter's Q12): no True credit prints one of the six non-Treasury
+        # government forms with no purpose (§6.1 step 3a makes them non_revenue); read on the masked text past the
+        # statement furniture, as the sweep reads it. The Treasury form is the sweep's medium row, never gated.
+        "G19": in_true and _GOVERNMENT_NO_PURPOSE_HIGH_57.search(
+            _without_furniture_56(credit["text"]).replace("#", "0")) is not None,
     }
     if facts.get("known_financing") and in_true and method not in {"auto_lender_dealer_funding"}:
         guards["G5"] = not facts.get("payout_or_factoring")

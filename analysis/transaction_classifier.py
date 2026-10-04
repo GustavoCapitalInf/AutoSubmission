@@ -875,6 +875,65 @@ class _IrsTaxRefundForm:
         return self if _irs_tax_refund(text) else None
 
 
+#: Owner ruling 2026-10-02 (the underwriter's Q12; spec §6.1 step 3a; audit I40, GOV class E of 2026-09-30): the seven
+#: government payments the owner excluded when the row prints no purpose, each named by its key (the step's
+#: matched_alias), in the order the reader tests them. The VA's Treasury form is read with agency code 36 only (a blank,
+#: 12, USDA, VACP, DOD or SSA code and the letter form VA are other agencies' or unruled); WORK COMP BOARD without WSIB
+#: is another board.
+GOVERNMENT_NO_PURPOSE_FORMS = (
+    ("mn_mmb", re.compile(r"(?<![A-Z0-9])MN STATE MMB\b")),
+    ("va_treasury", re.compile(r"(?<![A-Z0-9])36 TREAS ?\d{3}\b")),
+    ("wi_dcf", re.compile(r"(?<![A-Z0-9])WI ?DCF\b")),
+    ("bc_provincial", re.compile(r"(?<![A-Z0-9])(?:PROVINCIAL PAYMENT )?PROVINCE OF (?:BC|BRITISH COLUMBIA)\b")),
+    ("ontario_wsib", re.compile(r"(?<![A-Z0-9])(?:(?:WORK COMP BOARD )?WSIB|WORKPLACE SAFETY AND INSURANCE BOARD)\b")),
+    ("quebec_government", re.compile(r"(?<![A-Z0-9])GOUV(?:ERNEMENT)?(?: DU)? QUEBEC\b")),
+    ("nd_workforce_safety", re.compile(
+        r"(?<![A-Z0-9])(?:ND |NORTH DAKOTA )?WORKFORCE SAFETY(?: AND INS(?:URANCE)?| INS(?:URANCE)?)?\b")),
+)
+#: Q12 (2026-10-02): the ACH field labels read past (Chase's and Bank of America's), and the only words a no-purpose row
+#: may print besides its form and its references: posting words, SEC codes, the X12 envelope's segment names and the
+#: no-purpose entries (MISC PAY, PAYMENT, PMT, DD, WIDCF, EME, MSP, DIV). Keep the set to these: a name, funding or
+#: purpose word here would let step 3a pre-empt a lender's D1 reading or swallow a purpose.
+_GOVERNMENT_NO_PURPOSE_LAYOUT = re.compile(r"\b(?:ORIG CO NAME|ORIG ID|DESC DATE|CO ENTRY DESCR|CO ID|IND ID|IND NAME)\b")
+_GOVERNMENT_NO_PURPOSE_WORDS = frozenset(
+    "ELECTRONIC DEPOSIT FROM DESCRIPTIVE ACH CREDIT DIRECT DEP EFT GC PREAUTHORIZED MISC PAY PAYMENT PAYMENTS PMT DD "
+    "WIDCF EME MSP DIV DES ID SEC CCD CTX PPD WEB TRACE EED TRN ISA IEA GS GE ST SE".split()
+)
+#: Q12 (2026-10-02): a masked prefix followed by letters is an entry, not a reference: the VA's XXVA CH33, CH31, BENEF
+#: and EDU print a purpose. A mask with digits (XXXXX1234) and an all-X mask (XXXXXX) stay references.
+_GOVERNMENT_NO_PURPOSE_MASKED_ENTRY = re.compile(r"X{2,}[A-WYZ][A-Z]*")
+
+
+def government_no_purpose(text: str) -> str | None:
+    """Owner ruling 2026-10-02 (the underwriter's Q12; spec §6.1 step 3a): the key of the government form a credit
+    prints when the row prints no purpose (GOVERNMENT_NO_PURPOSE_FORMS), else None. `text` is the revenue text.
+
+    The row is read with each receiver field's value removed and every field after it kept (_without_receiver_value),
+    so Bank of America's PMT INFO addenda, printed after INDN ... CO ID ... CCD, stays in the row and an invoice there
+    is a purpose. American Express's incoming-ACH template (_AMEX_ACH_CREDIT) is read from its originator up to its id,
+    as _before_receiver ends it, never its EXTERNAL, sending-bank and trace trailer; its label is the template's own
+    words whatever the originator's first word (R2-B09's R31 strips the label as a template prefix only before a
+    letter, so the VA's '36 TREAS 310' would leave ONLINE TRANSFER behind). The template prefixes and the ACH field
+    labels are read past. Besides the form, the row may print only _GOVERNMENT_NO_PURPOSE_WORDS and references
+    (_is_reference_token: a digit, a mask, a month; a masked prefix followed by letters is an entry word). The first
+    form found decides: any other word leaves the row to the later steps, with no fall-through to another form."""
+    amex = _AMEX_ACH_CREDIT.match(text)
+    base = text[amex.start("payer"): amex.end("id")] if amex is not None else _without_receiver_value(text)
+    row = _GOVERNMENT_NO_PURPOSE_LAYOUT.sub(" ", _strip_revenue_template(base))
+    for name, form in GOVERNMENT_NO_PURPOSE_FORMS:
+        found = form.search(row)
+        if found is None:
+            continue
+        rest = (row[: found.start()] + " " + row[found.end():]).split()
+        no_purpose = all(
+            word in _GOVERNMENT_NO_PURPOSE_WORDS
+            or (_is_reference_token(word) and _GOVERNMENT_NO_PURPOSE_MASKED_ENTRY.fullmatch(word) is None)
+            for word in rest
+        )
+        return name if no_purpose else None
+    return None
+
+
 #: 5.6 (audit B3: I43, standard D4): American Express's Membership Rewards redemption, read only beside a card issuer's
 #: name (American Express, Amex, or a card issuer's context alias), so a payer whose entry happens to print MR REDEEM
 #: keeps its reading.
@@ -2688,9 +2747,10 @@ _CARD_CREDIT_PUSH_WORD = re.compile(
 )
 #: 5.6 (audit B3: I04, §7.11): Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT or POS CREDIT join the push
 #: words (released from the reversal rule, then held by §8.1 as any released card credit is) only with
-#: CASH_APP_CARD_PUSH_RELEASE on. It ships off: it moves the pinned figures of a real statement
-#: (tests/test_new_statement_corpus.py, the Relay fixture), which only the owner's word may re-pin. A card credit printed
-#: first ('CARD CREDIT CASH APP ...') stays a counted person-to-person push either way (true_revenue._leading_card_credit).
+#: CASH_APP_CARD_PUSH_RELEASE on. It stays off: the orchestrator reads the owner's card-push ruling of 2026-10-02
+#: (the underwriter's Q13, spec §19.1) onto it, and the owner may overrule that; switched on, it would only hold 8
+#: rows, $585.17, in 2 Relay statements at c486fd5, and move no True. A card credit printed first
+#: ('CARD CREDIT CASH APP ...') stays a counted person-to-person push either way (true_revenue._leading_card_credit).
 CASH_APP_CARD_PUSH_RELEASE = False
 _CARD_CREDIT_P2P_PUSH_WORD = re.compile(r"(?<![A-Z])(?:CASH ?APP|APPLE CASH)\b")
 _CARD_CREDIT_PAYOUT_WORD = re.compile(r"\b(?:PAYOUTS?|INSTANT (?:PAYOUT|PAY|TRANSFER)|SETTLEMENT|DEPOSIT)\b")
@@ -3510,6 +3570,25 @@ def _classify_credit_revenue(
             0.99,
             "Credit is a return, cancellation, reversal, refund, correction, chargeback, or provisional credit.",
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
+        )
+    # §6.1 step 3a (owner ruling 2026-10-02, the underwriter's Q12): a government payment that prints no purpose is
+    # excluded, at any amount (under the $1 floor too, as step 3), after the direction conflict and the reversal (a
+    # government row printing a return word stays the reversal's) and before every other rule; the residue test keeps
+    # any other payer's name off the row, so a lender's D1 reading is never pre-empted.
+    no_purpose = government_no_purpose(text)
+    if no_purpose is not None:
+        return _RevenueDecision(
+            "non_revenue",
+            None,
+            "government_no_purpose_exclusion",
+            no_purpose,
+            "government_payment_no_purpose",
+            0.95,
+            (
+                f"A government payment that prints no purpose ({no_purpose}): excluded from revenue by the owner's "
+                "ruling (the underwriter's Q12, spec §19.1)."
+            ),
+            context_signals=("credit_direction", "government_no_purpose"),
         )
 
     # §6.1 step 4 (Q7, 5.6): a dealer's funding from a listed auto lender is revenue; a credit union's VHCL PURCH

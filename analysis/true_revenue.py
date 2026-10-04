@@ -272,9 +272,11 @@ _LEADING_CARD_CREDIT = re.compile(r"^(?:\d{1,2} \d{1,2} )?CARD CREDIT\b")
 #: instant payout (_processor_card_payouts), the card labels it reads, and each processor's names as whole words
 #: (CARD_PAYOUT_PROCESSOR_NAMES).
 PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
-#: Audit B3 (I11): the release ships off. On the corpus it moves the pinned figures of a real statement
-#: (tests/test_new_statement_corpus.py, the Relay fixture, whose processor card credits it counts), which only the
-#: owner's word may re-pin; turned on, it counts 119 rows in 9 statements of the corpus cache (census narrowing 10).
+#: Audit B3 (I11): the release stays off by the owner's ruling of 2026-10-02 (the underwriter's Q13, "keep them
+#: excluded"; spec §19.1): a processor's payout printed as a bare card credit stays a card refund. The code stays as
+#: the declined option's record; turning it on needs the owner's word again (at c486fd5 it would count 119 rows,
+#: $199,280.67, in 9 Relay statements, census narrowing 10, and re-pin the Relay fixture of
+#: tests/test_new_statement_corpus.py).
 PROCESSOR_CARD_PAYOUT_RELEASE = False
 _PROCESSOR_CARD_PAYOUT_RULE = "processor_card_credit_beside_its_ach_activity"
 _CARD_PAYOUT_LABEL = re.compile(r"(?<![A-Z])(?:DEBIT CARD CREDIT?|POS CREDIT)\b")

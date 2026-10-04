@@ -876,10 +876,11 @@ def test_a_5_5_snapshot_reports_the_guards_its_facts_cannot_check():
     assert run["unchecked_guards"] == UNCHECKED_AT_55
     assert run["guard_checks"]["G2"] == {"checked": False, "facts": ["financing_root", "registry_root"],
                                          "status": "not checked (facts arrive in 5.6)"}
-    # Audit round 2, R2-B01 (R12): G18 reads no fact, so it is always checked.
+    # Audit round 2, R2-B01 (R12): G18 reads no fact, so it is always checked; so does G19 (the owner's ruling of
+    # 2026-10-02, the underwriter's Q12), which reads the row's text.
     assert {name: check["status"] for name, check in run["guard_checks"].items() if check["checked"]} == {
         name: "held" for name in ("G1", "G3", "G6", "G7b", "G9", "G10", "G13", "G14", "G15", "G16", "G17", "G18",
-                                  "undeclared_demotion")}
+                                  "G19", "undeclared_demotion")}
     assert run["verdict"] == "hold" and run["failed_guards"] == []
 
 
@@ -1688,9 +1689,25 @@ def _swept(*rows):
     ("VISA DIRECT DRAFTKINGS 1234567890", "F"),
     ("CANADA CHILD BENEFIT CANADA", "G"),
     ("ADP TAX DES ADP TAX ID ABCDE 123456VV", "G"),
+    # The owner's ruling of 2026-10-02 (the underwriter's Q12): the seven government payments that print no purpose
+    # are class G; the Treasury form at medium confidence (a masked agency code cannot be read).
+    ("12 TREAS 310 MISC PAY 1234567890", "G"),
+    ("WORK COMP BOARD WSIB 1234", "G"),
+    ("ELECTRONIC DEPOSIT FROM MN STATE MMB", "G"),
+    ("36 TREAS 310 MISC PAY 123456789012345", "G"),
+    ("ORIG CO NAME 36 TREAS 310 ORIG ID 1234567890 DESC DATE 010254 CO ENTRY DESCR MISC PAYSEC CTX TRACE"
+     " 123456789012345 EED 540102 IND ID 1 IND NAME NORTHWIND CLINIC LLC TRN 1234567890TC", "G"),
+    ("WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD", "G"),
+    ("ACH CREDIT 36 TREAS 310 MISC PAY RECEIVER NAME NORTHWIND CLINIC LLC 123456", "G"),
+    ("PROVINCIAL PAYMENT PROVINCE OF BC", "G"),
+    ("WORK COMP BOARD WSIB EME", "G"),
+    ("GOUV QUEBEC MSP", "G"),
+    ("DESCRIPTIVE DEPOSIT WORKFORCE SAFETY", "G"),
+    # Class H keeps a form the ruling did not name, and a named form printing a word the reader does not read.
     ("CONTOSO STATE MMB", "H"),
-    ("12 TREAS 310 MISC PAY 1234567890", "H"),
-    ("WORK COMP BOARD WSIB 1234", "H"),
+    ("PROVINCIAL PAYMENT PROVINCE OF ONTARIO", "H"),
+    ("WORK COMP BOARD WCB ALBERTA 1234", "H"),
+    ("GOUV QUEBEC RQ 1234", "H"),
 ])
 def test_each_class_of_the_sweep_reads_its_own_wording(text, letter):
     sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
@@ -1712,6 +1729,21 @@ def test_each_class_of_the_sweep_reads_its_own_wording(text, letter):
     "COUNTY OF CONTOSO DES VENDOR PAY ID 1",
     "NORTHWIND OVERDRAFT SERVICES LLC DES PAYMENT ID 1",
     "ACH CREDIT NORTHWIND CUSTOMER PAYMENT",
+    # The owner's ruling of 2026-10-02 (the underwriter's Q12): a government form printing its purpose (an entry, a
+    # remittance, a PMT INFO addenda, the VA's entry codes), another payer's form and the VA's letter code.
+    "36 TREAS 310 DES VENDOR PAY ID 1 INDN NORTHWIND CLINIC LLC CO ID 1 CCD",
+    "ELECTRONIC DEPOSIT FROM MN STATE MMB VENDOR PAY",
+    "FIS EBT DES WIDCF EBT ID E123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD",
+    "PROVINCIAL PAYMENT FABRIKAM LIQUOR CORPORATION",
+    "ELECTRONIC CREDIT 36 TREAS 310 MISC PAY 123456789012345 APR 31 RMR IV SAMPLE 1234",
+    "36 TREAS 310 DES MISC PAY ID 123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO RMR IV INV12345",
+    "MN STATE MMB DES PAYMENT ID 1 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO INVOICE 12345 CONTRACT 9",
+    "WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO CHILD CARE INV 123",
+    "36 TREAS 310 XXVA CH33 123456789012345",
+    "ORIG CO NAME 36 TREAS 310 ORIG ID 1234567890 DESC DATE 010254 CO ENTRY DESCR XXVA CH33SEC PPD TRACE"
+    " 123456789012345 EED 540102 IND ID 1 IND NAME NORTHWIND CLINIC LLC TRN 1234567890TC",
+    "36 TREAS 310 DES XXVA CH33 ID 123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 PPD",
+    "VA TREAS 310 MISC PAY 123456789012345",
 ])
 def test_the_sweep_leaves_revenue_wording_alone(text):
     sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
@@ -1750,6 +1782,59 @@ def test_the_sweep_reads_true_only_and_reports_class_h_apart():
                                       "share_of_true": round(100 * 900 / 5230, 3)}
     assert (sweep["classes"]["D"]["verified_dollars"], sweep["classes"]["D"]["medium_dollars"]) == (200.0, 30.0)
     assert sweep["classes"]["A"]["shapes"] == {"OVERDRAFT PROTECTION FROM #": 100.0}
+
+
+# The owner's ruling of 2026-10-02 (the underwriter's Q12; spec §14.2, §14.3): the seven government payments that print
+# no purpose are non_revenue; the sweep reads them in class G (the Treasury form at medium confidence), the compare
+# declares a verified one's move, and guard G19 fails a True credit printing one of the six other forms.
+Q12_FORMS_WITH_A_RECEIVER = (
+    "WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD",
+    "ACH CREDIT 36 TREAS 310 MISC PAY RECEIVER NAME NORTHWIND CLINIC LLC 123456",
+    "ORIG CO NAME 36 TREAS 310 ORIG ID 1234567890 DESC DATE 010254 CO ENTRY DESCR MISC PAYSEC CTX TRACE"
+    " 123456789012345 EED 540102 IND ID 1 IND NAME NORTHWIND CLINIC LLC TRN 1234567890TC",
+    "MN STATE MMB DES PAYMENT ID 1 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD",
+)
+
+
+def test_q12_no_class_g_shape_prints_the_receiver():
+    sweep = census.sweep(_swept(*((text, "verified", 10000) for text in Q12_FORMS_WITH_A_RECEIVER)))
+    shapes = sweep["classes"]["G"]["shapes"]
+    assert sweep["classes"]["G"]["rows"] == len(Q12_FORMS_WITH_A_RECEIVER) and shapes
+    assert not any("NORTHWIND" in shape or "CLINIC" in shape for shape in shapes)
+
+
+def test_q12_the_compare_declares_a_verified_form_that_became_non_revenue():
+    text = census.mask("ELECTRONIC DEPOSIT FROM MN STATE MMB")
+    causes, run = _cause56(
+        _q56("named_payer_repeats", text),
+        _credit(0, 500000, "non_revenue", "government_no_purpose_exclusion", tier="non_revenue", text=text,
+                rule="government_payment_no_purpose"))
+    assert causes == {"government_no_purpose": 1}
+    assert "undeclared_demotion" not in run["guards"]
+    assert "government_no_purpose_exclusion" in census.NON_REVENUE_METHODS
+
+
+@pytest.mark.parametrize(("text", "state", "tier", "fails"), [
+    # A counted or verified credit printing one of the six non-Treasury forms with no purpose fails.
+    ("GOUV QUEBEC MSP", "unverified_deposit", "counted_flagged", True),
+    ("WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD", "unverified_deposit",
+     "counted_flagged", True),
+    ("ELECTRONIC DEPOSIT FROM MN STATE MMB", "verified_revenue", "verified", True),
+    # The same rows, non_revenue, pass.
+    ("GOUV QUEBEC MSP", "non_revenue", "non_revenue", False),
+    ("WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD", "non_revenue",
+     "non_revenue", False),
+    # A form the ruling did not name, or a purpose printed, passes; the Treasury form is reported, never gated.
+    ("GOUV QUEBEC RQ 1234", "unverified_deposit", "counted_flagged", False),
+    ("12 TREAS 310 MISC PAY 1234567890", "unverified_deposit", "counted_flagged", False),
+    ("MN STATE MMB DES PAYMENT ID 1 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO INVOICE 12345",
+     "verified_revenue", "verified", False),
+])
+def test_q12_guard_g19_fails_a_true_credit_printing_a_no_purpose_form(text, state, tier, fails):
+    credit = _credit(0, 100, state, "x", tier=tier, reason="named_payer_one_off" if tier == "counted_flagged" else None,
+                     text=census.mask(text))
+    assert census._row_guards(credit)["G19"] is fails
+    assert "G19" in census.FACT_FREE_CHECKS
 
 
 def test_the_compare_and_the_sweep_command_report_the_sweep(tmp_path, capsys):
@@ -2060,7 +2145,7 @@ def test_b3_the_snapshot_reads_a_released_processor_payout_with_no_guard_failure
     from analysis import true_revenue
     from analysis.schema import Statement, Transaction
 
-    # The owner's switch (it ships off: the release moves a real statement's pinned figures).
+    # The owner's switch, which the owner kept off on 2026-10-02 (the underwriter's Q13, spec §19.1); turned on here.
     monkeypatch.setattr(true_revenue, "PROCESSOR_CARD_PAYOUT_RELEASE", True)
     statement = Statement(bank="Thread Bank (Relay)", account_name="NORTHWIND PLUMBING LLC", transactions=[
         Transaction(date="2054-03-02", description="Debit Card Credit: Stripe", amount=2100.0, direction="credit"),
