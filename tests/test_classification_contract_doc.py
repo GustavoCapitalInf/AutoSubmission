@@ -229,6 +229,12 @@ STALE_SENTENCES = (
     # counting is in the code.
     (SPEC, "except through exactly these twelve named narrowings"),
     (SPEC, "its counting waits for its batch"),
+    # Owner ruling 2026-10-02, R2-OW09 (the underwriter's Q9): the rows T4 holds are released, and §8.1's residuals no
+    # longer wait for a T4 ruling.
+    (SPEC, "The release of the rows T4 holds waits for its own batch"),
+    (SPEC, "Recorded residuals of the roots, for the owner's T4 ruling"),
+    (SPEC, "the lenders' service payments T4 holds) waits for its batch"),
+    (SPEC, "lenders paying for services wait for the owner's ruling on audit I16"),
 )
 
 
@@ -287,6 +293,11 @@ SECTION_19_1_DECISIONS = (
     # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08.
     ("**2026-10-02, insurers paying for the business's work (I27; Q2).**", (
         "`insurer_paid_for_services`", "three or more", "31-day span", "one-off claim", "owner switch, OFF",
+    )),
+    # Owner ruling 2026-10-02 (the underwriter's Q9 (a), (b), (c)), R2-OW09.
+    ("**2026-10-02, Q9: finance-named customers, rent received and lenders paying for services (I16, I36(d)).**", (
+        "Keep them as true revenue", "`finance_named_customer`", "`lessor_rent`", "`lender_paid_for_services`",
+        "hidden-loan guard",
     )),
 )
 
@@ -508,7 +519,8 @@ def test_the_spec_records_that_an_auto_lender_s_payables_need_dealer_evidence():
     open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
     line = next(line for line in open_items.splitlines()
                 if line.startswith("- **I16 and I36(d), financing words in a customer's name.**"))
-    assert "Its part (c') is in the code" in line and "waits for its own batch" in line
+    # R2-OW09 closes the line: part (c') since R2-OW05, the rest since R2-OW09.
+    assert "Closed 2026-10-02 by the owner (Q9; §19.1)" in line and "part (c') since R2-OW05" in line
     contract = _flat(CONTRACT)
     for words in ("| `lender_paid_for_services` | `counted_flagged` | Lender paid for services |",
                   "A listed lender's credit read on a payables word alone", "Owner ruling 2026-10-02, R2-OW05"):
@@ -606,3 +618,57 @@ def test_the_spec_and_the_contract_state_the_q2_ruling():
                   "- **Owner ruling 2026-10-02, R2-OW08 in all** (", "c1acc3e"):
         assert words in amendments, words
     assert "Owner ruling 2026-10-02, R2-OW08 (the underwriter's Q2" in _flat(CONTRACT)
+
+
+def test_the_spec_and_the_contract_state_the_q9_release():
+    """Owner ruling 2026-10-02 (the underwriter's Q9 (a), (b), (c)), R2-OW09: §2.1 adds the Q9 row; §5.3 the two codes;
+    §8.1 replaces the residuals' lead-in with the release (by place, the wording and the refusal, the bank-only payer,
+    the label, the layout with no entry label, the payer-less row, the rent sense of LEASE and its memo, the lessor, the
+    guard, the limits, the relabel) and keeps the residuals; §8.7 the registered-lender gap; §8.10 the relabel; §17.1
+    closes I16 and I36(d) and asks the registered-lender question and the defaults; §20 records the ruling and the batch;
+    the contract's rows, holds paragraph, decision bullet and note follow."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n### 2.1 ", "\n## 3. "))
+    for words in ("| Q9 (2026-10-02) | Finance-named customers, rent received, lenders paying for services",
+                  "`finance_named_customer`", "`lessor_rent`", "the orchestrator's extension under Q10 (2026-10-02)",
+                  "a documented over-hold"):
+        assert words in rulings, words
+    codes = _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    for row in ("| `counted_flagged` | `finance_named_customer` | Customer with a finance word in its name, paying an "
+                "invoice |", "| `counted_flagged` | `lessor_rent` | Rent received by a leasing or property business |"):
+        assert row in codes, row
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("**The Q9 release (owner ruling 2026-10-02, the underwriter's Q9", "`finance_named_release`",
+                  "`_financing_root_places`", "`PROCEEDS`", "`_bank_only_payer`", "`_LENDER_NAME_WORD`",
+                  "`ADVANCE AUTO PARTS`", "`_labelless_root_refusal`",
+                  "A single root such a layout prints cannot tell a name from a purpose and is read as the name",
+                  "so (a) and (c) never release it", "`_RENT_LEASE`", "`LEASE HOLDINGS LLC`", "`_lessor_business`",
+                  "a payer-less transfer, person-to-person or wire row is never a rent payer", "`_payer_collects`",
+                  "a documented over-hold", "`_Q9_KEEPS`", "Recorded residuals of the roots (audit I16), kept:",
+                  "`<ADDRESS> OWNER SPE LLC`", "`FORWARDFINUSA<n><letter>`"):
+        assert words in holds, words
+    assert "**Q9's other parts (R2-OW09).**" in _section(text, "\n### 8.7 ", "\n### 8.8 ")
+    assert "The Q9 relabel (owner ruling 2026-10-02, the underwriter's Q9; §8.1; R2-OW09)" in _section(
+        text, "\n### 8.10 ", "\n## 9. ")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    for lead, words in (
+        ("- **Q9 (c) and registered lenders (the underwriter's Q9 of 2026-10-02, §8.1, §8.7; R2-OW09).**",
+         ("`GM FINANCIAL DES:VENDOR PMT`", "a G7 move", "0 such rows", "Default: unchanged")),
+        ("- **Finance-named customers, rent and lenders' service payments: the defaults (the underwriter's Q9 of "
+         "2026-10-02, §8.1; R2-OW09).**", ("A single tenant's recurring `LEASE` rent stays held", "$42,820.25",
+                                            "`COMMISSION(S)`", "per line", "a documented over-hold")),
+    ):
+        line = next(line for line in open_items.splitlines() if line.startswith(lead))
+        for word in words:
+            assert word in line, (lead, word)
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Finance-named customers, rent received and lenders paying for services** (",
+                  "owner ruling 2026-10-02, R2-OW09", "- **Owner ruling 2026-10-02, R2-OW09 in all** (", "78b066c"):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in ("| `finance_named_customer` | `counted_flagged` | Customer with a finance word in its name, paying an "
+                  "invoice |", "| `lessor_rent` | `counted_flagged` | Rent received by a leasing or property business |",
+                  "The underwriter's Q9 (owner ruling 2026-10-02, \"Keep them as true revenue\"; R2-OW09) lifts the "
+                  "financing-named hold's root arm alone", "T4's financing root no longer holds three kinds of row",
+                  "Owner ruling 2026-10-02, R2-OW09 (the underwriter's Q9"):
+        assert words in contract, words
