@@ -3478,3 +3478,66 @@ def test_ow06_r1_the_snapshot_declares_a_trailer_sale_s_freight_partner():
     assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
         "asset_sale_proceeds": 1, "q5_q6_q11_repeat_partner": 1}
     assert run["guards"] == {}
+
+
+# Audit I26 (by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a one-off claim ... stays out"),
+# R2-OW07: a Q5 or Q6 row whose payer the insurer-name hold now reads (the INS abbreviation, a cut form, LOSS PMT,
+# SUBRO, a carrier brand) is held as insurer_named_payer: the declared demotion q5_q6_held_insurer, keyed on the reason
+# alone (the insurer reading is no hold_rule fact), as the holder test's hold is.
+
+INSURER_ROW = "SAMPLE INS CO DES PAYMENT ID #"
+
+
+@pytest.mark.parametrize(("base_method", "facts", "cause"), [
+    ("named_payer_repeats", {}, "q5_q6_held_insurer"),
+    ("named_payer_company_form", {}, "q5_q6_held_insurer"),
+    ("repeat_wire_sender", {}, "q5_q6_held_insurer"),
+    # The hold is keyed on its reason alone: a hold_rule the pass also reads (a financing root in the name) is no part
+    # of the key.
+    ("named_payer_repeats", {"hold_rule": "financing_root"}, "q5_q6_held_insurer"),
+])
+def test_ow07_a_q5_or_q6_row_held_as_an_insurer_is_a_declared_demotion(base_method, facts, cause):
+    prior = _q56(base_method, INSURER_ROW)
+    later = _after56("unidentified_posted_credit", INSURER_ROW, tier="excluded_pending_review",
+                     reason="insurer_named_payer", **facts)
+    causes, run = _cause56(prior, later)
+    assert causes == {cause: 1}
+    assert "undeclared_demotion" not in run["guards"]
+    assert census.LATER_HOLD_CAUSES[("insurer_named_payer", None)] == "q5_q6_held_insurer"
+    assert "q5_q6_held_insurer" in census.DECLARED_DEMOTIONS
+    assert {"holder_name", "insurer_named_payer"} == set(census.LATER_HOLD_REASON_ONLY)
+
+
+def test_ow07_another_rule_s_row_held_as_an_insurer_or_an_insurer_payer_stays_undeclared():
+    held = _after56("unidentified_posted_credit", INSURER_ROW, tier="excluded_pending_review",
+                    reason="insurer_named_payer")
+    causes, run = _cause56(_step_11(INSURER_ROW), held)
+    assert causes == {"undeclared": 1}
+    assert run["guards"]["undeclared_demotion"]["failures"] == 1
+    # A listed insurer's customer payment (insurer_payer) is no cause of this batch.
+    payer = _after56("insurer_customer_payment", INSURER_ROW, tier="excluded_pending_review", reason="insurer_payer")
+    assert census._demotion_cause(_q56("named_payer_repeats", INSURER_ROW), payer) != "q5_q6_held_insurer"
+
+
+def test_ow07_the_snapshot_declares_t9b_s_insurer_repeats():
+    """T9b: 'SAMPLE INS CO' paying a bakery twice was Q6's verified repeat; the insurer-name hold now reads the INS
+    abbreviation, so both rows are held and the compare declares them through LATER_HOLD_CAUSES."""
+    from analysis.schema import Statement, Transaction
+
+    rows = [("SAMPLE INS CO DES:PAYMENT ID:1", 1234.0), ("SAMPLE INS CO DES:PAYMENT ID:2", 1290.5)]
+    statement = Statement(bank="Bank of America", account_name="CONTOSO BAKERY LLC", transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount, direction="credit")
+        for index, (text, amount) in enumerate(rows)
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    readings = [(credit["state"], credit["tier"], credit["reason"]) for credit in snap["credits"]]
+    assert readings == [("unverified_deposit", "excluded_pending_review", "insurer_named_payer")] * 2
+    for credit in snap["credits"]:
+        assert not any(census._row_guards(credit).values())
+    base = {**snap, "credits": [
+        {**credit, "state": "verified_revenue", "method": "named_payer_repeats", "tier": "verified", "reason": None,
+         "rule": "verified_named_payer_repeats"} for credit in snap["credits"]
+    ]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {"q5_q6_held_insurer": 2}
+    assert run["guards"] == {}

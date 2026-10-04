@@ -2266,6 +2266,42 @@ INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+#: Audit I26 (by Q6 of 2026-09-28, "insurers never count", and the last sentence of the underwriter's Q2 (2026-10-02)
+#: option the owner picked, "a one-off claim paid to a business on its own policy stays out"; R2-OW07): carriers whose
+#: credits print no insurer word, each a public insurer, as regular expressions the true-revenue pass alone reads
+#: (analysis/true_revenue.py insurer_credit_brand wraps each in (?<![A-Z])(?:...)(?![A-Z])) on a credit's payer region
+#: without the holder's names. CREDIT-ONLY: classify_transaction's insurance rule never reads it, no debit reads it and
+#: no record carries it, so INSURANCE_PROVIDER_ALIASES, detection.insurance_providers and the lender census (G7) are
+#: untouched. A brand INSURANCE_PROVIDER_ALIASES also names is keyed by that entity's name, spelled identically
+#: ('Travelers'), so the carrier is one key however it prints. Farmers Insurance Group (farmers.com; FARMERS NEW WORLD
+#: LIFE, Farmers Insurance of Salem; a bare IN only as the cut at the name's end, never 'FARMERS IN BLOOM', and no EXCH
+#: arm: 'FARMERS EXCHANGE BANK'); American Family Insurance (amfam.com; never AMERICAN FAMILY CARE, the urgent-care
+#: chain, or a dental practice); Safeco Insurance (safeco.com, Liberty Mutual's); Hiscox (hiscox.com); Aflac
+#: (aflac.com); GAINSCO (gainsco.com); AmTrust Financial (amtrustfinancial.com; never AMTRUST BANK, TITLE or REALTY);
+#: National General (nationalgeneral.com, Allstate's; never NATIONAL GENERAL CONTRACTORS); Travelers (travelers.com;
+#: its indemnity, casualty, property and commercial lines and its agents' PI COMM, never TRAVELERS CASH, PROPANE or
+#: COMMUNITY). Left out on purpose: Sun Life, Manulife, Canada Life and Great-West, Equitable Life and Desjardins (the
+#: Canadian benefit carriers SECTION_15_DEFERRED_PAYERS defers, whose bare rows are health-plan claims or commissions);
+#: Green Shield (a health-benefit carrier); Beneva, SSQ and La Capitale (BENEVA BLVD is a street); Berkshire Hathaway
+#: (also a real-estate brokerage); a bare PROGRESSIVE (Progressive Leasing, the underwriter's Q8); Nationwide
+#: (NATIONWIDE SECUR is a broker-dealer).
+INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
+    "Farmers": (r"FARMERS (?:INS\w*|FARMERS|GROUP|NEW WORLD|OF SALEM)", r"FARMERS IN(?! ?[A-Z])"),
+    "American Family": (
+        r"AMERICAN FAMILY(?! ?[A-Z])", r"AMERICAN FAMILY (?:INS\w*|MUT\w*|LIFE|DES|AGENTS?)(?![A-Z])", r"AMFAM",
+    ),
+    "Safeco": (r"SAFECO",),
+    "Hiscox": (r"HISCOX",),
+    "Aflac": (r"AFLAC",),
+    "Gainsco": (r"GAINSCO",),
+    "AmTrust": (r"AMTRUST(?! (?:BANK|TITLE|REALTY)(?![A-Z]))",),
+    "National General": (
+        r"NATIONAL GENERAL(?! ?[A-Z])", r"NATIONAL GENERAL (?:INS\w*|ASSUR\w*|PAYMENT|PMT|HOLDINGS)(?![A-Z])",
+    ),
+    "Travelers": (r"TRAVELERS ?(?:INDEMN\w*|PI ?COMM|CASUALT\w*|CAS|PROP(?:ERTY)?|COMM(?:ERCIAL|L)?)",),
+}
+
+
 # Reserved for transaction codes whose meaning is specific to an institution.
 # A global alias is never added here: it is an entity of the curated ledger
 # (docs/lender-registry-ledger.json), which tools/build_lender_registry.py renders

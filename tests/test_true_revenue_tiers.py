@@ -2501,12 +2501,21 @@ _A3H_AGENCY = "{payer} DES:{entry} ID:1234567 INDN:NORTHWIND INS AGENCY CO ID:12
     _A3H_CHASE.format(payer="CIGNA", entry="CIGNA PREM"),
     _A3H_AGENCY.format(payer="HUMANA", entry="PREM"),
     _A3H_AGENCY.format(payer="HUMANA", entry="PREMIUM"),
-    _A3H_AGENCY.format(payer="NORTHWIND INS CO", entry="PREM"),
 ])
 def test_a3h_an_insurer_s_premium_coded_credit_is_no_claim_payment(text):
     record = _one(text, 640.0)
     assert record.revenue_classification == "unverified_deposit"
     assert _tier(record) == ("counted_flagged", "named_payer_purpose_refused")
+
+
+def test_i26_an_insurer_spelled_ins_is_held_before_its_premium_code_is_read():
+    # Audit I26 (by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a one-off claim ... stays out";
+    # R2-OW07): an insurer whose name prints only the INS abbreviation is held as insurer_named_payer, as the same
+    # credit spelled INSURANCE is, before Q6c's premium refusal is read (it was counted and refused until R2-OW07).
+    for payer in ("NORTHWIND INS CO", "NORTHWIND INSURANCE CO"):
+        record = _one(_A3H_AGENCY.format(payer=payer, entry="PREM"), 640.0)
+        assert record.revenue_classification == "unverified_deposit"
+        assert _tier(record) == ("excluded_pending_review", "insurer_named_payer")
 
 
 @pytest.mark.parametrize(("text", "method"), [
@@ -2590,8 +2599,11 @@ def test_a3h_review_a_commission_word_keeps_the_reading_beside_a_premium_code():
 
 @pytest.mark.parametrize(("text", "expected"), [
     # A3-H review: the premium code is read only in the entry field (DES, CO ENTRY DESCR); a layout that prints none
-    # keeps its reading: an insurer's named payer stays unlabelled, a healthcare payer's PREMIUM stays held.
-    ("NORTHWIND INS CO PREM 1234567 CUSTOMER ID N1234567", ("counted_flagged", "named_payer_unlabelled")),
+    # keeps its reading: a health plan's named payer stays unlabelled, a healthcare payer's PREMIUM stays held. Audit
+    # I26 (R2-OW07): an insurer spelled INS is held as insurer_named_payer, whatever its layout (it stayed unlabelled
+    # until R2-OW07).
+    ("CIGNA PREM 1234567 CUSTOMER ID N1234567", ("counted_flagged", "named_payer_unlabelled")),
+    ("NORTHWIND INS CO PREM 1234567 CUSTOMER ID N1234567", ("excluded_pending_review", "insurer_named_payer")),
     ("HUMANA PREMIUM 1234567 CUSTOMER ID N1234567", ("excluded_pending_review", "non_sale_purpose")),
 ])
 def test_a3h_review_the_premium_code_is_read_only_in_the_entry_field(text, expected):

@@ -241,6 +241,10 @@ DECLARED_DEMOTIONS = (
     # remittance), now counted and flagged as construction_progress_draw, never verified; (Q11 (a)) and (b) a Q5 or Q6
     # repeat whose same-payer row Q11 now keeps from the repeat (an asset sale, a builder's progress draw), counted.
     "construction_progress_draw_never_verified", "q5_q6_q11_repeat_partner",
+    # Audit I26 (by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a one-off claim ... stays out"),
+    # R2-OW07: a Q5 or Q6 row whose payer the insurer hold now reads however the bank spells the insurer (the INS
+    # abbreviation, a cut form, LOSS PMT, SUBRO, a carrier brand), held as insurer_named_payer.
+    "q5_q6_held_insurer",
 )
 #: R2-OW06 review round 1: the method and reason of a builder's progress draw the pass overrules (analysis/true_revenue.py
 #: CONSTRUCTION_PROGRESS_DRAW_REASON, copied: the census reads other checkouts), and the Q5 and Q6 methods that rest on
@@ -277,9 +281,12 @@ Q5_Q6_METHODS = frozenset({
 })
 #: I7: the 5.6 holds a Q5 or Q6 row can take (the reason, the pass's own hold reading true_revenue.guard_facts records
 #: as `hold_rule`) and the cause each declares. The holder test's hold is its reason alone (its statement-level
-#: receiver names are no row fact).
+#: receiver names are no row fact); so is the insurer hold's (R2-OW07: the insurer reading is no hold_rule fact).
+LATER_HOLD_REASON_ONLY = frozenset({"holder_name", "insurer_named_payer"})
 LATER_HOLD_CAUSES = {
     ("holder_name", None): "q5_q6_held_holder_name",
+    # Audit I26 (R2-OW07): an insurer however the bank spells it (the insurer-name hold).
+    ("insurer_named_payer", None): "q5_q6_held_insurer",
     ("non_sale_purpose", "personal_trust"): "q5_q6_held_personal_trust",
     ("non_sale_purpose", "currency_conversion"): "q5_q6_held_currency_conversion",
     ("non_sale_purpose", "title_firm"): "q5_q6_held_title_firm",
@@ -2355,7 +2362,9 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         # hold reading (LATER_HOLD_CAUSES).
         if after.get("tier") == "excluded_pending_review":
             reason = after.get("reason")
-            cause = LATER_HOLD_CAUSES.get((reason, None if reason == "holder_name" else facts.get("hold_rule")))
+            cause = LATER_HOLD_CAUSES.get(
+                (reason, None if reason in LATER_HOLD_REASON_ONLY else facts.get("hold_rule"))
+            )
             if cause is not None:
                 return cause
         # (b) the payer region now reads a relaying bank's customer (A3-G refinement), so the repeat is another's.

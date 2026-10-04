@@ -37,6 +37,7 @@ from .classification_registry import (
     FACTORING_PAYOUT_PAYERS,
     FLOOR_PLAN_ALIASES,
     HEALTHCARE_PAYER_ALIASES,
+    INSURER_CREDIT_BRANDS,
     LENDING_BANK_CREDIT_PAYERS,
     OPERATING_REVENUE_READ_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
@@ -218,6 +219,19 @@ _INSURER_NAME = re.compile(
     r"(?<![A-Z])(?:INSUR\w*|ASSURANCE\b|MUTUAL\b|CASUALTY\b|INDEMNITY\b|UNDERWRIT\w*)"
 )
 _CLAIM_WORD = re.compile(r"(?<![A-Z])CLAIMS?\b")
+#: §8.1 insurer_named_payer (audit I26, by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a one-off
+#: claim paid to a business on its own policy stays out"; R2-OW07): the insurer spellings a payer region prints beside
+#: _INSURER_NAME's spelled-out words, which _INSURER_NAME (pinned by the contract's docs test) leaves unread: the INS
+#: abbreviation, the cut forms ASSUR, MUTUA, CASUALT and INDEMN, the French ASSURANCES, ASSURANT and ASSUREUR(S), P AND
+#: C (or P & C) at a name's end or before INS, CO, COMPANY or CORP, a loss payment's LOSS PMT, PAYMENT, PYMT or DRAFT,
+#: and SUBRO (a subrogation recovery). Never ASSURED or ASSURE ('ASSURED STAFFING LLC'), never P AND C FOODS; CLM, CLMS
+#: and CLMEFT are not read (every corpus CLM row is a health plan paying a provider).
+_INSURER_SPELLINGS = re.compile(
+    r"(?<![A-Z])(?:ASSURANCES|ASSURANT|ASSUREURS?|ASSUR|MUTUA|CASUALT\w*|INDEMN\w*|SUBRO\w*)(?![A-Z])"
+    r"|(?<![A-Z])INS(?![A-Z])"
+    r"|(?<![A-Z])P (?:AND|&) C(?:(?! ?[A-Z])| (?:INS\w*|CO|COMPANY|CORP)(?![A-Z]))"
+    r"|(?<![A-Z])LOSS (?:PMT|PAYMENT|PYMT|DRAFT)(?![A-Z])"
+)
 #: B3 review round 1: the classifier's _NO_LEGAL_FORM_LATER (copied: the classifier imports this module): no
 #: legal-form word later on the row.
 _NO_LEGAL_FORM_LATER = (
@@ -4905,6 +4919,108 @@ def _named_transfer_sender(text: str) -> str:
     return " ".join(names)
 
 
+#: §8.1 insurer_named_payer (audit I26; R2-OW07): the registry's INSURER_CREDIT_BRANDS, each pattern bounded as a whole
+#: name, (entity, compiled patterns) in the table's order.
+_INSURER_CREDIT_BRANDS = tuple(
+    (entity, tuple(re.compile(rf"(?<![A-Z])(?:{pattern})(?![A-Z])") for pattern in patterns))
+    for entity, patterns in INSURER_CREDIT_BRANDS.items()
+)
+#: §8.1 (R2-OW07): the revenue methods a listed insurer's credit carries (§6.1 step 5: the insurance rule's non-revenue
+#: exclusion and T14's customer-payment reading), on which the reader names the registry's entity.
+_INSURER_REGISTRY_METHODS = frozenset({"insurance_provider_credit_exclusion", "insurer_customer_payment"})
+
+
+def insurer_credit_brand(region: str) -> str | None:
+    """§8.1 (audit I26; R2-OW07): the entity of the first INSURER_CREDIT_BRANDS carrier a payer region names, or None.
+    Credit-only: no debit and no classifier rule reads it."""
+    if not region:
+        return None
+    for entity, patterns in _INSURER_CREDIT_BRANDS:
+        if any(pattern.search(region) for pattern in patterns):
+            return entity
+    return None
+
+
+@dataclass(frozen=True)
+class InsurerReading:
+    """§8.1 (audit I26; R2-OW07): an insurer read on a credit's payer region. `key` is the carrier the frequency of the
+    underwriter's Q2 counts by (the registry's or the brand table's entity name, so one carrier is one key however it
+    prints; otherwise the payer key of the region without the holder's names); `kind` is 'registry' (a listed insurer,
+    §6.1 step 5), 'brand' (INSURER_CREDIT_BRANDS), 'named' (an insurer word, spelling or claim word) or 'title' (a
+    title insurer, whose credit is a property closing's proceeds); `for_work` is False only for a title insurer."""
+
+    key: str
+    kind: str
+    for_work: bool
+
+
+def _insurer_own_region(
+    record: TransactionClassification, region: str, receiver_holders: Sequence[str] = (),
+) -> str:
+    """§8.1 (R2-OW07): the payer region without the holder's names (each of _holder_names by its runs, then R2-B04's
+    _holder_strip_names and the statement's receiver-field holder names whole), so the holder's own INSURANCE word
+    never makes its payer an insurer."""
+    own = region
+    for name in _holder_names(record):
+        own = _without_holder_name(own, name)
+    own = _without_holder_name(own, None, also=(*_holder_strip_names(record), *receiver_holders))
+    return " ".join(own.split())
+
+
+def insurer_payer_reading(
+    record: TransactionClassification,
+    text: str,
+    region: str,
+    entry: str,
+    receiver_holders: Sequence[str] = (),
+) -> InsurerReading | None:
+    """§8.1 insurer_named_payer (audit I26, by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a
+    one-off claim paid to a business on its own policy stays out"; R2-OW07): the insurer a credit's payer region names,
+    or None; the first arm that reads wins. (a) An HCCLAIMPMT entry is a claim paid to a provider, never an insurer's
+    reading (T18's claim-first rule keeps verifying it). (b) A government payer (§7.6) is none. (c) A listed insurer's
+    credit (its revenue method one of _INSURER_REGISTRY_METHODS and the classifier's insurer lookup naming it): the
+    registry's entity, or None for a premium financier. (d) Then the region is read without the holder's names
+    (_insurer_own_region); empty, None. (e) A title firm is a title insurer when an insurer word or spelling prints
+    (never for work), else None. (f) A premium-finance wording on the row before its receiver fields is premium
+    financing, None. (g) A healthcare payer is an insurer only by _INSURER_NAME's spelled words (Q6c unchanged). (g2) A
+    §15 deferred payer (_deferred_reading: the Canadian benefit carriers, HEALTH DENTAL CLAIM, CLMEFT) only by those words
+    or CLAIM: the widened spellings and brands never read it, so a medical claim payment to a provider keeps its tier.
+    (h) An INSURER_CREDIT_BRANDS carrier, by the brand's entity. (i) _INSURER_NAME, _INSURER_SPELLINGS or _CLAIM_WORD,
+    keyed by the payer key. No channel gate."""
+    classifier = _classifier()
+    channel = _channel(text, record.bank)
+    if classifier._HCCLAIMPMT.search(text):
+        return None
+    if government_payer(public_region(text)):
+        return None
+    if record.revenue_match_method in _INSURER_REGISTRY_METHODS:
+        match = classifier._insurance_registry_match(classifier._split_glued_claim(text), glued_digits=True)
+        if match is not None:
+            return None if match[2] else InsurerReading(match[0], "registry", True)
+    own = _insurer_own_region(record, region, receiver_holders)
+    if not own:
+        return None
+    named = _INSURER_NAME.search(own) is not None
+    spelled = named or _INSURER_SPELLINGS.search(own) is not None
+    if _TITLE_FIRM.search(own):
+        return InsurerReading(own, "title", False) if spelled else None
+    row = classifier._before_receiver(text)
+    if any(pattern.search(row) for pattern in classifier._PREMIUM_FINANCE_WORDING_PATTERNS):
+        return None
+    key = " ".join(classifier._payer_key(own)) or own
+    if healthcare_payer(own):
+        return InsurerReading(key, "named", True) if named else None
+    claim = _CLAIM_WORD.search(own) is not None
+    if _deferred_reading(text, channel, region, entry):
+        return InsurerReading(key, "named", True) if named or claim else None
+    brand = insurer_credit_brand(own)
+    if brand is not None:
+        return InsurerReading(brand, "brand", True)
+    if spelled or claim:
+        return InsurerReading(key, "named", True)
+    return None
+
+
 def credit_facts(
     record: TransactionClassification,
     text: str,
@@ -5056,7 +5172,8 @@ def _first_hold(
     never reads a named non-lender's wire purpose (I36, _dealer_word_lender). Owner ruling 2026-10-02 (the
     underwriter's Q11 (a)): on a builder's progress draw (`progress_draw`) the non-sale test spares DRAW alone. R2-OW06
     review round 1: with `insurer_name` False the insurer-name hold is passed over, so credit_facts reads the hold an IAA
-    seller payout would take after it (CreditFacts.hold_past_insurer_name)."""
+    seller payout would take after it (CreditFacts.hold_past_insurer_name). Audit I26 (R2-OW07): the insurer-name hold
+    reads insurer_payer_reading, every insurer spelling and brand without the holder's names."""
     classifier = _classifier()
     # Audit round 2, R2-B04 (R40): the I47 strip reads the holder's other business names too (_holder_strip_names).
     also = _holder_strip_names(record)
@@ -5064,12 +5181,14 @@ def _first_hold(
     before = _without_holder_name(classifier._before_receiver(text), _holder(record), also=also)
     if record.revenue_match_method == "insurer_customer_payment":
         return "insurer_payer"
-    claim_entry = classifier._HCCLAIMPMT.search(text) is not None
-    if insurer_name and not claimed and region and (
-        _INSURER_NAME.search(region)
-        or (_CLAIM_WORD.search(region) and not claim_entry and not healthcare_payer(region))
-    ):
-        return "insurer_named_payer"
+    # Audit I26 (by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a one-off claim ... stays out";
+    # R2-OW07): an insurer however the bank spells it (insurer_payer_reading: the spelled words, the INS abbreviation,
+    # the cut forms, LOSS PMT, SUBRO, the brand table, CLAIM), read without the holder's names; a listed insurer's
+    # reading is the insurance rule's (non_revenue), never this hold.
+    if insurer_name and not claimed and region:
+        reading = insurer_payer_reading(record, text, region, entry, receiver_holders)
+        if reading is not None and reading.kind != "registry":
+            return "insurer_named_payer"
     if record.revenue_match_method != "reversal_cancellation_exclusion" and (
         _POSSIBLE_RETURN.search(row)
         or (

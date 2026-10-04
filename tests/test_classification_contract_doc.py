@@ -74,6 +74,18 @@ def test_the_insurer_named_payer_row_names_every_word_the_insurer_hold_reads():
     assert "`CLAIM`" in when and "`HCCLAIMPMT`" in when and "healthcare payer" in when
 
 
+def test_the_insurer_named_payer_row_names_every_insurer_spelling_and_the_brand_table():
+    """Audit I26 (R2-OW07): the When cell names each spelling true_revenue._INSURER_SPELLINGS reads and the brand
+    table, and the holder strip."""
+    when = {cells[0]: cells[3] for cells in _reason_table()}["`insurer_named_payer`"]
+    for word in ("ASSUR", "ASSURANCES", "ASSURANT", "ASSUREUR", "MUTUA", "CASUALT", "INDEMN", "INS", "P AND C",
+                 "LOSS PMT", "SUBRO"):
+        assert f"`{word}" in when, word
+        assert word.split()[0] in true_revenue._INSURER_SPELLINGS.pattern, word
+    assert "`INSURER_CREDIT_BRANDS`" in when and "without the holder's own names" in when
+    assert "audit I26" in when and "`ASSURED`" in when and "`CLM`" in when
+
+
 @pytest.mark.parametrize("tier", REVENUE_TIERS)
 def test_every_revenue_tier_is_named_in_the_contract(tier):
     assert f"`{tier}`" in _flat(CONTRACT)
