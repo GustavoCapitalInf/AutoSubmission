@@ -228,6 +228,9 @@ SECTION_19_1_DECISIONS = (
     ("**2026-10-02, lease-to-own and patient-financing payouts (Q8).**", (
         "lease-to-own", "`customer_financing_payout`", "never verified", "`customer_financing_lump_sum`", "one-off",
     )),
+    ("**2026-10-02, an auto lender's PAYABLES with no dealer evidence (Q9 c').**", (
+        "`lender_paid_for_services`", "dealer evidence", "repossession", "never verified",
+    )),
 )
 
 
@@ -370,4 +373,36 @@ def test_the_spec_closes_i17_with_the_lease_to_own_ruling():
     assert "19. `factoring_payout` (a credit the classifier reads as factoring)" in tiering
     contract = _flat(CONTRACT)
     for words in ("`CUSTOMER_FINANCING_PAYERS`", "`customer_financing_lump_sum`", "Owner ruling 2026-10-02, R2-OW04"):
+        assert words in contract, words
+
+
+def test_the_spec_records_that_an_auto_lender_s_payables_need_dealer_evidence():
+    """Owner ruling 2026-10-02, R2-OW05 (the underwriter's Q9, part (c')): §5.3 carries the code, §8.7 the rule and its
+    evidence, §8.10 the demotion's place, §14.3 G5's exemption and the declared demotion, and §17.1 says part (c') is in
+    the code while the I16/I36(d) question waits for the rest; the contract states the rule and the batch."""
+    text = SPEC.read_text(encoding="utf-8")
+    codes = _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    assert "| `counted_flagged` | `lender_paid_for_services` | Lender paid for services |" in codes
+    q7 = re.sub(r"\s+", " ", _section(text, "\n### 8.7 ", "\n### 8.8 "))
+    assert ("A listed lender's credit read on a payables word alone (PAYABLES, TRADE PAY, ACCT FUND) verifies only on "
+            "a statement with dealer evidence: a Q7 credit with a dealer-specific word, or the credit-union arm; a "
+            "floor-plan financier's row, or FLOOR PLAN; a purchase at a dealer-only auction; a dealer word in the "
+            "holder's name, unless the name also prints RECOVERY, REPO, REPOSSESS, TOWING or COLLATERAL. Otherwise it "
+            "is `counted_flagged` / `lender_paid_for_services` (Q9 (2026-10-02)), held under the hidden-loan guard."
+            ) in q7
+    for words in ("`_dealer_contract_evidence`", "`_payer_collects`", "`q7_payables_without_dealer_evidence`",
+                  "a documented over-hold"):
+        assert words in q7, words
+    tiering = _section(text, "\n### 8.10 ", "\n## 9. ")
+    assert "a listed auto lender's payables-only credit on a statement with no dealer evidence" in tiering
+    guards = re.sub(r"\s+", " ", _section(text, "\n### 14.3 ", "\n### 14.4 "))
+    assert "the pass counts as `lender_paid_for_services`" in guards
+    assert "The census declares its demotion `q7_payables_without_dealer_evidence`" in guards
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    line = next(line for line in open_items.splitlines()
+                if line.startswith("- **I16 and I36(d), financing words in a customer's name.**"))
+    assert "Its part (c') is in the code" in line and "waits for its own batch" in line
+    contract = _flat(CONTRACT)
+    for words in ("| `lender_paid_for_services` | `counted_flagged` | Lender paid for services |",
+                  "A listed lender's credit read on a payables word alone", "Owner ruling 2026-10-02, R2-OW05"):
         assert words in contract, words
