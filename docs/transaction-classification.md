@@ -148,9 +148,11 @@ carries no reason: its rule is its `revenue_match_method`. The exceptions are
 the `non_revenue` codes the owner's rulings of 2026-10-02 decided
 (`NON_REVENUE_REASONS`, the table's last rows): a Zelle deposit the owner's
 Zelle policy excluded (the underwriter's Q3), `non_revenue` with the reason
-`zelle_excluded`, and a government payment that prints no purpose (the
+`zelle_excluded`, a government payment that prints no purpose (the
 underwriter's Q12), `non_revenue` with the display reason
-`government_no_purpose` (audit round 2, R2-OW03). A reviewer's rejection keeps
+`government_no_purpose` (audit round 2, R2-OW03), and a non-dealer's sale of
+equipment or vehicles (the underwriter's Q11 (b)), `non_revenue` with the reason
+`asset_sale_proceeds` (R2-OW06). A reviewer's rejection keeps
 the counted or held reason it had, which is none of them. The metrics count
 these rows by code (`non_revenue_by_reason`, below).
 
@@ -228,6 +230,19 @@ underwriter's Q9 (c')), leaves Verified after the factoring, own-push and
 financier demotions: counted as `lender_paid_for_services`, or held as
 `financing_named_payer` when the lender also debits the account (the
 hidden-loan guard); its lender fields and every debit are unchanged.
+A builder's progress draw (owner ruling 2026-10-02, the underwriter's Q11 (a):
+a builder, homebuilder, construction or contractor payer, a `DRAW` that is no
+loan's, line's, escrow's or owner's draw, outside the payer's own name, never on
+a Zelle row) is counted as `construction_progress_draw` right after the
+factoring and financier payouts, never verified; every hold before it wins, and
+on such a row the non-sale test spares `DRAW` alone. On a statement that shows
+no dealer evidence, a non-dealer's sale of equipment or vehicles (the
+underwriter's Q11 (b): an equipment auction's or a car buyer's seller payout, a
+printed truck, trailer, vehicle or equipment sale) is `non_revenue` with the
+reason `asset_sale_proceeds`, where the tier would count it, where IAA's
+insurer-name hold alone holds it, or where an invoice or customer-payment
+descriptor verified a vehicle's sale (after the payables demotion); every other
+hold keeps it held.
 After the tiers and before the $1 floor, the pass excludes every Zelle deposit
 the tiers verified, counted or held (owner ruling 2026-10-02, the underwriter's
 Q3): `non_revenue` with the reason `zelle_excluded`, the rules' own tier and
@@ -303,6 +318,8 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - A deferred source stays counted and flagged, never verified by Q5 or Q6 (§15, §19 OQ4).
 - Repeated round sums from one sender are held as `p2p_round_repeat`, a named transfer printed without FROM included (§8.4).
 - Every Zelle deposit is `non_revenue` (`zelle_excluded`), whoever sent it, a lender or processor paying through Zelle included: the pass's last tier step, before the $1 floor, keeps the rules' reading on the record (`zelle_prior_reading`); a row a non-revenue rule decided keeps that rule, and a direction conflict keeps its hold (owner ruling 2026-10-02, the underwriter's Q3; §8.4, §8.10).
+- A builder's progress draw is counted and flagged as `construction_progress_draw`, never verified and never a Q5 or Q6 repeat: the payer region names a builder (`BUILDER(S)`, `BUILD`, `HOMEBUILDER(S)`, `CONSTRUCTION`, `CONST`, `CONSTR`, `CONTRACTOR(S)`, `CONTRACTING`, a homebuilder's `HOMES`; never `BUILDING`, a builders' supplier, exchange or insurer, a nursing or mobile home), `DRAW` prints outside the payer's own name, no loan, line, escrow, title, owner's or equity draw or `DRAW ON` a line, no bank, title, owner-shaped or financing-root payer, no Zelle rail; the lender, own-loan and holder guards run first and every other hold wins. A developer's or a project LLC's draw stays held (owner ruling 2026-10-02, the underwriter's Q11 (a); §8.1, §17.1).
+- A non-dealer's sale of equipment or vehicles is `non_revenue` (`asset_sale_proceeds`), not held, with no review path: an equipment auction's or a car buyer's seller payout (`ASSET_SALE_PAYERS`, read as the whole payer name; Copart and IAA only beside a seller word; never Proxibid) or a printed `<asset> SALE`, `SALE OF <asset>`, `SOLD <asset>` purpose (a vehicle's sale read through an invoice reference; a generic equipment sale keeping its invoice, vendor and supplier spares), on a statement with no dealer evidence: no Q7 dealer funding that is not payables-only, no §7.8 auction payout credit or dealer-only auction purchase, no floor-plan row, and no vehicle or equipment trade name on the holder's names that prints no recovery or towing word (owner ruling 2026-10-02, the underwriter's Q11 (b); §8.1, §8.10, §17.1).
 - Q5 and Q6 leave a row the operating registry names, and a NET SETTLE row, to its own rule (§7.1, §8.5, §8.6).
 - VIREMENT is a person-to-person rail only in its Interac forms (§8.4).
 - A cancelled French transfer is a reversal (§6.1 step 3).
@@ -395,6 +412,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Owner ruling 2026-10-02, R2-OW03 (the underwriter's Q3: the dashboard states the Zelle exclusion and the underwriter may confirm a Zelle deposit; the Q12 card's open point 2; ef5ed20): one mechanism for every `non_revenue` reason code. `NON_REVENUE_REASONS` is the codes `REVENUE_TIER_REASONS` files under `non_revenue` (`zelle_excluded`, then `government_no_purpose`, "Government payment, no purpose printed", which pass 7 gives a row of method `government_no_purpose_exclusion` where it sets its tier: display only). `non_revenue_by_reason` (`{code: {count, total}}`) is computed by one rule in the metrics and the rebuild, nulled before 5.6 with the tier figures, carried by every package document row and the package totals (kept members only; never nulled where revenue is not established or no statement was analysed; its money refused, its counts kept, under a currency refusal) and exported as `non_revenue.<code>.count` / `.total`. The dashboard: the True card's "Zelle deposits excluded: <money> (<n>)", the Non-Revenue evidence sub-rows and their `non_revenue:<code>` filter, the tag "Non-revenue: <label>" with its sentence, the Monthly Statements' "Zelle excluded <amount>" under the True cell, the copied summary's ", of which Zelle deposits excluded <money>" and the Non-Revenue notes naming Zelle deposits. The review: `REVIEWABLE_NON_REVENUE_REASONS` (`zelle_excluded`) rows take a confirm (Verified, the reason kept) and a reset, never a reject; the re-analysis replays a confirm and reports a stored reject as decided by the rules; the row shows Confirm Revenue only. No tier, figure or gate moves (true revenue spec §2.1, §5.3, §9.1, §9.2, §10.1, §10.2, §10.5 to §10.8, §19.1, §20).
 - Owner ruling 2026-10-02, R2-OW04 (the underwriter's Q8: lease-to-own and patient-financing payouts; a93aedc): `CUSTOMER_FINANCING_PAYERS` names Snap Finance, Koalafi, Cherry Technologies, Acima, Terrace Finance, Wisetack, Katapult and Progressive Leasing (each a ledger entity; Wisetack a rejected record kept as evidence), read on the payer region (a bare `CHERRY` only as the whole region with company or entry words; never `KATAPULT ENGINEERING` or `KATAPULT PRO`; `SNAP LOAN FUNDING` only in Snap's `F<n> <merchant>` form, which the strong LOAN rule reads out). Pass 7 claims such a credit (a wire, an ACH or EFT or an unlabelled row of $1 or more with no consumer-side word, no class-action word and no consumer entry to a person) as it claims a payout entity's: `counted_flagged` / `customer_financing_payout`, never verified (an earlier verification is overruled, method `customer_financing_payer`), never a Q5 or Q6 repeat, nor is any row naming one of them (`CUSTOMER_FINANCING_NAMES`). After the tiers and before the Zelle step, a payout of $10,000 or more by wire, in whole thousands or at least half the statement's posted credits, that is not one of three or more payouts of at least half its size from that financier, is held as `customer_financing_lump_sum`. Cherry Technologies joins `PAYOUT_CREDIT_ENTITIES` under OQ2's consumer-side veto. Debits, lender, withholding and flag readings are unchanged (true revenue spec §2.1, §5.3, §6.3 narrowing 12, §8.9, §8.10, §15, §17.1, §19.1, §20).
 - Owner ruling 2026-10-02, R2-OW05 (the underwriter's Q9, part (c'): an auto lender's payables need dealer evidence; 207530a): a listed auto lender's credit Q7 verified on a payables word alone (`PAYABLES`, `TRADE PAY`, `ACCT FUND`) stays Verified only when the statement shows dealer evidence (`_dealer_contract_evidence`: a dealer-worded Q7 credit or a credit union's `VHCL PURCH`, a floor-plan financier's row or a `FLOOR PLAN` form, a debit naming a dealer-only wholesale auction, or a dealer word in the holder's name that prints no recovery, repossession, towing or collateral word). Otherwise the true-revenue pass, after the factoring, own-push and financier demotions, counts it as `lender_paid_for_services` (method `lender_paid_for_services`, rule `q7_payables_without_dealer_evidence`, never verified), or holds it as `financing_named_payer` when the hidden-loan guard (`_payer_collects`: any lender or other posted debit naming the payer, the bank's receiving fee and a card charge aside) reads the lender collecting from the account. Its lender fields, every lender flag and every debit are unchanged (true revenue spec §5.3, §8.7, §8.10, §14.3, §17.1, §19.1, §20).
+- Owner ruling 2026-10-02, R2-OW06 (the underwriter's Q11: builder progress draws and asset sales; fcf5d4f): (a) `construction_progress_draw` reads a builder on the payer region (`_BUILDER_PAYER`), `DRAW` outside the payer's own name proper, no own-loan draw (`_OWN_LOAN_DRAW`), no bank, title, owner-shaped or financing-root payer and no Zelle rail; on a row nothing claimed the payer facts set `CreditFacts.progress_draw`, the non-sale test spares `DRAW` alone, Q5 and Q6 never read the row, and it is counted as `construction_progress_draw` right after the financier arm. (b) `ASSET_SALE_PAYERS` (equipment auctions and consumer car buyers, read as the whole payer name; `ASSET_SALE_SELLER_WORD_ONLY`: Copart and IAA) and the printed asset-sale purpose (`asset_sale_reading`) make a row `non_revenue` with method and reason `asset_sale_proceeds` (rule `asset_sale_payer` or `asset_sale_purpose`) on a statement with no dealer evidence (`_dealer_statement`: R2-OW05's `_dealer_activity`, a §7.8 auction's payout credit, or `_ASSET_TRADE_HOLDER` on the holder's names without `_DEALER_HOLDER_VETO`), read on the unverified rows and on a vehicle sale an invoice or customer-payment descriptor verified (`ASSET_SALE_INVOICE_METHODS`); a held tier keeps the row held, and the row has no review path. `REVENUE_TIER_REASONS` gains `construction_progress_draw` (after `lender_paid_for_services`) and `asset_sale_proceeds` (last), which `non_revenue_by_reason` counts; the census declares the demotion `asset_sale_proceeds`. Every debit, lender, withholding and flag reading is unchanged (true revenue spec §2.1, §5.3, §6.2, §8.1, §8.10, §14.1, §15, §17.1, §19.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -780,7 +798,8 @@ status, flagged group, and every metric contribution flag.
   (`counted_flagged_by_reason`, `excluded_pending_review_by_reason`).
 - `non_revenue_by_reason` (audit round 2, R2-OW03): the `non_revenue` credits
   that carry a code `REVENUE_TIER_REASONS` files under `non_revenue`
-  (`zelle_excluded`, `government_no_purpose`), `{code: {count, total}}`, so the
+  (`zelle_excluded`, `government_no_purpose`, `asset_sale_proceeds`),
+  `{code: {count, total}}`, so the
   dashboard and the exports state the excluded Zelle deposits beside True; the
   package sums it over its kept members, never nulls it where revenue is not
   established, and refuses its money (keeping its counts) under a currency
@@ -826,7 +845,8 @@ state and tier. A Zelle deposit the owner's policy excluded (`zelle_excluded`,
 `non_revenue`, never rejected (it is non-revenue already); the re-analysis
 replays a confirm on it and reports a stored reject as decided by the rules.
 Every other `non_revenue` credit has no review (audit round 2, R2-OW03; the
-underwriter's Q3 of 2026-10-02, "I can review"). The API, package aggregation, filters, evidence tables, and
+underwriter's Q3 of 2026-10-02, "I can review"), an `asset_sale_proceeds` one
+included (R2-OW06). The API, package aggregation, filters, evidence tables, and
 exports are rebuilt from the updated record. An analysis saved before 5.6
 carries no tier: its review follows the three-state rules and its True revenue
 is not established.

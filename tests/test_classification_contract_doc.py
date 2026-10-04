@@ -183,6 +183,11 @@ STALE_SENTENCES = (
     # lease-to-own payers' merchant payouts.
     (SPEC, "except through exactly these eleven named narrowings"),
     (SPEC, "lease-to-own payers (Acima), and the other accounts-payable items"),
+    # Owner ruling 2026-10-02, R2-OW06 (the underwriter's Q11): a builder's draw is counted, the seller payouts are
+    # non_revenue, and asset_sale_proceeds is in the code.
+    (SPEC, "a builder's progress `DRAW` waits for the owner's ruling (§15)"),
+    (SPEC, "whether to hold them waits for the owner (I45)"),
+    (SPEC, "and, once its batch lands, `asset_sale_proceeds`"),
 )
 
 
@@ -231,6 +236,9 @@ SECTION_19_1_DECISIONS = (
     ("**2026-10-02, an auto lender's PAYABLES with no dealer evidence (Q9 c').**", (
         "`lender_paid_for_services`", "dealer evidence", "repossession", "never verified",
     )),
+    ("**2026-10-02, builder progress draws and asset sales (Q11).**", (
+        "`construction_progress_draw`", "`asset_sale_proceeds`", "dealer evidence", "go straight to non-revenue",
+    )),
 )
 
 
@@ -278,11 +286,42 @@ def test_the_section_15_rows_read_as_spec_17_1_says(text, tier, reason):
     assert (record.revenue_tier, record.revenue_tier_reason) == (tier, reason)
 
 
-def test_the_spec_section_17_1_says_a_draw_is_held_and_a_seller_payout_counted():
+def test_the_spec_section_17_1_closes_the_draw_and_seller_payout_question():
+    """The owner's ruling of 2026-10-02 (the underwriter's Q11, R2-OW06): §17.1's I18 and I45 question is closed, and
+    its follow-ups (a developer's draw, the asset-sale defaults) are asked."""
     open_items = _section(SPEC.read_text(encoding="utf-8"), "\n### 17.1 Open after the audit fix run", "\n## 18. ")
     line = next(line for line in open_items.splitlines() if line.startswith("- **I18 (`DRAW`) and I45"))
-    assert "The seller payouts stay counted and flagged, never verified (OQ4, `named_payer_purpose_refused`)" in line
-    assert "a builder's `DRAW` stays held as `non_sale_purpose`" in line
+    assert "Closed 2026-10-02 by the owner (Q11; §19.1, §20)" in line
+    assert "a builder's `DRAW` stays held" not in line and "stay counted and flagged" not in line
+    assert "- **A project owner or developer that is no builder paying a stage draw" in open_items
+    assert "- **Asset sales' follow-ups (the underwriter's Q11 (b) of 2026-10-02, §8.1).**" in open_items
+
+
+def test_the_spec_and_the_contract_state_the_q11_ruling():
+    """Owner ruling 2026-10-02, R2-OW06 (the underwriter's Q11): §2.1 carries the row, §5.3 the two codes, §6.2 pass
+    7's asset-sale reading, §8.1 the two rules, §8.10 the tier and the override, §15 the two deferred items as ruled;
+    the contract states both rules and the batch."""
+    text = SPEC.read_text(encoding="utf-8")
+    assert "| Q11 (2026-10-02) |" in _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
+    codes = _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    assert "| `counted_flagged` | `construction_progress_draw` | Builder's progress draw |" in codes
+    assert "| `non_revenue` | `asset_sale_proceeds` | Sale of equipment or vehicles (not a dealer) |" in codes
+    assert "then the asset-sale reading (Q11 (2026-10-02) (b)" in _section(text, "\n### 6.2 ", "\n### 6.3 ")
+    holds = _section(text, "\n### 8.1 ", "\n### 8.2 ")
+    assert "**`construction_progress_draw`** (owner ruling 2026-10-02, the underwriter's Q11 (a)" in holds
+    assert "**Asset-sale proceeds** (owner ruling 2026-10-02, the underwriter's Q11 (b)" in holds
+    assert "**Dealer evidence**" in holds
+    tiering = _section(text, "\n### 8.10 ", "\n## 9. ")
+    assert "then a builder's progress draw (`construction_progress_draw`, Q11 (a) of 2026-10-02" in tiering
+    assert "becomes `non_revenue` / `asset_sale_proceeds`" in tiering
+    deferred = _section(text, "\n## 15. ", "\n## 16. ")
+    assert "the draws ruled 2026-10-02 (the underwriter's Q11 (a)" in deferred
+    assert "Ruled 2026-10-02 (the underwriter's Q11 (b), §8.1)" in deferred
+    contract = _flat(CONTRACT)
+    for words in ("A builder's progress draw is counted and flagged as `construction_progress_draw`",
+                  "A non-dealer's sale of equipment or vehicles is `non_revenue` (`asset_sale_proceeds`)",
+                  "Owner ruling 2026-10-02, R2-OW06"):
+        assert words in contract, words
 
 
 def test_the_spec_records_the_card_push_switches_as_kept_off():
