@@ -716,3 +716,130 @@ def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_
         "revenue_review_status"]]
     two_accounts = _package(_pair_document(4000.0, 500.0))
     assert {record["source_account"] for record in two_accounts["verified_revenue_evidence"]} == {1}
+
+
+# ---------------------------------------------------------------- Audit round 2, R2-B15 (R13): months by days covered
+
+#: The two fabricated accounts the R13 tests read: CONTOSO BAKERY LLC's checking and its FABRIKAM-paid operating account.
+_CONTOSO_NUMBER = "000000001010"
+_FABRIKAM_NUMBER = "000000002020"
+
+
+def _period_payload(start, end, total=10000.0, *, number=_CONTOSO_NUMBER, bank="CONTOSO BANK"):
+    """A fabricated statement of `number` printing `start`..`end`, whose one credit, a FABRIKAM INC ACH payment of
+    `total` on its first day, is its True revenue."""
+    from analysis.pipeline import analyze_statement
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+    from analysis.serialization import document_report_to_dict
+
+    balance = round(1500.0 + total, 2)
+    statement = Statement(bank=bank, account_name="CONTOSO BAKERY LLC", account_number=number, period_start=start,
+                          period_end=end, beginning_balance=1500.0, ending_balance=balance, currency="USD",
+                          currency_source="printed",
+                          transactions=[Transaction(date=start, description="FABRIKAM INC DES:ACH PAYMENT ID:1",
+                                                    amount=total, direction="credit", running_balance=balance)])
+    return document_report_to_dict(analyze_statement(statement, reconciliation=reconcile(statement), markdown="",
+                                                     sheets=[], model_used="fabricated-test"))
+
+
+def _periods_package(periods, **kwargs):
+    """A package of one statement per `(start, end)` (or `(start, end, total)`), in that order."""
+    return _package(*(_period_payload(*period, **kwargs) for period in periods))
+
+
+#: A fixed cycle starting on the 16th across February: B11's month rule read 02-16..03-15 (13 February days, 15 March
+#: days) and 03-16..04-15 (16 March days) as March both, so three statements read two months.
+_SIXTEENTH_CYCLE = [("2031-01-16", "2031-02-15"), ("2031-02-16", "2031-03-15"), ("2031-03-16", "2031-04-15")]
+
+
+def _months(totals):
+    return (totals["months"], totals["true_revenue_total"], totals["avg_monthly_true_revenue"])
+
+
+def test_three_statements_of_a_mid_month_cycle_across_february_read_three_months():
+    """R13: the days the account's statements cover (90 here, 2.96 months of 30.4375 days) floor the month count, so a
+    16th-to-15th cycle across February reads 3 months, never the 2 calendar months its labels fall in."""
+    package = _periods_package(_SIXTEENTH_CYCLE)
+    totals = package["totals"]
+    assert _months(totals) == (3, 30000.0, 10000.0)
+    assert "statement_periods" not in totals  # three statements, three months
+    assert totals["avg_monthly_verified_revenue"] == round(totals["verified_revenue_total"] / 3, 2)
+    assert totals["avg_monthly_credits"] == 10000.0 and totals["decision"] == "approved"
+
+
+def test_a_cycle_whose_statements_share_their_closing_day_reads_its_months():
+    """R13: the shape the Canadian parsers read, each period starting on the day the last one closed (January and the
+    two Marches by B11's rule): 91 days covered, 3 months."""
+    shared = [("2031-01-16", "2031-02-16"), ("2031-02-16", "2031-03-16"), ("2031-03-16", "2031-04-16")]
+    assert _months(_periods_package(shared)["totals"]) == (3, 30000.0, 10000.0)
+
+
+def test_a_business_day_cycle_slipping_around_the_fifteenth_reads_its_months():
+    variable = [("2031-01-15", "2031-02-14"), ("2031-02-15", "2031-03-16"), ("2031-03-17", "2031-04-15")]
+    assert _months(_periods_package(variable)["totals"]) == (3, 30000.0, 10000.0)
+
+
+def test_a_statement_of_fifty_nine_days_reads_two_months():
+    """R13 (older than B11): a statement longer than a month counted one month, so its True per month was its total."""
+    totals = _periods_package([("2031-01-01", "2031-02-28", 20000.0)])["totals"]
+    assert _months(totals) == (2, 20000.0, 10000.0)
+    assert totals["statement_periods"] == 1  # one statement, two months: the dashboard prints both
+
+
+def test_two_accounts_on_the_sixteenth_cycle_read_three_months_and_sum_by_month():
+    """Each account's days floor the months on its own (the largest account wins); the accounts' True sums."""
+    contoso = [_period_payload(start, end, number=_CONTOSO_NUMBER) for start, end in _SIXTEENTH_CYCLE]
+    fabrikam = [_period_payload(start, end, 5000.0, number=_FABRIKAM_NUMBER) for start, end in _SIXTEENTH_CYCLE]
+    totals = _package(*contoso, *fabrikam)["totals"]
+    assert _months(totals) == (3, 45000.0, 15000.0)
+    assert totals["statement_periods"] == 6
+
+
+@pytest.mark.parametrize(("periods", "months"), [
+    # B11's calendar months, which the floor never lowers: January to March; a gap (January, March); two half-month
+    # January statements; one 20-day statement.
+    ([("2031-01-01", "2031-01-31"), ("2031-02-01", "2031-02-28"), ("2031-03-01", "2031-03-31")], 3),
+    ([("2031-01-01", "2031-01-31"), ("2031-03-01", "2031-03-31")], 2),
+    ([("2031-01-01", "2031-01-15"), ("2031-01-16", "2031-01-31")], 1),
+    ([("2031-01-05", "2031-01-24")], 1),
+])
+def test_calendar_month_statements_keep_their_month_count(periods, months):
+    assert _periods_package(periods)["totals"]["months"] == months
+
+
+def test_twelve_calendar_months_read_twelve():
+    from datetime import date, timedelta
+
+    periods = [(f"2031-{month:02d}-01", (date(2031 + month // 12, month % 12 + 1, 1) - timedelta(days=1)).isoformat())
+               for month in range(1, 13)]
+    totals = _periods_package(periods)["totals"]
+    assert totals["months"] == 12 and totals["avg_monthly_true_revenue"] == 10000.0
+
+
+def test_the_month_labels_and_the_tiers_are_unchanged():
+    """R13 changes the divisor only: each statement keeps the month holding most of its days (January, March, March:
+    the Monthly Statements' Month/Year labels, owner request 7ea2559), and each credit its tier."""
+    from webapp.app import _statement_month
+
+    package = _periods_package(_SIXTEENTH_CYCLE)
+    assert [_statement_month(row["period_start"], row["period_end"]) % 12 for row in package["monthly"]] == [0, 2, 2]
+    alone = [_periods_package([period]) for period in _SIXTEENTH_CYCLE]
+    assert [row["true_revenue_total"] for row in package["documents"]] == [
+        single["documents"][0]["true_revenue_total"] for single in alone]
+    assert sorted((row["classification"]["revenue_tier"], row["classification"].get("revenue_tier_reason"))
+                  for row in package["transactions"] if row["amount"] > 0) == sorted(
+        (row["classification"]["revenue_tier"], row["classification"].get("revenue_tier_reason"))
+        for single in alone for row in single["transactions"] if row["amount"] > 0)
+
+
+def test_the_covered_days_of_a_period():
+    from datetime import date
+
+    from webapp.app import _covered_days
+
+    assert len(_covered_days("2031-01-16", "2031-02-15")) == 31
+    assert _covered_days("2031-03-01", "2031-03-01") == {date(2031, 3, 1)}
+    assert _covered_days("2031-03-02", "2031-03-01") == set()  # an end before the start reads no day
+    assert _covered_days(None, "2031-03-01") == set() and _covered_days("2031-03-01", "2031-02-30") == set()
+    assert len(_covered_days("2030-01-01", "2032-12-31")) == 400  # capped as _statement_month is

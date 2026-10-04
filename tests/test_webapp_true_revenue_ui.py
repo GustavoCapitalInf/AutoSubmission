@@ -954,3 +954,229 @@ console.log(JSON.stringify(els.summaryBox.textContent));
     assert ("True revenue $2,000.00 ($1,000.00 a month), verified revenue $1,400.00 ($700.00 a month), non-revenue "
             "$200.00 ($100.00 a month).") in text
     assert "average monthly gross credits" in text and "average monthly credits" not in text
+
+
+# ---------------------------------------------------------------- Audit round 2, R2-B15: months, exclusions, counts
+
+#: Every surface of the package page as text: the hero, the status rows, the summary card, the Monthly Statements
+#: count, the notices, the processing note and the copied memo (generateSummary).
+PACKAGE_VIEW = r"""
+const kv = (el) => Object.fromEntries([...el.innerHTML.matchAll(
+  /<span class="kv-key">([^<]*)<\/span>\s*<span class="kv-value"[^>]*>([^<]*)<\/span>/g)].map((m) => [m[1], m[2]]));
+const strip = (html) => String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+const view = (pkg, ids) => {
+  for (const el of fakeElements.values()) { el.innerHTML = ""; el.textContent = ""; el.hidden = false; }
+  currentJobIds = ids; renderPackageAnalysis(pkg); generateSummary();
+  const metrics = els.metricsGrid.innerHTML;
+  return {kicker: strip(els.heroKicker.innerHTML), chips: [...els.heroChips.innerHTML.matchAll(
+      /<span class="hero-chip[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]),
+    label: els.creditsLabel.textContent, meta: strip(els.creditsMeta.innerHTML), status: kv(els.statusList),
+    card: kv(els.packageSummaryList), count: els.monthlyCount.textContent, memo: els.summaryBox.textContent,
+    processing: els.packageProcessingNote.textContent,
+    note: (metrics.match(/\d+ of \d+ statements? (?:has|have) no established revenue/) || [""])[0],
+    cards: Object.fromEntries([...metrics.matchAll(/<span class="metric-label">([^<]*)<\/span>[\s\S]*?<span class="metric-value[^"]*">([^<]*)<\/span>/g)].map((m) => [m[1], m[2]])),
+    buttons: [...els.monthlyTable.innerHTML.matchAll(/<button class="statement-open"[^>]*>([^<]*)/g)].map((m) => m[1].trim()),
+    excluded: els.excludedNotice ? [els.excludedNotice.hidden, strip(els.excludedNoticeText.innerHTML)] : null,
+    duplicates: [els.duplicateNotice.hidden, strip(els.duplicateNoticeText.innerHTML)],
+    all: [...fakeElements.values()].map((el) => strip(el.innerHTML || el.textContent)).join(" | ")};
+};
+"""
+
+
+def _views(*packages):
+    """Each package rendered on its own page (its counted jobs on screen), as PACKAGE_VIEW reads it."""
+    calls = ", ".join(
+        f"view({json.dumps(package)}, {json.dumps(sorted({doc['id'].split('#')[0] for doc in package['documents']}))})"
+        for package in packages)
+    return run_dashboard(PACKAGE_VIEW + f"console.log(JSON.stringify([{calls}]));")
+
+
+def _never_more_of_than_there_are(text):
+    """No surface prints "X of Y" (or "X completed of Y", "X / Y") with X above Y."""
+    pairs = re.findall(r"\b(\d+) (?:completed )?(?:of|/) (\d+)\b", text)
+    return [pair for pair in pairs if int(pair[0]) > int(pair[1])]
+
+
+@needs_node
+def test_a_long_statement_and_a_mid_month_cycle_read_their_months_on_the_page(tmp_path, monkeypatch):
+    """R13: the 59-day statement's memo says $10,000.00 a month (its two months), on the statement page and in the
+    package; the 16th cycle's package reads 3 statements and 3 months, its rows still January, March, March."""
+    from tests.test_webapp_true_revenue import _SIXTEENTH_CYCLE, _period_payload
+
+    long_statement = _period_payload("2031-01-01", "2031-02-28", 20000.0)
+    statement = run_dashboard(_open("long", _served(long_statement)) + """
+generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
+""")
+    assert "True revenue $20,000.00 ($10,000.00 a month)" in statement
+    one_month = run_dashboard(_open("mar", _served(_payload())) + """
+generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
+""")
+    assert "True revenue $1,000.00 ($1,000.00 a month)" in one_month  # 28 days: one month, the total (unchanged)
+    long_package = _package({"long": long_statement}, tmp_path, monkeypatch)
+    cycle = _package({f"c{index}": _period_payload(start, end) for index, (start, end) in enumerate(_SIXTEENTH_CYCLE)},
+                     tmp_path, monkeypatch)
+    long_view, cycle_view = _views(long_package, cycle)
+    assert long_view["label"] == "Total credits · 1 statement · 2 months"
+    assert "True revenue $20,000.00 ($10,000.00 a month)" in long_view["memo"]
+    assert cycle_view["label"] == "Total credits · 3 statements · 3 months"
+    assert cycle_view["meta"].endswith("True revenue $30,000.00 · True per month $10,000.00")
+    rows = run_dashboard(CELLS + f"""
+renderPackageAnalysis({json.dumps(cycle)}); console.log(JSON.stringify(monthly().rows.map((row) => row[0])));
+""")
+    # The two March rows name their files under the month (two statements of one month), as before.
+    assert rows == ["January", "Marchfabricated-c1.pdf", "Marchfabricated-c2.pdf"]
+
+
+@needs_node
+def test_an_account_left_out_of_the_package_is_named_and_the_true_line_says_what_it_covers(tmp_path, monkeypatch):
+    """R15: the notice names each account left out (not a repeat) and why, the package needs review, and the True line
+    says how many statements it covers; a package that counted none reads N/A and never Balanced (R54)."""
+    from tests.test_webapp_app import _r15_document, _r15_month
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    withheld = _package_analysis([_r15_month(1), _r15_document(2, main="held"), _r15_month(3)])
+    ambiguous = _package_analysis([_r15_month(1), _r15_document(2, notes=("ambiguous_internal_transfer",))])
+    alone = _package_analysis([_r15_document(3, main="held")])
+    idle = _package_analysis([_r15_month(1), _r15_document(2, main="idle")])
+    clean = _package_analysis([_r15_month(1), _r15_month(2), _r15_month(3)])
+    withheld_view, ambiguous_view, alone_view, idle_view, clean_view = _views(withheld, ambiguous, alone, idle, clean)
+    assert withheld_view["excluded"] == [False, "1 account left out of every figure. The package needs review. "
+                                                "doc2.pdf (main account not verified)."]
+    assert "True revenue $20,000.00 · covers 2 of 3 statements · True per month $10,000.00" in withheld_view["meta"]
+    assert withheld_view["duplicates"][0] is True  # the repeats' notice stays for repeats
+    assert ambiguous_view["excluded"][1] == (
+        "2 accounts left out of every figure. The package needs review. doc2.pdf, account 1 of 2 (transfers between "
+        "its accounts could not be paired); doc2.pdf, account 2 of 2 (transfers between its accounts could not be "
+        "paired).")
+    assert "covers 1 of 2 statements" in ambiguous_view["meta"]
+    assert idle_view["excluded"][1].endswith("doc2.pdf (main account printed no activity).")
+    assert "Revenue · Balanced" not in alone_view["chips"] and "Revenue · Review required" in alone_view["chips"]
+    assert "True revenue N/A · covers 0 of 1 statement ·" in alone_view["meta"]
+    assert alone_view["status"]["Revenue reconciliation"] == "Review required"
+    assert alone_view["cards"]["True Revenue"] == "N/A"
+    assert clean_view["excluded"] == [True, ""] and "covers" not in clean_view["meta"]
+    assert "Revenue · Balanced" in clean_view["chips"]
+
+
+@needs_node
+def test_the_other_exclusion_labels(tmp_path, monkeypatch):
+    from tests.test_webapp_app import _r15_document
+
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    unratified = [{"label": "CONTOSO SECTION B", "reason": "absence_of_parsed_rows", "posting_count": 0}]
+    omitted = _package_analysis([_r15_document(2, omitted=unratified)])
+    unvalidated_doc = _r15_document(3)
+    unvalidated_doc.analysis["accounts"][1]["quality"]["corporate_use"] = "manual_review"
+    unvalidated = _package_analysis([unvalidated_doc])
+    omitted_view, unvalidated_view = _views(omitted, unvalidated)
+    assert omitted_view["excluded"][1].endswith("doc2.pdf, account 2 of 2 (a section left out without proof).")
+    assert unvalidated_view["excluded"][1] == ("1 account left out of every figure. The package needs review. "
+                                               "doc3.pdf, account 2 of 2 (account not validated).")
+
+
+@needs_node
+def test_a_package_with_nothing_analysed_reads_n_a_and_names_what_is_still_processing(tmp_path, monkeypatch):
+    """R54: no Balanced, no $0.00 and no invented "1 statement · 1 month" where nothing was analysed; a queued or
+    processing job reads Processing, never Failed."""
+    from tests.test_webapp_app import _listed, _r15_month
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    failed = _package_analysis([_listed("sample", status="error", filename="sample.pdf")])
+    queued = _package_analysis([_listed("sample", status="queued", filename="sample.pdf")])
+    mixed = _package_analysis([_r15_month(1), _listed("sample", status="error", content="s", filename="s.pdf")])
+    failed_view, queued_view, mixed_view = _views(failed, queued, mixed)
+    for page in (failed_view, queued_view):
+        assert "Revenue · Balanced" not in page["chips"]
+        assert page["label"] == "Total credits · No statements analysed"
+        assert "1 statement · 1 month" not in page["all"]
+        assert page["cards"]["True Revenue"] == "N/A" and page["cards"]["True Revenue Per Month"] == "N/A"
+        assert "True revenue N/A" in page["memo"]
+    assert failed_view["processing"] == "1 statement failed" and failed_view["buttons"] == ["Unavailable"]
+    assert queued_view["processing"] == "1 still processing" and queued_view["buttons"] == ["Processing"]
+    assert queued_view["status"]["Processing errors"] == "0"
+    # An analysed month beside a failed one keeps its figures and its chip (spec §10.4).
+    assert "Revenue · Balanced" in mixed_view["chips"]
+    assert "True revenue $10,000.00 · True per month $10,000.00" in mixed_view["meta"]
+
+
+@needs_node
+def test_the_package_counts_name_statements_and_accounts_apart(tmp_path, monkeypatch):
+    """R50: a repeat is no statement of the package on any surface, and a document of two accounts is one statement
+    and two accounts, never "2 statements" or "2 of 1"."""
+    from tests.test_webapp_app import _listed, _r15_document
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+
+    def contoso(job_id):
+        return _listed(job_id, _payload(), content="contoso-march", filename="march.pdf")
+
+    twice = _package_analysis([contoso("a"), contoso("b")])
+    thrice = _package_analysis([contoso("a"), contoso("b"), contoso("c")])
+    fabrikam = _package_analysis([_r15_document(3, job_id="fabrikam")])
+    with_april = _package_analysis([_r15_document(3, job_id="fabrikam"),
+                                    _listed("april", _payload(month=4), content="april", filename="april.pdf")])
+    with_queued = _package_analysis([_r15_document(3, job_id="fabrikam"),
+                                     _listed("later", status="queued", content="later", filename="later.pdf")])
+    twice_view, thrice_view, fabrikam_view, april_view, queued_view = _views(
+        twice, thrice, fabrikam, with_april, with_queued)
+    assert twice_view["card"]["Statements"] == "1 completed of 1"
+    assert twice_view["status"]["Statements completed"] == "1 / 1"
+    assert "1 of 1 statements completed, 1 repeated statement left out" in twice_view["memo"]
+    assert thrice_view["card"]["Statements"] == "1 completed of 1"
+    assert fabrikam_view["kicker"].startswith("Package · 1 statement · 2 accounts")
+    assert fabrikam_view["status"]["Accounts completed"] == "2 / 2" and "Statements completed" not in fabrikam_view[
+        "status"]
+    assert fabrikam_view["card"]["Statements"] == "1 statement · 2 of 2 accounts completed"
+    assert fabrikam_view["count"] == "1 statement · 2 accounts"
+    assert "): 2 of 2 accounts completed." in fabrikam_view["memo"]
+    assert fabrikam_view["label"] == "Total credits · 1 statement · 1 month"
+    assert april_view["kicker"].startswith("Package · 2 statements · 3 accounts")
+    assert april_view["status"]["Accounts completed"] == "3 / 3"
+    assert april_view["card"]["Statements"] == "2 statements · 3 of 3 accounts completed"
+    assert queued_view["status"]["Accounts completed"] == "2 / 3"
+    for page in (twice_view, thrice_view, fabrikam_view, april_view, queued_view):
+        assert _never_more_of_than_there_are(page["all"]) == []
+    assert "2 statements" not in fabrikam_view["all"]
+
+
+@needs_node
+def test_the_unestablished_note_counts_statements_over_statements():
+    """R50: two unestablished accounts of one document are one statement of one, never "1 of 2"."""
+    result = run_dashboard("""
+const docs = [{id: "doc#account_1", status: "done"}, {id: "doc#account_2", status: "done"}];
+console.log(JSON.stringify([
+  packageUnestablishedNote({completed: 2, revenue_unestablished_documents: ["doc#account_1", "doc#account_2"]}, docs),
+  packageUnestablishedNote({completed: 2, revenue_unestablished_documents: ["doc#account_2"]}, docs),
+  packageUnestablishedNote({completed: 2, revenue_unestablished_documents: ["apr"]},
+                           [{id: "mar", status: "done"}, {id: "apr", status: "done"}])]));
+""")
+    assert result == ["1 of 1 statement has no established revenue", "1 of 1 statement has no established revenue",
+                      "1 of 2 statements has no established revenue"]
+
+
+@needs_node
+def test_two_single_statements_read_as_before(tmp_path, monkeypatch):
+    """R50 controls: a package of single-account statements keeps every count string (two done; one failed of two)."""
+    from tests.test_webapp_app import _listed
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    singles = _package_analysis([_listed("mar", _payload(), content="mar", filename="march.pdf"),
+                                 _listed("apr", _payload(month=4), content="apr", filename="april.pdf")])
+    one_failed = _package_analysis([_listed("mar", _payload(), content="mar", filename="march.pdf"),
+                                    _listed("apr", status="error", content="apr", filename="april.pdf")])
+    singles_view, failed_view = _views(singles, one_failed)
+    assert singles_view["kicker"].startswith("Package · 2 statements")
+    assert singles_view["status"]["Statements completed"] == "2 / 2"
+    assert singles_view["card"]["Statements"] == "2 completed of 2"
+    assert singles_view["count"] == "2 statements"
+    assert "2 of 2 statements completed." in singles_view["memo"]
+    assert failed_view["status"]["Statements completed"] == "1 / 2"
+    assert failed_view["card"]["Statements"] == "1 completed of 2"
+    assert "1 of 2 statements completed." in failed_view["memo"]
+    assert failed_view["processing"] == "1 statement failed"

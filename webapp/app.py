@@ -562,6 +562,8 @@ def _analysis_csv(analysis: dict) -> str:
 
 #: A package member's id: a job's id, or `<job id>#account_<n>` for an account of a document (app.js packageMember).
 _PACKAGE_MEMBER_ID = re.compile(r"(.*)#account_\d+")
+#: Audit round 2, R2-B15 (R15): the fields of an `excluded_account_<n>` section of the package downloads, in order.
+_EXCLUDED_ACCOUNT_FIELDS = ("job_id", "filename", "account_index", "account_count", "outcome", "reason")
 
 
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:
@@ -601,6 +603,14 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
             rows.append((f"duplicate_{idx}", key, "" if value is None else value))
+    # Audit round 2, R2-B15 (R15): each account left out of every figure for another reason than a repeat (a repeat is
+    # named by its document row and its duplicate group above), so the sheet an underwriter reads names it.
+    left_out = [entry for entry in package.get("excluded_accounts") or []
+                if isinstance(entry, dict) and entry.get("is_duplicate") is not True]
+    for idx, entry in enumerate(left_out, start=1):
+        for key in _EXCLUDED_ACCOUNT_FIELDS:
+            value = entry.get(key)
+            rows.append((f"excluded_account_{idx}", key, "" if value is None else value))
     # Audit round 2, R2-B14 (R14): each pair of overlapping statements that share credits, and the notice's words for it.
     filenames: dict[str, str] = {}
     for document in package.get("documents") or []:
@@ -1284,6 +1294,32 @@ def _statement_month(period_start: object, period_end: object) -> int | None:
     return max(days.items(), key=lambda item: (item[1], -item[0]))[0]
 
 
+#: Audit round 2, R2-B15 (R13): the days of an average calendar month (365.25 / 12), the unit the days an account's
+#: statements cover are read in.
+_AVERAGE_MONTH_DAYS = Decimal("30.4375")
+
+
+def _covered_days(period_start: object, period_end: object) -> set:
+    """Audit round 2, R2-B15 (R13): the days a statement's printed period covers, its first and last included; empty
+    unless both days read and the end is not before the start; at most 400 days, as `_statement_month` reads."""
+    from datetime import timedelta
+
+    start, end = _iso_day(period_start), _iso_day(period_end)
+    if start is None or end is None or end < start:
+        return set()
+    days, day = set(), start
+    while day <= end and len(days) < 400:
+        days.add(day)
+        day += timedelta(days=1)
+    return days
+
+
+def _months_covered(days: int) -> int:
+    """Audit round 2, R2-B15 (R13): a count of days as whole calendar months, half up (90 days are 3, 59 are 2, 45 are
+    1)."""
+    return int((Decimal(days) / _AVERAGE_MONTH_DAYS).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 #: Audit round 2, R2-B14 (R14): the words a left-out shorter printout reads in the package downloads, as the dashboard's
 #: duplicate notice reads them (app.js DUPLICATE_REASON_WORDS).
 SUPERSEDED_INTERIM_WORDS = "a shorter printout of days another statement covers"
@@ -1728,6 +1764,7 @@ def _package_members(
             # in the package's figures.
             excluded.append({
                 "job_id": job.id,
+                "filename": getattr(job, "filename", None),
                 "account_index": None,
                 "account_count": len(roster),
                 "outcome": "withheld",
@@ -1755,6 +1792,7 @@ def _package_members(
             if index in repeated:
                 excluded.append({
                     "job_id": job.id,
+                    "filename": getattr(job, "filename", None),
                     "account_index": index,
                     "account_count": count,
                     "outcome": "duplicate",
@@ -1777,6 +1815,7 @@ def _package_members(
                 # excluded set below is published rather than dropped.
                 excluded.append({
                     "job_id": job.id,
+                    "filename": getattr(job, "filename", None),
                     "account_index": index,
                     "account_count": count,
                     "outcome": outcome,
@@ -1788,6 +1827,7 @@ def _package_members(
                 # money into a package on their own validation.
                 excluded.append({
                     "job_id": job.id,
+                    "filename": getattr(job, "filename", None),
                     "account_index": index,
                     "account_count": count,
                     "outcome": "failed",
@@ -1797,6 +1837,7 @@ def _package_members(
             if outcome != "validated":
                 excluded.append({
                     "job_id": job.id,
+                    "filename": getattr(job, "filename", None),
                     "account_index": index,
                     "account_count": count,
                     "outcome": outcome,
@@ -1805,6 +1846,11 @@ def _package_members(
                 continue
             members.append((job, account, index, count))
     return members, excluded
+
+
+#: Audit round 2, R2-B15 (R54): the job statuses a package counts as pending, not failed (an error, an interrupted run or
+#: a job done without an analysis stays failed).
+_PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
 
 
 def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
@@ -1866,6 +1912,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     #: counted statements print no period, each its own month.
     month_keys: set[int] = set()
     months_unplaced = 0
+    #: Audit round 2, R2-B15 (R13): the days each account's counted statements cover, keyed by the account (its bank,
+    #: casefolded and its blanks collapsed, and the last four digits of its printed number; or, where either is not
+    #: printed, the member itself).
+    account_days: dict[tuple, set] = {}
     #: Audit B11 (I31, I05, I13): the members whose own rows do not reconcile to the bank's figures, and the members
     #: whose True rests on rows the holds could not screen or whose payer no parser read.
     unreconciled_members: list[str] = []
@@ -1922,6 +1972,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "potential_lender_debit_count": 0,
         "potential_lender_debit_total": 0.0,
         "potential_lender_debits": 0.0,
+        # Audit round 2, R2-B15 (R55): per calendar month: lender_debits / months (set with the other per-month figures
+        # below; it was the package's total under a monthly name). Its place here keeps the downloads' row order.
         "monthly_lender_debits": 0.0,
         "insurance_count": 0,
         "insurance_total": 0.0,
@@ -2001,6 +2053,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
 
         if ready:
             totals["completed"] += 1
+        elif job.status in _PENDING_JOB_STATUSES:
+            # Audit round 2, R2-B15 (R54): a job still queued or processing has not failed; it is pending, a key the
+            # package publishes only when one is, so a package without one is unchanged.
+            totals["pending"] = totals.get("pending", 0) + 1
         else:
             totals["failed"] += 1
         if corporate_use == "approved":
@@ -2429,7 +2485,6 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         )
         totals["potential_lender_debits"] = totals["potential_lender_debit_total"]
         totals["potential_lender_debit_count"] += potential_lender_debit_count
-        totals["monthly_lender_debits"] = totals["lender_debits"]
         totals["insurance_count"] += insurance_count
         totals["insurance_total"] = round(totals["insurance_total"] + insurance_total, 2)
         totals["withholding_numerator"] = totals["lender_debits"]
@@ -2750,6 +2805,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 months_unplaced += 1
             else:
                 month_keys.add(month_key)
+            # Audit round 2, R2-B15 (R13): the days it covers, for its account's month floor below.
+            member_digits = _printed_account_digits(analysis)
+            member_bank = " ".join(str(statement.get("bank") or "").split()).casefold()
+            account_key = ((member_bank, member_digits[-4:]) if member_bank and len(member_digits) >= 4
+                           else (job.id, account_index))
+            account_days.setdefault(account_key, set()).update(
+                _covered_days(statement.get("period_start"), statement.get("period_end")))
             if (analysis.get("reconciliation") or {}).get("ok") is not True:
                 unreconciled_members.append(doc_row["id"])
             if doc_row["holder_unscreened"]:
@@ -2800,7 +2862,14 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # of the business's combined figure (MINOR-10, which L1-S3 left to a policy; the audit plan chose the calendar
     # month, as MCA underwriters combine a business's accounts by month, standard §4.4 and §4.6). Each per-month
     # average below is the per-calendar-month sum across accounts divided by it.
-    months = max(1, len(month_keys) + months_unplaced)
+    #
+    # Audit round 2, R2-B15 (R13): floored by the days each account's statements cover, as whole months of 30.4375
+    # days, half up (the largest account's), so consecutive statements of one account never read fewer months than
+    # the days they cover: a 16th-to-15th cycle across February (02-16..03-15 and 03-16..04-15 both stand for March)
+    # or a cycle whose periods share their closing day read 3 months over 3 statements, never 2, and a statement of
+    # 59 days reads 2, never 1. The labels (`_statement_month`) are unchanged; a floor below the calendar count is inert.
+    month_floor = max((_months_covered(len(days)) for days in account_days.values()), default=0)
+    months = max(1, len(month_keys) + months_unplaced, month_floor)
     # MINOR-10: the statement periods (one per document and printed cycle) beside the months, published when the two
     # differ; the dashboard prints "N statements · M months".
     statement_periods = len(period_keys) or months
@@ -2872,6 +2941,18 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # T9: confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so they are N/A with it.
         for key in ("verified_revenue_total", "confirmed_true_revenue_total", "confirmed_true_revenue"):
             totals[key] = None
+    # Audit round 2, R2-B15 (R54): a package with no statement analysed (every job failed, was interrupted or is still
+    # queued or processing, or every account was left out) has no revenue figure at all: True, Verified, Counted and
+    # Held are N/A, never a $0.00 an underwriter would read as a measured decline, and nothing reads as reconciled.
+    # With one analysed statement or more, §10.4 holds as before: a failed member's credits are in no total.
+    no_statement_analysed = totals["completed"] == 0
+    if no_statement_analysed:
+        for key in ("true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
+                    "excluded_pending_review_total", "excluded_pending_review_count", "true_revenue",
+                    "counted_flagged_by_reason", "excluded_pending_review_by_reason", "verified_revenue_total",
+                    "confirmed_true_revenue_total", "confirmed_true_revenue"):
+            totals[key] = None
+        totals["revenue_tiers_sum_to_posted"] = totals["revenue_reconciles"] = False
     package_withholding_raw = (
         abs(totals["withholding_numerator"]) / totals["withholding_denominator"] * 100
         if totals["withholding_denominator"] > 0
@@ -2908,6 +2989,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         item["potential_withholding_formula"] = (
             "abs(potential_lender_debit_total) / eligible_deposits * 100"
         )
+    # Audit round 2, R2-B15 (R15): the accounts left out of every figure for a reason other than a repeat: a statement
+    # whose main account is held or idle (the 2026-09-23 ruling), an account that did not validate on its own (Q1), and
+    # every account of a document whose transfers could not be paired (Q2) or that left a section out without proof
+    # (L1-C17). Membership and every figure stay as they are; the package says so (completeness partial, the count,
+    # the download section and the dashboard's notice) and needs an analyst, as the same account uploaded alone does.
+    left_out_accounts = [entry for entry in excluded_accounts if entry.get("is_duplicate") is not True]
     decision = "approved"
     # Audit B11: the four-tier identity is no longer read here (I31): it held by construction on every tiered member,
     # and a member whose tiers do not sum already gates through `revenue_review_required` (its T7 term, or §12's for an
@@ -2921,6 +3008,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         or totals["has_duplicate_documents"]
         # Audit round 2, R2-B14 (R14): two statements of one account that share credits in the days both cover.
         or overlapping_statements
+        # Audit round 2, R2-B15: an account left out for another reason than a repeat (R15), and a job still queued or
+        # processing (R54).
+        or left_out_accounts
+        or totals.get("pending")
     ):
         decision = "review_required"
     elif totals["summary_only"] or totals["integrity_review"]:
@@ -3013,6 +3104,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "completeness": "partial",
             "omitted_section_count": len(omitted_sections),
         } if omitted_sections else {}),
+        # Audit round 2, R2-B15 (R15; Q1: the package surfaces partial completeness): the accounts left out for another
+        # reason than a repeat, published only when there is one. `sibling_account_omission_detected` stays Q10's.
+        **({
+            "completeness": "partial",
+            "excluded_account_count": len(left_out_accounts),
+        } if left_out_accounts else {}),
         # MINOR-10, published only when it differs from `months` — so a package
         # of today's payloads carries no new key and is byte-identical.
         **({"statement_periods": statement_periods}
@@ -3027,6 +3124,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # Gross: every posted credit, not True revenue (audit B11, I07: the dashboard labels it so).
         "avg_monthly_credits": round(totals["total_credits"] / months, 2),
         "avg_monthly_debits": round(totals["total_debits"] / months, 2),
+        # Audit round 2, R2-B15 (R55): the confirmed lender debits per calendar month, beside the package's total
+        # (`lender_debits`); refused with the other per-period figures (_PER_PERIOD_AVERAGE_KEYS, a mixed currency).
+        "monthly_lender_debits": round(totals["lender_debits"] / months, 2),
         "avg_monthly_cash_flow": round(totals["cash_flow"] / months, 2),
         # Audit B11 (I07): what an MCA advance is sized on (standard §4.1, §4.4): the per-calendar-month True and
         # Verified revenue across the package's accounts, divided by its distinct months. Both None wherever True is
@@ -3109,7 +3209,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         published_totals["withholding_review_required"] = True
         published_totals["decision"] = "review_required"
 
-    true_revenue_evidence = None if unestablished_revenue else [
+    # Audit round 2, R2-B15 (R54): no evidence for a True revenue the package has no figure for.
+    true_revenue_evidence = None if unestablished_revenue or no_statement_analysed else [
         evidence for evidence in (*package_revenue_evidence["verified_revenue"], *package_tier_evidence["counted_flagged"])
     ]
     return {

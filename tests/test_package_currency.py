@@ -132,6 +132,10 @@ UNIT_FREE_TOTALS = {
 #: 5.6 (§9.2, §10.4): the tier counts are unit-free, and None whenever a completed member's revenue is not
 #: established, as every metrics-only member of these fixtures is.
 REVENUE_TIER_COUNTS = {"true_revenue_count", "counted_flagged_count", "excluded_pending_review_count"}
+#: Audit round 2, R2-B15 (R54, R15): counts the package publishes only when there is one (a job still pending, an
+#: account left out for another reason than a repeat), so they sit outside UNIT_FREE_TOTALS, whose every key the
+#: fixtures above publish.
+CONDITIONAL_UNIT_FREE_TOTALS = {"pending", "excluded_account_count"}
 
 
 def statement_payload(currency, *, amount=10_000.0, adb=100.0, days=31, bank="Test Bank"):
@@ -697,7 +701,7 @@ def _cross_document_numbers_not_counts(rows):
             number = float(value)
         except (TypeError, ValueError):
             continue
-        if field in UNIT_FREE_TOTALS or field in UNIT_FREE_ROLLUP_KEYS:
+        if field in UNIT_FREE_TOTALS or field in UNIT_FREE_ROLLUP_KEYS or field in CONDITIONAL_UNIT_FREE_TOTALS:
             continue
         # 5.6 (§10.8): a by-reason row is `<tier>.<reason>.count` or `.total`; the count is unit-free.
         if section == "revenue_tier" and field.endswith(".count"):
@@ -827,9 +831,117 @@ def test_version_3_deprecated_aliases_degrade_with_their_canonical_names():
         ("confirmed_true_revenue_total", "verified_revenue_total"),
         ("potential_revenue_total", "unverified_deposit_total"),
         ("potential_lender_debits", "potential_lender_debit_total"),
-        ("monthly_lender_debits", "lender_debits"),
     ):
         assert totals[alias] == totals[canonical] is None
+    # Audit round 2, R2-B15 (R55): monthly_lender_debits is no alias of lender_debits in a package but its per calendar
+    # month figure, refused with the other per-period figures under a mixed currency.
+    assert totals["monthly_lender_debits"] is None
+
+
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B15 (R55): the package's monthly_lender_debits is its confirmed lender debits per calendar month
+# (lender_debits / months), refused as the other per-period figures are. Fabricated CONTOSO LLC statements of 2031,
+# a $10,000.00 FABRIKAM INC ACH payment in and a $1,000.00 payment to a registry funder (OnDeck, public) out a month.
+# ---------------------------------------------------------------------------
+
+
+def _lender_report(month, *, number="000000001010", currency="USD", name="CONTOSO LLC", rows=None, opening=1500.0):
+    """A fabricated statement of `month` 2031, analysed by the real pipeline (a Report)."""
+    from analysis.pipeline import analyze_statement
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+
+    if rows is None:
+        rows = [(f"2031-{month:02d}-05", "FABRIKAM INC ACH PAYMENT", 10000.0),
+                (f"2031-{month:02d}-10", "ONDECK CAPITAL DES:PAYMENT ID:1", -1000.0)]
+    transactions, balance = [], opening
+    for day, description, amount in rows:
+        balance = round(balance + amount, 2)
+        transactions.append(Transaction(date=day, description=description, amount=amount,
+                                        direction="credit" if amount > 0 else "debit", running_balance=balance))
+    statement = Statement(bank="CONTOSO BANK", account_name=name, account_number=number,
+                          period_start=f"2031-{month:02d}-01", period_end=f"2031-{month:02d}-28",
+                          beginning_balance=opening, ending_balance=balance, currency=currency,
+                          currency_source="printed", transactions=transactions)
+    return analyze_statement(statement, reconciliation=reconcile(statement), markdown="", sheets=[],
+                             model_used="fabricated-test")
+
+
+def _lender_month(month, **kwargs):
+    from analysis.serialization import document_report_to_dict
+
+    return document_report_to_dict(_lender_report(month, **kwargs))
+
+
+def _lender_package(*months, currencies=None):
+    currencies = currencies or ["USD"] * len(months)
+    return _package_analysis([Job(id=f"m{month}", filename=f"m{month}.pdf", status="done",
+                                  analysis=_lender_month(month, currency=currency), content_sha256=f"m{month}")
+                              for month, currency in zip(months, currencies)])
+
+
+def test_monthly_lender_debits_is_the_lender_debits_per_calendar_month():
+    """R55: it carried the package's total lender debits under a monthly name (3 x $1,000 read 3000.0)."""
+    package = _lender_package(1, 2, 3)
+    totals = package["totals"]
+    assert (totals["months"], totals["lender_debits"], totals["monthly_lender_debits"]) == (3, 3000.0, 1000.0)
+    # The withholding figures read the total, as before.
+    assert totals["withholding_numerator"] == 3000.0
+    assert totals["package_withholding_rate"] == round(3000.0 / totals["withholding_denominator"] * 100, 2)
+    rows = list(csv.reader(io.StringIO(_package_csv(package))))
+    assert ["totals", "monthly_lender_debits", "1000.0"] in rows
+    assert ["totals", "lender_debits", "3000.0"] in rows
+    with zipfile.ZipFile(io.BytesIO(_package_xlsx(package))) as archive:
+        sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    row = next(row for row in re.findall(r"<row [^>]*>(.*?)</row>", sheet) if ">monthly_lender_debits<" in row)
+    assert [float(value) for value in re.findall(r"<v>([^<]*)</v>", row)] == [1000.0]
+
+
+@pytest.mark.parametrize("months", [(1,), (1, 2, 3, 4, 5, 6)])
+def test_monthly_lender_debits_times_the_months_is_the_lender_debits(months):
+    totals = _lender_package(*months)["totals"]
+    assert totals["months"] == len(months) and totals["monthly_lender_debits"] == 1000.0
+    assert totals["lender_debits"] == 1000.0 * len(months)
+
+
+def test_monthly_lender_debits_is_refused_with_the_other_per_period_figures():
+    from analysis.pipeline import AccountRosterEntry, DocumentReport, identify_internal_transfers
+    from analysis.serialization import document_report_to_dict
+
+    # Two accounts of one document: a per-period figure over them is refused (design §6.5); the sum stays.
+    checking = _lender_report(3).accounts[0]
+    savings = _lender_report(3, number="000000002020", name="CONTOSO LLC SAVINGS", opening=9000.0,
+                             rows=[("2031-03-04", "DEPOSIT", 500.0)]).accounts[0]
+    transfers, notes = identify_internal_transfers([checking, savings])
+    roster = [AccountRosterEntry("CONTOSO LLC", "checking", "1010", "published", published_index=0),
+              AccountRosterEntry("CONTOSO LLC SAVINGS", "savings", "2020", "published", published_index=1)]
+    document = document_report_to_dict(DocumentReport(accounts=[checking, savings], internal_transfers=transfers,
+                                                      integrity_notes=notes, account_roster=roster,
+                                                      document_period=("2031-03-01", "2031-03-28")))
+    totals = _package_analysis([Job(id="doc", filename="doc.pdf", status="done", analysis=document,
+                                    content_sha256="doc")])["totals"]
+    assert totals["cross_account_averages_refused"] is True
+    assert totals["monthly_lender_debits"] is None and totals["lender_debits"] == 1000.0
+    # A USD and a CAD statement: refused with the cross-currency totals.
+    mixed = _lender_package(1, 2, currencies=["USD", "CAD"])["totals"]
+    assert mixed["cross_currency_totals_refused"] is True
+    assert mixed["monthly_lender_debits"] is None and mixed["lender_debits"] is None
+
+
+def test_a_refused_package_keeps_its_pending_and_left_out_counts():
+    """Audit round 2, R2-B15 (R54, R15): the pending jobs and the accounts left out are counts, unit-free: a currency
+    refusal keeps them, and the export sweep reads no mixed number among them."""
+    from tests.l1s3_payloads import document_payload
+
+    queued = Job(id="q", filename="q.pdf", status="queued", analysis=None, content_sha256="q")
+    document = document_payload(outcomes=("validated", "review"))
+    document["accounts"][0]["statement"]["currency"] = "CAD"
+    left_out = Job(id="d", filename="d.pdf", status="done", analysis=document, content_sha256="d")
+    package = _package_analysis([member("a", "USD"), queued, left_out])
+    totals = package["totals"]
+    assert totals["cross_currency_totals_refused"] is True
+    assert (totals["pending"], totals["excluded_account_count"], totals["completeness"]) == (1, 1, "partial")
+    assert _cross_document_numbers_not_counts(_package_rows(package)) == []
 
 
 def test_package_ledger_rows_carry_their_own_source_currency():

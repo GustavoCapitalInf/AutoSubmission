@@ -1214,6 +1214,14 @@
           <p class="rules-outdated-text" id="duplicateNoticeText"></p>
         </section>
 
+        <!-- Audit round 2, R2-B15 (R15): a package that left an account out of every figure for another reason than a
+             repeat (a main account held or idle, an account not validated, a document whose transfers could not be
+             paired or that left a section out without proof) names it and says the package needs review
+             (app.js renderExcludedNotice). -->
+        <section class="panel rules-outdated duplicate-notice package-only" id="excludedNotice" aria-live="polite" hidden>
+          <p class="rules-outdated-text" id="excludedNoticeText"></p>
+        </section>
+
         <!-- The accounts of a statement that holds several: the main account first, the others with All accounts -->
         <section class="panel accounts-panel single-only" id="accountsPanel" aria-label="Accounts in this statement" hidden></section>
 

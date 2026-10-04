@@ -21,8 +21,10 @@ def test_a_statement_whose_business_checking_account_is_held_is_left_out_of_the_
     from webapp.app import _package_members
     payload = {**account_payload(), "document": _roster("held")}
     members, excluded = _package_members([_Job("job-1", payload)])
-    assert members == [] and excluded == [{"job_id": "job-1", "account_index": None, "account_count": 2,
-                                           "outcome": "withheld", "reason": "main_account_unverified"}]
+    # Audit round 2, R2-B15 (R15): the entry names its statement's file (None for this job, which carries no filename).
+    assert members == [] and excluded == [{"job_id": "job-1", "filename": None, "account_index": None,
+                                           "account_count": 2, "outcome": "withheld",
+                                           "reason": "main_account_unverified"}]
 
 
 def test_a_held_account_whose_title_names_no_kind_or_ranks_first_is_the_main_account():

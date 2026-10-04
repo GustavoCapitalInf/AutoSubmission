@@ -1088,8 +1088,9 @@ def test_a_failed_copy_alone_or_beside_another_statement_is_still_a_failed_membe
     from webapp.app import _package_analysis
 
     alone = _package_analysis([_listed("f", status="error")])["totals"]
+    # Audit round 2, R2-B15 (R54): with no statement analysed True is N/A (None), no longer 0.0.
     assert (alone["true_revenue_total"], alone["completed"], alone["failed"], alone["duplicate_documents"]) == (
-        0.0, 0, 1, 0)
+        None, 0, 1, 0)
     for jobs in ([_listed("f", status="error"), _listed("a", _payload(), content="h2")],
                  [_listed("a", _payload(), content="h2"), _listed("f", status="error")]):
         package = _package_analysis(jobs)
@@ -1570,6 +1571,238 @@ def test_the_package_rows_name_a_longer_printout_in_words():
     rows = _package_rows(_package_analysis([*_first_quarter(), quarter]))
     assert ("document_4", "duplicate_reason", "superseded_long_printout") in rows
     assert ("document_4", "duplicate_reason_words", _LONG_PRINTOUT_WORDS) in rows
+
+
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B15 (R15): an account the package leaves out of its figures for any reason but a repeat (a statement
+# whose main account is held or idle, an account that did not validate, every account of a document whose transfers
+# could not be paired or that left a section out without proof) sends the package to review and is named: completeness
+# partial, excluded_account_count, the exclusion's filename and an excluded_account_<n> download section. Membership
+# and every figure are as before. Fabricated CONTOSO BANK statements of 2031, FABRIKAM INC paying $10,000.00 a month.
+# ---------------------------------------------------------------------------
+
+_R15_PAYMENT = "FABRIKAM INC DES:ACH PAYMENT ID:1"
+
+
+def _r15_bounds(month):
+    return f"2031-{month:02d}-01", f"2031-{month:02d}-28"
+
+
+def _r15_checking(month):
+    start, end = _r15_bounds(month)
+    return _printed_report("000000001010", [(f"2031-{month:02d}-05", _R15_PAYMENT, 10000.0)], start=start, end=end,
+                           opening=1500.0)
+
+
+def _r15_savings(month):
+    start, end = _r15_bounds(month)
+    return _printed_report("000000002020", [(f"2031-{month:02d}-04", "INTEREST PAID", 2.0)], start=start, end=end,
+                           opening=9000.0, name="CONTOSO BAKERY SAVINGS")
+
+
+def _r15_month(month):
+    """A clean single-account statement: CONTOSO BAKERY LLC's checking, FABRIKAM INC paying $10,000.00."""
+    from analysis.serialization import document_report_to_dict
+
+    return _listed(f"m{month}", document_report_to_dict(_r15_checking(month)), content=f"m{month}",
+                   filename=f"m{month}.pdf")
+
+
+def _r15_document(month, *, main="published", notes=(), omitted=None, job_id=None):
+    """The business checking account (the main account) beside savings, in one document of `month`: `main` published,
+    held (only savings published) or idle; `notes` the document's integrity notes; `omitted` its omitted sections."""
+    from analysis.pipeline import AccountRosterEntry, DocumentReport, identify_internal_transfers
+    from analysis.serialization import document_report_to_dict
+
+    savings = _r15_savings(month).accounts[0]
+    savings_entry = AccountRosterEntry("CONTOSO BAKERY SAVINGS", "savings", "2020", "published",
+                                       published_index=1 if main == "published" else 0)
+    if main == "published":
+        accounts = [_r15_checking(month).accounts[0], savings]
+        main_entry = AccountRosterEntry("CONTOSO BAKERY LLC", "checking", "1010", "published", published_index=0)
+    else:
+        accounts = [savings]
+        main_entry = (AccountRosterEntry("CONTOSO BAKERY LLC", "checking", "1010", "held", reasons=("page_unresolved",))
+                      if main == "held" else AccountRosterEntry("CONTOSO BAKERY LLC", "checking", "1010", "idle",
+                                                                balance=25.0))
+    transfers, found = identify_internal_transfers(accounts)
+    payload = document_report_to_dict(DocumentReport(accounts=accounts, internal_transfers=transfers,
+                                                     integrity_notes=[*found, *notes],
+                                                     account_roster=[main_entry, savings_entry],
+                                                     document_period=_r15_bounds(month)))
+    if omitted is not None:
+        payload["document"]["omitted_sections"] = omitted
+    job_id = job_id or f"doc{month}"
+    return _listed(job_id, payload, content=job_id, filename=f"{job_id}.pdf")
+
+
+def _r15(package):
+    totals = package["totals"]
+    return {"decision": totals["decision"], "completeness": totals.get("completeness"),
+            "excluded_account_count": totals.get("excluded_account_count"),
+            "excluded": [(entry["job_id"], entry["filename"], entry["account_index"], entry["reason"])
+                         for entry in package.get("excluded_accounts") or []]}
+
+
+@pytest.mark.parametrize(("main", "reason"), [("held", "main_account_unverified"), ("idle", "main_account_idle")])
+def test_a_statement_withheld_for_its_main_account_sends_the_package_to_review(main, reason):
+    """R15 T1, T2: January, a February whose main account is held (or idle), March. February stays out of every figure
+    (the 2026-09-23 ruling); the package says so and needs review."""
+    from webapp.app import _package_analysis, _package_rows
+
+    package = _package_analysis([_r15_month(1), _r15_document(2, main=main), _r15_month(3)])
+    assert _r15(package) == {"decision": "review_required", "completeness": "partial", "excluded_account_count": 1,
+                             "excluded": [("doc2", "doc2.pdf", None, reason)]}
+    totals = package["totals"]
+    assert (totals["true_revenue_total"], totals["months"], totals["completed"], totals["failed"]) == (20000.0, 2, 2, 0)
+    assert "sibling_account_omission_detected" not in totals  # Q10's key only
+    rows = [(field, value) for section, field, value in _package_rows(package) if section == "excluded_account_1"]
+    assert rows == [("job_id", "doc2"), ("filename", "doc2.pdf"), ("account_index", ""), ("account_count", 2),
+                    ("outcome", "withheld"), ("reason", reason)]
+
+
+def test_an_account_of_a_document_that_did_not_validate_gates_as_it_does_alone():
+    """R15 T3: a document's savings account whose own outcome is review (corporate_use manual_review) was left out under
+    Approved; the same two accounts uploaded as two statements need review (Q1: the weaker account)."""
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import _package_analysis
+
+    document = _r15_document(3)
+    document.analysis["accounts"][1]["quality"]["corporate_use"] = "manual_review"
+    package = _package_analysis([document])
+    assert _r15(package) == {"decision": "review_required", "completeness": "partial", "excluded_account_count": 1,
+                             "excluded": [("doc3", "doc3.pdf", 2, "quality_needs_review")]}
+    assert package["totals"]["true_revenue_total"] == 10000.0 and package["totals"]["completed"] == 1
+    savings = document_report_to_dict(_r15_savings(3))
+    savings["quality"]["corporate_use"] = "manual_review"
+    apart = _package_analysis([_listed("chk", document_report_to_dict(_r15_checking(3)), content="chk"),
+                               _listed("sav", savings, content="sav")])
+    assert apart["totals"]["decision"] == "review_required" and apart["totals"]["manual_review"] == 1
+
+
+def test_a_document_whose_transfers_could_not_be_paired_names_both_accounts():
+    """R15 T4: the aggregation is refused (Q2) and stays refused; the package needs review and names each account."""
+    from webapp.app import _package_analysis, _package_rows
+
+    package = _package_analysis([_r15_month(1), _r15_document(2, notes=("ambiguous_internal_transfer",))])
+    assert _r15(package) == {"decision": "review_required", "completeness": "partial", "excluded_account_count": 2,
+                             "excluded": [("doc2", "doc2.pdf", 1, "document_transfer_pairing_ambiguous"),
+                                          ("doc2", "doc2.pdf", 2, "document_transfer_pairing_ambiguous")]}
+    assert package["totals"]["true_revenue_total"] == 10000.0
+    sections = {section for section, _field, _value in _package_rows(package)}
+    assert {"excluded_account_1", "excluded_account_2"} <= sections and "excluded_account_3" not in sections
+
+
+def test_a_document_that_left_a_section_out_without_proof_sends_the_package_to_review():
+    """R15 T5 (L1-C17): every account of the document is left out; the package needs review."""
+    from webapp.app import _package_analysis
+
+    unratified = [{"label": "CONTOSO SECTION B", "reason": "absence_of_parsed_rows", "posting_count": 0}]
+    package = _package_analysis([_r15_month(1), _r15_document(2, omitted=unratified)])
+    assert _r15(package)["decision"] == "review_required"
+    assert [entry[3] for entry in _r15(package)["excluded"]] == ["document_omission_unratified"] * 2
+
+
+def test_a_package_none_of_whose_accounts_counted_needs_review_and_reads_no_figure():
+    """R15 T6 with R54: one document whose main account is held counts nothing; True is N/A, never $0.00."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_r15_document(3, main="held")])
+    totals = package["totals"]
+    assert _r15(package)["decision"] == "review_required" and totals["completeness"] == "partial"
+    assert (totals["completed"], totals["failed"], totals["true_revenue_total"], totals["verified_revenue_total"],
+            totals["avg_monthly_true_revenue"]) == (0, 0, None, None, None)
+    assert package["documents"] == []
+
+
+def test_a_package_with_no_exclusion_carries_no_new_key():
+    """R15 C1, C2, C4: three clean months, a repeated statement (B11's path) and a document of two validated accounts
+    publish no completeness, no excluded_account_count and no excluded_account section; their decisions stand."""
+    from webapp.app import _package_analysis, _package_rows
+
+    clean = _package_analysis([_r15_month(1), _r15_month(2), _r15_month(3)])
+    repeated = _package_analysis([_r15_month(1), _r15_month(1)])
+    document = _package_analysis([_r15_document(3)])
+    for package in (clean, repeated, document):
+        assert "completeness" not in package["totals"] and "excluded_account_count" not in package["totals"]
+        assert not any(section.startswith("excluded_account") for section, _f, _v in _package_rows(package))
+    assert clean["totals"]["decision"] == "approved" and "excluded_accounts" not in clean
+    assert repeated["totals"]["decision"] == "review_required" and repeated["totals"]["duplicate_documents"] == 1
+    assert document["totals"]["decision"] == "approved" and document["totals"]["completed"] == 2
+
+
+def test_a_ratified_omission_stays_partial_and_approved():
+    """R15 C3 (Q10): surfaced, never demoted; no account is left out, so nothing new is said."""
+    from webapp.app import _package_analysis
+
+    ratified = [{"label": "CONTOSO SECTION B", "reason": "printed_dormancy_declaration", "posting_count": 0}]
+    totals = _package_analysis([_r15_document(3, omitted=ratified)])["totals"]
+    assert (totals["completeness"], totals["sibling_account_omission_detected"], totals["decision"]) == (
+        "partial", True, "approved")
+    assert "excluded_account_count" not in totals
+
+
+def test_a_document_account_repeating_another_statement_keeps_the_duplicate_path():
+    """R15 C2: a repeat is no exclusion: its entry is `is_duplicate`, and the package needs review for the repeat only."""
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import _package_analysis
+
+    alone = _listed("chk", document_report_to_dict(_r15_checking(3)), content="chk")
+    package = _package_analysis([alone, _r15_document(3)])
+    assert [(entry["job_id"], entry["account_index"], entry["reason"], entry["is_duplicate"])
+            for entry in package["excluded_accounts"]] == [("doc3", 1, "duplicate_statement", True)]
+    assert "completeness" not in package["totals"] and "excluded_account_count" not in package["totals"]
+    assert package["totals"]["decision"] == "review_required" and package["totals"]["duplicate_accounts"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B15 (R54): a package with no statement analysed publishes no True, Verified, Counted or Held figure
+# (None, never a $0.00 an underwriter would read as a decline), and a job still queued or processing is pending, never
+# failed. Fabricated SAMPLE jobs and CONTOSO BAKERY LLC's January 2031.
+# ---------------------------------------------------------------------------
+
+_R54_NULLED = ("true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
+               "excluded_pending_review_total", "excluded_pending_review_count", "true_revenue",
+               "counted_flagged_by_reason", "excluded_pending_review_by_reason", "verified_revenue_total",
+               "confirmed_true_revenue_total", "confirmed_true_revenue", "avg_monthly_true_revenue",
+               "avg_monthly_verified_revenue")
+
+
+@pytest.mark.parametrize(("status", "failed", "pending"), [
+    ("error", 1, None), ("interrupted", 1, None), ("queued", 0, 1), ("processing", 0, 1)])
+def test_a_package_with_no_analysed_statement_reads_no_revenue_figure(status, failed, pending):
+    import csv
+
+    from webapp.app import _package_analysis, _package_csv
+
+    package = _package_analysis([_listed("sample", status=status, filename="sample.pdf")])
+    totals = package["totals"]
+    assert {key: totals[key] for key in _R54_NULLED} == dict.fromkeys(_R54_NULLED)
+    assert totals["revenue_tiers_sum_to_posted"] is False and totals["revenue_reconciles"] is False
+    assert package["true_revenue_evidence"] is None and package["detection"]["true_revenue_evidence"] is None
+    assert (totals["completed"], totals["failed"], totals.get("pending")) == (0, failed, pending)
+    assert totals["decision"] == "review_required"
+    # Unchanged: the structural zeros of the currency layer (test_package_currency) and the non-revenue figure.
+    assert (totals["total_credits"], totals["avg_monthly_credits"], totals["non_revenue_total"]) == (0.0, 0.0, 0.0)
+    assert totals["currency_resolution"] == "no_analyzed_documents"
+    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_package_csv(package))) if len(row) == 3}
+    assert cells[("totals", "true_revenue_total")] == "" and cells[("totals", "avg_monthly_true_revenue")] == ""
+
+
+def test_an_analysed_statement_beside_a_failed_or_pending_one_keeps_its_figures():
+    """R54 C1 (spec §10.4): a failed member's credits are in no total; the analysed one's stand, and both gate."""
+    from webapp.app import _package_analysis
+
+    for status, failed, pending in (("error", 1, None), ("queued", 0, 1)):
+        package = _package_analysis([_r15_month(1), _listed("sample", status=status, content="s", filename="s.pdf")])
+        totals = package["totals"]
+        assert (totals["true_revenue_total"], totals["avg_monthly_true_revenue"], totals["months"]) == (
+            10000.0, 10000.0, 1)
+        assert (totals["completed"], totals["failed"], totals.get("pending"), totals["decision"]) == (
+            1, failed, pending, "review_required")
+        assert totals["revenue_tiers_sum_to_posted"] is True
+    alone = _package_analysis([_r15_month(1)])
+    assert "pending" not in alone["totals"] and alone["totals"]["decision"] == "approved"
 
 
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):

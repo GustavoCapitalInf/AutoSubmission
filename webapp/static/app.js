@@ -127,6 +127,9 @@ const els = {
   rulesOutdatedNotice: document.getElementById("rulesOutdatedNotice"),
   duplicateNotice: document.getElementById("duplicateNotice"),
   duplicateNoticeText: document.getElementById("duplicateNoticeText"),
+  // Audit round 2, R2-B15 (R15): the accounts a package left out of every figure for another reason than a repeat.
+  excludedNotice: document.getElementById("excludedNotice"),
+  excludedNoticeText: document.getElementById("excludedNoticeText"),
 };
 
 let currentJobId = null;
@@ -290,11 +293,14 @@ function statementRevenueBalanced(report = {}) {
 }
 
 // The same for a package: every counted member reconciles (`unreconciled_documents` empty), the package's revenue is
-// established, and its currencies are not refused (a refused package's judgement never reads as a pass).
+// established, and its currencies are not refused (a refused package's judgement never reads as a pass). Audit round 2,
+// R2-B15 (R15, R54): and it counted a statement at all: a package whose every account was left out, or none of whose
+// statements was analysed, reconciles nothing and never reads "Balanced".
 function packageRevenueBalanced(pkg = {}) {
   const totals = pkg.totals || {};
   const unreconciled = Array.isArray(totals.unreconciled_documents) ? totals.unreconciled_documents : null;
-  return unreconciled !== null && unreconciled.length === 0 && packageRevenueFlags(totals).revenue_established
+  return countedDocuments(pkg.documents).length > 0 && (numberOrNull(totals.completed) || 0) > 0
+    && unreconciled !== null && unreconciled.length === 0 && packageRevenueFlags(totals).revenue_established
     && !packageCurrencyInfo(pkg).refused;
 }
 
@@ -352,10 +358,17 @@ function packageUnestablishedNote(totals = {}, documents = []) {
   const unestablished = new Set(listed.map(statementOf));
   const statements = unestablished.size;
   if (!statements) return "";
-  const outdated = new Set((Array.isArray(documents) ? documents : [])
-    .filter((doc) => doc && doc.analysis_rules_outdated === true && unestablished.has(statementOf(doc.id)))
+  const rows = (Array.isArray(documents) ? documents : []).filter(Boolean);
+  const outdated = new Set(rows
+    .filter((doc) => doc.analysis_rules_outdated === true && unestablished.has(statementOf(doc.id)))
     .map((doc) => statementOf(doc.id))).size;
-  const completed = numberOrNull(totals.completed) ?? statements;
+  // Audit round 2, R2-B15 (R50): statements over statements. A package holding an account of a document counts its
+  // completed statements (the distinct jobs of the counted rows that are done), never its completed accounts; never
+  // fewer than the statements it names.
+  const multi = rows.some((doc) => packageMember(doc.id).account !== null);
+  const completed = multi
+    ? Math.max(new Set(rows.filter((doc) => doc.status === "done").map((doc) => statementOf(doc.id))).size, statements)
+    : numberOrNull(totals.completed) ?? statements;
   const noun = completed === 1 ? "statement" : "statements";
   const remedy = !outdated ? ""
     : outdated === statements ? " · Re-analyze to compute true revenue"
@@ -566,6 +579,17 @@ function statementMonth(periodStart, periodEnd) {
     if (!best || count > best.count || (count === best.count && key < best.key)) best = { key, count };
   }
   return { month: best.key % 12, year: Math.floor(best.key / 12), key: best.key };
+}
+
+// Audit round 2, R2-B15 (R13): how many calendar months a statement's printed period covers: its days, first and last
+// included (at most 400, as the server reads them, webapp/app.py _covered_days), over 30.4375 (an average month), half
+// up, at least one; one when either day does not read or the end is before the start.
+function statementMonthsCovered(statement = {}) {
+  const start = isoDay(statement.period_start);
+  const end = isoDay(statement.period_end);
+  if (!start || !end || end < start) return 1;
+  const days = Math.min(Math.round((end - start) / 86400000) + 1, 400);
+  return Math.max(1, Math.floor(days / 30.4375 + 0.5));
 }
 
 // Whole numbers with thousands separators, as the CRM shows them: 186523.4 -> "186,523".
@@ -3622,6 +3646,9 @@ function appendStatusExports(base) {
 // Audit B11 (I07, I33): "N statements · M months": the statements the package counts (one per document and printed
 // cycle, `statement_periods`, published when it differs from the months) and the distinct calendar months they cover.
 function packageSpanLabel(totals = {}, fallbackStatements = 0) {
+  // Audit round 2, R2-B15 (R54): with no statement analysed the server's one month is the floor of a division, not a
+  // month the package covers.
+  if (numberOrNull(totals.completed) === 0) return "No statements analysed";
   const months = numberOrNull(totals.months);
   const statements = numberOrNull(totals.statement_periods ?? totals.months) ?? fallbackStatements;
   const monthCount = months ?? statements;
@@ -3714,6 +3741,76 @@ function renderDuplicateNotice(pkg = {}) {
   els.duplicateNoticeText.innerHTML = `${parts.join(" ")} The package needs review.`;
 }
 
+// Audit round 2, R2-B15 (R15): why an account was left out of every figure for another reason than a repeat
+// (webapp/app.py `_package_members`); any other reason is an account that did not validate on its own.
+const EXCLUDED_ACCOUNT_WORDS = Object.freeze({
+  main_account_unverified: "main account not verified",
+  main_account_idle: "main account printed no activity",
+  document_transfer_pairing_ambiguous: "transfers between its accounts could not be paired",
+  document_omission_unratified: "a section left out without proof",
+});
+
+// The accounts the server left out of every figure for another reason than a repeat (the repeats have their notice).
+function leftOutAccounts(pkg = {}) {
+  return (Array.isArray(pkg.excluded_accounts) ? pkg.excluded_accounts : [])
+    .filter((entry) => entry && typeof entry === "object" && entry.is_duplicate !== true);
+}
+
+// R15: the notice beside the repeats' one. Leaving these accounts out is ruled (Q1/Q2, the 2026-09-23 main-account
+// ruling); the package says which, and why, and needs review.
+function renderExcludedNotice(pkg = {}) {
+  if (!els.excludedNotice) return;
+  const entries = leftOutAccounts(pkg);
+  els.excludedNotice.hidden = entries.length === 0;
+  if (!els.excludedNoticeText) return;
+  if (!entries.length) {
+    els.excludedNoticeText.innerHTML = "";
+    return;
+  }
+  const lines = entries.map((entry) => {
+    const account = numberOrNull(entry.account_index);
+    const of = numberOrNull(entry.account_count);
+    return `${entry.filename || "A statement"}`
+      + (account === null ? "" : `, account ${formatNumber(account)}${of === null ? "" : ` of ${formatNumber(of)}`}`)
+      + ` (${EXCLUDED_ACCOUNT_WORDS[entry.reason] || "account not validated"})`;
+  });
+  els.excludedNoticeText.innerHTML = `<strong>${escapeHtml(formatNumber(entries.length))} `
+    + `${entries.length === 1 ? "account" : "accounts"} left out of every figure. The package needs review.</strong> `
+    + `${escapeHtml(lines.join("; "))}.`;
+}
+
+// Audit round 2, R2-B15 (R50): a package's counts on one footing. `statements`: the statements it lists, its repeats
+// left out (distinct_documents); `accounts`: its members, each analysed, failed or still pending (completed + failed +
+// pending: an account a document publishes is a member of its own, Q1/Q5); `multi`: a counted row is an account of a
+// document, so a statement and an account differ and every surface says which it counts.
+function packageCounts(pkg = {}) {
+  const totals = pkg.totals || {};
+  const completed = numberOrNull(totals.completed) || 0;
+  return {
+    statements: numberOrNull(totals.distinct_documents ?? totals.documents) || 0,
+    completed,
+    accounts: completed + (numberOrNull(totals.failed) || 0) + (numberOrNull(totals.pending) || 0),
+    multi: countedDocuments(pkg.documents).some((doc) => packageMember(doc.id).account !== null),
+  };
+}
+
+// "1 statement · 2 accounts".
+function statementsAndAccounts(counts) {
+  return `${formatNumber(counts.statements)} ${counts.statements === 1 ? "statement" : "statements"} · `
+    + `${formatNumber(counts.accounts)} ${counts.accounts === 1 ? "account" : "accounts"}`;
+}
+
+// R15: what the True line covers when an account was left out: the statements with a counted, analysed account of
+// the statements the package lists ("" when nothing was left out).
+function packageCoverage(pkg = {}) {
+  if (!leftOutAccounts(pkg).length) return "";
+  const counts = packageCounts(pkg);
+  const covered = new Set(countedDocuments(pkg.documents).filter((doc) => doc.status === "done")
+    .map((doc) => packageMember(doc.id).jobId)).size;
+  return ` · covers ${formatNumber(covered)} of ${formatNumber(counts.statements)} `
+    + `${counts.statements === 1 ? "statement" : "statements"}`;
+}
+
 function packagePeriod(documents) {
   const starts = documents.map((doc) => doc.period_start).filter(Boolean).sort();
   const ends = documents.map((doc) => doc.period_end).filter(Boolean).sort();
@@ -3771,6 +3868,7 @@ function renderPackageAnalysis(pkg) {
   els.decisionPill.textContent = `Package decision · ${sentenceCase(labelize(totals.decision || "review required"))}`;
   els.decisionPill.className = `decision-pill ${totals.decision || ""}`.trim();
   renderDuplicateNotice(pkg);
+  renderExcludedNotice(pkg);
 
   setResultsMode("package");
   showResultsContent();
@@ -3778,11 +3876,15 @@ function renderPackageAnalysis(pkg) {
   const title = packageTitle(monthRows);
   const banks = [...new Set(documents.map((doc) => doc.bank).filter(Boolean))];
   const span = packageSpanLabel(totals, documents.length);
+  // Audit round 2, R2-B15 (R50): a package holding an account of a document counts its statements and its accounts
+  // apart; one of single-account statements reads as before.
+  const counts = packageCounts(pkg);
   // Audit B11 (I31): "Balanced" only where every statement reconciles to its bank's figures and revenue is established.
   const revenueBalanced = packageRevenueBalanced(pkg);
   renderHero({
     icon: PACKAGE_ICON,
-    kicker: ["Package", `${formatNumber(documents.length)} ${documents.length === 1 ? "statement" : "statements"}`, banks.join(", ")]
+    kicker: ["Package", counts.multi ? statementsAndAccounts(counts)
+      : `${formatNumber(documents.length)} ${documents.length === 1 ? "statement" : "statements"}`, banks.join(", ")]
       .filter(Boolean).join(" · "),
     title,
     chips: [
@@ -3802,6 +3904,8 @@ function renderPackageAnalysis(pkg) {
       ? escapeHtml(refusalNote)
       : `Avg monthly gross credits <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_credits, currency))}</span>`
         + ` · True revenue <span class="mono">${escapeHtml(formatMoney(totals.true_revenue_total, currency))}</span>`
+        // Audit round 2, R2-B15 (R15): the statements True covers, when an account was left out of every figure.
+        + escapeHtml(packageCoverage(pkg))
         + ` · True per month <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_true_revenue, currency))}</span>`,
   });
   renderCreditMix(packageRevenueFlags(totals), currency);
@@ -3820,14 +3924,21 @@ function renderPackageAnalysis(pkg) {
   setReviewCount(reviewBadgeValue(totals, packageRevenueFlags(totals).revenue_established));
   if (els.packageProcessingNote) {
     const failed = numberOrNull(totals.failed) || 0;
-    els.packageProcessingNote.textContent = failed
-      ? `${formatNumber(failed)} ${failed === 1 ? "statement" : "statements"} failed`
-      : "All statements complete";
+    // Audit round 2, R2-B15 (R54): a job still queued or processing is pending, never failed.
+    const pending = numberOrNull(totals.pending) || 0;
+    const notes = [
+      ...(failed ? [`${formatNumber(failed)} ${failed === 1 ? "statement" : "statements"} failed`] : []),
+      ...(pending ? [`${formatNumber(pending)} still processing`] : []),
+    ];
+    els.packageProcessingNote.textContent = notes.length ? notes.join(" · ") : "All statements complete";
   }
 
   setStatusRows([
-    // Audit B11 (I06): a repeated statement left out is no statement of the package.
-    ["Statements completed", `${formatNumber(totals.completed)} / ${formatNumber(totals.distinct_documents ?? totals.documents)}`],
+    // Audit B11 (I06): a repeated statement left out is no statement of the package. Audit round 2, R2-B15 (R50): a
+    // package holding an account of a document counts its accounts here (completed counts accounts).
+    counts.multi
+      ? ["Accounts completed", `${formatNumber(counts.completed)} / ${formatNumber(counts.accounts)}`]
+      : ["Statements completed", `${formatNumber(totals.completed)} / ${formatNumber(totals.distinct_documents ?? totals.documents)}`],
     ["Package currency", packageCurrencyLabel(currencyInfo)],
     ["Approved", formatNumber(totals.approved)],
     ["Manual review", formatNumber(totals.manual_review)],
@@ -3900,7 +4011,13 @@ function renderPackageAnalysis(pkg) {
 
   renderAccountSummary([
     ["Package Decision", labelize(totals.decision || "review required")],
-    ["Statements", `${formatNumber(totals.completed)} completed of ${formatNumber(totals.documents)}`],
+    // Audit round 2, R2-B15 (R50): of the statements the package counts (a repeat is none of them), and, for a package
+    // holding an account of a document, its statements and its accounts apart.
+    ["Statements", counts.multi
+      ? `${formatNumber(counts.statements)} ${counts.statements === 1 ? "statement" : "statements"} · `
+        + `${formatNumber(counts.completed)} of ${formatNumber(counts.accounts)} `
+        + `${counts.accounts === 1 ? "account" : "accounts"} completed`
+      : `${formatNumber(totals.completed)} completed of ${formatNumber(counts.statements)}`],
     ["Currency", packageCurrencyLabel(currencyInfo)],
     ["Period Range", packagePeriod(documents)],
     ["Average Daily Balance", formatMoney(totals.average_daily_balance, currency)],
@@ -3945,6 +4062,9 @@ function monthlyDepositsView() {
   }
   return MONTHLY_DEPOSITS_VIEWS.includes(value) ? value : "both";
 }
+
+// Audit round 2, R2-B15 (R54): the job statuses still on their way (webapp/app.py _PENDING_JOB_STATUSES).
+const PENDING_JOB_STATUSES = Object.freeze(["queued", "processing"]);
 
 // A figure of a statement's month, or null (shown N/A) for a statement that failed: its zeros are the absence of an
 // analysis, not a month of nothing. The Monthly Statements table and its chart both read figures through it.
@@ -4005,7 +4125,11 @@ function renderMonthlyStatements(pkg) {
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
     const note = MONTHLY_DEPOSITS_NOTES[view];
-    els.monthlyCount.textContent = `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`
+    // Audit round 2, R2-B15 (R50): one row per account; a package holding an account of a document names its
+    // statements and its accounts apart.
+    const counts = packageCounts(pkg);
+    els.monthlyCount.textContent = (counts.multi ? statementsAndAccounts(counts)
+      : `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`)
       + (note ? ` · ${note}` : "");
   }
   if (els.monthlyHead) {
@@ -4048,7 +4172,9 @@ function renderMonthlyStatements(pkg) {
     // cannot be compared, so each NSF cell then names its basis; the tooltip always does.
     const mixedNsf = new Set(rows.map(({ doc }) => doc.nsf_source).filter(Boolean)).size > 1;
     els.monthlyTable.innerHTML = rows.map(({ doc, month }) => {
-      const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
+      // Audit round 2, R2-B15 (R54): a statement still queued or processing reads Processing, never Failed.
+      const status = PENDING_JOB_STATUSES.includes(doc.status) ? "Processing"
+        : doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
       const docCurrency = currencyOfDocument(doc);
       const unit = mixedCurrencies && docCurrency && docCurrency !== "USD" ? ` ${docCurrency}` : "";
       const amount = (value) => {
@@ -4063,7 +4189,7 @@ function renderMonthlyStatements(pkg) {
           ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}</td>`).join("")}
           <td class="mono">${escapeHtml(amount(monthFigure(doc, doc.average_daily_balance)))}</td>
           <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(monthFigure(doc, doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
-          <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : `Open${OPEN_ICON}`}</button></td>
+          <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : status === "Processing" ? "Processing" : `Open${OPEN_ICON}`}</button></td>
         </tr>
       `;
     }).join("");
@@ -4429,11 +4555,16 @@ function generateSummary() {
       : "No lenders detected across the package.";
     const counted = countedDocuments(pkg.documents);
     const repeats = duplicateDocuments(pkg.documents).length;
+    // Audit round 2, R2-B15 (R50): a package holding an account of a document says how many of its accounts completed.
+    const counts = packageCounts(pkg);
     // Audit B11 (I07): the memo carries True, Verified and Non-revenue, in total and per calendar month, ahead of the
     // gross figures, which are named gross; and the repeated statements left out (I06).
     els.summaryBox.textContent =
       `Package ${packagePeriod(counted)} (${packageSpanLabel(totals, counted.length)}): ` +
-      `${formatNumber(totals.completed)} of ${formatNumber(totals.distinct_documents ?? totals.documents)} statements completed` +
+      (counts.multi
+        ? `${formatNumber(counts.completed)} of ${formatNumber(counts.accounts)} `
+          + `${counts.accounts === 1 ? "account" : "accounts"} completed`
+        : `${formatNumber(totals.completed)} of ${formatNumber(totals.distinct_documents ?? totals.documents)} statements completed`) +
       (repeats ? `, ${formatNumber(repeats)} repeated ${repeats === 1 ? "statement" : "statements"} left out` : "") + ". " +
       `${revenueSummarySentence(totals, currency, packageRevenueFlags(totals), {
         trueMonthly: totals.avg_monthly_true_revenue,
@@ -4463,15 +4594,19 @@ function generateSummary() {
     : q.corporate_use || q.level || "review_required";
   const lead = idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: `
     : unverifiedNote ? `${unverifiedNote}Figures for the selected account, ${accountDisplayName(s, null)}: ` : "";
-  // Audit B11 (I07): the statement stands for one calendar month (the Monthly Statements rule), so its monthly figures
-  // are its totals.
+  // Audit round 2, R2-B15 (R13): the statement's monthly figures are its totals over the calendar months its period
+  // covers (statementMonthsCovered): one for a statement of a month, two for one of 59 days. B11 (I07) read every
+  // statement as one month, so a statement longer than a month printed its whole total as "a month".
   const established = { established: m.revenue_established === true,
     verifiedEstablished: m.verified_revenue_established === true };
+  const months = statementMonthsCovered(s);
+  const perMonth = (value) => (months === 1 || numberOrNull(value) === null ? value : numberOrNull(value) / months);
   els.summaryBox.textContent =
     lead +
     `${s.bank || "Statement"} ${period(s)}: ` +
     `${revenueSummarySentence(m, currency, established, {
-      trueMonthly: m.true_revenue_total, verifiedMonthly: m.verified_revenue_total, nonRevenueMonthly: m.non_revenue_total,
+      trueMonthly: perMonth(m.true_revenue_total), verifiedMonthly: perMonth(m.verified_revenue_total),
+      nonRevenueMonthly: perMonth(m.non_revenue_total),
     })} ` +
     `Average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
