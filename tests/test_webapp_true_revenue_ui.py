@@ -1326,6 +1326,82 @@ console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).labe
     assert result["labels"] == [f"excluded: {_ZELLE_LABEL.lower()}", f"excluded: {_GOVERNMENT_LABEL.lower()}"]
 
 
+# ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW06 (the underwriter's
+# Q11): a builder's progress draw is counted (its own reason), and a non-dealer's asset sale is non_revenue with its
+# reason code, tagged on its row and broken out under Non-Revenue (the R2-OW03 breakdown), with no review path.
+# CONTOSO's fabricated bakery March: a company payer (700), a check deposit (300), a car buyer's payout (1,869) and an
+# equipment auction's seller payment (15,000), so True is 1,000 and the asset sales 16,869.
+
+_ASSET_SALE_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "MOBILE DEPOSIT", 300.0),
+                    (4, "CARVANA PAYOUT DES:CVNA 12345 ID:1234567 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+                     1869.0),
+                    (5, "RITCHIE BROS DES:SELLER PMT ID:1234567 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD",
+                     15000.0)]
+_ASSET_SALE_LABEL = "Sale of equipment or vehicles (not a dealer)"
+_ASSET_SALE_SENTENCE = ("An equipment auction's or a car buyer's seller payout, or a printed sale of a truck, trailer, "
+                        "vehicle or equipment, on a statement that shows no dealer: excluded (owner ruling of "
+                        "2026-10-02, Q11).")
+
+
+def test_the_dashboard_reason_table_names_q11_s_two_codes():
+    """R2-OW06 (CR5): construction_progress_draw right after lender_paid_for_services, asset_sale_proceeds last, each
+    with its one-line sentence."""
+    reasons = list(_js_reasons())
+    assert reasons[reasons.index("lender_paid_for_services") + 1] == "construction_progress_draw"
+    assert reasons[-1] == "asset_sale_proceeds"
+    assert _js_reasons()["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
+    assert _js_reasons()["asset_sale_proceeds"] == ("non_revenue", _ASSET_SALE_LABEL)
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert "A builder paid the business a progress draw for its work: counted, never verified." in source
+    assert _ASSET_SALE_SENTENCE in source
+
+
+@needs_node
+def test_a_statement_breaks_out_its_non_dealer_asset_sales_under_non_revenue():
+    result = run_dashboard(METRIC_ROWS + LEDGER + _open("a", _served(_payload(_ASSET_SALE_ROWS))) + """
+const rows = metricRows(els.metricsGrid.innerHTML);
+const evidenceHtml = els.revenueTable.innerHTML;
+const evidence = cells(evidenceHtml);
+showMainRevenueEvidence('non_revenue:asset_sale_proceeds');
+console.log(JSON.stringify({rows, evidenceHtml, evidence, header: els.transactionCount.textContent, filtered: ledger()}));
+""")
+    figures = {row["label"]: row for row in result["rows"]}
+    assert figures["True Revenue"]["value"] == "$1,000.00" and figures["Non-Revenue"]["value"] == "$16,869.00"
+    assert [row[:3] for row in result["evidence"]][-2:] == [["Non-Revenue", "2", "$16,869.00"],
+                                                           [_ASSET_SALE_LABEL, "2", "$16,869.00"]]
+    assert 'data-revenue-filter="non_revenue:asset_sale_proceeds"' in result["evidenceHtml"]
+    assert result["header"] == f"2 excluded: {_ASSET_SALE_LABEL.lower()}"
+    # Each row is listed with no review control (no confirm-dealer path: the Q11 card's open point 4).
+    assert [actions for _text, actions in result["filtered"]] == [[], []]
+    assert [text.split(" DES")[0] for text, _actions in result["filtered"]] == ["CARVANA PAYOUT", "RITCHIE BROS"]
+
+
+@needs_node
+def test_an_asset_sale_row_is_tagged_with_its_reason_and_has_no_review_control():
+    rows = [_record("non_revenue", reason="asset_sale_proceeds"),
+            _record("counted_flagged", reason="construction_progress_draw"), _record("non_revenue")]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const found = (filter) => filterTransactions(rows, filter).map((tx) => rows.indexOf(tx));
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).label), reasons: rows.map(revenueReviewReason),
+  controls: rows.map((tx) => actions(revenueReviewControls(tx))),
+  filters: Object.fromEntries(["non_revenue:asset_sale_proceeds", "non_revenue"].map((f) => [f, found(f)])),
+  label: revenueFilterLabel("non_revenue:asset_sale_proceeds", 1)}}));
+""")
+    assert result["tags"][0] == f"Non-revenue: {_ASSET_SALE_LABEL}" and result["tags"][2] == "Non-revenue"
+    assert result["reasons"][0] == f"{_ASSET_SALE_LABEL}. {_ASSET_SALE_SENTENCE}"
+    assert result["reasons"][1].startswith("Builder's progress draw. A builder paid the business a progress draw")
+    assert result["controls"][0] == [] and result["controls"][2] == []
+    assert result["filters"] == {"non_revenue:asset_sale_proceeds": [0], "non_revenue": [0, 2]}
+    assert result["label"] == f"excluded: {_ASSET_SALE_LABEL.lower()}"
+
+
+def test_a_package_sums_its_members_asset_sales(tmp_path, monkeypatch):
+    package = _package({"mar": _payload(_ASSET_SALE_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch)
+    assert package["totals"]["non_revenue_by_reason"] == {"asset_sale_proceeds": {"count": 2, "total": 16869.0}}
+
+
 @needs_node
 def test_a_package_states_its_excluded_zelle_deposits_and_each_month_its_own(tmp_path, monkeypatch):
     package = _package({"mar": _payload(_ZELLE_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch)

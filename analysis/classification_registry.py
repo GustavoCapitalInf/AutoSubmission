@@ -2056,6 +2056,38 @@ FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
     "Love's Solutions, LLC (Love's Financial)": ("LOVE S SOLUTIONS", "LOVES SOLUTIONS"),
 }
 
+#: Owner ruling 2026-10-02 (the underwriter's Q11 (b); audit I45): the equipment auctions and the consumer car buyers
+#: that pay a seller for a vehicle or a piece of equipment, each public, read by the true-revenue pass alone
+#: (analysis/true_revenue.py asset_sale_platform) and only as the whole payer name (the ACH originator or the wire
+#: sender, read as FACTORING_PAYOUT_PAYERS is read: company forms, entry words, references, a DBA tail or a B/O address
+#: after the alias, and a seller's word): Ritchie Bros. (RB Global, rbglobal.com) and its IronPlanet marketplace,
+#: Purple Wave (purplewave.com), BigIron Auctions (bigiron.com; R2-B12's glued or AUCTION-spaced forms), GovDeals
+#: (govdeals.com), Copart (copart.com), Insurance Auto Auctions (IAA, iaai.com), Carvana's and CarMax's and Peddle's
+#: and Vroom's purchases of a car from its owner. Never CarMax Auto Finance (an auto lender paying dealers, §8.7) nor
+#: CarMax Business Services (the entity that pays CarMax's vendors): a longer name is another payer. Never Proxibid: it
+#: remits the buyers' money to the auction house that ran the sale, the auctioneer's own revenue, and stays on
+#: SECTION_15_DEFERRED_PAYERS. On a statement that shows no dealer evidence, their seller payout is asset-sale proceeds
+#: (non_revenue, asset_sale_proceeds). No debit, flag or lender reading.
+ASSET_SALE_PAYERS: dict[str, tuple[str, ...]] = {
+    "Ritchie Bros. (RB Global)": (
+        "RITCHIE BROS", "RITCHIE BROS AUCTIONEERS", "RITCHIE BROS AUCTIONEERS AMERICA", "RITCHIE BROTHERS",
+        "RITCHIE BROTHERS AUCTIONEERS", "RB GLOBAL",
+    ),
+    "IronPlanet": ("IRONPLANET", "IRON PLANET"),
+    "Purple Wave": ("PURPLE WAVE", "PURPLEWAVE", "PURPLE WAVE AUCTION"),
+    "BigIron Auctions": ("BIGIRON", "BIGIRON AUCTIONS", "BIG IRON AUCTION", "BIG IRON AUCTIONS"),
+    "GovDeals": ("GOVDEALS", "GOV DEALS"),
+    "Copart": ("COPART",),
+    "Insurance Auto Auctions (IAA)": ("IAA", "INSURANCE AUTO AUCTIONS", "INSURANCE AUTO AUCTION"),
+    "Carvana": ("CARVANA",),
+    "CarMax": ("CARMAX", "CARMAX AUTO SUPERSTORES", "CARMAX AUTO SUPERSTORE"),
+    "Peddle": ("PEDDLE",),
+    "Vroom": ("VROOM", "VROOM AUTOMOTIVE"),
+}
+#: Owner ruling 2026-10-02 (Q11 (b)): the platforms that also pay their towing and transport vendors, whose payout is
+#: read as a seller's only beside a seller's word (SELLER, CONSIGN..., PAYOUT, PROCEEDS).
+ASSET_SALE_SELLER_WORD_ONLY: frozenset[str] = frozenset({"Copart", "Insurance Auto Auctions (IAA)"})
+
 #: Owner ruling 2026-10-02 (Q8; I17): lease-to-own and patient financiers whose merchant payouts are the merchant's
 #: sales, counted and flagged, never verified, like OQ2's BNPL settlements; a one-off lump sum is held until sourced;
 #: read by the true-revenue pass alone (analysis/true_revenue.py _customer_financier), on the payer region; no debit,

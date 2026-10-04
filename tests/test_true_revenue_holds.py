@@ -477,11 +477,180 @@ def test_a_distributor_s_name_is_no_distribution():
     # Owner money still holds.
     "ZELLE PAYMENT FROM PAT SAMPLE FOR OWNER INVESTMENT CONF 1",
     "FEDWIRE CREDIT VIA CONTOSO BANK 123456789 B O PAT SAMPLE SAMPLEVILLE CA REF CHASE NYC OBI OWNER DRAW",
-    # A builder's progress draw stays where the owner's section-15 ruling leaves it.
-    "DRAW12 FABRIKAM BUILD GROUP INC PROJECT CONTOSO HOUSING DRAW 12",
+    # The owner's ruling of 2026-10-02 (the underwriter's Q11 (a)): a builder's progress draw ('DRAW12 FABRIKAM BUILD
+    # GROUP INC PROJECT CONTOSO HOUSING DRAW 12') left this list; it is counted (test_a_builder_s_progress_draw_...).
 ])
 def test_a_non_sale_purpose_still_holds(text):
     assert _one(text, 1600.0, holder="NORTHWIND GRILL LLC", bank="Wells Fargo") == NON_SALE
+
+
+# The owner's ruling of 2026-10-02 (the underwriter's Q11 (a), "Count as true revenue and flag it"; audit I18): a
+# builder's progress draw is counted and flagged as construction_progress_draw, never verified, when the payer is a
+# builder, no lender and not the business's own loan; the lender, own-loan and holder guards run first, any other hold
+# wins, and a DRAW printed only in the payer's own name or on a Zelle row keeps today's reading. Each case is a one-month
+# Bank of America statement (a mobile deposit, then the rows), holder NORTHWIND SOLAR LLC.
+
+SOLAR = "NORTHWIND SOLAR LLC"
+DRAW_COUNTED = ("counted_flagged", "construction_progress_draw")
+
+
+def _q11_bofa(payer: str, entry: str, holder: str = SOLAR, ref: str = "1234567") -> str:
+    return f"{payer} DES:{entry} ID:{ref} INDN:{holder} CO ID:1234567890 CCD"
+
+
+def _q11_chase(payer: str, entry: str, holder: str = SOLAR) -> str:
+    return (f"ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:{entry} SEC:CCD "
+            f"TRACE#:123456789012345 EED:540102 IND ID:1234 IND NAME:{holder} TRN: 1234567890TC")
+
+
+def _q11_wire(orig: str, purpose: str) -> str:
+    return ("WIRE TYPE:WIRE IN DATE: 540302 TIME:1200 ET TRN:2054030200012345 SEQ:123456/000001 ORIG:"
+            f"{orig} ID:1234 SND BK:SAMPLE BANK ID:123456789 PMT DET:{purpose}")
+
+
+def _q11_records(rows, holder: str = SOLAR):
+    """One Bank of America month: a mobile deposit, then `rows`; the records of the credits after the deposit."""
+    records = classify_statement_transactions(Statement(account_name=holder, bank="Bank of America", transactions=[
+        Transaction(date="2054-03-01", description="MOBILE DEPOSIT", amount=500.0, direction="credit"),
+        *(Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                      direction="credit" if amount > 0 else "debit")
+          for index, (text, amount) in enumerate(rows)),
+    ]))
+    return [record for record in records[1:] if record.amount > 0]
+
+
+def _q11(rows, holder: str = SOLAR):
+    return [rules_reading(record, method=True) for record in _q11_records(rows, holder)]
+
+
+@pytest.mark.parametrize(("rows", "holder"), [
+    # A1: a builder's ACH DRAW.
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3"), 9000.0)], SOLAR),
+    # A3: a construction firm's wire.
+    ([(_q11_wire("FABRIKAM CONSTRUCTION LLC", "PROGRESS DRAW 4 FRAMING"), 25000.0)], SOLAR),
+    # A4: a homebuilder on Chase's layout.
+    ([(_q11_chase("CONTOSO HOMEBUILDERS", "DRAW 2"), 12000.0)], SOLAR),
+    # A5: the corpus shape, an unlabelled row that prints the builder's BUILD GROUP name.
+    ([("DRAW12 FABRIKAM BUILD GROUP INC PROJECT NAME CONTOSO HOUSING PHASE B DRAW 12", 45000.0)], SOLAR),
+    # A6: a name a sixteen-character field cut to CONST.
+    ([(_q11_bofa("CONTOSO CONST", "DRAW"), 7000.0)], SOLAR),
+    # A7: a general contractor's wire.
+    ([(_q11_wire("SAMPLE GENERAL CONTRACTORS INC", "DRAW 5 JOB 12"), 30000.0)], SOLAR),
+    # H1: a homebuilder named HOMES.
+    ([(_q11_bofa("CONTOSO HOMES INC", "DRAW 3"), 9000.0)], SOLAR),
+    # N4: a builder whose own name prints DRAW, paying a DRAW: the entry's DRAW is the draw.
+    ([(_q11_bofa("QUICK DRAW CONSTRUCTION LLC", "DRAW 3"), 9000.0)], SOLAR),
+    # Z3: a transfer from a builder, its sender cut at its company form (R2-B13's _payer_name_proper).
+    ([("ONLINE TRANSFER FROM CONTOSO BUILDERS INC DRAW 3", 9000.0)], SOLAR),
+])
+def test_a_builder_s_progress_draw_is_counted_and_flagged(rows, holder):
+    records = _q11_records(rows, holder)
+    assert [rules_reading(record, method=True) for record in records] == [DRAW_COUNTED]
+    assert records[0].revenue_classification == "unverified_deposit" and records[0].contributes_to_true_revenue
+    assert not records[0].revenue_review_required
+
+
+def test_the_held_list_s_old_progress_draw_pin_is_now_counted():
+    # Was test_a_non_sale_purpose_still_holds's last row (section 15 deferred construction draws until the ruling).
+    assert _one("DRAW12 FABRIKAM BUILD GROUP INC PROJECT CONTOSO HOUSING DRAW 12", 1600.0, holder="NORTHWIND GRILL LLC",
+                bank="Wells Fargo") == DRAW_COUNTED
+
+
+def test_a_builder_s_repeated_progress_draws_are_counted_never_verified():
+    # A2: the same builder twice: Q6 never verifies a progress draw, nor counts it toward a repeat.
+    records = _q11_records([(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3"), 9000.0),
+                            (_q11_bofa("CONTOSO BUILDERS INC", "DRAW 4", ref="7654321"), 9500.0)])
+    assert [rules_reading(record, method=True) for record in records] == [DRAW_COUNTED, DRAW_COUNTED]
+    assert {record.revenue_classification for record in records} == {"unverified_deposit"}
+
+
+@pytest.mark.parametrize(("rows", "holder", "expected"), [
+    # C1, C2: a construction lender's or a builders' capital firm's DRAW (the financing guards run first).
+    ([(_q11_bofa("FABRIKAM CONSTRUCTION LENDING LLC", "DRAW 3"), 9000.0)], SOLAR, [FINANCING]),
+    ([(_q11_bofa("CONTOSO BUILDERS CAPITAL LLC", "DRAW"), 9000.0)], SOLAR, [("non_revenue", "financing_proceeds_credit")]),
+    # C3, C4, C8: a builder's LOAN, OWNER or EQUITY DRAW is the business's own loan or money.
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "LOAN DRAW"), 9000.0)], SOLAR, [("non_revenue", "strong_non_revenue_rule")]),
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "OWNER DRAW"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "EQUITY DRAW"), 9000.0)], SOLAR, [NON_SALE]),
+    # C5, C6: a hard-money lender's and an address-named project LLC's draw (no builder; §17.1's follow-up).
+    ([(_q11_wire("SAMPLE HARD MONEY LLC", "FRAMING DRAW 3"), 30000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_wire("1234 W SAMPLE LLC", "1234 W SAMPLE FRAMING DRAW"), 20000.0)], "NORTHWIND DEVELOPMENT GROUP LLC",
+     [NON_SALE]),
+    # C7: a builders' trust (an owner-shaped payer).
+    ([(_q11_bofa("CONTOSO BUILDERS TRUST", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
+    # C10: the holder's own affiliate.
+    ([(_q11_bofa("NORTHWIND CONSTRUCTION LLC", "DRAW 3", holder="NORTHWIND BUILDERS LLC"), 9000.0)],
+     "NORTHWIND BUILDERS LLC", [("excluded_pending_review", "holder_name")]),
+    # C11: a builder's payments without DRAW keep Q6.
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "PAYMENT"), 9000.0),
+      (_q11_bofa("CONTOSO BUILDERS INC", "PAYMENT", ref="7654321"), 9500.0)], SOLAR, [REPEATS, REPEATS]),
+    # C12: a title firm's construction draw.
+    ([(_q11_bofa("SAMPLE TITLE CO", "CONSTRUCTION DRAW"), 9000.0)], SOLAR, [NON_SALE]),
+    # C13: DRAWDOWN keeps its financing reading.
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "DRAWDOWN"), 9000.0)], SOLAR, [NON_SALE]),
+    # C14: BUILDING is no builder word (a building-supply firm).
+    ([(_q11_bofa("CONTOSO BUILDING SUPPLY INC", "DRAW"), 9000.0)], SOLAR, [NON_SALE]),
+    # C15: PROGRESS BILLING stays a section 15 deferred source.
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "PROGRESS BILLING"), 9000.0)], SOLAR, [REFUSED]),
+    # H2, H3: a nursing home and a mobile-home seller are no homebuilder; H4: a homebuilder's OWNER DRAW.
+    ([(_q11_bofa("CONTOSO NURSING HOMES INC", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("SAMPLE MOBILE HOMES LLC", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("CONTOSO HOMES INC", "OWNER DRAW"), 9000.0)], SOLAR, [NON_SALE]),
+    # N1: a DRAW printed only in the payer's own name keeps today's name-word hold, never a progress draw.
+    ([(_q11_bofa("QUICK DRAW CONSTRUCTION LLC", "PAYMENT"), 9000.0),
+      (_q11_bofa("QUICK DRAW CONSTRUCTION LLC", "PAYMENT", ref="7654321"), 9500.0)], SOLAR, [NON_SALE, NON_SALE]),
+    # A draw on the business's line, and a builders' supplier's DRAW.
+    ([(_q11_bofa("CONTOSO BUILDERS INC", "DRAW ON LINE"), 9000.0)], SOLAR, [NON_SALE]),
+    ([(_q11_bofa("BUILDERS FIRSTSOURCE INC", "DRAW 3"), 9000.0)], SOLAR, [NON_SALE]),
+])
+def test_a_draw_that_is_no_builder_s_progress_draw_keeps_its_reading(rows, holder, expected):
+    assert _q11(rows, holder) == expected
+
+
+def test_a_later_hold_still_wins_over_a_builder_s_progress_draw():
+    # C9: the account also pays the builder: the payer-also-debited hold (a later hold) names the row, now that DRAW
+    # holds nothing.
+    assert _q11([(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3"), 9000.0),
+                 ("CONTOSO BUILDERS INC DES:PAYMENT ID:1 CO ID:1 PPD", -2000.0)]) == [
+        ("excluded_pending_review", "payer_also_debited")]
+
+
+def test_a_zelle_draw_from_a_builder_is_q3_s_never_a_progress_draw():
+    # Z1 (CR7): the rules hold it as a non-sale purpose (never a progress draw); Q3's policy excludes it.
+    records = _q11_records([("ZELLE PAYMENT FROM CONTOSO BUILDERS INC FOR DRAW 3 CONF ABC123", 9000.0)])
+    assert [rules_reading(record, method=True) for record in records] == [NON_SALE]
+    assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("non_revenue", "zelle_excluded")
+
+
+@pytest.mark.parametrize(("text", "region", "expected"), [
+    (_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3"), "CONTOSO BUILDERS INC", True),
+    (_q11_bofa("CONTOSO BUILDERS INC", "DRAWDOWN"), "CONTOSO BUILDERS INC", False),
+    (_q11_bofa("CONTOSO BUILDERS INC", "LOAN DRAW"), "CONTOSO BUILDERS INC", False),
+    (_q11_bofa("CONTOSO BUILDERS INC", "DRAW ON THE LINE"), "CONTOSO BUILDERS INC", False),
+    (_q11_bofa("CONTOSO BUILDERS INC", "PAYMENT"), "CONTOSO BUILDERS INC", False),
+    (_q11_bofa("QUICK DRAW CONSTRUCTION LLC", "PAYMENT"), "QUICK DRAW CONSTRUCTION LLC", False),
+    (_q11_bofa("CONTOSO BUILDERS SUPPLY INC", "DRAW 3"), "CONTOSO BUILDERS SUPPLY INC", False),
+    (_q11_bofa("CONTOSO BUILDERS INSURANCE CO", "DRAW 3"), "CONTOSO BUILDERS INSURANCE CO", False),
+    (_q11_bofa("CONTOSO FUNERAL HOMES INC", "DRAW 3"), "CONTOSO FUNERAL HOMES INC", False),
+    (_q11_bofa("CONTOSO HOMES FOR SALE LLC", "DRAW 3"), "CONTOSO HOMES FOR SALE LLC", False),
+    (_q11_bofa("CONTOSO BUILDING CO", "DRAW 3"), "CONTOSO BUILDING CO", False),
+    (_q11_bofa("CONTOSO DEVELOPMENT LLC", "DRAW 3"), "CONTOSO DEVELOPMENT LLC", False),
+    (_q11_bofa("CONTOSO CONSTRUCTION LENDING LLC", "DRAW 3"), "CONTOSO CONSTRUCTION LENDING LLC", False),
+    (_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3"), "", False),
+    ("ZELLE PAYMENT FROM CONTOSO BUILDERS INC FOR DRAW 3 CONF ABC123", "CONTOSO BUILDERS INC", False),
+])
+def test_the_progress_draw_reader(text, region, expected):
+    assert tr.construction_progress_draw(revenue_text(normalize_transaction_description(text)), region) is expected
+
+
+def test_a_builder_s_progress_draw_spares_draw_alone_in_the_non_sale_test():
+    text = revenue_text(normalize_transaction_description(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3")))
+    assert tr.non_sale_purpose(text, "CONTOSO BUILDERS INC")
+    assert not tr.non_sale_purpose(text, "CONTOSO BUILDERS INC", progress_draw=True)
+    # Every other non-sale word still holds the row.
+    refund = revenue_text(normalize_transaction_description(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3 REFUND")))
+    assert tr.non_sale_purpose(refund, "CONTOSO BUILDERS INC", progress_draw=True)
+    assert tr.REVENUE_TIER_REASONS["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
 
 
 @pytest.mark.parametrize(("text", "bank"), [

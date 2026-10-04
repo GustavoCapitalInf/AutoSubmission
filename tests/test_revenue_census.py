@@ -3320,3 +3320,77 @@ def test_ow05_the_snapshot_reads_a_repossession_agency_s_payables_with_no_guard_
     assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
         "q7_payables_without_dealer_evidence": 2}
     assert run["guards"] == {}
+
+
+# Owner ruling 2026-10-02 (the underwriter's Q11), R2-OW06: (b) a non-dealer's asset sale once verified by Q5 or Q6, or
+# by an invoice or customer-payment descriptor's single-row rule, now non_revenue / asset_sale_proceeds, is the declared
+# demotion asset_sale_proceeds; a §7.8 auction payout's own form stays undeclared. (a) a builder's progress draw is a
+# counted row the guards pass, and the snapshot records the pass's progress_draw fact.
+
+ASSET_SALE_WIRE = ("WIRE TYPE WIRE IN DATE 540302 TIME 1200 ET TRN 2054030200012345 SEQ 123456 000001 ORIG FABRIKAM "
+                   "FARMS LLC ID 1234 SND BK SAMPLE BANK ID 123456789 PMT DET TRACTOR SALE INV 1234")
+
+
+def _asset_sale_after(arm="purpose", text=ASSET_SALE_WIRE):
+    return _credit(0, 500000, "non_revenue", "asset_sale_proceeds", tier="non_revenue", reason="asset_sale_proceeds",
+                   text=text, rule=f"asset_sale_{arm}")
+
+
+@pytest.mark.parametrize("base_method", [
+    "named_payer_company_form", "named_payer_repeats", "repeat_wire_sender", "public_or_healthcare_payer",
+    "payer_remittance_descriptor", "wire_remittance_purpose", "operating_income_descriptor",
+])
+def test_ow06_a_verified_row_made_an_asset_sale_is_a_declared_demotion(base_method):
+    prior = _q56(base_method, ASSET_SALE_WIRE)
+    later = _asset_sale_after()
+    causes, run = _cause56(prior, later)
+    assert causes == {"asset_sale_proceeds": 1}
+    assert "undeclared_demotion" not in run["guards"]
+    assert "asset_sale_proceeds" in census.DECLARED_DEMOTIONS
+    assert census.ASSET_SALE_METHOD == "asset_sale_proceeds"
+    assert census.ASSET_SALE_INVOICE_METHODS == {
+        "operating_income_descriptor", "payer_remittance_descriptor", "wire_remittance_purpose"}
+
+
+def test_ow06_a_wholesale_auction_payout_made_an_asset_sale_stays_undeclared():
+    prior = _q56("wholesale_auction_payout_form", "ACV AUCTIONS INC PAYMENTS 123456 12 123456789012")
+    causes, run = _cause56(prior, _asset_sale_after("payer", prior["text"]))
+    assert causes == {"undeclared": 1}
+    assert run["guards"]["undeclared_demotion"]["failures"] == 1
+    # Another method on the after row names no asset sale either.
+    other = {**_asset_sale_after(), "method": "strong_non_revenue_rule"}
+    assert census._demotion_cause(_q56("named_payer_company_form", ASSET_SALE_WIRE), other) != "asset_sale_proceeds"
+
+
+def test_ow06_the_snapshot_reads_a_progress_draw_and_an_asset_sale_with_no_guard_failure():
+    from analysis.schema import Statement, Transaction
+
+    rows = [
+        ("CONTOSO BUILDERS INC DES:DRAW 3 ID:1234567 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 9000.0),
+        ("ORIG CO NAME:CARVANA LLC ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:PAYMENT SEC:CCD "
+         "TRACE#:123456789012345 EED:540102 IND ID:1234 IND NAME:NORTHWIND SOLAR LLC TRN: 1234567890TC", 14000.0),
+    ]
+    statement = Statement(bank="Bank of America", account_name="NORTHWIND SOLAR LLC", transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount, direction="credit")
+        for index, (text, amount) in enumerate(rows)
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    readings = [(credit["state"], credit["method"], credit["tier"], credit["reason"], credit["rule"])
+                for credit in snap["credits"]]
+    assert readings == [
+        ("unverified_deposit", "unidentified_posted_credit", "counted_flagged", "construction_progress_draw",
+         "unknown_credit_source_requires_review"),
+        ("non_revenue", "asset_sale_proceeds", "non_revenue", "asset_sale_proceeds", "asset_sale_payer"),
+    ]
+    assert snap["credits"][0]["facts"]["progress_draw"] and not snap["credits"][1]["facts"]["progress_draw"]
+    for credit in snap["credits"]:
+        assert not any(census._row_guards(credit).values())
+    # The car buyer's company-form payment Q6 verified before the ruling: the declared demotion.
+    base = {**snap, "credits": [
+        snap["credits"][0],
+        {**snap["credits"][1], "state": "verified_revenue", "method": "named_payer_company_form", "tier": "verified",
+         "reason": None, "rule": "verified_named_payer_company_form"},
+    ]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {"asset_sale_proceeds": 1}
+    assert run["guards"] == {}

@@ -273,10 +273,11 @@ def test_q3_the_prior_reading_of_any_other_row_is_none():
 
 
 def test_q3_the_reason_table_ends_with_its_non_revenue_codes():
-    """The non_revenue codes end the table (R2-OW02's Zelle code, then R2-OW03's display code for Q12's rows), and
-    NON_REVENUE_REASONS is exactly them; only the Zelle code may be reviewed (owner ruling 2026-10-02, R2-OW03)."""
+    """The non_revenue codes end the table (R2-OW02's Zelle code, then R2-OW03's display code for Q12's rows, then
+    R2-OW06's asset_sale_proceeds for Q11's non-dealer asset sales), and NON_REVENUE_REASONS is exactly them; only the
+    Zelle code may be reviewed (owner ruling 2026-10-02, R2-OW03; Q11's has no review path, its card's open point 4)."""
     non_revenue = [code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "non_revenue"]
-    assert non_revenue == ["zelle_excluded", "government_no_purpose"]
+    assert non_revenue == ["zelle_excluded", "government_no_purpose", "asset_sale_proceeds"]
     assert list(REVENUE_TIER_REASONS)[-len(non_revenue):] == non_revenue
     assert REVENUE_TIER_REASONS["zelle_excluded"] == ("non_revenue", "Zelle deposit (excluded by policy)")
     assert NON_REVENUE_REASONS == frozenset(non_revenue)

@@ -287,12 +287,222 @@ def test_a_settlement_agent_s_payment_of_the_holder_s_fee_keeps_its_reading():
     assert tier != NON_SALE and _in_true(tier)
 
 
-# I45 (OQ4): equipment-auction and car-buyer seller payouts are §15's deferred sources: counted, never verified.
+# I45 (OQ4) and the owner's ruling of 2026-10-02 (the underwriter's Q11 (b), "Don't count as true revenue and go straight
+# to non-revenue"): on a statement that shows no dealer evidence, a non-dealer's sale of equipment or vehicles (an
+# equipment auction's or a car buyer's seller payout, a printed TRUCK SALE, SALE OF or SOLD purpose, a vehicle's sale even
+# when it cites an invoice) is non_revenue, method and reason asset_sale_proceeds, not held; a dealer's sales stay
+# revenue. Before the ruling a seller payout was a §15 deferred source, counted and never verified.
 
-def test_a_repeated_equipment_auction_seller_payout_is_counted_never_verified():
+ASSET_SALE = ("non_revenue", "asset_sale_proceeds")
+SOLAR = "NORTHWIND SOLAR LLC"
+
+
+def test_a_repeated_equipment_auction_seller_payout_is_asset_sale_proceeds():
     rows = [(_bofa("RITCHIE BROS", "SELLER PMT", "1234567"), 15000.0),
             (_bofa("RITCHIE BROS", "SELLER PMT", "7654321"), 12000.0)]
-    assert _tiers(rows, bank="Bank of America") == [REFUSED, REFUSED]
+    assert _tiers(rows, bank="Bank of America") == [ASSET_SALE, ASSET_SALE]
+
+
+def _q11_bofa(payer: str, entry: str, holder: str = SOLAR, ref: str = "1234567") -> str:
+    return f"{payer} DES:{entry} ID:{ref} INDN:{holder} CO ID:1234567890 CCD"
+
+
+def _q11_chase(payer: str, entry: str, holder: str = SOLAR) -> str:
+    return (f"ORIG CO NAME:{payer} ORIG ID:1234567890 DESC DATE:540102 CO ENTRY DESCR:{entry} SEC:CCD "
+            f"TRACE#:123456789012345 EED:540102 IND ID:1234 IND NAME:{holder} TRN: 1234567890TC")
+
+
+def _q11_wire(orig: str, purpose: str) -> str:
+    return ("WIRE TYPE:WIRE IN DATE: 540302 TIME:1200 ET TRN:2054030200012345 SEQ:123456/000001 ORIG:"
+            f"{orig} ID:1234 SND BK:SAMPLE BANK ID:123456789 PMT DET:{purpose}")
+
+
+def _q11_records(rows, holder: str = SOLAR):
+    """One Bank of America month: a mobile deposit, then `rows`; the records of the credits after the deposit."""
+    records = classify_statement_transactions(Statement(account_name=holder, bank="Bank of America", transactions=[
+        Transaction(date="2054-03-01", description="MOBILE DEPOSIT", amount=500.0, direction="credit"),
+        *(Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                      direction="credit" if amount > 0 else "debit")
+          for index, (text, amount) in enumerate(rows)),
+    ]))
+    return [record for record in records[1:] if record.amount > 0]
+
+
+def _q11(rows, holder: str = SOLAR):
+    return [rules_reading(record, method=True) for record in _q11_records(rows, holder)]
+
+
+@pytest.mark.parametrize(("rows", "holder", "arm"), [
+    # B1: an equipment auction's seller payment, twice.
+    ([(_q11_bofa("RITCHIE BROS", "SELLER PMT"), 15000.0),
+      (_q11_bofa("RITCHIE BROS", "SELLER PMT", ref="7654321"), 12000.0)], SOLAR, "payer"),
+    # B2: a car buyer's payout (was counted named_payer_purpose_refused).
+    ([(_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)], SOLAR, "payer"),
+    # B3: a car buyer's company-form payment on Chase's layout (was Q6's verification: the declared demotion).
+    ([(_q11_chase("CARVANA LLC", "PAYMENT"), 14000.0)], SOLAR, "payer"),
+    # B4, B5, B6: a printed equipment or vehicle sale (B5 was Q6's company-form verification).
+    ([(_q11_wire("FABRIKAM PAVING LLC", "USED EQUIPMENT SALE"), 27000.0)], SOLAR, "purpose"),
+    ([(_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE"), 18000.0)], SOLAR, "purpose"),
+    ([(_q11_wire("FABRIKAM FREIGHT LLC", "SALE OF 2019 TRAILER"), 8000.0)], SOLAR, "purpose"),
+    # B7: Copart's seller payment (its seller word).
+    ([(_q11_bofa("COPART INC", "SELLER PMT"), 3000.0)], SOLAR, "payer"),
+    # B8: IAA's seller payment, held before by the insurer-name hold (its INSURANCE is the auction's name).
+    ([(_q11_bofa("INSURANCE AUTO AUCTIONS", "SELLER PMT"), 3000.0)], SOLAR, "payer"),
+    # B9: a person's e-Transfer for a truck (no Zelle).
+    ([("INTERAC E-TRANSFER FROM PAT SAMPLE TRUCK SALE", 6500.0)], SOLAR, "purpose"),
+    # B10: a trucking holder's auction seller payout (a seller word, whatever the holder's trade).
+    ([(_q11_bofa("RITCHIE BROS AUCTIONEERS", "SELLER PAYOUT", holder="NORTHWIND TRUCKING LLC"), 60000.0)],
+     "NORTHWIND TRUCKING LLC", "payer"),
+    # B11: the ruling's own example, a bare row.
+    ([("CARVANA PAYMENT", 9000.0)], SOLAR, "payer"),
+    # D13, I1: a vehicle's sale citing an invoice, which an invoice descriptor verified (D13: the declared demotion).
+    ([(_q11_wire("FABRIKAM FARMS LLC", "TRACTOR SALE INV 1234"), 9000.0)], SOLAR, "purpose"),
+    ([(_q11_wire("CONTOSO LANDSCAPING LLC", "TRUCK SALE INV 4521"), 9000.0)], SOLAR, "purpose"),
+    # Q2: SOLD before a model year and a make.
+    ([(_q11_wire("PAT SAMPLE", "SOLD 2019 FORD TRUCK"), 9000.0)], SOLAR, "purpose"),
+    # S2, L2, T1: a bare SUPPLY, RENTALS or FLEET in the holder's name is no trade name (S2 was Q6's verification).
+    ([(_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE", holder="NORTHWIND OFFICE SUPPLY LLC"), 9000.0)],
+     "NORTHWIND OFFICE SUPPLY LLC", "purpose"),
+    ([(_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE", holder="NORTHWIND PARTY RENTALS LLC"), 9000.0)],
+     "NORTHWIND PARTY RENTALS LLC", "purpose"),
+    ([(_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE", holder="NORTHWIND FLEET SERVICES LLC"), 9000.0)],
+     "NORTHWIND FLEET SERVICES LLC", "purpose"),
+    # W3: a towing holder's Copart seller payment (a towing service is a platform's vendor, no dealer).
+    ([(_q11_bofa("COPART INC", "SELLER PMT", holder="NORTHWIND TOWING LLC"), 3000.0)], "NORTHWIND TOWING LLC", "payer"),
+    # T2, T5: a bare SALES or SUPPLY in the holder's name.
+    ([(_q11_bofa("CARVANA", "PAYMENT", holder="NORTHWIND SALES & MARKETING LLC"), 9000.0)],
+     "NORTHWIND SALES & MARKETING LLC", "payer"),
+    ([(_q11_bofa("RITCHIE BROS", "SELLER PAYOUT", holder="NORTHWIND OFFICE SUPPLY LLC"), 9000.0)],
+     "NORTHWIND OFFICE SUPPLY LLC", "payer"),
+    # A vehicle-trade holder name that prints a recovery word is no dealer (R2-OW05's _DEALER_HOLDER_VETO).
+    ([(_q11_bofa("COPART INC", "SELLER PMT", holder="SAMPLE AUTOMOTIVE RECOVERY LLC"), 3000.0)],
+     "SAMPLE AUTOMOTIVE RECOVERY LLC", "payer"),
+])
+def test_a_non_dealer_s_asset_sale_is_non_revenue(rows, holder, arm):
+    records = _q11_records(rows, holder)
+    assert [rules_reading(record, method=True) for record in records] == [ASSET_SALE] * len(records)
+    for record in records:
+        assert record.revenue_classification == "non_revenue"
+        assert record.revenue_match_method == tr.ASSET_SALE_METHOD == "asset_sale_proceeds"
+        assert record.revenue_matched_rule == f"asset_sale_{arm}"
+        assert record.revenue_tier_reason == "asset_sale_proceeds" and record.revenue_confidence_score == 0.90
+        assert not record.revenue_review_required and not record.contributes_to_true_revenue
+        assert record.contributes_to_non_revenue and "asset_sale_proceeds" in record.revenue_context_signals
+        assert "Q11" in record.revenue_reason
+
+
+def test_an_invoice_verified_vehicle_sale_names_the_rule_it_overrules():
+    # D13: an invoice descriptor verified it; pass 7 overrules that verification.
+    record, = _q11_records([(_q11_wire("FABRIKAM FARMS LLC", "TRACTOR SALE INV 1234"), 9000.0)])
+    assert (record.revenue_tier, record.revenue_tier_reason) == ASSET_SALE
+    assert "payer_remittance_descriptor" in record.revenue_reason
+
+
+def test_a_payables_only_lender_credit_is_no_dealer_evidence_for_an_asset_sale():
+    # R2-OW05: a listed auto lender's payables-only credit is no dealer evidence, so a car buyer's payout beside it
+    # is still asset-sale proceeds.
+    records = _q11_records([(_q11_bofa("WESTLAKE FINANCI", "PAYABLES"), 4000.0),
+                            (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)])
+    assert rules_reading(records[1], method=True) == ASSET_SALE
+
+
+@pytest.mark.parametrize(("rows", "holder", "expected"), [
+    # D1: a dealer by its name.
+    ([(_q11_chase("CARVANA LLC", "PAYMENT", holder="NORTHWIND AUTO SALES LLC"), 14000.0)], "NORTHWIND AUTO SALES LLC",
+     [COMPANY]),
+    # D2: Q7 dealer funding beside an auction seller payment.
+    ([(_q11_bofa("WESTLAKE FINANCIAL", "DEALER PMT"), 20000.0), (_q11_bofa("RITCHIE BROS", "SELLER PMT"), 15000.0)],
+     SOLAR, [("verified", "auto_lender_dealer_funding"), REFUSED]),
+    # D3: a floor-plan financier's debit.
+    ([("NEXTGEAR CAPITAL DES:PAYOFF ID:1 CO ID:1 CCD", -5000.0), (_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE"), 18000.0)],
+     SOLAR, [COMPANY]),
+    # D4: a dealer-only wholesale auction's payout credit (§7.8).
+    ([("ACV AUCTIONS INC PAYMENTS 123456 12 123456789012", 4000.0), (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)],
+     SOLAR, [("verified", "wholesale_auction_payout_form"), REFUSED]),
+    # D5: a platform's vendor payment; D6, D7, D8: a transporter's or a hauler's fee.
+    ([(_q11_bofa("CARVANA LLC", "VENDOR PAY"), 9000.0)], SOLAR, [REMITTANCE]),
+    ([(_q11_chase("CARVANA LLC", "PAYMENT", holder="NORTHWIND AUTO TRANSPORT LLC"), 9000.0)],
+     "NORTHWIND AUTO TRANSPORT LLC", [COMPANY]),
+    ([(_q11_bofa("RITCHIE BROS AUCTIONEERS", "TRANSPORT PMT"), 9000.0)], SOLAR, [REFUSED]),
+    ([(_q11_bofa("RITCHIE BROS AUCTIONEERS", "PAYMENT", holder="NORTHWIND TRUCKING LLC"), 9000.0)],
+     "NORTHWIND TRUCKING LLC", [REFUSED]),
+    # D9, D22: lookalike names (a longer name is another payer).
+    ([(_q11_bofa("VROOM DELIVERY LLC", "PAYMENT"), 9000.0)], SOLAR, [REFUSED]),
+    ([(_q11_bofa("CARMAX BUSINESS SERVICES LLC", "PAYMENT"), 9000.0)], SOLAR, [REFUSED]),
+    # D10: CarMax Auto Finance's dealer funding.
+    ([(_q11_bofa("CARMAX AUTO FINANCE", "DEALER PMT", holder="NORTHWIND MOTORS LLC"), 20000.0)],
+     "NORTHWIND MOTORS LLC", [("verified", "auto_lender_dealer_funding")]),
+    # D11: a payer whose own name holds the words; D12: SALES (plural).
+    ([(_q11_bofa("CONTOSO TRUCK SALE AND SERVICE INC", "PAYMENT"), 9000.0)], SOLAR, [COMPANY]),
+    ([(_q11_bofa("FABRIKAM HAULING LLC", "TRUCK SALES"), 9000.0)], SOLAR, [COMPANY]),
+    # D15: a return; D16: Copart with no seller word; D17: a wire with no sender (Q1's hold wins).
+    ([("RETURN FOR CARVANA LLC PURCHASE C ST A1B2C3D4E5F6", 4500.0)], SOLAR,
+     [("excluded_pending_review", "possible_return")]),
+    ([(_q11_bofa("COPART INC", "PAYMENT"), 3000.0)], SOLAR, [COMPANY]),
+    ([("WIRE TYPE:WIRE IN DATE: 540302 TIME:1200 ET TRN:2054030200012345 SEQ:123456/000001 PMT DET:TRUCK SALE",
+       20000.0)], SOLAR, [("excluded_pending_review", "wire_no_sender")]),
+    # D18: the strong non-revenue rule's EQUIPMENT SALE PROCEEDS keeps its rule; D19: COST OF GOODS SOLD.
+    ([(_q11_bofa("FABRIKAM PAVING LLC", "EQUIPMENT SALE PROCEEDS"), 20000.0)], SOLAR,
+     [("non_revenue", "strong_non_revenue_rule")]),
+    ([(_q11_wire("FABRIKAM RETAIL LLC", "COST OF GOODS SOLD"), 9000.0)], SOLAR, [WIRE]),
+    # D20: a supplier's customer buying generic equipment.
+    ([(_q11_bofa("FABRIKAM DINER LLC", "EQUIPMENT SALE", holder="NORTHWIND RESTAURANT SUPPLY LLC"), 9000.0)],
+     "NORTHWIND RESTAURANT SUPPLY LLC", [REFUSED]),
+    # D21: a person's repeated round sums (Q4's hold wins).
+    ([("INTERAC E-TRANSFER FROM PAT SAMPLE TRUCK SALE", 5000.0),
+      ("INTERAC E-TRANSFER FROM PAT SAMPLE TRUCK SALE", 5000.0)], SOLAR,
+     [("excluded_pending_review", "p2p_round_repeat")] * 2),
+    # R1, R3, R4: a purchase at a dealer-only wholesale auction (a posted debit) is dealer evidence.
+    ([("MANHEIM US DES:ACH PAYMNT ID:1 CO ID:1 CCD", -4000.0), (_q11_bofa("CARVANA PAYOUT", "CVNA 12345"), 1869.17)],
+     SOLAR, [REFUSED]),
+    ([("ACV AUCTIONS INC DES:PAYMENTS ID:1 CO ID:1 CCD", -3000.0), (_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE"), 18000.0)],
+     SOLAR, [COMPANY]),
+    ([("OPENLANE INC DES:OPENLANE ID:1 CO ID:1 CCD", -3500.0), (_q11_bofa("RITCHIE BROS", "SELLER PMT"), 15000.0)],
+     SOLAR, [REFUSED]),
+    # I2: generic equipment keeps the invoice veto; I3, I4: vendor and accounts-payable wording spare a vehicle's sale.
+    ([(_q11_wire("CONTOSO LLC", "EQUIPMENT SALE PMT INV 88"), 9000.0)], SOLAR, [REFUSED]),
+    ([(_q11_bofa("FABRIKAM FREIGHT LLC", "VENDOR PAY TRUCK SALE"), 9000.0)], SOLAR, [REMITTANCE]),
+    ([(_q11_bofa("FABRIKAM FREIGHT LLC", "A P PMT TRUCK SALE"), 9000.0)], SOLAR, [REMITTANCE]),
+    # L1, L3, M1, T4: a lessor's, a truck-rental fleet's, a marina's and an equipment-rental fleet's sales are its trade.
+    ([(_q11_wire("PAT SAMPLE", "VEHICLE SALE"), 9000.0)], "NORTHWIND LEASING LLC", [WIRE]),
+    ([(_q11_bofa("FABRIKAM FREIGHT LLC", "TRUCK SALE", holder="NORTHWIND TRUCK RENTAL LLC"), 9000.0)],
+     "NORTHWIND TRUCK RENTAL LLC", [COMPANY]),
+    ([(_q11_wire("PAT SAMPLE", "BOAT SALE"), 9000.0)], "NORTHWIND MARINA LLC", [WIRE]),
+    ([(_q11_wire("CONTOSO LLC", "SALE OF EXCAVATOR"), 9000.0)], "NORTHWIND EQUIPMENT RENTAL LLC", [WIRE]),
+    # W1, W2: a towing holder's platform payment with no seller word is its fee.
+    ([(_q11_bofa("COPART INC", "PAYMENT", holder="NORTHWIND TOWING LLC"), 3000.0)], "NORTHWIND TOWING LLC",
+     [COMPANY]),
+    ([(_q11_chase("CARVANA LLC", "PAYMENT", holder="NORTHWIND TOWING LLC"), 3000.0)], "NORTHWIND TOWING LLC",
+     [COMPANY]),
+    # P3: Proxibid remits the buyers' money to the auction house (§15 deferred, unchanged).
+    ([(_q11_bofa("PROXIBID", "PAYOUT", holder="NORTHWIND LIQUIDATORS LLC"), 9000.0)], "NORTHWIND LIQUIDATORS LLC",
+     [REFUSED]),
+    # Q1: a parts seller's 'SALE OF PARTS FOR TRUCK'.
+    ([(_q11_wire("FABRIKAM FLEET LLC", "SALE OF PARTS FOR TRUCK"), 9000.0)], SOLAR, [WIRE]),
+])
+def test_a_dealer_s_sale_or_no_asset_sale_keeps_its_reading(rows, holder, expected):
+    assert _q11(rows, holder) == expected
+
+
+def test_a_zelle_truck_sale_is_q3_s_never_an_asset_sale():
+    # D14 (CR7): the rules count it as a person-to-person payment; Q3's policy excludes it, never Q11.
+    record, = _q11_records([("ZELLE PAYMENT FROM PAT SAMPLE FOR TRUCK SALE CONF ABC123", 9000.0)])
+    assert rules_reading(record, method=True) == P2P
+    assert record.revenue_match_method == tr.ZELLE_POLICY_METHOD
+
+
+@pytest.mark.parametrize(("region", "entity"), [
+    ("CARVANA PAYOUT", "Carvana"), ("CARVANA LLC", "Carvana"), ("RITCHIE BROS AUCTIONEERS INC", "Ritchie Bros. (RB Global)"),
+    ("CARMAX AUTO SUPERSTORES INC", "CarMax"), ("VROOM INC", "Vroom"), ("PEDDLE LLC", "Peddle"),
+    ("BIG IRON AUCTION CO", "BigIron Auctions"), ("BIGIRON AUCTIONS LLC", "BigIron Auctions"),
+    ("IAA INC", "Insurance Auto Auctions (IAA)"), ("RB GLOBAL INC", "Ritchie Bros. (RB Global)"),
+    ("CARMAX BUSINESS SERVICES LLC", None), ("VROOM DELIVERY LLC", None), ("FABRIKAM PEDDLERS LLC", None),
+    ("BIG IRON TRUCKING LLC", None), ("CARVANA FOR PETS LLC", None), ("PROXIBID LLC", None),
+])
+def test_the_asset_sale_platform_reader(region, entity):
+    assert tr.asset_sale_platform(region) == entity
+    assert "Proxibid" not in " ".join(registry.ASSET_SALE_PAYERS)
+    assert registry.ASSET_SALE_SELLER_WORD_ONLY == {"Copart", "Insurance Auto Auctions (IAA)"}
 
 
 @pytest.mark.parametrize("payer", [
@@ -693,8 +903,12 @@ def test_r37_controls_keep_their_holds(rows, bank):
 
 
 def test_r37_an_equipment_auction_s_seller_payout_is_still_never_verified():
+    # The owner's ruling of 2026-10-02 (the underwriter's Q11 (b)): on a statement that shows no dealer (a bakery's),
+    # BigIron's payout is asset-sale proceeds, non_revenue (it was counted as a refused deferred source); still never
+    # verified. R2-B12's spelling reading (glued, or spaced before AUCTION) is the asset-sale reader's too.
     for payer in ("BIG IRON AUCTION CO", "BIG IRON AUCTIONS LLC", "BIGIRON AUCTIONS LLC"):
-        assert _tiers(_twice(payer, "PAYMENT", 15000.0), bank="Bank of America") == [REFUSED, REFUSED], payer
+        assert _tiers(_twice(payer, "PAYMENT", 15000.0), bank="Bank of America") == [ASSET_SALE, ASSET_SALE], payer
+    assert _tiers(_twice("BIG IRON TRUCKING LLC", "PAYMENT", 15000.0), bank="Bank of America") == [REPEATS, REPEATS]
     deferred = tr._SECTION_15_DEFERRED_PAYERS
     assert deferred.pattern == registry.SECTION_15_DEFERRED_PAYERS
     for text in ("BIG IRON AUCTION CO", "BIG IRON AUCTIONS", "BIGIRON", "BIGIRON AUCTIONS LLC"):

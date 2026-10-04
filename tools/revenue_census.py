@@ -232,6 +232,18 @@ DECLARED_DEMOTIONS = (
     # verified, on a statement with no dealer evidence, counted and flagged as lender_paid_for_services (or held as
     # financing_named_payer under the hidden-loan guard), never verified.
     "q7_payables_without_dealer_evidence",
+    # Owner ruling 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: a non-dealer's asset sale (an equipment auction's or
+    # a car buyer's seller payout, a printed truck, trailer, vehicle or equipment sale), once a Q5 or Q6 verification or
+    # an invoice or customer-payment descriptor's single-row verification of a printed vehicle sale, now non_revenue
+    # (method and reason asset_sale_proceeds).
+    "asset_sale_proceeds",
+)
+#: Owner ruling 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: the method pass 7 gives a non-dealer's asset sale (also
+#: its non_revenue reason code), and the single-row verifications a printed vehicle sale is read on
+#: (analysis/true_revenue.py ASSET_SALE_METHOD and ASSET_SALE_INVOICE_METHODS, copied: the census reads other checkouts).
+ASSET_SALE_METHOD = "asset_sale_proceeds"
+ASSET_SALE_INVOICE_METHODS = frozenset(
+    {"operating_income_descriptor", "payer_remittance_descriptor", "wire_remittance_purpose"}
 )
 #: Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: the revenue method pass 7 gives a listed auto
 #: lender's payables-only credit it overrules (analysis/true_revenue.py LENDER_PAID_FOR_SERVICES, copied: the census
@@ -2301,6 +2313,13 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         and after.get("reason") == "holder_name"
     ):
         return "holder_own_push_never_verified"
+    # Owner ruling 2026-10-02 (the underwriter's Q11 (b)), R2-OW06. (a) a Q5 or Q6 verification, or an invoice or
+    # customer-payment descriptor's single-row verification (ASSET_SALE_INVOICE_METHODS); (b) a non-dealer's asset-sale
+    # proceeds, non_revenue (method asset_sale_proceeds). A §7.8 auction payout's own form stays undeclared.
+    if method == ASSET_SALE_METHOD and (
+        base["method"] in Q5_Q6_METHODS or base["method"] in ASSET_SALE_INVOICE_METHODS
+    ):
+        return "asset_sale_proceeds"
     if base["method"] in Q5_Q6_METHODS:
         # I7 (§20). (a) a Q5 or Q6 verification; (b) held by a later 5.6 hold, named by its reason and the pass's own
         # hold reading (LATER_HOLD_CAUSES).

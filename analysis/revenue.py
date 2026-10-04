@@ -32,7 +32,7 @@ STATE_OF_TIER: dict[str, RevenueState] = {
 #: 5.6 (§5.3): the reason codes of the counted and held tiers: code -> (tier, the label on screen). Nothing else lists
 #: them; the dashboard mirrors them (webapp/static/app.js REVENUE_TIER_REASONS). Since the owner's rulings of
 #: 2026-10-02 the non_revenue codes end the table (NON_REVENUE_REASONS): the underwriter's Q3's zelle_excluded, then
-#: Q12's display reason, government_no_purpose (R2-OW03).
+#: Q12's display reason, government_no_purpose (R2-OW03), then Q11's asset_sale_proceeds (R2-OW06).
 REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "direction_conflict": ("excluded_pending_review", "Direction conflicts with the amount"),
     "insurer_payer": ("excluded_pending_review", "Insurance carrier"),
@@ -72,6 +72,9 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     # (a listed auto lender's payables on a statement with no dealer evidence: a repossession agency's recoveries),
     # counted, never verified (true_revenue.LENDER_PAID_FOR_SERVICES).
     "lender_paid_for_services": ("counted_flagged", "Lender paid for services"),
+    # Owner ruling 2026-10-02 (the underwriter's Q11 (a)), R2-OW06: a builder's progress draw, counted and flagged, never
+    # verified (true_revenue.CONSTRUCTION_PROGRESS_DRAW_REASON).
+    "construction_progress_draw": ("counted_flagged", "Builder's progress draw"),
     # Audit B11 (I53): the payer's own settlement of the merchant's sales (OQ2's BNPL providers, marketplaces), counted;
     # the label keeps the caution that the payer also lends, and never reads as financing counted in True.
     "payout_credit_entity": ("counted_flagged", "BNPL or marketplace settlement (payer also lends)"),
@@ -91,17 +94,23 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     # that prints no purpose (§6.1 step 3a, method government_no_purpose_exclusion), which the non-revenue breakdown
     # names (true_revenue.GOVERNMENT_NO_PURPOSE). Display only: no tier, state, method or flag moves.
     "government_no_purpose": ("non_revenue", "Government payment, no purpose printed"),
+    # The owner's ruling of 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: a non-dealer's sale of equipment or
+    # vehicles (an equipment auction's or a car buyer's seller payout, a printed truck, trailer, vehicle or equipment
+    # sale), non_revenue with this reason (true_revenue.ASSET_SALE_METHOD); no review path.
+    "asset_sale_proceeds": ("non_revenue", "Sale of equipment or vehicles (not a dealer)"),
 }
 #: R2-OW03 (owner ruling 2026-10-02; §5.3, §9.1): the reason codes REVENUE_TIER_REASONS files under non_revenue. A
 #: non_revenue row carries one only when an owner ruling decided it (the Zelle policy, Q12's no-purpose government
-#: payments); every other non_revenue row carries none, and a reviewer's rejection keeps the counted or held reason it
-#: had, which is no such code. `non_revenue_by_reason` counts the rows of these codes alone.
+#: payments, Q11's non-dealer asset sales); every other non_revenue row carries none, and a reviewer's rejection keeps
+#: the counted or held reason it had, which is no such code. `non_revenue_by_reason` counts the rows of these codes
+#: alone.
 NON_REVENUE_REASONS: frozenset[str] = frozenset(
     code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "non_revenue"
 )
 #: R2-OW03 (the underwriter's Q3: "I can review"; §10.7): the non_revenue codes the underwriter may confirm back into
 #: revenue (confirm and reset only; a reject is refused, the row being non-revenue already). Every other non_revenue
-#: row keeps the review refusal: a non-revenue rule's, Q12's no-purpose government payment's.
+#: row keeps the review refusal: a non-revenue rule's, Q12's no-purpose government payment's, Q11's asset sale's (the
+#: Q11 card's open point 4: no confirm-dealer path).
 REVIEWABLE_NON_REVENUE_REASONS: frozenset[str] = frozenset({"zelle_excluded"})
 
 

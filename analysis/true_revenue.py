@@ -24,6 +24,8 @@ from functools import cache
 from typing import TYPE_CHECKING, Sequence
 
 from .classification_registry import (
+    ASSET_SALE_PAYERS,
+    ASSET_SALE_SELLER_WORD_ONLY,
     BARE_PLATFORM_NAMES,
     CARD_PAYOUT_PROCESSOR_NAMES,
     CARD_SETTLEMENT_CREDIT_FORMS,
@@ -42,6 +44,7 @@ from .classification_registry import (
     PAYOUT_CREDIT_ENTITIES,
     SECTION_15_DEFERRED_PAYERS,
     STATEMENT_BANK_PRINTED_NAMES,
+    WHOLESALE_AUCTION_PAYOUT_FORMS,
     WHOLESALE_AUCTION_REFUND_NAMES,
 )
 from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
@@ -796,6 +799,34 @@ _RTP_CREDIT_NAME = re.compile(r"^RTP CREDIT\s+(?!FROM\b)(\S.*)$")
 #: named_payer_purpose_refused (S4.2 re-review: a payer Q5 and Q6 refuse as proof, §8.9; never "One-off payer", as a
 #: deferred source often repeats). The registry's own deferred sources are left to the registry by _left_to_its_family.
 _SECTION_15_DEFERRED_PAYERS = re.compile(SECTION_15_DEFERRED_PAYERS)
+#: Owner ruling 2026-10-02 (the underwriter's Q11 (a), "Count as true revenue and flag it"; audit I18's construction
+#: DRAW; §8.1, §8.10): the reason of a builder's progress draw, counted and flagged, never verified
+#: (construction_progress_draw).
+CONSTRUCTION_PROGRESS_DRAW_REASON = "construction_progress_draw"
+#: Q11 (a): DRAW or DRAWS as _NON_SALE_PURPOSE reads it (DRAWDOWN keeps its financing reading).
+_DRAW_WORD = re.compile(r"(?<![A-Z])DRAWS?\b")
+#: Q11 (a): a builder named as the payer: a builder, a homebuilder, a construction firm or a contractor (BUILD alone is
+#: a builder's name word, '<NAME> BUILD GROUP INC'; CONST and CONSTR are the cut spellings a sixteen-character
+#: originator field prints). Never a builders' supplier, exchange, association or insurer ('BUILDERS FIRSTSOURCE',
+#: 'CONTRACTORS INSURANCE'). A homebuilder named HOMES too, never a nursing, funeral, care, group, foster, senior or
+#: retirement home, a mobile or manufactured home seller, nor HOMES FOR SALE or FOR RENT. BUILDING is no builder (a
+#: building's owner, a building-supply or building-maintenance firm, a building-and-loan association); DEVELOPMENT,
+#: DEVELOPERS and PROPERTIES are deliberately not builder words (§17.1, the owner's follow-up on a developer's draw).
+_BUILDER_PAYER = re.compile(
+    r"(?<![A-Z])(?:BUILDERS?|BUILD|HOMEBUILDERS?|HOMEBUILDING|CONSTRUCTION|CONSTRUCTORS?|CONSTR|CONST|CONTRACTORS?"
+    r"|CONTRACTING)\b"
+    r"(?! (?:SUPPLY|SUPPLIES|FIRSTSOURCE|FIRST SOURCE|HARDWARE|EXCHANGE|ASSOCIATION|ASSN|MUTUAL|INSURANCE|RISK)\b)"
+    r"|(?<![A-Z])(?<!NURSING )(?<!FUNERAL )(?<!MOBILE )(?<!MANUFACTURED )(?<!CARE )(?<!GROUP )(?<!FOSTER )"
+    r"(?<!SENIOR )(?<!RETIREMENT )HOMES\b(?! FOR (?:SALE|RENT)\b)"
+)
+#: Q11 (a): a loan's, a credit line's, a mortgage's, an escrow's or a title's draw, an owner's, member's, partner's or
+#: shareholder's draw, a personal, line, credit, advance, capital, equity or cash draw, and a draw on a line, a LOC, a
+#: credit facility or an account: the business's own loan or money, never a builder's progress draw.
+_OWN_LOAN_DRAW = re.compile(
+    r"(?<![A-Z])(?:LOANS?|LOC|HELOC|LINE OF CREDIT|CREDIT LINE|MORTGAGE|MTG|ESCROW|TITLE)\b"
+    r"|(?<![A-Z])(?:OWNERS?|MEMBERS?|PARTNERS?|SHAREHOLDERS?|PERSONAL|LINE|CREDIT|ADVANCE|CAPITAL|EQUITY|CASH) DRAWS?\b"
+    r"|(?<![A-Z])DRAWS? ON (?:THE |A )?(?:LINE|LOC|CREDIT|FACILITY|ACCOUNT)\b"
+)
 #: Owner ruling 2026-10-02 (Q8; §8.9): the lease-to-own and patient financiers whose merchant payouts are the merchant's
 #: sales (the registry's CUSTOMER_FINANCING_PAYERS: ledger entity -> its spelling on the payer region), read by
 #: _customer_financier; and their names anywhere on the row without the receiver field's value
@@ -834,6 +865,81 @@ _DEALER_HOLDER_VETO = re.compile(r"(?<![A-Z])(?:RECOVER\w*|REPO|REPOS|REPOSSESS\
 #: registry's WHOLESALE_AUCTION_REFUND_NAMES: MANHEIM, ACV AUCTIONS, OPENLANE or BACKLOT CARS), a purchase there being
 #: dealer evidence.
 _WHOLESALE_AUCTION_DEBIT_NAMES = tuple(re.compile(pattern) for pattern in WHOLESALE_AUCTION_REFUND_NAMES.values())
+#: Owner ruling 2026-10-02 (the underwriter's Q11 (b), "Don't count as true revenue and go straight to non-revenue";
+#: audit I45; §8.1, §8.10): the method, and the non_revenue reason code, of a non-dealer's asset-sale proceeds.
+ASSET_SALE_METHOD = "asset_sale_proceeds"
+#: Q11 (b): a seller's word on a platform's payout.
+_SELLER_WORD = re.compile(r"(?<![A-Z])(?:SELLERS?|CONSIGN\w*|PAYOUTS?|PROCEEDS)\b")
+#: Q11 (b): the seller's words a platform's region may print after its name ('CARVANA PAYOUT', 'RITCHIE BROS SELLER
+#: PAYOUT'), which asset_sale_platform reads past.
+_ASSET_SALE_TAIL_WORDS = frozenset({"PAYOUT", "PAYOUTS", "SELLER", "SELLERS", "PROCEEDS", "CONSIGNOR", "CONSIGNMENT"})
+#: Q11 (b): a platform paying for a service (a haul, a repair, a commission, a rent), never a seller's payout.
+_PLATFORM_SERVICE_WORDS = re.compile(
+    r"(?<![A-Z])(?:TRANSPORT\w*|HAUL\w*|TOW(?:ING|S)?|DELIVER\w*|FREIGHT|SHIPPING|LOGISTIC\w*|LABOR|REPAIR\w*"
+    r"|RECON\w*|DETAIL\w*|INSPECT\w*|COMMISSIONS?|FEES?|REIMB\w*|REBATES?|SERVICES?|STORAGE|MARKETING|ADVERTIS\w*"
+    r"|RENT\w*|LEASE)\b"
+)
+#: Q11 (b): a holder whose trade serves the platforms (a hauler, a transporter, a repair, reconditioning or glass shop,
+#: a staffing firm, a towing or wrecker service): a platform's payment with no seller word is its fee, never a sale.
+_PLATFORM_VENDOR_HOLDER = re.compile(
+    r"(?<![A-Z])(?:TRANSPORT\w*|TRUCKING|HAUL\w*|LOGISTIC\w*|CARRIERS?|FREIGHT|DELIVER\w*|EXPEDIT\w*|COURIER\w*"
+    r"|DETAIL\w*|RECON\w*|INSPECT\w*|GLASS|TIRES?|REPAIR\w*|MECHANIC\w*|DRIVERS?|STAFFING|TOW|TOWING|WRECKERS?)\b"
+)
+#: Q11 (b): the vehicle and heavy-equipment nouns, whose sale reads through an invoice reference, and the generic ones
+#: (EQUIPMENT, EQUIP, MACHINERY) that many trades sell and invoice.
+_VEHICLE_NOUN = (
+    r"(?:TRUCKS?|TRAILERS?|VEHICLES?|VEH|CARS?|AUTOS?|TRACTORS?|BOATS?|RVS?|CAMPERS?|MOTORCYCLES?"
+    r"|EXCAVATORS?|LOADERS?|SKID ?STEERS?|FORKLIFTS?|BACKHOES?|BULLDOZERS?|DOZERS?|CRANES?|FLEET|SEMIS?)"
+)
+_ASSET_NOUN = r"(?:" + _VEHICLE_NOUN + r"|EQUIPMENT|EQUIP|MACHINERY)"
+_VEHICLE_NOUN_WORD = re.compile(r"(?<![A-Z])" + _VEHICLE_NOUN + r"\b")
+#: Q11 (b): a holder whose name reads as a vehicle or equipment trade (a dealer's or a dealership's words, a salvage,
+#: wrecking or auction business, a marina or a boatyard, a collision or body shop, a lessor, an asset noun's sales,
+#: rentals, leasing, supply or recycling): its sales of vehicles or equipment are its trade, dealer evidence beyond the
+#: owner's words (§17.1). Never a bare SALES, SUPPLY, SUPPLIES, FLEET, RENTAL(S), RECYCLING or TOWING, which plain
+#: non-dealers print ('SALES & MARKETING', 'OFFICE SUPPLY', 'FLEET SERVICES', 'PARTY RENTALS'); MOTOR, TRUCKING and
+#: TRUCKS stay out; a towing or wrecker service is a platform's vendor (_PLATFORM_VENDOR_HOLDER). A bare LEASING stays:
+#: a lessor's sale of a returned vehicle or machine is its trade.
+_ASSET_TRADE_HOLDER = re.compile(
+    r"(?<![A-Z])(?:AUTOS?|AUTOMOTIVE|AUTOMOBILES?|CARS|MOTORS|MOTORCARS|TRAILERS|EQUIPMENT|EQUIP|MACHINERY|TRACTORS?"
+    r"|IMPLEMENTS?|MARINE|MARINAS?|BOATS|BOATYARDS?|YACHTS?|RVS?|POWERSPORTS|MOTORSPORTS|CYCLES|DEALERS?|DEALERSHIP"
+    r"|SALVAGE|WRECKING|AUCTION\w*|COLLISION|BODY SHOP|LEASING"
+    r"|" + _ASSET_NOUN + r" (?:SALES|RENTALS?|LEASING|SUPPLY|SUPPLIES|RECYCL\w*))\b"
+)
+#: Q11 (b): a supplier's holder name, whose sale of generic equipment or machinery is its trade.
+_SUPPLIER_HOLDER = re.compile(r"(?<![A-Z])(?:SUPPLY|SUPPLIES|SUPPLIERS?)\b")
+#: Q11 (b): up to two words between SALE OF or SOLD and the asset, never a connector or a goods or service word ('SALE
+#: OF PARTS FOR TRUCK', 'SOLD TIRES FOR TRUCK' are a parts or tire seller's own sales).
+_ASSET_SALE_FILLER = (
+    r"(?:(?!(?:TO|FOR|ON|AT|BY|FROM|OF|AND|OR|WITH|PER|IN|PARTS?|TIRES?|SERVICES?|REPAIRS?|LABOR|ACCESSOR\w*"
+    r"|SUPPL\w*|GOODS|LOADS?|CARGO|FUEL|WARRANT\w*|INSURANCE)\b)\S+ ){0,2}"
+)
+#: Q11 (b): the sale of a truck, trailer, vehicle or equipment, read as a purpose: '<asset> SALE' (never SALES, a
+#: dealer's word), 'SALE OF <asset>' and 'SOLD <asset>' (up to two filler words between), '<asset> SOLD'; never inside
+#: a name a company form ends within three more words that hold no connector ('<NAME> TRUCK SALE AND SERVICE INC').
+_ASSET_SALE_PURPOSE = re.compile(
+    r"(?<![A-Z])(?:" + _ASSET_NOUN + r" SALE|SALE OF " + _ASSET_SALE_FILLER + _ASSET_NOUN + r"|SOLD "
+    + _ASSET_SALE_FILLER + _ASSET_NOUN + r"|" + _ASSET_NOUN + r" SOLD)\b"
+    r"(?!(?: (?!(?:TO|FROM|FOR|BY|PER|ON|AT)\b)[A-Z&]+){0,3} (?:LLC|L L C|INC|CORP|CORPORATION|CO|COMPANY|LTD)\b)"
+)
+#: Q11 (b): an invoice reference, which a vehicle's or heavy equipment's sale reads through (the owner made no invoice
+#: carve-out); accounts-payable, vendor or payables wording still spares the row.
+_INVOICE_REFERENCE = re.compile(
+    r"(?<![A-Z])INV(?:OICE)?S?(?: (?:NO|NUM|NUMBER|N))? ?#? ?\d\S*|(?<![A-Z])INV(?:OICE)?S?\b(?: (?:PMT|PYMT))?"
+    r"|(?<![A-Z])(?:OF|FOR) INVOI ?CES?\b"
+)
+#: Q11 (b): the single-row verifications that rest on an invoice or customer-payment reference; a non-dealer's printed
+#: vehicle sale is read on them too (pass 7 overrules them: a verified asset sale).
+ASSET_SALE_INVOICE_METHODS = frozenset(
+    {"operating_income_descriptor", "payer_remittance_descriptor", "wire_remittance_purpose"}
+)
+#: Q11 (b): a refund word, which no asset sale prints (a buyer's refund, a platform's refund of a purchase).
+_ASSET_SALE_REFUND = re.compile(r"[A-Z]*REFUND\w*|(?<![A-Z])(?:RFND|REFND)\w*")
+#: Q11 (b): the dealer-only wholesale auctions of §7.8, whose payout credit is dealer evidence for Q11 (never for Q9's
+#: payables, _dealer_activity).
+_WHOLESALE_AUCTION_ENTITIES = frozenset(WHOLESALE_AUCTION_PAYOUT_FORMS)
+#: Q11 (b): the platform whose INSURANCE is its own name (IAA), which an insurer-name hold never keeps from Q11.
+_IAA = "Insurance Auto Auctions (IAA)"
 #: §7.7: a bare X12 TRN*1* with no entry description, from a healthcare payer, is deferred too.
 _BARE_X12_TRACE = re.compile(r"\bTRN 1\b")
 #: §7.1 (S4.2 review I5): the NET SETTLE card form, read whether or not its refusal or the card veto matches: such a
@@ -1139,6 +1245,9 @@ class CreditFacts:
     #: §8.9 (owner ruling 2026-10-02, Q8): the lease-to-own or patient financier whose merchant payout the row is
     #: (_customer_financier: the ledger entity CUSTOMER_FINANCING_PAYERS names), or None.
     financier: str | None = None
+    #: §8.1, §8.10 (owner ruling 2026-10-02, the underwriter's Q11 (a)): a builder's progress draw
+    #: (construction_progress_draw) on a row nothing claimed: counted and flagged, never verified, never a repeat.
+    progress_draw: bool = False
 
 
 def _classifier():
@@ -2014,9 +2123,34 @@ def purpose_trade_name(text: str, row: str, region: str) -> bool:
     )
 
 
+def construction_progress_draw(
+    text: str, region: str, account_name: str | None = None, *, also: Sequence[str] = (),
+) -> bool:
+    """§8.1, §8.10 (owner ruling 2026-10-02, the underwriter's Q11 (a), "Count as true revenue and flag it"; audit
+    I18): a builder's progress draw, counted and flagged, never verified. True only when the payer region names a
+    builder (_BUILDER_PAYER), the row prints no Zelle rail (Q3 of 2026-10-02 excludes every Zelle deposit,
+    zelle_deposit), the row (the hold text without the holder's names, as the holds read it: `account_name` and `also`)
+    prints DRAW or DRAWS where §8.1 reads the non-sale words (_non_sale_reading) once the payer's own name is removed
+    (R2-B13's _payer_name_proper on a row that prints a payer name field, so 'QUICK DRAW CONSTRUCTION LLC DES:PAYMENT'
+    prints no draw), nothing reads as the business's own loan or money (_OWN_LOAN_DRAW: a loan's, a line's, an
+    escrow's, an owner's, an equity draw, a draw on a line), and the payer is no bank, title, escrow, closing or
+    settlement firm, owner-shaped payer or financing root (the earlier financing holds read those first)."""
+    if not region or _BUILDER_PAYER.search(region) is None or zelle_deposit(text):
+        return False
+    row = _without_holder_name(_hold_text(text), account_name, also=also)
+    name = _payer_name_proper(text, region) if _prints_payer_name_field(text) else ""
+    purpose = row.replace(name, " ") if name else row
+    if _DRAW_WORD.search(_non_sale_reading(text, purpose, region)) is None or _OWN_LOAN_DRAW.search(row):
+        return False
+    return not (
+        _BANK_OR_TITLE_SENDER.search(region) or _TITLE_FIRM.search(region) or _OWNER_SHAPED_PAYER.search(region)
+        or _FINANCING_ROOT.search(region)
+    )
+
+
 def non_sale_purpose(
     text: str, region: str, *, bank: str | None = None, account_name: str | None = None, disbursing: bool = False,
-    also: Sequence[str] = (),
+    also: Sequence[str] = (), progress_draw: bool = False,
 ) -> bool:
     """§8.1: a non-sale purpose, a public payer's refund or benefit, or a healthcare payer's member or premium credit.
     The investment words hold a row unless it prints accounts-payable wording (S4.2 fix measurement). A3 (precision
@@ -2036,12 +2170,19 @@ def non_sale_purpose(
     legal_settlement) and an owner-shaped payer's DISB (owner_disbursement) are no sale either; a settlement or
     closing agent is a title firm (I44, _TITLE_FIRM). Audit round 2, R2-B12 (R37): those readers, and the owner-money
     platforms (owner_money_platform), spare a customer's trade name, a vendor's payment and a processor's or a carrier's
-    settlement services, in the same order."""
+    settlement services, in the same order.
+
+    Owner ruling 2026-10-02 (the underwriter's Q11 (a)): on a builder's progress draw (`progress_draw`, the pass's
+    construction_progress_draw), DRAW is no non-sale word, inside the payer's name too; every other non-sale word and
+    every later test still holds the row."""
     classifier = _classifier()
     row = _without_holder_name(_hold_text(text), account_name, also=also)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
     healthcare = healthcare_payer(region)
-    if _NON_SALE_PURPOSE.search(_non_sale_reading(text, row, region, disbursing=disbursing, bank=bank)) is not None:
+    reading = _non_sale_reading(text, row, region, disbursing=disbursing, bank=bank)
+    if progress_draw:
+        reading = _DRAW_WORD.sub(" ", reading)
+    if _NON_SALE_PURPOSE.search(reading) is not None:
         return True
     # GOV (owner ruling 2026-09-30, class D): a government grant or subsidy.
     if government_grant(text):
@@ -4794,10 +4935,15 @@ def credit_facts(
         # T13 (S4.2 fix round 5): a named transfer printed without FROM takes the same two holds.
         sender = holder_sender = _named_transfer_sender(text)
     disbursing = bool(region) and classifier._payer_key(region) in disbursers
+    # Owner ruling 2026-10-02 (the underwriter's Q11 (a)): a builder's progress draw, read only on a named payer that no
+    # registry, payout entity, factor or financier claimed.
+    progress_draw = not claimed and construction_progress_draw(
+        text, region, _holder(record), also=_holder_strip_names(record)
+    )
     hold = _first_hold(
         record, text, region=region, entry=entry, claimed=claimed, debits=debits,
         sender=sender, holder_sender=holder_sender, receiver_holders=receiver_holders, wire=channel == "wire",
-        business=business, disbursing=disbursing,
+        business=business, disbursing=disbursing, progress_draw=progress_draw,
     )
     return CreditFacts(
         channel=channel,
@@ -4840,6 +4986,7 @@ def credit_facts(
         bank_only=_bank_only_payer(region, entry, record.bank, row=row),
         # Audit round 2, R2-B04 (R41): the holder's own push, read on the row alone, as _first_hold reads it.
         self_own=not claimed and self_originated(text, region, record.bank),
+        progress_draw=progress_draw,
     )
 
 
@@ -4857,6 +5004,7 @@ def _first_hold(
     wire: bool = False,
     business: bool = False,
     disbursing: bool = False,
+    progress_draw: bool = False,
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. Audit B5: a bank's own wire is
     read on every row pass 7's wire channel reads (`wire`, I14, I23), and TD Canada Trust's payroll-deposit code is pay
@@ -4872,7 +5020,8 @@ def _first_hold(
     Audit B7: the possible-return, financing-root, pay, personal-income and non-sale tests read the row without the
     holder's own name runs (I47, _without_holder_name); the direct-deposit words are pay wording only with a sign of a
     person's pay (I09, _direct_deposit_pay, `business` the statement's _business_shape); and the dealer-word hold
-    never reads a named non-lender's wire purpose (I36, _dealer_word_lender)."""
+    never reads a named non-lender's wire purpose (I36, _dealer_word_lender). Owner ruling 2026-10-02 (the
+    underwriter's Q11 (a)): on a builder's progress draw (`progress_draw`) the non-sale test spares DRAW alone."""
     classifier = _classifier()
     # Audit round 2, R2-B04 (R40): the I47 strip reads the holder's other business names too (_holder_strip_names).
     also = _holder_strip_names(record)
@@ -4963,7 +5112,8 @@ def _first_hold(
     if _personal_income(text, before, record.bank):
         return "personal_income"
     if not claimed and non_sale_purpose(
-        text, region, bank=record.bank, account_name=_holder(record), disbursing=disbursing, also=also
+        text, region, bank=record.bank, account_name=_holder(record), disbursing=disbursing, also=also,
+        progress_draw=progress_draw,
     ):
         return "non_sale_purpose"
     if not claimed and (
@@ -5056,7 +5206,8 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
     rule decides alone (review I5), a deferred source (review I6a) and a factoring payer's payout (A3-H). Audit B3
     (I11): and a processor's instant payout released from a card credit (counted, never verified). Owner ruling
     2026-10-02 (Q8): and a lease-to-own or patient financier's merchant payout, or any row that names one of them
-    (CUSTOMER_FINANCING_NAMES, read without the receiver field's value)."""
+    (CUSTOMER_FINANCING_NAMES, read without the receiver field's value). Owner ruling 2026-10-02 (the underwriter's Q11
+    (a)): and a builder's progress draw (counted and flagged, never verified)."""
     return (
         record.revenue_match_method == "direction_conflict"
         or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
@@ -5067,6 +5218,7 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
         or facts.factor
         or facts.financier is not None
         or _CUSTOMER_FINANCING_NAMES.search(_classifier()._without_receiver_value(text)) is not None
+        or facts.progress_draw
     )
 
 
@@ -5139,6 +5291,122 @@ def _factor_tail(tail: Sequence[str], *, b_o: bool) -> bool:
 #: [A3H-m1] (final review): a connector word after a factor's alias joins a longer name ('<alias> FOR PETS
 #: <city> <state>'), never the sender's address.
 _FACTOR_CONNECTOR_WORDS = frozenset({"FOR", "OF", "AND", "THE"})
+
+
+def asset_sale_platform(region: str, text: str = "") -> str | None:
+    """§8.1 (owner ruling 2026-10-02, the underwriter's Q11 (b); audit I45): the equipment auction or car buyer
+    (ASSET_SALE_PAYERS) the payer region names as its whole payer name, or None: the alias's words start the region and
+    the words after it, a seller's words aside (_ASSET_SALE_TAIL_WORDS: 'CARVANA PAYOUT', 'RITCHIE BROS SELLER PAYOUT'),
+    add nothing to its name, as _factor_tail reads a factor's (company forms, entry words, references, a DBA tail, a
+    B/O field's address). A longer name that starts with it ('VROOM DELIVERY LLC', 'CARMAX BUSINESS SERVICES LLC',
+    'BIG IRON TRUCKING LLC') names another payer; a glued '<alias>LLC' is not read (fail-safe)."""
+    words = (region or "").split()
+    for entity, aliases in ASSET_SALE_PAYERS.items():
+        for alias in aliases:
+            head = alias.split()
+            if len(words) < len(head) or words[: len(head)] != head:
+                continue
+            tail = [word for word in words[len(head):] if word not in _ASSET_SALE_TAIL_WORDS]
+            if _factor_tail(tail, b_o=_b_o_field(text)):
+                return entity
+    return None
+
+
+def asset_sale_reading(
+    record: TransactionClassification, text: str, facts: CreditFacts, *, verified: bool = False,
+) -> str | None:
+    """§8.1 (owner ruling 2026-10-02, the underwriter's Q11 (b), "Don't count as true revenue and go straight to
+    non-revenue"; audit I45): 'payer' when an equipment auction or a car buyer pays a seller (asset_sale_platform: with
+    a seller's word on the row, or, except Copart and IAA, with no service word on the purpose and a holder whose trade
+    does not serve the platforms), 'purpose' when the row prints the sale of a truck, trailer, vehicle or equipment
+    (_ASSET_SALE_PURPOSE, read outside the payer's own name, R2-B13's _payer_name_proper); or None. A vehicle's or heavy
+    equipment's sale reads through an invoice reference (_INVOICE_REFERENCE), so only accounts-payable, vendor or
+    payables wording spares it (_vendor_payment); a generic EQUIPMENT or MACHINERY sale keeps the invoice veto, a
+    single-row verification and a supplier's holder name. Never a claimed row, a row an insurer-name hold reads unless
+    the payer is IAA (its INSURANCE is the auction's name), a Zelle row (Q3 of 2026-10-02), a possible return or a
+    refund. `verified` is a row an invoice or customer-payment descriptor verified (ASSET_SALE_INVOICE_METHODS): only
+    its printed sale is read, never a platform. The pass reads the statement's dealer evidence first
+    (_dealer_statement) and applies the reading where the tier would count the row or a verification it overrules; a
+    held tier keeps the row held."""
+    classifier = _classifier()
+    region = facts.region
+    entity = asset_sale_platform(region, text) if region and not verified else None
+    if facts.claimed or (facts.hold == "insurer_named_payer" and entity != _IAA):
+        return None
+    row = _without_holder_name(_hold_text(text), _holder(record), also=_holder_strip_names(record))
+    if zelle_deposit(text) or _POSSIBLE_RETURN.search(row) or _ASSET_SALE_REFUND.search(row):
+        return None
+    name = _payer_name_proper(text, region) if region and _prints_payer_name_field(text) else ""
+    purpose = row.replace(name, " ") if name else row
+    holder = classifier.account_name_text(_holder(record)) or ""
+    if entity is not None:
+        if _vendor_payment(text, row):
+            return None
+        if _SELLER_WORD.search(row):
+            return "payer"
+        if (
+            entity not in ASSET_SALE_SELLER_WORD_ONLY and _PLATFORM_SERVICE_WORDS.search(purpose) is None
+            and _PLATFORM_VENDOR_HOLDER.search(holder) is None
+        ):
+            return "payer"
+        return None
+    found = _ASSET_SALE_PURPOSE.search(purpose)
+    if found is None:
+        return None
+    if _VEHICLE_NOUN_WORD.search(found.group(0)):
+        if _vendor_payment(_INVOICE_REFERENCE.sub(" ", text), _INVOICE_REFERENCE.sub(" ", row)):
+            return None
+        return "purpose"
+    if verified or _vendor_payment(text, row) or _SUPPLIER_HOLDER.search(holder):
+        return None
+    return "purpose"
+
+
+def _dealer_statement(
+    records: Sequence[TransactionClassification], duplicate_indexes: set[int], indexes: Sequence[int],
+) -> bool:
+    """§8.1 (owner ruling 2026-10-02, the underwriter's Q11 (b)): the statement shows a dealer, whose sales of vehicles
+    or equipment stay revenue: R2-OW05's dealer activity (_dealer_activity: Q7 dealer funding that is not payables-only,
+    a credit union's VHCL PURCH, a floor-plan financier's row or a FLOOR PLAN form, a posted debit at a dealer-only
+    wholesale auction), a §7.8 auction's payout credit (a non-duplicate record of `indexes` whose revenue entity is one
+    of WHOLESALE_AUCTION_PAYOUT_FORMS' auctions), or a vehicle or equipment trade name on one of the holder's names (the
+    first record's _holder_names, read through account_name_text: _ASSET_TRADE_HOLDER) that prints no recovery,
+    repossession, towing or collateral word (_DEALER_HOLDER_VETO). Read once per statement, before the tiers."""
+    if _dealer_activity(records, duplicate_indexes, indexes):
+        return True
+    if any(
+        records[index].revenue_canonical_entity in _WHOLESALE_AUCTION_ENTITIES
+        for index in indexes if index not in duplicate_indexes
+    ):
+        return True
+    if not indexes:
+        return False
+    classifier = _classifier()
+    for name in _holder_names(records[indexes[0]]):
+        printed = classifier.account_name_text(name) if name else ""
+        if printed and _ASSET_TRADE_HOLDER.search(printed) and not _DEALER_HOLDER_VETO.search(printed):
+            return True
+    return False
+
+
+def _asset_sale_record(record: TransactionClassification, arm: str) -> TransactionClassification:
+    """§8.1, §8.10 (owner ruling 2026-10-02, the underwriter's Q11 (b)): the record made non_revenue as a non-dealer's
+    asset-sale proceeds (method ASSET_SALE_METHOD, rule asset_sale_payer or asset_sale_purpose); its reason names the
+    rule it overrules, for the audit. The pass gives it the reason code asset_sale_proceeds; it has no review path."""
+    return _classifier()._replace_revenue_state(
+        record,
+        "non_revenue",
+        match_method=ASSET_SALE_METHOD,
+        matched_rule=f"asset_sale_{arm}",
+        confidence_score=0.90,
+        reason=(
+            "An equipment auction's or a car buyer's seller payout, or a printed sale of a truck, trailer, vehicle or "
+            "equipment, on a statement that shows no dealer evidence: asset-sale proceeds, not revenue, by the owner's "
+            f"ruling on the underwriter's Q11 (b); the rule that read it ({record.revenue_match_method}) is overruled."
+        ),
+        context_signals=(*record.revenue_context_signals, ASSET_SALE_METHOD),
+        related_transaction=record.revenue_related_transaction,
+    )
 
 
 def _factor_never_verified(record: TransactionClassification) -> TransactionClassification:
@@ -5384,6 +5652,13 @@ def _tier_reason_read(
     # on a wire, an ACH or EFT row or an unlabelled one; a one-off lump sum is held after the tiers.
     if facts.financier:
         return "counted_flagged", CUSTOMER_FINANCING_PAYOUT
+    # Owner ruling 2026-10-02 (the underwriter's Q11 (a)): a builder's progress draw, on any channel but Zelle (Q3's); a
+    # bare transfer's and an account designation's holds and Q4's round-sum repeat still win (any hold wins above).
+    if (
+        facts.progress_draw and not facts.transfer_no_counterparty and not facts.account_designation
+        and not (facts.channel == "person_to_person" and round_repeat)
+    ):
+        return "counted_flagged", CONSTRUCTION_PROGRESS_DRAW_REASON
     if facts.channel == "wire" and not facts.claimed:
         if not facts.region:
             return "excluded_pending_review", "wire_no_sender"
@@ -5467,7 +5742,12 @@ def apply_true_revenue_pass(
     (customer_financing_lump_sum). Owner ruling 2026-10-02 (Q9, part (c')): after the financier demotion, a listed auto
     lender's payables-only credit Q7 verified, on a statement with no dealer evidence (_dealer_contract_evidence), is
     counted and flagged as lender_paid_for_services, or held as financing_named_payer when the lender also collects
-    from the account (_payer_collects)."""
+    from the account (_payer_collects). Owner ruling 2026-10-02 (the underwriter's Q11): (a) a builder's progress draw
+    is counted and flagged (construction_progress_draw, read with the payer facts); (b) after the facts, on a statement
+    that shows no dealer (_dealer_statement), the asset-sale reading (asset_sale_reading, on the unverified rows and the
+    rows an invoice or customer-payment descriptor verified) keeps a row from Q5 and Q6, and the tier loop makes it
+    non_revenue / asset_sale_proceeds after the payables demotion (a verified row) or after _tier_reason (a row the
+    tier counts, or IAA's insurer-name hold); a held tier keeps the row held."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -5565,11 +5845,40 @@ def apply_true_revenue_pass(
         )
         for index in credits
     }
+    # Owner ruling 2026-10-02 (the underwriter's Q11 (b); §8.1, §8.10): on a statement that shows no dealer
+    # (_dealer_statement, read over every non-duplicate record), an equipment auction's or a car buyer's seller payout
+    # and a printed sale of a truck, trailer, vehicle or equipment are asset-sale proceeds (asset_sale_reading): read
+    # here on the unverified rows and on the rows an invoice or customer-payment descriptor verified, never counted
+    # toward a repeat nor verified by Q5 or Q6, and made non_revenue by the tier loop where the row would be counted or
+    # that verification stands (a held tier keeps the row held).
+    asset_sales: dict[int, str] = {}
+    if not _dealer_statement(
+        updated, duplicate_indexes, [index for index in range(len(updated)) if index not in duplicate_indexes]
+    ):
+        for index in credits:
+            record = updated[index]
+            verified = (
+                record.revenue_classification == "verified_revenue"
+                and record.revenue_match_method in ASSET_SALE_INVOICE_METHODS
+            )
+            if (
+                (record.revenue_classification != "unverified_deposit" and not verified)
+                or not record.direction_consistent or record.revenue_match_method == "direction_conflict"
+                or _under_micro_floor(record)
+            ):
+                continue
+            arm = asset_sale_reading(record, texts[index], facts[index], verified=verified)
+            if arm is not None:
+                asset_sales[index] = arm
     # §5.2: repeats count a verified credit, or an unverified one no hold names; never a held or conflicting one, a
     # credit under $1, a row a family rule decides alone or a deferred source (_never_q5_or_q6), and on the wire
     # channel only an incoming wire (§8.5: the loose wire words are for tiering only; S4.2 review I4). Never a Q7 row
-    # either (S4.3 review): a lender's dealer funding verifies by §8.7 alone, and Q6's lenders never count.
-    never = {index: _never_q5_or_q6(updated[index], texts[index], facts[index]) for index in credits}
+    # either (S4.3 review): a lender's dealer funding verifies by §8.7 alone, and Q6's lenders never count. Q11 (b): nor
+    # a row the asset-sale reading names.
+    never = {
+        index: _never_q5_or_q6(updated[index], texts[index], facts[index]) or index in asset_sales
+        for index in credits
+    }
     counting = Counter()
     consumer_only: dict[tuple[str, tuple[str, ...]], bool] = {}
     for index in credits:
@@ -5650,6 +5959,11 @@ def apply_true_revenue_pass(
                   else ("counted_flagged", LENDER_PAID_FOR_SERVICES)),
             )
             continue
+        # Owner ruling 2026-10-02 (the underwriter's Q11 (b)): nor is a non-dealer's printed vehicle sale an invoice or
+        # customer-payment descriptor verified (asset_sales): asset-sale proceeds, non_revenue / asset_sale_proceeds.
+        if record.revenue_classification == "verified_revenue" and index in asset_sales:
+            updated[index] = _with_tier(_asset_sale_record(record, asset_sales[index]), "non_revenue", ASSET_SALE_METHOD)
+            continue
         tier = _TIER_OF_STATE.get(record.revenue_classification)
         if tier is not None:
             # R2-OW03 (Q12's display reason): a government payment that prints no purpose is named in the non-revenue
@@ -5662,6 +5976,11 @@ def apply_true_revenue_pass(
             record, texts[index], fact, round_repeat, _deferred_source(texts[index], fact),
             unread=index in unread_indexes, unread_text=unread_texts.get(index, ""),
         )
+        # Owner ruling 2026-10-02 (the underwriter's Q11 (b)): asset-sale proceeds where the tier would count the row, or
+        # where only IAA's insurer-name hold reads it (its INSURANCE is the auction's name); every other hold wins.
+        if index in asset_sales and (tier == "counted_flagged" or reason == "insurer_named_payer"):
+            record = _asset_sale_record(record, asset_sales[index])
+            tier, reason = "non_revenue", ASSET_SALE_METHOD
         updated[index] = _with_tier(record, tier, reason)
         if reason == CUSTOMER_FINANCING_PAYOUT:
             financier_payouts[index] = fact.financier
@@ -5809,6 +6128,10 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         "purpose_trade_name": purpose_trade_name(
             text, _without_holder_name(_hold_text(text), _holder(record), also=also), region
         ),
+        # Owner ruling 2026-10-02 (the underwriter's Q11 (a)): a builder's progress draw on a row nothing claimed, as the
+        # pass's payer facts read it (CreditFacts.progress_draw).
+        "progress_draw": not (_claimed(record, text) or _factoring_payout_payer(region, text))
+        and construction_progress_draw(text, region, _holder(record), also=also),
     }
 
 

@@ -65,20 +65,29 @@ def test_the_flags_follow_the_state_and_the_tier():
 
 def test_every_reason_code_names_a_middle_tier():
     # The owner's rulings of 2026-10-02: the non_revenue codes end the table, the underwriter's Q3's zelle_excluded
-    # (R2-OW02), then the display reason of Q12's rows, government_no_purpose (R2-OW03).
+    # (R2-OW02), then the display reason of Q12's rows, government_no_purpose (R2-OW03), then Q11's non-dealer asset
+    # sales, asset_sale_proceeds (R2-OW06).
     assert {tier for tier, _label in REVENUE_TIER_REASONS.values()} == {
         "counted_flagged", "excluded_pending_review", "non_revenue"}
     assert [code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "non_revenue"] == [
-        "zelle_excluded", "government_no_purpose"]
-    assert list(REVENUE_TIER_REASONS)[-2:] == ["zelle_excluded", "government_no_purpose"]
-    assert NON_REVENUE_REASONS == frozenset({"zelle_excluded", "government_no_purpose"})
+        "zelle_excluded", "government_no_purpose", "asset_sale_proceeds"]
+    assert list(REVENUE_TIER_REASONS)[-3:] == ["zelle_excluded", "government_no_purpose", "asset_sale_proceeds"]
+    assert NON_REVENUE_REASONS == frozenset({"zelle_excluded", "government_no_purpose", "asset_sale_proceeds"})
+    # Owner ruling 2026-10-02 (the underwriter's Q11 (a)), R2-OW06: construction_progress_draw right after
+    # lender_paid_for_services (CR5).
+    codes = list(REVENUE_TIER_REASONS)
+    assert codes[codes.index("factoring_payout") + 1: codes.index("factoring_payout") + 3] == [
+        "lender_paid_for_services", "construction_progress_draw"]
+    assert REVENUE_TIER_REASONS["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
+    assert REVENUE_TIER_REASONS["asset_sale_proceeds"] == ("non_revenue", "Sale of equipment or vehicles (not a dealer)")
     # Audit B10 (I05, I60): payer_text_not_read is the 27th. Audit round 2, R2-B07 (R07): unread_run_names_financing
     # the 28th. The owner's ruling of 2026-10-02 (the underwriter's Q3): zelle_excluded, the 29th; R2-OW03:
     # government_no_purpose, the 30th. Owner ruling 2026-10-02 (Q8), R2-OW04: customer_financing_lump_sum after
     # financing_named_payer and customer_financing_payout after payout_credit_entity, the 31st and 32nd. Owner ruling
     # 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: lender_paid_for_services right after factoring_payout, the
-    # 33rd.
-    assert len(REVENUE_TIER_REASONS) == 33
+    # 33rd. Owner ruling 2026-10-02 (the underwriter's Q11), R2-OW06: construction_progress_draw and
+    # asset_sale_proceeds, the 34th and 35th.
+    assert len(REVENUE_TIER_REASONS) == 35
     assert "non_revenue_by_reason" in TIER_METRIC_KEYS
 
 
@@ -119,6 +128,36 @@ def test_the_metrics_carry_the_four_tiers_and_true_revenue():
     assert metrics.revenue_review_items == 1
     assert metrics.revenue_reconciles
     assert [record.revenue_tier for record in metrics.true_revenue_evidence] == ["verified", "counted_flagged"]
+
+
+def test_the_non_revenue_breakdown_names_a_non_dealer_s_asset_sales():
+    # The owner's ruling of 2026-10-02 (the underwriter's Q11 (b)): a car buyer's payout and an equipment auction's
+    # seller payment on a statement with no dealer are non_revenue / asset_sale_proceeds, shown in the non-revenue
+    # breakdown beside the Zelle policy's code, by compute_metrics and by the rebuild alike.
+    rows = [
+        ("2054-03-01", "MOBILE DEPOSIT", 500.0),
+        ("2054-03-02", "CARVANA PAYOUT DES:CVNA 12345 ID:1234567 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 1869.17),
+        ("2054-03-03", "RITCHIE BROS DES:SELLER PMT ID:1234567 INDN:NORTHWIND SOLAR LLC CO ID:1234567890 CCD", 15000.0),
+        ("2054-03-04", "ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 300.0),
+    ]
+    statement = Statement(account_name="NORTHWIND SOLAR LLC", bank="Bank of America", currency="USD", transactions=[
+        Transaction(date=day, description=text, amount=amount, direction="credit") for day, text, amount in rows
+    ])
+    records = classify_statement_transactions(statement)
+    expected = {"asset_sale_proceeds": {"count": 2, "total": 16869.17}, "zelle_excluded": {"count": 1, "total": 300.0}}
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.non_revenue_by_reason == expected
+    assert (metrics.non_revenue_total, metrics.true_revenue_total) == (17169.17, 500.0)
+    assert metrics.revenue_reconciles
+    rebuilt = rebuild_serialized_revenue_views({
+        "statement": {"currency": "USD", "transactions": [
+            {**transaction.model_dump(), "classification": asdict(record)}
+            for transaction, record in zip(statement.transactions, records)
+        ]},
+        "metrics": {}, "detection": {},
+    })["metrics"]
+    assert rebuilt["non_revenue_by_reason"] == expected
+    assert rebuilt["non_revenue_total"] == 17169.17 and rebuilt["revenue_reconciles"]
 
 
 def test_a_record_whose_tier_disagrees_with_its_state_is_refused():

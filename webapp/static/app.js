@@ -201,7 +201,8 @@ const REVENUE_METRIC_COPY = Object.freeze({
 const LEGACY_ELIGIBLE_DEPOSITS_NOTE = "Gross deposits less lender funding (not True revenue)";
 
 // 5.6 (true revenue spec §5.3, §10.6): the reason codes of the two middle tiers, code -> [tier, label, sentence], and
-// (the owner's rulings of 2026-10-02) the non_revenue codes: the Zelle policy's and Q12's display reason (R2-OW03). It
+// (the owner's rulings of 2026-10-02) the non_revenue codes: the Zelle policy's and Q12's display reason (R2-OW03), and
+// Q11's non-dealer asset sales (R2-OW06). It
 // mirrors analysis/revenue.py REVENUE_TIER_REASONS (code -> tier and label); tests/test_webapp_true_revenue_ui.py holds
 // the two equal. The sentence is the ledger's one line on the code.
 const REVENUE_TIER_REASONS = Object.freeze({
@@ -231,6 +232,8 @@ const REVENUE_TIER_REASONS = Object.freeze({
   factoring_payout: ["counted_flagged", "Factoring payout", "A factor's payout of the business's own invoices."],
   // Owner ruling 2026-10-02 (the underwriter's Q9, part (c)), R2-OW05: a lender paying for services, never verified.
   lender_paid_for_services: ["counted_flagged", "Lender paid for services", "A lender paid the business for its services (a repair, a recovery, a commission): counted, never verified."],
+  // Owner ruling 2026-10-02 (the underwriter's Q11 (a)), R2-OW06: a builder's progress draw, never verified.
+  construction_progress_draw: ["counted_flagged", "Builder's progress draw", "A builder paid the business a progress draw for its work: counted, never verified."],
   payout_credit_entity: ["counted_flagged", "BNPL or marketplace settlement (payer also lends)", "A buy-now-pay-later or marketplace settlement of the business's own sales, counted; the payer also lends."],
   // Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout, counted, never verified.
   customer_financing_payout: ["counted_flagged", "Lease-to-own or patient-financing payout", "A lease-to-own or patient-financing company paid the business for a customer's financed purchase: counted, never verified."],
@@ -243,6 +246,8 @@ const REVENUE_TIER_REASONS = Object.freeze({
   // policy, then Q12's display reason (R2-OW03).
   zelle_excluded: ["non_revenue", "Zelle deposit (excluded by policy)", "A Zelle deposit, excluded from true revenue by policy; confirm it if this business takes customer payments by Zelle."],
   government_no_purpose: ["non_revenue", "Government payment, no purpose printed", "A government payment that prints no purpose (MN State MMB, the VA's 36 TREAS 310 MISC PAY, Wisconsin DCF WIDCF DD, BC provincial payment, WSIB, Gouv. Quebec MSP, North Dakota Workforce Safety): excluded by the owner's ruling of 2026-10-02 (Q12)."],
+  // The owner's ruling of 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: a non-dealer's asset sale, no review path.
+  asset_sale_proceeds: ["non_revenue", "Sale of equipment or vehicles (not a dealer)", "An equipment auction's or a car buyer's seller payout, or a printed sale of a truck, trailer, vehicle or equipment, on a statement that shows no dealer: excluded (owner ruling of 2026-10-02, Q11)."],
 });
 
 // R2-OW03 (true revenue spec §10.7; the underwriter's Q3, "I can review"): the non_revenue codes the underwriter may

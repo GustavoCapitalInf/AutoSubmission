@@ -245,19 +245,21 @@ def test_the_spec_section_19_1_records_the_owners_decisions_taken_since_its_revi
             assert word in line, (lead, word)
 
 
-#: Spec §17.1's I18 and I45 line against the code (B12 review round 1). Fabricated Bank of America rows: a builder's
-#: DRAW, as an ACH entry and as a wire's purpose, is held as non_sale_purpose (§8.1's financing words without a root;
-#: §20, B7 I18); the same wire without DRAW is a named sender's counted wire; an equipment auction's seller payout
-#: (Ritchie Bros, a public company in SECTION_15_DEFERRED_PAYERS) is counted and flagged, never verified (I45).
+#: Spec §17.1's I18 and I45 line against the code (B12 review round 1). Fabricated Bank of America rows. Since the
+#: owner's ruling of 2026-10-02 (the underwriter's Q11, R2-OW06): a homebuilder's DRAW, as an ACH entry and as a wire's
+#: purpose, is counted and flagged as construction_progress_draw (it was held as non_sale_purpose, §8.1's financing
+#: words without a root; §20, B7 I18); the same wire without DRAW is a named sender's counted wire; an equipment
+#: auction's seller payout (Ritchie Bros, a public company in ASSET_SALE_PAYERS) to a contractor, no dealer, is
+#: non_revenue / asset_sale_proceeds (it was counted and flagged, never verified, I45).
 SECTION_15_HOLDER = "CONTOSO CONSTRUCTION LLC"
 _BOFA_ACH = "{payer} DES:{entry} ID:1234567 INDN:CONTOSO CONSTRUCTION LLC CO ID:1234567890 CCD"
 _BOFA_WIRE = ("WIRE TYPE WIRE IN DATE 540302 TIME 1200 ET TRN 2054030200012345 SEQ 123456/000001 ORIG NORTHWIND HOMES "
               "LLC ID 1234 SND BK SAMPLE BANK ID 123456789 PMT DET {purpose}")
 SECTION_15_ROWS = (
-    (_BOFA_ACH.format(payer="NORTHWIND HOMES LLC", entry="DRAW 3"), "excluded_pending_review", "non_sale_purpose"),
-    (_BOFA_WIRE.format(purpose="DRAW 4 PROGRESS PAYMENT"), "excluded_pending_review", "non_sale_purpose"),
+    (_BOFA_ACH.format(payer="NORTHWIND HOMES LLC", entry="DRAW 3"), "counted_flagged", "construction_progress_draw"),
+    (_BOFA_WIRE.format(purpose="DRAW 4 PROGRESS PAYMENT"), "counted_flagged", "construction_progress_draw"),
     (_BOFA_WIRE.format(purpose="PROGRESS PAYMENT 4"), "counted_flagged", "wire_named_sender"),
-    (_BOFA_ACH.format(payer="RITCHIE BROS", entry="SELLER PMT"), "counted_flagged", "named_payer_purpose_refused"),
+    (_BOFA_ACH.format(payer="RITCHIE BROS", entry="SELLER PMT"), "non_revenue", "asset_sale_proceeds"),
 )
 
 
