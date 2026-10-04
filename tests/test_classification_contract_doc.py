@@ -509,3 +509,24 @@ def test_the_spec_records_every_insurer_spelling_apart_from_the_q2_answer():
     assert "owner ruling 2026-10-02, R2-OW07" in amendments
     assert "**Audit I26, R2-OW07 in all**" in amendments
     assert "Owner ruling 2026-10-02, R2-OW07 (audit I26" in _flat(CONTRACT)
+
+
+def test_the_spec_and_the_contract_state_the_insurer_spelling_review_round():
+    """R2-OW07 review round 1: §8.1 states the government payer's arm (the spelled-out words or CLAIM, never for
+    work), the person-to-person rail's reading, the namesakes the patterns no longer read and the over-holds they keep,
+    the asset-sale precedence and the rows the holder strip counts; §20 records the round; the contract's When cell
+    and its note follow."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("a government payer (§7.6) is an insurer only by the spelled-out words above or `CLAIM`",
+                  "never for work", "never the given name `SUBROTO`", "`FARMERS INSTITUTE`",
+                  "`TRAVELERS PROPERTY MANAGEMENT`", "On a person-to-person rail only the spelled-out words and `CLAIM`",
+                  "Accepted over-holds, held and reviewable", "`SAFECO DES:VEHICLE SALE`",
+                  "is counted where no later hold of §8.10 names it"):
+        assert words in holds, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert "**Audit I26, R2-OW07 review round 1**" in amendments
+    assert "a government payer is one only by `_INSURER_NAME` or `CLAIM`" in amendments
+    when = {cells[0]: cells[3] for cells in _reason_table()}["`insurer_named_payer`"]
+    assert "a government payer only by those words or `CLAIM`" in when and "person-to-person rail" in when
+    assert "Audit I26, R2-OW07 review round 1" in _flat(CONTRACT)
