@@ -3636,7 +3636,11 @@ const DUPLICATE_REASON_WORDS = Object.freeze({
   same_statement: "the same statement, downloaded again",
   // Audit round 2, R2-B14 (R14): an interim, month-to-date or custom-range printout another statement covers.
   superseded_interim: "a shorter printout of days another statement covers",
+  // R2-B14 review round 1: a quarterly printout or multi-month export whose rows the monthly statements print.
+  superseded_long_printout: "a printout of more than a month whose every row other statements of the account print",
 });
+// The reasons a statement the account's other statements print is left out for (webapp/app.py SUPERSEDED_REASON_WORDS).
+const SUPERSEDED_REASONS = Object.freeze(["superseded_interim", "superseded_long_printout"]);
 
 // Audit round 2, R2-B14 (R16): why the package kept another copy in a left-out repeat's place.
 const DUPLICATE_KEPT_BECAUSE_WORDS = Object.freeze({
@@ -3686,7 +3690,7 @@ function renderDuplicateNotice(pkg = {}) {
     }),
     ...accounts.map((entry) => `account ${formatNumber(entry.account_index)} of ${nameOf(entry.job_id)} repeats `
       + `${nameOf(entry.duplicate_of)}`
-      + (entry.reason === "superseded_interim" ? ` (${DUPLICATE_REASON_WORDS.superseded_interim})` : "")),
+      + (SUPERSEDED_REASONS.includes(entry.reason) ? ` (${DUPLICATE_REASON_WORDS[entry.reason]})` : "")),
   ];
   const parts = [];
   if (count) {
@@ -3695,10 +3699,12 @@ function renderDuplicateNotice(pkg = {}) {
       + `${escapeHtml(lines.join("; "))}.`);
   }
   if (overlaps.length) {
-    // R14: never netted; each pair's shared credits are in its own account's currency.
+    // R14: never netted; each pair's shared credits are in its own account's currency, which the pair names (R2-B14
+    // review round 1; null when the two statements declare different ones), else its member's row.
     const overlapLines = overlaps.map((pair) => {
       const member = memberOf(pair.job);
-      const currency = member && member.currency !== undefined ? member.currency : packageCurrencyInfo(pkg).currency;
+      const currency = pair.currency !== undefined ? pair.currency
+        : member && member.currency !== undefined ? member.currency : packageCurrencyInfo(pkg).currency;
       return overlappingStatementWords(pair, nameOf, formatMoney(pair.shared_credit_total, currency));
     });
     parts.push(`<strong>${escapeHtml(formatNumber(overlaps.length))} `

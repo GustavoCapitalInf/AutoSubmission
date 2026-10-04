@@ -891,6 +891,48 @@ shown.push([els.duplicateNotice.hidden, els.duplicateNoticeText.innerHTML.replac
 
 
 @needs_node
+def test_the_notice_names_a_longer_printout_left_out_and_an_overlap_in_its_own_currency(tmp_path, monkeypatch):
+    """R2-B14 review round 1: a printout of more than a month left out in favour of the monthly statements that print
+    its rows is named with its own words, as a job and as an account of a document; a pair of overlapping statements
+    gives its shared credits in the pair's own currency."""
+    from tests.test_webapp_app import (_ACCOUNT, _APRIL, _FEB, _JAN, _MAR_Q1, _document_with, _first_quarter,
+                                       _listed, _period, _printed)
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    quarter = _period("q1", _JAN + _FEB + _MAR_Q1, "2031-01-01", "2031-03-31")
+    january, february, _march = _first_quarter()
+    document = _document_with(_ACCOUNT, _JAN + _FEB, start="2031-01-01", end="2031-02-28", opening=1500.0)
+
+    def cad(payload):
+        payload["statement"]["currency"] = "CAD"
+        return payload
+
+    april = _listed("apr", cad(_printed(_ACCOUNT, _APRIL, start="2031-04-01", end="2031-04-30", opening=21000.0)),
+                    content="apr")
+    interim = _listed("int", cad(_printed(_ACCOUNT, [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1",
+                                                                  6000.0)],
+                                          start="2031-04-15", end="2031-05-10", opening=30000.0)), content="int")
+    overlap = _package_analysis([april, interim, _listed("usd", _printed("000000002020"), content="usd")])
+    # The pair names its own currency: the notice reads it even where a member's row does not say one.
+    for document_row in overlap["documents"]:
+        document_row.pop("currency", None)
+    packages = [_package_analysis([*_first_quarter(), quarter]),
+                _package_analysis([january, february, _listed("doc", document, content="doc")]), overlap]
+    result = run_dashboard("const shown = [];\n" + "".join(f"""
+renderPackageAnalysis({json.dumps(package)});
+shown.push(els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, ""));
+""" for package in packages) + "console.log(JSON.stringify(shown));")
+    words = "a printout of more than a month whose every row other statements of the account print"
+    assert result[0] == (f"1 repeated statement left out of every figure. q1.pdf repeats jan.pdf ({words}). "
+                         "The package needs review.")
+    assert result[1] == (f"1 repeated statement left out of every figure. account 2 of doc.pdf repeats jan.pdf "
+                         f"({words}). The package needs review.")
+    assert result[2] == ("1 pair of overlapping statements shares credits. int.pdf and apr.pdf share 1 credit "
+                         "(CA$5,000.00) in the days both cover, counted in both. The package needs review.")
+
+
+@needs_node
 def test_the_copied_summaries_carry_true_verified_and_non_revenue(tmp_path, monkeypatch):
     """I07: the credit-memo text carries True, Verified and Non-revenue, in total and per month, and names the gross
     monthly figure gross."""

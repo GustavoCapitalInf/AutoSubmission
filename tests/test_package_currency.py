@@ -782,6 +782,39 @@ def test_the_sweep_reaches_the_package_by_reason_rows():
     assert ("document_2", "currency", "CAD") in rows
 
 
+def test_the_sweep_reaches_the_overlapping_statement_rows():
+    """Audit round 2, R2-B14 review round 1 (R14): a pair of overlapping statements of one account publishes the
+    credits the two share, statement-level money, so its section declares its account's currency and its words name
+    it, in a refused two-currency package too. Fabricated CONTOSO statements: an April statement and a CAD interim
+    sharing one credit, beside a USD account."""
+    from tests.test_webapp_app import _APRIL, _listed, _printed
+
+    def cad(payload):
+        payload["statement"]["currency"] = "CAD"
+        return payload
+
+    april = _listed("apr", cad(_printed("000000001010", _APRIL, start="2031-04-01", end="2031-04-30",
+                                        opening=21000.0)), content="apr")
+    interim = _listed("int", cad(_printed("000000001010", [_APRIL[2], ("2031-05-02",
+                                                                      "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                                          start="2031-04-15", end="2031-05-10", opening=30000.0)), content="int")
+    usd = _listed("usd", _printed("000000002020"), content="usd")
+    package = _package_analysis([april, interim, usd])
+    rows = _package_rows(package)
+    assert package["totals"]["cross_currency_totals_refused"] is True
+    assert package["totals"]["overlapping_statements"] == [
+        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0, "currency": "CAD"}]
+    assert _cross_document_numbers_not_counts(rows) == []
+    statement_sections = {s for s, _, _ in rows if re.fullmatch(r"(document|overlapping_statement)_\d+", s)}
+    assert "overlapping_statement_1" in statement_sections
+    for section in statement_sections:
+        declared = [f for s, f, _ in rows if s == section and f == "currency"]
+        assert declared, f"{section} publishes figures without declaring a currency"
+    assert ("overlapping_statement_1", "currency", "CAD") in rows
+    assert ("overlapping_statement_1", "words",
+            "int.pdf and apr.pdf share 1 credit (5,000.00 CAD) in the days both cover, counted in both") in rows
+
+
 def test_version_3_deprecated_aliases_degrade_with_their_canonical_names():
     """The 3.0 aliases carry the identical number, so they must carry the
     identical refusal — an old consumer must not be the one that still gets a

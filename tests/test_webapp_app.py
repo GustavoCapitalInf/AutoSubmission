@@ -1337,8 +1337,9 @@ def test_an_export_straddling_two_full_months_is_left_out():
 
     export = _period("export", [_MARCH[1], *_APRIL[:2]], "2031-03-15", "2031-04-15", opening=19000.0)
     package = _package_analysis([_march(), _april(), export])
-    # The covering statement sharing the most days: March holds 17 of the export's days, April 15.
-    assert _left_out(package) == [("export", "mar", "superseded_interim", None)]
+    # The covering statement sharing the most days: March holds 17 of the export's days, April 15. The export runs 32
+    # days, more than a month, so it is a longer printout (R2-B14 review round 1).
+    assert _left_out(package) == [("export", "mar", "superseded_long_printout", None)]
     assert _r14(package) == (40000.0, 20000.0, 2, "review_required")
 
 
@@ -1352,7 +1353,7 @@ def test_a_partial_overlap_sharing_credits_is_named_and_never_netted():
     package = _package_analysis([_april(), interim])
     totals = package["totals"]
     assert totals["overlapping_statements"] == [
-        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0}]
+        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0, "currency": "USD"}]
     assert totals["true_revenue_total"] == sum(part["true_revenue_total"] for part in alone) == 31000.0
     assert totals["decision"] == "review_required"
     assert _left_out(package) == [] and totals["has_duplicate_documents"] is False
@@ -1453,8 +1454,9 @@ def test_the_package_rows_name_an_interim_and_an_overlap_in_words():
                       "2031-04-15", "2031-05-10", opening=30000.0)
     rows = _package_rows(_package_analysis([_april(), interim]))
     assert ("overlapping_statement_1", "shared_credit_count", 1) in rows
+    assert ("overlapping_statement_1", "currency", "USD") in rows
     assert ("overlapping_statement_1", "words",
-            "int.pdf and apr.pdf share 1 credit (5,000.00) in the days both cover, counted in both") in rows
+            "int.pdf and apr.pdf share 1 credit (5,000.00 USD) in the days both cover, counted in both") in rows
     # Nothing new on a package without an overlap.
     rows = _package_rows(_package_analysis([_march(), _april()]))
     assert not [row for row in rows if row[1] == "duplicate_reason_words" or row[0].startswith("overlapping")]
@@ -1466,10 +1468,108 @@ def test_the_interim_and_overlap_words_reach_the_package_downloads():
     interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
                       "2031-04-15", "2031-05-10", opening=30000.0)
     package = _package_for_export(_package_analysis([_april(), interim]))
-    words = "int.pdf and apr.pdf share 1 credit (5,000.00) in the days both cover, counted in both"
+    words = "int.pdf and apr.pdf share 1 credit (5,000.00 USD) in the days both cover, counted in both"
     assert f'overlapping_statement_1,words,"{words}"' in _package_csv(package)
     with zipfile.ZipFile(io.BytesIO(_package_xlsx(package))) as book:
         assert words in "".join(book.read(name).decode("utf-8") for name in book.namelist() if name.endswith(".xml"))
+
+
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B14 review round 1: a printout of more than a month (31 days) is tested first, the longest first,
+# before the statements it could cover, so the monthly statements it repeats stay in the package (each its own
+# calendar month) and the longer printout is left out (`superseded_long_printout`); the statements of a month or less
+# keep the shortest-first order, so a full month is never left out in favour of two partial printouts of it.
+# Fabricated CONTOSO BANK statements of one account, NORTHWIND SUPPLY LLC payments, 2031.
+# ---------------------------------------------------------------------------
+
+_JAN = [("2031-01-06", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 10000.0),
+        ("2031-01-20", "CARD PURCHASE FABRIKAM SUPPLY", -100.0)]
+_FEB = [("2031-02-06", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 10000.0),
+        ("2031-02-20", "CARD PURCHASE FABRIKAM SUPPLY", -100.0)]
+_MAR_Q1 = [("2031-03-06", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 10000.0),
+           ("2031-03-20", "CARD PURCHASE FABRIKAM SUPPLY", -100.0)]
+_LONG_PRINTOUT_WORDS = "a printout of more than a month whose every row other statements of the account print"
+
+
+def _first_quarter():
+    """January, February and March 2031, each a monthly statement of the account, $10,000 of True each."""
+    return (_period("jan", _JAN, "2031-01-01", "2031-01-31", opening=1500.0),
+            _period("feb", _FEB, "2031-02-01", "2031-02-28", opening=11400.0),
+            _period("mar", _MAR_Q1, "2031-03-01", "2031-03-31", opening=21300.0))
+
+
+@pytest.mark.parametrize("long_first", [False, True])
+def test_the_monthly_statements_stay_and_a_quarterly_printout_of_their_rows_is_left_out(long_first):
+    from webapp.app import _package_analysis
+
+    monthly = _first_quarter()
+    quarter = _period("q1", _JAN + _FEB + _MAR_Q1, "2031-01-01", "2031-03-31")
+    assert _r14(_package_analysis(list(monthly))) == (30000.0, 10000.0, 3, "approved")
+    package = _package_analysis([quarter, *monthly] if long_first else [*monthly, quarter])
+    assert _r14(package) == (30000.0, 10000.0, 3, "review_required")
+    # It repeats the monthly statement sharing the most of its days: January's 31, March's 31, January listed first.
+    assert _left_out(package) == [("q1", "jan", "superseded_long_printout", None)]
+    assert [doc["id"] for doc in package["documents"] if not doc["is_duplicate"]] == ["jan", "feb", "mar"]
+    assert "overlapping_statements" not in package["totals"]
+
+
+@pytest.mark.parametrize("long_first", [False, True])
+def test_the_monthly_statements_stay_and_a_two_month_export_of_their_rows_is_left_out(long_first):
+    from webapp.app import _package_analysis
+
+    monthly = _first_quarter()
+    export = _period("janfeb", _JAN + _FEB, "2031-01-01", "2031-02-28")
+    package = _package_analysis([export, *monthly] if long_first else [*monthly, export])
+    assert _r14(package) == (30000.0, 10000.0, 3, "review_required")
+    assert _left_out(package) == [("janfeb", "jan", "superseded_long_printout", None)]
+
+
+def test_an_export_of_more_than_a_month_is_left_out_before_the_month_it_covers():
+    """A 45-day export (March 1 to April 14) printing March's rows and April's first two: taken first, it is left out,
+    so March stays and the April days the export shares with April are never counted twice."""
+    from webapp.app import _package_analysis
+
+    export = _period("export", [*_MARCH, *_APRIL[:2]], "2031-03-01", "2031-04-14")
+    package = _package_analysis([_march(), _april(), export])
+    assert _left_out(package) == [("export", "mar", "superseded_long_printout", None)]
+    assert _r14(package) == (40000.0, 20000.0, 2, "review_required")
+    assert "overlapping_statements" not in package["totals"]
+
+
+def test_a_full_month_stays_over_two_partial_printouts_that_print_its_days_between_them():
+    """Two printouts of one month that overlap each other and print every row of the full month between them are each
+    left out, the shorter first; the full month is never left out in their favour, which would count the days the
+    two share twice."""
+    from webapp.app import _package_analysis
+
+    early = _period("early", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
+    late = _period("late", _APRIL[1:], "2031-04-12", "2031-04-30", opening=29000.0)
+    package = _package_analysis([early, late, _april()])
+    assert _left_out(package) == [("early", "apr", "superseded_interim", None),
+                                  ("late", "apr", "superseded_interim", None)]
+    assert package["totals"]["true_revenue_total"] == 20000.0
+    assert "overlapping_statements" not in package["totals"]
+
+
+def test_a_document_account_printing_more_than_a_month_of_kept_statements_is_left_out_alone():
+    from webapp.app import _package_analysis
+
+    january, february, _march_q1 = _first_quarter()
+    document = _document_with(_ACCOUNT, _JAN + _FEB, start="2031-01-01", end="2031-02-28", opening=1500.0)
+    package = _package_analysis([january, february, _listed("doc", document, content="doc")])
+    assert [doc["id"] for doc in package["documents"]] == ["jan", "feb", "doc#account_1"]
+    assert [(entry["job_id"], entry["account_index"], entry["reason"], entry["duplicate_of"])
+            for entry in package["excluded_accounts"]] == [("doc", 2, "superseded_long_printout", "jan")]
+    assert package["totals"]["true_revenue_total"] == 20500.0
+
+
+def test_the_package_rows_name_a_longer_printout_in_words():
+    from webapp.app import _package_analysis, _package_rows
+
+    quarter = _period("q1", _JAN + _FEB + _MAR_Q1, "2031-01-01", "2031-03-31")
+    rows = _package_rows(_package_analysis([*_first_quarter(), quarter]))
+    assert ("document_4", "duplicate_reason", "superseded_long_printout") in rows
+    assert ("document_4", "duplicate_reason_words", _LONG_PRINTOUT_WORDS) in rows
 
 
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):

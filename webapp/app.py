@@ -588,9 +588,11 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
             rows.append((f"document_{idx}", key, "" if value is None else value))
-        if document.get("duplicate_reason") == "superseded_interim":
-            # Audit round 2, R2-B14 (R14): the words the dashboard's notice gives a left-out shorter printout.
-            rows.append((f"document_{idx}", "duplicate_reason_words", SUPERSEDED_INTERIM_WORDS))
+        if document.get("duplicate_reason") in SUPERSEDED_REASON_WORDS:
+            # Audit round 2, R2-B14 (R14 and its review round 1): the words the dashboard's notice gives a left-out
+            # shorter printout or printout of more than a month.
+            rows.append((f"document_{idx}", "duplicate_reason_words",
+                         SUPERSEDED_REASON_WORDS[document["duplicate_reason"]]))
         rows.extend(_tier_reason_rows(document, f"document_{idx}.revenue_tier"))
     # D-3: duplicate content must survive into the export an underwriter reads,
     # not only the JSON payload the dashboard renders.
@@ -608,7 +610,10 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
         for key, value in pair.items():
             rows.append((f"overlapping_statement_{idx}", key, "" if value is None else value))
         total = pair.get("shared_credit_total")
-        money = f"{float(total):,.2f}" if _is_money_value(total) else "N/A"
+        # R2-B14 review round 1 (CURRENCY DOCTRINE): the shared money is the pair's account's, and its words say so;
+        # a pair whose currency is unknown prints no unit, as the dashboard does.
+        money = (f"{float(total):,.2f}" + (f" {pair['currency']}" if pair.get("currency") else "")
+                 if _is_money_value(total) else "N/A")
         rows.append((f"overlapping_statement_{idx}", "words", _overlap_words(pair, filenames, money)))
     for idx, funder in enumerate(package.get("funders") or [], start=1):
         for key, value in funder.items():
@@ -1220,7 +1225,7 @@ def _package_duplicates(jobs) -> tuple[list, list[dict], dict[str, dict[int, str
 def _duplicate_row(entry: dict) -> dict:
     """A left-out job's row in `documents` (audit B11, I06): what identifies it and the job it repeats, and no figure,
     because none of its money enters the package. Audit round 2, R2-B14: why the job kept in its place was kept
-    (`duplicate_kept_because`, R16; None for a shorter printout another statement covers, R14)."""
+    (`duplicate_kept_because`, R16; None for a printout the account's other statements print, R14)."""
     job = entry["job"]
     accounts = _stored_accounts(job.analysis)
     statement = (accounts[0].get("statement") or {}) if accounts else {}
@@ -1282,6 +1287,16 @@ def _statement_month(period_start: object, period_end: object) -> int | None:
 #: Audit round 2, R2-B14 (R14): the words a left-out shorter printout reads in the package downloads, as the dashboard's
 #: duplicate notice reads them (app.js DUPLICATE_REASON_WORDS).
 SUPERSEDED_INTERIM_WORDS = "a shorter printout of days another statement covers"
+#: Audit round 2, R2-B14 review round 1: the words a left-out printout of more than a month reads (app.js
+#: DUPLICATE_REASON_WORDS), whose rows the account's other statements print.
+SUPERSEDED_LONG_PRINTOUT_WORDS = "a printout of more than a month whose every row other statements of the account print"
+#: Each reason `_package_superseded` leaves a statement out for, and its words.
+SUPERSEDED_REASON_WORDS = {
+    "superseded_interim": SUPERSEDED_INTERIM_WORDS,
+    "superseded_long_printout": SUPERSEDED_LONG_PRINTOUT_WORDS,
+}
+#: A statement period of more days than this is more than a month (`_package_superseded` tests it first).
+_MONTH_DAYS = 31
 
 
 def _posted_rows(account: dict) -> list[dict]:
@@ -1345,24 +1360,29 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     the package does not count never covers another or is covered) are grouped by their bank, casefolded, and the
     last four digits of their printed number (`_printed_account_digits`); a statement's period is its printed one, or
     else its first and last posted row's day. Two accounts of one document are never compared, and two statements
-    whose printed full numbers conflict (`_numbers_conflict`) are never one account's. Taking the shortest period
-    first (of two alike, the one listed later first), a statement is left out (`superseded_interim`) when its period
-    lies inside the union of the other kept statements' periods of its account, it prints a posted row, and every
-    posted row of it, credit or debit, is a posted row of those statements, as a multiset on the day and the signed
-    cents: an interim or month-to-date printout beside the full statement, a second month-to-date printout of one open
-    month, or a custom range of days the full statements print. It repeats the statement left in the package that
-    shares the most of its days (of two alike, the one listed first).
+    whose printed full numbers conflict (`_numbers_conflict`) are never one account's. A statement is left out when
+    its period lies inside the union of the other kept statements' periods of its account, it prints a posted row, and
+    every posted row of it, credit or debit, is a posted row of those statements, as a multiset on the day and the
+    signed cents. The statements of more than a month (`_MONTH_DAYS`) are tested first, the longest first, so a
+    quarterly printout or a multi-month export whose rows the monthly statements print is left out
+    (`superseded_long_printout`) and the monthly statements, each its own calendar month, stay; then the rest, the
+    shortest first, so an interim or month-to-date printout beside the full statement, a second month-to-date printout
+    of one open month, or a short custom range of days the full statements print is left out (`superseded_interim`)
+    and a full month is never left out for partial printouts of it (of two periods alike, the one listed later is
+    tested first; R2-B14 review round 1). It repeats the statement left in the package that shares the most of its
+    days (of two alike, the one listed first).
 
     Any other overlap of two statements of one account is never netted: the credits the two share in the days both
     cover (a multiset on the day, the cents and the description, casefolded, its blanks collapsed) are counted, and a
     pair sharing one or more is named in `overlapping`, ``{"job", "other", "shared_credit_count",
-    "shared_credit_total"}`` (`job` the statement listed later, with `account` and `other_account` for an account of a
-    document), which sends the package to review.
+    "shared_credit_total", "currency"}`` (`job` the statement listed later; `currency` the account's, None when the
+    two declare different ones; with `account` and `other_account` for an account of a document), which sends the
+    package to review.
 
     Returns ``(kept jobs, dropped, superseded_accounts, overlapping)``: a job whose every account is left out is
-    dropped as a duplicate is (``{"job", "duplicate_of", "reason": "superseded_interim"}``, in listed order); an
-    account of a document whose other accounts stay is named in `superseded_accounts` (job id -> {account index: the
-    covering job's id}) for `_package_members` to leave out with `repeated_accounts`."""
+    dropped as a duplicate is (``{"job", "duplicate_of", "reason"}``, in listed order); an account of a document whose
+    other accounts stay is named in `superseded_accounts` (job id -> {account index: (the covering job's id, the
+    reason)}) for `_package_members` to leave out with `repeated_accounts`."""
     repeated_accounts = repeated_accounts or {}
     statements: list[dict] = []
     for order, job in enumerate(kept):
@@ -1382,11 +1402,17 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
             span = _statement_span(account, rows)
             if not bank or len(digits) < 4 or span is None:
                 continue
+            days = (span[1] - span[0]).days + 1
             statements.append({
                 "job": job, "order": order, "index": index if document else None, "accounts": len(accounts),
                 "group": (bank, digits[-4:]), "digits": digits, "span": span,
                 "rows": Counter((_row_day(row), _row_cents(row)) for row in rows),
                 "credits": [row for row in rows if _num(row.get("amount")) > 0],
+                "currency": _statement_currency(account),
+                # R2-B14 review round 1: a printout of more than a month is tested first, the longest first; the rest
+                # the shortest first (of two alike, the later listed first).
+                "test_order": (0, -days, -order) if days > _MONTH_DAYS else (1, days, -order),
+                "reason": "superseded_long_printout" if days > _MONTH_DAYS else "superseded_interim",
             })
     groups: dict[tuple, list[dict]] = {}
     for statement in statements:
@@ -1404,7 +1430,7 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     for group in groups.values():
         alive = list(group)
         left_out: list[tuple[dict, dict]] = []
-        for statement in sorted(group, key=lambda item: ((item["span"][1] - item["span"][0]).days, -item["order"])):
+        for statement in sorted(group, key=lambda item: item["test_order"]):
             others = peers(statement, alive)
             if not others or not statement["rows"] or not _span_covered(statement["span"],
                                                                         [other["span"] for other in others]):
@@ -1438,6 +1464,9 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                     "shared_credit_count": sum(shared.values()),
                     "shared_credit_total": round(sum(cents * count for (_day, cents, _text), count in shared.items())
                                                  / 100, 2),
+                    # R2-B14 review round 1 (CURRENCY DOCTRINE): the unit of the shared money, the account's; unknown
+                    # when the two statements declare different ones.
+                    "currency": later["currency"] if later["currency"] == earlier["currency"] else None,
                 }
                 if later["index"] is not None:
                     pair["account"] = later["index"]
@@ -1455,12 +1484,12 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
         if not entries:
             continue
         if len(entries) == entries[0][0]["accounts"]:
-            # Every account the job publishes is a shorter printout: the job is left out as a repeat is.
+            # Every account the job publishes is a printout other statements print: the job is left out as a repeat is.
             first = min(entries, key=lambda entry: entry[0]["index"] or 0)
-            dropped.append({"job": job, "duplicate_of": first[1]["job"].id, "reason": "superseded_interim"})
+            dropped.append({"job": job, "duplicate_of": first[1]["job"].id, "reason": first[0]["reason"]})
             continue
         for statement, covering in entries:
-            superseded_accounts.setdefault(job.id, {})[statement["index"]] = covering["job"].id
+            superseded_accounts.setdefault(job.id, {})[statement["index"]] = (covering["job"].id, statement["reason"])
     dropped_ids = {entry["job"].id for entry in dropped}
     return [job for job in kept if job.id not in dropped_ids], dropped, superseded_accounts, overlapping
 
@@ -1792,8 +1821,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     members, excluded_accounts = _package_members(jobs, settings=settings, outdated=outdated_jobs,
                                                   repeated_accounts=repeated_accounts)
     # Audit round 2, R2-B14 (R14): after the exact repeats, a shorter printout of days another statement of its account
-    # covers is left out the way a repeat is, and any other overlap that shares credits is named, never netted. Only
-    # the statements the package counts (its members) are compared; when one is left out, the members are read again
+    # covers (or, its review round 1, a printout of more than a month whose rows the account's other statements print)
+    # is left out the way a repeat is, and any other overlap that shares credits is named, never netted. Only the
+    # statements the package counts (its members) are compared; when one is left out, the members are read again
     # without it, so every figure below is computed without it.
     kept_jobs, superseded_jobs, superseded_accounts, overlapping_statements = _package_superseded(
         jobs, repeated_accounts, members={(member[0].id, member[2]) for member in members})
@@ -1806,15 +1836,16 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             key=lambda entry: entry["position"],
         )
         for job_id, accounts in superseded_accounts.items():
-            repeated_accounts.setdefault(job_id, {}).update(accounts)
+            repeated_accounts.setdefault(job_id, {}).update(
+                {index: covering for index, (covering, _reason) in accounts.items()})
         jobs = kept_jobs
         outdated_jobs = {}
         members, excluded_accounts = _package_members(jobs, settings=settings, outdated=outdated_jobs,
                                                       repeated_accounts=repeated_accounts)
         for entry in excluded_accounts:
-            if entry.get("is_duplicate") is True and entry.get("account_index") in superseded_accounts.get(
-                    entry.get("job_id"), {}):
-                entry["reason"] = "superseded_interim"
+            superseded = superseded_accounts.get(entry.get("job_id"), {}).get(entry.get("account_index"))
+            if entry.get("is_duplicate") is True and superseded is not None:
+                entry["reason"] = superseded[1]
     duplicate_accounts = sum(len(accounts) for accounts in repeated_accounts.values())
     #: Q10. Every ratified sibling omission any member document published. The
     #: package says so rather than demoting anything: an omission admitted on
