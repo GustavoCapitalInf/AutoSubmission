@@ -120,6 +120,10 @@ _DEPOSIT_LEAD_WORDS = frozenset({
     "DEPOSIT", "DEP", "DEPOSITS", "DEPOSITED", "EDEPOSIT", "ATM", "ABM", "BRANCH", "BRCH", "BR", "COUNTER", "CREDIT",
     "TELLER", "CASH", "CHECK", "CHECKS", "CHEQUE", "MOBILE", "REMOTE", "ONLINE", "IN", "AT",
 })
+#: §8.1, T4 (audit round 2, R2-B13 review round 1: R35): Wells Fargo's own deposit furniture, 'DEPOSIT MADE IN A
+#: BRANCH/STORE' (normalized 'BRANCH STORE'), whose last word leads a place as the deposit's own words do; STORE alone
+#: never does ('<NAME> STORE CAPITAL PLAZA' holds).
+_DEPOSIT_LEAD_PAIRS = frozenset({("BRANCH", "STORE")})
 #: §8.1, T4 (B7 review round 2, I16): a buyer's advance purchase printed on a deposit ('ADVANCE TICKET SALES') and,
 #: as on a wire's purpose (_WIRE_TRADE_PURPOSE), an advance payment or prepayment for goods: no financing.
 _DEPOSIT_TRADE_PURPOSE = re.compile(
@@ -190,10 +194,11 @@ _DEALER_FLOOR_PLAN_WORDS = re.compile(r"(?<![A-Z])(?:FLOOR\w*|WHOLESALE\w*)")
 #: floor-plan form, or WHOLESALE beside a lender's or a vehicle trade's whole word ('<NAME> WHOLESALE AUTO LLC'; audit
 #: round 2, R2-B13: R39, B7 review round 3 minor 3: whole words, never a customer's FINE, CAPE, FINCH, CAPTAIN,
 #: AUTOMATION, MOTORSPORTS or DEALERSHIP); never a flooring contractor's or a wholesale grocer's name ('<NAME> FLOORING
-#: LLC', '<NAME> WHOLESALE GROCERS INC').
+#: LLC', '<NAME> WHOLESALE GROCERS INC'). R2-B13 review round 1: and a finance company's glued spellings that the
+#: financing root does not read (FINCO, FINCORP, CAPCO, CAPCORP, AUTOFIN).
 _FLOOR_PLAN_LENDER_WORDS = (
     r"(?:FUND|FUNDS|FUNDING|FIN|FINANCE|FINANCIAL|FINANCING|LEND|LENDER|LENDERS|LENDING|CAP|CAPITAL|CREDIT|AUTO|AUTOS"
-    r"|AUTOMOTIVE|MOTOR|MOTORS|DEALER|DEALERS)"
+    r"|AUTOMOTIVE|MOTOR|MOTORS|DEALER|DEALERS|FINCO|FINCORP|CAPCO|CAPCORP|AUTOFIN)"
 )
 _FLOOR_PLAN_LENDER_NAME = re.compile(
     r"(?<![A-Z])FLOOR ?PLAN\w*"
@@ -384,7 +389,8 @@ _STREET_NAME = re.compile(
 #: letter after them: '12B') stands right before it or one word before it ('<n> GRANT AVE', '<n> N GRANT ST'). The
 #: number is kept. A word before a Stripe-style 'ST-<id>' trace or before a suffix with no number ('<NAME> EQUITY DR
 #: <zip>') is no street. _STREET_NAME, which needs no number, still reads a deposit's location
-#: (_deposit_location_reading). The suffixes are _STREET_NAME's (a test keeps them in step).
+#: (_deposit_location_reading) and, R2-B13 review round 1, a payer-less deposit's non-sale reading (_non_sale_reading).
+#: The suffixes are _STREET_NAME's (a test keeps them in step).
 _STREET_SUFFIXES = "AVE|AVENUE|ST|STREET|RD|ROAD|BLVD|BOULEVARD|DR|DRIVE|LN|LANE|WAY|CT|PL|HWY|PKWY"
 _STREET_SUFFIX_WORDS = frozenset(_STREET_SUFFIXES.split("|"))
 _NUMBERED_STREET_NAME = re.compile(
@@ -1675,11 +1681,12 @@ def _deposit_location_removal(found: re.Match[str]) -> str:
     when it holds no financing word the reading keeps (_deposit_kept_word). One that holds one is removed only when that
     word is the match's first word and its only kept word, and the token just before the match is the row's start, a
     token with a digit or a mask ('1 ADVANCE NC'), one of the deposit's own words (_DEPOSIT_LEAD_WORDS: 'DEPOSIT
-    CAPITAL CITY BRANCH', 'ATM CASH DEPOSIT CAPITAL HEIGHTS MD'), a word inside the classifier's check or cash, branch or
-    ATM form (_inside_a_deposit_form: 'NIGHT DROP CAPITAL PLAZA'), or the street suffix that ends a numbered address
-    ('<n> MAIN ST CAPITAL HEIGHTS MD', B7 review round 2's own pin). Otherwise the match stays, so a funder's name
-    before a location keeps its financing word ('MOBILE DEPOSIT <NAME> FUNDING <town> <ST>', '<NAME> CAPITAL PLAZA',
-    '<NAME> CAPITAL CITY BRANCH') and holds."""
+    CAPITAL CITY BRANCH', 'ATM CASH DEPOSIT CAPITAL HEIGHTS MD'; R2-B13 review round 1: and Wells Fargo's
+    'BRANCH/STORE', _DEPOSIT_LEAD_PAIRS), a word inside the classifier's check or cash, branch or ATM form
+    (_inside_a_deposit_form: 'NIGHT DROP CAPITAL PLAZA'), or the street suffix that ends a numbered address ('<n> MAIN
+    ST CAPITAL HEIGHTS MD', B7 review round 2's own pin). Otherwise the match stays, so a funder's name before a
+    location keeps its financing word ('MOBILE DEPOSIT <NAME> FUNDING <town> <ST>', '<NAME> CAPITAL PLAZA', '<NAME>
+    CAPITAL CITY BRANCH') and holds."""
     location = found.group(0).split()
     kept = [word for word in location if _deposit_kept_word(word)]
     if not kept:
@@ -1689,6 +1696,8 @@ def _deposit_location_removal(found: re.Match[str]) -> str:
     before = found.string[: found.start()].split()
     if (
         not before or _numbered_token(before[-1]) or before[-1] in _DEPOSIT_LEAD_WORDS
+        # R2-B13 review round 1: Wells Fargo's 'DEPOSIT MADE IN A BRANCH/STORE <place>' (_DEPOSIT_LEAD_PAIRS).
+        or tuple(before[-2:]) in _DEPOSIT_LEAD_PAIRS
         # The street suffix that ends a numbered address ('<n> MAIN ST CAPITAL HEIGHTS MD', its name removed by
         # _STREET_NAME): the town follows the ATM's or branch's address.
         or (before[-1] in _STREET_SUFFIX_WORDS and any(_numbered_token(token) for token in before[-3:-1]))
@@ -1985,7 +1994,7 @@ def non_sale_purpose(
     row = _without_holder_name(_hold_text(text), account_name, also=also)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
     healthcare = healthcare_payer(region)
-    if _NON_SALE_PURPOSE.search(_non_sale_reading(text, row, region, disbursing=disbursing)) is not None:
+    if _NON_SALE_PURPOSE.search(_non_sale_reading(text, row, region, disbursing=disbursing, bank=bank)) is not None:
         return True
     # GOV (owner ruling 2026-09-30, class D): a government grant or subsidy.
     if government_grant(text):
@@ -2023,17 +2032,24 @@ def non_sale_purpose(
     return healthcare and _HEALTHCARE_MEMBER_WORDS.search(row) is not None
 
 
-def _non_sale_reading(text: str, row: str, region: str, *, disbursing: bool = False) -> str:
+def _non_sale_reading(
+    text: str, row: str, region: str, *, disbursing: bool = False, bank: str | None = None,
+) -> str:
     """§8.1 non_sale_purpose (audit B7: I18): the words _NON_SALE_PURPOSE reads, the non-sale words only as a purpose:
     without a street's name (audit round 2, R2-B13: R34, after a street number only, _NUMBERED_STREET_NAME: '<n> GRANT
-    AVE'), a joint-stock company's or bank's form (_JOINT_STOCK), DISTRIB... or STOCK inside a name a company form ends
-    (_FORMED_NAME_NON_SALE, after a name word: B7 review round 1, _spare_a_formed_name_word) or inside the payer's name
-    field (the payer region of a row that prints one, _prints_payer_name_field: 'ORIG CO NAME:<NAME> DISTRIBUTIO';
-    R2-B13: R34, its name proper only, _payer_name_proper), STOCK on a row citing an invoice (_INVOICE_WORD), the
-    payer's own DISBURSEMENT ACCOUNT, and (`disbursing`) the disbursement entry of an ordinary payer that repeats in the
-    statement (_recurring_disbursers), which no loan, escrow, title or proceeds word stands beside
-    (_DISBURSEMENT_KEEP)."""
-    row = _NUMBERED_STREET_NAME.sub(r"\g<number> ", row)
+    AVE'; R2-B13 review round 1: on a payer-less check, cash, branch or ATM deposit, whose location is never a purpose,
+    B7's _STREET_NAME with no number, as _financing_root reads that row's location; `bank` is the statement's bank,
+    for _channel), a joint-stock company's or bank's form (_JOINT_STOCK), DISTRIB... or STOCK inside a name a company
+    form ends (_FORMED_NAME_NON_SALE, after a name word: B7 review round 1, _spare_a_formed_name_word) or inside the
+    payer's name field (the payer region of a row that prints one, _prints_payer_name_field: 'ORIG CO NAME:<NAME>
+    DISTRIBUTIO'; R2-B13: R34, its name proper only, _payer_name_proper), STOCK on a row citing an invoice
+    (_INVOICE_WORD), the payer's own DISBURSEMENT ACCOUNT, and (`disbursing`) the disbursement entry of an ordinary
+    payer that repeats in the statement (_recurring_disbursers), which no loan, escrow, title or proceeds word stands
+    beside (_DISBURSEMENT_KEEP)."""
+    if not region and _channel(text, bank) in _DEPOSIT_CHANNELS:
+        row = _STREET_NAME.sub(" ", row)
+    else:
+        row = _NUMBERED_STREET_NAME.sub(r"\g<number> ", row)
     row = _JOINT_STOCK.sub(" ", row)
     row = _FORMED_NAME_NON_SALE.sub(_spare_a_formed_name_word, row)
     if region and _prints_payer_name_field(text):
@@ -2373,18 +2389,64 @@ def _direct_deposit_pay(text: str, row: str, account_name: str | None, *, busine
 def _business_receiver(text: str, account_name: str | None) -> bool:
     """§8.1, §8.8 (Q8; audit round 2, R2-B13: R23; I09's ruling, "a PPD entry to a person"): a receiver field's value
     (INDN, IND NAME, RECEIVER NAME, its letters-only words, as _person_receiver reads it) names a business: it prints a
-    company form ('INDN:<NAME> ROUTES LLC'), or it names the holder (holder_named) while the holder's own name prints a
-    company form ('INDN:<NAME> ROUTES' on the account of '<NAME> ROUTES LLC'). A person, a holder with no company form
-    (a person, a DBA name with no form) or a receiver with no form that is not the holder is no business."""
+    company form ('INDN:<NAME> ROUTES LLC'), or it is the holder's own company-formed name (_holder_business_name:
+    'INDN:<NAME> ROUTES' on the account of '<NAME> ROUTES LLC'). A person, a holder with no company form (a person, a
+    DBA name with no form) or a receiver with no form that is not the holder's whole name is no business. R2-B13 review
+    round 1: never holder_named's looser reading, which also reads a shorter run of the holder's name, a DBA's person
+    side, a middle initial or a reversed order as the holder, so the owner's own pay ('INDN:JOHN SAMPLE' on 'JOHN SAMPLE
+    PLUMBING LLC''s account) keeps the entry's pay reading."""
     classifier = _classifier()
-    formed_holder = classifier.company_form(classifier.account_name_text(account_name))
     for found in classifier._RECEIVER_FIELD_VALUE.finditer(text):
         value = " ".join(word for word in _RECEIVER_LABEL.sub("", found.group(0), count=1).split() if word.isalpha())
-        if value and (
-            classifier.company_form(value) or (formed_holder and classifier.holder_named(value, account_name))
-        ):
+        if value and (classifier.company_form(value) or _holder_business_name(value, account_name)):
             return True
     return False
+
+
+#: §8.1, §8.8 (audit round 2, R2-B13 review round 1: R23): the legal forms a holder's company-formed name may print
+#: after its name words, which a receiver field may leave off or print cut ('<NAME> ROUTES L').
+_RECEIVER_HOLDER_FORMS = frozenset({
+    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "LLLP", "PLLC",
+    "PLC", "ULC",
+})
+
+
+def _holder_business_name(value: str, account_name: str | None) -> bool:
+    """§8.1, §8.8 (audit round 2, R2-B13 review round 1: R23): a receiver's letters-only words (`value`) are the
+    holder's own company-formed name (the holder's name prints a company form and no DBA or AKA): every name word of
+    it, in order, its trailing form left off, printed whole or cut ('<NAME> ROUTES', '<NAME> ROUTES L' for '<NAME>
+    ROUTES LLC'), or that name with its last word of _HOLDER_RUN_CUT_FROM letters or more cut by the bank's field to
+    _HOLDER_RUN_CUT_KEEPS letters or more and nothing after it (R2-B04's end cut: '<NAME> TRANSPORTAT'). A leading THE
+    is no name word on either side, and a printed L L C is LLC. A shorter run of the name (the owner's own name leading
+    '<person> PLUMBING LLC'), a DBA's side, a middle initial, a reversed order or a word after the name that is no form
+    is never the business: a person receiver keeps the entry's reading. Recorded residual, an owner item beside Q8: a
+    holder whose formed name is a person's name with a form ('<person> LLC') reads as the business when the receiver
+    prints that name whole, as nothing in the text tells it from '<NAME> ROUTES' on '<NAME> ROUTES LLC'."""
+    classifier = _classifier()
+    printed = classifier.account_name_text(account_name)
+    if not printed or not classifier.company_form(printed) or classifier._HOLDER_TRADE_NAME.search(printed):
+        return False
+
+    def name_words(name: str) -> list[str]:
+        words = [word for word in re.sub(r"(?<![A-Z])L L C(?![A-Z])", "LLC", name).split() if word.isalpha()]
+        return words[1:] if words[:1] == ["THE"] else words
+
+    holder = name_words(printed)
+    while holder and holder[-1] in _RECEIVER_HOLDER_FORMS:
+        holder.pop()
+    words = name_words(value)
+    count = len(holder)
+    if not holder or len(words) < count or words[: count - 1] != holder[:-1]:
+        return False
+    last, rest = words[count - 1], words[count:]
+    if last != holder[-1]:
+        return (
+            not rest and len(holder[-1]) >= _HOLDER_RUN_CUT_FROM and len(last) >= _HOLDER_RUN_CUT_KEEPS
+            and holder[-1].startswith(last)
+        )
+    return all(word in _RECEIVER_HOLDER_FORMS for word in rest[:-1]) and (
+        not rest or any(form.startswith(rest[-1]) for form in _RECEIVER_HOLDER_FORMS)
+    )
 
 
 #: §8.1, §8.8 (B7 review round 1, I09): the trace and reference labels a layout prints after a direct deposit's

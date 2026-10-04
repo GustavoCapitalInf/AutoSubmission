@@ -1314,3 +1314,149 @@ def test_r23_the_business_receiver():
     assert not business("INDN:JOHN SAMPLE ", "JOHN SAMPLE")
     assert not business("INDN:JOHN SAMPLE ", "JOHN SAMPLE DBA SAMPLE PLUMBING")
     assert not business("")
+
+
+# Audit round 2, R2-B13 review round 1 (R23): the holder arm reads the business only when the receiver prints every
+# word of the holder's company-formed name, its form left off, printed or cut ('<NAME> ROUTES', '<NAME> ROUTES L'), or
+# that name with its last word cut by the bank's field (R2-B04's end cut). A shorter run of it (the owner's own name
+# leading '<person> PLUMBING LLC'), a DBA's person side, a middle initial or a reversed order is a person: the consumer
+# entry keeps its pay reading (Q8).
+
+_R23_PERSON_SHAPES = [
+    ("JOHN SAMPLE PLUMBING LLC", "JOHN SAMPLE"),
+    ("JOHN SAMPLE DBA SAMPLE PLUMBING LLC", "JOHN SAMPLE"),
+    ("JOHN SAMPLE LLC", "JOHN Q SAMPLE"),
+    ("JOHN SAMPLE LLC", "SAMPLE JOHN"),
+    ("NORTHWIND ROUTES LLC", "NORTHWIND"),
+]
+
+
+@pytest.mark.parametrize(("layout", "sec"), [(_R23_BOFA, "PPD"), (_R23_BOFA, "WEB"), (_R23_CHASE, "PPD")])
+@pytest.mark.parametrize(("holder", "indn"), _R23_PERSON_SHAPES)
+def test_r23_review_a_person_inside_the_holder_s_name_stays_pay(layout, sec, holder, indn):
+    assert _r23(layout, holder=holder, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec=sec) == [PAY] * 2
+
+
+@pytest.mark.parametrize("holder_name", ["JOHN SAMPLE PLUMBING LLC", "JOHN SAMPLE DBA SAMPLE PLUMBING LLC"])
+def test_r23_review_a_parser_holder_name_s_person_run_stays_pay(holder_name):
+    text = _R23_BOFA.format(n=1, payer="FABRIKAM SVC", entry="DIR DEP", indn="JOHN SAMPLE", sec="PPD")
+    [record] = classify_statement_transactions(Statement(
+        account_name="NAVIGATE BUSINESS CHECKING", holder_name=holder_name, bank="Bank of America",
+        transactions=[Transaction(date="2054-03-02", description=text, amount=3500.0, direction="credit")]))
+    assert (record.revenue_tier, record.revenue_tier_reason) == PAY
+
+
+@pytest.mark.parametrize(("holder", "indn"), [
+    # The holder's whole name with its form cut, or its last word cut by the bank's field.
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES LL"),
+    ("NORTHWIND TRANSPORTATION LLC", "NORTHWIND TRANSPORTAT"),
+    ("NORTHWIND ROUTES L.L.C.", "NORTHWIND ROUTES"),
+    ("THE NORTHWIND ROUTES LLC", "NORTHWIND ROUTES"),
+    # A DBA holder's formed side printed with its form (the company-form arm).
+    ("JOHN SAMPLE DBA SAMPLE PLUMBING LLC", "SAMPLE PLUMBING LLC"),
+    # The recorded residual, an owner item beside Q8: a holder whose formed name is a person's name with a form, its
+    # receiver printing that name whole with the form left off, reads as the business (nothing in the text tells it
+    # from '<NAME> ROUTES' on '<NAME> ROUTES LLC').
+    ("JOHN SAMPLE LLC", "JOHN SAMPLE"),
+])
+def test_r23_review_the_holder_s_whole_name_is_the_business(holder, indn):
+    assert _r23(_R23_BOFA, holder=holder, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec="PPD") == [ONE_OFF] * 2
+
+
+def test_r23_review_the_holder_arm():
+    def business(receiver, holder):
+        text = f"FABRIKAM SVC DES:DIR DEP ID:1 INDN:{receiver} CO ID:1234567890 PPD"
+        return tr._business_receiver(revenue_text(normalize_transaction_description(text)), holder)
+
+    for holder, indn in _R23_PERSON_SHAPES:
+        assert not business(indn, holder), (holder, indn)
+    # A word after the holder's name that is no form, or a last word cut to fewer than four letters, names no business.
+    assert not business("NORTHWIND ROUTES OPS", ROUTES)
+    assert not business("NORTHWIND TRA", "NORTHWIND TRANSPORTATION LLC")
+    # A holder with no company form, or a DBA holder's person side, never reads as the business by this arm.
+    assert not business("JOHN SAMPLE", "JOHN SAMPLE DBA SAMPLE PLUMBING LLC")
+    assert not business("SAMPLE PLUMBING", "JOHN SAMPLE DBA SAMPLE PLUMBING LLC")
+    for indn in ("NORTHWIND ROUTES", "NORTHWIND ROUTES L", "NORTHWIND ROUTES LLC"):
+        assert business(indn, ROUTES), indn
+    assert business("NORTHWIND TRANSPORTAT", "NORTHWIND TRANSPORTATION LLC")
+    assert business("NORTHWIND AND SONS", "NORTHWIND & SONS LLC")
+
+
+@pytest.mark.parametrize(("indn", "holder", "fact"), [
+    ("JOHN SAMPLE", "JOHN SAMPLE PLUMBING LLC", True),
+    ("JOHN Q SAMPLE", "JOHN SAMPLE LLC", True),
+    ("NORTHWIND TRANSPORTAT", "NORTHWIND TRANSPORTATION LLC", False),
+])
+def test_r23_review_g11_reads_the_narrowed_holder_arm(indn, holder, fact):
+    text = _R23_BOFA.format(n=1, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec="PPD")
+    [record] = _records([(text, 3500.0)], holder=holder)
+    assert tr.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
+
+
+# Audit round 2, R2-B13 review round 1 (R34 c): a payer-less check, cash, branch or ATM deposit keeps B7's number-free
+# street reading (its location is a street, never a purpose); a row that names a payer reads a street only after a
+# street number.
+
+@pytest.mark.parametrize("text", [
+    "ATM CASH DEPOSIT GRANT ST SAMPLEVILLE",
+    "ATM CASH DEPOSIT 1234 OLD SAMPLE GRANT RD SAMPLEVILLE",
+    "ATM CASH DEPOSIT 1234 E OLD GRANT RD SAMPLEVILLE",
+    "BRANCH DEPOSIT GRANT AVE SAMPLETOWN CA",
+])
+def test_r34_review_a_payer_less_deposit_s_street_is_no_purpose(text):
+    assert _one(text, 900.0, bank="Wells Fargo") == NO_PAYER
+
+
+@pytest.mark.parametrize(("text", "bank", "expected"), [
+    # A named row's street needs its number (the brief's trace shape stays held).
+    ("FABRIKAM GRANT ST-A1B2C3D4", "Wells Fargo", NON_SALE),
+    # Recorded residuals: on a named row, a street with two words between its number and its name is read as a purpose
+    # (fail closed), and a year or a one-digit token before a purpose word still reads as a street's number.
+    ("CONTOSO SUPPLY 1234 OLD SAMPLE GRANT RD SAMPLEVILLE", "Wells Fargo", NON_SALE),
+    ("FABRIKAM HOLDINGS 2054 DISTRIBUTION ST A1B2C3D4", "Wells Fargo", UNLABELLED),
+    ("FABRIKAM HOLDINGS PMT 1 DIVIDEND PL 12345", "Wells Fargo", UNLABELLED),
+])
+def test_r34_review_a_named_row_s_street_and_its_residuals(text, bank, expected):
+    assert _one(text, 5000.0, bank=bank) == expected
+
+
+@pytest.mark.parametrize(("text", "bank", "expected"), [
+    # Recorded residuals of the name proper, failing closed: a company form inside a distributor's name ends the name
+    # proper, and a sender with no form and no label after it, on any layout, spares nothing.
+    ("ZELLE PAYMENT FROM CONTOSO AND CO DISTRIBUTION CONF AB1234", "Bank of America", NON_SALE),
+    ("ONLINE TRANSFER FROM CONTOSO LTD DISTRIBUTION CENTER REF IB0ABCDEF ON 01 02 54", "Wells Fargo", NON_SALE),
+    ("ZELLE PAYMENT FROM CONTOSO DISTRIBUTION", "Chase", NON_SALE),
+    ("TRANSFER FROM CONTOSO DISTRIBUTION", "Mercury", NON_SALE),
+    ("INTERAC E-TRANSFER FROM CONTOSO DISTRIBUTION", "Scotiabank", NON_SALE),
+    # A glued month code reads a lookalike name word as a period.
+    ("ACH CREDIT DEC10 DISTRIBUTION INC PAYMENT", "Wells Fargo", NON_SALE),
+    # Still counted: a closed sender's purpose word, and a purpose word outside the brief's five.
+    ("ONLINE TRANSFER FROM PAT SAMPLE QUARTERLY DISTRIBUTION REF IB0ABCDEF ON 01 02 54", "Wells Fargo", P2P),
+    ("ONLINE TRANSFER FROM FABRIKAM HOLDINGS LLC MEMO OPERATING DISTRIBUTION SAMPLE LLC", "Wells Fargo", P2P),
+])
+def test_r34_review_the_name_proper_s_recorded_residuals(text, bank, expected):
+    assert _one(text, 5000.0, bank=bank) == expected
+
+
+# Audit round 2, R2-B13 review round 1 (R35): Wells Fargo's own deposit furniture 'DEPOSIT MADE IN A BRANCH/STORE' leads
+# a place as the deposit's other words do; STORE alone does not.
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("DEPOSIT MADE IN A BRANCH/STORE CAPITAL PLAZA", NO_PAYER),
+    ("DEPOSIT MADE IN A BRANCH/STORE", NO_PAYER),
+    ("MOBILE DEPOSIT FABRIKAM STORE CAPITAL PLAZA", FINANCING),
+])
+def test_r35_review_the_branch_store_form_leads_a_place(text, expected):
+    assert _one(text, 4000.0, bank="Wells Fargo") == expected
+
+
+# Audit round 2, R2-B13 review round 1 (R39): a finance company's glued spellings that the financing root does not read
+# (FINCO, FINCORP, CAPCO, CAPCORP, AUTOFIN) are floor-plan lender words.
+
+@pytest.mark.parametrize("sender", [
+    "CONTOSO WHOLESALE FINCO LLC", "CONTOSO WHOLESALE FINCORP", "CONTOSO WHOLESALE CAPCO LLC",
+    "CONTOSO WHOLESALE CAPCORP", "CONTOSO WHOLESALE AUTOFIN LLC", "CONTOSO AUTOFIN WHOLESALE INC",
+])
+def test_r39_review_a_finance_company_s_glued_spelling_stays_held(sender):
+    assert _one(_FEDWIRE.format(sender=sender), 1000.0, holder=_TRUCKS) == FINANCING
+    assert tr._FLOOR_PLAN_LENDER_NAME.search(sender), sender
