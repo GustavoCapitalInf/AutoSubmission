@@ -2285,10 +2285,16 @@ INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
 #: Green Shield (a health-benefit carrier); Beneva, SSQ and La Capitale (BENEVA BLVD is a street); Berkshire Hathaway
 #: (also a real-estate brokerage); a bare PROGRESSIVE (Progressive Leasing, the underwriter's Q8); Nationwide
 #: (NATIONWIDE SECUR is a broker-dealer).
+#: R2-OW07 review round 1: a brand's INS is the insurer word or its cut (INS, INSU, INSUR...), never another word's
+#: first letters (FARMERS INSTITUTE, FARMERS INSTANT, NATIONAL GENERAL INSTRUMENTS); Travelers' property line reads
+#: only before an insurer word (CAS, CASUALT..., INS, INSUR...) or at the name's end, never a property manager
+#: (TRAVELERS PROPERTY MANAGEMENT). National General's bare name stays read: a 16-letter field cuts the insurer and
+#: NATIONAL GENERAL CONTRACTORS alike (an accepted over-hold, held and reviewable).
 INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
-    "Farmers": (r"FARMERS (?:INS\w*|FARMERS|GROUP|NEW WORLD|OF SALEM)", r"FARMERS IN(?! ?[A-Z])"),
+    "Farmers": (r"FARMERS (?:INS(?:UR\w*|U)?|FARMERS|GROUP|NEW WORLD|OF SALEM)", r"FARMERS IN(?! ?[A-Z])"),
     "American Family": (
-        r"AMERICAN FAMILY(?! ?[A-Z])", r"AMERICAN FAMILY (?:INS\w*|MUT\w*|LIFE|DES|AGENTS?)(?![A-Z])", r"AMFAM",
+        r"AMERICAN FAMILY(?! ?[A-Z])", r"AMERICAN FAMILY (?:INS(?:UR\w*|U)?|MUT\w*|LIFE|DES|AGENTS?)(?![A-Z])",
+        r"AMFAM",
     ),
     "Safeco": (r"SAFECO",),
     "Hiscox": (r"HISCOX",),
@@ -2296,9 +2302,13 @@ INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
     "Gainsco": (r"GAINSCO",),
     "AmTrust": (r"AMTRUST(?! (?:BANK|TITLE|REALTY)(?![A-Z]))",),
     "National General": (
-        r"NATIONAL GENERAL(?! ?[A-Z])", r"NATIONAL GENERAL (?:INS\w*|ASSUR\w*|PAYMENT|PMT|HOLDINGS)(?![A-Z])",
+        r"NATIONAL GENERAL(?! ?[A-Z])",
+        r"NATIONAL GENERAL (?:INS(?:UR\w*|U)?|ASSUR\w*|PAYMENT|PMT|HOLDINGS)(?![A-Z])",
     ),
-    "Travelers": (r"TRAVELERS ?(?:INDEMN\w*|PI ?COMM|CASUALT\w*|CAS|PROP(?:ERTY)?|COMM(?:ERCIAL|L)?)",),
+    "Travelers": (
+        r"TRAVELERS ?(?:INDEMN\w*|PI ?COMM|CASUALT\w*|CAS"
+        r"|PROP(?:ERTY)?(?= (?:CAS|CASUALT\w*|INS|INSUR\w*)(?![A-Z])|(?! ?[A-Z]))|COMM(?:ERCIAL|L)?)",
+    ),
 }
 
 

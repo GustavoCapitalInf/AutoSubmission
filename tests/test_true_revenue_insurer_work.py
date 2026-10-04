@@ -28,6 +28,8 @@ from analysis.transaction_classifier import (
 from tests.zelle_reading import rules_reading
 
 BAKERY = "CONTOSO BAKERY LLC"
+#: A holder whose name shares no word with the government payers' fabricated 'STATE OF CONTOSO' rows.
+NORTHWIND_BAKERY = "NORTHWIND BAKERY LLC"
 REPAIR_SHOP = "CONTOSO AUTO REPAIR LLC"
 CLINIC = "CONTOSO PHYSIOTHERAPY INC"
 AGENCY = "FABRIKAM INSURANCE AGENCY LLC"
@@ -87,7 +89,7 @@ def insurer_credit_brand(text: str) -> str | None:
     pytest.param([("SAMPLE LOSS PMT 1234", 1234.0)], {}, [HELD], id="loss-pmt"),
     pytest.param([("ACH CREDIT SAMPLE CASUALT 1234", 1234.0)], {}, [HELD], id="cut-casualt"),
     # A carrier's direct deposit printing INS and a cut ASS twice (today verified named_payer_repeats).
-    pytest.param([("DIRECT DEPOSIT SPECIAL RISK INS ASS", 1234.0), ("DIRECT DEPOSIT SPECIAL RISK INS ASS", 1290.0)],
+    pytest.param([("DIRECT DEPOSIT SAMPLE RISK INS ASS", 1234.0), ("DIRECT DEPOSIT SAMPLE RISK INS ASS", 1290.0)],
                  {}, [HELD, HELD], id="ins-direct-deposit-repeat"),
     # T30's Travelers: the registry's own spelling stays the insurance rule's non_revenue, while the cut INDEMN repeats
     # (today verified named_payer_repeats) are the Travelers brand, held until R2-OW08's release counts them.
@@ -223,14 +225,160 @@ def test_a_customer_payment_from_a_listed_insurer_keeps_the_insurer_payer_hold()
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# R2-OW07 review round 1.
+# ---------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("rows", "bank"), [
+    # A personal government benefit an insurance programme pays (employment insurance, parental insurance, disability
+    # or family-leave insurance): never revenue (the MCA principle), held as before this batch.
+    pytest.param([("GOVERNMENT OF CANADA EMPLOYMENT INSURANCE", 812.0)], "RBC", id="ei"),
+    pytest.param([("DIRECT DEPOSIT GOVERNMENT OF CANADA EMPLOYMENT INSURANCE", 812.0)], "RBC", id="ei-direct-deposit"),
+    pytest.param([("GOVERNMENT OF QUEBEC ASSURANCE PARENTALE", 812.0)], "RBC", id="parental-insurance"),
+    pytest.param([("STATE OF CONTOSO DISABILITY INSURANCE DES:PAYMENT ID:1", 812.0)], None, id="state-disability"),
+    pytest.param([("STATE OF CONTOSO PAID FAMILY LEAVE INSURANCE DES:PAYMENT ID:1", 812.0)], None,
+                 id="state-family-leave"),
+    # A public insurer (a provincial insurance corporation, a county's self-insurance, a state's insurance department or
+    # fund): an insurer, held as before this batch, its premium and dividend too.
+    pytest.param([("PROVINCE OF CONTOSO INSURANCE CORP DES:PAYMENT ID:1", 812.0)], None, id="provincial-insurer"),
+    pytest.param([("COUNTY OF CONTOSO SELF INSURANCE DES:PAYMENT ID:1", 812.0)], None, id="county-self-insurance"),
+    pytest.param([("DEPT OF INSURANCE DES:PAYMENT ID:1", 1234.0)], None, id="insurance-department"),
+    pytest.param([("DEPT OF INSURANCE DES:PREMIUM ID:1", 1234.0)], None, id="insurance-department-premium"),
+    pytest.param([("DEPT OF INSURANCE DES:DIVIDEND ID:1", 812.0)], None, id="insurance-department-dividend"),
+    pytest.param([("STATE OF CONTOSO INSURANCE DES:PAYMENT ID:1", 812.0),
+                  ("STATE OF CONTOSO INSURANCE DES:PAYMENT ID:2", 900.0)], None, id="state-insurer-repeats"),
+    # A government payer's CLAIM word, as the hold read it before this batch.
+    pytest.param([("STATE OF CONTOSO CLAIMS DES:PAYMENT ID:1", 812.0)], None, id="state-claims"),
+])
+def test_a_government_payer_named_by_the_spelled_out_insurer_words_stays_held(rows, bank):
+    """R2-OW07 review round 1 (important): arm (b) keeps the hold that held these rows before this batch. A government
+    payer is an insurer only by the spelled-out words or CLAIM (never the widened spellings or the brands), and never
+    for work, so none of them moves into True, let alone Verified."""
+    records = [record for record in _records(rows, holder=NORTHWIND_BAKERY, bank=bank) if record.amount > 0]
+    assert [rules_reading(record) for record in records] == [HELD] * len(rows)
+    for record in records:
+        row = revenue_text(record.normalized_description)
+        reading = true_revenue.insurer_payer_reading(record, row, payer_region(row), entry_fields(row))
+        assert reading is not None and reading.kind == "named" and reading.for_work is False
+
+
+@pytest.mark.parametrize(("rows", "expected"), [
+    # An insurer's printed truck or vehicle sale is held as the insurer, however it is spelled (a total-loss
+    # settlement reads so; held is reviewable), as the spelled-out insurer's already was: R2-OW06's precedence, an
+    # insurer-name hold other than IAA's keeps an asset sale held, reads every spelling.
+    pytest.param([("SAMPLE INS CO DES:TRUCK SALE ID:1", 4000.0)], HELD, id="ins-truck-sale"),
+    pytest.param([("SAFECO DES:VEHICLE SALE ID:1", 4000.0)], HELD, id="brand-vehicle-sale"),
+    pytest.param([("SAMPLE INSURANCE CO DES:TRUCK SALE ID:1", 4000.0)], HELD, id="spelled-out-truck-sale"),
+    # The control: a non-insurer's truck sale is the asset sale's non_revenue.
+    pytest.param([("SAMPLE CO DES:TRUCK SALE ID:1", 4000.0)], ("non_revenue", "asset_sale_proceeds"),
+                 id="non-insurer-truck-sale"),
+])
+def test_an_insurer_s_printed_asset_sale_is_held_as_the_insurer(rows, expected):
+    """R2-OW07 review round 1 (minor): the widened insurer reading widens R2-OW06's insurer-name precedence over the
+    asset-sale reading (§8.1, §20 record it): a non_revenue asset sale becomes held insurer_named_payer when its payer
+    reads as an insurer by any spelling. 0 corpus rows."""
+    assert _readings(rows) == [expected]
+
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # A person-to-person sender's surname, given name or the rail's own word is no cut insurer, and a brand never reads
+    # a person's transfer: the reading on a person-to-person rail is the spelled-out words and CLAIM alone.
+    pytest.param([("INTERAC E-TRANSFER FROM SAMPLE MUTUA", 400.0)], {"bank": "RBC"}, ("counted_flagged", "p2p"),
+                 id="e-transfer-surname-mutua"),
+    pytest.param([("INTERAC E-TRANSFER FROM SAMPLE INS", 400.0)], {"bank": "RBC"}, ("counted_flagged", "p2p"),
+                 id="e-transfer-ins"),
+    pytest.param([("INTERAC E-TRANSFER FROM SAFECO", 400.0)], {"bank": "RBC"}, ("counted_flagged", "p2p"),
+                 id="e-transfer-brand"),
+    pytest.param([("VENMO CASHOUT FROM SUBROTO SAMPLE", 350.0)], {}, ("counted_flagged", "p2p"),
+                 id="venmo-given-name-subroto"),
+    # The spelled-out word still reads on the rail, as before this batch.
+    pytest.param([("INTERAC E-TRANSFER FROM SAMPLE INSURANCE", 400.0)], {"bank": "RBC"}, HELD,
+                 id="e-transfer-spelled-out-insurer"),
+    # SUBRO is a subrogation's word and its cut forms, never the given name SUBROTO.
+    pytest.param([("SUBROTO SAMPLE DES:PAYMENT ID:1", 1234.0)], {}, ("counted_flagged", "named_payer_one_off"),
+                 id="ach-given-name-subroto"),
+    pytest.param([("FABRIKAM SUBROGATION DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="subrogation"),
+    pytest.param([("FABRIKAM SUBROG DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="subrogation-cut"),
+    # A brand's INS is an insurer word or its cut, never another word's first letters.
+    pytest.param([("FARMERS INSTITUTE DES:PAYMENT ID:1", 1234.0)], {}, ("counted_flagged", "named_payer_one_off"),
+                 id="farmers-institute"),
+    pytest.param([("FARMERS INSTANT CO DES:PAYMENT ID:1", 1234.0)], {}, ("counted_flagged", "named_payer_one_off"),
+                 id="farmers-instant"),
+    pytest.param([("NATIONAL GENERAL INSTRUMENTS DES:PAYMENT ID:1", 1234.0)], {},
+                 ("counted_flagged", "named_payer_one_off"), id="national-general-instruments"),
+    pytest.param([("AMERICAN FAMILY INSTITUTE DES:PAYMENT ID:1", 1234.0)], {},
+                 ("counted_flagged", "named_payer_one_off"), id="american-family-institute"),
+    pytest.param([("FARMERS INSU DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="farmers-insurance-cut"),
+    pytest.param([("NATIONAL GENERAL INS DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="national-general-ins"),
+    pytest.param([("AMERICAN FAMILY INS DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="american-family-ins"),
+    # Travelers' property line only before an insurer word or at the name's end, never a property manager.
+    pytest.param([("TRAVELERS PROPERTY MANAGEMENT DES:PAYMENT ID:1", 1234.0)], {},
+                 ("counted_flagged", "named_payer_one_off"), id="travelers-property-manager"),
+    pytest.param([("TRAVELERS PROP CAS DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="travelers-prop-cas"),
+    pytest.param([("TRAVELERS PROPERTY DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="travelers-property-end"),
+    # P AND C before an installer's or an inspector's word is no insurer.
+    pytest.param([("NORTHWIND P & C INSTALLATIONS DES:PAYMENT ID:1", 1234.0)], {"holder": "FABRIKAM BAKERY LLC"},
+                 ("counted_flagged", "named_payer_one_off"), id="p-and-c-installations"),
+    # Accepted over-holds (§8.1, held and reviewable): an ACH payer whose name ends in MUTUA (a 16-letter field's cut of
+    # an insurer's MUTUAL reads the same), National General's 16-letter cut, P AND C at a name's end or before CO, and
+    # the INS token before another word.
+    pytest.param([("SAMPLE MUTUA DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="over-hold-ach-mutua"),
+    pytest.param([("NATIONAL GENERAL DES:PAYMENT ID:1", 1234.0)], {}, HELD, id="over-hold-national-general-cut"),
+    pytest.param([("NORTHWIND P & C DES:PAYMENT ID:1", 1234.0)], {"holder": "FABRIKAM BAKERY LLC"}, HELD,
+                 id="over-hold-p-and-c-end"),
+    pytest.param([("P & C CO DES:PAYMENT ID:1", 1234.0)], {"holder": "FABRIKAM BAKERY LLC"}, HELD,
+                 id="over-hold-p-and-c-co"),
+    pytest.param([("NORTHWIND HOME INS INSPECTIONS DES:PAYMENT ID:1", 1234.0)], {"holder": "FABRIKAM BAKERY LLC"},
+                 HELD, id="over-hold-ins-token"),
+])
+def test_the_insurer_spellings_and_brands_never_read_their_namesakes(rows, statement, expected):
+    """R2-OW07 review round 1 (minor): the namesakes the brief's patterns read keep their reading before this batch;
+    the over-holds the patterns cannot tell from an insurer stay held, as §8.1 lists them."""
+    assert _readings(rows, **statement) == [expected]
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # T21: a payer that prints no insurer word of its own beside the agency holder's cut name.
+    pytest.param("CREF NORTHWIND FABRIKAM INSURANCE AGEN CUSTOMER ID 1234", ("counted_flagged", "named_payer_unlabelled"),
+                 id="no-insurer-word"),
+    # An insurer word glued to the payer's name, which no insurer reading reads.
+    pytest.param("CREF SAMPLEINSURANCE FABRIKAM INSURANCE AGEN CUSTOMER ID 1234",
+                 ("counted_flagged", "named_payer_unlabelled"), id="glued-insurer-word"),
+])
+def test_a_row_the_holder_strip_un_reads_is_counted_where_no_later_hold_names_it(text, expected):
+    """R2-OW07 review round 1 (minor): the holder strip never lets the holder's own INSURANCE word make its payer an
+    insurer, so a row whose only insurer reading was the holder's name is counted where no later hold of §8.10 names
+    it (the holder test does not read the name in the middle of Truist's region; §20 records it). Held before this
+    batch; R2-OW08's re-measure reads them."""
+    assert _readings([(text, 812.0)], holder=TRUIST_AGENCY, bank="Truist") == [expected]
+
+
+def test_a_row_the_holder_strip_un_reads_takes_the_later_hold_that_names_it():
+    """The control: where the holder test reads the holder's name (at the region's end), the row is held holder_name,
+    never counted."""
+    assert _readings([("NORTHWIND LLC FABRIKAM INSURANCE AGENCY", 812.0)], holder=AGENCY) == [
+        ("excluded_pending_review", "holder_name")
+    ]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # The reader, arm by arm.
 # ---------------------------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize(("text", "statement", "expected"), [
     # (a) An HCCLAIMPMT entry: never an insurer's reading.
     ("SAMPLE MUTUAL INSURANCE DES:HCCLAIMPMT ID:1", {}, None),
-    # (b) A government payer.
+    # (b) A government payer: never by the widened spellings or the brands; by the spelled-out words or CLAIM (the
+    # reading before this batch), never for work (R2-OW07 review round 1).
     ("STATE OF OHIO INS FUND DES:PAYMENT ID:1", {}, None),
+    ("STATE OF CONTOSO INS DES:PAYMENT ID:1", {"holder": NORTHWIND_BAKERY}, None),
+    ("STATE OF CONTOSO FARMERS INS DES:PAYMENT ID:1", {"holder": NORTHWIND_BAKERY}, None),
+    ("GOVERNMENT OF CANADA EMPLOYMENT INSURANCE", {"holder": NORTHWIND_BAKERY, "bank": "RBC"},
+     _expected("GOVERNMENT OF CANADA EMPLOYMENT", "named", False)),
+    ("STATE OF CONTOSO DISABILITY INSURANCE DES:PAYMENT ID:1", {"holder": NORTHWIND_BAKERY},
+     _expected("STATE OF CONTOSO DISABILITY", "named", False)),
+    ("DEPT OF INSURANCE DES:PREMIUM ID:1", {"holder": NORTHWIND_BAKERY}, _expected("DEPT OF INSURANCE", "named", False)),
+    ("STATE OF CONTOSO CLAIMS DES:PAYMENT ID:1", {"holder": NORTHWIND_BAKERY},
+     _expected("STATE OF CONTOSO CLAIMS", "named", False)),
     # (c) A listed insurer's credit: the registry's entity; a premium financier none.
     ("GEICO INSURANCE EFT", {}, _expected("GEICO", "registry", True)),
     ("STATE FARM DES:DRP PAYMENT ID:1", {}, _expected("State Farm", "registry", True)),
@@ -261,6 +409,13 @@ def test_a_customer_payment_from_a_listed_insurer_keeps_the_insurer_payer_hold()
     ("SAMPLE INS CO DES:PAYMENT ID:1", {}, _expected("SAMPLE INS CO", "named", True)),
     ("FABRIKAM CLAIMS SERVICES DES:PAYMENT ID:1", {}, _expected("FABRIKAM CLAIMS SERVICES", "named", True)),
     ("NORTHWIND SUBRO RECOVERY DES:PAYMENT ID:1", {}, _expected("NORTHWIND SUBRO RECOVERY", "named", True)),
+    # On a person-to-person rail only the spelled-out words and CLAIM read (R2-OW07 review round 1): a sender's
+    # surname or the rail's own word is no cut insurer, and a brand never reads a person's transfer.
+    ("INTERAC E-TRANSFER FROM SAMPLE INSURANCE", {"bank": "RBC"}, _expected("SAMPLE INSURANCE", "named", True)),
+    ("INTERAC E-TRANSFER FROM SAMPLE MUTUA", {"bank": "RBC"}, None),
+    ("INTERAC E-TRANSFER FROM SAMPLE INS", {"bank": "RBC"}, None),
+    ("INTERAC E-TRANSFER FROM SAFECO", {"bank": "RBC"}, None),
+    ("VENMO CASHOUT FROM SUBROTO SAMPLE", {}, None),
     # No reading.
     ("NORTHWIND SUPPLY DES:PAYMENT ID:1", {}, None),
     ("ASSURED STAFFING LLC DES:PAYMENT ID:1", {}, None),
@@ -292,9 +447,11 @@ def test_the_insurer_reading_is_frozen():
 # ---------------------------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("text", [
-    "UNIVERSAL P AND C", "STATE FARM MUTUA", "SPECIAL RISK INS ASS", "SAMPLE INS CO", "SAMPLE P & C INS",
+    "UNIVERSAL P AND C", "STATE FARM MUTUA", "SAMPLE RISK INS ASS", "SAMPLE INS CO", "SAMPLE P & C INS",
     "NORTHWIND P AND C COMPANY", "SAMPLE ASSURANCES", "SAMPLE ASSURANT", "SAMPLE ASSUREURS", "SAMPLE ASSUR",
     "SAMPLE CASUALT", "SAMPLE INDEMN", "SAMPLE LOSS PMT", "SAMPLE LOSS DRAFT", "SAMPLE SUBRO",
+    # R2-OW07 review round 1: a subrogation's cut forms, and P AND C before an insurer word or its cut.
+    "SAMPLE SUBROGATION", "SAMPLE SUBROG", "SAMPLE P & C INSURANCE", "SAMPLE P AND C INSU",
 ])
 def test_the_insurer_spellings_read(text):
     assert true_revenue._INSURER_SPELLINGS.search(text)
@@ -303,6 +460,8 @@ def test_the_insurer_spellings_read(text):
 @pytest.mark.parametrize("text", [
     "ASSURED STAFFING LLC", "P AND C FOODS", "SAMPLE ASSURE", "SAMPLE INSTALLATIONS", "SAMPLE CLM", "SAMPLE CLMS",
     "SAMPLE CLMEFT", "SAMPLE MUTUAL", "SAMPLE ASSURANCE", "SAMPLE LOSS PREVENTION",
+    # R2-OW07 review round 1: the given name SUBROTO is no subrogation, nor INSTALLATIONS an insurer word after P & C.
+    "SUBROTO SAMPLE", "SAMPLE SUBROTO", "NORTHWIND P & C INSTALLATIONS", "NORTHWIND P AND C INSPECTIONS",
 ])
 def test_the_insurer_spellings_never_read(text):
     assert true_revenue._INSURER_SPELLINGS.search(text) is None
@@ -322,6 +481,12 @@ def test_the_spelled_out_insurer_words_are_unchanged():
     ("NATIONAL GENERAL", "National General"), ("NATIONAL GENERAL INS", "National General"),
     ("TRAVELERS INDEMN", "Travelers"), ("TRAVELERSPICOMM", "Travelers"), ("TRAVELERS CASUALTY", "Travelers"),
     ("TRAVELERS COMML", "Travelers"),
+    # R2-OW07 review round 1: the insurer word's cut forms, and Travelers' property line before an insurer word or at
+    # the name's end.
+    ("FARMERS INSU", "Farmers"), ("FARMERS INSURAN", "Farmers"), ("AMERICAN FAMILY INSUR", "American Family"),
+    ("NATIONAL GENERAL INSURANCE", "National General"), ("TRAVELERS PROPERTY CASUALTY", "Travelers"),
+    ("TRAVELERS PROP CAS", "Travelers"), ("TRAVELERS PROP INS", "Travelers"), ("TRAVELERS PROPERTY", "Travelers"),
+    ("TRAVELERS PROP 1234", "Travelers"),
 ])
 def test_the_brand_table_reads_its_carriers(text, entity):
     assert insurer_credit_brand(text) == entity
@@ -331,6 +496,10 @@ def test_the_brand_table_reads_its_carriers(text, entity):
     "AMERICAN FAMILY CARE", "AMERICAN FAMILY DENTAL", "FARMERS IN BLOOM LLC", "FARMERS EXCHANGE BANK",
     "NATIONAL GENERAL CONTRACTORS", "TRAVELERS CASH", "TRAVELERS PROPANE", "TRAVELERS COMMUNITY", "AMTRUST BANK",
     "AMTRUST TITLE", "SUNLIFE SOLAR LLC", "PROGRESSIVE LEASING", "NATIONWIDE SECUR", "BENEVA BLVD",
+    # R2-OW07 review round 1: INS only as an insurer word or its cut, never another word's first letters; Travelers'
+    # property line never a property manager.
+    "FARMERS INSTITUTE", "FARMERS INSTANT CO", "AMERICAN FAMILY INSTITUTE", "NATIONAL GENERAL INSTRUMENTS",
+    "TRAVELERS PROPERTY MANAGEMENT", "TRAVELERS PROPERTY MGMT", "TRAVELERS PROP SERVICES",
 ])
 def test_no_brand_pattern_reads_another_business(text):
     assert insurer_credit_brand(text) is None

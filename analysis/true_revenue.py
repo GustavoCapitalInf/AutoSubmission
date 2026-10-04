@@ -225,11 +225,13 @@ _CLAIM_WORD = re.compile(r"(?<![A-Z])CLAIMS?\b")
 #: abbreviation, the cut forms ASSUR, MUTUA, CASUALT and INDEMN, the French ASSURANCES, ASSURANT and ASSUREUR(S), P AND
 #: C (or P & C) at a name's end or before INS, CO, COMPANY or CORP, a loss payment's LOSS PMT, PAYMENT, PYMT or DRAFT,
 #: and SUBRO (a subrogation recovery). Never ASSURED or ASSURE ('ASSURED STAFFING LLC'), never P AND C FOODS; CLM, CLMS
-#: and CLMEFT are not read (every corpus CLM row is a health plan paying a provider).
+#: and CLMEFT are not read (every corpus CLM row is a health plan paying a provider). R2-OW07 review round 1: SUBRO and
+#: its cut forms only (SUBROG, SUBROGATION), never the given name SUBROTO; P AND C before INS, INSU or INSUR... only,
+#: never an installer's or an inspector's word.
 _INSURER_SPELLINGS = re.compile(
-    r"(?<![A-Z])(?:ASSURANCES|ASSURANT|ASSUREURS?|ASSUR|MUTUA|CASUALT\w*|INDEMN\w*|SUBRO\w*)(?![A-Z])"
+    r"(?<![A-Z])(?:ASSURANCES|ASSURANT|ASSUREURS?|ASSUR|MUTUA|CASUALT\w*|INDEMN\w*|SUBRO(?:G\w*)?)(?![A-Z])"
     r"|(?<![A-Z])INS(?![A-Z])"
-    r"|(?<![A-Z])P (?:AND|&) C(?:(?! ?[A-Z])| (?:INS\w*|CO|COMPANY|CORP)(?![A-Z]))"
+    r"|(?<![A-Z])P (?:AND|&) C(?:(?! ?[A-Z])| (?:INS(?:UR\w*|U)?|CO|COMPANY|CORP)(?![A-Z]))"
     r"|(?<![A-Z])LOSS (?:PMT|PAYMENT|PYMT|DRAFT)(?![A-Z])"
 )
 #: B3 review round 1: the classifier's _NO_LEGAL_FORM_LATER (copied: the classifier imports this module): no
@@ -4947,7 +4949,9 @@ class InsurerReading:
     underwriter's Q2 counts by (the registry's or the brand table's entity name, so one carrier is one key however it
     prints; otherwise the payer key of the region without the holder's names); `kind` is 'registry' (a listed insurer,
     §6.1 step 5), 'brand' (INSURER_CREDIT_BRANDS), 'named' (an insurer word, spelling or claim word) or 'title' (a
-    title insurer, whose credit is a property closing's proceeds); `for_work` is False only for a title insurer."""
+    title insurer, whose credit is a property closing's proceeds); `for_work` is False only for a title insurer and
+    (R2-OW07 review round 1) a government payer, whose insurance programme's credit is a personal benefit or a public
+    insurer's, never the business's work."""
 
     key: str
     kind: str
@@ -4977,31 +4981,44 @@ def insurer_payer_reading(
     """§8.1 insurer_named_payer (audit I26, by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a
     one-off claim paid to a business on its own policy stays out"; R2-OW07): the insurer a credit's payer region names,
     or None; the first arm that reads wins. (a) An HCCLAIMPMT entry is a claim paid to a provider, never an insurer's
-    reading (T18's claim-first rule keeps verifying it). (b) A government payer (§7.6) is none. (c) A listed insurer's
-    credit (its revenue method one of _INSURER_REGISTRY_METHODS and the classifier's insurer lookup naming it): the
-    registry's entity, or None for a premium financier. (d) Then the region is read without the holder's names
-    (_insurer_own_region); empty, None. (e) A title firm is a title insurer when an insurer word or spelling prints
-    (never for work), else None. (f) A premium-finance wording on the row before its receiver fields is premium
-    financing, None. (g) A healthcare payer is an insurer only by _INSURER_NAME's spelled words (Q6c unchanged). (g2) A
-    §15 deferred payer (_deferred_reading: the Canadian benefit carriers, HEALTH DENTAL CLAIM, CLMEFT) only by those words
-    or CLAIM: the widened spellings and brands never read it, so a medical claim payment to a provider keeps its tier.
-    (h) An INSURER_CREDIT_BRANDS carrier, by the brand's entity. (i) _INSURER_NAME, _INSURER_SPELLINGS or _CLAIM_WORD,
-    keyed by the payer key. No channel gate."""
+    reading (T18's claim-first rule keeps verifying it). (b) A government payer (§7.6) is an insurer only by
+    _INSURER_NAME's spelled words or CLAIM (CLAIM never on a healthcare payer), read on the region without the holder's
+    names, never for work: the reading the insurer-name hold made before I26 (R2-OW07 review round 1), so a government
+    insurance programme's credit (employment, parental, disability or family-leave insurance, a public insurer) stays
+    held and never counts as the business's work; the widened spellings and brands never read a government payer.
+    (c) A listed insurer's credit (its revenue method one of _INSURER_REGISTRY_METHODS and the classifier's insurer
+    lookup naming it): the registry's entity, or None for a premium financier. (d) Then the region is read without the
+    holder's names (_insurer_own_region); empty, None. (e) A title firm is a title insurer when an insurer word or
+    spelling prints (never for work), else None. (f) A premium-finance wording on the row before its receiver fields is
+    premium financing, None. (g) A healthcare payer is an insurer only by _INSURER_NAME's spelled words (Q6c
+    unchanged). (g2) A §15 deferred payer (_deferred_reading: the Canadian benefit carriers, HEALTH DENTAL CLAIM,
+    CLMEFT) only by those words or CLAIM: the widened spellings and brands never read it, so a medical claim payment to
+    a provider keeps its tier. (h) An INSURER_CREDIT_BRANDS carrier, by the brand's entity. (i) _INSURER_NAME,
+    _INSURER_SPELLINGS or _CLAIM_WORD, keyed by the payer key. No channel gate, but (R2-OW07 review round 1) on a
+    person-to-person rail the widened spellings and the brands are not read: a sender's surname or given name (MUTUA,
+    SUBROTO) or the rail's own word (INS for instant) is no cut insurer, so the rail keeps the spelled-out words and
+    CLAIM it read before I26."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
     if classifier._HCCLAIMPMT.search(text):
         return None
+    own = _insurer_own_region(record, region, receiver_holders)
     if government_payer(public_region(text)):
+        if own and (
+            _INSURER_NAME.search(own) or (_CLAIM_WORD.search(own) and not healthcare_payer(own))
+        ):
+            return InsurerReading(" ".join(classifier._payer_key(own)) or own, "named", False)
         return None
     if record.revenue_match_method in _INSURER_REGISTRY_METHODS:
         match = classifier._insurance_registry_match(classifier._split_glued_claim(text), glued_digits=True)
         if match is not None:
             return None if match[2] else InsurerReading(match[0], "registry", True)
-    own = _insurer_own_region(record, region, receiver_holders)
     if not own:
         return None
+    # R2-OW07 review round 1: a person-to-person rail reads the spelled-out words and CLAIM alone.
+    widened = channel != "person_to_person"
     named = _INSURER_NAME.search(own) is not None
-    spelled = named or _INSURER_SPELLINGS.search(own) is not None
+    spelled = named or (widened and _INSURER_SPELLINGS.search(own) is not None)
     if _TITLE_FIRM.search(own):
         return InsurerReading(own, "title", False) if spelled else None
     row = classifier._before_receiver(text)
@@ -5013,7 +5030,7 @@ def insurer_payer_reading(
     claim = _CLAIM_WORD.search(own) is not None
     if _deferred_reading(text, channel, region, entry):
         return InsurerReading(key, "named", True) if named or claim else None
-    brand = insurer_credit_brand(own)
+    brand = insurer_credit_brand(own) if widened else None
     if brand is not None:
         return InsurerReading(brand, "brand", True)
     if spelled or claim:
