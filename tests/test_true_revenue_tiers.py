@@ -32,7 +32,9 @@ def _tier(record):
 
 
 @pytest.mark.parametrize(("text", "reason"), [
-    ("STATE FARM DES:DRP PAYMENT ID:1", "insurer_payer"),
+    # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: a listed insurer's DRP pays for the business's work (the
+    # service form), counted and flagged, never verified (it was held as insurer_payer).
+    ("STATE FARM DES:DRP PAYMENT ID:1", "insurer_paid_for_services"),
     ("FABRIKAM MUTUAL INSURANCE COMPANY DES:CLAIM PAYMT ID:1", "insurer_named_payer"),
     ("NORTHWIND SUPPLY DES:RETURN ID:1", "possible_return"),
     ("CONTOSO PARTNERS LLC DES:FUNDING ID:1", "financing_named_payer"),

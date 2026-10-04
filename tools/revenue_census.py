@@ -151,12 +151,22 @@ NARROWINGS = (
     # ('SNAP LOAN FUNDING F<digits> <merchant>') leaves the strong non-revenue rule, claimed by the true-revenue pass as
     # a lease-to-own financier's payout: counted and flagged, never verified.
     ("14_customer_financing_payout", True),
+    # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: §6.3's narrowing 13: a listed insurer's credit
+    # (insurance_provider_credit_exclusion) that pays the business for its work leaves the insurance rule, released by
+    # the true-revenue pass (its method insurer_paid_for_services): counted and flagged, never verified; a later hold
+    # may still hold it.
+    ("15_insurer_paid_for_services", True),
 )
 #: The narrowings that lead to True only counted and flagged, never verified (audit B3: I11; audit B6: I10; owner
-#: ruling 2026-10-02, Q8).
+#: ruling 2026-10-02, Q8 and the underwriter's Q2).
 COUNTED_ONLY_NARROWINGS = frozenset({
     "10_processor_card_payout", "11_factoring_review_payout", "14_customer_financing_payout",
+    "15_insurer_paid_for_services",
 })
+#: Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: the method, rule and reason the true-revenue pass gives an
+#: insurer's credit it releases as the business's work (analysis/true_revenue.py INSURER_FOR_WORK_METHOD, copied: the
+#: census reads other checkouts).
+INSURER_FOR_WORK_METHOD = "insurer_paid_for_services"
 #: Audit B3 (I11): the method the true-revenue pass gives a released processor card payout
 #: (analysis/true_revenue.py PROCESSOR_CARD_PAYOUT_METHOD, copied: the census reads other checkouts).
 PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
@@ -245,6 +255,9 @@ DECLARED_DEMOTIONS = (
     # R2-OW07: a Q5 or Q6 row whose payer the insurer hold now reads however the bank spells the insurer (the INS
     # abbreviation, a cut form, LOSS PMT, SUBRO, a carrier brand), held as insurer_named_payer.
     "q5_q6_held_insurer",
+    # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: a Q5 or Q6 row the pass now releases as an insurer paid
+    # for the business's work, counted and flagged as insurer_paid_for_services, never verified and never a repeat.
+    "insurer_paid_for_services",
 )
 #: R2-OW06 review round 1: the method and reason of a builder's progress draw the pass overrules (analysis/true_revenue.py
 #: CONSTRUCTION_PROGRESS_DRAW_REASON, copied: the census reads other checkouts), and the Q5 and Q6 methods that rest on
@@ -1926,6 +1939,10 @@ def _narrowing(base: dict, after: dict) -> str | None:
     if base_method == "reversal_cancellation_exclusion" and "REIMBURSEMENT" in text and _CLAIM_SIGNAL.search(text):
         return "1_reimbursement_claim_signal"
     if base_method == "insurance_provider_credit_exclusion":
+        # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: §6.3's narrowing 13, the pass's release of a listed
+        # insurer's credit paid for the business's work (its method), counted or held by a later hold.
+        if after["method"] == INSURER_FOR_WORK_METHOD:
+            return "15_insurer_paid_for_services"
         if after["method"] == "insurer_customer_payment" and not re.search(r"H[CE]?CLAIMPMT", after["text"]):
             return "3_insurer_customer_payment"
         if re.search(r"H[CE]?CLAIMPMT", after["text"]):
@@ -2358,6 +2375,11 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     ):
         return "q5_q6_q11_repeat_partner"
     if base["method"] in Q5_Q6_METHODS:
+        # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08. (a) a Q5 or Q6 verification; (b) counted and
+        # flagged as insurer_paid_for_services, the pass's release of an insurer paid for the business's work, which
+        # Q5 and Q6 never verify nor count toward a repeat (a released row a later hold names is that hold's cause).
+        if (after.get("tier"), after.get("reason")) == ("counted_flagged", INSURER_FOR_WORK_METHOD):
+            return "insurer_paid_for_services"
         # I7 (§20). (a) a Q5 or Q6 verification; (b) held by a later 5.6 hold, named by its reason and the pass's own
         # hold reading (LATER_HOLD_CAUSES).
         if after.get("tier") == "excluded_pending_review":

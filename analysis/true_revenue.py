@@ -21,6 +21,7 @@ import hashlib
 import re
 from collections import Counter
 from dataclasses import dataclass, replace
+from datetime import date as _date
 from functools import cache
 from typing import TYPE_CHECKING, Sequence
 
@@ -2190,7 +2191,7 @@ def construction_progress_draw(
 
 def non_sale_purpose(
     text: str, region: str, *, bank: str | None = None, account_name: str | None = None, disbursing: bool = False,
-    also: Sequence[str] = (), progress_draw: bool = False,
+    also: Sequence[str] = (), progress_draw: bool = False, insurer_work: bool = False,
 ) -> bool:
     """§8.1: a non-sale purpose, a public payer's refund or benefit, or a healthcare payer's member or premium credit.
     The investment words hold a row unless it prints accounts-payable wording (S4.2 fix measurement). A3 (precision
@@ -2214,7 +2215,11 @@ def non_sale_purpose(
 
     Owner ruling 2026-10-02 (the underwriter's Q11 (a)): on a builder's progress draw (`progress_draw`, the pass's
     construction_progress_draw), DRAW is no non-sale word, inside the payer's name too; every other non-sale word and
-    every later test still holds the row."""
+    every later test still holds the row.
+
+    Owner ruling 2026-10-02 (the underwriter's Q2): on an insurer's credit pass 7 released as the business's work
+    (`insurer_work`, INSURER_FOR_WORK_METHOD), CLAIM is no non-sale word: the release read the insurer's claim as paid for
+    the business's work (a repair shop's, an agency's or a provider's claims); every other non-sale word still holds."""
     classifier = _classifier()
     row = _without_holder_name(_hold_text(text), account_name, also=also)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
@@ -2241,7 +2246,10 @@ def non_sale_purpose(
         return True
     if _INVESTMENT_PURPOSE.search(row) is not None and not _accounts_payable_wording(text):
         return True
-    if _CLAIM_WORD.search(row) and not claim_entry and not (healthcare and re.search(r"(?<![A-Z])CLAIM PMT\b", row)):
+    if (
+        not insurer_work and _CLAIM_WORD.search(row) and not claim_entry
+        and not (healthcare and re.search(r"(?<![A-Z])CLAIM PMT\b", row))
+    ):
         return True
     if _public_named(public_region(text)) and classifier._PUBLIC_PAYER_NON_SALE_WORDS.search(
         classifier._TREASURY_BOILERPLATE.sub(" ", text)
@@ -4003,7 +4011,9 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     or a merchant-ID field anywhere on the row (R01: _SETTLEMENT_CREDIT, _PAYOUT_FORMS, _MERCHANT_ID_FIELD); `payout`
     is a platform's payout id (R18, processor_payout); `person_key` is set on a credit printing a person-to-person or
     push rail whose first head word has a next word (R02: the glued first two words of the sender's name), and (review
-    round 1) whose sender prints no company form: a company's push is compared by the B4 forms as before."""
+    round 1) whose sender prints no company form: a company's push is compared by the B4 forms as before. Owner ruling
+    2026-10-02 (the underwriter's Q2): `insurer` is False on a credit pass 7 released as an insurer paying for the
+    business's work (INSURER_FOR_WORK_METHOD), so a bill to that insurer holds it only as a bill to any payer does."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     # Audit round 2, R2-B11 (R09 part A): TD Canada Trust's e-Transfer code is no sender, so never a counter-debit key.
@@ -4023,7 +4033,9 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
             _SETTLEMENT_CREDIT.search(row) is not None or _PAYOUT_FORMS.search(row) is not None
             or _MERCHANT_ID_FIELD.search(text) is not None
         ),
-        insurer=_INSURER_CREDIT.search(row) is not None,
+        # Owner ruling 2026-10-02 (the underwriter's Q2), on R2-B02's CounterCredit: a credit the insurer-for-work
+        # release re-stated is the business's work, no insurer to the bill clause of also_debited.
+        insurer=_INSURER_CREDIT.search(row) is not None and record.revenue_match_method != INSURER_FOR_WORK_METHOD,
         payout=processor_payout(text),
         person_key=person_key,
         lender_reading=classifier.counter_debit_payer_reading(words, keep_places=True),
@@ -4928,8 +4940,12 @@ _INSURER_CREDIT_BRANDS = tuple(
     for entity, patterns in INSURER_CREDIT_BRANDS.items()
 )
 #: §8.1 (R2-OW07): the revenue methods a listed insurer's credit carries (§6.1 step 5: the insurance rule's non-revenue
-#: exclusion and T14's customer-payment reading), on which the reader names the registry's entity.
-_INSURER_REGISTRY_METHODS = frozenset({"insurance_provider_credit_exclusion", "insurer_customer_payment"})
+#: exclusion and T14's customer-payment reading), on which the reader names the registry's entity. Owner ruling
+#: 2026-10-02 (the underwriter's Q2), R2-OW08: and the release's method, so a listed insurer's released credit reads as
+#: it read before the release (the registry lookup still decides; this set is no claimed set).
+_INSURER_REGISTRY_METHODS = frozenset({
+    "insurance_provider_credit_exclusion", "insurer_customer_payment", "insurer_paid_for_services",
+})
 
 
 def insurer_credit_brand(region: str) -> str | None:
@@ -5038,6 +5054,227 @@ def insurer_payer_reading(
     return None
 
 
+def _facts_region(text: str, channel: str) -> str:
+    """The payer region the pass's facts read (credit_facts; owner ruling 2026-10-02, Q2: the insurer-for-work release
+    reads it too): the classifier's payer_region, '' on the wire channel where it names no sender. Audit B5 (I14): a
+    wire's region of labels alone, or with no name word, names no sender (_wire_label_only). Audit round 2, R2-B10
+    review round 1 (R11): nor does a row an incoming-wire label starts that prints only a reference (the classifier's
+    _bare_incoming_wire), whatever word of it the payer reader keeps (a month, a stray TT or FROM): it left the
+    own-account reading only to be held as a wire with no sender, never counted."""
+    classifier = _classifier()
+    region = classifier.payer_region(text)
+    if channel == "wire" and region and (_wire_label_only(region) or classifier._bare_incoming_wire(text)):
+        return ""
+    return region
+
+
+#: Owner ruling 2026-10-02 (the underwriter's Q2, "True revenue", option 2; §8.1, §8.10): the method, matched rule and
+#: tier reason of an insurer's credit pass 7 releases as payment for the business's work: counted and flagged, never
+#: verified and never toward a Q5 or Q6 repeat. It never joins _REGISTRY_METHODS or any claimed set: a released row is
+#: unclaimed, so §8.10's holds 4 to 11 still read it (the insurer-name hold, item 3, passes over it).
+INSURER_FOR_WORK_METHOD = "insurer_paid_for_services"
+#: §8.10's threshold (Q2: "the same insurer pays three or more times in a month"): one insurer key pays the business
+#: this many eligible credits within an inclusive span of INSURER_FOR_WORK_WINDOW_DAYS days (date[i+2] - date[i] <=
+#: WINDOW_DAYS - 1). The span slides, so it reaches across a calendar month's edge; an undated credit counts as inside.
+INSURER_FOR_WORK_MIN_CREDITS = 3
+INSURER_FOR_WORK_WINDOW_DAYS = 31
+#: A loose trade word (_SERVICE_TRADES_LOOSE) names the trade only on a statement with this many eligible insurer
+#: credits or more, so it never counts a one-off claim on the business's own policy.
+INSURER_FOR_WORK_LOOSE_MIN_CREDITS = 2
+#: The owner's switch (the Q2 card's open point 1), OFF, the literal reading: on, a statement where one insurer key is
+#: frequent would count every other eligible insurer credit too ('insurer_service_statement'), which the owner's words
+#: do not say.
+INSURER_FOR_WORK_STATEMENT_ARM = False
+#: Q2: the forms insurers pay an agency with (an agent's EFT, a commission, a contingency); a not-for-work word yields
+#: to one printed in the same words.
+_INSURER_COMMISSION_FORM = re.compile(
+    r"(?<![A-Z])(?:AGENTS? EFT|AGTEFT|AGT ?COMM|AGENT COMP|COMMS?|COMMISSIONS?|CONTINGEN\w*)(?![A-Z])|PICOMM(?![A-Z])"
+)
+#: Q2: the forms insurers pay the owner's trades with: the commission forms, a direct-repair program's DRP, a repair and
+#: a vendor payment (the question's own example lines), read on the payer and the purpose words, never a wire's REF.
+_INSURER_SERVICE_FORM = re.compile(
+    _INSURER_COMMISSION_FORM.pattern + r"|(?<![A-Z])(?:DRP|REPAIRS?|VENDOR ?(?:PMT|PAY|PAYMENT))(?![A-Z])"
+)
+#: Q2: a premium, refund, return, dividend, cancellation, overpayment, member or personal-benefit word (the MCA
+#: principle: personal benefits are never revenue) refuses every ground, unless a commission form prints in the same
+#: words.
+_INSURER_NOT_FOR_WORK = re.compile(
+    r"(?<![A-Z])(?:REFUND\w*|RFND|PREM|PREMIUMS?|PREMSEC|RETURN\w*|DIVIDEND\w*|CANCEL\w*|UNEARNED|OVERPA\w*|MEMBER"
+    r"|SUBSCRIBER|MBR|DISAB\w*|INVALIDIT\w*|ANNUIT\w*|PENSION\w*)(?![A-Z])"
+)
+#: Q2's four trades on a holder name, strict words: one names the trade from a single credit. HEALTHY, SURGE and a bare
+#: GLASS are no trade word.
+_SERVICE_TRADES = tuple(
+    (label, re.compile(rf"(?<![A-Z])(?:{words})(?![A-Z])")) for label, words in (
+        ("repair shop", r"AUTO ?BODY|BODY ?SHOP|BODY ?WORKS?|COLLISION|RE ?BODY|PAINT (?:AND|&) BODY|AUTO (?:REPAIR|GLASS)"
+                        r"|GLASS (?:REPAIR|SHOP|SERVICE)S?|REPAIRS?|CARROSSERIE|DEBOSSELAGE|MECANIQUE"),
+        ("insurance agency", r"INSUR\w*|ASSURANCES?|INS|UNDERWRIT\w*"),
+        ("clinic", r"CLINIC\w*|CLINIQUE|MEDICAL|MED|HEALTHCARE|SANTE|DENTAL|DENTAIRE|DENTIST\w*|DDS|DMD|ORTHODON\w*"
+                   r"|PHYSIO\w*|PHYSICAL THERAP\w*|CHIRO\w*|THERAP\w*|REHAB\w*|OPTOM\w*|OPTICAL|PODIAT\w*|PEDIATRI\w*"
+                   r"|PHYSICIANS?|HOSPITAL|MASSAGE|RMT|COUNSELL?ING|PSYCH\w*|AUDIOLOG\w*|HEARING|LABORATOR\w*"
+                   r"|RADIOLOG\w*|URGENT CARE|HOME CARE|NURSING|HOSPICE|AMBULANCE|ACUPUNCT\w*|NATUROPATH\w*"
+                   r"|DERMATOLOG\w*|SURGERY|SURGICAL|SURGEONS?|ORTHOPED\w*|DIALYSIS|MEDICINE|DOCTORS?"),
+        ("pharmacy", r"PHARMAC\w*|DRUGS?|APOTHECARY|RX|CHEMIST|COMPOUNDING"),
+    )
+)
+#: Q2's loose trade words: an agency or a broker with no insurance word, the clinic words other businesses print too, a
+#: repair shop's neighbours; read only on a statement with INSURER_FOR_WORK_LOOSE_MIN_CREDITS eligible insurer credits.
+_SERVICE_TRADES_LOOSE = tuple(
+    (label, re.compile(rf"(?<![A-Z])(?:{words})(?![A-Z])")) for label, words in (
+        ("insurance agency", r"AGENCY|AGENCIES|AGCY|BROKERS?|BROKERAGE|COURTIERS?"),
+        ("clinic", r"HEALTH|VISION|WELLNESS|SPEECH|OCCUPATIONAL|IMAGING|COUNSEL\w*"),
+        ("repair shop", r"TOWING|RESTORATION|ROOFING|MITIGATION"),
+    )
+)
+#: Q2: each ground in words, which the released row's reason names (never the payer's words).
+_INSURER_FOR_WORK_GROUND_WORDS = {
+    "service_form": "the row prints the form an insurer pays a repair shop, an agency or a provider with",
+    "same_insurer_3_in_31_days": "the same insurer pays the business three or more times within 31 days",
+    "insurer_service_statement": (
+        "another insurer pays the business three or more times within 31 days in the statement"
+    ),
+}
+
+
+def _holder_service_trade(
+    record: TransactionClassification, receiver_holders: Sequence[str] = (), eligible_count: int = 0,
+) -> tuple[str, str] | None:
+    """Q2 (owner ruling 2026-10-02): the trade (label, word) a holder name reads: the first strict word
+    (_SERVICE_TRADES) on the holder's names (_holder_names), R2-B04's other business names (_holder_strip_names) and
+    the statement's receiver-field holder names, in that order; only on a statement with
+    INSURER_FOR_WORK_LOOSE_MIN_CREDITS eligible insurer credits or more (`eligible_count`), the first loose word; or
+    None."""
+    classifier = _classifier()
+    names = [
+        printed for printed in (
+            classifier.account_name_text(name)
+            for name in (*_holder_names(record), *_holder_strip_names(record), *receiver_holders) if name
+        ) if printed
+    ]
+    tables = [_SERVICE_TRADES]
+    if eligible_count >= INSURER_FOR_WORK_LOOSE_MIN_CREDITS:
+        tables.append(_SERVICE_TRADES_LOOSE)
+    for table in tables:
+        for name in names:
+            for label, pattern in table:
+                found = pattern.search(name)
+                if found is not None:
+                    return label, found.group(0)
+    return None
+
+
+def _record_day(record: TransactionClassification) -> _date | None:
+    """A record's posted day, or None where its date reads as none (an undated credit)."""
+    try:
+        return _date.fromisoformat(str(record.date or "")[:10])
+    except ValueError:
+        return None
+
+
+def _insurer_key_frequent(days: Sequence[_date | None]) -> bool:
+    """Q2's threshold (§8.10): some INSURER_FOR_WORK_MIN_CREDITS of one key's eligible credits fall within an inclusive
+    span of INSURER_FOR_WORK_WINDOW_DAYS days; an undated credit counts as inside any span."""
+    need = INSURER_FOR_WORK_MIN_CREDITS - sum(1 for day in days if day is None)
+    if need <= 0:
+        return True
+    known = sorted(day for day in days if day is not None)
+    span = INSURER_FOR_WORK_WINDOW_DAYS - 1
+    return any((known[i + need - 1] - known[i]).days <= span for i in range(len(known) - need + 1))
+
+
+def _insurer_for_work(
+    records: Sequence[TransactionClassification],
+    credits: Sequence[int],
+    texts: dict[int, str],
+    receiver_holders: Sequence[str] = (),
+) -> dict[int, str]:
+    """Owner ruling 2026-10-02 (the underwriter's Q2, "True revenue", option 2; §8.1): the insurer credits pass 7
+    releases as the business's work, {index: ground}. A credit is eligible when the insurer reading
+    (insurer_payer_reading, on the payer region the facts read) is for work; no registry, payout entity, factoring payee
+    or financier claimed it (_claimed, _factoring_payout_payer: the insurer-name hold's convention); no not-for-work word
+    prints on the payer (without the holder's names) or the purpose (_INSURER_NOT_FOR_WORK, unless a commission form
+    prints there too); it is $1 or more, its direction agrees, and it is an unverified deposit or the insurance rule's
+    non_revenue (insurance_provider_credit_exclusion): a row a classifier rule verified is left alone. The purpose is a
+    wire's purpose fields (_title_purpose_text, never its REF) or the entry fields, read with R2-B12's layout entry
+    (_layout_entry). The ground, the first that applies: 'holder_trade:<label>' (_holder_service_trade, with the
+    statement's eligible count), 'service_form' (_INSURER_SERVICE_FORM on the payer and the purpose, or the
+    classifier's own customer-payment wording on the row before its receiver fields, for layouts that print it before
+    the payer), 'same_insurer_3_in_31_days' (the reading's key frequent, _insurer_key_frequent: the registry's or the
+    brand's entity, so one carrier is one key however it prints), and, only with the owner's switch
+    INSURER_FOR_WORK_STATEMENT_ARM on, 'insurer_service_statement' (any key of the statement frequent). A credit with no
+    ground is not released: a listed insurer's stays non_revenue, any other the insurer holds keep."""
+    classifier = _classifier()
+    eligible: dict[int, InsurerReading] = {}
+    forms: dict[int, bool] = {}
+    for index in credits:
+        record, text = records[index], texts[index]
+        if not (
+            record.revenue_classification == "unverified_deposit"
+            or (
+                record.revenue_classification == "non_revenue"
+                and record.revenue_match_method == "insurance_provider_credit_exclusion"
+            )
+        ):
+            continue
+        if (
+            record.revenue_match_method == "direction_conflict" or not record.direction_consistent
+            or _under_micro_floor(record)
+        ):
+            continue
+        region = _facts_region(text, _channel(text, record.bank))
+        if _claimed(record, text) or _factoring_payout_payer(region, text):
+            continue
+        entry = classifier.entry_fields(text)
+        reading = insurer_payer_reading(record, text, region, entry, receiver_holders)
+        if reading is None or not reading.for_work:
+            continue
+        own = _insurer_own_region(record, region, receiver_holders)
+        if classifier._is_wire_row(text):
+            purpose = _title_purpose_text(text)
+        else:
+            # Audit round 2, R2-B12: the layout's entry (Bank of America's DES, Chase's CO ENTRY DESCR) through its
+            # helper, beside entry_fields' other fields (PNC's entry, a transfer's memo).
+            purpose = " ".join(part for part in (_layout_entry(text), entry) if part)
+        words = f"{own} {purpose}"
+        if _INSURER_NOT_FOR_WORK.search(words) and not _INSURER_COMMISSION_FORM.search(words):
+            continue
+        eligible[index] = reading
+        forms[index] = bool(
+            _INSURER_SERVICE_FORM.search(words)
+            or classifier._INSURER_CUSTOMER_PAYMENT.search(classifier._before_receiver(text))
+        )
+    days: dict[str, list[_date | None]] = {}
+    for index, reading in eligible.items():
+        days.setdefault(reading.key, []).append(_record_day(records[index]))
+    frequent = {key for key, found in days.items() if _insurer_key_frequent(found)}
+    grounds: dict[int, str] = {}
+    for index, reading in eligible.items():
+        trade = _holder_service_trade(records[index], receiver_holders, len(eligible))
+        if trade is not None:
+            grounds[index] = f"holder_trade:{trade[0]}"
+        elif forms[index]:
+            grounds[index] = "service_form"
+        elif reading.key in frequent:
+            grounds[index] = "same_insurer_3_in_31_days"
+        elif INSURER_FOR_WORK_STATEMENT_ARM and frequent:
+            grounds[index] = "insurer_service_statement"
+    return grounds
+
+
+def _insurer_for_work_reason(ground: str) -> str:
+    """The released row's reason: the ground in words, never the payer's (privacy)."""
+    if ground.startswith("holder_trade:"):
+        label = ground.split(":", 1)[1]
+        article = "an" if label[:1] in "aeiou" else "a"
+        words = f"the holder's name reads {article} {label}"
+    else:
+        words = _INSURER_FOR_WORK_GROUND_WORDS[ground]
+    return (
+        f"An insurer pays the business for its work ({words}): counted and flagged, never verified (owner ruling "
+        "2026-10-02, Q2)."
+    )
+
+
 def credit_facts(
     record: TransactionClassification,
     text: str,
@@ -5059,13 +5296,7 @@ def credit_facts(
     `disbursers` the statement's _recurring_disbursers, whose disbursement entry is no non-sale purpose (I18)."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
-    region = classifier.payer_region(text)
-    # Audit B5 (I14): a wire's region of labels alone, or with no name word, names no sender (_wire_label_only).
-    # Audit round 2, R2-B10 review round 1 (R11): nor does a row an incoming-wire label starts that prints only a
-    # reference (the classifier's _bare_incoming_wire), whatever word of it the payer reader keeps (a month, a stray TT
-    # or FROM): it left the own-account reading only to be held as a wire with no sender, never counted.
-    if channel == "wire" and region and (_wire_label_only(region) or classifier._bare_incoming_wire(text)):
-        region = ""
+    region = _facts_region(text, channel)
     # Audit round 2, R2-B11 (R09 part A): a TD Canada Trust e-Transfer prints a per-transfer code where a sender would
     # stand, which the pass's text no longer prints (without_transfer_code): the row reads no sender and no key.
     sender, holder_sender = (
@@ -5190,7 +5421,9 @@ def _first_hold(
     underwriter's Q11 (a)): on a builder's progress draw (`progress_draw`) the non-sale test spares DRAW alone. R2-OW06
     review round 1: with `insurer_name` False the insurer-name hold is passed over, so credit_facts reads the hold an IAA
     seller payout would take after it (CreditFacts.hold_past_insurer_name). Audit I26 (R2-OW07): the insurer-name hold
-    reads insurer_payer_reading, every insurer spelling and brand without the holder's names."""
+    reads insurer_payer_reading, every insurer spelling and brand without the holder's names. Owner ruling 2026-10-02
+    (the underwriter's Q2): a credit the insurer-for-work release re-stated (INSURER_FOR_WORK_METHOD) takes no
+    insurer-name hold, and the non-sale test reads no CLAIM on it; every other hold reads it as before."""
     classifier = _classifier()
     # Audit round 2, R2-B04 (R40): the I47 strip reads the holder's other business names too (_holder_strip_names).
     also = _holder_strip_names(record)
@@ -5202,7 +5435,9 @@ def _first_hold(
     # R2-OW07): an insurer however the bank spells it (insurer_payer_reading: the spelled words, the INS abbreviation,
     # the cut forms, LOSS PMT, SUBRO, the brand table, CLAIM), read without the holder's names; a listed insurer's
     # reading is the insurance rule's (non_revenue), never this hold.
-    if insurer_name and not claimed and region:
+    # Owner ruling 2026-10-02 (the underwriter's Q2): a credit the insurer-for-work release re-stated
+    # (INSURER_FOR_WORK_METHOD) is no insurer-name hold; every later hold still reads it.
+    if insurer_name and not claimed and region and record.revenue_match_method != INSURER_FOR_WORK_METHOD:
         reading = insurer_payer_reading(record, text, region, entry, receiver_holders)
         if reading is not None and reading.kind != "registry":
             return "insurer_named_payer"
@@ -5284,7 +5519,7 @@ def _first_hold(
         return "personal_income"
     if not claimed and non_sale_purpose(
         text, region, bank=record.bank, account_name=_holder(record), disbursing=disbursing, also=also,
-        progress_draw=progress_draw,
+        progress_draw=progress_draw, insurer_work=record.revenue_match_method == INSURER_FOR_WORK_METHOD,
     ):
         return "non_sale_purpose"
     if not claimed and (
@@ -5378,10 +5613,12 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
     (I11): and a processor's instant payout released from a card credit (counted, never verified). Owner ruling
     2026-10-02 (Q8): and a lease-to-own or patient financier's merchant payout, or any row that names one of them
     (CUSTOMER_FINANCING_NAMES, read without the receiver field's value). Owner ruling 2026-10-02 (the underwriter's Q11
-    (a)): and a builder's progress draw (counted and flagged, never verified)."""
+    (a)): and a builder's progress draw (counted and flagged, never verified). Owner ruling 2026-10-02 (the
+    underwriter's Q2): and an insurer's credit released as the business's work (INSURER_FOR_WORK_METHOD)."""
     return (
         record.revenue_match_method == "direction_conflict"
         or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
+        or record.revenue_match_method == INSURER_FOR_WORK_METHOD
         or not record.direction_consistent
         or _under_micro_floor(record)
         or _left_to_its_family(text)
@@ -5844,6 +6081,10 @@ def _tier_reason_read(
     # rule only to be held (T13), on any channel and whoever the sender is: it never enters True.
     if classifier._named_sender_after_designation(text, _holder(record)):
         return "excluded_pending_review", "transfer_account_designation"
+    # Owner ruling 2026-10-02 (the underwriter's Q2; §8.10 item 12): an insurer paying the business for its work, which
+    # the release before the facts re-stated (_insurer_for_work); every hold before it still wins.
+    if record.revenue_match_method == INSURER_FOR_WORK_METHOD:
+        return "counted_flagged", INSURER_FOR_WORK_METHOD
     # Audit B3 (I11, §6.3 narrowing 9): a processor's instant payout printed as a card credit, released beside the
     # processor's own ACH activity: a platform payout no form confirms.
     if record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD:
@@ -5950,7 +6191,11 @@ def apply_true_revenue_pass(
     that shows no dealer (_dealer_statement), the asset-sale reading (asset_sale_reading, on the unverified rows and the
     rows an invoice or customer-payment descriptor verified) keeps a row from Q5 and Q6, and the tier loop makes it
     non_revenue / asset_sale_proceeds after the payables demotion (a verified row) or after _tier_reason (a row the
-    tier counts, or IAA's insurer-name hold); a held tier keeps the row held."""
+    tier counts, or IAA's insurer-name hold); a held tier keeps the row held. Owner ruling 2026-10-02 (the
+    underwriter's Q2): after the statement facts and before the payer facts, an insurer's credit paid for the business's
+    work (_insurer_for_work) is re-stated as an unverified deposit of method INSURER_FOR_WORK_METHOD, unclaimed (§8.10's
+    holds 4 to 11 still read it), never toward a Q5 or Q6 repeat, and tiered counted_flagged /
+    insurer_paid_for_services."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -6041,6 +6286,22 @@ def apply_true_revenue_pass(
     # Owner ruling 2026-10-02 (the underwriter's Q9, part (c'); §8.7): whether the statement shows dealer evidence,
     # which a listed auto lender's payables-only credit needs to stay verified (_dealer_contract_evidence).
     dealer = _dealer_contract_evidence(updated, duplicate_indexes, credits)
+    # Owner ruling 2026-10-02 (the underwriter's Q2, "True revenue"; §8.1, §8.10 item 12): an insurer's credit paid for
+    # the business's work (a holder trade, a service form, or three or more from one insurer within 31 days;
+    # _insurer_for_work) is re-stated before the facts, as B3's processor release is: an unverified deposit of method
+    # INSURER_FOR_WORK_METHOD, unclaimed, so §8.10's holds 4 to 11 still read it, never toward a Q5 or Q6 repeat, and
+    # tiered counted_flagged / insurer_paid_for_services where no hold names it. The reason names the ground alone.
+    for index, ground in _insurer_for_work(updated, credits, texts, receiver_holders).items():
+        record = updated[index]
+        updated[index] = classifier._replace_revenue_state(
+            record,
+            "unverified_deposit",
+            match_method=INSURER_FOR_WORK_METHOD,
+            matched_rule="insurer_paid_for_services",
+            confidence_score=0.60,
+            reason=_insurer_for_work_reason(ground),
+            context_signals=(*record.revenue_context_signals, INSURER_FOR_WORK_METHOD),
+        )
     facts = {
         index: credit_facts(
             updated[index], texts[index], debits=debits,

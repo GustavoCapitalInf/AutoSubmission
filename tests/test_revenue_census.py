@@ -3541,3 +3541,94 @@ def test_ow07_the_snapshot_declares_t9b_s_insurer_repeats():
     run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
     assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {"q5_q6_held_insurer": 2}
     assert run["guards"] == {}
+
+
+# Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: an insurer paid for the business's work is released by the
+# true-revenue pass (method insurer_paid_for_services) and counted and flagged, never verified. A listed insurer's
+# credit leaves the insurance rule by §6.3's narrowing 13 (the census's fifteenth), counted only; a Q5 or Q6 row so
+# released is the declared demotion insurer_paid_for_services.
+REGISTRY_INSURER_ROW = census.mask("STATE FARM DES DRP PAYMENT ID 1")
+
+
+@pytest.mark.parametrize(("state", "tier", "reason", "method", "narrowing", "fails"), [
+    ("unverified_deposit", "counted_flagged", "insurer_paid_for_services", "insurer_paid_for_services",
+     "15_insurer_paid_for_services", False),
+    # A released row a later hold names is still the narrowing's (out of True, no failure).
+    ("unverified_deposit", "excluded_pending_review", "holder_name", "insurer_paid_for_services",
+     "15_insurer_paid_for_services", False),
+    ("unverified_deposit", "excluded_pending_review", "payroll_or_salary", "insurer_paid_for_services",
+     "15_insurer_paid_for_services", False),
+    # Counted only: never verified.
+    ("verified_revenue", "verified", None, "insurer_paid_for_services", "15_insurer_paid_for_services", True),
+    # A customer-payment row held as insurer_payer stays narrowing 3's.
+    ("unverified_deposit", "excluded_pending_review", "insurer_payer", "insurer_customer_payment",
+     "3_insurer_customer_payment", False),
+])
+def test_ow08_narrowing_15_releases_a_listed_insurer_s_credit_paid_for_work_counted_only(state, tier, reason, method,
+                                                                                         narrowing, fails):
+    base = _snap("5.6", {"a": _account([_credit(0, 300000, "non_revenue", "insurance_provider_credit_exclusion",
+                                                tier="non_revenue", text=REGISTRY_INSURER_ROW, entity="State Farm")])})
+    after = _snap("5.6", {"a": _account([_credit(0, 300000, state, method, tier=tier, reason=reason,
+                                                 text=REGISTRY_INSURER_ROW, entity="State Farm")])})
+    run = _run(base, after)
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+    assert dict(census.NARROWINGS)["15_insurer_paid_for_services"] is True
+    assert "15_insurer_paid_for_services" in census.COUNTED_ONLY_NARROWINGS
+    assert census.INSURER_FOR_WORK_METHOD == "insurer_paid_for_services"
+
+
+@pytest.mark.parametrize(("later", "cause"), [
+    # A Q5 or Q6 repeat now released as an insurer paid for work, counted.
+    (_after56("insurer_paid_for_services", INSURER_ROW, tier="counted_flagged", reason="insurer_paid_for_services"),
+     "insurer_paid_for_services"),
+    # Released, then held by the counter-debit hold: that hold's own cause.
+    (_after56("insurer_paid_for_services", INSURER_ROW, tier="excluded_pending_review", reason="payer_also_debited"),
+     "q5_q6_held_counter_debit"),
+])
+def test_ow08_a_q5_or_q6_row_the_pass_releases_is_a_declared_demotion(later, cause):
+    causes, run = _cause56(_q56("named_payer_repeats", INSURER_ROW), later)
+    assert causes == {cause: 1}
+    assert "undeclared_demotion" not in run["guards"]
+    assert "insurer_paid_for_services" in census.DECLARED_DEMOTIONS
+
+
+def test_ow08_another_rule_s_verified_row_counted_as_an_insurer_for_work_stays_undeclared():
+    """The cause is declared only for a Q5 or Q6 verification (the release never reads a classifier-verified row)."""
+    later = _after56("insurer_paid_for_services", INSURER_ROW, tier="counted_flagged",
+                     reason="insurer_paid_for_services")
+    causes, run = _cause56(_step_11(INSURER_ROW), later)
+    assert causes == {"undeclared": 1}
+    assert run["guards"]["undeclared_demotion"]["failures"] == 1
+
+
+def test_ow08_the_snapshot_declares_t30_s_travelers_rows():
+    """T30: Travelers paying a bakery three times within 31 days, spelled two ways, is one key: the registry's spelling
+    (the insurance rule's non_revenue before the release) leaves by narrowing 15, and the brand's two INDEMN rows (Q6's
+    verified repeats before R2-OW07) are the declared demotion insurer_paid_for_services; no guard fails."""
+    from analysis.schema import Statement, Transaction
+
+    rows = [("TRAVELERS INSURANCE DES:PAYMENT ID:1", 812.0, "03-02"),
+            ("TRAVELERS INDEMN DES:PAYMENT ID:2", 1290.5, "03-12"),
+            ("TRAVELERS INDEMN DES:PAYMENT ID:3", 640.25, "03-24")]
+    statement = Statement(bank="Bank of America", account_name="CONTOSO BAKERY LLC", transactions=[
+        Transaction(date=f"2054-{day}", description=text, amount=amount, direction="credit")
+        for text, amount, day in rows
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    readings = [(credit["state"], credit["method"], credit["tier"], credit["reason"]) for credit in snap["credits"]]
+    assert readings == [("unverified_deposit", "insurer_paid_for_services", "counted_flagged",
+                         "insurer_paid_for_services")] * 3
+    for credit in snap["credits"]:
+        assert not any(census._row_guards(credit).values())
+    base = {**snap, "credits": [
+        {**snap["credits"][0], "state": "non_revenue", "method": "insurance_provider_credit_exclusion",
+         "tier": "non_revenue", "reason": None, "rule": "insurance_proceeds_or_refund"},
+        *({**credit, "state": "verified_revenue", "method": "named_payer_repeats", "tier": "verified", "reason": None,
+           "rule": "verified_named_payer_repeats"} for credit in snap["credits"][1:]),
+    ]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert list(run["left_non_revenue"]) == ["15_insurer_paid_for_services"]
+    assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
+        "insurer_paid_for_services": 2}
+    assert run["guards"] == {}

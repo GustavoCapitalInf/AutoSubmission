@@ -1356,6 +1356,28 @@ def test_the_dashboard_reason_table_names_q11_s_two_codes():
     assert _ASSET_SALE_SENTENCE in source
 
 
+def test_the_dashboard_reason_table_names_an_insurer_paid_for_the_business_s_work():
+    """Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08 (CR5): insurer_paid_for_services right after
+    construction_progress_draw, with its one-line sentence; insurer_payer and insurer_named_payer are kept."""
+    reasons = list(_js_reasons())
+    assert reasons[reasons.index("construction_progress_draw") + 1] == "insurer_paid_for_services"
+    assert _js_reasons()["insurer_paid_for_services"] == ("counted_flagged", "Insurer paid for the business's work")
+    assert {"insurer_payer", "insurer_named_payer"} <= set(reasons)
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert ("An insurer paid the business for its work: a repair, a commission, or claims it billed. Counted, never "
+            "Verified. Check it is not a claim on the business's own policy.") in source
+
+
+@needs_node
+def test_an_insurer_paid_for_the_business_s_work_is_tagged_with_its_reason():
+    rows = [_record("counted_flagged", reason="insurer_paid_for_services")]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).label), reasons: rows.map(revenueReviewReason)}}));
+""")
+    assert result["reasons"][0].startswith("Insurer paid for the business's work. An insurer paid the business for its")
+
+
 @needs_node
 def test_a_statement_breaks_out_its_non_dealer_asset_sales_under_non_revenue():
     result = run_dashboard(METRIC_ROWS + LEDGER + _open("a", _served(_payload(_ASSET_SALE_ROWS))) + """

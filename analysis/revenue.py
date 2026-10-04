@@ -75,6 +75,10 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     # Owner ruling 2026-10-02 (the underwriter's Q11 (a)), R2-OW06: a builder's progress draw, counted and flagged, never
     # verified (true_revenue.CONSTRUCTION_PROGRESS_DRAW_REASON).
     "construction_progress_draw": ("counted_flagged", "Builder's progress draw"),
+    # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: an insurer paying the business for its work (a holder's
+    # trade, a service form, or three or more credits from one insurer within 31 days), counted, never verified
+    # (true_revenue.INSURER_FOR_WORK_METHOD).
+    "insurer_paid_for_services": ("counted_flagged", "Insurer paid for the business's work"),
     # Audit B11 (I53): the payer's own settlement of the merchant's sales (OQ2's BNPL providers, marketplaces), counted;
     # the label keeps the caution that the payer also lends, and never reads as financing counted in True.
     "payout_credit_entity": ("counted_flagged", "BNPL or marketplace settlement (payer also lends)"),
