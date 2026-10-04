@@ -679,7 +679,8 @@ def test_an_insurer_paid_for_the_business_s_work_is_counted_never_verified(rows,
         assert record.revenue_review_required is False and record.contributes_to_true_revenue
         assert not record.contributes_to_verified_revenue
         assert f"({GROUND_WORDS[ground]})" in record.revenue_reason
-        assert "counted and flagged, never verified (owner ruling 2026-10-02, Q2)" in record.revenue_reason
+        assert ("counted and flagged, never verified (the owner's ruling on the underwriter's Q2)"
+                in record.revenue_reason)
 
 
 def test_the_statement_arm_switch_on_counts_another_insurer_s_one_off(monkeypatch):

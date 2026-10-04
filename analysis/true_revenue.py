@@ -5269,9 +5269,10 @@ def _insurer_for_work_reason(ground: str) -> str:
         words = f"the holder's name reads {article} {label}"
     else:
         words = _INSURER_FOR_WORK_GROUND_WORDS[ground]
+    # The ruling is named without its date: no year literal outside date parsing (test_no_statement_hardcodes).
     return (
-        f"An insurer pays the business for its work ({words}): counted and flagged, never verified (owner ruling "
-        "2026-10-02, Q2)."
+        f"An insurer pays the business for its work ({words}): counted and flagged, never verified (the owner's "
+        "ruling on the underwriter's Q2)."
     )
 
 
