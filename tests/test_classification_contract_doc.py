@@ -188,6 +188,9 @@ STALE_SENTENCES = (
     (SPEC, "a builder's progress `DRAW` waits for the owner's ruling (§15)"),
     (SPEC, "whether to hold them waits for the owner (I45)"),
     (SPEC, "and, once its batch lands, `asset_sale_proceeds`"),
+    # R2-OW06 review round 1: FLEET alone left the asset nouns of a sale, and an IAA hold yields only with no later hold.
+    (SPEC, "`CRANE(S)`, `FLEET`, `SEMI(S)`"),
+    (CONTRACT, "insurer-name hold alone holds it, or where an invoice or customer-payment"),
 )
 
 
@@ -322,6 +325,22 @@ def test_the_spec_and_the_contract_state_the_q11_ruling():
                   "A non-dealer's sale of equipment or vehicles is `non_revenue` (`asset_sale_proceeds`)",
                   "Owner ruling 2026-10-02, R2-OW06"):
         assert words in contract, words
+
+
+def test_the_spec_and_the_contract_state_the_q11_review_round():
+    """R2-OW06 review round 1: §8.1 states the realty and commission-draw vetoes, the descriptor-verified draw's
+    demotion, the repeat partner, FLEET, the commission or fee next to a sale and IAA's later hold; §8.10 the new
+    demotion; §20 the round; the contract notes it."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = _section(text, "\n### 8.1 ", "\n### 8.2 ")
+    for words in ("`construction_progress_draw_never_verified`", "`q5_q6_q11_repeat_partner`", "`payer_key_digest`",
+                  "`<NAME> HOMES REALTY LLC`", "`COMMISSIONS DRAW`", "`FLEET` alone is none",
+                  "`COMMISSION ON TRUCK SALE`", "`TRUCK SALE NET OF FEES`", "`CreditFacts.hold_past_insurer_name`"):
+        assert words in holds, words
+    tiering = _section(text, "\n### 8.10 ", "\n## 9. ")
+    assert "and a builder's progress draw that an earlier rule verified (Q11 (a) of 2026-10-02" in tiering
+    assert "**Owner ruling 2026-10-02, R2-OW06 review round 1**" in text[text.index("\n## 20. "):]
+    assert "Owner ruling 2026-10-02, R2-OW06 review round 1" in _flat(CONTRACT)
 
 
 def test_the_spec_records_the_card_push_switches_as_kept_off():
