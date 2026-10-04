@@ -77,12 +77,18 @@ def test_every_reason_code_names_a_middle_tier():
     # lender_paid_for_services (CR5).
     # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: insurer_paid_for_services right after
     # construction_progress_draw (CR5).
+    # Owner ruling 2026-10-02 (the underwriter's Q9 (a), (b)), R2-OW09: finance_named_customer, then lessor_rent, right
+    # after insurer_paid_for_services (CR5).
     codes = list(REVENUE_TIER_REASONS)
-    assert codes[codes.index("factoring_payout") + 1: codes.index("factoring_payout") + 4] == [
-        "lender_paid_for_services", "construction_progress_draw", "insurer_paid_for_services"]
+    assert codes[codes.index("factoring_payout") + 1: codes.index("factoring_payout") + 6] == [
+        "lender_paid_for_services", "construction_progress_draw", "insurer_paid_for_services",
+        "finance_named_customer", "lessor_rent"]
     assert REVENUE_TIER_REASONS["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
     assert REVENUE_TIER_REASONS["insurer_paid_for_services"] == (
         "counted_flagged", "Insurer paid for the business's work")
+    assert REVENUE_TIER_REASONS["finance_named_customer"] == (
+        "counted_flagged", "Customer with a finance word in its name, paying an invoice")
+    assert REVENUE_TIER_REASONS["lessor_rent"] == ("counted_flagged", "Rent received by a leasing or property business")
     assert "insurer_payer" in REVENUE_TIER_REASONS and "insurer_named_payer" in REVENUE_TIER_REASONS
     assert REVENUE_TIER_REASONS["asset_sale_proceeds"] == ("non_revenue", "Sale of equipment or vehicles (not a dealer)")
     # Audit B10 (I05, I60): payer_text_not_read is the 27th. Audit round 2, R2-B07 (R07): unread_run_names_financing
@@ -92,8 +98,9 @@ def test_every_reason_code_names_a_middle_tier():
     # 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: lender_paid_for_services right after factoring_payout, the
     # 33rd. Owner ruling 2026-10-02 (the underwriter's Q11), R2-OW06: construction_progress_draw and
     # asset_sale_proceeds, the 34th and 35th. Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08:
-    # insurer_paid_for_services, the 36th.
-    assert len(REVENUE_TIER_REASONS) == 36
+    # insurer_paid_for_services, the 36th. Owner ruling 2026-10-02 (the underwriter's Q9), R2-OW09:
+    # finance_named_customer and lessor_rent, the 37th and 38th.
+    assert len(REVENUE_TIER_REASONS) == 38
     assert "non_revenue_by_reason" in TIER_METRIC_KEYS
 
 

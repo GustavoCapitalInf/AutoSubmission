@@ -873,6 +873,48 @@ CUSTOMER_FINANCING_LUMP_SUM = "customer_financing_lump_sum"
 #: batch (R2-OW05) gives it to a listed auto lender's payables-only credit on a statement with no dealer evidence
 #: (_lender_service_never_verified).
 LENDER_PAID_FOR_SERVICES = "lender_paid_for_services"
+#: Owner ruling 2026-10-02 (the underwriter's Q9, "Keep them as true revenue", option 2; §5.3, §8.1; R2-OW09): the
+#: reasons of T4's financing-root hold lifted (finance_named_release): (a) a customer whose own name carries a finance
+#: word, paying on a line that prints invoice, accounts-payable or vendor-payment wording, and (b) a rent LEASE received
+#: by a business in leasing or property; (c) is LENDER_PAID_FOR_SERVICES. Each counted and flagged, never verified,
+#: never toward a Q5 or Q6 repeat.
+FINANCE_NAMED_CUSTOMER = "finance_named_customer"
+LESSOR_RENT = "lessor_rent"
+#: Q9 (a), (c): a commission is service wording too (the orchestrator's extension under the underwriter's Q10,
+#: "commissions that reach the agency's operating account"; not Q9's own words), read on the row before its receiver
+#: fields, the holder's names removed.
+_SERVICE_COMMISSION = re.compile(r"(?<![A-Z])COMMISSIONS?\b")
+#: Q9: a line printing loan proceeds or a disbursement is never released, whatever its wording.
+_Q9_REFUSAL = re.compile(r"(?<![A-Z])(?:PROCEEDS|DISBURS\w*)\b")
+#: Q9 (b): the rent sense of LEASE: never before a fund, a financing, a loan, an advance, proceeds, a buyout, a purchase
+#: or TO OWN (a lease-to-own or lease financing, Q8's or T4's).
+_RENT_LEASE = re.compile(
+    r"(?<![A-Z])LEASE\b(?! ?(?:FUND\w*|FINANC\w*|LOANS?|ADVANCES?|PROCEEDS|BUY ?OUT\w*|PURCH\w*|TO OWN))"
+)
+#: Q9 (c): the payer's name reads as a lender's: the label lender_paid_for_services, never a tier (a label only).
+#: FINANCIAL and ADVANCED are left out (they read as a customer's); a customer whose name starts with a whole-word
+#: ADVANCE, CAP, ADV or CREDIT (ADVANCE AUTO PARTS) takes this label, its tier the same (a documented label limit).
+_LENDER_NAME_WORD = re.compile(
+    r"(?<![A-Z])(?:FUND(?:ING|S|ED|ER|ERS)?|LEND(?:ING|ERS?)?|LOANS?|CAPITAL|CAPIT|CAPTL|CAP|CASH ADV\w*|ADVANCES?|ADV"
+    r"|MCA|RTR|ACCEPTANCE|SERVICING|SERVICER|FINANCE|FINANCING|MORTGAGE|MTG|CREDIT|LEASING|PORTFOL\w*)(?![A-Z])"
+    r"|[A-Z]CREDIT|CREDIT[A-Z]"
+)
+#: Q9 (b), the lessor's third arm: rent wording on a posted credit (never a car rental's RENT A CAR).
+_RENT_RECEIVED = re.compile(r"(?<![A-Z])(?:RENT|RENTS|RENTAL|RENTALS)\b(?! ?A ?CAR\b)")
+#: Q9 (b), the lessor's first arm: a leasing or property trade word on one of the holder's names.
+_PROPERTY_TRADE = re.compile(
+    r"(?<![A-Z])(?:REALTY|REAL ESTATE|PROPERTY|PROPERTIES|PROPS|LEASING|RENTALS?|LANDLORD|APARTMENTS?|APTS|LOFTS"
+    r"|TOWNHOMES|STORAGE|PARKING|PLAZA|MALL|ESTATES|PROPERTY MANAGEMENT|PROP MGMT)\b"
+)
+#: Q9: a payer's company form; finance_named_release reads its FIRST match on the payer reading (a root after it, on a
+#: layout with no entry label, is a purpose, never the name; (b)'s rent memo stands after it).
+_Q9_FORM_WORD = re.compile(r"\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC)\b")
+#: Q9: the counted reasons a released row keeps (the relabel never renames them): the owner batches' specific counted
+#: reasons and the platform, payout, numbered-company and unread-payer readings.
+_Q9_KEEPS = frozenset({
+    "numbered_company_payer", "factoring_payout", "payout_credit_entity", "platform_unconfirmed", "payer_text_not_read",
+    "customer_financing_payout", "construction_progress_draw", "insurer_paid_for_services", LENDER_PAID_FOR_SERVICES,
+})
 #: Owner ruling 2026-10-02 (Q9 (c'); §8.7): dealer evidence on a statement's rows: a floor-plan form printed anywhere
 #: (FLOORPLAN, FLOOR PLAN), beside the registry's floor-plan financiers (FLOOR_PLAN_ALIASES).
 _FLOOR_PLAN_FORM = re.compile(r"(?<![A-Z])FLOOR ?PLAN\w*")
@@ -1286,6 +1328,10 @@ class CreditFacts:
     #: INSURANCE is the auction's name), the hold of §8.10's order that would name it after that hold, or None: Q11
     #: reads the row only when none would, so every other hold keeps an IAA seller payout held.
     hold_past_insurer_name: str | None = None
+    #: §8.1, §8.10 (owner ruling 2026-10-02, the underwriter's Q9; R2-OW09): the reason T4's financing-root hold was
+    #: lifted with (finance_named_customer, lessor_rent or lender_paid_for_services: finance_named_release), set only
+    #: where no hold names the row then; never verified, never a repeat, its counted reason relabelled last.
+    q9: str | None = None
 
 
 def _classifier():
@@ -1772,49 +1818,86 @@ def financing_named(
     follows it in the payer region (B7 review round 1, _FORMED_CREDITS: '<NAME> CREDITS LLC'). B7 review round 1: a
     payer-less deposit row is read once its location is removed (_deposit_location_reading), for whole financing words
     only, so a funder's name printed on it still holds; B7 review round 2: its bank, a place, a branch's name, a town
-    printed with its state, a buyer's advance purchase and a hold notice's FUNDS are removed or never kept too."""
+    printed with its state, a buyer's advance purchase and a hold notice's FUNDS are removed or never kept too.
+
+    Owner ruling 2026-10-02 (the underwriter's Q9; R2-OW09): the reading is _financing_root_places', place by place;
+    this is whether any place fired (bool of the places), unchanged."""
+    return bool(_financing_root_places(text, region, entry, account_name, bank=bank, also=also))
+
+
+@dataclass(frozen=True)
+class _RootPlaces:
+    """Owner ruling 2026-10-02 (the underwriter's Q9; §8.1, T4; R2-OW09): where financing_named's roots fire, place by
+    place. `payer` is the payer reading when a root, or one of the special payer arms, fires there (`payer_arm`: the
+    whole-word or formed CREDIT arm, a glued ...CRED name or a wire's wrap-split root); `entry` the entry reading when a
+    root fires there; `row` the payer-less reading (a check, cash, branch or ATM deposit's reading, or the row's reading
+    on a row with no payer region) when a root fires there. None where none fires. True when any place fired."""
+
+    payer: str | None = None
+    payer_arm: bool = False
+    entry: str | None = None
+    row: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.payer is not None or self.entry is not None or self.row is not None
+
+
+def _financing_root_places(
+    text: str, region: str, entry: str, account_name: str | None, *, bank: str | None = None,
+    also: Sequence[str] = (),
+) -> _RootPlaces:
+    """§8.1, T4 (financing_named's reading, moved here whole by R2-OW09, no behaviour change): the places a financing
+    root fires on, each read as financing_named always read it. Every place is computed: a special payer arm (the
+    whole-word or formed CREDIT, a glued ...CRED name, a wire's wrap-split root) no longer ends the reading, so the
+    underwriter's Q9 release (finance_named_release) sees an entry root printed beside it. bool() of the result is
+    financing_named's answer on every input."""
     classifier = _classifier()
     channel = _channel(text, bank)
     if not region and channel in _DEPOSIT_CHANNELS:
-        return _FINANCING_ROOT.search(_deposit_location_reading(text, account_name, bank, also=also)) is not None
+        reading = _deposit_location_reading(text, account_name, bank, also=also)
+        return _RootPlaces(row=reading) if _FINANCING_ROOT.search(reading) is not None else _RootPlaces()
     row = classifier._before_receiver(text)
     p2p = channel == "person_to_person" and _p2p_rail(row)
     wire = classifier._is_wire_row(text)
-    parts = []
     if region:
         payer = _root_reading(_HOLD_POSTING_LABELS.sub(" ", region), account_name, bank, p2p=p2p, also=also)
         if p2p and _p2p_person_name(payer):
             payer = ""
         payer = _CUT_NAME_ENTRY_CREDIT.sub("", payer.strip())
-        parts.append(payer)
         name_words = classifier.payer_name(payer).split()
-        if len(name_words) >= 2 and (_WHOLE_CREDIT.search(" ".join(name_words)) or _FORMED_CREDITS.search(payer)):
-            return True
-        # A3 review, rounds 2 and 3: a glued ...CRED word, on a payer's name field or a company-formed payer region.
-        if (
-            _prints_payer_name_field(text) or classifier.company_form(" ".join(name_words))
-        ) and any(_GLUED_CRED_NAME.fullmatch(word) for word in name_words):
-            return True
-        # A3: a wire's sender split by a line wrap, read across the split (§7.9's wrap-tolerant reading); A3 review,
-        # rounds 2 and 3: on every wire sender, labelled or not, where the two words spell a financing word.
-        if wire and _wrap_split_root(text, payer):
-            return True
+        payer_arm = bool(
+            (len(name_words) >= 2 and (_WHOLE_CREDIT.search(" ".join(name_words)) or _FORMED_CREDITS.search(payer)))
+            # A3 review, rounds 2 and 3: a glued ...CRED word, on a payer's name field or a company-formed payer region.
+            or (
+                (_prints_payer_name_field(text) or classifier.company_form(" ".join(name_words)))
+                and any(_GLUED_CRED_NAME.fullmatch(word) for word in name_words)
+            )
+            # A3: a wire's sender split by a line wrap, read across the split (§7.9's wrap-tolerant reading); A3
+            # review, rounds 2 and 3: on every wire sender, labelled or not, where the two words spell a financing word.
+            or (wire and _wrap_split_root(text, payer))
+        )
+        entry_place = None
         if entry:
             purpose = _HOLD_POSTING_LABELS.sub(" ", entry)
             if wire:
                 purpose = _WIRE_TRADE_PURPOSE.sub(" ", purpose)
-            parts.append(_root_reading(purpose, account_name, bank, p2p=False, also=also))
-    else:
-        reading = _root_reading(_hold_text(text), account_name, bank, p2p=p2p, also=also)
-        if p2p:
-            # A sender printed without FROM (its rail's reading, _p2p_sender_region): a person's name words are removed
-            # one by one (the reading skips single letters and generic words between them).
-            sender = _p2p_sender_region(text)
-            if sender and _p2p_person_name(sender):
-                for word in sender.split():
-                    reading = re.sub(r"(?<![A-Z0-9])" + re.escape(word) + r"(?![A-Z0-9])", " ", reading)
-        parts.append(reading)
-    return any(_FINANCING_ROOT.search(part) for part in parts)
+            reading = _root_reading(purpose, account_name, bank, p2p=False, also=also)
+            if _FINANCING_ROOT.search(reading):
+                entry_place = reading
+        return _RootPlaces(
+            payer=payer if payer_arm or _FINANCING_ROOT.search(payer) else None,
+            payer_arm=payer_arm,
+            entry=entry_place,
+        )
+    reading = _root_reading(_hold_text(text), account_name, bank, p2p=p2p, also=also)
+    if p2p:
+        # A sender printed without FROM (its rail's reading, _p2p_sender_region): a person's name words are removed one
+        # by one (the reading skips single letters and generic words between them).
+        sender = _p2p_sender_region(text)
+        if sender and _p2p_person_name(sender):
+            for word in sender.split():
+                reading = re.sub(r"(?<![A-Z0-9])" + re.escape(word) + r"(?![A-Z0-9])", " ", reading)
+    return _RootPlaces(row=reading) if _FINANCING_ROOT.search(reading) else _RootPlaces()
 
 
 def _root_reading(
@@ -4159,6 +4242,147 @@ def _payer_collects(credit: CounterCredit, debits: CounterDebits) -> bool:
     return False
 
 
+def finance_named_release(
+    record: TransactionClassification,
+    text: str,
+    *,
+    region: str,
+    entry: str,
+    debits: CounterDebits,
+    lessor: bool = False,
+) -> str | None:
+    """Owner ruling 2026-10-02 (the underwriter's Q9, "Keep them as true revenue", option 2; §8.1, T4; R2-OW09): the
+    reason T4's financing-root hold is lifted with on an unverified credit nothing claimed, or None. Only the root arm
+    (financing_named, read by place: _financing_root_places) is lifted; every other financing arm still holds, and a
+    released row takes every later hold (_first_hold's `released`).
+
+    None when no root fires, or when the row before its receiver fields (the holder's names removed) prints PROCEEDS or
+    a disbursement (_Q9_REFUSAL). (a) and (c): the root fires on the payer's name alone (no entry or row place) and the
+    line prints accounts-payable, vendor-payment or invoice wording (_accounts_payable_wording, the holder's names
+    removed) or a commission (_SERVICE_COMMISSION, the orchestrator's extension under the underwriter's Q10). Never a
+    payer region that names only a bank (R2-B03's _bank_only_payer); on a layout with no entry label (empty entry
+    fields: the entry words print inside the payer region) never a payer reading with two or more roots or a root at or
+    after the end of its first company form (_labelless_root_refusal): a single root such a layout prints cannot tell a
+    name from a purpose and is read as the name. The reason is lender_paid_for_services when the payer's name reads as
+    a lender's (_LENDER_NAME_WORD, a label only) or a listed auto lender (DEALER_FUNDING_PAYERS) originates the row, else
+    finance_named_customer. (b): the statement's business is in leasing or property (`lessor`, _lessor_business), no
+    special payer arm fired, and every place that fired is a rent LEASE alone (_rent_only), a payer place only as a memo
+    printed after the payer's first company form with no root before the form's end (_rent_memo_payer): lessor_rent.
+
+    Last, the hidden-loan guard: None when the payer also collects from the account (_payer_collects: any lender or
+    other posted debit naming it, the bank's receiving fee and a card charge aside; a documented over-hold)."""
+    classifier = _classifier()
+    holder = _holder(record)
+    also = _holder_strip_names(record)
+    places = _financing_root_places(text, region, entry, holder, bank=record.bank, also=also)
+    if not places:
+        return None
+    row = _without_holder_name(classifier._before_receiver(text), holder, also=also)
+    if _Q9_REFUSAL.search(row):
+        return None
+    reason = None
+    payer_only = places.payer is not None and places.entry is None and places.row is None
+    if payer_only and (
+        _accounts_payable_wording(_without_holder_name(text, holder, also=also))
+        or _SERVICE_COMMISSION.search(row) is not None
+    ):
+        if _bank_only_payer(region, entry, record.bank) is not None:
+            return None
+        if not entry and _labelless_root_refusal(places.payer):
+            return None
+        lender = _LENDER_NAME_WORD.search(places.payer) is not None or registry_match(
+            classifier._originator_segment(classifier._without_receiver_value(text)), DEALER_FUNDING_PAYERS
+        ) is not None
+        reason = LENDER_PAID_FOR_SERVICES if lender else FINANCE_NAMED_CUSTOMER
+    elif lessor and not places.payer_arm and _rent_only_places(places):
+        reason = LESSOR_RENT
+    if reason is None:
+        return None
+    if _payer_collects(counter_credit(record, text, region), debits):
+        return None
+    return reason
+
+
+def _labelless_root_refusal(payer: str) -> bool:
+    """Q9 (a), (c) on a layout with no entry label (R2-OW09): the payer reading prints two or more financing roots, or a
+    root at or after the end of its first company form (_Q9_FORM_WORD): a funder's purpose printed inside the region
+    ('<NAME> CAPITAL ADVANCE VENDOR PMT', '<NAME> LLC FUNDING PAYABLES'), never released."""
+    roots = list(_FINANCING_ROOT.finditer(payer))
+    if len(roots) >= 2:
+        return True
+    form = _Q9_FORM_WORD.search(payer)
+    return form is not None and any(root.start() >= form.end() for root in roots)
+
+
+def _rent_only(words: str) -> bool:
+    """Q9 (b): `words` print a rent LEASE (_RENT_LEASE) and no other financing root once it is blanked."""
+    return _RENT_LEASE.search(words) is not None and _FINANCING_ROOT.search(_RENT_LEASE.sub(" ", words)) is None
+
+
+def _rent_memo_payer(payer: str) -> bool:
+    """Q9 (b): a payer place that is a rent memo the region swallowed: a first company form (_Q9_FORM_WORD), the words
+    after it a rent LEASE alone, and no root before the form's end ('<NAME> LLC LEASE PMT'). A payer named 'LEASE
+    HOLDINGS LLC' (LEASE before its form) is no memo."""
+    form = _Q9_FORM_WORD.search(payer)
+    return (
+        form is not None and _rent_only(payer[form.end():]) and _FINANCING_ROOT.search(payer[: form.end()]) is None
+    )
+
+
+def _rent_only_places(places: _RootPlaces) -> bool:
+    """Q9 (b): every place that fired is a rent LEASE alone; a payer place only as a rent memo (_rent_memo_payer)."""
+    if places.payer is not None and not _rent_memo_payer(places.payer):
+        return False
+    return all(_rent_only(place) for place in (places.entry, places.row) if place is not None)
+
+
+def _lessor_business(
+    records: Sequence[TransactionClassification],
+    duplicate_indexes: set[int],
+    credits: Sequence[int],
+) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q9 (b); §8.1; R2-OW09): the statement's business is in leasing or
+    property, which a rent LEASE needs to be released (finance_named_release). True when one of the holder's names (the
+    first credit's _holder_names, its account name and its holder name, each read through account_name_text) prints a
+    leasing or property trade word (_PROPERTY_TRADE); or a posted credit's revenue entity is a property-management
+    platform (OPERATING_REVENUE_SOURCE_TYPES 'property_management_payments'); or two or more distinct payers pay rent:
+    posted credits that no duplicate, no non_revenue rule, no card credit and no Zelle deposit (the underwriter's Q3:
+    excluded later in the pass) is, printing RENT, RENTS, RENTAL(S) or a rent LEASE on the row before its receiver
+    fields, the holder's names removed; a row with a payer region counts under its payer key unless the region names
+    the holder (region_names_holder), and a payer-less row counts as its own payer only on a check, cash, branch or ATM
+    deposit (a payer-less transfer, person-to-person or wire row never does)."""
+    if not credits:
+        return False
+    classifier = _classifier()
+    first = records[credits[0]]
+    for name in (*_holder_names(first), first.account_name, first.holder_name):
+        if name and _PROPERTY_TRADE.search(classifier.account_name_text(name)):
+            return True
+    payers: set[tuple] = set()
+    for index in credits:
+        record = records[index]
+        if index in duplicate_indexes:
+            continue
+        if OPERATING_REVENUE_SOURCE_TYPES.get(record.revenue_canonical_entity or "") == "property_management_payments":
+            return True
+        if record.revenue_classification == "non_revenue":
+            continue
+        text = without_transfer_code(record, classifier.revenue_text(record.normalized_description))
+        if _CARD_CREDIT_LABEL.search(text) or zelle_deposit(text):
+            continue
+        row = _without_holder_name(classifier._before_receiver(text), _holder(record), also=_holder_strip_names(record))
+        if _RENT_RECEIVED.search(row) is None and _RENT_LEASE.search(row) is None:
+            continue
+        channel = _channel(text, record.bank)
+        region = _facts_region(text, channel)
+        if region:
+            if not region_names_holder(record, text, region):
+                payers.add(("payer", classifier._payer_key(region)))
+        elif channel in _DEPOSIT_CHANNELS:
+            payers.add(("row", index))
+    return len(payers) >= 2
+
+
 def _names_the_payer(credit: CounterCredit, debit: _CounterDebit, *, legacy: bool, same_amount: bool) -> bool:
     """Audit B4 (_same_payer); audit round 2, R2-B02 (R02): a person-to-person or push credit whose sender prints a name
     of two words or more and no company form names the debit's payer by that whole name (its person_key, the glued
@@ -5284,6 +5508,7 @@ def credit_facts(
     receiver_holders: tuple[str, ...] = (),
     business: bool = False,
     disbursers: frozenset[tuple[str, ...]] = frozenset(),
+    lessor: bool = False,
 ) -> CreditFacts:
     """§8.1 to §8.9: one posted credit's payer facts, including the first hold of §8.10's order 2 to 11. The payer
     region, name, key and entry fields are the 5.5 readers' (payer_region, payer_name, _payer_key, entry_fields). A
@@ -5294,7 +5519,10 @@ def credit_facts(
     channel a region of bare channel words (_BARE_CHANNEL_WORDS: 'WIRE') names no sender; `receiver_holders` are the
     holder's names the statement's own receiver fields print (_receiver_holder_names), read by the holder hold only.
     Audit B7: `business` is the statement's _business_shape, which the direct-deposit words read (I09), and
-    `disbursers` the statement's _recurring_disbursers, whose disbursement entry is no non-sale purpose (I18)."""
+    `disbursers` the statement's _recurring_disbursers, whose disbursement entry is no non-sale purpose (I18). Owner
+    ruling 2026-10-02 (the underwriter's Q9; R2-OW09): on an unverified credit nothing claimed, the release of T4's
+    financing-root hold (finance_named_release, `lessor` the statement's _lessor_business) lifts that root arm alone in
+    _first_hold (`released`); CreditFacts.q9 carries its reason only where no hold names the row then."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
     region = _facts_region(text, channel)
@@ -5329,10 +5557,18 @@ def credit_facts(
     progress_draw = not claimed and construction_progress_draw(
         text, region, _holder(record), also=_holder_strip_names(record)
     )
+    # Owner ruling 2026-10-02 (the underwriter's Q9, "Keep them as true revenue"; R2-OW09): T4's root arm lifted for a
+    # finance-named customer paying an invoice, a lessor's rent or a lender paying for services, on an unverified credit
+    # nothing claimed (finance_named_release); every other financing arm and every later hold still read the row.
+    release = (
+        finance_named_release(record, text, region=region, entry=entry, debits=debits, lessor=lessor)
+        if record.revenue_classification == "unverified_deposit" and not claimed else None
+    )
     hold_reading = {
         "region": region, "entry": entry, "claimed": claimed, "debits": debits, "sender": sender,
         "holder_sender": holder_sender, "receiver_holders": receiver_holders, "wire": channel == "wire",
         "business": business, "disbursing": disbursing, "progress_draw": progress_draw,
+        "released": release is not None,
     }
     hold = _first_hold(record, text, **hold_reading)
     # Owner ruling 2026-10-02 (Q11 (b); R2-OW06 review round 1): IAA's insurer-name hold reads the auction's own name;
@@ -5384,6 +5620,8 @@ def credit_facts(
         self_own=not claimed and self_originated(text, region, record.bank),
         progress_draw=progress_draw,
         hold_past_insurer_name=past_insurer_name,
+        # Q9 (R2-OW09): the release's reason where it took effect (no hold names the row).
+        q9=release if hold is None else None,
     )
 
 
@@ -5403,6 +5641,7 @@ def _first_hold(
     disbursing: bool = False,
     progress_draw: bool = False,
     insurer_name: bool = True,
+    released: bool = False,
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. Audit B5: a bank's own wire is
     read on every row pass 7's wire channel reads (`wire`, I14, I23), and TD Canada Trust's payroll-deposit code is pay
@@ -5424,7 +5663,10 @@ def _first_hold(
     seller payout would take after it (CreditFacts.hold_past_insurer_name). Audit I26 (R2-OW07): the insurer-name hold
     reads insurer_payer_reading, every insurer spelling and brand without the holder's names. Owner ruling 2026-10-02
     (the underwriter's Q2): a credit the insurer-for-work release re-stated (INSURER_FOR_WORK_METHOD) takes no
-    insurer-name hold, and the non-sale test reads no CLAIM on it; every other hold reads it as before."""
+    insurer-name hold, and the non-sale test reads no CLAIM on it; every other hold reads it as before. Owner ruling
+    2026-10-02 (the underwriter's Q9; R2-OW09): with `released` (finance_named_release lifted the row) the financing
+    hold's root arm (financing_named) is passed over; its other arms keep their order and still hold, and every later
+    hold reads the row."""
     classifier = _classifier()
     # Audit round 2, R2-B04 (R40): the I47 strip reads the holder's other business names too (_holder_strip_names).
     also = _holder_strip_names(record)
@@ -5454,7 +5696,8 @@ def _first_hold(
     ):
         return "possible_return"
     if not claimed and (
-        financing_named(text, region, entry, _holder(record), bank=record.bank, also=also)
+        # Owner ruling 2026-10-02 (the underwriter's Q9; R2-OW09): the root arm alone is lifted on a released row.
+        (financing_named(text, region, entry, _holder(record), bank=record.bank, also=also) and not released)
         or registry_financing(record, text)
         # §8.7: a listed lender's or a dealer-funding word's row that Q7 did not verify, and a lone credit union's.
         # Audit B7 (I36): never on a named non-lender's wire purpose (_dealer_word_lender).
@@ -5615,7 +5858,8 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
     2026-10-02 (Q8): and a lease-to-own or patient financier's merchant payout, or any row that names one of them
     (CUSTOMER_FINANCING_NAMES, read without the receiver field's value). Owner ruling 2026-10-02 (the underwriter's Q11
     (a)): and a builder's progress draw (counted and flagged, never verified). Owner ruling 2026-10-02 (the
-    underwriter's Q2): and an insurer's credit released as the business's work (INSURER_FOR_WORK_METHOD)."""
+    underwriter's Q2): and an insurer's credit released as the business's work (INSURER_FOR_WORK_METHOD). Owner ruling
+    2026-10-02 (the underwriter's Q9; R2-OW09): and a credit the financing-root release lifted (CreditFacts.q9)."""
     return (
         record.revenue_match_method == "direction_conflict"
         or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
@@ -5628,6 +5872,7 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
         or facts.financier is not None
         or _CUSTOMER_FINANCING_NAMES.search(_classifier()._without_receiver_value(text)) is not None
         or facts.progress_draw
+        or facts.q9 is not None
     )
 
 
@@ -6060,12 +6305,19 @@ def _tier_reason(
     R2-B07 (R07): such a marked row whose unread run of payer blocks (`unread_text`, Transaction.unread_payer_text)
     prints a lender's or a lending bank's block (unread_run_names_financing) is held as unread_run_names_financing
     instead: one row of the run is that lender's money and the text cannot say which (Q6: lenders never count). It is
-    never a lender credit and names no payer."""
+    never a lender credit and names no payer.
+
+    Owner ruling 2026-10-02 (the underwriter's Q9; §8.10; R2-OW09): last, after the unread branch, a credit the
+    financing-root release lifted (CreditFacts.q9) that the tiers count takes the release's reason, unless its counted
+    reason is one a released row keeps (_Q9_KEEPS: payer_text_not_read, the platform, payout, numbered-company and
+    factoring readings, and the owner batches' specific counted reasons). A held reason is never overridden."""
     tier, reason = _tier_reason_read(record, text, facts, round_repeat, deferred)
     if unread and reason == "no_payer_printed" and facts.channel != "cash_branch_atm":
         if unread_text and unread_run_names_financing(unread_text):
             return "excluded_pending_review", UNREAD_RUN_NAMES_FINANCING
-        return tier, PAYER_TEXT_NOT_READ
+        reason = PAYER_TEXT_NOT_READ
+    if facts.q9 is not None and tier == "counted_flagged" and reason not in _Q9_KEEPS:
+        reason = facts.q9
     return tier, reason
 
 
@@ -6196,7 +6448,11 @@ def apply_true_revenue_pass(
     underwriter's Q2): after the statement facts and before the payer facts, an insurer's credit paid for the business's
     work (_insurer_for_work) is re-stated as an unverified deposit of method INSURER_FOR_WORK_METHOD, unclaimed (§8.10's
     holds 4 to 11 still read it), never toward a Q5 or Q6 repeat, and tiered counted_flagged /
-    insurer_paid_for_services."""
+    insurer_paid_for_services. Owner ruling 2026-10-02 (the underwriter's Q9 (a), (b), (c); R2-OW09): beside the
+    business shape and the disbursers, whether the business is in leasing or property (_lessor_business); the payer
+    facts then lift T4's financing-root hold on a finance-named customer paying an invoice, a lessor's rent or a lender
+    paying for services (finance_named_release, CreditFacts.q9), never verified, never a repeat, the counted reason
+    relabelled last in _tier_reason."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -6284,6 +6540,9 @@ def apply_true_revenue_pass(
     }
     # Audit B7 (I18): the ordinary payers whose disbursement entry repeats in the statement.
     disbursers = _recurring_disbursers(texts)
+    # Owner ruling 2026-10-02 (the underwriter's Q9 (b); §8.1; R2-OW09): whether the business is in leasing or property,
+    # which a rent LEASE needs to be released from T4's financing-root hold (_lessor_business).
+    lessor = _lessor_business(updated, duplicate_indexes, credits)
     # Owner ruling 2026-10-02 (the underwriter's Q9, part (c'); §8.7): whether the statement shows dealer evidence,
     # which a listed auto lender's payables-only credit needs to stay verified (_dealer_contract_evidence).
     dealer = _dealer_contract_evidence(updated, duplicate_indexes, credits)
@@ -6306,7 +6565,7 @@ def apply_true_revenue_pass(
     facts = {
         index: credit_facts(
             updated[index], texts[index], debits=debits,
-            receiver_holders=receiver_holders, business=business, disbursers=disbursers,
+            receiver_holders=receiver_holders, business=business, disbursers=disbursers, lessor=lessor,
         )
         for index in credits
     }

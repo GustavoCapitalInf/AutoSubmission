@@ -120,7 +120,7 @@ def test_a_deposit_s_town_place_branch_bank_or_notice_is_no_root(text, bank, exp
     ("MOBILE DEPOSIT FABRIKAM FUNDS LLC", "Wells Fargo"),
     ("ATM CHECK DEPOSIT 1 FABRIKAM CAPITAL LLC SAMPLEVILLE CA", "Wells Fargo"),
     ("ATM CHECK DEPOSIT CAPITAL ONE 1 FABRIKAM FUNDING LLC", "Capital One"),
-    # A lessor's LEASE rent printed on a deposit keeps its hold: the owner's ruling on audit I16 is awaited.
+    # A LEASE rent printed on a deposit keeps its hold: the holder shows no leasing or property business (Q9 (b)).
     ("CHECK DEPOSIT LEASE PMT UNIT 2", "Wells Fargo"),
 ])
 def test_a_funder_s_formed_name_on_a_payer_less_deposit_still_holds(text, bank):
@@ -1664,3 +1664,380 @@ def test_r35_review_the_branch_store_form_leads_a_place(text, expected):
 def test_r39_review_a_finance_company_s_glued_spelling_stays_held(sender):
     assert _one(_FEDWIRE.format(sender=sender), 1000.0, holder=_TRUCKS) == FINANCING
     assert tr._FLOOR_PLAN_LENDER_NAME.search(sender), sender
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Owner ruling 2026-10-02 (the underwriter's Q9, "Keep them as true revenue", option 2), R2-OW09: T4's financing-root
+# hold is lifted, counted and flagged, never verified and never a Q5 or Q6 repeat, for (a) finance_named_customer: the
+# payer's own name carries a finance word and the line prints invoice, accounts-payable or vendor-payment wording (a
+# commission too: the orchestrator's extension under the underwriter's Q10); (b) lessor_rent: a rent LEASE received by a
+# business in leasing or property; (c) lender_paid_for_services: a lender paying the business for its services. The
+# hidden-loan guard stays (any posted debit naming the payer holds; the bank's receiving fee and a card purchase aside:
+# a documented over-hold). Every other financing arm and every later hold still read a released row. Fabricated rows;
+# the holder NORTHWIND BAKERY LLC and Bank of America's DES layout unless a row names another.
+# ---------------------------------------------------------------------------------------------------------------------
+FINANCE_NAMED = ("counted_flagged", "finance_named_customer")
+LENDER_SERVICES = ("counted_flagged", "lender_paid_for_services")
+LESSOR = ("counted_flagged", "lessor_rent")
+_PLUMBING = "SAMPLE PLUMBING LLC"
+_RECOVERY = "SAMPLE RECOVERY LLC"
+_PROPERTIES = "SAMPLE PROPERTIES LLC"
+_CAFE_LEASE = "CONTOSO CAFE LLC DES:LEASE PMT ID:1"
+_NW_PAYABLES = "NORTHWIND FINANCIAL GROUP DES:PAYABLES ID:{n}"
+_CHASE_VENDOR = (
+    "ORIG CO NAME:FABRIKAM FINANCIAL ORIG ID:1234567890 DESC DATE:540301 CO ENTRY DESCR:VENDOR PAYSEC:CCD "
+    "TRACE#:021000021234567 EED:540301 IND ID:12345 IND NAME:NORTHWIND BAKERY LLC"
+)
+_POOL_LEASE = "BOOK TRANSFER CREDIT B/O: CONTOSO SWIM SCHOOL INC SAMPLEVILLE NY 12345 US REF: POOL LEASE MARCH"
+_WIRE_IN = ("WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:2054030200001 SEQ:1/2 ORIG:FABRIKAM FINANCIAL INC ID:99 "
+            "SND BK:SAMPLE BANK ID:1 PMT DET:INVOICE 1234")
+
+
+def _q9_credits(rows, *, holder: str | None = HOLDER, bank: str | None = None):
+    return [record for record in _records(rows, holder=holder, bank=bank) if record.amount > 0]
+
+
+def _released(record, expected):
+    """A row the release lifted: its tier and reason, an unverified deposit counted in True, never verified, never a
+    required review, its classifier method kept."""
+    assert rules_reading(record) == expected, record.normalized_description
+    assert record.revenue_classification == "unverified_deposit"
+    assert record.contributes_to_true_revenue and not record.contributes_to_verified_revenue
+    assert not record.revenue_review_required
+
+
+def _pass_facts(rows, *, holder: str | None = HOLDER, bank: str | None = None):
+    """Each credit's pass-7 payer facts, read again as the pass reads them (the statement's debits and lessor reading),
+    with the tier and reason the row would take without the release's relabel."""
+    from dataclasses import replace
+
+    records = _records(rows, holder=holder, bank=bank)
+    credits = [index for index, record in enumerate(records) if record.amount > 0 and record.revenue_classification]
+    debits = tr.counter_debits(records, set())
+    lessor = tr._lessor_business(records, set(), credits)
+    found = []
+    for index in credits:
+        record = records[index]
+        text = tr.without_transfer_code(record, revenue_text(record.normalized_description))
+        facts = tr.credit_facts(record, text, debits=debits, lessor=lessor)
+        found.append((facts, tr._tier_reason(record, text, replace(facts, q9=None), False)))
+    return found
+
+
+@pytest.mark.parametrize(("text", "amount", "holder", "bank", "expected"), [
+    # (a) finance_named_customer: a finance word in the payer's own name, invoice, payables or vendor wording.
+    (_NW_PAYABLES.format(n=1) + " INDN:SAMPLE PLUMBING LLC CO ID:1 CCD", 4200.0, _PLUMBING, None, FINANCE_NAMED),
+    ("ADVANCED CONTOSO SUPPLY DES:VENDOR PMT ID:1", 3100.0, HOLDER, None, FINANCE_NAMED),
+    ("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0, HOLDER, None, FINANCE_NAMED),
+    (_CHASE_VENDOR, 2500.0, HOLDER, "Chase", FINANCE_NAMED),
+    # An entry-first layout with no label; COMMISSION is the orchestrator's extension under the underwriter's Q10.
+    ("COMMISSION FABRIKAM FIN", 610.0, "SAMPLE INSURANCE AGENCY INC", "Royal Bank of Canada", FINANCE_NAMED),
+    # An incoming wire whose payment detail cites an invoice (it would be counted as wire_named_sender).
+    (_WIRE_IN, 4200.0, _PLUMBING, None, FINANCE_NAMED),
+    # (c) lender_paid_for_services: the payer's name reads as a lender's.
+    ("FABRIKAM FUNDING DES:VENDORPMTS ID:1 INDN:SAMPLE RECOVERY LLC CO ID:1 CCD", 1800.0, _RECOVERY, None,
+     LENDER_SERVICES),
+    ("FABRIKAM ADVANCE DES:INVOICE PMT ID:1", 25000.0, HOLDER, None, LENDER_SERVICES),
+    # A funder paying an ISO its commission.
+    ("FABRIKAM FUNDING DES:COMMISSION ID:1", 1800.0, "SAMPLE BUSINESS ADVISORS LLC", None, LENDER_SERVICES),
+    # A layout with no entry label, one root in the payer's name before the payables wording.
+    ("FABRIKAM FUNDING PAYABLES 123456 F WFI1234567", 21000.0, _PLUMBING, "Wells Fargo", LENDER_SERVICES),
+    # Documented limit: a single root such a layout prints cannot tell a name from a purpose and is read as the name.
+    ("NORTHWIND SUPPLY FUNDING PAYABLES 123456", 3000.0, _PLUMBING, "Wells Fargo", LENDER_SERVICES),
+    # Documented label limit: a whole-word ADVANCE reads as a lender's word; the tier is the same.
+    ("ADVANCE AUTO PARTS DES:VENDOR PMT ID:1", 800.0, HOLDER, None, LENDER_SERVICES),
+    # A whole-word CREDIT name (the special payer arm) with vendor wording.
+    ("FABRIKAM CREDIT GROUP DES:VENDOR PMT ID:1", 2500.0, HOLDER, None, LENDER_SERVICES),
+])
+def test_q9_a_c_a_finance_named_payer_paying_an_invoice_is_counted_never_verified(text, amount, holder, bank,
+                                                                                  expected):
+    _released(_q9_credits([(text, amount)], holder=holder, bank=bank)[0], expected)
+
+
+def test_q9_a_two_rows_of_one_finance_named_customer_never_make_a_repeat():
+    records = _q9_credits([(_NW_PAYABLES.format(n=1), 4200.0), (_NW_PAYABLES.format(n=2), 3900.0)], holder=_PLUMBING)
+    for record in records:
+        _released(record, FINANCE_NAMED)
+        assert record.revenue_match_method == "unidentified_posted_credit"
+    assert [facts.q9 for facts, _base in _pass_facts([(_NW_PAYABLES.format(n=1), 4200.0)], holder=_PLUMBING)] == [
+        "finance_named_customer"]
+
+
+def test_q9_a_the_wording_is_read_per_line():
+    # The same payer's line that prints no invoice or vendor wording keeps its hold (a documented split).
+    released, held = _q9_credits([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0),
+                                  ("FABRIKAM FINANCIAL DES:PAYMENT ID:2", 2500.0)])
+    _released(released, FINANCE_NAMED)
+    assert rules_reading(held) == FINANCING
+
+
+def test_q9_b_a_lease_rent_at_a_property_business_is_lessor_rent():
+    _released(_q9_credits([(_CAFE_LEASE, 5200.0)], holder=_PROPERTIES)[0], LESSOR)
+
+
+def test_q9_b_two_rent_payers_make_a_lessor_and_the_other_payer_keeps_its_reading():
+    lease, yoga = _q9_credits([(_CAFE_LEASE, 5200.0), ("FABRIKAM YOGA LLC DES:RENT ID:2", 2400.0)])
+    _released(lease, LESSOR)
+    assert (yoga.revenue_tier, yoga.revenue_match_method) == ("verified", "named_payer_company_form")
+
+
+def test_q9_b_check_channel_rent_rows_are_rent_payers_and_stay_check_deposits():
+    rows = [("MOBILE DEPOSIT RENT UNIT 1", 1200.0), ("MOBILE DEPOSIT RENT UNIT 3", 1300.0), (_CAFE_LEASE, 5200.0)]
+    first, second, lease = _q9_credits(rows, bank="Wells Fargo")
+    assert [rules_reading(first), rules_reading(second)] == [CHECK, CHECK]
+    _released(lease, LESSOR)
+
+
+@pytest.mark.parametrize(("rows", "holder", "bank", "expected", "base"), [
+    # A memo the region swallowed: LEASE PMT after the payer's company form, on a layout with no entry label.
+    ([("CONTOSO CAFE LLC LEASE PMT 123456", 5200.0)], _PROPERTIES, "Wells Fargo", [LESSOR], [UNLABELLED]),
+    # A payer-less check deposit's rent, at a realty business: it would be counted as a check deposit.
+    ([("CHECK DEPOSIT LEASE PMT UNIT 2", 4000.0)], "SAMPLE REALTY LLC", "Wells Fargo", [LESSOR], [CHECK]),
+    # A property-management platform's credit (Buildium) makes the lessor: the wire would be wire_named_sender and
+    # Buildium's own payout stays platform_unconfirmed.
+    ([(_POOL_LEASE, 9000.0), ("BUILDIUM DES:PAYMENT ID:5", 3000.0)], "SAMPLE AQUATIC CENTER LLC", "Chase",
+     [LESSOR, ("counted_flagged", "platform_unconfirmed")], [WIRE, ("counted_flagged", "platform_unconfirmed")]),
+])
+def test_q9_b_the_release_relabels_the_counted_reason(rows, holder, bank, expected, base):
+    records = _q9_credits(rows, holder=holder, bank=bank)
+    assert [rules_reading(record) for record in records] == expected
+    _released(records[0], LESSOR)
+    assert [found_base for _facts, found_base in _pass_facts(rows, holder=holder, bank=bank)] == base
+
+
+@pytest.mark.parametrize(("rows", "holder", "bank"), [
+    # (b) with no leasing or property business: one rent payer and no trade word on the holder's name.
+    ([(_CAFE_LEASE, 5200.0)], HOLDER, None),
+    # A payer named LEASE before its company form is no rent memo.
+    ([("LEASE HOLDINGS LLC DES:LEASE PMT ID:1", 5200.0)], _PROPERTIES, None),
+    # A lease-to-own fund (Q8's) and the LEASING root are never rent.
+    ([("FABRIKAM LEASE FUND 1234567-1 SAMPLE CUSTOMER", 1500.0)], _PROPERTIES, "Wells Fargo"),
+    ([("NORTHWIND LEASING DES:LEASE PMT ID:1", 5200.0)], _PROPERTIES, None),
+    ([("CONTOSO LLC DES:LEASE FUNDING ID:1", 5200.0)], _PROPERTIES, None),
+    ([("CONTOSO LLC DES:LEASE PROCEEDS ID:1", 5200.0)], _PROPERTIES, None),
+    ([("FABRIKAM AUTO FINANCE DES:LEASE PAYOFF ID:1", 18000.0)], _PROPERTIES, None),
+    # (a), (c) with no invoice or vendor wording, or a root in the entry.
+    ([("FABRIKAM CAPITAL DES:CORP PAY ID:1", 25000.0)], HOLDER, None),
+    ([("NORTHWIND SUPPLY DES:FUNDING PAYABLES ID:1", 3000.0)], HOLDER, None),
+    # A layout with no entry label: two roots, or a root after the payer's company form.
+    ([("FABRIKAM CAPITAL ADVANCE VENDOR PMT 123456", 25000.0)], _PLUMBING, "Wells Fargo"),
+    ([("FABRIKAM CAPITAL FUNDING PAYABLES 123456 LAG", 25000.0)], _PLUMBING, "Citizens Bank"),
+    ([("FABRIKAM CAPITAL FUNDING AP PAYMENT", 25000.0)], _PLUMBING, "TD Bank"),
+    ([("FABRIKAM LLC FUNDING PAYABLES 123456", 25000.0)], _PLUMBING, "Wells Fargo"),
+    # Proceeds beside vendor wording.
+    ([("FABRIKAM CAPITAL DES:VENDOR PMT PROCEEDS ID:1", 25000.0)], HOLDER, None),
+    # The hidden-loan guard: a posted debit names the payer.
+    ([(_NW_PAYABLES.format(n=1), 4200.0), ("NORTHWIND FINANCIAL DES:ACH DEBIT ID:2", -500.0)], _PLUMBING, None),
+    ([("FABRIKAM FINANCIAL DES:VENDOR PMT ID:1", 4200.0), ("FABRIKAM FINANCIAL DES:LOAN PMT ID:2", -900.0)],
+     _PLUMBING, None),
+    # A documented over-hold: a bill the business pays the same payer holds it too.
+    ([(_NW_PAYABLES.format(n=1), 4200.0), ("NORTHWIND FINANCIAL GROUP DES:BILL PAY ID:2", -50.0)], _PLUMBING, None),
+    # Not prototyped (R2-B03's call): a payer region that names only a bank, with vendor wording.
+    ([("FABRIKAM FINANCIAL BANK DES:VENDOR PMT ID:1", 2500.0)], HOLDER, None),
+])
+def test_q9_rows_that_stay_held_as_financing_named_payer(rows, holder, bank):
+    assert rules_reading(_q9_credits(rows, holder=holder, bank=bank)[0]) == FINANCING
+
+
+def test_q9_b_payer_less_transfers_never_make_a_lessor():
+    rows = [("TRANSFER IN RENT", 1200.0), ("TRANSFER IN RENT", 1200.0), (_CAFE_LEASE, 5200.0)]
+    assert [rules_reading(record) for record in _q9_credits(rows)] == [
+        ("excluded_pending_review", "p2p_round_repeat"), ("excluded_pending_review", "p2p_round_repeat"), FINANCING]
+
+
+def test_q9_b_a_zelle_tenant_s_rent_is_never_lessor_evidence():
+    # The underwriter's Q3 excludes every Zelle deposit, so its rent never makes a lessor (read before the Zelle step).
+    lease, zelle = _q9_credits([(_CAFE_LEASE, 5200.0), ("ZELLE FROM CONTOSO TENANT LLC RENT", 1100.0)])
+    assert rules_reading(lease) == FINANCING
+    assert rules_reading(zelle) == P2P
+
+
+def test_q9_the_guard_passes_over_a_card_purchase_and_the_bank_s_receiving_fee():
+    rows = [(_NW_PAYABLES.format(n=1), 4200.0), ("CHECKCARD 0302 NORTHWIND FINANCIAL GROUP SAMPLEVILLE CA", -50.0)]
+    _released(_q9_credits(rows, holder=_PLUMBING)[0], FINANCE_NAMED)
+    rows = [("FABRIKAM FINANCIAL DES:VENDOR PMT ID:1", 4200.0), ("INCOMING WIRE FEE FABRIKAM FINANCIAL", -15.0)]
+    _released(_q9_credits(rows, holder=_PLUMBING)[0], FINANCE_NAMED)
+    rows = [(_WIRE_IN, 4200.0), ("WIRE TRANSFER FEE FROM FABRIKAM FINANCIAL INC", -17.0)]
+    _released(_q9_credits(rows, holder=_PLUMBING)[0], FINANCE_NAMED)
+
+
+def test_q9_a_released_row_takes_every_later_hold_and_keeps_no_q9_mark():
+    rows = [("NORTHWIND FINANCIAL GROUP DES:PAYABLES PAYROLL ID:1", 4200.0)]
+    assert rules_reading(_q9_credits(rows, holder=_PLUMBING)[0]) == PAY
+    [(facts, _base)] = _pass_facts(rows, holder=_PLUMBING)
+    assert (facts.hold, facts.q9) == ("payroll_or_salary", None)
+
+
+@pytest.mark.parametrize("text", ["GM FINANCIAL DES:VENDOR PMT ID:1", "GM FINANCIAL DES:INVOICE PMT ID:1"])
+def test_q9_registered_lender_s_vendor_wording_open_owner_question_17_1(text):
+    # A limitation, not the ruling's outcome: a registered lender's vendor-worded credit stays D1's financing proceeds
+    # (non-revenue first); releasing it would move the lender-credit exclusion (a G7 move), so the owner is asked
+    # (spec §17.1). The same lender's PAYABLES at a repossession agency counts as lender_paid_for_services (R2-OW05).
+    record = _q9_credits([(text, 1500.0)], holder=_RECOVERY)[0]
+    assert (record.revenue_tier, record.revenue_tier_reason, record.revenue_match_method) == (
+        "non_revenue", None, "financing_proceeds_credit")
+    assert record.contributes_to_lender_credit_exclusion
+    payables = _q9_credits([("GM FINANCIAL DES:PAYABLES ID:1 INDN:SAMPLE RECOVERY LLC CO ID:1 CCD", 1500.0)],
+                           holder=_RECOVERY)[0]
+    assert rules_reading(payables) == LENDER_SERVICES
+
+
+def test_q9_a_claimed_financier_s_payout_keeps_its_own_reading():
+    # Q8's lease-to-own or patient financier claims its row before the financing hold: never released, never relabelled.
+    record = _q9_credits([("TERRACE FINANCE DES:VENDOR PMT ID:1", 2500.0)], holder="NORTHWIND FURNITURE LLC")[0]
+    assert rules_reading(record) == ("counted_flagged", "customer_financing_payout")
+    [(facts, _base)] = _pass_facts([("TERRACE FINANCE DES:VENDOR PMT ID:1", 2500.0)], holder="NORTHWIND FURNITURE LLC")
+    assert facts.claimed and facts.q9 is None
+
+
+def test_q9_a_zelle_row_the_release_lifted_is_still_excluded():
+    # The underwriter's Q3 (R2-OW02, CR7): the Zelle step runs after the tiers; the rules' reading is the release's.
+    record = _q9_credits([("ZELLE FROM FABRIKAM FINANCIAL LLC ON 03/02 INVOICE 1234", 900.0)])[0]
+    assert (record.revenue_tier, record.revenue_tier_reason) == ("non_revenue", "zelle_excluded")
+    assert tr.zelle_prior_reading(record) == FINANCE_NAMED
+    assert rules_reading(record) == FINANCE_NAMED
+
+
+@pytest.mark.parametrize(("reason", "relabelled"), [
+    ("named_payer_one_off", True), ("named_payer_unlabelled", True), ("wire_named_sender", True),
+    ("check_deposit", True), ("p2p", True), ("named_payer_purpose_refused", True), ("no_payer_printed", True),
+    # The counted reasons a released row keeps (_Q9_KEEPS).
+    ("numbered_company_payer", False), ("factoring_payout", False), ("payout_credit_entity", False),
+    ("platform_unconfirmed", False), ("payer_text_not_read", False), ("customer_financing_payout", False),
+    ("construction_progress_draw", False), ("insurer_paid_for_services", False), ("lender_paid_for_services", False),
+])
+def test_q9_the_relabel_is_last_and_keeps_the_specific_counted_reasons(monkeypatch, reason, relabelled):
+    from dataclasses import replace
+
+    [(facts, _base)] = _pass_facts([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])
+    record = _q9_credits([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])[0]
+    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("counted_flagged", reason))
+    assert tr._tier_reason(record, "", facts, False) == (
+        "counted_flagged", "finance_named_customer" if relabelled else reason)
+    # A held reason is never overridden.
+    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("excluded_pending_review", "payer_also_debited"))
+    assert tr._tier_reason(record, "", facts, False) == ("excluded_pending_review", "payer_also_debited")
+    # With no release nothing is relabelled.
+    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("counted_flagged", reason))
+    assert tr._tier_reason(record, "", replace(facts, q9=None), False) == ("counted_flagged", reason)
+
+
+def test_q9_the_relabel_follows_the_unread_branch(monkeypatch):
+    from dataclasses import replace
+
+    [(facts, _base)] = _pass_facts([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])
+    record = _q9_credits([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])[0]
+    facts = replace(facts, channel="other")
+    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("counted_flagged", "no_payer_printed"))
+    # R2-B07's unread branch keeps precedence: payer_text_not_read is kept, a lender in the unread run holds.
+    assert tr._tier_reason(record, "", facts, False, unread=True) == ("counted_flagged", "payer_text_not_read")
+    assert tr._tier_reason(record, "", facts, False, unread=True, unread_text="ONDECK CAPITAL") == (
+        "excluded_pending_review", "unread_run_names_financing")
+    # Off the unread branch the counted reason takes the release's.
+    assert tr._tier_reason(record, "", facts, False) == ("counted_flagged", "finance_named_customer")
+
+
+# Units: where the roots fire (_financing_root_places), the label-less refusal, the rent readings, the lessor.
+
+def _places(raw: str, *, holder: str | None = HOLDER, bank: str | None = None):
+    from analysis import transaction_classifier as classifier
+
+    text = revenue_text(normalize_transaction_description(raw))
+    region, entry = classifier.payer_region(text), classifier.entry_fields(text)
+    places = tr._financing_root_places(text, region, entry, holder, bank=bank)
+    assert bool(places) == tr.financing_named(text, region, entry, holder, bank=bank)
+    return places
+
+
+@pytest.mark.parametrize(("raw", "bank", "expected"), [
+    ("NORTHWIND FINANCIAL GROUP DES:PAYABLES ID:1", None,
+     {"payer": "NORTHWIND FINANCIAL GROUP"}),
+    ("NORTHWIND SUPPLY DES:FUNDING PAYABLES ID:1", None, {"entry": "FUNDING PAYABLES"}),
+    # A whole-word CREDIT payer (the special arm) beside an entry root: both places are reported.
+    ("FABRIKAM CREDIT GROUP DES:ADVANCE ID:1", None,
+     {"payer": "FABRIKAM CREDIT GROUP", "payer_arm": True, "entry": "ADVANCE"}),
+    ("MOBILE DEPOSIT FABRIKAM FUNDING LLC", "Wells Fargo", {"row": "FUNDING"}),
+    ("TRANSFER IN FABRIKAM ADVANCE", None, {"row": "TRANSFER IN FABRIKAM ADVANCE"}),
+    ("CONTOSO SUPPLY DES:VENDOR PMT ID:1", None, {}),
+])
+def test_q9_the_root_places(raw, bank, expected):
+    places = _places(raw, bank=bank)
+    assert places == tr._RootPlaces(**expected)
+    assert bool(places) == bool(expected)
+
+
+@pytest.mark.parametrize(("raw", "bank", "named"), [
+    # financing_named's reading, arm by arm, which bool(_financing_root_places) is (T4, audit B7: I16, A3).
+    ("BKOFAMERICA ATM 0101 DEPOSIT 123 GLENDALE AZ", "Bank of America", False),
+    ("MOBILE DEPOSIT FABRIKAM FUNDING LLC", "Wells Fargo", True),
+    ("ATM CHECK DEPOSIT 1 FABRIKAM MERCHANT FUNDING", "Wells Fargo", True),
+    ("ATM DEPOSIT 123 MAIN ST CAPITAL HEIGHTS MD", "Wells Fargo", False),
+    ("MOBILE DEPOSIT FUNDS ON HOLD", "Wells Fargo", False),
+    ("CHECK DEPOSIT LEASE PMT UNIT 2", "Wells Fargo", True),
+    ("CONTOSO PARTNERS LLC DES:FUNDING ID:1", None, True),
+    ("FABRIKAM CAPITAL DES:CORP PAY ID:1", None, True),
+    ("FABRIKAM CREDIT GROUP DES:VENDOR PMT ID:1", None, True),
+    ("FABRIKAM P CREDIT DES:PAYMENT ID:1", None, False),
+    ("CONTOSO CAFE LLC DES:LEASE PMT ID:1", None, True),
+    ("CONTOSO SUPPLY DES:VENDOR PMT ID:1", None, False),
+    ("TRANSFER IN FABRIKAM ADVANCE", None, True),
+    ("FABRIKAM LEASE FUND 1234567-1 SAMPLE CUSTOMER", "Wells Fargo", True),
+])
+def test_q9_financing_named_is_whether_any_place_fired(raw, bank, named):
+    assert bool(_places(raw, bank=bank)) is named
+
+
+def test_q9_the_label_less_refusal_and_the_rent_readings():
+    assert tr._labelless_root_refusal("FABRIKAM CAPITAL ADVANCE VENDOR PMT 123456")
+    assert tr._labelless_root_refusal("FABRIKAM LLC FUNDING PAYABLES 123456")
+    assert not tr._labelless_root_refusal("FABRIKAM FUNDING PAYABLES 123456 F WFI1234567")
+    assert not tr._labelless_root_refusal("NORTHWIND SUPPLY FUNDING PAYABLES 123456")
+    assert not tr._labelless_root_refusal("COMMISSION FABRIKAM FIN")
+    assert tr._rent_only("LEASE PMT") and tr._rent_only("POOL LEASE MARCH") and tr._rent_only("LEASE")
+    for words in ("LEASE FUNDING", "LEASE FUND", "LEASE PROCEEDS", "LEASE TO OWN", "LEASE PURCHASE", "LEASE BUYOUT",
+                  "LEASING PMT", "LEASE PMT ADVANCE", "RENT"):
+        assert not tr._rent_only(words), words
+    assert tr._rent_memo_payer("CONTOSO CAFE LLC LEASE PMT")
+    assert not tr._rent_memo_payer("LEASE HOLDINGS LLC")
+    assert not tr._rent_memo_payer("CONTOSO CAFE LEASE PMT")
+    assert not tr._rent_memo_payer("FABRIKAM CAPITAL LLC LEASE PMT")
+    assert tr._RENT_RECEIVED.search("RENT UNIT 2") and tr._RENT_RECEIVED.search("RENTALS")
+    assert not tr._RENT_RECEIVED.search("CONTOSO RENT A CAR") and not tr._RENT_RECEIVED.search("RENTACAR")
+    assert tr._LENDER_NAME_WORD.search("FABRIKAM FUNDING") and tr._LENDER_NAME_WORD.search("FABRICREDIT")
+    assert not tr._LENDER_NAME_WORD.search("FABRIKAM FINANCIAL GROUP")
+    assert not tr._LENDER_NAME_WORD.search("ADVANCED CONTOSO SUPPLY")
+
+
+def _lessor(rows, *, holder: str | None = HOLDER, bank: str | None = None, unverify: tuple[int, ...] = ()):
+    from dataclasses import replace
+
+    records = _records(rows, holder=holder, bank=bank)
+    records = [replace(record, revenue_classification="unverified_deposit") if index in unverify else record
+               for index, record in enumerate(records)]
+    credits = [index for index, record in enumerate(records) if record.amount > 0 and record.revenue_classification]
+    return tr._lessor_business(records, set(), credits)
+
+
+def test_q9_b_the_lessor_reading_arm_by_arm():
+    yoga = ("FABRIKAM YOGA LLC DES:RENT ID:2", 2400.0)
+    # The holder's trade word.
+    assert _lessor([("CONTOSO SUPPLY DES:VENDOR PMT ID:1", 100.0)], holder=_PROPERTIES)
+    assert _lessor([("CONTOSO SUPPLY DES:VENDOR PMT ID:1", 100.0)], holder="SAMPLE SELF STORAGE LLC")
+    assert not _lessor([("CONTOSO SUPPLY DES:VENDOR PMT ID:1", 100.0)])
+    # A property-management platform's credit.
+    assert _lessor([("BUILDIUM DES:PAYMENT ID:5", 3000.0)])
+    # Two distinct rent payers; one payer twice is one.
+    assert _lessor([(_CAFE_LEASE, 5200.0), yoga])
+    assert not _lessor([(_CAFE_LEASE, 5200.0)])
+    assert not _lessor([yoga, ("FABRIKAM YOGA LLC DES:RENT ID:3", 2400.0)])
+    # A car rental's RENT A CAR, the holder's own name and a card credit are no rent payer.
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("CONTOSO RENT A CAR DES:PAYMENT ID:3", 300.0)])
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("NORTHWIND BAKERY LLC DES:RENT ID:3", 300.0)])
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("POS CREDIT CONTOSO RENTALS 1234", 300.0)], unverify=(1,))
+    # A non_revenue row is no rent payer.
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("POS CREDIT CONTOSO RENTALS 1234", 300.0)])
+    # Payer-less rows: a check deposit counts as its own payer, a transfer never.
+    assert _lessor([("MOBILE DEPOSIT RENT UNIT 1", 1200.0), ("MOBILE DEPOSIT RENT UNIT 3", 1300.0)], bank="Wells Fargo")
+    assert not _lessor([("TRANSFER IN RENT", 1200.0), ("TRANSFER IN RENT", 1300.0)])
+    # A Zelle deposit (the underwriter's Q3) never counts, whatever its reading at that step.
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("ZELLE FROM CONTOSO TENANT LLC RENT", 1100.0)], unverify=(1,))

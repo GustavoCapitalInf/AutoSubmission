@@ -1096,3 +1096,36 @@ def test_ow05_payer_collects_on_the_statement_s_own_debits():
     assert not collects(("FABRIKAM SUPPLY DES:VENDOR PAY ID:2", -500.0))
     # A card purchase the classifier names is never among the debits.
     assert not collects(("CHECKCARD 0302 NORTHWIND FINANCIAL SAMPLEVILLE NY", -60.0))
+
+
+# --- Owner ruling 2026-10-02 (the underwriter's Q9 (a), (b), (c)), R2-OW09: the release of T4's financing-root hold
+# reads the same guard last (finance_named_release): a released credit whose payer the statement debits stays held as
+# financing_named_payer, whatever kind the debit is (no bill, processor-fee or settlement exemption: a documented
+# over-hold), the bank's receiving fee and a card purchase aside.
+
+@pytest.mark.parametrize(("debit", "released"), [
+    (None, True),
+    ("FABRIKAM FINANCIAL DES:ACH DEBIT ID:2", False),
+    ("FABRIKAM FINANCIAL DES:LOAN PMT ID:2", False),
+    ("FABRIKAM FINANCIAL GROUP DES:SVC FEE ID:2", False),
+    ("FABRIKAM FINANCIAL GROUP DES:BILL PAY ID:2", False),
+    ("FUNDS TRANSFER FEE TT FABRIKAM FINANCIAL", True),
+    ("CHECKCARD 0302 FABRIKAM FINANCIAL SAMPLEVILLE NY", True),
+    ("CONTOSO SUPPLY DES:VENDOR PAY ID:2", True),
+])
+def test_ow09_the_release_reads_the_hidden_loan_guard_last(debit, released):
+    rows = [("FABRIKAM FINANCIAL GROUP DES:PAYABLES ID:1", 4200.0)] + ([(debit, -50.0)] if debit else [])
+    credit = _credits(_records(rows))[0]
+    assert rules_reading(credit) == (
+        ("counted_flagged", "finance_named_customer") if released else ("excluded_pending_review", "financing_named_payer"))
+    # The guard is the release's last step: the credit's reading (a customer's name, payables wording) is the same.
+    from analysis import true_revenue as tr
+
+    records = _records(rows)
+    text = tc.revenue_text(records[0].normalized_description)
+    region, entry = tc.payer_region(text), tc.entry_fields(text)
+    reason = tr.finance_named_release(records[0], text, region=region, entry=entry,
+                                      debits=tr.counter_debits(records, set()))
+    assert reason == ("finance_named_customer" if released else None)
+    assert tr._payer_collects(tr.counter_credit(records[0], text, region), tr.counter_debits(records, set())) is (
+        not released)

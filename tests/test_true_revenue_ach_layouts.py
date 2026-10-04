@@ -685,12 +685,24 @@ def test_r06_a_credit_posting_label_is_no_lender_s_name(bank, rows, expected):
     ("Sample Bank", [("ACH CREDIT SAMPLE CREDIT CORP", 900.0)]),
     ("Sample Bank", [("ACH CREDIT SAMPLE CREDIT UNIO CREDIT NONE", 900.0)]),
     ("U.S. Bank", _us_wires("SAMPLE CREDIT CORP")),
-    # A credit union's own cut name as the originator (with the owner, I16) and a bank's name stay held.
-    ("Contoso Credit Union", [("ACH CREDIT DIRECT PAY CONTOSO CREDIT ID1234567890 ZZ 123456 INV 123456", 4000.0)]),
+    # A bank's name stays held.
     ("Brex", [("CAPITAL ONE ACH", 500.0)]),
 ])
 def test_r06_a_lender_named_after_a_credit_label_is_still_held(bank, rows):
     assert _tiers(rows, holder=R06_HOLDER, bank=bank) == [FINANCING] * len(rows)
+
+
+def test_r06_a_credit_union_s_cut_name_paying_an_invoice_is_a_lender_paid_for_services():
+    # Owner ruling 2026-10-02 (the underwriter's Q9 (c)), R2-OW09: the credit union's own cut name as the originator
+    # of an X12 invoice remittance (held with the owner's I16 question before) is a lender paying for services, counted
+    # and flagged, never verified; its root is on the payer's name alone and the line prints invoice wording. The guard
+    # reads no debit here (an own bank's loan payments post as internal debits naming no payer: the brief's risk 8).
+    rows = [("ACH CREDIT DIRECT PAY CONTOSO CREDIT ID1234567890 ZZ 123456 INV 123456", 4000.0)]
+    assert _tiers(rows, holder=R06_HOLDER, bank="Contoso Credit Union") == [
+        ("counted_flagged", "lender_paid_for_services")]
+    # A posted debit naming the credit union keeps it held (the hidden-loan guard).
+    rows.append(("ACH DEBIT CONTOSO CREDIT LOAN PMT 123", -900.0))
+    assert _tiers(rows, holder=R06_HOLDER, bank="Contoso Credit Union") == [FINANCING]
 
 
 @pytest.mark.parametrize(("bank", "text", "expected"), [

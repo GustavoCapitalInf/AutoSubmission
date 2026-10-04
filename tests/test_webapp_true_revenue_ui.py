@@ -1368,6 +1368,33 @@ def test_the_dashboard_reason_table_names_an_insurer_paid_for_the_business_s_wor
             "Verified. Check it is not a claim on the business's own policy.") in source
 
 
+def test_the_dashboard_reason_table_names_the_q9_releases():
+    """Owner ruling 2026-10-02 (the underwriter's Q9 (a), (b)), R2-OW09 (CR5): finance_named_customer, then lessor_rent,
+    right after insurer_paid_for_services, each with its one-line sentence."""
+    reasons = list(_js_reasons())
+    index = reasons.index("insurer_paid_for_services")
+    assert reasons[index + 1: index + 3] == ["finance_named_customer", "lessor_rent"]
+    assert _js_reasons()["finance_named_customer"] == (
+        "counted_flagged", "Customer with a finance word in its name, paying an invoice")
+    assert _js_reasons()["lessor_rent"] == ("counted_flagged", "Rent received by a leasing or property business")
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert ("A customer whose name carries a finance word paid an invoice or a vendor payment, and no debit names it: "
+            "counted, never verified.") in source
+    assert ("A tenant paid lease rent to a leasing or property business, and no debit names the payer: counted, never "
+            "verified.") in source
+
+
+@needs_node
+def test_the_q9_releases_are_tagged_with_their_reasons():
+    rows = [_record("counted_flagged", reason="finance_named_customer"), _record("counted_flagged", reason="lessor_rent")]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason)}}));
+""")
+    assert result["reasons"][0].startswith("Customer with a finance word in its name, paying an invoice. A customer")
+    assert result["reasons"][1].startswith("Rent received by a leasing or property business. A tenant paid")
+
+
 @needs_node
 def test_an_insurer_paid_for_the_business_s_work_is_tagged_with_its_reason():
     rows = [_record("counted_flagged", reason="insurer_paid_for_services")]

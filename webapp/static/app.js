@@ -236,6 +236,9 @@ const REVENUE_TIER_REASONS = Object.freeze({
   construction_progress_draw: ["counted_flagged", "Builder's progress draw", "A builder paid the business a progress draw for its work: counted, never verified."],
   // Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: an insurer paying for the business's work, never verified.
   insurer_paid_for_services: ["counted_flagged", "Insurer paid for the business's work", "An insurer paid the business for its work: a repair, a commission, or claims it billed. Counted, never Verified. Check it is not a claim on the business's own policy."],
+  // Owner ruling 2026-10-02 (the underwriter's Q9 (a), (b)), R2-OW09: released from the financing-name hold, never verified.
+  finance_named_customer: ["counted_flagged", "Customer with a finance word in its name, paying an invoice", "A customer whose name carries a finance word paid an invoice or a vendor payment, and no debit names it: counted, never verified."],
+  lessor_rent: ["counted_flagged", "Rent received by a leasing or property business", "A tenant paid lease rent to a leasing or property business, and no debit names the payer: counted, never verified."],
   payout_credit_entity: ["counted_flagged", "BNPL or marketplace settlement (payer also lends)", "A buy-now-pay-later or marketplace settlement of the business's own sales, counted; the payer also lends."],
   // Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout, counted, never verified.
   customer_financing_payout: ["counted_flagged", "Lease-to-own or patient-financing payout", "A lease-to-own or patient-financing company paid the business for a customer's financed purchase: counted, never verified."],
