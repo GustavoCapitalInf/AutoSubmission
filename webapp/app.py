@@ -6,7 +6,7 @@ import os
 import re
 import threading
 import zipfile
-from collections import deque
+from collections import Counter, deque
 from copy import deepcopy
 from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -560,6 +560,10 @@ def _analysis_csv(analysis: dict) -> str:
     return buf.getvalue()
 
 
+#: A package member's id: a job's id, or `<job id>#account_<n>` for an account of a document (app.js packageMember).
+_PACKAGE_MEMBER_ID = re.compile(r"(.*)#account_\d+")
+
+
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     rows: list[tuple[str, str, object]] = []
     totals = package.get("totals") or {}
@@ -584,6 +588,9 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
             rows.append((f"document_{idx}", key, "" if value is None else value))
+        if document.get("duplicate_reason") == "superseded_interim":
+            # Audit round 2, R2-B14 (R14): the words the dashboard's notice gives a left-out shorter printout.
+            rows.append((f"document_{idx}", "duplicate_reason_words", SUPERSEDED_INTERIM_WORDS))
         rows.extend(_tier_reason_rows(document, f"document_{idx}.revenue_tier"))
     # D-3: duplicate content must survive into the export an underwriter reads,
     # not only the JSON payload the dashboard renders.
@@ -592,6 +599,17 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
             rows.append((f"duplicate_{idx}", key, "" if value is None else value))
+    # Audit round 2, R2-B14 (R14): each pair of overlapping statements that share credits, and the notice's words for it.
+    filenames: dict[str, str] = {}
+    for document in package.get("documents") or []:
+        member = _PACKAGE_MEMBER_ID.fullmatch(str(document.get("id") or ""))
+        filenames.setdefault(member[1] if member else str(document.get("id") or ""), document.get("filename"))
+    for idx, pair in enumerate(totals.get("overlapping_statements") or [], start=1):
+        for key, value in pair.items():
+            rows.append((f"overlapping_statement_{idx}", key, "" if value is None else value))
+        total = pair.get("shared_credit_total")
+        money = f"{float(total):,.2f}" if _is_money_value(total) else "N/A"
+        rows.append((f"overlapping_statement_{idx}", "words", _overlap_words(pair, filenames, money)))
     for idx, funder in enumerate(package.get("funders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"funder_{idx}", key, "" if value is None else value))
@@ -1019,74 +1037,190 @@ def _account_identities(account: object) -> frozenset[str]:
     return frozenset(identities)
 
 
+#: Audit round 2, R2-B14 (R46): what `_printed_account_digits` removes from a printed account number before it reads
+#: the digits at its end: blanks and the separators banks print inside a number.
+_ACCOUNT_NUMBER_SEPARATORS = re.compile(r"[\s\-./]")
+_TRAILING_DIGITS = re.compile(r"[0-9]+$")
+
+
+def _printed_account_digits(account: object) -> str:
+    """Audit round 2, R2-B14 (R46): the digits an account's statement prints at the END of its account number, its
+    blanks, '-', '.' and '/' removed ('XXXX-1010' gives '1010', '12XXXX3456' '3456', '100000001010' all twelve); ''
+    when the number ends in no digit or is not printed."""
+    statement = account.get("statement") if isinstance(account, dict) else None
+    if not isinstance(statement, dict):
+        return ""
+    match = _TRAILING_DIGITS.search(_ACCOUNT_NUMBER_SEPARATORS.sub("", str(statement.get("account_number") or "")))
+    return match.group(0) if match else ""
+
+
+def _numbers_conflict(digits: str, other: str) -> bool:
+    """Audit round 2, R2-B14 (R46): two printed account numbers are two accounts when both print more than four
+    digits and the shorter's digits are not the end of the longer's. A masked or four-digit print never conflicts."""
+    if len(digits) <= 4 or len(other) <= 4:
+        return False
+    common = min(len(digits), len(other))
+    return digits[-common:] != other[-common:]
+
+
+#: Audit round 2, R2-B14 (R16): a copy's rank keys, in order, by the name a left-out copy's row gives for the kept one
+#: winning on it (`duplicate_kept_because`); copies alike on all three keep the one listed first (`listed_first`).
+_KEPT_BECAUSE = ("has_analysis", "current_rules", "has_review_decisions")
+_REVIEW_DECISIONS = frozenset({"confirmed", "rejected"})
+
+
+def _copy_rank(job) -> tuple[int, int, int]:
+    """Audit round 2, R2-B14 (R16): how good a copy of a repeated statement is, lower first: 0 when the job is done
+    and publishes an account (else 1); 0 when its analysis is current, 1 when an account of its served copy
+    (`apply_revenue_view`) has `revenue_established` False or a record lacks or predates `CLASSIFICATION_VERSION`
+    (the `analysis_rules_outdated` rule of analysis/flagged_view.py; a job with no account is never current); 0 when a
+    posted credit of it carries the analyst's decision (`revenue_review_status` confirmed or rejected)."""
+    analysis = getattr(job, "analysis", None)
+    accounts = _stored_accounts(analysis)
+    has_analysis = getattr(job, "status", None) == "done" and bool(accounts)
+    current = False
+    if accounts:
+        served = apply_revenue_view(apply_flagged_groups_to_payload(analysis, enabled={}))
+        current = (
+            isinstance(served, dict) and served.get("analysis_rules_outdated") is not True
+            and all((account.get("metrics") or {}).get("revenue_established") is not False
+                    for account in _stored_accounts(served))
+        )
+    decided = any(
+        isinstance(row, dict) and _num(row.get("amount")) > 0 and isinstance(row.get("classification"), dict)
+        and row["classification"].get("is_posted") is not False
+        and row["classification"].get("revenue_review_status") in _REVIEW_DECISIONS
+        for account in accounts
+        for row in (account.get("statement") or {}).get("transactions") or []
+    )
+    return (0 if has_analysis else 1, 0 if current else 1, 0 if decided else 1)
+
+
+def _kept_because(kept_rank: tuple, dropped_rank: tuple) -> str:
+    """Audit round 2, R2-B14 (R16): the first rank key on which the kept copy beats the left-out one, else
+    `listed_first`."""
+    return next((name for name, kept, dropped in zip(_KEPT_BECAUSE, kept_rank, dropped_rank) if kept < dropped),
+                "listed_first")
+
+
 def _package_duplicates(jobs) -> tuple[list, list[dict], dict[str, dict[int, str]], list[dict]]:
     """Audit B11 (I06): the package's jobs with every repeated statement left out, before any member is expanded.
 
     D-3 surfaced a repeated content hash and nothing acted on it, so one statement listed twice doubled True,
     Verified, Counted, Held, Non-revenue and the month count, and the package stayed Approved. MCA practice removes a
-    duplicate statement (standard §4.6(3)). A job is left out, in listed order, the first occurrence kept, when it
-    repeats an earlier job's id (`same_job`: the same job listed twice; it adds nothing and is listed once), its
-    content hash (`same_content`: the same PDF uploaded twice), or, account by account, every account's statement
-    identity (`same_statement`: a re-download whose bytes differ; `_account_identities`). A job some of whose
-    accounts repeat an earlier job's keeps its other accounts; the repeated ones are named in `repeated_accounts`
-    (job id -> {account index: the earlier job's id}) for `_package_members` to leave out. The accounts of ONE
-    document are never compared with each other here: each carries the job's hash, and two of them publishing one
-    content is the publisher's refusal (`document_publishes_duplicate_account`).
+    duplicate statement (standard §4.6(3)). A job is left out when it repeats a kept job's id (`same_job`: the same
+    job listed twice; it adds nothing and is listed once), its content hash (`same_content`: the same PDF uploaded
+    twice), or, account by account, every account's statement identity (`same_statement`: a re-download whose bytes
+    differ; `_account_identities`). A job some of whose accounts repeat a kept job's keeps its other accounts; the
+    repeated ones are named in `repeated_accounts` (job id -> {account index: the kept job's id}) for
+    `_package_members` to leave out. The accounts of ONE document are never compared with each other here: each
+    carries the job's hash, and two of them publishing one content is the publisher's refusal
+    (`document_publishes_duplicate_account`).
 
-    Returns ``(kept jobs, dropped, repeated_accounts, groups)``: `dropped` lists ``{"job", "duplicate_of",
-    "reason"}`` in listed order; each group lists the first job and every job that repeats it (D-3's shape:
-    `content_sha256` is the first job's hash)."""
-    kept: list = []
+    Audit round 2, R2-B14 (R16): which copy is kept. The jobs claim their ids, hashes and identities in the order of
+    their rank (`_copy_rank`: a completed analysis, then the current rules, then the analyst's review decisions, then
+    the listed place), so a failed, queued, processing or interrupted copy, a copy analysed under older rules or a
+    copy without the decisions recorded on another never takes a better copy's place; copies alike keep the one
+    listed first. Each left-out entry says why its kept copy was kept (`kept_because`).
+
+    Audit round 2, R2-B14 (R46): a statement key (`statement:`, which reads only the account number's last four
+    digits) never joins two accounts whose printed full numbers conflict (`_printed_account_digits`,
+    `_numbers_conflict`): each key holds every kept job that claimed it, in claim order, and an account matches the
+    first of them whose number does not conflict with its own, in the same-statement test, in the choice of the job
+    it repeats and in `repeated_accounts` alike. A content digest (`digest:`, which covers the whole payload, the
+    number included) matches as before, and so does a masked or a four-digit print.
+
+    Returns ``(kept jobs, dropped, repeated_accounts, groups)`` in LISTED order: `dropped` lists ``{"job",
+    "duplicate_of", "reason", "kept_because", "position"}`` (`position`: the job's place in the list); each group lists
+    the kept job and then every job that repeats it (D-3's shape: `content_sha256` is the kept job's hash)."""
+    listed = list(jobs)
+    #: Each listed job's accounts' identities and printed digits, read once (a content digest hashes a whole payload).
+    identities_of: list[list[frozenset[str]]] = []
+    digits_of: list[list[str]] = []
+    claims: list[set[tuple[str, str]]] = []
+    for job in listed:
+        accounts = _stored_accounts(getattr(job, "analysis", None))
+        identities_of.append([_account_identities(account) for account in accounts])
+        digits_of.append([_printed_account_digits(account) for account in accounts])
+        keys = {("id", str(job.id))}
+        if getattr(job, "content_sha256", None):
+            keys.add(("hash", str(job.content_sha256)))
+        keys.update(("identity", key) for identities in identities_of[-1] for key in identities)
+        claims.append(keys)
+    shared = Counter(key for keys in claims for key in keys)
+    # Only a job that shares an id, a hash or an identity with another listed job can meet a copy of itself, so only
+    # such a job is ranked (the rank reads a served copy of the analysis); the others claim what no other job claims.
+    ranks = [_copy_rank(job) if any(shared[key] > 1 for key in keys) else (0, 0, 0)
+             for job, keys in zip(listed, claims)]
+    kept_positions: list[int] = []
     dropped: list[dict] = []
     repeated_accounts: dict[str, dict[int, str]] = {}
-    first_by_id: dict[str, object] = {}
-    first_by_hash: dict[str, object] = {}
-    first_by_identity: dict[str, object] = {}
-    groups: dict[str, dict] = {}
-    for job in jobs:
+    first_by_id: dict[str, int] = {}
+    first_by_hash: dict[str, int] = {}
+    #: identity key -> [(the kept job's position, its account's printed digits)], in claim order.
+    first_by_identity: dict[str, list[tuple[int, str]]] = {}
+
+    def claimed(key: str, digits: str) -> int | None:
+        """The position of the kept job an account with this identity key and these printed digits repeats."""
+        entries = first_by_identity.get(key)
+        if not entries:
+            return None
+        if key.startswith("digest:"):
+            return entries[0][0]
+        return next((position for position, other in entries if not _numbers_conflict(digits, other)), None)
+
+    for position in sorted(range(len(listed)), key=lambda place: (ranks[place], place)):
+        job = listed[position]
         content_hash = getattr(job, "content_sha256", None)
-        accounts = _stored_accounts(getattr(job, "analysis", None))
-        identities = [_account_identities(account) for account in accounts]
+        identities, digits = identities_of[position], digits_of[position]
         first, reason = None, None
         if job.id in first_by_id:
             first, reason = first_by_id[job.id], "same_job"
         elif content_hash and content_hash in first_by_hash:
             first, reason = first_by_hash[content_hash], "same_content"
-        elif identities and all(any(key in first_by_identity for key in account) for account in identities):
-            first = next(first_by_identity[key] for key in sorted(identities[0]) if key in first_by_identity)
+        elif identities and all(any(claimed(key, own) is not None for key in account)
+                                for account, own in zip(identities, digits)):
+            first = next(earlier for key in sorted(identities[0])
+                         if (earlier := claimed(key, digits[0])) is not None)
             reason = "same_statement"
         if first is not None:
-            dropped.append({"job": job, "duplicate_of": first.id, "reason": reason})
-            group = groups.setdefault(first.id, {
-                "content_sha256": getattr(first, "content_sha256", None),
-                "job_ids": [first.id],
-                "filenames": [first.filename],
-                "count": 1,
-            })
-            group["job_ids"].append(job.id)
-            group["filenames"].append(job.filename)
-            group["count"] += 1
+            dropped.append({"job": job, "duplicate_of": listed[first].id, "reason": reason,
+                            "kept_because": _kept_because(ranks[first], ranks[position]), "position": position,
+                            "kept_position": first})
             continue
         if is_document_payload(getattr(job, "analysis", None)):
-            for index, account in enumerate(identities, start=1):
-                earlier = next((first_by_identity[key] for key in sorted(account) if key in first_by_identity), None)
+            for index, (account, own) in enumerate(zip(identities, digits), start=1):
+                earlier = next((place for key in sorted(account) if (place := claimed(key, own)) is not None), None)
                 if earlier is not None:
-                    repeated_accounts.setdefault(job.id, {})[index] = earlier.id
-        kept.append(job)
-        first_by_id[job.id] = job
+                    repeated_accounts.setdefault(job.id, {})[index] = listed[earlier].id
+        kept_positions.append(position)
+        first_by_id[job.id] = position
         if content_hash:
-            first_by_hash.setdefault(content_hash, job)
-        for account in identities:
+            first_by_hash.setdefault(content_hash, position)
+        for account, own in zip(identities, digits):
             for key in account:
-                first_by_identity.setdefault(key, job)
-    order = {getattr(job, "id", None): position for position, job in enumerate(kept)}
-    ordered_groups = sorted(groups.values(), key=lambda group: order.get(group["job_ids"][0], 0))
-    return kept, dropped, repeated_accounts, ordered_groups
+                first_by_identity.setdefault(key, []).append((position, own))
+    dropped.sort(key=lambda entry: entry["position"])
+    groups: dict[int, dict] = {}
+    for entry in dropped:
+        first = listed[entry["kept_position"]]
+        group = groups.setdefault(entry.pop("kept_position"), {
+            "content_sha256": getattr(first, "content_sha256", None),
+            "job_ids": [first.id],
+            "filenames": [first.filename],
+            "count": 1,
+        })
+        group["job_ids"].append(entry["job"].id)
+        group["filenames"].append(entry["job"].filename)
+        group["count"] += 1
+    kept = [listed[position] for position in sorted(kept_positions)]
+    return kept, dropped, repeated_accounts, [groups[position] for position in sorted(groups)]
 
 
 def _duplicate_row(entry: dict) -> dict:
     """A left-out job's row in `documents` (audit B11, I06): what identifies it and the job it repeats, and no figure,
-    because none of its money enters the package."""
+    because none of its money enters the package. Audit round 2, R2-B14: why the job kept in its place was kept
+    (`duplicate_kept_because`, R16; None for a shorter printout another statement covers, R14)."""
     job = entry["job"]
     accounts = _stored_accounts(job.analysis)
     statement = (accounts[0].get("statement") or {}) if accounts else {}
@@ -1098,6 +1232,7 @@ def _duplicate_row(entry: dict) -> dict:
         "is_duplicate": True,
         "duplicate_of": entry["duplicate_of"],
         "duplicate_reason": entry["reason"],
+        "duplicate_kept_because": entry.get("kept_because"),
         "bank": statement.get("bank"),
         "account": statement.get("account_number"),
         "currency": _statement_currency(accounts[0]) if accounts else None,
@@ -1142,6 +1277,210 @@ def _statement_month(period_start: object, period_end: object) -> int | None:
         day += timedelta(days=1)
         counted += 1
     return max(days.items(), key=lambda item: (item[1], -item[0]))[0]
+
+
+#: Audit round 2, R2-B14 (R14): the words a left-out shorter printout reads in the package downloads, as the dashboard's
+#: duplicate notice reads them (app.js DUPLICATE_REASON_WORDS).
+SUPERSEDED_INTERIM_WORDS = "a shorter printout of days another statement covers"
+
+
+def _posted_rows(account: dict) -> list[dict]:
+    """An account's posted rows, credits and debits (a row whose record says `is_posted` False is not)."""
+    return [
+        row for row in (account.get("statement") or {}).get("transactions") or []
+        if isinstance(row, dict)
+        and not (isinstance(row.get("classification"), dict) and row["classification"].get("is_posted") is False)
+    ]
+
+
+def _row_day(row: dict) -> str:
+    """A row's date as one text: its ISO day, or the printed text when it is no ISO day."""
+    day = _iso_day(row.get("date"))
+    return day.isoformat() if day is not None else str(row.get("date") or "").strip()
+
+
+def _row_cents(row: dict) -> int:
+    return int(round(_num(row.get("amount")) * 100))
+
+
+def _statement_span(account: dict, rows: list[dict]):
+    """A statement's period: its printed first and last day, or else its first and last posted row's day. None when
+    neither reads."""
+    statement = account.get("statement") or {}
+    start, end = _iso_day(statement.get("period_start")), _iso_day(statement.get("period_end"))
+    if start is not None and end is not None and start <= end:
+        return start, end
+    days = sorted(day for row in rows if (day := _iso_day(row.get("date"))) is not None)
+    return (days[0], days[-1]) if days else None
+
+
+def _days_shared(span, other) -> int:
+    first, last = max(span[0], other[0]), min(span[1], other[1])
+    return (last - first).days + 1 if first <= last else 0
+
+
+def _span_covered(span, others) -> bool:
+    """Whether every day of `span` lies inside the union of the `others` periods."""
+    from datetime import timedelta
+
+    cursor = span[0]
+    for start, end in sorted(others):
+        if start > cursor:
+            break
+        if end >= cursor:
+            cursor = end + timedelta(days=1)
+        if cursor > span[1]:
+            return True
+    return cursor > span[1]
+
+
+def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | None = None,
+                        members: set[tuple[str, int | None]] | None = None):
+    """Audit round 2, R2-B14 (R14, MCA standard §4.6(3): overlapping interim statements of one account are removed):
+    the statements of one account that a shorter printout repeats, after the exact repeats are left out
+    (`_package_duplicates`).
+
+    The kept jobs' accounts (a done job's, never one `repeated_accounts` already leaves out and, when `members` is
+    given, only the ``(job id, account index or None)`` members `_package_members` admits, so a statement whose money
+    the package does not count never covers another or is covered) are grouped by their bank, casefolded, and the
+    last four digits of their printed number (`_printed_account_digits`); a statement's period is its printed one, or
+    else its first and last posted row's day. Two accounts of one document are never compared, and two statements
+    whose printed full numbers conflict (`_numbers_conflict`) are never one account's. Taking the shortest period
+    first (of two alike, the one listed later first), a statement is left out (`superseded_interim`) when its period
+    lies inside the union of the other kept statements' periods of its account, it prints a posted row, and every
+    posted row of it, credit or debit, is a posted row of those statements, as a multiset on the day and the signed
+    cents: an interim or month-to-date printout beside the full statement, a second month-to-date printout of one open
+    month, or a custom range of days the full statements print. It repeats the statement left in the package that
+    shares the most of its days (of two alike, the one listed first).
+
+    Any other overlap of two statements of one account is never netted: the credits the two share in the days both
+    cover (a multiset on the day, the cents and the description, casefolded, its blanks collapsed) are counted, and a
+    pair sharing one or more is named in `overlapping`, ``{"job", "other", "shared_credit_count",
+    "shared_credit_total"}`` (`job` the statement listed later, with `account` and `other_account` for an account of a
+    document), which sends the package to review.
+
+    Returns ``(kept jobs, dropped, superseded_accounts, overlapping)``: a job whose every account is left out is
+    dropped as a duplicate is (``{"job", "duplicate_of", "reason": "superseded_interim"}``, in listed order); an
+    account of a document whose other accounts stay is named in `superseded_accounts` (job id -> {account index: the
+    covering job's id}) for `_package_members` to leave out with `repeated_accounts`."""
+    repeated_accounts = repeated_accounts or {}
+    statements: list[dict] = []
+    for order, job in enumerate(kept):
+        if getattr(job, "status", None) != "done":
+            continue
+        analysis = getattr(job, "analysis", None)
+        document = is_document_payload(analysis)
+        accounts = _stored_accounts(analysis)
+        for index, account in enumerate(accounts, start=1):
+            if document and index in repeated_accounts.get(job.id, {}):
+                continue
+            if members is not None and (job.id, index if document else None) not in members:
+                continue
+            digits = _printed_account_digits(account)
+            bank = " ".join(str((account.get("statement") or {}).get("bank") or "").split()).casefold()
+            rows = _posted_rows(account)
+            span = _statement_span(account, rows)
+            if not bank or len(digits) < 4 or span is None:
+                continue
+            statements.append({
+                "job": job, "order": order, "index": index if document else None, "accounts": len(accounts),
+                "group": (bank, digits[-4:]), "digits": digits, "span": span,
+                "rows": Counter((_row_day(row), _row_cents(row)) for row in rows),
+                "credits": [row for row in rows if _num(row.get("amount")) > 0],
+            })
+    groups: dict[tuple, list[dict]] = {}
+    for statement in statements:
+        groups.setdefault(statement["group"], []).append(statement)
+
+    def peers(statement: dict, alive: list[dict]) -> list[dict]:
+        return [other for other in alive if other["job"] is not statement["job"]
+                and not _numbers_conflict(statement["digits"], other["digits"])]
+
+    def most_days(statement: dict, others: list[dict]) -> dict:
+        return max(others, key=lambda other: (_days_shared(statement["span"], other["span"]), -other["order"]))
+
+    superseded: list[tuple[dict, dict]] = []
+    overlapping: list[dict] = []
+    for group in groups.values():
+        alive = list(group)
+        left_out: list[tuple[dict, dict]] = []
+        for statement in sorted(group, key=lambda item: ((item["span"][1] - item["span"][0]).days, -item["order"])):
+            others = peers(statement, alive)
+            if not others or not statement["rows"] or not _span_covered(statement["span"],
+                                                                        [other["span"] for other in others]):
+                continue
+            pool: Counter = Counter()
+            for other in others:
+                pool.update(other["rows"])
+            if statement["rows"] - pool:
+                continue
+            left_out.append((statement, most_days(statement, others)))
+            alive.remove(statement)
+        for statement, covering in left_out:
+            # The statement it repeats is one the package keeps: a covering statement left out after it hands it on.
+            remaining = [other for other in peers(statement, alive)
+                         if _days_shared(statement["span"], other["span"]) > 0]
+            superseded.append((statement, most_days(statement, remaining) if remaining else covering))
+        alive.sort(key=lambda item: (item["order"], item["index"] or 0))
+        for position, earlier in enumerate(alive):
+            for later in alive[position + 1:]:
+                if later["job"] is earlier["job"] or _numbers_conflict(later["digits"], earlier["digits"]):
+                    continue
+                first, last = max(earlier["span"][0], later["span"][0]), min(earlier["span"][1], later["span"][1])
+                if first > last:
+                    continue
+                shared = _credits_between(earlier, first, last) & _credits_between(later, first, last)
+                if not shared:
+                    continue
+                pair = {
+                    "job": later["job"].id,
+                    "other": earlier["job"].id,
+                    "shared_credit_count": sum(shared.values()),
+                    "shared_credit_total": round(sum(cents * count for (_day, cents, _text), count in shared.items())
+                                                 / 100, 2),
+                }
+                if later["index"] is not None:
+                    pair["account"] = later["index"]
+                if earlier["index"] is not None:
+                    pair["other_account"] = earlier["index"]
+                overlapping.append(pair)
+
+    by_job: dict[str, list[tuple[dict, dict]]] = {}
+    for statement, covering in superseded:
+        by_job.setdefault(statement["job"].id, []).append((statement, covering))
+    dropped: list[dict] = []
+    superseded_accounts: dict[str, dict[int, str]] = {}
+    for job in kept:
+        entries = by_job.get(job.id)
+        if not entries:
+            continue
+        if len(entries) == entries[0][0]["accounts"]:
+            # Every account the job publishes is a shorter printout: the job is left out as a repeat is.
+            first = min(entries, key=lambda entry: entry[0]["index"] or 0)
+            dropped.append({"job": job, "duplicate_of": first[1]["job"].id, "reason": "superseded_interim"})
+            continue
+        for statement, covering in entries:
+            superseded_accounts.setdefault(job.id, {})[statement["index"]] = covering["job"].id
+    dropped_ids = {entry["job"].id for entry in dropped}
+    return [job for job in kept if job.id not in dropped_ids], dropped, superseded_accounts, overlapping
+
+
+def _credits_between(statement: dict, first, last) -> Counter:
+    """A statement's posted credits dated from `first` to `last`, as a multiset on the day, the cents and the
+    description, casefolded, its blanks collapsed (`_package_superseded`)."""
+    return Counter(
+        (_row_day(row), _row_cents(row), " ".join(str(row.get("description") or "").split()).casefold())
+        for row in statement["credits"]
+        if (day := _iso_day(row.get("date"))) is not None and first <= day <= last
+    )
+
+
+def _overlap_words(pair: dict, filenames: dict[str, str], money: str) -> str:
+    """Audit round 2, R2-B14 (R14): a pair of overlapping statements as the package names it (app.js
+    overlappingStatementWords reads the same words)."""
+    count = pair.get("shared_credit_count") or 0
+    return (f"{filenames.get(pair.get('job'), pair.get('job'))} and {filenames.get(pair.get('other'), pair.get('other'))} "
+            f"share {count} {'credit' if count == 1 else 'credits'} ({money}) in the days both cover, counted in both")
 
 
 def _ratified_omissions(analysis: object) -> list[dict]:
@@ -1452,6 +1791,30 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     outdated_jobs: dict[str, bool] = {}
     members, excluded_accounts = _package_members(jobs, settings=settings, outdated=outdated_jobs,
                                                   repeated_accounts=repeated_accounts)
+    # Audit round 2, R2-B14 (R14): after the exact repeats, a shorter printout of days another statement of its account
+    # covers is left out the way a repeat is, and any other overlap that shares credits is named, never netted. Only
+    # the statements the package counts (its members) are compared; when one is left out, the members are read again
+    # without it, so every figure below is computed without it.
+    kept_jobs, superseded_jobs, superseded_accounts, overlapping_statements = _package_superseded(
+        jobs, repeated_accounts, members={(member[0].id, member[2]) for member in members})
+    if superseded_jobs or superseded_accounts:
+        first_place: dict[str, int] = {}
+        for place, job in enumerate(listed_jobs):
+            first_place.setdefault(job.id, place)
+        dropped_duplicates = sorted(
+            [*dropped_duplicates, *({**entry, "position": first_place[entry["job"].id]} for entry in superseded_jobs)],
+            key=lambda entry: entry["position"],
+        )
+        for job_id, accounts in superseded_accounts.items():
+            repeated_accounts.setdefault(job_id, {}).update(accounts)
+        jobs = kept_jobs
+        outdated_jobs = {}
+        members, excluded_accounts = _package_members(jobs, settings=settings, outdated=outdated_jobs,
+                                                      repeated_accounts=repeated_accounts)
+        for entry in excluded_accounts:
+            if entry.get("is_duplicate") is True and entry.get("account_index") in superseded_accounts.get(
+                    entry.get("job_id"), {}):
+                entry["reason"] = "superseded_interim"
     duplicate_accounts = sum(len(accounts) for accounts in repeated_accounts.values())
     #: Q10. Every ratified sibling omission any member document published. The
     #: package says so rather than demoting anything: an omission admitted on
@@ -2525,6 +2888,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         or potential_withholding_review_required
         or totals["revenue_review_required"]
         or totals["has_duplicate_documents"]
+        # Audit round 2, R2-B14 (R14): two statements of one account that share credits in the days both cover.
+        or overlapping_statements
     ):
         decision = "review_required"
     elif totals["summary_only"] or totals["integrity_review"]:
@@ -2624,6 +2989,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # Audit B11 (I06): the accounts of kept documents left out because an earlier job published them; only when
         # there is one, so a package without one carries no new key.
         **({"duplicate_accounts": duplicate_accounts} if duplicate_accounts else {}),
+        # Audit round 2, R2-B14 (R14): the overlapping statements of one account that share credits, each pair named
+        # with what it shares, counted in both (never netted); only when there is one.
+        **({"overlapping_statements": overlapping_statements} if overlapping_statements else {}),
         "months": months,
         # Gross: every posted credit, not True revenue (audit B11, I07: the dashboard labels it so).
         "avg_monthly_credits": round(totals["total_credits"] / months, 2),

@@ -937,6 +937,541 @@ def test_a_document_repeating_one_statement_keeps_its_other_account():
     assert package["totals"]["total_credits"] == alone["totals"]["total_credits"]
 
 
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B14 (R16): of the copies of one repeated statement the package keeps the copy with a completed
+# analysis, then the one analysed under the current rules, then the one carrying the analyst's review decisions, and
+# only then the one listed first. Fabricated `_payload` statements (1,000 True, 700 Verified, 900 held, March 2031).
+# ---------------------------------------------------------------------------
+
+import copy as _copy_module  # noqa: E402
+import zipfile  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+def _listed(job_id, analysis=None, *, status="done", content="h1", filename=None):
+    """A job as a package lists it: `status` "error" has no analysis and an error, like a failed upload."""
+    from webapp.jobs import Job
+
+    return Job(id=job_id, filename=filename or f"{job_id}.pdf", status=status, analysis=analysis,
+               content_sha256=content, error="fabricated failure" if status == "error" else None)
+
+
+def _decided(payload):
+    """The same statement after the analyst confirmed its held 900 credit (transaction 3) as revenue: True 1,900."""
+    from analysis.revenue import apply_serialized_revenue_review
+
+    return apply_serialized_revenue_review(_copy_module.deepcopy(payload), source_location="transaction:3",
+                                           decision="confirm")
+
+
+def _r16(package):
+    totals = package["totals"]
+    return {key: totals[key] for key in ("true_revenue_total", "verified_revenue_total", "excluded_pending_review_total",
+                                          "completed", "failed", "months", "duplicate_documents", "decision")}
+
+
+def _left_out(package):
+    """The left-out jobs' rows: (id, the job kept in its place, why it is a repeat, why that copy was kept)."""
+    return [(doc["id"], doc["duplicate_of"], doc["duplicate_reason"], doc.get("duplicate_kept_because"))
+            for doc in package["documents"] if doc["is_duplicate"]]
+
+
+_ONE_MARCH = {"true_revenue_total": 1000.0, "verified_revenue_total": 700.0, "excluded_pending_review_total": 900.0,
+              "completed": 1, "failed": 0, "months": 1, "duplicate_documents": 1, "decision": "review_required"}
+
+
+def test_a_failed_copy_listed_first_leaves_the_completed_copy_in_the_package():
+    """B11's regression: a failed upload of the same bytes listed first claimed the hash, so the completed copy was left
+    out (True 0, completed 0). The completed copy is kept, and the failed one is left out and never counted failed."""
+    from tests.test_webapp_true_revenue import _payload
+    from webapp.app import _package_analysis
+
+    jobs = [_listed("f", status="error"), _listed("a", _payload())]
+    package = _package_analysis(jobs)
+    assert _r16(package) == _ONE_MARCH
+    assert [doc["id"] for doc in package["documents"]] == ["a", "f"]
+    assert _left_out(package) == [("f", "a", "same_content", "has_analysis")]
+    # A group lists the kept job first, its hash the group's.
+    assert package["duplicates"] == [{"content_sha256": "h1", "job_ids": ["a", "f"], "filenames": ["a.pdf", "f.pdf"],
+                                      "count": 2}]
+    reverse = _package_analysis(list(reversed(jobs)))
+    assert _r16(reverse) == _ONE_MARCH and _left_out(reverse) == [("f", "a", "same_content", "has_analysis")]
+
+
+def test_a_failed_copy_listed_first_through_the_package_route():
+    from tests.test_webapp_true_revenue import _payload
+
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    failed = store.create("mar.pdf", pdf_bytes=content)
+    store.set_error(failed.id, "fabricated failure")
+    done = _analysed("mar-again.pdf", _payload(), content)
+    for ids in ((failed.id, done.id), (done.id, failed.id)):
+        body = _package_json(*ids)
+        assert _r16(body) == _ONE_MARCH
+        assert _left_out(body) == [(failed.id, done.id, "same_content", "has_analysis")]
+    minted = app.test_client().post("/package", json={"ids": [failed.id, done.id]}).get_json()
+    durable = app.test_client().get(f"/package_analysis?package_id={minted['package_id']}").get_json()
+    assert _r16(durable) == _ONE_MARCH
+
+
+@pytest.mark.parametrize("status", ["queued", "processing", "interrupted"])
+def test_a_copy_still_in_flight_listed_first_leaves_the_completed_copy_in_the_package(status):
+    from tests.test_webapp_true_revenue import _payload
+
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    pending = store.create("mar.pdf", pdf_bytes=content)
+    if status != "queued":
+        store.set_status(pending.id, status)
+    done = _analysed("mar-again.pdf", _payload(), content)
+    body = _package_json(pending.id, done.id)
+    assert _r16(body) == _ONE_MARCH
+    assert _left_out(body) == [(pending.id, done.id, "same_content", "has_analysis")]
+
+
+@pytest.mark.parametrize("same_bytes", [True, False])
+def test_a_copy_analysed_under_older_rules_listed_first_never_blanks_the_package(same_bytes):
+    """A pre-5.6 copy listed first made the whole package's True N/A; the copy analysed under the current rules is kept,
+    by its bytes (`same_content`) or by its statement key (`same_statement`)."""
+    from tests.test_webapp_true_revenue import _payload, _untiered
+    from webapp.app import _package_analysis
+
+    reason = "same_content" if same_bytes else "same_statement"
+    jobs = [_listed("old", _untiered(_payload())), _listed("new", _payload(), content="h1" if same_bytes else "h2")]
+    for listed in (jobs, list(reversed(jobs))):
+        package = _package_analysis(listed)
+        assert _r16(package) == _ONE_MARCH
+        assert package["totals"]["revenue_unestablished_documents"] == []
+        assert package["analysis_rules_outdated"] is False
+        assert _left_out(package) == [("old", "new", reason, "current_rules")]
+
+
+def test_the_copy_carrying_the_review_decisions_is_the_one_kept():
+    """Decisions recorded on the later copy were lost (True 1,000, held 900); the decided copy is kept."""
+    from tests.test_webapp_true_revenue import _payload
+    from webapp.app import _package_analysis
+
+    jobs = [_listed("plain", _payload()), _listed("decided", _decided(_payload()))]
+    for listed in (jobs, list(reversed(jobs))):
+        package = _package_analysis(listed)
+        assert _r16(package) == {**_ONE_MARCH, "true_revenue_total": 1900.0, "verified_revenue_total": 1600.0,
+                                 "excluded_pending_review_total": 0.0}
+        assert _left_out(package) == [("plain", "decided", "same_content", "has_review_decisions")]
+
+
+def test_a_failed_month_beside_its_completed_re_upload_keeps_every_month():
+    from tests.test_webapp_true_revenue import _payload
+    from webapp.app import _package_analysis
+
+    jobs = [_listed("jan", _payload(month=1), content="hj"), _listed("feb-failed", status="error", content="hf"),
+            _listed("feb", _payload(month=2), content="hf"), _listed("mar", _payload(month=3), content="hm")]
+    for listed in (jobs, list(reversed(jobs))):
+        totals = _package_analysis(listed)["totals"]
+        assert (totals["true_revenue_total"], totals["verified_revenue_total"], totals["months"]) == (3000.0, 2100.0, 3)
+        assert (totals["completed"], totals["failed"], totals["duplicate_documents"]) == (3, 0, 1)
+    assert [doc["id"] for doc in _package_analysis(jobs)["documents"]] == ["jan", "feb", "mar", "feb-failed"]
+
+
+def test_two_current_copies_keep_the_one_listed_first():
+    from tests.test_webapp_true_revenue import _payload
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_listed("first", _payload()), _listed("second", _payload())])
+    assert _r16(package) == _ONE_MARCH
+    assert _left_out(package) == [("second", "first", "same_content", "listed_first")]
+    reverse = _package_analysis([_listed("second", _payload()), _listed("first", _payload())])
+    assert _left_out(reverse) == [("first", "second", "same_content", "listed_first")]
+
+
+def test_a_failed_copy_alone_or_beside_another_statement_is_still_a_failed_member():
+    from tests.test_webapp_true_revenue import _payload
+    from webapp.app import _package_analysis
+
+    alone = _package_analysis([_listed("f", status="error")])["totals"]
+    assert (alone["true_revenue_total"], alone["completed"], alone["failed"], alone["duplicate_documents"]) == (
+        0.0, 0, 1, 0)
+    for jobs in ([_listed("f", status="error"), _listed("a", _payload(), content="h2")],
+                 [_listed("a", _payload(), content="h2"), _listed("f", status="error")]):
+        package = _package_analysis(jobs)
+        totals = package["totals"]
+        assert (totals["true_revenue_total"], totals["completed"], totals["failed"], totals["duplicate_documents"]) == (
+            1000.0, 1, 1, 0)
+        assert _left_out(package) == [] and package["duplicates"] == []
+
+
+def test_the_package_duplicates_return_kept_and_left_out_jobs_in_listed_order():
+    from tests.test_webapp_true_revenue import _payload
+    from webapp.app import _package_duplicates
+
+    jobs = [_listed("f1", status="error"), _listed("x", _payload(month=2), content="h2"), _listed("a", _payload()),
+            _listed("f2", status="error")]
+    kept, dropped, repeated, groups = _package_duplicates(jobs)
+    assert [job.id for job in kept] == ["x", "a"]
+    assert [(entry["job"].id, entry["duplicate_of"], entry["reason"], entry["kept_because"]) for entry in dropped] == [
+        ("f1", "a", "same_content", "has_analysis"), ("f2", "a", "same_content", "has_analysis")]
+    assert repeated == {}
+    assert groups == [{"content_sha256": "h1", "job_ids": ["a", "f1", "f2"], "filenames": ["a.pdf", "f1.pdf", "f2.pdf"],
+                       "count": 3}]
+
+
+def test_why_a_copy_was_kept_reaches_the_package_exports():
+    from tests.test_webapp_true_revenue import _payload
+
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    failed = store.create("mar.pdf", pdf_bytes=content)
+    store.set_error(failed.id, "fabricated failure")
+    done = _analysed("mar-again.pdf", _payload(), content)
+    csv_body = app.test_client().get(f"/package_download/csv?ids={failed.id},{done.id}").get_data(as_text=True)
+    assert "document_2,duplicate_kept_because,has_analysis" in csv_body
+
+
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B14 (R46): two accounts whose printed full numbers differ are never one statement, however much of
+# the statement key they share. Fabricated CONTOSO BANK statements, March 2031, balances 0 -> 0.
+# ---------------------------------------------------------------------------
+
+_R46_ROWS = [("2031-03-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 800.0),
+             ("2031-03-09", "FABRIKAM INC DES:PAYMENT ID:1", 1200.0),
+             ("2031-03-27", "SWEEP TO CONTOSO OPERATING", -2000.0)]
+
+
+def _printed_report(number, rows=_R46_ROWS, *, start="2031-03-01", end="2031-03-31", opening=0.0,
+                    name="CONTOSO BAKERY LLC", bank="CONTOSO BANK"):
+    """A fabricated statement printing `number` as its account number, analysed by the real pipeline."""
+    from analysis.pipeline import analyze_statement
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+
+    transactions, balance = [], opening
+    for day, description, amount in rows:
+        balance = round(balance + amount, 2)
+        transactions.append(Transaction(date=day, description=description, amount=amount,
+                                        direction="credit" if amount > 0 else "debit", running_balance=balance))
+    statement = Statement(bank=bank, account_name=name, account_number=number, period_start=start, period_end=end,
+                          beginning_balance=opening, ending_balance=balance, currency="USD", currency_source="printed",
+                          transactions=transactions)
+    return analyze_statement(statement, reconciliation=reconcile(statement), markdown="", sheets=[],
+                             model_used="fabricated-test")
+
+
+def _printed(number, rows=_R46_ROWS, **kwargs):
+    from analysis.serialization import document_report_to_dict
+
+    return document_report_to_dict(_printed_report(number, rows, **kwargs))
+
+
+def _document_with(number, rows=_R46_ROWS, *, start="2031-03-01", end="2031-03-31", opening=0.0):
+    """A checking account (the main account) beside a second account printing `number`, in one document."""
+    from analysis.pipeline import AccountRosterEntry, DocumentReport, identify_internal_transfers
+    from analysis.serialization import document_report_to_dict
+
+    checking = _printed_report("000000003030", [(start[:8] + "04", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:2", 500.0)],
+                               start=start, end=end, opening=1500.0).accounts[0]
+    second = _printed_report(number, rows, start=start, end=end, opening=opening, name="CONTOSO BAKERY SWEEP").accounts[0]
+    transfers, notes = identify_internal_transfers([checking, second])
+    roster = [AccountRosterEntry("CONTOSO BAKERY LLC", "checking", "3030", "published", published_index=0),
+              AccountRosterEntry("CONTOSO BAKERY SWEEP", "savings", number[-4:], "published", published_index=1)]
+    return document_report_to_dict(DocumentReport(accounts=[checking, second], internal_transfers=transfers,
+                                                  integrity_notes=notes, account_roster=roster,
+                                                  document_period=(start, end)))
+
+
+def _credit_tiers(package):
+    return sorted((row["source_document"], row["description"], row["classification"].get("revenue_tier"),
+                   row["classification"].get("revenue_tier_reason"))
+                  for row in package["transactions"] if row["amount"] > 0)
+
+
+def test_two_accounts_sharing_a_last_four_and_both_balances_are_both_counted():
+    from webapp.app import _account_identities, _package_analysis
+
+    one, two = _printed("100000001010"), _printed("200000001010")
+    shared = {key for key in _account_identities(one) if key.startswith("statement:")}
+    assert shared and shared == {key for key in _account_identities(two) if key.startswith("statement:")}
+    alone = [_package_analysis([_listed(job_id, payload, content=job_id)]) for job_id, payload in (("one", one),
+                                                                                                   ("two", two))]
+    package = _package_analysis([_listed("one", one, content="one"), _listed("two", two, content="two")])
+    totals = package["totals"]
+    assert (totals["duplicate_documents"], totals["has_duplicate_documents"]) == (0, False)
+    assert totals["true_revenue_total"] == sum(part["totals"]["true_revenue_total"] for part in alone) == 4000.0
+    assert _left_out(package) == []
+    # Each row keeps its standalone tier and reason.
+    assert _credit_tiers(package) == sorted(row for part in alone for row in _credit_tiers(part))
+
+
+def test_a_masked_print_of_the_same_statement_is_still_the_same_statement():
+    from webapp.app import _package_analysis
+
+    full = _printed("100000001010")
+    full["statement"]["transactions"][0]["classification"]["revenue_review_status"] = "confirmed"
+    package = _package_analysis([_listed("masked", _printed("XXXXXXXX1010"), content="m"),
+                                 _listed("full", full, content="f")])
+    assert _left_out(package) == [("masked", "full", "same_statement", "has_review_decisions")]
+    assert package["totals"]["true_revenue_total"] == 2000.0
+
+
+def test_a_partly_masked_print_of_the_same_statement_is_still_the_same_statement():
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_listed("full", _printed("100000001010"), content="f"),
+                                 _listed("partly", _printed("10XXXXXX1010"), content="p")])
+    assert _left_out(package) == [("partly", "full", "same_statement", "listed_first")]
+    assert package["totals"]["true_revenue_total"] == 2000.0
+
+
+def test_a_shorter_number_that_differs_from_the_full_one_is_another_account():
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_listed("short", _printed("5551010"), content="s"),
+                                 _listed("full", _printed("100000001010"), content="f")])
+    assert _left_out(package) == [] and package["totals"]["true_revenue_total"] == 4000.0
+
+
+def test_a_reading_of_one_account_matches_that_account_and_never_its_last_four_twin():
+    from webapp.app import _package_analysis
+
+    a, b = _printed("100000001010"), _printed("200000001010")
+    other_reading = _printed("200000001010", name="CONTOSO BAKERY L L C")
+    package = _package_analysis([_listed("a", a, content="a"), _listed("b", b, content="b"),
+                                 _listed("c", other_reading, content="c")])
+    assert [doc["id"] for doc in package["documents"] if not doc["is_duplicate"]] == ["a", "b"]
+    assert _left_out(package) == [("c", "b", "same_statement", "listed_first")]
+    assert package["totals"]["true_revenue_total"] == 4000.0
+    # A decision recorded on the other reading makes it the copy kept (R16), and still never A's.
+    decided = _copy_module.deepcopy(other_reading)
+    decided["statement"]["transactions"][0]["classification"]["revenue_review_status"] = "confirmed"
+    package = _package_analysis([_listed("a", a, content="a"), _listed("b", b, content="b"),
+                                 _listed("c", decided, content="c")])
+    assert [doc["id"] for doc in package["documents"] if not doc["is_duplicate"]] == ["a", "c"]
+    assert _left_out(package) == [("b", "c", "same_statement", "has_review_decisions")]
+
+
+def test_a_document_account_printing_another_full_number_is_kept():
+    from webapp.app import _package_analysis
+
+    alone = _listed("alone", _printed("100000001010"), content="alone")
+    other = _package_analysis([alone, _listed("doc", _document_with("200000001010"), content="doc")])
+    assert [doc["id"] for doc in other["documents"]] == ["alone", "doc#account_1", "doc#account_2"]
+    assert other["totals"]["has_duplicate_documents"] is False
+    assert "excluded_accounts" not in other
+    assert other["totals"]["true_revenue_total"] == 4500.0
+    same = _package_analysis([alone, _listed("doc", _document_with("100000001010"), content="doc")])
+    assert [doc["id"] for doc in same["documents"]] == ["alone", "doc#account_1"]
+    assert [(entry["job_id"], entry["account_index"], entry["reason"], entry["duplicate_of"])
+            for entry in same["excluded_accounts"]] == [("doc", 2, "duplicate_statement", "alone")]
+    assert same["totals"]["true_revenue_total"] == 2500.0
+
+
+def test_the_printed_account_digits_and_the_number_conflict():
+    from webapp.app import _numbers_conflict, _printed_account_digits
+
+    def digits(number):
+        return _printed_account_digits({"statement": {"account_number": number}})
+
+    assert [digits(number) for number in ("XXXX-1010", "12XXXX3456", "100000001010", "1000 0000 1010", "1000.0000/1010",
+                                          "XXXXXXXX1010", "", None, "1010 SAVINGS")] == [
+        "1010", "3456", "100000001010", "100000001010", "100000001010", "1010", "", "", ""]
+    assert _numbers_conflict("100000001010", "200000001010") and _numbers_conflict("5551010", "100000001010")
+    assert not _numbers_conflict("1010", "100000001010") and not _numbers_conflict("", "100000001010")
+    assert not _numbers_conflict("0001010", "100000001010") and not _numbers_conflict("12345", "912345")
+
+
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B14 (R14): a shorter printout of days another statement of the account covers, every posted row of
+# it printed there too, is left out; any other overlap that shares credits is named and sent to review, never netted.
+# Fabricated CONTOSO BANK statements of one account, NORTHWIND SUPPLY LLC payments, 2031.
+# ---------------------------------------------------------------------------
+
+_MARCH = [("2031-03-03", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 20000.0),
+          ("2031-03-25", "CARD PURCHASE FABRIKAM SUPPLY", -500.0)]
+_APRIL = [("2031-04-03", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 8000.0),
+          ("2031-04-12", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 7000.0),
+          ("2031-04-24", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 5000.0),
+          ("2031-04-25", "CARD PURCHASE FABRIKAM SUPPLY", -500.0)]
+_ACCOUNT = "000000001010"
+
+
+def _period(job_id, rows, start, end, *, number=_ACCOUNT, opening=1500.0):
+    return _listed(job_id, _printed(number, rows, start=start, end=end, opening=opening), content=job_id)
+
+
+def _march():
+    return _period("mar", _MARCH, "2031-03-01", "2031-03-31")
+
+
+def _april(number=_ACCOUNT):
+    return _period("apr", _APRIL, "2031-04-01", "2031-04-30", number=number, opening=21000.0)
+
+
+def _r14(package):
+    totals = package["totals"]
+    return (totals["true_revenue_total"], totals["avg_monthly_true_revenue"], totals["months"], totals["decision"])
+
+
+@pytest.mark.parametrize("mtd_first", [False, True])
+def test_a_month_to_date_printout_inside_its_full_month_is_left_out(mtd_first):
+    from webapp.app import _package_analysis
+
+    mtd = _period("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
+    assert _r14(_package_analysis([_march(), _april()])) == (40000.0, 20000.0, 2, "approved")
+    package = _package_analysis([mtd, _march(), _april()] if mtd_first else [_march(), _april(), mtd])
+    totals = package["totals"]
+    assert _r14(package) == (40000.0, 20000.0, 2, "review_required")
+    assert "statement_periods" not in totals and "overlapping_statements" not in totals
+    assert (totals["duplicate_documents"], totals["has_duplicate_documents"]) == (1, True)
+    assert _left_out(package) == [("mtd", "apr", "superseded_interim", None)]
+    assert [doc["id"] for doc in package["documents"] if not doc["is_duplicate"]] == ["mar", "apr"]
+
+
+def test_of_two_month_to_date_printouts_the_shorter_is_left_out():
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_march(), _period("mtd10", _APRIL[:1], "2031-04-01", "2031-04-10", opening=21000.0),
+                                 _period("mtd20", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)])
+    assert _left_out(package) == [("mtd10", "mtd20", "superseded_interim", None)]
+    assert package["totals"]["true_revenue_total"] == 35000.0
+
+
+def test_an_export_straddling_two_full_months_is_left_out():
+    from webapp.app import _package_analysis
+
+    export = _period("export", [_MARCH[1], *_APRIL[:2]], "2031-03-15", "2031-04-15", opening=19000.0)
+    package = _package_analysis([_march(), _april(), export])
+    # The covering statement sharing the most days: March holds 17 of the export's days, April 15.
+    assert _left_out(package) == [("export", "mar", "superseded_interim", None)]
+    assert _r14(package) == (40000.0, 20000.0, 2, "review_required")
+
+
+def test_a_partial_overlap_sharing_credits_is_named_and_never_netted():
+    from webapp.app import _package_analysis
+
+    interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                      "2031-04-15", "2031-05-10", opening=30000.0)
+    alone = [_package_analysis([job])["totals"] for job in (_april(), interim)]
+    assert [part["decision"] for part in alone] == ["approved", "approved"]
+    package = _package_analysis([_april(), interim])
+    totals = package["totals"]
+    assert totals["overlapping_statements"] == [
+        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0}]
+    assert totals["true_revenue_total"] == sum(part["true_revenue_total"] for part in alone) == 31000.0
+    assert totals["decision"] == "review_required"
+    assert _left_out(package) == [] and totals["has_duplicate_documents"] is False
+
+
+def test_statements_sharing_only_a_boundary_day_and_no_row_stay_approved():
+    from webapp.app import _package_analysis
+
+    first = _period("first", [("2031-03-10", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 9000.0)], "2031-03-01",
+                    "2031-04-01")
+    second = _period("second", [("2031-04-10", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)], "2031-04-01",
+                     "2031-05-01", opening=10500.0)
+    package = _package_analysis([first, second])
+    assert package["totals"]["decision"] == "approved" and "overlapping_statements" not in package["totals"]
+    assert _left_out(package) == []
+
+
+def test_a_contained_period_printing_other_rows_under_the_same_last_four_is_kept():
+    from webapp.app import _package_analysis
+
+    other = _period("other", [("2031-04-06", "FABRIKAM INC DES:PAYMENT ID:1", 3000.0)], "2031-04-01", "2031-04-20",
+                    number="XXXX1010")
+    package = _package_analysis([_april(), other])
+    assert _left_out(package) == [] and "overlapping_statements" not in package["totals"]
+    assert package["totals"]["true_revenue_total"] == 23000.0 and package["totals"]["decision"] == "approved"
+
+
+def test_a_repeated_full_statement_still_drops_as_the_same_statement():
+    from webapp.app import _package_analysis
+
+    again = _period("again", _APRIL, "2031-04-01", "2031-04-30", opening=21000.0)
+    package = _package_analysis([_april(), again])
+    assert _left_out(package) == [("again", "apr", "same_statement", "listed_first")]
+
+
+def test_a_contained_period_whose_full_number_conflicts_is_kept():
+    from webapp.app import _package_analysis
+
+    twin = _period("twin", _APRIL[:2], "2031-04-01", "2031-04-20", number="200000001010", opening=21000.0)
+    package = _package_analysis([_april("100000001010"), twin])
+    assert _left_out(package) == [] and "overlapping_statements" not in package["totals"]
+    assert package["totals"]["true_revenue_total"] == 35000.0
+
+
+def test_a_document_account_that_is_an_interim_of_another_statement_is_left_out_alone():
+    from webapp.app import _package_analysis
+
+    document = _document_with(_ACCOUNT, _APRIL[:2], start="2031-04-01", end="2031-04-20", opening=21000.0)
+    package = _package_analysis([_april(), _listed("doc", document, content="doc")])
+    assert [doc["id"] for doc in package["documents"]] == ["apr", "doc#account_1"]
+    assert [(entry["job_id"], entry["account_index"], entry["reason"], entry["duplicate_of"])
+            for entry in package["excluded_accounts"]] == [("doc", 2, "superseded_interim", "apr")]
+    totals = package["totals"]
+    assert (totals["duplicate_accounts"], totals["has_duplicate_documents"], totals["decision"]) == (
+        1, True, "review_required")
+    assert totals["true_revenue_total"] == 20500.0
+
+
+def test_a_left_out_interim_names_the_statement_the_package_keeps():
+    """Of two printouts of one open month both inside the full month, each names the full statement, even when the
+    shorter one shares as many days with the longer printout, listed first, which is itself left out."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_period("mtd20", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0), _april(),
+                                 _period("mtd10", _APRIL[:1], "2031-04-01", "2031-04-10", opening=21000.0)])
+    assert _left_out(package) == [("mtd20", "apr", "superseded_interim", None),
+                                  ("mtd10", "apr", "superseded_interim", None)]
+    assert package["totals"]["true_revenue_total"] == 20000.0
+
+
+def test_a_statement_the_package_does_not_count_never_covers_an_interim():
+    """A document withheld because its main account was not verified counts none of its money, so the month-to-date
+    printout of the account it prints stays in the package."""
+    from analysis.pipeline import AccountRosterEntry, DocumentReport
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import _package_analysis
+
+    april = _printed_report(_ACCOUNT, _APRIL, start="2031-04-01", end="2031-04-30", opening=21000.0).accounts[0]
+    roster = [AccountRosterEntry("CONTOSO BAKERY LLC", "checking", "3030", "held", reasons=("page_unresolved",)),
+              AccountRosterEntry("CONTOSO BAKERY SAVINGS", "savings", "1010", "published", published_index=0)]
+    withheld = document_report_to_dict(DocumentReport(accounts=[april], account_roster=roster,
+                                                      document_period=("2031-04-01", "2031-04-30")))
+    mtd = _period("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
+    package = _package_analysis([_listed("doc", withheld, content="doc"), mtd])
+    assert _left_out(package) == [] and package["totals"]["true_revenue_total"] == 15000.0
+    assert [(entry["job_id"], entry["reason"]) for entry in package["excluded_accounts"]] == [
+        ("doc", "main_account_unverified")]
+
+
+def test_the_package_rows_name_an_interim_and_an_overlap_in_words():
+    from webapp.app import _package_analysis, _package_rows
+
+    mtd = _period("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
+    rows = _package_rows(_package_analysis([_march(), _april(), mtd]))
+    assert ("document_3", "duplicate_reason", "superseded_interim") in rows
+    assert ("document_3", "duplicate_reason_words", "a shorter printout of days another statement covers") in rows
+    interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                      "2031-04-15", "2031-05-10", opening=30000.0)
+    rows = _package_rows(_package_analysis([_april(), interim]))
+    assert ("overlapping_statement_1", "shared_credit_count", 1) in rows
+    assert ("overlapping_statement_1", "words",
+            "int.pdf and apr.pdf share 1 credit (5,000.00) in the days both cover, counted in both") in rows
+    # Nothing new on a package without an overlap.
+    rows = _package_rows(_package_analysis([_march(), _april()]))
+    assert not [row for row in rows if row[1] == "duplicate_reason_words" or row[0].startswith("overlapping")]
+
+
+def test_the_interim_and_overlap_words_reach_the_package_downloads():
+    from webapp.app import _package_for_export, _package_analysis, _package_csv, _package_xlsx
+
+    interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                      "2031-04-15", "2031-05-10", opening=30000.0)
+    package = _package_for_export(_package_analysis([_april(), interim]))
+    words = "int.pdf and apr.pdf share 1 credit (5,000.00) in the days both cover, counted in both"
+    assert f'overlapping_statement_1,words,"{words}"' in _package_csv(package)
+    with zipfile.ZipFile(io.BytesIO(_package_xlsx(package))) as book:
+        assert words in "".join(book.read(name).decode("utf-8") for name in book.namelist() if name.endswith(".xml"))
+
+
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()

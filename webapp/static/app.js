@@ -162,6 +162,9 @@ let modalTransactionLimit = TRANSACTION_PAGE;
 let currentView = "new";
 // One entry per uploaded file: its job once the server has created one, and the last status polled for it.
 let queueEntries = [];
+// Audit round 2, R2-B14 (R16): once this batch's package arrives, the rows it left out of its figures (job id -> the
+// job kept in their place); null until then.
+let queuePackageDuplicates = null;
 let previewJobId = null;
 let previewPage = 0;
 
@@ -3219,11 +3222,31 @@ function queueState(entry) {
   return { chip: "Processing", tone: "green", detail: processingStageLabel(entry.stage || entry.status), bar: "busy", width: 0 };
 }
 
-// Audit B11 (I06): the queue entry an entry repeats: the same bytes uploaded earlier in this batch (the server's
-// `duplicate_of`), or null. A file uploaded on another day is not a repeat of this package.
+// Audit B11 (I06), audit round 2, R2-B14 (R49): the queue entry an entry repeats: the same bytes earlier in this
+// batch, matched on the content hash the /upload reply carries, or null. An upload from an earlier batch does not
+// count (the server's `duplicate_of` names the earliest job holding the bytes anywhere, so it is never read here), and
+// an entry before the reply (no job id or no hash) repeats nothing. R16: once the package arrives, only a row it marks
+// `is_duplicate` repeats, and it names the copy the package kept in its place.
 function queueRepeatOf(entry) {
-  if (!entry || !entry.duplicateOf) return null;
-  return queueEntries.find((other) => other !== entry && other.jobId === entry.duplicateOf) || null;
+  if (!entry || !entry.jobId || !entry.contentSha256) return null;
+  if (queuePackageDuplicates) {
+    const kept = queuePackageDuplicates.get(entry.jobId);
+    if (!kept) return null;
+    return queueEntries.find((other) => other !== entry && other.jobId === kept
+      && other.contentSha256 === entry.contentSha256) || null;
+  }
+  const first = queueEntries.find((other) => other.jobId && other.contentSha256 === entry.contentSha256);
+  return first !== entry ? first : null;
+}
+
+// Audit round 2, R2-B14 (R16): the package of this upload batch tells the queue which rows it left out.
+function markQueueFromPackage(jobIds, pkg = {}) {
+  const batch = queueEntries.map((entry) => entry.jobId);
+  if (!batch.length || batch.join(",") !== jobIds.join(",")) return;
+  queuePackageDuplicates = new Map((Array.isArray(pkg.documents) ? pkg.documents : [])
+    .filter((doc) => doc && doc.is_duplicate === true && doc.duplicate_of)
+    .map((doc) => [String(doc.id), String(doc.duplicate_of)]));
+  renderQueue();
 }
 
 function renderQueue() {
@@ -3369,7 +3392,9 @@ function showSelectedFile(file) {
     stage: null,
     pageCount: null,
     duplicateOf: null,
+    contentSha256: null,
   }));
+  queuePackageDuplicates = null;
   setPreviewJob(null, 0);
   setStatusRows([
     ["OCR completed", "No"],
@@ -3447,8 +3472,10 @@ function uploadFiles(fileList) {
         entry.jobId = job.id;
         entry.status = "queued";
         entry.pageCount = job.page_count;
-        // Audit B11 (I06): the earliest job holding these exact bytes; the queue names a repeat inside this batch.
+        // Audit B11 (I06): the earliest job holding these exact bytes anywhere in the store, kept as the reply says it.
         entry.duplicateOf = job.duplicate_of || null;
+        // Audit round 2, R2-B14 (R49): the bytes' hash, which the queue matches inside this batch.
+        entry.contentSha256 = job.content_sha256 || null;
       });
       setPreviewJob(payload.jobs[0].id, payload.jobs[0].page_count);
       const isPackage = currentJobIds.length > 1;
@@ -3607,7 +3634,24 @@ function packageSpanLabel(totals = {}, fallbackStatements = 0) {
 const DUPLICATE_REASON_WORDS = Object.freeze({
   same_content: "the same file",
   same_statement: "the same statement, downloaded again",
+  // Audit round 2, R2-B14 (R14): an interim, month-to-date or custom-range printout another statement covers.
+  superseded_interim: "a shorter printout of days another statement covers",
 });
+
+// Audit round 2, R2-B14 (R16): why the package kept another copy in a left-out repeat's place.
+const DUPLICATE_KEPT_BECAUSE_WORDS = Object.freeze({
+  has_analysis: "a completed analysis",
+  current_rules: "current rules",
+  has_review_decisions: "the review decisions",
+});
+
+// Audit round 2, R2-B14 (R14): a pair of overlapping statements of one account and the credits both print, counted in
+// both (the package downloads print the same words, webapp/app.py _overlap_words).
+function overlappingStatementWords(pair, nameOf, money) {
+  const count = numberOrNull(pair.shared_credit_count) || 0;
+  return `${nameOf(pair.job)} and ${nameOf(pair.other)} share ${formatNumber(count)} `
+    + `${count === 1 ? "credit" : "credits"} (${money}) in the days both cover, counted in both`;
+}
 
 function renderDuplicateNotice(pkg = {}) {
   if (!els.duplicateNotice) return;
@@ -3615,26 +3659,53 @@ function renderDuplicateNotice(pkg = {}) {
   const repeats = duplicateDocuments(listed);
   const accounts = (Array.isArray(pkg.excluded_accounts) ? pkg.excluded_accounts : [])
     .filter((entry) => entry && entry.is_duplicate === true);
+  const overlaps = (Array.isArray((pkg.totals || {}).overlapping_statements) ? pkg.totals.overlapping_statements : [])
+    .filter((pair) => pair && typeof pair === "object");
   const count = repeats.length + accounts.length;
-  els.duplicateNotice.hidden = count === 0;
+  els.duplicateNotice.hidden = count === 0 && overlaps.length === 0;
   if (!els.duplicateNoticeText) return;
-  if (!count) {
+  if (!count && !overlaps.length) {
     els.duplicateNoticeText.innerHTML = "";
     return;
   }
+  const memberOf = (jobId) => listed.find((item) => packageMember(item.id).jobId === String(jobId));
   const nameOf = (jobId) => {
-    const doc = listed.find((item) => packageMember(item.id).jobId === String(jobId));
+    const doc = memberOf(jobId);
     return doc && doc.filename ? doc.filename : "an earlier statement";
   };
   const lines = [
-    ...repeats.map((doc) => `${doc.filename || "A statement"} repeats ${nameOf(doc.duplicate_of)} `
-      + `(${DUPLICATE_REASON_WORDS[doc.duplicate_reason] || "the same statement"})`),
+    ...repeats.map((doc) => {
+      const kept = DUPLICATE_KEPT_BECAUSE_WORDS[doc.duplicate_kept_because];
+      if (kept && (doc.duplicate_reason === "same_content" || doc.duplicate_reason === "same_statement")) {
+        // R16: a later copy was kept in this one's place; the notice says which and why.
+        return `${doc.filename || "A statement"} left out: ${nameOf(doc.duplicate_of)} is the same `
+          + `${doc.duplicate_reason === "same_content" ? "file" : "statement"} and has ${kept}`;
+      }
+      return `${doc.filename || "A statement"} repeats ${nameOf(doc.duplicate_of)} `
+        + `(${DUPLICATE_REASON_WORDS[doc.duplicate_reason] || "the same statement"})`;
+    }),
     ...accounts.map((entry) => `account ${formatNumber(entry.account_index)} of ${nameOf(entry.job_id)} repeats `
-      + `${nameOf(entry.duplicate_of)}`),
+      + `${nameOf(entry.duplicate_of)}`
+      + (entry.reason === "superseded_interim" ? ` (${DUPLICATE_REASON_WORDS.superseded_interim})` : "")),
   ];
-  els.duplicateNoticeText.innerHTML = `<strong>${escapeHtml(formatNumber(count))} repeated `
-    + `${count === 1 ? "statement" : "statements"} left out of every figure.</strong> `
-    + `${escapeHtml(lines.join("; "))}. The package needs review.`;
+  const parts = [];
+  if (count) {
+    parts.push(`<strong>${escapeHtml(formatNumber(count))} repeated `
+      + `${count === 1 ? "statement" : "statements"} left out of every figure.</strong> `
+      + `${escapeHtml(lines.join("; "))}.`);
+  }
+  if (overlaps.length) {
+    // R14: never netted; each pair's shared credits are in its own account's currency.
+    const overlapLines = overlaps.map((pair) => {
+      const member = memberOf(pair.job);
+      const currency = member && member.currency !== undefined ? member.currency : packageCurrencyInfo(pkg).currency;
+      return overlappingStatementWords(pair, nameOf, formatMoney(pair.shared_credit_total, currency));
+    });
+    parts.push(`<strong>${escapeHtml(formatNumber(overlaps.length))} `
+      + `${overlaps.length === 1 ? "pair of overlapping statements shares" : "pairs of overlapping statements share"} `
+      + `credits.</strong> ${escapeHtml(overlapLines.join("; "))}.`);
+  }
+  els.duplicateNoticeText.innerHTML = `${parts.join(" ")} The package needs review.`;
 }
 
 function packagePeriod(documents) {
@@ -3653,6 +3724,7 @@ function loadPackage(jobIds, { reveal = true, announce = reveal, onError = rende
     .then((pkg) => {
       if (jobIds.join(",") !== currentJobIds.join(",")) return;
       renderPackageAnalysis(pkg);
+      markQueueFromPackage(jobIds, pkg);
       setPackageActions(jobIds);
       recordShownAnalysis();
       openAnalysisKey = jobIds.join(",");

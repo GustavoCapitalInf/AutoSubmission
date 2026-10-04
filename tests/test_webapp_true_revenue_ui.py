@@ -697,21 +697,197 @@ console.log(JSON.stringify(els.duplicateNotice.hidden));
     assert clean is True
 
 
+#: Audit round 2, R2-B14 (R49): the upload queue as it reads a batch: each entry as uploadFiles keeps it, after the
+#: /upload reply (`jobId`, `duplicateOf` and `contentSha256` from it), and the queue's meta line and row details.
+QUEUE = r"""
+const queue = (entries) => { queueEntries = entries; renderQueue(); return {meta: els.queueMeta.textContent,
+  details: [...els.queueList.innerHTML.matchAll(/<span class="queue-detail">([^<]*)<\/span>/g)].map((m) => m[1]),
+  repeatOf: queueEntries.map((entry) => (queueRepeatOf(entry) || {}).jobId || null)}; };
+"""
+
+
+def _entry(name, job_id, sha, duplicate_of=None):
+    return {"name": name, "size": 1000, "jobId": job_id, "status": "queued", "stage": None, "pageCount": 2,
+            "duplicateOf": duplicate_of, "contentSha256": sha}
+
+
+def _queue(*batches):
+    return run_dashboard(QUEUE + "console.log(JSON.stringify([" + ", ".join(
+        f"queue({json.dumps(batch)})" for batch in batches) + "]));")
+
+
 @needs_node
 def test_the_upload_queue_names_a_file_repeated_in_its_batch():
-    result = run_dashboard("""
-queueEntries = [
-  {name: "mar.pdf", size: 1000, jobId: "a", status: "queued", stage: null, pageCount: 2, duplicateOf: "old"},
-  {name: "mar-copy.pdf", size: 1000, jobId: "b", status: "queued", stage: null, pageCount: 2, duplicateOf: "a"},
-];
-renderQueue();
-console.log(JSON.stringify({meta: els.queueMeta.textContent,
-  details: [...els.queueList.innerHTML.matchAll(/<span class="queue-detail">([^<]*)<\\/span>/g)].map((m) => m[1])}));
+    """R49: the server's `duplicate_of` names the EARLIEST job holding the bytes anywhere in the store, so a file uploaded
+    in an earlier batch and twice in this one points both entries outside the batch. The queue matches its own entries
+    on the content hash the /upload reply carries."""
+    shapes = _queue(
+        # (a) both copies point at a job of an earlier batch ("old"), as the store answers.
+        [_entry("contoso-mar.pdf", "a", "H1", "old"), _entry("contoso-mar-copy.pdf", "b", "H1", "old")],
+        # (b) fresh bytes: the second copy points at the first.
+        [_entry("fabrikam-apr.pdf", "c", "H2"), _entry("fabrikam-apr.pdf", "d", "H2", "c")],
+        # (c) one file uploaded before: no repeat of this batch.
+        [_entry("northwind-may.pdf", "e", "H3", "old")],
+        # (d) three copies: both later copies name the first.
+        [_entry("sample-jun.pdf", "f", "H4", "old"), _entry("sample-jun.pdf", "g", "H4", "old"),
+         _entry("sample-jun.pdf", "h", "H4", "old")],
+        # (e) two different files.
+        [_entry("contoso-jul.pdf", "i", "H5"), _entry("contoso-aug.pdf", "j", "H6")],
+    )
+    a, b, c, d, e = shapes
+    assert a["meta"] == "2 files · 4 pages · 1 repeated file, counted once"
+    assert not a["details"][0].startswith("Same file as")
+    assert a["details"][1].startswith("Same file as contoso-mar.pdf: left out of the package figures")
+    assert b["meta"] == "2 files · 4 pages · 1 repeated file, counted once"
+    assert b["details"][1] == "Same file as fabrikam-apr.pdf: left out of the package figures · Waiting · 2 pages · 1.0 KB"
+    assert not b["details"][0].startswith("Same file as")
+    assert c["meta"] == "1 file · 2 pages" and not c["details"][0].startswith("Same file as")
+    assert d["meta"] == "3 files · 6 pages · 2 repeated files, counted once"
+    assert d["repeatOf"] == [None, "f", "f"]
+    assert [detail.startswith("Same file as sample-jun.pdf: left out") for detail in d["details"]] == [False, True, True]
+    assert e["meta"] == "2 files · 4 pages" and e["repeatOf"] == [None, None]
+
+
+@needs_node
+def test_the_upload_queue_matches_no_entry_before_the_upload_reply():
+    """An entry still uploading (no job id) or a reply that carries no hash names no repeat."""
+    uploading = [{**_entry("contoso-mar.pdf", None, "H1"), "status": "uploading"},
+                 {**_entry("contoso-mar.pdf", None, "H1"), "status": "uploading"}]
+    no_hash = [_entry("contoso-mar.pdf", "a", None), _entry("contoso-mar.pdf", "b", None, "a")]
+    first, second = _queue(uploading, no_hash)
+    assert first["repeatOf"] == [None, None] and "repeated" not in first["meta"]
+    assert second["repeatOf"] == [None, None] and "repeated" not in second["meta"]
+
+
+@needs_node
+def test_a_file_uploaded_before_and_twice_in_a_new_batch_reads_as_a_repeat(tmp_path, monkeypatch):
+    """R49 end to end: the real /upload route on a scratch store, then its reply fed to uploadFiles."""
+    import io
+    import uuid
+
+    import webapp.app as webapp_app
+    from webapp.jobs import JobStore
+    from webapp.storage import Storage
+
+    monkeypatch.setattr(webapp_app, "store", JobStore(Storage(tmp_path)))
+    monkeypatch.setattr(webapp_app, "_enqueue_job", lambda *args, **kwargs: None)
+    monkeypatch.setattr(webapp_app, "pdf_page_count", lambda pdf_bytes: 2)
+    client = webapp_app.app.test_client()
+
+    def post(batch):
+        response = client.post("/upload", data={"files": [(io.BytesIO(raw), name) for name, raw in batch]},
+                               content_type="multipart/form-data")
+        assert response.status_code == 200
+        return response.get_json()["jobs"]
+
+    content = b"%PDF-fake-" + uuid.uuid4().hex.encode()
+    earlier = post([("contoso-mar.pdf", content)])
+    batch = post([("contoso-mar.pdf", content), ("contoso-mar-copy.pdf", content)])
+    assert [job["duplicate_of"] for job in batch] == [earlier[0]["id"], earlier[0]["id"]]
+    assert batch[0]["content_sha256"] == batch[1]["content_sha256"] == earlier[0]["content_sha256"]
+    names = json.dumps([job["filename"] for job in batch])
+    result = run_dashboard(f"""
+FAKE_RESPONSES["/upload"] = {{status: 200, json: {{jobs: {json.dumps(batch)}}}}};
+FAKE_RESPONSES["/status/"] = {{status: 200, json: {{status: "queued", stage: "queued", page_count: 2}}}};
+uploadFiles({names}.map((name) => new File([new Uint8Array(1000)], name, {{type: "application/pdf"}})));
+await settle(); await settle(); await settle();
+const out = {{meta: els.queueMeta.textContent,
+  details: [...els.queueList.innerHTML.matchAll(/<span class="queue-detail">([^<]*)<\\/span>/g)].map((m) => m[1])}};
+process.stdout.write(JSON.stringify(out) + "\\n", () => process.exit(0));
 """)
     assert result["meta"] == "2 files · 4 pages · 1 repeated file, counted once"
-    # A file uploaded on another day ("old") is not a repeat of this batch.
     assert not result["details"][0].startswith("Same file as")
-    assert result["details"][1].startswith("Same file as mar.pdf: left out of the package figures")
+    assert result["details"][1].startswith("Same file as contoso-mar.pdf: left out of the package figures")
+
+
+@needs_node
+def test_the_queue_names_the_copy_the_package_left_out(tmp_path, monkeypatch):
+    """R16: once the batch's package arrives, the queue says 'left out of the package figures' only of the row the
+    package marks `is_duplicate`: a failed first copy, not the completed copy kept in its place."""
+    from webapp.app import _package_analysis, store
+    from webapp.jobs import Job
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    package = _package_analysis([
+        Job(id="f", filename="contoso-mar.pdf", status="error", error="fabricated failure", content_sha256="H1"),
+        Job(id="a", filename="contoso-mar-copy.pdf", status="done", analysis=_payload(), content_sha256="H1"),
+    ])
+    entries = [{**_entry("contoso-mar.pdf", "f", "H1"), "status": "error"},
+               {**_entry("contoso-mar-copy.pdf", "a", "H1", "f"), "status": "done"}]
+    result = run_dashboard(QUEUE + f"""
+const before = queue({json.dumps(entries)});
+FAKE_RESPONSES["/package_analysis"] = {{status: 200, json: {json.dumps(package)}}};
+currentJobIds = ["f", "a"]; loadPackage(["f", "a"], {{reveal: false, announce: false}}); await settle();
+const after = {{meta: els.queueMeta.textContent,
+  details: [...els.queueList.innerHTML.matchAll(/<span class="queue-detail">([^<]*)<\\/span>/g)].map((m) => m[1])}};
+console.log(JSON.stringify({{before, after, notice: els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")}}));
+""")
+    assert result["before"]["details"][1].startswith("Same file as contoso-mar.pdf: left out of the package figures")
+    assert result["after"]["meta"] == "2 files · 4 pages · 1 repeated file, counted once"
+    assert result["after"]["details"][0].startswith("Same file as contoso-mar-copy.pdf: left out of the package figures")
+    assert not result["after"]["details"][1].startswith("Same file as")
+    assert result["notice"] == ("1 repeated statement left out of every figure. contoso-mar.pdf left out: "
+                                "contoso-mar-copy.pdf is the same file and has a completed analysis. "
+                                "The package needs review.")
+
+
+@needs_node
+def test_the_notice_says_why_the_kept_copy_was_kept(tmp_path, monkeypatch):
+    """R16: a repeat left out in favour of a later copy names that copy and why: its completed analysis, its current
+    rules or its review decisions; copies alike keep the 'repeats' sentence."""
+    from tests.test_webapp_app import _decided
+    from tests.test_webapp_true_revenue import _untiered
+    from webapp.app import _package_analysis, store
+    from webapp.jobs import Job
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+
+    def notice(jobs):
+        return run_dashboard(f"""
+renderPackageAnalysis({json.dumps(_package_analysis(jobs))});
+console.log(JSON.stringify(els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")));
+""")
+
+    def job(job_id, analysis, sha="H1"):
+        return Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=analysis, content_sha256=sha)
+
+    assert notice([job("old", _untiered(_payload())), job("new", _payload(), "H2")]) == (
+        "1 repeated statement left out of every figure. old.pdf left out: new.pdf is the same statement and has "
+        "current rules. The package needs review.")
+    assert notice([job("plain", _payload()), job("decided", _decided(_payload()))]) == (
+        "1 repeated statement left out of every figure. plain.pdf left out: decided.pdf is the same file and has the "
+        "review decisions. The package needs review.")
+    assert notice([job("first", _payload()), job("second", _payload())]) == (
+        "1 repeated statement left out of every figure. second.pdf repeats first.pdf (the same file). The package "
+        "needs review.")
+
+
+@needs_node
+def test_the_notice_names_an_interim_left_out_and_an_overlap_sharing_credits(tmp_path, monkeypatch):
+    """R14: a shorter printout of days another statement covers is named with its words; a pair of overlapping
+    statements that share credits is named with the count and dollars they share, counted in both."""
+    from tests.test_webapp_app import _APRIL, _ACCOUNT, _april, _document_with, _listed, _march, _period
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    mtd = _period("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
+    interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                      "2031-04-15", "2031-05-10", opening=30000.0)
+    document = _document_with(_ACCOUNT, _APRIL[:2], start="2031-04-01", end="2031-04-20", opening=21000.0)
+    packages = [_package_analysis([_march(), _april(), mtd]), _package_analysis([_april(), interim]),
+                _package_analysis([_april(), _listed("doc", document, content="doc")]),
+                _package_analysis([_march(), _april()])]
+    result = run_dashboard("const shown = [];\n" + "".join(f"""
+renderPackageAnalysis({json.dumps(package)});
+shown.push([els.duplicateNotice.hidden, els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")]);
+""" for package in packages) + "console.log(JSON.stringify(shown));")
+    assert result[0] == [False, "1 repeated statement left out of every figure. mtd.pdf repeats apr.pdf (a shorter "
+                                "printout of days another statement covers). The package needs review."]
+    assert result[1] == [False, "1 pair of overlapping statements shares credits. int.pdf and apr.pdf share 1 credit "
+                                "($5,000.00) in the days both cover, counted in both. The package needs review."]
+    assert result[2] == [False, "1 repeated statement left out of every figure. account 2 of doc.pdf repeats apr.pdf "
+                                "(a shorter printout of days another statement covers). The package needs review."]
+    assert result[3][0] is True
 
 
 @needs_node
