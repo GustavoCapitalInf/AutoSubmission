@@ -3232,3 +3232,182 @@ def test_the_unread_run_reason_is_a_held_reason_of_the_one_reason_table():
     assert REVENUE_TIER_REASONS[UNREAD_FINANCING] == (
         "excluded_pending_review", "A lender is printed among this credit's unread payer blocks",
     )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: a listed auto lender's credit read on a payables
+# word alone (PAYABLES, TRADE PAY, ACCT FUND) verifies only on a statement with dealer evidence (a Q7 credit with a
+# dealer-specific word or the credit-union arm, a floor-plan financier's row or FLOOR PLAN, a purchase at a dealer-only
+# auction, a dealer word in the holder's name with no recovery, repossession, towing or collateral word); otherwise it
+# is counted_flagged / lender_paid_for_services (a repossession agency's recoveries), or held as financing_named_payer
+# when the lender also collects from the account (the hidden-loan guard). Fabricated rows, Bank of America's DES layout.
+# ---------------------------------------------------------------------------------------------------------------------
+AGENCY = "SAMPLE RECOVERY LLC"
+WESTLAKE_PAYABLES = "WESTLAKE FINANCI DES:PAYABLES ID:EFT1234567 INDN:{holder} CO ID:1 CCD"
+LENDER_SERVICE = ("counted_flagged", "lender_paid_for_services")
+
+
+def _q7_reading(record):
+    return (record.revenue_tier, record.revenue_tier_reason, record.revenue_classification,
+            record.revenue_match_method, record.revenue_source_type)
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    (WESTLAKE_PAYABLES.format(holder=AGENCY), AGENCY),
+    # The dealer-holder veto: a dealer word in a name that also prints RECOVERY is no dealer's name.
+    (WESTLAKE_PAYABLES.format(holder="SAMPLE AUTOMOTIVE RECOVERY LLC"), "SAMPLE AUTOMOTIVE RECOVERY LLC"),
+    ("GM FINANCIAL DES:PAYABLES ID:1 INDN:SAMPLE RECOVERY LLC CO ID:1 CCD", AGENCY),
+    # No dealer evidence of any kind: a holding company's statement.
+    ("WESTLAKE FINANCI DES:PAYABLES ID:1", "SAMPLE HOLDINGS LLC"),
+    ("WESTLAKE FINANCI DES:TRADE PAYABLE ID:1", AGENCY),
+    ("WESTLAKE FINANCIAL DES:ACCT FUNDING ID:1", AGENCY),
+])
+def test_q9_c_a_listed_lender_s_payables_with_no_dealer_evidence_is_a_lender_paid_for_services(text, holder):
+    record = _one(text, 1500.0, holder=holder)
+    assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+    assert record.revenue_matched_rule == "q7_payables_without_dealer_evidence"
+    assert record.revenue_confidence_score == 0.50
+    assert "lender_paid_for_services" in record.revenue_context_signals
+    assert record.contributes_to_true_revenue and not record.contributes_to_verified_revenue
+    assert not record.revenue_review_required
+    # The reason names the lender, says the statement shows no dealer evidence and that the ruling overrules Q7.
+    assert record.revenue_canonical_entity in record.revenue_reason
+    assert record.revenue_matched_alias in record.revenue_reason
+    assert "no dealer evidence" in record.revenue_reason
+    # (The date is the ruling's, never a literal year in the code: tests/test_no_statement_hardcodes.py.)
+    assert "The owner's ruling on the underwriter's Q9 overrules auto_lender_dealer_funding." in record.revenue_reason
+    # The transaction side is untouched: Q7's record, its lender and every lender flag.
+    assert (record.classification, record.match_method) == ("other", "auto_lender_dealer_funding")
+    assert record.canonical_entity == record.revenue_canonical_entity
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+def test_q9_c_the_repossession_agency_s_westlake_row_keeps_its_lender_fields():
+    record = _one(WESTLAKE_PAYABLES.format(holder=AGENCY), 1500.0, holder=AGENCY)
+    assert (record.canonical_entity, record.matched_alias) == WESTLAKE
+    assert (record.revenue_canonical_entity, record.revenue_matched_alias) == WESTLAKE
+    assert (record.classification, record.match_method, record.contributes_to_lender_credit_exclusion) == (
+        "other", "auto_lender_dealer_funding", False)
+
+
+@pytest.mark.parametrize(("rows", "holder"), [
+    # A dealer's name on the holder (every Q7 test above uses SAMPLE MOTORS LLC or ADVANCE AUTO SALES LLC).
+    ([(WESTLAKE_PAYABLES.format(holder=DEALER), 15000.0)], DEALER),
+    ([(WESTLAKE_PAYABLES.format(holder="ADVANCE AUTO SALES LLC"), 15000.0)], "ADVANCE AUTO SALES LLC"),
+    # A floor-plan financier's debit.
+    ([("WESTLAKE FINANCI DES:PAYABLES ID:1", 15000.0), ("NEXTGEAR CAPITAL DES:PAYMENT ID:2", -9000.0)],
+     "SAMPLE HOLDINGS LLC"),
+    # A purchase at a dealer-only wholesale auction.
+    ([("WESTLAKE FINANCI DES:PAYABLES ID:1", 15000.0), ("MANHEIM US DES:ACH PAYMNT ID:3", -8000.0)],
+     "SAMPLE HOLDINGS LLC"),
+])
+def test_q9_c_a_dealer_s_payables_with_dealer_evidence_stay_verified(rows, holder):
+    record = _records(rows, holder=holder)[0]
+    assert _q7_reading(record) == (
+        "verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+
+
+def test_q9_c_a_dealer_specific_q7_credit_is_dealer_evidence_and_both_stay_verified():
+    rows = _records([("WESTLAKE FINANCI DES:PAYABLES ID:1", 15000.0), ("ALLY FINANCIAL DES:DEALER PAY ID:2", 21000.0)],
+                    holder="SAMPLE HOLDINGS LLC")
+    assert [_q7_reading(record) for record in rows] == [
+        ("verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")] * 2
+
+
+def test_q9_c_a_dealer_specific_word_verifies_even_at_a_repossession_agency():
+    record = _one("WESTLAKE FINANCI DES:DEALER PAY ID:1", 1500.0, holder=AGENCY)
+    assert _q7_reading(record) == (
+        "verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+
+
+def test_q9_c_the_hidden_loan_guard_holds_a_payables_credit_whose_lender_also_debits_the_account():
+    rows = _records([("WESTLAKE FINANCI DES:PAYABLES ID:1", 1500.0), ("WESTLAKE FINANCI DES:AUTO PAY ID:9", -450.0)],
+                    holder=AGENCY)
+    record = rows[0]
+    assert _q7_reading(record) == (
+        "excluded_pending_review", "financing_named_payer", "unverified_deposit", "lender_paid_for_services", None)
+    assert record.revenue_review_required and not record.contributes_to_true_revenue
+    assert record.revenue_matched_rule == "q7_payables_without_dealer_evidence"
+    # The lender's debit keeps its reading.
+    assert rows[1].classification == "vehicle_financing"
+
+
+def test_q9_c_the_demotion_never_moves_a_debit_or_a_lender_reading():
+    from analysis.metrics import compute_metrics
+
+    def readings(holder):
+        statement = Statement(account_name=holder, transactions=[
+            Transaction(date="2054-03-02", description="WESTLAKE FINANCI DES:PAYABLES ID:1", amount=15000.0,
+                        direction="credit"),
+            Transaction(date="2054-03-03", description="WESTLAKE FINANCI DES:AUTO PAY ID:9", amount=-450.0,
+                        direction="debit"),
+            Transaction(date="2054-03-04", description="FABRIKAM SUPPLY DES:VENDOR PAY ID:1", amount=-300.0,
+                        direction="debit"),
+        ])
+        records = classify_statement_transactions(statement)
+        metrics = compute_metrics(statement, classifications=records)
+        lender = [(record.classification, record.match_method, record.canonical_entity,
+                   record.contributes_to_lender_count, record.contributes_to_lender_totals,
+                   record.contributes_to_withholding_rate, record.contributes_to_lender_credit_exclusion)
+                  for record in records]
+        return lender, metrics.lender_credits, metrics.legacy_eligible_deposits
+
+    # The same rows on a dealer's statement (verified) and on an agency's (held by the guard): one lender reading.
+    assert readings(DEALER) == readings(AGENCY)
+
+
+def test_q9_c_the_payables_only_reading_and_the_dealer_evidence_arms():
+    from analysis import true_revenue
+
+    assert true_revenue._payables_only_dealer_funding("WESTLAKE FINANCI DES PAYABLES ID 1")
+    assert true_revenue._payables_only_dealer_funding("WESTLAKE FINANCI DES TRADE PAYABLE ID 1")
+    assert true_revenue._payables_only_dealer_funding("WESTLAKE FINANCIAL DES ACCT FUNDING ID 1")
+    # A dealer-specific word is read first, the credit-union arm is no listed arm, and no lender reads none.
+    assert not true_revenue._payables_only_dealer_funding("WESTLAKE FINANCI DES DEALER PAY ID 1")
+    assert not true_revenue._payables_only_dealer_funding("ONE RIVER FUNDING DES PAYABLES DEALER PAY ID 1")
+    assert not true_revenue._payables_only_dealer_funding("CU DIRECT DES VHCL PURCH ID 1")
+    assert not true_revenue._payables_only_dealer_funding("NORTHWIND SUPPLY DES PAYABLES ID 1")
+
+    def evidence(rows, holder="SAMPLE HOLDINGS LLC"):
+        records = _records(rows, holder=holder)
+        credits = [index for index, record in enumerate(records) if record.amount > 0]
+        return (true_revenue._dealer_activity(records, set(), credits),
+                true_revenue._dealer_contract_evidence(records, set(), credits))
+
+    payables = ("WESTLAKE FINANCI DES:PAYABLES ID:1", 15000.0)
+    # A payables-only Q7 credit is no dealer activity.
+    assert evidence([payables]) == (False, False)
+    # Each activity arm, one by one.
+    assert evidence([payables, ("ALLY FINANCIAL DES:DEALER PAY ID:2", 21000.0)]) == (True, True)
+    assert evidence([payables, (UNION.format(n=1), 18000.0)]) == (True, True)
+    assert evidence([payables, (UNION.format(n=1), 18000.0), (UNION.format(n=2), 21000.0)]) == (True, True)
+    assert evidence([payables, ("NEXTGEAR CAPITAL DES:PAYMENT ID:2", -9000.0)]) == (True, True)
+    assert evidence([payables, ("KINETIC ADVANTAGE DES:CURTAILMNT ID:2", -9000.0)]) == (True, True)
+    assert evidence([payables, ("SAMPLE BANK DES:FLOOR PLAN ID:2", -9000.0)]) == (True, True)
+    assert evidence([payables, ("SAMPLE BANK DES:FLOORPLAN INT ID:2", -900.0)]) == (True, True)
+    assert evidence([payables, ("MANHEIM US DES:ACH PAYMNT ID:3", -8000.0)]) == (True, True)
+    assert evidence([payables, ("ACV AUCTIONS INC DES:PURCHASE ID:3", -8000.0)]) == (True, True)
+    assert evidence([payables, ("BACKLOTCARS PURCHASE 1234", -8000.0)]) == (True, True)
+    # An auction's name on a credit is no purchase (its payout is Q11's evidence, R2-OW06, never Q9's).
+    assert evidence([payables, ("MANHEIM US DES:ACH PAYMNT ID:3", 8000.0)]) == (False, False)
+    # A duplicate row never counts.
+    records = _records([payables, ("NEXTGEAR CAPITAL DES:PAYMENT ID:2", -9000.0)], holder="SAMPLE HOLDINGS LLC")
+    assert not true_revenue._dealer_activity(records, {1}, [0])
+    # The holder arm, and its veto.
+    assert evidence([payables], holder="SAMPLE MOTORS LLC") == (False, True)
+    assert evidence([payables], holder="SAMPLE AUTO SALES LLC") == (False, True)
+    assert evidence([payables], holder="SAMPLE AUTO GROUP INC") == (False, True)
+    assert evidence([payables], holder="SAMPLE MOTORS RECOVERY LLC") == (False, False)
+    assert evidence([payables], holder="SAMPLE AUTOMOTIVE TOWING LLC") == (False, False)
+    assert evidence([payables], holder="SAMPLE REPOSSESSIONS AUTO GROUP LLC") == (False, False)
+    assert evidence([payables], holder="SAMPLE COLLATERAL MOTORS INC") == (False, False)
+    assert evidence([payables], holder=AGENCY) == (False, False)
+
+
+def test_q9_c_the_reason_is_a_counted_reason_of_the_one_reason_table_right_after_factoring_payout():
+    from analysis import true_revenue
+
+    assert true_revenue.LENDER_PAID_FOR_SERVICES == "lender_paid_for_services"
+    assert REVENUE_TIER_REASONS["lender_paid_for_services"] == ("counted_flagged", "Lender paid for services")
+    codes = list(REVENUE_TIER_REASONS)
+    assert codes[codes.index("factoring_payout") + 1] == "lender_paid_for_services"

@@ -3237,3 +3237,86 @@ def test_q8_the_snapshot_reads_snap_s_merchant_funding_and_a_wisetack_repeat_wit
     assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
         "customer_financing_never_verified": 2}
     assert run["guards"] == {}
+
+
+# Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: a listed auto lender's payables-only credit Q7
+# verified, on a statement with no dealer evidence, is counted and flagged as lender_paid_for_services (or held as
+# financing_named_payer under the hidden-loan guard): a declared demotion, and G5's method exemption.
+Q7_PAYABLES_ROW = census.mask("WESTLAKE FINANCI DES PAYABLES ID EFT1234567 INDN SAMPLE RECOVERY LLC CO ID 1 CCD")
+
+
+def test_ow05_g5_passes_a_counted_lender_paid_for_services_row_and_still_fails_another_method():
+    counted = _credit(0, 150000, "unverified_deposit", "lender_paid_for_services", tier="counted_flagged",
+                      reason="lender_paid_for_services", known_financing=True)
+    assert "G5" not in census._row_guards(counted)
+    for method, reason in (("unidentified_posted_credit", "named_payer_one_off"), ("named_payer", "p2p")):
+        other = _credit(0, 150000, "unverified_deposit", method, tier="counted_flagged", reason=reason,
+                        known_financing=True)
+        assert census._row_guards(other)["G5"] is True
+    # Q7's own exemption stands, and G2 still fails a Verified row carrying a financing root.
+    q7 = _credit(0, 150000, "verified_revenue", "auto_lender_dealer_funding", tier="verified", known_financing=True,
+                 financing_root=True)
+    assert "G5" not in census._row_guards(q7) and not census._row_guards(q7)["G2"]
+    verified = _credit(0, 150000, "verified_revenue", "lender_paid_for_services", tier="verified",
+                       financing_root=True)
+    assert census._row_guards(verified)["G2"] is True
+
+
+@pytest.mark.parametrize(("later", "cause"), [
+    # Counted as a lender paid for services.
+    (_after56("lender_paid_for_services", Q7_PAYABLES_ROW, tier="counted_flagged", reason="lender_paid_for_services",
+              rule="q7_payables_without_dealer_evidence", known_financing=True),
+     "q7_payables_without_dealer_evidence"),
+    # Held under the hidden-loan guard.
+    (_after56("lender_paid_for_services", Q7_PAYABLES_ROW, tier="excluded_pending_review",
+              reason="financing_named_payer", rule="q7_payables_without_dealer_evidence", known_financing=True),
+     "q7_payables_without_dealer_evidence"),
+    # Without the pass's own method, a Q7 row counted under another reason is undeclared.
+    (_after56("unidentified_posted_credit", Q7_PAYABLES_ROW, tier="counted_flagged",
+              reason="lender_paid_for_services"), "undeclared"),
+])
+def test_ow05_the_q7_payables_demotion_is_a_declared_cause(later, cause):
+    prior = {**_credit(0, 500000, "verified_revenue", "auto_lender_dealer_funding", tier="verified",
+                       text=Q7_PAYABLES_ROW)}
+    causes, run = _cause56(prior, later)
+    assert causes == {cause: 1}
+    assert ("undeclared_demotion" in run["guards"]) is (cause == "undeclared")
+    assert "q7_payables_without_dealer_evidence" in census.DECLARED_DEMOTIONS
+    assert census._demotion_cause(prior, later) == cause
+
+
+def test_ow05_a_q5_or_q6_base_counted_as_a_lender_paid_for_services_is_not_this_cause():
+    later = _after56("lender_paid_for_services", Q7_PAYABLES_ROW, tier="counted_flagged",
+                     reason="lender_paid_for_services")
+    assert census._demotion_cause(_q56("named_payer_repeats", Q7_PAYABLES_ROW), later) != (
+        "q7_payables_without_dealer_evidence")
+
+
+def test_ow05_the_snapshot_reads_a_repossession_agency_s_payables_with_no_guard_failure():
+    from analysis.schema import Statement, Transaction
+
+    row = "WESTLAKE FINANCI DES:PAYABLES ID:EFT123456{n} INDN:SAMPLE RECOVERY LLC CO ID:1 CCD"
+    statement = Statement(bank="Bank of America", account_name="SAMPLE RECOVERY LLC", transactions=[
+        Transaction(date="2054-03-02", description=row.format(n=1), amount=1500.0, direction="credit"),
+        Transaction(date="2054-03-03", description=row.format(n=2), amount=1650.0, direction="credit"),
+    ])
+    snap = census.account_snapshot({"statement": statement.model_dump(mode="json")})
+    readings = [(credit["state"], credit["method"], credit["tier"], credit["reason"], credit["rule"])
+                for credit in snap["credits"]]
+    assert readings == [("unverified_deposit", "lender_paid_for_services", "counted_flagged",
+                         "lender_paid_for_services", "q7_payables_without_dealer_evidence")] * 2
+    for credit in snap["credits"]:
+        # The census facts read as before: a known financing payee, Q7's payer and the financing root.
+        facts = credit["facts"]
+        assert facts["known_financing"] and facts["q7_listed"] and facts["financing_root"]
+        assert facts["hold_rule"] == "financing_root"
+        assert not any(census._row_guards(credit).values())
+    base = {**snap, "credits": [
+        {**credit, "state": "verified_revenue", "method": "auto_lender_dealer_funding", "tier": "verified",
+         "reason": None, "rule": "verified_auto_lender_dealer_funding"}
+        for credit in snap["credits"]
+    ]}
+    run = _run(_snap("5.6", {"a": base}), _snap("5.6", {"a": snap}))
+    assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
+        "q7_payables_without_dealer_evidence": 2}
+    assert run["guards"] == {}

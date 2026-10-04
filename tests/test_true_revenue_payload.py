@@ -75,8 +75,10 @@ def test_every_reason_code_names_a_middle_tier():
     # Audit B10 (I05, I60): payer_text_not_read is the 27th. Audit round 2, R2-B07 (R07): unread_run_names_financing
     # the 28th. The owner's ruling of 2026-10-02 (the underwriter's Q3): zelle_excluded, the 29th; R2-OW03:
     # government_no_purpose, the 30th. Owner ruling 2026-10-02 (Q8), R2-OW04: customer_financing_lump_sum after
-    # financing_named_payer and customer_financing_payout after payout_credit_entity, the 31st and 32nd.
-    assert len(REVENUE_TIER_REASONS) == 32
+    # financing_named_payer and customer_financing_payout after payout_credit_entity, the 31st and 32nd. Owner ruling
+    # 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: lender_paid_for_services right after factoring_payout, the
+    # 33rd.
+    assert len(REVENUE_TIER_REASONS) == 33
     assert "non_revenue_by_reason" in TIER_METRIC_KEYS
 
 

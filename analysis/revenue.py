@@ -68,6 +68,10 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "payer_text_not_read": ("counted_flagged", "Payer text not read"),
     "p2p": ("counted_flagged", "Person-to-person"),
     "factoring_payout": ("counted_flagged", "Factoring payout"),
+    # Owner ruling 2026-10-02 (the underwriter's Q9, part (c)), R2-OW05: a lender paying the business for its services
+    # (a listed auto lender's payables on a statement with no dealer evidence: a repossession agency's recoveries),
+    # counted, never verified (true_revenue.LENDER_PAID_FOR_SERVICES).
+    "lender_paid_for_services": ("counted_flagged", "Lender paid for services"),
     # Audit B11 (I53): the payer's own settlement of the merchant's sales (OQ2's BNPL providers, marketplaces), counted;
     # the label keeps the caution that the payer also lends, and never reads as financing counted in True.
     "payout_credit_entity": ("counted_flagged", "BNPL or marketplace settlement (payer also lends)"),

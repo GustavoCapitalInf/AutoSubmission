@@ -228,7 +228,15 @@ DECLARED_DEMOTIONS = (
     # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout, counted and flagged
     # (customer_financing_payout) or held as a one-off lump sum (customer_financing_lump_sum), never verified.
     "customer_financing_never_verified",
+    # Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: a listed auto lender's payables-only credit Q7
+    # verified, on a statement with no dealer evidence, counted and flagged as lender_paid_for_services (or held as
+    # financing_named_payer under the hidden-loan guard), never verified.
+    "q7_payables_without_dealer_evidence",
 )
+#: Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: the revenue method pass 7 gives a listed auto
+#: lender's payables-only credit it overrules (analysis/true_revenue.py LENDER_PAID_FOR_SERVICES, copied: the census
+#: reads other checkouts).
+LENDER_PAID_FOR_SERVICES_METHOD = "lender_paid_for_services"
 #: The owner's ruling of 2026-10-02 (the underwriter's Q3): the method pass 7 gives a Zelle deposit the Zelle policy
 #: excluded (analysis/true_revenue.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
 ZELLE_POLICY_METHOD = "zelle_deposit_excluded"
@@ -2274,6 +2282,18 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
         )
     ):
         return "customer_financing_never_verified"
+    # Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05. (a) Q7's dealer funding (a listed auto
+    # lender's verification); (b) counted and flagged as lender_paid_for_services, or held as financing_named_payer under
+    # the hidden-loan guard, by the pass's overruling of a payables-only credit on a statement with no dealer evidence
+    # (method lender_paid_for_services).
+    if (
+        base["method"] == "auto_lender_dealer_funding" and method == LENDER_PAID_FOR_SERVICES_METHOD
+        and (after.get("tier"), after.get("reason")) in {
+            ("counted_flagged", LENDER_PAID_FOR_SERVICES_METHOD),
+            ("excluded_pending_review", "financing_named_payer"),
+        }
+    ):
+        return "q7_payables_without_dealer_evidence"
     # Audit round 2, R2-B04 (R41). (a) any verifying rule; (b) held as holder_name by the pass's overruling of the
     # holder's own push (method self_originated_holder).
     if (
@@ -3014,7 +3034,11 @@ def _row_guards(credit: dict) -> dict[str, bool]:
         "G19": in_true and _GOVERNMENT_NO_PURPOSE_HIGH_57.search(
             _without_furniture_56(credit["text"]).replace("#", "0")) is not None,
     }
-    if facts.get("known_financing") and in_true and method not in {"auto_lender_dealer_funding"}:
+    # Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: and a listed auto lender's payables-only credit
+    # the pass counts as a lender paid for services (never verified; G2 fails any Verified financing root).
+    if facts.get("known_financing") and in_true and method not in {
+        "auto_lender_dealer_funding", LENDER_PAID_FOR_SERVICES_METHOD,
+    }:
         guards["G5"] = not facts.get("payout_or_factoring")
     return guards
 

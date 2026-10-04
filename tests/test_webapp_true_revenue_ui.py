@@ -69,6 +69,17 @@ def test_the_dashboard_reason_table_keeps_the_analysis_order_and_names_the_custo
             "counted, never verified.") in source
 
 
+def test_the_dashboard_reason_table_names_a_lender_paid_for_services():
+    """Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: the mirror carries lender_paid_for_services
+    right after factoring_payout, with its one-line sentence."""
+    reasons = list(_js_reasons())
+    assert reasons[reasons.index("factoring_payout") + 1] == "lender_paid_for_services"
+    assert _js_reasons()["lender_paid_for_services"] == ("counted_flagged", "Lender paid for services")
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert ("A lender paid the business for its services (a repair, a recovery, a commission): counted, never "
+            "verified.") in source
+
+
 @needs_node
 def test_a_statement_shows_true_revenue_first_and_its_parts():
     result = run_dashboard(METRIC_ROWS + _open("s", _served(_payload())) + """

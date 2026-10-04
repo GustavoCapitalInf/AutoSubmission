@@ -32,6 +32,7 @@ from .classification_registry import (
     DEALER_FUNDING_PAYERS,
     EARNED_WAGE_ACCESS_PAYERS,
     FACTORING_PAYOUT_PAYERS,
+    FLOOR_PLAN_ALIASES,
     HEALTHCARE_PAYER_ALIASES,
     LENDING_BANK_CREDIT_PAYERS,
     OPERATING_REVENUE_READ_ALIASES,
@@ -41,6 +42,7 @@ from .classification_registry import (
     PAYOUT_CREDIT_ENTITIES,
     SECTION_15_DEFERRED_PAYERS,
     STATEMENT_BANK_PRINTED_NAMES,
+    WHOLESALE_AUCTION_REFUND_NAMES,
 )
 from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .flag_groups import FINANCING_STATES
@@ -810,6 +812,28 @@ _CUSTOMER_FINANCING_CHANNELS = frozenset({"wire", "ach_eft", "other"})
 #: Owner ruling 2026-10-02 (Q8; §5.3): the reasons of a financier's payout and of its one-off lump sum.
 CUSTOMER_FINANCING_PAYOUT = "customer_financing_payout"
 CUSTOMER_FINANCING_LUMP_SUM = "customer_financing_lump_sum"
+#: Owner ruling 2026-10-02 (the underwriter's Q9, part (c); §5.3, §8.7): the reason, and the revenue method, of a lender
+#: paying the business for its services (a repair, a recovery, a commission): counted and flagged, never verified. This
+#: batch (R2-OW05) gives it to a listed auto lender's payables-only credit on a statement with no dealer evidence
+#: (_lender_service_never_verified).
+LENDER_PAID_FOR_SERVICES = "lender_paid_for_services"
+#: Owner ruling 2026-10-02 (Q9 (c'); §8.7): dealer evidence on a statement's rows: a floor-plan form printed anywhere
+#: (FLOORPLAN, FLOOR PLAN), beside the registry's floor-plan financiers (FLOOR_PLAN_ALIASES).
+_FLOOR_PLAN_FORM = re.compile(r"(?<![A-Z])FLOOR ?PLAN\w*")
+#: Owner ruling 2026-10-02 (Q9 (c'); §8.7): a dealer's name on the holder's name (the Q11 card's holder reading, shared
+#: with R2-OW06): a vehicle or equipment noun before a dealer's trade word, or a dealership's own word. Never read where
+#: the same name prints a recovery, repossession, towing or collateral word (_DEALER_HOLDER_VETO): a repossession or
+#: towing agency named '<NAME> AUTOMOTIVE RECOVERY' is no dealer.
+_DEALER_HOLDER_NAME = re.compile(
+    r"(?<![A-Z])(?:AUTOS?|CARS?|TRUCKS?|TRAILERS?|EQUIPMENT|TRACTORS?|MOTOR|RVS?|BOATS?|MARINE|MACHINERY|POWERSPORTS"
+    r"|MOTORSPORTS) (?:SALES|DEALERS?|DEALERSHIP|MART|OUTLET|EXCHANGE|SUPERSTORES?)\b"
+    r"|(?<![A-Z])(?:MOTORS|AUTOMOTIVE|AUTO GROUP|AUTO PLAZA|AUTO MALL|DEALERSHIP|CAR LOT)\b"
+)
+_DEALER_HOLDER_VETO = re.compile(r"(?<![A-Z])(?:RECOVER\w*|REPO|REPOS|REPOSSESS\w*|TOWING|TOW|COLLATERAL)\b")
+#: Owner ruling 2026-10-02 (Q9 (c'); §7.8, §8.7): the dealer-only wholesale auctions' names on a posted debit (the
+#: registry's WHOLESALE_AUCTION_REFUND_NAMES: MANHEIM, ACV AUCTIONS, OPENLANE or BACKLOT CARS), a purchase there being
+#: dealer evidence.
+_WHOLESALE_AUCTION_DEBIT_NAMES = tuple(re.compile(pattern) for pattern in WHOLESALE_AUCTION_REFUND_NAMES.values())
 #: §7.7: a bare X12 TRN*1* with no entry description, from a healthcare payer, is deferred too.
 _BARE_X12_TRACE = re.compile(r"\bTRN 1\b")
 #: §7.1 (S4.2 review I5): the NET SETTLE card form, read whether or not its refusal or the card veto matches: such a
@@ -3398,6 +3422,70 @@ def _dealer_word_lender(text: str, region: str) -> bool:
     return registry_match(region, classifier.POTENTIAL_LENDER_ALIASES) is not None
 
 
+def _payables_only_dealer_funding(text: str) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q9, part (c'); §8.7): a listed auto lender's credit Q7 reads on a
+    payables word alone (PAYABLES, TRADE PAY..., ACCT FUND...): dealer_funding_reading's listed arm, whose word is no
+    dealer-specific funding word (it reads one first), on a credit's revenue text."""
+    reading = dealer_funding_reading(text)
+    return reading is not None and reading.arm == "listed" and _DEALER_PAYABLES_WORDS.fullmatch(reading.word) is not None
+
+
+def _dealer_activity(
+    records: Sequence[TransactionClassification], duplicate_indexes: set[int], indexes: Sequence[int],
+) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q9 (c'); §8.7): the statement's dealer activity, the shared core of
+    the dealer evidence (R2-OW05; R2-OW06's Q11 reads it too). True when one of the statement's credits (`indexes`,
+    the pass's posted, non-duplicate credits) is a credit union's VHCL PURCH (method credit_union_vehicle_purchase) or a
+    Q7 credit that is not payables-only (a dealer-specific word, or the credit-union arm); or when a posted,
+    non-duplicate row, credit or debit, is a floor-plan financier's (classification floor_plan_financing, the
+    registry's FLOOR_PLAN_ALIASES, or a FLOOR PLAN form); or when a posted, non-duplicate debit is a purchase at a
+    dealer-only wholesale auction (_WHOLESALE_AUCTION_DEBIT_NAMES). A listed auto lender's payables-only credit is no
+    dealer evidence: a repossession agency's own payables would make its statement a dealer's (the Q9 card); nor is a
+    §7.8 auction payout credit (R2-OW06 adds it for Q11 only)."""
+    classifier = _classifier()
+    for index in indexes:
+        record = records[index]
+        if record.revenue_match_method == "credit_union_vehicle_purchase":
+            return True
+        if record.revenue_match_method == "auto_lender_dealer_funding" and not _payables_only_dealer_funding(
+            classifier.revenue_text(record.normalized_description)
+        ):
+            return True
+    for index, record in enumerate(records):
+        if index in duplicate_indexes or not record.is_posted:
+            continue
+        if record.classification == "floor_plan_financing":
+            return True
+        text = classifier.revenue_text(record.normalized_description)
+        if registry_match(text, FLOOR_PLAN_ALIASES) is not None or _FLOOR_PLAN_FORM.search(text):
+            return True
+        if record.amount < 0 and any(pattern.search(text) for pattern in _WHOLESALE_AUCTION_DEBIT_NAMES):
+            return True
+    return False
+
+
+def _dealer_contract_evidence(
+    records: Sequence[TransactionClassification], duplicate_indexes: set[int], indexes: Sequence[int],
+) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q9 (c'); §8.7): the statement shows dealer evidence, which a listed
+    auto lender's payables-only credit needs to stay verified as dealer funding: the statement's dealer activity
+    (_dealer_activity), or a dealer's name on one of the holder's names (the first credit's _holder_names, its
+    account name and its holder name, each read through account_name_text) that prints no recovery, repossession,
+    towing or collateral word (_DEALER_HOLDER_NAME, _DEALER_HOLDER_VETO)."""
+    if _dealer_activity(records, duplicate_indexes, indexes):
+        return True
+    if not indexes:
+        return False
+    classifier = _classifier()
+    first = records[indexes[0]]
+    names = (*_holder_names(first), first.account_name, first.holder_name)
+    for name in names:
+        printed = classifier.account_name_text(name) if name else ""
+        if printed and _DEALER_HOLDER_NAME.search(printed) and not _DEALER_HOLDER_VETO.search(printed):
+            return True
+    return False
+
+
 #: Audit B4 (I02; standard A5): the bank's own fee for an incoming wire or funds transfer, which reprints the sender's
 #: name (RBC's 'FUNDS TRANSFER FEE TT <sender>', 'WIRE TRANSFER FEE [FROM] <sender>', '[DOMESTIC] INCOMING WIRE FEE',
 #: 'WIRE FEE'): never circular money, so it never holds the wire (_COUNTER_DEBIT_KINDS).
@@ -3857,6 +3945,24 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
         ):
             continue
         return True
+    return False
+
+
+def _payer_collects(credit: CounterCredit, debits: CounterDebits) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q9: "The hidden-loan guard stays: a payer that also debits the account
+    like a lender stays held"; §8.1, §8.7): the payer also collects from the account. True when a lender or financing
+    debit names it (debited_as_lender, with the pass-7 prefix), or any other posted debit names it by the B4 forms, 5.6's
+    first distinctive word (legacy) or a cut or glued spelling (_prefix_payer), the bank's receiving fee and a card
+    charge (audit round 2, R2-B02 R01's card mark) aside; a card purchase the classifier names is never among the debits
+    (counter_debits). Deliberately stricter than also_debited: no bill, processor-fee, settlement or payout-pair
+    exemption, and no amount or recurrence test (a documented over-hold of the owner's "collecting loan payments")."""
+    if debited_as_lender(credit, debits, prefix=True):
+        return True
+    for debit in debits.other:
+        if debit.kind == "receiving_fee" or debit.card:
+            continue
+        if _same_payer(credit.reading, debit.reading, legacy=True) or _prefix_payer(credit.reading, debit.reading):
+            return True
     return False
 
 
@@ -5075,6 +5181,38 @@ def _financier_never_verified(record: TransactionClassification) -> TransactionC
     )
 
 
+def _lender_service_never_verified(record: TransactionClassification) -> TransactionClassification:
+    """§8.7 (owner ruling 2026-10-02, the underwriter's Q9, part (c')): a listed auto lender's payables-only credit Q7
+    verified, on a statement with no dealer evidence, is a lender paying the business for its services (a repossession
+    agency's recoveries), never dealer funding: it leaves verification as a new first state (unverified_deposit, method
+    lender_paid_for_services, no source type), as _factor_never_verified does; its reason names the lender and its
+    alias, says the statement shows no dealer evidence and that the owner's ruling overrules auto_lender_dealer_funding.
+    The pass tiers it counted_flagged / lender_paid_for_services, or holds it as financing_named_payer when the lender
+    also collects from the account (_payer_collects). The transaction side (classification, match_method,
+    canonical_entity and every lender flag) is untouched."""
+    lender = record.revenue_canonical_entity or "the lender"
+    alias = f" ({record.revenue_matched_alias})" if record.revenue_matched_alias else ""
+    return replace(
+        _classifier()._replace_revenue_state(
+            record,
+            "unverified_deposit",
+            match_method=LENDER_PAID_FOR_SERVICES,
+            matched_rule="q7_payables_without_dealer_evidence",
+            confidence_score=0.50,
+            reason=(
+                f"Listed auto lender '{lender}'{alias} pays the business on a payables word alone, and the statement "
+                "shows no dealer evidence (no dealer-funding credit, floor-plan financier, dealer-only auction purchase "
+                "or dealer's name): a lender paying the business for its services (a repair, a recovery, a commission), "
+                "counted and flagged, never verified. The owner's ruling on the underwriter's Q9 overrules "
+                f"{record.revenue_match_method}."
+            ),
+            context_signals=(*record.revenue_context_signals, LENDER_PAID_FOR_SERVICES),
+            related_transaction=record.revenue_related_transaction,
+        ),
+        revenue_source_type=None,
+    )
+
+
 def _customer_financing_lump(
     index: int,
     payouts: dict[int, str],
@@ -5326,7 +5464,10 @@ def apply_true_revenue_pass(
     Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout is counted and flagged
     (customer_financing_payout), an earlier verification overruled after the factoring and self-own demotions, and
     after the tiers, before the Zelle step, a large one-off lump sum among those payouts is held
-    (customer_financing_lump_sum)."""
+    (customer_financing_lump_sum). Owner ruling 2026-10-02 (Q9, part (c')): after the financier demotion, a listed auto
+    lender's payables-only credit Q7 verified, on a statement with no dealer evidence (_dealer_contract_evidence), is
+    counted and flagged as lender_paid_for_services, or held as financing_named_payer when the lender also collects
+    from the account (_payer_collects)."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -5414,6 +5555,9 @@ def apply_true_revenue_pass(
     }
     # Audit B7 (I18): the ordinary payers whose disbursement entry repeats in the statement.
     disbursers = _recurring_disbursers(texts)
+    # Owner ruling 2026-10-02 (the underwriter's Q9, part (c'); §8.7): whether the statement shows dealer evidence,
+    # which a listed auto lender's payables-only credit needs to stay verified (_dealer_contract_evidence).
+    dealer = _dealer_contract_evidence(updated, duplicate_indexes, credits)
     facts = {
         index: credit_facts(
             updated[index], texts[index], debits=debits,
@@ -5489,6 +5633,22 @@ def apply_true_revenue_pass(
                 _financier_never_verified(record), "counted_flagged", CUSTOMER_FINANCING_PAYOUT
             )
             financier_payouts[index] = fact.financier
+            continue
+        # Owner ruling 2026-10-02 (the underwriter's Q9, part (c'); §8.7): nor is a listed auto lender's credit Q7 read
+        # on a payables word alone, on a statement that shows no dealer evidence: a lender paying the business for its
+        # services (a repossession agency's recoveries), counted and flagged, or held as financing_named_payer when
+        # the lender also collects from the account (_payer_collects, the hidden-loan guard).
+        if (
+            record.revenue_classification == "verified_revenue"
+            and record.revenue_match_method == "auto_lender_dealer_funding"
+            and not dealer and _payables_only_dealer_funding(texts[index])
+        ):
+            held = _payer_collects(counter_credit(record, texts[index], fact.region), debits)
+            updated[index] = _with_tier(
+                _lender_service_never_verified(record),
+                *(("excluded_pending_review", "financing_named_payer") if held
+                  else ("counted_flagged", LENDER_PAID_FOR_SERVICES)),
+            )
             continue
         tier = _TIER_OF_STATE.get(record.revenue_classification)
         if tier is not None:

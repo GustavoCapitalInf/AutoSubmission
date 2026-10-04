@@ -229,6 +229,8 @@ const REVENUE_TIER_REASONS = Object.freeze({
   payer_text_not_read: ["counted_flagged", "Payer text not read", "The statement prints a payer for this row that the reader could not read: counted without proof of the sale."],
   p2p: ["counted_flagged", "Person-to-person", "A person-to-person payment."],
   factoring_payout: ["counted_flagged", "Factoring payout", "A factor's payout of the business's own invoices."],
+  // Owner ruling 2026-10-02 (the underwriter's Q9, part (c)), R2-OW05: a lender paying for services, never verified.
+  lender_paid_for_services: ["counted_flagged", "Lender paid for services", "A lender paid the business for its services (a repair, a recovery, a commission): counted, never verified."],
   payout_credit_entity: ["counted_flagged", "BNPL or marketplace settlement (payer also lends)", "A buy-now-pay-later or marketplace settlement of the business's own sales, counted; the payer also lends."],
   // Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's merchant payout, counted, never verified.
   customer_financing_payout: ["counted_flagged", "Lease-to-own or patient-financing payout", "A lease-to-own or patient-financing company paid the business for a customer's financed purchase: counted, never verified."],

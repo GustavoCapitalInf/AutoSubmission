@@ -179,6 +179,7 @@ these rows by code (`non_revenue_by_reason`, below).
 | `payer_text_not_read` | `counted_flagged` | Payer text not read | the parser marked the credit's printed payer unread (§8.2, §8.10) |
 | `p2p` | `counted_flagged` | Person-to-person | a person-to-person rail or a named transfer (Q4, T13) |
 | `factoring_payout` | `counted_flagged` | Factoring payout | a factor's payout of the invoices it bought, never verified (§8.9) |
+| `lender_paid_for_services` | `counted_flagged` | Lender paid for services | a listed auto lender's credit read on a payables word alone (`PAYABLES`, `TRADE PAY`, `ACCT FUND`) on a statement with no dealer evidence: a lender paying the business for its services (a repossession agency's recoveries), never verified; held as `financing_named_payer` when the lender also debits the account (owner ruling 2026-10-02, Q9 (c'); §8.7) |
 | `payout_credit_entity` | `counted_flagged` | BNPL or marketplace settlement (payer also lends) | a settlement from a platform that also finances the merchant (OQ2) |
 | `customer_financing_payout` | `counted_flagged` | Lease-to-own or patient-financing payout | a lease-to-own or patient financier (`CUSTOMER_FINANCING_PAYERS`) paying the merchant for a customer's financed purchase, never verified (owner ruling 2026-10-02, Q8; §8.9) |
 | `platform_unconfirmed` | `counted_flagged` | Platform payout, not confirmed | a platform payout no form or recurrence confirms (§7.2, §6.3 narrowing 9) |

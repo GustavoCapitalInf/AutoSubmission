@@ -1022,3 +1022,77 @@ def test_r48_a_lead_bank_fee_for_the_holder_s_wire_to_the_payer_still_holds_its_
             ("WIRE FEE FOR WIRE TRANSFER TO CONTOSO TOOLS INC", -25.0)]
     records = _credits(_records(rows))
     assert [_tier(record) for record in records] == [HELD_ALSO] * 2
+
+
+# --- Owner ruling 2026-10-02 (the underwriter's Q9), R2-OW05: the hidden-loan guard (_payer_collects) ----------------
+# "The hidden-loan guard stays: a payer that also debits the account like a lender stays held." Read broadly by design:
+# a lender or financing debit naming the payer, or any other posted debit naming it (the B4 forms, 5.6's first word or
+# a cut or glued spelling), the bank's receiving fee and a card charge aside. Stricter than also_debited: no bill,
+# processor-fee, settlement or payout-pair exemption, and no amount or recurrence test.
+
+def test_ow05_payer_collects_on_a_lender_debit_naming_the_payer():
+    from analysis.true_revenue import _payer_collects
+
+    assert _payer_collects(_counter("CONTOSO", ["CONTOSO"]), _debits(lender=[("CONTOSO", ["CONTOSO"], None)]))
+    # A cut or glued spelling of the payer on a lender debit (the pass-7 prefix).
+    assert _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
+                           _debits(lender=[("CONTOSOFUNDING", ["CONTOSOFUNDING"], None)]))
+    assert not _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
+                               _debits(lender=[("FABRIKAM", ["FABRIKAM"], None)]))
+
+
+@pytest.mark.parametrize("kind", ["other", "circular", "bill", "processor_fee"])
+def test_ow05_payer_collects_on_any_other_debit_naming_the_payer_whatever_its_amount(kind):
+    from analysis.true_revenue import _payer_collects, also_debited
+
+    debits = _debits(other=[("CONTOSO", ["CONTOSO"], kind, 2500, False)])
+    assert _payer_collects(_counter("CONTOSO", ["CONTOSO"], settlement=True), debits)
+    assert _payer_collects(_counter("CONTOSO", ["CONTOSO"]), debits)
+    # The documented over-hold: also_debited spares a one-off bill and a settlement's fee or one-off debit.
+    if kind in {"bill", "processor_fee"}:
+        assert not also_debited(_counter("CONTOSO", ["CONTOSO"], settlement=True), debits)
+
+
+def test_ow05_payer_collects_reads_5_6_s_first_word_and_a_cut_spelling_on_another_debit():
+    from analysis.true_revenue import _payer_collects
+
+    # 5.6's first distinctive word alone (legacy), whatever the other words.
+    assert _payer_collects(_counter("CONTOSO", ["CONTOSO", "GROUP"]),
+                           _debits(other=[("CONTOSO", ["CONTOSO", "TOOLS"], "other", 2500, False)]))
+    # A glued spelling of the payer's name.
+    assert _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
+                           _debits(other=[("CONTOSOFUNDING", ["CONTOSOFUNDING"], "other", 2500, False)]))
+    assert not _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
+                               _debits(other=[("FABRIKAM", ["FABRIKAM"], "other", 2500, False)]))
+
+
+def test_ow05_payer_collects_never_reads_the_bank_s_receiving_fee_or_a_card_charge():
+    from analysis.true_revenue import CounterDebits, _CounterDebit, _payer_collects
+
+    reading = tc._counter_debit_reading("CONTOSO", [["CONTOSO"]])
+    assert not _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
+                               _debits(other=[("CONTOSO", ["CONTOSO"], "receiving_fee", 100000, False)]))
+    for kind in ("other", "bill", "processor_fee"):
+        card = _CounterDebit(reading, kind, 100000, None, True, card=True)
+        assert not _payer_collects(_counter("CONTOSO", ["CONTOSO"]), CounterDebits((), (card,)))
+    # The same debit without its card mark holds.
+    assert _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
+                           CounterDebits((), (_CounterDebit(reading, "other", 100000, None, True),)))
+
+
+def test_ow05_payer_collects_on_the_statement_s_own_debits():
+    from analysis.true_revenue import _payer_collects, counter_credit, counter_debits
+
+    def collects(debit, holder="NORTHWIND LABS INC"):
+        records = _records([("NORTHWIND FINANCIAL GROUP DES:PAYABLES ID:1", 4200.0), debit], holder=holder)
+        text = tc.revenue_text(records[0].normalized_description)
+        return _payer_collects(counter_credit(records[0], text, tc.payer_region(text)), counter_debits(records, set()))
+
+    # A same-payer debit the classifier reads as no lender ('other'), and a lender's debit.
+    assert collects(("NORTHWIND FINANCIAL DES:ACH DEBIT ID:2", -500.0))
+    assert collects(("NORTHWIND FINANCIAL DES:LOAN PMT ID:2", -500.0))
+    # The bank's receiving fee reprinting the sender, and an unrelated debit, never hold.
+    assert not collects(("FUNDS TRANSFER FEE TT NORTHWIND FINANCIAL", -25.0))
+    assert not collects(("FABRIKAM SUPPLY DES:VENDOR PAY ID:2", -500.0))
+    # A card purchase the classifier names is never among the debits.
+    assert not collects(("CHECKCARD 0302 NORTHWIND FINANCIAL SAMPLEVILLE NY", -60.0))
