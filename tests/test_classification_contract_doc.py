@@ -86,6 +86,28 @@ def test_the_insurer_named_payer_row_names_every_insurer_spelling_and_the_brand_
     assert "audit I26" in when and "`ASSURED`" in when and "`CLM`" in when
 
 
+def test_the_insurer_paid_for_services_row_names_the_grounds_and_the_refusals():
+    """Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: the When cell names the three grounds, the service
+    forms, the 31-day span, the not-for-work words and what precedes the count; the insurer_payer and
+    insurer_named_payer rows name the release."""
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    cell = when["`insurer_paid_for_services`"]
+    for words in ("repair shop", "insurance agency", "clinic", "pharmacy", "`DRP`", "`AGENTS EFT`", "`AGTEFT`",
+                  "`CONTINGENCY`", "`VENDOR PMT`", "never a wire's `REF`", "three or more times within an inclusive "
+                  "31-day span", "premium, refund, return, dividend", "unless a commission prints",
+                  "every hold but the insurer-name hold still wins", "never verified and never a Q5 or Q6 repeat",
+                  "the underwriter's Q2"):
+        assert words in cell, words
+    assert "the underwriter's Q2 release (2026-10-02, R2-OW08) refuses" in when["`insurer_payer`"]
+    assert "is `insurer_paid_for_services` instead" in when["`insurer_named_payer`"]
+    contract = _flat(CONTRACT)
+    for words in ("is re-stated as an unverified deposit of method `insurer_paid_for_services`",
+                  "`INSURER_FOR_WORK_STATEMENT_ARM`, which is off",
+                  "An insurer's credit paid for the business's work is counted and flagged as "
+                  "`insurer_paid_for_services`"):
+        assert words in contract, words
+
+
 @pytest.mark.parametrize("tier", REVENUE_TIERS)
 def test_every_revenue_tier_is_named_in_the_contract(tier):
     assert f"`{tier}`" in _flat(CONTRACT)
@@ -203,6 +225,10 @@ STALE_SENTENCES = (
     # R2-OW06 review round 1: FLEET alone left the asset nouns of a sale, and an IAA hold yields only with no later hold.
     (SPEC, "`CRANE(S)`, `FLEET`, `SEMI(S)`"),
     (CONTRACT, "insurer-name hold alone holds it, or where an invoice or customer-payment"),
+    # Owner ruling 2026-10-02, R2-OW08 (the underwriter's Q2): §6.3 has thirteen narrowings, and the I27 question's
+    # counting is in the code.
+    (SPEC, "except through exactly these twelve named narrowings"),
+    (SPEC, "its counting waits for its batch"),
 )
 
 
@@ -257,6 +283,10 @@ SECTION_19_1_DECISIONS = (
     # Audit I26 (R2-OW07), attributed apart from the underwriter's Q2 answer, which it was not asked in.
     ("**2026-10-02, every insurer spelling (I26, by Q6 of 2026-09-28; not asked in Q2 (2026-10-02)).**", (
         "`insurer_named_payer`", "INS", "LOSS PMT", "not asked",
+    )),
+    # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08.
+    ("**2026-10-02, insurers paying for the business's work (I27; Q2).**", (
+        "`insurer_paid_for_services`", "three or more", "31-day span", "one-off claim", "owner switch, OFF",
     )),
 )
 
@@ -440,7 +470,8 @@ def test_the_spec_closes_i17_with_the_lease_to_own_ruling():
     assert "| `excluded_pending_review` | `customer_financing_lump_sum` |" in codes
     assert "| `counted_flagged` | `customer_financing_payout` |" in codes
     narrowings = _section(text, "\n### 6.3 ", "\n## 7. ")
-    assert "except through exactly these twelve named narrowings" in narrowings
+    # R2-OW08 (the underwriter's Q2): narrowing 13 since; the count reads thirteen.
+    assert "except through exactly these thirteen named narrowings" in narrowings
     assert "\n12. a lease-to-own financier's merchant funding printed with the strong LOAN word" in narrowings
     assert "`CUSTOMER_FINANCING_PAYERS`" in _section(text, "\n### 8.9 ", "\n### 8.10 ")
     tiering = _section(text, "\n### 8.10 ", "\n## 9. ")
@@ -530,3 +561,48 @@ def test_the_spec_and_the_contract_state_the_insurer_spelling_review_round():
     when = {cells[0]: cells[3] for cells in _reason_table()}["`insurer_named_payer`"]
     assert "a government payer only by those words or `CLAIM`" in when and "person-to-person rail" in when
     assert "Audit I26, R2-OW07 review round 1" in _flat(CONTRACT)
+
+
+def test_the_spec_and_the_contract_state_the_q2_ruling():
+    """Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: §2 amends Q6 below its table and §2.1 adds the row;
+    §5.3 the reason; §6.3 narrowing 13; §7.7 the deferred carriers; §8.1 the release's paragraph; §8.6 the exception;
+    §8.10 the tier and the threshold; §14.3 G1; §17.1 closes I27 and lists the defaults; §20 records the ruling and
+    the batch in all; the contract's note."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. "))
+    for words in ("Amended 2026-10-02 (§19.1): for an insurer paying the business for its work, Q6's \"insurers "
+                  "never count\" gives way to the underwriter's Q2 (2026-10-02)", "| Q2 (2026-10-02) |",
+                  "`INSURER_FOR_WORK_STATEMENT_ARM`, off"):
+        assert words in rulings, words
+    assert "| `counted_flagged` | `insurer_paid_for_services` | Insurer paid for the business's work |" in _section(
+        text, "\n### 5.3 ", "\n### 5.4 ")
+    narrowings = _section(text, "\n### 6.3 ", "\n## 7. ")
+    assert "\n13. a listed insurer's credit (§6.1 step 5's `insurance_provider_credit_exclusion`)" in narrowings
+    assert "`15_insurer_paid_for_services`" in narrowings
+    assert "Owner ruling 2026-10-02 (the underwriter's Q2, R2-OW08)" in _section(text, "\n### 7.7 ", "\n### 7.8 ")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("**Insurers paid for the business's work (Q2 (2026-10-02); `insurer_paid_for_services`, R2-OW08).**",
+                  "never joins `_REGISTRY_METHODS` or any claimed set", "`holder_trade:<trade>`", "`service_form`",
+                  "`same_insurer_3_in_31_days`", "`insurer_service_statement`", "never its `REF`",
+                  "03-01 to 03-31 holds, 03-01 to 04-01 does not", "unless a commission form prints in the same words",
+                  "The insurer's `CLAIM` on a released row is no non-sale word", "`CounterCredit.insurer` False",
+                  "only a customer-payment row the for-work release refuses reaches it"):
+        assert words in holds, words
+    assert "except an insurer paying for the business's work" in _section(text, "\n### 8.6 ", "\n### 8.7 ")
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert "an insurer paid for the business's work (`insurer_paid_for_services`" in tiering
+    assert "| Insurer for work | 3 or more eligible credits from one insurer key" in tiering
+    assert "`15_insurer_paid_for_services`" in _section(text, "\n### 14.3 ", "\n### 14.4 ")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    i27 = next(line for line in open_items.splitlines() if line.startswith("- **I27 (with I26)"))
+    assert ("Closed 2026-10-02 (§19.1): counted and flagged on a trade, a service form or three in a month; the "
+            "statement arm is an owner switch, OFF") in i27
+    defaults = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Insurers paid for the business's work: the defaults (the underwriter's Q2 of 2026-10-02, §8.1; R2-OW08).**"))
+    for words in ("`INSURER_FOR_WORK_STATEMENT_ARM`", "stays Excluded", "loose trade words", "Not confirmed"):
+        assert words in defaults, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Insurers paid for the business's work** (", "owner ruling 2026-10-02, R2-OW08",
+                  "- **Owner ruling 2026-10-02, R2-OW08 in all** (", "c1acc3e"):
+        assert words in amendments, words
+    assert "Owner ruling 2026-10-02, R2-OW08 (the underwriter's Q2" in _flat(CONTRACT)
