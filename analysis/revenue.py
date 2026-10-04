@@ -30,7 +30,8 @@ STATE_OF_TIER: dict[str, RevenueState] = {
     "non_revenue": "non_revenue",
 }
 #: 5.6 (§5.3): the reason codes of the counted and held tiers: code -> (tier, the label on screen). Nothing else lists
-#: them; the dashboard mirrors them (webapp/static/app.js REVENUE_TIER_REASONS).
+#: them; the dashboard mirrors them (webapp/static/app.js REVENUE_TIER_REASONS). Since the owner's ruling of 2026-10-02
+#: (the underwriter's Q3) one non_revenue code, zelle_excluded, ends the table.
 REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "direction_conflict": ("excluded_pending_review", "Direction conflicts with the amount"),
     "insurer_payer": ("excluded_pending_review", "Insurance carrier"),
@@ -69,6 +70,10 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "named_payer_purpose_refused": ("counted_flagged", "Named payer, purpose not accepted as proof"),
     "named_payer_one_off": ("counted_flagged", "One-off payer"),
     "named_payer_unlabelled": ("counted_flagged", "Payer named, channel not printed"),
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit the Zelle policy excluded
+    # (true_revenue.ZELLE_EXCLUDED), the one non_revenue row that carries a reason; a Zelle row another non-revenue
+    # rule decided keeps that rule and no reason.
+    "zelle_excluded": ("non_revenue", "Zelle deposit (excluded by policy)"),
 }
 #: 5.6 (§12): the tier figures a payload analysed before 5.6 cannot have. Its rebuild and its served copy
 #: (analysis/revenue_view.py) set every one to None.

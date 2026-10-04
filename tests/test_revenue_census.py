@@ -1814,6 +1814,30 @@ def test_q12_the_compare_declares_a_verified_form_that_became_non_revenue():
     assert "government_no_purpose_exclusion" in census.NON_REVENUE_METHODS
 
 
+# The owner's ruling of 2026-10-02 (the underwriter's Q3): every Zelle deposit is non_revenue (zelle_excluded). No
+# corpus Zelle row is verified; the compare still declares a verified one the policy excluded (a safeguard).
+def test_q3_the_compare_declares_a_verified_zelle_deposit_the_policy_excluded():
+    from analysis import true_revenue
+
+    assert census.ZELLE_POLICY_METHOD == true_revenue.ZELLE_POLICY_METHOD
+    assert "zelle_policy" in census.DECLARED_DEMOTIONS
+    text = census.mask("ZELLE PAYMENT FROM NORTHWIND SUPPLY LLC CONF 1")
+    causes, run = _cause56(
+        _q56("named_payer_company_form", text),
+        _credit(0, 500000, "non_revenue", "zelle_deposit_excluded", tier="non_revenue", reason="zelle_excluded",
+                text=text, rule="zelle_deposit_excluded"))
+    assert causes == {"zelle_policy": 1}
+    assert "undeclared_demotion" not in run["guards"]
+    # A counted or held Zelle row the policy excluded is no demotion at all.
+    causes, run = _cause56(
+        _credit(0, 500000, "unverified_deposit", "deposit_source_requires_review", tier="counted_flagged",
+                reason="p2p", text=text),
+        _credit(0, 500000, "non_revenue", "zelle_deposit_excluded", tier="non_revenue", reason="zelle_excluded",
+                text=text, rule="zelle_deposit_excluded"))
+    assert causes == {}
+    assert "undeclared_demotion" not in run["guards"]
+
+
 @pytest.mark.parametrize(("text", "state", "tier", "fails"), [
     # A counted or verified credit printing one of the six non-Treasury forms with no purpose fails.
     ("GOUV QUEBEC MSP", "unverified_deposit", "counted_flagged", True),
@@ -2411,7 +2435,13 @@ def test_b9_the_holder_facts_read_the_holder_s_name_field():
     credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
     assert [credit["facts"]["holder"] for credit in credits] == [True, True, False]
     assert [credit["facts"]["own_transfer"] for credit in credits] == [False, True, False]
-    assert [(credit["tier"], credit["reason"]) for credit in credits][0] == ("excluded_pending_review", "holder_name")
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): the holder's own Zelle is held by the rules (its prior
+    # reading) and excluded by the Zelle policy (R2-OW02 CR7).
+    from analysis.transaction_classifier import classify_statement_transactions
+    from tests.zelle_reading import rules_reading
+
+    assert rules_reading(classify_statement_transactions(statement)[0]) == ("excluded_pending_review", "holder_name")
+    assert [(credit["tier"], credit["reason"]) for credit in credits][0] == ("non_revenue", "zelle_excluded")
 
 
 def test_b9_a_processor_s_settlement_under_the_holder_s_name_is_no_holder_fact():
@@ -2439,8 +2469,14 @@ def test_b9_review_1_a_holder_named_merchant_keeps_its_own_zelle_a_holder_fact()
                     amount=900.0, direction="credit"),
     ])
     credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): the rules hold it as the holder's (its prior reading),
+    # and the Zelle policy excludes it (R2-OW02 CR7); the holder fact is unchanged.
+    from analysis.transaction_classifier import classify_statement_transactions
+    from tests.zelle_reading import rules_reading
+
+    assert rules_reading(classify_statement_transactions(statement)[0]) == ("excluded_pending_review", "holder_name")
     assert [(credit["facts"]["holder"], credit["tier"], credit["reason"]) for credit in credits] == [
-        (True, "excluded_pending_review", "holder_name")
+        (True, "non_revenue", "zelle_excluded")
     ]
 
 

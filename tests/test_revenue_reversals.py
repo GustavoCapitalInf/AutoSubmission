@@ -21,6 +21,7 @@ import pytest
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
+from tests.zelle_reading import rules_reading, zelle_policy_due
 
 HOLDER = "NORTHWIND PLUMBING LLC"
 HELD = "excluded_pending_review"
@@ -44,7 +45,9 @@ def _one(text: str, bank: str | None = "Fabrikam Bank", amount: float = 400.0):
 
 
 def _tier(record):
-    return record.revenue_tier, record.revenue_tier_reason
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit is read through the rules' own reading,
+    # its final tier (non_revenue, zelle_excluded) asserted (tests/zelle_reading.py, R2-OW02 CR7).
+    return rules_reading(record)
 
 
 def _true(records) -> float:
@@ -1277,7 +1280,8 @@ def test_r2_b08_review_the_check_word_not_paid_inside_a_payment_s_free_text_keep
     record = _one(text, bank, 4000.0)
     assert record.revenue_match_method not in _REVERSAL_METHODS
     assert _tier(record) == tier
-    assert record.contributes_to_true_revenue
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit leaves True whatever the rules read.
+    assert record.contributes_to_true_revenue is not zelle_policy_due(record)
 
 
 def test_r2_b08_review_the_controls_of_the_payment_forms_read_as_before():

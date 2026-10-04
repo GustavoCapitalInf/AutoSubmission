@@ -214,7 +214,13 @@ DECLARED_DEMOTIONS = (
     # The owner's ruling of 2026-10-02 (the underwriter's Q12): a government payment that prints no purpose, now
     # non_revenue by §6.1 step 3a, which precedes every verifying rule.
     "government_no_purpose",
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit, non_revenue by the Zelle policy, pass
+    # 7's last tier step (no corpus Zelle row is verified; a safeguard).
+    "zelle_policy",
 )
+#: The owner's ruling of 2026-10-02 (the underwriter's Q3): the method pass 7 gives a Zelle deposit the Zelle policy
+#: excluded (analysis/true_revenue.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
+ZELLE_POLICY_METHOD = "zelle_deposit_excluded"
 #: Audit round 2, R2-B04 (R41): the method pass 7 gives the holder's own push it overrules
 #: (analysis/true_revenue.py _holder_never_verified, copied: the census reads other checkouts).
 HOLDER_OWN_PUSH_METHOD = "self_originated_holder"
@@ -2110,6 +2116,10 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # (b) a government payment that prints no purpose, non_revenue by step 3a.
     if method == "government_no_purpose_exclusion":
         return "government_no_purpose"
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): (a) any verifying rule (the Zelle policy is pass 7's
+    # last tier step, after every verification); (b) a Zelle deposit the policy excluded.
+    if method == ZELLE_POLICY_METHOD:
+        return "zelle_policy"
     # (a) any verifying rule: strong non-revenue precedes them all (§6.1 step 9); (b) that rule on a row printing the
     # account-verification words §7.11 adds to it.
     if method == "strong_non_revenue_rule" and _ACCOUNT_VERIFICATION_55.search(text):

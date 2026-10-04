@@ -559,6 +559,8 @@ R44_GLUED = "E-TRANSFER10000000000{n} {sender} 4500*********100"
 R44_SPACED = "E-TRANSFER 10000000000{n} {sender} 4500*********100"
 ROUND_REPEAT = (HELD, "p2p_round_repeat")
 P2P = (COUNTED, "p2p")
+#: The owner's ruling of 2026-10-02 (the underwriter's Q3): every Zelle deposit is non_revenue, its reading kept.
+ZELLE_EXCLUDED = ("non_revenue", "zelle_excluded")
 
 
 def _statement(rows, *, bank, holder=None):
@@ -591,7 +593,10 @@ def test_r44_a_cibc_e_transfer_reads_as_its_spaced_twin(layout, sender, amounts,
 
 def test_r44_a_glued_zelle_reference_is_split_on_every_bank():
     rows = [("ZELLE1234567 PAYMENT FROM JANE SAMPLE", 5000.0)] * 2
-    assert [_tier(record) for record in _statement(rows, bank="Chase")] == [ROUND_REPEAT] * 2
+    records = _statement(rows, bank="Chase")
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): the rules' reading is kept beside the Zelle policy's.
+    assert [true_revenue.zelle_prior_reading(record) for record in records] == [ROUND_REPEAT] * 2
+    assert [_tier(record) for record in records] == [ZELLE_EXCLUDED] * 2
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -649,7 +654,6 @@ R24_HOLDER = "NORTHWIND PLUMBING LLC"
     ("TRANSFER FROM LOC CONTOSO LLC", P2P),
     ("TFR FRM CRD FABRIKAM LLC", P2P),
     ("ONLINE TRANSFER FROM CK CONTOSO LLC", P2P),
-    ("ZELLE TRANSFER FROM CL CONTOSO LLC", P2P),
     # DDA and CHK are §8.4's account-type words: the named transfer is held as naming an account.
     ("ONLINE TRANSFER FROM DDA FABRIKAM INC", (HELD, "transfer_account_designation")),
     ("ONLINE TRANSFER FROM CHK CONTOSO LLC", (HELD, "transfer_account_designation")),
@@ -657,6 +661,14 @@ R24_HOLDER = "NORTHWIND PLUMBING LLC"
 ])
 def test_r24_a_company_named_with_a_short_source_s_letters_is_a_named_counterparty(text, reading):
     assert _tier(_one(text, holder=R24_HOLDER)) == reading
+
+
+def test_r24_a_zelle_transfer_from_a_company_named_with_a_short_source_s_letters():
+    # The rules read a named counterparty (p2p); the owner's Zelle policy of 2026-10-02 (the underwriter's Q3) then
+    # excludes the Zelle deposit, the rules' reading kept.
+    record = _one("ZELLE TRANSFER FROM CL CONTOSO LLC", holder=R24_HOLDER)
+    assert true_revenue.zelle_prior_reading(record) == P2P
+    assert _tier(record) == ZELLE_EXCLUDED
 
 
 @pytest.mark.parametrize("text", [

@@ -16,6 +16,7 @@ from analysis import transaction_classifier as tc
 from analysis import true_revenue as tr
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
+from tests.zelle_reading import rules_reading
 
 HOLDER = "NORTHWIND LABS INC"
 
@@ -29,7 +30,9 @@ def _records(rows, *, holder: str | None = HOLDER, bank: str | None = None):
 
 
 def _tiers(rows, **kwargs):
-    return [(record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method)
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit is read through the rules' own reading,
+    # its final tier (non_revenue, zelle_excluded) asserted (tests/zelle_reading.py, R2-OW02 CR7).
+    return [rules_reading(record, method=True)
             for record in _records(rows, **kwargs) if record.amount > 0]
 
 

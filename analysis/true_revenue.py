@@ -43,7 +43,7 @@ from .classification_registry import (
 from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .flag_groups import FINANCING_STATES
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
-from .revenue import revenue_contribution_flags
+from .revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
 
 if TYPE_CHECKING:
     from .transaction_classifier import CounterDebitReading, TransactionClassification
@@ -2668,6 +2668,67 @@ def _holder_name_known(name: str | None) -> bool:
 #: parser's own mark, Transaction.payer_text_unread). Q2's no_payer_printed is for a row whose statement prints no payer;
 #: this one is for a row whose statement printed one the parser lost. Counted and flagged, never Verified.
 PAYER_TEXT_NOT_READ = "payer_text_not_read"
+#: The owner's ruling of 2026-10-02 (the underwriter's Q3; spec §8.4, §8.10 step 26, §19.1): every posted Zelle
+#: deposit is non_revenue with this reason, whoever sent it, a lender or a processor paying through Zelle included
+#: (_zelle_excluded). A row a non-revenue rule already decided keeps that rule, and a direction conflict keeps its hold.
+ZELLE_EXCLUDED = "zelle_excluded"
+#: Q3 (2026-10-02): the method and the rule of a Zelle deposit the policy excluded.
+ZELLE_POLICY_METHOD = "zelle_deposit_excluded"
+#: Q3 (2026-10-02): the context signal that keeps the rules' own reading of an excluded Zelle deposit
+#: ('zelle_prior:<tier>:<reason>', read by zelle_prior_reading).
+_ZELLE_PRIOR = "zelle_prior:"
+#: Q3 (2026-10-02): the Zelle rail, read on the revenue text before the receiver fields (zelle_deposit). The corpus
+#: prints it as 'ZELLE PAYMENT FROM <sender> (CONF#)', 'ZELLE FROM <sender> ON ## ## REF', 'ZELLE INSTANT PMT FROM',
+#: 'ZELLE BUSINESS PAYMENT FROM <sender> PAYMENT ID', 'ZELLE CREDIT (FROM)', 'ZELLE MONEY RECEIVED FROM', 'TRANSFER IN
+#: ZELLE FROM', 'TD ZELLE RECEIVED', Citizens' '... CREDIT ZELLE CREDIT ... ZELLE <name>', Navy Federal's 'ZELLE (CR)
+#: <name>' and PNC's 'Zel From <name>', with a date or a reference glued on either side ('ZELLE1234567', '0302ZELLE':
+#: the right boundary is a letter, so the glued reference reads with or without the revenue text's rail split). The
+#: left boundary is the card forms' (no letter before), so a name holding the letters (HAZEL, ROSZELL, MAZZELLA,
+#: ZELLER, EZELL) is never read. The classifier's _CONSUMER_P2P_RAIL, shared with the legacy classes and the debits,
+#: does not read PNC's ZEL and is not changed.
+_ZELLE_RAIL = re.compile(r"(?<![A-Z])ZELLE(?![A-Z])|(?<![A-Z])ZEL (?:FROM|TO)\b")
+
+
+def zelle_deposit(text: str) -> bool:
+    """Q3 (2026-10-02, spec §8.4): the credit's revenue text prints the Zelle rail before its receiver fields
+    (_ZELLE_RAIL)."""
+    return _ZELLE_RAIL.search(_classifier()._before_receiver(text)) is not None
+
+
+def _zelle_excluded(record: TransactionClassification) -> TransactionClassification:
+    """Q3 (2026-10-02, spec §8.4, §8.10 step 26): a Zelle deposit the rules tiered, excluded by the owner's policy:
+    non_revenue, method and rule ZELLE_POLICY_METHOD, reason ZELLE_EXCLUDED. The rules' own reading (its tier and
+    reason) stays in the reason sentence and in the zelle_prior signal (zelle_prior_reading); a reason code the table
+    does not list names itself. Only the revenue fields and the contribution flags change: the legacy classification,
+    the entity, the flag group, the lender-credit exclusion, the withholding flag and the review flag stay."""
+    tier, reason = record.revenue_tier, record.revenue_tier_reason
+    label = "Verified revenue" if tier == "verified" else REVENUE_TIER_REASONS.get(reason, (None, reason or tier))[1]
+    excluded = _classifier()._replace_revenue_state(
+        record,
+        "non_revenue",
+        match_method=ZELLE_POLICY_METHOD,
+        matched_rule=ZELLE_POLICY_METHOD,
+        confidence_score=1.0,
+        reason=(
+            "A Zelle deposit, excluded from true revenue by the owner's policy (the underwriter's Q3, spec §19.1); the "
+            f"rules read it as: {label}."
+        ),
+        context_signals=(*record.revenue_context_signals, ZELLE_POLICY_METHOD, f"{_ZELLE_PRIOR}{tier}:{reason or ''}"),
+        related_transaction=record.revenue_related_transaction,
+    )
+    return replace(excluded, revenue_tier_reason=ZELLE_EXCLUDED)
+
+
+def zelle_prior_reading(record: TransactionClassification) -> tuple[str, str | None] | None:
+    """Q3 (2026-10-02): the tier and reason the rules gave a Zelle deposit the policy excluded (the zelle_prior
+    signal), or None for any other row."""
+    for signal in record.revenue_context_signals:
+        if signal.startswith(_ZELLE_PRIOR):
+            tier, _, reason = signal[len(_ZELLE_PRIOR):].partition(":")
+            return tier, reason or None
+    return None
+
+
 #: Audit B10 (I05): the share of a statement's posted credit rows whose payer text was not read above which the
 #: statement carries the payer_text_unread fact (metrics.payer_text_unread): its True rests on rows nobody read.
 PAYER_TEXT_UNREAD_SHARE = 0.30
@@ -5130,7 +5191,8 @@ def apply_true_revenue_pass(
     as card credits leave the reversal rule (_processor_card_payouts). Audit B10 (I05, I60): `unread_indexes` are the
     credits the parser marked as read only by their label (payer_text_unread_indexes); their tier reason reads them
     (_tier_reason). Audit round 2, R2-B07 (R07): `unread_texts` are those credits' unread payer text
-    (payer_text_unread_texts), which only _tier_reason reads."""
+    (payer_text_unread_texts), which only _tier_reason reads. The owner's ruling of 2026-10-02 (the underwriter's Q3):
+    every Zelle deposit is excluded after the tiers and before the $1 floor (_zelle_excluded)."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -5292,6 +5354,18 @@ def apply_true_revenue_pass(
             unread=index in unread_indexes, unread_text=unread_texts.get(index, ""),
         )
         updated[index] = _with_tier(record, tier, reason)
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3; §8.4, §8.10 step 26): the last tier step, after every
+    # tier and before the $1 floor. Every Zelle deposit the rules tiered is excluded (_zelle_excluded), a hold or a
+    # count alike; a row a non-revenue rule decided keeps that rule, and a direction conflict keeps its hold. Nothing
+    # before this step changes: the facts, the holds, Q5's and Q6's counts and a sender's named round sums still read
+    # Zelle rows. The floor and every later step skip the rows this step excludes (they are non_revenue).
+    for index in credits:
+        record = updated[index]
+        if (
+            zelle_deposit(texts[index]) and record.revenue_classification != "non_revenue"
+            and record.revenue_match_method != "direction_conflict"
+        ):
+            updated[index] = _zelle_excluded(record)
     # §7.0, §7.8, §8.10 (S4.4/S4.5 review): the $1 floor is absolute, so it runs after every verification. A posted
     # credit under $1 that any rule verified or counted (a single-row rule, the registry's own context, a descriptor or
     # a remittance, reads no floor of its own) is held as _MICRO_DEPOSIT_REASON; a held one keeps its first hold

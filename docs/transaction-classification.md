@@ -142,7 +142,9 @@ and their labels live in one table, `analysis/revenue.py`
 `REVENUE_TIER_REASONS`, which the dashboard mirrors. The table below repeats
 it, in its order, and `tests/test_classification_contract_doc.py` fails when
 the two differ (audit fix batch B12). A `verified` or `non_revenue` credit
-carries no reason: its rule is its `revenue_match_method`.
+carries no reason: its rule is its `revenue_match_method`. The one exception is
+a Zelle deposit the owner's Zelle policy of 2026-10-02 excluded (the
+underwriter's Q3): `non_revenue` with the reason `zelle_excluded`.
 
 | Reason code | Tier | Label | When (true revenue spec) |
 |---|---|---|---|
@@ -174,6 +176,7 @@ carries no reason: its rule is its `revenue_match_method`.
 | `named_payer_purpose_refused` | `counted_flagged` | Named payer, purpose not accepted as proof | a named payer whose purpose words Q5 or Q6 refuse as proof, a §15 deferred source included (§18.2 item 2, §15) |
 | `named_payer_one_off` | `counted_flagged` | One-off payer | an informal name that pays once (Q6) |
 | `named_payer_unlabelled` | `counted_flagged` | Payer named, channel not printed | a payer printed with no channel label (§8.9) |
+| `zelle_excluded` | `non_revenue` | Zelle deposit (excluded by policy) | excluded by the Zelle policy: a posted Zelle deposit (`ZELLE`, or PNC's `ZEL FROM`, before the receiver fields) the rules verified, counted or held, the rules' reading kept on the record; a Zelle credit another non-revenue rule decided keeps that rule and no reason (owner ruling 2026-10-02, the underwriter's Q3; §8.4, §8.10 step 26) |
 
 **Precedence.** One credit's decision (`_classify_credit_revenue`) takes the
 first match: a direction conflict, a reversal, a government payment that prints

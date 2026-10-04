@@ -199,9 +199,10 @@ const REVENUE_METRIC_COPY = Object.freeze({
 // lender funding, never True revenue.
 const LEGACY_ELIGIBLE_DEPOSITS_NOTE = "Gross deposits less lender funding (not True revenue)";
 
-// 5.6 (true revenue spec §5.3, §10.6): the reason codes of the two middle tiers, code -> [tier, label, sentence]. It
-// mirrors analysis/revenue.py REVENUE_TIER_REASONS (code -> tier and label); tests/test_webapp_true_revenue_ui.py
-// holds the two equal. The sentence is the ledger's one line on the code.
+// 5.6 (true revenue spec §5.3, §10.6): the reason codes of the two middle tiers, code -> [tier, label, sentence], and
+// (the owner's ruling of 2026-10-02) the Zelle policy's non_revenue code. It mirrors analysis/revenue.py
+// REVENUE_TIER_REASONS (code -> tier and label); tests/test_webapp_true_revenue_ui.py holds the two equal. The sentence
+// is the ledger's one line on the code.
 const REVENUE_TIER_REASONS = Object.freeze({
   direction_conflict: ["excluded_pending_review", "Direction conflicts with the amount", "The bank prints this row in the other direction from its amount."],
   insurer_payer: ["excluded_pending_review", "Insurance carrier", "An insurance carrier paid it: a claim or a refund unless you confirm it pays for a sale."],
@@ -231,6 +232,8 @@ const REVENUE_TIER_REASONS = Object.freeze({
   named_payer_purpose_refused: ["counted_flagged", "Named payer, purpose not accepted as proof", "A named payer whose printed purpose is not accepted as proof."],
   named_payer_one_off: ["counted_flagged", "One-off payer", "A named payer seen once on this statement."],
   named_payer_unlabelled: ["counted_flagged", "Payer named, channel not printed", "A named payer on a channel the bank does not print."],
+  // The owner's ruling of 2026-10-02 (the underwriter's Q3): the one non_revenue code (true revenue spec §5.3).
+  zelle_excluded: ["non_revenue", "Zelle deposit (excluded by policy)", "A Zelle deposit, excluded from true revenue by policy; confirm it if this business takes customer payments by Zelle."],
 });
 
 function revenueReasonLabel(record) {

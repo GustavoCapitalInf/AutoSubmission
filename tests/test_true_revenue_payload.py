@@ -62,10 +62,14 @@ def test_the_flags_follow_the_state_and_the_tier():
 
 
 def test_every_reason_code_names_a_middle_tier():
-    assert {tier for tier, _label in REVENUE_TIER_REASONS.values()} == {"counted_flagged", "excluded_pending_review"}
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): zelle_excluded, the one non_revenue code, ends the table.
+    assert {tier for tier, _label in REVENUE_TIER_REASONS.values()} == {
+        "counted_flagged", "excluded_pending_review", "non_revenue"}
+    assert [code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "non_revenue"] == [
+        "zelle_excluded"]
     # Audit B10 (I05, I60): payer_text_not_read is the 27th. Audit round 2, R2-B07 (R07): unread_run_names_financing
-    # the 28th.
-    assert len(REVENUE_TIER_REASONS) == 28
+    # the 28th. The owner's ruling of 2026-10-02 (the underwriter's Q3): zelle_excluded, the 29th.
+    assert len(REVENUE_TIER_REASONS) == 29
 
 
 def test_a_record_carries_the_tier_its_state_fixes():

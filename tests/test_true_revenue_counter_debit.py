@@ -11,6 +11,7 @@ import pytest
 from analysis import transaction_classifier as tc
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
+from tests.zelle_reading import rules_reading
 
 HOLDER = "NORTHWIND LABS INC"
 
@@ -359,7 +360,9 @@ def test_the_counter_debit_generic_words(word):
 ])
 def test_a_generic_word_or_a_bank_s_name_never_matches_unrelated_payers(rows, bank):
     records = _records(rows, bank=bank)
-    assert records[0].revenue_tier == "counted_flagged", records[0].revenue_tier_reason
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit is read through the rules' own reading,
+    # its final tier (non_revenue, zelle_excluded) asserted (tests/zelle_reading.py, R2-OW02 CR7).
+    assert rules_reading(records[0])[0] == "counted_flagged", records[0].revenue_tier_reason
 
 
 def test_a_payer_paid_back_by_transfer_keeps_its_hold_whatever_its_words():

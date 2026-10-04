@@ -9,6 +9,7 @@ from analysis import transaction_classifier as tc
 from analysis.classification_registry import OPERATING_REVENUE_SOURCE_TYPES
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
+from tests.zelle_reading import rules_reading
 
 
 def _statement(rows, *, holder: str | None = "SAMPLE CAFE", bank: str | None = None):
@@ -99,9 +100,12 @@ def test_an_auction_credit_paired_with_an_equal_auction_debit_stays_unverified()
 
 
 def test_an_auction_alias_outside_the_originator_never_counts():
-    for printed in ("ZELLE PAYMENT FROM FABRIKAM FOR MANHEIM US ACH PAYMNT CONF 1",
-                    "FABRIKAM MOTORS DES:PAYMENT ID:1 INDN:MANHEIM US CO ID:1 CCD"):
-        assert _statement([(2, printed, 5000.0)])[0].revenue_classification == "unverified_deposit"
+    assert _statement([(2, "FABRIKAM MOTORS DES:PAYMENT ID:1 INDN:MANHEIM US CO ID:1 CCD", 5000.0)])[
+        0].revenue_classification == "unverified_deposit"
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): the rules leave the Zelle row a counted person-to-person
+    # credit (its prior reading), never the auction's; the Zelle policy excludes it (R2-OW02 CR7).
+    zelle = _statement([(2, "ZELLE PAYMENT FROM FABRIKAM FOR MANHEIM US ACH PAYMNT CONF 1", 5000.0)])[0]
+    assert rules_reading(zelle) == ("counted_flagged", "p2p")
     assert _statement([(2, "MANHEIM US DES:ACH PAYMNT ID:1", 0.5)])[0].revenue_classification == "unverified_deposit"
 
 

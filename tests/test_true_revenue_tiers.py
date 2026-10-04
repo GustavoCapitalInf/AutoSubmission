@@ -8,6 +8,7 @@ import pytest
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import _debit_first_distinctive_word, classify_statement_transactions
+from tests.zelle_reading import rules_reading
 
 HOLDER = "CONTOSO BAKERY LLC"
 
@@ -25,7 +26,9 @@ def _one(text: str, amount: float = 1234.0, *, holder: str | None = HOLDER):
 
 
 def _tier(record):
-    return record.revenue_tier, record.revenue_tier_reason
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit is read through the rules' own reading,
+    # its final tier (non_revenue, zelle_excluded) asserted (tests/zelle_reading.py, R2-OW02 CR7).
+    return rules_reading(record)
 
 
 @pytest.mark.parametrize(("text", "reason"), [
@@ -76,8 +79,14 @@ def _tier(record):
     ("NORTHWIND LANDSCAPE", "named_payer_unlabelled"),
 ])
 def test_each_reason_code(text, reason):
+    from tests.zelle_reading import zelle_policy_due
+
     record = _one(text)
     assert _tier(record) == (REVENUE_TIER_REASONS[reason][0], reason)
+    if zelle_policy_due(record):
+        # The owner's ruling of 2026-10-02 (the underwriter's Q3): the rules' reading kept, the Zelle deposit excluded.
+        assert (record.revenue_classification, record.revenue_review_required) == ("non_revenue", False)
+        return
     assert record.revenue_classification == "unverified_deposit"
     assert record.revenue_review_required is (REVENUE_TIER_REASONS[reason][0] == "excluded_pending_review")
 

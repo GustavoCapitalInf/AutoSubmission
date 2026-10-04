@@ -37,12 +37,15 @@ from tests.test_bmo_layouts import us_statement
 from tests.test_community_section_layouts import PLATFORM_HEAD
 from tests.test_first_citizens_layouts import REPORTED, flattened
 from tests.test_us_bank_variants import DESCRIBED_HEADER, document as us_bank_document
+from tests.zelle_reading import rules_reading
 
 
 def _tiers(statement: Statement) -> list[tuple[str, str | None, str]]:
-    """(tier, reason, description) of every posted credit, in ledger order."""
+    """(tier, reason, description) of every posted credit, in ledger order. The owner's ruling of 2026-10-02 (the
+    underwriter's Q3): a Zelle deposit is read through the rules' own reading, its final tier (non_revenue,
+    zelle_excluded) asserted (tests/zelle_reading.py, R2-OW02 CR7)."""
     return [
-        (record.revenue_tier, record.revenue_tier_reason, transaction.description)
+        (*rules_reading(record), transaction.description)
         for transaction, record in zip(statement.transactions, classify_statement_transactions(statement))
         if record.amount > 0
     ]
@@ -282,7 +285,8 @@ def test_bmo_us_credits_carry_the_payer_printed_after_and_below_the_amount():
 
 
 def test_bmo_us_restored_payers_are_read_by_the_existing_rules():
-    """Zelle is counted person-to-person, the funder is held, the card credit stays a possible return (B3)."""
+    """Zelle is counted person-to-person by the rules (then excluded by the owner's Zelle policy of 2026-10-02), the
+    funder is held, the card credit stays a possible return (B3)."""
     tiers = _tiers(_bmo())
     assert tiers[0][:2] == ("counted_flagged", "p2p")
     assert tiers[2][:2] == ("excluded_pending_review", "financing_named_payer")

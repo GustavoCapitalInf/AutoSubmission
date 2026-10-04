@@ -67,6 +67,7 @@ from analysis.navy_federal import parse_navy_federal_statement
 from analysis.relay import _restore_glyphs, parse_relay_statement
 from analysis.transaction_classifier import classify_statement_transactions
 from ocr import native_text
+from tests.zelle_reading import rules_reading
 
 # --------------------------------------------------------------- bluevine
 
@@ -623,15 +624,18 @@ def _navy_federal_amount_first(
 
 
 def _credit_tiers(statement):
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): the Zelle deposit is read through the rules' own
+    # reading, its final tier (non_revenue, zelle_excluded) asserted (tests/zelle_reading.py, R2-OW02 CR7).
     return [
-        (record.amount, record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method)
+        (record.amount, *rules_reading(record, method=True))
         for record in classify_statement_transactions(statement)
         if record.amount > 0
     ]
 
 
 #: The credits' tiers once each row carries its own text: the member's own
-#: share transfer is non-revenue, the Zelle is counted as P2P (Q4), the wire
+#: share transfer is non-revenue, the Zelle is counted as P2P by the rules
+#: (Q4; then excluded by the owner's Zelle policy of 2026-10-02), the wire
 #: that prints no sender is held (Q5), the bare deposit is counted (Q2).
 NAVY_AMOUNT_FIRST_CREDIT_TIERS = [
     (300.00, "non_revenue"),
