@@ -95,6 +95,9 @@ _LEGAL_FORMS = frozenset({
     "LLC", "INC", "CORP", "CORPORATION", "COMPANY", "CO", "LTD", "LIMITED", "LP", "LLP", "LLLP", "PLLC", "PLC", "ULC",
     "INCORPORATED",
 })
+#: Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW11: the same legal forms, public, for the
+#: premium-trust rule (true_revenue.premium_trust_title refuses the account-word form on a field that ends in one).
+LEGAL_FORMS = _LEGAL_FORMS
 #: The words of an account designation printed before ACCOUNT on a name with no legal form.
 _DESIGNATION_WORDS = frozenset({
     "PREMIUM", "TRUST", "OPERATING", "WIRE", "PRODUCER", "PAYABLE", "ESCROW", "PAYROLL", "CLIENT", "CLIENTS",

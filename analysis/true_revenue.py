@@ -54,7 +54,7 @@ from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, norma
 from .flag_groups import FINANCING_STATES
 # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the premium-trust words and the legal forms the holder
 # readers read (holder_name imports nothing of the analysis package, so this import is never circular).
-from .holder_name import _LEGAL_FORMS as _HOLDER_LEGAL_FORMS, PREMIUM_TRUST_WORDS
+from .holder_name import LEGAL_FORMS as _HOLDER_LEGAL_FORMS, PREMIUM_TRUST_WORDS
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 from .revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
 
@@ -5843,7 +5843,7 @@ _PREMIUM_TRUST_SEPARATED = re.compile(
     rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_ACCOUNT_KIND})+)(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?"
     r"\s*(?:\s-\s|\s?[–—]\s?|:|\()\s*\S"
 )
-#: R2-OW11: a field that ends in a legal form (the holder readers' _LEGAL_FORMS), which refuses the account-word form
+#: R2-OW11: a field that ends in a legal form (the holder readers' LEGAL_FORMS), which refuses the account-word form
 #: on an account name or a holder name ('PREMIUM TRUST ACCOUNT LLC' is a company).
 _PREMIUM_TRUST_LEGAL_LAST = re.compile(r"\b(?:" + "|".join(sorted(_HOLDER_LEGAL_FORMS)) + r")\.?\s*$")
 
