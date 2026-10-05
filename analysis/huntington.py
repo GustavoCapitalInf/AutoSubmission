@@ -69,7 +69,7 @@ import re
 from datetime import date, datetime
 
 from .dates import resolve_year
-from .holder_name import mailing_line_after
+from .holder_name import HolderReading, read_mailing_line_after
 from .money import STRICT_UNSIGNED, pad_leading_decimal, parse_amount
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -79,10 +79,12 @@ from .schema import Statement, StatementDailyBalance, Transaction
 _BANK_ADDRESS_LINE = re.compile(r"^THE HUNTINGTON NATIONAL BANK\b", re.IGNORECASE)
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): the holder's name from the mailing line after the bank's own address on
-    page 1, when it closes on a state and ZIP, without the address; None otherwise. `account_name` keeps the product."""
-    return mailing_line_after(markdown, _BANK_ADDRESS_LINE)
+    page 1, when it closes on a state and ZIP, without the address; NO_READING otherwise. `account_name` keeps the
+    product. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title that line prints after the
+    name."""
+    return read_mailing_line_after(markdown, _BANK_ADDRESS_LINE)
 
 #: A figure as this issuer prints it: optional ``$``, thousands grouped with
 #: commas, two decimals, and the trailing minus that is this layout's only
@@ -694,10 +696,12 @@ def parse_huntington_statement(markdown: str) -> Statement | None:
 
     product = _PRODUCT_RE.search(markdown)
     days = _DAYS_RE.search(markdown)
+    holder = _holder_reading(markdown)
     return Statement(
         bank="Huntington National Bank",
         account_name=product.group(1) if product else None,
-        holder_name=_holder_name(markdown),
+        holder_name=holder.name,
+        account_title=holder.title,
         account_number=product.group(2) if product else None,
         period_start=start.isoformat(),
         period_end=end.isoformat(),

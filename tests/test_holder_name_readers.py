@@ -7,19 +7,33 @@ reads the address line or the mailing block, never a second line that is no DBA 
 drops a contact (ATTN), and returns None rather than guess (a page that prints only a product). `account_name` is
 unchanged, and only the holder's name moves in the extraction.
 
+Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10 (spec §9.1, §20): every reader returns a
+`HolderReading` (the name and the account title it drops after the name), and its parser publishes the title as
+`Statement.account_title` wherever it publishes that reading's name, from the same anchor and never from any other
+text; the holder's names are unchanged.
+
 Fabricated pages only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE, SAMPLEVILLE; 555 phone numbers, zero-filled codes and
 account numbers, X0X 0X0 postal codes, 2054 dates), in the shapes the banks print; public names only where a bank prints
 its own (its name, its contact line, its mail-routing code's letters)."""
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from analysis import (
-    bluevine, bmo_us_activity, bofa, capital_one, chase, cibc, citibusiness, community_section, huntington,
-    navy_federal, pnc, rbc, santander, scotia, square_checking, td_canada_french, td_us, us_bank, wells,
+    bluevine, bmo_us_activity, bofa, capital_one, chase, cibc, citibusiness, community_section, first_citizens,
+    huntington, navy_federal, pnc, rbc, santander, scotia, square_checking, td_can, td_canada_french, td_us, truist,
+    us_bank, wells,
 )
-from analysis.holder_name import first_page, holder_from_address_line, mailing_line_after, page_lines
+from analysis.holder_name import (
+    HolderReading, first_page, holder_from_address_line, mailing_line_after, page_lines, read_mailing_line_after,
+)
 from ocr.document import StatementMarkdown
+
+#: A reading that names nobody (and so prints no title).
+NONE = HolderReading(None, None)
 
 
 def _document(*pages: str) -> str:
@@ -59,6 +73,10 @@ def test_the_mailing_line_after_an_anchor_closes_on_a_state_and_zip():
     assert mailing_line_after(_document(page), anchor) == "CONTOSO TRADING LLC"
     assert mailing_line_after(_document(page.replace(" MI 48000-0001", "")), anchor) is None
     assert mailing_line_after(_document("FILLER", page), anchor) is None
+    # R2-OW10: the reading carries the title the line prints after the name, and nothing where no name is read.
+    titled = page.replace("CONTOSO TRADING LLC 100", "CONTOSO TRADING LLC OPERATING ACCOUNT 100")
+    assert read_mailing_line_after(_document(titled), anchor) == ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")
+    assert read_mailing_line_after(_document(titled.replace(" MI 48000-0001", "")), anchor) == NONE
 
 
 # --- Bank of America ----------------------------------------------------------------------------------------------
@@ -84,11 +102,11 @@ BOFA_PAGE = (
     ("", None),
 ])
 def test_bank_of_america_reads_the_line_after_the_period_line(name, holder):
-    assert bofa._holder_name(_document(BOFA_PAGE.format(name=name))) == holder
+    assert bofa._holder_reading(_document(BOFA_PAGE.format(name=name))).name == holder
 
 
 def test_bank_of_america_reads_page_one_only():
-    assert bofa._holder_name(_document("Your statement", BOFA_PAGE.format(name="CONTOSO TRADING LLC\n"))) is None
+    assert bofa._holder_reading(_document("Your statement", BOFA_PAGE.format(name="CONTOSO TRADING LLC\n"))) == NONE
 
 
 # --- Wells Fargo --------------------------------------------------------------------------------------------------
@@ -113,7 +131,7 @@ WELLS_PAGE = (
     ("", None),
 ])
 def test_wells_fargo_reads_the_mailing_line_after_its_questions_panel(mailing, holder):
-    assert wells._holder_name(_document(WELLS_PAGE.format(mailing=mailing))) == holder
+    assert wells._holder_reading(_document(WELLS_PAGE.format(mailing=mailing))).name == holder
 
 
 # --- U.S. Bank ----------------------------------------------------------------------------------------------------
@@ -136,7 +154,10 @@ def _us_bank_page(mailing: str) -> str:
     ("", None),
 ])
 def test_us_bank_reads_the_mailing_line_before_its_contact_panel_and_drops_attn(mailing, holder):
-    assert us_bank._holder_name(_document(_us_bank_page(mailing))) == holder
+    reading = us_bank._holder_reading(_document(_us_bank_page(mailing)))
+    assert reading.name == holder
+    # R2-OW10: a contact is never a title.
+    assert reading.title is None
 
 
 # --- RBC and Banque Royale ----------------------------------------------------------------------------------------
@@ -159,7 +180,7 @@ def test_us_bank_reads_the_mailing_line_before_its_contact_panel_and_drops_attn(
 ])
 def test_rbc_reads_the_holder_after_its_mail_routing_code(line, holder):
     page = f"ROYAL BANK OF CANADA P.O. BOX 0000 SAMPLEVILLE ON X0X 0X0\nBusiness Account Statement\n{line}\n"
-    assert rbc._holder_name(_document(page)) == holder
+    assert rbc._holder_reading(_document(page)).name == holder
 
 
 # --- Scotiabank ---------------------------------------------------------------------------------------------------
@@ -174,7 +195,7 @@ def test_rbc_reads_the_holder_after_its_mail_routing_code(line, holder):
     ("Statement Of: Account Number: From: To: Business Account 00000 00000 00\n", None),
 ])
 def test_scotiabank_reads_the_mailing_line_before_its_summary_header(page, holder):
-    assert scotia._holder_name(_document(page)) == holder
+    assert scotia._holder_reading(_document(page)).name == holder
 
 
 # --- Bluevine -----------------------------------------------------------------------------------------------------
@@ -185,8 +206,8 @@ def test_bluevine_reads_the_name_after_its_phone_line_and_never_the_owner_line_u
         "+1 (555) 555-0100 CONTOSO TRADING LLC\njordan sample\n100 Sample Terrace\nSampleville, FL 33000\n"
         "Account statement\n"
     )
-    assert bluevine._holder_name(_document(page)) == "CONTOSO TRADING LLC"
-    assert bluevine._holder_name(_document(page.replace("+1 (555) 555-0100 CONTOSO TRADING LLC\n", ""))) is None
+    assert bluevine._holder_reading(_document(page)) == ("CONTOSO TRADING LLC", None)
+    assert bluevine._holder_reading(_document(page.replace("+1 (555) 555-0100 CONTOSO TRADING LLC\n", ""))) == NONE
 
 
 # --- Huntington ---------------------------------------------------------------------------------------------------
@@ -202,7 +223,7 @@ def test_huntington_reads_the_mailing_line_after_the_bank_s_own_address(mailing,
         "THE HUNTINGTON NATIONAL BANK PO BOX 0000 A0A0A0 SAMPLEVILLE OH 43000-0000\n"
         f"{mailing}Have a Question or Concern?\n1-800-555-0100\n"
     )
-    assert huntington._holder_name(_document(page)) == holder
+    assert huntington._holder_reading(_document(page)).name == holder
 
 
 # --- Capital One --------------------------------------------------------------------------------------------------
@@ -220,7 +241,7 @@ def test_huntington_reads_the_mailing_line_after_the_bank_s_own_address(mailing,
      "100 SAMPLE CIR SAMPLEVILLE LA 71000\n", None),
 ])
 def test_capital_one_reads_the_mailing_line_before_its_account_summary(page, holder):
-    assert capital_one._holder_name(_document(page)) == holder
+    assert capital_one._holder_reading(_document(page)).name == holder
 
 
 # --- CIBC ---------------------------------------------------------------------------------------------------------
@@ -232,7 +253,7 @@ def test_capital_one_reads_the_mailing_line_before_its_account_summary(page, hol
     ("CIBC Account Statement\nFor Apr 1 to Apr 30, 2054\n", None),
 ])
 def test_cibc_reads_the_line_after_its_statement_title(page, holder):
-    assert cibc._holder_name(_document(page)) == holder
+    assert cibc._holder_reading(_document(page)).name == holder
 
 
 # --- Square -------------------------------------------------------------------------------------------------------
@@ -252,7 +273,10 @@ SQUARE_HEAD = "Square Checking Routing number: 000000000\nAccount number: 0000\n
     ("Location Starting balance Activities Ending balance $0.00 6 $0.00\n$0.00 Starting balance\n", None),
 ])
 def test_square_reads_the_mailing_block_under_its_period_line(block, holder):
-    assert square_checking._holder_name(_document(SQUARE_HEAD + block + "Starting balance\n")) == holder
+    reading = square_checking._holder_reading(_document(SQUARE_HEAD + block + "Starting balance\n"))
+    assert reading.name == holder
+    # R2-OW10: an owner's line is never a title.
+    assert reading.title is None
 
 
 # --- Mission Valley -----------------------------------------------------------------------------------------------
@@ -266,7 +290,7 @@ def test_mission_valley_reads_the_name_before_its_page_counter(line, holder):
         f"Statement Ending 02/27/2054\n{line}\nAccount Number:XXXXXXXX0000\n"
         "CONTOSO TRADING INC SAMPLE LOCATION 100 N SAMPLE AVE SAMPLEVILLE CA 91000-0001\n"
     )
-    assert community_section._mission_valley_holder_name(_document(page)) == holder
+    assert community_section._mission_valley_holder_reading(_document(page)).name == holder
 
 
 # --- BMO (US activity layout) -------------------------------------------------------------------------------------
@@ -280,7 +304,7 @@ def test_bmo_us_reads_the_mailing_line_after_its_contact_line(mailing, holder):
         "How to reach us\nP.O. BOX 0000, SAMPLEVILLE, IL 60000-0000 Return Service Requested\n"
         f"bmo.com/contact 888-555-0100\n{mailing}"
     )
-    assert bmo_us_activity._holder_name(_document(page)) == holder
+    assert bmo_us_activity._holder_reading(_document(page)).name == holder
 
 
 # --- Santander ----------------------------------------------------------------------------------------------------
@@ -296,7 +320,7 @@ def test_santander_reads_the_name_before_its_account_number(line, holder):
         "CONTOSO TRADING INC 100 SAMPLE RD SAMPLEVILLE CT 06000\n"
         f"{line}\nBalances\n"
     )
-    assert santander._holder_name(_document(page)) == holder
+    assert santander._holder_reading(_document(page)).name == holder
 
 
 # --- Citibank -----------------------------------------------------------------------------------------------------
@@ -318,7 +342,7 @@ CITI_HEADER = "000 CITIBANK, N. A. Account 00000000 Statement Period {between} R
     (CITI_HEADER.format(between="Mar 1 - Mar 31, 2054") + "\nCitiBusiness ACCOUNT AS OF MARCH 31, 2054\n", None),
 ])
 def test_citibank_reads_the_mailing_address_of_its_header(page, holder):
-    assert citibusiness._holder_name(_document(page)) == holder
+    assert citibusiness._holder_reading(_document(page)).name == holder
 
 
 # --- TD Canada Trust (French issue) -------------------------------------------------------------------------------
@@ -330,7 +354,7 @@ def test_citibank_reads_the_mailing_address_of_its_header(page, holder):
 ])
 def test_td_canada_trust_s_french_issue_reads_the_holder_after_its_mail_routing_code(line, holder):
     page = f"SAMPLEVILLE-OUEST\nTel: 1-800-555-0100\nTDCDA00000_0000000_000 F R 00000 00000\n{line}\nReleve de compte\n"
-    assert td_canada_french._holder_name(_document(page)) == holder
+    assert td_canada_french._holder_reading(_document(page)).name == holder
 
 
 # --- the page-1 block fallbacks of the B9 readers ------------------------------------------------------------------
@@ -346,16 +370,16 @@ CHASE_DDA_PAGE = (
 
 
 def test_chase_reads_page_one_s_block_after_the_account_type_code_line():
-    assert chase._holder_name(_document(CHASE_DDA_PAGE)) == "CONTOSO HOLDINGS OF SAMPLEVILLE"
+    assert chase._holder_reading(_document(CHASE_DDA_PAGE)).name == "CONTOSO HOLDINGS OF SAMPLEVILLE"
     # The fallback reads page 1 only.
-    assert chase._holder_name(_document("Statement", CHASE_DDA_PAGE)) is None
+    assert chase._holder_reading(_document("Statement", CHASE_DDA_PAGE)) == NONE
     # The plant code's own line still reads first.
     plant = CHASE_DDA_PAGE.replace(
         "January 01, 2054 through January 31, 2054\n",
         "00000000 DRE 000 000 00000 NNNNNNNNNNN 1 000000000 00 0000\nFABRIKAM GOODS LLC\n100 SAMPLE ST\n"
         "SAMPLEVILLE TX 75000-0001\n00000000000000000000\n",
     )
-    assert chase._holder_name(_document(plant)) == "FABRIKAM GOODS LLC"
+    assert chase._holder_reading(_document(plant)).name == "FABRIKAM GOODS LLC"
 
 
 @pytest.mark.parametrize("page", [
@@ -368,8 +392,8 @@ def test_chase_reads_page_one_s_block_after_the_account_type_code_line():
     "For toll-free numbers when overseas,\nSAMPLEVILLE DE 19000\n",
 ])
 def test_navy_federal_reads_page_one_s_block_after_its_mail_routing_code(page):
-    assert navy_federal._holder_name(_document(page)) == "CONTOSO TRADING LLC"
-    assert navy_federal._holder_name(_document(page.replace("CONTOSO TRADING LLC", "100 SAMPLE PLACE"))) is None
+    assert navy_federal._holder_reading(_document(page)) == ("CONTOSO TRADING LLC", None)
+    assert navy_federal._holder_reading(_document(page.replace("CONTOSO TRADING LLC", "100 SAMPLE PLACE"))) == NONE
 
 
 TD_BANK_PAGE = (
@@ -385,14 +409,14 @@ TD_BANK_PAGE = (
     ("", None),
 ])
 def test_td_bank_reads_the_name_above_an_account_number_on_its_own_line(name, holder):
-    assert td_us._holder_name(_document(TD_BANK_PAGE.format(name=name))) == holder
+    assert td_us._holder_reading(_document(TD_BANK_PAGE.format(name=name))).name == holder
 
 
 def test_td_bank_s_fallback_needs_the_mailing_line_to_open_on_the_name():
     page = TD_BANK_PAGE.format(name="CONTOSO TRADING LLC NORTHWIND GOODS\n").replace(
         "CONTOSO TRADING LLC NORTHWIND GOODS PO BOX", "FABRIKAM GOODS LLC PO BOX"
     )
-    assert td_us._holder_name(_document(page)) is None
+    assert td_us._holder_reading(_document(page)) == NONE
 
 
 @pytest.mark.parametrize(("street", "holder"), [
@@ -404,7 +428,7 @@ def test_pnc_reads_page_one_s_block_after_its_enclosure_count(street, holder):
         "PO Box 000 Sampleville, PA 15000-0000 Business Checking\nPNC Bank\nPage 1 of 12\nNumber of enclosures: 0\n"
         f"CONTOSO MARINE LLC PNC Online Banking is an easy and\n{street}SAMPLEVILLE FL 33000-0001 hours a day.\n"
     )
-    assert pnc._holder_name(_document(page)) == holder
+    assert pnc._holder_reading(_document(page)).name == holder
 
 
 # --- a page that prints only a product names nobody ---------------------------------------------------------------
@@ -413,20 +437,115 @@ PRODUCT_ONLY_PAGE = "Business Advantage Fundamentals Banking\nBusiness Checking\
 
 
 @pytest.mark.parametrize("reader", [
-    bofa._holder_name, wells._holder_name, us_bank._holder_name, rbc._holder_name, scotia._holder_name,
-    bluevine._holder_name, huntington._holder_name, capital_one._holder_name, cibc._holder_name,
-    square_checking._holder_name, community_section._mission_valley_holder_name, bmo_us_activity._holder_name,
-    santander._holder_name, citibusiness._holder_name, td_canada_french._holder_name,
-    chase._holder_name, navy_federal._holder_name, td_us._holder_name, pnc._holder_name,
+    bofa._holder_reading, wells._holder_reading, us_bank._holder_reading, rbc._holder_reading,
+    scotia._holder_reading, bluevine._holder_reading, huntington._holder_reading, capital_one._holder_reading,
+    cibc._holder_reading, square_checking._holder_reading, community_section._mission_valley_holder_reading,
+    bmo_us_activity._holder_reading, santander._holder_reading, citibusiness._holder_reading,
+    td_canada_french._holder_reading, chase._holder_reading, navy_federal._holder_reading, td_us._holder_reading,
+    pnc._holder_reading,
 ])
 def test_a_page_that_prints_only_a_product_reads_no_holder(reader):
-    assert reader(_document(PRODUCT_ONLY_PAGE, "CONTOSO TRADING LLC 100 SAMPLE ST SAMPLEVILLE TX 75000-0001")) is None
+    assert reader(_document(PRODUCT_ONLY_PAGE, "CONTOSO TRADING LLC 100 SAMPLE ST SAMPLEVILLE TX 75000-0001")) == NONE
+
+
+# --- R2-OW10: each reader publishes the title its own anchor prints after the name ----------------------------------
+
+_TITLED_PAGES = [
+    (bofa._holder_reading, BOFA_PAGE.format(name="CONTOSO TRADING LLC OPERATING ACCOUNT\n"),
+     ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")),
+    (wells._holder_reading,
+     WELLS_PAGE.format(mailing="CONTOSO TRADING LLC PREMIUM TRUST ACCOUNT 100 SAMPLE PKWY SAMPLEVILLE TX 75000-0001\n"),
+     ("CONTOSO TRADING LLC", "PREMIUM TRUST ACCOUNT")),
+    (us_bank._holder_reading,
+     _us_bank_page("CONTOSO TRADING LLC OPERATING ACCOUNT 100 SAMPLE BLVD SAMPLEVILLE MN 55000\n"),
+     ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")),
+    (rbc._holder_reading,
+     "ROYAL BANK OF CANADA P.O. BOX 0000 SAMPLEVILLE ON X0X 0X0\nBusiness Account Statement\nRBBDA00000_0000000 E D "
+     "00000 00000 1234567 ONTARIO INC. CAD CHEQUING ACCOUNT 100 SAMPLE WAY SAMPLEVILLE ON X0X 0X0\n",
+     ("1234567 ONTARIO INC.", "CAD CHEQUING ACCOUNT")),
+    (scotia._holder_reading,
+     "CONTOSO TRADING INC. TRUST ACCOUNT 100 SAMPLE RD SAMPLEVILLE ON X0X0X0 Statement Of: Account Number: From: To: "
+     "Business Account 00000 00000 00\n", ("CONTOSO TRADING INC.", "TRUST ACCOUNT")),
+    (bluevine._holder_reading,
+     "Bluevine Inc.\n+1 (555) 555-0100 CONTOSO TRADING LLC OPERATING ACCOUNT\njordan sample\n100 Sample Terrace\n",
+     ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")),
+    (huntington._holder_reading,
+     "THE HUNTINGTON NATIONAL BANK PO BOX 0000 A0A0A0 SAMPLEVILLE OH 43000-0000\n"
+     "CONTOSO TRADING LLC PAYROLL ACCOUNT 100 SAMPLE ST SAMPLEVILLE MI 48000-0001\nHave a Question or Concern?\n",
+     ("CONTOSO TRADING LLC", "PAYROLL ACCOUNT")),
+    (capital_one._holder_reading,
+     "CONTOSO TRADING LLC (RECEIVABLES) 100 SAMPLE ST NW SUITE 5 SAMPLEVILLE DC 20000\nACCOUNT SUMMARY FOR PERIOD\n",
+     ("CONTOSO TRADING LLC", "(RECEIVABLES)")),
+    (cibc._holder_reading, "CIBC Account Statement\nCONTOSO TRADING LTD. TRUST ACCOUNT\nFor Apr 1 to Apr 30, 2054\n",
+     ("CONTOSO TRADING LTD.", "TRUST ACCOUNT")),
+    (square_checking._holder_reading,
+     SQUARE_HEAD + "Contoso Trading LLC\nOperating Account\n100 Sample Ave NE Sampleville, MI 49000-0001\n",
+     ("Contoso Trading LLC", "Operating Account")),
+    (community_section._mission_valley_holder_reading,
+     "Statement Ending 02/27/2054\nCONTOSO TRADING INC OPERATING ACCOUNT Page 1 of 6\n",
+     ("CONTOSO TRADING INC", "OPERATING ACCOUNT")),
+    (bmo_us_activity._holder_reading,
+     "How to reach us\nbmo.com/contact 888-555-0100\nCONTOSO TRADING L.L.C. OPERATING ACCOUNT 100 S SAMPLE AVE "
+     "SAMPLEVILLE IL 60000\n", ("CONTOSO TRADING L.L.C.", "OPERATING ACCOUNT")),
+    (santander._holder_reading,
+     "Statement Period 02/01/54 TO 02/28/54 Primary Account #: 00000000000\n"
+     "CONTOSO TRADING INC OPERATING ACCOUNT Account # 00000000000\nBalances\n",
+     ("CONTOSO TRADING INC", "OPERATING ACCOUNT")),
+    (citibusiness._holder_reading,
+     CITI_HEADER.format(between="May 1 - May 31, 2054 CONTOSO TRADING, LLC ESCROW ACCOUNT 100 SAMPLE AVE # 200") + "\n",
+     ("CONTOSO TRADING, LLC", "ESCROW ACCOUNT")),
+    (td_canada_french._holder_reading,
+     "Tel: 1-800-555-0100\nTDCDA00000_0000000_000 F R 00000 00000\n1234-5678 QUEBEC INC. COMPTE EN FIDUCIE 100 BOUL "
+     "SAMPLE SAMPLEVILLE PQ X0X 0X0\nReleve de compte\n", ("1234-5678 QUEBEC INC.", "COMPTE EN FIDUCIE")),
+    (chase._holder_reading,
+     CHASE_DDA_PAGE.replace("CONTOSO HOLDINGS OF SAMPLEVILLE,\n", "CONTOSO HOLDINGS LLC\nPREMIUM TRUST ACCOUNT\n"),
+     ("CONTOSO HOLDINGS LLC", "PREMIUM TRUST ACCOUNT")),
+    (navy_federal._holder_reading,
+     "Statement of Account\n#AAAAAAA #000000A0A0AAA0A0#000AAA00A CONTOSO TRADING LLC OPERATING ACCOUNT 100 SAMPLE RD "
+     "UNIT 10 SAMPLEVILLE TX 76000-0001\n", ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")),
+    (td_us._holder_reading,
+     "STATEMENT OF ACCOUNT\nCONTOSO TRADING LLC OPERATING ACCOUNT Account # 000-0000000\nACCOUNT SUMMARY\n",
+     ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")),
+    (pnc._holder_reading,
+     "PNC Bank\nCONTOSO TRADING LLC OPERATING ACCOUNT Business Checking Summary Account number: XX-XXXX-0000\n",
+     ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")),
+    (td_can._holder_reading,
+     "Tel: 1-800-555-0100\nTDCDA12345_1234567_123 E R 12345 12345\nCONTOSO CONSTRUCTION LTD. TRUST ACCOUNT 1000 SAMPLE "
+     "DR SAMPLEVILLE BC V1E 2C3\nStatement of Account\n", ("CONTOSO CONSTRUCTION LTD.", "TRUST ACCOUNT")),
+    (truist._holder_reading,
+     "Page 1 of 2 01/01/54 FL 1234567890123\n123-45-67-89  12345   1  C  123  45  S    67  890 CONTOSO TRADING LLC "
+     "OPERATING ACCOUNT 1000 SAMPLE CIR SAMPLEVILLE FL  34000-0001\nContact us\n",
+     ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")),
+    (first_citizens._holder_reading,
+     "CONTOSO LLC DBA NORTHWIND AGENCY, LLC PREMIUM TRUST ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001 1,234.56\n"
+     "Your Account(s) At A Glance\n", ("CONTOSO LLC DBA NORTHWIND AGENCY, LLC", "PREMIUM TRUST ACCOUNT")),
+]
+
+
+@pytest.mark.parametrize(("reader", "page", "reading"), _TITLED_PAGES, ids=lambda value: getattr(value, "__module__", ""))
+def test_each_reader_publishes_the_title_its_own_anchor_prints_after_the_name(reader, page, reading):
+    assert reader(_document(page)) == reading
+
+
+def test_every_holder_reader_has_a_titled_page():
+    """The 22 readers this batch wires (the seven of audit B9, First Citizens included, and R2-B05's fifteen with
+    TD Canada Trust's French issue in Desjardins' place), each tested above."""
+    assert len({reader for reader, _page, _reading in _TITLED_PAGES}) == 22
+
+
+def test_a_title_is_read_only_from_the_reading_s_own_anchor():
+    """The title words printed anywhere else on the page (a product line, a summary heading) are never a title."""
+    page = BOFA_PAGE.replace("Your Business Advantage Fundamentals Banking", "Your Premium Trust Account").format(
+        name="CONTOSO TRADING LLC\n"
+    )
+    assert bofa._holder_reading(_document(page)) == ("CONTOSO TRADING LLC", None)
+    assert bofa._holder_reading(_document(BOFA_PAGE.replace("{name}", "") + "PREMIUM TRUST ACCOUNT\n")) == NONE
 
 
 # --- the extraction does not move: only the holder's name is new ---------------------------------------------------
 
 def _without_holder(statement):
-    return statement.model_dump(exclude={"holder_name"})
+    return statement.model_dump(exclude={"holder_name", "account_title"})
 
 
 def test_bank_of_america_s_holder_line_moves_nothing_else():
@@ -437,7 +556,15 @@ def test_bank_of_america_s_holder_line_moves_nothing_else():
     before, after = bofa.parse_bofa_statement(plain), bofa.parse_bofa_statement(named)
     assert before is not None and after is not None
     assert before.holder_name is None and after.holder_name == "CONTOSO TRADING LLC"
+    assert before.account_title is None and after.account_title is None
     assert _without_holder(after) == _without_holder(before)
+    # R2-OW10: a designation after the name is the statement's title, and moves nothing else either.
+    titled = bofa.parse_bofa_statement(named.replace("CONTOSO TRADING LLC\n", "CONTOSO TRADING LLC OPERATING ACCOUNT\n"))
+    assert titled is not None
+    assert (titled.holder_name, titled.account_title) == ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")
+    assert _without_holder(titled) == _without_holder(before)
+    assert titled.model_dump()["account_title"] == "OPERATING ACCOUNT"
+    assert "account_title" not in after.model_dump()
 
 
 def test_us_bank_s_mailing_line_moves_nothing_else():
@@ -449,6 +576,10 @@ def test_us_bank_s_mailing_line_moves_nothing_else():
     assert before is not None and after is not None
     assert before.holder_name is None and after.holder_name == "CONTOSO TRADING LLC"
     assert _without_holder(after) == _without_holder(before)
+    titled = us_bank.parse_us_bank_statement(named.replace("LLC 100", "LLC PREMIUM TRUST ACCOUNT 100"))
+    assert titled is not None
+    assert (titled.holder_name, titled.account_title) == ("CONTOSO TRADING LLC", "PREMIUM TRUST ACCOUNT")
+    assert _without_holder(titled) == _without_holder(before)
 
 
 def test_td_bank_s_fallback_line_moves_nothing_else():
@@ -464,3 +595,49 @@ def test_td_bank_s_fallback_line_moves_nothing_else():
     assert before is not None and after is not None
     assert before.holder_name is None and after.holder_name == "CONTOSO TRADING LLC"
     assert _without_holder(after) == _without_holder(before)
+    titled = td_us.parse_td_us_statement(plain.replace(
+        "Primary Account #: 9999999999\n",
+        "Primary Account #: 9999999999\nCONTOSO TRADING LLC OPERATING ACCOUNT Account # 9999999999\n",
+    ))
+    assert titled is not None
+    assert (titled.holder_name, titled.account_title) == ("CONTOSO TRADING LLC", "OPERATING ACCOUNT")
+    assert _without_holder(titled) == _without_holder(before)
+
+
+# --- R2-OW10: every parser publishes the title wherever it publishes the reading's name ------------------------------
+
+_ANALYSIS = Path(__file__).resolve().parents[1] / "analysis"
+
+
+def _sets(node: ast.AST) -> tuple[bool, bool]:
+    """Whether a Statement(...) call or an assignment sets holder_name, and whether it sets account_title."""
+    if isinstance(node, ast.Call):
+        names = {keyword.arg for keyword in node.keywords}
+    else:
+        targets = [element for target in node.targets
+                   for element in (target.elts if isinstance(target, ast.Tuple) else [target])]
+        names = {target.attr for target in targets if isinstance(target, ast.Attribute)}
+    return "holder_name" in names, "account_title" in names
+
+
+def test_every_parser_that_publishes_a_holder_name_publishes_its_title_beside_it():
+    """Every Statement(...) call that passes holder_name passes account_title, and every assignment of a statement's
+    holder_name assigns its account_title in the same statement (from the same reading): a holder reader's title can
+    never be dropped by a parser that publishes its name."""
+    sites, unpaired = 0, []
+    for path in sorted(_ANALYSIS.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            statement_call = isinstance(node, ast.Call) and (
+                getattr(node.func, "id", None) == "Statement" or getattr(node.func, "attr", None) == "Statement"
+            )
+            if not (statement_call or isinstance(node, ast.Assign)):
+                continue
+            holder, title = _sets(node)
+            if holder:
+                sites += 1
+                if not title:
+                    unpaired.append(f"{path.name}:{node.lineno}")
+    assert not unpaired
+    # The 22 readers' parsers: their constructors and assignments (RBC's two issues, CIBC's and TD Canada Trust's two
+    # entry points each count twice).
+    assert sites == 25

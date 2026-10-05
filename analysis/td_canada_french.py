@@ -35,7 +35,7 @@ from datetime import date
 from typing import NamedTuple
 
 from .dates import resolve_year
-from .holder_name import PROVINCE_POSTAL_CODE, mailing_line_after
+from .holder_name import PROVINCE_POSTAL_CODE, HolderReading, read_mailing_line_after
 from .money import parse_french_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -56,11 +56,12 @@ from .td_can import _resolve_directions_from_balances, normalize_mojibake
 _MAIL_ROUTING_LINE = re.compile(r"^TDCDA\d+_\d+_\d+\b")
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): page 1's block after the mail-routing code: the holder's name before its
-    address (a numbered company keeps its number), read when the line closes on a province and postal code; None
-    otherwise. The English reader's anchor (td_can._holder_name), read on this issue's page 1."""
-    return mailing_line_after(normalize_mojibake(markdown), _MAIL_ROUTING_LINE, PROVINCE_POSTAL_CODE)
+    address (a numbered company keeps its number), read when the line closes on a province and postal code; NO_READING
+    otherwise. The English reader's anchor (td_can._holder_reading), read on this issue's page 1. Owner ruling
+    2026-10-02 (Q10), audit round 2, R2-OW10: with the account title that line prints after the name."""
+    return read_mailing_line_after(normalize_mojibake(markdown), _MAIL_ROUTING_LINE, PROVINCE_POSTAL_CODE)
 
 
 #: TD prints this statement's month tokens as three unaccented letters in every
@@ -381,7 +382,9 @@ def parse_td_canada_french_statement(
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "TD Canada Trust"
-    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
     stmt.currency = "CAD"
     stmt.currency_source = "institution_default"
     stmt.period_start = period_start.isoformat()

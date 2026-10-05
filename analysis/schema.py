@@ -179,6 +179,12 @@ class Statement(BaseModel):
     holder_name: str | None = Field(
         default=None, description="Account holder's name as printed in the header or mailing address block."
     )
+    # Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: the title the bank prints after the
+    # holder's name (a premium trust, an operating or a wire account), read from the holder reader's own anchor
+    # (analysis.holder_name.HolderReading); provenance for the revenue rule. Kept out of the extraction response schema
+    # (`SkipJsonSchema`: the extractor is told nothing new) and out of every serialized statement that carries none
+    # (`_serialize`), so no stored payload gains a key it did not have.
+    account_title: SkipJsonSchema[str | None] = None
     account_number: str | None = Field(default=None, description="Account number as printed.")
     period_start: str | None = Field(default=None, description="Statement period start, ISO YYYY-MM-DD.")
     period_end: str | None = Field(default=None, description="Statement period end, ISO YYYY-MM-DD.")
@@ -273,3 +279,12 @@ class Statement(BaseModel):
     @stated_average_balance.setter
     def stated_average_balance(self, value: float | None) -> None:
         self.bank_reported_average_balance = value
+
+    # Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: `account_title` is serialized only when a reader set it,
+    # as Transaction._serialize drops its unset parser marks. A comment, not a docstring (see the class's comment).
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and self.account_title is None:
+            data.pop("account_title", None)
+        return data

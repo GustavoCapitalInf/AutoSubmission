@@ -29,7 +29,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_unique_in_period
-from .holder_name import CITY_STATE_ZIP, first_page, holder_from_address_line, page_lines
+from .holder_name import CITY_STATE_ZIP, NO_READING, HolderReading, first_page, page_lines, read_address_line
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -43,10 +43,11 @@ _HEADER_LINE = re.compile(r"CITIBANK, N\. ?A\. Account\b.*?\bStatement Period\b(
 _HEADER_PERIOD = re.compile(r"\b[A-Z][a-z]{2} \d{1,2} - [A-Z][a-z]{2} \d{1,2}, \d{4}\b")
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): the holder's name from page 1's mailing address: the name and street the
     header line prints between its period and the relationship manager's label (the period's dates aside), or, where
-    the header prints none, the next line when it closes on a state and ZIP, without the address; None otherwise."""
+    the header prints none, the next line when it closes on a state and ZIP, without the address; NO_READING otherwise.
+    Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title printed after the name."""
     lines = page_lines(first_page(markdown))
     for index, line in enumerate(lines):
         match = _HEADER_LINE.search(line)
@@ -54,10 +55,10 @@ def _holder_name(markdown: str) -> str | None:
             continue
         between = " ".join(_HEADER_PERIOD.sub(" ", match.group("between")).split())
         if between:
-            return holder_from_address_line(between)
+            return read_address_line(between)
         following = lines[index + 1] if index + 1 < len(lines) else ""
-        return holder_from_address_line(following) if CITY_STATE_ZIP.search(following) else None
-    return None
+        return read_address_line(following) if CITY_STATE_ZIP.search(following) else NO_READING
+    return NO_READING
 
 _MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -247,7 +248,9 @@ def parse_citibusiness_statement(markdown: str, base: Statement | None = None) -
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Citibank"
-    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
     stmt.beginning_balance = beginning

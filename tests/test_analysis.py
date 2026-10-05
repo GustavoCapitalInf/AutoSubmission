@@ -3801,8 +3801,13 @@ def test_first_citizens_reads_the_holder_line_before_its_summary():
     stmt = parse_first_citizens_statement(md)
     assert stmt is not None and real is not None
     assert stmt.holder_name == "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"
+    # Owner ruling 2026-10-02 (Q10), R2-OW10: the designation the line prints after the name is the account's title,
+    # read from the same line.
+    assert stmt.account_title == "PREMIUM TRUST ACCOUNT"
     # The holder line changes nothing else the parser reads.
-    assert stmt.model_dump(exclude={"holder_name"}) == real.model_dump(exclude={"holder_name"})
+    assert stmt.model_dump(exclude={"holder_name", "account_title"}) == real.model_dump(
+        exclude={"holder_name", "account_title"}
+    )
 
 
 @pytest.mark.parametrize(("line", "holder"), [
@@ -3827,9 +3832,10 @@ def test_first_citizens_reads_the_holder_line_before_its_summary():
     ("", None),
 ])
 def test_the_address_line_reader_keeps_the_name_and_drops_the_designation_and_the_address(line, holder):
-    from analysis.holder_name import holder_from_address_line
+    from analysis.holder_name import holder_from_address_line, read_address_line
 
     assert holder_from_address_line(line) == holder
+    assert read_address_line(line).name == holder
 
 
 @pytest.mark.parametrize(("lines", "holder"), [
@@ -3848,9 +3854,10 @@ def test_the_address_line_reader_keeps_the_name_and_drops_the_designation_and_th
     ([], None),
 ])
 def test_the_address_block_reader_keeps_the_name_lines_before_the_street(lines, holder):
-    from analysis.holder_name import holder_from_address_block
+    from analysis.holder_name import holder_from_address_block, read_address_block
 
     assert holder_from_address_block(lines) == holder
+    assert read_address_block(lines).name == holder
 
 
 @pytest.mark.parametrize(("line", "holder"), [
@@ -3863,9 +3870,10 @@ def test_the_address_block_reader_keeps_the_name_lines_before_the_street(lines, 
     ("1234-5678 QUEBEC INC. SAMPLE PERSON 100A SAINT-SAMPLE BOUL SAMPLEVILLE PQ H1R 2J3", "1234-5678 QUEBEC INC."),
 ])
 def test_the_address_line_reader_cuts_a_contact_and_keeps_a_numbered_company(line, holder):
-    from analysis.holder_name import holder_from_address_line
+    from analysis.holder_name import holder_from_address_line, read_address_line
 
     assert holder_from_address_line(line) == holder
+    assert read_address_line(line).name == holder
 
 
 @pytest.mark.parametrize(("name", "holder"), [
@@ -3875,9 +3883,213 @@ def test_the_address_line_reader_cuts_a_contact_and_keeps_a_numbered_company(lin
     ("", None),
 ])
 def test_a_bare_name_line_loses_only_its_designation(name, holder):
-    from analysis.holder_name import holder_from_name
+    from analysis.holder_name import holder_from_name, read_name
 
     assert holder_from_name(name) == holder
+    assert read_name(name).name == holder
+
+
+# Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: the holder readers return the account title
+# they drop after the holder's name (HolderReading: name, title), from the same tokens; every holder name stays as it
+# was. Fabricated lines only.
+
+def _frozen_without_designation(tokens):
+    """analysis.holder_name._without_designation as it stood before R2-OW10 (audit B9), frozen for the fuzz below."""
+    from analysis import holder_name as hn
+
+    last_form = max((index for index, token in enumerate(tokens) if index > 0 and hn._legal_form(token)), default=None)
+    if last_form is not None:
+        return tokens[: last_form + 1]
+    if tokens and hn._word(tokens[-1]) in hn._ACCOUNT_WORDS:
+        cut = len(tokens) - 1
+        while cut > 0 and len(tokens) - 1 - cut < hn._MAX_DESIGNATION_WORDS and hn._word(tokens[cut - 1]) in (
+            hn._DESIGNATION_WORDS
+        ):
+            cut -= 1
+        if cut > 0:
+            return tokens[:cut]
+    return tokens
+
+
+def _frozen_name(tokens):
+    """analysis.holder_name._name as it stood before R2-OW10 (audit B9), frozen for the fuzz below."""
+    from analysis import holder_name as hn
+
+    tokens = hn._without_contact(tokens)
+    split = next(((index, width) for index in range(1, len(tokens)) if (width := hn._dba(tokens, index))), None)
+    if split is None:
+        parts = [_frozen_without_designation(tokens)]
+        markers: list[str] = []
+    else:
+        index, width = split
+        parts = [_frozen_without_designation(tokens[:index]), _frozen_without_designation(tokens[index + width:])]
+        markers = [" ".join(tokens[index:index + width])]
+        if not parts[1]:
+            parts, markers = parts[:1], []
+    words = list(parts[0])
+    for marker, part in zip(markers, parts[1:]):
+        words.extend([marker, *part])
+    name = " ".join(words).strip(" ,;:")
+    return name if sum(character.isalpha() for character in name) >= 2 else None
+
+
+_FUZZ_VOCABULARY = [
+    "CONTOSO", "NORTHWIND", "AGENCY", "LLC", "LLC,", "INC", "L.L.C.", "CO", "CO.", "PREMIUM", "TRUST", "ACCOUNT",
+    "ACCT", "OPERATING", "WIRE", "PRODUCER", "PAYABLE", "ESCROW", "CLIENT", "DBA", "D/B/A", "D", "B", "A", "THE", "OF",
+    "&", "100", "SAMPLE", "ATTN", "ATTN:", "C/O", "CASE", "12-345", "TRUST,", "ACCOUNT,", "LTD", "PA", "DMD", "-",
+    "–", "X",
+]
+
+
+def test_the_designation_split_keeps_every_name_the_frozen_cut_kept():
+    """_split_designation returns (name tokens, title tokens): its first element is the frozen _without_designation's
+    cut, byte for byte, and the two together are the tokens (200,000 random token lists, 0 mismatches)."""
+    import random
+
+    from analysis import holder_name as hn
+
+    generator = random.Random(7)
+    mismatches = 0
+    for _ in range(200_000):
+        tokens = [generator.choice(_FUZZ_VOCABULARY) for _ in range(generator.randint(0, 9))]
+        name, title = hn._split_designation(list(tokens))
+        mismatches += (
+            name != _frozen_without_designation(list(tokens)) or name + title != tokens
+            or hn._without_designation(list(tokens)) != name
+        )
+    assert mismatches == 0
+
+
+def test_every_reader_s_name_is_the_frozen_reader_s_name():
+    """The readings' names equal the frozen B9 reader's on random name lines (50,000, the DBA split, the contact cut and
+    the designation cut included); a reading with no name has no title."""
+    import random
+
+    from analysis.holder_name import read_name
+
+    generator = random.Random(11)
+    for _ in range(50_000):
+        text = " ".join(generator.choice(_FUZZ_VOCABULARY) for _ in range(generator.randint(0, 10)))
+        reading = read_name(text)
+        assert reading.name == _frozen_name(text.split()), text
+        if reading.name is None:
+            assert reading.title is None, text
+
+
+_TITLE_ADDRESS = "PO BOX 100 SAMPLEVILLE SC 29000-0001"
+
+
+@pytest.mark.parametrize(("line", "holder", "title"), [
+    (_FIRST_CITIZENS_HOLDER_LINE, "CONTOSO LLC DBA NORTHWIND AGENCY, LLC", "PREMIUM TRUST ACCOUNT"),
+    (f"NORTHWIND INSURANCE AGENCY LLC - PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY LLC",
+     "PREMIUM TRUST ACCOUNT"),
+    ("NORTHWIND INSURANCE AGENCY LLC – PREMIUM TRUST ACCOUNT 100 SAMPLE ST SAMPLEVILLE SC 29000-0001",
+     "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    (f"CONTOSO LLC DBA NORTHWIND AGENCY LLC OPERATING ACCOUNT {_TITLE_ADDRESS}", "CONTOSO LLC DBA NORTHWIND AGENCY LLC",
+     "OPERATING ACCOUNT"),
+    (f"CONTOSO LLC {_TITLE_ADDRESS}", "CONTOSO LLC", None),
+    ("NORTHWIND SERVICES TRUST ACCOUNT P O BOX 100 SAMPLEVILLE SC 29000-0001", "NORTHWIND SERVICES", "TRUST ACCOUNT"),
+    (f"NORTHWIND AGENCY PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND AGENCY", "PREMIUM TRUST ACCOUNT"),
+    ("FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY 1000 SAMPLE TRAIL RD STE 100 SAMPLEVILLE GA 30000-0001",
+     "FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY", None),
+    (_TITLE_ADDRESS, None, None),
+    # The question's own example as a holder line: a name with no legal form keeps its dash (today's name, pinned
+    # byte for byte), and the title is read.
+    (f"NORTHWIND INSURANCE AGENCY – PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY –",
+     "PREMIUM TRUST ACCOUNT"),
+    (f"NORTHWIND INSURANCE AGENCY - PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY -",
+     "PREMIUM TRUST ACCOUNT"),
+    (f"NORTHWIND INSURANCE AGENCY LLC – PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY LLC",
+     "PREMIUM TRUST ACCOUNT"),
+    # A second trade name printed after the legal form is what the reader drops: it is published as printed (the
+    # revenue rule reads only the title forms, R2-OW11).
+    ("CONTOSO HOLDINGS LLC PREMIUM TRUST ROOFING 100 MAIN ST SAMPLEVILLE SC 29000-0001", "CONTOSO HOLDINGS LLC",
+     "PREMIUM TRUST ROOFING"),
+    (f"NORTHWIND INSURANCE AGENCY LLC OPERATING ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY LLC",
+     "OPERATING ACCOUNT"),
+    # A contact after the name is never a title, whatever words it prints.
+    (f"CONTOSO INSURANCE AGENCY INC ATTN PREMIUM TRUST DEPT {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC", None),
+    (f"CONTOSO INSURANCE AGENCY INC ATTN: PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC", None),
+    (f"CONTOSO INSURANCE AGENCY INC C/O PREMIUM TRUST SERVICES LLC {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC",
+     None),
+])
+def test_the_address_line_reader_returns_the_title_it_drops(line, holder, title):
+    from analysis.holder_name import HolderReading, holder_from_address_line, read_address_line
+
+    assert read_address_line(line) == HolderReading(holder, title)
+    assert holder_from_address_line(line) == holder
+
+
+@pytest.mark.parametrize(("lines", "holder", "title"), [
+    (["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    (["NORTHWIND INSURANCE AGENCY LLC PREMIUM TRUST ACCOUNT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    (["CONTOSO LLC", "DBA NORTHWIND AGENCY", "PREMIUM TRUST", "PO BOX 100", "SAMPLEVILLE SC 29000-0001"],
+     "CONTOSO LLC DBA NORTHWIND AGENCY", "PREMIUM TRUST"),
+    # An owner's line is never published.
+    (["NORTHWIND INSURANCE AGENCY LLC", "SAMPLE PERSON", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    (["NORTHWIND INSURANCE AGENCY LLC", "OPERATING ACCOUNT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", "OPERATING ACCOUNT"),
+    # A wrapped name line is the name's.
+    (["NORTHWIND HEART &", "VASCULAR LLC", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND HEART & VASCULAR LLC", None),
+    (["SAMPLE PERSON", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"], "SAMPLE PERSON", None),
+    # A contact's line is never published, even when it prints the title's words (its first token is the marker,
+    # which _without_contact never cuts).
+    (["NORTHWIND INSURANCE AGENCY LLC", "ATTN PREMIUM TRUST DEPT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    (["NORTHWIND INSURANCE AGENCY LLC", "C/O PREMIUM TRUST ACCOUNTING", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    (["NORTHWIND INSURANCE AGENCY LLC", "ATTENTION: ACCOUNTS PAYABLE", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    # A title line's own contact after its words is cut, as the holder's is.
+    (["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT ATTN SAMPLE PERSON", "100 SAMPLE ST",
+      "SAMPLEVILLE SC 29000-0001"], "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    # No street after the name: no reading at all.
+    (["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"], None, None),
+])
+def test_the_address_block_reader_returns_the_title_and_never_an_owner_s_or_a_contact_s_line(lines, holder, title):
+    from analysis.holder_name import HolderReading, holder_from_address_block, read_address_block
+
+    assert read_address_block(lines) == HolderReading(holder, title)
+    assert holder_from_address_block(lines) == holder
+
+
+@pytest.mark.parametrize(("name", "holder", "title"), [
+    ("NORTHWIND AGENCY PREMIUM TRUST ACCOUNT", "NORTHWIND AGENCY", "PREMIUM TRUST ACCOUNT"),
+    ("CONTOSO INC PREMIUM TRUST", "CONTOSO INC", "PREMIUM TRUST"),
+    ("CONTOSO TRADING LLC", "CONTOSO TRADING LLC", None),
+    ("SAMPLE PERSON", "SAMPLE PERSON", None),
+    # A name the reader cannot keep carries no title.
+    ("X ACCOUNT", None, None),
+    ("", None, None),
+])
+def test_the_name_reader_returns_the_title_it_drops(name, holder, title):
+    from analysis.holder_name import HolderReading, holder_from_name, read_name
+
+    assert read_name(name) == HolderReading(holder, title)
+    assert holder_from_name(name) == holder
+
+
+def test_a_statement_without_a_title_serializes_as_before_and_the_extraction_schema_never_names_one():
+    """Statement.account_title is kept out of the extraction response schema and out of every payload that carries no
+    title, so no stored payload gains a key it did not have; a title, when read, is serialized and read back."""
+    plain = Statement(bank="SAMPLE BANK", holder_name="CONTOSO LLC", transactions=[
+        Transaction(date="2054-01-02", description="DEPOSIT", amount=10.0, direction="credit"),
+    ], bank_reported_average_balance=5.0)
+    assert plain.account_title is None
+    assert "account_title" not in plain.model_dump()
+    assert "account_title" not in plain.model_dump(mode="json")
+    assert "account_title" not in plain.model_dump_json()
+    assert plain.model_dump()["stated_average_balance"] == 5.0
+    assert "account_title" not in Statement.model_json_schema().get("properties", {})
+    titled = plain.model_copy(update={"account_title": "PREMIUM TRUST ACCOUNT"})
+    assert titled.model_dump()["account_title"] == "PREMIUM TRUST ACCOUNT"
+    assert Statement.model_validate(titled.model_dump()).account_title == "PREMIUM TRUST ACCOUNT"
+    assert "account_title" not in titled.model_dump(exclude={"account_title"})
+    assert titled.model_dump(exclude={"account_title"}) == plain.model_dump()
 
 
 # Audit B9 (I13): the other parsers that publish a product name read the holder's line their banks print.
@@ -3894,8 +4106,8 @@ def test_td_bank_reads_the_holder_line_before_its_account_number():
         "CONTOSO TRADING LLC Account # 123-4567890\n"
         "ACCOUNT SUMMARY Beginning Balance 100.00\n"
     )
-    assert td_us._holder_name(header) == "CONTOSO TRADING LLC"
-    assert td_us._holder_name(header.replace("CONTOSO TRADING LLC Account #", "Account #")) is None
+    assert td_us._holder_reading(header).name == "CONTOSO TRADING LLC"
+    assert td_us._holder_reading(header.replace("CONTOSO TRADING LLC Account #", "Account #")) == (None, None)
     document = td_us_statement_with_holder("CONTOSO TRADING LLC Account # 9999999999\n")
     assert parse_td_us_statement(document).holder_name == "CONTOSO TRADING LLC"
 
@@ -3918,8 +4130,8 @@ def td_us_statement_with_holder(holder_line: str) -> str:
 def test_truist_reads_the_holder_after_its_mail_routing_code(line, holder):
     from analysis import truist
 
-    assert truist._holder_name(f"Page 1 of 2 01/01/54 FL 1234567890123\n{line}\nContact us\n") == holder
-    assert truist._holder_name("Page 1 of 2\nContact us\n") is None
+    assert truist._holder_reading(f"Page 1 of 2 01/01/54 FL 1234567890123\n{line}\nContact us\n").name == holder
+    assert truist._holder_reading("Page 1 of 2\nContact us\n") == (None, None)
 
 
 def test_pnc_reads_the_holder_before_its_product_summary():
@@ -3927,8 +4139,8 @@ def test_pnc_reads_the_holder_before_its_product_summary():
 
     for product in ("Business Checking", "Business Checking Plus", "Treasury Enterprise Plan"):
         line = f"CONTOSO TRADING LLC {product} Summary Account number:   XX-XXXX-0000\n"
-        assert pnc._holder_name("PNC Bank\n" + line) == "CONTOSO TRADING LLC"
-    assert pnc._holder_name("PNC Bank\nBusiness Checking Summary Account number:\n") is None
+        assert pnc._holder_reading("PNC Bank\n" + line).name == "CONTOSO TRADING LLC"
+    assert pnc._holder_reading("PNC Bank\nBusiness Checking Summary Account number:\n") == (None, None)
     from tests.test_pnc_layouts import TREASURY_DOC
 
     document = TREASURY_DOC.replace(
@@ -3946,9 +4158,9 @@ def test_pnc_never_reads_its_own_product_in_capitals_as_the_holder():
 
     for line in ("TREASURY ENTERPRISE PLAN", "ANALYSIS BUSINESS CHECKING", "BUSINESS CHECKING PLUS",
                  "PNC CORE COMMERCIAL CHECKING"):
-        assert pnc._holder_name(f"PNC Bank\n{line} Summary Account number: XX-XXXX-0000\n") is None
+        assert pnc._holder_reading(f"PNC Bank\n{line} Summary Account number: XX-XXXX-0000\n") == (None, None)
     line = "CONTOSO TRADING LLC TREASURY ENTERPRISE PLAN Summary Account number: XX-XXXX-0000\n"
-    assert pnc._holder_name("PNC Bank\n" + line) == "CONTOSO TRADING LLC"
+    assert pnc._holder_reading("PNC Bank\n" + line).name == "CONTOSO TRADING LLC"
 
 
 def test_navy_federal_reads_the_holder_from_its_mailing_block():
@@ -3964,9 +4176,11 @@ def test_navy_federal_reads_the_holder_from_its_mailing_block():
         "visit\n"
         "navyfederal.org/overseas/\n"
     )
-    assert navy_federal._holder_name("Statement of Account\n" + block) == "CONTOSO TRADING LLC"
+    assert navy_federal._holder_reading("Statement of Account\n" + block).name == "CONTOSO TRADING LLC"
     # A block whose first line is already the street names no holder.
-    assert navy_federal._holder_name("Statement of Account\n" + block.replace("CONTOSO TRADING LLC\n", "")) is None
+    assert navy_federal._holder_reading(
+        "Statement of Account\n" + block.replace("CONTOSO TRADING LLC\n", "")
+    ) == (None, None)
     from tests.test_declines_c_variants import _navy_federal
 
     statement = parse_navy_federal_statement(block + _navy_federal("Business Checking"))
@@ -3982,8 +4196,8 @@ def test_td_canada_trust_reads_the_holder_after_its_mail_routing_code(line, hold
     from analysis import td_can
 
     markdown = f"Tel: 1-800-555-0100\nTDCDA12345_1234567_123 E R 12345 12345\n{line}\nStatement of Account\n"
-    assert td_can._holder_name(markdown) == holder
-    assert td_can._holder_name(markdown.replace("TDCDA12345_1234567_123", "TDXX")) is None
+    assert td_can._holder_reading(markdown).name == holder
+    assert td_can._holder_reading(markdown.replace("TDCDA12345_1234567_123", "TDXX")) == (None, None)
 
 
 def test_td_canada_trust_s_native_entry_point_reads_the_holder_too():

@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 
 from .date_tokens import parsed_datetime
-from .holder_name import first_page, holder_from_name, page_lines
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import STRICT_LEADING_SIGN, STRICT_UNSIGNED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -796,7 +796,7 @@ def parse_mission_valley_statement(markdown: str) -> Statement | None:
     if stmt is None or ledger.refused:
         return None
     publish_omissions(ledger.omissions)
-    stmt.holder_name = _mission_valley_holder_name(markdown)
+    stmt.holder_name, stmt.account_title = _mission_valley_holder_reading(markdown)
     return stmt
 
 
@@ -805,15 +805,16 @@ def parse_mission_valley_statement(markdown: str) -> Statement | None:
 _MISSION_VALLEY_HOLDER_LINE = re.compile(r"^(?P<name>\S.*?)\s+Page 1 of \d+$", re.IGNORECASE)
 
 
-def _mission_valley_holder_name(markdown: str) -> str | None:
+def _mission_valley_holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): the holder's name Mission Valley prints before page 1's page counter (the
-    mailing line below it can print a location between the name and the street, so it is not read); None without that
-    line. `account_name` keeps the product."""
+    mailing line below it can print a location between the name and the street, so it is not read); NO_READING without
+    that line. `account_name` keeps the product. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the
+    account title that line prints after the name."""
     for line in page_lines(first_page(markdown)):
         match = _MISSION_VALLEY_HOLDER_LINE.match(line)
         if match is not None:
-            return holder_from_name(match.group("name"))
-    return None
+            return read_name(match.group("name"))
+    return NO_READING
 
 
 #: Section headings of this platform: "<product> (Checking|Savings) - <acct>"

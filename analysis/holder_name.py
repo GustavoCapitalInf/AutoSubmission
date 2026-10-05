@@ -18,11 +18,32 @@ memory of any statement's names; every bank keeps its own anchor (the line or bl
 
 Audit round 2, R2-B05 (R04 part 2): the banks' readers read page 1 (`first_page`, the reading's own page marker), as
 lines with their whitespace runs collapsed (`page_lines`), and close an address on a US state and ZIP code
-(`CITY_STATE_ZIP`) or a Canadian province and postal code (`PROVINCE_POSTAL_CODE`)."""
+(`CITY_STATE_ZIP`) or a Canadian province and postal code (`PROVINCE_POSTAL_CODE`).
+
+Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: each reader also returns the account title it
+drops after the name, as a `HolderReading` (`read_address_line`, `read_address_block`, `read_name`,
+`read_mailing_line_after`): what the line form cuts after the name's last legal form (or the trailing designation of a
+name with no legal form), from the same tokens, and, in the block form, a name line the reader does not keep that prints
+an account word or the premium-trust words (never an owner's, a contact's or a wrapped name line). The `holder_from_*`
+readers are the readings' names, unchanged. A reading with no name has no title. The title is provenance for the
+revenue rule; it is never part of the holder's name."""
 from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from typing import NamedTuple
+
+
+class HolderReading(NamedTuple):
+    """Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: one reading of a holder's line or block: the holder's name
+    and the account title the bank prints after it (None when it prints none, or when no name is read)."""
+
+    name: str | None
+    title: str | None
+
+
+#: Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: the reading of a line or block that names nobody.
+NO_READING = HolderReading(None, None)
 
 #: Audit round 2, R2-B05 (R04 part 2): the marker the statement reading prints before each page's text
 #: (ocr.document.StatementMarkdown: '--- Page 1 ---', '--- Page 2 (empty) ---').
@@ -49,16 +70,24 @@ def page_lines(text: str) -> list[str]:
     return [line for line in (" ".join(raw.split()) for raw in text.splitlines()) if line]
 
 
-def mailing_line_after(markdown: str, anchor: re.Pattern[str], closes: re.Pattern[str] = CITY_STATE_ZIP) -> str | None:
+def read_mailing_line_after(
+    markdown: str, anchor: re.Pattern[str], closes: re.Pattern[str] = CITY_STATE_ZIP
+) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): the holder's name from page 1's mailing line, the line right after the first
     line `anchor` matches (a bank's own return address, a contact line, a mail-routing code), read when it closes on
-    `closes` (a state and ZIP by default), without the address (holder_from_address_line); None otherwise."""
+    `closes` (a state and ZIP by default), without the address (read_address_line); NO_READING otherwise. R2-OW10:
+    with the account title that line prints after the name."""
     lines = page_lines(first_page(markdown))
     for index, line in enumerate(lines[:-1]):
         if anchor.match(line):
             mailing = lines[index + 1]
-            return holder_from_address_line(mailing) if closes.search(mailing) else None
-    return None
+            return read_address_line(mailing) if closes.search(mailing) else NO_READING
+    return NO_READING
+
+
+def mailing_line_after(markdown: str, anchor: re.Pattern[str], closes: re.Pattern[str] = CITY_STATE_ZIP) -> str | None:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name of read_mailing_line_after's reading; None without one."""
+    return read_mailing_line_after(markdown, anchor, closes).name
 
 #: The legal forms a business name ends with. CO is one (CONTOSO TRADING CO); the address never reaches this reader's
 #: name tokens, so Colorado's code is not read here.
@@ -85,6 +114,15 @@ _MAIL_HANDLING = re.compile(r"^HOLD\s*-?\s*RETURN(?:ED)? MAIL\s+", re.IGNORECASE
 _CONTINUED = frozenset({"&", "AND", "OF", "-", "/", "THE"})
 #: A contact the bank prints after the holder's name (an attention line, care of), never part of the name.
 _CONTACT_MARKERS = frozenset({"ATTN", "ATTENTION", "C/O"})
+#: Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: the punctuation a title loses at either end (the separator a
+#: bank prints between the name and the title: a comma, a colon, a hyphen, an en or an em dash).
+_TITLE_STRIP = " ,;:-–—"
+#: Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: the premium-trust words, whole (PREMIUM, PREMIUMS or PREM,
+#: then TRUST or TRST, a dot after either allowed).
+PREMIUM_TRUST_WORDS = r"(?<![A-Z0-9])PREM(?:IUMS?)?\.?\s*TR(?:UST|ST)\.?(?![A-Z0-9])"
+#: Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: a mailing block's name line the block reader does not keep is
+#: a title only when it prints an account word (ACCOUNT, ACCT) or the premium-trust words (read in upper case).
+_TITLE_LINE = re.compile(r"(?<![A-Z])(?:ACCOUNT|ACCT)\b|" + PREMIUM_TRUST_WORDS)
 
 
 def _word(token: str) -> str:
@@ -124,19 +162,25 @@ def _address_start(tokens: Sequence[str]) -> int | None:
     return None
 
 
-def _without_designation(tokens: list[str]) -> list[str]:
-    """One name part without the account designation after it: everything after its last legal form (past its first
-    word), or, with no legal form, a trailing run of designation words ending in ACCOUNT."""
+def _split_designation(tokens: list[str]) -> tuple[list[str], list[str]]:
+    """One name part split into its name and the account designation after it (owner ruling 2026-10-02, Q10; audit
+    round 2, R2-OW10: the cut _without_designation always made, now keeping what it drops): everything after its last
+    legal form (past its first word), or, with no legal form, a trailing run of designation words ending in ACCOUNT."""
     last_form = max((index for index, token in enumerate(tokens) if index > 0 and _legal_form(token)), default=None)
     if last_form is not None:
-        return tokens[: last_form + 1]
+        return tokens[: last_form + 1], tokens[last_form + 1:]
     if tokens and _word(tokens[-1]) in _ACCOUNT_WORDS:
         cut = len(tokens) - 1
         while cut > 0 and len(tokens) - 1 - cut < _MAX_DESIGNATION_WORDS and _word(tokens[cut - 1]) in _DESIGNATION_WORDS:
             cut -= 1
         if cut > 0:
-            return tokens[:cut]
-    return tokens
+            return tokens[:cut], tokens[cut:]
+    return tokens, []
+
+
+def _without_designation(tokens: list[str]) -> list[str]:
+    """One name part without the account designation after it (_split_designation's name)."""
+    return _split_designation(tokens)[0]
 
 
 def _without_contact(tokens: list[str]) -> list[str]:
@@ -151,10 +195,15 @@ def _without_contact(tokens: list[str]) -> list[str]:
     return tokens
 
 
+def _dba_split(tokens: Sequence[str]) -> tuple[int, int] | None:
+    """The first DBA marker past the first token: (its index, its width), or None."""
+    return next(((index, width) for index in range(1, len(tokens)) if (width := _dba(tokens, index))), None)
+
+
 def _name(tokens: list[str]) -> str | None:
     """The holder's name from its tokens: the DBA split once, each part without its designation, joined as printed."""
     tokens = _without_contact(tokens)
-    split = next(((index, width) for index in range(1, len(tokens)) if (width := _dba(tokens, index))), None)
+    split = _dba_split(tokens)
     if split is None:
         parts = [_without_designation(tokens)]
         markers: list[str] = []
@@ -171,10 +220,40 @@ def _name(tokens: list[str]) -> str | None:
     return name if sum(character.isalpha() for character in name) >= 2 else None
 
 
-def holder_from_name(text: str) -> str | None:
+def _title_text(words: Sequence[str]) -> str | None:
+    """Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: title words joined as printed, without the separator at
+    either end (_TITLE_STRIP); None when nothing is left or no word prints a letter."""
+    text = " ".join(words).strip(_TITLE_STRIP)
+    return text if any(character.isalpha() for character in text) else None
+
+
+def _title(tokens: list[str]) -> str | None:
+    """Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: the account title the name's tokens print after the name:
+    what _split_designation drops from each name part, the contact cut and the DBA split read as _name reads them,
+    joined in print order (_title_text)."""
+    tokens = _without_contact(tokens)
+    split = _dba_split(tokens)
+    parts = [tokens] if split is None else [tokens[:split[0]], tokens[split[0] + split[1]:]]
+    return _title_text([token for part in parts for token in _split_designation(part)[1]])
+
+
+def _reading(tokens: list[str]) -> HolderReading:
+    """Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: the name and the title of one run of name tokens; no
+    title without a name."""
+    name = _name(tokens)
+    return HolderReading(name, _title(tokens) if name is not None else None)
+
+
+def read_name(text: str) -> HolderReading:
     """The holder's name from a line that prints only the name (and perhaps a designation or a contact after it): the
-    name without them (a bank that labels the holder's line, such as TD Bank's '<holder> Account #')."""
-    return _name(_MAIL_HANDLING.sub("", text.strip()).split())
+    name without them (a bank that labels the holder's line, such as TD Bank's '<holder> Account #'). R2-OW10: with the
+    designation it drops as the account title."""
+    return _reading(_MAIL_HANDLING.sub("", text.strip()).split())
+
+
+def holder_from_name(text: str) -> str | None:
+    """The holder's name of read_name's reading."""
+    return read_name(text).name
 
 
 def _continued(line: str) -> bool:
@@ -183,14 +262,19 @@ def _continued(line: str) -> bool:
     return bool(words) and (_word(words[-1]) in _CONTINUED or words[-1][-1] in ",:-&/")
 
 
-def holder_from_address_line(line: str) -> str | None:
-    """The holder's name printed before the address on one line, without the account designation; None when the line
-    prints no address after a name."""
+def read_address_line(line: str) -> HolderReading:
+    """The holder's name printed before the address on one line, without the account designation; NO_READING when the
+    line prints no address after a name. R2-OW10: with the designation it drops as the account title."""
     tokens = _MAIL_HANDLING.sub("", line.strip()).split()
     start = _address_start(tokens)
     if not start:
-        return None
-    return _name(tokens[:start])
+        return NO_READING
+    return _reading(tokens[:start])
+
+
+def holder_from_address_line(line: str) -> str | None:
+    """The holder's name of read_address_line's reading."""
+    return read_address_line(line).name
 
 
 def _address_line(line: str) -> bool:
@@ -199,9 +283,23 @@ def _address_line(line: str) -> bool:
     return _address_start(tokens) == 0 if tokens else False
 
 
-def holder_from_address_block(lines: Sequence[str]) -> str | None:
+def _block_title_line(line: str) -> str | None:
+    """Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: a mailing block's name line the block reader does not
+    keep, read as an account title only when it prints an account word or the premium-trust words (_TITLE_LINE) and its
+    first token (a trailing colon aside) is no contact marker (an attention or care-of line: _without_contact cuts only
+    after the first token); a contact printed after its words is cut as the holder's is. None otherwise: an owner's or a
+    contact's line is never a title."""
+    tokens = line.split()
+    if not tokens or tokens[0].upper().rstrip(":") in _CONTACT_MARKERS or not _TITLE_LINE.search(line.upper()):
+        return None
+    return _title_text(_without_contact(tokens))
+
+
+def read_address_block(lines: Sequence[str]) -> HolderReading:
     """The holder's name from a mailing block's lines (the bank's furniture already removed): the first name line
-    before the first street line, with a DBA line after it; None when no street line follows a name."""
+    before the first street line, with a DBA line after it; NO_READING when no street line follows a name. R2-OW10:
+    with the account title: what the kept lines print after the name, then each other name line before the street
+    that prints an account word or the premium-trust words (_block_title_line), in print order."""
     names: list[str] = []
     for line in lines:
         text = _MAIL_HANDLING.sub("", " ".join(line.split())) if not names else " ".join(line.split())
@@ -211,14 +309,25 @@ def holder_from_address_block(lines: Sequence[str]) -> str | None:
             break
         names.append(text)
     else:
-        return None
+        return NO_READING
     if not names:
-        return None
+        return NO_READING
     holder = names[0].split()
-    if len(names) > 1:
-        second = names[1].split()
+    others = names[1:]
+    if others:
+        second = others[0].split()
         # The second line is the holder's trade name (DBA), the legal form or the rest of a wrapped name; any other
         # line is an owner's or a contact's name, never the holder's.
         if _dba(second, 0) or all(_legal_form(token) for token in second) or _continued(names[0]):
             holder.extend(second)
-    return _name(holder)
+            others = others[1:]
+    name = _name(holder)
+    if name is None:
+        return NO_READING
+    titles = [_title(holder), *(_block_title_line(other) for other in others)]
+    return HolderReading(name, " ".join(title for title in titles if title) or None)
+
+
+def holder_from_address_block(lines: Sequence[str]) -> str | None:
+    """The holder's name of read_address_block's reading."""
+    return read_address_block(lines).name

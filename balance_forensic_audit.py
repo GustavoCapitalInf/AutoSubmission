@@ -411,9 +411,11 @@ def xlsx_rows(content: bytes) -> dict[tuple[str, str], str]:
 
 
 def csv_rows(content: str) -> dict[tuple[str, str], str]:
+    # Audit round 2, R2-OW10: audit B11 (I32) appends per-credit and package ledgers of more columns after the
+    # three-column flat rows; the flat rows are keyed by their first three cells, as xlsx_rows reads them.
     csv.field_size_limit(16 * 1024 * 1024)
     rows = list(csv.reader(io.StringIO(content)))
-    return {(section, field): value for section, field, value in rows[1:]}
+    return {(row[0], row[1]): row[2] for row in rows[1:] if len(row) >= 3}
 
 
 def surface_value(rows: dict[tuple[str, str], str], section_name: str, field: str) -> str:

@@ -4,7 +4,7 @@ import re
 from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day
-from .holder_name import holder_from_address_line
+from .holder_name import NO_READING, HolderReading, read_address_line
 from .money import EITHER_MINUS_DROPPED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -38,14 +38,15 @@ _MAIL_ROUTING_LINE = re.compile(
 _CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\s*$")
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit B9 (I13): the holder's name after Truist's mail-routing code, without the address and any contact or
-    designation after the name; None without the code line or an address that closes on a state and ZIP. `account_name`
-    keeps the parser's product."""
+    designation after the name; NO_READING without the code line or an address that closes on a state and ZIP.
+    `account_name` keeps the parser's product. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the
+    designation printed after the name as the account title (a contact never is one)."""
     match = _MAIL_ROUTING_LINE.search(markdown)
     if match is None or not _CITY_STATE_ZIP.search(match.group("rest")):
-        return None
-    return holder_from_address_line(match.group("rest"))
+        return NO_READING
+    return read_address_line(match.group("rest"))
 
 
 def _summary(markdown: str) -> tuple[Statement, int] | None:
@@ -267,5 +268,5 @@ def parse_truist_statement(markdown: str) -> Statement | None:
         return None
     stmt.transactions = txns
     # Audit B9 (I13): the holder's name from the mailing block the whole document prints once.
-    stmt.holder_name = _holder_name(markdown)
+    stmt.holder_name, stmt.account_title = _holder_reading(markdown)
     return stmt

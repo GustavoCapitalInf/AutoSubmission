@@ -4,7 +4,7 @@ import re
 import unicodedata
 from datetime import date
 
-from .holder_name import PROVINCE_POSTAL_CODE, first_page, holder_from_address_line, page_lines
+from .holder_name import NO_READING, PROVINCE_POSTAL_CODE, HolderReading, first_page, page_lines, read_address_line
 from .money import parse_french_amount, parse_money, read_money
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
@@ -20,16 +20,17 @@ _MAIL_ROUTING_LINE = re.compile(
 )
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): the holder's name after page 1's mail-routing code, without the account
-    designation and the address (a numbered company keeps its number); None without the code line or a province and
-    postal code closing it. Read by both the English and the French reader."""
+    designation and the address (a numbered company keeps its number); NO_READING without the code line or a province
+    and postal code closing it. Read by both the English and the French reader. Owner ruling 2026-10-02 (Q10), audit
+    round 2, R2-OW10: with the account designation as the account title."""
     for line in page_lines(first_page(markdown)):
         match = _MAIL_ROUTING_LINE.match(line)
         if match is not None:
             rest = match.group("rest")
-            return holder_from_address_line(rest) if PROVINCE_POSTAL_CODE.search(rest) else None
-    return None
+            return read_address_line(rest) if PROVINCE_POSTAL_CODE.search(rest) else NO_READING
+    return NO_READING
 
 _PERIOD_RE = re.compile(
     r"([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s+to\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})",
@@ -597,7 +598,9 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Royal Bank of Canada"
-    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
     # Currency, under the ratified hierarchy: what the document STATES first,
     # then the proven RBC Canada account's native default, then nothing. A
     # statement that satisfies neither rung leaves the schema default exactly
@@ -866,7 +869,9 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Banque Royale du Canada"
-    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
     stmt.currency = "CAD"
     # The French reader asserts the denomination from the issuer it detected;
     # it reads no currency word and applies no jurisdiction conjunction.

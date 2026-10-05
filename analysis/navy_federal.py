@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .holder_name import first_page, holder_from_address_block, holder_from_address_line, page_lines
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_address_block, read_address_line
 from .money import STRICT_EITHER_MINUS_OR_PLUS_SPACED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -562,19 +562,21 @@ _MAIL_CODE_LINE = re.compile(r"^#[A-Z0-9]+ #[A-Z0-9]+#[A-Z0-9]+(?:\s+(?P<rest>\S
 _PAGE_ONE_PANEL_LINE = re.compile(r"^(?:Routing Number:.*|Questions about this Statement\?.*)$", re.IGNORECASE)
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit B9 (I13): the holder's name, the first line of the mailing block after the 'Questions about this
     Statement?' heading (the toll-free panel's lines aside), read when the block closes on a city, state and ZIP within
     _MAILING_BLOCK_LINES lines. `account_name` keeps the parser's product. Audit round 2, R2-B05 (R04 part 2): where
-    that reads none, page 1's block after the mail-routing code (_page_one_holder_name)."""
-    return _questions_block_holder_name(markdown) or _page_one_holder_name(markdown)
+    that reads none, page 1's block after the mail-routing code (_page_one_holder_reading). Owner ruling 2026-10-02
+    (Q10), audit round 2, R2-OW10: with the account title the reading's own block or line prints."""
+    reading = _questions_block_holder_reading(markdown)
+    return reading if reading.name else _page_one_holder_reading(markdown)
 
 
-def _page_one_holder_name(markdown: str) -> str | None:
+def _page_one_holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): page 1's block fallback where the questions heading reads no holder: the
     name after the mail-routing code line, before the address it runs on into (when that closes on a state and ZIP), or
     the first line of the block after it (the panel's lines aside) when the block closes on a state and ZIP within
-    _MAILING_BLOCK_LINES lines; None otherwise."""
+    _MAILING_BLOCK_LINES lines; NO_READING otherwise."""
     lines = page_lines(first_page(markdown))
     for index, line in enumerate(lines):
         code = _MAIL_CODE_LINE.match(line)
@@ -582,25 +584,25 @@ def _page_one_holder_name(markdown: str) -> str | None:
             continue
         rest = code.group("rest")
         if rest:
-            return holder_from_address_line(rest) if _CITY_STATE_ZIP.search(rest) else None
+            return read_address_line(rest) if _CITY_STATE_ZIP.search(rest) else NO_READING
         block: list[str] = []
         for following in lines[index + 1:]:
             if _SERVICE_PANEL_LINE.match(following) or _PAGE_ONE_PANEL_LINE.match(following):
                 continue
             block.append(following)
             if _CITY_STATE_ZIP.search(following):
-                return holder_from_address_block(block)
+                return read_address_block(block)
             if len(block) >= _MAILING_BLOCK_LINES:
                 break
-        return None
-    return None
+        return NO_READING
+    return NO_READING
 
 
-def _questions_block_holder_name(markdown: str) -> str | None:
-    """Audit B9 (I13): the holder's name from the mailing block after the questions heading (_holder_name)."""
+def _questions_block_holder_reading(markdown: str) -> HolderReading:
+    """Audit B9 (I13): the holder's name from the mailing block after the questions heading (_holder_reading)."""
     heading = _QUESTIONS_HEADING.search(markdown)
     if heading is None:
-        return None
+        return NO_READING
     block: list[str] = []
     for raw in markdown[heading.end():].splitlines():
         line = raw.strip()
@@ -608,10 +610,10 @@ def _questions_block_holder_name(markdown: str) -> str | None:
             continue
         block.append(line)
         if _CITY_STATE_ZIP.search(line):
-            return holder_from_address_block(block)
+            return read_address_block(block)
         if len(block) >= _MAILING_BLOCK_LINES:
             break
-    return None
+    return NO_READING
 
 
 def parse_navy_federal_statement(markdown: str) -> Statement | None:
@@ -644,10 +646,12 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
     printed_average = _average_balance(section)
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="Navy Federal Credit Union",
         account_name=product,
-        holder_name=_holder_name(markdown),
+        holder_name=holder.name,
+        account_title=holder.title,
         account_number=account,
         period_start=start,
         period_end=end,

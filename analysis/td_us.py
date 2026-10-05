@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day_strict
-from .holder_name import CITY_STATE_ZIP, first_page, holder_from_name, page_lines
+from .holder_name import CITY_STATE_ZIP, NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import PARENS_OR_LEADING_MINUS, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -320,15 +320,16 @@ _HEADER_END = re.compile(r"ACCOUNT SUMMARY|DAILY ACCOUNT ACTIVITY")
 _ACCOUNT_NUMBER_LINE = re.compile(r"^Account #[ \t]*\d")
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit B9 (I13): the holder's name TD prints before its account number in the header (the product it prints
     above it is not read: `account_name` keeps the parser's product). Audit round 2, R2-B05 (R04 part 2): where the
     header prints the account number on a line of its own, page 1's line above it, read only when page 1's mailing line
-    opens on that same name and closes on a state and ZIP (the product line above the number never does)."""
+    opens on that same name and closes on a state and ZIP (the product line above the number never does). Owner ruling
+    2026-10-02 (Q10), audit round 2, R2-OW10: with the account title the read line prints after the name."""
     end = _HEADER_END.search(markdown)
     match = _HOLDER_LINE.search(markdown[: end.start()] if end else markdown)
     if match:
-        return holder_from_name(match.group("name"))
+        return read_name(match.group("name"))
     page = first_page(markdown)
     end = _HEADER_END.search(page)
     lines = page_lines(page[: end.start()] if end else page)
@@ -337,9 +338,9 @@ def _holder_name(markdown: str) -> str | None:
             continue
         name = lines[index - 1]
         if any(other.startswith(name + " ") and CITY_STATE_ZIP.search(other) for other in lines[:index - 1]):
-            return holder_from_name(name)
-        return None
-    return None
+            return read_name(name)
+        return NO_READING
+    return NO_READING
 
 
 def parse_td_us_statement(markdown: str) -> Statement | None:
@@ -350,7 +351,7 @@ def parse_td_us_statement(markdown: str) -> Statement | None:
         return None
     year = int(period[1][:4])
     stmt = Statement(bank="TD Bank", account_name="TD Business Simple Checking", period_start=period[0], period_end=period[1])
-    stmt.holder_name = _holder_name(markdown)
+    stmt.holder_name, stmt.account_title = _holder_reading(markdown)
     acct = re.search(r"Primary Account #:\s*([0-9-]+)", markdown)
     if acct:
         stmt.account_number = acct.group(1)

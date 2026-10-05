@@ -65,6 +65,28 @@ def test_the_holder_s_name_field_holds_the_holder_s_own_zelle_whatever_the_produ
     assert _tiers([(text, 900.0)], account_name=account_name) == [P2P]
 
 
+def test_an_account_title_never_reaches_the_holder_s_names_or_any_reading():
+    """Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: Statement.account_title is provenance
+    only. The holder's names (holder_reading, _usable_holder_name, holder_words) never read it, and a statement's every
+    record, its metrics and its payer readings are the same with or without a title (a payer printing the title's
+    words included)."""
+    rows = [
+        ("ZELLE PAYMENT FROM NORTHWIND FISH LLC CONF 1234567890", 900.0),
+        ("ACH CREDIT PREMIUM TRUST ACCOUNT SERVICES PAYMENT 1234", 3100.0),
+        ("ORIG CO NAME:FABRIKAM INC ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:PAYMENT SEC:CCD", 2200.0),
+        ("ORIG CO NAME:FABRIKAM INC ORIG ID:1234567890 DESC DATE:540309 CO ENTRY DESCR:PAYMENT SEC:CCD", 2350.0),
+        ("DEPOSIT", 500.0),
+        ("CHECK 1001", -400.0),
+    ]
+    plain = _statement(rows, account_name="Business Checking", holder_name="NORTHWIND FISH LLC")
+    titled = plain.model_copy(update={"account_title": "PREMIUM TRUST ACCOUNT"})
+    assert titled.account_title == "PREMIUM TRUST ACCOUNT"
+    assert classify_statement_transactions(titled) == classify_statement_transactions(plain)
+    assert compute_metrics(titled) == compute_metrics(plain)
+    assert tc.holder_reading(titled.account_name, titled.holder_name) == "NORTHWIND FISH LLC"
+    assert "PREMIUM" not in tc.holder_words(tc.holder_reading(titled.account_name, titled.holder_name))
+
+
 def test_the_holder_s_name_field_holds_the_holder_s_own_wire_and_transfer():
     wire = "WIRE TYPE:WIRE IN DATE: 540302 TIME:1015 ET TRN:2054030200123456 ORIG:NORTHWIND FISH LLC ID:1234567890"
     transfer = "ONLINE TRANSFER FROM NORTHWIND FISH LLC REF 1234567890"
@@ -991,28 +1013,28 @@ def _page_one(text: str) -> str:
 def _bofa_holder() -> str | None:
     from analysis import bofa
 
-    return bofa._holder_name(_page_one(
+    return bofa._holder_reading(_page_one(
         "CONTOSO TRADING LLC 100 SAMPLE LN SAMPLEVILLE, TX 75000-0001\nYour Business Advantage Fundamentals Banking\n"
         "for May 1, 2054 to May 31, 2054 Account number: 0000 0000 0000\nCONTOSO TRADING LLC\nAccount summary\n"
-    ))
+    )).name
 
 
 def _wells_holder() -> str | None:
     from analysis import wells
 
-    return wells._holder_name(_page_one(
+    return wells._holder_reading(_page_one(
         "Questions?\nAvailable by phone 24 hours a day\n"
         "CONTOSO TRADING LLC 100 SAMPLE PKWY SAMPLEVILLE TX 75000-0001\nWrite: Wells Fargo Bank, N.A. (000)\n"
-    ))
+    )).name
 
 
 def _rbc_holder() -> str | None:
     from analysis import rbc
 
-    return rbc._holder_name(_page_one(
+    return rbc._holder_reading(_page_one(
         "Business Account Statement\n"
         "RBBDA00000_0000000 E D 00000 00000 CONTOSO TRADING INC. 100 SAMPLE DR SAMPLEVILLE ON X0X 0X0\n"
-    ))
+    )).name
 
 
 BOFA = "Bank of America"
@@ -1079,4 +1101,6 @@ def test_r2b05_a_northwind_zelle_stays_counted_once_page_one_names_the_holder():
 def test_r2b05_a_page_that_prints_only_a_product_leaves_the_holder_unread():
     from analysis import bofa
 
-    assert bofa._holder_name(_page_one("Your Business Advantage Fundamentals Banking\nAccount summary\n")) is None
+    assert bofa._holder_reading(_page_one("Your Business Advantage Fundamentals Banking\nAccount summary\n")) == (
+        None, None
+    )

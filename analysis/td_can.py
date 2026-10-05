@@ -19,7 +19,7 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 from .date_tokens import date_refusal, iso_or_none
-from .holder_name import holder_from_address_line
+from .holder_name import NO_READING, HolderReading, read_address_line
 from .money import parse_money, parse_money_tokens, strip_currency
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -1006,14 +1006,15 @@ _MAIL_ROUTING_LINE = re.compile(r"^TDCDA\d+_\d+_\d+\b[^\n]*\n(?P<line>[^\n]+)", 
 _PROVINCE_POSTAL_CODE = re.compile(r"\b[A-Z]{2}\s+[A-Z]\d[A-Z]\s?\d[A-Z]\d\s*$")
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit B9 (I13): the holder's name after TD Canada Trust's mail-routing code, without the address (a numbered
-    company keeps its number); None without the code line or a province and postal code. Set by
-    parse_td_canada_statement on either reader's statement; `account_name` keeps the product."""
+    company keeps its number); NO_READING without the code line or a province and postal code. Set by
+    parse_td_canada_statement on either reader's statement; `account_name` keeps the product. Owner ruling 2026-10-02
+    (Q10), audit round 2, R2-OW10: with the account title that line prints after the name."""
     match = _MAIL_ROUTING_LINE.search(markdown)
     if match is None or not _PROVINCE_POSTAL_CODE.search(match.group("line").strip()):
-        return None
-    return holder_from_address_line(match.group("line"))
+        return NO_READING
+    return read_address_line(match.group("line"))
 
 
 def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> Statement | None:
@@ -1173,7 +1174,9 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
     # then suppress derived ADB/min/max/negative-day analytics.
     transactions = [t.model_copy(update={"running_balance": None}) for t in transactions]
     stmt.transactions = transactions
-    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
     return stmt
 
 
@@ -1183,8 +1186,11 @@ def parse_native_td_canada_statement(markdown: str, base: Statement | None = Non
     pipeline switches to registry dispatch. Audit B9 (I13): the row reader's
     statement (`_parse_native_td_canada`, which the frozen oracle of
     tests/test_row_grouping.py compares) with the holder's name the mailing block
-    prints (`_holder_name`)."""
+    prints (`_holder_reading`, with the account title printed after the name: owner ruling 2026-10-02, Q10; audit
+    round 2, R2-OW10)."""
     statement = _parse_native_td_canada(markdown, base)
     if statement is not None:
-        statement.holder_name = _holder_name(markdown) or statement.holder_name
+        holder = _holder_reading(markdown)
+        if holder.name:
+            statement.holder_name, statement.account_title = holder
     return statement

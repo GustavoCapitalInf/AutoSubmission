@@ -261,3 +261,37 @@ def test_the_refusal_guard_is_one_rule_in_both_oracles(exc, recognised, monkeypa
     # Identity survives a refusal; every audited figure does not.
     assert row["sha256"] and row["pages"] and row["source_type"]
     assert row["production_opening"] == "" and row["expected_ending"] == ""
+
+
+def test_the_export_readers_read_the_flat_rows_beside_the_per_credit_ledger():
+    """Audit round 2, R2-OW10: audit B11 (I32) appends a per-credit ledger to the analysis CSV (`posted_credit` rows,
+    wider than the three-column flat rows the gate audits). The CSV reader keys the flat rows by their first three
+    cells, as the XLSX reader does, so the corpus gate reads both surfaces again instead of failing on the ledger."""
+    import io
+
+    from balance_forensic_audit import csv_rows, surface_value, xlsx_rows
+    from webapp.app import _analysis_csv, _analysis_xlsx
+
+    analysis = {
+        "statement": {
+            "bank": "SAMPLE BANK", "beginning_balance": 1000.0, "ending_balance": 1500.0, "currency": "USD",
+            "transactions": [{
+                "date": "2054-01-05", "description": "DEPOSIT", "amount": 500.0, "direction": "credit",
+                "classification": {
+                    "is_posted": True, "revenue_tier": "counted_flagged", "revenue_tier_reason": "no_payer_printed",
+                    "revenue_classification": "unverified_deposit", "revenue_review_status": "auto",
+                },
+            }],
+        },
+        "metrics": {"max_balance": 1500.0, "min_balance": 1000.0},
+    }
+    text = _analysis_csv(analysis)
+    # The ledger is there, and it is wider than the flat rows.
+    assert any(len(row) > 3 and row[0] == "posted_credit" for row in csv.reader(io.StringIO(text)))
+    for reader, blob in ((csv_rows, text), (xlsx_rows, _analysis_xlsx(analysis))):
+        rows = reader(blob)
+        assert surface_value(rows, "statement", "beginning_balance") == "1000.0"
+        assert surface_value(rows, "statement", "ending_balance") == "1500.0"
+        assert surface_value(rows, "metrics", "max_balance") == "1500.0"
+        assert surface_value(rows, "metrics", "min_balance") == "1000.0"
+    assert csv_rows(text).keys() == xlsx_rows(_analysis_xlsx(analysis)).keys()

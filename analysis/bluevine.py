@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day_year
-from .holder_name import first_page, holder_from_name, page_lines
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import LEADING_MINUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -15,13 +15,14 @@ from .schema import Statement, Transaction
 _PHONE_NAME_LINE = re.compile(r"^\+1 \(\d{3}\) \d{3}-\d{4}\s+(?P<name>\S.*)$")
 
 
-def _holder_name(markdown: str) -> str | None:
-    """Audit round 2, R2-B05 (R04 part 2): the holder's name after page 1's phone line; None without it."""
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name after page 1's phone line; NO_READING without it. Owner
+    ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title that line prints after the name."""
     for line in page_lines(first_page(markdown)):
         match = _PHONE_NAME_LINE.match(line)
         if match is not None:
-            return holder_from_name(match.group("name"))
-    return None
+            return read_name(match.group("name"))
+    return NO_READING
 
 
 def _money(value: str | None) -> float | None:
@@ -119,9 +120,11 @@ def parse_bluevine_statement(markdown: str) -> Statement | None:
     if None in (beginning, credits, debits, ending):
         return None
 
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="Bluevine",
-        holder_name=_holder_name(markdown),
+        holder_name=holder.name,
+        account_title=holder.title,
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
         days_in_period=(period_end - period_start).days + 1,

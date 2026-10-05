@@ -15,7 +15,7 @@ from datetime import date
 from .chase_savings import _grid_lines, _grid_rows, _transaction
 from .date_tokens import (
     date_refusal, iso_from_month_day, iso_or_none, period_from_long_dates)
-from .holder_name import first_page, holder_from_address_block, holder_from_address_line
+from .holder_name import NO_READING, HolderReading, first_page, read_address_block, read_address_line
 from .money import MINUS_CLASS, money_refusal, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -813,27 +813,28 @@ _SERVICE_PANEL_LINE = re.compile(
 _CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2} \d{5}(?:-\d{4})?\s*$")
 
 
-def _holder_name(text: str) -> str | None:
+def _holder_reading(text: str) -> HolderReading:
     """Audit B9 (I13): the holder's name from the mailing address block that follows the mail-routing code line: the
     first name line before the street (and a DBA line after it), or, where the reading flattened the block onto the
-    code's line, the name before the address there. None without the code line or a city, state and ZIP line. Audit
-    round 2, R2-B05 (R04 part 2): where that reads none, page 1's block after the code line that prints the account
-    type in the plant code's place (_MAIL_ROUTING_LINE_ACCOUNT_TYPE), read the same way."""
-    return _holder_after_code(text, _MAIL_ROUTING_LINE) or _holder_after_code(
-        first_page(text), _MAIL_ROUTING_LINE_ACCOUNT_TYPE
-    )
+    code's line, the name before the address there. NO_READING without the code line or a city, state and ZIP line.
+    Audit round 2, R2-B05 (R04 part 2): where that reads none, page 1's block after the code line that prints the
+    account type in the plant code's place (_MAIL_ROUTING_LINE_ACCOUNT_TYPE), read the same way. Owner ruling
+    2026-10-02 (Q10), audit round 2, R2-OW10: with the account title the reading's own line or block prints."""
+    reading = _holder_after_code(text, _MAIL_ROUTING_LINE)
+    return reading if reading.name else _holder_after_code(first_page(text), _MAIL_ROUTING_LINE_ACCOUNT_TYPE)
 
 
-def _holder_after_code(text: str, routing: re.Pattern[str]) -> str | None:
-    """Audit B9 (I13): the holder's name from the mailing block after the first line `routing` matches (_holder_name)."""
+def _holder_after_code(text: str, routing: re.Pattern[str]) -> HolderReading:
+    """Audit B9 (I13): the holder's name from the mailing block after the first line `routing` matches
+    (_holder_reading)."""
     lines = text.splitlines()
     start = next((index for index, line in enumerate(lines) if routing.match(line.strip())), None)
     if start is None:
-        return None
+        return NO_READING
     code = routing.match(lines[start].strip())
     tail = lines[start].strip()[code.end():].strip()
     if tail:
-        return holder_from_address_line(tail) if _CITY_STATE_ZIP.search(tail) else None
+        return read_address_line(tail) if _CITY_STATE_ZIP.search(tail) else NO_READING
     block: list[str] = []
     for line in lines[start + 1:]:
         stripped = line.strip()
@@ -843,8 +844,8 @@ def _holder_after_code(text: str, routing: re.Pattern[str]) -> str | None:
             continue
         block.append(stripped)
     if not any(_CITY_STATE_ZIP.search(line) for line in block):
-        return None
-    return holder_from_address_block(block)
+        return NO_READING
+    return read_address_block(block)
 
 
 def parse_chase_statement(markdown: str) -> Statement | None:
@@ -871,7 +872,7 @@ def parse_chase_statement(markdown: str) -> Statement | None:
     # Audit B9 (I13): the business layout's line after the heading is the grid's header, never a name.
     if name and not _SUMMARY_GRID_HEADER.match(name.group(1).strip()):
         stmt.account_name = name.group(1).strip()
-    stmt.holder_name = _holder_name(text)
+    stmt.holder_name, stmt.account_title = _holder_reading(text)
 
     summary_match = re.search(r"CHECKING SUMMARY.*?(<table>.*?</table>)", text, re.IGNORECASE | re.DOTALL)
     if summary_match:

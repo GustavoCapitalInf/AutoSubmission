@@ -37,7 +37,7 @@ from __future__ import annotations
 import re
 
 from .date_tokens import date_refusal, iso_or_none, parsed_datetime
-from .holder_name import PROVINCE_POSTAL_CODE, first_page, holder_from_address_line, page_lines
+from .holder_name import NO_READING, PROVINCE_POSTAL_CODE, HolderReading, first_page, page_lines, read_address_line
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -48,17 +48,18 @@ _DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{4})\b")
 _STATEMENT_OF = re.compile(r"\s*\bStatement Of:", re.IGNORECASE)
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): the holder's name from page 1's mailing line, the text before 'Statement Of:'
     (or the line before it, where the header opens its own line) when it closes on a province and postal code, without
-    the address; None otherwise."""
+    the address; NO_READING otherwise. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title
+    that line prints after the name."""
     lines = page_lines(first_page(markdown))
     for index, line in enumerate(lines):
         match = _STATEMENT_OF.search(line)
         if match is not None:
             mailing = line[:match.start()] or (lines[index - 1] if index else "")
-            return holder_from_address_line(mailing) if PROVINCE_POSTAL_CODE.search(mailing) else None
-    return None
+            return read_address_line(mailing) if PROVINCE_POSTAL_CODE.search(mailing) else NO_READING
+    return NO_READING
 
 # The `Account Details` posting table declares its own columns. That printed
 # header, and the footer/section boundary that closes it, are the structural
@@ -265,7 +266,9 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Scotiabank"
-    stmt.holder_name = _holder_name(markdown) or stmt.holder_name
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
     stmt.currency = "CAD"
     stmt.currency_source = "institution_default"
 

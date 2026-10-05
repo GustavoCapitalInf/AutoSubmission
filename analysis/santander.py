@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
-from .holder_name import first_page, holder_from_name, page_lines
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import PARENS_OR_LEADING_MINUS_OR_PLUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -14,14 +14,15 @@ from .schema import Statement, Transaction
 _HOLDER_LINE = re.compile(r"^(?P<name>\S.*?)\s+Account #\s*\d")
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): the holder's name Santander prints before its account number on page 1;
-    None without that line. `account_name` keeps the product."""
+    NO_READING without that line. `account_name` keeps the product. Owner ruling 2026-10-02 (Q10), audit round 2,
+    R2-OW10: with the account title that line prints after the name."""
     for line in page_lines(first_page(markdown)):
         match = _HOLDER_LINE.match(line)
         if match is not None:
-            return holder_from_name(match.group("name"))
-    return None
+            return read_name(match.group("name"))
+    return NO_READING
 
 
 def _money(value: str | None) -> float | None:
@@ -152,10 +153,12 @@ def parse_santander_statement(markdown: str) -> Statement | None:
         return None
     period_start, period_end, days = period
     beginning, ending, credits, average, debits = summary
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="Santander Bank",
         account_name="Business Banking Analyzed Checking",
-        holder_name=_holder_name(markdown),
+        holder_name=holder.name,
+        account_title=holder.title,
         period_start=period_start,
         period_end=period_end,
         days_in_period=days,

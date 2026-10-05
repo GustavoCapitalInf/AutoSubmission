@@ -35,7 +35,7 @@ import re
 from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day_strict
-from .holder_name import first_page, holder_from_name, page_lines
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -475,16 +475,18 @@ _ONLINE_BANKING_PANEL = re.compile(r"\s+PNC Online Banking\b.*$", re.IGNORECASE)
 _STREET_LINE = re.compile(r"^(?:\d+[A-Z]?|P\.? ?O\.? BOX)\b", re.IGNORECASE)
 
 
-def _holder_name(markdown: str) -> str | None:
+def _holder_reading(markdown: str) -> HolderReading:
     """Audit B9 (I13): the holder's name before the product on PNC's summary title line, or (audit round 2, R2-B05: R04
-    part 2) where that reads none, page 1's mailing block (_mailing_block_holder_name)."""
-    return _summary_title_holder_name(markdown) or _mailing_block_holder_name(markdown)
+    part 2) where that reads none, page 1's mailing block (_mailing_block_holder_reading). Owner ruling 2026-10-02
+    (Q10), audit round 2, R2-OW10: with the account title the reading's own line prints after the name."""
+    reading = _summary_title_holder_reading(markdown)
+    return reading if reading.name else _mailing_block_holder_reading(markdown)
 
 
-def _mailing_block_holder_name(markdown: str) -> str | None:
+def _mailing_block_holder_reading(markdown: str) -> HolderReading:
     """Audit round 2, R2-B05 (R04 part 2): page 1's block fallback: the line after the enclosure count, without the
-    online-banking panel run onto it, read when the next line opens on a street; None otherwise. A product printed in
-    capitals is never the name (_without_product)."""
+    online-banking panel run onto it, read when the next line opens on a street; NO_READING otherwise. A product
+    printed in capitals is never the name (_without_product)."""
     lines = page_lines(first_page(markdown))
     for index, line in enumerate(lines[:-2]):
         if not _ENCLOSURES_LINE.match(line):
@@ -492,15 +494,15 @@ def _mailing_block_holder_name(markdown: str) -> str | None:
         name = _ONLINE_BANKING_PANEL.sub("", lines[index + 1])
         words = _without_product(name.split())
         if not words or not _STREET_LINE.match(lines[index + 2]):
-            return None
-        return holder_from_name(" ".join(words))
-    return None
+            return NO_READING
+        return read_name(" ".join(words))
+    return NO_READING
 
 
-def _summary_title_holder_name(markdown: str) -> str | None:
+def _summary_title_holder_reading(markdown: str) -> HolderReading:
     """Audit B9 (I13): the holder's name before the product on PNC's summary title line: its leading words that print no
-    lower-case letter, without a designation or a contact after the name. None when the line prints no name (only the
-    product). Review round 1: a product printed in capitals is never the name (_without_product)."""
+    lower-case letter, without a designation or a contact after the name. NO_READING when the line prints no name
+    (only the product). Review round 1: a product printed in capitals is never the name (_without_product)."""
     for match in _SUMMARY_TITLE.finditer(markdown):
         words: list[str] = []
         for word in match.group("line").split():
@@ -509,8 +511,8 @@ def _summary_title_holder_name(markdown: str) -> str | None:
             words.append(word)
         words = _without_product(words)
         if words:
-            return holder_from_name(" ".join(words))
-    return None
+            return read_name(" ".join(words))
+    return NO_READING
 
 
 def _opens_a_section(text: str, match: "re.Match[str]") -> bool:
@@ -937,10 +939,12 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
         return None
 
     average = _average_balance(markdown)
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="PNC Bank",
         account_name=_product(markdown),
-        holder_name=_holder_name(markdown),
+        holder_name=holder.name,
+        account_title=holder.title,
         period_start=period[0],
         period_end=period[1],
         beginning_balance=beginning,
