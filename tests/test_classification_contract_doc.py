@@ -304,6 +304,8 @@ SECTION_19_1_DECISIONS = (
         "Hold every deposit into an account titled", "`premium_trust_account`", "non-revenue rows stay non-revenue",
         "Q2",
     )),
+    # Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12.
+    ("**2026-10-02, Q1: wires with no sender (I12).**", ("`wire_no_sender`", "possible funding", "never changes the tier")),
 )
 
 
@@ -752,3 +754,60 @@ def test_the_spec_and_the_contract_state_the_premium_trust_hold():
                   "Owner ruling 2026-10-02 (Q10): a premium trust account's verified or counted deposits are held as "
                   "`premium_trust_account`", "Owner ruling 2026-10-02, R2-OW11 (the underwriter's Q10"):
         assert words in contract, words
+
+
+#: R2-OW12's code commit, which §20 and the contract's note name.
+R2_OW12_CODE_COMMIT = "d9878f0"
+
+
+def test_the_spec_and_the_contract_state_the_funding_aid():
+    """Owner ruling 2026-10-02 (the underwriter's Q1, audit I12), R2-OW12: §2's Q5 row is amended and §2.1 adds the Q1
+    row; §5.4 names the record field; §6.2 item 7 the pass's last step; §8.5 the rule; §9.1 the row field; §10.7 the
+    aid's lines; §17.1 closes I12 and lists its defaults; §20 records the rule and the batch; the contract's pass-7
+    clause, holds paragraph, reason row, review decision and note follow, and its statement-pass sentence is unchanged
+    (the aid is a step of pass 7, not a pass)."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n## 2. ", "\n## 3. "))
+    for words in ("Amended 2026-10-02 (§19.1, I12): the hold stays; a held wire with no sender carries the funding aid "
+                  "of §8.5 in its review item", "| Q1 (2026-10-02) | Incoming wires with no sender printed",
+                  "Recurring payments start after this deposit: possible funding.", "It never changes the tier"):
+        assert words in rulings, words
+    assert ("`revenue_funding_series`, the record's last field, a tuple of `FundingSeries`"
+            in _section(text, "\n### 5.4 ", "\n## 6. "))
+    assert ("last, after the $1 floor and the premium-trust step, the funding aid on held no-sender wires"
+            in _section(text, "\n### 6.2 ", "\n### 6.3 "))
+    wires = re.sub(r"\s+", " ", _section(text, "\n### 8.5 ", "\n### 8.6 "))
+    for words in ("`funding_series_after`", "`FUNDING_SERIES_WINDOW_DAYS`", "`FUNDING_SERIES_MIN_PAYMENTS = 2`",
+                  "`FUNDING_SERIES_MIN_LOOKBACK_DAYS`", "A registry lender's series needs two payments in the "
+                  "statement; an unknown payee is in the pool only once three fixed daily or weekly debits promote it",
+                  "The aid never changes a tier, a reason, a figure or a lender row (G7: 0)."):
+        assert words in wires, words
+    assert "and `revenue_funding_series` (§5.4)" in _section(text, "\n### 9.1 ", "\n### 9.2 ")
+    review = re.sub(r"\s+", " ", _section(text, "\n### 10.7 ", "\n### 10.8 "))
+    for words in ("**The funding aid**", "Recurring payments follow this deposit: possible funding.",
+                  "the statement begins too close to this deposit to show whether they ran before it",
+                  "A decided row shows no aid"):
+        assert words in review, words
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert ("- **I12, wires with no sender.** Closed 2026-10-02 (§19.1): every no-sender wire stays held; its review "
+            "item carries the funding aid") in open_items
+    line = next(line for line in open_items.splitlines()
+                if line.startswith("- **Wires with no sender: the funding aid's defaults (the underwriter's Q1 of "
+                                   "2026-10-02"))
+    for words in ("caveat", "per statement", "no-sender wires only", "Alternative"):
+        assert words in line, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **The funding aid on held no-sender wires** (", "owner ruling 2026-10-02, R2-OW12",
+                  "- **Owner ruling 2026-10-02, R2-OW12 in all** (", R2_OW12_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in ("which tiers every posted credit, then the funding aid, before duplicate finalisation",
+                  "carries the record field `revenue_funding_series`",
+                  "Owner ruling 2026-10-02 (Q1): every wire with no sender printed stays held as `wire_no_sender`",
+                  f"Owner ruling 2026-10-02, R2-OW12 (the underwriter's Q1, \"Held for review\"; {R2_OW12_CODE_COMMIT})"):
+        assert words in contract, words
+    assert ("Statement passes run in this order: duplicates (proven by a repeated printed running balance); recurrence "
+            "(D6 and the financing-keyword groups, debits only); the labels for unnamed potential payees; reversal "
+            "pairs; operating-source context (pass 5, with its auction and property-management branches); the "
+            "accounts-payable counter-debit guard (pass 6); the true-revenue pass (pass 7), which tiers every posted "
+            "credit; duplicate finalisation.") in contract
