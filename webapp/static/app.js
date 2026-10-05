@@ -1194,6 +1194,29 @@ function revenueReviewReason(tx) {
     || "Unable to determine whether this deposit represents operating revenue.";
 }
 
+// Owner ruling 2026-10-02 (the underwriter's Q1, "look at the day $ amount got deposited and see if there is a frequent
+// payment following the deposit"; true revenue spec §8.5, §10.7; R2-OW12): a held wire with no sender printed names
+// each Lenders or Potential Lenders series that starts after it (`revenue_funding_series`), one line each, beside
+// R2-B07's unread payer blocks under the reason. A review aid read after the tier: a decided row, any other row and a
+// payload analysed before the field show none, and the badge, the Held for Review grouping and the gate never read it.
+function fundingSeriesNotes(tx, currency = "USD") {
+  const record = transactionClassification(tx);
+  if (record.revenue_tier !== "excluded_pending_review" || record.revenue_tier_reason !== "wire_no_sender") return [];
+  const series = Array.isArray(record.revenue_funding_series) ? record.revenue_funding_series : [];
+  return series.filter((item) => item && typeof item === "object").map((item) => {
+    const cadence = String(item.cadence || "");
+    const days = Number(item.days_after) || 0;
+    const payments = Number(item.payments) || 0;
+    const detail = `${cadence.charAt(0).toUpperCase()}${cadence.slice(1)} ${formatMoney(item.amount, currency)} to `
+      + `${item.payee} from ${item.first_date} (${days} ${days === 1 ? "day" : "days"} after, `
+      + `${payments} ${payments === 1 ? "payment" : "payments"})`;
+    return item.start_observed
+      ? `Recurring payments start after this deposit: possible funding. ${detail}.`
+      : `Recurring payments follow this deposit: possible funding. ${detail}; the statement begins too close to this `
+        + "deposit to show whether they ran before it.";
+  });
+}
+
 function runningBalanceValue(tx) {
   return numberOrNull(tx && tx.running_balance);
 }
@@ -1307,9 +1330,11 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
       ? `<td class="transaction-source"><span class="source-tag" title="${escapeHtml(sourceName)}">${escapeHtml(sourceLabels.get(tx.source_job) || sourceName)}</span></td>`
       : "";
     const reviewReason = revenueReviewReason(tx);
-    const reviewReasonHtml = reviewReason
+    // R2-OW12 (the underwriter's Q1): a held no-sender wire's funding aid, one line per series under the reason.
+    const reviewReasonHtml = (reviewReason
       ? `<div class="tx-reason"><strong>Reason:</strong> ${escapeHtml(reviewReason)}</div>`
-      : "";
+      : "") + fundingSeriesNotes(tx, rowCurrency)
+      .map((line) => `<div class="tx-reason tx-funding">${escapeHtml(line)}</div>`).join("");
     const balance = runningBalanceValue(tx);
     const runningBalance = showRunningBalance
       ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`

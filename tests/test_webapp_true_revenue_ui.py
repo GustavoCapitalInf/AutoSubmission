@@ -4,6 +4,7 @@ webapp/static/app.js runs in node on a fake page (tests/webapp_js_harness.py). F
 by the real analysis path; every amount is whole dollars."""
 from __future__ import annotations
 
+import copy
 import json
 import re
 from pathlib import Path
@@ -1542,3 +1543,103 @@ console.log(JSON.stringify({{details: zelleDetails(), evidence: cells(els.revenu
     assert [_ZELLE_LABEL, "6", "N/A"] in [row[:3] for row in result["evidence"]]
     assert result["facts"] == ["Zelle deposits excluded: 6"]
     assert result["statementFacts"] == ["Zelle deposits excluded: CA$1,500.00 (3)"]
+
+
+# ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW12 (the underwriter's
+# Q1, "look at the day $ amount got deposited and see if there is a frequent payment following the deposit"; spec
+# §8.5, §10.7): a held wire with no sender names, one line under its reason, each lender's series that starts after it
+# (revenue_funding_series). A review aid only: a decided row, any other row and an older payload show none, and the
+# badge, the Held for Review grouping and the gate never read it. The statements are the funding-aid tests' (CONTOSO
+# GRILL LLC's fabricated March 2054).
+
+_FUNDING_OBSERVED = ("Recurring payments start after this deposit: possible funding. Weekly $1,250.00 to Fabrikam "
+                     "Funding LLC from 2054-03-11 (2 days after, 3 payments).")
+_FUNDING_CAVEAT = ("Recurring payments follow this deposit: possible funding. Weekly $900.00 to KAPITUS from 2054-03-04 "
+                   "(2 days after, 4 payments); the statement begins too close to this deposit to show whether they "
+                   "ran before it.")
+_WIRE_REASON = "Wire, no sender printed. A wire with no sender printed."
+FUNDING_ROWS = r"""
+const fundingRows = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1])
+  .map((row) => ({desc: (row.match(/<td class="tx-desc">([^<]*)<\/td>/) || [])[1] || "",
+    reason: (row.match(/<div class="tx-reason"><strong>Reason:<\/strong> ([^<]*)<\/div>/) || [])[1] || "",
+    funding: [...row.matchAll(/<div class="tx-reason tx-funding">([^<]*)<\/div>/g)].map((m) => m[1])}));
+"""
+
+
+@needs_node
+def test_a_held_wire_with_no_sender_shows_the_series_that_starts_after_it():
+    from tests.test_true_revenue_funding_aid import WIRE, funding_aid_payload
+
+    result = run_dashboard(FUNDING_ROWS + _open("w", _served(funding_aid_payload())) + """
+const ledger = fundingRows(els.transactionTable.innerHTML);
+navigate('review');
+console.log(JSON.stringify({ledger, review: fundingRows(els.transactionTable.innerHTML),
+  badge: els.reviewCount.textContent}));
+""")
+    [wire] = [row for row in result["ledger"] if row["desc"] == WIRE]
+    assert wire["reason"] == _WIRE_REASON
+    assert wire["funding"] == [_FUNDING_OBSERVED]
+    assert [row["funding"] for row in result["ledger"] if row["desc"] != WIRE] == [[], [], []]
+    # The Held for Review view lists the held wire with its aid; the badge counts the held row as before.
+    assert [row["funding"] for row in result["review"]] == [[_FUNDING_OBSERVED]]
+    assert result["badge"] == "1"
+
+
+@needs_node
+def test_a_wire_near_the_statement_s_start_says_the_statement_cannot_show_the_series_before_it():
+    from tests.test_true_revenue_funding_aid import SCENARIOS, WIRE, funding_aid_payload
+
+    result = run_dashboard(FUNDING_ROWS + _open("w", _served(funding_aid_payload(SCENARIOS["A3"][0]))) + """
+console.log(JSON.stringify(fundingRows(els.transactionTable.innerHTML)));
+""")
+    [wire] = [row for row in result if row["desc"] == WIRE]
+    assert wire["funding"] == [_FUNDING_CAVEAT]
+
+
+@needs_node
+def test_a_decided_row_another_row_and_an_older_payload_show_no_aid():
+    from tests.test_true_revenue_funding_aid import funding_aid_payload
+
+    payload = _served(funding_aid_payload())
+    held = json.loads(json.dumps(payload["statement"]["transactions"][0]))
+    confirmed = copy.deepcopy(held)
+    confirmed["classification"].update(revenue_classification="verified_revenue", revenue_tier="verified",
+                                       revenue_review_status="confirmed")
+    rejected = copy.deepcopy(held)
+    rejected["classification"].update(revenue_classification="non_revenue", revenue_tier="non_revenue",
+                                      revenue_review_status="rejected")
+    older = copy.deepcopy(held)
+    older["classification"].pop("revenue_funding_series")
+    other = copy.deepcopy(held)
+    other["classification"]["revenue_tier_reason"] = "transfer_no_counterparty"
+    result = run_dashboard(FUNDING_ROWS + f"""
+const rows = {json.dumps([held, confirmed, rejected, older, other])};
+const table = fakeElement('funding-table'), count = fakeElement('funding-count');
+renderTransactionRows(table, count, rows, 'all', 'USD', {{sort: 'none'}});
+console.log(JSON.stringify({{notes: rows.map((tx) => fundingSeriesNotes(tx, 'USD')),
+  cad: fundingSeriesNotes(rows[0], 'CAD'), drawn: fundingRows(table.innerHTML).map((row) => row.funding)}}));
+""")
+    assert result["notes"] == [[_FUNDING_OBSERVED], [], [], [], []]
+    assert result["drawn"] == [[_FUNDING_OBSERVED], [], [], [], []]
+    # The money is the row's currency's.
+    assert result["cad"] == [_FUNDING_OBSERVED.replace("$1,250.00", "CA$1,250.00")]
+
+
+@needs_node
+def test_the_package_ledger_shows_the_aid_on_its_held_wire(tmp_path, monkeypatch):
+    from tests.test_true_revenue_funding_aid import WIRE, funding_aid_payload
+
+    package = _package({"w": funding_aid_payload()}, tmp_path, monkeypatch)
+    result = run_dashboard(FUNDING_ROWS + f"""
+currentJobIds = ['w']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify(fundingRows(els.transactionTable.innerHTML)));
+""")
+    [wire] = [row for row in result if row["desc"] == WIRE]
+    assert wire["funding"] == [_FUNDING_OBSERVED]
+
+
+def test_the_funding_aid_adds_no_reason_code():
+    from analysis.revenue import REVENUE_TIER_REASONS
+
+    assert _js_reasons() == {code: tuple(entry) for code, entry in REVENUE_TIER_REASONS.items()}
+    assert not [code for code in REVENUE_TIER_REASONS if "funding_series" in code or "possible_funding" in code]

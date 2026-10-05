@@ -44,6 +44,7 @@ from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_paye
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from .true_revenue import (
     DealerFunding,
+    FundingSeries,
     also_debited,
     apply_true_revenue_pass,
     counter_credit,
@@ -244,6 +245,11 @@ class TransactionClassification:
     revenue_tier_reason: str | None = None
     contributes_to_counted_flagged: bool = False
     contributes_to_excluded_pending_review: bool = False
+    # Owner ruling 2026-10-02 (the underwriter's Q1; true revenue spec §5.4, §8.5; R2-OW12): on a held wire with no
+    # sender printed (`wire_no_sender`), each Lenders or Potential Lenders series that starts after it (pass 7's last
+    # step, analysis.true_revenue.funding_series_after); () on every other row. A review aid: no tier, state, flag,
+    # figure or gate reads it. Serialized as a list of objects.
+    revenue_funding_series: tuple[FundingSeries, ...] = ()
 
     @property
     def is_pos_purchase(self) -> bool:
@@ -7162,13 +7168,15 @@ def classify_statement_transactions(
     # (I05, I60): with the credits the parser marked as read only by their label. Audit round 2, R2-B07 (R07): and
     # their unread payer text. Owner ruling 2026-10-02 (the underwriter's Q10; §8.10; R2-OW11): and the statement's
     # premium-trust title, read on its printed title, account name and holder name (premium_trust_title; this is the
-    # pass's only caller, so every consumer reads it).
+    # pass's only caller, so every consumer reads it). Owner ruling 2026-10-02 (the underwriter's Q1; §8.5; R2-OW12):
+    # and the statement's printed period start, which the funding aid on held no-sender wires reads.
     records = apply_true_revenue_pass(
         records, set(duplicate_of), payer_text_unread_indexes(statement.transactions),
         payer_text_unread_texts(statement.transactions),
         premium_trust=premium_trust_title(
             getattr(statement, "account_title", None), statement.account_name, statement.holder_name
         ),
+        statement_start=statement.period_start,
     )
 
     for index, original_index in duplicate_of.items():

@@ -62,6 +62,12 @@ printed title reads PREMIUM TRUST (`premium_trust`, the metrics' fact, never the
 premium trust account's verified or counted credit, and the compare declares a verified credit pass 7 holds there
 (`premium_trust_account`).
 
+The owner's ruling of 2026-10-02 (the underwriter's Q1, audit round 2, R2-OW12): each credit records how many lender
+series the funding aid lists on it (`funding_series`, the length of `revenue_funding_series`, 0 on every row but a held
+wire with no sender) and how many of them start where the statement shows it (`funding_series_observed`); the summary
+counts the held `wire_no_sender` rows and dollars, those with the aid and those with an observed start (`funding_aid`).
+A snapshot written before R2-OW12 carries neither key, which reads as 0; no move, guard or cause reads them.
+
 Audit round 2, R2-B01 (R12, R30): the census keeps a parse's moves apart from a rule's.
 - Each credit records its raw parse (`raw`: a hash of its digit-masked printed description and its cents) and each
   account its parse over every row, credits and debits (`parse_sha`: a hash of every row's digit-masked printed
@@ -1341,6 +1347,9 @@ def account_snapshot(account: dict) -> dict:
         # OPERATING_REVENUE_SOURCE_ALIASES, never a printed string, so it is written as-is (S3.1 privacy fix).
         registry = registry_match(record.normalized_description, OPERATING_REVENUE_SOURCE_ALIASES)
         cents = round(record.amount * 100)
+        # Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12: the funding aid on a held wire with no sender (a
+        # checkout before R2-OW12 has none): how many series it lists, and how many start where the statement shows it.
+        funding = tuple(getattr(record, "revenue_funding_series", ()) or ())
         credits.append({
             "registry_entity": registry[0] if registry else None,
             "i": index,
@@ -1359,6 +1368,8 @@ def account_snapshot(account: dict) -> dict:
             "lender_credit": bool(getattr(record, "contributes_to_lender_credit_exclusion", False)),
             "text": mask(record.normalized_description),
             "facts": _guard_facts(record, record.normalized_description),
+            "funding_series": len(funding),
+            "funding_series_observed": sum(1 for series in funding if getattr(series, "start_observed", False)),
         })
     tier_totals = None
     if hasattr(metrics, "counted_flagged_total"):
@@ -1947,6 +1958,34 @@ def _summary(snap: dict) -> dict:
         "non_revenue_in_true": sweep(snap),
         # Audit round 2, R2-B10 (R21 part D): the cut's recorded residual, which should read 0 rows.
         "furniture_tail_non_revenue": _furniture_tail_count(snap),
+        # Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12: the held no-sender wires and the funding aid on them.
+        "funding_aid": _funding_aid(snap),
+    }
+
+
+def _funding_aid(snap: dict) -> dict:
+    """Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12: the posted credits held as `wire_no_sender` (rows,
+    dollars, statements), those whose funding aid lists a series (`funding_series`), those with a series whose start
+    the statement shows (`funding_series_observed`), and the series listed. A snapshot written before R2-OW12 carries
+    neither key, which reads as 0; no move, guard or cause reads them."""
+    found = {part: [0, 0, set()] for part in ("held_wire_no_sender", "with_aid", "with_observed_start")}
+    entries = 0
+    for key, account in snap["accounts"].items():
+        for credit in account["credits"]:
+            if credit.get("tier") != "excluded_pending_review" or credit.get("reason") != "wire_no_sender":
+                continue
+            listed = credit.get("funding_series", 0) or 0
+            entries += listed
+            parts = ["held_wire_no_sender"] + ["with_aid"] * bool(listed)
+            parts += ["with_observed_start"] * bool(credit.get("funding_series_observed", 0))
+            for part in parts:
+                found[part][0] += 1
+                found[part][1] += credit["cents"]
+                found[part][2].add(key)
+    return {
+        **{part: {"rows": rows, "dollars": round(cents / 100, 2), "statements": len(keys)}
+           for part, (rows, cents, keys) in found.items()},
+        "series_entries": entries,
     }
 
 

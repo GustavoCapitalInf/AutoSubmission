@@ -774,6 +774,13 @@ def test_the_fixture_records_use_only_fields_the_classifier_writes():
     names = {field.name for field in fields(TransactionClassification)}
     assert set(flagged_row("mortgages")["classification"]) <= names
     assert CLASSIFICATION_VERSION == CURRENT_VERSION
+    # Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12: the record's last field is the funding aid of a held
+    # wire with no sender, empty on every other row; the fixtures are records stored before it and carry none.
+    assert [field.name for field in fields(TransactionClassification)][-1] == "revenue_funding_series"
+    assert "revenue_funding_series" not in flagged_row("mortgages")["classification"]
+    payload = _analysed_payload()
+    assert all(row["classification"]["revenue_funding_series"] in ((), [])
+               for row in payload["statement"]["transactions"])
 
 
 # --- 5.3 (owner ruling 2026-09-27): an unconfirmed flagged payee --------------------------------------------------

@@ -426,7 +426,9 @@ def _pass_arguments(statement, monkeypatch):
 def test_the_pass_reads_the_title_only_through_its_keyword(monkeypatch):
     statement = _statement(T1, TRUST_LINE, account_name="Business Banking")
     args, kwargs = _pass_arguments(statement, monkeypatch)
-    assert kwargs == {"premium_trust": "PREMIUM TRUST ACCOUNT"}
+    # Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12: the pass also reads the printed period start (the
+    # funding aid's), none here.
+    assert kwargs == {"premium_trust": "PREMIUM TRUST ACCOUNT", "statement_start": None}
     # premium_trust=None, or no keyword, returns today's records exactly.
     assert tr.apply_true_revenue_pass(*args) == tr.apply_true_revenue_pass(*args, premium_trust=None)
     today = tr.apply_true_revenue_pass(*args)

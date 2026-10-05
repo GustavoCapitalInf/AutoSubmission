@@ -18,6 +18,7 @@ it; a spelling of three letters or fewer keeps \\b.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass, replace
@@ -50,6 +51,7 @@ from .classification_registry import (
     WHOLESALE_AUCTION_PAYOUT_FORMS,
     WHOLESALE_AUCTION_REFUND_NAMES,
 )
+from .dates import parse_date
 from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .flag_groups import FINANCING_STATES
 # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the premium-trust words and the legal forms the holder
@@ -6520,6 +6522,133 @@ def _verify(record: TransactionClassification, method: str, reason: str, confide
     )
 
 
+#: Owner ruling 2026-10-02 (the underwriter's Q1, "Held for review (look at the day $ amount got deposited and see if
+#: there is a frequent payment following the deposit)", option 1; audit I12; §8.5, §10.7; R2-OW12): the funding aid's
+#: constants, whole numbers. A series' first payment comes at most FUNDING_SERIES_WINDOW_DAYS after the deposit and
+#: falls on FUNDING_SERIES_MIN_PAYMENTS distinct dates or more; its start is observed when the statement shows one full
+#: gap of the series, and at least FUNDING_SERIES_MIN_LOOKBACK_DAYS, before the deposit.
+FUNDING_SERIES_WINDOW_DAYS = 10
+FUNDING_SERIES_MIN_PAYMENTS = 2
+FUNDING_SERIES_MIN_LOOKBACK_DAYS = 3
+#: The states the Lenders and Potential Lenders tabs list, the only payees the aid reads ("frequent payment" read as a
+#: lender-side series: an all-debits pool is card purchases, payroll, own transfers and person-to-person payments).
+_FUNDING_SERIES_STATES = ("confirmed_lender", "potential_lender")
+
+
+@dataclass(frozen=True)
+class FundingSeries:
+    """Owner ruling 2026-10-02 (the underwriter's Q1; §5.4, §8.5; R2-OW12): one lender's daily or weekly payment series
+    that starts after a held wire with no sender printed, the review aid's line ("possible funding").
+
+    `payee` is the name the Lenders or Potential Lenders tab lists (the potential payee label, else the canonical
+    entity; never a payee word for an unnamed payee, D11); `lender_state` its tab's state (`confirmed_lender` or
+    `potential_lender`); `amount` the payment, positive; `cadence` daily or weekly and `average_gap_days` its mean gap
+    (classify_cadence); `first_date` the first payment's date as printed and `days_after` its days after the deposit;
+    `payments` its distinct dates; `start_observed` whether the statement shows one full gap of the series before the
+    deposit; `source_locations` its rows."""
+
+    payee: str
+    lender_state: str
+    amount: float
+    cadence: str
+    average_gap_days: float
+    first_date: str
+    days_after: int
+    payments: int
+    start_observed: bool
+    source_locations: tuple[str, ...]
+
+
+def funding_series_after(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+    statement_start: str | None,
+) -> list[TransactionClassification]:
+    """Owner ruling 2026-10-02 (the underwriter's Q1, option 1; audit I12; §8.5, §10.7; R2-OW12): pass 7's last step.
+    Every incoming wire with no sender printed stays held (`wire_no_sender`); this step records on each such held
+    credit, as `revenue_funding_series`, every series of the Lenders or Potential Lenders tabs that starts after it, so
+    the review can see a funding the wire may be. It reads the records only, and writes that one field and only on
+    those credits: no tier, reason, state, flag, figure, gate, debit or lender reading moves.
+
+    1. The pool: posted debits, never a duplicate (`duplicate_indexes`: duplicate_of is written after pass 7), of a
+       lender tab's state with a canonical entity, counting toward the lender or potential-lender count (which leaves
+       out a settlement-reversed debit, whose counts the reversal pass cleared), grouped by the tab's name (the
+       potential payee label, else the canonical entity, as detect._group_funders lists it) and the amount to the cent
+       (find_recurring_debits' amount): (state, name, amount).
+    2. The statement's start: `statement_start` read as a date, else its earliest dated row.
+    3. The targets: posted, non-duplicate credits held as `excluded_pending_review` / `wire_no_sender` whose date reads.
+    4. A group is a series of a target when every date of it reads and is after the deposit's day (a payment on or
+       before that day means the series was already running), the first at most FUNDING_SERIES_WINDOW_DAYS after it,
+       and `_promotion_cadence` (D6's daily or weekly test, several rows on one date one occurrence) reads its dates
+       with FUNDING_SERIES_MIN_PAYMENTS. Its start is observed when the deposit comes at least one full gap of the
+       series (its mean gap rounded up, and at least FUNDING_SERIES_MIN_LOOKBACK_DAYS) after the statement's start.
+    5. Each target carries its series sorted by first date, then the larger amount, then the payee; a series that
+       follows several held wires goes on each, with its own days after. Every other record keeps ()."""
+    targets = [
+        index for index, record in enumerate(records)
+        if index not in duplicate_indexes and record.amount > 0 and record.is_posted
+        and record.revenue_tier == "excluded_pending_review" and record.revenue_tier_reason == "wire_no_sender"
+        and parse_date(record.date) is not None
+    ]
+    if not targets:
+        return records
+    groups: dict[tuple[str, str, float], list[int]] = {}
+    for index, record in enumerate(records):
+        if (
+            index in duplicate_indexes or record.amount >= 0 or not record.is_posted
+            or record.classification not in _FUNDING_SERIES_STATES or not record.canonical_entity
+            or not (record.contributes_to_lender_count or record.contributes_to_potential_lender_count)
+        ):
+            continue
+        name = record.potential_payee_label or record.canonical_entity
+        groups.setdefault((record.classification, name, round(abs(record.amount), 2)), []).append(index)
+    classifier = _classifier()
+    series: list[tuple[str, str, float, list[int], list[_date], str, float]] = []
+    for (state, name, amount), indexes in groups.items():
+        days = [parse_date(records[index].date) for index in indexes]
+        if any(day is None for day in days):
+            continue
+        promotion = classifier._promotion_cadence(records, indexes, FUNDING_SERIES_MIN_PAYMENTS)
+        if promotion is None:
+            continue
+        cadence, average_gap = promotion
+        series.append((state, name, amount, indexes, days, cadence, float(average_gap)))
+    if not series:
+        return records
+    start = parse_date(statement_start)
+    if start is None:
+        dated = [day for record in records if (day := parse_date(record.date)) is not None]
+        start = min(dated) if dated else None
+    updated = list(records)
+    for target in targets:
+        deposit = parse_date(records[target].date)
+        found: list[tuple[_date, FundingSeries]] = []
+        for state, name, amount, indexes, days, cadence, average_gap in series:
+            first = min(days)
+            if first <= deposit or (first - deposit).days > FUNDING_SERIES_WINDOW_DAYS:
+                continue
+            lookback = max(FUNDING_SERIES_MIN_LOOKBACK_DAYS, math.ceil(average_gap))
+            first_row = next(index for index, day in zip(indexes, days) if day == first)
+            found.append((first, FundingSeries(
+                payee=name,
+                lender_state=state,
+                amount=amount,
+                cadence=cadence,
+                average_gap_days=average_gap,
+                first_date=records[first_row].date,
+                days_after=(first - deposit).days,
+                payments=len(set(days)),
+                start_observed=start is not None and (deposit - start).days >= lookback,
+                source_locations=tuple(
+                    location for index in indexes if (location := records[index].source_location)
+                ),
+            )))
+        if found:
+            found.sort(key=lambda item: (item[0], -item[1].amount, item[1].payee))
+            updated[target] = replace(records[target], revenue_funding_series=tuple(item for _, item in found))
+    return updated
+
+
 def apply_true_revenue_pass(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
@@ -6527,6 +6656,7 @@ def apply_true_revenue_pass(
     unread_texts: dict[int, str] | None = None,
     *,
     premium_trust: str | None = None,
+    statement_start: str | None = None,
 ) -> list[TransactionClassification]:
     """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit
     B3 (I11): first, with the owner's switch on (PROCESSOR_CARD_PAYOUT_RELEASE), a processor's instant payouts printed
@@ -6558,7 +6688,9 @@ def apply_true_revenue_pass(
     relabelled last in _tier_reason. Owner ruling 2026-10-02 (the underwriter's Q10; R2-OW11): `premium_trust` is the
     statement's premium-trust title (premium_trust_title) or None; when set, the step after the $1 floor holds every
     credit a rule verified or counted as PREMIUM_TRUST_REASON (_held_in_premium_trust). None leaves every record as
-    before."""
+    before. Owner ruling 2026-10-02 (the underwriter's Q1; R2-OW12): `statement_start` is the statement's printed
+    period start or None; the pass's last step, after the premium-trust hold, records on each held wire with no sender
+    the lender series that start after it (funding_series_after, a review aid that moves no tier or figure)."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -6857,7 +6989,11 @@ def apply_true_revenue_pass(
         for index in credits:
             if updated[index].revenue_tier in {"verified", "counted_flagged"}:
                 updated[index] = _held_in_premium_trust(updated[index], premium_trust)
-    return updated
+    # Owner ruling 2026-10-02 (the underwriter's Q1, "Held for review (look at the day $ amount got deposited and see if
+    # there is a frequent payment following the deposit)"; §8.5, §10.7; R2-OW12): the last step, on the final tiers (a
+    # premium trust account's held wire keeps wire_no_sender and gets it too). Each held wire with no sender carries
+    # the Lenders or Potential Lenders series that start after it (funding_series_after); nothing else changes.
+    return funding_series_after(updated, duplicate_indexes, statement_start)
 
 
 _Q6_REASONS = {

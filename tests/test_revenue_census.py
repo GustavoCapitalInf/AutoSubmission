@@ -3709,3 +3709,50 @@ def test_ow08_the_snapshot_declares_t30_s_travelers_rows():
     assert {cause: value["rows"] for cause, value in run["verified_demotions"].items()} == {
         "insurer_paid_for_services": 2}
     assert run["guards"] == {}
+
+
+# --- Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12: the funding aid on held no-sender wires ----------------
+
+def _funding_aid_snapshot(name):
+    from tests.test_true_revenue_funding_aid import SCENARIOS, _statement
+
+    return census.account_snapshot({"statement": _statement(SCENARIOS[name][0]).model_dump(mode="json")})
+
+
+def test_ow12_the_snapshot_counts_each_held_wire_s_funding_series():
+    """Each credit records how many series the aid lists on it (`funding_series`) and how many of them start where the
+    statement shows it (`funding_series_observed`); every other credit records 0."""
+    two_wires, near_start = _funding_aid_snapshot("A6"), _funding_aid_snapshot("A3")
+    assert [(c["reason"], c["funding_series"], c["funding_series_observed"]) for c in two_wires["credits"]] == [
+        ("wire_no_sender", 1, 1), ("wire_no_sender", 1, 1)]
+    assert [(c["funding_series"], c["funding_series_observed"]) for c in near_start["credits"]] == [(1, 0)]
+    plain = _furniture_tail_snapshot("MOBILE DEPOSIT")
+    assert [(c["funding_series"], c["funding_series_observed"]) for c in plain["credits"]] == [(0, 0)]
+
+
+def test_ow12_the_summary_counts_the_held_no_sender_wires_with_the_aid():
+    summary = census._summary(_snap("5.6", {"a": _funding_aid_snapshot("A6"), "b": _funding_aid_snapshot("A3"),
+                                            "c": _funding_aid_snapshot("A1")}))
+    assert summary["funding_aid"] == {
+        "held_wire_no_sender": {"rows": 4, "dollars": 160000.0, "statements": 3},
+        "with_aid": {"rows": 4, "dollars": 160000.0, "statements": 3},
+        "with_observed_start": {"rows": 3, "dollars": 130000.0, "statements": 2},
+        "series_entries": 4,
+    }
+
+
+def test_ow12_a_base_snapshot_without_the_aid_compares_clean():
+    """A snapshot written before R2-OW12 carries no `funding_series`: it reads as 0 in the summary, and the compare
+    reads no move from the new keys."""
+    after = _funding_aid_snapshot("A1")
+    base = {**after, "credits": [{key: value for key, value in credit.items()
+                                  if key not in ("funding_series", "funding_series_observed")}
+                                 for credit in after["credits"]]}
+    report = census.compare(_snap("5.6", {"a": base}), [_snap("5.6", {"a": after})])
+    run = report["runs"][0]
+    assert run["verdict"] == "hold" and run["guards"] == {}
+    assert [(move["to"], move["rows"]) for move in run["move_matrix"]] == [
+        ("excluded_pending_review|wire_no_sender", 1)]
+    assert report["base"]["reasons"] == run["summary"]["reasons"]
+    assert report["base"]["funding_aid"]["with_aid"] == {"rows": 0, "dollars": 0.0, "statements": 0}
+    assert run["summary"]["funding_aid"]["with_aid"] == {"rows": 1, "dollars": 50000.0, "statements": 1}

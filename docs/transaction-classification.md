@@ -171,7 +171,7 @@ these rows by code (`non_revenue_by_reason`, below).
 | `personal_income` | `excluded_pending_review` | Benefit or pension | a personal benefit or pension, a government benefit included (T3; GOV class B) |
 | `non_sale_purpose` | `excluded_pending_review` | Not a sale: owner money, investment, grant, refund, claim or interest | owner money, investment, intercompany money, grants, legal settlements, gambling payouts, residual interest, dividends, rewards and reimbursements, and a posted credit under $1 that no non-revenue rule took (the $1 floor) (T3, §8.1) |
 | `payer_also_debited` | `excluded_pending_review` | Payer also debited this account | a debit to the same payer that can be circular money: an own account, an affiliate, a funder that collects (§8.1, T3) |
-| `wire_no_sender` | `excluded_pending_review` | Wire, no sender printed | a wire whose payer region names nobody (Q5) |
+| `wire_no_sender` | `excluded_pending_review` | Wire, no sender printed | a wire whose payer region names nobody (Q5); held still under the underwriter's Q1 (2026-10-02), its review item carries the funding aid (`revenue_funding_series`: the lender series that start after it) |
 | `transfer_no_counterparty` | `excluded_pending_review` | Transfer, no counterparty | bare transfer wording (Q2) |
 | `transfer_account_designation` | `excluded_pending_review` | Transfer naming an account | a named transfer that prints an account designation (T13, §6.3 narrowing 8) |
 | `p2p_round_repeat` | `excluded_pending_review` | Repeated round sums from one sender | two or more whole $100 multiples from one person-to-person or transfer sender (Q4, T13) |
@@ -212,8 +212,8 @@ duplicates, the lender recurrence and the labels for unnamed potential payees
 sources verify by recurrence; the pool never shrinks and a veto word keeps a
 row out) with the auction and property branches, the payer-remittance
 counter-debit guard (pass 6), and the true-revenue pass (pass 7,
-`analysis/true_revenue.py`), which tiers every posted credit, before duplicate
-finalisation. A `non_revenue` credit stays `non_revenue` except where a
+`analysis/true_revenue.py`), which tiers every posted credit, then the funding
+aid, before duplicate finalisation. A `non_revenue` credit stays `non_revenue` except where a
 rule narrows a non-revenue pattern (spec §6.3); a held credit enters True
 revenue only when an analyst confirms it.
 
@@ -286,6 +286,18 @@ holder's name (`premium_trust_title`: the title at the field's end, the title
 followed by an account word, or the title and an account or product word before
 a separator), never on a row's payer; a verified credit so held leaves
 verification (method `premium_trust_account`).
+Then, as the pass's last step (owner ruling 2026-10-02, the underwriter's Q1:
+"look at the day $ amount got deposited and see if there is a frequent payment
+following the deposit"), each held wire with no sender printed
+(`wire_no_sender`) carries the record field `revenue_funding_series`, a tuple
+of `FundingSeries`: every Lenders or Potential Lenders series (one tab name,
+the potential payee label or the canonical entity, and one amount to the cent;
+posted, not a duplicate, counting toward the lender or potential-lender count)
+whose every payment is dated after the deposit's day, the first at most 10 days
+after it, on two or more dates `_promotion_cadence` reads daily or weekly, with
+whether the statement shows one full gap of the series, at least 3 days, before
+the deposit (`start_observed`). It is a review aid: every other record carries
+`()`, and no tier, reason, flag, figure, gate or lender reading moves.
 Every other unverified credit is counted (`counted_flagged`) with its reason. A
 statement needs revenue review (`revenue_review_required`) when it has an
 undecided direction conflict (one an analyst confirmed or rejected no longer
@@ -359,6 +371,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - An insurer's credit paid for the business's work is counted and flagged as `insurer_paid_for_services`, never verified and never a Q5 or Q6 repeat (owner ruling 2026-10-02, the underwriter's Q2, the spec's §19.1 line "insurers paying for the business's work"): on the holder's trade (a repair shop, an insurance agency, a clinic or a pharmacy; a loose word only beside a second eligible insurer credit), a service form (`DRP`, an agent's EFT, a commission, `CONTINGENCY`, `REPAIR`, `VENDOR PMT`; never a wire's `REF`) or three or more credits from one insurer within an inclusive 31-day span; another insurer's one-off in the same statement only with the owner's switch, off. A one-off claim on the business's own policy stays out however the insurer is spelled (the spec's separate §19.1 line "every insurer spelling", by Q6 of 2026-09-28 and audit I26): a listed insurer's credit stays `non_revenue`, any other is held as `insurer_named_payer`. `HCCLAIMPMT`, healthcare payers and the §15 deferred carriers read as before (§8.1).
 - T4's financing root no longer holds three kinds of row (owner ruling 2026-10-02, the underwriter's Q9, "Keep them as true revenue"; the spec's §19.1 line "finance-named customers, rent received and lenders paying for services"): (a) a customer whose own name carries a finance word, on a line printing invoice, accounts-payable, vendor-payment or commission wording, counted as `finance_named_customer`; (c) the same where the name reads as a lender's (`lender_paid_for_services`, a label only); (b) a rent `LEASE` received by a business in leasing or property, counted as `lessor_rent`. Each is never verified and never a Q5 or Q6 repeat, and stays held as `financing_named_payer` when any posted debit names the payer (the hidden-loan guard, a documented over-hold; the bank's receiving fee and a card purchase aside). Only the root arm is lifted, read by place (the payer's name alone for (a) and (c)); a payer-less row, a `PROCEEDS` or disbursement line, a bank-only payer, and on a layout with no entry label two roots or a root after the payer's company form stay held; a registered lender's vendor-worded credit stays D1's financing proceeds (§8.1, §8.10, §17.1).
 - Owner ruling 2026-10-02 (Q10): a premium trust account's verified or counted deposits are held as `premium_trust_account` (pass 7's step after the $1 floor); held and non-revenue rows keep their reading. The agency's operating, producer-payable, wire and other accounts read as before, and a payer that prints the words never makes a title (§8.10, §19.1).
+- Owner ruling 2026-10-02 (Q1): every wire with no sender printed stays held as `wire_no_sender`; pass 7's last step records on it the Lenders or Potential Lenders series that start after it (`revenue_funding_series`, the review item's "possible funding" line), a review aid that moves no tier, figure or lender row (§8.5, §10.7, §19.1).
 - Q5 and Q6 leave a row the operating registry names, and a NET SETTLE row, to its own rule (§7.1, §8.5, §8.6).
 - VIREMENT is a person-to-person rail only in its Interac forms (§8.4).
 - A cancelled French transfer is a reversal (§6.1 step 3).
