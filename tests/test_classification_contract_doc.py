@@ -672,3 +672,23 @@ def test_the_spec_and_the_contract_state_the_q9_release():
                   "financing-named hold's root arm alone", "T4's financing root no longer holds three kinds of row",
                   "Owner ruling 2026-10-02, R2-OW09 (the underwriter's Q9"):
         assert words in contract, words
+
+
+def test_the_spec_and_the_contract_state_the_account_title():
+    """Owner ruling 2026-10-02 (the underwriter's Q10, its parser half), R2-OW10: §9.1 states `statement.account_title`
+    (the title the bank prints after the holder's name, from the holder reader's own anchor, serialized only when set,
+    outside the extraction schema); §20 records the readers, the gate's export reader and the batch; the contract's
+    note follows. No tier reads the title yet (R2-OW11)."""
+    text = SPEC.read_text(encoding="utf-8")
+    contract_section = re.sub(r"\s+", " ", _section(text, "\n### 9.1 ", "\n### 9.2 "))
+    for words in ("`statement.account_title`", "the title the bank prints after the holder's name",
+                  "from the holder reader's own anchor", "serialized only where it is set",
+                  "not part of the extraction response schema", "R2-OW10"):
+        assert words in contract_section, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **The holder readers publish the account title they drop** (",
+                  "owner ruling 2026-10-02, R2-OW10", "`HolderReading`", "`_split_designation`", "`ATTN`",
+                  "- **The corpus gate reads the analysis export beside its ledgers** (",
+                  "- **Owner ruling 2026-10-02, R2-OW10 in all** ("):
+        assert words in amendments, words
+    assert "Owner ruling 2026-10-02, R2-OW10 (the underwriter's Q10, its parser half" in _flat(CONTRACT)
