@@ -204,7 +204,9 @@ def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_a
                # Audit round 2, R2-B15 (R13): the months a statement's period covers, which its monthly figures read.
                "isoDay", "statementMonthsCovered",
                # Owner ruling 2026-10-02, R2-OW03: the excluded Zelle deposits the revenue sentence names.
-               "zelleExcluded")
+               "zelleExcluded",
+               # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13: the summary's lender debits, paid and returned.
+               "lenderDebitsSummary")
     # Each function up to its closing brace (top-level code follows some of them).
     source = _harness("off") + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
                                        for name in helpers) + f"""
