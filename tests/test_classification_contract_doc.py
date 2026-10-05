@@ -299,6 +299,11 @@ SECTION_19_1_DECISIONS = (
         "Keep them as true revenue", "`finance_named_customer`", "`lessor_rent`", "`lender_paid_for_services`",
         "hidden-loan guard",
     )),
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11.
+    ("**2026-10-02, premium trust accounts (Q10; audit I39 with I24, I38).**", (
+        "Hold every deposit into an account titled", "`premium_trust_account`", "non-revenue rows stay non-revenue",
+        "Q2",
+    )),
 )
 
 
@@ -692,3 +697,58 @@ def test_the_spec_and_the_contract_state_the_account_title():
                   "- **Owner ruling 2026-10-02, R2-OW10 in all** ("):
         assert words in amendments, words
     assert "Owner ruling 2026-10-02, R2-OW10 (the underwriter's Q10, its parser half" in _flat(CONTRACT)
+
+
+def test_the_spec_and_the_contract_state_the_premium_trust_hold():
+    """Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: §2.1 adds the Q10 row; §5.3 the held code at the end of
+    its group; §8.10 the step after the $1 floor and the title rule's forms; §9.1 the metric and the title's reader; §9.2
+    the package keys; §10.1 the two facts; §14.3 G20; §15 closes the Applied Systems item for premium trust accounts;
+    §17.1 closes I39 and asks the owner about the non-revenue default; §20 records the ruling and the batch; the
+    contract's reason row, holds sentence, review decision and note follow."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n### 2.1 ", "\n## 3. "))
+    for words in ("| Q10 (2026-10-02) | An insurance agency's premium trust account", "`premium_trust_account`",
+                  "A deposit a non-revenue rule excludes stays excluded", "the underwriter's Q2 (2026-10-02)"):
+        assert words in rulings, words
+    codes = _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    row = "| `excluded_pending_review` | `premium_trust_account` | Deposit into a premium trust account | owner 2026-10-02 (Q10, I39) |"
+    assert row in codes
+    assert codes.index("`p2p_round_repeat`") < codes.index(row) < codes.index("`wire_named_sender`")
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    for words in ("Then, after the $1 floor, the premium-trust hold", "`premium_trust_title` over `Statement.account_title`",
+                  "the title at the field's end, the title followed by an account word, or the title and an account or "
+                  "product word followed by a separator", "A held one keeps its first hold, and a non-revenue one stays "
+                  "non-revenue", "`PREMIUM TRUST ROOFING`", "`PREM. TR. ACCT.`", "held for the title, not for being cash"):
+        assert words in tiering, words
+    metrics = re.sub(r"\s+", " ", _section(text, "\n### 9.1 ", "\n### 9.2 "))
+    assert "`premium_trust_account`, true when the statement's printed title reads PREMIUM TRUST" in metrics
+    assert "its one reader is the premium-trust rule" in metrics
+    assert "`premium_trust_documents`" in _section(text, "\n### 9.2 ", "\n### 9.3 ")
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("Premium trust account: deposits that would count are held (insureds' premiums, not revenue); "
+                  "non-revenue deposits stay excluded", "N statement(s) of a premium trust account: deposits that would "
+                  "count are held"):
+        assert words in cards, words
+    assert "- **G20** (owner ruling 2026-10-02, the underwriter's Q10; R2-OW11)" in _section(text, "\n### 14.3 ",
+                                                                                         "\n### 14.4 ")
+    deferred = re.sub(r"\s+", " ", _section(text, "\n## 15. ", "\n## 16. "))
+    assert "Applied Systems' agency-bill premium: closed for premium trust accounts" in deferred
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "- **I39 (with I24, I38), a premium-trust account: closed 2026-10-02** (§19.1, Q10)." in open_items
+    line = next(line for line in open_items.splitlines()
+                if line.startswith("- **Premium trust accounts: the defaults (the underwriter's Q10 of 2026-10-02"))
+    for words in ("Hold every deposit", "stays Excluded rather than Held", "premium-finance", "first hold", "Confirm"):
+        assert words in line, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A premium trust account's deposits are held** (", "owner ruling 2026-10-02, R2-OW11",
+                  "- **Owner ruling 2026-10-02, R2-OW11 in all** (", "1158b09"):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in ("| `premium_trust_account` | `excluded_pending_review` | Deposit into a premium trust account | the "
+                  "account's printed title reads PREMIUM TRUST (statement account title, account name or holder name)",
+                  "Last, on a statement whose account title reads PREMIUM TRUST, every verified or counted credit is held "
+                  "as `premium_trust_account` (owner, 2026-10-02, Q10); a held credit keeps its first hold and a "
+                  "non-revenue one stays non-revenue.",
+                  "Owner ruling 2026-10-02 (Q10): a premium trust account's verified or counted deposits are held as "
+                  "`premium_trust_account`", "Owner ruling 2026-10-02, R2-OW11 (the underwriter's Q10"):
+        assert words in contract, words
