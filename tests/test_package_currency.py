@@ -73,6 +73,8 @@ EXPECTED_REFUSED_TOTALS = {
     "potential_withholding_exposure",
     "potential_withholding_exposure_raw",
     "potential_withholding_numerator",
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid.
+    "returned_funder_payment_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -118,6 +120,8 @@ UNIT_FREE_TOTALS = {
     "nsf_count",
     "potential_lender_debit_count",
     "potential_lenders_detected",
+    # R2-OW13: how many funder payments were returned unpaid.
+    "returned_funder_payment_count",
     "revenue_classified_count",
     "summary_only",
     "total_posted_credit_count",
@@ -683,6 +687,8 @@ UNIT_FREE_ROLLUP_KEYS = {
     "debit_count",
     "documents",
     "potential_lender_debit_count",
+    # R2-OW13 (the underwriter's Q5): a funder's payments returned unpaid.
+    "returned_payment_count",
 }
 
 
@@ -1028,8 +1034,9 @@ def test_the_route_serves_the_undetermined_bucket_end_to_end():
     assert body["currency"]["undeclared_currency_documents"] == 1
     # The code that WAS declared is still reported as evidence.
     assert body["currency"]["currencies"] == ["USD"]
-    # 40 since audit B11 (I07) added the per-month True, Verified and Non-revenue.
-    assert len(body["currency"]["refused_total_fields"]) == 40
+    # 40 since audit B11 (I07) added the per-month True, Verified and Non-revenue; 41 since the owner's ruling of
+    # 2026-10-02 (the underwriter's Q5, R2-OW13) added the returned funder payments' total.
+    assert len(body["currency"]["refused_total_fields"]) == 41
     assert body["totals"]["cross_currency_totals_refused"] is True
     assert body["totals"]["currency"] is None
     assert body["totals"]["total_credits"] is None

@@ -1643,3 +1643,104 @@ def test_the_funding_aid_adds_no_reason_code():
 
     assert _js_reasons() == {code: tuple(entry) for code, entry in REVENUE_TIER_REASONS.items()}
     assert not [code for code in REVENUE_TIER_REASONS if "funding_series" in code or "possible_funding" in code]
+
+
+# ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW13 (the underwriter's
+# Q5, "Keep the funder in the lender count, and show a "returned funder payment" warning"; spec §10.1, §10.6): a
+# confirmed funder's payment the bank returned unpaid is out of paid and in the withholding rate. The lender table warns
+# one line per payment (the bank's words quoted) and marks the funder; the cards, the withholding note and the summary
+# say what paid leaves out; the ledger marks the debit and the return names the payment it returns. The statements are
+# tests/test_returned_funder_payments.py's (CONTOSO PLUMBING LLC's fabricated March 2054).
+
+_RETURNED_WARNING = ('Returned funder payment: KAPITUS $850.00 debited 2054-03-03, returned 2054-03-05 ("RETURN OF '
+                     'POSTED CHECK ITEM RECEIVED ON 03/03 03/05"). Not counted as paid; still in the withholding rate.')
+LENDER_ROWS = r"""
+const unescape = (text) => text.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+const lenderRows = (html) => [...html.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/g)].map((m) => ({cls: m[1].trim(),
+  cells: [...m[2].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((c) => unescape(c[1].replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ").trim()))}));
+const ledgerRows = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1])
+  .map((row) => ({desc: unescape((row.match(/<td class="tx-desc">([^<]*)<\/td>/) || [])[1] || ""),
+    chips: [...row.matchAll(/<span class="chip-text">([^<]*)<\/span>/g)].map((m) => m[1]),
+    returned: [...row.matchAll(/<div class="tx-reason tx-returned">([^<]*)<\/div>/g)].map((m) => unescape(m[1]))}));
+"""
+
+
+@needs_node
+def test_a_returned_funder_payment_is_warned_marked_and_kept_in_the_withholding_note():
+    from tests.test_returned_funder_payments import BOFA_RETURN, KAPITUS, T1_RETURN, t1_payload
+
+    payload = _served(t1_payload())
+    result = run_dashboard(METRIC_ROWS + LENDER_ROWS + _open("r", payload) + """
+const metrics = currentAnalysis.metrics;
+console.log(JSON.stringify({lenders: lenderRows(els.lenderTable.innerHTML), ledger: ledgerRows(els.transactionTable.innerHTML),
+  audit: withholdingAuditNote(metrics, 'USD'), paid: paidLendersNote(metrics, 'USD'),
+  summary: els.summaryBox.textContent, count: els.lenderCount.textContent}));
+""")
+    [warning, kapitus] = result["lenders"]
+    assert warning["cls"] == 'class="lender-warning"'
+    assert warning["cells"] == [f"! Returned {_RETURNED_WARNING}"]
+    assert kapitus["cells"][:4] == ["KAPITUS", "Confirmed lender", "2", "$1,700.00 1 returned payment, $850.00, not in paid"]
+    assert kapitus["cells"][5] == "LEN Confirmed ↩ Returned"
+    assert result["count"] == "1 confirmed, 0 potential"
+    assert result["audit"] == ("$2,550.00 confirmed lender debits (incl. $850.00 returned unpaid) divided by $20,850.00 "
+                               "legacy eligible deposits")
+    assert result["paid"] == "Total paid to confirmed lenders; $850.00 returned unpaid not included"
+    assert "$1,700.00 confirmed lender debits paid (1 returned funder payment, $850.00), and" in result["summary"]
+    rows = {row["desc"] + str(index): row for index, row in enumerate(result["ledger"])}
+    returned = [row for row in rows.values() if "Returned" in row["chips"]]
+    assert [row["desc"] for row in returned] == [KAPITUS]
+    [credit] = [row for row in result["ledger"] if row["desc"] == T1_RETURN]
+    assert credit["returned"] == ["Returns the 2054-03-03 payment to KAPITUS"]
+    assert all(not row["returned"] for row in result["ledger"] if row["desc"] != T1_RETURN)
+    assert BOFA_RETURN in T1_RETURN
+
+
+@needs_node
+def test_without_a_returned_payment_the_lender_sentences_read_as_before():
+    result = run_dashboard("""
+const metrics = {lender_debits: 1700, withholding_numerator: 1700, withholding_denominator: 20000,
+  withholding_denominator_label: 'Legacy eligible deposits', returned_funder_payment_total: 0,
+  returned_funder_payment_count: 0};
+const older = {lender_debits: 1700, withholding_numerator: 1700, withholding_denominator: 20000,
+  withholding_denominator_label: 'Legacy eligible deposits'};
+console.log(JSON.stringify({audit: [withholdingAuditNote(metrics, 'USD'), withholdingAuditNote(older, 'USD')],
+  paid: [paidLendersNote(metrics, 'USD'), paidLendersNote(older, 'USD'),
+         paidLendersNote({returned_funder_payment_total: null}, 'USD')],
+  summary: [lenderDebitsSummary(metrics, 'USD'), lenderDebitsSummary(older, 'USD'),
+            lenderDebitsSummary({lender_debits: 0, returned_funder_payment_count: 2, returned_funder_payment_total: 900},
+                                'CAD')],
+  chip: returnedFunderChip({amount: -850, classification: {returned_funder_payment_by: null}}),
+  note: returnedFunderNotes({amount: 850, classification: {returns_funder_payment: 'transaction:9'}}, [])}));
+""")
+    assert result["audit"] == ["$1,700.00 confirmed lender debits divided by $20,000.00 legacy eligible deposits"] * 2
+    assert result["paid"] == ["Total paid to confirmed lenders"] * 3
+    assert result["summary"][:2] == ["$1,700.00 confirmed lender debits"] * 2
+    assert result["summary"][2] == "CA$0.00 confirmed lender debits paid (2 returned funder payments, CA$900.00)"
+    assert result["chip"] == ""
+    assert result["note"] == ["Returns a confirmed funder's payment (transaction:9)"]
+
+
+@needs_node
+def test_a_package_warns_each_returned_payment_in_its_own_unit(tmp_path, monkeypatch):
+    from tests.test_returned_funder_payments import NAMED_RETURN, t1_payload, t4_payload
+
+    package = _package({"mar": t1_payload(), "apr": t4_payload()}, tmp_path, monkeypatch)
+    result = run_dashboard(METRIC_ROWS + LENDER_ROWS + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{lenders: lenderRows(els.lenderTable.innerHTML),
+  rows: metricRows(els.metricsGrid.innerHTML), ledger: ledgerRows(els.transactionTable.innerHTML)}}));
+""")
+    warnings = [row["cells"][0] for row in result["lenders"] if row["cls"] == 'class="lender-warning"']
+    assert warnings == [
+        f"! Returned {_RETURNED_WARNING}",
+        f'! Returned Returned funder payment: KAPITUS $850.00 debited 2054-03-02, returned 2054-03-04 ("{NAMED_RETURN}"). '
+        "Not counted as paid; still in the withholding rate.",
+    ]
+    [kapitus] = [row for row in result["lenders"] if row["cls"] != 'class="lender-warning"']
+    assert kapitus["cells"][2:4] == ["2", "$1,700.00 2 returned payments, $1,700.00, not in paid"]
+    # The package ledger names, in each member, the payment its return returns.
+    assert sorted(note for row in result["ledger"] for note in row["returned"]) == [
+        "Returns the 2054-03-02 payment to KAPITUS", "Returns the 2054-03-03 payment to KAPITUS"]
+    returned_debits = [row for row in result["ledger"] if "Returned" in row["chips"]]
+    assert len(returned_debits) == 2

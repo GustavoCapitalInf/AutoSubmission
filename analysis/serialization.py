@@ -65,6 +65,10 @@ def _funder_dict(match) -> dict:
         "potential_withholding_formula": match.potential_withholding_formula,
         "review_required": match.review_required,
         "status": match.status,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder's payments returned unpaid, never in
+        # debit_count or total_debited (paid to lenders); their rows are among `transactions` and `evidence`.
+        "returned_payment_count": match.returned_count,
+        "returned_payment_total": match.returned_total,
         "transactions": [
             _transaction_dict(transaction, evidence)
             for transaction, evidence in zip(match.transactions, match.evidence)
@@ -192,6 +196,8 @@ def report_to_dict(report: Report) -> dict:
                 asdict(item) for item in detection.potential_lender_evidence
             ],
             "insurance_evidence": [asdict(item) for item in detection.insurance_evidence],
+            # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the returned funder payments, the warning's items.
+            "returned_funder_payments": [dict(item) for item in detection.returned_funder_payments],
             "verified_revenue_evidence": [
                 asdict(item) for item in detection.verified_revenue_evidence
             ],

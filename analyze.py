@@ -105,6 +105,12 @@ def _render(report: Report) -> str:
         f"  Lender debits         : {m.lender_debit_count} row(s), ${m.lender_debits:,.2f}  "
         f"(withholding {withholding})"
     )
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid, out of the lender
+    # debits above and in the withholding numerator below.
+    L.append(
+        f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
+        f"${m.returned_funder_payment_total:,.2f} (kept in withholding)"
+    )
     L.append(
         f"  Withholding working   : ${m.withholding_numerator:,.2f} / "
         f"${m.withholding_denominator:,.2f} eligible deposits"
@@ -143,7 +149,9 @@ def _render(report: Report) -> str:
     if d.known_funders:
         L.append("  Known funders matched:")
         for fm in d.known_funders:
-            L.append(f"    - {fm.funder}: {len(fm.transactions)} txns, "
+            # R2-OW13: the paid debits, then the payments returned unpaid (listed with the funder, never paid).
+            returned = f", {fm.returned_count} returned unpaid" if fm.returned_count else ""
+            L.append(f"    - {fm.funder}: {fm.debit_count} txns{returned}, "
                      f"${fm.total_debited:,.2f} debited (alias '{fm.matched_alias}')")
     else:
         L.append("  Known funders matched: none")

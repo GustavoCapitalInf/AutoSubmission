@@ -36,6 +36,13 @@ from .revenue import (
 )
 from .true_revenue import holder_unscreened, payer_text_unread, premium_trust_title
 
+#: Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §11; R2-OW13): the withholding rate's
+#: numerator is the confirmed lender debits paid plus the funder payments returned unpaid (the scheduled obligation
+#: stands), divided by the withholding basis the statement selected (legacy eligible deposits, Verified or True
+#: revenue). The package and the funder rows publish the same words.
+WITHHOLDING_FORMULA = "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+POTENTIAL_WITHHOLDING_FORMULA = "abs(potential_lender_debit_total) / withholding basis * 100"
+
 
 @dataclass
 class Metrics:
@@ -86,8 +93,14 @@ class Metrics:
     effective_nsf_count: int = 0
     nsf_source: str = NSF_PRINTED
     lender_credits: float = 0.0
+    # Paid to lenders: the confirmed lender debits counted as paid (contributes_to_lender_totals).
     lender_debits: float = 0.0
     lender_debit_count: int = 0
+    # Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §9.1, §11; R2-OW13): the confirmed
+    # funders' payments the bank returned unpaid (rows with returned_funder_payment_by): out of paid to lenders, kept
+    # in the withholding numerator.
+    returned_funder_payment_total: float = 0.0
+    returned_funder_payment_count: int = 0
     lenders_detected: int = 0
     potential_lenders_detected: int = 0
     potential_lender_debit_count: int = 0
@@ -163,14 +176,14 @@ class Metrics:
     withholding_rate: float | None = None
     withholding_numerator: float = 0.0
     withholding_denominator: float = 0.0
-    withholding_formula: str = "abs(total_qualifying_lender_debits) / eligible_deposits * 100"
+    # R2-OW13 (the underwriter's Q5): the numerator is the confirmed lender debits paid plus the returned funder
+    # payments, every row marked contributes_to_withholding_rate; the basis is the selected withholding denominator.
+    withholding_formula: str = WITHHOLDING_FORMULA
     withholding_review_required: bool = False
     potential_withholding_exposure: float | None = None
     potential_withholding_numerator: float = 0.0
     potential_withholding_denominator: float = 0.0
-    potential_withholding_formula: str = (
-        "abs(potential_lender_debit_total) / eligible_deposits * 100"
-    )
+    potential_withholding_formula: str = POTENTIAL_WITHHOLDING_FORMULA
     potential_withholding_review_required: bool = False
     eligible_deposits: float = 0.0
     legacy_eligible_deposits: float = 0.0
@@ -181,6 +194,8 @@ class Metrics:
         "effective total deposits minus recognized lender funding credits"
     )
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
+    # R2-OW13: the returned funder payments' debit rows (lender_evidence stays the paid rows).
+    returned_funder_payment_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_lender_evidence: list[TransactionClassification] = field(default_factory=list)
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
     true_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
@@ -370,6 +385,7 @@ def compute_metrics(
     flagged_payees: dict[str, set[str]] = {}
     by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
     non_revenue_by_reason: dict[str, list] = {}
+    withholding_numerator = 0.0
     direction_conflict = False
     for t, classification in zip(stmt.transactions, records):
         if t.amount >= 0:
@@ -386,6 +402,13 @@ def compute_metrics(
             m.lender_debits += abs(t.amount)
             m.lender_debit_count += 1
             m.lender_evidence.append(classification)
+        if classification.contributes_to_withholding_rate:
+            withholding_numerator += abs(t.amount)
+        if classification.returned_funder_payment_by:
+            # R2-OW13 (the underwriter's Q5): a funder payment returned unpaid, out of the paid figure above.
+            m.returned_funder_payment_total += abs(t.amount)
+            m.returned_funder_payment_count += 1
+            m.returned_funder_payment_evidence.append(classification)
         if classification.contributes_to_lender_count and classification.canonical_entity:
             confirmed_entities.add(classification.canonical_entity)
         if classification.contributes_to_potential_lender_count and classification.canonical_entity:
@@ -478,6 +501,7 @@ def compute_metrics(
     m.total_withdrawals = round(m.total_withdrawals, 2)
     m.lender_credits = round(m.lender_credits, 2)
     m.lender_debits = round(m.lender_debits, 2)
+    m.returned_funder_payment_total = round(m.returned_funder_payment_total, 2)
     m.potential_lender_debit_total = round(m.potential_lender_debit_total, 2)
     m.potential_lender_debits = m.potential_lender_debit_total
     m.monthly_lender_debits = m.lender_debits
@@ -689,7 +713,17 @@ def compute_metrics(
     else:
         m.eligible_deposits = m.legacy_eligible_deposits
         m.withholding_denominator_label = "Legacy eligible deposits"
-    m.withholding_numerator = m.lender_debits
+    # R2-OW13 (the underwriter's Q5): every row the rate reads, the paid lender debits and the returned funder payments
+    # (equal to lender_debits + returned_funder_payment_total to the cent).
+    m.withholding_numerator = round(withholding_numerator, 2)
+    if m.returned_funder_payment_count:
+        # The money in the statement's own unit (CURRENCY DOCTRINE: never a '$' on a CAD statement).
+        unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+        m.notes.append(
+            f"{m.returned_funder_payment_count} returned funder "
+            f"{'payment' if m.returned_funder_payment_count == 1 else 'payments'} "
+            f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
+        )
     m.withholding_denominator = m.eligible_deposits
     m.potential_withholding_numerator = m.potential_lender_debit_total
     m.potential_withholding_denominator = m.eligible_deposits

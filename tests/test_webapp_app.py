@@ -403,7 +403,10 @@ def test_package_analysis_aggregates_completed_jobs():
     assert totals["verified_revenue_total"] is None
     assert totals["revenue_unestablished_documents"] == sorted([job1.id, job2.id])
     assert totals["decision"] == "review_required"
-    assert body["funders"] == [{"funder": "ONDECK", "documents": 2, "total_debited": 1500.0}]
+    # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13: every funder rollup sums its returned funder payments
+    # (none here, and none in members stored before the ruling).
+    assert body["funders"] == [{"funder": "ONDECK", "documents": 2, "total_debited": 1500.0,
+                                "returned_payment_count": 0, "returned_payment_total": 0.0}]
 
     json_resp = client.get(f"/package_download/json?ids={job1.id},{job2.id}")
     assert json_resp.status_code == 200

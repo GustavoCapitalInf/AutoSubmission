@@ -38,6 +38,7 @@ from analysis.cadence import describe_cadence
 from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
 from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group_keys
+from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue_view import apply_revenue_view
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
@@ -954,6 +955,9 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "potential_withholding_exposure",
     "potential_withholding_exposure_raw",
     "potential_withholding_numerator",
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid; their count is
+    # unit-free and stays.
+    "returned_funder_payment_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -987,6 +991,9 @@ _CROSS_CURRENCY_ROLLUP_KEYS = (
     "potential_lender_debit_total",
     "eligible_deposit_denominator",
     "potential_withholding_exposure",
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a funder's payments returned unpaid, summed across the
+    # package like its total debited.
+    "returned_payment_total",
 )
 
 
@@ -1969,8 +1976,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "maximum_revenue": 0.0,
         "total_debits": 0.0,
         "cash_flow": 0.0,
+        # Paid to lenders: the members' confirmed lender debits counted as paid.
         "lender_debits": 0.0,
         "lender_debit_count": 0,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the members' funder payments returned unpaid, out of
+        # lender_debits and in withholding_numerator.
+        "returned_funder_payment_total": 0.0,
+        "returned_funder_payment_count": 0,
         "lenders_detected": 0,
         "potential_lenders_detected": 0,
         "potential_lender_debit_count": 0,
@@ -2002,6 +2014,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     package_potential_matches: list[dict] = []
     package_insurance_matches: list[dict] = []
     package_lender_evidence: list[dict] = []
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the kept members' returned funder payments, each naming
+    # its statement and its unit.
+    package_returned_funder_payments: list[dict] = []
     package_potential_lender_evidence: list[dict] = []
     package_insurance_evidence: list[dict] = []
     package_revenue_evidence: dict[str, list[dict]] = {
@@ -2157,10 +2172,22 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             for transaction in statement_transactions
             if isinstance(transaction.get("classification"), dict)
         ]
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): paid to lenders reads the lender-total flag; the
+        # withholding numerator reads the withholding flag, which also holds the funder payments returned unpaid.
         lender_rows = [
             transaction
             for transaction in authoritative_rows
+            if transaction["classification"].get("contributes_to_lender_totals") is True
+        ]
+        withholding_rows = [
+            transaction
+            for transaction in authoritative_rows
             if transaction["classification"].get("contributes_to_withholding_rate") is True
+        ]
+        returned_rows = [
+            transaction
+            for transaction in authoritative_rows
+            if transaction["classification"].get("returned_funder_payment_by")
         ]
         potential_lender_rows = [
             transaction
@@ -2274,6 +2301,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         if authoritative_rows:
             lender_debits = round(sum(abs(_num(row.get("amount"))) for row in lender_rows), 2)
             lender_debit_count = len(lender_rows)
+            withholding_numerator = round(sum(abs(_num(row.get("amount"))) for row in withholding_rows), 2)
+            returned_funder_payment_total = round(sum(abs(_num(row.get("amount"))) for row in returned_rows), 2)
+            returned_funder_payment_count = len(returned_rows)
             potential_lender_debit_total = round(
                 sum(abs(_num(row.get("amount"))) for row in potential_lender_rows),
                 2,
@@ -2283,9 +2313,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             insurance_total = round(sum(abs(_num(row.get("amount"))) for row in insurance_rows), 2)
         else:
             # Compatibility for already-completed in-memory jobs created before
-            # classification records were added. New reports always take the path above.
-            lender_debits = _num(metrics.get("withholding_numerator"), _num(metrics.get("lender_debits")))
+            # classification records were added. New reports always take the path above. R2-OW13: paid to lenders is
+            # the stored lender_debits, and the numerator the stored withholding_numerator, falling back to it.
+            lender_debits = _num(metrics.get("lender_debits"), _num(metrics.get("withholding_numerator")))
             lender_debit_count = int(_num(metrics.get("lender_debit_count"), 0.0))
+            withholding_numerator = _num(metrics.get("withholding_numerator"), lender_debits)
+            returned_funder_payment_total = _num(metrics.get("returned_funder_payment_total"))
+            returned_funder_payment_count = int(_num(metrics.get("returned_funder_payment_count"), 0.0))
             potential_lender_debit_total = _num(
                 metrics.get("potential_lender_debit_total"),
                 _num(metrics.get("potential_lender_debits")),
@@ -2509,6 +2543,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         totals["cash_flow"] = round(totals["cash_flow"] + cash_flow, 2)
         totals["lender_debits"] = round(totals["lender_debits"] + lender_debits, 2)
         totals["lender_debit_count"] += lender_debit_count
+        totals["returned_funder_payment_total"] = round(
+            totals["returned_funder_payment_total"] + returned_funder_payment_total, 2
+        )
+        totals["returned_funder_payment_count"] += returned_funder_payment_count
         totals["potential_lender_debit_total"] = round(
             totals["potential_lender_debit_total"] + potential_lender_debit_total,
             2,
@@ -2517,7 +2555,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         totals["potential_lender_debit_count"] += potential_lender_debit_count
         totals["insurance_count"] += insurance_count
         totals["insurance_total"] = round(totals["insurance_total"] + insurance_total, 2)
-        totals["withholding_numerator"] = totals["lender_debits"]
+        # R2-OW13 (the underwriter's Q5): the members' numerators, paid plus returned, never the paid figure alone.
+        totals["withholding_numerator"] = round(totals["withholding_numerator"] + withholding_numerator, 2)
         totals["potential_withholding_numerator"] = totals["potential_lender_debit_total"]
         totals["withholding_denominator"] = round(
             totals["withholding_denominator"] + eligible_deposits,
@@ -2530,15 +2569,21 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             name = match.get("funder") or "Unknown"
             item = funders.setdefault(
                 name,
-                {"funder": name, "documents": 0, "total_debited": 0.0},
+                {"funder": name, "documents": 0, "total_debited": 0.0, "returned_payment_count": 0,
+                 "returned_payment_total": 0.0},
             )
             item["documents"] += 1
             match_debit_count = int(
                 _num(match.get("debit_count"), len(match.get("transactions") or []))
             )
-            if match_debit_count:
+            # R2-OW13: a funder whose every payment bounced publishes debit_count 0, and is listed with it.
+            if match_debit_count or "debit_count" in match:
                 item["debit_count"] = item.get("debit_count", 0) + match_debit_count
             item["total_debited"] = round(item["total_debited"] + _num(match.get("total_debited")), 2)
+            item["returned_payment_count"] += int(_num(match.get("returned_payment_count"), 0.0))
+            item["returned_payment_total"] = round(
+                item["returned_payment_total"] + _num(match.get("returned_payment_total")), 2
+            )
             package_funder_matches.append(
                 {
                     "funder": name,
@@ -2547,6 +2592,15 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "evidence": match.get("evidence") or [],
                 }
             )
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the warning's items, each naming its statement, its
+        # account (a statement of several) and its unit, as an evidence record does.
+        for returned_item in detection.get("returned_funder_payments") or []:
+            if isinstance(returned_item, dict):
+                package_returned_funder_payments.append({
+                    **returned_item, "source_job": job.id, "source_document": job.filename,
+                    "source_currency": statement_currency,
+                    **({"source_account": account_index} if account_index is not None else {}),
+                })
 
         potential_matches_by_entity = {
             match.get("funder") or "Unknown candidate": match
@@ -2799,6 +2853,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "nsf_days": nsf_days,
             "lender_debits": lender_debits,
             "lender_debit_count": lender_debit_count,
+            # R2-OW13 (the underwriter's Q5): its funder payments returned unpaid, out of lender_debits.
+            "returned_funder_payment_total": returned_funder_payment_total,
+            "returned_funder_payment_count": returned_funder_payment_count,
             "lenders_detected": int(_num(metrics.get("lenders_detected"), len(detection.get("known_funders") or []))),
             "potential_lenders_detected": int(_num(metrics.get("potential_lenders_detected"), len(detection.get("potential_lenders") or []))),
             "potential_lender_debit_count": potential_lender_debit_count,
@@ -2807,7 +2864,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "insurance_count": insurance_count,
             "insurance_total": insurance_total,
             "withholding_rate": metrics.get("withholding_rate"),
-            "withholding_numerator": lender_debits,
+            # R2-OW13: paid lender debits plus returned funder payments.
+            "withholding_numerator": withholding_numerator,
             "withholding_denominator": eligible_deposits,
             "withholding_review_required": bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0,
             "withholding_denominator_mode": denominator_mode,
@@ -3031,9 +3089,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             if totals["potential_withholding_denominator"] > 0 and not partial_revenue_denominator
             else None
         )
-        item["potential_withholding_formula"] = (
-            "abs(potential_lender_debit_total) / eligible_deposits * 100"
-        )
+        item["potential_withholding_formula"] = POTENTIAL_WITHHOLDING_FORMULA
     # Audit round 2, R2-B15 (R15): the accounts left out of every figure for a reason other than a repeat: a statement
     # whose main account is held or idle (the 2026-09-23 ruling), an account that did not validate on its own (Q1), and
     # every account of a document whose transfers could not be paired (Q2) or that left a section out without proof
@@ -3189,11 +3245,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "package_withholding_rate": package_withholding,
         "package_withholding_rate_raw": package_withholding_raw,
         "eligible_deposits": totals["withholding_denominator"],
-        "withholding_formula": "abs(total_qualifying_lender_debits) / eligible_deposits * 100",
+        # R2-OW13 (the underwriter's Q5): the members' numerators (paid plus returned) over the withholding basis.
+        "withholding_formula": WITHHOLDING_FORMULA,
         "withholding_review_required": withholding_review_required,
         "potential_withholding_exposure": potential_withholding,
         "potential_withholding_exposure_raw": potential_withholding_raw,
-        "potential_withholding_formula": "abs(potential_lender_debit_total) / eligible_deposits * 100",
+        "potential_withholding_formula": POTENTIAL_WITHHOLDING_FORMULA,
         "potential_withholding_review_required": potential_withholding_review_required,
         "decision": decision,
         "withholding_denominator_mode": (
@@ -3298,6 +3355,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "flagged_positions": package_flagged_positions,
         "transactions": package_transactions,
         "lender_evidence": package_lender_evidence,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the kept members' returned funder payments.
+        "returned_funder_payments": package_returned_funder_payments,
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
         "flagged_evidence": package_flagged_evidence,

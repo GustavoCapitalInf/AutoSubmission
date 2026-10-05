@@ -212,6 +212,12 @@ class TransactionClassification:
     reversal_of: str | None = None
     reversed_by: str | None = None
     settlement_reversal: bool = False
+    # Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §6.2, §9.1, §11; R2-OW13): a
+    # confirmed funder's payment the bank returned unpaid. On the DEBIT, the return credit's location: the row leaves
+    # paid to lenders (contributes_to_lender_totals) and stays in the withholding rate and the lender count. On the
+    # CREDIT, the debit's location; its revenue reading is untouched. None on every other row.
+    returned_funder_payment_by: str | None = None
+    returns_funder_payment: str | None = None
     contributes_to_lender_count: bool = False
     contributes_to_potential_lender_count: bool = False
     contributes_to_lender_totals: bool = False
@@ -5706,7 +5712,23 @@ def _apply_reversal_pair_context(
             settlement_reversal=is_settlement_reversal,
             contributes_to_flagged_totals=False,
         )
-        if is_settlement_reversal:
+        if is_settlement_reversal and _is_paid_funder_debit(updated[debit_index]):
+            # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a confirmed funder's payment returned unpaid
+            # leaves paid to lenders and keeps its withholding and its lender count; reversed_by is set as before.
+            updated[debit_index] = replace(
+                updated[debit_index],
+                reversed_by=credit_location,
+                contributes_to_potential_lender_count=False,
+                contributes_to_lender_totals=False,
+                contributes_to_potential_lender_totals=False,
+                contributes_to_potential_withholding_exposure=False,
+                contributes_to_insurance_totals=False,
+                contributes_to_flagged_totals=False,
+                returned_funder_payment_by=credit_location,
+                reason=f"{updated[debit_index].reason} {_returned_unpaid_reason(credit_location)}",
+            )
+            updated[credit_index] = replace(updated[credit_index], returns_funder_payment=related_location)
+        elif is_settlement_reversal:
             updated[debit_index] = replace(
                 updated[debit_index],
                 reversed_by=credit_location,
@@ -5719,6 +5741,208 @@ def _apply_reversal_pair_context(
                 contributes_to_insurance_totals=False,
                 contributes_to_flagged_totals=False,
             )
+    return updated
+
+
+def _is_paid_funder_debit(record: TransactionClassification) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a confirmed funder's posted payment counted as paid to
+    lenders, the debit a returned funder payment takes out of the paid figure."""
+    return (
+        record.amount < 0
+        and record.is_posted
+        and record.classification == "confirmed_lender"
+        and record.contributes_to_lender_totals
+    )
+
+
+def _returned_unpaid_reason(credit_location: str) -> str:
+    """The sentence a returned funder payment's debit adds to its reason (R2-OW13). The ruling is named without its
+    date: the analysis layer keeps no year literal outside date parsing (tests/test_no_statement_hardcodes.py)."""
+    return (
+        f"Returned unpaid by {credit_location}: out of paid to lenders, kept in the withholding rate (the owner's "
+        "ruling on the underwriter's Q5)."
+    )
+
+
+#: Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §6.2 pass 7b, §11; R2-OW13): the
+#: forms a bank prints when it returns the business's own payment unpaid (a bounce), read on a credit by the
+#: returned-funder-payment pass alone (rule D, _returned_funder_payment_pairs): never a refund, a card return, a
+#: correction or a reversal word on its own, and never with the fee words of _DEPOSIT_UNDO_FEE. Arms (2) to (6) read only
+#: where no legal-form word follows on the row (a return code inside a company's name is no bounce: SAMPLE RTN TRUCKING
+#: LLC). The two French arms are audit round 2's R2-B08 arms (a) and (c) of _RETURN_REFUND_R2_B08_ARMS (EFFET RETOURNE,
+#: EFFET or CHEQUE REFUSE SANS PROVISION), copied here and read on the lender side only (a test keeps them equal); their
+#: revenue-side reading stays R2-B08's.
+_RETURNED_PAYMENT_CREDIT_PATTERNS = (
+    re.compile(r"\bRETURN OF POSTED (?:CHECK|ITEM)\b"),
+    re.compile(r"(?<![A-Z])(?:ITEM RET|RET ITEM|RET NOT PAID)\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])(?:RTN|RETN)\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])NSF\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])(?:UNPAID|NOT PAID)\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])REJECT(?:ED)?\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"\bRETURN(?:ED)? (?:ITEM|ACH|PAYMENT|DEBIT|PAD|CHECK|CHEQUE|EFT|ENTRY|DR)S?\b"),
+    re.compile(r"\b(?:ITEM|ACH|PAYMENT|DEBIT|PAD|EFT|CHECK|CHEQUE|ENTRY|DR)S? RETURN(?:ED)?\b"),
+    re.compile(r"\bCREDIT RETURNED\b"),
+    re.compile(r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b"),
+    re.compile(r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b"),
+)
+#: Rule D's window: the return credit is dated 0 to this many days after the funder's debit (R2-OW13). A 14-day window
+#: adds no corpus row (measured by the planning card at c486fd5).
+RETURNED_FUNDER_PAYMENT_WINDOW_DAYS = 7
+#: Bank of America's return names the day the returned item was received ('RECEIVED ON 03/03', its slash normalized
+#: to a space): a candidate debit dated that month and day is the one returned (R2-OW13).
+_RECEIVED_ON_DAY = re.compile(r"\bRECEIVED ON (\d{1,2}) ?(\d{1,2})\b")
+#: The tiers a return credit rule D reads may carry: out of True (a credit the revenue side counts is never a return).
+_RETURN_CREDIT_TIERS = frozenset({"non_revenue", "excluded_pending_review"})
+
+
+def _returned_payment_credit(text: str) -> bool:
+    """R2-OW13: a credit printing a bounce form (_RETURNED_PAYMENT_CREDIT_PATTERNS) and no fee word."""
+    return _matches_any(text, _RETURNED_PAYMENT_CREDIT_PATTERNS) and _DEPOSIT_UNDO_FEE.search(text) is None
+
+
+def _received_on_day(text: str) -> tuple[int, int] | None:
+    """The (month, day) Bank of America's 'RECEIVED ON <mm> <dd>' prints, or None."""
+    found = _RECEIVED_ON_DAY.search(text)
+    if found is None:
+        return None
+    month, day = int(found.group(1)), int(found.group(2))
+    return (month, day) if 1 <= month <= 12 and 1 <= day <= 31 else None
+
+
+def _return_gap(
+    records: list[TransactionClassification], credit_index: int, debit_index: int,
+) -> tuple[bool, int | None]:
+    """(inside rule D's window, the gap in days): the credit dated 0 to RETURNED_FUNDER_PAYMENT_WINDOW_DAYS days after
+    the debit; when either row is undated, the debit printed before the credit (the gap then None)."""
+    credit_date, debit_date = parse_date(records[credit_index].date), parse_date(records[debit_index].date)
+    if credit_date is None or debit_date is None:
+        return debit_index < credit_index, None
+    days = (credit_date - debit_date).days
+    return 0 <= days <= RETURNED_FUNDER_PAYMENT_WINDOW_DAYS, days
+
+
+def _returned_funder_payment_pairs(
+    records: list[TransactionClassification], duplicate_indexes: set[int],
+) -> list[tuple[int, int]]:
+    """Owner ruling 2026-10-02 (the underwriter's Q5, "Match the return to the funder payment it reverses"; true
+    revenue spec §6.2 pass 7b; R2-OW13): rule D's (credit index, debit index) pairs, in the credits' (date, row) order,
+    undated first.
+
+    - Funder debits: posted, not duplicates, confirmed lenders' payments counted as paid (_is_paid_funder_debit) that
+      no pair reversed and no earlier return took. Guard debits: every other posted debit that is no duplicate and no
+      confirmed lender's (potential lenders included).
+    - Return credits: posted, not duplicates, not a named pair's credit (another debit's reversed_by), not a lender
+      credit, out of True (_RETURN_CREDIT_TIERS: never a credit the revenue side counts) and printing a bounce form
+      (_returned_payment_credit).
+    - A credit the revenue side paired (matched_reversal_pair) pairs only with its partner, when that is an unused
+      funder debit of equal cents inside the window and order (_return_gap); otherwise it is left alone. A credit that
+      names a confirmed funder (the credit index of the known payees) pairs only with that funder's debits.
+    - Otherwise the candidates are the unused funder debits of equal cents inside the window and order. A candidate
+      dated on the 'RECEIVED ON' day the credit prints wins; else the latest debit date, then the nearest row. The
+      credit is skipped when an equal guard debit lies in the window as near as the chosen one, or undated.
+    Each debit pairs once."""
+    def location(index: int) -> str:
+        return records[index].source_location or f"transaction:{index + 1}"
+
+    def cents(index: int) -> int:
+        return round(abs(records[index].amount) * 100)
+
+    funder_debits = [
+        index for index, record in enumerate(records)
+        if index not in duplicate_indexes and _is_paid_funder_debit(record)
+        and record.reversed_by is None and record.returned_funder_payment_by is None
+    ]
+    if not funder_debits:
+        return []
+    guard_debits = [
+        index for index, record in enumerate(records)
+        if index not in duplicate_indexes and record.amount < 0 and record.is_posted
+        and record.classification != "confirmed_lender"
+    ]
+    paired_credits = {record.reversed_by for record in records if record.reversed_by}
+    credits: list[tuple[date, int]] = []
+    for index, record in enumerate(records):
+        if (
+            index in duplicate_indexes
+            or record.amount <= 0
+            or not record.is_posted
+            or location(index) in paired_credits
+            or record.contributes_to_lender_credit_exclusion
+            or record.revenue_tier not in _RETURN_CREDIT_TIERS
+            or not _returned_payment_credit(record.normalized_description)
+        ):
+            continue
+        credits.append((parse_date(record.date) or date.min, index))
+    credits.sort()
+    used: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    for _, credit_index in credits:
+        credit = records[credit_index]
+        named = match_known_payee(credit.normalized_description, credit=True)
+        funder = named.entity if named is not None and named.state == "confirmed_lender" else None
+        candidates = [
+            index for index in funder_debits
+            if index not in used and cents(index) == cents(credit_index)
+            and (funder is None or records[index].canonical_entity == funder)
+            and _return_gap(records, credit_index, index)[0]
+        ]
+        if credit.revenue_match_method == "matched_reversal_pair":
+            partner = next((index for index in candidates if location(index) == credit.revenue_related_transaction),
+                           None)
+            if partner is not None:
+                used.add(partner)
+                pairs.append((credit_index, partner))
+            continue
+        if not candidates:
+            continue
+        received = _received_on_day(credit.normalized_description)
+
+        def rank(index: int) -> tuple[int, int, int]:
+            debit_date = parse_date(records[index].date)
+            on_received = received is not None and debit_date is not None and (
+                (debit_date.month, debit_date.day) == received)
+            return (0 if on_received else 1, -(debit_date.toordinal() if debit_date else 0),
+                    abs(credit_index - index))
+
+        chosen = min(candidates, key=rank)
+        chosen_gap = _return_gap(records, credit_index, chosen)[1]
+        if any(
+            cents(index) == cents(credit_index)
+            and (window := _return_gap(records, credit_index, index))[0]
+            and (window[1] is None or chosen_gap is None or window[1] <= chosen_gap)
+            for index in guard_debits
+        ):
+            continue
+        used.add(chosen)
+        pairs.append((credit_index, chosen))
+    return pairs
+
+
+def _apply_returned_funder_payments(
+    records: list[TransactionClassification], duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    """Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §6.2 pass 7b, §11; R2-OW13): each rule-D pair
+    (_returned_funder_payment_pairs) takes the funder's debit out of paid to lenders (contributes_to_lender_totals and,
+    as a named pair does, contributes_to_flagged_totals False; returned_funder_payment_by the credit's location; the
+    reason's returned-unpaid sentence) and keeps its withholding and its lender count; the credit names the debit
+    (returns_funder_payment). reversed_by, settlement_reversal and every revenue field stay as they are, so the
+    reconciliation's reversal coverage, the settled-activity counts and every revenue reading are unchanged. It runs
+    after pass 7, so the credit's tier is final, and before the duplicate finalisation."""
+    pairs = _returned_funder_payment_pairs(records, duplicate_indexes)
+    if not pairs:
+        return records
+    updated = list(records)
+    for credit_index, debit_index in pairs:
+        credit_location = records[credit_index].source_location or f"transaction:{credit_index + 1}"
+        debit_location = records[debit_index].source_location or f"transaction:{debit_index + 1}"
+        updated[debit_index] = replace(
+            updated[debit_index],
+            contributes_to_lender_totals=False,
+            contributes_to_flagged_totals=False,
+            returned_funder_payment_by=credit_location,
+            reason=f"{updated[debit_index].reason} {_returned_unpaid_reason(credit_location)}",
+        )
+        updated[credit_index] = replace(updated[credit_index], returns_funder_payment=debit_location)
     return updated
 
 
@@ -7178,6 +7402,10 @@ def classify_statement_transactions(
         ),
         statement_start=statement.period_start,
     )
+    # Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §6.2 pass 7b; R2-OW13): a confirmed funder's
+    # payment a bounce-worded credit returned leaves paid to lenders and stays in the withholding rate. After pass 7, so
+    # the return credit's tier is final; it reads and writes nothing passes 5 to 7 read.
+    records = _apply_returned_funder_payments(records, set(duplicate_of))
 
     for index, original_index in duplicate_of.items():
         record = records[index]

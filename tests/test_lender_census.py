@@ -331,3 +331,88 @@ def test_r2_b01_a_re_parsed_snapshot_reads_a_routed_input_from_its_re_parse(tmp_
     stats = written["basis_stats"]["reparse"]
     assert {name: stats[name] for name in ("inputs", "reached", "reparsed", "failed", "cached")} == {
         "inputs": 2, "reached": 1, "reparsed": 1, "failed": 0, "cached": 1}
+
+
+# Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §14.3 G7; audit round 2, R2-OW13): a confirmed
+# funder's payment returned unpaid leaves the lenders list (paid) and stays in the withholding rows and the lender
+# count. The snapshot records the withholding numerator, the lender count's entities and the returned rows; compare
+# declares the withholding move of a returned row (returned_funder_moves) and a funder kept in the count whose every
+# paid row was returned (kept_in_count_returned), and still fails any other withholding or reversed_by move.
+
+def test_a_snapshot_records_the_withholding_numerator_the_counted_entities_and_the_returned_rows(tmp_path, fake_payees):
+    cache = ArtifactCache(data_dir=tmp_path / "data")
+    cache.put_analysis("f" * 64, "settings", {"statement": {"bank": "Bank of America", "transactions": [
+        _row("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 10000.0),
+        _row("2054-01-05", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+        _row("2054-01-06", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+        _row("2054-01-07", "RETURN OF POSTED CHECK ITEM", 1000.0),
+    ]}})
+    account = census.snapshot(census.cached_accounts(tmp_path / "data"))["accounts"]["f" * 64 + ":0"]
+    assert account["lenders"] == [[1, "Fabricated Lender", "FABRICATED LENDER"]]
+    assert account["withholding_rows"] == [1, 2]
+    assert account["returned_funder_rows"] == [[2, "transaction:4"]]
+    assert account["lender_count_entities"] == ["Fabricated Lender"]
+    assert (account["lender_debits"], account["withholding_numerator"]) == (1000.0, 2000.0)
+
+
+def _returned_snapshots(*, returned_rows):
+    """A funder's only paid row (index 1) leaves the lenders list and a named pair's row (index 2) rejoins the
+    withholding rows; `returned_rows` lists the after snapshot's returned funder rows."""
+    flags = {"potential_lender_rows": [], "potential_withholding_rows": [], "reversed_by": [[2, "transaction:4"]],
+             "row_entities": {"1": "Quillon Funding", "2": "Quillon Funding"}}
+    base = _account(["other", "confirmed_lender", "confirmed_lender", "other"],
+                    [[1, "Quillon Funding", "QUILLON FUNDING"]], {}, 10.0)
+    before = {"accounts": {"s1:0": {**base, **flags, "withholding_rows": [1], "withholding_numerator": 100.0,
+                                    "lender_count_entities": ["Quillon Funding"], "returned_funder_rows": []}}}
+    after_account = {**base, **flags, "lenders": [], "withholding_rows": [1, 2], "withholding_numerator": 200.0,
+                     "lender_count_entities": ["Quillon Funding"], "returned_funder_rows": returned_rows}
+    return before, {"accounts": {"s1:0": after_account}}
+
+
+def test_compare_declares_a_returned_row_s_withholding_move_and_a_funder_kept_in_the_count():
+    before, after = _returned_snapshots(returned_rows=[[1, "transaction:5"], [2, "transaction:4"]])
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_moves"] == {"analyses": 1, "rows": 1}
+    assert report["row_flag_moves"]["withholding_rows"] == {"analyses": 1, "rows": 1}
+    assert report["row_flag_moves_outside_the_allowlist"] == 0
+    assert report["kept_in_count_returned"] == {"Quillon Funding": {"analyses": 1}}
+    assert report["lost"] == {}
+    assert report["paid_rows"] == {"left_returned": 1, "left_other": 0, "joined": 0}
+    assert report["lender_count"] == {"gained": {}, "lost": {}, "not_comparable": 0}
+    assert report["withholding_numerator"] == {"up": 1}
+
+
+def test_compare_still_fails_a_withholding_or_reversed_by_move_that_is_not_a_returned_row(tmp_path, capsys):
+    # The same moves with no returned row: the withholding move is outside the allowlist and the funder is lost.
+    before, after = _returned_snapshots(returned_rows=[])
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_moves"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves_outside_the_allowlist"] == 1
+    assert report["kept_in_count_returned"] == {}
+    assert report["lost"] == {"Quillon Funding": {"analyses": 1, "rows_now": {"confirmed_lender": 1}}}
+    assert report["paid_rows"] == {"left_returned": 0, "left_other": 1, "joined": 0}
+    # A reversed_by move on a returned row is never declared.
+    moved = json.loads(json.dumps(after))
+    moved["accounts"]["s1:0"]["returned_funder_rows"] = [[1, "transaction:5"], [2, "transaction:4"]]
+    moved["accounts"]["s1:0"]["reversed_by"] = [[2, "transaction:4"], [1, "transaction:5"]]
+    assert census.compare(before, moved, admitted=frozenset())["row_flag_moves_outside_the_allowlist"] == 1
+    paths = _files(tmp_path, before, after, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 1
+    out = capsys.readouterr().out
+    assert "returned funder moves (withholding rows kept for a returned funder payment): 0 analyses/0 rows" in out
+
+
+def test_compare_reports_the_lender_count_s_moves_and_reads_an_older_snapshot_as_not_comparable():
+    before, after = _returned_snapshots(returned_rows=[[1, "transaction:5"], [2, "transaction:4"]])
+    gained = json.loads(json.dumps(after))
+    gained["accounts"]["s1:0"]["lender_count_entities"] = ["Brambleway Capital", "Quillon Funding"]
+    report = census.compare(before, gained, admitted=frozenset())
+    assert report["lender_count"]["gained"] == {"Brambleway Capital": {"analyses": 1}}
+    older = json.loads(json.dumps(before))
+    for key in ("withholding_numerator", "lender_count_entities", "returned_funder_rows"):
+        older["accounts"]["s1:0"].pop(key)
+    report = census.compare(older, after, admitted=frozenset())
+    assert report["lender_count"]["not_comparable"] == 1
+    assert report["withholding_numerator"] == {"not_comparable": 1}
+    # The after snapshot's returned rows still declare the move.
+    assert report["returned_funder_moves"] == {"analyses": 1, "rows": 1}

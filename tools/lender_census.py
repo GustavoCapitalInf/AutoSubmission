@@ -19,6 +19,12 @@ Usage, from the repository root of the checkout that holds this tool:
 "before" snapshot runs the code as it stood before the change. `--ledger` is the curated registry
 ledger the alias tables are rendered from (master plan C10; default docs/lender-registry-ledger.json).
 
+Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §14.3 G7; R2-OW13): each account also records its
+withholding numerator, the entities its lender count reads and its confirmed funders' payments returned unpaid, and
+`compare` declares the moves the ruling makes: a returned row's withholding move (`returned_funder_moves`) and a funder
+kept in the lender count whose every paid row was returned (`kept_in_count_returned`); any other withholding or
+reversed_by move outside the allowlist still fails.
+
 `--reparse` (true revenue audit round 2, R2-B01: R12) re-parses every latest input a cached OCR reading
 reaches with the checkout's deterministic analysis stage, as the revenue census does
 (tools.revenue_census.reparse_inputs), and reads every other input from the cache; the snapshot records
@@ -167,6 +173,19 @@ def account_snapshot(account: dict) -> dict:
         "lender_debits": metrics.lender_debits,
         "eligible_deposits": metrics.eligible_deposits,
         "withholding_rate": metrics.withholding_rate,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §14.3 G7; R2-OW13): the withholding
+        # numerator (paid plus returned), the entities the lender count reads, and each confirmed funder's payment
+        # returned unpaid ([index, the return credit's location]), so compare declares the moves the ruling makes. A
+        # checkout older than the ruling records the numerator as its lender debits and no returned row.
+        "withholding_numerator": metrics.withholding_numerator,
+        "lender_count_entities": sorted({
+            record.canonical_entity for record in records
+            if record.contributes_to_lender_count and record.canonical_entity
+        }),
+        "returned_funder_rows": [
+            [index, record.returned_funder_payment_by] for index, record in enumerate(records)
+            if getattr(record, "returned_funder_payment_by", None)
+        ],
         # True revenue final review I6: each row's potential-lender and withholding flags and its reversal pairing,
         # so G7 measures a move of a debit's contributions (a reversal pair zeroing them), not only its state. A
         # checkout older than a flag reports none for it.
@@ -252,6 +271,17 @@ def compare(
     moves: list[tuple[float, str]] = []
     row_flags: dict = {name: {"analyses": set(), "rows": 0} for name in ROW_FLAG_FIELDS}
     row_flags_not_comparable = 0
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the moves the ruling declares. A withholding_rows move on
+    # a row the after snapshot lists in returned_funder_rows (a confirmed funder's payment returned unpaid, kept in the
+    # withholding rate); a funder whose paid rows all leave the lenders list for returned rows while it stays in the
+    # lender count (kept_in_count_returned, never `lost`); the paid rows that leave the lenders list, for a returned
+    # row or not; the lender count's entities; and the withholding numerator.
+    returned_moves: dict = {"analyses": set(), "rows": 0}
+    kept_in_count: dict = defaultdict(set)
+    paid_rows: Counter = Counter()
+    count_moves: dict = {"gained": defaultdict(set), "lost": defaultdict(set)}
+    count_not_comparable = 0
+    numerators: Counter = Counter()
     unmatched = 0
     for key, old in sorted(before["accounts"].items()):
         new = after["accounts"].get(key)
@@ -259,6 +289,7 @@ def compare(
             unmatched += 1
             continue
         sha = key.split(":")[0]
+        returned_rows = {row[0] for row in new.get("returned_funder_rows") or []}
         # Final review I6: the rows whose potential-lender, withholding or reversal reading moved; a snapshot written
         # before the fields is not comparable.
         if all(name in old and name in new for name in ROW_FLAG_FIELDS):
@@ -272,7 +303,11 @@ def compare(
                     for item in was ^ now:
                         row = json.loads(item)
                         index = row[0] if isinstance(row, list) else row
-                        if entities.get(str(index)) not in allowlisted:
+                        if name == "withholding_rows" and index in returned_rows:
+                            # R2-OW13: declared (returned_funder_moves), never outside the allowlist.
+                            returned_moves["analyses"].add(sha)
+                            returned_moves["rows"] += 1
+                        elif entities.get(str(index)) not in allowlisted:
                             outside += 1
         else:
             row_flags_not_comparable += 1
@@ -286,11 +321,38 @@ def compare(
                 slot["aliases"][alias] += 1
                 if _generic(alias):
                     generic[(entity, alias)] += 1
+        counted_now = {one_lender(entity) for entity in new.get("lender_count_entities") or []}
+        new_rows = {index for index, _, _ in new["lenders"]}
+        old_rows_of: dict = defaultdict(list)
+        for index, entity, _ in old["lenders"]:
+            old_rows_of[one_lender(entity)].append(index)
+            if index not in new_rows:
+                paid_rows["left_returned" if index in returned_rows else "left_other"] += 1
+        paid_rows["joined"] += len(new_rows - {index for index, _, _ in old["lenders"]})
         for index, entity, _ in old["lenders"]:
             if one_lender(entity) not in new_entities:
+                if one_lender(entity) in counted_now and all(
+                        row in returned_rows for row in old_rows_of[one_lender(entity)]):
+                    kept_in_count[entity].add(sha)
+                    continue
                 slot = lost[entity]
                 slot["analyses"].add(sha)
                 slot["rows_now"][new["states"][index]] += 1
+        if "lender_count_entities" in old and "lender_count_entities" in new:
+            counted_before = {one_lender(entity) for entity in old["lender_count_entities"]}
+            for entity in counted_now - counted_before:
+                count_moves["gained"][entity].add(sha)
+            for entity in counted_before - counted_now:
+                count_moves["lost"][entity].add(sha)
+        else:
+            count_not_comparable += 1
+        old_numerator, new_numerator = old.get("withholding_numerator"), new.get("withholding_numerator")
+        if old_numerator is None or new_numerator is None:
+            numerators["not_comparable"] += 1
+        elif round(new_numerator - old_numerator, 2) == 0:
+            numerators["unchanged"] += 1
+        else:
+            numerators["up" if new_numerator > old_numerator else "down"] += 1
         for group, values in new["flagged"].items():
             flagged[group]["analyses"].add(sha)
             flagged[group]["rows"] += values[0]
@@ -345,6 +407,16 @@ def compare(
             "not_comparable": row_flags_not_comparable,
         },
         "row_flag_moves_outside_the_allowlist": outside,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the declared categories.
+        "returned_funder_moves": {"analyses": len(returned_moves["analyses"]), "rows": returned_moves["rows"]},
+        "kept_in_count_returned": {entity: {"analyses": len(shas)} for entity, shas in sorted(kept_in_count.items())},
+        "paid_rows": {name: paid_rows.get(name, 0) for name in ("left_returned", "left_other", "joined")},
+        "lender_count": {
+            **{kind: {entity: {"analyses": len(shas)} for entity, shas in sorted(moves.items())}
+               for kind, moves in count_moves.items()},
+            "not_comparable": count_not_comparable,
+        },
+        "withholding_numerator": dict(sorted(numerators.items())),
     }
 
 
@@ -377,6 +449,18 @@ def _print_comparison(report: dict) -> None:
             for name, slot in report["row_flag_moves"].items()
         ))
         print(f"row flag moves outside the allowlist: {report.get('row_flag_moves_outside_the_allowlist', 0)}")
+    if "returned_funder_moves" in report:
+        # R2-OW13 (the underwriter's Q5): the declared categories.
+        moves = report["returned_funder_moves"]
+        print(f"returned funder moves (withholding rows kept for a returned funder payment): {moves['analyses']} "
+              f"analyses/{moves['rows']} rows")
+        print(f"kept in the lender count, every paid row returned: {len(report['kept_in_count_returned'])} funders")
+        print("paid rows: " + ", ".join(f"{name} {count}" for name, count in report["paid_rows"].items()))
+        count = report["lender_count"]
+        print(f"lender count: gained {sum(slot['analyses'] for slot in count['gained'].values())}, lost "
+              f"{sum(slot['analyses'] for slot in count['lost'].values())}, not comparable {count['not_comparable']}")
+        print("withholding numerator: " + ", ".join(
+            f"{name} {count}" for name, count in report["withholding_numerator"].items()))
 
 
 def _use_code_root(code_root: Path) -> bool:

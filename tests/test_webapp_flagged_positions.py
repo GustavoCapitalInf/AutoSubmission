@@ -781,6 +781,15 @@ def test_the_fixture_records_use_only_fields_the_classifier_writes():
     payload = _analysed_payload()
     assert all(row["classification"]["revenue_funding_series"] in ((), [])
                for row in payload["statement"]["transactions"])
+    # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13: a returned funder payment's two fields follow
+    # settlement_reversal; the fixtures (stored before them) carry none, and every analysed record carries both, None
+    # where no funder payment was returned.
+    names = [field.name for field in fields(TransactionClassification)]
+    assert names[names.index("settlement_reversal") + 1:][:2] == ["returned_funder_payment_by", "returns_funder_payment"]
+    assert "returned_funder_payment_by" not in flagged_row("mortgages")["classification"]
+    assert all(row["classification"]["returned_funder_payment_by"] is None
+               and row["classification"]["returns_funder_payment"] is None
+               for row in payload["statement"]["transactions"])
 
 
 # --- 5.3 (owner ruling 2026-09-27): an unconfirmed flagged payee --------------------------------------------------

@@ -7,6 +7,7 @@ from datetime import date
 from .cadence import describe_cadence
 from .dates import parse_date
 from .flag_groups import FLAG_GROUPS
+from .metrics import POTENTIAL_WITHHOLDING_FORMULA
 from .schema import Statement, Transaction
 from .transaction_classifier import (
     TransactionClassification,
@@ -30,6 +31,12 @@ class FunderMatch:
     potential_withholding_formula: str | None = None
     review_required: bool = False
     status: str = "confirmed"
+    # Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; R2-OW13): a confirmed funder's payments the bank
+    # returned unpaid, listed with the funder but never counted in debit_count or total_debited (paid to lenders):
+    # how many, their total, and one {amount, debit_date, debit_location, credit_date, credit_location} each.
+    returned_count: int = 0
+    returned_total: float = 0.0
+    returned_payments: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -88,6 +95,10 @@ class DetectionResult:
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_lender_evidence: list[TransactionClassification] = field(default_factory=list)
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): one item per returned funder payment, the dashboard's
+    # warning: {funder, amount, debit_date, debit_location, credit_date, credit_location, credit_description}, the
+    # credit's description as the bank printed it.
+    returned_funder_payments: list[dict] = field(default_factory=list)
     verified_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     unverified_deposit_evidence: list[TransactionClassification] = field(default_factory=list)
     # 5.6 (true revenue spec §9.1): the counted and the held credits.
@@ -111,6 +122,33 @@ def _records(
     return records
 
 
+#: The keys of a funder's returned_payments item (R2-OW13).
+_RETURNED_PAYMENT_KEYS = ("amount", "debit_date", "debit_location", "credit_date", "credit_location")
+
+
+def _returned_funder_payments(records: list[TransactionClassification]) -> list[dict]:
+    """Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): one item per confirmed funder's payment returned unpaid
+    (a debit with returned_funder_payment_by), in the debits' row order: the funder, the amount, the debit's and the
+    return credit's dates and locations, and the credit's description as the bank printed it (the warning quotes it, so
+    a business's reversal of the debit reads apart from a bank's bounce)."""
+    by_location = {record.source_location or f"transaction:{index + 1}": record for index, record in enumerate(records)}
+    items: list[dict] = []
+    for index, record in enumerate(records):
+        if not record.returned_funder_payment_by or record.amount >= 0:
+            continue
+        credit = by_location.get(record.returned_funder_payment_by)
+        items.append({
+            "funder": record.canonical_entity,
+            "amount": round(abs(record.amount), 2),
+            "debit_date": record.date,
+            "debit_location": record.source_location or f"transaction:{index + 1}",
+            "credit_date": credit.date if credit is not None else None,
+            "credit_location": record.returned_funder_payment_by,
+            "credit_description": credit.original_description if credit is not None else None,
+        })
+    return items
+
+
 def _group_funders(
     stmt: Statement,
     records: list[TransactionClassification],
@@ -119,13 +157,20 @@ def _group_funders(
     eligible_deposits: float | None = None,
 ) -> list[FunderMatch]:
     matches: dict[str, FunderMatch] = {}
-    for transaction, record in zip(stmt.transactions, records):
-        contributes = (
+    returned = (
+        {item["debit_location"]: item for item in _returned_funder_payments(records)}
+        if state == "confirmed_lender" else {}
+    )
+    for index, (transaction, record) in enumerate(zip(stmt.transactions, records)):
+        paid = (
             record.contributes_to_lender_totals
             if state == "confirmed_lender"
             else record.contributes_to_potential_lender_totals
         )
-        if record.classification != state or not record.canonical_entity or not contributes:
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a confirmed funder's payment returned unpaid joins
+        # its funder, so a funder whose every payment bounced is still listed; debit_count and total_debited stay paid.
+        returned_payment = state == "confirmed_lender" and bool(record.returned_funder_payment_by)
+        if record.classification != state or not record.canonical_entity or not (paid or returned_payment):
             continue
         # 5.3 (2026-09-27): an unnamed potential payee is listed under its own label, one per payee key.
         name = record.potential_payee_label or record.canonical_entity
@@ -140,16 +185,22 @@ def _group_funders(
             )
         match.transactions.append(transaction)
         match.evidence.append(record)
-        match.debit_count += 1
-        match.total_debited += abs(record.amount)
+        if paid:
+            match.debit_count += 1
+            match.total_debited += abs(record.amount)
+        if returned_payment:
+            item = returned.get(record.source_location or f"transaction:{index + 1}")
+            match.returned_count += 1
+            match.returned_total += abs(record.amount)
+            if item is not None:
+                match.returned_payments.append({key: item[key] for key in _RETURNED_PAYMENT_KEYS})
         matches[name] = match
     for match in matches.values():
         match.total_debited = round(match.total_debited, 2)
+        match.returned_total = round(match.returned_total, 2)
         if state == "potential_lender":
             match.eligible_deposit_denominator = eligible_deposits
-            match.potential_withholding_formula = (
-                "abs(potential_lender_debit_total) / eligible_deposits * 100"
-            )
+            match.potential_withholding_formula = POTENTIAL_WITHHOLDING_FORMULA
             if eligible_deposits is not None and eligible_deposits > 0:
                 match.potential_withholding_exposure = (
                     abs(match.total_debited) / eligible_deposits
@@ -344,6 +395,7 @@ def detect(
         lender_evidence=lender_evidence,
         potential_lender_evidence=potential_lender_evidence,
         insurance_evidence=insurance_evidence,
+        returned_funder_payments=_returned_funder_payments(records),
         verified_revenue_evidence=verified_revenue_evidence,
         unverified_deposit_evidence=unverified_deposit_evidence,
         counted_flagged_evidence=counted_flagged_evidence,

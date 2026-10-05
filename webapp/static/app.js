@@ -688,7 +688,43 @@ function withholdingAuditNote(metrics = {}, currency = "USD") {
   const numerator = formatMoney(metrics.withholding_numerator ?? metrics.lender_debits, currency);
   const denominator = formatMoney(metrics.withholding_denominator ?? metrics.eligible_deposits, currency);
   const label = metrics.withholding_denominator_label || "Eligible deposits";
-  return `${numerator} confirmed lender debits divided by ${denominator} ${label.toLowerCase()}`;
+  // Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the numerator keeps the funder payments returned unpaid.
+  const returned = returnedFunderPaymentTotal(metrics);
+  const included = returned === null ? "" : ` (incl. ${formatMoney(returned, currency)} returned unpaid)`;
+  return `${numerator} confirmed lender debits${included} divided by ${denominator} ${label.toLowerCase()}`;
+}
+
+// Owner ruling 2026-10-02 (the underwriter's Q5, "take the bounced amount out of "paid to lenders" but keep it in the
+// withholding rate"; true revenue spec §10.1; R2-OW13): the funder payments the bank returned unpaid, null when there
+// is none (or the package refused the money across currencies), so every sentence below reads as before.
+function returnedFunderPaymentTotal(metrics = {}) {
+  const total = numberOrNull(metrics.returned_funder_payment_total);
+  return total !== null && Math.abs(total) > 0 ? total : null;
+}
+
+// The Confirmed Lender Debits card's note: what paid leaves out.
+function paidLendersNote(metrics = {}, currency = "USD", lead = "Total paid to confirmed lenders") {
+  const returned = returnedFunderPaymentTotal(metrics);
+  return returned === null ? lead : `${lead}; ${formatMoney(returned, currency)} returned unpaid not included`;
+}
+
+// The summary sentence's lender debits: paid, then the returned payments beside it.
+function lenderDebitsSummary(metrics = {}, currency = "USD") {
+  const paid = formatMoney(metrics.lender_debits, currency);
+  const count = numberOrNull(metrics.returned_funder_payment_count) ?? 0;
+  if (count <= 0) return `${paid} confirmed lender debits`;
+  return `${paid} confirmed lender debits paid (${formatNumber(count)} returned funder `
+    + `${count === 1 ? "payment" : "payments"}, ${formatMoney(metrics.returned_funder_payment_total, currency)})`;
+}
+
+// One warning line per returned funder payment, quoting the bank's own words, so a business's reversal of the debit
+// reads apart from a bank's bounce. A package's item names its statement's unit.
+function returnedFunderPaymentWarning(item, currency = "USD") {
+  const unit = "source_currency" in item ? item.source_currency : currency;
+  const words = item.credit_description ? ` ("${item.credit_description}")` : "";
+  return `Returned funder payment: ${item.funder || "Confirmed lender"} ${formatMoney(item.amount, unit)} debited `
+    + `${item.debit_date || "N/A"}, returned ${item.credit_date || "N/A"}${words}. Not counted as paid; still in the `
+    + "withholding rate.";
 }
 
 // The Eligible Deposits card's note: the basis the withholding rates divide by. Audit B11 (I34): the default, legacy
@@ -1217,6 +1253,25 @@ function fundingSeriesNotes(tx, currency = "USD") {
   });
 }
 
+// Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §10.6; R2-OW13): a confirmed funder's payment the
+// bank returned unpaid carries a Returned chip in the ledger (out of paid, still in the withholding rate).
+function returnedFunderChip(tx) {
+  const record = transactionClassification(tx);
+  return txAmount(tx) < 0 && record.returned_funder_payment_by ? glassChip("↩", "Returned", "amber") : "";
+}
+
+// The return credit names the payment it returns, read from the debit among the rows drawn from (the same statement
+// and account in a package), so a held one says why it is held; its tier and reason are its own, unchanged.
+function returnedFunderNotes(tx, rows = []) {
+  const record = transactionClassification(tx);
+  const location = record.returns_funder_payment;
+  if (!location || txAmount(tx) <= 0) return [];
+  const debit = rows.find((row) => row && transactionClassification(row).source_location === location
+    && (row.source_job ?? null) === (tx.source_job ?? null) && (row.source_account ?? null) === (tx.source_account ?? null));
+  if (!debit) return [`Returns a confirmed funder's payment (${location})`];
+  return [`Returns the ${debit.date || "undated"} payment to ${transactionClassification(debit).canonical_entity || "a confirmed funder"}`];
+}
+
 function runningBalanceValue(tx) {
   return numberOrNull(tx && tx.running_balance);
 }
@@ -1334,7 +1389,10 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     const reviewReasonHtml = (reviewReason
       ? `<div class="tx-reason"><strong>Reason:</strong> ${escapeHtml(reviewReason)}</div>`
       : "") + fundingSeriesNotes(tx, rowCurrency)
-      .map((line) => `<div class="tx-reason tx-funding">${escapeHtml(line)}</div>`).join("");
+      .map((line) => `<div class="tx-reason tx-funding">${escapeHtml(line)}</div>`).join("")
+      // R2-OW13 (the underwriter's Q5): a return credit names the funder payment it returns.
+      + returnedFunderNotes(tx, rows)
+        .map((line) => `<div class="tx-reason tx-returned">${escapeHtml(line)}</div>`).join("");
     const balance = runningBalanceValue(tx);
     const runningBalance = showRunningBalance
       ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`
@@ -1353,7 +1411,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
         <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
-        <td>${glassChip(category.glyph, category.label, category.tone)}${flaggedChip(tx)}${revenueSourceChip(tx)}${reviewReasonHtml}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${flaggedChip(tx)}${returnedFunderChip(tx)}${revenueSourceChip(tx)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
         <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
@@ -2182,19 +2240,27 @@ function lenderRowHtml(funder, currency = "USD") {
   const statementsDetail = statements !== null
     ? `<div class="table-cell-detail">Across ${escapeHtml(formatNumber(statements))} ${statements === 1 ? "statement" : "statements"}</div>`
     : "";
+  // Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a confirmed funder's payments returned unpaid, never in
+  // its count or total (paid), named beside them; the funder stays listed when every payment bounced.
+  const returnedCount = isPotential ? 0 : (numberOrNull(funder.returned_payment_count) ?? 0);
+  const returnedDetail = returnedCount > 0
+    ? `<div class="table-cell-detail">${escapeHtml(`${formatNumber(returnedCount)} returned `
+      + `${returnedCount === 1 ? "payment" : "payments"}, ${formatMoney(funder.returned_payment_total, currency)}, `
+      + "not in paid")}</div>`
+    : "";
   return `
     <tr>
       <td>${lenderEvidenceControl(funder, isPotential)}${statementsDetail}</td>
       <td>${escapeHtml(isPotential ? "Potential lender" : "Confirmed lender")}</td>
       <td>${escapeHtml(formatNumber(count))}</td>
-      <td>${escapeHtml(formatMoney(total, currency))}</td>
+      <td>${escapeHtml(formatMoney(total, currency))}${returnedDetail}</td>
       <td>${potentialWithholding}</td>
-      <td>${glassChip(isPotential ? "?" : "LEN", isPotential ? "Review required" : "Confirmed", isPotential ? "amber" : "violet")}</td>
+      <td>${glassChip(isPotential ? "?" : "LEN", isPotential ? "Review required" : "Confirmed", isPotential ? "amber" : "violet")}${returnedCount > 0 ? glassChip("↩", "Returned", "amber") : ""}</td>
     </tr>
   `;
 }
 
-function renderLenders(funders, potentialLenders = [], currency = "USD") {
+function renderLenders(funders, potentialLenders = [], currency = "USD", returnedPayments = []) {
   const confirmed = Array.isArray(funders) ? funders : [];
   const potential = Array.isArray(potentialLenders) ? potentialLenders : [];
   const lenders = [
@@ -2202,6 +2268,14 @@ function renderLenders(funders, potentialLenders = [], currency = "USD") {
     ...potential.map((item) => ({ ...item, classification: "potential_lender" })),
   ];
   els.lenderCount.textContent = `${confirmed.length} confirmed, ${potential.length} potential`;
+  // R2-OW13 (the underwriter's Q5): one amber warning line per returned funder payment, above the lender rows.
+  const warnings = (Array.isArray(returnedPayments) ? returnedPayments : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => `
+      <tr class="lender-warning">
+        <td colspan="6">${glassChip("!", "Returned", "amber")} <span class="lender-warning-text">${escapeHtml(returnedFunderPaymentWarning(item, currency))}</span></td>
+      </tr>
+    `).join("");
   if (!lenders.length) {
     els.lenderTable.innerHTML = `
       <tr>
@@ -2215,7 +2289,7 @@ function renderLenders(funders, potentialLenders = [], currency = "USD") {
     `;
     return;
   }
-  els.lenderTable.innerHTML = lenders.map((funder) => lenderRowHtml(funder, currency)).join("");
+  els.lenderTable.innerHTML = warnings + lenders.map((funder) => lenderRowHtml(funder, currency)).join("");
 }
 
 function renderInsurance(providers, currency = "USD") {
@@ -3333,7 +3407,7 @@ function renderAccount(report) {
         ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
         ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],
         ["Confirmed Lender Debit Count", formatNumber(metrics.lender_debit_count), "Transactions paid to confirmed lenders", "DB", "neutral"],
-        ["Confirmed Lender Debits", formatMoney(metrics.lender_debits, currency), "Total paid to confirmed lenders", "$", "neutral"],
+        ["Confirmed Lender Debits", formatMoney(metrics.lender_debits, currency), paidLendersNote(metrics, currency), "$", "neutral"],
         ["Potential Lender Debit Count", formatNumber(metrics.potential_lender_debit_count), "Transactions linked to possible lenders", "DB", countTone(metrics.potential_lender_debit_count)],
         ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(metrics), currency), "Excluded until lender status is confirmed", "$", countTone(metrics.potential_lender_debit_count)],
         ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
@@ -3345,7 +3419,8 @@ function renderAccount(report) {
   ]);
   renderAccountSummary(accountFieldRows(statement, currentMarkdown));
   renderRevenueEvidence(metrics, currency);
-  renderLenders(funders, potentialLenders, currency);
+  // R2-OW13 (the underwriter's Q5): the returned funder payments' warning lines.
+  renderLenders(funders, potentialLenders, currency, detection.returned_funder_payments);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(detection.flagged_positions, currency, false);
   renderMainTransactions();
@@ -4131,7 +4206,7 @@ function renderPackageAnalysis(pkg) {
         ["Confirmed Lenders", formatNumber(totals.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(totals.lenders_detected)],
         ["Potential Lenders", formatNumber(totals.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(totals.potential_lenders_detected)],
         ["Confirmed Lender Debit Count", formatNumber(totals.lender_debit_count), "Transactions paid to confirmed lenders", "DB", "neutral"],
-        ["Confirmed Lender Debits", formatMoney(totals.lender_debits, currency), moneyNote("Total paid to confirmed lenders"), "$", "neutral"],
+        ["Confirmed Lender Debits", formatMoney(totals.lender_debits, currency), moneyNote(paidLendersNote(totals, currency)), "$", "neutral"],
         ["Potential Lender Debit Count", formatNumber(totals.potential_lender_debit_count), "Transactions linked to possible lenders", "DB", countTone(totals.potential_lender_debit_count)],
         ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals), currency), moneyNote("Excluded until lender status is confirmed"), "$", countTone(totals.potential_lender_debit_count)],
         ["Eligible Deposits", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits, currency), moneyNote(activeDenominatorNote(totals)), "DEP", "neutral"],
@@ -4171,7 +4246,8 @@ function renderPackageTables(pkg) {
   // package currency - null when there is not one, in which case the backend
   // has already refused their money and `formatMoney` renders "N/A".
   const currency = packageCurrencyInfo(pkg).currency;
-  renderLenders(funders, potentialLenders, currency);
+  // R2-OW13: each warning line names its own statement's unit.
+  renderLenders(funders, potentialLenders, currency, pkg.returned_funder_payments);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(pkg.flagged_positions, currency, true);
   renderRevenueEvidence(packageRevenueFlags(pkg.totals || {}), currency);
@@ -4590,7 +4666,7 @@ function renderStatementModal(jobId, report, markdown) {
     ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
     ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
     ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],
-    ["Confirmed Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, "Transaction count and total paid to confirmed lenders", "DB", "neutral"],
+    ["Confirmed Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, paidLendersNote(metrics, currency, "Transaction count and total paid to confirmed lenders"), "DB", "neutral"],
     ["Potential Lender Debits", `${formatNumber(metrics.potential_lender_debit_count)} / ${formatMoney(potentialLenderDebitTotal(metrics), currency)}`, "Transaction count and total linked to possible lenders", "?", countTone(metrics.potential_lender_debit_count)],
     ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
     ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
@@ -4751,7 +4827,7 @@ function generateSummary() {
     `Average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
-    `${formatMoney(m.lender_debits, currency)} confirmed lender debits, and ` +
+    `${lenderDebitsSummary(m, currency)}, and ` +
     `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure. ` +
     `Status: ${labelize(decision)}.`;
 }
