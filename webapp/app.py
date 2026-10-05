@@ -1923,6 +1923,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     unreconciled_members: list[str] = []
     holder_unscreened_members: list[str] = []
     payer_text_unread_members: list[str] = []
+    #: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members that are premium trust accounts.
+    premium_trust_members: list[str] = []
     adb_weighted_sum = Decimal("0")
     adb_weight = 0
     totals = {
@@ -2784,6 +2786,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # Audit B11 (B9's I13, B10's I05): the statement integrity facts the True card shows.
             "holder_unscreened": metrics.get("holder_unscreened") is True,
             "payer_text_unread": metrics.get("payer_text_unread") is True,
+            # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a premium trust account, whose deposits that
+            # would count are held (a statement fact; no figure reads it).
+            "premium_trust_account": metrics.get("premium_trust_account") is True,
             "debits": debits,
             "cash_flow": cash_flow,
             "average_daily_balance": average_daily_balance,
@@ -2849,6 +2854,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 holder_unscreened_members.append(doc_row["id"])
             if doc_row["payer_text_unread"]:
                 payer_text_unread_members.append(doc_row["id"])
+            if doc_row["premium_trust_account"]:
+                premium_trust_members.append(doc_row["id"])
             if adb_validated:
                 adb_value = Decimal(str(average_daily_balance_num))
                 adb_weighted_sum += adb_value * adb_calendar_days
@@ -2956,6 +2963,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # read; the True card names them.
     totals["holder_unscreened_documents"] = sorted(holder_unscreened_members)
     totals["payer_text_unread_documents"] = sorted(payer_text_unread_members)
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members whose deposits that would count are held for
+    # a premium trust account's title; the True card names how many.
+    totals["premium_trust_documents"] = sorted(premium_trust_members)
     # 5.6 (T7, §9.2): the gate applied to each member; a package needs revenue review when one of them does.
     totals["revenue_review_required"] = any_member_gated
     totals["counted_flagged_by_reason"] = package_by_reason["counted_flagged"]

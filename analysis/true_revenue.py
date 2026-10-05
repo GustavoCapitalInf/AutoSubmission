@@ -52,6 +52,9 @@ from .classification_registry import (
 )
 from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .flag_groups import FINANCING_STATES
+# Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the premium-trust words and the legal forms the holder
+# readers read (holder_name imports nothing of the analysis package, so this import is never circular).
+from .holder_name import _LEGAL_FORMS as _HOLDER_LEGAL_FORMS, PREMIUM_TRUST_WORDS
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 from .revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
 
@@ -5813,6 +5816,104 @@ def _held_by_the_floor(record: TransactionClassification) -> TransactionClassifi
     return _with_tier(record, "excluded_pending_review", _MICRO_DEPOSIT_REASON)
 
 
+#: Owner ruling 2026-10-02 (the underwriter's Q10, "Hold every deposit into an account titled "premium trust""; §5.3,
+#: §8.10; audit round 2, R2-OW11): the held reason of a credit into an account whose printed title reads PREMIUM TRUST,
+#: and the method and rule a verified one leaves verification with.
+PREMIUM_TRUST_REASON = "premium_trust_account"
+PREMIUM_TRUST_METHOD = "premium_trust_account"
+_PREMIUM_TRUST_RULE = "premium_trust_account_title"
+#: R2-OW11: the kind words a title may print after the premium-trust words (an account, a fund, a product), and the
+#: account and product words alone (no FUND or FUNDS), which the separator form needs.
+_PREMIUM_TRUST_KIND = r"(?:ACCOUNT|ACCT|ACCNT|A/C|FUNDS?|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
+_PREMIUM_TRUST_ACCOUNT_KIND = r"(?:ACCOUNT|ACCT|ACCNT|A/C|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
+#: R2-OW11: a reference a title may print: an account number, masked or not, after #, NO, NUMBER, ACCOUNT, ACCT or A/C,
+#: in or out of parentheses; a roman numeral; or a parenthesised code of up to four letters or digits.
+_PREMIUM_TRUST_REFERENCE = (
+    r"(?:\(?\s*(?:(?:ACCOUNT|ACCT|A/C|NO|NUMBER)\.?\s*)?#?\s*[X*]*\d+\s*\)?"
+    r"|(?<![A-Z])[IVX]{1,4}"
+    r"|\([A-Z0-9]{1,4}\))"
+)
+_PREMIUM_TRUST_TITLE = rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_KIND})*)"
+#: R2-OW11: the three title forms. The title at the field's end (kind words, a reference and punctuation may follow);
+#: the words followed by an account word; the words and one or more account or product words, a reference allowed, then
+#: a separator (' - ', an en or em dash, ':' or '(') and anything ('PREMIUM TRUST ACCOUNT - NORTHWIND AGENCY LLC').
+_PREMIUM_TRUST_AT_END = re.compile(rf"{_PREMIUM_TRUST_TITLE}(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?[\s.,;:\-)]*$")
+_PREMIUM_TRUST_WITH_ACCOUNT = re.compile(rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)(?![A-Z])")
+_PREMIUM_TRUST_SEPARATED = re.compile(
+    rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_ACCOUNT_KIND})+)(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?"
+    r"\s*(?:\s-\s|\s?[–—]\s?|:|\()\s*\S"
+)
+#: R2-OW11: a field that ends in a legal form (the holder readers' _LEGAL_FORMS), which refuses the account-word form
+#: on an account name or a holder name ('PREMIUM TRUST ACCOUNT LLC' is a company).
+_PREMIUM_TRUST_LEGAL_LAST = re.compile(r"\b(?:" + "|".join(sorted(_HOLDER_LEGAL_FORMS)) + r")\.?\s*$")
+
+
+def _premium_trust_field(field: str | None) -> str:
+    """R2-OW11: a statement field as the premium-trust rule reads it: upper case, its whitespace runs collapsed, L.L.C.
+    read as LLC."""
+    return " ".join(str(field or "").upper().replace("L.L.C.", "LLC").split())
+
+
+def _premium_trust_words(match: re.Match[str]) -> str:
+    """R2-OW11: the title words a form matched, its dots dropped and its blanks collapsed."""
+    return " ".join(match.group("title").replace(".", " ").split())
+
+
+def premium_trust_title(account_title: str | None, account_name: str | None, holder_name: str | None) -> str | None:
+    """Owner ruling 2026-10-02 (the underwriter's Q10, "Hold every deposit into an account titled "premium trust"";
+    §8.10, §9.1; audit round 2, R2-OW11): the premium-trust title a statement prints, or None. Read on the statement's
+    own fields, never on a row (a payer that prints the words makes no title). The bank's designation
+    (`Statement.account_title`, R2-OW10) reads in any of the three title forms: the title at the field's end, the
+    words followed by an account word, or the words and an account or product word before a separator; never the
+    words anywhere ('PREMIUM TRUST ROOFING', a trade name the holder reader dropped after a legal form, is no title).
+    Then the account name, then the holder's name: the title at the end, the account-word form only when the field does
+    not end in a legal form ('PREMIUM TRUST ACCOUNT LLC' is a company), and the separator form even when it does
+    ('PREMIUM TRUST ACCOUNT - NORTHWIND INSURANCE AGENCY LLC'). Returns the matched title words, dots dropped.
+    Recorded false negatives (the safe direction): 'PREM. TR. ACCT.' and a bare title before a separator
+    ('PREMIUM TRUST - CONTOSO AGENCY LLC')."""
+    text = _premium_trust_field(account_title)
+    if text:
+        for form in (_PREMIUM_TRUST_AT_END, _PREMIUM_TRUST_WITH_ACCOUNT, _PREMIUM_TRUST_SEPARATED):
+            if (found := form.search(text)) is not None:
+                return _premium_trust_words(found)
+    for field in (account_name, holder_name):
+        text = _premium_trust_field(field)
+        if not text:
+            continue
+        if (found := _PREMIUM_TRUST_AT_END.search(text)) is not None:
+            return _premium_trust_words(found)
+        if not _PREMIUM_TRUST_LEGAL_LAST.search(text) and (found := _PREMIUM_TRUST_WITH_ACCOUNT.search(text)):
+            return _premium_trust_words(found)
+        if (found := _PREMIUM_TRUST_SEPARATED.search(text)) is not None:
+            return _premium_trust_words(found)
+    return None
+
+
+def _held_in_premium_trust(record: TransactionClassification, title: str) -> TransactionClassification:
+    """Owner ruling 2026-10-02 (the underwriter's Q10; §8.10; R2-OW11), as _held_by_the_floor holds: a credit a rule
+    verified or counted, on a statement whose title reads PREMIUM TRUST, held for review as PREMIUM_TRUST_REASON. A
+    verified one first leaves verification as a new first state (unverified_deposit, method PREMIUM_TRUST_METHOD,
+    pending review, so the analyst may confirm it), its reason naming the rule it overruled; a counted one keeps its
+    state, method and rule, and only its tier and reason change."""
+    if record.revenue_classification == "verified_revenue":
+        # The ruling is named without its date: no year literal outside date parsing (test_no_statement_hardcodes).
+        record = _classifier()._replace_revenue_state(
+            record,
+            "unverified_deposit",
+            match_method=PREMIUM_TRUST_METHOD,
+            matched_rule=_PREMIUM_TRUST_RULE,
+            confidence_score=0.40,
+            reason=(
+                f"A deposit into an account titled {title}: an insurance agency's premium trust account holds its "
+                "insureds' premiums, not the agency's revenue (the owner's ruling on the underwriter's Q10). The rule "
+                f"that read it ({record.revenue_match_method}) is overruled, and it is held for review."
+            ),
+            context_signals=(*record.revenue_context_signals, PREMIUM_TRUST_METHOD),
+            related_transaction=record.revenue_related_transaction,
+        )
+    return _with_tier(record, "excluded_pending_review", PREMIUM_TRUST_REASON)
+
+
 def _left_to_its_family(text: str) -> bool:
     """§7.1 to §7.3, §7.8 (S4.2 review I5): a row a family rule decides alone, which Q5 and Q6 never verify: the
     operating registry names an entity on it (an alias or its cut, read with the receiver field's value removed, or a
@@ -6424,6 +6525,8 @@ def apply_true_revenue_pass(
     duplicate_indexes: set[int],
     unread_indexes: frozenset[int] = frozenset(),
     unread_texts: dict[int, str] | None = None,
+    *,
+    premium_trust: str | None = None,
 ) -> list[TransactionClassification]:
     """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit
     B3 (I11): first, with the owner's switch on (PROCESSOR_CARD_PAYOUT_RELEASE), a processor's instant payouts printed
@@ -6452,7 +6555,10 @@ def apply_true_revenue_pass(
     business shape and the disbursers, whether the business is in leasing or property (_lessor_business); the payer
     facts then lift T4's financing-root hold on a finance-named customer paying an invoice, a lessor's rent or a lender
     paying for services (finance_named_release, CreditFacts.q9), never verified, never a repeat, the counted reason
-    relabelled last in _tier_reason."""
+    relabelled last in _tier_reason. Owner ruling 2026-10-02 (the underwriter's Q10; R2-OW11): `premium_trust` is the
+    statement's premium-trust title (premium_trust_title) or None; when set, the step after the $1 floor holds every
+    credit a rule verified or counted as PREMIUM_TRUST_REASON (_held_in_premium_trust). None leaves every record as
+    before."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -6740,6 +6846,17 @@ def apply_true_revenue_pass(
         record = updated[index]
         if _under_micro_floor(record) and record.revenue_tier in {"verified", "counted_flagged"}:
             updated[index] = _held_by_the_floor(record)
+    # Owner ruling 2026-10-02 (the underwriter's Q10, "Hold every deposit into an account titled "premium trust""; §8.10;
+    # R2-OW11): the step after the $1 floor. On a statement whose printed title reads PREMIUM TRUST (premium_trust_title,
+    # read by classify_statement_transactions on the statement's own fields), every posted credit a rule verified or
+    # counted is held as PREMIUM_TRUST_REASON (_held_in_premium_trust): the Q5, Q6 and Q7 verifications, the
+    # demotions, the insurer-for-work release and every count before it included. A held credit keeps its first hold
+    # (a direction conflict and the floor's included) and a non-revenue credit stays non-revenue (duplicates, lender
+    # proceeds, premium finance, own transfers, the Zelle step's); Q5's and Q6's repeat counts are unchanged.
+    if premium_trust:
+        for index in credits:
+            if updated[index].revenue_tier in {"verified", "counted_flagged"}:
+                updated[index] = _held_in_premium_trust(updated[index], premium_trust)
     return updated
 
 

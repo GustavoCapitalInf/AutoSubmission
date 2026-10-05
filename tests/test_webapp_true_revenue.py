@@ -588,6 +588,25 @@ def test_the_package_lists_the_members_whose_holder_or_payer_text_was_not_read()
         (False, False), (True, False), (False, True)]
 
 
+def test_the_package_lists_its_premium_trust_accounts():
+    """Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a statement whose name reads a premium trust title,
+    analysed by the real path, holds every credit that would count; its metrics carry the fact, its document row
+    carries it, and the totals list the members (sorted), beside the integrity facts' lists."""
+    from analysis.serialization import document_report_to_dict
+
+    trust = document_report_to_dict(_report("SAMPLE AGENCY PREMIUM TRUST", "000000003030", 1500.0, ROWS, 4))
+    assert trust["metrics"]["premium_trust_account"] is True
+    assert trust["metrics"]["true_revenue_total"] == 0.0
+    assert _payload()["metrics"]["premium_trust_account"] is False
+    second = document_report_to_dict(_report("SAMPLE AGENCY PREMIUM TRUST", "000000003030", 1500.0, ROWS, 6))
+    package = _package(trust, _payload(month=5), second)
+    assert package["totals"]["premium_trust_documents"] == ["job-1", "job-3"]
+    assert [row["premium_trust_account"] for row in package["documents"]] == [True, False, True]
+    assert package["documents"][0]["true_revenue_total"] == 0.0
+    assert package["totals"]["true_revenue_total"] == _payload(month=5)["metrics"]["true_revenue_total"]
+    assert _package(_payload())["totals"]["premium_trust_documents"] == []
+
+
 def _csv_cells(text):
     import csv
     import io

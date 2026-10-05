@@ -175,6 +175,7 @@ these rows by code (`non_revenue_by_reason`, below).
 | `transfer_no_counterparty` | `excluded_pending_review` | Transfer, no counterparty | bare transfer wording (Q2) |
 | `transfer_account_designation` | `excluded_pending_review` | Transfer naming an account | a named transfer that prints an account designation (T13, §6.3 narrowing 8) |
 | `p2p_round_repeat` | `excluded_pending_review` | Repeated round sums from one sender | two or more whole $100 multiples from one person-to-person or transfer sender (Q4, T13) |
+| `premium_trust_account` | `excluded_pending_review` | Deposit into a premium trust account | the account's printed title reads PREMIUM TRUST (statement account title, account name or holder name): every verified or counted credit, pass 7's step after the $1 floor (owner 2026-10-02, Q10) |
 | `wire_named_sender` | `counted_flagged` | Wire from a named sender | a named sender's wire Q5 does not verify (Q5) |
 | `check_deposit` | `counted_flagged` | Check deposit | a mobile, remote, ATM or branch check deposit (Q3) |
 | `no_payer_printed` | `counted_flagged` | No payer printed | a cash, branch, teller, ATM or bare deposit (Q2) |
@@ -277,6 +278,14 @@ reason kept in its reason and its `zelle_prior:` context signal; a Zelle credit
 a non-revenue rule decided keeps that rule, and a direction conflict keeps its
 hold. The $1 floor is absolute: a posted credit under $1 is never verified and never
 counted, whichever rule read it, and is held as `non_sale_purpose`.
+Last, on a statement whose account title reads PREMIUM TRUST, every verified or
+counted credit is held as `premium_trust_account` (owner, 2026-10-02, Q10); a
+held credit keeps its first hold and a non-revenue one stays non-revenue. The
+title is read on the statement's printed title, its account name and its
+holder's name (`premium_trust_title`: the title at the field's end, the title
+followed by an account word, or the title and an account or product word before
+a separator), never on a row's payer; a verified credit so held leaves
+verification (method `premium_trust_account`).
 Every other unverified credit is counted (`counted_flagged`) with its reason. A
 statement needs revenue review (`revenue_review_required`) when it has an
 undecided direction conflict (one an analyst confirmed or rejected no longer
@@ -349,6 +358,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - A non-dealer's sale of equipment or vehicles is `non_revenue` (`asset_sale_proceeds`), not held, with no review path: an equipment auction's or a car buyer's seller payout (`ASSET_SALE_PAYERS`, read as the whole payer name; Copart and IAA only beside a seller word; never Proxibid) or a printed `<asset> SALE`, `SALE OF <asset>`, `SOLD <asset>` purpose (a vehicle's sale read through an invoice reference; a generic equipment sale keeping its invoice, vendor and supplier spares; never a commission or a fee next to the sale, nor a bare `FLEET`; R2-OW06 review round 1), on a statement with no dealer evidence: no Q7 dealer funding that is not payables-only, no §7.8 auction payout credit or dealer-only auction purchase, no floor-plan row, and no vehicle or equipment trade name on the holder's names that prints no recovery or towing word (owner ruling 2026-10-02, the underwriter's Q11 (b); §8.1, §8.10, §17.1).
 - An insurer's credit paid for the business's work is counted and flagged as `insurer_paid_for_services`, never verified and never a Q5 or Q6 repeat (owner ruling 2026-10-02, the underwriter's Q2, the spec's §19.1 line "insurers paying for the business's work"): on the holder's trade (a repair shop, an insurance agency, a clinic or a pharmacy; a loose word only beside a second eligible insurer credit), a service form (`DRP`, an agent's EFT, a commission, `CONTINGENCY`, `REPAIR`, `VENDOR PMT`; never a wire's `REF`) or three or more credits from one insurer within an inclusive 31-day span; another insurer's one-off in the same statement only with the owner's switch, off. A one-off claim on the business's own policy stays out however the insurer is spelled (the spec's separate §19.1 line "every insurer spelling", by Q6 of 2026-09-28 and audit I26): a listed insurer's credit stays `non_revenue`, any other is held as `insurer_named_payer`. `HCCLAIMPMT`, healthcare payers and the §15 deferred carriers read as before (§8.1).
 - T4's financing root no longer holds three kinds of row (owner ruling 2026-10-02, the underwriter's Q9, "Keep them as true revenue"; the spec's §19.1 line "finance-named customers, rent received and lenders paying for services"): (a) a customer whose own name carries a finance word, on a line printing invoice, accounts-payable, vendor-payment or commission wording, counted as `finance_named_customer`; (c) the same where the name reads as a lender's (`lender_paid_for_services`, a label only); (b) a rent `LEASE` received by a business in leasing or property, counted as `lessor_rent`. Each is never verified and never a Q5 or Q6 repeat, and stays held as `financing_named_payer` when any posted debit names the payer (the hidden-loan guard, a documented over-hold; the bank's receiving fee and a card purchase aside). Only the root arm is lifted, read by place (the payer's name alone for (a) and (c)); a payer-less row, a `PROCEEDS` or disbursement line, a bank-only payer, and on a layout with no entry label two roots or a root after the payer's company form stay held; a registered lender's vendor-worded credit stays D1's financing proceeds (§8.1, §8.10, §17.1).
+- Owner ruling 2026-10-02 (Q10): a premium trust account's verified or counted deposits are held as `premium_trust_account` (pass 7's step after the $1 floor); held and non-revenue rows keep their reading. The agency's operating, producer-payable, wire and other accounts read as before, and a payer that prints the words never makes a title (§8.10, §19.1).
 - Q5 and Q6 leave a row the operating registry names, and a NET SETTLE row, to its own rule (§7.1, §8.5, §8.6).
 - VIREMENT is a person-to-person rail only in its Interac forms (§8.4).
 - A cancelled French transfer is a reversal (§6.1 step 3).

@@ -99,8 +99,14 @@ def test_every_reason_code_names_a_middle_tier():
     # 33rd. Owner ruling 2026-10-02 (the underwriter's Q11), R2-OW06: construction_progress_draw and
     # asset_sale_proceeds, the 34th and 35th. Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08:
     # insurer_paid_for_services, the 36th. Owner ruling 2026-10-02 (the underwriter's Q9), R2-OW09:
-    # finance_named_customer and lessor_rent, the 37th and 38th.
-    assert len(REVENUE_TIER_REASONS) == 38
+    # finance_named_customer and lessor_rent, the 37th and 38th. Q10 (owner 2026-10-02): premium_trust_account, the 39th
+    # (R2-OW11).
+    assert len(REVENUE_TIER_REASONS) == 39
+    assert REVENUE_TIER_REASONS["premium_trust_account"] == (
+        "excluded_pending_review", "Deposit into a premium trust account")
+    codes = list(REVENUE_TIER_REASONS)
+    assert codes[codes.index("premium_trust_account") + 1] == "wire_named_sender"
+    assert codes[codes.index("premium_trust_account") - 1] == "p2p_round_repeat"
     assert "non_revenue_by_reason" in TIER_METRIC_KEYS
 
 

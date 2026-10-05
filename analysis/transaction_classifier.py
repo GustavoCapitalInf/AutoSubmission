@@ -52,6 +52,7 @@ from .true_revenue import (
     debited_as_lender,
     payer_text_unread_indexes,
     payer_text_unread_texts,
+    premium_trust_title,
 )
 
 if TYPE_CHECKING:
@@ -7159,10 +7160,15 @@ def classify_statement_transactions(
     records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
     # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit B10
     # (I05, I60): with the credits the parser marked as read only by their label. Audit round 2, R2-B07 (R07): and
-    # their unread payer text.
+    # their unread payer text. Owner ruling 2026-10-02 (the underwriter's Q10; §8.10; R2-OW11): and the statement's
+    # premium-trust title, read on its printed title, account name and holder name (premium_trust_title; this is the
+    # pass's only caller, so every consumer reads it).
     records = apply_true_revenue_pass(
         records, set(duplicate_of), payer_text_unread_indexes(statement.transactions),
         payer_text_unread_texts(statement.transactions),
+        premium_trust=premium_trust_title(
+            getattr(statement, "account_title", None), statement.account_name, statement.holder_name
+        ),
     )
 
     for index, original_index in duplicate_of.items():

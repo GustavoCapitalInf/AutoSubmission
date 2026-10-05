@@ -80,6 +80,49 @@ def test_the_dashboard_reason_table_names_a_lender_paid_for_services():
             "verified.") in source
 
 
+def test_the_dashboard_reason_table_names_a_premium_trust_account_deposit():
+    """Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the mirror carries premium_trust_account at the end of
+    the held group, directly before wire_named_sender, with its sentence."""
+    reasons = list(_js_reasons())
+    assert reasons[reasons.index("premium_trust_account") + 1] == "wire_named_sender"
+    assert reasons[reasons.index("premium_trust_account") - 1] == "p2p_round_repeat"
+    assert _js_reasons()["premium_trust_account"] == ("excluded_pending_review", "Deposit into a premium trust account")
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert ("The account is titled as an insurance premium trust account: its deposits are insureds' premiums held for "
+            "the carriers, not the agency's revenue. Only commissions paid to the operating account count.") in source
+
+
+@needs_node
+def test_the_true_card_says_a_premium_trust_account_holds_its_deposits(tmp_path, monkeypatch):
+    """Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the statement's True card says its deposits that would
+    count are held and its non-revenue stays excluded; a package names how many of its statements are premium trust
+    accounts."""
+    payload = _served(_payload())
+    payload["metrics"]["premium_trust_account"] = True
+    statement = run_dashboard(METRIC_ROWS + _open("s", payload) + """
+console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
+""")
+    note = {row["label"]: row["note"] for row in statement}["True Revenue"].replace("&#39;", "'")
+    assert note == ("Posted credits minus known non-revenue and the deposits held for review · Premium trust account: "
+                    "deposits that would count are held (insureds' premiums, not revenue); non-revenue deposits stay "
+                    "excluded")
+    trust = _payload(month=4)
+    trust["metrics"]["premium_trust_account"] = True
+    package = _package({"mar": _payload(), "apr": trust}, tmp_path, monkeypatch)
+    assert package["totals"]["premium_trust_documents"] == ["apr"]
+    rows = run_dashboard(METRIC_ROWS + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{rows: metricRows(els.metricsGrid.innerHTML),
+  two: packageRevenueFacts({{premium_trust_documents: ['a', 'b#2', 'b#1']}}),
+  none: statementRevenueFacts({{premium_trust_account: false}})}}));
+""")
+    assert {row["label"]: row["note"] for row in rows["rows"]}["True Revenue"].endswith(
+        "1 statement of a premium trust account: deposits that would count are held")
+    # Two accounts of one document are one statement.
+    assert rows["two"] == ["2 statements of a premium trust account: deposits that would count are held"]
+    assert rows["none"] == []
+
+
 @needs_node
 def test_a_statement_shows_true_revenue_first_and_its_parts():
     result = run_dashboard(METRIC_ROWS + _open("s", _served(_payload())) + """

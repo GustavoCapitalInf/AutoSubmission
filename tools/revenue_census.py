@@ -57,6 +57,11 @@ reads them (the VA's Treasury form at medium confidence, its masked agency code 
 printing one of the six others, and class H covers only the forms the ruling did not name and a named form printing a
 word the classifier's reader does not read.
 
+The owner's ruling of 2026-10-02 (the underwriter's Q10, audit round 2, R2-OW11): each account records whether its
+printed title reads PREMIUM TRUST (`premium_trust`, the metrics' fact, never the title's words), guard G20 fails a
+premium trust account's verified or counted credit, and the compare declares a verified credit pass 7 holds there
+(`premium_trust_account`).
+
 Audit round 2, R2-B01 (R12, R30): the census keeps a parse's moves apart from a rule's.
 - Each credit records its raw parse (`raw`: a hash of its digit-masked printed description and its cents) and each
   account its parse over every row, credits and debits (`parse_sha`: a hash of every row's digit-masked printed
@@ -258,7 +263,14 @@ DECLARED_DEMOTIONS = (
     # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: a Q5 or Q6 row the pass now releases as an insurer paid
     # for the business's work, counted and flagged as insurer_paid_for_services, never verified and never a repeat.
     "insurer_paid_for_services",
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a credit any rule verified, on an account whose printed
+    # title reads PREMIUM TRUST, held as premium_trust_account by pass 7's step after the $1 floor (method
+    # premium_trust_account).
+    "premium_trust_account",
 )
+#: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the method pass 7 gives a verified credit it holds on a
+#: premium trust account (analysis/true_revenue.py PREMIUM_TRUST_METHOD, copied: the census reads other checkouts).
+PREMIUM_TRUST_METHOD = "premium_trust_account"
 #: R2-OW06 review round 1: the method and reason of a builder's progress draw the pass overrules (analysis/true_revenue.py
 #: CONSTRUCTION_PROGRESS_DRAW_REASON, copied: the census reads other checkouts), and the Q5 and Q6 methods that rest on
 #: a repeat (a company form or a public or healthcare payer verifies alone).
@@ -367,8 +379,10 @@ GUARD_FACTS = {
 #: The checks that read no fact (a row's state, method, tier, amount or text), always checked; G9's tier identity
 #: ("G9 tiers") is checked when the run carries tiers (5.6). Audit round 2, R2-B01 (R12): G18, every parse move
 #: explained. The owner's ruling of 2026-10-02 (the underwriter's Q12): G19, no True credit printing one of the six
-#: non-Treasury no-purpose government forms (_GOVERNMENT_NO_PURPOSE_HIGH_57).
-FACT_FREE_CHECKS = ("G1", "G6", "G7b", "G9", "G15", "G16", "G18", "G19", "undeclared_demotion")
+#: non-Treasury no-purpose government forms (_GOVERNMENT_NO_PURPOSE_HIGH_57). Owner ruling 2026-10-02 (the
+#: underwriter's Q10), R2-OW11: G20, no True credit on a premium trust account, which reads the account's
+#: `premium_trust` flag (a snapshot written before R2-OW11 carries none, so it cannot fail there).
+FACT_FREE_CHECKS = ("G1", "G6", "G7b", "G9", "G15", "G16", "G18", "G19", "G20", "undeclared_demotion")
 #: R2-B01 (R12): the hex digits a credit's raw parse and an account's parse keep (hashlib digests: never Python's
 #: hash(), which is salted per process).
 PARSE_HASH_DIGITS = 16
@@ -1371,6 +1385,10 @@ def account_snapshot(account: dict) -> dict:
         "lender_credits": metrics.lender_credits,
         "eligible_deposits": metrics.legacy_eligible_deposits,
         "revenue_review_required": metrics.revenue_review_required,
+        # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the statement's printed title reads PREMIUM TRUST
+        # (the metrics' fact; a checkout before R2-OW11 has none). A flag only: the title's words carry no name. G20
+        # reads it.
+        "premium_trust": bool(getattr(metrics, "premium_trust_account", False)),
     }
 
 
@@ -2194,6 +2212,11 @@ def _demotion_cause(base: dict, after: dict, context: dict | None = None) -> str
     # last tier step, after every verification); (b) a Zelle deposit the policy excluded.
     if method == ZELLE_POLICY_METHOD:
         return "zelle_policy"
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: (a) any verifying rule (the hold is pass 7's step after
+    # the $1 floor, after every verification); (b) held as premium_trust_account on an account whose printed title reads
+    # PREMIUM TRUST (method premium_trust_account).
+    if method == PREMIUM_TRUST_METHOD:
+        return "premium_trust_account"
     # (a) any verifying rule: strong non-revenue precedes them all (§6.1 step 9); (b) that rule on a row printing the
     # account-verification words §7.11 adds to it.
     if method == "strong_non_revenue_rule" and _ACCOUNT_VERIFICATION_55.search(text):
@@ -2972,7 +2995,8 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
 
 def _account_guards(account: dict, tiered: bool) -> list[dict]:
     """The account-level guards of §14.3: G9 (the four-tier identity, each tier with its state, every posted credit
-    kept, and the metrics' tier totals), G12's credit-union count and G14's recurrence pools."""
+    kept, and the metrics' tier totals), G12's credit-union count, G20's premium trust account (owner ruling 2026-10-02,
+    the underwriter's Q10: R2-OW11) and G14's recurrence pools."""
     found: list[dict] = []
     credits = account["credits"]
     posted_count = account.get("posted_credit_count")
@@ -2998,6 +3022,11 @@ def _account_guards(account: dict, tiered: bool) -> list[dict]:
               and (c.get("facts") or {}).get("q7_credit_union") and not (c.get("facts") or {}).get("q7_listed")]
     if 0 < len(unions) < CREDIT_UNION_DEALER_MIN_CREDITS:
         found.extend({"guard": "G12", "i": c["i"], "credit_union_rows": len(unions)} for c in unions)
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: G20, no credit of a premium trust account is verified or
+    # counted (pass 7's step after the $1 floor holds them; held and non-revenue credits keep their reading).
+    if account.get("premium_trust"):
+        found.extend({"guard": "G20", "i": c["i"]} for c in credits
+                     if c["state"] == "verified_revenue" or c.get("tier") == "counted_flagged")
     pools: dict = defaultdict(list)
     lifted: dict = defaultdict(list)
     for credit in credits:

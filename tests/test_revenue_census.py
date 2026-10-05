@@ -877,10 +877,11 @@ def test_a_5_5_snapshot_reports_the_guards_its_facts_cannot_check():
     assert run["guard_checks"]["G2"] == {"checked": False, "facts": ["financing_root", "registry_root"],
                                          "status": "not checked (facts arrive in 5.6)"}
     # Audit round 2, R2-B01 (R12): G18 reads no fact, so it is always checked; so does G19 (the owner's ruling of
-    # 2026-10-02, the underwriter's Q12), which reads the row's text.
+    # 2026-10-02, the underwriter's Q12), which reads the row's text, and G20 (the underwriter's Q10, R2-OW11), which
+    # reads the account's premium_trust flag.
     assert {name: check["status"] for name, check in run["guard_checks"].items() if check["checked"]} == {
         name: "held" for name in ("G1", "G3", "G6", "G7b", "G9", "G10", "G13", "G14", "G15", "G16", "G17", "G18",
-                                  "G19", "undeclared_demotion")}
+                                  "G19", "G20", "undeclared_demotion")}
     assert run["verdict"] == "hold" and run["failed_guards"] == []
 
 
@@ -1836,6 +1837,82 @@ def test_q3_the_compare_declares_a_verified_zelle_deposit_the_policy_excluded():
                 text=text, rule="zelle_deposit_excluded"))
     assert causes == {}
     assert "undeclared_demotion" not in run["guards"]
+
+
+#: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a premium trust account's statement, fabricated (its
+#: title as the First Citizens holder line prints it, read by the holder reader).
+_PREMIUM_TRUST_ROWS = (
+    ("WIRE TRANSFER IN REF 123456 ORG: FABRIKAM MARINE LLC", 9000.0),
+    ("WIRE TRANSFER IN REF 123457 ORG: FABRIKAM MARINE LLC", 9100.0),
+    ("DEPOSIT", 2345.67),
+    ("TRANSFER INTERNET 03 05 SEQ 12345 1234567890", 20000.0),
+)
+
+
+def _premium_trust_statement(title):
+    from analysis.schema import Statement, Transaction
+
+    return Statement(bank="First Citizens Bank", holder_name="CONTOSO LLC DBA NORTHWIND AGENCY, LLC",
+                     account_title=title, transactions=[
+                         Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                                     direction="credit")
+                         for index, (text, amount) in enumerate(_PREMIUM_TRUST_ROWS)])
+
+
+def test_q10_the_snapshot_records_a_premium_trust_account_and_g20_holds_on_it():
+    trust = census.account_snapshot({"statement": _premium_trust_statement("PREMIUM TRUST ACCOUNT").model_dump(
+        mode="json")})
+    operating = census.account_snapshot({"statement": _premium_trust_statement("OPERATING ACCOUNT").model_dump(
+        mode="json")})
+    assert (trust["premium_trust"], operating["premium_trust"]) == (True, False)
+    # The flag carries no name: the snapshot never records the title's words.
+    assert "PREMIUM TRUST" not in json.dumps({key: value for key, value in trust.items() if key != "credits"})
+    assert [(c["tier"], c["reason"]) for c in trust["credits"]] == [
+        ("excluded_pending_review", "premium_trust_account")] * 3 + [
+        ("excluded_pending_review", "transfer_no_counterparty")]
+    assert [c["method"] for c in trust["credits"][:2]] == [census.PREMIUM_TRUST_METHOD] * 2
+    assert [c["tier"] for c in operating["credits"]] == [
+        "verified", "verified", "counted_flagged", "excluded_pending_review"]
+    assert census._account_guards(trust, True) == []
+    assert census._account_guards(operating, True) == []
+
+
+def test_q10_guard_g20_fails_a_counted_or_verified_credit_of_a_premium_trust_account():
+    held = _credit(0, 234567, "unverified_deposit", "ambiguous_credit_descriptor", tier="excluded_pending_review",
+                   reason="premium_trust_account")
+    counted = _credit(1, 98000, "unverified_deposit", "ambiguous_credit_descriptor", tier="counted_flagged",
+                      reason="check_deposit")
+    verified = _credit(2, 900000, "verified_revenue", "repeat_wire_sender", tier="verified")
+    excluded = _credit(3, 880000, "non_revenue", "insurance_provider_credit_exclusion", tier="non_revenue")
+    account = {**_account([held, counted, verified, excluded]), "premium_trust": True}
+    assert census._account_guards(account, True) == [{"guard": "G20", "i": 1}, {"guard": "G20", "i": 2}]
+    # The same credits on an account that is no premium trust account, or held there, pass.
+    assert census._account_guards({**account, "premium_trust": False}, True) == []
+    assert census._account_guards({**_account([held, excluded]), "premium_trust": True}, True) == []
+    run = _run(_snap("5.6", {"a": _account([held, counted, verified, excluded])}),
+               _snap("5.6", {"a": account}))
+    assert run["guards"]["G20"]["failures"] == 2 and "G20" in run["failed_guards"]
+    assert "G20" in census.FACT_FREE_CHECKS
+
+
+def test_q10_the_compare_declares_a_verified_credit_held_on_a_premium_trust_account():
+    from analysis import true_revenue
+
+    assert census.PREMIUM_TRUST_METHOD == true_revenue.PREMIUM_TRUST_METHOD
+    assert "premium_trust_account" in census.DECLARED_DEMOTIONS
+    text = census.mask("WIRE TRANSFER IN REF 123456 ORG: FABRIKAM MARINE LLC")
+    causes, run = _cause56(
+        _q56("repeat_wire_sender", text),
+        _after56("premium_trust_account", text, tier="excluded_pending_review", reason="premium_trust_account",
+                 rule="premium_trust_account_title"))
+    assert causes == {"premium_trust_account": 1}
+    assert "undeclared_demotion" not in run["guards"]
+    # A descriptor's verification too: the hold follows every verifying rule.
+    causes, _run_ = _cause56(
+        _credit(0, 500000, "verified_revenue", "operating_income_descriptor", tier="verified", text=text),
+        _after56("premium_trust_account", text, tier="excluded_pending_review", reason="premium_trust_account",
+                 rule="premium_trust_account_title"))
+    assert causes == {"premium_trust_account": 1}
 
 
 @pytest.mark.parametrize(("text", "state", "tier", "fails"), [

@@ -224,6 +224,9 @@ const REVENUE_TIER_REASONS = Object.freeze({
   transfer_no_counterparty: ["excluded_pending_review", "Transfer, no counterparty", "A transfer that names no counterparty."],
   transfer_account_designation: ["excluded_pending_review", "Transfer naming an account", "A transfer that names an account, not a payer."],
   p2p_round_repeat: ["excluded_pending_review", "Repeated round sums from one sender", "Round sums repeated by one person-to-person sender."],
+  // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a deposit a rule verified or counted, into an account
+  // titled as an insurance premium trust account; the end of the held group.
+  premium_trust_account: ["excluded_pending_review", "Deposit into a premium trust account", "The account is titled as an insurance premium trust account: its deposits are insureds' premiums held for the carriers, not the agency's revenue. Only commissions paid to the operating account count."],
   wire_named_sender: ["counted_flagged", "Wire from a named sender", "A wire from a named sender, counted without proof of the sale."],
   check_deposit: ["counted_flagged", "Check deposit", "A check deposit: the payer is not printed."],
   no_payer_printed: ["counted_flagged", "No payer printed", "A cash, branch, ATM or bare deposit: no payer is printed."],
@@ -361,13 +364,19 @@ function packageRevenueBalanced(pkg = {}) {
 // Audit B11 (B9's I13, B10's I05): what the True card says True rests on, from a statement's metrics: no holder's name
 // read (the holds that keep the holder's own money out cannot see it), and the share of credits whose printed payer
 // no parser read. R2-OW03 (the underwriter's Q3): and the Zelle deposits the owner's policy excluded, so True can be
-// read against the Monthly Statements' total deposits.
+// read against the Monthly Statements' total deposits. R2-OW11 (the underwriter's Q10): and a premium trust account,
+// whose deposits that would count are held.
 function statementRevenueFacts(metrics = {}, currency = "USD") {
   const facts = [];
   if (metrics.holder_unscreened === true) facts.push("No holder name read: the holder's own deposits are not screened");
   if (metrics.payer_text_unread === true) {
     const count = numberOrNull(metrics.payer_text_unread_count);
     facts.push(`${count === null ? "Many" : formatNumber(count)} credits' payer text not read`);
+  }
+  // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a statement of a premium trust account says why its
+  // True is held.
+  if (metrics.premium_trust_account === true) {
+    facts.push("Premium trust account: deposits that would count are held (insureds' premiums, not revenue); non-revenue deposits stay excluded");
   }
   const zelle = zelleExcludedFact(metrics, currency);
   if (zelle) facts.push(zelle);
@@ -383,6 +392,9 @@ function packageRevenueFacts(totals = {}, currency = "USD") {
   if (unscreened) facts.push(`${formatNumber(unscreened)} ${noun(unscreened)} with no holder name read`);
   const unread = statements(totals.payer_text_unread_documents);
   if (unread) facts.push(`${formatNumber(unread)} ${noun(unread)} with payer text not read`);
+  // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members that are premium trust accounts.
+  const premiumTrust = statements(totals.premium_trust_documents);
+  if (premiumTrust) facts.push(`${formatNumber(premiumTrust)} ${noun(premiumTrust)} of a premium trust account: deposits that would count are held`);
   const zelle = zelleExcludedFact(totals, currency);
   if (zelle) facts.push(zelle);
   return facts;

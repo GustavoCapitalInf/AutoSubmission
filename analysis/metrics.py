@@ -34,7 +34,7 @@ from .revenue import (
     normalize_withholding_denominator_mode,
     revenue_review_gate,
 )
-from .true_revenue import holder_unscreened, payer_text_unread
+from .true_revenue import holder_unscreened, payer_text_unread, premium_trust_title
 
 
 @dataclass
@@ -155,6 +155,10 @@ class Metrics:
     #: nobody read; and how many posted credits carry it. A statement integrity fact for the True card (audit B11).
     payer_text_unread: bool = False
     payer_text_unread_count: int = 0
+    #: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the statement's printed title reads PREMIUM TRUST
+    #: (true_revenue.premium_trust_title over its account title, account name and holder name), so pass 7 holds every
+    #: credit a rule verified or counted. A statement fact for the True card and the package; no figure reads it.
+    premium_trust_account: bool = False
     cash_flow: float = 0.0
     withholding_rate: float | None = None
     withholding_numerator: float = 0.0
@@ -559,6 +563,10 @@ def compute_metrics(
     # Audit round 2, R2-B04 (R19): the statement's own names, so a statement with no transaction is read too.
     m.holder_unscreened = holder_unscreened(records, holder_name=stmt.holder_name, account_name=stmt.account_name)
     m.payer_text_unread, m.payer_text_unread_count = payer_text_unread(stmt.transactions, records)
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the statement's own fields, as pass 7 reads them.
+    m.premium_trust_account = premium_trust_title(
+        getattr(stmt, "account_title", None), stmt.account_name, stmt.holder_name
+    ) is not None
     m.lenders_detected = len(confirmed_entities)
     m.potential_lenders_detected = len(potential_entities)
     m.effective_total_deposits = m.total_deposits

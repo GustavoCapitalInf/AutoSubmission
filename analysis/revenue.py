@@ -61,6 +61,10 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "transfer_no_counterparty": ("excluded_pending_review", "Transfer, no counterparty"),
     "transfer_account_designation": ("excluded_pending_review", "Transfer naming an account"),
     "p2p_round_repeat": ("excluded_pending_review", "Repeated round sums from one sender"),
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a credit a rule verified or counted, into an account
+    # whose printed title reads PREMIUM TRUST (insureds' premiums, not the agency's revenue), held by pass 7's step after
+    # the $1 floor (true_revenue.PREMIUM_TRUST_REASON); the end of the held group.
+    "premium_trust_account": ("excluded_pending_review", "Deposit into a premium trust account"),
     "wire_named_sender": ("counted_flagged", "Wire from a named sender"),
     "check_deposit": ("counted_flagged", "Check deposit"),
     "no_payer_printed": ("counted_flagged", "No payer printed"),

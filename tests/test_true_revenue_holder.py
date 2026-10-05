@@ -69,7 +69,8 @@ def test_an_account_title_never_reaches_the_holder_s_names_or_any_reading():
     """Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: Statement.account_title is provenance
     only. The holder's names (holder_reading, _usable_holder_name, holder_words) never read it, and a statement's every
     record, its metrics and its payer readings are the same with or without a title (a payer printing the title's
-    words included)."""
+    words included). R2-OW11: the one reader of the title is the premium-trust rule, which moves only the tier and
+    reason of a credit in True (tests/test_true_revenue_premium_trust.py)."""
     rows = [
         ("ZELLE PAYMENT FROM NORTHWIND FISH LLC CONF 1234567890", 900.0),
         ("ACH CREDIT PREMIUM TRUST ACCOUNT SERVICES PAYMENT 1234", 3100.0),
@@ -79,12 +80,24 @@ def test_an_account_title_never_reaches_the_holder_s_names_or_any_reading():
         ("CHECK 1001", -400.0),
     ]
     plain = _statement(rows, account_name="Business Checking", holder_name="NORTHWIND FISH LLC")
-    titled = plain.model_copy(update={"account_title": "PREMIUM TRUST ACCOUNT"})
-    assert titled.account_title == "PREMIUM TRUST ACCOUNT"
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: since the premium-trust rule reads the title, the
+    # identity is pinned on a title it does not read; a premium trust title moves only the tiers of the credits in True.
+    titled = plain.model_copy(update={"account_title": "OPERATING ACCOUNT"})
+    assert titled.account_title == "OPERATING ACCOUNT"
     assert classify_statement_transactions(titled) == classify_statement_transactions(plain)
     assert compute_metrics(titled) == compute_metrics(plain)
-    assert tc.holder_reading(titled.account_name, titled.holder_name) == "NORTHWIND FISH LLC"
-    assert "PREMIUM" not in tc.holder_words(tc.holder_reading(titled.account_name, titled.holder_name))
+    trust = plain.model_copy(update={"account_title": "PREMIUM TRUST ACCOUNT"})
+    for statement in (titled, trust):
+        assert tc.holder_reading(statement.account_name, statement.holder_name) == "NORTHWIND FISH LLC"
+        assert "PREMIUM" not in tc.holder_words(tc.holder_reading(statement.account_name, statement.holder_name))
+    for old, new in zip(classify_statement_transactions(plain), classify_statement_transactions(trust)):
+        if old.revenue_tier in {"verified", "counted_flagged"} and old.amount > 0:
+            assert (new.revenue_tier, new.revenue_tier_reason) == ("excluded_pending_review", "premium_trust_account")
+            # The holder's reading and every lender reading are the same.
+            assert (new.holder_name, new.classification, new.match_method) == (
+                old.holder_name, old.classification, old.match_method)
+        else:
+            assert new == old
 
 
 def test_the_holder_s_name_field_holds_the_holder_s_own_wire_and_transfer():
