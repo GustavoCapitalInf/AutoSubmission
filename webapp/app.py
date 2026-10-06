@@ -27,7 +27,6 @@ from analysis.payload_shape import (
     payload_document_block,
 )
 from analysis.revenue import (
-    apply_serialized_revenue_review,
     non_revenue_reason,
     normalize_withholding_denominator_mode,
     REVENUE_STATES,
@@ -41,6 +40,9 @@ from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
 from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group_keys
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue_view import DEBIT_FLAG_KINDS, apply_revenue_view, debit_side_flags
+from analysis import zelle_view
+from analysis.true_revenue import zelle_deposit
+from analysis.zelle_view import ZELLE_DEPOSITS_KEY, ZELLE_ROW_TAG, apply_zelle_view
 from analysis.transaction_classifier import (
     _CONSUMER_P2P_RAIL,
     _PUSH_RAIL,
@@ -214,6 +216,13 @@ def _is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _zelle_setting(settings: dict | None) -> bool:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): whether the settings snapshot asks for
+    Zelle deposits counted as True revenue (Yes, the default; a missing or malformed value reads as Yes)."""
+    value = (settings or {}).get("zelle_true_revenue", SETTINGS_DEFAULTS["zelle_true_revenue"])
+    return value if isinstance(value, bool) else SETTINGS_DEFAULTS["zelle_true_revenue"]
+
+
 def _displayed(
     analysis: object, *, carry_over: bool | None = None, settings: dict | None = None, export: bool = False
 ) -> object:
@@ -227,11 +236,16 @@ def _displayed(
 
     `settings` is a snapshot of every setting, read here once when it is not passed; `carry_over`, when given,
     still decides the NSF basis. `export` leaves out what only the dashboard reads (the NSF days its NSFs chip
-    lists, `metrics.nsf_days`), so a download carries what it carried before the chip."""
+    lists, `metrics.nsf_days`), so a download carries what it carried before the chip.
+
+    The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §9.2, §10; R2-OW17): FIRST, the
+    Zelle reading the setting "Mark Zelle Payments as True Revenue" asks for (analysis/zelle_view.py), whose stored
+    edits are paths in the stored shape, so it runs before any served key is added."""
     if settings is None:
         settings = load_settings(store.storage.data_dir)
     if carry_over is None:
         carry_over = settings.get("nsf_carry_over", SETTINGS_DEFAULTS["nsf_carry_over"])
+    analysis = apply_zelle_view(analysis, counted=_zelle_setting(settings))
     rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over, list_days=not export)
     # 5.6 (true revenue spec §10.4, §12): each account's revenue flags, and an older payload's True revenue nulled.
     served = apply_revenue_view(apply_flagged_groups_to_payload(rebased, enabled=settings))
@@ -467,7 +481,7 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
             for key, item in value.items():
                 if (section, key) in _EXPORT_SUPPRESSED_KEYS:
                     continue
-                if section == "metrics" and key in ("adb", *_TIER_REASON_KEYS):
+                if section == "metrics" and key in ("adb", *_TIER_REASON_KEYS, ZELLE_DEPOSITS_KEY):
                     continue  # emitted as their own sections below
                 if isinstance(item, (dict, list)):
                     item = json.dumps(item)
@@ -476,6 +490,7 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     if isinstance(metrics, dict):
         rows.extend(_adb_rows(metrics))
         rows.extend(_tier_reason_rows(metrics))
+        rows.extend(_zelle_deposit_rows(metrics.get(ZELLE_DEPOSITS_KEY)))
     detection = analysis.get("detection")
     if isinstance(detection, dict):
         for key, item in detection.items():
@@ -504,6 +519,32 @@ def _tier_reason_rows(figures: dict, section: str = "revenue_tier") -> list[tupl
             for field in ("count", "total"):
                 value = slot.get(field) if isinstance(slot, dict) else None
                 rows.append((section, f"{tier}.{reason}.{field}", "" if value is None else value))
+    return rows
+
+
+def _zelle_deposit_rows(
+    figures: object, section: str = "revenue_tier", *, setting: bool | None = None,
+) -> list[tuple[str, str, object]]:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (spec §10.8; R2-OW17): the served Zelle figures
+    (`zelle_deposits`, analysis/zelle_view.py) as readable rows of the revenue_tier section, only where the key is
+    present: `zelle_deposits.setting` (Yes or No), `.count`, `.total`, `.<tier>.count`, `.<tier>.total` and
+    `.setting_applied`. A money figure the package refuses is an empty cell. `setting` is the choice the figures were
+    served under; an account's figures say it themselves (Yes exactly when the reading served is the one the setting
+    asked for and counts, or is not and does not: `counted_as_true_revenue` equals `setting_applied`)."""
+    if not isinstance(figures, dict):
+        return []
+    if setting is None:
+        setting = figures.get("counted_as_true_revenue") is (figures.get("setting_applied") is not False)
+    rows: list[tuple[str, str, object]] = [(section, "zelle_deposits.setting", "Yes" if setting else "No")]
+    for field in ("count", "total"):
+        value = figures.get(field)
+        rows.append((section, f"zelle_deposits.{field}", "" if value is None else value))
+    by_tier = figures.get("by_tier")
+    for tier, slot in (by_tier.items() if isinstance(by_tier, dict) else ()):
+        for field in ("count", "total"):
+            value = slot.get(field) if isinstance(slot, dict) else None
+            rows.append((section, f"zelle_deposits.{tier}.{field}", "" if value is None else value))
+    rows.append((section, "zelle_deposits.setting_applied", figures.get("setting_applied") is not False))
     return rows
 
 
@@ -552,6 +593,7 @@ def _posted_credit_table(analysis: dict) -> list[tuple]:
         return []
     currency = _statement_currency(analysis) or ""
     rows: list[tuple] = []
+    tagged: list[bool] = []
     for transaction in statement.get("transactions") or []:
         if not isinstance(transaction, dict):
             continue
@@ -563,7 +605,15 @@ def _posted_credit_table(analysis: dict) -> list[tuple]:
                      transaction.get("description") or "", amount, currency, record.get("revenue_tier") or "",
                      record.get("revenue_tier_reason") or "", record.get("revenue_classification") or "",
                      record.get("revenue_review_status") or ""))
-    return [("posted_credit", "columns", *_POSTED_CREDIT_COLUMNS), *rows] if rows else []
+        tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
+    if not rows:
+        return []
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): a trailing `zelle` column, only in a block
+    # where a row carries the served Zelle tag (Yes), 'Zelle' on those rows; every other block is today's.
+    if any(tagged):
+        return [("posted_credit", "columns", *_POSTED_CREDIT_COLUMNS, "zelle"),
+                *((*row, "Zelle" if zelle else "") for row, zelle in zip(rows, tagged))]
+    return [("posted_credit", "columns", *_POSTED_CREDIT_COLUMNS), *rows]
 
 
 def _analysis_csv(analysis: dict) -> str:
@@ -584,12 +634,18 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     rows: list[tuple[str, str, object]] = []
     totals = package.get("totals") or {}
     for key, value in totals.items():
-        if key in _TIER_REASON_KEYS:
+        if key in (*_TIER_REASON_KEYS, ZELLE_DEPOSITS_KEY):
             continue  # emitted as readable rows below
         if isinstance(value, (dict, list)):
             value = json.dumps(value)
         rows.append(("totals", key, "" if value is None else value))
     rows.extend(_tier_reason_rows(totals))
+    # R2-OW17: the package's Zelle figures; its `counted_as_true_revenue` is the setting it was built under.
+    package_zelle = totals.get(ZELLE_DEPOSITS_KEY)
+    rows.extend(_zelle_deposit_rows(
+        package_zelle,
+        setting=package_zelle.get("counted_as_true_revenue") is True if isinstance(package_zelle, dict) else None,
+    ))
     # CURRENCY DOCTRINE §F: a refusal that only exists in the JSON payload is
     # invisible to the underwriter reading the sheet, who would see the empty
     # money cells and read them as missing data rather than as refused units.
@@ -599,7 +655,7 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
         rows.append(("currency", key, "" if value is None else value))
     for idx, document in enumerate(package.get("documents") or [], start=1):
         for key, value in document.items():
-            if key in _TIER_REASON_KEYS:
+            if key in (*_TIER_REASON_KEYS, ZELLE_DEPOSITS_KEY):
                 continue  # emitted as readable rows below
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
@@ -610,6 +666,7 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             rows.append((f"document_{idx}", "duplicate_reason_words",
                          SUPERSEDED_REASON_WORDS[document["duplicate_reason"]]))
         rows.extend(_tier_reason_rows(document, f"document_{idx}.revenue_tier"))
+        rows.extend(_zelle_deposit_rows(document.get(ZELLE_DEPOSITS_KEY), f"document_{idx}.revenue_tier"))
     # D-3: duplicate content must survive into the export an underwriter reads,
     # not only the JSON payload the dashboard renders.
     for idx, duplicate in enumerate(package.get("duplicates") or [], start=1):
@@ -702,6 +759,7 @@ def _package_transaction_table(package: dict) -> list[tuple]:
     account and currency: a `columns` row, then `(package_transaction, n, ...)`. Written after the flat rows; its
     statement text reaches a file only through `_escaped_rows`."""
     rows: list[tuple] = []
+    tagged: list[bool] = []
     for transaction in package.get("transactions") or []:
         if not isinstance(transaction, dict):
             continue
@@ -713,7 +771,14 @@ def _package_transaction_table(package: dict) -> list[tuple]:
                      record.get("classification") or "", record.get("revenue_tier") or "",
                      record.get("revenue_tier_reason") or "", record.get("revenue_classification") or "",
                      record.get("revenue_review_status") or ""))
-    return [("package_transaction", "columns", *_PACKAGE_TRANSACTION_COLUMNS), *rows] if rows else []
+        tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
+    if not rows:
+        return []
+    # R2-OW17: the trailing `zelle` column, only where a row carries the served Zelle tag.
+    if any(tagged):
+        return [("package_transaction", "columns", *_PACKAGE_TRANSACTION_COLUMNS, "zelle"),
+                *((*row, "Zelle" if zelle else "") for row, zelle in zip(rows, tagged))]
+    return [("package_transaction", "columns", *_PACKAGE_TRANSACTION_COLUMNS), *rows]
 
 
 def _package_csv(package: dict) -> str:
@@ -1135,7 +1200,10 @@ def _copy_rank(job) -> tuple[int, int, int]:
     and publishes an account (else 1); 0 when its analysis is current, 1 when an account of its served copy
     (`apply_revenue_view`) has `revenue_established` False or a record lacks or predates `CLASSIFICATION_VERSION`
     (the `analysis_rules_outdated` rule of analysis/flagged_view.py; a job with no account is never current); 0 when a
-    posted credit of it carries the analyst's decision (`revenue_review_status` confirmed or rejected)."""
+    posted credit of it carries the analyst's decision (`revenue_review_status` confirmed or rejected). The owner's
+    amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): a decision in EITHER Zelle reading counts (the stored
+    records and the counted reading's, analysis/zelle_view.py): a Yes-mode reject on a Zelle row lives only in the
+    counted reading's edits, the stored reading having gone back to its analysis state."""
     analysis = getattr(job, "analysis", None)
     accounts = _stored_accounts(analysis)
     has_analysis = getattr(job, "status", None) == "done" and bool(accounts)
@@ -1147,11 +1215,13 @@ def _copy_rank(job) -> tuple[int, int, int]:
             and all((account.get("metrics") or {}).get("revenue_established") is not False
                     for account in _stored_accounts(served))
         )
+    counted = zelle_view.reading(analysis, counted=True) if accounts else analysis
     decided = any(
         isinstance(row, dict) and _num(row.get("amount")) > 0 and isinstance(row.get("classification"), dict)
         and row["classification"].get("is_posted") is not False
         and row["classification"].get("revenue_review_status") in _REVIEW_DECISIONS
-        for account in accounts
+        for reading in ((accounts,) if counted is analysis else (accounts, _stored_accounts(counted)))
+        for account in reading
         for row in (account.get("statement") or {}).get("transactions") or []
     )
     return (0 if has_analysis else 1, 0 if current else 1, 0 if decided else 1)
@@ -2271,10 +2341,14 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
                 else:
                     eligible = (record.get("revenue_tier") == "counted_flagged"
                                 and record.get("revenue_tier_reason") == "no_payer_printed")
+                # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): nor a Zelle deposit, which the
+                # counted reading may hold as the holder's own name: PNC's 'ZEL FROM' escapes the consumer rail, and Q4
+                # (2026-10-02) never matches P2P (true_revenue.zelle_deposit).
                 if (not eligible or _num(row.get("amount")) <= 0 or day is None
                         or (entry["key"], position) in taken or (entry["key"], position) in noted
                         or record.get("revenue_review_status") in _REVIEW_DECISIONS
-                        or rails(text) or is_round_sum(_num(row.get("amount"))) or paper_or_cash_deposit(text)):
+                        or rails(text) or zelle_deposit(text)
+                        or is_round_sum(_num(row.get("amount"))) or paper_or_cash_deposit(text)):
                     continue
                 found.append(((day.toordinal(), entry["order"], position), entry, position, row, day))
         return sorted(found, key=lambda item: item[0])
@@ -2558,6 +2632,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # their revenue's standing (Non-revenue stays where True is N/A, §10.4).
     package_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {},
                                                      "non_revenue": {}}
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (§9.2; R2-OW17): the kept members' Zelle figures, part
+    # by part ((served tier, amount) slots, read from each member's metrics.zelle_deposits), whether a member carried
+    # them, and whether every member's reading is the one the setting asks for.
+    zelle_counted = _zelle_setting(settings)
+    package_zelle: dict = {"carried": False, "setting_applied": True, "count": 0, "total": 0.0, "by_tier": {}}
     unestablished_verified: list[str] = []
     unestablished_revenue: list[str] = []
     # True revenue final review M10 (§11): a member whose True or Verified figure is not established adds a partial
@@ -3044,6 +3123,26 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             item = package_by_reason["non_revenue"].setdefault(reason, {"count": 0, "total": 0.0})
             item["count"] += slot["count"]
             item["total"] = round(item["total"] + slot["total"], 2)
+        # R2-OW17: the member's Zelle figures (its served metrics.zelle_deposits). Under No, a member that carries none
+        # contributes its excluded Zelle deposits as its non-revenue part, so the package figure covers every member.
+        member_zelle = metrics.get(ZELLE_DEPOSITS_KEY) if isinstance(metrics.get(ZELLE_DEPOSITS_KEY), dict) else None
+        if member_zelle is not None:
+            package_zelle["carried"] = True
+            package_zelle["setting_applied"] = package_zelle["setting_applied"] and (
+                member_zelle.get("setting_applied") is not False)
+            parts = member_zelle.get("by_tier") if isinstance(member_zelle.get("by_tier"), dict) else {}
+        elif not zelle_counted and member_by_reason["non_revenue"].get("zelle_excluded"):
+            parts = {"non_revenue": member_by_reason["non_revenue"]["zelle_excluded"]}
+        else:
+            parts = {}
+        for tier, slot in parts.items():
+            if not isinstance(slot, dict):
+                continue
+            item = package_zelle["by_tier"].setdefault(tier, {"count": 0, "total": 0.0})
+            item["count"] += int(_num(slot.get("count")))
+            item["total"] = round(item["total"] + _num(slot.get("total")), 2)
+            package_zelle["count"] += int(_num(slot.get("count")))
+            package_zelle["total"] = round(package_zelle["total"] + _num(slot.get("total")), 2)
         if ready and not verified_revenue_established:
             unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
         if ready and not revenue_established:
@@ -3437,6 +3536,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # today's payloads carries neither key and is byte-identical.
             doc_row["account_index"] = account_index
             doc_row["account_count"] = account_count
+        # R2-OW17: the member's Zelle figures, where its served copy carries them (the Monthly cell reads them).
+        if member_zelle is not None:
+            doc_row[ZELLE_DEPOSITS_KEY] = deepcopy(member_zelle)
         # Owner ruling 2026-10-02 (the underwriter's Q6; §9.2; R2-OW15): the member's rows the package passes matched
         # or annotated, and why the passes could not read it ('no_currency', 'older_rules'), each only where there is one.
         if member_overlay:
@@ -3592,6 +3694,19 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # blocks below (§10.4's and R2-B15 R54's: Non-revenue stays), and its money is refused with the totals under a
     # currency refusal, its counts kept.
     totals["non_revenue_by_reason"] = dict(sorted(package_by_reason["non_revenue"].items()))
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (§9.2; R2-OW17): the kept members' Zelle figures, part
+    # by part, present when a kept member carries them; `counted_as_true_revenue` is the setting, `setting_applied`
+    # False when a member's is. Its money is refused with the totals under a currency refusal, its counts kept.
+    if package_zelle["carried"]:
+        order = {tier: position for position, tier in enumerate(("verified", "counted_flagged",
+                                                                 "excluded_pending_review", "non_revenue"))}
+        totals[ZELLE_DEPOSITS_KEY] = {
+            "counted_as_true_revenue": zelle_counted,
+            "setting_applied": package_zelle["setting_applied"],
+            "count": package_zelle["count"],
+            "total": package_zelle["total"],
+            "by_tier": dict(sorted(package_zelle["by_tier"].items(), key=lambda item: order.get(item[0], len(order)))),
+        }
     totals["revenue_unestablished_documents"] = sorted(set(unestablished_revenue) | set(unestablished_verified))
     totals["true_revenue"] = totals["true_revenue_total"]
     if unestablished_revenue:
@@ -3860,6 +3975,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 published_totals[key] = {
                     reason: {**slot, "total": None} for reason, slot in published_totals[key].items()
                 }
+        # R2-OW17: the Zelle figures' money too, every count kept (a nested count-and-money dict, refused part by part).
+        zelle_totals = published_totals.get(ZELLE_DEPOSITS_KEY)
+        if isinstance(zelle_totals, dict):
+            published_totals[ZELLE_DEPOSITS_KEY] = {
+                **zelle_totals, "total": None,
+                "by_tier": {tier: {**slot, "total": None} for tier, slot in (zelle_totals.get("by_tier") or {}).items()},
+            }
         for item in (
             *package_funders,
             *package_potential_lenders,
@@ -4329,16 +4451,18 @@ def revenue_review(job_id):
         return jsonify({"error": refusal}), 400
     if store.get(job_id) is None:
         abort(404)
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (spec §10.7; R2-OW17): the decision is validated on
+    # the Zelle reading the reviewer sees, and the latest decision on a posting sets both readings
+    # (analysis/zelle_view.py with_both_readings). The setting is read once for the request.
+    settings = load_settings(store.storage.data_dir)
+    shown = _zelle_setting(settings)
     with _review_lock(job_id):
         job = store.get(job_id)
         if job is None or job.status != "done" or job.analysis is None:
             abort(404)
         try:
-            updated = apply_serialized_revenue_review(
-                deepcopy(job.analysis),
-                source_location=source_location,
-                decision=decision,
-                account=account,
+            updated = zelle_view.with_both_readings(
+                deepcopy(job.analysis), shown=shown, decisions=[(source_location, decision, account)],
             )
         except LookupError as exc:
             return jsonify({"error": _review_refusal(exc)}), 404
@@ -4351,10 +4475,11 @@ def revenue_review(job_id):
             decision=decision,
             actor=actor,
             account=account,
+            zelle_true_revenue=shown,
         )
     if stored is None:
         abort(404)
-    return jsonify({"analysis": _masked(_displayed(stored))})
+    return jsonify({"analysis": _masked(_displayed(stored, settings=settings))})
 
 
 #: The most decisions one batch may carry: more than any statement prints credits, far fewer than a request could
@@ -4402,23 +4527,24 @@ def revenue_reviews(job_id):
         return jsonify({"error": refusal}), 400
     if store.get(job_id) is None:
         abort(404)
+    # R2-OW17 (spec §10.7): validated on the Zelle reading shown, all or nothing; the other reading follows the latest
+    # decision on each posting (analysis/zelle_view.py with_both_readings). The setting is read once for the request.
+    settings = load_settings(store.storage.data_dir)
+    shown = _zelle_setting(settings)
     with _review_lock(job_id):
         job = store.get(job_id)
         if job is None or job.status != "done" or job.analysis is None:
             abort(404)
-        updated = deepcopy(job.analysis)
         try:
-            for source_location, decision, account in parsed:
-                updated = apply_serialized_revenue_review(
-                    updated, source_location=source_location, decision=decision, account=account)
+            updated = zelle_view.with_both_readings(deepcopy(job.analysis), shown=shown, decisions=parsed)
         except LookupError as exc:
             return jsonify({"error": _review_refusal(exc)}), 404
         except ValueError as exc:
             return jsonify({"error": _review_refusal(exc)}), 400
-        stored = store.apply_reviews(job_id, updated, decisions=parsed, actor=actor)
+        stored = store.apply_reviews(job_id, updated, decisions=parsed, actor=actor, zelle_true_revenue=shown)
     if stored is None:
         abort(404)
-    return jsonify({"analysis": _masked(_displayed(stored)), "applied": len(parsed)})
+    return jsonify({"analysis": _masked(_displayed(stored, settings=settings)), "applied": len(parsed)})
 
 
 #: A re-analysis with no analysis to save: none was produced, or the one produced was refused. The saved analysis

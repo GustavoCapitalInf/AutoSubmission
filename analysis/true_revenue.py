@@ -2251,11 +2251,14 @@ def purpose_trade_name(text: str, row: str, region: str) -> bool:
 
 def construction_progress_draw(
     text: str, region: str, account_name: str | None = None, *, also: Sequence[str] = (),
+    zelle_true_revenue: bool = False,
 ) -> bool:
     """§8.1, §8.10 (owner ruling 2026-10-02, the underwriter's Q11 (a), "Count as true revenue and flag it"; audit
     I18): a builder's progress draw, counted and flagged, never verified. True only when the payer region names a
     builder (_BUILDER_PAYER), the row prints no Zelle rail (Q3 of 2026-10-02 excludes every Zelle deposit,
-    zelle_deposit), the row (the hold text without the holder's names, as the holds read it: `account_name` and `also`)
+    zelle_deposit; the owner's amendment of 2026-10-06 to the underwriter's Q3, R2-OW17: in the counted reading,
+    `zelle_true_revenue`, a builder's Zelle draw is read as any other rail's), the row (the hold text without the
+    holder's names, as the holds read it: `account_name` and `also`)
     prints DRAW or DRAWS where §8.1 reads the non-sale words (_non_sale_reading) once the payer's own name is removed
     (R2-B13's _payer_name_proper on a row that prints a payer name field, so 'QUICK DRAW CONSTRUCTION LLC DES:PAYMENT'
     prints no draw), nothing reads as the business's own loan or money (_OWN_LOAN_DRAW: a loan's, a line's, an
@@ -2263,7 +2266,8 @@ def construction_progress_draw(
     no bank, title, escrow, closing or settlement firm, owner-shaped payer or financing root (the earlier financing
     holds read those first). R2-OW06 review round 1: nor a realty firm (_REALTY_PAYER: '<NAME> HOMES REALTY LLC')."""
     if (
-        not region or _BUILDER_PAYER.search(region) is None or _REALTY_PAYER.search(region) or zelle_deposit(text)
+        not region or _BUILDER_PAYER.search(region) is None or _REALTY_PAYER.search(region)
+        or (not zelle_true_revenue and zelle_deposit(text))
     ):
         return False
     row = _without_holder_name(_hold_text(text), account_name, also=also)
@@ -3055,6 +3059,20 @@ def zelle_prior_reading(record: TransactionClassification) -> tuple[str, str | N
             tier, _, reason = signal[len(_ZELLE_PRIOR):].partition(":")
             return tier, reason or None
     return None
+
+
+def zelle_credits_present(records: Sequence[TransactionClassification], duplicate_indexes: set[int]) -> bool:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): whether any credit pass 7 reads (posted,
+    not a duplicate, carrying a revenue state) prints the Zelle rail on the pass's own text (zelle_deposit, after
+    without_transfer_code). Only such a row can read differently in the counted reading: the Zelle step and the two
+    lifted carve-outs read nothing else, so a statement without one has a single reading."""
+    classifier = _classifier()
+    return any(
+        index not in duplicate_indexes and record.amount > 0 and record.is_posted
+        and record.revenue_classification is not None
+        and zelle_deposit(without_transfer_code(record, classifier.revenue_text(record.normalized_description)))
+        for index, record in enumerate(records)
+    )
 
 
 #: Audit B10 (I05): the share of a statement's posted credit rows whose payer text was not read above which the
@@ -5514,6 +5532,7 @@ def credit_facts(
     business: bool = False,
     disbursers: frozenset[tuple[str, ...]] = frozenset(),
     lessor: bool = False,
+    zelle_true_revenue: bool = False,
 ) -> CreditFacts:
     """§8.1 to §8.9: one posted credit's payer facts, including the first hold of §8.10's order 2 to 11. The payer
     region, name, key and entry fields are the 5.5 readers' (payer_region, payer_name, _payer_key, entry_fields). A
@@ -5527,7 +5546,9 @@ def credit_facts(
     `disbursers` the statement's _recurring_disbursers, whose disbursement entry is no non-sale purpose (I18). Owner
     ruling 2026-10-02 (the underwriter's Q9; R2-OW09): on an unverified credit nothing claimed, the release of T4's
     financing-root hold (finance_named_release, `lessor` the statement's _lessor_business) lifts that root arm alone in
-    _first_hold (`released`); CreditFacts.q9 carries its reason only where no hold names the row then."""
+    _first_hold (`released`); CreditFacts.q9 carries its reason only where no hold names the row then. The owner's
+    amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): `zelle_true_revenue` is the counted reading, in which a
+    builder's Zelle draw is a progress draw (construction_progress_draw); nothing else here reads it."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
     region = _facts_region(text, channel)
@@ -5560,7 +5581,7 @@ def credit_facts(
     # Owner ruling 2026-10-02 (the underwriter's Q11 (a)): a builder's progress draw, read only on a named payer that no
     # registry, payout entity, factor or financier claimed.
     progress_draw = not claimed and construction_progress_draw(
-        text, region, _holder(record), also=_holder_strip_names(record)
+        text, region, _holder(record), also=_holder_strip_names(record), zelle_true_revenue=zelle_true_revenue,
     )
     # Owner ruling 2026-10-02 (the underwriter's Q9, "Keep them as true revenue"; R2-OW09): T4's root arm lifted for a
     # finance-named customer paying an invoice, a lessor's rent or a lender paying for services, on an unverified credit
@@ -6071,6 +6092,7 @@ def asset_sale_platform(region: str, text: str = "") -> str | None:
 
 def asset_sale_reading(
     record: TransactionClassification, text: str, facts: CreditFacts, *, verified: bool = False,
+    zelle_true_revenue: bool = False,
 ) -> str | None:
     """§8.1 (owner ruling 2026-10-02, the underwriter's Q11 (b), "Don't count as true revenue and go straight to
     non-revenue"; audit I45): 'payer' when an equipment auction or a car buyer pays a seller (asset_sale_platform: with
@@ -6086,7 +6108,9 @@ def asset_sale_reading(
     an agent's earned revenue). `verified` is a row an invoice or customer-payment descriptor verified
     (ASSET_SALE_INVOICE_METHODS): only its printed sale is read, never a platform. The pass reads the statement's dealer
     evidence first (_dealer_statement) and applies the reading where the tier would count the row or a verification it
-    overrules; a held tier keeps the row held."""
+    overrules; a held tier keeps the row held. The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17):
+    in the counted reading (`zelle_true_revenue`) a Zelle row is read as any other rail's, so a Zelle truck or
+    equipment sale is asset-sale proceeds, as a Venmo one is."""
     classifier = _classifier()
     region = facts.region
     entity = asset_sale_platform(region, text) if region and not verified else None
@@ -6096,7 +6120,10 @@ def asset_sale_reading(
     ):
         return None
     row = _without_holder_name(_hold_text(text), _holder(record), also=_holder_strip_names(record))
-    if zelle_deposit(text) or _POSSIBLE_RETURN.search(row) or _ASSET_SALE_REFUND.search(row):
+    if (
+        (not zelle_true_revenue and zelle_deposit(text)) or _POSSIBLE_RETURN.search(row)
+        or _ASSET_SALE_REFUND.search(row)
+    ):
         return None
     name = _payer_name_proper(text, region) if region and _prints_payer_name_field(text) else ""
     purpose = row.replace(name, " ") if name else row
@@ -6657,6 +6684,7 @@ def apply_true_revenue_pass(
     *,
     premium_trust: str | None = None,
     statement_start: str | None = None,
+    zelle_true_revenue: bool = False,
 ) -> list[TransactionClassification]:
     """Statement pass 7 (§6.2): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit
     B3 (I11): first, with the owner's switch on (PROCESSOR_CARD_PAYOUT_RELEASE), a processor's instant payouts printed
@@ -6690,7 +6718,13 @@ def apply_true_revenue_pass(
     credit a rule verified or counted as PREMIUM_TRUST_REASON (_held_in_premium_trust). None leaves every record as
     before. Owner ruling 2026-10-02 (the underwriter's Q1; R2-OW12): `statement_start` is the statement's printed
     period start or None; the pass's last step, after the premium-trust hold, records on each held wire with no sender
-    the lender series that start after it (funding_series_after, a review aid that moves no tier or figure)."""
+    the lender series that start after it (funding_series_after, a review aid that moves no tier or figure). The owner's
+    amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): `zelle_true_revenue` False (the default) is the stored
+    reading, every line as before; True is the counted reading, in which the Zelle step does not run and the two Q3-era
+    carve-outs inside the rules are lifted (a builder's Zelle draw is a progress draw, credit_facts; a Zelle truck or
+    equipment sale is asset-sale proceeds, asset_sale_reading). The lessor fact keeps its Zelle skip in both readings
+    (_lessor_business), and every later step (the $1 floor, the premium-trust hold, funding_series_after) reads the
+    counted tiers as it reads any row's."""
     unread_texts = unread_texts or {}
     classifier = _classifier()
     updated = list(records)
@@ -6804,6 +6838,7 @@ def apply_true_revenue_pass(
         index: credit_facts(
             updated[index], texts[index], debits=debits,
             receiver_holders=receiver_holders, business=business, disbursers=disbursers, lessor=lessor,
+            zelle_true_revenue=zelle_true_revenue,
         )
         for index in credits
     }
@@ -6829,7 +6864,9 @@ def apply_true_revenue_pass(
                 or _under_micro_floor(record)
             ):
                 continue
-            arm = asset_sale_reading(record, texts[index], facts[index], verified=verified)
+            arm = asset_sale_reading(
+                record, texts[index], facts[index], verified=verified, zelle_true_revenue=zelle_true_revenue,
+            )
             if arm is not None:
                 asset_sales[index] = arm
     # §5.2: repeats count a verified credit, or an unverified one no hold names; never a held or conflicting one, a
@@ -6962,11 +6999,13 @@ def apply_true_revenue_pass(
     # tier and before the $1 floor. Every Zelle deposit the rules tiered is excluded (_zelle_excluded), a hold or a
     # count alike; a row a non-revenue rule decided keeps that rule, and a direction conflict keeps its hold. Nothing
     # before this step changes: the facts, the holds, Q5's and Q6's counts and a sender's named round sums still read
-    # Zelle rows. The floor and every later step skip the rows this step excludes (they are non_revenue).
+    # Zelle rows. The floor and every later step skip the rows this step excludes (they are non_revenue). The owner's
+    # amendment of 2026-10-06 (R2-OW17): the stored reading only; the counted reading (`zelle_true_revenue`) skips it.
     for index in credits:
         record = updated[index]
         if (
-            zelle_deposit(texts[index]) and record.revenue_classification != "non_revenue"
+            not zelle_true_revenue
+            and zelle_deposit(texts[index]) and record.revenue_classification != "non_revenue"
             and record.revenue_match_method != "direction_conflict"
         ):
             updated[index] = _zelle_excluded(record)
@@ -7022,14 +7061,16 @@ def registry_financing_root(record: TransactionClassification, text: str) -> boo
     return False
 
 
-def guard_facts(record: TransactionClassification, text: str) -> dict:
+def guard_facts(record: TransactionClassification, text: str, *, zelle_true_revenue: bool = False) -> dict:
     """The census's §14.3 facts of one posted credit (tools/revenue_census.py), read with these readers. The customer
     descriptor is step 11's reading (the text without the receiver field's value, or the joined originator and entry
     before the receiver fields), so a descriptor in the holder's name never marks a row. The known payee is read the
     same way, as the record's claim reads it (S4.2 review M3). `claimed` is the pass's own claim (§8.1: the holds,
     the holder's included, skip a row the registry, a payout entity or a factoring payee claimed), which the census's
     holder guards read (review M1). Audit round 2, R2-B11 (R09 part A): the facts read the pass's own text, TD Canada
-    Trust's e-Transfer code dropped (without_transfer_code)."""
+    Trust's e-Transfer code dropped (without_transfer_code). The owner's amendment of 2026-10-06 to the underwriter's
+    Q3 (R2-OW17): `zelle_true_revenue` is the snapshot's reading, which the progress_draw fact follows as the pass's
+    payer facts do (credit_facts)."""
     classifier = _classifier()
     text = without_transfer_code(record, text)
     region = classifier.payer_region(text)
@@ -7115,7 +7156,7 @@ def guard_facts(record: TransactionClassification, text: str) -> dict:
         # Owner ruling 2026-10-02 (the underwriter's Q11 (a)): a builder's progress draw on a row nothing claimed, as the
         # pass's payer facts read it (CreditFacts.progress_draw).
         "progress_draw": not (_claimed(record, text) or _factoring_payout_payer(region, text))
-        and construction_progress_draw(text, region, _holder(record), also=also),
+        and construction_progress_draw(text, region, _holder(record), also=also, zelle_true_revenue=zelle_true_revenue),
         # R2-OW06 review round 1: the pass's channel and payer key as a digest (never a name), by which the census finds
         # a Q5 or Q6 repeat whose same-payer row Q11 keeps from the repeat (an asset sale, a builder's progress draw).
         "payer_key_digest": payer_key_digest(text, region, record.bank),

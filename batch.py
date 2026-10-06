@@ -9,6 +9,11 @@ Usage:
   .venv/bin/python batch.py output/ --out triage.csv          # a folder of .md
   OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \\
       .venv/bin/python batch.py BankStatements/ --out triage.csv   # PDFs (OCR+analyze)
+
+`--zelle-true-revenue {yes,no}` is the owner's "Mark Zelle Payments as True
+Revenue" (the underwriter's Q3, amended 2026-10-06), yes by default as on the
+Settings page: each row reads that Zelle reading. The CLI reads no webapp
+setting.
 """
 from __future__ import annotations
 import argparse
@@ -18,6 +23,7 @@ import sys
 import traceback
 from pathlib import Path
 
+from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from telemetry import (
     DispatchCollector,
@@ -38,7 +44,11 @@ FIELDS = [
     "total_posted_credits", "true_revenue_total", "counted_flagged_total", "excluded_pending_review_total",
     "verified_revenue_total", "verified_revenue_count",
     "unverified_deposit_total", "unverified_deposit_count", "non_revenue_total",
-    "non_revenue_count", "maximum_revenue", "revenue_reconciles",
+    "non_revenue_count",
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the reading shown and its Zelle figures,
+    # a fixed header in both modes.
+    "zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total",
+    "maximum_revenue", "revenue_reconciles",
     "revenue_reconciliation_delta", "cash_flow", "lender_credits", "lender_debits",
     "lender_debit_count", "returned_funder_payment_count", "returned_funder_payment_total",
     "lenders_detected", "potential_lenders_detected",
@@ -100,8 +110,13 @@ def _content_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest().upper()
 
 
-def _row(path: Path, report: Report) -> dict:
+def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
+    # R2-OW17: the Zelle reading asked for: the counted one (`Report.zelle_counted`) under Yes where the statement has
+    # one, else the stored Report.
+    report = stored.zelle_counted if zelle_true_revenue and stored.zelle_counted is not None else stored
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
+    zelle = zelle_view.record_zelle_figures(stored.classifications, report.classifications)
+    zelle_parts = zelle_view.figure_parts(zelle) if zelle is not None else {"in_true": 0.0}
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted —
     # or when its revenue gate is set (5.6, T7: a direction conflict, held credits
@@ -136,6 +151,9 @@ def _row(path: Path, report: Report) -> dict:
         "unverified_deposit_count": m.unverified_deposit_count,
         "non_revenue_total": f"{m.non_revenue_total:.2f}",
         "non_revenue_count": m.non_revenue_count,
+        "zelle_true_revenue": "yes" if zelle_true_revenue else "no",
+        "zelle_deposit_total": f"{zelle['total'] if zelle is not None else 0.0:.2f}",
+        "zelle_in_true_revenue_total": f"{zelle_parts['in_true']:.2f}",
         "maximum_revenue": f"{m.maximum_revenue:.2f}",
         "revenue_reconciles": "yes" if m.revenue_reconciles else "NO",
         "revenue_reconciliation_delta": f"{m.revenue_reconciliation_delta:.2f}",
@@ -258,7 +276,10 @@ def main() -> None:
              "endpoint additionally requires OCR_REMOTE_OPT_IN "
              "(see README.md).",
     )
+    ap.add_argument("--zelle-true-revenue", choices=("yes", "no"), default="yes",
+                    help="Mark Zelle Payments as True Revenue (default yes, the Settings default)")
     args = ap.parse_args()
+    zelle_true_revenue = args.zelle_true_revenue == "yes"
 
     root = Path(args.path)
     if root.is_dir():
@@ -317,7 +338,7 @@ def main() -> None:
             # One CSV row per ACCOUNT, in printed order: a sheet that printed
             # one row per document would publish one account of several and
             # drop the rest without saying so.
-            rows.extend(_row(path, account) for account in analysed.accounts)
+            rows.extend(_row(path, account, zelle_true_revenue) for account in analysed.accounts)
             _emit(sink, run_id, path, markdown, doc, profile, byte_size,
                   collector, timer, seen_hashes, document=analysed)
         except Exception as e:  # keep going; record the failure in its row

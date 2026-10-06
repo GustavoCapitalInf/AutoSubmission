@@ -142,6 +142,20 @@ def test_q3_every_zelle_deposit_is_excluded_with_the_rules_reading_kept(monkeypa
     assert [new for new in on if new.amount <= 0] == [old for old in off if old.amount <= 0]
 
 
+@pytest.mark.parametrize(("bank", "rows", "days", "prior"), MOVES)
+def test_q3_amended_the_counted_reading_of_every_move_is_its_prior(bank, rows, days, prior):
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17, I-Rules): the counted (Yes) reading of each
+    Zelle deposit is the rules' own reading, the zelle_prior the stored reading keeps; nothing else in the statement
+    moves (none of these rows prints a sale, a draw or a premium trust title)."""
+    statement = Statement(account_name=HOLDER, bank=bank, transactions=_transactions(rows, days))
+    stored = classify_statement_transactions(statement)
+    counted = classify_statement_transactions(statement, zelle_true_revenue=True)
+    credits = [(old, new) for old, new in zip(stored, counted) if old.amount > 0]
+    assert [true_revenue.zelle_prior_reading(old) for old, _new in credits] == prior
+    assert [_tier(new) for _old, new in credits] == prior
+    assert [old for old in stored if old.amount <= 0] == [new for new in counted if new.amount <= 0]
+
+
 def test_q3_the_classification_stays_the_legacy_reading():
     """Transfer for a rail the classifier reads; other for PNC's ZEL and a glued rail."""
     assert [_run([(text, 500.0)], bank)[0].classification for text, bank in (

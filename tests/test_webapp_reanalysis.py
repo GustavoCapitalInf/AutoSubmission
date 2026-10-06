@@ -194,12 +194,20 @@ def test_a_zelle_deposit_awaits_a_confirm_only():
         assert not _awaits_review({**zelle, "revenue_tier_reason": reason}, "confirm"), reason
 
 
+def _without_edits(payload):
+    """A stand-in for an analysis made before the owner's Zelle setting (R2-OW17): the counted reading's edits removed,
+    so the replay reads the stored reading alone, as it did before."""
+    payload.pop("zelle_counted_reading", None)
+    return payload
+
+
 def test_a_stored_confirm_on_a_zelle_deposit_is_replayed_and_a_stored_reject_is_decided_by_the_rules():
+    """On a payload without the counted reading's edits (R2-OW17), today's replay exactly."""
     from webapp.reanalysis import replay_reviews
 
-    old = _payload(ZELLE_ROWS)
+    old = _without_edits(_payload(ZELLE_ROWS))
     before = old["metrics"]["true_revenue_total"]
-    confirmed = replay_reviews(_payload(ZELLE_ROWS), [_decision(11, old, "transaction:2", "confirm")])
+    confirmed = replay_reviews(_without_edits(_payload(ZELLE_ROWS)), [_decision(11, old, "transaction:2", "confirm")])
     assert (confirmed.replayed, confirmed.not_replayed, confirmed.decided_by_rules) == ((11,), (), ())
     record = _records(confirmed.analysis)["transaction:2"]
     assert (record["revenue_tier"], record["revenue_tier_reason"], record["revenue_review_status"]) == (
@@ -207,7 +215,7 @@ def test_a_stored_confirm_on_a_zelle_deposit_is_replayed_and_a_stored_reject_is_
     assert confirmed.analysis["metrics"]["true_revenue_total"] == before + 400.0
     assert confirmed.analysis["metrics"]["non_revenue_by_reason"] == {}
     # The writer refuses a reject on such a row (it is already non-revenue), so a stored one is the rules' decision.
-    rejected = replay_reviews(_payload(ZELLE_ROWS), [_decision(12, old, "transaction:2", "reject")])
+    rejected = replay_reviews(_without_edits(_payload(ZELLE_ROWS)), [_decision(12, old, "transaction:2", "reject")])
     assert (rejected.replayed, rejected.not_replayed, rejected.decided_by_rules) == ((), (), (12,))
     assert rejected.analysis["metrics"]["non_revenue_by_reason"] == {"zelle_excluded": {"count": 1, "total": 400.0}}
 

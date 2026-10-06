@@ -12,6 +12,7 @@ from .transaction_classifier import (
 )
 from .payload_shape import DOCUMENT_KEY, account_content_digest
 from .revenue import rebuild_serialized_revenue_views
+from . import zelle_view
 
 if TYPE_CHECKING:
     from .pipeline import DocumentReport, Report
@@ -160,6 +161,21 @@ def _metrics_dict(metrics) -> dict:
 
 
 def report_to_dict(report: Report) -> dict:
+    """One account's published payload: the stored (No) Zelle reading, rebuilt (`_account_payload`). The owner's
+    amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §9.1; R2-OW17): an account whose counted (Yes)
+    reading differs carries, after the rebuild, the lean edits that turn it into that reading (ZELLE_EDITS_KEY,
+    analysis/zelle_view.py). A statement with no Zelle row publishes today's payload byte for byte."""
+    payload = _account_payload(report)
+    counted = getattr(report, "zelle_counted", None)
+    if counted is not None:
+        edits = zelle_view.reading_edits(payload, _account_payload(counted))
+        if edits:
+            payload[zelle_view.ZELLE_EDITS_KEY] = edits
+    return payload
+
+
+def _account_payload(report: Report) -> dict:
+    """One Report's account payload in its own reading, its revenue views rebuilt (today's `report_to_dict` body)."""
     records = report.classifications or classify_statement_transactions(report.statement)
     if len(records) != len(report.statement.transactions):
         raise ValueError("classification count must equal transaction count")

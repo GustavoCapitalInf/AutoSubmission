@@ -29,9 +29,18 @@ const cells = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)]
 """
 
 
-def _served(payload):
+def _served(payload, zelle=True):
+    """The served copy, on an explicit settings snapshot: every default, the Zelle choice `zelle` (R2-OW17)."""
     from webapp.app import _displayed
-    return _displayed(payload, settings={})
+    return _displayed(payload, settings={"zelle_true_revenue": zelle})
+
+
+def _zelle_package(analyses, tmp_path, monkeypatch, zelle):
+    """The real package payload under the Zelle choice `zelle` (saved in the scratch settings folder _package reads)."""
+    from webapp.settings import save_settings
+
+    save_settings(tmp_path, {"zelle_true_revenue": zelle})
+    return _package(analyses, tmp_path, monkeypatch)
 
 
 def _open(job_id, payload):
@@ -564,7 +573,7 @@ def test_the_settings_say_what_true_revenue_is():
     assert ("<strong>True revenue:</strong> every posted credit except known non-revenue (own-account transfers, "
             "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shown "
             "beside it.") in text
-    assert '<script src="/static/app.js?v=true-revenue-3"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-4"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
@@ -608,6 +617,25 @@ console.log(JSON.stringify({...hero(), rows: metricRows(els.metricsGrid.innerHTM
     assert figures["Non-Revenue"]["note"] == (
         "Captured rows only: own-account transfers, funding, refunds and other known non-revenue, Zelle deposits "
         "included")
+
+
+@needs_node
+def test_yes_the_non_revenue_note_drops_the_zelle_clause_where_zelle_counts():
+    """R2-OW17 (§10.5): where the served account or package says its Zelle deposits count in True revenue, the note no
+    longer names them; a payload without the figures cannot say the mode and keeps today's note."""
+    notes = run_dashboard("""
+const note = (source, established) => revenueCardItems(source, 'USD', {established, verifiedEstablished: true})[4][2];
+const counted = {zelle_deposits: {counted_as_true_revenue: true, setting_applied: true, count: 1, total: 5,
+  by_tier: {counted_flagged: {count: 1, total: 5}}}};
+const excluded = {zelle_deposits: {...counted.zelle_deposits, counted_as_true_revenue: false}};
+console.log(JSON.stringify([note(counted, true), note(counted, false), note(excluded, true), note({}, true)]));
+""")
+    assert notes == [
+        "Own-account transfers, funding, refunds and other known non-revenue",
+        "Captured rows only: own-account transfers, funding, refunds and other known non-revenue",
+        "Own-account transfers, funding, refunds and other known non-revenue, Zelle deposits included",
+        "Own-account transfers, funding, refunds and other known non-revenue, Zelle deposits included",
+    ]
 
 
 @needs_node
@@ -1374,7 +1402,8 @@ def test_the_js_reviewable_non_revenue_codes_mirror_the_analysis():
 
 @needs_node
 def test_a_statement_states_its_excluded_zelle_deposits():
-    result = run_dashboard(METRIC_ROWS + LEDGER + _open("z", _served(_payload(_ZELLE_ROWS))) + """
+    """Under No (R2-OW17: "Mark Zelle Payments as True Revenue", the exclusion's own choice): today's display."""
+    result = run_dashboard(METRIC_ROWS + LEDGER + _open("z", _served(_payload(_ZELLE_ROWS), zelle=False)) + """
 const rows = metricRows(els.metricsGrid.innerHTML);
 const evidenceHtml = els.revenueTable.innerHTML;
 const evidence = cells(evidenceHtml);
@@ -1401,6 +1430,30 @@ console.log(JSON.stringify({rows, evidenceHtml, evidence, header, filtered, memo
                                   ["ZELLE PAYMENT FROM SAMPLE CATERING CONF 2", ["confirm"]],
                                   ["ZELLE PAYMENT FROM FABRIKAM SUPPLY CONF 3", ["confirm"]]]
     assert ("non-revenue $1,500.00 ($1,500.00 a month), of which Zelle deposits excluded $1,500.00.") in result["memo"]
+
+
+@needs_node
+def test_yes_a_statement_counts_its_zelle_deposits():
+    """The twin under Yes (the owner's amendment of 2026-10-06 to the underwriter's Q3, R2-OW17, the default): the three
+    Zelle deposits count (person-to-person), the True card says so, the Non-Revenue note names no Zelle deposits, and
+    each Zelle row carries the Zelle chip and Confirm Revenue / Mark Non-Revenue."""
+    result = run_dashboard(METRIC_ROWS + LEDGER + _open("z", _served(_payload(_ZELLE_ROWS))) + """
+const rows = metricRows(els.metricsGrid.innerHTML);
+const zelleRows = [...els.transactionTable.innerHTML.matchAll(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/g)].map((m) => m[1])
+  .filter((row) => /<span class="chip-text">Zelle<\\/span>/.test(row))
+  .map((row) => (row.match(/<td class="tx-desc">([^<]*)<\\/td>/) || [])[1]);
+const all = ledger();
+generateSummary();
+console.log(JSON.stringify({rows, zelleRows, all, memo: els.summaryBox.textContent}));
+""")
+    figures = {row["label"]: row for row in result["rows"]}
+    assert figures["True Revenue"]["value"] == "$2,500.00" and figures["Non-Revenue"]["value"] == "$0.00"
+    assert figures["True Revenue"]["note"] == ("Posted credits minus known non-revenue and the deposits held for review"
+                                               " · Zelle deposits in True revenue: $1,500.00 (3)")
+    assert figures["Non-Revenue"]["note"] == "Own-account transfers, funding, refunds and other known non-revenue"
+    assert result["zelleRows"] == [text for _day, text, _amount in _ZELLE_ROWS[2:]]
+    assert [actions for text, actions in result["all"] if text.startswith("ZELLE")] == [["confirm", "reject"]] * 3
+    assert "; Zelle deposits counted as True revenue $1,500.00." in result["memo"]
 
 
 @needs_node
@@ -1575,7 +1628,7 @@ def test_a_package_sums_its_members_asset_sales(tmp_path, monkeypatch):
 
 @needs_node
 def test_a_package_states_its_excluded_zelle_deposits_and_each_month_its_own(tmp_path, monkeypatch):
-    package = _package({"mar": _payload(_ZELLE_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch)
+    package = _zelle_package({"mar": _payload(_ZELLE_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch, False)
     assert package["totals"]["non_revenue_by_reason"] == {"zelle_excluded": {"count": 3, "total": 1500.0}}
     result = run_dashboard(METRIC_ROWS + MONTHLY + LEDGER + f"""
 currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
@@ -1603,10 +1656,46 @@ console.log(JSON.stringify({{rows, evidence, both, trueOnly, totalOnly, memo: el
 
 
 @needs_node
+def test_yes_a_package_counts_its_zelle_deposits_and_each_month_its_own(tmp_path, monkeypatch):
+    package = _zelle_package({"mar": _payload(_ZELLE_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch, True)
+    assert package["totals"]["non_revenue_by_reason"] == {}
+    assert package["totals"]["zelle_deposits"]["count"] == 3
+    result = run_dashboard(METRIC_ROWS + MONTHLY + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+const rows = metricRows(els.metricsGrid.innerHTML);
+const details = [...els.monthlyTable.innerHTML.matchAll(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/g)].map((m) =>
+  [...m[1].matchAll(/<div class="table-cell-detail">(Zelle[^<]*)<\\/div>/g)].map((d) => d[1]));
+generateSummary();
+console.log(JSON.stringify({{rows, details, memo: els.summaryBox.textContent}}));
+""")
+    note = {row["label"]: row["note"] for row in result["rows"]}["True Revenue"]
+    assert note.endswith(" · Zelle deposits in True revenue: $1,500.00 (3)")
+    assert result["details"] == [["Zelle in True 1,500"], []]
+    assert "; Zelle deposits counted as True revenue $1,500.00." in result["memo"]
+
+
+@needs_node
+def test_yes_a_mixed_currency_package_counts_the_refused_zelle_money(tmp_path, monkeypatch):
+    cad = _payload(_ZELLE_ROWS, month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _zelle_package({"usd": _payload(_ZELLE_ROWS), "cad": cad}, tmp_path, monkeypatch, True)
+    totals = package["totals"]
+    assert totals["zelle_deposits"]["total"] is None and totals["zelle_deposits"]["count"] == 6
+    result = run_dashboard(CELLS + f"""
+currentJobIds = ['usd', 'cad']; renderPackageAnalysis({json.dumps(package)});
+const details = [...els.monthlyTable.innerHTML.matchAll(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/g)].map((m) =>
+  [...m[1].matchAll(/<div class="table-cell-detail">(Zelle[^<]*)<\\/div>/g)].map((d) => d[1]));
+console.log(JSON.stringify({{details, facts: packageRevenueFacts({json.dumps(totals)}, null)}}));
+""")
+    assert result["details"] == [["Zelle in True 1,500"], ["Zelle in True 1,500 CAD"]]
+    assert result["facts"] == ["Zelle deposits in True revenue: 6"]
+
+
+@needs_node
 def test_a_mixed_currency_package_names_each_month_s_unit_and_counts_the_refused_zelle_money(tmp_path, monkeypatch):
     cad = _payload(_ZELLE_ROWS, month=4)
     cad["statement"]["currency"] = "CAD"
-    package = _package({"usd": _payload(_ZELLE_ROWS), "cad": cad}, tmp_path, monkeypatch)
+    package = _zelle_package({"usd": _payload(_ZELLE_ROWS), "cad": cad}, tmp_path, monkeypatch, False)
     totals = package["totals"]
     assert totals["cross_currency_totals_refused"] is True
     assert totals["non_revenue_by_reason"] == {"zelle_excluded": {"count": 6, "total": None}}

@@ -203,8 +203,9 @@ def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_a
                "revenueSummarySentence", "generateSummary",
                # Audit round 2, R2-B15 (R13): the months a statement's period covers, which its monthly figures read.
                "isoDay", "statementMonthsCovered",
-               # Owner ruling 2026-10-02, R2-OW03: the excluded Zelle deposits the revenue sentence names.
-               "zelleExcluded",
+               # Owner ruling 2026-10-02, R2-OW03: the excluded Zelle deposits the revenue sentence names; and (the
+               # owner's amendment of 2026-10-06, R2-OW17) the served Zelle figures it reads first.
+               "zelleExcluded", "zelleDeposits",
                # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13: the summary's lender debits, paid and returned.
                "lenderDebitsSummary")
     # Each function up to its closing brace (top-level code follows some of them).

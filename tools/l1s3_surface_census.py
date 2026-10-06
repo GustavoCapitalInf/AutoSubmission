@@ -166,6 +166,16 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "the downloads' posted-credit table (I32): one block per account, under its section prefix"),
     ("webapp/app.py", "_export_revenue_view", "per_account",
      "the downloads' N/A rule (I51): every account's figures follow its own revenue flags"),
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): the Zelle setting's readings.
+    ("analysis/zelle_view.py", "reading", "per_account",
+     "the Zelle reading is a property of one account's ledger; every account is materialised in the chosen reading, a "
+     "malformed document passes untouched"),
+    ("analysis/zelle_view.py", "apply_zelle_view", "per_account",
+     "the Zelle figures and row tags are served per account ledger; every account is shown in the chosen reading, a "
+     "malformed document passes untouched"),
+    ("analysis/zelle_view.py", "with_both_readings", "per_account",
+     "a reviewer's decision names one posting of one account, written in both readings; each account keeps its own "
+     "edits, a malformed document takes today's path"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -200,6 +210,17 @@ EXCUSED: dict[str, str] = {
     "analysis/nsf_days.py::_rebased_account": "one ACCOUNT's ledger and postings; `apply_nsf_basis_to_payload` hands it each account from `payload_accounts`",
     "analysis/revenue_view.py::_served_account": "one ACCOUNT's revenue view; `apply_revenue_view` hands it each account from `payload_accounts`",
     "analysis/revenue_view.py::revenue_flags": "one ACCOUNT's revenue flags; reached through `_served_account` with that account in hand",
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): one ACCOUNT's Zelle rows and
+    # served view, each handed its account by the taught `apply_zelle_view` (and `zelle_rows` by it too).
+    "analysis/zelle_view.py::_posted_credits": "one ACCOUNT's posted credits; `zelle_rows` reads them for each account `apply_zelle_view` hands it from `payload_accounts`",
+    "analysis/zelle_view.py::_view_account": "one ACCOUNT's served Zelle view; `apply_zelle_view` hands it each account from `payload_accounts`",
+    # Audit round 2, R2-B14 (R16, R46, R14) and R2-OW17: package and copy readers handed one ACCOUNT by the taught
+    # `_stored_accounts`.
+    "webapp/app.py::_copy_rank": "a copy's accounts, read through the taught `_stored_accounts` in both Zelle readings (R2-OW17)",
+    "webapp/app.py::_printed_account_digits": "one ACCOUNT's printed number; its callers hand it accounts `_stored_accounts` lists or members `_package_members` publishes",
+    "webapp/app.py::_statement_span": "one ACCOUNT's period; `_package_superseded` hands it accounts `_stored_accounts` lists",
+    "webapp/app.py::_posted_rows": "one ACCOUNT's posted rows; `_package_superseded` hands it accounts `_stored_accounts` lists",
+    "webapp/app.py::_package_superseded": "reads each kept job's accounts through the taught `_stored_accounts`; its `accounts` key is its own entry's account count, not a payload",
     # A developer utility that publishes nothing. Handed a document payload it
     # falls back to the payload itself and `Statement.model_validate` refuses
     # it loudly, which is the fail-closed answer this census asks for.

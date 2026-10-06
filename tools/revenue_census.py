@@ -296,6 +296,16 @@ LENDER_PAID_FOR_SERVICES_METHOD = "lender_paid_for_services"
 #: The owner's ruling of 2026-10-02 (the underwriter's Q3): the method pass 7 gives a Zelle deposit the Zelle policy
 #: excluded (analysis/true_revenue.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
 ZELLE_POLICY_METHOD = "zelle_deposit_excluded"
+#: The owner's amendment of 2026-10-06 to the underwriter's Q3 (spec §14.2; R2-OW17): the declared cause of a credit whose
+#: base method is the Zelle policy's and whose (tier, reason) moves between snapshots of the two Zelle readings, given
+#: only with `--declare-zelle-view`. It is no §6.3 narrowing (NARROWINGS stays the closed list) and never a G1 failure;
+#: its own check is G-Z (_zelle_view_check).
+ZELLE_VIEW_CAUSE = "zelle_true_revenue_view"
+#: R2-OW17 (G-Z): the counted reading's declared departures from a Zelle row's stored zelle_prior: the premium-trust hold
+#: (after reason premium_trust_account), the $1 floor (a credit under MICRO_DEPOSIT_FLOOR_CENTS), the two lifted Q3-era
+#: carve-outs (after reason asset_sale_proceeds or construction_progress_draw), and a Zelle row whose Q5 or Q6 repeat
+#: partner is a lifted carve-out row (its prior verified, the after counted, its payer key among the account's q11_kept).
+ZELLE_VIEW_LIFTED_REASONS = frozenset({"asset_sale_proceeds", "construction_progress_draw"})
 #: Audit round 2, R2-B04 (R41): the method pass 7 gives the holder's own push it overrules
 #: (analysis/true_revenue.py _holder_never_verified, copied: the census reads other checkouts).
 HOLDER_OWN_PUSH_METHOD = "self_originated_holder"
@@ -1256,8 +1266,46 @@ def _pool_threshold(classifier, record) -> int:
     return classifier._RECURRENCE_MIN_BUSINESS_CREDITS if business else classifier._RECURRENCE_MIN_CREDITS
 
 
-def _guard_facts(record, text: str) -> dict:
-    """The §14.3 guard facts of one posted credit, read with the checkout's own readers when it has them."""
+def _accepts(function, keyword: str) -> bool:
+    """Whether the checkout's `function` takes `keyword` (R2-OW17: a checkout before the Zelle setting takes none)."""
+    import inspect
+
+    try:
+        return keyword in inspect.signature(function).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def zelle_reading_supported() -> bool:
+    """R2-OW17 (J1): whether the checkout's classifier takes the Zelle reading (classify_statement_transactions'
+    `zelle_true_revenue`, guarded for --code-root)."""
+    from analysis import transaction_classifier
+
+    return _accepts(transaction_classifier.classify_statement_transactions, "zelle_true_revenue")
+
+
+def _readings(statement, zelle_true_revenue: bool | None):
+    """(records in the snapshot's reading, the stored reading's records). The owner's amendment of 2026-10-06 to the
+    underwriter's Q3 (J1): on a checkout that takes the reading, the counted reading is read where asked (one fork,
+    classify_statement_readings, when the checkout has it); elsewhere the checkout's one reading is both."""
+    from analysis import transaction_classifier as classifier
+
+    if zelle_true_revenue is None or not zelle_reading_supported():
+        records = classifier.classify_statement_transactions(statement)
+        return records, records
+    readings = getattr(classifier, "classify_statement_readings", None)
+    if readings is not None:
+        stored, counted = readings(statement)
+        return (counted if zelle_true_revenue and counted is not None else stored), stored
+    stored = classifier.classify_statement_transactions(statement)
+    if not zelle_true_revenue:
+        return stored, stored
+    return classifier.classify_statement_transactions(statement, zelle_true_revenue=True), stored
+
+
+def _guard_facts(record, text: str, zelle_true_revenue: bool | None = None) -> dict:
+    """The §14.3 guard facts of one posted credit, read with the checkout's own readers when it has them. R2-OW17 (J1):
+    the pass's guard facts read the snapshot's Zelle reading where the checkout takes it (its progress_draw fact)."""
     from analysis import transaction_classifier as classifier
 
     facts: dict = {}
@@ -1320,21 +1368,32 @@ def _guard_facts(record, text: str) -> dict:
         from analysis import true_revenue
     except ImportError:
         return facts
-    facts.update(true_revenue.guard_facts(record, revenue))
+    if zelle_true_revenue is not None and _accepts(true_revenue.guard_facts, "zelle_true_revenue"):
+        facts.update(true_revenue.guard_facts(record, revenue, zelle_true_revenue=zelle_true_revenue))
+    else:
+        facts.update(true_revenue.guard_facts(record, revenue))
     return facts
 
 
-def account_snapshot(account: dict) -> dict:
-    """Re-classify one account payload with the `analysis` package on sys.path."""
+def account_snapshot(account: dict, *, zelle_true_revenue: bool | None = True) -> dict:
+    """Re-classify one account payload with the `analysis` package on sys.path. The owner's amendment of 2026-10-06 to
+    the underwriter's Q3 (spec §14.2; R2-OW17, J1): in the Zelle reading `zelle_true_revenue` (Yes by default, as the
+    Settings page's; None reads the checkout's one reading), on a checkout that takes it; each credit also records the
+    stored reading's zelle_prior (true_revenue.zelle_prior_reading, where the checkout has it)."""
     from analysis import classification_registry
     from analysis.classification_registry import OPERATING_REVENUE_SOURCE_ALIASES
     from analysis.metrics import compute_metrics
     from analysis.payee_matcher import registry_match
     from analysis.schema import Statement
-    from analysis.transaction_classifier import classify_statement_transactions
 
+    try:
+        from analysis import true_revenue as pass_7
+    except ImportError:
+        pass_7 = None
+    prior_reading = getattr(pass_7, "zelle_prior_reading", None)
     statement = Statement.model_validate(account["statement"])
-    records = classify_statement_transactions(statement)
+    reading = zelle_true_revenue if zelle_reading_supported() else None
+    records, stored = _readings(statement, reading)
     metrics = compute_metrics(statement, classifications=records)
     known = _known_names(classification_registry)
     credits = []
@@ -1367,9 +1426,13 @@ def account_snapshot(account: dict) -> dict:
             "class": record.classification,
             "lender_credit": bool(getattr(record, "contributes_to_lender_credit_exclusion", False)),
             "text": mask(record.normalized_description),
-            "facts": _guard_facts(record, record.normalized_description),
+            "facts": _guard_facts(record, record.normalized_description, reading),
             "funding_series": len(funding),
             "funding_series_observed": sum(1 for series in funding if getattr(series, "start_observed", False)),
+            # R2-OW17 (J1): the rules' own reading of a Zelle deposit the policy excluded, from the stored (No) reading
+            # (a [tier, reason] pair), or None (any other row, or a checkout without the signal).
+            "zelle_prior": list(prior) if prior_reading is not None and (prior := prior_reading(stored[index]))
+            else None,
         })
     tier_totals = None
     if hasattr(metrics, "counted_flagged_total"):
@@ -1463,11 +1526,11 @@ def _true_cents(credits: Iterable[dict]) -> int:
     )
 
 
-def _unreconciled_account(account: dict) -> dict:
+def _unreconciled_account(account: dict, zelle_true_revenue: bool | None = True) -> dict:
     """Audit round 2, R2-B01 (R12): what the snapshot records of an account its filter leaves out as unreconciled: its
     bank, posted credits, True and tiers (in cents), read like any other's, or the error that kept it unread."""
     try:
-        snap = account_snapshot(account)
+        snap = account_snapshot(account, zelle_true_revenue=zelle_true_revenue)
     except Exception as error:  # noqa: BLE001  (a stored payload the schema no longer reads)
         return {"bank": mask((account.get("statement") or {}).get("bank")), "error": type(error).__name__}
     tiers: Counter = Counter()
@@ -1498,11 +1561,14 @@ def _unreconciled_summary(entries: dict[str, dict]) -> dict:
             "errors": dict(sorted(errors.items())), "accounts": entries}
 
 
-def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basis_stats: dict | None = None) -> dict:
-    """{"classification_version", "analysis_stage_version", "basis", "basis_stats", "accounts": {id: account snapshot},
-    "skipped": {reason: n}, "duplicates": {set-aside id: kept id}, "stale_parses": [...], "unreconciled_summary"},
-    over the reconciled, de-duplicated accounts (the credit census's filter). `basis_stats` is the dict the account
-    reader fills (S3.1); it is read once every account is read.
+def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basis_stats: dict | None = None,
+             zelle_true_revenue: bool = True) -> dict:
+    """{"classification_version", "analysis_stage_version", "basis", "zelle_true_revenue", "basis_stats", "accounts":
+    {id: account snapshot}, "skipped": {reason: n}, "duplicates": {set-aside id: kept id}, "stale_parses": [...],
+    "unreconciled_summary"}, over the reconciled, de-duplicated accounts (the credit census's filter). `basis_stats` is
+    the dict the account reader fills (S3.1); it is read once every account is read. The owner's amendment of 2026-10-06
+    to the underwriter's Q3 (R2-OW17, J1): `zelle_true_revenue` is the Zelle reading the accounts are read in, recorded
+    as true or false, or null on a checkout that takes no reading (its one reading: from R2-OW02 on, No).
 
     B1 (I60): of the analyses that read one statement (one fingerprint), the newest-created is kept, in whatever order
     the reader yields them (a later, newer one replaces the one kept; equal times keep the first); the others are
@@ -1513,15 +1579,16 @@ def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basi
     from analysis.schema import Statement
     from analysis.transaction_classifier import CLASSIFICATION_VERSION
 
+    reading = bool(zelle_true_revenue) if zelle_reading_supported() else None
     result: dict = {"classification_version": CLASSIFICATION_VERSION, "analysis_stage_version": _analysis_stage_version(),
-                    "basis": basis, "accounts": {}, "skipped": {}}
+                    "basis": basis, "zelle_true_revenue": reading, "accounts": {}, "skipped": {}}
     skipped: Counter = Counter()
     groups: dict[tuple, list[dict]] = {}
     unreconciled: dict[str, dict] = {}
     for key, account in accounts:
         if not bool((account.get("reconciliation") or {}).get("ok")):
             skipped["unreconciled"] += 1
-            unreconciled[key] = _unreconciled_account(account)
+            unreconciled[key] = _unreconciled_account(account, reading)
             continue
         try:
             statement = Statement.model_validate(account["statement"])
@@ -1541,7 +1608,7 @@ def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basi
             result["accounts"].pop(members[0]["key"], None)
         members.insert(0, member)
         try:
-            result["accounts"][key] = {**account_snapshot(account), **fields}
+            result["accounts"][key] = {**account_snapshot(account, zelle_true_revenue=reading), **fields}
         except Exception as error:  # noqa: BLE001
             # R30: counted once the statement's newest analysis is known (below), never for one replaced.
             member["error"] = type(error).__name__
@@ -2700,8 +2767,41 @@ class BasisMismatch(ValueError):
     """S3.1: a compare of snapshots taken on two bases (their account ids name different things)."""
 
 
+class ZelleViewMismatch(ValueError):
+    """R2-OW17 (J2): a compare of snapshots of the two Zelle readings without `--declare-zelle-view`."""
+
+
 def _basis(snap: dict) -> str:
     return snap.get("basis") or "input"
+
+
+def _zelle_reading(snap: dict) -> bool:
+    """R2-OW17: a snapshot's Zelle reading; null (a checkout without the setting) reads as its one reading, which from
+    R2-OW02 on is the stored (No) one."""
+    return snap.get("zelle_true_revenue") is True
+
+
+def _zelle_view_check(prior: dict, credit: dict, account: dict, context: dict) -> str | None:
+    """G-Z (R2-OW17, §14.3): None when a Zelle policy row's counted (tier, reason) is its base zelle_prior or one of the
+    declared departures (ZELLE_VIEW_LIFTED_REASONS' comment); else the check's reason. 'unchecked' when the base
+    recorded no zelle_prior (a snapshot without the field)."""
+    expected = prior.get("zelle_prior")
+    if "zelle_prior" not in prior or expected is None:
+        return "unchecked"
+    after = [credit.get("tier"), credit.get("reason")]
+    if after == list(expected):
+        return None
+    if credit.get("reason") == PREMIUM_TRUST_METHOD and account.get("premium_trust"):
+        return None
+    if credit["cents"] < MICRO_DEPOSIT_FLOOR_CENTS:
+        return None
+    if credit.get("reason") in ZELLE_VIEW_LIFTED_REASONS:
+        return None
+    digest = (credit.get("facts") or {}).get("payer_key_digest")
+    if (expected[0] == "verified" and credit.get("tier") == "counted_flagged" and digest
+            and digest in context.get("q11_kept", ())):
+        return None
+    return "the counted reading is not the rules' prior"
 
 
 def _guard_checks(after: dict, failures: dict, tiered: bool) -> dict:
@@ -2740,12 +2840,20 @@ def _counted_failures(failures: dict) -> list[str]:
 
 
 def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None = None,
-            explained: dict | None = None) -> dict:
+            explained: dict | None = None, declare_zelle_view: bool = False) -> dict:
     """The census report of §14.2 and the guards of §14.3 (G7 excepted), base against each later snapshot, all of one
     basis (S3.1: a mix raises BasisMismatch). `admissions` (S3.1 review) names the entities the S1.5 ledger admissions
     added or updated (the owner's signed-off list): a verified row 5.5 reads as their financing proceeds is a declared
     demotion (`ledger_admission`); without it, none is. `explained` (audit round 2, R2-B01: R12) is the explanation of
-    the parse moves G18 reads ({"routes": [...], "accounts": {account id: note}}, checked by _explanation)."""
+    the parse moves G18 reads ({"routes": [...], "accounts": {account id: note}}, checked by _explanation).
+
+    The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17, J2): snapshots of different Zelle readings
+    are refused (ZelleViewMismatch) unless `declare_zelle_view`. With it, a credit whose base method is the Zelle
+    policy's and whose (tier, reason) moves takes the declared cause ZELLE_VIEW_CAUSE, leaving non_revenue or not (never
+    a §6.3 narrowing, never a G1 failure), and G-Z checks it against its base zelle_prior (_zelle_view_check); any other
+    credit's move between the readings fails G-Z too, but for a verified one whose Q5 or Q6 repeat partner Q11 keeps
+    (the existing cause q5_q6_q11_repeat_partner). A base Yes, after No compare declares its moves through
+    DECLARED_DEMOTIONS' zelle_policy and the move matrix."""
     admitted = frozenset(admissions or ())
     explanation = _explanation(explained if explained is not None else {})
     basis = _basis(base)
@@ -2754,6 +2862,11 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
             raise BasisMismatch(
                 f"the base snapshot reads the {basis} basis and a later one the {_basis(after)} basis;"
                 " a census compares snapshots of one basis"
+            )
+        if _zelle_reading(after) != _zelle_reading(base) and not declare_zelle_view:
+            raise ZelleViewMismatch(
+                "the base snapshot and a later one read Zelle deposits in different readings (Mark Zelle Payments as "
+                "True Revenue); compare snapshots of one reading, or declare the move with --declare-zelle-view"
             )
     report: dict = {"basis": basis, "basis_stats": {"base": base.get("basis_stats"),
                                                     "after": [after.get("basis_stats") for after in afters]},
@@ -2771,6 +2884,10 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
         g13_apart: dict = defaultdict(lambda: [0, 0, set()])
         bnpl_shapes: Counter = Counter()
         bnpl_listed: list = []
+        # R2-OW17 (J2): the Zelle reading's declared moves, by (from, to), and the G-Z checks left unread.
+        view_declared = declare_zelle_view and _zelle_reading(after) != _zelle_reading(base)
+        zelle_view_moves: dict = defaultdict(lambda: [0, 0, set()])
+        zelle_view_unchecked = 0
         unmatched = 0
         tiered = any(credit.get("tier") for account in after["accounts"].values() for credit in account["credits"])
         # G9 (review I1): an account that failed to classify, or that the base holds and this run lost, fails. Final
@@ -2880,14 +2997,49 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                 slot[1] += credit["cents"]
                 slot[2].add(key)
                 in_true = credit["state"] == "verified_revenue" or credit.get("tier") == "counted_flagged"
+                # R2-OW17 (J2): a Zelle policy row (its method the policy's in either snapshot) that moves between the
+                # declared readings; G-Z checks the base No, after Yes direction (the reverse declares its moves through
+                # zelle_policy and the move matrix).
+                zelle_row = ZELLE_POLICY_METHOD in (prior["method"], credit["method"])
+                zelle_move = view_declared and zelle_row and (
+                    (prior.get("tier"), prior.get("reason"), prior["state"])
+                    != (credit.get("tier"), credit.get("reason"), credit["state"]))
+                if zelle_move:
+                    entry = zelle_view_moves[(f"{prior.get('tier') or prior['state']}|{prior.get('reason')}",
+                                              f"{target}|{credit.get('reason') or credit['method']}")]
+                    entry[0] += 1
+                    entry[1] += credit["cents"]
+                    entry[2].add(key)
+                    problem = (_zelle_view_check(prior, credit, new, context)
+                               if prior["method"] == ZELLE_POLICY_METHOD else None)
+                    if problem == "unchecked":
+                        zelle_view_unchecked += 1
+                    elif problem is not None:
+                        failures["G-Z"].append({"account": key, "i": credit["i"], "zelle_prior": prior.get("zelle_prior"),
+                                                "after": [credit.get("tier"), credit.get("reason")],
+                                                "text": credit["text"]})
+                elif view_declared and not zelle_row and _zelle_reading(after) and (
+                    (prior.get("tier"), prior.get("reason"), prior["state"], prior["method"])
+                    != (credit.get("tier"), credit.get("reason"), credit["state"], credit["method"])
+                ) and not (
+                    prior["state"] == "verified_revenue"
+                    and _demotion_cause(prior, credit, context) == "q5_q6_q11_repeat_partner"
+                ):
+                    # Under the default carve-outs the setting moves Zelle rows only (the lessor fact keeps its skip).
+                    failures["G-Z"].append({"account": key, "i": credit["i"], "non_zelle": True,
+                                            "base": f"{prior['state']}|{prior['method']}",
+                                            "after": f"{target}|{credit.get('reason') or credit['method']}",
+                                            "text": credit["text"]})
                 if prior["state"] == "non_revenue" and credit["state"] != "non_revenue":
-                    cause = _narrowing(prior, credit) or "outside_the_narrowings"
+                    cause = ZELLE_VIEW_CAUSE if zelle_move else (_narrowing(prior, credit) or "outside_the_narrowings")
                     entry = left_non_revenue[cause]
                     entry[0] += 1
                     entry[1] += credit["cents"]
                     entry[2].add(key)
                     allowed = dict(NARROWINGS).get(cause)
-                    if (
+                    if zelle_move:
+                        pass  # declared (J2): never a §6.3 narrowing, never a G1 failure
+                    elif (
                         cause == "outside_the_narrowings" or (in_true and allowed is False)
                         # Final review I8: narrowings 2 and 6 lead to True only through verification (§6.3), and
                         # the OQ2 ruling never releases a BNPL consumer-side credit into True.
@@ -2994,6 +3146,20 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                 cause: {"rows": value[0], "dollars": round(value[1] / 100, 2), "statements": len(value[2])}
                 for cause, value in sorted(left_non_revenue.items())
             },
+            # R2-OW17 (J2): the Zelle reading of each snapshot, and the declared moves between them by (from, to).
+            "zelle_true_revenue_view": {
+                "base_reading": base.get("zelle_true_revenue"), "after_reading": after.get("zelle_true_revenue"),
+                "declared": view_declared,
+                "rows": sum(value[0] for value in zelle_view_moves.values()),
+                "dollars": round(sum(value[1] for value in zelle_view_moves.values()) / 100, 2),
+                "statements": len(set().union(*(value[2] for value in zelle_view_moves.values()))),
+                "g_z_unchecked": zelle_view_unchecked,
+                "moves": [
+                    {"from": source, "to": target, "rows": value[0], "dollars": round(value[1] / 100, 2),
+                     "statements": len(value[2])}
+                    for (source, target), value in sorted(zelle_view_moves.items(), key=lambda item: -item[1][1])
+                ],
+            },
             # S3.1 (addition 3): the OQ2 rows by public shape (every shape counted, the first rows listed).
             "bnpl_settlements": {"rows": sum(bnpl_shapes.values()), "shapes": dict(bnpl_shapes.most_common()),
                                  "listed": bnpl_listed},
@@ -3022,6 +3188,10 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
         })
         # S3.1 review (fix 3): which checks ran, the ones whose facts the run lacks, and the verdict over the checked.
         checks = _guard_checks(after, failures, tiered)
+        if view_declared:
+            # R2-OW17: G-Z runs beside G1 on a declared compare of the two Zelle readings.
+            checks["G-Z"] = {"checked": True, "facts": ["zelle_prior"],
+                             "status": "failed" if failures.get("G-Z") else "held"}
         failed = _counted_failures(failures)
         report["runs"][-1].update({
             "guard_checks": checks,
@@ -3245,6 +3415,12 @@ def _print(report: dict) -> None:
         print("  left non_revenue: " + ", ".join(
             f"{cause} {value['rows']} rows/${value['dollars']:,.2f}/{value['statements']} st"
             for cause, value in run["left_non_revenue"].items()))
+        view = run.get("zelle_true_revenue_view") or {}
+        if view.get("declared"):
+            # R2-OW17 (J2): the Zelle reading's declared moves.
+            print(f"  Zelle reading {view['base_reading']} -> {view['after_reading']}: {view['rows']} rows/"
+                  f"${view['dollars']:,.2f}/{view['statements']} st declared ({ZELLE_VIEW_CAUSE}); G-Z unchecked "
+                  f"{view['g_z_unchecked']}")
         print(f"  OQ2 BNPL rows: {run['bnpl_settlements']['rows']} in "
               f"{len(run['bnpl_settlements']['shapes'])} public shapes")
         print("  verified demotions: " + ", ".join(
@@ -3324,6 +3500,9 @@ def main(argv: list[str] | None = None) -> int:
                            "analysis stage (no model); the rest are read from the cache (audit round 2, R2-B01)")
     snap.add_argument("--workers", type=int, default=DEFAULT_REPARSE_WORKERS,
                       help="the processes a re-parse runs in (default %(default)s)")
+    snap.add_argument("--zelle-true-revenue", choices=("yes", "no"), default="yes",
+                      help="the Zelle reading (Mark Zelle Payments as True Revenue; default yes, the Settings default); "
+                           "a checkout without the setting records null (R2-OW17)")
     comp = commands.add_parser("compare", help="compare a base snapshot with later ones")
     comp.add_argument("--base", type=Path, required=True)
     comp.add_argument("--after", type=Path, required=True, action="append")
@@ -3335,6 +3514,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="the explanation of the parse moves G18 reads (JSON: {\"routes\": [parser routes],"
                            " \"accounts\": {account id: the source check}}); a route counts only when both snapshots"
                            " were re-parsed (audit round 2, R2-B01)")
+    comp.add_argument("--declare-zelle-view", action="store_true",
+                      help="compare snapshots of the two Zelle readings: the Zelle rows' moves take the declared cause "
+                           f"{ZELLE_VIEW_CAUSE} and G-Z checks them (R2-OW17); without it such a compare is refused")
     samp = commands.add_parser("sample", help="draw the precision sample of a 5.6 snapshot (§14.5)")
     samp.add_argument("--snapshot", type=Path, required=True)
     samp.add_argument("--out", type=Path, required=True, help="the sample to write (outside the repo)")
@@ -3370,7 +3552,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             accounts = job_accounts(args.jobs_db, basis=args.basis, stats=stats)
-        result = snapshot(accounts, basis=args.basis, basis_stats=stats)
+        result = snapshot(accounts, basis=args.basis, basis_stats=stats,
+                          zelle_true_revenue=args.zelle_true_revenue == "yes")
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_bytes(gzip.compress(json.dumps(result).encode("utf-8")))
         print(f"classification {result['classification_version']} ({result['basis']} basis): "
@@ -3413,8 +3596,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     try:
         report = compare(_read(args.base), [_read(path) for path in args.after], admissions=admissions,
-                         explained=explained)
-    except BasisMismatch as error:
+                         explained=explained, declare_zelle_view=args.declare_zelle_view)
+    except (BasisMismatch, ZelleViewMismatch) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)

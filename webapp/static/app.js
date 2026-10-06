@@ -54,6 +54,10 @@ const els = {
   settingsView: document.getElementById("settingsView"),
   nsfCarryOverToggle: document.getElementById("nsfCarryOverToggle"),
   settingsStatus: document.getElementById("settingsStatus"),
+  // The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): "Mark Zelle Payments as True Revenue".
+  zelleTrueRevenueYes: document.getElementById("zelleTrueRevenueYes"),
+  zelleTrueRevenueNo: document.getElementById("zelleTrueRevenueNo"),
+  zelleSettingStatus: document.getElementById("zelleSettingStatus"),
   flagSettingsList: document.getElementById("flagSettingsList"),
   flagSettingsStatus: document.getElementById("flagSettingsStatus"),
   fileInput: document.getElementById("fileInput"),
@@ -311,6 +315,74 @@ function zelleExcludedFact(source, currency) {
     : `Zelle deposits excluded: ${formatMoney(zelle.total, currency)} (${formatNumber(zelle.count)})`;
 }
 
+// The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §10.1, §10.2, §10.5; R2-OW17): the
+// served Zelle figures (a statement's metrics.zelle_deposits, a package's totals or a member row's), in the parts every
+// surface prints: in True (verified plus counted), held, out (non-revenue), and the verified and counted parts apart.
+// Each part is {count, total}, its total null where the package refuses its currencies. Null where the payload carries
+// no figures: the display is then today's (the exclusion, read from non_revenue_by_reason).
+function zelleDeposits(source = {}) {
+  const figures = source && source.zelle_deposits;
+  if (!figures || typeof figures !== "object") return null;
+  const byTier = figures.by_tier && typeof figures.by_tier === "object" ? figures.by_tier : {};
+  const refused = figures.total === null;
+  const part = (...tiers) => {
+    const slots = tiers.map((tier) => byTier[tier]).filter((slot) => slot && typeof slot === "object");
+    const count = slots.reduce((sum, slot) => sum + (numberOrNull(slot.count) || 0), 0);
+    if (refused || slots.some((slot) => numberOrNull(slot.total) === null)) return { count, total: null };
+    return { count, total: Math.round(slots.reduce((sum, slot) => sum + numberOrNull(slot.total), 0) * 100) / 100 };
+  };
+  return {
+    counted: figures.counted_as_true_revenue === true,
+    applied: figures.setting_applied !== false,
+    count: numberOrNull(figures.count) || 0,
+    inTrue: part("verified", "counted_flagged"),
+    verified: part("verified"),
+    countedFlagged: part("counted_flagged"),
+    held: part("excluded_pending_review"),
+    out: part("non_revenue"),
+  };
+}
+
+// The True card's Zelle fact (R2-OW17), every non-zero part, the count alone where the money is refused. Yes: "Zelle
+// deposits in True revenue: $C (n)" always, then the held and non-revenue parts; No: "Zelle deposits excluded: $N (k)"
+// then the parts a review or an older analysis left counted or held. A statement or a package member analysed before the
+// setting says it is shown as analysed. Without served figures, today's fact.
+function zelleFact(source, currency, { package: isPackage = false } = {}) {
+  const zelle = zelleDeposits(source);
+  if (!zelle) return zelleExcludedFact(source, currency);
+  const money = (part) => (part.total === null ? formatNumber(part.count)
+    : `${formatMoney(part.total, currency)} (${formatNumber(part.count)})`);
+  const parts = [];
+  if (zelle.counted) {
+    parts.push(`Zelle deposits in True revenue: ${money(zelle.inTrue)}`);
+    if (zelle.held.count > 0) parts.push(`held for review: ${money(zelle.held)}`);
+    if (zelle.out.count > 0) parts.push(`non-revenue: ${money(zelle.out)}`);
+  } else {
+    parts.push(`Zelle deposits excluded: ${money(zelle.out)}`);
+    if (zelle.verified.count > 0) parts.push(`counted after review: ${money(zelle.verified)}`);
+    if (zelle.countedFlagged.count > 0) parts.push(`counted: ${money(zelle.countedFlagged)}`);
+    if (zelle.held.count > 0) parts.push(`held for review: ${money(zelle.held)}`);
+  }
+  if (!zelle.applied) {
+    parts.push(isPackage ? "a statement analysed before the Zelle setting is shown as analysed"
+      : "analysed before the Zelle setting: shown as analysed");
+  }
+  return parts.join(" · ");
+}
+
+// R2-OW17 (§10.5): whether the served account or package says its Zelle deposits count in True revenue (Yes, with
+// Zelle). The Non-Revenue note then no longer says Zelle deposits are among it; a payload without the figures cannot
+// say the mode and keeps today's note.
+function zelleCountedInTrue(source = {}) {
+  const figures = source && source.zelle_deposits;
+  return Boolean(figures) && figures.counted_as_true_revenue === true;
+}
+
+// A ledger row the served payload tags as a Zelle deposit under Yes: the owner's "flagged 'Zelle'", beside its reason.
+function zelleChip(tx) {
+  return tx && tx.zelle_deposit === true ? glassChip("Z", "Zelle", "blue", "flag-chip") : "";
+}
+
 // The revenue cards of true revenue spec §10.1, in order: True Revenue (the headline), Verified Revenue with its share
 // of True, Counted, Held and Non-Revenue, each a button to its rows. `source` is a statement's metrics or a package's
 // totals. A True, Counted or Held figure reads N/A unless `established`, a Verified one unless `verifiedEstablished`
@@ -332,7 +404,10 @@ function revenueCardItems(source, currency, {
   const trueNote = [!established && unestablishedNote ? unestablishedNote : REVENUE_METRIC_COPY.trueRevenue,
     ...facts].join(" · ");
   // Audit B11 (I51): Non-Revenue stays a figure where revenue is not established, and says it covers the captured rows.
-  const nonRevenueNote = established ? REVENUE_METRIC_COPY.nonRevenue : REVENUE_METRIC_COPY.nonRevenueCaptured;
+  // R2-OW17: it names no Zelle deposits where the served figures say they count in True revenue.
+  const nonRevenueCopy = established ? REVENUE_METRIC_COPY.nonRevenue : REVENUE_METRIC_COPY.nonRevenueCaptured;
+  const nonRevenueNote = zelleCountedInTrue(source)
+    ? nonRevenueCopy.replace(", Zelle deposits included", "") : nonRevenueCopy;
   return [
     ["True Revenue", figure("true_revenue", established), note(trueNote), "REV", "green", { revenueFilter: "true_revenue", headline: true }],
     ["Verified Revenue", figure("verified_revenue", verifiedEstablished), note(share + REVENUE_METRIC_COPY.verifiedRevenue), "VER", "green", { revenueFilter: "verified_revenue" }],
@@ -350,9 +425,21 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
     ? `${formatMoney(total, currency)} (${formatMoney(perMonth, currency)} a month)` : "N/A");
   const nonRevenue = `${formatMoney(source.non_revenue_total, currency)} `
     + `(${formatMoney(monthly.nonRevenueMonthly, currency)} a month${established ? "" : ", captured rows only"})`;
-  // R2-OW03 (the underwriter's Q3): the memo states the Zelle deposits the owner's policy excluded.
-  const zelle = zelleExcluded(source);
-  const zelleNote = zelle ? `, of which Zelle deposits excluded ${formatMoney(zelle.total, currency)}` : "";
+  // R2-OW03 (the underwriter's Q3): the memo states the Zelle deposits the owner's policy excluded. R2-OW17 (the owner's
+  // amendment of 2026-10-06): under Yes it states the Zelle deposits counted as True revenue and the parts held or out;
+  // under No with figures served, the excluded part and the part a review counted.
+  const served = zelleDeposits(source);
+  const excluded = zelleExcluded(source);
+  let zelleNote = excluded ? `, of which Zelle deposits excluded ${formatMoney(excluded.total, currency)}` : "";
+  if (served && served.counted) {
+    zelleNote = `; Zelle deposits counted as True revenue ${formatMoney(served.inTrue.total, currency)}`
+      + (served.held.count > 0 ? `, held for review ${formatMoney(served.held.total, currency)}` : "")
+      + (served.out.count > 0 ? `, non-revenue ${formatMoney(served.out.total, currency)}` : "");
+  } else if (served) {
+    zelleNote = `, of which Zelle deposits excluded ${formatMoney(served.out.total, currency)}`
+      + (served.verified.count > 0 ? `; Zelle deposits counted after review ${formatMoney(served.verified.total, currency)}`
+        : "");
+  }
   return `True revenue ${pair(source.true_revenue_total, monthly.trueMonthly, established === true)}, `
     + `verified revenue ${pair(source.verified_revenue_total, monthly.verifiedMonthly, verifiedEstablished === true)}, `
     + `non-revenue ${nonRevenue}${zelleNote}.`;
@@ -397,7 +484,8 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
   if (metrics.premium_trust_account === true) {
     facts.push("Premium trust account: deposits that would count are held (insureds' premiums, not revenue); non-revenue deposits stay excluded");
   }
-  const zelle = zelleExcludedFact(metrics, currency);
+  // R2-OW17: where the Zelle money sits, in the reading served (zelleFact).
+  const zelle = zelleFact(metrics, currency);
   if (zelle) facts.push(zelle);
   return [...facts, ...debitFlagFacts(metrics, currency)];
 }
@@ -427,7 +515,7 @@ function packageRevenueFacts(totals = {}, currency = "USD") {
   // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members that are premium trust accounts.
   const premiumTrust = statements(totals.premium_trust_documents);
   if (premiumTrust) facts.push(`${formatNumber(premiumTrust)} ${noun(premiumTrust)} of a premium trust account: deposits that would count are held`);
-  const zelle = zelleExcludedFact(totals, currency);
+  const zelle = zelleFact(totals, currency, { package: true });
   if (zelle) facts.push(zelle);
   return [...facts, ...debitFlagFacts(totals, currency)];
 }
@@ -1576,7 +1664,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td class="tx-date">${escapeHtml(tx.date || "N/A")}</td>
         ${source}
         <td class="tx-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
-        <td>${glassChip(category.glyph, category.label, category.tone)}${flaggedChip(tx)}${returnedFunderChip(tx)}${revenueSourceChip(tx)}${reviewReasonHtml}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${zelleChip(tx)}${flaggedChip(tx)}${returnedFunderChip(tx)}${revenueSourceChip(tx)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
         <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
@@ -4538,6 +4626,28 @@ function monthFigure(doc, value) {
   return doc.status === "done" ? value : null;
 }
 
+// The Monthly Statements' True cell line on a member's Zelle deposits (R2-OW17; R2-OW03 before it), through the row's
+// own amount(): "Zelle in True C · held H · non-revenue N" under Yes, "Zelle excluded X · counted after review V" under
+// No; "" where there are none (or the member did not complete).
+function monthlyZelleDetail(doc, amount) {
+  const line = (text) => `<div class="table-cell-detail">${escapeHtml(text)}</div>`;
+  const served = zelleDeposits(doc);
+  if (served && served.counted) {
+    if (!served.count || monthFigure(doc, 0) === null) return "";
+    const parts = [`Zelle in True ${amount(served.inTrue.total)}`];
+    if (served.held.count > 0) parts.push(`held ${amount(served.held.total)}`);
+    if (served.out.count > 0) parts.push(`non-revenue ${amount(served.out.total)}`);
+    return line(parts.join(" · "));
+  }
+  const excluded = served ? served.out : zelleExcluded(doc);
+  const excludedTotal = excluded ? monthFigure(doc, excluded.total) : null;
+  const reviewed = served && served.verified.count > 0 ? monthFigure(doc, served.verified.total) : null;
+  const parts = [];
+  if (excludedTotal !== null && excludedTotal > 0) parts.push(`Zelle excluded ${amount(excludedTotal)}`);
+  if (reviewed !== null && reviewed > 0) parts.push(`counted after review ${amount(reviewed)}`);
+  return parts.length ? line(parts.join(" · ")) : "";
+}
+
 // 5.6 (true revenue spec §10.2): a statement's True deposits (its True revenue), or null — shown N/A — unless the
 // package established its revenue: not for a failed statement, nor for one analysed before 5.6, nor for one whose
 // captured credits are not all tiered or are not the money its Total counts (webapp/app.py `revenue_established`; a
@@ -4650,11 +4760,10 @@ function renderMonthlyStatements(pkg) {
       const shared = month && monthCounts.get(month.key) > 1;
       // R2-OW03 (the underwriter's Q3, spec §10.2): the True cell names the month's Zelle deposits the owner's policy
       // excluded, where there are some, through the row's own amount() (its unit in a mixed-currency package), so True
-      // can be read against the month's total deposits.
-      const zelle = zelleExcluded(doc);
-      const zelleTotal = zelle ? monthFigure(doc, zelle.total) : null;
-      const zelleDetail = zelleTotal !== null && zelleTotal > 0
-        ? `<div class="table-cell-detail">Zelle excluded ${escapeHtml(amount(zelleTotal))}</div>` : "";
+      // can be read against the month's total deposits. R2-OW17 (the owner's amendment of 2026-10-06): from the row's
+      // served Zelle figures where it carries them: under Yes the Zelle in True and the parts held or out (a month
+      // whose Zelle is all held still shows it); under No the excluded part and the part a review counted.
+      const zelleDetail = monthlyZelleDetail(doc, amount);
       return `
         <tr title="${escapeHtml(doc.filename || "Statement")}">
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
@@ -5516,6 +5625,7 @@ function setSettingsStatus(message, error = false) {
 function loadSettings() {
   els.nsfCarryOverToggle.disabled = true;
   renderFlagSettings(flagSettingsSaved, true);
+  setZelleChoiceEnabled(false);
   fetch("/api/settings")
     .then((response) => {
       if (!response.ok) throw new Error(`Settings unavailable (${response.status})`);
@@ -5530,12 +5640,105 @@ function loadSettings() {
       // A switch still being saved keeps the group held; its own save draws the group again when it settles.
       renderFlagSettings(settings, flagSettingsBusy);
       if (!flagSettingsBusy) setFlagSettingsStatus("");
+      // R2-OW17: a missing key reads Yes, the default; a choice being saved keeps its own pair.
+      if (!zelleSettingBusy) {
+        zelleSettingSaved = settings.zelle_true_revenue !== false;
+        drawZelleChoice(zelleSettingSaved);
+        setZelleChoiceEnabled(true);
+        setZelleSettingStatus("");
+      }
     })
     .catch((error) => {
       setSettingsStatus(error.message || String(error), true);
       setFlagSettingsStatus(error.message || String(error), true);
+      // R2-OW17: the pair stays disabled and unticked, visibly unavailable, never shown as if a choice were made.
+      if (!zelleSettingBusy) {
+        drawZelleChoice(null);
+        setZelleSettingStatus(error.message || String(error), true);
+      }
     });
 }
+
+/* The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §10; R2-OW17): "Mark Zelle Payments as
+   True Revenue", Yes (the default) or No, exactly one ticked: two labelled checkboxes driven as a radio pair (the owner's
+   "check box"). The server applies the choice whenever it serves an analysis; nothing is reprocessed. */
+let zelleSettingSaved = null;  // the choice the server holds, once read
+let zelleSettingBusy = false;
+let zelleSettingPending = null;  // the choice being saved
+
+// Ticks Yes (true) or No (false), the other unticked; null unticks both (the choice could not be read).
+function drawZelleChoice(yes) {
+  [[els.zelleTrueRevenueYes, yes === true], [els.zelleTrueRevenueNo, yes === false]].forEach(([box, ticked]) => {
+    if (!box) return;
+    box.checked = ticked;
+    box.setAttribute("aria-checked", ticked ? "true" : "false");
+  });
+}
+
+function setZelleChoiceEnabled(enabled) {
+  [els.zelleTrueRevenueYes, els.zelleTrueRevenueNo].forEach((box) => { if (box) box.disabled = !enabled; });
+}
+
+function setZelleSettingStatus(message, error = false) {
+  if (!els.zelleSettingStatus) return;
+  els.zelleSettingStatus.textContent = message;
+  if (error) els.zelleSettingStatus.setAttribute("data-state", "error");
+  else els.zelleSettingStatus.removeAttribute("data-state");
+}
+
+// The Recent entries other than the open one lose their decision dot until reopened: the Zelle choice moves the review
+// decision, so the dots this tab remembered could be stale. The open one is redrawn by refreshShownResults.
+function clearRecentDecisionDots() {
+  recentAnalyses = recentAnalyses.map((item) => (item.key === openAnalysisKey ? item : { ...item, tone: "neutral" }));
+  try { sessionStorage.setItem(RECENT_KEY, JSON.stringify(recentAnalyses)); } catch { /* storage unavailable */ }
+  renderRecentAnalyses();
+}
+
+function chooseZelleSetting(wanted, element) {
+  if (zelleSettingBusy) {
+    // A change while saving is ignored: the boxes are held where the save drew them.
+    drawZelleChoice(zelleSettingPending);
+    return;
+  }
+  const current = zelleSettingSaved;
+  if (element && !element.checked) {
+    // The ticked box was clicked: it stays ticked (never neither), and nothing is saved.
+    drawZelleChoice(current);
+    return;
+  }
+  zelleSettingBusy = true;
+  zelleSettingPending = wanted;
+  drawZelleChoice(wanted);
+  setZelleChoiceEnabled(false);
+  setZelleSettingStatus("Saving…");
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ zelle_true_revenue: wanted }),
+  })
+    .then((response) => responseJson(response).then((payload) => ({ response, payload })))
+    .then(({ response, payload }) => {
+      if (!response.ok || !payload.settings) throw new Error(payload.error || `Save failed (${response.status})`);
+      zelleSettingSaved = payload.settings.zelle_true_revenue !== false;
+      drawZelleChoice(zelleSettingSaved);
+      setZelleSettingStatus(zelleSettingSaved ? "Saved: Zelle deposits count as True revenue."
+        : "Saved: Zelle deposits are non-revenue.");
+      clearRecentDecisionDots();
+      refreshShownResults();
+    })
+    .catch((error) => {
+      drawZelleChoice(current);
+      setZelleSettingStatus(error.message || String(error), true);
+    })
+    .finally(() => {
+      zelleSettingBusy = false;
+      zelleSettingPending = null;
+      setZelleChoiceEnabled(true);
+    });
+}
+
+els.zelleTrueRevenueYes?.addEventListener("change", () => chooseZelleSetting(true, els.zelleTrueRevenueYes));
+els.zelleTrueRevenueNo?.addEventListener("change", () => chooseZelleSetting(false, els.zelleTrueRevenueNo));
 
 function refreshShownResults() {
   // A setting changes how a result is presented, so whatever is open is fetched again, in place. A statement whose

@@ -824,15 +824,17 @@ def test_the_sweep_reaches_the_package_non_revenue_breakdown():
     """Owner ruling 2026-10-02, R2-OW03 (spec §9.2, §10.8): the package's non-revenue breakdown sums across members
     too, so a refused package's `non_revenue.<code>` rows publish their counts (unit-free) and no money (refused),
     and each member's own rows keep theirs, denominated by its row. Fabricated CONTOSO statements, a USD March and a
-    CAD April, each with Zelle deposits the owner's policy excludes."""
+    CAD April, each with Zelle deposits the owner's policy excludes. The owner's amendment of 2026-10-06 to the
+    underwriter's Q3 (R2-OW17): under No, "Mark Zelle Payments as True Revenue", which excludes them."""
     from tests.test_webapp_true_revenue import _ZELLE_APRIL, _ZELLE_MARCH, _payload
+    from webapp.settings import DEFAULTS
 
     cad = _payload(_ZELLE_APRIL, month=4)
     cad["statement"]["currency"] = "CAD"
     package = _package_analysis([
         Job(id="usd", filename="usd.pdf", status="done", analysis=_payload(_ZELLE_MARCH)),
         Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
-    ])
+    ], settings={**DEFAULTS, "zelle_true_revenue": False})
     rows = _package_rows(package)
     assert package["totals"]["cross_currency_totals_refused"] is True
     assert package["totals"]["non_revenue_by_reason"] == {"zelle_excluded": {"count": 3, "total": None}}
@@ -841,6 +843,47 @@ def test_the_sweep_reaches_the_package_non_revenue_breakdown():
     assert ("non_revenue.zelle_excluded.count", 3) in tier_rows
     assert ("non_revenue.zelle_excluded.total", "") in tier_rows
     assert ("document_2.revenue_tier", "non_revenue.zelle_excluded.total", 500.0) in rows
+
+
+def test_a_mixed_currency_package_refuses_the_zelle_money_and_keeps_every_count():
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17; spec §9.2): totals.zelle_deposits sums
+    the members' money in their own units, so a CAD+USD package refuses its `total` and every `by_tier` total and keeps
+    every count. The refused-field lists are unchanged (a nested count-and-money dict fits neither)."""
+    from tests.test_webapp_true_revenue import _ZELLE_APRIL, _ZELLE_MARCH, _payload
+    from webapp.settings import DEFAULTS
+
+    cad = _payload(_ZELLE_APRIL, month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _package_analysis([
+        Job(id="usd", filename="usd.pdf", status="done", analysis=_payload(_ZELLE_MARCH)),
+        Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
+    ], settings={**DEFAULTS, "zelle_true_revenue": True})
+    figures = package["totals"]["zelle_deposits"]
+    assert figures["total"] is None and figures["count"] == 3
+    assert all(slot["total"] is None and slot["count"] for slot in figures["by_tier"].values())
+    assert "zelle_deposits" not in package["currency"]["refused_total_fields"]
+
+
+def test_the_sweep_reaches_the_package_zelle_rows():
+    """R2-OW17 (spec §10.8): the twin of the by-reason sweep for the readable `zelle_deposits.*` rows: in a refused
+    package the `.count` rows keep their counts (section revenue_tier) and the `.total` rows are empty; each member's
+    own rows keep theirs, denominated by its row."""
+    from tests.test_webapp_true_revenue import _ZELLE_APRIL, _ZELLE_MARCH, _payload
+    from webapp.settings import DEFAULTS
+
+    cad = _payload(_ZELLE_APRIL, month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _package_analysis([
+        Job(id="usd", filename="usd.pdf", status="done", analysis=_payload(_ZELLE_MARCH)),
+        Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
+    ], settings={**DEFAULTS, "zelle_true_revenue": True})
+    rows = _package_rows(package)
+    assert _cross_document_numbers_not_counts(rows) == []
+    tier_rows = [(field, value) for section, field, value in rows if section == "revenue_tier"]
+    assert ("zelle_deposits.count", 3) in tier_rows and ("zelle_deposits.total", "") in tier_rows
+    assert ("zelle_deposits.counted_flagged.count", 2) in tier_rows
+    assert ("zelle_deposits.counted_flagged.total", "") in tier_rows
+    assert ("document_2.revenue_tier", "zelle_deposits.total", 500.0) in rows
 
 
 def test_the_sweep_reaches_the_overlapping_statement_rows():

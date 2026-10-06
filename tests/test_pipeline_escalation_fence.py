@@ -1126,7 +1126,8 @@ def test_the_re_reviewers_account_report_unit_selection_is_caught():
 
 
 @pytest.mark.parametrize("unit,anchor", [
-    ("_account_report", "    classifications = classify_statement_transactions(stmt)\n"),
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the unit's first line reads both readings.
+    ("_account_report", "    classifications, counted = classify_statement_readings(stmt)\n"),
     ("assess_quality",
      "    aggregate_rows = sum(1 for t in stmt.transactions if \"UNCAPTURED\" in t.description.upper())\n"),
 ], ids=["account-report", "assess-quality"])

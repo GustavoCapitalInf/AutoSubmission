@@ -54,6 +54,7 @@ from .true_revenue import (
     payer_text_unread_indexes,
     payer_text_unread_texts,
     premium_trust_title,
+    zelle_credits_present,
 )
 
 if TYPE_CHECKING:
@@ -7351,8 +7352,41 @@ def classify_statement_transactions(
     statement: Statement,
     *,
     min_recurring_count: int = 3,
+    zelle_true_revenue: bool = False,
 ) -> list[TransactionClassification]:
-    """Create the one authoritative classification record for every ledger row."""
+    """Create the one authoritative classification record for every ledger row.
+
+    The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §8.4; R2-OW17): `zelle_true_revenue`
+    False (the default) is the STORED reading, every Zelle deposit excluded by pass 7's Zelle step, which every caller
+    that names no reading keeps; True is the counted reading (apply_true_revenue_pass). classify_statement_readings
+    gives both at once."""
+    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+    return _classify_statement_reading(statement, records, duplicate_of, zelle_true_revenue=zelle_true_revenue)
+
+
+def classify_statement_readings(
+    statement: Statement,
+    *,
+    min_recurring_count: int = 3,
+) -> tuple[list[TransactionClassification], list[TransactionClassification] | None]:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §8.4, §9.1; R2-OW17): the stored
+    (No) reading and the counted (Yes) reading of one statement, element for element equal to
+    `(classify_statement_transactions(statement), classify_statement_transactions(statement, zelle_true_revenue=True))`.
+    The shared prefix (the per-row classification, the duplicates, recurrence and D6, passes 1 to 6) runs once; pass 7,
+    pass 7b and the duplicate finalisation run once per reading. The second element is None when no credit pass 7 reads
+    prints the Zelle rail (true_revenue.zelle_credits_present): such a statement has a single reading."""
+    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+    stored = _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=False)
+    if not zelle_credits_present(records, set(duplicate_of)):
+        return stored, None
+    return stored, _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=True)
+
+
+def _classify_statement_prefix(
+    statement: Statement, min_recurring_count: int,
+) -> tuple[list[TransactionClassification], dict[int, int]]:
+    """Every row's classification record through statement passes 1 to 6, and the proven duplicates (index -> the
+    index it repeats): the part of classify_statement_transactions both Zelle readings share (R2-OW17)."""
     records = [
         classify_transaction(
             transaction.description,
@@ -7465,12 +7499,24 @@ def classify_statement_transactions(
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
     records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
+    return records, duplicate_of
+
+
+def _classify_statement_reading(
+    statement: Statement,
+    records: list[TransactionClassification],
+    duplicate_of: dict[int, int],
+    *,
+    zelle_true_revenue: bool,
+) -> list[TransactionClassification]:
+    """Pass 7, pass 7b and the duplicate finalisation over the shared prefix, in one Zelle reading (R2-OW17)."""
     # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit B10
     # (I05, I60): with the credits the parser marked as read only by their label. Audit round 2, R2-B07 (R07): and
     # their unread payer text. Owner ruling 2026-10-02 (the underwriter's Q10; §8.10; R2-OW11): and the statement's
     # premium-trust title, read on its printed title, account name and holder name (premium_trust_title; this is the
     # pass's only caller, so every consumer reads it). Owner ruling 2026-10-02 (the underwriter's Q1; §8.5; R2-OW12):
-    # and the statement's printed period start, which the funding aid on held no-sender wires reads.
+    # and the statement's printed period start, which the funding aid on held no-sender wires reads. The owner's
+    # amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): and the Zelle reading.
     records = apply_true_revenue_pass(
         records, set(duplicate_of), payer_text_unread_indexes(statement.transactions),
         payer_text_unread_texts(statement.transactions),
@@ -7478,11 +7524,12 @@ def classify_statement_transactions(
             getattr(statement, "account_title", None), statement.account_name, statement.holder_name
         ),
         statement_start=statement.period_start,
+        zelle_true_revenue=zelle_true_revenue,
     )
     # Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §6.2 pass 7b; R2-OW13): a confirmed funder's
     # payment a bounce-worded credit returned leaves paid to lenders and stays in the withholding rate. After pass 7, so
     # the return credit's tier is final; it reads and writes nothing passes 5 to 7 read.
-    records = _apply_returned_funder_payments(records, set(duplicate_of))
+    records = list(_apply_returned_funder_payments(records, set(duplicate_of)))
 
     for index, original_index in duplicate_of.items():
         record = records[index]

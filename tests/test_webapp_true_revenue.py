@@ -125,11 +125,15 @@ def _pair_document(verified_amount, pair_amount, *, pair_tier=None, mode=None):
     return rebuild_serialized_revenue_views(payload)
 
 
-def _package(*payloads):
+def _package(*payloads, zelle: bool = True):
+    """The package of `payloads`, built on an explicit settings snapshot (every default; `zelle` the owner's "Mark Zelle
+    Payments as True Revenue", R2-OW17), never the data directory's settings.json."""
     from webapp.app import _package_analysis
     from webapp.jobs import Job
+    from webapp.settings import DEFAULTS
     return _package_analysis([Job(id=f"job-{index}", filename=f"statement-{index}.pdf", status="done", analysis=payload)
-                              for index, payload in enumerate(payloads, start=1)])
+                              for index, payload in enumerate(payloads, start=1)],
+                             settings={**DEFAULTS, "zelle_true_revenue": zelle})
 
 
 def test_a_package_member_carries_its_true_revenue_and_parts():
@@ -915,7 +919,7 @@ _ZELLE_TOTAL = {"zelle_excluded": {"count": 3, "total": 1500.0}}
 
 def test_the_package_sums_the_non_revenue_breakdown_over_its_members():
     from webapp.app import _analysis_rows, _package_rows
-    package = _package(_payload(_ZELLE_MARCH), _payload(_ZELLE_APRIL, month=4))
+    package = _package(_payload(_ZELLE_MARCH), _payload(_ZELLE_APRIL, month=4), zelle=False)
     totals = package["totals"]
     assert [document["non_revenue_by_reason"] for document in package["documents"]] == [
         {"zelle_excluded": {"count": 2, "total": 1000.0}}, {"zelle_excluded": {"count": 1, "total": 500.0}}]
@@ -935,7 +939,7 @@ def test_the_package_sums_the_non_revenue_breakdown_over_its_members():
 
 def test_a_repeated_statement_adds_nothing_to_the_breakdown():
     march, april = _payload(_ZELLE_MARCH), _payload(_ZELLE_APRIL, month=4)
-    totals = _package(march, copy.deepcopy(march), april)["totals"]
+    totals = _package(march, copy.deepcopy(march), april, zelle=False)["totals"]
     assert totals["duplicate_documents"] == 1
     assert totals["non_revenue_by_reason"] == _ZELLE_TOTAL
 
@@ -945,7 +949,7 @@ def test_a_member_whose_revenue_is_not_established_still_shows_its_non_revenue()
     partial = _payload(_ZELLE_APRIL, month=4)
     partial["metrics"]["deposits_source"] = "summary"
     partial["metrics"]["effective_total_deposits"] = 99999.0
-    package = _package(_payload(_ZELLE_MARCH), partial)
+    package = _package(_payload(_ZELLE_MARCH), partial, zelle=False)
     totals = package["totals"]
     assert totals["true_revenue_total"] is None and totals["revenue_unestablished_documents"] == ["job-2"]
     assert totals["non_revenue_by_reason"] == _ZELLE_TOTAL
@@ -969,7 +973,7 @@ def test_a_mixed_currency_package_refuses_the_breakdown_s_money_and_keeps_its_co
     from webapp.app import _package_rows
     cad = _payload(_ZELLE_APRIL, month=4)
     cad["statement"]["currency"] = "CAD"
-    package = _package(_payload(_ZELLE_MARCH), cad)
+    package = _package(_payload(_ZELLE_MARCH), cad, zelle=False)
     totals = package["totals"]
     assert totals["cross_currency_totals_refused"] is True
     assert totals["non_revenue_by_reason"] == {"zelle_excluded": {"count": 3, "total": None}}
@@ -980,3 +984,150 @@ def test_a_mixed_currency_package_refuses_the_breakdown_s_money_and_keeps_its_co
     assert ("revenue_tier", "non_revenue.zelle_excluded.total", "") in rows
     assert ("revenue_tier", "non_revenue.zelle_excluded.count", 3) in rows
     assert ("document_2.revenue_tier", "non_revenue.zelle_excluded.total", 500.0) in rows
+
+
+# ---------------------------------------------------------------- The owner's amendment of 2026-10-06 to the
+# underwriter's Q3 (R2-OW17; spec §9.2, §10.8, §11): "Mark Zelle Payments as True Revenue", Yes by default. The four
+# breakdown tests above run under No; these are their Yes twins.
+
+def test_yes_the_package_counts_its_members_zelle_deposits():
+    package = _package(_payload(_ZELLE_MARCH), _payload(_ZELLE_APRIL, month=4))
+    totals = package["totals"]
+    assert totals["non_revenue_by_reason"] == {}
+    assert totals["true_revenue_total"] == 3000.0  # 2,000.00 under No, plus March's two counted Zelle deposits
+    # April's Zelle sender is also debited by the statement: held, out of True.
+    assert totals["zelle_deposits"] == {
+        "counted_as_true_revenue": True, "setting_applied": True, "count": 3, "total": 1500.0,
+        "by_tier": {"counted_flagged": {"count": 2, "total": 1000.0}, "excluded_pending_review": {"count": 1,
+                                                                                                  "total": 500.0}}}
+    assert [document["zelle_deposits"]["count"] for document in package["documents"]] == [2, 1]
+    # The member withholding denominator is the counted reading's (True revenue, R2-OW14's default basis).
+    assert [document["withholding_denominator"] for document in package["documents"]] == [2000.0, 1000.0]
+
+
+def test_yes_a_repeated_statement_adds_nothing_to_the_zelle_figures():
+    march, april = _payload(_ZELLE_MARCH), _payload(_ZELLE_APRIL, month=4)
+    totals = _package(march, copy.deepcopy(march), april)["totals"]
+    assert totals["duplicate_documents"] == 1
+    assert (totals["zelle_deposits"]["count"], totals["zelle_deposits"]["total"]) == (3, 1500.0)
+
+
+def test_yes_a_member_whose_revenue_is_not_established_still_shows_its_zelle_figures():
+    partial = _payload(_ZELLE_APRIL, month=4)
+    partial["metrics"]["deposits_source"] = "summary"
+    partial["metrics"]["effective_total_deposits"] = 99999.0
+    package = _package(_payload(_ZELLE_MARCH), partial)
+    assert package["totals"]["true_revenue_total"] is None
+    assert package["totals"]["zelle_deposits"]["count"] == 3
+    assert package["documents"][1]["zelle_deposits"]["count"] == 1
+
+
+def test_yes_a_mixed_currency_package_refuses_the_zelle_money_and_keeps_its_counts():
+    from webapp.app import _package_rows
+    cad = _payload(_ZELLE_APRIL, month=4)
+    cad["statement"]["currency"] = "CAD"
+    package = _package(_payload(_ZELLE_MARCH), cad)
+    figures = package["totals"]["zelle_deposits"]
+    assert (figures["count"], figures["total"]) == (3, None)
+    assert figures["by_tier"] == {"counted_flagged": {"count": 2, "total": None},
+                                  "excluded_pending_review": {"count": 1, "total": None}}
+    assert package["documents"][1]["zelle_deposits"]["total"] == 500.0
+    rows = _package_rows(package)
+    assert ("revenue_tier", "zelle_deposits.total", "") in rows
+    assert ("revenue_tier", "zelle_deposits.count", 3) in rows
+
+
+def test_yes_z1_turns_the_package_gate_on():
+    from tests import zelle_setting_fixtures as fx
+    assert _package(fx.case("Z1"))["totals"]["revenue_review_required"] is True
+    assert _package(fx.case("Z1"), zelle=False)["totals"]["revenue_review_required"] is False
+
+
+def test_yes_a_member_analysed_before_the_setting_is_named_beside_the_others():
+    """One member with the counted reading's edits, one analysed between the Zelle policy and the setting (its edits
+    absent): the package prints both members' parts and says the setting is not applied everywhere."""
+    from tests import zelle_setting_fixtures as fx
+    older = fx.case("Z2")
+    older.pop("zelle_counted_reading")
+    package = _package(fx.case("Z1"), older)
+    figures = package["totals"]["zelle_deposits"]
+    assert figures["setting_applied"] is False and figures["counted_as_true_revenue"] is True
+    assert figures["by_tier"] == {"counted_flagged": {"count": 1, "total": 1234.56},
+                                  "excluded_pending_review": {"count": 3, "total": 6500.0},
+                                  "non_revenue": {"count": 1, "total": 1500.0}}
+    assert [document["zelle_deposits"]["setting_applied"] for document in package["documents"]] == [True, False]
+
+
+def test_no_a_member_without_the_figures_contributes_its_excluded_zelle():
+    """Under No a fresh member carries no figures; beside one that does (a confirmed Zelle deposit), its excluded Zelle
+    deposits are its non-revenue part, so the package figure covers every member."""
+    from tests import zelle_setting_fixtures as fx
+    from analysis.revenue import apply_serialized_revenue_review
+    confirmed = apply_serialized_revenue_review(fx.case("Z1"), source_location="transaction:2", decision="confirm")
+    package = _package(confirmed, fx.case("Z2"), zelle=False)
+    figures = package["totals"]["zelle_deposits"]
+    assert figures["counted_as_true_revenue"] is False and figures["setting_applied"] is True
+    assert figures["by_tier"] == {"verified": {"count": 1, "total": 1234.56},
+                                  "non_revenue": {"count": 4, "total": 8000.0}}
+    assert "zelle_deposits" not in package["documents"][1]
+
+
+# Exports (spec §10.8): the readable rows, the row tag and the `zelle` column.
+
+def _download(job_payload, fmt, *, zelle):
+    from webapp.app import _analysis_csv, _displayed
+    from webapp.settings import DEFAULTS
+    served = _displayed(job_payload, settings={**DEFAULTS, "zelle_true_revenue": zelle}, export=True)
+    return served if fmt == "json" else _analysis_csv(served)
+
+
+def test_a_yes_download_of_z1_prints_the_readable_rows_and_the_zelle_column():
+    from tests import zelle_setting_fixtures as fx
+    from webapp.app import _analysis_rows, _displayed, _posted_credit_table
+    from webapp.settings import DEFAULTS
+    served = _displayed(fx.case("Z1"), settings={**DEFAULTS, "zelle_true_revenue": True}, export=True)
+    rows = _analysis_rows(served)
+    assert ("revenue_tier", "zelle_deposits.setting", "Yes") in rows
+    assert ("revenue_tier", "zelle_deposits.count", 4) in rows and ("revenue_tier", "zelle_deposits.total", 7734.56) in rows
+    assert ("revenue_tier", "zelle_deposits.counted_flagged.count", 1) in rows
+    assert ("revenue_tier", "zelle_deposits.excluded_pending_review.total", 6500.0) in rows
+    assert ("revenue_tier", "zelle_deposits.setting_applied", True) in rows
+    assert not any(section == "metrics" and field == "zelle_deposits" for section, field, _value in rows)
+    table = _posted_credit_table(served)
+    assert table[0][-1] == "zelle"
+    assert [row[3] for row in table[1:] if row[-1] == "Zelle"] == [fx.PAT, fx.FABRIKAM_1, fx.FABRIKAM_2, fx.OWN]
+    assert sum(1 for transaction in served["statement"]["transactions"] if transaction.get("zelle_deposit")) == 4
+
+
+def test_a_package_json_keeps_the_row_tag_and_its_ledger_table_the_zelle_column():
+    from tests import zelle_setting_fixtures as fx
+    from webapp.app import _package_rows, _package_transaction_table
+    package = _package(fx.case("Z1"))
+    assert sum(1 for row in package["transactions"] if row.get("zelle_deposit") is True) == 4
+    table = _package_transaction_table(package)
+    assert table[0][-1] == "zelle" and sum(1 for row in table[1:] if row[-1] == "Zelle") == 4
+    rows = _package_rows(package)
+    assert ("revenue_tier", "zelle_deposits.setting", "Yes") in rows
+    assert ("document_1.revenue_tier", "zelle_deposits.count", 4) in rows
+    assert not any(field == "zelle_deposits" for _section, field, _value in rows)
+    no_table = _package_transaction_table(_package(fx.case("Z1"), zelle=False))
+    assert no_table[0][-1] == "review_status"
+
+
+def test_a_no_download_of_a_fresh_z1_and_every_zelle_free_download_are_today_s():
+    """Today's download is the stored payload served without the counted reading's edits (R2-OW16's payload, which
+    tests/fixtures/zelle_setting_no_view.json pins): the No download of a fresh analysis equals it byte for byte, and a
+    Zelle-free statement's downloads are the same in both modes."""
+    from tests import zelle_setting_fixtures as fx
+    fresh = fx.case("Z1")
+    today = copy.deepcopy(fresh)
+    today.pop("zelle_counted_reading")
+    for fmt in ("csv", "json"):
+        produced = _download(fresh, fmt, zelle=False)
+        expected = _download(today, fmt, zelle=False)
+        assert (produced if fmt == "csv" else json.dumps(produced)) == (
+            expected if fmt == "csv" else json.dumps(expected))
+        free = fx.payload(fx.FREE)
+        assert _download(free, fmt, zelle=True) == _download(free, fmt, zelle=False)
+    assert "zelle" not in _download(fresh, "csv", zelle=False).splitlines()[0]
+    assert ",zelle\r" not in _download(fresh, "csv", zelle=False)

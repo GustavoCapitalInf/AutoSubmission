@@ -765,6 +765,15 @@
   .setting-row { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; padding: 18px 20px; }
   .setting-row + .setting-row { border-top: 1px solid var(--border); }
   .setting-row > div { min-width: 0; }
+  /* R2-OW17: the Zelle choice, two labelled checkboxes driven as a radio pair, side by side; its status under the help. */
+  .setting-example + .setting-row { border-top: 1px solid var(--border); }
+  .choice-pair { display: inline-flex; flex-shrink: 0; align-items: center; gap: 18px; padding-top: 2px; }
+  .choice-pair label { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+  .choice-pair input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .choice-pair input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .choice-pair label:has(input:disabled) { cursor: progress; opacity: .55; }
+  .choice-pair input:disabled { cursor: progress; }
+  .setting-row > div > .setting-status { margin: 8px 0 0; }
   .setting-select {
     flex-shrink: 0; min-width: min(210px, 100%); height: 36px; padding: 0 10px; border-radius: 10px; cursor: pointer;
     border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13.5px;
@@ -1514,6 +1523,30 @@
                 <p class="setting-status" id="settingsStatus" role="status" aria-live="polite"></p>
               </div>
             </div>
+            <!-- The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): two labelled checkboxes
+                 driven as a radio pair by chooseZelleSetting (webapp/static/app.js); exactly one is ever ticked. -->
+            <div class="setting-row" id="zelleTrueRevenueRow">
+              <div>
+                <span class="setting-title" id="zelleTrueRevenueTitle">Mark Zelle Payments as True Revenue</span>
+                <p class="setting-help" id="zelleTrueRevenueHelp">
+                  <strong>Yes (default):</strong> Zelle deposits count in True revenue, flagged Zelle, with the
+                  person-to-person checks: Zelle from the business owner's own name, the same round amount repeated by
+                  one sender, and the other person-to-person checks (for example a sender the business also pays) are
+                  held for review; refunds, returns, loan money and asset sales stay out.
+                  <strong>No:</strong> every Zelle deposit is non-revenue, and its total is shown so you can compare
+                  True revenue with the Monthly Statements table. This changes True revenue, the review decision and the
+                  withholding rate on every statement and package analysed since this setting was added; nothing is
+                  reprocessed. An older analysis says so on its True card.
+                </p>
+                <p class="setting-status" id="zelleSettingStatus" role="status" aria-live="polite"></p>
+              </div>
+              <div class="choice-pair" role="radiogroup" aria-labelledby="zelleTrueRevenueTitle">
+                <label><input type="checkbox" id="zelleTrueRevenueYes" role="radio" aria-checked="false"
+                              aria-describedby="zelleTrueRevenueHelp" disabled> Yes</label>
+                <label><input type="checkbox" id="zelleTrueRevenueNo" role="radio" aria-checked="false"
+                              aria-describedby="zelleTrueRevenueHelp" disabled> No</label>
+              </div>
+            </div>
           </div>
         </section>
         <section class="settings-section" id="flagSettingsSection" aria-labelledby="flagSettingsTitle">
@@ -1711,6 +1744,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-3"></script>
+<script src="/static/app.js?v=true-revenue-4"></script>
 </body>
 </html>

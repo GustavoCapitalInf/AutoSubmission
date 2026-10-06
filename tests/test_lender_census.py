@@ -449,3 +449,61 @@ def test_compare_reports_the_lender_count_s_moves_and_reads_an_older_snapshot_as
     assert report["withholding_numerator"] == {"not_comparable": 1}
     # The after snapshot's returned rows still declare the move.
     assert report["returned_funder_moves"] == {"analyses": 1, "rows": 1}
+
+
+# ---------------------------------------------------------------- The owner's amendment of 2026-10-06 to the
+# underwriter's Q3 (R2-OW17, J3; true revenue spec §14.3 G7): the snapshot reads one Zelle reading (Yes by default); a
+# compare of the two readings is refused unless declared, and then only rule D's move on a Zelle return credit
+# (tests/zelle_setting_fixtures.py Z5: a funder debit and a bounce-worded Zelle credit the rules count) is declared.
+
+
+def _z5_snapshots():
+    from tests import zelle_setting_fixtures as fx
+
+    rows, holder, _title = fx.CASES["Z5"]
+    account = {"statement": fx.statement(rows, holder=holder).model_dump(mode="json")}
+    no = census.account_snapshot(account, zelle_true_revenue=False)
+    yes = census.account_snapshot(account, zelle_true_revenue=True)
+    return ({"classification_version": "5.6", "zelle_true_revenue": False, "accounts": {"z5:0": no}},
+            {"classification_version": "5.6", "zelle_true_revenue": True, "accounts": {"z5:0": yes}})
+
+
+def test_ow17_the_snapshot_records_the_reading_and_the_zelle_policy_rows():
+    no, yes = _z5_snapshots()
+    old, new = no["accounts"]["z5:0"], yes["accounts"]["z5:0"]
+    assert (old["zelle_policy_rows"], new["zelle_policy_rows"]) == ([1], [1])
+    # Between the readings the funder debit's lender_totals row and its returned_funder_rows entry move.
+    assert old["returned_funder_rows"] == [[0, "transaction:2"]] and new["returned_funder_rows"] == []
+    assert [row[0] for row in old["lenders"]] == [] and [row[0] for row in new["lenders"]] == [0]
+    # Nothing else moves: the withholding rows, the numerator, the lender count and the legacy basis.
+    for key in ("withholding_rows", "withholding_numerator", "lender_count_entities", "eligible_deposits",
+                "withholding_rate", "potential_lender_rows", "reversed_by"):
+        assert old[key] == new[key], key
+
+
+def test_ow17_a_compare_of_two_readings_is_refused_unless_declared(tmp_path, capsys):
+    no, yes = _z5_snapshots()
+    with pytest.raises(census.ZelleViewMismatch):
+        census.compare(no, yes, admitted=frozenset())
+    paths = _files(tmp_path, no, yes, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 2
+    assert "refused" in capsys.readouterr().err
+
+
+def test_ow17_a_declared_compare_classes_rule_d_and_nothing_else_moves(tmp_path):
+    no, yes = _z5_snapshots()
+    report = census.compare(no, yes, admitted=frozenset(), declare_zelle_view=True)
+    assert report["zelle_reading_rule_d"] == {"analyses": 1, "rows": 2}
+    assert (report["gained"], report["lost"]) == ({}, {})
+    assert census.zelle_reading_undeclared(report) == 0
+    paths = _files(tmp_path, no, yes, _ledger())
+    assert census.main([*_compare_argv(paths, tmp_path), "--declare-zelle-view"]) == 0
+
+
+def test_ow17_a_planted_non_zelle_lender_move_still_fails(tmp_path):
+    no, yes = _z5_snapshots()
+    yes["accounts"]["z5:0"]["withholding_rows"] = []
+    report = census.compare(no, yes, admitted=frozenset(), declare_zelle_view=True)
+    assert census.zelle_reading_undeclared(report) > 0
+    paths = _files(tmp_path, no, yes, _ledger())
+    assert census.main([*_compare_argv(paths, tmp_path), "--declare-zelle-view"]) == 1

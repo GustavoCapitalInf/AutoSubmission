@@ -4,17 +4,42 @@ MCA/lender findings.
 Usage:
   .venv/bin/python analyze.py output/ace.md              # human-readable report
   .venv/bin/python analyze.py output/ace.md --json out.json
+  .venv/bin/python analyze.py output/ace.md --zelle-true-revenue no
+
+`--zelle-true-revenue` is the owner's "Mark Zelle Payments as True Revenue"
+(the underwriter's Q3, amended 2026-10-06): yes (the default, as the
+Settings page's) counts Zelle deposits as the rules read them; no excludes
+them. The CLI reads no webapp setting.
 """
 from __future__ import annotations
 import argparse
 import json
 import sys
+from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.serialization import document_report_to_dict
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
 
 
-def _render(report: Report) -> str:
+def _zelle_line(stored: Report, shown: Report) -> str | None:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): under Yes, where the statement has Zelle
+    policy rows, one line saying where the Zelle money sits (analysis/zelle_view.py's figures over the records)."""
+    figures = zelle_view.record_zelle_figures(stored.classifications, shown.classifications)
+    if figures is None:
+        return None
+    parts = zelle_view.figure_parts(figures)
+    out = f", ${parts['out']:,.2f} non-revenue" if parts["out"] > 0 else ""
+    return (
+        f"  Zelle deposits: ${figures['total']:,.2f} ({figures['count']}): ${parts['in_true']:,.2f} in True revenue, "
+        f"${parts['held']:,.2f} held for review{out} (Mark Zelle Payments as True Revenue: Yes; "
+        "--zelle-true-revenue no excludes them)"
+    )
+
+
+def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
+    """One account's report in the Zelle reading asked for: the counted reading (`Report.zelle_counted`) under Yes
+    where the statement has one, else the stored Report. Under No it prints today's lines exactly."""
+    report = stored.zelle_counted if zelle_true_revenue and stored.zelle_counted is not None else stored
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
     L: list[str] = []
     L.append(f"# {s.bank or 'Bank'} - {s.account_name or 'Account'}")
@@ -94,6 +119,9 @@ def _render(report: Report) -> str:
         f"  Non-revenue credits   : ${m.non_revenue_total:,.2f}  "
         f"({m.non_revenue_count} credit(s))"
     )
+    zelle = _zelle_line(stored, report) if zelle_true_revenue else None
+    if zelle is not None:
+        L.append(zelle)
     L.append(f"  Maximum revenue       : ${m.maximum_revenue:,.2f}")
     L.append(
         f"  Revenue reconciliation: {'balanced' if m.revenue_reconciles else 'REVIEW'}  "
@@ -212,16 +240,21 @@ def _render(report: Report) -> str:
     return "\n".join(L)
 
 
-def _json_safe(document: DocumentReport) -> dict:
-    """The DOCUMENT's payload. RULE S: one account publishes today's, verbatim."""
-    return document_report_to_dict(document)
+def _json_safe(document: DocumentReport, zelle_true_revenue: bool = True) -> dict:
+    """The DOCUMENT's payload. RULE S: one account publishes today's, verbatim. R2-OW17: in the Zelle reading shown
+    (analysis/zelle_view.py apply_zelle_view): under No, on a fresh analysis, today's JSON exactly (the edits key
+    gone, no display key)."""
+    return zelle_view.apply_zelle_view(document_report_to_dict(document), counted=zelle_true_revenue)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Analyze an OCR'd bank statement.")
     ap.add_argument("markdown", help="Path to the OCR markdown file.")
     ap.add_argument("--json", metavar="FILE", help="Also write the full report as JSON.")
+    ap.add_argument("--zelle-true-revenue", choices=("yes", "no"), default="yes",
+                    help="Mark Zelle Payments as True Revenue (default yes, the Settings default)")
     args = ap.parse_args()
+    zelle_true_revenue = args.zelle_true_revenue == "yes"
 
     with open(args.markdown, encoding="utf-8") as f:
         markdown = f.read()
@@ -231,11 +264,11 @@ def main() -> None:
     # stopping would drop an account without saying so, which is the one thing
     # this whole model exists to stop.
     for account in document.accounts:
-        print(_render(account))
+        print(_render(account, zelle_true_revenue))
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(_json_safe(document), f, indent=2)
+            json.dump(_json_safe(document, zelle_true_revenue), f, indent=2)
         print(f"\nWrote JSON report to {args.json}", file=sys.stderr)
 
 

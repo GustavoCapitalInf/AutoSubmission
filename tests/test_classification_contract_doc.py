@@ -174,7 +174,11 @@ PASS_CALLS = (
 
 
 def test_the_contract_lists_the_statement_passes_in_the_classifiers_order():
-    source = inspect.getsource(transaction_classifier.classify_statement_transactions)
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): classify_statement_transactions runs the
+    # shared prefix, then one Zelle reading's pass 7, pass 7b and duplicate finalisation; read in that order.
+    source = (inspect.getsource(transaction_classifier._classify_statement_prefix)
+              + inspect.getsource(transaction_classifier._classify_statement_reading))
+    assert "_classify_statement_prefix(" in inspect.getsource(transaction_classifier.classify_statement_transactions)
     positions = [source.index(call) for call, _ in PASS_CALLS]
     assert positions == sorted(positions)
     assert source.index("duplicate_of[index] = seen[fingerprint]") < source.index("recurring_fixed_debit")

@@ -2509,7 +2509,9 @@ def test_b9_the_holder_facts_read_the_holder_s_name_field():
         Transaction(date="2031-03-04", description="ZELLE PAYMENT FROM CONTOSO DINER LLC CONF 1234567890",
                     amount=600.0, direction="credit"),
     ])
-    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): read in the No reading, the stored one.
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")},
+                                      zelle_true_revenue=False)["credits"]
     assert [credit["facts"]["holder"] for credit in credits] == [True, True, False]
     assert [credit["facts"]["own_transfer"] for credit in credits] == [False, True, False]
     # The owner's ruling of 2026-10-02 (the underwriter's Q3): the holder's own Zelle is held by the rules (its prior
@@ -2519,6 +2521,7 @@ def test_b9_the_holder_facts_read_the_holder_s_name_field():
 
     assert rules_reading(classify_statement_transactions(statement)[0]) == ("excluded_pending_review", "holder_name")
     assert [(credit["tier"], credit["reason"]) for credit in credits][0] == ("non_revenue", "zelle_excluded")
+    assert credits[0]["zelle_prior"] == ["excluded_pending_review", "holder_name"]
 
 
 def test_b9_a_processor_s_settlement_under_the_holder_s_name_is_no_holder_fact():
@@ -2545,7 +2548,9 @@ def test_b9_review_1_a_holder_named_merchant_keeps_its_own_zelle_a_holder_fact()
         Transaction(date="2031-03-02", description="ZELLE PAYMENT FROM NORTHWIND MERCHANT GROUP LLC CONF 1234567890",
                     amount=900.0, direction="credit"),
     ])
-    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")})["credits"]
+    # R2-OW17: read in the No reading, the stored one.
+    credits = census.account_snapshot({"statement": statement.model_dump(mode="json")},
+                                      zelle_true_revenue=False)["credits"]
     # The owner's ruling of 2026-10-02 (the underwriter's Q3): the rules hold it as the holder's (its prior reading),
     # and the Zelle policy excludes it (R2-OW02 CR7); the holder fact is unchanged.
     from analysis.transaction_classifier import classify_statement_transactions
@@ -2939,10 +2944,10 @@ def test_r2_b01_an_analysis_that_raises_is_counted_once_and_never_replaced_by_an
                                                                                             order, kept, skipped):
     real = census.account_snapshot
 
-    def fabricated(account):
+    def fabricated(account, **kwargs):  # R2-OW17: the snapshot passes its Zelle reading
         if account.get("fabricated_raise"):
             raise ValueError("fabricated")
-        return real(account)
+        return real(account, **kwargs)
 
     monkeypatch.setattr(census, "account_snapshot", fabricated)
     snap = census.snapshot(iter(_r30_accounts(raising)[::order]))
@@ -3756,3 +3761,119 @@ def test_ow12_a_base_snapshot_without_the_aid_compares_clean():
     assert report["base"]["reasons"] == run["summary"]["reasons"]
     assert report["base"]["funding_aid"]["with_aid"] == {"rows": 0, "dollars": 0.0, "statements": 0}
     assert run["summary"]["funding_aid"]["with_aid"] == {"rows": 1, "dollars": 50000.0, "statements": 1}
+
+
+# ---------------------------------------------------------------- The owner's amendment of 2026-10-06 to the
+# underwriter's Q3 (R2-OW17; spec §14.2, §14.3): the census reads one Zelle reading (Yes by default), records each
+# credit's zelle_prior, refuses snapshots of different readings unless declared, and checks the declared moves (G-Z).
+# Fabricated statements only (tests/zelle_setting_fixtures.py).
+
+
+def _zelle_snapshot(names, *, reading=True):
+    from tests import zelle_setting_fixtures as fx
+
+    accounts = []
+    for number, name in enumerate(names, start=1):
+        rows, holder, title = fx.CASES[name]
+        # Each case its own account number: the census keeps one analysis per statement fingerprint.
+        statement = fx.statement(rows, holder=holder, title=title, number=f"00000000{number:04d}")
+        accounts.append((name, {"statement": statement.model_dump(mode="json"), "reconciliation": {"ok": True}}))
+    return census.snapshot(iter(accounts), zelle_true_revenue=reading)
+
+
+ZELLE_CASES = ("Z1", "Z3", "Z4_TRUCK", "Z4_DRAW", "Z4_PARTNER", "Z6", "Z7")
+
+
+def test_ow17_the_snapshot_records_its_reading_and_the_rules_prior():
+    yes, no = _zelle_snapshot(["Z1"]), _zelle_snapshot(["Z1"], reading=False)
+    assert (yes["zelle_true_revenue"], no["zelle_true_revenue"]) == (True, False)
+    priors = [credit["zelle_prior"] for credit in no["accounts"]["Z1"]["credits"]]
+    assert priors == [None, ["counted_flagged", "p2p"], ["excluded_pending_review", "p2p_round_repeat"],
+                      ["excluded_pending_review", "p2p_round_repeat"], ["excluded_pending_review", "holder_name"], None]
+    # The prior is the stored reading's, in either snapshot.
+    assert [credit["zelle_prior"] for credit in yes["accounts"]["Z1"]["credits"]] == priors
+    assert [(credit["tier"], credit["reason"]) for credit in yes["accounts"]["Z1"]["credits"]][1] == (
+        "counted_flagged", "p2p")
+
+
+def test_ow17_a_checkout_without_the_setting_records_null(monkeypatch):
+    from analysis import transaction_classifier
+
+    real = transaction_classifier.classify_statement_transactions
+
+    def without_the_keyword(statement, *, min_recurring_count=3):
+        return real(statement, min_recurring_count=min_recurring_count)
+
+    monkeypatch.setattr(transaction_classifier, "classify_statement_transactions", without_the_keyword)
+    monkeypatch.delattr(transaction_classifier, "classify_statement_readings")
+    snap = _zelle_snapshot(["Z1"])
+    assert snap["zelle_true_revenue"] is None
+    assert [(credit["tier"], credit["reason"]) for credit in snap["accounts"]["Z1"]["credits"]][1] == (
+        "non_revenue", "zelle_excluded")
+
+
+def test_ow17_snapshots_of_two_readings_are_refused_unless_declared():
+    base, after = _zelle_snapshot(["Z1"], reading=False), _zelle_snapshot(["Z1"])
+    with pytest.raises(census.ZelleViewMismatch):
+        census.compare(base, [after])
+    # A null reading (a checkout before the setting) reads as No.
+    null_base = {**base, "zelle_true_revenue": None}
+    census.compare(null_base, [_zelle_snapshot(["Z1"], reading=False)])
+    with pytest.raises(census.ZelleViewMismatch):
+        census.compare(null_base, [after])
+
+
+def test_ow17_a_declared_compare_classes_the_zelle_rows_and_g_z_holds():
+    base, after = _zelle_snapshot(ZELLE_CASES, reading=False), _zelle_snapshot(ZELLE_CASES)
+    run = census.compare(base, [after], declare_zelle_view=True)["runs"][0]
+    assert "outside_the_narrowings" not in run["left_non_revenue"]
+    assert set(run["left_non_revenue"]) == {census.ZELLE_VIEW_CAUSE}
+    assert "G1" not in run["guards"] and "G-Z" not in run["guards"]
+    assert run["guard_checks"]["G-Z"]["status"] == "held" and run["verdict"] == "hold"
+    view = run["zelle_true_revenue_view"]
+    assert view["declared"] and (view["base_reading"], view["after_reading"]) == (False, True)
+    assert view["g_z_unchecked"] == 0
+    # Z1's four, Z3's premium trust, the truck and the draw, the partner's sale and Z6's two (its sub-dollar row to its
+    # prior, held non_sale_purpose).
+    assert view["rows"] == 10
+    targets = {move["to"] for move in view["moves"]}
+    assert {"non_revenue|asset_sale_proceeds", "counted_flagged|construction_progress_draw",
+            "excluded_pending_review|premium_trust_account"} <= targets
+
+
+def test_ow17_g_z_fails_on_a_planted_mismatch_and_on_a_non_zelle_move():
+    base, after = _zelle_snapshot(["Z1"], reading=False), _zelle_snapshot(["Z1"])
+    after["accounts"]["Z1"]["credits"][1].update(tier="excluded_pending_review", reason="payer_also_debited")
+    run = census.compare(base, [after], declare_zelle_view=True)["runs"][0]
+    assert run["guards"]["G-Z"]["failures"] == 1 and run["verdict"] == "fail"
+    after = _zelle_snapshot(["Z1"])
+    venmo = after["accounts"]["Z1"]["credits"][5]
+    venmo.update(tier="excluded_pending_review", reason="p2p_round_repeat")
+    run = census.compare(base, [after], declare_zelle_view=True)["runs"][0]
+    assert run["guards"]["G-Z"]["sample"][0]["non_zelle"] is True
+
+
+def test_ow17_a_reverse_compare_declares_through_the_zelle_policy():
+    run = census.compare(_zelle_snapshot(ZELLE_CASES), [_zelle_snapshot(ZELLE_CASES, reading=False)],
+                         declare_zelle_view=True)["runs"][0]
+    assert run["verdict"] == "hold" and "G-Z" not in run["guards"]
+    assert run["zelle_true_revenue_view"]["rows"] == 10
+
+
+def test_ow17_a_non_zelle_partner_of_a_zelle_sale_reaches_no_person_to_person_repeat():
+    """The cause q5_q6_q11_repeat_partner reads the after snapshot's asset-sale and progress-draw rows, Zelle ones
+    included; no fabricated pair reaches a person-to-person repeat verification (tests/test_zelle_setting.py Z4), so the
+    partner reads the same in both snapshots and no demotion is recorded."""
+    base, after = _zelle_snapshot(["Z4_PARTNER"], reading=False), _zelle_snapshot(["Z4_PARTNER"])
+    assert base["accounts"]["Z4_PARTNER"]["credits"][1] == after["accounts"]["Z4_PARTNER"]["credits"][1]
+    run = census.compare(base, [after], declare_zelle_view=True)["runs"][0]
+    assert run["verified_demotions"] == {}
+    context = census._account_context([(base["accounts"]["Z4_PARTNER"]["credits"][0],
+                                        after["accounts"]["Z4_PARTNER"]["credits"][0])])
+    assert after["accounts"]["Z4_PARTNER"]["credits"][0]["facts"]["payer_key_digest"] in context["q11_kept"]
+
+
+def test_ow17_the_progress_draw_fact_follows_the_snapshot_s_reading():
+    yes, no = _zelle_snapshot(["Z4_DRAW"]), _zelle_snapshot(["Z4_DRAW"], reading=False)
+    assert yes["accounts"]["Z4_DRAW"]["credits"][0]["facts"]["progress_draw"] is True
+    assert no["accounts"]["Z4_DRAW"]["credits"][0]["facts"]["progress_draw"] is False
