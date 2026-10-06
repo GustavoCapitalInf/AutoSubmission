@@ -3,10 +3,15 @@
 a redeposit counts once, and the returns no statement or package pairs and the processor chargebacks and adjustments
 are flagged, never deducted. The passes are package-only: a statement viewed alone keeps its own figures.
 
+Owner ruling 2026-10-02 (the underwriter's Q4, "Let's go with option 2 and I'll review it anyways"; audit I30; R2-OW16):
+within a package, a counted deposit that prints no payer, matched to an exact-cents transfer out of another of the
+business's accounts 0 to 2 days before it, is held (`own_account_transfer_matched`) and listed; Confirm Revenue
+releases it into True and marks it Verified. An already-held deposit that pairs the same way is annotated only.
+
 Fabricated statements only (CONTOSO BAKERY LLC, account A 000000001010 and account B 000000002020 at Sample Bank,
-NORTHWIND and FABRIKAM payers, whole-dollar amounts), analysed by the real analysis path (as
-tests/test_webapp_studio_views._report does, with a bank, an account number and a currency) and packaged by
-webapp.app._package_analysis(jobs, settings={})."""
+NORTHWIND and FABRIKAM payers, SAMPLE PERSON the person-to-person sender, neutral amounts), analysed by the real
+analysis path (as tests/test_webapp_studio_views._report does, with a bank, an account number and a currency) and
+packaged by webapp.app._package_analysis(jobs, settings={})."""
 from __future__ import annotations
 
 import copy
@@ -31,22 +36,22 @@ def _closing(rows, opening):
     return round(opening + sum(row[2] for row in rows if len(row) < 4), 2)
 
 
-def _payload(rows, *, month, opening, number=ACCOUNT_A, currency="USD", name=HOLDER):
-    """One month of account `number` (the 1st to the 28th of 2031), every row with its running balance. A row
+def _report(rows, *, month, opening, number=ACCOUNT_A, currency="USD", name=HOLDER):
+    """One month of account `number` (the 1st to the 28th of 2031) analysed, every row with its running balance. A row
     `(day, description, amount, "repeat")` prints the row before it a second time, its running balance included (a
-    proven duplicate, which the bank's figures do not count: the statement reconciles without it)."""
+    proven duplicate, which the bank's figures do not count: the statement reconciles without it). A row whose day is
+    None prints no date (R2-OW16's T16)."""
     from analysis.pipeline import analyze_statement
     from analysis.reconcile import reconcile
     from analysis.schema import Statement, Transaction
-    from analysis.serialization import document_report_to_dict
 
     txns, printed, balance = [], [], opening
     for row in rows:
         day, description, amount = row[:3]
         if len(row) < 4:
             balance = round(balance + amount, 2)
-        transaction = Transaction(date=f"2031-{month:02d}-{day:02d}", description=description, amount=amount,
-                                  direction="credit" if amount > 0 else "debit", running_balance=balance)
+        transaction = Transaction(date="" if day is None else f"2031-{month:02d}-{day:02d}", description=description,
+                                  amount=amount, direction="credit" if amount > 0 else "debit", running_balance=balance)
         txns.append(transaction)
         if len(row) < 4:
             printed.append(transaction)
@@ -54,9 +59,16 @@ def _payload(rows, *, month, opening, number=ACCOUNT_A, currency="USD", name=HOL
                   period_end=f"2031-{month:02d}-28", beginning_balance=opening, ending_balance=balance,
                   currency=currency, currency_source="printed")
     statement = Statement(**fields, transactions=txns)
-    report = analyze_statement(statement, reconciliation=reconcile(Statement(**fields, transactions=printed)),
-                               markdown="", sheets=[], model_used="fabricated-test")
-    return document_report_to_dict(report)
+    return analyze_statement(statement, reconciliation=reconcile(Statement(**fields, transactions=printed)),
+                             markdown="", sheets=[], model_used="fabricated-test")
+
+
+def _payload(rows, *, month, opening, number=ACCOUNT_A, currency="USD", name=HOLDER):
+    """One month of account `number`, as a statement's stored payload (`_report`)."""
+    from analysis.serialization import document_report_to_dict
+
+    return document_report_to_dict(_report(rows, month=month, opening=opening, number=number, currency=currency,
+                                            name=name))
 
 
 def _job(job_id, payload):
@@ -556,3 +568,455 @@ def test_the_route_serves_each_match_s_legs_with_their_account_index_never_maske
     assert [flag["kind"] for flag in body["debit_flags"]] == ["processor_chargeback"]
     overlaid = [row for row in body["transactions"] if row["classification"].get("package_match")]
     assert len(overlaid) == 2
+
+
+# ---------------------------------------------------------------- Q4: own-account transfers (R2-OW16)
+
+#: The owner's example: account A sends 12,340.17 to account B (its debit prints no internal designation, like the
+#: owner's 'TRANSFER TO CHK 4821'), and B prints a bare DEPOSIT of the same cents.
+TRANSFER_OUT = "ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521"
+NW_A = "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1"
+FABRIKAM_B = "FABRIKAM STORES INC DES:PAYMENT ID:2"
+SENT = 12340.17
+
+
+def _rows_a(debit=TRANSFER_OUT, amount=-SENT, day=3, extra=()):
+    return [(2, NW_A, 20000.0), (day, debit, amount), *extra]
+
+
+def _rows_b(credit="DEPOSIT", amount=SENT, day=3, extra=()):
+    return [(day, credit, amount), *extra, (9, FABRIKAM_B, 2000.0)]
+
+
+def _account_a(debit=TRANSFER_OUT, amount=-SENT, day=3, *, extra=(), currency="USD"):
+    return _payload(_rows_a(debit, amount, day, extra), month=3, opening=50000.0, currency=currency)
+
+
+def _account_b(credit="DEPOSIT", amount=SENT, day=3, *, extra=(), number=ACCOUNT_B, currency="USD", name=HOLDER):
+    return _payload(_rows_b(credit, amount, day, extra), month=3, opening=1500.0, number=number, currency=currency,
+                    name=name)
+
+
+def _owners_transfer(**b):
+    return _package(("a", _account_a()), ("b", _account_b(**b)))
+
+
+def _two_account_document(a_rows, b_rows):
+    """Accounts A and B printed in ONE document (as tests/test_webapp_true_revenue._pair_document builds one), R-d run
+    over them (identify_internal_transfers)."""
+    from analysis.pipeline import AccountRosterEntry, DocumentReport, identify_internal_transfers
+    from analysis.serialization import document_report_to_dict
+
+    first = _report(a_rows, month=3, opening=50000.0).accounts[0]
+    second = _report(b_rows, month=3, opening=1500.0, number=ACCOUNT_B).accounts[0]
+    transfers, notes = identify_internal_transfers([first, second])
+    roster = [AccountRosterEntry(HOLDER, "checking", "1010", "published", published_index=0),
+              AccountRosterEntry(HOLDER, "checking", "2020", "published", published_index=1)]
+    return document_report_to_dict(DocumentReport(accounts=[first, second], internal_transfers=transfers,
+                                                  integrity_notes=notes, account_roster=roster,
+                                                  document_period=("2031-03-01", "2031-03-28")))
+
+
+def _tier(package, job_id, location):
+    record = _ledger_row(package, job_id, location)["classification"]
+    return record["revenue_tier"], record["revenue_tier_reason"]
+
+
+def _q4_keys(totals):
+    return {key for key in totals if key.startswith("own_account_transfer")}
+
+
+HELD = ("excluded_pending_review", "own_account_transfer_matched")
+COUNTED = ("counted_flagged", "no_payer_printed")
+
+
+@pytest.mark.parametrize(("text", "paper_or_cash"), [
+    ("DEPOSIT", False), ("TELLER DEPOSIT", False), ("COUNTER CREDIT", False), ("BRANCH DEPOSIT", False),
+    ("NIGHT DROP DEPOSIT", True), ("CASH DEPOSIT", True), ("ATM CASH DEPOSIT", True),
+    # A residual the reader keeps: §8.2's cash form reads NIGHT DEP and NIGHT DROP as whole words, never NIGHT DEPOSIT,
+    # and the guard needs the form (R2-B13 reads the forms unchanged), so a bare NIGHT DEPOSIT stays eligible.
+    ("NIGHT DEPOSIT", False), ("NIGHT DEP", True),
+    ("ATM DEPOSIT", True), ("ABM DEPOSIT", True), ("COIN DEPOSIT", True), ("SMART SAFE DEPOSIT", True),
+    ("VAULT DEPOSIT", True), ("PRE ENCODED DEPOSIT", True), ("CPS DEVICE DEPOSIT", True), ("MOBILE DEPOSIT", True),
+    ("REMOTE DEPOSIT", True), ("OK SAMPLEVILLE 1234 E 51ST USWALGREENS W1234", True),
+    ("INVOICES NORTHWIND SUPPLY", False), ("ONLINE TRANSFER", False),
+])
+def test_the_reader_reads_a_check_or_cash_device_deposit_never_a_teller_counter_or_branch_one(text, paper_or_cash):
+    from analysis.transaction_classifier import paper_or_cash_deposit
+
+    assert paper_or_cash_deposit(text) is paper_or_cash
+
+
+def test_two_members_are_two_accounts_only_on_four_printed_digits_that_differ():
+    from webapp.app import _different_accounts
+
+    def member(key, digits, currency="USD"):
+        return {"key": key, "digits": digits, "currency": currency}
+
+    assert _different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000002020"))
+    assert _different_accounts(member(("d", 1), "000000001010"), member(("d", 2), "000000002020"))
+    assert _different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000091010"))  # conflict
+    assert not _different_accounts(member(("a", None), "000000001010"), member(("b", None), "1010"))
+    assert not _different_accounts(member(("a", None), "000000001010"), member(("a", None), "000000002020"))
+    assert not _different_accounts(member(("a", None), "000000001010"), member(("b", None), "020"))
+    assert not _different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000002020", "CAD"))
+    assert not _different_accounts(member(("a", None), "000000001010", None), member(("b", None), "000000002020", None))
+
+
+def test_t1_the_owner_s_example_holds_the_deposit_the_other_account_sent():
+    """T1: today the package counts the 12,340.17 twice (True 34,340.17, approved); now B's DEPOSIT is held as a
+    transfer out of A, listed, and B viewed alone keeps its figures."""
+    a, b = _account_a(), _account_b()
+    stored = copy.deepcopy((a, b))
+    package = _package(("a", a), ("b", b))
+    totals = package["totals"]
+    assert (totals["true_revenue_total"], totals["verified_revenue_total"], totals["excluded_pending_review_total"]) == (
+        22000.0, 22000.0, SENT)
+    assert (totals["own_account_transfer_held_count"], totals["own_account_transfer_held_total"]) == (1, SENT)
+    assert "own_account_transfer_already_held_count" not in totals
+    assert totals["revenue_review_items"] == 1
+    assert totals["decision"] == "review_required"  # held is 86% of B's posted credits
+    assert totals["excluded_pending_review_by_reason"]["own_account_transfer_matched"] == {"count": 1, "total": SENT}
+    deposit = _ledger_row(package, "b", "transaction:1")["classification"]
+    assert (deposit["revenue_tier"], deposit["revenue_tier_reason"]) == HELD
+    assert (deposit["revenue_classification"], deposit["revenue_review_required"]) == ("unverified_deposit", True)
+    assert deposit["contributes_to_true_revenue"] is False
+    assert deposit["contributes_to_excluded_pending_review"] is True
+    assert deposit["contributes_to_counted_flagged"] is False
+    assert (deposit["revenue_initial_classification"], deposit["revenue_review_status"]) == ("unverified_deposit",
+                                                                                            "pending")
+    debit_leg = {"job": "a", "filename": "a.pdf", "account_index": None, "source_location": "transaction:2",
+                 "date": "2031-03-03", "amount": -SENT, "bank": BANK, "last4": "1010"}
+    credit_leg = {"job": "b", "filename": "b.pdf", "account_index": None, "source_location": "transaction:1",
+                  "date": "2031-03-03", "amount": SENT, "bank": BANK, "last4": "2020"}
+    assert deposit["package_match"] == {"kind": "own_account_transfer", "moved": True, "debit": debit_leg, "gap_days": 0,
+                                        "tier_before": "counted_flagged", "reason_before": "no_payer_printed"}
+    debit = _ledger_row(package, "a", "transaction:2")["classification"]
+    assert debit["package_match"] == {"kind": "own_account_transfer", "credit": credit_leg, "moved": True}
+    assert package["package_matches"] == [{
+        "kind": "own_account_transfer", "moved": True, "gap_days": 0,
+        "credit": {**credit_leg, "currency": "USD", "tier_before": "counted_flagged", "reason_before": "no_payer_printed"},
+        "debit": {**debit_leg, "currency": "USD"},
+    }]
+    assert (_doc(package, "a")["package_match_count"], _doc(package, "b")["package_match_count"]) == (1, 1)
+    assert _doc(package, "b")["true_revenue_total"] == 2000.0
+    assert "debit_flags" not in package and "package_match_unchecked_count" not in totals
+    assert (a, b) == stored  # nothing is written back
+    # B alone: as today.
+    alone = _package(("b", b))
+    assert (alone["totals"]["true_revenue_total"], alone["totals"]["decision"]) == (14340.17, "approved")
+    assert not _q4_keys(alone["totals"]) and "package_matches" not in alone
+    assert _served(b)["metrics"]["true_revenue_total"] == 14340.17
+
+
+def test_t1_today_the_package_counted_the_transfer_twice(monkeypatch):
+    totals = _without_passes(monkeypatch, ("a", _account_a()), ("b", _account_b()))["totals"]
+    assert (totals["true_revenue_total"], totals["verified_revenue_total"], totals["decision"]) == (
+        34340.17, 22000.0, "approved")
+
+
+def test_t1b_the_owner_s_example_in_one_two_account_document_is_held_too():
+    """T1b: R-d nets only same-day legs printing an internal designation, so in ONE document the owner's example is
+    counted twice today (True 34,340.17); now B's DEPOSIT is held the same way, inside the job."""
+    document = _two_account_document(_rows_a(), _rows_b())
+    assert document["document"]["internal_transfers"] == []
+    package = _package(("doc", document))
+    totals = package["totals"]
+    assert (totals["true_revenue_total"], totals["verified_revenue_total"], totals["excluded_pending_review_total"]) == (
+        22000.0, 22000.0, SENT)
+    assert (totals["own_account_transfer_held_count"], totals["own_account_transfer_held_total"]) == (1, SENT)
+    assert totals["decision"] == "review_required"
+    [match] = package["package_matches"]
+    assert (match["kind"], match["moved"], match["gap_days"]) == ("own_account_transfer", True, 0)
+    assert (match["credit"]["job"], match["credit"]["account_index"], match["credit"]["last4"]) == ("doc", 2, "2020")
+    assert (match["debit"]["job"], match["debit"]["account_index"], match["debit"]["last4"]) == ("doc", 1, "1010")
+    [deposit] = [row for row in package["transactions"] if row["source_account"] == 2 and row["amount"] == SENT]
+    assert (deposit["classification"]["revenue_tier"], deposit["classification"]["revenue_tier_reason"]) == HELD
+
+
+def test_t2_a_deposit_two_days_after_is_held_three_days_after_counted():
+    assert _tier(_owners_transfer(day=5), "b", "transaction:1") == HELD
+    assert _owners_transfer(day=5)["package_matches"][0]["gap_days"] == 2
+    late = _owners_transfer(day=6)
+    assert _tier(late, "b", "transaction:1") == COUNTED
+    assert "package_matches" not in late and not _q4_keys(late["totals"])
+
+
+def test_t3_a_deposit_before_the_transfer_out_is_counted():
+    package = _package(("a", _account_a(day=5)), ("b", _account_b(day=3)))
+    assert _tier(package, "b", "transaction:1") == COUNTED
+    assert package["totals"]["true_revenue_total"] == 34340.17
+
+
+def test_t4_a_round_sum_is_never_matched():
+    package = _package(("a", _account_a(amount=-12300.0)), ("b", _account_b(amount=12300.0)))
+    assert _tier(package, "b", "transaction:1") == COUNTED
+    assert "package_matches" not in package
+
+
+def test_t5_a_person_to_person_leg_is_never_matched():
+    zelle = _package(("a", _account_a("ZELLE PAYMENT TO CONTOSO BAKERY")), ("b", _account_b()))
+    assert _tier(zelle, "b", "transaction:1") == COUNTED
+    assert "package_matches" not in zelle
+    venmo = _owners_transfer(credit="VENMO CASHOUT SAMPLE PERSON")
+    assert _tier(venmo, "b", "transaction:1") == ("counted_flagged", "p2p")
+    assert "package_matches" not in venmo
+
+
+@pytest.mark.parametrize(("debit", "expected"), [
+    ("ONLINE BANKING TRANSFER TO CHK 9999 CONF 5521", COUNTED),
+    ("ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521", HELD),
+    ("ONLINE TRANSFER TO *9999", COUNTED),
+    ("ONLINE TRANSFER TO XXXX 9999", COUNTED),
+    ("ONLINE TRANSFER TO XXXXXX2020", HELD),
+    ("ONLINE BANKING TRANSFER CONF 5521", HELD),
+])
+def test_t6_a_transfer_out_printing_another_account_never_pairs(debit, expected):
+    assert _tier(_package(("a", _account_a(debit)), ("b", _account_b())), "b", "transaction:1") == expected
+
+
+def test_t7_a_transfer_out_and_a_deposit_in_one_account_s_two_statements_are_counted():
+    march_rows = [(2, NW_A, 20000.0), (28, "ONLINE BANKING TRANSFER CONF 5521", -777.31)]
+    march = _payload(march_rows, month=3, opening=50000.0)
+    april = _payload([(1, "DEPOSIT", 777.31), (6, NW_APRIL, 900.0)], month=4, opening=_closing(march_rows, 50000.0))
+    package = _package(("mar", march), ("apr", april))
+    assert _tier(package, "apr", "transaction:1") == COUNTED
+    assert "package_matches" not in package
+
+
+def test_t8_r_d_s_designated_pair_in_one_document_stays_r_d_s():
+    document = _two_account_document(_rows_a("ONLINE TRANSFER TO CHK 2020"),
+                                     _rows_b("ONLINE TRANSFER FROM CHK 1010"))
+    assert len(document["document"]["internal_transfers"]) == 1
+    package = _package(("doc", document))
+    assert package["totals"]["true_revenue_total"] == 22000.0
+    assert "package_matches" not in package and not _q4_keys(package["totals"])
+
+
+@pytest.mark.parametrize(("credit", "tier"), [
+    (NW_A, ("verified", None)),
+    ("INVOICES NORTHWIND SUPPLY", ("counted_flagged", "named_payer_unlabelled")),
+    ("ONLINE TRANSFER FROM CHK 1010", ("non_revenue", None)),
+    ("MOBILE DEPOSIT", ("counted_flagged", "check_deposit")),
+])
+def test_t9_a_deposit_naming_a_payer_or_already_out_of_true_is_never_moved(credit, tier):
+    package = _owners_transfer(credit=credit)
+    assert _tier(package, "b", "transaction:1") == tier
+    assert "package_match" not in _ledger_row(package, "b", "transaction:1")["classification"]
+    assert "package_matches" not in package and not _q4_keys(package["totals"])
+
+
+@pytest.mark.parametrize(("credit", "reason"), [
+    ("TRANSFER CREDIT", "transfer_no_counterparty"),
+    ("CONTOSO BAKERY LLC", "holder_name"),
+    ("INCOMING WIRE", "wire_no_sender"),
+])
+def test_t9_an_already_held_deposit_that_pairs_is_annotated_only(credit, reason, monkeypatch):
+    before = _without_passes(monkeypatch, ("a", _account_a()), ("b", _account_b(credit)))
+    package = _owners_transfer(credit=credit)
+    record = _ledger_row(package, "b", "transaction:1")["classification"]
+    assert (record["revenue_tier"], record["revenue_tier_reason"]) == ("excluded_pending_review", reason)
+    assert record["package_match"] == {
+        "kind": "own_account_transfer", "moved": False, "gap_days": 0, "tier_before": "excluded_pending_review",
+        "reason_before": reason,
+        "debit": {"job": "a", "filename": "a.pdf", "account_index": None, "source_location": "transaction:2",
+                  "date": "2031-03-03", "amount": -SENT, "bank": BANK, "last4": "1010"}}
+    unannotated = {key: value for key, value in record.items() if key != "package_match"}
+    assert unannotated == _ledger_row(before, "b", "transaction:1")["classification"]
+    assert _ledger_row(package, "a", "transaction:2")["classification"]["package_match"]["moved"] is False
+    totals = package["totals"]
+    assert (totals["own_account_transfer_already_held_count"], totals["own_account_transfer_already_held_total"]) == (
+        1, SENT)
+    assert "own_account_transfer_held_count" not in totals
+    for key in ("true_revenue_total", "verified_revenue_total", "excluded_pending_review_total", "revenue_review_items",
+                "decision", "withholding_denominator"):
+        assert totals[key] == before["totals"][key], key
+    assert [match["moved"] for match in package["package_matches"]] == [False]
+
+
+def test_t9_a_counted_deposit_takes_the_transfer_before_a_held_one():
+    package = _owners_transfer(extra=[(4, "TRANSFER CREDIT", SENT)])
+    assert _tier(package, "b", "transaction:1") == HELD
+    assert "package_match" not in _ledger_row(package, "b", "transaction:2")["classification"]
+    assert "own_account_transfer_already_held_count" not in package["totals"]
+
+
+def test_t9_a_premium_trust_deposit_is_never_annotated():
+    package = _owners_transfer(name="CONTOSO BAKERY PREMIUM TRUST ACCOUNT")
+    assert _tier(package, "b", "transaction:1") == ("excluded_pending_review", "premium_trust_account")
+    assert "package_matches" not in package and not _q4_keys(package["totals"])
+
+
+@pytest.mark.parametrize(("credit", "expected"), [
+    ("MOBILE DEPOSIT", ("counted_flagged", "check_deposit")),
+    ("ATM CASH DEPOSIT", COUNTED),
+    ("CASH DEPOSIT", COUNTED),
+    ("NIGHT DROP DEPOSIT", COUNTED),
+    ("OK SAMPLEVILLE 1234 E 51ST USWALGREENS W1234", COUNTED),  # R2-OW14's retail cash load is cash
+    ("TELLER DEPOSIT", HELD),
+    ("COUNTER CREDIT", HELD),
+    ("BRANCH DEPOSIT", HELD),
+])
+def test_t10_a_check_or_cash_device_deposit_is_never_matched(credit, expected):
+    assert _tier(_owners_transfer(credit=credit), "b", "transaction:1") == expected
+
+
+def test_t11_one_transfer_out_holds_one_deposit():
+    package = _package(("a", _account_a(amount=-500.25)),
+                       ("b", _account_b(amount=500.25, extra=[(4, "DEPOSIT", 500.25)])))
+    assert _tier(package, "b", "transaction:1") == HELD
+    assert _tier(package, "b", "transaction:2") == COUNTED
+    assert package["totals"]["own_account_transfer_held_count"] == 1
+
+
+def test_t12_confirm_revenue_releases_the_held_deposit_into_true_and_marks_it_verified():
+    """T12 through the routes: Confirm Revenue on B's held DEPOSIT is B's own decision (§10.7): the row turns Verified
+    on B and is never matched again; Reset restores the rule and the match; Mark Non-Revenue keeps it out."""
+    from webapp.app import app, store
+
+    ids = {}
+    for name, payload in (("a", _account_a()), ("b", _account_b())):
+        job = store.create(f"{name}.pdf")
+        store.set_result(job.id, f"# {name}", f"<h1>{name}</h1>", analysis=payload)
+        ids[name] = job.id
+    client = app.test_client()
+    url = f"/package_analysis?ids={ids['a']},{ids['b']}"
+
+    def decide(decision):
+        response = client.post(f"/analysis/{ids['b']}/revenue-review",
+                               json={"source_location": "transaction:1", "decision": decision})
+        assert response.status_code == 200
+        return response.get_json()["analysis"]
+
+    def package():
+        body = client.get(url).get_json()
+        deposit = next(row for row in body["transactions"] if row["source_job"] == ids["b"]
+                       and row["classification"]["source_location"] == "transaction:1")["classification"]
+        return body["totals"], deposit
+
+    totals, deposit = package()
+    assert (deposit["revenue_tier"], deposit["revenue_tier_reason"]) == HELD
+    assert totals["own_account_transfer_held_total"] == SENT
+    alone = decide("confirm")
+    record = alone["statement"]["transactions"][0]["classification"]
+    assert (record["revenue_tier"], record["revenue_review_status"]) == ("verified", "confirmed")
+    assert alone["metrics"]["verified_revenue_total"] == 14340.17
+    totals, deposit = package()
+    assert (deposit["revenue_tier"], deposit["revenue_review_status"]) == ("verified", "confirmed")
+    assert "package_match" not in deposit
+    assert (totals["true_revenue_total"], totals["verified_revenue_total"], totals["excluded_pending_review_total"]) == (
+        34340.17, 34340.17, 0.0)
+    assert not _q4_keys(totals)
+    decide("reset")
+    totals, deposit = package()
+    assert (deposit["revenue_tier"], deposit["revenue_tier_reason"]) == HELD
+    assert (totals["verified_revenue_total"], totals["own_account_transfer_held_total"]) == (22000.0, SENT)
+    decide("reject")
+    totals, deposit = package()
+    assert deposit["revenue_tier"] == "non_revenue" and "package_match" not in deposit
+    assert totals["true_revenue_total"] == 22000.0 and not _q4_keys(totals)
+
+
+def test_t13_the_listing_order_changes_nothing():
+    a, b = _account_a(extra=[(4, "ONLINE TRANSFER TO CHK 2020", -640.33)]), _account_b(
+        extra=[(5, "TRANSFER CREDIT", 640.33)])
+    forward, backward = _package(("a", a), ("b", b)), _package(("b", b), ("a", a))
+    assert [match["moved"] for match in forward["package_matches"]] == [True, False]
+    assert forward["package_matches"] == backward["package_matches"]
+    assert forward["totals"] == backward["totals"]
+    by_row = lambda package: {(row["source_job"], row["classification"]["source_location"]): row  # noqa: E731
+                              for row in package["transactions"]}
+    assert by_row(forward) == by_row(backward)
+
+
+def test_t14_two_currencies_are_never_two_of_the_business_s_accounts():
+    package = _package(("a", _account_a(currency="CAD")), ("b", _account_b()))
+    assert _tier(package, "b", "transaction:1") == COUNTED
+    assert "package_matches" not in package
+
+
+@pytest.mark.parametrize("mode", ["true_revenue", "verified_revenue", "legacy_eligible_deposits"])
+def test_t15_the_true_revenue_basis_loses_the_held_deposit(mode, monkeypatch):
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", mode)
+    a = _account_a(extra=[(10, "ONDECK CAPITAL DES:PAYMENT ID:1", -250.0)])
+    b = _account_b()
+    stored = a["metrics"]["withholding_denominator"] + b["metrics"]["withholding_denominator"]
+    totals = _package(("a", a), ("b", b))["totals"]
+    assert totals["withholding_denominator"] == (round(stored - SENT, 2) if mode == "true_revenue" else stored)
+    assert totals["withholding_denominator"] == {"true_revenue": 22000.0, "verified_revenue": 22000.0,
+                                                 "legacy_eligible_deposits": 34340.17}[mode]
+    assert totals["withholding_numerator"] == 250.0
+
+
+def test_t16_an_undated_transfer_out_is_never_matched():
+    package = _package(("a", _account_a(day=None)), ("b", _account_b()))
+    assert _tier(package, "b", "transaction:1") == COUNTED
+    assert "package_matches" not in package
+
+
+#: T17: accounts A and B with no qualifying pair (a transfer out five days before an equal deposit, a card purchase).
+NO_TRANSFER_A = [(2, NW_A, 900.0), (3, "ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521", -456.78),
+                 (9, "CARD PURCHASE FABRIKAM SUPPLY", -120.0)]
+NO_TRANSFER_B = [(8, "DEPOSIT", 456.78), (12, FABRIKAM_B, 800.0)]
+NO_TRANSFER_FIXTURE = FIXTURE.parent / "no_transfer_pair_package.json"
+
+
+def _no_transfer_package():
+    return _package(("a", _payload(NO_TRANSFER_A, month=3, opening=1500.0)),
+                    ("b", _payload(NO_TRANSFER_B, month=3, opening=500.0, number=ACCOUNT_B)))
+
+
+def test_t17_a_package_of_two_accounts_without_a_qualifying_pair_is_byte_identical_to_the_pinned_payload():
+    """The pinned payload is the package the base of R2-OW16 (fabb8ae) built from these fabricated statements."""
+    assert _canonical(_no_transfer_package()) == NO_TRANSFER_FIXTURE.read_text(encoding="utf-8")
+
+
+def test_t18_a_statement_printing_no_account_number_is_never_matched_and_is_named():
+    package = _owners_transfer(number="XXXX")
+    assert _tier(package, "b", "transaction:1") == COUNTED
+    assert "package_matches" not in package
+    assert _doc(package, "b")["package_match_unchecked"] == "no_account_number"
+    assert "package_match_unchecked" not in _doc(package, "a")
+    assert package["totals"]["package_match_unchecked_count"] == 1
+    # A package of that statement alone names nothing.
+    assert "package_match_unchecked" not in _doc(_package(("b", _account_b(number="XXXX"))), "b")
+
+
+def test_t19_a_transfer_out_printed_twice_holds_one_deposit():
+    a = _account_a(extra=[(3, TRANSFER_OUT, -SENT, "repeat")])
+    assert a["statement"]["transactions"][2]["classification"]["duplicate_of"] == "transaction:2"
+    package = _package(("a", a), ("b", _account_b(extra=[(4, "DEPOSIT", SENT)])))
+    assert _tier(package, "b", "transaction:1") == HELD
+    assert _tier(package, "b", "transaction:2") == COUNTED
+    assert package["totals"]["own_account_transfer_held_count"] == 1
+    assert "package_match" not in _ledger_row(package, "a", "transaction:3")["classification"]
+
+
+def test_q4_never_moves_a_debit_or_a_gross_figure(monkeypatch):
+    """Pass 2 holds a tier only: every debit's classification and contributions, the gross figures, the deposit
+    counts, the lender figures and the numerator are the ones the package published without its passes."""
+    a = _account_a(extra=[(10, "ONDECK CAPITAL DES:PAYMENT ID:1", -250.0)])
+    b = _account_b()
+    together, before = _package(("a", a), ("b", b)), _without_passes(monkeypatch, ("a", a), ("b", b))
+    for location in ("transaction:2", "transaction:3"):
+        after = {key: value for key, value in _ledger_row(together, "a", location)["classification"].items()
+                 if key != "package_match"}
+        assert after == _ledger_row(before, "a", location)["classification"], location
+    for key in ("total_credits", "total_posted_credits", "total_posted_credit_count", "total_debits", "cash_flow",
+                "average_daily_balance", "months", "lender_debits", "lender_debit_count", "withholding_numerator",
+                "nsf_count", "lenders_detected", "potential_lender_debit_total", "insurance_total",
+                "flagged_position_total", "avg_monthly_credits"):
+        assert together["totals"][key] == before["totals"][key], key
+    assert [row["deposit_count"] for row in together["documents"]] == [row["deposit_count"] for row in before["documents"]]
+    assert before["totals"]["true_revenue_total"] - together["totals"]["true_revenue_total"] == pytest.approx(SENT)
+
+
+def test_q4_s_matches_download_with_the_package():
+    from webapp.app import _package_csv
+
+    rows = list(csv.reader(io.StringIO(_package_csv(_owners_transfer()))))
+    cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
+    assert cells[("package_match_1", "kind")] == "own_account_transfer"
+    assert cells[("package_match_1", "moved")] == "True"
+    assert json.loads(cells[("package_match_1", "credit")])["reason_before"] == "no_payer_printed"
+    assert cells[("totals", "own_account_transfer_held_total")] == str(SENT)

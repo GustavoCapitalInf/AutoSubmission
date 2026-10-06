@@ -42,9 +42,14 @@ from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue_view import DEBIT_FLAG_KINDS, apply_revenue_view, debit_side_flags
 from analysis.transaction_classifier import (
+    _CONSUMER_P2P_RAIL,
+    _PUSH_RAIL,
+    _TRANSFER_WORDING,
     _deposit_channel_credit,
     _deposit_return_debit,
     _undo_debit_names_a_credit,
+    is_round_sum,
+    paper_or_cash_deposit,
 )
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
@@ -978,6 +983,9 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "returned_deposit_cross_statement_total",
     "unmatched_deposit_return_total",
     "processor_chargeback_total",
+    # Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16): the deposits pass 2 held and the held ones it annotated.
+    "own_account_transfer_held_total",
+    "own_account_transfer_already_held_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -999,6 +1007,8 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
 #: such key).
 _PACKAGE_MATCH_TOTAL_KEYS = frozenset({
     "returned_deposit_cross_statement_total", "unmatched_deposit_return_total", "processor_chargeback_total",
+    # R2-OW16 (the underwriter's Q4).
+    "own_account_transfer_held_total", "own_account_transfer_already_held_total",
 })
 
 #: The same rule for the cross-document funder / potential-lender / insurance
@@ -1891,6 +1901,33 @@ def _package_members(
 #: holiday and a 28th-to-1st cycle.
 PACKAGE_CONSECUTIVE_DAYS = 7
 
+#: Owner ruling 2026-10-02 (the underwriter's Q4, "Let's go with option 2 and I'll review it anyways": "Within one deal
+#: (a package), match a deposit to an exact-cents transfer OUT of another of the business's accounts 0-2 days
+#: earlier"; audit I30; true revenue spec §6.2's package passes; R2-OW16): the most days a matched deposit posts after
+#: the transfer out.
+PACKAGE_TRANSFER_DAYS = 2
+#: R2-OW16: the classes a transfer out never has (a lender's, a financing's, a card payment's, an insurer's, a tax's, a
+#: payroll's or a fee's debit is no transfer between the business's accounts, whatever wording it prints).
+_TRANSFER_OUT_REFUSED_CLASSES = frozenset({
+    "confirmed_lender", "potential_lender", "alternative_position", "line_of_credit", "vehicle_financing", "bank_loan",
+    "mortgage", "lease_or_rental", "personal_loan", "floor_plan_financing", "factoring", "debt_relief",
+    "lease_or_equipment_financing", "credit_card_payment", "insurance", "tax", "payroll", "fee",
+})
+#: R2-OW16: the contributions a transfer out never makes (a lender, potential-lender, withholding or flagged row).
+_TRANSFER_OUT_REFUSED_CONTRIBUTIONS = (
+    "contributes_to_withholding_rate", "contributes_to_lender_count", "contributes_to_potential_lender_count",
+    "contributes_to_flagged_totals",
+)
+#: R2-OW16, the destination veto: a transfer out that prints the account it goes to ('TO CHK 2020', 'TO 9999': the
+#: normaliser has already dropped '*', '.' and '#' masks; an X mask may stand before the digits) never pairs with a
+#: deposit into an account whose last four differ.
+_TRANSFER_DESTINATION = re.compile(r"\bTO (?:CHK|CHECKING|SAV|SAVINGS|ACCT|ACCOUNT|SHARE|DDA)?\s*(?:X+\s*)?(\d{4,})\b")
+#: R2-OW16: the held reasons of a deposit that names no third party (a transfer, the holder's own name, a wire with no
+#: sender): such a deposit that pairs with a transfer out is annotated, display only; nothing about it moves.
+_OWN_MONEY_HELD_REASONS = frozenset({
+    "transfer_no_counterparty", "transfer_account_designation", "holder_name", "wire_no_sender",
+})
+
 
 def _bank_key(statement: object) -> str:
     """The bank a statement prints, casefolded and its blanks collapsed ('' when none): the bank an account is read
@@ -1961,6 +1998,19 @@ def _same_account(first: dict, second: dict) -> bool:
     return _chained(first, second) or _chained(second, first)
 
 
+def _different_accounts(first: dict, second: dict) -> bool:
+    """R2-OW16 (Q4's identity): two package members are two of the business's accounts: two members (two jobs, or one
+    document's two accounts), one declared currency, both print four digits or more, and the last fours differ or the
+    full numbers conflict (R2-B14's `_numbers_conflict`). There is no bank-name arm: one account read under two bank
+    spellings is never two accounts, and a member that prints fewer than four digits is never paired (it is marked
+    `no_account_number`)."""
+    if first["key"] == second["key"] or not first["currency"] or first["currency"] != second["currency"]:
+        return False
+    if len(first["digits"]) < 4 or len(second["digits"]) < 4:
+        return False
+    return first["digits"][-4:] != second["digits"][-4:] or _numbers_conflict(first["digits"], second["digits"])
+
+
 def _match_side(entry: dict, position: int, row: dict) -> dict:
     """R2-OW15: one leg of a package match as its row note and the package's `package_matches` name it. The account is
     `account_index` (1-based, None for a statement of one account), never `account`: the served payload masks every
@@ -1986,8 +2036,9 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
     `rd_positions` holds each member's R-d internal-transfer positions (`_internal_transfer_positions`), which no pass
     reads. A member enters the passes when its job is done, its rows are tiered (`_member_tiered`, the member loop's
     test) and it declares a currency; in a package of two members or more, a member that does not is marked
-    (`unchecked`: 'no_currency', else 'older_rules'), unless it prints no row (nothing to match). A row enters when it
-    is posted and no proven duplicate.
+    (`unchecked`: 'no_currency', else 'older_rules'), unless it prints no row (nothing to match), and a member that
+    enters but prints fewer than four account digits is marked 'no_account_number' (R2-OW16: pass 2 never pairs it;
+    pass 1 still reaches it through the balance chain). A row enters when it is posted and no proven duplicate.
 
     Pass 1, returned deposits across statements: a debit that undoes a deposit (`_deposit_return_debit`, R2-B08's
     wordings included) that no credit of its statement pairs (pass 4's `matched_reversal_pair` naming its location)
@@ -2002,6 +2053,24 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
     method `matched_reversal_pair`, rule `returned_deposit_cross_statement`, `package_match` naming the return); its
     initial state, review status and pass-4 link are kept, so Confirm Revenue still overrides the match. A redeposit
     after the return stays counted. Inside one statement nothing changes (pass 4 keeps its 14 days).
+
+    Pass 2, own-account transfers (owner ruling 2026-10-02, the underwriter's Q4, "Let's go with option 2 and I'll
+    review it anyways"; audit I30; R2-OW16): a counted deposit that prints no payer (tier `counted_flagged`, reason
+    exactly `no_payer_printed`; never a rail, a round sum (`is_round_sum`), a check or cash-device deposit
+    (`paper_or_cash_deposit`), a decided credit or one pass 1 took) is matched to an exact-cents transfer out of
+    ANOTHER of the business's accounts (`_different_accounts`: another uploaded statement, or another account of the
+    same document after R-d) dated 0 to PACKAGE_TRANSFER_DAYS days before it. A transfer out is a posted, dated debit
+    printing transfer wording (`_TRANSFER_WORDING`), no rail, no lender, potential-lender, withholding or flagged
+    contribution, none of the financing, card-payment, insurance, tax, payroll or fee classes, and no pass-1 note; one
+    that prints the account it goes to (`_TRANSFER_DESTINATION`) never pairs with a deposit into an account whose last
+    four differ. One to one: the credits in (date, member, position) order, each taking the nearest untaken debit
+    (the smallest gap, then the member and the position). The deposit is held (`overlays`: tier
+    `excluded_pending_review`, reason `own_account_transfer_matched`, `package_match` naming the transfer, its state
+    `unverified_deposit` and its pending status kept, so Confirm Revenue releases it into True and marks it Verified);
+    the debit gains a display note. Then each held deposit that names no third party (`_OWN_MONEY_HELD_REASONS`) and
+    passes the same deposit tests is tried against the debits still untaken by the same rule, one to one: it gains a
+    display note only (`moved` false), its tier, reason, flags, totals and gate unchanged. Pass 2 never sets an
+    internal-transfer mark and never removes a row from gross deposits.
 
     Pass 3, the debit flags (`debit_side_flags`, never deducted, never a gate term): every ready member's returns that
     neither its statement nor pass 1 matched (`unmatched_deposit_return`, with `candidate_decided` when the nearest
@@ -2045,6 +2114,8 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
                 unchecked[entry["key"]] = "no_currency"
             elif not entry["tiered"]:
                 unchecked[entry["key"]] = "older_rules"
+            elif len(entry["digits"]) < 4:
+                unchecked[entry["key"]] = "no_account_number"  # R2-OW16: pass 2 never pairs it
     matchable = [entry for entry in entries if entry["currency"] is not None and entry["tiered"]]
 
     def text_of(row: dict) -> str:
@@ -2163,6 +2234,105 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
             "gap_days": gap,
         })
 
+    # Pass 2 (R2-OW16, the underwriter's Q4): own-account transfers, then the held deposits' display notes.
+    noted = {(key, position) for key, rows in overlays.items() for position in rows}  # pass 1's rows
+
+    def rails(text: str) -> bool:
+        return bool(_CONSUMER_P2P_RAIL.search(text) or _PUSH_RAIL.search(text))
+
+    transfers_out: list[tuple] = []
+    for entry in matchable:
+        if len(entry["digits"]) < 4:
+            continue  # `_different_accounts` never pairs it (marked 'no_account_number')
+        for position, row in entry["rows"]:
+            record = row["classification"]
+            day = _iso_day(row.get("date"))
+            text = text_of(row)
+            if (_num(row.get("amount")) >= 0 or day is None or (entry["key"], position) in noted
+                    or not _TRANSFER_WORDING.search(text) or rails(text)
+                    or any(record.get(flag) is True for flag in _TRANSFER_OUT_REFUSED_CONTRIBUTIONS)
+                    or record.get("classification") in _TRANSFER_OUT_REFUSED_CLASSES):
+                continue
+            destination = _TRANSFER_DESTINATION.search(text)
+            transfers_out.append((entry, position, row, day, destination.group(1)[-4:] if destination else None))
+
+    def deposits_in(held: bool) -> list[tuple]:
+        found = []
+        for entry in matchable:
+            if len(entry["digits"]) < 4:
+                continue
+            for position, row in entry["rows"]:
+                record = row["classification"]
+                day = _iso_day(row.get("date"))
+                text = text_of(row)
+                if held:
+                    eligible = (record.get("revenue_tier") == "excluded_pending_review"
+                                and record.get("revenue_tier_reason") in _OWN_MONEY_HELD_REASONS)
+                else:
+                    eligible = (record.get("revenue_tier") == "counted_flagged"
+                                and record.get("revenue_tier_reason") == "no_payer_printed")
+                if (not eligible or _num(row.get("amount")) <= 0 or day is None
+                        or (entry["key"], position) in taken or (entry["key"], position) in noted
+                        or record.get("revenue_review_status") in _REVIEW_DECISIONS
+                        or rails(text) or is_round_sum(_num(row.get("amount"))) or paper_or_cash_deposit(text)):
+                    continue
+                found.append(((day.toordinal(), entry["order"], position), entry, position, row, day))
+        return sorted(found, key=lambda item: item[0])
+
+    transfers_taken: set[tuple] = set()
+    for held in (False, True):
+        for _sort, credit_entry, credit_position, credit_row, credit_day in deposits_in(held):
+            cents = _row_cents(credit_row)
+            best = None
+            for debit_entry, position, row, debit_day, destination in transfers_out:
+                if ((debit_entry["key"], position) in transfers_taken or -_row_cents(row) != cents
+                        or not _different_accounts(credit_entry, debit_entry)):
+                    continue
+                gap = (credit_day - debit_day).days
+                if not 0 <= gap <= PACKAGE_TRANSFER_DAYS:
+                    continue
+                if destination is not None and destination != credit_entry["digits"][-4:]:
+                    continue  # the destination veto: it went to another account
+                candidate = ((gap, debit_entry["order"], position), debit_entry, position, row, gap)
+                if best is None or candidate[0] < best[0]:
+                    best = candidate
+            if best is None:
+                continue
+            _rank, debit_entry, position, row, gap = best
+            transfers_taken.add((debit_entry["key"], position))
+            taken.add((credit_entry["key"], credit_position))
+            record = credit_row["classification"]
+            credit_side = _match_side(credit_entry, credit_position, credit_row)
+            debit_side = _match_side(debit_entry, position, row)
+            tier_before, reason_before = record.get("revenue_tier"), record.get("revenue_tier_reason")
+            note = {"kind": "own_account_transfer", "moved": not held, "debit": debit_side, "gap_days": gap,
+                    "tier_before": tier_before, "reason_before": reason_before}
+            if held:
+                overlays.setdefault(credit_entry["key"], {})[credit_position] = {"package_match": note}
+            else:
+                overlays.setdefault(credit_entry["key"], {})[credit_position] = {
+                    "revenue_classification": "unverified_deposit",
+                    "revenue_tier": "excluded_pending_review",
+                    "revenue_tier_reason": "own_account_transfer_matched",
+                    "revenue_review_required": True,
+                    **revenue_contribution_flags("unverified_deposit", "excluded_pending_review"),
+                    "package_match": note,
+                }
+                moved.setdefault(credit_entry["key"], []).append({
+                    "tier": tier_before, "state": record.get("revenue_classification"),
+                    "amount": round(_num(credit_row.get("amount")), 2),
+                })
+            overlays.setdefault(debit_entry["key"], {})[position] = {
+                "package_match": {"kind": "own_account_transfer", "credit": credit_side, "moved": not held},
+            }
+            matches.append({
+                "kind": "own_account_transfer", "moved": not held,
+                "credit": {**credit_side, "currency": credit_entry["currency"], "tier_before": tier_before,
+                           "reason_before": reason_before},
+                "debit": {**debit_side, "currency": debit_entry["currency"]},
+                "gap_days": gap,
+            })
+
     # Pass 3: every ready member's debit flags, its R-d positions left out (their places kept, so a location reads).
     debit_flags: list[dict] = []
     for entry in entries:
@@ -2183,7 +2353,9 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
 
 def _package_match_totals(matched: dict) -> dict:
     """R2-OW15 (§9.2): the package passes' totals, each count and total only where a pass found a row:
-    `returned_deposit_cross_statement_count` / `_total` (the deposits pass 1 took out of True), the debit flags'
+    `returned_deposit_cross_statement_count` / `_total` (the deposits pass 1 took out of True), R2-OW16's
+    `own_account_transfer_held_count` / `_total` (the deposits pass 2 held) and
+    `own_account_transfer_already_held_count` / `_total` (the held deposits it annotated), the debit flags'
     `<kind>_count` / `<kind>_total` (their magnitude) and `package_match_unchecked_count`."""
     totals: dict = {}
     returned = [match for match in matched["matches"] if match["kind"] == "returned_deposit" and match["moved"]]
@@ -2191,6 +2363,13 @@ def _package_match_totals(matched: dict) -> dict:
         totals["returned_deposit_cross_statement_count"] = len(returned)
         totals["returned_deposit_cross_statement_total"] = round(
             sum(abs(_num(match["credit"]["amount"])) for match in returned), 2)
+    # R2-OW16 (the underwriter's Q4): the deposits pass 2 held, and the already-held deposits it only annotated.
+    for key, moved in (("own_account_transfer_held", True), ("own_account_transfer_already_held", False)):
+        transfers = [match for match in matched["matches"]
+                     if match["kind"] == "own_account_transfer" and match["moved"] is moved]
+        if transfers:
+            totals[f"{key}_count"] = len(transfers)
+            totals[f"{key}_total"] = round(sum(abs(_num(match["credit"]["amount"])) for match in transfers), 2)
     for kind in DEBIT_FLAG_KINDS:
         flags = [flag for flag in matched["debit_flags"] if flag["kind"] == kind]
         if flags:
@@ -2797,7 +2976,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             eligible_deposits = round(max(eligible_deposits - counted_transfer_credits, 0.0), 2)
         # Owner ruling 2026-10-02 (the underwriter's Q6; §11; R2-OW15): a deposit the package passes took out of True
         # leaves a revenue basis it was in: the True-revenue mode loses the moved credits stored verified or counted,
-        # the Verified mode those stored as verified revenue; the legacy basis and the numerator are untouched.
+        # the Verified mode those stored as verified revenue; the legacy basis and the numerator are untouched. R2-OW16
+        # (the underwriter's Q4): pass 2's held deposits (stored counted) are moved credits too; its annotated held
+        # deposits never are.
         moved_credits = package_matched["moved"].get(member_key) or []
         if moved_credits and denominator_mode in ("true_revenue", "verified_revenue"):
             moved_total = round(sum(

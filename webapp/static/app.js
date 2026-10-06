@@ -243,6 +243,9 @@ const REVENUE_TIER_REASONS = Object.freeze({
   // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a deposit a rule verified or counted, into an account
   // titled as an insurance premium trust account; the end of the held group.
   premium_trust_account: ["excluded_pending_review", "Deposit into a premium trust account", "The account is titled as an insurance premium trust account: its deposits are insureds' premiums held for the carriers, not the agency's revenue. Only commissions paid to the operating account count."],
+  // Owner ruling 2026-10-02 (the underwriter's Q4), R2-OW16: within a package, a deposit that prints no payer matched to
+  // a transfer out of another of the business's accounts; package-only, the end of the held group.
+  own_account_transfer_matched: ["excluded_pending_review", "Matches a transfer out of another account in this package", "A deposit that prints no payer, of the same cents as a transfer out of another of the business's accounts 0 to 2 days before it: the business's own money moving between its accounts, held so it is not counted twice. Confirm Revenue releases it into True and marks it Verified."],
   wire_named_sender: ["counted_flagged", "Wire from a named sender", "A wire from a named sender, counted without proof of the sale."],
   check_deposit: ["counted_flagged", "Check deposit", "A check deposit: the payer is not printed."],
   no_payer_printed: ["counted_flagged", "No payer printed", "A cash, branch, ATM or bare deposit: no payer is printed."],
@@ -1019,7 +1022,11 @@ const DEBIT_FLAG_WORDS = Object.freeze({
   unmatched_deposit_return: "Returned deposits not matched",
   processor_chargeback: "Processor chargebacks and adjustments",
 });
-const PACKAGE_MATCH_WORDS = Object.freeze({ returned_deposit: "bounced deposits matched across statements" });
+const PACKAGE_MATCH_WORDS = Object.freeze({
+  returned_deposit: "bounced deposits matched across statements",
+  // R2-OW16 (the underwriter's Q4): both legs of each transfer between the business's accounts.
+  own_account_transfer: "rows of transfers between the business's accounts",
+});
 
 // The debit flags of the rows on screen: a statement's, from its served metrics (`<kind>_locations`), or a package's,
 // from its `debit_flags` (each naming its statement, account and location). `has(tx, kind, position)` and `entry(tx)`.
@@ -1394,6 +1401,28 @@ function packageMatchNotes(tx, debitFlags = null) {
         + "not counted. Confirm Revenue overrides the match.");
     } else if (match.credit && txAmount(tx) < 0) {
       notes.push(`Returns the ${match.credit.date || "undated"} deposit in ${match.credit.filename || "another statement"}.`);
+    }
+  }
+  // Owner ruling 2026-10-02 (the underwriter's Q4; true revenue spec §10.6, §10.7; R2-OW16): a deposit pass 2 held names
+  // the transfer out of the other account and how its release works, an already-held deposit names the transfer it
+  // also matches (nothing about it moved), and the transfer out names the deposit.
+  if (match && match.kind === "own_account_transfer") {
+    if (match.debit && txAmount(tx) > 0) {
+      const debit = match.debit;
+      const from = `${debit.bank || "another account"}${debit.last4 ? ` ••${debit.last4}` : ""} on `
+        + `${debit.date || "an unknown date"} (${debit.filename || "another statement"})`;
+      if (match.moved === true) {
+        const gap = numberOrNull(match.gap_days);
+        const when = gap === 0 ? "the same day" : gap === 1 ? "1 day earlier" : `${gap ?? "some"} days earlier`;
+        notes.push(`Transfer out of ${from}, ${when}. Confirm Revenue releases it into True and marks it Verified; `
+          + "Mark Non-Revenue keeps it out.");
+      } else {
+        notes.push(`Also matches a transfer out of ${from}.`);
+      }
+    } else if (match.credit && txAmount(tx) < 0) {
+      notes.push(`Matched to the ${match.credit.date || "undated"} deposit into `
+        + `${match.credit.last4 ? `••${match.credit.last4}` : "another account"} `
+        + `(${match.moved === true ? "held" : "already held"}).`);
     }
   }
   const flag = debitFlags && txAmount(tx) < 0 ? debitFlags.entry(tx) : null;
@@ -4154,25 +4183,58 @@ function renderExcludedNotice(pkg = {}) {
 function renderPackageMatchNotice(pkg = {}) {
   if (!els.packageMatchNotice) return;
   const totals = pkg.totals || {};
-  const matches = (Array.isArray(pkg.package_matches) ? pkg.package_matches : [])
-    .filter((match) => match && match.kind === "returned_deposit" && match.moved === true && match.credit && match.debit);
-  const unchecked = new Set(countedDocuments(pkg.documents)
-    .filter((doc) => doc.package_match_unchecked === "older_rules" || doc.package_match_unchecked === "no_currency")
+  const listed = (Array.isArray(pkg.package_matches) ? pkg.package_matches : [])
+    .filter((match) => match && match.credit && match.debit);
+  const matches = listed.filter((match) => match.kind === "returned_deposit" && match.moved === true);
+  // R2-OW16 (the underwriter's Q4): the deposits pass 2 held, and the already-held deposits it only annotated.
+  const transfers = listed.filter((match) => match.kind === "own_account_transfer");
+  const held = transfers.filter((match) => match.moved === true);
+  const alreadyHeld = transfers.filter((match) => match.moved !== true);
+  const statementsMarked = (...markers) => new Set(countedDocuments(pkg.documents)
+    .filter((doc) => markers.includes(doc.package_match_unchecked))
     .map((doc) => packageMember(doc.id).jobId)).size;
-  els.packageMatchNotice.hidden = !matches.length && !unchecked;
+  const unchecked = statementsMarked("older_rules", "no_currency");
+  const noNumber = statementsMarked("no_account_number");
+  els.packageMatchNotice.hidden = !matches.length && !transfers.length && !unchecked && !noNumber;
   if (!els.packageMatchNoticeText) return;
   const parts = [];
+  const currency = packageCurrencyInfo(pkg).currency;
+  const money = (match) => formatMoney(Math.abs(numberOrNull(match.credit.amount) ?? 0), match.credit.currency ?? currency);
+  const heads = [];
+  if (held.length) {
+    heads.push(`${formatNumber(held.length)} ${held.length === 1 ? "transfer" : "transfers"} between the business's `
+      + `accounts held (${formatMoney(totals.own_account_transfer_held_total, currency)})`);
+  }
+  if (alreadyHeld.length) {
+    heads.push(`${formatNumber(alreadyHeld.length)} already-held `
+      + `${alreadyHeld.length === 1 ? "deposit also matches" : "deposits also match"} a transfer `
+      + `(${formatMoney(totals.own_account_transfer_already_held_total, currency)})`);
+  }
   if (matches.length) {
-    const currency = packageCurrencyInfo(pkg).currency;
-    const count = matches.length;
-    const pairs = matches.map((match) => `${match.credit.filename || "a statement"} ${match.credit.date || "undated"} `
-      + `deposit ${formatMoney(Math.abs(numberOrNull(match.credit.amount) ?? 0), match.credit.currency ?? currency)} `
-      + `returned ${match.debit.date || "undated"} (${match.debit.filename || "a statement"})`);
-    parts.push(`<strong>Matched across statements: ${escapeHtml(formatNumber(count))} bounced `
-      + `${count === 1 ? "deposit" : "deposits"} taken out of True `
-      + `(${escapeHtml(formatMoney(totals.returned_deposit_cross_statement_total, currency))}).</strong> `
-      + `${escapeHtml(pairs.join("; "))}. `
-      + `<button class="btn-quiet" type="button" data-revenue-filter="packageMatch:returned_deposit">Show them</button>`);
+    heads.push(`${formatNumber(matches.length)} bounced ${matches.length === 1 ? "deposit" : "deposits"} taken out of `
+      + `True (${formatMoney(totals.returned_deposit_cross_statement_total, currency)})`);
+  }
+  if (heads.length) {
+    // One button per kind; "Show them" where the notice lists one kind only (as R2-OW15 rendered it).
+    const both = transfers.length && matches.length;
+    const button = (kind, label) => `<button class="btn-quiet" type="button" data-revenue-filter="packageMatch:${kind}">`
+      + `${both ? label : "Show them"}</button>`;
+    parts.push(`<strong>Matched across statements: ${escapeHtml(heads.join(" · "))}.</strong>`);
+    if (transfers.length) {
+      const pairs = transfers.map((match) => `${match.credit.filename || "a statement"} ${match.credit.date || "undated"} `
+        + `deposit ${money(match)} matches the transfer out of ${match.debit.filename || "a statement"} on `
+        + `${match.debit.date || "an unknown date"}${match.moved === true ? "" : " (already held)"}`);
+      parts.push(`${escapeHtml(pairs.join("; "))}. ${button("own_account_transfer", "Show the transfers")}`);
+    }
+    if (matches.length) {
+      const pairs = matches.map((match) => `${match.credit.filename || "a statement"} ${match.credit.date || "undated"} `
+        + `deposit ${money(match)} returned ${match.debit.date || "undated"} (${match.debit.filename || "a statement"})`);
+      parts.push(`${escapeHtml(pairs.join("; "))}. ${button("returned_deposit", "Show the bounced deposits")}`);
+    }
+  }
+  if (noNumber) {
+    parts.push(`Transfers between accounts not checked for ${escapeHtml(formatNumber(noNumber))} `
+      + `${noNumber === 1 ? "statement" : "statements"}: no account number read.`);
   }
   if (unchecked) {
     parts.push(`Not matched across statements: ${escapeHtml(formatNumber(unchecked))} `

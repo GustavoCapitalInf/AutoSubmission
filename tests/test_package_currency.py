@@ -80,6 +80,9 @@ EXPECTED_REFUSED_TOTALS = {
     "returned_deposit_cross_statement_total",
     "unmatched_deposit_return_total",
     "processor_chargeback_total",
+    # Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16): the deposits pass 2 held and the held ones it annotated.
+    "own_account_transfer_held_total",
+    "own_account_transfer_already_held_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -150,11 +153,15 @@ CONDITIONAL_UNIT_FREE_TOTALS = {
     # found a row (or, for the last, a member it could not read).
     "returned_deposit_cross_statement_count", "unmatched_deposit_return_count", "processor_chargeback_count",
     "package_match_unchecked_count",
+    # Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16).
+    "own_account_transfer_held_count", "own_account_transfer_already_held_count",
 }
 #: R2-OW15: the refused totals a package publishes only where a package pass found a row; a refusal nulls each where it
 #: is published and never adds one.
 CONDITIONAL_REFUSED_TOTALS = {
     "returned_deposit_cross_statement_total", "unmatched_deposit_return_total", "processor_chargeback_total",
+    # R2-OW16 (the underwriter's Q4).
+    "own_account_transfer_held_total", "own_account_transfer_already_held_total",
 }
 
 
@@ -1009,11 +1016,35 @@ def test_a_refused_package_publishes_the_package_passes_counts_and_no_mixed_mone
     totals = package["totals"]
     assert totals["cross_currency_totals_refused"] is True
     assert (totals["returned_deposit_cross_statement_count"], totals["processor_chargeback_count"]) == (1, 1)
-    for key in CONDITIONAL_REFUSED_TOTALS - {"unmatched_deposit_return_total"}:
+    unpublished = {"unmatched_deposit_return_total", "own_account_transfer_held_total",
+                   "own_account_transfer_already_held_total"}  # R2-OW16: no transfer between two accounts here
+    for key in CONDITIONAL_REFUSED_TOTALS - unpublished:
         assert key in totals and totals[key] is None, key
-    assert "unmatched_deposit_return_total" not in totals
+    for key in unpublished:
+        assert key not in totals, key
     assert package["package_matches"][0]["credit"]["currency"] == package["package_matches"][0]["debit"]["currency"] == "CAD"
     assert [flag["source_currency"] for flag in package["debit_flags"]] == ["USD"]
+    assert _cross_document_numbers_not_counts(_package_rows(package)) == []
+
+
+def test_a_refused_package_publishes_the_own_account_transfers_counts_and_no_mixed_money():
+    """Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16): a CAD business's transfer between its two accounts (B's
+    DEPOSIT held, a second transfer's held deposit annotated) beside a USD account: the package refuses its currencies,
+    so the two counts stay and the two totals are None; each leg names its own statement's unit."""
+    from tests.test_package_matching import _account_a, _account_b, _job, _payload
+
+    a = _account_a(extra=[(4, "ONLINE TRANSFER TO CHK 2020", -640.33)], currency="CAD")
+    b = _account_b(extra=[(4, "TRANSFER CREDIT", 640.33)], currency="CAD")
+    usd = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 900.0)], month=3, opening=500.0,
+                   number="000000003030")
+    package = _package_analysis([_job("a", a), _job("b", b), _job("usd", usd)], settings={})
+    totals = package["totals"]
+    assert totals["cross_currency_totals_refused"] is True
+    assert (totals["own_account_transfer_held_count"], totals["own_account_transfer_already_held_count"]) == (1, 1)
+    for key in ("own_account_transfer_held_total", "own_account_transfer_already_held_total"):
+        assert key in totals and totals[key] is None, key
+    assert {(match["credit"]["currency"], match["debit"]["currency"]) for match in package["package_matches"]} == {
+        ("CAD", "CAD")}
     assert _cross_document_numbers_not_counts(_package_rows(package)) == []
 
 
@@ -1080,8 +1111,9 @@ def test_the_route_serves_the_undetermined_bucket_end_to_end():
     assert body["currency"]["currencies"] == ["USD"]
     # 40 since audit B11 (I07) added the per-month True, Verified and Non-revenue; 41 since the owner's ruling of
     # 2026-10-02 (the underwriter's Q5, R2-OW13) added the returned funder payments' total; 44 since the same day's
-    # ruling on the underwriter's Q6 (R2-OW15) added the package passes' three totals.
-    assert len(body["currency"]["refused_total_fields"]) == 44
+    # ruling on the underwriter's Q6 (R2-OW15) added the package passes' three totals; 46 since the ruling on the
+    # underwriter's Q4 (R2-OW16) added the own-account transfers' two.
+    assert len(body["currency"]["refused_total_fields"]) == 46
     assert body["totals"]["cross_currency_totals_refused"] is True
     assert body["totals"]["currency"] is None
     assert body["totals"]["total_credits"] is None

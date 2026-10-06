@@ -177,6 +177,7 @@ these rows by code (`non_revenue_by_reason`, below).
 | `transfer_account_designation` | `excluded_pending_review` | Transfer naming an account | a named transfer that prints an account designation (T13, §6.3 narrowing 8) |
 | `p2p_round_repeat` | `excluded_pending_review` | Repeated round sums from one sender | two or more whole $100 multiples from one person-to-person or transfer sender (Q4, T13) |
 | `premium_trust_account` | `excluded_pending_review` | Deposit into a premium trust account | the account's printed title reads PREMIUM TRUST (statement account title, account name or holder name): every verified or counted credit, pass 7's step after the $1 floor (owner 2026-10-02, Q10) |
+| `own_account_transfer_matched` | `excluded_pending_review` | Matches a transfer out of another account in this package | package-only: a counted deposit that prints no payer, matched to an exact-cents transfer out of another of the business's accounts 0 to 2 days earlier (`webapp/app.py` `_package_matches`, pass 2; owner 2026-10-02, Q4); never on a statement viewed alone |
 | `wire_named_sender` | `counted_flagged` | Wire from a named sender | a named sender's wire Q5 does not verify (Q5) |
 | `check_deposit` | `counted_flagged` | Check deposit | a mobile, remote, ATM or branch check deposit (Q3) |
 | `no_payer_printed` | `counted_flagged` | No payer printed | a cash, branch, teller, ATM or bare deposit (Q2) |

@@ -5488,6 +5488,36 @@ def processor_chargeback_debit(text: str) -> str | None:
     return None
 
 
+#: Owner ruling 2026-10-02 (the underwriter's Q4, "Let's go with option 2 and I'll review it anyways"; audit I30; true
+#: revenue spec §6.2's package passes, §8.2; R2-OW16): a cash device's word on a cash, branch, teller or ATM deposit
+#: (_CASH_BRANCH_ATM_FORM): an ATM or ABM, cash or coin, a smart safe or a currency-processing device, a night deposit
+#: or drop, a vault or a pre-encoded bag. A teller's, counter's or branch's deposit prints none of them.
+_CASH_DEVICE_WORD = re.compile(
+    r"(?<![A-Z])(?:ATM|ABM|CASH|COIN|SMART ?SAFE|CPS DEVICE|CURRENCY PROCESSING|NIGHT (?:DEP\w*|DROP)|VAULT"
+    r"|PRE ?ENCODED)(?![A-Z])"
+)
+#: R2-OW16: R2-OW14's arm R (a retail cash load, _RETAIL_CASH_LOAD) on its own: a retail network's cash load is cash.
+_RETAIL_CASH_LOAD_FORM = re.compile(_RETAIL_CASH_LOAD)
+
+
+def paper_or_cash_deposit(text: str) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q4, "Let's go with option 2 and I'll review it anyways": match a
+    deposit to an exact-cents transfer out of another of the business's accounts, never a round sum or P2P; audit I30;
+    R2-OW16): whether a credit is a paper or cash deposit, which is never the receiving leg of an electronic transfer
+    between two of the business's accounts. Read on the row before its receiver fields (`_before_receiver` of
+    `revenue_text`): a check deposit (§8.3's _CHECK_DEPOSIT_FORM), a cash, branch, teller or ATM deposit (§8.2's
+    _CASH_BRANCH_ATM_FORM) that prints a cash device's word (_CASH_DEVICE_WORD), or R2-OW14's retail cash load (arm R).
+    A teller's, counter's or branch's deposit that prints no such word stays eligible: a branch transfer between two
+    of the business's accounts can print that way on its receiving side. A package pass's reader only (webapp/app.py
+    `_package_matches`, pass 2): no classification, tier, figure or lender reading reads it."""
+    row = _before_receiver(revenue_text(text))
+    if _CHECK_DEPOSIT_FORM.search(row) is not None:
+        return True
+    if _CASH_BRANCH_ATM_FORM.search(row) is not None and _CASH_DEVICE_WORD.search(row) is not None:
+        return True
+    return _RETAIL_CASH_LOAD_FORM.search(row) is not None
+
+
 def _deposit_channel_credit(text: str) -> bool:
     """5.6 (audit B3: I03): a credit a returned item may undo: a check deposit (§8.3), a cash, branch, teller or ATM
     deposit (§8.2), a deposit capture glued to its word (_DEPOSIT_CAPTURE_WORD), or a bare deposit that names no payer

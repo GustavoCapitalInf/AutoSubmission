@@ -83,9 +83,11 @@ def test_the_dashboard_reason_table_names_a_lender_paid_for_services():
 
 def test_the_dashboard_reason_table_names_a_premium_trust_account_deposit():
     """Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the mirror carries premium_trust_account at the end of
-    the held group, directly before wire_named_sender, with its sentence."""
+    the held group, with its sentence; since the underwriter's Q4 (R2-OW16) own_account_transfer_matched follows it,
+    directly before wire_named_sender."""
     reasons = list(_js_reasons())
-    assert reasons[reasons.index("premium_trust_account") + 1] == "wire_named_sender"
+    assert reasons[reasons.index("premium_trust_account") + 1] == "own_account_transfer_matched"
+    assert reasons[reasons.index("own_account_transfer_matched") + 1] == "wire_named_sender"
     assert reasons[reasons.index("premium_trust_account") - 1] == "p2p_round_repeat"
     assert _js_reasons()["premium_trust_account"] == ("excluded_pending_review", "Deposit into a premium trust account")
     source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
@@ -1916,6 +1918,82 @@ console.log(JSON.stringify({{decided: read({json.dumps(decided)}), older: read({
     # Without a flag the True card and the evidence table read as before, and the notice stays hidden.
     assert "not deducted" not in result["plain"]["note"]
     assert result["plain"]["flags"] == [] and result["plain"]["notice"][0] is True
+
+
+@needs_node
+def test_a_transfer_between_the_business_s_accounts_reads_on_its_rows_and_the_notice():
+    """Owner ruling 2026-10-02 (the underwriter's Q4, R2-OW16): B's DEPOSIT pass 2 held names the transfer out of A and
+    how its release works, and still offers Confirm Revenue and Mark Non-Revenue; B's already-held TRANSFER CREDIT
+    names the transfer it also matches (no control moves); each transfer out names its deposit; the notice lists the
+    pairs with their dates and money, shows their rows, and names the statement it could not check (no account number
+    read); a deposit two days after its transfer says so."""
+    from tests.test_package_matching import _account_a, _account_b, _payload
+
+    a = _account_a(extra=[(4, "ONLINE TRANSFER TO CHK 2020", -640.33)])
+    b = _account_b(extra=[(4, "TRANSFER CREDIT", 640.33)])
+    c = _payload([(6, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:3", 700.0)], month=3, opening=300.0, number="XXXX")
+    package = _matching_package(("a", a), ("b", b), ("c", c))
+    later = _matching_package(("a", _account_a()), ("b", _account_b(day=5)))
+    result = run_dashboard(METRIC_ROWS + PACKAGE_MATCH_VIEW + f"""
+const read = (pkg) => {{ currentJobIds = pkg.documents.map((doc) => doc.id); renderPackageAnalysis(pkg);
+  return {{ledger: matchRows(els.transactionTable.innerHTML),
+    notice: [els.packageMatchNotice.hidden, stripHtml(els.packageMatchNoticeText.innerHTML)],
+    noticeFilter: (els.packageMatchNoticeText.innerHTML.match(/data-revenue-filter="([^"]+)"/) || [])[1],
+    matched: filtered('packageMatch:own_account_transfer')}}; }};
+console.log(JSON.stringify({{package: read({json.dumps(package)}), later: read({json.dumps(later)})}}));
+""")
+    ledger = result["package"]["ledger"]
+    [deposit] = [row for row in ledger if row["desc"] == "DEPOSIT"]
+    assert deposit["notes"] == ["Transfer out of Sample Bank ••1010 on 2031-03-03 (a.pdf), the same day. Confirm "
+                                "Revenue releases it into True and marks it Verified; Mark Non-Revenue keeps it out."]
+    assert deposit["confirm"] and deposit["reject"]
+    [held] = [row for row in ledger if row["desc"] == "TRANSFER CREDIT"]
+    assert held["notes"] == ["Also matches a transfer out of Sample Bank ••1010 on 2031-03-04 (a.pdf)."]
+    [sent] = [row for row in ledger if row["desc"] == "ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521"]
+    assert sent["notes"] == ["Matched to the 2031-03-03 deposit into ••2020 (held)."]
+    [also] = [row for row in ledger if row["desc"] == "ONLINE TRANSFER TO CHK 2020"]
+    assert also["notes"] == ["Matched to the 2031-03-04 deposit into ••2020 (already held)."]
+    assert not [row for row in ledger if row["notes"] and row["desc"] not in (
+        "DEPOSIT", "TRANSFER CREDIT", "ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521", "ONLINE TRANSFER TO CHK 2020")]
+    assert result["package"]["notice"] == [False, (
+        "Matched across statements: 1 transfer between the business's accounts held ($12,340.17) · 1 already-held "
+        "deposit also matches a transfer ($640.33). b.pdf 2031-03-03 deposit $12,340.17 matches the transfer out of "
+        "a.pdf on 2031-03-03; b.pdf 2031-03-04 deposit $640.33 matches the transfer out of a.pdf on 2031-03-04 "
+        "(already held). Show them Transfers between accounts not checked for 1 statement: no account number read.")]
+    assert result["package"]["noticeFilter"] == "packageMatch:own_account_transfer"
+    assert result["package"]["matched"]["count"] == "4 rows of transfers between the business's accounts"
+    assert sorted(result["package"]["matched"]["rows"]) == sorted([
+        "DEPOSIT", "TRANSFER CREDIT", "ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521", "ONLINE TRANSFER TO CHK 2020"])
+    [late] = [row for row in result["later"]["ledger"] if row["desc"] == "DEPOSIT"]
+    assert late["notes"][0].startswith("Transfer out of Sample Bank ••1010 on 2031-03-03 (a.pdf), 2 days earlier. ")
+
+
+@needs_node
+def test_the_notice_lists_both_kinds_of_match_with_a_button_each():
+    """R2-OW16: a package whose passes made both kinds of match heads the notice with both, in the order transfers
+    held, already held, bounced deposits, each list with its own button."""
+    from tests.test_package_matching import APRIL, _account_b, _owners_example, _payload
+
+    march, april = _owners_example()
+    b = _account_b(extra=[(8, "DEPOSIT", 456.78)])
+    sender = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 900.0),
+                       (7, "ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521", -456.78)], month=3, opening=1500.0,
+                      number="000000003030")
+    package = _matching_package(("mar", march), ("apr", april), ("b", b), ("s", sender))
+    assert APRIL[0][1] == "DEPOSITED ITEM RETURNED"
+    result = run_dashboard(METRIC_ROWS + PACKAGE_MATCH_VIEW + f"""
+currentJobIds = {json.dumps([doc["id"] for doc in package["documents"]])}; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{notice: stripHtml(els.packageMatchNoticeText.innerHTML),
+  filters: [...els.packageMatchNoticeText.innerHTML.matchAll(/data-revenue-filter="([^"]+)"[^>]*>([^<]*)</g)]
+    .map((m) => [m[1], m[2]])}}));
+""")
+    assert result["notice"].startswith(
+        "Matched across statements: 1 transfer between the business's accounts held ($456.78) · 1 bounced deposit "
+        "taken out of True ($100,000.00). b.pdf 2031-03-08 deposit $456.78 matches the transfer out of s.pdf on "
+        "2031-03-07. Show the transfers mar.pdf 2031-03-26 deposit $100,000.00 returned 2031-04-01 (apr.pdf). Show "
+        "the bounced deposits")
+    assert result["filters"] == [["packageMatch:own_account_transfer", "Show the transfers"],
+                                 ["packageMatch:returned_deposit", "Show the bounced deposits"]]
 
 
 @needs_node
