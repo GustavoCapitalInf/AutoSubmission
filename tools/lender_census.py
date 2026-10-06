@@ -155,7 +155,12 @@ def account_snapshot(account: dict) -> dict:
 
     statement = Statement.model_validate(account["statement"])
     records = classify_statement_transactions(statement)
-    metrics = compute_metrics(statement, classifications=records)
+    # Owner ruling 2026-10-02 (the underwriter's Q7; true revenue spec §14.3 G7; R2-OW14): True revenue is the analysis's
+    # default withholding basis, so the snapshot names the legacy basis explicitly and G7 compares eligible deposits and
+    # the withholding rate on one basis across trees (a checkout from before the switch reads the same basis).
+    metrics = compute_metrics(
+        statement, classifications=records, withholding_denominator_mode="legacy_eligible_deposits",
+    )
     return {
         "rows": len(records),
         "states": [record.classification for record in records],

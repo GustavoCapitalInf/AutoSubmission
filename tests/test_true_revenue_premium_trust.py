@@ -242,8 +242,11 @@ def test_t1_a_trust_account_holds_every_credit_a_rule_verified_or_counted(monkey
                       "contributes_to_lender_credit_exclusion"):
             assert getattr(new, field) == getattr(old, field), field
 
-    was = compute_metrics(statement, classifications=before)
-    now = compute_metrics(statement, classifications=after)
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default basis, so the legacy rate
+    # this test pins (it does not move) is read on the legacy basis, selected.
+    legacy = "legacy_eligible_deposits"
+    was = compute_metrics(statement, classifications=before, withholding_denominator_mode=legacy)
+    now = compute_metrics(statement, classifications=after, withholding_denominator_mode=legacy)
     assert (_money(was.true_revenue_total), _money(was.excluded_pending_review_total)) == (36377.21, 177000.50)
     assert (_money(now.true_revenue_total), _money(now.excluded_pending_review_total)) == (0.0, 213377.71)
     assert _money(now.verified_revenue_total) == 0.0
@@ -254,9 +257,11 @@ def test_t1_a_trust_account_holds_every_credit_a_rule_verified_or_counted(monkey
             1800.0, 25000.0, 1)
         assert round(metrics.withholding_rate, 2) == 0.81
     assert now.premium_trust_account is True and was.premium_trust_account is True
-    assert compute_metrics(statement) == now
-    # On the True basis the denominator is $0: the rate is unavailable (the withholding numerator does not move).
+    assert compute_metrics(statement, withholding_denominator_mode=legacy) == now
+    # On the True basis, the default (R2-OW14), the denominator is $0: the rate is unavailable (the withholding
+    # numerator does not move).
     true_basis = compute_metrics(statement, classifications=after, withholding_denominator_mode="true_revenue")
+    assert compute_metrics(statement) == true_basis
     assert true_basis.withholding_rate is None and true_basis.withholding_review_required is True
     assert _money(true_basis.lender_debits) == 1800.0
 

@@ -294,7 +294,9 @@ def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
     assert len(analysis["detection"]["unverified_deposit_evidence"]) == 1
 
 
-def test_withholding_denominator_is_legacy_by_default_and_configurable():
+def test_withholding_denominator_legacy_and_verified_modes_stay_selectable():
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default basis; the legacy and verified
+    # modes stay selectable, so the legacy reading passes its mode explicitly.
     statement = Statement(
         transactions=[
             _txn("2054-01-01", "Fabrikam customer ACH payment", 1000.0),
@@ -306,7 +308,11 @@ def test_withholding_denominator_is_legacy_by_default_and_configurable():
     )
     records = classify_statement_transactions(statement)
 
-    legacy = compute_metrics(statement, classifications=records)
+    legacy = compute_metrics(
+        statement,
+        classifications=records,
+        withholding_denominator_mode="legacy_eligible_deposits",
+    )
     assert legacy.confirmed_true_revenue_total == 1000.0
     assert legacy.legacy_eligible_deposits == 1300.0
     assert legacy.eligible_deposits == legacy.withholding_denominator == 1300.0
@@ -327,14 +333,21 @@ def test_withholding_denominator_is_legacy_by_default_and_configurable():
 
 
 def test_withholding_denominator_environment_configuration(monkeypatch):
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14 (U2): unset or invalid reads as the default, True revenue.
     monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
+    assert load_settings().withholding_denominator_mode == "true_revenue"
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "")
+    assert load_settings().withholding_denominator_mode == "true_revenue"
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "legacy_eligible_deposits")
     assert load_settings().withholding_denominator_mode == "legacy_eligible_deposits"
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "true_revenue")
+    assert load_settings().withholding_denominator_mode == "true_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "verified_revenue")
     assert load_settings().withholding_denominator_mode == "verified_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "confirmed_true_revenue")
     assert load_settings().withholding_denominator_mode == "verified_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "invalid")
-    assert load_settings().withholding_denominator_mode == "legacy_eligible_deposits"
+    assert load_settings().withholding_denominator_mode == "true_revenue"
 
 
 def _atb_november_report():
@@ -362,8 +375,11 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert metrics.non_revenue_count == 1
     assert metrics.maximum_revenue == 57810.74
     assert metrics.revenue_reconciles
-    assert metrics.eligible_deposits == metrics.withholding_denominator == 59310.74
-    assert metrics.withholding_denominator_mode == "legacy_eligible_deposits"
+    # Re-pinned by the owner's ruling of 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default
+    # withholding basis; the legacy figure this test pinned is unchanged on legacy_eligible_deposits.
+    assert metrics.legacy_eligible_deposits == 59310.74
+    assert metrics.eligible_deposits == metrics.withholding_denominator == metrics.true_revenue_total
+    assert metrics.withholding_denominator_mode == "true_revenue"
 
     true_rows = [
         transaction
@@ -435,8 +451,10 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert totals["non_revenue_count"] == 1
     assert totals["maximum_revenue"] == 57810.74
     assert totals["revenue_reconciles"]
-    assert totals["withholding_denominator"] == 59310.74
-    assert totals["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    # Re-pinned by the owner's ruling of 2026-10-02 (the underwriter's Q7), R2-OW14: the package divides by its
+    # members' True revenue, the default basis.
+    assert totals["withholding_denominator"] == totals["true_revenue_total"]
+    assert totals["withholding_denominator_mode"] == "true_revenue"
     assert len(package["verified_revenue_evidence"]) == 30
     assert len(package["unverified_deposit_evidence"]) == 7
     assert len(package["non_revenue_evidence"]) == 1

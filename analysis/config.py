@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
-from .revenue import normalize_withholding_denominator_mode
+from .revenue import DEFAULT_WITHHOLDING_DENOMINATOR_MODE, normalize_withholding_denominator_mode
 
 load_dotenv()
 
@@ -53,7 +53,8 @@ class Settings:
     # analysis settings-key material (`webapp/artifact_cache.py`), so removing
     # it would silently repartition every analysis cache.
     escalation_model: str
-    withholding_denominator_mode: str = "legacy_eligible_deposits"
+    # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): True revenue by default; legacy and verified selectable.
+    withholding_denominator_mode: str = DEFAULT_WITHHOLDING_DENOMINATOR_MODE
     # P22-IDENTITY (D6): see `RECONSTRUCTION_MODES`. Validated on construction
     # too, so a `Settings` built by hand cannot carry an out-of-vocabulary mode.
     reconstruction_mode: str = RECONSTRUCTION_MODE_DEFAULT
@@ -63,11 +64,10 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    # R2-OW14 (Q7): an unset, empty or invalid WITHHOLDING_DENOMINATOR_MODE reads as the default, True revenue.
     denominator_mode = normalize_withholding_denominator_mode(
-        os.environ.get(
-            "WITHHOLDING_DENOMINATOR_MODE",
-            "legacy_eligible_deposits",
-        )
+        os.environ.get("WITHHOLDING_DENOMINATOR_MODE"),
+        default=DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
     )
     return Settings(
         api_key=os.environ.get("GEMINI_API_KEY", ""),

@@ -153,9 +153,16 @@ REVENUE_REVIEW_HELD_FLOOR = 500
 WITHHOLDING_DENOMINATOR_MODES = (
     "legacy_eligible_deposits",
     "verified_revenue",
-    # 5.6 (T8): True revenue is selectable, never the default.
+    # 5.6 (T8): True revenue is selectable. Owner ruling 2026-10-02 (the underwriter's Q7, audit I34; R2-OW14): it is
+    # the default (DEFAULT_WITHHOLDING_DENOMINATOR_MODE).
     "true_revenue",
 )
+#: Owner ruling 2026-10-02 (the underwriter's Q7, audit I34; true revenue spec §11, T8; R2-OW14): "2 Make True revenue
+#: the default": the withholding basis a new analysis divides by when WITHHOLDING_DENOMINATOR_MODE is unset or invalid
+#: (config.Settings, load_settings, compute_metrics and the Metrics dataclass all read it). The legacy and verified bases
+#: stay selectable; a STORED payload whose metrics carry no mode still reads as legacy (normalize's own default), so an
+#: analysis made before the default moved keeps the basis it was made under.
+DEFAULT_WITHHOLDING_DENOMINATOR_MODE = "true_revenue"
 LEGACY_REVENUE_STATE_MAP = {
     "true_revenue": "verified_revenue",
     "potential_revenue": "unverified_deposit",
@@ -165,10 +172,14 @@ LEGACY_WITHHOLDING_DENOMINATOR_MODES = {
 }
 
 
-def normalize_withholding_denominator_mode(value: object) -> str:
-    mode = str(value or "legacy_eligible_deposits")
+def normalize_withholding_denominator_mode(value: object, default: str = "legacy_eligible_deposits") -> str:
+    """The withholding mode `value` names (an older name mapped to its current one), or `default` when it names none.
+    The default stays the legacy basis for a stored payload, whose missing mode means it was analysed before a mode was
+    recorded or before True revenue became the default (R2-OW14); the settings pass DEFAULT_WITHHOLDING_DENOMINATOR_MODE
+    for a new analysis."""
+    mode = str(value or default)
     mode = LEGACY_WITHHOLDING_DENOMINATOR_MODES.get(mode, mode)
-    return mode if mode in WITHHOLDING_DENOMINATOR_MODES else "legacy_eligible_deposits"
+    return mode if mode in WITHHOLDING_DENOMINATOR_MODES else default
 
 
 def revenue_contribution_flags(state: RevenueState | None, tier: str | None = None) -> dict[str, bool]:

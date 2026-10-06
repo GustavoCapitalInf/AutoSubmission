@@ -254,7 +254,10 @@ def _audit_report(*extra: Transaction) -> Report:
         ],
     )
     records = classify_statement_transactions(statement)
-    metrics = compute_metrics(statement, trust_stated_summary=True, classifications=records)
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default basis; the audit fixture's
+    # withholding figures are the legacy basis's (deposits less lender funding), so it selects that basis.
+    metrics = compute_metrics(statement, trust_stated_summary=True, classifications=records,
+                              withholding_denominator_mode="legacy_eligible_deposits")
     detection = detect(
         statement,
         classifications=records,
@@ -454,7 +457,9 @@ def test_lender_credit_refund_and_zero_denominator_do_not_enter_numerator():
         ]
     )
     records = classify_statement_transactions(statement)
-    metrics = compute_metrics(statement, classifications=records)
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default basis; this test reads the
+    # legacy basis (deposits less the lender's credits), so it selects it.
+    metrics = compute_metrics(statement, classifications=records, withholding_denominator_mode="legacy_eligible_deposits")
     assert metrics.lender_credits == 750.0
     assert metrics.lender_debit_count == 1
     assert metrics.lender_debits == metrics.withholding_numerator == 500.0
@@ -516,9 +521,13 @@ def test_td_cmca_fixture_counts_cmca_finance_as_a_lender():
     assert metrics["lender_debit_count"] == len(lender_rows) == 20
     assert metrics["lender_debits"] == metrics["withholding_numerator"] == 2235.0
     assert sum(abs(row["amount"]) for row in lender_rows) == 2235.0
-    assert metrics["eligible_deposits"] == metrics["withholding_denominator"] == 16898.73
-    assert metrics["withholding_rate"] == pytest.approx(2235.0 / 16898.73 * 100)
-    assert round(metrics["withholding_rate"], 2) == 13.23
+    # Re-pinned by the owner's ruling of 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default
+    # withholding basis; the legacy figure and rate this test pinned are unchanged on legacy_eligible_deposits.
+    assert metrics["legacy_eligible_deposits"] == 16898.73
+    assert round(2235.0 / metrics["legacy_eligible_deposits"] * 100, 2) == 13.23
+    assert metrics["withholding_denominator_mode"] == "true_revenue"
+    assert metrics["eligible_deposits"] == metrics["withholding_denominator"] == metrics["true_revenue_total"]
+    assert metrics["withholding_rate"] == pytest.approx(2235.0 / metrics["true_revenue_total"] * 100)
     assert metrics["potential_lenders_detected"] == 0
     assert metrics["potential_lender_debit_count"] == 0
     assert metrics["potential_lender_debit_total"] == 0.0
@@ -545,8 +554,9 @@ def test_td_cmca_fixture_counts_cmca_finance_as_a_lender():
     assert totals["lenders_detected"] == 1
     assert totals["lender_debit_count"] == 20
     assert totals["lender_debits"] == totals["withholding_numerator"] == 2235.0
-    assert totals["withholding_denominator"] == 16898.73
-    assert totals["package_withholding_rate"] == 13.23
+    # R2-OW14 (Q7): the package divides by its member's True revenue, the default basis.
+    assert totals["withholding_denominator"] == metrics["true_revenue_total"]
+    assert totals["package_withholding_rate"] == round(2235.0 / metrics["true_revenue_total"] * 100, 2)
     assert totals["potential_lender_debit_count"] == 0
     assert totals["potential_lender_debit_total"] == 0.0
     assert not totals["potential_withholding_review_required"]

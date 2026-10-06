@@ -199,6 +199,19 @@ const REVENUE_METRIC_COPY = Object.freeze({
 // Audit B11 (I34, copy only; the basis is the owner's): the legacy withholding denominator is gross deposits less
 // lender funding, never True revenue.
 const LEGACY_ELIGIBLE_DEPOSITS_NOTE = "Gross deposits less lender funding (not True revenue)";
+// Owner ruling 2026-10-02 (the underwriter's Q7, audit I34; true revenue spec §10.1, §10.5, §11; R2-OW14): True revenue
+// is the default withholding basis; the legacy and verified bases stay selectable. Each basis's label and definition,
+// for a payload that carries its mode but not its words.
+const WITHHOLDING_BASIS_LABELS = Object.freeze({
+  legacy_eligible_deposits: "Legacy eligible deposits",
+  verified_revenue: "Verified revenue",
+  true_revenue: "True revenue",
+});
+const WITHHOLDING_BASIS_DEFINITIONS = Object.freeze({
+  verified_revenue: "verified classified revenue",
+  true_revenue: "verified plus counted credits",
+});
+const DEFAULT_WITHHOLDING_BASIS_NOTE = "True revenue by default: verified plus counted credits";
 
 // 5.6 (true revenue spec §5.3, §10.6): the reason codes of the two middle tiers, code -> [tier, label, sentence], and
 // (the owner's rulings of 2026-10-02) the non_revenue codes: the Zelle policy's and Q12's display reason (R2-OW03), and
@@ -476,7 +489,7 @@ const emptyMetricSections = [
     sub: "Posted debit transactions",
     items: [
       ["Total Debits", "N/A", "All posted debit transactions", "DB", "neutral"],
-      ["Confirmed Withholding", "N/A", "Confirmed lender debits as a share of eligible deposits", "%", "neutral"],
+      ["Confirmed Withholding", "N/A", "Confirmed lender debits as a share of the withholding basis (True revenue by default)", "%", "neutral"],
       ["ACH Debits", "N/A", "Posted ACH debit transactions", "ACH", "neutral"],
       ["POS Transactions", "N/A", "Card purchase transactions", "POS", "neutral"],
       ["ATM Withdrawals", "N/A", "Posted ATM withdrawals", "ATM", "neutral"],
@@ -505,8 +518,8 @@ const emptyMetricSections = [
       ["Confirmed Lender Debits", "N/A", "Total paid to confirmed lenders", "$", "neutral"],
       ["Potential Lender Debit Count", "N/A", "Transactions linked to possible lenders", "DB", "neutral"],
       ["Potential Lender Debits", "N/A", "Excluded until lender status is confirmed", "$", "neutral"],
-      ["Eligible Deposits", "N/A", LEGACY_ELIGIBLE_DEPOSITS_NOTE, "DEP", "neutral"],
-      ["Potential Withholding Exposure", "N/A", "Possible lender debits as a share of eligible deposits", "%", "neutral"],
+      ["Withholding Basis", "N/A", DEFAULT_WITHHOLDING_BASIS_NOTE, "DEP", "neutral"],
+      ["Potential Withholding Exposure", "N/A", "Possible lender debits as a share of the withholding basis (True revenue by default)", "%", "neutral"],
       ["Insurance Debits", "N/A", "Insurance debit transactions", "INS", "neutral"],
       ["Insurance Total", "N/A", "Excluded from lender payment totals", "$", "neutral"],
     ],
@@ -683,11 +696,22 @@ function formatPercent(value) {
   return `${Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2)}%`;
 }
 
+// The basis the withholding rates divide by, as the payload names it (R2-OW14): its own label, else its mode's (a payload
+// with no mode was analysed on the legacy basis), else a package's mixed configuration's.
+function withholdingBasisLabel(metrics = {}) {
+  if (metrics.withholding_denominator_label) return metrics.withholding_denominator_label;
+  const mode = metrics.withholding_denominator_mode || "legacy_eligible_deposits";
+  return WITHHOLDING_BASIS_LABELS[mode] || "Withholding basis";
+}
+
 function withholdingAuditNote(metrics = {}, currency = "USD") {
-  if (metrics.withholding_review_required) return "Eligible deposits are unavailable; analyst review is required";
+  // Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the note names the basis, True revenue by default.
+  if (metrics.withholding_review_required) {
+    return `The withholding basis (${withholdingBasisLabel(metrics).toLowerCase()}) is unavailable; analyst review is required`;
+  }
   const numerator = formatMoney(metrics.withholding_numerator ?? metrics.lender_debits, currency);
   const denominator = formatMoney(metrics.withholding_denominator ?? metrics.eligible_deposits, currency);
-  const label = metrics.withholding_denominator_label || "Eligible deposits";
+  const label = withholdingBasisLabel(metrics);
   // Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the numerator keeps the funder payments returned unpaid.
   const returned = returnedFunderPaymentTotal(metrics);
   const included = returned === null ? "" : ` (incl. ${formatMoney(returned, currency)} returned unpaid)`;
@@ -727,13 +751,20 @@ function returnedFunderPaymentWarning(item, currency = "USD") {
     + "withholding rate.";
 }
 
-// The Eligible Deposits card's note: the basis the withholding rates divide by. Audit B11 (I34): the default, legacy
-// basis is named for what it is, gross deposits less lender funding and never True revenue; a selected Verified or True
-// basis keeps the analysis's own definition.
+// The Withholding Basis card's note: the basis the withholding rates divide by. Audit B11 (I34): the legacy basis is
+// named for what it is, gross deposits less lender funding and never True revenue (a payload with no mode was analysed
+// on it). Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): True revenue is the default; a revenue basis reads
+// '<label>: <definition>' ('True revenue: verified plus counted credits'), the definition's own leading label dropped.
 function activeDenominatorNote(metrics = {}) {
   const mode = metrics.withholding_denominator_mode;
   if (!mode || mode === "legacy_eligible_deposits") return LEGACY_ELIGIBLE_DEPOSITS_NOTE;
-  return metrics.eligible_deposit_definition || "Deposits used to calculate withholding rates";
+  const label = withholdingBasisLabel(metrics);
+  let definition = metrics.eligible_deposit_definition || WITHHOLDING_BASIS_DEFINITIONS[mode]
+    || "deposits used to calculate withholding rates";
+  if (definition.toLowerCase().startsWith(`${label.toLowerCase()}:`)) {
+    definition = definition.slice(label.length + 1).trim();
+  }
+  return `${label}: ${definition}`;
 }
 
 function potentialLenderDebitTotal(metrics = {}) {
@@ -751,10 +782,12 @@ function potentialWithholdingAuditNote(metrics = {}, currency = "USD") {
   const denominator = metrics.potential_withholding_denominator ?? metrics.eligible_deposits;
   if (numberOrNull(total) === null) return "Potential lender debits are unavailable; analyst review is required";
   const reviewSuffix = hasMaterialPotentialLenderDebits(metrics) ? "; analyst review is required" : "";
+  // R2-OW14 (Q7): the note names the basis, True revenue by default.
+  const label = withholdingBasisLabel(metrics).toLowerCase();
   if ((numberOrNull(denominator) ?? 0) <= 0) {
-    return `${formatMoney(total, currency)} potential lender debits; eligible deposits are unavailable${reviewSuffix}`;
+    return `${formatMoney(total, currency)} potential lender debits; the withholding basis (${label}) is unavailable${reviewSuffix}`;
   }
-  return `${formatMoney(total, currency)} potential lender debits divided by ${formatMoney(denominator, currency)} eligible deposits${reviewSuffix}`;
+  return `${formatMoney(total, currency)} potential lender debits divided by ${formatMoney(denominator, currency)} ${label}${reviewSuffix}`;
 }
 
 function formatBytes(value) {
@@ -2232,7 +2265,7 @@ function lenderRowHtml(funder, currency = "USD") {
   const potentialWithholding = isPotential && (denominatorNumber ?? 0) > 0
     ? `
       <strong>${escapeHtml(formatPercent(exposure))}</strong>
-      <div class="table-cell-detail">${escapeHtml(formatMoney(denominator, currency))} eligible deposits</div>
+      <div class="table-cell-detail">${escapeHtml(formatMoney(denominator, currency))} withholding basis</div>
     `
     : isPotential ? "N/A" : "--";
   // A package's lender rows say how many of its statements the lender appears in.
@@ -3354,7 +3387,7 @@ function renderAccount(report) {
     ["Parser used", report.model_used || "N/A"],
     ["Document integrity", integrityLabel(integrity)],
     ["Revenue reconciliation", revenueBalanced ? "Balanced" : "Review required"],
-    ["Eligible deposits basis", metrics.withholding_denominator_label || "Eligible deposits"],
+    ["Withholding basis", withholdingBasisLabel(metrics)],
     ["Validation", validation],
     ["Text blocks detected", formatNumber(transactions.length || metrics.effective_num_deposits || "--")],
     ["File size", formatBytes(currentFile && currentFile.size)],
@@ -3410,7 +3443,7 @@ function renderAccount(report) {
         ["Confirmed Lender Debits", formatMoney(metrics.lender_debits, currency), paidLendersNote(metrics, currency), "$", "neutral"],
         ["Potential Lender Debit Count", formatNumber(metrics.potential_lender_debit_count), "Transactions linked to possible lenders", "DB", countTone(metrics.potential_lender_debit_count)],
         ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(metrics), currency), "Excluded until lender status is confirmed", "$", countTone(metrics.potential_lender_debit_count)],
-        ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
+        ["Withholding Basis", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
         ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
         ["Insurance Debits", formatNumber(metrics.insurance_count), "Insurance debit transactions", "INS", "neutral"],
         ["Insurance Total", formatMoney(metrics.insurance_total, currency), "Excluded from lender payment totals", "$", "neutral"],
@@ -4155,7 +4188,7 @@ function renderPackageAnalysis(pkg) {
     ["Confirmed withholding", formatPercent(totals.package_withholding_rate)],
     ["Potential exposure", formatPercent(totals.potential_withholding_exposure)],
     ["Revenue reconciliation", revenueBalanced ? "Balanced" : "Review required"],
-    ["Eligible deposits basis", totals.withholding_denominator_label || "Eligible deposits"],
+    ["Withholding basis", withholdingBasisLabel(totals)],
   ]);
 
   renderMetricSections([
@@ -4209,7 +4242,7 @@ function renderPackageAnalysis(pkg) {
         ["Confirmed Lender Debits", formatMoney(totals.lender_debits, currency), moneyNote(paidLendersNote(totals, currency)), "$", "neutral"],
         ["Potential Lender Debit Count", formatNumber(totals.potential_lender_debit_count), "Transactions linked to possible lenders", "DB", countTone(totals.potential_lender_debit_count)],
         ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals), currency), moneyNote("Excluded until lender status is confirmed"), "$", countTone(totals.potential_lender_debit_count)],
-        ["Eligible Deposits", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits, currency), moneyNote(activeDenominatorNote(totals)), "DEP", "neutral"],
+        ["Withholding Basis", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits, currency), moneyNote(activeDenominatorNote(totals)), "DEP", "neutral"],
         ["Potential Withholding Exposure", formatPercent(totals.potential_withholding_exposure), moneyNote(potentialWithholdingAuditNote(totals, currency)), "%", hasMaterialPotentialLenderDebits(totals) ? "amber" : "neutral"],
         ["Insurance Debits", formatNumber(totals.insurance_count), "Insurance debit transactions", "INS", "neutral"],
         ["Insurance Total", formatMoney(totals.insurance_total, currency), moneyNote("Excluded from lender payment totals"), "$", "neutral"],
@@ -4668,7 +4701,7 @@ function renderStatementModal(jobId, report, markdown) {
     ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],
     ["Confirmed Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, paidLendersNote(metrics, currency, "Transaction count and total paid to confirmed lenders"), "DB", "neutral"],
     ["Potential Lender Debits", `${formatNumber(metrics.potential_lender_debit_count)} / ${formatMoney(potentialLenderDebitTotal(metrics), currency)}`, "Transaction count and total linked to possible lenders", "?", countTone(metrics.potential_lender_debit_count)],
-    ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
+    ["Withholding Basis", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
     ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
     ["Insurance", `${formatNumber(metrics.insurance_count)} / ${formatMoney(metrics.insurance_total, currency)}`, "Transaction count and total excluded from lender payments", "INS", "neutral"],
     ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],

@@ -27,6 +27,7 @@ from .transaction_classifier import (
     flagged_payee,
 )
 from .revenue import (
+    DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
     STATE_OF_TIER,
     WITHHOLDING_DENOMINATOR_MODES,
     _TIER_DISAGREES,
@@ -187,12 +188,12 @@ class Metrics:
     potential_withholding_review_required: bool = False
     eligible_deposits: float = 0.0
     legacy_eligible_deposits: float = 0.0
-    withholding_denominator_mode: str = "legacy_eligible_deposits"
-    withholding_denominator_label: str = "Legacy eligible deposits"
+    # Owner ruling 2026-10-02 (the underwriter's Q7, audit I34; R2-OW14): True revenue is the default basis; the label
+    # and the definition are the default's (compute_metrics sets all three for the mode it reads).
+    withholding_denominator_mode: str = DEFAULT_WITHHOLDING_DENOMINATOR_MODE
+    withholding_denominator_label: str = "True revenue"
     withholding_denominator_options: tuple[str, ...] = WITHHOLDING_DENOMINATOR_MODES
-    eligible_deposit_definition: str = (
-        "effective total deposits minus recognized lender funding credits"
-    )
+    eligible_deposit_definition: str = "true revenue: verified plus counted credits"
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
     # R2-OW13: the returned funder payments' debit rows (lender_evidence stays the paid rows).
     returned_funder_payment_evidence: list[TransactionClassification] = field(default_factory=list)
@@ -359,10 +360,10 @@ def compute_metrics(
     trust_running_balances: bool = True,
     source_markdown: str | None = None,
     classifications: list[TransactionClassification] | None = None,
-    withholding_denominator_mode: str = "legacy_eligible_deposits",
+    withholding_denominator_mode: str = DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
 ) -> Metrics:
     withholding_denominator_mode = normalize_withholding_denominator_mode(
-        withholding_denominator_mode
+        withholding_denominator_mode, default=DEFAULT_WITHHOLDING_DENOMINATOR_MODE
     )
     if withholding_denominator_mode not in WITHHOLDING_DENOMINATOR_MODES:
         raise ValueError(
@@ -712,6 +713,7 @@ def compute_metrics(
         m.withholding_denominator_label = "True revenue"
     else:
         m.eligible_deposits = m.legacy_eligible_deposits
+        m.eligible_deposit_definition = "effective total deposits minus recognized lender funding credits"
         m.withholding_denominator_label = "Legacy eligible deposits"
     # R2-OW13 (the underwriter's Q5): every row the rate reads, the paid lender debits and the returned funder payments
     # (equal to lender_debits + returned_funder_payment_total to the cent).
@@ -728,9 +730,13 @@ def compute_metrics(
     m.potential_withholding_numerator = m.potential_lender_debit_total
     m.potential_withholding_denominator = m.eligible_deposits
     m.potential_withholding_review_required = m.potential_lender_debit_count > 0
+    # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the notes name the basis the rate divides by, True revenue
+    # by default.
     if m.withholding_denominator <= 0:
         m.withholding_review_required = True
-        m.notes.append("withholding rate is unavailable because eligible deposits are zero or missing")
+        m.notes.append(
+            f"withholding rate is unavailable because {m.withholding_denominator_label} is zero or missing"
+        )
     else:
         m.withholding_rate = (
             abs(m.withholding_numerator) / m.withholding_denominator
@@ -738,7 +744,8 @@ def compute_metrics(
     if m.potential_withholding_denominator <= 0:
         if m.potential_lender_debit_count:
             m.notes.append(
-                "potential withholding exposure is unavailable because eligible deposits are zero or missing"
+                "potential withholding exposure is unavailable because "
+                f"{m.withholding_denominator_label} is zero or missing"
             )
     else:
         m.potential_withholding_exposure = (

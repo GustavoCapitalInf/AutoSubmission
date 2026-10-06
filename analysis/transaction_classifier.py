@@ -1439,8 +1439,23 @@ _CHECK_DEPOSIT_FORM = re.compile(
     r"|(?<![A-Z])DEPOSITED (?:CHECK|ITEM)\b|(?<![A-Z])RDC\b|(?<![A-Z])SCAN(?:NED)? DEPOSIT\b|(?<![A-Z])LOCKBOX\b"
     r"|(?<![A-Z])LBX DEP\b"
 )
+#: §8.2 (owner ruling 2026-10-02, the underwriter's Q7: "make cash injections like ATM count as true revenue"; audit
+#: round 2, R2-OW14), arm R: a retail cash load, printed '<ST> <town> <street> US<RETAILER> W<n>' at the row's end
+#: (Bluevine's deposits at a retail cash network; inferred from the shape, no statement opened; the statements that carry
+#: it print the bank's CASH DEPOSIT FEE debits beside the loads).
+_RETAIL_CASH_LOAD = (
+    r"(?<![A-Z])US ?(?:WALGREENS|CVS|7 ?ELEVEN|WAL ?MART|DOLLAR GENERAL|RITE ?AID|FAMILY DOLLAR|CIRCLE K) W ?\d+$"
+)
+#: §8.2 (R2-OW14, Q7), arm S: a branch deposit printed 'DEPOSIT <place, one to four words> <5-digit transit> <3-digit
+#: sequence>' as the whole row (Scotiabank's), with no legal form on the row (a named depositor keeps its reading).
+_BRANCH_DEPOSIT_TRANSIT = (
+    r"^(?:\d{1,2} \d{1,2} )?DEPOSIT (?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP"
+    r"|PLLC|ULC|PLC)\b)(?:[A-Z]+ ){1,4}\d{5} \d{3}$"
+)
 #: §8.2: cash, branch and teller, and ATM deposits (Q2: counted, never verified), read only on a row that prints no
-#: electronic-payment form and no person-to-person rail.
+#: electronic-payment form and no person-to-person rail. R2-OW14 (Q7): and the retail cash load (arm R) and the branch
+#: deposit printed with its transit (arm S), the two cash shapes the corpus check found the reader missed; each is its
+#: own last alternative.
 _CASH_BRANCH_ATM_FORM = re.compile(
     r"(?<![A-Z])CASH DEP(?:OSIT)?\b|(?<![A-Z])ATM CASH\b|(?<![A-Z])CPS DEVICE\b|(?<![A-Z])CURRENCY PROCESSING\b"
     r"|(?<![A-Z])SMART ?SAFE\b|(?<![A-Z])COIN\b|(?<![A-Z])CASH IN\b"
@@ -1453,6 +1468,7 @@ _CASH_BRANCH_ATM_FORM = re.compile(
     r"|(?<![A-Z])DEPOSIT IBB\b|(?<![A-Z])VAULT DEP\w*|(?<![A-Z])STORE DEPOSIT\b"
     r"|(?<![A-Z])DEPOSIT MADE IN\b"
     r"|(?<![A-Z])ATM\b.*(?<![A-Z])DEP(?:OSIT)?\b|(?<![A-Z])DEP(?:OSIT)?\b.*(?<![A-Z])ATM\b|(?<![A-Z])ABM\b"
+    "|" + _RETAIL_CASH_LOAD + "|" + _BRANCH_DEPOSIT_TRANSIT
 )
 #: §8.2: transfer wording. 5.6 (audit B2: I21): and its other spellings TRF, TRSFR, TRANSF and XFR ('TRF CT INTERNET',
 #: 'INTERNET PHONE TRSFR', 'TRANSF FONDS CT', 'INTERNET XFR FRM CHECKG'), and TRANSFER glued to a reference's digits

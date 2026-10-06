@@ -636,8 +636,8 @@ console.log(JSON.stringify({{...hero(), rows: metricRows(els.metricsGrid.innerHT
 @needs_node
 def test_the_copy_names_every_counted_kind_and_the_withholding_basis():
     """I53, I34: the Counted note names every kind of counted credit and says the missing proof is of the sale; the
-    Verified note claims confirmed platform payouts only; the withholding placeholders name eligible deposits, gross
-    deposits less lender funding."""
+    Verified note claims confirmed platform payouts only; the legacy basis is named gross deposits less lender funding
+    and (R2-OW14, Q7) the withholding placeholders name the withholding basis, True revenue by default."""
     result = run_dashboard(METRIC_ROWS + """
 setInitialState();
 console.log(JSON.stringify({copy: REVENUE_METRIC_COPY, rows: metricRows(els.metricsGrid.innerHTML),
@@ -655,13 +655,89 @@ console.log(JSON.stringify({copy: REVENUE_METRIC_COPY, rows: metricRows(els.metr
                                        "institutional payers, invoices, and deposits you confirmed")
     assert result["payout"][1] == "BNPL or marketplace settlement (payer also lends)"
     assert result["legacy"] == "Gross deposits less lender funding (not True revenue)"
-    assert result["verified"] == "verified classified revenue"
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: the placeholders name the withholding basis, True revenue
+    # by default, and the verified basis's note names its label before its definition.
+    assert result["verified"] == "Verified revenue: verified classified revenue"
     figures = {row["label"]: row["note"] for row in result["rows"]}
-    assert figures.get("Confirmed Withholding", "Confirmed lender debits as a share of eligible deposits") == (
-        "Confirmed lender debits as a share of eligible deposits")
+    assert figures.get("Confirmed Withholding", "Confirmed lender debits as a share of the withholding basis (True "
+                       "revenue by default)") == (
+        "Confirmed lender debits as a share of the withholding basis (True revenue by default)")
     source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
-    assert '"Confirmed lender debits as a share of eligible deposits"' in source
+    assert '"Confirmed lender debits as a share of the withholding basis (True revenue by default)"' in source
+    assert '"Possible lender debits as a share of the withholding basis (True revenue by default)"' in source
     assert "Confirmed lender debits as a share of revenue" not in source
+    assert "as a share of eligible deposits" not in source
+
+
+#: The Withholding Basis card and the two rate notes beside it, read off the statement view, the package and the modal.
+BASIS_ROWS = r"""
+const card = (html, label) => {
+  const m = html.match(new RegExp('<div class="metric-label">' + label + '<\\/div>[\\s\\S]*?<div class="metric-value">([^<]*)<\\/div>\\s*<div class="metric-sub">([^<]*)<\\/div>'));
+  return m ? {value: m[1], note: m[2]} : null;
+};
+const basis = (rows) => Object.fromEntries(rows.filter((row) => ["Withholding Basis", "Eligible Deposits",
+  "Confirmed Withholding", "Potential Withholding Exposure"].includes(row.label)).map((row) => [row.label,
+  {value: row.value, note: row.note}]));
+"""
+
+
+@needs_node
+def test_the_withholding_basis_card_names_true_revenue_by_default_and_the_legacy_basis_when_selected(
+        tmp_path, monkeypatch):
+    """Owner ruling 2026-10-02 (the underwriter's Q7, audit I34), R2-OW14: the 'Eligible Deposits' card is the
+    'Withholding Basis' card on the statement, the package and the modal, its value unchanged and its note the basis's
+    label and definition; the legacy basis keeps its own note; the rate notes divide by the basis's label."""
+    monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
+    default = _served(_payload())
+    assert default["metrics"]["withholding_denominator_mode"] == "true_revenue"
+    package = _package({"mar": _payload()}, tmp_path, monkeypatch)
+    result = run_dashboard(METRIC_ROWS + BASIS_ROWS + _open("s", default) + f"""
+const statement = basis(metricRows(els.metricsGrid.innerHTML));
+openStatementModal('s'); await settle();
+const modal = card(els.statementModalMetrics.innerHTML, 'Withholding Basis');
+const modalOld = card(els.statementModalMetrics.innerHTML, 'Eligible Deposits');
+currentJobIds = ['mar']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{statement, modal, modalOld, package: basis(metricRows(els.metricsGrid.innerHTML)),
+  missing: activeDenominatorNote({{eligible_deposit_definition: 'true revenue: verified plus counted credits'}})}}));
+""")
+    statement = result["statement"]
+    assert "Eligible Deposits" not in statement and result["modalOld"] is None
+    assert statement["Withholding Basis"] == {"value": "$1,000.00", "note": "True revenue: verified plus counted credits"}
+    assert result["modal"] == statement["Withholding Basis"]
+    assert statement["Confirmed Withholding"]["note"] == "$0.00 confirmed lender debits divided by $1,000.00 true revenue"
+    assert statement["Potential Withholding Exposure"]["note"] == (
+        "$0.00 potential lender debits divided by $1,000.00 true revenue")
+    assert result["package"]["Withholding Basis"] == {"value": "$1,000.00",
+                                                     "note": "True revenue: verified plus counted credits"}
+    assert "Eligible Deposits" not in result["package"]
+    # U3: a stored payload with no mode keeps the legacy basis's note.
+    assert result["missing"] == "Gross deposits less lender funding (not True revenue)"
+
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "legacy_eligible_deposits")
+    legacy = _served(_payload())
+    assert legacy["metrics"]["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    rows = run_dashboard(METRIC_ROWS + BASIS_ROWS + _open("l", legacy) + """
+console.log(JSON.stringify(basis(metricRows(els.metricsGrid.innerHTML))));
+""")
+    assert rows["Withholding Basis"] == {"value": "$2,000.00",
+                                         "note": "Gross deposits less lender funding (not True revenue)"}
+    assert rows["Confirmed Withholding"]["note"] == (
+        "$0.00 confirmed lender debits divided by $2,000.00 legacy eligible deposits")
+
+
+@needs_node
+def test_a_basis_of_zero_names_the_basis_it_misses():
+    """R2-OW14 (Q7, U5): with True revenue $0.00 the rate notes name the basis that is missing."""
+    result = run_dashboard("""
+const metrics = {withholding_review_required: true, withholding_denominator_mode: 'true_revenue',
+  withholding_denominator_label: 'True revenue', withholding_numerator: 850, withholding_denominator: 0,
+  potential_lender_debit_total: 120, potential_withholding_denominator: 0};
+console.log(JSON.stringify({audit: withholdingAuditNote(metrics, 'USD'),
+  potential: potentialWithholdingAuditNote(metrics, 'USD')}));
+""")
+    assert result["audit"] == "The withholding basis (true revenue) is unavailable; analyst review is required"
+    assert result["potential"] == ("$120.00 potential lender debits; the withholding basis (true revenue) is "
+                                   "unavailable; analyst review is required")
 
 
 @needs_node
@@ -1683,8 +1759,9 @@ console.log(JSON.stringify({lenders: lenderRows(els.lenderTable.innerHTML), ledg
     assert kapitus["cells"][:4] == ["KAPITUS", "Confirmed lender", "2", "$1,700.00 1 returned payment, $850.00, not in paid"]
     assert kapitus["cells"][5] == "LEN Confirmed ↩ Returned"
     assert result["count"] == "1 confirmed, 0 potential"
-    assert result["audit"] == ("$2,550.00 confirmed lender debits (incl. $850.00 returned unpaid) divided by $20,850.00 "
-                               "legacy eligible deposits")
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default basis.
+    assert result["audit"] == ("$2,550.00 confirmed lender debits (incl. $850.00 returned unpaid) divided by $20,000.00 "
+                               "true revenue")
     assert result["paid"] == "Total paid to confirmed lenders; $850.00 returned unpaid not included"
     assert "$1,700.00 confirmed lender debits paid (1 returned funder payment, $850.00), and" in result["summary"]
     rows = {row["desc"] + str(index): row for index, row in enumerate(result["ledger"])}

@@ -111,9 +111,10 @@ def _render(report: Report) -> str:
         f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
         f"${m.returned_funder_payment_total:,.2f} (kept in withholding)"
     )
+    # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the working lines name the basis, True revenue by default.
     L.append(
         f"  Withholding working   : ${m.withholding_numerator:,.2f} / "
-        f"${m.withholding_denominator:,.2f} eligible deposits"
+        f"${m.withholding_denominator:,.2f} {m.withholding_denominator_label}"
     )
     potential_exposure = (
         f"{m.potential_withholding_exposure:.2f}%"
@@ -128,7 +129,7 @@ def _render(report: Report) -> str:
     )
     L.append(
         f"  Potential working     : ${m.potential_withholding_numerator:,.2f} / "
-        f"${m.potential_withholding_denominator:,.2f} eligible deposits"
+        f"${m.potential_withholding_denominator:,.2f} {m.withholding_denominator_label}"
     )
     L.append(f"  Insurance debits      : {m.insurance_count} row(s), ${m.insurance_total:,.2f}")
     L.append(

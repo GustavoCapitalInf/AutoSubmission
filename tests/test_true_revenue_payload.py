@@ -365,13 +365,93 @@ def test_a_payload_tiered_only_in_part_is_refused():
         rebuild_serialized_revenue_views(mixed)
 
 
-def test_true_revenue_is_a_selectable_withholding_denominator_never_the_default():
+def test_true_revenue_is_the_default_withholding_denominator_and_legacy_stays_selectable():
+    """Owner ruling 2026-10-02 (the underwriter's Q7, audit I34), R2-OW14: True revenue is the default withholding
+    basis (U1); the legacy and verified bases stay selectable, and the legacy figure is published on every statement."""
     statement = _statement()
     records = classify_statement_transactions(statement)
-    legacy = compute_metrics(statement, classifications=records)
-    assert legacy.withholding_denominator_mode == "legacy_eligible_deposits"
-    true = compute_metrics(statement, classifications=records, withholding_denominator_mode="true_revenue")
-    assert (true.eligible_deposits, true.withholding_denominator_label) == (1000.0, "True revenue")
+    default = compute_metrics(statement, classifications=records)
+    assert (default.withholding_denominator_mode, default.withholding_denominator_label) == (
+        "true_revenue", "True revenue")
+    assert default.eligible_deposits == default.withholding_denominator == default.true_revenue_total == 1000.0
+    assert default.eligible_deposit_definition == "true revenue: verified plus counted credits"
+    assert default.legacy_eligible_deposits == 2000.0
+    legacy = compute_metrics(statement, classifications=records, withholding_denominator_mode="legacy_eligible_deposits")
+    assert (legacy.eligible_deposits, legacy.withholding_denominator_label) == (2000.0, "Legacy eligible deposits")
+    assert legacy.eligible_deposit_definition == "effective total deposits minus recognized lender funding credits"
+    verified = compute_metrics(statement, classifications=records, withholding_denominator_mode="verified_revenue")
+    assert (verified.eligible_deposits, verified.withholding_denominator_label) == (700.0, "Verified revenue")
+
+
+def test_the_default_withholding_mode_is_one_constant():
+    """R2-OW14 (Q7): the settings, compute_metrics' keyword and the Metrics dataclass all take the one constant."""
+    import inspect
+
+    from analysis.config import Settings
+    from analysis.metrics import Metrics
+    from analysis.revenue import DEFAULT_WITHHOLDING_DENOMINATOR_MODE
+
+    assert DEFAULT_WITHHOLDING_DENOMINATOR_MODE == "true_revenue"
+    assert Metrics().withholding_denominator_mode == DEFAULT_WITHHOLDING_DENOMINATOR_MODE
+    assert Metrics().withholding_denominator_label == "True revenue"
+    assert inspect.signature(compute_metrics).parameters["withholding_denominator_mode"].default == (
+        DEFAULT_WITHHOLDING_DENOMINATOR_MODE)
+    assert Settings(api_key="", model="m", escalation_model="m").withholding_denominator_mode == (
+        DEFAULT_WITHHOLDING_DENOMINATOR_MODE)
+
+
+def test_a_stored_mode_missing_reads_as_legacy_and_an_invalid_one_reads_as_the_default_given():
+    """R2-OW14 (Q7, U3): a stored payload whose metrics carry no mode keeps its legacy basis; the settings read a
+    missing or invalid environment value as the new default."""
+    from analysis.revenue import normalize_withholding_denominator_mode as normalize
+
+    assert normalize(None) == normalize("") == normalize("invalid") == "legacy_eligible_deposits"
+    assert normalize("confirmed_true_revenue") == "verified_revenue"
+    assert normalize(None, default="true_revenue") == normalize("invalid", default="true_revenue") == "true_revenue"
+    assert normalize("legacy_eligible_deposits", default="true_revenue") == "legacy_eligible_deposits"
+    payload = _payload()
+    payload["metrics"].pop("withholding_denominator_mode", None)
+    payload["metrics"]["eligible_deposits"] = payload["metrics"]["withholding_denominator"] = 2000.0
+    rebuilt = rebuild_serialized_revenue_views(payload)
+    assert rebuilt["metrics"]["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    assert rebuilt["metrics"]["eligible_deposits"] == 2000.0
+
+
+#: U4's rows: a customer's payment, an own-account transfer (legacy only) and a registered funder's debit.
+U4_ROWS = [
+    ("2054-03-02", "FABRIKAM SUPPLY INC DES:PAYMENT ID:0001 INDN:CONTOSO PLUMBING LLC CO ID:0000000001 CCD", 10000.0),
+    ("2054-03-03", "INTERNAL TRANSFER FROM SAVINGS", 5000.0),
+    ("2054-03-04", "KAPITUS DES:PAYMENT ID:000000001 INDN:CONTOSO PLUMBING LLC CO ID:0000000002 CCD", -850.0),
+]
+
+
+def test_the_default_rate_divides_by_true_revenue_and_the_legacy_mode_by_eligible_deposits():
+    """R2-OW14 (Q7, U4): $850 to a funder over $10,000 True (8.50%) by default; over $15,000 legacy (5.67%)."""
+    statement = _statement(U4_ROWS)
+    records = classify_statement_transactions(statement)
+    default = compute_metrics(statement, classifications=records)
+    assert (default.withholding_denominator, default.withholding_numerator) == (10000.0, 850.0)
+    assert round(default.withholding_rate, 2) == 8.50
+    assert default.potential_withholding_denominator == 10000.0
+    legacy = compute_metrics(statement, classifications=records, withholding_denominator_mode="legacy_eligible_deposits")
+    assert (legacy.withholding_denominator, legacy.withholding_numerator) == (15000.0, 850.0)
+    assert round(legacy.withholding_rate, 2) == 5.67
+    # The numerator, the legacy figure and every revenue reading are the same under either basis.
+    assert legacy.legacy_eligible_deposits == default.legacy_eligible_deposits == 15000.0
+    assert legacy.true_revenue_total == default.true_revenue_total
+
+
+def test_a_statement_whose_every_credit_is_held_has_no_default_rate_and_needs_review():
+    """R2-OW14 (Q7, U5): True $0.00: no rate, the withholding review flag, and the note names True revenue."""
+    statement = _statement([ROWS[2], U4_ROWS[2]])
+    records = classify_statement_transactions(statement)
+    assert [record.revenue_tier for record in records if record.amount > 0] == ["excluded_pending_review"]
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.true_revenue_total == 0.0
+    assert metrics.withholding_rate is None and metrics.withholding_review_required
+    assert "withholding rate is unavailable because True revenue is zero or missing" in metrics.notes
+    legacy = compute_metrics(statement, classifications=records, withholding_denominator_mode="legacy_eligible_deposits")
+    assert legacy.withholding_rate == pytest.approx(850.0 / 900.0 * 100) and not legacy.withholding_review_required
 
 
 # ---------------------------------------------------------------------------------------------------------------- S4.5
@@ -405,6 +485,9 @@ def test_the_cli_report_prints_true_verified_counted_and_held():
     assert lines.index(true_line) < lines.index(next(line for line in lines if line.startswith("Verified revenue")))
     assert any(line.startswith("Counted, not verified") and "$300.00" in line for line in lines)
     assert any(line.startswith("Held for review") and "$900.00" in line for line in lines)
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: the working lines name the basis, True revenue by default.
+    assert "Withholding working   : $0.00 / $1,000.00 True revenue" in lines
+    assert "Potential working     : $0.00 / $1,000.00 True revenue" in lines
 
 
 def test_the_benchmark_compares_true_revenue_with_moneythumb_s_true_credits():

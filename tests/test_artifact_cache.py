@@ -87,7 +87,8 @@ class _OcrSettings:
 class _AnalysisSettings:
     model: str = "gemini-3.5-flash-lite"
     escalation_model: str = "gemini-3.5-flash"
-    withholding_denominator_mode: str = "legacy_eligible_deposits"
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: the stand-in mirrors Settings' default basis.
+    withholding_denominator_mode: str = "true_revenue"
     api_key: str = ""
 
 

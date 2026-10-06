@@ -355,6 +355,39 @@ def test_a_snapshot_records_the_withholding_numerator_the_counted_entities_and_t
     assert (account["lender_debits"], account["withholding_numerator"]) == (1000.0, 2000.0)
 
 
+def test_a_snapshot_reads_the_legacy_basis_whatever_the_default(tmp_path, monkeypatch, fake_payees):
+    """Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the analysis's default withholding basis,
+    so account_snapshot passes the legacy basis explicitly and G7 compares one basis across trees: a changed default
+    leaves the snapshot identical."""
+    import analysis.metrics as metrics_module
+
+    cache = ArtifactCache(data_dir=tmp_path / "data")
+    cache.put_analysis("e" * 64, "settings", {"statement": {"bank": "Bank of America", "transactions": [
+        _row("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 10000.0),
+        _row("2054-01-03", "INTERNAL TRANSFER FROM SAVINGS", 5000.0),
+        _row("2054-01-05", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+    ]}})
+    real = metrics_module.compute_metrics
+    modes = []
+
+    def snapshot_with_default(default):
+        def compute(*args, **kwargs):
+            modes.append(kwargs.get("withholding_denominator_mode"))
+            kwargs.setdefault("withholding_denominator_mode", default)
+            return real(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(metrics_module, "compute_metrics", compute)
+            return census.snapshot(census.cached_accounts(tmp_path / "data"))["accounts"]["e" * 64 + ":0"]
+
+    snapshots = [snapshot_with_default(default) for default in
+                 ("true_revenue", "verified_revenue", "legacy_eligible_deposits")]
+    assert modes == ["legacy_eligible_deposits"] * 3
+    assert snapshots[0] == snapshots[1] == snapshots[2]
+    assert snapshots[0]["eligible_deposits"] == 15000.0
+    assert snapshots[0]["withholding_rate"] == pytest.approx(1000.0 / 15000.0 * 100)
+
+
 def _returned_snapshots(*, returned_rows):
     """A funder's only paid row (index 1) leaves the lenders list and a named pair's row (index 2) rejoins the
     withholding rows; `returned_rows` lists the after snapshot's returned funder rows."""

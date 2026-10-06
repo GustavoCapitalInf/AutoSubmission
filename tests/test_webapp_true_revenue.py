@@ -478,10 +478,49 @@ def test_a_revenue_withholding_rate_is_never_published_on_a_partial_denominator(
     assert _package(*established)["totals"]["package_withholding_rate"] is not None
 
 
-def test_the_legacy_withholding_mode_keeps_its_rate_beside_an_unestablished_member():
+def test_the_legacy_withholding_mode_keeps_its_rate_beside_an_unestablished_member(monkeypatch):
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default basis, so the legacy mode is
+    # selected for the members' analyses.
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "legacy_eligible_deposits")
     totals = _package(_payload(), _untiered(_payload(month=4)))["totals"]
     assert totals["withholding_denominator_mode"] == "legacy_eligible_deposits"
     assert totals["package_withholding_rate"] is not None and totals["withholding_review_required"] is False
+
+
+def test_the_default_basis_is_true_revenue_and_a_stored_payload_without_a_mode_keeps_its_legacy_basis(monkeypatch):
+    """Owner ruling 2026-10-02 (the underwriter's Q7, audit I34), R2-OW14: an analysis made today divides by True
+    revenue (U1); a payload stored before the default moved carries no mode and keeps the legacy basis it was analysed
+    under, in the served copy (revenue.py) and in the package (app.py) (U3)."""
+    from webapp.app import _displayed
+
+    monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
+    today = _payload()
+    assert (today["metrics"]["withholding_denominator_mode"], today["metrics"]["withholding_denominator"]) == (
+        "true_revenue", 1000.0)
+    assert today["metrics"]["legacy_eligible_deposits"] == 2000.0
+    totals = _package(_payload())["totals"]
+    assert (totals["withholding_denominator_mode"], totals["withholding_denominator_label"],
+            totals["withholding_denominator"]) == ("true_revenue", "True revenue", 1000.0)
+
+    stored = _payload()
+    metrics = stored["metrics"]
+    for key in ("withholding_denominator_mode", "withholding_denominator_label", "eligible_deposit_definition"):
+        metrics.pop(key)
+    for key in ("eligible_deposits", "withholding_denominator", "potential_withholding_denominator"):
+        metrics[key] = 2000.0
+    # The served copy keeps the stored basis (the dashboard reads a missing mode as legacy: activeDenominatorNote), and
+    # the revenue rebuild (a review decision) reads it as legacy and keeps the stored denominator.
+    from analysis.revenue import rebuild_serialized_revenue_views
+
+    served = _displayed(copy.deepcopy(stored), settings={})
+    assert "withholding_denominator_mode" not in served["metrics"]
+    assert served["metrics"]["withholding_denominator"] == served["metrics"]["eligible_deposits"] == 2000.0
+    rebuilt = rebuild_serialized_revenue_views(copy.deepcopy(stored))
+    assert rebuilt["metrics"]["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    assert rebuilt["metrics"]["withholding_denominator"] == rebuilt["metrics"]["eligible_deposits"] == 2000.0
+    totals = _package(stored)["totals"]
+    assert (totals["withholding_denominator_mode"], totals["withholding_denominator_label"],
+            totals["withholding_denominator"]) == ("legacy_eligible_deposits", "Legacy eligible deposits", 2000.0)
 
 
 # ---------------------------------------------------------------- Audit B11: months, averages, the gate and the exports
