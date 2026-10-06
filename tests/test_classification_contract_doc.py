@@ -316,6 +316,10 @@ SECTION_19_1_DECISIONS = (
     ("**2026-10-02, the withholding basis and cash deposits (Q7; I34).**", (
         "`true_revenue`", "default", "selectable", "never Verified",
     )),
+    # Owner ruling 2026-10-02 (the underwriter's Q6), R2-OW15.
+    ("**2026-10-02, returns across consecutive statements and chargebacks (Q6; I42).**", (
+        "consecutive", "preceding statement", "never deducted", "adjustments",
+    )),
 )
 
 
@@ -946,3 +950,66 @@ def test_the_spec_the_contract_and_the_readme_state_the_true_revenue_default_and
     readme = _flat(README)
     assert "Withholding divides by True revenue (`WITHHOLDING_DENOMINATOR_MODE=true_revenue`" in readme
     assert "Withholding continues to use legacy eligible deposits" not in readme
+
+
+#: The commit of the owner's ruling of 2026-10-02 on the underwriter's Q6 (R2-OW15): the code and the tests.
+R2_OW15_CODE_COMMIT = "4125f30"
+
+
+def test_the_spec_and_the_contract_state_the_package_passes():
+    """Owner ruling 2026-10-02 (the underwriter's Q6, audit I42), R2-OW15: §2.1 adds the Q6 row; §6.2 the package
+    passes (returned deposits across statements, the debit flags; R2-OW16's slot); §9.1 the served flags; §9.2 the
+    overlay, the totals, the lists, the document rows and what does not move; §10.1, §10.6, §10.7 and §10.8 the
+    dashboard, the notes, Confirm overriding the match and the downloads; §11 the two revenue modes; §14.1 the tests;
+    §17.1 rules I42 and drops it from the unconfirmed rows; §19.1 the decision; §20 the rule and the batch; the
+    contract's note and its withholding paragraph follow."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n### 2.1 ", "\n## 3. "))
+    for words in ("| Q6 (2026-10-02) | Bounced deposits from an earlier month, and chargebacks (audit I42) | \"2\"",
+                  "the same account's immediately preceding statement", "`returned_deposit_cross_statement`",
+                  "never deducted"):
+        assert words in rulings, words
+    passes = _section(text, "\n### 6.2 ", "\n### 6.3 ")
+    for words in ("**Package passes** (`_package_matches` in `webapp/app.py`, after R-d",
+                  "1. **Returned deposits across statements.**", "`PACKAGE_CONSECUTIVE_DAYS = 7`",
+                  "2. (The underwriter's Q4 (2026-10-02), R2-OW16", "3. **Debit flags** (`debit_side_flags`",
+                  "a decided credit is never matched or annotated", "writes nothing back"):
+        assert words in passes, words
+    contract_keys = _section(text, "\n### 9.1 ", "\n### 9.3 ")
+    for words in ("`unmatched_deposit_return_locations`", "`processor_chargeback_total`", "*The overlay.*",
+                  "`returned_deposit_cross_statement_count`", "`package_match_unchecked_count`", "`package_matches`",
+                  "`debit_flags`", "candidate_decided (a return whose nearest deposit the analyst confirmed",
+                  "`package_match_count`", "*Unchanged:* R-d", "never `account`, which the served payload masks"):
+        assert words in contract_keys, words
+    cards = _section(text, "\n### 10.1 ", "\n### 10.2 ")
+    for words in ("Returned deposits not matched: N · $X (not deducted)",
+                  "Processor chargebacks and adjustments: N · $X (not deducted)",
+                  "Matched across statements: M bounced deposit(s) taken out of True ($Y).",
+                  "Not matched across statements: Q statement(s) analysed with older rules or with no currency."):
+        assert words in cards, words
+    assert "Returned on <date> (<file>): not counted. Confirm Revenue overrides the match." in _section(
+        text, "\n### 10.6 ", "\n### 10.7 ")
+    assert "- **A deposit the package took out of True**" in _section(text, "\n### 10.7 ", "\n### 10.8 ")
+    assert "`package_match_<n>`" in _section(text, "\n### 10.8 ", "\n## 11. ")
+    assert "- **Package matches in the True and Verified modes**" in _section(text, "\n## 11. ", "\n## 12. ")
+    assert "- **§6.2's package passes, Q6 (2026-10-02)**" in _section(text, "\n### 14.1 ", "\n### 14.2 ")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "- **I42, returns with no equal deposit.** Ruled 2026-10-02 (§19.1)" in open_items
+    assert "Should True net them?" not in open_items
+    assert "I42's unmatched returns" not in open_items
+    line = next(line for line in open_items.splitlines()
+                if line.startswith("- **Returns across statements and chargebacks: the defaults (the underwriter's Q6 "
+                                   "of 2026-10-02"))
+    for words in ("immediately preceding statement", "nearest", "adjustments", "Alternative"):
+        assert words in line, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Returns across statements and chargebacks** (", "- **Owner ruling 2026-10-02, R2-OW15 in all** (",
+                  R2_OW15_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Owner ruling 2026-10-02, R2-OW15 (the underwriter's Q6, \"2\": \"Flag, but do not deduct, returns "
+                  f"that cannot be matched and processor chargebacks\"; {R2_OW15_CODE_COMMIT})",
+                  "`processor_chargeback_debit(text)`", "`debit_side_flags`", "`returned_deposit_cross_statement`",
+                  "A deposit the package passes take out of True (the underwriter's Q6 (2026-10-02), R2-OW15) leaves "
+                  "the revenue basis it was in"):
+        assert words in contract, words
