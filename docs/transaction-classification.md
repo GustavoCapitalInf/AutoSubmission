@@ -85,7 +85,8 @@ other credit follows.
 The group list lives in `analysis/flag_groups.py`. A flagged row carries
 `flagged_group`; a posted flagged debit, and a posted factoring credit, also
 set `contributes_to_flagged_totals`. Proven duplicates, settlement-reversed
-debits and credits that the reversal pass pairs clear it. The web app hides
+debits, a confirmed funder's payment returned unpaid (R2-OW13) and credits that
+the reversal pass pairs clear it. The web app hides
 unticked groups at serving time; the stored record never changes.
 
 Every posted credit also has exactly one independent revenue state:
@@ -213,7 +214,9 @@ sources verify by recurrence; the pool never shrinks and a veto word keeps a
 row out) with the auction and property branches, the payer-remittance
 counter-debit guard (pass 6), and the true-revenue pass (pass 7,
 `analysis/true_revenue.py`), which tiers every posted credit, then the funding
-aid, before duplicate finalisation. A `non_revenue` credit stays `non_revenue` except where a
+aid, before duplicate finalisation. Between pass 7 and the duplicate
+finalisation the returned funder payments pass (pass 7b, R2-OW13) reads the
+lender side only. A `non_revenue` credit stays `non_revenue` except where a
 rule narrows a non-revenue pattern (spec §6.3); a held credit enters True
 revenue only when an analyst confirms it.
 
@@ -473,12 +476,21 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Owner ruling 2026-10-02, R2-OW10 (the underwriter's Q10, its parser half: the account's printed title; e9fe8ec): the holder readers return the title they drop after the holder's name (`HolderReading`: what the cut after the name's last legal form, or of a trailing designation ending in `ACCOUNT`, leaves out, and in a mailing block a name line the reader does not keep that prints an account word or the premium-trust words and opens on no contact marker), and every holder reader's parser publishes it as `Statement.account_title` from the same anchor, serialized only where it is set and outside the extraction schema. The holder's names, the holder tests, every transaction and every tier are unchanged; no rule reads the title yet (R2-OW11 holds a premium trust account's deposits) (true revenue spec §9.1, §20).
 - Owner ruling 2026-10-02, R2-OW11 (the underwriter's Q10, "Hold every deposit into an account titled "premium trust""; 1158b09): `premium_trust_title(account_title, account_name, holder_name)` reads the statement's own fields, never a row: the bank's designation (`Statement.account_title`) in three forms (the title at the field's end, the words followed by an account word, the words and an account or product word before a separator; never the words anywhere), then the account name and the holder's name (the account-word form refused on a field that ends in a legal form). `classify_statement_transactions` passes it to pass 7 (keyword `premium_trust`), whose step after the $1 floor holds every credit a rule verified or counted as `premium_trust_account` (`_held_in_premium_trust`: a verified one leaves verification with method `premium_trust_account`, a counted one keeps its state, method and rule); held and non-revenue credits keep their reading. `Metrics.premium_trust_account`, the package's `premium_trust_documents` and the True card's fact carry it; the census records the account's `premium_trust` flag, guard G20 and the declared demotion `premium_trust_account`. Every debit, lender, withholding numerator and flag reading is unchanged (true revenue spec §2.1, §5.3, §8.10, §9.1, §9.2, §10.1, §14.3, §15, §17.1, §19.1, §20).
 - Owner ruling 2026-10-02, R2-OW12 (the underwriter's Q1, "Held for review"; d9878f0): every wire with no sender printed stays held as `wire_no_sender`, and pass 7's last step, after the $1 floor and the premium-trust hold, records on each such held credit `revenue_funding_series` (`funding_series_after`: a tuple of `FundingSeries`, the Lenders or Potential Lenders series that start after the deposit; `FUNDING_SERIES_WINDOW_DAYS = 10`, `FUNDING_SERIES_MIN_PAYMENTS = 2`, `FUNDING_SERIES_MIN_LOOKBACK_DAYS = 3`). `apply_true_revenue_pass` gains the keyword `statement_start` (the printed period start), which `classify_statement_transactions` passes; the statement passes and their order are unchanged. The dashboard prints one "possible funding" line per series under the reason; the census counts the aid (`funding_series`, `funding_series_observed`, `funding_aid`). No tier, reason, figure, gate, debit, lender, withholding or flag reading moves (true revenue spec §2, §2.1, §5.4, §6.2, §8.5, §9.1, §10.7, §17.1, §19.1, §20).
+- Owner ruling 2026-10-02, R2-OW13 (the underwriter's Q5, "Match the return to the funder payment it reverses"; 2d81484): a confirmed funder's payment the bank returned unpaid leaves paid to lenders (`contributes_to_lender_totals`) and keeps `contributes_to_withholding_rate` and `contributes_to_lender_count`; the debit carries `returned_funder_payment_by` (the return credit's location, a returned-unpaid sentence on its reason) and the credit `returns_funder_payment` (the debit's location), two record fields right after `settlement_reversal`. A lender-side reversal pair (classification 5.4's markers, as before) whose debit is a confirmed funder's paid payment now keeps that count and withholding; every other debit is zeroed as before. After the true-revenue pass and before the duplicate finalisation, `_apply_returned_funder_payments` (rule D, spec §6.2 pass 7b) pairs a credit out of True (`non_revenue` or held) that prints a bounce form (`_RETURNED_PAYMENT_CREDIT_PATTERNS`: Bank of America's `RETURN OF POSTED CHECK|ITEM`, `ITEM RET`, `RET NOT PAID`, `RTN`, `NSF`, `UNPAID`, `NOT PAID`, `REJECT(ED)`, `RETURNED ITEM|ACH|PAYMENT|DEBIT|PAD|CHECK|CHEQUE|EFT|ENTRY|DR` in either order, `CREDIT RETURNED`, and R2-B08's French `EFFET RETOURNE` and `REFUSE SANS PROVISION`; the short codes never before a legal-form word, never a fee word) with a confirmed funder's paid debit of equal cents dated 0 to `RETURNED_FUNDER_PAYMENT_WINDOW_DAYS = 7` days before it (undated: printed before it): the debit dated on Bank of America's `RECEIVED ON` day first, then the latest, then the nearest row; skipped when an equal non-lender debit is as near or undated; a credit the revenue side paired only with its partner, and a credit naming a confirmed funder only with that funder's debits; each debit once. It sets no `reversed_by` (the reconciliation's reversal coverage, the settled-activity counts and the NSF count are unchanged) and moves no revenue field. Metrics: `lender_debits` stays paid, `returned_funder_payment_total` / `_count` / `_evidence` are new, and `withholding_numerator` is paid plus returned; detection lists `returned_funder_payments` and each funder's `returned_payment_count` / `_total`, and a funder whose every payment bounced stays listed; the package sums its members' numerators; the dashboard warns per returned payment. G7 declares the moves (`returned_funder_moves`, `kept_in_count_returned`). No tier, reason, True or Verified figure moves (true revenue spec §2.1, §6.2, §9.1, §9.2, §10.1, §10.6, §11, §14.3, §17.1, §19.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
 stores the related source location, revenue source type, context signals, match
 method, alias/rule, confidence, reason, review status, and mutually exclusive
 revenue contribution flags.
+
+A reversal pair zeroes its debit's lender, potential-lender, withholding,
+insurance and flag contributions, except where the debit is a confirmed
+funder's paid payment: since the owner's ruling of 2026-10-02 (the
+underwriter's Q5) such a payment, returned unpaid, leaves paid to lenders and
+stays in the withholding rate and the lender count, and the returned funder
+payment pass (above, R2-OW13) pairs the bounce forms that name no funder the
+same way, without a `reversed_by`.
 
 Classification is applied in this order; the first match wins:
 
@@ -600,9 +612,11 @@ running balance); recurrence (D6 and the financing-keyword groups, debits
 only); the labels for unnamed potential payees; reversal pairs;
 operating-source context (pass 5, with its auction and property-management
 branches); the accounts-payable counter-debit guard (pass 6); the true-revenue
-pass (pass 7), which tiers every posted credit; duplicate finalisation. The
+pass (pass 7), which tiers every posted credit; the returned funder payments
+(pass 7b, the lender side only); duplicate finalisation. The
 true revenue spec numbers them in its section 6.2, and audit fix batch B12
-(I62) added the last three here. Recurrence promotes to
+(I62) added the last three before pass 7b here; the owner's ruling of
+2026-10-02 (the underwriter's Q5, R2-OW13) added pass 7b. Recurrence promotes to
 `potential_lender`, review only, two kinds of same-amount debit groups on at
 least three different dates on a daily or weekly cadence (several rows on one
 date count as one): financing-keyword rows of one payee
@@ -813,7 +827,8 @@ status, flagged group, and every metric contribution flag.
 ## Metric definitions
 
 - `lenders_detected`: distinct canonical entities with qualifying posted
-  `confirmed_lender` debit rows.
+  `confirmed_lender` debit rows (a funder whose every payment was returned
+  unpaid included, R2-OW13).
 - `potential_lenders_detected`: distinct Potential Lenders lines with
   qualifying posted `potential_lender` debit rows (5.3): a named payee's
   canonical entity, or an unnamed payee's `potential_payee_label`.
@@ -822,6 +837,11 @@ status, flagged group, and every metric contribution flag.
   excluded from confirmed lender totals and confirmed withholding.
 - `lender_debit_count`: qualifying posted confirmed-lender debit rows.
 - `total_lender_debits`: absolute sum of those exact rows.
+  Both are paid to lenders: a funder payment returned unpaid is in neither.
+- `returned_funder_payment_count` and `returned_funder_payment_total` (owner
+  ruling 2026-10-02, the underwriter's Q5; R2-OW13): the confirmed funders'
+  payments returned unpaid (rows with `returned_funder_payment_by`) and their
+  absolute sum, out of the paid figure and in the withholding numerator.
 - `insurance_count` and `insurance_total`: qualifying posted insurance debit
   rows and their absolute sum, premium-financing rows included.
 - `flagged_groups`: per flagged group key, `{count, total, count_credited,
@@ -973,10 +993,16 @@ never switched implicitly when revenue classification is available.
 
 The formula is:
 
-`withholding_rate = abs(total_qualifying_lender_debits) / eligible_deposits * 100`
+`withholding_rate = abs(paid lender debits + returned funder payments) / withholding basis * 100`
 
-The numerator is the exact lender debit total represented by the lender evidence
-records and lender transaction filter. Full precision is retained internally;
+The numerator (`withholding_numerator`) is the exact total of the rows marked
+`contributes_to_withholding_rate`, the rows of the lender transaction filter:
+the confirmed lender debits paid (`lender_debits`, the lender evidence records)
+plus, since the owner's ruling of 2026-10-02 (the underwriter's Q5; R2-OW13),
+the confirmed funders' payments returned unpaid (`returned_funder_payment_total`):
+the scheduled obligation stands, so a bounced payment leaves paid to lenders and
+stays in the rate. A package sums its members' numerators. The basis is the
+selected denominator above. Full precision is retained internally;
 rounding occurs only for display. A zero or missing denominator returns no rate
 and sets `withholding_review_required`.
 

@@ -235,7 +235,9 @@ funding) by default. Explicitly set `WITHHOLDING_DENOMINATOR_MODE=verified_reven
 to use verified classified revenue, or `WITHHOLDING_DENOMINATOR_MODE=true_revenue`
 to use True revenue (verified plus counted credits) instead; in either revenue
 mode `eligible_deposits` carries the selected denominator, and the legacy figure
-stays in `legacy_eligible_deposits`. Extend maintained lender, candidate,
+stays in `legacy_eligible_deposits`. The withholding numerator is the confirmed lender debits paid plus the
+funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
+"paid to lenders" but stays in the rate. Extend maintained lender, candidate,
 insurance, operating-revenue, and exclusion aliases in
 `analysis/classification_registry.py`.
 

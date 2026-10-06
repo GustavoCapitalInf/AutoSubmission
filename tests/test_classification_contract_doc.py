@@ -168,6 +168,8 @@ PASS_CALLS = (
     ("_apply_operating_source_context(", "operating-source context"),
     ("_apply_payer_remittance_counter_debit_guard(", "counter-debit guard (pass 6)"),
     ("apply_true_revenue_pass(", "true-revenue pass (pass 7)"),
+    # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13: the returned funder payments, after pass 7.
+    ("_apply_returned_funder_payments(", "returned funder payments (pass 7b"),
 )
 
 
@@ -306,6 +308,10 @@ SECTION_19_1_DECISIONS = (
     )),
     # Owner ruling 2026-10-02 (the underwriter's Q1), R2-OW12.
     ("**2026-10-02, Q1: wires with no sender (I12).**", ("`wire_no_sender`", "possible funding", "never changes the tier")),
+    # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13.
+    ("**2026-10-02, bounced funder payments (Q5; I29).**", (
+        "returned funder payment", "paid to lenders", "withholding", "lender count",
+    )),
 )
 
 
@@ -806,8 +812,75 @@ def test_the_spec_and_the_contract_state_the_funding_aid():
                   "Owner ruling 2026-10-02 (Q1): every wire with no sender printed stays held as `wire_no_sender`",
                   f"Owner ruling 2026-10-02, R2-OW12 (the underwriter's Q1, \"Held for review\"; {R2_OW12_CODE_COMMIT})"):
         assert words in contract, words
+    # The aid adds no pass; R2-OW13 (the underwriter's Q5) added pass 7b after it.
     assert ("Statement passes run in this order: duplicates (proven by a repeated printed running balance); recurrence "
             "(D6 and the financing-keyword groups, debits only); the labels for unnamed potential payees; reversal "
             "pairs; operating-source context (pass 5, with its auction and property-management branches); the "
             "accounts-payable counter-debit guard (pass 6); the true-revenue pass (pass 7), which tiers every posted "
-            "credit; duplicate finalisation.") in contract
+            "credit; the returned funder payments (pass 7b, the lender side only); duplicate finalisation.") in contract
+
+
+#: R2-OW13's code commit, which §20 and the contract's note name.
+R2_OW13_CODE_COMMIT = "2d81484"
+
+
+def test_the_spec_and_the_contract_state_the_returned_funder_payments():
+    """Owner ruling 2026-10-02 (the underwriter's Q5, audit I29), R2-OW13: §2.1 adds the Q5 row; §6.2 names the named
+    pairs' restore (pass 4) and pass 7b; §9.1 and §9.2 the keys; §10.1 and §10.6 the dashboard; §11 the numerator; §14.3
+    G7's declared categories; §17.1 closes I29, rewords I41's G7 bullet and lists the defaults; §19.1 the decision; §20
+    amends the I6 line and records the rule (with why it runs after pass 7) and the batch (with the reversal-only
+    sub-count); the contract's note, reversal paragraph, flag-clearing sentence, metric definitions and withholding
+    formula follow, and its statement-pass sentence and lead paragraph name pass 7b; the README names the numerator."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n### 2.1 ", "\n## 3. "))
+    for words in ("| Q5 (2026-10-02) | Bounced payments to funders and the withholding rate (audit I29)",
+                  "the dashboard warns, naming the funder", "Revenue does not move"):
+        assert words in rulings, words
+    passes = _section(text, "\n### 6.2 ", "\n### 6.3 ")
+    for words in ("a lender-side pair whose debit is a confirmed funder's paid payment keeps that debit's lender count "
+                  "and withholding", "Then pass 7b, the returned funder payments (rule D",
+                  "it sets no `reversed_by` and moves no revenue field"):
+        assert words in passes, words
+    contract_keys = _section(text, "\n### 9.1 ", "\n### 9.3 ")
+    for words in ("`returned_funder_payment_by`", "`returns_funder_payment`", "`returned_funder_payment_total`",
+                  "`returned_funder_payments`", "`returned_payment_count`", "paid plus returned",
+                  "abs(paid lender debits + returned funder payments) / withholding basis * 100"):
+        assert words in contract_keys, words
+    assert "Returned funder payment: <funder> <amount> debited <date>" in _section(text, "\n### 10.1 ", "\n### 10.2 ")
+    assert "Returns the <date> payment to <funder>" in _section(text, "\n### 10.6 ", "\n### 10.7 ")
+    assert "- **The numerator** (owner ruling 2026-10-02, the underwriter's Q5" in _section(text, "\n## 11. ", "\n## 12. ")
+    guards = _section(text, "\n### 14.3 ", "\n### 14.4 ")
+    for words in ("`returned_funder_moves`", "`kept_in_count_returned`", "every other withholding or `reversed_by` move"):
+        assert words in guards, words
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "- **I29, a bounced funder payment.** Closed 2026-10-02 (§19.1)" in open_items
+    assert "(audit I41, tied to I29)" not in open_items
+    line = next(line for line in open_items.splitlines()
+                if line.startswith("- **Returned funder payments: the defaults (the underwriter's Q5 of 2026-10-02"))
+    for words in ("potential (unconfirmed) lender", "sends nothing to review", "`REVERSE CORPORATE ACH DEBIT`",
+                  "`possible_return`", "`RECEIVED ON`", "Alternative"):
+        assert words in line, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("Amended 2026-10-02 (the underwriter's Q5; R2-OW13)", "- **Returned funder payments** (",
+                  "Rule D runs after pass 7, not directly after pass 4 as the planning card placed it",
+                  "- **Owner ruling 2026-10-02, R2-OW13 in all** (", "the reversal-only sub-count",
+                  "`returned_funder_moves` 246 withholding rows", R2_OW13_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Owner ruling 2026-10-02, R2-OW13 (the underwriter's Q5, \"Match the return to the funder payment it "
+                  f"reverses\"; {R2_OW13_CODE_COMMIT})", "`RETURNED_FUNDER_PAYMENT_WINDOW_DAYS = 7`",
+                  "the returned funder payment pass (above, R2-OW13)", "`returned_funder_payment_count` and `returned_funder_payment_total`",
+                  "`withholding_rate = abs(paid lender debits + returned funder payments) / withholding basis * 100`"):
+        assert words in contract, words
+    assert "abs(total_qualifying_lender_debits)" not in contract
+    assert ("Statement passes run in this order: duplicates (proven by a repeated printed running balance); recurrence "
+            "(D6 and the financing-keyword groups, debits only); the labels for unnamed potential payees; reversal "
+            "pairs; operating-source context (pass 5, with its auction and property-management branches); the "
+            "accounts-payable counter-debit guard (pass 6); the true-revenue pass (pass 7), which tiers every posted "
+            "credit; the returned funder payments (pass 7b, the lender side only); duplicate finalisation.") in contract
+    for words in ("Between pass 7 and the duplicate finalisation the returned funder payments pass (pass 7b, R2-OW13) "
+                  "reads the lender side only.",
+                  "settlement-reversed debits, a confirmed funder's payment returned unpaid (R2-OW13) and credits that "
+                  "the reversal pass pairs clear it"):
+        assert words in contract, words
+    assert "funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5)" in _flat(README)
