@@ -1821,3 +1821,113 @@ console.log(JSON.stringify({{lenders: lenderRows(els.lenderTable.innerHTML),
         "Returns the 2054-03-02 payment to KAPITUS", "Returns the 2054-03-03 payment to KAPITUS"]
     returned_debits = [row for row in result["ledger"] if "Returned" in row["chips"]]
     assert len(returned_debits) == 2
+
+
+# ---------------------------------------------------------------- Owner ruling 2026-10-02 (the underwriter's Q6), R2-OW15
+
+#: The package ledger's rows with the package passes' notes and their review controls, the True card's note and the
+#: package-match notice, as text.
+PACKAGE_MATCH_VIEW = r"""
+const unescapeHtml = (text) => text.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+const stripHtml = (html) => unescapeHtml(String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+const matchRows = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1])
+  .map((row) => ({desc: unescapeHtml((row.match(/<td class="tx-desc">([^<]*)<\/td>/) || [])[1] || ""),
+    notes: [...row.matchAll(/<div class="tx-reason tx-package-match">([^<]*)<\/div>/g)].map((m) => unescapeHtml(m[1])),
+    confirm: /data-revenue-review-action="confirm"/.test(row), reject: /data-revenue-review-action="reject"/.test(row)}))
+  .filter((row) => row.desc);
+const trueNote = () => unescapeHtml((metricRows(els.metricsGrid.innerHTML).find((row) => row.label === "True Revenue")
+  || {}).note || "");
+const filtered = (filter) => { showMainRevenueEvidence(filter);
+  return {count: els.transactionCount.textContent, rows: matchRows(els.transactionTable.innerHTML).map((row) => row.desc)}; };
+const flagRows = () => [...els.revenueTable.innerHTML.matchAll(/data-revenue-filter="(debitFlag:[a-z_]+)"[^>]*>([^<]*)</g)]
+  .map((m) => [m[1], m[2]]);
+"""
+
+
+def _matching_package(*members):
+    from tests.test_package_matching import _package
+    return _package(*members)
+
+
+@needs_node
+def test_a_bounced_deposit_matched_across_statements_reads_on_its_rows_the_notice_and_the_true_card():
+    """Owner ruling 2026-10-02 (the underwriter's Q6, R2-OW15): the March deposit April returned shows its note and
+    still offers Confirm Revenue and Mark Non-Revenue (Confirm overrides the match); the return names the deposit; the
+    notice lists the pair with its dates and money and shows its rows; the True card lists the flags only where their
+    keys exist, the chargeback line saying "and adjustments"; each flag's evidence row filters the ledger to it."""
+    from tests.test_package_matching import APRIL, CHARGEBACK_ROWS, _owners_example
+
+    march, april = _owners_example([*APRIL, *CHARGEBACK_ROWS[1:2]])
+    package = _matching_package(("mar", march), ("apr", april))
+    result = run_dashboard(METRIC_ROWS + PACKAGE_MATCH_VIEW + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+const ledger = matchRows(els.transactionTable.innerHTML);
+console.log(JSON.stringify({{ledger, note: trueNote(), flags: flagRows(),
+  notice: [els.packageMatchNotice.hidden, stripHtml(els.packageMatchNoticeText.innerHTML)],
+  noticeFilter: (els.packageMatchNoticeText.innerHTML.match(/data-revenue-filter="([^"]+)"/) || [])[1],
+  matched: filtered('packageMatch:returned_deposit'), chargebacks: filtered('debitFlag:processor_chargeback')}}));
+""")
+    [deposit] = [row for row in result["ledger"] if row["desc"] == "DEPOSIT"]
+    assert deposit["notes"] == ["Returned on 2031-04-01 (apr.pdf): not counted. Confirm Revenue overrides the match."]
+    assert deposit["confirm"] and deposit["reject"]
+    [returned] = [row for row in result["ledger"] if row["desc"] == "DEPOSITED ITEM RETURNED"]
+    assert returned["notes"] == ["Returns the 2031-03-26 deposit in mar.pdf."]
+    assert all(not row["notes"] for row in result["ledger"] if row["desc"] not in ("DEPOSIT", "DEPOSITED ITEM RETURNED"))
+    assert result["notice"] == [False, (
+        "Matched across statements: 1 bounced deposit taken out of True ($100,000.00). mar.pdf 2031-03-26 deposit "
+        "$100,000.00 returned 2031-04-01 (apr.pdf). Show them")]
+    assert result["noticeFilter"] == "packageMatch:returned_deposit"
+    assert result["note"].endswith(" · Processor chargebacks and adjustments: 1 · $350.00 (not deducted)")
+    assert "Returned deposits not matched" not in result["note"]
+    assert result["flags"] == [["debitFlag:processor_chargeback", "Processor chargebacks and adjustments"]]
+    assert result["matched"] == {"count": "2 bounced deposits matched across statements",
+                                 "rows": ["DEPOSIT", "DEPOSITED ITEM RETURNED"]}
+    assert result["chargebacks"] == {"count": "1 processor chargebacks and adjustments",
+                                     "rows": ["HRTLAND PMT SYS CHARGEBACK 123456"]}
+
+
+@needs_node
+def test_an_unmatched_return_names_the_deposit_you_confirmed_and_the_notice_names_the_unread_statements():
+    from analysis.revenue import apply_serialized_revenue_review
+
+    from tests.test_package_matching import _owners_example
+    from tests.test_webapp_true_revenue import _untiered
+
+    march, april = _owners_example()
+    confirmed = apply_serialized_revenue_review(copy.deepcopy(march), source_location="transaction:2",
+                                                decision="confirm")
+    decided = _matching_package(("mar", confirmed), ("apr", april))
+    older = _matching_package(("mar", _untiered(march)), ("apr", april))
+    plain = _matching_package(("mar", march))
+    result = run_dashboard(METRIC_ROWS + PACKAGE_MATCH_VIEW + f"""
+const read = (pkg) => {{ currentJobIds = pkg.documents.map((doc) => doc.id); renderPackageAnalysis(pkg);
+  return {{ledger: matchRows(els.transactionTable.innerHTML), note: trueNote(), flags: flagRows(),
+    notice: [els.packageMatchNotice.hidden, stripHtml(els.packageMatchNoticeText.innerHTML)]}}; }};
+console.log(JSON.stringify({{decided: read({json.dumps(decided)}), older: read({json.dumps(older)}),
+  plain: read({json.dumps(plain)})}}));
+""")
+    [returned] = [row for row in result["decided"]["ledger"] if row["desc"] == "DEPOSITED ITEM RETURNED"]
+    assert returned["notes"] == ["Matches the 2031-03-26 deposit you confirmed in mar.pdf; review."]
+    assert result["decided"]["notice"][0] is True
+    assert result["decided"]["note"].endswith(" · Returned deposits not matched: 1 · $100,000.00 (not deducted)")
+    assert result["older"]["notice"] == [False, (
+        "Not matched across statements: 1 statement analysed with older rules or with no currency.")]
+    assert result["older"]["flags"] == [["debitFlag:unmatched_deposit_return", "Returned deposits not matched"]]
+    # Without a flag the True card and the evidence table read as before, and the notice stays hidden.
+    assert "not deducted" not in result["plain"]["note"]
+    assert result["plain"]["flags"] == [] and result["plain"]["notice"][0] is True
+
+
+@needs_node
+def test_a_statement_viewed_alone_flags_its_unmatched_return_and_keeps_its_figures():
+    from tests.test_package_matching import _owners_example
+
+    _march, april = _owners_example()
+    result = run_dashboard(METRIC_ROWS + PACKAGE_MATCH_VIEW + _open("apr", _served(april)) + """
+console.log(JSON.stringify({note: trueNote(), flags: flagRows(), returns: filtered('debitFlag:unmatched_deposit_return'),
+  value: (metricRows(els.metricsGrid.innerHTML).find((row) => row.label === "True Revenue") || {}).value}));
+""")
+    assert result["note"].endswith(" · Returned deposits not matched: 1 · $100,000.00 (not deducted)")
+    assert result["value"] == "$50,000.00"
+    assert result["flags"] == [["debitFlag:unmatched_deposit_return", "Returned deposits not matched"]]
+    assert result["returns"] == {"count": "1 returned deposits not matched", "rows": ["DEPOSITED ITEM RETURNED"]}

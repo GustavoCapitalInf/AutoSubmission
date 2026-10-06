@@ -75,6 +75,11 @@ EXPECTED_REFUSED_TOTALS = {
     "potential_withholding_numerator",
     # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid.
     "returned_funder_payment_total",
+    # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes' money, published only where a pass
+    # found a row (CONDITIONAL_REFUSED_TOTALS).
+    "returned_deposit_cross_statement_total",
+    "unmatched_deposit_return_total",
+    "processor_chargeback_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -139,7 +144,18 @@ REVENUE_TIER_COUNTS = {"true_revenue_count", "counted_flagged_count", "excluded_
 #: Audit round 2, R2-B15 (R54, R15): counts the package publishes only when there is one (a job still pending, an
 #: account left out for another reason than a repeat), so they sit outside UNIT_FREE_TOTALS, whose every key the
 #: fixtures above publish.
-CONDITIONAL_UNIT_FREE_TOTALS = {"pending", "excluded_account_count"}
+CONDITIONAL_UNIT_FREE_TOTALS = {
+    "pending", "excluded_account_count",
+    # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes' counts, published only where a pass
+    # found a row (or, for the last, a member it could not read).
+    "returned_deposit_cross_statement_count", "unmatched_deposit_return_count", "processor_chargeback_count",
+    "package_match_unchecked_count",
+}
+#: R2-OW15: the refused totals a package publishes only where a package pass found a row; a refusal nulls each where it
+#: is published and never adds one.
+CONDITIONAL_REFUSED_TOTALS = {
+    "returned_deposit_cross_statement_total", "unmatched_deposit_return_total", "processor_chargeback_total",
+}
 
 
 def statement_payload(currency, *, amount=10_000.0, adb=100.0, days=31, bank="Test Bank"):
@@ -315,8 +331,11 @@ def test_mixed_currency_package_refuses_every_cross_currency_total():
     assert package["currency"]["currencies"] == ["CAD", "USD"]
     assert package["currency"]["documents_by_currency"] == {"CAD": 1, "USD": 1}
 
-    for key in EXPECTED_REFUSED_TOTALS:
+    for key in EXPECTED_REFUSED_TOTALS - CONDITIONAL_REFUSED_TOTALS:
         assert totals[key] is None, f"{key} was published for a mixed package"
+    # R2-OW15: no package pass found a row here, so the refusal adds none of its totals.
+    for key in CONDITIONAL_REFUSED_TOTALS:
+        assert key not in totals, key
 
     # 30,000 CAD + 20,000 USD != 50,000. Nothing may be silently summed...
     assert totals["total_credits"] is None
@@ -645,7 +664,9 @@ def test_csv_export_carries_the_refusal_and_never_a_mixed_number():
     assert cells[("currency", "refusal_reason")] == "multiple_currencies"
     # A refused total is an empty cell, never a number an analyst could add up.
     for key in EXPECTED_REFUSED_TOTALS:
-        assert cells[("totals", key)] == "", f"totals.{key} leaked into the CSV"
+        # R2-OW15: a package pass's total is written only where the package publishes it (none here).
+        assert cells.get(("totals", key), "") == "", f"totals.{key} leaked into the CSV"
+    assert all(("totals", key) not in cells for key in CONDITIONAL_REFUSED_TOTALS)
     # Statement-level rows keep their own denomination.
     assert cells[("document_1", "currency")] == "CAD"
     assert cells[("document_2", "currency")] == "USD"
@@ -973,6 +994,29 @@ def test_a_refused_package_keeps_its_pending_and_left_out_counts():
     assert _cross_document_numbers_not_counts(_package_rows(package)) == []
 
 
+def test_a_refused_package_publishes_the_package_passes_counts_and_no_mixed_money():
+    """Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): a CAD account's March deposit returned in its April
+    statement, beside a USD account that flags a processor chargeback: the package refuses its currencies, so the passes'
+    counts stay and their totals are None; each match and each flag names its own statement's unit."""
+    from tests.test_package_matching import APRIL, MARCH, _closing, _job, _payload
+
+    march = _payload(MARCH, month=3, opening=1500.0, currency="CAD")
+    april = _payload(APRIL, month=4, opening=_closing(MARCH, 1500.0), currency="CAD")
+    usd = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 900.0),
+                    (3, "HRTLAND PMT SYS CHARGEBACK 123456", -350.0)], month=4, opening=500.0,
+                   number="000000002020")
+    package = _package_analysis([_job("mar", march), _job("apr", april), _job("usd", usd)], settings={})
+    totals = package["totals"]
+    assert totals["cross_currency_totals_refused"] is True
+    assert (totals["returned_deposit_cross_statement_count"], totals["processor_chargeback_count"]) == (1, 1)
+    for key in CONDITIONAL_REFUSED_TOTALS - {"unmatched_deposit_return_total"}:
+        assert key in totals and totals[key] is None, key
+    assert "unmatched_deposit_return_total" not in totals
+    assert package["package_matches"][0]["credit"]["currency"] == package["package_matches"][0]["debit"]["currency"] == "CAD"
+    assert [flag["source_currency"] for flag in package["debit_flags"]] == ["USD"]
+    assert _cross_document_numbers_not_counts(_package_rows(package)) == []
+
+
 def test_package_ledger_rows_carry_their_own_source_currency():
     """The combined ledger interleaves rows from every member, so a package-wide
     label would mislabel every row of a mixed package."""
@@ -1035,8 +1079,9 @@ def test_the_route_serves_the_undetermined_bucket_end_to_end():
     # The code that WAS declared is still reported as evidence.
     assert body["currency"]["currencies"] == ["USD"]
     # 40 since audit B11 (I07) added the per-month True, Verified and Non-revenue; 41 since the owner's ruling of
-    # 2026-10-02 (the underwriter's Q5, R2-OW13) added the returned funder payments' total.
-    assert len(body["currency"]["refused_total_fields"]) == 41
+    # 2026-10-02 (the underwriter's Q5, R2-OW13) added the returned funder payments' total; 44 since the same day's
+    # ruling on the underwriter's Q6 (R2-OW15) added the package passes' three totals.
+    assert len(body["currency"]["refused_total_fields"]) == 44
     assert body["totals"]["cross_currency_totals_refused"] is True
     assert body["totals"]["currency"] is None
     assert body["totals"]["total_credits"] is None

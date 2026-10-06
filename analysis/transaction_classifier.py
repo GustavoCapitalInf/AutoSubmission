@@ -5457,6 +5457,37 @@ def _deposit_return_debit(text: str) -> bool:
     )
 
 
+#: Owner ruling 2026-10-02 (the underwriter's Q6, audit I42; true revenue spec §6.2's package passes, §9.1; R2-OW15): a
+#: processor's chargeback of a card sale, and a processor's merchant, financial or bankcard adjustment, read on a debit's
+#: text (processor_chargeback_debit); never the bank's or the processor's fee for one (_PROCESSOR_CHARGEBACK_FEE: the
+#: chargeback words are spared, so CHG BACK and CHARGE BACK stay chargebacks).
+_PROCESSOR_CHARGEBACK_WORD = re.compile(r"(?<![A-Z])(?:CHARGE ?BACKS?|CHBK|CHGBK|CHG BACK)(?![A-Z])")
+_PROCESSOR_ADJUSTMENT_WORD = re.compile(r"(?<![A-Z])(?:MERCH(?:ANT)? ADJ\w*|FINCL ADJ|BANKCD ADJ)(?![A-Z])")
+_PROCESSOR_CHARGEBACK_FEE = re.compile(
+    r"(?<![A-Z])(?:FEES?|FRAIS|SVC CHG|SERVICE CHARGE|CHRG|CHG(?! ?BACK)|CHARGES?(?! ?BACK))(?![A-Z])"
+)
+
+
+def processor_chargeback_debit(text: str) -> str | None:
+    """Owner ruling 2026-10-02 (the underwriter's Q6, "2": "Flag, but do not deduct, returns that cannot be matched
+    and processor chargebacks"; audit I42; R2-OW15): the wording of a debit that is a processor's chargeback or
+    adjustment, 'chargeback' or 'adjustment', else None. A flag's reader only: no classification, tier, figure or
+    lender reading reads it (analysis/revenue_view.py debit_side_flags flags the row on the statement and the package,
+    never deducted).
+
+    The fee wording (_PROCESSOR_CHARGEBACK_FEE) refuses it (the bank's chargeback fee, CHBK CHRG), and a returned
+    deposited item reads first (_deposit_return_debit: R2-B08's DEP RETURN CHARGEBACK and a bank's row-leading CHARGE
+    BACK of a deposited item are returns, never processor chargebacks). The caller reads the row's posting, duplicate
+    mark, lender contributions and class."""
+    if _PROCESSOR_CHARGEBACK_FEE.search(text) is not None or _deposit_return_debit(text):
+        return None
+    if _PROCESSOR_CHARGEBACK_WORD.search(text) is not None:
+        return "chargeback"
+    if _PROCESSOR_ADJUSTMENT_WORD.search(text) is not None:
+        return "adjustment"
+    return None
+
+
 def _deposit_channel_credit(text: str) -> bool:
     """5.6 (audit B3: I03): a credit a returned item may undo: a check deposit (§8.3), a cash, branch, teller or ATM
     deposit (§8.2), a deposit capture glued to its word (_DEPOSIT_CAPTURE_WORD), or a bare deposit that names no payer

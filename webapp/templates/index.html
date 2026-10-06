@@ -1222,6 +1222,13 @@
           <p class="rules-outdated-text" id="excludedNoticeText"></p>
         </section>
 
+        <!-- Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): what the package passes matched across its
+             statements (a deposit returned in the next statement of its account, taken out of True), and the
+             statements they could not read (app.js renderPackageMatchNotice). -->
+        <section class="panel rules-outdated duplicate-notice package-only" id="packageMatchNotice" aria-live="polite" hidden>
+          <p class="rules-outdated-text" id="packageMatchNoticeText"></p>
+        </section>
+
         <!-- The accounts of a statement that holds several: the main account first, the others with All accounts -->
         <section class="panel accounts-panel single-only" id="accountsPanel" aria-label="Accounts in this statement" hidden></section>
 

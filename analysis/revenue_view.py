@@ -28,6 +28,7 @@ from analysis.payload_shape import (
     payload_accounts,
 )
 from analysis.revenue import REVENUE_STATES, TIER_DETECTION_KEYS, TIER_METRIC_KEYS
+from analysis.transaction_classifier import _deposit_return_debit, processor_chargeback_debit
 
 _SURFACE = "analysis/revenue_view.py::apply_revenue_view"
 
@@ -78,6 +79,91 @@ def _drop_repointed_flag(node: object) -> None:
             _drop_repointed_flag(value)
 
 
+#: Owner ruling 2026-10-02 (the underwriter's Q6; true revenue spec §6.2's package passes, §9.1; R2-OW15): the two debit
+#: flags, in the order a statement's served metrics and a package's totals publish them.
+DEBIT_FLAG_KINDS = ("unmatched_deposit_return", "processor_chargeback")
+#: The classes whose debit is never a processor's chargeback or adjustment: financing (lender detection's financing
+#: groups and the retired lease or equipment financing), a card payment, insurance, tax and payroll.
+_NOT_A_PROCESSOR_DEBIT = frozenset({
+    "confirmed_lender", "potential_lender", "alternative_position", "line_of_credit", "vehicle_financing", "bank_loan",
+    "mortgage", "lease_or_rental", "personal_loan", "floor_plan_financing", "factoring", "debt_relief",
+    "lease_or_equipment_financing", "credit_card_payment", "insurance", "tax", "payroll",
+})
+#: The lender, potential-lender and withholding contributions a processor's chargeback never carries.
+_LENDER_CONTRIBUTIONS = (
+    "contributes_to_lender_count", "contributes_to_lender_totals", "contributes_to_withholding_rate",
+    "contributes_to_potential_lender_count", "contributes_to_potential_lender_totals",
+    "contributes_to_potential_withholding_exposure",
+)
+
+
+def _row_location(record: Mapping, position: int) -> str:
+    location = record.get("source_location")
+    return location if isinstance(location, str) and location else f"transaction:{position + 1}"
+
+
+def debit_side_flags(transactions: object, *, matched_locations: frozenset[str] | set[str] = frozenset()) -> list[dict]:
+    """Owner ruling 2026-10-02 (the underwriter's Q6, "2": "Flag, but do not deduct, returns that cannot be matched and
+    processor chargebacks"; audit I42; true revenue spec §6.2's package passes, §9.1, §9.2; R2-OW15): the debits one
+    statement's serialized rows flag, in row order, each `{kind, wording (a chargeback only), source_location, date,
+    amount, description}`. Never deducted: no figure, tier, gate or lender reading reads a flag.
+
+    * `unmatched_deposit_return`: a posted debit, no duplicate, that undoes a deposit (`_deposit_return_debit`, R2-B08's
+      wordings included), that no credit of the statement pairs (no posted credit's `revenue_match_method` is
+      `matched_reversal_pair` with its `revenue_related_transaction` on the debit's location) and that is not among
+      `matched_locations` (the package's cross-statement matches, `webapp/app.py` `_package_matches`). A correction
+      that names an equal credit of its own statement, which the package never nets across, is flagged here.
+    * `processor_chargeback`: a posted debit, no duplicate, whose text reads as a processor's chargeback or adjustment
+      (`processor_chargeback_debit`: never a fee, never a deposit return), with no lender, potential-lender or
+      withholding contribution and a class outside financing, card payments, insurance, tax and payroll. Its
+      `wording` is 'chargeback' or 'adjustment'.
+
+    Reads the serialized rows only (a row without a classification record is skipped); the payload is never
+    mutated."""
+    rows = [(position, row) for position, row in enumerate(transactions if isinstance(transactions, list) else [])
+            if isinstance(row, Mapping) and isinstance(row.get("classification"), Mapping)]
+    paired = {
+        row["classification"].get("revenue_related_transaction")
+        for _position, row in rows
+        if _number(row.get("amount")) > 0 and row["classification"].get("is_posted") is not False
+        and row["classification"].get("revenue_match_method") == "matched_reversal_pair"
+    }
+    flags: list[dict] = []
+    for position, row in rows:
+        record = row["classification"]
+        if _number(row.get("amount")) >= 0 or record.get("is_posted") is False or record.get("duplicate_of"):
+            continue
+        location = _row_location(record, position)
+        text = str(record.get("normalized_description") or "")
+        entry = {"source_location": location, "date": row.get("date"), "amount": row.get("amount"),
+                 "description": row.get("description")}
+        if _deposit_return_debit(text):
+            if location not in paired and location not in matched_locations:
+                flags.append({"kind": "unmatched_deposit_return", **entry})
+            continue
+        if record.get("classification") in _NOT_A_PROCESSOR_DEBIT or any(
+                record.get(flag) is True for flag in _LENDER_CONTRIBUTIONS):
+            continue
+        wording = processor_chargeback_debit(text)
+        if wording is not None:
+            flags.append({"kind": "processor_chargeback", "wording": wording, **entry})
+    return flags
+
+
+def debit_flag_metrics(flags: list[dict]) -> dict:
+    """R2-OW15 (§9.1): a statement's served flag keys, `<kind>_count`, `<kind>_total` (the debits' magnitude) and
+    `<kind>_locations`, for each kind `flags` holds; {} when it holds none, so a statement without a flag is served as
+    before."""
+    metrics: dict = {}
+    for kind in DEBIT_FLAG_KINDS:
+        entries = [flag for flag in flags if flag["kind"] == kind]
+        if entries:
+            metrics[f"{kind}_count"] = len(entries)
+            metrics[f"{kind}_total"] = round(sum(abs(_number(flag["amount"])) for flag in entries), 2)
+            metrics[f"{kind}_locations"] = [flag["source_location"] for flag in entries]
+    return metrics
+
+
 def _served_account(account: Mapping) -> dict:
     verified, established = revenue_flags(account)
     statement = account.get("statement")
@@ -107,6 +193,9 @@ def _served_account(account: Mapping) -> dict:
         metrics = copy.deepcopy(dict(result.get("metrics") or {}))
     metrics["verified_revenue_established"] = verified
     metrics["revenue_established"] = established and (tiered or not posted)
+    # Owner ruling 2026-10-02 (the underwriter's Q6; §9.1, R2-OW15): the statement's returns no credit of it pairs and
+    # its processor chargebacks and adjustments, flagged, never deducted; the keys only where a debit is flagged.
+    metrics.update(debit_flag_metrics(debit_side_flags(rows)))
     result["metrics"] = metrics
     return result
 

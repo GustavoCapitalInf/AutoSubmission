@@ -130,6 +130,9 @@ const els = {
   // Audit round 2, R2-B15 (R15): the accounts a package left out of every figure for another reason than a repeat.
   excludedNotice: document.getElementById("excludedNotice"),
   excludedNoticeText: document.getElementById("excludedNoticeText"),
+  // Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): what the package passes matched across its statements.
+  packageMatchNotice: document.getElementById("packageMatchNotice"),
+  packageMatchNoticeText: document.getElementById("packageMatchNoticeText"),
 };
 
 let currentJobId = null;
@@ -393,7 +396,20 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
   }
   const zelle = zelleExcludedFact(metrics, currency);
   if (zelle) facts.push(zelle);
-  return facts;
+  return [...facts, ...debitFlagFacts(metrics, currency)];
+}
+
+// Owner ruling 2026-10-02 (the underwriter's Q6, "Flag, but do not deduct, returns that cannot be matched and processor
+// chargebacks"; true revenue spec §10.1; R2-OW15): the True card's flag lines, a statement's (its served metrics) or a
+// package's (its totals), each only where its count is: "Returned deposits not matched: N · $X (not deducted)" and
+// "Processor chargebacks and adjustments: N · $X (not deducted)"; the count alone where a package refuses its money.
+function debitFlagFacts(source = {}, currency = "USD") {
+  return Object.entries(DEBIT_FLAG_WORDS).flatMap(([kind, words]) => {
+    const count = numberOrNull(source && source[`${kind}_count`]);
+    if (!count) return [];
+    const total = numberOrNull(source[`${kind}_total`]);
+    return [`${words}: ${formatNumber(count)}${total === null ? "" : ` · ${formatMoney(total, currency)}`} (not deducted)`];
+  });
 }
 
 // The same facts for a package, from its totals' member lists and its non-revenue breakdown.
@@ -410,7 +426,7 @@ function packageRevenueFacts(totals = {}, currency = "USD") {
   if (premiumTrust) facts.push(`${formatNumber(premiumTrust)} ${noun(premiumTrust)} of a premium trust account: deposits that would count are held`);
   const zelle = zelleExcludedFact(totals, currency);
   if (zelle) facts.push(zelle);
-  return facts;
+  return [...facts, ...debitFlagFacts(totals, currency)];
 }
 
 // A package's two revenue flags (§10.4). The server nulls its True, Counted and Held counts only when a completed
@@ -984,6 +1000,52 @@ function excludedReasonFilter(filter) {
   return match ? match[1] : null;
 }
 
+// Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the ledger filter behind a package match's kind is
+// "packageMatch:<kind>" (the rows the package passes matched, both legs), and the one behind a debit flag
+// "debitFlag:<kind>" (the debits flagged, never deducted). Null for any other filter.
+function packageMatchFilter(filter) {
+  const match = /^packageMatch:([a-z_]+)$/.exec(String(filter || ""));
+  return match ? match[1] : null;
+}
+
+function debitFlagFilter(filter) {
+  const match = /^debitFlag:([a-z_]+)$/.exec(String(filter || ""));
+  return match ? match[1] : null;
+}
+
+// The words of each debit flag (webapp/app.py debit_side_flags' kinds), on the True card, the Revenue evidence table and
+// the ledger's header.
+const DEBIT_FLAG_WORDS = Object.freeze({
+  unmatched_deposit_return: "Returned deposits not matched",
+  processor_chargeback: "Processor chargebacks and adjustments",
+});
+const PACKAGE_MATCH_WORDS = Object.freeze({ returned_deposit: "bounced deposits matched across statements" });
+
+// The debit flags of the rows on screen: a statement's, from its served metrics (`<kind>_locations`), or a package's,
+// from its `debit_flags` (each naming its statement, account and location). `has(tx, kind, position)` and `entry(tx)`.
+function statementDebitFlags(metrics) {
+  const m = metrics || {};
+  const locations = Object.fromEntries(Object.keys(DEBIT_FLAG_WORDS)
+    .map((kind) => [kind, new Set(Array.isArray(m[`${kind}_locations`]) ? m[`${kind}_locations`] : [])]));
+  return {
+    has: (tx, kind, position = null) => Boolean(locations[kind]) && locations[kind].has(rowSourceLocation(tx, position)),
+    entry: () => null,
+  };
+}
+
+function debitFlagKey(job, account, location) {
+  return `${job ?? ""}|${account ?? ""}|${location ?? ""}`;
+}
+
+function packageDebitFlags(pkg) {
+  const flags = new Map();
+  (Array.isArray(pkg && pkg.debit_flags) ? pkg.debit_flags : []).forEach((flag) => {
+    if (flag && typeof flag === "object") flags.set(debitFlagKey(flag.source_job, flag.source_account, flag.source_location), flag);
+  });
+  const entry = (tx) => flags.get(debitFlagKey(tx.source_job, tx.source_account, transactionClassification(tx).source_location)) || null;
+  return { has: (tx, kind) => (entry(tx) || {}).kind === kind, entry };
+}
+
 // T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with, so its
 // review view lists the deposits it left unverified, the rows its badge counts. This filter has no pill.
 const OLDER_REVIEW_FILTER = "unverified_deposit";
@@ -1008,6 +1070,11 @@ function revenueFilterLabel(filter, count) {
   if (countedReason) return `counted: ${lower(revenueReasonLabel({ revenue_tier_reason: countedReason }))}`;
   const excludedReason = excludedReasonFilter(filter);
   if (excludedReason) return `excluded: ${lower(revenueReasonLabel({ revenue_tier_reason: excludedReason }))}`;
+  // R2-OW15: the package passes' matches and the debit flags.
+  const matchKind = packageMatchFilter(filter);
+  if (matchKind) return PACKAGE_MATCH_WORDS[matchKind] || "rows matched across statements";
+  const flagKind = debitFlagFilter(filter);
+  if (flagKind) return lower(DEBIT_FLAG_WORDS[flagKind] || "flagged debits");
   const tier = CREDIT_MIX.find(([state]) => state === filter);
   return tier ? lower(tier[1]) : null;
 }
@@ -1114,9 +1181,18 @@ function nsfDaysEmptyNote(nsfDays) {
   return "The days counted could not be matched to rows.";
 }
 
-function filterTransactions(transactions, filter, canonicalEntity = null, nsfDays = null) {
+function filterTransactions(transactions, filter, canonicalEntity = null, nsfDays = null, debitFlags = null) {
   let matched = transactions;
   const flagGroup = flaggedFilterGroup(filter);
+  // Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): a package match's rows, and a debit flag's rows.
+  const matchKind = packageMatchFilter(filter);
+  if (matchKind) {
+    matched = transactions.filter((tx) => (transactionClassification(tx).package_match || {}).kind === matchKind);
+  }
+  const flagKind = debitFlagFilter(filter);
+  if (flagKind) {
+    matched = debitFlags ? transactions.filter((tx, position) => debitFlags.has(tx, flagKind, position)) : [];
+  }
   if (filter === "nsf") matched = nsfDays ? transactions.filter((tx, position) => nsfDays.has(tx, position)) : [];
   if (filter === "nsf_fees") {
     matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
@@ -1305,6 +1381,29 @@ function returnedFunderNotes(tx, rows = []) {
   return [`Returns the ${debit.date || "undated"} payment to ${transactionClassification(debit).canonical_entity || "a confirmed funder"}`];
 }
 
+// Owner ruling 2026-10-02 (the underwriter's Q6; true revenue spec §10.6, §10.7; R2-OW15): what the package passes say on
+// a row of the package ledger: a deposit they took out of True names its return (Confirm Revenue still overrides the
+// match), the return names the deposit, and a return they could not match because the analyst confirmed its nearest
+// deposit names that deposit. A statement viewed alone shows none.
+function packageMatchNotes(tx, debitFlags = null) {
+  const match = transactionClassification(tx).package_match;
+  const notes = [];
+  if (match && match.kind === "returned_deposit") {
+    if (match.debit && txAmount(tx) > 0) {
+      notes.push(`Returned on ${match.debit.date || "an unknown date"} (${match.debit.filename || "another statement"}): `
+        + "not counted. Confirm Revenue overrides the match.");
+    } else if (match.credit && txAmount(tx) < 0) {
+      notes.push(`Returns the ${match.credit.date || "undated"} deposit in ${match.credit.filename || "another statement"}.`);
+    }
+  }
+  const flag = debitFlags && txAmount(tx) < 0 ? debitFlags.entry(tx) : null;
+  const decided = flag && flag.candidate_decided;
+  if (decided && decided.decision === "confirmed") {
+    notes.push(`Matches the ${decided.date || "undated"} deposit you confirmed in ${decided.filename || "another statement"}; review.`);
+  }
+  return notes;
+}
+
 function runningBalanceValue(tx) {
   return numberOrNull(tx && tx.running_balance);
 }
@@ -1353,9 +1452,10 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     reviewAccount = null,
     selectable = false,
     nsfDays = null,
+    debitFlags = null,
   } = options;
   const rows = Array.isArray(transactions) ? transactions : [];
-  const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity, nsfDays), sort);
+  const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity, nsfDays, debitFlags), sort);
   const visible = matched.slice(0, limit);
   const showRunningBalance = matched.some((tx) => runningBalanceValue(tx) !== null);
   const runningBalanceHeader = tableEl.closest("table")?.querySelector("[data-running-balance-column]");
@@ -1425,7 +1525,10 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
       .map((line) => `<div class="tx-reason tx-funding">${escapeHtml(line)}</div>`).join("")
       // R2-OW13 (the underwriter's Q5): a return credit names the funder payment it returns.
       + returnedFunderNotes(tx, rows)
-        .map((line) => `<div class="tx-reason tx-returned">${escapeHtml(line)}</div>`).join("");
+        .map((line) => `<div class="tx-reason tx-returned">${escapeHtml(line)}</div>`).join("")
+      // R2-OW15 (the underwriter's Q6): the package passes' notes.
+      + packageMatchNotes(tx, debitFlags)
+        .map((line) => `<div class="tx-reason tx-package-match">${escapeHtml(line)}</div>`).join("");
     const balance = runningBalanceValue(tx);
     const runningBalance = showRunningBalance
       ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`
@@ -1484,6 +1587,8 @@ function mainTransactionContext() {
       currency: packageCurrencyInfo(pkg).currency,
       multi: true,
       nsfDays: packageNsfDays(pkg),
+      // R2-OW15 (the underwriter's Q6): the package's debit flags, each naming its statement.
+      debitFlags: packageDebitFlags(pkg),
     };
   }
   const statement = currentAnalysis?.statement || {};
@@ -1492,6 +1597,7 @@ function mainTransactionContext() {
     currency: statement.currency || "USD",
     multi: false,
     nsfDays: statementNsfDays(currentAnalysis?.metrics),
+    debitFlags: statementDebitFlags(currentAnalysis?.metrics),
   };
 }
 
@@ -1537,6 +1643,7 @@ function renderMainTransactions({ keepLimit = false } = {}) {
       reviewAccount: shownReviewAccount(),
       selectable: true,
       nsfDays: ctx.nsfDays,
+      debitFlags: ctx.debitFlags,
     }
   );
   // The selection is what is ticked on screen: a tick whose row is no longer shown (filtered out, on a page not
@@ -1763,6 +1870,7 @@ function renderModalTransactions({ keepLimit = false } = {}) {
       reviewJobId: modalJobId,
       reviewAccount: modalReviewAccount,
       nsfDays: statementNsfDays(modalAnalysis?.metrics),
+      debitFlags: statementDebitFlags(modalAnalysis?.metrics),
     }
   );
 }
@@ -2484,6 +2592,24 @@ function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) 
         <td></td>
       </tr>
     `).join("");
+  }).join("") + debitFlagEvidenceRowsHtml(metrics, currency, filterAttribute);
+}
+
+// Owner ruling 2026-10-02 (the underwriter's Q6; true revenue spec §10.1, §10.6; R2-OW15): after the credits, a row per
+// debit flag the statement or package carries, each filtering the ledger to its debits ("debitFlag:<kind>"); never a
+// figure of True, so it reads "Not deducted".
+function debitFlagEvidenceRowsHtml(source = {}, currency = "USD", filterAttribute = "data-revenue-filter") {
+  return Object.entries(DEBIT_FLAG_WORDS).map(([kind, words]) => {
+    const count = numberOrNull(source && source[`${kind}_count`]);
+    if (!count) return "";
+    return `
+      <tr class="evidence-flag-row">
+        <td><button class="evidence-link" type="button" ${filterAttribute}="debitFlag:${kind}" aria-label="Show the ${escapeHtml(words.toLowerCase())}">${escapeHtml(words)}</button></td>
+        <td>${escapeHtml(formatNumber(count))}</td>
+        <td>${escapeHtml(formatMoney(source[`${kind}_total`], currency))}</td>
+        <td>${glassChip("!", "Not deducted", "amber")}</td>
+      </tr>
+    `;
   }).join("");
 }
 
@@ -4020,6 +4146,41 @@ function renderExcludedNotice(pkg = {}) {
     + `${escapeHtml(lines.join("; "))}.`;
 }
 
+// Owner ruling 2026-10-02 (the underwriter's Q6, "2"; true revenue spec §10.1; R2-OW15): beside the repeats' and the
+// left-out accounts' notices, what the package passes matched across its statements, each pair listed with its dates
+// and money and a button to its rows ("packageMatch:<kind>"), and the statements they could not read (analysed with
+// older rules or with no currency). A statement viewed alone keeps its own figures, so the notice says the figures
+// are the package's.
+function renderPackageMatchNotice(pkg = {}) {
+  if (!els.packageMatchNotice) return;
+  const totals = pkg.totals || {};
+  const matches = (Array.isArray(pkg.package_matches) ? pkg.package_matches : [])
+    .filter((match) => match && match.kind === "returned_deposit" && match.moved === true && match.credit && match.debit);
+  const unchecked = new Set(countedDocuments(pkg.documents)
+    .filter((doc) => doc.package_match_unchecked === "older_rules" || doc.package_match_unchecked === "no_currency")
+    .map((doc) => packageMember(doc.id).jobId)).size;
+  els.packageMatchNotice.hidden = !matches.length && !unchecked;
+  if (!els.packageMatchNoticeText) return;
+  const parts = [];
+  if (matches.length) {
+    const currency = packageCurrencyInfo(pkg).currency;
+    const count = matches.length;
+    const pairs = matches.map((match) => `${match.credit.filename || "a statement"} ${match.credit.date || "undated"} `
+      + `deposit ${formatMoney(Math.abs(numberOrNull(match.credit.amount) ?? 0), match.credit.currency ?? currency)} `
+      + `returned ${match.debit.date || "undated"} (${match.debit.filename || "a statement"})`);
+    parts.push(`<strong>Matched across statements: ${escapeHtml(formatNumber(count))} bounced `
+      + `${count === 1 ? "deposit" : "deposits"} taken out of True `
+      + `(${escapeHtml(formatMoney(totals.returned_deposit_cross_statement_total, currency))}).</strong> `
+      + `${escapeHtml(pairs.join("; "))}. `
+      + `<button class="btn-quiet" type="button" data-revenue-filter="packageMatch:returned_deposit">Show them</button>`);
+  }
+  if (unchecked) {
+    parts.push(`Not matched across statements: ${escapeHtml(formatNumber(unchecked))} `
+      + `${unchecked === 1 ? "statement" : "statements"} analysed with older rules or with no currency.`);
+  }
+  els.packageMatchNoticeText.innerHTML = parts.join(" ");
+}
+
 // Audit round 2, R2-B15 (R50): a package's counts on one footing. `statements`: the statements it lists, its repeats
 // left out (distinct_documents); `accounts`: its members, each analysed, failed or still pending (completed + failed +
 // pending: an account a document publishes is a member of its own, Q1/Q5); `multi`: a counted row is an account of a
@@ -4110,6 +4271,7 @@ function renderPackageAnalysis(pkg) {
   els.decisionPill.className = `decision-pill ${totals.decision || ""}`.trim();
   renderDuplicateNotice(pkg);
   renderExcludedNotice(pkg);
+  renderPackageMatchNotice(pkg);
 
   setResultsMode("package");
   showResultsContent();
@@ -5548,6 +5710,10 @@ els.creditMixRows?.addEventListener("click", (event) => {
   showMainRevenueEvidence(revenueFilterFromEvent(event));
 });
 els.revenueTable?.addEventListener("click", (event) => {
+  showMainRevenueEvidence(revenueFilterFromEvent(event));
+});
+// R2-OW15 (the underwriter's Q6): the package-match notice's button shows the matched rows.
+els.packageMatchNotice?.addEventListener("click", (event) => {
   showMainRevenueEvidence(revenueFilterFromEvent(event));
 });
 els.statementModalMetrics?.addEventListener("click", (event) => {

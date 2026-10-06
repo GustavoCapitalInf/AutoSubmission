@@ -1116,6 +1116,34 @@ def test_r22_the_undo_debit_reads_the_new_bank_forms_only(text, undoes):
     from analysis import transaction_classifier as tc
 
     assert tc._deposit_return_debit(text) is undoes
+    # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): a returned deposited item reads first, so the flag's
+    # processor chargeback reader never takes one.
+    if undoes:
+        assert tc.processor_chargeback_debit(text) is None
+
+
+@pytest.mark.parametrize(("rows", "kind", "deposit_counted"), [
+    # Pass 4's 14 days are unchanged: a return 15 days after the deposit leaves it counted, and it is flagged.
+    ([("2054-03-02", "DEPOSIT", 450.0), ("2054-03-17", "CHARGE BACK ITEM", -450.0)], "unmatched_deposit_return", True),
+    # A processor's chargeback beside an equal deposit undoes nothing (owner decision I42): it is flagged.
+    ([("2054-03-02", "DEPOSIT", 450.0), ("2054-03-04", "HRTLAND PMT SYS CHARGEBACK 123456", -450.0)],
+     "processor_chargeback", True),
+    # A pair pass 4 makes flags nothing.
+    ([("2054-03-02", "DEPOSIT", 450.0), ("2054-03-04", "CHARGE BACK ITEM", -450.0)], None, False),
+])
+def test_r2_ow15_the_statement_flags_what_pass_4_leaves_and_moves_nothing(rows, kind, deposit_counted):
+    """Owner ruling 2026-10-02 (the underwriter's Q6, "Flag, but do not deduct"; R2-OW15): the flags read a statement's
+    records as pass 4 left them; the pairs, the tiers and True are pass 4's, unchanged."""
+    from dataclasses import asdict
+
+    from analysis.revenue_view import debit_side_flags
+
+    records = _classify(rows)
+    deposit = next(record for record in records if record.amount > 0)
+    assert deposit.contributes_to_true_revenue is deposit_counted
+    serialized = [{"amount": record.amount, "date": record.date, "description": record.original_description,
+                   "classification": asdict(record)} for record in records]
+    assert [flag["kind"] for flag in debit_side_flags(serialized)] == ([kind] if kind else [])
 
 
 # ---------------------------------------------------------------------------------------------------------------------
