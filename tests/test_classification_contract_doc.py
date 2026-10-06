@@ -341,6 +341,10 @@ SECTION_19_1_DECISIONS = (
     ("**2026-10-06, Zelle as True revenue is a Settings choice (Q3 amended).**", (
         "Mark Zelle Payments as True Revenue", "default", "Yes", "`zelle_excluded`", "nothing is reprocessed",
     )),
+    # The owner's request of 2026-10-06 (lender payment changes), R2-OW18.
+    ('**2026-10-06, lender payment changes (the owner\'s request).**', (
+        'decrease', 'increase', 'stop', 'weekly equivalent', 'information only',
+    )),
 )
 
 
@@ -1164,3 +1168,70 @@ def test_the_spec_and_the_contract_state_the_zelle_setting():
                   f"{R2_OW17_CODE_COMMIT})"):
         assert words in contract, words
     assert "`--zelle-true-revenue {yes,no}`" in _flat(README)
+
+
+#: The owner's request of 2026-10-06 (lender payment changes), R2-OW18: the code commit §20 and the contract name.
+R2_OW18_CODE_COMMIT = "551c90b"
+
+
+def test_the_contract_s_labels_paragraph_names_the_payee_key_and_publishes_no_payee_word():
+    """The owner's request of 2026-10-06 (R2-OW18): the D11 labels paragraph describes `potential_payee_key`, an
+    amount-free digest that publishes no payee word and that only the lender payment changes read."""
+    contract = _flat(CONTRACT)
+    paragraph = contract[contract.index("The Potential Lenders tab lists each unnamed payee key on its own line"):]
+    paragraph = paragraph[:paragraph.index("A higher-precedence non-lender match")]
+    for words in ("`potential_payee_key`", "amount-free digest", "so no payee word is published",
+                  "Only `analysis.lender_payment_changes` reads it"):
+        assert words in paragraph, words
+
+
+def test_the_spec_and_the_contract_state_the_lender_payment_changes():
+    """The owner's request of 2026-10-06 (lender payment changes; R2-OW18): §2.2's row, §9.1's detection key and record
+    field, §9.2's package keys, §9.3's CR2 note, §10.1's lines, §10.8's sections, §11, §12, §13's rows, §14.1's tests,
+    §14.3's new G7 outputs, §17.1's defaults with the orchestrator's two choices, §19.1 and §20 record it; the contract,
+    the README and the lender-detection spec follow. Written as "the owner's request of 2026-10-06", never with a Q."""
+    text = SPEC.read_text(encoding="utf-8")
+    requests = re.sub(r"\s+", " ", _section(text, "\n### 2.2 Owner requests (2026-10-06)", "\n## 3. "))
+    assert "| Lender payment changes (2026-10-06) | \"can we also detect when a payment to lender has decreased?" in requests
+    for words in ("\"Decreases, increases, stops\"", "\"Sustained, 10%+ drop\"", "\"Confirmed + potential\"",
+                  "**Information only:**", "R2-OW18"):
+        assert words in requests, words
+    for section, end, words in (
+        ("\n### 9.1 ", "\n### 9.2 ", ("`detection.lender_payment_changes`", "`potential_payee_key`",
+                                      "`schedule_confirmed`", "`stop_confirmed`")),
+        ("\n### 9.2 ", "\n### 9.3 ", ("`lender_payment_changes_unchecked`", "`continues_in_other_account`",
+                                      "`cross_statement`", "Never summed")),
+        ("\n### 9.3 ", "\n## 10. ", ("R2-OW18", "no bump", "`potential_payee_key`")),
+        ("\n### 10.1 ", "\n### 10.2 ", ("Payment decreased: KAPITUS daily $850.00 → $600.00 (-29%)",
+                                        "Payment changes not checked: this statement was analysed before the check.",
+                                        "No payments", "new schedule not yet confirmed")),
+        ("\n### 10.8 ", "\n## 11. ", ("`lender_payment_change_<n>`", "`lender_payment_unchecked_<n>`")),
+        ("\n## 11. ", "\n## 12. ", ("payment changes never enter the numerator, the basis or the rate",)),
+        ("\n## 12. ", "\n## 13. ", ("Analyses stored before the lender payment check", "not checked")),
+        ("\n## 13. ", "\n## 14. ", ("`analysis/lender_payment_changes.py` (new, R2-OW18)",
+                                    "G7; R2-OW13's returned categories; R2-OW18's payment-change outputs (new outputs "
+                                    "only)")),
+        ("\n### 14.1 ", "\n### 14.2 ", ("`tests/test_lender_payment_changes.py`",)),
+        ("\n### 14.3 ", "\n### 14.4 ", ("**G7's new outputs**", "byte-identical")),
+    ):
+        found = _section(text, section, end)
+        for word in words:
+            assert word in found, (section, word)
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "- **Lender payment changes: the defaults (the owner's request of 2026-10-06" in open_items
+    for words in ("(18) THE ORCHESTRATOR'S CHOICE OF 2026-10-06", "(23) THE ORCHESTRATOR'S CHOICE OF 2026-10-06"):
+        assert words in open_items, words
+    assert "## 20. Implementation amendments (2026-09-29 to 2026-10-06)" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Lender payment changes** (", "owner ruling 2026-10-06, R2-OW18",
+                  "- **Owner ruling 2026-10-06, R2-OW18 in all** (", R2_OW18_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"The owner's request of 2026-10-06 (lender payment changes; owner request 2026-10-06 (R2-OW18); "
+                  f"{R2_OW18_CODE_COMMIT})", "`detection.lender_payment_changes`",
+                  "payment changes never enter the numerator, the basis or the rate"):
+        assert words in contract, words
+    assert "R2-OW18" in _flat(README) and "lender_payment_changes.py" in _flat(README)
+    lender = (ROOT / "docs" / "superpowers" / "specs" / "2026-09-24-lender-detection-design.md").read_text(
+        encoding="utf-8")
+    assert lender.count("*Amendment (owner request 2026-10-06, R2-OW18):*") == 7

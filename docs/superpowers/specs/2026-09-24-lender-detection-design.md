@@ -241,6 +241,7 @@ The dashboard keeps a label for the retired state so that analyses stored before
   - it is off for proven duplicates;
   - it is off for settlement-reversed debits, and for a credit that the reversal pass pairs with a debit.
 - **`potential_payee_label: str | None`** (5.3, 2026-09-27) is the Potential Lenders line of an unnamed potential payee: a row whose entity is 'Unidentified lender obligation' or 'MCA servicer (funder not identified)'. The rows of one payee key (entity, rule, D6 payee words, amount and masked recipient) share it within the statement. It names the entity, a recurrence's cadence and the amount, never a payee word (D11): 'Unidentified lender obligation (weekly, 450.00)'. A second key with the same label gets ' #2'. It is None on every other row, whose line is its `canonical_entity`, and `canonical_entity` does not change (§4.5).
+- *Amendment (owner request 2026-10-06, R2-OW18):* **`potential_payee_key: str | None`**, directly after `potential_payee_label`, is set on every `potential_lender` row, named or not: an amount-free digest of the payee key (the entity, the D6 payee words and the masked recipient), so no payee word is published. Only `analysis.lender_payment_changes` reads it, to follow a potential lender's payee across an amount change (true revenue spec §9.1).
 
 | State | `flagged_group` | Settings key (default `true`) | Label |
 |---|---|---|---|
@@ -422,6 +423,7 @@ Per account:
   - `review_required` (5.3, last): true when any counted row of the payee requires review, which today only a routed unconfirmed payee's row does (§5). The package's flagged items and the statement and package exports (CSV/XLSX) carry it too, last.
 - **`detection.potential_lenders`** (5.3): an unnamed payee's entry is named by its label, so its `funder` is the `potential_payee_label` and each payee key is its own entry (§4.5).
 - **Cadence** comes from a new helper that returns `daily`, `weekly`, `biweekly`, `monthly` or `irregular`. `classify_cadence` and today's promotion gate stay unchanged.
+- *Amendment (owner request 2026-10-06, R2-OW18):* **`detection.lender_payment_changes`** lists the statement's lender payment changes (a decrease, an increase, a schedule change, a pause, a new concurrent stream or a stop of a confirmed funder's or a potential lender payee's regular payment; `analysis/lender_payment_changes.py`). Information only: no lender count, total, withholding, flag or revenue figure reads it (true revenue spec §9.1).
 - **Versions:**
   - `CLASSIFICATION_VERSION = "5.0"`.
   - `ANALYSIS_STAGE_VERSION` goes 18 → 19 in the same commit (`webapp/artifact_cache.py`), so a re-upload does not reuse a stale analysis. OCR stays cached.
@@ -433,6 +435,7 @@ Per account:
 ## 7. Command-line tools, benchmark, docs
 
 - `batch.py` gains a `flagged_positions` column (`group:payee` list), and `analyze.py` prints a Flagged positions block. Both run at analysis time and do not read Settings.
+- *Amendment (owner request 2026-10-06, R2-OW18):* `batch.py` gains seven columns after `recurring_debit_groups` (the decreases, increases, schedule changes, new streams, pauses and possible stops, and `lender_payment_changes`, each item as `kind:label`), and `analyze.py` prints a "Lender payment changes" block after the potential lenders (true revenue spec §13).
 - `benchmark/lenders.py` and `benchmark/compare.py`: MoneyThumb lenders that we now flag are reported as *flagged here*, not as misses. `NON_MCA_SCOPE` is replaced by the flagged groups.
 - `docs/transaction-classification.md`: update the state list, the precedence and the extension rule.
 - `docs/moneythumb-replacement/R1_HARDCODE_LOG.md`: record that the owner moved `INTUIT FINANCING` (item 12a) to alternative positions on 2026-09-24.
@@ -470,12 +473,14 @@ Per account:
   - `total_debited` is already a refused roll-up key, and `total_credited` joins it.
   - A refused package orders roll-ups by count (debits plus credits), then by name.
 - **Untouched:** lender totals, withholding, and the `decision` rule (D7).
+- *Amendment (owner request 2026-10-06, R2-OW18):* the package reads each lender payment series across the consecutive statements of one account (`_package_lender_payment_changes`: R2-OW15's `_same_account`, 5 days of overlap to 7 days of gap), publishes `lender_payment_changes` and the members it could not check (`lender_payment_changes_unchecked`, with their reasons), and never sums or rolls them up; lender totals, withholding and the decision are untouched (true revenue spec §9.2).
 
 ### 8.4 Downloads
 
 - **Single-statement CSV/XLSX:** readable `flagged_<group>_<n>` rows (payee, count, total, count and total credited, cadence) for ticked groups only, through the escaped-row path.
 - **Package CSV/XLSX:** `flagged_<group>_<n>` rows. The currency sweep's `CROSS_DOCUMENT_SECTION` widens to cover them, the credited fields included.
 - **JSON:** follows the displayed payload automatically.
+- *Amendment (owner request 2026-10-06, R2-OW18):* the statement downloads write `lender_payment_change_<n>` sections (no JSON cell for the detection key) and the package downloads `lender_payment_change_<n>` and `lender_payment_unchecked_<n>` sections, each change in its own statement's unit (true revenue spec §10.8).
 
 ### 8.5 Dashboard
 
@@ -498,6 +503,7 @@ Per account:
   - A "Flagged" ledger filter pill is added. It keeps flagged credit rows as well as debits.
   - When the group being filtered is unticked, the ledger filter resets.
 - **Lender table.** No change beyond its now-correct contents. Since 5.3 the Potential Lenders tab lists each unnamed payee key on its own labelled line ('Unidentified lender obligation (weekly, 450.00)', §4.5), and clicking a line filters the ledger by that label.
+- *Amendment (owner request 2026-10-06, R2-OW18):* the lender table shows one warning line per lender payment change above its rows ("Payment decreased: …", "Payment schedule changed: …", "Payments paused: …", "New payment stream: …", "Possible stop: …", or in a package "No payment to … since …"), potential lenders' lines in the neutral tone, and a neutral "not checked" line where the payload predates the check; no lender row, count or chip changes (true revenue spec §10.1).
 - **Outdated notice.** When `analysis_rules_outdated` is set, the results page shows "Analysed with older lender rules" and a **Re-analyze** button (§8.6).
 
 ### 8.6 Re-analyzing a saved statement (D12)
@@ -538,6 +544,7 @@ The route refuses when the stored PDF is missing.
   4. The owner's NMEF statement shows NMEF as a lender and Truist as a bank loan.
   5. No statement gains a lender from a generic word.
   6. The factoring ruling (owner, 2026-09-26) moves no lender, and it moves eligible deposits only where factoring credits are. On S2's code before and after the ruling, the census counts no lender gained or lost. Factoring's credits show as flagged credits, and eligible deposits rise only in the accounts that hold them. The measurement of 2026-09-26 found 1,174 credits, with eligible deposits up in 157 accounts and unchanged in the other 7,084.
+  *Amendment (owner request 2026-10-06, R2-OW18):* the census's snapshot gains one key, `lender_payment_changes`, and its compare a `lender_payment_changes` block (counts by kind and state, the accounts not comparable, the items gained and lost), new outputs only: they never fail G7, and with the key removed the snapshot is byte-identical to its base (true revenue spec §14.3).
 - **Speed:** the 300-row synthetic statement classifies at least 10× faster than today.
 
 ## 10. Services

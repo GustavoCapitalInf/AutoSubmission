@@ -202,7 +202,12 @@ all math and detection is deterministic Python. Stages:
    negative days.
 4. **Detect** (`detect.py`) — MCA/lender detection: a known-funder dictionary
    plus recurring fixed-debit pattern detection (the daily/weekly remittance
-   signature), each returning the evidence transactions.
+   signature), each returning the evidence transactions. Since the owner's
+   request of 2026-10-06 (R2-OW18) it also reads each lender's regular payment
+   for a decrease, an increase, a schedule change, a pause, a new concurrent
+   stream or a stop (`analysis/lender_payment_changes.py`, information only:
+   no lender, withholding or revenue figure moves), within the statement and,
+   in a package, across the consecutive statements of one account.
 
 ```bash
 # one-time: deps + API key (key lives in a gitignored .env, never in code)
