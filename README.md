@@ -240,7 +240,15 @@ in either revenue mode `eligible_deposits` carries the selected denominator, and
 the legacy figure stays in `legacy_eligible_deposits` on every statement. An
 analysis stored without a mode keeps the legacy basis it was made under. The withholding numerator is the confirmed lender debits paid plus the
 funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
-"paid to lenders" but stays in the rate. Extend maintained lender, candidate,
+"paid to lenders" but stays in the rate. Zelle deposits follow the Settings
+choice "Mark Zelle Payments as True Revenue" (the owner's amendment of
+2026-10-06 to the underwriter's Q3): Yes, the default, counts them in True
+revenue as the rules read a person-to-person credit (the holder's own name and
+one sender's repeated round sums held); No makes them non-revenue
+(`zelle_excluded`). The analysis stores both readings, so the choice applies to
+every saved analysis at once; `analyze.py` and `batch.py` take
+`--zelle-true-revenue {yes,no}` (default yes) and read no webapp setting.
+Extend maintained lender, candidate,
 insurance, operating-revenue, and exclusion aliases in
 `analysis/classification_registry.py`.
 

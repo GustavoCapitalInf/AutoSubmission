@@ -216,6 +216,15 @@ STALE_SENTENCES = (
     # The owner's ruling of 2026-10-02, R2-OW03: Q12's rows carry a display reason, and a Zelle deposit may be
     # confirmed, so the Zelle code is no longer the one exception and non-revenue rows are no longer all control-free.
     (CONTRACT, "The one exception is a Zelle deposit"),
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the Q3-only sentences, which named the
+    # exclusion as every Zelle deposit's reading, are retired for ones that name the reading.
+    (SPEC, "Amended 2026-10-02 (§2.1, §19.1): Zelle deposits are `non_revenue` (`zelle_excluded`)."),
+    (SPEC, "- **Zelle (owner ruling 2026-10-02, the underwriter's Q3):** every posted Zelle credit is `non_revenue`"),
+    (SPEC, "26. Then, after every step above and before the $1 floor, the Zelle policy"),
+    (SPEC, "Never a Zelle row (Q3 (2026-10-02)), never a row the registry"),
+    (SPEC, "Never read: a claimed row; a Zelle row (Q3 (2026-10-02)); a possible return"),
+    (SPEC, "| `webapp/settings.py` | none |"),
+    (CONTRACT, "- Every Zelle deposit is `non_revenue` (`zelle_excluded`), whoever sent it"),
     (CONTRACT, "until then such a row is non-revenue like any other"),
     (SPEC, "A `non_revenue` row carries a reason only when an owner ruling of 2026-10-02 decided it (the Zelle"),
     (SPEC, "Non-revenue rows have no controls (§15). "),
@@ -327,6 +336,10 @@ SECTION_19_1_DECISIONS = (
     # Owner ruling 2026-10-02 (the underwriter's Q4), R2-OW16.
     ("**2026-10-02, transfers between the business's accounts in a package (Q4; I30).**", (
         "I'll review it anyways", "`own_account_transfer_matched`", "marks it Verified", "no account number",
+    )),
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3, R2-OW17.
+    ("**2026-10-06, Zelle as True revenue is a Settings choice (Q3 amended).**", (
+        "Mark Zelle Payments as True Revenue", "default", "Yes", "`zelle_excluded`", "nothing is reprocessed",
     )),
 )
 
@@ -467,9 +480,13 @@ def test_the_spec_closes_i35_with_the_zelle_ruling_and_holds_q3b_for_the_owner()
     assert "**No-sender e-Transfers' round-sum repeats (the underwriter's Q3b of 2026-10-02" in open_items
     rulings = _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
     assert "| Q3 (2026-10-02) |" in rulings and "| Q3b (2026-10-02, round-2 R09) |" in rulings
-    assert "Amended 2026-10-02 (§2.1, §19.1): Zelle deposits are `non_revenue` (`zelle_excluded`)." in rulings
-    assert "- **Zelle (owner ruling 2026-10-02, the underwriter's Q3):**" in _section(text, "\n### 8.4 ", "\n### 8.5 ")
-    assert "26. Then, after every step above and before the $1 floor, the Zelle policy" in _section(
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): Q4's row, §8.4's lead and step 26 name it.
+    assert ("Amended 2026-10-02 and 2026-10-06 (§2.1, §19.1): Zelle deposits follow the Settings choice \"Mark Zelle "
+            "Payments as True Revenue\": Yes (the default) reads them as this row does; No makes them `non_revenue` "
+            "(`zelle_excluded`).") in rulings
+    assert ("- **Zelle (owner ruling 2026-10-02, the underwriter's Q3; a Settings choice since 2026-10-06):**"
+            in _section(text, "\n### 8.4 ", "\n### 8.5 "))
+    assert "26. Then, in the stored reading, after every step above and before the $1 floor, the Zelle policy" in _section(
         text, "\n### 8.10 ", "\n## 9. ")
     assert "| `non_revenue` | `zelle_excluded` | Zelle deposit (excluded by policy) |" in _section(
         text, "\n### 5.3 ", "\n### 5.4 ")
@@ -1084,3 +1101,66 @@ def test_the_spec_and_the_contract_state_the_transfers_between_the_business_s_ac
                   "A deposit the package holds as a transfer between the business's accounts (the underwriter's Q4 "
                   "(2026-10-02), R2-OW16) is such a moved credit"):
         assert words in contract, words
+
+
+#: The owner's amendment of 2026-10-06 to the underwriter's Q3, R2-OW17: the code commit §20 and the contract name.
+R2_OW17_CODE_COMMIT = "b98076d"
+
+
+def test_the_spec_and_the_contract_state_the_zelle_setting():
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): §2.1's Q3 row is amended; §5.3's source,
+    §8.1's carve-outs, §8.4's two readings, §9.1's stored edits and served keys, §9.2's package figures, §9.3's note,
+    §10's copy, review and exports, §11, §12, §13, §14.2's census, §14.3's G-Z and G7, §17.1's defaults and Q3b, and
+    §20 record it; the contract and the README follow. Written as "the owner's amendment of 2026-10-06 to the
+    underwriter's Q3" or "Q3 (amended 2026-10-06)", never a bare Q3."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n### 2.1 ", "\n## 3. "))
+    assert ("**Amended 2026-10-06 (R2-OW17):** a Settings choice, \"Mark Zelle Payments as True Revenue\", Yes by "
+            "default.") in rulings
+    assert "| owner 2026-10-02, Q3 (§8.4); the No reading since 2026-10-06 |" in _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    holds = _section(text, "\n### 8.1 ", "\n### 8.2 ")
+    for words in ("Never a Zelle row in the No reading", "a Zelle row in the No reading",
+                  "the skip is kept in both readings"):
+        assert words in holds, words
+    zelle = _section(text, "\n### 8.4 ", "\n### 8.5 ")
+    for words in ("**Yes, the counted reading**", "**No, the stored reading:**", "`classify_statement_readings`",
+                  "The lessor fact keeps its Zelle skip in both readings", "The latest decision on a Zelle row sets both"):
+        assert words in zelle, words
+    for section, end, words in (
+        ("\n### 9.1 ", "\n### 9.2 ", ("`zelle_counted_reading`", "`REBUILT_KEYS`", "`metrics.zelle_deposits`",
+                                      "`setting_applied`", "`zelle_deposit: true`", "**legacy**")),
+        ("\n### 9.2 ", "\n### 9.3 ", ("R2-OW17", "`zelle_deposits`", "out part")),
+        ("\n### 9.3 ", "\n## 10. ", ("R2-OW17", "no bump", "`zelle_counted_reading`")),
+        ("\n### 10.1 ", "\n### 10.2 ", ("Zelle deposits in True revenue:", "counted after review",
+                                        "analysed before the Zelle setting: shown as analysed")),
+        ("\n### 10.2 ", "\n### 10.3 ", ("Zelle in True", "counted after review")),
+        ("\n### 10.5 ", "\n### 10.6 ", ("Mark Zelle Payments as True Revenue", "Saved: Zelle deposits are non-revenue.")),
+        ("\n### 10.6 ", "\n### 10.7 ", ("\"Zelle\" chip",)),
+        ("\n### 10.7 ", "\n### 10.8 ", ("the latest decision on a posting sets every reading", "`with_both_readings`",
+                                        "`_copy_rank`")),
+        ("\n### 10.8 ", "\n## 11. ", ("`zelle_deposits.setting`", "trailing `zelle` column", "the closed list")),
+        ("\n## 11. ", "\n## 12. ", ("R2-OW17", "zero or missing")),
+        ("\n## 12. ", "\n## 13. ", ("Analyses stored before the Zelle setting", "**legacy**", "R2-B16")),
+        ("\n## 13. ", "\n## 14. ", ("the Zelle choice (display; R2-OW17)", "`--zelle-true-revenue {yes,no}`",
+                                    "`analysis/zelle_view.py`")),
+        ("\n### 14.2 ", "\n### 14.3 ", ("--zelle-true-revenue {yes,no}", "`ZelleViewMismatch`",
+                                        "`zelle_true_revenue_view`", "no §6.3 narrowing")),
+        ("\n### 14.3 ", "\n### 14.4 ", ("**G-Z**", "`zelle_reading_rule_d`")),
+    ):
+        found = _section(text, section, end)
+        for word in words:
+            assert word in found, (section, word)
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "- **The Zelle setting: the defaults (the owner's amendment of 2026-10-06 to the underwriter's Q3" in open_items
+    assert "leaves Q3b as it is" in open_items
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Zelle as True revenue is a Settings choice** (", "owner ruling 2026-10-06, R2-OW17",
+                  "- **Owner ruling 2026-10-06, R2-OW17 in all** (", R2_OW17_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in ("the Settings choice \"Mark Zelle Payments as True Revenue\"", "`classify_statement_readings`",
+                  "`zelle_deposits`", "`zelle_counted_reading`", "the latest decision on a posting sets every reading",
+                  f"Owner ruling 2026-10-06, R2-OW17 (the owner's amendment of 2026-10-06 to the underwriter's Q3; "
+                  f"{R2_OW17_CODE_COMMIT})"):
+        assert words in contract, words
+    assert "`--zelle-true-revenue {yes,no}`" in _flat(README)
