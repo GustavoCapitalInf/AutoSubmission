@@ -320,6 +320,10 @@ SECTION_19_1_DECISIONS = (
     ("**2026-10-02, returns across consecutive statements and chargebacks (Q6; I42).**", (
         "consecutive", "preceding statement", "never deducted", "adjustments",
     )),
+    # Owner ruling 2026-10-02 (the underwriter's Q4), R2-OW16.
+    ("**2026-10-02, transfers between the business's accounts in a package (Q4; I30).**", (
+        "I'll review it anyways", "`own_account_transfer_matched`", "marks it Verified", "no account number",
+    )),
 )
 
 
@@ -972,7 +976,7 @@ def test_the_spec_and_the_contract_state_the_package_passes():
     passes = _section(text, "\n### 6.2 ", "\n### 6.3 ")
     for words in ("**Package passes** (`_package_matches` in `webapp/app.py`, after R-d",
                   "1. **Returned deposits across statements.**", "`PACKAGE_CONSECUTIVE_DAYS = 7`",
-                  "2. (The underwriter's Q4 (2026-10-02), R2-OW16", "3. **Debit flags** (`debit_side_flags`",
+                  "2. **Own-account transfers** (the underwriter's Q4 (2026-10-02)", "3. **Debit flags** (`debit_side_flags`",
                   "a decided credit is never matched or annotated", "writes nothing back"):
         assert words in passes, words
     contract_keys = _section(text, "\n### 9.1 ", "\n### 9.3 ")
@@ -1012,4 +1016,67 @@ def test_the_spec_and_the_contract_state_the_package_passes():
                   "`processor_chargeback_debit(text)`", "`debit_side_flags`", "`returned_deposit_cross_statement`",
                   "A deposit the package passes take out of True (the underwriter's Q6 (2026-10-02), R2-OW15) leaves "
                   "the revenue basis it was in"):
+        assert words in contract, words
+
+
+#: The commit of the owner's ruling of 2026-10-02 on the underwriter's Q4 (R2-OW16): the code and the tests.
+R2_OW16_CODE_COMMIT = "3e6b2b6"
+
+
+def test_the_spec_and_the_contract_state_the_transfers_between_the_business_s_accounts():
+    """Owner ruling 2026-10-02 (the underwriter's Q4, audit I30), R2-OW16: §2.1 adds the Q4 row; §5.3 the held reason;
+    §6.2 the package's pass 2 and the `no_account_number` marker; §8.2 the pointer and the paper-or-cash guard; §9.2 the
+    overlay, the totals and the marker; §10.1, §10.6, §10.7 and §10.8 the notice, the notes, the release and the
+    downloads; §11 the True-revenue basis; §14.1 the tests; §17.1 rules I30, lists its defaults and the account-number
+    follow-up; §19.1 the decision; §20 the rule and the batch; the contract's note, reason row and withholding sentence
+    follow."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n### 2.1 ", "\n## 3. "))
+    for words in ("| Q4 (2026-10-02) | Own-account transfers across separately uploaded statements (audit I30) | "
+                  "\"Let's go with option 2 and I'll review it anyways\"", "`own_account_transfer_matched`",
+                  "another account of the same document", "annotated only"):
+        assert words in rulings, words
+    assert ("| `excluded_pending_review` | `own_account_transfer_matched` | Matches a transfer out of another account in "
+            "this package |") in _section(text, "\n### 5.3 ", "\n### 5.4 ")
+    passes = _section(text, "\n### 6.2 ", "\n### 6.3 ")
+    for words in ("2. **Own-account transfers** (the underwriter's Q4 (2026-10-02)", "`PACKAGE_TRANSFER_DAYS = 2`",
+                  "`_different_accounts`", "there is no bank-name arm", "`paper_or_cash_deposit`",
+                  "the destination veto", "**already-held** deposit", "is marked `no_account_number`",
+                  "Pass 2 never marks a row internal"):
+        assert words in passes, words
+    assert "`paper_or_cash_deposit`" in _section(text, "\n### 8.2 ", "\n### 8.3 ")
+    contract_keys = _section(text, "\n### 9.2 ", "\n### 9.3 ")
+    for words in ("- **Owner ruling 2026-10-02 (the underwriter's Q4), R2-OW16", "`own_account_transfer_held_count`",
+                  "`own_account_transfer_already_held_count`", "46 refused fields", "`no_account_number`"):
+        assert words in contract_keys, words
+    assert ("Transfers between accounts not checked for P statement(s): no account number read."
+            in _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    assert ("Confirm Revenue releases it into True and marks it Verified; Mark Non-Revenue keeps it out."
+            in _section(text, "\n### 10.6 ", "\n### 10.7 "))
+    assert ("- **A deposit the package held as a transfer between the business's accounts**"
+            in _section(text, "\n### 10.7 ", "\n### 10.8 "))
+    assert "`own_account_transfer_already_held_count`" in _section(text, "\n### 10.8 ", "\n## 11. ")
+    assert "R2-OW16" in _section(text, "\n## 11. ", "\n## 12. ")
+    assert "- **§6.2's package passes, Q4 (2026-10-02)**" in _section(text, "\n### 14.1 ", "\n### 14.2 ")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "- **I30, transfers across a package.** Ruled 2026-10-02 (§19.1)" in open_items
+    assert "Should a package pair transfers across its members?" not in open_items
+    line = next(line for line in open_items.splitlines()
+                if line.startswith("- **Transfers between the business's accounts: the defaults (the underwriter's Q4 "
+                                   "of 2026-10-02"))
+    for words in ("Confirm Revenue", "marks it Verified", "teller, counter or branch", "`payer_text_not_read`",
+                  "Alternative"):
+        assert words in line, words
+    assert ("- **Read the printed account number on Chase, Capital One and Banque Royale statements**"
+            in open_items)
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Transfers between the business's accounts** (", "- **Owner ruling 2026-10-02, R2-OW16 in all** (",
+                  R2_OW16_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Owner ruling 2026-10-02, R2-OW16 (the underwriter's Q4, \"Let's go with option 2 and I'll review it "
+                  f"anyways\"; {R2_OW16_CODE_COMMIT})",
+                  "`paper_or_cash_deposit(text)`", "`own_account_transfer_matched`", "`_different_accounts`",
+                  "A deposit the package holds as a transfer between the business's accounts (the underwriter's Q4 "
+                  "(2026-10-02), R2-OW16) is such a moved credit"):
         assert words in contract, words
