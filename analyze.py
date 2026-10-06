@@ -49,21 +49,43 @@ def _payment_change_line(item: dict) -> str:
         percent = f"{item['change_percent']:+d}%" if item["change_percent"] else "0%"
         measure = f"weekly equivalent {percent}" if changed else percent
         possible = ", possible: new schedule not yet confirmed" if item.get("schedule_confirmed") is False else ""
+        # R2-OW18 review round 1: the unreported levels with the step into each, then the last step.
+        via = [entry for entry in item.get("via") or [] if isinstance(entry, dict)]
+        steps = ""
+        if via:
+            steps = ", via " + ", ".join(
+                f"{entry['cadence']} ${entry['amount']:,.2f}"
+                + (f" ({entry['change_percent']:+d}%)" if isinstance(entry.get("change_percent"), int) else "")
+                for entry in via)
+            if isinstance(item.get("last_step_percent"), int):
+                steps += f", then {item['last_step_percent']:+d}%"
         return (f"{name}{potential}: {label} {item['cadence_before']} ${item['amount_before']:,.2f} -> {after}"
                 f"${item['amount_after']:,.2f} ({measure}) from {item['first_after_date']}, "
-                f"{item['payments_after']} payments (was {item['payments_before']}){possible}")
+                f"{item['payments_after']} payments (was {item['payments_before']}){possible}{steps}")
     if kind == "pause":
-        return (f"pause{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, no payment "
+        # R2-OW18 review round 1: a bounced attempt or a payment at another amount that ended the pause is named.
+        ended = item.get("first_after_kind")
+        what = "no payment or attempt" if ended == "attempt" else "no payment"
+        tail = ""
+        if ended == "attempt":
+            tail = f"; a returned attempt on {item['first_after_date']}, payments resumed on {item.get('resumed_date')}"
+        elif ended == "other_amount":
+            tail = (f"; a payment at another amount on {item['first_after_date']}, payments resumed on "
+                    f"{item.get('resumed_date')}")
+        return (f"pause{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, {what} "
                 f"{item['last_before_date']} to {item['first_after_date']}, {item['pause_business_days']} business days "
-                f"(grace {item['grace_business_days']})")
+                f"(grace {item['grace_business_days']}){tail}")
     if kind == "new_stream":
         alongside = " and ".join(f"{other['cadence']} ${other['amount']:,.2f}" for other in item.get("alongside") or [])
         return (f"new stream{potential}: {label} {item['cadence_after']} ${item['amount_after']:,.2f} from "
                 f"{item['first_after_date']} alongside {alongside}, weekly total {item['change_percent']:+d}%")
     end = "the period end" if item.get("coverage_end_source") == "period_end" else "the last transaction"
     lead = "stop" if item.get("stop_confirmed") is True else "possible stop"
+    # R2-OW18 review round 1: the quiet days run from the last presence; a returned attempt there is named.
+    attempt = item.get("last_attempt_returned")
+    returned = f", a returned attempt on {attempt.get('date')}" if isinstance(attempt, dict) else ""
     return (f"{lead}{potential}: {label} {item['cadence']}, last ${item['last_payment_amount']:,.2f} on "
-            f"{item['last_payment_date']}, {item['quiet_business_days']} business days to {end} "
+            f"{item['last_payment_date']}{returned}, {item['quiet_business_days']} business days to {end} "
             f"(grace {item['grace_business_days']})")
 
 

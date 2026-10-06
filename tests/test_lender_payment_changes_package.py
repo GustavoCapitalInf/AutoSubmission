@@ -356,6 +356,28 @@ def test_p13_the_statement_and_package_downloads():
     assert "account" not in exported and "account_number" not in exported
 
 
+def test_r1_the_downloads_carry_each_step_and_what_ended_a_pause():
+    """R2-OW18 review round 1: a change's unreported levels with the step into each and the last step, and a pause's
+    resuming presence and the date payments resumed, in the download sections (fabricated module items)."""
+    from tests import test_lender_payment_changes as pure
+    from webapp.app import LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, _lender_payment_change_rows
+
+    steps = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._rows(pure.every(M(23), A(6)), 950)
+                      + pure._rows(pure.every(A(13), A(27)), 650), end=A(30))
+    pause = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31)), 850)
+                      + pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+    rows = {(section, name): value for section, name, value in _lender_payment_change_rows([steps, pause])}
+    assert rows[("lender_payment_change_1", "via")] == "weekly 950.0 (-5%)"
+    assert rows[("lender_payment_change_1", "last_step_percent")] == -32
+    assert rows[("lender_payment_change_2", "first_after_kind")] == "attempt"
+    assert rows[("lender_payment_change_2", "resumed_date")] == "2054-03-23"
+    assert rows[("lender_payment_change_2", "last_step_percent")] == ""
+    fields = list(LENDER_PAYMENT_CHANGE_EXPORT_FIELDS)
+    assert fields[fields.index("last_after_date") + 1:fields.index("last_after_date") + 3] == [
+        "first_after_kind", "resumed_date"]
+    assert fields[fields.index("via") + 1] == "last_step_percent"
+
+
 def test_p13_the_package_json_download_carries_both_keys():
     from webapp.app import _package_for_export
 

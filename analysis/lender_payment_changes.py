@@ -354,6 +354,7 @@ class _Chain:
     series: dict[tuple[str, str], _Series]
     credits: list[_Row]
     debt_relief: list[_Row]
+    first_day: date | None
     last_day: date | None
     periods: list[tuple[date | None, date | None]]
     calendar: str
@@ -370,6 +371,7 @@ def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
     series: dict[tuple[str, str], _Series] = {}
     credits: list[_Row] = []
     debt_relief: list[_Row] = []
+    first_day: date | None = None
     last_day: date | None = None
     periods = [(parse_date(item.period_start), parse_date(item.period_end)) for item in statements]
     previous: dict[tuple, list[date]] = {}
@@ -383,6 +385,7 @@ def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
             if row is None:
                 continue
             last_day = row.day if last_day is None or row.day > last_day else last_day
+            first_day = row.day if first_day is None or row.day < first_day else first_day
             if not row.debit:
                 if row.posted and not row.duplicate:
                     credits.append(row)
@@ -408,7 +411,7 @@ def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
         entry.attempts.sort(key=lambda pay: pay.order)
     currencies = [item.currency for item in statements]
     calendar = calendar_for(next((currency for currency in currencies if currency), None))
-    return _Chain(series, credits, debt_relief, last_day, periods, calendar)
+    return _Chain(series, credits, debt_relief, first_day, last_day, periods, calendar)
 
 
 # ----------------------------------------------------------------------------------------- levels and positions
@@ -696,9 +699,22 @@ class _Scope:
     coverage_source: str
     holes: list[tuple[date, date]]
     readings: dict[tuple[str, str], _Reading]
+    coverage_start: date | None = None
 
     def business_days(self, first: date, second: date) -> int:
         return business_days_between(first, second, self.chain.calendar)
+
+    def uncovered_business_days(self, first: date, second: date) -> int:
+        """The business days strictly after `first`, up to and including `second`, that no statement of the chain
+        covers: those strictly between one member's period end and the next member's period start (a hole)."""
+        return sum(self.business_days(max(first, end), min(second, start - timedelta(days=1)))
+                   for end, start in self.holes)
+
+    def covered(self, day: date) -> bool:
+        """`day` is inside the chain's coverage: on or after its start and in no hole."""
+        if self.coverage_start is None or day < self.coverage_start:
+            return False
+        return not any(end < day < start for end, start in self.holes)
 
 
 def _band(pay: _Pay, reference: int) -> bool:
@@ -769,12 +785,18 @@ def _compared(before: _Regime, new: _Regime) -> Fraction:
     return (new.amount * WEEKLY_EQUIVALENT[new.cadence]) / (before.amount * WEEKLY_EQUIVALENT[before.cadence])
 
 
+def _step_percent(before: _Regime, new: _Regime) -> int:
+    """One step's change, rounded as `change_percent`: (B1's compared ratio - 1) x 100."""
+    return round((_compared(before, new) - 1) * 100)
+
+
 def _change(reading: _Reading, position: _Position, positions: int, scope: _Scope, *, before: _Regime,
             previous: _Regime, previous_last: date, new: _Regime, via: list[_Regime], earlier: list[_Regime],
             later: list[_Regime], at_end: bool, dropped: bool) -> tuple[dict | None, bool]:
     """One transition (B1, B2, B3), compared with `before`, the last reported regime of the position (§ Still open
-    23's alternative); the pause is read from `previous`, the regime just before. Returns (item or None, whether it is
-    reported as a confirmed level, which then becomes the reference)."""
+    23's alternative); the pause is read from `previous`, the regime just before, leaving out the business days no
+    statement of the chain covers (a hole between two members; R2-OW18 review round 1, as B7 reads no pause across a
+    hole). Returns (item or None, whether it is reported as a confirmed level, which then becomes the reference)."""
     cadence_changed = before.cadence != new.cadence
     if dropped and not cadence_changed:
         return None, False
@@ -782,7 +804,8 @@ def _change(reading: _Reading, position: _Position, positions: int, scope: _Scop
     marks = _presence(reading, position, previous.amount)
     resume = _first_mark_after(marks, previous_last)
     pause_end = min(resume.day, new.first) if resume is not None else new.first
-    pause = scope.business_days(previous_last, pause_end)
+    pause = (scope.business_days(previous_last, pause_end)
+             - scope.uncovered_business_days(previous_last, pause_end))
     restart = pause > max(_grace(previous.cadence) or 0, _grace(new.cadence) or 0)
     if 100 * ratio <= 100 - CHANGE_THRESHOLD_PERCENT:
         kind = "decrease"
@@ -832,7 +855,13 @@ def _change(reading: _Reading, position: _Position, positions: int, scope: _Scop
         "reverted": reverted_on is not None, "reverted_date": _iso(reverted_on),
     })
     if via:
-        item["via"] = [{"amount": _money(regime.amount), "cadence": regime.cadence} for regime in via]
+        # R2-OW18 review round 1: each unreported level with the step into it, and the last step, on the compared
+        # amounts (B1), so a cut after a small drift is never read as steps under 10%.
+        steps = [before, *via, new]
+        item["via"] = [{"amount": _money(regime.amount), "cadence": regime.cadence,
+                        "change_percent": _step_percent(steps[index], regime)}
+                       for index, regime in enumerate(via)]
+        item["last_step_percent"] = _step_percent(via[-1], new)
     funding = _after_funding(reading, scope, new.first)
     if funding is not None:
         item["after_funding"] = funding
@@ -894,7 +923,10 @@ def _transitions(reading: _Reading, position: _Position, positions: int, scope: 
 
 def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scope) -> list[dict]:
     """B7: inside one regime (after A8), a gap from a payment to the next presence (the regime's amount the band's
-    reference) longer than the regime cadence's grace window, with no chain coverage hole between them."""
+    reference) longer than the regime cadence's grace window, with no chain coverage hole between them. The item names
+    what ended it (R2-OW18 review round 1): `first_after_kind` 'payment' (the regime's next payment), 'attempt' (a
+    bounced or reversed debit of the series) or 'other_amount' (a payment of the series at another amount), and
+    `resumed_date`, the regime's next payment."""
     items: list[dict] = []
     kept, _dropped = _drop_short(_regimes(position, scope.chain.calendar))
     for regime in kept:
@@ -906,17 +938,20 @@ def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scop
         for pay in regime.pays:
             last_on[pay.day] = pay
         days = sorted(last_on)
-        for first, _second in zip(days, days[1:]):
+        for first, second in zip(days, days[1:]):
             resume = _first_mark_after(marks, first)
             if resume is None:
                 continue
             pause = scope.business_days(first, resume.day)
             if pause <= grace or any(first <= end and start <= resume.day for end, start in scope.holes):
                 continue
+            ended_by = ("payment" if resume.day == second else "attempt" if resume.kind == "attempt"
+                        else "other_amount")
             item = _common("pause", reading, position, positions, scope, _label(last_on[first], reading))
             item.update({
                 "cadence": regime.cadence, "last_payment_amount": _money(regime.amount),
                 "last_before_date": _iso(first), "first_after_date": _iso(resume.day),
+                "first_after_kind": ended_by, "resumed_date": _iso(second),
                 "pause_business_days": pause, "grace_business_days": grace,
                 "locations": {"last_before": last_on[first].location, "first_after": resume.pay.location},
                 "_source_statement": resume.pay.statement,
@@ -1025,14 +1060,27 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope) -> list
     return items
 
 
+def _previous_cycle_days(first: date, cadence: str) -> list[date]:
+    """The days one cycle of `cadence` before `first` falls on: from `first` less the cycle rounded up to `first` less
+    the cycle rounded down (weekly: the day 7 days before; monthly: 31 and 30 days before; daily: 2 and 1 days
+    before)."""
+    cycle = _cycle_days(cadence)
+    longest, shortest = -(-cycle.numerator // cycle.denominator), cycle.numerator // cycle.denominator
+    return [first - timedelta(days=days) for days in range(shortest, longest + 1)]
+
+
 def _new_streams(reading: _Reading, positions: list[_Position], scope: _Scope) -> list[dict]:
     """B8: a position P (3 or more payments, a regular last cadence) that starts at least one grace window after
     another such position Q began, while Q still pays 3 or more times on or after P's first payment, and raises the
-    funder's weekly total by CHANGE_THRESHOLD_PERCENT or more."""
+    funder's weekly total by CHANGE_THRESHOLD_PERCENT or more. R2-OW18 review round 1: P's payment one cycle of its
+    schedule before its first one (`_previous_cycle_days`) must fall inside the coverage, so a position that may have
+    been paying before the statement (chain) starts, or during a hole between two members, is never a new stream."""
     items: list[dict] = []
     real = [position for position in positions
             if position.n >= MIN_STOP_PAYMENTS and _grace(position.last_level.cadence) is not None]
     for stream in real:
+        if not all(scope.covered(day) for day in _previous_cycle_days(stream.first, stream.last_level.cadence)):
+            continue
         alongside = [
             other for other in real
             if other is not stream and other.first < stream.first
@@ -1086,7 +1134,8 @@ def payment_changes(statements: Sequence[StatementRows | tuple], *, scope: str =
     `_from_statement` and `_to_statement` on a change: the last old payment and the new regime's second payment), the
     series key (`_series_key`) and, on a stop, `_last_presence`; the package turns them into its source fields and
     drops them (statement_payment_changes drops them too). The coverage end is the last statement's printed period
-    end, else the last dated row (`coverage_end_source` 'last_transaction')."""
+    end, else the last dated row (`coverage_end_source` 'last_transaction'); the coverage start is the first
+    statement's printed period start, else the first dated row."""
     rows = [item if isinstance(item, StatementRows) else StatementRows(*item) for item in statements]
     if not rows:
         return []
@@ -1097,7 +1146,8 @@ def payment_changes(statements: Sequence[StatementRows | tuple], *, scope: str =
     holes = [(earlier[1], later[0]) for earlier, later in zip(chain.periods, chain.periods[1:])
              if earlier[1] is not None and later[0] is not None and (later[0] - earlier[1]).days > 1]
     readings = {key: _read_series(series, chain.calendar) for key, series in chain.series.items()}
-    context = _Scope(chain, scope, coverage_end, source, holes, readings)
+    coverage_start = chain.periods[0][0] or chain.first_day
+    context = _Scope(chain, scope, coverage_end, source, holes, readings, coverage_start)
     items: list[dict] = []
     for key, reading in readings.items():
         positions = reading.positions

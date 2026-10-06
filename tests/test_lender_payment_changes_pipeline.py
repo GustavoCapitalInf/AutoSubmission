@@ -133,6 +133,32 @@ def test_p_l1_the_cli_and_the_batch_columns():
     assert "  Lender payment changes: none" in quiet.splitlines()
 
 
+def test_r1_the_cli_names_an_attempt_and_the_unreported_steps():
+    """R2-OW18 review round 1: the CLI line of a pause a bounced attempt ended, of a stop whose last presence is an
+    attempt and of a change through unreported levels (fabricated module items)."""
+    import analyze
+    from tests import test_lender_payment_changes as pure
+
+    regular = pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31)), 850)
+    pause = pure.only(regular + pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+    assert analyze._payment_change_line(pause) == (
+        "pause: KAPITUS daily $850.00, no payment or attempt 2054-03-06 to 2054-03-16, 6 business days (grace 5); "
+        "a returned attempt on 2054-03-16, payments resumed on 2054-03-23")
+    other = pure.only(regular + pure._rows([M(16)], 425))
+    assert analyze._payment_change_line(other).endswith(
+        "6 business days (grace 5); a payment at another amount on 2054-03-16, payments resumed on 2054-03-23")
+    stop = pure.only(pure._rows(pure.every(M(4), A(1)), 1000)
+                     + pure._rows([pure.A(8)], 1000, returned_funder_payment_by="transaction:99"), end=pure.Y(1))
+    assert analyze._payment_change_line(stop) == (
+        f"possible stop: KAPITUS weekly, last $1,000.00 on 2054-04-01, a returned attempt on 2054-04-08, "
+        f"{stop['quiet_business_days']} business days to the period end (grace 10)")
+    steps = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._rows(pure.every(M(23), A(6)), 950)
+                      + pure._rows(pure.every(A(13), A(27)), 650), end=A(30))
+    assert analyze._payment_change_line(steps) == (
+        "decrease: KAPITUS weekly $1,000.00 -> $650.00 (-35%) from 2054-04-13, 3 payments (was 3), "
+        "via weekly $950.00 (-5%), then -32%")
+
+
 def test_p_l1_the_detector_moves_nothing_else(monkeypatch):
     import batch
 

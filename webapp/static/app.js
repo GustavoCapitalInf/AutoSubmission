@@ -933,7 +933,15 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
     const suffixes = [];
     if (item.schedule_confirmed === false) suffixes.push("new schedule not yet confirmed");
     if (Array.isArray(item.via) && item.via.length) {
-      suffixes.push(`in steps of under 10% each, via ${item.via.map((step) => `${cadence(step.cadence)} ${money(step.amount)}`).join(", ")}`);
+      // R2-OW18 review round 1: each unreported level with the step into it, then the last step; never a claim about
+      // the steps' size (an abrupt last step after a small drift reads as such). An item stored without the step
+      // fields names its levels alone.
+      const step = (percent) => (numberOrNull(percent) === null ? "" : ` (${signedPercent(percent)})`);
+      const levels = item.via.filter((entry) => entry && typeof entry === "object")
+        .map((entry) => `${cadence(entry.cadence)} ${money(entry.amount)}${step(entry.change_percent)}`).join(", ");
+      const last = numberOrNull(item.last_step_percent) === null ? ""
+        : `, then ${after} ${money(item.amount_after)}${step(item.last_step_percent)}`;
+      suffixes.push(`via ${levels}${last}`);
     }
     if (item.restart === true) suffixes.push(`after a pause of ${item.pause_business_days} business days`);
     if (item.back_to_earlier === true) suffixes.push(`back to the earlier ${money(item.amount_after)} payment`);
@@ -945,9 +953,22 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
     return sentence(body, suffixes);
   }
   if (item.kind === "pause") {
-    return sentence(`Payments paused${tag}: no payment to ${label}${stream} between ${item.last_before_date} and `
-      + `${item.first_after_date} (${item.pause_business_days} business days; ${cadence(item.cadence)}, grace `
-      + `${item.grace_business_days}), then resumed at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`);
+    // R2-OW18 review round 1: a bounced attempt or a payment at another amount can end the pause before the regular
+    // payment resumes; the line then says so and names the date payments resumed.
+    const attempt = item.first_after_kind === "attempt";
+    const facts = `(${item.pause_business_days} business days; ${cadence(item.cadence)}, grace ${item.grace_business_days})`;
+    const same = `at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`;
+    const head = `Payments paused${tag}: no payment${attempt ? " or payment attempt" : ""} to ${label}${stream} between `
+      + `${item.last_before_date} and ${item.first_after_date} ${facts}`;
+    if (attempt) {
+      return sentence(`${head}; the attempt on ${item.first_after_date} was returned unpaid, and payments resumed `
+        + `${same} on ${item.resumed_date || "N/A"}`);
+    }
+    if (item.first_after_kind === "other_amount") {
+      return sentence(`${head}; a payment at another amount on ${item.first_after_date}, and payments resumed ${same} `
+        + `on ${item.resumed_date || "N/A"}`);
+    }
+    return sentence(`${head}, then resumed ${same}`);
   }
   if (item.kind === "new_stream") {
     const alongside = (Array.isArray(item.alongside) ? item.alongside : [])
@@ -963,16 +984,22 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
     const later = others
       ? `; ${others.count} later ${others.count === 1 ? "debit" : "debits"} at other amounts, the last on ${others.last_date}`
       : "";
+    // R2-OW18 review round 1: when the last presence is a bounced attempt (and no debit at another amount follows the
+    // last payment), the quiet days run from the attempt: the line says "no payment or payment attempt" and gives the
+    // last payment's date.
+    const attempt = !others && Boolean(item.last_attempt_returned);
+    const none = attempt ? "payment or payment attempt" : "payment";
     let body;
     if (item.stop_confirmed === true) {
       const since = others ? item.last_payment_date : item.last_presence_date;
-      body = `No ${regular}payment to ${who}${stream} since ${since}${later} (${cadence(item.cadence)}; last payment `
-        + `${money(item.last_payment_amount)}; ${item.quiet_business_days} business days through ${item.coverage_end})`;
+      const paid = attempt ? ` on ${item.last_payment_date}` : "";
+      body = `No ${regular}${none} to ${who}${stream} since ${since}${later} (${cadence(item.cadence)}; last payment `
+        + `${money(item.last_payment_amount)}${paid}; ${item.quiet_business_days} business days through ${item.coverage_end})`;
     } else {
       const span = item.scope === "package" ? `through ${item.coverage_end}` : "of the statement";
       const lead = others
         ? `Possible stop: no ${regular}payment to ${who}${stream} since ${item.last_payment_date}${later}`
-        : `Possible stop: no payment to ${who}${stream} in the last ${item.quiet_business_days} business days ${span}`;
+        : `Possible stop: no ${none} to ${who}${stream} in the last ${item.quiet_business_days} business days ${span}`;
       body = `${lead} (${cadence(item.cadence)}; last payment ${money(item.last_payment_amount)} on `
         + `${item.last_payment_date}; ${stopGraceWords(item)})`;
     }

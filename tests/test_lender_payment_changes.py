@@ -219,7 +219,9 @@ def test_still_open_23_steps_under_ten_percent_are_reported_once_they_add_up():
     item = only(rows, end=Y(20))
     assert (item["kind"], item["amount_before"], item["amount_after"], item["change_percent"]) == (
         "decrease", 1000.0, 880.0, -12)
-    assert item["via"] == [{"amount": 950.0, "cadence": "weekly"}]
+    # R2-OW18 review round 1: each unreported level carries the step into it, and the item the last step.
+    assert item["via"] == [{"amount": 950.0, "cadence": "weekly", "change_percent": -5}]
+    assert item["last_step_percent"] == -7
     assert (item["payments_before"], item["payments_after"], item["first_after_date"]) == (4, 4, "2054-04-27")
 
 
@@ -233,9 +235,10 @@ def test_still_open_23_the_reference_moves_to_each_reported_level():
     rows = (_rows(every(M(2), M(23)), 1000) + _rows(every(M(30), A(20)), 700)
             + _rows(every(A(27), Y(18)), 660) + _rows(every(Y(25), J(15)), 600))
     found = changes(rows, end=J(19))
-    assert [(item["kind"], item["amount_before"], item["amount_after"], item.get("via")) for item in found] == [
-        ("decrease", 1000.0, 700.0, None),
-        ("decrease", 700.0, 600.0, [{"amount": 660.0, "cadence": "weekly"}])]
+    assert [(item["kind"], item["amount_before"], item["amount_after"], item.get("via"), item.get("last_step_percent"))
+            for item in found] == [
+        ("decrease", 1000.0, 700.0, None, None),
+        ("decrease", 700.0, 600.0, [{"amount": 660.0, "cadence": "weekly", "change_percent": -6}], -9)]
 
 
 # ------------------------------------------------------------------------------------------------ L10: positions
@@ -589,3 +592,91 @@ def test_a_one_statement_chain_equals_the_statement_but_for_its_scope_and_intern
     [statement_item] = lpc.statement_payment_changes(rows, period_start="2054-03-01", period_end="2054-03-31",
                                                      currency="USD")
     assert {**lpc.public_item(chain_item), "scope": "statement"} == statement_item
+
+
+# ------------------------------------------------------------------- R2-OW18 review round 1 (fabricated rows only)
+def _chain(*statements):
+    """A module chain of (rows, period_start, period_end) statements, in USD."""
+    return lpc.payment_changes([lpc.StatementRows(_located(rows), start.isoformat(), end.isoformat(), "USD")
+                                for rows, start, end in statements])
+
+
+def test_r1_a_change_through_unreported_levels_names_each_step_and_the_last_one():
+    # An abrupt cut after a small drift: 1,000 -> 950 (-5%) -> 650 (-32%). The item is compared with 1,000 (§ Still
+    # open 23) and names the step into each unreported level and the last step, so the cut never reads as drift.
+    item = only(_rows(every(M(2), M(16)), 1000) + _rows(every(M(23), A(6)), 950) + _rows(every(A(13), A(27)), 650),
+                end=A(30))
+    assert (item["kind"], item["amount_before"], item["amount_after"], item["change_percent"]) == (
+        "decrease", 1000.0, 650.0, -35)
+    assert item["via"] == [{"amount": 950.0, "cadence": "weekly", "change_percent": -5}]
+    assert item["last_step_percent"] == -32
+    # No unreported level, no step fields.
+    assert not {"via", "last_step_percent"} & set(only(_rows(bdays(M(2), M(13)), 850)
+                                                      + _rows(bdays(M(16), M(25)), 600)))
+
+
+def test_r1_a_possible_change_never_becomes_the_reference():
+    # daily 500 -> weekly 1,600 held 2 (a possible decrease, § Still open 18) -> weekly 2,300 held 3: the second line
+    # is compared with the daily 500 (the last confirmed level), and its steps show the rise from the possible level.
+    possible, change = changes(_rows(bdays(M(2), M(13)), 500) + _rows([M(16), M(23)], 1600)
+                               + _rows([M(30), A(6), A(13)], 2300), end=A(17))
+    assert (possible["kind"], possible["schedule_confirmed"], possible["change_percent"]) == ("decrease", False, -36)
+    assert "via" not in possible
+    assert (change["kind"], change["cadence_before"], change["amount_before"], change["change_percent"]) == (
+        "cadence_change", "daily", 500.0, -8)
+    assert change["via"] == [{"amount": 1600.0, "cadence": "weekly", "change_percent": -36}]
+    assert change["last_step_percent"] == 44
+
+
+def test_r1_a_restart_pause_leaves_out_the_days_no_statement_covers():
+    # March, then a statement from 04-08: the 5 business days of the hole are no pause, so no restart.
+    [item] = _chain((_rows(bdays(M(2), M(31)), 500), M(1), M(31)), (_rows(bdays(A(8), Y(7)), 400), A(8), Y(7)))
+    assert (item["kind"], item["change_percent"], item["restart"], item["pause_business_days"]) == (
+        "decrease", -20, False, None)
+    # A real pause beside a 2-day hole: the 15 business days from 03-13 to 04-03 less the hole's 2.
+    [item] = _chain((_rows(bdays(M(2), M(13)), 500), M(1), M(31)), (_rows(bdays(A(3), Y(1)), 400), A(3), Y(1)))
+    assert (item["kind"], item["restart"], item["pause_business_days"]) == ("decrease", True, 13)
+
+
+def test_r1_a_pause_names_what_ended_it_and_when_payments_resumed():
+    regular = _rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 850)
+    item = only(regular + _rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+    assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"]) == (
+        "pause", "2054-03-06", "2054-03-16", 6)
+    assert (item["first_after_kind"], item["resumed_date"]) == ("attempt", "2054-03-23")
+    item = only(regular + _rows([M(16)], 425))
+    assert (item["first_after_kind"], item["first_after_date"], item["resumed_date"]) == (
+        "other_amount", "2054-03-16", "2054-03-23")
+    # L32: the regime's own payment ends it.
+    item = only(_rows(bdays(M(2), M(6)) + bdays(M(16), M(31)), 850))
+    assert (item["first_after_kind"], item["first_after_date"], item["resumed_date"]) == (
+        "payment", "2054-03-16", "2054-03-16")
+
+
+def test_r1_a_stream_first_seen_within_one_cycle_of_the_coverage_start_is_not_new():
+    # A monthly stream first paid 19 days into the chain may have been paying before it: no new stream.
+    daily = bdays(M(2), Y(29))
+    monthly = [M(20), A(20), Y(20)]
+    months = ((M(1), M(31)), (A(1), A(30)), (Y(1), Y(29)))
+    found = _chain(*((_rows([day for day in daily if start <= day <= end], 500)
+                      + _rows([day for day in monthly if start <= day <= end], 2000), start, end)
+                     for start, end in months))
+    assert [item["kind"] for item in found] == []
+    # First paid 50 days into the chain, a month after a covered date: a new stream.
+    daily = bdays(M(2), J(30))
+    monthly = [A(20), Y(20), J(22)]
+    months += ((J(1), J(30)),)
+    [item] = _chain(*((_rows([day for day in daily if start <= day <= end], 500)
+                       + _rows([day for day in monthly if start <= day <= end], 2000), start, end)
+                      for start, end in months))
+    assert (item["kind"], item["cadence_after"], item["first_after_date"], item["change_percent"]) == (
+        "new_stream", "monthly", "2054-04-20", 18)
+
+
+def test_r1_a_stream_whose_previous_cycle_falls_in_a_coverage_hole_is_not_new():
+    # Daily payments across a hole (03-31 to 04-08); a weekly stream first seen on 04-10 would have paid on 04-03,
+    # inside the hole: no new stream. First seen on 04-17 (04-10 covered): a new stream.
+    march, later = _rows(bdays(M(2), M(31)), 500), _rows(bdays(A(8), Y(29)), 500)
+    for first, expected in ((A(10), []), (A(17), [("new_stream", "2054-04-17", 40)])):
+        found = _chain((march, M(1), M(31)), (later + _rows(every(first, Y(29)), 1000), A(8), Y(29)))
+        assert [(item["kind"], item["first_after_date"], item["change_percent"]) for item in found] == expected

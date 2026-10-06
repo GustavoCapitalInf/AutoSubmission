@@ -103,8 +103,9 @@ def test_u1_to_u4_the_lines():
     assert lines[10] == ("Possible payment decrease: KAPITUS daily $500.00 → weekly $1,600.00 (weekly equivalent "
                          "$2,500.00 → $1,600.00, -36%) from 2054-03-23; 2 payments at the new amount, after 15 at the "
                          "old; new schedule not yet confirmed.")
+    # R2-OW18 review round 1: the unreported levels with the step into each, then the last step.
     assert lines[11] == ("Payment decreased: KAPITUS weekly $1,000.00 → $880.00 (-12%) from 2054-04-27; 4 payments at "
-                         "the new amount, after 4 at the old; in steps of under 10% each, via weekly $950.00.")
+                         "the new amount, after 4 at the old; via weekly $950.00 (-5%), then weekly $880.00 (-7%).")
     chips = [chip for _text, chip in texts]
     assert chips[0] == chips[1] == chip_html("↓", "Decreased", "amber")
     assert chips[2] == chip_html("↻", "Schedule", "blue")
@@ -146,6 +147,58 @@ def test_u4_the_change_suffixes():
     assert texts[0].endswith("; temporary: back to $850.00 from 2054-03-19.")
     assert texts[1].endswith("; back to the earlier $850.00 payment.")
     assert texts[2].endswith("; after a pause of 20 business days.")
+
+
+# ------------------------------------------------------------------- R2-OW18 review round 1 (fabricated rows only)
+@needs_node
+def test_r1_an_abrupt_cut_after_a_drift_names_its_last_step():
+    abrupt = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._rows(pure.every(M(23), A(6)), 950)
+                       + pure._rows(pure.every(A(13), A(27)), 650), end=A(30))
+    possible, change = pure.changes(pure._rows(pure.bdays(M(2), M(13)), 500) + pure._rows([M(16), M(23)], 1600)
+                                    + pure._rows([M(30), A(6), A(13)], 2300), end=A(17))
+    older = {**abrupt, "via": [{"amount": 950.0, "cadence": "weekly"}]}
+    older.pop("last_step_percent")
+    texts = [text for text, _chip in warning_texts([abrupt, possible, change, older])]
+    assert texts[0] == ("Payment decreased: KAPITUS weekly $1,000.00 → $650.00 (-35%) from 2054-04-13; 3 payments at "
+                        "the new amount, after 3 at the old; via weekly $950.00 (-5%), then weekly $650.00 (-32%).")
+    assert texts[1] == ("Possible payment decrease: KAPITUS daily $500.00 → weekly $1,600.00 (weekly equivalent "
+                        "$2,500.00 → $1,600.00, -36%) from 2054-03-16; 2 payments at the new amount, after 10 at the "
+                        "old; new schedule not yet confirmed.")
+    assert texts[2] == ("Payment schedule changed: KAPITUS daily $500.00 → weekly $2,300.00 from 2054-03-30 (weekly "
+                        "equivalent $2,500.00 → $2,300.00, -8%: no decrease); 3 payments on the new schedule, after 10 "
+                        "on the old; via weekly $1,600.00 (-36%), then weekly $2,300.00 (+44%).")
+    # An item stored without the step fields names its levels alone; no line claims the steps' size.
+    assert texts[3].endswith("; via weekly $950.00.")
+    assert not any("under 10%" in text for text in texts)
+
+
+@needs_node
+def test_r1_a_pause_or_a_stop_whose_presence_is_an_attempt_says_so():
+    regular = pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31)), 850)
+    attempt = pure.only(regular + pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+    other = pure.only(regular + pure._rows([M(16)], 425))
+    march = pure._rows(pure.every(M(4), M(18)), 1000) + pure._rows([M(25)], 1000,
+                                                                    returned_funder_payment_by="transaction:99")
+    [stop] = pure._chain((march, M(1), M(31)), ([], A(1), A(30)))
+    stop = {**pure.lpc.public_item(stop), "source_document": "april.pdf"}
+    texts = [text for text, _chip in warning_texts([attempt, other, stop, ATTEMPT, L32])]
+    assert texts[0] == ("Payments paused: no payment or payment attempt to KAPITUS between 2054-03-06 and 2054-03-16 "
+                        "(6 business days; daily, grace 5); the attempt on 2054-03-16 was returned unpaid, and payments "
+                        "resumed at the same daily $850.00 on 2054-03-23.")
+    assert texts[1] == ("Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; "
+                        "daily, grace 5); a payment at another amount on 2054-03-16, and payments resumed at the same "
+                        "daily $850.00 on 2054-03-23.")
+    assert stop["stop_confirmed"] is True
+    assert texts[2] == (f"No payment or payment attempt to KAPITUS since 2054-03-25 (weekly; last payment $1,000.00 on "
+                        f"2054-03-18; {stop['quiet_business_days']} business days through 2054-04-30); the last "
+                        f"attempt, on 2054-03-25, was returned unpaid (april.pdf).")
+    assert texts[3] == (f"Possible stop: no payment or payment attempt to KAPITUS in the last "
+                        f"{ATTEMPT['quiet_business_days']} business days of the statement (weekly; last payment "
+                        f"$1,000.00 on 2054-04-01; more than 10 business days without a payment, two missed weekly "
+                        f"payments); the last attempt, on 2054-04-08, was returned unpaid.")
+    # The regime's own payment ends L32's pause: the line as before.
+    assert texts[4] == ("Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; "
+                        "daily, grace 5), then resumed at the same daily $850.00.")
 
 
 @needs_node

@@ -507,13 +507,14 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
 
 #: The owner's request of 2026-10-06 (lender payment changes; true revenue spec §10.8; R2-OW18, H1): the fields of a
 #: `lender_payment_change_<n>` section, in order; a field the item does not carry is an empty cell. `schedule_confirmed`
-#: and `via` are the orchestrator's choices of 2026-10-06 (§ Still open 18 and 23).
+#: and `via` are the orchestrator's choices of 2026-10-06 (§ Still open 18 and 23); `first_after_kind`,
+#: `resumed_date` (a pause) and `last_step_percent` (a change through unreported levels) are R2-OW18 review round 1's.
 LENDER_PAYMENT_CHANGE_EXPORT_FIELDS = (
     "kind", "lender", "lender_label", "lender_label_after", "lender_state", "position", "positions",
     "cadence", "cadence_before", "cadence_after", "amount_before", "amount_after", "change_percent", "cadence_changed",
     "schedule_confirmed", "weekly_equivalent_before", "weekly_equivalent_after", "payments_before", "payments_after",
-    "last_before_date", "first_after_date", "last_after_date", "restart", "pause_business_days",
-    "back_to_earlier", "reverted", "reverted_date", "via",
+    "last_before_date", "first_after_date", "last_after_date", "first_after_kind", "resumed_date", "restart",
+    "pause_business_days", "back_to_earlier", "reverted", "reverted_date", "via", "last_step_percent",
     "weekly_total_before", "weekly_total_after", "alongside",
     "last_payment_date", "last_payment_amount", "payments", "last_presence_date", "quiet_business_days",
     "grace_business_days", "coverage_end", "coverage_end_source", "stop_confirmed",
@@ -546,8 +547,11 @@ def _lender_payment_change_rows(items: object, *, package: bool = False) -> list
         for name in LENDER_PAYMENT_CHANGE_EXPORT_FIELDS:
             value = item.get(name)
             if name in ("alongside", "via") and isinstance(value, list):
-                value = "; ".join(f"{entry.get('cadence')} {entry.get('amount')}" for entry in value
-                                  if isinstance(entry, dict))
+                # A via level carries the step into it (R2-OW18 review round 1): "weekly 950.0 (-5%)".
+                value = "; ".join(f"{entry.get('cadence')} {entry.get('amount')}"
+                                  + (f" ({entry['change_percent']:+d}%)" if name == "via"
+                                     and isinstance(entry.get("change_percent"), int) else "")
+                                  for entry in value if isinstance(entry, dict))
             rows.append((section, name, "" if value is None else value))
         notes = LENDER_PAYMENT_CHANGE_NOTE_FIELDS + (
             (("continues_in_other_account", ("source_document", "first_date", "amount")),) if package else ())
