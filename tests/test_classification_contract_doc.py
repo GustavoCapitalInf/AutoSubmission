@@ -312,6 +312,10 @@ SECTION_19_1_DECISIONS = (
     ("**2026-10-02, bounced funder payments (Q5; I29).**", (
         "returned funder payment", "paid to lenders", "withholding", "lender count",
     )),
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14.
+    ("**2026-10-02, the withholding basis and cash deposits (Q7; I34).**", (
+        "`true_revenue`", "default", "selectable", "never Verified",
+    )),
 )
 
 
@@ -884,3 +888,61 @@ def test_the_spec_and_the_contract_state_the_returned_funder_payments():
                   "the reversal pass pairs clear it"):
         assert words in contract, words
     assert "funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5)" in _flat(README)
+
+
+#: The commit of the owner's ruling of 2026-10-02 on the underwriter's Q7 (R2-OW14): the code, the tests and the G7 pin.
+R2_OW14_CODE_COMMIT = "0aeb015"
+
+
+def test_the_spec_the_contract_and_the_readme_state_the_true_revenue_default_and_the_cash_arms():
+    """Owner ruling 2026-10-02 (the underwriter's Q7, audit I34), R2-OW14: §2.1 adds the Q7 row; T8 is amended; §8.2
+    adds the two cash arms (arm R flagged as inferred); §10.1 and §10.5 the Withholding Basis card and the copy; §11 the
+    default, the selectable bases, the stored payload and G7's pin; §14.3 G7's pin; §17.1 closes I34 and lists the
+    follow-ups; §19.1 the decision; §20 the ruling and the batch; the contract's withholding section and note, and the
+    README, say True revenue is the default."""
+    text = SPEC.read_text(encoding="utf-8")
+    rulings = re.sub(r"\s+", " ", _section(text, "\n### 2.1 ", "\n## 3. "))
+    for words in ("| Q7 (2026-10-02) | What the withholding rate is measured against (audit I34)",
+                  "True revenue is the default withholding basis (`true_revenue`)",
+                  "a payload stored with no mode keeps the legacy basis"):
+        assert words in rulings, words
+    decisions = _section(text, "\n## 4. ", "\n## 5. ")
+    assert "Amended 2026-10-02 (the underwriter's Q7 (2026-10-02), §2.1, §19.1; R2-OW14): True revenue is the default" in (
+        decisions)
+    cash = _section(text, "\n### 8.2 ", "\n### 8.3 ")
+    for words in ("- **Two cash shapes the reader missed**", "**Arm R, a retail cash load:**",
+                  "Inferred from the shape", "**Arm S, a branch deposit printed with its transit:**",
+                  "`_RETAIL_CASH_LOAD`", "`_BRANCH_DEPOSIT_TRANSIT`"):
+        assert words in cash, words
+    assert "- **The Withholding Basis card**" in _section(text, "\n### 10.1 ", "\n### 10.2 ")
+    assert "Confirmed lender debits as a share of the withholding basis (True revenue by default)" in _section(
+        text, "\n### 10.5 ", "\n### 10.6 ")
+    withholding = _section(text, "\n## 11. ", "\n## 12. ")
+    for words in ("- **Default: `true_revenue`** (owner ruling 2026-10-02, the underwriter's Q7",
+                  "- **Selectable:** `legacy_eligible_deposits`", "- **A stored payload** whose metrics carry no mode",
+                  "- **G7** (§14.3) pins the legacy basis"):
+        assert words in withholding, words
+    assert "Default unchanged" not in withholding
+    assert "(the underwriter's Q7; R2-OW14): the snapshot computes its metrics on the legacy basis" in _section(
+        text, "\n### 14.3 ", "\n### 14.4 ")
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "- **I34, the withholding basis.** Closed 2026-10-02 (§19.1)" in open_items
+    assert "Change the default?" not in open_items
+    assert any(line.startswith("- **The withholding basis and cash deposits: the follow-ups (the underwriter's Q7 of "
+                               "2026-10-02") for line in open_items.splitlines())
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Owner ruling 2026-10-02, R2-OW14 in all** (", R2_OW14_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    section = _section(contract, "## Withholding rate", "## Extension rule")
+    for words in ("The default mode is `true_revenue`", "stays selectable as `legacy_eligible_deposits`",
+                  "A stored analysis whose metrics carry no mode was made on the legacy basis and keeps it",
+                  "computes its snapshot on the legacy basis"):
+        assert words in section, words
+    assert "The default mode is explicitly exposed as `legacy_eligible_deposits`" not in contract
+    assert "Neither is ever the default" not in contract
+    assert f"Owner ruling 2026-10-02, R2-OW14 (the underwriter's Q7, \"2 Make True revenue the default\"; " \
+           f"{R2_OW14_CODE_COMMIT})" in contract
+    readme = _flat(README)
+    assert "Withholding divides by True revenue (`WITHHOLDING_DENOMINATOR_MODE=true_revenue`" in readme
+    assert "Withholding continues to use legacy eligible deposits" not in readme

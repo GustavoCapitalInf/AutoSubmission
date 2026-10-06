@@ -477,6 +477,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Owner ruling 2026-10-02, R2-OW11 (the underwriter's Q10, "Hold every deposit into an account titled "premium trust""; 1158b09): `premium_trust_title(account_title, account_name, holder_name)` reads the statement's own fields, never a row: the bank's designation (`Statement.account_title`) in three forms (the title at the field's end, the words followed by an account word, the words and an account or product word before a separator; never the words anywhere), then the account name and the holder's name (the account-word form refused on a field that ends in a legal form). `classify_statement_transactions` passes it to pass 7 (keyword `premium_trust`), whose step after the $1 floor holds every credit a rule verified or counted as `premium_trust_account` (`_held_in_premium_trust`: a verified one leaves verification with method `premium_trust_account`, a counted one keeps its state, method and rule); held and non-revenue credits keep their reading. `Metrics.premium_trust_account`, the package's `premium_trust_documents` and the True card's fact carry it; the census records the account's `premium_trust` flag, guard G20 and the declared demotion `premium_trust_account`. Every debit, lender, withholding numerator and flag reading is unchanged (true revenue spec §2.1, §5.3, §8.10, §9.1, §9.2, §10.1, §14.3, §15, §17.1, §19.1, §20).
 - Owner ruling 2026-10-02, R2-OW12 (the underwriter's Q1, "Held for review"; d9878f0): every wire with no sender printed stays held as `wire_no_sender`, and pass 7's last step, after the $1 floor and the premium-trust hold, records on each such held credit `revenue_funding_series` (`funding_series_after`: a tuple of `FundingSeries`, the Lenders or Potential Lenders series that start after the deposit; `FUNDING_SERIES_WINDOW_DAYS = 10`, `FUNDING_SERIES_MIN_PAYMENTS = 2`, `FUNDING_SERIES_MIN_LOOKBACK_DAYS = 3`). `apply_true_revenue_pass` gains the keyword `statement_start` (the printed period start), which `classify_statement_transactions` passes; the statement passes and their order are unchanged. The dashboard prints one "possible funding" line per series under the reason; the census counts the aid (`funding_series`, `funding_series_observed`, `funding_aid`). No tier, reason, figure, gate, debit, lender, withholding or flag reading moves (true revenue spec §2, §2.1, §5.4, §6.2, §8.5, §9.1, §10.7, §17.1, §19.1, §20).
 - Owner ruling 2026-10-02, R2-OW13 (the underwriter's Q5, "Match the return to the funder payment it reverses"; 2d81484): a confirmed funder's payment the bank returned unpaid leaves paid to lenders (`contributes_to_lender_totals`) and keeps `contributes_to_withholding_rate` and `contributes_to_lender_count`; the debit carries `returned_funder_payment_by` (the return credit's location, a returned-unpaid sentence on its reason) and the credit `returns_funder_payment` (the debit's location), two record fields right after `settlement_reversal`. A lender-side reversal pair (classification 5.4's markers, as before) whose debit is a confirmed funder's paid payment now keeps that count and withholding; every other debit is zeroed as before. After the true-revenue pass and before the duplicate finalisation, `_apply_returned_funder_payments` (rule D, spec §6.2 pass 7b) pairs a credit out of True (`non_revenue` or held) that prints a bounce form (`_RETURNED_PAYMENT_CREDIT_PATTERNS`: Bank of America's `RETURN OF POSTED CHECK|ITEM`, `ITEM RET`, `RET NOT PAID`, `RTN`, `NSF`, `UNPAID`, `NOT PAID`, `REJECT(ED)`, `RETURNED ITEM|ACH|PAYMENT|DEBIT|PAD|CHECK|CHEQUE|EFT|ENTRY|DR` in either order, `CREDIT RETURNED`, and R2-B08's French `EFFET RETOURNE` and `REFUSE SANS PROVISION`; the short codes never before a legal-form word, never a fee word) with a confirmed funder's paid debit of equal cents dated 0 to `RETURNED_FUNDER_PAYMENT_WINDOW_DAYS = 7` days before it (undated: printed before it): the debit dated on Bank of America's `RECEIVED ON` day first, then the latest, then the nearest row; skipped when an equal non-lender debit is as near or undated; a credit the revenue side paired only with its partner, and a credit naming a confirmed funder only with that funder's debits; each debit once. It sets no `reversed_by` (the reconciliation's reversal coverage, the settled-activity counts and the NSF count are unchanged) and moves no revenue field. Metrics: `lender_debits` stays paid, `returned_funder_payment_total` / `_count` / `_evidence` are new, and `withholding_numerator` is paid plus returned; detection lists `returned_funder_payments` and each funder's `returned_payment_count` / `_total`, and a funder whose every payment bounced stays listed; the package sums its members' numerators; the dashboard warns per returned payment. G7 declares the moves (`returned_funder_moves`, `kept_in_count_returned`). No tier, reason, True or Verified figure moves (true revenue spec §2.1, §6.2, §9.1, §9.2, §10.1, §10.6, §11, §14.3, §17.1, §19.1, §20).
+- Owner ruling 2026-10-02, R2-OW14 (the underwriter's Q7, "2 Make True revenue the default"; 0aeb015): `DEFAULT_WITHHOLDING_DENOMINATOR_MODE = "true_revenue"` (`analysis/revenue.py`) is the withholding basis `Settings`, `load_settings` (an unset, empty or unknown `WITHHOLDING_DENOMINATOR_MODE`), `compute_metrics`' keyword and the `Metrics` dataclass take; `normalize_withholding_denominator_mode(value, default="legacy_eligible_deposits")` keeps reading a stored payload's missing mode as legacy. The legacy and verified bases stay selectable and `legacy_eligible_deposits` stays published; the note on a basis of $0 names it ("withholding rate is unavailable because True revenue is zero or missing"); the dashboard's "Eligible Deposits" card is "Withholding Basis" and the rate notes name the basis (see "Withholding rate"); the CLI's working lines name it; the lender census pins the legacy basis. The cash, branch and ATM form (`_CASH_BRANCH_ATM_FORM`) gains two last alternatives, so their rows are `counted_flagged` / `no_payer_printed`, never Verified, as Q2 of 2026-09-28 reads every cash deposit: a retail cash load printed `... US<RETAILER> W<n>` at the row's end (`_RETAIL_CASH_LOAD`: Walgreens, CVS, 7-Eleven, Walmart, Dollar General, Rite Aid, Family Dollar, Circle K; inferred from Bluevine's shape) and a branch deposit printed `DEPOSIT <place> <5-digit transit> <3-digit sequence>` as the whole row with no legal form (`_BRANCH_DEPOSIT_TRANSIT`, Scotiabank's). No other credit's reading and no debit moves (true revenue spec §2.1, §8.2, §10.1, §10.5, §11, §14.3, §17.1, §19.1, §20, T8).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -939,13 +940,17 @@ may be legitimate repeated transactions.
 
 ## Withholding rate
 
-The existing eligible-deposit policy is preserved as the default mode,
-`legacy_eligible_deposits`:
+The default mode is `true_revenue` (the owner's ruling of 2026-10-02, the
+underwriter's Q7, "2 Make True revenue the default"; audit I34; true revenue
+spec T8, §11; R2-OW14): True revenue, verified plus counted credits (label
+"True revenue"), divides the confirmed withholding rate and the potential
+exposure. The earlier eligible-deposit policy, the default until then, stays
+selectable as `legacy_eligible_deposits`:
 
 `eligible_deposits = effective_total_deposits - recognized_lender_funding_credits`
 
-This legacy figure is always published as `legacy_eligible_deposits`; in the
-default mode `eligible_deposits` equals it.
+This legacy figure is always published as `legacy_eligible_deposits`, whatever
+the mode; in the legacy mode `eligible_deposits` equals it.
 
 `effective_total_deposits` uses a reconciled bank-printed total when available
 and otherwise uses parsed credit rows. Recognized lender funding credits are
@@ -967,29 +972,44 @@ floor-plan advance. Any other credit whose descriptor names no listed payee (an
 unnamed loan advance, for example) keeps its revenue rule and is not subtracted
 here.
 
-The default mode is explicitly exposed as `legacy_eligible_deposits`.
-`WITHHOLDING_DENOMINATOR_MODE` selects one of two revenue bases instead:
+`WITHHOLDING_DENOMINATOR_MODE` selects the basis:
+`WITHHOLDING_DENOMINATOR_MODE=true_revenue` (the default; label "True revenue"),
+`WITHHOLDING_DENOMINATOR_MODE=legacy_eligible_deposits` (the legacy figure
+above, label "Legacy eligible deposits") or
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` (verified classified revenue,
-label "Verified revenue") or, since 5.6, `WITHHOLDING_DENOMINATOR_MODE=true_revenue`
-(True revenue: verified plus counted credits, label "True revenue"; true revenue
-spec T8, §11). Neither is ever the default, and no run or deploy file in this
-repository sets `WITHHOLDING_DENOMINATOR_MODE` (the tryout host's environment
-is the `fly.toml` on its deploy branch, whose `[env]` did not set it either on
-2026-10-02). In
+label "Verified revenue"). An unset, empty or unknown value reads as the
+default (`DEFAULT_WITHHOLDING_DENOMINATOR_MODE` in `analysis/revenue.py`, which
+`Settings`, `load_settings`, `compute_metrics` and the `Metrics` dataclass
+read), and no run or deploy file in this repository sets
+`WITHHOLDING_DENOMINATOR_MODE` (the tryout host's environment is the
+`fly.toml` on its deploy branch, whose `[env]` did not set it either on
+2026-10-02), so the tryout host divides by True revenue. In
 either revenue mode `eligible_deposits` carries the selected denominator: the
 metrics (`analysis/metrics.py`) and the revenue rebuild (`analysis/revenue.py`)
 overwrite it with the Verified or True revenue total, and `withholding_denominator`, `potential_withholding_denominator` and
 `eligible_deposit_definition` follow it, so the subtraction above describes the
-default mode only and the legacy figure stays in `legacy_eligible_deposits`
-(audit I62). A package in the `true_revenue` mode deducts only the members'
+legacy mode only and the legacy figure stays in `legacy_eligible_deposits`
+(audit I62). A statement whose True revenue is $0 has no rate on the default
+basis and sets `withholding_review_required`, its note naming the basis
+("withholding rate is unavailable because True revenue is zero or missing").
+A stored analysis whose metrics carry no mode was made on the legacy basis and
+keeps it: `normalize_withholding_denominator_mode` reads a missing or unknown
+stored mode as `legacy_eligible_deposits`, so the review rebuild, the package
+and the dashboard read it so. The lender census (`tools/lender_census.py`, G7)
+computes its snapshot on the legacy basis, named explicitly, so it compares one
+basis across trees. A package in the `true_revenue` mode deducts only the members'
 internal-transfer credits that are verified or counted (the legacy mode deducts
 them all, the verified mode none), and in a revenue mode a member whose figure is
 not established leaves the package with no withholding rate and no potential
 exposure and sets `withholding_review_required` (spec §11, §20). The legacy value
 `confirmed_true_revenue` is accepted and normalized to `verified_revenue`; any
-other unknown value reads as the default. API and UI output include
-`withholding_denominator_mode` and `withholding_denominator_label`; the mode is
-never switched implicitly when revenue classification is available.
+other unknown value reads as the default in the environment and as the legacy
+basis on a stored analysis (above). API and UI output include
+`withholding_denominator_mode` and `withholding_denominator_label`, and the
+dashboard's Withholding Basis card (it was "Eligible Deposits") names the basis
+in its note ("True revenue: verified plus counted credits"; the legacy basis's
+"Gross deposits less lender funding (not True revenue)"); the mode is never
+switched implicitly when revenue classification is available.
 
 The formula is:
 
@@ -1006,8 +1026,8 @@ selected denominator above. Full precision is retained internally;
 rounding occurs only for display. A zero or missing denominator returns no rate
 and sets `withholding_review_required`.
 
-Potential lender exposure is a separate review metric over the same eligible
-deposit definition:
+Potential lender exposure is a separate review metric over the same withholding
+basis:
 
 `potential_withholding_exposure = abs(potential_lender_debit_total) / eligible_deposits * 100`
 

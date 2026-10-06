@@ -229,13 +229,16 @@ Tune via env: `GEMINI_MODEL` — the ONE hosted extraction model, and the hosted
 branch runs only behind the operator opt-in documented in `analysis/pipeline.py`
 (Phase 2.2, P22-FENCE; Ruling A). `GEMINI_ESCALATION_MODEL` is retained for
 settings-key stability only and is no longer read: the reconciliation-driven
-re-extraction with a second model was removed (ruling R9). Withholding continues to
-use legacy eligible deposits (`legacy_eligible_deposits`: deposits less lender
-funding) by default. Explicitly set `WITHHOLDING_DENOMINATOR_MODE=verified_revenue`
-to use verified classified revenue, or `WITHHOLDING_DENOMINATOR_MODE=true_revenue`
-to use True revenue (verified plus counted credits) instead; in either revenue
-mode `eligible_deposits` carries the selected denominator, and the legacy figure
-stays in `legacy_eligible_deposits`. The withholding numerator is the confirmed lender debits paid plus the
+re-extraction with a second model was removed (ruling R9). Withholding divides by
+True revenue (`WITHHOLDING_DENOMINATOR_MODE=true_revenue`: verified plus counted
+credits) by default since the owner's ruling of 2026-10-02 (the underwriter's
+Q7); an unset or unknown value reads as that default. Set
+`WITHHOLDING_DENOMINATOR_MODE=legacy_eligible_deposits` for legacy eligible
+deposits (deposits less lender funding, the default until then) or
+`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` for verified classified revenue;
+in either revenue mode `eligible_deposits` carries the selected denominator, and
+the legacy figure stays in `legacy_eligible_deposits` on every statement. An
+analysis stored without a mode keeps the legacy basis it was made under. The withholding numerator is the confirmed lender debits paid plus the
 funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
 "paid to lenders" but stays in the rate. Extend maintained lender, candidate,
 insurance, operating-revenue, and exclusion aliases in
