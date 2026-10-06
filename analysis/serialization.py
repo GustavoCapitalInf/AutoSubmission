@@ -214,6 +214,8 @@ def _account_payload(report: Report) -> dict:
             "insurance_evidence": [asdict(item) for item in detection.insurance_evidence],
             # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the returned funder payments, the warning's items.
             "returned_funder_payments": [dict(item) for item in detection.returned_funder_payments],
+            # The owner's request of 2026-10-06 (lender payment changes; R2-OW18).
+            "lender_payment_changes": [dict(item) for item in detection.lender_payment_changes],
             "verified_revenue_evidence": [
                 asdict(item) for item in detection.verified_revenue_evidence
             ],

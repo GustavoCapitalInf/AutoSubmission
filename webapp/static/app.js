@@ -858,6 +858,221 @@ function returnedFunderPaymentWarning(item, currency = "USD") {
     + "withholding rate.";
 }
 
+// The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
+// checked across statements (webapp/app.py LENDER_PAYMENT_UNCHECKED_WORDS).
+const LENDER_PAYMENT_UNCHECKED_WORDS = {
+  not_ready: "not analysed yet",
+  analysed_before_check: "analysed before the check: re-analyze",
+  no_currency: "no currency declared: checked alone",
+  no_period: "no statement period: checked alone",
+  no_account_number: "fewer than 4 account digits and no balance chain: checked alone",
+};
+const PAYMENT_CADENCE_WORDS = { semimonthly: "semi-monthly", daily_irregular: "irregular daily" };
+
+function paymentCadenceWords(cadence) {
+  return PAYMENT_CADENCE_WORDS[cadence] || String(cadence || "");
+}
+
+function signedPercent(value) {
+  const number = numberOrNull(value) ?? 0;
+  return `${number > 0 ? "+" : number < 0 ? "-" : ""}${Math.abs(number)}%`;
+}
+
+// R2-OW18: the parenthesis of a stop line names the schedule's grace window, never a schedule.
+function stopGraceWords(item) {
+  const grace = numberOrNull(item.grace_business_days);
+  const base = `more than ${grace ?? "N/A"} business days without a payment`;
+  return item.cadence === "weekly" ? `${base}, two missed weekly payments` : base;
+}
+
+// R2-OW18: the document suffix of a package line: the two statements of a change seen only across them, else the
+// statement the line names. Empty on a statement's own page.
+function paymentChangeDocument(item) {
+  if (item.scope !== "package") return "";
+  if (["decrease", "increase", "cadence_change"].includes(item.kind) && item.cross_statement === true) {
+    return ` (${item.from_document || "N/A"} → ${item.to_document || "N/A"})`;
+  }
+  return ` (${item.source_document || "N/A"})`;
+}
+
+// The owner's request of 2026-10-06 (lender payment changes; R2-OW18, G3): one warning line of the lender table.
+// Information only. Money is in the item's own unit (a package item's source_currency, R2-OW13's rule).
+function lenderPaymentChangeWarning(item, currency = "USD") {
+  const unit = "source_currency" in item ? item.source_currency : currency;
+  const money = (value) => formatMoney(value, unit);
+  const potential = item.lender_state === "potential";
+  const label = item.lender_label || item.lender || "Lender";
+  const who = potential ? `potential lender ${label}` : label;
+  const tag = potential ? " (potential lender)" : "";
+  const stream = numberOrNull(item.positions) > 1 ? ` (payment stream ${item.position} of ${item.positions})` : "";
+  const documentSuffix = paymentChangeDocument(item);
+  const sentence = (body, suffixes = []) => `${[body, ...suffixes].join("; ")}${documentSuffix}.`;
+  const cadence = paymentCadenceWords;
+  if (["decrease", "increase", "cadence_change"].includes(item.kind)) {
+    const before = cadence(item.cadence_before);
+    const after = cadence(item.cadence_after);
+    const weekly = `weekly equivalent ${money(item.weekly_equivalent_before)} → ${money(item.weekly_equivalent_after)}`;
+    let body;
+    if (item.kind === "cadence_change") {
+      const verdict = numberOrNull(item.change_percent) > 0 ? "no increase" : "no decrease";
+      body = `Payment schedule changed${tag}: ${label}${stream} ${before} ${money(item.amount_before)} → ${after} `
+        + `${money(item.amount_after)} from ${item.first_after_date} (${weekly}, ${signedPercent(item.change_percent)}: `
+        + `${verdict}); ${item.payments_after} payments on the new schedule, after ${item.payments_before} on the old`;
+    } else {
+      const possible = item.schedule_confirmed === false;
+      const lead = item.kind === "decrease"
+        ? (possible ? "Possible payment decrease" : "Payment decreased")
+        : (possible ? "Possible payment increase" : "Payment increased");
+      const amounts = item.cadence_changed === true
+        ? `${before} ${money(item.amount_before)} → ${after} ${money(item.amount_after)} (${weekly}, `
+          + `${signedPercent(item.change_percent)})`
+        : `${before} ${money(item.amount_before)} → ${money(item.amount_after)} (${signedPercent(item.change_percent)})`;
+      body = `${lead}${tag}: ${label}${stream} ${amounts} from ${item.first_after_date}; ${item.payments_after} payments `
+        + `at the new amount, after ${item.payments_before} at the old`;
+    }
+    const suffixes = [];
+    if (item.schedule_confirmed === false) suffixes.push("new schedule not yet confirmed");
+    if (Array.isArray(item.via) && item.via.length) {
+      suffixes.push(`in steps of under 10% each, via ${item.via.map((step) => `${cadence(step.cadence)} ${money(step.amount)}`).join(", ")}`);
+    }
+    if (item.restart === true) suffixes.push(`after a pause of ${item.pause_business_days} business days`);
+    if (item.back_to_earlier === true) suffixes.push(`back to the earlier ${money(item.amount_after)} payment`);
+    if (item.reverted === true) suffixes.push(`temporary: back to ${money(item.amount_before)} from ${item.reverted_date}`);
+    if (item.after_funding) {
+      suffixes.push(`after a new funding from ${item.lender} of ${money(item.after_funding.amount)} on `
+        + `${item.after_funding.date} (renewal?)`);
+    }
+    return sentence(body, suffixes);
+  }
+  if (item.kind === "pause") {
+    return sentence(`Payments paused${tag}: no payment to ${label}${stream} between ${item.last_before_date} and `
+      + `${item.first_after_date} (${item.pause_business_days} business days; ${cadence(item.cadence)}, grace `
+      + `${item.grace_business_days}), then resumed at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`);
+  }
+  if (item.kind === "new_stream") {
+    const alongside = (Array.isArray(item.alongside) ? item.alongside : [])
+      .map((other) => `${cadence(other.cadence)} ${money(other.amount)}`).join(" and ");
+    return sentence(`New payment stream${tag}: ${label} ${cadence(item.cadence_after)} ${money(item.amount_after)} from `
+      + `${item.first_after_date}, alongside ${alongside} (weekly total ${money(item.weekly_total_before)} → `
+      + `${money(item.weekly_total_after)}, ${signedPercent(item.change_percent)}; payment stream ${item.position} of `
+      + `${item.positions})`);
+  }
+  if (item.kind === "stop") {
+    const others = item.other_debits_after;
+    const regular = others ? `regular ${money(item.last_payment_amount)} ` : "";
+    const later = others
+      ? `; ${others.count} later ${others.count === 1 ? "debit" : "debits"} at other amounts, the last on ${others.last_date}`
+      : "";
+    let body;
+    if (item.stop_confirmed === true) {
+      const since = others ? item.last_payment_date : item.last_presence_date;
+      body = `No ${regular}payment to ${who}${stream} since ${since}${later} (${cadence(item.cadence)}; last payment `
+        + `${money(item.last_payment_amount)}; ${item.quiet_business_days} business days through ${item.coverage_end})`;
+    } else {
+      const span = item.scope === "package" ? `through ${item.coverage_end}` : "of the statement";
+      const lead = others
+        ? `Possible stop: no ${regular}payment to ${who}${stream} since ${item.last_payment_date}${later}`
+        : `Possible stop: no payment to ${who}${stream} in the last ${item.quiet_business_days} business days ${span}`;
+      body = `${lead} (${cadence(item.cadence)}; last payment ${money(item.last_payment_amount)} on `
+        + `${item.last_payment_date}; ${stopGraceWords(item)})`;
+    }
+    const suffixes = [];
+    if (item.payoff) suffixes.push(`a final debit of ${money(item.payoff.amount)} on ${item.payoff.date} (possible payoff)`);
+    if (item.continues_as) {
+      const next = item.continues_as;
+      const name = next.lender_state === "potential" ? `potential lender ${next.lender_label}` : next.lender_label;
+      suffixes.push(`payments of ${money(next.amount)} continue as ${name} from ${next.first_date} (possible buyout or refinance)`);
+    }
+    if (item.new_lender_after) {
+      const next = item.new_lender_after;
+      const name = next.lender_state === "potential" ? `potential lender ${next.lender_label}` : next.lender_label;
+      suffixes.push(`a new lender series starts: ${name} ${cadence(next.cadence)} ${money(next.amount)} from ${next.first_date}`);
+    }
+    if (item.debt_relief_after) {
+      suffixes.push(`a debt relief program's payments start on ${item.debt_relief_after.date} (possible default or settlement)`);
+    }
+    if (item.continues_in_other_account) {
+      const other = item.continues_in_other_account;
+      suffixes.push(`payments to ${label} continue from another account (${other.source_document || "N/A"}) from `
+        + `${other.first_date} at ${money(other.amount)}`);
+    }
+    if (item.other_stream_continues) {
+      suffixes.push(`another ${label} payment stream continues (${money(item.other_stream_continues.amount)} `
+        + `${cadence(item.other_stream_continues.cadence)})`);
+    }
+    if (item.last_attempt_returned) suffixes.push(`the last attempt, on ${item.last_attempt_returned.date}, was returned unpaid`);
+    return sentence(body, suffixes);
+  }
+  return sentence(`Payment change: ${label}`);
+}
+
+// R2-OW18 (G2): the chip of a lender payment change; every potential lender's line in the neutral tone.
+function lenderPaymentChangeChip(item) {
+  const possible = item.schedule_confirmed === false;
+  const chips = {
+    decrease: ["↓", possible ? "Possible decrease" : "Decreased", "amber"],
+    increase: ["↑", possible ? "Possible increase" : "Increased", "blue"],
+    cadence_change: ["↻", "Schedule", "blue"],
+    pause: ["‖", "Paused", "amber"],
+    new_stream: ["+", "New stream", "blue"],
+    stop: ["■", item.stop_confirmed === true ? "No payments" : "Possible stop", "amber"],
+  };
+  const [glyph, text, tone] = chips[item.kind] || ["·", "Payment change", "neutral"];
+  return glassChip(glyph, text, item.lender_state === "potential" ? "neutral" : tone);
+}
+
+// R2-OW18 (G1): the lender table's payment-change lines, above its rows. `paymentChanges` null or undefined is "not
+// computed" (an analysis saved before the check), never "no change": with lender rows it shows one neutral line, whose
+// words depend on the page. An empty list shows nothing. A package's members not checked across statements show one
+// neutral line naming each with its reason.
+function lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, hasLenders, isPackage) {
+  const row = (chip, text) => `
+      <tr class="lender-warning">
+        <td colspan="6">${chip} <span class="lender-warning-text">${escapeHtml(text)}</span></td>
+      </tr>
+    `;
+  const lines = [];
+  if (Array.isArray(paymentChanges)) {
+    paymentChanges.filter((item) => item && typeof item === "object")
+      .forEach((item) => lines.push(row(lenderPaymentChangeChip(item), lenderPaymentChangeWarning(item, currency))));
+  } else if (hasLenders) {
+    lines.push(row(glassChip("·", "Not checked", "neutral"), isPackage
+      ? "Payment changes not checked: no statement of this package has been checked yet."
+      : "Payment changes not checked: this statement was analysed before the check. Re-analyze to see them."));
+  }
+  const left = (Array.isArray(unchecked) ? unchecked : []).filter((entry) => entry && typeof entry === "object");
+  if (isPackage && left.length && hasLenders) {
+    const named = left.map((entry) => `${entry.source_document || entry.source_job || "N/A"} `
+      + `(${LENDER_PAYMENT_UNCHECKED_WORDS[entry.reason] || entry.reason})`).join(", ");
+    lines.push(row(glassChip("·", "Not checked", "neutral"),
+      `Payment changes not checked across statements for ${left.length} statement(s): ${named}`));
+  }
+  return lines.join("");
+}
+
+// R2-OW18 (G5): the copied statement summary's sentence; empty when the list is empty or missing.
+function lenderPaymentChangesSummary(items) {
+  const list = (Array.isArray(items) ? items : []).filter((item) => item && typeof item === "object");
+  if (!list.length) return "";
+  const kinds = [
+    ["decrease", (item) => item.kind === "decrease" && item.schedule_confirmed !== false, "decrease", "decreases"],
+    ["possible_decrease", (item) => item.kind === "decrease" && item.schedule_confirmed === false, "possible decrease", "possible decreases"],
+    ["increase", (item) => item.kind === "increase" && item.schedule_confirmed !== false, "increase", "increases"],
+    ["possible_increase", (item) => item.kind === "increase" && item.schedule_confirmed === false, "possible increase", "possible increases"],
+    ["cadence_change", (item) => item.kind === "cadence_change", "schedule change", "schedule changes"],
+    ["pause", (item) => item.kind === "pause", "pause", "pauses"],
+    ["new_stream", (item) => item.kind === "new_stream", "new stream", "new streams"],
+    ["stop", (item) => item.kind === "stop" && item.stop_confirmed !== true, "possible stop", "possible stops"],
+    ["confirmed_stop", (item) => item.kind === "stop" && item.stop_confirmed === true, "stop with no payments", "stops with no payments"],
+  ];
+  const parts = kinds.map(([, test, one, many]) => {
+    const count = list.filter(test).length;
+    return count ? `${count} ${count === 1 ? one : many}` : "";
+  }).filter(Boolean);
+  const potential = list.filter((item) => item.lender_state === "potential").length;
+  return `Lender payment changes: ${parts.join(", ")}${potential ? ` (${potential} potential)` : ""}.`;
+}
+
 // The Withholding Basis card's note: the basis the withholding rates divide by. Audit B11 (I34): the legacy basis is
 // named for what it is, gross deposits less lender funding and never True revenue (a payload with no mode was analysed
 // on it). Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): True revenue is the default; a revenue basis reads
@@ -2518,7 +2733,8 @@ function lenderRowHtml(funder, currency = "USD") {
   `;
 }
 
-function renderLenders(funders, potentialLenders = [], currency = "USD", returnedPayments = []) {
+function renderLenders(funders, potentialLenders = [], currency = "USD", returnedPayments = [], paymentChanges = null,
+  unchecked = [], isPackage = false) {
   const confirmed = Array.isArray(funders) ? funders : [];
   const potential = Array.isArray(potentialLenders) ? potentialLenders : [];
   const lenders = [
@@ -2527,15 +2743,17 @@ function renderLenders(funders, potentialLenders = [], currency = "USD", returne
   ];
   els.lenderCount.textContent = `${confirmed.length} confirmed, ${potential.length} potential`;
   // R2-OW13 (the underwriter's Q5): one amber warning line per returned funder payment, above the lender rows.
+  // R2-OW18 (the owner's request of 2026-10-06): then one line per lender payment change, or the neutral not-checked
+  // line. Both render above "No lenders detected" too (the early return used to drop R2-OW13's lines).
   const warnings = (Array.isArray(returnedPayments) ? returnedPayments : [])
     .filter((item) => item && typeof item === "object")
     .map((item) => `
       <tr class="lender-warning">
         <td colspan="6">${glassChip("!", "Returned", "amber")} <span class="lender-warning-text">${escapeHtml(returnedFunderPaymentWarning(item, currency))}</span></td>
       </tr>
-    `).join("");
+    `).join("") + lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, lenders.length > 0, isPackage);
   if (!lenders.length) {
-    els.lenderTable.innerHTML = `
+    els.lenderTable.innerHTML = warnings + `
       <tr>
         <td><strong>No lenders detected</strong></td>
         <td>Bank statement</td>
@@ -3695,8 +3913,8 @@ function renderAccount(report) {
   ]);
   renderAccountSummary(accountFieldRows(statement, currentMarkdown));
   renderRevenueEvidence(metrics, currency);
-  // R2-OW13 (the underwriter's Q5): the returned funder payments' warning lines.
-  renderLenders(funders, potentialLenders, currency, detection.returned_funder_payments);
+  // R2-OW13 (the underwriter's Q5): the returned funder payments' warning lines; R2-OW18: the lender payment changes.
+  renderLenders(funders, potentialLenders, currency, detection.returned_funder_payments, detection.lender_payment_changes);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(detection.flagged_positions, currency, false);
   renderMainTransactions();
@@ -4591,8 +4809,10 @@ function renderPackageTables(pkg) {
   // package currency - null when there is not one, in which case the backend
   // has already refused their money and `formatMoney` renders "N/A".
   const currency = packageCurrencyInfo(pkg).currency;
-  // R2-OW13: each warning line names its own statement's unit.
-  renderLenders(funders, potentialLenders, currency, pkg.returned_funder_payments);
+  // R2-OW13: each warning line names its own statement's unit. R2-OW18: the lender payment changes across the
+  // package's statements, and the members not checked across them.
+  renderLenders(funders, potentialLenders, currency, pkg.returned_funder_payments, pkg.lender_payment_changes,
+    pkg.lender_payment_changes_unchecked, true);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(pkg.flagged_positions, currency, true);
   renderRevenueEvidence(packageRevenueFlags(pkg.totals || {}), currency);
@@ -5042,8 +5262,12 @@ function renderStatementModal(jobId, report, markdown) {
   ].map(renderMetricCard).join("");
   els.statementModalAccount.innerHTML = kvRowsHtml(accountFieldRows(statement, markdown));
 
+  // R2-OW18 (G4): the statement's own lender payment change lines, above its lender rows (R2-OW13's returned lines stay
+  // absent here, as before).
+  const paymentChangeRows = lenderPaymentChangeRowsHtml(detection.lender_payment_changes, [], currency,
+    lenderRows.length > 0, false);
   if (!lenderRows.length) {
-    els.statementModalLenders.innerHTML = `
+    els.statementModalLenders.innerHTML = paymentChangeRows + `
       <tr>
         <td><strong>No lenders detected</strong></td>
         <td>Bank statement</td>
@@ -5054,7 +5278,7 @@ function renderStatementModal(jobId, report, markdown) {
       </tr>
     `;
   } else {
-    els.statementModalLenders.innerHTML = lenderRows
+    els.statementModalLenders.innerHTML = paymentChangeRows + lenderRows
       .map((funder) => lenderRowHtml(funder, currency))
       .join("");
   }
@@ -5135,6 +5359,10 @@ function generateSummary() {
     const lenderSummary = funders.length
       ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
       : "No lenders detected across the package.";
+    // R2-OW18 (G5): one "- <warning text>" line per lender payment change across the package's statements.
+    const paymentChangeLines = (Array.isArray(pkg.lender_payment_changes) ? pkg.lender_payment_changes : [])
+      .filter((item) => item && typeof item === "object")
+      .map((item) => `\n- ${lenderPaymentChangeWarning(item, currency)}`).join("");
     const counted = countedDocuments(pkg.documents);
     const repeats = duplicateDocuments(pkg.documents).length;
     // Audit round 2, R2-B15 (R50): a package holding an account of a document says how many of its accounts completed.
@@ -5157,7 +5385,7 @@ function generateSummary() {
       `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
       `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
-      `\n\nPackage lender summary:\n${lenderSummary}`;
+      `\n\nPackage lender summary:\n${lenderSummary}${paymentChangeLines}`;
     return;
   }
   const s = currentAnalysis.statement || {};
@@ -5195,6 +5423,7 @@ function generateSummary() {
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
     `${lenderDebitsSummary(m, currency)}, and ` +
     `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure. ` +
+    (lenderPaymentChangesSummary(d.lender_payment_changes) ? `${lenderPaymentChangesSummary(d.lender_payment_changes)} ` : "") +
     `Status: ${labelize(decision)}.`;
 }
 

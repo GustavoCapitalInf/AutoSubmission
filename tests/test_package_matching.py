@@ -466,15 +466,36 @@ def _no_pair_package():
     return _package(("mar", march), ("apr", april))
 
 
+#: The owner's request of 2026-10-06 (lender payment changes; R2-OW18, part N): the keys that batch adds to every record
+#: (`potential_payee_key`), every account's detection (`lender_payment_changes`) and a package
+#: (`lender_payment_changes`, `lender_payment_changes_unchecked`).
+R2_OW18_KEYS = frozenset({"potential_payee_key", "lender_payment_changes", "lender_payment_changes_unchecked"})
+
+
+def _without_r2_ow18(node):
+    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds. `_canonical` applies it,
+    and the golden comparisons read both sides through `_canonical`, as they read every classification_version as one
+    placeholder. The pinned fixtures are never rewritten."""
+    if isinstance(node, dict):
+        return {key: _without_r2_ow18(value) for key, value in node.items() if key not in R2_OW18_KEYS}
+    if isinstance(node, list):
+        return [_without_r2_ow18(value) for value in node]
+    return node
+
+
 def _canonical(payload):
-    """The payload as JSON, every record's classification_version read as one placeholder (R2-B16 moves it)."""
+    """The payload as JSON, every record's classification_version read as one placeholder (R2-B16 moves it), without
+    R2-OW18's keys (part N)."""
+    payload = _without_r2_ow18(payload)
     return re.sub(r'"classification_version": "[^"]*"', '"classification_version": "<version>"',
                   json.dumps(payload, sort_keys=True, indent=1))
 
 
 def test_a_package_without_a_qualifying_pair_is_byte_identical_to_the_pinned_payload():
     """The pinned payload is the package the base of R2-OW15 (5ee6e0b) built from these fabricated statements."""
-    assert _canonical(_no_pair_package()) == FIXTURE.read_text(encoding="utf-8")
+    pinned = FIXTURE.read_text(encoding="utf-8")
+    assert _canonical(json.loads(pinned)) == pinned
+    assert _canonical(_no_pair_package()) == _canonical(json.loads(pinned))
 
 
 def test_a_member_analysed_with_older_rules_or_with_no_currency_is_marked_and_never_matched():
@@ -986,7 +1007,9 @@ def _no_transfer_package():
 
 def test_t17_a_package_of_two_accounts_without_a_qualifying_pair_is_byte_identical_to_the_pinned_payload():
     """The pinned payload is the package the base of R2-OW16 (fabb8ae) built from these fabricated statements."""
-    assert _canonical(_no_transfer_package()) == NO_TRANSFER_FIXTURE.read_text(encoding="utf-8")
+    pinned = NO_TRANSFER_FIXTURE.read_text(encoding="utf-8")
+    assert _canonical(json.loads(pinned)) == pinned
+    assert _canonical(_no_transfer_package()) == _canonical(json.loads(pinned))
 
 
 def test_t18_a_statement_printing_no_account_number_is_never_matched_and_is_named():

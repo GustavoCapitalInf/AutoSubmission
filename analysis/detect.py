@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from . import lender_payment_changes as payment_changes_module
 from .cadence import describe_cadence
 from .dates import parse_date
 from .flag_groups import FLAG_GROUPS
@@ -99,6 +100,11 @@ class DetectionResult:
     # warning: {funder, amount, debit_date, debit_location, credit_date, credit_location, credit_description}, the
     # credit's description as the bank printed it.
     returned_funder_payments: list[dict] = field(default_factory=list)
+    # The owner's request of 2026-10-06 (lender payment changes; true revenue spec §9.1; R2-OW18): one item per
+    # decrease, increase, cadence change, pause, new stream or stop of a lender's regular payment in this statement
+    # (analysis.lender_payment_changes). Information only: no lender, withholding or revenue figure reads it. An empty
+    # list means checked, no change.
+    lender_payment_changes: list[dict] = field(default_factory=list)
     verified_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     unverified_deposit_evidence: list[TransactionClassification] = field(default_factory=list)
     # 5.6 (true revenue spec §9.1): the counted and the held credits.
@@ -396,6 +402,8 @@ def detect(
         potential_lender_evidence=potential_lender_evidence,
         insurance_evidence=insurance_evidence,
         returned_funder_payments=_returned_funder_payments(records),
+        lender_payment_changes=payment_changes_module.statement_payment_changes(
+            records, period_start=stmt.period_start, period_end=stmt.period_end, currency=stmt.currency),
         verified_revenue_evidence=verified_revenue_evidence,
         unverified_deposit_evidence=unverified_deposit_evidence,
         counted_flagged_evidence=counted_flagged_evidence,

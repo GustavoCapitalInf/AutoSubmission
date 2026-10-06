@@ -1237,3 +1237,30 @@ def test_no_package_money_is_rendered_with_the_usd_default():
     assert single_argument == [], (
         f"formatMoney call sites relying on the USD default at lines {single_argument}"
     )
+
+
+def test_r2_ow18_a_lender_payment_change_is_a_statement_level_section_that_declares_its_unit():
+    """The owner's request of 2026-10-06 (lender payment changes; true revenue spec §10.8; R2-OW18, H2): the package's
+    `lender_payment_change_<n>` sections are statement-level, never cross-document: each names one statement's change
+    and declares its unit in `source_currency`, so a mixed-currency package publishes them with their money (the items
+    are never summed)."""
+    from tests import test_lender_payment_changes_package as ow18
+
+    usd_march, usd_april = ow18.p1()
+    cad_march = ow18.statement_payload(ow18.debits(ow18.every(ow18.M(4), ow18.M(25)), 1000, ow18.CANACAP), month=3,
+                                       account=ow18.ACCOUNT_B, bank="TD Canada Trust", currency="CAD")
+    cad_april = ow18.statement_payload(ow18.debits(ow18.every(ow18.A(1), ow18.A(22)), 700, ow18.CANACAP), month=4,
+                                       account=ow18.ACCOUNT_B, bank="TD Canada Trust", currency="CAD",
+                                       opening=ow18.closing(cad_march))
+    package = ow18.package(ow18.job("march", usd_march), ow18.job("april", usd_april),
+                           ow18.job("cad-march", cad_march), ow18.job("cad-april", cad_april))
+    assert package["totals"]["cross_currency_totals_refused"] is True
+    rows = _package_rows(package)
+    sections = {section for section, _, _ in rows if section.startswith("lender_payment_change_")}
+    assert sections == {"lender_payment_change_1", "lender_payment_change_2"}
+    for section in sections:
+        assert not CROSS_DOCUMENT_SECTION.match(section)
+        [unit] = [value for name, field, value in rows if name == section and field == "source_currency"]
+        [amount] = [value for name, field, value in rows if name == section and field == "amount_after"]
+        assert unit in ("USD", "CAD") and amount == 700.0
+    assert _cross_document_numbers_not_counts(rows) == []

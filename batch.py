@@ -59,6 +59,10 @@ FIELDS = [
     "potential_withholding_review_required", "pos_count", "pos_credit_count",
     "atm_withdrawal_count", "loan_count",
     "debit_coverage", "nsf", "mca_funders", "flagged_positions", "recurring_debit_groups",
+    # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the statement's items by kind, and each as
+    # kind:lender_label (information only).
+    "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
+    "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops", "lender_payment_changes",
     "quality", "transaction_detail_reliable", "corporate_use", "needs_review",
     "model", "error",
 ]
@@ -108,6 +112,28 @@ def _content_sha256(data: bytes) -> str:
     markdown inputs, which never go through the PDF preflight.
     """
     return hashlib.sha256(data).hexdigest().upper()
+
+
+def _payment_change_columns(items: list[dict]) -> dict:
+    """The owner's request of 2026-10-06 (R2-OW18, I2): the seven lender payment change columns of one account."""
+    def count(kind: str) -> int:
+        return sum(1 for item in items if item.get("kind") == kind)
+
+    def named(item: dict) -> str:
+        possible = " (possible)" if item.get("schedule_confirmed") is False else ""
+        potential = " (potential)" if item.get("lender_state") == "potential" else ""
+        return f"{item.get('kind')}:{item.get('lender_label') or item.get('lender')}{possible}{potential}"
+
+    return {
+        "lender_payment_decreases": count("decrease"),
+        "lender_payment_increases": count("increase"),
+        "lender_payment_cadence_changes": count("cadence_change"),
+        "lender_payment_new_streams": count("new_stream"),
+        "lender_payment_pauses": count("pause"),
+        "lender_payment_possible_stops": sum(1 for item in items
+                                             if item.get("kind") == "stop" and item.get("stop_confirmed") is not True),
+        "lender_payment_changes": "; ".join(named(item) for item in items),
+    }
 
 
 def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
@@ -192,6 +218,7 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         # time only; the webapp's Settings never reach this CSV.
         "flagged_positions": "; ".join(f"{fp.group}:{fp.payee}" for fp in d.flagged_positions),
         "recurring_debit_groups": sum(1 for rc in d.recurring_debits if rc.cadence in ("daily", "weekly")),
+        **_payment_change_columns(d.lender_payment_changes),
         "quality": report.quality.level,
         "transaction_detail_reliable": "yes" if report.quality.transaction_detail_reliable else "no",
         "corporate_use": report.quality.corporate_use,

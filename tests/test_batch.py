@@ -139,3 +139,30 @@ def test_the_flag_reaches_both_clis(monkeypatch, tmp_path, capsys):
     with open(out, newline="", encoding="utf-8") as f:
         [row] = list(csv.DictReader(f))
     assert (row["zelle_true_revenue"], row["true_revenue_total"]) == ("no", "10300.00")
+
+
+# --- The owner's request of 2026-10-06 (lender payment changes; R2-OW18, I2): seven columns right after
+# recurring_debit_groups, counts by kind and the items as kind:lender_label. Fabricated rows
+# (tests/zelle_setting_fixtures.py: one KAPITUS debit, so no change).
+
+
+def test_the_batch_csv_carries_the_lender_payment_change_columns():
+    from pathlib import Path
+
+    from tests import zelle_setting_fixtures as fx
+
+    start = batch.FIELDS.index("recurring_debit_groups") + 1
+    assert batch.FIELDS[start:start + 7] == [
+        "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
+        "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops",
+        "lender_payment_changes"]
+    row = batch._row(Path("fabricated.md"), fx.document(fx.FREE).accounts[0])
+    assert [row[name] for name in batch.FIELDS[start:start + 7]] == [0, 0, 0, 0, 0, 0, ""]
+    columns = batch._payment_change_columns([
+        {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed"},
+        {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed", "schedule_confirmed": False},
+        {"kind": "stop", "lender_label": "Unidentified lender obligation (weekly, 300.00)", "lender_state": "potential",
+         "stop_confirmed": False}])
+    assert (columns["lender_payment_decreases"], columns["lender_payment_possible_stops"]) == (2, 1)
+    assert columns["lender_payment_changes"] == (
+        "decrease:KAPITUS; decrease:KAPITUS (possible); stop:Unidentified lender obligation (weekly, 300.00) (potential)")

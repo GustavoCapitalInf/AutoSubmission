@@ -507,3 +507,84 @@ def test_ow17_a_planted_non_zelle_lender_move_still_fails(tmp_path):
     assert census.zelle_reading_undeclared(report) > 0
     paths = _files(tmp_path, no, yes, _ledger())
     assert census.main([*_compare_argv(paths, tmp_path), "--declare-zelle-view"]) == 1
+
+
+# --- The owner's request of 2026-10-06 (lender payment changes; R2-OW18, J; true revenue spec §14.3 G7): ONE new
+# snapshot key, the statement's payment changes, and a compare block that is a new output only: it never fails G7 and
+# never enters any existing figure. Fabricated rows ('FABRICATED LENDER' through the fake_payees fixture, 2054).
+
+
+def _weekly_cut_account():
+    rows = [_row("2054-03-02", "CUSTOMER DEPOSIT FABRICATED", 20000.0)]
+    for day in (2, 9, 16, 23):
+        rows.append(_row(f"2054-03-{day:02d}", "ACH DEBIT FABRICATED LENDER 0001", -1000.0))
+    for day in (30,):
+        rows.append(_row(f"2054-03-{day:02d}", "ACH DEBIT FABRICATED LENDER 0001", -700.0))
+    for day in (6, 13, 20):
+        rows.append(_row(f"2054-04-{day:02d}", "ACH DEBIT FABRICATED LENDER 0001", -700.0))
+    return {"statement": {"period_start": "2054-03-01", "period_end": "2054-04-24", "transactions": rows}}
+
+
+def test_ow18_the_snapshot_carries_the_payment_changes(fake_payees):
+    snap = census.account_snapshot(_weekly_cut_account())
+    assert snap["lender_payment_changes"] == [["decrease", "Fabricated Lender", "confirmed", 1, "weekly", "weekly", -30,
+                                               None]]
+    assert list(snap)[-1] == "lender_payment_changes"
+
+
+def test_ow18_a_code_root_without_the_module_gives_no_key_and_the_same_snapshot(fake_payees, monkeypatch):
+    import sys
+
+    import analysis
+    from analysis import lender_payment_changes
+
+    with_key = census.account_snapshot(_weekly_cut_account())
+    with monkeypatch.context() as patch:
+        patch.delattr(lender_payment_changes, "statement_payment_changes")
+        without_function = census.account_snapshot(_weekly_cut_account())
+    with monkeypatch.context() as patch:
+        patch.delattr(analysis, "lender_payment_changes")
+        patch.setitem(sys.modules, "analysis.lender_payment_changes", None)
+        without_module = census.account_snapshot(_weekly_cut_account())
+    assert "lender_payment_changes" not in without_function and without_function == without_module
+    snap = {"classification_version": "5.6", "zelle_true_revenue": True, "accounts": {"x:0": with_key}}
+    base = {"classification_version": "5.6", "zelle_true_revenue": True, "accounts": {"x:0": without_module}}
+    assert json.dumps(census.without_payment_changes(snap)) == json.dumps(base)
+
+
+def test_ow18_compare_reports_the_block_and_never_fails_on_it(tmp_path, capsys, fake_payees):
+    snap = census.account_snapshot(_weekly_cut_account())
+    base = {key: value for key, value in snap.items() if key != "lender_payment_changes"}
+    before = {"classification_version": "5.6", "zelle_true_revenue": True, "accounts": {"x:0": base}}
+    after = {"classification_version": "5.6", "zelle_true_revenue": True, "accounts": {"x:0": snap}}
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["lender_payment_changes"] == {"after": {"decrease|confirmed": 1}, "base": None, "not_comparable": 1,
+                                                "gained": {"accounts": 0, "items": 0},
+                                                "lost": {"accounts": 0, "items": 0}}
+    # Every existing output at its zero value (J3 a).
+    assert (report["gained"], report["lost"], report["gained_through_generic_words"]) == ({}, {}, [])
+    assert report["row_flag_moves_outside_the_allowlist"] == 0
+    assert report["paid_rows"] == {"left_returned": 0, "left_other": 0, "joined": 0}
+    paths = _files(tmp_path, before, after, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 0
+    assert "lender payment changes (new outputs, information only): after decrease|confirmed 1" in capsys.readouterr().out
+    # Both sides carrying the key: the items gained and lost, still never a failure.
+    moved = json.loads(json.dumps(after))
+    moved["accounts"]["x:0"]["lender_payment_changes"] = [["stop", "Fabricated Lender", "confirmed", 1, "weekly", None,
+                                                            None, False]]
+    report = census.compare(after, moved, admitted=frozenset())
+    assert report["lender_payment_changes"]["gained"] == {"accounts": 1, "items": 1}
+    assert report["lender_payment_changes"]["lost"] == {"accounts": 1, "items": 1}
+    paths = _files(tmp_path, after, moved, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 0
+    # Neither side carrying it: no block.
+    assert "lender_payment_changes" not in census.compare(before, before, admitted=frozenset())
+
+
+def test_ow18_a_planted_lender_move_still_fails(tmp_path, fake_payees):
+    snap = census.account_snapshot(_weekly_cut_account())
+    before = {"classification_version": "5.6", "zelle_true_revenue": True, "accounts": {"x:0": snap}}
+    after = json.loads(json.dumps(before))
+    after["accounts"]["x:0"]["withholding_rows"] = []
+    paths = _files(tmp_path, before, after, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 1

@@ -41,6 +41,7 @@ from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue_view import DEBIT_FLAG_KINDS, apply_revenue_view, debit_side_flags
 from analysis import zelle_view
+from analysis import lender_payment_changes as payment_changes_module
 from analysis.true_revenue import zelle_deposit
 from analysis.zelle_view import ZELLE_DEPOSITS_KEY, ZELLE_ROW_TAG, apply_zelle_view
 from analysis.transaction_classifier import (
@@ -494,12 +495,71 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     detection = analysis.get("detection")
     if isinstance(detection, dict):
         for key, item in detection.items():
-            if key == "flagged_positions":
+            if key in ("flagged_positions", "lender_payment_changes"):
                 continue  # emitted as readable rows below
             if isinstance(item, (dict, list)):
                 item = json.dumps(item)
             rows.append(("detection", key, "" if item is None else item))
         rows.extend(_flagged_position_rows(detection.get("flagged_positions")))
+        rows.extend(_lender_payment_change_rows(detection.get("lender_payment_changes")))
+    return rows
+
+
+#: The owner's request of 2026-10-06 (lender payment changes; true revenue spec §10.8; R2-OW18, H1): the fields of a
+#: `lender_payment_change_<n>` section, in order; a field the item does not carry is an empty cell. `schedule_confirmed`
+#: and `via` are the orchestrator's choices of 2026-10-06 (§ Still open 18 and 23).
+LENDER_PAYMENT_CHANGE_EXPORT_FIELDS = (
+    "kind", "lender", "lender_label", "lender_label_after", "lender_state", "position", "positions",
+    "cadence", "cadence_before", "cadence_after", "amount_before", "amount_after", "change_percent", "cadence_changed",
+    "schedule_confirmed", "weekly_equivalent_before", "weekly_equivalent_after", "payments_before", "payments_after",
+    "last_before_date", "first_after_date", "last_after_date", "restart", "pause_business_days",
+    "back_to_earlier", "reverted", "reverted_date", "via",
+    "weekly_total_before", "weekly_total_after", "alongside",
+    "last_payment_date", "last_payment_amount", "payments", "last_presence_date", "quiet_business_days",
+    "grace_business_days", "coverage_end", "coverage_end_source", "stop_confirmed",
+)
+#: R2-OW18 (H1): the nested notes, flattened with dots.
+LENDER_PAYMENT_CHANGE_NOTE_FIELDS = (
+    ("after_funding", ("date", "amount")),
+    ("other_debits_after", ("count", "last_date")),
+    ("payoff", ("date", "amount")),
+    ("continues_as", ("lender_label", "amount", "first_date")),
+    ("new_lender_after", ("lender_label", "cadence", "amount", "first_date")),
+    ("debt_relief_after", ("date",)),
+    ("other_stream_continues", ("amount", "cadence")),
+    ("last_attempt_returned", ("date",)),
+)
+#: R2-OW18 (H2): the package's added fields.
+LENDER_PAYMENT_CHANGE_PACKAGE_FIELDS = (
+    "source_document", "from_document", "to_document", "cross_statement", "source_currency", "source_period_end",
+)
+
+
+def _lender_payment_change_rows(items: object, *, package: bool = False) -> list[tuple[str, str, object]]:
+    """R2-OW18 (H1, H2): one readable section per lender payment change, `lender_payment_change_<n>`, with
+    LENDER_PAYMENT_CHANGE_EXPORT_FIELDS and the dotted notes (a package adds its source fields and the other-account
+    note). A label is statement text: these rows reach a file only through `_escaped_rows`."""
+    rows: list[tuple[str, str, object]] = []
+    for number, item in enumerate((entry for entry in items if isinstance(entry, dict))
+                                  if isinstance(items, list) else (), start=1):
+        section = f"lender_payment_change_{number}"
+        for name in LENDER_PAYMENT_CHANGE_EXPORT_FIELDS:
+            value = item.get(name)
+            if name in ("alongside", "via") and isinstance(value, list):
+                value = "; ".join(f"{entry.get('cadence')} {entry.get('amount')}" for entry in value
+                                  if isinstance(entry, dict))
+            rows.append((section, name, "" if value is None else value))
+        notes = LENDER_PAYMENT_CHANGE_NOTE_FIELDS + (
+            (("continues_in_other_account", ("source_document", "first_date", "amount")),) if package else ())
+        for note, fields in notes:
+            value = item.get(note)
+            for name in fields:
+                cell = value.get(name) if isinstance(value, dict) else None
+                rows.append((section, f"{note}.{name}", "" if cell is None else cell))
+        if package:
+            for name in LENDER_PAYMENT_CHANGE_PACKAGE_FIELDS:
+                value = item.get(name)
+                rows.append((section, name, "" if value is None else value))
     return rows
 
 
@@ -711,6 +771,13 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, funder in enumerate(package.get("potential_lenders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"potential_lender_{idx}", key, "" if value is None else value))
+    # The owner's request of 2026-10-06 (R2-OW18, H2): each lender payment change across the package's statements, and
+    # each member not checked across statements with its reason.
+    rows.extend(_lender_payment_change_rows(package.get("lender_payment_changes"), package=True))
+    for idx, entry in enumerate(package.get("lender_payment_changes_unchecked") or [], start=1):
+        for key in ("source_document", "reason"):
+            value = entry.get(key) if isinstance(entry, dict) else None
+            rows.append((f"lender_payment_unchecked_{idx}", key, "" if value is None else value))
     for idx, provider in enumerate(package.get("insurance_providers") or [], start=1):
         for key, value in provider.items():
             rows.append((f"insurance_provider_{idx}", key, "" if value is None else value))
@@ -2458,6 +2525,141 @@ def _package_match_totals(matched: dict) -> dict:
 #: a job done without an analysis stays failed).
 _PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
 
+#: The owner's request of 2026-10-06 (lender payment changes; true revenue spec §9.2; R2-OW18, F3): a member chains to
+#: the statement before it when it starts at most this many days before that statement ends (an overlap), or up to
+#: PACKAGE_CONSECUTIVE_DAYS after.
+LENDER_CHAIN_OVERLAP_DAYS = 5
+#: R2-OW18 (F2): why a member's lender payments were not checked across statements, and the words the package's
+#: neutral line and its downloads give each reason.
+LENDER_PAYMENT_UNCHECKED_WORDS = {
+    "not_ready": "not analysed yet",
+    "analysed_before_check": "analysed before the check: re-analyze",
+    "no_currency": "no currency declared: checked alone",
+    "no_period": "no statement period: checked alone",
+    "no_account_number": "fewer than 4 account digits and no balance chain: checked alone",
+}
+
+
+def _package_lender_payment_changes(members: list[tuple], overlays: dict | None = None) -> tuple[list[dict] | None,
+                                                                                                    list[dict]]:
+    """The owner's request of 2026-10-06 (lender payment changes; "can we also detect when a payment to lender has
+    decreased? That would be a really important metric to track."; true revenue spec §9.2; R2-OW18, part F): each
+    lender payment series read across the package's consecutive statements of ONE account, recomputed on every call
+    from the kept members' displayed copies (with R2-OW15's overlay, which changes no debit's lender fields) and never
+    written back. Information only: no total, rollup, gate or revenue figure reads it.
+
+    A member enters when it is analysed and its served detection carries `lender_payment_changes` (it was analysed
+    with the check); otherwise it is listed and left out (`not_ready`, `analysed_before_check`). Members are visited in
+    canonical order (period start, job, account) and each joins the first chain whose last member is the same account
+    (R2-OW15's `_same_account`) and ends between LENDER_CHAIN_OVERLAP_DAYS days after and PACKAGE_CONSECUTIVE_DAYS
+    days before it starts; otherwise it starts a chain. A member with no declared currency, no period, or fewer than
+    four account digits and no balance chain is checked alone and listed (in a package of two members or more).
+    `analysis.lender_payment_changes.payment_changes` runs per chain (its own overlap de-duplication included); each
+    item gains its statement's source fields, a change item the statements of its last old payment (`from_*`) and of
+    its new regime's second payment (`to_*`) and `cross_statement`; a stop whose series pays or is attempted after it
+    in a chain of another account of the package gains `continues_in_other_account` and is never confirmed.
+
+    Returns (items, unchecked): items is None when no member was assessed."""
+    entries: list[dict] = []
+    unchecked: list[dict] = []
+    for job, analysis, account_index, _count in members:
+        source = {"source_job": job.id, "source_document": getattr(job, "filename", None),
+                  **({"source_account": account_index} if account_index is not None else {})}
+        statement = analysis.get("statement") if isinstance(analysis, dict) else None
+        if not (job.status == "done" and job.analysis is not None and isinstance(statement, dict)):
+            unchecked.append({**source, "reason": "not_ready"})
+            continue
+        detection = analysis.get("detection")
+        if not isinstance(detection, dict) or not isinstance(detection.get("lender_payment_changes"), list):
+            unchecked.append({**source, "reason": "analysed_before_check"})
+            continue
+        member_overlay = (overlays or {}).get((job.id, account_index)) or {}
+        excluded = _internal_transfer_positions(job.analysis, account_index)
+        rows = []
+        for position, transaction in enumerate(statement.get("transactions") or []):
+            record = transaction.get("classification") if isinstance(transaction, dict) else None
+            if position in excluded or not isinstance(record, dict):
+                continue
+            if position in member_overlay:
+                record = {**record, **member_overlay[position]}
+            if record.get("is_posted") is False or record.get("duplicate_of"):
+                continue
+            rows.append(record)
+        entries.append({
+            **source, "job_id": job.id, "currency": _statement_currency(analysis), "bank": _bank_key(statement),
+            "digits": _printed_account_digits(analysis),
+            "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
+            "start": _iso_day(statement.get("period_start")), "end": _iso_day(statement.get("period_end")),
+            "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
+            "order": (str(statement.get("period_start") or ""), str(job.id), account_index or 0),
+            "rows": payment_changes_module.StatementRows(rows, statement.get("period_start"),
+                                                          statement.get("period_end"), _statement_currency(analysis)),
+        })
+    if not entries:
+        return None, unchecked
+    entries.sort(key=lambda entry: entry["order"])
+    chains: list[list[dict]] = []
+    for entry in entries:
+        for chain in chains:
+            last = chain[-1]
+            if (last["end"] is not None and entry["start"] is not None and _same_account(last, entry)
+                    and -LENDER_CHAIN_OVERLAP_DAYS <= (entry["start"] - last["end"]).days <= PACKAGE_CONSECUTIVE_DAYS):
+                chain.append(entry)
+                break
+        else:
+            chains.append([entry])
+    if len(members) >= 2:
+        for chain in chains:
+            if len(chain) != 1:
+                continue
+            entry = chain[0]
+            reason = ("no_currency" if entry["currency"] is None
+                      else "no_period" if entry["start"] is None or entry["end"] is None
+                      else "no_account_number" if len(entry["digits"]) < 4 else None)
+            if reason is not None:
+                unchecked.append({key: entry[key] for key in ("source_job", "source_document", "source_account")
+                                  if key in entry} | {"reason": reason})
+
+    def statement_source(chain: list[dict], index: int, prefix: str = "source") -> dict:
+        entry = chain[index]
+        fields = {f"{prefix}_job": entry["source_job"], f"{prefix}_document": entry["source_document"]}
+        if "source_account" in entry:
+            fields[f"{prefix}_account"] = entry["source_account"]
+        return fields
+
+    items: list[dict] = []
+    for chain_index, chain in enumerate(chains):
+        for item in payment_changes_module.payment_changes([entry["rows"] for entry in chain]):
+            published = payment_changes_module.public_item(item)
+            source = chain[item["_source_statement"]]
+            published.update(statement_source(chain, item["_source_statement"]))
+            published["source_currency"] = source["currency"]
+            published["source_period_end"] = source["rows"].period_end
+            if item["kind"] in ("decrease", "increase", "cadence_change"):
+                published.update(statement_source(chain, item["_from_statement"], "from"))
+                published.update(statement_source(chain, item["_to_statement"], "to"))
+                origin, target = chain[item["_from_statement"]], chain[item["_to_statement"]]
+                published["cross_statement"] = (origin["job_id"], origin.get("source_account")) != (
+                    target["job_id"], target.get("source_account"))
+            if item["kind"] == "stop":
+                # F5: the series continues from another account of the deal (a chain of no member of this account).
+                found = None
+                for other_index, other in enumerate(chains):
+                    if other_index == chain_index or any(_same_account(one, two) for one in chain for two in other):
+                        continue
+                    activity = payment_changes_module.series_activity_after(
+                        [entry["rows"] for entry in other], item["_series_key"], item["_last_presence"])
+                    if activity is not None and (found is None or (activity["date"], other_index) < found[0]):
+                        found = ((activity["date"], other_index), other, activity)
+                if found is not None:
+                    _key, other, activity = found
+                    published["continues_in_other_account"] = {
+                        **statement_source(other, activity["statement"]),
+                        "first_date": activity["date"], "amount": activity["amount"]}
+                    published["stop_confirmed"] = False
+            items.append(published)
+    return items, unchecked
+
 
 def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # The one settings snapshot this package is built on: its members are displayed with it, and its flag roll-up
@@ -3581,6 +3783,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 adb_weighted_sum += adb_value * adb_calendar_days
                 adb_weight += adb_calendar_days
 
+    # The owner's request of 2026-10-06 (lender payment changes; §9.2; R2-OW18): each lender payment series read across
+    # the consecutive statements of one account, from the kept members' displayed copies (information only).
+    lender_payment_changes, lender_payment_unchecked = _package_lender_payment_changes(
+        members, package_matched["overlays"])
+
     # Design §6.5's fourth bullet, and Q5's direction: **no published average is
     # computed over two accounts of one document.** The L1-S3 review measured
     # what its absence does — a package holding one job that publishes two
@@ -4044,6 +4251,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "lender_evidence": package_lender_evidence,
         # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the kept members' returned funder payments.
         "returned_funder_payments": package_returned_funder_payments,
+        # The owner's request of 2026-10-06 (R2-OW18): the lender payment changes across each account's consecutive
+        # statements, absent only when no member was assessed, and the members not checked across statements (each with
+        # its reason), only where there is one. Never summed, so the currency refusal leaves them as they are.
+        **({"lender_payment_changes": lender_payment_changes} if lender_payment_changes is not None else {}),
+        **({"lender_payment_changes_unchecked": lender_payment_unchecked} if lender_payment_unchecked else {}),
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
         "flagged_evidence": package_flagged_evidence,

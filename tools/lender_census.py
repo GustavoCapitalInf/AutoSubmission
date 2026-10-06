@@ -173,6 +173,40 @@ def account_snapshot(account: dict, *, zelle_true_revenue: bool | None = True) -
     metrics = compute_metrics(
         statement, classifications=records, withholding_denominator_mode="legacy_eligible_deposits",
     )
+    result = _account_figures(records, stored, metrics)
+    # The owner's request of 2026-10-06 (lender payment changes; true revenue spec §14.3 G7; R2-OW18, J1): ONE new
+    # key, the statement's payment changes, a new output only. A checkout without the module gives no key, so a base
+    # `--code-root` snapshot is byte-identical to its earlier self.
+    try:
+        from analysis import lender_payment_changes as payment_changes_module
+        statement_payment_changes = payment_changes_module.statement_payment_changes
+    except (ImportError, AttributeError):
+        return result
+    result["lender_payment_changes"] = [
+        payment_change_entry(item) for item in statement_payment_changes(
+            records, period_start=statement.period_start, period_end=statement.period_end,
+            currency=statement.currency)
+    ]
+    return result
+
+
+def payment_change_entry(item: Mapping) -> list:
+    """R2-OW18 (J1): one payment change as [kind, lender, lender_state, position, cadence_before or cadence,
+    cadence_after, change_percent, stop_confirmed], null wherever the item carries no such field."""
+    return [item.get("kind"), item.get("lender"), item.get("lender_state"), item.get("position"),
+            item.get("cadence_before") or item.get("cadence"), item.get("cadence_after"), item.get("change_percent"),
+            item.get("stop_confirmed")]
+
+
+def without_payment_changes(snap: dict) -> dict:
+    """R2-OW18 (J3 b): the snapshot with `lender_payment_changes` removed from every account: byte-identical to the
+    base snapshot when nothing else moved."""
+    return {**snap, "accounts": {key: {name: value for name, value in account.items() if name != "lender_payment_changes"}
+                                 for key, account in snap.get("accounts", {}).items()}}
+
+
+def _account_figures(records: list, stored: list, metrics: object) -> dict:
+    """The account's lender, flagged, withholding and row figures (every key but the payment changes)."""
     return {
         "rows": len(records),
         "states": [record.classification for record in records],
@@ -314,6 +348,7 @@ def compare(
     are refused (ZelleViewMismatch) unless `declare_zelle_view`. With it, a funder debit whose lender_totals row or
     returned-payment entry moves because its return credit is a Zelle policy row (_rule_d_rows) is counted in
     `zelle_reading_rule_d` and left out of every other figure; every other move stays as G7 reads it."""
+    payment_block = payment_change_block(before, after)
     view_declared = _zelle_reading(before) != _zelle_reading(after)
     if view_declared and not declare_zelle_view:
         raise ZelleViewMismatch(
@@ -506,7 +541,47 @@ def compare(
         "zelle_reading": {"before": before.get("zelle_true_revenue"), "after": after.get("zelle_true_revenue"),
                           "declared": view_declared},
         "zelle_reading_rule_d": {"analyses": len(rule_d["analyses"]), "rows": rule_d["rows"]},
+        # R2-OW18 (J2): the lender payment changes, a new output only (never in the exit condition).
+        **({"lender_payment_changes": payment_block} if payment_block is not None else {}),
     }
+
+
+def _payment_counts(snap: dict) -> dict | None:
+    counts: Counter = Counter()
+    carried = False
+    for account in snap.get("accounts", {}).values():
+        if "lender_payment_changes" not in account:
+            continue
+        carried = True
+        counts.update(f"{entry[0]}|{entry[2]}" for entry in account["lender_payment_changes"])
+    return dict(sorted(counts.items())) if carried else None
+
+
+def payment_change_block(before: dict, after: dict) -> dict | None:
+    """The owner's request of 2026-10-06 (R2-OW18, J2): the payment changes' counts by "kind|state" after and in the
+    base (null when the base carries none), the accounts whose base lacks the key (`not_comparable`), and, where both
+    sides carry it, the items gained and lost (accounts and items). A new output only: it never enters the exit
+    condition and is never added to the lenders, the lender count, the row flags, withholding or eligible deposits.
+    None when neither snapshot carries the key."""
+    after_counts, base_counts = _payment_counts(after), _payment_counts(before)
+    if after_counts is None and base_counts is None:
+        return None
+    not_comparable = 0
+    moves = {"gained": {"accounts": 0, "items": 0}, "lost": {"accounts": 0, "items": 0}}
+    for key, new in after.get("accounts", {}).items():
+        old = before.get("accounts", {}).get(key)
+        if old is None or "lender_payment_changes" not in new:
+            continue
+        if "lender_payment_changes" not in old:
+            not_comparable += 1
+            continue
+        new_items = Counter(json.dumps(entry) for entry in new["lender_payment_changes"])
+        old_items = Counter(json.dumps(entry) for entry in old["lender_payment_changes"])
+        for name, difference in (("gained", new_items - old_items), ("lost", old_items - new_items)):
+            if difference:
+                moves[name]["accounts"] += 1
+                moves[name]["items"] += sum(difference.values())
+    return {"after": after_counts or {}, "base": base_counts, "not_comparable": not_comparable, **moves}
 
 
 def _print_comparison(report: dict) -> None:
@@ -556,6 +631,15 @@ def _print_comparison(report: dict) -> None:
         rule_d = report["zelle_reading_rule_d"]
         print(f"Zelle reading {reading['before']} -> {reading['after']}: rule D moves {rule_d['analyses']} analyses/"
               f"{rule_d['rows']} rows (zelle_reading_rule_d); undeclared moves {zelle_reading_undeclared(report)}")
+    if "lender_payment_changes" in report:
+        # R2-OW18 (J2): the new outputs, never a failure.
+        block = report["lender_payment_changes"]
+        print("lender payment changes (new outputs, information only): after " + ", ".join(
+            f"{name} {count}" for name, count in block["after"].items()) + "; base " + (
+            "none" if block["base"] is None else ", ".join(f"{name} {count}" for name, count in block["base"].items()))
+            + f"; not comparable {block['not_comparable']}; gained {block['gained']['items']} items in "
+              f"{block['gained']['accounts']} accounts; lost {block['lost']['items']} items in "
+              f"{block['lost']['accounts']} accounts")
 
 
 def _use_code_root(code_root: Path) -> bool:

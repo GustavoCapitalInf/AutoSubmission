@@ -257,6 +257,23 @@ def _normalised(node, version):
     return node
 
 
+#: The owner's request of 2026-10-06 (lender payment changes; R2-OW18, part N): the keys that batch adds to every record
+#: (`potential_payee_key`), every account's detection (`lender_payment_changes`) and a package
+#: (`lender_payment_changes`, `lender_payment_changes_unchecked`).
+R2_OW18_KEYS = frozenset({"potential_payee_key", "lender_payment_changes", "lender_payment_changes_unchecked"})
+
+
+def _without_r2_ow18(node):
+    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds, applied to BOTH sides of
+    the golden comparison, as `_normalised` reads every classification_version as one. The pinned fixture is never
+    rewritten."""
+    if isinstance(node, dict):
+        return {key: _without_r2_ow18(value) for key, value in node.items() if key not in R2_OW18_KEYS}
+    if isinstance(node, list):
+        return [_without_r2_ow18(value) for value in node]
+    return node
+
+
 def test_z9_i_no_the_no_view_of_z1_is_byte_identical_to_r2_ow16():
     fixture_text = FIXTURE.read_text(encoding="utf-8")
     fixture = json.loads(fixture_text)
@@ -264,7 +281,9 @@ def test_z9_i_no_the_no_view_of_z1_is_byte_identical_to_r2_ow16():
     stored = json.loads(json.dumps(fx.case("Z1")))
     view = zelle_view.apply_zelle_view(stored, counted=False)
     assert "zelle_counted_reading" not in view and "zelle_deposits" not in view["metrics"]
-    assert json.dumps(_normalised(view, version), indent=1) + "\n" == fixture_text
+    assert json.dumps(fixture, indent=1) + "\n" == fixture_text
+    assert (json.dumps(_without_r2_ow18(_normalised(view, version)), indent=1) + "\n"
+            == json.dumps(_without_r2_ow18(fixture), indent=1) + "\n")
 
 
 @pytest.mark.parametrize("name", sorted(fx.CASES))

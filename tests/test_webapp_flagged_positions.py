@@ -790,6 +790,15 @@ def test_the_fixture_records_use_only_fields_the_classifier_writes():
     assert all(row["classification"]["returned_funder_payment_by"] is None
                and row["classification"]["returns_funder_payment"] is None
                for row in payload["statement"]["transactions"])
+    # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): a potential lender payee's amount-free key
+    # follows potential_payee_label, and revenue_funding_series stays the last field; the fixtures (stored before it)
+    # carry none, and a record that is no potential lender's carries None.
+    assert names[names.index("potential_payee_label") + 1] == "potential_payee_key"
+    assert names[-1] == "revenue_funding_series"
+    assert "potential_payee_key" not in flagged_row("mortgages")["classification"]
+    assert all(row["classification"]["potential_payee_key"] is None
+               for row in payload["statement"]["transactions"]
+               if row["classification"]["classification"] != "potential_lender")
 
 
 # --- 5.3 (owner ruling 2026-09-27): an unconfirmed flagged payee --------------------------------------------------

@@ -202,6 +202,9 @@ EXCUSED: dict[str, str] = {
     "webapp/app.py::_package_analysis": "reads one MEMBER's account payload, supplied by `_package_members`",
     # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes read the same members.
     "webapp/app.py::_package_matches": "reads each MEMBER's account payload, supplied by `_package_members`",
+    # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the package's chains read the same members.
+    "webapp/app.py::_package_lender_payment_changes": "reads each MEMBER's account payload, supplied by "
+                                                      "`_package_members`",
     # Audit B11 (I06): one ACCOUNT's statement identity, and a left-out job's identifying fields from the first
     # account; each is handed its account by the taught `_stored_accounts`.
     "webapp/app.py::_account_identities": "one ACCOUNT's identity; `_stored_accounts` hands it each account",

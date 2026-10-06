@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, replace
 from functools import cache
@@ -244,6 +245,11 @@ class TransactionClassification:
     # statement ('Unidentified lender obligation (weekly, 450.00)'). None for every other row, whose line is its
     # canonical_entity.
     potential_payee_label: str | None = None
+    # The owner's request of 2026-10-06 (lender payment changes; true revenue spec §9.1; R2-OW18): on every
+    # potential_lender row, named or not, its payee's amount-free key (an opaque digest of the entity, D6's payee words
+    # and the masked recipient: no payee word is published), which analysis.lender_payment_changes reads to follow a
+    # payee across an amount change; nothing else reads it. None for every other row.
+    potential_payee_key: str | None = None
     # 5.6 (true revenue spec §5.4): the per-row contract. Every posted credit carries exactly one tier (verified,
     # counted_flagged, excluded_pending_review, non_revenue); a counted or held row carries its reason code
     # (analysis.revenue.REVENUE_TIER_REASONS). The initial tier is the one the rules gave, which a reset restores.
@@ -7345,7 +7351,21 @@ def _label_unnamed_potential_payees(records: list[TransactionClassification]) ->
             label = f"{label} #{used[label]}"
         for index in indexes:
             labelled[index] = replace(records[index], potential_payee_label=label)
+    # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): every potential lender row, named or not,
+    # gains its payee's amount-free key in the same step. The labels above are unchanged.
+    for index, record in enumerate(labelled):
+        if record.classification == "potential_lender":
+            labelled[index] = replace(record, potential_payee_key=_potential_payee_key(record))
     return labelled
+
+
+def _potential_payee_key(record: TransactionClassification) -> str:
+    """One key per payee of a potential lender, named or not, which lender_payment_changes reads to follow a payee
+    across an amount change; nothing else reads it (the owner's request of 2026-10-06, R2-OW18). The probe's key (the
+    entity, D6's payee words and the masked recipient), with no amount and no match method, as the first 16 hex
+    characters of its SHA-256 digest: stable across statements and processes, and no payee word is published (D11)."""
+    parts = [record.canonical_entity or "", " ".join(_record_payee_tokens(record)), _masked_recipient(record) or ""]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
 def classify_statement_transactions(

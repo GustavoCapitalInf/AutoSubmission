@@ -36,6 +36,37 @@ def _zelle_line(stored: Report, shown: Report) -> str | None:
     )
 
 
+def _payment_change_line(item: dict) -> str:
+    """The owner's request of 2026-10-06 (lender payment changes; R2-OW18, I1): one statement-level item as a CLI
+    line."""
+    potential = " (potential)" if item.get("lender_state") == "potential" else ""
+    label = item.get("lender_label") or item.get("lender")
+    kind = item.get("kind")
+    if kind in ("decrease", "increase", "cadence_change"):
+        name = "schedule change" if kind == "cadence_change" else kind
+        changed = item.get("cadence_changed") is True
+        after = f"{item['cadence_after']} " if changed else ""
+        percent = f"{item['change_percent']:+d}%" if item["change_percent"] else "0%"
+        measure = f"weekly equivalent {percent}" if changed else percent
+        possible = ", possible: new schedule not yet confirmed" if item.get("schedule_confirmed") is False else ""
+        return (f"{name}{potential}: {label} {item['cadence_before']} ${item['amount_before']:,.2f} -> {after}"
+                f"${item['amount_after']:,.2f} ({measure}) from {item['first_after_date']}, "
+                f"{item['payments_after']} payments (was {item['payments_before']}){possible}")
+    if kind == "pause":
+        return (f"pause{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, no payment "
+                f"{item['last_before_date']} to {item['first_after_date']}, {item['pause_business_days']} business days "
+                f"(grace {item['grace_business_days']})")
+    if kind == "new_stream":
+        alongside = " and ".join(f"{other['cadence']} ${other['amount']:,.2f}" for other in item.get("alongside") or [])
+        return (f"new stream{potential}: {label} {item['cadence_after']} ${item['amount_after']:,.2f} from "
+                f"{item['first_after_date']} alongside {alongside}, weekly total {item['change_percent']:+d}%")
+    end = "the period end" if item.get("coverage_end_source") == "period_end" else "the last transaction"
+    lead = "stop" if item.get("stop_confirmed") is True else "possible stop"
+    return (f"{lead}{potential}: {label} {item['cadence']}, last ${item['last_payment_amount']:,.2f} on "
+            f"{item['last_payment_date']}, {item['quiet_business_days']} business days to {end} "
+            f"(grace {item['grace_business_days']})")
+
+
 def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
     """One account's report in the Zelle reading asked for: the counted reading (`Report.zelle_counted`) under Yes
     where the statement has one, else the stored Report. Under No it prints today's lines exactly."""
@@ -203,6 +234,13 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
             )
     else:
         L.append("  Potential lenders: none")
+    # The owner's request of 2026-10-06 (R2-OW18): the statement's lender payment changes (information only). One
+    # statement at a time, so never a change seen only across months.
+    if d.lender_payment_changes:
+        L.append("  Lender payment changes:")
+        L.extend(f"    - {_payment_change_line(item)}" for item in d.lender_payment_changes)
+    else:
+        L.append("  Lender payment changes: none")
     if d.insurance_providers:
         L.append("  Insurance providers:")
         for provider in d.insurance_providers:
