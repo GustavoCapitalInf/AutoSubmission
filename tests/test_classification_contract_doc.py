@@ -1235,3 +1235,43 @@ def test_the_spec_and_the_contract_state_the_lender_payment_changes():
     lender = (ROOT / "docs" / "superpowers" / "specs" / "2026-09-24-lender-detection-design.md").read_text(
         encoding="utf-8")
     assert lender.count("*Amendment (owner request 2026-10-06, R2-OW18):*") == 7
+
+
+#: R2-OW18 review round 1: the code commit §20 and the contract name.
+R2_OW18_R1_CODE_COMMIT = "a4d9b7c"
+
+
+def test_the_spec_and_the_contract_record_r2_ow18_review_round_1():
+    """R2-OW18 review round 1: §9.1's new item fields, §10.1's step and attempt wording (never "steps of under 10%
+    each"), §10.8's export fields, §17.1's points 18, 20, 23, 24 and 26 and the new point 29, the §20 line with its
+    commit, and the contract's sentence."""
+    text = SPEC.read_text(encoding="utf-8")
+    for section, end, words in (
+        ("\n### 9.1 ", "\n### 9.2 ", ("`last_step_percent`", "`first_after_kind`", "`resumed_date`",
+                                      "`change_percent`, the step into it")),
+        ("\n### 10.1 ", "\n### 10.2 ", ("via weekly $950.00 (-5%), then weekly $650.00 (-32%)",
+                                        "never a claim about the steps' size", "no payment or payment attempt",
+                                        "and payments resumed at the same")),
+        ("\n### 10.8 ", "\n## 11. ", ("`first_after_kind`, `resumed_date` and `last_step_percent`",)),
+    ):
+        found = _section(text, section, end)
+        for word in words:
+            assert word in found, (section, word)
+    assert "steps of under 10% each, a pause" not in _section(text, "\n### 10.1 ", "\n### 10.2 ")
+    open_items = re.sub(r"\s+", " ", _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. "))
+    for words in ("a possible change never becomes the reference of point 23",
+                  "a line whose presence is a bounced attempt says so",
+                  "never \"steps of under 10% each\"",
+                  "a restart's pause, like a pause, leaves out the business days no statement of the chain covers",
+                  "is no new stream, since it may have been paying before",
+                  "(29) a known false shape (R2-OW18 review round 1)", "288 of 1,740 confirmed statement series",
+                  "Points 18 to 29"):
+        assert words in open_items, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Owner ruling 2026-10-06, R2-OW18 review round 1** (", R2_OW18_R1_CODE_COMMIT,
+                  "459 items become 456", "3 confirmed package new streams leave"):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"R2-OW18 review round 1 ({R2_OW18_R1_CODE_COMMIT})", "`last_step_percent`", "`first_after_kind`",
+                  "no payment or payment attempt"):
+        assert words in contract, words
