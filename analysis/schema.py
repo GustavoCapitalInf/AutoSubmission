@@ -8,7 +8,8 @@ money leaving the account (debit), positive = money entering (credit).
 from __future__ import annotations
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, model_serializer
+from pydantic.json_schema import SkipJsonSchema
 
 # ---------------------------------------------------------------------------
 # WHERE A PUBLISHED CURRENCY CAME FROM (CURRENCY_DOCTRINE §B, made explicit)
@@ -111,6 +112,31 @@ class Transaction(BaseModel):
     running_balance: float | None = Field(
         default=None, description="Account balance printed after this transaction, if any."
     )
+    # Audit B10 (I05, I60): a deterministic parser sets this on a CREDIT whose published description is only its own
+    # type or section label because the payer text the statement printed for the row could not be read (an
+    # indeterminate flush of merchant blocks, a description overlay that failed closed). The true-revenue pass then
+    # counts the row as 'payer text not read', never as Q2's 'no payer printed', which is for a row whose statement
+    # prints no payer. Kept out of the extraction response schema (`SkipJsonSchema`, so the extractor is told nothing
+    # new and tests/test_extraction_schema_prompt_surface.py's digest holds) and out of every serialized transaction
+    # that does not carry it (`_serialize`), so no stored payload gains a key it did not have.
+    payer_text_unread: SkipJsonSchema[bool] = False
+    # Audit round 2, R2-B07 (R07): on a credit the parser marked (`payer_text_unread`) because a flush of several rows'
+    # merchant blocks could not be attributed, the flush's text, joined: what the statement printed for SOME row of
+    # that flush, never proven this row's, so it is no description. The true-revenue pass reads it only to hold a
+    # marked credit whose run prints a lender's block (never to verify, to name a payer or to count a lender credit),
+    # and the review card prints it so a reviewer can release a customer's row. Kept out of the extraction response
+    # schema and out of every serialized transaction that does not carry it, as `payer_text_unread` is.
+    unread_payer_text: SkipJsonSchema[str] = ""
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if isinstance(data, dict):
+            if not self.payer_text_unread:
+                data.pop("payer_text_unread", None)
+            if not self.unread_payer_text:
+                data.pop("unread_payer_text", None)
+        return data
 
 
 class StatementDailyBalance(BaseModel):
@@ -145,7 +171,20 @@ class Statement(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     bank: str | None = Field(default=None, description="Bank name, e.g. 'Chase'.")
-    account_name: str | None = Field(default=None, description="Account holder / product name.")
+    account_name: str | None = Field(
+        default=None, description="The name printed for the account: a product, a nickname, or on some layouts a person."
+    )
+    #: Audit B9 (I13): the holder's own name, kept apart from `account_name` (which a parser fills with a product, a
+    #: nickname or nothing), so the revenue holds can read who owns the account. None when the parser reads none.
+    holder_name: str | None = Field(
+        default=None, description="Account holder's name as printed in the header or mailing address block."
+    )
+    # Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: the title the bank prints after the
+    # holder's name (a premium trust, an operating or a wire account), read from the holder reader's own anchor
+    # (analysis.holder_name.HolderReading); provenance for the revenue rule. Kept out of the extraction response schema
+    # (`SkipJsonSchema`: the extractor is told nothing new) and out of every serialized statement that carries none
+    # (`_serialize`), so no stored payload gains a key it did not have.
+    account_title: SkipJsonSchema[str | None] = None
     account_number: str | None = Field(default=None, description="Account number as printed.")
     period_start: str | None = Field(default=None, description="Statement period start, ISO YYYY-MM-DD.")
     period_end: str | None = Field(default=None, description="Statement period end, ISO YYYY-MM-DD.")
@@ -240,3 +279,12 @@ class Statement(BaseModel):
     @stated_average_balance.setter
     def stated_average_balance(self, value: float | None) -> None:
         self.bank_reported_average_balance = value
+
+    # Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: `account_title` is serialized only when a reader set it,
+    # as Transaction._serialize drops its unset parser marks. A comment, not a docstring (see the class's comment).
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and self.account_title is None:
+            data.pop("account_title", None)
+        return data

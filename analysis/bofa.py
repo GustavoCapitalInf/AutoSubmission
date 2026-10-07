@@ -5,12 +5,33 @@ from datetime import date
 from typing import NamedTuple
 
 from .date_tokens import iso_or_none
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import table_rows, tables_after
 
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+#: Audit round 2, R2-B05 (R04 part 2): the period line Bank of America prints above the holder's name on page 1
+#: ('for May 1, 2054 to May 31, 2054 Account number: 0000 0000 0000').
+_HOLDER_ANCHOR = re.compile(
+    r"^for [A-Z][a-z]+ \d{1,2}, \d{4} to [A-Z][a-z]+ \d{1,2}, \d{4} Account number:", re.IGNORECASE
+)
+#: The page's own headings that can follow the period line where no name prints.
+_NOT_A_HOLDER_LINE = re.compile(r"^(?:Account summary|Your |Page \d)", re.IGNORECASE)
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name, the line Bank of America prints after page 1's period
+    line ('for <period> Account number: <number>'). NO_READING without that line or where a heading follows it.
+    `account_name` keeps the product line ('Your <product> for <period>'). Owner ruling 2026-10-02 (Q10), audit round
+    2, R2-OW10: with the account title that line prints after the name."""
+    lines = page_lines(first_page(_IMG_RE.sub("", markdown)))
+    for index, line in enumerate(lines[:-1]):
+        if _HOLDER_ANCHOR.match(line):
+            following = lines[index + 1]
+            return NO_READING if _NOT_A_HOLDER_LINE.match(following) else read_name(following)
+    return NO_READING
 
 
 def _money(value: str) -> float | None:
@@ -531,7 +552,11 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
     if period is None:
         return None
 
-    stmt = Statement(bank="Bank of America", period_start=period[0], period_end=period[1])
+    holder = _holder_reading(markdown)
+    stmt = Statement(
+        bank="Bank of America", holder_name=holder.name, account_title=holder.title, period_start=period[0],
+        period_end=period[1],
+    )
     acct = re.search(r"Account number:\s*([0-9 ]+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = re.sub(r"\s+", "", acct.group(1))

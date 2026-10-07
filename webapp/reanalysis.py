@@ -17,9 +17,11 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 
+from analysis import zelle_view
 from analysis.payload_shape import payload_accounts
 from analysis.revenue import (
     LEGACY_REVENUE_STATE_MAP,
+    REVIEWABLE_NON_REVENUE_REASONS,
     rebuild_serialized_revenue_views,
     record_serialized_revenue_review,
 )
@@ -150,11 +152,25 @@ def _redone(identity: tuple | None, later: Sequence[tuple | None]) -> bool:
                for other in later)
 
 
-def _awaits_review(record: Mapping) -> bool:
-    """The row is a deposit the analyst decides, not one a rule decided: the review writer refuses any other
-    (analysis/revenue.py), so the analyst could not redo a decision on it."""
+def _awaits_review(record: Mapping, decision: object) -> bool:
+    """The row awaits this decision (true revenue spec §10.7): a deposit the rules left unverified awaits any
+    decision, as it always has; a credit a rule verified (5.6, a record with a tier) awaits only a reject, because the
+    analyst's word wins over a rule. A confirm on a rule-verified row, or any decision on a row a non-revenue rule
+    decided, does not await review: the review writer would refuse it (analysis/revenue.py), so it is reported as
+    decided by the rules, never as needing redoing. R2-OW03 (the underwriter's Q3): a Zelle deposit the owner's policy
+    excluded (REVIEWABLE_NON_REVENUE_REASONS) awaits a confirm only, so a stored confirm is replayed and a stored
+    reject, which the writer refuses on a row already non-revenue, is reported as decided by the rules."""
     initial = record.get("revenue_initial_classification")
-    return LEGACY_REVENUE_STATE_MAP.get(initial, initial) == "unverified_deposit"
+    initial = LEGACY_REVENUE_STATE_MAP.get(initial, initial)
+    if initial == "unverified_deposit":
+        return True
+    tiered = isinstance(record.get("revenue_tier"), str)
+    if initial == "non_revenue":
+        return (
+            tiered and decision == "confirm"
+            and record.get("revenue_tier_reason") in REVIEWABLE_NON_REVENUE_REASONS
+        )
+    return initial == "verified_revenue" and decision == "reject" and tiered
 
 
 def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
@@ -172,6 +188,13 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
     of the current analysis now decides cannot be redone (the analyst can no longer review that row), so it is
     reported apart, as decided by the rules (spec §8.6.5: anything that cannot be replayed is reported back). Nothing
     here writes a decision: the replay is part of the re-analysis, which the audit log records.
+
+    The owner's amendment of 2026-10-06 to the underwriter's Q3 (spec §10.7; R2-OW17): a fresh analysis that carries
+    the counted Zelle reading's edits (analysis/zelle_view.py) is replayed in both readings, each on its own: a decision
+    is written to a reading where that reading's record awaits it, and every other reading stays at its analysis state,
+    which is exactly the review writer's reset, so the live state and the re-analysed one agree. A decision is replayed
+    when any reading takes it, refused only when every reading that awaits it refuses it, and decided by the rules only
+    when no reading awaits it. Without such edits this is today's replay exactly.
     """
     identities = [_identity(row) for row in history]
     latest: dict[tuple, int] = {}
@@ -179,27 +202,38 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
         key = ("unreadable", index) if identity is None else identity[:4]
         latest.pop(key, None)  # the later decision replaces the earlier one, and is replayed in its own turn
         latest[key] = index
+    carrying = False
+    readings = [analysis]
+    if zelle_view.reading(analysis, counted=False) is not analysis:  # an account carries the edits key
+        no, yes, carrying = zelle_view.split_readings(analysis)
+        readings = [no, yes] if carrying else [no]  # unusable edits: the key dropped, today's replay on the rest
     try:
-        accounts = payload_accounts(analysis, surface=_REPLAY_SURFACE)
+        accounts = [payload_accounts(reading, surface=_REPLAY_SURFACE) for reading in readings]
     except ValueError:
-        accounts = []
-    waiting: list[tuple[int, int]] = []
+        accounts = [[] for _reading in readings]
+    waiting: list[list[tuple[int, int]]] = [[] for _reading in readings]
     redo: list[int] = []
     ruled: list[int] = []
     for index in latest.values():
         if history[index].get("decision") == "reset":
             continue
-        places = _places(accounts, identities[index])
-        if len(places) != 1:
+        places = [_places(holders, identities[index]) for holders in accounts]
+        if len(places[0]) != 1:
             if not _redone(identities[index], identities[index + 1:]):
                 redo.append(index)
             continue
-        number, record = places[0]
-        if not _awaits_review(record):
+        awaited = False
+        for position, found in enumerate(places):
+            number, record = found[0]
+            if _awaits_review(record, history[index].get("decision")):
+                waiting[position].append((index, number))
+                awaited = True
+        if not awaited:
             ruled.append(index)
-            continue
-        waiting.append((index, number))
-    updated, applied, refused = _applied(analysis, history, waiting)
+    results = [_applied(reading, history, queue) for reading, queue in zip(readings, waiting)]
+    applied = sorted({index for _updated, taken, _refused in results for index in taken})
+    refused = sorted({index for _updated, _taken, lost in results for index in lost} - set(applied))
+    updated = results[0][0] if not carrying else zelle_view.join_readings(results[0][0], results[1][0])
     return Replay(updated, _ids(history, applied), _ids(history, sorted(redo + refused)), _ids(history, ruled))
 
 

@@ -213,10 +213,13 @@ MUTANTS: list[Mutant] = [
            "nothing printed", "analysis/pipeline.py",
            "        if not any(designations):",
            "        if False:"),
+    # Retargeted in the S2.3 review round: 5.5 rewrote the designation's return
+    # (the narrowed book and funds transfer rule, §7.11); the tuple is read on
+    # its first line.
     Mutant("Rd4b", "R-d clause 4", "the peer-to-peer rail vocabulary is admitted "
            "as transfer evidence", "analysis/transaction_classifier.py",
-           "        _INTERNAL_TRANSFER_CREDIT_PATTERNS,\n    )",
-           "        _INTERNAL_TRANSFER_CREDIT_PATTERNS + _TRANSFER_PATTERNS,\n    )"),
+           "    return _matches_any(text, _INTERNAL_TRANSFER_CREDIT_PATTERNS) or (",
+           "    return _matches_any(text, _INTERNAL_TRANSFER_CREDIT_PATTERNS + _TRANSFER_PATTERNS) or ("),
 
     # --- the package -------------------------------------------------------
     Mutant("PK1", "R-d, package", "the flagged postings are counted after all",

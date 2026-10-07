@@ -9,6 +9,11 @@ Usage:
   .venv/bin/python batch.py output/ --out triage.csv          # a folder of .md
   OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \\
       .venv/bin/python batch.py BankStatements/ --out triage.csv   # PDFs (OCR+analyze)
+
+`--zelle-true-revenue {yes,no}` is the owner's "Mark Zelle Payments as True
+Revenue" (the underwriter's Q3, amended 2026-10-06), yes by default as on the
+Settings page: each row reads that Zelle reading. The CLI reads no webapp
+setting.
 """
 from __future__ import annotations
 import argparse
@@ -18,7 +23,10 @@ import sys
 import traceback
 from pathlib import Path
 
+from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
+from analysis.revenue_view import revenue_flags, withholding_basis_unestablished
+from analysis.serialization import document_report_to_dict
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -35,11 +43,20 @@ from telemetry import (
 FIELDS = [
     "file", "bank", "account", "period_start", "period_end",
     "summary_reconciles", "average_daily_balance", "total_deposits", "total_debits",
-    "total_posted_credits", "verified_revenue_total", "verified_revenue_count",
+    "total_posted_credits", "true_revenue_total", "counted_flagged_total", "excluded_pending_review_total",
+    "verified_revenue_total", "verified_revenue_count",
     "unverified_deposit_total", "unverified_deposit_count", "non_revenue_total",
-    "non_revenue_count", "maximum_revenue", "revenue_reconciles",
-    "revenue_reconciliation_delta", "cash_flow", "lender_credits", "lender_debits",
-    "lender_debit_count", "lenders_detected", "potential_lenders_detected",
+    "non_revenue_count",
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the reading shown and its Zelle figures,
+    # a fixed header in both modes.
+    "zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total",
+    # Audit round 2, R2-B16 (R52): the four-tier identity under its own name (was `revenue_reconciles`), then whether
+    # the statement's revenue is Balanced (its ledger reconciles and its revenue is established) and the two flags.
+    "maximum_revenue", "revenue_tiers_sum_to_posted",
+    "revenue_reconciliation_delta", "revenue_balanced", "revenue_established", "verified_revenue_established",
+    "cash_flow", "lender_credits", "lender_debits",
+    "lender_debit_count", "returned_funder_payment_count", "returned_funder_payment_total",
+    "lenders_detected", "potential_lenders_detected",
     "potential_lender_debit_count", "potential_lender_debit_total",
     "insurance_count", "insurance_total", "withholding_numerator",
     "withholding_denominator", "withholding_rate", "potential_withholding_numerator",
@@ -47,6 +64,10 @@ FIELDS = [
     "potential_withholding_review_required", "pos_count", "pos_credit_count",
     "atm_withdrawal_count", "loan_count",
     "debit_coverage", "nsf", "mca_funders", "flagged_positions", "recurring_debit_groups",
+    # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the statement's items by kind, and each as
+    # kind:lender_label (information only).
+    "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
+    "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops", "lender_payment_changes",
     "quality", "transaction_detail_reliable", "corporate_use", "needs_review",
     "model", "error",
 ]
@@ -98,15 +119,63 @@ def _content_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest().upper()
 
 
-def _row(path: Path, report: Report) -> dict:
+def _payment_change_columns(items: list[dict]) -> dict:
+    """The owner's request of 2026-10-06 (R2-OW18, I2): the seven lender payment change columns of one account."""
+    def count(kind: str) -> int:
+        return sum(1 for item in items if item.get("kind") == kind)
+
+    def named(item: dict) -> str:
+        possible = " (possible)" if item.get("schedule_confirmed") is False else ""
+        potential = " (potential)" if item.get("lender_state") == "potential" else ""
+        return f"{item.get('kind')}:{item.get('lender_label') or item.get('lender')}{possible}{potential}"
+
+    return {
+        "lender_payment_decreases": count("decrease"),
+        "lender_payment_increases": count("increase"),
+        "lender_payment_cadence_changes": count("cadence_change"),
+        "lender_payment_new_streams": count("new_stream"),
+        "lender_payment_pauses": count("pause"),
+        "lender_payment_possible_stops": sum(1 for item in items
+                                             if item.get("kind") == "stop" and item.get("stop_confirmed") is not True),
+        "lender_payment_changes": "; ".join(named(item) for item in items),
+    }
+
+
+def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
+    # R2-OW17: the Zelle reading asked for: the counted one (`Report.zelle_counted`) under Yes where the statement has
+    # one, else the stored Report.
+    report = stored.zelle_counted if zelle_true_revenue and stored.zelle_counted is not None else stored
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
+    zelle = zelle_view.record_zelle_figures(stored.classifications, report.classifications)
+    zelle_parts = zelle_view.figure_parts(zelle) if zelle is not None else {"in_true": 0.0}
+    # Audit round 2, R2-B16 (R52; true revenue spec §10.4): the account's revenue flags in the reading shown, from its
+    # serialized payload (the flags the dashboard and the downloads read), published through the document entry point
+    # as a document of its one account (RULE S: that account's payload; the L1-S3 seam rule).
+    verified_established, established = revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
     # A statement needs human review when the bank's own summary doesn't reconcile
-    # (mis-extracted or internally inconsistent) — the figures can't be trusted.
+    # (mis-extracted or internally inconsistent) — the figures can't be trusted —
+    # when its revenue gate is set (5.6, T7: a direction conflict, or held credits
+    # of ten percent or more of its posted credits or of True plus held), or (R52)
+    # when its revenue is not established: its captured credits are not the money
+    # the bank's total counts. The four-tier identity holds by construction on every
+    # analysis (analysis/metrics.py raises otherwise), so it is no term of its own.
     needs_review = (
         report.quality.corporate_use == "manual_review_required"
         or m.revenue_review_required
-        or not m.revenue_reconciles
+        or not established
     )
+
+    def established_figure(value: float, shown: bool) -> str:
+        # R52 (audit B11's I51 on the CSV): a figure the flags do not establish is an empty cell, as in the downloads.
+        return f"{value:.2f}" if shown else ""
+
+    # The final review of round 2, F1 (§10.4, §11): no rate and no basis where the basis the withholding mode divides
+    # by is not established (the downloads' rule); the legacy basis is written as before.
+    basis_shown = not withholding_basis_unestablished(
+        m.withholding_denominator_mode, verified_established=verified_established, established=established)
+
+    def rate(value: float | None) -> str:
+        return f"{value:.2f}" if value is not None and basis_shown else ""
     return {
         "file": path.name,
         "bank": s.bank or "",
@@ -122,19 +191,32 @@ def _row(path: Path, report: Report) -> dict:
         "total_deposits": f"{m.effective_total_deposits:.2f}",
         "total_debits": f"{m.effective_total_withdrawals:.2f}",
         "total_posted_credits": f"{m.total_posted_credits:.2f}",
-        "verified_revenue_total": f"{m.verified_revenue_total:.2f}",
+        # 5.6 (true revenue spec §5.1): True revenue and its counted and held parts; R52: empty where not established.
+        "true_revenue_total": established_figure(m.true_revenue_total, established),
+        "counted_flagged_total": established_figure(m.counted_flagged_total, established),
+        "excluded_pending_review_total": established_figure(m.excluded_pending_review_total, established),
+        "verified_revenue_total": established_figure(m.verified_revenue_total, verified_established),
         "verified_revenue_count": m.verified_revenue_count,
-        "unverified_deposit_total": f"{m.unverified_deposit_total:.2f}",
+        "unverified_deposit_total": established_figure(m.unverified_deposit_total, established),
         "unverified_deposit_count": m.unverified_deposit_count,
         "non_revenue_total": f"{m.non_revenue_total:.2f}",
         "non_revenue_count": m.non_revenue_count,
-        "maximum_revenue": f"{m.maximum_revenue:.2f}",
-        "revenue_reconciles": "yes" if m.revenue_reconciles else "NO",
+        "zelle_true_revenue": "yes" if zelle_true_revenue else "no",
+        "zelle_deposit_total": f"{zelle['total'] if zelle is not None else 0.0:.2f}",
+        "zelle_in_true_revenue_total": f"{zelle_parts['in_true']:.2f}",
+        "maximum_revenue": established_figure(m.maximum_revenue, established),
+        "revenue_tiers_sum_to_posted": "yes" if m.revenue_tiers_sum_to_posted else "NO",
         "revenue_reconciliation_delta": f"{m.revenue_reconciliation_delta:.2f}",
+        "revenue_balanced": "yes" if r.ok is True and established else "NO",
+        "revenue_established": "yes" if established else "NO",
+        "verified_revenue_established": "yes" if verified_established else "NO",
         "cash_flow": f"{m.cash_flow:.2f}",
         "lender_credits": f"{m.lender_credits:.2f}",
         "lender_debits": f"{m.lender_debits:.2f}",
         "lender_debit_count": m.lender_debit_count,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): out of lender_debits, in withholding_numerator.
+        "returned_funder_payment_count": m.returned_funder_payment_count,
+        "returned_funder_payment_total": f"{m.returned_funder_payment_total:.2f}",
         "lenders_detected": m.lenders_detected,
         "potential_lenders_detected": m.potential_lenders_detected,
         "potential_lender_debit_count": m.potential_lender_debit_count,
@@ -142,15 +224,11 @@ def _row(path: Path, report: Report) -> dict:
         "insurance_count": m.insurance_count,
         "insurance_total": f"{m.insurance_total:.2f}",
         "withholding_numerator": f"{m.withholding_numerator:.2f}",
-        "withholding_denominator": f"{m.withholding_denominator:.2f}",
-        "withholding_rate": f"{m.withholding_rate:.2f}" if m.withholding_rate is not None else "",
+        "withholding_denominator": established_figure(m.withholding_denominator, basis_shown),
+        "withholding_rate": rate(m.withholding_rate),
         "potential_withholding_numerator": f"{m.potential_withholding_numerator:.2f}",
-        "potential_withholding_denominator": f"{m.potential_withholding_denominator:.2f}",
-        "potential_withholding_exposure": (
-            f"{m.potential_withholding_exposure:.2f}"
-            if m.potential_withholding_exposure is not None
-            else ""
-        ),
+        "potential_withholding_denominator": established_figure(m.potential_withholding_denominator, basis_shown),
+        "potential_withholding_exposure": rate(m.potential_withholding_exposure),
         "potential_withholding_review_required": m.potential_withholding_review_required,
         "pos_count": m.pos_count,
         "pos_credit_count": m.pos_credit_count,
@@ -163,6 +241,7 @@ def _row(path: Path, report: Report) -> dict:
         # time only; the webapp's Settings never reach this CSV.
         "flagged_positions": "; ".join(f"{fp.group}:{fp.payee}" for fp in d.flagged_positions),
         "recurring_debit_groups": sum(1 for rc in d.recurring_debits if rc.cadence in ("daily", "weekly")),
+        **_payment_change_columns(d.lender_payment_changes),
         "quality": report.quality.level,
         "transaction_detail_reliable": "yes" if report.quality.transaction_detail_reliable else "no",
         "corporate_use": report.quality.corporate_use,
@@ -247,7 +326,10 @@ def main() -> None:
              "endpoint additionally requires OCR_REMOTE_OPT_IN "
              "(see README.md).",
     )
+    ap.add_argument("--zelle-true-revenue", choices=("yes", "no"), default="yes",
+                    help="Mark Zelle Payments as True Revenue (default yes, the Settings default)")
     args = ap.parse_args()
+    zelle_true_revenue = args.zelle_true_revenue == "yes"
 
     root = Path(args.path)
     if root.is_dir():
@@ -306,7 +388,7 @@ def main() -> None:
             # One CSV row per ACCOUNT, in printed order: a sheet that printed
             # one row per document would publish one account of several and
             # drop the rest without saying so.
-            rows.extend(_row(path, account) for account in analysed.accounts)
+            rows.extend(_row(path, account, zelle_true_revenue) for account in analysed.accounts)
             _emit(sink, run_id, path, markdown, doc, profile, byte_size,
                   collector, timer, seen_hashes, document=analysed)
         except Exception as e:  # keep going; record the failure in its row

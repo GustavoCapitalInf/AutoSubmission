@@ -39,8 +39,9 @@ FAKE_PAYEES: dict[str, tuple[str, str]] = {
 }
 
 
-def fake_match(normalized_text: str) -> PayeeMatch | None:
-    """A stand-in for S1's matcher over FAKE_PAYEES: the longest alias found wins."""
+def fake_match(normalized_text: str, *, credit: bool = False) -> PayeeMatch | None:
+    """A stand-in for S1's matcher over FAKE_PAYEES: the longest alias found wins. `credit` (audit B6: the matcher's
+    credit index) reads the same fabricated payees."""
     for alias in sorted(FAKE_PAYEES, key=len, reverse=True):
         if alias in normalized_text:
             entity, state = FAKE_PAYEES[alias]

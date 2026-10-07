@@ -11,6 +11,10 @@ the curated lender ledger (contract C10). The evidence for every entity is in
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from .description_text import normalize_transaction_description
+
 # --- BEGIN GENERATED: tools/build_lender_registry.py ---
 # Rendered by tools/build_lender_registry.py from docs/lender-registry-ledger.json (contract C10).
 # Never edit by hand: change the ledger, then run python -m tools.build_lender_registry --write.
@@ -89,7 +93,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "DLP Funding LLC": ("DLP FUND", "DLP FUNDING", "DLPBUS FUND"),
     "DMS Equities LLC": ("DMS EQUITIES LLC", "DMS EQUITIES"),
     "Driven Financial Technologies Corporation": ("DRIVEN FINANCIA",),
-    "East Shore Equities LLC": ("ESENOW", "EAST SHORE EQUITIES"),
+    "East Shore Equities LLC": ("ESENOW", "EAST SHORE EQUITIES", "EAST SHORE EQU"),
     "Econolease": ("VLFC ECONOLEASE", "VLFC ECONO LEASE", "ECONOLEASE"),
     "Edge Capital": ("CRC EDGE",),
     "Elect Capital": ("ELECT CAPITAL", "ELECT CANADA"),
@@ -120,7 +124,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "Express Capital Funding, Inc.": ("EXPRESSCAPITAL",),
     "Express Tech-Financing, LLC d/b/a Currency": ("EXPRESS TECH FIN",),
-    "FairFigure": ("FAIRFIGURE CARD",),
+    "FairFigure": ("FAIRFIGURE CARD", "FAIRFIGURE LIFT"),
     "Family Funding Group": ("FAMILY FUNDING G", "FAMILY FUNDING GROUP"),
     "Fast Business Cash Funding Group, LLC": ("FAST BUSINESS CA",),
     "FC Advance": ("FCADVANCE",),
@@ -145,6 +149,9 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "FORWARD FINANCINFF",
         "FORWARDFINANCING",
         "FORWARD FIN",
+        "FORWARDFINUSA",
+        "FORWARD FIN USA",
+        "FORWARD FINANCING USA",
     ),
     "Forward Funding": ("FORWARD FUNDING",),
     "Fox Funding Group, LLC": ("FOX FUNDING GRP", "FOX FUNDING GROUP", "FOXFUNDINGGROUPL"),
@@ -173,7 +180,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "FUNDWK",
     ),
     "Garden Funding LLC": ("GARDEN FUNDING",),
-    "GFE": ("UFCE",),
+    "GFE": ("UFCE", "GLOBAL FUNDING EXPERTS", "UNITED FIRST CAPITAL EXPERTS", "UNITED FIRST LLC"),
     "Giggle Finance": ("GIGGLE FINANCE",),
     "GOAT ADVANCE LLC": ("GOAT ADVANCE",),
     "Good Funding, LLC": ("GOOD FUNDING LLC",),
@@ -271,7 +278,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Oak Capital Inc": ("OAK CAPITAL ONLINE",),
     "Olympus Business Capital": ("OLYMPUS BUSINESS", "OLYMPUSBUS", "OLYMPUS LENDING"),
     "ONDECK": ("ONDECK",),
-    "One River Group Inc": ("ONE RIVER FUND",),
+    "One River Group Inc": ("ONE RIVER FUND", "ONE RIVER GROUP", "ONE RIVER SERVICES", "ONE RIVER FUNDING"),
     "OneView Finance": ("ONEVIEW FINANCE",),
     "Overton Funding LLC": ("OVERTONFUNDING", "OVERTON FUNDING"),
     "PACCAR Financial Corp.": ("PACCAR FINANCIAL",),
@@ -285,6 +292,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "PIPE TECHNOLOGIES INC",
         "PIPE ADVANCE",
         "PIPE CAPITAL",
+        "PIPE TECHNOLOGIE",
     ),
     "Pitney Bowes Global Financial Services, LLC": ("PBLEASING",),
     "Pitney Bowes of Canada Ltd": ("PITNEYBOWES LEA",),
@@ -309,7 +317,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
         "ROCKSTONE FUNDING GROUP",
         "CREDORA CAPITAL",
     ),
-    "Rook Bristol Financial LLC": ("ROOK BRISTOL FINANCIAL",),
+    "Rook Bristol Financial LLC": ("ROOK BRISTOL FINANCIAL", "ROOK BRISTOL FI"),
     "Royal Funding Group": ("ROYAL FUNDING GR",),
     "SBG Funding": ("SBG FUNDING",),
     "Seamless Capital Group, Inc": ("SEAMLESS CAPITAL",),
@@ -332,7 +340,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Tandem Finance, Inc": ("TANDEM FINANCE",),
     "Targeted Lending Co., LLC": ("TARGETED LENDING",),
     "TFG Financial Corporation": ("TFG FINANCIAL CORPORATION",),
-    "The LCF Group, Inc": ("LCF", "LCFGROUPIN"),
+    "The LCF Group, Inc": ("LCF", "LCFGROUPIN", "LCFGROUPINC"),
     "THORO CORP": ("THORO CORP",),
     "Thriveway Funding Group, LLC": ("THRIVEWAYFUNDING", "THRIVEWAY FUNDING"),
     "TIAA Commercial Finance, Inc.": ("TIAA COMM FINANC",),
@@ -344,7 +352,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Travelers Finance Ltd": ("TRAVELERS FINANCE", "TRAVELERS LEASING"),
     "True Advance Funding, Inc": ("TRUEADVANCE", "TRUE ADVANCE FUNDING"),
     "U.S. Bank Equipment Finance": ("USBEQUIPFINANCE", "US BANK EQUIPMEN"),
-    "Uncapped": ("UNCAPPED LTD", "WEAREUNCAPPED"),
+    "Uncapped": ("UNCAPPED LTD", "WEAREUNCAPPED", "UNCAPPED TECHNOLOGIES"),
     "Unique Funding Solutions LLC": ("UNIQUE FUNDING S", "UNIQUE FUNDING SOLUTIONS"),
     "Univest Capital, Inc": ("UNIVEST CAPITAL",),
     "Uplyft Capital": ("UPLYFT CAPITAL",),
@@ -406,9 +414,11 @@ ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {
     "GreenSky": ("GREENSKY",),
     "HASCAP loan": ("BDC HASCAP",),
     "INTUIT FINANCING": ("INTUIT FINANCING", "WEBBANK INTUIT"),
+    "Jobber Capital": ("JOBBER CAPITAL",),
     "Klarna Inc": ("KLARNA", "TRUEACCORD KLARNA"),
     "LendCare Capital Inc": ("LENDCARE",),
     "Lendistry (B.S.D. Capital, Inc.)": ("LENDISTRY",),
+    "Liberis US Inc": ("LIBERIS", "LIBERIS US INC"),
     "LiftFund, Inc.": ("LIFTFUND",),
     "Lightspeed Capital": ("LSPD CAPITAL",),
     "Medallion Bank": ("MEDALLION BANK",),
@@ -417,15 +427,18 @@ ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {
     "Mountain BizCapital, Inc": ("MOUNTAIN BIZCAPI",),
     "Newtek Small Business Finance, LLC": ("NEWTEK S BUS", "NEWTEK SMALL BUSINESS FINANCE"),
     "Northeast Bank": ("NORTHEAST BANK DES SBA PYMT", "SBA PYMT NORTHEAST BANK"),
+    "Parafin, Inc.": ("PARAFIN", "PARAFIN INC"),
     "PAYPAL WORKING CAPITAL": ("PAYPAL WORKING CAPITAL", "PAYPAL CAPITAL", "WEBBANK PAYPAL"),
     "PayTomorrow LLC": ("PAYTOMORROW",),
     "Preferred Credit, Inc": ("PREFERRED CREDIT",),
     "ReadyCap Lending, LLC": ("READYCAP LENDING",),
     "Sezzle Inc": ("SEZZLE",),
+    "Shift4 Capital": ("SHIFT4 CAPITAL", "SHIFT4 CAP"),
     "SHOPIFY CAPITAL": ("SHOPIFY CAPITAL",),
     "SpotOn Capital": ("SPOTON CAPITAL",),
     "SQUARE CAPITAL": ("SQUARE CAPITAL", "SQUARE LOAN"),
     "Stripe Capital": ("STRIPE CAPITAL", "STRIPE CAP"),
+    "SumUp Cash Advance": ("SUMUP CASH ADVANCE",),
     "Sunbit": ("SUNBIT",),
     "Synchrony Pay Later": ("SYF PAYLTR",),
     "Synchrony Secured Installment Loans": ("SYNCHRONY SECURE",),
@@ -441,6 +454,7 @@ ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "Uplift, Inc": ("UPLIFT INC",),
     "Women's Enterprise Organizations of Canada": ("WOMENS ENTERPRISE ORG CANADA",),
+    "Xplor Capital": ("XPLOR CAPITAL",),
     "Zip Co US Inc": (
         "ZIP APP PAY",
         "ZIP APP PAYLATER",
@@ -702,8 +716,12 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "ALLY DES RETRY PYMT",
         "ACI ALLY BANK",
     ),
-    "American Credit Acceptance, LLC": ("SPI AMERICAN CREDIT ACC", "AMERICAN CREDIT ACC"),
-    "American Honda Finance Corporation": ("HONDA PMT",),
+    "American Credit Acceptance, LLC": (
+        "SPI AMERICAN CREDIT ACC",
+        "AMERICAN CREDIT ACC",
+        "AMERICAN CREDIT ACCEPTANCE",
+    ),
+    "American Honda Finance Corporation": ("HONDA PMT", "HONDA FINANCIAL", "AMERICAN HONDA FINANCE"),
     "Audi Financial Services": ("AUDI FINCL", "AUDI FINCL INC", "AUDI FINCL TEL"),
     "Bank of America Vehicle Loans": ("BANK OF AMERICA VEHICLE LOAN", "AMERICA VEHICLE LOAN"),
     "BMW Financial Services NA, LLC": ("BMW BANK", "BMWFINANCIAL", "BMWFS"),
@@ -735,6 +753,7 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "LINCOLN AFS DES FORDCREDIT",
         "LINCOLN AFS RETRY PYMT",
     ),
+    "Global Lending Services LLC (GLS Auto)": ("GLOBAL LENDING SERVICES",),
     "GM Financial": ("GM FINANCIAL",),
     "Harley-Davidson Financial Services": ("ACI HDFS PAYMENT", "ACI HDFS"),
     "Holand Leasing": ("HOLAND LEASING",),
@@ -742,12 +761,14 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
     "Hyundai Capital America": ("ACI HYNDAI KIA", "HYNDAI KIA"),
     "Hyundai Motor Finance": ("HYUNDAI PMNT", "HYUNDAI PMNT CT", "HMF HMFUSA COM", "HMFUSA COM", "HMFUSA"),
     "Kia Motors Finance": ("KMFUSA COM", "KMFUSA", "KMF KMFUSA COM"),
+    "Lendbuzz Funding, LLC": ("LENDBUZZ", "LENDBUZZ FUNDING"),
     "LENTEGRITY": ("LENTEGRITY", "LENTEGRITY BILLPAY"),
     "Lexus Financial Services": ("PY LFS LEXUS", "PY LFS LEXUS PLANO", "LFS LEXUS"),
     "Lucid Loan and Lease": ("LUCID LOAN AND",),
     "Mazda Financial Services": ("MAZDA FINANCIAL",),
     "Mercedes-Benz Financial Services": ("MBFS", "MBFS COM", "MBFS COM DES AUTO PAY", "MBFS WEB PAY"),
     "Merrick Bank Recreation Lending": ("MERRICK BANK RECREAT",),
+    "Nicholas Financial, Inc.": ("NICHOLAS FINANCIAL",),
     "Nissan Motor Acceptance Company LLC": (
         "NISSAN AUTO LEASE",
         "NISSAN MOTOR ACC",
@@ -756,9 +777,11 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "NMAC LOANS",
         "NMAC LOANS ONLINE PMT",
         "NISSAN RETRY PYMT",
+        "NISSAN MOTOR ACCEPTANCE",
     ),
     "Porsche Financial Services": ("PORSCHE FINANCIA", "PORSCHE FINANCIA PAYMENTS"),
-    "Regional Acceptance Corporation": ("REGIONAL ACCEPTAN",),
+    "Professional Financial Services Corp. (PFS)": ("PROF FIN SER PFS",),
+    "Regional Acceptance Corporation": ("REGIONAL ACCEPTAN", "REGIONAL ACCEPTANCE"),
     "Roadrunner Financial (Octane)": ("ROADRUNNER ACCOU",),
     "Santander Consumer USA Inc": (
         "PNM SANTANDER",
@@ -767,6 +790,7 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "BILLPAY CHRYSLER CAPITAL",
         "CHRYSLER CAPITAL ONLINE PMT",
         "PNM CHRYSLER CA",
+        "SANTANDER CONSUMER",
     ),
     "Southeast Toyota Finance": ("SETOYOTA FIN", "SETOYOTA FIN EZP", "SETOYOTA FIN EZP AUTO FINAN"),
     "Stellantis Financial Services": (
@@ -775,6 +799,7 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "STELLANTIS FUNDI",
         "STELLANTIS FUND",
     ),
+    "Strike Acceptance, Inc.": ("STRIKE ACCEPTANCE", "STRIKEACCEPTANCE"),
     "TD Auto Finance": ("TD AUTO FINANCE",),
     "Titanium Funds": ("TITANIUM FUNDS",),
     "Toyota Financial Services": ("TOYOTA ACH RTL", "TOYOTA FINANCIAL"),
@@ -786,8 +811,15 @@ VEHICLE_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "TOYOTA CREDIT CANADA INC",
     ),
     "Tricor Lease & Finance Corp": ("TRICOR LEASE",),
+    "United Auto Credit Corporation": ("UNITED AUTO CREDIT", "UNITED AUTO CRED"),
     "Volvo Car Financial Services U.S., LLC": ("VOLVO CAR FIN", "VOLVO CAR FIN AUTO FINAN"),
     "Wells Fargo Auto": ("WELLS FARGO AUTO", "WELLS FARGO AUTO DRAFT", "WELLS FARGO AUTO FEE AND PMTS"),
+    "Westlake Services, LLC (Westlake Financial)": (
+        "WESTLAKE FINANCIAL",
+        "WESTLAKE FINANCI",
+        "WESTLAKE PORTFOLIO",
+        "WESTLAKE PORTFOL",
+    ),
     "Wilshire Commercial Capital LLC": ("WILSHIRE COMMERCIAL CAPITAL",),
 }
 
@@ -920,7 +952,7 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
     "Borrowell": ("BORROWELL PAY",),
     "Bright Lending": ("BRIGHTLENDING", "BRGHT LENDING"),
     "Bright Money": ("BRIGHT MONEY",),
-    "Brigit": ("BRIGIT COM", "BRIGIT NEW YORK"),
+    "Brigit": ("BRIGIT COM", "BRIGIT NEW YORK", "INSTPMNTIN BRIGIT", "RTP CREDIT BRIGIT"),
     "Cash 4 You Corp": ("CASH 4 YOU",),
     "Cashli": ("CASHLI",),
     "Cleo AI": (
@@ -962,7 +994,7 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
     "LOANME": ("LOANME",),
     "Mariner Finance, LLC": ("MARINER FINANCE",),
     "MaxLend": ("MAXLEND",),
-    "MoneyLion": ("MONEYLION",),
+    "MoneyLion": ("MONEYLION", "ML PLUS LLC"),
     "NETCREDIT": ("NETCREDIT", "CCBANK NTC"),
     "New Southern Loans, Inc": ("NEW SOUTHERN LOANS",),
     "New York Life Insurance Company": ("NYLIC LOAN BAL",),
@@ -978,7 +1010,7 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
     "RushApprove": ("RUSHAPPROVE",),
     "Sallie Mae Bank": ("SLMLOANPMT", "AUTOPAY SALLIE MAE BANK"),
     "Self Financial, Inc (credit builder)": ("SELF LENDER", "SELF FINANCIAL", "LEADBANKSELFLEND PAYMENTS"),
-    "SoFi Bank, N.A.": ("SOFI BANK PL",),
+    "SoFi Bank, N.A.": ("SOFI BANK PL", "SOFI PL DISB"),
     "SoLo Funds": ("SOLOFUND",),
     "Speedy Cash": ("SPEEDY CASH",),
     "Spotloan": ("SPOTLOAN",),
@@ -994,6 +1026,9 @@ PERSONAL_LOAN_ALIASES: dict[str, tuple[str, ...]] = {
         "TILTFIN",
         "PAID TO TILT",
         "PULL TILT",
+        "TILT CASH",
+        "INSTPMNTIN EMPOWER",
+        "RTP CREDIT EMPOWER",
     ),
     "Time Financing Service": ("TIME FINANCING",),
     "TitleMax": ("TITLEMAX",),
@@ -1029,12 +1064,20 @@ FACTORING_ALIASES: dict[str, tuple[str, ...]] = {
     "Capital Now Ventures Inc": ("CAPITAL NOW VENTURES", "CAPITAL NOW CAP"),
     "Carter Funding Corporation": ("CARTER FUNDING",),
     "Coeur Capital, Inc": ("COEUR CAPITAL",),
+    "eCapital Corp.": (
+        "ECAPITAL",
+        "ECAPITAL CORP",
+        "ECAPITAL FREIGHT FACTORING",
+        "ECAPITAL COMMERCIAL FINANCE",
+        "ECAPITAL HEALTHCARE",
+    ),
     "Grimley Financial Corporation": ("GRIMLEY FINANCIAL",),
     "Liquid Capital Corp": ("LIQUID CAPITAL",),
     "OTR Capital LLC": ("OTR CAPITAL", "OTRSCHDPAY", "OTR SOLUTIONS SPV"),
     "RTS Financial Service, Inc": ("RTS FINANCIAL", "RTS FINANCIAL SERVICE"),
     "Scale Funding": ("SCALE FUNDING",),
-    "Treadstone US Capital, LLC": ("TREADSTONE US CAPITAL",),
+    "Stenn Assets UK Ltd (Stenn)": ("STENN ASSETS", "STENN INTERNATIONAL"),
+    "Treadstone US Capital, LLC": ("TREADSTONE US CAPITAL", "TREADSTONE OPER"),
 }
 
 #: Debt relief: debt-settlement account processors and debt-relief firms (flagged, never lender math).
@@ -1107,6 +1150,8 @@ PREMIUM_FINANCE_ALIASES: dict[str, tuple[str, ...]] = {
         "IPFSPMTSCC",
         "IPFSPMTTXH",
         "IPFSPMTWAS",
+        "IPFSFNDFLP",
+        "IPFSFLP",
     ),
     "IPFS of New York, LLC": ("IPFS OF NEW YORK",),
     "Johnson & Johnson Preferred Financing, Inc": ("JJPF PAYMENTS",),
@@ -1261,7 +1306,7 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Resolve (probably Resolve Pay)": ("RESOLVE PAYMENT",),
     "Resolve Capital (probably Resolve Capital Partners, MCA debt relief)": ("RESOLVE CAPITAL",),
     "Rewards Network": ("REWARDS NETWORK",),
-    "Samson Servicing (probably Samson MCA / Samson Funding)": ("SAMSONSERVICING",),
+    "Samson Servicing (probably Samson MCA / Samson Funding)": ("SAMSONSERVICING", "SAMSON SERVICING"),
     "Sigma Financial": ("SIGMA FINANCIAL",),
     "States Resources Corp": ("STATES RESOURCES",),
     "STELLANTIS SFA (probably Stellantis Financial Services)": ("STELLANTIS SFA",),
@@ -1314,6 +1359,13 @@ REVIEW_FLAG_ENTITIES: dict[str, str] = {
     "WESTLAKE (probably Westlake Financial Services)": "vehicle_financing",
 }
 
+#: Audit B6 (I10): factoring review entities, their credits a factoring payout, unconfirmed.
+FACTORING_REVIEW_ENTITIES: tuple[str, ...] = (
+    "EAGLE CAPITAL (unconfirmed factoring payer)",
+    "Primary Capital Solutions",
+    "Texoma Capital LLC",
+)
+
 # --- END GENERATED: tools/build_lender_registry.py ---
 
 #: Compatibility name (spec section 5): the lender table under its old name.
@@ -1334,6 +1386,24 @@ PAYEE_GROUP_REGISTRIES: dict[str, dict[str, tuple[str, ...]]] = {
     "lease_or_rental": LEASE_RENTAL_ALIASES,
     "credit_card_payment": CARD_ISSUER_ALIASES,
 }
+
+#: Audit B6 (I49; lender detection spec §4.6): known-payee aliases the matcher reads only where a reference code (a
+#: token with a digit) or nothing follows them, in their spaced and run-together forms. Tilt's cash advance printed on
+#: the RTP network as 'RTP CREDIT EMPOWER <reference>', or as PNC's instant payment 'INSTPMNTIN EMPOWER <mm> <dd>
+#: <reference>', is the app's; a company named Empower... paying by RTP or instant payment prints its name after the
+#: word ('RTP CREDIT EMPOWER SOLUTIONS ...') and is no advance. B6 review round 1: Brigit's two rail forms and Tilt's
+#: card-network push 'TILT CASH <reference>' are tied the same way: BRIGIT is a given name (a person or company named
+#: Brigit... paid by RTP or instant payment prints a name after it) and TILT CASH two ordinary words (a company named
+#: TILT CASH ... paying by ACH). Each is a ledger alias.
+REFERENCE_TIED_ALIASES: frozenset[str] = frozenset({
+    "RTP CREDIT EMPOWER", "INSTPMNTIN EMPOWER", "TILT CASH", "RTP CREDIT BRIGIT", "INSTPMNTIN BRIGIT",
+})
+
+#: Audit B6 (I22; lender detection spec §4.6): ledger aliases the known-payee matcher reads on credits only
+#: (analysis.payee_matcher's credit index). The LCF Group's run-together name is printed on its funding credits; on a
+#: debit it is also the receiver id of a PayPal eCheck to the funder, a lender debit the G7 allowlist has not signed
+#: off, so debits keep today's reading until the owner rules.
+CREDIT_ONLY_ALIASES: frozenset[str] = frozenset({"LCFGROUPINC"})
 
 
 # --- Hand-kept inputs of the ledger validator (tools/lender_ledger.py) ---
@@ -1459,7 +1529,15 @@ REATTRIBUTED_REGISTRY_ALIASES: dict[str, str] = {"SMARTPAY SOL": "SmartPay Solut
 #: platform: revenue, not financing proceeds. A D1 exception that S2 reads; their debits keep their group. The
 #: validator refuses a name that is not an admitted ledger entity of a group whose credits D1 treats as
 #: financing proceeds (analysis.flag_groups.FINANCING_STATES).
-PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = ("Sezzle Inc", "American First Finance, LLC", "PAYABILITY")
+PAYOUT_CREDIT_ENTITIES: tuple[str, ...] = (
+    "Sezzle Inc", "American First Finance, LLC", "PAYABILITY",
+    # Owner ruling 2026-09-28 (true revenue spec, OQ2): a buy-now-pay-later provider's settlement to the merchant is
+    # the merchant's own sale, so it is revenue, not financing proceeds.
+    "AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit",
+    # Owner ruling 2026-10-02 (Q8): Cherry's payout to a practice for a patient-financed treatment is the practice's
+    # own sale (CUSTOMER_FINANCING_PAYERS), under OQ2's consumer-side veto (the classifier's _OQ2_BNPL_ENTITIES).
+    "Cherry Technologies, Inc.",
+)
 
 #: Owner ruling 2026-09-27 (classification 5.3): the printed forms, in the bank's field order, of admitted payees whose
 #: bank prints the originator and the entry description apart, so no contiguous alias can match them (Chase's
@@ -1487,6 +1565,8 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
         "AMAZON MARKETPLACE",
         "AMAZON SELLER",
         "AMZN MARKETPLACE",
+        # 5.5 (true revenue spec §7.2): Amazon's real-time-rail payout, verified by recurrence only.
+        "RTP CREDIT AMAZON COM",
     ),
     "Authorize.Net": ("AUTHORIZE NET", "AUTHORIZENET"),
     "Bambora": ("BAMBORA", "BAMB0RA"),
@@ -1495,9 +1575,9 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     "DoorDash": ("DOORDASH", "DOOR DASH", "D00RDASH"),
     "Elavon": ("ELAVON", "ELAV0N"),
     "Etsy": ("ETSY", "ETSY PAYMENTS"),
-    "Fiserv": ("FISERV", "FIRST DATA MERCHANT"),
+    "Fiserv": ("FISERV", "FIRST DATA MERCHANT", "FIRST DATA CANADA"),
     "FreshBooks Payments": ("FRESHBOOKS PAYMENTS", "FRESH BOOKS PAYMENTS"),
-    "Global Payments": ("GLOBAL PAYMENTS", "GL0BAL PAYMENTS", "GLOBALPAY"),
+    "Global Payments": ("GLOBAL PAYMENTS", "GL0BAL PAYMENTS", "GLOBALPAY", "GLOBAL PAIEMENTS"),
     "GoDaddy Payments": ("GODADDY PAYMENTS", "GO DADDY PAYMENTS"),
     "Grubhub": ("GRUBHUB", "GRUB HUB"),
     "Helcim": ("HELCIM", "HELC1M"),
@@ -1518,7 +1598,9 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
         "SKIPTHED1SHES",
     ),
     "Square": ("SQUARE", "SQUARE INC", "SQUARF", "SQ SETTLEMENT"),
-    "Stripe": ("STRIPE", "STR1PE"),
+    # 5.5 (§7.0, §7.2): Stripe-Treasury payouts of a connected platform (STP FBO) and Stripe Connect's
+    # '<platform> - By Stri' cut read as Stripe.
+    "Stripe": ("STRIPE", "STR1PE", "STP FBO", "BY STRI", "BY STRIPE"),
     "Toast": ("TOAST", "TOASTTAB", "T0AST"),
     "Uber Eats": ("UBER EATS", "UBEREATS", "UBFR EATS"),
     "Uber": (
@@ -1532,6 +1614,54 @@ OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "Wave Payments": ("WAVE PAYMENTS", "WAVEAPPS PAYMENTS"),
     "Worldpay": ("WORLDPAY", "WORLD PAY"),
+    # 5.5 (true revenue spec §7.1): card processors, in the spellings the corpus prints. A processor's bare name
+    # (SHIFT4, SUMUP, CLEARENT, SMARTTAB, BRAINTREE) and Jobber's cut joins only after its advance product is in
+    # the lender ledger (PROCESSOR_ADVANCE_PRODUCTS). Task S1.5 (ledger55.json r2) cleared Shift4, SumUp, Clearent
+    # and Jobber Payments; SmartTab and Braintree wait.
+    "Heartland Payment Systems": (
+        "HRTLAND PMT SYS TXNS", "HEARTLAND PMT SYS TXNS", "HEARTLAND PAYMENT SYSTEMS", "HEARTLAND PAYMEN",
+    ),
+    "SpotOn": ("SPOTON", "SPOTON VIA ASTRA"),
+    "Clearent": ("CLEARENT", "CLEARENT LLC", "XPLOR PAY"),
+    "Shift4": ("SHIFT4", "SHIFT4 PAYMENTS", "SHIFT4 PYMT PROC"),
+    "SumUp": ("SUMUP",),
+    "Jobber Payments": ("JOBBER BY STRI", "JOBBER BY STR", "JOBBER BY STRIPE"),
+    "SmartTab": ("SMARTTAB PAY",),
+    "TapGoods Payments": ("TGPAYMENTS",),
+    "Cents": ("TRYCENTS", "TRYCENTS COM"),
+    "Esquire Payment Solutions": ("ESQUIRE EPS DAILY DEP", "ESQUIRE EPS HELD DEP"),
+    # 5.5 (§7.2, structural S43): vertical software that settles cards, in the spellings the corpus prints.
+    # Squarespace Payments and Seamless print no corpus spelling and wait.
+    "Vagaro": ("VAGARO",),
+    "Mindbody": ("MINDBODY",),
+    "Housecall Pro": ("HOUSECALL PRO",),
+    "Wix Payments": ("WIX COM",),
+    # 5.5 (§7.2): marketplaces and platforms.
+    "Whatnot": ("WHATNOT INC", "FBO WHATNOT"),
+    "Faire": ("FAIRE WHOLESALE",),
+    "TikTok Shop": ("TIKTOK SHOP", "TIKTOK INC", "TIKTOK USA"),
+    "eBay": ("EBAY COMMERCE INC",),
+    "RepeatMD": ("REPEATMD", "REPEATMD MARKETP"),
+    "Snackpass": ("SNACKPASS",),
+    "ezCater": ("EZCATER",),
+    "Menufy": ("MENUFY", "MENUFY COM"),
+    "Groupon": ("GRPN MERCH SVCS",),
+    "ClassPass": ("CLASSPASS", "CLASSPASS INC"),
+    "Outdoorsy": ("OUTDOORSY",),
+    "Brightwheel": ("BRIGHTWHEEL", "BRIGHTWHEE"),
+    "Buildertrend": ("BUILDERTREND", "BUILDERTREND SOL"),
+    "FieldPulse": ("FIELDPULSE",),
+    # 5.5 (§7.3): vehicle-transport marketplaces paying carriers.
+    "Super Dispatch": ("SUPER DISPATCH", "SUPERDISPATCH"),
+    "Autosled": ("AUTOSLED",),
+    # 5.5 (§7.8): dealer-only wholesale auto auctions, read on the originator segment only.
+    "Manheim": ("MANHEIM US",),
+    "ACV Auctions": ("ACV AUCTIONS",),
+    "OPENLANE": ("OPENLANE INC", "BACKLOTCARS"),
+    # 5.5 (§7.10): property-management payment platforms, verified by recurrence of their ACH payout only.
+    "Buildium": ("BUILDIUM",),
+    "AppFolio": ("APPFOLIO",),
+    "Landlord Studio": ("LANDLORD STUDIO",),
 }
 
 
@@ -1567,7 +1697,530 @@ OPERATING_REVENUE_SOURCE_TYPES: dict[str, str] = {
     "Uber": "delivery_marketplace",
     "Wave Payments": "invoice_and_receivables",
     "Worldpay": "merchant_processor",
+    "Heartland Payment Systems": "merchant_processor",
+    "SpotOn": "merchant_processor",
+    "Clearent": "merchant_processor",
+    "Shift4": "merchant_processor",
+    "SumUp": "merchant_processor",
+    "Jobber Payments": "invoice_and_receivables",
+    "SmartTab": "merchant_processor",
+    "TapGoods Payments": "merchant_processor",
+    "Cents": "merchant_processor",
+    "Esquire Payment Solutions": "merchant_processor",
+    "Vagaro": "merchant_processor",
+    "Mindbody": "merchant_processor",
+    "Housecall Pro": "merchant_processor",
+    "Wix Payments": "merchant_processor",
+    "Whatnot": "ecommerce_marketplace",
+    "Faire": "ecommerce_marketplace",
+    "TikTok Shop": "ecommerce_marketplace",
+    "eBay": "ecommerce_marketplace",
+    "RepeatMD": "ecommerce_marketplace",
+    "Snackpass": "delivery_marketplace",
+    "ezCater": "delivery_marketplace",
+    "Menufy": "delivery_marketplace",
+    "Groupon": "booking_marketplace",
+    "ClassPass": "booking_marketplace",
+    "Outdoorsy": "booking_marketplace",
+    "Brightwheel": "customer_payment_platform",
+    "Buildertrend": "invoice_and_receivables",
+    "FieldPulse": "invoice_and_receivables",
+    "Super Dispatch": "transport_marketplace",
+    "Autosled": "transport_marketplace",
+    "Manheim": "wholesale_auto_auction",
+    "ACV Auctions": "wholesale_auto_auction",
+    "OPENLANE": "wholesale_auto_auction",
+    "Buildium": "property_management_payments",
+    "AppFolio": "property_management_payments",
+    "Landlord Studio": "property_management_payments",
 }
+
+#: 5.5 (§7.2, §7.3): the operating reads that carry the platform vetoes (pay, financing, reversal and
+#: person-to-person words): every read of these entities, and these aliases of older entities. A payout form always
+#: carries them.
+OPERATING_SOURCES_READ_WITH_VETOES: frozenset[str] = frozenset({
+    "Whatnot", "Faire", "TikTok Shop", "eBay", "RepeatMD", "Snackpass", "ezCater", "Menufy", "Groupon", "ClassPass",
+    "Outdoorsy", "Brightwheel", "Buildertrend", "FieldPulse", "Vagaro", "Mindbody", "Housecall Pro", "Wix Payments",
+    "Super Dispatch", "Autosled",
+})
+OPERATING_ALIASES_READ_WITH_VETOES: frozenset[str] = frozenset({"RTP CREDIT AMAZON COM", "STP FBO"})
+
+#: 5.5 (§7.2, structural S43): extra words that count as payout context for one operating source (read like
+#: _OPERATING_CREDIT_CONTEXT_PATTERNS, as whole words).
+OPERATING_SOURCE_CONTEXT_WORDS: dict[str, tuple[str, ...]] = {
+    "Vagaro": ("DEPOSIT", "PAYOUT"),
+    "Mindbody": ("DEPOSIT", "PAYOUT"),
+    "Housecall Pro": ("DEPOSIT", "PAYOUT"),
+    "Wix Payments": ("DEPOSIT", "PAYOUT"),
+}
+
+#: 5.5 (§7.1): a processor whose bare name joins OPERATING_REVENUE_SOURCE_ALIASES only once the lender ledger
+#: admits its own advance product (an alternative position) or records, through the ledger's process, that it has
+#: none. Keyed by operating entity: (the bare aliases, the ledger entity of the advance product, or None while the
+#: ledger holds neither). tools/operating_registry.py refuses a bare alias in OPERATING_REVENUE_SOURCE_ALIASES
+#: whose entry here names no admitted ledger entity and is not marked none-recorded.
+PROCESSOR_ADVANCE_PRODUCTS: dict[str, tuple[tuple[str, ...], str | None]] = {
+    # Task S1.5 (research ledger55.json r2; signed off 2026-09-29 under the owner's delegation): the admitted products.
+    "Shift4": (("SHIFT4",), "Shift4 Capital"),
+    "SumUp": (("SUMUP",), "SumUp Cash Advance"),
+    "Jobber Payments": (("JOBBER BY STRI", "JOBBER BY STR", "JOBBER BY STRIPE"), "Jobber Capital"),
+    "Clearent": (("CLEARENT",), "Xplor Capital"),
+    # SmartTab (its no-product record) and Braintree (PayPal Working Capital) are unresolved in ledger55.json r2: they
+    # wait.
+    "SmartTab": (("SMARTTAB",), None),
+    "Braintree": (("BRAINTREE",), None),
+}
+#: 5.5 (§7.1): processors the ledger's process found to have no advance product of their own (research round and
+#: verdicts recorded in the ledger notes of the entity named there). Empty: S1.5's research round (ledger55.json r2)
+#: left SmartTab's no-product record unresolved.
+PROCESSORS_WITHOUT_ADVANCE_PRODUCT: frozenset[str] = frozenset()
+#: 5.5 (§7.1, the ledger gate): the bare aliases of the processors the ledger has not cleared yet, by processor.
+#: Derived, never hand-edited. The operating reader refuses an alias read that lies inside one of them ('BY STRI'
+#: inside 'JOBBER BY STRI'), so no other entity reads the row while the processor waits.
+GATED_PROCESSOR_ALIASES: dict[str, tuple[str, ...]] = {
+    processor: bare
+    for processor, (bare, product) in PROCESSOR_ADVANCE_PRODUCTS.items()
+    if not (
+        (product is not None and any(product in group for group in PAYEE_GROUP_REGISTRIES.values()))
+        or processor in PROCESSORS_WITHOUT_ADVANCE_PRODUCT
+    )
+}
+#: 5.5 (§7.1, the structural lens): TSYS / TransFirst, Vantiv, EVO Payments, Paysafe, North American Bancard /
+#: Payanywhere, Priority Payment Systems, Payroc, CardConnect, Stax / Fattmerchant, Repay, Paya, NMI, Finix, WePay,
+#: TD Merchant Solutions, Desjardins Monetico and Chase QuickAccept print no credit spelling in the corpus cache or the
+#: tryout host's credit dump (searched read-only, 2026-09-29): none is an alias, and each waits for a printed spelling.
+
+#: 5.6 (audit B3: I11, §7.11, §20): the merchant processors whose instant payout a bank may print as a card credit
+#: (Thread Bank's Relay layout: 'Debit Card Credit: Stripe'), with the names each prints on that card credit, on its
+#: ACH payout and on its ACH pull, read as whole words by the true-revenue pass's processor card-payout release alone
+#: (analysis/true_revenue.py _processor_card_payouts), which the owner keeps off (2026-10-02, spec §19.1). The bare
+#: INTUIT and POCKETSUITE are no operating-registry aliases (a bare INTUIT also prints Intuit's financing and tax
+#: products), so they are read here only, and only beside the statement's own ACH activity of that processor.
+#: Evidence: each pushes a merchant's balance to its debit card on request (Stripe Instant Payouts; QuickBooks Payments
+#: Instant Deposit; Square Instant Transfer; PocketSuite's instant payouts), so such a card credit is the merchant's own
+#: sales, not a card refund.
+CARD_PAYOUT_PROCESSOR_NAMES: dict[str, tuple[str, ...]] = {
+    "Stripe": ("STRIPE",),
+    "QuickBooks Payments": ("INTUIT", "QUICKBOOKS", "QUICK BOOKS", "QBOOKS"),
+    "Square": ("SQUARE", "SQUARE INC"),
+    "PocketSuite": ("POCKETSUITE", "POCKET SUITE"),
+}
+
+#: 5.5 (§7.0): the width of the bank field that cuts a long originator name. Every operating alias longer than this
+#: is also read at its first sixteen characters when the cut keeps two words and its last word has three letters.
+OPERATING_ALIAS_CUT = 16
+
+
+def _operating_alias_cut(alias: str) -> str | None:
+    """The sixteen-character cut of one operating alias, or None when it has none (§7.0)."""
+    normalized = normalize_transaction_description(alias)
+    if len(normalized) <= OPERATING_ALIAS_CUT:
+        return None
+    cut = normalized[:OPERATING_ALIAS_CUT].rstrip()
+    words = cut.split(" ")
+    if len(words) < 2 or len(words[-1]) < 3:
+        return None
+    return cut
+
+
+#: 5.5 (§7.0): the sixteen-character cuts of the operating aliases, by entity. Derived, never hand-edited;
+#: tools/operating_registry.py refuses a cut that equals any other registry or ledger alias.
+OPERATING_REVENUE_TRUNCATIONS: dict[str, tuple[str, ...]] = {
+    entity: cuts
+    for entity, aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
+    if (cuts := tuple(dict.fromkeys(
+        cut for alias in aliases
+        if (cut := _operating_alias_cut(alias)) is not None
+        and cut not in {normalize_transaction_description(other) for other in aliases}
+    )))
+}
+
+#: What the classifier reads for an operating source: every alias and its sixteen-character cut.
+OPERATING_REVENUE_READ_ALIASES: dict[str, tuple[str, ...]] = {
+    entity: aliases + OPERATING_REVENUE_TRUNCATIONS.get(entity, ())
+    for entity, aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
+}
+
+#: 5.5 (§7.2): platform payout forms. Each (label, pattern) names the platform together with its payout rail or
+#: field layout, read on the credit's revenue text and on its joined originator and entry fields. A match names
+#: the entity AND counts as payout context, so one row verifies.
+OPERATING_SOURCE_PAYOUT_FORMS: dict[str, tuple[tuple[str, str], ...]] = {
+    "Whatnot": (
+        ("whatnot_fbo_form", r"\bFBO WHATNOT\b"),
+        ("whatnot_rtp_form", r"\bRTP CREDIT WHATNOT INC\b"),
+    ),
+    "Faire": (("faire_order_form", r"\bFAIRE WHOLESALE\b.*\bORDER\b"),),
+    "eBay": (
+        ("ebay_payments_form", r"^(?=.*\bPAYMENTS\b)(?!.*\bRETURN(?:ED)?\b).*\bEBAY COM[A-Z0-9]{8}\b"),
+        ("ebay_rtp_form", r"\bRTP (?:CREDIT|RCVD) EBAY COMMERCE INC\b"),
+    ),
+    "Amazon Marketplace": (
+        ("amazon_payments_form",
+         r"^(?=.*\bPAYMENTS\b)(?!.*\bRETURN(?:ED)?\b).*\bAMAZON C(?!ORPORATE\b|OM|APITAL|REDIT|ASH\b)[A-Z0-9]{8}\b"),
+    ),
+    "ClassPass": (("classpass_edi_form", r"\bCLASSPASS INC\b.*\bEDI PYMNTS\b"),),
+    "ezCater": (("ezcater_payoneer_form", r"\bPAYONEER\b.*\bEZCATER\b"),),
+    "Groupon": (("groupon_merchant_form", r"\bGRPN MERCH SVCS\b"),),
+}
+
+
+@dataclass(frozen=True)
+class CardSettlementForm:
+    """5.5 (§7.1): one card-settlement form. `pattern` is read on the credit's row before its receiver fields and on
+    its joined originator and entry fields; `refusal`, read the same way, refuses the form; `entity` is the
+    processor the form names (None for a generic form); `bank` limits the form to one bank's statements."""
+
+    label: str
+    pattern: str
+    entity: str | None = None
+    refusal: str | None = None
+    bank: str | None = None
+
+
+#: 5.5 (§7.0, §7.1): the card-settlement forms, in reading order. Every left boundary inside a form (its leading
+#: token, its inner and required words, its lookahead vetoes and its refusal) is (?<![A-Z]), never \b, so a date glued
+#: on the left ('01 02BANKCARD DEPOSIT', '01 02ELAN BANKCARD SETTLEMENT') never changes how a row reads while a glued
+#: letter still blocks the word (owner ruling 2026-09-29); \b stays on the right of a word. The row-start branch of
+#: brand_dep and dep_brand lets a leading date through, glued or spaced; square_checking_sales keeps its bare ^.
+CARD_SETTLEMENT_CREDIT_FORMS: tuple[CardSettlementForm, ...] = (
+    CardSettlementForm(
+        "bankcard",
+        r"^(?!.*(?<![A-Z])(?:BANKCARD CTR|BANKCARD CENTER|PREMIER BANKCARD|FIRST BANKCARD|ELAN|CARDMEMBER"
+        r"|CARD SERVICES|CARD SVCS|CREDIT CARD)\b)(?=.*(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)\b)"
+        r"(?=.*(?<![A-Z])(?:DEP|DEPOSITS?|DEPST|SETTLEMENT|SETTLE|SETLMT|SETL|STLMT|BTOT|MTOT)(?:SEC)?\b)",
+        # S2.2 review: CO is a company's legal form, never the CO of a field label (Chase's CO ENTRY DESCR after a
+        # blank DESC DATE, Bank of America's CO ID, a CO NAME), so 'BANKCARD DESC DATE CO ENTRY DESCR DEPOSIT' reads.
+        refusal=(
+            r"(?<![A-Z])(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)(?: [A-Z]+){0,2} (?:LLC|INC|CORP|LTD|GROUP"
+            r"|HOLDINGS|FUNDING|CAPITAL|FINANCIAL|PARTNERS|SOLUTIONS|SERVICES|SVCS|CO\b(?! ENTRY\b| DESCR\b| ID\b| NAME\b))\b"
+        ),
+    ),
+    CardSettlementForm(
+        "merch_dep",
+        r"(?<![A-Z])(?:MERCHANT )?MERCH(?: SVCS)? (?:DEP|DEPOSITS?|SETL|SETTLE|SETLMT|STLMT|SETTLEMENT)(?:SEC)?\b",
+    ),
+    CardSettlementForm("mrchntsrvs", r"(?<![A-Z])DESCR MRCHNTSRVS(?:SEC)?\b"),
+    CardSettlementForm("merch_svcs_setl_code", r"(?<![A-Z])MERCH(?:ANT)? SVCS?(?: DES)? [A-Z0-9]*SETL\b"),
+    CardSettlementForm(
+        "merchant_services_mid",
+        r"(?<![A-Z])MERCHANT SERVI(?:CES?)?\b.*(?<![A-Z])(?:MID ?\d{6,}|TRANS SLIP)\b",
+    ),
+    CardSettlementForm(
+        "brand_dep",
+        r"(?:^(?:\d{1,2} \d{1,2} ?)?|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )(?:(?:VSA|VISA|VI|MC"
+        r"|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) )+DEP ?\d|(?<![A-Z])(?:(?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC"
+        r"|DCVR|IDP|DEBITCD) )+DEP(?:\d|\b.*(?<![A-Z])(?:MSP|DIV|MERCH SVC)\b)",
+    ),
+    CardSettlementForm(
+        "dep_brand",
+        r"(?:^(?:\d{1,2} \d{1,2} ?)?|(?<![A-Z])(?:MISC PAYMENT|COMPTE DIVERS|DIRECT DEPOSIT) )DEP (?:VSA|VISA|VI|MC"
+        r"|MCD|MCARD|AMX|AMEX|DSC|DCVR|IDP|DEBITCD) ?\d|(?<![A-Z])DEP (?:VSA|VISA|VI|MC|MCD|MCARD|AMX|AMEX|DSC|DCVR"
+        r"|IDP|DEBITCD)\d*\b.*(?<![A-Z])(?:MSP|DIV)\b",
+    ),
+    CardSettlementForm(
+        "gbl_brand", r"(?<![A-Z])(?:(?:VISA|MC|AMEXO?|IDP|DISC|DCVR) )?GBL (?:VI|MC|AX|IDP|DS|DC)\d*\b",
+        entity="Global Payments",
+    ),
+    CardSettlementForm(
+        "net_settle", r"(?<![A-Z])(?:DES|DESCR) NET (?:SETTLE|SETLMT|STLMT|SETL)(?:SEC)?\b",
+        refusal=r"(?<![A-Z])(?:LAW|ATTORNEYS?|ESQ|TRUST|ESCROW|TITLE|CLAIMS?)\b",
+    ),
+    CardSettlementForm("batch_total", r"(?<![A-Z])[BM]TOT DEP\b"),
+    # Audit B5 (I15): PNC prints the entry before the payer ('CORPORATE ACH DEPOSIT <ref> INTUIT <ref>'), the same
+    # QuickBooks Payments merchant deposit the other layouts print 'INTUIT <ref> DEPOSIT'.
+    CardSettlementForm(
+        "intuit_deposit",
+        r"(?<![A-Z])INTUIT \d{6,}(?: DES)? DEPOSIT\b|(?<![A-Z])DEPOSIT FROM INTUIT \d{6,}\b"
+        r"|(?<![A-Z])INTUIT PYMT SOLN\b|(?<![A-Z])QBOOKS\b"
+        r"|(?<![A-Z])ORIG CO NAME INTUIT \d+\b.*(?<![A-Z])DESCR DEPOSIT\b"
+        r"|(?<![A-Z])CORPORATE ACH DEPOSIT \d{6,} INTUIT \d{6,}\b",
+        entity="QuickBooks Payments",
+        refusal=r"(?<![A-Z])(?:TAX|RFND|REFUND|QBC|CAPITAL|LOAN)\b",
+    ),
+    CardSettlementForm(
+        "square_checking_sales", r"^(?:\d+ ACTIVITIES|CARD PAYMENT) SALES$", entity="Square", bank="SQUARE",
+    ),
+    CardSettlementForm(
+        "network_settlement",
+        r"(?<![A-Z])(?:AMERICAN EXPRESS|DISCOVER NETWORK)\b.*(?<![A-Z])(?:SETTLEMENT|SETL)\b|(?<![A-Z])AMEXO GBL\b"
+        r"|(?<![A-Z])MISC PAYMENT AMEX BANK OF CANADA\b",
+    ),
+    CardSettlementForm(
+        "generic_card_sales",
+        r"(?<![A-Z])(?:VISA ?MC|CARD PROCESSING) (?:DEPOSIT|DEP|SETTLEMENT|SETL|STLM|STLMT)\b"
+        r"|^(?!.*(?<![A-Z])(?:BALANCE|REFUND|REWARDS?)\b).*(?<![A-Z])(?:CREDIT CARD|CR CD|CC) (?:DEPOSIT|DEP"
+        r"|SETTLEMENT|SETL|STLMT)\b",
+    ),
+    CardSettlementForm(
+        "french_card_settlement", r"(?<![A-Z])REGLEMENT (?:CARTE|MARCHAND|COMMERCANT)\b|(?<![A-Z])DEPOT MARCHAND\b",
+    ),
+)
+
+#: 5.5 (§7.8): the observed payout forms of the dealer-only wholesale auctions; any other auction row stays
+#: unverified. Keyed by operating entity.
+WHOLESALE_AUCTION_PAYOUT_FORMS: dict[str, tuple[str, ...]] = {
+    "Manheim": (r"\bMANHEIM US (?:DES )?(?:ACH PAYMNT|EDI PYMNTS)\b",),
+    "ACV Auctions": (
+        r"\bACV AUCTIONS INC PAYMENTS\b",
+        r"\bORIG CO NAME ACV AUCTIONS INC\b.*\bCO ENTRY DESCR PAYMENTS SEC CCD\b",
+    ),
+    "OPENLANE": (
+        r"\bORIG CO NAME OPENLANE INC\b.*\bCO ENTRY DESCR OPENLANE SEC CCD\b",
+        r"^BACKLOTCARS PAYMENT\b",
+    ),
+}
+#: 5.5 (§7.8): the broad auction names a refund pair is found by, on debits and wire BNF lines.
+WHOLESALE_AUCTION_REFUND_NAMES: dict[str, str] = {
+    "Manheim": r"\bMANHEIM\b",
+    "ACV Auctions": r"\bACV AUCTIONS\b",
+    "OPENLANE": r"\bOPENLANE\b|\bBACKLOT ?CARS\b",
+}
+#: 5.5 (§7.7, T18): Blue-plan spellings that escape INSURANCE_PROVIDER_ALIASES. Read only while
+#: HCCLAIMPMT_CLAIM_FIRST is off, when their HCCLAIMPMT claim payments are held with the insurer's.
+BLUE_PLAN_CLAIM_PAYERS: tuple[str, ...] = (
+    r"\bBCBS[A-Z]*\b", r"\bBLUE CROSS\b", r"\bBLUE CARE NETWORK\b", r"\bANTHEM BLUE\b", r"\bCAREFIRST\w*\b",
+)
+
+#: 5.6 (§7.7): healthcare payers that are not in INSURANCE_PROVIDER_ALIASES: Medicare contractors, state Medicaid
+#: programs, TRICARE and VA Community Care, US health plans, pharmacy-benefit managers and claim-payment
+#: platforms. Read on the credit's payer region, on a row with an electronic-payment form (Q6).
+HEALTHCARE_PAYER_ALIASES: dict[str, tuple[str, ...]] = {
+    "Noridian": ("NORIDIAN",),
+    "Palmetto GBA": ("PALMETTO GBA",),
+    "Novitas Solutions": ("NOVITAS",),
+    "WPS Health Solutions": ("WPS",),
+    "National Government Services": ("NATIONAL GOVERNMENT SERV",),
+    "CGS Administrators": ("CGS ADMINISTRATORS",),
+    "First Coast Service Options": ("FIRST COAST SERVICE",),
+    "State Medicaid program": ("MEDICAID", "MEDI CAL"),
+    "Medicare": ("MEDICARE",),
+    "TRICARE": ("TRICARE",),
+    "VA Community Care": ("VA CCN",),
+    "Aetna": ("AETNA",),
+    "Cigna": ("CIGNA",),
+    "Humana": ("HUMANA",),
+    "UnitedHealthcare": ("UNITEDHEALTHCARE", "UNITED HEALTHCARE", "UHC"),
+    "Optum": ("OPTUM", "OPTUMRX", "OPTUMHEALTH"),
+    "Molina Healthcare": ("MOLINA HC", "MOLINA HEALTHCARE"),
+    "WellCare": ("WELLCARE",),
+    "Centene": ("CENTENE",),
+    "Anthem": ("ANTHEM",),
+    "Express Scripts": ("EXPRESS SCRIPTS",),
+    "CVS Caremark": ("CAREMARK",),
+    "Zelis": ("ZELIS",),
+    "ECHO Health": ("ECHO HEALTH", "HNB ECHO", "PNC ECHO"),
+    "InstaMed": ("INSTAMED",),
+    "VPay": ("VPAY",),
+    "PaySpan": ("PAYSPAN",),
+}
+
+#: 5.6 (§8.7, Q7): auto lenders that pay dealers, beside the vehicle_financing registry. A credit from one of them
+#: that prints a dealer-funding word is the dealer's revenue. Until S1 admits one into the ledger's
+#: vehicle-financing group, its other credits are held (financing_named_payer). Never Westlake Flooring. Never GLS's
+#: trade name GLS AUTO (S1.5's verify round: body shops and a used-car dealer trade under it; the ledger dropped it too).
+#: Never Suncoast Credit Union (S4.3 review): S1.5 did not admit it, and its statements print the holder's own funding
+#: transfers as ACCT FUND; its dealer funding verifies through Q7's credit-union arm alone (two or more VHCL PURCH).
+DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
+    "Westlake Financial": ("WESTLAKE FINANCIAL", "WESTLAKE FINANCI", "WESTLAKE PORTFOL"),
+    "United Auto Credit": ("UNITED AUTO CREDIT", "UNITED AUTO CRED"),
+    "Strike Acceptance": ("STRIKE ACCEPTANCE", "STRIKEACCEPTANCE"),
+    "Professional Financial Services (PFS)": ("PROF FIN SER PFS",),
+    "CU Direct": ("CU DIRECT", "CUDL"),
+    "Credit Acceptance": ("CREDIT ACCEPTANCE", "CREDITACCEPTANCE"),
+    "Exeter Finance": ("EXETER FINANCE", "EXETERFINANCELLC"),
+    "Flagship Credit Acceptance": ("FLAGSHIP CREDIT",),
+    "GLS Auto": ("GLOBAL LENDING SERVICES",),
+    "Santander Consumer": ("SANTANDER CONSUMER",),
+    "Chrysler Capital": ("CHRYSLER CAPITAL",),
+    "GM Financial": ("GM FINANCIAL",),
+    "Toyota Financial": ("TOYOTA FINANCIAL",),
+    "Honda Financial": ("HONDA FINANCIAL", "AMERICAN HONDA FINANCE"),
+    "Nissan Motor Acceptance": ("NISSAN MOTOR ACC", "NISSAN MOTOR ACCEPTANCE"),
+    "CarMax Auto Finance": ("CARMAX AUTO FINANCE",),
+    "Ally": ("ALLY FINANCIAL",),
+    "American Credit Acceptance": ("AMERICAN CREDIT ACC", "AMERICAN CREDIT ACCEPTANCE"),
+    "Regional Acceptance": ("REGIONAL ACCEPTAN", "REGIONAL ACCEPTANCE"),
+    "Nicholas Financial": ("NICHOLAS FINANCIAL",),
+    "Lendbuzz": ("LENDBUZZ",),
+}
+
+#: 5.6 (A3-H, §8.9; lender-scope ruling 2026-09-24: factoring payouts are revenue, counted and flagged, never
+#: verified): freight-factoring payers whose credits the true-revenue pass alone reads (analysis/true_revenue.py), in
+#: the spelling the statements print. Not lender-ledger entities (the ledger's factoring group renders
+#: FACTORING_ALIASES, whose payee group reads debits and flags too): a credit from one is counted and flagged as a
+#: factoring payout (factoring_payout), never verified by any rule nor counted toward a repeat, and the alias is read
+#: only as the whole payer name (the ACH originator or the wire sender, a company form after it). Evidence: Love's
+#: Solutions, LLC does business as Love's Financial, the Love's travel-stop group's freight-factoring provider
+#: (loves.com/en/financial-services/freight-factoring; the BBB lists it as a factoring service, Oklahoma City).
+FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
+    # A3-H review 2: the entity prints its apostrophe both ways, spaced and dropped.
+    "Love's Solutions, LLC (Love's Financial)": ("LOVE S SOLUTIONS", "LOVES SOLUTIONS"),
+}
+
+#: Owner ruling 2026-10-02 (the underwriter's Q11 (b); audit I45): the equipment auctions and the consumer car buyers
+#: that pay a seller for a vehicle or a piece of equipment, each public, read by the true-revenue pass alone
+#: (analysis/true_revenue.py asset_sale_platform) and only as the whole payer name (the ACH originator or the wire
+#: sender, read as FACTORING_PAYOUT_PAYERS is read: company forms, entry words, references, a DBA tail or a B/O address
+#: after the alias, and a seller's word): Ritchie Bros. (RB Global, rbglobal.com) and its IronPlanet marketplace,
+#: Purple Wave (purplewave.com), BigIron Auctions (bigiron.com; R2-B12's glued or AUCTION-spaced forms), GovDeals
+#: (govdeals.com), Copart (copart.com), Insurance Auto Auctions (IAA, iaai.com), Carvana's and CarMax's and Peddle's
+#: and Vroom's purchases of a car from its owner. Never CarMax Auto Finance (an auto lender paying dealers, §8.7) nor
+#: CarMax Business Services (the entity that pays CarMax's vendors): a longer name is another payer. Never Proxibid: it
+#: remits the buyers' money to the auction house that ran the sale, the auctioneer's own revenue, and stays on
+#: SECTION_15_DEFERRED_PAYERS. On a statement that shows no dealer evidence, their seller payout is asset-sale proceeds
+#: (non_revenue, asset_sale_proceeds). No debit, flag or lender reading.
+ASSET_SALE_PAYERS: dict[str, tuple[str, ...]] = {
+    "Ritchie Bros. (RB Global)": (
+        "RITCHIE BROS", "RITCHIE BROS AUCTIONEERS", "RITCHIE BROS AUCTIONEERS AMERICA", "RITCHIE BROTHERS",
+        "RITCHIE BROTHERS AUCTIONEERS", "RB GLOBAL",
+    ),
+    "IronPlanet": ("IRONPLANET", "IRON PLANET"),
+    "Purple Wave": ("PURPLE WAVE", "PURPLEWAVE", "PURPLE WAVE AUCTION"),
+    "BigIron Auctions": ("BIGIRON", "BIGIRON AUCTIONS", "BIG IRON AUCTION", "BIG IRON AUCTIONS"),
+    "GovDeals": ("GOVDEALS", "GOV DEALS"),
+    "Copart": ("COPART",),
+    "Insurance Auto Auctions (IAA)": ("IAA", "INSURANCE AUTO AUCTIONS", "INSURANCE AUTO AUCTION"),
+    "Carvana": ("CARVANA",),
+    "CarMax": ("CARMAX", "CARMAX AUTO SUPERSTORES", "CARMAX AUTO SUPERSTORE"),
+    "Peddle": ("PEDDLE",),
+    "Vroom": ("VROOM", "VROOM AUTOMOTIVE"),
+}
+#: Owner ruling 2026-10-02 (Q11 (b)): the platforms that also pay their towing and transport vendors, whose payout is
+#: read as a seller's only beside a seller's word (SELLER, CONSIGN..., PAYOUT, PROCEEDS).
+ASSET_SALE_SELLER_WORD_ONLY: frozenset[str] = frozenset({"Copart", "Insurance Auto Auctions (IAA)"})
+
+#: Owner ruling 2026-10-02 (Q8; I17): lease-to-own and patient financiers whose merchant payouts are the merchant's
+#: sales, counted and flagged, never verified, like OQ2's BNPL settlements; a one-off lump sum is held until sourced;
+#: read by the true-revenue pass alone (analysis/true_revenue.py _customer_financier), on the payer region; no debit,
+#: flag or lender reading; each key is a ledger entity (tools/lender_ledger.customer_financing_problems). A bare CHERRY
+#: is Cherry only when the whole region is CHERRY plus company or entry words ('CHERRY FUNDING', 'CHERRY INC'); a
+#: longer name is another payer ('CHERRY HILL PLUMBING LLC'). KATAPULT ENGINEERING and KATAPULT PRO (KatapultPro,
+#: pole-attachment software) are a namesake, never this lessor. SNAP LOAN FUNDING is read only in Snap's merchant form
+#: (the pass's _SNAP_MERCHANT_FUNDING: 'SNAP LOAN FUNDING F<digits> <merchant>'); a loan to the holder stays a loan.
+CUSTOMER_FINANCING_PAYERS: dict[str, str] = {
+    "SNAP Finance": r"(?<![A-Z])SNAP (?:FINANCE|LOAN FUNDING)\b",
+    "Koalafi": r"(?<![A-Z])KOALAFI\b",
+    "Cherry Technologies, Inc.": (
+        r"^CHERRY(?: (?:TECHNOLOGIES|TECHNOLOGI|TECHNOLOG|TECHNOL|TECH|INC|FUNDING|PAYMENTS?|PMT|PAYOUTS?|MERCHANT"
+        r"|CCD|PPD))*$|(?<![A-Z])(?:CHERRY TECHNOL\w*|CHERRYPAY)\b"
+    ),
+    "Acima": r"(?<![A-Z])ACIMA\b",
+    "Terrace Finance": r"(?<![A-Z])TERRACE FINANCE\b",
+    "Wisetack": r"(?<![A-Z])WISETACK\b",
+    "Katapult": r"(?<![A-Z])KATAPULT\b(?! (?:ENGINEERING|PRO)\b)",
+    "Progressive Leasing": r"(?<![A-Z])(?:PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING)\b",
+}
+
+#: Owner ruling 2026-10-02 (Q8): the names of CUSTOMER_FINANCING_PAYERS' financiers, read with the receiver field's
+#: value removed (analysis/true_revenue.py compiles it): a row that names one of them is never verified by Q5 or Q6 and
+#: never counts toward a Q5 or Q6 repeat, wherever the name prints (KATAPULT with the same namesake lookahead).
+#: SECTION_15_DEFERRED_PAYERS' ACIMA|KATAPULT|KOALAFI line overlaps it and is left as it is.
+CUSTOMER_FINANCING_NAMES: str = (
+    r"(?<![A-Z])(?:SNAP FINANCE|SNAP LOAN FUNDING|KOALAFI|ACIMA|TERRACE FINANCE|WISETACK"
+    r"|KATAPULT(?! (?:ENGINEERING|PRO)\b)|PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING|CHERRY TECHNOL\w*"
+    r"|CHERRYPAY)\b"
+)
+
+#: 5.6 (§7.5, the standing rule; S4.2 review I6b): brokerage, investing and crypto-exchange platforms, as a regular
+#: expression read on the row before its receiver fields (analysis/true_revenue.py compiles it). A credit from one is
+#: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose. Audit B8 (I28;
+#: standard G2): and the crypto exchanges and retail brokerages it did not name, each public: Kraken and its operator
+#: Payward, Inc. (kraken.com/legal: 'Payward Interactive, Inc.', printed after FBO on its wires), Binance.US and its
+#: operator BAM Trading Services Inc. (binance.us/terms), Bitstamp, Uphold, BlockFi, Bakkt, Paxos, Apex Clearing
+#: (apexfintechsolutions.com, a retail brokerages' clearing firm), M1 Finance (m1.com); Coinbase's name split by a line
+#: wrap ('COINBA SE'); and Fidelity's brokerage ACH form ('P FIDELITY'; a bare FIDELITY is a bank's or a title firm's
+#: name too). Never a custodian or a private bank (BNY Mellon, Pershing, Northern Trust): a customer's tuition or
+#: invoice paid from a brokerage account is still the customer's payment.
+OWNER_MONEY_PLATFORMS: str = (
+    r"(?<![A-Z])(?:SCHWAB|ROBINHOOD|COINBASE|WEBULL|AMERITRADE|E ?TRADE|INTERACTIVE BROKERS|MERRILL (?:EDGE|LYNCH)"
+    r"|FIDELITY (?:BROKERAGE|INVESTMENTS?)|VANGUARD (?:MARKETING|GROUP|BROKERAGE|FIDUCIARY|INVESTMENTS?|FUNDS?)"
+    r"|CRYPTO COM|GEMINI TRUST"
+    r"|KRAKEN|PAYWARD|BINANCE|BAM TRADING|BITSTAMP|UPHOLD|BLOCKFI|BAKKT|PAXOS|APEX CLEARING|M1 FINANCE|COINBA SE"
+    r"|P FIDELITY)\b"
+)
+
+#: Audit B6 (I23; §8.1 T4, Q6 "lenders never count", standard C2): banks that lend to small businesses on their own
+#: account or as a fintech's lender of record, as a regular expression read on a credit's payer region
+#: (analysis/true_revenue.py compiles it). Their credit is more often loan proceeds or the holder's own funds than a
+#: customer's payment: held as financing_named_payer, which a person may review. Credits only: no debit alias (the
+#: delegated decision of 2026-09-25 keeps a bare CELTIC BANK out of the debit tables). Celtic Bank (Salt Lake City, an
+#: SBA lender and the issuing bank of OnDeck's loans and of Bluevine's line of credit, celticbank.com; the ledger's
+#: 'Celtic Bank [bank name]' and 'Celtic Bank (Bluevine line of credit)' records); Newtek Bank, N.A. (Newtek One's
+#: national bank, an SBA 7(a) lender, newtekone.com). Audit round 2, R2-B03 (R05): Northeast Bank (Portland ME, a
+#: national SBA and USDA lender, northeastbank.com; the ledger's 'Northeast Bank' alternative position, whose aliases
+#: are its SBA repayment spellings only), whose credit printing its bare name is held the same way.
+LENDING_BANK_CREDIT_PAYERS: str = r"(?<![A-Z])(?:CELTIC BANK|NEWTEK BANK|NORTHEAST BANK)\b"
+
+#: Audit B6 (I49; Q8, §8.1 payroll_or_salary): earned-wage access providers, whose push to an account is a worker's
+#: wages from another company paid early, as a regular expression read on the row before its receiver fields
+#: (analysis/true_revenue.py compiles it): held as payroll_or_salary. PayActiv (payactiv.com) and DailyPay
+#: (dailypay.com) are employer-sponsored earned-wage access providers. Glued as they print; a spaced 'DAILY PAY' is
+#: a payer's own words.
+EARNED_WAGE_ACCESS_PAYERS: str = r"(?<![A-Z])(?:PAYACTIV|DAILYPAY)\b"
+
+#: 5.6 (§15, §19 OQ4; S4.2 review I6a): the payers of the deferred family items, which stay counted and flagged until
+#: the owner rules on each, as a regular expression read with the receiver field's value removed
+#: (analysis/true_revenue.py compiles it): Q5 and Q6 never verify them, and they never count toward a Q5 or Q6 repeat.
+#: The registry's own deferred sources (PayPal, TikTok creator payouts, Super Dispatch's quick-pay, Outdoorsy and
+#: RepeatMD, AppFolio, the auctions' vendor payments) are left to the operating registry.
+SECTION_15_DEFERRED_PAYERS: str = (
+    # §7.3 (structural S15): individuals' gig income.
+    r"(?<![A-Z])(?:LYFT|SHIPT|POSTMATES|ROADIE|AMAZON FLEX|WALMART SPARK|SPARK DRIVER)\b"
+    # §7.2: fintech EFT, iink and GoodLeap; Payoneer's wallet withdrawals.
+    r"|(?<![A-Z])(?:IINK|GOODLEAP|PAYONEER)\b"
+    # §7.2, §15: tax-preparer fee disbursements and SBTPG.
+    r"|(?<![A-Z])(?:SBTPG|SANTA BARBARA TAX|TAX PRODUCTS|TAX PROC\w*)\b"
+    # §7.6 arm C, §15: EBT settlements and child-care subsidies.
+    r"|\b(?:EBT|CCDF|CACFP)\b"
+    # §7.7: Canadian benefit carriers, RBC's claim label, NEMT brokers and CLMEFT.
+    r"|(?<![A-Z])(?:SUN LIFE|MANULIFE|CANADA LIFE|EQUITABLE LIFE|GREAT WEST LIFE|ALBERTA BLUE CROSS"
+    r"|DESJARDINS (?:INSURANCE|ASSURANCE\w*|SECURITE)|HEALTH DENTAL CLAIM|CLMEFT|MODIVCARE|LOGISTICARE"
+    r"|MEDICAL TRANSPORTATION MANAGEMENT|SOUTHEASTRANS|VERIDA)\b"
+    # §7.12 (structural S58): payables platforms that also move the business's own funds.
+    r"|(?<![A-Z])(?:TIPALTI|MELIO|NVOICEPAY|MINERALTREE|CORPAY)\b"
+    # §7.1, §15: Applied Systems' agency-bill premium, lease-to-own payers, construction draws and progress billing,
+    # eCommission's commission advances.
+    r"|(?<![A-Z])(?:APPLIED SYSTEMS|ACIMA|KATAPULT|KOALAFI|PROGRESS BILLING|ECOMMISSION)\b"
+    # Audit B8 (I45; §15 "auction vendor payments and non-dealer consignors", OQ4): the equipment auctions' and the
+    # consumer car buyers' seller payouts, each public: Ritchie Bros. (RB Global) and its IronPlanet, Purple Wave,
+    # BigIron, GovDeals and Proxibid, Carvana's payout to a car's seller, CarMax (never its auto-finance arm, CarMax
+    # Auto Finance, an auto lender paying dealers, §8.7), Peddle and Vroom. Copart and IAA (Insurance Auto Auctions)
+    # also pay their towing and transport vendors, so only their seller payments (a seller or consignor word) are read.
+    # Audit round 2, R2-B12 (R37): BigIron as it prints its own name, glued (BIGIRON) or spaced before AUCTION or
+    # AUCTIONS (bigiron.com, BigIron Auctions); a spaced 'BIG IRON <name>' is another business ('BIG IRON TRUCKING LLC').
+    r"|(?<![A-Z])(?:RITCHIE BROS|RB GLOBAL|IRON ?PLANET|PURPLE WAVE|BIGIRON|BIG IRON AUCTIONS?|GOV ?DEALS|PROXIBID"
+    r"|CARVANA PAYOUT|CARMAX(?! AUTO\b)|PEDDLE|VROOM)\b"
+    r"|(?:(?<![A-Z])(?:COPART|INSURANCE AUTO AUCTIONS?)|\bIAA)\b(?=.*(?<![A-Z])(?:SELLER|CONSIGN\w*)\b)"
+)
+
+#: 5.6 (§5.2, Q4; S4.2 re-review fix 1b): the sending banks a person-to-person row may print beside or instead of the
+#: sender ('ZELLE CREDIT BANK OF AMERICA'), normalized. A bank's name is never the sender's name. A single word is
+#: listed only when no person or business is commonly named so (Desjardins is also a surname: its caisse is listed).
+#: Audit round 2, R2-B03 (R05): MSPBNA (Morgan Stanley Private Bank, National Association, Morgan Stanley's national
+#: bank, morganstanley.com) and ALLY BANK (Ally Financial's online bank, ally.com), which the same layouts print as a
+#: transfer's or an ACH pull's only name.
+P2P_SENDING_BANK_NAMES: tuple[str, ...] = (
+    "BANK OF AMERICA", "BK OF AMERICA", "BOFA", "WELLS FARGO", "JPMORGAN CHASE", "JP MORGAN CHASE", "CHASE BANK",
+    "CITIBANK", "US BANK", "U S BANK", "PNC BANK", "TD BANK", "TRUIST", "CAPITAL ONE", "NAVY FEDERAL", "FIFTH THIRD",
+    "KEYBANK", "CITIZENS BANK", "REGIONS BANK", "HUNTINGTON BANK", "SANTANDER BANK", "USAA", "ROYAL BANK", "RBC",
+    "SCOTIABANK", "BMO", "CIBC", "TD CANADA TRUST", "CAISSE DESJARDINS", "NATIONAL BANK", "BANQUE NATIONALE",
+    "MSPBNA", "ALLY BANK",
+)
+
+#: 5.6 (§8.1, A3 review): the short forms a statement's bank prints for its own name. Each entry is (the words that
+#: name the bank inside the statement's bank field, the forms it prints), all normalized; a bank field (Statement.bank)
+#: that contains one of the first as whole words, in any case, reads the second ('Royal Bank of Canada', 'RBC Royal
+#: Bank' and 'Banque Royale du Canada' all name RBC; A3 review round 2). A bare ROYAL BANK is no marker: it also names
+#: the Royal Bank of Scotland and Royal Bank America (round 3). The bank's whole normalized name is read too, for every
+#: bank. Before currency-conversion wording, the bank's own name names no payer ('ROYAL FOREIGN EXCHANGE DEPOSIT' on a
+#: Royal Bank of Canada statement is the holder's own conversion).
+STATEMENT_BANK_PRINTED_NAMES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "RBC", "BANQUE ROYALE"),
+        ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "ROYAL BANK", "ROYAL", "RBC", "BANQUE ROYALE DU CANADA",
+         "BANQUE ROYALE"),
+    ),
+)
 
 
 # Compatibility import for extensions written against classification version 3.0.
@@ -1611,6 +2264,52 @@ INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
     "HUB International": ("HUBINTERNATIONAL INSURANCE", "HUB INTERNATIONAL INSURANCE"),
     "Kingstone Insurance": ("KINGSTONE INSURANCE",),
     "Thimble Insurance": ("THIMBLE INSURANCE",),
+}
+
+
+#: Audit I26 (by Q6 of 2026-09-28, "insurers never count", and the last sentence of the underwriter's Q2 (2026-10-02)
+#: option the owner picked, "a one-off claim paid to a business on its own policy stays out"; R2-OW07): carriers whose
+#: credits print no insurer word, each a public insurer, as regular expressions the true-revenue pass alone reads
+#: (analysis/true_revenue.py insurer_credit_brand wraps each in (?<![A-Z])(?:...)(?![A-Z])) on a credit's payer region
+#: without the holder's names. CREDIT-ONLY: classify_transaction's insurance rule never reads it, no debit reads it and
+#: no record carries it, so INSURANCE_PROVIDER_ALIASES, detection.insurance_providers and the lender census (G7) are
+#: untouched. A brand INSURANCE_PROVIDER_ALIASES also names is keyed by that entity's name, spelled identically
+#: ('Travelers'), so the carrier is one key however it prints. Farmers Insurance Group (farmers.com; FARMERS NEW WORLD
+#: LIFE, Farmers Insurance of Salem; a bare IN only as the cut at the name's end, never 'FARMERS IN BLOOM', and no EXCH
+#: arm: 'FARMERS EXCHANGE BANK'); American Family Insurance (amfam.com; never AMERICAN FAMILY CARE, the urgent-care
+#: chain, or a dental practice); Safeco Insurance (safeco.com, Liberty Mutual's); Hiscox (hiscox.com); Aflac
+#: (aflac.com); GAINSCO (gainsco.com); AmTrust Financial (amtrustfinancial.com; never AMTRUST BANK, TITLE or REALTY);
+#: National General (nationalgeneral.com, Allstate's; never NATIONAL GENERAL CONTRACTORS); Travelers (travelers.com;
+#: its indemnity, casualty, property and commercial lines and its agents' PI COMM, never TRAVELERS CASH, PROPANE or
+#: COMMUNITY). Left out on purpose: Sun Life, Manulife, Canada Life and Great-West, Equitable Life and Desjardins (the
+#: Canadian benefit carriers SECTION_15_DEFERRED_PAYERS defers, whose bare rows are health-plan claims or commissions);
+#: Green Shield (a health-benefit carrier); Beneva, SSQ and La Capitale (BENEVA BLVD is a street); Berkshire Hathaway
+#: (also a real-estate brokerage); a bare PROGRESSIVE (Progressive Leasing, the underwriter's Q8); Nationwide
+#: (NATIONWIDE SECUR is a broker-dealer).
+#: R2-OW07 review round 1: a brand's INS is the insurer word or its cut (INS, INSU, INSUR...), never another word's
+#: first letters (FARMERS INSTITUTE, FARMERS INSTANT, NATIONAL GENERAL INSTRUMENTS); Travelers' property line reads
+#: only before an insurer word (CAS, CASUALT..., INS, INSUR...) or at the name's end, never a property manager
+#: (TRAVELERS PROPERTY MANAGEMENT). National General's bare name stays read: a 16-letter field cuts the insurer and
+#: NATIONAL GENERAL CONTRACTORS alike (an accepted over-hold, held and reviewable).
+INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
+    "Farmers": (r"FARMERS (?:INS(?:UR\w*|U)?|FARMERS|GROUP|NEW WORLD|OF SALEM)", r"FARMERS IN(?! ?[A-Z])"),
+    "American Family": (
+        r"AMERICAN FAMILY(?! ?[A-Z])", r"AMERICAN FAMILY (?:INS(?:UR\w*|U)?|MUT\w*|LIFE|DES|AGENTS?)(?![A-Z])",
+        r"AMFAM",
+    ),
+    "Safeco": (r"SAFECO",),
+    "Hiscox": (r"HISCOX",),
+    "Aflac": (r"AFLAC",),
+    "Gainsco": (r"GAINSCO",),
+    "AmTrust": (r"AMTRUST(?! (?:BANK|TITLE|REALTY)(?![A-Z]))",),
+    "National General": (
+        r"NATIONAL GENERAL(?! ?[A-Z])",
+        r"NATIONAL GENERAL (?:INS(?:UR\w*|U)?|ASSUR\w*|PAYMENT|PMT|HOLDINGS)(?![A-Z])",
+    ),
+    "Travelers": (
+        r"TRAVELERS ?(?:INDEMN\w*|PI ?COMM|CASUALT\w*|CAS"
+        r"|PROP(?:ERTY)?(?= (?:CAS|CASUALT\w*|INS|INSUR\w*)(?![A-Z])|(?! ?[A-Z]))|COMM(?:ERCIAL|L)?)",
+    ),
 }
 
 

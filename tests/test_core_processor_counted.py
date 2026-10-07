@@ -14,6 +14,8 @@ BOTH directions where a sibling registration exists.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from analysis import core_processor_counted as cpc, core_processor_daily as cpd
@@ -683,8 +685,13 @@ def test_two_rows_printed_on_one_line_are_both_read():
 
 
 def test_a_description_printed_below_its_amount_is_not_swallowed_into_the_next_row():
+    """Audit B10 (I05): the block printed below a credit's amount is that credit's own (it alone is outstanding
+    and the line holds one ACH block), so the credit publishes it; the next row never takes it."""
     statement = published()
-    assert statement.transactions[1].description == "Preauthorized Credit"
+    assert statement.transactions[1].description == (
+        "Preauthorized Credit EXAMPLE ORIGINATOR PAYABLES CCD EXAMPLE HOLDER"
+    )
+    assert statement.transactions[2].description == "Preauthorized Debit"
 
 
 #: The interleaving printing, in the pieces the archive prints it in: two
@@ -836,3 +843,86 @@ def test_the_printed_counts_are_surveyed_as_a_comparable_category_sum(direction)
     assert semantics.scope == "multi_category_sum_proven_complete"
     assert semantics.mapping is None
     assert "TAUTOLOG" in semantics.reason.upper()
+
+
+# ---------------------------------------------------------------------------
+# Audit round 2, R2-B07 (R07): a welded run of credit blocks keeps its text beside the rows it marks
+# ---------------------------------------------------------------------------
+
+#: Seven credits printed the way the archive's welded runs print them: row 1 alone on its line with its block under
+#: it; rows 2 to 5 opened on one line, the fifth row's amount pushed below a line that welds four blocks; rows 6 and 7
+#: on the next line with their two blocks welded under them. The receiver of every block is the holder.
+WELDED_SUMMARY = SUMMARY.replace("Electronic cr (1) + 300.00", "Electronic cr (7) + 610.00").replace(
+    "+$300.00", "+$610.00").replace("Ending balance (2/27/2054)\n$150.00", "Ending balance (2/27/2054)\n$460.00")
+WELDED_GRID = (
+    "DAILY BALANCES\n"
+    "Date Amount\n"
+    "1-30 100.00 2-2 -100.00 2-3 50.00\n"
+    "2-4 100.00 2-5 110.00 2-6 180.00\n"
+    "2-7 260.00 2-8 350.00 2-9 460.00\n"
+)
+RECEIVER = "NORTHWIND BAKERY"
+ALONE_BLOCK = f"CONTOSO INC. PAYABLES 1100000001 {RECEIVER} CCD"
+CUSTOMER_BLOCKS = tuple(f"CONTOSO INC. PAYABLES 110000000{n} {RECEIVER} CCD" for n in (2, 3, 4))
+KAPITUS_BLOCK = f"KAPITUS LLC FUNDING 5500000005 {RECEIVER} CCD"
+SECOND_BLOCKS = (f"FABRIKAM INC. PAYABLES 2200000001 {RECEIVER} CCD", f"SAMPLE INC. PAYABLES 2200000002 {RECEIVER} CCD")
+
+
+def welded_credits(first_line=(*CUSTOMER_BLOCKS, KAPITUS_BLOCK), second_line=SECOND_BLOCKS, *,
+                   alone=ALONE_BLOCK) -> str:
+    return (
+        "ELECTRONIC CREDITS\n"
+        "Date Description Credits\n"
+        "2-3 Preauthorized Credit 150.00\n"
+        f"{alone}\n"
+        "2-4 Preauthorized Credit 50.00 2-5 Preauthorized Credit 60.00 2-6 Preauthorized Credit 70.00 "
+        "2-7 Preauthorized Credit\n"
+        f"{' '.join(first_line)}\n"
+        "80.00 2-8 Preauthorized Credit 90.00 2-9 Preauthorized Credit 110.00\n"
+        f"{' '.join(second_line)}\n"
+    )
+
+
+def welded(**lines):
+    """The welded statement, published."""
+    return published(summary=WELDED_SUMMARY, credits=welded_credits(**lines), grid=WELDED_GRID)
+
+
+def test_a_welded_runs_marked_credits_keep_the_flushs_text_beside_their_label():
+    statement = welded()
+    credits = [t for t in statement.transactions if t.amount > 0]
+    first, second = " ".join((*CUSTOMER_BLOCKS, KAPITUS_BLOCK)), " ".join(SECOND_BLOCKS)
+    assert [t.description for t in credits] == [f"Preauthorized Credit {ALONE_BLOCK}"] + ["Preauthorized Credit"] * 6
+    assert [t.payer_text_unread for t in credits] == [False] + [True] * 6
+    assert [t.unread_payer_text for t in credits] == ["", first, first, first, first, second, second]
+
+
+def test_the_unread_text_is_kept_out_of_the_schema_and_written_only_where_set():
+    from analysis.schema import Statement, Transaction
+
+    assert "unread_payer_text" not in json.dumps(Statement.model_json_schema())
+    statement = welded()
+    rows = statement.model_dump()["transactions"]
+    assert ["unread_payer_text" in row for row in rows if row["amount"] > 0] == [False] + [True] * 6
+    assert not any("unread_payer_text" in row for row in rows if row["amount"] < 0)
+    plain = Transaction(date="2054-02-03", description="Preauthorized Credit", amount=10.0, direction="credit")
+    assert "unread_payer_text" not in plain.model_dump()
+    restored = Statement.model_validate(statement.model_dump())
+    assert [t.unread_payer_text for t in restored.transactions] == [t.unread_payer_text for t in statement.transactions]
+
+
+def test_a_debit_section_with_a_welded_block_keeps_its_labels_and_no_unread_text():
+    """Debit sections keep their labels until the owner admits the debit readings (G7): a welded flush naming a funder
+    under two debits gives them neither the text nor the mark."""
+    debits = (
+        "ELECTRONIC DEBITS\n"
+        "Date Description Debits\n"
+        "2-5 Preauthorized Debit 20.00 2-5 Preauthorized Debit\n"
+        f"KAPITUS LLC PAYMENT 5500000005 {RECEIVER} CCD CONTOSO INC. BILLING 3300000001 {RECEIVER} CCD\n"
+        "30.00\n"
+    )
+    statement = published(summary=SUMMARY.replace("Electronic db (1) - 50.00", "Electronic db (2) - 50.00"),
+                          debits=debits)
+    rows = [(t.description, t.payer_text_unread, t.unread_payer_text) for t in statement.transactions
+            if t.description.startswith("Preauthorized Debit")]
+    assert rows == [("Preauthorized Debit", False, "")] * 2

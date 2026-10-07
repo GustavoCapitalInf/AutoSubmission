@@ -4,17 +4,119 @@ MCA/lender findings.
 Usage:
   .venv/bin/python analyze.py output/ace.md              # human-readable report
   .venv/bin/python analyze.py output/ace.md --json out.json
+  .venv/bin/python analyze.py output/ace.md --zelle-true-revenue no
+
+`--zelle-true-revenue` is the owner's "Mark Zelle Payments as True Revenue"
+(the underwriter's Q3, amended 2026-10-06): yes (the default, as the
+Settings page's) counts Zelle deposits as the rules read them; no excludes
+them. The CLI reads no webapp setting.
 """
 from __future__ import annotations
 import argparse
 import json
 import sys
+from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
+from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
 
+#: Audit round 2, R2-B16 (R52): a revenue figure the account's flags do not establish.
+_NOT_ESTABLISHED = "N/A (not established)"
 
-def _render(report: Report) -> str:
+
+def _revenue_flags(report: Report) -> tuple[bool, bool]:
+    """Audit round 2, R2-B16 (R52; true revenue spec §10.4): `(verified_revenue_established, revenue_established)` of
+    one account in the reading shown, from its serialized payload (analysis/revenue_view.py `revenue_flags`, the
+    flags the dashboard and the downloads read). The account is serialized through the document entry point as a
+    document of its one account, which RULE S publishes as that account's payload (the L1-S3 seam rule); never in
+    revenue_view, which does not import the serializer."""
+    return revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
+
+
+def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) -> str:
+    """R52: "Balanced" where the ledger reconciles and the revenue is established (app.js statementRevenueBalanced),
+    otherwise "Review required" and why: the ledger does not reconcile, or the captured credits are not the money the
+    bank's total counts."""
+    if ledger_reconciles and established:
+        return "Balanced"
+    if not ledger_reconciles:
+        return "Review required (ledger does not reconcile)"
+    return "Review required (captured credits differ from the bank-stated total)"
+
+
+def _zelle_line(stored: Report, shown: Report) -> str | None:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): under Yes, where the statement has Zelle
+    policy rows, one line saying where the Zelle money sits (analysis/zelle_view.py's figures over the records)."""
+    figures = zelle_view.record_zelle_figures(stored.classifications, shown.classifications)
+    if figures is None:
+        return None
+    parts = zelle_view.figure_parts(figures)
+    out = f", ${parts['out']:,.2f} non-revenue" if parts["out"] > 0 else ""
+    return (
+        f"  Zelle deposits: ${figures['total']:,.2f} ({figures['count']}): ${parts['in_true']:,.2f} in True revenue, "
+        f"${parts['held']:,.2f} held for review{out} (Mark Zelle Payments as True Revenue: Yes; "
+        "--zelle-true-revenue no excludes them)"
+    )
+
+
+def _payment_change_line(item: dict) -> str:
+    """The owner's request of 2026-10-06 (lender payment changes; R2-OW18, I1): one statement-level item as a CLI
+    line."""
+    potential = " (potential)" if item.get("lender_state") == "potential" else ""
+    label = item.get("lender_label") or item.get("lender")
+    kind = item.get("kind")
+    if kind in ("decrease", "increase", "cadence_change"):
+        name = "schedule change" if kind == "cadence_change" else kind
+        changed = item.get("cadence_changed") is True
+        after = f"{item['cadence_after']} " if changed else ""
+        percent = f"{item['change_percent']:+d}%" if item["change_percent"] else "0%"
+        measure = f"weekly equivalent {percent}" if changed else percent
+        possible = ", possible: new schedule not yet confirmed" if item.get("schedule_confirmed") is False else ""
+        # R2-OW18 review round 1: the unreported levels with the step into each, then the last step.
+        via = [entry for entry in item.get("via") or [] if isinstance(entry, dict)]
+        steps = ""
+        if via:
+            steps = ", via " + ", ".join(
+                f"{entry['cadence']} ${entry['amount']:,.2f}"
+                + (f" ({entry['change_percent']:+d}%)" if isinstance(entry.get("change_percent"), int) else "")
+                for entry in via)
+            if isinstance(item.get("last_step_percent"), int):
+                steps += f", then {item['last_step_percent']:+d}%"
+        return (f"{name}{potential}: {label} {item['cadence_before']} ${item['amount_before']:,.2f} -> {after}"
+                f"${item['amount_after']:,.2f} ({measure}) from {item['first_after_date']}, "
+                f"{item['payments_after']} payments (was {item['payments_before']}){possible}{steps}")
+    if kind == "pause":
+        # R2-OW18 review round 1: a bounced attempt or a payment at another amount that ended the pause is named.
+        ended = item.get("first_after_kind")
+        what = "no payment or attempt" if ended == "attempt" else "no payment"
+        tail = ""
+        if ended == "attempt":
+            tail = f"; a returned attempt on {item['first_after_date']}, payments resumed on {item.get('resumed_date')}"
+        elif ended == "other_amount":
+            tail = (f"; a payment at another amount on {item['first_after_date']}, payments resumed on "
+                    f"{item.get('resumed_date')}")
+        return (f"pause{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, {what} "
+                f"{item['last_before_date']} to {item['first_after_date']}, {item['pause_business_days']} business days "
+                f"(grace {item['grace_business_days']}){tail}")
+    if kind == "new_stream":
+        alongside = " and ".join(f"{other['cadence']} ${other['amount']:,.2f}" for other in item.get("alongside") or [])
+        return (f"new stream{potential}: {label} {item['cadence_after']} ${item['amount_after']:,.2f} from "
+                f"{item['first_after_date']} alongside {alongside}, weekly total {item['change_percent']:+d}%")
+    end = "the period end" if item.get("coverage_end_source") == "period_end" else "the last transaction"
+    lead = "stop" if item.get("stop_confirmed") is True else "possible stop"
+    # R2-OW18 review round 1: the quiet days run from the last presence; a returned attempt there is named.
+    attempt = item.get("last_attempt_returned")
+    returned = f", a returned attempt on {attempt.get('date')}" if isinstance(attempt, dict) else ""
+    return (f"{lead}{potential}: {label} {item['cadence']}, last ${item['last_payment_amount']:,.2f} on "
+            f"{item['last_payment_date']}{returned}, {item['quiet_business_days']} business days to {end} "
+            f"(grace {item['grace_business_days']})")
+
+
+def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
+    """One account's report in the Zelle reading asked for: the counted reading (`Report.zelle_counted`) under Yes
+    where the statement has one, else the stored Report. Under No it prints today's lines exactly."""
+    report = stored.zelle_counted if zelle_true_revenue and stored.zelle_counted is not None else stored
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
     L: list[str] = []
     L.append(f"# {s.bank or 'Bank'} - {s.account_name or 'Account'}")
@@ -69,38 +171,87 @@ def _render(report: Report) -> str:
     if m.withdrawals_source != "line_items":
         wd += f"   | line items ${m.total_withdrawals:,.2f} ({m.num_withdrawals})"
     L.append(wd)
+    # 5.6 (true revenue spec §5.1): True revenue first, then its verified part, the counted and held credits. Audit
+    # round 2, R2-B16 (R52; §10.4): a figure the account's revenue flags do not establish reads N/A, as the dashboard
+    # and the downloads read it.
+    verified_established, established = _revenue_flags(report)
+
+    def figure(text: str, shown: bool) -> str:
+        return text if shown else _NOT_ESTABLISHED
+
     L.append(
-        f"  Verified revenue      : ${m.verified_revenue_total:,.2f}  "
-        f"({m.verified_revenue_count} credit(s))"
+        "  True revenue          : "
+        + figure(f"${m.true_revenue_total:,.2f}  ({m.true_revenue_count} credit(s))", established)
     )
     L.append(
-        f"  Unverified deposits   : ${m.unverified_deposit_total:,.2f}  "
-        f"({m.unverified_deposit_count} credit(s); review required)"
+        "  Verified revenue      : "
+        + figure(f"${m.verified_revenue_total:,.2f}  ({m.verified_revenue_count} credit(s))", verified_established)
+    )
+    L.append(
+        "  Counted, not verified : "
+        + figure(f"${m.counted_flagged_total:,.2f}  ({m.counted_flagged_count} credit(s))", established)
+    )
+    L.append(
+        "  Held for review       : "
+        + figure(f"${m.excluded_pending_review_total:,.2f}  ({m.excluded_pending_review_count} credit(s))",
+                 established)
+    )
+    L.append(
+        "  Unverified deposits   : "
+        + figure(f"${m.unverified_deposit_total:,.2f}  ({m.unverified_deposit_count} credit(s): counted plus held)",
+                 established)
     )
     L.append(
         f"  Non-revenue credits   : ${m.non_revenue_total:,.2f}  "
         f"({m.non_revenue_count} credit(s))"
     )
-    L.append(f"  Maximum revenue       : ${m.maximum_revenue:,.2f}")
+    zelle = _zelle_line(stored, report) if zelle_true_revenue else None
+    if zelle is not None:
+        L.append(zelle)
+    L.append("  Maximum revenue       : " + figure(f"${m.maximum_revenue:,.2f}", established))
+    # R52 (audit B11's I31 on the CLI): "Balanced" only where the ledger reconciles and the revenue is established (the
+    # dashboard's rule, app.js statementRevenueBalanced); the four-tier identity under its own name beside it.
+    L.append(f"  Revenue reconciliation: {_revenue_reconciliation_label(r.ok is True, established)}")
     L.append(
-        f"  Revenue reconciliation: {'balanced' if m.revenue_reconciles else 'REVIEW'}  "
+        f"  Tiers sum to posted   : {'yes' if m.revenue_tiers_sum_to_posted else 'NO'} "
         f"(delta ${m.revenue_reconciliation_delta:,.2f})"
     )
     L.append(f"  Cash flow             : ${m.cash_flow:,.2f}")
-    withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
+    # The final review of round 2, F1 (§10.4, §11): no rate over a withholding basis that is not established (True
+    # revenue where the revenue is not, Verified where Verified is not); the legacy basis prints as before.
+    basis_unestablished = withholding_basis_unestablished(
+        m.withholding_denominator_mode, verified_established=verified_established, established=established)
+
+    def basis(value: float) -> str:
+        return _NOT_ESTABLISHED if basis_unestablished else f"${value:,.2f}"
+
+    if basis_unestablished:
+        withholding = _NOT_ESTABLISHED
+    else:
+        withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
     L.append(
         f"  Lender debits         : {m.lender_debit_count} row(s), ${m.lender_debits:,.2f}  "
         f"(withholding {withholding})"
     )
+    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid, out of the lender
+    # debits above and in the withholding numerator below.
+    L.append(
+        f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
+        f"${m.returned_funder_payment_total:,.2f} (kept in withholding)"
+    )
+    # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the working lines name the basis, True revenue by default.
     L.append(
         f"  Withholding working   : ${m.withholding_numerator:,.2f} / "
-        f"${m.withholding_denominator:,.2f} eligible deposits"
+        f"{basis(m.withholding_denominator)} {m.withholding_denominator_label}"
     )
-    potential_exposure = (
-        f"{m.potential_withholding_exposure:.2f}%"
-        if m.potential_withholding_exposure is not None
-        else "n/a"
-    )
+    if basis_unestablished:
+        potential_exposure = _NOT_ESTABLISHED
+    else:
+        potential_exposure = (
+            f"{m.potential_withholding_exposure:.2f}%"
+            if m.potential_withholding_exposure is not None
+            else "n/a"
+        )
     potential_status = "review required" if m.potential_withholding_review_required else "clear"
     L.append(
         f"  Potential debits      : {m.potential_lender_debit_count} row(s), "
@@ -109,7 +260,7 @@ def _render(report: Report) -> str:
     )
     L.append(
         f"  Potential working     : ${m.potential_withholding_numerator:,.2f} / "
-        f"${m.potential_withholding_denominator:,.2f} eligible deposits"
+        f"{basis(m.potential_withholding_denominator)} {m.withholding_denominator_label}"
     )
     L.append(f"  Insurance debits      : {m.insurance_count} row(s), ${m.insurance_total:,.2f}")
     L.append(
@@ -130,7 +281,9 @@ def _render(report: Report) -> str:
     if d.known_funders:
         L.append("  Known funders matched:")
         for fm in d.known_funders:
-            L.append(f"    - {fm.funder}: {len(fm.transactions)} txns, "
+            # R2-OW13: the paid debits, then the payments returned unpaid (listed with the funder, never paid).
+            returned = f", {fm.returned_count} returned unpaid" if fm.returned_count else ""
+            L.append(f"    - {fm.funder}: {fm.debit_count} txns{returned}, "
                      f"${fm.total_debited:,.2f} debited (alias '{fm.matched_alias}')")
     else:
         L.append("  Known funders matched: none")
@@ -147,12 +300,22 @@ def _render(report: Report) -> str:
                 if fm.eligible_deposit_denominator is not None
                 else "n/a"
             )
+            if basis_unestablished:
+                # F1 (final review of round 2): no exposure over a basis that is not established.
+                exposure = denominator = _NOT_ESTABLISHED
             L.append(
                 f"    - {fm.funder}: {fm.debit_count} debit(s), "
                 f"${fm.total_debited:,.2f}; {exposure} exposure / {denominator} deposits"
             )
     else:
         L.append("  Potential lenders: none")
+    # The owner's request of 2026-10-06 (R2-OW18): the statement's lender payment changes (information only). One
+    # statement at a time, so never a change seen only across months.
+    if d.lender_payment_changes:
+        L.append("  Lender payment changes:")
+        L.extend(f"    - {_payment_change_line(item)}" for item in d.lender_payment_changes)
+    else:
+        L.append("  Lender payment changes: none")
     if d.insurance_providers:
         L.append("  Insurance providers:")
         for provider in d.insurance_providers:
@@ -190,16 +353,24 @@ def _render(report: Report) -> str:
     return "\n".join(L)
 
 
-def _json_safe(document: DocumentReport) -> dict:
-    """The DOCUMENT's payload. RULE S: one account publishes today's, verbatim."""
-    return document_report_to_dict(document)
+def _json_safe(document: DocumentReport, zelle_true_revenue: bool = True) -> dict:
+    """The DOCUMENT's payload. RULE S: one account publishes today's, verbatim. R2-OW17: in the Zelle reading shown
+    (analysis/zelle_view.py apply_zelle_view): under No, on a fresh analysis, today's JSON (the edits key gone, no
+    display key). Audit round 2, R2-B16 (R52): then the revenue view the dashboard serves (analysis/revenue_view.py
+    apply_revenue_view, after the Zelle reading as webapp/app.py `_displayed` applies them), so each account's metrics
+    carry `revenue_established` and `verified_revenue_established`; every figure is kept."""
+    return apply_revenue_view(zelle_view.apply_zelle_view(document_report_to_dict(document),
+                                                          counted=zelle_true_revenue))
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Analyze an OCR'd bank statement.")
     ap.add_argument("markdown", help="Path to the OCR markdown file.")
     ap.add_argument("--json", metavar="FILE", help="Also write the full report as JSON.")
+    ap.add_argument("--zelle-true-revenue", choices=("yes", "no"), default="yes",
+                    help="Mark Zelle Payments as True Revenue (default yes, the Settings default)")
     args = ap.parse_args()
+    zelle_true_revenue = args.zelle_true_revenue == "yes"
 
     with open(args.markdown, encoding="utf-8") as f:
         markdown = f.read()
@@ -209,11 +380,11 @@ def main() -> None:
     # stopping would drop an account without saying so, which is the one thing
     # this whole model exists to stop.
     for account in document.accounts:
-        print(_render(account))
+        print(_render(account, zelle_true_revenue))
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(_json_safe(document), f, indent=2)
+            json.dump(_json_safe(document, zelle_true_revenue), f, indent=2)
         print(f"\nWrote JSON report to {args.json}", file=sys.stderr)
 
 

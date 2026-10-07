@@ -4,9 +4,25 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import PARENS_OR_LEADING_MINUS_OR_PLUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: Audit round 2, R2-B05 (R04 part 2): Santander's holder line above the balances on page 1, '<holder> Account #
+#: <number>' (the header's 'Primary Account #:' prints a colon and never matches).
+_HOLDER_LINE = re.compile(r"^(?P<name>\S.*?)\s+Account #\s*\d")
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name Santander prints before its account number on page 1;
+    NO_READING without that line. `account_name` keeps the product. Owner ruling 2026-10-02 (Q10), audit round 2,
+    R2-OW10: with the account title that line prints after the name."""
+    for line in page_lines(first_page(markdown)):
+        match = _HOLDER_LINE.match(line)
+        if match is not None:
+            return read_name(match.group("name"))
+    return NO_READING
 
 
 def _money(value: str | None) -> float | None:
@@ -137,9 +153,12 @@ def parse_santander_statement(markdown: str) -> Statement | None:
         return None
     period_start, period_end, days = period
     beginning, ending, credits, average, debits = summary
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="Santander Bank",
         account_name="Business Banking Analyzed Checking",
+        holder_name=holder.name,
+        account_title=holder.title,
         period_start=period_start,
         period_end=period_end,
         days_in_period=days,

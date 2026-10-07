@@ -38,9 +38,14 @@ HEADER = (
 # --- the GENERATED block -----------------------------------------------------------------------------------
 
 
-def render_block(tables: dict[str, dict[str, tuple[str, ...]]], review_flags: dict[str, str] | None = None) -> str:
+def render_block(
+    tables: dict[str, dict[str, tuple[str, ...]]],
+    review_flags: dict[str, str] | None = None,
+    factoring_review: tuple[str, ...] | None = None,
+) -> str:
     """The GENERATED block: one typed dict literal per C2 table, in TABLES order, then (5.3) REVIEW_FLAG_ENTITIES
-    when `review_flags` is given, with "\\n" line endings."""
+    when `review_flags` is given and (audit B6: I10) FACTORING_REVIEW_ENTITIES when `factoring_review` is given, with
+    "\\n" line endings."""
     lines = [BEGIN_MARKER, *HEADER, ""]
     for _group, table, heading in TABLES:
         lines.append(f"#: {heading}.")
@@ -69,8 +74,23 @@ def render_block(tables: dict[str, dict[str, tuple[str, ...]]], review_flags: di
                 line = f"    {json.dumps(name)}: {json.dumps(group)},"
                 lines += [line] if len(line) <= 110 else [f"    {json.dumps(name)}:", f"        {json.dumps(group)},"]
             lines += ["}", ""]
+    if factoring_review is not None:
+        lines.append("#: Audit B6 (I10): factoring review entities, their credits a factoring payout, unconfirmed.")
+        if not factoring_review:
+            lines += ["FACTORING_REVIEW_ENTITIES: tuple[str, ...] = ()", ""]
+        else:
+            lines.append("FACTORING_REVIEW_ENTITIES: tuple[str, ...] = (")
+            lines += [f"    {json.dumps(name)}," for name in factoring_review]
+            lines += [")", ""]
     lines.append(END_MARKER)
     return "\n".join(lines)
+
+
+def registry_block(entities: list[LedgerEntity]) -> str:
+    """The GENERATED block of a ledger's entities: its tables, (5.3) REVIEW_FLAG_ENTITIES and (audit B6: I10)
+    FACTORING_REVIEW_ENTITIES."""
+    return render_block(render_tables(entities), lender_ledger.review_flag_entities(entities),
+                        lender_ledger.factoring_review_entities(entities))
 
 
 def current_block(source: str) -> str:
@@ -161,6 +181,10 @@ def render_evidence(entities: list[LedgerEntity], digest: str, rules: Rules) -> 
         "mortgage, lease, personal-loan or debt-relief group take that flag group, marked unconfirmed "
         "(`REVIEW_FLAG_ENTITIES`), unless its business type is unknown. Its credits keep the potential tier's "
         "exclusion.",
+        "- Since audit fix batch B6 (I10; the factoring ruling of 2026-09-26), the credits of a review entity of the "
+        "factoring group are a factor's payouts: counted and flagged as factoring, marked unconfirmed, never verified "
+        "(`FACTORING_REVIEW_ENTITIES`), unless its business type is unknown. Its aliases stay in "
+        "`POTENTIAL_LENDER_ALIASES`, so its debits keep the potential tier.",
         "- An entity awaiting an owner ruling, or rejected, is in no table. This page lists it with its group, its "
         "public source and where the researchers looked.",
         "- Every payee the owner named in spec section 2 is admitted in its ruled group: the validator refuses a "
@@ -287,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     tables = render_tables(entities)
     source = args.registry.read_bytes().decode("utf-8")
-    block = render_block(tables, lender_ledger.review_flag_entities(entities))
+    block = registry_block(entities)
     args.registry.write_bytes(replace_block(source, block).encode("utf-8"))
     args.evidence.parent.mkdir(parents=True, exist_ok=True)
     args.evidence.write_bytes(render_evidence(entities, digest, rules).encode("utf-8"))

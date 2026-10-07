@@ -45,9 +45,35 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
+from .holder_name import CITY_STATE_ZIP, NO_READING, HolderReading, first_page, page_lines, read_address_line
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: Audit round 2, R2-B05 (R04 part 2): the heading of the customer-service panel Wells Fargo prints beside the mailing
+#: address on page 1, and the panel line that opens the bank's own address ('Write: Wells Fargo Bank, N.A. (000)').
+_QUESTIONS_HEADING = re.compile(r"^Questions\?$", re.IGNORECASE)
+_BANK_ADDRESS_LINE = re.compile(r"^Write:", re.IGNORECASE)
+#: The panel lines read before the mailing line at most (the phone hours, a relay line).
+_MAILING_LINE_WINDOW = 4
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from the mailing line Wells Fargo prints after page 1's
+    'Questions?' heading: the first line within _MAILING_LINE_WINDOW lines that closes on a state and ZIP, before the
+    bank's own 'Write:' address, without the address (analysis.holder_name.read_address_line). NO_READING without the
+    heading or such a line. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title that line
+    prints after the name."""
+    lines = page_lines(first_page(markdown))
+    start = next((index for index, line in enumerate(lines) if _QUESTIONS_HEADING.match(line)), None)
+    if start is None:
+        return NO_READING
+    for line in lines[start + 1:start + 1 + _MAILING_LINE_WINDOW]:
+        if _BANK_ADDRESS_LINE.match(line):
+            return NO_READING
+        if CITY_STATE_ZIP.search(line):
+            return read_address_line(line)
+    return NO_READING
 
 #: Opens an account's section. The trailing marker is the bank's own
 #: designation of which account the statement is for.
@@ -245,6 +271,9 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
         return None
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Wells Fargo"
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
 
     section = _published_section(markdown.splitlines())
     account = next(

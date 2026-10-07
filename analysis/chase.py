@@ -15,6 +15,7 @@ from datetime import date
 from .chase_savings import _grid_lines, _grid_rows, _transaction
 from .date_tokens import (
     date_refusal, iso_from_month_day, iso_or_none, period_from_long_dates)
+from .holder_name import NO_READING, HolderReading, first_page, read_address_block, read_address_line
 from .money import MINUS_CLASS, money_refusal, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -786,6 +787,67 @@ def _parse_section(markdown: str, heading: str, *, total_label: str, year: int, 
     return txns
 
 
+#: Audit B9 (I13): the CHECKING SUMMARY grid's header row ('INSTANCES AMOUNT', the business layout's first line after
+#: the heading, sometimes with the first row glued on). It is the grid's furniture, never the account's name.
+_SUMMARY_GRID_HEADER = re.compile(r"^(?:INSTANCES|AMOUNT)\b", re.IGNORECASE)
+#: Audit B9 (I13): the mail-routing code line that opens Chase's mailing address block (an eight-digit sequence, the
+#: DR plant code, the sort fields, an eleven-letter flag field, an optional T and the delivery-point fields). The
+#: block's name and address lines follow it; a reading that flattened the block runs them on after the code.
+_MAIL_ROUTING_LINE = re.compile(
+    r"^\d{8} DR[A-Z] \d{3} \d{3} \d{5} [A-Z]{11}(?: [A-Z])?\s+\d \d{9} [A-Z0-9]{2}(?: \d{4})?(?=\s|$)"
+)
+#: Audit round 2, R2-B05 (R04 part 2): page 1's block fallback, the same code line where the plant code's place prints
+#: the account type (DDA); read only on page 1 and only where the mail-routing code line reads no holder.
+_MAIL_ROUTING_LINE_ACCOUNT_TYPE = re.compile(
+    r"^\d{8} DDA \d{3} \d{3} \d{5} [A-Z]{11}(?: [A-Z])?\s+\d \d{9} [A-Z0-9]{2}(?: \d{4})?(?=\s|$)"
+)
+#: The block ends at the barcode line (twenty digits) or the summary's section marker.
+_MAILING_BLOCK_END = re.compile(r"^(?:\d{20}|\*start\*)")
+#: The customer-service panel Chase prints beside the mailing block, interleaved with its lines in the text layer.
+_SERVICE_PANEL_LINE = re.compile(
+    r"^(?:International Calls:?|Service Center:?|Para Espa.ol:.*|Web site:.*|Chase\.com|"
+    r"We accept operator relay calls|CUSTOMER SERVICE INFORMATION|Account Number:.*|[\d()+\-\s]*)$",
+    re.IGNORECASE,
+)
+#: A US city, state and ZIP line, which closes the mailing block's address.
+_CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2} \d{5}(?:-\d{4})?\s*$")
+
+
+def _holder_reading(text: str) -> HolderReading:
+    """Audit B9 (I13): the holder's name from the mailing address block that follows the mail-routing code line: the
+    first name line before the street (and a DBA line after it), or, where the reading flattened the block onto the
+    code's line, the name before the address there. NO_READING without the code line or a city, state and ZIP line.
+    Audit round 2, R2-B05 (R04 part 2): where that reads none, page 1's block after the code line that prints the
+    account type in the plant code's place (_MAIL_ROUTING_LINE_ACCOUNT_TYPE), read the same way. Owner ruling
+    2026-10-02 (Q10), audit round 2, R2-OW10: with the account title the reading's own line or block prints."""
+    reading = _holder_after_code(text, _MAIL_ROUTING_LINE)
+    return reading if reading.name else _holder_after_code(first_page(text), _MAIL_ROUTING_LINE_ACCOUNT_TYPE)
+
+
+def _holder_after_code(text: str, routing: re.Pattern[str]) -> HolderReading:
+    """Audit B9 (I13): the holder's name from the mailing block after the first line `routing` matches
+    (_holder_reading)."""
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines) if routing.match(line.strip())), None)
+    if start is None:
+        return NO_READING
+    code = routing.match(lines[start].strip())
+    tail = lines[start].strip()[code.end():].strip()
+    if tail:
+        return read_address_line(tail) if _CITY_STATE_ZIP.search(tail) else NO_READING
+    block: list[str] = []
+    for line in lines[start + 1:]:
+        stripped = line.strip()
+        if _MAILING_BLOCK_END.match(stripped):
+            break
+        if _SERVICE_PANEL_LINE.match(stripped):
+            continue
+        block.append(stripped)
+    if not any(_CITY_STATE_ZIP.search(line) for line in block):
+        return NO_READING
+    return read_address_block(block)
+
+
 def parse_chase_statement(markdown: str) -> Statement | None:
     text = _IMG_RE.sub("", markdown)
     export = _parse_chase_business_export(text)
@@ -807,8 +869,10 @@ def parse_chase_statement(markdown: str) -> Statement | None:
     if acct:
         stmt.account_number = acct.group(1)
     name = re.search(r"CHECKING SUMMARY\s*\n([^\n<]+)", text, re.IGNORECASE)
-    if name:
+    # Audit B9 (I13): the business layout's line after the heading is the grid's header, never a name.
+    if name and not _SUMMARY_GRID_HEADER.match(name.group(1).strip()):
         stmt.account_name = name.group(1).strip()
+    stmt.holder_name, stmt.account_title = _holder_reading(text)
 
     summary_match = re.search(r"CHECKING SUMMARY.*?(<table>.*?</table>)", text, re.IGNORECASE | re.DOTALL)
     if summary_match:

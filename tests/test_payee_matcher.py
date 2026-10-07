@@ -133,11 +133,14 @@ def test_registry_match_agrees_with_the_legacy_matcher_on_every_alias_of_the_liv
 
 
 def test_match_known_payee_is_the_index_over_payee_group_registries():
-    index = AliasIndex(registry.PAYEE_GROUP_REGISTRIES)
+    # Audit B6: the debit (default) index leaves out the credit-only aliases; the credit index reads every alias.
+    index = AliasIndex(registry.PAYEE_GROUP_REGISTRIES, excluded=registry.CREDIT_ONLY_ALIASES)
+    credit_index = AliasIndex(registry.PAYEE_GROUP_REGISTRIES)
     texts = [normalize(f"ACH DEBIT {alias}") for table in registry.PAYEE_GROUP_REGISTRIES.values()
              for aliases in table.values() for alias in aliases]
     for text in [*texts, *TEXTS]:
         assert match_known_payee(text) == index.match(text)
+        assert match_known_payee(text, credit=True) == credit_index.match(text)
 
 
 # --- 5.3 (owner ruling 2026-09-27): digits glued to the last word of a multi-word alias --------------------------
@@ -175,3 +178,43 @@ def test_only_the_known_payee_index_reads_glued_digits():
 def test_the_live_known_payee_index_reads_goat_advances_glued_debits():
     found = match_known_payee(normalize("GOAT ADVANCE1234 DES:ACHDEBIT ID:0001 INDN:FAB HOLDER CO ID:0002 CCD"))
     assert found is not None and (found.entity, found.state) == ("GOAT ADVANCE LLC", "confirmed_lender")
+
+
+# --- Audit round 2, R2-B08 (R47 (b)): the credit index reads a run-together alias with a digit run and one or two
+# letters glued after it ('FORWARDFINUSA1X'); no other index does ---------------------------------------------------
+
+TAILED = {
+    "confirmed_lender": {"Brambleway Funding": ("BRAMBLEWAY FUNDING",), "Tarnmoor": ("TARNMOOR CASH",)},
+}
+
+
+@pytest.mark.parametrize(
+    ("text", "entity"),
+    [
+        ("BRAMBLEWAYFUNDING1X DES PAYMENTS", "Brambleway Funding"),
+        ("BRAMBLEWAYFUNDING12AB DES PAYMENTS", "Brambleway Funding"),
+        ("BRAMBLEWAYFUNDING12 DES PAYMENTS", "Brambleway Funding"),
+        # Three letters after the digits are a word; letters before them are another name.
+        ("BRAMBLEWAYFUNDING12ABC DES PAYMENTS", None),
+        ("BRAMBLEWAYFUNDINGX12 DES PAYMENTS", None),
+        ("XBRAMBLEWAYFUNDING1X DES PAYMENTS", None),
+        # A tied alias keeps its rule: a reference code, or nothing, must follow it.
+        ("TARNMOORCASH1X 12345", "Tarnmoor"),
+        ("TARNMOORCASH1X", "Tarnmoor"),
+        ("TARNMOORCASH1X PAYMENTS", None),
+    ],
+)
+def test_the_credit_index_reads_a_run_together_alias_with_a_letter_tail_after_its_digits(text, entity):
+    index = AliasIndex(TAILED, glued_digits=True, run_together_digits=True, tied=frozenset({"TARNMOOR CASH"}))
+    found = index.match(normalize(text))
+    assert (found.entity if found else None) == entity
+
+
+def test_only_the_credit_index_reads_the_letter_tail():
+    assert AliasIndex(TAILED, glued_digits=True).match("BRAMBLEWAYFUNDING1X DES PAYMENTS") is None
+    # The premium-finance lookup's one-word glued arm (single_glued_min) keeps a trailing digit run only.
+    assert registry_match("IPFS888X", {"IPFS": ("IPFS",)}, glued_digits=True) is None
+    assert registry_match("IPFS888", {"IPFS": ("IPFS",)}, glued_digits=True) == ("IPFS", "IPFS")
+    assert match_known_payee("FORWARDFINUSA1X PAYMENTS") is None
+    found = match_known_payee("FORWARDFINUSA1X PAYMENTS", credit=True)
+    assert found is not None and found.entity == "Forward Financing"

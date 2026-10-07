@@ -87,7 +87,8 @@ class _OcrSettings:
 class _AnalysisSettings:
     model: str = "gemini-3.5-flash-lite"
     escalation_model: str = "gemini-3.5-flash"
-    withholding_denominator_mode: str = "legacy_eligible_deposits"
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: the stand-in mirrors Settings' default basis.
+    withholding_denominator_mode: str = "true_revenue"
     api_key: str = ""
 
 
@@ -485,7 +486,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_23():
+def test_analysis_stage_version_is_pinned_at_33():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -494,9 +495,32 @@ def test_analysis_stage_version_is_pinned_at_23():
     clarification (classification 5.2, 2026-09-27: compensation memos, masked
     recipient accounts) goes 20 -> 21. The false-positive release (classification
     5.3, 2026-09-27) goes 21 -> 22. The Idea Financial ruling (classification 5.4,
-    2026-09-28: a counted lender, no longer a line of credit) goes 22 -> 23. This
-    is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 23
+    2026-09-28: a counted lender, no longer a line of credit) goes 22 -> 23. The
+    true-revenue bug fixes (classification 5.5, 2026-09-28) go 23 -> 24, and its
+    definitional rules (classification 5.6: the revenue tiers) go 24 -> 25. The
+    audit's holder-identity batch (B9) changes what the Chase and First Citizens
+    parsers publish (the holder's name as its own field, no summary grid header as
+    the account name) and the payload's statement shape, so it goes 25 -> 26. The
+    lost-payer-text batch (B10) changes what six parsers publish for a credit (the
+    payer printed beside its posting-type label, and the mark of a payer the parser
+    could not read), so it goes 26 -> 27. The package and review-gate batch (B11)
+    changes the stored revenue gate (T7 also reads held against True plus held)
+    and adds the four-tier identity's own name to the metrics, so it goes
+    27 -> 28. Audit round 2's holder batch (R2-B04) changes the stored
+    `holder_unscreened` metric (a holder name the parser read is known, whatever
+    its shape) and the holder holds, so it goes 28 -> 29. Its holder-reader batch
+    (R2-B05) has fourteen more parsers publish the holder's name from page 1 and
+    four readers gain a page-1 fallback, so it goes 29 -> 30. Its Navy Federal
+    batch (R2-B06) reads a retail product's amount-first block text row by row,
+    so the four cached EveryDay Checking readings re-analyse to new rows, and it
+    goes 30 -> 31. Its welded-run batch (R2-B07) stores, on each credit the
+    counted core-processor template marks unread at a welded flush, that flush's
+    text (a new transaction field the hold of a run naming a lender reads), so
+    it goes 31 -> 32. Its last batch (R2-B16, R56) moves the classification
+    version 5.6 -> 5.7 for the fix batches, round 2 and the owner's rulings,
+    whose stored shape changed under 5.6, and the stage with it, so Re-analyze
+    misses a stage-32 entry still stamped 5.6: 32 -> 33. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 33
 
 
 def test_paddle_model_token_is_not_in_free_models():

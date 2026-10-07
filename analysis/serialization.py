@@ -12,6 +12,7 @@ from .transaction_classifier import (
 )
 from .payload_shape import DOCUMENT_KEY, account_content_digest
 from .revenue import rebuild_serialized_revenue_views
+from . import zelle_view
 
 if TYPE_CHECKING:
     from .pipeline import DocumentReport, Report
@@ -65,6 +66,10 @@ def _funder_dict(match) -> dict:
         "potential_withholding_formula": match.potential_withholding_formula,
         "review_required": match.review_required,
         "status": match.status,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder's payments returned unpaid, never in
+        # debit_count or total_debited (paid to lenders); their rows are among `transactions` and `evidence`.
+        "returned_payment_count": match.returned_count,
+        "returned_payment_total": match.returned_total,
         "transactions": [
             _transaction_dict(transaction, evidence)
             for transaction, evidence in zip(match.transactions, match.evidence)
@@ -156,6 +161,21 @@ def _metrics_dict(metrics) -> dict:
 
 
 def report_to_dict(report: Report) -> dict:
+    """One account's published payload: the stored (No) Zelle reading, rebuilt (`_account_payload`). The owner's
+    amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §9.1; R2-OW17): an account whose counted (Yes)
+    reading differs carries, after the rebuild, the lean edits that turn it into that reading (ZELLE_EDITS_KEY,
+    analysis/zelle_view.py). A statement with no Zelle row publishes today's payload byte for byte."""
+    payload = _account_payload(report)
+    counted = getattr(report, "zelle_counted", None)
+    if counted is not None:
+        edits = zelle_view.reading_edits(payload, _account_payload(counted))
+        if edits:
+            payload[zelle_view.ZELLE_EDITS_KEY] = edits
+    return payload
+
+
+def _account_payload(report: Report) -> dict:
+    """One Report's account payload in its own reading, its revenue views rebuilt (today's `report_to_dict` body)."""
     records = report.classifications or classify_statement_transactions(report.statement)
     if len(records) != len(report.statement.transactions):
         raise ValueError("classification count must equal transaction count")
@@ -192,6 +212,10 @@ def report_to_dict(report: Report) -> dict:
                 asdict(item) for item in detection.potential_lender_evidence
             ],
             "insurance_evidence": [asdict(item) for item in detection.insurance_evidence],
+            # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the returned funder payments, the warning's items.
+            "returned_funder_payments": [dict(item) for item in detection.returned_funder_payments],
+            # The owner's request of 2026-10-06 (lender payment changes; R2-OW18).
+            "lender_payment_changes": [dict(item) for item in detection.lender_payment_changes],
             "verified_revenue_evidence": [
                 asdict(item) for item in detection.verified_revenue_evidence
             ],
@@ -201,8 +225,15 @@ def report_to_dict(report: Report) -> dict:
             "non_revenue_evidence": [
                 asdict(item) for item in detection.non_revenue_evidence
             ],
+            # 5.6 (§9.1): the counted and held credits; true_revenue_evidence is repointed to verified plus counted.
+            "counted_flagged_evidence": [
+                asdict(item) for item in detection.counted_flagged_evidence
+            ],
+            "excluded_pending_review_evidence": [
+                asdict(item) for item in detection.excluded_pending_review_evidence
+            ],
             "true_revenue_evidence": [
-                asdict(item) for item in detection.verified_revenue_evidence
+                asdict(item) for item in detection.true_revenue_evidence
             ],
             "potential_revenue_evidence": [
                 asdict(item) for item in detection.unverified_deposit_evidence

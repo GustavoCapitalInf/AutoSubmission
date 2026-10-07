@@ -743,13 +743,23 @@ def _leaking(exc: BaseException, token: str) -> list:
     return _leaking_surfaces(exc, token, CANARY, set(_digit_runs(token, 2)))
 
 
+#: Statement fields the frozen base tree cannot carry, because they postdate it. Excluded rather than back-filled, as
+#: tests/test_row_grouping.py's `_FIELDS_NEWER_THAN_THE_ORACLES` excludes them; each is proved by name elsewhere:
+#:   `holder_name` (audit fix batch B9)  tests/test_analysis.py (per parser), tests/test_true_revenue_holder.py
+_FIELDS_NEWER_THAN_THE_BASE_TREE = ("holder_name",)
+
+
+def _without_newer_fields(dump: dict) -> dict:
+    return {key: value for key, value in dump.items() if key not in _FIELDS_NEWER_THAN_THE_BASE_TREE}
+
+
 def _payload(result):
     """A comparable payload, so a base object is never compared with ours."""
     if result is None:
         return None
     if isinstance(result, list):
-        return [item.model_dump() for item in result]
-    return result.model_dump()
+        return [_without_newer_fields(item.model_dump()) for item in result]
+    return _without_newer_fields(result.model_dump())
 
 
 @pytest.mark.parametrize("site,shape", MAJOR2_CELLS)

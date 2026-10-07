@@ -14,10 +14,29 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import parse_french_amount, parse_money, read_money
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
 from .tables import glyph_damaged, read_grid_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the title CIBC prints at the top of page 1, in English or French (its accented
+#: letter read either way), which the holder's name line follows.
+_STATEMENT_TITLE = re.compile(r"^(?:CIBC Account Statement|Relev\S{1,2} de compte CIBC)$", re.IGNORECASE)
+#: The period line, which follows the title where no name prints.
+_PERIOD_LINE = re.compile(r"^(?:For\s+[A-Za-z]{3,9}\.?\s+\d|Du\s+\d)", re.IGNORECASE)
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name, the line after page 1's statement title; NO_READING
+    without the title or where the period line follows it. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with
+    the account title that line prints after the name."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines[:-1]):
+        if _STATEMENT_TITLE.match(line):
+            following = lines[index + 1]
+            return NO_READING if _PERIOD_LINE.match(following) else read_name(following)
+    return NO_READING
 
 _MONTHS = {
     "jan": 1,
@@ -179,8 +198,11 @@ def parse_cibc_french_statement(markdown: str) -> Statement | None:
     start_day, start_month, end_day, end_month, year_text = period.groups()
     year = int(year_text)
     beginning, credits, debits, ending = summary
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="CIBC",
+        holder_name=holder.name,
+        account_title=holder.title,
         currency="CAD",
         currency_source="institution_default",
         period_start=date(year, _month(start_month), int(start_day)).isoformat(),
@@ -406,6 +428,9 @@ def parse_cibc_statement(markdown: str, base: Statement | None = None) -> Statem
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "CIBC"
+    holder = _holder_reading(markdown)
+    if holder.name:
+        stmt.holder_name, stmt.account_title = holder
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
     stmt.currency = "CAD"

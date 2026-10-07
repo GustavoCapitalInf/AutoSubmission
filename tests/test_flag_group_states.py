@@ -58,9 +58,23 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.2/21: the second D6 clarification (2026-09-27, compensation memos and masked recipient accounts) does too.
     # 5.3/22: the false-positive release (2026-09-27): D6 skips, rule extensions, routing, naming, Debt relief.
     # 5.4/23: the owner ruling of 2026-09-28: Idea Financial is a counted lender, no longer a line of credit.
-    assert CLASSIFICATION_VERSION == "5.4"
-    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.4"
-    assert ANALYSIS_STAGE_VERSION == 23
+    # 5.5/24: the true-revenue bug fixes (2026-09-28 design, §7). 5.6/25: its definitional rules (§8).
+    # 5.6/26: the audit's holder-identity batch (B9) changes two parsers and the payload's statement shape (the
+    # holder's name as its own field); the classification version stays 5.6 on the true-revenue branch.
+    # 5.6/27: the audit's lost-payer-text batch (B10) changes six parsers' credit descriptions.
+    # 5.6/28: the audit's package and review-gate batch (B11) changes the stored revenue gate (T7) and adds the
+    # four-tier identity's own name to the metrics.
+    # 5.6/29: audit round 2's holder batch (R2-B04) changes the stored holder_unscreened metric and the holder holds.
+    # 5.6/30: audit round 2's holder-reader batch (R2-B05) has fourteen more parsers publish the holder's name.
+    # 5.6/31: audit round 2's Navy Federal batch (R2-B06) reads a retail product's amount-first rows as printed.
+    # 5.6/32: audit round 2's welded-run batch (R2-B07) stores the counted template's unread payer text on a credit.
+    # 5.7/33: audit round 2's last batch (R2-B16, R56): the fix batches, round 2 and the owner's rulings of 2026-10-02
+    # and 2026-10-06 moved tiers, reasons and the gate under 5.6, and the owner batches' stored shape with them; the
+    # stage moves too, so Re-analyze misses a stage-32 entry still stamped 5.6.
+    assert CLASSIFICATION_VERSION == "5.7"
+    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.7"
+    assert classify_transaction("NORTHWIND INC PAYMENT", 100.00).classification_version == "5.7"
+    assert ANALYSIS_STAGE_VERSION == 33
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
@@ -125,3 +139,33 @@ def test_a_settlement_reversed_flagged_debit_leaves_the_flagged_totals():
     assert credit.settlement_reversal
     assert debit.reversed_by == "transaction:2"
     assert not debit.contributes_to_flagged_totals
+
+
+@pytest.mark.parametrize(("debit_text", "credit_text"), [
+    ("NORTHWIND LOAN PAYMENT ACH DEBIT", "RETURN NORTHWIND LOAN ACH RTN R01"),
+    ("SAMPLE LOAN PYMT ACH", "SAMPLE LOAN PYMT RETURN ACH REJT"),
+    ("VIREMENT SAMPLE LOAN PAIEMENT", "VIREMENT SAMPLE LOAN PAIEMENT ANNULE"),
+])
+def test_a_widened_marker_pair_never_moves_the_debit_s_lender_reading(debit_text, credit_text):
+    # Final review I6 (true revenue spec §20): the widened reversal-pair markers (the return codes, ANNULE) change the
+    # credit's revenue reading only. The debit keeps classification 5.4's lender, potential-lender and withholding
+    # contributions, and no reversed_by, as when no credit prints a 5.4 marker.
+    statement = Statement(transactions=[txn("2054-01-02", debit_text, -500.0), txn("2054-01-03", credit_text, 500.0)])
+    debit, credit = classify_statement_transactions(statement)
+    [alone] = classify_statement_transactions(Statement(transactions=[txn("2054-01-02", debit_text, -500.0)]))
+    assert credit.revenue_classification == "non_revenue"
+    assert debit.reversed_by is None and not credit.settlement_reversal
+    for field in ("classification", "contributes_to_lender_count", "contributes_to_lender_totals",
+                  "contributes_to_potential_lender_count", "contributes_to_potential_lender_totals",
+                  "contributes_to_withholding_rate", "contributes_to_potential_withholding_exposure",
+                  "contributes_to_flagged_totals"):
+        assert getattr(debit, field) == getattr(alone, field), field
+
+
+def test_a_5_4_marker_pair_still_zeroes_the_debit_s_lender_reading():
+    statement = Statement(transactions=[txn("2054-01-02", "NORTHWIND LOAN PAYMENT ACH DEBIT", -500.0),
+                                        txn("2054-01-03", "RETURNED PAYMENT NORTHWIND LOAN ACH", 500.0)])
+    debit, credit = classify_statement_transactions(statement)
+    assert credit.revenue_match_method == "matched_reversal_pair" and credit.settlement_reversal
+    assert debit.reversed_by == "transaction:2"
+    assert not debit.contributes_to_potential_lender_totals and not debit.contributes_to_withholding_rate

@@ -43,3 +43,206 @@ def test_error_cell_carries_the_class_name_only(monkeypatch, tmp_path, capsys):
     # developer debugging the run — only the durable CSV artifact is reduced.
     err = capsys.readouterr().err
     assert "RuntimeError" in err
+
+
+# --- The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the CLI's Zelle reading ------------------
+# --zelle-true-revenue {yes,no}, yes by default as on the Settings page. Fabricated rows (tests/zelle_setting_fixtures).
+
+
+def _z1():
+    from tests import zelle_setting_fixtures as fx
+    return fx.case_document("Z1")
+
+
+def test_render_prints_the_yes_figures_and_the_zelle_line_by_default():
+    import analyze
+
+    report = _z1().accounts[0]
+    text = analyze._render(report)
+    assert "True revenue          : $11,534.56" in text
+    assert ("  Zelle deposits: $7,734.56 (4): $1,234.56 in True revenue, $6,500.00 held for review "
+            "(Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no excludes them)") in text.splitlines()
+
+
+def test_render_under_no_prints_today_s_lines_exactly():
+    import dataclasses
+
+    import analyze
+
+    report = _z1().accounts[0]
+    text = analyze._render(report, zelle_true_revenue=False)
+    assert "True revenue          : $10,300.00" in text and "Zelle deposits:" not in text
+    assert text == analyze._render(dataclasses.replace(report, zelle_counted=None), zelle_true_revenue=False)
+
+
+def test_render_names_a_zelle_asset_sale_as_non_revenue():
+    import analyze
+    from tests import zelle_setting_fixtures as fx
+
+    text = analyze._render(fx.case_document("Z4_TRUCK").accounts[0])
+    assert ("  Zelle deposits: $9,000.00 (1): $0.00 in True revenue, $0.00 held for review, $9,000.00 non-revenue "
+            "(Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no excludes them)") in text.splitlines()
+
+
+def test_the_batch_row_reads_the_chosen_reading():
+    from pathlib import Path
+
+    report = _z1().accounts[0]
+    yes, no = batch._row(Path("fabricated.md"), report), batch._row(Path("fabricated.md"), report, False)
+    assert (yes["zelle_true_revenue"], yes["zelle_deposit_total"], yes["zelle_in_true_revenue_total"]) == (
+        "yes", "7734.56", "1234.56")
+    assert (no["zelle_true_revenue"], no["zelle_deposit_total"], no["zelle_in_true_revenue_total"]) == (
+        "no", "7734.56", "0.00")
+    assert (yes["true_revenue_total"], no["true_revenue_total"]) == ("11534.56", "10300.00")
+    # needs_review's revenue_review_required term follows the reading (the other terms are clear on this fixture).
+    assert report.quality.corporate_use != "manual_review_required"
+    assert report.metrics.revenue_reconciles and report.zelle_counted.metrics.revenue_reconciles
+    assert report.zelle_counted.metrics.revenue_review_required is True and report.metrics.revenue_review_required is False
+    assert (yes["needs_review"], no["needs_review"]) == ("REVIEW", "")
+    assert {"zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total"} <= set(batch.FIELDS)
+
+
+def test_a_zelle_free_row_carries_the_fixed_columns():
+    from pathlib import Path
+
+    from tests import zelle_setting_fixtures as fx
+    row = batch._row(Path("fabricated.md"), fx.document(fx.FREE).accounts[0])
+    assert (row["zelle_true_revenue"], row["zelle_deposit_total"], row["zelle_in_true_revenue_total"]) == (
+        "yes", "0.00", "0.00")
+
+
+def test_analyze_json_under_no_carries_no_zelle_key():
+    import analyze
+
+    payload = analyze._json_safe(_z1(), zelle_true_revenue=False)
+    assert "zelle_counted_reading" not in payload and "zelle_deposits" not in payload["metrics"]
+    assert not any("zelle_deposit" in transaction for transaction in payload["statement"]["transactions"])
+    shown = analyze._json_safe(_z1())
+    assert shown["metrics"]["zelle_deposits"]["counted_as_true_revenue"] is True
+    assert sum(1 for transaction in shown["statement"]["transactions"] if transaction.get("zelle_deposit")) == 4
+
+
+def test_the_flag_reaches_both_clis(monkeypatch, tmp_path, capsys):
+    import analyze
+
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    monkeypatch.setattr(analyze, "analyze_document", lambda markdown, **kwargs: _z1())
+    monkeypatch.setattr(sys, "argv", ["analyze.py", str(md), "--zelle-true-revenue", "no"])
+    analyze.main()
+    assert "Zelle deposits:" not in capsys.readouterr().out
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", lambda markdown, **kwargs: _z1())
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--out", str(out), "--zelle-true-revenue", "no"])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as f:
+        [row] = list(csv.DictReader(f))
+    assert (row["zelle_true_revenue"], row["true_revenue_total"]) == ("no", "10300.00")
+
+
+# --- The owner's request of 2026-10-06 (lender payment changes; R2-OW18, I2): seven columns right after
+# recurring_debit_groups, counts by kind and the items as kind:lender_label. Fabricated rows
+# (tests/zelle_setting_fixtures.py: one KAPITUS debit, so no change).
+
+
+def test_the_batch_csv_carries_the_lender_payment_change_columns():
+    from pathlib import Path
+
+    from tests import zelle_setting_fixtures as fx
+
+    start = batch.FIELDS.index("recurring_debit_groups") + 1
+    assert batch.FIELDS[start:start + 7] == [
+        "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
+        "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops",
+        "lender_payment_changes"]
+    row = batch._row(Path("fabricated.md"), fx.document(fx.FREE).accounts[0])
+    assert [row[name] for name in batch.FIELDS[start:start + 7]] == [0, 0, 0, 0, 0, 0, ""]
+    columns = batch._payment_change_columns([
+        {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed"},
+        {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed", "schedule_confirmed": False},
+        {"kind": "stop", "lender_label": "Unidentified lender obligation (weekly, 300.00)", "lender_state": "potential",
+         "stop_confirmed": False}])
+    assert (columns["lender_payment_decreases"], columns["lender_payment_possible_stops"]) == (2, 1)
+    assert columns["lender_payment_changes"] == (
+        "decrease:KAPITUS; decrease:KAPITUS (possible); stop:Unidentified lender obligation (weekly, 300.00) (potential)")
+
+
+# --- Audit round 2, R2-B16 (R52; true revenue spec §10.4): the triage CSV reads the dashboard's revenue rules. The
+# four fabricated statements of tests/test_analyze_cli.py (T1 to T4), analysed by the real per-account path.
+
+_EMPTY_WHEN_NOT_ESTABLISHED = ("true_revenue_total", "counted_flagged_total", "excluded_pending_review_total",
+                               "unverified_deposit_total", "maximum_revenue", "verified_revenue_total")
+
+
+def _cli_row(report):
+    from pathlib import Path
+    return batch._row(Path("fabricated.md"), report)
+
+
+def test_the_batch_columns_name_the_identity_and_the_flags():
+    assert "revenue_reconciles" not in batch.FIELDS
+    start = batch.FIELDS.index("maximum_revenue")
+    assert batch.FIELDS[start:start + 7] == [
+        "maximum_revenue", "revenue_tiers_sum_to_posted", "revenue_reconciliation_delta", "revenue_balanced",
+        "revenue_established", "verified_revenue_established", "cash_flow"]
+
+
+def test_t1_the_batch_row_of_a_tied_ledger_is_balanced():
+    from tests.test_analyze_cli import ties
+
+    row = _cli_row(ties())
+    assert (row["revenue_balanced"], row["revenue_established"], row["verified_revenue_established"],
+            row["revenue_tiers_sum_to_posted"]) == ("yes", "yes", "yes", "yes")
+    assert (row["true_revenue_total"], row["maximum_revenue"], row["needs_review"]) == ("2500.00", "2500.00", "")
+
+
+def test_t2_the_batch_row_of_a_misread_opening_is_not_balanced_and_needs_review():
+    from tests.test_analyze_cli import misread_opening
+
+    row = _cli_row(misread_opening())
+    assert (row["revenue_tiers_sum_to_posted"], row["revenue_established"], row["revenue_balanced"],
+            row["needs_review"]) == ("yes", "yes", "NO", "REVIEW")
+    assert row["true_revenue_total"] != ""
+
+
+def test_t3_the_batch_row_of_a_dropped_credit_leaves_the_figures_empty():
+    from tests.test_analyze_cli import dropped_credit
+
+    row = _cli_row(dropped_credit())
+    assert all(row[key] == "" for key in _EMPTY_WHEN_NOT_ESTABLISHED)
+    assert (row["revenue_established"], row["verified_revenue_established"], row["revenue_balanced"]) == (
+        "NO", "NO", "NO")
+    # Non-revenue, the deposits and the identity's delta stay.
+    assert row["non_revenue_total"] != "" and row["total_deposits"] == "3200.00"
+    assert row["revenue_reconciliation_delta"] == "0.00"
+    assert row["needs_review"] == "REVIEW"
+
+
+def test_t4_only_the_new_term_asks_for_review_where_the_revenue_is_not_established():
+    from tests.test_analyze_cli import stated_above
+
+    report = stated_above()
+    assert report.quality.corporate_use == "approved" and report.metrics.revenue_review_required is False
+    row = _cli_row(report)
+    assert row["needs_review"] == "REVIEW"
+    assert row["true_revenue_total"] == "" and row["revenue_established"] == "NO"
+    assert row["summary_reconciles"] == "n/a" and row["transaction_detail_reliable"] == "yes"
+
+
+def test_the_error_row_carries_only_the_file_the_review_and_the_class_name(monkeypatch, tmp_path):
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    monkeypatch.setattr(batch, "analyze_document", boom)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        [row] = list(csv.DictReader(handle))
+    assert {key for key, value in row.items() if value} == {"file", "needs_review", "error"}
+    assert (row["needs_review"], row["error"]) == ("REVIEW", "RuntimeError")

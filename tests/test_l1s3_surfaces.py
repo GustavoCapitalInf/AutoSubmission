@@ -102,8 +102,9 @@ def test_package_membership_requires_each_accounts_own_validation():
     job = _Job("job-1", document_payload(outcomes=("validated", "withheld")))
     members, excluded = _package_members([job])
     assert [index for _job, _analysis, index, _count in members] == [1]
+    # Audit round 2, R2-B15 (R15): each excluded account names its statement's file, for the package's notice.
     assert excluded == [{
-        "job_id": "job-1", "account_index": 2, "account_count": 2,
+        "job_id": "job-1", "filename": "synthetic.pdf", "account_index": 2, "account_count": 2,
         "outcome": "withheld", "reason": "withheld_adb",
     }]
 

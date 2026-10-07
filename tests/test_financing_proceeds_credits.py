@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from analysis import classification_registry as registry
 from analysis import transaction_classifier
 from analysis.flag_groups import FINANCING_STATES
 from analysis.metrics import compute_metrics
@@ -125,6 +126,135 @@ def test_a_payout_entitys_transfer_worded_credit_stays_in_eligible_deposits(fake
     assert record.classification == "transfer"
     assert record.revenue_match_method != "financing_proceeds_credit"
     assert not record.contributes_to_lender_credit_exclusion
+
+
+#: Owner ruling OQ2 (true revenue spec §19): the five BNPL providers whose settlements to the merchant joined
+#: PAYOUT_CREDIT_ENTITIES (S1.4).
+OQ2_BNPL_ENTITIES = ("AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit")
+
+
+@pytest.fixture
+def before_oq2(monkeypatch):
+    """The 5.4 reading of a row: classified with PAYOUT_CREDIT_ENTITIES as it was before OQ2 added the five."""
+    before = tuple(entity for entity in registry.PAYOUT_CREDIT_ENTITIES if entity not in OQ2_BNPL_ENTITIES)
+    assert len(before) == len(registry.PAYOUT_CREDIT_ENTITIES) - len(OQ2_BNPL_ENTITIES)
+
+    def classify(description, amount):
+        with monkeypatch.context() as patch:
+            patch.setattr(transaction_classifier, "PAYOUT_CREDIT_ENTITIES", before)
+            return classify_transaction(description, amount)
+
+    return classify
+
+
+@pytest.mark.parametrize(
+    ("description", "entity"),
+    [
+        # The census's consumer-side shapes (S3.2, 5.4 -> 5.5): a Klarna withdrawal and the purchase returns.
+        ("ACH DEPOSIT KLARNA FABRIKAM WITHDRAWAL CONTOSO", "Klarna Inc"),
+        ("KLARNA WITHDRAWAL 0001", "Klarna Inc"),
+        ("RETURN FOR KLARNA PURCHASE NORTHWIND", "Klarna Inc"),
+        ("RETURN FOR KLARNA PURCHASE 0001 NORTHWIND", "Klarna Inc"),
+        ("RETURN FOR AFFIRM COM FABRIKAM AFFIRM COM CONTOSO 0001", "AFFIRM"),
+        # The earlier probes: a card product, a debt collector's alias, a balance withdrawal.
+        ("AFFIRMCARD FABRIKAM", "AFFIRM"),
+        ("TRUEACCORD KLARNA FABRIKAM", "Klarna Inc"),
+        ("KLARNA BALANCE WITHDRAWAL", "Klarna Inc"),
+        # Each other consumer-side word, on each provider.
+        ("KLARNA CARD FABRIKAM 0001", "Klarna Inc"),
+        ("GREENSKY CARD 0001 SAMPLE", "GreenSky"),
+        ("GREENSKY WITHDRAW 0001", "GreenSky"),
+        ("AFTERPAY PURCHASE FABRIKAM 0001", "Afterpay"),
+        ("AFTERPAY CASH BACK 0001", "Afterpay"),
+        ("SUNBIT CASHBACK 0001", "Sunbit"),
+        ("SUNBIT REWARD 0001", "Sunbit"),
+        ("SUNBIT REWARDS 0001", "Sunbit"),
+        # The fix review: a lone balance, and a glued leading date.
+        ("KLARNA BALANCE 0001", "Klarna Inc"),
+        ("01/02RETURN FOR AFFIRM COM FABRIKAM 0001", "AFFIRM"),
+    ],
+)
+def test_a_bnpl_providers_consumer_credit_keeps_its_5_4_reading(before_oq2, description, entity):
+    """OQ2 covers a BNPL provider's settlement to the merchant, never the account holder's own consumer credits
+    (a withdrawal, a purchase return, a card, a balance, a reward or a collector's credit): those stay financing
+    proceeds (D1), as 5.4 read them, and out of eligible deposits."""
+    record = classify_transaction(description, 25.0)
+    assert record == before_oq2(description, 25.0)
+    assert (record.match_method, record.matched_rule, record.canonical_entity) == (
+        "financing_proceeds_credit", "financing_proceeds_credit", entity,
+    )
+    assert record.contributes_to_lender_credit_exclusion
+    assert (record.revenue_classification, record.revenue_match_method, record.revenue_canonical_entity) == (
+        "non_revenue", "financing_proceeds_credit", entity,
+    )
+
+
+@pytest.mark.parametrize("description", [
+    "AFFIRM REFUND 0001", "AFTERPAY RFND 0001", "KLARNA REFUND FABRIKAM", "AFTERPAY RFD 0001", "AFTERPAY REFND 0001",
+])
+def test_a_bnpl_providers_refund_keeps_its_5_4_reading(before_oq2, description):
+    record = classify_transaction(description, 25.0)
+    assert record == before_oq2(description, 25.0)
+    assert (record.revenue_classification, record.revenue_match_method) == (
+        "non_revenue", "reversal_cancellation_exclusion",
+    )
+
+
+@pytest.mark.parametrize(
+    ("description", "entity"),
+    [
+        ("AFFIRM INC DES:SETTLEMENT ID:0001 INDN:FABRIKAM LLC CO ID:0001 CCD", "AFFIRM"),
+        ("AFFIRM COM FABRIKAM DES:TRANSFER ID:0001 INDN:CONTOSO CO ID:0001 PPD", "AFFIRM"),
+        ("KLARNA INC DES:PAYOUT ID:0001", "Klarna Inc"),
+        ("AFTERPAY US INC MERCHANT PAYMENT 0001", "Afterpay"),
+        ("GREENSKY SETTLEMENT 0001", "GreenSky"),
+        ("SUNBIT MERCHANT PAYOUT 0001", "Sunbit"),
+        # The holder's own name in the receiver field never makes a settlement consumer-side (§5.2).
+        ("AFFIRM INC DES:SETTLEMENT ID:0001 INDN:BALANCE DENTAL LLC CO ID:0001 CCD", "AFFIRM"),
+        ("KLARNA INC DES:PAYOUT ID:0001 INDN:CARD CORNER LLC CO ID:0001 CCD", "Klarna Inc"),
+    ],
+)
+def test_a_bnpl_providers_settlement_still_leaves_d1(before_oq2, description, entity):
+    """Owner ruling OQ2: the settlement is the merchant's own sale, so it is revenue, not financing proceeds."""
+    before = before_oq2(description, 900.0)
+    assert (before.revenue_match_method, before.revenue_canonical_entity) == ("financing_proceeds_credit", entity)
+    record = classify_transaction(description, 900.0)
+    assert record.matched_rule != "financing_proceeds_credit"
+    assert not record.contributes_to_lender_credit_exclusion
+    assert record.revenue_classification in {"verified_revenue", "unverified_deposit"}
+    assert record.revenue_match_method != "financing_proceeds_credit"
+
+
+@pytest.mark.parametrize(
+    ("description", "entity"),
+    [
+        ("AFFIRM PAYMENT 0001", "AFFIRM"),
+        ("AFTERPAY PAYMENT 0001", "Afterpay"),
+        ("GREENSKY PAYMENT 0001", "GreenSky"),
+        ("KLARNA PAYMENT 0001", "Klarna Inc"),
+        ("SUNBIT PAYMENT 0001", "Sunbit"),
+        ("AFFIRMCARD FABRIKAM", "AFFIRM"),
+        ("KLARNA CARD PURCHASE FABRIKAM", "Klarna Inc"),
+    ],
+)
+def test_a_bnpl_providers_debit_keeps_alternative_position(before_oq2, description, entity):
+    record = classify_transaction(description, -100.0)
+    assert record == before_oq2(description, -100.0)
+    assert (record.classification, record.canonical_entity) == ("alternative_position", entity)
+
+
+@pytest.mark.parametrize(
+    "description",
+    # Sezzle prints WITHDRAWAL on its merchant payouts, and PAYABILITY a CARD on its transfers: their credits keep
+    # the entity-wide exception of 2026-09-25.
+    ["SEZZLE MERCHANT WITHDRAWAL FABRIKAM 0001", "SEZZLE CARD FABRIKAM 0001", "PAYABILITY FABRIKAM CARD 0001",
+     "AMERICAN FIRST FINANCE BALANCE 0001"],
+)
+def test_the_consumer_words_narrow_only_the_oq2_bnpl_providers(description):
+    record = classify_transaction(description, 900.0)
+    assert record.matched_rule != "financing_proceeds_credit"
+    assert not record.contributes_to_lender_credit_exclusion
+    assert record.revenue_match_method != "financing_proceeds_credit"
 
 
 @pytest.mark.parametrize(

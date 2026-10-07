@@ -18,6 +18,8 @@ The validator applies:
     PREMIUM_FINANCE_INSURER_ALIASES holds it;
   * the owner's payout-credit ruling: each name in PAYOUT_CREDIT_ENTITIES is an admitted ledger entity of a
     group whose credits D1 treats as financing proceeds (analysis.flag_groups.FINANCING_STATES);
+  * the owner's ruling of 2026-10-02 (Q8): each name in CUSTOMER_FINANCING_PAYERS is a ledger entity, of any
+    status, of the lease-to-own or the alternative-position group;
   * spec section 9's rule that an entity of today's registry changes place, or loses an alias, only with a
     reason: a sentence of its notes that starts "Move:" (today's registry is read from git at
     BASELINE_REVISION); an entity the owner merged into a ledger entity (MERGED_REGISTRY_ENTITIES) is held by
@@ -209,6 +211,9 @@ class Rules:
     reattributed: Mapping[str, str]
     #: Ledger entity -> its printed forms in the bank's field order (owner ruling 2026-09-27, classification 5.3).
     field_order: Mapping[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
+    #: Ledger entities whose merchant payouts are the merchant's sales, counted and flagged by the true-revenue pass
+    #: (owner ruling 2026-10-02, Q8: CUSTOMER_FINANCING_PAYERS).
+    customer_financing: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,7 +368,8 @@ def render_tables(entities: list[LedgerEntity]) -> dict[str, dict[str, tuple[str
 
 #: 5.3 (owner ruling 2026-09-27): the flag groups whose review entities take their flag on debits, marked
 #: unconfirmed (REVIEW_FLAG_ENTITIES). A review entity of the lender, potential, alternative-position or factoring
-#: group keeps the potential tier: each has a plausible counted reading.
+#: group keeps the potential tier: each has a plausible counted reading. Audit B6 (I10): a factoring review entity's
+#: credits take the factoring payout instead (factoring_review_entities); its debits keep the potential tier.
 ROUTED_REVIEW_GROUPS = ("vehicle_financing", "mortgage", "lease_or_rental", "personal_loan", "debt_relief")
 
 
@@ -378,6 +384,19 @@ def review_flag_entities(entities: list[LedgerEntity]) -> dict[str, str]:
         and not entity.business_type.startswith("unknown")
     ]
     return {entity.entity: entity.group for entity in sorted(routed, key=lambda e: (e.entity.casefold(), e.entity))}
+
+
+def factoring_review_entities(entities: list[LedgerEntity]) -> tuple[str, ...]:
+    """Audit B6 (I10; lender detection spec §5, amended; the factoring ruling of 2026-09-26): each review entity of the
+    factoring group whose business type is known, in name order. The classifier sends such an entity's credits to the
+    factoring payout (counted and flagged, never verified), with its flag marked unconfirmed, instead of the potential
+    tier's exclusion; its aliases stay in POTENTIAL_LENDER_ALIASES, so its debits keep the potential tier (5.3). A
+    business type starting 'unknown' is never routed."""
+    routed = [
+        entity for entity in entities
+        if entity.status == "review" and entity.group == "factoring" and not entity.business_type.startswith("unknown")
+    ]
+    return tuple(entity.entity for entity in sorted(routed, key=lambda e: (e.entity.casefold(), e.entity)))
 
 
 # --- today's registry (spec section 9) ------------------------------------------------------------------------
@@ -741,6 +760,29 @@ def payout_credit_problems(entities: list[LedgerEntity], names: tuple[str, ...])
     return problems
 
 
+#: Owner ruling 2026-10-02 (Q8): the groups a customer-financing payer's ledger entity may sit in (a lease-to-own
+#: lessor, or a point-of-sale consumer financier under the alternative positions).
+CUSTOMER_FINANCING_GROUPS = frozenset({"lease_or_rental", "alternative_position"})
+
+
+def customer_financing_problems(entities: list[LedgerEntity], names: tuple[str, ...]) -> list[str]:
+    """Owner ruling 2026-10-02 (Q8: "registry evidence per entity"): each lease-to-own or patient financier the
+    true-revenue pass reads (CUSTOMER_FINANCING_PAYERS) is a ledger entity, of any status (a rejected record kept as
+    evidence renders no alias), whose group is a lease-to-own lessor's or an alternative position's
+    (CUSTOMER_FINANCING_GROUPS)."""
+    named = _by_name(entities)
+    problems = []
+    for name in names:
+        entity = named.get(name)
+        if entity is None:
+            problems.append(f"CUSTOMER_FINANCING_PAYERS names {_shown(name)}, which is not a ledger entity")
+        elif entity.group not in CUSTOMER_FINANCING_GROUPS:
+            problems.append(f"CUSTOMER_FINANCING_PAYERS names {_label(entity)}, {entity.status} in {entity.group}: a "
+                            f"customer-financing payer needs a ledger entity of a lease-to-own or alternative-position "
+                            f"group")
+    return problems
+
+
 def field_order_problems(entities: list[LedgerEntity], forms: Mapping[str, tuple[str, ...]]) -> list[str]:
     """The owner's field-order ruling (FIELD_ORDER_PAYEE_FORMS, 2026-09-27): each entity is an admitted ledger entity
     of a known-payee group, and each form compiles."""
@@ -770,6 +812,7 @@ def _unmasked_problems(data: object, rules: Rules) -> list[str]:
     problems.extend(_collision_problems(entities))
     problems.extend(owner_named_problems(render_tables(entities), rules.owner_named))
     problems.extend(payout_credit_problems(entities, rules.payout_credit))
+    problems.extend(customer_financing_problems(entities, rules.customer_financing))
     problems.extend(field_order_problems(entities, rules.field_order))
     problems.extend(baseline_problems(entities, rules.baseline, rules.merged, rules.reattributed))
     return problems
@@ -847,4 +890,5 @@ def current_rules() -> Rules:
         payout_credit=registry.PAYOUT_CREDIT_ENTITIES,
         reattributed=registry.REATTRIBUTED_REGISTRY_ALIASES,
         field_order=registry.FIELD_ORDER_PAYEE_FORMS,
+        customer_financing=tuple(registry.CUSTOMER_FINANCING_PAYERS),
     )

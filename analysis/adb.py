@@ -139,6 +139,12 @@ def _federal_bank_holidays(year: int) -> set[date]:
     return holidays
 
 
+# The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the two calendar helpers published under public
+# names, the same function objects, for analysis.lender_payment_changes' business days (no ADB reading moves).
+federal_bank_holidays = _federal_bank_holidays
+nth_weekday = _nth_weekday
+
+
 def _is_banking_day(day: date, holidays: dict[int, set[date]]) -> bool:
     calendar = holidays.setdefault(day.year, _federal_bank_holidays(day.year))
     return day.weekday() < 5 and day not in calendar

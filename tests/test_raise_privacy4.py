@@ -305,13 +305,21 @@ def _leaking(exc: BaseException, token: str) -> list:
     return leaking
 
 
+#: Statement fields the frozen base trees cannot carry, because they postdate them. Excluded rather than back-filled, as
+#: tests/test_row_grouping.py's `_FIELDS_NEWER_THAN_THE_ORACLES` excludes them; each is proved by name elsewhere:
+#:   `holder_name` (audit fix batch B9)  tests/test_analysis.py (per parser), tests/test_true_revenue_holder.py
+_FIELDS_NEWER_THAN_THE_BASE_TREE = ("holder_name",)
+
+
 def _payload(result):
     """A comparable payload, so a base object is never compared with ours."""
     if result is None or isinstance(result, (str, int, float, bool)):
         return result
     if isinstance(result, (list, tuple)):
         return [_payload(item) for item in result]
-    return result.model_dump()
+    return {
+        key: value for key, value in result.model_dump().items() if key not in _FIELDS_NEWER_THAN_THE_BASE_TREE
+    }
 
 
 @pytest.fixture(scope="module")
