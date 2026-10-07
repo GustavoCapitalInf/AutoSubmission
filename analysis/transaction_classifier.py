@@ -5698,7 +5698,8 @@ def _reversal_pairs(
     _deposit_return_pairs) are made first: their credits and debits pair no further.
 
     The final review of round 2, F2(a) (lender side only): a (credit, debit) candidate `refuse` names is no candidate
-    (_returns_a_later_funder_payment: a confirmed funder's paid payment dated after the return)."""
+    (_returns_a_later_lender_payment: a confirmed funder's paid payment or, audit round 3, R3-B02 (R3-71), a potential
+    lender's counted payment, dated after the return)."""
     marked = {} if marked is None else marked
 
     def has_marker(index: int) -> bool:
@@ -5780,11 +5781,12 @@ def _apply_reversal_pair_context(
     )
 
     def refuse(credit_index: int, debit_index: int) -> bool:
-        return _returns_a_later_funder_payment(records, credit_index, debit_index)
+        return _returns_a_later_lender_payment(records, credit_index, debit_index)
 
     # The final review of round 2, F2(a): a confirmed funder's paid payment pairs on the lender side only with a return
-    # dated on or after it. Refusing a candidate only removes it, so a statement where no revenue pair is such a
-    # candidate (and no widened marker reads) keeps the revenue side's pairs, as before.
+    # dated on or after it; audit round 3, R3-B02 (R3-71): so does a potential lender's counted payment. Refusing a
+    # candidate only removes it, so a statement where no revenue pair is such a candidate (and no widened marker reads)
+    # keeps the revenue side's pairs, as before.
     lender_pairs = (
         _reversal_pairs(records, duplicate_indexes, _LENDER_PAIR_MARKER_PATTERNS, refuse=refuse)
         if widened or any(refuse(credit_index, debit_index) for credit_index, debit_index in revenue_pairs)
@@ -5879,18 +5881,32 @@ def _is_paid_funder_debit(record: TransactionClassification) -> bool:
     )
 
 
-def _returns_a_later_funder_payment(
+def _is_counted_potential_payment(record: TransactionClassification) -> bool:
+    """Audit round 3, R3-B02 (R3-71): a potential lender's posted payment counted in the potential totals (keyword,
+    registry or D6 potential lenders alike: D6 and the recurrence promotion run before pass 4)."""
+    return (
+        record.amount < 0
+        and record.is_posted
+        and record.classification == "potential_lender"
+        and record.contributes_to_potential_lender_totals
+    )
+
+
+def _returns_a_later_lender_payment(
     records: list[TransactionClassification], credit_index: int, debit_index: int,
 ) -> bool:
     """The final review of round 2, F2(a) (the owner's ruling of 2026-10-02 on the underwriter's Q5, "Match the return
-    to the funder payment it reverses"; true revenue spec §6.2 pass 4): whether a lender-side pair of this credit and
-    debit would restore (R2-OW13) a confirmed funder's paid payment dated AFTER the return, which the return cannot
-    reverse. The pair is a settlement reversal (the credit or the debit prints a reversal word, the restore's own
-    test) and the debit is a confirmed funder's paid payment (_is_paid_funder_debit) dated after the credit; where either
-    row prints no date, printed after it (rule D's order, _return_gap). Such a candidate is refused, so the return pairs
-    with a payment on or before it, or with none (rule D and the package's pass 4 may still read it)."""
+    to the funder payment it reverses"; its ruling "same amount, after it, a return/NSF form"; true revenue spec §6.2
+    pass 4): whether a lender-side pair of this credit and debit would take a lender's payment dated AFTER the return,
+    which the return cannot reverse. The pair is a settlement reversal (the credit or the debit prints a reversal word,
+    the restore's own test) and the debit is a confirmed funder's paid payment (_is_paid_funder_debit, whose restore is
+    R2-OW13's) or, since audit round 3, R3-B02 (R3-71), a potential lender's counted payment
+    (_is_counted_potential_payment, whose zeroing is §17.1's default (1)), dated after the credit; where either row prints
+    no date, printed after it (rule D's order, _return_gap). Such a candidate is refused, so the return pairs with a
+    payment on or before it, or with none (rule D and the package's pass 4 may still read a confirmed funder's). Every
+    other debit keeps classification 5.4's pair, either way."""
     credit, debit = records[credit_index], records[debit_index]
-    if not _is_paid_funder_debit(debit):
+    if not (_is_paid_funder_debit(debit) or _is_counted_potential_payment(debit)):
         return False
     if not (_matches_any(credit.normalized_description, _SETTLEMENT_REVERSAL_PATTERNS)
             or _matches_any(debit.normalized_description, _SETTLEMENT_REVERSAL_PATTERNS)):

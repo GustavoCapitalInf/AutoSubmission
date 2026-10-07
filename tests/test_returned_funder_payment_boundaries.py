@@ -76,15 +76,103 @@ def test_f2a_an_undated_payment_pairs_only_when_printed_before_the_return():
     assert _pairs(_run([(1, SALE, 10000.0), (0, NAMED_RETURN, 850.0), (0, KAPITUS, -850.0)])) == {}
 
 
-def test_f2a_a_pair_on_any_other_debit_is_classification_5_4_s_as_before():
-    # D6's weekly NORTHWIND FUNDING (a potential lender) and a named return printed the day before its first debit:
-    # 5.4's pair zeroes that later potential debit as before; only a confirmed funder's paid payment looks back.
-    weekly = [(day, "NORTHWIND FUNDING WEB PMT", -300.0) for day in (2, 9, 16, 23)]
-    records = _run([(1, SALE, 10000.0), (1, "NORTHWIND FUNDING RETURNED ITEM", 300.0), *weekly])
-    paired = records[2]
-    assert (paired.classification, paired.reversed_by) == ("potential_lender", "transaction:2")
-    assert paired.contributes_to_potential_lender_totals is False
-    assert (records[1].reversal_of, records[1].settlement_reversal) == ("transaction:3", True)
+#: Audit round 3, R3-B02 (R3-71): a potential lender's weekly payments (D6's keyword recurrence, NORTHWIND FUNDING) and
+#: the payee's named return.
+POTENTIAL_PAYMENT = "NORTHWIND FUNDING WEB PMT"
+POTENTIAL_RETURN = "NORTHWIND FUNDING RETURNED ITEM"
+
+
+def _old_lender_refusal(records, credit_index, debit_index):
+    """F2(a) as the final review of round 2 left it: only a confirmed funder's paid payment looks back."""
+    credit, debit = records[credit_index], records[debit_index]
+    if not tc._is_paid_funder_debit(debit):
+        return False
+    if not (tc._matches_any(credit.normalized_description, tc._SETTLEMENT_REVERSAL_PATTERNS)
+            or tc._matches_any(debit.normalized_description, tc._SETTLEMENT_REVERSAL_PATTERNS)):
+        return False
+    credit_date, debit_date = tc.parse_date(credit.date), tc.parse_date(debit.date)
+    if credit_date is None or debit_date is None:
+        return debit_index > credit_index
+    return debit_date > credit_date
+
+
+def _revenue_readings(records):
+    return [{name: getattr(record, name) for name in vars(record) if name.startswith("revenue_")}
+            for record in records if record.amount > 0]
+
+
+def _potential(rows):
+    statement = _statement(rows)
+    records = tc.classify_statement_transactions(statement)
+    return records, compute_metrics(statement, classifications=records)
+
+
+def test_r3_71_a_potential_lender_s_return_never_takes_a_later_payment():
+    # Audit round 3, R3-B02 (R3-71; the owner's Q5 ruling: "same amount, after it, a return/NSF form"): D6's weekly
+    # NORTHWIND FUNDING (a potential lender) and a named return printed the day before its first payment: the return
+    # cannot reverse a payment made after it, so no payment is zeroed (classification 5.4 zeroed the 2nd's).
+    weekly = [(day, POTENTIAL_PAYMENT, -300.0) for day in (2, 9, 16, 23)]
+    records, metrics = _potential([(1, SALE, 10000.0), (1, POTENTIAL_RETURN, 300.0), *weekly])
+    debits = records[2:]
+    assert [record.classification for record in debits] == ["potential_lender"] * 4
+    assert all(record.reversed_by is None for record in debits)
+    assert all(record.contributes_to_potential_lender_totals for record in debits)
+    assert metrics.potential_lender_debit_total == 1200.0
+    assert records[1].reversal_of is None and records[1].settlement_reversal is False
+    # The return is non-revenue either way (the revenue side's pair).
+    assert records[1].revenue_tier == "non_revenue"
+
+
+def test_r3_71_a_potential_lender_s_return_takes_the_payment_before_it():
+    # Payments on the 3rd, 10th, 17th and 24th, the named return on the 9th: the 3rd's payment is zeroed (default (1)'s
+    # zeroing, on the payment the return can reverse), never the 10th's (5.4's nearest day either way).
+    rows = [(1, SALE, 10000.0), (3, POTENTIAL_PAYMENT, -300.0), (9, POTENTIAL_RETURN, 300.0),
+            *[(day, POTENTIAL_PAYMENT, -300.0) for day in (10, 17, 24)]]
+    records, metrics = _potential(rows)
+    by_day = {record.date[-2:]: record for record in records if record.amount < 0}
+    assert by_day["03"].reversed_by == "transaction:3"
+    assert by_day["03"].contributes_to_potential_lender_totals is False
+    assert all(by_day[day].reversed_by is None and by_day[day].contributes_to_potential_lender_totals
+               for day in ("10", "17", "24"))
+    assert metrics.potential_lender_debit_total == 900.0
+    assert records[2].reversal_of == "transaction:2"
+
+
+def test_r3_71_an_undated_potential_return_pairs_only_with_a_payment_printed_before_it():
+    weekly = [(day, POTENTIAL_PAYMENT, -300.0) for day in (2, 9, 16, 23)]
+    before = _run([(1, SALE, 10000.0), (0, POTENTIAL_RETURN, 300.0), *weekly])
+    assert all(record.reversed_by is None for record in before if record.amount < 0)
+    after_one = _run([(1, SALE, 10000.0), weekly[0], (0, POTENTIAL_RETURN, 300.0), *weekly[1:]])
+    assert [record.reversed_by for record in after_one if record.amount < 0] == ["transaction:3", None, None, None]
+
+
+#: R3-71's cases, each read with F2(a) as round 2 left it (`_old_lender_refusal`) and as R3-B02 reads it.
+R3_71_CASES = {
+    "later": [(1, SALE, 10000.0), (1, POTENTIAL_RETURN, 300.0),
+              *[(day, POTENTIAL_PAYMENT, -300.0) for day in (2, 9, 16, 23)]],
+    "before": [(1, SALE, 10000.0), (3, POTENTIAL_PAYMENT, -300.0), (9, POTENTIAL_RETURN, 300.0),
+               *[(day, POTENTIAL_PAYMENT, -300.0) for day in (10, 17, 24)]],
+    "kapitus_later": [(1, SALE, 10000.0), (2, NAMED_RETURN, 850.0), (3, KAPITUS, -850.0), (10, KAPITUS, -850.0)],
+    "kapitus_before": [(1, SALE, 10000.0), (3, KAPITUS, -850.0), (5, NAMED_RETURN, 850.0), (6, KAPITUS, -850.0)],
+    "other_debit": [(1, SALE, 10000.0), (2, "REVERSAL ACH DEBIT SAMPLE SUPPLY CO", 300.0),
+                    (3, "SAMPLE SUPPLY CO ACH DEBIT", -300.0)],
+}
+
+
+@pytest.mark.parametrize("name", sorted(R3_71_CASES))
+def test_r3_71_moves_no_revenue_reading(monkeypatch, name):
+    rows = R3_71_CASES[name]
+    after = _run(rows)
+    monkeypatch.setattr(tc, "_returns_a_later_lender_payment", _old_lender_refusal)
+    before = _run(rows)
+    assert _revenue_readings(after) == _revenue_readings(before)
+
+
+def test_r3_71_a_non_lender_debit_keeps_classification_5_4_s_pair():
+    # A debit that is no lender's keeps 5.4's nearest pair, either way (moving it would move revenue-side pairs).
+    records = _run(R3_71_CASES["other_debit"])
+    assert records[2].classification not in ("confirmed_lender", "potential_lender")
+    assert (records[2].reversed_by, records[1].reversal_of) == ("transaction:2", "transaction:3")
 
 
 # ---------------------------------------------------------------- (b) the package matches a bounce across statements
