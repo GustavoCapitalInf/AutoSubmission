@@ -723,7 +723,16 @@ OCR_STAGE_VERSION = 5
 # and the served ones (R2-OW15's flag keys, R2-OW17's `zelle_deposits` and row
 # tag) are computed when served, from the stored analysis. Nothing between 32
 # and 33 was released. OCR stays cached. Pinned in the same change
-# (`tests/test_artifact_cache.py`).
+# (`tests/test_artifact_cache.py`). Folded into 33 (the final review of round
+# 2, F2(a), true revenue spec §9.3): a confirmed funder's paid payment pairs on
+# the lender side only with a return dated on or after it, which changes the
+# stored lender fields of a pair a return printed before the payment made (the
+# payment's `reversed_by`, `returned_funder_payment_by`, contributions and
+# reason; the return's `reversal_of`, `settlement_reversal` and
+# `returns_funder_payment`). Stage 33 was never released and the cache held no
+# stage-33 analysis when it landed, so it needs no bump of its own. F1 (the
+# withholding basis) is applied when an analysis is served and F2(b) when a
+# package is built: neither changes a stored analysis.
 ANALYSIS_STAGE_VERSION = 33
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1

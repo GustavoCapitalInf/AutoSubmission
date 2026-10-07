@@ -1349,3 +1349,55 @@ def test_the_spec_and_the_contract_record_r2_b16_s_version_bump_and_the_round_in
     contract = _flat(CONTRACT)
     assert "Audit round 2, R2-B16 (R56): classification 5.7 (`CLASSIFICATION_VERSION`), with " \
            "`ANALYSIS_STAGE_VERSION` 33 in the same commit" in contract
+
+
+#: The final review of round 2: the code commits §20 and the contract name.
+FINAL_REVIEW_CODE_COMMITS = {"F1": "7854cf1", "F2": "4cab9ef"}
+
+
+def test_the_spec_and_the_contract_record_the_final_review_s_withholding_rule():
+    """The final review of round 2, F1: a withholding basis that is not established publishes no rate (§9.1, §9.2,
+    §10.1, §10.4, §10.8, §11), §20's line labelled 'final review of round 2' with its code commit and the sections it
+    amends, and the contract's sentence."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    for words in ("`withholding_basis_unestablished: true`", "`UNESTABLISHED_WITHHOLDING_KEYS`",
+                  "**The final review of round 2, F1 (§9.1, §10.4, §11, §20):**", "`withholdingBasisAmount`",
+                  "The final review of round 2, F1 (§9.1, §9.2, §10.1, §11, §20; amends B11's I51 rule and R2-B16's R52",
+                  "**A withholding basis that is not established** (the final review of round 2, F1",
+                  "**A basis that is not established publishes no rate** (the final review of round 2, F1"):
+        assert words in sections, words
+    line = next(line for line in amendments.splitlines()
+                if line.startswith("- **A withholding basis that is not established publishes no rate** ("))
+    for words in ("final review of round 2, F1", "§9.1", "§9.2", "§10.1", "§10.4", "§10.8", "§11",
+                  FINAL_REVIEW_CODE_COMMITS["F1"], "G7"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in ("The statement follows the same rule (the final review of round 2, F1)",
+                  f"The final review of round 2, F1 ({FINAL_REVIEW_CODE_COMMITS['F1']})"):
+        assert words in contract, words
+
+
+def test_the_spec_and_the_contract_record_the_final_review_s_returned_funder_payment_boundaries():
+    """The final review of round 2, F2: a return pairs only with a payment on or before it (§6.2 pass 4), the package's
+    pass 4 matches a bounce whose payment sits in the previous statement (§6.2's package passes, §9.2, §10.1, §10.6,
+    §11), G7's declared redirects (§14.3), §17.1's R2-OW13 defaults, §20's line and the contract's."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    for words in ("The final review of round 2, F2(a) (§20): a confirmed funder's paid payment is no lender-side",
+                  "`_returns_a_later_funder_payment`",
+                  "4. **Returned funder payments across statements** (the final review of round 2, F2(b)",
+                  "`returned_funder_redirects`", "`cross_statement: true`",
+                  "a return is matched only to a payment dated on or before it"):
+        assert words in sections, words
+    line = next(line for line in amendments.splitlines()
+                if line.startswith("- **A return reverses a payment dated on or before it, and the package matches a "
+                                   "bounce across statements** ("))
+    for words in ("final review of round 2, F2", "§6.2", "§9.2", "§11", "§14.3", "§17.1",
+                  FINAL_REVIEW_CODE_COMMITS["F2"], "G7"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in (f"The final review of round 2, F2 ({FINAL_REVIEW_CODE_COMMITS['F2']})",
+                  "only with a return dated on or after it"):
+        assert words in contract, words
+

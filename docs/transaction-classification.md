@@ -500,6 +500,8 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Audit round 2, R2-L01 (R43, carried over from R2-B03; b02a930): the ledger admits Liberis US Inc, an embedded revenue-based financing provider (white-label platform capital such as Vagaro Capital, its US fundings paid through Airwallex US, LLC), as an alternative position, platform-embedded financing like Parafin, after an independent verify round (r2) recorded in the ledger, with the aliases `LIBERIS` and `LIBERIS US INC`: a Liberis credit (`LIBERIS <reference> ACH IN`, an Airwallex instant payment naming `LIBERIS US INC`) is `non_revenue` financing proceeds (D1) and a Liberis debit an alternative position. `AIRWALLEX` is never an alias, Vagaro keeps its platform reading, and no reader or tier rule changes (true revenue spec §8.1, §20).
 - Audit round 2, R2-B16 (R51, R53, R52; e0eb9cb, 728515a, a869554, e17ad7c, e26e322): the surfaces only, no classification change and no tier, reason or figure moves. The Monthly Statements table names its units on the chart's rule (in a package that refuses to combine its currencies every declared row names its unit, USD included, and an undeclared row stays bare); the statement CSV/XLSX list every posted debit on its own row after the credit table (its classification, the flag group where Settings shows it, the entity, the review flag and the credit that returned a confirmed funder's payment unpaid), and an XLSX cell over the spreadsheet's 32,767-character limit holds a pointer to the JSON download; the CLI reads the dashboard's revenue rules (`analyze.py` prints "Balanced" only where the ledger reconciles and the revenue is established and N/A for an unestablished figure, `--json` carries both flags, `batch.py` names the identity `revenue_tiers_sum_to_posted`, adds `revenue_balanced`, `revenue_established` and `verified_revenue_established`, leaves the unestablished figures empty and asks for review where the revenue is not established), and the unestablished key lists are `analysis/revenue_view.py`'s (true revenue spec §10.2, §10.3, §10.4, §10.8, §13, §20).
 - Audit round 2, R2-B16 (R56): classification 5.7 (`CLASSIFICATION_VERSION`), with `ANALYSIS_STAGE_VERSION` 33 in the same commit, the run's last. The audit's fix batches, round 2 and the owner's rulings of 2026-10-02 and 2026-10-06 moved tiers, reasons and the review gate under 5.6, so an analysis saved at 5.6 is now outdated (the re-analyze notice, lender spec D12) and its Re-analyze misses the stage-32 cache entry and recomputes it; no rule, tier, reason or figure changes (true revenue spec §9.3, §20).
+- The final review of round 2, F1 (7854cf1): a statement whose withholding basis is not established (True revenue where the revenue is not, Verified where Verified is not) publishes no withholding rate, potential exposure or potential lender's exposure and asks for review (`withholding_basis_unestablished`, served only); its downloads leave the basis empty and the CLI prints it as N/A; the package marks such a member and its own partial basis the same way; the legacy basis and every stored figure are unchanged (true revenue spec §9.1, §9.2, §10.1, §10.4, §10.8, §11, §20).
+- The final review of round 2, F2 (4cab9ef): a confirmed funder's paid payment pairs on the lender side (classification 5.4's named pair, R2-OW13's restore and its warning) only with a return dated on or after it, printed after it where a row prints no date; the package's pass 4 matches a member's unpaired bounce-worded return (rule D's reading and guards; a return naming the confirmed funder that D1 reads as a lender credit included) to the same account's preceding statement's confirmed funder payment 0 to 7 days before it, out of the package's paid to lenders, in its withholding numerator and lender count, with the warning naming both documents; each statement viewed alone is unchanged; G7 declares the moves of a return whose pairing moved (`returned_funder_redirects`) (true revenue spec §6.2, §9.2, §10.1, §10.6, §11, §14.3, §17.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -513,7 +515,10 @@ funder's paid payment: since the owner's ruling of 2026-10-02 (the
 underwriter's Q5) such a payment, returned unpaid, leaves paid to lenders and
 stays in the withholding rate and the lender count, and the returned funder
 payment pass (above, R2-OW13) pairs the bounce forms that name no funder the
-same way, without a `reversed_by`.
+same way, without a `reversed_by`. Since the final review of round 2 (F2), such
+a payment pairs only with a return dated on or after it (a return printed at a
+month's start never takes a later payment), and a package matches a return
+whose payment sits in the previous statement of the account (its pass 4).
 
 Classification is applied in this order; the first match wins:
 
@@ -1058,7 +1063,15 @@ basis across trees. A package in the `true_revenue` mode deducts only the member
 internal-transfer credits that are verified or counted (the legacy mode deducts
 them all, the verified mode none), and in a revenue mode a member whose figure is
 not established leaves the package with no withholding rate and no potential
-exposure and sets `withholding_review_required` (spec §11, §20). A deposit the
+exposure and sets `withholding_review_required` (spec §11, §20). The statement
+follows the same rule (the final review of round 2, F1): where its mode is
+`true_revenue` and its revenue is not established, or `verified_revenue` and
+its Verified figure is not, the served copy (`analysis/revenue_view.py`)
+publishes no `withholding_rate`, `potential_withholding_exposure` or potential
+lender's exposure, sets `withholding_review_required` and
+`withholding_basis_unestablished`, the downloads leave the basis figures empty
+and the CLI prints them as N/A; the package marks such a member's row and its
+own totals the same way. The legacy basis never moves with it. A deposit the
 package passes take out of True (the underwriter's Q6 (2026-10-02), R2-OW15)
 leaves the revenue basis it was in: the `true_revenue` mode loses the moved
 credits stored verified or counted, the `verified_revenue` mode those stored
