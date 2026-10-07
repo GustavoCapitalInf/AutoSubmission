@@ -749,6 +749,174 @@ def test_the_statement_downloads_list_every_posted_credit_on_its_own_row():
     assert {row[0] for row in document_rows if row[0].endswith("posted_credit")} == {"account_1.posted_credit"}
 
 
+# ---------------------------------------------------------------- Audit round 2, R2-B16 (R53): the posted debits and
+# the spreadsheet's cell limit. A fabricated 40-row statement: 35 CONTOSO LLC credits, a FABRIKAM CAPITAL debit (a
+# confirmed lender), a NORTHWIND NSF fee, a SAMPLE purchase still pending (unposted), a SAMPLE purchase whose text
+# starts with "=" and a card payment of a flag group (Credit cards).
+
+_FORTY_ROWS = ([(1 + index % 28, f"CONTOSO LLC DES:PAYMENT ID:{index + 1}", 100.0) for index in range(35)]
+               + [(10, "FABRIKAM CAPITAL DES:ACH DEBIT ID:1", -250.0), (11, "NORTHWIND NSF FEE", -35.0),
+                  (12, "PENDING SAMPLE STORE PURCHASE", -60.0), (13, "=SAMPLE STORE PURCHASE", -20.0),
+                  (14, "AMERICAN EXPRESS ACH PMT", -90.0)])
+_XLSX_CELL_LIMIT = 32767
+_POINTER = "Not shown: {:,} characters, over the spreadsheet cell limit; see the JSON download."
+
+
+def _forty_payload():
+    """The 40-row statement, analysed by the real path; the FABRIKAM CAPITAL debit's record restated as a confirmed
+    lender's (lender detection names it), as _pair_document restates a decided record."""
+    payload = _payload(_FORTY_ROWS)
+    assert len(payload["statement"]["transactions"]) == 40
+    for row in payload["statement"]["transactions"]:
+        if row["description"].startswith("FABRIKAM CAPITAL"):
+            row["classification"].update(classification="confirmed_lender", canonical_entity="FABRIKAM CAPITAL",
+                                         review_required=False)
+    return payload
+
+
+def _sheet_rows(blob):
+    """The statement XLSX's rows as Excel reads them: an inline string's unescaped text, a number as a float, a
+    boolean as a bool."""
+    import io
+    import zipfile
+    from xml.etree import ElementTree
+
+    main = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    root = ElementTree.fromstring(zipfile.ZipFile(io.BytesIO(blob)).read("xl/worksheets/sheet1.xml"))
+    rows = []
+    for row in root.iter(f"{main}row"):
+        cells = []
+        for cell in row.iter(f"{main}c"):
+            kind = cell.get("t")
+            if kind == "inlineStr":
+                cells.append("".join(text.text or "" for text in cell.iter(f"{main}t")))
+            elif kind == "b":
+                cells.append(cell.find(f"{main}v").text == "1")
+            else:
+                cells.append(float(cell.find(f"{main}v").text))
+        rows.append(cells)
+    return rows
+
+
+def _utf16(text):
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _two_accounts_with_debits():
+    """A document of two accounts, each with a posted debit: CONTOSO LLC's checking and its savings."""
+    from analysis.pipeline import AccountRosterEntry, DocumentReport, identify_internal_transfers
+    from analysis.serialization import document_report_to_dict
+
+    checking = _report("CONTOSO LLC", "000000001010", 1500.0,
+                       [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (5, "NORTHWIND NSF FEE", -35.0)]).accounts[0]
+    savings = _report("CONTOSO LLC SAVINGS", "000000002020", 9000.0,
+                      [(6, "AMERICAN EXPRESS ACH PMT", -90.0)]).accounts[0]
+    transfers, notes = identify_internal_transfers([checking, savings])
+    roster = [AccountRosterEntry("CONTOSO LLC", "checking", "1010", "published", published_index=0),
+              AccountRosterEntry("CONTOSO LLC SAVINGS", "savings", "2020", "published", published_index=1)]
+    return document_report_to_dict(DocumentReport(accounts=[checking, savings], internal_transfers=transfers,
+                                                  integrity_notes=notes, account_roster=roster,
+                                                  document_period=("2031-03-01", "2031-03-28")))
+
+
+def test_the_statement_xlsx_keeps_every_cell_under_the_limit_and_the_csv_keeps_the_ledger_whole():
+    """R53: no XLSX cell holds more than Excel's 32,767 characters; the ledger cell, over it, says what it held and
+    points to the JSON download (never a cut JSON). The CSV, which has no such limit, keeps the whole ledger."""
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+
+    served = _displayed(_forty_payload(), settings={}, export=True)
+    ledger = json.dumps(served["statement"]["transactions"])
+    assert _utf16(ledger) > _XLSX_CELL_LIMIT
+    rows = _sheet_rows(_analysis_xlsx(served))
+    assert all(_utf16(value) <= _XLSX_CELL_LIMIT for row in rows for value in row if isinstance(value, str))
+    cells = {(row[0], row[1]): row[2] for row in rows if len(row) == 3}
+    assert cells[("statement", "transactions")] == _POINTER.format(_utf16(ledger))
+    csv_cells = {(row[0], row[1]): row[2] for row in _csv_cells(_analysis_csv(served)) if len(row) == 3}
+    assert json.loads(csv_cells[("statement", "transactions")]) == json.loads(ledger)
+
+
+def test_the_statement_downloads_list_every_posted_debit_on_its_own_row():
+    """R53: one row per posted debit after the credit table, with its date, description, signed amount (a number in the
+    XLSX), currency, classification, flag group (only where Settings shows the group), entity and review flag; no
+    unposted row and no credit; statement text formula-escaped."""
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+
+    served = _displayed(_forty_payload(), settings={}, export=True)
+    csv_rows = _csv_cells(_analysis_csv(served))
+    sections = [row[0] for row in csv_rows]
+    assert sections.index("posted_debit") > max(index for index, section in enumerate(sections)
+                                                if section == "posted_credit")
+    debits = [row for row in csv_rows if row[0] == "posted_debit"]
+    assert debits[0] == ["posted_debit", "columns", "date", "description", "amount", "currency", "classification",
+                         "flagged_group", "canonical_entity", "review_required"]
+    assert debits[1:] == [
+        ["posted_debit", "1", "2031-03-10", "FABRIKAM CAPITAL DES:ACH DEBIT ID:1", "-250.0", "USD", "confirmed_lender",
+         "", "FABRIKAM CAPITAL", "False"],
+        ["posted_debit", "2", "2031-03-11", "NORTHWIND NSF FEE", "-35.0", "USD", "nsf_or_return", "", "", "False"],
+        ["posted_debit", "3", "2031-03-13", "'=SAMPLE STORE PURCHASE", "-20.0", "USD", "other", "", "", "False"],
+        ["posted_debit", "4", "2031-03-14", "AMERICAN EXPRESS ACH PMT", "-90.0", "USD", "credit_card_payment",
+         "credit_cards", "American Express [credit card payment]", "False"],
+    ]
+    # The XLSX writes the same block, the amount a number and the flag a boolean.
+    sheet = [row for row in _sheet_rows(_analysis_xlsx(served)) if row[0] == "posted_debit"]
+    assert sheet[1] == ["posted_debit", 1.0, "2031-03-10", "FABRIKAM CAPITAL DES:ACH DEBIT ID:1", -250.0, "USD",
+                        "confirmed_lender", "", "FABRIKAM CAPITAL", False]
+    assert sheet[3][3] == "'=SAMPLE STORE PURCHASE"
+    # An unticked group leaves the flag column blank (its rows lose their flag on the served copy).
+    unticked = _displayed(_forty_payload(), settings={"flag_credit_cards": False}, export=True)
+    amex = [row for row in _csv_cells(_analysis_csv(unticked)) if row[0] == "posted_debit"][4]
+    assert (amex[3], amex[6], amex[7]) == ("AMERICAN EXPRESS ACH PMT", "credit_card_payment", "")
+    # A document of two accounts writes a block for each, under its section prefix.
+    document_rows = _csv_cells(_analysis_csv(_displayed(_two_accounts_with_debits(), settings={}, export=True)))
+    blocks = [row for row in document_rows if row[0].endswith("posted_debit")]
+    assert [(row[0], row[3]) for row in blocks if row[1] != "columns"] == [
+        ("account_1.posted_debit", "NORTHWIND NSF FEE"), ("account_2.posted_debit", "AMERICAN EXPRESS ACH PMT")]
+
+
+def test_the_xlsx_cell_limit_counts_utf16_units_and_never_cuts():
+    """R53: 32,767 UTF-16 units are kept; one more is replaced whole by the pointer; a character outside the Basic
+    Multilingual Plane counts two, as Excel counts it. Numbers and flags are untouched."""
+    from webapp.app import _xlsx_cell
+
+    def text(markup):
+        return markup.split("<t>", 1)[1].rsplit("</t>", 1)[0]
+
+    assert text(_xlsx_cell("C2", "x" * _XLSX_CELL_LIMIT)) == "x" * _XLSX_CELL_LIMIT
+    assert text(_xlsx_cell("C2", "x" * (_XLSX_CELL_LIMIT + 1))) == _POINTER.format(_XLSX_CELL_LIMIT + 1)
+    face = "\N{GRINNING FACE}"
+    kept = face * 16383 + "x"
+    assert _utf16(kept) == _XLSX_CELL_LIMIT and text(_xlsx_cell("C2", kept)) == kept
+    assert text(_xlsx_cell("C2", face * 16384)) == _POINTER.format(_XLSX_CELL_LIMIT + 1)
+    assert _xlsx_cell("C2", -250.0) == '<c r="C2"><v>-250.0</v></c>'
+    assert _xlsx_cell("C2", False) == '<c r="C2" t="b"><v>0</v></c>'
+
+
+def test_a_short_statement_xlsx_changes_only_by_the_debit_block_and_a_package_xlsx_not_at_all():
+    """R53 controls: below the limit every cell is written as before, so a short statement's XLSX is the flat rows and
+    the credit table, unchanged, then the debit table; a package's XLSX is its rows, unchanged."""
+    from webapp.app import (_analysis_rows, _analysis_xlsx, _displayed, _escaped_rows, _package_rows,
+                            _package_transaction_table, _package_xlsx, _posted_credit_table, _posted_debit_table)
+
+    def as_read(rows):
+        # A cell as the sheet holds it: a bool, a number or a string (any other value is written as its text).
+        return [[value if isinstance(value, (bool, int, float, str)) else str(value) for value in row]
+                for row in _escaped_rows(rows)]
+
+    served = _displayed(_payload(), settings={}, export=True)
+    before = as_read(_analysis_rows(served) + _posted_credit_table(served))
+    block = as_read(_posted_debit_table(served))
+    assert [row[3] for row in block] == ["description", "CARD PURCHASE FABRIKAM SUPPLY"]
+    rows = _sheet_rows(_analysis_xlsx(served))
+    assert rows[0] == ["section", "field", "value"]
+    assert rows[1:len(before) + 1] == before
+    assert rows[len(before) + 1:] == block
+    assert [row for row in rows if row[0] == "posted_credit"] == as_read(_posted_credit_table(served))
+    package = _package(_payload())
+    package_rows = _sheet_rows(_package_xlsx(package))
+    assert package_rows[1:] == as_read(_package_rows(package) + _package_transaction_table(package))
+    assert not any(isinstance(value, str) and value.startswith("Not shown:") for row in package_rows for value in row)
+
+
 def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_account():
     """I32: counted (in True) and held (out of it) credits get their own sections, each record naming its currency
     and account; the combined ledger is written one posting a row."""

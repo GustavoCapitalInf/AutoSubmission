@@ -680,11 +680,57 @@ def _posted_credit_table(analysis: dict) -> list[tuple]:
     return [("posted_credit", "columns", *_POSTED_CREDIT_COLUMNS), *rows]
 
 
+#: Audit round 2, R2-B16 (R53): the columns of the statement downloads' posted-debit table.
+_POSTED_DEBIT_COLUMNS = (
+    "date", "description", "amount", "currency", "classification", "flagged_group", "canonical_entity",
+    "review_required",
+)
+
+
+def _posted_debit_table(analysis: dict) -> list[tuple]:
+    """Audit round 2, R2-B16 (R53): one row per posted debit, the posted-credit table's twin, so the lender payments,
+    the withholding and the NSFs read row by row (the ledger otherwise sits only in one JSON cell, over a spreadsheet's
+    cell limit on most statements): a `columns` row, then `(posted_debit, n, date, description, amount (signed),
+    currency, classification, flagged group, entity, review required)`. The flag group is written only where Settings
+    shows it (`flag_shown`, analysis/flagged_view.py), so an unticked group never leaks; the other fields are the
+    record's as served. Every account of a document payload has its own block, under its section prefix. Written after
+    the credit table; its statement text reaches a file only through `_escaped_rows`."""
+    if is_document_payload(analysis):
+        accounts = payload_accounts(analysis, surface="webapp/app.py::_posted_debit_table")
+        return [
+            (f"account_{index}.{row[0]}", *row[1:])
+            for index, account in enumerate(accounts, start=1)
+            for row in _posted_debit_table(account)
+        ]
+    statement = analysis.get("statement") if isinstance(analysis, dict) else None
+    if not isinstance(statement, dict):
+        return []
+    currency = _statement_currency(analysis) or ""
+    rows: list[tuple] = []
+    for transaction in statement.get("transactions") or []:
+        if not isinstance(transaction, dict):
+            continue
+        amount = _num(transaction.get("amount"))
+        record = transaction.get("classification") if isinstance(transaction.get("classification"), dict) else {}
+        if amount >= 0 or record.get("is_posted") is False:
+            continue
+        review = record.get("review_required")
+        rows.append(("posted_debit", len(rows) + 1, transaction.get("date") or "",
+                     transaction.get("description") or "", amount, currency, record.get("classification") or "",
+                     (record.get("flagged_group") or "") if record.get("flag_shown") is True else "",
+                     record.get("canonical_entity") or "", review if isinstance(review, bool) else ""))
+    if not rows:
+        return []
+    return [("posted_debit", "columns", *_POSTED_DEBIT_COLUMNS), *rows]
+
+
 def _analysis_csv(analysis: dict) -> str:
     buf = io.StringIO(newline="")
     writer = csv.writer(buf)
     writer.writerow(["section", "field", "value"])
-    writer.writerows(_escaped_rows(_analysis_rows(analysis) + _posted_credit_table(analysis)))
+    writer.writerows(_escaped_rows(
+        _analysis_rows(analysis) + _posted_credit_table(analysis) + _posted_debit_table(analysis)
+    ))
     return buf.getvalue()
 
 
@@ -870,17 +916,34 @@ def _xml_escape(value: object) -> str:
     )
 
 
+#: Audit round 2, R2-B16 (R53): the most characters a spreadsheet cell holds (Excel's limit, counted in UTF-16 units).
+XLSX_CELL_LIMIT = 32767
+
+
+def _xlsx_text(value: object) -> str:
+    """An inline string's text (R53): the value, or, when it holds more than XLSX_CELL_LIMIT UTF-16 units (a character
+    outside the Basic Multilingual Plane counts two, as Excel counts it), a pointer naming its length. Never cut: a
+    cell over the limit makes Excel refuse the file at load, and its repair truncates the cell. The CSV and the JSON
+    download keep such a value whole."""
+    text = str(value)
+    units = len(text.encode("utf-16-le", "surrogatepass")) // 2
+    if units > XLSX_CELL_LIMIT:
+        return f"Not shown: {units:,} characters, over the spreadsheet cell limit; see the JSON download."
+    return text
+
+
 def _xlsx_cell(ref: str, value: object) -> str:
     """One cell, typed (audit B11, I52): a bool is a boolean cell (checked first: a bool is an int), a finite int or
     float a number, so SUM and a pivot add the money; anything else, NaN, inf and every numeric-looking string
     included (a masked account number, a leading-zero reference), is an inline string. An inline string is never a
     formula; its text keeps `_escape_formula`'s apostrophe, which a Save As CSV carries on, so the cell stays inert
-    when the sheet is written back out as text."""
+    when the sheet is written back out as text. Audit round 2, R2-B16 (R53): a text over the spreadsheet cell limit is
+    replaced whole by a pointer (`_xlsx_text`)."""
     if isinstance(value, bool):
         return f'<c r="{ref}" t="b"><v>{1 if value else 0}</v></c>'
     if isinstance(value, (int, float)) and isfinite(value):
         return f'<c r="{ref}"><v>{value!r}</v></c>'
-    return f'<c r="{ref}" t="inlineStr"><is><t>{_xml_escape(value)}</t></is></c>'
+    return f'<c r="{ref}" t="inlineStr"><is><t>{_xml_escape(_xlsx_text(value))}</t></is></c>'
 
 
 def _xlsx_column(index: int) -> str:
@@ -940,7 +1003,7 @@ def _rows_xlsx(rows: list[tuple[str, str, object]]) -> bytes:
 
 
 def _analysis_xlsx(analysis: dict) -> bytes:
-    return _rows_xlsx(_analysis_rows(analysis) + _posted_credit_table(analysis))
+    return _rows_xlsx(_analysis_rows(analysis) + _posted_credit_table(analysis) + _posted_debit_table(analysis))
 
 
 def _package_xlsx(package: dict) -> bytes:
