@@ -340,4 +340,5 @@ def test_a_mixed_currency_package_prints_the_counts_only(tmp_path, monkeypatch):
     # The refusal replaces the card's notes; the facts themselves print the counts only.
     facts = run_dashboard(f"console.log(JSON.stringify(packageRevenueFacts({json.dumps(package['totals'])}, null)));")
     assert "Zelle deposits in True revenue: 2 · held for review: 3" in facts
-    assert yes["details"] == [["Zelle in True 1,235 · held 6,500"], ["Zelle in True 1,500 CAD"]]
+    # Audit round 2, R2-B16 (R51): in a refused package every declared row names its unit, USD included.
+    assert yes["details"] == [["Zelle in True 1,235 USD · held 6,500 USD"], ["Zelle in True 1,500 CAD"]]

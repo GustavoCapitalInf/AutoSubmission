@@ -841,6 +841,155 @@ console.log(JSON.stringify({{mixed: view({json.dumps(mixed)}), undeclared: view(
     assert result["single"]["labels"] == ["100,000", "80,000"]
 
 
+#: Audit round 2, R2-B16 (R51): the Monthly Statements table and the chart on its card, per view: the table's rows
+#: (cells), its header, and the chart's figures grouped by bar (three a bar in the Both view, two in True, one in Total).
+MONTHLY_UNITS = r"""
+const tableCells = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)]
+  .map((row) => [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map((cell) => cell[1].replace(/<[^>]+>/g, "").trim()));
+const unitsCard = (pkg) => Object.fromEntries(["both", "total", "true"].map((view) => {
+  setMonthlyDepositsView(view); renderMonthlyStatements(pkg);
+  const per = {both: 3, true: 2, total: 1}[view];
+  const figures = [...els.monthlyChart.innerHTML.matchAll(/<span class="bar-value[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
+  const bars = [];
+  for (let i = 0; i < figures.length; i += per) bars.push(figures.slice(i, i + per));
+  return [view, {head: tableCells(els.monthlyHead.innerHTML)[0], rows: tableCells(els.monthlyTable.innerHTML), bars}];
+}));
+"""
+
+
+def _units_doc(job, currency, credits, month, *, established=True):
+    """A fabricated Monthly Statements row: CONTOSO, FABRIKAM or NORTHWIND's statement of `month` 2031, True 60,000
+    (one credit), Verified 20,000, ADB 5,000, one NSF; `currency` False leaves the key out (a legacy row)."""
+    row = {"id": job, "filename": f"{job}.pdf", "status": "done", "period_start": f"2031-{month:02d}-01",
+           "period_end": f"2031-{month:02d}-28", "credits": credits, "deposit_count": 2,
+           "true_revenue_total": 60000.0, "true_revenue_count": 1, "verified_revenue_total": 20000.0,
+           "revenue_established": established, "verified_revenue_established": established,
+           "average_daily_balance": 5000.0, "nsf_count": 1}
+    if currency is not False:
+        row["currency"] = currency
+    return row
+
+
+def _units_package(docs, currencies, refused):
+    return {"documents": docs, "totals": {"cross_currency_totals_refused": refused},
+            "currency": {"currencies": currencies, "cross_currency_totals_refused": refused}}
+
+
+#: The deposit amount columns of each view's rows (Total/True/Verified/Monthly Deposits), by cell position, and the
+#: Ledger cell (an amount the chart prints under its bar, in the member's own money format).
+_DEPOSIT_CELLS = {"both": (2, 4, 6), "total": (2,), "true": (2, 4)}
+_LEDGER_CELL = {"both": 7, "total": 4, "true": 5}
+#: ... and the count and NSF cells, which never carry a unit.
+_COUNT_CELLS = {"both": (3, 5, 8), "total": (3, 5), "true": (3, 6)}
+
+
+def _unit(text):
+    """The unit a figure names ('' for a bare figure or N/A)."""
+    match = re.fullmatch(r"-?[\d,]+(?: ([A-Z]{3}))?", text)
+    assert match or text == "N/A", text
+    return (match.group(1) or "") if match else ""
+
+
+def _units(texts):
+    return sorted({_unit(text) for text in texts if text != "N/A"} - {""})
+
+
+def _table_units(card):
+    """Per view, each row's units over its deposit amount cells and over its Ledger cell, and the chart's units over
+    its bar's figures."""
+    return {view: {"table": [_units(row[i] for i in _DEPOSIT_CELLS[view]) for row in shown["rows"]],
+                   "ledger": [_units([row[_LEDGER_CELL[view]]]) for row in shown["rows"]],
+                   "chart": [_units(bar) for bar in shown["bars"]]}
+            for view, shown in card.items()}
+
+
+@needs_node
+def test_the_monthly_table_names_each_row_s_unit_as_the_chart_does_in_a_refused_package():
+    """R51: in a package refused for its currencies (several, or one beside a member that declared none), every
+    declared row of the Monthly Statements table names its unit on its amount cells, USD included, as the chart's bar
+    does; an undeclared row stays bare, so a bare figure means undeclared. A single-currency package stays bare; the
+    headers, the count and NSF cells and an N/A cell carry no unit."""
+    contoso_cad = _units_doc("contoso", "CAD", 100000.0, 3)
+    fabrikam_usd = _units_doc("fabrikam", "USD", 100000.0, 3)
+    northwind_raw = _units_doc("northwind", None, 80000.0, 4)
+    cases = {
+        "cad_undeclared": _units_package([contoso_cad, northwind_raw], ["CAD"], True),
+        "usd_undeclared": _units_package([fabrikam_usd, northwind_raw], ["USD"], True),
+        "cad_usd": _units_package([contoso_cad, _units_doc("fabrikam", "USD", 80000.0, 4)], ["CAD", "USD"], True),
+        "cad_only": _units_package([contoso_cad, _units_doc("northwind", "CAD", 80000.0, 4)], ["CAD"], False),
+        "usd_only": _units_package([fabrikam_usd, _units_doc("northwind", "USD", 80000.0, 4)], ["USD"], False),
+        "cad_undeclared_unestablished": _units_package(
+            [_units_doc("contoso", "CAD", 100000.0, 3, established=False), northwind_raw], ["CAD"], True),
+    }
+    result = run_dashboard(MONTHLY_UNITS + "console.log(JSON.stringify({" + ", ".join(
+        f"{name}: unitsCard({json.dumps(package)})" for name, package in cases.items()) + "}));")
+    # (a) CAD beside an undeclared member: the CAD row names CAD on its four amount cells, the undeclared row none.
+    card = result["cad_undeclared"]
+    assert card["both"]["rows"] == [
+        ["March", "2031", "100,000 CAD", "2", "60,000 CAD", "1", "20,000 CAD", "5,000 CAD", "1", "Open"],
+        ["April", "2031", "80,000", "2", "60,000", "1", "20,000", "5,000", "1", "Open"]]
+    assert card["total"]["rows"] == [["March", "2031", "100,000 CAD", "2", "5,000 CAD", "1", "Open"],
+                                     ["April", "2031", "80,000", "2", "5,000", "1", "Open"]]
+    assert card["true"]["rows"] == [["March", "2031", "60,000 CAD", "1", "20,000 CAD", "5,000 CAD", "1", "Open"],
+                                    ["April", "2031", "60,000", "1", "20,000", "5,000", "1", "Open"]]
+    # The chart is unchanged (I54): every bar of a refused package names its unit, an undeclared one none.
+    assert card["both"]["bars"] == [["100,000 CAD", "60,000 CAD", "20,000 CAD"], ["80,000", "60,000", "20,000"]]
+    assert card["total"]["bars"] == [["100,000 CAD"], ["80,000"]]
+    assert card["true"]["bars"] == [["60,000 CAD", "20,000 CAD"], ["60,000", "20,000"]]
+    # (b) USD beside an undeclared member: the USD row names USD, the undeclared row stays bare.
+    assert result["usd_undeclared"]["both"]["rows"][0][2:8] == [
+        "100,000 USD", "2", "60,000 USD", "1", "20,000 USD", "5,000 USD"]
+    assert result["usd_undeclared"]["both"]["rows"][1][2:8] == ["80,000", "2", "60,000", "1", "20,000", "5,000"]
+    # (c) CAD and USD: each row names its own unit.
+    assert result["cad_usd"]["both"]["rows"][0][2:8] == ["100,000 CAD", "2", "60,000 CAD", "1", "20,000 CAD", "5,000 CAD"]
+    assert result["cad_usd"]["both"]["rows"][1][2:8] == ["80,000 USD", "2", "60,000 USD", "1", "20,000 USD", "5,000 USD"]
+    expected_units = {"cad_undeclared": [["CAD"], []], "usd_undeclared": [["USD"], []], "cad_usd": [["CAD"], ["USD"]],
+                      "cad_only": [[], []], "usd_only": [[], []], "cad_undeclared_unestablished": [["CAD"], []]}
+    for name, card in result.items():
+        for view, units in _table_units(card).items():
+            # In every case and view the table's units are the chart's bar units, and the Ledger cell names the row's.
+            assert units["table"] == units["chart"], (name, view)
+            assert units["ledger"] == expected_units[name], (name, view)
+            if name != "cad_undeclared_unestablished":
+                assert units["table"] == expected_units[name], (name, view)
+            for row in card[view]["rows"]:
+                # The count and NSF cells carry no unit.
+                assert all(re.fullmatch(r"[\d,]+|N/A", row[i]) for i in _COUNT_CELLS[view]), (name, view, row)
+        # The headers are unchanged: "($)" whatever the units.
+        assert card["both"]["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month",
+                                        "True Deposits ($)", "True Deposits Per Month", "Verified ($)", "Ledger ($)",
+                                        "NSF", "Action"]
+    # A single-currency package stays bare (the CRM's "($)" convention), CAD-only included.
+    assert result["cad_only"]["both"]["rows"][0][2:8] == ["100,000", "2", "60,000", "1", "20,000", "5,000"]
+    assert result["usd_only"]["total"]["rows"][1][2:5] == ["80,000", "2", "5,000"]
+    # A null amount reads N/A with no unit; the row's other amounts still name it.
+    unestablished = result["cad_undeclared_unestablished"]["both"]["rows"][0]
+    assert unestablished[2:8] == ["100,000 CAD", "2", "N/A", "N/A", "N/A", "5,000 CAD"]
+
+
+@needs_node
+def test_the_monthly_table_of_a_real_package_names_the_cad_row_beside_an_undeclared_member(tmp_path, monkeypatch):
+    """R51 through the real _package_analysis: a CAD statement beside one whose statement declares no currency (an
+    older stored payload) is refused; the table's CAD row names CAD as its chart bar does, the other row stays bare."""
+    cad = _payload(month=4)
+    cad["statement"]["currency"] = "CAD"
+    raw = _payload()
+    raw["statement"]["currency"] = None
+    package = _package({"raw": raw, "cad": cad}, tmp_path, monkeypatch)
+    assert package["currency"]["currencies"] == ["CAD"]
+    assert package["currency"]["cross_currency_totals_refused"] is True
+    assert [doc.get("currency") for doc in package["documents"]] == [None, "CAD"]
+    result = run_dashboard(MONTHLY_UNITS + f"""
+currentJobIds = ['raw', 'cad']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify(unitsCard({json.dumps(package)})));
+""")
+    # 2,000 posted: 1,000 True, 700 verified (test_the_monthly_statements_show_true_revenue_and_its_verified_part).
+    assert result["both"]["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "700"]
+    assert result["both"]["rows"][1][2:7] == ["2,000 CAD", "4", "1,000 CAD", "2", "700 CAD"]
+    for view, units in _table_units(result).items():
+        assert units["table"] == units["chart"] == units["ledger"] == [[], ["CAD"]], view
+
+
 @needs_node
 def test_a_repeated_statement_is_named_once_and_left_out_of_the_months(tmp_path, monkeypatch):
     """I06: the server leaves a repeat out of every figure; the page says which, and the Monthly Statements, the
@@ -1687,7 +1836,8 @@ const details = [...els.monthlyTable.innerHTML.matchAll(/<tr[^>]*>([\\s\\S]*?)<\
   [...m[1].matchAll(/<div class="table-cell-detail">(Zelle[^<]*)<\\/div>/g)].map((d) => d[1]));
 console.log(JSON.stringify({{details, facts: packageRevenueFacts({json.dumps(totals)}, null)}}));
 """)
-    assert result["details"] == [["Zelle in True 1,500"], ["Zelle in True 1,500 CAD"]]
+    # Audit round 2, R2-B16 (R51): in a refused package every declared row names its unit, USD included.
+    assert result["details"] == [["Zelle in True 1,500 USD"], ["Zelle in True 1,500 CAD"]]
     assert result["facts"] == ["Zelle deposits in True revenue: 6"]
 
 
@@ -1705,8 +1855,9 @@ console.log(JSON.stringify({{details: zelleDetails(), evidence: cells(els.revenu
   facts: packageRevenueFacts({json.dumps(totals)}, null),
   statementFacts: statementRevenueFacts({{non_revenue_by_reason: {{zelle_excluded: {{count: 3, total: 1500}}}}}}, 'CAD')}}));
 """)
-    # Each row is in its own statement's currency (a non-USD row names its unit), and the package's money is refused.
-    assert result["details"] == [["1,500"], ["1,500 CAD"]]
+    # Each row is in its own statement's currency (in a refused package every declared row names its unit, USD
+    # included: audit round 2, R2-B16, R51), and the package's money is refused.
+    assert result["details"] == [["1,500 USD"], ["1,500 CAD"]]
     assert [_ZELLE_LABEL, "6", "N/A"] in [row[:3] for row in result["evidence"]]
     assert result["facts"] == ["Zelle deposits excluded: 6"]
     assert result["statementFacts"] == ["Zelle deposits excluded: CA$1,500.00 (3)"]

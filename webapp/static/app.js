@@ -4944,7 +4944,10 @@ function renderMonthlyStatements(pkg) {
   const view = monthlyDepositsView();
   const columns = monthlyDepositColumns(view);
   const currencyInfo = packageCurrencyInfo(pkg);
-  renderMonthlyChart(packageMonthRows(documents), currencyInfo.refused || currencyInfo.currencies.length > 1, view);
+  // Audit round 2, R2-B16 (R51): the chart and the table beside it name units on one condition, a package that refuses
+  // to combine its currencies (several, or a member that declared none beside one that did).
+  const unitsShown = currencyInfo.refused || currencyInfo.currencies.length > 1;
+  renderMonthlyChart(packageMonthRows(documents), unitsShown, view);
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
     const note = MONTHLY_DEPOSITS_NOTES[view];
@@ -4983,10 +4986,11 @@ function renderMonthlyStatements(pkg) {
     // The CRM's seasonality layout: one row per statement month, in calendar order.
     const rows = packageMonthRows(documents);
     // Each row is denominated by its OWN statement (CURRENCY DOCTRINE §F). The column names say ($) as the
-    // CRM does; when the package mixes currencies (the server's list, which counts only statements that
-    // contribute money), a non-USD row names its unit so no figure passes for USD. An undeclared currency
-    // stays undeclared.
-    const mixedCurrencies = packageCurrencyInfo(pkg).currencies.length > 1;
+    // CRM does, and a single-currency package's figures are bare. Audit round 2, R2-B16 (R51): in a package that
+    // refuses to combine its currencies (`unitsShown`, the chart's rule: several currencies, or a member that
+    // declared none beside one that did), every declared row names its unit on its amount cells, USD included, as
+    // its chart bar does; an undeclared row stays bare (§B fails closed), so there a bare figure means undeclared,
+    // never USD. Count and NSF cells carry no unit.
     // Two statements for one month (two accounts, or checking and savings) would be indistinguishable rows,
     // so those rows alone name their file under the month.
     const monthCounts = new Map();
@@ -4999,7 +5003,7 @@ function renderMonthlyStatements(pkg) {
       const status = PENDING_JOB_STATUSES.includes(doc.status) ? "Processing"
         : doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
       const docCurrency = currencyOfDocument(doc);
-      const unit = mixedCurrencies && docCurrency && docCurrency !== "USD" ? ` ${docCurrency}` : "";
+      const unit = unitsShown && docCurrency ? ` ${docCurrency}` : "";
       const amount = (value) => {
         const text = formatWhole(value);
         return text === "N/A" ? text : text + unit;
