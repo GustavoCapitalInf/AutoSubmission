@@ -1296,7 +1296,7 @@ def test_the_spec_and_the_contract_record_r2_l01_the_liberis_admission():
 
 
 #: Audit round 2, R2-B16 (R51, R53, R52): the code commits §20 and the contract name.
-R2_B16_CODE_COMMITS = {"R51": ("e0eb9cb",), "R53": ("728515a", "a869554"), "R52": ("e17ad7c",)}
+R2_B16_CODE_COMMITS = {"R51": ("e0eb9cb",), "R53": ("728515a", "a869554", "e26e322"), "R52": ("e17ad7c", "e26e322")}
 
 
 def test_the_spec_and_the_contract_record_r2_b16_s_surfaces():
@@ -1310,7 +1310,8 @@ def test_the_spec_and_the_contract_record_r2_b16_s_surfaces():
                         ("- **The CLI reads the dashboard's revenue rules** (", "R52")):
         line = next(line for line in amendments.splitlines() if line.startswith(lead))
         assert f"audit round 2, R2-B16: {issue}" in line, issue
-        assert line.endswith(", ".join(R2_B16_CODE_COMMITS[issue]) + "."), issue
+        tail = line.rsplit(". ", 1)[-1]
+        assert all(commit in tail for commit in R2_B16_CODE_COMMITS[issue]), issue
         assert f"Amended by audit round 2, R2-B16 ({issue}, below)" in amendments, issue
     sections = spec.split("\n## 20. Implementation amendments", 1)[0]
     for words in ("Audit round 2, R2-B16 (R51, §20): the Monthly Statements table", "`unitsShown`",
@@ -1321,7 +1322,8 @@ def test_the_spec_and_the_contract_record_r2_b16_s_surfaces():
                   "`returned_funder_payment`"):
         assert words in sections, words
     contract = _flat(CONTRACT)
-    commits = ", ".join(commit for issue in ("R51", "R53", "R52") for commit in R2_B16_CODE_COMMITS[issue])
+    commits = "e0eb9cb, 728515a, a869554, e17ad7c, e26e322"  # in commit order
+    assert set(commits.split(", ")) == {commit for listed in R2_B16_CODE_COMMITS.values() for commit in listed}
     for words in (f"Audit round 2, R2-B16 (R51, R53, R52; {commits})", "`revenue_tiers_sum_to_posted`",
                   "a pointer to the JSON download"):
         assert words in contract, words
