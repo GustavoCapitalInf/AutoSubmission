@@ -873,9 +873,13 @@ function lenderDebitsSummary(metrics = {}, currency = "USD") {
 function returnedFunderPaymentWarning(item, currency = "USD") {
   const unit = "source_currency" in item ? item.source_currency : currency;
   const words = item.credit_description ? ` ("${item.credit_description}")` : "";
+  // The final review of round 2, F2(b): a payment the package matched to a return in the next statement names both
+  // documents.
+  const debited = item.cross_statement === true ? ` (${item.source_document || "a statement"})` : "";
+  const returned = item.cross_statement === true ? ` (${item.credit_document || "the next statement"})` : "";
   return `Returned funder payment: ${item.funder || "Confirmed lender"} ${formatMoney(item.amount, unit)} debited `
-    + `${item.debit_date || "N/A"}, returned ${item.credit_date || "N/A"}${words}. Not counted as paid; still in the `
-    + "withholding rate.";
+    + `${item.debit_date || "N/A"}${debited}, returned ${item.credit_date || "N/A"}${returned}${words}. Not counted as `
+    + "paid; still in the withholding rate.";
 }
 
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
@@ -1778,6 +1782,17 @@ function packageMatchNotes(tx, debitFlags = null) {
       notes.push(`Matched to the ${match.credit.date || "undated"} deposit into `
         + `${match.credit.last4 ? `••${match.credit.last4}` : "another account"} `
         + `(${match.moved === true ? "held" : "already held"}).`);
+    }
+  }
+  // The final review of round 2, F2(b) (the underwriter's Q5 across statements): a confirmed funder's payment returned
+  // in the next statement names the return, and the return names the payment.
+  if (match && match.kind === "returned_funder_payment") {
+    if (match.credit && txAmount(tx) < 0) {
+      notes.push(`Returned unpaid on ${match.credit.date || "an unknown date"} (${match.credit.filename || "the next statement"}): `
+        + "out of paid to lenders, still in the withholding rate.");
+    } else if (match.debit && txAmount(tx) > 0) {
+      notes.push(`Returns the ${match.debit.date || "undated"} payment to ${match.debit.funder || "a confirmed funder"} in `
+        + `${match.debit.filename || "the previous statement"}.`);
     }
   }
   const flag = debitFlags && txAmount(tx) < 0 ? debitFlags.entry(tx) : null;

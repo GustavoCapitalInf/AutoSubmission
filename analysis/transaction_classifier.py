@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from functools import cache
 from datetime import date
 from statistics import mean, pstdev
-from typing import Literal, Sequence, TYPE_CHECKING
+from typing import Callable, Literal, Sequence, TYPE_CHECKING
 
 from .classification_registry import (
     BANK_NAME_ALIASES,
@@ -5668,6 +5668,7 @@ def _reversal_pairs(
     *,
     credit_markers: Sequence[re.Pattern[str]] = (),
     seeded: Sequence[tuple[int, int]] = (),
+    refuse: Callable[[int, int], bool] | None = None,
 ) -> list[tuple[int, int]]:
     """§6.2 pass 4: the (credit index, debit index) pairs, in credit order: an equal posted debit within 14 days that
     shares the credit's transaction family, where the credit or the debit prints one of `markers`; the nearest date,
@@ -5675,7 +5676,10 @@ def _reversal_pairs(
 
     5.6 (audit B3, revenue side only): `credit_markers` are read on a credit row only (step 3's 5.6 credit markers, with
     its REMBOURSEMENT carve-out: _credit_pair_marker), and the `seeded` pairs (the returned deposits,
-    _deposit_return_pairs) are made first: their credits and debits pair no further."""
+    _deposit_return_pairs) are made first: their credits and debits pair no further.
+
+    The final review of round 2, F2(a) (lender side only): a (credit, debit) candidate `refuse` names is no candidate
+    (_returns_a_later_funder_payment: a confirmed funder's paid payment dated after the return)."""
     marked = {} if marked is None else marked
 
     def has_marker(index: int) -> bool:
@@ -5710,6 +5714,8 @@ def _reversal_pairs(
             ):
                 continue
             if not credit_has_marker and not has_marker(debit_index):
+                continue
+            if refuse is not None and refuse(credit_index, debit_index):
                 continue
             debit_date = parse_date(debit.date)
             day_gap = (
@@ -5753,8 +5759,17 @@ def _apply_reversal_pair_context(
                                                         _LENDER_PAIR_MARKER_PATTERNS)
         for index in revenue_marked
     )
+
+    def refuse(credit_index: int, debit_index: int) -> bool:
+        return _returns_a_later_funder_payment(records, credit_index, debit_index)
+
+    # The final review of round 2, F2(a): a confirmed funder's paid payment pairs on the lender side only with a return
+    # dated on or after it. Refusing a candidate only removes it, so a statement where no revenue pair is such a
+    # candidate (and no widened marker reads) keeps the revenue side's pairs, as before.
     lender_pairs = (
-        _reversal_pairs(records, duplicate_indexes, _LENDER_PAIR_MARKER_PATTERNS) if widened else revenue_pairs
+        _reversal_pairs(records, duplicate_indexes, _LENDER_PAIR_MARKER_PATTERNS, refuse=refuse)
+        if widened or any(refuse(credit_index, debit_index) for credit_index, debit_index in revenue_pairs)
+        else revenue_pairs
     )
     deposit_returns = set(deposit_pairs)
     for credit_index, debit_index in revenue_pairs:
@@ -5843,6 +5858,28 @@ def _is_paid_funder_debit(record: TransactionClassification) -> bool:
         and record.classification == "confirmed_lender"
         and record.contributes_to_lender_totals
     )
+
+
+def _returns_a_later_funder_payment(
+    records: list[TransactionClassification], credit_index: int, debit_index: int,
+) -> bool:
+    """The final review of round 2, F2(a) (the owner's ruling of 2026-10-02 on the underwriter's Q5, "Match the return
+    to the funder payment it reverses"; true revenue spec §6.2 pass 4): whether a lender-side pair of this credit and
+    debit would restore (R2-OW13) a confirmed funder's paid payment dated AFTER the return, which the return cannot
+    reverse. The pair is a settlement reversal (the credit or the debit prints a reversal word, the restore's own
+    test) and the debit is a confirmed funder's paid payment (_is_paid_funder_debit) dated after the credit; where either
+    row prints no date, printed after it (rule D's order, _return_gap). Such a candidate is refused, so the return pairs
+    with a payment on or before it, or with none (rule D and the package's pass 4 may still read it)."""
+    credit, debit = records[credit_index], records[debit_index]
+    if not _is_paid_funder_debit(debit):
+        return False
+    if not (_matches_any(credit.normalized_description, _SETTLEMENT_REVERSAL_PATTERNS)
+            or _matches_any(debit.normalized_description, _SETTLEMENT_REVERSAL_PATTERNS)):
+        return False
+    credit_date, debit_date = parse_date(credit.date), parse_date(debit.date)
+    if credit_date is None or debit_date is None:
+        return debit_index > credit_index
+    return debit_date > credit_date
 
 
 def _returned_unpaid_reason(credit_location: str) -> str:

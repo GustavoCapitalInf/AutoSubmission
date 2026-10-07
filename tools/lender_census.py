@@ -320,6 +320,35 @@ def _rule_d_rows(old: dict, new: dict) -> set[int]:
     }
 
 
+def _redirected_returns(old: dict, new: dict) -> set[int]:
+    """The final review of round 2, F2(a) (true revenue spec §6.2 pass 4, §14.3 G7): the debits whose return pairing the
+    fix moved. A confirmed funder's paid payment now pairs on the lender side only with a return dated on or after it,
+    so a debit the earlier snapshot paired with a credit L (its `reversed_by` or a returned funder row) that the later
+    one lists as a confirmed lender's paid row again with no pair, while L names no pair or a pair of another payment of
+    the same funder (that payment too, now returned in its place). Their row-flag moves are declared
+    (`returned_funder_redirects`); any other pairing move is still read as G7 reads it."""
+    def pairs(snap: dict) -> dict[int, object]:
+        found: dict[int, object] = {}
+        for index, location in [*(snap.get("reversed_by") or []), *(snap.get("returned_funder_rows") or [])]:
+            found.setdefault(index, location)
+        return found
+
+    before, after = pairs(old), pairs(new)
+    paid = {entry[0] for entry in new.get("lenders") or []}
+    entities = {**(old.get("row_entities") or {}), **(new.get("row_entities") or {})}
+    states = new.get("states") or []
+    rows: set[int] = set()
+    for debit, location in before.items():
+        if (debit in after or debit not in paid or debit >= len(states) or states[debit] != "confirmed_lender"
+                or entities.get(str(debit)) is None):
+            continue
+        others = {index for index, other in after.items() if other == location}
+        if any(entities.get(str(index)) != entities.get(str(debit)) for index in others):
+            continue
+        rows |= {debit, *others}
+    return rows
+
+
 def _without_rows(snap: dict, rows: set[int]) -> dict:
     """A copy of an account snapshot without the lender and returned-payment entries of `rows`."""
     return {**snap, "lenders": [entry for entry in snap["lenders"] if entry[0] not in rows],
@@ -397,6 +426,8 @@ def compare(
     # lender count (kept_in_count_returned, never `lost`); the paid rows that leave the lenders list, for a returned
     # row or not; the lender count's entities; and the withholding numerator.
     returned_moves: dict = {"analyses": set(), "rows": 0}
+    # The final review of round 2, F2(a): the row-flag moves of a return whose pairing the fix moved (declared).
+    redirect_moves: dict = {"analyses": set(), "rows": 0}
     kept_in_count: dict = defaultdict(set)
     paid_rows: Counter = Counter()
     count_moves: dict = {"gained": defaultdict(set), "lost": defaultdict(set)}
@@ -414,6 +445,7 @@ def compare(
         # before the fields is not comparable.
         if all(name in old and name in new for name in ROW_FLAG_FIELDS):
             entities = {**(old.get("row_entities") or {}), **(new.get("row_entities") or {})}
+            redirected = _redirected_returns(old, new)
             for name in ROW_FLAG_FIELDS:
                 was = {json.dumps(item) for item in old[name]}
                 now = {json.dumps(item) for item in new[name]}
@@ -423,7 +455,11 @@ def compare(
                     for item in was ^ now:
                         row = json.loads(item)
                         index = row[0] if isinstance(row, list) else row
-                        if name == "withholding_rows" and index in returned_rows:
+                        if name in ("reversed_by", "withholding_rows") and index in redirected:
+                            # F2(a): declared (returned_funder_redirects), never outside the allowlist.
+                            redirect_moves["analyses"].add(sha)
+                            redirect_moves["rows"] += 1
+                        elif name == "withholding_rows" and index in returned_rows:
                             # R2-OW13: declared (returned_funder_moves), never outside the allowlist.
                             returned_moves["analyses"].add(sha)
                             returned_moves["rows"] += 1
@@ -529,6 +565,8 @@ def compare(
         "row_flag_moves_outside_the_allowlist": outside,
         # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the declared categories.
         "returned_funder_moves": {"analyses": len(returned_moves["analyses"]), "rows": returned_moves["rows"]},
+        # The final review of round 2, F2(a): a return no longer paired with a payment dated after it.
+        "returned_funder_redirects": {"analyses": len(redirect_moves["analyses"]), "rows": redirect_moves["rows"]},
         "kept_in_count_returned": {entity: {"analyses": len(shas)} for entity, shas in sorted(kept_in_count.items())},
         "paid_rows": {name: paid_rows.get(name, 0) for name in ("left_returned", "left_other", "joined")},
         "lender_count": {
@@ -618,6 +656,9 @@ def _print_comparison(report: dict) -> None:
         moves = report["returned_funder_moves"]
         print(f"returned funder moves (withholding rows kept for a returned funder payment): {moves['analyses']} "
               f"analyses/{moves['rows']} rows")
+        redirects = report.get("returned_funder_redirects") or {"analyses": 0, "rows": 0}
+        print(f"returned funder redirects (a return no longer paired with a payment dated after it): "
+              f"{redirects['analyses']} analyses/{redirects['rows']} rows")
         print(f"kept in the lender count, every paid row returned: {len(report['kept_in_count_returned'])} funders")
         print("paid rows: " + ", ".join(f"{name} {count}" for name, count in report["paid_rows"].items()))
         count = report["lender_count"]

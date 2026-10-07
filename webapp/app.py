@@ -53,12 +53,17 @@ from analysis import zelle_view
 from analysis import lender_payment_changes as payment_changes_module
 from analysis.true_revenue import zelle_deposit
 from analysis.zelle_view import ZELLE_DEPOSITS_KEY, ZELLE_ROW_TAG, apply_zelle_view
+from analysis.payee_matcher import match_known_payee
 from analysis.transaction_classifier import (
     _CONSUMER_P2P_RAIL,
     _PUSH_RAIL,
+    _RETURN_CREDIT_TIERS,
     _TRANSFER_WORDING,
+    RETURNED_FUNDER_PAYMENT_WINDOW_DAYS,
     _deposit_channel_credit,
     _deposit_return_debit,
+    _received_on_day,
+    _returned_payment_credit,
     _undo_debit_names_a_credit,
     is_round_sum,
     paper_or_cash_deposit,
@@ -2574,8 +2579,132 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
                 "source_currency": entry["currency"], "source_location": flag["source_location"],
                 "date": flag["date"], "amount": flag["amount"], "description": flag["description"],
             })
+
+    # Pass 4 (the final review of round 2, F2(b); the owner's ruling of 2026-10-02 on the underwriter's Q5 across
+    # statements): a bounce-worded return whose funder payment sits in the same account's preceding statement.
+    _returned_funder_payments_across(matchable, overlays, matches, location_of, text_of)
     return {"overlays": overlays, "matches": matches, "debit_flags": debit_flags, "unchecked": unchecked,
             "moved": moved}
+
+
+def _paid_funder_payment(record: dict) -> bool:
+    """F2(b) (final review of round 2): a served row's record is a confirmed funder's posted payment counted as paid to
+    lenders that no pair reversed and no return took (rule D's funder debits, `_is_paid_funder_debit`, on a dict)."""
+    return (
+        record.get("classification") == "confirmed_lender"
+        and record.get("contributes_to_lender_totals") is True
+        and record.get("is_posted") is not False
+        and not record.get("reversed_by")
+        and not record.get("returned_funder_payment_by")
+    )
+
+
+def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matches: list, location_of, text_of) -> None:
+    """The final review of round 2, F2(b) (true revenue spec §6.2's package passes, §9.2, §11; the owner's ruling of
+    2026-10-02 on the underwriter's Q5, "Match the return to the funder payment it reverses"; R2-OW13's rule D across
+    statements): the package's pass 4, over the members pass 1 reads (`matchable`), after passes 1 to 3, adding to their
+    `overlays` and `matches` in place.
+
+    A return is a member's posted, non-duplicate credit that rule D could read (a bounce form, `_returned_payment_credit`;
+    out of True, `_RETURN_CREDIT_TIERS`; no lender credit, except one that names the confirmed funder whose payment it
+    returns: D1 reads the funder's name on its own return, the named pair's case, which a statement pairs on its own
+    but no statement can across two) that its statement left unpaired (no `returns_funder_payment`,
+    no pair's `reversed_by` naming it, no earlier pass's note) and that is dated; a credit the revenue side paired with a
+    debit of its own statement dated on or before it is left alone (rule D's partner guard: the statement's own pair
+    stands), while a partner dated after it cannot be the payment it returns (F2(a)) and holds nothing back. Its payment
+    is sought in the SAME account's IMMEDIATELY PRECEDING statement (`_same_account` and `_consecutive`): a confirmed
+    funder's paid payment (`_paid_funder_payment`) of equal cents dated 0 to RETURNED_FUNDER_PAYMENT_WINDOW_DAYS days
+    before it, that funder's only where the return names a confirmed funder (`match_known_payee`). Rule D's choice: the
+    payment on the RECEIVED ON day the return prints first, then the latest, then the canonical member and the later
+    row; and its
+    guard: the return is left alone when an equal posted debit that is no confirmed lender's lies in the window, in
+    either statement, as near as the chosen payment. The returns are read in (date, member, position) order; each
+    payment is taken once.
+
+    The payment's copy leaves the package's paid to lenders (`contributes_to_lender_totals` and, as rule D does,
+    `contributes_to_flagged_totals` false; `returned_funder_payment_by` the return's location), keeping its withholding
+    and its lender count; both legs carry `package_match` `{kind: "returned_funder_payment", ...}` (the payment's names
+    the return, the return's the payment and its funder), and `matches` gains the pair. Revenue never moves; each
+    statement viewed alone keeps its own figures."""
+    noted = {(key, position) for key, rows in overlays.items() for position in rows}
+    taken: set[tuple] = set()
+    returns: list[tuple] = []
+    for entry in matchable:
+        rows_by_location = {location_of(row, position): row for position, row in entry["rows"]}
+        named_pairs = {row["classification"].get("reversed_by") for _position, row in entry["rows"]
+                       if row["classification"].get("reversed_by")}
+        for position, row in entry["rows"]:
+            record = row["classification"]
+            day = _iso_day(row.get("date"))
+            if (_num(row.get("amount")) <= 0 or day is None or (entry["key"], position) in noted
+                    or record.get("returns_funder_payment") or location_of(row, position) in named_pairs
+                    or record.get("revenue_tier") not in _RETURN_CREDIT_TIERS
+                    or not _returned_payment_credit(text_of(row))):
+                continue
+            named = match_known_payee(text_of(row), credit=True)
+            funder = named.entity if named is not None and named.state == "confirmed_lender" else None
+            if record.get("contributes_to_lender_credit_exclusion") is True and funder is None:
+                continue  # a lender credit is read only where it names the confirmed funder (the named pair's case)
+            if record.get("revenue_match_method") == "matched_reversal_pair":
+                partner = rows_by_location.get(record.get("revenue_related_transaction"))
+                partner_day = _iso_day(partner.get("date")) if isinstance(partner, dict) else None
+                if partner_day is None or partner_day <= day:
+                    continue
+            returns.append(((day.toordinal(), entry["order"], position), entry, position, row, day, funder))
+    for _sort, credit_entry, credit_position, credit_row, credit_day, funder in sorted(returns, key=lambda item: item[0]):
+        text = text_of(credit_row)
+        cents = _row_cents(credit_row)
+        received = _received_on_day(text)
+        best = None
+        guards: list[int] = []
+        for debit_entry in matchable:
+            preceding = _same_account(debit_entry, credit_entry) and _consecutive(debit_entry, credit_entry)
+            if not (preceding or debit_entry is credit_entry):
+                continue
+            for position, row in debit_entry["rows"]:
+                record = row["classification"]
+                day = _iso_day(row.get("date"))
+                if -_row_cents(row) != cents or day is None:
+                    continue
+                gap = (credit_day - day).days
+                if not 0 <= gap <= RETURNED_FUNDER_PAYMENT_WINDOW_DAYS:
+                    continue
+                if record.get("classification") != "confirmed_lender":
+                    guards.append(gap)  # rule D's guard debits, in either statement
+                    continue
+                if (not preceding or (debit_entry["key"], position) in taken or (debit_entry["key"], position) in noted
+                        or not _paid_funder_payment(record)
+                        or (funder is not None and record.get("canonical_entity") != funder)):
+                    continue
+                on_received = received is not None and (day.month, day.day) == received
+                rank = (0 if on_received else 1, -day.toordinal(), debit_entry["order"], -position)
+                candidate = (rank, debit_entry, position, row, gap)
+                if best is None or candidate[0] < best[0]:
+                    best = candidate
+        if best is None:
+            continue
+        _rank, debit_entry, position, row, gap = best
+        if any(guard <= gap for guard in guards):
+            continue
+        taken.add((debit_entry["key"], position))
+        record = row["classification"]
+        credit_side = _match_side(credit_entry, credit_position, credit_row)
+        debit_side = {**_match_side(debit_entry, position, row), "funder": record.get("canonical_entity")}
+        overlays.setdefault(debit_entry["key"], {})[position] = {
+            "contributes_to_lender_totals": False,
+            "contributes_to_flagged_totals": False,
+            "returned_funder_payment_by": credit_side["source_location"],
+            "package_match": {"kind": "returned_funder_payment", "credit": credit_side},
+        }
+        overlays.setdefault(credit_entry["key"], {})[credit_position] = {
+            "package_match": {"kind": "returned_funder_payment", "debit": debit_side},
+        }
+        matches.append({
+            "kind": "returned_funder_payment", "moved": True,
+            "credit": {**credit_side, "currency": credit_entry["currency"], "description": credit_row.get("description")},
+            "debit": {**debit_side, "currency": debit_entry["currency"]},
+            "gap_days": gap,
+        })
 
 
 def _package_match_totals(matched: dict) -> dict:
@@ -3950,6 +4079,31 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # days-weighted mean over two accounts of one document is the forbidden
         # figure arrived at by a different route.
         package_average_daily_balance = None
+    # The final review of round 2, F2(b) (the underwriter's Q5 across statements): each payment pass 4 matched to a
+    # return in the next statement is out of its funder's paid rollup and in its returned payments (the member rows
+    # already read the overlay), and R2-OW13's warning lists it, naming both documents.
+    for match in package_matched["matches"]:
+        if match["kind"] != "returned_funder_payment":
+            continue
+        debit, credit = match["debit"], match["credit"]
+        amount = round(abs(_num(debit.get("amount"))), 2)
+        rollup = funders.get(debit.get("funder") or "Unknown")
+        if rollup is not None:
+            rollup["debit_count"] = max(int(rollup.get("debit_count", 0)) - 1, 0)
+            rollup["total_debited"] = round(rollup["total_debited"] - amount, 2)
+            rollup["returned_payment_count"] += 1
+            rollup["returned_payment_total"] = round(rollup["returned_payment_total"] + amount, 2)
+        package_returned_funder_payments.append({
+            "funder": debit.get("funder"), "amount": amount, "debit_date": debit.get("date"),
+            "debit_location": debit.get("source_location"), "credit_date": credit.get("date"),
+            "credit_location": credit.get("source_location"), "credit_description": credit.get("description"),
+            "source_job": debit.get("job"), "source_document": debit.get("filename"),
+            "source_currency": debit.get("currency"),
+            **({"source_account": debit["account_index"]} if debit.get("account_index") is not None else {}),
+            "credit_job": credit.get("job"), "credit_document": credit.get("filename"),
+            **({"credit_account": credit["account_index"]} if credit.get("account_index") is not None else {}),
+            "cross_statement": True,
+        })
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
     totals["flagged_position_count"] = sum(item["count"] for item in flagged_rollup.values())

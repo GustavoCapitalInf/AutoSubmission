@@ -589,3 +589,72 @@ def test_ow18_a_planted_lender_move_still_fails(tmp_path, fake_payees):
     after["accounts"]["x:0"]["withholding_rows"] = []
     paths = _files(tmp_path, before, after, _ledger())
     assert census.main(_compare_argv(paths, tmp_path)) == 1
+
+
+# The final review of round 2, F2(a) (true revenue spec §6.2 pass 4, §14.3 G7): a confirmed funder's paid payment pairs
+# on the lender side only with a return dated on or after it. G7 declares the moves of a return whose pairing moved
+# (`returned_funder_redirects`): a debit an earlier snapshot paired with a credit (reversed_by or a returned funder row)
+# that the later one lists as paid again, unpaired, its credit pairing nothing or another payment of the same funder.
+
+
+def _redirect_snapshots(after_pairs):
+    """A funder's three payments (rows 1, 3 and 4) and a return (row 2, transaction:3). Before: the return restored
+    row 3 (the payment after it). After: row 3 paid again, and the return pairing `after_pairs` ([debit, credit])."""
+    states = ["other", "confirmed_lender", "other", "confirmed_lender", "confirmed_lender"]
+    lenders = [[index, "Quillon Funding", "QUILLON FUNDING"] for index in (1, 3, 4)]
+    entities = {"1": "Quillon Funding", "3": "Quillon Funding", "4": "Quillon Funding"}
+    base = {"potential_lender_rows": [], "potential_withholding_rows": [], "withholding_rows": [1, 3, 4],
+            "withholding_numerator": 300.0, "lender_count_entities": ["Quillon Funding"], "row_entities": entities}
+    before = {**_account(states, [entry for entry in lenders if entry[0] != 3], {}, 10.0), **base,
+              "reversed_by": [[3, "transaction:3"]], "returned_funder_rows": [[3, "transaction:3"]]}
+    after = {**_account(states, [entry for entry in lenders if entry[0] not in {pair[0] for pair in after_pairs}], {},
+                        10.0), **base, "reversed_by": after_pairs, "returned_funder_rows": after_pairs}
+    return {"accounts": {"s1:0": before}}, {"accounts": {"s1:0": after}}
+
+
+def test_f2a_compare_declares_a_return_no_longer_paired_with_a_later_payment(tmp_path):
+    before, after = _redirect_snapshots([])
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["row_flag_moves"]["reversed_by"] == {"analyses": 1, "rows": 1}
+    assert report["row_flag_moves_outside_the_allowlist"] == 0
+    assert report["returned_funder_redirects"] == {"analyses": 1, "rows": 1}
+    assert report["paid_rows"] == {"left_returned": 0, "left_other": 0, "joined": 1}
+    paths = _files(tmp_path, before, after, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 0
+    # Redirected to the payment before it (row 1): both rows' moves are declared.
+    before, after = _redirect_snapshots([[1, "transaction:3"]])
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["row_flag_moves"]["reversed_by"] == {"analyses": 1, "rows": 2}
+    assert report["row_flag_moves_outside_the_allowlist"] == 0
+    assert report["returned_funder_redirects"] == {"analyses": 1, "rows": 2}
+    assert report["paid_rows"] == {"left_returned": 1, "left_other": 0, "joined": 1}
+
+
+def test_f2a_compare_declares_a_5_4_pair_the_fix_refuses():
+    # Classification 5.4's pair zeroed the later payment (no withholding, no returned row); the fix leaves it paid.
+    before, after = _redirect_snapshots([])
+    old = before["accounts"]["s1:0"]
+    old["withholding_rows"], old["returned_funder_rows"] = [1, 4], []
+    del old["lender_count_entities"], old["withholding_numerator"]
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["row_flag_moves"]["withholding_rows"] == {"analyses": 1, "rows": 1}
+    assert report["row_flag_moves"]["reversed_by"] == {"analyses": 1, "rows": 1}
+    assert report["row_flag_moves_outside_the_allowlist"] == 0
+    assert report["returned_funder_redirects"] == {"analyses": 1, "rows": 2}
+
+
+def test_f2a_compare_still_fails_any_other_pairing_move():
+    # The return now pairs with ANOTHER funder's payment: not declared.
+    before, after = _redirect_snapshots([[1, "transaction:3"]])
+    after["accounts"]["s1:0"]["row_entities"] = {**after["accounts"]["s1:0"]["row_entities"], "1": "Brambleway Capital"}
+    after["accounts"]["s1:0"]["lenders"] = [[4, "Quillon Funding", "QUILLON FUNDING"], [3, "Quillon Funding",
+                                                                                          "QUILLON FUNDING"]]
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_redirects"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves_outside_the_allowlist"] == 2
+    # The earlier payment still returned after (a pairing moved, not dropped): not declared either.
+    before, after = _redirect_snapshots([[3, "transaction:3"]])
+    after["accounts"]["s1:0"]["reversed_by"] = [[3, "transaction:3"], [1, "transaction:5"]]
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_redirects"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves_outside_the_allowlist"] == 1
