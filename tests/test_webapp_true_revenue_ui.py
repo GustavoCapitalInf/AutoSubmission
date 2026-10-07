@@ -573,7 +573,7 @@ def test_the_settings_say_what_true_revenue_is():
     assert ("<strong>True revenue:</strong> every posted credit except known non-revenue (own-account transfers, "
             "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shown "
             "beside it.") in text
-    assert '<script src="/static/app.js?v=true-revenue-5"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-6"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
