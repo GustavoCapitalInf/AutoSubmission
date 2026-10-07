@@ -331,7 +331,7 @@ def test_the_tier_filter_reads_no_credit_the_revenue_side_counts():
     # Never a refund, a reversal word alone, a correction, a card return, a fee or a code inside a company's name.
     ("SAMPLE STORE REFUND", False), ("REVERSAL", False), ("ERROR CORRECTION", False), ("PURCHASE RETURN", False),
     ("NSF FEE REFUND", False), ("RETURNED ITEM FEE", False), ("RETURN ITEM CHARGE", False),
-    ("SAMPLE RTN TRUCKING LLC", False), ("NSF INTERNATIONAL INC", False), ("REJECT SUPPLY CORP", False),
+    ("SAMPLE RTN TRUCKING LLC", False), ("NSF SAMPLE SUPPLY INC", False), ("REJECT SUPPLY CORP", False),
     ("UNPAIDCONTOSO", False), ("BRTN 1234", False),
 ])
 def test_the_bounce_forms(text, bounce):
