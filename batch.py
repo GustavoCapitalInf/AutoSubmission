@@ -26,7 +26,7 @@ from pathlib import Path
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.revenue_view import revenue_flags
-from analysis.serialization import report_to_dict
+from analysis.serialization import document_report_to_dict
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -149,8 +149,9 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     zelle = zelle_view.record_zelle_figures(stored.classifications, report.classifications)
     zelle_parts = zelle_view.figure_parts(zelle) if zelle is not None else {"in_true": 0.0}
     # Audit round 2, R2-B16 (R52; true revenue spec §10.4): the account's revenue flags in the reading shown, from its
-    # serialized payload (the flags the dashboard and the downloads read).
-    verified_established, established = revenue_flags(report_to_dict(report))
+    # serialized payload (the flags the dashboard and the downloads read), published through the document entry point
+    # as a document of its one account (RULE S: that account's payload; the L1-S3 seam rule).
+    verified_established, established = revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted —
     # when its revenue gate is set (5.6, T7: a direction conflict, or held credits

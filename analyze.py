@@ -18,7 +18,7 @@ import sys
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.revenue_view import apply_revenue_view, revenue_flags
-from analysis.serialization import document_report_to_dict, report_to_dict
+from analysis.serialization import document_report_to_dict
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
 
 #: Audit round 2, R2-B16 (R52): a revenue figure the account's flags do not establish.
@@ -28,9 +28,10 @@ _NOT_ESTABLISHED = "N/A (not established)"
 def _revenue_flags(report: Report) -> tuple[bool, bool]:
     """Audit round 2, R2-B16 (R52; true revenue spec §10.4): `(verified_revenue_established, revenue_established)` of
     one account in the reading shown, from its serialized payload (analysis/revenue_view.py `revenue_flags`, the
-    flags the dashboard and the downloads read). Serialized here, never in revenue_view, which does not import the
-    serializer."""
-    return revenue_flags(report_to_dict(report))
+    flags the dashboard and the downloads read). The account is serialized through the document entry point as a
+    document of its one account, which RULE S publishes as that account's payload (the L1-S3 seam rule); never in
+    revenue_view, which does not import the serializer."""
+    return revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
 
 
 def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) -> str:

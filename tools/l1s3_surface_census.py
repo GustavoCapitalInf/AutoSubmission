@@ -166,6 +166,9 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "the downloads' posted-credit table (I32): one block per account, under its section prefix"),
     ("webapp/app.py", "_export_revenue_view", "per_account",
      "the downloads' N/A rule (I51): every account's figures follow its own revenue flags"),
+    # Audit round 2, R2-B16 (R53; true revenue §10.8).
+    ("webapp/app.py", "_posted_debit_table", "per_account",
+     "the downloads' posted-debit table (R53): one block per account, under its section prefix"),
     # The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): the Zelle setting's readings.
     ("analysis/zelle_view.py", "reading", "per_account",
      "the Zelle reading is a property of one account's ledger; every account is materialised in the chosen reading, a "
