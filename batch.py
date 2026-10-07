@@ -25,7 +25,7 @@ from pathlib import Path
 
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
-from analysis.revenue_view import revenue_flags
+from analysis.revenue_view import revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
 from telemetry import (
     DispatchCollector,
@@ -168,6 +168,14 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     def established_figure(value: float, shown: bool) -> str:
         # R52 (audit B11's I51 on the CSV): a figure the flags do not establish is an empty cell, as in the downloads.
         return f"{value:.2f}" if shown else ""
+
+    # The final review of round 2, F1 (§10.4, §11): no rate and no basis where the basis the withholding mode divides
+    # by is not established (the downloads' rule); the legacy basis is written as before.
+    basis_shown = not withholding_basis_unestablished(
+        m.withholding_denominator_mode, verified_established=verified_established, established=established)
+
+    def rate(value: float | None) -> str:
+        return f"{value:.2f}" if value is not None and basis_shown else ""
     return {
         "file": path.name,
         "bank": s.bank or "",
@@ -216,15 +224,11 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "insurance_count": m.insurance_count,
         "insurance_total": f"{m.insurance_total:.2f}",
         "withholding_numerator": f"{m.withholding_numerator:.2f}",
-        "withholding_denominator": f"{m.withholding_denominator:.2f}",
-        "withholding_rate": f"{m.withholding_rate:.2f}" if m.withholding_rate is not None else "",
+        "withholding_denominator": established_figure(m.withholding_denominator, basis_shown),
+        "withholding_rate": rate(m.withholding_rate),
         "potential_withholding_numerator": f"{m.potential_withholding_numerator:.2f}",
-        "potential_withholding_denominator": f"{m.potential_withholding_denominator:.2f}",
-        "potential_withholding_exposure": (
-            f"{m.potential_withholding_exposure:.2f}"
-            if m.potential_withholding_exposure is not None
-            else ""
-        ),
+        "potential_withholding_denominator": established_figure(m.potential_withholding_denominator, basis_shown),
+        "potential_withholding_exposure": rate(m.potential_withholding_exposure),
         "potential_withholding_review_required": m.potential_withholding_review_required,
         "pos_count": m.pos_count,
         "pos_credit_count": m.pos_credit_count,

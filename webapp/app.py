@@ -43,8 +43,11 @@ from analysis.revenue_view import (
     DEBIT_FLAG_KINDS,
     UNESTABLISHED_REVENUE_KEYS,
     UNESTABLISHED_VERIFIED_KEYS,
+    UNESTABLISHED_WITHHOLDING_BASIS_KEYS,
+    WITHHOLDING_BASIS_UNESTABLISHED,
     apply_revenue_view,
     debit_side_flags,
+    withholding_basis_unestablished,
 )
 from analysis import zelle_view
 from analysis import lender_payment_changes as payment_changes_module
@@ -278,6 +281,10 @@ def _export_account_revenue(account: object) -> object:
         nulled.update({key: None for key in _UNESTABLISHED_REVENUE_KEYS if key in metrics})
     if metrics.get("verified_revenue_established") is not True:
         nulled.update({key: None for key in _UNESTABLISHED_VERIFIED_KEYS if key in metrics})
+    # The final review of round 2, F1 (§10.4, §11): the withholding basis the served copy marks as not established
+    # (its rate is None already) is an empty cell too, as the dashboard reads it N/A.
+    if metrics.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
+        nulled.update({key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in metrics})
     return {**account, "metrics": {**metrics, **nulled}} if nulled else account
 
 
@@ -311,8 +318,14 @@ def _package_for_export(package: dict) -> dict:
     # them empty too.
     totals = package.get("totals")
     if isinstance(totals, dict) and totals.get("revenue_unestablished_documents"):
-        exported["totals"] = {
+        totals = exported["totals"] = {
             **totals, **{key: None for key in _PACKAGE_PARTIAL_REVENUE_KEYS if key in totals},
+        }
+    # The final review of round 2, F1 (§10.4, §11): the withholding basis summed over a member whose basis is not
+    # established (final review M10: no rate on it) is an empty cell, as the dashboard reads it N/A.
+    if isinstance(totals, dict) and totals.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
+        exported["totals"] = {
+            **totals, **{key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in totals},
         }
     return exported
 
@@ -334,6 +347,9 @@ def _export_document_revenue(row: dict) -> dict:
     if row.get("revenue_established") is False:
         nulled.update({key: None for key in ("unverified_deposit_total", "potential_revenue_total", "maximum_revenue")
                        if key in row})
+    # The final review of round 2, F1 (§10.4, §11): a member whose withholding basis is not established prints no basis.
+    if row.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
+        nulled.update({key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in row})
     return {**row, **nulled} if nulled else row
 
 
@@ -3419,6 +3435,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
         if ready and not revenue_established:
             unestablished_revenue.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
+        # The final review of round 2, F1 (§9.2, §11): the member's own basis is not established (its served copy already
+        # says so, or the package's reading of its rows does); its row publishes no rate and its potential lenders no
+        # exposure, as the statement viewed alone (analysis/revenue_view.py).
+        member_basis_unestablished = metrics.get(WITHHOLDING_BASIS_UNESTABLISHED) is True or (
+            ready and withholding_basis_unestablished(denominator_mode, verified_established=verified_revenue_established,
+                                                      established=revenue_established))
         if ready and (
             (denominator_mode == "true_revenue" and not revenue_established)
             or (denominator_mode == "verified_revenue" and not verified_revenue_established)
@@ -3564,7 +3586,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 match_evidence = match.get("evidence") or []
             match_exposure = (
                 abs(match_total) / eligible_deposits * 100
-                if eligible_deposits > 0
+                if eligible_deposits > 0 and not member_basis_unestablished
                 else None
             )
             item = potential_lenders.setdefault(
@@ -3593,7 +3615,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "potential_lender_debit_count": match_count,
                     "total_debited": round(match_total, 2),
                     "potential_lender_debit_total": round(match_total, 2),
-                    "eligible_deposit_denominator": eligible_deposits,
+                    # F1 (final review of round 2): no basis where the member's is not established.
+                    "eligible_deposit_denominator": None if member_basis_unestablished else eligible_deposits,
                     "potential_withholding_exposure": match_exposure,
                     "transactions": match_transactions,
                     "evidence": match_evidence,
@@ -3788,14 +3811,18 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "potential_lender_debits": potential_lender_debit_total,
             "insurance_count": insurance_count,
             "insurance_total": insurance_total,
-            "withholding_rate": metrics.get("withholding_rate"),
+            "withholding_rate": None if member_basis_unestablished else metrics.get("withholding_rate"),
             # R2-OW13: paid lender debits plus returned funder payments.
             "withholding_numerator": withholding_numerator,
             "withholding_denominator": eligible_deposits,
-            "withholding_review_required": bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0,
+            "withholding_review_required": (
+                bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0 or member_basis_unestablished
+            ),
             "withholding_denominator_mode": denominator_mode,
             "withholding_denominator_label": metrics.get("withholding_denominator_label") or "Legacy eligible deposits",
-            "potential_withholding_exposure": metrics.get("potential_withholding_exposure"),
+            "potential_withholding_exposure": (
+                None if member_basis_unestablished else metrics.get("potential_withholding_exposure")
+            ),
             "potential_withholding_numerator": potential_lender_debit_total,
             "potential_withholding_denominator": eligible_deposits,
             "potential_withholding_review_required": (
@@ -3808,6 +3835,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # today's payloads carries neither key and is byte-identical.
             doc_row["account_index"] = account_index
             doc_row["account_count"] = account_count
+        # The final review of round 2, F1 (§9.2): the member's withholding basis is not established, only where it is.
+        if member_basis_unestablished:
+            doc_row[WITHHOLDING_BASIS_UNESTABLISHED] = True
         # R2-OW17: the member's Zelle figures, where its served copy carries them (the Monthly cell reads them).
         if member_zelle is not None:
             doc_row[ZELLE_DEPOSITS_KEY] = deepcopy(member_zelle)
@@ -4035,7 +4065,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         withholding_review_required = True
     potential_withholding_review_required = totals["potential_lender_debit_count"] > 0
     for item in potential_lenders.values():
-        item["eligible_deposit_denominator"] = totals["potential_withholding_denominator"]
+        # The final review of round 2, F1: no basis on a lender row where the package's is partial (M10), or the
+        # dashboard would compute the exposure the package refuses from it.
+        item["eligible_deposit_denominator"] = (
+            None if partial_revenue_denominator else totals["potential_withholding_denominator"])
         item["potential_withholding_exposure"] = (
             abs(item["total_debited"]) / totals["potential_withholding_denominator"] * 100
             if totals["potential_withholding_denominator"] > 0 and not partial_revenue_denominator
@@ -4203,6 +4236,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # R2-OW13 (the underwriter's Q5): the members' numerators (paid plus returned) over the withholding basis.
         "withholding_formula": WITHHOLDING_FORMULA,
         "withholding_review_required": withholding_review_required,
+        # The final review of round 2, F1 (§9.2, §11): the basis M10 refuses the rate on, only where it does.
+        **({WITHHOLDING_BASIS_UNESTABLISHED: True} if partial_revenue_denominator else {}),
         "potential_withholding_exposure": potential_withholding,
         "potential_withholding_exposure_raw": potential_withholding_raw,
         "potential_withholding_formula": POTENTIAL_WITHHOLDING_FORMULA,

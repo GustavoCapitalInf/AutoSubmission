@@ -140,12 +140,23 @@ def test_the_json_carries_both_revenue_flags_and_keeps_every_figure():
     from analysis.pipeline import DocumentReport
     from analysis.serialization import document_report_to_dict
 
+    from analysis.revenue_view import UNESTABLISHED_WITHHOLDING_KEYS
+
     for report, flags in ((ties(), (True, True)), (stated_above(), (False, False))):
         document = DocumentReport(accounts=[report])
         payload = analyze._json_safe(document)
         assert (payload["metrics"]["verified_revenue_established"], payload["metrics"]["revenue_established"]) == flags
         stored = document_report_to_dict(document)["metrics"]
-        assert {key: payload["metrics"][key] for key in stored} == stored
+        # The final review of round 2, F1: on the True-revenue basis (the default) a statement whose revenue is not
+        # established publishes no withholding rate and asks for review, as the dashboard serves it; every other figure
+        # is kept.
+        moved = (*UNESTABLISHED_WITHHOLDING_KEYS, "withholding_review_required") if not flags[1] else ()
+        assert {key: payload["metrics"][key] for key in stored if key not in moved} == {
+            key: value for key, value in stored.items() if key not in moved}
+        if moved:
+            assert all(payload["metrics"][key] is None for key in UNESTABLISHED_WITHHOLDING_KEYS)
+            assert payload["metrics"]["withholding_review_required"] is True
+            assert payload["metrics"]["withholding_basis_unestablished"] is True
 
 
 def test_a_flag_computed_from_the_report_matches_the_served_copy():

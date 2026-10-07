@@ -17,7 +17,7 @@ import json
 import sys
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
-from analysis.revenue_view import apply_revenue_view, revenue_flags
+from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
 
@@ -217,7 +217,18 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
         f"(delta ${m.revenue_reconciliation_delta:,.2f})"
     )
     L.append(f"  Cash flow             : ${m.cash_flow:,.2f}")
-    withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
+    # The final review of round 2, F1 (§10.4, §11): no rate over a withholding basis that is not established (True
+    # revenue where the revenue is not, Verified where Verified is not); the legacy basis prints as before.
+    basis_unestablished = withholding_basis_unestablished(
+        m.withholding_denominator_mode, verified_established=verified_established, established=established)
+
+    def basis(value: float) -> str:
+        return _NOT_ESTABLISHED if basis_unestablished else f"${value:,.2f}"
+
+    if basis_unestablished:
+        withholding = _NOT_ESTABLISHED
+    else:
+        withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
     L.append(
         f"  Lender debits         : {m.lender_debit_count} row(s), ${m.lender_debits:,.2f}  "
         f"(withholding {withholding})"
@@ -231,13 +242,16 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
     # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the working lines name the basis, True revenue by default.
     L.append(
         f"  Withholding working   : ${m.withholding_numerator:,.2f} / "
-        f"${m.withholding_denominator:,.2f} {m.withholding_denominator_label}"
+        f"{basis(m.withholding_denominator)} {m.withholding_denominator_label}"
     )
-    potential_exposure = (
-        f"{m.potential_withholding_exposure:.2f}%"
-        if m.potential_withholding_exposure is not None
-        else "n/a"
-    )
+    if basis_unestablished:
+        potential_exposure = _NOT_ESTABLISHED
+    else:
+        potential_exposure = (
+            f"{m.potential_withholding_exposure:.2f}%"
+            if m.potential_withholding_exposure is not None
+            else "n/a"
+        )
     potential_status = "review required" if m.potential_withholding_review_required else "clear"
     L.append(
         f"  Potential debits      : {m.potential_lender_debit_count} row(s), "
@@ -246,7 +260,7 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
     )
     L.append(
         f"  Potential working     : ${m.potential_withholding_numerator:,.2f} / "
-        f"${m.potential_withholding_denominator:,.2f} {m.withholding_denominator_label}"
+        f"{basis(m.potential_withholding_denominator)} {m.withholding_denominator_label}"
     )
     L.append(f"  Insurance debits      : {m.insurance_count} row(s), ${m.insurance_total:,.2f}")
     L.append(
@@ -286,6 +300,9 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
                 if fm.eligible_deposit_denominator is not None
                 else "n/a"
             )
+            if basis_unestablished:
+                # F1 (final review of round 2): no exposure over a basis that is not established.
+                exposure = denominator = _NOT_ESTABLISHED
             L.append(
                 f"    - {fm.funder}: {fm.debit_count} debit(s), "
                 f"${fm.total_debited:,.2f}; {exposure} exposure / {denominator} deposits"

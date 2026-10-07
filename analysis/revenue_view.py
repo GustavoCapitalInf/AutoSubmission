@@ -14,6 +14,12 @@ A payload analysed before 5.6 carries no tier. Its served copy nulls True revenu
 statement rows and `classifications`, every evidence list in `metrics` and `detection`, `manual_review`, and the known
 funder, potential lender, insurer and recurring debit matches. Each of those copies stored the old verified meaning,
 so no reader takes it for the new one (T9, T10). Its verified figures stay as stored.
+
+The final review of round 2, F1 (§10.4, §11): an account whose withholding mode divides by a basis that is not
+established (True revenue where `revenue_established` is false, Verified revenue where `verified_revenue_established`
+is) publishes no rate over it: its served copy nulls `withholding_rate`, `potential_withholding_exposure` and each
+potential lender's exposure and basis, sets `withholding_review_required` and publishes `withholding_basis_unestablished`
+(only there). The legacy basis is the bank's own deposits and is never touched.
 """
 from __future__ import annotations
 
@@ -27,7 +33,12 @@ from analysis.payload_shape import (
     assert_payload_shape,
     payload_accounts,
 )
-from analysis.revenue import REVENUE_STATES, TIER_DETECTION_KEYS, TIER_METRIC_KEYS
+from analysis.revenue import (
+    REVENUE_STATES,
+    TIER_DETECTION_KEYS,
+    TIER_METRIC_KEYS,
+    normalize_withholding_denominator_mode,
+)
 from analysis.transaction_classifier import _deposit_return_debit, processor_chargeback_debit
 
 _SURFACE = "analysis/revenue_view.py::apply_revenue_view"
@@ -46,6 +57,34 @@ UNESTABLISHED_REVENUE_KEYS = (
 )
 #: ... and when its Verified figure is not established: Verified and its aliases (T9).
 UNESTABLISHED_VERIFIED_KEYS = ("verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total")
+
+#: The final review of round 2, F1 (§10.4, §11; the owner's ruling of 2026-10-02 on the underwriter's Q7, R2-OW14, beside
+#: B11's I51 and the final review's M10): where the basis an account's withholding mode divides by is not established
+#: (`withholding_basis_unestablished`), the served copy publishes no rate over it: these are None, its
+#: `withholding_review_required` is set and the flag `withholding_basis_unestablished` is published (only there).
+UNESTABLISHED_WITHHOLDING_KEYS = ("withholding_rate", "potential_withholding_exposure")
+#: ... and a download (and the CLI) leaves the basis itself empty. The served copy keeps these figures: the package
+#: sums its members' and refuses its own rate on them (M10); the dashboard reads the flag and prints N/A.
+UNESTABLISHED_WITHHOLDING_BASIS_KEYS = ("eligible_deposits", "withholding_denominator", "potential_withholding_denominator")
+#: The served flag, published only where it is set.
+WITHHOLDING_BASIS_UNESTABLISHED = "withholding_basis_unestablished"
+
+
+def withholding_basis_unestablished(mode: object, *, verified_established: bool, established: bool) -> bool:
+    """F1 (final review of round 2): whether the basis withholding `mode` divides by is not established: True revenue
+    where the revenue is not (`revenue_established` false), Verified revenue where the Verified figure is not
+    (`verified_revenue_established` false). The legacy basis is the bank's own deposits less lender funding and is
+    always established; a stored payload with no mode was analysed on it (normalize_withholding_denominator_mode)."""
+    basis = normalize_withholding_denominator_mode(mode)
+    return (basis == "true_revenue" and not established) or (basis == "verified_revenue" and not verified_established)
+
+
+def _unestablished_potential_lender(match: object) -> object:
+    """A potential lender's detection entry with no exposure and no basis (F1): its row divides by the basis, which the
+    dashboard would otherwise recompute the exposure from."""
+    if not isinstance(match, Mapping):
+        return match
+    return {**match, "potential_withholding_exposure": None, "eligible_deposit_denominator": None}
 
 
 def _number(value: object) -> float:
@@ -211,6 +250,19 @@ def _served_account(account: Mapping) -> dict:
     # Owner ruling 2026-10-02 (the underwriter's Q6; §9.1, R2-OW15): the statement's returns no credit of it pairs and
     # its processor chargebacks and adjustments, flagged, never deducted; the keys only where a debit is flagged.
     metrics.update(debit_flag_metrics(debit_side_flags(rows)))
+    # The final review of round 2, F1 (§10.4, §11; M10 on the statement): no rate over a basis that is not
+    # established. The statement asks for review, and each potential lender's row loses its exposure and its basis.
+    if withholding_basis_unestablished(metrics.get("withholding_denominator_mode"), verified_established=verified,
+                                       established=metrics["revenue_established"]):
+        metrics.update({key: None for key in UNESTABLISHED_WITHHOLDING_KEYS})
+        metrics["withholding_review_required"] = True
+        metrics[WITHHOLDING_BASIS_UNESTABLISHED] = True
+        detection = result.get("detection")
+        if isinstance(detection, Mapping) and isinstance(detection.get("potential_lenders"), list):
+            result["detection"] = {
+                **detection,
+                "potential_lenders": [_unestablished_potential_lender(match) for match in detection["potential_lenders"]],
+            }
     result["metrics"] = metrics
     return result
 
