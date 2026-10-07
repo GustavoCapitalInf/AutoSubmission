@@ -143,8 +143,14 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: Review decisions (2026-09-29): direction conflicts never lifted; bare
 #: transfers, micro entries, owner money, deferred sources and round-sum repeats
 #: held or counted as ruled; Q7 honours the section 8.1 holds.
+#: 5.7 (audit round 2, R2-B16: R56): the audit's twelve fix batches (B01 to
+#: B12) and round 2 (R2-B01 to R2-B16) moved tiers and the review gate, and the
+#: owner's rulings of 2026-10-02 and 2026-10-06 (R2-OW01 to R2-OW18, with
+#: R2-L01's ledger admission) moved tiers and added reasons, all under 5.6; the
+#: one bump that covers them, so an analysis saved at 5.6 gets the re-analyze
+#: notice (lender spec D12) and its button computes the current reading.
 #: Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.6"
+CLASSIFICATION_VERSION = "5.7"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"

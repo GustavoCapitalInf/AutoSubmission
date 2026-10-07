@@ -1327,3 +1327,25 @@ def test_the_spec_and_the_contract_record_r2_b16_s_surfaces():
     for words in (f"Audit round 2, R2-B16 (R51, R53, R52; {commits})", "`revenue_tiers_sum_to_posted`",
                   "a pointer to the JSON download"):
         assert words in contract, words
+
+
+def test_the_spec_and_the_contract_record_r2_b16_s_version_bump_and_the_round_in_all():
+    """Audit round 2, R2-B16 (R56): §9.3's 5.7 line and its corrected last paragraph (a stage-only bump sets no
+    notice), §20's R56 line and the batch line with the round in all, and the contract's 5.7 line."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    for words in ("- 5.7 (audit round 2, R2-B16: R56, §20): `CLASSIFICATION_VERSION = \"5.7\"`, and "
+                  "`ANALYSIS_STAGE_VERSION` 32 → 33 in the same commit",
+                  "Only a `CLASSIFICATION_VERSION` move sets `analysis_rules_outdated`",
+                  "a stage-only bump (B9 to B11, R2-B04 to R2-B07 above) sets no notice"):
+        assert words in versions, words
+    assert ("Each bump makes a re-upload recompute the analysis, keeps OCR cached, and sets "
+            "`analysis_rules_outdated` on older saved analyses") not in spec
+    for words in ("- **A 5.6 analysis gets the re-analyze notice, and its button recomputes it** (",
+                  "audit round 2, R2-B16: R56", "- **Audit round 2, R2-B16 in all** (", "**0 credits change**",
+                  "+$2,283,293.37", "−$1,564,569.67", "`true-revenue-6`"):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    assert "Audit round 2, R2-B16 (R56): classification 5.7 (`CLASSIFICATION_VERSION`), with " \
+           "`ANALYSIS_STAGE_VERSION` 33 in the same commit" in contract

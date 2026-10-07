@@ -687,7 +687,44 @@ OCR_STAGE_VERSION = 5
 # serve stored transactions without the field, so those credits would stay
 # counted. OCR stays cached. Pinned in the same change
 # (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 32
+# 32 -> 33: TRUE-REVENUE audit round 2, batch R2-B16 (R56), in the commit that
+# moves CLASSIFICATION_VERSION 5.6 -> 5.7 (the audit's fix batches B01 to B12,
+# round 2's R2-B01 to R2-B16 and the owner's rulings of 2026-10-02 and
+# 2026-10-06, R2-OW01 to R2-OW18 with R2-L01's ledger admission, moved tiers,
+# reasons and the review gate under 5.6). This bump is required with it:
+# Re-analyze reads the analysis cache through (`_CacheOnly` passes
+# `get_analysis` through), so with 5.7 alone it would return the stage-32
+# entry still stamped 5.6 and the re-analyze notice would survive its own
+# button; at 33 a re-analysis or a re-upload misses that entry and recomputes
+# the analysis stage from the cached reading. A shape change, not only a tier
+# move: the owner batches (their CR2) changed the stored payload without a
+# bump of their own, so a stage-32 entry lacks `Statement.account_title`
+# (R2-OW10, where the holder reader reads a title); the record fields
+# `revenue_funding_series` (R2-OW12, a list on every record),
+# `returned_funder_payment_by` and `returns_funder_payment` (R2-OW13) and
+# `potential_payee_key` (R2-OW18); the metrics' `non_revenue_by_reason`
+# (R2-OW03), `premium_trust_account` (R2-OW11) and
+# `returned_funder_payment_total`, `_count` and `_evidence` (R2-OW13, with the
+# new meaning of `withholding_numerator`); the detection's
+# `returned_funder_payments` and the funder matches' `returned_count`,
+# `returned_total` and `returned_payments` (R2-OW13) and
+# `lender_payment_changes` (R2-OW18); the account key `zelle_counted_reading`
+# (R2-OW17: the counted reading's edits, so a stage-32 entry is served as
+# analysed until it is recomputed); and the reason codes `zelle_excluded`
+# (R2-OW02), `government_no_purpose` (R2-OW03), `customer_financing_payout`
+# and `customer_financing_lump_sum` (R2-OW04), `lender_paid_for_services`
+# (R2-OW05), `construction_progress_draw` and `asset_sale_proceeds`
+# (R2-OW06), `insurer_paid_for_services` (R2-OW08), `finance_named_customer`
+# and `lessor_rent` (R2-OW09) and `premium_trust_account` (R2-OW11), beside
+# R2-B07's `unread_run_names_financing`. The withholding default `true_revenue`
+# (R2-OW14) changes the analysis settings key itself. The package's keys
+# (R2-OW11's premium trust, R2-OW13's returned totals, R2-OW15's matches and
+# R2-OW16's `own_account_transfer_matched` overlay, R2-OW18's payment changes)
+# and the served ones (R2-OW15's flag keys, R2-OW17's `zelle_deposits` and row
+# tag) are computed when served, from the stored analysis. Nothing between 32
+# and 33 was released. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 33
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

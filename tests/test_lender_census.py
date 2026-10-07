@@ -35,8 +35,9 @@ def test_a_snapshot_records_states_lenders_flags_and_withholding_per_account(tmp
     result = census.snapshot(census.cached_accounts(_cache(tmp_path)))
     # Re-pinned from 5.0 by the D6 clarification (2026-09-26), then from 5.1 by the second one (2026-09-27), then
     # from 5.2 by the 5.3 release (2026-09-27), then from 5.3 by the Idea Financial ruling (5.4, 2026-09-28).
-    # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers.
-    assert result["classification_version"] == "5.6"
+    # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers; 5.7: the audit's fix batches, round 2 and
+    # the owner's rulings (audit round 2, R2-B16: R56).
+    assert result["classification_version"] == "5.7"
     first =result["accounts"]["a" * 64 + ":0"]
     assert first["states"] == ["other", "confirmed_lender", "alternative_position"]
     assert first["lenders"] == [[1, "Fabricated Lender", "FABRICATED LENDER"]]

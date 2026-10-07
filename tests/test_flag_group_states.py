@@ -68,9 +68,13 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.6/30: audit round 2's holder-reader batch (R2-B05) has fourteen more parsers publish the holder's name.
     # 5.6/31: audit round 2's Navy Federal batch (R2-B06) reads a retail product's amount-first rows as printed.
     # 5.6/32: audit round 2's welded-run batch (R2-B07) stores the counted template's unread payer text on a credit.
-    assert CLASSIFICATION_VERSION == "5.6"
-    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.6"
-    assert ANALYSIS_STAGE_VERSION == 32
+    # 5.7/33: audit round 2's last batch (R2-B16, R56): the fix batches, round 2 and the owner's rulings of 2026-10-02
+    # and 2026-10-06 moved tiers, reasons and the gate under 5.6, and the owner batches' stored shape with them; the
+    # stage moves too, so Re-analyze misses a stage-32 entry still stamped 5.6.
+    assert CLASSIFICATION_VERSION == "5.7"
+    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.7"
+    assert classify_transaction("NORTHWIND INC PAYMENT", 100.00).classification_version == "5.7"
+    assert ANALYSIS_STAGE_VERSION == 33
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
