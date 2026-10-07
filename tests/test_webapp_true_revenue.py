@@ -848,19 +848,19 @@ def test_the_statement_downloads_list_every_posted_debit_on_its_own_row():
                                                 if section == "posted_credit")
     debits = [row for row in csv_rows if row[0] == "posted_debit"]
     assert debits[0] == ["posted_debit", "columns", "date", "description", "amount", "currency", "classification",
-                         "flagged_group", "canonical_entity", "review_required"]
+                         "flagged_group", "canonical_entity", "review_required", "returned_funder_payment"]
     assert debits[1:] == [
         ["posted_debit", "1", "2031-03-10", "FABRIKAM CAPITAL DES:ACH DEBIT ID:1", "-250.0", "USD", "confirmed_lender",
-         "", "FABRIKAM CAPITAL", "False"],
-        ["posted_debit", "2", "2031-03-11", "NORTHWIND NSF FEE", "-35.0", "USD", "nsf_or_return", "", "", "False"],
-        ["posted_debit", "3", "2031-03-13", "'=SAMPLE STORE PURCHASE", "-20.0", "USD", "other", "", "", "False"],
+         "", "FABRIKAM CAPITAL", "False", ""],
+        ["posted_debit", "2", "2031-03-11", "NORTHWIND NSF FEE", "-35.0", "USD", "nsf_or_return", "", "", "False", ""],
+        ["posted_debit", "3", "2031-03-13", "'=SAMPLE STORE PURCHASE", "-20.0", "USD", "other", "", "", "False", ""],
         ["posted_debit", "4", "2031-03-14", "AMERICAN EXPRESS ACH PMT", "-90.0", "USD", "credit_card_payment",
-         "credit_cards", "American Express [credit card payment]", "False"],
+         "credit_cards", "American Express [credit card payment]", "False", ""],
     ]
     # The XLSX writes the same block, the amount a number and the flag a boolean.
     sheet = [row for row in _sheet_rows(_analysis_xlsx(served)) if row[0] == "posted_debit"]
     assert sheet[1] == ["posted_debit", 1.0, "2031-03-10", "FABRIKAM CAPITAL DES:ACH DEBIT ID:1", -250.0, "USD",
-                        "confirmed_lender", "", "FABRIKAM CAPITAL", False]
+                        "confirmed_lender", "", "FABRIKAM CAPITAL", False, ""]
     assert sheet[3][3] == "'=SAMPLE STORE PURCHASE"
     # An unticked group leaves the flag column blank (its rows lose their flag on the served copy).
     unticked = _displayed(_forty_payload(), settings={"flag_credit_cards": False}, export=True)
@@ -871,6 +871,19 @@ def test_the_statement_downloads_list_every_posted_debit_on_its_own_row():
     blocks = [row for row in document_rows if row[0].endswith("posted_debit")]
     assert [(row[0], row[3]) for row in blocks if row[1] != "columns"] == [
         ("account_1.posted_debit", "NORTHWIND NSF FEE"), ("account_2.posted_debit", "AMERICAN EXPRESS ACH PMT")]
+
+
+def test_a_funder_payment_returned_unpaid_names_the_credit_that_returned_it():
+    """R53 with R2-OW13's column (the underwriter's Q5): a confirmed funder's payment the bank returned unpaid names the
+    returning credit's location; the funder's other payment, and the returning credit (no debit), do not."""
+    from webapp.app import _analysis_csv, _displayed
+
+    payload = _payload([(1, "FABRIKAM SUPPLY INC DES:PAYMENT ID:1", 10000.0), (2, "KAPITUS DES:PAYMENT ID:1", -850.0),
+                        (3, "KAPITUS RETURNED ACH ITEM 0001", 850.0), (5, "KAPITUS DES:PAYMENT ID:2", -850.0)])
+    debits = [row for row in _csv_cells(_analysis_csv(_displayed(payload, settings={}, export=True)))
+              if row[0] == "posted_debit" and row[1] != "columns"]
+    assert [(row[2], row[6], row[10]) for row in debits] == [("2031-03-02", "confirmed_lender", "transaction:3"),
+                                                              ("2031-03-05", "confirmed_lender", "")]
 
 
 def test_the_xlsx_cell_limit_counts_utf16_units_and_never_cuts():

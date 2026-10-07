@@ -678,10 +678,12 @@ def _posted_credit_table(analysis: dict) -> list[tuple]:
     return [("posted_credit", "columns", *_POSTED_CREDIT_COLUMNS), *rows]
 
 
-#: Audit round 2, R2-B16 (R53): the columns of the statement downloads' posted-debit table.
+#: Audit round 2, R2-B16 (R53): the columns of the statement downloads' posted-debit table; the last, a confirmed
+#: funder's payment the bank returned unpaid (the location of the credit that returned it, the record's
+#: `returned_funder_payment_by`; owner ruling 2026-10-02, the underwriter's Q5, R2-OW13's note to this batch).
 _POSTED_DEBIT_COLUMNS = (
     "date", "description", "amount", "currency", "classification", "flagged_group", "canonical_entity",
-    "review_required",
+    "review_required", "returned_funder_payment",
 )
 
 
@@ -689,10 +691,12 @@ def _posted_debit_table(analysis: dict) -> list[tuple]:
     """Audit round 2, R2-B16 (R53): one row per posted debit, the posted-credit table's twin, so the lender payments,
     the withholding and the NSFs read row by row (the ledger otherwise sits only in one JSON cell, over a spreadsheet's
     cell limit on most statements): a `columns` row, then `(posted_debit, n, date, description, amount (signed),
-    currency, classification, flagged group, entity, review required)`. The flag group is written only where Settings
-    shows it (`flag_shown`, analysis/flagged_view.py), so an unticked group never leaks; the other fields are the
-    record's as served. Every account of a document payload has its own block, under its section prefix. Written after
-    the credit table; its statement text reaches a file only through `_escaped_rows`."""
+    currency, classification, flagged group, entity, review required, returned funder payment)`. The flag group is
+    written only where Settings shows it (`flag_shown`, analysis/flagged_view.py), so an unticked group never leaks;
+    the other fields are the record's as served (the last, R2-OW13's `returned_funder_payment_by`: where a confirmed
+    funder's payment came back unpaid, the location of the credit that returned it). Every account of a document
+    payload has its own block, under its section prefix. Written after the credit table; its statement text reaches a
+    file only through `_escaped_rows`."""
     if is_document_payload(analysis):
         accounts = payload_accounts(analysis, surface="webapp/app.py::_posted_debit_table")
         return [
@@ -716,7 +720,8 @@ def _posted_debit_table(analysis: dict) -> list[tuple]:
         rows.append(("posted_debit", len(rows) + 1, transaction.get("date") or "",
                      transaction.get("description") or "", amount, currency, record.get("classification") or "",
                      (record.get("flagged_group") or "") if record.get("flag_shown") is True else "",
-                     record.get("canonical_entity") or "", review if isinstance(review, bool) else ""))
+                     record.get("canonical_entity") or "", review if isinstance(review, bool) else "",
+                     record.get("returned_funder_payment_by") or ""))
     if not rows:
         return []
     return [("posted_debit", "columns", *_POSTED_DEBIT_COLUMNS), *rows]
