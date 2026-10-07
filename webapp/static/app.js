@@ -1625,6 +1625,9 @@ function reviewAccountOf(tx, fallbackAccount = null) {
 function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
   const record = transactionClassification(tx);
   if (record.revenue_initial_classification !== "unverified_deposit") return null;
+  // Audit round 3, R3-B02 (R3-21; spec §10.7): a credit that returns a confirmed funder's payment is never confirmed,
+  // so it has no multi-select box: a bulk Confirm never carries it, and the all-or-nothing batch never refuses on it.
+  if (record.returns_funder_payment) return null;
   if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") return null;
   const jobId = tx.source_job || fallbackJobId;
   const sourceLocation = record.source_location;
@@ -1637,6 +1640,12 @@ function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
 // a credit left unverified is reviewed. R2-OW03 (the underwriter's Q3, "I can review"): "confirm" (Confirm Revenue only)
 // for a Zelle deposit the owner's policy excluded; the server refuses a reject on it, the row being non-revenue already.
 function revenueReviewKind(record) {
+  // Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment (rule D's pair) is the business's
+  // own payment coming back: the server refuses its Confirm, so a held or counted one shows Mark Non-Revenue only and a
+  // Zelle deposit the policy excluded, whose only control is Confirm, shows none.
+  if (record.returns_funder_payment) {
+    return record.revenue_initial_classification === "unverified_deposit" ? "reject" : "";
+  }
   if (record.revenue_initial_classification === "unverified_deposit") return "both";
   if (record.revenue_initial_classification === "verified_revenue" && typeof record.revenue_tier === "string") return "reject";
   if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
@@ -1744,7 +1753,13 @@ function returnedFunderNotes(tx, rows = []) {
   const debit = rows.find((row) => row && transactionClassification(row).source_location === location
     && (row.source_job ?? null) === (tx.source_job ?? null) && (row.source_account ?? null) === (tx.source_account ?? null));
   if (!debit) return [`Returns a confirmed funder's payment (${location})`];
-  return [`Returns the ${debit.date || "undated"} payment to ${transactionClassification(debit).canonical_entity || "a confirmed funder"}`];
+  const line = `Returns the ${debit.date || "undated"} payment to ${transactionClassification(debit).canonical_entity || "a confirmed funder"}`;
+  // Audit round 3, R3-B02 (R3-21): a credit a reviewer could otherwise confirm (left unverified, or a Zelle deposit the
+  // policy excluded) says why its Confirm is gone; a credit a non-revenue rule decided reads as before.
+  const reviewable = record.revenue_initial_classification === "unverified_deposit"
+    || (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
+      && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason));
+  return [reviewable ? `${line}: the business's own payment coming back, so it cannot be confirmed as revenue` : line];
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6; true revenue spec §10.6, §10.7; R2-OW15): what the package passes say on

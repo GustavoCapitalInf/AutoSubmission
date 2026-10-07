@@ -259,6 +259,12 @@ def _tiered(records: list[dict]) -> bool:
 _MIXED_TIERS = "every posted credit carries a revenue tier, or none does"
 _TIER_DISAGREES = "every posted credit's revenue state must agree with its tier"
 _ALREADY_VERIFIED = "a credit a rule verified can only be marked non-revenue"
+#: Audit round 3, R3-B02 (R3-21; true revenue spec §10.7, §17.1; the owner's ruling of 2026-10-02 on the underwriter's
+#: Q5, "Revenue is unaffected (the return credit is non-revenue as today)"): a confirm on a credit rule D matched to a
+#: confirmed funder's payment (`returns_funder_payment`, R2-OW13) is refused; Mark Non-Revenue and Reset stay. Nothing
+#: re-reads pass 7b after a review, so a Confirm would count the business's own payment coming back as Verified revenue
+#: while its payment stays out of paid to lenders as a bounce.
+_RETURNS_FUNDER_PAYMENT = "a credit that returns a confirmed funder's payment can only be marked non-revenue"
 
 
 def _rebuild_account_revenue_views(analysis: dict) -> dict:
@@ -583,6 +589,10 @@ def record_serialized_revenue_review(
         raise ValueError("only automatically unverified deposits can be reviewed")
     if decision == "confirm" and initial_state == "verified_revenue":
         raise ValueError(_ALREADY_VERIFIED)
+    # Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment is never confirmed as revenue.
+    # A record stored before R2-OW13 carries no key and is reviewed as before.
+    if decision == "confirm" and record.get("returns_funder_payment"):
+        raise ValueError(_RETURNS_FUNDER_PAYMENT)
 
     if decision == "confirm":
         state: RevenueState = "verified_revenue"

@@ -2041,6 +2041,40 @@ console.log(JSON.stringify({audit: [withholdingAuditNote(metrics, 'USD'), withho
 
 
 @needs_node
+def test_r3_21_a_matched_held_return_shows_mark_non_revenue_only_and_says_why():
+    """Audit round 3, R3-B02 (R3-21; spec §10.6, §10.7): a held credit that returns a confirmed funder's payment
+    (`returns_funder_payment`) shows Mark Non-Revenue only, no multi-select box, and its note says why it cannot be
+    confirmed; a held credit with no such key keeps both buttons and its box; a Zelle deposit the policy excluded that
+    rule D matched shows no control (the server refuses its only one); a rule-decided matched return reads as before."""
+    debit = {"date": "2054-03-03", "description": "KAPITUS", "amount": -850.0, "source_job": "j",
+             "classification": {"classification": "confirmed_lender", "canonical_entity": "KAPITUS",
+                                "source_location": "transaction:3", "returned_funder_payment_by": "transaction:5"}}
+    held = _record("excluded_pending_review", reason="possible_return", status="pending")
+    held["classification"].update(source_location="transaction:5", returns_funder_payment="transaction:3")
+    plain = _record("excluded_pending_review", reason="possible_return", status="pending")
+    plain["classification"]["source_location"] = "transaction:6"
+    zelle = _record("non_revenue", reason="zelle_excluded")
+    zelle["classification"].update(source_location="transaction:7", returns_funder_payment="transaction:3")
+    ruled = _record("non_revenue")
+    ruled["classification"].update(source_location="transaction:8", returns_funder_payment="transaction:3")
+    rows = [debit, held, plain, zelle, ruled]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{controls: rows.slice(1).map((tx) => actions(revenueReviewControls(tx))),
+  kinds: rows.slice(1).map((tx) => revenueReviewKind(tx.classification)),
+  pickable: rows.slice(1).map((tx) => pendingReviewTarget(tx) !== null),
+  notes: rows.slice(1).map((tx) => returnedFunderNotes(tx, rows))}}));
+""")
+    assert result["controls"] == [["reject"], ["confirm", "reject"], [], []]
+    assert result["kinds"] == ["reject", "both", "", ""]
+    assert result["pickable"] == [False, True, False, False]
+    why = ("Returns the 2054-03-03 payment to KAPITUS: the business's own payment coming back, so it cannot be "
+           "confirmed as revenue")
+    assert result["notes"] == [[why], [], [why], ["Returns the 2054-03-03 payment to KAPITUS"]]
+
+
+@needs_node
 def test_a_package_warns_each_returned_payment_in_its_own_unit(tmp_path, monkeypatch):
     from tests.test_returned_funder_payments import NAMED_RETURN, t1_payload, t4_payload
 

@@ -299,6 +299,35 @@ def test_a_rule_verified_row_awaits_only_a_reject_on_replay():
     assert (ruled.replayed, ruled.not_replayed, ruled.decided_by_rules) == ((), (), (8,))
 
 
+def test_r3_21_the_review_routes_refuse_a_confirm_of_a_matched_return_with_the_declared_words():
+    """Audit round 3, R3-B02 (R3-21): a held return credit rule D matched to a confirmed funder's payment (Citibank's
+    'ACH DR RETURN' a day after a KAPITUS payment) refuses Confirm on the single route and in a batch, all or nothing;
+    the same batch without it is saved (tests/test_returned_funder_payments.py's fabricated statement)."""
+    from tests.test_returned_funder_payments import RETURNS_FUNDER_PAYMENT_REFUSAL, r3_21_payload
+    from webapp.app import app, store
+
+    payload = r3_21_payload(extra=[(3, "MOBILE DEPOSIT", 300.0)])
+    rows = {row["classification"]["source_location"]: row["classification"]
+            for row in payload["statement"]["transactions"]}
+    held = next(location for location, record in rows.items() if record.get("returns_funder_payment"))
+    counted = next(location for location, record in rows.items() if record.get("revenue_tier") == "counted_flagged")
+    job = store.create("r3-21.pdf")
+    store.set_result(job.id, "# Fabricated", "<p>Fabricated</p>", analysis=payload)
+    client = app.test_client()
+    stored = json.dumps(store.get(job.id).analysis, sort_keys=True)
+    single = client.post(f"/analysis/{job.id}/revenue-review", json={"source_location": held, "decision": "confirm"})
+    assert single.status_code == 400 and single.get_json()["error"] == RETURNS_FUNDER_PAYMENT_REFUSAL
+    batch = client.post(f"/analysis/{job.id}/revenue-reviews", json={"decisions": [
+        {"source_location": counted, "decision": "confirm"}, {"source_location": held, "decision": "confirm"}]})
+    assert batch.status_code == 400 and batch.get_json()["error"] == RETURNS_FUNDER_PAYMENT_REFUSAL
+    assert json.dumps(store.get(job.id).analysis, sort_keys=True) == stored  # nothing saved
+    alone = client.post(f"/analysis/{job.id}/revenue-reviews",
+                        json={"decisions": [{"source_location": counted, "decision": "confirm"}]})
+    assert alone.status_code == 200
+    marked = client.post(f"/analysis/{job.id}/revenue-review", json={"source_location": held, "decision": "reject"})
+    assert marked.status_code == 200
+
+
 # --- The S5 service review (fix round 1) ---
 
 

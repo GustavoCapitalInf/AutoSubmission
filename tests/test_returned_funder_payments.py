@@ -570,3 +570,104 @@ def test_the_batch_csv_and_the_cli_name_the_returned_payments():
     text = _render(report.accounts[0])
     assert "  Returned funder payments: 1 row(s), $850.00 (kept in withholding)" in text
     assert "    - KAPITUS: 2 txns, 1 returned unpaid, $1,700.00 debited (alias 'KAPITUS')" in text
+
+
+# ---------------------------------------------------------------------------------------------- audit round 3, R3-B02
+# R3-21 (the owner's Q5 ruling: "Revenue is unaffected (the return credit is non-revenue as today)"; the MCA principle:
+# the business's own payment coming back is never revenue; the brief's default (a), refuse Confirm): a held return
+# credit rule D matched to a confirmed funder's payment cannot be confirmed as revenue. Mark Non-Revenue and Reset stay.
+
+#: The refusal, word for word as analysis/revenue.py, webapp/app.py and the privacy table hold it.
+RETURNS_FUNDER_PAYMENT_REFUSAL = "a credit that returns a confirmed funder's payment can only be marked non-revenue"
+#: Citibank's 'ACH DR RETURN' (held as possible_return) a day after the second of three weekly KAPITUS payments.
+R3_21_ROWS = [(1, SALE, 20000.0), (2, KAPITUS, -850.0), (9, KAPITUS, -850.0), (10, "ACH DR RETURN", 850.0),
+              (16, KAPITUS, -850.0)]
+
+
+def r3_21_payload(extra=()):
+    return returned_payload(sorted([*R3_21_ROWS, *extra], key=lambda row: row[0]), bank="Citibank",
+                            account="000000005050")
+
+
+def _row_of(payload, location):
+    return next(row["classification"] for row in _account(payload)["statement"]["transactions"]
+                if row["classification"]["source_location"] == location)
+
+
+def _figures(payload):
+    metrics = _account(payload)["metrics"]
+    return (metrics["true_revenue_total"], metrics["lender_debits"], metrics["returned_funder_payment_total"],
+            metrics["withholding_numerator"])
+
+
+def test_r3_21_a_matched_held_return_refuses_confirm_and_keeps_reject_and_reset():
+    from analysis.revenue import apply_serialized_revenue_review
+
+    payload = r3_21_payload()
+    credit = _row_of(payload, "transaction:4")
+    assert (credit["revenue_tier"], credit["revenue_tier_reason"], credit["returns_funder_payment"]) == (
+        "excluded_pending_review", "possible_return", "transaction:3")
+    assert _figures(payload) == (20000.0, 1700.0, 850.0, 2550.0)
+    before = copy.deepcopy(payload)
+    with pytest.raises(ValueError) as refused:
+        apply_serialized_revenue_review(payload, source_location="transaction:4", decision="confirm")
+    assert str(refused.value) == RETURNS_FUNDER_PAYMENT_REFUSAL
+    assert payload == before  # every check comes before the first write
+    apply_serialized_revenue_review(payload, source_location="transaction:4", decision="reject")
+    rejected = _row_of(payload, "transaction:4")
+    assert (rejected["revenue_tier"], rejected["revenue_review_status"]) == ("non_revenue", "rejected")
+    assert _figures(payload) == (20000.0, 1700.0, 850.0, 2550.0)
+    assert _row_of(payload, "transaction:3")["returned_funder_payment_by"] == "transaction:4"
+    apply_serialized_revenue_review(payload, source_location="transaction:4", decision="reset")
+    reset = _row_of(payload, "transaction:4")
+    assert (reset["revenue_tier"], reset["revenue_tier_reason"], reset["revenue_review_status"]) == (
+        "excluded_pending_review", "possible_return", "pending")
+
+
+def test_r3_21_a_record_stored_before_r2_ow13_carries_no_key_and_confirms_as_before():
+    from analysis.revenue import apply_serialized_revenue_review
+
+    payload = r3_21_payload()
+    _row_of(payload, "transaction:4").pop("returns_funder_payment")
+    apply_serialized_revenue_review(payload, source_location="transaction:4", decision="confirm")
+    assert _row_of(payload, "transaction:4")["revenue_tier"] == "verified"
+
+
+def test_r3_21_a_stored_confirm_is_decided_by_the_rules_on_replay():
+    from webapp.reanalysis import _awaits_review, replay_reviews
+
+    stored = r3_21_payload()
+    credit = _row_of(stored, "transaction:4")
+    assert not _awaits_review(credit, "confirm")
+    assert _awaits_review(credit, "reject") and _awaits_review(credit, "reset")
+    history = [{"id": 21, "source_location": "transaction:4", "decision": "confirm", "prior_state": json.dumps(credit),
+                "decided_at": "2054-04-01T00:00:00+00:00"}]
+    replay = replay_reviews(r3_21_payload(), history)
+    assert (replay.replayed, replay.not_replayed, replay.decided_by_rules) == ((), (), (21,))
+    held = _row_of(replay.analysis, "transaction:4")
+    assert (held["revenue_tier"], held["revenue_review_status"]) == ("excluded_pending_review", "pending")
+
+
+def test_r3_21_a_confirm_shown_under_yes_leaves_the_no_reading_at_its_analysis_state():
+    """The Zelle readings (R2-OW17): the No reading excludes a bounce-worded Zelle credit and rule D pairs it there; the
+    Yes reading counts it unpaired. A confirm shown under Yes applies in Yes; the No reading refuses it and returns to its
+    analysis state (`with_both_readings` step 3). A confirm shown under No is refused."""
+    from analysis import zelle_view
+    from tests import zelle_setting_fixtures as fx
+
+    stored = fx.case("Z5")
+    location = fx.row(stored, fx.BOUNCE)["classification"]["source_location"]
+    no, yes, carrying = zelle_view.split_readings(copy.deepcopy(stored))
+    assert carrying
+    assert fx.row(no, fx.BOUNCE)["classification"]["returns_funder_payment"]
+    assert not fx.row(yes, fx.BOUNCE)["classification"].get("returns_funder_payment")
+    updated = zelle_view.with_both_readings(copy.deepcopy(stored), shown=True,
+                                            decisions=[(location, "confirm", None)])
+    no, yes, _carrying = zelle_view.split_readings(updated)
+    counted, excluded = fx.row(yes, fx.BOUNCE)["classification"], fx.row(no, fx.BOUNCE)["classification"]
+    assert (counted["revenue_tier"], counted["revenue_review_status"]) == ("verified", "confirmed")
+    assert (excluded["revenue_tier"], excluded["revenue_tier_reason"], excluded["revenue_review_status"]) == (
+        "non_revenue", "zelle_excluded", "not_required")
+    with pytest.raises(ValueError) as refused:
+        zelle_view.with_both_readings(copy.deepcopy(stored), shown=False, decisions=[(location, "confirm", None)])
+    assert str(refused.value) == RETURNS_FUNDER_PAYMENT_REFUSAL

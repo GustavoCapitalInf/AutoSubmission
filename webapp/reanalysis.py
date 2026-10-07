@@ -159,7 +159,12 @@ def _awaits_review(record: Mapping, decision: object) -> bool:
     decided, does not await review: the review writer would refuse it (analysis/revenue.py), so it is reported as
     decided by the rules, never as needing redoing. R2-OW03 (the underwriter's Q3): a Zelle deposit the owner's policy
     excluded (REVIEWABLE_NON_REVENUE_REASONS) awaits a confirm only, so a stored confirm is replayed and a stored
-    reject, which the writer refuses on a row already non-revenue, is reported as decided by the rules."""
+    reject, which the writer refuses on a row already non-revenue, is reported as decided by the rules. Audit round 3,
+    R3-B02 (R3-21): a confirm on a credit that returns a confirmed funder's payment (`returns_funder_payment`, rule D's
+    pair) does not await review, as a confirm on a rule-verified row does not: the writer refuses it, so a stored one
+    is reported as decided by the rules, never as needing redoing."""
+    if decision == "confirm" and record.get("returns_funder_payment"):
+        return False
     initial = record.get("revenue_initial_classification")
     initial = LEGACY_REVENUE_STATE_MAP.get(initial, initial)
     if initial == "unverified_deposit":

@@ -4856,6 +4856,8 @@ _DECLARED_REVIEW_REFUSALS: tuple[str, ...] = (
     "a credit a rule verified can only be marked non-revenue",
     "every posted credit's revenue state must agree with its tier",
     "every posted credit carries a revenue tier, or none does",
+    # Audit round 3, R3-B02 (R3-21; spec §10.7): a confirm on a credit that returns a confirmed funder's payment.
+    "a credit that returns a confirmed funder's payment can only be marked non-revenue",
 )
 
 
