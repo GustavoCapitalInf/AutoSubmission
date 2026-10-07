@@ -249,7 +249,8 @@ example when the captured credits fall short of the bank's printed total), no
 withholding rate is published over it and the statement and its package go to
 review (a decision that read Approved reads Review required). The withholding numerator is the confirmed lender debits paid plus the
 funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
-"paid to lenders" but stays in the rate. Zelle deposits follow the Settings
+"paid to lenders" but stays in the rate, until the same funder re-presents it (the same amount off its cycle) or
+catches it up 2x, when the re-debit counts it once (the owner's answer of 2026-10-07, "Count it once"). Zelle deposits follow the Settings
 choice "Mark Zelle Payments as True Revenue" (the owner's amendment of
 2026-10-06 to the underwriter's Q3): Yes, the default, counts them in True
 revenue as the rules read a person-to-person credit (the holder's own name and

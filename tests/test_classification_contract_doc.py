@@ -170,6 +170,8 @@ PASS_CALLS = (
     ("apply_true_revenue_pass(", "true-revenue pass (pass 7)"),
     # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13: the returned funder payments, after pass 7.
     ("_apply_returned_funder_payments(", "returned funder payments (pass 7b"),
+    # The owner's answer of 2026-10-07 to audit round 3's R3-73 (R3-B02): the re-presented returned payments.
+    ("_apply_represented_funder_payments(", "re-presented returned payments (pass 7c"),
 )
 
 
@@ -344,6 +346,12 @@ SECTION_19_1_DECISIONS = (
     # The owner's request of 2026-10-06 (lender payment changes), R2-OW18.
     ('**2026-10-06, lender payment changes (the owner\'s request).**', (
         'decrease', 'increase', 'stop', 'weekly equivalent', 'information only',
+    )),
+    # Audit round 3, R3-B02: the owner's answer of 2026-10-07 to R3-73.
+    ('**2026-10-07, a returned funder payment its funder re-presents (audit round 3, R3-73; extends Q5 of '
+     '2026-10-02).**', (
+        '"Count it once (Recommended)"', 'off its cycle', 'exact 2x catch-up', 're-presented on <date>',
+        '`returned_funder_represented`', 'R3-B02',
     )),
 )
 
@@ -854,7 +862,8 @@ def test_the_spec_and_the_contract_state_the_funding_aid():
             "(D6 and the financing-keyword groups, debits only); the labels for unnamed potential payees; reversal "
             "pairs; operating-source context (pass 5, with its auction and property-management branches); the "
             "accounts-payable counter-debit guard (pass 6); the true-revenue pass (pass 7), which tiers every posted "
-            "credit; the returned funder payments (pass 7b, the lender side only); duplicate finalisation.") in contract
+            "credit; the returned funder payments (pass 7b, the lender side only); the re-presented returned payments "
+            "(pass 7c, the lender side only); duplicate finalisation.") in contract
 
 
 #: R2-OW13's code commit, which §20 and the contract's note name.
@@ -914,9 +923,11 @@ def test_the_spec_and_the_contract_state_the_returned_funder_payments():
             "(D6 and the financing-keyword groups, debits only); the labels for unnamed potential payees; reversal "
             "pairs; operating-source context (pass 5, with its auction and property-management branches); the "
             "accounts-payable counter-debit guard (pass 6); the true-revenue pass (pass 7), which tiers every posted "
-            "credit; the returned funder payments (pass 7b, the lender side only); duplicate finalisation.") in contract
+            "credit; the returned funder payments (pass 7b, the lender side only); the re-presented returned payments "
+            "(pass 7c, the lender side only); duplicate finalisation.") in contract
     for words in ("Between pass 7 and the duplicate finalisation the returned funder payments pass (pass 7b, R2-OW13) "
-                  "reads the lender side only.",
+                  "and the re-presented returned payments pass (pass 7c, audit round 3, R3-B02: the owner's answer of "
+                  "2026-10-07 to R3-73) read the lender side only.",
                   "settlement-reversed debits, a confirmed funder's payment returned unpaid (R2-OW13) and credits that "
                   "the reversal pass pairs clear it"):
         assert words in contract, words
@@ -1387,7 +1398,8 @@ def test_the_spec_and_the_contract_record_the_final_review_s_returned_funder_pay
     spec = SPEC.read_text(encoding="utf-8")
     sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
     for words in ("The final review of round 2, F2(a) (§20): a confirmed funder's paid payment is no lender-side",
-                  "`_returns_a_later_funder_payment`",
+                  # Audit round 3, R3-B02 (R3-71): renamed, since a potential lender's payment looks back too.
+                  "`_returns_a_later_lender_payment`",
                   "4. **Returned funder payments across statements** (the final review of round 2, F2(b)",
                   "`returned_funder_redirects`", "`cross_statement: true`",
                   "a return is matched only to a payment dated on or before it"):

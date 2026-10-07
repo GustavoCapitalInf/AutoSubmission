@@ -220,10 +220,14 @@ row out) with the auction and property branches, the payer-remittance
 counter-debit guard (pass 6), and the true-revenue pass (pass 7,
 `analysis/true_revenue.py`), which tiers every posted credit, then the funding
 aid, before duplicate finalisation. Between pass 7 and the duplicate
-finalisation the returned funder payments pass (pass 7b, R2-OW13) reads the
-lender side only. A `non_revenue` credit stays `non_revenue` except where a
-rule narrows a non-revenue pattern (spec §6.3); a held credit enters True
-revenue only when an analyst confirms it.
+finalisation the returned funder payments pass (pass 7b, R2-OW13) and the
+re-presented returned payments pass (pass 7c, audit round 3, R3-B02: the
+owner's answer of 2026-10-07 to R3-73) read the lender side only. A
+`non_revenue` credit stays `non_revenue` except where a rule narrows a
+non-revenue pattern (spec §6.3); a held credit enters True revenue only when an
+analyst confirms it, and a credit that returns a confirmed funder's payment
+(`returns_funder_payment`) never does: its Confirm is refused (audit round 3,
+R3-B02: R3-21).
 
 **Holds.** The true-revenue pass holds a credit (tier
 `excluded_pending_review`) in this order: insurer payer, insurer-named payer,
@@ -309,7 +313,9 @@ following the deposit"), each held wire with no sender printed
 (`wire_no_sender`) carries the record field `revenue_funding_series`, a tuple
 of `FundingSeries`: every Lenders or Potential Lenders series (one tab name,
 the potential payee label or the canonical entity, and one amount to the cent;
-posted, not a duplicate, counting toward the lender or potential-lender count)
+posted, not a duplicate, counting toward the lender or potential-lender count;
+since audit round 3, R3-B02 (R3-66), a series with an attempt, paid or
+settlement-reversed, dated on or before the deposit's day is none)
 whose every payment is dated after the deposit's day, the first at most 10 days
 after it, on two or more dates `_promotion_cadence` reads daily or weekly, with
 whether the statement shows one full gap of the series, at least 3 days, before
@@ -504,6 +510,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - The final review of round 2, F2 (4cab9ef): a confirmed funder's paid payment pairs on the lender side (classification 5.4's named pair, R2-OW13's restore and its warning) only with a return dated on or after it, printed after it where a row prints no date; the package's pass 4 matches a member's unpaired bounce-worded return (rule D's reading and guards, with two departures from rule D named in the review round below) to the same account's preceding statement's confirmed funder payment 0 to 7 days before it, out of the package's paid to lenders, in its withholding numerator and lender count, with the warning naming both documents; each statement viewed alone is unchanged; G7 declares the moves of a return whose pairing moved (`returned_funder_redirects`) (true revenue spec §6.2, §9.2, §10.1, §10.6, §11, §14.3, §17.1, §20).
 - The final review of round 2, review round 1 of its fix run (1dd3b64, 7b7fb1e, 2d81a43, 80e3d4b): a statement whose withholding basis is not established goes to review (its decision and the summary read review required where they would pass; a decision that already reads a review keeps its words) and so does its package; G7's snapshot records every row's date (`row_dates`) and declares a redirected return only where the dates show a payment dated after its return, and any payment returned in its place on or before it; R2-OW18's package payment changes read pass 4's matched payment as a returned attempt; pass 4's two departures from rule D (a lender credit naming the matched payment's funder is read; only a revenue partner dated on or before the credit holds it back) are named for ratification (true revenue spec §6.2, §9.2, §10.1, §11, §14.3, §17.1, §20).
 - Audit round 3, R3-B01 (R3-22, R3-80, R3-26, R3-50; eba9664, e613e34, f579eae, 3c2a50d): G7's exit code alone carries its verdict (a returned row leaving the withholding rows, a paid row leaving for no return, a lost lender or a lender-count loss outside the allowlist, and `lender_debits` or the numerator moving with no row move each fail); on a debit, a bank's stop-payment, OD item, returned-item or unpaid-item charge printed with CHARGE or CHG, and a bare stop-payment row, is a charge before the registry, never the payment of the funder it names (steps 1 and 4 below); the ledger reads ODKRAOD as an OnDeck spelling (the orchestrator's sign-off under the owner's delegation, ONDECK allowlisted in G7 for exactly that move); and the Liberis notes call LIBERIS the company's name and also a rare surname and record the receiver residual for the owner (true revenue spec §14.3, §17.1, §20).
+- Audit round 3, R3-B02 (R3-69, R3-71, R3-66, R3-21, R3-73; d32514f, f9b4be7, fe459a9, ecc4ebb, 2a17aac): a potential lender's return pairs on the lender side only with its payment on or before it, as a confirmed funder's does (`_returns_a_later_lender_payment`; every other debit keeps classification 5.4's pair); a lender series with an attempt, paid or settlement-reversed, on or before a held no-sender wire's day is no funding aid of that wire; a confirm on a credit that returns a confirmed funder's payment is refused ("a credit that returns a confirmed funder's payment can only be marked non-revenue"; Mark Non-Revenue and Reset stay); and, by the owner's answer of 2026-10-07 ("Count it once (Recommended)"), a returned funder payment the same funder re-debits (the same cents off its cycle, or an exact 2x catch-up, within one cadence gap after the return) leaves the withholding rate, `represented_by` naming the re-debit (pass 7c, and the package's pass 5 across a member boundary; G7 declares it as `returned_funder_represented`) (true revenue spec §6.2, §8.5, §9, §10.1, §10.6, §10.7, §11, §14.3, §17.1, §19.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -521,6 +528,15 @@ same way, without a `reversed_by`. Since the final review of round 2 (F2), such
 a payment pairs only with a return dated on or after it (a return printed at a
 month's start never takes a later payment), and a package matches a return
 whose payment sits in the previous statement of the account (its pass 4).
+Since audit round 3, R3-B02 (R3-71), so does a potential lender's counted
+payment: its return zeroes the payment on or before it, or none, never a later
+one; every other debit keeps classification 5.4's nearest pair either way. And
+since the owner's answer of 2026-10-07 to R3-73 ("Count it once"), a returned
+payment the same funder re-debits (the same cents off its cycle, or an exact 2x
+catch-up, dated on or after the return and within one cadence gap after it)
+leaves the withholding rate, `represented_by` naming the re-debit (pass 7c, and
+the package's pass 5 across a member boundary); paid to lenders and the lender
+count do not move.
 
 Classification is applied in this order; the first match wins:
 
@@ -658,10 +674,12 @@ only); the labels for unnamed potential payees; reversal pairs;
 operating-source context (pass 5, with its auction and property-management
 branches); the accounts-payable counter-debit guard (pass 6); the true-revenue
 pass (pass 7), which tiers every posted credit; the returned funder payments
-(pass 7b, the lender side only); duplicate finalisation. The
+(pass 7b, the lender side only); the re-presented returned payments (pass 7c,
+the lender side only); duplicate finalisation. The
 true revenue spec numbers them in its section 6.2, and audit fix batch B12
 (I62) added the last three before pass 7b here; the owner's ruling of
-2026-10-02 (the underwriter's Q5, R2-OW13) added pass 7b. Recurrence promotes to
+2026-10-02 (the underwriter's Q5, R2-OW13) added pass 7b, and the owner's
+answer of 2026-10-07 to audit round 3's R3-73 (R3-B02) pass 7c. Recurrence promotes to
 `potential_lender`, review only, two kinds of same-amount debit groups on at
 least three different dates on a daily or weekly cadence (several rows on one
 date count as one): financing-keyword rows of one payee
