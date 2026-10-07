@@ -3059,6 +3059,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # True revenue final review M10 (§11): a member whose True or Verified figure is not established adds a partial
     # figure to that mode's denominator, so the package publishes no rate on it.
     partial_revenue_denominator = False
+    # The final review of round 2, F1 (review round 1 of its fix run; §9.2): a member row marked as publishing no rate.
+    any_member_basis_unestablished = False
     any_member_gated = False
     #: (group key, payee) -> the running roll-up of the ticked flag groups (lender detection §8.3).
     flagged_rollup: dict[tuple[str, str], dict] = {}
@@ -3964,9 +3966,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # today's payloads carries neither key and is byte-identical.
             doc_row["account_index"] = account_index
             doc_row["account_count"] = account_count
-        # The final review of round 2, F1 (§9.2): the member's withholding basis is not established, only where it is.
+        # The final review of round 2, F1 (§9.2): the member's withholding basis is not established, only where it is;
+        # the package goes to review (review round 1 of the fix run).
         if member_basis_unestablished:
             doc_row[WITHHOLDING_BASIS_UNESTABLISHED] = True
+            any_member_basis_unestablished = True
         # R2-OW17: the member's Zelle figures, where its served copy carries them (the Monthly cell reads them).
         if member_zelle is not None:
             doc_row[ZELLE_DEPOSITS_KEY] = deepcopy(member_zelle)
@@ -4245,6 +4249,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         or totals["manual_review"]
         or potential_withholding_review_required
         or totals["revenue_review_required"]
+        # The final review of round 2, F1 (review round 1 of its fix run; §9.2, §11): a member whose withholding basis
+        # is not established, or the package's own partial basis (M10), publishes no rate, so the package needs an
+        # analyst, as each such statement viewed alone does. The legacy basis sets neither.
+        or any_member_basis_unestablished
+        or partial_revenue_denominator
         or totals["has_duplicate_documents"]
         # Audit round 2, R2-B14 (R14): two statements of one account that share credits in the days both cover.
         or overlapping_statements

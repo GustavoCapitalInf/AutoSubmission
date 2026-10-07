@@ -297,3 +297,140 @@ console.log(JSON.stringify({row, legacy}));
 """)
     assert "<td>N/A</td>" in result["row"]
     assert "1.50%" in result["legacy"] and "$30,000.00 withholding basis" in result["legacy"]
+
+
+# ---------------------------------------------------------------- the review decision (the fix run's review round 1)
+# The ruling sends a statement whose basis is not established to review. A statement whose ledger does not reconcile is
+# already `manual_review_required`, and one with potential lender debits (the statement above) already reads review, so
+# the shape that shows the decision is a reconciled ledger whose captured credits are not the bank's Total.
+
+FABRIKAM_DEBIT = "FABRIKAM SUPPLY ACH DEBIT 0001"
+FABRIKAM_REVERSAL = "FABRIKAM SUPPLY ACH REVERSAL 0001"
+
+
+def _reconciled_report(*, month=3, totals_count_the_pair=False):
+    """One month of CONTOSO BAKERY LLC whose ledger reconciles: three NORTHWIND payments of 10,000, four KAPITUS
+    payments of 850, and a FABRIKAM SUPPLY debit of 300 reversed two days later. The bank's summary prints credits
+    30,000 and debits 3,400 (its Totals leave the reversed pair out), so the ledger reconciles (`reconciliation.ok`, the
+    quality approved) while the captured credits (30,300) are not the Total: the revenue is not established. With
+    `totals_count_the_pair` the Totals count the pair (30,300 and 3,700) and the revenue is established. No potential
+    lender and no held credit, so no other review gate fires."""
+    from analysis import pipeline
+    from analysis.config import load_settings
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+
+    rows = [(2, SALE.format(n=1), 10000.0), (9, SALE.format(n=2), 10000.0), (16, SALE.format(n=3), 10000.0)]
+    rows += [(day, KAPITUS, -850.0) for day in (6, 13, 20, 27)]
+    rows += [(19, FABRIKAM_DEBIT, -300.0), (21, FABRIKAM_REVERSAL, 300.0)]
+    rows.sort(key=lambda row: row[0])
+    balance, transactions = 5000.0, []
+    for day, text, amount in rows:
+        balance = round(balance + amount, 2)
+        transactions.append(Transaction(date=f"2031-{month:02d}-{day:02d}", description=text, amount=amount,
+                                        direction="credit" if amount > 0 else "debit", running_balance=balance))
+    pair = 300.0 if totals_count_the_pair else 0.0
+    statement = Statement(
+        bank="Sample Bank", account_name="CONTOSO BAKERY LLC", account_number="000000001010",
+        period_start=f"2031-{month:02d}-01", period_end=f"2031-{month:02d}-28", beginning_balance=5000.0,
+        ending_balance=balance, currency="USD", currency_source="printed", stated_total_credits=30000.0 + pair,
+        stated_total_debits=3400.0 + pair, transactions=transactions,
+    )
+    return pipeline._account_report(
+        statement, reconcile(statement), dispatch=None, settings=load_settings(), markdown="", source_markdown="",
+        sheets=[], repair_failure=None, model_used="fabricated-test", escalated=False,
+    )
+
+
+def _reconciled_stored(monkeypatch, mode, **kwargs):
+    from analysis.pipeline import DocumentReport
+    from analysis.serialization import document_report_to_dict
+
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", mode)
+    return document_report_to_dict(DocumentReport(accounts=[_reconciled_report(**kwargs)]))
+
+
+@pytest.mark.parametrize("mode", ["true_revenue", "verified_revenue"])
+def test_f1_r1_a_reconciled_statement_whose_basis_is_not_established_sends_its_package_to_review(monkeypatch, mode):
+    stored = _reconciled_stored(monkeypatch, mode)
+    served = _served(stored)
+    metrics = served["metrics"]
+    # The shape: the ledger reconciles and nothing else gates.
+    assert stored["reconciliation"]["ok"] is True and served["quality"]["corporate_use"] == "approved"
+    assert metrics["deposits_source"] == "bank_stated_reconciled"
+    assert (metrics["total_deposits"], metrics["effective_total_deposits"]) == (30300.0, 30000.0)
+    assert metrics["revenue_established"] is False and metrics["revenue_review_required"] is False
+    assert metrics["potential_lender_debit_total"] == 0.0 and metrics["potential_withholding_review_required"] is False
+    assert metrics["withholding_basis_unestablished"] is True and metrics["withholding_rate"] is None
+    # Its package goes to review, as the statement does (the dashboard test below).
+    package = _package(("mar", stored))
+    assert package["totals"]["decision"] == "review_required"
+    assert package["totals"]["package_withholding_rate"] is None
+    # The control: the Totals count the pair, the revenue is established and the package is approved.
+    control = _reconciled_stored(monkeypatch, mode, month=4, totals_count_the_pair=True)
+    assert "withholding_basis_unestablished" not in _served(control)["metrics"]
+    assert _package(("apr", control))["totals"]["decision"] == "approved"
+    # Beside that established member, the package still goes to review.
+    both = _package(("mar", stored), ("apr", control))
+    assert both["totals"]["decision"] == "review_required"
+    assert {row["id"]: row.get("withholding_basis_unestablished") for row in both["documents"]} == {
+        "mar": True, "apr": None}
+
+
+def test_f1_r1_the_legacy_basis_keeps_the_decision(monkeypatch):
+    stored = _reconciled_stored(monkeypatch, "legacy_eligible_deposits")
+    served = _served(stored)
+    assert served["metrics"]["revenue_established"] is False
+    assert "withholding_basis_unestablished" not in served["metrics"]
+    package = _package(("mar", stored))
+    assert package["totals"]["decision"] == "approved"
+    # The legacy basis is the bank's own Total (less lender funding), established whatever the capture.
+    assert package["totals"]["package_withholding_rate"] == pytest.approx(3400.0 / 30000.0 * 100, abs=0.01)
+
+
+@needs_node
+@pytest.mark.parametrize("mode, decision", [("true_revenue", "Review required"), ("verified_revenue", "Review required"),
+                                            ("legacy_eligible_deposits", "Approved")])
+def test_f1_r1_the_dashboard_s_statement_decisions_read_review(monkeypatch, mode, decision):
+    """The statement's pill, its decision as accountDecision returns it (the Recent list's dot reads it too), the
+    statement window's subtitle, the summary an analyst copies, and the package's pill."""
+    from tests.test_webapp_true_revenue_ui import _open
+
+    stored = _reconciled_stored(monkeypatch, mode)
+    served = _served(stored)
+    package = _package(("mar", stored))
+    result = run_dashboard(_open("s", served) + f"""
+const pill = els.decisionPill.textContent;
+const own = accountDecision(currentAnalysis);
+generateSummary();
+const summary = els.summaryBox.textContent;
+openStatementModal('s');
+renderStatementModal('s', {json.dumps(served)}, '');
+const subtitle = els.statementModalSubtitle.textContent;
+currentJobIds = ['mar']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify({{pill, own, summary, subtitle, packagePill: els.decisionPill.textContent}}));
+""")
+    assert result["own"] == ("approved" if decision == "Approved" else "review_required")
+    assert result["pill"] == decision
+    assert result["summary"].endswith(f"Status: {labelled(decision)}.")
+    assert result["subtitle"].endswith(f"- {labelled(decision)}")
+    assert result["packagePill"] == f"Package decision · {decision}"
+
+
+def labelled(decision):
+    """The words `labelize` gives a decision (the subtitle and the summary), beside the pill's sentence case."""
+    return {"Review required": "review required", "Approved": "approved"}[decision]
+
+
+@needs_node
+def test_f1_r1_the_flag_alone_moves_the_decision(monkeypatch):
+    served = _served(_reconciled_stored(monkeypatch, "true_revenue"))
+    plain = {**served, "metrics": {key: value for key, value in served["metrics"].items()
+                                   if key != "withholding_basis_unestablished"}}
+    control = _served(_reconciled_stored(monkeypatch, "true_revenue", totals_count_the_pair=True))
+    result = run_dashboard(f"""
+console.log(JSON.stringify([accountDecision({json.dumps(served)}), accountDecision({json.dumps(plain)}),
+                            accountDecision({json.dumps(control)})]));
+""")
+    assert result == ["review_required", "approved", "approved"]
+
