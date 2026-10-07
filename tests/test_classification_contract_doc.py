@@ -1275,3 +1275,21 @@ def test_the_spec_and_the_contract_record_r2_ow18_review_round_1():
     for words in (f"R2-OW18 review round 1 ({R2_OW18_R1_CODE_COMMIT})", "`last_step_percent`", "`first_after_kind`",
                   "no payment or payment attempt"):
         assert words in contract, words
+
+
+#: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
+R2_L01_CODE_COMMIT = "b02a930"
+
+
+def test_the_spec_and_the_contract_record_r2_l01_the_liberis_admission():
+    """Audit round 2, R2-L01 (R43, carried over from R2-B03): §20's Liberis line and the batch line, each with the code
+    commit, and the contract's sentence."""
+    amendments = SPEC.read_text(encoding="utf-8").split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Liberis's fundings are its financing proceeds** (", "audit round 2, R2-L01: R43",
+                  "the r2 verdict (2026-10-06)", "`AIRWALLEX` is never an alias",
+                  "- **Audit round 2, R2-L01 in all** (", f"{R2_L01_CODE_COMMIT}'s, the re-parsed basis"):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 2, R2-L01 (R43, carried over from R2-B03; {R2_L01_CODE_COMMIT})",
+                  "`LIBERIS` and `LIBERIS US INC`", "`AIRWALLEX` is never an alias"):
+        assert words in contract, words
