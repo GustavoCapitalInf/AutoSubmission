@@ -663,3 +663,53 @@ def test_the_cut_is_a_ledger_alias_read_on_both_sides():
     assert "ROOK BRISTOL FI" not in registry.CREDIT_ONLY_ALIASES
     assert registry_match("ROOK BRISTOL FITNESS", registry.LENDER_ALIASES) is None
     assert registry_match("ROOK BRISTOL FI MSP DIV", registry.LENDER_ALIASES) == (ROOK, "ROOK BRISTOL FI")
+
+
+# --- Audit round 2, R2-B03 (R43): Liberis, an embedded revenue-based financing provider -----------------------------
+# Liberis US Inc buys merchants' future card receivables through white-label platform programmes (Vagaro Capital among
+# them) and pays US fundings through Airwallex US, LLC; it is repaid from the merchant's sales before the platform
+# pays out, so no debit names it. Its fundings are financing proceeds (an alternative position, Parafin's precedent).
+
+LIBERIS = "Liberis US Inc"
+LIBERIS_FILL = [("NORTHWIND MERCH SVCS ACH In", 1500.0), ("NORTHWIND MERCH SVCS ACH In", 1700.0)]
+LIBERIS_CHASE = ("ORIG CO NAME:LIBERIS US INC ORIG ID:1234567890 DESC DATE: CO ENTRY DESCR:PAYMENT SEC:CCD TRACE#:1 "
+                 "EED:540305 IND ID:1234 IND NAME:NORTHWIND LABS INC TRN: 1")
+
+
+@pytest.mark.parametrize(("bank", "text", "amount"), [
+    ("Mercury", "Liberis AB12CDEF ACH In", 4000.0),
+    ("Wells Fargo", "Instant Pmt From Airwallex US, LLC-Liberis US Inc on 03/05 Ref# AB12CDEF34", 5000.0),
+    ("Chase", LIBERIS_CHASE, 3000.0),
+], ids=["mercury", "airwallex-instant-payment", "chase-originator"])
+def test_a_liberis_funding_is_its_financing_proceeds(bank, text, amount):
+    funding = _records([(text, amount), *LIBERIS_FILL], bank=bank)[0]
+    assert (funding.revenue_tier, funding.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert funding.revenue_canonical_entity == LIBERIS
+    assert funding.contributes_to_lender_credit_exclusion
+
+
+def test_a_liberis_debit_is_an_alternative_position():
+    [record] = _records([("Liberis AB12CDEF ACH Out", -900.0)], bank="Mercury")
+    assert (record.classification, record.canonical_entity) == ("alternative_position", LIBERIS)
+
+
+@pytest.mark.parametrize(("bank", "text", "expected"), [
+    # Airwallex pays many senders: another sender's instant payment keeps its reading; a payer whose name only starts
+    # like Liberis is no funder.
+    ("Wells Fargo", "Instant Pmt From Airwallex US, LLC-Contoso Supply LLC on 03/05 Ref# AB12CDEF34",
+     ("counted_flagged", "p2p")),
+    ("Mercury", "Liberty Fabrikam AB12CDEF ACH In", ("counted_flagged", "named_payer_one_off")),
+    # The platform whose capital programme Liberis powers keeps its own payouts' reading (the merchant's sales).
+    ("Mercury", "Vagaro Merchant ACH In", ("counted_flagged", "platform_unconfirmed")),
+], ids=["airwallex-other-sender", "liberty-lookalike", "vagaro-payout"])
+def test_liberis_s_aliases_read_no_other_payer(bank, text, expected):
+    records = _records([(text, 2000.0)], bank=bank)
+    assert _tier(records[0]) == expected
+    assert records[0].revenue_canonical_entity != LIBERIS
+
+
+def test_liberis_is_a_ledger_alias_and_airwallex_and_vagaro_are_not():
+    assert registry.ALTERNATIVE_POSITION_ALIASES[LIBERIS] == ("LIBERIS", "LIBERIS US INC")
+    assert registry_match("INSTANT PMT FROM AIRWALLEX US LLC CONTOSO", registry.ALTERNATIVE_POSITION_ALIASES) is None
+    assert registry_match("VAGARO MERCHANT ACH IN", registry.ALTERNATIVE_POSITION_ALIASES) is None
+    assert registry_match("LIBERTY FABRIKAM ACH IN", registry.ALTERNATIVE_POSITION_ALIASES) is None

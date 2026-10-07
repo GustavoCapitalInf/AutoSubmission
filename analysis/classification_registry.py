@@ -418,6 +418,7 @@ ALTERNATIVE_POSITION_ALIASES: dict[str, tuple[str, ...]] = {
     "Klarna Inc": ("KLARNA", "TRUEACCORD KLARNA"),
     "LendCare Capital Inc": ("LENDCARE",),
     "Lendistry (B.S.D. Capital, Inc.)": ("LENDISTRY",),
+    "Liberis US Inc": ("LIBERIS", "LIBERIS US INC"),
     "LiftFund, Inc.": ("LIFTFUND",),
     "Lightspeed Capital": ("LSPD CAPITAL",),
     "Medallion Bank": ("MEDALLION BANK",),

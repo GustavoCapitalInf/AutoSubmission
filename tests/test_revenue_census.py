@@ -3877,3 +3877,52 @@ def test_ow17_the_progress_draw_fact_follows_the_snapshot_s_reading():
     yes, no = _zelle_snapshot(["Z4_DRAW"]), _zelle_snapshot(["Z4_DRAW"], reading=False)
     assert yes["accounts"]["Z4_DRAW"]["credits"][0]["facts"]["progress_draw"] is True
     assert no["accounts"]["Z4_DRAW"]["credits"][0]["facts"]["progress_draw"] is False
+
+
+# --- Audit round 2, R2-L01 (R43): the Liberis ledger admission's corpus move, declared ------------------------------
+# A counted Liberis funding becomes its financing proceeds: the compare reports it as a lender-credit entry (eligible
+# deposits fall by its amount), no guard fails and no row leaves non_revenue; a verified one would be a declared
+# demotion only with the admissions list that names the entity (ledger_admission), as every ledger admission's.
+
+LIBERIS = "Liberis US Inc"
+LIBERIS_MERCURY = "Liberis AB12CDEF ACH In"
+
+
+def _liberis_snapshot():
+    from analysis.schema import Statement, Transaction
+
+    rows = [(LIBERIS_MERCURY, 4000.0), ("NORTHWIND MERCH SVCS ACH In", 1500.0), ("NORTHWIND MERCH SVCS ACH In", 1700.0)]
+    statement = Statement(bank="Mercury", account_name="CONTOSO SALON LLC", currency="USD", transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount, direction="credit")
+        for index, (text, amount) in enumerate(rows)])
+    return census.account_snapshot({"statement": statement.model_dump(mode="json")})
+
+
+def test_r2_l01_the_snapshot_reads_a_liberis_funding_as_a_lender_credit():
+    funding, *fill = _liberis_snapshot()["credits"]
+    assert (funding["state"], funding["method"], funding["entity"], funding["lender_credit"]) == (
+        "non_revenue", "financing_proceeds_credit", LIBERIS, True)
+    assert [credit["tier"] for credit in fill] == ["verified", "verified"]
+
+
+def test_r2_l01_a_counted_liberis_funding_entering_its_financing_proceeds_is_a_declared_lender_credit_entry():
+    after = _snap("5.6", {"a": _liberis_snapshot()})
+    base = json.loads(json.dumps(after))
+    base["accounts"]["a"]["credits"][0].update(
+        state="unverified_deposit", method="unidentified_posted_credit", rule="unknown_credit_source_requires_review",
+        entity=None, tier="counted_flagged", reason="named_payer_one_off", lender_credit=False)
+    run = _run(base, after)
+    assert run["guards"] == {} and run["left_non_revenue"] == {} and run["verified_demotions"] == {}
+    assert run["lender_credit_moves_by_cause"]["entered:financing_proceeds_credit"]["eligible_deposit_dollars"] == (
+        -4000.0)
+
+
+@pytest.mark.parametrize(("admissions", "cause"), [([LIBERIS], "ledger_admission"), (None, "undeclared")])
+def test_r2_l01_a_verified_liberis_funding_is_declared_only_with_the_admissions_list(admissions, cause):
+    after = _snap("5.6", {"a": _liberis_snapshot()})
+    base = json.loads(json.dumps(after))
+    base["accounts"]["a"]["credits"][0].update(
+        state="verified_revenue", method="named_payer_company_form", rule="verified_named_payer_company_form",
+        entity=None, tier="verified", reason=None, lender_credit=False)
+    demoted = census.compare(base, [after], admissions=admissions)["runs"][0]["verified_demotions"]
+    assert {name: value["rows"] for name, value in demoted.items()} == {cause: 1}

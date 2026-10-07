@@ -54416,6 +54416,65 @@
     "https://help.housecallpro.com/en/articles/3836158-wisetack-how-you-get-paid"
    ],
    "notes": "Rejected, kept as evidence (owner ruling 2026-10-02, Q8): Wisetack is a consumer-financing platform for contractors and service businesses. The customer finances the job (from $500 to $25,000) and Wisetack pays the business by ACH, less its fee. Its corpus credits (HATCH WISETACK ACH PAYMEN, WISETACK USBANK PAYOUT) are the business's own sales: counted and flagged as customer_financing_payout, never verified (CUSTOMER_FINANCING_PAYERS). No alias is rendered: an alias would make its credits financing proceeds (spec D1) and flag its debits as an alternative position."
+  },
+  {
+   "entity": "Liberis US Inc",
+   "group": "alternative_position",
+   "business_type": "platform_embedded_financing",
+   "aliases": [
+    "LIBERIS",
+    "LIBERIS US INC"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://www.liberis.com/terms-conditions",
+     "note": "r1 fetched 2026-10-02: Liberis US Inc. operates the US site; 'Liberis' Business Cash Advance is a form of receivables finance not a loan'; the merchant runs its business so that Liberis receives a monthly minimum of up to 3% of the amount owed; 'Payment services for US customers are provided by Airwallex US, LLC', a licensed money transmitter. r2 re-fetched 2026-10-06 (verify round, audit round 2, R2-L01): upheld: the page is the US terms of the site 'owned, operated and controlled by Liberis US Inc.', and the three statements read as quoted."
+    },
+    {
+     "source": "https://www.liberis.com/insights/vagaro",
+     "note": "r1 fetched 2026-10-02: Liberis is the embedded finance partner behind Vagaro Capital, a white-label revenue-based financing for Vagaro's salon, spa and fitness merchants in the UK, the US and Canada; the customer pays a fixed fee out of future sales. r2 re-fetched 2026-10-06 (verify round, audit round 2, R2-L01): upheld: revenue-based financing offered as Vagaro Capital 'across the UK, the US and Canada'."
+    },
+    {
+     "source": "https://www.vagaro.com/learn/small-business-funding-vagaro-capital",
+     "note": "r1 fetched 2026-10-02: Vagaro Capital is powered by Liberis: a revenue-based advance of $1,000 to $300,000 (not a loan), sized on the merchant's card volume and repaid automatically as a small percentage of each card transaction. r2 re-fetched 2026-10-06 (verify round, audit round 2, R2-L01): upheld: 'By partnering with embedded finance platform, Liberis'; 'Payments are automated as a small percentage of each transaction'."
+    },
+    {
+     "source": "https://www.liberis.com/products/working-capital",
+     "note": "r1 fetched 2026-10-02: advances of $1,000 to $1,000,000 'a form of receivables finance not a loan', repaid as a percentage of future revenue; payment services for US customers by Airwallex US, LLC. r2 re-fetched 2026-10-06 (verify round, audit round 2, R2-L01): upheld: 'Paid as a % of future revenue', one fixed fee."
+    },
+    {
+     "source": "https://www.elavon.com/company-news/2025/liberis-elavon-partner.html",
+     "note": "r2 fetched 2026-10-06 (verify round, an independent source): Elavon's announcement of 26 August 2025 names Liberis 'a leading global embedded finance platform' giving Elavon's US small-business merchants 'fast, flexible revenue-based financing' (Quick Capital)."
+    },
+    {
+     "source": "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/",
+     "note": "r2 fetched 2026-10-06 (verify round, an independent source): Virginia's list of registered sales-based financing providers as of 29 March 2023 includes 'Liberis US Inc.'"
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "proposed",
+     "confirmed": true
+    },
+    {
+     "round": "r2",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://www.liberis.com/terms-conditions",
+    "https://www.liberis.com/insights/vagaro",
+    "https://www.vagaro.com/learn/small-business-funding-vagaro-capital",
+    "https://www.liberis.com/products/working-capital",
+    "https://support.vagaro.com/hc/en-us/articles/21897092141595-Canada-Vagaro-Capital-Help-FAQ",
+    "https://www.elavon.com/company-news/2025/liberis-elavon-partner.html",
+    "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
+   ],
+   "notes": "Liberis US Inc (the US entity of the Liberis group, London), an embedded revenue-based financing provider: it buys a merchant's future card receivables through white-label programmes on software and payment platforms (Vagaro Capital among them; the Parafin precedent), and is repaid by a percentage of the merchant's sales taken before the platform pays out, so no debit names it. Its US fundings are paid out through Airwallex US, LLC, so a bank prints them under Liberis's name ('LIBERIS <reference> ACH IN') or as an Airwallex instant payment naming Liberis US Inc. LIBERIS is the company's coined name, read only as a whole word; LIBERIS US INC is the legal name. AIRWALLEX is never an alias (a payments company paying many senders), and VAGARO stays the operating registry's platform (its payouts are the merchant's sales). Collision check (audit round 2, R2-B03: R43): in the corpus walk (every cached analysis, duplicates included) LIBERIS prints as a whole word only on funding credits (the Mercury 'LIBERIS <reference> ACH IN' form and the Airwallex instant payment naming LIBERIS US INC), never glued inside another word and on no debit, and no registry alias contains either spelling or is contained in it. The r2 verdict records the independent verify round of 2026-10-06 (audit round 2, R2-L01), which re-fetched the four sources, added two independent ones (Elavon's announcement and Virginia's register of sales-based financing providers) and reproduced the collision check before the entity was rendered (the Idea Financial r8 precedent): LIBERIS prints only on those funding credits, no row prints the LIBERI stem otherwise, AIRWALLEX prints only beside LIBERIS US INC, no debit prints either, and no registry value contains either spelling or is contained in it. The group follows Parafin's (white-label platform capital, an alternative position), although Liberis US Inc is also a registered sales-based financing provider; its fundings are financing proceeds under either group."
   }
  ]
 }
