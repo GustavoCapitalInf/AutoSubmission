@@ -277,7 +277,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Novus Capital Funding II LLC": ("NOVUSCAPITAL II", "NOVUS CAPITAL FU", "NOVUS CAPITAL FUNDING"),
     "Oak Capital Inc": ("OAK CAPITAL ONLINE",),
     "Olympus Business Capital": ("OLYMPUS BUSINESS", "OLYMPUSBUS", "OLYMPUS LENDING"),
-    "ONDECK": ("ONDECK",),
+    "ONDECK": ("ONDECK", "ODKRAOD"),
     "One River Group Inc": ("ONE RIVER FUND", "ONE RIVER GROUP", "ONE RIVER SERVICES", "ONE RIVER FUNDING"),
     "OneView Finance": ("ONEVIEW FINANCE",),
     "Overton Funding LLC": ("OVERTONFUNDING", "OVERTON FUNDING"),

@@ -187,6 +187,21 @@ def test_p4b_a_short_interim_printout_never_confirms_a_stop():
     assert (item["kind"], item["stop_confirmed"]) == ("stop", True)
 
 
+def test_r3_26_odkraod_weeks_keep_ondeck_s_weekly_beat_so_no_false_pause():
+    """Audit round 3, R3-B01 (R3-26): ODKRAOD is an OnDeck spelling. ONDECK pays weekly on Thursdays in January; in
+    February two middle weeks print ODKRAOD. Read as OnDeck payments they keep the beat: no pause (before the alias,
+    a confirmed weekly pause from 2054-02-05 to 2054-02-26, longer than the 10-business-day grace)."""
+    thursdays = [date(2054, 1, day) for day in (1, 8, 15, 22, 29)]
+    january = statement_payload(debits(thursdays, 1000, ONDECK), start=date(2054, 1, 1), end=date(2054, 1, 31))
+    february_rows = (debits([date(2054, 2, 5), date(2054, 2, 26)], 1000, ONDECK)
+                     + debits([date(2054, 2, 12), date(2054, 2, 19)], 1000, "ODKRAOD 00000"))
+    february = statement_payload(february_rows, start=date(2054, 2, 1), end=date(2054, 2, 28),
+                                 opening=closing(january))
+    built = package(job("january", january), job("february", february))
+    assert [item for item in built["lender_payment_changes"] if item["lender"] == "ONDECK"] == []
+    assert [item for item in items_of(february) if item["lender"] == "ONDECK"] == []
+
+
 # ------------------------------------------------------------------------------------------- P5, P6, P6b: chains
 def test_p5_a_coverage_gap_breaks_the_chain():
     march = statement_payload(debits(bdays(M(2), M(13)), 850) + debits(bdays(M(16), M(25)), 600), month=3)
