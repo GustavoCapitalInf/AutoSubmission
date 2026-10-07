@@ -262,9 +262,8 @@ def _account_figures(records: list, stored: list, metrics: object) -> dict:
             [index, record.reversed_by] for index, record in enumerate(records)
             if getattr(record, "reversed_by", None)
         ],
-        # The final review of round 2, review round 1 of its fix run (finding 3; true revenue spec §14.3 G7): the date
-        # of each lender row, each paired debit and each credit a pairing names, so compare declares F2(a)'s redirect
-        # only where the dates show it (`_redirected_returns`).
+        # The final review of round 2, review round 1 of its fix run (finding 3; true revenue spec §14.3 G7): each row's
+        # date, so compare declares F2(a)'s redirect only where the dates show it (`_redirected_returns`).
         "row_dates": _row_dates(records),
         # Re-review N5: the payee entity of each row a flag names, which compare's allowlist reads.
         "row_entities": {
@@ -280,24 +279,14 @@ def _account_figures(records: list, stored: list, metrics: object) -> dict:
     }
 
 
-def _row_dates(records: list) -> dict[str, str | None]:
-    """{str(index): ISO date, or None where the row prints none (the classifier's own `parse_date`)} for each row that
-    is a paid lender row (`contributes_to_lender_totals`), a debit a pairing names (`reversed_by` or
-    `returned_funder_payment_by`) or the credit that pairing names: the rows `_redirected_returns` orders. A checkout
-    whose `analysis` package has no `parse_date` records the dates as printed."""
+def _row_dates(records: list) -> list[str | None]:
+    """Each row's date, aligned with `states`: ISO, or None where the row prints none (the classifier's own
+    `parse_date`). Every row, so a compare whose earlier snapshot was written before the dates reads the later one's
+    (`_redirected_returns`). A checkout whose `analysis` package has no `parse_date` records the dates as printed."""
     try:
         from analysis.dates import parse_date
     except ImportError:  # pragma: no cover - every checkout since the dates module has it
         parse_date = None
-    rows: set[int] = set()
-    for index, record in enumerate(records):
-        locations = [getattr(record, name, None) for name in ("reversed_by", "returned_funder_payment_by")]
-        if getattr(record, "contributes_to_lender_totals", False) or any(locations):
-            rows.add(index)
-        for location in locations:
-            credit = _location_index(location)
-            if credit is not None and 0 <= credit < len(records):
-                rows.add(credit)
 
     def day(record) -> str | None:
         value = getattr(record, "date", None)
@@ -306,7 +295,7 @@ def _row_dates(records: list) -> dict[str, str | None]:
         parsed = parse_date(value) if value else None
         return parsed.isoformat() if parsed is not None else None
 
-    return {str(index): day(records[index]) for index in sorted(rows)}
+    return [day(record) for record in records]
 
 
 def snapshot(accounts: Iterable[tuple[str, int, dict]], *, zelle_true_revenue: bool = True) -> dict:
@@ -363,21 +352,22 @@ def _redirected_returns(old: dict, new: dict) -> set[int]:
 
     Review round 1 of the fix run (finding 3): the snapshots' `row_dates` must show F2(a)'s move: the dropped debit is
     dated after L and each payment returned in its place on or before L (printed after or before it where either row
-    prints no date, the classifier's rule). A row neither snapshot dates (a snapshot written before `row_dates`)
-    declares nothing, so a dropped restore of an earlier payment still fails G7."""
+    prints no date, the classifier's rule). The later snapshot's dates are read, else the earlier one's (compare reads
+    only accounts whose row counts agree, position by position); where neither snapshot has them nothing is declared,
+    so a dropped restore of an earlier payment still fails G7."""
     def pairs(snap: dict) -> dict[int, object]:
         found: dict[int, object] = {}
         for index, location in [*(snap.get("reversed_by") or []), *(snap.get("returned_funder_rows") or [])]:
             found.setdefault(index, location)
         return found
 
-    dates = {**(old.get("row_dates") or {}), **(new.get("row_dates") or {})}
+    dates = next((snap["row_dates"] for snap in (new, old) if isinstance(snap.get("row_dates"), list)), None)
 
     def later(first: int, second: int) -> bool | None:
-        """Whether row `first` is dated (or printed) after row `second`; None where a snapshot dates neither."""
-        if str(first) not in dates or str(second) not in dates:
+        """Whether row `first` is dated (or printed) after row `second`; None where no snapshot dates the rows."""
+        if dates is None or not (0 <= first < len(dates) and 0 <= second < len(dates)):
             return None
-        first_day, second_day = dates[str(first)], dates[str(second)]
+        first_day, second_day = dates[first], dates[second]
         if first_day is None or second_day is None:
             return first > second
         return first_day > second_day
