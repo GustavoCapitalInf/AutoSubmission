@@ -166,8 +166,13 @@ def _compare_argv(paths, tmp_path):
 
 
 def _gain_through_a_named_alias():
+    """AFTER with Tarnmoor gained through its named alias. Audit round 3, R3-B01 (R3-22): Brambleway stays a paid lender
+    (these tests are about gains; AFTER's loss of it is its own failing case,
+    test_r3_22_the_fixtures_lost_lender_fails_on_its_own)."""
     after = json.loads(json.dumps(AFTER))
     after["accounts"]["s1:0"]["lenders"][0] = [0, "Tarnmoor Funding", "TARNMOOR FUNDING"]
+    after["accounts"]["s1:0"]["states"][2] = "confirmed_lender"
+    after["accounts"]["s1:0"]["lenders"].append([2, "Brambleway Capital", "BRAMBLEWAY CAPITAL"])
     return after
 
 
@@ -195,6 +200,21 @@ def test_compare_passes_when_every_gain_is_an_admitted_ledger_lender(tmp_path):
     paths = _files(tmp_path, BEFORE, _gain_through_a_named_alias(),
                    _ledger(("Tarnmoor Funding", "confirmed_lender", "admitted")))
     assert census.main(_compare_argv(paths, tmp_path)) == 0
+
+
+def test_r3_22_the_fixtures_lost_lender_fails_on_its_own(tmp_path, capsys):
+    """Audit round 3, R3-B01 (R3-22): AFTER loses Brambleway Capital from s1 (its paid row leaves for no return): with
+    every gain admitted, the loss alone fails G7 (it exited 0 before)."""
+    after = json.loads(json.dumps(AFTER))
+    after["accounts"]["s1:0"]["lenders"][0] = [0, "Tarnmoor Funding", "TARNMOOR FUNDING"]
+    report = census.compare(BEFORE, after, admitted=frozenset({"Tarnmoor Funding", "Quillon Funding"}))
+    assert report["lost"] == {"Brambleway Capital": {"analyses": 1, "rows_now": {"alternative_position": 1}}}
+    assert (report["lost_outside_the_allowlist"], report["paid_rows_left_other_outside_the_allowlist"]) == (1, 1)
+    paths = _files(tmp_path, BEFORE, after, _ledger(("Tarnmoor Funding", "confirmed_lender", "admitted")))
+    assert census.main(_compare_argv(paths, tmp_path)) == 1
+    printed = capsys.readouterr().out
+    assert "lenders lost outside the allowlist: 1" in printed
+    assert "paid rows that left for no return, outside the allowlist: 1" in printed
 
 
 @pytest.mark.parametrize(
@@ -452,6 +472,156 @@ def test_compare_reports_the_lender_count_s_moves_and_reads_an_older_snapshot_as
     assert report["returned_funder_moves"] == {"analyses": 1, "rows": 1}
 
 
+# Audit round 3, R3-B01 (R3-22; the underwriter's Q5 of 2026-10-02, "take the bounced amount out of "paid to lenders"
+# but keep it in the withholding rate. Keep the funder in the lender count"; true revenue spec §14.3 G7): the exit code
+# alone carries G7's verdict. A returned row's withholding move is declared only when the row joins; a returned row
+# leaving withholding, a paid row leaving for no return, a lost lender and a lender-count loss fail unless the entity is
+# allowlisted (the returned row never); lender_debits and the numerator fail where they move with no row move.
+# Fabricated snapshots: "Quillon Funding" pays rows 1 and 2 of a four-row statement.
+
+R3_22_FIGURES = ("returned_rows_leaving_withholding", "paid_rows_left_other_outside_the_allowlist",
+                 "lost_outside_the_allowlist", "lender_count_lost_outside_the_allowlist", "lender_debits_unexplained",
+                 "withholding_numerator_unexplained")
+
+
+def _q5_account(*, lenders=(1, 2), withholding=(1, 2), returned=(), numerator=200.0, debits=200.0,
+                counted=("Quillon Funding",), entity="Quillon Funding"):
+    """One account snapshot: `entity`'s paid rows `lenders`, its withholding rows, its returned rows (each returned by
+    transaction:4), the numerator, lender_debits and the lender count's entities."""
+    states = ["other", "confirmed_lender", "confirmed_lender", "other"]
+    return {**_account(states, [[index, entity, entity.upper()] for index in lenders], {}, 10.0),
+            "lender_debits": debits, "withholding_rows": list(withholding), "withholding_numerator": numerator,
+            "lender_count_entities": list(counted),
+            "returned_funder_rows": [[index, "transaction:4"] for index in returned],
+            "potential_lender_rows": [], "potential_withholding_rows": [], "reversed_by": [],
+            "row_entities": {"1": entity, "2": entity}}
+
+
+def _q5_snapshots(before: dict, after: dict) -> tuple[dict, dict]:
+    return ({"classification_version": "5.7", "accounts": {"s1:0": before}},
+            {"classification_version": "5.7", "accounts": {"s1:0": after}})
+
+
+def _main_exit(tmp_path, before, after, *, allowlisted=(), admitted=()):
+    paths = _files(tmp_path, before, after, _ledger(*[(name, "confirmed_lender", "admitted") for name in admitted]))
+    argv = _compare_argv(paths, tmp_path)
+    if allowlisted:
+        allowlist = tmp_path / "allowlist.json"
+        allowlist.write_text(json.dumps({"entities": list(allowlisted)}), encoding="utf-8")
+        argv += ["--allowlist", str(allowlist)]
+    return census.main(argv)
+
+
+def test_r3_22_a_returned_row_leaving_withholding_fails(tmp_path, capsys):
+    # Row 2 is returned in both snapshots; it leaves the withholding rows (numerator 200.00 -> 100.00): the reverse of
+    # the owner's Q5. Never declared, never excused by the allowlist.
+    before, after = _q5_snapshots(_q5_account(lenders=(1,), returned=(2,), debits=100.0),
+                                  _q5_account(lenders=(1,), withholding=(1,), returned=(2,), numerator=100.0,
+                                              debits=100.0))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_rows_leaving_withholding"] == {"analyses": 1, "rows": 1}
+    assert report["returned_funder_moves"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves"]["withholding_rows"] == {"analyses": 1, "rows": 1}
+    assert census.compare(before, after, admitted=frozenset(), allowlisted=frozenset({"Quillon Funding"}))[
+        "returned_rows_leaving_withholding"] == {"analyses": 1, "rows": 1}
+    assert _main_exit(tmp_path, before, after) == 1
+    assert "returned rows leaving the withholding rows (the reverse of the owner's Q5): 1 analyses/1 rows" in (
+        capsys.readouterr().out)
+    assert _main_exit(tmp_path, before, after, allowlisted=("Quillon Funding",)) == 1
+
+
+def test_r3_22_a_returned_row_joining_withholding_still_passes(tmp_path):
+    # The R2-OW13 case (a returned row joins): declared, and the paid-row set changes, so the money checks do not apply.
+    before, after = _returned_snapshots(returned_rows=[[1, "transaction:5"], [2, "transaction:4"]])
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_moves"] == {"analyses": 1, "rows": 1}
+    assert {name: report[name] for name in R3_22_FIGURES} == {
+        "returned_rows_leaving_withholding": {"analyses": 0, "rows": 0},
+        "paid_rows_left_other_outside_the_allowlist": 0, "lost_outside_the_allowlist": 0,
+        "lender_count_lost_outside_the_allowlist": 0, "lender_debits_unexplained": {"analyses": 0},
+        "withholding_numerator_unexplained": {"analyses": 0}}
+    assert _main_exit(tmp_path, before, after) == 0
+
+
+def test_r3_22_a_paid_row_leaving_for_no_return_fails_unless_allowlisted(tmp_path):
+    # Row 1 leaves the lenders list (paid) and stays in the withholding rows; no row is returned.
+    before, after = _q5_snapshots(_q5_account(), _q5_account(lenders=(2,), debits=100.0))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["paid_rows"] == {"left_returned": 0, "left_other": 1, "joined": 0}
+    assert report["paid_rows_left_other_outside_the_allowlist"] == 1
+    assert report["lender_debits_unexplained"] == {"analyses": 0}  # the paid-row set changed
+    assert _main_exit(tmp_path, before, after) == 1
+    allowed = census.compare(before, after, admitted=frozenset(), allowlisted=frozenset({"Quillon Funding"}))
+    assert allowed["paid_rows_left_other_outside_the_allowlist"] == 0
+    assert _main_exit(tmp_path, before, after, allowlisted=("Quillon Funding",)) == 0
+
+
+def test_r3_22_a_lender_count_loss_fails_unless_allowlisted(tmp_path):
+    # The funder's only paid row leaves the lenders list for no return, and the funder leaves the lender count.
+    before, after = _q5_snapshots(_q5_account(lenders=(1,), withholding=(1,), numerator=100.0, debits=100.0),
+                                  _q5_account(lenders=(), withholding=(1,), numerator=100.0, debits=0.0, counted=()))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["lender_count"]["lost"] == {"Quillon Funding": {"analyses": 1}}
+    assert (report["lender_count_lost_outside_the_allowlist"], report["lost_outside_the_allowlist"]) == (1, 1)
+    assert _main_exit(tmp_path, before, after) == 1
+    allowed = census.compare(before, after, admitted=frozenset(), allowlisted=frozenset({"Quillon Funding"}))
+    assert (allowed["lender_count_lost_outside_the_allowlist"], allowed["lost_outside_the_allowlist"]) == (0, 0)
+    assert _main_exit(tmp_path, before, after, allowlisted=("Quillon Funding",)) == 0
+    # Control (kept_in_count_returned): every paid row returned and the funder still counted: no loss.
+    before, after = _q5_snapshots(_q5_account(lenders=(1,), withholding=(1,), numerator=100.0, debits=100.0),
+                                  _q5_account(lenders=(), withholding=(1,), returned=(1,), numerator=100.0, debits=0.0))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["kept_in_count_returned"] == {"Quillon Funding": {"analyses": 1}}
+    assert {name: report[name] for name in R3_22_FIGURES if not isinstance(report[name], dict)} == {
+        "paid_rows_left_other_outside_the_allowlist": 0, "lost_outside_the_allowlist": 0,
+        "lender_count_lost_outside_the_allowlist": 0}
+    assert _main_exit(tmp_path, before, after) == 0
+
+
+def test_r3_22_a_re_attribution_fails_unless_merged(tmp_path):
+    # The rows stay paid, but entity A (Quillon) becomes B (Tarnmoor, an admitted lender): A is lost.
+    before, after = _q5_snapshots(_q5_account(),
+                                  _q5_account(entity="Tarnmoor Funding", counted=("Tarnmoor Funding",)))
+    report = census.compare(before, after, admitted=frozenset({"Tarnmoor Funding"}))
+    assert report["gained"]["Tarnmoor Funding"]["admitted"] is True
+    assert (report["lost_outside_the_allowlist"], report["lender_count_lost_outside_the_allowlist"]) == (1, 1)
+    assert report["paid_rows_left_other_outside_the_allowlist"] == 0  # no row left the lenders list
+    assert _main_exit(tmp_path, before, after, admitted=("Tarnmoor Funding",)) == 1
+    merged = census.compare(before, after, admitted=frozenset({"Tarnmoor Funding"}),
+                            merged={"Quillon Funding": "Tarnmoor Funding"})
+    assert (merged["gained"], merged["lost"]) == ({}, {})
+    assert (merged["lost_outside_the_allowlist"], merged["lender_count_lost_outside_the_allowlist"]) == (0, 0)
+
+
+def test_r3_22_lender_debits_moving_with_no_paid_row_move_fails(tmp_path, capsys):
+    before, after = _q5_snapshots(_q5_account(debits=1700.0), _q5_account(debits=850.0))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["lender_debits_unexplained"] == {"analyses": 1}
+    assert _main_exit(tmp_path, before, after) == 1
+    assert "lender debits moved with no paid row move: 1 analyses" in capsys.readouterr().out
+    # The same move with a paid row leaving is explained by the row (the paid-row check reads that row).
+    before, after = _q5_snapshots(_q5_account(debits=1700.0), _q5_account(lenders=(2,), debits=850.0))
+    assert census.compare(before, after, admitted=frozenset())["lender_debits_unexplained"] == {"analyses": 0}
+    # A snapshot without lender_debits (or null) on one side is not read.
+    before, after = _q5_snapshots(_q5_account(debits=1700.0), _q5_account(debits=850.0))
+    del before["accounts"]["s1:0"]["lender_debits"]
+    assert census.compare(before, after, admitted=frozenset())["lender_debits_unexplained"] == {"analyses": 0}
+    before, after = _q5_snapshots({**_q5_account(debits=1700.0), "lender_debits": None}, _q5_account(debits=850.0))
+    assert census.compare(before, after, admitted=frozenset())["lender_debits_unexplained"] == {"analyses": 0}
+
+
+def test_r3_22_the_numerator_moving_with_no_withholding_row_move_fails(tmp_path, capsys):
+    before, after = _q5_snapshots(_q5_account(numerator=2550.0), _q5_account(numerator=1700.0))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["withholding_numerator_unexplained"] == {"analyses": 1}
+    assert report["withholding_numerator"] == {"down": 1}
+    assert _main_exit(tmp_path, before, after) == 1
+    assert "withholding numerator moved with no withholding row move: 1 analyses" in capsys.readouterr().out
+    # The same move with a withholding row leaving is explained by the row (the row-flag check reads that row).
+    before, after = _q5_snapshots(_q5_account(numerator=2550.0), _q5_account(withholding=(1,), numerator=1700.0))
+    assert census.compare(before, after, admitted=frozenset())["withholding_numerator_unexplained"] == {"analyses": 0}
+
+
 # ---------------------------------------------------------------- The owner's amendment of 2026-10-06 to the
 # underwriter's Q3 (R2-OW17, J3; true revenue spec §14.3 G7): the snapshot reads one Zelle reading (Yes by default); a
 # compare of the two readings is refused unless declared, and then only rule D's move on a Zelle return credit
@@ -499,6 +669,26 @@ def test_ow17_a_declared_compare_classes_rule_d_and_nothing_else_moves(tmp_path)
     assert census.zelle_reading_undeclared(report) == 0
     paths = _files(tmp_path, no, yes, _ledger())
     assert census.main([*_compare_argv(paths, tmp_path), "--declare-zelle-view"]) == 0
+
+
+def test_r3_22_a_declared_compare_skips_the_rule_d_accounts_money_checks(tmp_path):
+    """Audit round 3, R3-B01 (R3-22): the declared-Zelle path sets the rule D rows apart, so their account's lender
+    debits move while its paid-row set reads the same; R3-22's money checks skip such an account (its moves are
+    zelle_reading_rule_d), and an account with no rule D row is still read."""
+    no, yes = _z5_snapshots()
+    assert no["accounts"]["z5:0"]["lender_debits"] != yes["accounts"]["z5:0"]["lender_debits"]
+    report = census.compare(no, yes, admitted=frozenset(), declare_zelle_view=True)
+    assert report["lender_debits_unexplained"] == {"analyses": 0}
+    assert report["withholding_numerator_unexplained"] == {"analyses": 0}
+    paths = _files(tmp_path, no, yes, _ledger())
+    assert census.main([*_compare_argv(paths, tmp_path), "--declare-zelle-view"]) == 0
+    # A second account with no rule D row whose lender debits move with no paid row move still fails.
+    no["accounts"]["q:0"] = _q5_account(debits=1700.0)
+    yes["accounts"]["q:0"] = _q5_account(debits=850.0)
+    report = census.compare(no, yes, admitted=frozenset(), declare_zelle_view=True)
+    assert report["lender_debits_unexplained"] == {"analyses": 1}
+    paths = _files(tmp_path, no, yes, _ledger())
+    assert census.main([*_compare_argv(paths, tmp_path), "--declare-zelle-view"]) == 1
 
 
 def test_ow17_a_planted_non_zelle_lender_move_still_fails(tmp_path):

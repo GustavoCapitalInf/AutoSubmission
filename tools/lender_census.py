@@ -21,9 +21,9 @@ ledger the alias tables are rendered from (master plan C10; default docs/lender-
 
 Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §14.3 G7; R2-OW13): each account also records its
 withholding numerator, the entities its lender count reads and its confirmed funders' payments returned unpaid, and
-`compare` declares the moves the ruling makes: a returned row's withholding move (`returned_funder_moves`) and a funder
-kept in the lender count whose every paid row was returned (`kept_in_count_returned`); any other withholding or
-reversed_by move outside the allowlist still fails.
+`compare` declares the moves the ruling makes: a returned row joining the withholding rows (`returned_funder_moves`;
+audit round 3, R3-B01: R3-22, one leaving them fails) and a funder kept in the lender count whose every paid row was
+returned (`kept_in_count_returned`); any other withholding or reversed_by move outside the allowlist still fails.
 
 `--reparse` (true revenue audit round 2, R2-B01: R12) re-parses every latest input a cached OCR reading
 reaches with the checkout's deterministic analysis stage, as the revenue census does
@@ -32,7 +32,16 @@ the counts in `basis_stats.reparse`.
 
 Exit codes: snapshot 0, or 2 when refused. compare 0 when the ledger admits every gained lender as a
 lender (status `admitted`, group `confirmed_lender`) and none was gained through a generic word,
-1 otherwise, 2 when refused (including a ledger that is missing or not schema 1).
+1 otherwise, 2 when refused (including a ledger that is missing or not schema 1). Compare also exits 1 on a
+potential-lender, withholding or reversed_by move outside the allowlist (re-review N5), on an undeclared move of a
+declared compare of the two Zelle readings (R2-OW17), and (audit round 3, R3-B01: R3-22; the exit code alone carries
+G7's verdict) on a returned row leaving the withholding rows (`returned_rows_leaving_withholding`, never excused by the
+allowlist: it reverses the owner's Q5), a paid row leaving the lenders list for no return
+(`paid_rows_left_other_outside_the_allowlist`), a lost lender (`lost_outside_the_allowlist`) or a lender-count loss
+(`lender_count_lost_outside_the_allowlist`) whose entity is not allowlisted, and `lender_debits` or the withholding
+numerator moving while the paid-row or withholding-row set does not (`lender_debits_unexplained`,
+`withholding_numerator_unexplained`; a declared compare's rule D accounts are skipped). The payment-changes block never
+fails.
 """
 from __future__ import annotations
 
@@ -429,6 +438,9 @@ def compare(
             "snapshots of one reading, or declare the move with --declare-zelle-view"
         )
     rule_d: dict = {"analyses": set(), "rows": 0}
+    # Audit round 3, R3-B01 (R3-22): the accounts whose rows the declared-Zelle path sets apart; R3-22's money checks
+    # skip them (their moves are zelle_reading_rule_d).
+    rule_d_accounts: set[str] = set()
     if view_declared:
         before = {**before, "accounts": dict(before["accounts"])}
         after = {**after, "accounts": dict(after["accounts"])}
@@ -439,6 +451,7 @@ def compare(
             rows = _rule_d_rows(old, new)
             if not rows:
                 continue
+            rule_d_accounts.add(key)
             moved = {json.dumps(entry) for entry in old["lenders"] if entry[0] in rows} ^ {
                 json.dumps(entry) for entry in new["lenders"] if entry[0] in rows}
             moved |= {json.dumps(entry) for entry in old.get("returned_funder_rows") or [] if entry[0] in rows} ^ {
@@ -455,6 +468,10 @@ def compare(
     def one_lender(entity: str) -> str:
         return merged.get(entity, entity)
 
+    def signed_off(entity: str) -> bool:
+        """Audit round 3, R3-B01 (R3-22): an entity on the owner's allowlist, before or after the merge mapping."""
+        return entity in allowlisted or one_lender(entity) in allowlisted
+
     gained: dict = defaultdict(lambda: {"analyses": set(), "rows": 0, "aliases": Counter()})
     lost: dict = defaultdict(lambda: {"analyses": set(), "rows_now": Counter()})
     generic: Counter = Counter()
@@ -465,11 +482,18 @@ def compare(
     row_flags: dict = {name: {"analyses": set(), "rows": 0} for name in ROW_FLAG_FIELDS}
     row_flags_not_comparable = 0
     # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the moves the ruling declares. A withholding_rows move on
-    # a row the after snapshot lists in returned_funder_rows (a confirmed funder's payment returned unpaid, kept in the
-    # withholding rate); a funder whose paid rows all leave the lenders list for returned rows while it stays in the
+    # a row the after snapshot lists in returned_funder_rows and in withholding_rows (a confirmed funder's payment
+    # returned unpaid, kept in the withholding rate); a funder whose paid rows all leave the lenders list for returned rows while it stays in the
     # lender count (kept_in_count_returned, never `lost`); the paid rows that leave the lenders list, for a returned
     # row or not; the lender count's entities; and the withholding numerator.
+    # Audit round 3, R3-B01 (R3-22): only a returned row JOINING the withholding rows is declared; one leaving them
+    # reverses the ruling and fails (`returned_rows_leaving_withholding`), as do a paid row leaving for no return, a lost
+    # lender and a lender-count loss outside the allowlist, and lender_debits or the numerator moving with no row move.
     returned_moves: dict = {"analyses": set(), "rows": 0}
+    returned_leaving: dict = {"analyses": set(), "rows": 0}
+    paid_left_other_outside = 0
+    debits_unexplained: set[str] = set()
+    numerator_unexplained: set[str] = set()
     # The final review of round 2, F2(a): the row-flag moves of a return whose pairing the fix moved (declared).
     redirect_moves: dict = {"analyses": set(), "rows": 0}
     kept_in_count: dict = defaultdict(set)
@@ -485,6 +509,7 @@ def compare(
             continue
         sha = key.split(":")[0]
         returned_rows = {row[0] for row in new.get("returned_funder_rows") or []}
+        withholding_now = set(new.get("withholding_rows") or ())
         # Final review I6: the rows whose potential-lender, withholding or reversal reading moved; a snapshot written
         # before the fields is not comparable.
         if all(name in old and name in new for name in ROW_FLAG_FIELDS):
@@ -504,9 +529,16 @@ def compare(
                             redirect_moves["analyses"].add(sha)
                             redirect_moves["rows"] += 1
                         elif name == "withholding_rows" and index in returned_rows:
-                            # R2-OW13: declared (returned_funder_moves), never outside the allowlist.
-                            returned_moves["analyses"].add(sha)
-                            returned_moves["rows"] += 1
+                            if index in withholding_now:
+                                # R2-OW13: a returned row joining (or restored to) the withholding rows: declared
+                                # (returned_funder_moves), never outside the allowlist.
+                                returned_moves["analyses"].add(sha)
+                                returned_moves["rows"] += 1
+                            else:
+                                # Audit round 3, R3-B01 (R3-22): a returned row LEAVING the withholding rows reverses
+                                # the owner's Q5 ("keep it in the withholding rate"): it fails, allowlisted or not.
+                                returned_leaving["analyses"].add(sha)
+                                returned_leaving["rows"] += 1
                         elif entities.get(str(index)) not in allowlisted:
                             outside += 1
         else:
@@ -528,7 +560,23 @@ def compare(
             old_rows_of[one_lender(entity)].append(index)
             if index not in new_rows:
                 paid_rows["left_returned" if index in returned_rows else "left_other"] += 1
-        paid_rows["joined"] += len(new_rows - {index for index, _, _ in old["lenders"]})
+                if index not in returned_rows and not signed_off(entity):
+                    # R3-22: a paid row leaving for no return fails unless its entity is allowlisted.
+                    paid_left_other_outside += 1
+        old_paid = {index for index, _, _ in old["lenders"]}
+        paid_rows["joined"] += len(new_rows - old_paid)
+        if key not in rule_d_accounts:
+            # R3-22: lender_debits moving while the paid-row set is the same, and the numerator moving while the
+            # withholding-row set is the same, are moves no row explains (both present; a rule D account is skipped).
+            old_debits, new_debits = old.get("lender_debits"), new.get("lender_debits")
+            if (old_paid == new_rows and old_debits is not None and new_debits is not None
+                    and round(new_debits - old_debits, 2) != 0):
+                debits_unexplained.add(sha)
+            old_held, new_held = old.get("withholding_numerator"), new.get("withholding_numerator")
+            if ("withholding_rows" in old and "withholding_rows" in new
+                    and set(old["withholding_rows"]) == set(new["withholding_rows"])
+                    and old_held is not None and new_held is not None and round(new_held - old_held, 2) != 0):
+                numerator_unexplained.add(sha)
         for index, entity, _ in old["lenders"]:
             if one_lender(entity) not in new_entities:
                 if one_lender(entity) in counted_now and all(
@@ -619,6 +667,20 @@ def compare(
             "not_comparable": count_not_comparable,
         },
         "withholding_numerator": dict(sorted(numerators.items())),
+        # Audit round 3, R3-B01 (R3-22): the failures the exit code reads (spec §14.3 G7). A returned row leaving the
+        # withholding rows (never excused by the allowlist); the paid rows leaving the lenders list for no return, the
+        # lost lenders' (entity, analysis) entries and the lender count's lost (entity, analysis) entries whose entity is
+        # not allowlisted; and the analyses whose lender_debits (numerator) moved while the paid-row (withholding-row)
+        # set did not.
+        "returned_rows_leaving_withholding": {"analyses": len(returned_leaving["analyses"]),
+                                              "rows": returned_leaving["rows"]},
+        "paid_rows_left_other_outside_the_allowlist": paid_left_other_outside,
+        "lost_outside_the_allowlist": sum(
+            len(slot["analyses"]) for entity, slot in lost.items() if not signed_off(entity)),
+        "lender_count_lost_outside_the_allowlist": sum(
+            len(shas) for entity, shas in count_moves["lost"].items() if not signed_off(entity)),
+        "lender_debits_unexplained": {"analyses": len(debits_unexplained)},
+        "withholding_numerator_unexplained": {"analyses": len(numerator_unexplained)},
         # R2-OW17 (J3): the Zelle readings compared, and the rule D moves a declared compare sets apart.
         "zelle_reading": {"before": before.get("zelle_true_revenue"), "after": after.get("zelle_true_revenue"),
                           "declared": view_declared},
@@ -710,6 +772,18 @@ def _print_comparison(report: dict) -> None:
               f"{sum(slot['analyses'] for slot in count['lost'].values())}, not comparable {count['not_comparable']}")
         print("withholding numerator: " + ", ".join(
             f"{name} {count}" for name, count in report["withholding_numerator"].items()))
+        # Audit round 3, R3-B01 (R3-22): the failures the exit code reads, one line each.
+        leaving = report.get("returned_rows_leaving_withholding") or {"analyses": 0, "rows": 0}
+        print(f"returned rows leaving the withholding rows (the reverse of the owner's Q5): {leaving['analyses']} "
+              f"analyses/{leaving['rows']} rows")
+        print(f"paid rows that left for no return, outside the allowlist: "
+              f"{report.get('paid_rows_left_other_outside_the_allowlist', 0)}")
+        print(f"lenders lost outside the allowlist: {report.get('lost_outside_the_allowlist', 0)}")
+        print(f"lender count lost outside the allowlist: {report.get('lender_count_lost_outside_the_allowlist', 0)}")
+        print(f"lender debits moved with no paid row move: "
+              f"{(report.get('lender_debits_unexplained') or {}).get('analyses', 0)} analyses")
+        print(f"withholding numerator moved with no withholding row move: "
+              f"{(report.get('withholding_numerator_unexplained') or {}).get('analyses', 0)} analyses")
     reading = report.get("zelle_reading")
     if reading and reading.get("declared"):
         # R2-OW17 (J3): the declared compare of the two Zelle readings.
@@ -827,8 +901,24 @@ def main(argv: list[str] | None = None) -> int:
         or report["row_flag_moves_outside_the_allowlist"] > 0
         # R2-OW17 (J3): between the two Zelle readings only rule D's declared moves may move a lender fact.
         or (report["zelle_reading"]["declared"] and zelle_reading_undeclared(report) > 0)
+        # Audit round 3, R3-B01 (R3-22): the exit code alone carries G7's verdict.
+        or failed_on_lender_losses(report)
     )
     return 1 if failed else 0
+
+
+def failed_on_lender_losses(report: dict) -> bool:
+    """Audit round 3, R3-B01 (R3-22; the underwriter's Q5; spec §14.3 G7): a returned row leaving the withholding rows, a
+    paid row leaving for no return, a lost lender or a lender-count loss outside the allowlist, or lender_debits or the
+    withholding numerator moving with no row move."""
+    return (
+        report["returned_rows_leaving_withholding"]["rows"] > 0
+        or report["paid_rows_left_other_outside_the_allowlist"] > 0
+        or report["lost_outside_the_allowlist"] > 0
+        or report["lender_count_lost_outside_the_allowlist"] > 0
+        or report["lender_debits_unexplained"]["analyses"] > 0
+        or report["withholding_numerator_unexplained"]["analyses"] > 0
+    )
 
 
 def zelle_reading_undeclared(report: dict) -> int:
