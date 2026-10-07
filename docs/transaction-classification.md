@@ -503,6 +503,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - The final review of round 2, F1 (7854cf1): a statement whose withholding basis is not established (True revenue where the revenue is not, Verified where Verified is not) publishes no withholding rate, potential exposure or potential lender's exposure and asks for review (`withholding_basis_unestablished`, served only); its downloads leave the basis empty and the CLI prints it as N/A; the package marks such a member and its own partial basis the same way; the legacy basis and every stored figure are unchanged (true revenue spec §9.1, §9.2, §10.1, §10.4, §10.8, §11, §20).
 - The final review of round 2, F2 (4cab9ef): a confirmed funder's paid payment pairs on the lender side (classification 5.4's named pair, R2-OW13's restore and its warning) only with a return dated on or after it, printed after it where a row prints no date; the package's pass 4 matches a member's unpaired bounce-worded return (rule D's reading and guards, with two departures from rule D named in the review round below) to the same account's preceding statement's confirmed funder payment 0 to 7 days before it, out of the package's paid to lenders, in its withholding numerator and lender count, with the warning naming both documents; each statement viewed alone is unchanged; G7 declares the moves of a return whose pairing moved (`returned_funder_redirects`) (true revenue spec §6.2, §9.2, §10.1, §10.6, §11, §14.3, §17.1, §20).
 - The final review of round 2, review round 1 of its fix run (1dd3b64, 7b7fb1e, 2d81a43, 80e3d4b): a statement whose withholding basis is not established goes to review (its decision and the summary read review required where they would pass; a decision that already reads a review keeps its words) and so does its package; G7's snapshot records every row's date (`row_dates`) and declares a redirected return only where the dates show a payment dated after its return, and any payment returned in its place on or before it; R2-OW18's package payment changes read pass 4's matched payment as a returned attempt; pass 4's two departures from rule D (a lender credit naming the matched payment's funder is read; only a revenue partner dated on or before the credit holds it back) are named for ratification (true revenue spec §6.2, §9.2, §10.1, §11, §14.3, §17.1, §20).
+- Audit round 3, R3-B01 (R3-22, R3-80, R3-26, R3-50; eba9664, e613e34, f579eae, 3c2a50d): G7's exit code alone carries its verdict (a returned row leaving the withholding rows, a paid row leaving for no return, a lost lender or a lender-count loss outside the allowlist, and `lender_debits` or the numerator moving with no row move each fail); on a debit, a bank's stop-payment, OD item, returned-item or unpaid-item charge printed with CHARGE or CHG, and a bare stop-payment row, is a charge before the registry, never the payment of the funder it names (steps 1 and 4 below); the ledger reads ODKRAOD as an OnDeck spelling (the orchestrator's sign-off under the owner's delegation, ONDECK allowlisted in G7 for exactly that move); and the Liberis notes call LIBERIS the company's name and also a rare surname and record the receiver residual for the owner (true revenue spec §14.3, §17.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -527,7 +528,12 @@ Classification is applied in this order; the first match wins:
    a returned item includes the banks' abbreviated and French wording
    (`RTN STOP PAY` / `RETURNED STOP PAY`, a stop-payment return of the
    business's own debit, and `EFFETS RETOURNES`), and a
-   `DEPOSITED ITEM RETURNED` is a reversal, as `RETURNED DEPOSIT` is.
+   `DEPOSITED ITEM RETURNED` is a reversal, as `RETURNED DEPOSIT` is. Since
+   audit round 3 (R3-B01: R3-80), on a debit only, a returned or unpaid item's
+   charge printed with CHARGE or CHG rather than FEE (`RETURNED ITEM CHARGE`,
+   `RETURN ITEM CHG`, `UNPAID ITEM CHARGE`) is a returned item too, even when it
+   prints the item's payee; a bare `UNPAID ITEM <payee>` is not read (it may be
+   the payee's own debit). A credit keeps its reading.
 2. Insurance, by registry or by term. Premium-finance payees are looked up
    first; they stay insurance and a debit also carries the premium-financing
    flag. On the owner's ruling a premium-finance alias may repeat a hand-kept
@@ -552,6 +558,16 @@ Classification is applied in this order; the first match wins:
      `INTERAC SC`, the ATM withdrawal service charge, and the French `FRAIS`
      when no French loan or line-of-credit word is beside it. A bare `CHARGE`
      or `CHG` is never a fee word;
+   - since audit round 3 (R3-B01: R3-80), on a debit only, the bank's
+     stop-payment and OD item charges printed without FEE (`STOP PAYMENT
+     CHARGE`, `STOP PAY CHG`, `STOP PMT REQUEST CHARGE`, `OD ITEM CHARGE`) and a
+     bare stop-payment row at the row's start (`STOP PAYMENT …`, `ACH STOP PAY
+     …`: a stop word is a bank instruction, never a payment), each even when it
+     prints a funder's name, so a charge naming a funder is never that funder's
+     payment. A payee whose name holds STOP is never read (the bare form is
+     anchored at the row's start), a credit keeps its reading, and
+     `ACH DEBIT RETURNED <funder>` and `OVERDRAFT ITEM <funder> DES:PAYMENT`
+     keep their lender reading (each may be the funder's own debit);
    - payroll includes `PAYROLL` glued to an entry-description suffix
      (`PAYROLLTAX`, `PAYROLLDD`…), the payroll providers the corpus prints
      (Patriot Software, DataPay, Paycor, OnPay, PayWorks, Paycom, Paylocity),
