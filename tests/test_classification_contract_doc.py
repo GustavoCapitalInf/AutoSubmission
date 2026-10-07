@@ -1421,3 +1421,58 @@ def test_the_handoff_and_the_plan_state_the_final_state():
     assert ("`true_revenue` is added and is never the default. **Superseded** by the owner's ruling of 2026-10-02 on "
             "the underwriter's Q7") in plan
     assert "read spec §11" in plan
+
+
+#: The final review of round 2, review round 1 of its fix run: the code commits §20 and the contract name.
+FINAL_REVIEW_R1_COMMITS = {"decision": "1dd3b64", "g7": "7b7fb1e", "words": "2d81a43", "dates": "80e3d4b"}
+
+
+def _amendment(amendments: str, start: str) -> str:
+    return next(line for line in amendments.splitlines() if line.startswith(start))
+
+
+def test_the_spec_the_contract_and_the_handoff_record_the_fix_run_s_review_round_1():
+    """Review round 1 of the final review's fix run: the statement and its package go to review where the withholding
+    basis is not established (§9.2, §10.1, §11, §17.1), G7 declares a redirect only where the dates show it (§14.3),
+    pass 4's matched payment is an attempt in R2-OW18's package items and pass 4's departures from rule D are named
+    (§6.2, §9.2, §17.1); §20's three lines labelled 'final review of round 2', the F1 and F2 lines marked in place, the
+    contract's line, the README and the handoff."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    for words in ("Review round 1 of the fix run (§20): the statement goes to review there", "`withholdingReviewDecision`",
+                  "the package's `decision` is `review_required` where a member row carries the flag",
+                  "each snapshot records `row_dates`", "Two of the guards above depart from rule D",
+                  "Review round 1 of that fix run (§6.2, §20), for ratification",
+                  "a basis that is not established does gate",
+                  "marks a payment it matched as returned, so a series reads that payment as a returned attempt"):
+        assert words in sections, words
+    decision = _amendment(amendments, "- **The statement and its package go to review where the withholding basis is "
+                                      "not established** (")
+    for words in ("final review of round 2, F1", "review round 1", "§9.2", "§10.1", "§11", "§17.1",
+                  FINAL_REVIEW_R1_COMMITS["decision"], FINAL_REVIEW_R1_COMMITS["words"], "Measured", "G7"):
+        assert words in decision, words
+    dated = _amendment(amendments, "- **G7 declares a redirected return only where the dates show it** (")
+    for words in ("final review of round 2, F2(a)", "review round 1", "§14.3", FINAL_REVIEW_R1_COMMITS["g7"],
+                  FINAL_REVIEW_R1_COMMITS["dates"], "Measured", "`row_dates`"):
+        assert words in dated, words
+    attempt = _amendment(amendments, "- **Pass 4's matched payment is a returned attempt in the package's payment "
+                                     "changes, and pass 4 departs from rule D twice** (")
+    for words in ("final review of round 2, F2(b)", "review round 1", "§6.2", "§9.2", "§17.1", "R2-OW18",
+                  FINAL_REVIEW_R1_COMMITS["g7"], "Measured"):
+        assert words in attempt, words
+    # The F1 and F2 lines are marked in place, and F2's no longer calls the departures rule D's guards.
+    f1 = _amendment(amendments, "- **A withholding basis that is not established publishes no rate** (")
+    assert "amended by its fix run's review round 1, below" in f1
+    f2 = _amendment(amendments, "- **A return reverses a payment dated on or before it, and the package matches a "
+                                "bounce across statements** (")
+    assert "amended by its fix run's review round 1, below" in f2
+    assert "two departures from them" in f2
+    contract = _flat(CONTRACT)
+    commits = ", ".join(FINAL_REVIEW_R1_COMMITS.values())
+    assert f"The final review of round 2, review round 1 of its fix run ({commits})" in contract
+    assert "with two departures from rule D named in the review round below" in contract
+    assert "go to review (a decision that read Approved reads Review required)" in _flat(README)
+    handoff = _flat(HANDOFF)
+    for words in ("Review round 1 of that fix run", "for ratification", "goes to review"):
+        assert words in handoff, words
+    assert "asks for review on its withholding only (its decision pill reads as before)" not in handoff

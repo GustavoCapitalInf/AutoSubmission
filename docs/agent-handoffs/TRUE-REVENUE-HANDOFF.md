@@ -9,7 +9,8 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
 - **Branch:** `true-revenue`, worktree `C:/Users/GustavoPrietodePaula/work/true-revenue`.
   The audit round-2 fix run is complete through `283e90e` (pushed to `origin/true-revenue`), and the final review's
   three findings are fixed on top of it (F1 `7854cf1`, F2 `4cab9ef`, and the docs commits after them, this document
-  among them; local, not pushed yet).
+  among them), then the fix run's own review round 1 (`1dd3b64`, `7b7fb1e`, `2d81a43`, `80e3d4b` and the docs
+  commit after them; local, not pushed yet).
   It sits on `text-first-v1` = `c106634` (lender detection, classification 5.4). Nothing is merged or deployed: the Fly demo runs older code.
 - **Versions:** classification **5.7**, analysis stage **33** (`webapp/artifact_cache.py`). Neither is released, so the
   final review's fixes are folded into 5.7 / 33 (the cache held no stage-33 analysis; spec §9.3).
@@ -26,6 +27,7 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
 | R2-L01 | Liberis ledger admission, carried over from R2-B03 | done |
 | Acceptance of the round (`283e90e`) | census on both bases, G7, full suite, real browser | ACCEPTED 2026-10-07 (LOCAL `round2/reports/ACCEPT-report.md`) |
 | Final review of `c486fd5..283e90e` | three findings (F1 important, F2 and F3 minor) | fixed (LOCAL `round2/reports/FINAL-FIX-report.md`) |
+| Review round 1 of that fix run | one important finding (the review decision) and three minor ones | fixed (the same report, "Review round 1 fixes") |
 
 Corpus figures at the accepted head (re-parsed basis, 2,513 accounts; shares of posted credits; Zelle setting Yes, the default):
 
@@ -64,7 +66,7 @@ LOCAL verbatim answers and readings: `lender-research/revenue/audit-archive/audi
 | 4 | Package: a deposit matching an exact-cents transfer from another of the business's accounts 0-2 days earlier is held and listed for release | OW16 |
 | 5 | A bounced funder payment comes out of "paid to lenders" but stays in the withholding rate; the funder stays counted; a warning is shown. Since the final review (F2): a return reverses a payment dated on or before it only, and the package matches a return whose payment sits in the previous statement | OW13, final review F2 |
 | 6 | Package: bounced deposits are matched across consecutive months and a redeposit counts once; unmatched returns and chargebacks are flagged, not deducted | OW15 |
-| 7 | True revenue is the default withholding basis; ATM and cash deposits count. Since the final review (F1): a statement or package whose basis is not established (True or Verified reads N/A) publishes no rate and asks for review | OW14, final review F1 |
+| 7 | True revenue is the default withholding basis; ATM and cash deposits count. Since the final review (F1): a statement or package whose basis is not established (True or Verified reads N/A) publishes no rate and goes to review (a decision that read Approved reads Review required) | OW14, final review F1 |
 | 8 | Lease-to-own and patient-financing payouts are counted and flagged, never verified; big one-off lumps stay held | OW04 |
 | 9 | Finance-named customers, rent received and lenders paying for services are counted and flagged, with the hidden-loan guard | OW05, OW09 |
 | 10 | Every deposit into an account titled "premium trust" is held | OW10 (parser), OW11 |
@@ -109,7 +111,7 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
 - **Each owner batch's open points** (R2-OW01..OW18 reports; R2-OW18's 28 "Still open" defaults) and the 13 underwriter questions' recorded alternatives (§17.1).
 - **The owner-convertible calls:** gambling, `payer_text_not_read`, the review floor, B7's consumer-shaped definition, I61, I37.
 - **Held patches (LOCAL `round2/held/`, plus round 1's under `audit/`):** the Desjardins holder reader (failed hand review); the B10 core-processor/TD patches; B6's debit-side spellings and the G7 admissions held back from B6 and B10.
-- **The final review's defaults (F1, F2; LOCAL FINAL-FIX report):** a statement whose withholding basis is not established asks for review on its withholding only (its decision pill reads as before); the package's cross-statement return match (pass 4) also reads a return naming the funder that the funder-name reader files as a lender credit.
+- **The final review's F2 calls, for ratification (LOCAL FINAL-FIX report, "Review round 1 fixes"; spec §17.1 (6)-(8)):** the package's cross-statement return match (pass 4) departs from rule D twice: it also reads a return naming the funder that the funder-name reader files as a lender credit (rule D never reads a lender credit; no corpus row moves through it), and it holds back a credit the revenue side paired only where that partner is dated on or before it (F2(a) makes this necessary). R2-OW18's package payment changes read a payment pass 4 matched as a returned attempt. F1's review decision is not an open item: a statement whose withholding basis is not established, and its package, go to review, as the ruling asked.
 - **Pre-existing, on main:** an `analysis/rbc.py` comment (commit 99f480d) quotes a real statement's mailing line. Clean it up in its own change.
 
 ## 7. Where everything is (LOCAL, private)
@@ -121,10 +123,11 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
 - **Census:** `lender-research/revenue/census/` (s54..s58 snapshots, `g7_allowlist.json`, `lc_c106634.json`, `lc58_final.json`) and `lender-research/revenue/work/plan/`:
   - `accept2/` (the accepted head's re-parsed snapshots `s91_final*.json.gz`, `lc91_final.json`, the frozen trees, the Yes-marked copies);
   - `r2b01/r2_base.json.gz` (round-2 baseline), `b12/s90_head.json.gz` (round-1 final);
-  - `final_fix/` (the final review's fix measurements).
+  - `final_fix/` (the final review's fix measurements) and `final_fix_r1/` (its review round 1's: the decision moves,
+    the dated G7 snapshots and compares, the payment-change moves).
 - **Corpus cache:** the main checkout's `webapp_data/` (read-only).
 - **Tools (in the repo):**
   - `tools/revenue_census.py`: snapshot / compare / sweep, `--reparse`, `--zelle-true-revenue`, guards G1-G20 and G-Z;
-  - `tools/lender_census.py`: G7 (legacy basis pinned; declared categories `returned_funder_moves`, `kept_in_count_returned`, `returned_funder_redirects`; payment changes as new outputs);
+  - `tools/lender_census.py`: G7 (legacy basis pinned; declared categories `returned_funder_moves`, `kept_in_count_returned`, `returned_funder_redirects`, the last only where the snapshots' `row_dates` (every row's date; the later snapshot's are read, else the earlier one's) show a payment dated after its return; payment changes as new outputs);
   - `tools/build_lender_registry.py`: ledger -> registry; never hand-edit the GENERATED block.
 - **Spec and plan (in the repo):** the spec above, and `docs/superpowers/plans/2026-09-28-true-revenue.md` (test selections SEL-CLASSIFIER / SEL-REGISTRY / SEL-WEBAPP / SEL-REVENUE; its withholding bullet is superseded by spec §11).

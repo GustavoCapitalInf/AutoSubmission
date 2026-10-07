@@ -246,8 +246,8 @@ the legacy figure stays in `legacy_eligible_deposits` on every statement. An
 analysis stored without a mode keeps the legacy basis it was made under. Where
 the selected revenue basis is not established (True or Verified reads N/A, for
 example when the captured credits fall short of the bank's printed total), no
-withholding rate is published over it and the statement or package asks for
-review. The withholding numerator is the confirmed lender debits paid plus the
+withholding rate is published over it and the statement and its package go to
+review (a decision that read Approved reads Review required). The withholding numerator is the confirmed lender debits paid plus the
 funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
 "paid to lenders" but stays in the rate. Zelle deposits follow the Settings
 choice "Mark Zelle Payments as True Revenue" (the owner's amendment of
