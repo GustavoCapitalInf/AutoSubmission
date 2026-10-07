@@ -10,7 +10,7 @@ at the base tree and pins its absence."""
 from __future__ import annotations
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from collections.abc import Sequence
 from typing import Callable
 from .config import Settings, load_settings
@@ -23,7 +23,7 @@ from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
 from .transaction_classifier import (
     TransactionClassification,
-    classify_statement_transactions,
+    classify_statement_readings,
     prints_internal_transfer_designation,
 )
 from .bofa import repair_bofa_summary
@@ -188,9 +188,11 @@ class Report:
     model_used: str
     escalated: bool
     classifications: list[TransactionClassification] = field(default_factory=list)
-
-
-#: Integrity flags whose SCOPE is the DOCUMENT rather than one account.
+    #: The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §8.4, §9.1; R2-OW17): the same
+    #: account in the counted (Yes) Zelle reading, or None when the statement has no Zelle credit (one reading). The
+    #: Report itself is the stored (No) reading; serialization publishes the counted one as the edits that turn the
+    #: stored payload into it (analysis/zelle_view.py). Object only: never serialized as itself.
+    zelle_counted: "Report | None" = None
 #:
 #: Every other flag `assess_document_integrity` raises is a statement about one
 #: account's ledger — the reconciliation, coverage and count flags, and every
@@ -1186,8 +1188,19 @@ def _account_report(
 
     On a single-account document the two are the same string and this function
     computes exactly what the body it was lifted from computed.
+
+    The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue
+    spec §8.4, §9.1; R2-OW17): when the statement has a Zelle credit, the
+    counted (Yes) reading is analysed beside the stored one, by the same code
+    with the same inputs: its metrics from `compute_metrics` with the same
+    arguments, the same quality and integrity notes in the same order (the
+    quality `assess_quality` returned, never the one the integrity check
+    replaces), and its own detection. Quality, integrity, reconciliation, the
+    model and the escalation are shared: none of them reads a classification.
+    The returned Report is the stored reading, built exactly as before; the
+    counted one is its `zelle_counted`.
     """
-    classifications = classify_statement_transactions(stmt)
+    classifications, counted = classify_statement_readings(stmt)
     metrics = compute_metrics(
         stmt,
         trust_stated_summary=recon.summary_ok,
@@ -1198,18 +1211,29 @@ def _account_report(
         classifications=classifications,
         withholding_denominator_mode=settings.withholding_denominator_mode,
     )
+    # R2-OW17: the counted reading's metrics, from the same arguments.
+    counted_metrics = None if counted is None else compute_metrics(
+        stmt,
+        trust_stated_summary=recon.summary_ok,
+        trust_running_balances=recon.ok and not any("UNCAPTURED" in t.description.upper() for t in stmt.transactions),
+        source_markdown=source_markdown,
+        classifications=counted,
+        withholding_denominator_mode=settings.withholding_denominator_mode,
+    )
+    all_metrics = [metrics] if counted_metrics is None else [metrics, counted_metrics]
     quality = assess_quality(stmt, recon, dispatch=dispatch)
-    if quality.level == "summary_aggregate":
-        metrics.notes = [
-            note for note in metrics.notes
-            if note != "not computing average balance from line items because reconciliation failed"
-        ]
-        if "not computing average balance from aggregate-backed transaction detail" not in metrics.notes:
-            metrics.notes.append("not computing average balance from aggregate-backed transaction detail")
-    if quality.notes:
-        for note in quality.notes:
-            if note not in metrics.notes:
-                metrics.notes.append(note)
+    for reading_metrics in all_metrics:
+        if quality.level == "summary_aggregate":
+            reading_metrics.notes = [
+                note for note in reading_metrics.notes
+                if note != "not computing average balance from line items because reconciliation failed"
+            ]
+            if "not computing average balance from aggregate-backed transaction detail" not in reading_metrics.notes:
+                reading_metrics.notes.append("not computing average balance from aggregate-backed transaction detail")
+        if quality.notes:
+            for note in quality.notes:
+                if note not in reading_metrics.notes:
+                    reading_metrics.notes.append(note)
     integrity = assess_document_integrity(
         stmt, recon, quality, markdown=markdown, dispatch=dispatch, sheets=sheets,
         repair_failure=repair_failure,
@@ -1225,10 +1249,11 @@ def _account_report(
         )
     if integrity.possible_document_issue:
         note = "document integrity review recommended; inconsistent source data can be a fraud-risk signal but is not proof of fraud"
-        if note not in metrics.notes:
-            metrics.notes.append(note)
+        for reading_metrics in all_metrics:
+            if note not in reading_metrics.notes:
+                reading_metrics.notes.append(note)
 
-    return Report(
+    report = Report(
         statement=stmt,
         reconciliation=recon,
         metrics=metrics,
@@ -1243,6 +1268,14 @@ def _account_report(
         escalated=escalated,
         classifications=classifications,
     )
+    if counted is not None and counted_metrics is not None:
+        report.zelle_counted = replace(
+            report,
+            classifications=counted,
+            metrics=counted_metrics,
+            detection=detect(stmt, classifications=counted, eligible_deposits=counted_metrics.eligible_deposits),
+        )
+    return report
 
 
 def analyze_statement(
@@ -1386,7 +1419,9 @@ def identify_internal_transfers(
     4. **the printed designation** — at least one of the two legs prints an
        INTERNAL-MOVEMENT designation, read by
        `analysis/transaction_classifier.py::prints_internal_transfer_designation`
-       and therefore by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` alone. A pair that
+       and therefore by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` and, since 5.5
+       (§7.11), a book or funds transfer that prints no third-party originator;
+       never by the peer-to-peer vocabulary of `_TRANSFER_PATTERNS`. A pair that
        fails this clause is simply NOT FLAGGED — it is not ambiguous, it is an
        arithmetic coincidence, and both postings keep every effect they have
        today. That is the clause the whole rule turns on: without it a member

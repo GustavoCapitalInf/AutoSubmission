@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_address_block, read_address_line
 from .money import STRICT_EITHER_MINUS_OR_PLUS_SPACED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -192,7 +193,26 @@ def _line_is_noise(line: str, heading: str) -> bool:
         or line == heading
         or line in {"Date", "Transaction Detail", "Amount($)", "Balance($)", "Items Paid", "Item"}
         or line.startswith("Average Daily Balance")
+        # Audit round 2, R2-B06 (R21 part B): the page header the generic block text glues into the last row before
+        # a page break, the statement's title and the joint owners' label (its value: _without_noise).
+        or line.startswith("Statement of Account")
+        or line.startswith("Joint Owner")
     )
+
+
+#: Audit round 2, R2-B06 (R21 part B): the joint owners' label printed with no value, which prints on the next line.
+_JOINT_OWNER_LABEL_RE = re.compile(r"Joint Owner\(s\):?")
+
+
+def _without_noise(lines: list[str], heading: str) -> list[str]:
+    """The section's lines without the grid's and the page's furniture (`_line_is_noise`). Audit round 2, R2-B06 (R21
+    part B): nor the joint owners' value 'NONE' on the line after their bare label."""
+    return [
+        line
+        for index, line in enumerate(lines)
+        if not _line_is_noise(line, heading)
+        and not (line == "NONE" and index > 0 and _JOINT_OWNER_LABEL_RE.fullmatch(lines[index - 1]))
+    ]
 
 
 #: This platform writes an overdrawn balance with a TRAILING minus, and the
@@ -285,8 +305,7 @@ def _parse_native_transactions(
 
 
 def _parse_transactions(section: str, heading: str, *, year: int, beginning: float) -> list[Transaction] | None:
-    lines = [line.strip() for line in section.splitlines() if line.strip()]
-    lines = [line for line in lines if not _line_is_noise(line, heading)]
+    lines = _without_noise([line.strip() for line in section.splitlines() if line.strip()], heading)
 
     idx = 0
     while idx < len(lines):
@@ -305,6 +324,136 @@ def _parse_transactions(section: str, heading: str, *, year: int, beginning: flo
     else:
         return None
 
+    # Audit round 2, R2-B06 (R03): the lookahead reading first; the line reader below only where it does not fit.
+    rows = _rows_by_lookahead(_ledger_tokens(lines, idx))
+    if rows is not None:
+        txns = _ledger_transactions(rows, year=year, beginning=beginning)
+        if txns is not None:
+            return txns
+    return _parse_transactions_by_line(lines, idx, year=year, beginning=beginning)
+
+
+#: Audit round 2, R2-B06 (R03): the compatibility path's tokens. A money pair (P), a date with the description lines
+#: printed after it (G), and a description line with no date before it (D).
+_PAIR_TOKEN, _GROUP_TOKEN, _LINE_TOKEN = "P", "G", "D"
+_LONE_MONEY_RE = re.compile(r"[\d,]+\.\d{2}" + _TRAILING_MINUS)
+
+
+def _ledger_tokens(lines: list[str], idx: int) -> list[tuple]:
+    """Audit round 2, R2-B06 (R03): the ledger after the Beginning Balance anchor, up to the Ending Balance line, as
+    tokens: ("P", amount, balance) for a money pair (one line or two, a detached '-' after it skipped), ("G", date,
+    [lines]) for a date and the description lines after it, ("D", line) for a description line with no date before it.
+    A money figure printed right above the Ending Balance's own date, equal to the last pair's balance, is that balance
+    printed amount-first and no description line."""
+    tokens: list[tuple] = []
+    while idx < len(lines):
+        line = lines[idx]
+        if "Ending Balance" in line:
+            break
+        if line == "-":
+            idx += 1
+            continue
+        if _is_date(line):
+            tokens.append((_GROUP_TOKEN, line, []))
+            idx += 1
+            continue
+        pair = _amount_balance(line)
+        next_idx = idx + 1
+        if pair is None:
+            separate = _separate_amount_balance(lines, idx)
+            if separate is not None:
+                amount, balance, next_idx = separate
+                pair = amount, balance
+        if pair is not None:
+            tokens.append((_PAIR_TOKEN, *pair))
+            idx = next_idx
+            continue
+        if _is_ending_balance_figure(lines, idx, tokens):
+            idx += 1
+            continue
+        if tokens and tokens[-1][0] == _GROUP_TOKEN:
+            tokens[-1][2].append(line)
+        else:
+            tokens.append((_LINE_TOKEN, line))
+        idx += 1
+    return tokens
+
+
+def _is_ending_balance_figure(lines: list[str], idx: int, tokens: list[tuple]) -> bool:
+    """Audit round 2, R2-B06 (R03): a lone money figure followed by the Ending Balance's date and label, equal to the
+    last pair's balance."""
+    if not _LONE_MONEY_RE.fullmatch(lines[idx]) or idx + 2 >= len(lines):
+        return False
+    if not _is_date(lines[idx + 1]) or "Ending Balance" not in lines[idx + 2]:
+        return False
+    pairs = [token for token in tokens if token[0] == _PAIR_TOKEN]
+    figure = _money(lines[idx])
+    return bool(pairs) and figure is not None and abs(figure - pairs[-1][2]) <= 0.01
+
+
+def _rows_by_lookahead(tokens: list[tuple]) -> list[tuple[float, float, str, str]] | None:
+    """Audit round 2, R2-B06 (R03): the tokens read with one token of lookahead, as [(amount, balance, date, text)].
+
+    A pair followed by a date group is one row with that group's date and text (the amount-first arrangement: the
+    generic block text sorts a row's money cells above its own date). A date group followed by a pair, then any lone
+    description lines, is one row with the group's date and text plus those lines (the date-first arrangement, and its
+    wrap lines). A last date group with no text is the Ending Balance's date. None when the reading does not fit: a
+    pair with no date group after it, a date group with no pair after it, or a description line that opens a row."""
+    if tokens and tokens[-1][0] == _GROUP_TOKEN and not tokens[-1][2]:
+        tokens = tokens[:-1]
+    rows: list[tuple[float, float, str, str]] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
+        if token[0] == _PAIR_TOKEN:
+            if following is None or following[0] != _GROUP_TOKEN:
+                return None
+            rows.append((token[1], token[2], following[1], " ".join(following[2])))
+            index += 2
+        elif token[0] == _GROUP_TOKEN:
+            if following is None or following[0] != _PAIR_TOKEN:
+                return None
+            parts = list(token[2])
+            index += 2
+            while index < len(tokens) and tokens[index][0] == _LINE_TOKEN:
+                parts.append(tokens[index][1])
+                index += 1
+            rows.append((following[1], following[2], token[1], " ".join(parts)))
+        else:
+            return None
+    return rows
+
+
+def _ledger_transactions(
+    rows: list[tuple[float, float, str, str]], *, year: int, beginning: float
+) -> list[Transaction] | None:
+    """Audit round 2, R2-B06 (R03): the lookahead reading's rows walked by balance (the line reader's check), or None
+    where a pair's amount is not its balance step."""
+    prev_balance = beginning
+    txns: list[Transaction] = []
+    for amount, balance, txn_date, text in rows:
+        signed = round(balance - prev_balance, 2)
+        if abs(abs(signed) - abs(amount)) > 0.01:
+            return None
+        txns.append(
+            Transaction(
+                date=date(year, int(txn_date[:2]), int(txn_date[3:])).isoformat(),
+                description=re.sub(r"\s+", " ", text).strip() or "Navy Federal transaction",
+                amount=signed,
+                direction="credit" if signed >= 0 else "debit",
+                running_balance=balance,
+            )
+        )
+        prev_balance = balance
+    return txns
+
+
+def _parse_transactions_by_line(
+    lines: list[str], idx: int, *, year: int, beginning: float
+) -> list[Transaction] | None:
+    """The line reader: each pair takes the date and the description read before it (a credit with neither takes the
+    group after it). Audit round 2, R2-B06 (R03): run only where the lookahead reading does not fit, unchanged."""
     prev_balance = beginning
     current_date: str | None = None
     desc_parts: list[str] = []
@@ -393,6 +542,79 @@ DETECTION_MARKERS = (
 
 detect = make_detector(DETECTION_MARKERS)
 
+#: Audit B9 (I13): the mailing block Navy Federal prints after its 'Questions about this Statement?' heading: the
+#: holder's name, its street and its city, state and ZIP, with the toll-free panel's lines between them.
+_QUESTIONS_HEADING = re.compile(r"^Questions about this Statement\?[ \t]*$", re.MULTILINE)
+_SERVICE_PANEL_LINE = re.compile(
+    r"^(?:Toll-free in the U\.S\..*|For toll-free numbers when overseas,?|visit|navyfederal\.org/overseas/?"
+    r"|Collect internationally.*)$",
+    re.IGNORECASE,
+)
+_CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\s*$")
+#: The mailing block's lines (the name, two address lines and a wrapped name or a care-of line at most).
+_MAILING_BLOCK_LINES = 6
+
+
+#: Audit round 2, R2-B05 (R04 part 2): page 1's mail-routing code line ('#AAAAAAA #000000AAAA#000AAA00A'), which the
+#: holder's name and address follow, run on after it or as a block with the panel's lines between, and the panel lines
+#: such a block can interleave (the routing number, the questions heading).
+_MAIL_CODE_LINE = re.compile(r"^#[A-Z0-9]+ #[A-Z0-9]+#[A-Z0-9]+(?:\s+(?P<rest>\S.*))?$")
+_PAGE_ONE_PANEL_LINE = re.compile(r"^(?:Routing Number:.*|Questions about this Statement\?.*)$", re.IGNORECASE)
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit B9 (I13): the holder's name, the first line of the mailing block after the 'Questions about this
+    Statement?' heading (the toll-free panel's lines aside), read when the block closes on a city, state and ZIP within
+    _MAILING_BLOCK_LINES lines. `account_name` keeps the parser's product. Audit round 2, R2-B05 (R04 part 2): where
+    that reads none, page 1's block after the mail-routing code (_page_one_holder_reading). Owner ruling 2026-10-02
+    (Q10), audit round 2, R2-OW10: with the account title the reading's own block or line prints."""
+    reading = _questions_block_holder_reading(markdown)
+    return reading if reading.name else _page_one_holder_reading(markdown)
+
+
+def _page_one_holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): page 1's block fallback where the questions heading reads no holder: the
+    name after the mail-routing code line, before the address it runs on into (when that closes on a state and ZIP), or
+    the first line of the block after it (the panel's lines aside) when the block closes on a state and ZIP within
+    _MAILING_BLOCK_LINES lines; NO_READING otherwise."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines):
+        code = _MAIL_CODE_LINE.match(line)
+        if code is None:
+            continue
+        rest = code.group("rest")
+        if rest:
+            return read_address_line(rest) if _CITY_STATE_ZIP.search(rest) else NO_READING
+        block: list[str] = []
+        for following in lines[index + 1:]:
+            if _SERVICE_PANEL_LINE.match(following) or _PAGE_ONE_PANEL_LINE.match(following):
+                continue
+            block.append(following)
+            if _CITY_STATE_ZIP.search(following):
+                return read_address_block(block)
+            if len(block) >= _MAILING_BLOCK_LINES:
+                break
+        return NO_READING
+    return NO_READING
+
+
+def _questions_block_holder_reading(markdown: str) -> HolderReading:
+    """Audit B9 (I13): the holder's name from the mailing block after the questions heading (_holder_reading)."""
+    heading = _QUESTIONS_HEADING.search(markdown)
+    if heading is None:
+        return NO_READING
+    block: list[str] = []
+    for raw in markdown[heading.end():].splitlines():
+        line = raw.strip()
+        if not line or _SERVICE_PANEL_LINE.match(line):
+            continue
+        block.append(line)
+        if _CITY_STATE_ZIP.search(line):
+            return read_address_block(block)
+        if len(block) >= _MAILING_BLOCK_LINES:
+            break
+    return NO_READING
+
 
 def parse_navy_federal_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
@@ -424,9 +646,12 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
     printed_average = _average_balance(section)
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="Navy Federal Credit Union",
         account_name=product,
+        holder_name=holder.name,
+        account_title=holder.title,
         account_number=account,
         period_start=start,
         period_end=end,

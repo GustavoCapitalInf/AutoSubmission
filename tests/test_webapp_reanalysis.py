@@ -174,6 +174,52 @@ def test_a_decision_is_replayed_where_its_posting_is_unchanged():
     assert [item["revenue_reviewed_at"] for item in copies] == [DECIDED_AT]
 
 
+#: Owner ruling 2026-10-02, R2-OW03 (the underwriter's Q3, spec §10.7): a Zelle deposit the policy excluded may be
+#: confirmed (CONTOSO's fabricated March: a company payer, a Zelle deposit, a check deposit).
+ZELLE_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0), (3, "ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 400.0),
+              (4, "MOBILE DEPOSIT", 300.0)]
+
+
+def test_a_zelle_deposit_awaits_a_confirm_only():
+    from webapp.reanalysis import _awaits_review
+
+    zelle = _records(_payload(ZELLE_ROWS))["transaction:2"]
+    assert (zelle["revenue_tier"], zelle["revenue_tier_reason"]) == ("non_revenue", "zelle_excluded")
+    assert [_awaits_review(zelle, decision) for decision in ("confirm", "reject", "reset")] == [True, False, False]
+    # Any other non-revenue row awaits nothing.
+    transfer = _records(_payload(ROWS))["transaction:1"] | {"revenue_initial_classification": "non_revenue",
+                                                            "revenue_tier": "non_revenue", "revenue_tier_reason": None}
+    assert not any(_awaits_review(transfer, decision) for decision in ("confirm", "reject", "reset"))
+    for reason in ("government_no_purpose", "check_deposit"):
+        assert not _awaits_review({**zelle, "revenue_tier_reason": reason}, "confirm"), reason
+
+
+def _without_edits(payload):
+    """A stand-in for an analysis made before the owner's Zelle setting (R2-OW17): the counted reading's edits removed,
+    so the replay reads the stored reading alone, as it did before."""
+    payload.pop("zelle_counted_reading", None)
+    return payload
+
+
+def test_a_stored_confirm_on_a_zelle_deposit_is_replayed_and_a_stored_reject_is_decided_by_the_rules():
+    """On a payload without the counted reading's edits (R2-OW17), today's replay exactly."""
+    from webapp.reanalysis import replay_reviews
+
+    old = _without_edits(_payload(ZELLE_ROWS))
+    before = old["metrics"]["true_revenue_total"]
+    confirmed = replay_reviews(_without_edits(_payload(ZELLE_ROWS)), [_decision(11, old, "transaction:2", "confirm")])
+    assert (confirmed.replayed, confirmed.not_replayed, confirmed.decided_by_rules) == ((11,), (), ())
+    record = _records(confirmed.analysis)["transaction:2"]
+    assert (record["revenue_tier"], record["revenue_tier_reason"], record["revenue_review_status"]) == (
+        "verified", "zelle_excluded", "confirmed")
+    assert confirmed.analysis["metrics"]["true_revenue_total"] == before + 400.0
+    assert confirmed.analysis["metrics"]["non_revenue_by_reason"] == {}
+    # The writer refuses a reject on such a row (it is already non-revenue), so a stored one is the rules' decision.
+    rejected = replay_reviews(_without_edits(_payload(ZELLE_ROWS)), [_decision(12, old, "transaction:2", "reject")])
+    assert (rejected.replayed, rejected.not_replayed, rejected.decided_by_rules) == ((), (), (12,))
+    assert rejected.analysis["metrics"]["non_revenue_by_reason"] == {"zelle_excluded": {"count": 1, "total": 400.0}}
+
+
 def test_a_decision_is_not_replayed_where_the_row_at_its_location_changed():
     from webapp.reanalysis import replay_reviews
 
@@ -290,6 +336,7 @@ def _ruled(analysis, location, account=1):
 
     _records(analysis, account)[location].update(
         revenue_classification="non_revenue", revenue_initial_classification="non_revenue",
+        revenue_tier="non_revenue", revenue_initial_tier="non_revenue", revenue_tier_reason=None,
         revenue_review_required=False, revenue_review_status="not_required",
         revenue_match_method="financing_proceeds_credit")
     return rebuild_serialized_revenue_views(analysis)
@@ -1017,7 +1064,7 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
 
     keys = {group.key for group in FLAG_GROUPS}
     rows, deposits = _every_group_rows()
-    monkeypatch.setattr(transaction_classifier, "match_known_payee", lambda normalized_text: None)
+    monkeypatch.setattr(transaction_classifier, "match_known_payee", lambda normalized_text, *, credit=False: None)
     monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES", {})
     job_id = pipeline.upload(_saved_under_old_rules(_payload(rows)))
     for location in deposits:
@@ -1057,7 +1104,9 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     assert {position["group"] for position in saved["detection"]["flagged_positions"]} == keys
     # Re-pinned from 5.0: the D6 clarification (2026-09-26) is classification 5.1, the second one (2026-09-27) 5.2,
     # the false-positive release 5.3, the Idea Financial ruling (2026-09-28) 5.4.
-    assert {record["classification_version"] for record in records.values()} == {"5.4"}
+    # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers; 5.7: the audit's fix batches, round 2 and
+    # the owner's rulings (audit round 2, R2-B16: R56).
+    assert {record["classification_version"] for record in records.values()} == {"5.7"}
     # Premium financing is no state of its own: the row stays insurance, in the insurance totals, and carries its flag.
     (premium,) = [record for record in flagged if record["flagged_group"] == "premium_financing"]
     assert (premium["classification"], premium["contributes_to_insurance_totals"]) == ("insurance", True)
@@ -1066,6 +1115,96 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     served = _records(body["analysis"])
     assert [served[record["source_location"]]["flag_shown"] for record in flagged] == [True] * len(flagged)
     assert body["analysis"]["analysis_rules_outdated"] is False
+
+
+#: Audit round 2, R2-B16 (R56): a statement analysed at classification 5.6, before the audit's fix batches and round 2
+#: moved its tiers and the review gate: a CONTOSO LLC customer payment (Verified), a bare FABRIKAM online transfer (held,
+#: no counterparty) and a SAMPLE sweep from savings (non-revenue); the stage it was cached at (32) and the stage and
+#: classification the batch moves to (33, 5.7).
+STALE_ROWS = [(3, "CONTOSO LLC DES:ACH PAYMENT ID:1", 1000.0), (5, "ONLINE BANKING TRANSFER CONF FABRIKAM", 900.0),
+              (9, "SAMPLE SWEEP TRANSFER FROM SAVINGS", 6000.0)]
+STALE_TIERS = [("verified_revenue", "verified", None),
+               ("unverified_deposit", "excluded_pending_review", "transfer_no_counterparty"),
+               ("non_revenue", "non_revenue", None)]
+STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 33, "5.7"
+
+
+def _stale_payload():
+    """STALE_ROWS analysed by the real path, stored as 5.6 left it: every record stamped 5.6 and the review gate a
+    stage before B11 stored (False; B11's rule gates these held credits)."""
+    payload = _saved_under_old_rules(_payload(STALE_ROWS), "5.6")
+    payload["metrics"]["revenue_review_required"] = False
+    return payload
+
+
+def _tiers(payload):
+    return [(row["classification"]["revenue_classification"], row["classification"]["revenue_tier"],
+             row["classification"]["revenue_tier_reason"])
+            for row in payload["statement"]["transactions"] if row["amount"] > 0]
+
+
+def test_a_5_6_analysis_is_served_with_the_re_analyze_notice():
+    """R56 T1, T5: the versions moved (classification 5.7, stage 33), so a statement analysed at 5.6 is served with
+    the notice; its rows tier as the rules tier them today."""
+    from analysis.transaction_classifier import CLASSIFICATION_VERSION
+    from webapp import artifact_cache
+    from webapp.app import _displayed
+
+    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == (CURRENT_CLASSIFICATION, CURRENT_STAGE)
+    stale = _stale_payload()
+    assert _tiers(stale) == STALE_TIERS == _tiers(_payload(STALE_ROWS))
+    assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
+
+
+@pytest.mark.parametrize("version, outdated", [("5.7", False), ("5.6", True), ("4.1", True), (None, True)])
+def test_only_a_record_older_than_5_7_sets_the_notice(version, outdated):
+    """R56 T2: at 5.7 the notice is off; at 5.6, 4.1, or with no version (a record from before the field) it is on.
+    `_rules_outdated` itself is unchanged (D12)."""
+    from webapp.app import _displayed
+
+    payload = _payload(STALE_ROWS)
+    for row in payload["statement"]["transactions"]:
+        if version is None:
+            row["classification"].pop("classification_version")
+        else:
+            row["classification"]["classification_version"] = version
+    assert _displayed(payload, settings={})["analysis_rules_outdated"] is outdated
+
+
+def test_re_analysing_a_5_6_statement_misses_its_stage_32_entry_and_clears_the_notice(
+        pipeline, private_store, monkeypatch):
+    """R56 T4: the statement was uploaded at stage 32, so its 5.6 analysis is cached under stage 32's key; at stage 33
+    Re-analyze misses that entry (`_CacheOnly` passes `get_analysis` through), runs the analysis stage on the cached
+    reading, stamps 5.7 and clears the notice, and the statement's gate (its pill) is the package's member gate. With
+    5.7 alone the cached 5.6 entry would come back and the notice would survive its own button."""
+    from webapp import artifact_cache
+    from webapp.app import _displayed, _package_analysis, app
+
+    assert artifact_cache.ANALYSIS_STAGE_VERSION == CURRENT_STAGE
+    monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", STALE_STAGE)
+    job_id = pipeline.upload(_stale_payload())
+    monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", CURRENT_STAGE)
+    assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is True
+    fresh = _payload(STALE_ROWS)
+    pipeline.payload = fresh  # what the analysis stage answers when it runs, under today's rules
+    hits_before = len(private_store.storage.audit_events("cache_hit", job_id=job_id))
+
+    body = _reanalyze(job_id).get_json()
+
+    hits = {json.loads(row["detail"])["stage"]
+            for row in private_store.storage.audit_events("cache_hit", job_id=job_id)[hits_before:]}
+    assert "ocr" in hits and "analysis" not in hits
+    assert pipeline.reads == 1  # the statement was read once, at its upload
+    assert body["analysis"]["analysis_rules_outdated"] is False
+    saved = private_store.get(job_id).analysis
+    assert {row["classification"]["classification_version"] for row in saved["statement"]["transactions"]} == {
+        CURRENT_CLASSIFICATION}
+    # T5: the three rows tier as before; only the stored gate is today's.
+    assert _tiers(saved) == STALE_TIERS
+    served = _displayed(saved, settings={})
+    package = _package_analysis([private_store.get(job_id)], settings={})
+    assert served["metrics"]["revenue_review_required"] is True
+    assert package["documents"][0]["revenue_review_required"] is served["metrics"]["revenue_review_required"]
 
 
 @pytest.mark.parametrize("version", ["4.1", "5.0"], ids=["before the flag groups", "before the D6 clarification"])

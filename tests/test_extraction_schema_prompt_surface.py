@@ -53,8 +53,11 @@ PROMPT_SURFACE_MODELS = (Statement, Transaction, StatementDailyBalance)
 #: `sha256` of `json.dumps(Statement.model_json_schema(), sort_keys=True,
 #: ensure_ascii=False)`. The whole schema, so a field description moves it too
 #: — the docstring is the sharpest edge of this surface and not the only one.
+#: Re-pinned by audit fix batch B9 (I13): `account_name` is described as "The name printed for the account: a
+#: product, a nickname, or on some layouts a person." (no longer "Account holder / product name."), and the new
+#: `holder_name` field tells the extractor "Account holder's name as printed in the header or mailing address block."
 PINNED_SCHEMA_DIGEST = (
-    "82b3f8c1f8ea4bdb6d2bb412edf55cc9240e4295e4fe2fc05ce661c2032c7c78"
+    "526604271182fc28348b2e1826deda00fc933dba24fc9c892d5ef9392f7b2859"
 )
 
 

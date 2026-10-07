@@ -41,6 +41,9 @@
     --blue-soft: rgba(124, 180, 255, .13);
     --violet: #b69cff;
     --violet-soft: rgba(182, 156, 255, .13);
+    --teal: #5eead4;
+    --teal-soft: rgba(94, 234, 212, .13);
+    --verified: #10b46a;
     --track: #2e2e2e;
     --paper: #161616;
     --rail: #0a0a0a;
@@ -79,6 +82,9 @@
     --blue-soft: rgba(40, 110, 220, .1);
     --violet: #6a47c9;
     --violet-soft: rgba(110, 70, 210, .1);
+    --teal: #0f766e;
+    --teal-soft: rgba(15, 118, 110, .12);
+    --verified: #07703f;
     --track: #d2d2cc;
     --paper: #fafaf8;
     --rail: #f6f6f3;
@@ -440,8 +446,12 @@
   .mix-dot { width: 8px; height: 8px; border-radius: 999px; }
   .mix-count, .mix-share { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); text-align: right; }
   .mix-total { font-family: var(--font-mono); text-align: right; }
+  /* Audit B11 (I53): what the shares are of. A package draws no share, so no caption. */
+  .mix-caption { margin: 6px 0 0; font-size: 12px; color: var(--text-3); text-align: right; }
+  .is-package .mix-caption { display: none; }
   .dot-green { background: var(--accent); }
   .dot-amber { background: var(--amber); }
+  .dot-teal { background: var(--teal); }
   .dot-muted { background: var(--border-2); }
 
   .chart-block { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -475,7 +485,8 @@
     display: grid; gap: 20px; align-items: end; height: 190px; padding: 0 12px; border-bottom: 1px solid var(--border-2);
   }
   .bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; min-width: 0; }
-  .bar-value { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); white-space: nowrap; }
+  /* 5.6 (A4): a set line height, so the stacked figures take a known height (app.js monthlyChartTallestBar). */
+  .bar-value { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-2); white-space: nowrap; }
   .bar {
     position: relative; overflow: hidden; width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px;
     background: var(--accent-muted);
@@ -485,8 +496,12 @@
   .bar.bar-total { background: var(--border-2); }
   .bar-part { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
   .bar-value-true { margin-top: -6px; color: var(--accent-text); }
+  /* 5.6: the Verified part of a True part (or of a True bar), in the third shade. */
+  .bar-part-verified { background: var(--verified); }
+  .bar-value-verified { margin-top: -6px; color: var(--verified); }
   .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--border-2); }
   .legend-swatch-true { background: var(--accent); }
+  .legend-swatch-verified { background: var(--verified); }
   .bar.peak { background: var(--accent); }
   .bar-labels { display: grid; gap: 20px; padding: 0 12px; }
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
@@ -508,6 +523,10 @@
   .tone-red { color: var(--red); }
   .tone-blue { color: var(--blue); }
   .tone-violet { color: var(--violet); }
+  .tone-teal { color: var(--teal); }
+  /* 5.6: True Revenue is the headline figure of the Credits cards. */
+  .metric-row.metric-headline .metric-value, .metric.metric-headline .metric-value { font-size: 20px; font-weight: 600; }
+  .evidence-subrow td:first-child { padding-left: 20px; }
 
   .metrics-section { display: flex; flex-direction: column; gap: 16px; }
   .metric-groups { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 16px; align-items: stretch; }
@@ -558,8 +577,14 @@
   .is-package .revenue-panel .evidence-link::before {
     content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 999px; margin-right: 8px; background: var(--border-2);
   }
+  /* 5.6 (true revenue spec §10.1): each tier's dot, a held reason's the Held one's; Non-Revenue keeps the plain dot. */
+  .is-package .revenue-panel [data-revenue-filter="true_revenue"]::before { background: var(--accent); }
   .is-package .revenue-panel [data-revenue-filter="verified_revenue"]::before { background: var(--accent); }
-  .is-package .revenue-panel [data-revenue-filter="unverified_deposit"]::before { background: var(--amber); }
+  .is-package .revenue-panel [data-revenue-filter="counted_flagged"]::before { background: var(--teal); }
+  .is-package .revenue-panel [data-revenue-filter="excluded_pending_review"]::before { background: var(--amber); }
+  .is-package .revenue-panel [data-revenue-filter^="excluded_pending_review:"]::before { background: var(--amber); }
+  /* Audit B11 (I53): a counted reason's dot is the Counted one's. */
+  .is-package .revenue-panel [data-revenue-filter^="counted_flagged:"]::before { background: var(--teal); }
   .results-content > * { scroll-margin-top: 76px; }
   .is-package .single-only { display: none !important; }
   .results-content:not(.is-package) .package-only { display: none !important; }
@@ -630,6 +655,7 @@
   .glass-chip.error { background: var(--red-soft); color: var(--red); }
   .glass-chip.info { background: var(--blue-soft); color: var(--blue); }
   .glass-chip.violet { background: var(--violet-soft); color: var(--violet); }
+  .glass-chip.teal { background: var(--teal-soft); color: var(--teal); }
   .glass-chip.flag-chip { margin-left: 6px; }
   .data-table .chip-glyph { display: none; }
   .table-action {
@@ -739,6 +765,15 @@
   .setting-row { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; padding: 18px 20px; }
   .setting-row + .setting-row { border-top: 1px solid var(--border); }
   .setting-row > div { min-width: 0; }
+  /* R2-OW17: the Zelle choice, two labelled checkboxes driven as a radio pair, side by side; its status under the help. */
+  .setting-example + .setting-row { border-top: 1px solid var(--border); }
+  .choice-pair { display: inline-flex; flex-shrink: 0; align-items: center; gap: 18px; padding-top: 2px; }
+  .choice-pair label { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+  .choice-pair input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .choice-pair input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .choice-pair label:has(input:disabled) { cursor: progress; opacity: .55; }
+  .choice-pair input:disabled { cursor: progress; }
+  .setting-row > div > .setting-status { margin: 8px 0 0; }
   .setting-select {
     flex-shrink: 0; min-width: min(210px, 100%); height: 36px; padding: 0 10px; border-radius: 10px; cursor: pointer;
     border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13.5px;
@@ -922,7 +957,7 @@
         <div class="popover" id="helpPopover" role="dialog" aria-label="Help" hidden style="top:auto;bottom:0;right:auto;left:calc(100% + 10px)">
           <div class="popover-title">How it works</div>
           <p>Drop one statement for a single analysis, or several months at once to build a package.</p>
-          <p>Click any revenue figure, lender or evidence row to see the exact transactions behind it. Unverified deposits can be confirmed or excluded from the Review column.</p>
+          <p>Click any revenue figure, lender or evidence row to see the exact transactions behind it. Deposits held for review, and counted deposits, can be confirmed or excluded from the Review column.</p>
           <p>Press <span class="kbd">/</span> to search statements and <span class="kbd">Esc</span> to close a dialog.</p>
         </div>
       </div>
@@ -962,7 +997,7 @@
         <button class="side-link" type="button" data-nav="review">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14l1 8v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6z"/></svg>
           <span class="side-link-label">Revenue review</span>
-          <span class="side-badge" id="reviewCount" title="Unverified deposits awaiting review" hidden>0</span>
+          <span class="side-badge" id="reviewCount" title="Deposits held for review" hidden>0</span>
         </button>
         <button class="side-link" type="button" data-nav="settings">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
@@ -1173,13 +1208,34 @@
           </div>
         </section>
 
-        <!-- A saved statement analysed with older lender rules (analysis_rules_outdated, set when it is served). -->
+        <!-- A saved statement analysed with older classification rules (analysis_rules_outdated, set when it is served). -->
         <section class="panel rules-outdated single-only" id="rulesOutdatedNotice" aria-labelledby="rulesOutdatedTitle" hidden>
           <p class="rules-outdated-text">
-            <strong id="rulesOutdatedTitle">Analysed with older lender rules.</strong>
-            Its lenders and flagged positions follow the rules it was analysed with, not the current ones.
+            <strong id="rulesOutdatedTitle">Analysed with older classification rules.</strong>
+            Its lenders, flagged positions and revenue follow the rules it was analysed with, not the current ones.
           </p>
           <button class="btn-quiet" type="button" id="reanalyzeButton">Re-analyze</button>
+        </section>
+
+        <!-- Audit B11 (I06): a package that lists one statement twice says which, and that the repeat is left out of
+             every figure (app.js renderDuplicateNotice). -->
+        <section class="panel rules-outdated duplicate-notice package-only" id="duplicateNotice" aria-live="polite" hidden>
+          <p class="rules-outdated-text" id="duplicateNoticeText"></p>
+        </section>
+
+        <!-- Audit round 2, R2-B15 (R15): a package that left an account out of every figure for another reason than a
+             repeat (a main account held or idle, an account not validated, a document whose transfers could not be
+             paired or that left a section out without proof) names it and says the package needs review
+             (app.js renderExcludedNotice). -->
+        <section class="panel rules-outdated duplicate-notice package-only" id="excludedNotice" aria-live="polite" hidden>
+          <p class="rules-outdated-text" id="excludedNoticeText"></p>
+        </section>
+
+        <!-- Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): what the package passes matched across its
+             statements (a deposit returned in the next statement of its account, taken out of True), and the
+             statements they could not read (app.js renderPackageMatchNotice). -->
+        <section class="panel rules-outdated duplicate-notice package-only" id="packageMatchNotice" aria-live="polite" hidden>
+          <p class="rules-outdated-text" id="packageMatchNoticeText"></p>
         </section>
 
         <!-- The accounts of a statement that holds several: the main account first, the others with All accounts -->
@@ -1390,8 +1446,10 @@
             <button class="transaction-filter" type="button" data-transaction-filter="insurance">Insurance</button>
             <button class="transaction-filter" type="button" data-transaction-filter="flagged">Flagged</button>
             <button class="transaction-filter" type="button" data-transaction-filter="pos">POS</button>
-            <button class="transaction-filter" type="button" data-transaction-filter="verified_revenue">Verified Revenue</button>
-            <button class="transaction-filter" type="button" data-transaction-filter="unverified_deposit">Unverified Deposits</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="true_revenue">True Revenue</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="verified_revenue">Verified</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="counted_flagged">Counted</button>
+            <button class="transaction-filter" type="button" data-transaction-filter="excluded_pending_review">Held for Review</button>
             <button class="transaction-filter" type="button" data-transaction-filter="non_revenue">Non-Revenue</button>
           </div>
           <div class="table-wrap">
@@ -1465,6 +1523,30 @@
                 <p class="setting-status" id="settingsStatus" role="status" aria-live="polite"></p>
               </div>
             </div>
+            <!-- The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): two labelled checkboxes
+                 driven as a radio pair by chooseZelleSetting (webapp/static/app.js); exactly one is ever ticked. -->
+            <div class="setting-row" id="zelleTrueRevenueRow">
+              <div>
+                <span class="setting-title" id="zelleTrueRevenueTitle">Mark Zelle Payments as True Revenue</span>
+                <p class="setting-help" id="zelleTrueRevenueHelp">
+                  <strong>Yes (default):</strong> Zelle deposits count in True revenue, flagged Zelle, with the
+                  person-to-person checks: Zelle from the business owner's own name, the same round amount repeated by
+                  one sender, and the other person-to-person checks (for example a sender the business also pays) are
+                  held for review; refunds, returns, loan money and asset sales stay out.
+                  <strong>No:</strong> every Zelle deposit is non-revenue, and its total is shown so you can compare
+                  True revenue with the Monthly Statements table. This changes True revenue, the review decision and the
+                  withholding rate on every statement and package analysed since this setting was added; nothing is
+                  reprocessed. An older analysis says so on its True card.
+                </p>
+                <p class="setting-status" id="zelleSettingStatus" role="status" aria-live="polite"></p>
+              </div>
+              <div class="choice-pair" role="radiogroup" aria-labelledby="zelleTrueRevenueTitle">
+                <label><input type="checkbox" id="zelleTrueRevenueYes" role="radio" aria-checked="false"
+                              aria-describedby="zelleTrueRevenueHelp" disabled> Yes</label>
+                <label><input type="checkbox" id="zelleTrueRevenueNo" role="radio" aria-checked="false"
+                              aria-describedby="zelleTrueRevenueHelp" disabled> No</label>
+              </div>
+            </div>
           </div>
         </section>
         <section class="settings-section" id="flagSettingsSection" aria-labelledby="flagSettingsTitle">
@@ -1504,8 +1586,9 @@
                 <label class="setting-title" for="monthlyDepositsView">Monthly Statements show</label>
                 <p class="setting-help" id="monthlyDepositsHelp">
                   <strong>Total monthly deposits:</strong> everything going in, transfers from other accounts and lender
-                  funding included. <strong>True monthly deposits:</strong> revenue only, the verified revenue and the
-                  deposits you confirm; no transfers, no funding, and no deposit still awaiting review.
+                  funding included. <strong>True revenue:</strong> every posted credit except known non-revenue
+                  (own-account transfers, funding, refunds) and the deposits held for review. The verified part, with
+                  positive proof, is shown beside it.
                   <strong>Both</strong> shows the two side by side. The monthly chart follows the same choice, and a
                   statement whose revenue could not be established shows N/A. Saved in this browser only.
                 </p>
@@ -1634,8 +1717,10 @@
           <button class="transaction-filter" type="button" data-modal-transaction-filter="insurance">Insurance</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="flagged">Flagged</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="pos">POS</button>
-          <button class="transaction-filter" type="button" data-modal-transaction-filter="verified_revenue">Verified Revenue</button>
-          <button class="transaction-filter" type="button" data-modal-transaction-filter="unverified_deposit">Unverified Deposits</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="true_revenue">True Revenue</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="verified_revenue">Verified</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="counted_flagged">Counted</button>
+          <button class="transaction-filter" type="button" data-modal-transaction-filter="excluded_pending_review">Held for Review</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="non_revenue">Non-Revenue</button>
         </div>
         <div class="table-wrap">
@@ -1659,6 +1744,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=lender-detection-2"></script>
+<script src="/static/app.js?v=true-revenue-6"></script>
 </body>
 </html>

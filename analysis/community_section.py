@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from .date_tokens import parsed_datetime
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import STRICT_LEADING_SIGN, STRICT_UNSIGNED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -296,11 +297,30 @@ def _sections(text: str) -> list[tuple[str, int, str]]:
 #: the evidence that check depends on.
 _SECTION_TRAILER_RE = re.compile(r"\s*\d+\s+item\(s\) totaling\s+" + _MONEY, re.IGNORECASE)
 
+#: Audit B10 (review round 1): the headings that end a credit's printed tail
+#: (`_printed_tail`) when the layer prints them on the row's own line: a
+#: transaction section's grid header, a non-transaction block's header, and
+#: the account's continued heading (the one `_clean` removes).
+_TAIL_HEADING_RE = re.compile(
+    "|".join((
+        _SECTION_RE.pattern,
+        _SECTION_END_RE.pattern,
+        r"(?:Small Business Checking|Business Checking) - [X0-9]+ \(continued\)",
+    )),
+    re.IGNORECASE,
+)
 
-def _dated_amount_rows(body: str, *, sign: int, year: int) -> list[Transaction]:
+
+def _dated_amount_rows(
+    body: str, *, sign: int, year: int, printed: str | None = None,
+) -> list[Transaction]:
     text = _clean(body)
     dates = list(re.finditer(r"\b" + _DATE + r"\b", text))
     txns: list[Transaction] = []
+    # Audit B10 (I05, I14): where in the printed text the next credit is looked
+    # for (`_printed_tail`).
+    cursor = 0
+    source = printed if printed is not None else body
     for i, match in enumerate(dates):
         end = dates[i + 1].start() if i + 1 < len(dates) else len(text)
         chunk = _SECTION_TRAILER_RE.sub(" ", text[match.start():end]).strip()
@@ -312,6 +332,16 @@ def _dated_amount_rows(body: str, *, sign: int, year: int) -> list[Transaction]:
         amount = _money(amount_match.group())
         if amount is None:
             continue
+        if sign > 0 and amount > 0:
+            # Audit B10 (I05, I14): this platform prints a credit's payer AFTER
+            # its amount, on the row's own printed line (`ACH Credit $X <payer>
+            # <entry> <receiver>`, Falcon's `International IWT $X Falcon
+            # Internati Wires <sender>`). A debit keeps its label until the
+            # owner admits the debit readings (G7), and so does the $0.00
+            # returned ACH the platform prints under Deposits (B10 review,
+            # round 1): only a published credit reads its payer.
+            tail, cursor = _printed_tail(source, chunk[: amount_match.end()], cursor)
+            desc = re.sub(r"\s+", " ", f"{desc} {tail}").strip()
         if _strptime(match.group(), "_dated_amount_rows").year != year:
             return []
         txns.append(
@@ -323,6 +353,35 @@ def _dated_amount_rows(body: str, *, sign: int, year: int) -> list[Transaction]:
             )
         )
     return txns
+
+
+def _printed_tail(source: str, row: str, cursor: int) -> tuple[str, int]:
+    """Audit B10 (I05, I14): what the statement printed after a credit's amount
+    on the row's own printed line, and where to look for the next row.
+
+    The rows are read on `_clean`'s text, which has collapsed every line break,
+    and the line break is what bounds a row's own text on this platform: the
+    rows of a page print run together on one line, and the page's furniture (a
+    reconciliation form, an error-resolution notice, the next page's
+    `<product> - <account> (continued)` heading) follows on lines of its own.
+    So the row — its date, label and amount, as `_clean` read them — is found
+    again in the printed text `source` (the document, or the block, with its
+    line breaks), at or after `cursor` so two identical rows are read in order,
+    and its tail is the rest of that printed line up to the next row's date, a
+    section trailer, or a heading the layer printed on the same line (B10
+    review, round 1: the next section's grid header, a non-transaction block's
+    header such as Daily Balances, the account's continued heading). A row not
+    found prints no tail (fail closed)."""
+    pattern = r"\s+".join(re.escape(token) for token in row.split())
+    found = re.compile(pattern).search(source, cursor) if pattern else None
+    if found is None:
+        return "", cursor
+    line = source[found.end():].split("\n", 1)[0]
+    for stop_at in (_TAIL_HEADING_RE, re.compile(r"\b" + _DATE + r"\b"), _SECTION_TRAILER_RE):
+        stop = stop_at.search(line)
+        if stop is not None:
+            line = line[: stop.start()]
+    return re.sub(r"\s+", " ", line).strip(), found.end()
 
 
 def _check_rows(block: str, *, year: int) -> list[Transaction]:
@@ -591,6 +650,11 @@ def _parse_sectioned_statement(
     #: the argument would be allowed to lose that distinction silently, which is
     #: the whole defect L1-C17 exists to close.
     ledger: SectionLedger,
+    #: Audit B10 (I05, I14): the document as printed, line breaks kept, when
+    #: `markdown` is a block the caller has already passed through `_clean`
+    #: (the platform reader's `_account_blocks`): what a credit printed after
+    #: its amount is bounded by its printed line (`_printed_tail`).
+    printed: str | None = None,
 ) -> Statement | None:
     block = _account_block(markdown, account_heading)
     if not block:
@@ -614,7 +678,7 @@ def _parse_sectioned_statement(
     # single cheque row mask an entire J-B ledger - which is what it did on
     # eleven archive documents before this was written as a layout choice.
     by_section: list[list[Transaction]] = [
-        _dated_amount_rows(body, sign=sign, year=end_year)
+        _dated_amount_rows(body, sign=sign, year=end_year, printed=printed)
         for _name, sign, body in _sections(block)
     ]
     section_rows = [txn for rows in by_section for txn in rows]
@@ -732,7 +796,25 @@ def parse_mission_valley_statement(markdown: str) -> Statement | None:
     if stmt is None or ledger.refused:
         return None
     publish_omissions(ledger.omissions)
+    stmt.holder_name, stmt.account_title = _mission_valley_holder_reading(markdown)
     return stmt
+
+
+#: Audit round 2, R2-B05 (R04 part 2): Mission Valley's page-1 header line, the holder's name and the page counter
+#: ('CONTOSO TRADING INC Page 1 of 4').
+_MISSION_VALLEY_HOLDER_LINE = re.compile(r"^(?P<name>\S.*?)\s+Page 1 of \d+$", re.IGNORECASE)
+
+
+def _mission_valley_holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name Mission Valley prints before page 1's page counter (the
+    mailing line below it can print a location between the name and the street, so it is not read); NO_READING without
+    that line. `account_name` keeps the product. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the
+    account title that line prints after the name."""
+    for line in page_lines(first_page(markdown)):
+        match = _MISSION_VALLEY_HOLDER_LINE.match(line)
+        if match is not None:
+            return read_name(match.group("name"))
+    return NO_READING
 
 
 #: Section headings of this platform: "<product> (Checking|Savings) - <acct>"
@@ -1038,7 +1120,7 @@ def parse_community_section_statement(markdown: str) -> Statement | None:
     for product, number, block in _account_blocks(markdown):
         stmt = _parse_sectioned_statement(
             block, bank=issuer, account_name=product, account_number_pattern=None,
-            ledger=ledger,
+            ledger=ledger, printed=markdown,
         )
         if stmt is not None and stmt.transactions:
             stmt.account_number = number

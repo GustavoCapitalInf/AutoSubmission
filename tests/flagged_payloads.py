@@ -14,8 +14,10 @@ from tests.l1s3_payloads import account_payload, document_payload
 FLAGGED_DEBIT = 7.0
 #: The classifier version the contract's records carry (C4). Re-pinned 5.0 -> 5.1 with the D6 clarification,
 #: 5.1 -> 5.2 with its second one (2026-09-27: compensation memos, masked recipient accounts), 5.2 -> 5.3 with
-#: the false-positive release, and 5.3 -> 5.4 with the Idea Financial ruling (2026-09-28).
-CURRENT_VERSION = "5.4"
+#: the false-positive release, 5.3 -> 5.4 with the Idea Financial ruling (2026-09-28), and 5.4 -> 5.5 with the
+#: true-revenue bug fixes, 5.5 -> 5.6 with its revenue tiers, and 5.6 -> 5.7 with the audit's fix batches, round 2 and
+#: the owner's rulings (audit round 2, R2-B16: R56).
+CURRENT_VERSION = "5.7"
 #: The flag-group keys in contract order.
 GROUP_KEYS = tuple(group.key for group in FLAG_GROUPS)
 #: The state a premium-financing row keeps: it has no state of its own and stays insurance (plan contract C1, C4).

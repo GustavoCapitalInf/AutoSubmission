@@ -72,6 +72,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import NO_READING, HolderReading, read_address_line
 from .money import parse_grouped_float
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -225,6 +226,25 @@ def _account_name(markdown: str) -> str | None:
         re.IGNORECASE | re.MULTILINE,
     )
     return compact_whitespace(match.group(1)) if match else None
+
+
+#: Audit B9 (I13, I38): the holder's line, printed directly above the summary heading: the holder's name, an account
+#: designation the bank prints after it (a premium trust, an operating, a wire or a producer-payable account) and the
+#: mailing address, run together, sometimes with a balance after the ZIP. Read only when it closes on a state and ZIP.
+_HOLDER_LINE = re.compile(r"^([^\n]*)\n(?=Your Account\(s\) At A Glance)", re.MULTILINE)
+_STATE_ZIP = re.compile(r"\b[A-Z]{2} \d{5}(?:-\d{4})?\b")
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit B9 (I13, I38): the account holder's name from the line above `Your Account(s) At A Glance`, without the
+    account designation and the address (analysis.holder_name.read_address_line); NO_READING when that line is no
+    mailing address. `_account_name` keeps publishing the product line. Owner ruling 2026-10-02 (Q10), audit round 2,
+    R2-OW10: with the designation the line prints after the name (a premium trust, an operating, a wire or a
+    producer-payable account) as the account's title."""
+    match = _HOLDER_LINE.search(markdown)
+    if match is None or not _STATE_ZIP.search(match.group(1)):
+        return NO_READING
+    return read_address_line(match.group(1))
 
 
 def _resolve(month: int, day: int, start: date, end: date) -> date | None:
@@ -526,15 +546,20 @@ def _flattened_postings(
             when = _resolve(int(mmdd[:2]), int(mmdd[3:]), start, end)
             if when is None:
                 return None
-            description = (
-                compact_whitespace(run) if len(dates) == 1 and run else label
-            )
+            described = len(dates) == 1 and bool(run)
+            description = compact_whitespace(run) if described else label
             postings.append(
                 Transaction(
                     date=when.isoformat(),
                     description=description,
                     amount=amount if credit else -amount,
                     direction="credit" if credit else "debit",
+                    # Audit B10 (I60): the section label stands in for a
+                    # description the bank printed and this reader did not
+                    # read; `_described` lifts the mark where the overlay
+                    # reads the column. (The deposits grid prints no
+                    # description column, so its label marks nothing.)
+                    payer_text_unread=credit and not described,
                 )
             )
     return postings
@@ -720,8 +745,10 @@ def _described(
         # A COPY with one field replaced, not a rebuild: `Transaction` carries
         # `running_balance` as well, and a rebuild naming four fields would
         # silently drop a fifth the day this parser starts populating one.
+        # Audit B10 (I60): the column was read, so the row is no longer marked
+        # as read only by its label (an empty column printed no payer).
         described.append(
-            posting.model_copy(update={"description": text or posting.description})
+            posting.model_copy(update={"description": text or posting.description, "payer_text_unread": False})
         )
     return described
 
@@ -816,9 +843,12 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
     )
     billed = [charge] if charge is not None else []
 
+    holder = _holder_reading(markdown)
     return Statement(
         bank="First Citizens Bank",
         account_name=_account_name(markdown),
+        holder_name=holder.name,
+        account_title=holder.title,
         account_number=account,
         period_start=start.isoformat(),
         period_end=end.isoformat(),

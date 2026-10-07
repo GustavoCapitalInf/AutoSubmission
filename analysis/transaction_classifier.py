@@ -1,31 +1,62 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, replace
+from functools import cache
 from datetime import date
 from statistics import mean, pstdev
-from typing import Literal, Sequence, TYPE_CHECKING
+from typing import Callable, Literal, Sequence, TYPE_CHECKING
 
 from .classification_registry import (
     BANK_NAME_ALIASES,
+    BLUE_PLAN_CLAIM_PAYERS,
+    CARD_SETTLEMENT_CREDIT_FORMS,
+    CardSettlementForm,
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
+    FACTORING_REVIEW_ENTITIES,
     FIELD_ORDER_PAYEE_FORMS,
+    GATED_PROCESSOR_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
+    OPERATING_ALIASES_READ_WITH_VETOES,
+    OPERATING_REVENUE_READ_ALIASES,
     OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
+    OPERATING_REVENUE_TRUNCATIONS,
+    OPERATING_SOURCE_CONTEXT_WORDS,
+    OPERATING_SOURCE_PAYOUT_FORMS,
+    OPERATING_SOURCES_READ_WITH_VETOES,
     PAYEE_GROUP_REGISTRIES,
     PAYOUT_CREDIT_ENTITIES,
     POTENTIAL_LENDER_ALIASES,
     PREMIUM_FINANCE_ALIASES,
     REVIEW_FLAG_ENTITIES,
+    WHOLESALE_AUCTION_PAYOUT_FORMS,
+    WHOLESALE_AUCTION_REFUND_NAMES,
+    _operating_alias_cut,
 )
 from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
-from .revenue import RevenueState, revenue_contribution_flags
+from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
-from .description_text import normalize_transaction_description
+from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
+# 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
+from .true_revenue import (
+    DealerFunding,
+    FundingSeries,
+    also_debited,
+    apply_true_revenue_pass,
+    counter_credit,
+    counter_debits,
+    dealer_funding_reading,
+    debited_as_lender,
+    payer_text_unread_indexes,
+    payer_text_unread_texts,
+    premium_trust_title,
+    zelle_credits_present,
+)
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -99,9 +130,27 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: unconfirmed flag payees, the D11 naming fixes, the tab's payee labels and the
 #: Debt relief group. 5.4 (2026-09-28): the owner's ruling that Idea Financial is
 #: a counted lender, no longer a line of credit (its rows printing LOC or LINE OF
-#: CREDIT stay Lines of credit, D9). Moves with
-#: `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.4"
+#: CREDIT stay Lines of credit, D9). 5.5 (2026-09-28): the true-revenue bug fixes
+#: (docs/superpowers/specs/2026-09-28-true-revenue-design.md §7): the revenue
+#: text readers, the operating registry, card and payout forms, the recurrence
+#: pass, payer remittance, public and healthcare payers, wires that cite an
+#: invoice, auctions and property platforms, and the non-revenue narrowings.
+#: Review fixes (2026-09-29): glued dates never change a reading; the holder's
+#: name never names a payer; own-account transfers, glued and invoice wires and
+#: platform financing words keep their vetoes.
+#: 5.6 (2026-09-28): the definitional rules (§8): every posted credit carries a
+#: revenue tier, True revenue and its counted and held parts, and the review gate.
+#: Review decisions (2026-09-29): direction conflicts never lifted; bare
+#: transfers, micro entries, owner money, deferred sources and round-sum repeats
+#: held or counted as ruled; Q7 honours the section 8.1 holds.
+#: 5.7 (audit round 2, R2-B16: R56): the audit's twelve fix batches (B01 to
+#: B12) and round 2 (R2-B01 to R2-B16) moved tiers and the review gate, and the
+#: owner's rulings of 2026-10-02 and 2026-10-06 (R2-OW01 to R2-OW18, with
+#: R2-L01's ledger admission) moved tiers and added reasons, all under 5.6; the
+#: one bump that covers them, so an analysis saved at 5.6 gets the re-analyze
+#: notice (lender spec D12) and its button computes the current reading.
+#: Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
+CLASSIFICATION_VERSION = "5.7"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"
@@ -135,6 +184,9 @@ class TransactionClassification:
     bank: str | None = None
     account: str | None = None
     account_name: str | None = None
+    #: Audit B9 (I13): the statement's holder name (Statement.holder_name); the holder tests read
+    #: holder_reading(account_name, holder_name).
+    holder_name: str | None = None
     source_direction: str | None = None
     direction_consistent: bool = True
     source_page: int | None = None
@@ -168,6 +220,12 @@ class TransactionClassification:
     reversal_of: str | None = None
     reversed_by: str | None = None
     settlement_reversal: bool = False
+    # Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §6.2, §9.1, §11; R2-OW13): a
+    # confirmed funder's payment the bank returned unpaid. On the DEBIT, the return credit's location: the row leaves
+    # paid to lenders (contributes_to_lender_totals) and stays in the withholding rate and the lender count. On the
+    # CREDIT, the debit's location; its revenue reading is untouched. None on every other row.
+    returned_funder_payment_by: str | None = None
+    returns_funder_payment: str | None = None
     contributes_to_lender_count: bool = False
     contributes_to_potential_lender_count: bool = False
     contributes_to_lender_totals: bool = False
@@ -193,6 +251,24 @@ class TransactionClassification:
     # statement ('Unidentified lender obligation (weekly, 450.00)'). None for every other row, whose line is its
     # canonical_entity.
     potential_payee_label: str | None = None
+    # The owner's request of 2026-10-06 (lender payment changes; true revenue spec §9.1; R2-OW18): on every
+    # potential_lender row, named or not, its payee's amount-free key (an opaque digest of the entity, D6's payee words
+    # and the masked recipient: no payee word is published), which analysis.lender_payment_changes reads to follow a
+    # payee across an amount change; nothing else reads it. None for every other row.
+    potential_payee_key: str | None = None
+    # 5.6 (true revenue spec §5.4): the per-row contract. Every posted credit carries exactly one tier (verified,
+    # counted_flagged, excluded_pending_review, non_revenue); a counted or held row carries its reason code
+    # (analysis.revenue.REVENUE_TIER_REASONS). The initial tier is the one the rules gave, which a reset restores.
+    revenue_tier: str | None = None
+    revenue_initial_tier: str | None = None
+    revenue_tier_reason: str | None = None
+    contributes_to_counted_flagged: bool = False
+    contributes_to_excluded_pending_review: bool = False
+    # Owner ruling 2026-10-02 (the underwriter's Q1; true revenue spec §5.4, §8.5; R2-OW12): on a held wire with no
+    # sender printed (`wire_no_sender`), each Lenders or Potential Lenders series that starts after it (pass 7's last
+    # step, analysis.true_revenue.funding_series_after); () on every other row. A review aid: no tier, state, flag,
+    # figure or gate reads it. Serialized as a list of objects.
+    revenue_funding_series: tuple[FundingSeries, ...] = ()
 
     @property
     def is_pos_purchase(self) -> bool:
@@ -250,14 +326,17 @@ _PREMIUM_FINANCING_GROUP = "premium_financing"
 _FLAGGED_REVENUE_CREDIT_STATES: frozenset[str] = frozenset({"factoring"})
 
 
-def _insurance_registry_match(text: str) -> tuple[str, str, bool] | None:
+def _insurance_registry_match(text: str, *, glued_digits: bool = False) -> tuple[str, str, bool] | None:
     """Spec §4.3 step 4: the insurer of an insurance row, as (entity, alias, premium_finance).
 
     Premium-finance payees (`PREMIUM_FINANCE_ALIASES`, spec §4.2) are consulted
     first, so a premium financier whose name contains an insurer's name is still
-    the premium financier.
+    the premium financier. Audit B6 (I24): with `glued_digits` (a credit), the
+    premium-finance lookup also reads a one-word alias with a digit run glued after
+    it ('IPFS888', 'IPFSFLP12'), so every spelling of a premium financier's credit
+    takes the one insurance treatment; a debit keeps today's reading.
     """
-    premium = registry_match(text, PREMIUM_FINANCE_ALIASES)
+    premium = registry_match(text, PREMIUM_FINANCE_ALIASES, glued_digits=glued_digits)
     if premium is not None:
         return premium[0], premium[1], True
     insurer = registry_match(text, INSURANCE_PROVIDER_ALIASES)
@@ -564,7 +643,8 @@ _SERVICER_COLLECTOR_PATTERNS = (
     re.compile(r"\bCOLLECTION AGENCY\b"),
 )
 #: D5, owner decision 2026-09-25 (d5_unnamed_loan_payment): loan-payment wording
-#: (normalization already reads LN as LOAN and PAYMT as PAYMENT) ...
+#: (normalization reads PAYMT as PAYMENT, and LN as LOAN except where LN ends a street address with no
+#: loan-product word before it and no payment word after it, 5.5 §7.11: 'CML LN PAYMT' reads LOAN PAYMENT) ...
 _UNNAMED_LOAN_PAYMENT_PATTERNS = (
     re.compile(r"\bLOANS? (?:PAYMENT|PAYMENTS|PYMT|PMT|REPAYMENT)\b"),
     # 5.3 (2026-09-27): the statement bank's own loan interest, with no payee printed.
@@ -618,11 +698,16 @@ _RELATED_PARTY_LOAN_PATTERNS = (
     re.compile(r"\bDUE TO (?:SHAREHOLDERS?|OWNERS?)\b"),
 )
 
+#: S4.2 final review (fix 4): CANCELLED's French words ('VIREMENT ANNULE', 'VIREMENT INTERAC ANNULE', 'ANNUL VFC'),
+#: whole words with the veto convention's (?<![A-Z]) left boundary, so a digit glued on the left never hides one.
+#: S4.2 fix round 5: and their plurals, ANNULES and ANNULEES.
+_FRENCH_CANCEL_CREDIT_PATTERN = re.compile(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b")
 _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
     *_REFUND_REVERSAL_PATTERNS,
     re.compile(r"\b(?:E TRANSFER|ETRANSFER|TRANSFER) (?:RETURNED|CANCEL(?:LED|ED)?|CNCL)\b"),
     re.compile(r"\b(?:RETURNED|CANCEL(?:LED|ED)?|CNCL) (?:E TRANSFER|ETRANSFER|TRANSFER)\b"),
     re.compile(r"\bCNCL\b"),
+    _FRENCH_CANCEL_CREDIT_PATTERN,
     re.compile(r"\bREIMBURSEMENT\b"),
     re.compile(r"\bNSF\b"),
     re.compile(r"\bRETURNED (?:PAYMENT|ITEM|CHECK|CHEQUE|DEPOSIT)\b"),
@@ -644,21 +729,56 @@ _SETTLEMENT_REVERSAL_PATTERNS = (
     re.compile(r"\bCHARGEBACK\b"),
 )
 
+#: 5.6 (audit B2: I01, I21): the own-account sources a transfer names after FROM also include DDA, a cut CHECKG, TD's
+#: credit-line CL, a loan account LN, and the holder's card or credit line (CRD, CREDIT CARD, CREDIT LINE, LINE OF
+#: CREDIT, LOC): a draw on the holder's own card or line is no sale.
 _INTERNAL_ACCOUNT_SOURCE = (
-    r"(?:ACCOUNTS?|CHK|CHECKING|CK|SAV|SAVINGS|SV|SHARES?|MMA|"
-    r"MONEY MARKET|PCA|(?:SUB )?RESERVE ACCOUNTS?)"
+    r"(?:ACCOUNTS?|CHK|CHECKING|CHECKG|CK|SAV|SAVINGS|SV|SHARES?|MMA|DDA|"
+    r"MONEY MARKET|PCA|(?:SUB )?RESERVE ACCOUNTS?|CL|LOC|LN|CRD|CREDIT CARD|CREDIT LINE|LINE OF CREDIT)"
 )
+#: 5.6 (audit B2: I21): FRM is FROM in the own-account forms ('TFR FRM CHECKING', 'INTERNET XFR FRM CHECKG').
+_FROM_WORD = r"(?:FROM|FRM)"
+#: Audit round 2, R2-B11 (R24; §8.2, §8.4 T13): _INTERNAL_ACCOUNT_SOURCE's spellings in two lists (a test keeps them
+#: equal to it): the short tokens, which can be a company's first letters ('CL FABRIKAM INC', 'LOC CONTOSO LLC'), and
+#: the long spellings, read as before. The source list itself is unchanged: its account words, _counterparty_tokens'
+#: and the 'FROM <n> <source>' form read it whole.
+_SHORT_ACCOUNT_SOURCES = r"CHK|CHECKG|CK|SAV|SV|MMA|DDA|PCA|CL|LOC|LN|CRD"
+_LONG_ACCOUNT_SOURCES = (
+    r"ACCOUNTS?|CHECKING|SAVINGS|SHARES?|MONEY MARKET|(?:SUB )?RESERVE ACCOUNTS?|CREDIT CARD|CREDIT LINE|LINE OF CREDIT"
+)
+#: Audit round 2, R2-B11 (R24): an own-account source a transfer designates after FROM: a long spelling as a whole word
+#: (Navy Federal's 'FROM SHARES <name>' stays the holder's own transfer), or a short token only before an account
+#: number, a masked account, ACCOUNT or ACCT, or at the row's end ('FROM CL 1234567', 'FROM LOC XXXXXX1234', 'FROM CK
+#: ACCT 1234', 'FROM CL'). A short token before a name ('FROM CL FABRIKAM INC') is that company's name: the row falls to
+#: the named-transfer readings (T13, Q4, Q5), never the strong rule.
+_DESIGNATED_ACCOUNT_SOURCE = (
+    rf"(?:(?:{_LONG_ACCOUNT_SOURCES})\b|(?:{_SHORT_ACCOUNT_SOURCES})(?= (?:\d|X+\d*\b|ACCOUNTS?\b|ACCT\b)|$))"
+)
+#: 5.6 (audit B2: I20): the own-account forms whose sender a bank may print after the designation (Bank of America's
+#: 'ONLINE TRANSFER FROM CHK <n> CONFIRMATION <reference> <sender>', a credit union's 'TFR FROM X...<n> TRANSFER
+#: DEPOSIT <sender>'): named, so the strong rule refuses them when that sender is not the holder
+#: (_named_sender_after_designation). Audit round 2, R2-B11 (R24): the source is a designated one
+#: (_DESIGNATED_ACCOUNT_SOURCE).
+_TRANSFER_FROM_ACCOUNT = re.compile(rf"\b(?:TRANSFER|XFER|XFR|TFR) {_FROM_WORD} {_DESIGNATED_ACCOUNT_SOURCE}")
+_CHANNEL_TRANSFER_FROM_ACCOUNT = re.compile(
+    # 5.6 (audit B2: I01): Truist's own-account layout repeats its channel word between TRANSFER and FROM ('ONLINE
+    # TRANSFER ONLINE FROM <n>', the layout analysis/bank_repairs.py names). A MOBILE there is not read (no corpus
+    # layout confirms it as own-account): such a row names no counterparty and is held under Q2. Audit round 2, R2-B11
+    # (R24): the source is a designated one (_DESIGNATED_ACCOUNT_SOURCE).
+    rf"\b(?:BRANCH|ONLINE|MOBILE|INTERNET|HOME|BUSINESS ONLINE|TELEPHONE)"
+    rf"(?: BANKING)?(?: ACCOUNT)? (?:TRANSFER|XFER)(?: TRANSFER| ONLINE)? {_FROM_WORD} "
+    rf"(?:{_DESIGNATED_ACCOUNT_SOURCE}|(?:X+\d*|\d{{3,}})\b)"
+)
+_TFR_TRANSFER_DEPOSIT = re.compile(r"\bTFR FROM (?:X+\d*|\d{3,})\b.*\bTRANSFER DEPOSIT\b")
 _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
-    re.compile(r"\b(?:INTERNAL|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
+    # 5.5 (§7.11): BOOK TRANSFER and FUNDS TRANSFER are own-account only without a third-party originator
+    # (_own_book_or_funds_transfer).
+    re.compile(r"\b(?:INTERNAL|ACCOUNT) TRANSFER\b"),
     re.compile(r"\bTRANSFER (?:FROM|BETWEEN) (?:OWN|MY|INTERNAL) ACCOUNTS?\b"),
-    re.compile(rf"\b(?:TRANSFER|XFER|TFR) FROM {_INTERNAL_ACCOUNT_SOURCE}\b"),
-    re.compile(
-        rf"\b(?:BRANCH|ONLINE|MOBILE|INTERNET|HOME|BUSINESS ONLINE|TELEPHONE)"
-        rf"(?: BANKING)?(?: ACCOUNT)? (?:TRANSFER|XFER)(?: TRANSFER)? FROM "
-        rf"(?:{_INTERNAL_ACCOUNT_SOURCE}|X+\d*|\d{{3,}})\b"
-    ),
+    _TRANSFER_FROM_ACCOUNT,
+    _CHANNEL_TRANSFER_FROM_ACCOUNT,
     re.compile(r"\bTRANSFER DEPOSIT FROM (?:ACCOUNT )?(?:X+\d*|\d{3,})\b"),
-    re.compile(r"\bTFR FROM (?:X+\d*|\d{3,})\b.*\bTRANSFER DEPOSIT\b"),
+    _TFR_TRANSFER_DEPOSIT,
     re.compile(r"\bDEPOSIT TRANSFER FROM (?:X+\d*|\d{3,})\b"),
     re.compile(r"\b(?:ATM )?(?:SH TO SH|SHARE TO SHARE|ACCOUNT TO ACCOUNT) TRANSFER\b"),
     re.compile(r"\bTRANSFER FROM X+\d* TO X+\d*\b"),
@@ -673,6 +793,194 @@ _INTERNAL_TRANSFER_CREDIT_PATTERNS = (
     ),
     re.compile(r"\bTRANSFER (?:INCOMING|CREDIT)\b.*\b(?:SUB )?RESERVE ACCOUNT\b"),
 )
+#: 5.6 (audit B2: I21): the holder's own-account sweeps that print no transfer source the patterns above read: an
+#: overdraft-protection sweep from the holder's own account, card or line ('OVERDRAFT PROTECTION FROM <n>', 'OD
+#: PROTECTION TRANSFER FROM CREDIT CARD', 'OVERDRAFT XFER FROM CREDIT CARD OR LINE', Chase's 'ODP TRANSFER'), and
+#: Regions' electronic banking from the holder's checking or savings ('EB FROM CHECKING <n>'). Read by the strong
+#: non-revenue rule only (R-d's package pairing keeps _INTERNAL_TRANSFER_CREDIT_PATTERNS).
+_OWN_ACCOUNT_SWEEP_CREDIT_PATTERNS = (
+    re.compile(r"\bOVERDRAFT PROTECTION(?: (?:TRANSFER|XFER))? FROM\b"),
+    re.compile(r"\bOD PROTECTION (?:TRANSFER|XFER)\b"),
+    re.compile(r"\bOVERDRAFT (?:XFER|TRANSFER) FROM\b"),
+    re.compile(r"\bODP (?:TRANSFER|XFER)\b"),
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?EB FROM (?:CHECKING|SAVINGS)\b"),
+)
+#: 5.6 (audit B2: I20, §6.3 narrowing 8): the two layouts that print a named sender after an own-account designation,
+#: and the sender's words: Bank of America's 'ONLINE|MOBILE [BANKING] TRANSFER FROM CHK|SAV <n> CONFIRMATION
+#: <reference> <sender>' (its own-account form prints only the reference, ten digits) and a credit union's 'TFR FROM
+#: X...<n> TRANSFER DEPOSIT <sender>'. Navy Federal's 'TRANSFER FROM SHARES|CHECKING <name>' is neither: its holder
+#: test is blind, so it stays the holder's own transfer.
+_NAMED_DESIGNATION_TRANSFERS = (
+    re.compile(r"\b(?:ONLINE|MOBILE) (?:BANKING )?TRANSFER FROM (?:CHK|SAV) \d+ CONFIRMATION \S+ (?P<sender>\S.*)$"),
+    re.compile(r"\bTFR FROM X+\d* TRANSFER DEPOSIT (?P<sender>\S.*)$"),
+)
+#: 5.6 (audit B2: I20): the own-account patterns a named sender after the designation refuses.
+_NAMED_DESIGNATION_PATTERNS = (_TRANSFER_FROM_ACCOUNT, _CHANNEL_TRANSFER_FROM_ACCOUNT, _TFR_TRANSFER_DEPOSIT)
+#: 5.6 (A3-G re-review): the posting words a bank prints before the Canada Revenue Agency's refund, read after the
+#: revenue text and the template prefixes are stripped: a glued or spaced date, Canada's GC (Government of Canada) and
+#: the direct-deposit, EFT and payment words ('0102DIRECT DEPOSIT CANADA RIT', 'GC DIRECT DEPOSIT CANADA RIT',
+#: 'PAYMENT FROM CANADA RIT'). Each number ends at a space or a letter, so no number splits two ways.
+_CRA_POSTING_PREFIX = re.compile(
+    r"^(?:\d+(?: |(?=[A-Z])))*(?:(?:GC|DIRECT DEPOSIT|DIRECT DEP|DEPOSIT|DEP|ELECTRONIC DEPOSIT"
+    r"|EFT(?: CREDIT| DEPOSIT)?|MISC PAYMENT|PAY(?:MENT)?(?: FROM)?) (?:\d+(?: |(?=[A-Z])))*)*"
+)
+_CRA_REFUND_PAYER = re.compile(r"CANADA (?:RIT|RIF)\b")
+#: 5.6 (GOV, the owner's ruling of 2026-09-30, class C: a tax refund is no revenue): a business's GST/HST refund, the
+#: Canada Revenue Agency's ('CANADA GST TPS', 'GST CANADA') and Revenu Quebec's ('RQ GST'). The form is the whole
+#: payer after the posting words, with only a posting code or a reference after it ('... MSP DIV', '... 12345678'), so
+#: GST inside a name ('GST CANADA LOGISTICS INC', 'NORTHWIND GST SERVICES') is never a refund. GOV review (M4): the
+#: CRA's name after the form ('CANADA GST TPS CANADA'), a country code ('GST CANADA CA') and the GST program account
+#: ('... RT0001') too.
+_GST_REFUND_PAYER = re.compile(
+    r"(?:CANADA GST(?: TPS)?(?: CANADA)?|GST(?: TPS)? CANADA(?: CA)?|RQ GST)(?: (?:MSP|DIV|RT\d{4}|\d+))*"
+)
+
+
+def government_form_payer(text: str) -> str:
+    """5.6 (A3-G re-review; GOV review): the payer a government's form is read on as the whole payer: the revenue text
+    with the bank's template prefixes (_strip_revenue_template) and the posting words a bank prints before a
+    government's form (_CRA_POSTING_PREFIX: a glued or spaced date, GC, DIRECT DEPOSIT, EFT, MISC PAYMENT, PAYMENT
+    FROM ...) removed."""
+    return _CRA_POSTING_PREFIX.sub("", _strip_revenue_template(revenue_text(text)), count=1).strip()
+
+
+def _canada_tax_refund(text: str) -> bool:
+    """5.6 (A3-G, review and re-review): the refund's form starts the payer, after the posting words only; a payer
+    that names Canada's form after its own name is that payer ('FABRIKAM LIFE CANADA RIF PMT'). GOV (owner ruling
+    2026-09-30): or the GST/HST refund form is the whole payer (_GST_REFUND_PAYER)."""
+    payer = government_form_payer(text)
+    return _CRA_REFUND_PAYER.match(payer) is not None or _GST_REFUND_PAYER.fullmatch(payer) is not None
+
+
+class _CanadaTaxRefundForm:
+    """5.6 (A3-G re-review): the refund reader in the strong non-revenue list, read as its patterns are (search)."""
+
+    pattern = "CANADA (?:RIT|RIF) after the posting words, or the whole payer a GST/HST refund form"
+
+    def search(self, text: str) -> "_CanadaTaxRefundForm | None":
+        return self if _canada_tax_refund(text) else None
+
+
+#: 5.6 (GOV, the owner's ruling of 2026-09-30, class C; GOV review I1): the IRS's Treasury form, and the entries that
+#: make one of its credits a tax refund or a benefit. The child tax credit and the stimulus (TAX EIP) are personal
+#: benefits the true-revenue pass holds (class B). The refund wording is the tax-refund forms' (5.5's TAXEIC spaced or
+#: not, a refund word glued or not). The layout words are Chase's and Bank of America's field labels, which name no
+#: entry.
+IRS_TREASURY_FORM = re.compile(r"(?<![A-Z])IRS TREAS ?\d{3}\b")
+_IRS_BENEFIT_ENTRY = re.compile(r"(?<![A-Z])(?:CHI?LD ?CTC|TAX ?EIP ?\d?)\b")
+#: Audit B8 (the GOV follow-up, the orchestrator's): and the IRS's interest entry, the interest it pays on a refund it
+#: paid late ('IRS TREAS 310 DES:INT'), interest and no sale (§8.1, standard G5), never an IRS vendor payment's word.
+_IRS_REFUND_WORDING = re.compile(r"(?<![A-Z])(?:TAX ?REF\w*|TAX ?EIC|[A-Z]*REFUNDS?|RFND|REFND|RFD|INT|INTEREST)\b")
+_IRS_LAYOUT_WORDS = frozenset("ORIG CO NAME ID DESC DATE ENTRY DESCR SEC CCD CTX PPD WEB TRACE EED IND TRN DES".split())
+
+
+def _irs_tax_refund(text: str) -> bool:
+    """5.6 (GOV; GOV review I1): a credit the IRS issues through the Treasury is a tax refund when its entry is a
+    refund's wording or it prints no entry at all ('ELECTRONIC DEPOSIT FROM IRS TREAS 310', 'ACH CREDIT IRS TREAS 310
+    <reference>'). Treasury's Green Book gives MISC PAY to federal vendor payments, and the IRS pays its contractors
+    that way, so an entry such as MISC PAY, VENDOR or VENDOR PAY keeps the row's own reading. The entry is the DES or
+    CO ENTRY DESCR field (entry_fields), or on a layout with no field the words printed after the form, references
+    and field labels left out. Audit B8 (the GOV follow-up): an interest entry (INT, INTEREST), the interest on a
+    refund, is no revenue either."""
+    row = _before_receiver(text)
+    found = IRS_TREASURY_FORM.search(row)
+    if found is None or _IRS_BENEFIT_ENTRY.search(text):
+        return False
+    entry = entry_fields(text) or " ".join(
+        word for word in row[found.end():].split() if not _is_reference_token(word) and word not in _IRS_LAYOUT_WORDS
+    )
+    return not entry.strip() or _IRS_REFUND_WORDING.search(entry) is not None
+
+
+class _IrsTaxRefundForm:
+    """5.6 (GOV review I1): the IRS refund reader in the strong non-revenue list, read as its patterns are (search)."""
+
+    pattern = "IRS TREAS nnn with no entry or a refund- or interest-worded entry"
+
+    def search(self, text: str) -> "_IrsTaxRefundForm | None":
+        return self if _irs_tax_refund(text) else None
+
+
+#: Owner ruling 2026-10-02 (the underwriter's Q12; spec §6.1 step 3a; audit I40, GOV class E of 2026-09-30): the seven
+#: government payments the owner excluded when the row prints no purpose, each named by its key (the step's
+#: matched_alias), in the order the reader tests them. The VA's Treasury form is read with agency code 36 only (a blank,
+#: 12, USDA, VACP, DOD or SSA code and the letter form VA are other agencies' or unruled); WORK COMP BOARD without WSIB
+#: is another board.
+GOVERNMENT_NO_PURPOSE_FORMS = (
+    ("mn_mmb", re.compile(r"(?<![A-Z0-9])MN STATE MMB\b")),
+    ("va_treasury", re.compile(r"(?<![A-Z0-9])36 TREAS ?\d{3}\b")),
+    ("wi_dcf", re.compile(r"(?<![A-Z0-9])WI ?DCF\b")),
+    ("bc_provincial", re.compile(r"(?<![A-Z0-9])(?:PROVINCIAL PAYMENT )?PROVINCE OF (?:BC|BRITISH COLUMBIA)\b")),
+    ("ontario_wsib", re.compile(r"(?<![A-Z0-9])(?:(?:WORK COMP BOARD )?WSIB|WORKPLACE SAFETY AND INSURANCE BOARD)\b")),
+    ("quebec_government", re.compile(r"(?<![A-Z0-9])GOUV(?:ERNEMENT)?(?: DU)? QUEBEC\b")),
+    ("nd_workforce_safety", re.compile(
+        r"(?<![A-Z0-9])(?:ND |NORTH DAKOTA )?WORKFORCE SAFETY(?: AND INS(?:URANCE)?| INS(?:URANCE)?)?\b")),
+)
+#: Q12 (2026-10-02): the ACH field labels read past (Chase's and Bank of America's), and the only words a no-purpose row
+#: may print besides its form and its references: posting words, SEC codes, the X12 envelope's segment names and the
+#: no-purpose entries (MISC PAY, PAYMENT, PMT, DD, WIDCF, EME, MSP, DIV). Keep the set to these: a name, funding or
+#: purpose word here would let step 3a pre-empt a lender's D1 reading or swallow a purpose.
+_GOVERNMENT_NO_PURPOSE_LAYOUT = re.compile(r"\b(?:ORIG CO NAME|ORIG ID|DESC DATE|CO ENTRY DESCR|CO ID|IND ID|IND NAME)\b")
+_GOVERNMENT_NO_PURPOSE_WORDS = frozenset(
+    "ELECTRONIC DEPOSIT FROM DESCRIPTIVE ACH CREDIT DIRECT DEP EFT GC PREAUTHORIZED MISC PAY PAYMENT PAYMENTS PMT DD "
+    "WIDCF EME MSP DIV DES ID SEC CCD CTX PPD WEB TRACE EED TRN ISA IEA GS GE ST SE".split()
+)
+#: Q12 (2026-10-02): a masked prefix followed by letters is an entry, not a reference: the VA's XXVA CH33, CH31, BENEF
+#: and EDU print a purpose. A mask with digits (XXXXX1234) and an all-X mask (XXXXXX) stay references.
+_GOVERNMENT_NO_PURPOSE_MASKED_ENTRY = re.compile(r"X{2,}[A-WYZ][A-Z]*")
+
+
+def government_no_purpose(text: str) -> str | None:
+    """Owner ruling 2026-10-02 (the underwriter's Q12; spec §6.1 step 3a): the key of the government form a credit
+    prints when the row prints no purpose (GOVERNMENT_NO_PURPOSE_FORMS), else None. `text` is the revenue text.
+
+    The row is read with each receiver field's value removed and every field after it kept (_without_receiver_value),
+    so Bank of America's PMT INFO addenda, printed after INDN ... CO ID ... CCD, stays in the row and an invoice there
+    is a purpose. American Express's incoming-ACH template (_AMEX_ACH_CREDIT) is read from its originator up to its id,
+    as _before_receiver ends it, never its EXTERNAL, sending-bank and trace trailer; its label is the template's own
+    words whatever the originator's first word (R2-B09's R31 strips the label as a template prefix only before a
+    letter, so the VA's '36 TREAS 310' would leave ONLINE TRANSFER behind). The template prefixes and the ACH field
+    labels are read past. Besides the form, the row may print only _GOVERNMENT_NO_PURPOSE_WORDS and references
+    (_is_reference_token: a digit, a mask, a month; a masked prefix followed by letters is an entry word). The first
+    form found decides: any other word leaves the row to the later steps, with no fall-through to another form."""
+    amex = _AMEX_ACH_CREDIT.match(text)
+    base = text[amex.start("payer"): amex.end("id")] if amex is not None else _without_receiver_value(text)
+    row = _GOVERNMENT_NO_PURPOSE_LAYOUT.sub(" ", _strip_revenue_template(base))
+    for name, form in GOVERNMENT_NO_PURPOSE_FORMS:
+        found = form.search(row)
+        if found is None:
+            continue
+        rest = (row[: found.start()] + " " + row[found.end():]).split()
+        no_purpose = all(
+            word in _GOVERNMENT_NO_PURPOSE_WORDS
+            or (_is_reference_token(word) and _GOVERNMENT_NO_PURPOSE_MASKED_ENTRY.fullmatch(word) is None)
+            for word in rest
+        )
+        return name if no_purpose else None
+    return None
+
+
+#: 5.6 (audit B3: I43, standard D4): American Express's Membership Rewards redemption, read only beside a card issuer's
+#: name (American Express, Amex, or a card issuer's context alias), so a payer whose entry happens to print MR REDEEM
+#: keeps its reading.
+_CARD_REWARD_PROGRAM = re.compile(r"\b(?:MR REDEEM|MEMBERSHIP REWARDS?)\b")
+_CARD_ISSUER_NAME = re.compile(r"(?<![A-Z])(?:AMERICAN EXPRESS|AMEX)\b")
+
+
+class _CardIssuerRewardRedemption:
+    """5.6 (audit B3: I43): a card issuer's rewards redemption in the strong non-revenue list, read as its patterns
+    are (search)."""
+
+    pattern = "MR REDEEM or MEMBERSHIP REWARDS beside a card issuer's name"
+
+    def search(self, text: str) -> "_CardIssuerRewardRedemption | None":
+        if _CARD_REWARD_PROGRAM.search(text) is None:
+            return None
+        if _CARD_ISSUER_NAME.search(text) or registry_match(text, CARD_ISSUER_CONTEXT_ALIASES) is not None:
+            return self
+        return None
+
+
 _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(
         r"\b(?:LOAN|BUSINESS LOAN|MCA|MERCHANT CASH ADVANCE|FINANCING) "
@@ -683,19 +991,47 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bCASH ADVANCE\b"),
     re.compile(r"\b(?:LOAN|MCA) ORIGINATION CREDIT\b"),
     *_INTERNAL_TRANSFER_CREDIT_PATTERNS,
+    *_OWN_ACCOUNT_SWEEP_CREDIT_PATTERNS,
     re.compile(r"\bOWNER(?:S)? (?:CONTRIBUTION|CAPITAL|DEPOSIT|TRANSFER)\b"),
     re.compile(r"\bSHAREHOLDER (?:CONTRIBUTION|LOAN|DEPOSIT)\b"),
     re.compile(r"\bCAPITAL CONTRIBUTION\b"),
     re.compile(r"\bINSURANCE (?:PROCEEDS|CLAIM|PAYMENT)\b"),
     re.compile(r"\bTAX REFUND\b"),
+    # 5.5 (§7.11, T5): the tax-refund abbreviations (Treasury's TAX REF; a state's glued TAXRFD, and TAXEIC, review
+    # I6) and account-verification micro-deposits.
+    re.compile(r"\bTAX ?REF(?:UND)?S?\b|[A-Z]*TAXRFD\b|\bTAX RFD\b|\bTAXEIC\b"),
+    # 5.6 (A3-G): the Canada Revenue Agency's income-tax refund direct deposit (RIT and RIF are the banks' two labels
+    # of one refund, 'DIRECT DEPOSIT CANADA RIT RIF'). A3-G review and re-review: the form starts the payer
+    # (_CanadaTaxRefundForm). GOV (owner ruling 2026-09-30, class C): and a business's GST/HST refund is the whole payer;
+    # the CRA's benefit forms are personal income, held by the true-revenue pass (class B), never non_revenue.
+    _CanadaTaxRefundForm(),
+    # GOV (owner ruling 2026-09-30, class C): a payment the IRS issues through the Treasury ('IRS TREAS 310') with no
+    # entry or a refund-worded one is a tax refund; GOV review (I1): an IRS vendor payment (MISC PAY, VENDOR PAY) keeps
+    # its reading, and the child tax credit and the stimulus are personal benefits (class B) (_IrsTaxRefundForm).
+    _IrsTaxRefundForm(),
+    re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
     re.compile(
         r"\b(?:CASH ?BACK|CASH ?REWARDS?|CARD REWARDS?|CREDIT CARD REWARDS?)"
         r"(?: CREDIT|REDEMPTION|REBATE)?\b"
     ),
+    # 5.6 (audit B3: I43, standard D4): card-rewards redemptions the patterns above miss, each anchored so a payer named
+    # REDEMPTION ... is never read: Chase's payer-less CASH REDEMPTION as the whole row (a reference after it), PNC's
+    # PURCHASE PAYBACK [AWARD], a POINTS REDEMPTION, and a card issuer's MR REDEEM or MEMBERSHIP REWARDS.
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?CASH REDEMPTION(?: \S*\d\S*)*$"),
+    re.compile(r"\bPURCHASE PAYBACK(?: AWARD)?\b"),
+    re.compile(r"\bPOINTS REDEMPTION\b"),
+    _CardIssuerRewardRedemption(),
     re.compile(r"\bINTEREST (?:CREDIT(?:ED)?|PAID|PAYMENT|DEPOSIT|EARNED)\b"),
     re.compile(r"\bCREDIT INTEREST\b"),
+    # Audit round 2, R2-B08 (R08; standard D1): the French interest credit (TD Canada Trust's CREDIT D'INTERET, the
+    # apostrophe dropped or glued, and INTERET CREDITE), as INTEREST CREDIT and CREDIT INTEREST read. Copied in
+    # tools/revenue_census.py.
+    re.compile(r"(?<![A-Z])CREDIT D ?INTERETS?\b|(?<![A-Z])INTERETS? CREDITES?\b"),
     re.compile(r"\b(?:BANK |SERVICE |ACCOUNT )?FEES? (?:REFUND|REBATE|REVERSAL|CREDIT)\b"),
+    # Audit round 2, R2-B08 (R08; standard D3): the French fee rebate (RABAIS SUR LES FRAIS MENSUELS), as FEE REBATE
+    # reads. Copied in tools/revenue_census.py.
+    re.compile(r"(?<![A-Z])RABAIS (?:SUR )?(?:LES )?FRAIS\b"),
     re.compile(r"\bDAILY CAP OF \d+ FEES?\b"),
     re.compile(r"\bINVEST(?:MENT)? TRANSFER\b"),
     re.compile(r"\b(?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE (?:PROCEEDS|DEPOSIT)\b"),
@@ -705,15 +1041,22 @@ _VERIFIED_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bMRCH\d{5,}\b"),
     re.compile(r"\bMERCHANT (?:PROCESSOR )?(?:SETTLEMENT|DEPOSIT|PAYOUT)\b"),
     re.compile(r"\bCARD SALES? (?:DEPOSIT|SETTLEMENT|PAYOUT)\b"),
-    re.compile(r"\bCUSTOMER\b.*\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b"),
-    re.compile(r"\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b.*\bCUSTOMER\b"),
-    re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
-    re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
     re.compile(r"\bMARKETPLACE (?:PAYOUT|SETTLEMENT)\b"),
-    re.compile(r"\bH(?:C|E)?CLAIMPMT\b"),
+    # 5.5 (§7.7): the NACHA claim-payment entry, glued on either side (Chase's SEC, a sixteen-character name or
+    # digits on the left); its unbounded branch takes only the full token, so THECLAIMPMT stays unmatched.
+    re.compile(r"(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b"),
     re.compile(r"\bEDIRPAY\b"),
     re.compile(r"\bMERCHANT BANK(?:CD|CARD|ED) DEPOSIT\b"),
     re.compile(r"\bMTOT DEP\b"),
+)
+#: 5.5 (§6.1 step 11, §7.11): the customer and invoice descriptors. CUSTOMER is never read in CUSTOMER ID (Truist
+#: prints it on every ACH line) and never with CHECK or CHEQUE (Q3). A payer the holder test or the numbered-company
+#: guard matches never verifies through them (§5.2).
+_CUSTOMER_INVOICE_DESCRIPTORS = (
+    re.compile(r"^(?!.*\bCHE(?:CK|QUE)S?\b).*\bCUSTOMER\b(?! ID\b).*\b(?:ACH|PAYMENT|DEPOSIT)\b"),
+    re.compile(r"^(?!.*\bCHE(?:CK|QUE)S?\b).*\b(?:ACH|PAYMENT|DEPOSIT)\b.*\bCUSTOMER\b(?! ID\b)"),
+    re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
+    re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
 )
 _OPERATING_CREDIT_CONTEXT_PATTERNS = (
     re.compile(r"\b(?:SETTLEMENT|PAYOUT|DISBURSEMENT)\b"),
@@ -774,10 +1117,22 @@ def prints_internal_transfer_designation(description: str) -> bool:
     produces exactly that signature, and flagging it removes a printed deposit
     from a funder's view of the business by an inference (design §3.2).
 
-    **Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` ALONE.** Every member of
-    that tuple names one member's OWN accounts as the source or the
+    **Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` and, since 5.5 (§7.11),
+    the narrowed book and funds transfer rule, and by nothing else.** Every
+    member of that tuple names one member's OWN accounts as the source or the
     destination — `TRANSFER FROM SAVINGS`, `SH TO SH`, `ACCOUNT TO ACCOUNT`,
-    `TRANSFER FROM <masked> TO <masked>`.
+    `TRANSFER FROM <masked> TO <masked>`. A `BOOK TRANSFER` or `FUNDS TRANSFER`
+    (never `ELECTRONIC FUNDS TRANSFER DEPOSIT`, an EFT channel) designates an
+    own account only when it prints no third-party originator
+    (`_third_party_originator`): an account description after FROM
+    (`BUSINESS SAVINGS`, `LINE OF CREDIT`) names no payer, a payer's name does.
+    Without the owner's yes to T19 every `BOOK TRANSFER` designates one. Audit
+    round 2, R2-B10 (R11): a funds transfer an incoming-wire label starts that
+    prints only a reference (`_bare_incoming_wire`) designates none: it is an
+    incoming wire whose sender is not printed. No
+    account name is read here, so `_own_book_or_funds_transfer`'s holder test
+    does not apply: a transfer that prints the holder's own name as its
+    originator designates no own account for R-d, the conservative direction.
 
     **`_TRANSFER_PATTERNS` is REFUSED as evidence for this question, and the
     refusal is a ruling rather than a preference** (Gustavo, 2026-08-30,
@@ -798,9 +1153,2435 @@ def prints_internal_transfer_designation(description: str) -> bool:
     question is asked of exactly the text every other classification in this
     module is decided on.
     """
-    return _matches_any(
-        normalize_transaction_description(description),
-        _INTERNAL_TRANSFER_CREDIT_PATTERNS,
+    text = normalize_transaction_description(description)
+    # 5.5 (§7.11): a book or funds transfer designates an own account only when it prints no third-party originator.
+    # Audit round 2, R2-B10 (R11): nor when an incoming-wire label starts it and prints only a reference
+    # (_bare_incoming_wire), the rule _own_book_or_funds_transfer reads.
+    return _matches_any(text, _INTERNAL_TRANSFER_CREDIT_PATTERNS) or (
+        _BOOK_OR_FUNDS_TRANSFER.search(text) is not None
+        and _EFT_FUNDS_TRANSFER.search(text) is None
+        and (
+            (_BOOK_OR_FUNDS_TRANSFER.search(text).group(0).startswith("BOOK") and not THIRD_PARTY_BOOK_TRANSFER_AS_WIRE)
+            or (_third_party_originator(text) is None and not _bare_incoming_wire(text))
+        )
+    )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Classification 5.5 (docs/superpowers/specs/2026-09-28-true-revenue-design.md §5.2, §6.1, §7): the credit revenue
+# readers. Every credit revenue rule reads revenue_text(text); D11, normalized_description and every debit rule keep
+# the normalized row as it is.
+# ---------------------------------------------------------------------------------------------------------------------
+
+#: T18 (owner, 2026-09-28: yes; OQ5): a credit that prints the NACHA claim-payment entry skips the insurer registry, so
+#: an insurer's healthcare claim payment to a provider verifies. Off, it is held with the insurer's other credits.
+HCCLAIMPMT_CLAIM_FIRST = True
+#: T19 (owner, 2026-09-28: yes; OQ6): Chase's BOOK TRANSFER CREDIT B/O <originator> from someone other than the holder,
+#: and Bank of America's WIRE TYPE BOOK IN, are incoming wires, not own-account transfers.
+THIRD_PARTY_BOOK_TRANSFER_AS_WIRE = True
+
+#: §7.0: Chase glues the SEC code to the entry description ('CO ENTRY DESCR HCCLAIMPMTSEC CCD'). Bounded to the
+#: entry-description field, so a word elsewhere that ends in SEC is untouched.
+_GLUED_SEC_CODE = re.compile(
+    r"(\bCO (?:ENTRY )?DESCR (?:\S+ ){0,2}?\S{2,}?)SEC (CCD|CTX|PPD|WEB|IAT|COR|TEL|POP|BOC|ARC|RCK|CIE)\b"
+)
+#: §7.0, S2.1 review finding 1: a date the bank prints at the row's start, glued to the first word ('01/02Zelle ...'
+#: normalizes to '01 02ZELLE ...'). Two numbers of one or two digits, each 1 to 31 (a month and a day, in either
+#: order), then a letter with no space before it; no other leading number is removed. A spaced pair is kept: '5 3 ...'
+#: is Fifth Third's 5/3 brand (fix round 2). The channel gate reads a spaced row through its own patterns: their left
+#: boundary is (?<![A-Z]) and a form anchored at the row's start accepts a leading date (fix round 3).
+_LEADING_DATE = re.compile(r"^(?:0?[1-9]|[12]\d|3[01]) (?:0?[1-9]|[12]\d|3[01])(?=[A-Z])")
+#: §7.0: the fields between Chase's originator and its entry description, and Bank of America's DES label.
+_CHASE_FIELDS_BETWEEN = re.compile(r" ORIG ID \S+ DESC DATE(?: \S+)? CO (?:ENTRY )?DESCR ")
+_BOFA_DES_FIELD = re.compile(r" DES ")
+#: §5.2: the receiver fields, where the bank prints the account holder (PNC labels its RECEIVER NAME). 5.6 (final
+#: review I2): every receiver vocabulary is built from description_text's one tuple, RECV NAME included.
+_RECEIVER_FIELD_LABELS = "|".join(RECEIVER_FIELD_LABELS)
+_RECEIVER_NAME_LABELS = "|".join(RECEIVER_NAME_LABELS)
+_CREDIT_RECEIVER_FIELD = re.compile(rf"\b(?:{_RECEIVER_FIELD_LABELS})\b")
+#: A receiver field's value ends at the next ACH field: CO ID, TRN, TRACE or the SEC code (5.3, shared with
+#: _RECEIVER_FIELD_VALUE).
+_RECEIVER_VALUE_END = r".*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
+#: §5.2 (S2.2 review): a receiver field of _CREDIT_RECEIVER_FIELD with its value.
+_CREDIT_RECEIVER_VALUE = re.compile(_CREDIT_RECEIVER_FIELD.pattern + _RECEIVER_VALUE_END)
+#: §5.2 (S4.2 re-review fix 7): an incoming wire's beneficiary field (BNF, NBNF, BENEFICIARY, BNF NAME, as the wire
+#: readers name them) with its value, up to the next wire field. ORIG TO BNF is the originator's remittance text, not
+#: a beneficiary. S4.2 final review (fix 6): the value also ends at every originator label the wire readers read
+#: (_WIRE_ORIGINATOR_LABEL: WIRE IN FROM, WIRE FROM, FUNDS TRANSFER CREDIT TT, INBD FUNDS TRANSFER RECEIVED) and at
+#: FROM, so 'INCOMING WIRE BNF <holder> FROM STRIPE INC' still names its originator.
+_CREDIT_WIRE_BENEFICIARY_VALUE = re.compile(
+    r"(?<!\bTO )\b(?:N?BNF|BENEFICIARY)(?: NAME)?\b.*?"
+    r"(?=\b(?:REF|OBI|RFB|IMAD|OMAD|TRN|SRF|BBI|SND BK|PMT DET|RMR|ORIG|ORIGINATOR|ORG|B O|WIRE IN FROM|WIRE FROM"
+    r"|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER RECEIVED|FROM)\b|$)"
+)
+#: Audit round 2, R2-B09 (R31): an originator word follows American Express's incoming-ACH label: a letter, never FROM,
+#: TO, an account word (CHK, CHECKING, CHECKG, SAV, SAVINGS, SVGS, ACCT, ACCOUNT, DDA, MMA), ID or a masked account
+#: ('XXXX1234'). The label's three exceptions (_TRANSFER_WORDING, _ELECTRONIC_PAYMENT_FORM, _REVENUE_TEMPLATE_PREFIX)
+#: read it, so the bare label, or the label before an account designation, an id or digits, keeps its transfer reading.
+_AMEX_LABEL_ORIGINATOR = (
+    r" (?!(?:FROM|TO|CHK|CHECKING|CHECKG|SAV|SAVINGS|SVGS|ACCT|ACCOUNT|DDA|MMA|ID)\b)(?!X+\d)[A-Z]"
+)
+#: §5.2: the bank's words printed before the payer, removed before the payer is read (with _PAYEE_TEMPLATE_PREFIX).
+#: Audit B5 (I19): and American Express's incoming-ACH label (_AMEX_ACH_CREDIT); audit round 2, R2-B09 (R31): only when
+#: an originator word follows it (_AMEX_LABEL_ORIGINATOR). Audit round 2, R2-B09 (R06): and the layouts' posting or
+#: channel labels that print CREDIT, first and longest first: BMO's 'EDI EFT CCD CREDIT [CCD]', 'INTERNET CREDIT', CIBC's
+#: 'PREAUTH CREDIT', Huntington's 'HIP CREDIT RCVD FROM' and 'HIP CREDIT', the French '[I] AVIS DE CREDIT' and
+#: 'AUTOMATED CREDIT', so the payer region starts after the label (a bare label names no payer) and the label's CREDIT
+#: is never a lender's name word (true_revenue.financing_named).
+_REVENUE_TEMPLATE_PREFIX = re.compile(
+    r"^(?:EDI EFT CCD CREDIT(?: CCD)?|INTERNET CREDIT|PREAUTH CREDIT|HIP CREDIT RCVD FROM|HIP CREDIT"
+    r"|(?:I )?AVIS DE CREDIT|AUTOMATED CREDIT"
+    r"|BUSINESS TO BUSINESS ACH CREDIT|CCD DEPOSIT|CTX DEPOSIT|ELECTRONIC DEPOSIT FROM|ELECTRONIC DEPOSIT"
+    r"|ELECTRONIC CREDIT|ACH CORP CREDIT|ACH DEPOSIT|ACH CREDIT|DEPOSIT FROM|PREAUTHORIZED CREDIT|EFT CREDIT"
+    r"|DIRECT DEPOSIT|MISC PAYMENT|BILL PAYMENT|ONLINE TRANSFER PAYMENT CREDIT(?=" + _AMEX_LABEL_ORIGINATOR + r"))\b ?"
+)
+#: Audit B5 (I19; standard A4, A16): American Express Business Checking prints every incoming ACH credit as
+#: 'ONLINE TRANSFER PAYMENT CREDIT <originator> <entry> <id> [<receiver account>] <receiver name> EXTERNAL <originating
+#: bank> ID <trace>' (the NACHA company name, entry description, a four-digit id it prints masked as '*****NNNN', the
+#: receiver's own account and name, the sending bank). It is an ACH template, never a transfer: the label's TRANSFER
+#: names no counterparty. The originator and its entry are the text before the id (the payer region); the receiver
+#: block, up to EXTERNAL, is a receiver field (_before_receiver, _without_receiver_value), so the receiver's masked
+#: account and the holder's own name never read as the payer. The id is the last four-digit token before the receiver
+#: block.
+_AMEX_ACH_CREDIT = re.compile(
+    r"^ONLINE TRANSFER PAYMENT CREDIT (?P<payer>\S.*) (?P<id>\d{4})(?P<receiver>(?: (?!\d{4}\b)\S+)*) EXTERNAL\b"
+)
+#: §5.2: a wire's originator starts after one of these labels (never ORIG CO NAME, ORIG ID or ORIG TO BNF). 5.6 (A3-G
+#: re-review): ORIGINATOR and ORG take the same guards: ORIGINATOR TO BENEFICIARY (ORG TO BNF) is a purpose field's
+#: label, never an originator label.
+_WIRE_ORIGINATOR_LABEL = re.compile(
+    r"\b(?:B O|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)"
+    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b)|WIRE IN FROM|WIRE FROM"
+    r"|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER RECEIVED)\b ?"
+)
+#: §5.2: ... and ends at the next wire field. ID is read as a field too: Bank of America prints 'ORIG:<name> ID:<n>'.
+#: 5.6 (A3-G re-review): so does the originator-to-beneficiary phrase, which opens a purpose field.
+_WIRE_FIELD_END = re.compile(
+    r"\b(?:BNF|NBNF|BENEFICIARY|BBI|OBI|REF|SRF|TRN|RFB|IMAD|ACCT|SND BK|ID"
+    r"|(?:ORG|ORIGINATOR) TO (?:BNF|BENEFICIARY))\b"
+)
+#: §5.2, §7.9 (Santander's layout): 'USD WIRE IN FROM <sending bank> ACCT <n> <originator> REF <purpose>'. The words
+#: after WIRE IN FROM name the sending bank; the originator follows the account number (the field §7.9 cuts at 16).
+_SANTANDER_WIRE = re.compile(r"^(?:[A-Z]{3} )?WIRE IN FROM\b(?P<bank>.*?)\bACCT \d+ (?P<originator>.*?)(?=\bREF\b|$)")
+#: §5.2: a person-to-person or transfer sender follows FROM and ends at one of these words. Audit round 2, R2-B11 (R38):
+#: and at Truist's 'PAYMENT ID' label ('ZELLE BUSINESS PAYMENT FROM <sender> PAYMENT ID <reference>'): the leftmost
+#: match ends the sender at PAYMENT, so the label's PAYMENT never joins a person's name (B7's surname reading).
+_SENDER_END = re.compile(r"\b(?:ON|REF|CONF|MEMO|TRN|ID|FOR|NOTE|PMT INFO|PAYMENT INFO|PAYMENT ID)\b")
+#: §5.2: the entry fields: Bank of America's DES, Chase's CO ENTRY DESCR, a wire's purpose fields, a transfer's memo.
+_BOFA_ENTRY_FIELD = re.compile(
+    r"\bDES (.*?)(?=\b(?:ID|INDN|CO ID|IND NAME|IND ID|CCD|CTX|PPD|WEB|IAT|TEL|POP|BOC|ARC|RCK|CIE)\b|$)"
+)
+_CHASE_ENTRY_FIELD = re.compile(
+    r"\bCO (?:ENTRY )?DESCR (.*?)(?=\b(?:SEC|TRACE|EED|IND ID|IND NAME|TRN|CCD|CTX|PPD|WEB|IAT)\b|$)"
+)
+_WIRE_ENTRY_FIELD = re.compile(
+    r"\b(?:OBI|RMR|PMT DET|RFB|REF)\b (.*?)(?=\b(?:BNF|NBNF|BBI|OBI|SRF|TRN|IMAD|ACCT|SND BK|RFB|ORIG|B O|ORG)\b|$)"
+)
+_MEMO_ENTRY_FIELD = re.compile(r"\b(?:MEMO|NOTE|FOR|PMT INFO|PAYMENT INFO)\b (.*?)(?=\b(?:CONF|REF|TRN|ID)\b|$)")
+
+#: §5.2: the generic words of the definition memo's categorize.py, inlined (that file is private).
+REVENUE_GENERIC_WORDS: frozenset[str] = frozenset("""
+DEPOSIT DEPOSITS CREDIT CREDITS TRNSFR TRANSFER OTHER REAL TIME INCOMING RECEIVED ACH ELECTRONIC DIRECT MEMO MISC BILL
+FILE INTERNET BANKING EXTERNAL RECD CR DEP ONLINE MOBILE INSTANT FUNDS ADJUSTMENT ADJ MONEY VISA CORPORATE PREAUTHORIZED
+SEQ IN NEW ITEM ITEMS MSP DIV DP FD BR BRANCH RECEIPT RECEIVE PAYMENT DOMESTIC TRANS CUSTOMER DDA SAV SAVINGS CHECKING
+CHK ACCOUNT ACCT FR FROM WIRE REF TRN TYPE DATE ET USD TRF WT FED NUMBER NO NOTPROVIDED INTERNATIONAL FX CAD SWIFT IMAD
+OMAD SRF RFB OBI PM AM ON AT VIA CARD ID CONF CONFIRMATION TRACE SENT RCVD PMNT PMT AUTHORIZED SEQUENCE
+""".split())
+#: §5.2: the holder-name noise of the same file, plus the bank-template and product words, the remaining province and
+#: territory names and every generic word.
+HOLDER_NOISE: frozenset[str] = frozenset("""
+BUSINESS CHECKING ACCOUNT LLC INC CORP COMPANY THE OF AND SAVINGS PLATINUM COMPLETE ANALYZED COMMERCIAL ADVANTAGE
+FUNDAMENTALS SIMPLE BASIC PREFERRED INTEREST OPERATING PERFORMANCE SELECT ESSENTIALS CHECK TOTAL PREMIUM SMALL STANDARD
+FREE DBA USD CAD ACCT PLUS ELITE EVERYDAY BANKING DEPOSIT MONEY MARKET ONTARIO CANADA ALBERTA QUEBEC BRITISH COLUMBIA
+SASKATCHEWAN MANITOBA NOVA SCOTIA LTD LIMITED CORPORATION INCORPORATED LLP PLLC GROUP HOLDINGS SERVICES ENTERPRISES USA
+AMERICA AMERICAN NATIONAL INTERNATIONAL TRUST SOLUTIONS MANAGEMENT CO LP
+COMPTE DIVERS BANK BANQUE CAISSE ENTREPRISE AFFAIRES OPERATIONS CU FCU
+BRUNSWICK NEWFOUNDLAND LABRADOR PRINCE EDWARD ISLAND YUKON NORTHWEST TERRITORIES NUNAVUT
+""".split()) | REVENUE_GENERIC_WORDS
+#: §5.2: common name-starters that are never a holder's or a payer's first distinctive word.
+_NAME_STARTERS = frozenset({
+    "FIRST", "NORTH", "SOUTH", "EAST", "WEST", "CENTRAL", "UNITED", "GLOBAL", "PREMIER", "ROYAL", "GOLDEN", "GREAT",
+    "CITY", "STATE", "COUNTY",
+})
+#: Audit B9 (I58): the holder test's noise: HOLDER_NOISE, the bank and product abbreviations that lead account names
+#: (BMO, ADV for Advantage, BUS for Business, CKG for Checking) and GENERAL (a product or nickname's word), read on
+#: both the holder's and the payer's side of the holder test (holder_words, holder_named). The payer, debit and lender
+#: readers keep HOLDER_NOISE, so no payer key, debit reading or lender name moves.
+_HOLDER_TEST_NOISE: frozenset[str] = HOLDER_NOISE | frozenset({"BMO", "ADV", "BUS", "CKG", "GENERAL"})
+#: Audit B9 review round 2 (I13): the words the holder readers' published products print beyond the holder test's noise:
+#: PNC's product lines (analysis/pnc.py _PRODUCTS: 'PNC Core Commercial Checking', 'Virtual Wallet With Performance
+#: Spend', 'Treasury Enterprise Plan'). Every other product those readers publish ('Checking', 'TD Business Simple
+#: Checking', 'Business Chequing Account', First Citizens' and Navy Federal's printed product lines) prints a noise word,
+#: which already makes it name nobody as a holder's name (true_revenue._usable_holder_name).
+_ACCOUNT_PRODUCT_WORDS: frozenset[str] = frozenset({
+    "PNC", "CORE", "VIRTUAL", "WALLET", "WITH", "SPEND", "TREASURY", "ENTERPRISE", "PLAN",
+})
+#: Audit B9 (I58): name particles, never a brand's initialism: a three-letter word the holder test skips when it reads
+#: the word a name leads with.
+_NAME_PARTICLES = frozenset({"DEL", "LOS", "LAS", "LES", "VAN", "VON", "DOS", "DAS", "SAN"})
+#: Audit B9 (I13): Chase's CHECKING SUMMARY grid header, which its parser published as the account name before B9
+#: ('INSTANCES AMOUNT', alone or with the grid's first row glued on, or 'AMOUNT'): never a holder's name.
+_SUMMARY_GRID_HEADER_NAME = re.compile(r"^(?:INSTANCES|AMOUNT)\b")
+#: Audit B9 (I38): a trade-name marker inside a holder's name ('CONTOSO LLC DBA NORTHWIND AGENCY'); each side is a
+#: name of the holder's.
+_HOLDER_TRADE_NAME = re.compile(r" (?:DBA|D B A|AKA) ")
+#: Audit B9 (I58): a word of fewer letters is a short initialism when a name leads with it.
+_INITIALISM_LETTERS = 3
+#: §5.2: a legal-form word after the payer name's first word, or an institution word. CO is never one (Colorado's
+#: state code, D11) and TRUST is never one (a family trust is owner money).
+_COMPANY_FORM = re.compile(
+    r"^\S+ (?:.* )?(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LIMITED|LP|LLP|LLLP|PLLC|ULC|PLC|GMBH|AG"
+    r"|SA|SAS|SRL|BV|NV|PTY|DOO|DMCC|SA DE CV)\b"
+    r"|\b(?:FOUNDATION|CHURCH|MINISTRIES|UNIVERSITY|COLLEGE|SCHOOL|ACADEMY|HOSPITAL|ASSOCIATION|SOCIETY|COOPERATIVE"
+    r"|CO OP)\b"
+)
+#: §5.2: an ACH or EFT mark: the row is an electronic payment.
+_ELECTRONIC_PAYMENT_FORM = re.compile(
+    r"\b(?:ORIG CO NAME|CO ENTRY DESCR|DES|CCD|CTX|PPD|IAT|ACH|EFT|ELECTRONIC DEPOSIT|ELECTRONIC CREDIT|ELECTRONIC PMT"
+    r"|ELECTRONIC PAYMENT|DIRECT DEPOSIT|MISC PAYMENT|CORPORATE ACH|BILL PAYMENT|EDI|INDN|PREAUTHORIZED CREDIT"
+    r"|DEPOSIT FROM|PAID FROM|PAYMENT FROM|CREDIT FROM|MSP DIV|AP CC"
+    # Audit B5 (I19): American Express's incoming-ACH label (_AMEX_ACH_CREDIT); audit round 2, R2-B09 (R31): only when
+    # an originator word follows it (_AMEX_LABEL_ORIGINATOR).
+    r"|ONLINE TRANSFER PAYMENT CREDIT(?=" + _AMEX_LABEL_ORIGINATOR + r"))\b"
+)
+#: §5.2, T11: the provinces and territories and CANADA, whole or cut to three or more leading letters, and their
+#: postal and common abbreviations.
+_PROVINCE_NAMES = (
+    "ONTARIO", "QUEBEC", "NOVA SCOTIA", "NEW BRUNSWICK", "MANITOBA", "BRITISH COLUMBIA", "PRINCE EDWARD ISLAND",
+    "SASKATCHEWAN", "ALBERTA", "NEWFOUNDLAND AND LABRADOR", "YUKON", "NORTHWEST TERRITORIES", "NUNAVUT", "CANADA",
+)
+_PROVINCE_ABBREVIATIONS = (
+    "ON", "ONT", "QC", "QUE", "NS", "NB", "MB", "MAN", "BC", "B C", "PE", "PEI", "SK", "SASK", "AB", "ALB", "ALTA",
+    "NL", "NFLD", "YT", "NT", "NWT", "NU", "CAN",
+)
+_PROVINCE = "(?:" + "|".join(sorted(
+    {name[:length].rstrip() for name in _PROVINCE_NAMES for length in range(3, len(name) + 1)}
+    | set(_PROVINCE_ABBREVIATIONS),
+    key=lambda value: (-len(value), value),
+)) + ")"
+#: §5.2, T11 (S4.2 fix round 5): QUEBEC, its cuts and QC: the only province that prints a numbered company as
+#: NNNN-NNNN. The P2P sender key reads the same set (true_revenue._numbered_province_sender).
+_QUEBEC = "(?:QUEBEC|QUEBE|QUEB|QUE|QC)"
+#: Audit B5 (I59): the CPA transaction codes BMO prints after a cut numbered company's number ('DIRECT DEPOSIT <n>
+#: ONTA AP CC', '... MSP DIV', '... EDI EED'): no name word.
+_BMO_CODE_TAIL = r"(?:AP|CC|MSP|DIV|APY|EDI|EED)"
+#: §5.2, T11: a numbered company. The template form is read on the row before the receiver fields (BMO cuts the name
+#: to the field, so the digits alone decide); the payer-region form keeps the region's leading digit token. Audit B5
+#: (I59): Scotiabank, RBC and CIBC print a payment reference in the template's digit slot and then the payer's name
+#: ('BILL PAYMENT <reference> <payer> INC', 'MISC PAYMENT <reference> TOWN OF <town>'): the template form fires only
+#: when nothing, a province or territory (or a cut of one) or BMO's code tail follows the digits, and both forms read
+#: a number of six to ten digits (a Canadian corporation number has at most ten; a longer run is a reference). Audit
+#: round 2, R2-B11 (R33): the province, its cut or the code counts only when it is no name's first word
+#: (_PROVINCE_NOT_A_NAME_START).
+#: Audit round 2, R2-B11 (R33; §5.2, T11): the tokens after a numbered company's province (or its cut, or BMO's code)
+#: that still name no payer: every leading cut of three letters or more of INCORPORATED, LIMITED, LIMITEE, CORPORATION,
+#: COMPANY and UNLIMITED, the other legal forms, BMO's code tail, a trade-name marker and the remittance words.
+_NUMBERED_TAIL_WORDS = "(?:" + "|".join(sorted(
+    {form[:length] for form in ("INCORPORATED", "LIMITED", "LIMITEE", "CORPORATION", "COMPANY", "UNLIMITED")
+     for length in range(3, len(form) + 1)}
+    | {"LTD", "LTEE", "ULC", "LLC", "LLP", "MSP", "DIV", "APY", "EDI", "EED", "DBA", "AKA", "INV", "INVOICE", "PMT",
+       "PAYMENT", "REF"},
+    key=lambda value: (-len(value), value),
+)) + ")"
+#: Audit round 2, R2-B11 (R33): a province or territory (or a cut of one), Quebec's form or BMO's code tail after the
+#: number that is no payer's first name word: the next token is not a letters-only word of three letters or more
+#: outside _NUMBERED_TAIL_WORDS. A token holding digits (RBC's 'ALBERTA RMOD<n>', a reference), a one- or two-letter
+#: token (BMO's 'ONTA AP CC'), a legal form or its cut, BMO's code, a trade-name marker, a remittance word or the
+#: field's end keep the number; a name word ('NORTH MOUNTAIN PAVING', 'NEW HORIZON PAVING INC', 'NOVA SCOTIA POWER')
+#: drops it, so the payer is read. The group is atomic, so the longest spelling decides (NOVA SCOTIA, NEW BRUNSWICK,
+#: never NOVA or NEW alone). Residual: a name whose second word has one or two letters ('CAN DO PLUMBING LTD') still
+#: reads numbered.
+_PROVINCE_NOT_A_NAME_START = (
+    rf"(?>(?:{_PROVINCE}|{_QUEBEC}|{_BMO_CODE_TAIL})\b)"
+    rf"(?! (?!{_NUMBERED_TAIL_WORDS}(?: |$))[A-Z]{{3,}}(?: |$))"
+)
+_NUMBERED_COMPANY_TEMPLATE = re.compile(
+    rf"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{{6,10}}"
+    rf"(?:$| {_PROVINCE_NOT_A_NAME_START})"
+)
+#: Audit B5 (I59): a reference of six to fifteen digits printed in the same slot, before the payer's name: no part of
+#: the payer region, unless a province or territory (or a cut of one), Quebec's form or BMO's code tail follows it
+#: (a numbered company's number, or BMO's merchant reference before its code, which names no payer). Audit round 2,
+#: R2-B11 (R33): only when that word is no name's first word (_PROVINCE_NOT_A_NAME_START).
+_REFERENCE_BEFORE_PAYER = re.compile(
+    r"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) (?P<reference>\d{6,15}) (?=\S)"
+)
+_KEEPS_ITS_NUMBER = re.compile(_PROVINCE_NOT_A_NAME_START)
+#: A3: a numbered company's number before its province or territory, or Quebec's NNNN NNNN before QUEBEC (the
+#: province arm of _NUMBERED_COMPANY_REGION), kept when a wire's sender is read after its label.
+_NUMBERED_PROVINCE_START = re.compile(rf"^\d{{6,}} {_PROVINCE}\b|^\d{{4}} \d{{4}} {_QUEBEC}\b")
+_NUMBERED_COMPANY_REGION = re.compile(
+    rf"^\d{{6,10}}\b(?: {_PROVINCE}\b| (?:[A-Z]+ ){{0,4}}(?:INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO"
+    rf"|COMPANY)\b)"
+    # Quebec prints its numbered companies as NNNN-NNNN (normalized NNNN NNNN), always before the province. S4.2 fix
+    # round 5: Quebec's words only, so another province's word or code starting a name ('NORTH STAR', 'AB') is none.
+    rf"|^\d{{4}} \d{{4}} {_QUEBEC}\b"
+)
+#: §6.1 step 9b: consumer person-to-person rails (never verified by any step), and real-time or push rails (verified
+#: by the operating registry only).
+#: S2.1 re-review (fix round 3): in these four gate families every left boundary is (?<![A-Z]), never \b (the owner's
+#: card-form convention), so digits glued to a rail or a form ('01/02/2054Zelle', '0102Zelle') no longer hide it; a
+#: right boundary stays \b. A form anchored at the row's start accepts a leading MM DD pair, glued or spaced
+#: ('01/02 Remote'). Residual (0 corpus rows): a longer prefix before the bare anchored REMOTE or GC form
+#: ('0102Remote', '01/02/2054 Remote', '2054 GC 1234 Deposit') still reads no gate. Against the older \b patterns
+#: the gate reading only moves toward closed or push; the shared patterns also move the payer region and entry
+#: fields of those same rows.
+#: Audit round 2, R2-B11 (R44): the consumer rails' words, one list the rail and the glued-reference split read.
+_CONSUMER_P2P_RAIL_WORDS = (
+    r"ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH"
+    r"|APPLE CASH|POPMONEY"
+)
+_CONSUMER_P2P_RAIL = re.compile(r"(?<![A-Z])(?:" + _CONSUMER_P2P_RAIL_WORDS + r")\b")
+#: Audit round 2, R2-B11 (R44; §7.0, §8.4, Q4): a consumer rail's word with a reference's digits glued after it, as CIBC
+#: prints its e-Transfer ('E-TRANSFER<reference> <sender> <card>'; Chase's 'ZELLE<reference>' reads the same way). The
+#: revenue text splits the digits off (revenue_text), so the rail, whose right boundary stays \b, reads the row as it
+#: reads the spaced twin. Only a rail's word is split: CIBC's 'CMO TRANSFER<n>' stays glued transfer wording.
+_GLUED_RAIL_REFERENCE = re.compile(r"(?<![A-Z])(" + _CONSUMER_P2P_RAIL_WORDS + r")(?=\d)")
+_PUSH_RAIL = re.compile(
+    r"(?<![A-Z])(?:RTP|FEDNOW|REAL TIME (?:TRANSFER|PAYMENT)|INSTANT (?:PMT|PAYMENT|TRANSFER)|VISA DIRECT"
+    r"|VISA MONEY TRANSFER|MC SEND|MONEY TRANSFER|PMNT RCVD|PAYMENT RECEIVED)\b"
+)
+#: §8.3: check deposits (Q3: counted, never verified).
+_CHECK_DEPOSIT_FORM = re.compile(
+    r"(?<![A-Z])MOBILE (?:CHECK |CHEQUE )?(?:DEPOSIT|DEP)\b|(?<![A-Z])MOBILE CHE(?:CK|QUE)\b|(?<![A-Z])MB DEP\b"
+    r"|(?<![A-Z])BKOFAMERICA MOBILE\b"
+    r"|(?<![A-Z])REMOTE (?:ONLINE )?(?:DEPOSIT|CAPTURE)\b|(?<![A-Z])DEPOSIT CAPTURE\b|(?<![A-Z])MERCHANT CAPTURE\b"
+    r"|(?<![A-Z])DESKTOP (?:REMOTE )?DEPOSIT\b|(?<![A-Z])EDEPOSIT SCAN\b|(?<![A-Z])E ?CHEQUE DEPOSIT\b"
+    r"|(?<![A-Z])(?:ATM )?CHE(?:CK|QUE)S? (?:DEPOSIT|DEP|RECEIVED)\b|(?<![A-Z])MAIL DEPOSIT\b"
+    r"|^(?:\d{1,2} \d{1,2} ?)?REMOTE$|(?<![A-Z])IMAGED DEPOSIT\b"
+    r"|(?<![A-Z])DEPOSITED (?:CHECK|ITEM)\b|(?<![A-Z])RDC\b|(?<![A-Z])SCAN(?:NED)? DEPOSIT\b|(?<![A-Z])LOCKBOX\b"
+    r"|(?<![A-Z])LBX DEP\b"
+)
+#: §8.2 (owner ruling 2026-10-02, the underwriter's Q7: "make cash injections like ATM count as true revenue"; audit
+#: round 2, R2-OW14), arm R: a retail cash load, printed '<ST> <town> <street> US<RETAILER> W<n>' at the row's end
+#: (Bluevine's deposits at a retail cash network; inferred from the shape, no statement opened; the statements that carry
+#: it print the bank's CASH DEPOSIT FEE debits beside the loads).
+_RETAIL_CASH_LOAD = (
+    r"(?<![A-Z])US ?(?:WALGREENS|CVS|7 ?ELEVEN|WAL ?MART|DOLLAR GENERAL|RITE ?AID|FAMILY DOLLAR|CIRCLE K) W ?\d+$"
+)
+#: §8.2 (R2-OW14, Q7), arm S: a branch deposit printed 'DEPOSIT <place, one to four words> <5-digit transit> <3-digit
+#: sequence>' as the whole row (Scotiabank's), with no legal form on the row (a named depositor keeps its reading).
+_BRANCH_DEPOSIT_TRANSIT = (
+    r"^(?:\d{1,2} \d{1,2} )?DEPOSIT (?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP"
+    r"|PLLC|ULC|PLC)\b)(?:[A-Z]+ ){1,4}\d{5} \d{3}$"
+)
+#: §8.2: cash, branch and teller, and ATM deposits (Q2: counted, never verified), read only on a row that prints no
+#: electronic-payment form and no person-to-person rail. R2-OW14 (Q7): and the retail cash load (arm R) and the branch
+#: deposit printed with its transit (arm S), the two cash shapes the corpus check found the reader missed; each is its
+#: own last alternative.
+_CASH_BRANCH_ATM_FORM = re.compile(
+    r"(?<![A-Z])CASH DEP(?:OSIT)?\b|(?<![A-Z])ATM CASH\b|(?<![A-Z])CPS DEVICE\b|(?<![A-Z])CURRENCY PROCESSING\b"
+    r"|(?<![A-Z])SMART ?SAFE\b|(?<![A-Z])COIN\b|(?<![A-Z])CASH IN\b"
+    r"|(?<![A-Z])COUNTER (?:CREDIT|DEPOSIT)\b|(?<![A-Z])TELLER\b|(?<![A-Z])IN BRANCH\b|(?<![A-Z])BRANCH\b"
+    r"|(?<![A-Z])BRCH\b|(?<![A-Z])DEPOSIT AT BR\b"
+    r"|(?<![A-Z])DEPOSIT THANK YOU\b|(?<![A-Z])MAIN OFFICE\b|(?<![A-Z])PRE ?ENCODED\b|(?<![A-Z])NIGHT (?:DEP|DROP)\b"
+    r"|(?<![A-Z])BANKING CENTRE\b"
+    # DEPOT MARCHAND (a card settlement, §7.1) and DEPOT DIRECT (a direct deposit) are electronic, never a branch.
+    r"|^(?:\d{1,2} \d{1,2} ?)?GC\b.*(?<![A-Z])DEPOSIT\b|(?<![A-Z])G DEPOT\b|(?<![A-Z])DEPOT\b(?! MARCHAND\b| DIRECT\b)"
+    r"|(?<![A-Z])DEPOSIT IBB\b|(?<![A-Z])VAULT DEP\w*|(?<![A-Z])STORE DEPOSIT\b"
+    r"|(?<![A-Z])DEPOSIT MADE IN\b"
+    r"|(?<![A-Z])ATM\b.*(?<![A-Z])DEP(?:OSIT)?\b|(?<![A-Z])DEP(?:OSIT)?\b.*(?<![A-Z])ATM\b|(?<![A-Z])ABM\b"
+    "|" + _RETAIL_CASH_LOAD + "|" + _BRANCH_DEPOSIT_TRANSIT
+)
+#: §8.2: transfer wording. 5.6 (audit B2: I21): and its other spellings TRF, TRSFR, TRANSF and XFR ('TRF CT INTERNET',
+#: 'INTERNET PHONE TRSFR', 'TRANSF FONDS CT', 'INTERNET XFR FRM CHECKG'), and TRANSFER glued to a reference's digits
+#: (CIBC's 'CMO TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail, which the
+#: revenue text splits since audit round 2, R2-B11: R44, _GLUED_RAIL_REFERENCE). Audit B8 (I46,
+#: Q2): and the plural TRANSFERS ('EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT', '... FUNDS TRANSFERS'), once revenue_text
+#: cuts the statement furniture that printed it (TD's back panel: '... ELECTRONIC FUNDS TRANSFERS'). Audit B5 (I19):
+#: never American Express's incoming-ACH label, 'ONLINE TRANSFER PAYMENT CREDIT' at the row's start
+#: (_AMEX_ACH_CREDIT); the same words anywhere else stay transfer wording. Audit round 2, R2-B09 (R31): the label is
+#: exempt only when an originator word follows it (_AMEX_LABEL_ORIGINATOR): the bare label, or the label before FROM,
+#: an account word, an ID, a masked account or digits, is transfer wording (Q2). R2-B09 (R45): and the glued
+#: ONLINETRANSFER, MOBILETRANSFER and INTERNETTRANSFER (singular or plural) a bank or its OCR prints for an online
+#: transfer ('COMM ONLINETRANSFER FROM COMM BUS CHCKING ...'), the glued label at the row's start under the same
+#: originator rule; no other glued word (WEBXFR stays as it is).
+_TRANSFER_WORDING = re.compile(
+    r"\b(?:(?<!^ONLINE )TRANSFER|TRANSFER(?! PAYMENT CREDIT" + _AMEX_LABEL_ORIGINATOR + r")|TRANSFERS|TRNSFR|TRSFR"
+    r"|TRANSF|XFER|XFR|TFR|TRF|BR TO BR"
+    r"|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)"
+    r"|FUNDS TRANSFER)\b"
+    r"|(?<!(?<![A-Z])E )(?<![A-Z])TRANSFER(?=\d)"
+    r"|(?<![A-Z])(?:ONLINE|MOBILE|INTERNET)TRANSFERS?\b(?!(?<=^ONLINETRANSFER) PAYMENT CREDIT"
+    + _AMEX_LABEL_ORIGINATOR + r")"
+)
+#: Audit B8 (I46; standard P14; the brief's classifier guard, the parsers' own fixes waiting for audit batch B10): the
+#: statement furniture a parser glues onto a row's description, each form starting a tail that runs to the row's end,
+#: never a transaction's words: TD's footer and its "How to balance your account" back panel ('CALL 1 <phone> FOR 24
+#: HOUR BANK BY PHONE ...', 'BANK DEPOSITS FDIC INSURED ...', 'HOW TO BALANCE YOUR ACCOUNT ... FOR CONSUMER LOAN
+#: ACCOUNTS ONLY ... ADD ANY INTEREST EARNED ...'); a Symitar credit union's balance summary, check recap and fee
+#: summary (the ending balance's date and amount before ENDING BALANCE, 'CLEARED CHECK RECAP', 'FEE SUMMARY THIS
+#: PERIOD', '... TOTAL RETURNED ITEM FEES'); a statement's page header ('<n> STATEMENT OF ACCOUNT ... STATEMENT
+#: PERIOD', TD's and Symitar's), Citizens' continued-page header and footer ('PLEASE SEE ADDITIONAL INFORMATION ON NEXT
+#: PAGE', 'MEMBER FDIC <mark> EQUAL HOUSING LENDER', 'CONTINUED DEPOSITS AND CREDITS'), Fifth Third's disclosure line
+#: ('FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES ...') and a page number ('PAGE <n> OF <n>', after Citibank's
+#: form code '<nnn> R<n> <nn>F<nnn>' and a repeated 'PAGE <n>'). A row the furniture would leave with no letter keeps
+#: its text (without_statement_furniture). Audit round 2, R2-B10 (R21 part A): and Zions' legal-name footer, which its
+#: reader glues with the page break's counters onto the last row before it ('DEPOSIT A DIVISION OF ZIONS
+#: BANCORPORATION N A <n> PAGE <n> PAGE <n> OF <n> ...'), only before a page counter, so a wire relayed by a Zions
+#: division ('... VIA <bank> A DIVISION OF ZIONS BANCORPORATION N A REF ...') is never cut; (R21 part B, the classifier's
+#: guard beside R2-B06's parser fix) Navy Federal's page header, 'JOINT OWNER(S): <names|NONE>' after or without
+#: 'STATEMENT OF ACCOUNT', so its OWNER never holds a deposit.
+_STATEMENT_FURNITURE = re.compile(
+    r"(?<![A-Z])(?:"
+    r"CALL \d \d{3} \d{3} \d{4} FOR \d{2} HOUR BANK BY PHONE\b"
+    r"|BANK DEPOSITS FDIC INSURED\b"
+    r"|HOW TO BALANCE YOUR ACCOUNT\b"
+    r"|(?:\d+ )*ENDING BALANCE (?=CLEARED CHECK RECAP\b|YOUR MINIMUM BALANCE\b)"
+    r"|CLEARED CHECK RECAP\b"
+    r"|FEE SUMMARY THIS PERIOD\b"
+    r"|THIS PERIOD YEAR TO DATE TOTAL (?:OVERDRAFT|RETURNED ITEM) FEES\b"
+    r"|(?:\d{1,3} )?STATEMENT OF ACCOUNT\b(?=.*\bSTATEMENT PERIOD\b)"
+    r"|PLEASE SEE ADDITIONAL INFORMATION ON NEXT PAGE\b"
+    r"|MEMBER FDIC(?: (?:[A-Z]|\d))? EQUAL HOUSING LENDER\b"
+    r"|CONTINUED DEPOSITS AND CREDITS\b|DEPOSITS AND CREDITS CONTINUED\b"
+    r"|FOR ADDITIONAL INFORMATION AND ACCOUNT DISCLOSURES\b"
+    r"|(?:\d{3} R\d \d{2}F\d{3} )?(?:PAGE \d+ )?PAGE \d+ OF \d+\b"
+    r"|A DIVISION OF ZIONS BANCORPORATION N A(?=(?: \d+)* PAGE \d+\b)"
+    r"|(?:STATEMENT OF ACCOUNT )?JOINT OWNER S\b"
+    r")"
+)
+#: §5.2: the ACH originator and entry fields (Bank of America's DES, Chase's ORIG CO NAME and CO ENTRY DESCR).
+_ACH_ORIGINATOR_FIELD = re.compile(r"\b(?:DES|CO ENTRY DESCR|ORIG CO NAME)\b")
+
+
+def revenue_text(text: str) -> str:
+    """5.5 (§7.0): the text every credit revenue rule reads: the normalized row without a glued leading date
+    ('01 02ZELLE PAYMENT' becomes 'ZELLE PAYMENT', so a glued date never hides a rail from the channel gate or a label
+    from a reader anchored at the row's start; a spaced '5 3 ...' is kept), and with Chase's glued SEC code split
+    ('CO ENTRY DESCR HCCLAIMPMTSEC CCD' becomes 'CO ENTRY DESCR HCCLAIMPMT SEC CCD'). Audit B8 (I46): and without the
+    statement furniture a parser glued onto it (without_statement_furniture), so a footer's LOAN, INTEREST EARNED or
+    RETURNED ITEM never decides a deposit. Audit round 2, R2-B11 (R44): and with a reference glued after a consumer
+    rail's word split off it (_GLUED_RAIL_REFERENCE: CIBC's 'E TRANSFER<n> <sender>' reads 'E TRANSFER <n> <sender>'),
+    so the rail reads the row on every bank as it reads the spaced form. Debits keep their text."""
+    text = _GLUED_RAIL_REFERENCE.sub(r"\1 ", _LEADING_DATE.sub("", text, count=1))
+    return _GLUED_SEC_CODE.sub(r"\1 SEC \2", without_statement_furniture(text))
+
+
+def without_statement_furniture(text: str) -> str:
+    """Audit B8 (I46, §7.0): the row up to the first statement furniture a parser glued onto it (_STATEMENT_FURNITURE:
+    a footer, a back panel, a balance or fee summary, a page header or number), every word after it dropped. A row
+    whose words before the furniture hold no letter keeps its text (the furniture would leave it nothing to read)."""
+    found = _STATEMENT_FURNITURE.search(text)
+    if found is None:
+        return text
+    kept = text[: found.start()].rstrip()
+    return kept if any(character.isalpha() for character in kept) else text
+
+
+def _joined_text(text: str) -> str:
+    """5.5 (§7.0): the originator and the entry description side by side: Bank of America's ' DES ' and Chase's
+    'ORIG ID <id> DESC DATE [<date>] CO ENTRY DESCR' removed between them."""
+    return _BOFA_DES_FIELD.sub(" ", _CHASE_FIELDS_BETWEEN.sub(" ", text, count=1), count=1)
+
+
+def _before_receiver(text: str) -> str:
+    """5.5 (§5.2): the row up to its first receiver field (description_text.RECEIVER_FIELD_LABELS: INDN, IND NAME,
+    RECEIVER NAME, RECV NAME, IND ID). Audit B5 (I19): on American Express's incoming-ACH template, up to its id: the
+    receiver block that follows prints no label (_AMEX_ACH_CREDIT)."""
+    amex = _AMEX_ACH_CREDIT.match(text)
+    if amex is not None:
+        return text[: amex.end("id")]
+    return _CREDIT_RECEIVER_FIELD.split(text, 1)[0].rstrip()
+
+
+def _without_receiver_value(text: str) -> str:
+    """5.5 (§5.2, S2.2 review): the text with each receiver field's value removed and every field after it kept, for
+    the operating alias and the ledger gate. The holder's name never names a source ('INDN SQUARE INC CO ID ...' is
+    the holder), while Bank of America's PMT INFO addenda, printed after INDN and CO ID, still does ('... CO ID 1 CCD
+    PMT INFO WORLDPAY ...'): _before_receiver would cut the addenda away with the receiver.
+
+    S4.2 re-review (fix 7): on an incoming wire (_is_wire_row: labels only a credit prints) the beneficiary field's
+    value goes too, as a receiver's does: a credit wire's beneficiary is the holder ('... ORIG NORTHWIND EXPORTS LLC
+    ... BNF SQUARE ONE BAKERY'). Any other row keeps it: Chase's real-time layout prints the originator there ('FROM
+    BNF INTUIT PAYMENTS INC'), and a debit's beneficiary is its payee.
+
+    Audit B5 (I19): American Express's incoming-ACH template loses its unlabelled receiver block, the sending bank and
+    trace after it kept (_AMEX_ACH_CREDIT)."""
+    amex = _AMEX_ACH_CREDIT.match(text)
+    if amex is not None:
+        text = text[: amex.end("id")] + text[amex.end("receiver"):]
+    stripped = _CREDIT_RECEIVER_VALUE.sub(" ", text)
+    if _is_wire_row(text):
+        stripped = _CREDIT_WIRE_BENEFICIARY_VALUE.sub(" ", stripped)
+    return stripped
+
+
+def _strip_revenue_template(row: str) -> str:
+    """5.5 (§5.2): the row with the bank's template words before the payer removed."""
+    for _ in range(3):
+        stripped = _PAYEE_TEMPLATE_PREFIX.sub("", row, count=1).lstrip()
+        stripped = _REVENUE_TEMPLATE_PREFIX.sub("", stripped, count=1).lstrip()
+        if stripped == row:
+            break
+        row = stripped
+    return row
+
+
+def _leading_name_words(region: str) -> str:
+    """The region's words up to the first reference token after a name word; leading reference tokens are kept, so a
+    numbered company keeps its number (§5.2)."""
+    words: list[str] = []
+    started = False
+    for token in region.split():
+        if _is_reference_token(token):
+            if started:
+                break
+        else:
+            started = True
+        words.append(token)
+    return " ".join(words)
+
+
+def _is_wire_row(text: str) -> bool:
+    """5.5 (§7.9 N1, §8.5): the row begins with an incoming-wire label, or (T19) is a third-party book transfer."""
+    return _INCOMING_WIRE_LABEL.match(text) is not None or _third_party_book_transfer(text)
+
+
+#: S2.3 review (fix 2): WIRE printed anywhere on the row, a reference glued on its left included
+#: ('123456W1234567WIRE FROM ...', which _INCOMING_WIRE_LABEL, anchored at the row's start, never reads).
+_WIRE_WORD = re.compile(r"(?<![A-Z])WIRE\b")
+
+
+def _wire_vetoes_apply(text: str) -> bool:
+    """S2.3 review (fixes 2 and 3): the wire vetoes (_wire_vetoed) and the wire company-form gate read a wire row
+    (_is_wire_row) and, failing closed, any row that prints WIRE, so a reference glued to WIRE never skips them. The
+    verifier's own channel test (N1, _wire_remittance_purpose) keeps _is_wire_row. WIRE in the receiver's (the
+    holder's) name makes no row a wire (§5.2; S2.3 re-review minor 1)."""
+    return _is_wire_row(text) or _WIRE_WORD.search(_without_receiver_value(text)) is not None
+
+
+def _is_transfer_or_p2p_row(text: str) -> bool:
+    """5.5 (§8.4): a person-to-person rail, or transfer wording, on a row that is no wire. Audit round 2, R2-B09 (R28):
+    the transfer wording a credit's row prints outside a company-formed ACH originator's own name
+    (credit_transfer_wording)."""
+    row = _before_receiver(text)
+    return _CONSUMER_P2P_RAIL.search(row) is not None or _PUSH_RAIL.search(row) is not None or (
+        credit_transfer_wording(row) is not None
+    )
+
+
+#: Audit round 2, R2-B09 review round 1 (R28): the ACH originator fields that open an originator's own name for
+#: credit_transfer_wording: Chase's labels, or Bank of America's DES with a field of its layout after its entry (ID,
+#: INDN, CO ID, IND NAME, IND ID or an ACH class code, the entry five words at most, as _BOFA_ENTRY_FIELD ends it). A DES
+#: with none of them after it is no field: a town's word ('TRANSFER FROM CONTOSO LLC DES MOINES IA', 'XFER CONTOSO LLC
+#: DES PLAINES IL'), a French word or a wire's cut text.
+_ORIGINATOR_NAME_FIELD = re.compile(
+    r"\b(?:CO ENTRY DESCR|ORIG CO NAME)\b"
+    r"|\bDES(?: \S+){0,5}? (?:ID|INDN|CO ID|IND NAME|IND ID|CCD|CTX|PPD|WEB|IAT|TEL|POP|BOC|ARC|RCK|CIE)\b"
+)
+#: Audit round 2, R2-B09 review round 1 (R28): a transfer's phrase words ('TRANSFER FROM CONTOSO LLC', 'XFER FRM ...',
+#: 'TRANSFER FR ...', 'TRF TO ...', 'TRANSFER BETWEEN ...'): a name that prints one is a transfer's text, never a
+#: company's own name.
+_TRANSFER_PHRASE_WORD = re.compile(r"\b(?:FROM|FRM|FR|TO|BETWEEN)\b")
+
+
+def credit_transfer_wording(row: str) -> re.Match[str] | None:
+    """Audit round 2, R2-B09 (R28; §8.2, §8.6 Q6): the transfer wording a credit's row prints (_TRANSFER_WORDING),
+    a company-formed ACH originator's own name aside. On a row that prints an ACH originator field
+    (_ACH_ORIGINATOR_FIELD: DES, CO ENTRY DESCR, ORIG CO NAME) whose originator name (_ach_payer_region) prints transfer
+    wording and, that wording removed, a company form (_COMPANY_FORM: 'CONTOSO TRF LLC', 'TRF INDUSTRIES INC',
+    'CONTOSO TRANSFER INC'), the name's transfer tokens are blanked inside the name's span only (the row's length kept,
+    so the match's positions are the row's own) before the row is read: the entry field's wording ('DES:TRANSFER', 'CO
+    ENTRY DESCR:BANK XFER') is still read, and a name with no company form ('SAMPLE BANK XFER', 'TRANSFER AND STORAGE
+    CO', 'ONLINE TRANSFER') keeps its transfer reading. Any other row is read as _TRANSFER_WORDING reads it. The
+    credit's readers use it (the channel, the transfer row, the bare row, the payer region); a debit's reader, the
+    token filters and Q6's entry-field refusal keep _TRANSFER_WORDING.
+
+    Review round 1: the field is Chase's label or Bank of America's DES with its layout after the entry
+    (_ORIGINATOR_NAME_FIELD), never a town's DES, and a name printing a transfer's phrase word (_TRANSFER_PHRASE_WORD:
+    'TRANSFER FROM CONTOSO LLC') is no company's own name: such a named transfer keeps its transfer reading (Q4, T13)."""
+    found = _TRANSFER_WORDING.search(row)
+    if found is None or _ORIGINATOR_NAME_FIELD.search(row) is None:
+        return found
+    name = _ach_payer_region(row)
+    if not name or _TRANSFER_WORDING.search(name) is None or _TRANSFER_PHRASE_WORD.search(name) is not None:
+        return found
+    if _COMPANY_FORM.search(" ".join(_TRANSFER_WORDING.sub(" ", name).split())) is None:
+        return found
+    span = re.search(r"(?<!\S)" + re.escape(name) + r"(?!\S)", row)
+    if span is None:
+        return found
+    blanked = _TRANSFER_WORDING.sub(lambda token: " " * len(token.group(0)), name)
+    return _TRANSFER_WORDING.search(row[: span.start()] + blanked + row[span.end():])
+
+
+def _wire_payer_region(text: str, start: int = 0) -> str:
+    """5.5 (§5.2): a wire's originator, after its label, up to the next wire field; on Santander's layout, the words
+    after the account number (the words after WIRE IN FROM are the sending bank). Audit round 2, R2-B10 (R26): the
+    label is searched from `start` (a loose-wire row's own label, _loose_wire_label; 0 on an incoming-wire row)."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        return _leading_name_words(santander.group("originator").strip())
+    found = _WIRE_ORIGINATOR_LABEL.search(text, start)
+    if found is None:
+        return _wire_sender_after_label(text)
+    region, customer = _labelled_originator(text, found)
+    return _leading_name_words(customer) if customer else region
+
+
+def _labelled_originator(text: str, found: re.Match[str]) -> tuple[str, str]:
+    """5.5, 5.6 (§5.2, A3-G refinement): a labelled wire originator's region, and the relaying bank's customer it
+    names after a relay label ('' when it names none, relayed_customer_text)."""
+    # 5.6 (A3-G review): a SWIFT 50F line number is dropped by the normalizer, where its slash still shows.
+    rest = text[found.end():]
+    end = _WIRE_FIELD_END.search(rest)
+    region = _leading_name_words(rest[: end.start()] if end is not None else rest)
+    after, city_state_end = originator_address(text, region)
+    return region, relayed_customer_text(region, rest, after=after, city_state_end=city_state_end) or ""
+
+
+def wire_relayed_customer(text: str) -> str:
+    """5.6 (final review I7, a census fact): the relaying bank's customer a labelled wire's payer region reads, or
+    '' (no label, Santander's layout, or no relay)."""
+    if _SANTANDER_WIRE.match(text) is not None:
+        return ""
+    found = _WIRE_ORIGINATOR_LABEL.search(text)
+    return _labelled_originator(text, found)[1] if found is not None else ""
+
+
+#: 5.6 (A3-G): a wire originator that reads as a bank by its own form (BANK, BANCORP, BANK N A, CREDIT UNION, SAVINGS
+#: BANK, FEDERAL SAVINGS), and a bank's merchant-services, bankcard, processor and settlement forms, which are
+#: settlements, never a bank's own money nor a relay. The true-revenue pass holds a bank originator
+#: (financing_named_payer). A3-G review: never a food or blood bank, and never a company whose name holds the word
+#: (bank_by_form).
+BANK_FORM_ORIGINATOR = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|FEDERAL SAVINGS)\b")
+BANK_SETTLEMENT_ORIGINATOR = re.compile(
+    r"(?<![A-Z])(?:MERCHANT\w*|MERCH SVCS|BANKCARD\w*|CARD (?:SERVICES|SVCS)|PAYMENTECH|PROCESSING|SETTLEMENT\w*)\b"
+    r"|\b(?:MERCH|MRCH|BNKCD|BKCD|STLMT)\b"
+)
+_NOT_A_BANK = re.compile(r"(?<![A-Z])(?:FOOD|BLOOD) BANK\b")
+#: A3-G review: a company form; a company whose name holds BANK is no bank ('LEFT BANK BAKERY LLC', 'BANK STREET
+#: PARTNERS LLC'), unless the form is the bank's own, right after its bank word ('<X> BANK LTD', '<X> BANK CO LTD',
+#: '<X> BANK PUBLIC CO LTD', 'BANK OF <place> LIMITED').
+_BANK_COMPANY_FORM = re.compile(
+    r"\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC|PARTNERS|PARTNERSHIP"
+    r"|GMBH|AG|SA|BV|NV|PTY)\b"
+)
+_BANK_OWN_FORM_WORDS = frozenset({"CO", "PUBLIC", "N", "A", "NA", "AND", "TRUST"})
+_BANK_OF_PLACE_WORDS = 4
+#: 5.6 (A3-G re-review): the company-form words that are also US state codes (Colorado, Nevada). Printed as the
+#: address's state they are never a company form: 'NORTHWIND BANK DENVER CO 80202 US'. A3-G re-review 2: the word is
+#: the state only when a ZIP or the country code follows it (_AFTER_ADDRESS_STATE, read on the region and the row's
+#: text after it), or when it ends a Fedwire or CHIPS B/O field's city and state (_CITY_STATE_WIRE_LAYOUT); never at
+#: the end of any other field, so Bank of America's 'ORIG:LEFT BANK TRADING CO' and Chase's 'B O WEST BANK OIL CO REF'
+#: print a company form.
+_STATE_CODE_FORM_WORDS = frozenset({"CO", "NV"})
+_AFTER_ADDRESS_STATE = re.compile(r"\s*(?:\d{5}\b|(?:US|USA|UNITED STATES)\b)")
+#: 5.6 (A3-G re-review 2): the wire layouts whose B/O field prints the sender's city and state last.
+_CITY_STATE_WIRE_LAYOUT = re.compile(r"^(?:FEDWIRE|CHIPS) CREDIT\b")
+
+
+def company_form_outside_address(
+    region: str, after: str = "", *, city_state_end: bool = False
+) -> re.Match[str] | None:
+    """5.6 (A3-G re-review, re-review 2): the first company form (_BANK_COMPANY_FORM) of the region that is not the
+    address's state. CO or NV is the state when a ZIP or the country code follows it, in the region or in `after` (the
+    row's text right after the region), or when it ends the region and `city_state_end` says the region is a Fedwire
+    or CHIPS B/O field (originator_address)."""
+    region = region or ""
+    tail = region + after
+    for form in _BANK_COMPANY_FORM.finditer(region):
+        if form.group(0) in _STATE_CODE_FORM_WORDS and (
+            _AFTER_ADDRESS_STATE.match(tail, form.end()) is not None
+            or (city_state_end and not region[form.end():].strip())
+        ):
+            continue
+        return form
+    return None
+
+
+def originator_address(text: str, region: str) -> tuple[str, bool]:
+    """5.6 (A3-G re-review 2): the address context of a wire's originator region: the row's text right after the
+    region, and whether the region is a Fedwire or CHIPS B/O field, which prints the sender's city and state last.
+    ('', False) when no originator label starts the region (a sender printed after the wire's label, Santander's
+    layout, or a relayed customer)."""
+    found = _WIRE_ORIGINATOR_LABEL.search(text or "")
+    if found is None or not region:
+        return "", False
+    rest = text[found.end():]
+    if not rest.startswith(region):
+        return "", False
+    city_state = found.group(0).strip() == "B O" and _CITY_STATE_WIRE_LAYOUT.match(text) is not None
+    return rest[len(region):], city_state
+
+
+def bank_by_form(region: str, after: str = "", *, city_state_end: bool = False) -> bool:
+    """5.6 (A3-G, A3-G review): the originator reads as a bank by its own form (BANK_FORM_ORIGINATOR), never a bank's
+    settlement form (BANK_SETTLEMENT_ORIGINATOR), a food or blood bank, or a company whose name holds the bank word:
+    a company form (_BANK_COMPANY_FORM) counts only as the bank's own, right after its bank word, after 'OF <place>'
+    (_BANK_OF_PLACE_WORDS words) or the bank's own form words (_BANK_OWN_FORM_WORDS). Read on the originator up to a
+    relay label, whose relayed customer is no part of the bank's name. A3-G re-review 2: `after` and `city_state_end`
+    are the region's address context (originator_address), read for the address's state only."""
+    relay = next((label for label in _RELAY_ORIGINATOR_LABEL.finditer(region or "") if label.start() > 0), None)
+    if relay is not None:
+        after = region[relay.start():] + after
+    region = (region or "")[: relay.start()] if relay is not None else (region or "")
+    found = BANK_FORM_ORIGINATOR.search(region)
+    if found is None or BANK_SETTLEMENT_ORIGINATOR.search(region) or _NOT_A_BANK.search(region):
+        return False
+    form = company_form_outside_address(region, after, city_state_end=city_state_end)
+    if form is None:
+        return True
+    if form.start() < found.start():
+        return False
+    between = region[found.end(): form.start()].split()
+    if not between or all(word in _BANK_OWN_FORM_WORDS for word in between):
+        return True
+    return between[0] == "OF" and len(between) <= _BANK_OF_PLACE_WORDS
+
+
+#: 5.6 (A3-G refinement): the labels after which a relaying (correspondent) bank prints the ultimate originator
+#: ('B O <bank> ... ORG <account> <customer> OGB <bank>'), and the fields the customer's name ends at: a wire field,
+#: the originating bank (OGB) and the relay's charge and amount fields. A3-G review: never the purpose's own label,
+#: ORIGINATOR TO BENEFICIARY or ORG TO BNF (the guards _WIRE_ORIGINATOR_LABEL has).
+_RELAY_ORIGINATOR_LABEL = re.compile(
+    r"\b(?:ORG(?! TO BNF\b| TO BENEFICIARY\b)|B O|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)"
+    r"|ORIG CUST(?:OMER)?|BY ORDER OF)\b ?"
+)
+_RELAY_CUSTOMER_END = re.compile(
+    _WIRE_FIELD_END.pattern + r"|\b(?:OGB|ORIGINATING BANK|OCMT|CHGS|INS|BBK|INT BK|INTERMEDIARY)\b"
+)
+
+
+def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state_end: bool = False) -> str:
+    """5.6 (A3-G refinement, §8.5): when a wire's originator (`region`, read from `rest`, the text after the originator
+    label) reads as a bank, and a relay label after it names the ultimate originator, that customer's text up to its
+    end (_RELAY_CUSTOMER_END), after its account number and any SWIFT line number: the bank only relays, so the
+    customer is the sender, read normally. '' when the originator is no bank by form (bank_by_form, read with the
+    region's address context, A3-G re-review 2), or no relay label names a customer (a bank sending on its own
+    behalf)."""
+    if not region or not bank_by_form(region, after, city_state_end=city_state_end):
+        return ""
+    for label in _RELAY_ORIGINATOR_LABEL.finditer(rest):
+        if label.start() == 0:
+            continue
+        after = rest[label.end():]
+        end = _RELAY_CUSTOMER_END.search(after)
+        tokens = (after[: end.start()] if end is not None else after).split()
+        while tokens and _is_reference_token(tokens[0]) and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
+            tokens.pop(0)
+        name = " ".join(tokens)
+        if any(
+            _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
+            for token in _leading_name_words(name).split()
+        ):
+            return name
+    return ""
+
+
+#: A3 (orchestrator ruling, 2026-09-30): the incoming-wire layouts that print the sender right after their label, with
+#: no originator label: BMO's label printed twice, then the sender's country code ('INCOMING WIRE PAYMENT INCOMING
+#: WIRE PAYMENT CA <sender>'); a reference, then the sender ('INCOMING WIRE <reference> <sender> NOTPROVIDED'); TD
+#: Bank's 'WIRE TRANSFER INCOMING <sender>'; Wilson & Muir's 'WIRE TRANSFER FROM <sender>'; Capital One's 'WIRE
+#: TRANSFER DEPOSIT <sender> <reference> USD<...>'; Scotiabank's 'INCOMING WIRE TRANSFER <sender> WIRE PAYMENT'; and
+#: SECU's 'DOMESTIC WIRE DEPOSIT WIRE IN <sender>'. Anchored at the row's start, so a sending bank after VIA or a
+#: reference-only row ('DOMESTIC INCOMING WIRE <reference>') is never read as a sender.
+#: Audit B10 (I14): Falcon International Bank prints an incoming wire as '<label> <amount> Falcon Internati Wires
+#: <sender>' (its own name cut to sixteen characters and its wire field, then the sender, cut too): the bank's field
+#: is a label, never the sender.
+_FALCON_WIRE_FIELD = r"(?:INTERNATIONAL IWT|INCOMING WIRE(?: TRF)?) FALCON INTERNATI WIRES"
+#: Audit round 2, R2-B10 (R21 part C): the plural 'WIRE TRANSFERS <INCOMING|FROM|DEPOSIT|IN>' too, and 'WIRE TRANSFER[S]
+#: IN <sender>', whose sender was never read (a reference alone after IN is still no sender).
+_WIRE_SENDER_AFTER_LABEL = re.compile(
+    r"^(?:INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT [A-Z]{2}|INCOMING WIRE(?= \d+ [A-Z])"
+    r"|WIRE TRANSFERS? (?:INCOMING|FROM|DEPOSIT|IN)|INCOMING WIRE TRANSFER(?= .*\bWIRE PAYMENT$)"
+    r"|(?:DOMESTIC )?WIRE DEPOSIT WIRE IN|" + _FALCON_WIRE_FIELD + r")\b ?"
+)
+#: A3: the sender printed after the label ends at a wire field, at NOTPROVIDED, or at Scotiabank's WIRE PAYMENT.
+_WIRE_SENDER_AFTER_LABEL_END = re.compile(_WIRE_FIELD_END.pattern + r"|\b(?:NOTPROVIDED|WIRE PAYMENT)\b")
+#: A3: the words of the label layouts, never a sender's name ('WIRE TRANSFER DEPOSIT WIRE REF ...'), and a legal form
+#: or an article, which alone names nobody (as the person-to-person reader holds: 'WIRE TRANSFER INCOMING 1ABC LLC',
+#: whose name the reference reading drops, stays a wire with no sender).
+_WIRE_LABEL_WORDS = frozenset({
+    "INCOMING", "WIRE", "PAYMENT", "TRANSFER", "DEPOSIT", "CREDIT", "IN", "FROM",
+    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "COMPANY", "CO", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
+    "PLC", "THE", "OF", "AND",
+})
+
+
+def _wire_sender_after_label(text: str) -> str:
+    """A3 (orchestrator ruling): the sender a wire prints right after its label (_WIRE_SENDER_AFTER_LABEL), read as the
+    originator is: up to the next wire field, NOTPROVIDED or WIRE PAYMENT, and to the first reference token after a
+    name word (_leading_name_words). A reference printed before the sender is no part of it, except a numbered
+    company's number before its province ('CA 1234567 ONTARIO INC', §5.2). '' when no payer word is left."""
+    found = _WIRE_SENDER_AFTER_LABEL.match(text)
+    if found is None:
+        return ""
+    rest = text[found.end():]
+    end = _WIRE_SENDER_AFTER_LABEL_END.search(rest)
+    tokens = (rest[: end.start()] if end is not None else rest).split()
+    while tokens and tokens[0].isdigit() and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
+        tokens.pop(0)
+    region = _leading_name_words(" ".join(tokens))
+    named = any(
+        _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
+        for token in region.split()
+    )
+    return region if named else ""
+
+
+#: Audit B5 (I15): Chase's real-time layout prints the contra bank's label and routing number before the sender ('REAL
+#: TIME TRANSFER RECD FROM ABA/CONTR BNK-<routing> FROM: <sender> REF ...'): never a sender.
+_CONTRA_BANK_FIELD = re.compile(r"\bFROM ABA CONTR BNK\b(?: \d+\b)?")
+
+
+def _sender_payer_region(text: str) -> str:
+    """5.5 (§5.2): a person-to-person or transfer sender: the words after FROM, up to ON, REF, CONF, MEMO, TRN, ID,
+    FOR, NOTE, PMT INFO, PAYMENT INFO, PAYMENT ID (audit round 2, R2-B11: R38, Truist's business-Zelle label, whose
+    PAYMENT is no part of the sender) or a reference token. Venmo and Cash App cash-outs print no sender. Audit B5
+    (I15): the sender after the next FROM when the first prints Chase's contra-bank label (_CONTRA_BANK_FIELD)."""
+    row = _CONTRA_BANK_FIELD.sub(" ", _before_receiver(text), count=1)
+    found = re.search(r"\bFROM\b ?", row)
+    if found is None:
+        return ""
+    rest = row[found.end():]
+    end = _SENDER_END.search(rest)
+    return _leading_name_words(rest[: end.start()] if end is not None else rest)
+
+
+#: Audit B5 (I15): PNC prints 'CORPORATE ACH <entry> <reference(s)> <payer> <reference>': its entry description (ten
+#: characters at most, one or two words) and a reference before the payer's name. A row whose words after the label
+#: are no such entry and reference ('CORPORATE ACH PAYROLL <payer> <reference>') keeps its reading.
+_PNC_CORPORATE_ACH = "CORPORATE ACH "
+_PNC_ENTRY_WIDTH = 10
+
+
+def pnc_corporate_ach(row: str) -> tuple[str, str] | None:
+    """Audit B5 (I15): PNC's CORPORATE ACH layout read as (entry, the text from the payer's name on), or None."""
+    if not row.startswith(_PNC_CORPORATE_ACH):
+        return None
+    tokens = row[len(_PNC_CORPORATE_ACH):].split()
+    for size in (1, 2):
+        entry = tokens[:size]
+        if len(entry) < size or len(" ".join(entry)) > _PNC_ENTRY_WIDTH:
+            return None
+        rest = tokens[size:]
+        references = 0
+        while references < len(rest) and _is_reference_token(rest[references]):
+            references += 1
+        if references and references < len(rest):
+            return " ".join(entry), " ".join(rest[references:])
+    return None
+
+
+#: Audit B5 (I26's reader): Navy Federal's 'DEPOSIT ACH PAID FROM <digits> <payer>' and Symitar's 'EXTERNAL DEPOSIT
+#: <digits> <payer>' print a block of four or more digits before the payer's name: the payer is read past it (a
+#: numbered company's number before its province is kept).
+_DIGIT_BLOCK_BEFORE_PAYER = re.compile(r"^(?:DEPOSIT ACH PAID FROM|EXTERNAL DEPOSIT) (?P<reference>\d{4,}) (?=[A-Z])")
+#: Audit B5 (I55): an ACH originator label printed with no value ('ORIG CO ACH CREDIT', a Chase export that keeps only
+#: the label) is no payer, and CO ENTRY DESCR starts the entry field ('CO ENTRY' is no payer either). CO alone stays a
+#: possible name word (_EMPTY_ACH_FIELD_LABELS reads label sequences only).
+_BARE_ORIG_CO_LABEL = re.compile(r"\bORIG CO\b(?! NAME\b)")
+_CO_ENTRY_DESCR_LABEL = re.compile(r"\bCO ENTRY DESCR\b")
+_EMPTY_ACH_FIELD_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIG CO|CO ENTRY DESCR|ORIG ID|IND NAME|IND ID)\b")
+
+
+def _without_reference_before_payer(row: str) -> str:
+    """Audit B5 (I59, I26's reader): the row without the reference printed before the payer's name (after DIRECT
+    DEPOSIT, ACCOUNTS PAYABLE, MISC PAYMENT or BILL PAYMENT, unless a province, Quebec's form or BMO's code tail follows
+    it: _REFERENCE_BEFORE_PAYER, _KEEPS_ITS_NUMBER), and without Navy Federal's or Symitar's digit block
+    (_DIGIT_BLOCK_BEFORE_PAYER)."""
+    found = _REFERENCE_BEFORE_PAYER.match(row)
+    if found is not None and _KEEPS_ITS_NUMBER.match(row, found.end()) is None:
+        return row[: found.start("reference")] + row[found.end():]
+    found = _DIGIT_BLOCK_BEFORE_PAYER.match(row)
+    if found is not None and _NUMBERED_PROVINCE_START.match(row[found.start("reference"):]) is None:
+        return row[: found.start("reference")] + row[found.end():]
+    return row
+
+
+def _ach_payer_region(text: str) -> str:
+    """5.5 (§5.2): an ACH or EFT payer: the row before its receiver fields, template prefixes removed, originator
+    labels removed, cut at the first ACH field, up to the first reference token after a name word. Audit B5: PNC's
+    payer after its entry and reference (I15, pnc_corporate_ach); no reference printed before the payer's name (I59,
+    I26's reader, _without_reference_before_payer); an empty ORIG CO label removed and CO ENTRY DESCR read as the
+    entry field it starts (I55)."""
+    row = _before_receiver(text)
+    pnc = pnc_corporate_ach(row)
+    if pnc is not None:
+        return _leading_name_words(_payee_region(pnc[1]))
+    row = _CO_ENTRY_DESCR_LABEL.sub("DESCR", _BARE_ORIG_CO_LABEL.sub("", row)).strip()
+    return _leading_name_words(_payee_region(_strip_revenue_template(_without_reference_before_payer(row))))
+
+
+def _amex_ach_credit(text: str) -> bool:
+    """Audit B5 (I19): American Express's incoming-ACH template (_AMEX_ACH_CREDIT) on a row that prints no
+    person-to-person or push rail."""
+    if _AMEX_ACH_CREDIT.match(text) is None:
+        return False
+    row = _before_receiver(text)
+    return _CONSUMER_P2P_RAIL.search(row) is None and _PUSH_RAIL.search(row) is None
+
+
+def payer_label_layout(text: str) -> bool:
+    """Audit B5 (a census fact: tools/revenue_census.py's q5_q6_payer_after_a_label): the row prints a layout whose
+    payer the payer region reads past a bank's label, entry, reference or code, or where only an empty label prints:
+    Chase's contra-bank field (I15, _CONTRA_BANK_FIELD), PNC's CORPORATE ACH entry and reference (I15,
+    pnc_corporate_ach), an empty ORIG CO label or a row that starts with CO ENTRY DESCR (I55), a reference before the
+    payer or Navy Federal's or Symitar's digit block (I59, I26's reader: _without_reference_before_payer) and American
+    Express's incoming-ACH template (I19, _amex_ach_credit)."""
+    row = _before_receiver(text)
+    return bool(
+        _CONTRA_BANK_FIELD.search(row)
+        or pnc_corporate_ach(row) is not None
+        or _BARE_ORIG_CO_LABEL.search(row)
+        or row.startswith("CO ENTRY DESCR")
+        or _without_reference_before_payer(row) != row
+        or _amex_ach_credit(text)
+    )
+
+
+#: Audit B5 (I14): the originator labels a loose-wire row may print (Bank of America's ORIG, ORG, Fedwire's B O,
+#: ORIGINATOR), never an ACH layout's ORIG CO or ORIG ID.
+_LOOSE_WIRE_ORIGINATOR_LABEL = re.compile(
+    r"\b(?:B O|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO\b)(?! ID\b)(?! TO BNF\b)"
+    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b))\b"
+)
+
+
+def _loose_wire_label(text: str) -> re.Match[str] | None:
+    """Audit B5 (I14): on a row no incoming-wire label starts that prints WIRE outside the receiver's value and no
+    person-to-person or push rail, the originator label ('DEPOSIT WIRE IN <reference> ORG <sender>') whose sender is read
+    as an incoming wire's is (_wire_payer_region). Audit round 2, R2-B10 (R26): the first label after the row's first
+    WIRE word (searched from that position, the label's left boundary still read), never one before it: on the
+    '<sender> WIRE' layout (Mercury, Brex) ORG, ORIG, ORIGINATOR or B O before a row-final WIRE is a word of the sender's
+    own name ('CONTOSO ORG LLC WIRE', a '.org' domain), never a label. None when the row has no such label."""
+    if _is_wire_row(text) or _WIRE_WORD.search(_without_receiver_value(text)) is None:
+        return None
+    row = _before_receiver(text)
+    if _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
+        return None
+    wire = _WIRE_WORD.search(row)
+    if wire is None:
+        return None
+    return _LOOSE_WIRE_ORIGINATOR_LABEL.search(row, wire.end())
+
+
+def _loose_wire_originator(text: str) -> bool:
+    """Audit B5 (I14): a loose-wire row that prints an originator label (_loose_wire_label; audit round 2, R2-B10:
+    after the row's first WIRE word only)."""
+    return _loose_wire_label(text) is not None
+
+
+def _prints_no_payer(text: str) -> bool:
+    """5.5 (§5.2, §6.1 step 9b): a check, cash, branch, ATM or bare row: a channel that prints no payer."""
+    row = _before_receiver(text)
+    if _CHECK_DEPOSIT_FORM.search(row):
+        return True
+    if (
+        not _ELECTRONIC_PAYMENT_FORM.search(row)
+        and not _CONSUMER_P2P_RAIL.search(row)
+        and _CASH_BRANCH_ATM_FORM.search(row)
+    ):
+        return True
+    return _is_bare_row(text)
+
+
+def _is_bare_row(text: str) -> bool:
+    """5.5 (§8.2): a bare deposit, credit or EFT: once the template prefixes, the generic words, the reference tokens
+    and single letters are removed, no payer word remains, and the row prints no transfer wording. Audit round 2, R2-B09
+    (R28): no transfer wording outside a company-formed ACH originator's own name (credit_transfer_wording)."""
+    row = _before_receiver(text)
+    if credit_transfer_wording(row):
+        return False
+    # Audit B5 (I55): an ACH field label printed with no value names no payer.
+    row = _EMPTY_ACH_FIELD_LABELS.sub(" ", row).strip()
+    return not any(_is_payer_word(token) for token in _strip_revenue_template(row).split())
+
+
+def _is_payer_word(token: str) -> bool:
+    """5.5 (§8.2): a token that may name a payer: not a generic word, a single letter, a masked number or a month.
+    A token that holds digits names one only through three or more letters glued to them ('2054BANKCARD' after a
+    glued date with a year, 'MRCH22064280019')."""
+    if token in REVENUE_GENERIC_WORDS or len(token) < 2 or _MASKED_TOKEN.fullmatch(token) or token in _ENTITY_MONTHS:
+        return False
+    if not any(ch.isdigit() for ch in token):
+        return True
+    letters = "".join(ch for ch in token if ch.isalpha())
+    return len(letters) >= 3 and letters not in REVENUE_GENERIC_WORDS
+
+
+def payer_region(text: str) -> str:
+    """5.5 (§5.2): the payer region of a credit's revenue text, read by its channel: a wire's originator, a
+    person-to-person or transfer sender, an ACH or EFT payer, or nothing on a check, cash, branch, ATM or bare row.
+    Read before any token is filtered, so a numbered company's leading digits and a legal word are kept. Audit B5: a
+    loose-wire row's originator label is read as an incoming wire's (I14, _loose_wire_originator), and American
+    Express's incoming-ACH template is read as ACH, its entry's transfer word aside (I19, _amex_ach_credit). Audit
+    round 2, R2-B10 (R26): a loose-wire row is read from its own label, the first after the row's first WIRE word
+    (_loose_wire_label), so a label word inside a '<sender> WIRE' row's name never cuts it."""
+    if _is_wire_row(text):
+        return _wire_payer_region(text)
+    loose = _loose_wire_label(text)
+    if loose is not None:
+        # _before_receiver returns a prefix of the text, so the label's offset is the text's own.
+        return _wire_payer_region(text, loose.start())
+    if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text):
+        sender = _sender_payer_region(text)
+        row = _before_receiver(text)
+        # A transfer-worded row that prints an ACH originator field and no FROM sender names its payer the ACH way
+        # ('CONTOSO BAKERY LLC DES:TRANSFER'), so the holder test and the counter-debit hold read it.
+        if (
+            not sender
+            and _ACH_ORIGINATOR_FIELD.search(row)
+            and not _CONSUMER_P2P_RAIL.search(row)
+            and not _PUSH_RAIL.search(row)
+        ):
+            return _ach_payer_region(text)
+        return sender
+    if _prints_no_payer(text):
+        return ""
+    return _ach_payer_region(text)
+
+
+def payer_name(region: str) -> str:
+    """5.5 (§5.2): the payer region's words without the tokens that hold a digit and the single letters."""
+    return " ".join(
+        token for token in region.split() if not any(ch.isdigit() for ch in token) and len(token) > 1
+    )
+
+
+def entry_fields(text: str) -> str:
+    """5.5 (§5.2): the words the payer prints about the payment: Bank of America's DES field, Chase's CO ENTRY DESCR
+    field, a wire's OBI, RMR, PMT DET, RFB and REF text, a transfer's memo. Empty when the layout has none (its entry
+    words sit inside the payer region, which the holds read too)."""
+    row = _before_receiver(text)
+    fields = []
+    for pattern in (_BOFA_ENTRY_FIELD, _CHASE_ENTRY_FIELD):
+        found = pattern.search(row)
+        if found is not None:
+            fields.append(found.group(1).strip())
+    # Audit B5 (I15): PNC's entry description, printed before its reference and the payer (pnc_corporate_ach).
+    pnc = pnc_corporate_ach(row)
+    if pnc is not None:
+        fields.append(pnc[0])
+    if _is_wire_row(text):
+        fields.extend(found.group(1).strip() for found in _WIRE_ENTRY_FIELD.finditer(text))
+    elif _is_transfer_or_p2p_row(text):
+        fields.extend(found.group(1).strip() for found in _MEMO_ENTRY_FIELD.finditer(row))
+    return " ".join(field for field in fields if field)
+
+
+def _distinctive_words(words: Sequence[str]) -> list[str]:
+    """5.5 (§5.2): the words that may name a holder or a payer: no noise word, no digit, three letters or more."""
+    return [
+        word for word in words
+        if word not in HOLDER_NOISE and not any(ch.isdigit() for ch in word) and len(word) > 2
+    ]
+
+
+def _first_distinctive_word(words: Sequence[str]) -> str | None:
+    """5.5 (§5.2): the first word of four or more letters that is not a common name-starter."""
+    return next((word for word in words if len(word) >= 4 and word not in _NAME_STARTERS), None)
+
+
+@cache
+def account_name_text(account_name: str | None) -> str:
+    """5.5: the statement's account name, normalized once per name ('' when none is printed), so the holder test
+    never re-normalizes it row by row."""
+    return normalize_transaction_description(account_name) if account_name else ""
+
+
+def holder_reading(account_name: str | None, holder_name: str | None = None) -> str | None:
+    """Audit B9 (I13): the name the holder tests read: the holder's own name when the parser read it from the header
+    or the mailing block (Statement.holder_name), else the account-name field (a product, a nickname or, on some
+    layouts, the holder). The account-name field keeps every product reading (_business_account)."""
+    if holder_name and holder_name.strip():
+        return holder_name
+    return account_name
+
+
+def _holder_test_words(words: Sequence[str]) -> list[str]:
+    """Audit B9 (I58): a name's words as the holder test reads them, on either side: no holder-test noise word, no
+    digit, three letters or more."""
+    return [
+        word for word in words
+        if word not in _HOLDER_TEST_NOISE and not any(ch.isdigit() for ch in word) and len(word) > 2
+    ]
+
+
+def _summary_grid_header(text: str) -> bool:
+    """Audit B9 (I13): a normalized account name that is Chase's summary grid header, not a name."""
+    return _SUMMARY_GRID_HEADER_NAME.match(text) is not None
+
+
+def account_product(text: str) -> bool:
+    """Audit B9 review round 2 (I13): a normalized account name that is a product a holder reader publishes, never a
+    holder's name: no company form, and every word the holder test reads (_holder_test_words) a product word
+    (_ACCOUNT_PRODUCT_WORDS), so PNC's 'Treasury Enterprise Plan' names nobody while 'TREASURY SAMPLE PLAN LLC' does."""
+    if not text or company_form(text):
+        return False
+    return all(word in _ACCOUNT_PRODUCT_WORDS for word in _holder_test_words(text.split()))
+
+
+def holder_words(account_name: str | None) -> tuple[str, ...]:
+    """5.5 (§5.2): the holder's name (holder_reading), normalized, without holder-test noise, digit tokens and short
+    tokens. Often empty: the account-name field is frequently only a product name. Audit B9: a summary grid header names
+    nobody (I13), and the bank and product abbreviations are noise (I58). Review round 2: nor does a product a holder
+    reader publishes (account_product)."""
+    text = account_name_text(account_name)
+    if not text or _summary_grid_header(text) or account_product(text):
+        return ()
+    return tuple(_holder_test_words(text.split()))
+
+
+def _lead_word(words: Sequence[str]) -> str | None:
+    """Audit B9 (I58): the word a name leads with: its first word that is no common name-starter and no particle."""
+    return next((word for word in words if word not in _NAME_STARTERS and word not in _NAME_PARTICLES), None)
+
+
+def _person_name_reading(text: str) -> bool:
+    """§5.2 (audit round 2, R2-B04: R20): a name that reads as a person's: no company form and no trade-name marker
+    (_HOLDER_TRADE_NAME), and, its digit tokens and generic words (REVENUE_GENERIC_WORDS) dropped, two to four words
+    of letters, none a holder-test noise word (_HOLDER_TEST_NOISE)."""
+    if not text or company_form(text) or _HOLDER_TRADE_NAME.search(text):
+        return False
+    words = [
+        word for word in text.split()
+        if not any(character.isdigit() for character in word) and word not in REVENUE_GENERIC_WORDS
+    ]
+    return 2 <= len(words) <= 4 and all(word.isalpha() and word not in _HOLDER_TEST_NOISE for word in words)
+
+
+def _holder_name_words_match(payer: Sequence[str], holder: Sequence[str], *, people: bool = False) -> bool:
+    """§5.2's holder test on one name of the holder's (audit B9, I58). A one-word holder must be the word the payer's
+    name leads with. When either name leads with a short initialism, the two lead words are compared as printed: the
+    same initialism is a likely affiliate, a different one a different company (never the industry word after it);
+    otherwise the first distinctive words (four letters or more) are compared, the brand-word affiliate arm of §5.2.
+    Two shared words always match.
+
+    Audit round 2, R2-B04 (R20): when both names read as a person's (`people`, holder_named), the initialism and
+    brand-word arms are skipped: a person sharing only the holder's given name is another person. And two shared words
+    match only when they include the word the holder's name leads with, or when the payer's own first distinctive word
+    is a holder word (or it has none): another company leading with its own name and sharing the holder's trailing
+    trade words ('<A> YACHT SERVICE' paying '<B> YACHT SERVICE LLC') is a customer, while the holder's own words after a
+    label or the owner's name ('SAMPLE PERSON NORTHWIND MARINE LLC', 'SAMPLEMAN TRUCKING') stay the holder's."""
+    if not holder:
+        return False
+    payer_lead = _lead_word(payer)
+    if len(holder) == 1:
+        return payer_lead == holder[0]
+    holder_lead = _lead_word(holder)
+    if not people and _brand_word_match(payer, holder, payer_lead, holder_lead):
+        return True
+    shared = _shared_holder_words(payer, holder, cuts=people)
+    if len(shared) < 2:
+        return False
+    if holder_lead not in shared:
+        payer_first = _first_distinctive_word(payer)
+        if payer_first is not None and payer_first not in holder:
+            return False
+    return True
+
+
+def _shared_holder_words(payer: Sequence[str], holder: Sequence[str], *, cuts: bool) -> list[str]:
+    """§5.2 (audit round 2, R2-B04: R20): the holder's words the payer prints, in the payer's order. With `cuts` (two
+    names read as a person's, whose given-name arm is skipped), a payer word the bank's field cut, a proper prefix of
+    a holder word of _HOLDER_RUN_CUT_LETTERS letters or more, is that holder word, so the holder's own name cut short
+    ('NORTHWIND DISTRIB' for 'NORTHWIND DISTRIBUTION', the B5 American Express pull) stays the holder's."""
+    shared: list[str] = []
+    for word in dict.fromkeys(payer):
+        if word in holder:
+            shared.append(word)
+        elif cuts and len(word) >= _HOLDER_RUN_CUT_LETTERS:
+            whole = next((held for held in holder if held != word and held.startswith(word)), None)
+            if whole is not None:
+                shared.append(whole)
+    return list(dict.fromkeys(shared))
+
+
+def _brand_word_match(
+    payer: Sequence[str], holder: Sequence[str], payer_lead: str | None, holder_lead: str | None,
+) -> bool:
+    """§5.2 (audit B9, I58): the initialism and brand-word affiliate arms of _holder_name_words_match: when either name
+    leads with a short initialism, the two lead words as printed; otherwise the first distinctive words."""
+    if holder_lead is not None and payer_lead is not None and (
+        len(holder_lead) <= _INITIALISM_LETTERS or len(payer_lead) <= _INITIALISM_LETTERS
+    ):
+        return holder_lead == payer_lead
+    holder_first = _first_distinctive_word(holder)
+    return holder_first is not None and _first_distinctive_word(payer) == holder_first
+
+
+#: Audit B9 (I13): the legal forms a holder's name run may print or leave off, read out of both names before a payer's
+#: trailing run of the holder's name is looked for.
+_HOLDER_RUN_LEGAL_FORMS = frozenset({
+    "LLC", "INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "PLC", "DBA",
+})
+
+
+#: Audit B9 (I13): another payer's name before a trailing run of the holder's name holds this many name words (letters,
+#: no generic or noise word): a layout's labels before the holder's own name ('DEPOSIT ACH PAID FROM') name no payer.
+_PAYER_BEFORE_HOLDER_RUN_WORDS = 2
+
+
+#: Audit B9 (I13): a run of the holder's name inside another payer's region starts with the holder's first two name
+#: words, the second whole or cut to this many letters or more.
+_HOLDER_RUN_CUT_LETTERS = 3
+
+
+#: Audit B9 review round 1 (I13): Truist's receiver slot. Its credit rows print '<entry> <company field> <receiver>
+#: CUSTOMER ID <id>': the receiver (the holder) after the originator's company field, with no label, the bank printing
+#: no padding, so a short originator runs straight on into the holder's name.
+_RECEIVER_SLOT_LABEL = re.compile(r" CUSTOMER ID\b")
+#: Audit B9 review round 2 (I13): the statement's bank that prints that receiver slot (Truist's own reader publishes
+#: 'Truist'); another bank printing CUSTOMER ID keeps the two-word reading.
+_RECEIVER_SLOT_BANK = re.compile(r"\bTRUIST\b", re.IGNORECASE)
+
+
+def holder_receiver_block(text: str, bank: str | None = None) -> int | None:
+    """Audit B9 review round 1 (I13): how the row's payer reading may print the holder's name as another payer's
+    unlabelled receiver block (holder_named's `receiver_block`: the name words of another payer's that must print before
+    a run of the holder's name for the run to be read as the receiver). None on a labelled sender, which prints the
+    sender alone, so a run of the holder's name inside it is the holder's ('ZELLE PAYMENT FROM <owner> <holder>'): an
+    incoming wire's originator field, a person-to-person or push rail, a transfer's sender after FROM. One on Truist's
+    layout, whose receiver slot follows a company field that may print one word (_RECEIVER_SLOT_LABEL: 'TRANSFER
+    <originator> INC <holder> CUSTOMER ID <id>'). Two (_PAYER_BEFORE_HOLDER_RUN_WORDS) on any other row. Review round 2:
+    the one-word slot is read on a Truist statement only (`bank`, _RECEIVER_SLOT_BANK)."""
+    if _is_wire_row(text) or _loose_wire_originator(text):
+        return None
+    row = _before_receiver(text)
+    if _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
+        return None
+    if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text) and _sender_payer_region(text):
+        return None
+    if _RECEIVER_SLOT_LABEL.search(row) and bank and _RECEIVER_SLOT_BANK.search(bank):
+        return 1
+    return _PAYER_BEFORE_HOLDER_RUN_WORDS
+
+
+def _without_trailing_holder_run(
+    payer: str, names: Sequence[str], payer_words: int | None = _PAYER_BEFORE_HOLDER_RUN_WORDS,
+) -> str:
+    """Audit B9 (I13; B7's I47 for the holder test): a payer name that prints another payer's name first (two name
+    words or more, _PAYER_BEFORE_HOLDER_RUN_WORDS) and then a run of one of the holder's names (its first two words, the
+    second whole or cut): the unlabelled receiver block, read without that run and whatever follows it ('FABRIKAM
+    INSURANCE MISC NORTHWIND HARBOR AGENC'; Truist's company field running on into the holder's name and a person's,
+    'INVOICES SAMPLE CHURC NORTHWIND HARBOR SAMPLE P'); any other payer name as it is. Audit B9 review round 1: the
+    layout sets how many name words of another payer's must print first (`payer_words`, holder_receiver_block): one on
+    Truist's receiver slot, and None on a labelled sender, which is read as it is."""
+    if payer_words is None:
+        return payer
+    words = [word for word in payer.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
+    held_names = [
+        held for held in ([word for word in name.split() if word not in _HOLDER_RUN_LEGAL_FORMS] for name in names)
+        if len(held) >= 2
+    ]
+    for start in range(1, len(words) - 1):
+        if len(_holder_test_words(words[:start])) < payer_words:
+            continue
+        first, second = words[start], words[start + 1]
+        for held in held_names:
+            if held[0] == first and len(second) >= _HOLDER_RUN_CUT_LETTERS and held[1].startswith(second):
+                # Review round 2: a field printing the holder's own name glued is the holder's, never another payer.
+                return payer if _glued_holder_name(words[:start], held) else " ".join(words[:start])
+    return payer
+
+
+def _glued_holder_name(field: Sequence[str], held: Sequence[str]) -> bool:
+    """Audit B9 review round 2 (I13): the words before a run of the holder's name print the holder's name with its
+    spaces removed, whole, with a legal form glued on, or cut to _HOLDER_CUT_LETTERS letters or more (Truist's company
+    field printing the holder's own name: 'TRANSFER CONTOSOGAMES CONTOSO GAMES CUSTOMER ID ...')."""
+    glued, name = "".join(field), "".join(held)
+    return glued.startswith(name) or (len(glued) >= _HOLDER_CUT_LETTERS and name.startswith(glued))
+
+
+#: Audit B9 review round 1 (I58): a word the holder test drops that can still lead the holder's own name: GENERAL (a
+#: product's or a nickname's word, and a business's) and, by length, a two-letter initialism ('JB TRUCKING LLC'). A
+#: single letter never is: the payer reading drops it (payer_name).
+_DROPPED_NAME_LEADS = frozenset({"GENERAL"})
+_DROPPED_INITIALISM_LETTERS = 2
+
+
+def _dropped_lead_run(name: str, holder: Sequence[str]) -> tuple[str, ...] | None:
+    """Audit B9 review round 1 (I58): a one-word holder whose printed name leads with a word the holder test drops
+    (_DROPPED_NAME_LEADS, a two-letter initialism): the printed run from that word to the holder's one word ('GENERAL
+    PLUMBING' for 'GENERAL PLUMBING LLC', 'JB TRUCKING' for 'JB TRUCKING LLC'), which the payer must print, so another
+    company leading with the industry word is never the holder. None for any other holder (a one-word holder printed
+    alone, or after a bank's or a product's abbreviation, keeps the one-word reading)."""
+    if len(holder) != 1:
+        return None
+    words = [word for word in name.split() if word.isalpha() and word not in _HOLDER_RUN_LEGAL_FORMS]
+    if holder[0] not in words:
+        return None
+    end = words.index(holder[0])
+    start = next((
+        index for index, word in enumerate(words[:end])
+        if word in _DROPPED_NAME_LEADS or len(word) == _DROPPED_INITIALISM_LETTERS
+    ), None)
+    return None if start is None else tuple(words[start:end + 1])
+
+
+def _prints_run(words: Sequence[str], run: Sequence[str]) -> bool:
+    """Audit B9 review round 1 (I58): `words` print `run` as consecutive words."""
+    return any(tuple(words[index:index + len(run)]) == tuple(run) for index in range(len(words) - len(run) + 1))
+
+
+def holder_named(
+    region: str, account_name: str | None, *, receiver_block: int | None = _PAYER_BEFORE_HOLDER_RUN_WORDS,
+) -> bool:
+    """5.5 (§5.2): the holder test, read on a payer region (never on a check, cash, branch, ATM or bare row, which has
+    none) against the holder's name (`account_name`: holder_reading's name). It matches when the payer's words name the
+    holder (_holder_name_words_match), when the payer is the holder's name cut short, or when the region prints a run of
+    four or more digits that the holder's name also prints. Audit B9: a DBA name's sides are each a name of the
+    holder's (I38), a summary grid header names nobody (I13), and the holder's name printed after another payer's words
+    is that payer's unlabelled receiver, never the payer (_without_trailing_holder_run, I13). Audit B9 review round 1:
+    the row's layout says where that receiver can print (`receiver_block`, holder_receiver_block: never on a labelled
+    sender, after one name word on Truist's receiver slot), and a one-word holder left by a dropped lead word is read
+    with that word (_dropped_lead_run, I58). Review round 2: a product a holder reader publishes names nobody
+    (account_product). Audit round 2, R2-B04 (R20): a name of the holder's and a payer reading that both read as a
+    person's (_person_name_reading) are compared on their shared words only, never by the given name they lead with."""
+    if not region or not account_name:
+        return False
+    printed = account_name_text(account_name)
+    if not printed or _summary_grid_header(printed) or account_product(printed):
+        return False
+    names: tuple[str, ...] = (printed,)
+    if _HOLDER_TRADE_NAME.search(printed):
+        names = (printed, *_HOLDER_TRADE_NAME.split(printed, maxsplit=1))
+    reading = _without_trailing_holder_run(payer_name(region), names, receiver_block)
+    payer = _holder_test_words(reading.split())
+    printed_payer = [word for word in reading.split() if word.isalpha()]
+    person_payer = _person_name_reading(reading)
+    for name in names:
+        holder = _holder_test_words(name.split())
+        run = _dropped_lead_run(name, holder)
+        if run is not None:
+            if _prints_run(printed_payer, run):
+                return True
+            continue
+        if _holder_name_words_match(payer, holder, people=person_payer and _person_name_reading(name)):
+            return True
+    if _holder_cut_name(payer_name(region), printed):
+        return True
+    return any(
+        re.search(rf"(?<!\d){run}(?!\d)", printed) for run in re.findall(r"\d{4,}", region)
+    )
+
+
+#: 5.6 (A3-G): a cut holder name names the holder when it keeps this many whole words before the cut, or this many
+#: letters in all.
+_HOLDER_CUT_WHOLE_WORDS = 2
+_HOLDER_CUT_LETTERS = 12
+
+
+def _holder_cut_name(payer: str, holder: str) -> bool:
+    """5.6 (A3-G, §5.2): the payer name is the holder's normalized name cut short: a word-by-word prefix of it whose
+    last word is a proper prefix of the holder's word there ('GLOBAL AMERICAN NORTHW' against 'GLOBAL AMERICAN
+    NORTHWIND...'), with _HOLDER_CUT_WHOLE_WORDS whole words before the cut or _HOLDER_CUT_LETTERS letters in all, so
+    a single common word never matches."""
+    sender = payer.split()
+    words = holder.split()
+    if not sender or len(sender) > len(words):
+        return False
+    whole, cut = sender[:-1], sender[-1]
+    if whole != words[: len(whole)]:
+        return False
+    target = words[len(whole)]
+    if cut == target or not target.startswith(cut):
+        return False
+    return len(whole) >= _HOLDER_CUT_WHOLE_WORDS or sum(len(word) for word in sender) >= _HOLDER_CUT_LETTERS
+
+
+#: S4.2 review (I1): a date the bank prints at the row's start, before a numbered company's number or a numbered
+#: template: 'MM DD ', 'MMDD ', or 'MM ' before a day glued to the number ('03/021234567 ONTARIO INC' normalizes to
+#: '03 021234567 ONTARIO INC', whose glued run is itself six or more digits). Only the numbered-company guard reads
+#: past it, failing closed (more rows are numbered); revenue_text keeps a spaced pair, so Fifth Third's '5 3 ...' is
+#: otherwise untouched.
+_NUMBERED_LEADING_DATE = re.compile(
+    r"^(?:\d{1,2} \d{1,2} |\d{4} |\d{1,2} )"
+    # S4.2 re-review (fix 3): the lookahead takes every template of _NUMBERED_COMPANY_TEMPLATE, PMT included.
+    r"(?=\d{6,}\b|\d{4} \d{4} [A-Z]|(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT)"
+    r" \d{6,}\b)"
+)
+
+
+def _skip_numbered_leading_date(text: str) -> str:
+    """S4.2 review (I1): the text without a leading date printed before a numbered company's number."""
+    return _NUMBERED_LEADING_DATE.sub("", text, count=1)
+
+
+def numbered_company(text: str, region: str | None = None) -> bool:
+    """5.5 (§5.2, T11): the payer is a Canadian numbered company: a template prefix followed by six or more digits,
+    or a payer region that begins with six or more digits and then a province, territory, CANADA or a cut of one, or
+    up to four words and a legal form, or with Quebec's form: four digits, a hyphen and four digits, then QUEBEC, a
+    cut of it or QC (S4.2 round 4; fix round 5: Quebec's words only, '1234-5678 QUEBEC INC'). Both read past a leading
+    date (S4.2 review, I1)."""
+    if _NUMBERED_COMPANY_TEMPLATE.search(_skip_numbered_leading_date(_before_receiver(text))):
+        return True
+    region = payer_region(text) if region is None else region
+    return _NUMBERED_COMPANY_REGION.search(_skip_numbered_leading_date(region)) is not None
+
+
+def company_form(name: str) -> bool:
+    """5.5 (§5.2): a legal-form word after the payer name's first word, or an institution word."""
+    return _COMPANY_FORM.search(name) is not None
+
+
+def is_round_sum(amount: float) -> bool:
+    """5.6 (§5.2): at least $100 and a whole multiple of $100, compared in integer cents."""
+    cents = round(abs(amount) * 100)
+    return cents >= _ROUND_SUM_DOLLARS * 100 and cents % (_ROUND_SUM_DOLLARS * 100) == 0
+
+
+#: §8.10: the round sum's step, in whole dollars.
+_ROUND_SUM_DOLLARS = 100
+
+
+def channel_gate(text: str) -> str | None:
+    """5.5 (§6.1 step 9b), read on a credit's revenue text: 'closed' when a consumer person-to-person rail, a
+    check-deposit form, a cash, branch or ATM form, or no payer word at all is printed (no step verifies it);
+    'push' for a real-time or push rail (only the operating registry may verify it); None otherwise."""
+    row = _before_receiver(text)
+    if _CONSUMER_P2P_RAIL.search(row):
+        return "closed"
+    if _prints_no_payer(text) and not _is_wire_row(text):
+        return "closed"
+    if _PUSH_RAIL.search(row):
+        return "push"
+    return None
+
+#: §7.9 N1 and §7.11 (T19): the labels a reader needs to tell an incoming wire, and the originator a book or
+#: funds transfer prints after B O, CUSTOMER, ORIGINATOR, ORG, TT, FROM or WIRE FROM.
+_THIRD_PARTY_ORIGINATOR = re.compile(r"\b(?:B O|CUSTOMER|ORIGINATOR|ORG|TT|FROM|WIRE FROM)\b ?")
+#: §7.9 N1 and §7.11: the incoming-wire labels a row begins with. Audit B5 (I14, I12's reader): and Columbia Bank's
+#: 'WIRE DEPOSIT WIRE IN <reference> ORG <sender>', Navy Federal's 'BANK WIRE DEPOSIT' (which prints no sender) and
+#: U.S. Bank's 'WIRE CREDIT REF<n> <sending bank> <reference>' (whose sender prints after ORG= when the line is kept).
+#: Audit round 2, R2-B10 (R21 part C): the plural 'WIRE TRANSFERS <DEPOSIT|CREDIT|IN|INCOMING|FROM>' is the same wire
+#: label, never a person-to-person transfer (TRANSFERS stays transfer wording on any other row). R2-B10 (R32): and
+#: 'INCOMING FEDWIRE', 'INBOUND FEDWIRE', 'INBOUND WIRE' and 'INCOMING CHIPS', so a sender printed after them (ORG, B O,
+#: WIRE FROM) reaches Q5 as 'FEDWIRE CREDIT ORG <sender>' does; a row that prints none is held as a wire with no sender
+#: (Huntington's bare 'INCOMING FEDWIRE TRANSFER' among them). CHIPS alone is no label.
+_INCOMING_WIRE_LABEL = re.compile(
+    r"^(?:WIRE TYPE (?:WIRE|INTL|FX) IN\b|USD WIRE IN\b|[A-Z]{3} WIRE IN\b|FEDWIRE CREDIT\b|CHIPS CREDIT\b|WT FED"
+    r"|WIRE TSF\b|WIRE TRANSFERS? (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
+    r"|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN) (?:INCOMING )?WIRE\b|INCOMING FUNDS TRANSFER\b"
+    r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b"
+    r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?\d+\b"
+    # Audit B10 (I14): Falcon International Bank's incoming international wire (IWT), which prints its sender after
+    # the bank's own wire field once its reader keeps the text after the amount (_FALCON_WIRE_FIELD).
+    r"|INTERNATIONAL IWT\b"
+    r"|INCOMING FEDWIRE\b|INBOUND (?:FEDWIRE|WIRE)\b|INCOMING CHIPS\b)"
+)
+_BOOK_TRANSFER_FROM = re.compile(r"^(?:BOOK TRANSFER CREDIT B O|WIRE TYPE BOOK IN\b.*\bORIG)\b ?")
+#: §7.11: the funds-transfer labels of an incoming wire (the label stands for FROM).
+_FUNDS_TRANSFER_WIRE_LABEL = re.compile(
+    r"\b(?:INCOMING FUNDS TRANSFER|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER(?: RECEIVED)?|FUNDS TRANSFER WIRE FROM)"
+    r"\b ?"
+)
+
+
+def _third_party_originator(text: str) -> str | None:
+    """5.5 (§7.11): the originator a book or funds transfer prints (after B O, CUSTOMER, ORIGINATOR, ORG, TT, FROM or
+    WIRE FROM, or one of the four funds-transfer wire labels), when it prints a distinctive payer word; otherwise
+    None. S2.3 review (fix 1): an account description is no payer ('FROM BUSINESS SAVINGS', 'FROM LINE OF CREDIT',
+    'FROM TAX RESERVE'): _originator_payer_words."""
+    labels: tuple[re.Pattern[str], ...] = (_FUNDS_TRANSFER_WIRE_LABEL, _THIRD_PARTY_ORIGINATOR)
+    if _BOFA_BOOK_IN.match(text):
+        # 5.6 (A3-G refinement): Bank of America's WIRE TYPE BOOK IN is its WIRE TYPE WIRE IN layout: the originator
+        # follows ORIG (the normalizer drops a SWIFT 50F line number printed with its slash).
+        labels = (*labels, _BOFA_BOOK_IN_ORIGINATOR)
+    for label in labels:
+        for found in label.finditer(text):
+            rest = text[found.end():]
+            end = _WIRE_FIELD_END.search(rest)
+            words = _leading_name_words(rest[: end.start()] if end is not None else rest)
+            if _originator_payer_words(words):
+                return words
+    return None
+
+
+#: 5.6 (A3-G refinement): Bank of America's book-transfer wire and its originator label (never ORIG CO NAME, ORIG ID or
+#: ORIG TO BNF).
+_BOFA_BOOK_IN = re.compile(r"^WIRE TYPE BOOK IN\b")
+_BOFA_BOOK_IN_ORIGINATOR = re.compile(r"\bORIG\b(?! CO NAME\b)(?! ID\b)(?! TO BNF\b) ?")
+
+
+#: S2.3 review (fix 1, §7.11): the account-type and product words a transfer prints after FROM about one of the
+#: holder's own accounts. _INTERNAL_ACCOUNT_SOURCE's words and HOLDER_NOISE (BUSINESS, CHECKING, SAVINGS, ACCOUNT,
+#: OPERATING, MONEY MARKET, TRUST, the generic words) are read too, so neither is repeated here.
+_OWN_ACCOUNT_PRODUCT_WORDS = frozenset({
+    "SAVS", "SVG", "SVGS", "CHKG", "CHKING", "MMDA", "OPER", "RESERVE", "RESERVES", "TAX", "TAXES", "PAYROLL",
+    "PERSONAL", "BUS", "BUSN", "ACCTS", "LOC", "LINE", "HELOC", "SWEEP", "ESCROW", "INVESTMENT", "INVESTMENTS",
+    "BROKERAGE", "IRA", "SUB",
+    # S2.3 re-review (minor 2): the adjectives an own account prints before its product word, and a loan account.
+    "PRIMARY", "SECONDARY", "MAIN", "JOINT", "HIGH", "YIELD", "SPENDING", "SHARE", "DRAFT", "LOAN",
+})
+_INTERNAL_ACCOUNT_SOURCE_WORDS = re.compile(rf"\b{_INTERNAL_ACCOUNT_SOURCE}\b")
+
+
+def _originator_payer_words(words: str) -> list[str]:
+    """S2.3 review (fix 1): the words of a transfer's originator that may name a payer: no reference token, no
+    _INTERNAL_ACCOUNT_SOURCE account word, no HOLDER_NOISE or generic word (_distinctive_words) and no account-type or
+    product word. An originator that prints none describes one of the holder's own accounts."""
+    return [
+        word for word in _distinctive_words(_INTERNAL_ACCOUNT_SOURCE_WORDS.sub(" ", words).split())
+        if word not in _OWN_ACCOUNT_PRODUCT_WORDS and not _is_reference_token(word)
+    ]
+
+
+#: Audit round 2, R2-B10 review round 1 (R11): the words besides a reference that a bare incoming wire may print after
+#: its label: the wire label words (true_revenue's _WIRE_LABEL_ONLY_WORDS, made one list by R32: the bare channel words,
+#: every wire layout word, BANK, DEPOSIT, DEP, IN, RECEIVED and CR; a test keeps the two lists in step) and the
+#: funds-transfer labels' own originator labels, TT and FROM. Never a legal form, an article, a currency or a generic
+#: or holder-noise word (BUSINESS, TRUST, OPERATING, USD, CAD, ONLINE, PAYMENT, INC, LLC, THE): those are no reference.
+_BARE_WIRE_LABEL_WORDS = frozenset({
+    "WIRE", "WIRES", "TRANSFER", "BOOK", "CREDIT", "INCOMING", "INBOUND", "INBD", "FEDWIRE", "FED", "WT", "IWT",
+    "CHIPS", "SWIFT", "DOMESTIC", "INTL", "INTERNATIONAL", "BANK", "DEPOSIT", "DEP", "IN", "RECEIVED", "CR",
+    "TT", "FROM",
+})
+
+
+def _bare_incoming_wire(text: str) -> bool:
+    """Audit round 2, R2-B10 (R11; Q5, §7.11): a row an incoming-wire label starts (_INCOMING_WIRE_LABEL: RBC's 'FUNDS
+    TRANSFER CREDIT TT <reference> [O]', 'INCOMING FUNDS TRANSFER <reference>', 'WIRE TRANSFER IN <reference>') that
+    prints no third-party originator (_third_party_originator), and, after its label, no account word
+    (_INTERNAL_ACCOUNT_SOURCE_WORDS: SAVINGS, CHECKING, ACCOUNT, LOC ...) and no own-account product word
+    (_OWN_ACCOUNT_PRODUCT_WORDS: RESERVE, TAX, PAYROLL, LOAN ...): an incoming wire whose sender is not printed, which pass
+    7 holds as wire_no_sender (Q5), never the holder's own transfer. A row that names the holder as its originator, or an
+    own account after its label ('FUNDS TRANSFER CREDIT TT SAVINGS <n>'), is not one.
+
+    R2-B10 review round 1: the row prints only a reference, so every word after the label is a reference token
+    (_is_reference_token: digits, a masked token, a month), a single letter (RBC's trailing O or W) or a wire label word
+    (_BARE_WIRE_LABEL_WORDS); any other word ('<n> BUSINESS', '<n> USD', '<n> PAYMENT', '<n> INC') makes no bare
+    incoming wire, and the row keeps its own-account reading (true_revenue's credit_facts blanks a bare row's payer
+    region, so its reference or label words are never a counted sender)."""
+    found = _INCOMING_WIRE_LABEL.match(text)
+    if found is None or _third_party_originator(text) is not None:
+        return False
+    after = text[found.end():]
+    if _INTERNAL_ACCOUNT_SOURCE_WORDS.search(after):
+        return False
+    tokens = after.split()
+    if any(token in _OWN_ACCOUNT_PRODUCT_WORDS for token in tokens):
+        return False
+    return all(
+        _is_reference_token(token) or (len(token) == 1 and token.isalpha()) or token in _BARE_WIRE_LABEL_WORDS
+        for token in tokens
+    )
+
+
+def _third_party_book_transfer(text: str) -> bool:
+    """5.5 (T19): a Chase BOOK TRANSFER CREDIT B/O <originator> or a Bank of America WIRE TYPE BOOK IN that prints an
+    originator. Read as an incoming wire only on the owner's yes (THIRD_PARTY_BOOK_TRANSFER_AS_WIRE)."""
+    return (
+        THIRD_PARTY_BOOK_TRANSFER_AS_WIRE
+        and _BOOK_TRANSFER_FROM.match(text) is not None
+        and _third_party_originator(text) is not None
+    )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Classification 5.5: the credit revenue rules (§6.1 steps 3 to 14, §7.1 to §7.11).
+# ---------------------------------------------------------------------------------------------------------------------
+
+#: §7.11: the unambiguous return codes, read on credits only (the debit rules keep _REFUND_REVERSAL_PATTERNS). The
+#: reversal-pair pass reads them too.
+_RETURN_CODE_CREDIT_PATTERNS = (
+    re.compile(
+        r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RECALL(?:ED)?|UNPAID|REJT|CHBK|CHGBK)\b"
+    ),
+)
+#: §7.11: a claim or provider signal. REIMBURSEMENT on such a row is a provider's claim payment, not a refund.
+_CLAIM_OR_PROVIDER_SIGNAL = re.compile(
+    r"\b(?:MEDICAID|MEDICARE|MEDI CAL|TRICARE|CHAMPVA|GEMT|EMS|PROV(?:IDER)? ?PAY(?:MENTS?)?|EDI PYMNTS|CLAIM PMT)\b"
+    r"|(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b"
+)
+_REIMBURSEMENT_WORD = re.compile(r"\bREIMBURSEMENT\b")
+#: 5.6 (audit B3: I04, §7.11): the Quebec health insurance board (the Régie de l'assurance maladie du Québec, a public
+#: body that pays health professionals and clinics for the insured services they bill; ramq.gouv.qc.ca), the French
+#: rows' provider signal: REMBOURSEMENT on such a row is the clinic's claim payment, as REIMBURSEMENT is beside a claim
+#: or provider signal (_CLAIM_OR_PROVIDER_SIGNAL).
+_QUEBEC_HEALTH_PAYER = re.compile(r"(?<![A-Z])(?:RAMQ|REGIE (?:DE L )?ASSURANCE MALADIE(?: DU QUEBEC)?)\b")
+#: 5.6 (audit B3: I04): the card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's
+#: credit-side CHECKCARD <mmdd>, a point-of-sale deposit naming its merchant), released as a card credit is
+#: (_card_credit_released).
+_CARD_REFUND_LABELS = (
+    re.compile(r"\bDEBIT CARD CREDI\b"),
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b"),
+    re.compile(r"\bPOINT OF SALE DEPOSIT [A-Z]"),
+)
+_REMBOURSEMENT_WORD = re.compile(r"(?<![A-Z])REMBOURSEMENT\b")
+#: B3 review round 1: no legal-form word later on the row. A marker word that starts a company's name (REV MOBILE
+#: LLC, RETOUR CONTOSO INC, UNAUTHORIZED CONTOSO LLC) is no reversal. Copied in true_revenue._POSSIBLE_RETURN and in
+#: tools/revenue_census.py.
+_NO_LEGAL_FORM_LATER = (
+    r"(?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP|LLLP|PLLC|ULC|PLC|GMBH)\b)"
+)
+#: 5.6 (audit B3: I04, §6.1 step 3, §7.11, §20; standard D1, D3, D5): the reversal, correction and refund spellings
+#: step 3 also reads on a credit, beside its 5.4 patterns and the return codes:
+#: - a bounced outgoing payment credited back (Zions' ITEM RET NOT PAID; never ITEM RETURNED before a fee, the bank's
+#:   charge), and a returned deposited item (PNC's RET DEP ITEM). NOT PAID is read only after an item or return word,
+#:   or as the whole row with its references (review round 1: never inside a memo or a wire's remittance field);
+#: - a bank's error or transaction correction, and a correction printed first, glued to its reference too (never a
+#:   name that only starts with it: CORRECTIONAL ...; never DEPT OF CORRECTION, which prints it last);
+#: - card-purchase refunds: U.S. Bank's DEBIT PURCHASE RET, a reversed card or mobile purchase printed first (REV
+#:   MOBILE, POS, DEBIT, PURCHASE, ACH or CARD) and the card-shaped labels (_CARD_REFUND_LABELS). Review round 1: the
+#:   leading REV form needs a transaction word, a reference or the row's end after the rail word, or no legal-form word
+#:   later on the row (never REV MOBILE LLC ...);
+#: - a provisional credit cut to CR, an unauthorized-ACH settlement (never a company's name: no legal-form word
+#:   later), and an e-Transfer the holder reclaimed (RECLAIM with its reference glued after it, or last on the row:
+#:   CIBC's E TRANSFER RECLAIM<digits>; review round 1: never a payer's word, RECLAIM CONTOSO LLC or RECLAIMED ...);
+#: - the French reversal, return and refund words RENV, RENVERSEMENT, RETOUR and REMBOURSEMENT (REMBOURSEMENT with
+#:   §7.11's provider carve-out, _remboursement_from_a_provider). Review round 1: RETOUR needs a reference, MDSE or
+#:   MARCHANDISE, or the row's end after it, or no legal-form word later (never RETOUR CONTOSO INC);
+#: - a fee waiver (FEE WAIVE, WAIVED, WAIVER) and a courtesy refund (TD's WIRE OUT COURTESY REF).
+#: Read on credits only, by step 3 and, on the credit row, by pass 4's revenue side (_CREDIT_PAIR_MARKER_PATTERNS); the
+#: lender side of pass 4 never reads them (§20, final review I6).
+#:
+#: Audit round 2, R2-B08 (R08, R47 (a), R48 part 2; standard D1, D3, D5): and these arms, each copied verbatim in
+#: true_revenue._POSSIBLE_RETURN and in tools/revenue_census.py (_REVERSAL_MARKERS_56, on the masked text), where a test
+#: keeps the three copies in step:
+#: - a Quebec returned item (EFFET RETOURNE, EFFETS RETOURNES, the bank's cut EFFET RET);
+#: - CIBC's reversal of the holder's cheque or pre-authorized debit (CONTRE-PASSATION DE CHEQUE|DEBIT ..., its hyphen
+#:   normalized to a space or dropped);
+#: - RBC's French refused item, the bank crediting back a payment refused for no funds (EFFET|CHEQUE REFUSE SANS
+#:   PROVISION; a lost accent leaves REFUS);
+#: - the English check-word form of NOT PAID (CHECK|CHEQUE|CHK|CHQ [<n>] NOT PAID). Review round 1: at the row's head
+#:   only (a spaced or glued leading date before it, spaces the backstop's label removal leaves), as the whole-row NOT
+#:   PAID is read: never inside a wire's remittance field, a person-to-person memo or an ACH entry description;
+#: - an e-Transfer the holder reclaimed with a spaced or colon-separated reference, the rail word (INTERAC, E TRANSFER,
+#:   E TFR) printed right before RECLAIM and a reference holding a digit right after it, or TD's RECLAIM E-TFR. Never
+#:   RECLAIM as a payer's word, nor after a reference (a sender's name follows it there);
+#: - the fee waiver, now with no legal-form word later on the row (never a company named <word> FEE WAIVER ... INC), as
+#:   RETOUR, REV and UNAUTHORIZED read.
+_RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
+_RETURN_REFUND_R2_B08_ARMS = (
+    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
+    r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
+    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
+    r"^\s*(?:\d{1,2} \d{1,2} ?)?(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
+    r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
+    r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
+    r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,
+)
+_RETURN_REFUND_CREDIT_PATTERNS = (
+    re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)"),
+    re.compile(
+        r"(?<![A-Z])(?:ITEMS?|RET|RETN|RTN|RETURN(?:ED)?) NOT PAID\b|^(?:\d{1,2} \d{1,2} )?NOT PAID(?: \S*\d\S*)*$"
+    ),
+    re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
+    re.compile(r"\b(?:ERROR|TRANSACTION) CORRECTION\b"),
+    re.compile(r"^(?:\d{1,2} \d{1,2} )?CORRECTION(?![A-Z])"),
+    re.compile(r"\bPURCHASE RET\b"),
+    *_CARD_REFUND_LABELS,
+    re.compile(r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b"),
+    re.compile(r"\bUNAUTHORI[SZ]ED\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])RECLAIM(?=\d|\s*$)"),
+    re.compile(
+        r"^(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b(?:(?= (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD"
+        r"|CREDIT|PMT|PAYMENT|TRANSACTION|TXN|WITHDRAWAL)\b| ?\d|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"
+    ),
+    re.compile(r"(?<![A-Z])(?:RENV|RENVERSEMENT)\b"),
+    re.compile(r"(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"),
+    _REMBOURSEMENT_WORD,
+    re.compile(r"\bCOURTESY REF(?:UND)?\b"),
+    *(re.compile(arm) for arm in _RETURN_REFUND_R2_B08_ARMS),
+)
+#: §7.11: push payouts printed as card credits: a push-rail word, or a processor or invoice source with a payout word.
+#: 5.6 (audit B3: I04): the card-credit labels include Citibank's cut DEBIT CARD CREDI and the card-shaped refund labels
+#: step 3 adds (_CARD_REFUND_LABELS).
+_CARD_CREDIT_LABEL = re.compile(
+    r"\b(?:DEBIT CARD CREDIT?|POS CREDIT)\b|^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b|\bPOINT OF SALE DEPOSIT\b"
+)
+_CARD_CREDIT_PUSH_WORD = re.compile(
+    r"\b(?:VISA DIRECT|MC SEND|VISA MONEY TRANSFER|FASTPAY|INSTANT PAY|INSTANT PAYOUT)\b"
+)
+#: 5.6 (audit B3: I04, §7.11): Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT or POS CREDIT join the push
+#: words (released from the reversal rule, then held by §8.1 as any released card credit is) only with
+#: CASH_APP_CARD_PUSH_RELEASE on. It stays off: the orchestrator reads the owner's card-push ruling of 2026-10-02
+#: (the underwriter's Q13, spec §19.1) onto it, and the owner may overrule that; switched on, it would only hold 8
+#: rows, $585.17, in 2 Relay statements at c486fd5, and move no True. A card credit printed first
+#: ('CARD CREDIT CASH APP ...') stays a counted person-to-person push either way (true_revenue._leading_card_credit).
+CASH_APP_CARD_PUSH_RELEASE = False
+_CARD_CREDIT_P2P_PUSH_WORD = re.compile(r"(?<![A-Z])(?:CASH ?APP|APPLE CASH)\b")
+_CARD_CREDIT_PAYOUT_WORD = re.compile(r"\b(?:PAYOUTS?|INSTANT (?:PAYOUT|PAY|TRANSFER)|SETTLEMENT|DEPOSIT)\b")
+#: §7.11 (T5): account verification, Square Capital's SQ CAP, SBA and EIDL disbursements (the tax-refund forms sit
+#: in _NON_REVENUE_CREDIT_PATTERNS).
+_ACCOUNT_VERIFICATION_CREDIT = re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
+_SQUARE_CAPITAL_CREDIT = re.compile(r"\bSQ ?CAP\d*\b")
+_SQUARE_NAME = re.compile(r"\bSQ\b|\bSQUARE\b")
+_SBA_DISBURSEMENT_CREDIT = re.compile(r"\bSBAD TREAS\b|\bSBA (?:EIDL|LOAN|DISB\w*)\b|\bEIDL\b")
+#: A3 (the precision sample of the largest counted rows, 2026-09-30): the Small Business Administration's name cut to
+#: an originator field, read on the payer region alone: exactly SMALL BUSINESS, or SMALL BUSINESS and a leading cut of
+#: ADMINISTRATION (A, AD, ADM ... ADMIN ... ADMINISTRATION), a U S prefix allowed. A payer whose name goes on in other
+#: words (SMALL BUSINESS SOLUTIONS LLC) is a named payer.
+_SBA_CUT_ORIGINATOR = re.compile(
+    r"^(?:U ?S )?SMALL BUSINESS(?: (?:"
+    + "|".join("ADMINISTRATION"[:length] for length in range(len("ADMINISTRATION"), 0, -1))
+    + r"))?$"
+)
+#: §7.11 (T19 and this spec): a book or funds transfer is own-account only when no third-party originator is printed.
+_BOOK_OR_FUNDS_TRANSFER = re.compile(r"\b(?:BOOK|FUNDS?) TRANSFER\b")
+#: §7.11: the Electronic Funds Transfer channel, never a book or funds transfer between accounts.
+_EFT_FUNDS_TRANSFER = re.compile(r"\bELECTRONIC FUNDS TRANSFER DEPOSIT\b")
+
+#: S2.2 review (item A): in the 5.5 veto patterns below (the recurrence, card, operating, employer, transport, auction,
+#: property, payer-remittance, public-payer and wire vetoes) a veto spelling of four letters or more (all its words
+#: counted) takes a (?<![A-Z]) left boundary, the owner's card-form convention, so digits glued on its left
+#: ('0102CHBK', '1234PAYROLL') never hide it; a spelling of three letters or fewer keeps \b, since a digit glued to
+#: it is usually an ID's suffix ('ID 1234CB'). Each spelling counts on its own: FEES reads through a glued digit, FEE
+#: does not. Measured exceptions (the cached corpus, S2.2 review): the card veto's BOOK and its DUP spellings keep \b,
+#: since a digit glued to them there was a company name or an ID fragment, never the word. \b stays on the right of
+#: every word.
+#: §7.0: the recurrence pass's veto: pay, financing and verification words and the card-credit labels, read on the
+#: row before its receiver fields.
+_RECURRENCE_VETO = re.compile(
+    r"(?<![A-Z])(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPSEC|ADVANCE|FINANC\w*|LEND\w*|CASH ADV\w*"
+    r"|PAYROLL\w*|PAYRLL|PAYROL|PAYRL|DIR ?DEP|DIRDEP|DIRECT DEP|SALARY|SALARIES|REG SAL|WAGES?|NET ?PAY|BONUS"
+    r"|REIMB\w*|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY|VERIFICATION|INSUR\w*|DEBIT CARD CREDIT|POS CREDIT)\b"
+    r"|\b(?:CAP\d*(?:SEC)?|FIN|ADV|MCA)\b"
+)
+#: §7.0 (review C2): FUNDING vetoes recurrence too, except on the settlements of the platforms that print it there.
+_FUNDING_WORD = re.compile(r"(?<![A-Z])(?:FUNDING|FUNDED)\b")
+_FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})
+#: §7.0, §5.2 (S2.4 review): the operating sources whose payout rows print the merchant's store name, which is the
+#: holder's, in the entry field: the food-delivery and ordering platforms of the registry ('DOORDASH INC DES:<store>
+#: CAPITA ... INDN:<store> CAPITAL GROUP'; BMO's 'DIRECT DEPOSIT DOORDASH <store> MSP/DIV'). Only on their rows does
+#: the recurrence veto spare a veto word that is one of the holder's own words. On every other source (Square, Stripe,
+#: PayPal, Shopify, the marketplaces and processors) the entry field is the platform's own wording, and a holder
+#: named like a veto word ('CAPITAL CITY BAKERY LLC', 'SAMPLE LENDING LLC') would otherwise let that source's
+#: financing credits verify ('SQUARE INC DES:CAPITAL'), so a veto word always vetoes there. The registry's Uber
+#: (driver payouts) and Instacart (shopper payouts) pay no store and stay out.
+_STORE_NAME_PAYOUT_ENTITIES = frozenset({
+    "DoorDash", "Uber Eats", "Grubhub", "SkipTheDishes", "ezCater", "Menufy", "Snackpass",
+})
+#: §7.0, §7.8, §7.10: the absolute micro-deposit floor, in whole dollars.
+_MICRO_DEPOSIT_FLOOR = 1
+#: Owner ruling 2026-10-02 (Q8; §8.9, §8.10): a lease-to-own or patient financier's payout (customer_financing_payout)
+#: is a large one-off lump sum, held until sourced (customer_financing_lump_sum), when it is this many whole dollars or
+#: more and is an incoming wire, a whole multiple of CUSTOMER_FINANCING_LUMP_ROUND dollars or at least
+#: CUSTOMER_FINANCING_LUMP_SHARE percent of the statement's posted credits; and the financier makes fewer than
+#: CUSTOMER_FINANCING_SERIES_MIN payouts in the statement (the row included) of at least
+#: CUSTOMER_FINANCING_SERIES_SHARE percent of its amount (three or more similar-size payouts are an ordinary series).
+CUSTOMER_FINANCING_LUMP_FLOOR = 10_000
+CUSTOMER_FINANCING_LUMP_ROUND = 1_000
+CUSTOMER_FINANCING_LUMP_SHARE = 50
+CUSTOMER_FINANCING_SERIES_MIN = 3
+CUSTOMER_FINANCING_SERIES_SHARE = 50
+#: §7.0: a legal-form holder name is a business account for the recurrence rule.
+_LEGAL_FORM_HOLDER = re.compile(r"\b(?:LLC|INC|CORP|LTD|LLP|PLLC)\b")
+#: §7.0: the operating-source methods whose rows may join the recurrence pool.
+_OPERATING_POOL_METHODS = frozenset({
+    "operating_source_requires_context", "operating_source_with_credit_context", "recurring_operating_source",
+    "operating_source_related_activity", "operating_source_payout_form",
+})
+#: §7.8, §7.10: the operating methods an auction or property branch may touch.
+_OPERATING_SOURCE_METHODS = frozenset({
+    "operating_source_requires_context", "recurring_operating_source", "operating_source_related_activity",
+    "operating_source_with_credit_context",
+})
+
+#: §7.1: the card veto: neither a card form nor the processor payout context fires on a row that prints it.
+_CARD_VETO = re.compile(
+    r"(?<![A-Z])(?:CHBK|CHGBK|CHARGEBACKS?|DISPUTE\w*|ADJUSTMENT|BILLING|DISC|DISCOUNT|MTHLY|INTERCHANGE|PAYROLL"
+    r"|LOANS?|CAPITAL|ADVANCE|FUNDING|FINANCING|FINANCE|RETURN(?:ED|S)?|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY"
+    r"|VERIFICATION|INSUR\w*|ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC|REWARDS?|REBATES?|CASH ?BACK|INTEREST|CLAIMS?"
+    r"|CAPI|CAPIT|CAPITA|CAPSEC|FUNDS?|FUNDED|FNDG|FNDNG|FINANCIAL|FINCL|LEND\w*|PROCEEDS|DISB\w*"
+    r"|PURCH\w*|CONTRIB\w*|OWNERS?|MEMBER|SHAREHOLDER|RVSL|RVRSL|INTCHG|CORR\w*|FEES|ADV(?:NC?|C)"
+    r"|OVERPAY\w*|XFER|SWEEP)\b"
+    r"|\b(?:ADJ|FEE|TAX|ADV|CAP\d*(?:SEC)?|MCA|RTN|RET|REV\d*|CB|DUP\w*|TFR|ZBA|BOOK)\b"
+    r"|(?<![A-Z])(?:TRANSFER|XFER|TFR) (?:FROM|TO)\b|(?<![A-Z])ONLINE TRANSFER\b"
+)
+#: §7.1: processor payout context, for merchant_processor and invoice_and_receivables sources only (context, never
+#: proof on its own).
+_PROCESSOR_PAYOUT_CONTEXT = re.compile(
+    r"\bSQ ?\d{6}\b|\bMISC PAYMENTS?\b|\bMSP(?: DIV)?\b|\bDAILY DEP\b|\bST [A-Z0-9]{6,}\b"
+    r"|\b(?:RTP|FEDNOW|REAL TIME (?:TRANSFER|PAYMENT)|INSTANT (?:PMT|PAYMENT|TRANSFER)|VISA DIRECT|MC SEND"
+    r"|PMNT RCVD|PAYMENT RECEIVED)\b"
+)
+_PROCESSOR_CONTEXT_TYPES = frozenset({"merchant_processor", "invoice_and_receivables"})
+#: §7.2: the vetoes on every new operating read (a payout form, and an alias added in 5.5).
+_OPERATING_PAY_VETO = re.compile(
+    r"(?<![A-Z])(?:PAYROLL\w*|PAYRLL|PAYROL|PAYRL|SALARY|SALARIES|REG SAL|WAGES?|DIR ?DEP|DIRDEP|DIRECT DEP|NET ?PAY"
+    r"|BONUS|REIMB\w*)\b"
+)
+_OPERATING_FINANCING_VETO = re.compile(
+    r"(?<![A-Z])(?:LOANS?|ADVANCE[SD]?|CAPITAL|LENDING|LENDER|FINANC\w*|FUNDING|FUNDED|PROCEEDS|DRAW)\b|\bADV\b"
+)
+_OPERATING_REVERSAL_VETO = re.compile(
+    r"(?<![A-Z])(?:RETURN(?:ED|S)?|REFUND(?:ED|S)?|RFND|REFND|REVERS(?:AL|ED|E)|VOID(?:ED)?"
+    r"|CANCEL(?:LED|ED|LATION)?|CNCL|ADJUSTMENT|ADJUSTED|DISPUTE[DS]?|CHARGEBACK|CREDIT MEMO|REJECT(?:ED)?)\b"
+    r"|\b(?:RTN|RFD|ADJ|NSF)\b"
+)
+_OPERATING_P2P_VETO = re.compile(r"(?<![A-Z])(?:ZELLE|VENMO|CASH APP|E ?TRANSFER|ETRANSFER|INTERAC)\b")
+
+
+def _with_served_cuts(aliases: frozenset[str]) -> frozenset[str]:
+    """5.5 (§7.0, S1.1 review): a sixteen-character cut reads as its alias, so a set of operating aliases that carries
+    a rule of §7.2 carries each alias's served cut (OPERATING_REVENUE_TRUNCATIONS) too. Derived once, at import."""
+    return aliases | frozenset(
+        cut
+        for entity, source_aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
+        for alias in source_aliases
+        if alias in aliases and (cut := _operating_alias_cut(alias)) in OPERATING_REVENUE_TRUNCATIONS.get(entity, ())
+    )
+
+
+#: §7.2: the aliases of older entities whose reads carry the vetoes above, with their cuts ('RTP CREDIT AMAZO').
+_OPERATING_ALIASES_VETOED = _with_served_cuts(OPERATING_ALIASES_READ_WITH_VETOES)
+#: §7.2: an employer-type alias (TikTok, Amazon's RTP alias) also refuses these pay words, and the TikTok aliases count
+#: only on an ACH-shaped row. Each set holds its aliases' cuts too (§7.0).
+_EMPLOYER_PAY_WORDS = re.compile(r"(?<![A-Z])(?:DIR DEP|DIRECT DEP|PAYRL|REIMB|EXP REIMB)\b")
+_EMPLOYER_TYPE_ALIASES = _with_served_cuts(
+    frozenset({"TIKTOK INC", "TIKTOK USA", "TIKTOK SHOP", "RTP CREDIT AMAZON COM"})
+)
+_TIKTOK_ALIASES = _with_served_cuts(frozenset({"TIKTOK INC", "TIKTOK USA", "TIKTOK SHOP"}))
+_ACH_SHAPED_ROW = re.compile(r"\b(?:ACH|CCD|PPD|ORIG CO NAME|DEPOSIT|PAYMENT|PAYOUT|CORP|CORPORATE)\b")
+#: §7.3: a transport marketplace's credit never counts toward recurrence with a wallet, subscription or wire word.
+_TRANSPORT_EXTRA_VETO = re.compile(
+    r"(?<![A-Z])(?:CASHOUT|CASH OUT|SUBSCRIPTION|MEMBERSHIP|WIRE|FEDWIRE)\b|\b(?:WT|OBI|BNF)\b"
+)
+#: §7.8: an ACV credit printing a buyer-payment reference stays unverified.
+_AUCTION_BUYER_PAYMENT = re.compile(r"(?<![A-Z])PYMT\d")
+#: §7.8, §14.1: an auction credit printing a floor-plan or financing word (NextGear's NGC, AFC's FUNDNG) or a
+#: consumer entry (PPD) is never the auction's payout, whatever form it prints.
+_AUCTION_VETO = re.compile(
+    r"(?<![A-Z])(?:FUNDING|FUNDNG|FUNDED|ADVANCES?|CAPTL|CAPITAL|FLOOR ?PLAN|FLOORPLAN|FINANC\w*|LOANS?)\b"
+    r"|\b(?:ADV|NGC|PPD)\b"
+)
+#: §7.8: the auction refund pair's window, in days.
+_AUCTION_REFUND_WINDOW_DAYS = 14
+#: §7.10: owner, distribution and deposit wording on a property-management platform's row, and micro-deposits. The
+#: last branch is a row shape (two originator labels), not a veto word.
+_PROPERTY_PLATFORM_GUARD = re.compile(
+    r"(?<![A-Z])OWNERS? ?(?:DIST\w*|DISB\w*|DRAWS?\w*|CONT\w*)|(?<![A-Z])DISTRIBUT\w*|(?<![A-Z])SEC(?:URITY)? ?DEP\w*"
+    r"|(?<![A-Z])DEP(?:OSIT)? ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)|(?<![A-Z])SD ?(?:RETURN\w*|RTN\w*|RT\w*|REFUND\w*)"
+    r"|(?<![A-Z])ADVANCE\w*|\bORIG CO NAME\b.*\bORIG CO NAME\b"
+)
+_PROPERTY_MICRO_DEPOSIT = re.compile(
+    r"(?<![A-Z])ACCT ?VERIFY\w*|(?<![A-Z])MICRO ?(?:DEP\w*|ENTRY)\b|(?<![A-Z])PENNY TEST\b"
+    r"|(?<![A-Z])TRIAL (?:DEP\w*|CREDIT)\b"
+)
+_PROPERTY_PUSH_SHAPE = re.compile(r"(?<![A-Z])(?:VISA DIRECT|PMNT RCVD|PAYMENT RECEIVED)\b|\bRTP\b")
+#: §7.1: an unregistered NET SETTLE originator needs this many NET SETTLE credits in the statement.
+_NET_SETTLE_MIN_CREDITS = 3
+#: §7.0: the operating recurrence rule.
+_RECURRENCE_MIN_CREDITS = 3
+_RECURRENCE_MIN_BUSINESS_CREDITS = 2
+
+#: §7.7: the NACHA claim-payment entry. The unbounded branch takes only the full token (never THECLAIMPMT).
+_HCCLAIMPMT = re.compile(r"(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b")
+#: §7.7: inside the credit decision, the financing, potential-lender and insurer lookups read a glued HCCLAIMPMT
+#: split from the name before it, so a sixteen-character funder name glued to the token is still found.
+_GLUED_CLAIM_ENTRY = re.compile(r"(?<=[A-Z0-9])(H[CE]?CLAIMPMT)")
+#: §8.1 (T14): an insurer's customer-payment wording (a DRP payment, a vendor payment, a commission).
+_INSURER_CUSTOMER_PAYMENT = re.compile(
+    r"\b(?:DRP|VENDOR ?(?:PMT|PAY|PAYMENT)|COMM?ISS?IONS?|AGT ?COMM|AGENT COMP|AGTEFT|REPAIR)\b"
+)
+_BLUE_PLAN_CLAIM_PAYER = re.compile("|".join(BLUE_PLAN_CLAIM_PAYERS))
+
+#: §7.5: the payer's accounts-payable remittance (credits only), read on the revenue text and the joined text.
+_PAYER_REMITTANCE_CREDIT_PATTERNS = (
+    re.compile(r"\bACC(?:OUN)?TS? PAYABLE\b"),
+    re.compile(r"^DIRECT DEPOSIT\b(?=.* AP CC$)"),
+    re.compile(r"\bA ?P (?:PMTS?|PAYMENTS?|PYMTS?)\b"),
+    re.compile(r"\bCO ENTRY DESCR A ?P\b"),
+    re.compile(r"\b(?:CCD)?ACC PAY\b"),
+    re.compile(r"\bVENDOR ?(?:PMTS?|PAYMENTS?|PAY|PYMTS?)(?:SEC)?\b"),
+    re.compile(r"\bTRADE PAY(?:MENTS?)?(?:SEC)?\b"),
+    # PAYABLES is Bill.com's payer-side debit wording: never read on a row that prints BILL COM (_payer_remittance).
+    re.compile(r"\bPAYABLES\b"),
+    re.compile(r"\bPO REMIT(?:TANCE)?\b"),
+    re.compile(r"\bAVID ?PAY\b|\bAVIDXCHANGE\b|\bCOUPA PAY\b|\bPAYMODE\b"),
+    re.compile(r"\bPAYING BILLS? (?:\d|INV)|\bFOR \d+ BILLS\b"),
+    re.compile(r"\bBI ?LL COM (?:INV|MULTIPLE INVOICES|RECEIVABLE)\b|\b(?:DESCR|DES) BI ?LL COM\b"
+               r"|\bRECEIVABLE\b(?=.*\bBI ?LL COM\b)"),
+    re.compile(r"\bINV(?:OICE)? (?:PMT|PYMT)\b|\b(?:OF|FOR) INVOI ?CES?\b"),
+    re.compile(r"\bRMR IV\b"),
+    re.compile(r"\bPAIEMENT (?:DE )?FACTURE\b"),
+)
+_BILL_COM = re.compile(r"\bBI ?LL COM\b")
+#: §7.5: the invoice number counts only with a payment-channel word, and never after CREATED FROM or TRANSFER FROM.
+_INVOICE_NUMBER = re.compile(r"(?<!\bCREATED FROM )(?<!\bTRANSFER FROM )\bINV(?:OICE)?S?(?: (?:NO|NUM|NUMBER|N))? ?\d")
+_PAYMENT_CHANNEL_WORD = re.compile(
+    r"\b(?:ACH|PMT|PAYMENTS?|ZELLE|WIRE|FEDWIRE|CHIPS|CCD|CTX|PPD|EFT|RTP|REMIT)\b"
+)
+#: §7.5: the free-text forms (invoice, bill and 'for invoices') count on a PAYPAL row or a wire from a person only
+#: when the sender prints a company form.
+_FREE_TEXT_REMITTANCE = re.compile(
+    r"\bPAYING BILLS?\b|\bFOR \d+ BILLS\b|\b(?:OF|FOR) INVOI ?CES?\b|\bINV(?:OICE)?S?(?: (?:NO|NUM|NUMBER|N))? ?\d"
+)
+#: §7.5: the credit posting labels removed before the veto reads the row.
+_CREDIT_POSTING_LABELS = re.compile(
+    r"\b(?:ELECTRONIC|ACH|RTP|ONLINE|WIRE|BOOK|CORP|CORPORATE|ZELLE|MISC|DIRECT|PAYMENT|DEPOSIT|TRANSFER|MOBILE|EFT"
+    r"|CHIPS|FEDWIRE)\s+CREDIT\b|^CREDIT\b"
+)
+#: §7.5: the veto of the payer remittance rule.
+_PAYER_REMITTANCE_VETO = re.compile(
+    r"(?:FUND|CAPIT|CAPTL|LOAN|LEND|FINANC|ADVANC|MORTG|ACCEPTANCE|SERVICING|SERVICER|PORTFOL|CREDIT)"
+    r"|CRED(?=ORA|IBLY|\b)|CAPI?\b|LEAS(?:E|ES|ING|IN|I)?\b"
+    r"|(?<![A-Z])(?:FINA|FINAN|FINL|FNCL|FUNDI)\b|\b(?:CAP|FIN|FI|ADV|MTG|MCA|RTR|SPV|FUN|LOA)\b"
+    r"|(?<![A-Z])(?:INSUR\w*|ASSURANCE|INVEST\w*|BROKERAGE|SECURITIES|WEALT\w*|TAXES|GRANTS?|REBATES?|DIVIDENDS?)\b"
+    r"|\b(?:INS|TAX|IRS|CRA)\b"
+    r"|(?<![A-Z])(?:PAYROLL|SALARY|WAGES?|REIMB\w*|EXPENSES?|BONUS|COMM?ISS?IONS?|CLAIMS?|MUTUAL|INDEMNITY|CASUALTY"
+    r"|UNDERWRIT\w*)\b"
+    r"|(?<![A-Z])(?:EQUIP\w*|FLOOR\w*|MERCH\w*)\b|\bVIN\b"
+    r"|\bSBA\b|(?<![A-Z])(?:SBAD|EIDL)\b"
+    r"|(?<![A-Z])(?:INTERCO(?:MPANY)?|DUE FROM|SHAREHOLDER|OWNERS?|SWEEP|INTERNAL)\b|(?<![A-Z])ZERO BAL\w*|\bZBA\b"
+    r"|(?<![A-Z])CONTROLLED DISB\w*|(?<![A-Z])(?:TRANSFER|XFER|TFR) FROM\b"
+    r"|\bRTN\b|(?<![A-Z])RETURN(?:ED)? ITEM\b|(?<![A-Z])RECALL\w*|(?<![A-Z])UNPAID\b|\bADJ\b"
+    r"|ACIMA"
+)
+#: §7.5, §8.1: words that never make a payer's or a debit's first distinctive word: the AP words, the public-payer
+#: words, the holder noise (legal suffixes, generic words) and the bank's template and channel words (D11's channel
+#: words, D6's channel vocabulary and bank template words, read at call time: _counter_debit_skip_words).
+_COUNTER_DEBIT_SKIP_WORDS = frozenset({
+    "PAYABLE", "PAYABLES", "ACCOUNTS", "ACCTS", "VENDOR", "TRADE", "REMIT", "REMITTANCE", "STATE", "COUNTY", "CITY",
+    "TOWN", "DEPT", "DEPARTMENT", "TREAS", "GOVERNMENT",
+    "CHECKCARD", "OVERDRAFT", "TRANF", "CHECKG", "TRANSFERS", "WITHDRAW", "OUTGOING", "PURCHASES",
+}) | HOLDER_NOISE
+
+
+@cache
+def _counter_debit_skip_words() -> frozenset[str]:
+    return _COUNTER_DEBIT_SKIP_WORDS | frozenset(_ENTITY_NOISE) | _CHANNEL_VOCABULARY | _BANK_TEMPLATE_WORDS
+
+
+#: §7.6: the public-payer remittance rule. Arm A reads the whole row: a DOD MISC Treasury code on a row that prints no
+#: PPD, or a Treasury code, then MISC PAY, then RMR IV. 5.6 (final review M1): the three codes are read by chained
+#: searches (_public_payer_arm_a), each from the end of the one before, which is linear; the '.*' pattern it replaces
+#: was cubic on a long row.
+_PUBLIC_PAYER_ARM_A_DOD = re.compile(r"^(?!.*\bPPD\b).*\bTREAS \d{3}(?: DES)? DOD MISC\b")
+_TREASURY_CODE = re.compile(r"\bTREAS \d{3}\b")
+_MISC_PAY_CODE = re.compile(r"\bMISC PAY(?:SEC)?\b")
+_RMR_IV_CODE = re.compile(r"\bRMR IV\b")
+
+
+def _public_payer_arm_a(text: str) -> bool:
+    """§7.6 arm A (final review M1): the DOD MISC form, or the Treasury code, MISC PAY and RMR IV in this order. The
+    earliest match of each code is the one to chain from: any later one leaves less of the row to the next."""
+    if _PUBLIC_PAYER_ARM_A_DOD.search(text) is not None:
+        return True
+    treasury = _TREASURY_CODE.search(text)
+    misc = _MISC_PAY_CODE.search(text, treasury.end()) if treasury is not None else None
+    return misc is not None and _RMR_IV_CODE.search(text, misc.end()) is not None
+#: §7.6 arm B: a public payer anchored on the payer name.
+_PUBLIC_PAYER_NAME = re.compile(
+    r"^((?:\S+ ){0,3})(?:TREAS \d{3}"
+    r"|(?:STATE|COUNTY|CITY|TOWN|VILLAGE|TOWNSHIP|BOROUGH|PARISH|DISTRICT|PROVINCE|COMMONWEALTH|GOVERNMENT|GOVT"
+    r"|MUNICIPALITY) OF [A-Z]"
+    r"|(?<!\bFROM )(?<!\bTO )(?<!\bTHE )(?<!\bOF )(?<!\bAND )(?<!\bINTO )\b[A-Z]{3,} (?:COUNTY|PARISH|TOWNSHIP|BOROUGH)\b"
+    r"|(?:DEPT|DEPARTMENT|MINISTRY) OF\b|(?:DHS|DHHS|DSHS|DCF|DCFS|DSS)\b|SCHOOL DIST(?:RICT)?\b|DFAS\b)"
+)
+_PUBLIC_PAYER_TEMPLATE = re.compile(
+    r"^(?:ELECTRONIC (?:CREDIT|DEPOSIT)(?: FROM)?|ACH (?:CORP )?CREDIT|ACH DEPOSIT|CCD DEPOSIT|DEPOSIT FROM"
+    r"|PREAUTHORIZED CREDIT|EFT CREDIT)\b ?"
+)
+_PUBLIC_PAYER_PURPOSE = re.compile(
+    r"\bVEN(?:DOR)? ?(?:PAY(?:MENTS?)?|P(?:Y)?MTS?)(?:SEC)?\b|\bPROV(?:IDER)? ?PAY(?:MENTS?)?(?:SEC)?\b"
+    r"|\bEDI ?(?:PYMNTS|PAYMENTS?|PMTS?)(?:SEC)?\b"
+)
+_PUBLIC_PAYER_NAME_VETO = re.compile(
+    r"(?<![A-Z])(?:DEPT OF REVENUE|DEPARTMENT OF REVENUE|TAXATION|COMPTROLLER|TREASURER|DEPT OF LABOR|UNEMPLOYMENT"
+    r"|WORKFORCE)\b|FUNDING|FUNDER|FINANC|CAPITAL|LENDING|LENDER"
+)
+_TREASURY_BOILERPLATE = re.compile(
+    r"\bADDITIONAL INFORMATION IS AVAILABLE FOR THIS PMT CONTACT A TREASURY SALES OFFICER FOR ASSISTANCE\b"
+)
+#: §7.6: the whole-row veto, by group; §8.1 holds a public payer's non-sale credit on the first groups.
+_PUBLIC_PAYER_NON_SALE_WORDS = re.compile(
+    r"(?<![A-Z])(?:TAXES|TAXRFD|TAX ?REF(?:UND)?S?|REFUNDS?|STUREFUND|R(?:E)?F(?:U)?ND|(?:XX)?SOC SEC|SUPP SEC"
+    r"|(?:XX)?VA BEN\w*|BENEF\w*)\b|\b(?:TAX|RFD|EIC|SSI|BEN)\b|[A-Z]*REFUNDS?\b|[A-Z]*RFND\b"
+    r"|(?<![A-Z])(?:FED SAL|SALARY|PAYROLL|WAGES?|STIPENDS?|PER DIEM|RETIRE\w*|PENSION|ANNUIT\w*)\b"
+    r"|(?<![A-Z])(?:UNEMPLOY\w*|STIMULUS|GRANTS?|RELIEF|DISASTER|CARES|SBAD|EIDL|EIDG|LOANS?|ADVANCES?|FORGIV\w*)\b"
+    r"|\b(?:UI|PPP|SBA|ADV)\b"
+    r"|(?<![A-Z])(?:CHI?LD ?SUPP\w*|CHILD ?CTC|JURY|RESTITUTION|FOSTER|ADOPT\w*|KINSHIP|WORK(?:ERS)? ?COMP)\b|\bCTC\b"
+    r"|(?<![A-Z])(?:CLAIMS?|AWARDS?|SUBSID\w*|DISB\w*|PROCEEDS|UNCLAIMED|OVERPA\w*|OVERP(?:Y)?MT|REBATES?|REIMB\w*"
+    r"|BONDS?|ESCROW|RETURN(?:ED)?|STABILI[SZ]\w*|OFFSET|RECOVERY|ARPA|RESCUE|ERTC|INCENTIVES?|TUITION)\b|\bERC\b"
+    r"|(?<![A-Z])ASSISTANCE\b"
+)
+_PUBLIC_PAYER_OTHER_VETO = re.compile(
+    r"(?<![A-Z])(?:ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC)\b"
+    r"|(?<![A-Z])(?:FUNDING|FUNDER|LENDING|LENDER|FINANC\w*|CAPITAL|CREDIT UNION|MORTGAGE|LEASE|LEASING|FACTOR\w*)\b"
+    r"|\bFCU\b|(?<![A-Z])SETTLEMENT\b"
+)
+_PUBLIC_PAYER_ARM_B_TRANSFER = re.compile(r"(?<![A-Z])(?:TRANSFER|XFER)\b|\bTFR\b")
+
+_WIRE_PARTY_FIELDS = re.compile(
+    r"\bB O\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)|\bN?BNF\b.*?(?=\b(?:REF|OBI|RFB|IMAD|TRN|ORIG)\b|$)"
+    r"|\bORIG\b(?! TO BNF).*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN|SND BK|PMT DET)\b|$)|\bACCT \d+\b"
+    r"|\bORIGINATOR NAME\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)|\bORG\b.*?(?=\b(?:REF|OBI|RFB|BNF|IMAD|TRN)\b|$)"
+)
+_WIRE_NON_SALE_PURPOSE = re.compile(
+    r"(?<![A-Z])(?:INVEST\w*|DISTRIBUTION|DIVIDEND|EQUITY|MEMBERSHIP INTEREST|SHAREHOLDER|STOCK|CONTRIBUTION|PROCEEDS"
+    r"|ESCROW|CLOSING|OVER PAYMENT|REBATE|RETURN(?:ED)?|CREDIT MEMO|DUPLICATE|SALARY|PAYROLL|WAGES|GRANT|DONATION|GIFT"
+    r"|INTEREST|REPAY\w*|PRINCIPAL|SECURITY DEPOSIT|INTER ?COMPANY|INTERCO|AFFILIATE|OWNERS?|PERSONAL|COURT|JUDGMENT"
+    r"|INSURANCE|CLAIMS?|RETN|REJT|REJECT(?:ED)?|RECALL(?:ED)?|UNABLE TO APPLY|DRAWS?|DRAWDOWNS?|DISBURS\w*"
+    r"|SUPPLY CHAIN|EARLY PAY(?:MENT)?|DISCOUNT(?:ED|ING)?|PAYOFF|SURPLUS|EARNEST|SUBSCRIPTIONS?|COMPENSATION"
+    r"|ADJUSTMENTS?|SHORTAGES?|ALLOWANCES?|PROMISSORY|CONVERTIBLE|BRIDGE|SAFE|TRANCHE|DEPOSIT BACK|FEES)\b"
+    r"|\b(?:TAX|RTN|FEE|SCF|ADJ|RMA)\b"
+)
+#: §7.9: the channel and bank fields removed before the financing roots are read on a wire. Audit round 2, R2-B09
+#: (R06): and U.S. Bank's 'WIRE CREDIT REF<n>' and the '<INCOMING|DOMESTIC|INTL|INTERNATIONAL|FOREIGN> WIRE CREDIT'
+#: labels, whose CREDIT is the channel's word, never a lender's name (removed from the veto's text only: the row keeps
+#: its label and reads as a wire).
+_WIRE_CHANNEL_AND_BANK_FIELDS = re.compile(
+    r"^(?:WIRE CREDIT REF ?\d+|(?:INCOMING|DOMESTIC|INTL|INTERNATIONAL|FOREIGN) WIRE CREDIT)\b|"
+    r"^(?:WIRE TYPE \S+ IN|USD WIRE IN|[A-Z]{3} WIRE IN|FEDWIRE CREDIT|CHIPS CREDIT|WT FED|WIRE TSF"
+    r"|WIRE TRANSFER \S+|INCOMING WIRE|WIRE IN|WIRE FROM|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN)(?: INCOMING)? WIRE"
+    r"|INCOMING FUNDS TRANSFER|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER|FUNDS TRANSFER WIRE FROM"
+    r"|BOOK TRANSFER CREDIT)\b"
+    r"|\b(?:SND BK|BBI|VIA|INTERMEDIARY|INT BK|OGB)\b.*?(?=\b(?:B O|ORIG|ORG|REF|OBI|BNF|TRN|IMAD|PMT DET|RFB|RMR|ID)\b|$)"
+)
+#: §7.9, §8.5: a wire from a title or escrow firm carries sale, closing or escrow money, never a sale of the business.
+_TITLE_OR_ESCROW_ORIGINATOR = re.compile(r"(?<![A-Z])(?:TITLE|ESCROW)\b")
+#: §7.9: a cut originator field: the field widths of Santander (16) and Bank of America (25).
+_WIRE_ORIGINATOR_FIELD_WIDTHS = (16, 25)
+_FINANCING_FULL_WORDS = (
+    "FUNDING", "FINANCIAL", "CAPITAL", "LENDING", "LOANS", "ADVANCE", "MERCHANT", "CREDIT", "LEASING", "SERVICING",
+    "FACTORING", "MORTGAGE", "RECEIVABLES", "EQUIPMENT", "ACCEPTANCE", "COLLECTIONS", "RECOVERY", "SETTLEMENT",
+    "REMITTANCE", "EQUITIES", "EQUITY", "VENTURES",
+)
+
+#: §7.9: the financing and potential aliases, run together, for the cut-originator test.
+_FINANCING_RUN_TOGETHER_ALIASES = frozenset(
+    normalize_transaction_description(alias).replace(" ", "")
+    for state, registry in (*PAYEE_GROUP_REGISTRIES.items(), ("potential_lender", POTENTIAL_LENDER_ALIASES))
+    if state in FINANCING_STATES or state == "potential_lender"
+    for aliases in registry.values()
+    for alias in aliases
+)
+#: §7.8: each wholesale auction's aliases as a registry of its own, read on the originator segment.
+_AUCTION_ALIAS_REGISTRIES = {
+    entity: {entity: OPERATING_REVENUE_READ_ALIASES[entity]}
+    for entity, source_type in OPERATING_REVENUE_SOURCE_TYPES.items()
+    if source_type == "wholesale_auto_auction"
+}
+_CARD_FORMS = tuple(
+    (form, re.compile(form.pattern), re.compile(form.refusal) if form.refusal else None)
+    for form in CARD_SETTLEMENT_CREDIT_FORMS
+)
+_PAYOUT_FORMS = tuple(
+    (entity, label, re.compile(pattern))
+    for entity, forms in OPERATING_SOURCE_PAYOUT_FORMS.items()
+    for label, pattern in forms
+)
+_AUCTION_PAYOUT_FORMS = {
+    entity: tuple(re.compile(pattern) for pattern in patterns)
+    for entity, patterns in WHOLESALE_AUCTION_PAYOUT_FORMS.items()
+}
+_AUCTION_REFUND_NAMES = {entity: re.compile(pattern) for entity, pattern in WHOLESALE_AUCTION_REFUND_NAMES.items()}
+_OPERATING_CONTEXT_WORDS = {
+    entity: re.compile(r"\b(?:" + "|".join(words) + r")\b") for entity, words in OPERATING_SOURCE_CONTEXT_WORDS.items()
+}
+#: §7.1 (the ledger gate): each waiting processor's bare aliases, as whole words, longest first.
+_GATED_PROCESSOR_PATTERNS = {
+    processor: re.compile(r"\b(?:" + "|".join(
+        re.escape(normalize_transaction_description(alias)) for alias in sorted(aliases, key=len, reverse=True)
+    ) + r")\b")
+    for processor, aliases in GATED_PROCESSOR_ALIASES.items()
+}
+_WIRE_INVOICE_SPLITS = tuple(
+    dict.fromkeys(word[:cut] + " " + word[cut:] for word in ("INVOICE", "INVOICES") for cut in range(1, len(word)))
+)
+_WIRE_SALE_PURPOSE = re.compile(
+    r"\b(?:INVOICES?|" + "|".join(_WIRE_INVOICE_SPLITS) + r")\b"
+    r"|\bINV(?:OICE)?S? ?(?:NO |NUM |NBR |NUMBER )?\d"
+    r"|\bPO ?(?:NO |NUM |NBR |NUMBER )?\d{3,}|\bPURCHASE ORDERS?\b"
+    r"|(?<!\bMONEY )(?<!\bSTANDING )(?<!\bPAYMENT )(?<!\bPMT )(?<!\bCOURT )(?<!\bPAY )(?<!\bTRANSFER )(?<!\bSUPPORT )"
+    r"(?<!\bBANK )(?<!\bWIRE )\bORDERS? ?(?:NO\b|NUM\b|NBR\b|NUMBER\b|\d)"
+    r"|\bPAYMENT FOR GOO(?:DS?)?\b|\bPAGO PROVEEDOR\b|\bFACTURA\b|\bREF INV\b|\bPRO ?FORMA\b|\bCOMPRA (?:DE )?MERCAD\w*"
+)
+
+
+@dataclass(frozen=True)
+class _OperatingSource:
+    """5.5 (§7.2): what the operating-source reader found on one credit."""
+
+    entity: str
+    alias: str
+    source_type: str | None
+    payout_form: bool
+
+
+def _operating_read_vetoed(row: str, entity: str, alias: str, payout_form: bool) -> bool:
+    """5.5 (§7.2, §7.3): the vetoes of a new operating read (a payout form, or an alias this release added), read on
+    the row before its receiver fields: pay, financing, reversal and adjustment, and person-to-person words. An
+    employer-type alias also refuses DIR DEP, PAYRL and REIMB, and the TikTok aliases count only on an ACH-shaped row.
+    A transport marketplace also refuses wallet, subscription and wire words. A sixteen-character cut carries its
+    alias's vetoes (§7.0)."""
+    new_read = payout_form or entity in OPERATING_SOURCES_READ_WITH_VETOES or alias in _OPERATING_ALIASES_VETOED
+    if not new_read:
+        return False
+    if (
+        _OPERATING_PAY_VETO.search(row)
+        or _matches_any(row, _PAYROLL_PATTERNS)
+        or _is_payroll_provider_row(row)
+        or _OPERATING_FINANCING_VETO.search(row)
+        or _OPERATING_REVERSAL_VETO.search(row)
+        or _OPERATING_P2P_VETO.search(row)
+    ):
+        return True
+    if alias in _EMPLOYER_TYPE_ALIASES and _EMPLOYER_PAY_WORDS.search(row):
+        return True
+    if alias in _TIKTOK_ALIASES and not _ACH_SHAPED_ROW.search(row):
+        return True
+    return OPERATING_REVENUE_SOURCE_TYPES.get(entity) == "transport_marketplace" and bool(
+        _TRANSPORT_EXTRA_VETO.search(row)
+    )
+
+
+def _read_inside_a_waiting_processor(text: str, entity: str, alias: str) -> bool:
+    """5.5 (§7.1, the ledger gate): the operating alias read lies inside the bare alias of another processor the
+    ledger has not cleared ('BY STRI' inside 'JOBBER BY STRI'), so it names no source while that processor waits."""
+    return any(
+        processor != entity and any(alias in found.group(0) for found in pattern.finditer(text))
+        for processor, pattern in _GATED_PROCESSOR_PATTERNS.items()
+    )
+
+
+def _operating_source(text: str) -> _OperatingSource | None:
+    """5.5 (§7.2): the operating source a credit's revenue text names: a payout form first (it names the entity and
+    counts as payout context), else the longest operating alias or its sixteen-character cut, read with the receiver
+    field's value removed (§5.2). A wholesale-auction alias counts only on the originator segment. A new read that a
+    veto of §7.2 refuses names no source, and so does an alias read inside a waiting processor's bare alias (§7.1).
+    One helper for step 10 and the recurrence pass."""
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    for entity, label, pattern in _PAYOUT_FORMS:
+        if pattern.search(row) or pattern.search(joined):
+            if _operating_read_vetoed(row, entity, label, True):
+                return None
+            return _OperatingSource(entity, label, OPERATING_REVENUE_SOURCE_TYPES.get(entity), True)
+    alias_text = _without_receiver_value(text)
+    found = registry_match(alias_text, OPERATING_REVENUE_READ_ALIASES)
+    if found is None or _read_inside_a_waiting_processor(alias_text, *found):
+        return None
+    entity, alias = found
+    source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
+    if source_type == "wholesale_auto_auction" and registry_match(
+        _originator_segment(text), _AUCTION_ALIAS_REGISTRIES[entity]
+    ) is None:
+        return None
+    if _operating_read_vetoed(row, entity, alias, False):
+        return None
+    return _OperatingSource(entity, alias, source_type, False)
+
+
+def _card_settlement_form(text: str, *, bank: str | None) -> CardSettlementForm | None:
+    """5.5 (§7.1): the first card-settlement form a credit prints, read on the row before its receiver fields and on
+    the joined text, unless the form's own refusal or the card veto matches. NET SETTLE is returned too; the caller
+    decides it (an unregistered originator needs three such credits, which the recurrence pass counts)."""
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    if _CARD_VETO.search(row):
+        return None
+    for form, pattern, refusal in _CARD_FORMS:
+        if form.bank is not None and (bank or "").upper() != form.bank:
+            continue
+        if not (pattern.search(row) or pattern.search(joined)):
+            continue
+        if refusal is not None and (refusal.search(row) or refusal.search(joined)):
+            continue
+        # §7.1 (structural S53): the generic credit-card sales words never read on a row that names a card issuer.
+        if form.label == "generic_card_sales" and registry_match(row, CARD_ISSUER_CONTEXT_ALIASES) is not None:
+            continue
+        return form
+    return None
+
+
+def _has_operating_context(text: str, source: _OperatingSource, *, bank: str | None) -> bool:
+    """5.5 (§7.1, §7.2): a registry alias verifies one row with payout context: a payout form, the operating-context
+    words (read on the row and the joined text), a card-settlement form, the entity's own context words, or, for a
+    merchant processor or an invoice platform, the processor payout context. The card veto refuses the last two."""
+    if source.payout_form:
+        return True
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    if _matches_any(text, _OPERATING_CREDIT_CONTEXT_PATTERNS) or _matches_any(joined, _OPERATING_CREDIT_CONTEXT_PATTERNS):
+        return True
+    words = _OPERATING_CONTEXT_WORDS.get(source.entity)
+    if words is not None and words.search(row):
+        return True
+    form = _card_settlement_form(text, bank=bank)
+    if form is not None and form.label != "net_settle":
+        return True
+    return (
+        source.source_type in _PROCESSOR_CONTEXT_TYPES
+        and not _CARD_VETO.search(row)
+        and _PROCESSOR_PAYOUT_CONTEXT.search(row) is not None
+    )
+
+
+def _reversal_credit(text: str) -> bool:
+    """5.5 (§6.1 step 3, §7.11): the reversal, cancellation, NSF and provisional-credit rule, with the return codes.
+    REIMBURSEMENT never fires on a row that prints a claim or provider signal, and DEBIT CARD CREDIT and POS CREDIT
+    never fire on a push payout printed as a card credit (_card_credit_released).
+
+    5.6 (audit B3: I04): and step 3's other return, correction and refund spellings (_RETURN_REFUND_CREDIT_PATTERNS):
+    REMBOURSEMENT with REIMBURSEMENT's provider carve-out (_remboursement_from_a_provider), and the card-shaped refund
+    labels (_CARD_REFUND_LABELS) released as a card credit is."""
+    for pattern in (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_REFUND_CREDIT_PATTERNS):
+        found = pattern.search(text)
+        if found is None:
+            continue
+        if pattern.pattern == _REIMBURSEMENT_WORD.pattern and _CLAIM_OR_PROVIDER_SIGNAL.search(text):
+            continue
+        if pattern is _REMBOURSEMENT_WORD and _remboursement_from_a_provider(text):
+            continue
+        if (
+            _CARD_CREDIT_LABEL.fullmatch(found.group(0)) or any(pattern is label for label in _CARD_REFUND_LABELS)
+        ) and _card_credit_released(text):
+            continue
+        return True
+    return _matches_any(text, _RETURN_CODE_CREDIT_PATTERNS)
+
+
+def _remboursement_from_a_provider(text: str) -> bool:
+    """5.6 (audit B3: I04, §7.11): French REMBOURSEMENT is a claim payment, not a refund, on a row that prints
+    REIMBURSEMENT's claim or provider signal (_CLAIM_OR_PROVIDER_SIGNAL) or names the Quebec health insurance board
+    (_QUEBEC_HEALTH_PAYER)."""
+    return _CLAIM_OR_PROVIDER_SIGNAL.search(text) is not None or _QUEBEC_HEALTH_PAYER.search(text) is not None
+
+
+def _card_credit_released(text: str) -> bool:
+    """5.5 (§7.11): a DEBIT CARD CREDIT or POS CREDIT row that prints a push-rail word, or names a merchant-processor
+    or invoice source together with a payout word. Naming another source (a marketplace's card refund) is not
+    enough. Such a row is never pooled for recurrence and verifies only by a form or single-row registry context."""
+    if not _CARD_CREDIT_LABEL.search(text):
+        return False
+    if _CARD_CREDIT_PUSH_WORD.search(text):
+        return True
+    # 5.6 (audit B3: I04): Cash App and Apple Cash pushes, on the owner's switch.
+    if CASH_APP_CARD_PUSH_RELEASE and _CARD_CREDIT_P2P_PUSH_WORD.search(text):
+        return True
+    source = _operating_source(text)
+    return (
+        source is not None
+        and source.source_type in _PROCESSOR_CONTEXT_TYPES
+        and _CARD_CREDIT_PAYOUT_WORD.search(text) is not None
+    )
+
+
+def _own_book_or_funds_transfer(text: str, account_name: str | None) -> bool:
+    """5.5 (§7.11): BOOK TRANSFER and FUNDS TRANSFER are own-account only when no third-party originator is printed,
+    or when that originator is the holder (§5.2's holder test). ELECTRONIC FUNDS TRANSFER DEPOSIT is an EFT channel.
+    Without the owner's yes to T19, every BOOK TRANSFER stays own-account. Audit round 2, R2-B10 (R11; Q5): a row an
+    incoming-wire label starts that prints only a reference (_bare_incoming_wire: 'FUNDS TRANSFER CREDIT TT <reference>
+    O', 'INCOMING FUNDS TRANSFER <reference>') is an incoming wire with no sender, never own-account: pass 7 holds it as
+    wire_no_sender."""
+    found = _BOOK_OR_FUNDS_TRANSFER.search(text)
+    if found is None or _EFT_FUNDS_TRANSFER.search(text):
+        return False
+    if found.group(0).startswith("BOOK") and not THIRD_PARTY_BOOK_TRANSFER_AS_WIRE:
+        return True
+    originator = _third_party_originator(text)
+    if originator is None:
+        return not _bare_incoming_wire(text)
+    return holder_named(originator, account_name)
+
+
+def named_designation_sender(text: str) -> str | None:
+    """5.6 (audit B2: I20, §6.3 narrowing 8): the sender one of the two layouts prints after an own-account designation
+    (_NAMED_DESIGNATION_TRANSFERS), up to its first reference token after a name word, when it prints a word that may
+    name a payer (_originator_payer_words, as a book or funds transfer's originator is read); otherwise None."""
+    row = _before_receiver(text)
+    for pattern in _NAMED_DESIGNATION_TRANSFERS:
+        found = pattern.search(row)
+        if found is None:
+            continue
+        sender = _leading_name_words(found.group("sender"))
+        if _originator_payer_words(sender):
+            return sender
+    return None
+
+
+def _named_sender_after_designation(text: str, account_name: str | None) -> bool:
+    """5.6 (audit B2: I20, §6.3 narrowing 8; T13): the strong rule's own-account patterns read the whole row and never
+    who sent the money. A named sender printed after the designation (named_designation_sender) that the holder test
+    does not match (§5.2) refuses them, when no other non-revenue pattern reads the row: the credit then falls to the
+    pass's T13 hold (transfer_account_designation), which an analyst may review. No sender, or the holder's own name,
+    keeps the own-account reading."""
+    if not _matches_any(text, _NAMED_DESIGNATION_PATTERNS):
+        return False
+    sender = named_designation_sender(text)
+    if sender is None or holder_named(sender, account_name):
+        return False
+    return not any(
+        pattern.search(text) is not None
+        for pattern in _NON_REVENUE_CREDIT_PATTERNS if pattern not in _NAMED_DESIGNATION_PATTERNS
+    )
+
+
+def _split_glued_claim(text: str) -> str:
+    """5.5 (§7.7): the text the financing, potential-lender and insurer lookups read: a space before a glued
+    HCCLAIMPMT, so a sixteen-character name glued to the token is still found."""
+    return _GLUED_CLAIM_ENTRY.sub(r" \1", text)
+
+
+def _refused_by_payer_guards(text: str, region: str, account_name: str | None) -> str | None:
+    """5.5 (§6.1): steps 11 (the customer and invoice descriptors) to 14 refuse a payer the holder test or the
+    numbered-company guard matches. Returns 'holder' or 'numbered', or None."""
+    if holder_named(region, account_name):
+        return "holder"
+    if numbered_company(text, region):
+        return "numbered"
+    return None
+
+
+def _payer_remittance(text: str, region: str, account_name: str | None) -> bool:
+    """5.5 (§7.5): the payer's accounts-payable remittance: an AP pattern, or an invoice number on a row that also
+    prints a payment-channel word; the free-text forms count on a PayPal row or a wire only with a company form; the
+    veto reads the row with the matched words and the credit posting labels removed."""
+    row = _before_receiver(text)
+    joined = _joined_text(row)
+    matched = None
+    for pattern in _PAYER_REMITTANCE_CREDIT_PATTERNS:
+        found = pattern.search(row) or pattern.search(joined)
+        if found is not None and not (found.group(0) == "PAYABLES" and _BILL_COM.search(row)):
+            matched = found.group(0)
+            break
+    if matched is None:
+        found = _INVOICE_NUMBER.search(row)
+        if found is not None and _PAYMENT_CHANNEL_WORD.search(row[: found.start()] + " " + row[found.end():]):
+            matched = found.group(0)
+    if matched is None:
+        return False
+    # S2.3 review (fix 2): a wire whose reference is glued to WIRE answers to the gate and the vetoes too.
+    wire = _wire_vetoes_apply(text)
+    if _FREE_TEXT_REMITTANCE.search(matched) and (re.search(r"\bPAYPAL\b", row) or wire):
+        if not company_form(payer_name(region)):
+            return False
+    rest = _CREDIT_POSTING_LABELS.sub(" ", row.replace(matched, " "))
+    if _PAYER_REMITTANCE_VETO.search(rest) is not None:
+        return False
+    if wire and _wire_vetoed(text, region, account_name):
+        return False
+    # A public payer's vendor payment also answers to §7.6's whole-row veto (a grant, a refund, a benefit, a
+    # settlement, assistance), so a public payer never verifies here what §7.6 refuses.
+    whole = _TREASURY_BOILERPLATE.sub(" ", text)
+    public = _PUBLIC_PAYER_NAME.match(_PUBLIC_PAYER_TEMPLATE.sub("", region, count=1)) is not None
+    return not (public and (_PUBLIC_PAYER_NON_SALE_WORDS.search(whole) or _PUBLIC_PAYER_OTHER_VETO.search(whole)))
+
+
+def _public_payer_remittance(text: str) -> str | None:
+    """5.5 (§7.6): a public payer's remittance: arm A (Treasury vendor codes, whole row) or arm B (a public payer
+    anchored on the payer name, with a payer-side purpose). Returns the matched rule, or None. Every veto is read on
+    the row after Bank of America's Treasury boilerplate is deleted."""
+    whole = _TREASURY_BOILERPLATE.sub(" ", text)
+    row = _before_receiver(whole)
+    if _PUBLIC_PAYER_NON_SALE_WORDS.search(whole) or _PUBLIC_PAYER_OTHER_VETO.search(whole):
+        return None
+    if _public_payer_arm_a(whole):
+        return "treasury_vendor_payment"
+    name = _PUBLIC_PAYER_TEMPLATE.sub("", _payee_region(row).strip(), count=1)
+    found = _PUBLIC_PAYER_NAME.match(name)
+    if found is None:
+        return None
+    lead = found.group(1)
+    if any(ch.isdigit() for ch in lead) or _PUBLIC_PAYER_PURPOSE.search(name[: found.end()]):
+        return None
+    if _PUBLIC_PAYER_NAME_VETO.search(name) or _PUBLIC_PAYER_ARM_B_TRANSFER.search(whole):
+        return None
+    if not _PUBLIC_PAYER_PURPOSE.search(row):
+        return None
+    return "public_payer_vendor_or_provider_payment"
+
+
+def _wire_financing_text(text: str) -> str:
+    """5.5 (§7.9): the wire row the financing roots are read on: the channel words and the sending, originating and
+    intermediary bank fields removed (Santander prints its sending bank after WIRE IN FROM, Chase its originating
+    bank after OGB)."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        text = text[: santander.start("bank")] + " " + text[santander.end("bank"):]
+    return _WIRE_CHANNEL_AND_BANK_FIELDS.sub(" ", text)
+
+
+def _wire_originator_run(text: str) -> str | None:
+    """5.5 (§7.9): the first six words of a wire's originator field run together (wrap-tolerant, so 'CAPI TAL' reads
+    CAPITAL), or None when the row prints no originator label. On Santander's layout the originator follows the
+    account number."""
+    santander = _SANTANDER_WIRE.match(text)
+    if santander is not None:
+        return "".join(santander.group("originator").split()[:6])
+    label = _WIRE_ORIGINATOR_LABEL.search(text)
+    return None if label is None else "".join(text[label.end():].split()[:6])
+
+
+def _wire_remittance_purpose(text: str, region: str, account_name: str | None) -> bool:
+    """5.5 (§7.9): an incoming wire (N1) whose purpose cites an invoice, a PO, an order or goods, and that no wire veto
+    refuses (_wire_vetoed)."""
+    if not _is_wire_row(text):
+        return False
+    purpose_text = _WIRE_PARTY_FIELDS.sub(" ", text)
+    holder_text = account_name_text(account_name)
+    if len(holder_text) >= 6:
+        purpose_text = purpose_text.replace(holder_text, " ")
+    if not _WIRE_SALE_PURPOSE.search(purpose_text):
+        return False
+    return not _wire_vetoed(text, region, account_name)
+
+
+def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
+    """5.5 (§7.9): the vetoes of an incoming wire: a non-sale purpose; a financing root after the channel and bank
+    fields are removed, or in the first six words after the originator label run together (wrap-tolerant); any known
+    payee; the own account (the originator's first two words are the beneficiary's or in the account name); a
+    brand-word affiliate (the originator's first distinctive word is the beneficiary's first word or the account
+    name's); a cut originator field that starts a financing name; a title or escrow firm (§8.5). The AP rule reads
+    them on a wire too (§7.5)."""
+    if _WIRE_NON_SALE_PURPOSE.search(text):
+        return True
+    if _names_financing(_wire_financing_text(text)):
+        return True
+    run = _wire_originator_run(text)
+    if run is not None and _names_financing(run):
+        return True
+    if match_known_payee(text, credit=True) is not None:
+        return True
+    holder_text = account_name_text(account_name)
+    originator = region.split()
+    beneficiary = _WIRE_BENEFICIARY_WORDS.search(text)
+    if originator:
+        first_two = " ".join(originator[:2])
+        if wire_sender_is_beneficiary(text, region):
+            return True
+        if holder_text and len(originator) >= 2 and first_two in holder_text:
+            return True
+        originator_first = _first_distinctive_word(_distinctive_words(originator))
+        holder_first = holder_text.split()[0] if holder_text else None
+        if originator_first is not None and (
+            (beneficiary is not None and beneficiary.group(1) == originator_first) or originator_first == holder_first
+        ):
+            return True
+        if _cut_financing_originator(region):
+            return True
+        if _TITLE_OR_ESCROW_ORIGINATOR.search(region):
+            return True
+    return False
+
+
+#: §7.9: an incoming wire's beneficiary field and its first two words.
+_WIRE_BENEFICIARY_WORDS = re.compile(r"\bN?BNF\b (\S+)(?: (\S+))?")
+
+
+def wire_sender_is_beneficiary(text: str, region: str) -> bool:
+    """§7.9 (audit B9: I13): an incoming wire's originator is its own beneficiary, the holder sending from its account
+    at another bank: the originator's first two words are the beneficiary's. _wire_vetoed refuses Q5 on it, and pass
+    7 holds it as the holder's own money (holder_name)."""
+    originator = region.split()
+    beneficiary = _WIRE_BENEFICIARY_WORDS.search(text)
+    if not originator or beneficiary is None:
+        return False
+    return " ".join(word for word in beneficiary.groups() if word) == " ".join(originator[:2])
+
+
+def _cut_financing_originator(region: str) -> bool:
+    """5.5 (§7.9): an originator that fills its field to within two characters of the width (Santander 16, Bank of
+    America 25), whose run-together name starts a financing or potential alias of six or more characters, or whose
+    last word of three or more letters is a proper prefix of a financing word."""
+    name = region.strip()
+    if not any(width - 2 <= len(name) <= width for width in _WIRE_ORIGINATOR_FIELD_WIDTHS):
+        return False
+    run = name.replace(" ", "")
+    if any(
+        len(alias) >= 6 and (alias.startswith(run) or run.startswith(alias)) for alias in _FINANCING_RUN_TOGETHER_ALIASES
+    ):
+        return True
+    last = name.split()[-1] if name.split() else ""
+    return len(last) >= 3 and last.isalpha() and any(
+        word.startswith(last) and word != last for word in _FINANCING_FULL_WORDS
     )
 
 
@@ -812,9 +3593,14 @@ def _classify_credit_revenue(
     account_name: str | None,
     direction_consistent: bool,
     bank: str | None = None,
+    holder_name: str | None = None,
 ) -> _RevenueDecision | None:
     if amount <= 0 or not posted:
         return None
+    text = revenue_text(text)
+    # Audit B9 (I13): the holder tests read the holder's own name when the parser read it; the account-name field keeps
+    # its product readings (_business_account).
+    holder = holder_reading(account_name, holder_name)
 
     if not direction_consistent:
         return _RevenueDecision(
@@ -827,7 +3613,7 @@ def _classify_credit_revenue(
             "The source direction conflicts with the signed amount, so the credit requires review.",
             context_signals=("positive_amount", "direction_conflict"),
         )
-    if _matches_any(text, _REVERSAL_CANCELLATION_CREDIT_PATTERNS):
+    if _reversal_credit(text):
         return _RevenueDecision(
             "non_revenue",
             None,
@@ -838,11 +3624,82 @@ def _classify_credit_revenue(
             "Credit is a return, cancellation, reversal, refund, correction, chargeback, or provisional credit.",
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
+    # §6.1 step 3a (owner ruling 2026-10-02, the underwriter's Q12): a government payment that prints no purpose is
+    # excluded, at any amount (under the $1 floor too, as step 3), after the direction conflict and the reversal (a
+    # government row printing a return word stays the reversal's) and before every other rule; the residue test keeps
+    # any other payer's name off the row, so a lender's D1 reading is never pre-empted.
+    no_purpose = government_no_purpose(text)
+    if no_purpose is not None:
+        return _RevenueDecision(
+            "non_revenue",
+            None,
+            "government_no_purpose_exclusion",
+            no_purpose,
+            "government_payment_no_purpose",
+            0.95,
+            (
+                f"A government payment that prints no purpose ({no_purpose}): excluded from revenue by the owner's "
+                "ruling (the underwriter's Q12, spec §19.1)."
+            ),
+            context_signals=("credit_direction", "government_no_purpose"),
+        )
 
-    # A premium-finance credit keeps the insurance credit treatment (spec §4.2).
-    insurance_match = _insurance_registry_match(text)
-    if insurance_match is not None:
+    # §6.1 step 4 (Q7, 5.6): a dealer's funding from a listed auto lender is revenue; a credit union's VHCL PURCH
+    # entry waits for the statement pass, which verifies two or more of them. Never under the $1 floor (§7.0). The
+    # decision names the lender and its alias (S4.3 review), as the financing-proceeds decision it replaces did.
+    dealer = dealer_funding_reading(text) if amount >= _MICRO_DEPOSIT_FLOOR else None
+    if dealer is not None and dealer.arm == "listed":
+        return _RevenueDecision(
+            "verified_revenue",
+            dealer.entity,
+            "auto_lender_dealer_funding",
+            dealer.alias,
+            "verified_auto_lender_dealer_funding",
+            0.90,
+            (
+                f"Listed auto lender '{dealer.entity}' (alias '{dealer.alias}') pays the dealer on a vehicle contract "
+                f"it financed ({dealer.word}): the dealer's revenue, not financing proceeds."
+            ),
+            source_type="auto_dealer_funding",
+            context_signals=("credit_direction", "auto_lender_dealer_funding"),
+        )
+    if dealer is not None:
+        return _RevenueDecision(
+            "unverified_deposit",
+            dealer.entity,
+            "credit_union_vehicle_purchase",
+            dealer.alias,
+            "credit_union_vehicle_purchase_requires_statement_count",
+            0.60,
+            (
+                f"Credit union '{dealer.entity}' prints the {dealer.word} entry, a credit union's funding of a dealer's "
+                "indirect auto loan; two or more such credits in the statement are dealer funding."
+            ),
+            source_type="auto_dealer_funding",
+            context_signals=("credit_direction", "credit_union_vehicle_purchase"),
+        )
+    # §7.7: the lookups below read a glued HCCLAIMPMT split from the name before it.
+    lookup_text = _split_glued_claim(text)
+    claim_entry = _HCCLAIMPMT.search(text) is not None
+    # A premium-finance credit keeps the insurance credit treatment (spec §4.2). T18: a claim payment skips the
+    # insurer registry when the owner's switch is on; T14: an insurer's customer payment is held, not decided.
+    insurance_match = _insurance_registry_match(lookup_text, glued_digits=True)
+    if insurance_match is not None and not (claim_entry and HCCLAIMPMT_CLAIM_FIRST):
         entity, alias, _premium_finance = insurance_match
+        if claim_entry or _INSURER_CUSTOMER_PAYMENT.search(_before_receiver(text)):
+            return _RevenueDecision(
+                "unverified_deposit",
+                entity,
+                "insurer_customer_payment",
+                alias,
+                "insurer_customer_payment_requires_review",
+                0.60,
+                (
+                    f"Credit matched insurance provider alias '{alias}' with customer-payment or claim-payment "
+                    "wording; an analyst decides whether it is revenue."
+                ),
+                context_signals=("credit_direction", "insurance_provider", "customer_payment_wording"),
+            )
         return _RevenueDecision(
             "non_revenue",
             entity,
@@ -853,13 +3710,24 @@ def _classify_credit_revenue(
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
             context_signals=("credit_direction", "insurance_provider"),
         )
+    if claim_entry and not HCCLAIMPMT_CLAIM_FIRST and _BLUE_PLAN_CLAIM_PAYER.search(_before_receiver(text)):
+        return _RevenueDecision(
+            "unverified_deposit",
+            None,
+            "insurer_customer_payment",
+            None,
+            "insurer_customer_payment_requires_review",
+            0.60,
+            "A Blue-plan claim payment is held with the insurer's credits until the owner rules on claim first.",
+            context_signals=("credit_direction", "insurance_provider", "customer_payment_wording"),
+        )
     # Spec §4.4 / D1: a credit from a financing group is proceeds. It is decided
     # before the operating-revenue registry, and group aliases are
     # financing-specific (SQUARE CAPITAL, never bare SQUARE), so a platform's
     # sales settlement still reaches the operating registry below. Card-issuer
     # and lease/rental payees never apply to credits, and neither does a
     # payout-credit entity (owner decision 2026-09-25).
-    financing_match = _financing_proceeds_payee(text)
+    financing_match = _financing_proceeds_payee(lookup_text)
     if financing_match is not None:
         return _RevenueDecision(
             "non_revenue",
@@ -874,9 +3742,9 @@ def _classify_credit_revenue(
             ),
             context_signals=("credit_direction", "financing_proceeds"),
         )
-    # D1 by descriptor (owner decisions 2026-09-25). `_descriptor_proceeds` keeps
-    # the potential registry and the strong non-revenue rule below ahead of a
-    # line-of-credit draw or a floor-plan advance.
+    # D1 by descriptor (owner decisions 2026-09-25; 5.5: Square Capital's SQ CAP, SBA and EIDL). `_descriptor_proceeds`
+    # keeps the potential registry and the strong non-revenue rule below ahead of a line-of-credit draw or a
+    # floor-plan advance.
     descriptor_proceeds = _descriptor_proceeds(text)
     if descriptor_proceeds is not None:
         rule, names_bank = descriptor_proceeds
@@ -890,8 +3758,10 @@ def _classify_credit_revenue(
             f"The credit's descriptor identifies financing proceeds ({_state_words(rule)}); they are not revenue.",
             context_signals=("credit_direction", "financing_proceeds"),
         )
-    potential_lender_match = registry_match(text, POTENTIAL_LENDER_ALIASES)
-    if potential_lender_match is not None:
+    potential_lender_match = registry_match(lookup_text, POTENTIAL_LENDER_ALIASES)
+    # Audit B6 (I10; §6.3 narrowing 10, lender detection §5): a factoring review entity's credit is a factor's payout,
+    # never the potential tier's exclusion: it goes on to the operating-revenue path, as an admitted factor's does.
+    if potential_lender_match is not None and potential_lender_match[0] not in FACTORING_REVIEW_ENTITIES:
         entity, alias = potential_lender_match
         return _RevenueDecision(
             "non_revenue",
@@ -903,7 +3773,16 @@ def _classify_credit_revenue(
             f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
             context_signals=("credit_direction", "potential_lender_source"),
         )
-    if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS):
+    # 5.6 (audit B2: I20, §6.3 narrowing 8): a named sender after an own-account designation refuses the own-account
+    # patterns; such a credit is no sale the text proves either, so no later step verifies it: the pass holds it (T13).
+    named_after_designation = _named_sender_after_designation(text, holder)
+    # Owner ruling 2026-10-02 (Q8; §6.3 narrowing 12): Snap's merchant funding printed with the strong LOAN word ('SNAP
+    # LOAN FUNDING F<digits> <merchant>') is a lease-to-own financier's payout of the merchant's sale, which the
+    # true-revenue pass claims (CUSTOMER_FINANCING_PAYERS): the strong rule reads the row without that form only. Every
+    # other reader (the designation test above, the descriptor proceeds, the lender-credit reader) keeps the full text.
+    if (
+        _matches_any(_SNAP_MERCHANT_FUNDING.sub(" ", text), _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
+    ) or _own_book_or_funds_transfer(text, holder):
         return _RevenueDecision(
             "non_revenue",
             None,
@@ -917,51 +3796,42 @@ def _classify_credit_revenue(
             ),
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
+    if named_after_designation:
+        return _fallback_credit_decision(text)
 
-    revenue_match = registry_match(text, OPERATING_REVENUE_SOURCE_ALIASES)
-    if revenue_match is not None:
-        entity, alias = revenue_match
-        source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
-        has_operating_context = _matches_any(text, _OPERATING_CREDIT_CONTEXT_PATTERNS)
-        business_account = _matches_any(
-            normalize_transaction_description(account_name or ""),
-            _BUSINESS_ACCOUNT_PATTERNS,
-        )
-        signals = ["credit_direction", "maintained_operating_source"]
-        if has_operating_context:
-            signals.append("settlement_or_payout_descriptor")
-        if business_account:
-            signals.append("business_account")
-        if has_operating_context:
-            return _RevenueDecision(
-                "verified_revenue",
-                entity,
-                "operating_source_with_credit_context",
-                alias,
-                "verified_operating_source_credit",
-                0.98 if business_account else 0.96,
-                (
-                    f"Credit matched maintained {source_type or 'operating-source'} alias "
-                    f"'{alias}' with settlement, payout, or deposit context."
-                ),
-                source_type=source_type,
-                context_signals=tuple(signals),
-            )
+    # §6.1 step 9b, the channel gate: a consumer rail, a check, cash, branch or ATM deposit, or a row with no payer
+    # word is never verified; a real-time or push rail is verified by the operating registry only.
+    gate = channel_gate(text)
+    if gate != "closed":
+        source_text = _before_receiver(text) if gate == "push" else text
+        source = _operating_source(source_text)
+        if source is not None:
+            return _operating_source_decision(text, source, account_name=account_name, bank=bank, holder=holder)
+    if gate is not None:
+        return _fallback_credit_decision(text)
+
+    region = payer_region(text)
+    form = _card_settlement_form(text, bank=bank)
+    if form is not None and form.label != "net_settle":
         return _RevenueDecision(
-            "unverified_deposit",
-            entity,
-            "operating_source_requires_context",
-            alias,
-            "operating_source_without_payout_context",
-            0.70,
-            (
-                f"Credit matched maintained {source_type or 'operating-source'} alias "
-                f"'{alias}', but the row needs recurrence or related operating activity to verify revenue."
-            ),
-            source_type=source_type,
-            context_signals=tuple(signals),
+            "verified_revenue",
+            form.entity,
+            "operating_income_descriptor",
+            form.label,
+            f"card_settlement_form_{form.label}",
+            0.93,
+            f"Credit prints the card-settlement form '{form.label}'.",
+            source_type=OPERATING_REVENUE_SOURCE_TYPES.get(form.entity) if form.entity else None,
+            context_signals=("credit_direction", "operating_income_descriptor", "card_settlement_form"),
         )
-    if _matches_any(text, _VERIFIED_REVENUE_CREDIT_PATTERNS):
+    joined = _joined_text(_before_receiver(text))
+    # S2.3 review: the customer and invoice descriptors never read the receiver field's value, the holder (fix 4,
+    # §5.2); on a wire they answer to the §7.9 wire vetoes as steps 12 and 14 do, and a vetoed row falls through (fix 3).
+    customer_or_invoice = (
+        _matches_any(_without_receiver_value(text), _CUSTOMER_INVOICE_DESCRIPTORS)
+        or _matches_any(joined, _CUSTOMER_INVOICE_DESCRIPTORS)
+    ) and not (_wire_vetoes_apply(text) and _wire_vetoed(text, region, holder))
+    if _matches_any(text, _VERIFIED_REVENUE_CREDIT_PATTERNS) or _matches_any(joined, _VERIFIED_REVENUE_CREDIT_PATTERNS):
         return _RevenueDecision(
             "verified_revenue",
             None,
@@ -969,9 +3839,157 @@ def _classify_credit_revenue(
             None,
             "verified_operating_income_descriptor",
             0.93,
-            "Credit has a customer-payment, merchant-settlement, card-sales, invoice, or verified business-deposit descriptor.",
+            "Credit has a merchant-settlement, card-sales, claim-payment, or verified business-deposit descriptor.",
             context_signals=("credit_direction", "operating_income_descriptor"),
         )
+    guard = _refused_by_payer_guards(text, region, holder)
+    if guard == "holder" and (
+        customer_or_invoice
+        or _payer_remittance(text, region, holder)
+        or _public_payer_remittance(text) is not None
+        or _wire_remittance_purpose(text, region, holder)
+    ):
+        return _RevenueDecision(
+            "unverified_deposit",
+            None,
+            "holder_named_payer",
+            None,
+            "payer_prints_the_holders_name",
+            0.40,
+            "The payer prints the account holder's own name or brand, so its remittance wording is not proof.",
+            context_signals=("credit_direction", "holder_named_payer"),
+        )
+    if guard is None:
+        if customer_or_invoice:
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "operating_income_descriptor",
+                None,
+                "verified_operating_income_descriptor",
+                0.93,
+                "Credit has a customer-payment or invoice descriptor.",
+                context_signals=("credit_direction", "operating_income_descriptor"),
+            )
+        if _payer_remittance(text, region, holder):
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "payer_remittance_descriptor",
+                None,
+                "verified_payer_accounts_payable_remittance",
+                0.90,
+                "The payer prints its accounts-payable remittance: the credit pays an invoice of the business.",
+                context_signals=("credit_direction", "payer_remittance"),
+            )
+        public_rule = _public_payer_remittance(text)
+        if public_rule is not None:
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "public_payer_remittance",
+                None,
+                public_rule,
+                0.90,
+                "A public payer pays a vendor or provider remittance of the business.",
+                source_type="government_payer",
+                context_signals=("credit_direction", "public_payer_remittance"),
+            )
+        if _wire_remittance_purpose(text, region, holder):
+            return _RevenueDecision(
+                "verified_revenue",
+                None,
+                "wire_remittance_purpose",
+                None,
+                "verified_wire_remittance_purpose",
+                0.90,
+                "The incoming wire's remittance cites an invoice, a purchase order, an order or goods.",
+                context_signals=("credit_direction", "wire_remittance_purpose"),
+            )
+    return _fallback_credit_decision(text)
+
+
+def _operating_source_decision(
+    text: str,
+    source: _OperatingSource,
+    *,
+    account_name: str | None,
+    bank: str | None,
+    holder: str | None = None,
+) -> _RevenueDecision:
+    """5.5 (§6.1 step 10): a credit the operating registry names: verified with payout context, otherwise it needs
+    recurrence or related activity. Property-management platforms and wholesale auctions never verify here: the
+    recurrence pass decides them."""
+    entity, alias, source_type = source.entity, source.alias, source.source_type
+    business_account = _business_account(account_name)
+    if platform_entry_leads_with_financing(text, entity, account_name if holder is None else holder):
+        # 5.6 (re-review N6, §20): an entry field that leads with a financing word is the platform's own financing,
+        # never verified here; pass 7 holds it as financing_named_payer (the registry does not claim a financing row).
+        return _RevenueDecision(
+            "unverified_deposit",
+            entity,
+            "operating_source_requires_context",
+            alias,
+            PLATFORM_FINANCING_ENTRY_RULE,
+            0.50,
+            (
+                f"Credit matched maintained {source_type or 'operating-source'} alias '{alias}', but its entry field "
+                "leads with a financing word: the platform's financing is never revenue."
+            ),
+            source_type=source_type,
+            context_signals=("credit_direction", "maintained_operating_source", "financing_entry"),
+        )
+    has_context = source_type not in {"property_management_payments", "wholesale_auto_auction"} and (
+        _has_operating_context(text, source, bank=bank)
+    )
+    signals = ["credit_direction", "maintained_operating_source"]
+    if source.payout_form:
+        signals.append("payout_form")
+    if has_context:
+        signals.append("settlement_or_payout_descriptor")
+    if business_account:
+        signals.append("business_account")
+    if has_context:
+        return _RevenueDecision(
+            "verified_revenue",
+            entity,
+            "operating_source_with_credit_context",
+            alias,
+            "verified_operating_source_credit",
+            0.98 if business_account else 0.96,
+            (
+                f"Credit matched maintained {source_type or 'operating-source'} "
+                f"{'payout form' if source.payout_form else 'alias'} '{alias}' with settlement, payout, or deposit "
+                "context."
+            ),
+            source_type=source_type,
+            context_signals=tuple(signals),
+        )
+    return _RevenueDecision(
+        "unverified_deposit",
+        entity,
+        "operating_source_requires_context",
+        alias,
+        "operating_source_without_payout_context",
+        0.70,
+        (
+            f"Credit matched maintained {source_type or 'operating-source'} alias "
+            f"'{alias}', but the row needs recurrence or related operating activity to verify revenue."
+        ),
+        source_type=source_type,
+        context_signals=tuple(signals),
+    )
+
+
+def _business_account(account_name: str | None) -> bool:
+    """§7.0: a business account for the recurrence rule: BUSINESS, COMMERCIAL, OPERATING or MERCHANT, or (5.5) a
+    holder name that prints a legal form."""
+    name = account_name_text(account_name)
+    return _matches_any(name, _BUSINESS_ACCOUNT_PATTERNS) or _LEGAL_FORM_HOLDER.search(name) is not None
+
+
+def _fallback_credit_decision(text: str) -> _RevenueDecision:
+    """§6.1 steps 15 and 16: deposit wording, else an unidentified posted credit."""
     if _matches_any(text, _UNVERIFIED_DEPOSIT_CREDIT_PATTERNS):
         return _RevenueDecision(
             "unverified_deposit",
@@ -1051,13 +4069,15 @@ _WIRE_BENEFICIARY_PATTERNS = (
     re.compile(r"\bBNF(?: FFC)?\b"),
     re.compile(r"\bWIRE TRANSFER VIA\b.*?\bA C\b"),
 )
-#: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME).
-_RECEIVER_NAME_FIELD = re.compile(r"\b(?:INDN|IND NAME|IND ID)\b")
+#: 5.3: the receiver fields. The account holder's own name prints there (Bank of America INDN, Chase IND NAME). 5.6
+#: (final review I2): the one tuple's field labels, as _CREDIT_RECEIVER_FIELD reads them.
+_RECEIVER_NAME_FIELD = re.compile(rf"\b(?:{_RECEIVER_FIELD_LABELS})\b")
 #: 5.3 (owner ruling 2026-09-27): a receiver-name field with its value, up to the next ACH field, removed before the
-#: debt-relief table is read: the account holder's own name never makes a row debt relief.
-_RECEIVER_FIELD_VALUE = re.compile(
-    r"\b(?:INDN|IND NAME|RECEIVER NAME|RECV NAME)\b.*?(?=\b(?:CO ID|TRN|TRACE|PPD|CCD|WEB|CTX|TEL|ARC|BOC)\b|$)"
-)
+#: debt-relief table is read: the account holder's own name never makes a row debt relief. 5.6 (final review I2): the
+#: one tuple's name labels.
+_RECEIVER_FIELD_VALUE = re.compile(rf"\b(?:{_RECEIVER_NAME_LABELS})\b" + _RECEIVER_VALUE_END)
+#: FW wave 3: a receiver-name field's label, before its value.
+_RECEIVER_NAME_LABEL = re.compile(rf"^(?:{_RECEIVER_NAME_LABELS})\b\s*")
 #: 5.3: bill-payment prefix words a bank prints before the payee. The leading payee words start after them.
 _LEADING_PREFIX_WORDS = frozenset({
     "BILL", "BILLS", "PRE", "AUTHORIZED", "AUTHORISED", "RECURRING", "RECUR", "INTERNET", "BANKING", "PAIEMENT",
@@ -1237,6 +4257,7 @@ def _build_record(
     direction_consistent: bool,
     source_page: int | None,
     source_location: str | None,
+    holder_name: str | None = None,
     canonical_entity: str | None = None,
     match_method: str,
     matched_alias: str | None = None,
@@ -1269,9 +4290,11 @@ def _build_record(
         bank=bank,
         account_name=account_name,
         direction_consistent=direction_consistent,
+        holder_name=holder_name,
     )
     revenue_state = revenue.classification if revenue is not None else None
-    revenue_flags = revenue_contribution_flags(revenue_state)
+    revenue_tier = tier_of_state(revenue_state)
+    revenue_flags = revenue_contribution_flags(revenue_state, revenue_tier)
     # Contract C4, spec §4.4: a credit whose revenue decision is financing proceeds (D1) is
     # also excluded from eligible deposits, whichever rule named the row. A transfer or an
     # insurance term can claim a financing group's credit before step 7. A payout-credit
@@ -1288,6 +4311,7 @@ def _build_record(
         bank=bank,
         account=account,
         account_name=account_name,
+        holder_name=holder_name,
         source_direction=source_direction,
         direction_consistent=direction_consistent,
         source_page=source_page,
@@ -1303,6 +4327,8 @@ def _build_record(
         flagged_group=group_key,
         revenue_classification=revenue_state,
         revenue_initial_classification=revenue_state,
+        revenue_tier=revenue_tier,
+        revenue_initial_tier=revenue_tier,
         revenue_canonical_entity=revenue.canonical_entity if revenue else None,
         revenue_match_method=revenue.match_method if revenue else None,
         revenue_matched_alias=revenue.matched_alias if revenue else None,
@@ -1453,25 +4479,107 @@ def _is_membership_or_top_up(text: str, match: PayeeMatch) -> bool:
     return any(re.search(rf"\b{alias}{tail}", text) for tail in _MEMBERSHIP_OR_TOP_UP_AFTER_ALIAS)
 
 
+#: Owner ruling OQ2 (true revenue spec §19, 2026-09-28) put the five BNPL providers in PAYOUT_CREDIT_ENTITIES: a
+#: provider's settlement to the merchant is the merchant's own sale, so revenue. The ruling covers settlements only.
+#: The 5.4 -> 5.5 census (S3.2) found 7 of the 8 corpus credits that left D1 under it consumer-side (a Klarna
+#: WITHDRAWAL, a RETURN FOR ... PURCHASE), and a 9th Klarna WITHDRAWAL that left the lender-credit exclusion: the
+#: account holder as the provider's customer, not its merchant. A credit of one of the five that prints one of
+#: these consumer-side words (a return, a withdrawal, a refund, a balance, cash back, a reward, a card product, a
+#: purchase, or the debt collector TRUEACCORD) keeps its 5.4 reading: D1. Sezzle, American First Finance and
+#: PAYABILITY keep the entity-wide exception of 2026-09-25: the corpus prints WITHDRAWAL on Sezzle's merchant payouts
+#: and CARD on PAYABILITY's transfers. Owner ruling 2026-10-02 (Q8): Cherry Technologies joins PAYOUT_CREDIT_ENTITIES
+#: under the same consumer-side veto, so a Cherry consumer credit (a refund, a card credit) keeps its D1 reading.
+_OQ2_BNPL_ENTITIES = frozenset({"AFFIRM", "Afterpay", "GreenSky", "Klarna Inc", "Sunbit", "Cherry Technologies, Inc."})
+_BNPL_CONSUMER_CREDIT = re.compile(
+    r"\bRETURN\w*|\bWITHDRAW\w*|REFUND\w*|\bRFND\w*|\bREFND\w*|\bRFD\b|\bBALANCE\b|\bCASH ?BACK\b|\bREWARDS?\b"
+    r"|\bAFFIRMCARD\b|\bCARD\b|\bPURCHASES?\b|\bTRUE ?ACCORD\b"
+)
+#: Owner ruling 2026-10-02 (Q8; §6.3 narrowing 12): Snap's merchant funding as Wells Fargo prints it, 'SNAP LOAN FUNDING
+#: F<digits> <merchant>': the strong non-revenue rule reads the row without it (_classify_credit_revenue), and the
+#: true-revenue pass reads a SNAP LOAN FUNDING payer as Snap's payout only in this form (_customer_financier). A SNAP LOAN
+#: FUNDING with no merchant form is a loan, as before.
+_SNAP_MERCHANT_FUNDING = re.compile(r"(?<![A-Z])SNAP LOAN FUNDING(?= F\d)")
+
+
+def _is_payout_credit(text: str, match: PayeeMatch) -> bool:
+    """Whether a credit of ``match`` is a payout-credit entity's settlement: revenue, not D1 financing proceeds.
+
+    Owner decision 2026-09-25 (PAYOUT_CREDIT_ENTITIES); OQ2 (§19) narrowed to the
+    five BNPL providers' settlements (_BNPL_CONSUMER_CREDIT). Credits only.
+    """
+    if match.entity not in PAYOUT_CREDIT_ENTITIES:
+        return False
+    # Both sites read the same text: the revenue text (a glued leading date dropped) without the receiver's name, so
+    # the holder's own name ('INDN:BALANCE DENTAL LLC') never makes a settlement consumer-side (§5.2).
+    words = _without_receiver_value(revenue_text(text))
+    return not (match.entity in _OQ2_BNPL_ENTITIES and _BNPL_CONSUMER_CREDIT.search(words))
+
+
 def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
     """D1: the known payee whose credit is financing proceeds, or None.
 
     Owner decision 2026-09-25: the credits of a payout-credit entity
     (PAYOUT_CREDIT_ENTITIES) are the account holder's own sales settled by the
-    platform, so they are revenue; that entity's debits keep their group.
+    platform, so they are revenue; that entity's debits keep their group. A BNPL
+    provider's consumer-side credit is not a settlement (OQ2, _is_payout_credit).
     Owner ruling 2026-09-26: a factoring payee's credits are the business's own
     sales paid by the factor, so they are revenue too, and they keep the
     factoring flag (_FLAGGED_REVENUE_CREDIT_STATES).
     """
-    match = match_known_payee(text)
+    match = match_known_payee(text, credit=True)
     if (
         match is None
         or match.state not in FINANCING_STATES
         or match.state in _FLAGGED_REVENUE_CREDIT_STATES
-        or match.entity in PAYOUT_CREDIT_ENTITIES
+        or _is_payout_credit(text, match)
     ):
         return None
     return match
+
+
+def _q7_dealer_funding(text: str, amount: float, direction_consistent: bool) -> DealerFunding | None:
+    """5.6 (§6.1 step 4, Q7): the credit's dealer-funding reading, read as _classify_credit_revenue reads it: a credit
+    of $1 or more whose direction agrees and that no reversal marker claims (steps 2 and 3 win), which
+    dealer_funding_reading reads on its revenue text; or None."""
+    if amount < _MICRO_DEPOSIT_FLOOR or not direction_consistent:
+        return None
+    revenue = revenue_text(text)
+    dealer = dealer_funding_reading(revenue)
+    return None if dealer is None or _reversal_credit(revenue) else dealer
+
+
+def _dealer_funding_credit_record(
+    common: dict[str, object],
+    dealer: DealerFunding,
+) -> TransactionClassification:
+    """5.6 (Q7; S4.3 review): a dealer-funding credit's record keeps its lender, as the financing-proceeds record it
+    replaces did: the listed auto lender and its alias, or the credit union its payer region prints. A listed lender's
+    dealer funding is never financing proceeds (D1), so it leaves the lender credits; a credit union's VHCL PURCH
+    entry is decided by the statement pass (two or more verify, one alone is held)."""
+    if dealer.arm == "listed":
+        method, rule, confidence = "auto_lender_dealer_funding", "auto_lender_dealer_funding_credit", 0.90
+        reason = (
+            f"Matched listed auto lender '{dealer.entity}' (alias '{dealer.alias}') on a dealer-funding credit "
+            f"({dealer.word}): the lender pays the dealer on a vehicle contract it financed, the dealer's revenue, "
+            "never financing proceeds."
+        )
+    else:
+        method, rule, confidence = "credit_union_vehicle_purchase", "credit_union_vehicle_purchase_credit", 0.60
+        reason = (
+            f"Credit union '{dealer.entity}' prints the {dealer.word} entry, a credit union's funding of a dealer's "
+            "indirect auto loan; the statement pass counts such credits (two or more are dealer funding, one alone "
+            "is held)."
+        )
+    return _build_record(
+        **common,
+        classification="other",
+        canonical_entity=dealer.entity,
+        match_method=method,
+        matched_alias=dealer.alias,
+        matched_rule=rule,
+        confidence_score=confidence,
+        reason=reason,
+    )
 
 
 #: D1 by descriptor (owner decisions 2026-09-25): credits whose own words say they
@@ -1496,6 +4604,12 @@ def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
     """
     if _BANK_LINE_ADVANCE_CREDIT.search(text):
         return "bank_line_advance_credit", True
+    # 5.5 (§7.11, T5): Square Capital's SQ CAP spelling on a row that names Square, and SBA and EIDL disbursements
+    # (A3: the SBA's name cut to its originator field too).
+    if _SQUARE_CAPITAL_CREDIT.search(text) and _SQUARE_NAME.search(text):
+        return "square_capital_credit", False
+    if _SBA_DISBURSEMENT_CREDIT.search(text) or _sba_cut_originator(text):
+        return "sba_disbursement_credit", False
     if registry_match(text, POTENTIAL_LENDER_ALIASES) is not None or _matches_any(
         text, _NON_REVENUE_CREDIT_PATTERNS
     ):
@@ -1505,6 +4619,24 @@ def _descriptor_proceeds(text: str) -> tuple[str, bool] | None:
     if _FLOOR_PLAN_ADVANCE_CREDIT.search(text):
         return "floor_plan_advance_credit", False
     return None
+
+
+def _sba_cut_originator(text: str) -> bool:
+    """A3 (precision sample): the payer region of a wire or of a row with an electronic-payment form (an originator
+    field) is the SBA's name cut to the field (_SBA_CUT_ORIGINATOR). Never read on a person-to-person or push rail,
+    nor on a transfer's sender after FROM, which names an account ('ONLINE TRANSFER FROM SMALL BUSINESS XXXXXX1234')."""
+    if "SMALL BUSINESS" not in text:
+        return False
+    text = revenue_text(text)
+    row = _before_receiver(text)
+    if not _is_wire_row(text) and (
+        _ELECTRONIC_PAYMENT_FORM.search(row) is None
+        or _CONSUMER_P2P_RAIL.search(row) is not None
+        or _PUSH_RAIL.search(row) is not None
+        or _sender_payer_region(text)
+    ):
+        return False
+    return _SBA_CUT_ORIGINATOR.match(payer_region(text).strip()) is not None
 
 
 def _financing_proceeds_credit_record(
@@ -1553,6 +4685,41 @@ def _flagged_revenue_credit_record(
             "factor's payout is the business's own sales, so it stays revenue and in eligible "
             "deposits, and it is flagged as a factoring position (owner ruling)."
         ),
+    )
+
+
+def _factoring_review_payee(text: str) -> PayeeMatch | None:
+    """Audit B6 (I10; lender detection spec §5, amended): the factoring review entity (FACTORING_REVIEW_ENTITIES) whose
+    potential alias wins on the row, as a factoring payee, or None."""
+    found = registry_match(text, POTENTIAL_LENDER_ALIASES)
+    if found is None or found[0] not in FACTORING_REVIEW_ENTITIES:
+        return None
+    return PayeeMatch(found[0], "factoring", found[1])
+
+
+def _unconfirmed_factoring_credit_record(
+    common: dict[str, object],
+    match: PayeeMatch,
+) -> TransactionClassification:
+    """Audit B6 (I10; the factoring ruling of 2026-09-26): a factoring review entity's credit is a factor's payout, as
+    an admitted factor's is (_flagged_revenue_credit_record): the row takes the factoring group, carries its flag and
+    counts in the flagged totals as a credit, and its revenue decision is the operating-revenue path's. The ledger has
+    not confirmed the factor, so the row is marked unconfirmed (review_required), as a 5.3 review entity's debit is.
+    Its debits keep the potential tier."""
+    return _build_record(
+        **common,
+        classification=match.state,
+        canonical_entity=match.entity,
+        match_method="unconfirmed_flag_payee_alias",
+        matched_alias=match.alias,
+        matched_rule="factoring_review_revenue_credit",
+        confidence_score=0.82,
+        reason=(
+            f"Matched maintained candidate alias '{match.alias}' of an unconfirmed factor on a credit: a factor's "
+            "payout is the business's own sales, so it stays revenue and in eligible deposits; it is flagged as a "
+            "factoring position, marked unconfirmed."
+        ),
+        review_required=True,
     )
 
 
@@ -1737,6 +4904,7 @@ def classify_transaction(
     source_page: int | None = None,
     source_location: str | None = None,
     posted: bool = True,
+    holder_name: str | None = None,
 ) -> TransactionClassification:
     text = normalize_transaction_description(description)
     derived_direction = "credit" if amount >= 0 else "debit"
@@ -1750,6 +4918,7 @@ def classify_transaction(
         "bank": bank,
         "account": account,
         "account_name": account_name,
+        "holder_name": holder_name,
         "source_direction": source_direction,
         "direction_consistent": direction_consistent,
         "source_page": source_page,
@@ -1787,7 +4956,8 @@ def classify_transaction(
             reason="A refund, reversal, void, cancellation, or returned-payment rule matched.",
         )
 
-    insurance_match = _insurance_registry_match(text)
+    # Audit B6 (I24): a credit's premium-finance lookup reads a glued digit run; a debit keeps today's reading.
+    insurance_match = _insurance_registry_match(text, glued_digits=amount > 0)
     # Owner decision 2026-09-25: premium-finance wording on a row no premium-finance
     # alias claimed is premium financing too, under the insurer when one is named.
     premium_wording = (insurance_match is None or not insurance_match[2]) and _matches_any(
@@ -1838,8 +5008,10 @@ def classify_transaction(
         )
 
     # Spec §4.6: one lookup over every group registry. A known payee is excepted
-    # from the POS and ATM rules (D8) and takes its group at step 7 below.
-    known_payee = match_known_payee(text)
+    # from the POS and ATM rules (D8) and takes its group at step 7 below. Audit
+    # B6 (I08, I22): a credit is read with the credit index (a run-together alias
+    # with a digit run glued after it, the credit-only aliases).
+    known_payee = match_known_payee(text, credit=amount > 0)
     # Owner decision 2026-09-25: a membership or balance top-up debit of an
     # alternative-position payee matches no known payee (steps 5 and 7).
     if known_payee is not None and amount < 0 and _is_membership_or_top_up(text, known_payee):
@@ -1889,6 +5061,14 @@ def classify_transaction(
             confidence_score=0.98,
             reason="The posted debit is explicitly identified as an ATM cash withdrawal.",
         )
+
+    # 5.6 (§6.1 step 4, Q7; S4.3 review): a dealer-funding credit takes its lender's record ahead of the fee, transfer,
+    # tax, payroll and utility rules and of D1 (CU Direct's VADMIN FEE is the dealer's fee income, never a bank fee;
+    # a listed auto lender's dealer funding is never financing proceeds), as its revenue decision runs ahead of D1.
+    if amount > 0:
+        dealer = _q7_dealer_funding(text, amount, direction_consistent)
+        if dealer is not None:
+            return _dealer_funding_credit_record(common, dealer)
 
     if _matches_any(text, _FEE_PATTERNS):
         return _build_record(
@@ -1944,7 +5124,8 @@ def classify_transaction(
 
     # Step 7: the known payee's group (D9 inside). A credit is proceeds only
     # for a financing group (D1), and never for a payout-credit entity (owner
-    # decision 2026-09-25: its credits are the holder's own sales); a card-issuer
+    # decision 2026-09-25: its credits are the holder's own sales; OQ2 covers a
+    # BNPL provider's settlements only, _is_payout_credit); a card-issuer
     # or lease/rental payee on a credit falls through to the rules below. A
     # factoring payee's credit is revenue and keeps the factoring flag (owner
     # ruling 2026-09-26).
@@ -1955,8 +5136,17 @@ def classify_transaction(
             return _known_payee_debit_record(common, text, known_payee)
         if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
             return _flagged_revenue_credit_record(common, known_payee)
-        if known_payee.state in FINANCING_STATES and known_payee.entity not in PAYOUT_CREDIT_ENTITIES:
+        # 5.6 (Q7): a listed auto lender's dealer funding took its own record above, never financing proceeds.
+        if known_payee.state in FINANCING_STATES and not _is_payout_credit(text, known_payee):
             return _financing_proceeds_credit_record(common, amount, known_payee)
+    # Audit B6 (I10; lender detection spec §5, amended): a factoring review entity's credit is a factor's payout,
+    # flagged and marked unconfirmed; its aliases stay in the potential table, so its debits keep the potential tier.
+    # B6 review round 1: a credit the revenue path's reversal rule reads (§6.1 step 3: a trailing RETURNED ITEM that
+    # step 3's row rule above does not read) is no payout: it takes no Factoring flag and no review mark.
+    if amount > 0:
+        review_factor = _factoring_review_payee(text)
+        if review_factor is not None and not _reversal_credit(revenue_text(text)):
+            return _unconfirmed_factoring_credit_record(common, review_factor)
     # D1 by descriptor (owner decisions 2026-09-25): the bank's own line advance,
     # a line-of-credit draw or a per-vehicle floor-plan advance. Credits only.
     if amount > 0:
@@ -2174,6 +5364,9 @@ def _replace_revenue_state(
         record,
         revenue_classification=state,
         revenue_initial_classification=state,
+        revenue_tier=tier_of_state(state),
+        revenue_initial_tier=tier_of_state(state),
+        revenue_tier_reason=None,
         revenue_match_method=match_method,
         revenue_matched_rule=matched_rule,
         revenue_confidence_score=confidence_score,
@@ -2184,7 +5377,7 @@ def _replace_revenue_state(
         revenue_review_status=(
             "pending" if state == "unverified_deposit" else "not_required"
         ),
-        **revenue_contribution_flags(state),
+        **revenue_contribution_flags(state, tier_of_state(state)),
     )
 
 
@@ -2212,23 +5405,303 @@ def _descriptions_share_pair_context(left: str, right: str) -> bool:
     return any(pattern.search(left) and pattern.search(right) for pattern in _PAIR_FAMILY_PATTERNS)
 
 
-def _apply_reversal_pair_context(
-    records: list[TransactionClassification],
-    duplicate_indexes: set[int],
-) -> list[TransactionClassification]:
-    updated = list(records)
-    matched_debit_indexes: set[int] = set()
+#: 5.6 (audit B3: I03, §6.2 pass 4, §20): the undo wordings of a deposit, read as pass 4's revenue-side markers on either
+#: row: a returned deposited item (PNC's RET DEP ITEM, RETURNED DEPOSIT ITEM, Wells Fargo's DEPOSITED ITEM RETN and
+#: Chase's DEPOSITED ITEM RETURNED), an error, transaction or deposit correction, a mobile, remote or ATM deposit
+#: adjustment, and Bank of America's ADJUSTMENT CORRECTION. Audit round 2, R2-B08 (R22): and a credit union's deposit
+#: correction cut short or with its type between the words (DEPOSIT TYPE CORRECT, DEPOSIT CORRECT).
+_DEPOSIT_CORRECTION_MARKERS = (
+    re.compile(r"\b(?:ERROR|TRANSACTION|DEPOSIT) CORRECTION\b"),
+    re.compile(r"\b(?:MOBILE|REMOTE|ATM) DEPOSIT ADJUSTMENT\b"),
+    re.compile(r"\bADJUSTMENT CORRECTION\b"),
+    re.compile(r"\bDEPOSIT (?:TYPE )?CORRECT(?:ION)?\b"),
+)
+_DEPOSIT_UNDO_MARKERS = (
+    re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
+    re.compile(r"\bDEPOSITED ITEMS? RET\w*"),
+    *_DEPOSIT_CORRECTION_MARKERS,
+)
+#: 5.6 (audit B3: I03): the debits that undo a deposit, which pair with the deposit itself (_deposit_return_pairs): the
+#: undo markers, a deposited check returned, a bare RETURNED ITEM (and Bank of America's RETURN ITEM CHARGEBACK), RBC's
+#: ITEM RETURNED UNPAID and a returned check; never the bank's fee for the return (_DEPOSIT_UNDO_FEE). TD's RTN NSF is
+#: not one (audit I41: its sign is unconfirmed). Audit round 2, R2-B08 (R22; standard D1, D3): and TD Bank's returned
+#: deposited item, DEP RETURN CHARGEBACK (its DEP RETURN FEE prints beside it), and a bank's row-leading two-word
+#: CHARGE BACK of a deposited item, with ITEM or a return reason after it (CHARGE BACK ITEM CHECK <n>, CHARGE BACK -
+#: SIGNATURE(S) IRREGULAR, ... NSF, INSUFFICIENT, UNCOLLECTED, ACCOUNT CLOSED, STOP PAY, REFER TO MAKER); read on
+#: debits only, never a bare CHARGEBACK, a processor's or a merchant's chargeback (owner decision I42), the bank's fee,
+#: a bare DEP RETURN or RTN NSF.
+_DEPOSIT_RETURN_DEBIT_PATTERNS = (
+    *_DEPOSIT_UNDO_MARKERS,
+    re.compile(r"\bDEPOSITED (?:CHECK|CHEQUE)S? RET\w*"),
+    re.compile(r"\bRETURN(?:ED)? ITEMS?\b"),
+    re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b"),
+    re.compile(r"\bRETURNED (?:CHECK|CHEQUE)S?\b|\b(?:CHECK|CHEQUE)S? RETURNED\b"),
+    re.compile(r"\bDEP(?:OSIT)? RETURN CHARGE ?BACK\b"),
+    re.compile(
+        r"^(?:\d{1,2} \d{1,2} )?CHARGE ?BACK (?:ITEMS?\b|SIGNATURE|ENDORSE|NSF\b|INSUFFICIENT|UNCOLLECTED"
+        r"|ACC(?:OUN)?T CLOSED|STOP PAY|REFER TO MAKER)"
+    ),
+)
+#: B3 review round 1: and the CHARGE (never CHARGE BACK, the chargeback) and CHRG wordings of the fee.
+_DEPOSIT_UNDO_FEE = re.compile(r"\b(?:FEES?|FRAIS|SVC|CHG|CHRG|SERVICE CHARGE)\b|\bCHARGES?\b(?! ?BACK)")
+#: B3 review round 1: a paid check printed first with its number (the holder's own check, whatever its memo says).
+_PAID_CHECK_FIRST = re.compile(r"^(?:\d{1,2} \d{1,2} )?(?:CHECK|CHEQUE|CHK|CHQ) ?#? ?\d")
+#: 5.6 (audit B3: I03): a returned deposit pairs with a deposit up to this many days before it, the same day included.
+_DEPOSIT_RETURN_DAYS = 14
+#: 5.6 (audit B3: I03): a mobile or electronic deposit capture glued to its word (MDEPOSIT, EDEPOSIT IN BRANCH), a
+#: deposit word, and the card words a bare deposit never prints (a card settlement's VISA DEPOSIT is no deposit channel).
+_DEPOSIT_CAPTURE_WORD = re.compile(r"(?<![A-Z])(?:MDEPOSIT|EDEPOSIT)\b")
+_DEPOSIT_WORD = re.compile(r"(?<![A-Z])(?:DEP|DEPOSITS?)\b")
+_CARD_WORD = re.compile(r"(?<![A-Z])(?:CARDS?|VISA|MC|MASTERCARD|AMEX|DISCOVER|BANKCARD|POS)\b")
+
+
+def _deposit_return_debit(text: str) -> bool:
+    """5.6 (audit B3: I03): a debit that undoes a deposit (_DEPOSIT_RETURN_DEBIT_PATTERNS), never the bank's fee for it.
+
+    B3 review round 1: and only the bank's own return, never the holder's payment that prints a 'return item' memo: a
+    person-to-person or push rail, WIRE, an electronic payment's mark (which names its payee) or a paid check printed
+    first with its number refuses it. A credit union's returned check prints the check's number and its maker after
+    RETURNED CHECK; that stays a return."""
+    if not _matches_any(text, _DEPOSIT_RETURN_DEBIT_PATTERNS) or _DEPOSIT_UNDO_FEE.search(text) is not None:
+        return False
+    return not (
+        _CONSUMER_P2P_RAIL.search(text) or _PUSH_RAIL.search(text) or _WIRE_WORD.search(text)
+        or _ELECTRONIC_PAYMENT_FORM.search(text) or _PAID_CHECK_FIRST.search(text)
+    )
+
+
+#: Owner ruling 2026-10-02 (the underwriter's Q6, audit I42; true revenue spec §6.2's package passes, §9.1; R2-OW15): a
+#: processor's chargeback of a card sale, and a processor's merchant, financial or bankcard adjustment, read on a debit's
+#: text (processor_chargeback_debit); never the bank's or the processor's fee for one (_PROCESSOR_CHARGEBACK_FEE: the
+#: chargeback words are spared, so CHG BACK and CHARGE BACK stay chargebacks).
+_PROCESSOR_CHARGEBACK_WORD = re.compile(r"(?<![A-Z])(?:CHARGE ?BACKS?|CHBK|CHGBK|CHG BACK)(?![A-Z])")
+_PROCESSOR_ADJUSTMENT_WORD = re.compile(r"(?<![A-Z])(?:MERCH(?:ANT)? ADJ\w*|FINCL ADJ|BANKCD ADJ)(?![A-Z])")
+_PROCESSOR_CHARGEBACK_FEE = re.compile(
+    r"(?<![A-Z])(?:FEES?|FRAIS|SVC CHG|SERVICE CHARGE|CHRG|CHG(?! ?BACK)|CHARGES?(?! ?BACK))(?![A-Z])"
+)
+
+
+def processor_chargeback_debit(text: str) -> str | None:
+    """Owner ruling 2026-10-02 (the underwriter's Q6, "2": "Flag, but do not deduct, returns that cannot be matched
+    and processor chargebacks"; audit I42; R2-OW15): the wording of a debit that is a processor's chargeback or
+    adjustment, 'chargeback' or 'adjustment', else None. A flag's reader only: no classification, tier, figure or
+    lender reading reads it (analysis/revenue_view.py debit_side_flags flags the row on the statement and the package,
+    never deducted).
+
+    The fee wording (_PROCESSOR_CHARGEBACK_FEE) refuses it (the bank's chargeback fee, CHBK CHRG), and a returned
+    deposited item reads first (_deposit_return_debit: R2-B08's DEP RETURN CHARGEBACK and a bank's row-leading CHARGE
+    BACK of a deposited item are returns, never processor chargebacks). The caller reads the row's posting, duplicate
+    mark, lender contributions and class."""
+    if _PROCESSOR_CHARGEBACK_FEE.search(text) is not None or _deposit_return_debit(text):
+        return None
+    if _PROCESSOR_CHARGEBACK_WORD.search(text) is not None:
+        return "chargeback"
+    if _PROCESSOR_ADJUSTMENT_WORD.search(text) is not None:
+        return "adjustment"
+    return None
+
+
+#: Owner ruling 2026-10-02 (the underwriter's Q4, "Let's go with option 2 and I'll review it anyways"; audit I30; true
+#: revenue spec §6.2's package passes, §8.2; R2-OW16): a cash device's word on a cash, branch, teller or ATM deposit
+#: (_CASH_BRANCH_ATM_FORM): an ATM or ABM, cash or coin, a smart safe or a currency-processing device, a night deposit
+#: or drop, a vault or a pre-encoded bag. A teller's, counter's or branch's deposit prints none of them.
+_CASH_DEVICE_WORD = re.compile(
+    r"(?<![A-Z])(?:ATM|ABM|CASH|COIN|SMART ?SAFE|CPS DEVICE|CURRENCY PROCESSING|NIGHT (?:DEP\w*|DROP)|VAULT"
+    r"|PRE ?ENCODED)(?![A-Z])"
+)
+#: R2-OW16: R2-OW14's arm R (a retail cash load, _RETAIL_CASH_LOAD) on its own: a retail network's cash load is cash.
+_RETAIL_CASH_LOAD_FORM = re.compile(_RETAIL_CASH_LOAD)
+
+
+def paper_or_cash_deposit(text: str) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q4, "Let's go with option 2 and I'll review it anyways": match a
+    deposit to an exact-cents transfer out of another of the business's accounts, never a round sum or P2P; audit I30;
+    R2-OW16): whether a credit is a paper or cash deposit, which is never the receiving leg of an electronic transfer
+    between two of the business's accounts. Read on the row before its receiver fields (`_before_receiver` of
+    `revenue_text`): a check deposit (§8.3's _CHECK_DEPOSIT_FORM), a cash, branch, teller or ATM deposit (§8.2's
+    _CASH_BRANCH_ATM_FORM) that prints a cash device's word (_CASH_DEVICE_WORD), or R2-OW14's retail cash load (arm R).
+    A teller's, counter's or branch's deposit that prints no such word stays eligible: a branch transfer between two
+    of the business's accounts can print that way on its receiving side. A package pass's reader only (webapp/app.py
+    `_package_matches`, pass 2): no classification, tier, figure or lender reading reads it."""
+    row = _before_receiver(revenue_text(text))
+    if _CHECK_DEPOSIT_FORM.search(row) is not None:
+        return True
+    if _CASH_BRANCH_ATM_FORM.search(row) is not None and _CASH_DEVICE_WORD.search(row) is not None:
+        return True
+    return _RETAIL_CASH_LOAD_FORM.search(row) is not None
+
+
+def _deposit_channel_credit(text: str) -> bool:
+    """5.6 (audit B3: I03): a credit a returned item may undo: a check deposit (§8.3), a cash, branch, teller or ATM
+    deposit (§8.2), a deposit capture glued to its word (_DEPOSIT_CAPTURE_WORD), or a bare deposit that names no payer
+    (§8.2's bare row printing a deposit word and no card word); never a wire, a person-to-person or push rail, or an
+    electronic payment (a returned item names no payer, so it never undoes a named payer's payment)."""
+    text = revenue_text(text)
+    row = _before_receiver(text)
+    if _is_wire_row(text) or _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
+        return False
+    if _CHECK_DEPOSIT_FORM.search(row) or _DEPOSIT_CAPTURE_WORD.search(row):
+        return True
+    if _ELECTRONIC_PAYMENT_FORM.search(row):
+        return False
+    if _CASH_BRANCH_ATM_FORM.search(row):
+        return True
+    return _DEPOSIT_WORD.search(row) is not None and _CARD_WORD.search(row) is None and _is_bare_row(text)
+
+
+def _deposit_return_pairs(
+    records: list[TransactionClassification], duplicate_indexes: set[int],
+) -> list[tuple[int, int]]:
+    """5.6 (audit B3: I03, §6.2 pass 4, revenue side only): the (credit index, debit index) pairs of a debit that undoes
+    a deposit (_deposit_return_debit) and an equal posted deposit-channel credit (_deposit_channel_credit) 0 to
+    _DEPOSIT_RETURN_DAYS days before it. No shared word is needed: a returned item never prints the depositor's words.
+    Each such debit, in row order, takes the earliest such credit not yet taken (then the first row), so a redeposit
+    after the return, or beside a corrected deposit, stays counted.
+
+    B3 review round 1: an undated credit or debit reads the row order (the deposit printed before the return), and an
+    undo debit that names an equal credit's payer (_undo_debit_names_a_credit) is left to the shared-word pairing."""
+    pairs: list[tuple[int, int]] = []
+    taken: set[int] = set()
+    for debit_index, debit in enumerate(records):
+        if (
+            debit_index in duplicate_indexes
+            or debit.amount >= 0
+            or not debit.is_posted
+            or not _deposit_return_debit(debit.normalized_description)
+            or _undo_debit_names_a_credit(records, duplicate_indexes, debit_index)
+        ):
+            continue
+        amount = round(abs(debit.amount), 2)
+        debit_date = parse_date(debit.date)
+        best: tuple[tuple[date, int], int] | None = None
+        for credit_index, credit in enumerate(records):
+            if (
+                credit_index in duplicate_indexes
+                or credit_index in taken
+                or credit.amount <= 0
+                or not credit.is_posted
+                or round(credit.amount, 2) != amount
+            ):
+                continue
+            credit_date = parse_date(credit.date)
+            if credit_date is None or debit_date is None:
+                if credit_index >= debit_index:
+                    continue
+            elif not 0 <= (debit_date - credit_date).days <= _DEPOSIT_RETURN_DAYS:
+                continue
+            if not _deposit_channel_credit(credit.normalized_description):
+                continue
+            key = (credit_date or debit_date or date.min, credit_index)
+            if best is None or key < best[0]:
+                best = (key, credit_index)
+        if best is not None:
+            taken.add(best[1])
+            pairs.append((best[1], debit_index))
+    return pairs
+
+
+def _undo_debit_names_a_credit(
+    records: list[TransactionClassification], duplicate_indexes: set[int], debit_index: int,
+) -> bool:
+    """B3 review round 1 (§6.2 pass 4): a correction debit (_DEPOSIT_CORRECTION_MARKERS, one of pass 4's revenue-side
+    markers) that shares a word or a family with an equal posted credit, 14 days either side, that is no
+    deposit-channel credit. Such a correction undoes that credit ('ERROR CORRECTION CONTOSO SUPPLY LLC' undoes
+    Contoso's payment), so the deposit mode never seizes it for an equal deposit; pass 4's shared-word pairing takes
+    it. A returned item is never one: the name it prints is the returned check's maker, so it undoes the deposited
+    check, never the maker's equal electronic payment. A deposit-channel credit sharing the correction's words is left
+    to the deposit mode, which reads only deposits printed before the undo."""
+    debit = records[debit_index]
+    debit_text = debit.normalized_description
+    if not _matches_any(debit_text, _DEPOSIT_CORRECTION_MARKERS):
+        return False
+    amount = round(abs(debit.amount), 2)
+    debit_date = parse_date(debit.date)
     for credit_index, credit in enumerate(records):
         if (
             credit_index in duplicate_indexes
             or credit.amount <= 0
             or not credit.is_posted
+            or round(credit.amount, 2) != amount
         ):
             continue
-        credit_has_marker = _matches_any(
-            credit.normalized_description,
-            _REVERSAL_CANCELLATION_CREDIT_PATTERNS,
-        )
+        credit_date = parse_date(credit.date)
+        if credit_date is not None and debit_date is not None and abs((credit_date - debit_date).days) > 14:
+            continue
+        text = credit.normalized_description
+        if not _deposit_channel_credit(text) and _descriptions_share_pair_context(text, debit_text):
+            return True
+    return False
+
+
+def _credit_pair_marker(text: str, credit_markers: Sequence[re.Pattern[str]]) -> bool:
+    """5.6 (audit B3: I04): a credit-row-only pass-4 marker (`credit_markers`: step 3's 5.6 credit markers on the
+    revenue side, none on the lender side). B3 review round 1 (§7.11): with step 3's carve-out, so a provider's
+    REMBOURSEMENT (_remboursement_from_a_provider), which leaves step 3, marks no pair either."""
+    return any(
+        pattern.search(text) is not None
+        and not (pattern is _REMBOURSEMENT_WORD and _remboursement_from_a_provider(text))
+        for pattern in credit_markers
+    )
+
+
+#: 5.5 (§6.2 pass 4): the reversal pair reads the credit markers of step 3, return codes included. 5.6 (audit B3: I03,
+#: §20): on the revenue side, the deposit undo markers too, read on either row.
+_PAIR_MARKER_PATTERNS = (*_REVERSAL_CANCELLATION_CREDIT_PATTERNS, *_RETURN_CODE_CREDIT_PATTERNS, *_DEPOSIT_UNDO_MARKERS)
+#: 5.6 (audit B3: I04, §20): the revenue side also reads step 3's 5.6 credit markers, on the credit row only: on a debit
+#: several of them are a purchase (CHECKCARD <mmdd>), a repayment (REMBOURSEMENT) or a charge. B3 review round 1:
+#: with step 3's REMBOURSEMENT carve-out (_credit_pair_marker).
+_CREDIT_PAIR_MARKER_PATTERNS = _RETURN_REFUND_CREDIT_PATTERNS
+#: 5.6 (final review I6, §20): the lender side keeps classification 5.4's pairs. A pair the 5.4 credit markers make
+#: (step 3's markers without the return codes and the French cancel words) alone zeroes the debit's lender,
+#: potential-lender, withholding, insurance and flag contributions (setting its reversed_by) and sets the credit's
+#: settlement-reversal fields and flag contribution; the widened markers change the credit's revenue reading only.
+_LENDER_PAIR_MARKER_PATTERNS = tuple(
+    pattern for pattern in _REVERSAL_CANCELLATION_CREDIT_PATTERNS if pattern is not _FRENCH_CANCEL_CREDIT_PATTERN
+)
+
+
+def _reversal_pairs(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+    markers: Sequence[re.Pattern[str]],
+    marked: dict[int, bool] | None = None,
+    *,
+    credit_markers: Sequence[re.Pattern[str]] = (),
+    seeded: Sequence[tuple[int, int]] = (),
+    refuse: Callable[[int, int], bool] | None = None,
+) -> list[tuple[int, int]]:
+    """§6.2 pass 4: the (credit index, debit index) pairs, in credit order: an equal posted debit within 14 days that
+    shares the credit's transaction family, where the credit or the debit prints one of `markers`; the nearest date,
+    then the nearest row, wins, and a debit pairs once. `marked` caches each row's marker reading.
+
+    5.6 (audit B3, revenue side only): `credit_markers` are read on a credit row only (step 3's 5.6 credit markers, with
+    its REMBOURSEMENT carve-out: _credit_pair_marker), and the `seeded` pairs (the returned deposits,
+    _deposit_return_pairs) are made first: their credits and debits pair no further.
+
+    The final review of round 2, F2(a) (lender side only): a (credit, debit) candidate `refuse` names is no candidate
+    (_returns_a_later_funder_payment: a confirmed funder's paid payment dated after the return)."""
+    marked = {} if marked is None else marked
+
+    def has_marker(index: int) -> bool:
+        if index not in marked:
+            text = records[index].normalized_description
+            marked[index] = _matches_any(text, markers) or (
+                records[index].amount > 0 and _credit_pair_marker(text, credit_markers)
+            )
+        return marked[index]
+
+    pairs: list[tuple[int, int]] = list(seeded)
+    matched_debit_indexes: set[int] = {debit_index for _, debit_index in seeded}
+    seeded_credits = {credit_index for credit_index, _ in seeded}
+    for credit_index, credit in enumerate(records):
+        if (
+            credit_index in duplicate_indexes
+            or credit_index in seeded_credits
+            or credit.amount <= 0
+            or not credit.is_posted
+        ):
+            continue
+        credit_has_marker = has_marker(credit_index)
         candidates: list[tuple[int, int]] = []
         credit_date = parse_date(credit.date)
         for debit_index, debit in enumerate(records):
@@ -2240,11 +5713,9 @@ def _apply_reversal_pair_context(
                 or round(abs(debit.amount), 2) != round(credit.amount, 2)
             ):
                 continue
-            debit_has_marker = _matches_any(
-                debit.normalized_description,
-                _REVERSAL_CANCELLATION_CREDIT_PATTERNS,
-            )
-            if not credit_has_marker and not debit_has_marker:
+            if not credit_has_marker and not has_marker(debit_index):
+                continue
+            if refuse is not None and refuse(credit_index, debit_index):
                 continue
             debit_date = parse_date(debit.date)
             day_gap = (
@@ -2264,8 +5735,71 @@ def _apply_reversal_pair_context(
             candidates,
             key=lambda item: (item[0], abs(item[1] - credit_index), item[1]),
         )
-        debit = records[debit_index]
         matched_debit_indexes.add(debit_index)
+        pairs.append((credit_index, debit_index))
+    return sorted(pairs)
+
+
+def _apply_reversal_pair_context(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    updated = list(records)
+    revenue_marked: dict[int, bool] = {}
+    # 5.6 (audit B3: I03): the revenue side pairs each returned deposit with its deposit first.
+    deposit_pairs = _deposit_return_pairs(records, duplicate_indexes)
+    revenue_pairs = _reversal_pairs(
+        records, duplicate_indexes, _PAIR_MARKER_PATTERNS, revenue_marked,
+        credit_markers=_CREDIT_PAIR_MARKER_PATTERNS, seeded=deposit_pairs,
+    )
+    # 5.6 (final review I6): the lender side's pairs are 5.4's. A statement where no row prints a widened-only marker,
+    # and where no returned deposit paired (audit B3: I03), has the same pairs on both sides.
+    widened = bool(deposit_pairs) or any(
+        revenue_marked.get(index) and not _matches_any(records[index].normalized_description,
+                                                        _LENDER_PAIR_MARKER_PATTERNS)
+        for index in revenue_marked
+    )
+
+    def refuse(credit_index: int, debit_index: int) -> bool:
+        return _returns_a_later_funder_payment(records, credit_index, debit_index)
+
+    # The final review of round 2, F2(a): a confirmed funder's paid payment pairs on the lender side only with a return
+    # dated on or after it. Refusing a candidate only removes it, so a statement where no revenue pair is such a
+    # candidate (and no widened marker reads) keeps the revenue side's pairs, as before.
+    lender_pairs = (
+        _reversal_pairs(records, duplicate_indexes, _LENDER_PAIR_MARKER_PATTERNS, refuse=refuse)
+        if widened or any(refuse(credit_index, debit_index) for credit_index, debit_index in revenue_pairs)
+        else revenue_pairs
+    )
+    deposit_returns = set(deposit_pairs)
+    for credit_index, debit_index in revenue_pairs:
+        credit, debit = records[credit_index], records[debit_index]
+        related_location = debit.source_location or f"transaction:{debit_index + 1}"
+        returned_deposit = (credit_index, debit_index) in deposit_returns
+        updated[credit_index] = _replace_revenue_state(
+            credit,
+            "non_revenue",
+            match_method="matched_reversal_pair",
+            matched_rule=(
+                "returned_deposit_amount_date_match" if returned_deposit
+                else "opposite_direction_amount_date_description_match"
+            ),
+            confidence_score=1.0,
+            reason=(
+                f"Deposit undone by the returned-item or correction row {related_location} (the same amount, 0 to "
+                f"{_DEPOSIT_RETURN_DAYS} days later)." if returned_deposit else
+                f"Credit matches reversal or cancellation row {related_location} by "
+                "amount, date proximity, and transaction-family description."
+            ),
+            context_signals=(
+                *credit.revenue_context_signals,
+                "matched_opposite_direction_row",
+                "returned_deposit" if returned_deposit else "amount_date_description_match",
+            ),
+            related_transaction=related_location,
+        )
+    for credit_index, debit_index in lender_pairs:
+        credit, debit = records[credit_index], records[debit_index]
         related_location = debit.source_location or f"transaction:{debit_index + 1}"
         credit_location = credit.source_location or f"transaction:{credit_index + 1}"
         is_settlement_reversal = _matches_any(
@@ -2275,32 +5809,31 @@ def _apply_reversal_pair_context(
             debit.normalized_description,
             _SETTLEMENT_REVERSAL_PATTERNS,
         )
-        updated_credit = _replace_revenue_state(
-            credit,
-            "non_revenue",
-            match_method="matched_reversal_pair",
-            matched_rule="opposite_direction_amount_date_description_match",
-            confidence_score=1.0,
-            reason=(
-                f"Credit matches reversal or cancellation row {related_location} by "
-                "amount, date proximity, and transaction-family description."
-            ),
-            context_signals=(
-                *credit.revenue_context_signals,
-                "matched_opposite_direction_row",
-                "amount_date_description_match",
-            ),
-            related_transaction=related_location,
-        )
         # A credit this pass pairs with a debit is money coming back, not a factor's
         # payout (owner ruling 2026-09-26), so it leaves the flagged totals.
         updated[credit_index] = replace(
-            updated_credit,
+            updated[credit_index],
             reversal_of=related_location if is_settlement_reversal else None,
             settlement_reversal=is_settlement_reversal,
             contributes_to_flagged_totals=False,
         )
-        if is_settlement_reversal:
+        if is_settlement_reversal and _is_paid_funder_debit(updated[debit_index]):
+            # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a confirmed funder's payment returned unpaid
+            # leaves paid to lenders and keeps its withholding and its lender count; reversed_by is set as before.
+            updated[debit_index] = replace(
+                updated[debit_index],
+                reversed_by=credit_location,
+                contributes_to_potential_lender_count=False,
+                contributes_to_lender_totals=False,
+                contributes_to_potential_lender_totals=False,
+                contributes_to_potential_withholding_exposure=False,
+                contributes_to_insurance_totals=False,
+                contributes_to_flagged_totals=False,
+                returned_funder_payment_by=credit_location,
+                reason=f"{updated[debit_index].reason} {_returned_unpaid_reason(credit_location)}",
+            )
+            updated[credit_index] = replace(updated[credit_index], returns_funder_payment=related_location)
+        elif is_settlement_reversal:
             updated[debit_index] = replace(
                 updated[debit_index],
                 reversed_by=credit_location,
@@ -2316,76 +5849,956 @@ def _apply_reversal_pair_context(
     return updated
 
 
+def _is_paid_funder_debit(record: TransactionClassification) -> bool:
+    """Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a confirmed funder's posted payment counted as paid to
+    lenders, the debit a returned funder payment takes out of the paid figure."""
+    return (
+        record.amount < 0
+        and record.is_posted
+        and record.classification == "confirmed_lender"
+        and record.contributes_to_lender_totals
+    )
+
+
+def _returns_a_later_funder_payment(
+    records: list[TransactionClassification], credit_index: int, debit_index: int,
+) -> bool:
+    """The final review of round 2, F2(a) (the owner's ruling of 2026-10-02 on the underwriter's Q5, "Match the return
+    to the funder payment it reverses"; true revenue spec §6.2 pass 4): whether a lender-side pair of this credit and
+    debit would restore (R2-OW13) a confirmed funder's paid payment dated AFTER the return, which the return cannot
+    reverse. The pair is a settlement reversal (the credit or the debit prints a reversal word, the restore's own
+    test) and the debit is a confirmed funder's paid payment (_is_paid_funder_debit) dated after the credit; where either
+    row prints no date, printed after it (rule D's order, _return_gap). Such a candidate is refused, so the return pairs
+    with a payment on or before it, or with none (rule D and the package's pass 4 may still read it)."""
+    credit, debit = records[credit_index], records[debit_index]
+    if not _is_paid_funder_debit(debit):
+        return False
+    if not (_matches_any(credit.normalized_description, _SETTLEMENT_REVERSAL_PATTERNS)
+            or _matches_any(debit.normalized_description, _SETTLEMENT_REVERSAL_PATTERNS)):
+        return False
+    credit_date, debit_date = parse_date(credit.date), parse_date(debit.date)
+    if credit_date is None or debit_date is None:
+        return debit_index > credit_index
+    return debit_date > credit_date
+
+
+def _returned_unpaid_reason(credit_location: str) -> str:
+    """The sentence a returned funder payment's debit adds to its reason (R2-OW13). The ruling is named without its
+    date: the analysis layer keeps no year literal outside date parsing (tests/test_no_statement_hardcodes.py)."""
+    return (
+        f"Returned unpaid by {credit_location}: out of paid to lenders, kept in the withholding rate (the owner's "
+        "ruling on the underwriter's Q5)."
+    )
+
+
+#: Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §6.2 pass 7b, §11; R2-OW13): the
+#: forms a bank prints when it returns the business's own payment unpaid (a bounce), read on a credit by the
+#: returned-funder-payment pass alone (rule D, _returned_funder_payment_pairs): never a refund, a card return, a
+#: correction or a reversal word on its own, and never with the fee words of _DEPOSIT_UNDO_FEE. Arms (2) to (6) read only
+#: where no legal-form word follows on the row (a return code inside a company's name is no bounce: SAMPLE RTN TRUCKING
+#: LLC). The two French arms are audit round 2's R2-B08 arms (a) and (c) of _RETURN_REFUND_R2_B08_ARMS (EFFET RETOURNE,
+#: EFFET or CHEQUE REFUSE SANS PROVISION), copied here and read on the lender side only (a test keeps them equal); their
+#: revenue-side reading stays R2-B08's.
+_RETURNED_PAYMENT_CREDIT_PATTERNS = (
+    re.compile(r"\bRETURN OF POSTED (?:CHECK|ITEM)\b"),
+    re.compile(r"(?<![A-Z])(?:ITEM RET|RET ITEM|RET NOT PAID)\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])(?:RTN|RETN)\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])NSF\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])(?:UNPAID|NOT PAID)\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"(?<![A-Z])REJECT(?:ED)?\b" + _NO_LEGAL_FORM_LATER),
+    re.compile(r"\bRETURN(?:ED)? (?:ITEM|ACH|PAYMENT|DEBIT|PAD|CHECK|CHEQUE|EFT|ENTRY|DR)S?\b"),
+    re.compile(r"\b(?:ITEM|ACH|PAYMENT|DEBIT|PAD|EFT|CHECK|CHEQUE|ENTRY|DR)S? RETURN(?:ED)?\b"),
+    re.compile(r"\bCREDIT RETURNED\b"),
+    re.compile(r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b"),
+    re.compile(r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b"),
+)
+#: Rule D's window: the return credit is dated 0 to this many days after the funder's debit (R2-OW13). A 14-day window
+#: adds no corpus row (measured by the planning card at c486fd5).
+RETURNED_FUNDER_PAYMENT_WINDOW_DAYS = 7
+#: Bank of America's return names the day the returned item was received ('RECEIVED ON 03/03', its slash normalized
+#: to a space): a candidate debit dated that month and day is the one returned (R2-OW13).
+_RECEIVED_ON_DAY = re.compile(r"\bRECEIVED ON (\d{1,2}) ?(\d{1,2})\b")
+#: The tiers a return credit rule D reads may carry: out of True (a credit the revenue side counts is never a return).
+_RETURN_CREDIT_TIERS = frozenset({"non_revenue", "excluded_pending_review"})
+
+
+def _returned_payment_credit(text: str) -> bool:
+    """R2-OW13: a credit printing a bounce form (_RETURNED_PAYMENT_CREDIT_PATTERNS) and no fee word."""
+    return _matches_any(text, _RETURNED_PAYMENT_CREDIT_PATTERNS) and _DEPOSIT_UNDO_FEE.search(text) is None
+
+
+def _received_on_day(text: str) -> tuple[int, int] | None:
+    """The (month, day) Bank of America's 'RECEIVED ON <mm> <dd>' prints, or None."""
+    found = _RECEIVED_ON_DAY.search(text)
+    if found is None:
+        return None
+    month, day = int(found.group(1)), int(found.group(2))
+    return (month, day) if 1 <= month <= 12 and 1 <= day <= 31 else None
+
+
+def _return_gap(
+    records: list[TransactionClassification], credit_index: int, debit_index: int,
+) -> tuple[bool, int | None]:
+    """(inside rule D's window, the gap in days): the credit dated 0 to RETURNED_FUNDER_PAYMENT_WINDOW_DAYS days after
+    the debit; when either row is undated, the debit printed before the credit (the gap then None)."""
+    credit_date, debit_date = parse_date(records[credit_index].date), parse_date(records[debit_index].date)
+    if credit_date is None or debit_date is None:
+        return debit_index < credit_index, None
+    days = (credit_date - debit_date).days
+    return 0 <= days <= RETURNED_FUNDER_PAYMENT_WINDOW_DAYS, days
+
+
+def _returned_funder_payment_pairs(
+    records: list[TransactionClassification], duplicate_indexes: set[int],
+) -> list[tuple[int, int]]:
+    """Owner ruling 2026-10-02 (the underwriter's Q5, "Match the return to the funder payment it reverses"; true
+    revenue spec §6.2 pass 7b; R2-OW13): rule D's (credit index, debit index) pairs, in the credits' (date, row) order,
+    undated first.
+
+    - Funder debits: posted, not duplicates, confirmed lenders' payments counted as paid (_is_paid_funder_debit) that
+      no pair reversed and no earlier return took. Guard debits: every other posted debit that is no duplicate and no
+      confirmed lender's (potential lenders included).
+    - Return credits: posted, not duplicates, not a named pair's credit (another debit's reversed_by), not a lender
+      credit, out of True (_RETURN_CREDIT_TIERS: never a credit the revenue side counts) and printing a bounce form
+      (_returned_payment_credit).
+    - A credit the revenue side paired (matched_reversal_pair) pairs only with its partner, when that is an unused
+      funder debit of equal cents inside the window and order (_return_gap); otherwise it is left alone. A credit that
+      names a confirmed funder (the credit index of the known payees) pairs only with that funder's debits.
+    - Otherwise the candidates are the unused funder debits of equal cents inside the window and order. A candidate
+      dated on the 'RECEIVED ON' day the credit prints wins; else the latest debit date, then the nearest row. The
+      credit is skipped when an equal guard debit lies in the window as near as the chosen one, or undated.
+    Each debit pairs once."""
+    def location(index: int) -> str:
+        return records[index].source_location or f"transaction:{index + 1}"
+
+    def cents(index: int) -> int:
+        return round(abs(records[index].amount) * 100)
+
+    funder_debits = [
+        index for index, record in enumerate(records)
+        if index not in duplicate_indexes and _is_paid_funder_debit(record)
+        and record.reversed_by is None and record.returned_funder_payment_by is None
+    ]
+    if not funder_debits:
+        return []
+    guard_debits = [
+        index for index, record in enumerate(records)
+        if index not in duplicate_indexes and record.amount < 0 and record.is_posted
+        and record.classification != "confirmed_lender"
+    ]
+    paired_credits = {record.reversed_by for record in records if record.reversed_by}
+    credits: list[tuple[date, int]] = []
+    for index, record in enumerate(records):
+        if (
+            index in duplicate_indexes
+            or record.amount <= 0
+            or not record.is_posted
+            or location(index) in paired_credits
+            or record.contributes_to_lender_credit_exclusion
+            or record.revenue_tier not in _RETURN_CREDIT_TIERS
+            or not _returned_payment_credit(record.normalized_description)
+        ):
+            continue
+        credits.append((parse_date(record.date) or date.min, index))
+    credits.sort()
+    used: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    for _, credit_index in credits:
+        credit = records[credit_index]
+        named = match_known_payee(credit.normalized_description, credit=True)
+        funder = named.entity if named is not None and named.state == "confirmed_lender" else None
+        candidates = [
+            index for index in funder_debits
+            if index not in used and cents(index) == cents(credit_index)
+            and (funder is None or records[index].canonical_entity == funder)
+            and _return_gap(records, credit_index, index)[0]
+        ]
+        if credit.revenue_match_method == "matched_reversal_pair":
+            partner = next((index for index in candidates if location(index) == credit.revenue_related_transaction),
+                           None)
+            if partner is not None:
+                used.add(partner)
+                pairs.append((credit_index, partner))
+            continue
+        if not candidates:
+            continue
+        received = _received_on_day(credit.normalized_description)
+
+        def rank(index: int) -> tuple[int, int, int]:
+            debit_date = parse_date(records[index].date)
+            on_received = received is not None and debit_date is not None and (
+                (debit_date.month, debit_date.day) == received)
+            return (0 if on_received else 1, -(debit_date.toordinal() if debit_date else 0),
+                    abs(credit_index - index))
+
+        chosen = min(candidates, key=rank)
+        chosen_gap = _return_gap(records, credit_index, chosen)[1]
+        if any(
+            cents(index) == cents(credit_index)
+            and (window := _return_gap(records, credit_index, index))[0]
+            and (window[1] is None or chosen_gap is None or window[1] <= chosen_gap)
+            for index in guard_debits
+        ):
+            continue
+        used.add(chosen)
+        pairs.append((credit_index, chosen))
+    return pairs
+
+
+def _apply_returned_funder_payments(
+    records: list[TransactionClassification], duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    """Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §6.2 pass 7b, §11; R2-OW13): each rule-D pair
+    (_returned_funder_payment_pairs) takes the funder's debit out of paid to lenders (contributes_to_lender_totals and,
+    as a named pair does, contributes_to_flagged_totals False; returned_funder_payment_by the credit's location; the
+    reason's returned-unpaid sentence) and keeps its withholding and its lender count; the credit names the debit
+    (returns_funder_payment). reversed_by, settlement_reversal and every revenue field stay as they are, so the
+    reconciliation's reversal coverage, the settled-activity counts and every revenue reading are unchanged. It runs
+    after pass 7, so the credit's tier is final, and before the duplicate finalisation."""
+    pairs = _returned_funder_payment_pairs(records, duplicate_indexes)
+    if not pairs:
+        return records
+    updated = list(records)
+    for credit_index, debit_index in pairs:
+        credit_location = records[credit_index].source_location or f"transaction:{credit_index + 1}"
+        debit_location = records[debit_index].source_location or f"transaction:{debit_index + 1}"
+        updated[debit_index] = replace(
+            updated[debit_index],
+            contributes_to_lender_totals=False,
+            contributes_to_flagged_totals=False,
+            returned_funder_payment_by=credit_location,
+            reason=f"{updated[debit_index].reason} {_returned_unpaid_reason(credit_location)}",
+        )
+        updated[credit_index] = replace(updated[credit_index], returns_funder_payment=debit_location)
+    return updated
+
+
+def _recurrence_vetoed(record: TransactionClassification, text: str) -> bool:
+    """5.5 (§7.0): a credit that never counts toward recurrence and is never lifted by it: payroll, the recurrence
+    veto words and card-credit labels (read on the row before its receiver fields), FUNDING outside the three
+    platforms that print it on settlements (review C2), under the $1 floor, or a direction conflict."""
+    return (
+        _recurrence_veto_wording(record, text)
+        or record.amount < _MICRO_DEPOSIT_FLOOR
+        or record.revenue_match_method == "direction_conflict"
+        or not record.direction_consistent
+    )
+
+
+def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bool:
+    """5.5 (§7.0): the worded part of the recurrence veto: payroll, a veto word or card-credit label, or FUNDING
+    outside the three platforms that print it on settlements (review C2)."""
+    entity = record.revenue_canonical_entity
+    # Audit B9 (I13): the holder's own words are read on the holder's name when the parser read it.
+    holder = holder_reading(record.account_name, record.holder_name)
+    return (
+        record.classification == "payroll"
+        or _recurrence_veto_word(text, holder, entity)
+        or (
+            entity not in _FUNDING_SETTLEMENT_ENTITIES
+            and _recurrence_veto_word(text, holder, entity, _FUNDING_WORD)
+        )
+    )
+
+
+def _recurrence_veto_word(
+    text: str, account_name: str | None, entity: str | None, pattern: re.Pattern[str] = _RECURRENCE_VETO
+) -> bool:
+    """5.5 (§7.0): the recurrence veto on the row before its receiver fields. On a store-name platform
+    (_STORE_NAME_PAYOUT_ENTITIES) a veto word that is one of the holder's own words (its account name, or the name the
+    bank prints in the receiver field), or the start of one (four letters or more), is not read: the platform prints
+    the merchant's store name, which is the holder's, in its entry field ('DOORDASH INC DES:<store> CAPITA ...
+    INDN:<store> CAPITAL GROUP'). On every other source, and on a row no registry source decided, a veto word always
+    vetoes (S2.4 review)."""
+    if entity not in _STORE_NAME_PAYOUT_ENTITIES or not store_name_printed(text, entity, account_name):
+        return pattern.search(_before_receiver(text)) is not None
+    holder = set(holder_words(account_name))
+    for found in _RECEIVER_FIELD_VALUE.finditer(text):
+        holder.update(_distinctive_words(found.group(0).split()[1:]))
+    # FW wave 3 (W2-1): the words of a store name that is a run of the holder's name are spared at any length.
+    run = store_name_run_words(text, entity, account_name)
+    row = _before_receiver(text)
+    for found in pattern.finditer(row):
+        word = found.group(0)
+        if word in run or (len(word) >= 4 and any(own == word or own.startswith(word) for own in holder)):
+            continue
+        return True
+    return False
+
+
+def store_name_printed(text: str, entity: str | None, account_name: str | None = None) -> bool:
+    """§7.0 (final review I4): a store-name platform's row prints a store name where the platform prints the merchant's
+    store: its entry field (Bank of America's DES, Chase's CO ENTRY DESCR), or the row before its receiver fields on a
+    layout that prints none (BMO's 'DIRECT DEPOSIT DOORDASH <store> MSP/DIV'). A store name is a word that is no veto
+    or financing word (_RECURRENCE_VETO, _FUNDING_WORD), no generic word, no reference token, no company form and none
+    of the platform's own alias words. A veto word that is the whole field, or forms it alone with generic words
+    ('DES:CAPITAL', 'DES:CAPITAL ADVANCE', 'DES:LENDING PAYMENT'), is the platform's own financing wording, so the
+    holder's word exemption never reads it. Re-review (I4-R): nor is a veto word that leads the field, whatever follows
+    it ('DES:CAPITAL DISB', 'DES:LENDING DAILY': the ten-character entry field often cuts a financing entry's second
+    word); a store name prints its own words first ('DES:<store> CAPITA'), so the field must lead with a store word.
+    FW wave 3 (W2-1): a store whose own name starts with a financing word ('DES:CAPITAL GRILLE' for a holder named
+    '... CAPITAL GRILLE ...') leads with it too: the field leads with a store word when its words (two or more) are a
+    consecutive run of the holder's name (_store_name_run)."""
+    words = _platform_entry_words(text, entity)
+    if not words:
+        return False
+    led = " ".join(words)
+    if _RECURRENCE_VETO.match(led) is None and _FUNDING_WORD.match(led) is None:
+        return True
+    return _store_name_run(words, text, account_name)
+
+
+def store_name_run_words(text: str, entity: str | None, account_name: str | None) -> frozenset[str]:
+    """FW wave 3 (W2-1): the store-name platform's entry words when they are a run of the holder's name
+    (_store_name_run): the store's own name, whose words the recurrence veto and the registry's financing words spare
+    at any length ('FIN AND FORK'); empty otherwise."""
+    if entity not in _STORE_NAME_PAYOUT_ENTITIES:
+        return frozenset()
+    words = _platform_entry_words(text, entity)
+    return frozenset(words) if _store_name_run(words, text, account_name) else frozenset()
+
+
+def _store_name_run(words: Sequence[str], text: str, account_name: str | None) -> bool:
+    """FW wave 3 (W2-1): the platform's entry words, two or more, are a consecutive run of whole words of the holder's
+    own name as the classifier knows it: the statement's account name (its trade name after DBA included), or a name
+    the row's receiver fields print (a product-name account). A bare financing word is one word; a financing entry
+    ('CAPITAL DISB', 'LENDING DAILY') or a store the holder is not ('CAPITAL GRILLE' for 'SAMPLE BAKERY LLC') is no
+    run."""
+    if len(words) < 2:
+        return False
+    names = [account_name_text(account_name).split()] if account_name else []
+    for found in _RECEIVER_FIELD_VALUE.finditer(text):
+        names.append(_RECEIVER_NAME_LABEL.sub("", found.group(0), count=1).split())
+    run = list(words)
+    return any(
+        name[start:start + len(run)] == run for name in names for start in range(len(name) - len(run) + 1)
+    )
+
+
+def _platform_entry_words(text: str, entity: str | None) -> list[str]:
+    """§7.0, §7.2 (final review I4, re-review N6): the words of the field where a platform prints its entry (the
+    merchant's store on a store-name platform): its entry field (Bank of America's DES, Chase's CO ENTRY DESCR), or the
+    row before its receiver fields on a layout that prints none, without its generic words, reference tokens, company
+    forms and the platform's own alias words."""
+    row = _before_receiver(text)
+    fields = [found.group(1).strip() for pattern in (_BOFA_ENTRY_FIELD, _CHASE_ENTRY_FIELD)
+              if (found := pattern.search(row)) is not None]
+    field = " ".join(fields) if any(fields) else row
+    platform = {word for alias in OPERATING_REVENUE_SOURCE_ALIASES.get(entity or "", ()) for word in alias.split()}
+    return [
+        word for word in field.split()
+        if not (
+            word in REVENUE_GENERIC_WORDS or _is_reference_token(word) or _BANK_COMPANY_FORM.fullmatch(word)
+            or word in platform
+        )
+    ]
+
+
+#: §7.2 (re-review N6): the financing words a platform's entry field may lead with: the recurrence veto's financing
+#: words, and FUNDING or FUNDED except on the settlements of the three platforms that print it (§7.0).
+_ENTRY_FINANCING_LEAD = re.compile(
+    r"(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPSEC|ADVANCES?|FINANC\w*|LEND\w*|CASH ADV\w*|FUNDING|FUNDED"
+    r"|CAP\d*(?:SEC)?|FIN|ADV|MCA)\b"
+)
+
+
+#: Re-review N6: the matched rule of an operating-registry credit whose entry leads with a financing word.
+PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
+
+
+def platform_entry_leads_with_financing(text: str, entity: str | None, account_name: str | None = None) -> bool:
+    """§7.2 (re-review N6): a processor, marketplace or platform credit whose entry field leads with a financing word
+    (CAPITAL, LENDING, LOAN, ADVANCE, FUNDING, FINANCING and their cuts): the platform's own financing, never its
+    settlement of the business's sales, for any holder. FW wave 3 (W2-1): on a store-name platform, an entry whose
+    words are a consecutive run of the holder's own name is the store's name ('DES:CAPITAL GRILLE'), never financing
+    (_store_name_run)."""
+    words = _platform_entry_words(text, entity)
+    found = _ENTRY_FINANCING_LEAD.match(" ".join(words)) if words else None
+    if found is None:
+        return False
+    if entity in _STORE_NAME_PAYOUT_ENTITIES and _store_name_run(words, text, account_name):
+        return False
+    return not (found.group(0) in {"FUNDING", "FUNDED"} and entity in _FUNDING_SETTLEMENT_ENTITIES)
+
+
+def _in_operating_pool(record: TransactionClassification) -> bool:
+    """5.5 (§7.0): only a credit the operating registry decided, or that an operating-source method or an
+    entity-naming card form verified, joins an entity's recurrence pool."""
+    if record.revenue_canonical_entity is None:
+        return False
+    if record.revenue_match_method in _OPERATING_POOL_METHODS:
+        return True
+    return record.revenue_match_method == "operating_income_descriptor" and (
+        record.revenue_matched_rule or ""
+    ).startswith("card_settlement_form_")
+
+
+def _upgrade_by_recurrence(
+    record: TransactionClassification,
+    *,
+    entity: str,
+    count: int,
+    recurring: bool,
+    business: bool,
+    related_activity: bool,
+    extra_signals: Sequence[str] = (),
+) -> TransactionClassification:
+    """The recurrence pass's verified record for one pooled credit (today's wording)."""
+    signals = list(record.revenue_context_signals)
+    if recurring:
+        signals.append(f"recurring_source_{count}_credits")
+    if business:
+        signals.append("business_account")
+    if related_activity:
+        signals.append("related_platform_fee_or_chargeback")
+    signals.extend(extra_signals)
+    evidence_text = (
+        f"recurs in {count} posted credits"
+        if recurring
+        else "has a related processing fee, commission, chargeback, or adjustment"
+    )
+    return _replace_revenue_state(
+        record,
+        "verified_revenue",
+        match_method="recurring_operating_source" if recurring else "operating_source_related_activity",
+        matched_rule=(
+            "maintained_source_recurs_across_statement"
+            if recurring
+            else "maintained_source_has_related_operating_debit"
+        ),
+        confidence_score=0.90 if recurring else 0.88,
+        reason=f"Maintained operating source '{entity}' {evidence_text}; the credit is verified as operating revenue.",
+        context_signals=signals,
+    )
+
+
 def _apply_operating_source_context(
     records: list[TransactionClassification],
     duplicate_indexes: set[int],
 ) -> list[TransactionClassification]:
+    """Statement pass 5 (§6.2, §7.0): operating-source recurrence and related activity, fixed for every source.
+
+    The pool admits only registry rows and operating-method rows (_in_operating_pool); it counts an entity's credits
+    already verified by an operating-source method and upgrades only the unverified ones, so a per-row upgrade never
+    shrinks it; a vetoed credit never counts and is never lifted (_recurrence_vetoed). A wholesale auction (§7.8) and
+    a property-management platform (§7.10) take their own branches, and an unregistered NET SETTLE originator
+    verifies with three such credits (§7.1). A debit names its platform as the operating reader does, with the
+    receiver field's value removed (§5.2: the holder's name never names a source) and through the ledger gate."""
     updated = list(records)
-    credits_by_entity: dict[str, list[int]] = {}
+    pools: dict[str, list[int]] = {}
+    vetoed: dict[str, list[int]] = {}
     activity_by_entity: dict[str, list[int]] = {}
+    net_settle: dict[tuple[str, ...], list[int]] = {}
     for index, record in enumerate(records):
         if index in duplicate_indexes or not record.is_posted:
             continue
-        match = registry_match(
-            record.normalized_description,
-            OPERATING_REVENUE_SOURCE_ALIASES,
-        )
-        if match is None:
+        text = revenue_text(record.normalized_description)
+        if record.amount < 0:
+            alias_text = _without_receiver_value(text)
+            found = registry_match(alias_text, OPERATING_REVENUE_READ_ALIASES)
+            if found is not None and _read_inside_a_waiting_processor(alias_text, *found):
+                found = None
+            if found is not None and _matches_any(alias_text, _OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS):
+                activity_by_entity.setdefault(found[0], []).append(index)
             continue
-        entity, _ = match
-        if record.amount > 0 and record.revenue_classification == "unverified_deposit":
-            credits_by_entity.setdefault(entity, []).append(index)
-        elif record.amount < 0 and _matches_any(
-            record.normalized_description,
-            _OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS,
+        if record.amount <= 0:
+            continue
+        if _recurrence_vetoed(record, text):
+            if _in_operating_pool(record):
+                vetoed.setdefault(record.revenue_canonical_entity, []).append(index)
+            continue
+        if _in_operating_pool(record):
+            pools.setdefault(record.revenue_canonical_entity, []).append(index)
+        elif (
+            record.revenue_classification == "unverified_deposit"
+            and record.revenue_match_method in {"ambiguous_credit_descriptor", "unidentified_posted_credit"}
+            and channel_gate(text) is None
         ):
-            activity_by_entity.setdefault(entity, []).append(index)
+            form = _card_settlement_form(text, bank=record.bank)
+            if form is not None and form.label == "net_settle":
+                key = _payer_key(payer_region(text))
+                if key:
+                    net_settle.setdefault(key, []).append(index)
 
-    for entity, indexes in credits_by_entity.items():
-        business_context = any(
-            "business_account" in records[index].revenue_context_signals
+    for entity, indexes in pools.items():
+        source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
+        if source_type == "wholesale_auto_auction":
+            _apply_auction_branch(updated, records, entity, indexes, duplicate_indexes)
+            continue
+        if source_type == "property_management_payments":
+            _apply_property_branch(updated, records, entity, indexes)
+            continue
+        business = any(
+            _business_account(records[index].account_name)
+            if source_type != "customer_payment_platform"
+            else _matches_any(
+                account_name_text(records[index].account_name), _BUSINESS_ACCOUNT_PATTERNS
+            )
             for index in indexes
         )
-        recurring = len(indexes) >= 3 or (len(indexes) >= 2 and business_context)
-        related_activity = activity_by_entity.get(entity) or []
-        if not recurring and not related_activity:
+        count = len(indexes)
+        recurring = count >= _RECURRENCE_MIN_CREDITS or (count >= _RECURRENCE_MIN_BUSINESS_CREDITS and business)
+        related = bool(activity_by_entity.get(entity))
+        if not recurring and not related:
             continue
         for index in indexes:
             record = updated[index]
-            signals = list(record.revenue_context_signals)
-            if recurring:
-                signals.append(f"recurring_source_{len(indexes)}_credits")
-            if business_context:
-                signals.append("business_account")
-            if related_activity:
-                signals.append("related_platform_fee_or_chargeback")
-            method = (
-                "recurring_operating_source"
-                if recurring
-                else "operating_source_related_activity"
+            if record.revenue_classification != "unverified_deposit":
+                continue
+            updated[index] = _upgrade_by_recurrence(
+                record, entity=entity, count=count, recurring=recurring, business=business, related_activity=related,
             )
-            rule = (
-                "maintained_source_recurs_across_statement"
-                if recurring
-                else "maintained_source_has_related_operating_debit"
+
+    for indexes in net_settle.values():
+        if len(indexes) < _NET_SETTLE_MIN_CREDITS:
+            continue
+        for index in indexes:
+            updated[index] = _replace_revenue_state(
+                updated[index],
+                "verified_revenue",
+                match_method="operating_income_descriptor",
+                matched_rule="card_settlement_form_net_settle",
+                confidence_score=0.90,
+                reason=f"One originator's NET SETTLE entry recurs in {len(indexes)} posted credits: card settlements.",
+                context_signals=(*updated[index].revenue_context_signals, "card_settlement_form"),
             )
-            evidence_text = (
-                f"recurs in {len(indexes)} posted credits"
-                if recurring
-                else "has a related processing fee, commission, chargeback, or adjustment"
-            )
+    _name_vetoed_branch_rows(updated, vetoed)
+    return updated
+
+
+def _name_vetoed_branch_rows(updated: list[TransactionClassification], vetoed: dict[str, list[int]]) -> None:
+    """5.5 (§7.8, §7.10, §14.1; S2.4 review): a vetoed pool row of a wholesale auction or a property-management
+    platform never counts and is never lifted, and still carries its branch's rule. Only a direction-consistent
+    unverified row in an operating method is renamed; its classification stays. An auction row takes the auction's
+    refusal (a payout-form row vetoed by a pay, financing or other veto word takes the financing or consumer rule; one
+    vetoed only by the $1 floor has no rule of its own and is left as it is); a property row takes the owner or
+    deposit wording rule when it prints that wording."""
+    for entity, indexes in vetoed.items():
+        source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
+        if source_type not in {"wholesale_auto_auction", "property_management_payments"}:
+            continue
+        forms = _AUCTION_PAYOUT_FORMS.get(entity, ())
+        for index in indexes:
+            record = updated[index]
+            if (
+                not record.direction_consistent
+                or record.revenue_classification != "unverified_deposit"
+                or record.revenue_match_method not in _OPERATING_SOURCE_METHODS
+            ):
+                continue
+            text = revenue_text(record.normalized_description)
+            if source_type == "property_management_payments":
+                if _PROPERTY_PLATFORM_GUARD.search(_before_receiver(text)):
+                    updated[index] = _property_wording_record(record, entity)
+                continue
+            rule = _auction_refusal(text, forms)
+            if rule is None:
+                if not _recurrence_veto_wording(record, text):
+                    continue
+                rule = "auction_credit_prints_financing_or_consumer_word"
+            updated[index] = _auction_unverified_record(record, entity, rule)
+
+
+def _auction_refusal(text: str, forms: Sequence[re.Pattern[str]]) -> str | None:
+    """5.5 (§7.8, §14.1): the rule that refuses an auction credit on its wording (a buyer-payment reference, a
+    floor-plan or financing word or a consumer entry, or no observed payout form), or None when it prints the payout
+    form. The payout form is read with the receiver field's value removed (§5.2): the holder's name never verifies."""
+    if _AUCTION_BUYER_PAYMENT.search(text):
+        return "auction_credit_prints_buyer_payment_reference"
+    if _AUCTION_VETO.search(_before_receiver(text)):
+        return "auction_credit_prints_financing_or_consumer_word"
+    if not any(form.search(_without_receiver_value(text)) for form in forms):
+        return "auction_credit_without_payout_form"
+    return None
+
+
+def _auction_unverified_record(
+    record: TransactionClassification, entity: str, rule: str
+) -> TransactionClassification:
+    """5.5 (§7.8): an auction credit that is not the auction's verified payout."""
+    return _replace_revenue_state(
+        record,
+        "unverified_deposit",
+        match_method="operating_source_requires_context",
+        matched_rule=rule,
+        confidence_score=0.60,
+        reason=f"A credit from the wholesale auction '{entity}' that is not its observed payout form.",
+        context_signals=record.revenue_context_signals,
+    )
+
+
+def _property_wording_record(record: TransactionClassification, entity: str) -> TransactionClassification:
+    """5.5 (§7.10): a property-management platform's credit printing owner, distribution or deposit wording."""
+    return _replace_revenue_state(
+        record,
+        "unverified_deposit",
+        match_method="operating_source_requires_context",
+        matched_rule="property_platform_owner_or_deposit_wording",
+        confidence_score=0.60,
+        reason=f"A '{entity}' credit prints owner, distribution or deposit wording.",
+        context_signals=record.revenue_context_signals,
+    )
+
+
+def _apply_auction_branch(
+    updated: list[TransactionClassification],
+    records: list[TransactionClassification],
+    entity: str,
+    indexes: Sequence[int],
+    duplicate_indexes: set[int],
+) -> None:
+    """5.5 (§7.8): a dealer-only wholesale auction verifies only its observed payout form, never a buyer-payment
+    reference, a floor-plan or financing word or a consumer entry (§14.1), and never a credit paired with an equal
+    same-auction debit within 14 days (each debit used once). The payout form is read with the receiver field's value
+    removed (§5.2): the holder's name never verifies."""
+    forms = _AUCTION_PAYOUT_FORMS.get(entity, ())
+    refund_name = _AUCTION_REFUND_NAMES.get(entity)
+    used_debits: set[int] = set()
+    for index in indexes:
+        record = updated[index]
+        rule, verified = _auction_refusal(revenue_text(record.normalized_description), forms), False
+        if rule is None:
+            pair = _auction_refund_pair(records, index, refund_name, used_debits, duplicate_indexes)
+            if pair is not None:
+                used_debits.add(pair)
+                rule = "auction_credit_matches_same_source_debit"
+            else:
+                rule, verified = "wholesale_auto_auction_proceeds", True
+        if verified:
             updated[index] = _replace_revenue_state(
                 record,
                 "verified_revenue",
-                match_method=method,
+                match_method="wholesale_auction_payout_form",
                 matched_rule=rule,
-                confidence_score=0.90 if recurring else 0.88,
-                reason=(
-                    f"Maintained operating source '{entity}' {evidence_text}; "
-                    "the credit is verified as operating revenue."
-                ),
-                context_signals=signals,
+                confidence_score=0.90,
+                reason=f"A dealer-only wholesale auction ('{entity}') pays out in its observed payout form.",
+                context_signals=(*record.revenue_context_signals, "wholesale_auction_payout_form"),
             )
+        else:
+            updated[index] = _auction_unverified_record(record, entity, rule)
+
+
+def _auction_refund_pair(
+    records: list[TransactionClassification],
+    credit_index: int,
+    refund_name: re.Pattern[str] | None,
+    used: set[int],
+    duplicate_indexes: set[int],
+) -> int | None:
+    """5.5 (§7.8): the index of an unused posted debit that names the auction (on its row or its wire BNF line), for
+    the same amount to the cent, within 14 days of the credit; or None."""
+    if refund_name is None:
+        return None
+    credit = records[credit_index]
+    credit_date = parse_date(credit.date)
+    for index, debit in enumerate(records):
+        if (
+            index in used or index in duplicate_indexes or debit.amount >= 0 or not debit.is_posted
+            or round(abs(debit.amount), 2) != round(credit.amount, 2)
+            or not refund_name.search(debit.normalized_description)
+            or re.search(r"\bACV CAPITAL\b", debit.normalized_description)
+        ):
+            continue
+        debit_date = parse_date(debit.date)
+        if credit_date is not None and debit_date is not None and abs(
+            (credit_date - debit_date).days
+        ) > _AUCTION_REFUND_WINDOW_DAYS:
+            continue
+        return index
+    return None
+
+
+def _apply_property_branch(
+    updated: list[TransactionClassification],
+    records: list[TransactionClassification],
+    entity: str,
+    indexes: Sequence[int],
+) -> None:
+    """5.5 (§7.10, T15): a property-management platform verifies by recurrence of its ACH payout shape only (three
+    credits, or two in a business account), never by a related fee debit. A row printing owner, distribution or
+    deposit wording is left out of the count and stays unverified; micro-deposits never count; a push-shaped row
+    stays operating_source_requires_context. A verified row carries the property-management chip."""
+    counted: list[int] = []
+    for index in indexes:
+        record = updated[index]
+        text = revenue_text(record.normalized_description)
+        row = _before_receiver(text)
+        if _PROPERTY_PLATFORM_GUARD.search(row):
+            updated[index] = _property_wording_record(record, entity)
+            continue
+        if _PROPERTY_MICRO_DEPOSIT.search(row) or _PROPERTY_PUSH_SHAPE.search(row):
+            continue
+        if not _ELECTRONIC_PAYMENT_FORM.search(row):
+            continue
+        counted.append(index)
+    business = any(_business_account(records[index].account_name) for index in counted)
+    count = len(counted)
+    if not (count >= _RECURRENCE_MIN_CREDITS or (count >= _RECURRENCE_MIN_BUSINESS_CREDITS and business)):
+        return
+    for index in counted:
+        record = updated[index]
+        if record.revenue_classification != "unverified_deposit":
+            continue
+        updated[index] = _upgrade_by_recurrence(
+            record, entity=entity, count=count, recurring=True, business=business, related_activity=False,
+            extra_signals=("property_management_collections",),
+        )
+
+
+def _payer_key(region: str) -> tuple[str, ...]:
+    """5.6 (§5.2): the payer key: the payer name's words without the generic words, at most the first four."""
+    return tuple(word for word in payer_name(region).split() if word not in REVENUE_GENERIC_WORDS)[:4]
+
+
+def _payer_first_distinctive_word(region: str) -> str | None:
+    """5.5 (§7.5, §8.1): the payer's first distinctive word: four or more letters, not an AP, bank-template,
+    legal-suffix, generic or public-payer word, and not a common name-starter."""
+    words = [word for word in _distinctive_words(payer_name(region).split()) if word not in _counter_debit_skip_words()]
+    return _first_distinctive_word(words)
+
+
+#: 5.5 (§7.5, S2.4 review): a card purchase's leading card-form words and the MMDD date after them. D11 stops at that
+#: date, so 'CHECKCARD 0302 NORTHWIND GRILL' reads CHECKCARD alone; pass 6 reads the debit after them.
+_CARD_FORM_DEBIT_PREFIX = re.compile(
+    r"^(?:RECURRING )?(?:CHECKCARD|(?:MOBILE |CARD )?PURCHASE(?: AUTHORIZED ON)?) (?:\d{4}|\d{2} \d{2}) (?=\S)"
+)
+
+
+#: 5.5 (§7.5, S2.4 re-review): the words of a card purchase's merchant pass 6 reads. The city and state follow them.
+_CARD_MERCHANT_WORDS = 2
+
+
+def _card_processor_code(token: str, printed: str) -> bool:
+    """5.5 (S2.4 re-review): a card purchase's leading token is a processor code ('SQ *', 'TST*'): at most three
+    letters printed right before a star, which normalization drops."""
+    return (
+        token.isalpha() and len(token) <= 3
+        and re.search(rf"(?<![A-Za-z0-9]){re.escape(token)} ?\*", printed, re.IGNORECASE) is not None
+    )
+
+
+def _card_merchant_text(text: str, printed: str) -> str | None:
+    """5.5 (§7.5, S2.4 re-review): a card purchase's merchant, after its card-form prefix and a processor code: its
+    first two words, or None when the merchant's first token is a reference or a short token ('76', 'BP1234567',
+    'SQ *AB'). Never read past the merchant's first words, so the city printed after it is never the debit's word."""
+    tokens = _payee_region(text).split()
+    if tokens and _card_processor_code(tokens[0], printed):
+        tokens = tokens[1:]
+    if not tokens or _is_reference_token(tokens[0]) or len(tokens[0]) <= 2:
+        return None
+    return " ".join(tokens[:_CARD_MERCHANT_WORDS])
+
+
+def _debit_word_reading(
+    record: TransactionClassification, *, keep_places: bool = False,
+) -> tuple[str | None, bool]:
+    """5.5 (§7.5, §8.1): a posted debit's first distinctive word, read on its D11 payee words; on a card purchase,
+    after its leading card-form words and MMDD date and only on its merchant's first two words (S2.4 review and
+    re-review; D11 itself is unchanged). The second value says whether the debit is a card purchase (its card-form
+    prefix matched): pass 7 leaves a card purchase's merchant out of payer_also_debited (5.6, A1 census). Audit round
+    2, R2-B02 (R02): never a rail's, a bank label's or (unless `keep_places`) a place's word (_without_not_a_payer)."""
+    text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
+    if card_form:
+        text = _card_merchant_text(text, record.original_description or "")
+        if text is None:
+            return None, True
+    words = [
+        word for word in _distinctive_words(_without_not_a_payer(_unknown_payee_tokens(text), keep_places=keep_places))
+        if word not in _counter_debit_skip_words()
+    ]
+    return _first_distinctive_word(words), bool(card_form)
+
+
+def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
+    """5.5 (§7.5, §8.1): a posted debit's first distinctive word (_debit_word_reading), a card purchase's merchant
+    included. Passes 6 and 7 read _debit_word_reading itself, with its card flag (final review I5)."""
+    return _debit_word_reading(record)[0]
+
+
+#: Audit B4 (I02; standard A1, A5): words that never make a payer's or a debit's first distinctive word when passes 6
+#: and 7 compare a payer with the statement's debits (counter_debit_payer_reading), beside _counter_debit_skip_words.
+#: Generic words let unrelated companies match: '<initials> EXPRESS INC' against American Express, 'MERCHANT SERVICES'
+#: against another processor's 'MERCHANT SERVICE ... FEE', a utility against another utility, INCOME, PAIEMENT,
+#: POSTED, SERVICE, TRSFR. A bank's own name prints as its channel (a bank's online payment, its merchant deposit, its
+#: card, its ATM, its pay product), never as the payer the holder also pays; only the names the corpus prints that way
+#: are listed (a bank's name printed as the holder's own account at it, a transfer to or from the holder's savings
+#: there, keeps matching: the guard of audit B4 keeps every transfer and lender match as 5.6 read it).
+_COUNTER_DEBIT_GENERIC_WORDS = frozenset({
+    "MERCHANT", "UTILITIES", "EXPRESS", "INCOME", "PAIEMENT", "POSTED", "SERVICE", "SERVICES", "TRSFR",
+    "CHASE", "TRUIST", "BLUEVINE",
+})
+#: Audit round 2, R2-B02 (R02; §5.2, standard A6, A8, A16): words that name no counterparty, which the counter-debit
+#: readings skip (counter_debit_payer_reading's legacy word, _debit_word_reading, _counter_debit_head; never the payer's
+#: first distinctive word other readers group payers by, nor _counter_debit_skip_words): the person-to-person rails'
+#: and RBC's French label's own words (a Zelle or e-Transfer debit keeps its recipient's name;
+#: _COUNTER_DEBIT_LABEL_WORDS), and the place words (_COUNTER_DEBIT_PLACE_WORDS): the US states (the words of a
+#: two-word state that are no generic word or name-starter), the provinces and territories, CANADA, CANADIAN and
+#: AMERICAN (a town's or a nation's adjective names a place, never a payer). The CASH APP phrase is skipped whole
+#: (_without_not_a_payer). The lender hold (payer_debited_as_lender) keeps the place words (`keep_places`): a funder
+#: may carry a state's name ('<STATE> VENTURE'), and that hold never lets a funder's money into True.
+_COUNTER_DEBIT_LABEL_WORDS = frozenset({"ZELLE", "INTERAC", "VENMO", "POPMONEY", "AUTODEPOSIT", "CASHAPP", "PAIEMENT"})
+_COUNTER_DEBIT_PLACE_WORDS = frozenset("""
+ALABAMA ALASKA ARIZONA ARKANSAS CALIFORNIA COLORADO CONNECTICUT DELAWARE FLORIDA GEORGIA HAWAII IDAHO ILLINOIS INDIANA
+IOWA KANSAS KENTUCKY LOUISIANA MAINE MARYLAND MASSACHUSETTS MICHIGAN MINNESOTA MISSISSIPPI MISSOURI MONTANA NEBRASKA
+NEVADA HAMPSHIRE JERSEY MEXICO YORK CAROLINA DAKOTA OHIO OKLAHOMA OREGON PENNSYLVANIA RHODE TENNESSEE TEXAS UTAH
+VERMONT VIRGINIA WASHINGTON WISCONSIN WYOMING
+ONTARIO QUEBEC ALBERTA MANITOBA SASKATCHEWAN BRITISH COLUMBIA NOVA SCOTIA BRUNSWICK NEWFOUNDLAND LABRADOR PRINCE EDWARD
+YUKON NORTHWEST TERRITORIES NUNAVUT CANADA CANADIAN AMERICAN
+""".split())
+_COUNTER_DEBIT_NOT_A_PAYER = _COUNTER_DEBIT_LABEL_WORDS | _COUNTER_DEBIT_PLACE_WORDS
+
+
+def _without_not_a_payer(words: Sequence[str], *, keep_places: bool = False) -> list[str]:
+    """Audit round 2, R2-B02 (R02): `words` without _COUNTER_DEBIT_NOT_A_PAYER (with `keep_places`, without the label
+    words only) and the CASH APP phrase."""
+    skip = _COUNTER_DEBIT_LABEL_WORDS if keep_places else _COUNTER_DEBIT_NOT_A_PAYER
+    kept: list[str] = []
+    skip_next = False
+    for index, word in enumerate(words):
+        if skip_next:
+            skip_next = False
+            continue
+        if word == "CASH" and index + 1 < len(words) and words[index + 1] == "APP":
+            skip_next = True
+            continue
+        if word not in skip:
+            kept.append(word)
+    return kept
+
+
+#: Audit B4 (I56): a payroll provider whose name has three letters is still a counter-debit word: an 'ADP TAX' credit
+#: beside the holder's own 'ADP TAX' debits is its tax impound coming back.
+_SHORT_PAYROLL_PROVIDER_WORDS = frozenset({"ADP"})
+#: Audit B4 (I22): a name with a reference glued after it ('FABRIKAMGROUPINC1', 'FORWARDFINUSA1'): its three or more
+#: letters, never a masked run of X, read as a word once the digits are split off.
+_GLUED_DIGIT_RUN = re.compile(r"(?<![A-Z0-9])(?!X+\d)([A-Z]{3,})(\d+)(?![A-Z0-9])")
+#: Audit B4 (I38): the words after the first distinctive word that its glued forms take ('CONTOSO RIDGE' is
+#: 'CONTOSORIDGE').
+_GLUED_FORM_WORDS = 2
+
+
+def _split_glued_digits(text: str) -> str:
+    """Audit B4 (I22): the text with each glued digit run split off its name ('FABRIKAMUSA1' reads 'FABRIKAMUSA 1')."""
+    return _GLUED_DIGIT_RUN.sub(r"\1 \2", text)
+
+
+@dataclass(frozen=True)
+class CounterDebitReading:
+    """Audit B4: how passes 6 and 7 compare a payer with a posted debit. `legacy` is the 5.6 first distinctive word
+    (_payer_first_distinctive_word, _debit_word_reading); a transfer, wire, person-to-person or lender debit still
+    matches on it. `keys` are the B4 forms: the first distinctive word read without _COUNTER_DEBIT_GENERIC_WORDS, a
+    three-letter payroll provider allowed (I56), and that word glued to the next one or two (I38: 'CONTOSO RIDGE'
+    matches 'CONTOSORIDGE'), read on the text as printed and with its glued digit runs split off (I22). `heads` are
+    each first word with the words after it, which payer_debited_as_lender's prefix comparison reads."""
+
+    legacy: str | None
+    keys: frozenset[str]
+    heads: tuple[tuple[str, tuple[str, ...]], ...]
+
+
+_NO_COUNTER_DEBIT_READING = CounterDebitReading(None, frozenset(), ())
+
+
+def _counter_debit_head(
+    words: Sequence[str], *, keep_places: bool = False,
+) -> tuple[str, tuple[str, ...]] | None:
+    """Audit B4: the first distinctive word of `words` (four letters or more and no name-starter, or a three-letter
+    payroll provider), the generic words and banks' names left out, with the distinctive words after it. Audit round 2,
+    R2-B02 (R02): and the words that name no counterparty (_without_not_a_payer; the place words kept with
+    `keep_places`)."""
+    skip = _counter_debit_skip_words() | _COUNTER_DEBIT_GENERIC_WORDS
+    kept = [
+        word for word in _distinctive_words(_without_not_a_payer(words, keep_places=keep_places)) if word not in skip
+    ]
+    for index, word in enumerate(kept):
+        if (len(word) >= 4 and word not in _NAME_STARTERS) or word in _SHORT_PAYROLL_PROVIDER_WORDS:
+            return word, tuple(kept[index + 1:])
+    return None
+
+
+def _counter_debit_reading(
+    legacy: str | None, readings: Sequence[Sequence[str]], *, keep_places: bool = False,
+) -> CounterDebitReading:
+    heads: list[tuple[str, tuple[str, ...]]] = []
+    for words in readings:
+        head = _counter_debit_head(words, keep_places=keep_places)
+        if head is not None and head not in heads:
+            heads.append(head)
+    keys = frozenset(
+        word + "".join(following[:count]) for word, following in heads for count in range(_GLUED_FORM_WORDS + 1)
+        if count <= len(following)
+    )
+    return CounterDebitReading(legacy, keys, tuple(heads))
+
+
+def counter_debit_payer_reading(region: str, *, keep_places: bool = False) -> CounterDebitReading:
+    """Audit B4: a credit's counter-debit reading, on its payer region (§5.2: never a receiver field). Audit round 2,
+    R2-B02 (R02): its legacy word is the payer's first distinctive word (_payer_first_distinctive_word) read without
+    the words that name no counterparty (_without_not_a_payer; with `keep_places`, the label words only: the lender
+    hold's reading)."""
+    if not region:
+        return _NO_COUNTER_DEBIT_READING
+    legacy = _first_distinctive_word([
+        word for word in _distinctive_words(_without_not_a_payer(payer_name(region).split(), keep_places=keep_places))
+        if word not in _counter_debit_skip_words()
+    ])
+    return _counter_debit_reading(
+        legacy, (payer_name(region).split(), payer_name(_split_glued_digits(region)).split()), keep_places=keep_places,
+    )
+
+
+def counter_debit_debit_reading(
+    record: TransactionClassification, *, keep_places: bool = False,
+) -> tuple[CounterDebitReading, bool]:
+    """Audit B4: a posted debit's counter-debit reading on its D11 payee words (a card purchase's merchant, as
+    _debit_word_reading reads it), and whether it is a card purchase. The glued-digit reading is taken only when the
+    printed one finds no word: D11 stops a name at its first reference, so splitting a leading reference
+    ('CHECK1234 <name>') would cut the name the printed text reads. Audit round 2, R2-B02 (R02): `keep_places` keeps
+    the place words (the lender hold's reading, _without_not_a_payer)."""
+    legacy, card_purchase = _debit_word_reading(record, keep_places=keep_places)
+    text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
+    if card_form:
+        text = _card_merchant_text(text, record.original_description or "")
+        if text is None:
+            return _NO_COUNTER_DEBIT_READING, card_purchase
+    printed = _unknown_payee_tokens(text)
+    readings: list[Sequence[str]] = [printed]
+    if _counter_debit_head(printed, keep_places=keep_places) is None:
+        readings.append(_unknown_payee_tokens(_split_glued_digits(text)))
+    return _counter_debit_reading(legacy, readings, keep_places=keep_places), card_purchase
+
+
+def _apply_payer_remittance_counter_debit_guard(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    """Statement pass 6 (§6.2, §7.5): a credit the payer-remittance rule verified goes back to unverified when a
+    posted debit in the same statement shares the payer's first distinctive word (an own account, an affiliate or a
+    funder that collects). 5.6 (final review I5, §20): a card purchase the classifier names as no lender or financing
+    payee is left out (_debit_word_reading's card flag), as pass 7's payer_also_debited leaves it out (8cb733b):
+    buying from a customer by card is spending, never the circular money the guard holds. Audit B4 (I02, I38, I56):
+    the debits are read by kind as pass 7's holds read them (true_revenue.counter_debits, debited_as_lender,
+    also_debited): the bank's receiving fee, a processor's fee beside a settlement and a bill the holder pays never
+    demote the remittance; a lender debit is compared by whole words and registry entity, never by prefix (this pass
+    demotes a verified row)."""
+    debits = counter_debits(records, duplicate_indexes)
+    updated = list(records)
+    for index, record in enumerate(records):
+        if record.revenue_match_method != "payer_remittance_descriptor":
+            continue
+        text = revenue_text(record.normalized_description)
+        credit = counter_credit(record, text, payer_region(text))
+        if not (debited_as_lender(credit, debits, prefix=False) or also_debited(credit, debits)):
+            continue
+        updated[index] = _replace_revenue_state(
+            record,
+            "unverified_deposit",
+            match_method="payer_remittance_with_counter_debit",
+            matched_rule="payer_also_debited_in_statement",
+            confidence_score=0.50,
+            reason="The payer of this accounts-payable remittance is also debited in the statement.",
+            context_signals=(*record.revenue_context_signals, "payer_also_debited"),
+        )
     return updated
 
 
@@ -2981,15 +7394,62 @@ def _label_unnamed_potential_payees(records: list[TransactionClassification]) ->
             label = f"{label} #{used[label]}"
         for index in indexes:
             labelled[index] = replace(records[index], potential_payee_label=label)
+    # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): every potential lender row, named or not,
+    # gains its payee's amount-free key in the same step. The labels above are unchanged.
+    for index, record in enumerate(labelled):
+        if record.classification == "potential_lender":
+            labelled[index] = replace(record, potential_payee_key=_potential_payee_key(record))
     return labelled
+
+
+def _potential_payee_key(record: TransactionClassification) -> str:
+    """One key per payee of a potential lender, named or not, which lender_payment_changes reads to follow a payee
+    across an amount change; nothing else reads it (the owner's request of 2026-10-06, R2-OW18). The probe's key (the
+    entity, D6's payee words and the masked recipient), with no amount and no match method, as the first 16 hex
+    characters of its SHA-256 digest: stable across statements and processes, and no payee word is published (D11)."""
+    parts = [record.canonical_entity or "", " ".join(_record_payee_tokens(record)), _masked_recipient(record) or ""]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
 def classify_statement_transactions(
     statement: Statement,
     *,
     min_recurring_count: int = 3,
+    zelle_true_revenue: bool = False,
 ) -> list[TransactionClassification]:
-    """Create the one authoritative classification record for every ledger row."""
+    """Create the one authoritative classification record for every ledger row.
+
+    The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §8.4; R2-OW17): `zelle_true_revenue`
+    False (the default) is the STORED reading, every Zelle deposit excluded by pass 7's Zelle step, which every caller
+    that names no reading keeps; True is the counted reading (apply_true_revenue_pass). classify_statement_readings
+    gives both at once."""
+    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+    return _classify_statement_reading(statement, records, duplicate_of, zelle_true_revenue=zelle_true_revenue)
+
+
+def classify_statement_readings(
+    statement: Statement,
+    *,
+    min_recurring_count: int = 3,
+) -> tuple[list[TransactionClassification], list[TransactionClassification] | None]:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §8.4, §9.1; R2-OW17): the stored
+    (No) reading and the counted (Yes) reading of one statement, element for element equal to
+    `(classify_statement_transactions(statement), classify_statement_transactions(statement, zelle_true_revenue=True))`.
+    The shared prefix (the per-row classification, the duplicates, recurrence and D6, passes 1 to 6) runs once; pass 7,
+    pass 7b and the duplicate finalisation run once per reading. The second element is None when no credit pass 7 reads
+    prints the Zelle rail (true_revenue.zelle_credits_present): such a statement has a single reading."""
+    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+    stored = _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=False)
+    if not zelle_credits_present(records, set(duplicate_of)):
+        return stored, None
+    return stored, _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=True)
+
+
+def _classify_statement_prefix(
+    statement: Statement, min_recurring_count: int,
+) -> tuple[list[TransactionClassification], dict[int, int]]:
+    """Every row's classification record through statement passes 1 to 6, and the proven duplicates (index -> the
+    index it repeats): the part of classify_statement_transactions both Zelle readings share (R2-OW17)."""
     records = [
         classify_transaction(
             transaction.description,
@@ -2998,6 +7458,7 @@ def classify_statement_transactions(
             bank=statement.bank,
             account=statement.account_number,
             account_name=statement.account_name,
+            holder_name=statement.holder_name,
             direction=transaction.direction,
             source_location=f"transaction:{index + 1}",
         )
@@ -3100,6 +7561,38 @@ def classify_statement_transactions(
     records = _label_unnamed_potential_payees(records)
     records = _apply_reversal_pair_context(records, set(duplicate_of))
     records = _apply_operating_source_context(records, set(duplicate_of))
+    records = _apply_payer_remittance_counter_debit_guard(records, set(duplicate_of))
+    return records, duplicate_of
+
+
+def _classify_statement_reading(
+    statement: Statement,
+    records: list[TransactionClassification],
+    duplicate_of: dict[int, int],
+    *,
+    zelle_true_revenue: bool,
+) -> list[TransactionClassification]:
+    """Pass 7, pass 7b and the duplicate finalisation over the shared prefix, in one Zelle reading (R2-OW17)."""
+    # 5.6 (§6.2 pass 7): payer facts, Q7's credit-union arm, the Q5 and Q6 verifications, then the tiers. Audit B10
+    # (I05, I60): with the credits the parser marked as read only by their label. Audit round 2, R2-B07 (R07): and
+    # their unread payer text. Owner ruling 2026-10-02 (the underwriter's Q10; §8.10; R2-OW11): and the statement's
+    # premium-trust title, read on its printed title, account name and holder name (premium_trust_title; this is the
+    # pass's only caller, so every consumer reads it). Owner ruling 2026-10-02 (the underwriter's Q1; §8.5; R2-OW12):
+    # and the statement's printed period start, which the funding aid on held no-sender wires reads. The owner's
+    # amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): and the Zelle reading.
+    records = apply_true_revenue_pass(
+        records, set(duplicate_of), payer_text_unread_indexes(statement.transactions),
+        payer_text_unread_texts(statement.transactions),
+        premium_trust=premium_trust_title(
+            getattr(statement, "account_title", None), statement.account_name, statement.holder_name
+        ),
+        statement_start=statement.period_start,
+        zelle_true_revenue=zelle_true_revenue,
+    )
+    # Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §6.2 pass 7b; R2-OW13): a confirmed funder's
+    # payment a bounce-worded credit returned leaves paid to lenders and stays in the withholding rate. After pass 7, so
+    # the return credit's tier is final; it reads and writes nothing passes 5 to 7 read.
+    records = list(_apply_returned_funder_payments(records, set(duplicate_of)))
 
     for index, original_index in duplicate_of.items():
         record = records[index]
@@ -3138,6 +7631,11 @@ def classify_statement_transactions(
             contributes_to_true_revenue=False,
             contributes_to_potential_revenue=False,
             contributes_to_non_revenue=duplicate_revenue,
+            contributes_to_counted_flagged=False,
+            contributes_to_excluded_pending_review=False,
+            revenue_tier="non_revenue" if duplicate_revenue else None,
+            revenue_initial_tier="non_revenue" if duplicate_revenue else None,
+            revenue_tier_reason=None,
         )
 
     return records

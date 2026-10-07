@@ -24,6 +24,7 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 
+from analysis import zelle_view
 from analysis.payload_shape import is_document_payload, payload_accounts
 
 from .artifact_cache import ArtifactCache
@@ -98,6 +99,15 @@ def _classification_for(
             ):
                 return deepcopy(classification)
     return None
+
+
+def _shown_reading(analysis: dict | None, zelle_true_revenue: bool | None) -> dict | None:
+    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the stored analysis in the Zelle
+    reading a reviewer saw (analysis/zelle_view.py `reading`), or the stored analysis itself when no reading is named.
+    Materialised once per call; it never mutates the stored analysis."""
+    if zelle_true_revenue is None or not isinstance(analysis, dict):
+        return analysis
+    return zelle_view.reading(analysis, counted=zelle_true_revenue)
 
 
 class JobStore:
@@ -353,14 +363,20 @@ class JobStore:
         decision: str,
         actor: str = "local-analyst",
         account: int | None = None,
+        zelle_true_revenue: bool | None = None,
     ) -> dict | None:
         """Replace the stored analysis AND record the append-only review
         decision (actor, timestamp, prior state) in one storage transaction.
-        `account` is the 1-based account the reviewer named, if any."""
+        `account` is the 1-based account the reviewer named, if any. The
+        owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17):
+        with `zelle_true_revenue` given, the prior state is read from that
+        Zelle reading (analysis/zelle_view.py `reading`), the one the reviewer
+        saw; the storage schema is unchanged."""
         job = self.get(job_id)
         if job is None or job.analysis is None:
             return None
-        prior_state = _classification_for(job.analysis, source_location, account)
+        shown = _shown_reading(job.analysis, zelle_true_revenue)
+        prior_state = _classification_for(shown, source_location, account)
         self._storage.record_review(
             job_id,
             analysis_json=json.dumps(analysis),
@@ -381,18 +397,22 @@ class JobStore:
         *,
         decisions: list[tuple[str, str, int | None]],
         actor: str = "local-analyst",
+        zelle_true_revenue: bool | None = None,
     ) -> dict | None:
         """Replace the stored analysis AND record every decision of a batch —
         `(source_location, decision, account)` — each with the prior state it
         changed, in one storage transaction. The caller has already applied every
         decision to `analysis`; a posting appears at most once in a batch, so each
-        prior state is that posting's stored record before the batch."""
+        prior state is that posting's stored record before the batch. R2-OW17:
+        with `zelle_true_revenue` given, the prior states are read from that
+        Zelle reading, materialised once for the whole batch."""
         job = self.get(job_id)
         if job is None or job.analysis is None:
             return None
+        shown = _shown_reading(job.analysis, zelle_true_revenue)
         rows = []
         for source_location, decision, account in decisions:
-            prior_state = _classification_for(job.analysis, source_location, account)
+            prior_state = _classification_for(shown, source_location, account)
             rows.append((source_location, decision, json.dumps(prior_state) if prior_state is not None else None,
                          account))
         self._storage.record_reviews(job_id, analysis_json=json.dumps(analysis), decisions=rows, actor=actor)

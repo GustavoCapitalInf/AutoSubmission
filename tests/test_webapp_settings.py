@@ -14,6 +14,8 @@ from webapp.settings import DEFAULTS, SETTINGS_FILE, load_settings, save_setting
 #: than derived, so a key added to DEFAULTS without thinking fails here.
 EXPECTED_DEFAULTS = {
     "nsf_carry_over": False,
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): "Mark Zelle Payments as True Revenue", Yes.
+    "zelle_true_revenue": True,
     "flag_alternative_positions": True,
     "flag_lines_of_credit": True,
     "flag_credit_cards": True,
@@ -95,7 +97,7 @@ def test_the_api_refuses_a_form_post_and_unknown_keys_without_echoing_them(setti
 
 def test_every_flag_group_has_a_checkbox_that_is_on_by_default():
     assert FLAG_SETTING_KEYS == tuple(group.setting for group in FLAG_GROUPS)
-    assert set(DEFAULTS) == {"nsf_carry_over", *FLAG_SETTING_KEYS}
+    assert set(DEFAULTS) == {"nsf_carry_over", "zelle_true_revenue", *FLAG_SETTING_KEYS}
     assert all(DEFAULTS[key] is True for key in FLAG_SETTING_KEYS)
 
 
@@ -122,6 +124,70 @@ def test_the_api_saves_one_checkbox_and_keeps_every_other_setting(settings_file,
     assert response.status_code == 200 and response.get_json() == {"settings": {**CARRY_OVER, key: False}}
     assert json.loads(settings_file.read_text(encoding="utf-8")) == {**CARRY_OVER, key: False}
     assert client.get("/api/settings").get_json() == {"settings": {**CARRY_OVER, key: False}}
+
+
+# --- the Zelle choice (the owner's amendment of 2026-10-06 to the underwriter's Q3; R2-OW17) ------------------------
+
+def test_the_zelle_choice_is_yes_by_default_and_saved_through_the_api(settings_file):
+    client = app.test_client()
+    assert client.get("/api/settings").get_json()["settings"]["zelle_true_revenue"] is True
+    response = client.post("/api/settings", json={"zelle_true_revenue": False})
+    assert response.status_code == 200
+    assert response.get_json() == {"settings": {**EXPECTED_DEFAULTS, "zelle_true_revenue": False}}
+    assert json.loads(settings_file.read_text(encoding="utf-8"))["zelle_true_revenue"] is False
+    assert client.get("/api/settings").get_json()["settings"]["zelle_true_revenue"] is False
+
+
+@pytest.mark.parametrize("value", ["no", 0, 1, None, "false"])
+def test_a_zelle_choice_that_is_not_a_bool_is_refused(settings_file, value):
+    response = app.test_client().post("/api/settings", json={"zelle_true_revenue": value})
+    assert response.status_code == 400 and response.get_json() == {"error": "invalid settings update"}
+    assert not settings_file.exists()
+
+
+@pytest.mark.parametrize("stored", ['"no"', "0", "null"])
+def test_a_malformed_zelle_choice_reads_as_yes(tmp_path, stored):
+    (tmp_path / SETTINGS_FILE).write_text(f'{{"zelle_true_revenue": {stored}}}', encoding="utf-8")
+    assert load_settings(tmp_path)["zelle_true_revenue"] is True
+
+
+@pytest.fixture
+def zelle_job(monkeypatch):
+    from tests import zelle_setting_fixtures as fx
+
+    job = SimpleNamespace(id="job-zelle", status="done", analysis=fx.case("Z1"), analysis_error=None,
+                          filename="fabricated.pdf", markdown="", html="", content_sha256="job-zelle")
+    original = store.get
+    monkeypatch.setattr(store, "get", lambda job_id: job if job_id == job.id else original(job_id))
+    return job
+
+
+def test_the_served_analysis_and_its_exports_follow_the_zelle_choice(settings_file, zelle_job):
+    import copy
+
+    stored = copy.deepcopy(zelle_job.analysis)
+    client = app.test_client()
+    shown = client.get("/analysis/job-zelle").get_json()["analysis"]["metrics"]
+    assert shown["true_revenue_total"] == 11534.56 and shown["zelle_deposits"]["counted_as_true_revenue"] is True
+    exported = json.loads(client.get("/download/job-zelle/json").data)
+    assert exported["metrics"]["true_revenue_total"] == 11534.56
+    assert "zelle_counted_reading" not in exported
+    client.post("/api/settings", json={"zelle_true_revenue": False})
+    shown = client.get("/analysis/job-zelle").get_json()["analysis"]["metrics"]
+    assert shown["true_revenue_total"] == 10300.0 and "zelle_deposits" not in shown
+    exported = json.loads(client.get("/download/job-zelle/json").data)
+    assert exported["metrics"]["true_revenue_total"] == 10300.0 and "zelle_counted_reading" not in exported
+    # The stored record is never rewritten by presenting it.
+    assert zelle_job.analysis == stored
+
+
+def test_package_members_follow_the_zelle_choice(settings_file, zelle_job):
+    from webapp.app import _package_members
+    members, _ = _package_members([zelle_job])
+    assert members[0][1]["metrics"]["true_revenue_total"] == 11534.56
+    save_settings(store.storage.data_dir, {"zelle_true_revenue": False})
+    members, _ = _package_members([zelle_job])
+    assert members[0][1]["metrics"]["true_revenue_total"] == 10300.0
 
 
 # --- every served surface follows the toggle -----------------------------------------------------------------

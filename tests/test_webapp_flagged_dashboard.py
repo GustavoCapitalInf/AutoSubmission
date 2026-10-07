@@ -55,7 +55,7 @@ console.log(JSON.stringify({{labels: debits.map((tx) => transactionCategory(tx).
 """)
     assert result["labels"] == [label for _, _, label in states]
     # A credit shows its revenue state first, whoever paid it.
-    assert result["credit"] == "Non-Revenue"
+    assert result["credit"] == "Non-revenue"
     # A premium-financing row keeps its insurance tag, unchanged.
     assert result["premium"] == {"label": "FABRICATED PREMIUM FINANCE", "glyph": "INS", "tone": "blue"}
 
@@ -477,8 +477,9 @@ const switches = () => [...els.flagSettingsList.innerHTML.matchAll(
 
 
 def _settings(**overrides):
-    """GET/POST /api/settings's `settings` (C7): every flag key on unless overridden."""
-    return {"nsf_carry_over": False, **{f"flag_{group}": True for group in GROUP_KEYS}, **overrides}
+    """GET/POST /api/settings's `settings` (C7): every flag key on unless overridden, and the Zelle choice (R2-OW17)."""
+    return {"nsf_carry_over": False, "zelle_true_revenue": True, **{f"flag_{group}": True for group in GROUP_KEYS},
+            **overrides}
 
 
 def _answer(url, answer):
@@ -680,7 +681,7 @@ def test_the_notice_carries_its_words_and_the_re_analyze_button():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     notice = html[html.index('id="rulesOutdatedNotice"'):]
     notice = notice[:notice.index("</section>")]
-    assert "Analysed with older lender rules" in notice and 'id="reanalyzeButton"' in notice
+    assert "Analysed with older classification rules" in notice and 'id="reanalyzeButton"' in notice
     assert notice.split(">")[0].rstrip().endswith("hidden")  # hidden until a served analysis says otherwise
     # The withheld view hides every other panel; the notice is exempt (the node test above shows it stays shown).
     assert ":not(.rules-outdated)" in html
@@ -713,7 +714,9 @@ def test_the_dashboard_labels_every_flag_group_as_the_analysis_does():
 
 def test_the_page_asks_browsers_for_the_new_script():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
-    assert '<script src="/static/app.js?v=lender-detection-2"></script>' in html
+    # Audit B11: the package, copy and export changes ship as a new script; audit round 2, R2-B16 (R51): so does the
+    # Monthly Statements table's unit rule.
+    assert '<script src="/static/app.js?v=true-revenue-6"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in
@@ -818,7 +821,7 @@ def test_a_factor_payout_keeps_its_revenue_tag_carries_the_chip_and_is_behind_it
 const tagged = (text) => rowsOf(els.transactionTable.innerHTML)
   .map((row) => row.includes(`<span class="chip-text">${text}</span>`));
 const all = {dates: datesOf(els.transactionTable.innerHTML), flagged: flaggedOf(els.transactionTable.innerHTML),
-  revenue: tagged('Verified Revenue')};
+  revenue: tagged('Verified revenue')};
 transactionFilter = 'flagged'; renderMainTransactions();
 const flagged = datesOf(els.transactionTable.innerHTML);
 clickPayee(els.flaggedTable, 'factoring', 'FABRICATED FACTOR FUNDING');

@@ -3,10 +3,36 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import CITY_STATE_ZIP, NO_READING, HolderReading, first_page, page_lines, read_address_line
 from .money import EITHER_MINUS_SPACED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, group_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the customer-service panel's heading U.S. Bank prints right after the mailing
+#: address on page 1.
+_CONTACT_HEADING = re.compile(r"^To Contact U\.?\s?S\.? Bank\b", re.IGNORECASE)
+#: The lines read back from the heading for the mailing line (a barcode remnant such as '%' between them).
+_MAILING_LINE_WINDOW = 3
+#: An attention line the bank prints before the holder's name ('ATTN: JORDAN SAMPLE CONTOSO LLC' reads no person).
+_ATTENTION_PREFIX = re.compile(r"^(?:ATTN|ATTENTION)\b:?\s*", re.IGNORECASE)
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from the mailing line U.S. Bank prints before page 1's
+    'To Contact U.S. Bank' panel: the nearest line within _MAILING_LINE_WINDOW lines before it that closes on a state
+    and ZIP, without the address (analysis.holder_name.read_address_line, which drops an ATTN contact after the name).
+    A line that opens on an attention contact names no holder we can place: NO_READING. `account_name` keeps the
+    product. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title that line prints after the
+    name (never the contact)."""
+    lines = page_lines(first_page(markdown))
+    anchor = next((index for index, line in enumerate(lines) if _CONTACT_HEADING.match(line)), None)
+    if anchor is None:
+        return NO_READING
+    for line in reversed(lines[max(0, anchor - _MAILING_LINE_WINDOW):anchor]):
+        if CITY_STATE_ZIP.search(line):
+            return NO_READING if _ATTENTION_PREFIX.match(line) else read_address_line(line)
+    return NO_READING
 
 _MONTHS = {
     "Jan": 1,
@@ -330,6 +356,40 @@ def _section_lines(markdown: str, categories: list[str]) -> dict[str, list[str]]
 
 
 _TRAILING_MONEY_RE = re.compile(_MONEY_RE + r"\s*$")
+#: Audit B10 (I12): the originator field an incoming wire prints below its
+#: amount (`ORG=<sender>`).
+_ORIGINATOR_LINE_RE = re.compile(r"(?<![A-Z0-9])ORG=")
+#: Audit B10 (review round 1): the next wire field after ORG= (`BNF=`, `OBI=`,
+#: `REF=` ...), which ends the originator's own field.
+_NEXT_WIRE_FIELD_RE = re.compile(r"(?<![A-Z0-9])[A-Z]{2,5}=")
+
+
+def _originator_field(rest: str) -> str | None:
+    """Audit B10 (I12; review round 1): the sender an incoming wire prints in
+    its ORG= field below the amount, or None when the field names nobody.
+
+    `rest` is what the row printed after its amount, one printed line per
+    line. The field wraps the sender's name and its address together onto the
+    lines below (`ORG=<name>` / `INC. <number> <street>`), so the sender is
+    the field's text up to the next wire field and up to the street number
+    (the first all-digit token after a name word; a numbered company's
+    leading number is its name). An ORG= that prints nothing on its own line
+    names nobody: its address is never read as the sender."""
+    found = _ORIGINATOR_LINE_RE.search(rest)
+    if found is None:
+        return None
+    field = rest[found.end():]
+    following = _NEXT_WIRE_FIELD_RE.search(field)
+    if following is not None:
+        field = field[: following.start()]
+    if not field.split("\n", 1)[0].strip():
+        return None
+    words: list[str] = []
+    for token in field.split():
+        if token.isdigit() and any(not word.isdigit() for word in words):
+            break
+        words.append(token)
+    return f"ORG={' '.join(words)}" if any(not word.isdigit() for word in words) else None
 
 
 def _amount_cell(parts: list[str]) -> tuple[str, int] | None:
@@ -385,6 +445,19 @@ def _rows(lines: list[str], *, year: int, sign: int) -> list[Transaction]:
             description = f"Check {number}{marker}"
         else:
             description = " ".join(parts)[:cut]
+            if sign > 0:
+                # Audit B10 (I12): an incoming wire prints its sender on the
+                # continuation lines BELOW its amount (`ORG=<sender>`, the
+                # name wrapping onto the next line with the start of its
+                # address), so the row's ORG= field is read
+                # (`_originator_field`); nothing else printed after a credit's
+                # amount is kept. A debit keeps its description until the
+                # owner admits the debit readings (G7). The parts are joined
+                # with line breaks here, which keeps every offset of the
+                # space-joined row (`cut`) and the field's own line.
+                sender = _originator_field("\n".join(parts)[cut + len(amount_text):])
+                if sender is not None:
+                    description = f"{description} {sender}"
         txns.append(
             Transaction(
                 date=_iso(month_day, year),
@@ -454,9 +527,12 @@ def parse_us_bank_statement(markdown: str) -> Statement | None:
         return None
 
     period_start, period_end, period_days = period
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="U.S. Bank",
         account_name=_product_name(markdown),
+        holder_name=holder.name,
+        account_title=holder.title,
         period_start=period_start,
         period_end=period_end,
         days_in_period=int(summary.get("days") or period_days),

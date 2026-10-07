@@ -218,7 +218,12 @@ all math and detection is deterministic Python. Stages:
    negative days.
 4. **Detect** (`detect.py`) — MCA/lender detection: a known-funder dictionary
    plus recurring fixed-debit pattern detection (the daily/weekly remittance
-   signature), each returning the evidence transactions.
+   signature), each returning the evidence transactions. Since the owner's
+   request of 2026-10-06 (R2-OW18) it also reads each lender's regular payment
+   for a decrease, an increase, a schedule change, a pause, a new concurrent
+   stream or a stop (`analysis/lender_payment_changes.py`, information only:
+   no lender, withholding or revenue figure moves), within the statement and,
+   in a package, across the consecutive statements of one account.
 
 ```bash
 # one-time: deps + API key (key lives in a gitignored .env, never in code)
@@ -245,16 +250,39 @@ Tune via env: `GEMINI_MODEL` — the ONE hosted extraction model, and the hosted
 branch runs only behind the operator opt-in documented in `analysis/pipeline.py`
 (Phase 2.2, P22-FENCE; Ruling A). `GEMINI_ESCALATION_MODEL` is retained for
 settings-key stability only and is no longer read: the reconciliation-driven
-re-extraction with a second model was removed (ruling R9). Withholding continues to
-use legacy eligible deposits by default; explicitly set
-`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to use verified classified
-revenue instead. Extend maintained lender, candidate, insurance, operating-revenue,
-and exclusion aliases in
+re-extraction with a second model was removed (ruling R9). Withholding divides by
+True revenue (`WITHHOLDING_DENOMINATOR_MODE=true_revenue`: verified plus counted
+credits) by default since the owner's ruling of 2026-10-02 (the underwriter's
+Q7); an unset or unknown value reads as that default. Set
+`WITHHOLDING_DENOMINATOR_MODE=legacy_eligible_deposits` for legacy eligible
+deposits (deposits less lender funding, the default until then) or
+`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` for verified classified revenue;
+in either revenue mode `eligible_deposits` carries the selected denominator, and
+the legacy figure stays in `legacy_eligible_deposits` on every statement. An
+analysis stored without a mode keeps the legacy basis it was made under. Where
+the selected revenue basis is not established (True or Verified reads N/A, for
+example when the captured credits fall short of the bank's printed total), no
+withholding rate is published over it and the statement and its package go to
+review (a decision that read Approved reads Review required). The withholding numerator is the confirmed lender debits paid plus the
+funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
+"paid to lenders" but stays in the rate. Zelle deposits follow the Settings
+choice "Mark Zelle Payments as True Revenue" (the owner's amendment of
+2026-10-06 to the underwriter's Q3): Yes, the default, counts them in True
+revenue as the rules read a person-to-person credit (the holder's own name and
+one sender's repeated round sums held); No makes them non-revenue
+(`zelle_excluded`). The analysis stores both readings, so the choice applies to
+every saved analysis at once; `analyze.py` and `batch.py` take
+`--zelle-true-revenue {yes,no}` (default yes) and read no webapp setting.
+Extend maintained lender, candidate,
+insurance, operating-revenue, and exclusion aliases in
 `analysis/classification_registry.py`.
 
-Transaction categories, lender/insurance precedence, contribution flags, and the
+Transaction categories, lender/insurance precedence, contribution flags, the
+revenue tiers and their reason codes (True and Verified revenue), and the
 eligible-deposit denominator are defined in
-[`docs/transaction-classification.md`](docs/transaction-classification.md).
+[`docs/transaction-classification.md`](docs/transaction-classification.md); the
+True revenue design is
+[`docs/superpowers/specs/2026-09-28-true-revenue-design.md`](docs/superpowers/specs/2026-09-28-true-revenue-design.md).
 
 ## Tests
 

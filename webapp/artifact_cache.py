@@ -570,7 +570,170 @@ OCR_STAGE_VERSION = 5
 # Stored rows change state and entity, so a warm cache keyed on 22 would serve
 # them; a re-analysis recomputes the analysis stage from the cached reading. OCR
 # stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 23
+# 23 -> 24: TRUE-REVENUE bug fixes (2026-09-28 design, §7) — classification
+# version 5.5: credits move between verified_revenue, unverified_deposit and
+# non_revenue (card and payout forms, the recurrence pass, payer remittance,
+# public and healthcare payers, invoice wires, the non-revenue narrowings), and
+# SQ CAP and SBA or EIDL credits become financing proceeds. Stored rows change
+# revenue state, so a warm cache keyed on 23 would serve them; a re-analysis
+# recomputes the analysis stage from the cached reading. OCR stays cached.
+# Pinned in the same change (`tests/test_artifact_cache.py`).
+# Review fixes (2026-09-29): glued dates never change a reading; the holder's
+# name never names a payer; own-account transfers, glued and invoice wires and
+# platform financing words keep their vetoes.
+# 24 -> 25: TRUE-REVENUE definitional rules (2026-09-28 design, §8) —
+# classification version 5.6: every posted credit carries revenue_tier,
+# revenue_initial_tier and revenue_tier_reason, the metrics gain True revenue and
+# its counted and held parts, true_revenue is repointed, and
+# revenue_review_required follows the held share (T7). A payload-shape change:
+# a warm cache keyed on 24 would serve tier-less rows; a re-analysis recomputes
+# the analysis stage from the cached reading. OCR stays cached. Pinned in the
+# same change (`tests/test_artifact_cache.py`).
+# Review decisions (2026-09-29): direction conflicts never lifted; bare
+# transfers, micro entries, owner money, deferred sources and round-sum repeats
+# held or counted as ruled; Q7 honours the section 8.1 holds.
+# 25 -> 26: TRUE-REVENUE audit batch B9 (holder identity) — the statement
+# gains `holder_name` (the holder's name read from the header or the mailing
+# block, apart from the product in `account_name`); the Chase parser stops
+# publishing its CHECKING SUMMARY grid header as the account name and reads the
+# holder from its mailing block, and First Citizens reads its holder line; TD
+# Bank, Truist, PNC, Navy Federal and TD Canada Trust read theirs too (the
+# batch's second code commit, under the same bump; so is its review round 1,
+# where PNC never reads its own product printed in capitals as the holder,
+# stage 26 never having been published). A
+# payload-shape change (the statement, each classification record and the
+# metrics' `holder_unscreened`), and the holder holds read the new name, so a
+# warm cache keyed on 25 would serve rows held or counted without it; a
+# re-analysis recomputes the analysis stage from the cached reading. OCR stays
+# cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 26 -> 27: TRUE-REVENUE audit batch B10 (lost payer text) — the parsers keep
+# the payer a credit prints beside its posting-type label: BMO US's activity
+# grid (the head line after the amount and the Description column's lines
+# below it), the counted core-processor template (the merchant block printed
+# below a credit's amount, by the attribution count), the community platform's
+# same-line text after a credit's amount (Arbor, Falcon's wire sender), the
+# balance-by-date template's transfer field and U.S. Bank's `ORG=` wire sender;
+# a credit whose printed payer a parser could not read is marked
+# (`Transaction.payer_text_unread`, serialized only where set) and counted as
+# `payer_text_not_read`; the metrics gain `payer_text_unread` and its count.
+# The batch's review round 1 lands under the same version (nothing between
+# was released): the daily core-processor template marks the credits whose
+# block it does not read yet, U.S. Bank reads the ORG= field up to the sender's
+# address or the next field, the community platform's tail stops at a heading
+# and reads published credits only, BMO US skips a page break whole, and a
+# marked cash, branch, teller or ATM label keeps `no_payer_printed`.
+# Descriptions and tiers move, so a warm cache keyed on 26 would serve the bare
+# labels; a re-analysis recomputes the analysis stage from the cached reading.
+# OCR stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 27 -> 28: TRUE-REVENUE audit batch B11 (the review gate) — T7 also gates a
+# statement whose held credits are 10% or more of True plus held and at least
+# $500 (`REVENUE_REVIEW_HELD_FLOOR`), so `metrics.revenue_review_required`
+# moves on statements heavy with non-revenue; the metrics gain
+# `revenue_tiers_sum_to_posted`, the four-tier identity under its own name
+# (`revenue_reconciles` stays as its alias), and the BNPL or marketplace
+# settlement reason gets its new label. No tier and no figure moves. A warm
+# cache keyed on 27 would serve the old gate; a re-analysis recomputes the
+# analysis stage from the cached reading. OCR stays cached. Pinned in the same
+# change (`tests/test_artifact_cache.py`).
+# 28 -> 29: TRUE-REVENUE audit round 2, batch R2-B04 (holder screening, the
+# holder-name strip and the holder's own push) — `metrics.holder_unscreened`
+# reads a holder name the parser read as known whatever its shape (a trailing
+# CO, a partnership, a DBA or 'Operating as' name, S.E.N.C., five words or
+# more) and reads a statement with no transaction (R19); the I47 strip reads
+# each side of such a name, a cut last word at the row's end and the holder's
+# business names beside a person's (R19, R40); the holder test reads two shared
+# trade words, and a person's given name, as no holder (R20); the holder's own
+# push is held where an earlier rule verified it and on American Express's
+# receiver block (R41); a processor's or a franchisor's credit printing the
+# holder's name is no holder's own money, and Capital One's Mercury tails never
+# hide one (R04 parts 1 and 3). The stored metric and the holds move, so a warm
+# cache keyed on 28 would serve them; a re-analysis recomputes the analysis
+# stage from the cached reading. OCR stays cached. No parser changes. Pinned in
+# the same change (`tests/test_artifact_cache.py`).
+# 29 -> 30: TRUE-REVENUE audit round 2, batch R2-B05 (R04 parts 2 and 4: the
+# holder-name readers) — fourteen more parsers publish `Statement.holder_name`
+# from page 1's mailing address (Bank of America, Wells Fargo, U.S. Bank, RBC
+# and Banque Royale, Scotiabank, Bluevine, Huntington, Capital One, CIBC,
+# Square, Mission Valley, BMO's US activity layout, Santander and Citibank;
+# Desjardins' reader is held for the owner), TD Canada Trust's French issue reads the
+# English issue's mail-routing anchor, and Chase, Navy Federal, TD Bank and PNC
+# gain a page-1 block fallback where their anchor reads none. Only the holder
+# name moves in the extraction (every transaction is byte-identical); the holder
+# holds read it, so a warm cache keyed on 29 would serve the old tiers; a
+# re-analysis recomputes the analysis stage from the cached reading. OCR stays
+# cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 30 -> 31: TRUE-REVENUE audit round 2, batch R2-B06 (R03; R21 part B's parser
+# line) — Navy Federal's compatibility path reads its block text as tokens with
+# one token of lookahead, so a retail product's amount-first text gives each
+# row its own date and description (the old line reader runs only where that
+# reading does not fit), and the native layout rung reads the one checking
+# product the summary declares instead of 'Business Checking' alone. The
+# cached readings of the four EveryDay Checking statements are the generic
+# block text, so their rows move on re-analysis; a warm cache keyed on 30
+# would serve the shifted rows. OCR stays cached and OCR_STAGE_VERSION is not
+# bumped (a fresh upload reads the layout rung; Business Checking's native
+# output is byte-identical). Pinned in the same change
+# (`tests/test_artifact_cache.py`). The batch's second parser commit (R21 part
+# B) drops the page header both readers glued into the last row before a page
+# break ('Statement of Account', 'Joint Owner(s): NONE'); it ships under the
+# same stage, as nothing was released between the two commits.
+# 31 -> 32: TRUE-REVENUE audit round 2, batch R2-B07 (R07) — the counted
+# core-processor template keeps, on each credit it marks 'payer text not read'
+# at a welded flush, that flush's joined text in a new stored transaction field
+# (`Transaction.unread_payer_text`, written only where set and kept out of the
+# extraction schema), and the true-revenue pass holds such a credit when the
+# run prints a registry lender's or a lending bank's block. Every amount and
+# every published description is unchanged; a warm cache keyed on 31 would
+# serve stored transactions without the field, so those credits would stay
+# counted. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+# 32 -> 33: TRUE-REVENUE audit round 2, batch R2-B16 (R56), in the commit that
+# moves CLASSIFICATION_VERSION 5.6 -> 5.7 (the audit's fix batches B01 to B12,
+# round 2's R2-B01 to R2-B16 and the owner's rulings of 2026-10-02 and
+# 2026-10-06, R2-OW01 to R2-OW18 with R2-L01's ledger admission, moved tiers,
+# reasons and the review gate under 5.6). This bump is required with it:
+# Re-analyze reads the analysis cache through (`_CacheOnly` passes
+# `get_analysis` through), so with 5.7 alone it would return the stage-32
+# entry still stamped 5.6 and the re-analyze notice would survive its own
+# button; at 33 a re-analysis or a re-upload misses that entry and recomputes
+# the analysis stage from the cached reading. A shape change, not only a tier
+# move: the owner batches (their CR2) changed the stored payload without a
+# bump of their own, so a stage-32 entry lacks `Statement.account_title`
+# (R2-OW10, where the holder reader reads a title); the record fields
+# `revenue_funding_series` (R2-OW12, a list on every record),
+# `returned_funder_payment_by` and `returns_funder_payment` (R2-OW13) and
+# `potential_payee_key` (R2-OW18); the metrics' `non_revenue_by_reason`
+# (R2-OW03), `premium_trust_account` (R2-OW11) and
+# `returned_funder_payment_total`, `_count` and `_evidence` (R2-OW13, with the
+# new meaning of `withholding_numerator`); the detection's
+# `returned_funder_payments` and the funder matches' `returned_count`,
+# `returned_total` and `returned_payments` (R2-OW13) and
+# `lender_payment_changes` (R2-OW18); the account key `zelle_counted_reading`
+# (R2-OW17: the counted reading's edits, so a stage-32 entry is served as
+# analysed until it is recomputed); and the reason codes `zelle_excluded`
+# (R2-OW02), `government_no_purpose` (R2-OW03), `customer_financing_payout`
+# and `customer_financing_lump_sum` (R2-OW04), `lender_paid_for_services`
+# (R2-OW05), `construction_progress_draw` and `asset_sale_proceeds`
+# (R2-OW06), `insurer_paid_for_services` (R2-OW08), `finance_named_customer`
+# and `lessor_rent` (R2-OW09) and `premium_trust_account` (R2-OW11), beside
+# R2-B07's `unread_run_names_financing`. The withholding default `true_revenue`
+# (R2-OW14) changes the analysis settings key itself. The package's keys
+# (R2-OW11's premium trust, R2-OW13's returned totals, R2-OW15's matches and
+# R2-OW16's `own_account_transfer_matched` overlay, R2-OW18's payment changes)
+# and the served ones (R2-OW15's flag keys, R2-OW17's `zelle_deposits` and row
+# tag) are computed when served, from the stored analysis. Nothing between 32
+# and 33 was released. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`). Folded into 33 (the final review of round
+# 2, F2(a), true revenue spec §9.3): a confirmed funder's paid payment pairs on
+# the lender side only with a return dated on or after it, which changes the
+# stored lender fields of a pair a return printed before the payment made (the
+# payment's `reversed_by`, `returned_funder_payment_by`, contributions and
+# reason; the return's `reversal_of`, `settlement_reversal` and
+# `returns_funder_payment`). Stage 33 was never released and the cache held no
+# stage-33 analysis when it landed, so it needs no bump of its own. F1 (the
+# withholding basis) is applied when an analysis is served and F2(b) when a
+# package is built: neither changes a stored analysis.
+ANALYSIS_STAGE_VERSION = 33
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

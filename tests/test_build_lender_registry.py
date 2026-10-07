@@ -426,3 +426,18 @@ def test_the_block_renders_the_review_flag_entities_when_given():
     assert [name for name in namespace if name.isupper()] == [*TABLE_NAMES, "REVIEW_FLAG_ENTITIES"]
     assert namespace["REVIEW_FLAG_ENTITIES"] == {"Rivett Motor Credit": "vehicle_financing"}
     assert "REVIEW_FLAG_ENTITIES: dict[str, str] = {}\n" in builder.render_block(builder.render_tables([]), {})
+
+
+def test_the_registry_block_renders_the_factoring_review_entities_last():
+    # Audit B6 (I10).
+    entities = _entities((11, "status", "review"))
+    block = builder.registry_block(entities)
+    assert max(len(line) for line in block.split("\n")) <= 110
+    namespace: dict = {}
+    exec(compile(block, "block", "exec"), namespace)
+    assert [name for name in namespace if name.isupper()] == [
+        *TABLE_NAMES, "REVIEW_FLAG_ENTITIES", "FACTORING_REVIEW_ENTITIES"]
+    assert namespace["FACTORING_REVIEW_ENTITIES"] == ("Loxley Factoring",)
+    assert namespace["POTENTIAL_LENDER_ALIASES"]["Loxley Factoring"] == ("LOXLEY FACTORING",)
+    empty = builder.registry_block(_entities())
+    assert "FACTORING_REVIEW_ENTITIES: tuple[str, ...] = ()\n" in empty

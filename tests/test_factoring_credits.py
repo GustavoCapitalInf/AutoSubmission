@@ -121,7 +121,7 @@ def two_factors(monkeypatch):
     """FAKE_PAYEES plus a second fabricated factor, so one group holds two payees."""
     payees = {**FAKE_PAYEES, "FABRICATED SECOND FACTOR": ("Fabricated Second Factor", "factoring")}
 
-    def match(normalized_text: str) -> PayeeMatch | None:
+    def match(normalized_text: str, *, credit: bool = False) -> PayeeMatch | None:
         for alias in sorted(payees, key=len, reverse=True):
             if alias in normalized_text:
                 entity, state = payees[alias]

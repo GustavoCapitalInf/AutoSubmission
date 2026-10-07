@@ -10,7 +10,7 @@ import pytest
 
 from tests.test_webapp_studio_views import _report
 
-ROWS = [(2, "ACH CREDIT FABRICATED CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
+ROWS = [(2, "ACH CREDIT NORTHWIND CUSTOMER PAYMENT", 4200.0), (4, "DEPOSIT FABRICATED ONE", 300.0),
         (6, "DEPOSIT FABRICATED TWO", 200.0), (8, "DEPOSIT FABRICATED THREE", 100.0),
         (12, "WIRE TRANSFER OUT FABRICATED VENDOR", -1600.0)]
 # A savings account whose second row is also a deposit awaiting review: each account numbers its own rows, so
@@ -296,9 +296,16 @@ def test_a_single_review_that_is_not_an_object_is_refused_not_an_error(job, body
 # --- the package: each row's account, and when True deposits stand ----------------------------------------------
 
 
-def test_a_package_row_of_a_multi_account_statement_names_its_account(job, two_account_job):
-    from webapp.app import app
+def test_a_package_row_of_a_multi_account_statement_names_its_account(two_account_job):
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import app, store
 
+    # Audit B11 (I06): the single-account statement is another account's (its own number). The `job` fixture prints
+    # the document's checking statement itself, which the package now leaves out of the document as a repeat.
+    other = store.create("fabricated-other-account.pdf")
+    store.set_result(other.id, "# Fabricated", "<p>Fabricated</p>", analysis=document_report_to_dict(
+        _report("FABRICATED BUSINESS CHECKING", "000000005050", 1500.0, ROWS)))
+    job = other.id
     package = app.test_client().get(f"/package_analysis?ids={job},{two_account_job}").get_json()
     savings = [tx for tx in package["transactions"] if tx.get("description") == "DEPOSIT FABRICATED SAVINGS"]
     assert [tx["source_account"] for tx in savings] == [2]

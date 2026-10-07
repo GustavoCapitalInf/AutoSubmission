@@ -322,13 +322,17 @@ def test_atb_november_lender_and_potential_obligation_regression():
     assert metrics.potential_lenders_detected == 2
     assert metrics.potential_lender_debit_count == 22
     assert metrics.potential_lender_debit_total == 3178.19
-    assert metrics.eligible_deposits == 59310.74
+    # Re-pinned by the owner's ruling of 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default
+    # withholding basis; the legacy figure and exposure this test pinned are unchanged on legacy_eligible_deposits.
+    assert metrics.legacy_eligible_deposits == 59310.74
+    assert round(3178.19 / metrics.legacy_eligible_deposits * 100, 2) == 5.36
+    assert metrics.withholding_denominator_mode == "true_revenue"
+    assert metrics.eligible_deposits == metrics.true_revenue_total
     assert metrics.potential_withholding_numerator == 3178.19
-    assert metrics.potential_withholding_denominator == 59310.74
+    assert metrics.potential_withholding_denominator == metrics.true_revenue_total
     assert metrics.potential_withholding_exposure == pytest.approx(
-        3178.19 / 59310.74 * 100
+        3178.19 / metrics.true_revenue_total * 100
     )
-    assert round(metrics.potential_withholding_exposure, 2) == 5.36
 
     known_funders = {match.funder: match for match in report.detection.known_funders}
     assert set(known_funders) == {"CanaCap", "Econolease", "Forward Funding"}
@@ -355,10 +359,11 @@ def test_atb_november_lender_and_potential_obligation_regression():
     merch_pad, loans_fc = report.detection.potential_lenders
     assert (merch_pad.debit_count, merch_pad.total_debited) == (21, 2606.31)
     assert (loans_fc.debit_count, loans_fc.total_debited) == (1, 571.88)
+    basis = metrics.true_revenue_total  # R2-OW14 (Q7): the default withholding basis
     for potential in (merch_pad, loans_fc):
-        assert potential.eligible_deposit_denominator == 59310.74
+        assert potential.eligible_deposit_denominator == basis
         assert potential.potential_withholding_exposure == pytest.approx(
-            potential.total_debited / 59310.74 * 100
+            potential.total_debited / basis * 100
         )
         assert potential.review_required
     assert [transaction.description for transaction in loans_fc.transactions] == [
@@ -377,9 +382,9 @@ def test_atb_november_lender_and_potential_obligation_regression():
     serialized = {item["funder"]: item for item in payload["detection"]["potential_lenders"]}
     assert serialized["LOANS FC"]["debit_count"] == 1
     assert serialized["LOANS FC"]["total_debited"] == 571.88
-    assert serialized["LOANS FC"]["eligible_deposit_denominator"] == 59310.74
+    assert serialized["LOANS FC"]["eligible_deposit_denominator"] == basis
     assert serialized["LOANS FC"]["potential_withholding_exposure"] == pytest.approx(
-        571.88 / 59310.74 * 100
+        571.88 / basis * 100
     )
     assert serialized["LOANS FC"]["status"] == "review_required"
     assert serialized["MERCH PAD (probably Merchant Growth)"]["debit_count"] == 21
@@ -395,8 +400,8 @@ def test_atb_november_lender_and_potential_obligation_regression():
     assert totals["potential_lenders_detected"] == 2
     assert totals["potential_lender_debit_count"] == 22
     assert totals["potential_lender_debit_total"] == 3178.19
-    assert totals["eligible_deposits"] == 59310.74
-    assert totals["potential_withholding_exposure"] == 5.36
+    assert totals["eligible_deposits"] == basis
+    assert totals["potential_withholding_exposure"] == round(3178.19 / basis * 100, 2)
     assert totals["decision"] == "review_required"
 
     package_candidates = {item["funder"]: item for item in package["potential_lenders"]}
@@ -404,7 +409,7 @@ def test_atb_november_lender_and_potential_obligation_regression():
     package_candidate = package_candidates["LOANS FC"]
     assert package_candidate["debit_count"] == 1
     assert package_candidate["total_debited"] == 571.88
-    assert package_candidate["eligible_deposit_denominator"] == 59310.74
+    assert package_candidate["eligible_deposit_denominator"] == basis
     assert package_candidate["status"] == "review_required"
     assert package_candidates["MERCH PAD (probably Merchant Growth)"]["debit_count"] == 21
     assert Counter(row["match_method"] for row in package["potential_lender_evidence"]) == {

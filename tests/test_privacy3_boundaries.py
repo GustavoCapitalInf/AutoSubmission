@@ -1419,6 +1419,33 @@ _REVIEW_REFUSAL_DRIVERS = {
         _document_with([_reviewable("p1:r1")], [_reviewable("p1:r1")]),
         "p1:r1", "confirm",
     ),
+    # 5.6 (true revenue spec §10.7, §12): a confirm on a credit a rule verified, a record whose tier disagrees with
+    # its state, and a payload whose posted credits carry a tier only in part.
+    "a credit a rule verified can only be marked non-revenue": (
+        _analysis_with([
+            _reviewable("p1:r1", revenue_initial_classification="verified_revenue",
+                        revenue_classification="verified_revenue", revenue_tier="verified",
+                        revenue_initial_tier="verified"),
+        ]),
+        "p1:r1", "confirm",
+    ),
+    "every posted credit's revenue state must agree with its tier": (
+        _analysis_with([
+            _reviewable("p1:r1", revenue_tier="counted_flagged", revenue_initial_tier="counted_flagged"),
+            {"amount": 250.0, "classification": {
+                "source_location": "p1:r2", "revenue_classification": "unverified_deposit",
+                "revenue_tier": "verified", "is_posted": True,
+            }},
+        ]),
+        "p1:r1", "confirm",
+    ),
+    "every posted credit carries a revenue tier, or none does": (
+        _analysis_with([
+            _reviewable("p1:r1", revenue_tier="counted_flagged", revenue_initial_tier="counted_flagged"),
+            _reviewable("p1:r2"),
+        ]),
+        "p1:r1", "confirm",
+    ),
 }
 
 
@@ -1456,8 +1483,10 @@ def test_the_two_refusals_the_batch_six_census_missed_are_reachable():
     source = inspect.getsource(apply_serialized_revenue_review)
     assert "rebuild_serialized_revenue_views(analysis)" in source
     # Five, and two more since the review can name its account (a missing
-    # account, and a location held by several accounts with none named).
-    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 7
+    # account, and a location held by several accounts with none named), and
+    # three more since 5.6's tiers (a confirm on a rule-verified credit, a tier
+    # that disagrees with its state, a payload tiered only in part).
+    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 10
 
 
 def test_the_browser_still_renders_the_review_error_body():
