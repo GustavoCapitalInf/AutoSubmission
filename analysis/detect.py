@@ -136,14 +136,19 @@ def _returned_funder_payments(records: list[TransactionClassification]) -> list[
     """Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): one item per confirmed funder's payment returned unpaid
     (a debit with returned_funder_payment_by), in the debits' row order: the funder, the amount, the debit's and the
     return credit's dates and locations, and the credit's description as the bank printed it (the warning quotes it, so
-    a business's reversal of the debit reads apart from a bank's bounce)."""
+    a business's reversal of the debit reads apart from a bank's bounce).
+
+    The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): an item whose payment the
+    same funder re-debited (`represented_by`, out of the withholding rate) also names the re-debit's date and location
+    and how it was taken (`represented_kind`: "re_presented", the same cents off its cycle, or "caught_up", an exact
+    2x), so the warning says "re-presented on <date>" or "caught up on <date>, 2x". Every other item is unchanged."""
     by_location = {record.source_location or f"transaction:{index + 1}": record for index, record in enumerate(records)}
     items: list[dict] = []
     for index, record in enumerate(records):
         if not record.returned_funder_payment_by or record.amount >= 0:
             continue
         credit = by_location.get(record.returned_funder_payment_by)
-        items.append({
+        item = {
             "funder": record.canonical_entity,
             "amount": round(abs(record.amount), 2),
             "debit_date": record.date,
@@ -151,7 +156,16 @@ def _returned_funder_payments(records: list[TransactionClassification]) -> list[
             "credit_date": credit.date if credit is not None else None,
             "credit_location": record.returned_funder_payment_by,
             "credit_description": credit.original_description if credit is not None else None,
-        })
+        }
+        re_debit = by_location.get(record.represented_by) if record.represented_by else None
+        if re_debit is not None:
+            item.update({
+                "represented_date": re_debit.date,
+                "represented_location": record.represented_by,
+                "represented_kind": "caught_up" if round(abs(re_debit.amount) * 100) == 2 * round(
+                    abs(record.amount) * 100) else "re_presented",
+            })
+        items.append(item)
     return items
 
 

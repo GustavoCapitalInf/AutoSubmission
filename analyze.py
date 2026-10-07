@@ -235,10 +235,21 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
     )
     # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid, out of the lender
     # debits above and in the withholding numerator below.
-    L.append(
-        f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
-        f"${m.returned_funder_payment_total:,.2f} (kept in withholding)"
-    )
+    # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a returned payment the same
+    # funder re-debited is out of the withholding numerator, its re-debit counting the obligation once.
+    re_debited = [record for record in m.returned_funder_payment_evidence if getattr(record, "represented_by", None)]
+    if re_debited:
+        kept = m.returned_funder_payment_count - len(re_debited)
+        L.append(
+            f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
+            f"${m.returned_funder_payment_total:,.2f} ({len(re_debited)} re-debited by the funder, "
+            f"${sum(abs(record.amount) for record in re_debited):,.2f}, counted once; {kept} kept in withholding)"
+        )
+    else:
+        L.append(
+            f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
+            f"${m.returned_funder_payment_total:,.2f} (kept in withholding)"
+        )
     # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the working lines name the basis, True revenue by default.
     L.append(
         f"  Withholding working   : ${m.withholding_numerator:,.2f} / "

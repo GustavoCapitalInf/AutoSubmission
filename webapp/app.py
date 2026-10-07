@@ -2583,8 +2583,100 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
     # Pass 4 (the final review of round 2, F2(b); the owner's ruling of 2026-10-02 on the underwriter's Q5 across
     # statements): a bounce-worded return whose funder payment sits in the same account's preceding statement.
     _returned_funder_payments_across(matchable, overlays, matches, location_of, text_of)
+    # Pass 4's re-debits (the owner's answer of 2026-10-07 to audit round 3's R3-73, "Count it once"; R3-B02): a
+    # returned payment the same funder re-debits in the account's next statement leaves the package's numerator.
+    represented = _represented_funder_payments_across(matchable, overlays, location_of)
     return {"overlays": overlays, "matches": matches, "debit_flags": debit_flags, "unchecked": unchecked,
-            "moved": moved}
+            "moved": moved, "represented": represented}
+
+
+def _represented_funder_payments_across(matchable: list[dict], overlays: dict, location_of) -> dict:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once (Recommended)"; true revenue spec §6.2's
+    package passes, §9.2, §11; R3-B02): R2-OW13's rule across a member boundary. A returned funder payment still in the
+    withholding numerator (a member's own, rule D's or the named pair's, or one pass 4 matched to a return in the next
+    statement) whose same funder re-debits it in ANOTHER member, the statement of its return or the one immediately
+    after it in the same account (`_same_account`, `_consecutive`), leaves the package's numerator, by the classifier's
+    rule (analysis.represented_payments.re_debits: the same cents off its cycle, or an exact 2x catch-up, dated on or
+    after the return and within one cadence gap after it; the series read over those members, the re-debits a statement
+    already took left out). The payment's package copy gains `contributes_to_withholding_rate` false and
+    `represented_by` (the re-debit's location in its statement); paid to lenders, the lender count, the funder rollups
+    and revenue never move, and each statement viewed alone keeps its own figures. Returns {(member key, the payment's
+    location): the warning item's represented fields (`represented_date`, `_location`, `_kind`, `_job`, `_document`, and
+    `_account` for a statement of several accounts)}."""
+    from analysis.lender_payment_changes import calendar_for
+    from analysis.represented_payments import Attempt, Returned, re_debits
+
+    def record_of(entry: dict, position: int, row: dict) -> dict:
+        overlay = (overlays.get(entry["key"]) or {}).get(position)
+        return {**row["classification"], **overlay} if overlay else row["classification"]
+
+    following: dict[tuple, dict] = {}
+    for entry in matchable:
+        for later in matchable:
+            if later is not entry and _same_account(entry, later) and _consecutive(entry, later):
+                following.setdefault(entry["key"], later)
+                break
+    by_member: dict[tuple, list] = {}
+    used: set[tuple] = set()
+    returns: list[tuple] = []
+    for entry in matchable:
+        rows_at = {location_of(row, position): (position, row) for position, row in entry["rows"]}
+        for position, row in entry["rows"]:
+            record = record_of(entry, position, row)
+            day = _iso_day(row.get("date"))
+            if (_num(row.get("amount")) >= 0 or day is None or record.get("classification") != "confirmed_lender"
+                    or not record.get("canonical_entity")):
+                continue
+            if not (record.get("contributes_to_lender_totals") is True or record.get("returned_funder_payment_by")):
+                continue
+            attempt = Attempt((entry["key"], position), record["canonical_entity"], day, abs(_row_cents(row)),
+                              (day.toordinal(), entry["order"], position))
+            by_member.setdefault(entry["key"], []).append(attempt)
+            taken = rows_at.get(record.get("represented_by") or "")
+            if taken is not None:
+                used.add((entry["key"], taken[0]))  # a re-debit its own statement already took
+            if (not record.get("returned_funder_payment_by") or record.get("represented_by")
+                    or record.get("contributes_to_withholding_rate") is not True):
+                continue
+            match = record.get("package_match") or {}
+            if match.get("kind") == "returned_funder_payment" and isinstance(match.get("credit"), dict):
+                credit = match["credit"]
+                credit_entry = next((other for other in matchable if other["job_id"] == credit.get("job")
+                                     and other["account"] == credit.get("account_index")), None)
+                credit_day = _iso_day(credit.get("date"))
+            else:
+                found = rows_at.get(record["returned_funder_payment_by"])
+                credit_entry = entry if found is not None else None
+                credit_day = _iso_day(found[1].get("date")) if found is not None else None
+            if credit_entry is not None and credit_day is not None:
+                returns.append(((credit_day.toordinal(), entry["order"], position), entry, position, row, attempt,
+                                credit_entry, credit_day))
+    represented: dict = {}
+    for _sort, entry, position, row, attempt, credit_entry, credit_day in sorted(returns, key=lambda item: item[0]):
+        members = [credit_entry] + ([following[credit_entry["key"]]] if credit_entry["key"] in following else [])
+        allowed = {member["key"] for member in members if member is not entry}
+        if not allowed:
+            continue
+        series = [candidate for key in {entry["key"], *allowed} for candidate in by_member.get(key, [])]
+        found = re_debits([Returned(attempt, credit_day)], series, calendar_for(entry["currency"]),
+                          may_re_debit=lambda _returned, candidate: candidate.key[0] in allowed, taken=list(used))
+        if attempt.key not in found:
+            continue
+        (re_debit_key, kind) = found[attempt.key]
+        used.add(re_debit_key)
+        re_debit_entry = next(member for member in members if member["key"] == re_debit_key[0])
+        re_debit_row = dict(re_debit_entry["rows"])[re_debit_key[1]]
+        re_debit_location = location_of(re_debit_row, re_debit_key[1])
+        overlays.setdefault(entry["key"], {}).setdefault(position, {}).update({
+            "contributes_to_withholding_rate": False, "represented_by": re_debit_location,
+        })
+        represented[(entry["key"], location_of(row, position))] = {
+            "represented_date": re_debit_row.get("date"), "represented_location": re_debit_location,
+            "represented_kind": kind, "represented_job": re_debit_entry["job_id"],
+            "represented_document": re_debit_entry["filename"],
+            **({"represented_account": re_debit_entry["account"]} if re_debit_entry["account"] is not None else {}),
+        }
+    return represented
 
 
 def _paid_funder_payment(record: dict) -> bool:
@@ -3685,6 +3777,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     **returned_item, "source_job": job.id, "source_document": job.filename,
                     "source_currency": statement_currency,
                     **({"source_account": account_index} if account_index is not None else {}),
+                    # Audit round 3, R3-B02 (R3-73): a payment the funder re-debited in the next statement.
+                    **package_matched["represented"].get((member_key, returned_item.get("debit_location")), {}),
                 })
 
         potential_matches_by_entity = {
@@ -3812,7 +3906,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 "source_job": job.id,
                 "source_document": job.filename,
             }
-            if classification.get("contributes_to_withholding_rate") is True:
+            # The withholding rows, and (audit round 3, R3-B02: R3-73) a returned funder payment its funder re-debited,
+            # which left the rate but is still a lender row.
+            if (classification.get("contributes_to_withholding_rate") is True
+                    or classification.get("returned_funder_payment_by")):
                 package_lender_evidence.append(evidence)
             if _contributes_to_potential_totals(classification):
                 package_potential_lender_evidence.append(evidence)
@@ -4114,6 +4211,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "credit_job": credit.get("job"), "credit_document": credit.get("filename"),
             **({"credit_account": credit["account_index"]} if credit.get("account_index") is not None else {}),
             "cross_statement": True,
+            # Audit round 3, R3-B02 (R3-73): the funder re-debited it (the re-debit's statement named).
+            **package_matched["represented"].get(((debit.get("job"), debit.get("account_index")),
+                                                  debit.get("source_location")), {}),
         })
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)

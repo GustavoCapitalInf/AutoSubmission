@@ -226,6 +226,11 @@ class TransactionClassification:
     # CREDIT, the debit's location; its revenue reading is untouched. None on every other row.
     returned_funder_payment_by: str | None = None
     returns_funder_payment: str | None = None
+    # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; true revenue spec §6.2 pass 7c, §11;
+    # R3-B02): on a returned funder payment's DEBIT, the location of the same funder's re-debit that re-presented it or
+    # caught it up 2x; the debit then leaves the withholding rate (contributes_to_withholding_rate False), the re-debit
+    # counting the obligation once. None on every other row.
+    represented_by: str | None = None
     contributes_to_lender_count: bool = False
     contributes_to_potential_lender_count: bool = False
     contributes_to_lender_totals: bool = False
@@ -6108,6 +6113,67 @@ def _apply_returned_funder_payments(
     return updated
 
 
+def _represented_reason(debit_location: str, kind: str) -> str:
+    """The sentence a re-debited returned payment adds to its reason (audit round 3, R3-B02: R3-73; the owner's answer
+    named without its date, as _returned_unpaid_reason names Q5's ruling)."""
+    how = "caught it up 2x" if kind == "caught_up" else "re-presented it"
+    return (
+        f"The funder {how} by {debit_location}: out of the withholding rate, which counts the obligation once (the "
+        "owner's answer on re-presented payments, \"Count it once\")."
+    )
+
+
+def _apply_represented_funder_payments(
+    records: list[TransactionClassification], duplicate_indexes: set[int], calendar: str = "US",
+) -> list[TransactionClassification]:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once (Recommended)"; true revenue spec §6.2
+    pass 7c, §11, §17.1; R3-B02): a confirmed funder's payment returned unpaid (R2-OW13's named pair or rule D:
+    `returned_funder_payment_by`) LEAVES the withholding numerator once the same funder re-debits it, the same cents off
+    its cycle or an exact 2x catch-up, dated on or after the return and within one cadence gap after it
+    (analysis.represented_payments.re_debits). The returned debit's `contributes_to_withholding_rate` is cleared,
+    `represented_by` names the re-debit and its reason gains a sentence; nothing else moves (paid to lenders, the lender
+    count, `reversed_by`, the re-debit itself and every revenue field stay as they were). Until such a re-debit exists
+    the returned attempt stays in the numerator, as Q5 rules. It runs after pass 7b, which makes the last returned
+    payments, and before the duplicate finalisation."""
+    from .represented_payments import Attempt, Returned, re_debits
+
+    def location(index: int) -> str:
+        return records[index].source_location or f"transaction:{index + 1}"
+
+    by_location = {location(index): index for index in range(len(records))}
+    attempts: list[Attempt] = []
+    returned: list[Returned] = []
+    for index, record in enumerate(records):
+        if (index in duplicate_indexes or record.amount >= 0 or not record.is_posted
+                or record.classification != "confirmed_lender" or not record.canonical_entity):
+            continue
+        if not (record.contributes_to_lender_totals or record.returned_funder_payment_by):
+            continue
+        day = parse_date(record.date)
+        if day is None:
+            continue
+        attempt = Attempt(index, record.canonical_entity, day, round(abs(record.amount) * 100), (day, index))
+        attempts.append(attempt)
+        credit = by_location.get(record.returned_funder_payment_by or "")
+        credit_day = parse_date(records[credit].date) if credit is not None else None
+        if record.returned_funder_payment_by and record.contributes_to_withholding_rate and credit_day is not None:
+            returned.append(Returned(attempt, credit_day))
+    if not returned:
+        return records
+    found = re_debits(returned, attempts, calendar)
+    if not found:
+        return records
+    updated = list(records)
+    for index, (debit_index, kind) in found.items():
+        updated[index] = replace(
+            updated[index],
+            contributes_to_withholding_rate=False,
+            represented_by=location(debit_index),
+            reason=f"{updated[index].reason} {_represented_reason(location(debit_index), kind)}",
+        )
+    return updated
+
+
 def _recurrence_vetoed(record: TransactionClassification, text: str) -> bool:
     """5.5 (§7.0): a credit that never counts toward recurrence and is never lifted by it: payroll, the recurrence
     veto words and card-credit labels (read on the row before its receiver fields), FUNDING outside the three
@@ -7628,6 +7694,12 @@ def _classify_statement_reading(
     # payment a bounce-worded credit returned leaves paid to lenders and stays in the withholding rate. After pass 7, so
     # the return credit's tier is final; it reads and writes nothing passes 5 to 7 read.
     records = list(_apply_returned_funder_payments(records, set(duplicate_of)))
+    # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; §6.2 pass 7c; R3-B02): a returned
+    # payment the same funder re-presented or caught up leaves the withholding numerator. After pass 7b, which makes the
+    # last returned payments; it reads and writes lender fields only.
+    records = _apply_represented_funder_payments(
+        records, set(duplicate_of), "CA" if str(statement.currency or "").strip().upper() == "CAD" else "US",
+    )
 
     for index, original_index in duplicate_of.items():
         record = records[index]

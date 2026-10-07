@@ -840,9 +840,29 @@ function withholdingAuditNote(metrics = {}, currency = "USD") {
   const denominator = formatMoney(metrics.withholding_denominator ?? metrics.eligible_deposits, currency);
   const label = withholdingBasisLabel(metrics);
   // Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the numerator keeps the funder payments returned unpaid.
+  // The owner's answer of 2026-10-07 to audit round 3's R3-73 (R3-B02): except those the same funder re-debited, which
+  // the re-debit counts once (the numerator is paid plus the returned payments still standing).
   const returned = returnedFunderPaymentTotal(metrics);
-  const included = returned === null ? "" : ` (incl. ${formatMoney(returned, currency)} returned unpaid)`;
+  const standing = returnedStandingTotal(metrics);
+  const parts = [];
+  if (standing !== null && Math.abs(standing) > 0) parts.push(`incl. ${formatMoney(standing, currency)} returned unpaid`);
+  const reDebited = returned === null || standing === null ? 0 : Math.round((returned - standing) * 100) / 100;
+  if (reDebited > 0) parts.push(`${formatMoney(reDebited, currency)} returned and re-debited, counted once`);
+  const included = parts.length ? ` (${parts.join("; ")})` : "";
   return `${numerator} confirmed lender debits${included} divided by ${denominator} ${label.toLowerCase()}`;
+}
+
+// The returned funder payments still in the withholding numerator (R2-OW13), null when there is none: the numerator less
+// paid to lenders (audit round 3, R3-B02: a returned payment its funder re-debited is no longer in it), else the whole
+// returned total where either figure is missing (a payload analysed before the numerator).
+function returnedStandingTotal(metrics = {}) {
+  const returned = returnedFunderPaymentTotal(metrics);
+  if (returned === null) return null;
+  const numerator = numberOrNull(metrics.withholding_numerator);
+  const paid = numberOrNull(metrics.lender_debits);
+  if (numerator === null || paid === null) return returned;
+  const standing = Math.round((numerator - paid) * 100) / 100;
+  return standing >= 0 && standing <= returned ? standing : returned;
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q5, "take the bounced amount out of "paid to lenders" but keep it in the
@@ -877,9 +897,20 @@ function returnedFunderPaymentWarning(item, currency = "USD") {
   // documents.
   const debited = item.cross_statement === true ? ` (${item.source_document || "a statement"})` : "";
   const returned = item.cross_statement === true ? ` (${item.credit_document || "the next statement"})` : "";
-  return `Returned funder payment: ${item.funder || "Confirmed lender"} ${formatMoney(item.amount, unit)} debited `
-    + `${item.debit_date || "N/A"}${debited}, returned ${item.credit_date || "N/A"}${returned}${words}. Not counted as `
-    + "paid; still in the withholding rate.";
+  const head = `Returned funder payment: ${item.funder || "Confirmed lender"} ${formatMoney(item.amount, unit)} debited `
+    + `${item.debit_date || "N/A"}${debited}, returned ${item.credit_date || "N/A"}${returned}${words}`;
+  // The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a payment the same funder
+  // re-debited (the same cents off its cycle, or an exact 2x catch-up) is out of the withholding rate, its re-debit
+  // counting the obligation once; a package's re-debit in another statement names its document.
+  if (item.represented_date) {
+    const where = item.represented_document ? ` (${item.represented_document})` : "";
+    const caughtUp = item.represented_kind === "caught_up";
+    const how = caughtUp ? `caught up on ${item.represented_date}${where}, 2x`
+      : `re-presented on ${item.represented_date}${where}`;
+    return `${head}, ${how}. Not counted as paid; counted once in the withholding rate, by the `
+      + `${caughtUp ? "catch-up" : "re-presented payment"}.`;
+  }
+  return `${head}. Not counted as paid; still in the withholding rate.`;
 }
 
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
@@ -1563,7 +1594,12 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
   if (filter === "nsf_fees") {
     matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
   }
-  if (filter === "lender") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true);
+  // The withholding flag, and (audit round 3, R3-B02: R3-73) a returned funder payment its funder re-debited, which
+  // left the rate but is still a lender row.
+  if (filter === "lender") {
+    matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true
+      || Boolean(transactionClassification(tx).returned_funder_payment_by));
+  }
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
   if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");

@@ -23,7 +23,11 @@ Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §14.3 G7; R2-O
 withholding numerator, the entities its lender count reads and its confirmed funders' payments returned unpaid, and
 `compare` declares the moves the ruling makes: a returned row joining the withholding rows (`returned_funder_moves`;
 audit round 3, R3-B01: R3-22, one leaving them fails) and a funder kept in the lender count whose every paid row was
-returned (`kept_in_count_returned`); any other withholding or reversed_by move outside the allowlist still fails.
+returned (`kept_in_count_returned`); any other withholding or reversed_by move outside the allowlist still fails. The
+owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a returned row leaving the withholding
+rows because the same funder re-debited it is declared row by row (`returned_funder_represented`: the later snapshot's
+`represented_rows` names a confirmed lender's paid or returned row of the same entity dated on or after the return);
+any other returned row leaving them still fails.
 
 `--reparse` (true revenue audit round 2, R2-B01: R12) re-parses every latest input a cached OCR reading
 reaches with the checkout's deterministic analysis stage, as the revenue census does
@@ -246,6 +250,14 @@ def _account_figures(records: list, stored: list, metrics: object) -> dict:
             [index, record.returned_funder_payment_by] for index, record in enumerate(records)
             if getattr(record, "returned_funder_payment_by", None)
         ],
+        # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; true revenue spec §14.3 G7;
+        # R3-B02): each returned funder payment the same funder re-debited ([index, the re-debit's location]), out of the
+        # withholding rows; compare declares that move row by row (`returned_funder_represented`). A checkout older than
+        # the answer records none.
+        "represented_rows": [
+            [index, record.represented_by] for index, record in enumerate(records)
+            if getattr(record, "represented_by", None)
+        ],
         # R2-OW17 (J3): the stored reading's Zelle policy credits (their indexes).
         "zelle_policy_rows": [
             index for index, record in enumerate(stored)
@@ -402,6 +414,40 @@ def _redirected_returns(old: dict, new: dict) -> set[int]:
     return rows
 
 
+def _represented_row(old: dict, new: dict, index: int) -> bool:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; true revenue spec §14.3 G7; R3-B02):
+    whether a returned funder row leaving the withholding rows is the answer's move, checked row by row on the later
+    snapshot: it lists the row in `represented_rows` naming another row, the re-debit, which is a confirmed lender's
+    paid or returned row of the same entity (`lenders` or `row_entities`, either snapshot), dated on or after the
+    credit that returned the row and after the row itself (`row_dates`, the later snapshot's else the earlier one's;
+    printed order where a row prints no date; no dates in either snapshot declares nothing)."""
+    location = {row[0]: row[1] for row in new.get("represented_rows") or []}.get(index)
+    re_debit = _location_index(location)
+    states = new.get("states") or []
+    if re_debit is None or re_debit == index or not 0 <= re_debit < len(states) or states[re_debit] != "confirmed_lender":
+        return False
+    paid = {entry[0]: entry[1] for entry in new.get("lenders") or []}
+    returned = {row[0]: row[1] for row in new.get("returned_funder_rows") or []}
+    if re_debit not in paid and re_debit not in returned:
+        return False
+    entities = {**(old.get("row_entities") or {}), **(new.get("row_entities") or {}),
+                **{str(row): entity for row, entity in paid.items()}}
+    if entities.get(str(index)) is None or entities.get(str(index)) != entities.get(str(re_debit)):
+        return False
+    credit = _location_index(returned.get(index))
+    dates = next((snap["row_dates"] for snap in (new, old) if isinstance(snap.get("row_dates"), list)), None)
+    if credit is None or dates is None or not all(0 <= row < len(dates) for row in (index, credit, re_debit)):
+        return False
+
+    def on_or_after(first: int, second: int, *, strictly: bool) -> bool:
+        first_day, second_day = dates[first], dates[second]
+        if first_day is None or second_day is None:
+            return first > second
+        return first_day > second_day if strictly else first_day >= second_day
+
+    return on_or_after(re_debit, credit, strictly=False) and on_or_after(re_debit, index, strictly=True)
+
+
 def _without_rows(snap: dict, rows: set[int]) -> dict:
     """A copy of an account snapshot without the lender and returned-payment entries of `rows`."""
     return {**snap, "lenders": [entry for entry in snap["lenders"] if entry[0] not in rows],
@@ -491,6 +537,9 @@ def compare(
     # lender and a lender-count loss outside the allowlist, and lender_debits or the numerator moving with no row move.
     returned_moves: dict = {"analyses": set(), "rows": 0}
     returned_leaving: dict = {"analyses": set(), "rows": 0}
+    # Audit round 3, R3-B02 (R3-73, the owner's answer "Count it once"): a returned row leaving the withholding rows
+    # because the same funder re-debited it (`_represented_row`), declared row by row.
+    returned_represented: dict = {"analyses": set(), "rows": 0}
     paid_left_other_outside = 0
     debits_unexplained: set[str] = set()
     numerator_unexplained: set[str] = set()
@@ -534,6 +583,11 @@ def compare(
                                 # (returned_funder_moves), never outside the allowlist.
                                 returned_moves["analyses"].add(sha)
                                 returned_moves["rows"] += 1
+                            elif _represented_row(old, new, index):
+                                # Audit round 3, R3-B02 (R3-73): the funder re-debited it; declared
+                                # (returned_funder_represented), never outside the allowlist.
+                                returned_represented["analyses"].add(sha)
+                                returned_represented["rows"] += 1
                             else:
                                 # Audit round 3, R3-B01 (R3-22): a returned row LEAVING the withholding rows reverses
                                 # the owner's Q5 ("keep it in the withholding rate"): it fails, allowlisted or not.
@@ -659,6 +713,9 @@ def compare(
         "returned_funder_moves": {"analyses": len(returned_moves["analyses"]), "rows": returned_moves["rows"]},
         # The final review of round 2, F2(a): a return no longer paired with a payment dated after it.
         "returned_funder_redirects": {"analyses": len(redirect_moves["analyses"]), "rows": redirect_moves["rows"]},
+        # Audit round 3, R3-B02 (R3-73): a returned row out of the withholding rows because its funder re-debited it.
+        "returned_funder_represented": {"analyses": len(returned_represented["analyses"]),
+                                        "rows": returned_represented["rows"]},
         "kept_in_count_returned": {entity: {"analyses": len(shas)} for entity, shas in sorted(kept_in_count.items())},
         "paid_rows": {name: paid_rows.get(name, 0) for name in ("left_returned", "left_other", "joined")},
         "lender_count": {
@@ -765,6 +822,9 @@ def _print_comparison(report: dict) -> None:
         redirects = report.get("returned_funder_redirects") or {"analyses": 0, "rows": 0}
         print(f"returned funder redirects (a return no longer paired with a payment dated after it): "
               f"{redirects['analyses']} analyses/{redirects['rows']} rows")
+        represented = report.get("returned_funder_represented") or {"analyses": 0, "rows": 0}
+        print(f"returned funder payments re-debited by their funder (out of the withholding rows, counted once): "
+              f"{represented['analyses']} analyses/{represented['rows']} rows")
         print(f"kept in the lender count, every paid row returned: {len(report['kept_in_count_returned'])} funders")
         print("paid rows: " + ", ".join(f"{name} {count}" for name, count in report["paid_rows"].items()))
         count = report["lender_count"]

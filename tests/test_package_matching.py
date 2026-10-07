@@ -470,14 +470,19 @@ def _no_pair_package():
 #: (`potential_payee_key`), every account's detection (`lender_payment_changes`) and a package
 #: (`lender_payment_changes`, `lender_payment_changes_unchecked`).
 R2_OW18_KEYS = frozenset({"potential_payee_key", "lender_payment_changes", "lender_payment_changes_unchecked"})
+#: Audit round 3, R3-B02 (the owner's answer of 2026-10-07 to R3-73): the record field every record gains
+#: (`represented_by`, null on every row of these fixtures).
+R3_B02_KEYS = frozenset({"represented_by"})
 
 
 def _without_r2_ow18(node):
-    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds. `_canonical` applies it,
-    and the golden comparisons read both sides through `_canonical`, as they read every classification_version as one
-    placeholder. The pinned fixtures are never rewritten."""
+    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds (and, audit round 3,
+    R3-B02, the record field `represented_by`). `_canonical` applies it, and the golden comparisons read both sides
+    through `_canonical`, as they read every classification_version as one placeholder. The pinned fixtures are never
+    rewritten."""
     if isinstance(node, dict):
-        return {key: _without_r2_ow18(value) for key, value in node.items() if key not in R2_OW18_KEYS}
+        return {key: _without_r2_ow18(value) for key, value in node.items()
+                if key not in R2_OW18_KEYS and key not in R3_B02_KEYS}
     if isinstance(node, list):
         return [_without_r2_ow18(value) for value in node]
     return node

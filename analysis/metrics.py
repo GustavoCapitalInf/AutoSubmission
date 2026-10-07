@@ -721,11 +721,25 @@ def compute_metrics(
     if m.returned_funder_payment_count:
         # The money in the statement's own unit (CURRENCY DOCTRINE: never a '$' on a CAD statement).
         unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
-        m.notes.append(
-            f"{m.returned_funder_payment_count} returned funder "
-            f"{'payment' if m.returned_funder_payment_count == 1 else 'payments'} "
-            f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
-        )
+        # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a returned payment the
+        # same funder re-debited is out of the withholding rate, its re-debit counting the obligation once.
+        re_debited = [record for record in m.returned_funder_payment_evidence
+                      if getattr(record, "represented_by", None)]
+        payments = f"{'payment' if m.returned_funder_payment_count == 1 else 'payments'}"
+        if re_debited:
+            re_debited_total = round(sum(abs(record.amount) for record in re_debited), 2)
+            standing = m.returned_funder_payment_count - len(re_debited)
+            m.notes.append(
+                f"{m.returned_funder_payment_count} returned funder {payments} "
+                f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders; {len(re_debited)} re-debited "
+                f"by its funder ({re_debited_total:,.2f}{unit}), counted once by the re-debit"
+                + (f"; {standing} kept in the withholding rate" if standing else "")
+            )
+        else:
+            m.notes.append(
+                f"{m.returned_funder_payment_count} returned funder {payments} "
+                f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
+            )
     m.withholding_denominator = m.eligible_deposits
     m.potential_withholding_numerator = m.potential_lender_debit_total
     m.potential_withholding_denominator = m.eligible_deposits
