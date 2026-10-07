@@ -375,6 +375,14 @@ _NSF_PATTERNS = (
     re.compile(r"\bRTN STOP PAY(?:T|MT|MENT)?\b|(?<!\bITEM )\bRETURNED STOP PAY(?:T|MT|MENT)?\b"),
     re.compile(r"\bEFFETS? (?:RET|RETOUR|RETOURNES?)\b"),
 )
+#: Audit round 3, R3-B01 (R3-80; completes the owner's rule of 2026-09-25 on the bank's item charges): a returned or
+#: unpaid item's charge printed with CHARGE/CHG rather than FEE, read with _NSF_PATTERNS on a DEBIT only (a credit keeps
+#: today's reading), so a charge that prints the item's payee is never that payee's payment. A bare 'UNPAID ITEM
+#: <payee>' may be the payee's own debit and is not read.
+_DEBIT_ITEM_CHARGE_NSF_PATTERNS = (
+    re.compile(r"\b(?:RETURNED|RETURN) ITEM (?:CHARGES?|CHGS?)\b"),
+    re.compile(r"\bUNPAID ITEM (?:CHARGES?|CHGS?)\b"),
+)
 _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bREFUND(?:ED)?\b"),
     re.compile(r"\bREVERS(?:AL|ED|E)\b"),
@@ -457,6 +465,15 @@ _FEE_PATTERNS = (
     re.compile(r"\bINTERAC SC\b"),
     re.compile(r"\bW D SVC\b"),
     re.compile(r"^FRAIS\b(?!.*\b(?:FINANCEMENT|INTERETS?|PRET|MARGE|MCR)\b)"),
+)
+#: Audit round 3, R3-B01 (R3-80; completes the owner's rule of 2026-09-25 above): the bank's stop-payment and OD item
+#: charges printed without FEE, read with _FEE_PATTERNS on a DEBIT only (a credit keeps today's reading). A stop word is
+#: a bank instruction, never a payment, so a bare stop-payment row is a charge too; it is read only at the row's start,
+#: so a payee whose name holds STOP is never read.
+_DEBIT_BANK_CHARGE_FEE_PATTERNS = (
+    re.compile(r"\bSTOP (?:PAY(?:MENT|MT|T)?|PMT)(?: (?:REQUEST|REQ|ORDER))? (?:CHARGES?|CHGS?)\b"),
+    re.compile(r"\bOD ITEM (?:CHARGES?|CHGS?)\b"),
+    re.compile(r"^(?:ACH )?STOP (?:PAY(?:MENT|MT|T)?|PMT)\b"),
 )
 _TRANSFER_PATTERNS = (
     re.compile(r"\b(?:INTERNAL|ONLINE|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
@@ -4936,7 +4953,8 @@ def classify_transaction(
             is_posted=False,
         )
 
-    if _matches_any(text, _NSF_PATTERNS):
+    # Audit round 3, R3-B01 (R3-80): a debit's returned or unpaid item charge is a returned item too.
+    if _matches_any(text, _NSF_PATTERNS) or (amount < 0 and _matches_any(text, _DEBIT_ITEM_CHARGE_NSF_PATTERNS)):
         return _build_record(
             **common,
             classification="nsf_or_return",
@@ -5070,7 +5088,8 @@ def classify_transaction(
         if dealer is not None:
             return _dealer_funding_credit_record(common, dealer)
 
-    if _matches_any(text, _FEE_PATTERNS):
+    # Audit round 3, R3-B01 (R3-80): a debit's stop-payment or OD item charge, and a bare stop-payment row, are charges.
+    if _matches_any(text, _FEE_PATTERNS) or (amount < 0 and _matches_any(text, _DEBIT_BANK_CHARGE_FEE_PATTERNS)):
         return _build_record(
             **common,
             classification="fee",
