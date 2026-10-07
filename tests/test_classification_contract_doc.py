@@ -1293,3 +1293,35 @@ def test_the_spec_and_the_contract_record_r2_l01_the_liberis_admission():
     for words in (f"Audit round 2, R2-L01 (R43, carried over from R2-B03; {R2_L01_CODE_COMMIT})",
                   "`LIBERIS` and `LIBERIS US INC`", "`AIRWALLEX` is never an alias"):
         assert words in contract, words
+
+
+#: Audit round 2, R2-B16 (R51, R53, R52): the code commits §20 and the contract name.
+R2_B16_CODE_COMMITS = {"R51": ("e0eb9cb",), "R53": ("728515a", "a869554"), "R52": ("e17ad7c",)}
+
+
+def test_the_spec_and_the_contract_record_r2_b16_s_surfaces():
+    """Audit round 2, R2-B16 (R51, R53, R52): §20's three lines, each with its code commits, the B11 lines each amends
+    marked in place, the sections they amend (§10.3, §10.4, §10.8) and the contract's batch line."""
+    spec = SPEC.read_text(encoding="utf-8")
+    amendments = spec.split("\n## 20. Implementation amendments", 1)[1]
+    for lead, issue in (("- **The Monthly Statements table names its units as the chart does** (", "R51"),
+                        ("- **The statement downloads list every posted debit, and no XLSX cell is over the "
+                         "spreadsheet's limit** (", "R53"),
+                        ("- **The CLI reads the dashboard's revenue rules** (", "R52")):
+        line = next(line for line in amendments.splitlines() if line.startswith(lead))
+        assert f"audit round 2, R2-B16: {issue}" in line, issue
+        assert line.endswith(", ".join(R2_B16_CODE_COMMITS[issue]) + "."), issue
+        assert f"Amended by audit round 2, R2-B16 ({issue}, below)" in amendments, issue
+    sections = spec.split("\n## 20. Implementation amendments", 1)[0]
+    for words in ("Audit round 2, R2-B16 (R51, §20): the Monthly Statements table", "`unitsShown`",
+                  "Audit round 2, R2-B16 (R52, §20): the CLI follows the same rule",
+                  "\"Review required (ledger does not reconcile)\"", "revenue_view.UNESTABLISHED_REVENUE_KEYS",
+                  "Audit round 2, R2-B16 (R53, §20): **Statement CSV/XLSX:** after the posted-credit table",
+                  "Not shown: `<N>` characters, over the spreadsheet cell limit; see the JSON download.",
+                  "`returned_funder_payment`"):
+        assert words in sections, words
+    contract = _flat(CONTRACT)
+    commits = ", ".join(commit for issue in ("R51", "R53", "R52") for commit in R2_B16_CODE_COMMITS[issue])
+    for words in (f"Audit round 2, R2-B16 (R51, R53, R52; {commits})", "`revenue_tiers_sum_to_posted`",
+                  "a pointer to the JSON download"):
+        assert words in contract, words
