@@ -6609,6 +6609,11 @@ def funding_series_after(
        and `_promotion_cadence` (D6's daily or weekly test, several rows on one date one occurrence) reads its dates
        with FUNDING_SERIES_MIN_PAYMENTS. Its start is observed when the deposit comes at least one full gap of the
        series (its mean gap rounded up, and at least FUNDING_SERIES_MIN_LOOKBACK_DAYS) after the statement's start.
+       Audit round 3, R3-B02 (R3-66): a settlement-reversed debit is no payment of the series, but an attempt on or
+       before the deposit's day means the series was already running: the group's attempts (its pool rows and the
+       debits of its key the reversal pass zeroed, `reversed_by`) are keyed as the pool is, and a dated attempt on or
+       before the deposit's day keeps the series off that target (an undated attempt is ignored, as an undated pool
+       row is). The series itself (its dates, cadence, first date, payments and start) is read from the pool only.
     5. Each target carries its series sorted by first date, then the larger amount, then the payee; a series that
        follows several held wires goes on each, with its own days after. Every other record keeps ()."""
     targets = [
@@ -6620,15 +6625,23 @@ def funding_series_after(
     if not targets:
         return records
     groups: dict[tuple[str, str, float], list[int]] = {}
+    # Audit round 3, R3-B02 (R3-66): every attempt of a key, a settlement-reversed one included (its dates only).
+    attempts: dict[tuple[str, str, float], list[_date]] = {}
     for index, record in enumerate(records):
         if (
             index in duplicate_indexes or record.amount >= 0 or not record.is_posted
             or record.classification not in _FUNDING_SERIES_STATES or not record.canonical_entity
-            or not (record.contributes_to_lender_count or record.contributes_to_potential_lender_count)
         ):
             continue
-        name = record.potential_payee_label or record.canonical_entity
-        groups.setdefault((record.classification, name, round(abs(record.amount), 2)), []).append(index)
+        counted = record.contributes_to_lender_count or record.contributes_to_potential_lender_count
+        if not (counted or record.reversed_by):
+            continue
+        key = (record.classification, record.potential_payee_label or record.canonical_entity,
+               round(abs(record.amount), 2))
+        if (day := parse_date(record.date)) is not None:
+            attempts.setdefault(key, []).append(day)
+        if counted:
+            groups.setdefault(key, []).append(index)
     classifier = _classifier()
     series: list[tuple[str, str, float, list[int], list[_date], str, float]] = []
     for (state, name, amount), indexes in groups.items():
@@ -6654,6 +6667,8 @@ def funding_series_after(
             first = min(days)
             if first <= deposit or (first - deposit).days > FUNDING_SERIES_WINDOW_DAYS:
                 continue
+            if any(day <= deposit for day in attempts.get((state, name, amount), ())):
+                continue  # R3-66: an attempt on or before the deposit's day: the series was already running
             lookback = max(FUNDING_SERIES_MIN_LOOKBACK_DAYS, math.ceil(average_gap))
             first_row = next(index for index, day in zip(indexes, days) if day == first)
             found.append((first, FundingSeries(
