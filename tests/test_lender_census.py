@@ -597,16 +597,25 @@ def test_ow18_a_planted_lender_move_still_fails(tmp_path, fake_payees):
 # that the later one lists as paid again, unpaired, its credit pairing nothing or another payment of the same funder.
 
 
-def _redirect_snapshots(after_pairs):
-    """A funder's three payments (rows 1, 3 and 4) and a return (row 2, transaction:3). Before: the return restored
-    row 3 (the payment after it). After: row 3 paid again, and the return pairing `after_pairs` ([debit, credit])."""
+#: Review round 1 of the fix run (finding 3): each snapshot records the dates of its lender rows, its paired debits and
+#: the credits that pair them (`row_dates`), so the redirect is declared only where the dates show F2(a)'s move.
+REDIRECT_DATES = {"1": "2054-03-02", "2": "2054-03-05", "3": "2054-03-06", "4": "2054-03-13"}
+
+
+def _redirect_snapshots(after_pairs, *, before_pairs=([3, "transaction:3"],), dates=REDIRECT_DATES):
+    """A funder's three payments (rows 1, 3 and 4, dated the 2nd, 6th and 13th) and a return (row 2, transaction:3,
+    the 5th). Before: the return restored `before_pairs` (row 3 by default, the payment after it). After: those rows
+    paid again, and the return pairing `after_pairs` ([debit, credit]). `dates` is each snapshot's `row_dates` (None:
+    a snapshot written before them)."""
     states = ["other", "confirmed_lender", "other", "confirmed_lender", "confirmed_lender"]
     lenders = [[index, "Quillon Funding", "QUILLON FUNDING"] for index in (1, 3, 4)]
     entities = {"1": "Quillon Funding", "3": "Quillon Funding", "4": "Quillon Funding"}
     base = {"potential_lender_rows": [], "potential_withholding_rows": [], "withholding_rows": [1, 3, 4],
-            "withholding_numerator": 300.0, "lender_count_entities": ["Quillon Funding"], "row_entities": entities}
-    before = {**_account(states, [entry for entry in lenders if entry[0] != 3], {}, 10.0), **base,
-              "reversed_by": [[3, "transaction:3"]], "returned_funder_rows": [[3, "transaction:3"]]}
+            "withholding_numerator": 300.0, "lender_count_entities": ["Quillon Funding"], "row_entities": entities,
+            **({"row_dates": dict(dates)} if dates is not None else {})}
+    before_pairs = [list(pair) for pair in before_pairs]
+    before = {**_account(states, [entry for entry in lenders if entry[0] not in {pair[0] for pair in before_pairs}],
+                         {}, 10.0), **base, "reversed_by": before_pairs, "returned_funder_rows": before_pairs}
     after = {**_account(states, [entry for entry in lenders if entry[0] not in {pair[0] for pair in after_pairs}], {},
                         10.0), **base, "reversed_by": after_pairs, "returned_funder_rows": after_pairs}
     return {"accounts": {"s1:0": before}}, {"accounts": {"s1:0": after}}
@@ -658,3 +667,71 @@ def test_f2a_compare_still_fails_any_other_pairing_move():
     report = census.compare(before, after, admitted=frozenset())
     assert report["returned_funder_redirects"] == {"analyses": 0, "rows": 0}
     assert report["row_flag_moves_outside_the_allowlist"] == 1
+
+
+# Review round 1 of the fix run (finding 3): G7 declares a redirect only where the snapshots' dates show F2(a)'s move: the
+# dropped restore was of a payment dated AFTER its return, and any payment returned in its place is dated on or before
+# it (printed order where a row prints no date, the classifier's own rule). Anything else, a snapshot without dates
+# included, is read as G7 reads any pairing move.
+
+def test_f2a_r1_dropping_the_restore_of_an_earlier_payment_still_fails(tmp_path):
+    # The return (the 5th) restored row 1 (the 2nd, before it); the later snapshot pays row 1 again, unpaired.
+    before, after = _redirect_snapshots([], before_pairs=([1, "transaction:3"],))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_redirects"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves"]["reversed_by"] == {"analyses": 1, "rows": 1}
+    assert report["row_flag_moves_outside_the_allowlist"] == 1
+    paths = _files(tmp_path, before, after, _ledger())
+    assert census.main(_compare_argv(paths, tmp_path)) == 1
+    # The same move with the restored payment dated after the return is F2(a)'s, and declared.
+    before, after = _redirect_snapshots([], before_pairs=([1, "transaction:3"],),
+                                        dates={**REDIRECT_DATES, "1": "2054-03-09"})
+    assert census.compare(before, after, admitted=frozenset())["returned_funder_redirects"] == {"analyses": 1, "rows": 1}
+
+
+def test_f2a_r1_a_replacement_dated_after_the_return_still_fails():
+    # The return now restores row 4 (the 13th, after it) in place of row 3: no F2(a) pair, not declared.
+    before, after = _redirect_snapshots([[4, "transaction:3"]])
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_redirects"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves_outside_the_allowlist"] == 2
+    # A replacement on the return's own day is on or before it: declared.
+    before, after = _redirect_snapshots([[1, "transaction:3"]], dates={**REDIRECT_DATES, "1": "2054-03-05"})
+    assert census.compare(before, after, admitted=frozenset())["returned_funder_redirects"] == {"analyses": 1, "rows": 2}
+
+
+def test_f2a_r1_snapshots_without_dates_declare_nothing():
+    # Snapshots written before `row_dates` cannot show the order: the move is read as any pairing move.
+    before, after = _redirect_snapshots([], dates=None)
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_redirects"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves_outside_the_allowlist"] == 1
+    # Dates on one side only: the before snapshot's pair dates are enough for the dropped restore.
+    before, after = _redirect_snapshots([])
+    del after["accounts"]["s1:0"]["row_dates"]
+    assert census.compare(before, after, admitted=frozenset())["returned_funder_redirects"] == {"analyses": 1, "rows": 1}
+
+
+def test_f2a_r1_undated_rows_read_the_printed_order():
+    # Neither the return nor the restored payment prints a date: row 3 is printed after the return (row 2), so its
+    # dropped restore is F2(a)'s; a restore of row 1 (printed before it) is not.
+    undated = {**REDIRECT_DATES, "2": None, "3": None}
+    before, after = _redirect_snapshots([], dates=undated)
+    assert census.compare(before, after, admitted=frozenset())["returned_funder_redirects"] == {"analyses": 1, "rows": 1}
+    before, after = _redirect_snapshots([], before_pairs=([1, "transaction:3"],), dates={**undated, "1": None})
+    assert census.compare(before, after, admitted=frozenset())["returned_funder_redirects"] == {"analyses": 0, "rows": 0}
+
+
+def test_f2a_r1_a_snapshot_records_the_dates_of_its_lender_rows_and_its_pairs(tmp_path, fake_payees):
+    cache = ArtifactCache(data_dir=tmp_path / "data")
+    cache.put_analysis("f" * 64, "settings", {"statement": {"bank": "Bank of America", "transactions": [
+        _row("2054-01-02", "CUSTOMER DEPOSIT FABRICATED", 10000.0),
+        _row("2054-01-05", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+        _row("2054-01-06", "ACH DEBIT FABRICATED LENDER 0001", -1000.0),
+        _row("2054-01-07", "RETURN OF POSTED CHECK ITEM", 1000.0),
+        _row("2054-01-08", "ACH DEBIT FABRIKAM SUPPLY 0001", -250.0),
+    ]}})
+    account = census.snapshot(census.cached_accounts(tmp_path / "data"))["accounts"]["f" * 64 + ":0"]
+    assert account["returned_funder_rows"] == [[2, "transaction:4"]]
+    # The paid lender row, the returned payment and the credit that returned it; no other row.
+    assert account["row_dates"] == {"1": "2054-01-05", "2": "2054-01-06", "3": "2054-01-07"}

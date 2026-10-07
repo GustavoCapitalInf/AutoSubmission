@@ -229,6 +229,34 @@ def test_f2b_the_package_download_lists_the_match():
     assert '"funder"' in rows[(section, "debit")] and rows[(section, "gap_days")] == 6
 
 
+def test_f2b_r1_the_package_s_payment_changes_read_the_matched_payment_as_an_attempt(monkeypatch):
+    """Review round 1 of the fix run (finding 2): R2-OW18's package payment changes read the package's overlays, so a
+    payment pass 4 matched is a returned attempt there, as R2-OW13's restore makes it inside one statement. KAPITUS is
+    paid 850 weekly in March, its last March payment (the 27th) bounces on April 2 (a bare ACH RETURN ITEM NSF), and
+    April pays 600 weekly: the decrease's last payment at the old amount is March 20, not the bounced 27th."""
+    import webapp.app as app
+    from tests.test_package_matching import _package
+
+    april_rows = [(2, BARE_BOUNCE, 850.0), (3, NW_APRIL, 30000.0)] + [
+        (day, KAPITUS_BAKERY, -600.0) for day in (3, 10, 17, 24)]
+    march, april = _months(april_rows)
+    fields = ("kind", "lender", "amount_before", "amount_after", "change_percent", "payments_before", "payments_after",
+              "last_before_date", "first_after_date", "from_job", "to_job", "cross_statement")
+    (item,) = _package(("mar", march), ("apr", april))["lender_payment_changes"]
+    assert {field: item[field] for field in fields} == {
+        "kind": "decrease", "lender": "KAPITUS", "amount_before": 850.0, "amount_after": 600.0, "change_percent": -29,
+        "payments_before": 3, "payments_after": 4, "last_before_date": "2031-03-20", "first_after_date": "2031-04-03",
+        "from_job": "mar", "to_job": "apr", "cross_statement": True}
+    assert item["locations"]["last_before"] == _location(march, 20, -850.0)
+    # Without pass 4 (the package before F2(b)) the bounced payment was the last paid one.
+    monkeypatch.setattr(app, "_returned_funder_payments_across", lambda *args, **kwargs: None)
+    (before,) = _package(("mar", march), ("apr", april))["lender_payment_changes"]
+    assert (before["payments_before"], before["last_before_date"]) == (4, "2031-03-27")
+    assert before["locations"]["last_before"] == _location(march, 27, -850.0)
+    assert {field: before[field] for field in fields if field not in ("payments_before", "last_before_date")} == {
+        field: item[field] for field in fields if field not in ("payments_before", "last_before_date")}
+
+
 @needs_node
 def test_f2b_the_dashboard_warns_naming_both_documents():
     import json

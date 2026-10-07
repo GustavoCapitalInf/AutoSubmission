@@ -262,6 +262,10 @@ def _account_figures(records: list, stored: list, metrics: object) -> dict:
             [index, record.reversed_by] for index, record in enumerate(records)
             if getattr(record, "reversed_by", None)
         ],
+        # The final review of round 2, review round 1 of its fix run (finding 3; true revenue spec §14.3 G7): the date
+        # of each lender row, each paired debit and each credit a pairing names, so compare declares F2(a)'s redirect
+        # only where the dates show it (`_redirected_returns`).
+        "row_dates": _row_dates(records),
         # Re-review N5: the payee entity of each row a flag names, which compare's allowlist reads.
         "row_entities": {
             str(index): record.canonical_entity for index, record in enumerate(records)
@@ -274,6 +278,35 @@ def _account_figures(records: list, stored: list, metrics: object) -> dict:
             )
         },
     }
+
+
+def _row_dates(records: list) -> dict[str, str | None]:
+    """{str(index): ISO date, or None where the row prints none (the classifier's own `parse_date`)} for each row that
+    is a paid lender row (`contributes_to_lender_totals`), a debit a pairing names (`reversed_by` or
+    `returned_funder_payment_by`) or the credit that pairing names: the rows `_redirected_returns` orders. A checkout
+    whose `analysis` package has no `parse_date` records the dates as printed."""
+    try:
+        from analysis.dates import parse_date
+    except ImportError:  # pragma: no cover - every checkout since the dates module has it
+        parse_date = None
+    rows: set[int] = set()
+    for index, record in enumerate(records):
+        locations = [getattr(record, name, None) for name in ("reversed_by", "returned_funder_payment_by")]
+        if getattr(record, "contributes_to_lender_totals", False) or any(locations):
+            rows.add(index)
+        for location in locations:
+            credit = _location_index(location)
+            if credit is not None and 0 <= credit < len(records):
+                rows.add(credit)
+
+    def day(record) -> str | None:
+        value = getattr(record, "date", None)
+        if parse_date is None:
+            return str(value) if value else None
+        parsed = parse_date(value) if value else None
+        return parsed.isoformat() if parsed is not None else None
+
+    return {str(index): day(records[index]) for index in sorted(rows)}
 
 
 def snapshot(accounts: Iterable[tuple[str, int, dict]], *, zelle_true_revenue: bool = True) -> dict:
@@ -326,12 +359,28 @@ def _redirected_returns(old: dict, new: dict) -> set[int]:
     so a debit the earlier snapshot paired with a credit L (its `reversed_by` or a returned funder row) that the later
     one lists as a confirmed lender's paid row again with no pair, while L names no pair or a pair of another payment of
     the same funder (that payment too, now returned in its place). Their row-flag moves are declared
-    (`returned_funder_redirects`); any other pairing move is still read as G7 reads it."""
+    (`returned_funder_redirects`); any other pairing move is still read as G7 reads it.
+
+    Review round 1 of the fix run (finding 3): the snapshots' `row_dates` must show F2(a)'s move: the dropped debit is
+    dated after L and each payment returned in its place on or before L (printed after or before it where either row
+    prints no date, the classifier's rule). A row neither snapshot dates (a snapshot written before `row_dates`)
+    declares nothing, so a dropped restore of an earlier payment still fails G7."""
     def pairs(snap: dict) -> dict[int, object]:
         found: dict[int, object] = {}
         for index, location in [*(snap.get("reversed_by") or []), *(snap.get("returned_funder_rows") or [])]:
             found.setdefault(index, location)
         return found
+
+    dates = {**(old.get("row_dates") or {}), **(new.get("row_dates") or {})}
+
+    def later(first: int, second: int) -> bool | None:
+        """Whether row `first` is dated (or printed) after row `second`; None where a snapshot dates neither."""
+        if str(first) not in dates or str(second) not in dates:
+            return None
+        first_day, second_day = dates[str(first)], dates[str(second)]
+        if first_day is None or second_day is None:
+            return first > second
+        return first_day > second_day
 
     before, after = pairs(old), pairs(new)
     paid = {entry[0] for entry in new.get("lenders") or []}
@@ -342,9 +391,14 @@ def _redirected_returns(old: dict, new: dict) -> set[int]:
         if (debit in after or debit not in paid or debit >= len(states) or states[debit] != "confirmed_lender"
                 or entities.get(str(debit)) is None):
             continue
+        credit = _location_index(location)
+        if credit is None or later(debit, credit) is not True:
+            continue  # not a restore of a payment dated after its return (or no date to show it)
         others = {index for index, other in after.items() if other == location}
         if any(entities.get(str(index)) != entities.get(str(debit)) for index in others):
             continue
+        if any(later(index, credit) is not False for index in others):
+            continue  # a payment returned in its place must be dated on or before the return
         rows |= {debit, *others}
     return rows
 

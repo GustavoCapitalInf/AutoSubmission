@@ -2611,7 +2611,10 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
     but no statement can across two) that its statement left unpaired (no `returns_funder_payment`,
     no pair's `reversed_by` naming it, no earlier pass's note) and that is dated; a credit the revenue side paired with a
     debit of its own statement dated on or before it is left alone (rule D's partner guard: the statement's own pair
-    stands), while a partner dated after it cannot be the payment it returns (F2(a)) and holds nothing back. Its payment
+    stands), while a partner dated after it cannot be the payment it returns (F2(a)) and holds nothing back. Two of
+    these are departures from rule D, which the fix run's review round 1 named for ratification (spec §20): rule D
+    never reads a lender credit, and it leaves alone any credit the revenue side paired that is not its own payment's
+    partner, whatever the partner's date. Its payment
     is sought in the SAME account's IMMEDIATELY PRECEDING statement (`_same_account` and `_consecutive`): a confirmed
     funder's paid payment (`_paid_funder_payment`) of equal cents dated 0 to RETURNED_FUNDER_PAYMENT_WINDOW_DAYS days
     before it, that funder's only where the return names a confirmed funder (`match_known_payee`). Rule D's choice: the
@@ -2624,8 +2627,9 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
     The payment's copy leaves the package's paid to lenders (`contributes_to_lender_totals` and, as rule D does,
     `contributes_to_flagged_totals` false; `returned_funder_payment_by` the return's location), keeping its withholding
     and its lender count; both legs carry `package_match` `{kind: "returned_funder_payment", ...}` (the payment's names
-    the return, the return's the payment and its funder), and `matches` gains the pair. Revenue never moves; each
-    statement viewed alone keeps its own figures."""
+    the return, the return's the payment and its funder), and `matches` gains the pair. R2-OW18's package payment
+    changes read the payment's copy as a returned attempt (`_package_lender_payment_changes`). Revenue never moves;
+    each statement viewed alone keeps its own figures."""
     noted = {(key, position) for key, rows in overlays.items() for position in rows}
     taken: set[tuple] = set()
     returns: list[tuple] = []
@@ -2760,8 +2764,11 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
     """The owner's request of 2026-10-06 (lender payment changes; "can we also detect when a payment to lender has
     decreased? That would be a really important metric to track."; true revenue spec §9.2; R2-OW18, part F): each
     lender payment series read across the package's consecutive statements of ONE account, recomputed on every call
-    from the kept members' displayed copies (with R2-OW15's overlay, which changes no debit's lender fields) and never
-    written back. Information only: no total, rollup, gate or revenue figure reads it.
+    from the kept members' displayed copies (with the package passes' overlay: passes 1 to 3 change no debit's lender
+    fields; the final review of round 2's pass 4 (F2(b)) marks a payment it matched as returned
+    (`returned_funder_payment_by`, `contributes_to_lender_totals` false), so a series reads it as a returned attempt,
+    not a payment, as R2-OW13's restore does inside one statement) and never written back. Information only: no total,
+    rollup, gate or revenue figure reads it.
 
     A member enters when it is analysed and its served detection carries `lender_payment_changes` (it was analysed
     with the check); otherwise it is listed and left out (`not_ready`, `analysed_before_check`). Members are visited in
