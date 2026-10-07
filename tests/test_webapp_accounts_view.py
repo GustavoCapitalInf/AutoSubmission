@@ -210,7 +210,10 @@ def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_a
                "lenderDebitsSummary",
                # The owner's request of 2026-10-06 (R2-OW18): the summary's lender payment changes, and the warning
                # text the package summary lines quote.
-               "lenderPaymentChangeWarning", "lenderPaymentChangesSummary")
+               "lenderPaymentChangeWarning", "lenderPaymentChangesSummary",
+               # The final review of round 2, F1 (review round 1 of its fix run): the summary's decision reads the
+               # served withholding-basis flag (withholdingReviewDecision, in the accounts block).
+               "withholdingBasisUnestablished")
     # Each function up to its closing brace (top-level code follows some of them).
     source = _harness("off") + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
                                        for name in helpers) + f"""
