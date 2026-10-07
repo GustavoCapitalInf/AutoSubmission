@@ -25,6 +25,8 @@ from pathlib import Path
 
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
+from analysis.revenue_view import revenue_flags
+from analysis.serialization import report_to_dict
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -48,8 +50,11 @@ FIELDS = [
     # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the reading shown and its Zelle figures,
     # a fixed header in both modes.
     "zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total",
-    "maximum_revenue", "revenue_reconciles",
-    "revenue_reconciliation_delta", "cash_flow", "lender_credits", "lender_debits",
+    # Audit round 2, R2-B16 (R52): the four-tier identity under its own name (was `revenue_reconciles`), then whether
+    # the statement's revenue is Balanced (its ledger reconciles and its revenue is established) and the two flags.
+    "maximum_revenue", "revenue_tiers_sum_to_posted",
+    "revenue_reconciliation_delta", "revenue_balanced", "revenue_established", "verified_revenue_established",
+    "cash_flow", "lender_credits", "lender_debits",
     "lender_debit_count", "returned_funder_payment_count", "returned_funder_payment_total",
     "lenders_detected", "potential_lenders_detected",
     "potential_lender_debit_count", "potential_lender_debit_total",
@@ -143,15 +148,25 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
     zelle = zelle_view.record_zelle_figures(stored.classifications, report.classifications)
     zelle_parts = zelle_view.figure_parts(zelle) if zelle is not None else {"in_true": 0.0}
+    # Audit round 2, R2-B16 (R52; true revenue spec §10.4): the account's revenue flags in the reading shown, from its
+    # serialized payload (the flags the dashboard and the downloads read).
+    verified_established, established = revenue_flags(report_to_dict(report))
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted —
-    # or when its revenue gate is set (5.6, T7: a direction conflict, held credits
-    # of ten percent or more of its posted credits, or revenue that does not reconcile).
+    # when its revenue gate is set (5.6, T7: a direction conflict, or held credits
+    # of ten percent or more of its posted credits or of True plus held), or (R52)
+    # when its revenue is not established: its captured credits are not the money
+    # the bank's total counts. The four-tier identity holds by construction on every
+    # analysis (analysis/metrics.py raises otherwise), so it is no term of its own.
     needs_review = (
         report.quality.corporate_use == "manual_review_required"
         or m.revenue_review_required
-        or not m.revenue_reconciles
+        or not established
     )
+
+    def established_figure(value: float, shown: bool) -> str:
+        # R52 (audit B11's I51 on the CSV): a figure the flags do not establish is an empty cell, as in the downloads.
+        return f"{value:.2f}" if shown else ""
     return {
         "file": path.name,
         "bank": s.bank or "",
@@ -167,22 +182,25 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "total_deposits": f"{m.effective_total_deposits:.2f}",
         "total_debits": f"{m.effective_total_withdrawals:.2f}",
         "total_posted_credits": f"{m.total_posted_credits:.2f}",
-        # 5.6 (true revenue spec §5.1): True revenue and its counted and held parts.
-        "true_revenue_total": f"{m.true_revenue_total:.2f}",
-        "counted_flagged_total": f"{m.counted_flagged_total:.2f}",
-        "excluded_pending_review_total": f"{m.excluded_pending_review_total:.2f}",
-        "verified_revenue_total": f"{m.verified_revenue_total:.2f}",
+        # 5.6 (true revenue spec §5.1): True revenue and its counted and held parts; R52: empty where not established.
+        "true_revenue_total": established_figure(m.true_revenue_total, established),
+        "counted_flagged_total": established_figure(m.counted_flagged_total, established),
+        "excluded_pending_review_total": established_figure(m.excluded_pending_review_total, established),
+        "verified_revenue_total": established_figure(m.verified_revenue_total, verified_established),
         "verified_revenue_count": m.verified_revenue_count,
-        "unverified_deposit_total": f"{m.unverified_deposit_total:.2f}",
+        "unverified_deposit_total": established_figure(m.unverified_deposit_total, established),
         "unverified_deposit_count": m.unverified_deposit_count,
         "non_revenue_total": f"{m.non_revenue_total:.2f}",
         "non_revenue_count": m.non_revenue_count,
         "zelle_true_revenue": "yes" if zelle_true_revenue else "no",
         "zelle_deposit_total": f"{zelle['total'] if zelle is not None else 0.0:.2f}",
         "zelle_in_true_revenue_total": f"{zelle_parts['in_true']:.2f}",
-        "maximum_revenue": f"{m.maximum_revenue:.2f}",
-        "revenue_reconciles": "yes" if m.revenue_reconciles else "NO",
+        "maximum_revenue": established_figure(m.maximum_revenue, established),
+        "revenue_tiers_sum_to_posted": "yes" if m.revenue_tiers_sum_to_posted else "NO",
         "revenue_reconciliation_delta": f"{m.revenue_reconciliation_delta:.2f}",
+        "revenue_balanced": "yes" if r.ok is True and established else "NO",
+        "revenue_established": "yes" if established else "NO",
+        "verified_revenue_established": "yes" if verified_established else "NO",
         "cash_flow": f"{m.cash_flow:.2f}",
         "lender_credits": f"{m.lender_credits:.2f}",
         "lender_debits": f"{m.lender_debits:.2f}",

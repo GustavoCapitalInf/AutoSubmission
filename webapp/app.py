@@ -39,7 +39,13 @@ from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
 from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group_keys
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
-from analysis.revenue_view import DEBIT_FLAG_KINDS, apply_revenue_view, debit_side_flags
+from analysis.revenue_view import (
+    DEBIT_FLAG_KINDS,
+    UNESTABLISHED_REVENUE_KEYS,
+    UNESTABLISHED_VERIFIED_KEYS,
+    apply_revenue_view,
+    debit_side_flags,
+)
 from analysis import zelle_view
 from analysis import lender_payment_changes as payment_changes_module
 from analysis.true_revenue import zelle_deposit
@@ -255,18 +261,10 @@ def _displayed(
 
 
 #: Audit B11 (I51, §10.4 for the exports): the figures a download leaves empty when an account's revenue is not
-#: established (its captured credits are not the money its Total counts, or it was analysed before 5.6): True,
-#: Counted, Held and every name that carries them or a part of them. The dashboard already reads them as N/A; a
-#: download printed them as numbers beside `revenue_established = False`. Non-revenue stays: its rows are known
-#: non-revenue, captured rows only.
-_UNESTABLISHED_REVENUE_KEYS = (
-    "true_revenue", "true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
-    "excluded_pending_review_total", "excluded_pending_review_count", "counted_flagged_by_reason",
-    "excluded_pending_review_by_reason", "revenue_review_items", "unverified_deposit_total",
-    "potential_revenue_total", "maximum_revenue",
-)
-#: ... and when its Verified figure is not established: Verified and its aliases (T9).
-_UNESTABLISHED_VERIFIED_KEYS = ("verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total")
+#: established, and when its Verified figure is not. Audit round 2, R2-B16 (R52): the lists live in
+#: analysis/revenue_view.py, which the CLI reads too.
+_UNESTABLISHED_REVENUE_KEYS = UNESTABLISHED_REVENUE_KEYS
+_UNESTABLISHED_VERIFIED_KEYS = UNESTABLISHED_VERIFIED_KEYS
 
 
 def _export_account_revenue(account: object) -> object:

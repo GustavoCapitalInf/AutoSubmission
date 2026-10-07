@@ -17,8 +17,31 @@ import json
 import sys
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
-from analysis.serialization import document_report_to_dict
+from analysis.revenue_view import apply_revenue_view, revenue_flags
+from analysis.serialization import document_report_to_dict, report_to_dict
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
+
+#: Audit round 2, R2-B16 (R52): a revenue figure the account's flags do not establish.
+_NOT_ESTABLISHED = "N/A (not established)"
+
+
+def _revenue_flags(report: Report) -> tuple[bool, bool]:
+    """Audit round 2, R2-B16 (R52; true revenue spec §10.4): `(verified_revenue_established, revenue_established)` of
+    one account in the reading shown, from its serialized payload (analysis/revenue_view.py `revenue_flags`, the
+    flags the dashboard and the downloads read). Serialized here, never in revenue_view, which does not import the
+    serializer."""
+    return revenue_flags(report_to_dict(report))
+
+
+def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) -> str:
+    """R52: "Balanced" where the ledger reconciles and the revenue is established (app.js statementRevenueBalanced),
+    otherwise "Review required" and why: the ledger does not reconcile, or the captured credits are not the money the
+    bank's total counts."""
+    if ledger_reconciles and established:
+        return "Balanced"
+    if not ledger_reconciles:
+        return "Review required (ledger does not reconcile)"
+    return "Review required (captured credits differ from the bank-stated total)"
 
 
 def _zelle_line(stored: Report, shown: Report) -> str | None:
@@ -147,26 +170,35 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
     if m.withdrawals_source != "line_items":
         wd += f"   | line items ${m.total_withdrawals:,.2f} ({m.num_withdrawals})"
     L.append(wd)
-    # 5.6 (true revenue spec §5.1): True revenue first, then its verified part, the counted and held credits.
+    # 5.6 (true revenue spec §5.1): True revenue first, then its verified part, the counted and held credits. Audit
+    # round 2, R2-B16 (R52; §10.4): a figure the account's revenue flags do not establish reads N/A, as the dashboard
+    # and the downloads read it.
+    verified_established, established = _revenue_flags(report)
+
+    def figure(text: str, shown: bool) -> str:
+        return text if shown else _NOT_ESTABLISHED
+
     L.append(
-        f"  True revenue          : ${m.true_revenue_total:,.2f}  "
-        f"({m.true_revenue_count} credit(s))"
+        "  True revenue          : "
+        + figure(f"${m.true_revenue_total:,.2f}  ({m.true_revenue_count} credit(s))", established)
     )
     L.append(
-        f"  Verified revenue      : ${m.verified_revenue_total:,.2f}  "
-        f"({m.verified_revenue_count} credit(s))"
+        "  Verified revenue      : "
+        + figure(f"${m.verified_revenue_total:,.2f}  ({m.verified_revenue_count} credit(s))", verified_established)
     )
     L.append(
-        f"  Counted, not verified : ${m.counted_flagged_total:,.2f}  "
-        f"({m.counted_flagged_count} credit(s))"
+        "  Counted, not verified : "
+        + figure(f"${m.counted_flagged_total:,.2f}  ({m.counted_flagged_count} credit(s))", established)
     )
     L.append(
-        f"  Held for review       : ${m.excluded_pending_review_total:,.2f}  "
-        f"({m.excluded_pending_review_count} credit(s))"
+        "  Held for review       : "
+        + figure(f"${m.excluded_pending_review_total:,.2f}  ({m.excluded_pending_review_count} credit(s))",
+                 established)
     )
     L.append(
-        f"  Unverified deposits   : ${m.unverified_deposit_total:,.2f}  "
-        f"({m.unverified_deposit_count} credit(s): counted plus held)"
+        "  Unverified deposits   : "
+        + figure(f"${m.unverified_deposit_total:,.2f}  ({m.unverified_deposit_count} credit(s): counted plus held)",
+                 established)
     )
     L.append(
         f"  Non-revenue credits   : ${m.non_revenue_total:,.2f}  "
@@ -175,9 +207,12 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
     zelle = _zelle_line(stored, report) if zelle_true_revenue else None
     if zelle is not None:
         L.append(zelle)
-    L.append(f"  Maximum revenue       : ${m.maximum_revenue:,.2f}")
+    L.append("  Maximum revenue       : " + figure(f"${m.maximum_revenue:,.2f}", established))
+    # R52 (audit B11's I31 on the CLI): "Balanced" only where the ledger reconciles and the revenue is established (the
+    # dashboard's rule, app.js statementRevenueBalanced); the four-tier identity under its own name beside it.
+    L.append(f"  Revenue reconciliation: {_revenue_reconciliation_label(r.ok is True, established)}")
     L.append(
-        f"  Revenue reconciliation: {'balanced' if m.revenue_reconciles else 'REVIEW'}  "
+        f"  Tiers sum to posted   : {'yes' if m.revenue_tiers_sum_to_posted else 'NO'} "
         f"(delta ${m.revenue_reconciliation_delta:,.2f})"
     )
     L.append(f"  Cash flow             : ${m.cash_flow:,.2f}")
@@ -302,9 +337,12 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
 
 def _json_safe(document: DocumentReport, zelle_true_revenue: bool = True) -> dict:
     """The DOCUMENT's payload. RULE S: one account publishes today's, verbatim. R2-OW17: in the Zelle reading shown
-    (analysis/zelle_view.py apply_zelle_view): under No, on a fresh analysis, today's JSON exactly (the edits key
-    gone, no display key)."""
-    return zelle_view.apply_zelle_view(document_report_to_dict(document), counted=zelle_true_revenue)
+    (analysis/zelle_view.py apply_zelle_view): under No, on a fresh analysis, today's JSON (the edits key gone, no
+    display key). Audit round 2, R2-B16 (R52): then the revenue view the dashboard serves (analysis/revenue_view.py
+    apply_revenue_view, after the Zelle reading as webapp/app.py `_displayed` applies them), so each account's metrics
+    carry `revenue_established` and `verified_revenue_established`; every figure is kept."""
+    return apply_revenue_view(zelle_view.apply_zelle_view(document_report_to_dict(document),
+                                                          counted=zelle_true_revenue))
 
 
 def main() -> None:

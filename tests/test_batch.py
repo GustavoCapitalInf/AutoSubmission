@@ -166,3 +166,83 @@ def test_the_batch_csv_carries_the_lender_payment_change_columns():
     assert (columns["lender_payment_decreases"], columns["lender_payment_possible_stops"]) == (2, 1)
     assert columns["lender_payment_changes"] == (
         "decrease:KAPITUS; decrease:KAPITUS (possible); stop:Unidentified lender obligation (weekly, 300.00) (potential)")
+
+
+# --- Audit round 2, R2-B16 (R52; true revenue spec §10.4): the triage CSV reads the dashboard's revenue rules. The
+# four fabricated statements of tests/test_analyze_cli.py (T1 to T4), analysed by the real per-account path.
+
+_EMPTY_WHEN_NOT_ESTABLISHED = ("true_revenue_total", "counted_flagged_total", "excluded_pending_review_total",
+                               "unverified_deposit_total", "maximum_revenue", "verified_revenue_total")
+
+
+def _cli_row(report):
+    from pathlib import Path
+    return batch._row(Path("fabricated.md"), report)
+
+
+def test_the_batch_columns_name_the_identity_and_the_flags():
+    assert "revenue_reconciles" not in batch.FIELDS
+    start = batch.FIELDS.index("maximum_revenue")
+    assert batch.FIELDS[start:start + 7] == [
+        "maximum_revenue", "revenue_tiers_sum_to_posted", "revenue_reconciliation_delta", "revenue_balanced",
+        "revenue_established", "verified_revenue_established", "cash_flow"]
+
+
+def test_t1_the_batch_row_of_a_tied_ledger_is_balanced():
+    from tests.test_analyze_cli import ties
+
+    row = _cli_row(ties())
+    assert (row["revenue_balanced"], row["revenue_established"], row["verified_revenue_established"],
+            row["revenue_tiers_sum_to_posted"]) == ("yes", "yes", "yes", "yes")
+    assert (row["true_revenue_total"], row["maximum_revenue"], row["needs_review"]) == ("2500.00", "2500.00", "")
+
+
+def test_t2_the_batch_row_of_a_misread_opening_is_not_balanced_and_needs_review():
+    from tests.test_analyze_cli import misread_opening
+
+    row = _cli_row(misread_opening())
+    assert (row["revenue_tiers_sum_to_posted"], row["revenue_established"], row["revenue_balanced"],
+            row["needs_review"]) == ("yes", "yes", "NO", "REVIEW")
+    assert row["true_revenue_total"] != ""
+
+
+def test_t3_the_batch_row_of_a_dropped_credit_leaves_the_figures_empty():
+    from tests.test_analyze_cli import dropped_credit
+
+    row = _cli_row(dropped_credit())
+    assert all(row[key] == "" for key in _EMPTY_WHEN_NOT_ESTABLISHED)
+    assert (row["revenue_established"], row["verified_revenue_established"], row["revenue_balanced"]) == (
+        "NO", "NO", "NO")
+    # Non-revenue, the deposits and the identity's delta stay.
+    assert row["non_revenue_total"] != "" and row["total_deposits"] == "3200.00"
+    assert row["revenue_reconciliation_delta"] == "0.00"
+    assert row["needs_review"] == "REVIEW"
+
+
+def test_t4_only_the_new_term_asks_for_review_where_the_revenue_is_not_established():
+    from tests.test_analyze_cli import stated_above
+
+    report = stated_above()
+    assert report.quality.corporate_use == "approved" and report.metrics.revenue_review_required is False
+    row = _cli_row(report)
+    assert row["needs_review"] == "REVIEW"
+    assert row["true_revenue_total"] == "" and row["revenue_established"] == "NO"
+    assert row["summary_reconciles"] == "n/a" and row["transaction_detail_reliable"] == "yes"
+
+
+def test_the_error_row_carries_only_the_file_the_review_and_the_class_name(monkeypatch, tmp_path):
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    monkeypatch.setattr(batch, "analyze_document", boom)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        [row] = list(csv.DictReader(handle))
+    assert {key for key, value in row.items() if value} == {"file", "needs_review", "error"}
+    assert (row["needs_review"], row["error"]) == ("REVIEW", "RuntimeError")

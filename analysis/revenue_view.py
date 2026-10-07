@@ -32,6 +32,21 @@ from analysis.transaction_classifier import _deposit_return_debit, processor_cha
 
 _SURFACE = "analysis/revenue_view.py::apply_revenue_view"
 
+#: Audit B11 (I51, §10.4 for the exports): the figures a download leaves empty when an account's revenue is not
+#: established (its captured credits are not the money its Total counts, or it was analysed before 5.6): True,
+#: Counted, Held and every name that carries them or a part of them. The dashboard already reads them as N/A; a
+#: download printed them as numbers beside `revenue_established = False`. Non-revenue stays: its rows are known
+#: non-revenue, captured rows only. Audit round 2, R2-B16 (R52): public here, so the CLI (analyze.py, batch.py) and
+#: the webapp's downloads (webapp/app.py) read one list.
+UNESTABLISHED_REVENUE_KEYS = (
+    "true_revenue", "true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
+    "excluded_pending_review_total", "excluded_pending_review_count", "counted_flagged_by_reason",
+    "excluded_pending_review_by_reason", "revenue_review_items", "unverified_deposit_total",
+    "potential_revenue_total", "maximum_revenue",
+)
+#: ... and when its Verified figure is not established: Verified and its aliases (T9).
+UNESTABLISHED_VERIFIED_KEYS = ("verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total")
+
 
 def _number(value: object) -> float:
     try:
