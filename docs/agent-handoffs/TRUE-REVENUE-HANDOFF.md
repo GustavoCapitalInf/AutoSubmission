@@ -1,4 +1,4 @@
-# True revenue: handoff (2026-10-03)
+# True revenue: handoff (2026-10-07)
 
 For the agent taking over the true-revenue work. Read this first, then the progress ledger
 (`C:/Users/GustavoPrietodePaula/work/true-revenue/.superpowers/sdd/progress.md`, git-ignored, local only).
@@ -6,29 +6,40 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
 
 ## 1. Where things stand
 
-- **Branch:** `true-revenue`, worktree `C:/Users/GustavoPrietodePaula/work/true-revenue`, pushed to `origin/true-revenue`.
-  The last code commit is `88e9007`; this document is the commit after it.
+- **Branch:** `true-revenue`, worktree `C:/Users/GustavoPrietodePaula/work/true-revenue`.
+  The audit round-2 fix run is complete through `283e90e` (pushed to `origin/true-revenue`), and the final review's
+  three findings are fixed on top of it (F1 `7854cf1`, F2 `4cab9ef`, and the docs commits after them, this document
+  among them; local, not pushed yet).
   It sits on `text-first-v1` = `c106634` (lender detection, classification 5.4). Nothing is merged or deployed: the Fly demo runs older code.
+- **Versions:** classification **5.7**, analysis stage **33** (`webapp/artifact_cache.py`). Neither is released, so the
+  final review's fixes are folded into 5.7 / 33 (the cache held no stage-33 analysis; spec §9.3).
 - **Main checkout** (the OneDrive folder) is on `lender-detection` and must stay untouched: `git -C <main> status` prints only `## lender-detection`.
-- Nothing is running. The last workflow was stopped cleanly on 2026-10-03 at 18:44 local time; the worktree is clean.
+- Nothing is running.
 
 | Stage | What | State |
 |---|---|---|
 | Feature (S1-S6) | True revenue (headline) and Verified revenue, per-credit tiers verified / counted_flagged / excluded_pending_review (held) / non_revenue; dashboard, package and exports; classification 5.5 and 5.6 | done 2026-09-30 |
-| Audit round 1 | 62 verified issues, fixed in B01-B12 (`fa37907..c486fd5`) | accepted 2026-10-02 (census guards, G7, full suite, browser) |
-| Audit round 2 | re-audit on `c486fd5`: 56 issues, all confirmed; 54 to fix in R2-B01..R2-B16 | B01-B11 approved; B12 implemented and fixed, re-review pending; B13-B16 to do |
-| Owner rulings 2026-10-02 | the underwriter answered the 13 open questions; planned as R2-OW01..R2-OW16 | planned, not started |
-| R2-L01 | Liberis ledger admission, carried over from R2-B03 | to do |
+| Audit round 1 | 62 verified issues, fixed in B01-B12 (`fa37907..c486fd5`) | accepted 2026-10-02 |
+| Audit round 2 | re-audit on `c486fd5`: 56 issues, all confirmed; 54 fixed in R2-B01..R2-B16 | done; R2-B16 made the single version move (5.7 / 33) |
+| Owner rulings 2026-10-02 | the underwriter's answers to the 13 open questions, R2-OW01..R2-OW16 | done (Q3b held back, §6) |
+| Owner requests 2026-10-06 | Q3 amended (the Zelle setting, R2-OW17); lender payment changes (R2-OW18) | done |
+| R2-L01 | Liberis ledger admission, carried over from R2-B03 | done |
+| Acceptance of the round (`283e90e`) | census on both bases, G7, full suite, real browser | ACCEPTED 2026-10-07 (LOCAL `round2/reports/ACCEPT-report.md`) |
+| Final review of `c486fd5..283e90e` | three findings (F1 important, F2 and F3 minor) | fixed (LOCAL `round2/reports/FINAL-FIX-report.md`) |
 
-Corpus figures (re-parsed basis, about 2,508 accounts; True = share of posted credits):
+Corpus figures at the accepted head (re-parsed basis, 2,513 accounts; shares of posted credits; Zelle setting Yes, the default):
 
-| Point | True | Verified |
-|---|---|---|
-| round-1 accepted (`c486fd5`) | 66.78% | 28.69% |
-| round-2 baseline (R2-B01) | 66.76% | 28.68% |
-| after R2-B02 (processor payouts no longer held on the processor's own fee debits, +$5.24M) | 68.64% | 28.70% |
-| after R2-B12 (current) | 68.07% | 28.61% |
-| expected after the owner batches | about 64-66% | about 28.2% |
+| Point | True | Verified | Held | Non-revenue | $0-True statements |
+|---|---|---|---|---|---|
+| round-1 accepted (`c486fd5`) | 66.78% | 28.69% | 18.42% | 14.80% | 139 |
+| round-2 baseline (R2-B01) | 66.75% | 28.68% | 18.44% | 14.81% | 140 |
+| **accepted head (`283e90e`)** | **67.58%** | **28.11%** | **17.40%** | **15.03%** | **148** |
+| the same under the Zelle setting No | 66.75% | 28.11% | 16.77% | 16.48% | 171 |
+
+On the cached basis the accepted head reads True 70.04% and Verified 28.06%. G7 holds from `c106634` on both bases
+(lenders gained 0, lost 0; the only lender-side moves are R2-OW13's declared returned-payment moves). The full suite
+fails only the 16 known tests of `lender-research/census/failed-ld-final.txt`. The final review's fixes move no
+revenue figure; their lender and withholding moves are declared in the FINAL-FIX report.
 
 ## 2. Owner instructions in force
 
@@ -37,53 +48,43 @@ Corpus figures (re-parsed basis, about 2,508 accounts; True = share of posted cr
 - **Push `true-revenue` to GitHub periodically** (owner, 2026-10-02): after each batch, scan the new commit messages for statement values first, fast-forward only. Never force-push, never open a PR, merge or deploy without asking.
 - Take your own recommendations; ask only when a call is genuinely split and high-impact. Always ask before a merge, a deploy or a force-push.
 - The MCA principle (2026-09-30): True revenue is money the business earns from its operations. Government money unrelated to the business is never revenue; a government or insurer paying the business for its services still is.
-- Rulings: spec `docs/superpowers/specs/2026-09-28-true-revenue-design.md` §2 (2026-09-28 Q1-Q8), §19.1 (owner decisions), §17.1 (open questions), §20 (every amendment). The 2026-10-02 answers are written "Qn (2026-10-02)", never a bare Qn.
+- Rulings: spec `docs/superpowers/specs/2026-09-28-true-revenue-design.md` §2 (2026-09-28 Q1-Q8), §2.1 (2026-10-02 answers), §2.2 (2026-10-06 requests), §19.1 (owner decisions), §17.1 (open questions), §20 (every amendment). The 2026-10-02 answers are written "Qn (2026-10-02)", never a bare Qn.
 - Privacy: tests and docs use fabricated data only (CONTOSO / FABRIKAM / NORTHWIND / SAMPLE). Never put a real person's or private business's name, an account number, an amount or a date from a statement into code, tests, docs or commit messages. Quote corpus rows only with digits masked.
 
-## 3. The owner's 2026-10-02 rulings (summary)
+## 3. The owner's rulings and requests (summary)
 
 LOCAL verbatim answers and readings: `lender-research/revenue/audit-archive/audit/round2/owner/answers.md`, plus `questions.pdf` beside it.
 
-| Q | Ruling | Batch |
+| Q | Ruling as built | Batch |
 |---|---|---|
 | 1 | No-sender wires stay held, plus a review aid: "recurring payments start after this deposit: possible funding" | OW12 |
 | 2 | Insurers paid for the business's work are counted and flagged; a one-off claim on its own policy stays out | OW07, OW08 |
-| 3 | Every Zelle deposit is non_revenue, with the excluded total shown. No-sender e-Transfer round repeats are held (Q3b) | OW02, OW03 |
+| 3 (amended 2026-10-06) | **Zelle follows the Settings choice "Mark Zelle Payments as True Revenue", Yes by default:** Yes counts every Zelle deposit as the rules read person-to-person money (counted and flagged "Zelle"; the owner's own name and repeated round sums from one sender held; refunds, returns and loan money out); No makes every Zelle deposit non-revenue (`zelle_excluded`) and shows the excluded total. Both readings are computed at analysis time; the setting picks one when served, with no re-analysis. The 2026-10-02 reading (every Zelle deposit excluded) is superseded | OW02, OW03, OW17 |
+| 3b | No-sender e-Transfers repeating a round sum: ruled "Same rule as Q3", **not implemented** (it would move a real-statement pin); held for the owner (§6) | OW02 (held) |
 | 4 | Package: a deposit matching an exact-cents transfer from another of the business's accounts 0-2 days earlier is held and listed for release | OW16 |
-| 5 | A bounced funder payment comes out of "paid to lenders" but stays in the withholding rate; the funder stays counted; a warning is shown | OW13 |
+| 5 | A bounced funder payment comes out of "paid to lenders" but stays in the withholding rate; the funder stays counted; a warning is shown. Since the final review (F2): a return reverses a payment dated on or before it only, and the package matches a return whose payment sits in the previous statement | OW13, final review F2 |
 | 6 | Package: bounced deposits are matched across consecutive months and a redeposit counts once; unmatched returns and chargebacks are flagged, not deducted | OW15 |
-| 7 | True revenue becomes the default withholding basis; ATM and cash deposits count | OW14 |
+| 7 | True revenue is the default withholding basis; ATM and cash deposits count. Since the final review (F1): a statement or package whose basis is not established (True or Verified reads N/A) publishes no rate and asks for review | OW14, final review F1 |
 | 8 | Lease-to-own and patient-financing payouts are counted and flagged, never verified; big one-off lumps stay held | OW04 |
 | 9 | Finance-named customers, rent received and lenders paying for services are counted and flagged, with the hidden-loan guard | OW05, OW09 |
 | 10 | Every deposit into an account titled "premium trust" is held | OW10 (parser), OW11 |
 | 11 | Builder progress draws are counted and flagged; non-dealer asset sales are non_revenue | OW06 |
 | 12 | Seven no-purpose government payments are non_revenue | OW01 |
 | 13 | Stripe/Intuit debit-card payouts stay excluded (both switches off) | OW01 |
+| Request 2026-10-06 | **Lender payment changes:** decreases, increases, schedule changes, pauses, new streams and stops of each confirmed and potential lender's regular payment, per statement and across a package's consecutive statements; information only (no lender, withholding, revenue or gate figure reads them) | OW18 |
 
 Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps a version; R2-B16's single bump covers the run.
 
 ## 4. What is left, in order
 
-1. **R2-B12 re-review (Opus).** B12 = `f2756ab..c169e67` implemented, `88e9007` fixed the round-1 review's findings. Its Fable re-review was cut off.
-   Run the review again with the prior findings (LOCAL `round2/reports/R2-B12-review-r1.json`). The handoff workflow does this through the batch's `resume` field.
-2. **R2-B13** (name-vs-purpose spares), **R2-B14** (package duplicates, interims, upload queue), **R2-B15** (package months, left-out accounts, empty packages, counts).
-3. **R2-OW01..R2-OW16**, the owner rulings, in order.
-4. **R2-L01**, Liberis: an independent verify round (public evidence) first, then apply the held patch (4 corpus credits leave True).
-5. **R2-B16** last: Monthly Statements units, statement exports (debit table, cell limit), the CLI's labels, then `CLASSIFICATION_VERSION` 5.6 -> 5.7 plus the stage bump as the final commit. Its note lists the owner batches' shape changes.
-6. **Acceptance:**
-   - the census on both bases (re-parsed is primary; the round-2 baseline is `lender-research/revenue/work/plan/r2b01/r2_base.json.gz`), every guard (G18 explained);
-   - G7 from `c106634` with the owner's allowlist;
-   - the full suite: only the 16 known failures in `lender-research/census/failed-ld-final.txt` may fail;
-   - a real-browser dashboard check covering the owner surfaces.
-7. **Final whole-delta review** of `c486fd5..HEAD` (Opus).
-8. **Round-3 re-audit**, then fix and repeat until a round has no surviving non-owner issue. Templates: `round2/handoff/templates/` (re-audit, finish, owner-rulings plan; their verifiers are already switched to Opus).
-9. **Owner report** with the three headings. Then ask the owner about merging and the Fly release.
-
-**Fix first, before the next parser batch (OW10):** the corpus extraction gate crashes at the branch head. `balance_forensic_audit.csv_rows` unpacks three columns, but B11's per-credit CSV ledger is wider. R2-B05/B06/B07 ran it from frozen copies with a scratch-only harness fix; see the R2-B05 report.
+1. **Push** the final-review commits after scanning their messages for statement values (fast-forward only).
+2. **Round-3 re-audit** of `c486fd5..HEAD` (Opus), then fix and repeat until a round has no surviving non-owner issue.
+   Templates: LOCAL `round2/handoff/templates/` (re-audit, finish, owner-rulings plan; their verifiers are already switched to Opus).
+3. **Owner report** with the three headings, carrying the open owner items of §6. Then ask the owner about merging and the Fly release.
 
 ## 5. How to run it
 
-- LOCAL script: `lender-research/revenue/audit-archive/audit/round2/handoff/round2-fixes-workflow.js`. Its args: `handoff_args.json` beside it, which lists 22 batches (B12 resume, B13-B15, OW01-OW16, L01, B16) and points every path at the archive.
+- LOCAL script: `lender-research/revenue/audit-archive/audit/round2/handoff/round2-fixes-workflow.js`. Its args: `handoff_args.json` beside it. The round-3 templates sit in `templates/` beside it.
 - Launch with the Workflow tool: `scriptPath` = the .js and `args` = the whole JSON object.
   - Per batch: an Opus implementer, an Opus adversarial review, up to 3 fix rounds, then a push agent.
   - After the batches: acceptance, then the final review.
@@ -94,45 +95,36 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
   - Write Python and regex with the Write/Edit tools (Bash heredocs mangle backslashes); compile-check generated code.
   - Usage limits and app restarts kill background workflows (permission-mode changes restart the app); resume from the journal.
   - Session crons do not fire while a workflow keeps the session busy, which is why the push lives inside the workflow.
-  - Census re-parses take about 12-18 minutes; never edit sources mid-run (the manifest hashes them).
+  - Census re-parses take about 12-18 minutes; never edit sources mid-run (the manifest hashes them): measure from a frozen tree.
   - The PowerShell/Bash tools time out at 2 minutes in the foreground; use background runs for census work.
   - Stop orphaned census processes (`tools.revenue_census` / `tools.lender_census`) after a killed agent.
+  - Snapshots written before the Zelle setting are compared as copies marked `zelle_true_revenue: true` (LOCAL `work/plan/accept2/mark_yes.py`).
 
 ## 6. Open owner items
 
-- **Q13, asked and unanswered:** should Stripe/Intuit instant payouts that print "VISA DIRECT" (98 deposits, about $156K, counted or verified today) be excluded like the plain debit-card ones? Wells Fargo's Intuit card pushes (6 deposits) are held. OW01 keeps both as today and records the question in §17.1.
-- **Defaults taken for points the owner's words did not settle**, to report:
-  - Q3b no-sender round repeats are held, not excluded ($1.0M).
-  - Q12 Wisconsin Shares EBT card payments stay counted.
-  - Q10 IPFS fundings on trust accounts stay excluded.
-  - Q11a a draw paid by a non-builder project LLC stays held.
-  - Q2 widened insurer spellings for one-off claims are held (-$56K).
-- **Held patches (LOCAL `round2/held/`, plus round 1's under `audit/`):**
-  - the Desjardins holder reader (failed hand review);
-  - the B10 core-processor/TD patches;
-  - B6's debit-side spellings;
-  - Liberis, if its verify round fails.
-- **Owner-eyes notes from round 2 (`ROUND2-RESULTS-SO-FAR.md`):**
-  - the P2P/wire round-trip hold now fires (362 credits / $453K held);
-  - U.S. Bank Venmo cash-outs beside top-ups are counted again;
-  - holder readers are still missing on 353 statements of unlisted parsers.
+- **Q3b, held:** the no-sender e-Transfer round repeats ruled "Same rule as Q3" are built and held back
+  (LOCAL `round2/held/R2-OW02_q3b_no_sender_round_repeat.patch`, with the ATB pin it would move). The owner decides
+  whether to apply it.
+- **Q13, asked and unanswered:** should Stripe/Intuit instant payouts that print "VISA DIRECT" (counted or verified today) be excluded like the plain debit-card ones? OW01 keeps both as today and records the question in §17.1.
+- **Each owner batch's open points** (R2-OW01..OW18 reports; R2-OW18's 28 "Still open" defaults) and the 13 underwriter questions' recorded alternatives (§17.1).
+- **The owner-convertible calls:** gambling, `payer_text_not_read`, the review floor, B7's consumer-shaped definition, I61, I37.
+- **Held patches (LOCAL `round2/held/`, plus round 1's under `audit/`):** the Desjardins holder reader (failed hand review); the B10 core-processor/TD patches; B6's debit-side spellings and the G7 admissions held back from B6 and B10.
+- **The final review's defaults (F1, F2; LOCAL FINAL-FIX report):** a statement whose withholding basis is not established asks for review on its withholding only (its decision pill reads as before); the package's cross-statement return match (pass 4) also reads a return naming the funder that the funder-name reader files as a lender credit.
 - **Pre-existing, on main:** an `analysis/rbc.py` comment (commit 99f480d) quotes a real statement's mailing line. Clean it up in its own change.
 
 ## 7. Where everything is (LOCAL, private)
 
-- **Progress ledger:** worktree `.superpowers/sdd/progress.md`, holding every decision, figure and interruption.
+- **Progress ledger:** worktree `.superpowers/sdd/progress.md`.
 - **Audit archive:** `C:/Users/GustavoPrietodePaula/lender-research/revenue/audit-archive/`.
   - `audit/`, round 1: `standard.md` (the MCA industry standard), `system_map.md`, `issues_all.json`, `plan.json`, `batches/B01-B12.md`, `reports/`, `final_review.json`.
-  - `audit/round2/`: `plan.json`, `cards.json`, `issues/`, `batches/R2-B##.md`, `reports/` (`R2-B##-report.md`, `ROUND2-RESULTS-SO-FAR.md`, `round2_results_B01_B12.json`), `owner/` (answers, plan, `batches/R2-OW##.md`), `held/`, `handoff/`.
-  - `sdd/`: the feature's task reports.
-  - Older briefs cite the session-43065b93 Temp scratchpad; the same files are in this archive.
-- **Census:** `lender-research/revenue/census/` (s54..s58 snapshots, `g7_allowlist.json`, `lc_c106634.json`) and `lender-research/revenue/work/plan/`:
-  - `b12/s90_head.json.gz` (round-1 final, re-parsed);
-  - `r2b01/r2_base.json.gz` (round-2 baseline);
-  - `accept/tree_final` (frozen `c486fd5`).
+  - `audit/round2/`: `plan.json`, `cards.json`, `issues/`, `batches/`, `reports/` (`R2-B##-report.md`, `R2-OW##-report.md`, `R2-L01-report.md`, `ACCEPT-report.md`, `FINAL-FIX-report.md`), `owner/` (answers, plan, `batches/R2-OW##.md`), `held/`, `handoff/`, `fixprobes/` (each batch's probes; `accept/` the acceptance's; `final/` the final review's).
+- **Census:** `lender-research/revenue/census/` (s54..s58 snapshots, `g7_allowlist.json`, `lc_c106634.json`, `lc58_final.json`) and `lender-research/revenue/work/plan/`:
+  - `accept2/` (the accepted head's re-parsed snapshots `s91_final*.json.gz`, `lc91_final.json`, the frozen trees, the Yes-marked copies);
+  - `r2b01/r2_base.json.gz` (round-2 baseline), `b12/s90_head.json.gz` (round-1 final);
+  - `final_fix/` (the final review's fix measurements).
 - **Corpus cache:** the main checkout's `webapp_data/` (read-only).
 - **Tools (in the repo):**
-  - `tools/revenue_census.py`: snapshot / compare / sweep, `--reparse`, guards G1-G18;
-  - `tools/lender_census.py`: G7;
+  - `tools/revenue_census.py`: snapshot / compare / sweep, `--reparse`, `--zelle-true-revenue`, guards G1-G20 and G-Z;
+  - `tools/lender_census.py`: G7 (legacy basis pinned; declared categories `returned_funder_moves`, `kept_in_count_returned`, `returned_funder_redirects`; payment changes as new outputs);
   - `tools/build_lender_registry.py`: ledger -> registry; never hand-edit the GENERATED block.
-- **Spec and plan (in the repo):** the spec above, and `docs/superpowers/plans/2026-09-28-true-revenue.md` (test selections SEL-CLASSIFIER / SEL-REGISTRY / SEL-WEBAPP / SEL-REVENUE).
+- **Spec and plan (in the repo):** the spec above, and `docs/superpowers/plans/2026-09-28-true-revenue.md` (test selections SEL-CLASSIFIER / SEL-REGISTRY / SEL-WEBAPP / SEL-REVENUE; its withholding bullet is superseded by spec §11).

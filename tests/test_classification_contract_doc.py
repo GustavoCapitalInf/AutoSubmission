@@ -1353,6 +1353,8 @@ def test_the_spec_and_the_contract_record_r2_b16_s_version_bump_and_the_round_in
 
 #: The final review of round 2: the code commits §20 and the contract name.
 FINAL_REVIEW_CODE_COMMITS = {"F1": "7854cf1", "F2": "4cab9ef"}
+HANDOFF = ROOT / "docs" / "agent-handoffs" / "TRUE-REVENUE-HANDOFF.md"
+PLAN = ROOT / "docs" / "superpowers" / "plans" / "2026-09-28-true-revenue.md"
 
 
 def test_the_spec_and_the_contract_record_the_final_review_s_withholding_rule():
@@ -1401,3 +1403,21 @@ def test_the_spec_and_the_contract_record_the_final_review_s_returned_funder_pay
                   "only with a return dated on or after it"):
         assert words in contract, words
 
+
+def test_the_handoff_and_the_plan_state_the_final_state():
+    """The final review of round 2, F3: the handoff states the run's final state (complete through 283e90e and the final
+    review's fixes, 5.7 / 33, the Zelle setting with Yes by default, Q3b not implemented and with the owner, R2-OW17
+    and R2-OW18, the acceptance figures, the round-3 re-audit next) and no longer the superseded Zelle exclusion or the
+    finished batches as to do; the plan's withholding bullet points to spec §11."""
+    handoff = _flat(HANDOFF)
+    for words in ("283e90e", "classification **5.7**, analysis stage **33**", "Mark Zelle Payments as True Revenue",
+                  "Yes by default", "**not implemented**", "OW17", "OW18", "ACCEPTED 2026-10-07", "67.58%",
+                  "**Round-3 re-audit**", "FINAL-FIX-report.md"):
+        assert words in handoff, words
+    for stale in ("Every Zelle deposit is non_revenue, with the excluded total shown", "B13-B16 to do",
+                  "planned, not started", "| R2-L01 | Liberis ledger admission, carried over from R2-B03 | to do |"):
+        assert stale not in handoff, stale
+    plan = _flat(PLAN)
+    assert ("`true_revenue` is added and is never the default. **Superseded** by the owner's ruling of 2026-10-02 on "
+            "the underwriter's Q7") in plan
+    assert "read spec §11" in plan
