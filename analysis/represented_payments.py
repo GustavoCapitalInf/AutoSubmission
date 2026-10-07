@@ -27,11 +27,16 @@ The rule, per returned payment R (its funder E, its cents c, its return dated C)
    when the schedule is weekly, biweekly or monthly and X is OFF its cycle: the schedule's phase (the weekday of a
    weekly or biweekly series, the day of the month of a monthly one) that the most attempts of the series keep, within
    CYCLE_TOLERANCE_DAYS, held by more than half of them and by no clearly other phase as many, is more than
-   CYCLE_TOLERANCE_DAYS from X's. A daily or semi-monthly schedule reads no same-cents re-debit: every business day is
-   a daily series' cycle, and a second debit on one day (or on the payment's own day) cannot be told from two positions.
+   CYCLE_TOLERANCE_DAYS from X's, and X's own phase is no recurring one: fewer than RECURRING_PHASE_ANCHORS other
+   attempts of the series keep it (two or more are a twice-weekly schedule or a second position at the same cents,
+   whose next payment cannot be told from a re-presentment; review round 1 of R3-B02). A daily or semi-monthly schedule
+   reads no same-cents re-debit: every business day is a daily series' cycle, and a second debit on one day (or on the
+   payment's own day) cannot be told from two positions.
 3. A 2x candidate X (exactly 2c cents, dated on or after C and after R) is a catch-up when it is at most one cycle after C
    (one business day on a daily schedule) and E has fewer than LEVEL_ATTEMPTS 2c attempts (X included) within one
-   cycle of it, and at least a week (a 2c level of its own is a second position, not a catch-up).
+   cycle of it, and at least a week, and (a schedule other than daily) fewer than LEVEL_ATTEMPTS - 1 2c attempts on
+   the series' cycle in the LEVEL_FOLLOWING_CYCLES cycles after it (a 2c level of its own, a second position or a
+   step-up that starts with X, is not a catch-up; review round 1 of R3-B02).
 4. The earliest qualifying candidate (date, then order) is taken; each re-debit covers one returned payment.
 """
 from __future__ import annotations
@@ -61,6 +66,15 @@ LEVEL_ATTEMPTS = 3
 #: The series dates a schedule is read from (the candidate's own date left out where it is the same cents): fewer read
 #: nothing, since two dates a fortnight apart read biweekly whatever the series is.
 MIN_SCHEDULE_DATES = 3
+#: A same-cents candidate whose own phase (within CYCLE_TOLERANCE_DAYS) this many other attempts of the series keep is
+#: on a second recurring phase, a twice-weekly schedule or a second position at the same cents, which cannot be told
+#: from a re-presentment: no re-debit (review round 1 of R3-B02).
+RECURRING_PHASE_ANCHORS = 2
+#: A 2c candidate followed by LEVEL_ATTEMPTS - 1 or more 2c attempts of the funder on the series' cycle within
+#: LEVEL_FOLLOWING_CYCLES cycles after it (and the schedule's tolerance) starts a level of its own (a renewal or a
+#: modified payment), not a catch-up (review round 1 of R3-B02); a daily schedule's level is read within
+#: DAILY_LEVEL_DAYS of the candidate.
+LEVEL_FOLLOWING_CYCLES = 2
 
 
 @dataclass(frozen=True)
@@ -101,11 +115,12 @@ def _distance(first: int, second: int, modulus: int) -> int:
     return min(gap, modulus - gap)
 
 
-def _off_cycle(candidate: date, anchors: Sequence[date], schedule: str) -> bool:
-    """Whether `candidate` is off the phase the anchors keep (step 2); False where no phase is clear."""
+def _cycle(anchors: Sequence[date], schedule: str) -> tuple[set[int], int, int] | None:
+    """The phase the anchors keep (step 2): (its leading phases, the modulus, the tolerance), or None where the
+    schedule has no tolerance or no phase is clear (held by more than half of the anchors, no other as many)."""
     tolerance = CYCLE_TOLERANCE_DAYS.get(schedule)
     if tolerance is None or not anchors:
-        return False
+        return None
     phases = [_phase(day, schedule) for day in anchors]
     modulus = phases[0][1]
     kept = Counter()
@@ -115,11 +130,32 @@ def _off_cycle(candidate: date, anchors: Sequence[date], schedule: str) -> bool:
     leaders = {phase for phase, count in kept.items() if count == best}
     # Leaders within the tolerance of each other are one phase; two apart are no clear phase.
     if any(_distance(one, other, modulus) > 2 * tolerance for one in leaders for other in leaders):
-        return False
+        return None
     if best * 2 <= len(anchors):
+        return None
+    return leaders, modulus, tolerance
+
+
+def _on_cycle(day: date, cycle: tuple[set[int], int, int], schedule: str) -> bool:
+    leaders, modulus, tolerance = cycle
+    phase = _phase(day, schedule)[0]
+    return any(_distance(phase, leader, modulus) <= tolerance for leader in leaders)
+
+
+def _off_cycle(candidate: date, anchors: Sequence[date], schedule: str) -> bool:
+    """Whether `candidate` is off the phase the anchors keep (step 2); False where no phase is clear, and False where
+    the candidate's own phase is a recurring one (RECURRING_PHASE_ANCHORS or more anchors keep it)."""
+    cycle = _cycle(anchors, schedule)
+    if cycle is None:
         return False
+    _leaders, modulus, tolerance = cycle
     phase = _phase(candidate, schedule)[0]
-    return all(_distance(phase, leader, modulus) > tolerance for leader in leaders)
+    # Review round 1 of R3-B02: a phase other attempts of the series keep is a second recurring phase (a twice-weekly
+    # schedule, or a second position at the same cents), whose next payment is its own schedule's, never a re-debit.
+    if sum(1 for day in anchors
+           if _distance(_phase(day, schedule)[0], phase, modulus) <= tolerance) >= RECURRING_PHASE_ANCHORS:
+        return False
+    return not _on_cycle(candidate, cycle, schedule)
 
 
 def re_debits(
@@ -174,6 +210,16 @@ def re_debits(
                 if sum(1 for attempt in family if attempt.cents == candidate.cents
                        and abs((attempt.day - candidate.day).days) <= level_days) >= LEVEL_ATTEMPTS:
                     continue
+                # A 2c level that starts with the candidate (a step-up right after the bounce) shows only after it, on
+                # the series' cycle (every 2c attempt counts where the schedule keeps no clear phase).
+                if schedule != "daily":
+                    cycle = _cycle(anchors, schedule)
+                    following_days = (LEVEL_FOLLOWING_CYCLES * CYCLE_DAYS[schedule]
+                                      + CYCLE_TOLERANCE_DAYS.get(schedule, 1))
+                    if sum(1 for attempt in family if attempt.cents == candidate.cents
+                           and 0 < (attempt.day - candidate.day).days <= following_days
+                           and (cycle is None or _on_cycle(attempt.day, cycle, schedule))) >= LEVEL_ATTEMPTS - 1:
+                        continue
                 kind = CAUGHT_UP
             used.add(candidate.key)
             found[payment.key] = (candidate.key, kind)

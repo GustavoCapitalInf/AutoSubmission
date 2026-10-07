@@ -2075,6 +2075,34 @@ console.log(JSON.stringify({{controls: rows.slice(1).map((tx) => actions(revenue
 
 
 @needs_node
+def test_r3_21_only_the_zelle_valve_loses_its_control_and_a_verified_return_keeps_mark_non_revenue():
+    """Review round 1 of R3-B02 (finding 4): the refused Confirm takes a control away only where it was the only one,
+    the Zelle deposit the policy excluded; a credit a rule verified that carries `returns_funder_payment` (a lender-side
+    named pair the revenue side did not pair) keeps Mark Non-Revenue, which the server accepts, as before the batch. A
+    counted one shows Mark Non-Revenue only, and a rule-decided non-revenue one none."""
+    verified = _record("verified")
+    verified["classification"].update(source_location="transaction:5", returns_funder_payment="transaction:3")
+    counted = _record("counted_flagged", reason="check_deposit")
+    counted["classification"].update(source_location="transaction:6", returns_funder_payment="transaction:3")
+    zelle = _record("non_revenue", reason="zelle_excluded")
+    zelle["classification"].update(source_location="transaction:7", returns_funder_payment="transaction:3")
+    ruled = _record("non_revenue")
+    ruled["classification"].update(source_location="transaction:8", returns_funder_payment="transaction:3")
+    plain_verified = _record("verified")
+    rows = [verified, counted, zelle, ruled, plain_verified]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{controls: rows.map((tx) => actions(revenueReviewControls(tx))),
+  kinds: rows.map((tx) => revenueReviewKind(tx.classification)),
+  pickable: rows.map((tx) => pendingReviewTarget(tx) !== null)}}));
+""")
+    assert result["kinds"] == ["reject", "reject", "", "", "reject"]
+    assert result["controls"] == [["reject"], ["reject"], [], [], ["reject"]]
+    assert result["pickable"] == [False, False, False, False, False]
+
+
+@needs_node
 def test_a_package_warns_each_returned_payment_in_its_own_unit(tmp_path, monkeypatch):
     from tests.test_returned_funder_payments import NAMED_RETURN, t1_payload, t4_payload
 

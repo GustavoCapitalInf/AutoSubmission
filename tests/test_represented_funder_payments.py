@@ -202,6 +202,93 @@ def test_a_series_too_short_to_show_its_cycle_reads_nothing(name):
     assert _represented(records) == {}
 
 
+# ------------------------------------------------------------------------- review round 1 of R3-B02 (fabricated)
+
+#: Two weekdays of every week of March 2054 (0 = Monday the 2nd): a twice-weekly schedule at one amount, or two
+#: same-cents positions of one funder.
+TWICE_WEEKLY_LAYOUTS = {"mon_wed": (0, 2), "tue_thu": (1, 3), "wed_fri": (2, 4), "mon_thu": (0, 3),
+                        "tue_fri": (1, 4), "mon_fri": (0, 4)}
+
+
+def _twice_weekly(first, second, week):
+    """KAPITUS's 1,000.00 on weekdays `first` and `second` of every week of March 2054; the `week`th payment on `first`
+    is returned the next day."""
+    rows = [SALE_ROW, *[(2 + start + weekday, KAPITUS, -1000.0) for start in (0, 7, 14, 21, 28)
+                        for weekday in (first, second) if 2 + start + weekday <= 31]]
+    rows.append((2 + 7 * week + first + 1, BOFA_RETURN, 1000.0))
+    return sorted(rows, key=lambda row: row[0])
+
+
+@pytest.mark.parametrize("week", [1, 2, 3])
+@pytest.mark.parametrize("layout", sorted(TWICE_WEEKLY_LAYOUTS))
+def test_a_second_recurring_weekday_is_no_re_presentment(layout, week):
+    """Review round 1 of R3-B02 (finding 1): the other weekday's next payment is that schedule's own, never a
+    re-debit: a phase two or more other attempts of the series keep is a recurring phase (a twice-weekly schedule or a
+    second same-cents position), which cannot be told from a re-presentment, so the returned payment stands, as Q5
+    rules until a re-debit exists."""
+    statement = _statement(_twice_weekly(*TWICE_WEEKLY_LAYOUTS[layout], week))
+    records = tc.classify_statement_transactions(statement)
+    assert _pairs(records)  # the payment was returned
+    assert _represented(records) == {}
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.withholding_numerator == round(metrics.lender_debits + 1000.0, 2)
+
+
+def test_two_re_presentments_on_one_off_weekday_each_count_once():
+    """A control for the recurring-phase guard: KAPITUS's Friday series (the 6th to the 27th of March 2054), the 6th's
+    payment returned on Monday the 9th and re-presented on Tuesday the 10th, the 13th's returned on Monday the 16th and
+    re-presented on Tuesday the 17th. One other Tuesday is no recurring phase: each returned payment counts once."""
+    rows = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (6, 13, 20, 27)], (9, BOFA_RETURN, 1000.0),
+                   (10, KAPITUS, -1000.0), (16, BOFA_RETURN, 1000.0), (17, KAPITUS, -1000.0)],
+                  key=lambda row: row[0])
+    assert _represented(tc.classify_statement_transactions(_statement(rows))) == {
+        "06": ("10", "re_presented"), "13": ("17", "re_presented")}
+
+
+def test_a_weekly_step_up_to_2x_right_after_a_bounce_is_a_new_level_not_a_catch_up():
+    """Review round 1 of R3-B02 (finding 2): KAPITUS's Monday 1,000.00 (the 2nd and the 9th of March 2054), the 9th's
+    returned on Wednesday the 11th, then 2,000.00 every Monday (the 16th, 23rd and 30th): two more 2x payments on the
+    cycle within two cycles after the first make 2x a level of its own (a renewal or a modified payment), so the first
+    is no catch-up and the returned payment stands. A step-up seen for only one more cycle still reads as a catch-up (the
+    limit of one statement; spec §17.1, the R2-OW13 defaults' (9))."""
+    rows = sorted([SALE_ROW, (2, KAPITUS, -1000.0), (9, KAPITUS, -1000.0), (11, BOFA_RETURN, 1000.0),
+                   *[(day, KAPITUS, -2000.0) for day in (16, 23, 30)]], key=lambda row: row[0])
+    statement = _statement(rows)
+    records = tc.classify_statement_transactions(statement)
+    assert _pairs(records)
+    assert _represented(records) == {}
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.withholding_numerator, metrics.lender_debits) == (8000.0, 7000.0)
+    short = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16)], (18, BOFA_RETURN, 1000.0),
+                    *[(day, KAPITUS, -2000.0) for day in (23, 30)]], key=lambda row: row[0])
+    assert _represented(tc.classify_statement_transactions(_statement(short))) == {"16": ("23", "caught_up")}
+    # Only 2x payments ON the series' cycle make the level: a Thursday series (the 5th to the 26th), the 5th's returned
+    # on Friday the 6th and 2,000.00 on Tuesday the 10th, then 2,000.00 on Thursday the 19th (on the cycle) and on
+    # Tuesday the 24th (off it): one on-cycle 2x after it, so the 10th still catches the 5th up (spec §17.1 (9) names
+    # the alternative, any 2x after it).
+    off_cycle = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (5, 12, 19, 26)], (6, BOFA_RETURN, 1000.0),
+                        *[(day, KAPITUS, -2000.0) for day in (10, 19, 24)]], key=lambda row: row[0])
+    assert _represented(tc.classify_statement_transactions(_statement(off_cycle))) == {"05": ("10", "caught_up")}
+
+
+def test_a_re_debited_payment_s_reason_no_longer_says_it_is_kept_in_the_rate():
+    """Review round 1 of R3-B02 (finding 3): the Q5 sentence of a re-debited payment drops "kept in the withholding
+    rate", which the re-debit sentence after it contradicted; a payment still standing keeps it word for word."""
+    records = tc.classify_statement_transactions(_statement(CASES["re_presented"][0]))
+    debit = records[2]
+    assert debit.represented_by == "transaction:5"
+    assert "kept in the withholding rate" not in debit.reason
+    assert debit.reason.endswith(
+        "Returned unpaid by transaction:4: out of paid to lenders (the owner's ruling on the underwriter's Q5). The "
+        "funder re-presented it by transaction:5: out of the withholding rate, which counts the obligation once (the "
+        "owner's answer on re-presented payments, \"Count it once\").")
+    [standing] = [record for record in tc.classify_statement_transactions(_statement(CASES["on_cycle"][0]))
+                  if record.returned_funder_payment_by]
+    assert standing.reason.endswith(
+        "Returned unpaid by transaction:4: out of paid to lenders, kept in the withholding rate (the owner's ruling on "
+        "the underwriter's Q5).")
+
+
 def test_the_record_carries_represented_by_after_the_two_returned_fields():
     names = [field.name for field in fields(tc.TransactionClassification)]
     position = names.index("returns_funder_payment")
@@ -286,6 +373,28 @@ def test_package_a_payment_pass_4_matched_and_re_debited_leaves_the_numerator():
     assert item["cross_statement"] is True
     assert (item["represented_date"], item["represented_kind"], item["represented_document"]) == (
         "2031-04-03", "re_presented", "apr.pdf")
+
+
+@needs_node
+def test_package_the_ledger_note_of_a_payment_pass_4_matched_and_re_debited_counts_it_once():
+    """Review round 1 of R3-B02 (finding 3): the package ledger's note on a payment pass 4 matched said "still in the
+    withholding rate" after pass 5 took it out; it now says the rate counts it once, by its re-debit. A matched payment
+    still standing reads as before."""
+    from tests.test_package_matching import _package
+
+    def debit_note(april_rows):
+        march, april = _months(MARCH, april_rows)
+        package = _package(("mar", march), ("apr", april))
+        debit = next(row for row in package["transactions"] if row["source_job"] == "mar"
+                     and row["date"] == "2031-03-25")
+        return run_dashboard(f"console.log(JSON.stringify(packageMatchNotes({json.dumps(debit)})));")
+
+    weekly = [(day, KAPITUS_BAKERY, -850.0) for day in (8, 15, 22)]
+    assert debit_note([(1, BARE_BOUNCE, 850.0), (2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -850.0)] + weekly) == [
+        "Returned unpaid on 2031-04-01 (apr.pdf): out of paid to lenders, counted once in the withholding rate, by its "
+        "re-debit."]
+    assert debit_note([(1, BARE_BOUNCE, 850.0), (2, NW_APRIL, 30000.0), (10, KAPITUS_BAKERY, -850.0)] + weekly) == [
+        "Returned unpaid on 2031-04-01 (apr.pdf): out of paid to lenders, still in the withholding rate."]
 
 
 def test_package_a_re_debit_outside_the_gap_leaves_the_returned_payment_standing():

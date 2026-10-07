@@ -716,7 +716,8 @@ def compute_metrics(
         m.eligible_deposit_definition = "effective total deposits minus recognized lender funding credits"
         m.withholding_denominator_label = "Legacy eligible deposits"
     # R2-OW13 (the underwriter's Q5): every row the rate reads, the paid lender debits and the returned funder payments
-    # (equal to lender_debits + returned_funder_payment_total to the cent).
+    # still standing (lender_debits + returned_funder_payment_total, less the returned payments their funder re-debited
+    # (`represented_by`; audit round 3, R3-B02, "Count it once"), to the cent).
     m.withholding_numerator = round(withholding_numerator, 2)
     if m.returned_funder_payment_count:
         # The money in the statement's own unit (CURRENCY DOCTRINE: never a '$' on a CAD statement).

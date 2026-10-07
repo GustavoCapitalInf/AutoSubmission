@@ -1678,9 +1678,12 @@ function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
 function revenueReviewKind(record) {
   // Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment (rule D's pair) is the business's
   // own payment coming back: the server refuses its Confirm, so a held or counted one shows Mark Non-Revenue only and a
-  // Zelle deposit the policy excluded, whose only control is Confirm, shows none.
+  // Zelle deposit the policy excluded, whose only control is Confirm, shows none. Any other keeps its kind (review
+  // round 1: a credit a rule verified keeps Mark Non-Revenue).
   if (record.returns_funder_payment) {
-    return record.revenue_initial_classification === "unverified_deposit" ? "reject" : "";
+    if (record.revenue_initial_classification === "unverified_deposit") return "reject";
+    if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
+      && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason)) return "";
   }
   if (record.revenue_initial_classification === "unverified_deposit") return "both";
   if (record.revenue_initial_classification === "verified_revenue" && typeof record.revenue_tier === "string") return "reject";
@@ -1839,8 +1842,12 @@ function packageMatchNotes(tx, debitFlags = null) {
   // in the next statement names the return, and the return names the payment.
   if (match && match.kind === "returned_funder_payment") {
     if (match.credit && txAmount(tx) < 0) {
+      // Audit round 3, R3-B02 (review round 1): one the package's pass 5 found re-debited is out of the rate, its
+      // re-debit counting the obligation once.
+      const rate = transactionClassification(tx).represented_by
+        ? "counted once in the withholding rate, by its re-debit." : "still in the withholding rate.";
       notes.push(`Returned unpaid on ${match.credit.date || "an unknown date"} (${match.credit.filename || "the next statement"}): `
-        + "out of paid to lenders, still in the withholding rate.");
+        + `out of paid to lenders, ${rate}`);
     } else if (match.debit && txAmount(tx) > 0) {
       notes.push(`Returns the ${match.debit.date || "undated"} payment to ${match.debit.funder || "a confirmed funder"} in `
         + `${match.debit.filename || "the previous statement"}.`);

@@ -5922,9 +5922,14 @@ def _returns_a_later_lender_payment(
     return debit_date > credit_date
 
 
-def _returned_unpaid_reason(credit_location: str) -> str:
+def _returned_unpaid_reason(credit_location: str, *, re_debited: bool = False) -> str:
     """The sentence a returned funder payment's debit adds to its reason (R2-OW13). The ruling is named without its
-    date: the analysis layer keeps no year literal outside date parsing (tests/test_no_statement_hardcodes.py)."""
+    date: the analysis layer keeps no year literal outside date parsing (tests/test_no_statement_hardcodes.py). Pass 7c
+    rewrites it for a payment its funder re-debited, which is out of the withholding rate (`re_debited`; review round 1
+    of audit round 3's R3-B02)."""
+    if re_debited:
+        return (f"Returned unpaid by {credit_location}: out of paid to lenders (the owner's ruling on the "
+                "underwriter's Q5).")
     return (
         f"Returned unpaid by {credit_location}: out of paid to lenders, kept in the withholding rate (the owner's "
         "ruling on the underwriter's Q5)."
@@ -6165,11 +6170,16 @@ def _apply_represented_funder_payments(
         return records
     updated = list(records)
     for index, (debit_index, kind) in found.items():
+        # Its Q5 sentence no longer says "kept in the withholding rate" (review round 1 of R3-B02).
+        credit_location = updated[index].returned_funder_payment_by
+        head, standing, tail = updated[index].reason.rpartition(_returned_unpaid_reason(credit_location))
+        reason = f"{head}{_returned_unpaid_reason(credit_location, re_debited=True)}{tail}" if standing else (
+            updated[index].reason)
         updated[index] = replace(
             updated[index],
             contributes_to_withholding_rate=False,
             represented_by=location(debit_index),
-            reason=f"{updated[index].reason} {_represented_reason(location(debit_index), kind)}",
+            reason=f"{reason} {_represented_reason(location(debit_index), kind)}",
         )
     return updated
 
