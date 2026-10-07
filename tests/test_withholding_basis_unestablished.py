@@ -434,3 +434,23 @@ console.log(JSON.stringify([accountDecision({json.dumps(served)}), accountDecisi
 """)
     assert result == ["review_required", "approved", "approved"]
 
+
+@needs_node
+def test_f1_r1_a_decision_that_already_reads_review_keeps_its_words(monkeypatch):
+    """The flag sends a passing decision to review; a statement already in review keeps its own words (a ledger that
+    does not reconcile reads "manual review required", as before), and a summary-only one goes to review."""
+    served = _served(_reconciled_stored(monkeypatch, "true_revenue"))
+
+    def with_quality(corporate_use):
+        return {**served, "quality": {**served["quality"], "corporate_use": corporate_use}}
+
+    items = [with_quality(word) for word in ("manual_review_required", "summary_only", "approved")]
+    result = run_dashboard(f"""
+const items = {json.dumps(items)};
+const decisions = items.map((item) => accountDecision(item));
+currentAnalysis = items[0]; currentDocument = null; generateSummary();
+console.log(JSON.stringify({{decisions, summary: els.summaryBox.textContent}}));
+""")
+    assert result["decisions"] == ["manual_review_required", "review_required", "review_required"]
+    assert result["summary"].endswith("Status: manual review required.")
+

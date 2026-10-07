@@ -3191,16 +3191,24 @@ function unverifiedMainNote(report, currency) {
   return entry ? `Main account ${accountDisplayName({}, entry)} could not be verified: ${unverifiedMainWhy(entry, currency)}. ` : "";
 }
 
-// One account's own decision, as its pill shows it. The final review of round 2, F1 (review round 1 of its fix run;
-// true revenue spec §10.1, §11): a statement whose withholding basis is not established (the served flag) goes to
-// review, as the ruling asks; the legacy basis never sets the flag.
+// The decisions that already ask for review: a withholding basis that is not established keeps their words.
+const REVIEW_DECISIONS = new Set(["review_required", "manual_review_required"]);
+
+// The final review of round 2, F1 (review round 1 of its fix run; true revenue spec §10.1, §11): a statement whose
+// withholding basis is not established (the served flag) goes to review, as the ruling asks. A decision that already
+// reads a review keeps its words ("manual review required" where the ledger does not reconcile); the legacy basis never
+// sets the flag.
+function withholdingReviewDecision(decision, metrics = {}) {
+  return withholdingBasisUnestablished(metrics) && !REVIEW_DECISIONS.has(decision) ? "review_required" : decision;
+}
+
+// One account's own decision, as its pill shows it.
 function accountDecision(report) {
   const metrics = report.metrics || {};
   const quality = report.quality || {};
-  return hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
-    || withholdingBasisUnestablished(metrics)
+  return withholdingReviewDecision(hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
     ? "review_required"
-    : quality.corporate_use || quality.level || "review_required";
+    : quality.corporate_use || quality.level || "review_required", metrics);
 }
 
 function mainAccountReason(account = {}, entry = null) {
@@ -5474,10 +5482,10 @@ function generateSummary() {
   // Likewise when the main account was not verified and another, verified, account was picked (All accounts).
   const unverifiedNote = idleNote ? "" : unverifiedMainNote(currentDocument, currency);
   // F1 (review round 1 of its fix run): a withholding basis that is not established sends the statement to review here
-  // too, as its pill says (accountDecision).
-  const decision = idleNote || unverifiedNote || hasMaterialPotentialLenderDebits(m) || withholdingBasisUnestablished(m)
+  // too, as its pill says (withholdingReviewDecision).
+  const decision = withholdingReviewDecision(idleNote || unverifiedNote || hasMaterialPotentialLenderDebits(m)
     ? "review_required"
-    : q.corporate_use || q.level || "review_required";
+    : q.corporate_use || q.level || "review_required", m);
   const lead = idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: `
     : unverifiedNote ? `${unverifiedNote}Figures for the selected account, ${accountDisplayName(s, null)}: ` : "";
   // Audit round 2, R2-B15 (R13): the statement's monthly figures are its totals over the calendar months its period
