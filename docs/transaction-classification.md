@@ -512,6 +512,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Audit round 3, R3-B01 (R3-22, R3-80, R3-26, R3-50; eba9664, e613e34, f579eae, 3c2a50d): G7's exit code alone carries its verdict (a returned row leaving the withholding rows, a paid row leaving for no return, a lost lender or a lender-count loss outside the allowlist, and `lender_debits` or the numerator moving with no row move each fail); on a debit, a bank's stop-payment, OD item, returned-item or unpaid-item charge printed with CHARGE or CHG, and a bare stop-payment row, is a charge before the registry, never the payment of the funder it names (steps 1 and 4 below); the ledger reads ODKRAOD as an OnDeck spelling (the orchestrator's sign-off under the owner's delegation, ONDECK allowlisted in G7 for exactly that move); and the Liberis notes call LIBERIS the company's name and also a rare surname and record the receiver residual for the owner (true revenue spec §14.3, §17.1, §20).
 - Audit round 3, R3-B02 (R3-69, R3-71, R3-66, R3-21, R3-73; d32514f, f9b4be7, fe459a9, ecc4ebb, 2a17aac): a potential lender's return pairs on the lender side only with its payment on or before it, as a confirmed funder's does (`_returns_a_later_lender_payment`; every other debit keeps classification 5.4's pair); a lender series with an attempt, paid or settlement-reversed, on or before a held no-sender wire's day is no funding aid of that wire; a confirm on a credit that returns a confirmed funder's payment is refused ("a credit that returns a confirmed funder's payment can only be marked non-revenue"; Mark Non-Revenue and Reset stay); and, by the owner's answer of 2026-10-07 ("Count it once (Recommended)"), a returned funder payment the same funder re-debits (the same cents off its cycle, or an exact 2x catch-up, within one cadence gap after the return) leaves the withholding rate, `represented_by` naming the re-debit (pass 7c, and the package's pass 5 across a member boundary; G7 declares it as `returned_funder_represented`) (true revenue spec §6.2, §8.5, §9, §10.1, §10.6, §10.7, §11, §14.3, §17.1, §19.1, §20).
 - Audit round 3, R3-B02, review round 1 (0290dc0): a re-debit is never the next payment of a weekday two or more other attempts of the series keep (a twice-weekly schedule or a second position at the same cents), nor a 2x debit that two more 2x debits on the series' cycle follow within two cycles (a step-up to a new level); a re-debited payment's reason no longer says "kept in the withholding rate"; a rule-verified credit carrying `returns_funder_payment` keeps Mark Non-Revenue (true revenue spec §6.2, §10.6, §10.7, §17.1, §20).
+- Audit round 3, R3-B02, review round 2 (1249a3a): a 2x debit is no catch-up where two or more 2x debits of the funder fall within two cycles after it, on the series' cycle or not (a second position on another weekday), or two or more within two cycles before it (a level already running), a re-debit already taken left out; a weekday kept only by attempts that each follow another return of the series within one cycle is no recurring phase, so a funder re-presenting every bounce on one weekday counts each returned payment once (the package's pass 5 reads every dated return of its members) (true revenue spec §6.2, §17.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -541,7 +542,14 @@ count do not move. Since review round 1 of R3-B02, a payment on a weekday two
 or more other attempts of the series keep (a twice-weekly schedule or a second
 position at the same cents) is no re-presentment, and a 2x debit followed by two
 more on the series' cycle within two cycles (a step-up to a new level) is no
-catch-up: the returned payment stands.
+catch-up: the returned payment stands. Since review round 2 of R3-B02, every 2x
+debit counts toward that level, on the series' cycle or not (a second position
+on another weekday), and two 2x debits within two cycles before the candidate are
+a level already running, no catch-up either (a 2x debit already taken as another
+bounce's catch-up is no level payment); a weekday kept only by attempts
+that each follow another return of the series within one cycle is no recurring
+phase (a funder re-presenting every bounce on one weekday): each returned payment
+counts once.
 
 Classification is applied in this order; the first match wins:
 
