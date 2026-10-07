@@ -28,15 +28,20 @@ The rule, per returned payment R (its funder E, its cents c, its return dated C)
    weekly or biweekly series, the day of the month of a monthly one) that the most attempts of the series keep, within
    CYCLE_TOLERANCE_DAYS, held by more than half of them and by no clearly other phase as many, is more than
    CYCLE_TOLERANCE_DAYS from X's, and X's own phase is no recurring one: fewer than RECURRING_PHASE_ANCHORS other
-   attempts of the series keep it (two or more are a twice-weekly schedule or a second position at the same cents,
-   whose next payment cannot be told from a re-presentment; review round 1 of R3-B02). A daily or semi-monthly schedule
-   reads no same-cents re-debit: every business day is a daily series' cycle, and a second debit on one day (or on the
-   payment's own day) cannot be told from two positions.
+   attempts of the series keep it, or every one of them follows another return of the series within one cycle (two
+   or more, one of them following no return, are a twice-weekly schedule or a second position at the same cents,
+   whose next payment cannot be told from a re-presentment; review round 1 of R3-B02; attempts that each follow
+   another return are that return's re-presentments, a funder re-presenting every bounce on one weekday, no schedule;
+   review round 2 of R3-B02). A daily or semi-monthly schedule reads no same-cents re-debit: every business day is a
+   daily series' cycle, and a second debit on one day (or on the payment's own day) cannot be told from two positions.
 3. A 2x candidate X (exactly 2c cents, dated on or after C and after R) is a catch-up when it is at most one cycle after C
    (one business day on a daily schedule) and E has fewer than LEVEL_ATTEMPTS 2c attempts (X included) within one
-   cycle of it, and at least a week, and (a schedule other than daily) fewer than LEVEL_ATTEMPTS - 1 2c attempts on
-   the series' cycle in the LEVEL_FOLLOWING_CYCLES cycles after it (a 2c level of its own, a second position or a
-   step-up that starts with X, is not a catch-up; review round 1 of R3-B02).
+   cycle of it, and at least a week, and (a schedule other than daily) fewer than LEVEL_ATTEMPTS - 1 2c attempts
+   within LEVEL_WINDOW_CYCLES cycles after it and fewer than LEVEL_ATTEMPTS - 1 within LEVEL_WINDOW_CYCLES cycles
+   before it, on the series' cycle or not, the re-debits already taken left out (a 2c level of its own is not a
+   catch-up: a step-up or a second position that starts with X, review round 1 of R3-B02, on another weekday too, or
+   one that ran before X and whose next payment falls past the statement's end or never comes, review round 2 of
+   R3-B02).
 4. The earliest qualifying candidate (date, then order) is taken; each re-debit covers one returned payment.
 """
 from __future__ import annotations
@@ -68,13 +73,16 @@ LEVEL_ATTEMPTS = 3
 MIN_SCHEDULE_DATES = 3
 #: A same-cents candidate whose own phase (within CYCLE_TOLERANCE_DAYS) this many other attempts of the series keep is
 #: on a second recurring phase, a twice-weekly schedule or a second position at the same cents, which cannot be told
-#: from a re-presentment: no re-debit (review round 1 of R3-B02).
+#: from a re-presentment: no re-debit (review round 1 of R3-B02). One of them must follow no other return of the
+#: series within one cycle: attempts that each follow another return are that return's re-presentments, no schedule
+#: (review round 2 of R3-B02).
 RECURRING_PHASE_ANCHORS = 2
-#: A 2c candidate followed by LEVEL_ATTEMPTS - 1 or more 2c attempts of the funder on the series' cycle within
-#: LEVEL_FOLLOWING_CYCLES cycles after it (and the schedule's tolerance) starts a level of its own (a renewal or a
-#: modified payment), not a catch-up (review round 1 of R3-B02); a daily schedule's level is read within
+#: A 2c candidate with LEVEL_ATTEMPTS - 1 or more 2c attempts of the funder within LEVEL_WINDOW_CYCLES cycles (and the
+#: schedule's tolerance) after it, or as many before it, on the series' cycle or not (a re-debit already taken left
+#: out), is a level of its own (a renewal or a modified payment that starts with it, or a second position, running on
+#: or ended), not a catch-up (review rounds 1 and 2 of R3-B02); a daily schedule's level is read within
 #: DAILY_LEVEL_DAYS of the candidate.
-LEVEL_FOLLOWING_CYCLES = 2
+LEVEL_WINDOW_CYCLES = 2
 
 
 @dataclass(frozen=True)
@@ -142,9 +150,18 @@ def _on_cycle(day: date, cycle: tuple[set[int], int, int], schedule: str) -> boo
     return any(_distance(phase, leader, modulus) <= tolerance for leader in leaders)
 
 
-def _off_cycle(candidate: date, anchors: Sequence[date], schedule: str) -> bool:
+def _follows_a_return(day: date, other_returns: Sequence[tuple[date, date]], schedule: str) -> bool:
+    """Whether `day` could be the re-debit of another return of the series: dated after that payment, on or after its
+    return and at most one cycle after it (step 2's window)."""
+    return any(paid < day and returned_on <= day and (day - returned_on).days <= CYCLE_DAYS[schedule]
+               for paid, returned_on in other_returns)
+
+
+def _off_cycle(candidate: date, anchors: Sequence[date], schedule: str,
+               other_returns: Sequence[tuple[date, date]] = ()) -> bool:
     """Whether `candidate` is off the phase the anchors keep (step 2); False where no phase is clear, and False where
-    the candidate's own phase is a recurring one (RECURRING_PHASE_ANCHORS or more anchors keep it)."""
+    the candidate's own phase is a recurring one (RECURRING_PHASE_ANCHORS or more anchors keep it, one of them following
+    none of `other_returns`, the series' other returned payments as (payment's date, return's date))."""
     cycle = _cycle(anchors, schedule)
     if cycle is None:
         return False
@@ -152,8 +169,11 @@ def _off_cycle(candidate: date, anchors: Sequence[date], schedule: str) -> bool:
     phase = _phase(candidate, schedule)[0]
     # Review round 1 of R3-B02: a phase other attempts of the series keep is a second recurring phase (a twice-weekly
     # schedule, or a second position at the same cents), whose next payment is its own schedule's, never a re-debit.
-    if sum(1 for day in anchors
-           if _distance(_phase(day, schedule)[0], phase, modulus) <= tolerance) >= RECURRING_PHASE_ANCHORS:
+    # Review round 2: unless every one of them follows another return of the series within one cycle, each then that
+    # return's re-presentment (a funder re-presenting every bounce on one weekday), no schedule.
+    keeping = [day for day in anchors if _distance(_phase(day, schedule)[0], phase, modulus) <= tolerance]
+    if len(keeping) >= RECURRING_PHASE_ANCHORS and not all(
+            _follows_a_return(day, other_returns, schedule) for day in keeping):
         return False
     return not _on_cycle(candidate, cycle, schedule)
 
@@ -165,12 +185,15 @@ def re_debits(
     *,
     may_re_debit: Callable[[Returned, Attempt], bool] | None = None,
     taken: Sequence[Hashable] = (),
+    returns: Sequence[Returned] | None = None,
 ) -> dict[Hashable, tuple[Hashable, str]]:
     """{returned attempt's key: (its re-debit's key, RE_PRESENTED or CAUGHT_UP)} for every returned payment the same
     funder re-debited (the module's rule). `attempts` holds every dated attempt of the funders (the returned ones
     included); `may_re_debit` narrows the candidates of a returned payment (the package: another member); `taken` are
-    re-debits already taken elsewhere (a statement's own reading)."""
+    re-debits already taken elsewhere (a statement's own reading); `returns` are every returned payment the caller
+    knows, the re-debited ones included, which step 2's recurring-phase guard reads (`returned` where not given)."""
     used: set[Hashable] = set(taken)
+    known_returns = list(returned) if returns is None else list(returns)
     found: dict[Hashable, tuple[Hashable, str]] = {}
     for item in sorted(returned, key=lambda entry: (entry.returned_on, entry.attempt.order)):
         payment, returned_on = item.attempt, item.returned_on
@@ -179,6 +202,10 @@ def re_debits(
         family = [attempt for attempt in attempts
                   if attempt.entity == payment.entity and attempt.key != payment.key
                   and attempt.cents in (payment.cents, 2 * payment.cents)]
+        # The series' other returned payments at the same cents (step 2: an attempt following one is its re-debit).
+        other_returns = [(entry.attempt.day, entry.returned_on) for entry in known_returns
+                         if entry.attempt.entity == payment.entity and entry.attempt.cents == payment.cents
+                         and entry.attempt.key != payment.key]
         for candidate in sorted(family, key=lambda attempt: (attempt.day, attempt.order)):
             if (candidate.key in used or candidate.day < returned_on or candidate.day <= payment.day
                     or (may_re_debit is not None and not may_re_debit(item, candidate))):
@@ -202,7 +229,7 @@ def re_debits(
             if not within:
                 continue
             if same_cents:
-                if not _off_cycle(candidate.day, anchors, schedule):
+                if not _off_cycle(candidate.day, anchors, schedule, other_returns):
                     continue
                 kind = RE_PRESENTED
             else:
@@ -210,15 +237,17 @@ def re_debits(
                 if sum(1 for attempt in family if attempt.cents == candidate.cents
                        and abs((attempt.day - candidate.day).days) <= level_days) >= LEVEL_ATTEMPTS:
                     continue
-                # A 2c level that starts with the candidate (a step-up right after the bounce) shows only after it, on
-                # the series' cycle (every 2c attempt counts where the schedule keeps no clear phase).
+                # A 2c level that starts with the candidate (a step-up right after the bounce, review round 1 of
+                # R3-B02) shows only after it, and one that ran before it (its next payment past the statement's end,
+                # or none) only before it; a second position's level keeps its own weekday, so every 2c attempt counts,
+                # on the series' cycle or not, but a re-debit already taken (another bounce's catch-up) is no level
+                # payment (review round 2 of R3-B02).
                 if schedule != "daily":
-                    cycle = _cycle(anchors, schedule)
-                    following_days = (LEVEL_FOLLOWING_CYCLES * CYCLE_DAYS[schedule]
-                                      + CYCLE_TOLERANCE_DAYS.get(schedule, 1))
-                    if sum(1 for attempt in family if attempt.cents == candidate.cents
-                           and 0 < (attempt.day - candidate.day).days <= following_days
-                           and (cycle is None or _on_cycle(attempt.day, cycle, schedule))) >= LEVEL_ATTEMPTS - 1:
+                    window = LEVEL_WINDOW_CYCLES * CYCLE_DAYS[schedule] + CYCLE_TOLERANCE_DAYS.get(schedule, 1)
+                    gaps = [(attempt.day - candidate.day).days for attempt in family
+                            if attempt.cents == candidate.cents and attempt.key not in used]
+                    if (sum(1 for gap in gaps if 0 < gap <= window) >= LEVEL_ATTEMPTS - 1
+                            or sum(1 for gap in gaps if 0 < -gap <= window) >= LEVEL_ATTEMPTS - 1):
                         continue
                 kind = CAUGHT_UP
             used.add(candidate.key)

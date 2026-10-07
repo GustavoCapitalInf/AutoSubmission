@@ -262,13 +262,152 @@ def test_a_weekly_step_up_to_2x_right_after_a_bounce_is_a_new_level_not_a_catch_
     short = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16)], (18, BOFA_RETURN, 1000.0),
                     *[(day, KAPITUS, -2000.0) for day in (23, 30)]], key=lambda row: row[0])
     assert _represented(tc.classify_statement_transactions(_statement(short))) == {"16": ("23", "caught_up")}
-    # Only 2x payments ON the series' cycle make the level: a Thursday series (the 5th to the 26th), the 5th's returned
-    # on Friday the 6th and 2,000.00 on Tuesday the 10th, then 2,000.00 on Thursday the 19th (on the cycle) and on
-    # Tuesday the 24th (off it): one on-cycle 2x after it, so the 10th still catches the 5th up (spec §17.1 (9) names
-    # the alternative, any 2x after it).
+    # Review round 2 of R3-B02 (finding 1): every 2x debit after it counts, on the series' cycle or not. A Thursday
+    # series (the 5th to the 26th), the 5th's returned on Friday the 6th and 2,000.00 on Tuesday the 10th, then 2,000.00
+    # on Thursday the 19th and on Tuesday the 24th: two 2x debits within two cycles after the 10th make 2x a level of
+    # its own, so the 10th is no catch-up and the 5th stands (the 12th's regular 1,000.00 was paid).
     off_cycle = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (5, 12, 19, 26)], (6, BOFA_RETURN, 1000.0),
                         *[(day, KAPITUS, -2000.0) for day in (10, 19, 24)]], key=lambda row: row[0])
-    assert _represented(tc.classify_statement_transactions(_statement(off_cycle))) == {"05": ("10", "caught_up")}
+    assert _represented(tc.classify_statement_transactions(_statement(off_cycle))) == {}
+
+
+#: Review round 2 of R3-B02 (finding 1), a fabricated rebuild of a corpus shape (relative days only): KAPITUS pays
+#: 1,000.00 every Thursday of March 2054 (the 5th to the 26th; the 5th's returned on Friday the 6th) and runs a second
+#: position on Tuesdays at about 2x (2,500.00 on the 3rd, returned on the 4th; 2,000.00 on the 10th, returned on the
+#: 11th; 2,000.00 on the 24th), with one more 2,000.00 beside the Thursday 19th's 1,000.00. The Thursday position never
+#: re-debits the 5th's payment (the 12th's is its regular 1,000.00), so the 10th's 2,000.00 is the second position's
+#: own payment, no catch-up: the 5th stands, as Q5 rules until a re-debit exists.
+SECOND_POSITION = [SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (5, 12, 19, 26)], (6, BOFA_RETURN, 1000.0),
+                   (3, KAPITUS, -2500.0), (4, BOFA_RETURN, 2500.0), (10, KAPITUS, -2000.0), (11, BOFA_RETURN, 2000.0),
+                   (19, KAPITUS, -2000.0), (24, KAPITUS, -2000.0)]
+#: name -> (rows, withholding numerator, paid to lenders).
+SECOND_POSITION_CASES = {
+    "as_in_the_corpus": (SECOND_POSITION, 12500.0, 7000.0),
+    # Without the Tuesday position's earlier 2,500.00.
+    "two_positions_only": ([row for row in SECOND_POSITION if abs(row[2]) != 2500.0], 10000.0, 7000.0),
+    # The Tuesday position's 2,000.00 of the 10th paid, not returned.
+    "the_tuesday_payment_paid": ([row for row in SECOND_POSITION if row[0] != 11], 12500.0, 9000.0),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SECOND_POSITION_CASES))
+def test_a_second_position_s_2x_payment_on_another_weekday_is_no_catch_up(name):
+    rows, numerator, paid = SECOND_POSITION_CASES[name]
+    statement = _statement(sorted(rows, key=lambda row: row[0]))
+    records = tc.classify_statement_transactions(statement)
+    assert _represented(records) == {}
+    [thursday] = [record for record in records if record.date.endswith("-05")]
+    assert thursday.returned_funder_payment_by and thursday.contributes_to_withholding_rate is True
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.withholding_numerator, metrics.lender_debits) == (numerator, paid)
+
+
+#: Review round 2 of R3-B02 (finding 2): a 2x level that ran BEFORE the candidate (a second position at exactly twice
+#: the cents) is no catch-up either, though its next payment falls past the statement's end or never comes. KAPITUS's
+#: 1,000.00 on the Mondays of March 2054, the 16th's returned on Tuesday the 17th. name -> (rows, numerator, paid).
+LEVEL_BEFORE_CASES = {
+    # The 2,000.00 position on the same Mondays (2 to 23), the statement ending before the 30th.
+    "level_at_the_statement_s_end": (
+        [SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16, 23)],
+         *[(day, KAPITUS, -2000.0) for day in (2, 9, 16, 23)], (17, BOFA_RETURN, 1000.0)], 12000.0, 11000.0),
+    # The 2,000.00 position paid off on the 23rd, the 1,000.00 running on to the 30th.
+    "level_paid_off": (
+        [SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16, 23, 30)],
+         *[(day, KAPITUS, -2000.0) for day in (2, 9, 16, 23)], (17, BOFA_RETURN, 1000.0)], 13000.0, 12000.0),
+    # The 2,000.00 position on Wednesdays (the 4th, 11th and 18th), paid off on the 18th.
+    "wednesday_level_paid_off": (
+        [SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16, 23, 30)],
+         *[(day, KAPITUS, -2000.0) for day in (4, 11, 18)], (17, BOFA_RETURN, 1000.0)], 11000.0, 10000.0),
+}
+
+
+@pytest.mark.parametrize("name", sorted(LEVEL_BEFORE_CASES))
+def test_a_2x_level_running_before_the_candidate_is_no_catch_up(name):
+    rows, numerator, paid = LEVEL_BEFORE_CASES[name]
+    statement = _statement(sorted(rows, key=lambda row: row[0]))
+    records = tc.classify_statement_transactions(statement)
+    assert _pairs(records)  # the payment was returned
+    assert _represented(records) == {}
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.withholding_numerator, metrics.lender_debits) == (numerator, paid)
+
+
+def test_one_earlier_catch_up_makes_no_level():
+    """A control for the level windows: KAPITUS's Monday 1,000.00 (March 2054), the 2nd's returned on the 3rd and caught
+    up 2x on the 9th, the 16th's returned on the 17th and caught up 2x on the 23rd. One 2x debit two cycles before the
+    23rd (or after the 9th) is no level: each returned payment counts once."""
+    rows = [SALE_ROW, (2, KAPITUS, -1000.0), (3, BOFA_RETURN, 1000.0), (9, KAPITUS, -2000.0), (16, KAPITUS, -1000.0),
+            (17, BOFA_RETURN, 1000.0), (23, KAPITUS, -2000.0), (30, KAPITUS, -1000.0)]
+    assert _represented(tc.classify_statement_transactions(_statement(rows))) == {
+        "02": ("09", "caught_up"), "16": ("23", "caught_up")}
+
+
+def test_a_catch_up_already_taken_is_no_level_payment():
+    """Review round 2 of R3-B02 (the level window before the candidate): KAPITUS's Friday 1,000.00 from March 6 to
+    April 10, 2054, every other payment returned and caught up 2x the next Friday. The two earlier catch-ups, already
+    taken as re-debits, are no level payments, though leaving them out reads the series biweekly (a 29-day window):
+    each returned payment counts once (the rule itself, as the package calls it)."""
+    from datetime import date
+
+    from analysis.represented_payments import CAUGHT_UP, Attempt, Returned, re_debits
+
+    days = {"p0": (3, 6), "p1": (3, 13), "p2": (3, 20), "p3": (3, 27), "p4": (4, 3), "p5": (4, 10)}
+    attempts = {key: Attempt(key, "KAPITUS", date(2054, *day), 200000 if key in ("p1", "p3", "p5") else 100000,
+                             (date(2054, *day), index))
+                for index, (key, day) in enumerate(days.items())}
+    returned = [Returned(attempts["p0"], date(2054, 3, 11)), Returned(attempts["p2"], date(2054, 3, 24)),
+                Returned(attempts["p4"], date(2054, 4, 8))]
+    assert re_debits(returned, list(attempts.values())) == {
+        "p0": ("p1", CAUGHT_UP), "p2": ("p3", CAUGHT_UP), "p4": ("p5", CAUGHT_UP)}
+
+
+#: Review round 2 of R3-B02 (finding 3): a funder that re-presents every bounced payment on one weekday (KAPITUS's
+#: 1,000.00, March 2054). Those re-presentments are no schedule: each follows another return of the series within one
+#: cycle, so they make no recurring phase, and each returned payment counts once. name -> (rows, {returned: re-debit}).
+#: (Where the re-presentments sit one to four days after the payments, the median gap reads no weekly schedule and
+#: every returned payment stands, as before the review rounds: spec §17.1, the R2-OW13 defaults' (9).)
+CHRONIC_CASES = {
+    # Fridays (6 to 27); the 6th, 13th and 20th returned on the Tuesday after, re-presented on the Wednesday.
+    "friday_series_wednesday_re_presentments": (
+        [SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (6, 13, 20, 27)],
+         *[(day + 4, BOFA_RETURN, 1000.0) for day in (6, 13, 20)], *[(day + 5, KAPITUS, -1000.0) for day in (6, 13, 20)]],
+        {"06": "11", "13": "18", "20": "25"}),
+    # Thursdays (5 to 26); the 5th, 12th and 19th returned on the Monday after, re-presented on the Tuesday.
+    "thursday_series_tuesday_re_presentments": (
+        [SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (5, 12, 19, 26)],
+         *[(day + 4, BOFA_RETURN, 1000.0) for day in (5, 12, 19)], *[(day + 5, KAPITUS, -1000.0) for day in (5, 12, 19)]],
+        {"05": "10", "12": "17", "19": "24"}),
+    # Wednesdays (4 to 25); the 4th, 11th and 18th returned on the Friday, re-presented on the Monday after.
+    "wednesday_series_monday_re_presentments": (
+        [SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (4, 11, 18, 25)],
+         *[(day + 2, BOFA_RETURN, 1000.0) for day in (4, 11, 18)], *[(day + 5, KAPITUS, -1000.0) for day in (4, 11, 18)]],
+        {"04": "09", "11": "16", "18": "23"}),
+}
+
+
+@pytest.mark.parametrize("name", sorted(CHRONIC_CASES))
+def test_chronic_re_presentments_on_one_weekday_each_count_once(name):
+    rows, expected = CHRONIC_CASES[name]
+    statement = _statement(sorted(rows, key=lambda row: row[0]))
+    records = tc.classify_statement_transactions(statement)
+    assert _represented(records) == {day: (re_debit, "re_presented") for day, re_debit in expected.items()}
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.withholding_numerator == metrics.lender_debits
+
+
+def test_a_twice_weekly_schedule_whose_first_weekday_bounces_three_times_stays_standing():
+    """The control for the chronic reading: a Monday and Thursday schedule (KAPITUS's 1,000.00, March 2054), the
+    Mondays 9th, 16th and 23rd returned on the Tuesday after. The Thursday of the 5th follows no return, so Thursday is
+    a recurring phase of the schedule: its payments are its own, and the three returned payments stand."""
+    rows = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16, 23, 30)],
+                   *[(day, KAPITUS, -1000.0) for day in (5, 12, 19, 26)],
+                   *[(day + 1, BOFA_RETURN, 1000.0) for day in (9, 16, 23)]], key=lambda row: row[0])
+    statement = _statement(rows)
+    records = tc.classify_statement_transactions(statement)
+    assert len(_pairs(records)) == 3
+    assert _represented(records) == {}
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.withholding_numerator == round(metrics.lender_debits + 3000.0, 2)
 
 
 def test_a_re_debited_payment_s_reason_no_longer_says_it_is_kept_in_the_rate():
@@ -395,6 +534,28 @@ def test_package_the_ledger_note_of_a_payment_pass_4_matched_and_re_debited_coun
         "re-debit."]
     assert debit_note([(1, BARE_BOUNCE, 850.0), (2, NW_APRIL, 30000.0), (10, KAPITUS_BAKERY, -850.0)] + weekly) == [
         "Returned unpaid on 2031-04-01 (apr.pdf): out of paid to lenders, still in the withholding rate."]
+
+
+def test_package_the_recurring_phase_guard_reads_every_return_of_the_members():
+    """Review round 2 of R3-B02 (finding 3), across a member boundary: March 25's payment, returned on Friday the 28th,
+    is re-presented on Friday April 4; in April the funder re-presents its two bounced Tuesday payments (the 8th and
+    15th, returned on the Thursday after) on the Fridays the 11th and 18th. Those two Fridays follow April's returns,
+    so they are no recurring phase: the package counts March 25's payment once. Each statement viewed alone keeps its
+    own reading (April alone cannot see March's return, so its Friday the 4th reads as a schedule and its two returned
+    payments stand)."""
+    from tests.test_package_matching import _package
+
+    march, april = _months([*MARCH, (28, BARE_BOUNCE, 850.0)],
+                           [(2, NW_APRIL, 30000.0), (10, BARE_BOUNCE, 850.0), (17, BARE_BOUNCE, 850.0)]
+                           + [(day, KAPITUS_BAKERY, -850.0) for day in (1, 4, 8, 11, 15, 18, 22)])
+    assert _numerators(march, april) == [3400.0, 5950.0]
+    package = _package(("mar", march), ("apr", april))
+    assert (package["totals"]["withholding_numerator"], package["totals"]["lender_debits"]) == (8500.0, 6800.0)
+    items = {item["debit_date"]: item for item in package["returned_funder_payments"]}
+    assert sorted(items) == ["2031-03-25", "2031-04-08", "2031-04-15"]
+    assert (items["2031-03-25"].get("represented_date"), items["2031-03-25"].get("represented_kind")) == (
+        "2031-04-04", "re_presented")
+    assert "represented_date" not in items["2031-04-08"] and "represented_date" not in items["2031-04-15"]
 
 
 def test_package_a_re_debit_outside_the_gap_leaves_the_returned_payment_standing():

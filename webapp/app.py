@@ -2598,7 +2598,8 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
     after it in the same account (`_same_account`, `_consecutive`), leaves the package's numerator, by the classifier's
     rule (analysis.represented_payments.re_debits: the same cents off its cycle, or an exact 2x catch-up, dated on or
     after the return and within one cadence gap after it; the series read over those members, the re-debits a statement
-    already took left out). The payment's package copy gains `contributes_to_withholding_rate` false and
+    already took left out, and its recurring-phase guard reading every dated return of those members, a re-debited one
+    included: review round 2 of R3-B02). The payment's package copy gains `contributes_to_withholding_rate` false and
     `represented_by` (the re-debit's location in its statement); paid to lenders, the lender count, the funder rollups
     and revenue never move, and each statement viewed alone keeps its own figures. Returns {(member key, the payment's
     location): the warning item's represented fields (`represented_date`, `_location`, `_kind`, `_job`, `_document`, and
@@ -2617,6 +2618,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
                 following.setdefault(entry["key"], later)
                 break
     by_member: dict[tuple, list] = {}
+    known: dict[tuple, list] = {}
     used: set[tuple] = set()
     returns: list[tuple] = []
     for entry in matchable:
@@ -2635,8 +2637,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
             taken = rows_at.get(record.get("represented_by") or "")
             if taken is not None:
                 used.add((entry["key"], taken[0]))  # a re-debit its own statement already took
-            if (not record.get("returned_funder_payment_by") or record.get("represented_by")
-                    or record.get("contributes_to_withholding_rate") is not True):
+            if not record.get("returned_funder_payment_by"):
                 continue
             match = record.get("package_match") or {}
             if match.get("kind") == "returned_funder_payment" and isinstance(match.get("credit"), dict):
@@ -2648,7 +2649,12 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
                 found = rows_at.get(record["returned_funder_payment_by"])
                 credit_entry = entry if found is not None else None
                 credit_day = _iso_day(found[1].get("date")) if found is not None else None
-            if credit_entry is not None and credit_day is not None:
+            if credit_day is None:
+                continue
+            # Every dated return, a re-debited one included, for the rule's recurring-phase guard (review round 2).
+            known.setdefault(entry["key"], []).append(Returned(attempt, credit_day))
+            if (credit_entry is not None and not record.get("represented_by")
+                    and record.get("contributes_to_withholding_rate") is True):
                 returns.append(((credit_day.toordinal(), entry["order"], position), entry, position, row, attempt,
                                 credit_entry, credit_day))
     represented: dict = {}
@@ -2659,7 +2665,9 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
             continue
         series = [candidate for key in {entry["key"], *allowed} for candidate in by_member.get(key, [])]
         found = re_debits([Returned(attempt, credit_day)], series, calendar_for(entry["currency"]),
-                          may_re_debit=lambda _returned, candidate: candidate.key[0] in allowed, taken=list(used))
+                          may_re_debit=lambda _returned, candidate: candidate.key[0] in allowed, taken=list(used),
+                          returns=[known_return for key in {entry["key"], *allowed}
+                                   for known_return in known.get(key, [])])
         if attempt.key not in found:
             continue
         (re_debit_key, kind) = found[attempt.key]
