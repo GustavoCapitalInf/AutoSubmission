@@ -1121,13 +1121,14 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
 #: moved its tiers and the review gate: a CONTOSO LLC customer payment (Verified), a bare FABRIKAM online transfer (held,
 #: no counterparty) and a SAMPLE sweep from savings (non-revenue); the stage it was cached at (32) and the stage and
 #: classification the batch moves to (33, 5.7). The stage has since moved to 34 (the owner report of 2026-10-08, a
-#: Capital One parser and ADB change with no classification change), which a stage-32 entry misses the same way.
+#: Capital One parser and ADB change with no classification change) and to 35 (the owner report of 2026-10-08, Bank of
+#: America NSF, a parser change with no classification change), which a stage-32 entry misses the same way.
 STALE_ROWS = [(3, "CONTOSO LLC DES:ACH PAYMENT ID:1", 1000.0), (5, "ONLINE BANKING TRANSFER CONF FABRIKAM", 900.0),
               (9, "SAMPLE SWEEP TRANSFER FROM SAVINGS", 6000.0)]
 STALE_TIERS = [("verified_revenue", "verified", None),
                ("unverified_deposit", "excluded_pending_review", "transfer_no_counterparty"),
                ("non_revenue", "non_revenue", None)]
-STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 34, "5.7"
+STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 35, "5.7"
 
 
 def _stale_payload():
