@@ -1502,6 +1502,36 @@ def test_the_spec_and_the_contract_record_r3_b09():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B09, review round 1: the code commit §20 and the contract name.
+R3_B09_R1_CODE_COMMIT = "4776d05"
+
+
+def test_the_spec_and_the_contract_record_r3_b09_review_round_1():
+    """Audit round 3, R3-B09, review round 1 (findings 1 to 3): §8.1's and §8.2's narrowing sentences, the R3-87, R3-75
+    and R07 lines marked in place, the R3-87 line's residual, the batch line's unreconciled-summary sentence, the §20
+    line with its commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "R3-B09 review round 1, §20: a form of the LLC family only, `LLC`, `L.L.C.`, `L L C`, `LLP` or `PLLC`",
+        "R3-B09 review round 1: a form of the LLC family only)",
+        "R3-B09 review round 1 (§20): the send and sent arms read only where no incoming wording",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(narrowed by R3-B09 review round 1, §20 below, to the LLC family:",
+                  "Also not covered, since R3-B09 review round 1: a class-code word before a form outside the LLC",
+                  "(narrowed by R3-B09 review round 1, §20 below: the send and sent labels only after no incoming",
+                  "Beyond the reconciled accounts (added by R3-B09 review round 1, finding 3)",
+                  "- **R3-B09 review round 1: only the LLC family makes a class-code word part of a name",
+                  "audit round 3, R3-B09, review round 1 (findings 1 to 3)", R3_B09_R1_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B09, review round 1 ({R3_B09_R1_CODE_COMMIT})",
+                  "a class-code word is part of a name only before a legal form of the LLC family"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
