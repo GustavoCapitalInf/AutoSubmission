@@ -95,17 +95,20 @@ def test_u1_to_u4_the_lines():
                         "May 13, 2054.")
     assert lines[5] == ("KAPITUS: payments stopped. Last weekly payment: $1,000.00 on Apr 29, 2054. No payments in the "
                         "21 business days after it, through May 29, 2054. From: april.pdf.")
-    assert lines[6] == ("KAPITUS: payments may have stopped. No regular daily payment since Mar 13, 2054; only 3 debits "
-                        "at other amounts since (the last on Mar 19, 2054). A daily schedule allows up to 5 business "
-                        "days without a payment. Last regular payment: $850.00 on Mar 13, 2054.")
+    # Review round 3 of the 2026-10-07 change: the quiet business days after the last debit at another amount.
+    assert lines[6] == ("KAPITUS: payments may have stopped. Last regular daily payment: $850.00 on Mar 13, 2054. After "
+                        "it came only 3 debits at other amounts, the last on Mar 19, 2054. No payment in the 8 business "
+                        "days after Mar 19, 2054, to the end of this statement. A daily schedule allows up to 5 business "
+                        "days without a payment.")
     assert lines[7] == ("KAPITUS: payments paused, then resumed. No payment between Mar 6 and Mar 16, 2054 (6 business "
                         "days, more than the 5 a daily schedule allows). Payments then resumed at the same daily "
                         "$850.00.")
     assert lines[8] == ("KAPITUS: a second payment started. A second weekly payment of $2,100.00 started on Mar 18, "
                         "2054, alongside the existing weekly $1,000.00. The weekly total went from $1,000.00 to "
                         "$3,100.00 (+210%).")
-    # Review round 2 of the 2026-10-07 change: the new payments' own label, where it differs, is named.
-    assert lines[9] == ("Unidentified lender obligation (daily, 300.00) (potential lender): payment went down 17%. The "
+    # Review round 2 of the 2026-10-07 change: the new payments' own label, where it differs, is named. Review round 3:
+    # a potential lender's headline reads "Potential lender <label>: ...".
+    assert lines[9] == ("Potential lender Unidentified lender obligation (daily, 300.00): payment went down 17%. The "
                         "daily payment went from $300.00 to $250.00 starting Mar 16, 2054 (8 payments at the new amount, "
                         "after 10 at the old). The new payments are listed as Unidentified lender obligation (daily, "
                         "250.00).")
@@ -227,8 +230,8 @@ def test_u11_u12_the_tones():
     assert texts[0][1] == chip_html("‖", "Paused", "amber") and texts[1][1] == chip_html("+", "New stream", "blue")
     assert texts[2][1] == chip_html("↓", "Decreased", "neutral")
     assert texts[3][1] == chip_html("■", "Possible stop", "neutral")
-    assert texts[3][0].startswith("Unidentified lender obligation (daily, 300.00) (potential lender): payments may "
-                                  "have stopped. No payment in the last 6 business days of this statement.")
+    assert texts[3][0].startswith("Potential lender Unidentified lender obligation (daily, 300.00): payments may have "
+                                  "stopped. No payment in the last 6 business days of this statement.")
     assert texts[4][1] == chip_html("↓", "Decreased", "amber")
 
 

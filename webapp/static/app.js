@@ -1048,7 +1048,9 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
   const money = (value) => formatMoney(value, unit);
   const day = readableDate;
   const cadence = paymentCadenceWords;
-  const nameOf = (name, state) => (state === "potential" ? `${name} (potential lender)` : name);
+  // Review round 3 of the 2026-10-07 change: a potential lender is named "potential lender <label>" (the headline
+  // "Potential lender <label>: ..."), never "<label> (potential lender)", whose label often ends in parentheses.
+  const nameOf = (name, state) => (state === "potential" ? `potential lender ${name}` : name);
   const label = item.lender_label || item.lender || "Lender";
   const percent = numberOrNull(item.change_percent);
   const details = [];
@@ -1184,8 +1186,13 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     } else {
       headline = "payments may have stopped";
       if (others) {
-        details.push(`No regular ${schedule} payment since ${day(item.last_payment_date)}; only ${later} since `
-          + `(${lastOther}).`);
+        // Review round 3 of the 2026-10-07 change: as the confirmed stop reads, the last regular payment once, the
+        // debits after it, then the quiet business days that raised the note, counted from the last presence.
+        details.push(`Last regular ${schedule} payment: ${money(item.last_payment_amount)} on `
+          + `${day(item.last_payment_date)}.`);
+        details.push(`After it came only ${later}, ${lastOther}.`);
+        const end = item.scope === "package" ? `through ${through}` : "to the end of this statement";
+        details.push(`No payment in the ${quiet} after ${day(item.last_presence_date || others.last_date)}, ${end}.`);
       } else {
         const span = item.scope === "package" ? `the last ${quiet}, through ${through}` : `the last ${quiet} of this statement`;
         details.push(`No ${attempt ? "payment or payment attempt" : "payment"} in ${span}.`);
@@ -1193,8 +1200,7 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       // Review round 1: the grace window is the threshold of a possible stop, not the payments' normal rhythm.
       details.push(`${sentenceCase(scheduleWords(item.cadence))} allows up to `
         + `${countWords(item.grace_business_days, "business day")} without a payment.`);
-      details.push(`Last ${others ? "regular " : ""}payment: ${money(item.last_payment_amount)} on `
-        + `${day(item.last_payment_date)}.`);
+      if (!others) details.push(`Last payment: ${money(item.last_payment_amount)} on ${day(item.last_payment_date)}.`);
     }
     if (item.payoff) {
       also.push(`Also: a final debit of ${money(item.payoff.amount)} on ${day(item.payoff.date)} may be a payoff.`);
@@ -1237,8 +1243,8 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     details.push(`This lender has ${formatNumber(positions)} separate payment streams; this note is about the `
       + `${(position !== null && ORDINAL_WORDS[position - 1]) || `number ${formatNumber(item.position)}`}.`);
   }
-  return lenderNote(`${nameOf(label, item.lender_state)}: ${headline}`, details, also,
-    paymentChangeSourceLine(item, sources, across));
+  const named = item.lender_state === "potential" ? `Potential lender ${label}` : label;
+  return lenderNote(`${named}: ${headline}`, details, also, paymentChangeSourceLine(item, sources, across));
 }
 
 // The note as one line of text: the copied package memo's line.
@@ -5184,14 +5190,21 @@ function monthlyDepositColumns(view) {
   ];
 }
 
-// The owner's request of 2026-10-07 ("add witholding rate"): a statement's own confirmed withholding rate, its package
-// row's served `withholding_rate`, or null (shown N/A) where none is published: a statement that failed, and 5.7's
-// rules, a withholding basis that is not established or is zero.
+// The owner's request of 2026-10-07 ("add witholding rate"), review round 3: a statement's confirmed withholding rate on
+// the figures its row shows, the package row's served `withholding_numerator` (R2-OW13: paid plus returned, pass 4's
+// matched payments kept) over its served `withholding_denominator` (the basis after the package passes: R2-OW15's
+// returned deposits, R2-OW16's own-account transfers, R-d's pairs, as its True Deposits are), x 100. The value never
+// comes from the row's `withholding_rate` (the statement viewed alone, which the passes do not reach); that key only
+// says whether the package publishes a rate for the member. Null (shown N/A) for a statement that did not complete,
+// where the package publishes no rate for the member (F1's flag, or no served rate), where either figure is not served
+// and where the basis is 0 or less.
 function monthlyWithholdingRate(doc) {
-  if (doc.withholding_basis_unestablished === true) return null;
+  if (monthFigure(doc, true) === null || doc.withholding_basis_unestablished === true) return null;
+  if (numberOrNull(doc.withholding_rate) === null) return null;
+  const numerator = numberOrNull(doc.withholding_numerator);
   const basis = numberOrNull(doc.withholding_denominator);
-  if (basis !== null && basis <= 0) return null;
-  return numberOrNull(monthFigure(doc, doc.withholding_rate));
+  if (numerator === null || basis === null || basis <= 0) return null;
+  return (Math.abs(numerator) / basis) * 100;
 }
 
 // "76.49%", always two decimals; N/A for none.

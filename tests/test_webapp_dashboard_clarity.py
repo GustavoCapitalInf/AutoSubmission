@@ -155,9 +155,9 @@ def test_a_change_reads_as_a_headline_and_plain_sentences():
         ["Also: ONDECK deposited $25,000.00 on Apr 1, 2054, just before; this may be a renewal."],
         "From: March 2054 statement → April 2054 statement, SAMPLE BANK april.pdf")
     # Review round 1: where the schedule changes, the headline's percentage is the weekly total's, so the headline says
-    # so and the weekly-total sentence comes first.
+    # so and the weekly-total sentence comes first. Review round 3: a potential lender's headline names it first.
     assert notes[2] == _note(
-        "Unidentified lender obligation (daily, 300.00) (potential lender): weekly payment total may have gone up 20%", [
+        "Potential lender Unidentified lender obligation (daily, 300.00): weekly payment total may have gone up 20%", [
             "The weekly total went from $1,500.00 to $1,800.00.",
             "Payments changed from daily $300.00 to weekly $1,800.00 starting Mar 23, 2054 (2 payments at the new "
             "amount, after 15 at the old).",
@@ -220,10 +220,13 @@ def test_a_stop_says_when_the_last_payment_was_and_how_long_it_has_been():
         "No payments in the 26 business days after it, through May 29, 2054."],
         ["Also: ONDECK started weekly payments of $1,100.00 on Apr 24, 2054; it may have taken over this advance."],
         "From: April 2054 statement, SAMPLE BANK april.pdf")
+    # Review round 3: a possible stop after debits at other amounts names the quiet business days after the last of
+    # them, as every other stop does, and the last regular payment once.
     assert notes[2]["details"] == [
-        "No regular daily payment since Mar 13, 2054; only 3 debits at other amounts since (the last on Mar 19, 2054).",
-        "A daily schedule allows up to 5 business days without a payment.",
-        "Last regular payment: $850.00 on Mar 13, 2054."]
+        "Last regular daily payment: $850.00 on Mar 13, 2054.",
+        "After it came only 3 debits at other amounts, the last on Mar 19, 2054.",
+        "No payment in the 8 business days after Mar 19, 2054, to the end of this statement.",
+        "A daily schedule allows up to 5 business days without a payment."]
     # Review round 1: two concurrent streams, not two payments in all, and no amount-bearing label repeated.
     assert notes[3] == _note("KAPITUS: payments may have stopped", [
         "No payment or payment attempt in the last 12 business days, through May 29, 2054.",
@@ -231,7 +234,7 @@ def test_a_stop_says_when_the_last_payment_was_and_how_long_it_has_been():
         "Last payment: $1,000.00 on Apr 1, 2054.",
         "This lender has 2 separate payment streams; this note is about the first."], [
         "Also: a final debit of $5,000.00 on Apr 20, 2054 may be a payoff.",
-        "Also: payments of $990.00 continue under Unidentified lender obligation (weekly, 990.00) (potential lender) "
+        "Also: payments of $990.00 continue under potential lender Unidentified lender obligation (weekly, 990.00) "
         "from Apr 15, 2054; this may be a buyout or refinance.",
         "Also: a debt-relief program's payments start on Apr 18, 2054; this may mean a default or settlement.",
         "Also: payments to KAPITUS continue from another account (April 2054 statement, SAMPLE b-april.pdf) from "
@@ -354,10 +357,33 @@ def test_one_debit_at_another_amount_reads_in_the_singular():
     possible = {**STOP_OTHER_DEBITS, "other_debits_after": one}
     confirmed = {**STOP_OTHER_DEBITS, "other_debits_after": one, "stop_confirmed": True}
     notes = _notes([possible, confirmed])
-    assert notes[0]["details"][0] == ("No regular daily payment since Mar 13, 2054; only 1 debit at another amount "
-                                      "since (on Mar 19, 2054).")
+    assert notes[0]["details"][:3] == ["Last regular daily payment: $850.00 on Mar 13, 2054.",
+                                       "After it came only 1 debit at another amount, on Mar 19, 2054.",
+                                       "No payment in the 8 business days after Mar 19, 2054, to the end of this "
+                                       "statement."]
     assert notes[1]["details"][:2] == ["Last regular daily payment: $850.00 on Mar 13, 2054.",
                                        "After it came only 1 debit at another amount, on Mar 19, 2054."]
+
+
+@needs_node
+def test_a_possible_stop_after_other_debits_says_how_many_quiet_business_days_passed():
+    # Review round 3: the quiet business days that raised the note (quiet_business_days), counted from the last debit
+    # (last_presence_date), in the voice of every other stop; "since" no longer twice, the last payment's date once.
+    package = {**STOP_OTHER_DEBITS, "scope": "package", "source_currency": "USD",
+               **_source(JOB_MAR, "SAMPLE BANK march.pdf")}
+    later_attempt = {**STOP_OTHER_DEBITS, "last_presence_date": "2054-03-20", "quiet_business_days": 7}
+    notes = _notes([STOP_OTHER_DEBITS, package, later_attempt])
+    assert notes[0]["details"][2] == "No payment in the 8 business days after Mar 19, 2054, to the end of this statement."
+    assert notes[1] == _note("KAPITUS: payments may have stopped", [
+        "Last regular daily payment: $850.00 on Mar 13, 2054.",
+        "After it came only 3 debits at other amounts, the last on Mar 19, 2054.",
+        "No payment in the 8 business days after Mar 19, 2054, through Mar 31, 2054.",
+        "A daily schedule allows up to 5 business days without a payment."], [], "From: March 2054 statement")
+    # The quiet days run from the last presence, which can be later than the last debit at another amount.
+    assert notes[2]["details"][2] == "No payment in the 7 business days after Mar 20, 2054, to the end of this statement."
+    for note in notes:
+        text = " ".join(note["details"])
+        assert text.count("since") == 0 and text.count("Mar 13, 2054") == 1
 
 
 @needs_node
@@ -365,8 +391,8 @@ def test_a_potential_lender_s_streams_sentence_repeats_no_label():
     stop = {**POSSIBLE_STOP, "lender": "Unidentified lender obligation", "position": 2, "positions": 2,
             "lender_label": "Unidentified lender obligation (weekly, 1000.00)", "lender_state": "potential"}
     [note] = _notes([stop])
-    assert note["headline"] == ("Unidentified lender obligation (weekly, 1000.00) (potential lender): payments may "
-                                "have stopped")
+    assert note["headline"] == ("Potential lender Unidentified lender obligation (weekly, 1000.00): payments may have "
+                                "stopped")
     assert note["details"][-1] == "This lender has 2 separate payment streams; this note is about the second."
     assert sum("1000.00" in part for part in [note["headline"], *note["details"]]) == 1
 
@@ -403,11 +429,46 @@ def test_a_potential_lender_s_new_payments_name_the_label_they_are_listed_under(
         "The new schedule isn't confirmed yet.",
         "The new payments are listed as Unidentified lender obligation (weekly, 1800.00)."]
     assert notes[1] == _note(
-        "Unidentified lender obligation (daily, 300.00) (potential lender): payment went down 17%", [
+        "Potential lender Unidentified lender obligation (daily, 300.00): payment went down 17%", [
             "The daily payment went from $300.00 to $250.00 starting Mar 17, 2054 (9 payments at the new amount, after "
             "12 at the old).",
             "The new payments are listed as Unidentified lender obligation (daily, 250.00)."])
     assert notes[2] == _notes([DECREASE])[0]
+
+
+@needs_node
+def test_a_potential_lender_s_headline_reads_potential_lender_first_on_every_kind():
+    # Review round 3 (the orchestrator's ruling): "Potential lender <label>: <what happened>" on every kind, never the
+    # stacked "<label> (potential lender)"; the chip stays neutral. An "Also:" sentence names another potential lender
+    # the same way.
+    label = "Unidentified lender obligation (weekly, 1000.00)"
+    potential = {"lender": "Unidentified lender obligation", "lender_label": label, "lender_state": "potential"}
+    kinds = [DECREASE, INCREASE_AFTER_FUNDING, STEPS, SCHEDULE, PAUSE, NEW_STREAM, POSSIBLE_STOP, STOP_NEW_LENDER,
+             STOP_OTHER_DEBITS]
+    handed = {**STOP_NEW_LENDER, "new_lender_after": {
+        "lender_label": "Unidentified lender obligation (weekly, 1100.00)", "lender_state": "potential",
+        "cadence": "weekly", "amount": 1100.0, "first_date": "2054-04-24"}}
+    items = [{**item, **potential} for item in kinds] + [handed]
+    result = run_dashboard(f"""
+const sources = paymentChangeSources({json.dumps(DOCUMENTS)});
+const tone = (chip) => chip === glassChip(chip.match(/aria-hidden="true">([^<]*)</)[1],
+  chip.match(/chip-text">([^<]*)</)[1], "neutral") ? "neutral" : "toned";
+console.log(JSON.stringify({json.dumps(items)}.map((item) => [lenderPaymentChangeNote(item, 'USD', sources),
+  tone(lenderPaymentChangeChip(item)), lenderPaymentChangeWarning(item, 'USD', sources)])));
+""")
+    happened = ["payment went down 29%", "payment went up 50%", "payment went down 12%", "payment schedule changed",
+                "payments paused, then resumed", "a second payment started", "payments may have stopped",
+                "payments stopped", "payments may have stopped"]
+    assert [note["headline"] for note, _chip, _text in result[:-1]] == [
+        f"Potential lender {label}: {what}" for what in happened]
+    assert [tone for _note, tone, _text in result] == ["neutral"] * len(kinds) + ["toned"]
+    # A confirmed lender's headline is as before.
+    assert result[-1][0]["headline"] == "KAPITUS: payments stopped"
+    assert result[-1][0]["also"] == [
+        "Also: potential lender Unidentified lender obligation (weekly, 1100.00) started weekly payments of $1,100.00 "
+        "on Apr 24, 2054; it may have taken over this advance."]
+    texts = [text for _note, _chip, text in result]
+    assert not any("(potential lender)" in text or ") (" in text for text in texts)
 
 
 # ------------------------------------------------------------------------------------- A: the table and the memo
@@ -608,13 +669,27 @@ def _row(job, month, **fields):
 
 @needs_node
 def test_the_monthly_table_shows_each_statement_s_withholding_rate_and_no_verified_column():
-    rows = [_row("contoso", 1, withholding_rate=76.4912, withholding_denominator=60000.0),
-            _row("fabrikam", 2, withholding_rate=None, withholding_denominator=0.0, withholding_review_required=True),
-            _row("northwind", 3, withholding_rate=None, withholding_basis_unestablished=True,
-                 revenue_established=False),
-            _row("sample", 4, withholding_rate=50, withholding_denominator=60000.0),
-            _row("stale", 5, withholding_rate=12.5, withholding_basis_unestablished=True),
-            _row("failed", 6, status="failed", withholding_rate=10.0)]
+    # Review round 3 (the orchestrator's ruling): the cell is the row's own figures, its served withholding_numerator
+    # over its withholding_denominator (x 100, two decimals), never the statement-alone withholding_rate beside them.
+    rows = [_row("contoso", 1, withholding_rate=76.4912, withholding_numerator=45894.72,
+                 withholding_denominator=60000.0),
+            _row("fabrikam", 2, withholding_rate=None, withholding_numerator=500.0, withholding_denominator=0.0,
+                 withholding_review_required=True),
+            _row("northwind", 3, withholding_rate=None, withholding_numerator=1000.0, withholding_denominator=60000.0,
+                 withholding_basis_unestablished=True, revenue_established=False),
+            # The package passes took 20,000 out of this member's True: its row reads 6,000 over 40,000, not the 10%
+            # its statement alone published over 60,000.
+            _row("sample", 4, true_revenue_total=40000.0, withholding_rate=10.0, withholding_numerator=6000.0,
+                 withholding_denominator=40000.0),
+            _row("stale", 5, withholding_rate=12.5, withholding_numerator=7500.0, withholding_denominator=60000.0,
+                 withholding_basis_unestablished=True),
+            _row("failed", 6, status="failed", withholding_rate=10.0, withholding_numerator=6000.0,
+                 withholding_denominator=60000.0),
+            # The package publishes no rate for this member (none served), whatever its figures say.
+            _row("unrated", 7, withholding_rate=None, withholding_numerator=600.0, withholding_denominator=60000.0),
+            # A row that serves only one of the two figures has no rate of its own.
+            _row("unserved", 8, withholding_rate=5.0, withholding_denominator=60000.0),
+            _row("negative", 9, withholding_rate=5.0, withholding_numerator=600.0, withholding_denominator=-1.0)]
     package = {"documents": rows, "totals": {}, "currency": {"currencies": ["USD"]}}
     result = run_dashboard(MONTHLY + f"console.log(JSON.stringify(views({json.dumps(package)})));")
     assert result["both"]["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month",
@@ -623,26 +698,85 @@ def test_the_monthly_table_shows_each_statement_s_withholding_rate_and_no_verifi
     for view in ("total", "true"):
         assert result[view]["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month",
                                         "Withholding Rate", "Ledger ($)", "NSF", "Action"], view
-    expected = ["76.49%", "N/A", "N/A", "50.00%", "N/A", "N/A"]
+    expected = ["76.49%", "N/A", "N/A", "15.00%", "N/A", "N/A", "N/A", "N/A", "N/A"]
     assert [row[6] for row in result["both"]["rows"]] == expected
     assert [row[4] for row in result["total"]["rows"]] == expected
     assert [row[4] for row in result["true"]["rows"]] == expected
     assert result["both"]["rows"][0] == ["January", "2054", "100,000", "4", "60,000", "2", "76.49%", "5,000", "1",
                                          "Open"]
+    assert result["both"]["rows"][3][4:7] == ["40,000", "2", "15.00%"]
     assert not any("Verified" in header for shown in result.values() for header in shown["head"])
 
 
+#: Review round 3's probes, fabricated (tests/test_package_matching.py's CONTOSO BAKERY LLC, 2031): S1 (R2-OW15), a
+#: March deposit returned on April 1, each month paying ONDECK 2,500; and R2-OW16's owner's example, account A's
+#: 12,340.17 transfer held in account B, which pays ONDECK 700.
+ONDECK_1 = "ONDECK CAPITAL DES:PAYMENT ID:1"
+ONDECK_2 = "ONDECK CAPITAL DES:PAYMENT ID:2"
+
+
+def _moved_packages():
+    from tests import test_package_matching as pm
+
+    march_rows = [(5, pm.NW_MARCH, 50000.0), (10, ONDECK_1, -2500.0), (26, "DEPOSIT", 100000.0)]
+    april_rows = [(1, pm.RETURNED, -100000.0), (5, pm.NW_APRIL, 50000.0), (10, ONDECK_2, -2500.0)]
+    march = pm._payload(march_rows, month=3, opening=1500.0)
+    april = pm._payload(april_rows, month=4, opening=pm._closing(march_rows, 1500.0))
+    returned = pm._package(("mar", march), ("apr", april))
+    transfer = pm._package(("a", pm._account_a()), ("b", pm._account_b(extra=[(6, ONDECK_1, -700.0)])))
+    return returned, transfer
+
+
 @needs_node
-def test_a_real_package_s_rows_carry_the_served_rate(tmp_path, monkeypatch):
+def test_a_member_whose_true_the_package_reduced_shows_the_package_s_rate(monkeypatch):
+    # Review round 3 (important): the Withholding Rate read the statement alone (S1's March 1.67% over 150,000, B's
+    # 4.88% over 14,340.17) beside True Deposits the package passes had reduced (50,000; 2,000). The row now divides its
+    # own served numerator by its own served basis: 5.00% and 35.00%, the figures the package's totals add up.
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "true_revenue")
+    returned, transfer = _moved_packages()
+    docs = {doc["id"]: doc for package in (returned, transfer) for doc in package["documents"]}
+    assert docs["mar"]["withholding_denominator_mode"] == docs["b"]["withholding_denominator_mode"] == "true_revenue"
+    assert round(docs["mar"]["withholding_rate"], 2) == 1.67 and round(docs["b"]["withholding_rate"], 2) == 4.88
+    assert (docs["mar"]["withholding_numerator"], docs["mar"]["withholding_denominator"]) == (2500.0, 50000.0)
+    assert (docs["b"]["withholding_numerator"], docs["b"]["withholding_denominator"]) == (700.0, 2000.0)
+    assert docs["mar"]["true_revenue_total"] == 50000.0 and docs["b"]["true_revenue_total"] == 2000.0
+    result = run_dashboard(MONTHLY + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(returned)});
+const returned = views({json.dumps(returned)});
+currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(transfer)});
+console.log(JSON.stringify({{returned, transfer: views({json.dumps(transfer)})}}));
+""")
+    # True Deposits ($), its count and the Withholding Rate, row by row, in the Both view; the other views agree.
+    assert [row[4:7] for row in result["returned"]["both"]["rows"]] == [["50,000", "1", "5.00%"],
+                                                                          ["50,000", "1", "5.00%"]]
+    assert [row[4:7] for row in result["transfer"]["both"]["rows"]] == [["20,000", "1", "0.00%"],
+                                                                          ["2,000", "1", "35.00%"]]
+    for name in ("returned", "transfer"):
+        both = [row[6] for row in result[name]["both"]["rows"]]
+        assert [row[4] for row in result[name]["true"]["rows"]] == both
+        assert [row[4] for row in result[name]["total"]["rows"]] == both
+    # The rows add up to the package's own rate: 5,000 over 100,000 and 700 over 22,000.
+    assert returned["totals"]["package_withholding_rate"] == 5.0
+    assert transfer["totals"]["package_withholding_rate"] == 3.18
+
+
+@needs_node
+def test_a_package_that_moved_nothing_keeps_each_statement_s_own_rate(tmp_path, monkeypatch):
     from tests.test_webapp_studio_views import _package
     from tests.test_webapp_true_revenue import DETECTED_ROWS, _payload
 
     package = _package({"mar": _payload(DETECTED_ROWS), "apr": _payload(month=4)}, tmp_path, monkeypatch)
-    rates = {doc["id"]: doc["withholding_rate"] for doc in package["documents"]}
-    assert rates["mar"] is not None and rates["mar"] > 0
+    docs = {doc["id"]: doc for doc in package["documents"]}
+    assert docs["mar"]["withholding_rate"] is not None and docs["mar"]["withholding_rate"] > 0
+    for doc in docs.values():
+        # No package pass moved a credit: the row's figures are the statement's own, so its rate is too.
+        if doc["withholding_rate"] is not None:
+            assert doc["withholding_rate"] == pytest.approx(
+                abs(doc["withholding_numerator"]) / doc["withholding_denominator"] * 100)
     result = run_dashboard(MONTHLY + f"""
 currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify(views({json.dumps(package)})));
 """)
     shown = [row[6] for row in result["both"]["rows"]]
-    assert shown == [f"{rates['mar']:.2f}%", "N/A" if rates["apr"] is None else f"{rates['apr']:.2f}%"]
+    rates = [docs[key]["withholding_rate"] for key in ("mar", "apr")]
+    assert shown == ["N/A" if rate is None else f"{rate:.2f}%" for rate in rates]

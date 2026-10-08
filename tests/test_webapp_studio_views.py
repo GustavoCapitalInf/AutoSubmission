@@ -330,6 +330,17 @@ const monthly = () => ({head: cells(els.monthlyHead.innerHTML)[0], rows: cells(e
 """
 
 
+def _row_rate(doc):
+    """The Withholding Rate cell of a package row (the owner's request of 2026-10-07, its review round 3): the row's own
+    served numerator over its own served basis, two decimals; N/A where the package publishes no rate for the member,
+    where its basis is not established, or where the basis is 0 or less."""
+    basis = doc.get("withholding_denominator")
+    if (doc.get("withholding_rate") is None or doc.get("withholding_basis_unestablished") is True
+            or doc.get("withholding_numerator") is None or basis is None or basis <= 0):
+        return "N/A"
+    return f"{abs(doc['withholding_numerator']) / basis * 100:.2f}%"
+
+
 def test_the_monthly_statements_show_total_true_or_both_deposits(tmp_path, monkeypatch):
     package = _package({"jan": _single(1), "feb": _single(2)}, tmp_path, monkeypatch)
     documents = {doc["id"]: doc for doc in package["documents"]}
@@ -350,7 +361,7 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: monthly()}}));
                             "True Deposits Per Month", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
     assert both["count"] == "2 statements"
     january = documents["jan"]
-    rate = "N/A" if january["withholding_rate"] is None else f"{january['withholding_rate']:.2f}%"
+    rate = _row_rate(january)
     assert both["rows"][0][2:7] == [whole(january["credits"]), str(january["deposit_count"]),
                                     whole(january["true_revenue_total"]), str(january["true_revenue_count"]), rate]
     # One basis alone keeps the CRM's own headers and names the basis beside the count.
@@ -432,8 +443,8 @@ console.log(JSON.stringify({{...monthly(), chart: chart()}}));
     # A failed statement has no figures at all, not a month of zeros (its withholding rate included).
     assert failed[2:9] == ["N/A"] * 7 and failed[9] == "Unavailable"
     assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:6] == ["N/A", "N/A"]
-    # The Withholding Rate cell reads the row's served rate (the owner's request of 2026-10-07).
-    assert unknown[6] == ("N/A" if feb["withholding_rate"] is None else f"{feb['withholding_rate']:.2f}%")
+    # The Withholding Rate cell reads the row's own figures (the owner's request of 2026-10-07, its review round 3).
+    assert unknown[6] == _row_rate(feb)
     # The chart says what the table says: nothing for the failed month, no True deposits for the other.
     assert result["chart"]["values"] == [["shown", "N/A"], ["true", "N/A"],
                                          ["shown", f"{round(feb['credits']):,}"], ["true", "N/A"]]
