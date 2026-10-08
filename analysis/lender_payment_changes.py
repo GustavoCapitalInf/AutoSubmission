@@ -16,7 +16,8 @@ The model (the brief's parts A and B):
   (`potential_payee_key`, the classifier's amount-free payee digest). Its **payments** are posted debits with the paid
   flag and no duplicate, reversal or returned-unpaid mark; its **attempts** (a bounced or reversed debit of the series)
   are presence, never an amount or a payment; since audit round 3 (R3-23) an attempt at a level's amount also keeps
-  its schedule, when that reads a faster regular schedule than the payments alone.
+  its schedule, when that reads a faster regular schedule than the payments alone and keeps its cycle (a daily one
+  fills 4 of 5 business days, more than one debit's NACHA re-presentments do; R3-B04 review round 1).
 * Payments of one amount (equal cents, near-equal amounts within LEVEL_MERGE_PERCENT merged) seen twice or more form a
   **level**, with a cadence (`payment_cadence`); a payment seen once is a **one-off**. A level far smaller than a
   heavier, schedule-confirmed level whose beat it keeps is a **fee level** and is dropped (R3-24). Levels that run at
@@ -78,6 +79,11 @@ CADENCE_CHANGE_MIN_DAILY = 5
 #: The days a major payment may stand from a minor one and still keep the major's beat (A7).
 BEAT_TOLERANCE_DAYS = {"daily": 0, "daily_irregular": 1, "weekly": 3, "biweekly": 7, "semimonthly": 7, "monthly": 16}
 BEAT_TOLERANCE_OTHER_DAYS = 3
+#: NACHA lets a debit returned unpaid be presented at most this many times (the original entry and two
+#: re-presentments), so one debit never fills more than this many of DAILY_STRETCH_BUSINESS_DAYS consecutive business
+#: days; a daily schedule read through attempts must (R3-B04 review round 1).
+NACHA_MAX_PRESENTMENTS = 3
+DAILY_STRETCH_BUSINESS_DAYS = 5
 #: The grace windows, in business days, of a stop and a pause (B4, B7).
 STOP_GRACE_BUSINESS_DAYS = {"daily": 5, "daily_irregular": 6, "weekly": 10, "biweekly": 15, "semimonthly": 15,
                             "monthly": 25}
@@ -420,9 +426,15 @@ def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
 # ----------------------------------------------------------------------------------------- levels and positions
 @dataclass
 class _Level:
+    """A level (A4): its representative amount, its payments and its cadence. Since R3-B04 review round 1, a level whose
+    cadence its attempts set (`_beat_cadence`, R3-23) also keeps the cadence of its payments alone (`paid_cadence`) and
+    those attempts' dates (`attempt_days`): the beat tests read the dates its cadence was read from (`beat_dates`)."""
+
     amount: int
     pays: list[_Pay]
     cadence: str
+    paid_cadence: str | None = None
+    attempt_days: tuple[date, ...] = ()
 
     @property
     def first(self) -> date:
@@ -440,23 +452,53 @@ class _Level:
     def dates(self) -> list[date]:
         return sorted({pay.day for pay in self.pays})
 
+    @property
+    def beat_dates(self) -> list[date]:
+        """The dates its cadence was read from: its payments', and its attempts' when they set the cadence."""
+        return sorted({*self.dates, *self.attempt_days})
+
+    @property
+    def paid_schedule(self) -> str:
+        """The cadence of its payments alone."""
+        return self.paid_cadence or self.cadence
+
 
 def _near(cents: int, amount: int) -> bool:
     """`cents` is within LEVEL_MERGE_PERCENT of `amount` (A4's merge test)."""
     return 100 * abs(cents - amount) <= LEVEL_MERGE_PERCENT * amount
 
 
+def _fills_daily_stretches(days: list[date], calendar: str) -> bool:
+    """R3-B04 review round 1: at least BEAT_KEPT_PERCENT of the distinct `days` sit in a stretch of
+    DAILY_STRETCH_BUSINESS_DAYS consecutive business days holding more than NACHA_MAX_PRESENTMENTS of them. One debit
+    and its NACHA re-presentments (3 presentments at most, before the next debit of a weekly or slower schedule) never
+    do, whatever their days (a Monday debit returned and re-presented on the Wednesday, then paid on the Friday, fills 3
+    of 5); a daily debit whose payments mostly bounce fills every business day."""
+    ordered = sorted(set(days))
+    if not ordered:
+        return False
+    index = [business_days_between(ordered[0], day, calendar) for day in ordered]
+    dense: set[int] = set()
+    start = 0
+    for end in range(len(ordered)):
+        while index[end] - index[start] >= DAILY_STRETCH_BUSINESS_DAYS:
+            start += 1
+        if end - start + 1 > NACHA_MAX_PRESENTMENTS:
+            dense.update(range(start, end + 1))
+    return 100 * len(dense) >= BEAT_KEPT_PERCENT * len(ordered)
+
+
 def _keeps_cycle(days: list[date], cadence: str, calendar: str) -> bool:
-    """At least BEAT_KEPT_PERCENT of the gaps between the distinct `days` are one cycle of `cadence`: a daily
-    schedule's 1 business day (2 when daily irregular), else the cycle's calendar days within BEAT_TOLERANCE_DAYS."""
+    """The distinct `days` keep the cycle of `cadence`: a daily schedule's when they fill its stretches of business
+    days (`_fills_daily_stretches`, R3-B04 review round 1); another schedule's when at least BEAT_KEPT_PERCENT of the
+    gaps between them are its cycle's calendar days within BEAT_TOLERANCE_DAYS."""
+    if _regular(cadence) == "daily":
+        return _fills_daily_stretches(days, calendar)
     ordered = sorted(set(days))
     pairs = list(zip(ordered, ordered[1:]))
     tolerance = BEAT_TOLERANCE_DAYS.get(cadence, BEAT_TOLERANCE_OTHER_DAYS)
-    if _regular(cadence) == "daily":
-        kept = sum(1 for earlier, later in pairs if business_days_between(earlier, later, calendar) <= 1 + tolerance)
-    else:
-        cycle = _cycle_days(cadence)
-        kept = sum(1 for earlier, later in pairs if abs((later - earlier).days - cycle) <= tolerance)
+    cycle = _cycle_days(cadence)
+    kept = sum(1 for earlier, later in pairs if abs((later - earlier).days - cycle) <= tolerance)
     return bool(pairs) and 100 * kept >= BEAT_KEPT_PERCENT * len(pairs)
 
 
@@ -464,10 +506,13 @@ def _beat_cadence(paid_cadence: str, paid_dates: Iterable[date], attempt_dates: 
     """Audit round 3, R3-23: the schedule of a level (or a regime) read through its bounced attempts. The attempts at
     its amount are dated beside its payments; their dates together give the schedule only when it is regular and
     strictly faster than the payments' own (a daily level whose debits mostly bounce reads daily, not weekly, and a
-    weekly one whose every other debit bounces reads weekly, not biweekly). A retry inside one cycle never makes the
-    schedule faster (NACHA lets a returned debit be re-presented): the dates together must also keep the faster
-    schedule's cycle (`_keeps_cycle`), which a Monday debit re-presented on the Wednesday of each week does not.
-    Attempts never set an amount and never count as payments."""
+    weekly one whose every other debit bounces reads weekly, not biweekly), and only when the dates together keep the
+    faster schedule's cycle (`_keeps_cycle`). A daily reading needs BEAT_KEPT_PERCENT of the dates in stretches of 4 or
+    more presented business days of 5, more than NACHA's 3 presentments of one debit fill (R3-B04 review round 1), so a
+    weekly debit's re-presentments, once or twice, on any days, never read daily. A known shape the dates cannot tell
+    apart: a biweekly or monthly debit re-presented at weekly steps presents the dates of a weekly debit whose other
+    presentments bounce, and reads weekly as it does (spec §17.1 (20)). Attempts never set an amount and never count as
+    payments."""
     attempts = list(attempt_dates)
     if not attempts:
         return paid_cadence
@@ -483,7 +528,8 @@ def _levels(payments: list[_Pay], calendar: str, attempts: Sequence[_Pay] = ()) 
     representative (its first, most frequent amount) is within LEVEL_MERGE_PERCENT. A cluster of 2 or more payments is
     a level; one payment is a one-off. Levels come in (first date, -payments) order. A level's cadence reads the
     series' attempts within LEVEL_MERGE_PERCENT of its representative, at any date, beside its payments when that gives
-    a faster regular schedule (`_beat_cadence`; audit round 3, R3-23); attempts never form or join a level."""
+    a faster regular schedule (`_beat_cadence`; audit round 3, R3-23), and such a level keeps its payments' own cadence
+    and those attempts' dates (R3-B04 review round 1); attempts never form or join a level."""
     by_cents: dict[int, list[_Pay]] = {}
     for pay in payments:
         by_cents.setdefault(pay.cents, []).append(pay)
@@ -501,9 +547,10 @@ def _levels(payments: list[_Pay], calendar: str, attempts: Sequence[_Pay] = ()) 
         pays = sorted((pay for cents in cluster for pay in by_cents[cents]), key=lambda pay: pay.order)
         if len(pays) >= 2:
             days = [pay.day for pay in pays]
-            cadence = _beat_cadence(payment_cadence(days, calendar), days,
-                                    [pay.day for pay in attempts if _near(pay.cents, cluster[0])], calendar)
-            levels.append(_Level(cluster[0], pays, cadence))
+            paid = payment_cadence(days, calendar)
+            tried = tuple(sorted({pay.day for pay in attempts if _near(pay.cents, cluster[0])}))
+            cadence = _beat_cadence(paid, days, tried, calendar)
+            levels.append(_Level(cluster[0], pays, cadence, paid, tried if cadence != paid else ()))
         else:
             singles.extend(pays)
     levels.sort(key=lambda level: (level.first, -level.n))
@@ -512,13 +559,15 @@ def _levels(payments: list[_Pay], calendar: str, attempts: Sequence[_Pay] = ()) 
 
 def _concurrent(one: _Level, other: _Level) -> bool:
     """A7: the minor level (fewer distinct dates, then fewer payments) has 2 or more distinct dates inside the major's
-    span, and at least BEAT_KEPT_PERCENT of them have a major payment within the major cadence's beat tolerance."""
+    span, and at least BEAT_KEPT_PERCENT of them have a major payment within the major cadence's beat tolerance. A
+    major whose attempts set its cadence (R3-23) is read on those attempts' dates too, as its cadence was (R3-B04
+    review round 1: a daily level paid only on Fridays keeps a Wednesday on its beat)."""
     major, minor = (one, other) if (len(one.dates), one.n) >= (len(other.dates), other.n) else (other, one)
     inside = [day for day in minor.dates if major.first <= day <= major.last]
     if len(inside) < 2:
         return False
     tolerance = BEAT_TOLERANCE_DAYS.get(major.cadence, BEAT_TOLERANCE_OTHER_DAYS)
-    major_dates = major.dates
+    major_dates = major.beat_dates
     kept = sum(1 for day in inside if any(abs((other_day - day).days) <= tolerance for other_day in major_dates))
     return 100 * kept >= BEAT_KEPT_PERCENT * len(inside)
 
@@ -596,7 +645,8 @@ def _fee_levels(levels: list[_Level]) -> list[_Level]:
     least BEAT_KEPT_PERCENT of them: it runs ALONGSIDE a heavier, schedule-confirmed level and keeps its beat. A token
     payment that REPLACES the main level keeps no date on its beat, so it is kept (a change, never a stop). A fee level
     becomes neither a position nor a one-off, as a dropped fee position; the others keep their order. The per-position
-    test (`_paying_positions`) still runs after it."""
+    test (`_paying_positions`) still runs after it. A reference whose attempts set its cadence is read on those
+    attempts' dates too (`beat_dates`, R3-B04 review round 1)."""
     references = [level for level in levels if _confirms_schedule(level)]
 
     def fee(level: _Level) -> bool:
@@ -605,8 +655,8 @@ def _fee_levels(levels: list[_Level]) -> list[_Level]:
             return False
         dates = level.dates
         kept = sum(1 for day in dates if any(
-            any(abs((pay.day - day).days) <= BEAT_TOLERANCE_DAYS.get(reference.cadence, BEAT_TOLERANCE_OTHER_DAYS)
-                for pay in reference.pays)
+            any(abs((beat - day).days) <= BEAT_TOLERANCE_DAYS.get(reference.cadence, BEAT_TOLERANCE_OTHER_DAYS)
+                for beat in reference.beat_dates)
             for reference in heavier))
         return kept >= 2 and 100 * kept >= BEAT_KEPT_PERCENT * len(dates)
 
@@ -668,7 +718,8 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
     LEVEL_MERGE_PERCENT of the regime's amount dated inside its span beside its payments (`_beat_cadence`). Since audit
     round 3, R3-70, a 2x or 3x level is no catch-up when one of its runs of MIN_PAYMENTS_HELD or more payments reads a
     regular schedule slower than the dominant level's (a catch-up pulls debits together on the schedule or faster):
-    it is then § Still open 18's change at a new schedule."""
+    it is then § Still open 18's change at a new schedule. The dominant level's schedule there is its payments' own
+    (R3-B04 review round 1): a 2x run on the paying weekday of a daily level whose other days bounce keeps that beat."""
     levels = position.levels
     tagged = sorted(((pay, index) for index, level in enumerate(levels) for pay in level.pays),
                     key=lambda item: (item[0].day, item[1], item[0].order))
@@ -682,7 +733,7 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
     longest: dict[int, int] = {}
     for index, pays in runs:
         longest[index] = max(longest.get(index, 0), len(pays))
-    main = _regular(levels[dominant].cadence)
+    main = _regular(levels[dominant].paid_schedule)
 
     def slower(index: int) -> bool:
         if main is None:
