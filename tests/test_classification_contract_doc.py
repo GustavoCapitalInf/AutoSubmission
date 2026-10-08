@@ -1532,6 +1532,50 @@ def test_the_spec_and_the_contract_record_r3_b09_review_round_1():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B10: the code commit §20 and the contract name.
+R3_B10_CODE_COMMIT = "6123a5d"
+
+
+def test_the_spec_and_the_contract_record_r3_b10():
+    """Audit round 3, R3-B10 (R3-17, R3-37, R3-38, R3-39, R3-89, R3-90 part A): §5.2's receiver-block, dropped-lead
+    and R20 sentences, §8.1's strip, `holder_name` and direct-deposit sentences, §9.3's stored-output bullet, §17.1's
+    owner item, one §20 line per issue and the batch line with the commit, the amended R19, R20 and R23 lines, and the
+    contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "Audit round 3, R3-B10 (R3-17, §20): the holder's name is read as the payer's is",
+        "audit round 3, R3-B10 (R3-17, §20): a single letter is no word of that run",
+        "Audit round 3, R3-B10 (R3-38, §20; the R20 intent, now the rule)",
+        "Audit round 3, R3-B10 (R3-39, §20): a `DBA` holder's whole name is read as a person's",
+        "audit round 3, R3-B10: R3-37, §20: tried before the whole-word runs",
+        "audit round 3, R3-B10: R3-90 part A, §20: and a bare `SETTLEMENT`, `SETTLMT` or `STLMT`",
+        "audit round 3, R3-B10 (R3-89, §20): a cut form is read only as one of the holder's own forms",
+        "- **A person-named company holder's direct deposit (Q8 of 2026-09-28;",
+        "Audit round 3, R3-B10 (§20): no bump in a fix batch either",
+        "(Amended by audit round 3, R3-B10: R3-38, R3-39, §20 below:",
+        "amended by audit round 3, R3-B10: R3-37, §20 below:",
+        "(Amended by audit round 3, R3-B10: R3-89, §20 below:",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A possessive, a middle initial or a digit token in the holder's name never stops the",
+                  "- **The I47 strip tries a row-end cut first, and a leading `THE` is no word of a run**",
+                  "- **Two shared trade words name the holder only beside the payer's own printed lead**",
+                  "- **A `DBA` holder that leads with a person is read as that person against a person payer**",
+                  "- **The direct-deposit business receiver reads only the holder's own cut forms**",
+                  "- **A bare `SETTLEMENT` under the merchant's own name is no holder's own push**",
+                  "- **Audit round 3, R3-B10 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B10 (R3-") >= 6
+    assert amendments.count(R3_B10_CODE_COMMIT) >= 7
+    assert "PLACEHOLDER" not in amendments
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B10 (R3-17, R3-37, R3-38, R3-39, R3-89, R3-90 part A; {R3_B10_CODE_COMMIT})",
+                  "the holder test reads the holder's name as it reads the payer's"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
