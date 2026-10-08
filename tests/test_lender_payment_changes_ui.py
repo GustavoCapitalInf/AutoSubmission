@@ -212,6 +212,26 @@ def test_u11_u12_the_tones():
     assert texts[4][1] == chip_html("↓", "Decreased", "amber")
 
 
+# ------------------------------------------------------- audit round 3, R3-B04 (fabricated rows only): the lines
+@needs_node
+def test_r3_b04_the_lines_of_a_slower_triple_and_of_a_restoration_read_through_bounced_attempts():
+    # R3-70: daily 500 -> weekly 1,500 held 2 is § Still open 18's possible change, no longer a catch-up.
+    slower = pure.only(pure._rows(pure.bdays(M(2), M(20)), 500) + pure._rows([M(23), M(30)], 1500))
+    # R3-23: a cut and a restoration paid only on Wednesdays, the other days returned unpaid.
+    decrease, increase = pure.changes(
+        pure._rows(pure.bdays(M(2), M(27)), 850) + pure._rows(pure.bdays(M(30), A(10)), 340)
+        + pure._split(pure.bdays(A(13), Y(8)), 850, pure._wednesdays), end=Y(8))
+    texts = warning_texts([slower, decrease, increase])
+    assert texts[0] == [
+        "Possible payment decrease: KAPITUS daily $500.00 → weekly $1,500.00 (weekly equivalent $2,500.00 → "
+        "$1,500.00, -40%) from 2054-03-23; 2 payments at the new amount, after 15 at the old; new schedule not yet "
+        "confirmed.", chip_html("↓", "Possible decrease", "amber")]
+    assert texts[1][0] == ("Payment decreased: KAPITUS daily $850.00 → $340.00 (-60%) from 2054-03-30; 10 payments at "
+                           "the new amount, after 20 at the old; temporary: back to $850.00 from 2054-04-15.")
+    assert texts[2][0] == ("Payment increased: KAPITUS daily $340.00 → $850.00 (+150%) from 2054-04-15; 4 payments at "
+                           "the new amount, after 10 at the old; back to the earlier $850.00 payment.")
+
+
 # ------------------------------------------------------------------------------------- U5, U6, U7, U10: the table
 def _table(call):
     return run_dashboard(f"""

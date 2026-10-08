@@ -680,3 +680,214 @@ def test_r1_a_stream_whose_previous_cycle_falls_in_a_coverage_hole_is_not_new():
     for first, expected in ((A(10), []), (A(17), [("new_stream", "2054-04-17", 40)])):
         found = _chain((march, M(1), M(31)), (later + _rows(every(first, Y(29)), 1000), A(8), Y(29)))
         assert [(item["kind"], item["first_after_date"], item["change_percent"]) for item in found] == expected
+
+
+# --------------------------------------------- audit round 3, R3-B04: how a series is read (fabricated rows only)
+def _returned(days, amount, **kwargs):
+    """Debits of the series the bank returned unpaid: attempts (presence, never an amount or a payment)."""
+    return _rows(days, amount, returned_funder_payment_by="transaction:99", **kwargs)
+
+
+def _split(days, amount, paid):
+    """`days` at `amount`: the days `paid` keeps are paid, the others returned unpaid."""
+    return (_rows([day for day in days if paid(day)], amount)
+            + _returned([day for day in days if not paid(day)], amount))
+
+
+def _fridays(day):
+    return day.weekday() == 4
+
+
+def _wednesdays(day):
+    return day.weekday() == 2
+
+
+def _steps(found):
+    return [(item["kind"], item["cadence_before"], item["cadence_after"], item["change_percent"],
+             item["payments_before"], item["payments_after"], item["first_after_date"]) for item in found]
+
+
+# R3-23: a level's and a regime's schedule read the series' attempts at the same amount beside the paid dates, only
+# when that gives a regular schedule faster than the paid dates' own; attempts never set an amount or a payment count.
+def test_r3_23_a_cut_read_through_bounced_attempts():
+    # Daily 850, then daily 600 paid only on Fridays (the other days returned), then daily 300. The base read the 600
+    # level weekly from its paid Fridays: "daily -> weekly -86%", then "weekly -> daily +150%".
+    rows = (_rows(bdays(M(2), M(13)), 850) + _split(bdays(M(16), A(10)), 600, _fridays)
+            + _rows(bdays(A(13), A(24)), 300))
+    assert _steps(changes(rows, end=A(30))) == [
+        ("decrease", "daily", "daily", -29, 10, 4, "2054-03-20"),
+        # The 4 is the paid count: attempts never count as payments.
+        ("decrease", "daily", "daily", -50, 4, 10, "2054-04-13")]
+
+
+def test_r3_23_a_restoration_read_through_bounced_attempts():
+    # Daily 850, cut to daily 340, restored to daily 850 that is paid only on Wednesdays. The base read the restoration
+    # weekly: no "temporary" mark on the cut, and "daily -> weekly -50%" for the restoration.
+    rows = (_rows(bdays(M(2), M(27)), 850) + _rows(bdays(M(30), A(10)), 340)
+            + _split(bdays(A(13), Y(8)), 850, _wednesdays))
+    decrease, increase = changes(rows, end=Y(8))
+    assert (decrease["kind"], decrease["change_percent"], decrease["reverted"], decrease["reverted_date"]) == (
+        "decrease", -60, True, "2054-04-15")
+    assert _steps([increase]) == [("increase", "daily", "daily", 150, 10, 4, "2054-04-15")]
+    assert increase["back_to_earlier"] is True and increase["cadence_changed"] is False
+
+
+def test_r3_23_a_weekly_cut_whose_new_payments_mostly_bounce():
+    # Weekly 1,000, then weekly 700 of which 3 of 8 are paid (every third week): the base read the 700 level as
+    # irregular from its paid dates (21-day gaps) and reported nothing.
+    cut = every(A(6), Y(25))
+    paid = {cut[0], cut[3], cut[6]}
+    rows = _rows(every(M(2), A(1)), 1000) + _split(cut, 700, lambda day: day in paid)
+    assert _steps(changes(rows, end=Y(29))) == [("decrease", "weekly", "weekly", -30, 5, 3, "2054-04-06")]
+
+
+def _retried(mondays, amount, retried):
+    """Weekly Monday debits; on a `retried` Monday the debit is returned unpaid and re-presented (paid) that
+    Wednesday, two days later (a NACHA re-presentment inside one cycle)."""
+    rows = []
+    for monday in mondays:
+        if retried(monday):
+            rows += _returned([monday], amount) + _rows([monday + timedelta(days=2)], amount)
+        else:
+            rows += _rows([monday], amount)
+    return rows
+
+
+def test_r3_23_a_retry_never_makes_a_weekly_schedule_faster():
+    mondays = every(M(2), Y(25))
+    # (a) every other week re-presented; (b) every week re-presented.
+    alternate = _retried(mondays, 1000, lambda monday: mondays.index(monday) % 2 == 1)
+    assert changes(alternate, end=Y(29)) == []
+    assert changes(_retried(mondays, 1000, lambda monday: True), end=Y(29)) == []
+
+
+def test_r3_23_a_retry_inside_one_cycle_never_changes_the_compared_schedule():
+    # Every Monday re-presented on the Wednesday, then a cut to weekly 700 paid on Mondays: weekly -> weekly -30%.
+    rows = _retried(every(M(2), A(20)), 1000, lambda monday: True) + _rows(every(A(27), Y(25)), 700)
+    assert _steps(changes(rows, end=Y(29))) == [("decrease", "weekly", "weekly", -30, 8, 5, "2054-04-27")]
+    rows = (_retried(every(M(2), A(20)), 1000, lambda monday: monday.day % 2 == 0)
+            + _rows(every(A(27), Y(25)), 700))
+    assert [item["change_percent"] for item in changes(rows, end=Y(29))] == [-30]
+
+
+def test_r3_23_a_retry_inside_one_cycle_keeps_the_weekly_stop_window():
+    # The Mondays and the Wednesdays together read "daily_irregular" by their median gap (2 days), which is regular
+    # and faster than weekly; they keep no daily cycle (2 and 3 business days in turn), so the level stays weekly:
+    # 8 quiet business days after the last Wednesday are inside the weekly window (10), no daily stop (6).
+    mondays = every(M(2), A(20))
+    wednesdays = [monday + timedelta(days=2) for monday in mondays]
+    assert lpc.payment_cadence(mondays + wednesdays) == "daily_irregular"
+    assert lpc._beat_cadence("weekly", wednesdays, mondays, "US") == "weekly"
+    assert changes(_retried(mondays, 1000, lambda monday: True), end=Y(4)) == []
+    # A daily level paid only on Fridays, its other days returned, does keep the daily cycle.
+    days = bdays(M(16), A(10))
+    assert lpc._beat_cadence("weekly", [day for day in days if _fridays(day)],
+                             [day for day in days if not _fridays(day)], "US") == "daily"
+
+
+def test_r3_23_attempts_never_form_a_level_or_set_an_amount():
+    # Returned 600s alone between two paid levels: no level, no amount, no payment; L12's bounced tail unchanged.
+    rows = _rows(bdays(M(2), M(13)), 850) + _returned(bdays(M(16), M(20)), 600) + _rows(bdays(M(23), A(3)), 850)
+    assert [item["kind"] for item in changes(rows, end=A(3))] == []
+
+
+# R3-24: a level under 5% of the weekly weight of a schedule-confirmed level whose beat its dates keep is a fee level,
+# dropped before positions are formed; the per-position test stays after it.
+def test_r3_24_a_fee_level_across_two_steps_is_dropped():
+    rows = (_rows(bdays(M(2), M(31)), 1500) + _rows(bdays(A(1), Y(15)), 1300) + _rows(bdays(Y(18), J(30)), 1100)
+            + _rows([M(2), A(1), Y(1), J(1)], 45))
+    found = changes(rows, start=M(1), end=J(30))
+    assert _steps(found) == [("decrease", "daily", "daily", -13, 22, 33, "2054-04-01"),
+                             ("decrease", "daily", "daily", -15, 33, 30, "2054-05-18")]
+    assert {(item["position"], item["positions"]) for item in found} == {(1, 1)}
+
+
+def test_r3_24_a_fee_level_never_hides_a_new_stream():
+    rows = (_rows(every(F(2), Y(25)), 2000) + _rows([F(3), M(3), A(3)], 59) + _rows(every(M(23), Y(25)), 800))
+    item = only(rows, start=F(1), end=Y(29))
+    assert (item["kind"], item["position"], item["positions"], item["change_percent"]) == ("new_stream", 2, 2, 40)
+    assert item["alongside"] == [{"position": 1, "cadence": "weekly", "amount": 2000.0}]
+    assert (item["weekly_total_before"], item["weekly_total_after"]) == (2000.0, 2800.0)
+    assert (item["first_after_date"], item["payments_after"]) == ("2054-03-23", 10)
+
+
+def test_r3_24_a_daily_step_beside_a_monthly_fee():
+    rows = _rows(bdays(M(2), A(10)), 500) + _rows(bdays(A(13), Y(29)), 400) + _rows([M(2), A(1), Y(1)], 25)
+    item = only(rows, start=M(1), end=Y(29))
+    assert (item["kind"], item["change_percent"], item["position"], item["positions"]) == ("decrease", -20, 1, 1)
+
+
+def test_r3_24_a_token_payment_that_replaces_the_payment_is_never_a_fee():
+    # Guard 2: a hardship cut to a token payment keeps no date on the main level's beat, so it is kept (never a stop).
+    token = _rows(bdays(M(2), M(31)), 1000) + _rows(bdays(A(1), A(30)), 40)
+    item = only(token, end=A(30))
+    assert (item["kind"], item["change_percent"]) == ("decrease", -96)
+    decrease, increase = changes(token + _rows(bdays(Y(1), Y(29)), 1000), end=Y(29))
+    assert (decrease["kind"], decrease["change_percent"], decrease["reverted"], decrease["reverted_date"]) == (
+        "decrease", -96, True, "2054-05-01")
+    assert (increase["kind"], increase["change_percent"], increase["back_to_earlier"]) == ("increase", 2400, True)
+
+
+def test_r3_24_a_short_daily_level_never_drops_a_monthly_level():
+    # Guard 1's corpus shape: a monthly level beside a 2-payment daily level; no item, as on the base.
+    assert changes(_rows([M(2), A(1), Y(1), J(1)], 1500) + _rows([A(14), A(15)], 3000), start=M(1), end=J(30)) == []
+
+
+def _levels_of(*groups):
+    """The module's levels of fabricated (days, cents) groups, in US business days."""
+    pays = [lpc._Pay(day, cents, 0, number * 1000 + index, f"transaction:{number * 1000 + index}", None)
+            for number, (days, cents) in enumerate(groups) for index, day in enumerate(days)]
+    levels, _singles = lpc._levels(sorted(pays, key=lambda pay: pay.order), "US")
+    return levels
+
+
+def _kept_amounts(*groups):
+    return sorted(level.amount for level in lpc._fee_levels(_levels_of(*groups)))
+
+
+def test_r3_24_the_fee_test_reads_each_level():
+    # Two dates on a confirmed daily level's days: a fee level, dropped.
+    assert _kept_amounts((bdays(M(2), M(31)), 150000), ([M(2), M(16)], 4500)) == [150000]
+    # A level that keeps no date on a reference's beat is kept, whatever its size (guard 2).
+    assert _kept_amounts((bdays(M(2), M(13)), 150000), ([M(23), A(23)], 4500)) == [4500, 150000]
+    # One date on the beat is not enough; 2 of 4 is under BEAT_KEPT_PERCENT.
+    assert _kept_amounts((bdays(M(2), M(13)), 150000), ([M(2), A(1)], 4500)) == [4500, 150000]
+    assert _kept_amounts((bdays(M(2), M(13)), 150000), ([M(2), M(9), A(20), Y(20)], 4500)) == [4500, 150000]
+    # Guard 1: a reference confirms its schedule, 5 payments if daily, 3 otherwise.
+    assert _kept_amounts(([A(14), A(15)], 300000), ([A(14), A(15)], 5000)) == [5000, 300000]
+    assert _kept_amounts((bdays(A(13), A(17)), 300000), ([A(14), A(15)], 5000)) == [300000]
+    assert _kept_amounts(([M(2), M(9)], 300000), ([M(2), M(9)], 1000)) == [1000, 300000]
+    assert _kept_amounts(([M(2), M(9), M(16)], 300000), ([M(2), M(9)], 1000)) == [300000]
+    # 5% of the weekly weight is not under it (L10b's 6% stream stays a stream).
+    assert _kept_amounts((every(M(2), A(27)), 100000), (every(M(4), A(29)), 5000)) == [5000, 100000]
+    assert _kept_amounts((every(M(2), A(27)), 100000), (every(M(4), A(29)), 4999)) == [100000]
+    # An irregular level is compared on raw amounts with the reference.
+    assert _kept_amounts((bdays(M(2), M(31)), 100000), ([M(2), M(3), M(24)], 4999)) == [100000]
+    assert _kept_amounts((bdays(M(2), M(31)), 100000), ([M(2), M(3), M(24)], 5000)) == [5000, 100000]
+
+
+# R3-70: a 2x or 3x level stays a catch-up unless one of its 2-payment runs reads a SLOWER regular schedule than the
+# main level's; then it is § Still open 18's possible change.
+@pytest.mark.parametrize("rows,end,expected", [
+    (_rows(bdays(M(2), M(20)), 500) + _rows([M(23), M(30)], 1500), M(31),
+     ("decrease", "daily", "weekly", -40, 15, 2, "2054-03-23")),
+    (_rows(bdays(M(2), M(20)), 500) + _rows([M(23), M(30)], 1000), M(31),
+     ("decrease", "daily", "weekly", -60, 15, 2, "2054-03-23")),
+    (_rows(every(M(2), A(20)), 1000) + _rows([A(27), Y(11)], 3000), Y(15),
+     ("increase", "weekly", "biweekly", 50, 8, 2, "2054-04-27")),
+    (_rows(every(M(2), A(20)), 1000) + _rows([A(27), Y(27)], 3000), Y(29),
+     ("decrease", "weekly", "monthly", -31, 8, 2, "2054-04-27")),
+])
+def test_r3_70_a_new_schedule_at_two_or_three_times_held_two_is_a_possible_change(rows, end, expected):
+    item = only(rows, end=end)
+    assert _steps([item]) == [expected]
+    assert (item["schedule_confirmed"], item["cadence_changed"]) == (False, True)
+
+
+def test_r3_70_controls():
+    # L6: a 2x double between daily payments; a 2x held 2 on the same schedule (§ Still open 22's disclosed case).
+    assert changes(_rows(bdays(M(2), M(6)), 500) + _rows([M(11), M(12)], 1000) + _rows(bdays(M(13), M(31)), 500)) == []
+    assert changes(_rows(bdays(M(2), M(20)), 500) + _rows([M(23), M(24)], 1000)) == []
+    # A 3x run of 3 is no catch-up already: the confirmed -40%.
+    item = only(_rows(bdays(M(2), M(20)), 500) + _rows([M(23), M(30), A(6)], 1500), end=A(10))
+    assert (item["kind"], item["change_percent"], item["schedule_confirmed"]) == ("decrease", -40, True)

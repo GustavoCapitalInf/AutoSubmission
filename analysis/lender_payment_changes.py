@@ -15,17 +15,20 @@ The model (the brief's parts A and B):
 * A **series** is one lender's paid debits: a confirmed funder's (`canonical_entity`) or a potential lender's payee
   (`potential_payee_key`, the classifier's amount-free payee digest). Its **payments** are posted debits with the paid
   flag and no duplicate, reversal or returned-unpaid mark; its **attempts** (a bounced or reversed debit of the series)
-  are presence, never an amount.
+  are presence, never an amount or a payment; since audit round 3 (R3-23) an attempt at a level's amount also keeps
+  its schedule, when that reads a faster regular schedule than the payments alone.
 * Payments of one amount (equal cents, near-equal amounts within LEVEL_MERGE_PERCENT merged) seen twice or more form a
-  **level**, with a cadence (`payment_cadence`); a payment seen once is a **one-off**. Levels that run at the same time
-  with both beats kept are separate **positions** (two streams with one funder); a position far smaller than the
-  series' largest on the weekly total is a **fee stream** and is dropped.
+  **level**, with a cadence (`payment_cadence`); a payment seen once is a **one-off**. A level far smaller than a
+  heavier, schedule-confirmed level whose beat it keeps is a **fee level** and is dropped (R3-24). Levels that run at
+  the same time with both beats kept are separate **positions** (two streams with one funder); a position far smaller
+  than the series' largest on the weekly total is a **fee stream** and is dropped.
 * Inside a position the payments form **regimes** (runs of one regular level held for 2 or more payments, catch-up
-  multiples and one-offs set aside, a short regime at another schedule dropped). Each regime is compared with the last
-  REPORTED level of its position (the orchestrator's choice of 2026-10-06, the brief's § Still open 23): a decrease or
-  an increase of 10% or more, compared on the weekly equivalent when the schedule differs, or a schedule change. A
-  change at a new schedule held 2 payments but not yet the 3 (5 if daily) that confirm the schedule is a "possible"
-  change, "new schedule not yet confirmed" (the orchestrator's choice of 2026-10-06, § Still open 18).
+  multiples on the schedule or faster (R3-70) and one-offs set aside, a short regime at another schedule dropped).
+  Each regime is compared with the last REPORTED level of its position (the orchestrator's choice of 2026-10-06, the
+  brief's § Still open 23): a decrease or an increase of 10% or more, compared on the weekly equivalent when the
+  schedule differs, or a schedule change. A change at a new schedule held 2 payments but not yet the 3 (5 if daily)
+  that confirm the schedule is a "possible" change, "new schedule not yet confirmed" (the orchestrator's choice of
+  2026-10-06, § Still open 18).
 * A **pause** is a gap inside one regime longer than the schedule's grace window; a **new stream** is a second position
   that starts while another keeps paying and raises the funder's weekly total by 10% or more; a **stop** is a position
   of 3 or more payments followed by no presence (a payment, a payment-sized debit or a bounced attempt) for longer than
@@ -438,10 +441,49 @@ class _Level:
         return sorted({pay.day for pay in self.pays})
 
 
-def _levels(payments: list[_Pay], calendar: str) -> tuple[list[_Level], list[_Pay]]:
+def _near(cents: int, amount: int) -> bool:
+    """`cents` is within LEVEL_MERGE_PERCENT of `amount` (A4's merge test)."""
+    return 100 * abs(cents - amount) <= LEVEL_MERGE_PERCENT * amount
+
+
+def _keeps_cycle(days: list[date], cadence: str, calendar: str) -> bool:
+    """At least BEAT_KEPT_PERCENT of the gaps between the distinct `days` are one cycle of `cadence`: a daily
+    schedule's 1 business day (2 when daily irregular), else the cycle's calendar days within BEAT_TOLERANCE_DAYS."""
+    ordered = sorted(set(days))
+    pairs = list(zip(ordered, ordered[1:]))
+    tolerance = BEAT_TOLERANCE_DAYS.get(cadence, BEAT_TOLERANCE_OTHER_DAYS)
+    if _regular(cadence) == "daily":
+        kept = sum(1 for earlier, later in pairs if business_days_between(earlier, later, calendar) <= 1 + tolerance)
+    else:
+        cycle = _cycle_days(cadence)
+        kept = sum(1 for earlier, later in pairs if abs((later - earlier).days - cycle) <= tolerance)
+    return bool(pairs) and 100 * kept >= BEAT_KEPT_PERCENT * len(pairs)
+
+
+def _beat_cadence(paid_cadence: str, paid_dates: Iterable[date], attempt_dates: Iterable[date], calendar: str) -> str:
+    """Audit round 3, R3-23: the schedule of a level (or a regime) read through its bounced attempts. The attempts at
+    its amount are dated beside its payments; their dates together give the schedule only when it is regular and
+    strictly faster than the payments' own (a daily level whose debits mostly bounce reads daily, not weekly, and a
+    weekly one whose every other debit bounces reads weekly, not biweekly). A retry inside one cycle never makes the
+    schedule faster (NACHA lets a returned debit be re-presented): the dates together must also keep the faster
+    schedule's cycle (`_keeps_cycle`), which a Monday debit re-presented on the Wednesday of each week does not.
+    Attempts never set an amount and never count as payments."""
+    attempts = list(attempt_dates)
+    if not attempts:
+        return paid_cadence
+    dates = [*paid_dates, *attempts]
+    candidate = payment_cadence(dates, calendar)
+    faster = _regular(candidate) is not None and (
+        _regular(paid_cadence) is None or _cycle_days(candidate) < _cycle_days(paid_cadence))
+    return candidate if faster and _keeps_cycle(dates, candidate, calendar) else paid_cadence
+
+
+def _levels(payments: list[_Pay], calendar: str, attempts: Sequence[_Pay] = ()) -> tuple[list[_Level], list[_Pay]]:
     """A4: payments grouped by exact cents; amounts visited by (-count, amount), each joining the first cluster whose
     representative (its first, most frequent amount) is within LEVEL_MERGE_PERCENT. A cluster of 2 or more payments is
-    a level; one payment is a one-off. Levels come in (first date, -payments) order."""
+    a level; one payment is a one-off. Levels come in (first date, -payments) order. A level's cadence reads the
+    series' attempts within LEVEL_MERGE_PERCENT of its representative, at any date, beside its payments when that gives
+    a faster regular schedule (`_beat_cadence`; audit round 3, R3-23); attempts never form or join a level."""
     by_cents: dict[int, list[_Pay]] = {}
     for pay in payments:
         by_cents.setdefault(pay.cents, []).append(pay)
@@ -458,7 +500,10 @@ def _levels(payments: list[_Pay], calendar: str) -> tuple[list[_Level], list[_Pa
     for cluster in clusters:
         pays = sorted((pay for cents in cluster for pay in by_cents[cents]), key=lambda pay: pay.order)
         if len(pays) >= 2:
-            levels.append(_Level(cluster[0], pays, payment_cadence((pay.day for pay in pays), calendar)))
+            days = [pay.day for pay in pays]
+            cadence = _beat_cadence(payment_cadence(days, calendar), days,
+                                    [pay.day for pay in attempts if _near(pay.cents, cluster[0])], calendar)
+            levels.append(_Level(cluster[0], pays, cadence))
         else:
             singles.extend(pays)
     levels.sort(key=lambda level: (level.first, -level.n))
@@ -526,10 +571,54 @@ def _positions(levels: list[_Level]) -> list[_Position]:
     return positions
 
 
+def _confirms_schedule(level: _Level) -> bool:
+    """A level whose regular schedule its payments confirm: CADENCE_CHANGE_MIN_PAYMENTS, CADENCE_CHANGE_MIN_DAILY if
+    daily (a short, high-frequency level is never a fee test's reference)."""
+    regular = _regular(level.cadence)
+    needed = CADENCE_CHANGE_MIN_DAILY if regular == "daily" else CADENCE_CHANGE_MIN_PAYMENTS
+    return regular is not None and level.n >= needed
+
+
+def _outweighs(reference: _Level, level: _Level) -> bool:
+    """`level` is under FEE_STREAM_PERCENT of `reference`: on the weekly equivalents when both are regular, else on the
+    raw amounts (A7's fallback)."""
+    weekly, reference_weekly = _weekly(level.amount, level.cadence), _weekly(reference.amount, reference.cadence)
+    if weekly is not None and reference_weekly is not None:
+        return 100 * weekly < FEE_STREAM_PERCENT * reference_weekly
+    return 100 * level.amount < FEE_STREAM_PERCENT * reference.amount
+
+
+def _fee_levels(levels: list[_Level]) -> list[_Level]:
+    """Audit round 3, R3-24 (§17.1 (8), amending R2-OW18's A7, which tested positions only): §17.1 (8)'s 5% test per
+    LEVEL, before positions are formed. A level is a fee level, dropped, when the levels that outweigh it
+    (`_outweighs`) and confirm their schedule (`_confirms_schedule`; never itself) have a payment within their beat
+    tolerance (BEAT_TOLERANCE_DAYS, BEAT_TOLERANCE_OTHER_DAYS otherwise) of at least 2 of its distinct dates and at
+    least BEAT_KEPT_PERCENT of them: it runs ALONGSIDE a heavier, schedule-confirmed level and keeps its beat. A token
+    payment that REPLACES the main level keeps no date on its beat, so it is kept (a change, never a stop). A fee level
+    becomes neither a position nor a one-off, as a dropped fee position; the others keep their order. The per-position
+    test (`_paying_positions`) still runs after it."""
+    references = [level for level in levels if _confirms_schedule(level)]
+
+    def fee(level: _Level) -> bool:
+        heavier = [reference for reference in references if reference is not level and _outweighs(reference, level)]
+        if not heavier:
+            return False
+        dates = level.dates
+        kept = sum(1 for day in dates if any(
+            any(abs((pay.day - day).days) <= BEAT_TOLERANCE_DAYS.get(reference.cadence, BEAT_TOLERANCE_OTHER_DAYS)
+                for pay in reference.pays)
+            for reference in heavier))
+        return kept >= 2 and 100 * kept >= BEAT_KEPT_PERCENT * len(dates)
+
+    return [level for level in levels if not fee(level)]
+
+
 def _paying_positions(positions: list[_Position]) -> list[_Position]:
     """A7's fee test: a position whose weight (its largest regular weekly equivalent) is under FEE_STREAM_PERCENT of
     the series' largest weight is dropped; a position with no regular level compares its largest raw level amount
-    with the series' largest raw level amount. The others are numbered 1..n by first payment date."""
+    with the series' largest raw level amount. The others are numbered 1..n by first payment date. Since audit round
+    3, R3-24, a fee level that runs alongside a heavier level is dropped before positions are formed (`_fee_levels`);
+    this test still drops a whole fee position."""
     weights = [weight for position in positions if (weight := position.weight()) is not None]
     largest_weight = max(weights) if weights else None
     largest_raw = max(level.amount for position in positions for level in position.levels)
@@ -571,11 +660,15 @@ class _Regime:
         return (self.last - self.first).days
 
 
-def _regimes(position: _Position, calendar: str) -> list[_Regime]:
+def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) -> list[_Regime]:
     """A8: the position's payments in date order (ties by level) compressed into runs of one level; a run of an
     irregular or single level, of under MIN_PAYMENTS_HELD payments, or of a catch-up multiple is noise, which neither
     forms nor breaks a regime; consecutive non-noise runs of one level merge. A regime's cadence is its own when
-    regular, else its level's."""
+    regular, else its level's; since audit round 3, R3-23, the own cadence reads the series' attempts within
+    LEVEL_MERGE_PERCENT of the regime's amount dated inside its span beside its payments (`_beat_cadence`). Since audit
+    round 3, R3-70, a 2x or 3x level is no catch-up when one of its runs of MIN_PAYMENTS_HELD or more payments reads a
+    regular schedule slower than the dominant level's (a catch-up pulls debits together on the schedule or faster):
+    it is then § Still open 18's change at a new schedule."""
     levels = position.levels
     tagged = sorted(((pay, index) for index, level in enumerate(levels) for pay in level.pays),
                     key=lambda item: (item[0].day, item[1], item[0].order))
@@ -589,11 +682,25 @@ def _regimes(position: _Position, calendar: str) -> list[_Regime]:
     longest: dict[int, int] = {}
     for index, pays in runs:
         longest[index] = max(longest.get(index, 0), len(pays))
+    main = _regular(levels[dominant].cadence)
+
+    def slower(index: int) -> bool:
+        if main is None:
+            return False
+        for run_index, pays in runs:
+            if run_index != index or len(pays) < MIN_PAYMENTS_HELD:
+                continue
+            own = _regular(payment_cadence((pay.day for pay in pays), calendar))
+            if own is not None and _cycle_days(own) > _cycle_days(main):
+                return True
+        return False
+
     catch_up = {
         index for index, level in enumerate(levels)
         if index != dominant and longest.get(index, 0) <= CATCH_UP_MAX_RUN
         and any(100 * abs(level.amount - multiple * levels[dominant].amount) <= CATCH_UP_TOLERANCE_PERCENT * level.amount
                 for multiple in CATCH_UP_MULTIPLES)
+        and not slower(index)
     }
     regimes: list[_Regime] = []
     for index, pays in runs:
@@ -605,7 +712,12 @@ def _regimes(position: _Position, calendar: str) -> list[_Regime]:
         else:
             regimes.append(_Regime(index, levels[index].amount, cadence, list(pays)))
     for regime in regimes:
-        own = _regular(payment_cadence((pay.day for pay in regime.pays), calendar))
+        days = [pay.day for pay in regime.pays]
+        own = _regular(payment_cadence(days, calendar))
+        extra = [pay.day for pay in attempts
+                 if _near(pay.cents, regime.amount) and regime.first <= pay.day <= regime.last]
+        if extra:
+            own = _regular(_beat_cadence(own or regime.cadence, days, extra, calendar))
         if own is not None:
             regime.cadence = own
     return regimes
@@ -876,7 +988,7 @@ def _transitions(reading: _Reading, position: _Position, positions: int, scope: 
     confirmed change reports (§ Still open 23's alternative: steps under 10% add up against it); a regime at the
     reference's level takes its place. The regimes A8 dropped are read afterwards, each against the reference in force
     after the kept regime before it, and give at most a possible change (§ Still open 18's alternative)."""
-    regimes = _regimes(position, scope.chain.calendar)
+    regimes = _regimes(position, scope.chain.calendar, reading.series.attempts)
     kept, dropped = _drop_short(regimes)
     if not kept:
         return []
@@ -928,7 +1040,7 @@ def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scop
     bounced or reversed debit of the series) or 'other_amount' (a payment of the series at another amount), and
     `resumed_date`, the regime's next payment."""
     items: list[dict] = []
-    kept, _dropped = _drop_short(_regimes(position, scope.chain.calendar))
+    kept, _dropped = _drop_short(_regimes(position, scope.chain.calendar, reading.series.attempts))
     for regime in kept:
         grace = _grace(regime.cadence)
         if grace is None or _under_floor(reading, regime.amount * WEEKLY_EQUIVALENT[regime.cadence]):
@@ -1110,7 +1222,11 @@ def _new_streams(reading: _Reading, positions: list[_Position], scope: _Scope) -
 
 
 def _read_series(series: _Series, calendar: str) -> _Reading:
-    levels, singles = _levels(series.payments, calendar)
+    """A4 to A7: the series' levels (their cadence read through its attempts, R3-23), its fee levels dropped (R3-24),
+    then its positions and the per-position fee test."""
+    levels, singles = _levels(series.payments, calendar, series.attempts)
+    if levels:
+        levels = _fee_levels(levels)
     positions = _paying_positions(_positions(levels)) if levels else []
     return _Reading(series, singles, positions)
 
