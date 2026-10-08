@@ -69,7 +69,7 @@ def test_r3_92_debits_keep_today_s_text_by_default():
     # The owner's G7 admission is pending (§17.1): if admitted, flip these to credit_card_payment (credit_cards,
     # flagged) and pos.
     card, pos = _records([
-        ("CCD DEBIT AMEX EPAYMENT ACH PMT " + TD_PANEL, -95.0),
+        ("CCD DEBIT AMEX EPAYMENT ACH PMT " + TD_PANEL, -120.0),
         ("POS PURCHASE CONTOSO MARKET " + CITIZENS_HEADER, -38.0),
     ], "TD Bank")
     assert (card.classification, card.flagged_group) == ("fee", None)

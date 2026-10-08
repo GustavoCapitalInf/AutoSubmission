@@ -1410,6 +1410,51 @@ def test_the_spec_and_the_contract_record_r3_b07():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B08: the code commit §20 and the contract name.
+R3_B08_CODE_COMMIT = "3c62215"
+
+
+def test_the_spec_and_the_contract_record_r3_b08():
+    """Audit round 3, R3-B08 (R3-41, R3-88, R3-44, R3-31, R3-32, R3-92): §5.2's template-prefix and numbered-company
+    sentences, §7.0's furniture sentence, §8.2's and §8.6's own-bank sentences, §9.3's stored-output bullet, §17.1's
+    debit-readings sentence with the owner's question, one §20 line per issue and the batch line with the commit, the
+    amended R31, R28, R33, R08 and R2-B03 lines, and the contract's bullet and registry sentence."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "audit round 3, R3-B08: R3-41, §20: or when the full template follows it",
+        "Audit round 3, R3-B08 (R3-88, §20): BMO's two-word CPA code pairs",
+        "Audit round 3, R3-B08 (R3-92, §20): the category rules read a credit without its furniture too",
+        "Audit round 3, R3-B08 (R3-31, R3-32, §20): the own bank is read first, as a whole region",
+        "Audit round 3, R3-B08 (R3-31, R3-32, §20): the statement's own bank is read first, as a whole region",
+        "Audit round 3, R3-B08 (§20): no bump in a fix batch either",
+        "Audit round 3, R3-B08 (R3-92, §7.0, §20; the owner's question, its default shipped)",
+        "Default if unanswered: (b), shipped.",
+        "(Corrected by audit round 3, R3-B08: R3-41, §20 below",
+        "(Closed by audit round 3, R3-B08: R3-88, §20 below",
+        "audit round 3, R3-B08: R3-88, §20 below: and BMO's two-word code pairs",
+        "audit round 3, R3-B08: R3-44, §20 below: a lost accent inside `CHEQUE`",
+        "audit round 3, R3-B08: R3-31, R3-32, §20 below: the own bank is read first",
+        "audit round 3, R3-B08: R3-31, §20 below: nor the own bank's name alone",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **American Express's full incoming-ACH template keeps its ACH reading whatever its originator's",
+                  "- **A town's `DES` never opens the originator field, and BMO's code pairs keep a numbered company's",
+                  "- **A lost French accent inside `CHEQUE` or after `RETOURN`, and four more French interest wordings",
+                  "- **The statement's own bank is read first, as a whole region, by its full name and its printed",
+                  "- **A credit's statement furniture never decides its category**",
+                  "- **Audit round 3, R3-B08 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B08 (R3-") >= 5
+    assert amendments.count(R3_B08_CODE_COMMIT) >= 6
+    assert "PLACEHOLDER" not in amendments
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B08 (R3-41, R3-88, R3-44, R3-31, R3-32, R3-92; {R3_B08_CODE_COMMIT})",
+                  "the own bank's sending spellings (`OWN_BANK_SENDING_SPELLINGS`)"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
