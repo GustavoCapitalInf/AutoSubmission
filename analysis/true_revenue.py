@@ -739,9 +739,11 @@ _BANK_OR_TITLE_SENDER = re.compile(
     r"\b(?:BANK|BANKING|BANCO|BANCA|BANQUE|BANCAIRE|SPARKASSE|BANCORP|N A|TRUST COMPANY|CREDIT UNION|FCU|SAVINGS"
     r"|TITLE|ESCROW|CLOSING|SETTLEMENT)\b"
 )
-#: §8.6: the verification-only words: sales wording often enough to count, never proof.
+#: §8.6: the verification-only words: sales wording often enough to count, never proof. Audit round 3, R3-B10 review
+#: round 1: SETTLEMENT's short spellings SETTLMT and STLMT too, the three _HOLDER_NAMED_SETTLEMENT_ENTRY reads, so a
+#: settlement the holder hold no longer reads is counted and never verified in each spelling, as a third party's is.
 _VERIFICATION_ONLY = re.compile(
-    r"(?<![A-Z])(?:SETTLEMENT\b|TAXES\b|FEES\b|SUBSCRIPTIONS?\b|DISCOUNT\w*|COMM?ISS?IONS?\b"
+    r"(?<![A-Z])(?:SETTLEMENT\b|SETTLMT\b|STLMT\b|TAXES\b|FEES\b|SUBSCRIPTIONS?\b|DISCOUNT\w*|COMM?ISS?IONS?\b"
     r"|COMPENSATION\b|EXPENSES?\b|AFFILIATE\b|PERSONAL\b|CLOSING\b|SUPPLY CHAIN\b"
     r"|EARLY PAY(?:MENT)?\b|ALLOWANCES?\b|SHORTAGES?\b)"
     r"|\b(?:TAX|IRS|CRA|FEE|SCF|RMA)\b"
@@ -3408,9 +3410,9 @@ _MERCHANT_SETTLEMENT_ENTRY = re.compile(
     r"|MERCH|MERCHANT|MERCHPAYO\w*|MRCHNTSRVS)(?:SEC)?(?![A-Z])"
 )
 #: §8.1 (audit round 3, R3-B10: R3-90 part A; standard A1, A2): a bare settlement word under the merchant's own name, a
-#: processor's, a carrier's or an operating settlement (a bare SETTLEMENT stays counted, never verified: §8.6's
-#: _VERIFICATION_ONLY), read by merchant_settlement beside _MERCHANT_SETTLEMENT_ENTRY on a row that is no transfer and
-#: no person-to-person row.
+#: processor's, a carrier's or an operating settlement (each spelling stays counted, never verified: §8.6's
+#: _VERIFICATION_ONLY reads all three since R3-B10 review round 1), read by merchant_settlement beside
+#: _MERCHANT_SETTLEMENT_ENTRY on a row that is no transfer and no person-to-person row.
 _HOLDER_NAMED_SETTLEMENT_ENTRY = re.compile(r"(?<![A-Z])(?:SETTLEMENT|SETTLMT|STLMT)(?![A-Z])")
 #: §8.1 (audit B9: I13): Capital One's incoming ACH row, which prints the receiver (the holder) with no label after the
 #: originator, its entry and a digit run.
