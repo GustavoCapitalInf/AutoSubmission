@@ -1704,6 +1704,64 @@ def test_r3_b11_the_code_s_docstrings_label_the_misses_and_name_the_contact_titl
     assert "the account's title in any spacing" in block
 
 
+#: Audit round 3, R3-B11, review round 1: the code commit §20 and the contract name.
+R3_B11_R1_CODE_COMMIT = "186c714"
+
+
+def test_the_spec_and_the_contract_record_r3_b11_review_round_1():
+    """Audit round 3, R3-B11, review round 1 (findings 1 to 4): §5.2's contact sentence, §8.10's contact designation,
+    for-benefit adjective, false negative and over-read, §9.1's published title, §9.3's stored-output sentence, §17.1's
+    premium-trust default (6), the R3-61 and R3-65 lines marked in place, the §20 line with the commit and its
+    measurement, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "(amended by R3-B11 review round 1, finding 1, §20 below: `CARE OF` only where the name has ended, right after "
+        "its legal form or the designation printed right after it, so a `DBA` trade name keeps its `CARE OF`)",
+        "R3-B11 review round 1, finding 2, §20: the designation is the premium-trust rule's own title at a field's end",
+        "Its review round 1 (§20) changes, for the same move:",
+        "(Amended by R3-B11 review round 1, finding 2, §20 below: the premium-trust designation a contact must be "
+        "is the title rule's own title at a field's end",
+    ):
+        assert words in flat, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    for words in ("(Amended by R3-B11 review round 1, findings 1 and 2, §20 below: the designation a contact's words",
+                  "R3-B11 review round 1, finding 3, §20: a product adjective may print before the account word",
+                  "a holder line's contact that prints a name before the words (`CARE OF NORTHWIND PREMIUM TRUST "
+                  "ACCOUNT`)",
+                  "`PREMIUM TRUST BUSINESS ACCOUNT OF <place> LLC`, R3-B11 review round 1, finding 3"):
+        assert words in tiering, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert amendments.count("(Amended by R3-B11 review round 1, findings 1 and 2, §20 below:") == 1
+    assert amendments.count("(Amended by R3-B11 review round 1, finding 3, §20 below:") == 1
+    for words in ("- **R3-B11 review round 1: `CARE OF` is a contact only where the name has ended",
+                  "audit round 3, R3-B11, review round 1 (findings 1 to 4)", R3_B11_R1_CODE_COMMIT,
+                  "Measured against `c8132a0`'s tree"):
+        assert words in amendments, words
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT", "R3B11R1" + "COMMIT"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B11, review round 1 ({R3_B11_R1_CODE_COMMIT})",
+                  "`CARE OF` is a contact only where the holder's name has ended",
+                  "(Review round 1 reads `CARE OF` only where the name has ended and reads the contact's designation "
+                  "as the title rule does: see the next entry.)"):
+        assert words in contract, words
+
+
+def test_r3_b11_r1_the_code_s_docstrings_name_the_narrowed_care_of_and_the_rule_s_designation():
+    """Audit round 3, R3-B11, review round 1 (findings 1, 2 and 4): the holder module names CARE OF where the name has
+    ended and the rule's own designation; U.S. Bank's reader names the contact title it publishes."""
+    from analysis import holder_name, us_bank
+
+    module = re.sub(r"\s+", " ", holder_name.__doc__)
+    assert "`CARE OF` is a contact only where the name has ended" in module
+    split = re.sub(r"\s+", " ", holder_name._contact_split.__doc__)
+    assert ("only where the name has ended, right after its legal form or the designation printed right after it"
+            in split)
+    reader = re.sub(r"\s+", " ", us_bank._holder_reading.__doc__)
+    assert "never the contact, except a contact whose words are the premium-trust designation itself" in reader
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
