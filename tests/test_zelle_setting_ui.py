@@ -1,8 +1,9 @@
 """The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §10; R2-OW17): the Settings page's "Mark
 Zelle Payments as True Revenue" (two labelled checkboxes driven as a radio pair, Yes by default) and the dashboard's
-Zelle copy in both readings: the True card's fact, the memo, the Monthly Statements cell, the Non-Revenue note and the
-ledger's Zelle chip. The whole webapp/static/app.js runs in node on the fake page (tests/webapp_js_harness.py); elements
-are reached by id. Fabricated statements only (tests/zelle_setting_fixtures.py)."""
+Zelle copy in both readings: the True card's fact, the memo, the Non-Revenue note and the ledger's Zelle chip (the
+Monthly Statements cell carried a Zelle line until the owner's follow-up of 2026-10-07 took it out; its pins now say
+no row carries one). The whole webapp/static/app.js runs in node on the fake page (tests/webapp_js_harness.py);
+elements are reached by id. Fabricated statements only (tests/zelle_setting_fixtures.py)."""
 from __future__ import annotations
 
 import copy
@@ -305,11 +306,12 @@ def test_the_package_copy_and_the_monthly_cells_in_both_readings(tmp_path, monke
     _package_, yes = _package_copy(analyses, tmp_path, monkeypatch, True)
     assert yes["true"] == TRUE_NOTE + "Zelle deposits in True revenue: $2,734.56 (2) · held for review: $6,500.00 (3)"
     assert yes["non_revenue"] == "Own-account transfers, funding, refunds and other known non-revenue"
-    assert yes["details"] == [["Zelle in True 1,235 · held 6,500"], ["Zelle in True 1,500"]]
+    # The owner's follow-up of 2026-10-07: no Monthly Statements row carries a Zelle line, under either choice.
+    assert yes["details"] == [[], []]
     _package_, no = _package_copy(analyses, tmp_path, monkeypatch, False)
     assert no["true"] == TRUE_NOTE + "Zelle deposits excluded: $9,234.56 (5)"
     assert no["non_revenue"] == NON_REVENUE
-    assert no["details"] == [["Zelle excluded 7,735"], ["Zelle excluded 1,500"]]
+    assert no["details"] == [[], []]
     assert ", of which Zelle deposits excluded $9,234.56." in no["memo"]
     assert "; Zelle deposits counted as True revenue $2,734.56, held for review $6,500.00." in yes["memo"]
 
@@ -319,7 +321,7 @@ def test_the_package_names_a_confirmed_zelle_deposit_in_no(tmp_path, monkeypatch
     analyses = {"mar": _decided(("transaction:2", "confirm", True))}
     _package_, no = _package_copy(analyses, tmp_path, monkeypatch, False)
     assert no["true"] == TRUE_NOTE + "Zelle deposits excluded: $6,500.00 (3) · counted after review: $1,234.56 (1)"
-    assert no["details"] == [["Zelle excluded 6,500 · counted after review 1,235"]]
+    assert no["details"] == [[]]  # the owner's follow-up of 2026-10-07: no Zelle line in the Monthly Statements
 
 
 @needs_node
@@ -340,5 +342,6 @@ def test_a_mixed_currency_package_prints_the_counts_only(tmp_path, monkeypatch):
     # The refusal replaces the card's notes; the facts themselves print the counts only.
     facts = run_dashboard(f"console.log(JSON.stringify(packageRevenueFacts({json.dumps(package['totals'])}, null)));")
     assert "Zelle deposits in True revenue: 2 · held for review: 3" in facts
-    # Audit round 2, R2-B16 (R51): in a refused package every declared row names its unit, USD included.
-    assert yes["details"] == [["Zelle in True 1,235 USD · held 6,500 USD"], ["Zelle in True 1,500 CAD"]]
+    # The owner's follow-up of 2026-10-07: no Monthly Statements row carries a Zelle line (R2-B16's units stay on the
+    # rows' own cells).
+    assert yes["details"] == [[], []]
