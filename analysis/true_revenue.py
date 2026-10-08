@@ -56,8 +56,16 @@ from .dates import parse_date
 from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
 from .flag_groups import FINANCING_STATES
 # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the premium-trust words and the legal forms the holder
-# readers read (holder_name imports nothing of the analysis package, so this import is never circular).
-from .holder_name import LEGAL_FORMS as _HOLDER_LEGAL_FORMS, PREMIUM_TRUST_WORDS
+# readers read (holder_name imports nothing of the analysis package, so this import is never circular). Audit round 3,
+# R3-B11 review round 1 (finding 2): the title grammar's adjective, kind words and reference live there too, so a
+# holder line's contact designation reads exactly the title the rule reads.
+from .holder_name import (
+    LEGAL_FORMS as _HOLDER_LEGAL_FORMS,
+    PREMIUM_TRUST_ADJECTIVE as _PREMIUM_TRUST_ADJECTIVE,
+    PREMIUM_TRUST_KIND as _PREMIUM_TRUST_KIND,
+    PREMIUM_TRUST_REFERENCE as _PREMIUM_TRUST_REFERENCE,
+    PREMIUM_TRUST_WORDS,
+)
 from .payee_matcher import PayeeMatch, match_known_payee, registry_match
 from .revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
 
@@ -6112,25 +6120,18 @@ def _held_by_the_floor(record: TransactionClassification) -> TransactionClassifi
 PREMIUM_TRUST_REASON = "premium_trust_account"
 PREMIUM_TRUST_METHOD = "premium_trust_account"
 _PREMIUM_TRUST_RULE = "premium_trust_account_title"
-#: R2-OW11: the kind words a title may print after the premium-trust words (an account, a fund, a product), and the
-#: account and product words alone (no FUND or FUNDS), which the separator form needs. Audit round 3, R3-B11 (R3-65):
-#: a product adjective may print before a kind word ('PREMIUM TRUST BUSINESS CHECKING'); an adjective alone is never
-#: a kind word ('PREMIUM TRUST BUSINESS' is no title).
-_PREMIUM_TRUST_ADJECTIVE = r"(?:(?:BUSINESS|ANALYZED|COMMERCIAL)\s+)?"
-_PREMIUM_TRUST_KIND = (
-    rf"{_PREMIUM_TRUST_ADJECTIVE}"
-    r"(?:ACCOUNT|ACCT|ACCNT|A/C|FUNDS?|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
-)
+#: R2-OW11: the kind words a title may print after the premium-trust words (an account, a fund, a product:
+#: holder_name.PREMIUM_TRUST_KIND, imported above as _PREMIUM_TRUST_KIND), and the account and product words alone (no
+#: FUND or FUNDS), which the separator form needs. Audit round 3, R3-B11 (R3-65): a product adjective may print before
+#: a kind word ('PREMIUM TRUST BUSINESS CHECKING'; holder_name.PREMIUM_TRUST_ADJECTIVE); an adjective alone is never a
+#: kind word ('PREMIUM TRUST BUSINESS' is no title). The reference a title may print is
+#: holder_name.PREMIUM_TRUST_REFERENCE (imported as _PREMIUM_TRUST_REFERENCE): an account number, masked or not, after
+#: #, NO, NUMBER, ACCOUNT, ACCT or A/C, in or out of parentheses; a roman numeral; or a parenthesised code of up to four
+#: letters or digits. Since R3-B11 review round 1 (finding 2) the three live in holder_name, so a holder line's contact
+#: designation reads the same title.
 _PREMIUM_TRUST_ACCOUNT_KIND = (
     rf"{_PREMIUM_TRUST_ADJECTIVE}"
     r"(?:ACCOUNT|ACCT|ACCNT|A/C|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
-)
-#: R2-OW11: a reference a title may print: an account number, masked or not, after #, NO, NUMBER, ACCOUNT, ACCT or A/C,
-#: in or out of parentheses; a roman numeral; or a parenthesised code of up to four letters or digits.
-_PREMIUM_TRUST_REFERENCE = (
-    r"(?:\(?\s*(?:(?:ACCOUNT|ACCT|A/C|NO|NUMBER)\.?\s*)?#?\s*[X*]*\d+\s*\)?"
-    r"|(?<![A-Z])[IVX]{1,4}"
-    r"|\([A-Z0-9]{1,4}\))"
 )
 _PREMIUM_TRUST_TITLE = rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_KIND})*)"
 #: R2-OW11: the three title forms. The title at the field's end (kind words, a reference and punctuation may follow);
@@ -6142,9 +6143,11 @@ _PREMIUM_TRUST_WITH_ACCOUNT = re.compile(
 )
 #: Audit round 3, R3-B11 (R3-65): the for-benefit form, the words and an account word before FBO, F/B/O, OF or FOR
 #: and a name ('PREMIUM TRUST ACCOUNT FBO NORTHWIND AGENCY LLC'), read on an account name or a holder name even when
-#: the field ends in a legal form (the form is the beneficiary's).
+#: the field ends in a legal form (the form is the beneficiary's). Review round 1 (finding 3): a product adjective may
+#: print before the account word, as in the account-word form ('PREMIUM TRUST BUSINESS ACCOUNT FBO NORTHWIND LLC').
 _PREMIUM_TRUST_FOR_BENEFIT = re.compile(
-    rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)\s+(?:FBO|F/B/O|F B O|OF|FOR)\s+[A-Z]"
+    rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+{_PREMIUM_TRUST_ADJECTIVE}(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)"
+    r"\s+(?:FBO|F/B/O|F B O|OF|FOR)\s+[A-Z]"
 )
 _PREMIUM_TRUST_SEPARATED = re.compile(
     rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_ACCOUNT_KIND})+)(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?"
@@ -6181,10 +6184,14 @@ def premium_trust_title(account_title: str | None, account_name: str | None, hol
     words ('PREMIUM FUND TRUST ACCOUNT'). Returns the matched title words, dots dropped.
     Recorded false negatives (each overstates True: the trust account's deposits stay counted): 'PREM. TR. ACCT.', a
     bare title before a separator ('PREMIUM TRUST - CONTOSO AGENCY LLC'), 'PREMIUM TRUST OPERATING', and a title only a
-    statement whose parser reads no holder line prints (R3-30: no account title is published there).
+    statement whose parser reads no holder line prints (R3-30: no account title is published there); a holder line's
+    contact that prints a name before the words ('CARE OF NORTHWIND PREMIUM TRUST ACCOUNT') or any other word after the
+    designation ('ATTN: PREMIUM TRUST ACCOUNT - NORTHWIND'), which the holder readers publish as no title (audit round
+    3, R3-B11 review round 1, finding 2).
     Recorded over-reads (each understates True, held and reviewable): a trade name that prints the words and an account
     word ('PREMIUM TRUST ACCOUNT SERVICES', 'PREMIUM TRUST ACCT MGMT', 'NORTHWIND PREMIUM TRUST ACCOUNT SERVICES' as a
-    holder with no legal form, a company named 'PREMIUM TRUST ACCOUNT OF <place> LLC')."""
+    holder with no legal form, a company named 'PREMIUM TRUST ACCOUNT OF <place> LLC', a product adjective before the
+    account word too: 'PREMIUM TRUST BUSINESS ACCOUNT OF <place> LLC', review round 1, finding 3)."""
     text = _premium_trust_field(account_title)
     if text:
         for form in (_PREMIUM_TRUST_AT_END, _PREMIUM_TRUST_WITH_ACCOUNT, _PREMIUM_TRUST_SEPARATED):

@@ -144,6 +144,50 @@ def test_r3_65_the_rule_reads_the_product_fund_and_for_benefit_forms(field, text
     assert tr.premium_trust_title(**fields) == expected
 
 
+#: Audit round 3, R3-B11, review round 1 (finding 3): the for-benefit form reads a product adjective before its account
+#: word, as the account-word form does. An adjective alone is still no account word; a company named with the form
+#: and an adjective is a recorded over-read (it understates True, held and reviewable).
+R3_B11_R1_CASES = [
+    (H, "PREMIUM TRUST BUSINESS ACCOUNT FBO NORTHWIND LLC", "PREMIUM TRUST BUSINESS ACCOUNT"),
+    (A, "PREMIUM TRUST COMMERCIAL ACCT FOR NORTHWIND AGENCY INC", "PREMIUM TRUST COMMERCIAL ACCT"),
+    (H, "PREMIUM FUND TRUST ANALYZED ACCOUNT F/B/O NORTHWIND AGENCY LLC", "PREMIUM FUND TRUST ANALYZED ACCOUNT"),
+    (H, "PREMIUM TRUST BUSINESS FBO NORTHWIND LLC", None),
+    (H, "PREMIUM TRUST BUSINESS ACCOUNT OF SAMPLEVILLE LLC", "PREMIUM TRUST BUSINESS ACCOUNT"),
+]
+
+
+@pytest.mark.parametrize(("field", "text", "expected"), R3_B11_R1_CASES)
+def test_r3_b11_r1_the_for_benefit_form_reads_a_product_adjective(field, text, expected):
+    fields = {T: None, A: None, H: None}
+    fields[field] = text
+    assert tr.premium_trust_title(**fields) == expected
+
+
+#: Audit round 3, R3-B11, review round 1 (finding 2): every contact the holder readers publish as a title is one the
+#: rule reads (the title rule's own end form, from the contact's first word), and a department, OPERATING or an
+#: adjective alone, which they refuse, is no title to the rule either.
+@pytest.mark.parametrize(("contact", "title", "rule"), [
+    ("ATTN: PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("ATTN:PREMIUM TRUST", "PREMIUM TRUST", "PREMIUM TRUST"),
+    ("C/O PREMIUM TRUST BUSINESS MONEY MARKET", "PREMIUM TRUST BUSINESS MONEY MARKET",
+     "PREMIUM TRUST BUSINESS MONEY MARKET"),
+    ("ATTN:PREMIUM TRUST ACCOUNT (1234)", "PREMIUM TRUST ACCOUNT (1234)", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST ACCOUNT II", "PREMIUM TRUST ACCOUNT II", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM FUNDS TRUST ACCT", "PREMIUM FUNDS TRUST ACCT", "PREMIUM FUNDS TRUST ACCT"),
+    ("ATTN: PREMIUM TRUST DEPT", None, None),
+    ("ATTN: PREMIUM TRUST OPERATING", None, None),
+    ("ATTN: PREMIUM TRUST BUSINESS", None, None),
+])
+def test_r3_b11_r1_a_contact_s_title_is_one_the_rule_reads(contact, title, rule):
+    reading = hn.read_name(f"CONTOSO INSURANCE AGENCY INC {contact}")
+    assert reading == ("CONTOSO INSURANCE AGENCY INC", title)
+    assert tr.premium_trust_title(reading.title, None, reading.name) == rule
+    if title is None:
+        assert tr.premium_trust_title(contact.split(None, 1)[1], None, None) is None
+
+
 def test_r3_65_the_holder_reader_s_title_line_sees_a_premium_fund_trust_line():
     # The block reader's title line reads the widened words too, with no account word on the line.
     reading = hn.read_address_block(["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM FUND TRUST", "100 SAMPLE ST",
@@ -385,6 +429,34 @@ def test_r3_61_a_contact_naming_a_person_is_no_title_and_holds_nothing(monkeypat
     assert records == _today(statement, monkeypatch)
     assert _reading(records) == R3_61_TODAY
     assert compute_metrics(statement, classifications=records).premium_trust_account is False
+
+
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN:PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("ATTN: PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("CARE OF PREMIUM TRUST", "PREMIUM TRUST"),
+    ("ATTN:PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT"),
+])
+def test_r3_b11_r1_a_contact_naming_the_trust_account_by_its_kind_holds_in_any_spacing(contact, title, monkeypatch):
+    # Audit round 3, R3-B11, review round 1 (finding 2): the contact's words are the designation as the title rule reads
+    # it (a kind word, the bare words, a number whose marker the address cut leaves), so the trust account's deposits
+    # are held, glued or spaced.
+    statement = _statement(R3_61_ROWS, _r3_61_line(contact))
+    assert (statement.holder_name, statement.account_title) == ("CONTOSO INSURANCE AGENCY INC", title)
+    assert _reading(_today(statement, monkeypatch)) == R3_61_TODAY
+    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 3
+
+
+def test_r3_b11_r1_a_dba_home_care_name_keeps_its_care_of_and_its_reading():
+    # Audit round 3, R3-B11, review round 1 (finding 1): a DBA trade name printing CARE OF is the holder's name whole,
+    # as before the batch, so its rows read against the whole name.
+    line = "CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE 100 SAMPLE ST SAMPLEVILLE SC 29000-0001"
+    statement = _statement(R3_61_ROWS, line, bank="Bank of America")
+    assert (statement.holder_name, statement.account_title) == (
+        "CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE", None)
+    whole = Statement(bank="Bank of America", holder_name="CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE",
+                      transactions=statement.transactions)
+    assert tc.classify_statement_transactions(statement) == tc.classify_statement_transactions(whole)
 
 
 #: T6: the owner's two halves. Carrier commissions and a bare deposit, on the operating and on the trust statement.
