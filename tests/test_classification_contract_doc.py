@@ -1369,6 +1369,47 @@ def test_the_spec_and_the_contract_record_r3_b06():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B07: the code commit §20 and the contract name.
+R3_B07_CODE_COMMIT = "b9c558b"
+
+
+def test_the_spec_and_the_contract_record_r3_b07():
+    """Audit round 3, R3-B07 (R3-14, R3-40, R3-42, R3-18, R3-45, R3-46): §7.11's LN sentence, §8.1's advance payment and
+    arm-S sentences, §8.5's bank words and no-sender words, §9.3's stored-output bullet, §17.1 point 3, one §20 line per
+    issue and the batch line with the commit, the amended A3-G, R32, R11, B7 and R24 lines, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "Audit round 3, R3-B07 (R3-46, §20; the owner's standing rule that loans never become revenue)",
+        "the abbreviated forms `ADV PAYM`, `ADV PMT`, `ADV PYMT` and `ADVANCE PYMT` too, never after `MERCHANT`, "
+        "`CASH` or `MCA`",
+        "counts as that form only on Scotiabank's statements",
+        "`BANK`, `BANKING`, `BANCO`, `BANCA`, `BANQUE`, `BANCAIRE`, `SPARKASSE`, `BANCORP`",
+        "nor does a region of only label, holder-noise, account-designation, purpose, filler or legal-form words",
+        "Audit round 3, R3-B07 (§20): no bump in a fix batch either",
+        "(on another bank, arm S no longer lifts R35's funder-name guard: R3-45, audit round 3, R3-B07, §20",
+        "the residual now names only the old labels with no `FROM`",
+        "a relayed numbered company is a named customer",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A relaying bank that prints `BANKING` or a non-English bank word relays its customer",
+                  "- **A wire region of designation words names no sender**",
+                  "- **A sender printed straight after the new wire labels is read**",
+                  "- **A wire's abbreviated advance payment is no financing**",
+                  "- **Arm S keeps R35's funder guard off Scotiabank's statements**",
+                  "- **A company named with `LN` is held for review, never unreviewable non-revenue**",
+                  "- **Audit round 3, R3-B07 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B07 (R3-") >= 6
+    assert amendments.count(R3_B07_CODE_COMMIT) >= 7
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B07 (R3-14, R3-40, R3-42, R3-18, R3-45, R3-46; {R3_B07_CODE_COMMIT})",
+                  "Audit round 3, R3-B07 (R3-14): `BANKING` reads as a bank word",
+                  "Audit round 3, R3-B07 (R3-42): and `INBOUND WIRE|FEDWIRE [TRANSFER FROM] <sender>`"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
