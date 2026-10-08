@@ -1639,6 +1639,71 @@ def test_the_spec_and_the_contract_record_r3_b10_review_round_2():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B11: the code commit §20 and the contract name.
+R3_B11_CODE_COMMIT = "c85df95"
+
+
+def test_the_spec_and_the_contract_record_r3_b11():
+    """Audit round 3, R3-B11 (R3-61, R3-65, R3-30): §5.2's contact sentence, §8.10's forms, contact title, relabelled
+    false negatives and recorded over-reads, §9.1's title sentence, §9.3's stored-output bullet, §10.1's True card
+    fact, §17.1's premium-trust defaults (2) and (6), the R2-OW10 and R2-OW11 lines marked in place, one §20 line per
+    issue and the batch line with the commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "a contact dropped (`ATTN`, `ATTENTION`, `C/O`, glued to its text or not, and `CARE OF` after the name's legal "
+        "form; audit round 3, R3-B11: R3-61, §20)",
+        "Audit round 3, R3-B11 (§20): no bump in a fix batch either; its stored-output changes, for R3-B25's move.",
+        "nor is a premium-trust account title read",
+        "N statement(s) with no holder name read (nor a premium-trust title)",
+        "a title reading `PREMIUM FUND(S) TRUST`, a bank's product name for the same account, is read as PREMIUM TRUST",
+        "(6) Audit round 3, R3-B11 (R3-61, §8.10, §20): a contact line naming the premium trust account",
+        "Alternative: no contact line is ever a title (the account's deposits then count).",
+        "except a contact whose words are the premium-trust designation itself, published as `PREMIUM TRUST ACCOUNT`",
+    ):
+        assert words in flat, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    for words in ("Recorded false negatives (each overstates True: the trust account's deposits stay counted)",
+                  "Recorded over-reads (each understates True, held and reviewable)",
+                  "in the for-benefit form even when it does (audit round 3, R3-B11: R3-65, §20",
+                  "`FUND` or `FUNDS` may print between them",
+                  "a statement whose parser reads no holder line publishes no account title (62 routes, 452 re-parsed",
+                  "a title printed on its own line under the name on a layout whose text keeps the lines apart"):
+        assert words in tiering, words
+    assert "the safe direction and absent from the corpus" not in tiering
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(amended by audit round 3, R3-B11: R3-61, §20 below: except a contact whose words are the",
+                  "(Amended by audit round 3, R3-B11: R3-65, §20 below: a product adjective before a kind word",
+                  "- **A contact line is read by its words, not its spacing**",
+                  "- **The premium-trust rule reads the product-adjective, `PREMIUM FUND TRUST` and for-benefit forms",
+                  "- **The True card says a statement with no holder line read reads no premium-trust title either**",
+                  "- **Audit round 3, R3-B11 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B11 (R3-") >= 3
+    assert amendments.count(R3_B11_CODE_COMMIT) >= 4
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B11 (R3-61, R3-65, R3-30; {R3_B11_CODE_COMMIT})",
+                  "premium-trust titles are read by their words, not their spacing"):
+        assert words in contract, words
+
+
+def test_r3_b11_the_code_s_docstrings_label_the_misses_and_name_the_contact_title():
+    """Audit round 3, R3-B11 (R3-65, R3-61): premium_trust_title's docstring labels its recorded false negatives as
+    overstating True and records the over-reads; the holder module's docstring names the contact title."""
+    from analysis import holder_name
+
+    doc = re.sub(r"\s+", " ", true_revenue.premium_trust_title.__doc__)
+    assert "Recorded false negatives (each overstates True: the trust account's deposits stay counted)" in doc
+    assert "Recorded over-reads (each understates True, held and reviewable)" in doc
+    assert "the safe direction" not in doc
+    module = re.sub(r"\s+", " ", holder_name.__doc__)
+    assert "except a contact whose words are the premium-trust designation itself" in module
+    block = re.sub(r"\s+", " ", holder_name._block_title_line.__doc__)
+    assert "the account's title in any spacing" in block
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
