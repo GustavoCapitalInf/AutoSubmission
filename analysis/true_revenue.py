@@ -43,6 +43,7 @@ from .classification_registry import (
     LENDING_BANK_CREDIT_PAYERS,
     OPERATING_REVENUE_READ_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
+    OWN_BANK_SENDING_SPELLINGS,
     OWNER_MONEY_PLATFORMS,
     P2P_SENDING_BANK_NAMES,
     PAYOUT_CREDIT_ENTITIES,
@@ -255,12 +256,13 @@ _NO_LEGAL_FORM_LATER = (
 #: classifier imports this module): a Quebec returned item, CIBC's CONTRE-PASSATION, RBC's refused item SANS
 #: PROVISION, the check-word NOT PAID at the row's head (review round 1: never in a memo, a wire's remittance field or an
 #: ACH entry description), an e-Transfer reclaim with the rail word right before RECLAIM and a reference after it or
-#: TD's RECLAIM E-TFR, and the fee waiver with no legal-form word later. A test keeps the copies in step.
+#: TD's RECLAIM E-TFR, and the fee waiver with no legal-form word later. A test keeps the copies in step. Audit round 3,
+#: R3-B08 (R3-44): a lost accent inside CHEQUE (CH QUE) and after RETOURN is tolerated, as after REFUS.
 _RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
 _RETURN_REFUND_R2_B08_ARMS = (
-    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
+    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?|RETOURN(?: E?E?S)?)\b",
     r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
-    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
+    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CH QUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
     r"^\s*(?:\d{1,2} \d{1,2} ?)?(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
     r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
     r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
@@ -4695,7 +4697,57 @@ _SENDING_MARK = "sending-bank"
 _OWN_MARK = "own-bank"
 #: §8.6 (R2-B03: R05): a person-to-person label printed on the row ('<bank> P2P <reference> <sender>', Bank of
 #: America's P2P payment received at another bank): the bank is a person's sending bank (Q4), never the payer alone.
+#: Audit round 3, R3-B08 (R3-32 (2)): read inside the payer region only, the bank's name followed by the label
+#: (_p2p_label_after_bank_name); an entry field's P2P ('CO ENTRY DESCR:P2P') no longer refuses the bank-only reading.
 _P2P_LABEL = re.compile(r"(?<![A-Z0-9])P2P(?![A-Z0-9])")
+
+
+def _p2p_label_after_bank_name(region: str, row: str) -> bool:
+    """§8.6 (audit round 3, R3-B08: R3-32 (2)): the payer region prints a person-to-person label (_P2P_LABEL), or the
+    row (`row`, before its receiver fields) prints the region's name followed by the label ('BANK OF AMERICA P2P
+    <reference> <sender>': the payer region ends at the label, a token holding a digit)."""
+    if _P2P_LABEL.search(region):
+        return True
+    name = region.strip()
+    return bool(row and name) and re.search(
+        r"(?<![A-Z0-9])" + re.escape(name) + r" P2P(?![A-Z0-9])", row
+    ) is not None
+
+
+def _own_bank_whole_region(region: str, bank: str) -> bool:
+    """§8.2, §8.6 (audit round 3, R3-B08: R3-31, R3-32): the payer region, its reference tokens and a trailing channel
+    word (_BANK_ONLY_TAIL) dropped, is as a whole one of the statement's own bank's names: its normalized bank field and
+    printed short forms (_statement_bank_forms), or a listed sending-bank spelling the bank prints for itself
+    (_own_bank_sending_spellings: BOFA on Bank of America, US BANK on U.S. Bank, JPMORGAN CHASE and CHASE BANK on
+    Chase). Read on the region's name (payer_name) and, for a spaced initialism ('U S BANK'), on its words with single
+    letters kept."""
+    classifier = _classifier()
+    own = {*_statement_bank_forms(bank), *_own_bank_sending_spellings(bank)}
+    if not own:
+        return False
+    for words in (classifier.payer_name(region).split(), region.split()):
+        kept = [word for word in words if not classifier._is_reference_token(word)]
+        while kept and kept[-1] in _BANK_ONLY_TAIL:
+            kept.pop()
+        if kept and " ".join(kept) in own:
+            return True
+    return False
+
+
+@cache
+def _own_bank_sending_spellings(bank: str) -> tuple[str, ...]:
+    """§8.2, §8.6 (audit round 3, R3-B08: R3-31, R3-32): the listed sending-bank spellings the statement's bank prints
+    for itself (the registry's OWN_BANK_SENDING_SPELLINGS), read when one of an entry's markers starts the normalized
+    bank field as whole words (a leading THE skipped), so a marker never matches inside another bank's name ('FIRST
+    CITIZENS BANK' is not Citizens Bank). Empty when none does."""
+    classifier = _classifier()
+    field = classifier.normalize_transaction_description(bank).strip().upper()
+    field = re.sub(r"^THE ", "", field)
+    spellings: set[str] = set()
+    for markers, printed in OWN_BANK_SENDING_SPELLINGS:
+        if any(re.match(re.escape(marker) + r"(?![A-Z0-9])", field) for marker in markers):
+            spellings.update(printed)
+    return tuple(sorted(spellings, key=len, reverse=True))
 
 
 def _bank_only_payer(region: str, entry: str, bank: str | None, *, row: str = "") -> str | None:
@@ -4705,20 +4757,30 @@ def _bank_only_payer(region: str, entry: str, bank: str | None, *, row: str = ""
     (_statement_bank_names); reference tokens are dropped, and a trailing channel word (_BANK_ONLY_TAIL: ACH, ONLINE,
     N A, NA). 'sending' when only a sending bank's name is left, 'own' when only the statement's own bank's, 'form' when
     one to four words ending BANK, BANCORP, FSB or CREDIT UNION are left (no marked name among them) and the classifier
-    reads the region as a bank by its own form (bank_by_form: never a food or blood bank, never a company whose name
-    holds the bank word, never a bank's settlement form). None otherwise, for an empty region, for a bank's settlement
-    or merchant-services originator (BANK_SETTLEMENT_ORIGINATOR), for an entry of a merchant deposit or card
-    settlement (_BANK_SETTLEMENT_ENTRY: '<bank> DES:DEPOSIT', 'MTOT DEP'), which pay the business's own sales, and for
-    a row (`row`, the row before its receiver fields) that prints a person-to-person label (_P2P_LABEL: the bank is a
-    person's sending bank, whose payment Q4 reads, never the holder's pull).
+    reads the region as a bank by its own form (bank_by_form: never a food, blood, sperm, eye, tissue, milk, bone or
+    cord-blood bank, never a company whose name holds the bank word, never a bank's settlement form). None otherwise,
+    for an empty region, for a bank's settlement or merchant-services originator (BANK_SETTLEMENT_ORIGINATOR), for an
+    entry of a merchant deposit or card settlement (_BANK_SETTLEMENT_ENTRY: '<bank> DES:DEPOSIT', 'MTOT DEP'), which pay
+    the business's own sales, and for a payer region that prints a person-to-person label after the bank's name
+    (_p2p_label_after_bank_name, read on `row`, the row before its receiver fields: the bank is a person's sending
+    bank, whose payment Q4 reads, never the holder's pull).
+
+    Audit round 3, R3-B08 (R3-31, R3-32): the statement's own bank is read first, as a whole region
+    (_own_bank_whole_region: its normalized bank field, its printed short forms, and the listed sending-bank spellings
+    it prints for itself), so a statement whose bank is itself a listed sending bank reads its own name alone as 'own'
+    ('WELLS FARGO ACH' on Wells Fargo, 'BOFA' on Bank of America, 'JPMORGAN CHASE' on Chase), never as another bank's
+    pull; a longer region keeps the old order (sending, then own, then form), so 'JPMORGAN CHASE' inside a longer name
+    is never cut to its other words.
 
     Q6 never verifies such a payer, which is counted as no_payer_printed (a bank's name names no customer); a sending
     bank or a bank by its form on a row with no entry field is the holder's own pull (_bank_only_pull, held)."""
     classifier = _classifier()
     if not region or classifier.BANK_SETTLEMENT_ORIGINATOR.search(region) or _BANK_SETTLEMENT_ENTRY.search(entry or ""):
         return None
-    if _P2P_LABEL.search(row):
+    if _p2p_label_after_bank_name(region, row):
         return None
+    if bank and _own_bank_whole_region(region, bank):
+        return "own"
     marked = _SENDING_BANK_NAME.sub(f" {_SENDING_MARK} ", classifier.payer_name(region))
     own = _statement_bank_names(bank) if bank else None
     if own is not None:

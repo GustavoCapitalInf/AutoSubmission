@@ -2214,12 +2214,45 @@ P2P_SENDING_BANK_NAMES: tuple[str, ...] = (
 #: the Royal Bank of Scotland and Royal Bank America (round 3). The bank's whole normalized name is read too, for every
 #: bank. Before currency-conversion wording, the bank's own name names no payer ('ROYAL FOREIGN EXCHANGE DEPOSIT' on a
 #: Royal Bank of Canada statement is the holder's own conversion).
+#: Audit round 3, R3-B08 (R3-32; §8.2, §8.6): every Chase bank field ('Chase Savings', 'Chase Transaction Export',
+#: 'JPMorgan Chase Bank') reads CHASE as its own name, as the 'Chase' field already does, so Chase's bill-pay channel
+#: ('ORIG CO NAME:CHASE ONLINE') is the statement's own bank on each of them.
 STATEMENT_BANK_PRINTED_NAMES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "RBC", "BANQUE ROYALE"),
         ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "ROYAL BANK", "ROYAL", "RBC", "BANQUE ROYALE DU CANADA",
          "BANQUE ROYALE"),
     ),
+    (("CHASE",), ("CHASE",)),
+)
+
+#: Audit round 3, R3-B08 (R3-31, R3-32; §8.2, §8.6, Q2 of 2026-09-28: a bank's name is never the payer's name, and the
+#: statement's own bank's channel is never held): the listed sending-bank spellings (P2P_SENDING_BANK_NAMES) a
+#: statement's own bank prints for itself, read only by the bank-only payer reader (true_revenue._bank_only_payer): a
+#: payer region that is, as a whole, one of them names the statement's own bank (counted with no payer printed, never
+#: verified, never held as another bank's pull). Each entry is (the words that name the bank at the start of the
+#: statement's normalized bank field, a leading THE skipped, as whole words; its spellings), all normalized. A marker is
+#: read from the field's start, so it never matches inside another bank's name ('FIRST CITIZENS BANK' is not Citizens
+#: Bank). tools/operating_registry.py checks the table (normalized, no spelling twice, every spelling a listed sending
+#: bank's).
+OWN_BANK_SENDING_SPELLINGS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("BANK OF AMERICA",), ("BANK OF AMERICA", "BK OF AMERICA", "BOFA")),
+    (("U S BANK", "US BANK"), ("US BANK", "U S BANK")),
+    (("CHASE", "JPMORGAN CHASE", "JP MORGAN CHASE"), ("JPMORGAN CHASE", "JP MORGAN CHASE", "CHASE BANK")),
+    (("WELLS FARGO",), ("WELLS FARGO",)),
+    (("TD BANK",), ("TD BANK",)),
+    (("PNC",), ("PNC BANK",)),
+    (("TRUIST",), ("TRUIST",)),
+    (("CAPITAL ONE",), ("CAPITAL ONE",)),
+    (("CITIZENS BANK",), ("CITIZENS BANK",)),
+    (("CITIBANK",), ("CITIBANK",)),
+    (("REGIONS BANK", "REGIONS FINANCIAL"), ("REGIONS BANK",)),
+    (("FIFTH THIRD",), ("FIFTH THIRD",)),
+    (("KEYBANK", "KEY BANK"), ("KEYBANK",)),
+    (("HUNTINGTON NATIONAL BANK", "HUNTINGTON BANK"), ("HUNTINGTON BANK",)),
+    (("SANTANDER BANK",), ("SANTANDER BANK",)),
+    (("NAVY FEDERAL",), ("NAVY FEDERAL",)),
+    (("TD CANADA TRUST",), ("TD CANADA TRUST",)),
 )
 
 

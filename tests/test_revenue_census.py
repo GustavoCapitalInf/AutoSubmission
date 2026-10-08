@@ -2200,6 +2200,25 @@ def test_r2_b08_the_french_interest_and_fee_rebate_are_a_declared_new_marker(tex
     assert _causes([_step_11(text)], [later]) == {cause: 1}
 
 
+@pytest.mark.parametrize(("method", "text", "cause"), [
+    # Audit round 3, R3-B08 (R3-44): a lost accent inside CHEQUE or after RETOURN, and four more French interest
+    # wordings, are declared new markers, read on the masked text as the classifier reads them.
+    ("reversal_cancellation_exclusion", "CH QUE REFUS SANS PROVISION", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "CH QUES REFUSES SANS PROV", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "EFFET RETOURN", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "EFFETS RETOURN S", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "RANCH QUEEN CREEK", "undeclared"),
+    ("strong_non_revenue_rule", "INTERETS GAGNES", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERETS CREDITEURS", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERETS PAYES", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERET VERSE", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERETS SUR PRET #### ", "undeclared"),
+])
+def test_r3_44_the_lost_accent_and_the_french_interest_wordings_are_a_declared_new_marker(method, text, cause):
+    later = _later(method, text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
 @pytest.mark.parametrize(("text", "letter"), [
     # Audit round 2, R2-B08 (R08): the sweep's refunds-and-corrections class reads the French return, reversal and
     # refusal wordings and the check-word NOT PAID.

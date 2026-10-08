@@ -502,6 +502,52 @@ def test_r28_the_helper_reads_a_phrase_or_a_town_s_des_as_transfer_wording(row, 
     assert (found.group(0) if found is not None else None) == wording
 
 
+# Audit round 3, R3-B08 (R3-88 (i); T13, Q4 of 2026-09-28; amends R2-B09's R28 line): a town's DES never opens the
+# originator field, whatever field word follows the town within five words (DES MOINES, DES PLAINES, DES PERES, DES
+# ALLEMANDS, DES LACS): a named transfer from a company in such a town keeps its transfer reading, counted and flagged,
+# never verified, and held as a repeated round sum.
+R388_TOWNS = (
+    "TRANSFER CONTOSO LLC DES MOINES IA TEL 5150000000",
+    "TRANSFER CONTOSO LLC DES MOINES IA ID 4711",
+    "XFER CONTOSO INC DES PLAINES IL WEB 84700000",
+)
+
+
+@pytest.mark.parametrize("text", R388_TOWNS)
+def test_r3_88_a_town_s_des_before_a_field_word_keeps_the_transfer_reading(text):
+    [record] = _rows([(text, 1234.56)], holder=R28_HOLDER)
+    assert _reading(record) == (COUNTED, "p2p")
+    records = _rows([(text, 3000.0), (text, 3000.0)], holder=R28_HOLDER)
+    assert [_reading(record) for record in records] == [(HELD, "p2p_round_repeat")] * 2
+
+
+@pytest.mark.parametrize(("row", "field"), [
+    ("TRANSFER CONTOSO LLC DES MOINES IA TEL 5150000000", False),
+    ("XFER CONTOSO INC DES PLAINES IL WEB 84700000", False),
+    ("TRANSFER CONTOSO LLC DES PERES MO ID 1", False),
+    ("TRANSFER CONTOSO LLC DES ALLEMANDS LA ID 1", False),
+    ("TRANSFER CONTOSO LLC DES LACS ND ID 1", False),
+    # Bank of America's own DES fields are still read.
+    ("CONTOSO TRF LLC DES PAYMENT ID 1", True),
+    ("CONTOSO TRF LLC DES PAYMENT CCD", True),
+    ("CONTOSO TRF LLC DES MOINESCO PAYMENT ID 1", True),
+])
+def test_r3_88_the_originator_field_never_opens_on_a_town_s_des(row, field):
+    from analysis import transaction_classifier
+
+    assert (transaction_classifier._ORIGINATOR_NAME_FIELD.search(row) is not None) is field
+
+
+@pytest.mark.parametrize(("text", "reading"), [
+    (R28_BOFA.format(name="CONTOSO TRF LLC", entry="PAYMENT"), VERIFIED_COMPANY),
+    ("TRANSFER FROM CONTOSO LLC DES MOINES IA TEL 5150000000", (COUNTED, "p2p")),
+])
+def test_r3_88_the_town_controls_keep_their_readings(text, reading):
+    bank = "Bank of America" if " INDN " in text else "Fabrikam Bank"
+    [record] = _rows([(text, 1234.56)], bank=bank, holder=R28_HOLDER)
+    assert _reading(record) == reading
+
+
 # Audit round 2, R2-B09 (R25): a teller, branch or counter transfer that prints no explicit deposit form names its
 # counterparty only by FROM and a sender, or by a company form; a reference and a town (the booking branch) name nobody
 # (M4, Q2: held).

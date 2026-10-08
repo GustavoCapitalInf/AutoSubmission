@@ -521,12 +521,13 @@ _NO_LEGAL_FORM_LATER = (
 #: refused item SANS PROVISION, the check-word NOT PAID at the row's head (review round 1; a spaced or glued masked date
 #: before it), an e-Transfer reclaim with the rail word right before RECLAIM and a reference after it or TD's RECLAIM
 #: E-TFR, and the fee waiver with no legal-form word later (it replaces the bare fee-waiver arm). A test keeps the
-#: copies in step.
+#: copies in step. Audit round 3, R3-B08 (R3-44): a lost accent inside CHEQUE (CH QUE) and after RETOURN is tolerated,
+#: as after REFUS.
 _RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
 _RETURN_REFUND_R2_B08_ARMS = (
-    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?)\b",
+    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?|RETOURN(?: E?E?S)?)\b",
     r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
-    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
+    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CH QUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
     r"^\s*(?:\d{1,2} \d{1,2} ?)?(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
     r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
     r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
@@ -553,9 +554,11 @@ _REVERSAL_MARKERS_56 = tuple(_on_masked(pattern) for pattern in (
     *_RETURN_REFUND_R2_B08_ARMS,
 ))
 #: Audit round 2, R2-B08 (R08): the French interest credit and fee rebate that joined the strong non-revenue rule (the
-#: classifier's, copied), on the masked text.
+#: classifier's, copied), on the masked text. Audit round 3, R3-B08 (R3-44): the interest credit's copy is the
+#: classifier's _FRENCH_INTEREST_CREDIT, with INTERETS GAGNES, CREDITEURS, PAYES and VERSES.
 _FRENCH_INTEREST_AND_REBATE_R2_B08 = tuple(_on_masked(pattern) for pattern in (
-    r"(?<![A-Z])CREDIT D ?INTERETS?\b|(?<![A-Z])INTERETS? CREDITES?\b",
+    r"(?<![A-Z])CREDIT D ?INTERETS?\b|(?<![A-Z])INTERETS? CREDITES?\b"
+    r"|(?<![A-Z])INTERETS? (?:GAGNES?|CREDITEURS?|PAYES?|VERSES?)\b",
     r"(?<![A-Z])RABAIS (?:SUR )?(?:LES )?FRAIS\b",
 ))
 #: Audit B3 (I43, §20): the card-rewards redemptions that joined the strong non-revenue rule (the classifier's, copied):
