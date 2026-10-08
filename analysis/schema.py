@@ -267,16 +267,12 @@ class Statement(BaseModel):
     #: everywhere except where a parser has declared it (Capital One, owner
     #: report 2026-10-08); `analysis/adb.py` re-checks every condition itself
     #: before folding them into the opening balance, never makes their day a
-    #: ledger day and never changes the ADB divisor. Serialized only when
-    #: declared (see `_serialize`).
-    pre_period_carry_in_count: int = Field(
-        default=0,
-        description=(
-            "Number of leading transactions the parser proved are postings "
-            "dated on the printed previous-balance day and counted in this "
-            "cycle's printed totals."
-        ),
-    )
+    #: ledger day and never changes the ADB divisor. A parser's proof, never a
+    #: model's: kept out of the extraction response schema (`SkipJsonSchema`,
+    #: so the extractor is told nothing new, as for `account_title`), refused
+    #: from a visual pair's reviewed statement (`vlm/pair_adapter.py`), and
+    #: serialized only when declared (see `_serialize`).
+    pre_period_carry_in_count: SkipJsonSchema[int] = 0
 
     transactions: list[Transaction] = Field(default_factory=list)
 
