@@ -247,10 +247,16 @@ analysis stored without a mode keeps the legacy basis it was made under. Where
 the selected revenue basis is not established (True or Verified reads N/A, for
 example when the captured credits fall short of the bank's printed total), no
 withholding rate is published over it and the statement and its package go to
-review (a decision that read Approved reads Review required). The withholding numerator is the confirmed lender debits paid plus the
+review (a decision that read Approved reads Review required). A True or Verified basis above $0 and under 500 in
+the statement's own unit publishes no rate either and asks for review on its withholding only (never a gate), and a
+package whose statements were analysed on different bases publishes no package rate and goes to review until they are
+re-analyzed on one. The withholding numerator is the confirmed lender debits paid plus the
 funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
 "paid to lenders" but stays in the rate, until the same funder re-presents it (the same amount off its cycle) or
-catches it up 2x, when the re-debit counts it once (the owner's answer of 2026-10-07, "Count it once"). Zelle deposits follow the Settings
+catches it up 2x, when the re-debit counts it once (the owner's answer of 2026-10-07, "Count it once"). A confirmed
+funder's paid debit printing a payoff word (PAYOFF, PAY OFF, PREPAY, PREPAYMENT, BUYOUT, BUY OUT, PAYOUT and their
+hyphenated forms) stays in "paid to lenders" and leaves the rate (the owner's answer of 2026-10-07, "Exclude worded
+payoffs"). Zelle deposits follow the Settings
 choice "Mark Zelle Payments as True Revenue" (the owner's amendment of
 2026-10-06 to the underwriter's Q3): Yes, the default, counts them in True
 revenue as the rules read a person-to-person credit (the holder's own name and

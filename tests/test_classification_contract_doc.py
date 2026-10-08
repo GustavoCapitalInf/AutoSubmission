@@ -353,6 +353,11 @@ SECTION_19_1_DECISIONS = (
         '"Count it once (Recommended)"', 'off its cycle', 'exact 2x catch-up', 're-presented on <date>',
         '`returned_funder_represented`', 'R3-B02',
     )),
+    # Audit round 3, R3-B03: the owner's answer of 2026-10-07 to R3-79.
+    ('**2026-10-07, lump-sum payoffs in the withholding rate (audit round 3, R3-79).**', (
+        '"Exclude worded payoffs (Recommended)"', 'PAYOFF', 'PAY-OFF', 'PREPAYMENT', 'BUY OUT', 'PAYOUT',
+        'paid to lenders', 'lender count', 'Lump-sum payment to <funder>', '`lump_sum_payoff_excluded`', 'R3-B03',
+    )),
 )
 
 

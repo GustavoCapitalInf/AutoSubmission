@@ -513,6 +513,7 @@ sending banks' and statement banks' printed names (`P2P_SENDING_BANK_NAMES`,
 - Audit round 3, R3-B02 (R3-69, R3-71, R3-66, R3-21, R3-73; d32514f, f9b4be7, fe459a9, ecc4ebb, 2a17aac): a potential lender's return pairs on the lender side only with its payment on or before it, as a confirmed funder's does (`_returns_a_later_lender_payment`; every other debit keeps classification 5.4's pair); a lender series with an attempt, paid or settlement-reversed, on or before a held no-sender wire's day is no funding aid of that wire; a confirm on a credit that returns a confirmed funder's payment is refused ("a credit that returns a confirmed funder's payment can only be marked non-revenue"; Mark Non-Revenue and Reset stay); and, by the owner's answer of 2026-10-07 ("Count it once (Recommended)"), a returned funder payment the same funder re-debits (the same cents off its cycle, or an exact 2x catch-up, within one cadence gap after the return) leaves the withholding rate, `represented_by` naming the re-debit (pass 7c, and the package's pass 5 across a member boundary; G7 declares it as `returned_funder_represented`) (true revenue spec §6.2, §8.5, §9, §10.1, §10.6, §10.7, §11, §14.3, §17.1, §19.1, §20).
 - Audit round 3, R3-B02, review round 1 (0290dc0): a re-debit is never the next payment of a weekday two or more other attempts of the series keep (a twice-weekly schedule or a second position at the same cents), nor a 2x debit that two more 2x debits on the series' cycle follow within two cycles (a step-up to a new level); a re-debited payment's reason no longer says "kept in the withholding rate"; a rule-verified credit carrying `returns_funder_payment` keeps Mark Non-Revenue (true revenue spec §6.2, §10.6, §10.7, §17.1, §20).
 - Audit round 3, R3-B02, review round 2 (1249a3a): a 2x debit is no catch-up where two or more 2x debits of the funder fall within two cycles after it, on the series' cycle or not (a second position on another weekday), or two or more within two cycles before it (a level already running), a re-debit already taken left out; a weekday kept only by attempts that each follow another return of the series within one cycle is no recurring phase, so a funder re-presenting every bounce on one weekday counts each returned payment once (the package's pass 5 reads every dated return of its members) (true revenue spec §6.2, §17.1, §20).
+- Audit round 3, R3-B03 (R3-20, R3-13, R3-27, R3-72, R3-79; a524dd5, 04a9dd3): a True or Verified withholding basis above $0 and under 500 in the statement's unit publishes no rate, as $0 does (`WITHHOLDING_BASIS_FLOOR`, `withholding_basis_below_floor`, a note naming the floor; never a gate; the legacy basis bypasses it); a review decision refreshes each potential lender's basis and exposure and the basis notes with the rate; a package mixing withholding bases publishes no package rate, names each member's basis and goes to review, and a failed member adds no basis; a package member row divides by the basis it prints; and, by the owner's answer of 2026-10-07 ("Exclude worded payoffs (Recommended)"), a confirmed funder's paid debit printing a payoff word leaves the withholding numerator and stays in paid to lenders and the lender count (`lump_sum_payoff`; G7 declares it as `lump_sum_payoff_excluded`) (true revenue spec §9, §10.1, §10.4, §10.7, §11, §14.3, §17.1, §19.1, §20).
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -1102,6 +1103,17 @@ legacy mode only and the legacy figure stays in `legacy_eligible_deposits`
 (audit I62). A statement whose True revenue is $0 has no rate on the default
 basis and sets `withholding_review_required`, its note naming the basis
 ("withholding rate is unavailable because True revenue is zero or missing").
+Since audit round 3, R3-B03 (R3-20), so does a True or Verified basis above $0
+and under `WITHHOLDING_BASIS_FLOOR` (500 in the statement's own unit,
+`REVENUE_REVIEW_HELD_FLOOR`): no rate, no potential exposure and no potential
+lender's basis or exposure, `withholding_review_required` and
+`withholding_basis_below_floor`, and a note naming the basis and the floor
+("withholding rate is unavailable because True revenue (1.00 USD) is under the
+withholding basis floor (500.00 USD)"); never a gate, and the legacy basis
+bypasses it (`withholding_basis_publishable` decides every published rate and
+exposure). A review decision refreshes everything the basis feeds on a True or
+Verified basis (R3-13): the rate, each potential lender's basis and exposure
+and the basis notes.
 A stored analysis whose metrics carry no mode was made on the legacy basis and
 keeps it: `normalize_withholding_denominator_mode` reads a missing or unknown
 stored mode as `legacy_eligible_deposits`, so the review rebuild, the package
@@ -1120,7 +1132,14 @@ lender's exposure, sets `withholding_review_required` and
 `withholding_basis_unestablished`, the downloads leave the basis figures empty
 and the CLI prints them as N/A; the package marks such a member's row and its
 own totals the same way, and the statement and its package go to review. The
-legacy basis never moves with it. A deposit the
+legacy basis never moves with it. A package whose ready members were analysed
+under different bases (a job stored before R2-OW14, legacy or with no mode,
+beside a new one; audit round 3, R3-B03: R3-27) publishes no package rate or
+potential exposure over their sum, names each member's basis
+(`withholding_basis_mixed`, `withholding_basis_by_member`) and goes to review;
+a failed member contributes no basis. A member row divides by the basis it
+prints (R3-72): where the package moved the member's basis, its rate and
+exposure are recomputed over it. A deposit the
 package passes take out of True (the underwriter's Q6 (2026-10-02), R2-OW15)
 leaves the revenue basis it was in: the `true_revenue` mode loses the moved
 credits stored verified or counted, the `verified_revenue` mode those stored
@@ -1148,10 +1167,20 @@ the confirmed lender debits paid (`lender_debits`, the lender evidence records)
 plus, since the owner's ruling of 2026-10-02 (the underwriter's Q5; R2-OW13),
 the confirmed funders' payments returned unpaid (`returned_funder_payment_total`):
 the scheduled obligation stands, so a bounced payment leaves paid to lenders and
-stays in the rate. A package sums its members' numerators. The basis is the
+stays in the rate. A package sums its members' numerators. Since the owner's
+answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs
+(Recommended)"; R3-B03), a confirmed funder's paid debit whose own text prints
+PAYOFF, PAY OFF, PAY-OFF, PREPAY, PRE-PAY, PREPAYMENT, BUYOUT, BUY OUT or
+PAYOUT (whole words; `lump_sum_payoff`, the word as printed) leaves the
+numerator and stays in `lender_debits` and the lender count
+(`lump_sum_payoff_total`, `lump_sum_payoff_count`, the detection's
+`lump_sum_payoffs` and a note name it); a credit and a potential lender's debit
+read as before, and a payoff attempt the bank returned stays in the rate as Q5
+rules. The basis is the
 selected denominator above. Full precision is retained internally;
-rounding occurs only for display. A zero or missing denominator returns no rate
-and sets `withholding_review_required`. Lender payment changes (the owner's
+rounding occurs only for display. A zero or missing denominator, or a True or
+Verified one under the withholding basis floor, returns no rate and sets
+`withholding_review_required`. Lender payment changes (the owner's
 request of 2026-10-06; R2-OW18) are information only: payment changes never
 enter the numerator, the basis or the rate.
 
