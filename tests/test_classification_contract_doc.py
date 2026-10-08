@@ -1330,6 +1330,45 @@ def test_the_spec_and_the_contract_record_r3_b05_review_round_1():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B06: the code commit §20 and the contract name.
+R3_B06_CODE_COMMIT = "85a6d5f"
+
+
+def test_the_spec_and_the_contract_record_r3_b06():
+    """Audit round 3, R3-B06 (R3-81, R3-82, R3-83, R3-85): §9.1's new-stream and funding-note definitions, §9.2's
+    reappearance note, §9.3's stored-output bullet, §10.1's anchored and reappearance wordings, §10.8's cells, §17.1
+    points 11, 25 and 26, the §20 line with its commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    for section, end, words in (
+        ("\n### 9.1 ", "\n### 9.2 ", ("at the level it was paying at the new stream's (P's) first payment",
+                                      "one dated on or before the first payment of the regime just before the new "
+                                      "one; audit round 3, R3-82")),
+        ("\n### 9.2 ", "\n### 9.3 ", ("`reappears_in_other_account`", "`covered_business_days`",
+                                      "a third account's statements never count")),
+        ("\n### 9.3 ", "\n## 10. ", ("Audit round 3, R3-B06 (§20): no bump in a fix batch either",)),
+        ("\n### 10.1 ", "\n### 10.2 ", ("28 business days after 2054-04-20 through 2054-05-29",
+                                        "after 38 business days without one in the statements provided")),
+        ("\n### 10.8 ", "\n## 11. ", ("`reappears_in_other_account.source_document`",)),
+    ):
+        found = _section(text, section, end)
+        for word in words:
+            assert word in found, (section, word)
+    open_items = re.sub(r"\s+", " ", _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. "))
+    for words in ("it never cites a credit that returns or reverses a payment",
+                  "(audit round 3, R3-82: on the corpus 12 of 83 notes leave",
+                  "within the stop's grace window (business days the two accounts' statements cover)",
+                  "\"reappear in another account … after N business days without one\" (audit round 3, R3-83",
+                  "(the other stream is named at the level it paid when the new stream began; audit round 3, R3-81"):
+        assert words in open_items, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Lender payment changes, lines and notes** (", "audit round 3, R3-B06", R3_B06_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B06 (R3-81, R3-82, R3-83, R3-85; {R3_B06_CODE_COMMIT})",
+                  "`reappears_in_other_account`", "reappear in another account"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
