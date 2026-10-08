@@ -73,10 +73,12 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # stage moves too, so Re-analyze misses a stage-32 entry still stamped 5.6.
     # 5.7/34: the owner report of 2026-10-08 (Capital One daily ledger): a parser and ADB change, no classification
     # change; the stage moves so a stored withheld ledger of such a statement recomputes.
+    # 5.7/35: the owner report of 2026-10-08 (Bank of America NSF): a parser change, no classification change; the
+    # stage moves so a stored ledger relabels the bank's printed days and recounts the printed-day NSF days.
     assert CLASSIFICATION_VERSION == "5.7"
     assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.7"
     assert classify_transaction("NORTHWIND INC PAYMENT", 100.00).classification_version == "5.7"
-    assert ANALYSIS_STAGE_VERSION == 34
+    assert ANALYSIS_STAGE_VERSION == 35
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)
