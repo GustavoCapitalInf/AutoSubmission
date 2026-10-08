@@ -358,6 +358,13 @@ SECTION_19_1_DECISIONS = (
         '"Exclude worded payoffs (Recommended)"', 'PAYOFF', 'PAY-OFF', 'PREPAYMENT', 'BUY OUT', 'PAYOUT',
         'paid to lenders', 'lender count', 'Lump-sum payment to <funder>', '`lump_sum_payoff_excluded`', 'R3-B03',
     )),
+    # Audit round 3, R3-B05: the owner's answer of 2026-10-07 to R3-25.
+    ("**2026-10-07, a merchant who misses payments then catches up with an exact multiple (audit round 3, R3-25; the "
+     "lender payment changes of 2026-10-06).**", (
+        "Add a 'Caught up' line", "missed scheduled payments", "one line per event",
+        "a multiple with no missed payment before it gets no line", "`catch_up`", "`lender_payment_catch_ups`",
+        "Information only", "R3-B05",
+    )),
 )
 
 
@@ -1281,7 +1288,9 @@ def test_the_spec_and_the_contract_record_r2_ow18_review_round_1():
                   "a restart's pause, like a pause, leaves out the business days no statement of the chain covers",
                   "is no new stream, since it may have been paying before",
                   "(29) a known false shape (R2-OW18 review round 1)", "288 of 1,740 confirmed statement series",
-                  "Points 18 to 29"):
+                  # Audit round 3, R3-B05 adds point 30 (R3-84) and the catch-up to point 24 (R3-25).
+                  "Points 18 to 30", "(30) a pause or a stop whose gap holds unclaimed debits",
+                  "a one-off within 2% of exactly 2 to 6 times the reference amount, a catch-up"):
         assert words in open_items, words
     amendments = text.split("\n## 20. Implementation amendments", 1)[1]
     for words in ("- **Owner ruling 2026-10-06, R2-OW18 review round 1** (", R2_OW18_R1_CODE_COMMIT,
