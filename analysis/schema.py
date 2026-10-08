@@ -259,6 +259,24 @@ class Statement(BaseModel):
             "account-opening postings dated before the statement period."
         ),
     )
+    #: How many LEADING transactions this parser proved, from the document's
+    #: own printed evidence, are postings the bank dated on the day its
+    #: previous-balance line names (the day before the printed period) and
+    #: counted in THIS cycle's printed totals: activity posted after the last
+    #: statement closed. They set the balance day one opens with. Zero
+    #: everywhere except where a parser has declared it (Capital One, owner
+    #: report 2026-10-08); `analysis/adb.py` re-checks every condition itself
+    #: before folding them into the opening balance, never makes their day a
+    #: ledger day and never changes the ADB divisor. Serialized only when
+    #: declared (see `_serialize`).
+    pre_period_carry_in_count: int = Field(
+        default=0,
+        description=(
+            "Number of leading transactions the parser proved are postings "
+            "dated on the printed previous-balance day and counted in this "
+            "cycle's printed totals."
+        ),
+    )
 
     transactions: list[Transaction] = Field(default_factory=list)
 
@@ -282,9 +300,13 @@ class Statement(BaseModel):
 
     # Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: `account_title` is serialized only when a reader set it,
     # as Transaction._serialize drops its unset parser marks. A comment, not a docstring (see the class's comment).
+    # Owner report 2026-10-08: `pre_period_carry_in_count` likewise only when a parser declared one, so every other
+    # statement's payload is unchanged.
     @model_serializer(mode="wrap")
     def _serialize(self, handler):
         data = handler(self)
         if isinstance(data, dict) and self.account_title is None:
             data.pop("account_title", None)
+        if isinstance(data, dict) and not self.pre_period_carry_in_count:
+            data.pop("pre_period_carry_in_count", None)
         return data

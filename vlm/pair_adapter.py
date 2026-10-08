@@ -28,6 +28,9 @@ ADAPTER_VERSION = 3
 REVIEW_POLICIES = ("hold", "admit_gated")
 _NO_PARSER = "no deterministic parser matched this statement"
 _EARNED_CURRENCY_SOURCES = frozenset({"institution_default"})
+#: Counts only a deterministic parser declares, each from its own reading of the printed page (analysis/schema.py):
+#: a model's reviewed statement may carry neither.
+_PARSER_PROOF_FIELDS = frozenset({"initialization_transaction_count", "pre_period_carry_in_count"})
 
 
 class VisualPairAdmissionError(RuntimeError):
@@ -69,12 +72,12 @@ def _source_statement(raw: object, *, currency_resolution: object = None) -> Sta
     """Refuse derived/unknown fields and absent evidence before Pydantic coercion."""
     if not isinstance(raw, dict):
         _refuse("visual pair source statement is missing")
-    allowed = set(Statement.model_fields) - {"initialization_transaction_count"}
+    allowed = set(Statement.model_fields) - _PARSER_PROOF_FIELDS
     # A caller may serialize the platform's default count, but the model may
-    # never assert the special parser proof this field represents.
-    if raw.get("initialization_transaction_count", 0) != 0:
+    # never assert the special parser proof each of these fields represents.
+    if any(raw.get(name, 0) != 0 for name in _PARSER_PROOF_FIELDS):
         _refuse("visual pair source statement contains unsupported fields")
-    if set(raw) - allowed - {"initialization_transaction_count"}:
+    if set(raw) - allowed - _PARSER_PROOF_FIELDS:
         _refuse("visual pair source statement contains unsupported fields")
     for field in ("period_start", "period_end", "beginning_balance", "ending_balance", "currency"):
         if raw.get(field) is None:

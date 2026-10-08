@@ -400,3 +400,234 @@ def test_d5_negative_the_product_name_is_never_taken_from_the_filename():
     stmt = parse_capital_one_statement(doc)
     assert stmt is not None
     assert stmt.account_name is None
+
+
+# ===========================================================================
+# D6 — postings printed on the previous-balance day (owner report 2026-10-08)
+# ===========================================================================
+# Capital One can open a statement's detail with postings dated the day its
+# `Previous Balance` line names: the day before the printed period, after the
+# previous statement closed. The bank counts them in THIS cycle: they are in
+# the printed Checks/Debits count and total, and the printed resulting balance
+# chains through them from the previous balance. The parser read and dated them
+# truly; the ADB engine, told nothing about them, dropped them as out-of-period
+# rows, so the whole ledger was off by their sum and the statement was withheld
+# (no ADB, NSF "not computable"), though its daily ledger is fully printed.
+#
+# The fix is a DECLARATION, `Statement.pre_period_carry_in_count`, made only
+# from the page's own evidence, and a fold the engine re-checks itself: those
+# rows set the balance day one opens with. No row is moved, the printed period
+# and the ADB divisor are unchanged, and the previous-balance day is never a
+# ledger day, so it is never an NSF day on either basis. Every name, date and
+# figure below is invented.
+
+from analysis.adb import compute_average_daily_balance  # noqa: E402
+from analysis.nsf_days import negative_day_count  # noqa: E402
+from analysis.pipeline import analyze_markdown  # noqa: E402
+
+#: Two checks posted on the previous-balance day take 1,000.00 to -300.00.
+CARRY_IN_ROWS = (
+    "02/28 Check 1001 $400.00 $600.00\n"
+    "02/28 Check 1002 $900.00 ($300.00)\n"
+)
+IN_PERIOD_ROWS = (
+    "03/01 ACH deposit FABRIKAM PAYMENTS $2,000.00 $1,700.00\n"
+    "03/10 TRANSFER WITHDRAWAL To ....0000 $1,800.00 ($100.00)\n"
+    "03/12 Mobile Deposit $500.00 $400.00\n"
+    "03/31 Maintenance charge $15.00 $385.00\n"
+)
+
+
+def carry_in_document(*, rows: str = CARRY_IN_ROWS + IN_PERIOD_ROWS,
+                      previous: str = "02/28/54",
+                      period: str = "MARCH 01, 2054 - MARCH 31, 2054",
+                      days: str = "31",
+                      debits: str = "3 Checks/Debits ($3,100.00)",
+                      ending: str = "03/31/54 $385.00") -> str:
+    """A native-layout statement whose detail opens with two postings dated the
+    previous-balance day. The printed debit count and total INCLUDE them (the
+    cycle charge is printed apart, under Service Charges, as the bank does)."""
+    return (
+        "Capital One\n"
+        f"{ISSUER_NOTICE}"
+        f"ACCOUNT SUMMARY FOR PERIOD {period}\n"
+        f"Previous Balance {previous} $1,000.00 "
+        f"Number of Days in Cycle {days} "
+        "2 Deposits/Credits $2,500.00 "
+        "Minimum Balance This Cycle ($300.00) "
+        f"{debits} "
+        "Average Collected Balance $700.00 "
+        "Service Charges ($15.00) "
+        f"Ending Balance {ending}\n"
+        f"ACCOUNT DETAIL FOR PERIOD {period}\n"
+        "Date Description Deposits/Credits Withdrawals/Debits Resulting Balance\n"
+        f"{rows}"
+        "Total $2,500.00 $3,115.00\n"
+    )
+
+
+def test_d6_postings_on_the_previous_balance_day_are_declared_from_the_print():
+    stmt = parse_capital_one_statement(carry_in_document())
+    assert stmt is not None
+    assert stmt.pre_period_carry_in_count == 2
+    # Published at the head of the ledger with their true printed date: not
+    # hidden, not moved onto the period's first day.
+    assert [t.date for t in stmt.transactions[:2]] == ["2054-02-28", "2054-02-28"]
+    assert [t.amount for t in stmt.transactions[:2]] == [-400.00, -900.00]
+    # The printed figures are untouched.
+    assert stmt.period_start == "2054-03-01"
+    assert stmt.beginning_balance == 1000.00
+    assert stmt.stated_debit_count == 3
+
+
+def test_d6_day_one_opens_with_them_and_the_printed_ledger_validates():
+    md = carry_in_document()
+    result = compute_average_daily_balance(parse_capital_one_statement(md), source_markdown=md)
+    assert result.ok is True
+    assert result.out_of_period_transaction_count == 0
+    assert result.validations["transactions_within_period"] is True
+    assert result.validations["opening_balance_matches_statement"] is True
+    assert result.opening_balance == -300.00
+    assert result.opening_balance_source == "pre_period_carry_in"
+    # The divisor is the PRINTED period; the previous-balance day is no ledger day.
+    assert result.calendar_day_count == 31
+    assert result.daily_balances[0].date == "2054-03-01"
+    assert "2054-02-28" not in {entry.date for entry in result.daily_balances}
+    # 9 x 1,700 + 2 x -100 + 19 x 400 + 385 = 23,085 over 31 days.
+    assert result.underwriting_adb == 744.68
+    # 03/10 is the one negative-ending printed day; 03/11 carries it. The
+    # -300.00 the previous-balance day ends on is counted on neither basis.
+    assert negative_day_count(result.daily_balances, carry_over=False) == 1
+    assert negative_day_count(result.daily_balances, carry_over=True) == 2
+
+
+def test_d6_the_dashboard_publishes_the_ledger_and_its_negative_days():
+    metrics = analyze_markdown(carry_in_document(), parse_mode="deterministic").metrics
+    assert metrics.adb_ok is True
+    assert metrics.average_daily_balance == 744.68
+    assert metrics.effective_nsf_count == 1
+    assert metrics.nsf_source == "negative_printed_days"
+
+
+def test_d6_a_january_statement_dates_its_carry_in_by_the_printed_previous_balance_year():
+    # The row prints no year; the Previous Balance line prints one. Without it
+    # the row took the period's year and landed eleven months AFTER the period.
+    doc = carry_in_document(
+        rows=CARRY_IN_ROWS.replace("02/28", "12/31") + IN_PERIOD_ROWS.replace("03/", "01/"),
+        previous="12/31/54", period="JANUARY 01, 2055 - JANUARY 31, 2055",
+        ending="01/31/55 $385.00",
+    )
+    stmt = parse_capital_one_statement(doc)
+    assert stmt is not None
+    assert stmt.pre_period_carry_in_count == 2
+    assert [t.date for t in stmt.transactions[:2]] == ["2054-12-31", "2054-12-31"]
+    result = compute_average_daily_balance(stmt, source_markdown=doc)
+    assert result.ok is True
+    assert result.underwriting_adb == 744.68
+
+
+def test_d6_the_declaration_is_on_the_wire_only_where_it_was_made():
+    plain = parse_capital_one_statement(native_document(rows=ROWS))
+    assert plain is not None
+    assert plain.pre_period_carry_in_count == 0
+    assert "pre_period_carry_in_count" not in plain.model_dump()
+    assert parse_capital_one_statement(carry_in_document()).model_dump()["pre_period_carry_in_count"] == 2
+
+
+def _withheld(md: str) -> None:
+    stmt = parse_capital_one_statement(md)
+    assert stmt is not None
+    assert stmt.pre_period_carry_in_count == 0
+    result = compute_average_daily_balance(stmt, source_markdown=md)
+    assert result.ok is False
+    assert result.validations["transactions_within_period"] is False
+
+
+def test_d6_negative_a_carry_in_row_below_an_in_period_row_is_not_declared():
+    rows = (
+        "02/28 Check 1001 $400.00 $600.00\n"
+        "03/01 ACH deposit FABRIKAM PAYMENTS $2,000.00 $2,600.00\n"
+        "02/28 Check 1002 $900.00 $1,700.00\n"
+        + IN_PERIOD_ROWS.split("\n", 1)[1]
+    )
+    _withheld(carry_in_document(rows=rows))
+
+
+@pytest.mark.parametrize("previous,row_day", [
+    ("02/28/54", "02/27"),   # the rows are not on the printed previous-balance day
+    ("02/27/54", "02/27"),   # the previous-balance day is not the day before the period
+])
+def test_d6_negative_rows_two_days_before_the_period_are_not_declared(previous, row_day):
+    _withheld(carry_in_document(
+        rows=CARRY_IN_ROWS.replace("02/28", row_day) + IN_PERIOD_ROWS, previous=previous))
+
+
+@pytest.mark.parametrize("debits", [
+    "1 Checks/Debits ($3,100.00)",   # the printed count leaves them out
+    "3 Checks/Debits ($1,800.00)",   # the printed total leaves them out
+    "1 Checks/Debits ($1,800.00)",   # both do
+])
+def test_d6_negative_printed_cycle_totals_that_leave_them_out_declare_nothing(debits):
+    _withheld(carry_in_document(debits=debits))
+
+
+def test_d6_negative_a_printed_amount_that_is_not_the_balance_step_breaks_the_chain():
+    # The first check prints 450.00 against a 400.00 step in printed balance.
+    _withheld(carry_in_document(
+        rows=CARRY_IN_ROWS.replace("$400.00 $600.00", "$450.00 $600.00") + IN_PERIOD_ROWS))
+
+
+def carry_in_table_document(*, first_check: str = "$400.00") -> str:
+    """The same statement in the table layout, where each row's amount is the
+    step in printed balance and the printed amount cell is a second statement."""
+    def row(day, description, credit, debit, balance):
+        return (f"<tr><td>{day}</td><td>{description}</td><td>{credit}</td>"
+                f"<td>{debit}</td><td>{balance}</td></tr>")
+    return (
+        f"{ISSUER_NOTICE}"
+        "CapitalOne Bank\n"
+        "ACCOUNT SUMMARY FOR PERIOD MARCH 01, 2054 - MARCH 31, 2054\n"
+        "<table><tr><td>Previous Balance 02/28/54</td><td>$1,000.00</td></tr>"
+        "<tr><td>2 Deposits/Credits</td><td>$2,500.00</td></tr>"
+        "<tr><td>3 Checks/Debits</td><td>($3,100.00)</td></tr>"
+        "<tr><td>Service Charges</td><td>($15.00)</td></tr>"
+        "<tr><td>Ending Balance 03/31/54</td><td>$385.00</td></tr></table>\n"
+        "<table><tr><td>Number of Days in Cycle</td><td>31</td></tr>"
+        "<tr><td>Minimum Balance This Cycle</td><td>($300.00)</td></tr>"
+        "<tr><td>Average Collected Balance</td><td>$700.00</td></tr></table>\n"
+        "<table><tr><td>Date</td><td>Description</td><td>Deposits/Credits</td>"
+        "<td>Withdrawals/Debits</td><td>Resulting Balance</td></tr>\n"
+        + row("02/28", "Check 1001", "", first_check, "$600.00") + "\n"
+        + row("02/28", "Check 1002", "", "$900.00", "($300.00)") + "\n"
+        + row("03/01", "ACH deposit FABRIKAM PAYMENTS", "$2,000.00", "", "$1,700.00") + "\n"
+        + row("03/10", "TRANSFER WITHDRAWAL To ....0000", "", "$1,800.00", "($100.00)") + "\n"
+        + row("03/12", "Mobile Deposit", "$500.00", "", "$400.00") + "\n"
+        + row("03/31", "Maintenance charge", "", "$15.00", "$385.00") + "\n"
+        "</table>\n"
+    )
+
+
+def test_d6_the_table_layout_declares_them_from_the_same_evidence():
+    md = carry_in_table_document()
+    stmt = parse_capital_one_statement(md)
+    assert stmt is not None
+    assert stmt.pre_period_carry_in_count == 2
+    result = compute_average_daily_balance(stmt, source_markdown=md)
+    assert result.ok is True
+    assert result.underwriting_adb == 744.68
+
+
+def test_d6_negative_a_printed_amount_cell_that_is_not_the_balance_step_declares_nothing():
+    # In this layout the amount IS the balance step, so the ledger, the counts
+    # and the totals all still hold: only the printed amount cell disagrees.
+    _withheld(carry_in_table_document(first_check="$450.00"))
+
+
+def test_d6_negative_a_row_after_the_period_leaves_the_whole_statement_withheld():
+    _withheld(carry_in_document(
+        rows=CARRY_IN_ROWS + IN_PERIOD_ROWS + "04/02 Debit Card Purchase SAMPLE STORE $10.00 $375.00\n",
+        debits="4 Checks/Debits ($3,110.00)", ending="03/31/54 $375.00"))
+
+
+def test_d6_negative_a_cycle_that_is_not_the_printed_period_declares_nothing():
+    _withheld(carry_in_document(days="30"))

@@ -137,6 +137,9 @@ def test_policy_defaults_to_hold_even_when_gate_passes(monkeypatch):
     (lambda d: d.visual_pair["statement"].update(ending_balance=31.0), "did not reconcile"),
     (lambda d: d.visual_pair["statement"].update(average_daily_balance=999.0), "unsupported fields"),
     (lambda d: d.visual_pair["statement"]["transactions"][0].update(lender=True), "unsupported fields"),
+    # A deterministic parser's proofs, from its own reading of the page: a model may never assert one.
+    (lambda d: d.visual_pair["statement"].update(initialization_transaction_count=1), "unsupported fields"),
+    (lambda d: d.visual_pair["statement"].update(pre_period_carry_in_count=1), "unsupported fields"),
     (lambda d: d.visual_pair["statement"].update(currency=None), "required printed fields"),
     (lambda d: d.visual_pair["statement"]["transactions"][0].update(amount=float("nan")), "numbers are invalid"),
     (lambda d: d.visual_pair["statement"]["transactions"][0].update(date="2032-01-02"), "outside its printed period"),

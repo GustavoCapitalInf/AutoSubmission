@@ -424,6 +424,110 @@ def test_undated_transactions_are_reported():
     assert any("no parseable date" in w for w in r.warnings)
 
 
+def _carry_in_statement(**overrides) -> Statement:
+    """A statement whose producer DECLARED one posting on the previous-balance
+    day (the day before the printed period) at the head of its ledger. The
+    engine re-checks the declaration itself; each refusal below changes one
+    thing the engine checks. Invented figures."""
+    fields = dict(
+        period_start="2054-03-01", period_end="2054-03-05",
+        beginning_balance=100.0, ending_balance=60.0,
+        pre_period_carry_in_count=1,
+        transactions=[
+            _txn("2054-02-28", -150.0, "CHECK 1", bal=-50.0),
+            _txn("2054-03-01", 130.0, "DEPOSIT", bal=80.0),
+            _txn("2054-03-04", -20.0, "PURCHASE", bal=60.0),
+        ],
+    )
+    fields.update(overrides)
+    return Statement(**fields)
+
+
+def test_a_declared_carry_in_sets_the_opening_and_never_becomes_a_ledger_day():
+    r = compute_average_daily_balance(_carry_in_statement())
+    assert r.ok is True
+    assert r.out_of_period_transaction_count == 0
+    assert r.opening_balance == -50.0
+    assert r.opening_balance_source == "pre_period_carry_in"
+    assert r.validations["opening_balance_matches_statement"] is True
+    assert r.calendar_day_count == 5
+    assert [d.date for d in r.daily_balances] == [
+        "2054-03-01", "2054-03-02", "2054-03-03", "2054-03-04", "2054-03-05"]
+    assert r.underwriting_adb == 72.0          # (80 + 80 + 80 + 60 + 60) / 5
+    assert any("previous-balance day" in w for w in r.warnings)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"pre_period_carry_in_count": 0},           # undeclared: the old refusal stands
+    {"pre_period_carry_in_count": 2},           # over-declared
+    {"beginning_balance": None},                # no printed previous balance to fold onto
+])
+def test_a_carry_in_the_engine_cannot_prove_is_withheld(overrides):
+    r = compute_average_daily_balance(_carry_in_statement(**overrides))
+    assert r.ok is False
+    assert r.validations["transactions_within_period"] is False
+    assert r.opening_balance_source != "pre_period_carry_in"
+
+
+def test_a_declared_carry_in_must_lead_the_ledger():
+    # Every balance here is consistent with the 02-28 row having posted first,
+    # so the chain, the closing and the daily ledger would all hold: only its
+    # place in the statement, below a row of the period, refuses the fold.
+    rows = [
+        _txn("2054-03-01", 130.0, "DEPOSIT", bal=80.0),
+        _txn("2054-02-28", -150.0, "CHECK 1", bal=-50.0),
+        _txn("2054-03-04", -20.0, "PURCHASE", bal=60.0),
+    ]
+    r = compute_average_daily_balance(_carry_in_statement(transactions=rows))
+    assert r.ok is False
+    assert r.out_of_period_transaction_count == 1
+    assert r.opening_balance_source != "pre_period_carry_in"
+
+
+def test_a_declared_carry_in_must_be_dated_the_day_before_the_period():
+    rows = [
+        _txn("2054-02-27", -150.0, "CHECK 1", bal=-50.0),
+        _txn("2054-03-01", 130.0, "DEPOSIT", bal=80.0),
+        _txn("2054-03-04", -20.0, "PURCHASE", bal=60.0),
+    ]
+    r = compute_average_daily_balance(_carry_in_statement(transactions=rows))
+    assert r.ok is False
+    assert r.out_of_period_transaction_count == 1
+
+
+def test_a_declared_carry_in_must_chain_to_its_printed_balance():
+    rows = [
+        _txn("2054-02-28", -150.0, "CHECK 1", bal=-40.0),
+        _txn("2054-03-01", 130.0, "DEPOSIT", bal=80.0),
+        _txn("2054-03-04", -20.0, "PURCHASE", bal=60.0),
+    ]
+    r = compute_average_daily_balance(_carry_in_statement(transactions=rows))
+    assert r.ok is False
+    assert r.opening_balance_source != "pre_period_carry_in"
+
+
+def test_a_declared_carry_in_must_be_required_by_the_printed_closing():
+    # Two rows that net to nothing: the ledger closes with or without them,
+    # so the fold is not proven necessary and the document stays withheld.
+    rows = [
+        _txn("2054-02-28", 50.0, "DEPOSIT", bal=150.0),
+        _txn("2054-02-28", -50.0, "RETURNED", bal=100.0),
+        _txn("2054-03-01", 130.0, "DEPOSIT", bal=230.0),
+        _txn("2054-03-04", -20.0, "PURCHASE", bal=210.0),
+    ]
+    r = compute_average_daily_balance(_carry_in_statement(
+        transactions=rows, ending_balance=210.0, pre_period_carry_in_count=2))
+    assert r.ok is False
+    assert r.opening_balance_source != "pre_period_carry_in"
+
+
+def test_a_declared_carry_in_does_not_excuse_a_row_after_the_period():
+    rows = _carry_in_statement().transactions + [_txn("2054-03-07", -10.0, "PURCHASE", bal=50.0)]
+    r = compute_average_daily_balance(_carry_in_statement(transactions=rows, ending_balance=50.0))
+    assert r.ok is False
+    assert r.out_of_period_transaction_count == 2
+
+
 def test_out_of_period_transaction_is_excluded_and_fails_validation():
     s = Statement(
         period_start="2054-01-10", period_end="2054-01-12",
