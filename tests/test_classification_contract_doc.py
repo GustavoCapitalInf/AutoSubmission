@@ -1576,6 +1576,35 @@ def test_the_spec_and_the_contract_record_r3_b10():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B10, review round 1: the code commit §20 and the contract name.
+R3_B10_R1_CODE_COMMIT = "f598bca"
+
+
+def test_the_spec_and_the_contract_record_r3_b10_review_round_1():
+    """Audit round 3, R3-B10, review round 1 (findings 1 to 4): §8.6's verification-only words gain SETTLEMENT's short
+    spellings, §8.1's `holder_name` bullet and §9.3's bullet say so, the R3-17, R3-37, R3-38, R3-39, R3-90 part A and
+    batch lines are marked in place, the §20 line carries the commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        r"audit round 3, R3-B10 review round 1, §20: its short spellings `\bSETTLMT\b` and `\bSTLMT\b` too",
+        "whose verification-only words hold all three spellings since R3-B10 review round 1",
+        "Its review round 1 (§20) adds the reading of a credit whose entry fields or payer region print `SETTLMT`",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert amendments.count("(Amended by R3-B10 review round 1, finding 2, §20 below:") == 4
+    for words in ("(Amended by R3-B10 review round 1, finding 3, §20 below: two recorded effects of the `THE`",
+                  "(Amended by R3-B10 review round 1, findings 1 and 4, §20 below:",
+                  "- **R3-B10 review round 1: `SETTLEMENT`'s short spellings are verification-only words",
+                  "audit round 3, R3-B10, review round 1 (findings 1 to 4)", R3_B10_R1_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B10, review round 1 ({R3_B10_R1_CODE_COMMIT})",
+                  "`SETTLEMENT`'s short spellings `SETTLMT` and `STLMT` are verification-only words beside it"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
