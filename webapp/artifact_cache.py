@@ -733,7 +733,10 @@ OCR_STAGE_VERSION = 5
 # stage-33 analysis when it landed, so it needs no bump of its own. F1 (the
 # withholding basis) is applied when an analysis is served and F2(b) when a
 # package is built: neither changes a stored analysis.
-ANALYSIS_STAGE_VERSION = 33
+# 33 -> 34 (owner report 2026-10-08, Capital One daily ledger): the parser declares postings printed on the
+# previous-balance day (`Statement.pre_period_carry_in_count`) and the ADB engine folds them into the opening
+# balance, so such a statement's stored ADB and NSF days change from withheld to published; OCR stays cached.
+ANALYSIS_STAGE_VERSION = 34
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
