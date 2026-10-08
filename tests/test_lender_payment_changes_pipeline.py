@@ -183,6 +183,14 @@ def test_r3_b05_the_cli_and_the_batch_name_a_catch_up():
     assert analyze._payment_change_line(one) == (
         "catch-up: KAPITUS daily $850.00, no payment on 1 scheduled payment 2054-03-16, then 2x $1,700.00 on "
         "2054-03-17")
+    # Review round 1 (finding 2): a catch-up after the bounced attempt that ended the pause, before payments resumed.
+    attempt = pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    inside = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31)), 850) + attempt
+                       + pure._rows([M(17)], 1700))
+    assert analyze._payment_change_line(inside) == (
+        "pause: KAPITUS daily $850.00, no payment or attempt 2054-03-06 to 2054-03-16, 6 business days (grace 5); a "
+        "returned attempt on 2054-03-16, payments resumed on 2054-03-18; a catch-up of 2x on 2054-03-17 before "
+        "payments resumed")
     columns = batch._payment_change_columns([two, pause, {**one, "lender_state": "potential"}])
     assert (columns["lender_payment_catch_ups"], columns["lender_payment_pauses"]) == (2, 1)
     assert columns["lender_payment_changes"] == "catch_up:KAPITUS; pause:KAPITUS; catch_up:KAPITUS (potential)"

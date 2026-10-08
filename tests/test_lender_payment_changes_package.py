@@ -427,10 +427,17 @@ def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debi
         "catch_up", "daily", 850.0, 2, "2054-03-16", "2054-03-17", 2, "2054-03-18", 1700.0)
     assert cells(6, "same_amount_debits.count", "same_amount_debits.first_date", "same_amount_debits.last_date") == (
         12, "2054-03-16", "2054-03-31")
-    assert cells(1, "same_amount_debits.count", "missed_payments", "catch_up_date") == ("", "", "")
+    assert cells(1, "same_amount_debits.count", "missed_payments", "catch_up_date", "catch_ups_inside") == (
+        "", "", "", "")
+    # Review round 1 (finding 2): a catch-up after the presence that ended a pause, before payments resumed.
+    attempt = pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    inside = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31)), 850) + attempt
+                       + pure._rows([M(17)], 1700))
+    [cell] = [value for _section, name, value in _lender_payment_change_rows([inside]) if name == "catch_ups_inside"]
+    assert cell == "2054-03-17 1700.0 2x"
     fields = list(LENDER_PAYMENT_CHANGE_EXPORT_FIELDS)
-    assert fields[fields.index("resumed_date") + 1:fields.index("resumed_date") + 4] == [
-        "first_after_amount", "first_after_multiple", "larger_debits_inside"]
+    assert fields[fields.index("resumed_date") + 1:fields.index("resumed_date") + 5] == [
+        "first_after_amount", "first_after_multiple", "larger_debits_inside", "catch_ups_inside"]
     assert fields[-6:] == ["missed_payments", "missed_first_date", "missed_last_date", "multiple", "catch_up_date",
                            "catch_up_amount"]
 
@@ -467,6 +474,24 @@ def test_r3_84_a_package_pause_names_same_cents_debits_under_another_description
     kapitus = [item for item in built["lender_payment_changes"] if item["lender"] == "KAPITUS"]
     assert [item["kind"] for item in kapitus] == ["pause"]
     assert "same_amount_debits" not in kapitus[0]
+
+
+def test_r3_b05_r1_a_package_stop_whose_last_presence_is_a_catch_up_in_an_earlier_statement():
+    """Audit round 3, R3-B05, review round 1 (finding 1): KAPITUS weekly 1,000.00 on 03-03, 03-10 and 03-17, then
+    2,000.00 on 03-27 (the 03-24 payment missed), and an April statement with no KAPITUS debit. The package view and
+    its downloads build: the stop confirms on April, names the catch-up, and no Caught up line repeats it."""
+    from webapp.app import _package_rows
+
+    march = statement_payload(debits([M(3), M(10), M(17)], 1000) + debits([M(27)], 2000), month=3)
+    april = statement_payload([], month=4, opening=closing(march))
+    built = package(job("march", march), job("april", april))
+    [item] = built["lender_payment_changes"]
+    assert (item["kind"], item["lender"], item["stop_confirmed"], item["last_presence_date"],
+            item["source_document"]) == ("stop", "KAPITUS", True, "2054-03-27", "march.pdf")
+    assert item["other_debits_after"] == {"count": 1, "last_date": "2054-03-27", "catch_ups": 1}
+    assert "payoff" not in item
+    rows = {(section, name): value for section, name, value in _package_rows(built)}
+    assert rows[("lender_payment_change_1", "other_debits_after.catch_ups")] == 1
 
 
 def test_p13_the_package_json_download_carries_both_keys():

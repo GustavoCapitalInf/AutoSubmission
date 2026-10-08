@@ -1196,9 +1196,11 @@ def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scop
     `resumed_date`, the regime's next payment. Audit round 3, R3-25: or 'catch_up', an exact 2x to 6x one-off, with
     its `first_after_amount` and `first_after_multiple` (a catch-up on the day the regime's next payment posts still
     ends the pause as a catch-up, so the line names it: one line per gap); the pause's catch-up joins `covered`, so no
-    Caught up item repeats it. Every other one-off of 2x or more dated inside the gap, before the regime's next payment,
-    is named (`larger_debits_inside`). Audit round 3, R3-84: unclaimed debits of the regime's cents on its schedule
-    inside the gap are named (`same_amount_debits`)."""
+    Caught up item repeats it. R3-B05 review round 1: so do the catch-ups after the presence that ended the pause, up
+    to and including the day the regime's next payment posts (`catch_ups_inside`: a bounced attempt or a payment at
+    another amount ended it, then the merchant caught up before payments resumed). Every other one-off of 2x or more
+    dated inside the gap, before the regime's next payment, is named (`larger_debits_inside`). Audit round 3, R3-84:
+    unclaimed debits of the regime's cents on its schedule inside the gap are named (`same_amount_debits`)."""
     items: list[dict] = []
     kept, _dropped = _drop_short(_regimes(position, scope.chain.calendar, reading.series.attempts))
     for regime in kept:
@@ -1231,6 +1233,15 @@ def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scop
                 if covered is not None:
                     covered.add(resume.pay.order)
             item.update({"pause_business_days": pause, "grace_business_days": grace})
+            # Review round 1 (finding 2): the catch-ups after the presence that ended the pause (a bounced attempt, a
+            # payment at another amount or an earlier catch-up), up to the day payments resumed, are this line's too.
+            inside = [mark.pay for mark in marks
+                      if mark.kind == "catch_up" and mark.order > resume.order and mark.day <= second]
+            if inside:
+                item["catch_ups_inside"] = [{"date": _iso(pay.day), "amount": _money(pay.cents),
+                                             "multiple": _catch_up_multiple(pay, regime.amount)} for pay in inside]
+                if covered is not None:
+                    covered.update(pay.order for pay in inside)
             larger = [pay for pay in reading.singles
                       if first < pay.day < second and pay.cents >= PAYOFF_MULTIPLE * regime.amount
                       and _catch_up_multiple(pay, regime.amount) is None]
@@ -1309,9 +1320,11 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope,
         if scope.scope == "package" and later < statements and scope.coverage_source == "period_end":
             later_start = scope.chain.periods[later][0]
             if later_start is not None:
-                covered = (scope.coverage_end - later_start).days + 1
+                # The calendar days the later statements cover (named apart from `covered`, the catch-ups a line
+                # names: audit round 3, R3-B05, review round 1).
+                later_days = (scope.coverage_end - later_start).days + 1
                 factor = WEEKLY_EQUIVALENT[_regular(level.cadence)]
-                confirmed = 100 * covered * factor >= SHORT_REGIME_CYCLE_PERCENT * 7
+                confirmed = 100 * later_days * factor >= SHORT_REGIME_CYCLE_PERCENT * 7
         item.update({
             "cadence": level.cadence, "last_payment_date": _iso(last_pay.day),
             "last_payment_amount": _money(last_pay.cents), "payments": position.n,

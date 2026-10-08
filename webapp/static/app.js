@@ -1114,9 +1114,14 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
     const same = `at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`;
     const head = `Payments paused${tag}: no payment${attempt ? " or payment attempt" : ""} to ${label}${stream} between `
       + `${item.last_before_date} and ${item.first_after_date} ${facts}`;
-    const suffixes = (Array.isArray(item.larger_debits_inside) ? item.larger_debits_inside : [])
-      .filter((entry) => entry && typeof entry === "object")
-      .map((entry) => `a debit of ${money(entry.amount)} on ${entry.date} inside the gap, more than twice the payment`)
+    // R3-B05 review round 1: a catch-up after the presence that ended the pause, before payments resumed, is this
+    // line's too (one line per event).
+    const entries = (list) => (Array.isArray(list) ? list : []).filter((entry) => entry && typeof entry === "object");
+    const suffixes = entries(item.catch_ups_inside)
+      .map((entry) => `a debit of ${money(entry.amount)} (${entry.multiple} times the payment) on ${entry.date} before `
+        + "payments resumed (possible catch-up)")
+      .concat(entries(item.larger_debits_inside).map((entry) => `a debit of ${money(entry.amount)} on ${entry.date} `
+        + "inside the gap, more than twice the payment"))
       .concat(sameAmount(item.last_payment_amount));
     const resumed = `payments resumed ${same} on ${item.resumed_date || "N/A"}`;
     if (attempt) {

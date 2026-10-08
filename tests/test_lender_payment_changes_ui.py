@@ -318,6 +318,26 @@ console.log(JSON.stringify([lenderPaymentChangesSummary({json.dumps([caught_up, 
 
 
 @needs_node
+def test_r3_b05_r1_a_pause_names_a_catch_up_before_payments_resumed():
+    """Audit round 3, R3-B05, review round 1 (finding 2): a bounced attempt or a payment at another amount ends the
+    pause and a catch-up follows before payments resume: the pause line names it (one line per event)."""
+    gap = pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31))
+    attempt = pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    [after_attempt] = pure.changes(pure._rows(gap, 850) + attempt + pure._rows([M(17)], 1700))
+    [after_one_off] = pure.changes(pure._rows(gap, 850) + pure._rows([M(16)], 500) + pure._rows([M(17)], 2550))
+    texts = warning_texts([after_attempt, after_one_off])
+    assert texts[0] == [
+        "Payments paused: no payment or payment attempt to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; "
+        "daily, grace 5); the attempt on 2054-03-16 was returned unpaid, and payments resumed at the same daily "
+        "$850.00 on 2054-03-18; a debit of $1,700.00 (2 times the payment) on 2054-03-17 before payments resumed "
+        "(possible catch-up).", chip_html("‖", "Paused", "amber")]
+    assert texts[1][0] == (
+        "Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; daily, grace 5); "
+        "a payment at another amount on 2054-03-16, and payments resumed at the same daily $850.00 on 2054-03-18; a "
+        "debit of $2,550.00 (3 times the payment) on 2054-03-17 before payments resumed (possible catch-up).")
+
+
+@needs_node
 def test_r3_b05_the_same_amount_note_and_a_stop_it_never_confirms():
     march = pure._rows(pure.bdays(M(2), M(13)), 850) + pure._other(pure.bdays(M(16), M(31)), 850)
     [stop] = pure._chain((march, M(1), M(31)), (pure._other(pure.bdays(A(1), A(30)), 850), A(1), A(30)))

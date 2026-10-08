@@ -100,6 +100,9 @@ def _payment_change_line(item: dict) -> str:
             # Audit round 3, R3-25: an exact 2x to 6x debit ended the pause.
             tail = (f"; a catch-up of {item.get('first_after_multiple')}x on {item['first_after_date']}, payments "
                     f"resumed on {item.get('resumed_date')}")
+        # R3-B05 review round 1: a catch-up after the presence that ended the pause, before payments resumed.
+        tail += "".join(f"; a catch-up of {entry.get('multiple')}x on {entry.get('date')} before payments resumed"
+                        for entry in item.get("catch_ups_inside") or [] if isinstance(entry, dict))
         return (f"pause{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, {what} "
                 f"{item['last_before_date']} to {item['first_after_date']}, {item['pause_business_days']} business days "
                 f"(grace {item['grace_business_days']}){tail}")

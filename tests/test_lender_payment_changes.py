@@ -1468,3 +1468,90 @@ def test_r3_84_never_presence_and_never_a_payment():
     noted = only(_rows(bdays(M(2), M(13)), 850) + _other(bdays(M(16), M(31)), 850))
     assert {key: value for key, value in noted.items() if key not in ("same_amount_debits", "locations")} == {
         key: value for key, value in plain.items() if key != "locations"}
+
+
+# ------------------------------------- audit round 3, R3-B05, review round 1 (findings 1 and 2; fabricated rows only)
+@pytest.mark.parametrize("march,catch_up", [
+    # Weekly: the last payment on 03-17, a 2x on 03-27 (the 03-24 due date missed); daily: the last payment on 03-13,
+    # a 2x on 03-17 (03-16 missed). The next statement prints no debit of the funder.
+    (_rows([M(3), M(10), M(17)], 1000) + _rows([M(27)], 2000), "2054-03-27"),
+    (_rows(bdays(M(2), M(13)), 850) + _rows([M(17)], 1700), "2054-03-17"),
+])
+def test_r3_b05_r1_a_package_stop_whose_last_presence_is_a_catch_up(march, catch_up):
+    # Finding 1: the package's confirmation branch read a stop whose last presence (a catch-up) sits in a statement
+    # before the last one; the stop names the catch-up and confirms on the later statement, and no Caught up item
+    # repeats it (one line per event).
+    found = _chain((march, M(1), M(31)), (_other([A(6)], 25), A(1), A(30)))
+    assert _kinds(found) == ["stop"]
+    [item] = found
+    assert (item["scope"], item["stop_confirmed"], item["last_presence_date"]) == ("package", True, catch_up)
+    assert item["other_debits_after"] == {"count": 1, "last_date": catch_up, "catch_ups": 1}
+    assert "payoff" not in item
+    # Three statements, the catch-up in the first: the same reading.
+    feb = _rows([F(2), F(9), F(16)], 1000) + _rows([F(25)], 3000)
+    found = _chain((feb, F(1), F(28)), (_other([M(6)], 25), M(1), M(31)), (_other([A(6)], 25), A(1), A(30)))
+    assert [(item["kind"], item["stop_confirmed"], item["other_debits_after"]["catch_ups"]) for item in found] == [
+        ("stop", True, 1)]
+
+
+def _inside(item):
+    return item.get("catch_ups_inside")
+
+
+def test_r3_b05_r1_a_catch_up_after_a_bounced_attempt_that_ended_the_pause_is_named_on_the_pause():
+    # Finding 2: daily 850 paid 03-02 to 03-06; a bounced attempt on 03-16 ends the pause; a 2x on 03-17; payments
+    # resume on 03-18. One line for the gap: the pause names the 2x, and no Caught up item repeats the missed days.
+    attempt = _rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + attempt + _rows([M(17)], 1700))
+    assert _kinds(found) == ["pause"]
+    [item] = found
+    assert (item["first_after_kind"], item["first_after_date"], item["resumed_date"]) == (
+        "attempt", "2054-03-16", "2054-03-18")
+    assert _inside(item) == [{"date": "2054-03-17", "amount": 1700.0, "multiple": 2}]
+    # Weekly: a bounced attempt on 04-07, a 3x on 04-09, payments resume on 04-14.
+    found = changes(_rows(every(M(3), M(17)) + every(A(14), Y(26)), 1000)
+                    + _rows([A(7)], 1000, returned_funder_payment_by="transaction:99") + _rows([A(9)], 3000),
+                    start=M(1), end=Y(29))
+    assert _kinds(found) == ["pause"]
+    assert (found[0]["first_after_kind"], _inside(found[0])) == (
+        "attempt", [{"date": "2054-04-09", "amount": 3000.0, "multiple": 3}])
+
+
+def test_r3_b05_r1_a_catch_up_after_a_payment_sized_one_off_that_ended_the_pause_is_named_on_the_pause():
+    # Finding 2: a 500 one-off on 03-16 ends the pause and a 3x follows on 03-17; before, the 3x was named nowhere
+    # (counted from the one-off, nothing was missed before it).
+    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + _rows([M(16)], 500) + _rows([M(17)], 2550))
+    assert _kinds(found) == ["pause"]
+    assert (found[0]["first_after_kind"], _inside(found[0])) == (
+        "other_amount", [{"date": "2054-03-17", "amount": 2550.0, "multiple": 3}])
+    # Weekly: a 500 one-off on 04-07 ends the pause, the 04-14 payment is missed and a 3x follows on 04-21, before
+    # payments resume on 05-05: the pause line names the 3x; before, a separate Caught up line counted from 04-07.
+    found = changes(_rows(every(M(3), M(17)) + every(Y(5), Y(26)), 1000) + _rows([A(7)], 500) + _rows([A(21)], 3000),
+                    start=M(1), end=Y(29))
+    assert _kinds(found) == ["pause"]
+    assert (found[0]["first_after_kind"], found[0]["resumed_date"], _inside(found[0])) == (
+        "other_amount", "2054-05-05", [{"date": "2054-04-21", "amount": 3000.0, "multiple": 3}])
+
+
+def test_r3_b05_r1_a_catch_up_on_the_day_payments_resume_is_named_on_the_pause():
+    # The 2x posts with the resuming payment on 03-18 (as a catch-up on the regime's next payment day ends a pause).
+    attempt = _rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + attempt + _rows([M(18)], 1700))
+    assert _kinds(found) == ["pause"]
+    assert _inside(found[0]) == [{"date": "2054-03-18", "amount": 1700.0, "multiple": 2}]
+
+
+def test_r3_b05_r1_controls_name_no_catch_up_on_the_pause():
+    # A pause ended by a catch-up, by an attempt with no multiple after it, or by the regime's payment carries no
+    # list; a catch-up after payments resumed is its own event (its own line where it follows a missed payment).
+    pause = only(_rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1800))
+    assert pause["first_after_kind"] == "catch_up" and "catch_ups_inside" not in pause
+    attempt = _rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    alone = only(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + attempt)
+    assert alone["first_after_kind"] == "attempt" and "catch_ups_inside" not in alone
+    later = [day for day in bdays(M(18), M(31)) if day != M(24)]
+    found = changes(_rows(bdays(M(2), M(6)) + later, 850) + attempt + _rows([M(25)], 1700))
+    assert _kinds(found) == ["pause", "catch_up"]
+    assert "catch_ups_inside" not in found[0]
+    assert (found[1]["missed_payments"], found[1]["missed_first_date"], found[1]["catch_up_date"]) == (
+        1, "2054-03-24", "2054-03-25")
