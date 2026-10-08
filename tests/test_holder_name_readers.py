@@ -160,6 +160,20 @@ def test_us_bank_reads_the_mailing_line_before_its_contact_panel_and_drops_attn(
     assert reading.title is None
 
 
+@pytest.mark.parametrize(("mailing", "holder", "title"), [
+    # Audit round 3, R3-B11 (R3-61): a contact glued to its marker is dropped as a spaced one is, never published as
+    # a title; a contact whose words are the premium-trust designation itself is the account's title (the
+    # underwriter's Q10 of 2026-10-02), in any spacing.
+    ("CONTOSO TRADING LLC ATTN:JORDAN SAMPLE 100 SAMPLE BLVD SAMPLEVILLE MN 55000\n", "CONTOSO TRADING LLC", None),
+    ("CONTOSO INSURANCE AGENCY INC ATTN: PREMIUM TRUST ACCOUNT 100 SAMPLE BLVD SAMPLEVILLE MN 55000\n",
+     "CONTOSO INSURANCE AGENCY INC", "PREMIUM TRUST ACCOUNT"),
+    ("CONTOSO INSURANCE AGENCY INC ATTN:PREMIUM TRUST ACCOUNT 100 SAMPLE BLVD SAMPLEVILLE MN 55000\n",
+     "CONTOSO INSURANCE AGENCY INC", "PREMIUM TRUST ACCOUNT"),
+])
+def test_us_bank_reads_a_contact_by_its_words_not_its_spacing(mailing, holder, title):
+    assert us_bank._holder_reading(_document(_us_bank_page(mailing))) == HolderReading(holder, title)
+
+
 # --- RBC and Banque Royale ----------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize(("line", "holder"), [

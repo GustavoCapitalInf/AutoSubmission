@@ -4059,9 +4059,13 @@ _TITLE_ADDRESS = "PO BOX 100 SAMPLEVILLE SC 29000-0001"
      "PREMIUM TRUST ROOFING"),
     (f"NORTHWIND INSURANCE AGENCY LLC OPERATING ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY LLC",
      "OPERATING ACCOUNT"),
-    # A contact after the name is never a title, whatever words it prints.
+    # A contact after the name is never a title, whatever words it prints, except a contact whose words are the
+    # premium-trust designation itself, the account's title in any spacing (audit round 3, R3-B11: R3-61, which
+    # re-pins the spaced ATTN: case below; test_r3_61_a_contact_is_a_title_only_when_it_names_the_premium_trust_account
+    # holds the other spellings).
     (f"CONTOSO INSURANCE AGENCY INC ATTN PREMIUM TRUST DEPT {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC", None),
-    (f"CONTOSO INSURANCE AGENCY INC ATTN: PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC", None),
+    (f"CONTOSO INSURANCE AGENCY INC ATTN: PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC",
+     "PREMIUM TRUST ACCOUNT"),
     (f"CONTOSO INSURANCE AGENCY INC C/O PREMIUM TRUST SERVICES LLC {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC",
      None),
 ])
@@ -4089,7 +4093,8 @@ def test_the_address_line_reader_returns_the_title_it_drops(line, holder, title)
      "NORTHWIND HEART & VASCULAR LLC", None),
     (["SAMPLE PERSON", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"], "SAMPLE PERSON", None),
     # A contact's line is never published, even when it prints the title's words (its first token is the marker,
-    # which _without_contact never cuts).
+    # which _without_contact never cuts), unless its words are the premium-trust designation itself (audit round 3,
+    # R3-B11: R3-61; test_r3_61_a_contact_line_in_a_block_is_a_title_only_when_it_names_the_premium_trust_account).
     (["NORTHWIND INSURANCE AGENCY LLC", "ATTN PREMIUM TRUST DEPT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
      "NORTHWIND INSURANCE AGENCY LLC", None),
     (["NORTHWIND INSURANCE AGENCY LLC", "C/O PREMIUM TRUST ACCOUNTING", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
@@ -4117,12 +4122,106 @@ def test_the_address_block_reader_returns_the_title_and_never_an_owner_s_or_a_co
     # A name the reader cannot keep carries no title.
     ("X ACCOUNT", None, None),
     ("", None, None),
+    # Audit round 3, R3-B11 (R3-61): a contact glued to its marker is cut as a spaced one is; only the premium-trust
+    # designation itself is a contact's title.
+    ("CONTOSO TRADING LLC ATTN:JORDAN SAMPLE", "CONTOSO TRADING LLC", None),
+    ("CONTOSO INSURANCE AGENCY INC ATTN:PREMIUM TRUST ACCOUNT", "CONTOSO INSURANCE AGENCY INC",
+     "PREMIUM TRUST ACCOUNT"),
+    ("CONTOSO INSURANCE AGENCY INC CARE OF PREMIUM TRUST ACCT", "CONTOSO INSURANCE AGENCY INC", "PREMIUM TRUST ACCT"),
 ])
 def test_the_name_reader_returns_the_title_it_drops(name, holder, title):
     from analysis.holder_name import HolderReading, holder_from_name, read_name
 
     assert read_name(name) == HolderReading(holder, title)
     assert holder_from_name(name) == holder
+
+
+# Audit round 3, R3-B11 (R3-61; the underwriter's Q10 of 2026-10-02, "Hold every deposit into an account titled
+# "premium trust""): a contact line is read by its words, not its spacing. A contact (ATTN, ATTENTION, C/O, glued to its
+# text by a colon or a dot or not, and CARE OF after the name's legal form) is never part of the name, and it is the
+# account's title only when its words are the premium-trust designation itself; a person or a department never is.
+# Fabricated lines only.
+
+_R3_61_HOLDER = "CONTOSO INSURANCE AGENCY INC"
+
+
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN: PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTENTION:PREMIUM TRUST ACCT", "PREMIUM TRUST ACCT"),
+    ("ATTENTION: PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("C/O:PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("C/O PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN.PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("CARE OF PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("Attn: Premium Trust Account", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN: PREMIUM TRUST ACCT #XXXX1234", "PREMIUM TRUST ACCT #XXXX1234"),
+    # A person, a department or any other words: no title.
+    ("ATTN:SAMPLE PERSON", None),
+    ("CARE OF SAMPLE PERSON", None),
+    ("ATTN PREMIUM TRUST DEPT", None),
+    ("ATTN:PREMIUM TRUST DEPT", None),
+    ("C/O PREMIUM TRUST SERVICES LLC", None),
+    ("ATTN: PREMIUM TRUST ACCOUNTING", None),
+    ("ATTN: PREMIUM TRUST ACCOUNT SAMPLE PERSON", None),
+    ("ATTN: OPERATING ACCOUNT", None),
+])
+def test_r3_61_a_contact_is_a_title_only_when_it_names_the_premium_trust_account(contact, title):
+    from analysis.holder_name import HolderReading, read_address_line
+
+    assert read_address_line(f"{_R3_61_HOLDER} {contact} {_TITLE_ADDRESS}") == HolderReading(_R3_61_HOLDER, title)
+
+
+@pytest.mark.parametrize(("line", "holder", "title"), [
+    # A glued contact on a name with no legal form never leaks into the name.
+    ("NORTHWIND PDR ATTN:SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "NORTHWIND PDR", None),
+    ("NORTHWIND PDR ATTN.SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "NORTHWIND PDR", None),
+    # CARE OF is a contact only after the name's legal form: '… HOME CARE OF <place>' is a business name.
+    ("CONTOSO HOME CARE OF SAMPLEVILLE LLC 100 SAMPLE ST SAMPLEVILLE SC 29000-0001",
+     "CONTOSO HOME CARE OF SAMPLEVILLE LLC", None),
+    ("CONTOSO HOME CARE OF SAMPLEVILLE 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "CONTOSO HOME CARE OF SAMPLEVILLE",
+     None),
+    ("CONTOSO HOME CARE OF SAMPLEVILLE LLC CARE OF SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001",
+     "CONTOSO HOME CARE OF SAMPLEVILLE LLC", None),
+    # Recorded (not fixed): CARE OF on a name with no legal form stays in the name; the trailing designation is still
+    # the title, so the hold fires.
+    ("CONTOSO AGENCY CARE OF PREMIUM TRUST ACCOUNT 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "CONTOSO AGENCY CARE OF",
+     "PREMIUM TRUST ACCOUNT"),
+    # A court case's number is never a title.
+    ("SAMPLE PERSON CASE 12-34567-AB 100 SAMPLE LN SAMPLEVILLE SC 29000-0001", "SAMPLE PERSON", None),
+])
+def test_r3_61_a_glued_or_care_of_contact_never_leaks_into_the_name(line, holder, title):
+    from analysis.holder_name import HolderReading, read_address_line
+
+    assert read_address_line(line) == HolderReading(holder, title)
+
+
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN:PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("CARE OF PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("C/O: PREMIUM TRUST ACCT", "PREMIUM TRUST ACCT"),
+    ("ATTN:SAMPLE PERSON", None),
+    ("CARE OF SAMPLE PERSON", None),
+    ("C/O:PREMIUM TRUST ACCOUNTING", None),
+    ("ATTN PREMIUM TRUST DEPT", None),
+    ("C/O PREMIUM TRUST ACCOUNTING", None),
+    ("ATTENTION: ACCOUNTS PAYABLE", None),
+    ("ATTENTION: OPERATING ACCOUNT", None),
+])
+def test_r3_61_a_contact_line_in_a_block_is_a_title_only_when_it_names_the_premium_trust_account(contact, title):
+    from analysis.holder_name import HolderReading, read_address_block
+
+    lines = ["NORTHWIND INSURANCE AGENCY LLC", contact, "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"]
+    assert read_address_block(lines) == HolderReading("NORTHWIND INSURANCE AGENCY LLC", title)
+
+
+def test_r3_61_a_title_line_s_own_glued_contact_is_cut():
+    from analysis.holder_name import HolderReading, read_address_block
+
+    lines = ["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT ATTN:SAMPLE PERSON", "100 SAMPLE ST",
+             "SAMPLEVILLE SC 29000-0001"]
+    assert read_address_block(lines) == HolderReading("NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT")
 
 
 def test_a_statement_without_a_title_serializes_as_before_and_the_extraction_schema_never_names_one():

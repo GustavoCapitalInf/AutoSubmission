@@ -824,8 +824,11 @@ def test_the_true_card_names_an_unscreened_holder_and_unread_payer_text(tmp_path
 console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 """)
     note = {row["label"]: row["note"] for row in statement}["True Revenue"].replace("&#39;", "'")
+    # Audit round 3, R3-B11 (R3-30): a statement with no holder line read publishes no account title either, so no
+    # premium-trust title is read from it (the underwriter's Q10 of 2026-10-02); the fact says so.
     assert note == ("Posted credits minus known non-revenue and the deposits held for review · No holder name read: the "
-                    "holder's own deposits are not screened · 3 credits' payer text not read")
+                    "holder's own deposits are not screened, nor is a premium-trust account title read · 3 credits' "
+                    "payer text not read")
     unscreened = _payload(month=4)
     unscreened["metrics"]["holder_unscreened"] = True
     package = _package({"mar": _payload(), "apr": unscreened}, tmp_path, monkeypatch)
@@ -833,7 +836,25 @@ console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 """)
-    assert {row["label"]: row["note"] for row in rows}["True Revenue"].endswith("1 statement with no holder name read")
+    assert {row["label"]: row["note"] for row in rows}["True Revenue"].endswith(
+        "1 statement with no holder name read (nor a premium-trust title)")
+
+
+@needs_node
+def test_r3_30_a_package_names_its_statements_with_no_holder_name_or_title_read(tmp_path, monkeypatch):
+    """Audit round 3, R3-B11 (R3-30): a package with two holder-unscreened members counts them, and says that no
+    premium-trust title is read from them either."""
+    members = {"mar": _payload()}
+    for job, month in (("apr", 4), ("may", 5)):
+        members[job] = _payload(month=month)
+        members[job]["metrics"]["holder_unscreened"] = True
+    package = _package(members, tmp_path, monkeypatch)
+    rows = run_dashboard(METRIC_ROWS + f"""
+currentJobIds = ['mar', 'apr', 'may']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
+""")
+    note = {row["label"]: row["note"] for row in rows}["True Revenue"]
+    assert note.endswith("2 statements with no holder name read (nor a premium-trust title)")
 
 
 @needs_node

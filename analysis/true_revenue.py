@@ -6113,9 +6113,18 @@ PREMIUM_TRUST_REASON = "premium_trust_account"
 PREMIUM_TRUST_METHOD = "premium_trust_account"
 _PREMIUM_TRUST_RULE = "premium_trust_account_title"
 #: R2-OW11: the kind words a title may print after the premium-trust words (an account, a fund, a product), and the
-#: account and product words alone (no FUND or FUNDS), which the separator form needs.
-_PREMIUM_TRUST_KIND = r"(?:ACCOUNT|ACCT|ACCNT|A/C|FUNDS?|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
-_PREMIUM_TRUST_ACCOUNT_KIND = r"(?:ACCOUNT|ACCT|ACCNT|A/C|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
+#: account and product words alone (no FUND or FUNDS), which the separator form needs. Audit round 3, R3-B11 (R3-65):
+#: a product adjective may print before a kind word ('PREMIUM TRUST BUSINESS CHECKING'); an adjective alone is never
+#: a kind word ('PREMIUM TRUST BUSINESS' is no title).
+_PREMIUM_TRUST_ADJECTIVE = r"(?:(?:BUSINESS|ANALYZED|COMMERCIAL)\s+)?"
+_PREMIUM_TRUST_KIND = (
+    rf"{_PREMIUM_TRUST_ADJECTIVE}"
+    r"(?:ACCOUNT|ACCT|ACCNT|A/C|FUNDS?|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
+)
+_PREMIUM_TRUST_ACCOUNT_KIND = (
+    rf"{_PREMIUM_TRUST_ADJECTIVE}"
+    r"(?:ACCOUNT|ACCT|ACCNT|A/C|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
+)
 #: R2-OW11: a reference a title may print: an account number, masked or not, after #, NO, NUMBER, ACCOUNT, ACCT or A/C,
 #: in or out of parentheses; a roman numeral; or a parenthesised code of up to four letters or digits.
 _PREMIUM_TRUST_REFERENCE = (
@@ -6128,7 +6137,15 @@ _PREMIUM_TRUST_TITLE = rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_K
 #: the words followed by an account word; the words and one or more account or product words, a reference allowed, then
 #: a separator (' - ', an en or em dash, ':' or '(') and anything ('PREMIUM TRUST ACCOUNT - NORTHWIND AGENCY LLC').
 _PREMIUM_TRUST_AT_END = re.compile(rf"{_PREMIUM_TRUST_TITLE}(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?[\s.,;:\-)]*$")
-_PREMIUM_TRUST_WITH_ACCOUNT = re.compile(rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)(?![A-Z])")
+_PREMIUM_TRUST_WITH_ACCOUNT = re.compile(
+    rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+{_PREMIUM_TRUST_ADJECTIVE}(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)(?![A-Z])"
+)
+#: Audit round 3, R3-B11 (R3-65): the for-benefit form, the words and an account word before FBO, F/B/O, OF or FOR
+#: and a name ('PREMIUM TRUST ACCOUNT FBO NORTHWIND AGENCY LLC'), read on an account name or a holder name even when
+#: the field ends in a legal form (the form is the beneficiary's).
+_PREMIUM_TRUST_FOR_BENEFIT = re.compile(
+    rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)\s+(?:FBO|F/B/O|F B O|OF|FOR)\s+[A-Z]"
+)
 _PREMIUM_TRUST_SEPARATED = re.compile(
     rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_ACCOUNT_KIND})+)(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?"
     r"\s*(?:\s-\s|\s?[–—]\s?|:|\()\s*\S"
@@ -6157,10 +6174,17 @@ def premium_trust_title(account_title: str | None, account_name: str | None, hol
     words followed by an account word, or the words and an account or product word before a separator; never the
     words anywhere ('PREMIUM TRUST ROOFING', a trade name the holder reader dropped after a legal form, is no title).
     Then the account name, then the holder's name: the title at the end, the account-word form only when the field does
-    not end in a legal form ('PREMIUM TRUST ACCOUNT LLC' is a company), and the separator form even when it does
-    ('PREMIUM TRUST ACCOUNT - NORTHWIND INSURANCE AGENCY LLC'). Returns the matched title words, dots dropped.
-    Recorded false negatives (the safe direction): 'PREM. TR. ACCT.' and a bare title before a separator
-    ('PREMIUM TRUST - CONTOSO AGENCY LLC')."""
+    not end in a legal form ('PREMIUM TRUST ACCOUNT LLC' is a company), the for-benefit form even when it does ('PREMIUM
+    TRUST ACCOUNT FBO NORTHWIND AGENCY LLC'; audit round 3, R3-B11: R3-65), and the separator form even when it does
+    ('PREMIUM TRUST ACCOUNT - NORTHWIND INSURANCE AGENCY LLC'). Audit round 3, R3-B11 (R3-65): a product adjective
+    (BUSINESS, ANALYZED, COMMERCIAL) may print before a kind word or the account word, and FUND or FUNDS between the
+    words ('PREMIUM FUND TRUST ACCOUNT'). Returns the matched title words, dots dropped.
+    Recorded false negatives (each overstates True: the trust account's deposits stay counted): 'PREM. TR. ACCT.', a
+    bare title before a separator ('PREMIUM TRUST - CONTOSO AGENCY LLC'), 'PREMIUM TRUST OPERATING', and a title only a
+    statement whose parser reads no holder line prints (R3-30: no account title is published there).
+    Recorded over-reads (each understates True, held and reviewable): a trade name that prints the words and an account
+    word ('PREMIUM TRUST ACCOUNT SERVICES', 'PREMIUM TRUST ACCT MGMT', 'NORTHWIND PREMIUM TRUST ACCOUNT SERVICES' as a
+    holder with no legal form, a company named 'PREMIUM TRUST ACCOUNT OF <place> LLC')."""
     text = _premium_trust_field(account_title)
     if text:
         for form in (_PREMIUM_TRUST_AT_END, _PREMIUM_TRUST_WITH_ACCOUNT, _PREMIUM_TRUST_SEPARATED):
@@ -6173,6 +6197,8 @@ def premium_trust_title(account_title: str | None, account_name: str | None, hol
         if (found := _PREMIUM_TRUST_AT_END.search(text)) is not None:
             return _premium_trust_words(found)
         if not _PREMIUM_TRUST_LEGAL_LAST.search(text) and (found := _PREMIUM_TRUST_WITH_ACCOUNT.search(text)):
+            return _premium_trust_words(found)
+        if (found := _PREMIUM_TRUST_FOR_BENEFIT.search(text)) is not None:
             return _premium_trust_words(found)
         if (found := _PREMIUM_TRUST_SEPARATED.search(text)) is not None:
             return _premium_trust_words(found)

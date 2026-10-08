@@ -475,10 +475,13 @@ function packageRevenueBalanced(pkg = {}) {
 // read (the holds that keep the holder's own money out cannot see it), and the share of credits whose printed payer
 // no parser read. R2-OW03 (the underwriter's Q3): and the Zelle deposits the owner's policy excluded, so True can be
 // read against the Monthly Statements' total deposits. R2-OW11 (the underwriter's Q10): and a premium trust account,
-// whose deposits that would count are held.
+// whose deposits that would count are held. Audit round 3, R3-B11 (R3-30): a statement with no holder line read
+// publishes no account title either, so its premium-trust title is not read (a title in its account name still is).
 function statementRevenueFacts(metrics = {}, currency = "USD") {
   const facts = [];
-  if (metrics.holder_unscreened === true) facts.push("No holder name read: the holder's own deposits are not screened");
+  if (metrics.holder_unscreened === true) {
+    facts.push("No holder name read: the holder's own deposits are not screened, nor is a premium-trust account title read");
+  }
   if (metrics.payer_text_unread === true) {
     const count = numberOrNull(metrics.payer_text_unread_count);
     facts.push(`${count === null ? "Many" : formatNumber(count)} credits' payer text not read`);
@@ -513,7 +516,10 @@ function packageRevenueFacts(totals = {}, currency = "USD") {
   const noun = (n) => (n === 1 ? "statement" : "statements");
   const facts = [];
   const unscreened = statements(totals.holder_unscreened_documents);
-  if (unscreened) facts.push(`${formatNumber(unscreened)} ${noun(unscreened)} with no holder name read`);
+  // Audit round 3, R3-B11 (R3-30): nor a premium-trust title read from them.
+  if (unscreened) {
+    facts.push(`${formatNumber(unscreened)} ${noun(unscreened)} with no holder name read (nor a premium-trust title)`);
+  }
   const unread = statements(totals.payer_text_unread_documents);
   if (unread) facts.push(`${formatNumber(unread)} ${noun(unread)} with payer text not read`);
   // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members that are premium trust accounts.
