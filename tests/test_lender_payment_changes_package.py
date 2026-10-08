@@ -231,8 +231,9 @@ def test_p6b_a_funder_that_moves_to_another_account_is_never_a_confirmed_stop():
     assert (item["kind"], item["stop_confirmed"], item["source_document"]) == ("stop", False, "a-april.pdf")
     assert item["continues_in_other_account"] == {"source_job": "b-april", "source_document": "b-april.pdf",
                                                   "first_date": "2054-04-15", "amount": 1000.0}
-    assert line(item).endswith("; payments to KAPITUS continue from another account (b-april.pdf) from 2054-04-15 at "
-                               "$1,000.00 (a-april.pdf).")
+    # The owner's request of 2026-10-07 (dashboard clarity): an "Also:" sentence, then the statement the note is from.
+    assert line(item).endswith(" Also: payments to KAPITUS continue from another account (b-april.pdf) from Apr 15, "
+                               "2054 at $1,000.00. From: a-april.pdf.")
     [item] = p6b(ONDECK)["lender_payment_changes"]
     assert (item["kind"], item["stop_confirmed"]) == ("stop", True)
     assert "continues_in_other_account" not in item
