@@ -188,6 +188,12 @@ class Metrics:
     # Audit round 3, R3-B03 (R3-20; true revenue spec §9.1, §11): the True or Verified basis is above $0 and under
     # WITHHOLDING_BASIS_FLOOR, so no rate and no potential exposure is published over it (never on the legacy basis).
     withholding_basis_below_floor: bool = False
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue
+    # spec §9.1, §11; R3-B03): the paid payoff-worded debits to confirmed funders (`lump_sum_payoff`), in lender_debits
+    # and out of withholding_numerator: lender_debits + the standing returned payments - lump_sum_payoff_total is the
+    # numerator, to the cent.
+    lump_sum_payoff_total: float = 0.0
+    lump_sum_payoff_count: int = 0
     potential_withholding_exposure: float | None = None
     potential_withholding_numerator: float = 0.0
     potential_withholding_denominator: float = 0.0
@@ -412,6 +418,11 @@ def compute_metrics(
             m.lender_evidence.append(classification)
         if classification.contributes_to_withholding_rate:
             withholding_numerator += abs(t.amount)
+        if classification.lump_sum_payoff and classification.contributes_to_lender_totals:
+            # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): a paid
+            # payoff-worded debit, in the paid figure above and out of the withholding numerator.
+            m.lump_sum_payoff_total += abs(t.amount)
+            m.lump_sum_payoff_count += 1
         if classification.returned_funder_payment_by:
             # R2-OW13 (the underwriter's Q5): a funder payment returned unpaid, out of the paid figure above.
             m.returned_funder_payment_total += abs(t.amount)
@@ -748,6 +759,16 @@ def compute_metrics(
                 f"{m.returned_funder_payment_count} returned funder {payments} "
                 f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
             )
+    m.lump_sum_payoff_total = round(m.lump_sum_payoff_total, 2)
+    if m.lump_sum_payoff_count:
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; R3-B03): the
+        # lump sums out of the withholding rate, in the statement's own unit.
+        unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+        payments = "payment" if m.lump_sum_payoff_count == 1 else "payments"
+        m.notes.append(
+            f"{m.lump_sum_payoff_count} lump-sum {payments} to confirmed lenders ({m.lump_sum_payoff_total:,.2f}{unit}): "
+            "in paid to lenders, not in the withholding rate"
+        )
     m.withholding_denominator = m.eligible_deposits
     m.potential_withholding_numerator = m.potential_lender_debit_total
     m.potential_withholding_denominator = m.eligible_deposits

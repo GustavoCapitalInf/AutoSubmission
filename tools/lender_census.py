@@ -27,7 +27,11 @@ returned (`kept_in_count_returned`); any other withholding or reversed_by move o
 owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a returned row leaving the withholding
 rows because the same funder re-debited it is declared row by row (`returned_funder_represented`: the later snapshot's
 `represented_rows` names a confirmed lender's paid or returned row of the same entity dated on or after the return);
-any other returned row leaving them still fails.
+any other returned row leaving them still fails. The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude
+worded payoffs (Recommended)"; R3-B03): a confirmed funder's paid debit printing a payoff word leaving the withholding
+rows is declared row by row (`lump_sum_payoff_excluded`: the later snapshot's `lump_sum_payoff_rows` lists it and it is
+the same confirmed lender's paid row in both snapshots); any other paid row leaving them still fails outside the
+allowlist.
 
 `--reparse` (true revenue audit round 2, R2-B01: R12) re-parses every latest input a cached OCR reading
 reaches with the checkout's deterministic analysis stage, as the revenue census does
@@ -258,6 +262,14 @@ def _account_figures(records: list, stored: list, metrics: object) -> dict:
             [index, record.represented_by] for index, record in enumerate(records)
             if getattr(record, "represented_by", None)
         ],
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue
+        # spec §14.3 G7; R3-B03): each confirmed funder's paid debit printing a payoff word ([index, the word as
+        # printed]), out of the withholding rows; compare declares that move row by row (`lump_sum_payoff_excluded`). A
+        # checkout older than the answer records none.
+        "lump_sum_payoff_rows": [
+            [index, record.lump_sum_payoff] for index, record in enumerate(records)
+            if getattr(record, "lump_sum_payoff", None) and getattr(record, "contributes_to_lender_totals", False)
+        ],
         # R2-OW17 (J3): the stored reading's Zelle policy credits (their indexes).
         "zelle_policy_rows": [
             index for index, record in enumerate(stored)
@@ -448,6 +460,23 @@ def _represented_row(old: dict, new: dict, index: int) -> bool:
     return on_or_after(re_debit, credit, strictly=False) and on_or_after(re_debit, index, strictly=True)
 
 
+def _lump_sum_row(old: dict, new: dict, index: int) -> bool:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue
+    spec §14.3 G7; R3-B03): whether a row leaving the withholding rows is the answer's move, checked row by row: the later
+    snapshot lists it in `lump_sum_payoff_rows`, it is a confirmed lender's paid row in both snapshots (`lenders`, the
+    same entity), it was a withholding row and is no longer one. Anything else leaving the rows still fails."""
+    if index not in {row[0] for row in new.get("lump_sum_payoff_rows") or []}:
+        return False
+    states = new.get("states") or []
+    if not 0 <= index < len(states) or states[index] != "confirmed_lender":
+        return False
+    paid_before = {entry[0]: entry[1] for entry in old.get("lenders") or []}
+    paid_after = {entry[0]: entry[1] for entry in new.get("lenders") or []}
+    if index not in paid_before or paid_before.get(index) != paid_after.get(index):
+        return False
+    return index in set(old.get("withholding_rows") or ()) and index not in set(new.get("withholding_rows") or ())
+
+
 def _without_rows(snap: dict, rows: set[int]) -> dict:
     """A copy of an account snapshot without the lender and returned-payment entries of `rows`."""
     return {**snap, "lenders": [entry for entry in snap["lenders"] if entry[0] not in rows],
@@ -540,6 +569,9 @@ def compare(
     # Audit round 3, R3-B02 (R3-73, the owner's answer "Count it once"): a returned row leaving the withholding rows
     # because the same funder re-debited it (`_represented_row`), declared row by row.
     returned_represented: dict = {"analyses": set(), "rows": 0}
+    # Audit round 3, R3-B03 (R3-79, the owner's answer "Exclude worded payoffs"): a paid payoff-worded row leaving the
+    # withholding rows (`_lump_sum_row`), declared row by row.
+    lump_sums: dict = {"analyses": set(), "rows": 0}
     paid_left_other_outside = 0
     debits_unexplained: set[str] = set()
     numerator_unexplained: set[str] = set()
@@ -593,6 +625,11 @@ def compare(
                                 # the owner's Q5 ("keep it in the withholding rate"): it fails, allowlisted or not.
                                 returned_leaving["analyses"].add(sha)
                                 returned_leaving["rows"] += 1
+                        elif name == "withholding_rows" and _lump_sum_row(old, new, index):
+                            # Audit round 3, R3-B03 (R3-79): a paid lump-sum payoff out of the rate; declared
+                            # (lump_sum_payoff_excluded), never outside the allowlist.
+                            lump_sums["analyses"].add(sha)
+                            lump_sums["rows"] += 1
                         elif entities.get(str(index)) not in allowlisted:
                             outside += 1
         else:
@@ -716,6 +753,8 @@ def compare(
         # Audit round 3, R3-B02 (R3-73): a returned row out of the withholding rows because its funder re-debited it.
         "returned_funder_represented": {"analyses": len(returned_represented["analyses"]),
                                         "rows": returned_represented["rows"]},
+        # Audit round 3, R3-B03 (R3-79): a paid payoff-worded row out of the withholding rows.
+        "lump_sum_payoff_excluded": {"analyses": len(lump_sums["analyses"]), "rows": lump_sums["rows"]},
         "kept_in_count_returned": {entity: {"analyses": len(shas)} for entity, shas in sorted(kept_in_count.items())},
         "paid_rows": {name: paid_rows.get(name, 0) for name in ("left_returned", "left_other", "joined")},
         "lender_count": {
@@ -825,6 +864,9 @@ def _print_comparison(report: dict) -> None:
         represented = report.get("returned_funder_represented") or {"analyses": 0, "rows": 0}
         print(f"returned funder payments re-debited by their funder (out of the withholding rows, counted once): "
               f"{represented['analyses']} analyses/{represented['rows']} rows")
+        lump_sums = report.get("lump_sum_payoff_excluded") or {"analyses": 0, "rows": 0}
+        print(f"lump-sum payoffs (paid, out of the withholding rows): {lump_sums['analyses']} analyses/"
+              f"{lump_sums['rows']} rows")
         print(f"kept in the lender count, every paid row returned: {len(report['kept_in_count_returned'])} funders")
         print("paid rows: " + ", ".join(f"{name} {count}" for name, count in report["paid_rows"].items()))
         count = report["lender_count"]

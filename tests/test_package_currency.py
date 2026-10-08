@@ -83,6 +83,9 @@ EXPECTED_REFUSED_TOTALS = {
     # Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16): the deposits pass 2 held and the held ones it annotated.
     "own_account_transfer_held_total",
     "own_account_transfer_already_held_total",
+    # Audit round 3, R3-B03 (the owner's answer of 2026-10-07 to R3-79): the lump-sum payoffs, published only where a
+    # member has one (CONDITIONAL_REFUSED_TOTALS).
+    "lump_sum_payoff_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -155,6 +158,8 @@ CONDITIONAL_UNIT_FREE_TOTALS = {
     "package_match_unchecked_count",
     # Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16).
     "own_account_transfer_held_count", "own_account_transfer_already_held_count",
+    # Audit round 3, R3-B03 (R3-79): how many lump-sum payoffs, only where a member has one.
+    "lump_sum_payoff_count",
 }
 #: R2-OW15: the refused totals a package publishes only where a package pass found a row; a refusal nulls each where it
 #: is published and never adds one.
@@ -162,6 +167,8 @@ CONDITIONAL_REFUSED_TOTALS = {
     "returned_deposit_cross_statement_total", "unmatched_deposit_return_total", "processor_chargeback_total",
     # R2-OW16 (the underwriter's Q4).
     "own_account_transfer_held_total", "own_account_transfer_already_held_total",
+    # Audit round 3, R3-B03 (R3-79).
+    "lump_sum_payoff_total",
 }
 
 
@@ -1060,7 +1067,8 @@ def test_a_refused_package_publishes_the_package_passes_counts_and_no_mixed_mone
     assert totals["cross_currency_totals_refused"] is True
     assert (totals["returned_deposit_cross_statement_count"], totals["processor_chargeback_count"]) == (1, 1)
     unpublished = {"unmatched_deposit_return_total", "own_account_transfer_held_total",
-                   "own_account_transfer_already_held_total"}  # R2-OW16: no transfer between two accounts here
+                   "own_account_transfer_already_held_total",  # R2-OW16: no transfer between two accounts here
+                   "lump_sum_payoff_total"}  # audit round 3, R3-B03 (R3-79): no lump-sum payoff here
     for key in CONDITIONAL_REFUSED_TOTALS - unpublished:
         assert key in totals and totals[key] is None, key
     for key in unpublished:
@@ -1155,8 +1163,9 @@ def test_the_route_serves_the_undetermined_bucket_end_to_end():
     # 40 since audit B11 (I07) added the per-month True, Verified and Non-revenue; 41 since the owner's ruling of
     # 2026-10-02 (the underwriter's Q5, R2-OW13) added the returned funder payments' total; 44 since the same day's
     # ruling on the underwriter's Q6 (R2-OW15) added the package passes' three totals; 46 since the ruling on the
-    # underwriter's Q4 (R2-OW16) added the own-account transfers' two.
-    assert len(body["currency"]["refused_total_fields"]) == 46
+    # underwriter's Q4 (R2-OW16) added the own-account transfers' two; 47 since the owner's answer of 2026-10-07 to audit
+    # round 3's R3-79 (R3-B03) added the lump-sum payoffs' total.
+    assert len(body["currency"]["refused_total_fields"]) == 47
     assert body["totals"]["cross_currency_totals_refused"] is True
     assert body["totals"]["currency"] is None
     assert body["totals"]["total_credits"] is None

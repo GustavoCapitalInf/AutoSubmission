@@ -473,8 +473,11 @@ R2_OW18_KEYS = frozenset({"potential_payee_key", "lender_payment_changes", "lend
 #: Audit round 3, R3-B02 (the owner's answer of 2026-10-07 to R3-73): the record field every record gains
 #: (`represented_by`, null on every row of these fixtures).
 R3_B02_KEYS = frozenset({"represented_by"})
-#: Audit round 3, R3-B03: the metrics flag of R3-20's floor (`withholding_basis_below_floor`, false on these fixtures).
-R3_B03_KEYS = frozenset({"withholding_basis_below_floor"})
+#: Audit round 3, R3-B03: the metrics flag of R3-20's floor (`withholding_basis_below_floor`, false on these fixtures)
+#: and the owner's answer of 2026-10-07 to R3-79's keys (the record field `lump_sum_payoff`, null on every row; the
+#: metrics `lump_sum_payoff_total` and `_count`, 0; the detection list `lump_sum_payoffs`, empty).
+R3_B03_KEYS = frozenset({"withholding_basis_below_floor", "lump_sum_payoff", "lump_sum_payoff_total",
+                         "lump_sum_payoff_count", "lump_sum_payoffs"})
 
 
 def _without_r2_ow18(node):

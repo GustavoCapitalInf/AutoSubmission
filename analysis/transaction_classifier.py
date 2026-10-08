@@ -231,6 +231,12 @@ class TransactionClassification:
     # caught it up 2x; the debit then leaves the withholding rate (contributes_to_withholding_rate False), the re-debit
     # counting the obligation once. None on every other row.
     represented_by: str | None = None
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue
+    # spec §9.1, §11; R3-B03): on a confirmed funder's paid debit whose own text prints a payoff word (PAYOFF, PAY OFF,
+    # PAY-OFF, PREPAY, PRE-PAY, PREPAYMENT, BUYOUT, BUY OUT, PAYOUT; LUMP_SUM_PAYOFF_WORDS), the word as the bank printed
+    # it; the debit is a lump sum out of the withholding rate (contributes_to_withholding_rate False), still in paid to
+    # lenders and the lender count. None on every other row, a returned one included (Q5 keeps it in the rate).
+    lump_sum_payoff: str | None = None
     contributes_to_lender_count: bool = False
     contributes_to_potential_lender_count: bool = False
     contributes_to_lender_totals: bool = False
@@ -4265,6 +4271,32 @@ def _canonical_unknown_entity(text: str) -> str | None:
     return _unknown_entity_for_text(text, _unknown_payee_tokens(text))
 
 
+#: The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)", option (b); true
+#: revenue spec §11, §17.1, §19.1; R3-B03): the payoff words a confirmed funder's debit may print, read as whole words on
+#: its own normalized text (PAY-OFF and PRE-PAY normalize to PAY OFF and PRE PAY): PAYOFF, PAY OFF, PAY-OFF, PREPAY,
+#: PRE-PAY, PREPAYMENT, BUYOUT, BUY OUT and PAYOUT. A word glued to letters or digits (a reference such as XPAYOFF12) is
+#: no whole word and reads nothing; a word followed by punctuation (`PrePay:[...]`) is one.
+LUMP_SUM_PAYOFF_WORDS = re.compile(r"\b(?:PAYOFF|PAY OFF|PREPAYMENT|PREPAY|PRE PAY|BUYOUT|BUY OUT|PAYOUT)\b")
+#: The same words as a bank may print them, to quote: any case, any separator a normalization reads as a space.
+_LUMP_SUM_PAYOFF_PRINTED = re.compile(
+    r"(?<![A-Za-z0-9])(?:PAY[^A-Za-z0-9]*OFF|PRE[^A-Za-z0-9]*PAY(?:MENT)?|BUY[^A-Za-z0-9]*OUT|PAYOUT)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def lump_sum_payoff_words(description: str, text: str) -> str | None:
+    """R3-79 (the owner's answer of 2026-10-07): the first payoff word a row's normalized `text` prints, quoted as the
+    bank printed it in `description` (the first printed match that normalizes to one of the words; else the normalized
+    word), or None. The caller reads it on a confirmed funder's paid debit only, never on a credit."""
+    found = LUMP_SUM_PAYOFF_WORDS.search(text or "")
+    if found is None:
+        return None
+    for printed in _LUMP_SUM_PAYOFF_PRINTED.finditer(description or ""):
+        if LUMP_SUM_PAYOFF_WORDS.fullmatch(normalize_transaction_description(printed.group(0))):
+            return printed.group(0)
+    return found.group(0)
+
+
 def _build_record(
     *,
     description: str,
@@ -4293,6 +4325,11 @@ def _build_record(
 ) -> TransactionClassification:
     is_debit = amount < 0
     contributes_lender = classification == "confirmed_lender" and is_debit and is_posted
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; R3-B03): a
+    # confirmed funder's paid debit printing a payoff word is a lump sum, in paid to lenders and the lender count and out
+    # of the withholding numerator, beside R3-B01's contribution flags (R3-80). Potential lenders and every other row
+    # read as before.
+    lump_sum_payoff = lump_sum_payoff_words(description, text) if contributes_lender else None
     contributes_potential = classification == "potential_lender" and is_debit and is_posted
     contributes_insurance = classification == "insurance" and is_debit and is_posted
     flag_group = FLAG_GROUP_BY_STATE.get(classification)
@@ -4364,10 +4401,11 @@ def _build_record(
             "pending" if revenue_state == "unverified_deposit"
             else "not_required" if revenue_state else None
         ),
+        lump_sum_payoff=lump_sum_payoff,
         contributes_to_lender_count=contributes_lender,
         contributes_to_potential_lender_count=contributes_potential,
         contributes_to_lender_totals=contributes_lender,
-        contributes_to_withholding_rate=contributes_lender,
+        contributes_to_withholding_rate=contributes_lender and lump_sum_payoff is None,
         contributes_to_potential_lender_totals=contributes_potential,
         contributes_to_potential_withholding_exposure=contributes_potential,
         contributes_to_insurance_totals=contributes_insurance,
@@ -5857,6 +5895,8 @@ def _apply_reversal_pair_context(
                 contributes_to_flagged_totals=False,
                 returned_funder_payment_by=credit_location,
                 reason=f"{updated[debit_index].reason} {_returned_unpaid_reason(credit_location)}",
+                # Audit round 3, R3-B03 (R3-79): a returned payoff attempt stays in the rate, as Q5 rules.
+                **_returned_payoff_in_rate(updated[debit_index]),
             )
             updated[credit_index] = replace(updated[credit_index], returns_funder_payment=related_location)
         elif is_settlement_reversal:
@@ -5884,6 +5924,16 @@ def _is_paid_funder_debit(record: TransactionClassification) -> bool:
         and record.classification == "confirmed_lender"
         and record.contributes_to_lender_totals
     )
+
+
+def _returned_payoff_in_rate(record: TransactionClassification) -> dict:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03) meets Q5 of 2026-10-02: the answer takes a
+    PAID payoff-worded debit out of the withholding numerator, keeping it in paid to lenders; a returned one is out of
+    paid, and Q5 keeps every returned funder payment in the rate ("keep it in the withholding rate"), so a payoff
+    attempt the bank returned rejoins the numerator and is no lump sum. {} for every other debit."""
+    if record.lump_sum_payoff is None:
+        return {}
+    return {"contributes_to_withholding_rate": True, "lump_sum_payoff": None}
 
 
 def _is_counted_potential_payment(record: TransactionClassification) -> bool:
@@ -6113,6 +6163,8 @@ def _apply_returned_funder_payments(
             contributes_to_flagged_totals=False,
             returned_funder_payment_by=credit_location,
             reason=f"{updated[debit_index].reason} {_returned_unpaid_reason(credit_location)}",
+            # Audit round 3, R3-B03 (R3-79): a returned payoff attempt stays in the rate, as Q5 rules.
+            **_returned_payoff_in_rate(updated[debit_index]),
         )
         updated[credit_index] = replace(updated[credit_index], returns_funder_payment=debit_location)
     return updated
@@ -7719,6 +7771,8 @@ def _classify_statement_reading(
             duplicate_of=f"transaction:{original_index + 1}",
             review_required=True,
             reason=f"{record.reason} Exact duplicate of transaction:{original_index + 1}; excluded from all totals.",
+            # Audit round 3, R3-B03 (R3-79): a duplicate is in no total, so it is no lump sum either.
+            lump_sum_payoff=None,
             contributes_to_lender_count=False,
             contributes_to_potential_lender_count=False,
             contributes_to_lender_totals=False,

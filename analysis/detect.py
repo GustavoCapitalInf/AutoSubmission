@@ -100,6 +100,10 @@ class DetectionResult:
     # warning: {funder, amount, debit_date, debit_location, credit_date, credit_location, credit_description}, the
     # credit's description as the bank printed it.
     returned_funder_payments: list[dict] = field(default_factory=list)
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue
+    # spec §9.1, §10.1; R3-B03): one item per paid payoff-worded debit to a confirmed funder, the lender table's
+    # information line: {funder, amount, date, location, words}, the words as the bank printed them.
+    lump_sum_payoffs: list[dict] = field(default_factory=list)
     # The owner's request of 2026-10-06 (lender payment changes; true revenue spec §9.1; R2-OW18): one item per
     # decrease, increase, cadence change, pause, new stream or stop of a lender's regular payment in this statement
     # (analysis.lender_payment_changes). Information only: no lender, withholding or revenue figure reads it. An empty
@@ -167,6 +171,24 @@ def _returned_funder_payments(records: list[TransactionClassification]) -> list[
             })
         items.append(item)
     return items
+
+
+def _lump_sum_payoffs(records: list[TransactionClassification]) -> list[dict]:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; R3-B03): one
+    item per confirmed funder's paid debit printing a payoff word (`lump_sum_payoff`), in row order: the funder, the
+    amount, the date, the location and the payoff word as the bank printed it. In paid to lenders, out of the withholding
+    rate; the lender table prints a line per item."""
+    return [
+        {
+            "funder": record.canonical_entity,
+            "amount": round(abs(record.amount), 2),
+            "date": record.date,
+            "location": record.source_location or f"transaction:{index + 1}",
+            "words": record.lump_sum_payoff,
+        }
+        for index, record in enumerate(records)
+        if record.lump_sum_payoff and record.contributes_to_lender_totals and record.amount < 0
+    ]
 
 
 def _group_funders(
@@ -416,6 +438,7 @@ def detect(
         potential_lender_evidence=potential_lender_evidence,
         insurance_evidence=insurance_evidence,
         returned_funder_payments=_returned_funder_payments(records),
+        lump_sum_payoffs=_lump_sum_payoffs(records),
         lender_payment_changes=payment_changes_module.statement_payment_changes(
             records, period_start=stmt.period_start, period_end=stmt.period_end, currency=stmt.currency),
         verified_revenue_evidence=verified_revenue_evidence,

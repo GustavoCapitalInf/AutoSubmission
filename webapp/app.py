@@ -843,6 +843,12 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
                 if isinstance(value, (dict, list)):
                     value = json.dumps(value)
                 rows.append((f"{section}_{idx}", key, "" if value is None else value))
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): each lump-sum payoff (in paid to lenders, out of
+    # the withholding rate), `lump_sum_payoff_<n>`, its words the bank's, through the escaped-row path.
+    for idx, item in enumerate(package.get("lump_sum_payoffs") or [], start=1):
+        if isinstance(item, dict):
+            for key, value in item.items():
+                rows.append((f"lump_sum_payoff_{idx}", key, "" if value is None else value))
     for idx, funder in enumerate(package.get("funders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"funder_{idx}", key, "" if value is None else value))
@@ -1213,6 +1219,9 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     # Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16): the deposits pass 2 held and the held ones it annotated.
     "own_account_transfer_held_total",
     "own_account_transfer_already_held_total",
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs, published only where a
+    # member has one (_PACKAGE_MATCH_TOTAL_KEYS); their count is unit-free and stays.
+    "lump_sum_payoff_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -1244,6 +1253,8 @@ _PACKAGE_MATCH_TOTAL_KEYS = frozenset({
     "returned_deposit_cross_statement_total", "unmatched_deposit_return_total", "processor_chargeback_total",
     # R2-OW16 (the underwriter's Q4).
     "own_account_transfer_held_total", "own_account_transfer_already_held_total",
+    # Audit round 3, R3-B03 (R3-79): published the same way, only where a member has a lump-sum payoff.
+    "lump_sum_payoff_total",
 })
 
 #: The same rule for the cross-document funder / potential-lender / insurance
@@ -2811,6 +2822,10 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
             "contributes_to_flagged_totals": False,
             "returned_funder_payment_by": credit_side["source_location"],
             "package_match": {"kind": "returned_funder_payment", "credit": credit_side},
+            # Audit round 3, R3-B03 (R3-79): a returned payoff attempt rejoins the rate and is no lump sum, as Q5 rules
+            # inside a statement (`_returned_payoff_in_rate`).
+            **({"contributes_to_withholding_rate": True, "lump_sum_payoff": None}
+               if record.get("lump_sum_payoff") else {}),
         }
         overlays.setdefault(credit_entry["key"], {})[credit_position] = {
             "package_match": {"kind": "returned_funder_payment", "debit": debit_side},
@@ -3157,6 +3172,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the kept members' returned funder payments, each naming
     # its statement and its unit.
     package_returned_funder_payments: list[dict] = []
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): the kept members'
+    # lump-sum payoffs (each naming its statement and its unit) and their sum, published only where there is one.
+    package_lump_sum_payoffs: list[dict] = []
+    package_lump_sum = {"count": 0, "total": 0.0}
     package_potential_lender_evidence: list[dict] = []
     package_insurance_evidence: list[dict] = []
     package_revenue_evidence: dict[str, list[dict]] = {
@@ -3350,6 +3369,14 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             for transaction in authoritative_rows
             if transaction["classification"].get("returned_funder_payment_by")
         ]
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): the paid
+        # payoff-worded debits, in paid to lenders and out of the withholding rows above.
+        lump_sum_rows = [
+            transaction
+            for transaction in authoritative_rows
+            if transaction["classification"].get("lump_sum_payoff")
+            and transaction["classification"].get("contributes_to_lender_totals") is True
+        ]
         potential_lender_rows = [
             transaction
             for transaction in authoritative_rows
@@ -3464,6 +3491,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             withholding_numerator = round(sum(abs(_num(row.get("amount"))) for row in withholding_rows), 2)
             returned_funder_payment_total = round(sum(abs(_num(row.get("amount"))) for row in returned_rows), 2)
             returned_funder_payment_count = len(returned_rows)
+            lump_sum_payoff_total = round(sum(abs(_num(row.get("amount"))) for row in lump_sum_rows), 2)
+            lump_sum_payoff_count = len(lump_sum_rows)
             potential_lender_debit_total = round(
                 sum(abs(_num(row.get("amount"))) for row in potential_lender_rows),
                 2,
@@ -3480,6 +3509,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             withholding_numerator = _num(metrics.get("withholding_numerator"), lender_debits)
             returned_funder_payment_total = _num(metrics.get("returned_funder_payment_total"))
             returned_funder_payment_count = int(_num(metrics.get("returned_funder_payment_count"), 0.0))
+            lump_sum_payoff_total = _num(metrics.get("lump_sum_payoff_total"))
+            lump_sum_payoff_count = int(_num(metrics.get("lump_sum_payoff_count"), 0.0))
             potential_lender_debit_total = _num(
                 metrics.get("potential_lender_debit_total"),
                 _num(metrics.get("potential_lender_debits")),
@@ -3756,6 +3787,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             totals["returned_funder_payment_total"] + returned_funder_payment_total, 2
         )
         totals["returned_funder_payment_count"] += returned_funder_payment_count
+        package_lump_sum["count"] += lump_sum_payoff_count
+        package_lump_sum["total"] = round(package_lump_sum["total"] + lump_sum_payoff_total, 2)
         totals["potential_lender_debit_total"] = round(
             totals["potential_lender_debit_total"] + potential_lender_debit_total,
             2,
@@ -3811,6 +3844,18 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     **({"source_account": account_index} if account_index is not None else {}),
                     # Audit round 3, R3-B02 (R3-73): a payment the funder re-debited in the next statement.
                     **package_matched["represented"].get((member_key, returned_item.get("debit_location")), {}),
+                })
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the member's lump-sum payoffs, each naming
+        # its statement, its account (a statement of several) and its unit; a payment the package's pass 4 matched to a
+        # return in the next statement is out of paid there and no lump sum (its overlay row says so).
+        paid_lump_sums = {row["classification"].get("source_location") for row in lump_sum_rows}
+        for lump_sum_item in detection.get("lump_sum_payoffs") or []:
+            if isinstance(lump_sum_item, dict) and (not authoritative_rows
+                                                    or lump_sum_item.get("location") in paid_lump_sums):
+                package_lump_sum_payoffs.append({
+                    **lump_sum_item, "source_job": job.id, "source_document": job.filename,
+                    "source_currency": statement_currency,
+                    **({"source_account": account_index} if account_index is not None else {}),
                 })
 
         potential_matches_by_entity = {
@@ -3945,9 +3990,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 "source_document": job.filename,
             }
             # The withholding rows, and (audit round 3, R3-B02: R3-73) a returned funder payment its funder re-debited,
-            # which left the rate but is still a lender row.
+            # which left the rate but is still a lender row, and (R3-B03: R3-79) a paid lump-sum payoff, in paid to
+            # lenders and out of the rate.
             if (classification.get("contributes_to_withholding_rate") is True
-                    or classification.get("returned_funder_payment_by")):
+                    or classification.get("returned_funder_payment_by")
+                    or (classification.get("lump_sum_payoff")
+                        and classification.get("contributes_to_lender_totals") is True)):
                 package_lender_evidence.append(evidence)
             if _contributes_to_potential_totals(classification):
                 package_potential_lender_evidence.append(evidence)
@@ -4123,6 +4171,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # today's payloads carries neither key and is byte-identical.
             doc_row["account_index"] = account_index
             doc_row["account_count"] = account_count
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the member's lump-sum payoffs (in its
+        # `lender_debits`, out of its `withholding_numerator`), only where it has one.
+        if lump_sum_payoff_count:
+            doc_row["lump_sum_payoff_total"] = lump_sum_payoff_total
+            doc_row["lump_sum_payoff_count"] = lump_sum_payoff_count
         # The final review of round 2, F1 (§9.2): the member's withholding basis is not established, only where it is;
         # the package goes to review (review round 1 of the fix run).
         if member_basis_unestablished:
@@ -4595,6 +4648,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
            if mixed_basis else {}),
         # Audit round 3, R3-B03 (R3-20): a revenue basis under the withholding basis floor, only where it is.
         **({"withholding_basis_below_floor": True} if package_basis_below_floor else {}),
+        # Audit round 3, R3-B03 (R3-79, the owner's answer of 2026-10-07): the lump-sum payoffs in `lender_debits` and
+        # out of `withholding_numerator`, only where a member has one (the total refused across currencies).
+        **({"lump_sum_payoff_total": package_lump_sum["total"], "lump_sum_payoff_count": package_lump_sum["count"]}
+           if package_lump_sum["count"] else {}),
         "potential_withholding_exposure": potential_withholding,
         "potential_withholding_exposure_raw": potential_withholding_raw,
         "potential_withholding_formula": POTENTIAL_WITHHOLDING_FORMULA,
@@ -4705,6 +4762,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "lender_evidence": package_lender_evidence,
         # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the kept members' returned funder payments.
         "returned_funder_payments": package_returned_funder_payments,
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs' lines, each in its
+        # statement's own unit, only where there is one (never summed here, so the currency refusal leaves them).
+        **({"lump_sum_payoffs": package_lump_sum_payoffs} if package_lump_sum_payoffs else {}),
         # The owner's request of 2026-10-06 (R2-OW18): the lender payment changes across each account's consecutive
         # statements, absent only when no member was assessed, and the members not checked across statements (each with
         # its reason), only where there is one. Never summed, so the currency refusal leaves them as they are.

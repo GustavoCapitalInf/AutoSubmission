@@ -894,21 +894,64 @@ function withholdingAuditNote(metrics = {}, currency = "USD") {
   if (standing !== null && Math.abs(standing) > 0) parts.push(`incl. ${formatMoney(standing, currency)} returned unpaid`);
   const reDebited = returned === null || standing === null ? 0 : Math.round((returned - standing) * 100) / 100;
   if (reDebited > 0) parts.push(`${formatMoney(reDebited, currency)} returned and re-debited, counted once`);
+  // The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): the lump sums in paid
+  // to lenders and out of the numerator.
+  const lumpSum = lumpSumPayoffTotal(metrics);
+  if (lumpSum !== null) {
+    const count = numberOrNull(metrics.lump_sum_payoff_count) ?? 1;
+    parts.push(`${formatMoney(lumpSum, currency)} lump-sum ${count === 1 ? "payoff" : "payoffs"} not included`);
+  }
   const included = parts.length ? ` (${parts.join("; ")})` : "";
   return `${numerator} confirmed lender debits${included} divided by ${denominator} ${label.toLowerCase()}`;
 }
 
 // The returned funder payments still in the withholding numerator (R2-OW13), null when there is none: the numerator less
-// paid to lenders (audit round 3, R3-B02: a returned payment its funder re-debited is no longer in it), else the whole
-// returned total where either figure is missing (a payload analysed before the numerator).
+// paid to lenders (audit round 3, R3-B02: a returned payment its funder re-debited is no longer in it; R3-B03: paid
+// counts the lump-sum payoffs the numerator leaves out), else the whole returned total where either figure is missing
+// (a payload analysed before the numerator).
 function returnedStandingTotal(metrics = {}) {
   const returned = returnedFunderPaymentTotal(metrics);
   if (returned === null) return null;
   const numerator = numberOrNull(metrics.withholding_numerator);
   const paid = numberOrNull(metrics.lender_debits);
   if (numerator === null || paid === null) return returned;
-  const standing = Math.round((numerator - paid) * 100) / 100;
+  const standing = Math.round((numerator - paid + (lumpSumPayoffTotal(metrics) ?? 0)) * 100) / 100;
   return standing >= 0 && standing <= returned ? standing : returned;
+}
+
+// The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue spec
+// §10.1, §11; R3-B03): the paid payoff-worded debits to confirmed funders, in paid to lenders and out of the withholding
+// numerator, null when there is none (or the package refused the money across currencies).
+function lumpSumPayoffTotal(metrics = {}) {
+  const total = numberOrNull(metrics.lump_sum_payoff_total);
+  return total !== null && Math.abs(total) > 0 ? total : null;
+}
+
+// R3-79: one information line per lump-sum payoff, its money in its own statement's unit (a package item's
+// source_currency, R2-OW13's rule), quoting the payoff word as the bank printed it.
+function lumpSumPayoffLine(item, currency = "USD") {
+  const unit = "source_currency" in item ? item.source_currency : currency;
+  const words = item.words ? ` (${item.words})` : "";
+  return `Lump-sum payment to ${item.funder || "Confirmed lender"}: ${formatMoney(item.amount, unit)} on `
+    + `${item.date || "N/A"}${words}: in paid to lenders, not in the withholding rate.`;
+}
+
+// R3-79: the lines the copied summaries carry, one per item.
+function lumpSumPayoffLines(items, currency = "USD") {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => lumpSumPayoffLine(item, currency));
+}
+
+// R3-79: the lender table's lines (statement page, package page, statement modal).
+function lumpSumPayoffRowsHtml(items, currency = "USD") {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => `
+      <tr class="lender-warning">
+        <td colspan="6">${glassChip("Σ", "Lump sum", "blue")} <span class="lender-warning-text">${escapeHtml(lumpSumPayoffLine(item, currency))}</span></td>
+      </tr>
+    `).join("");
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q5, "take the bounced amount out of "paid to lenders" but keep it in the
@@ -1652,10 +1695,12 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
     matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
   }
   // The withholding flag, and (audit round 3, R3-B02: R3-73) a returned funder payment its funder re-debited, which
-  // left the rate but is still a lender row.
+  // left the rate but is still a lender row, and (R3-B03: R3-79) a lump-sum payoff, paid and out of the rate.
   if (filter === "lender") {
     matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true
-      || Boolean(transactionClassification(tx).returned_funder_payment_by));
+      || Boolean(transactionClassification(tx).returned_funder_payment_by)
+      || (Boolean(transactionClassification(tx).lump_sum_payoff)
+        && transactionClassification(tx).contributes_to_lender_totals === true));
   }
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
@@ -2916,7 +2961,7 @@ function lenderRowHtml(funder, currency = "USD") {
 }
 
 function renderLenders(funders, potentialLenders = [], currency = "USD", returnedPayments = [], paymentChanges = null,
-  unchecked = [], isPackage = false) {
+  unchecked = [], isPackage = false, lumpSums = []) {
   const confirmed = Array.isArray(funders) ? funders : [];
   const potential = Array.isArray(potentialLenders) ? potentialLenders : [];
   const lenders = [
@@ -2933,7 +2978,10 @@ function renderLenders(funders, potentialLenders = [], currency = "USD", returne
       <tr class="lender-warning">
         <td colspan="6">${glassChip("!", "Returned", "amber")} <span class="lender-warning-text">${escapeHtml(returnedFunderPaymentWarning(item, currency))}</span></td>
       </tr>
-    `).join("") + lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, lenders.length > 0, isPackage);
+    `).join("")
+    // Audit round 3, R3-B03 (R3-79): one information line per lump-sum payoff, after the returned lines.
+    + lumpSumPayoffRowsHtml(lumpSums, currency)
+    + lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, lenders.length > 0, isPackage);
   if (!lenders.length) {
     els.lenderTable.innerHTML = warnings + `
       <tr>
@@ -4107,7 +4155,8 @@ function renderAccount(report) {
   renderAccountSummary(accountFieldRows(statement, currentMarkdown));
   renderRevenueEvidence(metrics, currency);
   // R2-OW13 (the underwriter's Q5): the returned funder payments' warning lines; R2-OW18: the lender payment changes.
-  renderLenders(funders, potentialLenders, currency, detection.returned_funder_payments, detection.lender_payment_changes);
+  renderLenders(funders, potentialLenders, currency, detection.returned_funder_payments, detection.lender_payment_changes,
+    [], false, detection.lump_sum_payoffs);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(detection.flagged_positions, currency, false);
   renderMainTransactions();
@@ -5005,7 +5054,7 @@ function renderPackageTables(pkg) {
   // R2-OW13: each warning line names its own statement's unit. R2-OW18: the lender payment changes across the
   // package's statements, and the members not checked across them.
   renderLenders(funders, potentialLenders, currency, pkg.returned_funder_payments, pkg.lender_payment_changes,
-    pkg.lender_payment_changes_unchecked, true);
+    pkg.lender_payment_changes_unchecked, true, pkg.lump_sum_payoffs);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(pkg.flagged_positions, currency, true);
   renderRevenueEvidence(packageRevenueFlags(pkg.totals || {}), currency);
@@ -5461,8 +5510,9 @@ function renderStatementModal(jobId, report, markdown) {
 
   // R2-OW18 (G4): the statement's own lender payment change lines, above its lender rows (R2-OW13's returned lines stay
   // absent here, as before).
-  const paymentChangeRows = lenderPaymentChangeRowsHtml(detection.lender_payment_changes, [], currency,
-    lenderRows.length > 0, false);
+  // Audit round 3, R3-B03 (R3-79): and the lump-sum payoffs' information lines above them.
+  const paymentChangeRows = lumpSumPayoffRowsHtml(detection.lump_sum_payoffs, currency)
+    + lenderPaymentChangeRowsHtml(detection.lender_payment_changes, [], currency, lenderRows.length > 0, false);
   if (!lenderRows.length) {
     els.statementModalLenders.innerHTML = paymentChangeRows + `
       <tr>
@@ -5559,7 +5609,9 @@ function generateSummary() {
     // R2-OW18 (G5): one "- <warning text>" line per lender payment change across the package's statements.
     const paymentChangeLines = (Array.isArray(pkg.lender_payment_changes) ? pkg.lender_payment_changes : [])
       .filter((item) => item && typeof item === "object")
-      .map((item) => `\n- ${lenderPaymentChangeWarning(item, currency)}`).join("");
+      .map((item) => `\n- ${lenderPaymentChangeWarning(item, currency)}`).join("")
+      // Audit round 3, R3-B03 (R3-79): one "- <line>" per lump-sum payoff, each in its own statement's unit.
+      + lumpSumPayoffLines(pkg.lump_sum_payoffs, currency).map((line) => `\n- ${line}`).join("");
     const counted = countedDocuments(pkg.documents);
     const repeats = duplicateDocuments(pkg.documents).length;
     // Audit round 2, R2-B15 (R50): a package holding an account of a document says how many of its accounts completed.
@@ -5623,6 +5675,8 @@ function generateSummary() {
     `${lenderDebitsSummary(m, currency)}, and ` +
     `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure. ` +
     (lenderPaymentChangesSummary(d.lender_payment_changes) ? `${lenderPaymentChangesSummary(d.lender_payment_changes)} ` : "") +
+    // Audit round 3, R3-B03 (R3-79): each lump-sum payoff's line.
+    lumpSumPayoffLines(d.lump_sum_payoffs, currency).map((line) => `${line} `).join("") +
     `Status: ${labelize(decision)}.`;
 }
 
