@@ -919,6 +919,14 @@ INTERAC_VIREMENTS = [
     "VIREMENT INTERAC FABRIKAM LTEE", "VIREMENT INTERAC 123456789012 JOHN SMITH", "VIREMENT INTERAC RECU 1234",
     "VIREMENT AUTODEPOSIT JOHN SMITH", "VIREMENT E TRANSFER JOHN SMITH", "VIREMENT ETRANSFER JOHN SMITH",
     "VIREMENT E TFR JOHN SMITH",
+    # Audit round 3, R3-29 (R3-B12): Interac's French name, virement par courriel, is an Interac form (Banque Royale's
+    # autodeposit prints 'DEPOT AUTO VIREMENTS PAR COURRIEL <sender> <reference>').
+    "DEPOT AUTO VIREMENT PAR COURRIEL FABRIKAM LTEE C1AX23X", "VIREMENT PAR COURRIEL FABRIKAM LTEE",
+]
+#: Audit round 3, R3-29 (R3-B12): the plural, which pass 7 reads as the rail (_INTERAC_COURRIEL) and the classifier's
+#: VIREMENT never reads (the 5.5 channel gate's residual, §8.4).
+INTERAC_COURRIEL_PLURAL = [
+    "DEPOT AUTO VIREMENTS PAR COURRIEL FABRIKAM LTEE C1AX23X", "VIREMENTS PAR COURRIEL FABRIKAM LTEE",
 ]
 
 
@@ -944,10 +952,22 @@ def test_a_virement_in_the_holder_s_name_is_still_held_as_the_holder_s():
     assert _tier(_one("VIREMENT EN LIGNE CONTOSO BAKERY LLC", 250.0)) == ("excluded_pending_review", "holder_name")
 
 
-@pytest.mark.parametrize("text", INTERAC_VIREMENTS)
+@pytest.mark.parametrize("text", INTERAC_VIREMENTS + INTERAC_COURRIEL_PLURAL)
 def test_an_interac_virement_keeps_its_person_to_person_reading(text):
     # §8.4: Interac prints VIREMENT INTERAC; with the e-transfer or autodeposit words a VIREMENT is the rail too.
     assert _tier(_one(text, 250.0)) == P2P
+
+
+@pytest.mark.parametrize("text", INTERAC_COURRIEL_PLURAL)
+def test_r3_29_the_plural_courriel_form_is_the_rail_in_pass_7_only(text):
+    # Audit round 3, R3-29 (R3-B12): pass 7 reads it, with the round-sum repeat; the classifier's rail is unchanged.
+    from analysis import transaction_classifier as classifier
+    from analysis.description_text import normalize_transaction_description
+
+    normalized = classifier.revenue_text(normalize_transaction_description(text))
+    assert classifier._CONSUMER_P2P_RAIL.search(normalized) is None
+    rows = _records([(text, 500.0), (text.replace("C1AX23X", "C1AX24X"), 600.0), (text, 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
 
 
 @pytest.mark.parametrize("name", ["FABRIKAM LTEE", "123456789012 JOHN SMITH"])
@@ -978,7 +998,10 @@ def test_the_census_reads_a_virement_s_transfer_fact_as_pass_7_does():
 
     for text, held in [("VIREMENT EN LIGNE TF 1234567", True), ("VIREMENT ENTRE COMPTES 1234567", True),
                        ("VIREMENT EN LIGNE FABRIKAM LTEE", False), ("VIREMENT INTERAC FABRIKAM LTEE", False),
-                       ("VIREMENT INTERAC RECU 1234", False)]:
+                       ("VIREMENT INTERAC RECU 1234", False),
+                       # Audit round 3, R3-29 (R3-B12): the COURRIEL form is the rail, no transfer.
+                       ("DEPOT AUTO VIREMENT PAR COURRIEL C1AX23X", False),
+                       ("DEPOT AUTO VIREMENTS PAR COURRIEL C1AX23X", False)]:
         record = _one(text, 250.0)
         facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
         assert facts["transfer_no_counterparty"] is held

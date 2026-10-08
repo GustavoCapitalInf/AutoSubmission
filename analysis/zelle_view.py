@@ -31,7 +31,7 @@ from .revenue import (
     revenue_contribution_flags,
 )
 from .transaction_classifier import revenue_text
-from .true_revenue import ZELLE_POLICY_METHOD, without_transfer_code, zelle_deposit
+from .true_revenue import ZELLE_POLICY_METHOD, pass_text, zelle_deposit
 
 #: The account key of the stored edits that turn the stored (No) reading into the counted (Yes) one.
 ZELLE_EDITS_KEY = "zelle_counted_reading"
@@ -303,15 +303,16 @@ def _posted_credits(account: Mapping) -> Iterable[tuple[int, dict, dict]]:
 
 def _reads_zelle(record: Mapping) -> bool:
     """The pass's own Zelle reading of a serialized record: the classifier's revenue text of its normalized
-    description, without TD Canada Trust's e-Transfer code (without_transfer_code, on the record's bank and printed
-    description), read by true_revenue.zelle_deposit. A description that never prints the letters ZEL (the rail's
-    every form, ZELLE and PNC's ZEL FROM / ZEL TO) is read no further: the reader runs on every served account."""
+    description, read as pass 7 reads it (true_revenue.pass_text, on the record's bank and printed description: TD
+    Canada Trust's e-Transfer code dropped; audit round 3, R3-12: PNC's ZEL spelled ZELLE, which reads the same), read
+    by true_revenue.zelle_deposit. A description that never prints the letters ZEL (the rail's every form, ZELLE and
+    PNC's ZEL FROM / ZEL TO) is read no further: the reader runs on every served account."""
     description = str(record.get("normalized_description") or "")
     if "ZEL" not in description.upper():
         return False
     text = revenue_text(description)
     holder = SimpleNamespace(bank=record.get("bank"), original_description=record.get("original_description"))
-    return zelle_deposit(without_transfer_code(holder, text))
+    return zelle_deposit(pass_text(holder, text))
 
 
 def zelle_rows(account: Mapping) -> tuple[list[int], bool]:

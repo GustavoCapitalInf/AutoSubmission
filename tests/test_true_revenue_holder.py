@@ -1199,8 +1199,10 @@ PERSON_HELD = [
 
 
 @pytest.mark.parametrize(("text", "tier"), [
-    ("Zel From First Sample Yacht Service WFCT0A0B0C01", UNLABELLED),
-    ("Zel From Contoso Yacht Service WFCT0A0B0C02", UNLABELLED),
+    # Audit round 3, R3-12 (R3-B12): pass 7 reads PNC's ZEL as its ZELLE twin, a person-to-person credit (counted
+    # p2p; it was counted named_payer_unlabelled): still a customer, never the holder.
+    ("Zel From First Sample Yacht Service WFCT0A0B0C01", P2P),
+    ("Zel From Contoso Yacht Service WFCT0A0B0C02", P2P),
 ])
 def test_r20_another_company_sharing_two_trade_words_is_a_customer(text, tier):
     assert _tiers([(text, 600.0)], bank="PNC", holder_name=YACHT) == [tier]

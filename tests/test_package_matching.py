@@ -868,9 +868,10 @@ def test_t9_an_already_held_deposit_that_pairs_is_annotated_only(credit, reason,
 @pytest.mark.parametrize("amount", [4200.00, 4213.57])
 def test_t9_a_zelle_deposit_held_as_the_holder_s_name_is_never_annotated(amount):
     """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): under Yes (this file's settings={}) a
-    Zelle deposit from the holder's own name is held as holder_name, and PNC's 'ZEL FROM' escapes the consumer rail;
-    pass 2 still never matches it (Q4 (2026-10-02): never P2P; true_revenue.zelle_deposit). 4,200.00 is the brief's
-    case (a round sum, refused anyway); 4,213.57 is refused by the Zelle test alone."""
+    Zelle deposit from the holder's own name is held as holder_name, and PNC's 'ZEL FROM', which the classifier's
+    consumer rail does not read (pass 7 reads it as its 'ZELLE FROM' twin since audit round 3, R3-12:
+    true_revenue.pass_text); pass 2 still never matches it (Q4 (2026-10-02): never P2P; true_revenue.zelle_deposit).
+    4,200.00 is the brief's case (a round sum, refused anyway); 4,213.57 is refused by the Zelle test alone."""
     package = _package(("a", _account_a("ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521", amount=-amount, day=2)),
                        ("b", _account_b("ZEL FROM CONTOSO BAKERY LLC", amount=amount)))
     record = _ledger_row(package, "b", "transaction:1")["classification"]

@@ -1149,7 +1149,15 @@ _NOT_A_NAME_ALONE = frozenset({
 #: a French transfer, typically between the holder's own accounts: transfer wording (_p2p_rail, _transfer_wording).
 #: The 5.5 channel gate (the classifier's _CONSUMER_P2P_RAIL) is unchanged.
 _VIREMENT = re.compile(r"(?<![A-Z])VIREMENT\b")
-_INTERAC_FORM = re.compile(r"(?<![A-Z])(?:INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|AUTODEPOSIT)\b")
+#: Audit round 3, R3-29 (§8.2, §8.4; Q3 of 2026-10-02: "Other P2P rails (Interac e-Transfer, ...) are unchanged"):
+#: Interac's French name, "virement par courriel", singular or plural. Banque Royale's autodeposit prints 'DEPOT AUTO
+#: VIREMENTS PAR COURRIEL <sender> <reference>', which the classifier's VIREMENT\b never reads (the plural): pass 7
+#: reads it as the e-Transfer rail (_p2p_rail, _p2p_sender_rail, _E_TRANSFER_RAIL), before the cash or branch DEPOT.
+#: DEPOT AUTO(MATIQUE) alone is no form (beside VIREMENT it can be the holder's own scheduled transfer).
+_INTERAC_COURRIEL = re.compile(r"(?<![A-Z])VIREMENTS? PAR COURRIEL\b")
+#: Audit round 3, R3-29: PAR COURRIEL is an Interac form, so the singular 'VIREMENT PAR COURRIEL' is the rail in
+#: _p2p_rail and no transfer wording in _transfer_wording.
+_INTERAC_FORM = re.compile(r"(?<![A-Z])(?:INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|AUTODEPOSIT|PAR COURRIEL)\b")
 #: §8.2 (S4.2 follow-up 2): the French transfer and posting words, never a transfer's counterparty ('VIREMENT EN LIGNE
 #: TF <reference>', 'VIREMENT ENTRE COMPTES', 'VIREMENT DE FONDS', 'VIREMENT RECU', 'VIREMENT PAR BANQUE EN DIRECT').
 _VIREMENT_TRANSFER_WORDS = frozenset({
@@ -1512,8 +1520,12 @@ def _wire_originator_text(text: str) -> str:
 @cache
 def _p2p_sender_rail() -> re.Pattern[str]:
     """Q4 (S4.2 review I7): the rails a sender printed without FROM follows: §8.4's consumer rails and RTP. A push
-    rail a platform's payout prints after the payer's name ('<payer> ... VISA DIRECT <city> <state>') is not read."""
-    return re.compile(_classifier()._CONSUMER_P2P_RAIL.pattern + r"|(?<![A-Z])RTP\b")
+    rail a platform's payout prints after the payer's name ('<payer> ... VISA DIRECT <city> <state>') is not read.
+    Audit round 3, R3-29: Interac's French form (_INTERAC_COURRIEL) first, so the sender is read after COURRIEL (the
+    singular's VIREMENT would otherwise read 'PAR COURRIEL' as the sender's words)."""
+    return re.compile(
+        _INTERAC_COURRIEL.pattern + "|" + _classifier()._CONSUMER_P2P_RAIL.pattern + r"|(?<![A-Z])RTP\b"
+    )
 
 
 def _p2p_sender_region(text: str) -> str:
@@ -3174,8 +3186,13 @@ _ZELLE_PRIOR = "zelle_prior:"
 #: the right boundary is a letter, so the glued reference reads with or without the revenue text's rail split). The
 #: left boundary is the card forms' (no letter before), so a name holding the letters (HAZEL, ROSZELL, MAZZELLA,
 #: ZELLER, EZELL) is never read. The classifier's _CONSUMER_P2P_RAIL, shared with the legacy classes and the debits,
-#: does not read PNC's ZEL and is not changed.
+#: does not read PNC's ZEL and is not changed. Audit round 3, R3-12: pass 7 reads PNC's ZEL as its ZELLE twin on its
+#: own text (pass_text); the ZEL arm stays here for the readers of the raw text (R2-OW16's own-account pass, the
+#: lessor and asset-sale carve-outs).
 _ZELLE_RAIL = re.compile(r"(?<![A-Z])ZELLE(?![A-Z])|(?<![A-Z])ZEL (?:FROM|TO)\b")
+#: Audit round 3, R3-12 (the owner's amendment of 2026-10-06 to the underwriter's Q3: "holds as for other P2P"): PNC's
+#: spelling of the Zelle rail, 'ZEL FROM <sender>' and 'ZEL TO <recipient>', which pass_text spells 'ZELLE '.
+_ZEL_SPELLING = re.compile(r"(?<![A-Z])ZEL (?=(?:FROM|TO)\b)")
 #: The owner's ruling of 2026-10-02 (the underwriter's Q12), R2-OW03 (spec §5.3; the Q12 card's open point 2, its
 #: default): the display reason a government payment that prints no purpose carries (§6.1 step 3a decided it
 #: non_revenue, method GOVERNMENT_NO_PURPOSE_METHOD), so the non-revenue breakdown names the excluded government money.
@@ -3184,10 +3201,37 @@ GOVERNMENT_NO_PURPOSE = "government_no_purpose"
 GOVERNMENT_NO_PURPOSE_METHOD = "government_no_purpose_exclusion"
 
 
+def pass_text(record, text: str) -> str:
+    """Audit round 3, R3-12 (§8.4; the owner's amendment of 2026-10-06 to the underwriter's Q3, R2-OW17: "holds as for
+    other P2P"): the credit text pass 7's payer facts, holds, counter-credit reading and Zelle step read, and the
+    census's facts (guard_facts) and the served Zelle view (zelle_view._reads_zelle) read: the revenue text without TD
+    Canada Trust's e-Transfer code (without_transfer_code, audit round 2, R2-B11), with PNC's Zelle rail, printed
+    'ZEL FROM <sender>' or 'ZEL TO <recipient>' (_ZEL_SPELLING), spelled as its ZELLE twin. So a PNC Zelle credit reads
+    as the same sender's 'ZELLE FROM' row: the person-to-person channel (_p2p_rail), the payer region and key (pooled
+    with that sender's ZELLE rows), the round-sum repeat, and R2-B02's (R02) person match of the counter-debit hold.
+    `record` needs only its bank and printed description. The classifier's _CONSUMER_P2P_RAIL (the 5.5 channel gate,
+    the legacy classes, the debits) is unchanged: a 'ZEL TO' debit keeps the classifier's debit reading."""
+    return _ZEL_SPELLING.sub("ZELLE ", without_transfer_code(record, text))
+
+
 def zelle_deposit(text: str) -> bool:
     """Q3 (2026-10-02, spec §8.4): the credit's revenue text prints the Zelle rail before its receiver fields
-    (_ZELLE_RAIL)."""
-    return _ZELLE_RAIL.search(_classifier()._before_receiver(text)) is not None
+    (_ZELLE_RAIL). Audit round 3, R3-56: a wire is never a Zelle deposit, whatever its memo prints ('PMT DET:INVOICE
+    <n> PAID BY WIRE INSTEAD OF ZELLE'): an incoming wire (the classifier's _is_wire_row) or a loose wire's originator
+    row (_loose_wire_originator, as merchant_settlement reads it; read on the row up to its first Zelle word, since
+    the classifier's loose-wire label refuses a row that prints a consumer rail, so a word in the originator's name or
+    memo after the label reads as the wire's) is not read. The ACH entry-description forms ('DES:ZELLE') and the
+    rail printed mid-row are kept; a company whose name holds the word ZELLE paying by ACH still reads (§8.4's
+    residual)."""
+    classifier = _classifier()
+    row = classifier._before_receiver(text)
+    rail = _ZELLE_RAIL.search(row)
+    if rail is None:
+        return False
+    return not (
+        classifier._is_wire_row(text) or classifier._loose_wire_originator(text)
+        or classifier._loose_wire_originator(row[: rail.start()])
+    )
 
 
 def _zelle_excluded(record: TransactionClassification) -> TransactionClassification:
@@ -3226,14 +3270,14 @@ def zelle_prior_reading(record: TransactionClassification) -> tuple[str, str | N
 
 def zelle_credits_present(records: Sequence[TransactionClassification], duplicate_indexes: set[int]) -> bool:
     """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): whether any credit pass 7 reads (posted,
-    not a duplicate, carrying a revenue state) prints the Zelle rail on the pass's own text (zelle_deposit, after
-    without_transfer_code). Only such a row can read differently in the counted reading: the Zelle step and the two
-    lifted carve-outs read nothing else, so a statement without one has a single reading."""
+    not a duplicate, carrying a revenue state) prints the Zelle rail on the pass's own text (zelle_deposit, on
+    pass_text). Only such a row can read differently in the counted reading: the Zelle step and the two lifted
+    carve-outs read nothing else, so a statement without one has a single reading."""
     classifier = _classifier()
     return any(
         index not in duplicate_indexes and record.amount > 0 and record.is_posted
         and record.revenue_classification is not None
-        and zelle_deposit(without_transfer_code(record, classifier.revenue_text(record.normalized_description)))
+        and zelle_deposit(pass_text(record, classifier.revenue_text(record.normalized_description)))
         for index, record in enumerate(records)
     )
 
@@ -4049,7 +4093,11 @@ _ACH_ENTRY_LABEL = re.compile(
 _WALLET_CASH_OUT = re.compile(r"^(?:VENMO|CASH ?APP|SQUARE CASH|APPLE CASH)\b")
 #: Audit round 2, R2-B02 (R02): the e-Transfer rails, whose sender RBC and TD print without FROM (e-Transfer received
 #: <sender>, AUTODEPOSIT <sender>, VIREMENT RECU <sender>): the counter-debit holds read that sender (_counter_region).
-_E_TRANSFER_RAIL = re.compile(r"(?<![A-Z])(?:INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|AUTODEPOSIT|VIREMENT)\b")
+#: Audit round 3, R3-29: and Interac's French form, plural included (Banque Royale's 'DEPOT AUTO VIREMENTS PAR
+#: COURRIEL <sender>', _INTERAC_COURRIEL).
+_E_TRANSFER_RAIL = re.compile(
+    r"(?<![A-Z])(?:INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|AUTODEPOSIT|VIREMENT|VIREMENTS? PAR COURRIEL)\b"
+)
 #: Audit round 2, R2-B02 (R02; T13): RBC's French 'Paiement divers' label before the holder's own chequing or savings
 #: account and its number: the holder's own account, held as transfer_account_designation.
 _FRENCH_OWN_ACCOUNT_PAYMENT = re.compile(r"^PAIEMENT DIVERS COMPTE (?:CHEQUE|EPARGNE) \d+")
@@ -4313,7 +4361,9 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     push rail whose first head word has a next word (R02: the glued first two words of the sender's name), and (review
     round 1) whose sender prints no company form: a company's push is compared by the B4 forms as before. Owner ruling
     2026-10-02 (the underwriter's Q2): `insurer` is False on a credit pass 7 released as an insurer paying for the
-    business's work (INSURER_FOR_WORK_METHOD), so a bill to that insurer holds it only as a bill to any payer does."""
+    business's work (INSURER_FOR_WORK_METHOD), so a bill to that insurer holds it only as a bill to any payer does.
+    Audit round 3, R3-29: Interac's French form (_INTERAC_COURRIEL, whose plural the classifier's rail never reads) is
+    such a rail too, so a French autodeposit's sender names a debit as its English twin's does."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     # Audit round 2, R2-B11 (R09 part A): TD Canada Trust's e-Transfer code is no sender, so never a counter-debit key.
@@ -4321,7 +4371,10 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     reading = classifier.counter_debit_payer_reading(words)
     person_key = None
     if (
-        (classifier._CONSUMER_P2P_RAIL.search(row) or classifier._PUSH_RAIL.search(row))
+        (
+            classifier._CONSUMER_P2P_RAIL.search(row) or classifier._PUSH_RAIL.search(row)
+            or _INTERAC_COURRIEL.search(row)
+        )
         and not classifier.company_form(classifier.payer_name(words))
     ):
         person_key = _sender_name_key(words)
@@ -4584,7 +4637,7 @@ def _lessor_business(
             return True
         if record.revenue_classification == "non_revenue":
             continue
-        text = without_transfer_code(record, classifier.revenue_text(record.normalized_description))
+        text = pass_text(record, classifier.revenue_text(record.normalized_description))
         if _CARD_CREDIT_LABEL.search(text) or zelle_deposit(text):
             continue
         row = _without_holder_name(classifier._before_receiver(text), _holder(record), also=_holder_strip_names(record))
@@ -4925,7 +4978,11 @@ def _bank_account_payer(region: str, bank: str | None) -> bool:
 
 def _p2p_rail(row: str) -> bool:
     """§8.4 in pass 7 (S4.2 follow-up 2): the row prints one of the classifier's consumer person-to-person rails
-    (_CONSUMER_P2P_RAIL), a VIREMENT counting only in its Interac forms (_INTERAC_FORM)."""
+    (_CONSUMER_P2P_RAIL), a VIREMENT counting only in its Interac forms (_INTERAC_FORM). Audit round 3, R3-29: or
+    Interac's French form, singular or plural (_INTERAC_COURRIEL: 'DEPOT AUTO VIREMENTS PAR COURRIEL <sender>'), which
+    _channel reads before a cash or branch DEPOT."""
+    if _INTERAC_COURRIEL.search(row) is not None:
+        return True
     return any(
         found.group(0) != "VIREMENT" or _INTERAC_FORM.search(row) is not None
         for found in _classifier()._CONSUMER_P2P_RAIL.finditer(row)
@@ -7146,9 +7203,10 @@ def apply_true_revenue_pass(
     business = _business_shape(records, duplicate_indexes)
     # A3-G refinement: the holder's names the statement's own receiver fields print, when its account name names nobody.
     receiver_holders = _receiver_holder_names(records, credits)
-    # Audit round 2, R2-B11 (R09 part A): without TD Canada Trust's e-Transfer code (without_transfer_code).
+    # Audit round 2, R2-B11 (R09 part A): without TD Canada Trust's e-Transfer code (without_transfer_code). Audit
+    # round 3, R3-12: and PNC's Zelle rail spelled as its ZELLE twin (pass_text).
     texts = {
-        index: without_transfer_code(updated[index], classifier.revenue_text(updated[index].normalized_description))
+        index: pass_text(updated[index], classifier.revenue_text(updated[index].normalized_description))
         for index in credits
     }
     # Audit B7 (I18): the ordinary payers whose disbursement entry repeats in the statement.
@@ -7424,9 +7482,9 @@ def guard_facts(record: TransactionClassification, text: str, *, zelle_true_reve
     holder guards read (review M1). Audit round 2, R2-B11 (R09 part A): the facts read the pass's own text, TD Canada
     Trust's e-Transfer code dropped (without_transfer_code). The owner's amendment of 2026-10-06 to the underwriter's
     Q3 (R2-OW17): `zelle_true_revenue` is the snapshot's reading, which the progress_draw fact follows as the pass's
-    payer facts do (credit_facts)."""
+    payer facts do (credit_facts). Audit round 3, R3-12: the pass's own text is pass_text (PNC's ZEL read as ZELLE)."""
     classifier = _classifier()
-    text = without_transfer_code(record, text)
+    text = pass_text(record, text)
     region = classifier.payer_region(text)
     entry = classifier.entry_fields(text)
     row = classifier._before_receiver(text)

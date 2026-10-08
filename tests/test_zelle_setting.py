@@ -91,6 +91,25 @@ def test_z1_the_counted_reading_counts_zelle_with_the_person_to_person_holds():
     assert round(metrics.withholding_rate, 4) == 7.3692
 
 
+def _zel(text):
+    """PNC's spelling of a Z1 Zelle sender: 'ZEL FROM <sender> ...' for 'ZELLE PAYMENT FROM <sender> ...'."""
+    return text.replace("ZELLE PAYMENT FROM ", "ZEL FROM ")
+
+
+def test_z1_pnc_s_zel_twin_reads_as_the_zelle_rows_under_yes():
+    """Audit round 3, R3-12 (R3-B12; the owner's amendment of 2026-10-06: "holds as for other P2P"): on a PNC statement
+    the Z1 Zelle senders printed 'ZEL FROM' take the same tiers and reasons as the same senders printed 'ZELLE', the
+    person-to-person holds included (before the batch the round pair counted as named_payer_unlabelled)."""
+    zel_rows = [(_zel(text), *rest) for text, *rest in fx.Z1]
+    zel = classify_statement_transactions(fx.statement(zel_rows, bank="PNC Bank"), zelle_true_revenue=True)
+    zelle = classify_statement_transactions(fx.statement(fx.Z1, bank="PNC Bank"), zelle_true_revenue=True)
+    zel_rows_read = [record for record in _credits(zel) if record.original_description.startswith("ZEL FROM")]
+    zelle_rows_read = [record for record in _credits(zelle) if "ZELLE" in record.original_description]
+    assert [_tier(record) for record in zel_rows_read] == [_tier(record) for record in zelle_rows_read] == [
+        (COUNTED, "p2p"), (HELD, "p2p_round_repeat"), (HELD, "p2p_round_repeat"), (HELD, "holder_name")]
+    assert [_tier(record) for record in zel] == [_tier(record) for record in zelle]
+
+
 def test_z1_venmo_is_counted_in_both_readings():
     no, yes = _readings("Z1")
     venmo = [index for index, record in enumerate(no) if record.original_description == fx.VENMO]
