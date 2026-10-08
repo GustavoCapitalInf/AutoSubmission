@@ -271,7 +271,9 @@ On the dashboard (owner request 2026-10-07, display only) the hero's big figure 
 True revenue with Total credits on the line below it; the Monthly Statements
 table shows each statement's confirmed Withholding Rate in every view, on the
 figures its row shows after the package's passes (its Verified ($) column is
-gone; the chart keeps the verified part); and each
+gone, and no row carries a Zelle line; the chart keeps the verified part, and
+its bars take only the colours its key shows, with no tallest-bar highlight);
+and each
 lender-table note reads as a bold headline with plain sentences under it, an
 "Also:" sentence per extra note and the statement it comes from by month.
 
