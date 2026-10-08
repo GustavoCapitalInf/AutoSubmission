@@ -12,6 +12,7 @@ whole amounts. 2054 facts: Good Friday 03-27 (a CA holiday only), Memorial Day 0
 Juneteenth 06-19 (US, a Friday), July 4 a Saturday (no Fed closure)."""
 from __future__ import annotations
 
+import itertools
 from dataclasses import asdict
 from datetime import date, timedelta
 
@@ -1008,3 +1009,187 @@ def test_r3_b04_r1_a_double_on_the_paying_weekday_of_a_level_read_through_its_at
     rows = (_rows([day for day in fridays if day not in double], 500) + _rows(double, 1000)
             + _returned([day for day in days if not _fridays(day)], 500))
     assert changes(rows, end=Y(29)) == []
+
+
+# --------------- audit round 3, R3-B04, review round 2: two debits' re-presentments never add up to daily (fabricated)
+def N(day):  # noqa: N802
+    return date(2054, 11, day)
+
+
+def D(day):  # noqa: N802
+    return date(2054, 12, day)
+
+
+def S(day):  # noqa: N802
+    return date(2054, 9, day)
+
+
+def _chains(mondays, amount, patterns):
+    """Weekly Monday debits at `amount`; the week of index i follows patterns[i % len(patterns)] = (the offsets, in
+    days from its Monday, of the presentments the bank returned unpaid, the offset of the paid one): NACHA's original
+    entry and at most two re-presentments, each chain ending before the next Monday."""
+    rows = []
+    for index, monday in enumerate(mondays):
+        bounced, paid = patterns[index % len(patterns)]
+        rows += _returned([monday + timedelta(days=offset) for offset in bounced], amount)
+        rows += _rows([monday + timedelta(days=paid)], amount)
+    return rows
+
+
+# C: the Monday returned, the Friday paid. D: the Monday and the Tuesday returned, the Thursday paid.
+_C, _D = ((0,), 4), ((0, 1), 3)
+
+
+@pytest.mark.parametrize("weeks", [2, 6, 10])
+def test_r3_b04_r2_alternating_re_presentment_chains_stay_weekly(weeks):
+    # Weekly 1,000 cut to weekly 700 whose chains alternate C and D. Every chain is NACHA's (3 presentments at most,
+    # over before the next Monday), but the Thursday and Friday of one week and the Monday and Tuesday of the next fill
+    # 4 of 5 business days, so the stretch test alone read "+250% weekly -> daily" (confirmed at 6 and 10 weeks).
+    # Between two paid dates lie at most 2 returned presentments, one debit's: no daily reading, the base's -30% weekly.
+    mondays = every(M(16), M(16) + timedelta(days=7 * (weeks - 1)))
+    rows = _rows(every(F(3), M(10)), 1000) + _chains(mondays, 700, (_C, _D))
+    found = changes(rows, start=F(1), end=mondays[-1] + timedelta(days=7))
+    assert _steps(found) == [("decrease", "weekly", "weekly", -30, 6, weeks, "2054-03-20")]
+    days = sorted({date.fromisoformat(row.date) for row in _chains(mondays, 700, (_C, _D))})
+    paid = sorted({date.fromisoformat(row.date) for row in _chains(mondays, 700, (_C, _D))
+                   if not row.returned_funder_payment_by})
+    assert lpc._beat_cadence(lpc.payment_cadence(paid), paid, sorted(set(days) - set(paid)), "US") == (
+        lpc.payment_cadence(paid))
+
+
+def test_r3_b04_r2_a_holiday_week_never_makes_two_re_presented_weeks_daily():
+    # Thanksgiving (Thursday 2054-11-26) puts the Monday, Wednesday and Friday of its week and the next Monday in 5
+    # business days. A 2-week level re-presented twice each week (the Monday and the Wednesday returned, the Friday
+    # paid) read "daily irregular": a false possible stop (8 or 10 quiet business days, grace 6) beside the correct
+    # -30%. The base read the -30% alone; so does this round.
+    rows = _rows(every(S(4), N(20)), 1000) + _presented([N(27), D(4)], 700, lambda index: True)
+    for end in (D(16), D(18)):
+        assert _steps(changes(rows, start=S(1), end=end)) == [
+            ("decrease", "weekly", "weekly", -30, 12, 2, "2054-11-27")]
+    # Veterans Day (Wednesday 2054-11-11): the Monday returned, the Thursday returned, the Friday paid, then the Monday
+    # and Wednesday returned and the Friday paid.
+    veterans = (_returned([N(9), N(12)], 700) + _rows([N(13)], 700) + _returned([N(16), N(18)], 700)
+                + _rows([N(20)], 700))
+    assert _steps(changes(_rows(every(S(4), N(6)), 1000) + veterans, start=S(1), end=D(4))) == [
+        ("decrease", "weekly", "weekly", -30, 10, 2, "2054-11-13")]
+
+
+def _twice_weekly(mondays, amount):
+    """A twice-weekly debit: each Monday's and each Thursday's returned unpaid and re-presented, paid, the next business
+    day."""
+    rows = []
+    for monday in mondays:
+        rows += _returned([monday, monday + timedelta(days=3)], amount)
+        rows += _rows([monday + timedelta(days=1), monday + timedelta(days=4)], amount)
+    return rows
+
+
+def test_r3_b04_r2_a_twice_weekly_debit_re_presented_the_next_day_never_reads_daily():
+    # Mondays and Thursdays returned, Tuesdays and Fridays paid: 4 of 5 business days presented, but each paid date
+    # follows one returned presentment. The stretch test alone read it daily: a move to weekly 2,000 (the same weekly
+    # total) read a confirmed "-60% daily -> weekly", and a quiet stretch a false daily stop. The base read the
+    # twice-weekly paid dates as irregular, no schedule, and gave no item; so does this round.
+    mondays = every(M(2), A(6))
+    assert changes(_twice_weekly(mondays, 1000) + _rows(every(A(17), Y(29)), 2000), end=Y(29)) == []
+    assert changes(_twice_weekly(mondays, 1000), end=A(20)) == []
+
+
+def test_r3_b04_r2_a_daily_reading_through_attempts_needs_more_than_one_debits_re_presentments_between_payments():
+    days = bdays(M(16), A(10))
+    fridays = [day for day in days if _fridays(day)]
+    # Fridays paid, every other day returned: 4 attempts between two paid Fridays, daily.
+    assert lpc._beat_cadence("weekly", fridays, [day for day in days if not _fridays(day)], "US") == "daily"
+    # A daily level another amount interrupts (paid on a Wednesday, returned Thursday to Tuesday, paid again three
+    # weeks later on a Wednesday and a Thursday): the one paid interval with room for 3 attempts holds 4: daily.
+    assert lpc._beat_cadence("irregular", [M(4), M(25), M(26)], [M(5), M(6), M(9), M(10)], "US") == "daily"
+    # The same dates with only two attempts between the payments: one debit's re-presentments, no daily reading.
+    assert lpc._beat_cadence("irregular", [M(4), M(10), M(11)], [M(5), M(6)], "US") == "irregular"
+    # A daily level paid every few days, each business day between returned: the one interval with room for 3
+    # attempts (Thursday to Wednesday) holds 3; the shorter ones (2 business days inside) tell nothing and are not
+    # counted: daily.
+    paid = [M(4), M(5), M(11), M(16), M(19)]
+    assert lpc.payment_cadence(paid) == "irregular"
+    assert lpc._beat_cadence("irregular", paid, [M(6), M(9), M(10), M(12), M(13), M(17), M(18)], "US") == "daily"
+    # Alternating C and D chains fill 4 of 5 business days across each week's end, yet hold 1 or 2 attempts between
+    # two paid dates: weekly.
+    paid = [M(20), M(26), A(3), A(9)]
+    tried = [M(16), M(23), M(24), M(30), A(6), A(7)]
+    assert lpc._fills_daily_stretches(sorted(paid + tried), "US")
+    assert lpc._beat_cadence("weekly", paid, tried, "US") == "weekly"
+    # A Friday paid, then the next Monday and Tuesday returned and the Wednesday paid: the only interval has 2 business
+    # days inside, no room for more than one debit's re-presentments: no daily reading.
+    assert lpc._beat_cadence("weekly", [M(6), M(11)], [M(2), M(9), M(10)], "US") == "weekly"
+    # Two payments on one day and three returned presentments after them: no interval at all, no daily reading.
+    assert lpc._beat_cadence("single", [M(6), M(6)], [M(9), M(10), M(11)], "US") == "single"
+
+
+def _next_business_day(day):
+    return bdays(day, day + timedelta(days=6))[0]
+
+
+def _chain_layouts(entries):
+    """Every NACHA chain layout of a weekly debit entered on `entries[:-1]`: each week's debit paid on its entry, or
+    returned and re-presented once or twice on later business days before the next entry, the last presentment
+    paid."""
+    weeks = []
+    for entry, limit in zip(entries, entries[1:]):
+        later = bdays(entry + timedelta(days=1), limit - timedelta(days=1))
+        week = [((), entry)]
+        for index, paid in enumerate(later):
+            week.append(((entry,), paid))
+            week += [((entry, middle), paid) for middle in later[:index]]
+        weeks.append(week)
+    return itertools.product(*weeks)
+
+
+@pytest.mark.parametrize("first", [M(2), M(3), M(4), M(5), M(6), N(4), N(16), N(18), N(20)])
+def test_r3_b04_r2_no_layout_of_weekly_chains_that_end_paid_reads_daily(first):
+    # Every entry weekday, and the weeks of Veterans Day and Thanksgiving: whichever days each week's chain uses, its
+    # attempts never make the level daily (the review round's stretch test alone read 22 of the 121 two-week layouts
+    # of each weekday daily).
+    for weeks in (2, 3):
+        entries = [_next_business_day(first + timedelta(days=7 * week)) for week in range(weeks + 1)]
+        for layout in _chain_layouts(entries):
+            returned = [day for chain in layout for day in chain[0]]
+            paid = [chain[1] for chain in layout]
+            own = lpc.payment_cadence(paid)
+            read = lpc._beat_cadence(own, paid, returned, "US")
+            assert read == own or lpc._regular(read) != "daily", (paid, returned)
+
+
+def test_r3_b04_r2_one_missed_week_never_makes_a_weekly_level_daily():
+    # Weekly 1,000 cut to weekly 700 over 10 weeks whose chains alternate C and D, one week returned all three times
+    # (the Monday, the Thursday and the Friday): 1 of the 8 intervals between its 9 paid dates holds 3 attempts or
+    # more, under 60%: still weekly.
+    mondays = every(M(16), Y(18))
+    rows = [row for row in _chains(mondays, 700, (_C, _D)) if date.fromisoformat(row.date) not in (A(13), A(17))]
+    rows += _returned([A(13), A(16), A(17)], 700)
+    found = changes(_rows(every(F(3), M(10)), 1000) + rows, start=F(1), end=Y(25))
+    assert _steps(found) == [("decrease", "weekly", "weekly", -30, 6, 9, "2054-03-20")]
+
+
+# R3-70's slower-run test reads the main level's paid schedule only while that level is still presented through the
+# 2x or 3x run (P4's catch-up); a main level that is no longer presented there is read on its attempt-read schedule.
+@pytest.mark.parametrize("rows,end,expected", [
+    # Weekly 1,000 with every other debit returned (its paid dates read biweekly), then biweekly 3,000 held 2.
+    (_split(every(M(2), A(20)), 1000, lambda day: (day - M(2)).days % 14 == 0) + _rows([Y(4), Y(18)], 3000), Y(22),
+     ("increase", "weekly", "biweekly", 50, 4, 2, "2054-05-04")),
+    # Daily 500 paid only on Fridays, then weekly 1,000 held 2 and no more 500.
+    (_split(bdays(M(2), A(17)), 500, _fridays) + _rows([A(24), Y(1)], 1000), Y(5),
+     ("decrease", "daily", "weekly", -60, 7, 2, "2054-04-24")),
+    # Daily 500 paid on scattered days (the others returned), then weekly 1,500 held 2.
+    (_split(bdays(M(2), A(17)), 500, lambda day: day in {M(4), M(12), M(17), M(25), A(2), A(8), A(16)})
+     + _rows([A(24), Y(1)], 1500), Y(5),
+     ("decrease", "daily", "weekly", -40, 7, 2, "2054-04-24")),
+    # Daily 500 paid on days whose gaps read irregular (10 and 11 days; the others returned), then weekly 1,500 held 2.
+    (_split(bdays(M(2), A(17)), 500, lambda day: day in {M(2), M(12), M(23), A(2), A(13)})
+     + _rows([A(24), Y(1)], 1500), Y(5),
+     ("decrease", "daily", "weekly", -40, 5, 2, "2054-04-24")),
+])
+def test_r3_b04_r2_a_slower_run_after_a_main_level_read_through_its_attempts_is_a_possible_change(rows, end,
+                                                                                                    expected):
+    # The review round compared these runs with the main level's paid schedule (biweekly, weekly or none) and read a
+    # catch-up: no item, where the clean twin of each reads the possible change.
+    item = only(rows, end=end)
+    assert _steps([item]) == [expected]
+    assert (item["schedule_confirmed"], item["cadence_changed"]) == (False, True)

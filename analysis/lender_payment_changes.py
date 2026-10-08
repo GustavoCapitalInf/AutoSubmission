@@ -81,7 +81,8 @@ BEAT_TOLERANCE_DAYS = {"daily": 0, "daily_irregular": 1, "weekly": 3, "biweekly"
 BEAT_TOLERANCE_OTHER_DAYS = 3
 #: NACHA lets a debit returned unpaid be presented at most this many times (the original entry and two
 #: re-presentments), so one debit never fills more than this many of DAILY_STRETCH_BUSINESS_DAYS consecutive business
-#: days; a daily schedule read through attempts must (R3-B04 review round 1).
+#: days, and a chain that ends paid holds fewer than this many returned presentments before its paid one; a daily
+#: schedule read through attempts must go past both bounds (R3-B04 review rounds 1 and 2).
 NACHA_MAX_PRESENTMENTS = 3
 DAILY_STRETCH_BUSINESS_DAYS = 5
 #: The grace windows, in business days, of a stop and a pause (B4, B7).
@@ -488,6 +489,29 @@ def _fills_daily_stretches(days: list[date], calendar: str) -> bool:
     return 100 * len(dense) >= BEAT_KEPT_PERCENT * len(ordered)
 
 
+def _outnumbers_re_presentments(paid_dates: Iterable[date], attempt_dates: Iterable[date], calendar: str) -> bool:
+    """R3-B04 review round 2: the attempts outnumber one debit's re-presentments between payments. Of the intervals
+    between consecutive distinct paid dates with room for NACHA_MAX_PRESENTMENTS attempts (that many business days or
+    more strictly inside), at least one, and at least BEAT_KEPT_PERCENT of them, hold NACHA_MAX_PRESENTMENTS or more
+    attempt dates (not paid dates) strictly inside. Between two paid presentments of a weekly or slower debit lie the
+    returned presentments of the later one's chain, 2 at most (NACHA's original entry and two re-presentments, the
+    last paid), and those of any chain between them returned all three times (a missed cycle) or re-presented past
+    the later one's entry. So the chains of adjacent weeks that each end paid before the next entry never qualify,
+    however they fall (a Thursday and a Friday ending one week's chain and a Monday and a Tuesday opening the next fill
+    4 of 5 business days); a daily debit paid only on Fridays holds 4 attempts in each interval. A shorter interval
+    tells neither apart and is not counted; a level with no interval that has room gives no daily reading."""
+    paid = sorted(set(paid_dates))
+    tried = sorted(set(attempt_dates) - set(paid))
+    filled = room = 0
+    for earlier, later in zip(paid, paid[1:]):
+        if business_days_between(earlier, later, calendar) - 1 < NACHA_MAX_PRESENTMENTS:
+            continue
+        room += 1
+        if sum(1 for day in tried if earlier < day < later) >= NACHA_MAX_PRESENTMENTS:
+            filled += 1
+    return filled > 0 and 100 * filled >= BEAT_KEPT_PERCENT * room
+
+
 def _keeps_cycle(days: list[date], cadence: str, calendar: str) -> bool:
     """The distinct `days` keep the cycle of `cadence`: a daily schedule's when they fill its stretches of business
     days (`_fills_daily_stretches`, R3-B04 review round 1); another schedule's when at least BEAT_KEPT_PERCENT of the
@@ -508,19 +532,29 @@ def _beat_cadence(paid_cadence: str, paid_dates: Iterable[date], attempt_dates: 
     strictly faster than the payments' own (a daily level whose debits mostly bounce reads daily, not weekly, and a
     weekly one whose every other debit bounces reads weekly, not biweekly), and only when the dates together keep the
     faster schedule's cycle (`_keeps_cycle`). A daily reading needs BEAT_KEPT_PERCENT of the dates in stretches of 4 or
-    more presented business days of 5, more than NACHA's 3 presentments of one debit fill (R3-B04 review round 1), so a
-    weekly debit's re-presentments, once or twice, on any days, never read daily. A known shape the dates cannot tell
-    apart: a biweekly or monthly debit re-presented at weekly steps presents the dates of a weekly debit whose other
-    presentments bounce, and reads weekly as it does (spec §17.1 (20)). Attempts never set an amount and never count as
-    payments."""
+    more presented business days of 5, more than NACHA's 3 presentments of one debit fill (R3-B04 review round 1), and
+    one at least, and BEAT_KEPT_PERCENT, of the intervals between paid dates with room for 3 attempts holding 3 or
+    more, more than one debit's 2 returned presentments before its paid one (`_outnumbers_re_presentments`, R3-B04
+    review round 2): the first test alone let the chains of two adjacent weeks, or a holiday week, fill a stretch. A
+    weekly debit whose chains each end paid before the next week's entry, re-presented once or twice on any days, so
+    stays weekly. Known shapes the dates cannot tell apart (spec §17.1 (20)): a biweekly or monthly debit re-presented
+    at weekly steps presents the dates of a weekly debit whose other presentments bounce, and reads weekly as it does;
+    a weekly debit can still read daily where a chain returned all three times (a missed week) or re-presented past
+    the next week's entry puts 3 attempts between two paid dates in most of its intervals (in the only one, on a short
+    level). Attempts never set an amount and never count as payments."""
     attempts = list(attempt_dates)
     if not attempts:
         return paid_cadence
-    dates = [*paid_dates, *attempts]
+    paid = list(paid_dates)
+    dates = [*paid, *attempts]
     candidate = payment_cadence(dates, calendar)
     faster = _regular(candidate) is not None and (
         _regular(paid_cadence) is None or _cycle_days(candidate) < _cycle_days(paid_cadence))
-    return candidate if faster and _keeps_cycle(dates, candidate, calendar) else paid_cadence
+    if not faster or not _keeps_cycle(dates, candidate, calendar):
+        return paid_cadence
+    if _regular(candidate) == "daily" and not _outnumbers_re_presentments(paid, attempts, calendar):
+        return paid_cadence
+    return candidate
 
 
 def _levels(payments: list[_Pay], calendar: str, attempts: Sequence[_Pay] = ()) -> tuple[list[_Level], list[_Pay]]:
@@ -719,7 +753,9 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
     round 3, R3-70, a 2x or 3x level is no catch-up when one of its runs of MIN_PAYMENTS_HELD or more payments reads a
     regular schedule slower than the dominant level's (a catch-up pulls debits together on the schedule or faster):
     it is then § Still open 18's change at a new schedule. The dominant level's schedule there is its payments' own
-    (R3-B04 review round 1): a 2x run on the paying weekday of a daily level whose other days bounce keeps that beat."""
+    while it is still presented, paid or returned, through the run (R3-B04 review round 1: a 2x run on the paying
+    weekday of a daily level whose other days bounce keeps that beat), else its cadence, read through its attempts
+    (R3-B04 review round 2: a weekly level whose every other debit bounced, then a biweekly 3x run, is a change)."""
     levels = position.levels
     tagged = sorted(((pay, index) for index, level in enumerate(levels) for pay in level.pays),
                     key=lambda item: (item[0].day, item[1], item[0].order))
@@ -733,16 +769,23 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
     longest: dict[int, int] = {}
     for index, pays in runs:
         longest[index] = max(longest.get(index, 0), len(pays))
-    main = _regular(levels[dominant].paid_schedule)
+    main_level = levels[dominant]
+    presented = sorted({*main_level.dates, *(pay.day for pay in attempts if _near(pay.cents, main_level.amount))})
+
+    def main_schedule(pays: list[_Pay]) -> str | None:
+        # R3-B04 review round 2: the payments' own schedule while the main level is still presented (paid or
+        # returned) through the run, as a catch-up on its paying weekday is; else the schedule its cadence reads.
+        first, last = pays[0].day, pays[-1].day
+        still = any(first <= day <= last for day in presented)
+        return _regular(main_level.paid_schedule if still else main_level.cadence)
 
     def slower(index: int) -> bool:
-        if main is None:
-            return False
         for run_index, pays in runs:
             if run_index != index or len(pays) < MIN_PAYMENTS_HELD:
                 continue
+            main = main_schedule(pays)
             own = _regular(payment_cadence((pay.day for pay in pays), calendar))
-            if own is not None and _cycle_days(own) > _cycle_days(main):
+            if main is not None and own is not None and _cycle_days(own) > _cycle_days(main):
                 return True
         return False
 
