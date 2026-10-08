@@ -1101,6 +1101,10 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       details.push(`It stepped through ${listWords(levels.map((entry) => level(entry.cadence, entry.amount,
         entry.change_percent)))} on the way${last}.`);
     }
+    // Review round 2 of the 2026-10-07 change: a potential lender's label carries its schedule and amount, so the new
+    // payments are listed in the lender table under another label; the note names it.
+    const labelAfter = item.lender_label_after ? String(item.lender_label_after) : "";
+    if (labelAfter && labelAfter !== label) details.push(`The new payments are listed as ${labelAfter}.`);
     if (item.restart === true) {
       also.push(`Also: the new amount started after a pause of ${countWords(item.pause_business_days, "business day")} `
         + "with no payment.");
@@ -1111,9 +1115,11 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
         + `${day(item.reverted_date)}.`);
     }
     if (item.after_funding) {
+      // isoDay gives Dates, so the days compare by their time; review round 2: B3's window holds the first day itself.
       const funded = isoDay(item.after_funding.date);
       const started = isoDay(item.first_after_date);
-      const when = funded && started && funded > started ? "just after" : "just before";
+      const when = funded && started && funded.getTime() === started.getTime() ? "the same day the new amount started"
+        : funded && started && funded > started ? "just after" : "just before";
       also.push(`Also: ${item.lender || label} deposited ${money(item.after_funding.amount)} on `
         + `${day(item.after_funding.date)}, ${when}; this may be a renewal.`);
     }

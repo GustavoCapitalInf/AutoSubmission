@@ -104,9 +104,11 @@ def test_u1_to_u4_the_lines():
     assert lines[8] == ("KAPITUS: a second payment started. A second weekly payment of $2,100.00 started on Mar 18, "
                         "2054, alongside the existing weekly $1,000.00. The weekly total went from $1,000.00 to "
                         "$3,100.00 (+210%).")
+    # Review round 2 of the 2026-10-07 change: the new payments' own label, where it differs, is named.
     assert lines[9] == ("Unidentified lender obligation (daily, 300.00) (potential lender): payment went down 17%. The "
                         "daily payment went from $300.00 to $250.00 starting Mar 16, 2054 (8 payments at the new amount, "
-                        "after 10 at the old).")
+                        "after 10 at the old). The new payments are listed as Unidentified lender obligation (daily, "
+                        "250.00).")
     # § Still open 18's alternative and § Still open 23's alternative (the orchestrator's choices of 2026-10-06).
     assert lines[10] == ("KAPITUS: weekly payment total may have gone down 36%. The weekly total went from $2,500.00 to "
                          "$1,600.00. Payments changed from daily $500.00 to weekly $1,600.00 starting Mar 23, 2054 (2 "

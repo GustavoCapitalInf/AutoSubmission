@@ -371,6 +371,45 @@ def test_a_potential_lender_s_streams_sentence_repeats_no_label():
     assert sum("1000.00" in part for part in [note["headline"], *note["details"]]) == 1
 
 
+@needs_node
+def test_a_funding_on_the_day_the_new_amount_starts_reads_the_same_day():
+    # Review round 2: B3's window holds the new amount's first day itself; a funding on that day is neither "just
+    # before" nor "just after".
+    same_day = {**INCREASE_AFTER_FUNDING, "after_funding": {"date": "2054-04-06", "amount": 25000.0}}
+    before = {**INCREASE_AFTER_FUNDING, "after_funding": {"date": "2054-04-05", "amount": 25000.0}}
+    after = {**INCREASE_AFTER_FUNDING, "after_funding": {"date": "2054-04-07", "amount": 25000.0}}
+    notes = _notes([same_day, before, after])
+    assert notes[0]["also"] == ["Also: ONDECK deposited $25,000.00 on Apr 6, 2054, the same day the new amount "
+                                "started; this may be a renewal."]
+    assert notes[1]["also"] == ["Also: ONDECK deposited $25,000.00 on Apr 5, 2054, just before; this may be a renewal."]
+    assert notes[2]["also"] == ["Also: ONDECK deposited $25,000.00 on Apr 7, 2054, just after; this may be a renewal."]
+
+
+@needs_node
+def test_a_potential_lender_s_new_payments_name_the_label_they_are_listed_under():
+    # Review round 2: a potential lender's label carries its schedule and amount, so the new payments are listed in the
+    # lender table under another label; the note names it. A label that does not change adds nothing.
+    relabelled = {**POSSIBLE_INCREASE_POTENTIAL,
+                  "lender_label_after": "Unidentified lender obligation (weekly, 1800.00)"}
+    cut = _change("decrease", 300.0, 250.0, -17, payments_before=12, payments_after=9, first_after_date="2054-03-17",
+                  lender="Unidentified lender obligation", lender_label="Unidentified lender obligation (daily, 300.00)",
+                  lender_label_after="Unidentified lender obligation (daily, 250.00)", lender_state="potential")
+    unchanged = {**DECREASE, "lender_label_after": "KAPITUS"}
+    notes = _notes([relabelled, cut, unchanged])
+    assert notes[0]["details"] == [
+        "The weekly total went from $1,500.00 to $1,800.00.",
+        "Payments changed from daily $300.00 to weekly $1,800.00 starting Mar 23, 2054 (2 payments at the new amount, "
+        "after 15 at the old).",
+        "The new schedule isn't confirmed yet.",
+        "The new payments are listed as Unidentified lender obligation (weekly, 1800.00)."]
+    assert notes[1] == _note(
+        "Unidentified lender obligation (daily, 300.00) (potential lender): payment went down 17%", [
+            "The daily payment went from $300.00 to $250.00 starting Mar 17, 2054 (9 payments at the new amount, after "
+            "12 at the old).",
+            "The new payments are listed as Unidentified lender obligation (daily, 250.00)."])
+    assert notes[2] == _notes([DECREASE])[0]
+
+
 # ------------------------------------------------------------------------------------- A: the table and the memo
 LENDER_ROWS = r"""
 const rows = (html) => [...html.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/g)].map((m) => m[2]);
