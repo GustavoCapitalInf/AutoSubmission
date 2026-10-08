@@ -740,10 +740,12 @@ _BANK_OR_TITLE_SENDER = re.compile(
     r"|TITLE|ESCROW|CLOSING|SETTLEMENT)\b"
 )
 #: §8.6: the verification-only words: sales wording often enough to count, never proof. Audit round 3, R3-B10 review
-#: round 1: SETTLEMENT's short spellings SETTLMT and STLMT too, the three _HOLDER_NAMED_SETTLEMENT_ENTRY reads, so a
-#: settlement the holder hold no longer reads is counted and never verified in each spelling, as a third party's is.
+#: round 2 (findings 1 and 2): SETTLEMENT alone again, as before the batch (review round 1's short spellings SETTLMT and
+#: STLMT are taken out): a row the settlement exemption releases is refused as proof by its own flag
+#: (CreditFacts.settlement_released), whatever slot or boundary its word sits in, and a third party's short spelling
+#: keeps the reading it had.
 _VERIFICATION_ONLY = re.compile(
-    r"(?<![A-Z])(?:SETTLEMENT\b|SETTLMT\b|STLMT\b|TAXES\b|FEES\b|SUBSCRIPTIONS?\b|DISCOUNT\w*|COMM?ISS?IONS?\b"
+    r"(?<![A-Z])(?:SETTLEMENT\b|TAXES\b|FEES\b|SUBSCRIPTIONS?\b|DISCOUNT\w*|COMM?ISS?IONS?\b"
     r"|COMPENSATION\b|EXPENSES?\b|AFFILIATE\b|PERSONAL\b|CLOSING\b|SUPPLY CHAIN\b"
     r"|EARLY PAY(?:MENT)?\b|ALLOWANCES?\b|SHORTAGES?\b)"
     r"|\b(?:TAX|IRS|CRA|FEE|SCF|RMA)\b"
@@ -1366,6 +1368,12 @@ class CreditFacts:
     #: lifted with (finance_named_customer, lessor_rent or lender_paid_for_services: finance_named_release), set only
     #: where no hold names the row then; never verified, never a repeat, its counted reason relabelled last.
     q9: str | None = None
+    #: §8.1, §8.6 (audit round 3, R3-B10 review round 2: finding 1): the bare settlement word alone
+    #: (merchant_settlement's _HOLDER_NAMED_SETTLEMENT_ENTRY arm) lifted from the row the pass-7 holder hold (an
+    #: unverified credit) or the row-alone own-push guard (self_originated): whatever slot or boundary the word sits in,
+    #: refused as proof (refused_word), never a repeat (_never_q5_or_q6), and, where an earlier rule verified the row
+    #: under the own-push guard, overruled (_settlement_never_verified).
+    settlement_released: bool = False
 
 
 def _classifier():
@@ -3410,10 +3418,16 @@ _MERCHANT_SETTLEMENT_ENTRY = re.compile(
     r"|MERCH|MERCHANT|MERCHPAYO\w*|MRCHNTSRVS)(?:SEC)?(?![A-Z])"
 )
 #: §8.1 (audit round 3, R3-B10: R3-90 part A; standard A1, A2): a bare settlement word under the merchant's own name, a
-#: processor's, a carrier's or an operating settlement (each spelling stays counted, never verified: §8.6's
-#: _VERIFICATION_ONLY reads all three since R3-B10 review round 1), read by merchant_settlement beside
-#: _MERCHANT_SETTLEMENT_ENTRY on a row that is no transfer and no person-to-person row.
+#: processor's, a carrier's or an operating settlement, read by merchant_settlement beside _MERCHANT_SETTLEMENT_ENTRY on
+#: a row that is no transfer and no person-to-person row. R3-B10 review round 2 (finding 1): a row this word alone
+#: releases is counted, never verified and never a repeat, in each spelling, slot and boundary
+#: (CreditFacts.settlement_released).
 _HOLDER_NAMED_SETTLEMENT_ENTRY = re.compile(r"(?<![A-Z])(?:SETTLEMENT|SETTLMT|STLMT)(?![A-Z])")
+#: §8.1 (audit round 3, R3-B10 review round 2: finding 1): the method and the matched rule pass 7 gives a settlement
+#: under the merchant's own name that an earlier rule verified and that only the bare settlement word lifted from the
+#: own-push guard (_settlement_never_verified).
+HOLDER_NAMED_SETTLEMENT_METHOD = "holder_named_settlement"
+HOLDER_NAMED_SETTLEMENT_RULE = "holder_named_settlement_never_verified"
 #: §8.1 (audit B9: I13): Capital One's incoming ACH row, which prints the receiver (the holder) with no label after the
 #: originator, its entry and a digit run.
 _CAPITAL_ONE_BANK = re.compile(r"(?<![A-Z])CAPITAL ONE\b", re.IGNORECASE)
@@ -3457,7 +3471,7 @@ def _same_name(originator: str, receiver: str) -> bool:
     )
 
 
-def merchant_settlement(text: str, names: Sequence[str] = ()) -> bool:
+def merchant_settlement(text: str, names: Sequence[str] = (), *, bare_settlement: bool = True) -> bool:
     """§8.1 (audit B9: I13): the row prints a processor's or a platform's settlement or payout entry under the
     merchant's own name (_MERCHANT_SETTLEMENT_ENTRY), read before the receiver fields: the holder holds skip it. Audit
     B9 review round 1: the entry is read outside the holder's own name (each of `names`, each side of a DBA name, its
@@ -3465,7 +3479,9 @@ def merchant_settlement(text: str, names: Sequence[str] = ()) -> bool:
     money held, and never on an incoming wire or a person-to-person or push rail, which print no processor's
     settlement. Audit round 3, R3-B10 (R3-90 part A): a bare SETTLEMENT, SETTLMT or STLMT read there too
     (_HOLDER_NAMED_SETTLEMENT_ENTRY), on a row that is no transfer or person-to-person row (a transfer printing the
-    word is the holder's own money): the holds skip it, and it takes its own reading, counted and never verified."""
+    word is the holder's own money): the holds skip it, and it takes its own reading, counted and never verified.
+    R3-B10 review round 2 (finding 1): with `bare_settlement` False that arm is not read (B9's words alone), the
+    reading credit_facts compares to name a row the bare word alone released (CreditFacts.settlement_released)."""
     classifier = _classifier()
     if classifier._is_wire_row(text) or classifier._loose_wire_originator(text):
         return False
@@ -3475,7 +3491,10 @@ def merchant_settlement(text: str, names: Sequence[str] = ()) -> bool:
     outside = _outside_holder_names(row, names)
     if _MERCHANT_SETTLEMENT_ENTRY.search(outside) is not None:
         return True
-    return _HOLDER_NAMED_SETTLEMENT_ENTRY.search(outside) is not None and not classifier._is_transfer_or_p2p_row(text)
+    return (
+        bare_settlement and _HOLDER_NAMED_SETTLEMENT_ENTRY.search(outside) is not None
+        and not classifier._is_transfer_or_p2p_row(text)
+    )
 
 
 def _outside_holder_names(row: str, names: Sequence[str]) -> str:
@@ -3644,14 +3663,15 @@ def _wire_sent_by_its_beneficiary(text: str, region: str) -> bool:
     return _same_name(_wire_party(region), _wire_party(_WIRE_BENEFICIARY_LABEL.sub("", beneficiary.group(0).strip())))
 
 
-def self_originated(text: str, region: str, bank: str | None = None) -> bool:
+def self_originated(text: str, region: str, bank: str | None = None, *, bare_settlement: bool = True) -> bool:
     """§8.1 (audit B9: I13): the row moves the holder's own money in, read on the row alone: an incoming wire whose
     sender is its beneficiary (_wire_sent_by_its_beneficiary), or an ACH or EFT credit whose originator is the row's own
     receiver field (INDN, IND NAME, RECEIVER NAME; Capital One's unlabelled trailing receiver), one name by _same_name.
     A processor's or a platform's settlement or payout under the merchant's own name (merchant_settlement, read outside
     that name; audit round 2, R2-B02: R18, a platform's payout id, processor_payout) is no own push. Held as
     holder_name. Audit round 2, R2-B04: American Express's unlabelled receiver block is paired too (R41), and Capital
-    One's pair is read without Mercury's MERCURYACH and MRCR tails (R04 part 3)."""
+    One's pair is read without Mercury's MERCURYACH and MRCR tails (R04 part 3). Audit round 3, R3-B10 review round 2:
+    `bare_settlement` is merchant_settlement's (False: B9's settlement words alone)."""
     classifier = _classifier()
     if classifier._is_wire_row(text):
         return _wire_sent_by_its_beneficiary(text, region)
@@ -3683,7 +3703,8 @@ def self_originated(text: str, region: str, bank: str | None = None) -> bool:
                 _CAPITAL_ONE_RECEIVER_TAIL.sub("", trailing.group("receiver")),
             ))
     return any(
-        _same_name(originator, receiver) and not merchant_settlement(text, (receiver, originator))
+        _same_name(originator, receiver)
+        and not merchant_settlement(text, (receiver, originator), bare_settlement=bare_settlement)
         for originator, receiver in pairs
     )
 
@@ -5829,6 +5850,19 @@ def credit_facts(
         _first_hold(record, text, **hold_reading, insurer_name=False)
         if hold == "insurer_named_payer" and asset_sale_platform(region, text) == _IAA else None
     )
+    # Audit round 2, R2-B04 (R41): the holder's own push, read on the row alone, as _first_hold reads it.
+    self_own = not claimed and self_originated(text, region, record.bank)
+    # Audit round 3, R3-B10 review round 2 (finding 1): the bare settlement word alone lifted the row from the own-push
+    # guard, or an unverified credit from the pass-7 holder hold: the reading with B9's settlement words alone holds it
+    # as holder_name, the row's own reading does not. Read only where the row prints the word somewhere.
+    bare = not claimed and _HOLDER_NAMED_SETTLEMENT_ENTRY.search(text) is not None
+    settlement_released = bare and (
+        (not self_own and self_originated(text, region, record.bank, bare_settlement=False))
+        or (
+            record.revenue_classification == "unverified_deposit" and hold != "holder_name"
+            and _first_hold(record, text, **hold_reading, bare_settlement=False) == "holder_name"
+        )
+    )
     return CreditFacts(
         channel=channel,
         region=region,
@@ -5859,6 +5893,9 @@ def credit_facts(
                 text, _without_holder_name(_hold_text(text), _holder(record), also=_holder_strip_names(record)),
                 region,
             )
+            # Audit round 3, R3-B10 review round 2 (finding 1): a settlement the bare word alone released, wherever
+            # the word prints (an ID field, an originator's tail, digits glued on), counts, never proves (§8.6).
+            or settlement_released
         ),
         round_sum=classifier.is_round_sum(record.amount),
         consumer_entry=consumer_entry(text, _holder(record)),
@@ -5868,12 +5905,12 @@ def credit_facts(
         financier=financier,
         # Audit round 2, R2-B03 (R05): a payer region that names only a bank names no customer.
         bank_only=_bank_only_payer(region, entry, record.bank, row=row),
-        # Audit round 2, R2-B04 (R41): the holder's own push, read on the row alone, as _first_hold reads it.
-        self_own=not claimed and self_originated(text, region, record.bank),
+        self_own=self_own,
         progress_draw=progress_draw,
         hold_past_insurer_name=past_insurer_name,
         # Q9 (R2-OW09): the release's reason where it took effect (no hold names the row).
         q9=release if hold is None else None,
+        settlement_released=settlement_released,
     )
 
 
@@ -5894,6 +5931,7 @@ def _first_hold(
     progress_draw: bool = False,
     insurer_name: bool = True,
     released: bool = False,
+    bare_settlement: bool = True,
 ) -> str | None:
     """§8.1 in §8.10's order (2 to 11): the first hold that names the row, or None. Audit B5: a bank's own wire is
     read on every row pass 7's wire channel reads (`wire`, I14, I23), and TD Canada Trust's payroll-deposit code is pay
@@ -5918,7 +5956,9 @@ def _first_hold(
     insurer-name hold, and the non-sale test reads no CLAIM on it; every other hold reads it as before. Owner ruling
     2026-10-02 (the underwriter's Q9; R2-OW09): with `released` (finance_named_release lifted the row) the financing
     hold's root arm (financing_named) is passed over; its other arms keep their order and still hold, and every later
-    hold reads the row."""
+    hold reads the row. Audit round 3, R3-B10 review round 2 (finding 1): with `bare_settlement` False the holder hold
+    and the own-push guard read B9's settlement words alone (merchant_settlement), the hold credit_facts compares to
+    name a row the bare settlement word alone released (CreditFacts.settlement_released)."""
     classifier = _classifier()
     # Audit round 2, R2-B04 (R40): the I47 strip reads the holder's other business names too (_holder_strip_names).
     also = _holder_strip_names(record)
@@ -5989,7 +6029,8 @@ def _first_hold(
     names = _holder_names(record)
     block = classifier.holder_receiver_block(text, record.bank)
     if not claimed and (
-        (region or sender) and not merchant_settlement(text, (*names, *receiver_holders))
+        (region or sender)
+        and not merchant_settlement(text, (*names, *receiver_holders), bare_settlement=bare_settlement)
         and not processor_payout(text) and not platform_credit(text, region, (*names, *receiver_holders)) and (
             any(classifier.holder_named(region or sender, name, receiver_block=block) for name in names)
             or (
@@ -6005,7 +6046,7 @@ def _first_hold(
             )
         )
         # Audit B9 (I13): the row's own originator is its receiver field, or a wire's sender its beneficiary.
-        or self_originated(text, region, record.bank)
+        or self_originated(text, region, record.bank, bare_settlement=bare_settlement)
     ):
         return "holder_name"
     if _pay_wording(before, record.bank, text=text, account_name=_holder(record), business=business):
@@ -6209,7 +6250,9 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
     (CUSTOMER_FINANCING_NAMES, read without the receiver field's value). Owner ruling 2026-10-02 (the underwriter's Q11
     (a)): and a builder's progress draw (counted and flagged, never verified). Owner ruling 2026-10-02 (the
     underwriter's Q2): and an insurer's credit released as the business's work (INSURER_FOR_WORK_METHOD). Owner ruling
-    2026-10-02 (the underwriter's Q9; R2-OW09): and a credit the financing-root release lifted (CreditFacts.q9)."""
+    2026-10-02 (the underwriter's Q9; R2-OW09): and a credit the financing-root release lifted (CreditFacts.q9). Audit
+    round 3, R3-B10 review round 2 (finding 1): and a settlement the bare settlement word alone released from the holder
+    hold or the own-push guard (CreditFacts.settlement_released), which never counted toward a repeat while held."""
     return (
         record.revenue_match_method == "direction_conflict"
         or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
@@ -6223,6 +6266,7 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
         or _CUSTOMER_FINANCING_NAMES.search(_classifier()._without_receiver_value(text)) is not None
         or facts.progress_draw
         or facts.q9 is not None
+        or facts.settlement_released
     )
 
 
@@ -6571,6 +6615,29 @@ def _holder_never_verified(record: TransactionClassification) -> TransactionClas
             "review."
         ),
         context_signals=(*record.revenue_context_signals, "self_originated_holder"),
+        related_transaction=record.revenue_related_transaction,
+    )
+
+
+def _settlement_never_verified(record: TransactionClassification) -> TransactionClassification:
+    """§8.1 (audit round 3, R3-B10 review round 2: finding 1): a settlement under the merchant's own name that an
+    earlier rule verified (an operating-income or a claim-payment descriptor) and that only the bare settlement word
+    lifted from the own-push guard (CreditFacts.settlement_released) leaves verification as a new first state
+    (unverified_deposit, method HOLDER_NAMED_SETTLEMENT_METHOD), as _holder_never_verified does; its reason names the
+    rule it overruled, for the audit. The pass reads it as an unverified credit: a later hold still names it, and where
+    none does it is counted and flagged, named_payer_purpose_refused (R3-90 part A: counted, never verified)."""
+    return _classifier()._replace_revenue_state(
+        record,
+        "unverified_deposit",
+        match_method=HOLDER_NAMED_SETTLEMENT_METHOD,
+        matched_rule=HOLDER_NAMED_SETTLEMENT_RULE,
+        confidence_score=0.50,
+        reason=(
+            "A settlement printed under the merchant's own name (a processor's, a carrier's or an operating "
+            "settlement) is no holder's own push: counted and flagged, never verified; the rule that read it "
+            f"({record.revenue_match_method}) is overruled."
+        ),
+        context_signals=(*record.revenue_context_signals, HOLDER_NAMED_SETTLEMENT_METHOD),
         related_transaction=record.revenue_related_transaction,
     )
 
@@ -7075,14 +7142,27 @@ def apply_true_revenue_pass(
             reason=_insurer_for_work_reason(ground),
             context_signals=(*record.revenue_context_signals, INSURER_FOR_WORK_METHOD),
         )
-    facts = {
-        index: credit_facts(
+    def facts_of(index: int) -> CreditFacts:
+        return credit_facts(
             updated[index], texts[index], debits=debits,
             receiver_holders=receiver_holders, business=business, disbursers=disbursers, lessor=lessor,
             zelle_true_revenue=zelle_true_revenue,
         )
-        for index in credits
-    }
+
+    facts = {index: facts_of(index) for index in credits}
+    # Audit round 3, R3-B10 review round 2 (finding 1; R3-90 part A: counted, never verified): a settlement under the
+    # merchant's own name that an earlier rule verified, which only the bare settlement word lifted from the own-push
+    # guard (CreditFacts.settlement_released), leaves verification before the repeats and the tiers read it
+    # (_settlement_never_verified), its facts read again: every hold still reads it, and it is never a repeat. A credit
+    # under $1 keeps the floor's hold, which runs after the tiers.
+    for index in credits:
+        record = updated[index]
+        if (
+            record.revenue_classification == "verified_revenue" and facts[index].settlement_released
+            and not _under_micro_floor(record)
+        ):
+            updated[index] = _settlement_never_verified(record)
+            facts[index] = facts_of(index)
     # Owner ruling 2026-10-02 (the underwriter's Q11 (b); §8.1, §8.10): on a statement that shows no dealer
     # (_dealer_statement, read over every non-duplicate record), an equipment auction's or a car buyer's seller payout
     # and a printed sale of a truck, trailer, vehicle or equipment are asset-sale proceeds (asset_sale_reading): read

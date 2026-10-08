@@ -549,9 +549,10 @@ def test_r3_90_merchant_settlement_reads_a_bare_settlement_word(text, names):
     assert tr.merchant_settlement(_revenue(text))
 
 
-# Audit round 3, R3-B10 review round 1 (finding 1): SETTLMT and STLMT are verification-only words beside SETTLEMENT
-# (§8.6), so a row the exemption releases is counted and never verified in each of the three spellings it reads, with
-# or without a holder name read, and a third party printing one reads as one printing SETTLEMENT.
+# Audit round 3, R3-B10 review round 1 (finding 1): a row the exemption releases is counted and never verified in each
+# of the three spellings it reads, with or without a holder name read. Review round 2 (findings 1 and 2): by the pass's
+# own release flag (CreditFacts.settlement_released), not by §8.6's verification-only words, which read SETTLEMENT alone
+# again, so a third party printing a short spelling reads as before the batch.
 
 R3_90_SPELLINGS = ("SETTLEMENT", "SETTLMT", "STLMT")
 R3_90_REFUSED = ("counted_flagged", "named_payer_purpose_refused")
@@ -576,32 +577,170 @@ def test_r3_90_a_the_holder_s_own_settlement_push_is_counted_never_verified_in_e
     assert _tiers(rows, holder_name=holder_name, bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
 
 
-@pytest.mark.parametrize("holder_name", [None, "CONTOSO HAULING LLC"])
-@pytest.mark.parametrize(("layout", "bank"), [
+R3_90_MERCHANT_LAYOUTS = (
     ("ACH {word} CONTOSO HAULING CONTRACTOR MGMT ACHDD {n}", "Woodforest"),
     ("CONTOSO HAULI {word} 54011{n} 123456789012345 CONTOSO HAULING", "Wells Fargo"),
     ("{word} CONTOSO HAULING 12345678901234{n}CCD", None),
-])
+)
+
+
+@pytest.mark.parametrize(("layout", "bank"), R3_90_MERCHANT_LAYOUTS)
 @pytest.mark.parametrize("word", R3_90_SPELLINGS)
-def test_r3_90_a_a_settlement_under_the_merchant_s_name_reads_alike_in_each_spelling(word, layout, bank, holder_name):
+def test_r3_90_a_a_settlement_under_the_merchant_s_name_reads_alike_in_each_spelling(word, layout, bank):
     rows = _r3_90_pair(layout, word=word)
-    assert _tiers(rows, holder_name=holder_name, bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
-
-
-@pytest.mark.parametrize(("layout", "bank"), [(R3_90_BOFA, "Bank of America"), (R3_90_CHASE, "Chase")])
-@pytest.mark.parametrize("word", R3_90_SPELLINGS)
-def test_r3_90_a_a_third_party_s_repeated_settlement_is_refused_as_proof_in_each_spelling(word, layout, bank):
-    rows = _r3_90_pair(layout, orig="FABRIKAM FREIGHT INC", word=word)
     assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
 
 
-def test_r3_90_a_every_spelling_the_exemption_reads_is_a_verification_only_word():
-    for word in R3_90_SPELLINGS:
-        assert tr._HOLDER_NAMED_SETTLEMENT_ENTRY.search(word) is not None, word
-        assert tr._VERIFICATION_ONLY.search(f"CONTOSO HAULING {word} 0001") is not None, word
-    # A card form that reads the short spelling keeps its own verified reading.
+# Review round 2 (finding 2): with no holder name read and no receiver field, no hold reads these rows, so the exemption
+# releases nothing and each reads as before the batch: SETTLEMENT refused as proof (§8.6), a short spelling as a payer.
+@pytest.mark.parametrize(("layout", "bank", "short"), [
+    (*R3_90_MERCHANT_LAYOUTS[0], REPEATS),
+    (*R3_90_MERCHANT_LAYOUTS[1], ("counted_flagged", "named_payer_unlabelled")),
+    (*R3_90_MERCHANT_LAYOUTS[2], ("counted_flagged", "named_payer_unlabelled")),
+])
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_b10_r2_a_merchant_named_settlement_with_no_holder_read_reads_as_before_the_batch(word, layout, bank, short):
+    reading = R3_90_REFUSED if word == "SETTLEMENT" else short
+    assert _tiers(_r3_90_pair(layout, word=word), bank=bank) == [reading, reading]
+
+
+@pytest.mark.parametrize(("layout", "bank"), [(R3_90_BOFA, "Bank of America"), (R3_90_CHASE, "Chase")])
+@pytest.mark.parametrize(("word", "reading"), [("SETTLEMENT", R3_90_REFUSED), ("SETTLMT", REPEATS), ("STLMT", REPEATS)])
+def test_r3_b10_r2_a_third_party_s_repeated_settlement_reads_as_before_the_batch(word, reading, layout, bank):
+    # Review round 2 (finding 2): §8.6's verification-only words read SETTLEMENT alone again; a third party's short
+    # spelling, which no hold reads, verifies by repetition as it did before the batch.
+    rows = _r3_90_pair(layout, orig="FABRIKAM FREIGHT INC", word=word)
+    assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank=bank) == [reading, reading]
+
+
+def test_r3_b10_r2_a_card_form_s_short_spelling_keeps_its_reading():
+    # The bankcard form reads STLMT and keeps its own verified reading; SETTLMT, which it does not read, verifies by
+    # repetition as before the batch (review round 1's verification-only short spellings counted it, flagged).
     rows = _r3_90_pair(R3_90_BOFA, orig="SAMPLE BANKCARD", word="STLMT")
     assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank="Bank of America") == [NET_SETTLE, NET_SETTLE]
+    rows = _r3_90_pair(R3_90_BOFA, orig="SAMPLE BANKCARD", word="SETTLMT")
+    assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank="Bank of America") == [REPEATS, REPEATS]
+    assert tr._VERIFICATION_ONLY.search("SAMPLE BANKCARD SETTLMT 0001") is None
+    assert tr._VERIFICATION_ONLY.search("SAMPLE BANKCARD STLMT 0001") is None
+
+
+# Audit round 3, R3-B10 review round 2 (finding 1): the exemption reads the settlement word anywhere before the receiver
+# outside the holder's names, digits glued on or not, where §8.6's verification-only words read only the entry fields
+# and the payer region, before a non-word character. A row the bare settlement word alone releases, from the pass-7
+# holder hold or the row-alone own-push guard, is never verified and never a repeat, whatever slot or boundary the word
+# sits in, with or without a holder name read, in each Zelle reading; one an earlier rule verified leaves verification.
+
+R3_B10_R2_HOLDER = "CONTOSO HAULING LLC"
+R3_B10_R2_CHASE = (
+    "ORIG CO NAME:{orig} ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:{entry} SEC:CCD TRACE#:11100002000000{n} "
+    "EED:540302 IND ID:1 IND NAME:CONTOSO HAULING LLC TRN: 123456789{n}TC"
+)
+#: The holder's own push, the settlement word in each slot the exemption reads: (name, layout, bank). Each layout pairs
+#: its originator with a receiver field, so the row-alone own-push guard reads it with no holder name too.
+R3_B10_R2_OWN_PUSH = (
+    ("bofa_id_spaced",
+     "CONTOSO HAULING LLC DES:PAYMENT ID:{word} 000{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("bofa_id_glued",
+     "CONTOSO HAULING LLC DES:PAYMENT ID:{word}000{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("bofa_des_glued",
+     "CONTOSO HAULING LLC DES:{word}0{n} ID:0001 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD", "Bank of America"),
+    ("bofa_after_id",
+     "CONTOSO HAULING LLC DES:PAYMENT ID:000{n} {word} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("bofa_originator_digit",
+     "CONTOSO HAULING 0412 {word} DES:PAYMENT ID:000{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("chase_entry_glued", R3_B10_R2_CHASE.replace("{orig}", "CONTOSO HAULING LLC").replace("{entry}", "{word}0{n}"),
+     "Chase"),
+)
+#: Layouts that print no receiver field: only the pass-7 holder hold reads them, so only with a holder name read.
+R3_B10_R2_HOLDER_ONLY = (
+    ("fifth_third_glued", "ACH CREDIT CONTOSO HAULING LLC {word}00{n}", "Fifth Third"),
+    ("capital_one_glued", "ACH DEPOSIT CONTOSO HAULING {word}0{n} 1234567{n} CONTOSO HAULING LLC", "Capital One"),
+    ("huntington_glued", "ACH DEPOSIT CONTOSO HAULING LLC {word}041{n} CCD", "Huntington"),
+)
+
+
+def _tiers_in(rows, zelle, **kwargs):
+    statement = _statement(rows, **kwargs)
+    return [rules_reading(record, method=True)
+            for record in classify_statement_transactions(statement, zelle_true_revenue=zelle) if record.amount > 0]
+
+
+def _records_in(rows, zelle, **kwargs):
+    statement = _statement(rows, **kwargs)
+    return [record for record in classify_statement_transactions(statement, zelle_true_revenue=zelle)
+            if record.amount > 0]
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize("holder_name", [None, R3_B10_R2_HOLDER])
+@pytest.mark.parametrize(("name", "layout", "bank"), R3_B10_R2_OWN_PUSH, ids=[shape[0] for shape in R3_B10_R2_OWN_PUSH])
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_b10_r2_the_holder_s_own_settlement_push_never_verifies_in_any_slot(word, name, layout, bank, holder_name,
+                                                                                zelle):
+    rows = _r3_90_pair(layout, word=word)
+    assert _tiers_in(rows, zelle, holder_name=holder_name, bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize(("name", "layout", "bank"), R3_B10_R2_HOLDER_ONLY,
+                         ids=[shape[0] for shape in R3_B10_R2_HOLDER_ONLY])
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_b10_r2_a_glued_settlement_the_holder_hold_releases_never_verifies(word, name, layout, bank, zelle):
+    rows = _r3_90_pair(layout, word=word)
+    assert _tiers_in(rows, zelle, holder_name=R3_B10_R2_HOLDER, bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize("holder_name", [None, R3_B10_R2_HOLDER])
+@pytest.mark.parametrize("entry", [
+    "CARD SALES SETTLEMENT", "MARKETPLACE SETTLEMENT", "SETTLEMENT EDIRPAY", "SETTLEMENT MTOT DEP",
+    "HCCLAIMPMT SETTLEMENT", "STLMT0001 MTOT DEP",
+])
+def test_r3_b10_r2_a_settlement_an_earlier_rule_verified_under_the_merchant_s_own_name_leaves_verification(
+    entry, holder_name, zelle
+):
+    # An operating-income descriptor verified the holder's own push before pass 7; the bare settlement word alone lifts
+    # the own-push guard, so the pass overrules the verification: counted and flagged, refused as proof.
+    rows = [(R3_90_BOFA.format(orig="CONTOSO HAULING LLC", word=entry, n=1), 1500.0)]
+    [record] = _records_in(rows, zelle, holder_name=holder_name, bank="Bank of America")
+    assert (record.revenue_tier, record.revenue_tier_reason) == R3_90_REFUSED
+    assert record.revenue_classification == "unverified_deposit"
+    assert record.revenue_match_method == "holder_named_settlement"
+    assert record.revenue_matched_rule == "holder_named_settlement_never_verified"
+    assert "operating_income_descriptor" in record.revenue_reason
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize("holder_name", [None, "CONTOSO HAULING"])
+@pytest.mark.parametrize("own", [
+    "CONTOSO HAULING DES:SETTLEMENT ID:0001 INDN:CONTOSO HAULING CO ID:1234567890 CCD",
+    "CONTOSO HAULING DES:PAYMENT ID:STLMT0001 INDN:CONTOSO HAULING CO ID:1234567890 CCD",
+])
+def test_r3_b10_r2_a_released_settlement_is_never_a_repeat(own, holder_name, zelle):
+    # The holder's own push, released by its settlement word, never counts toward a repeat (as the own push it was held
+    # as never did): the same name's lone payment stays one-off, or held as the holder's name where one is read.
+    other = "CONTOSO HAULING DES:PAYMENT ID:0009 CO ID:1234567890 CCD"
+    expected = ONE_OFF if holder_name is None else HOLDER_NAME
+    tiers = _tiers_in([(own, 1500.0), (other, 1750.0)], zelle, holder_name=holder_name, bank="Bank of America")
+    assert tiers == [R3_90_REFUSED, expected]
+
+
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+@pytest.mark.parametrize("form", ["{word}", "{word}01", "{word}-01", "{word}/01", "01{word}"])
+def test_r3_b10_r2_every_spelling_and_boundary_the_exemption_reads_is_never_verified(word, form):
+    # In step: wherever and however the exemption reads the word (merchant_settlement), the row it releases is refused
+    # as proof; B9's own settlement words alone do not read it.
+    printed = form.format(word=word)
+    text = f"CONTOSO HAULING LLC DES:{printed} ID:0001 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD"
+    assert tr._HOLDER_NAMED_SETTLEMENT_ENTRY.search(printed) is not None
+    assert tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,))
+    assert not tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,), bare_settlement=False)
+    rows = [(text, 1500.0), (text.replace("ID:0001", "ID:0002"), 1750.0)]
+    assert _tiers(rows, bank="Bank of America") == [R3_90_REFUSED, R3_90_REFUSED]
 
 
 # Truist prints '<entry> <company field> <receiver> CUSTOMER ID <id>': the holder's name in the receiver slot after a
