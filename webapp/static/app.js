@@ -868,28 +868,154 @@ function lenderDebitsSummary(metrics = {}, currency = "USD") {
     + `${count === 1 ? "payment" : "payments"}, ${formatMoney(metrics.returned_funder_payment_total, currency)})`;
 }
 
-// One warning line per returned funder payment, quoting the bank's own words, so a business's reversal of the debit
-// reads apart from a bank's bounce. A package's item names its statement's unit.
-function returnedFunderPaymentWarning(item, currency = "USD") {
+/* --- lender notes -------------------------------------------------------------
+   The owner's request of 2026-10-07 (dashboard clarity; display only; true revenue spec §10.1, §20): "make this writing
+   more clear ... these notes on the lenders". Every note of the lender table, R2-OW13's returned funder payments and
+   R2-OW18's lender payment changes, reads as a short headline ("KAPITUS: payment went down 30%"), one or two plain
+   sentences under it, an "Also:" sentence per extra note, and the statement it comes from ("From: June 2026
+   statement"), never a job id or a "<uuid>_<file>" name. The copied memo prints the same words as one line. */
+const SHORT_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const ORDINAL_WORDS = ["first", "second", "third", "fourth", "fifth"];
+
+// "Jun 22, 2026"; a value that is no ISO day reads as it was given (N/A when missing).
+function readableDate(value) {
+  const day = isoDay(value);
+  if (!day) return value ? String(value) : "N/A";
+  return `${SHORT_MONTH_NAMES[day.getUTCMonth()]} ${day.getUTCDate()}, ${day.getUTCFullYear()}`;
+}
+
+// "Mar 20 and Apr 1, 2026": the first day names its year only where the two years differ.
+function readableDateRange(first, last) {
+  const start = isoDay(first);
+  const end = isoDay(last);
+  if (start && end && start.getUTCFullYear() === end.getUTCFullYear()) {
+    return `${SHORT_MONTH_NAMES[start.getUTCMonth()]} ${start.getUTCDate()} and ${readableDate(last)}`;
+  }
+  return `${readableDate(first)} and ${readableDate(last)}`;
+}
+
+// "1 business day", "8 business days".
+function countWords(count, one, many = `${one}s`) {
+  return `${formatNumber(count)} ${numberOrNull(count) === 1 ? one : many}`;
+}
+
+// "A", "A and B", "A, B and C".
+function listWords(parts) {
+  if (parts.length < 2) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+// A file's name as it was uploaded, any leading job id or UUID (and the separator after it) removed; "" when nothing
+// else is left.
+const STATEMENT_ID_PREFIX = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})(?:[_\s-]+|$)/i;
+
+function statementFileName(name) {
+  let text = String(name ?? "").trim();
+  while (text && STATEMENT_ID_PREFIX.test(text)) text = text.replace(STATEMENT_ID_PREFIX, "").trim();
+  return text;
+}
+
+// The statements a package page's notes can name, from its rows (`documents`): each counted member by the month its
+// printed period stands for ("April 2054 statement"), with its file (and its account, for an account of a document)
+// where two members share that month, else by its file where it printed no period. `count` is how many members the
+// package counts: a package of one needs no source line, as a statement's own page needs none.
+function paymentChangeSources(documents) {
+  const rows = countedDocuments(documents);
+  const months = rows.map((doc) => monthLabel(statementMonth(doc.period_start, doc.period_end)));
+  const shared = new Map();
+  months.forEach((month) => { if (month) shared.set(month, (shared.get(month) || 0) + 1); });
+  const members = new Map();
+  rows.forEach((doc, index) => {
+    const month = months[index];
+    const { account } = packageMember(doc.id);
+    const which = [statementFileName(doc.filename), account === null ? "" : `account ${formatNumber(account)}`]
+      .filter(Boolean).join(", ");
+    const named = month && shared.get(month) > 1 && which;
+    members.set(String(doc.id), {
+      month,
+      label: month ? `${month} statement${named ? `, ${which}` : ""}` : (which || "a statement"),
+    });
+  });
+  return { count: rows.length, members };
+}
+
+// The statement an item's `<prefix>_job`, `_account` and `_document` name: the page's member, else its file's name.
+function paymentChangeMember(fields, prefix, sources) {
+  const job = fields[`${prefix}_job`];
+  const account = fields[`${prefix}_account`];
+  const id = account === undefined || account === null ? String(job ?? "") : `${job}#account_${account}`;
+  const member = sources && sources.members ? sources.members.get(id) : null;
+  if (member) return member;
+  return { month: null, label: statementFileName(fields[`${prefix}_document`]) || "a statement" };
+}
+
+// A note's source line: none on a statement's own page (its items name no statement) or in a package of one member;
+// "From: March 2054 → April 2054 statements" for an item seen across two statements (`across`, the two field prefixes);
+// else "From: <its statement>".
+function paymentChangeSourceLine(fields, sources, across = null) {
+  if (fields.scope === "statement" || (!("source_job" in fields) && !("source_document" in fields))) return "";
+  if (sources && sources.count <= 1) return "";
+  if (across) {
+    const from = paymentChangeMember(fields, across[0], sources);
+    const to = paymentChangeMember(fields, across[1], sources);
+    if (from.month && to.month && from.month !== to.month) return `From: ${from.month} → ${to.month} statements`;
+    return `From: ${from.label} → ${to.label}`;
+  }
+  return `From: ${paymentChangeMember(fields, "source", sources).label}`;
+}
+
+// A note: its headline, its plain sentences (`details`), its "Also:" sentences and its source line, each plain text.
+function lenderNote(headline, details = [], also = [], source = "") {
+  return { headline, details: details.filter(Boolean), also: also.filter(Boolean), source };
+}
+
+// The note as one line of text, for the copied memo.
+function lenderNoteText(note) {
+  return [`${note.headline}.`, ...note.details, ...note.also, note.source ? `${note.source}.` : ""]
+    .filter(Boolean).join(" ");
+}
+
+// One warning row of the lender table: the chip and the bold headline, then the details, each "Also:" sentence and the
+// source line, each on its own line; every value escaped.
+function lenderNoteRowHtml(chip, note) {
+  const line = (part, text) => `<div class="lender-note-${part}">${escapeHtml(text)}</div>`;
+  const details = note.details.length ? line("detail", note.details.join(" ")) : "";
+  const also = note.also.map((text) => line("also", text)).join("");
+  return `
+      <tr class="lender-warning">
+        <td colspan="6"><div class="lender-note"><div class="lender-note-head">${chip}<strong class="lender-note-headline">${escapeHtml(note.headline)}</strong></div>${details}${also}${note.source ? line("source", note.source) : ""}</div></td>
+      </tr>
+    `;
+}
+
+// Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): one note per returned funder payment, quoting the bank's own
+// words, so a business's reversal of the debit reads apart from a bank's bounce. A package's item is in its statement's
+// unit and names its statement; the final review of round 2's F2(b) item, a payment the package matched to a return in
+// the next statement, names both.
+function returnedFunderPaymentNote(item, currency = "USD", sources = null) {
   const unit = "source_currency" in item ? item.source_currency : currency;
-  const words = item.credit_description ? ` ("${item.credit_description}")` : "";
-  // The final review of round 2, F2(b): a payment the package matched to a return in the next statement names both
-  // documents.
-  const debited = item.cross_statement === true ? ` (${item.source_document || "a statement"})` : "";
-  const returned = item.cross_statement === true ? ` (${item.credit_document || "the next statement"})` : "";
-  return `Returned funder payment: ${item.funder || "Confirmed lender"} ${formatMoney(item.amount, unit)} debited `
-    + `${item.debit_date || "N/A"}${debited}, returned ${item.credit_date || "N/A"}${returned}${words}. Not counted as `
-    + "paid; still in the withholding rate.";
+  const amount = numberOrNull(item.amount);
+  const words = item.credit_description ? ` (the bank printed: "${item.credit_description}")` : "";
+  return lenderNote(`${item.funder || "Confirmed lender"}: a payment bounced`, [
+    `The ${formatMoney(amount === null ? null : Math.abs(amount), unit)} payment on ${readableDate(item.debit_date)} `
+      + `was returned unpaid on ${readableDate(item.credit_date)}${words}.`,
+    "It isn't counted as paid, but it still counts in the withholding rate.",
+  ], [], paymentChangeSourceLine(item, sources, item.cross_statement === true ? ["source", "credit"] : null));
+}
+
+function returnedFunderPaymentWarning(item, currency = "USD", sources = null) {
+  return lenderNoteText(returnedFunderPaymentNote(item, currency, sources));
 }
 
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
-// checked across statements (webapp/app.py LENDER_PAYMENT_UNCHECKED_WORDS).
+// compared across statements, in the dashboard's plain words (the exports keep webapp/app.py
+// LENDER_PAYMENT_UNCHECKED_WORDS).
 const LENDER_PAYMENT_UNCHECKED_WORDS = {
   not_ready: "not analysed yet",
-  analysed_before_check: "analysed before the check: re-analyze",
-  no_currency: "no currency declared: checked alone",
-  no_period: "no statement period: checked alone",
-  no_account_number: "fewer than 4 account digits and no balance chain: checked alone",
+  analysed_before_check: "analysed before the check; re-analyze it to include it",
+  no_currency: "no currency declared, so it was checked on its own",
+  no_period: "no statement period printed, so it was checked on its own",
+  no_account_number: "fewer than 4 account digits and no balance chain, so it was checked on its own",
 };
 const PAYMENT_CADENCE_WORDS = { semimonthly: "semi-monthly", daily_irregular: "irregular daily" };
 
@@ -902,159 +1028,191 @@ function signedPercent(value) {
   return `${number > 0 ? "+" : number < 0 ? "-" : ""}${Math.abs(number)}%`;
 }
 
-// R2-OW18: the parenthesis of a stop line names the schedule's grace window, never a schedule.
-function stopGraceWords(item) {
-  const grace = numberOrNull(item.grace_business_days);
-  const base = `more than ${grace ?? "N/A"} business days without a payment`;
-  return item.cadence === "weekly" ? `${base}, two missed weekly payments` : base;
-}
-
-// R2-OW18: the document suffix of a package line: the two statements of a change seen only across them, else the
-// statement the line names. Empty on a statement's own page.
-function paymentChangeDocument(item) {
-  if (item.scope !== "package") return "";
-  if (["decrease", "increase", "cadence_change"].includes(item.kind) && item.cross_statement === true) {
-    return ` (${item.from_document || "N/A"} → ${item.to_document || "N/A"})`;
-  }
-  return ` (${item.source_document || "N/A"})`;
-}
-
-// The owner's request of 2026-10-06 (lender payment changes; R2-OW18, G3): one warning line of the lender table.
-// Information only. Money is in the item's own unit (a package item's source_currency, R2-OW13's rule).
-function lenderPaymentChangeWarning(item, currency = "USD") {
+// The owner's request of 2026-10-06 (lender payment changes; R2-OW18, G3), in the words of the owner's request of
+// 2026-10-07: one note of the lender table. Information only. Money is in the item's own unit (a package item's
+// source_currency, R2-OW13's rule); `sources` (paymentChangeSources) names a package item's statements.
+function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
   const unit = "source_currency" in item ? item.source_currency : currency;
   const money = (value) => formatMoney(value, unit);
-  const potential = item.lender_state === "potential";
-  const label = item.lender_label || item.lender || "Lender";
-  const who = potential ? `potential lender ${label}` : label;
-  const tag = potential ? " (potential lender)" : "";
-  const stream = numberOrNull(item.positions) > 1 ? ` (payment stream ${item.position} of ${item.positions})` : "";
-  const documentSuffix = paymentChangeDocument(item);
-  const sentence = (body, suffixes = []) => `${[body, ...suffixes].join("; ")}${documentSuffix}.`;
+  const day = readableDate;
   const cadence = paymentCadenceWords;
+  const nameOf = (name, state) => (state === "potential" ? `${name} (potential lender)` : name);
+  const label = item.lender_label || item.lender || "Lender";
+  const percent = numberOrNull(item.change_percent);
+  const details = [];
+  const also = [];
+  let headline = "payment changed";
+  let across = null;
   if (["decrease", "increase", "cadence_change"].includes(item.kind)) {
+    if (item.cross_statement === true) across = ["from", "to"];
     const before = cadence(item.cadence_before);
     const after = cadence(item.cadence_after);
-    const weekly = `weekly equivalent ${money(item.weekly_equivalent_before)} → ${money(item.weekly_equivalent_after)}`;
-    let body;
+    const starting = `starting ${day(item.first_after_date)}`;
+    const amounts = `from ${before} ${money(item.amount_before)} to ${after} ${money(item.amount_after)} ${starting}`;
     if (item.kind === "cadence_change") {
-      const verdict = numberOrNull(item.change_percent) > 0 ? "no increase" : "no decrease";
-      body = `Payment schedule changed${tag}: ${label}${stream} ${before} ${money(item.amount_before)} → ${after} `
-        + `${money(item.amount_after)} from ${item.first_after_date} (${weekly}, ${signedPercent(item.change_percent)}: `
-        + `${verdict}); ${item.payments_after} payments on the new schedule, after ${item.payments_before} on the old`;
+      headline = "payment schedule changed";
+      details.push(`Payments changed ${amounts} (${countWords(item.payments_after, "payment")} on the new schedule so `
+        + `far, after ${formatNumber(item.payments_before)} on the old).`);
+      details.push(`The weekly total stayed about the same (${money(item.weekly_equivalent_before)} before, `
+        + `${money(item.weekly_equivalent_after)} after${percent ? `, ${signedPercent(percent)}` : ""}).`);
     } else {
       const possible = item.schedule_confirmed === false;
-      const lead = item.kind === "decrease"
-        ? (possible ? "Possible payment decrease" : "Payment decreased")
-        : (possible ? "Possible payment increase" : "Payment increased");
-      const amounts = item.cadence_changed === true
-        ? `${before} ${money(item.amount_before)} → ${after} ${money(item.amount_after)} (${weekly}, `
-          + `${signedPercent(item.change_percent)})`
-        : `${before} ${money(item.amount_before)} → ${money(item.amount_after)} (${signedPercent(item.change_percent)})`;
-      body = `${lead}${tag}: ${label}${stream} ${amounts} from ${item.first_after_date}; ${item.payments_after} payments `
-        + `at the new amount, after ${item.payments_before} at the old`;
+      const size = percent === null ? "" : ` ${Math.abs(percent)}%`;
+      const way = item.kind === "decrease" ? "down" : "up";
+      headline = possible ? `payment may have gone ${way}${size}` : `payment went ${way}${size}`;
+      const counts = `(${countWords(item.payments_after, "payment")} at the new amount so far, after `
+        + `${formatNumber(item.payments_before)} at the old)`;
+      if (item.cadence_changed === true) {
+        details.push(`Payments changed ${amounts} ${counts}.`);
+        details.push(`The weekly total went from ${money(item.weekly_equivalent_before)} to `
+          + `${money(item.weekly_equivalent_after)}.`);
+      } else {
+        details.push(`The ${before} payment went from ${money(item.amount_before)} to ${money(item.amount_after)} `
+          + `${starting} ${counts}.`);
+      }
     }
-    const suffixes = [];
-    if (item.schedule_confirmed === false) suffixes.push("new schedule not yet confirmed");
-    if (Array.isArray(item.via) && item.via.length) {
-      // R2-OW18 review round 1: each unreported level with the step into it, then the last step; never a claim about
-      // the steps' size (an abrupt last step after a small drift reads as such). An item stored without the step
-      // fields names its levels alone.
-      const step = (percent) => (numberOrNull(percent) === null ? "" : ` (${signedPercent(percent)})`);
-      const levels = item.via.filter((entry) => entry && typeof entry === "object")
-        .map((entry) => `${cadence(entry.cadence)} ${money(entry.amount)}${step(entry.change_percent)}`).join(", ");
+    if (item.schedule_confirmed === false) details.push("The new schedule isn't confirmed yet.");
+    // R2-OW18 review round 1: each unreported level with the step into it, then the last step; never a claim about the
+    // steps' size (an abrupt last step after a small drift reads as such). An item stored without the step fields names
+    // its levels alone. A level names its schedule where the change crosses schedules.
+    const levels = (Array.isArray(item.via) ? item.via : []).filter((entry) => entry && typeof entry === "object");
+    if (levels.length) {
+      const crossing = item.cadence_before !== item.cadence_after;
+      const step = (value) => (numberOrNull(value) === null ? "" : ` (${signedPercent(value)})`);
+      const level = (schedule, amount, change) => `${crossing ? `${cadence(schedule)} ` : ""}${money(amount)}${step(change)}`;
       const last = numberOrNull(item.last_step_percent) === null ? ""
-        : `, then ${after} ${money(item.amount_after)}${step(item.last_step_percent)}`;
-      suffixes.push(`via ${levels}${last}`);
+        : `, then to ${level(item.cadence_after, item.amount_after, item.last_step_percent)}`;
+      details.push(`It stepped through ${listWords(levels.map((entry) => level(entry.cadence, entry.amount,
+        entry.change_percent)))} on the way${last}.`);
     }
-    if (item.restart === true) suffixes.push(`after a pause of ${item.pause_business_days} business days`);
-    if (item.back_to_earlier === true) suffixes.push(`back to the earlier ${money(item.amount_after)} payment`);
-    if (item.reverted === true) suffixes.push(`temporary: back to ${money(item.amount_before)} from ${item.reverted_date}`);
+    if (item.restart === true) {
+      also.push(`Also: the new amount started after a pause of ${countWords(item.pause_business_days, "business day")} `
+        + "with no payment.");
+    }
+    if (item.back_to_earlier === true) also.push(`Also: this is back to the earlier ${money(item.amount_after)} payment.`);
+    if (item.reverted === true) {
+      also.push(`Also: this was temporary; the payment went back to ${money(item.amount_before)} on `
+        + `${day(item.reverted_date)}.`);
+    }
     if (item.after_funding) {
-      suffixes.push(`after a new funding from ${item.lender} of ${money(item.after_funding.amount)} on `
-        + `${item.after_funding.date} (renewal?)`);
+      const funded = isoDay(item.after_funding.date);
+      const started = isoDay(item.first_after_date);
+      const when = funded && started && funded > started ? "just after" : "just before";
+      also.push(`Also: ${item.lender || label} deposited ${money(item.after_funding.amount)} on `
+        + `${day(item.after_funding.date)}, ${when}; this may be a renewal.`);
     }
-    return sentence(body, suffixes);
-  }
-  if (item.kind === "pause") {
+  } else if (item.kind === "pause") {
     // R2-OW18 review round 1: a bounced attempt or a payment at another amount can end the pause before the regular
-    // payment resumes; the line then says so and names the date payments resumed.
+    // payment resumes; the note then says so and names the date payments resumed.
+    headline = "payments paused, then resumed";
     const attempt = item.first_after_kind === "attempt";
-    const facts = `(${item.pause_business_days} business days; ${cadence(item.cadence)}, grace ${item.grace_business_days})`;
     const same = `at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`;
-    const head = `Payments paused${tag}: no payment${attempt ? " or payment attempt" : ""} to ${label}${stream} between `
-      + `${item.last_before_date} and ${item.first_after_date} ${facts}`;
+    details.push(`No payment${attempt ? " or payment attempt" : ""} between `
+      + `${readableDateRange(item.last_before_date, item.first_after_date)} `
+      + `(${countWords(item.pause_business_days, "business day")}; ${cadence(item.cadence)} payments normally allow `
+      + `${formatNumber(item.grace_business_days)}).`);
     if (attempt) {
-      return sentence(`${head}; the attempt on ${item.first_after_date} was returned unpaid, and payments resumed `
-        + `${same} on ${item.resumed_date || "N/A"}`);
-    }
-    if (item.first_after_kind === "other_amount") {
-      return sentence(`${head}; a payment at another amount on ${item.first_after_date}, and payments resumed ${same} `
-        + `on ${item.resumed_date || "N/A"}`);
-    }
-    return sentence(`${head}, then resumed ${same}`);
-  }
-  if (item.kind === "new_stream") {
-    const alongside = (Array.isArray(item.alongside) ? item.alongside : [])
-      .map((other) => `${cadence(other.cadence)} ${money(other.amount)}`).join(" and ");
-    return sentence(`New payment stream${tag}: ${label} ${cadence(item.cadence_after)} ${money(item.amount_after)} from `
-      + `${item.first_after_date}, alongside ${alongside} (weekly total ${money(item.weekly_total_before)} → `
-      + `${money(item.weekly_total_after)}, ${signedPercent(item.change_percent)}; payment stream ${item.position} of `
-      + `${item.positions})`);
-  }
-  if (item.kind === "stop") {
-    const others = item.other_debits_after;
-    const regular = others ? `regular ${money(item.last_payment_amount)} ` : "";
-    const later = others
-      ? `; ${others.count} later ${others.count === 1 ? "debit" : "debits"} at other amounts, the last on ${others.last_date}`
-      : "";
-    // R2-OW18 review round 1: when the last presence is a bounced attempt (and no debit at another amount follows the
-    // last payment), the quiet days run from the attempt: the line says "no payment or payment attempt" and gives the
-    // last payment's date.
-    const attempt = !others && Boolean(item.last_attempt_returned);
-    const none = attempt ? "payment or payment attempt" : "payment";
-    let body;
-    if (item.stop_confirmed === true) {
-      const since = others ? item.last_payment_date : item.last_presence_date;
-      const paid = attempt ? ` on ${item.last_payment_date}` : "";
-      body = `No ${regular}${none} to ${who}${stream} since ${since}${later} (${cadence(item.cadence)}; last payment `
-        + `${money(item.last_payment_amount)}${paid}; ${item.quiet_business_days} business days through ${item.coverage_end})`;
+      details.push(`The attempt on ${day(item.first_after_date)} bounced, and payments resumed ${same} on `
+        + `${day(item.resumed_date)}.`);
+    } else if (item.first_after_kind === "other_amount") {
+      details.push(`A payment of another amount came on ${day(item.first_after_date)}, and payments resumed ${same} `
+        + `on ${day(item.resumed_date)}.`);
     } else {
-      const span = item.scope === "package" ? `through ${item.coverage_end}` : "of the statement";
-      const lead = others
-        ? `Possible stop: no ${regular}payment to ${who}${stream} since ${item.last_payment_date}${later}`
-        : `Possible stop: no ${none} to ${who}${stream} in the last ${item.quiet_business_days} business days ${span}`;
-      body = `${lead} (${cadence(item.cadence)}; last payment ${money(item.last_payment_amount)} on `
-        + `${item.last_payment_date}; ${stopGraceWords(item)})`;
+      details.push(`Payments then resumed ${same}.`);
     }
-    const suffixes = [];
-    if (item.payoff) suffixes.push(`a final debit of ${money(item.payoff.amount)} on ${item.payoff.date} (possible payoff)`);
+  } else if (item.kind === "new_stream") {
+    const position = numberOrNull(item.position);
+    const ordinal = position !== null && position >= 2 ? ORDINAL_WORDS[position - 1] : null;
+    headline = ordinal ? `a ${ordinal} payment started` : "another payment started";
+    const alongside = (Array.isArray(item.alongside) ? item.alongside : [])
+      .filter((other) => other && typeof other === "object")
+      .map((other) => `${cadence(other.cadence)} ${money(other.amount)}`);
+    details.push(`${ordinal ? `A ${ordinal}` : "Another"} ${cadence(item.cadence_after)} payment of `
+      + `${money(item.amount_after)} started on ${day(item.first_after_date)}, alongside the existing `
+      + `${alongside.length ? listWords(alongside) : "payments"}.`);
+    details.push(`The weekly total went from ${money(item.weekly_total_before)} to ${money(item.weekly_total_after)} `
+      + `(${signedPercent(item.change_percent)}).`);
+  } else if (item.kind === "stop") {
+    // R2-OW18 review round 1: when the last presence is a bounced attempt (and no debit at another amount follows the
+    // last payment), the quiet days run from the attempt, and the note says "no payment or payment attempt".
+    const others = item.other_debits_after;
+    const attempt = !others && Boolean(item.last_attempt_returned);
+    const schedule = cadence(item.cadence);
+    const quiet = countWords(item.quiet_business_days, "business day");
+    const through = day(item.coverage_end);
+    const later = others ? `${countWords(others.count, "debit")} at other amounts` : "";
+    if (item.stop_confirmed === true) {
+      headline = "payments stopped";
+      details.push(`Last ${others ? "regular " : ""}${schedule} payment: ${money(item.last_payment_amount)} on `
+        + `${day(item.last_payment_date)}.`);
+      const presence = item.last_presence_date && item.last_presence_date !== item.last_payment_date
+        ? day(item.last_presence_date) : "it";
+      if (others) {
+        details.push(`After it came only ${later}, the last on ${day(others.last_date)}.`);
+        details.push(`No payment in the ${quiet} after ${presence}, through ${through}.`);
+      } else {
+        details.push(`No ${attempt ? "payment or payment attempt" : "payments"} in the ${quiet} after ${presence}, `
+          + `through ${through}.`);
+      }
+    } else {
+      headline = "payments may have stopped";
+      if (others) {
+        details.push(`No regular ${schedule} payment since ${day(item.last_payment_date)}; only ${later} since (the `
+          + `last on ${day(others.last_date)}).`);
+      } else {
+        const span = item.scope === "package" ? `the last ${quiet}, through ${through}` : `the last ${quiet} of this statement`;
+        details.push(`No ${attempt ? "payment or payment attempt" : "payment"} in ${span}.`);
+      }
+      details.push(`${sentenceCase(schedule)} payments normally arrive within `
+        + `${countWords(item.grace_business_days, "business day")}.`);
+      details.push(`Last ${others ? "regular " : ""}payment: ${money(item.last_payment_amount)} on `
+        + `${day(item.last_payment_date)}.`);
+    }
+    if (item.payoff) {
+      also.push(`Also: a final debit of ${money(item.payoff.amount)} on ${day(item.payoff.date)} may be a payoff.`);
+    }
     if (item.continues_as) {
       const next = item.continues_as;
-      const name = next.lender_state === "potential" ? `potential lender ${next.lender_label}` : next.lender_label;
-      suffixes.push(`payments of ${money(next.amount)} continue as ${name} from ${next.first_date} (possible buyout or refinance)`);
+      also.push(`Also: payments of ${money(next.amount)} continue under `
+        + `${nameOf(next.lender_label || next.lender || "another lender", next.lender_state)} from `
+        + `${day(next.first_date)}; this may be a buyout or refinance.`);
     }
     if (item.new_lender_after) {
       const next = item.new_lender_after;
-      const name = next.lender_state === "potential" ? `potential lender ${next.lender_label}` : next.lender_label;
-      suffixes.push(`a new lender series starts: ${name} ${cadence(next.cadence)} ${money(next.amount)} from ${next.first_date}`);
+      also.push(`Also: ${nameOf(next.lender_label || next.lender || "another lender", next.lender_state)} started `
+        + `${cadence(next.cadence)} payments of ${money(next.amount)} on ${day(next.first_date)}; it may have taken over `
+        + "this advance.");
     }
     if (item.debt_relief_after) {
-      suffixes.push(`a debt relief program's payments start on ${item.debt_relief_after.date} (possible default or settlement)`);
+      also.push(`Also: a debt-relief program's payments start on ${day(item.debt_relief_after.date)}; this may mean a `
+        + "default or settlement.");
     }
     if (item.continues_in_other_account) {
       const other = item.continues_in_other_account;
-      suffixes.push(`payments to ${label} continue from another account (${other.source_document || "N/A"}) from `
-        + `${other.first_date} at ${money(other.amount)}`);
+      also.push(`Also: payments to ${label} continue from another account `
+        + `(${paymentChangeMember(other, "source", sources).label}) from ${day(other.first_date)} at `
+        + `${money(other.amount)}.`);
     }
     if (item.other_stream_continues) {
-      suffixes.push(`another ${label} payment stream continues (${money(item.other_stream_continues.amount)} `
-        + `${cadence(item.other_stream_continues.cadence)})`);
+      also.push(`Also: another ${label} payment of ${money(item.other_stream_continues.amount)} `
+        + `${cadence(item.other_stream_continues.cadence)} continues.`);
     }
-    if (item.last_attempt_returned) suffixes.push(`the last attempt, on ${item.last_attempt_returned.date}, was returned unpaid`);
-    return sentence(body, suffixes);
+    if (item.last_attempt_returned) also.push(`Also: the last attempt, on ${day(item.last_attempt_returned.date)}, bounced.`);
   }
-  return sentence(`Payment change: ${label}`);
+  // A lender taking two payments or more: which one the note is about (a new stream's own sentence says so).
+  const positions = numberOrNull(item.positions);
+  if (positions !== null && positions > 1 && item.kind !== "new_stream") {
+    const position = numberOrNull(item.position);
+    details.push(`${label} takes ${formatNumber(positions)} separate payments; this note is about the `
+      + `${(position !== null && ORDINAL_WORDS[position - 1]) || `number ${formatNumber(item.position)}`}.`);
+  }
+  return lenderNote(`${nameOf(label, item.lender_state)}: ${headline}`, details, also,
+    paymentChangeSourceLine(item, sources, across));
+}
+
+// The note as one line of text: the copied package memo's line.
+function lenderPaymentChangeWarning(item, currency = "USD", sources = null) {
+  return lenderNoteText(lenderPaymentChangeNote(item, currency, sources));
 }
 
 // R2-OW18 (G2): the chip of a lender payment change; every potential lender's line in the neutral tone.
@@ -1072,31 +1230,28 @@ function lenderPaymentChangeChip(item) {
   return glassChip(glyph, text, item.lender_state === "potential" ? "neutral" : tone);
 }
 
-// R2-OW18 (G1): the lender table's payment-change lines, above its rows. `paymentChanges` null or undefined is "not
-// computed" (an analysis saved before the check), never "no change": with lender rows it shows one neutral line, whose
-// words depend on the page. An empty list shows nothing. A package's members not checked across statements show one
-// neutral line naming each with its reason.
-function lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, hasLenders, isPackage) {
-  const row = (chip, text) => `
-      <tr class="lender-warning">
-        <td colspan="6">${chip} <span class="lender-warning-text">${escapeHtml(text)}</span></td>
-      </tr>
-    `;
+// R2-OW18 (G1): the lender table's payment-change notes, above its rows. `paymentChanges` null or undefined is "not
+// computed" (an analysis saved before the check), never "no change": with lender rows it shows one neutral note, whose
+// words depend on the page. An empty list shows nothing. A package's members not compared across statements show one
+// neutral note naming each (by its month or its file, never its job id) with its reason.
+function lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, hasLenders, isPackage, sources = null) {
+  const notChecked = () => glassChip("·", "Not checked", "neutral");
   const lines = [];
   if (Array.isArray(paymentChanges)) {
-    paymentChanges.filter((item) => item && typeof item === "object")
-      .forEach((item) => lines.push(row(lenderPaymentChangeChip(item), lenderPaymentChangeWarning(item, currency))));
+    paymentChanges.filter((item) => item && typeof item === "object").forEach((item) => lines.push(
+      lenderNoteRowHtml(lenderPaymentChangeChip(item), lenderPaymentChangeNote(item, currency, sources))));
   } else if (hasLenders) {
-    lines.push(row(glassChip("·", "Not checked", "neutral"), isPackage
-      ? "Payment changes not checked: no statement of this package has been checked yet."
-      : "Payment changes not checked: this statement was analysed before the check. Re-analyze to see them."));
+    lines.push(lenderNoteRowHtml(notChecked(), lenderNote("Payment changes not checked", [isPackage
+      ? "No statement in this package has been checked yet."
+      : "This statement was analysed before the check. Re-analyze it to see payment changes."])));
   }
   const left = (Array.isArray(unchecked) ? unchecked : []).filter((entry) => entry && typeof entry === "object");
   if (isPackage && left.length && hasLenders) {
-    const named = left.map((entry) => `${entry.source_document || entry.source_job || "N/A"} `
-      + `(${LENDER_PAYMENT_UNCHECKED_WORDS[entry.reason] || entry.reason})`).join(", ");
-    lines.push(row(glassChip("·", "Not checked", "neutral"),
-      `Payment changes not checked across statements for ${left.length} statement(s): ${named}`));
+    const named = left.map((entry) => `${paymentChangeMember(entry, "source", sources).label} `
+      + `(${LENDER_PAYMENT_UNCHECKED_WORDS[entry.reason] || labelize(entry.reason)})`);
+    lines.push(lenderNoteRowHtml(notChecked(), lenderNote("Payment changes not checked across statements", [
+      `${left.length === 1 ? "This statement was" : `These ${formatNumber(left.length)} statements were`} not compared `
+        + `with the others: ${named.join("; ")}.`])));
   }
   return lines.join("");
 }
@@ -2801,7 +2956,7 @@ function lenderRowHtml(funder, currency = "USD") {
 }
 
 function renderLenders(funders, potentialLenders = [], currency = "USD", returnedPayments = [], paymentChanges = null,
-  unchecked = [], isPackage = false) {
+  unchecked = [], isPackage = false, documents = null) {
   const confirmed = Array.isArray(funders) ? funders : [];
   const potential = Array.isArray(potentialLenders) ? potentialLenders : [];
   const lenders = [
@@ -2809,16 +2964,15 @@ function renderLenders(funders, potentialLenders = [], currency = "USD", returne
     ...potential.map((item) => ({ ...item, classification: "potential_lender" })),
   ];
   els.lenderCount.textContent = `${confirmed.length} confirmed, ${potential.length} potential`;
-  // R2-OW13 (the underwriter's Q5): one amber warning line per returned funder payment, above the lender rows.
-  // R2-OW18 (the owner's request of 2026-10-06): then one line per lender payment change, or the neutral not-checked
-  // line. Both render above "No lenders detected" too (the early return used to drop R2-OW13's lines).
+  // R2-OW13 (the underwriter's Q5): one amber note per returned funder payment, above the lender rows. R2-OW18 (the
+  // owner's request of 2026-10-06): then one note per lender payment change, or the neutral not-checked note. Both
+  // render above "No lenders detected" too (the early return used to drop R2-OW13's lines). The owner's request of
+  // 2026-10-07: a package's notes name their statements from its rows (`documents`).
+  const sources = Array.isArray(documents) ? paymentChangeSources(documents) : null;
   const warnings = (Array.isArray(returnedPayments) ? returnedPayments : [])
     .filter((item) => item && typeof item === "object")
-    .map((item) => `
-      <tr class="lender-warning">
-        <td colspan="6">${glassChip("!", "Returned", "amber")} <span class="lender-warning-text">${escapeHtml(returnedFunderPaymentWarning(item, currency))}</span></td>
-      </tr>
-    `).join("") + lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, lenders.length > 0, isPackage);
+    .map((item) => lenderNoteRowHtml(glassChip("!", "Returned", "amber"), returnedFunderPaymentNote(item, currency, sources)))
+    .join("") + lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, lenders.length > 0, isPackage, sources);
   if (!lenders.length) {
     els.lenderTable.innerHTML = warnings + `
       <tr>
@@ -3462,6 +3616,12 @@ function renderCredits({ label, value, meta }) {
   els.creditsMeta.innerHTML = meta;
 }
 
+// The hero's lines under its big figure, each on its own line; each line is HTML built from escaped pieces, and an
+// empty one is left out.
+function creditsMetaLines(...lines) {
+  return lines.filter(Boolean).map((line) => `<span class="credits-meta-line">${line}</span>`).join("");
+}
+
 // 5.6 (true revenue spec §10.1): the four tiers of the posted credits.
 const CREDIT_MIX = [
   ["verified_revenue", "Verified revenue", "dot-green"],
@@ -3898,11 +4058,16 @@ function renderAccount(report) {
   analysisCrumbs = ["Statements", statement.bank || "Statement", month || period(statement)];
   resultsCrumbs = analysisCrumbs;
   const revenueEstablished = metrics.revenue_established === true;
+  // The owner's request of 2026-10-07 (dashboard clarity): the big figure is True revenue and Total credits sits on the
+  // line below it; where True revenue is not established the figure reads N/A and the line above Total credits says why.
+  const unestablishedReason = revenueEstablished ? ""
+    : `True revenue is not established for this statement${rulesOutdated ? " · Re-analyze to compute true revenue" : ""}`;
   renderCredits({
-    label: "Total credits",
-    value: formatMoney(totalCredits, currency),
-    meta: `${escapeHtml(formatNumber(metrics.total_posted_credit_count))} credit transactions · True revenue `
-      + `<span class="mono">${escapeHtml(revenueEstablished ? formatMoney(metrics.true_revenue_total, currency) : "N/A")}</span>`,
+    label: "True revenue",
+    value: revenueEstablished ? formatMoney(metrics.true_revenue_total, currency) : "N/A",
+    meta: creditsMetaLines(escapeHtml(unestablishedReason),
+      `Total credits <span class="mono">${escapeHtml(formatMoney(totalCredits, currency))}</span> · `
+      + `${escapeHtml(formatNumber(metrics.total_posted_credit_count))} credit transactions`),
   });
   renderCreditMix(metrics, currency);
   renderBalanceChart(transactions, metrics, currency);
@@ -4648,14 +4813,15 @@ function statementsAndAccounts(counts) {
     + `${formatNumber(counts.accounts)} ${counts.accounts === 1 ? "account" : "accounts"}`;
 }
 
-// R15: what the True line covers when an account was left out: the statements with a counted, analysed account of
-// the statements the package lists ("" when nothing was left out).
+// R15: what True revenue covers when an account was left out: the statements with a counted, analysed account of the
+// statements the package lists ("" when nothing was left out). Since the owner's request of 2026-10-07 True revenue is
+// the hero's big figure, so the line under it names it.
 function packageCoverage(pkg = {}) {
   if (!leftOutAccounts(pkg).length) return "";
   const counts = packageCounts(pkg);
   const covered = new Set(countedDocuments(pkg.documents).filter((doc) => doc.status === "done")
     .map((doc) => packageMember(doc.id).jobId)).size;
-  return ` · covers ${formatNumber(covered)} of ${formatNumber(counts.statements)} `
+  return ` · True revenue covers ${formatNumber(covered)} of ${formatNumber(counts.statements)} `
     + `${counts.statements === 1 ? "statement" : "statements"}`;
 }
 
@@ -4745,17 +4911,23 @@ function renderPackageAnalysis(pkg) {
   analysisCrumbs = ["Packages", title];
   resultsCrumbs = analysisCrumbs;
   // Audit B11 (I07, I33): "N statements · M months" (distinct calendar months), the gross monthly figure named gross,
-  // and True per month beside the package's True: what an MCA advance is sized on.
+  // and True per month beside the package's True: what an MCA advance is sized on. The owner's request of 2026-10-07
+  // (dashboard clarity): the big figure is the package's True revenue and Total credits leads the line below it; where
+  // True revenue is N/A (not established) a line above says why (with no statement analysed the label already does).
+  const trueRevenue = formatMoney(totals.true_revenue_total, currency);
+  const unestablishedReason = refusalNote || trueRevenue !== "N/A" || numberOrNull(totals.completed) === 0 ? ""
+    : (packageUnestablishedNote(totals, documents) || "True revenue is not established for this package");
   renderCredits({
-    label: `Total credits · ${span}`,
-    value: formatMoney(totals.total_credits, currency),
+    label: `True revenue · ${span}`,
+    value: trueRevenue,
     meta: refusalNote
-      ? escapeHtml(refusalNote)
-      : `Avg monthly gross credits <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_credits, currency))}</span>`
-        + ` · True revenue <span class="mono">${escapeHtml(formatMoney(totals.true_revenue_total, currency))}</span>`
+      ? creditsMetaLines(escapeHtml(refusalNote))
+      : creditsMetaLines(escapeHtml(unestablishedReason),
+        `Total credits <span class="mono">${escapeHtml(formatMoney(totals.total_credits, currency))}</span>`
+        + ` · Avg monthly gross credits <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_credits, currency))}</span>`
+        + ` · True per month <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_true_revenue, currency))}</span>`
         // Audit round 2, R2-B15 (R15): the statements True covers, when an account was left out of every figure.
-        + escapeHtml(packageCoverage(pkg))
-        + ` · True per month <span class="mono">${escapeHtml(formatMoney(totals.avg_monthly_true_revenue, currency))}</span>`,
+        + escapeHtml(packageCoverage(pkg))),
   });
   renderCreditMix(packageRevenueFlags(totals), currency);
   // The monthly chart is drawn with the Monthly Statements table (renderMonthlyStatements): both follow the basis
@@ -4890,7 +5062,7 @@ function renderPackageTables(pkg) {
   // R2-OW13: each warning line names its own statement's unit. R2-OW18: the lender payment changes across the
   // package's statements, and the members not checked across them.
   renderLenders(funders, potentialLenders, currency, pkg.returned_funder_payments, pkg.lender_payment_changes,
-    pkg.lender_payment_changes_unchecked, true);
+    pkg.lender_payment_changes_unchecked, true, Array.isArray(pkg.documents) ? pkg.documents : []);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(pkg.flagged_positions, currency, true);
   renderRevenueEvidence(packageRevenueFlags(pkg.totals || {}), currency);
@@ -4900,7 +5072,8 @@ function renderPackageTables(pkg) {
 /* --- Monthly Statements deposits -----------------------------------------
    Which deposits the package's Monthly Statements table shows, chosen on the Settings page and kept in this browser
    only. Total is everything going in. True is True revenue (5.6): every posted credit except known non-revenue (an
-   own-account transfer, lender funding, a refund) and the deposits held for review, with its Verified part beside it. */
+   own-account transfer, lender funding, a refund) and the deposits held for review; the chart shades its Verified part.
+   Every view also shows each statement's confirmed withholding rate (the owner's request of 2026-10-07). */
 const MONTHLY_DEPOSITS_KEY = "bsa-monthly-deposits";
 const MONTHLY_DEPOSITS_VIEWS = ["both", "total", "true"];
 // The choice made on this page. Storage only carries it to the next visit: where storage is blocked (a private
@@ -4968,20 +5141,32 @@ function totalDeposits(doc) {
 }
 
 // The deposit columns, [header, value of a row, kind]: the CRM's own headers when one basis is shown, each basis
-// named when both are.
+// named when both are. The owner's request of 2026-10-07: no Verified ($) column (the chart keeps its Verified part).
 function monthlyDepositColumns(view) {
   const total = [totalDeposits, (doc) => monthFigure(doc, doc.deposit_count)];
   const revenue = [trueDeposits, trueDepositCount];
   if (view === "total") return [["Monthly Deposits ($)", total[0], "amount"], ["Deposits Per Month", total[1], "count"]];
-  if (view === "true") {
-    return [["Monthly Deposits ($)", revenue[0], "amount"], ["Deposits Per Month", revenue[1], "count"],
-      ["Verified ($)", verifiedDeposits, "amount"]];
-  }
+  if (view === "true") return [["Monthly Deposits ($)", revenue[0], "amount"], ["Deposits Per Month", revenue[1], "count"]];
   return [
     ["Total Deposits ($)", total[0], "amount"], ["Total Deposits Per Month", total[1], "count"],
     ["True Deposits ($)", revenue[0], "amount"], ["True Deposits Per Month", revenue[1], "count"],
-    ["Verified ($)", verifiedDeposits, "amount"],
   ];
+}
+
+// The owner's request of 2026-10-07 ("add witholding rate"): a statement's own confirmed withholding rate, its package
+// row's served `withholding_rate`, or null (shown N/A) where none is published: a statement that failed, and 5.7's
+// rules, a withholding basis that is not established or is zero.
+function monthlyWithholdingRate(doc) {
+  if (doc.withholding_basis_unestablished === true) return null;
+  const basis = numberOrNull(doc.withholding_denominator);
+  if (basis !== null && basis <= 0) return null;
+  return numberOrNull(monthFigure(doc, doc.withholding_rate));
+}
+
+// "76.49%", always two decimals; N/A for none.
+function formatRateTwoDecimals(value) {
+  const n = numberOrNull(value);
+  return n === null ? "N/A" : `${n.toFixed(2)}%`;
 }
 
 const MONTHLY_DEPOSITS_NOTES = {
@@ -5015,6 +5200,7 @@ function renderMonthlyStatements(pkg) {
         <th>Month</th>
         <th>Year</th>
         ${columns.map(([header]) => `<th>${escapeHtml(header)}</th>`).join("")}
+        <th>Withholding Rate</th>
         <th>Ledger ($)</th>
         <th>NSF</th>
         <th>Action</th>
@@ -5028,6 +5214,7 @@ function renderMonthlyStatements(pkg) {
         <td>No statements</td>
         <td>N/A</td>
         ${columns.map(() => "<td>N/A</td>").join("")}
+        <td>N/A</td>
         <td>N/A</td>
         <td>N/A</td>
         <td>${glassChip("◐", "Review", "amber")}</td>
@@ -5071,6 +5258,7 @@ function renderMonthlyStatements(pkg) {
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
           <td class="mono">${escapeHtml(month ? String(month.year) : "N/A")}</td>
           ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}${value === trueDeposits ? zelleDetail : ""}</td>`).join("")}
+          <td class="mono">${escapeHtml(formatRateTwoDecimals(monthlyWithholdingRate(doc)))}</td>
           <td class="mono">${escapeHtml(amount(monthFigure(doc, doc.average_daily_balance)))}</td>
           <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(monthFigure(doc, doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
           <td><button class="statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${status === "Failed" ? "Unavailable" : status === "Processing" ? "Processing" : `Open${OPEN_ICON}`}</button></td>
@@ -5441,10 +5629,12 @@ function generateSummary() {
     const lenderSummary = funders.length
       ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
       : "No lenders detected across the package.";
-    // R2-OW18 (G5): one "- <warning text>" line per lender payment change across the package's statements.
+    // R2-OW18 (G5): one "- <note>" line per lender payment change across the package's statements, in the lender
+    // table's words (the owner's request of 2026-10-07).
+    const sources = paymentChangeSources(pkg.documents);
     const paymentChangeLines = (Array.isArray(pkg.lender_payment_changes) ? pkg.lender_payment_changes : [])
       .filter((item) => item && typeof item === "object")
-      .map((item) => `\n- ${lenderPaymentChangeWarning(item, currency)}`).join("");
+      .map((item) => `\n- ${lenderPaymentChangeWarning(item, currency, sources)}`).join("");
     const counted = countedDocuments(pkg.documents);
     const repeats = duplicateDocuments(pkg.documents).length;
     // Audit round 2, R2-B15 (R50): a package holding an account of a document says how many of its accounts completed.

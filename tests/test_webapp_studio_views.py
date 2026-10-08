@@ -345,20 +345,20 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: monthly()}}));
 """)
     whole = lambda value: f"{round(value):,}"  # noqa: E731  the table's whole-number format
     both, true_only, total_only = result["both"], result["trueOnly"], result["totalOnly"]
+    # The owner's request of 2026-10-07: no Verified ($) column; every view shows the statement's withholding rate.
     assert both["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month", "True Deposits ($)",
-                            "True Deposits Per Month", "Verified ($)", "Ledger ($)", "NSF", "Action"]
+                            "True Deposits Per Month", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
     assert both["count"] == "2 statements"
     january = documents["jan"]
+    rate = "N/A" if january["withholding_rate"] is None else f"{january['withholding_rate']:.2f}%"
     assert both["rows"][0][2:7] == [whole(january["credits"]), str(january["deposit_count"]),
-                                    whole(january["true_revenue_total"]), str(january["true_revenue_count"]),
-                                    whole(january["verified_revenue_total"])]
-    # One basis alone keeps the CRM's own headers and names the basis beside the count; the True view adds Verified.
-    for view, shown, amount, count, extra in (
-            (true_only, "True monthly deposits: revenue only", "true_revenue_total", "true_revenue_count",
-             ["Verified ($)"]),
-            (total_only, "Total monthly deposits: everything going in", "credits", "deposit_count", [])):
-        assert view["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month", *extra, "Ledger ($)",
-                                "NSF", "Action"]
+                                    whole(january["true_revenue_total"]), str(january["true_revenue_count"]), rate]
+    # One basis alone keeps the CRM's own headers and names the basis beside the count.
+    for view, shown, amount, count in (
+            (true_only, "True monthly deposits: revenue only", "true_revenue_total", "true_revenue_count"),
+            (total_only, "Total monthly deposits: everything going in", "credits", "deposit_count")):
+        assert view["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month", "Withholding Rate",
+                                "Ledger ($)", "NSF", "Action"]
         assert view["count"] == f"2 statements · {shown}"
         assert view["rows"][0][2:4] == [whole(january[amount]), str(january[count])]
     assert true_only["stored"] == "true"
@@ -429,9 +429,11 @@ currentJobIds = ['jan', 'feb']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{...monthly(), chart: chart()}}));
 """)
     failed, unknown = result["rows"]
-    # A failed statement has no figures at all, not a month of zeros.
+    # A failed statement has no figures at all, not a month of zeros (its withholding rate included).
     assert failed[2:9] == ["N/A"] * 7 and failed[9] == "Unavailable"
-    assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:7] == ["N/A", "N/A", "N/A"]
+    assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:6] == ["N/A", "N/A"]
+    # The Withholding Rate cell reads the row's served rate (the owner's request of 2026-10-07).
+    assert unknown[6] == ("N/A" if feb["withholding_rate"] is None else f"{feb['withholding_rate']:.2f}%")
     # The chart says what the table says: nothing for the failed month, no True deposits for the other.
     assert result["chart"]["values"] == [["shown", "N/A"], ["true", "N/A"],
                                          ["shown", f"{round(feb['credits']):,}"], ["true", "N/A"]]
@@ -448,7 +450,7 @@ currentJobIds = ['jan']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{...monthly(), chart: chart()}}));
 """)
     row = result["rows"][0]
-    assert row[2] == f"{round(package['documents'][0]['credits']):,}" and row[4:7] == ["N/A", "N/A", "N/A"]
+    assert row[2] == f"{round(package['documents'][0]['credits']):,}" and row[4:6] == ["N/A", "N/A"]
     assert result["chart"]["values"][1] == ["true", "N/A"]
 
 

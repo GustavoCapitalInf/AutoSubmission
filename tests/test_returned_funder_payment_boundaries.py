@@ -272,9 +272,12 @@ console.log(JSON.stringify({{items, debit: packageMatchNotes({json.dumps(debit_r
   credit: packageMatchNotes({json.dumps(credit_row)}), chip: returnedFunderChip({json.dumps(debit_row)})}}));
 """)
     funder = debit_row["classification"]["canonical_entity"]
+    # The owner's request of 2026-10-07 (dashboard clarity): a headline, plain sentences and both statements (without
+    # the page's rows here, by their files).
     assert result["items"] == [
-        f"Returned funder payment: {funder} $850.00 debited 2031-03-27 (mar.pdf), returned 2031-04-02 (apr.pdf) "
-        "(\"ACH RETURN ITEM NSF\"). Not counted as paid; still in the withholding rate."]
+        f"{funder}: a payment bounced. The $850.00 payment on Mar 27, 2031 was returned unpaid on Apr 2, 2031 (the bank "
+        "printed: \"ACH RETURN ITEM NSF\"). It isn't counted as paid, but it still counts in the withholding rate. "
+        "From: mar.pdf → apr.pdf."]
     assert result["debit"] == [
         "Returned unpaid on 2031-04-02 (apr.pdf): out of paid to lenders, still in the withholding rate."]
     assert result["credit"] == [f"Returns the 2031-03-27 payment to {funder} in mar.pdf."]
