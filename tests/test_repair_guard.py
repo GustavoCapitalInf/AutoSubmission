@@ -308,13 +308,20 @@ def test_the_diagnostics_version_moves_when_the_vocabulary_does():
     # the case this guard's docstring calls out — the new state fires on zero
     # documents, so the version is the only observable difference between a
     # v4 rollup and a v5 one. See `W3_2_TAXONOMY.md` §11 v5.
+    #
+    # v6 - the owner report of 2026-10-08 (Capital One daily ledger): ONE
+    # advisory code added, `adb_state:pre_period_carry_in_folded`, the
+    # disclosure the engine writes when it folds a parser-declared
+    # previous-balance-day carry-in into the opening balance. Vocabulary
+    # 60 -> 61 and advisory 7 -> 8; nothing re-classed, CLASS_OF unchanged.
+    # See `W3_2_TAXONOMY.md` §11 v6.
     assert (
         diagnostics.DIAGNOSTICS_VERSION,
         len(VOCABULARY),
         len(CLASS_OF),
         len(ADVISORY_CODES),
         len(diagnostics.DIAGNOSABLE_CLASSES),
-    ) == (5, 60, 53, 7, 2)
+    ) == (6, 61, 53, 8, 2)
     # 60/7, not 59/6: the batch-5 train composed TWO vocabulary changes into
     # the one v4 bump — this cell's `integrity:repair_exception` and
     # ADB-SPLIT's advisory `adb_state:initialization_event_folded` — the same

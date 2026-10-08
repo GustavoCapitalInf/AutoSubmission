@@ -78,7 +78,14 @@ from analysis.payload_shape import payload_accounts, refuse_document_payload
 #:     and a v5 rollup are not comparing like with like on the code axis. The
 #:     call-site guard now counts `analysis/reconcile.py`'s six sites against
 #:     the six LIVE anchors and pins `pipeline.py` at zero.
-DIAGNOSTICS_VERSION = 5
+#: 6 - Owner report 2026-10-08 (Capital One daily ledger): the advisory
+#:     `adb_state:pre_period_carry_in_folded` added, the disclosure
+#:     `analysis/adb.py` writes when it folds a parser-declared
+#:     previous-balance-day carry-in into the opening balance (the
+#:     account-opening fold's sibling). Advisory, so it re-classes nothing
+#:     and decides no failure class; the code set grew, so a v5 and a v6
+#:     rollup are not comparable on the code axis.
+DIAGNOSTICS_VERSION = 6
 
 #: The explicit label for a document whose claiming parser could not be
 #: established. Defined here, in the lower layer, because both the telemetry
@@ -234,6 +241,7 @@ ADB_WARNING_ANCHORS: tuple[tuple[str, str], ...] = (
     ("cannot determine a statement period", "adb_state:period_unresolvable"),
     ("fall outside the statement period", "adb_state:out_of_period_transactions"),
     ("account-opening posting(s) dated before the", "adb_state:initialization_event_folded"),
+    ("carry-in posting(s) dated on the previous-balance day", "adb_state:pre_period_carry_in_folded"),
     ("no opening balance and none derivable", "adb_state:opening_balance_underivable"),
     ("does not provide a valid, ordered start and end date", "adb_state:period_dates_invalid"),
     ("bank daily balance has invalid or out-of-period date", "adb_state:daily_balance_date_invalid"),
@@ -416,6 +424,11 @@ ADVISORY_CODES: frozenset[str] = frozenset({
     # opening balance and left the divisor alone. A document carrying it has
     # passed every required check, so it must never decide a failure class.
     "adb_state:initialization_event_folded",
+    # Its sibling (owner report 2026-10-08): postings a parser proved were
+    # dated on the previous-balance day and counted in the printed cycle,
+    # folded into the opening balance. Also a disclosure on a passing
+    # document, never a failure class.
+    "adb_state:pre_period_carry_in_folded",
     "integrity:transaction_detail_not_corporate_reliable",
     "integrity:not_a_formal_statement",
     "integrity:parser_ambiguous",
