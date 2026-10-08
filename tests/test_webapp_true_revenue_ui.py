@@ -583,7 +583,7 @@ def test_the_settings_say_what_true_revenue_is():
             "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shaded "
             "inside it on the monthly chart.") in text
     assert "Every choice also shows each statement's confirmed withholding rate." in text
-    assert '<script src="/static/app.js?v=true-revenue-7"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-8"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
@@ -819,9 +819,10 @@ console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 
 
 @needs_node
-def test_a_mixed_currency_chart_scales_and_peaks_within_each_currency():
+def test_a_mixed_currency_chart_scales_within_each_currency():
     """I54: CAD 100,000 and USD 80,000 each fill the tallest bar of their own currency, and every bar names its unit,
-    USD included; CAD beside a member that declared none is refused, and scaled apart too."""
+    USD included; CAD beside a member that declared none is refused, and scaled apart too. The owner's follow-up of
+    2026-10-07: no bar is highlighted (the tallest bar's 'peak' is gone); every Total bar is the neutral Total colour."""
     def doc(job, currency, credits):
         row = {"id": job, "filename": f"{job}.pdf", "status": "done", "period_start": "2031-03-01",
                "period_end": "2031-03-28", "credits": credits, "deposit_count": 1, "revenue_established": False,
@@ -846,12 +847,12 @@ console.log(JSON.stringify({{mixed: view({json.dumps(mixed)}), undeclared: view(
   single: view({json.dumps(single)})}}));
 """)
     tallest = 165.0  # the Total view's tallest bar (test_the_tallest_bar_its_figures_and_the_baseline_fit_the_plot_box…)
-    assert result["mixed"]["heights"] == [["peak", tallest], ["peak", tallest]]
+    assert result["mixed"]["heights"] == [["bar-total", tallest], ["bar-total", tallest]]
     assert result["mixed"]["labels"] == ["100,000 CAD", "80,000 USD"]
-    assert result["undeclared"]["heights"] == [["peak", tallest], ["peak", tallest]]
+    assert result["undeclared"]["heights"] == [["bar-total", tallest], ["bar-total", tallest]]
     assert result["undeclared"]["labels"] == ["100,000 CAD", "80,000"]
-    # One currency: one scale, one peak, no unit (the table's "($)" convention).
-    assert result["single"]["heights"] == [["peak", tallest], ["", tallest * 0.8]]
+    # One currency: one scale, no unit (the table's "($)" convention).
+    assert result["single"]["heights"] == [["bar-total", tallest], ["bar-total", tallest * 0.8]]
     assert result["single"]["labels"] == ["100,000", "80,000"]
 
 
@@ -1816,12 +1817,12 @@ console.log(JSON.stringify({{rows, evidence, both, trueOnly, totalOnly, memo: el
     note = {row["label"]: row["note"] for row in result["rows"]}["True Revenue"]
     assert note.endswith(" · Zelle deposits excluded: $1,500.00 (3)")
     assert [_ZELLE_LABEL, "3", "$1,500.00"] in [row[:3] for row in result["evidence"]]
-    # The Monthly Statements' True cell names the month's excluded Zelle deposits, only where there are some, in the
-    # both and true views (never in the total view, which shows no True cell).
-    assert result["both"]["details"] == [["1,500"], []]
-    assert result["both"]["rows"][0][4] == "1,000Zelle excluded 1,500" and result["both"]["rows"][1][4] == "1,000"
-    assert result["trueOnly"]["details"] == [["1,500"], []]
-    assert result["trueOnly"]["rows"][0][2] == "1,000Zelle excluded 1,500"
+    # The owner's follow-up of 2026-10-07: the Monthly Statements' True cell no longer names the month's excluded Zelle
+    # deposits (R2-OW03's line is gone in every view); the True card above keeps them.
+    assert result["both"]["details"] == [[], []]
+    assert result["both"]["rows"][0][4] == "1,000" and result["both"]["rows"][1][4] == "1,000"
+    assert result["trueOnly"]["details"] == [[], []]
+    assert result["trueOnly"]["rows"][0][2] == "1,000"
     assert result["totalOnly"] == [[], []]
     assert ", of which Zelle deposits excluded $1,500.00." in result["memo"]
 
@@ -1841,7 +1842,8 @@ console.log(JSON.stringify({{rows, details, memo: els.summaryBox.textContent}}))
 """)
     note = {row["label"]: row["note"] for row in result["rows"]}["True Revenue"]
     assert note.endswith(" · Zelle deposits in True revenue: $1,500.00 (3)")
-    assert result["details"] == [["Zelle in True 1,500"], []]
+    # The owner's follow-up of 2026-10-07: no Monthly Statements row carries R2-OW17's Zelle line any more.
+    assert result["details"] == [[], []]
     assert "; Zelle deposits counted as True revenue $1,500.00." in result["memo"]
 
 
@@ -1858,8 +1860,8 @@ const details = [...els.monthlyTable.innerHTML.matchAll(/<tr[^>]*>([\\s\\S]*?)<\
   [...m[1].matchAll(/<div class="table-cell-detail">(Zelle[^<]*)<\\/div>/g)].map((d) => d[1]));
 console.log(JSON.stringify({{details, facts: packageRevenueFacts({json.dumps(totals)}, null)}}));
 """)
-    # Audit round 2, R2-B16 (R51): in a refused package every declared row names its unit, USD included.
-    assert result["details"] == [["Zelle in True 1,500 USD"], ["Zelle in True 1,500 CAD"]]
+    # The owner's follow-up of 2026-10-07: no Monthly Statements row carries a Zelle line; the package's fact stays.
+    assert result["details"] == [[], []]
     assert result["facts"] == ["Zelle deposits in True revenue: 6"]
 
 
@@ -1873,13 +1875,15 @@ def test_a_mixed_currency_package_names_each_month_s_unit_and_counts_the_refused
     assert totals["non_revenue_by_reason"] == {"zelle_excluded": {"count": 6, "total": None}}
     result = run_dashboard(CELLS + LEDGER + f"""
 currentJobIds = ['usd', 'cad']; renderPackageAnalysis({json.dumps(package)});
-console.log(JSON.stringify({{details: zelleDetails(), evidence: cells(els.revenueTable.innerHTML),
-  facts: packageRevenueFacts({json.dumps(totals)}, null),
+console.log(JSON.stringify({{details: zelleDetails(), rows: cells(els.monthlyTable.innerHTML),
+  evidence: cells(els.revenueTable.innerHTML), facts: packageRevenueFacts({json.dumps(totals)}, null),
   statementFacts: statementRevenueFacts({{non_revenue_by_reason: {{zelle_excluded: {{count: 3, total: 1500}}}}}}, 'CAD')}}));
 """)
     # Each row is in its own statement's currency (in a refused package every declared row names its unit, USD
-    # included: audit round 2, R2-B16, R51), and the package's money is refused.
-    assert result["details"] == [["1,500 USD"], ["1,500 CAD"]]
+    # included: audit round 2, R2-B16, R51), and the package's money is refused. The owner's follow-up of 2026-10-07:
+    # the True cell is its figure alone, with no Zelle line.
+    assert result["details"] == [[], []]
+    assert [row[4] for row in result["rows"]] == ["1,000 USD", "1,000 CAD"]
     assert [_ZELLE_LABEL, "6", "N/A"] in [row[:3] for row in result["evidence"]]
     assert result["facts"] == ["Zelle deposits excluded: 6"]
     assert result["statementFacts"] == ["Zelle deposits excluded: CA$1,500.00 (3)"]

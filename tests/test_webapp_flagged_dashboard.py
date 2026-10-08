@@ -716,8 +716,9 @@ def test_the_page_asks_browsers_for_the_new_script():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     # Audit B11: the package, copy and export changes ship as a new script; audit round 2, R2-B16 (R51): so does the
     # Monthly Statements table's unit rule; the owner's request of 2026-10-07: so do the lender notes, the hero and the
-    # Monthly Statements' withholding rate.
-    assert '<script src="/static/app.js?v=true-revenue-7"></script>' in html
+    # Monthly Statements' withholding rate; and its follow-up the same day: the Monthly Statements without the Zelle
+    # line and the chart's bars in the key's colours.
+    assert '<script src="/static/app.js?v=true-revenue-8"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in

@@ -490,13 +490,14 @@
   .bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; min-width: 0; }
   /* 5.6 (A4): a set line height, so the stacked figures take a known height (app.js monthlyChartTallestBar). */
   .bar-value { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-2); white-space: nowrap; }
+  /* The owner's follow-up of 2026-10-07: a bar takes only colours its key shows (each with its swatch's background
+     below), so a bar has none of its own and none is highlighted. Total deposits (the Both and Total views) in a
+     neutral tone, its True part in the accent from the bottom up; True revenue (the True view) in the accent. */
   .bar {
     position: relative; overflow: hidden; width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px;
-    background: var(--accent-muted);
   }
-  /* Both deposits: each Total bar in a neutral tone, its True part in the accent from the bottom up (the muted accent
-     is too close to the accent to tell the two apart in the light theme). */
   .bar.bar-total { background: var(--border-2); }
+  .bar.bar-true { background: var(--accent); }
   .bar-part { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
   .bar-value-true { margin-top: -6px; color: var(--accent-text); }
   /* 5.6: the Verified part of a True part (or of a True bar), in the third shade. */
@@ -505,7 +506,6 @@
   .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--border-2); }
   .legend-swatch-true { background: var(--accent); }
   .legend-swatch-verified { background: var(--verified); }
-  .bar.peak { background: var(--accent); }
   .bar-labels { display: grid; gap: 20px; padding: 0 12px; }
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
   .bar-label strong { font-size: 12.5px; font-weight: 500; }
@@ -1758,6 +1758,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-7"></script>
+<script src="/static/app.js?v=true-revenue-8"></script>
 </body>
 </html>
