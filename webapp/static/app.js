@@ -3855,7 +3855,11 @@ function packageTitle(rows) {
 // The monthly chart follows the Monthly Statements basis (Settings) like the table beside it, so the page never shows
 // two different figures as a month's deposits: Total deposits, True revenue, or both. 5.6 (true revenue spec §10.3):
 // each Total bar holds its True part and the True part its Verified part, in three shades; in the True view the bar is
-// True revenue with its Verified part shaded. A statement whose revenue is not established draws neither part.
+// True revenue with its Verified part shaded. A statement whose revenue is not established draws neither part. The
+// owner's follow-up of 2026-10-07 ("there are like 4 different colors while the color key contains only two"): a bar
+// takes only colours its key shows, so no bar is highlighted: every Total bar (Both and Total views) is the Total
+// swatch's neutral, every True bar (True view) the True revenue swatch's accent, and the Total view's key names its
+// swatch too.
 // The monthly chart's geometry, as webapp/templates/index.html sets it: the plot box (.bar-chart, 190px border-box
 // with a 1px baseline, so 189px of content), each value figure's line (.bar-value, 16px), the column's flex gap (8px)
 // and the pull of each figure after the first (.bar-value-true and .bar-value-verified, margin-top -6px).
@@ -3872,14 +3876,16 @@ function monthlyChartTallestBar(figures) {
 }
 
 // `unitsShown` is true for a package that refuses to combine its currencies (CURRENCY DOCTRINE §F: several currencies,
-// or a member that declared none beside one that did). Audit B11 (I54): such a package's bars are scaled, and its peak
-// chosen, within each currency (an undeclared member is a group of its own), never across them, and every bar names its
-// unit, USD included; an undeclared member's stays undeclared.
+// or a member that declared none beside one that did). Audit B11 (I54): such a package's bars are scaled within each
+// currency (an undeclared member is a group of its own), never across them, and every bar names its unit, USD
+// included; an undeclared member's stays undeclared.
 function renderMonthlyChart(rows, unitsShown, view = "both") {
   if (!els.monthlyChart) return;
   const both = view === "both";
   const nested = view !== "total";
   const plotted = view === "true" ? trueDeposits : totalDeposits;
+  // Every bar of a view in its key's colour (webapp/templates/index.html: .bar.bar-total, .bar.bar-true).
+  const barClass = view === "true" ? "bar bar-true" : "bar bar-total";
   const values = rows.map(({ doc }) => numberOrNull(plotted(doc)));
   const groupOf = (doc) => currencyOfDocument(doc) || "";
   const largestByGroup = new Map();
@@ -3912,7 +3918,7 @@ function renderMonthlyChart(rows, unitsShown, view = "both") {
         <span class="bar-value">${escapeHtml(withUnit(formatWhole(plotted(doc))))}</span>
         ${both ? `<span class="bar-value bar-value-true">${escapeHtml(withUnit(formatWhole(trueDeposits(doc))))}</span>` : ""}
         ${nested ? `<span class="bar-value bar-value-verified">${escapeHtml(verifiedLabel)}</span>` : ""}
-        <div class="bar${both ? " bar-total" : value !== null && value === largest && largest > 0 ? " peak" : ""}" style="height: ${heightPx.toFixed(1)}px">${
+        <div class="${barClass}" style="height: ${heightPx.toFixed(1)}px">${
           trueShare > 0 ? `<div class="bar-part" style="height: ${(trueShare * 100).toFixed(1)}%"></div>` : ""}${
           verifiedShare > 0 ? `<div class="bar-part bar-part-verified" style="height: ${(verifiedShare * 100).toFixed(1)}%"></div>` : ""}</div>
       </div>
@@ -3932,14 +3938,13 @@ function renderMonthlyChart(rows, unitsShown, view = "both") {
       </div>
     `;
   }).join("");
+  const totalSwatch = `<span><i class="legend-swatch" aria-hidden="true"></i>Total deposits</span>`;
+  const trueSwatch = `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True revenue</span>`;
   const verifiedSwatch = `<span><i class="legend-swatch legend-swatch-verified" aria-hidden="true"></i>of which verified</span>`;
+  const ledgerNote = "<span>and ledger (average daily balance) per statement</span>";
   const legend = both
-    ? `<span><i class="legend-swatch" aria-hidden="true"></i>Total deposits</span>`
-      + `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True revenue</span>` + verifiedSwatch
-    : view === "true"
-      ? `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True revenue</span>` + verifiedSwatch
-        + "<span>and ledger (average daily balance) per statement</span>"
-      : "<span>Total deposits (everything going in) and ledger (average daily balance) per statement</span>";
+    ? totalSwatch + trueSwatch + verifiedSwatch
+    : view === "true" ? trueSwatch + verifiedSwatch + ledgerNote : totalSwatch + ledgerNote;
   const described = {
     both: "total deposits, true revenue and its verified part",
     true: "true revenue and its verified part",
@@ -5134,28 +5139,6 @@ function monthFigure(doc, value) {
   return doc.status === "done" ? value : null;
 }
 
-// The Monthly Statements' True cell line on a member's Zelle deposits (R2-OW17; R2-OW03 before it), through the row's
-// own amount(): "Zelle in True C · held H · non-revenue N" under Yes, "Zelle excluded X · counted after review V" under
-// No; "" where there are none (or the member did not complete).
-function monthlyZelleDetail(doc, amount) {
-  const line = (text) => `<div class="table-cell-detail">${escapeHtml(text)}</div>`;
-  const served = zelleDeposits(doc);
-  if (served && served.counted) {
-    if (!served.count || monthFigure(doc, 0) === null) return "";
-    const parts = [`Zelle in True ${amount(served.inTrue.total)}`];
-    if (served.held.count > 0) parts.push(`held ${amount(served.held.total)}`);
-    if (served.out.count > 0) parts.push(`non-revenue ${amount(served.out.total)}`);
-    return line(parts.join(" · "));
-  }
-  const excluded = served ? served.out : zelleExcluded(doc);
-  const excludedTotal = excluded ? monthFigure(doc, excluded.total) : null;
-  const reviewed = served && served.verified.count > 0 ? monthFigure(doc, served.verified.total) : null;
-  const parts = [];
-  if (excludedTotal !== null && excludedTotal > 0) parts.push(`Zelle excluded ${amount(excludedTotal)}`);
-  if (reviewed !== null && reviewed > 0) parts.push(`counted after review ${amount(reviewed)}`);
-  return parts.length ? line(parts.join(" · ")) : "";
-}
-
 // 5.6 (true revenue spec §10.2): a statement's True deposits (its True revenue), or null — shown N/A — unless the
 // package established its revenue: not for a failed statement, nor for one analysed before 5.6, nor for one whose
 // captured credits are not all tiered or are not the money its Total counts (webapp/app.py `revenue_established`; a
@@ -5291,17 +5274,13 @@ function renderMonthlyStatements(pkg) {
         return text === "N/A" ? text : text + unit;
       };
       const shared = month && monthCounts.get(month.key) > 1;
-      // R2-OW03 (the underwriter's Q3, spec §10.2): the True cell names the month's Zelle deposits the owner's policy
-      // excluded, where there are some, through the row's own amount() (its unit in a mixed-currency package), so True
-      // can be read against the month's total deposits. R2-OW17 (the owner's amendment of 2026-10-06): from the row's
-      // served Zelle figures where it carries them: under Yes the Zelle in True and the parts held or out (a month
-      // whose Zelle is all held still shows it); under No the excluded part and the part a review counted.
-      const zelleDetail = monthlyZelleDetail(doc, amount);
+      // The owner's follow-up of 2026-10-07: a cell is its figure alone; the month's Zelle line (R2-OW03's, then
+      // R2-OW17's) is no longer drawn under the True cell. The True card keeps the Zelle fact.
       return `
         <tr title="${escapeHtml(doc.filename || "Statement")}">
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
           <td class="mono">${escapeHtml(month ? String(month.year) : "N/A")}</td>
-          ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}${value === trueDeposits ? zelleDetail : ""}</td>`).join("")}
+          ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}</td>`).join("")}
           <td class="mono">${escapeHtml(formatRateTwoDecimals(monthlyWithholdingRate(doc)))}</td>
           <td class="mono">${escapeHtml(amount(monthFigure(doc, doc.average_daily_balance)))}</td>
           <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(monthFigure(doc, doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>

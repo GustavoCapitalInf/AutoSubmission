@@ -415,7 +415,10 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: {{...monthly(), chart: c
     assert "True revenue" in true_only["chart"]["legend"]
     assert "and ledger (average daily balance) per statement" in true_only["chart"]["legend"]
     assert total_only["chart"]["values"] == [["shown", whole(jan["credits"])], ["shown", whole(feb["credits"])]]
-    assert "Total deposits (everything going in) and ledger" in total_only["chart"]["legend"]
+    # The owner's follow-up of 2026-10-07: the Total view's key shows the Total bars' swatch, then the ledger as text.
+    assert total_only["chart"]["legend"] == (
+        '<span><i class="legend-swatch" aria-hidden="true"></i>Total deposits</span>'
+        "<span>and ledger (average daily balance) per statement</span>")
 
 
 def test_the_all_accounts_choice_holds_with_storage_blocked():

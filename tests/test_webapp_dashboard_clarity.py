@@ -6,7 +6,11 @@ chart and add witholding rate instead".
 A: every lender note is a short headline, plain sentences under it, an "Also:" sentence per extra note and the
 statement it comes from (never a job id or a "<uuid>_<file>" name). B: the hero's big figure is True revenue, Total
 credits on the line below. C: the Monthly Statements table drops Verified ($) and shows each statement's confirmed
-withholding rate. Driven in node through the whole webapp/static/app.js (tests/webapp_js_harness.py).
+withholding rate. D, the owner's follow-up the same day: "can we get these zelle labels ... out of the monthly
+statement chart" and "for the Monthly deposits there are like 4 different colors while the color key contains only two
+color identifiers": no Monthly Statements row carries a Zelle line (the True card's Zelle fact stays), and every chart
+bar takes only colours its key shows (no tallest-bar highlight; the Total view's key gains its swatch). Driven in node
+through the whole webapp/static/app.js (tests/webapp_js_harness.py).
 
 Fabricated data only: CONTOSO, FABRIKAM, NORTHWIND and SAMPLE names, public funder names (KAPITUS, ONDECK), 2054
 dates, round amounts and made-up job ids."""
@@ -645,7 +649,7 @@ def test_the_page_s_default_hero_label_and_table_header():
     assert re.findall(r"<th>([^<]*)</th>", head) == [
         "Month", "Year", "Total Deposits ($)", "Total Deposits Per Month", "True Deposits ($)",
         "True Deposits Per Month", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
-    assert '<script src="/static/app.js?v=true-revenue-7"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-8"></script>' in html
 
 
 # ---------------------------------------------------------------------------------- C: the Monthly Statements
@@ -780,3 +784,163 @@ console.log(JSON.stringify(views({json.dumps(package)})));
     shown = [row[6] for row in result["both"]["rows"]]
     rates = [docs[key]["withholding_rate"] for key in ("mar", "apr")]
     assert shown == ["N/A" if rate is None else f"{rate:.2f}%" for rate in rates]
+
+
+# ------------------------------------------------------------- D: the follow-up (the Monthly Statements and its chart)
+#: Each view's Monthly Statements rows (cells) and raw markup, read after a run that defines `cells`.
+MONTHLY_CARD = r"""
+const monthlyCard = (pkg) => Object.fromEntries(["both", "total", "true"].map((view) => {
+  setMonthlyDepositsView(view); renderMonthlyStatements(pkg);
+  return [view, {rows: cells(els.monthlyTable.innerHTML), table: els.monthlyTable.innerHTML}];
+}));
+"""
+
+
+@needs_node
+@pytest.mark.parametrize("counted", [True, False], ids=["zelle-yes", "zelle-no"])
+def test_no_monthly_statements_row_carries_a_zelle_line(counted, tmp_path, monkeypatch):
+    # The owner's follow-up of 2026-10-07: "can we get these zelle labels ... out of the monthly statement chart". Under
+    # either Zelle choice, in every view, no row carries a Zelle line (R2-OW03's "Zelle excluded", R2-OW17's "Zelle in
+    # True ... · held ..." and "counted after review"); each True cell is its figure alone. The True card's Zelle fact
+    # stays. CONTOSO's fabricated March (a Zelle deposit confirmed after review) and April
+    # (tests/zelle_setting_fixtures.py).
+    from tests import zelle_setting_fixtures as fx
+    from tests.test_webapp_studio_views import _package
+    from tests.test_webapp_true_revenue_ui import METRIC_ROWS
+    from tests.test_zelle_setting_ui import _decided
+    from webapp.settings import save_settings
+
+    save_settings(tmp_path, {"zelle_true_revenue": counted})
+    package = _package({"mar": _decided(("transaction:2", "confirm", True)), "apr": fx.case("Z2", month=4)},
+                       tmp_path, monkeypatch)
+    docs = {doc["id"]: doc for doc in package["documents"]}
+    result = run_dashboard(METRIC_ROWS + MONTHLY_CARD + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+const notes = Object.fromEntries(metricRows(els.metricsGrid.innerHTML).map((row) => [row.label, row.note]));
+console.log(JSON.stringify({{card: monthlyCard({json.dumps(package)}), trueNote: notes["True Revenue"],
+  helper: typeof monthlyZelleDetail}}));
+""")
+    whole = lambda value: f"{round(value):,}"  # noqa: E731  the table's whole-number format
+    true_cells = [whole(docs[key]["true_revenue_total"]) for key in ("mar", "apr")]
+    total_cells = [whole(docs[key]["credits"]) for key in ("mar", "apr")]
+    for view, shown in result["card"].items():
+        assert "Zelle" not in shown["table"], view
+        assert "table-cell-detail" not in shown["table"], view  # two months, one NSF basis: no other detail line
+    assert [row[4] for row in result["card"]["both"]["rows"]] == true_cells
+    assert [row[2] for row in result["card"]["both"]["rows"]] == total_cells
+    assert [row[2] for row in result["card"]["true"]["rows"]] == true_cells
+    assert [row[2] for row in result["card"]["total"]["rows"]] == total_cells
+    # The True card still names the Zelle deposits, in the words of the choice.
+    if counted:
+        assert "Zelle deposits in True revenue: " in result["trueNote"]
+    else:
+        assert "Zelle deposits excluded: " in result["trueNote"] and " · counted after review: " in result["trueNote"]
+    assert result["helper"] == "undefined"
+    source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert "monthlyZelleDetail" not in source
+
+
+#: Each view's chart: per bar, its class and its parts' classes and heights; the key's entries, each its swatch's class
+#: (null for plain text) and its words.
+CHART_KEY = r"""
+const charts = (pkg) => Object.fromEntries(["both", "total", "true"].map((view) => {
+  setMonthlyDepositsView(view); renderMonthlyStatements(pkg);
+  const html = els.monthlyChart.innerHTML;
+  const legend = html.match(/<span class="chart-legend">([\s\S]*?)<\/span>\s*<\/div>/)[1];
+  const columns = html.split('<div class="bar-col">').slice(1);
+  return [view, {html,
+    bars: columns.map((column) => ({
+      bar: (column.match(/<div class="(bar(?: [^"]*)?)" style="height: [0-9.]+px">/) || [])[1] || null,
+      parts: [...column.matchAll(/<div class="(bar-part[^"]*)" style="height: ([0-9.]+)%">/g)].map((m) => [m[1], m[2]])})),
+    key: [...legend.matchAll(/<span>(?:<i class="([^"]*)" aria-hidden="true"><\/i>)?([^<]*)<\/span>/g)]
+      .map((m) => [m[1] || null, m[2]])}];
+}));
+"""
+#: The swatch that names each colour a bar can draw (webapp/templates/index.html gives each pair one background).
+SWATCH_OF = {"bar-total": "legend-swatch", "bar-true": "legend-swatch-true", "bar-part": "legend-swatch-true",
+             "bar-part-verified": "legend-swatch-verified"}
+TOTAL_KEY = ["legend-swatch", "Total deposits"]
+TRUE_KEY = ["legend-swatch legend-swatch-true", "True revenue"]
+VERIFIED_KEY = ["legend-swatch legend-swatch-verified", "of which verified"]
+LEDGER_KEY = [None, "and ledger (average daily balance) per statement"]
+
+
+@needs_node
+def test_every_bar_takes_only_the_colours_its_key_shows_in_every_view():
+    # The owner's follow-up of 2026-10-07: "for the Monthly deposits there are like 4 different colors while the color
+    # key contains only two color identifiers" (the True view drew pale bars, the tallest in the accent, and the
+    # verified part darker). Now no bar is highlighted ('peak' is gone); the True view's bars are all the True revenue
+    # colour with their verified part; the Total view's bars are all the neutral Total colour and its key gains the
+    # Total swatch.
+    rows = [_row("contoso", 1),
+            _row("fabrikam", 2, credits=150000.0, true_revenue_total=90000.0, verified_revenue_total=30000.0),
+            _row("northwind", 3, credits=80000.0, true_revenue_total=50000.0, verified_revenue_total=0.0)]
+    package = {"documents": rows, "totals": {}, "currency": {"currencies": ["USD"]}}
+    result = run_dashboard(CHART_KEY + f"console.log(JSON.stringify(charts({json.dumps(package)})));")
+    for view, chart in result.items():
+        assert "peak" not in chart["html"], view
+        drawn = {name.split()[-1] for bar in chart["bars"] for name in [bar["bar"], *(p[0] for p in bar["parts"])]}
+        swatches = {key[0].split()[-1] for key in chart["key"] if key[0]}
+        # No colour on a bar that the key does not show (a bare "bar" class draws no colour of its own).
+        assert {SWATCH_OF[name] for name in drawn - {"bar"}} <= swatches, view
+    both, true_only, total = result["both"], result["true"], result["total"]
+    # Both: unchanged (the Total bar neutral, its True part in the accent, the verified part inside it).
+    assert [bar["bar"] for bar in both["bars"]] == ["bar bar-total"] * 3
+    assert [bar["parts"] for bar in both["bars"]] == [
+        [["bar-part", "60.0"], ["bar-part bar-part-verified", "20.0"]],
+        [["bar-part", "60.0"], ["bar-part bar-part-verified", "20.0"]],
+        [["bar-part", "62.5"]]]
+    assert both["key"] == [TOTAL_KEY, TRUE_KEY, VERIFIED_KEY]
+    # True: every bar, the tallest included, in the True revenue colour, its verified part present.
+    assert [bar["bar"] for bar in true_only["bars"]] == ["bar bar-true"] * 3
+    assert [bar["parts"] for bar in true_only["bars"]] == [[["bar-part bar-part-verified", "33.3"]],
+                                                          [["bar-part bar-part-verified", "33.3"]], []]
+    assert true_only["key"] == [TRUE_KEY, VERIFIED_KEY, LEDGER_KEY]
+    # Total: every bar the Both view's neutral Total colour, and its key names it.
+    assert [bar["bar"] for bar in total["bars"]] == ["bar bar-total"] * 3
+    assert all(bar["parts"] == [] for bar in total["bars"])
+    assert total["key"] == [TOTAL_KEY, LEDGER_KEY]
+
+
+def _css_rules(html):
+    """The page's style rules as (selector, declarations) pairs, comments removed (an @media rule's inner rules
+    included)."""
+    style = re.sub(r"/\*.*?\*/", "", html[html.index("<style>") + len("<style>"):html.index("</style>")], flags=re.S)
+    return [(" ".join(selector.split()), body) for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", style)]
+
+
+def _declared(rules, selector, prop):
+    found = [m[1].strip() for sel, body in rules if sel == selector
+             for m in re.finditer(rf"(?<![\w-]){prop}:\s*([^;]+);", body)]
+    assert len(found) <= 1, (selector, prop, found)
+    return found[0] if found else None
+
+
+def _tokens(rules, selector):
+    [body] = [body for sel, body in rules if sel == selector]
+    return dict(re.findall(r"(--[\w-]+):\s*([^;]+);", body))
+
+
+def test_the_bar_colours_are_the_key_colours_in_both_themes_and_no_bar_is_highlighted():
+    html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
+    rules = _css_rules(html)
+    assert ".peak" not in html and not any("peak" in selector for selector, _body in rules)
+    # A bar has no colour of its own: each view's class gives it its key's colour.
+    assert _declared(rules, ".bar", "background") is None
+    assert not any("accent-muted" in body for selector, body in rules if re.search(r"\.bar\b", selector))
+    pairs = {".bar.bar-total": ".legend-swatch", ".bar.bar-true": ".legend-swatch-true",
+             ".bar-part": ".legend-swatch-true", ".bar-part-verified": ".legend-swatch-verified"}
+    for bar, swatch in pairs.items():
+        assert _declared(rules, bar, "background") == _declared(rules, swatch, "background") is not None, bar
+    assert _declared(rules, ".legend-swatch", "background") == "var(--border-2)"
+    assert _declared(rules, ".legend-swatch-true", "background") == "var(--accent)"
+    assert _declared(rules, ".legend-swatch-verified", "background") == "var(--verified)"
+    # The figures above the bars keep their colours.
+    assert _declared(rules, ".bar-value", "color") == "var(--text-2)"
+    assert _declared(rules, ".bar-value-true", "color") == "var(--accent-text)"
+    assert _declared(rules, ".bar-value-verified", "color") == "var(--verified)"
+    # Both themes resolve the same tokens: the dark root and the light theme each set the neutral and the verified
+    # shade, and the accent is the dark root's in both.
+    dark, light = _tokens(rules, ":root"), _tokens(rules, ':root[data-theme="light"]')
+    assert {"--border-2", "--verified", "--accent"} <= set(dark)
+    assert {"--border-2", "--verified"} <= set(light) and "--accent" not in light
