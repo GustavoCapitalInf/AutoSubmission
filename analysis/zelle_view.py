@@ -75,11 +75,17 @@ REBUILT_KEYS: tuple[tuple[str, ...], ...] = (
         "eligible_deposit_definition", "eligible_deposits", "withholding_denominator",
         "potential_withholding_denominator", "withholding_rate", "potential_withholding_exposure",
         "withholding_review_required",
+        # Audit round 3, R3-B03 (R3-20): the floor's flag.
+        "withholding_basis_below_floor",
     )),
     *(("detection", key) for key in (
         "verified_revenue_evidence", "unverified_deposit_evidence", "non_revenue_evidence", "true_revenue_evidence",
         "potential_revenue_evidence", "counted_flagged_evidence", "excluded_pending_review_evidence", "manual_review",
     )),
+    # Audit round 3, R3-B03 (R3-13): each potential lender's basis and exposure. `metrics.notes` stays out: the rebuild
+    # edits only its basis notes, and `reading_edits` keeps its exactness through its full-list fallback.
+    *(("detection", "potential_lenders", _ANY_INDEX, key)
+      for key in ("eligible_deposit_denominator", "potential_withholding_exposure")),
     ("classifications",),
     *(("statement", "transactions", _ANY_INDEX, "classification", flag) for flag in _REBUILT_RECORD_FLAGS),
 )

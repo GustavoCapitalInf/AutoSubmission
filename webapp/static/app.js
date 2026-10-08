@@ -214,6 +214,10 @@ const WITHHOLDING_BASIS_LABELS = Object.freeze({
   verified_revenue: "Verified revenue",
   true_revenue: "True revenue",
 });
+// Audit round 3, R3-B03 (R3-20; true revenue spec §10.1, §11): a True or Verified withholding basis under this many
+// units of the statement's own currency publishes no rate (analysis/revenue.py WITHHOLDING_BASIS_FLOOR, which a test
+// pins equal to this mirror). The note names the floor; nothing that decides a review reads it.
+const WITHHOLDING_BASIS_FLOOR = 500;
 const WITHHOLDING_BASIS_DEFINITIONS = Object.freeze({
   verified_revenue: "verified classified revenue",
   true_revenue: "verified plus counted credits",
@@ -818,19 +822,61 @@ function withholdingBasisUnestablished(metrics = {}) {
   return metrics.withholding_basis_unestablished === true;
 }
 
-// The Withholding Basis card's value: the basis the rates divide by, N/A where it is not established (F1).
+// Audit round 3, R3-B03 (R3-27; true revenue spec §10.1, §11): a package whose statements were analysed under
+// different withholding bases (the server publishes the flag only there) publishes no rate over their sum.
+function withholdingBasisMixed(metrics = {}) {
+  return metrics.withholding_basis_mixed === true;
+}
+
+// R3-27: "1 on legacy eligible deposits, 1 on true revenue", the members counted per basis, in the bases' own order.
+function withholdingBasisMembersWords(metrics = {}) {
+  const members = Array.isArray(metrics.withholding_basis_by_member) ? metrics.withholding_basis_by_member : [];
+  const counts = new Map();
+  for (const member of members) {
+    if (member && typeof member === "object") counts.set(member.mode, (counts.get(member.mode) || 0) + 1);
+  }
+  const order = Object.keys(WITHHOLDING_BASIS_LABELS);
+  return [...counts.entries()]
+    .sort(([left], [right]) => (order.indexOf(left) + 1 || order.length + 1) - (order.indexOf(right) + 1 || order.length + 1))
+    .map(([mode, count]) => `${formatNumber(count)} on ${(WITHHOLDING_BASIS_LABELS[mode] || String(mode)).toLowerCase()}`)
+    .join(", ");
+}
+
+// Audit round 3, R3-B03 (R3-20): the basis is above $0 and under the floor (the server's flag), so no rate is published.
+function withholdingBasisBelowFloor(metrics = {}) {
+  return metrics.withholding_basis_below_floor === true;
+}
+
+// R3-20: "true revenue, $1.00", the basis and its amount, as the floor's notes name them.
+function withholdingBasisWithAmount(metrics = {}, currency = "USD") {
+  const amount = metrics.potential_withholding_denominator ?? metrics.withholding_denominator ?? metrics.eligible_deposits;
+  return `${withholdingBasisLabel(metrics).toLowerCase()}, ${formatMoney(amount, currency)}`;
+}
+
+// The Withholding Basis card's value: the basis the rates divide by, N/A where it is not established (F1) or where a
+// package sums members analysed under different bases (R3-27).
 function withholdingBasisAmount(metrics = {}) {
-  if (withholdingBasisUnestablished(metrics)) return null;
+  if (withholdingBasisUnestablished(metrics) || withholdingBasisMixed(metrics)) return null;
   return metrics.potential_withholding_denominator ?? metrics.eligible_deposits;
 }
 
 function withholdingAuditNote(metrics = {}, currency = "USD") {
+  // Audit round 3, R3-B03 (R3-27): a package whose statements were analysed under different bases names them.
+  if (withholdingBasisMixed(metrics)) {
+    return `The statements were analysed on different withholding bases (${withholdingBasisMembersWords(metrics)}), so `
+      + "no package rate is published; re-analyze them on one basis; analyst review is required";
+  }
   // F1 (final review of round 2): say why no rate is published: a statement's basis, or a package member's, is not
   // established.
   if (withholdingBasisUnestablished(metrics)) {
     const scope = Object.prototype.hasOwnProperty.call(metrics, "package_withholding_rate") ? " on every statement" : "";
     return `The withholding basis (${withholdingBasisLabel(metrics).toLowerCase()}) is not established${scope}, so no `
       + "rate is published; analyst review is required";
+  }
+  // Audit round 3, R3-B03 (R3-20): a revenue basis under the floor publishes no rate, as $0 does.
+  if (withholdingBasisBelowFloor(metrics)) {
+    return `The withholding basis (${withholdingBasisWithAmount(metrics, currency)}) is under `
+      + `${formatMoney(WITHHOLDING_BASIS_FLOOR, currency)}, so no rate is published; analyst review is required`;
   }
   // Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the note names the basis, True revenue by default.
   if (metrics.withholding_review_required) {
@@ -1188,10 +1234,21 @@ function potentialWithholdingAuditNote(metrics = {}, currency = "USD") {
   const reviewSuffix = hasMaterialPotentialLenderDebits(metrics) ? "; analyst review is required" : "";
   // R2-OW14 (Q7): the note names the basis, True revenue by default.
   const label = withholdingBasisLabel(metrics).toLowerCase();
+  // Audit round 3, R3-B03 (R3-27): no exposure over the sum of members analysed under different bases.
+  if (withholdingBasisMixed(metrics)) {
+    return `${formatMoney(total, currency)} potential lender debits; the statements were analysed on different `
+      + "withholding bases, so no exposure is published; analyst review is required";
+  }
   // F1 (final review of round 2): no exposure over a basis that is not established.
   if (withholdingBasisUnestablished(metrics)) {
     return `${formatMoney(total, currency)} potential lender debits; the withholding basis (${label}) is not `
       + "established, so no exposure is published; analyst review is required";
+  }
+  // Audit round 3, R3-B03 (R3-20): nor over a revenue basis under the floor.
+  if (withholdingBasisBelowFloor(metrics)) {
+    return `${formatMoney(total, currency)} potential lender debits; the withholding basis `
+      + `(${withholdingBasisWithAmount(metrics, currency)}) is under ${formatMoney(WITHHOLDING_BASIS_FLOOR, currency)}, so `
+      + "no exposure is published; analyst review is required";
   }
   if ((numberOrNull(denominator) ?? 0) <= 0) {
     return `${formatMoney(total, currency)} potential lender debits; the withholding basis (${label}) is unavailable${reviewSuffix}`;

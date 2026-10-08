@@ -33,7 +33,11 @@ from .revenue import (
     _TIER_DISAGREES,
     non_revenue_reason,
     normalize_withholding_denominator_mode,
+    potential_withholding_unavailable_note,
     revenue_review_gate,
+    withholding_basis_below_floor,
+    withholding_basis_publishable,
+    withholding_unavailable_note,
 )
 from .true_revenue import holder_unscreened, payer_text_unread, premium_trust_title
 
@@ -181,6 +185,9 @@ class Metrics:
     # payments, every row marked contributes_to_withholding_rate; the basis is the selected withholding denominator.
     withholding_formula: str = WITHHOLDING_FORMULA
     withholding_review_required: bool = False
+    # Audit round 3, R3-B03 (R3-20; true revenue spec §9.1, §11): the True or Verified basis is above $0 and under
+    # WITHHOLDING_BASIS_FLOOR, so no rate and no potential exposure is published over it (never on the legacy basis).
+    withholding_basis_below_floor: bool = False
     potential_withholding_exposure: float | None = None
     potential_withholding_numerator: float = 0.0
     potential_withholding_denominator: float = 0.0
@@ -746,22 +753,23 @@ def compute_metrics(
     m.potential_withholding_denominator = m.eligible_deposits
     m.potential_withholding_review_required = m.potential_lender_debit_count > 0
     # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the notes name the basis the rate divides by, True revenue
-    # by default.
-    if m.withholding_denominator <= 0:
+    # by default. Audit round 3, R3-B03 (R3-20): a True or Verified basis under WITHHOLDING_BASIS_FLOOR is read as $0 is
+    # (no rate, no exposure, the review flag and a note naming the basis and the floor); the legacy basis bypasses it.
+    basis_unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+    m.withholding_basis_below_floor = withholding_basis_below_floor(
+        m.withholding_denominator, withholding_denominator_mode)
+    if not withholding_basis_publishable(m.withholding_denominator, withholding_denominator_mode):
         m.withholding_review_required = True
-        m.notes.append(
-            f"withholding rate is unavailable because {m.withholding_denominator_label} is zero or missing"
-        )
+        m.notes.append(withholding_unavailable_note(m.withholding_denominator_label, m.withholding_denominator,
+                                                    basis_unit))
     else:
         m.withholding_rate = (
             abs(m.withholding_numerator) / m.withholding_denominator
         ) * 100
-    if m.potential_withholding_denominator <= 0:
+    if not withholding_basis_publishable(m.potential_withholding_denominator, withholding_denominator_mode):
         if m.potential_lender_debit_count:
-            m.notes.append(
-                "potential withholding exposure is unavailable because "
-                f"{m.withholding_denominator_label} is zero or missing"
-            )
+            m.notes.append(potential_withholding_unavailable_note(
+                m.withholding_denominator_label, m.potential_withholding_denominator, basis_unit))
     else:
         m.potential_withholding_exposure = (
             abs(m.potential_withholding_numerator) / m.potential_withholding_denominator

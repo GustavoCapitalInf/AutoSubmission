@@ -264,15 +264,17 @@ R2_OW18_KEYS = frozenset({"potential_payee_key", "lender_payment_changes", "lend
 #: Audit round 3, R3-B02 (the owner's answer of 2026-10-07 to R3-73): the record field every record gains
 #: (`represented_by`, null on every row of Z1).
 R3_B02_KEYS = frozenset({"represented_by"})
+#: Audit round 3, R3-B03: the metrics flag of R3-20's floor (`withholding_basis_below_floor`, false on Z1).
+R3_B03_KEYS = frozenset({"withholding_basis_below_floor"})
 
 
 def _without_r2_ow18(node):
     """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds (and, audit round 3,
-    R3-B02, the record field `represented_by`), applied to BOTH sides of the golden comparison, as `_normalised` reads
-    every classification_version as one. The pinned fixture is never rewritten."""
+    R3-B02, the record field `represented_by`, and R3-B03's keys), applied to BOTH sides of the golden comparison, as
+    `_normalised` reads every classification_version as one. The pinned fixture is never rewritten."""
     if isinstance(node, dict):
         return {key: _without_r2_ow18(value) for key, value in node.items()
-                if key not in R2_OW18_KEYS and key not in R3_B02_KEYS}
+                if key not in R2_OW18_KEYS and key not in R3_B02_KEYS and key not in R3_B03_KEYS}
     if isinstance(node, list):
         return [_without_r2_ow18(value) for value in node]
     return node
@@ -423,8 +425,10 @@ def test_z10_a_planted_difference_under_a_rebuilt_key_falls_back_to_the_full_lis
 
 def _written_keys(payload):
     """The paths the rebuild writes on `payload`, whose metrics and detection start empty (but for the inputs the
-    rebuild reads) and which carries no classifications view."""
+    rebuild reads) and which carries no classifications view. Audit round 3, R3-B03 (R3-13): and the keys the rebuild
+    writes on each `detection.potential_lenders` entry, whose sample carries none of them."""
     top = set(payload)
+    lenders_before = [set(entry) for entry in (payload.get("detection") or {}).get("potential_lenders") or []]
     rebuilt = rebuild_serialized_revenue_views(payload)
     keys = {("metrics", key) for key in rebuilt["metrics"]} | {("detection", key) for key in rebuilt["detection"]}
     keys |= {(key,) for key in set(rebuilt) - top}
@@ -432,24 +436,34 @@ def _written_keys(payload):
         before = {key for key in transaction["classification"]}
         keys |= {("statement", "transactions", "*", "classification", key) for key in before
                  if key.startswith("contributes_to_") and key in zelle_view._REBUILT_RECORD_FLAGS}
+    for before, entry in zip(lenders_before, rebuilt["detection"].get("potential_lenders") or []):
+        keys |= {("detection", "potential_lenders", "*", key) for key in set(entry) - before}
     return keys
 
 
 def _sample(mode):
     payload = json.loads(json.dumps(fx.case("Z1")))
     payload.pop("zelle_counted_reading")
-    payload["metrics"] = {"withholding_denominator_mode": mode, "withholding_numerator": 850.0}
-    payload["detection"] = {}
+    payload["metrics"] = {"withholding_denominator_mode": mode, "withholding_numerator": 850.0,
+                          "potential_withholding_numerator": 450.0, "potential_lender_debit_count": 3}
+    # R3-13: one potential lender's entry, without the basis and exposure the rebuild writes.
+    payload["detection"] = {"potential_lenders": [{"funder": "Northwind Funding", "classification": "potential_lender",
+                                                   "total_debited": 450.0, "potential_lender_debit_total": 450.0}]}
     payload.pop("classifications")
     return payload
 
 
+#: The inputs the rebuild reads from the sample and never writes.
+_READ_ONLY = {("metrics", "withholding_numerator"), ("metrics", "potential_withholding_numerator"),
+              ("metrics", "potential_lender_debit_count"), ("detection", "potential_lenders")}
+
+
 def test_z10_rebuilt_keys_are_the_keys_the_rebuild_writes():
     written = _written_keys(_sample("true_revenue"))
-    written -= {("metrics", "withholding_numerator")}  # read, never written
+    written -= _READ_ONLY
     assert written == set(zelle_view.REBUILT_KEYS)
     for mode in ("verified_revenue", "legacy_eligible_deposits"):
-        assert _written_keys(_sample(mode)) - {("metrics", "withholding_numerator")} <= set(zelle_view.REBUILT_KEYS)
+        assert _written_keys(_sample(mode)) - _READ_ONLY <= set(zelle_view.REBUILT_KEYS)
 
 
 # --- Z11: the view's robustness --------------------------------------------------------------------------------------

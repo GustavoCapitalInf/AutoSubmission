@@ -32,6 +32,8 @@ from analysis.revenue import (
     REVENUE_STATES,
     revenue_contribution_flags,
     revenue_review_gate,
+    withholding_basis_below_floor,
+    withholding_basis_publishable,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
 from analysis.cadence import describe_cadence
@@ -327,8 +329,10 @@ def _package_for_export(package: dict) -> dict:
             **totals, **{key: None for key in _PACKAGE_PARTIAL_REVENUE_KEYS if key in totals},
         }
     # The final review of round 2, F1 (§10.4, §11): the withholding basis summed over a member whose basis is not
-    # established (final review M10: no rate on it) is an empty cell, as the dashboard reads it N/A.
-    if isinstance(totals, dict) and totals.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
+    # established (final review M10: no rate on it) is an empty cell, as the dashboard reads it N/A. Audit round 3,
+    # R3-B03 (R3-27): so is the sum of members analysed under different bases, which is no basis at all.
+    if isinstance(totals, dict) and (totals.get(WITHHOLDING_BASIS_UNESTABLISHED) is True
+                                     or totals.get("withholding_basis_mixed") is True):
         exported["totals"] = {
             **totals, **{key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in totals},
         }
@@ -1224,6 +1228,14 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "withholding_denominator",
     "withholding_numerator",
 })
+
+#: Audit round 3, R3-B03 (R3-27; true revenue spec §9.2, §11): each withholding basis's label, as a package names a
+#: member's basis where its members were analysed under different ones (`withholding_basis_by_member`).
+_WITHHOLDING_BASIS_LABELS = {
+    "legacy_eligible_deposits": "Legacy eligible deposits",
+    "verified_revenue": "Verified revenue",
+    "true_revenue": "True revenue",
+}
 
 #: Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the totals the package passes publish only where a pass
 #: found a row, so a currency refusal nulls each of them only where it is published (a package without one keeps no
@@ -3173,6 +3185,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     flagged_rollup: dict[tuple[str, str], dict] = {}
     package_flagged_evidence: list[dict] = []
     denominator_modes: set[str] = set()
+    # Audit round 3, R3-B03 (R3-27): each ready member's withholding basis, published where the package mixes them.
+    withholding_basis_by_member: list[dict] = []
     nsf_sources: set[str] = set()
     #: CURRENCY DOCTRINE §F bookkeeping: how many money-contributing members
     #: each declared currency has, and how many declared none at all.
@@ -3552,6 +3566,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             metrics.get("withholding_denominator"),
             _num(metrics.get("legacy_eligible_deposits"), credits),
         )
+        # Audit round 3, R3-B03 (R3-72): the member's stored basis, before R-d's, the counted-pair and the moved-credit
+        # deductions below; its row's rate and exposure are recomputed only where the basis it prints moved from it.
+        stored_eligible_deposits = eligible_deposits
         denominator_mode = normalize_withholding_denominator_mode(
             metrics.get("withholding_denominator_mode")
         )
@@ -3592,7 +3609,14 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     else item["state"] == "verified_revenue")
             ), 2)
             eligible_deposits = round(max(eligible_deposits - moved_total, 0.0), 2)
-        denominator_modes.add(str(denominator_mode))
+        # Audit round 3, R3-B03 (R3-27): only a member with an analysis contributes a basis, so a failed member no longer
+        # turns a True-revenue package "mixed".
+        if ready:
+            denominator_modes.add(str(denominator_mode))
+            withholding_basis_by_member.append({
+                "source_job": job.id, **({"account_index": account_index} if account_index is not None else {}),
+                "mode": str(denominator_mode), "label": _WITHHOLDING_BASIS_LABELS.get(str(denominator_mode), ""),
+            })
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         nsf_source = metrics.get("nsf_source")
         if isinstance(nsf_source, str):
@@ -3824,9 +3848,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 )
                 match_transactions = match.get("transactions") or []
                 match_evidence = match.get("evidence") or []
+            # Audit round 3, R3-B03 (R3-72, R3-20): published only over a basis the member row publishes a rate on (the
+            # floor's helper in place of `eligible_deposits > 0`), never where F1 refuses the member's basis.
             match_exposure = (
                 abs(match_total) / eligible_deposits * 100
-                if eligible_deposits > 0 and not member_basis_unestablished
+                if withholding_basis_publishable(eligible_deposits, denominator_mode) and not member_basis_unestablished
                 else None
             )
             item = potential_lenders.setdefault(
@@ -3855,8 +3881,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "potential_lender_debit_count": match_count,
                     "total_debited": round(match_total, 2),
                     "potential_lender_debit_total": round(match_total, 2),
-                    # F1 (final review of round 2): no basis where the member's is not established.
-                    "eligible_deposit_denominator": None if member_basis_unestablished else eligible_deposits,
+                    # F1 (final review of round 2): no basis where the member's is not established. Audit round 3,
+                    # R3-B03 (R3-20): nor under the withholding basis floor, as the statement's own row reads.
+                    "eligible_deposit_denominator": (
+                        None if member_basis_unestablished
+                        or withholding_basis_below_floor(eligible_deposits, denominator_mode)
+                        else eligible_deposits),
                     "potential_withholding_exposure": match_exposure,
                     "transactions": match_transactions,
                     "evidence": match_evidence,
@@ -3943,6 +3973,21 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                                                                          "excluded_pending_review")}
         row_tier_counts = {tier: len(tier_rows.get(tier, [])) for tier in row_tier_totals}
 
+        # Audit round 3, R3-B03 (R3-72; true revenue spec §9.2): a member row divides by the basis it prints. Where the
+        # package moved the member's basis (R-d's internal-transfer deduction, the 5.6 counted-pair deduction, R2-OW15/16's
+        # moved credits), its rate and potential exposure are its own numerators over that basis; elsewhere they are the
+        # stored figures, as before. Neither is published under R3-20's floor (`withholding_basis_publishable`) or where
+        # F1 refuses the member's basis.
+        member_rate_published = (
+            withholding_basis_publishable(eligible_deposits, denominator_mode) and not member_basis_unestablished)
+        if round(eligible_deposits, 2) != round(stored_eligible_deposits, 2):
+            member_withholding_rate = (
+                abs(withholding_numerator) / eligible_deposits * 100 if member_rate_published else None)
+            member_potential_exposure = (
+                abs(potential_lender_debit_total) / eligible_deposits * 100 if member_rate_published else None)
+        else:
+            member_withholding_rate = metrics.get("withholding_rate") if member_rate_published else None
+            member_potential_exposure = metrics.get("potential_withholding_exposure") if member_rate_published else None
         doc_row = {
             # One row per MEMBER. An account of a multi-account document is
             # named by the document it came from plus its printed position —
@@ -4054,18 +4099,18 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "potential_lender_debits": potential_lender_debit_total,
             "insurance_count": insurance_count,
             "insurance_total": insurance_total,
-            "withholding_rate": None if member_basis_unestablished else metrics.get("withholding_rate"),
+            "withholding_rate": member_withholding_rate,
             # R2-OW13: paid lender debits plus returned funder payments.
             "withholding_numerator": withholding_numerator,
             "withholding_denominator": eligible_deposits,
             "withholding_review_required": (
                 bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0 or member_basis_unestablished
+                # Audit round 3, R3-B03 (R3-20): a revenue basis under the floor asks for review, as $0 does.
+                or not withholding_basis_publishable(eligible_deposits, denominator_mode)
             ),
             "withholding_denominator_mode": denominator_mode,
             "withholding_denominator_label": metrics.get("withholding_denominator_label") or "Legacy eligible deposits",
-            "potential_withholding_exposure": (
-                None if member_basis_unestablished else metrics.get("potential_withholding_exposure")
-            ),
+            "potential_withholding_exposure": member_potential_exposure,
             "potential_withholding_numerator": potential_lender_debit_total,
             "potential_withholding_denominator": eligible_deposits,
             "potential_withholding_review_required": (
@@ -4311,18 +4356,31 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "confirmed_true_revenue_total", "confirmed_true_revenue"):
             totals[key] = None
         totals["revenue_tiers_sum_to_posted"] = totals["revenue_reconciles"] = False
+    # Audit round 3, R3-B03 (R3-27; true revenue spec §9.2, §11): the package's one basis. A package with no ready member
+    # keeps today's legacy mode (no rate: it has no basis); one whose members were analysed under different bases is
+    # mixed, and publishes no rate over the blend.
+    package_denominator_mode = (
+        next(iter(denominator_modes)) if len(denominator_modes) == 1
+        else "legacy_eligible_deposits" if not denominator_modes else "mixed"
+    )
+    mixed_basis = len(denominator_modes) > 1
+    # Audit round 3, R3-B03 (R3-20): a revenue basis under the withholding basis floor publishes no rate, as $0 does; the
+    # legacy basis and a mixed one (refused below) never read the floor. Never a gate.
+    package_basis_below_floor = not mixed_basis and withholding_basis_below_floor(
+        totals["withholding_denominator"], package_denominator_mode)
     package_withholding_raw = (
         abs(totals["withholding_numerator"]) / totals["withholding_denominator"] * 100
-        if totals["withholding_denominator"] > 0
+        if withholding_basis_publishable(totals["withholding_denominator"], package_denominator_mode)
         else None
     )
     package_withholding = round(package_withholding_raw, 2) if package_withholding_raw is not None else None
-    withholding_review_required = totals["withholding_denominator"] <= 0
+    withholding_review_required = not withholding_basis_publishable(
+        totals["withholding_denominator"], package_denominator_mode)
     potential_withholding_raw = (
         abs(totals["potential_withholding_numerator"])
         / totals["potential_withholding_denominator"]
         * 100
-        if totals["potential_withholding_denominator"] > 0
+        if withholding_basis_publishable(totals["potential_withholding_denominator"], package_denominator_mode)
         else None
     )
     potential_withholding = (
@@ -4336,15 +4394,27 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         package_withholding = package_withholding_raw = None
         potential_withholding = potential_withholding_raw = None
         withholding_review_required = True
+    if mixed_basis:
+        # Audit round 3, R3-B03 (R3-27): members analysed under different withholding bases (a job stored before
+        # R2-OW14, legacy or with no mode, beside a new one) sum legacy deposits and True revenue into one figure that is
+        # neither: no package rate and no potential exposure is published over it, and the package asks for review
+        # (F1/M10's precedent, review round 1 of the final fix run). Each member row keeps its own basis and rate.
+        package_withholding = package_withholding_raw = None
+        potential_withholding = potential_withholding_raw = None
+        withholding_review_required = True
+    # A lender row carries no basis where the package publishes no exposure over a basis: a partial one (M10), a mixed
+    # one (R3-27) or one under the floor (R3-20); a basis of $0 or less keeps its 0.0, as before.
+    rollup_basis_refused = partial_revenue_denominator or mixed_basis or package_basis_below_floor
     potential_withholding_review_required = totals["potential_lender_debit_count"] > 0
     for item in potential_lenders.values():
         # The final review of round 2, F1: no basis on a lender row where the package's is partial (M10), or the
         # dashboard would compute the exposure the package refuses from it.
         item["eligible_deposit_denominator"] = (
-            None if partial_revenue_denominator else totals["potential_withholding_denominator"])
+            None if rollup_basis_refused else totals["potential_withholding_denominator"])
         item["potential_withholding_exposure"] = (
             abs(item["total_debited"]) / totals["potential_withholding_denominator"] * 100
-            if totals["potential_withholding_denominator"] > 0 and not partial_revenue_denominator
+            if withholding_basis_publishable(totals["potential_withholding_denominator"], package_denominator_mode)
+            and not rollup_basis_refused
             else None
         )
         item["potential_withholding_formula"] = POTENTIAL_WITHHOLDING_FORMULA
@@ -4369,6 +4439,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # analyst, as each such statement viewed alone does. The legacy basis sets neither.
         or any_member_basis_unestablished
         or partial_revenue_denominator
+        # Audit round 3, R3-B03 (R3-27; F1/M10's precedent, review round 1 of the final fix run): members analysed under
+        # different withholding bases publish no package rate, so the package needs an analyst (re-analyze them on one
+        # basis). R3-20's floor, like a $0 basis, never gates.
+        or mixed_basis
         or totals["has_duplicate_documents"]
         # Audit round 2, R2-B14 (R14): two statements of one account that share credits in the days both cover.
         or overlapping_statements
@@ -4516,26 +4590,23 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "withholding_review_required": withholding_review_required,
         # The final review of round 2, F1 (§9.2, §11): the basis M10 refuses the rate on, only where it does.
         **({WITHHOLDING_BASIS_UNESTABLISHED: True} if partial_revenue_denominator else {}),
+        # Audit round 3, R3-B03 (R3-27): the members' bases, only where they differ (the dashboard names them).
+        **({"withholding_basis_mixed": True, "withholding_basis_by_member": withholding_basis_by_member}
+           if mixed_basis else {}),
+        # Audit round 3, R3-B03 (R3-20): a revenue basis under the withholding basis floor, only where it is.
+        **({"withholding_basis_below_floor": True} if package_basis_below_floor else {}),
         "potential_withholding_exposure": potential_withholding,
         "potential_withholding_exposure_raw": potential_withholding_raw,
         "potential_withholding_formula": POTENTIAL_WITHHOLDING_FORMULA,
         "potential_withholding_review_required": potential_withholding_review_required,
         "decision": decision,
-        "withholding_denominator_mode": (
-            next(iter(denominator_modes)) if len(denominator_modes) == 1 else "mixed"
-        ),
+        # Audit round 3, R3-B03 (R3-27): read off the ready members only; a package with none keeps the legacy mode.
+        "withholding_denominator_mode": package_denominator_mode,
         # The basis the summed NSF count was cut on (analysis/nsf_days.py). "mixed" when members differ, e.g. a
         # member whose count is unavailable, or a legacy payload that could not be re-based.
         "nsf_source": next(iter(nsf_sources)) if len(nsf_sources) == 1 else ("mixed" if nsf_sources else None),
-        "withholding_denominator_label": (
-            "Verified revenue"
-            if denominator_modes == {"verified_revenue"}
-            else "True revenue"
-            if denominator_modes == {"true_revenue"}
-            else "Legacy eligible deposits"
-            if denominator_modes == {"legacy_eligible_deposits"}
-            else "Mixed denominator configuration"
-        ),
+        "withholding_denominator_label": _WITHHOLDING_BASIS_LABELS.get(
+            package_denominator_mode, "Mixed denominator configuration"),
         # CURRENCY DOCTRINE §D: the one denomination every figure above is in,
         # surfaced once. None whenever the package could not prove a single one.
         "currency": package_currency,

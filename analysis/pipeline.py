@@ -1253,6 +1253,9 @@ def _account_report(
             if note not in reading_metrics.notes:
                 reading_metrics.notes.append(note)
 
+    # Audit round 3, R3-B03 (R3-20; true revenue spec §11): a revenue basis under the withholding basis floor gives each
+    # potential lender's row no basis and no exposure (the final review of round 2's F1 shape), so the dashboard does not
+    # recompute an exposure from it; a basis of $0 or less keeps today's 0.0 and None.
     report = Report(
         statement=stmt,
         reconciliation=recon,
@@ -1260,7 +1263,7 @@ def _account_report(
         detection=detect(
             stmt,
             classifications=classifications,
-            eligible_deposits=metrics.eligible_deposits,
+            eligible_deposits=None if metrics.withholding_basis_below_floor else metrics.eligible_deposits,
         ),
         quality=quality,
         integrity=integrity,
@@ -1273,7 +1276,8 @@ def _account_report(
             report,
             classifications=counted,
             metrics=counted_metrics,
-            detection=detect(stmt, classifications=counted, eligible_deposits=counted_metrics.eligible_deposits),
+            detection=detect(stmt, classifications=counted, eligible_deposits=(
+                None if counted_metrics.withholding_basis_below_floor else counted_metrics.eligible_deposits)),
         )
     return report
 
