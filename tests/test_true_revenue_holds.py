@@ -2133,3 +2133,39 @@ def test_r3_75_a_credit_printing_an_outgoing_e_transfer_label_is_a_possible_retu
 ])
 def test_r3_75_the_controls_keep_their_readings(bank, rows, expected):
     assert _same_day(rows, bank) == expected
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("bank", "text", "expected"), [
+    # R3-B09 review round 1: an incoming e-Transfer whose memo prints the send wording after its incoming wording
+    # (RECEIVED, FROM, AUTODEPOSIT, the French RECEPT and DEPOT) stays a counted push.
+    ("Scotiabank", "INTERAC E-TRANSFER RECEIVED CONTOSO CAFE MEMO E-TRANSFER SENT FOR INV 12", P2P),
+    ("Scotiabank", "INTERAC E-TRANSFER RECEIVED CONTOSO SEND E-TRANSFER CO", P2P),
+    ("Royal Bank of Canada", "E-TRANSFER - AUTODEPOSIT CONTOSO CAFE SEND E-TFR REMINDER", P2P),
+    ("TD Canada Trust", "E-TRANSFER FROM CONTOSO CAFE E-TRANSFER SENT FOR ORDER 12", P2P),
+    ("TD Canada Trust", "Recept - VFC ***ABC CONTOSO E-TRANSFER SENT", P2P),
+    ("TD Canada Trust", "Depot - VFC ***ABC CONTOSO SEND E-TFR", P2P),
+    # An ACH originator's name holding the send or fee-adjustment words is a payer's name, never the bank's label.
+    ("Chase", "ORIG CO NAME:SEND ETRANSFER LLC ORIG ID:1234 DESC DATE: CO ENTRY DESCR:PAYMENT", P2P),
+    ("Chase", "ORIG CO NAME:AJUST FRAIS CONSEIL ORIG ID:1234 CO ENTRY DESCR:PAYMENT", ONE_OFF),
+])
+def test_r3_75_review_an_incoming_wording_keeps_the_send_words_counted(bank, text, expected, zelle):
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank=bank, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=320.0, direction="credit"),
+    ]), zelle_true_revenue=zelle)
+    assert [rules_reading(record) for record in records] == [expected]
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("bank", "text"), [
+    # The send labels at the row's head (after a printed date) still hold, in both Zelle readings.
+    ("TD Canada Trust", "03-02 SEND E-TFR ***ABC"),
+    ("EQ Bank", "Interac e-Transfer sent to SAMPLE"),
+    ("Royal Bank of Canada", "E-TRANSFER SENT SAMPLE 1234"),
+    ("TD Canada Trust", "SEND E-TFR ***ABC SAMPLE"),
+])
+def test_r3_75_review_the_send_labels_still_hold_in_both_zelle_readings(bank, text, zelle):
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank=bank, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=320.0, direction="credit"),
+    ]), zelle_true_revenue=zelle)
+    assert [rules_reading(record) for record in records] == [POSSIBLE_RETURN]

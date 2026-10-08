@@ -3259,6 +3259,53 @@ def test_r3_87_an_unread_run_splits_after_a_class_code_never_before_a_legal_form
     assert tr.unread_run_blocks(text) == blocks
 
 
+@pytest.mark.parametrize(("line", "expected"), [
+    # R3-B09 review round 1: two blocks welded under one outstanding row, the second opening on a legal-form word
+    # other than the LLC family. The row stays unread, as before R3-87: a customer's weld is counted and flagged as
+    # unread (never Verified, never non_revenue), and a weld printing a lender holds the row with no lender credit.
+    ("FABRIKAM INC. PAYABLES 2200000001 {R} CCD INC VILLAGE OF SAMPLE AP 0000000009 {R} CCD", "unread"),
+    ("FABRIKAM INC. PAYABLES 2200000001 {R} CCD CO DEPT REVENUE TAX REFUND 0000000009 {R} PPD", "unread"),
+    ("FABRIKAM INC. PAYABLES 2200000001 {R} CCD CO-OP POWER PAYMENT 2200000002 {R} CCD", "unread"),
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD CO-OP POWER PAYMENT 2200000001 {R} CCD", "held"),
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD COMPANY STORE SALES 2200000001 {R} CCD", "held"),
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD INC VILLAGE OF SAMPLE AP 0000000009 {R} CCD", "held"),
+    # The control: a second block opening on a plain name word.
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD CONTOSO SUPPLY 2200000001 {R} CCD", "held"),
+])
+def test_r3_87_review_a_weld_whose_next_block_opens_on_a_legal_form_word_keeps_its_unread_reading(line, expected):
+    from analysis.metrics import compute_metrics
+    from tests import test_core_processor_counted as counted
+
+    line = line.format(R=counted.RECEIVER)
+    statement = counted.published(credits=(
+        f"ELECTRONIC CREDITS\nDate Description Credits\n2-3 Preauthorized Credit 300.00\n{line}\n"
+    ))
+    records = classify_statement_transactions(statement)
+    [index] = [i for i, t in enumerate(statement.transactions) if t.amount > 0]
+    assert (statement.transactions[index].description, statement.transactions[index].payer_text_unread) == (
+        "Preauthorized Credit", True)
+    reading = {"unread": ("counted_flagged", "payer_text_not_read"),
+               "held": ("excluded_pending_review", UNREAD_FINANCING)}[expected]
+    assert _tier(records[index]) == reading
+    assert compute_metrics(statement, classifications=records).lender_credits == 0.0
+
+
+@pytest.mark.parametrize(("text", "blocks"), [
+    ("FABRIKAM PAYABLES 1 NORTHWIND CCD CO OP POWER 2 NORTHWIND CCD",
+     ["FABRIKAM PAYABLES 1 NORTHWIND CCD", "CO OP POWER 2 NORTHWIND CCD"]),
+    ("KAPITUS LLC FUNDING 1 NORTHWIND CCD INC VILLAGE OF SAMPLE 2 NORTHWIND CCD",
+     ["KAPITUS LLC FUNDING 1 NORTHWIND CCD", "INC VILLAGE OF SAMPLE 2 NORTHWIND CCD"]),
+    ("FABRIKAM PAYABLES 1 NORTHWIND PPD COMPANY STORE 2 NORTHWIND CCD",
+     ["FABRIKAM PAYABLES 1 NORTHWIND PPD", "COMPANY STORE 2 NORTHWIND CCD"]),
+    ("CONTOSO PAYABLES 1 NORTHWIND CCD L L C SAMPLE 2 NORTHWIND CCD",
+     ["CONTOSO PAYABLES 1 NORTHWIND CCD L L C SAMPLE 2 NORTHWIND CCD"]),
+])
+def test_r3_87_review_the_run_split_joins_a_code_only_to_the_llc_family(text, blocks):
+    """The run split reads the counted template's narrowed rule: only LLC, L L C, LLP or PLLC after a class-code word
+    makes it a name word (the last case is the disclosed residual: no ACH originator name opens on the LLC family)."""
+    assert tr.unread_run_blocks(text) == blocks
+
+
 def test_r3_87_a_run_naming_casharc_names_financing_and_a_customer_s_arc_entry_does_not():
     assert tr.unread_run_names_financing("CONTOSO INC PAYABLES 1 NORTHWIND CCD CASH ARC LLC EDI PYMNTS 2 NORTHWIND CCD")
     assert not tr.unread_run_names_financing("CONTOSO SUPPLY ARC 0001 NORTHWIND CCD FABRIKAM INC 2 NORTHWIND CCD")

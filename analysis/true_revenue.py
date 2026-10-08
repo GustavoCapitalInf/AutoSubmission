@@ -268,6 +268,10 @@ _RETURN_REFUND_R2_B08_ARMS = (
     r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
     r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,
 )
+#: Audit round 3, R3-B09 review round 1 (R3-75): from the row's start, text holding no incoming e-Transfer wording
+#: (RECEIVED, FROM, AUTODEPOSIT, the French RECEPT and DEPOT), read before the outgoing send and sent labels of
+#: _POSSIBLE_RETURN: a send label after one of them is a memo's words on an incoming transfer.
+_NO_INCOMING_WORDING_BEFORE = r"^(?:(?!(?<![A-Z])(?:RECEIVED|FROM|AUTO ?DEPOSIT|RECEPT|DEPOT)(?![A-Z])).)*?"
 _POSSIBLE_RETURN = re.compile(
     r"(?<![A-Z])RETURN(?:ED|S)?\b|\bADJ\b|(?<![A-Z])ADJ(?:USTMENT|USTED)\b|(?<![A-Z])DISPUTE[DS]?\b"
     r"|(?<![A-Z])CREDIT MEMO\b|(?<![A-Z])OVERPA\w*"
@@ -297,10 +301,14 @@ _POSSIBLE_RETURN = re.compile(
     # (EQ Bank's 'Interac e-Transfer sent to', any bank's; never 'SENT BY', an incoming wording), TD's French send, its
     # reversal or its redeposit ('Envoi-VFC', 'Envoi - FRAIS - VFC', 'Contr. - VFC', 'Redepot - VFC'), or a French fee
     # adjustment (no legal-form word later on the row). Pass 7 only: never a step-3 or pass-4 marker.
-    + r"|(?<![A-Z])SEND E ?(?:TFR|TRANSFER)\b"
-    r"|(?<![A-Z])(?:INTERAC )?E ?(?:TRANSFER|TFR) SENT\b(?! BY\b)"
+    # R3-B09 review round 1: the send and sent labels only with no incoming wording before them on the row
+    # (_NO_INCOMING_WORDING_BEFORE: an incoming e-Transfer whose memo prints the send words stays a counted push), the
+    # send label with no legal-form word later, and none of the three inside an ACH originator's name field (after
+    # NAME: 'ORIG CO NAME:SEND ETRANSFER LLC' is a payer's name, never the bank's label).
+    + r"|" + _NO_INCOMING_WORDING_BEFORE + r"(?<![A-Z])(?<!NAME )SEND E ?(?:TFR|TRANSFER)\b" + _NO_LEGAL_FORM_LATER
+    + r"|" + _NO_INCOMING_WORDING_BEFORE + r"(?<![A-Z])(?<!NAME )(?:INTERAC )?E ?(?:TRANSFER|TFR) SENT\b(?! BY\b)"
     r"|(?<![A-Z])(?:ENVOI|CONTR|REDEPOT) (?:FRAIS )?VFC\b"
-    r"|(?<![A-Z])AJUST(?:EMENT)? (?:DE )?FRAIS\b" + _NO_LEGAL_FORM_LATER
+    r"|(?<![A-Z])(?<!NAME )AJUST(?:EMENT)? (?:DE )?FRAIS\b" + _NO_LEGAL_FORM_LATER
 )
 #: §8.1, §7.11: a card credit's posting labels (a refund to the card unless a form or the registry verified it). 5.6
 #: (audit B3: I04): and the card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's
@@ -3216,10 +3224,12 @@ UNREAD_RUN_NAMES_FINANCING = "unread_run_names_financing"
 #: <receiver> CCD`), read on the normalized text: layout grammar, where a run of welded blocks splits into its blocks.
 #: Audit round 3, R3-B09 (R3-87): a class-code word followed by a legal form is part of a name, never a block's end
 #: (CashArc's ACH company name 'CASH-ARC LLC', normalized 'CASH ARC LLC', the registry's alias), as the counted
-#: template's one-block count reads it (core_processor_counted._ACH_CLASS_CODE).
+#: template's one-block count reads it (core_processor_counted._ACH_CLASS_CODE). R3-B09 review round 1: the LLC family
+#: only (LLC, L L C, LLP, PLLC), as that count reads it: INC, CO, COMPANY, CORP, LTD, LP and the rest open real
+#: originator names, so a code before them closes its block and the next block opens on them.
 _UNREAD_BLOCK_END = re.compile(
     r"\b(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)\b"
-    r"(?! (?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC)\b)"
+    r"(?! (?:LLC|L L C|LLP|PLLC)\b)"
 )
 #: Audit round 2, R2-B07 (R07): the registry states whose block in an unread run holds its rows: the lender and
 #: financing states (LENDER_DEBIT_STATES) without an alternative position (a platform's own settlement of the
