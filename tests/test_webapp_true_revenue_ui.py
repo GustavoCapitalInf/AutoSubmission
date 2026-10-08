@@ -1993,7 +1993,8 @@ def test_the_funding_aid_adds_no_reason_code():
 # tests/test_returned_funder_payments.py's (CONTOSO PLUMBING LLC's fabricated March 2054).
 
 #: The owner's request of 2026-10-07 (dashboard clarity): the note's headline, then its plain sentences.
-_RETURNED_WARNING = ('KAPITUS: a payment bounced The $850.00 payment on Mar 3, 2054 was returned unpaid on Mar 5, 2054 '
+_RETURNED_WARNING = ('KAPITUS: a payment was returned The $850.00 payment on Mar 3, 2054 was returned unpaid on Mar 5, '
+                     '2054 '
                      '(the bank printed: "RETURN OF POSTED CHECK ITEM RECEIVED ON 03/03 03/05"). It isn\'t counted as '
                      'paid, but it still counts in the withholding rate.')
 LENDER_ROWS = r"""
@@ -2078,7 +2079,8 @@ console.log(JSON.stringify({{lenders: lenderRows(els.lenderTable.innerHTML),
     # Both statements print March 2054, so each note names its statement by its file under the month.
     assert warnings == [
         f"! Returned {_RETURNED_WARNING} From: March 2054 statement, fabricated-mar.pdf",
-        f'! Returned KAPITUS: a payment bounced The $850.00 payment on Mar 2, 2054 was returned unpaid on Mar 4, 2054 '
+        f'! Returned KAPITUS: a payment was returned The $850.00 payment on Mar 2, 2054 was returned unpaid on Mar 4, '
+        '2054 '
         f'(the bank printed: "{NAMED_RETURN}"). It isn\'t counted as paid, but it still counts in the withholding '
         "rate. From: March 2054 statement, fabricated-apr.pdf",
     ]

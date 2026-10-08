@@ -142,27 +142,33 @@ console.log(JSON.stringify({json.dumps(items)}.map((item) => {function}(item, 'U
 @needs_node
 def test_a_change_reads_as_a_headline_and_plain_sentences():
     notes = _notes([DECREASE, INCREASE_AFTER_FUNDING, POSSIBLE_INCREASE_POTENTIAL, STEPS, SCHEDULE, SCHEDULE_LOWER])
+    # Review round 1: the counts say nothing about the level still running ("so far" read wrong where a later change
+    # replaced it).
     assert notes[0] == _note("KAPITUS: payment went down 29%", [
-        "The daily payment went from $850.00 to $600.00 starting Mar 16, 2054 (8 payments at the new amount so far, "
-        "after 10 at the old)."])
+        "The daily payment went from $850.00 to $600.00 starting Mar 16, 2054 (8 payments at the new amount, after 10 "
+        "at the old)."])
+    # Review round 1: April 2054 is printed by two members (accounts A and B), so the cross-statement line names the
+    # April statement by its file as well.
     assert notes[1] == _note("ONDECK: payment went up 50%", [
-        "The weekly payment went from $1,000.00 to $1,500.00 starting Apr 6, 2054 (2 payments at the new amount so "
-        "far, after 3 at the old)."],
+        "The weekly payment went from $1,000.00 to $1,500.00 starting Apr 6, 2054 (2 payments at the new amount, after "
+        "3 at the old)."],
         ["Also: ONDECK deposited $25,000.00 on Apr 1, 2054, just before; this may be a renewal."],
-        "From: March 2054 → April 2054 statements")
+        "From: March 2054 statement → April 2054 statement, SAMPLE BANK april.pdf")
+    # Review round 1: where the schedule changes, the headline's percentage is the weekly total's, so the headline says
+    # so and the weekly-total sentence comes first.
     assert notes[2] == _note(
-        "Unidentified lender obligation (daily, 300.00) (potential lender): payment may have gone up 20%", [
-            "Payments changed from daily $300.00 to weekly $1,800.00 starting Mar 23, 2054 (2 payments at the new "
-            "amount so far, after 15 at the old).",
+        "Unidentified lender obligation (daily, 300.00) (potential lender): weekly payment total may have gone up 20%", [
             "The weekly total went from $1,500.00 to $1,800.00.",
+            "Payments changed from daily $300.00 to weekly $1,800.00 starting Mar 23, 2054 (2 payments at the new "
+            "amount, after 15 at the old).",
             "The new schedule isn't confirmed yet."])
     assert notes[3] == _note("KAPITUS: payment went down 12%", [
-        "The weekly payment went from $1,000.00 to $880.00 starting Apr 27, 2054 (4 payments at the new amount so "
-        "far, after 4 at the old).",
+        "The weekly payment went from $1,000.00 to $880.00 starting Apr 27, 2054 (4 payments at the new amount, after "
+        "4 at the old).",
         "It stepped through $950.00 (-5%) on the way, then to $880.00 (-7%)."])
     assert notes[4] == _note("KAPITUS: payment schedule changed", [
         "Payments changed from daily $500.00 to weekly $2,500.00 starting Mar 23, 2054 (4 payments on the new "
-        "schedule so far, after 15 on the old).",
+        "schedule, after 15 on the old).",
         "The weekly total stayed about the same ($2,500.00 before, $2,500.00 after)."])
     assert notes[5]["details"][1] == "The weekly total stayed about the same ($2,500.00 before, $2,300.00 after, -8%)."
 
@@ -184,13 +190,16 @@ def test_a_change_s_extra_notes_are_each_an_also_sentence():
 @needs_node
 def test_a_pause_and_a_new_stream():
     notes = _notes([PAUSE, PAUSE_ATTEMPT, PAUSE_OTHER, PAUSE_ACROSS_YEARS, NEW_STREAM])
+    # Review round 1: the grace window reads as the threshold it is, never as the payments' normal rhythm; an attempt
+    # reads "returned unpaid" (a bank's bounce and a business's reversal alike, R2-OW13).
     assert notes[0] == _note("KAPITUS: payments paused, then resumed", [
-        "No payment between Mar 20 and Apr 1, 2054 (8 business days; daily payments normally allow 5).",
+        "No payment between Mar 20 and Apr 1, 2054 (8 business days, more than the 5 a daily schedule allows).",
         "Payments then resumed at the same daily $850.00."])
     assert notes[1]["details"] == [
-        "No payment or payment attempt between Mar 20 and Apr 1, 2054 (8 business days; daily payments normally "
-        "allow 5).",
-        "The attempt on Apr 1, 2054 bounced, and payments resumed at the same daily $850.00 on Apr 3, 2054."]
+        "No payment or payment attempt between Mar 20 and Apr 1, 2054 (8 business days, more than the 5 a daily "
+        "schedule allows).",
+        "The attempt on Apr 1, 2054 was returned unpaid, and payments resumed at the same daily $850.00 on Apr 3, "
+        "2054."]
     assert notes[2]["details"][1] == ("A payment of another amount came on Apr 1, 2054, and payments resumed at the "
                                       "same daily $850.00 on Apr 3, 2054.")
     assert notes[3]["details"][0].startswith("No payment between Dec 30, 2053 and Jan 8, 2054 (")
@@ -204,7 +213,7 @@ def test_a_stop_says_when_the_last_payment_was_and_how_long_it_has_been():
     notes = _notes([POSSIBLE_STOP, STOP_NEW_LENDER, STOP_OTHER_DEBITS, STOP_EVERY_NOTE])
     assert notes[0] == _note("KAPITUS: payments may have stopped", [
         "No payment in the last 11 business days of this statement.",
-        "Weekly payments normally arrive within 10 business days.",
+        "A weekly schedule allows up to 10 business days without a payment.",
         "Last payment: $1,000.00 on May 13, 2054."])
     assert notes[1] == _note("KAPITUS: payments stopped", [
         "Last weekly payment: $1,000.00 on Apr 22, 2054.",
@@ -213,13 +222,14 @@ def test_a_stop_says_when_the_last_payment_was_and_how_long_it_has_been():
         "From: April 2054 statement, SAMPLE BANK april.pdf")
     assert notes[2]["details"] == [
         "No regular daily payment since Mar 13, 2054; only 3 debits at other amounts since (the last on Mar 19, 2054).",
-        "Daily payments normally arrive within 5 business days.",
+        "A daily schedule allows up to 5 business days without a payment.",
         "Last regular payment: $850.00 on Mar 13, 2054."]
+    # Review round 1: two concurrent streams, not two payments in all, and no amount-bearing label repeated.
     assert notes[3] == _note("KAPITUS: payments may have stopped", [
         "No payment or payment attempt in the last 12 business days, through May 29, 2054.",
-        "Weekly payments normally arrive within 10 business days.",
+        "A weekly schedule allows up to 10 business days without a payment.",
         "Last payment: $1,000.00 on Apr 1, 2054.",
-        "KAPITUS takes 2 separate payments; this note is about the first."], [
+        "This lender has 2 separate payment streams; this note is about the first."], [
         "Also: a final debit of $5,000.00 on Apr 20, 2054 may be a payoff.",
         "Also: payments of $990.00 continue under Unidentified lender obligation (weekly, 990.00) (potential lender) "
         "from Apr 15, 2054; this may be a buyout or refinance.",
@@ -227,7 +237,7 @@ def test_a_stop_says_when_the_last_payment_was_and_how_long_it_has_been():
         "Also: payments to KAPITUS continue from another account (April 2054 statement, SAMPLE b-april.pdf) from "
         "Apr 15, 2054 at $1,000.00.",
         "Also: another KAPITUS payment of $1,200.00 weekly continues.",
-        "Also: the last attempt, on Apr 8, 2054, bounced."],
+        "Also: the last attempt, on Apr 8, 2054, was returned unpaid."],
         "From: April 2054 statement, SAMPLE BANK april.pdf")
 
 
@@ -239,15 +249,17 @@ def test_a_confirmed_stop_after_a_bounced_attempt_counts_from_the_attempt():
     assert note["details"] == ["Last weekly payment: $1,000.00 on Apr 22, 2054.",
                                "No payment or payment attempt in the 26 business days after Apr 29, 2054, through May "
                                "29, 2054."]
-    assert note["also"] == ["Also: the last attempt, on Apr 29, 2054, bounced."]
+    assert note["also"] == ["Also: the last attempt, on Apr 29, 2054, was returned unpaid."]
     # One April statement in the package: its month alone names it.
     assert note["source"] == "From: April 2054 statement"
 
 
 @needs_node
-def test_a_returned_payment_says_it_bounced_in_plain_words():
+def test_a_returned_payment_says_it_was_returned_in_plain_words():
     notes = _notes([RETURNED, RETURNED_ACROSS, RETURNED_IN_ONE], THREE, returned=True)
-    assert notes[0] == _note("KAPITUS: a payment bounced", [
+    # Review round 1: "was returned", true of a bank's bounce and of a business's reversal alike; the bank's own words
+    # tell them apart (R2-OW13).
+    assert notes[0] == _note("KAPITUS: a payment was returned", [
         'The $850.00 payment on Mar 3, 2054 was returned unpaid on Mar 5, 2054 (the bank printed: "RETURN OF POSTED '
         'CHECK ITEM").',
         "It isn't counted as paid, but it still counts in the withholding rate."])
@@ -284,6 +296,81 @@ console.log(JSON.stringify({{many: items.map((item) => lenderPaymentChangeNote(i
     assert not any(job in json.dumps(result) for job in JOBS)
 
 
+# ----------------------------------------------------------------------------------- A: review round 1's wordings
+#: Two accounts of CONTOSO, operating and payroll, each printing March and April 2054.
+TWO_ACCOUNTS = [_doc(JOB_MAR, 3, "CONTOSO operating march.pdf"), _doc(JOB_APR, 4, "CONTOSO operating april.pdf"),
+                _doc(JOB_MAY, 3, "CONTOSO payroll march.pdf"), _doc(JOB_B_APR, 4, "CONTOSO payroll april.pdf")]
+
+
+@needs_node
+def test_a_cross_statement_line_names_the_files_where_a_month_is_shared():
+    payroll = {**_change("decrease", 1000.0, 700.0, -30, cadence_before="weekly", cadence_after="weekly",
+                         payments_before=4, payments_after=4, first_after_date="2054-04-01"),
+               "scope": "package", "source_currency": "USD", "cross_statement": True,
+               **_source(JOB_B_APR, "CONTOSO payroll april.pdf"),
+               **_source(JOB_MAY, "CONTOSO payroll march.pdf", "from"),
+               **_source(JOB_B_APR, "CONTOSO payroll april.pdf", "to")}
+    returned = {**RETURNED_ACROSS, **_source(JOB_MAY, "CONTOSO payroll march.pdf"),
+                **_source(JOB_B_APR, "CONTOSO payroll april.pdf", "credit")}
+    [change] = _notes([payroll], TWO_ACCOUNTS)
+    [bounce] = _notes([returned], TWO_ACCOUNTS, returned=True)
+    both = ("From: March 2054 statement, CONTOSO payroll march.pdf → April 2054 statement, CONTOSO payroll "
+            "april.pdf")
+    assert change["source"] == both and bounce["source"] == both
+    # The same item where each month has one statement keeps the bare months.
+    [alone] = _notes([payroll], [TWO_ACCOUNTS[2], TWO_ACCOUNTS[3]])
+    assert alone["source"] == "From: March 2054 → April 2054 statements"
+    assert not any(job in json.dumps([change, bounce, alone]) for job in JOBS)
+
+
+@needs_node
+def test_a_change_across_schedules_leads_with_the_weekly_total():
+    lower = _change("decrease", 500.0, 1800.0, -28, cadence_after="weekly", cadence_changed=True,
+                    weekly_equivalent_before=2500.0, weekly_equivalent_after=1800.0, payments_before=15,
+                    payments_after=4, first_after_date="2054-03-23")
+    [note] = _notes([lower])
+    assert note == _note("KAPITUS: weekly payment total went down 28%", [
+        "The weekly total went from $2,500.00 to $1,800.00.",
+        "Payments changed from daily $500.00 to weekly $1,800.00 starting Mar 23, 2054 (4 payments at the new amount, "
+        "after 15 at the old)."])
+
+
+@needs_node
+def test_the_grace_window_reads_as_a_threshold_for_every_schedule():
+    irregular = {**POSSIBLE_STOP, "cadence": "daily_irregular", "grace_business_days": 6, "quiet_business_days": 7}
+    monthly = {**POSSIBLE_STOP, "cadence": "monthly", "grace_business_days": 25, "quiet_business_days": 26}
+    pause = {**PAUSE, "cadence": "semimonthly", "grace_business_days": 15, "pause_business_days": 17}
+    notes = _notes([irregular, monthly, pause])
+    assert notes[0]["details"][1] == "An irregular daily schedule allows up to 6 business days without a payment."
+    assert notes[1]["details"][1] == "A monthly schedule allows up to 25 business days without a payment."
+    assert notes[2]["details"][0] == ("No payment between Mar 20 and Apr 1, 2054 (17 business days, more than the 15 "
+                                      "a semi-monthly schedule allows).")
+    assert "normally" not in json.dumps(_notes([POSSIBLE_STOP, STOP_OTHER_DEBITS, PAUSE, PAUSE_ATTEMPT]))
+
+
+@needs_node
+def test_one_debit_at_another_amount_reads_in_the_singular():
+    one = {"count": 1, "last_date": "2054-03-19"}
+    possible = {**STOP_OTHER_DEBITS, "other_debits_after": one}
+    confirmed = {**STOP_OTHER_DEBITS, "other_debits_after": one, "stop_confirmed": True}
+    notes = _notes([possible, confirmed])
+    assert notes[0]["details"][0] == ("No regular daily payment since Mar 13, 2054; only 1 debit at another amount "
+                                      "since (on Mar 19, 2054).")
+    assert notes[1]["details"][:2] == ["Last regular daily payment: $850.00 on Mar 13, 2054.",
+                                       "After it came only 1 debit at another amount, on Mar 19, 2054."]
+
+
+@needs_node
+def test_a_potential_lender_s_streams_sentence_repeats_no_label():
+    stop = {**POSSIBLE_STOP, "lender": "Unidentified lender obligation", "position": 2, "positions": 2,
+            "lender_label": "Unidentified lender obligation (weekly, 1000.00)", "lender_state": "potential"}
+    [note] = _notes([stop])
+    assert note["headline"] == ("Unidentified lender obligation (weekly, 1000.00) (potential lender): payments may "
+                                "have stopped")
+    assert note["details"][-1] == "This lender has 2 separate payment streams; this note is about the second."
+    assert sum("1000.00" in part for part in [note["headline"], *note["details"]]) == 1
+
+
 # ------------------------------------------------------------------------------------- A: the table and the memo
 LENDER_ROWS = r"""
 const rows = (html) => [...html.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/g)].map((m) => m[2]);
@@ -304,13 +391,15 @@ renderLenders({json.dumps([FUNDER])}, [], 'USD', {json.dumps([RETURNED_ACROSS])}
   {json.dumps(DOCUMENTS)});
 console.log(JSON.stringify(els.lenderTable.innerHTML));
 """)
-    assert '<strong class="lender-note-headline">KAPITUS: a payment bounced</strong>' in html
+    assert '<strong class="lender-note-headline">KAPITUS: a payment was returned</strong>' in html
     assert '<strong class="lender-note-headline">ONDECK: payment went up 50%</strong>' in html
     assert ('<div class="lender-note-detail">The weekly payment went from $1,000.00 to $1,500.00 starting Apr 6, 2054 '
-            '(2 payments at the new amount so far, after 3 at the old).</div>') in html
+            '(2 payments at the new amount, after 3 at the old).</div>') in html
     assert ('<div class="lender-note-also">Also: ONDECK deposited $25,000.00 on Apr 1, 2054, just before; this may be '
             'a renewal.</div>') in html
-    assert '<div class="lender-note-source">From: March 2054 → April 2054 statements</div>' in html
+    # Two members print April 2054: the April end of each cross-statement line names its file.
+    assert ('<div class="lender-note-source">From: March 2054 statement → April 2054 statement, SAMPLE BANK '
+            'april.pdf</div>') in html
     # The chips and their tones stay; each note is a warning row above the lender rows.
     assert html.index("chip-text\">Returned<") < html.index("chip-text\">Increased<") < html.index(
         "chip-text\">No payments<") < html.index("chip-text\">Not checked<") < html.index(">KAPITUS</")
@@ -359,13 +448,13 @@ console.log(JSON.stringify([lenderPaymentChangeWarning({json.dumps(INCREASE_AFTE
 """)
     assert text == [
         "ONDECK: payment went up 50%. The weekly payment went from $1,000.00 to $1,500.00 starting Apr 6, 2054 (2 "
-        "payments at the new amount so far, after 3 at the old). Also: ONDECK deposited $25,000.00 on Apr 1, 2054, "
-        "just before; this may be a renewal. From: March 2054 → April 2054 statements.",
+        "payments at the new amount, after 3 at the old). Also: ONDECK deposited $25,000.00 on Apr 1, 2054, just "
+        "before; this may be a renewal. From: March 2054 statement → April 2054 statement, SAMPLE BANK april.pdf.",
         "KAPITUS: payment went down 29%. The daily payment went from $850.00 to $600.00 starting Mar 16, 2054 (8 "
-        "payments at the new amount so far, after 10 at the old).",
-        "KAPITUS: a payment bounced. The $850.00 payment on Mar 27, 2054 was returned unpaid on Apr 2, 2054 (the bank "
-        "printed: \"RETURN OF POSTED CHECK ITEM\"). It isn't counted as paid, but it still counts in the withholding "
-        "rate. From: March 2054 → April 2054 statements."]
+        "payments at the new amount, after 10 at the old).",
+        "KAPITUS: a payment was returned. The $850.00 payment on Mar 27, 2054 was returned unpaid on Apr 2, 2054 (the "
+        "bank printed: \"RETURN OF POSTED CHECK ITEM\"). It isn't counted as paid, but it still counts in the "
+        "withholding rate. From: March 2054 statement → April 2054 statement, SAMPLE BANK april.pdf."]
 
 
 @needs_node
@@ -380,7 +469,7 @@ console.log(JSON.stringify({{memo: els.summaryBox.textContent, table: els.lender
 """)
     assert result["memo"].endswith(
         "\n- KAPITUS: payment went down 30%. The weekly payment went from $1,000.00 to $700.00 starting Apr 1, 2054 "
-        "(4 payments at the new amount so far, after 4 at the old). From: March 2054 → April 2054 statements.")
+        "(4 payments at the new amount, after 4 at the old). From: March 2054 → April 2054 statements.")
     assert '<div class="lender-note-source">From: March 2054 → April 2054 statements</div>' in result["table"]
 
 

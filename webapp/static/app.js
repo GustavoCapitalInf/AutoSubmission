@@ -930,9 +930,11 @@ function paymentChangeSources(documents) {
     const { account } = packageMember(doc.id);
     const which = [statementFileName(doc.filename), account === null ? "" : `account ${formatNumber(account)}`]
       .filter(Boolean).join(", ");
-    const named = month && shared.get(month) > 1 && which;
+    const crowded = Boolean(month) && shared.get(month) > 1;
+    const named = crowded && which;
     members.set(String(doc.id), {
       month,
+      crowded,
       label: month ? `${month} statement${named ? `, ${which}` : ""}` : (which || "a statement"),
     });
   });
@@ -950,15 +952,18 @@ function paymentChangeMember(fields, prefix, sources) {
 }
 
 // A note's source line: none on a statement's own page (its items name no statement) or in a package of one member;
-// "From: March 2054 → April 2054 statements" for an item seen across two statements (`across`, the two field prefixes);
-// else "From: <its statement>".
+// "From: March 2054 → April 2054 statements" for an item seen across two statements (`across`, the two field prefixes)
+// whose months each name one member, else the two members' own labels (review round 1: where another account prints
+// the same month, the bare months would not say which account); else "From: <its statement>".
 function paymentChangeSourceLine(fields, sources, across = null) {
   if (fields.scope === "statement" || (!("source_job" in fields) && !("source_document" in fields))) return "";
   if (sources && sources.count <= 1) return "";
   if (across) {
     const from = paymentChangeMember(fields, across[0], sources);
     const to = paymentChangeMember(fields, across[1], sources);
-    if (from.month && to.month && from.month !== to.month) return `From: ${from.month} → ${to.month} statements`;
+    if (from.month && to.month && from.month !== to.month && !from.crowded && !to.crowded) {
+      return `From: ${from.month} → ${to.month} statements`;
+    }
     return `From: ${from.label} → ${to.label}`;
   }
   return `From: ${paymentChangeMember(fields, "source", sources).label}`;
@@ -989,14 +994,15 @@ function lenderNoteRowHtml(chip, note) {
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): one note per returned funder payment, quoting the bank's own
-// words, so a business's reversal of the debit reads apart from a bank's bounce. A package's item is in its statement's
-// unit and names its statement; the final review of round 2's F2(b) item, a payment the package matched to a return in
-// the next statement, names both.
+// words, so a business's reversal of the debit reads apart from a bank's bounce (the headline, review round 1 of the
+// 2026-10-07 change, says "was returned", true of both). A package's item is in its statement's unit and names its
+// statement; the final review of round 2's F2(b) item, a payment the package matched to a return in the next statement,
+// names both.
 function returnedFunderPaymentNote(item, currency = "USD", sources = null) {
   const unit = "source_currency" in item ? item.source_currency : currency;
   const amount = numberOrNull(item.amount);
   const words = item.credit_description ? ` (the bank printed: "${item.credit_description}")` : "";
-  return lenderNote(`${item.funder || "Confirmed lender"}: a payment bounced`, [
+  return lenderNote(`${item.funder || "Confirmed lender"}: a payment was returned`, [
     `The ${formatMoney(amount === null ? null : Math.abs(amount), unit)} payment on ${readableDate(item.debit_date)} `
       + `was returned unpaid on ${readableDate(item.credit_date)}${words}.`,
     "It isn't counted as paid, but it still counts in the withholding rate.",
@@ -1021,6 +1027,12 @@ const PAYMENT_CADENCE_WORDS = { semimonthly: "semi-monthly", daily_irregular: "i
 
 function paymentCadenceWords(cadence) {
   return PAYMENT_CADENCE_WORDS[cadence] || String(cadence || "");
+}
+
+// "a weekly schedule", "an irregular daily schedule": the schedule a grace window belongs to.
+function scheduleWords(cadence) {
+  const words = paymentCadenceWords(cadence) || "payment";
+  return `${/^[aeiou]/i.test(words) ? "an" : "a"} ${words} schedule`;
 }
 
 function signedPercent(value) {
@@ -1049,23 +1061,27 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     const after = cadence(item.cadence_after);
     const starting = `starting ${day(item.first_after_date)}`;
     const amounts = `from ${before} ${money(item.amount_before)} to ${after} ${money(item.amount_after)} ${starting}`;
+    // Review round 1 of the 2026-10-07 change: the counts are the level's own, never "so far" (a later change may have
+    // replaced it).
     if (item.kind === "cadence_change") {
       headline = "payment schedule changed";
-      details.push(`Payments changed ${amounts} (${countWords(item.payments_after, "payment")} on the new schedule so `
-        + `far, after ${formatNumber(item.payments_before)} on the old).`);
+      details.push(`Payments changed ${amounts} (${countWords(item.payments_after, "payment")} on the new schedule, `
+        + `after ${formatNumber(item.payments_before)} on the old).`);
       details.push(`The weekly total stayed about the same (${money(item.weekly_equivalent_before)} before, `
         + `${money(item.weekly_equivalent_after)} after${percent ? `, ${signedPercent(percent)}` : ""}).`);
     } else {
       const possible = item.schedule_confirmed === false;
       const size = percent === null ? "" : ` ${Math.abs(percent)}%`;
       const way = item.kind === "decrease" ? "down" : "up";
-      headline = possible ? `payment may have gone ${way}${size}` : `payment went ${way}${size}`;
-      const counts = `(${countWords(item.payments_after, "payment")} at the new amount so far, after `
+      // Across schedules the percentage is the weekly total's (B1), so the headline names it and its sentence leads.
+      const what = item.cadence_changed === true ? "weekly payment total" : "payment";
+      headline = possible ? `${what} may have gone ${way}${size}` : `${what} went ${way}${size}`;
+      const counts = `(${countWords(item.payments_after, "payment")} at the new amount, after `
         + `${formatNumber(item.payments_before)} at the old)`;
       if (item.cadence_changed === true) {
-        details.push(`Payments changed ${amounts} ${counts}.`);
         details.push(`The weekly total went from ${money(item.weekly_equivalent_before)} to `
           + `${money(item.weekly_equivalent_after)}.`);
+        details.push(`Payments changed ${amounts} ${counts}.`);
       } else {
         details.push(`The ${before} payment went from ${money(item.amount_before)} to ${money(item.amount_after)} `
           + `${starting} ${counts}.`);
@@ -1107,12 +1123,13 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     headline = "payments paused, then resumed";
     const attempt = item.first_after_kind === "attempt";
     const same = `at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`;
+    // Review round 1: the grace window is the threshold the pause passed, not the payments' normal rhythm.
     details.push(`No payment${attempt ? " or payment attempt" : ""} between `
       + `${readableDateRange(item.last_before_date, item.first_after_date)} `
-      + `(${countWords(item.pause_business_days, "business day")}; ${cadence(item.cadence)} payments normally allow `
-      + `${formatNumber(item.grace_business_days)}).`);
+      + `(${countWords(item.pause_business_days, "business day")}, more than the `
+      + `${formatNumber(item.grace_business_days)} ${scheduleWords(item.cadence)} allows).`);
     if (attempt) {
-      details.push(`The attempt on ${day(item.first_after_date)} bounced, and payments resumed ${same} on `
+      details.push(`The attempt on ${day(item.first_after_date)} was returned unpaid, and payments resumed ${same} on `
         + `${day(item.resumed_date)}.`);
     } else if (item.first_after_kind === "other_amount") {
       details.push(`A payment of another amount came on ${day(item.first_after_date)}, and payments resumed ${same} `
@@ -1140,7 +1157,11 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     const schedule = cadence(item.cadence);
     const quiet = countWords(item.quiet_business_days, "business day");
     const through = day(item.coverage_end);
-    const later = others ? `${countWords(others.count, "debit")} at other amounts` : "";
+    // Review round 1: one debit reads in the singular, dated on its own ("on", not "the last on").
+    const single = others && numberOrNull(others.count) === 1;
+    const later = !others ? "" : single ? "1 debit at another amount"
+      : `${countWords(others.count, "debit")} at other amounts`;
+    const lastOther = !others ? "" : `${single ? "on" : "the last on"} ${day(others.last_date)}`;
     if (item.stop_confirmed === true) {
       headline = "payments stopped";
       details.push(`Last ${others ? "regular " : ""}${schedule} payment: ${money(item.last_payment_amount)} on `
@@ -1148,7 +1169,7 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       const presence = item.last_presence_date && item.last_presence_date !== item.last_payment_date
         ? day(item.last_presence_date) : "it";
       if (others) {
-        details.push(`After it came only ${later}, the last on ${day(others.last_date)}.`);
+        details.push(`After it came only ${later}, ${lastOther}.`);
         details.push(`No payment in the ${quiet} after ${presence}, through ${through}.`);
       } else {
         details.push(`No ${attempt ? "payment or payment attempt" : "payments"} in the ${quiet} after ${presence}, `
@@ -1157,14 +1178,15 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     } else {
       headline = "payments may have stopped";
       if (others) {
-        details.push(`No regular ${schedule} payment since ${day(item.last_payment_date)}; only ${later} since (the `
-          + `last on ${day(others.last_date)}).`);
+        details.push(`No regular ${schedule} payment since ${day(item.last_payment_date)}; only ${later} since `
+          + `(${lastOther}).`);
       } else {
         const span = item.scope === "package" ? `the last ${quiet}, through ${through}` : `the last ${quiet} of this statement`;
         details.push(`No ${attempt ? "payment or payment attempt" : "payment"} in ${span}.`);
       }
-      details.push(`${sentenceCase(schedule)} payments normally arrive within `
-        + `${countWords(item.grace_business_days, "business day")}.`);
+      // Review round 1: the grace window is the threshold of a possible stop, not the payments' normal rhythm.
+      details.push(`${sentenceCase(scheduleWords(item.cadence))} allows up to `
+        + `${countWords(item.grace_business_days, "business day")} without a payment.`);
       details.push(`Last ${others ? "regular " : ""}payment: ${money(item.last_payment_amount)} on `
         + `${day(item.last_payment_date)}.`);
     }
@@ -1197,13 +1219,16 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       also.push(`Also: another ${label} payment of ${money(item.other_stream_continues.amount)} `
         + `${cadence(item.other_stream_continues.cadence)} continues.`);
     }
-    if (item.last_attempt_returned) also.push(`Also: the last attempt, on ${day(item.last_attempt_returned.date)}, bounced.`);
+    if (item.last_attempt_returned) {
+      also.push(`Also: the last attempt, on ${day(item.last_attempt_returned.date)}, was returned unpaid.`);
+    }
   }
-  // A lender taking two payments or more: which one the note is about (a new stream's own sentence says so).
+  // A lender taking two payments or more: which one the note is about (a new stream's own sentence says so). Review
+  // round 1: concurrent streams, not payments in all, and the headline already names the lender.
   const positions = numberOrNull(item.positions);
   if (positions !== null && positions > 1 && item.kind !== "new_stream") {
     const position = numberOrNull(item.position);
-    details.push(`${label} takes ${formatNumber(positions)} separate payments; this note is about the `
+    details.push(`This lender has ${formatNumber(positions)} separate payment streams; this note is about the `
       + `${(position !== null && ORDINAL_WORDS[position - 1]) || `number ${formatNumber(item.position)}`}.`);
   }
   return lenderNote(`${nameOf(label, item.lender_state)}: ${headline}`, details, also,
