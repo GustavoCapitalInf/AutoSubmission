@@ -686,12 +686,13 @@ def test_a_mixed_vocabulary_rollup_says_so():
     rollup = diagnostics_rollup([old, new])
     # `new` is emitted at whatever the CURRENT vocabulary is, so this literal
     # moves with every bump — which is the point: a rollup spanning versions
-    # must name them. v5 is P22-TRUTHTABLE (cell F's consequence: the
-    # `recon:escalation_extraction_failed` writer is gone, so the LIVE code
-    # set shrank); v4 was REPAIR-GUARD/PIPE5 (`integrity:repair_exception`
+    # must name them. v6 is the owner report of 2026-10-08 (the advisory
+    # `adb_state:pre_period_carry_in_folded` added); v5 was P22-TRUTHTABLE
+    # (cell F's consequence: the `recon:escalation_extraction_failed` writer
+    # is gone, so the LIVE code set shrank); v4 was REPAIR-GUARD/PIPE5 (`integrity:repair_exception`
     # added, classed `extraction_failure`); v3 was COUNTS-P2 (two new codes AND
     # a widened diagnosable scope, doubly non-comparable).
-    assert rollup["diagnostics_versions"] == {"1": 1, "5": 1}
+    assert rollup["diagnostics_versions"] == {"1": 1, "6": 1}
     assert "WARNING mixed taxonomy versions" in render_diagnostics(rollup)
 
 

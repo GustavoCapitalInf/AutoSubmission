@@ -236,6 +236,7 @@ class AverageDailyBalanceResult:
     opening_balance: float | None = None
     closing_balance: float | None = None
     # stated | derived_from_closing | first_printed_balance | initialization_event
+    # | pre_period_carry_in
     opening_balance_source: str | None = None
     computed_closing_balance: float | None = None
     total_credits: float = 0.0
@@ -498,6 +499,70 @@ def compute_average_daily_balance(
                 "context; the ADB basis remains the printed period"
             )
 
+    # PREVIOUS-BALANCE-DAY CARRY-IN - narrow, declared, fail-closed (owner
+    # report 2026-10-08).
+    #
+    # A bank can open a statement's detail with postings dated the day its
+    # previous-balance line names - the day before the printed period, after
+    # the previous statement closed - and count them in THIS cycle: in its
+    # printed totals, and in the printed resulting balance it chains through
+    # them. They are what day one opens WITH, so they are folded into the
+    # opening balance exactly as the initialization event above is: their day
+    # never becomes a ledger day (so never an NSF day), the divisor stays the
+    # printed period's calendar length, and no row is moved to a boundary day.
+    #
+    # Reachable only when the parser has DECLARED, from the document's printed
+    # evidence, how many leading postings these are
+    # (`Statement.pre_period_carry_in_count`), and only when this layer proves
+    # of the ledger itself that: the declared count is every out-of-period row;
+    # each is dated the day immediately before the period; they are the
+    # statement's leading rows, in its order; each one's printed running
+    # balance is the printed previous balance walked through them; and the
+    # whole ledger closes on the printed closing balance with them and not
+    # without them. Anything else - a row after the period, a row two days
+    # early, one not at the head of the ledger, a broken chain - leaves
+    # `out_of_period_transaction_count` intact and the document withheld.
+    carry_in: list[tuple[date, Any]] = []
+    declared_carry_in = stmt.pre_period_carry_in_count
+    if (
+        declared_carry_in
+        and not initialization
+        and len(outside) == declared_carry_in
+        and all(day == start - timedelta(days=1) for day, _ in outside)
+        and len(stmt.transactions) >= declared_carry_in
+        and all(
+            txn is leading
+            for (_, txn), leading in zip(outside, stmt.transactions[:declared_carry_in])
+        )
+        and stmt.beginning_balance is not None
+        and stmt.ending_balance is not None
+    ):
+        printed_opening = _money(stmt.beginning_balance)
+        walked = printed_opening
+        chained = True
+        for _, txn in outside:
+            walked = _money(walked + _decimal(txn.amount))
+            if txn.running_balance is None or _money(txn.running_balance) != walked:
+                chained = False
+                break
+        in_period = sum((_decimal(txn.amount) for _, txn in ordered), Decimal("0"))
+        closing = _money(stmt.ending_balance)
+        if (
+            chained
+            # REQUIRED: the ledger closes with them, and does not without them.
+            and _money(walked + in_period) == closing
+            and _money(printed_opening + in_period) != closing
+        ):
+            carry_in = outside
+            outside = []
+            result.out_of_period_transaction_count = 0
+            result.warnings.append(
+                f"{len(carry_in)} carry-in posting(s) dated on the previous-balance day ("
+                + ", ".join(day.isoformat() for day, _ in carry_in)
+                + "), before the statement period and counted in its printed cycle, were "
+                "folded into the opening balance; the ADB basis remains the printed period"
+            )
+
     if outside:
         shown = ", ".join(day.isoformat() for day, _ in outside[:6])
         more = f" (+{len(outside) - 6} more)" if len(outside) > 6 else ""
@@ -520,11 +585,14 @@ def compute_average_daily_balance(
 
     opening, opening_source = _resolve_opening(stmt, ordered, total)
     seeded_total = sum(
-        (_decimal(txn.amount) for _, txn in initialization), Decimal("0")
+        (_decimal(txn.amount) for _, txn in initialization + carry_in), Decimal("0")
     )
     if initialization and opening is not None:
         opening = _money(opening + seeded_total)
         opening_source = "initialization_event"
+    elif carry_in and opening is not None:
+        opening = _money(opening + seeded_total)
+        opening_source = "pre_period_carry_in"
     result.opening_balance = float(opening) if opening is not None else None
     result.opening_balance_source = opening_source
     result.closing_balance = (
@@ -702,8 +770,9 @@ def _validate(
             )
 
     if stmt.beginning_balance is not None:
-        # `opening` carries any initialization event; the printed figure is the
-        # balance BEFORE it, so the comparison subtracts what was folded in.
+        # `opening` carries any initialization event or previous-balance-day
+        # carry-in; the printed figure is the balance BEFORE it, so the
+        # comparison subtracts what was folded in.
         checks["opening_balance_matches_statement"] = (
             _money(stmt.beginning_balance) == _money(opening - seeded_total)
         )
