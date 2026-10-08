@@ -515,7 +515,7 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         )
         metrics["withholding_review_required"] = not publishable
         metrics["withholding_basis_below_floor"] = withholding_basis_below_floor(denominator, denominator_mode)
-        _refresh_withholding_basis_readers(analysis, metrics, detection, denominator, publishable)
+        _refresh_withholding_basis_readers(metrics, detection, denominator, publishable, statement.get("currency"))
 
     detection["verified_revenue_evidence"] = evidence["verified_revenue"]
     detection["unverified_deposit_evidence"] = evidence["unverified_deposit"]
@@ -541,7 +541,7 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
 
 
 def _refresh_withholding_basis_readers(
-    analysis: dict, metrics: dict, detection: dict, denominator: float, publishable: bool,
+    metrics: dict, detection: dict, denominator: float, publishable: bool, currency: object,
 ) -> None:
     """Audit round 3, R3-B03 (R3-13; true revenue spec §9.1, §10.7): a review that moves a True or Verified basis
     refreshes everything the basis feeds, not only the statement's figures: each potential lender's row
@@ -550,7 +550,8 @@ def _refresh_withholding_basis_readers(
     is published) and the basis notes (`metrics.notes`, only where it is a list: the two "unavailable" notes leave and
     the ones this basis reads take the first one's place, or join the end; a list that already reads them is left as it
     is, so the rebuild of an analysis is the analysis). Confirmed funders' entries carry no basis and are untouched; the
-    legacy basis never comes here (its basis never moves on review)."""
+    legacy basis never comes here (its basis never moves on review). `currency` is the account's statement's, which the
+    rebuild reads (the notes name the basis in its unit), so this helper reads no payload key."""
     lenders = detection.get("potential_lenders")
     if isinstance(lenders, list):
         for entry in lenders:
@@ -566,8 +567,6 @@ def _refresh_withholding_basis_readers(
     notes = metrics.get("notes")
     if not isinstance(notes, list):
         return
-    statement = analysis.get("statement")
-    currency = statement.get("currency") if isinstance(statement, dict) else None
     unit = f" {currency}" if currency else ""
     label = str(metrics.get("withholding_denominator_label") or "")
     wanted: list[str] = []

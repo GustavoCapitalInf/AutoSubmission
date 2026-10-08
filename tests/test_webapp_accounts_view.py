@@ -213,7 +213,9 @@ def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_a
                "lenderPaymentChangeWarning", "lenderPaymentChangesSummary",
                # The final review of round 2, F1 (review round 1 of its fix run): the summary's decision reads the
                # served withholding-basis flag (withholdingReviewDecision, in the accounts block).
-               "withholdingBasisUnestablished")
+               "withholdingBasisUnestablished",
+               # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the summary's lump-sum lines.
+               "lumpSumPayoffLine", "lumpSumPayoffLines")
     # Each function up to its closing brace (top-level code follows some of them).
     source = _harness("off") + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
                                        for name in helpers) + f"""
