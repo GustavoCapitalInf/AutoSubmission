@@ -2345,7 +2345,37 @@ def _person_name_reading(text: str) -> bool:
     return 2 <= len(words) <= 4 and all(word.isalpha() and word not in _HOLDER_TEST_NOISE for word in words)
 
 
-def _holder_name_words_match(payer: Sequence[str], holder: Sequence[str], *, people: bool = False) -> bool:
+def _printed_lead(words: Sequence[str]) -> str | None:
+    """§5.2 (audit round 3, R3-B10: R3-38): the word a name leads with as printed: its first word of letters, two
+    letters or more, that is no holder-test noise word (_HOLDER_TEST_NOISE: a layout's labels, the generic words) and
+    no particle (_NAME_PARTICLES). Unlike _lead_word, a name-starter and a two- or three-letter word are kept ('GOLDEN',
+    'ACE', 'JB')."""
+    return next((
+        word for word in words
+        if word.isalpha() and len(word) >= 2 and word not in _HOLDER_TEST_NOISE and word not in _NAME_PARTICLES
+    ), None)
+
+
+def _holder_abbreviation(word: str, holder_printed: Sequence[str]) -> bool:
+    """§5.2 (audit round 3, R3-B10: R3-38): `word` abbreviates the holder's printed name (`holder_printed`, its words
+    of letters): two to _INITIALISM_LETTERS letters, and either the initials of the holder's first words ('NYS' for
+    'NORTHWIND YACHT SERVICE') or a run of the holder's printed lead's letters in order from its first ('NW', 'NWD' for
+    'NORTHWIND'; never 'ACE', 'AAA' or 'JB')."""
+    if not 2 <= len(word) <= _INITIALISM_LETTERS:
+        return False
+    if len(holder_printed) >= len(word) and "".join(held[0] for held in holder_printed[: len(word)]) == word:
+        return True
+    lead = _printed_lead(holder_printed)
+    if lead is None or not lead.startswith(word[0]):
+        return False
+    letters = iter(lead)
+    return all(letter in letters for letter in word)
+
+
+def _holder_name_words_match(
+    payer: Sequence[str], holder: Sequence[str], *, people: bool = False,
+    printed_payer: Sequence[str] | None = None, holder_printed: Sequence[str] | None = None,
+) -> bool:
     """§5.2's holder test on one name of the holder's (audit B9, I58). A one-word holder must be the word the payer's
     name leads with. When either name leads with a short initialism, the two lead words are compared as printed: the
     same initialism is a likely affiliate, a different one a different company (never the industry word after it);
@@ -2357,23 +2387,46 @@ def _holder_name_words_match(payer: Sequence[str], holder: Sequence[str], *, peo
     match only when they include the word the holder's name leads with, or when the payer's own first distinctive word
     is a holder word (or it has none): another company leading with its own name and sharing the holder's trailing
     trade words ('<A> YACHT SERVICE' paying '<B> YACHT SERVICE LLC') is a customer, while the holder's own words after a
-    label or the owner's name ('SAMPLE PERSON NORTHWIND MARINE LLC', 'SAMPLEMAN TRUCKING') stay the holder's."""
+    label or the owner's name ('SAMPLE PERSON NORTHWIND MARINE LLC', 'SAMPLEMAN TRUCKING') stay the holder's.
+
+    Audit round 3, R3-B10 (R3-38): read with the two names as printed (`printed_payer`, the payer reading's words of
+    letters; `holder_printed`, the holder's; holder_named passes both, and without them the R20 reading above is kept),
+    two shared words match when they include the holder's lead and, if the holder's name leads with a name-starter or a
+    two-letter word (its printed lead, _printed_lead, is not its lead), the payer prints that word ('GOLDEN' for
+    'GOLDEN YACHT SERVICE LLC', 'JB' for 'JB MARINE REPAIR LLC'); or when the R20 payer condition holds and the payer's
+    own printed lead (a name-starter, a short word or an initialism included) is none, a holder word or the holder's
+    abbreviation (_holder_abbreviation: 'NW' for 'NORTHWIND'): 'GOLDEN', 'ACE' or 'JB YACHT SERVICE' paying 'NORTHWIND
+    YACHT SERVICE LLC' is a customer. The reading is narrower than R20's: it can only release."""
     if not holder:
         return False
     payer_lead = _lead_word(payer)
     if len(holder) == 1:
         return payer_lead == holder[0]
     holder_lead = _lead_word(holder)
-    if not people and _brand_word_match(payer, holder, payer_lead, holder_lead):
+    printed = printed_payer is not None and holder_printed is not None
+    holder_printed_lead = _printed_lead(holder_printed) if printed else None
+    if not people and _brand_word_match(
+        payer, holder, payer_lead, holder_lead, printed_payer=printed_payer if printed else None,
+        holder_printed_lead=holder_printed_lead,
+    ):
         return True
     shared = _shared_holder_words(payer, holder, cuts=people)
     if len(shared) < 2:
         return False
-    if holder_lead not in shared:
-        payer_first = _first_distinctive_word(payer)
-        if payer_first is not None and payer_first not in holder:
-            return False
-    return True
+    if holder_lead in shared and (
+        not printed or holder_printed_lead in (None, holder_lead) or holder_printed_lead in printed_payer
+    ):
+        return True
+    payer_first = _first_distinctive_word(payer)
+    if payer_first is not None and payer_first not in holder:
+        return False
+    if not printed:
+        return True
+    payer_printed_lead = _printed_lead(printed_payer)
+    return (
+        payer_printed_lead is None or payer_printed_lead in holder_printed
+        or _holder_abbreviation(payer_printed_lead, holder_printed)
+    )
 
 
 def _shared_holder_words(payer: Sequence[str], holder: Sequence[str], *, cuts: bool) -> list[str]:
@@ -2393,16 +2446,26 @@ def _shared_holder_words(payer: Sequence[str], holder: Sequence[str], *, cuts: b
 
 
 def _brand_word_match(
-    payer: Sequence[str], holder: Sequence[str], payer_lead: str | None, holder_lead: str | None,
+    payer: Sequence[str], holder: Sequence[str], payer_lead: str | None, holder_lead: str | None, *,
+    printed_payer: Sequence[str] | None = None, holder_printed_lead: str | None = None,
 ) -> bool:
     """§5.2 (audit B9, I58): the initialism and brand-word affiliate arms of _holder_name_words_match: when either name
-    leads with a short initialism, the two lead words as printed; otherwise the first distinctive words."""
+    leads with a short initialism, the two lead words as printed; otherwise the first distinctive words. Audit round 3,
+    R3-B10 (R3-38): when the holder's printed lead (`holder_printed_lead`) is a name-starter or a two-letter word, which
+    the first distinctive word skips, a first-distinctive match also needs the payer to print it (`printed_payer`), so
+    'ROYAL YACHT SERVICE' never matches 'GOLDEN YACHT SERVICE LLC' on YACHT; the initialism arm is unchanged."""
     if holder_lead is not None and payer_lead is not None and (
         len(holder_lead) <= _INITIALISM_LETTERS or len(payer_lead) <= _INITIALISM_LETTERS
     ):
         return holder_lead == payer_lead
     holder_first = _first_distinctive_word(holder)
-    return holder_first is not None and _first_distinctive_word(payer) == holder_first
+    if holder_first is None or _first_distinctive_word(payer) != holder_first:
+        return False
+    if printed_payer is not None and holder_printed_lead is not None and (
+        holder_printed_lead in _NAME_STARTERS or len(holder_printed_lead) == _DROPPED_INITIALISM_LETTERS
+    ):
+        return holder_printed_lead in printed_payer
+    return True
 
 
 #: Audit B9 (I13): the legal forms a holder's name run may print or leave off, read out of both names before a payer's
@@ -2410,6 +2473,14 @@ def _brand_word_match(
 _HOLDER_RUN_LEGAL_FORMS = frozenset({
     "LLC", "INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "PLC", "DBA",
 })
+
+
+def _holder_run_words(name: str) -> list[str]:
+    """Audit round 3, R3-B10 (R3-17): a holder's name's words as the receiver-block strip reads them: tokenized as the
+    payer reading is (payer_name: no token holding a digit, no single letter), its legal forms left out
+    (_HOLDER_RUN_LEGAL_FORMS), so 'CONTOSO S FLOWER SHOP LLC' (a possessive's apostrophe normalized to a space) runs
+    'CONTOSO FLOWER SHOP' as the payer reading prints it."""
+    return [word for word in payer_name(name).split() if word not in _HOLDER_RUN_LEGAL_FORMS]
 
 
 #: Audit B9 (I13): another payer's name before a trailing run of the holder's name holds this many name words (letters,
@@ -2461,14 +2532,13 @@ def _without_trailing_holder_run(
     INSURANCE MISC NORTHWIND HARBOR AGENC'; Truist's company field running on into the holder's name and a person's,
     'INVOICES SAMPLE CHURC NORTHWIND HARBOR SAMPLE P'); any other payer name as it is. Audit B9 review round 1: the
     layout sets how many name words of another payer's must print first (`payer_words`, holder_receiver_block): one on
-    Truist's receiver slot, and None on a labelled sender, which is read as it is."""
+    Truist's receiver slot, and None on a labelled sender, which is read as it is. Audit round 3, R3-B10 (R3-17): the
+    holder's name is read as the payer's is (_holder_run_words), so a possessive's S ('SAMPLE'S' normalizes to 'SAMPLE
+    S'), a middle initial or a digit token never stops the strip."""
     if payer_words is None:
         return payer
     words = [word for word in payer.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
-    held_names = [
-        held for held in ([word for word in name.split() if word not in _HOLDER_RUN_LEGAL_FORMS] for name in names)
-        if len(held) >= 2
-    ]
+    held_names = [held for held in (_holder_run_words(name) for name in names) if len(held) >= 2]
     for start in range(1, len(words) - 1):
         if len(_holder_test_words(words[:start])) < payer_words:
             continue
@@ -2500,10 +2570,14 @@ def _dropped_lead_run(name: str, holder: Sequence[str]) -> tuple[str, ...] | Non
     (_DROPPED_NAME_LEADS, a two-letter initialism): the printed run from that word to the holder's one word ('GENERAL
     PLUMBING' for 'GENERAL PLUMBING LLC', 'JB TRUCKING' for 'JB TRUCKING LLC'), which the payer must print, so another
     company leading with the industry word is never the holder. None for any other holder (a one-word holder printed
-    alone, or after a bank's or a product's abbreviation, keeps the one-word reading)."""
+    alone, or after a bank's or a product's abbreviation, keeps the one-word reading). Audit round 3, R3-B10 (R3-17): a
+    single letter is no word of the run, as the payer reading drops it (payer_name), so 'JB'S TRUCKING LLC' (normalized
+    'JB S TRUCKING LLC') runs 'JB TRUCKING'."""
     if len(holder) != 1:
         return None
-    words = [word for word in name.split() if word.isalpha() and word not in _HOLDER_RUN_LEGAL_FORMS]
+    words = [
+        word for word in name.split() if word.isalpha() and len(word) > 1 and word not in _HOLDER_RUN_LEGAL_FORMS
+    ]
     if holder[0] not in words:
         return None
     end = words.index(holder[0])
@@ -2532,7 +2606,10 @@ def holder_named(
     sender, after one name word on Truist's receiver slot), and a one-word holder left by a dropped lead word is read
     with that word (_dropped_lead_run, I58). Review round 2: a product a holder reader publishes names nobody
     (account_product). Audit round 2, R2-B04 (R20): a name of the holder's and a payer reading that both read as a
-    person's (_person_name_reading) are compared on their shared words only, never by the given name they lead with."""
+    person's (_person_name_reading) are compared on their shared words only, never by the given name they lead with.
+    Audit round 3, R3-B10: the shared words are read with both names as printed (R3-38, _holder_name_words_match's
+    `printed_payer` and `holder_printed`); and a DBA holder's whole name is read as a person's when its first side
+    is one ('<owner> DBA <trade>', R3-39), so another person sharing only the owner's given name is counted."""
     if not region or not account_name:
         return False
     printed = account_name_text(account_name)
@@ -2545,14 +2622,21 @@ def holder_named(
     payer = _holder_test_words(reading.split())
     printed_payer = [word for word in reading.split() if word.isalpha()]
     person_payer = _person_name_reading(reading)
-    for name in names:
+    for index, name in enumerate(names):
         holder = _holder_test_words(name.split())
         run = _dropped_lead_run(name, holder)
         if run is not None:
             if _prints_run(printed_payer, run):
                 return True
             continue
-        if _holder_name_words_match(payer, holder, people=person_payer and _person_name_reading(name)):
+        # Audit round 3, R3-B10 (R3-39): the whole DBA name (names[0] beside its two sides) reads as a person's when its
+        # first side does; each side keeps its own reading.
+        person_side = names[1].strip() if index == 0 and len(names) > 1 else name
+        holder_printed = [word for word in name.split() if word.isalpha()]
+        if _holder_name_words_match(
+            payer, holder, people=person_payer and _person_name_reading(person_side), printed_payer=printed_payer,
+            holder_printed=holder_printed,
+        ):
             return True
     if _holder_cut_name(payer_name(region), printed):
         return True

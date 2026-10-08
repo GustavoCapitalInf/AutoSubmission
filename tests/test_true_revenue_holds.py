@@ -1621,6 +1621,46 @@ def test_r23_review_the_holder_arm():
         assert business(indn, ROUTES), indn
     assert business("NORTHWIND TRANSPORTAT", "NORTHWIND TRANSPORTATION LLC")
     assert business("NORTHWIND AND SONS", "NORTHWIND & SONS LLC")
+    # Audit round 3, R3-B10 (R3-89): a cut form is read only as one of the holder's own forms, and a one-word holder's
+    # name is never read cut.
+    assert not business("JOHN SAMPLE L", "JOHN SAMPLE CORP")
+    assert not business("NORTHWIND ROUTES C", ROUTES)
+    assert not business("NORT", "NORTHWIND LLC")
+    for indn in ("NORTHWIND ROUTES LL", "NORTHWIND ROUTES INC"):
+        assert business(indn, ROUTES), indn
+    assert business("JOHN SAMPLE C", "JOHN SAMPLE CORP")
+    assert business("JOHN SAMPLE CO", "JOHN SAMPLE CORP")
+
+
+# Audit round 3, R3-B10 (R3-89): a receiver whose cut last word starts no form the holder prints ('L' on '<NAME>
+# CORP', 'C' on '<NAME> LLC'), or a one-word holder's name cut ('NORT' on 'NORTHWIND LLC'), is no business: the
+# employer's consumer direct deposit keeps its pay reading (Q8).
+
+@pytest.mark.parametrize(("layout", "sec"), [(_R23_BOFA, "PPD"), (_R23_BOFA, "WEB"), (_R23_CHASE, "PPD")])
+@pytest.mark.parametrize(("holder", "indn"), [
+    ("JOHN SAMPLE CORP", "JOHN SAMPLE L"),
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES C"),
+    ("NORTHWIND LLC", "NORT"),
+])
+def test_r3_89_a_cut_form_the_holder_never_prints_or_a_cut_one_word_holder_stays_pay(layout, sec, holder, indn):
+    assert _r23(layout, holder=holder, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec=sec) == [PAY] * 2
+
+
+@pytest.mark.parametrize(("holder", "indn"), [
+    # The holder's own cut form, and its name's last word cut (two name words or more).
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES"),
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES L"),
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES LL"),
+    ("NORTHWIND TRANSPORTATION LLC", "NORTHWIND TRANSPORTAT"),
+    # The widened recorded residual, an owner item beside Q8 (§17.1): a holder whose formed name is a person's name
+    # with a form reads as the business when the receiver prints that name whole, with its own form cut, or with its
+    # last word cut.
+    ("JOHN SAMPLE CORP", "JOHN SAMPLE C"),
+    ("JOHN SAMPLESON LLC", "JOHN SAMP"),
+    ("JOHN SAMPLESON LLC", "JOHN SAMPLE"),
+])
+def test_r3_89_the_holder_s_own_cut_form_and_cut_name_are_still_the_business(holder, indn):
+    assert _r23(_R23_BOFA, holder=holder, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec="PPD") == [ONE_OFF] * 2
 
 
 @pytest.mark.parametrize(("indn", "holder", "fact"), [

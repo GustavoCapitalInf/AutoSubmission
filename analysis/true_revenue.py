@@ -1682,7 +1682,12 @@ def _holder_runs(account_name: str | None, whole_name: bool) -> re.Pattern[str] 
     printed or left off ('NORTHWIND DISTRIBUTION' for 'NORTHWIND DISTRIBUTION LLC'). Longest first; None when there is
     none. Audit round 2, R2-B04 (R19): the runs of each side of a name that joins two (_HOLDER_NAME_MARKER: DBA, AKA,
     'Operating as') that names a holder too, and a run whose last word has _HOLDER_RUN_CUT_FROM letters or more cut by
-    the bank's field to _HOLDER_RUN_CUT_KEEPS letters or more at the row's end ('NORTHWIND DISTRIBUTIO')."""
+    the bank's field to _HOLDER_RUN_CUT_KEEPS letters or more at the row's end ('NORTHWIND DISTRIBUTIO'). Audit round 3,
+    R3-B10 (R3-37): the row-end cuts are tried before the whole-word runs at each word, so a name of three words or more
+    cut in its third word or later ('FABRIKAM COASTAL DISTRIBUT') is removed whole, never its first two words alone; and
+    a leading THE is no word of a run: a side that leads with it builds its runs from its words after THE (two words or
+    more), each read bare and with THE before it, so no 'THE <one word>' run or cut removes a third party's words (the
+    whole-name run stays as printed)."""
     holder = _classifier().account_name_text(account_name)
     words = holder.split()
     runs = set()
@@ -1693,14 +1698,22 @@ def _holder_runs(account_name: str | None, whole_name: bool) -> re.Pattern[str] 
         side = side.strip()
         if _usable_holder_text(side):
             side_words = side.split()
-            runs.update(" ".join(side_words[:count]) for count in range(2, len(side_words) + 1))
+            lead = ""
+            if side_words[:1] == ["THE"]:
+                side_words, lead = side_words[1:], "THE "
+            for count in range(2, len(side_words) + 1):
+                run = " ".join(side_words[:count])
+                runs.update((run, lead + run) if lead else (run,))
     if not runs:
         return None
     names = "|".join(re.escape(run) for run in sorted(runs, key=len, reverse=True))
     pattern = r"(?<![A-Z0-9])(?:" + names + r")" + _HOLDER_RUN_FORM + r"(?![A-Z0-9])"
-    cuts = sorted({cut for run in runs if (cut := _holder_run_cut(run)) is not None}, key=len, reverse=True)
+    cuts = sorted({
+        cut for run in runs
+        if not (run.startswith("THE ") and len(run.split()) < 3) and (cut := _holder_run_cut(run)) is not None
+    }, key=len, reverse=True)
     if cuts:
-        pattern += r"|(?<![A-Z0-9])(?:" + "|".join(cuts) + r")\s*$"
+        pattern = r"(?<![A-Z0-9])(?:" + "|".join(cuts) + r")\s*$|" + pattern
     return re.compile(pattern)
 
 
@@ -2804,9 +2817,13 @@ def _holder_business_name(value: str, account_name: str | None) -> bool:
     _HOLDER_RUN_CUT_KEEPS letters or more and nothing after it (R2-B04's end cut: '<NAME> TRANSPORTAT'). A leading THE
     is no name word on either side, and a printed L L C is LLC. A shorter run of the name (the owner's own name leading
     '<person> PLUMBING LLC'), a DBA's side, a middle initial, a reversed order or a word after the name that is no form
-    is never the business: a person receiver keeps the entry's reading. Recorded residual, an owner item beside Q8: a
-    holder whose formed name is a person's name with a form ('<person> LLC') reads as the business when the receiver
-    prints that name whole, as nothing in the text tells it from '<NAME> ROUTES' on '<NAME> ROUTES LLC'."""
+    is never the business: a person receiver keeps the entry's reading. Recorded residual, an owner item beside Q8
+    (§17.1): a holder whose formed name is a person's name with a form ('<person> LLC') reads as the business when the
+    receiver prints that name whole, with its own form cut, or with its last word cut (two name words or more), as
+    nothing in the text tells it from '<NAME> ROUTES' on '<NAME> ROUTES LLC'. Audit round 3, R3-B10 (R3-89): a last
+    word after the name that is no whole form reads as a cut form only when one of the holder's own forms starts with
+    it ('L', 'LL' on '... LLC'; never 'L' on '... CORP'), and a one-word holder's name is never read cut ('NORT' on
+    'NORTHWIND LLC'), as _holder_run_cut needs two words."""
     classifier = _classifier()
     printed = classifier.account_name_text(account_name)
     if not printed or not classifier.company_form(printed) or classifier._HOLDER_TRADE_NAME.search(printed):
@@ -2817,8 +2834,9 @@ def _holder_business_name(value: str, account_name: str | None) -> bool:
         return words[1:] if words[:1] == ["THE"] else words
 
     holder = name_words(printed)
+    popped: list[str] = []
     while holder and holder[-1] in _RECEIVER_HOLDER_FORMS:
-        holder.pop()
+        popped.insert(0, holder.pop())
     words = name_words(value)
     count = len(holder)
     if not holder or len(words) < count or words[: count - 1] != holder[:-1]:
@@ -2826,11 +2844,11 @@ def _holder_business_name(value: str, account_name: str | None) -> bool:
     last, rest = words[count - 1], words[count:]
     if last != holder[-1]:
         return (
-            not rest and len(holder[-1]) >= _HOLDER_RUN_CUT_FROM and len(last) >= _HOLDER_RUN_CUT_KEEPS
+            count >= 2 and not rest and len(holder[-1]) >= _HOLDER_RUN_CUT_FROM and len(last) >= _HOLDER_RUN_CUT_KEEPS
             and holder[-1].startswith(last)
         )
     return all(word in _RECEIVER_HOLDER_FORMS for word in rest[:-1]) and (
-        not rest or any(form.startswith(rest[-1]) for form in _RECEIVER_HOLDER_FORMS)
+        not rest or rest[-1] in _RECEIVER_HOLDER_FORMS or any(form.startswith(rest[-1]) for form in popped)
     )
 
 
@@ -3389,6 +3407,11 @@ _MERCHANT_SETTLEMENT_ENTRY = re.compile(
     r"(?<![A-Z])(?:NET (?:SETTLE|SETLMT|STLMT|SETL)|NETSWEEP|FINTECHEFT|BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD"
     r"|MERCH|MERCHANT|MERCHPAYO\w*|MRCHNTSRVS)(?:SEC)?(?![A-Z])"
 )
+#: §8.1 (audit round 3, R3-B10: R3-90 part A; standard A1, A2): a bare settlement word under the merchant's own name, a
+#: processor's, a carrier's or an operating settlement (a bare SETTLEMENT stays counted, never verified: §8.6's
+#: _VERIFICATION_ONLY), read by merchant_settlement beside _MERCHANT_SETTLEMENT_ENTRY on a row that is no transfer and
+#: no person-to-person row.
+_HOLDER_NAMED_SETTLEMENT_ENTRY = re.compile(r"(?<![A-Z])(?:SETTLEMENT|SETTLMT|STLMT)(?![A-Z])")
 #: §8.1 (audit B9: I13): Capital One's incoming ACH row, which prints the receiver (the holder) with no label after the
 #: originator, its entry and a digit run.
 _CAPITAL_ONE_BANK = re.compile(r"(?<![A-Z])CAPITAL ONE\b", re.IGNORECASE)
@@ -3438,14 +3461,19 @@ def merchant_settlement(text: str, names: Sequence[str] = ()) -> bool:
     B9 review round 1: the entry is read outside the holder's own name (each of `names`, each side of a DBA name, its
     runs as _without_holder_name removes them), so a holder whose name prints MERCHANT, MERCH or BANKCARD keeps its own
     money held, and never on an incoming wire or a person-to-person or push rail, which print no processor's
-    settlement."""
+    settlement. Audit round 3, R3-B10 (R3-90 part A): a bare SETTLEMENT, SETTLMT or STLMT read there too
+    (_HOLDER_NAMED_SETTLEMENT_ENTRY), on a row that is no transfer or person-to-person row (a transfer printing the
+    word is the holder's own money): the holds skip it, and it takes its own reading, counted and never verified."""
     classifier = _classifier()
     if classifier._is_wire_row(text) or classifier._loose_wire_originator(text):
         return False
     row = classifier._before_receiver(text)
     if _p2p_rail(row) or classifier._PUSH_RAIL.search(row):
         return False
-    return _MERCHANT_SETTLEMENT_ENTRY.search(_outside_holder_names(row, names)) is not None
+    outside = _outside_holder_names(row, names)
+    if _MERCHANT_SETTLEMENT_ENTRY.search(outside) is not None:
+        return True
+    return _HOLDER_NAMED_SETTLEMENT_ENTRY.search(outside) is not None and not classifier._is_transfer_or_p2p_row(text)
 
 
 def _outside_holder_names(row: str, names: Sequence[str]) -> str:
