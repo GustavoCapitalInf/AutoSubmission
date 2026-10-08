@@ -631,7 +631,18 @@ def _rows(runs: list[str], *, category: _Category,
 #: Audit B10 (I05): the ACH standard entry class codes this template prints as
 #: the LAST field of every ACH block (`<originator> <entry> <id> <receiver>
 #: CCD`): layout grammar, never a payer's name.
-_ACH_CLASS_CODE = re.compile(r"(?<![A-Za-z0-9])(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)(?![A-Za-z0-9])")
+#:
+#: Audit round 3, R3-B09 (R3-87): a class-code word followed by a legal form
+#: is part of a name, never a code (CashArc's ACH company name prints
+#: `CASH-ARC LLC`), whatever the case of the form and the separator before it,
+#: so a lone block of such a name is one block and is attributed. The
+#: true-revenue pass splits an unread run by the same rule
+#: (`true_revenue._UNREAD_BLOCK_END`).
+_ACH_CLASS_CODE = re.compile(
+    r"(?<![A-Za-z0-9])(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)(?![A-Za-z0-9])"
+    r"(?![ \t]+(?i:LLC|L\.L\.C|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC)"
+    r"(?![A-Za-z0-9]))"
+)
 
 
 def _block_below_is_one(lines: list[str]) -> bool:

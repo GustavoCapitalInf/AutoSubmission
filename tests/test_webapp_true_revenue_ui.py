@@ -370,6 +370,38 @@ console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason),
 
 
 @needs_node
+def test_r3_91_a_held_wire_or_transfer_with_unread_payer_text_says_the_payer_line_was_not_read():
+    """Audit round 3, R3-B09 (R3-91): a held wire or bare transfer whose reader kept a payer line it could not
+    attribute (`unread_payer_text`) says so, never that no sender was printed; its tier, reason code and tag stay."""
+    wire = _record("excluded_pending_review", reason="wire_no_sender")
+    wire["unread_payer_text"] = "WT FABRIKAM SUPPLY LLC"
+    transfer = _record("excluded_pending_review", reason="transfer_no_counterparty")
+    transfer["unread_payer_text"] = "REF 0001 CONTOSO TITLE LLC"
+    plain_wire = _record("excluded_pending_review", reason="wire_no_sender")
+    plain_transfer = _record("excluded_pending_review", reason="transfer_no_counterparty")
+    counted = _record("counted_flagged", reason="payer_text_not_read")
+    counted["unread_payer_text"] = "FABRIKAM INC. PAYABLES 3 NORTHWIND CCD"
+    result = run_dashboard(f"""
+const rows = {json.dumps([wire, transfer, plain_wire, plain_transfer, counted])};
+console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason),
+  tags: rows.map((tx) => transactionCategory(tx).label)}}));
+""")
+    unattributed = ("The statement prints a payer line under this row that the reader could not attribute to it; it "
+                    "stays held for review.")
+    assert result["reasons"] == [
+        f"Wire, payer line not read. {unattributed} Unread payer text: WT FABRIKAM SUPPLY LLC",
+        f"Transfer, payer line not read. {unattributed} Unread payer text: REF 0001 CONTOSO TITLE LLC",
+        "Wire, no sender printed. A wire with no sender printed.",
+        "Transfer, no counterparty. A transfer that names no counterparty.",
+        "Payer text not read. The statement prints a payer for this row that the reader could not read: counted "
+        "without proof of the sale. Unread payer blocks: FABRIKAM INC. PAYABLES 3 NORTHWIND CCD",
+    ]
+    # The tag reads the reason code, unchanged.
+    assert result["tags"][:4] == ["Held: Wire, no sender printed", "Held: Transfer, no counterparty",
+                                  "Held: Wire, no sender printed", "Held: Transfer, no counterparty"]
+
+
+@needs_node
 def test_the_revenue_filters_find_their_rows():
     rows = [_record("verified"), _record("counted_flagged", reason="p2p"),
             _record("excluded_pending_review", reason="holder_name"),

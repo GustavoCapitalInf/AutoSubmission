@@ -82,6 +82,12 @@ Audit round 2, R2-B01 (R12, R30): the census keeps a parse's moves apart from a 
   explains an account only when both snapshots were re-parsed (`--reparse`); a compare that reads the cache on either
   side needs a note for each account. `parse_moves` lists each such account (bank, parser route, rows, dollars, the
   True delta of its moved rows) and totals them by bank.
+- Audit round 3, R3-B09 (R3-36): a parse change that adds or drops a row (a credit or a debit) is a G18 parse move too,
+  'row count changed': the account is compared apart as a re-parsed one (no row paired with its base; its rows,
+  dollars and True delta as a re-keyed account's) and listed with `row_count_changed` and both row counts, so a note
+  explains it as any other. G9 keeps an account the later run lost and a row-count change without a parse change (a
+  snapshot without parse_sha, or the same parse); each G9 'unmatched' item says whether the parse changed
+  (`parse_changed`).
 - `snapshot` keeps §14.2's filter (reconciled, de-duplicated) and summarises the unreconciled accounts apart
   (`unreconciled_summary`: their count, banks, posted credits and tiers, and each account's), and `compare` lists the
   accounts that reconcile on one side only (`reconcile_flips`, both ways, with their True).
@@ -2690,7 +2696,8 @@ def _parse_move_report(entries: list[dict], without_raw: int, routes_explain: bo
     """R2-B01 (R12): G18's report: the accounts with a parse change (each listed with its bank, parser route, rows,
     dollars, the True delta of its moved rows and what explained it), their totals and their totals by bank; the
     accounts compared without a raw parse on one side (a snapshot written before audit round 2), whose credits pair as
-    before; and whether a parser route may explain an account (both snapshots re-parsed)."""
+    before; and whether a parser route may explain an account (both snapshots re-parsed). Audit round 3, R3-B09
+    (R3-36): and how many listed accounts' parse added or dropped a row (each listed with both row counts)."""
     by_bank: dict = defaultdict(lambda: {"accounts": 0, "rows": 0, "dollars": 0.0, "true_delta": 0.0})
     for entry in entries:
         slot = by_bank[entry["bank"]]
@@ -2704,6 +2711,8 @@ def _parse_move_report(entries: list[dict], without_raw: int, routes_explain: bo
         "dollars": round(sum(entry["dollars"] for entry in entries), 2),
         "true_delta": round(sum(entry["true_delta"] for entry in entries), 2),
         "unexplained": sum(entry.get("explained_by") is None for entry in entries),
+        # Audit round 3, R3-B09 (R3-36): the accounts whose parse added or dropped a row.
+        "row_count_changed": sum(bool(entry.get("row_count_changed")) for entry in entries),
         "routes_explain": routes_explain,
         "accounts_without_a_raw_parse": without_raw,
         "by_bank": {bank: by_bank[bank] for bank in sorted(by_bank, key=lambda name: (name is None, str(name)))},
@@ -2925,15 +2934,24 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
         for key, old in base["accounts"].items():
             new_key = rekeyed.get(key, key)
             new = after["accounts"].get(new_key)
-            if new is None or new["rows"] != old["rows"]:
+            # Audit round 3, R3-B09 (R3-36): a parse change that adds or drops a row (a credit or a debit: `rows` counts
+            # every row) is a parse move, compared apart as a re-parsed account below and listed for G18 ('row count
+            # changed'). G9 keeps an account this run lost, and a row-count change without a parse change (a snapshot
+            # without parse_sha, or the same parse); its item says whether the parse changed (_parse_changed).
+            row_count_changed = new is not None and new["rows"] != old["rows"]
+            if new is None or (row_count_changed and not (
+                old.get("parse_sha") and new.get("parse_sha") and old["parse_sha"] != new["parse_sha"]
+            )):
                 unmatched += 1
-                failures["G9"].append({"account": key, "unmatched": True})
+                failures["G9"].append({"account": key, "unmatched": True,
+                                       "parse_changed": new is not None and _parse_changed(old, new)})
                 continue
-            reparse = key in rekeyed and _parse_changed(old, new)
+            reparse = row_count_changed or (key in rekeyed and _parse_changed(old, new))
             moved: set[int] = set()
             base_only: list[dict] = []
             if reparse:
-                reparsed["accounts"].append({"base_account": key, "account": rekeyed[key]})
+                reparsed["accounts"].append({"base_account": key, "account": new_key,
+                                             **({"row_count_changed": True} if row_count_changed else {})})
                 _record_reparse(reparsed, old, new)
                 # Its rows moved with the parse, not by a rule: only the guards that read the later row alone apply.
                 for credit in new["credits"]:
@@ -2970,9 +2988,12 @@ def compare(base: dict, afters: list[dict], *, admissions: Iterable[str] | None 
                 parse_accounts.append({
                     "account": key, "after_account": new_key, "bank": new.get("bank"),
                     "parser_route": new.get("parser_route"), "base_parser_route": old.get("parser_route"),
-                    "rekeyed": reparse, "other_rows_only": other_rows_only, "rows": figures["rows"],
+                    "rekeyed": reparse and key in rekeyed, "other_rows_only": other_rows_only, "rows": figures["rows"],
                     "dollars": round(figures["cents"] / 100, 2),
                     "true_delta": round(figures["true_delta_cents"] / 100, 2),
+                    # Audit round 3, R3-B09 (R3-36): the parse added or dropped a row, with both row counts.
+                    "row_count_changed": row_count_changed,
+                    **({"base_row_count": old["rows"], "row_count": new["rows"]} if row_count_changed else {}),
                 })
             # B1 (I60): a reparsed account pairs no row with its base (the rule moves below read none of its rows);
             # R2-B01 (R12): nor does a parse move.
@@ -3409,7 +3430,10 @@ def _print(report: dict) -> None:
                       f"/True ${slot['true_delta']:,.2f}" for bank, slot in moves["by_bank"].items())
                      if moves["by_bank"] else "")
                   + (f"; {moves['accounts_without_a_raw_parse']} accounts compared without a raw parse"
-                     if moves["accounts_without_a_raw_parse"] else ""))
+                     if moves["accounts_without_a_raw_parse"] else "")
+                  # Audit round 3, R3-B09 (R3-36): the accounts whose parse added or dropped a row.
+                  + (f"; {moves['row_count_changed']} with a changed row count" if moves.get("row_count_changed")
+                     else ""))
         flips = run.get("reconcile_flips")
         if flips is not None and flips["comparable"]:
             print(f"  reconcile flips: {len(flips['to_reconciled'])} now reconcile (True"

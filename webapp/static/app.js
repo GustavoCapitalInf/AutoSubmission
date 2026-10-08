@@ -1905,6 +1905,13 @@ function revenueReviewReason(tx) {
     // Audit round 2, R2-B07 (R07): a credit the reader marked unread carries the payer blocks it could not attribute
     // to one row (unread_payer_text), printed so a reviewer can release a customer's row a lender's block held.
     const unread = typeof tx.unread_payer_text === "string" ? tx.unread_payer_text.trim() : "";
+    // Audit round 3, R3-B09 (R3-91): a held wire or bare transfer whose reader kept a payer line it could not
+    // attribute says so, never that no sender was printed; the reason code, its tag and the hold are unchanged.
+    const unattributed = {wire_no_sender: "Wire", transfer_no_counterparty: "Transfer"}[record.revenue_tier_reason];
+    if (unread && unattributed && record.revenue_tier === "excluded_pending_review") {
+      return `${unattributed}, payer line not read. The statement prints a payer line under this row that the reader `
+        + `could not attribute to it; it stays held for review. Unread payer text: ${unread}`;
+    }
     return unread ? `${entry[1]}. ${entry[2]} Unread payer blocks: ${unread}` : `${entry[1]}. ${entry[2]}`;
   }
   if (typeof record.revenue_tier === "string" || record.revenue_classification !== "unverified_deposit") return "";

@@ -292,6 +292,15 @@ _POSSIBLE_RETURN = re.compile(
     r"|(?<![A-Z])COURTESY REF(?:UND)?\b"
     # Audit round 2, R2-B08: the classifier's new step-3 arms (the fee waiver's guarded arm replaces the bare one).
     + "".join("|" + arm for arm in _RETURN_REFUND_R2_B08_ARMS)
+    # Audit round 3, R3-B09 (R3-75; standard D1, D3, A8): the holder's own sent e-Transfer coming back is no customer
+    # revenue, whichever leg the parser signed: a credit printing TD Canada Trust's send (SEND E-TFR), a sent transfer
+    # (EQ Bank's 'Interac e-Transfer sent to', any bank's; never 'SENT BY', an incoming wording), TD's French send, its
+    # reversal or its redeposit ('Envoi-VFC', 'Envoi - FRAIS - VFC', 'Contr. - VFC', 'Redepot - VFC'), or a French fee
+    # adjustment (no legal-form word later on the row). Pass 7 only: never a step-3 or pass-4 marker.
+    + r"|(?<![A-Z])SEND E ?(?:TFR|TRANSFER)\b"
+    r"|(?<![A-Z])(?:INTERAC )?E ?(?:TRANSFER|TFR) SENT\b(?! BY\b)"
+    r"|(?<![A-Z])(?:ENVOI|CONTR|REDEPOT) (?:FRAIS )?VFC\b"
+    r"|(?<![A-Z])AJUST(?:EMENT)? (?:DE )?FRAIS\b" + _NO_LEGAL_FORM_LATER
 )
 #: §8.1, §7.11: a card credit's posting labels (a refund to the card unless a form or the registry verified it). 5.6
 #: (audit B3: I04): and the card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's
@@ -3205,7 +3214,13 @@ def payer_text_unread_indexes(transactions: Sequence) -> frozenset[int]:
 UNREAD_RUN_NAMES_FINANCING = "unread_run_names_financing"
 #: Audit round 2, R2-B07 (R07): the ACH standard entry class code an ACH block closes on (`<originator> <entry> <id>
 #: <receiver> CCD`), read on the normalized text: layout grammar, where a run of welded blocks splits into its blocks.
-_UNREAD_BLOCK_END = re.compile(r"\b(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)\b")
+#: Audit round 3, R3-B09 (R3-87): a class-code word followed by a legal form is part of a name, never a block's end
+#: (CashArc's ACH company name 'CASH-ARC LLC', normalized 'CASH ARC LLC', the registry's alias), as the counted
+#: template's one-block count reads it (core_processor_counted._ACH_CLASS_CODE).
+_UNREAD_BLOCK_END = re.compile(
+    r"\b(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)\b"
+    r"(?! (?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC)\b)"
+)
 #: Audit round 2, R2-B07 (R07): the registry states whose block in an unread run holds its rows: the lender and
 #: financing states (LENDER_DEBIT_STATES) without an alternative position (a platform's own settlement of the
 #: merchant's sales) and a factor (whose payout is counted and flagged, never held).

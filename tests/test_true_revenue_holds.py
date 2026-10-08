@@ -2078,3 +2078,58 @@ def test_q9_b_the_lessor_reading_arm_by_arm():
     assert not _lessor([("TRANSFER IN RENT", 1200.0), ("TRANSFER IN RENT", 1300.0)])
     # A Zelle deposit (the underwriter's Q3) never counts, whatever its reading at that step.
     assert not _lessor([(_CAFE_LEASE, 5200.0), ("ZELLE FROM CONTOSO TENANT LLC RENT", 1100.0)], unverify=(1,))
+
+
+# Audit round 3, R3-B09 (R3-75; standard D1, D3, A8; the owner's "refunds and owner money never become revenue"): a
+# credit printing an outgoing e-Transfer label (TD Canada Trust's SEND E-TFR, EQ Bank's 'e-Transfer sent', any bank
+# printing a sent transfer as a credit), the French send, its reversal or its redeposit (TD's Envoi, Contr. and
+# Redepot - VFC) or a French fee adjustment is the holder's own money coming back, whichever leg the parser signed: held
+# as a possible return, never counted. Fabricated rows in the banks' formats, every row of a case on one day.
+POSSIBLE_RETURN = ("excluded_pending_review", "possible_return")
+REVERSAL_PAIR = ("non_revenue", "matched_reversal_pair")
+
+
+def _same_day(rows, bank):
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank=bank, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=amount, direction="credit" if amount > 0 else "debit")
+        for text, amount in rows
+    ]))
+    return [rules_reading(record, method=True) for record in records if record.amount > 0]
+
+
+@pytest.mark.parametrize(("bank", "rows", "expected"), [
+    # TD Canada Trust: the send leg signed as the credit beside its reclaim.
+    ("TD Canada Trust", [("SEND E-TFR ***ABC", 1200.0), ("RECLAIM E-TFR ***ABC", -1200.0)], [POSSIBLE_RETURN]),
+    # TD's French reader: the send beside its reversal, the send fee, the send beside its redeposit.
+    ("TD Canada Trust", [("Envoi-VFC *KLM SAMPLE", 150.0), ("Contr. - VFC ***KLM", -150.0),
+                         ("Envoi - FRAIS - VFC", 2.0), ("Contr.- FRAIS - VFC", -2.0),
+                         ("Envoi - VFC ***RST", 40.0), ("Redepot - VFC ***RST", -40.0)], [POSSIBLE_RETURN] * 3),
+    # A lone French fee reversal and a French fee adjustment.
+    ("TD Canada Trust", [("Contr.- FRAIS - VFC", 2.0), ("AJUST FRAIS SERVICE", 12.0)], [POSSIBLE_RETURN] * 2),
+    ("TD Canada Trust", [("AJUSTEMENT DE FRAIS", 12.0), ("Redepot - VFC ***RST", 40.0)], [POSSIBLE_RETURN] * 2),
+    # EQ Bank: the reversal of a sent transfer, printed with the same wording, between two equal sends.
+    ("EQ Bank", [("Interac e-Transfer sent to SAMPLE", -900.0), ("Interac e-Transfer sent to SAMPLE", 900.0),
+                 ("Interac e-Transfer sent to SAMPLE", -900.0)], [POSSIBLE_RETURN]),
+    ("Royal Bank of Canada", [("E-TRANSFER SENT SAMPLE 1234", 50.0), ("SEND ETFR 1234", 60.0)], [POSSIBLE_RETURN] * 2),
+])
+def test_r3_75_a_credit_printing_an_outgoing_e_transfer_label_is_a_possible_return(bank, rows, expected):
+    assert _same_day(rows, bank) == expected
+
+
+@pytest.mark.parametrize(("bank", "rows", "expected"), [
+    # An incoming e-Transfer stays a counted push, 'SENT BY' (an incoming wording) included.
+    ("TD Canada Trust", [("INTERAC E-TRANSFER RECEIVED CONTOSO CAFE", 300.0)], [P2P]),
+    ("TD Canada Trust", [("E-TRANSFER FROM CONTOSO CAFE", 310.0)], [P2P]),
+    ("CIBC", [("E-TRANSFER SENT BY CONTOSO CAFE", 320.0)], [P2P]),
+    # A customer whose name holds the French fee words keeps its reading (no legal-form word later on the row).
+    ("TD Canada Trust", [("CONTOSO AJUSTEMENT FRAIS INC", 340.0)], [UNLABELLED]),
+    # A TD RECLAIM E-TFR credit stays non_revenue (R2-B08); a CANCEL or Annul. pair stays pass 4's reversal pair.
+    ("TD Canada Trust", [("RECLAIM E-TFR ***XYZ", 330.0)], [("non_revenue", "reversal_cancellation_exclusion")]),
+    ("TD Canada Trust", [("SEND E-TFR ***QQQ", 2500.0), ("CANCEL E-TFR ***QQQ", -2500.0)], [REVERSAL_PAIR]),
+    ("TD Canada Trust", [("Envoi-VFC *KKK", 90.0), ("Annul. - VFC ***KKK", -90.0)], [REVERSAL_PAIR]),
+    # A word holding the letters is no send: SENDER, RESEND, ENVOIS, CONTRAT.
+    ("TD Canada Trust", [("E-TRANSFER FROM SENDER E TFR CO", 70.0)], [P2P]),
+    ("TD Canada Trust", [("CONTRAT VFC CONTOSO", 80.0)], [P2P]),
+])
+def test_r3_75_the_controls_keep_their_readings(bank, rows, expected):
+    assert _same_day(rows, bank) == expected

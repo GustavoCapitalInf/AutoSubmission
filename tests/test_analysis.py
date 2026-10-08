@@ -690,6 +690,58 @@ Ending totals Ending totals Ending totals Ending totals 500.00 500.00 500.00 500
     assert reconcile(stmt).ok
 
 
+B1_WIRE = """
+Last statement: February 28, 2054 This statement: March 31, 2054 Total days in statement period: 31
+B1Bank 1 Example St Exampletown XX 00000
+Essential Business Checking
+Account number XXXXXXX0000 Enclosures 0 Low balance $5,000.00 Average balance $30,000.00
+DAILY ACTIVITY DAILY ACTIVITY DAILY ACTIVITY DAILY ACTIVITY
+Date Date Description Description Additions Additions Subtractions Subtractions Balance Balance
+02-28 Beginning balance $5,000.00 03-09 Wire Transfer Credit 40,000.00 45,000.00
+FABRIKAM HOLDINGS LL
+REF 0001
+03-10 ' Transfer Credit 1,000.00 46,000.00
+TRANSFER FROM XXXXXX1234
+{break}03-11 ' Service Charge -20.00 45,980.00
+OUT WIRE OLB
+Ending totals Ending totals Ending totals Ending totals 41,000.00 41,000.00 41,000.00 41,000.00
+-20.00 -20.00 -20.00 -20.00 $45,980.00 $45,980.00 $45,980.00 $45,980.00
+"""
+B1_PAGE_BREAK = (
+    "\n--- Page 2 ---\n\nSAMPLE HOLDER LLC Page 2 March 31, 2054 XXXXXXX0000\n"
+    "Date Date Description Description Additions Additions Subtractions Subtractions Balance Balance "
+)
+
+
+@pytest.mark.parametrize("page_break", ["", B1_PAGE_BREAK])
+def test_r3_91_b1_an_incoming_wire_keeps_the_lines_printed_under_it_apart_from_its_label(page_break):
+    """Audit round 3, R3-B09 (R3-91): a wire credit keeps the lines printed under its row, up to the next row or the
+    page's end, as unread payer text (Transaction.unread_payer_text), marked as read only by its label; nothing
+    published moves, and a transfer, a debit and the page's furniture gain nothing."""
+    stmt = parse_b1_statement(B1_WIRE.format(**{"break": page_break}))
+    assert stmt is not None
+    assert [(t.date, t.description, t.amount, t.direction, t.running_balance) for t in stmt.transactions] == [
+        ("2054-03-09", "Wire Transfer Credit", 40000.0, "credit", 45000.0),
+        ("2054-03-10", "Transfer Credit", 1000.0, "credit", 46000.0),
+        ("2054-03-11", "Service Charge", -20.0, "debit", 45980.0),
+    ]
+    assert [(t.payer_text_unread, t.unread_payer_text) for t in stmt.transactions] == [
+        (True, "FABRIKAM HOLDINGS LL REF 0001"), (False, ""), (False, ""),
+    ]
+    from analysis.transaction_classifier import classify_statement_transactions
+
+    wire = classify_statement_transactions(stmt)[0]
+    assert (wire.revenue_tier, wire.revenue_tier_reason) == ("excluded_pending_review", "wire_no_sender")
+
+
+def test_r3_91_b1_a_wire_as_the_last_row_of_a_page_keeps_only_its_own_page_s_lines():
+    text = B1_WIRE.format(**{"break": ""}).replace(
+        "REF 0001\n", "REF 0001\n" + B1_PAGE_BREAK.rstrip(" ") + "\n")
+    stmt = parse_b1_statement(text)
+    assert stmt is not None
+    assert stmt.transactions[0].unread_payer_text == "FABRIKAM HOLDINGS LL REF 0001"
+
+
 def test_parse_santander_native_text_running_balances_and_summary_totals():
     md = """
 Statement Period 04/01/54 TO 04/30/54

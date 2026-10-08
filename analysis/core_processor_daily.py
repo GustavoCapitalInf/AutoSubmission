@@ -611,16 +611,27 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
     # (`_block_below_names_a_payer` never attributes), so pass 7 counts it as
     # 'payer text not read' rather than as Q2's bare deposit. The mark moves no
     # text, no pairing and no debit. Debit sections are read as before.
+    #
+    # Audit round 3, R3-B09 (R3-91): a marked credit also keeps the block it
+    # was marked at (`Transaction.unread_payer_text`), apart from its
+    # description, as the counted template's credits do (R2-B07), so the
+    # true-revenue pass can hold a block that names a lender and a review can
+    # read the payer line the statement printed. Descriptions, amounts, dates,
+    # directions and debit sections are unchanged (no G7 move).
     unread: list[list[bool]] = []
+    unread_text: list[list[str]] = []
     described = attributed_descriptions(
         [cells for _run, cells in read],
         strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT,
         below=_block_below_names_a_payer if credit else None,
         block_under_its_row=True, unread=unread,
+        unread_text=unread_text if credit else None,
     )
     if len(unread) != len(read):
         unread = [[False] * len(cells) for _run, cells in read]
-    for (run, cells), texts, marks in zip(read, described, unread):
+    if len(unread_text) != len(read):
+        unread_text = [[""] * len(cells) for _run, cells in read]
+    for (run, cells), texts, marks, flushes in zip(read, described, unread, unread_text):
         cursor = 0
         for index, cell in enumerate(cells):
             iso = iso_within_period(cell.date.replace("-", "/"), start, end)
@@ -643,6 +654,7 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
                 amount=round(amount if credit else -amount, 2),
                 direction="credit" if credit else "debit",
                 payer_text_unread=bool(credit) and marks[index],
+                unread_payer_text=flushes[index] if credit and marks[index] else "",
             ))
     return rows
 

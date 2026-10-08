@@ -2996,6 +2996,116 @@ def test_r2_b01_a_set_aside_analysis_whose_debits_alone_changed_is_a_parse_chang
     assert run["rekeyed"]["reparsed"]["accounts"] == 0 and "undeclared_demotion" in run["guards"]
 
 
+# Audit round 3, R3-B09 (R3-36): a parse change that adds or drops a row, a credit or a debit, is a G18 parse move
+# ('row count changed'), compared apart as a re-parsed account (no row paired with its base) and listed with its rows,
+# dollars and True delta, so a note can explain it. G9 keeps an account the later run lost, and a row-count change
+# without a parse change (a snapshot without parse_sha, or the same parse); its item says whether the parse changed.
+def _r336_base():
+    return _r2_snap({
+        "cK.0": _r2_account([
+            _r2_row(0, 40000, "verified_revenue", "named_payer_repeats", "ACH CREDIT FABRIKAM INVOICE 1",
+                    tier="verified"),
+            _r2_row(1, 25000, "unverified_deposit", "x", "ACH CREDIT CONTOSO SUPPLY", tier="counted_flagged",
+                    reason="named_payer_one_off"),
+        ], parse="P0"),
+        "cM.0": _r2_account([
+            _r2_row(0, 30000, "unverified_deposit", "x", "MOBILE DEPOSIT", tier="counted_flagged",
+                    reason="no_payer_printed"),
+        ], parse="Q0"),
+    })
+
+
+def _r336_after(change, *, parse="P1", reparsed=True):
+    """The base with account cK.0 re-parsed: `change` is 'credit' (one credit appended), 'debit' (one debit appended,
+    the credits identical) or 'drop' (its last credit dropped)."""
+    after = json.loads(json.dumps(_r336_base()))
+    if not reparsed:
+        after["basis_stats"] = {}
+    account = after["accounts"]["cK.0"]
+    credits = account["credits"]
+    if change == "credit":
+        credits.append(_r2_row(10, 15000, "unverified_deposit", "x", "ACH CREDIT NORTHWIND CUSTOMER",
+                               tier="counted_flagged", reason="named_payer_one_off"))
+        account["rows"] += 1
+    elif change == "debit":
+        account["rows"] += 1
+    else:
+        credits.pop()
+        account["rows"] -= 1
+    account.update(posted_cents=sum(credit["cents"] for credit in credits), posted_credit_count=len(credits),
+                   posted_credit_cents=sum(credit["cents"] for credit in credits), parse_sha=parse)
+    return after
+
+
+@pytest.mark.parametrize(("change", "rows", "dollars", "true_delta"), [
+    ("credit", 3, 800.0, 150.0),
+    ("debit", 2, 650.0, 0.0),
+    # The later credit and the base credit with no partner.
+    ("drop", 2, 650.0, -250.0),
+])
+def test_r3_36_a_parse_change_that_adds_or_drops_a_row_is_a_g18_parse_move(change, rows, dollars, true_delta):
+    run = _run(_r336_base(), _r336_after(change))
+    assert run["failed_guards"] == ["G18"] and run["verdict"] == "fail"
+    assert run["accounts_unmatched"] == 0 and "G9" not in run["guards"]
+    moves = run["parse_moves"]
+    assert (moves["accounts"], moves["rows"], moves["dollars"], moves["true_delta"]) == (1, rows, dollars, true_delta)
+    [listed] = moves["listed"]
+    assert (listed["account"], listed["row_count_changed"], listed["base_row_count"], listed["row_count"]) == (
+        "cK.0", True, 10, 9 if change == "drop" else 11)
+    assert listed["explained_by"] is None and moves["row_count_changed"] == 1
+    # Compared apart, as a re-parsed account: no row of it is a rule's move.
+    assert run["move_matrix"] == [{"from": "unverified_deposit|x", "to": "counted_flagged|no_payer_printed",
+                                   "rows": 1, "dollars": 300.0, "statements": 1}]
+    assert run["rekeyed"]["reparsed"]["listed"] == [{"base_account": "cK.0", "account": "cK.0",
+                                                     "row_count_changed": True}]
+    # An account note explains it.
+    noted = census.compare(_r336_base(), [_r336_after(change)],
+                           explained={"accounts": {"cK.0": "read against its PDF"}})["runs"][0]
+    assert noted["verdict"] == "hold" and "G18" not in noted["guards"]
+    assert noted["parse_moves"]["listed"][0]["explained_by"] == "account"
+
+
+def test_r3_36_a_parser_route_explains_a_row_count_change_only_when_both_snapshots_were_re_parsed():
+    routed = census.compare(_r336_base(), [_r336_after("credit")], explained={"routes": [R2_ROUTE]})["runs"][0]
+    assert routed["verdict"] == "hold" and routed["parse_moves"]["listed"][0]["explained_by"] == "route"
+    cached = census.compare(_r336_base(), [_r336_after("credit", reparsed=False)],
+                            explained={"routes": [R2_ROUTE]})["runs"][0]
+    assert cached["failed_guards"] == ["G18"]
+    assert cached["guards"]["G18"]["sample"][0]["route_needs_both_snapshots_re_parsed"] is True
+    assert cached["guards"]["G18"]["sample"][0]["row_count_changed"] is True
+
+
+def test_r3_36_g9_keeps_a_lost_account_and_a_row_count_change_without_a_parse_change():
+    # The later run lost the account: G9 unmatched, no parse change.
+    lost = _r336_base()
+    del lost["accounts"]["cK.0"]
+    run = _run(_r336_base(), lost)
+    assert run["accounts_unmatched"] == 1 and run["guards"]["G9"]["sample"] == [
+        {"account": "cK.0", "unmatched": True, "parse_changed": False}]
+    assert run["parse_moves"]["accounts"] == 0
+    # A snapshot without parse_sha on one side: G9 unmatched, as before, whatever the credits say.
+    for change, changed in (("credit", True), ("debit", False)):
+        after = _r336_after(change)
+        del after["accounts"]["cK.0"]["parse_sha"]
+        run = census.compare(_r336_base(), [after], explained={"accounts": {"cK.0": "a note"}})["runs"][0]
+        assert run["failed_guards"] == ["G9"] and run["accounts_unmatched"] == 1
+        assert run["guards"]["G9"]["sample"] == [{"account": "cK.0", "unmatched": True, "parse_changed": changed}]
+        assert run["parse_moves"]["accounts"] == 0
+    # The same parse over every row with another row count: G9 unmatched.
+    run = _run(_r336_base(), _r336_after("debit", parse="P0"))
+    assert run["failed_guards"] == ["G9"] and run["guards"]["G9"]["sample"][0]["parse_changed"] is False
+
+
+def test_r3_36_the_controls_keep_their_readings():
+    # The same row count and a changed credit: G18, as before (no row-count change).
+    run = _run(*_r2_pair())
+    assert run["failed_guards"] == ["G18"] and run["parse_moves"]["listed"][0]["row_count_changed"] is False
+    assert run["parse_moves"]["row_count_changed"] == 0
+    # Identical snapshots hold.
+    identical = _run(_r336_base(), _r336_base())
+    assert identical["verdict"] == "hold" and identical["parse_moves"]["accounts"] == 0
+
+
 # Audit round 2, R2-B03 (R05): a Q6 repeat whose payer region names only a bank (the pass's own bank_only_payer fact)
 # is never verified: counted as no payer printed (or the parser's unread payer text), or held as the holder's pull.
 RELAY_BANK_ROW = "ACH CREDIT JPMORGAN CHASE"

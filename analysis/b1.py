@@ -51,6 +51,33 @@ def _ending_totals(markdown: str) -> tuple[float, float, float] | None:
     return credits, debits, ending
 
 
+#: Audit round 3, R3-B09 (R3-91): the incoming-wire labels this issuer prints on
+#: a wire credit's row (`Incoming Wire`), as a short list of wire wording, never
+#: a sender's name.
+_INCOMING_WIRE_LABEL = re.compile(
+    r"^[^A-Za-z]*(?:INCOMING(?: (?:USD|FX|INTL|INTERNATIONAL|DOMESTIC|FOREIGN))? WIRE|DOMESTIC WIRE|FEDWIRE|WIRE)"
+    r"(?![A-Za-z])",
+    re.IGNORECASE,
+)
+#: A line that opens a row (a date, then the description), or the section's
+#: furniture: the page break's marker, the reprinted column header and heading.
+_ROW_LEAD = re.compile(r"^\d{2}-\d{2}\s")
+_FURNITURE = re.compile(r"^(?:-{3} Page \d+ -{3}|Date Date\b|DAILY ACTIVITY\b)", re.IGNORECASE)
+
+
+def _lines_below(text: str, end: int) -> list[str]:
+    """Audit round 3, R3-B09 (R3-91): the lines printed under a row whose
+    figures end at `end`, up to the next row's line, a blank line (a page break
+    follows one) or the section's furniture: the row's continuation, which the
+    one-line row pattern does not read."""
+    lines: list[str] = []
+    for line in text[end:].split("\n")[1:]:
+        if not line.strip() or _ROW_LEAD.match(line) or _FURNITURE.match(line.strip()):
+            break
+        lines.append(line.strip())
+    return lines
+
+
 def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list[Transaction]:
     activity = re.search(r"DAILY ACTIVITY.*?(?=Ending totals)", markdown, re.IGNORECASE | re.DOTALL)
     if not activity:
@@ -70,12 +97,20 @@ def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list
         signed = round(balance - prev_balance, 2)
         if abs(signed - amount) > 0.01:
             signed = amount
+        description = re.sub(r"\s+", " ", desc).strip()
+        # Audit round 3, R3-B09 (R3-91): an incoming wire's sender prints on the
+        # lines under its row. They are kept apart from its description, never
+        # read as its payer (Transaction.unread_payer_text), and the wire is
+        # marked as read only by its label. Every other row is unchanged.
+        below = " ".join(_lines_below(text, m.end(4))) if signed > 0 and _INCOMING_WIRE_LABEL.match(description) else ""
         txns.append(Transaction(
             date=_iso(mmdd, year),
-            description=re.sub(r"\s+", " ", desc).strip(),
+            description=description,
             amount=signed,
             direction="credit" if signed >= 0 else "debit",
             running_balance=balance,
+            payer_text_unread=bool(below),
+            unread_payer_text=re.sub(r"\s+", " ", below).strip(),
         ))
         prev_balance = balance
     return txns

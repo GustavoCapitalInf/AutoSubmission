@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from analysis import true_revenue as tr
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import _debit_first_distinctive_word, classify_statement_transactions
@@ -3214,6 +3215,53 @@ def test_a_funder_block_printed_alone_under_its_row_is_still_financing_proceeds(
     credit = next(record for record in records if record.amount > 0)
     assert (credit.revenue_tier, credit.contributes_to_lender_credit_exclusion) == ("non_revenue", True)
     assert compute_metrics(statement, classifications=records).lender_credits > 0
+
+
+@pytest.mark.parametrize("name", ["CASH ARC LLC EDI PYMNTS", "CASH-ARC LLC EDI PYMNTS", "CASHARC LLC EDI PYMNTS"])
+def test_r3_87_a_lender_whose_name_holds_a_class_code_word_holds_its_welded_run(name):
+    """Audit round 3, R3-B09 (R3-87): a class-code word before a legal form (CashArc's 'CASH ARC LLC') is part of a
+    name, never a block's end, so the run's lender block is read and both rows of its flush are held."""
+    tiers, lender_credits, toward = _welded_tiers(first_line=_blocks(*_CUSTOMERS),
+                                                  second_line=_blocks("CONTOSO INC PAYABLES", name))
+    assert tiers == [("verified", None)] + [("counted_flagged", "payer_text_not_read")] * 4 + [
+        ("excluded_pending_review", UNREAD_FINANCING)] * 2
+    assert (lender_credits, toward) == (0.0, False)
+
+
+@pytest.mark.parametrize("name", ["CASH ARC LLC EDI PYMNTS", "CASH-ARC LLC EDI PYMNTS"])
+def test_r3_87_a_lender_block_holding_a_class_code_word_alone_under_its_row_is_financing_proceeds(name):
+    from analysis.metrics import compute_metrics
+    from tests import test_core_processor_counted as counted
+
+    statement = counted.published(credits=(
+        "ELECTRONIC CREDITS\nDate Description Credits\n2-3 Preauthorized Credit 300.00\n"
+        f"{name} 0000001 {counted.RECEIVER} CCD\n"
+    ))
+    records = classify_statement_transactions(statement)
+    credit = next(record for record in records if record.amount > 0)
+    assert not statement.transactions[[t.amount > 0 for t in statement.transactions].index(True)].payer_text_unread
+    assert (credit.revenue_tier, credit.contributes_to_lender_credit_exclusion) == ("non_revenue", True)
+    assert credit.revenue_canonical_entity == "CashArc LLC"
+    assert compute_metrics(statement, classifications=records).lender_credits > 0
+
+
+@pytest.mark.parametrize(("text", "blocks"), [
+    ("CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD CASH ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD",
+     ["CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD", "CASH ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD"]),
+    ("CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD CASH-ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD",
+     ["CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD", "CASH ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD"]),
+    # A real ARC entry (no legal form after the code) still closes its block.
+    ("CONTOSO SUPPLY ARC 0001 NORTHWIND CCD", ["CONTOSO SUPPLY ARC", "0001 NORTHWIND CCD"]),
+    ("CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD KAPITUS LLC FUNDING 2 NORTHWIND BAKERY CCD",
+     ["CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD", "KAPITUS LLC FUNDING 2 NORTHWIND BAKERY CCD"]),
+])
+def test_r3_87_an_unread_run_splits_after_a_class_code_never_before_a_legal_form(text, blocks):
+    assert tr.unread_run_blocks(text) == blocks
+
+
+def test_r3_87_a_run_naming_casharc_names_financing_and_a_customer_s_arc_entry_does_not():
+    assert tr.unread_run_names_financing("CONTOSO INC PAYABLES 1 NORTHWIND CCD CASH ARC LLC EDI PYMNTS 2 NORTHWIND CCD")
+    assert not tr.unread_run_names_financing("CONTOSO SUPPLY ARC 0001 NORTHWIND CCD FABRIKAM INC 2 NORTHWIND CCD")
 
 
 def _marked(text: str, unread_text: str, *, marked: bool = True):
