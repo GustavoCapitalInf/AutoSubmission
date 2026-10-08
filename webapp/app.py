@@ -532,21 +532,28 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
 #: `lender_payment_change_<n>` section, in order; a field the item does not carry is an empty cell. `schedule_confirmed`
 #: and `via` are the orchestrator's choices of 2026-10-06 (§ Still open 18 and 23); `first_after_kind`,
 #: `resumed_date` (a pause) and `last_step_percent` (a change through unreported levels) are R2-OW18 review round 1's.
+#: Audit round 3, R3-B05: a pause's catch-up (`first_after_amount`, `first_after_multiple`) and its debits of 2x or
+#: more inside the gap (`larger_debits_inside`, "2054-03-16 1300.0; ..."), R3-25; a Caught up item's fields (the
+#: owner's answer of 2026-10-07: `missed_payments` to `catch_up_amount`).
 LENDER_PAYMENT_CHANGE_EXPORT_FIELDS = (
     "kind", "lender", "lender_label", "lender_label_after", "lender_state", "position", "positions",
     "cadence", "cadence_before", "cadence_after", "amount_before", "amount_after", "change_percent", "cadence_changed",
     "schedule_confirmed", "weekly_equivalent_before", "weekly_equivalent_after", "payments_before", "payments_after",
-    "last_before_date", "first_after_date", "last_after_date", "first_after_kind", "resumed_date", "restart",
+    "last_before_date", "first_after_date", "last_after_date", "first_after_kind", "resumed_date",
+    "first_after_amount", "first_after_multiple", "larger_debits_inside", "restart",
     "pause_business_days", "back_to_earlier", "reverted", "reverted_date", "via", "last_step_percent",
     "weekly_total_before", "weekly_total_after", "alongside",
     "last_payment_date", "last_payment_amount", "payments", "last_presence_date", "quiet_business_days",
     "grace_business_days", "coverage_end", "coverage_end_source", "stop_confirmed",
+    "missed_payments", "missed_first_date", "missed_last_date", "multiple", "catch_up_date", "catch_up_amount",
 )
-#: R2-OW18 (H1): the nested notes, flattened with dots.
+#: R2-OW18 (H1): the nested notes, flattened with dots. Audit round 3, R3-B05: a stop's `other_debits_after.catch_ups`
+#: and `payoff.earlier` (R3-25), and a pause's or a stop's `same_amount_debits` (R3-84).
 LENDER_PAYMENT_CHANGE_NOTE_FIELDS = (
     ("after_funding", ("date", "amount")),
-    ("other_debits_after", ("count", "last_date")),
-    ("payoff", ("date", "amount")),
+    ("other_debits_after", ("count", "last_date", "catch_ups")),
+    ("payoff", ("date", "amount", "earlier")),
+    ("same_amount_debits", ("count", "first_date", "last_date")),
     ("continues_as", ("lender_label", "amount", "first_date")),
     ("new_lender_after", ("lender_label", "cadence", "amount", "first_date")),
     ("debt_relief_after", ("date",)),
@@ -575,6 +582,10 @@ def _lender_payment_change_rows(items: object, *, package: bool = False) -> list
                                   + (f" ({entry['change_percent']:+d}%)" if name == "via"
                                      and isinstance(entry.get("change_percent"), int) else "")
                                   for entry in value if isinstance(entry, dict))
+            elif name == "larger_debits_inside" and isinstance(value, list):
+                # Audit round 3, R3-25: "2054-03-16 1300.0; ...".
+                value = "; ".join(f"{entry.get('date')} {entry.get('amount')}" for entry in value
+                                  if isinstance(entry, dict))
             rows.append((section, name, "" if value is None else value))
         notes = LENDER_PAYMENT_CHANGE_NOTE_FIELDS + (
             (("continues_in_other_account", ("source_document", "first_date", "amount")),) if package else ())

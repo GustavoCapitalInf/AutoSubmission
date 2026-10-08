@@ -96,9 +96,22 @@ def _payment_change_line(item: dict) -> str:
         elif ended == "other_amount":
             tail = (f"; a payment at another amount on {item['first_after_date']}, payments resumed on "
                     f"{item.get('resumed_date')}")
+        elif ended == "catch_up":
+            # Audit round 3, R3-25: an exact 2x to 6x debit ended the pause.
+            tail = (f"; a catch-up of {item.get('first_after_multiple')}x on {item['first_after_date']}, payments "
+                    f"resumed on {item.get('resumed_date')}")
         return (f"pause{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, {what} "
                 f"{item['last_before_date']} to {item['first_after_date']}, {item['pause_business_days']} business days "
                 f"(grace {item['grace_business_days']}){tail}")
+    if kind == "catch_up":
+        # The owner's answer of 2026-10-07 to audit round 3's R3-25 ("Add a 'Caught up' line").
+        missed = item.get("missed_payments")
+        span = item.get("missed_first_date")
+        if item.get("missed_last_date") and item.get("missed_last_date") != span:
+            span = f"{span} to {item['missed_last_date']}"
+        return (f"catch-up{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, no payment on "
+                f"{missed} scheduled {'payment' if missed == 1 else 'payments'} {span}, then {item['multiple']}x "
+                f"${item['catch_up_amount']:,.2f} on {item['catch_up_date']}")
     if kind == "new_stream":
         alongside = " and ".join(f"{other['cadence']} ${other['amount']:,.2f}" for other in item.get("alongside") or [])
         return (f"new stream{potential}: {label} {item['cadence_after']} ${item['amount_after']:,.2f} from "

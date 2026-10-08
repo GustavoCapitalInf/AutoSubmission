@@ -1096,23 +1096,51 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
     }
     return sentence(body, suffixes);
   }
+  // Audit round 3, R3-84: debits no rule claimed at the series' exact cents, on its schedule, inside a pause's gap or
+  // after a stop's last presence (a processor rail the registry refuses as an alias): named, never counted.
+  const sameAmount = (amount) => {
+    const same = item.same_amount_debits;
+    if (!same || typeof same !== "object") return [];
+    return [`${same.count} debits of exactly ${money(amount)} on the same ${cadence(item.cadence)} schedule under `
+      + `another description, from ${same.first_date} to ${same.last_date} (possible collection under another name)`];
+  };
   if (item.kind === "pause") {
     // R2-OW18 review round 1: a bounced attempt or a payment at another amount can end the pause before the regular
-    // payment resumes; the line then says so and names the date payments resumed.
+    // payment resumes; the line then says so and names the date payments resumed. Audit round 3, R3-25: so can a
+    // catch-up (an exact 2x to 6x debit), named with its multiple, and every other debit of 2x or more inside the gap
+    // is named.
     const attempt = item.first_after_kind === "attempt";
     const facts = `(${item.pause_business_days} business days; ${cadence(item.cadence)}, grace ${item.grace_business_days})`;
     const same = `at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`;
     const head = `Payments paused${tag}: no payment${attempt ? " or payment attempt" : ""} to ${label}${stream} between `
       + `${item.last_before_date} and ${item.first_after_date} ${facts}`;
+    const suffixes = (Array.isArray(item.larger_debits_inside) ? item.larger_debits_inside : [])
+      .filter((entry) => entry && typeof entry === "object")
+      .map((entry) => `a debit of ${money(entry.amount)} on ${entry.date} inside the gap, more than twice the payment`)
+      .concat(sameAmount(item.last_payment_amount));
+    const resumed = `payments resumed ${same} on ${item.resumed_date || "N/A"}`;
     if (attempt) {
-      return sentence(`${head}; the attempt on ${item.first_after_date} was returned unpaid, and payments resumed `
-        + `${same} on ${item.resumed_date || "N/A"}`);
+      return sentence(`${head}; the attempt on ${item.first_after_date} was returned unpaid, and ${resumed}`, suffixes);
+    }
+    if (item.first_after_kind === "catch_up") {
+      return sentence(`${head}; a debit of ${money(item.first_after_amount)} (${item.first_after_multiple} times the `
+        + `payment) on ${item.first_after_date} (possible catch-up), and ${resumed}`, suffixes);
     }
     if (item.first_after_kind === "other_amount") {
-      return sentence(`${head}; a payment at another amount on ${item.first_after_date}, and payments resumed ${same} `
-        + `on ${item.resumed_date || "N/A"}`);
+      return sentence(`${head}; a payment at another amount on ${item.first_after_date}, and ${resumed}`, suffixes);
     }
-    return sentence(`${head}, then resumed ${same}`);
+    return sentence(`${head}, then resumed ${same}`, suffixes);
+  }
+  if (item.kind === "catch_up") {
+    // The owner's answer of 2026-10-07 to audit round 3's R3-25 ("Add a 'Caught up' line"): an exact multiple of the
+    // payment after one or more missed scheduled payments, where no pause or stop line names it.
+    const missed = numberOrNull(item.missed_payments) ?? 0;
+    const span = item.missed_last_date && item.missed_last_date !== item.missed_first_date
+      ? `${item.missed_first_date} to ${item.missed_last_date}` : (item.missed_first_date || "N/A");
+    const every = cadence(item.cadence);
+    return sentence(`Caught up${tag}: no payment to ${label}${stream} on ${missed} scheduled ${every} `
+      + `${missed === 1 ? "payment" : "payments"} (${span}), then ${money(item.catch_up_amount)} on `
+      + `${item.catch_up_date} (${item.multiple}x the ${every} ${money(item.last_payment_amount)})`);
   }
   if (item.kind === "new_stream") {
     const alongside = (Array.isArray(item.alongside) ? item.alongside : [])
@@ -1125,8 +1153,16 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
   if (item.kind === "stop") {
     const others = item.other_debits_after;
     const regular = others ? `regular ${money(item.last_payment_amount)} ` : "";
+    // Audit round 3, R3-25: the later debits that are exact multiples of the payment (2x to 6x) are possible
+    // catch-ups, presence like a payment-sized debit.
+    const catchUps = others ? numberOrNull(others.catch_ups) : null;
+    const multiples = catchUps
+      ? ` (${catchUps} of them ${catchUps === 1 ? "an exact multiple" : "exact multiples"} of the payment: possible `
+        + "catch-up)"
+      : "";
     const later = others
-      ? `; ${others.count} later ${others.count === 1 ? "debit" : "debits"} at other amounts, the last on ${others.last_date}`
+      ? `; ${others.count} later ${others.count === 1 ? "debit" : "debits"} at other amounts, the last on `
+        + `${others.last_date}${multiples}`
       : "";
     // R2-OW18 review round 1: when the last presence is a bounced attempt (and no debit at another amount follows the
     // last payment), the quiet days run from the attempt: the line says "no payment or payment attempt" and gives the
@@ -1148,7 +1184,15 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
         + `${item.last_payment_date}; ${stopGraceWords(item)})`;
     }
     const suffixes = [];
-    if (item.payoff) suffixes.push(`a final debit of ${money(item.payoff.amount)} on ${item.payoff.date} (possible payoff)`);
+    if (item.payoff) {
+      // Audit round 3, R3-25: the payoff note reads only a debit of 2x or more that is no exact multiple, and counts
+      // the earlier ones.
+      const earlier = numberOrNull(item.payoff.earlier);
+      const count = earlier
+        ? `; ${earlier} earlier ${earlier === 1 ? "debit" : "debits"} of twice the payment or more` : "";
+      suffixes.push(`a final debit of ${money(item.payoff.amount)} on ${item.payoff.date} (possible payoff${count})`);
+    }
+    suffixes.push(...sameAmount(item.last_payment_amount));
     if (item.continues_as) {
       const next = item.continues_as;
       const name = next.lender_state === "potential" ? `potential lender ${next.lender_label}` : next.lender_label;
@@ -1185,6 +1229,7 @@ function lenderPaymentChangeChip(item) {
     increase: ["↑", possible ? "Possible increase" : "Increased", "blue"],
     cadence_change: ["↻", "Schedule", "blue"],
     pause: ["‖", "Paused", "amber"],
+    catch_up: ["↺", "Caught up", "amber"],
     new_stream: ["+", "New stream", "blue"],
     stop: ["■", item.stop_confirmed === true ? "No payments" : "Possible stop", "amber"],
   };
@@ -1232,6 +1277,7 @@ function lenderPaymentChangesSummary(items) {
     ["possible_increase", (item) => item.kind === "increase" && item.schedule_confirmed === false, "possible increase", "possible increases"],
     ["cadence_change", (item) => item.kind === "cadence_change", "schedule change", "schedule changes"],
     ["pause", (item) => item.kind === "pause", "pause", "pauses"],
+    ["catch_up", (item) => item.kind === "catch_up", "catch-up", "catch-ups"],
     ["new_stream", (item) => item.kind === "new_stream", "new stream", "new streams"],
     ["stop", (item) => item.kind === "stop" && item.stop_confirmed !== true, "possible stop", "possible stops"],
     ["confirmed_stop", (item) => item.kind === "stop" && item.stop_confirmed === true, "stop with no payments", "stops with no payments"],

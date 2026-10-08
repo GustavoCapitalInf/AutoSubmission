@@ -393,6 +393,82 @@ def test_r1_the_downloads_carry_each_step_and_what_ended_a_pause():
     assert fields[fields.index("via") + 1] == "last_step_percent"
 
 
+def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debits():
+    """Audit round 3, R3-B05 (R3-25, R3-84 and the owner's answer of 2026-10-07): a pause's catch-up and larger debits,
+    a stop's catch-up count and earlier large debits, a Caught up item and the same-amount note, as cells, empty where
+    an item carries none (fabricated module items)."""
+    from tests import test_lender_payment_changes as pure
+    from webapp.app import LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, _lender_payment_change_rows
+
+    pause_rows = pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31))
+    catch_up = pure.only(pure._rows(pause_rows, 300) + pure._rows([M(16)], 1800))
+    larger = pure.only(pure._rows(pause_rows, 300) + pure._rows([M(16)], 1300))
+    stop = pure.only(pure._rows([pure.F(13), M(13), A(13)], 1000) + pure._rows([Y(13)], 2000)
+                     + pure._rows([pure.J(12)], 3000), start=pure.F(1), end=date(2054, 8, 31))
+    payoff = pure.only(pure._rows([pure.F(2), M(2), A(2)], 2000) + pure._rows([A(10)], 4500)
+                       + pure._rows([A(20)], 5000), start=pure.F(1), end=pure.J(30))
+    caught = pure.only(pure._rows(pure.bdays(M(2), M(13)) + pure.bdays(M(19), M(31)), 850) + pure._rows([M(18)], 1700))
+    noted = pure.only(pure._rows(pure.bdays(M(2), M(13)), 850) + pure._other(pure.bdays(M(16), M(31)), 850))
+    rows = {(section, name): value for section, name, value in _lender_payment_change_rows(
+        [catch_up, larger, stop, payoff, caught, noted])}
+
+    def cells(number, *names):
+        return tuple(rows[(f"lender_payment_change_{number}", name)] for name in names)
+
+    assert cells(1, "first_after_kind", "first_after_amount", "first_after_multiple", "larger_debits_inside") == (
+        "catch_up", 1800.0, 6, "")
+    assert cells(2, "first_after_kind", "first_after_amount", "first_after_multiple", "larger_debits_inside") == (
+        "payment", "", "", "2054-03-16 1300.0")
+    assert cells(3, "other_debits_after.count", "other_debits_after.catch_ups", "payoff.date", "payoff.earlier") == (
+        2, 2, "", "")
+    assert cells(4, "other_debits_after.catch_ups", "payoff.date", "payoff.earlier") == ("", "2054-04-20", 1)
+    assert cells(5, "kind", "cadence", "last_payment_amount", "missed_payments", "missed_first_date",
+                 "missed_last_date", "multiple", "catch_up_date", "catch_up_amount") == (
+        "catch_up", "daily", 850.0, 2, "2054-03-16", "2054-03-17", 2, "2054-03-18", 1700.0)
+    assert cells(6, "same_amount_debits.count", "same_amount_debits.first_date", "same_amount_debits.last_date") == (
+        12, "2054-03-16", "2054-03-31")
+    assert cells(1, "same_amount_debits.count", "missed_payments", "catch_up_date") == ("", "", "")
+    fields = list(LENDER_PAYMENT_CHANGE_EXPORT_FIELDS)
+    assert fields[fields.index("resumed_date") + 1:fields.index("resumed_date") + 4] == [
+        "first_after_amount", "first_after_multiple", "larger_debits_inside"]
+    assert fields[-6:] == ["missed_payments", "missed_first_date", "missed_last_date", "multiple", "catch_up_date",
+                           "catch_up_amount"]
+
+
+SAMPLEPAY_REF = "MISC PAYMENT REF-0000AA00BB SAMPLEPAY"
+SAMPLEPAY_PREAUTHORIZED = "PREAUTHORIZED DEBIT SAMPLEPAY"
+
+
+def _states(payload, text):
+    return {row["classification"]["classification"] for row in _account(payload)["statement"]["transactions"]
+            if row["description"] == text}
+
+
+def test_r3_84_a_package_pause_names_same_cents_debits_under_another_description():
+    """Audit round 3, R3-B05 (R3-84): the funder's daily 850.00 stops for the second half of March while a processor
+    descriptor no rule claims takes exactly 850.00 every business day; April resumes. The package's pause, and the
+    March statement's possible stop, name them; a descriptor D6 promotes to a potential lender is its own series and
+    gives no note (fabricated: SAMPLEPAY)."""
+    march = statement_payload(debits(bdays(M(2), M(13)), 850) + debits(bdays(M(16), M(31)), 850, SAMPLEPAY_REF),
+                              month=3)
+    assert _states(march, SAMPLEPAY_REF) == {"other"}
+    april = statement_payload(debits(bdays(A(1), A(30)), 850), month=4, opening=closing(march))
+    [item] = package(job("march", march), job("april", april))["lender_payment_changes"]
+    assert (item["kind"], item["lender"], item["last_before_date"], item["first_after_date"]) == (
+        "pause", "KAPITUS", "2054-03-13", "2054-04-01")
+    assert item["same_amount_debits"] == {"count": 12, "first_date": "2054-03-16", "last_date": "2054-03-31"}
+    [alone] = items_of(march)
+    assert (alone["kind"], alone["stop_confirmed"], alone["same_amount_debits"]["count"]) == ("stop", False, 12)
+    control = statement_payload(debits(bdays(M(2), M(13)), 850)
+                                + debits(bdays(M(16), M(31)), 850, SAMPLEPAY_PREAUTHORIZED), month=3)
+    assert _states(control, SAMPLEPAY_PREAUTHORIZED) == {"potential_lender"}
+    april = statement_payload(debits(bdays(A(1), A(30)), 850), month=4, opening=closing(control))
+    built = package(job("march", control), job("april", april))
+    kapitus = [item for item in built["lender_payment_changes"] if item["lender"] == "KAPITUS"]
+    assert [item["kind"] for item in kapitus] == ["pause"]
+    assert "same_amount_debits" not in kapitus[0]
+
+
 def test_p13_the_package_json_download_carries_both_keys():
     from webapp.app import _package_for_export
 

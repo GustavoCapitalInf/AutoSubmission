@@ -232,6 +232,114 @@ def test_r3_b04_the_lines_of_a_slower_triple_and_of_a_restoration_read_through_b
                            "the new amount, after 10 at the old; back to the earlier $850.00 payment.")
 
 
+# ------------------------- audit round 3, R3-B05 (R3-25, R3-84; the owner's answer of 2026-10-07; fabricated rows only)
+def _r3_b05_items():
+    """The batch's fabricated items, built when a test runs."""
+    gap = pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31))
+    label = f"{pure.UNNAMED} (daily, 300.00)"
+    return {
+        "catch_up_pause": pure.only(pure._rows(gap, 300) + pure._rows([M(16)], 1800)),
+        "larger_pause": pure.only(pure._rows(gap, 300) + pure._rows([M(16)], 1300)),
+        "catch_up_stop": pure.only(pure._rows([F(13), M(13), A(13)], 1000) + pure._rows([Y(13)], 2000)
+                                   + pure._rows([J(12)], 3000), start=F(1), end=pure.date(2054, 8, 31)),
+        "earlier_payoff": pure.only(pure._rows([F(2), M(2), A(2)], 2000) + pure._rows([A(10)], 4500)
+                                    + pure._rows([A(20)], 5000), start=F(1), end=J(30)),
+        "caught_up": pure.only(pure._rows(pure.bdays(M(2), M(13)) + pure.bdays(M(19), M(31)), 850)
+                               + pure._rows([M(18)], 1700)),
+        "caught_up_weekly": pure.only(pure._rows(pure.every(M(3), M(17)) + pure.every(M(31), Y(26)), 1000)
+                                      + pure._rows([M(27)], 3000), end=Y(29)),
+        "caught_up_potential": pure.only(pure._potential(pure.bdays(M(2), M(13)) + pure.bdays(M(18), M(31)), 300,
+                                                         label=label) + pure._potential([M(17)], 600, label=label)),
+        "same_amount_stop": pure.only(pure._rows(pure.bdays(M(2), M(13)), 850)
+                                      + pure._other(pure.bdays(M(16), M(31)), 850)),
+    }
+
+
+@needs_node
+def test_r3_b05_the_pause_and_stop_lines_name_catch_ups_and_larger_debits():
+    items = _r3_b05_items()
+    after = pure.only(pure._rows(pure.bdays(M(2), M(13)), 850) + pure._rows([M(17)], 1700))
+    two_earlier = {**items["earlier_payoff"], "payoff": {**items["earlier_payoff"]["payoff"], "earlier": 2}}
+    texts = warning_texts([items["catch_up_pause"], items["larger_pause"], items["catch_up_stop"],
+                           items["earlier_payoff"], after, two_earlier])
+    assert texts[0] == [
+        "Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; daily, grace 5); a "
+        "debit of $1,800.00 (6 times the payment) on 2054-03-16 (possible catch-up), and payments resumed at the same "
+        "daily $300.00 on 2054-03-23.", chip_html("‖", "Paused", "amber")]
+    assert texts[1][0] == (
+        "Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-23 (11 business days; daily, grace 5), "
+        "then resumed at the same daily $300.00; a debit of $1,300.00 on 2054-03-16 inside the gap, more than twice "
+        "the payment.")
+    assert ("; 2 later debits at other amounts, the last on 2054-06-12 (2 of them exact multiples of the payment: "
+            "possible catch-up)") in texts[2][0]
+    assert "possible payoff" not in texts[2][0]
+    assert texts[3][0].endswith("; a final debit of $5,000.00 on 2054-04-20 (possible payoff; 1 earlier debit of twice "
+                                "the payment or more).")
+    assert ("; 1 later debit at other amounts, the last on 2054-03-17 (1 of them an exact multiple of the payment: "
+            "possible catch-up)") in texts[4][0]
+    assert texts[5][0].endswith("(possible payoff; 2 earlier debits of twice the payment or more).")
+    # A payoff with no earlier one reads as before (L20).
+    assert warning_text(L20).endswith("; a final debit of $5,000.00 on 2054-04-20 (possible payoff).")
+
+
+@needs_node
+def test_r3_b05_the_caught_up_line():
+    march = pure._rows(pure.bdays(M(2), M(27)), 850)
+    april = pure._rows([A(2)], 1700) + pure._rows(pure.bdays(A(3), A(30)), 850)
+    [chained] = pure._chain((march, M(1), M(31)), (april, A(1), A(30)))
+    chained = {**pure.lpc.public_item(chained), "source_document": "april.pdf"}
+    items = _r3_b05_items()
+    caught_up, weekly, potential = items["caught_up"], items["caught_up_weekly"], items["caught_up_potential"]
+    texts = warning_texts([caught_up, weekly, potential, chained])
+    assert texts[0] == [
+        "Caught up: no payment to KAPITUS on 2 scheduled daily payments (2054-03-16 to 2054-03-17), then $1,700.00 on "
+        "2054-03-18 (2x the daily $850.00).", chip_html("↺", "Caught up", "amber")]
+    assert texts[1][0] == ("Caught up: no payment to KAPITUS on 1 scheduled weekly payment (2054-03-24), then "
+                           "$3,000.00 on 2054-03-27 (3x the weekly $1,000.00).")
+    assert texts[2] == [
+        "Caught up (potential lender): no payment to Unidentified lender obligation (daily, 300.00) on 1 scheduled "
+        "daily payment (2054-03-16), then $600.00 on 2054-03-17 (2x the daily $300.00).",
+        chip_html("↺", "Caught up", "neutral")]
+    assert texts[3][0] == ("Caught up: no payment to KAPITUS on 3 scheduled daily payments (2054-03-30 to 2054-04-01), "
+                           "then $1,700.00 on 2054-04-02 (2x the daily $850.00) (april.pdf).")
+    # A weekly triple after two missed weeks: its pause line carries the catch-up, the one line for the gap.
+    [pause] = pure.changes(pure._rows(pure.every(M(3), M(17)) + pure.every(A(14), Y(26)), 1000)
+                           + pure._rows([A(7)], 3000), end=Y(29))
+    assert warning_text(pause) == (
+        "Payments paused: no payment to KAPITUS between 2054-03-17 and 2054-04-07 (15 business days; weekly, grace "
+        "10); a debit of $3,000.00 (3 times the payment) on 2054-04-07 (possible catch-up), and payments resumed at "
+        "the same weekly $1,000.00 on 2054-04-14.")
+    sentence = run_dashboard(f"""
+console.log(JSON.stringify([lenderPaymentChangesSummary({json.dumps([caught_up, items["catch_up_pause"]])}),
+                            lenderPaymentChangesSummary({json.dumps([caught_up, weekly, potential])})]));
+""")
+    assert sentence == ["Lender payment changes: 1 pause, 1 catch-up.",
+                        "Lender payment changes: 3 catch-ups (1 potential)."]
+
+
+@needs_node
+def test_r3_b05_the_same_amount_note_and_a_stop_it_never_confirms():
+    march = pure._rows(pure.bdays(M(2), M(13)), 850) + pure._other(pure.bdays(M(16), M(31)), 850)
+    [stop] = pure._chain((march, M(1), M(31)), (pure._other(pure.bdays(A(1), A(30)), 850), A(1), A(30)))
+    stop = {**pure.lpc.public_item(stop), "source_document": "march.pdf"}
+    [pause] = pure._chain((march, M(1), M(31)), (pure._rows(pure.bdays(A(1), A(30)), 850), A(1), A(30)))
+    pause = {**pure.lpc.public_item(pause), "source_document": "april.pdf"}
+    texts = warning_texts([_r3_b05_items()["same_amount_stop"], stop, pause])
+    assert texts[0][0].endswith("; 12 debits of exactly $850.00 on the same daily schedule under another description, "
+                                "from 2054-03-16 to 2054-03-31 (possible collection under another name).")
+    assert texts[0][0].startswith("Possible stop: no payment to KAPITUS in the last 12 business days of the statement")
+    assert texts[0][1] == chip_html("■", "Possible stop", "amber")
+    assert stop["stop_confirmed"] is False
+    assert texts[1][0].startswith("Possible stop: no payment to KAPITUS in the last ")
+    assert texts[1][0].endswith("; 34 debits of exactly $850.00 on the same daily schedule under another description, "
+                                "from 2054-03-16 to 2054-04-30 (possible collection under another name) (march.pdf).")
+    assert texts[1][1] == chip_html("■", "Possible stop", "amber")
+    assert texts[2][0] == (
+        "Payments paused: no payment to KAPITUS between 2054-03-13 and 2054-04-01 (13 business days; daily, grace 5), "
+        "then resumed at the same daily $850.00; 12 debits of exactly $850.00 on the same daily schedule under another "
+        "description, from 2054-03-16 to 2054-03-31 (possible collection under another name) (april.pdf).")
+
+
 # ------------------------------------------------------------------------------------- U5, U6, U7, U10: the table
 def _table(call):
     return run_dashboard(f"""

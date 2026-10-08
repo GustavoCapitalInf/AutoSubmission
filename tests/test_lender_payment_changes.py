@@ -521,6 +521,9 @@ def test_l30_the_constants_are_named_integers_and_fractions():
     assert (lpc.FUNDING_NOTE_DAYS_BEFORE, lpc.FUNDING_NOTE_DAYS_AFTER, lpc.PAYOFF_MULTIPLE, lpc.HANDOFF_PERCENT,
             lpc.DEBT_RELIEF_GRACE_MULTIPLE, lpc.POTENTIAL_MIN_WEEKLY_CENTS) == (20, 5, 2, 10, 2, 10000)
     assert (lpc.CATCH_UP_TOLERANCE_PERCENT, lpc.CATCH_UP_MULTIPLES, lpc.CATCH_UP_MAX_RUN) == (2, (2, 3), 2)
+    # Audit round 3, R3-25: the exact multiples a one-off catch-up may be, and the late allowance of a due date.
+    assert (lpc.CATCH_UP_PRESENCE_MULTIPLES, lpc.CATCH_UP_LATE_BUSINESS_DAYS) == ((2, 3, 4, 5, 6), 1)
+    assert "catch_up" in lpc.PAYMENT_CHANGE_KINDS
     assert (lpc.CADENCE_CHANGE_MIN_PAYMENTS, lpc.CADENCE_CHANGE_MIN_DAILY) == (3, 5)
 
 
@@ -538,11 +541,13 @@ def test_l31_a_stop_after_other_debits_names_them():
     assert item["other_debits_after"] == {"count": 3, "last_date": "2054-03-19"}
 
 
-@pytest.mark.parametrize("amount", [20, 1700])
+# Audit round 3, R3-25: the payoff-sized case is 1,750 (2.06x, no exact multiple); exactly 2x (1,700) is a catch-up
+# since then, presence, and its own "Caught up" line (test_r3_25_the_l31_shape_at_exactly_twice_is_a_catch_up).
+@pytest.mark.parametrize("amount", [20, 1750])
 def test_l31_a_fee_sized_or_payoff_sized_debit_is_not_presence(amount):
     item = only(_rows(bdays(M(2), M(20)), 850) + _rows([M(26)], amount))
     assert (item["kind"], item["last_presence_date"], item["quiet_business_days"]) == ("stop", "2054-03-20", 7)
-    assert item.get("payoff") == ({"date": "2054-03-26", "amount": 1700.0} if amount == 1700 else None)
+    assert item.get("payoff") == ({"date": "2054-03-26", "amount": 1750.0} if amount == 1750 else None)
 
 
 def test_l32_a_pause_that_resumes_at_the_same_payment():
@@ -1193,3 +1198,273 @@ def test_r3_b04_r2_a_slower_run_after_a_main_level_read_through_its_attempts_is_
     item = only(rows, end=end)
     assert _steps([item]) == [expected]
     assert (item["schedule_confirmed"], item["cadence_changed"]) == (False, True)
+
+
+# ------------------------------- audit round 3, R3-B05 (R3-25, R3-84; the owner's answer of 2026-10-07; fabricated)
+def _other(days, amount, classification="other"):
+    """Posted debits of `amount` that no lender rule claimed (another description; class `other` by default)."""
+    return [TransactionClassification(original_description="FABRICATED DEBIT",
+                                      normalized_description="FABRICATED DEBIT", classification=classification,
+                                      date=day.isoformat(), amount=-float(amount), direction="debit") for day in days]
+
+
+def _kinds(found):
+    return [item["kind"] for item in found]
+
+
+def _catch_up_fields(item):
+    return (item["kind"], item["cadence"], item["last_payment_amount"], item["last_before_date"],
+            item["missed_payments"], item["missed_first_date"], item["missed_last_date"], item["multiple"],
+            item["catch_up_date"], item["catch_up_amount"])
+
+
+# R3-25: an exact 2x-6x one-off is a catch-up: presence for pauses, restarts and stops, never a payoff. The owner's
+# answer of 2026-10-07 ("Add a 'Caught up' line"): where it follows one or more missed scheduled payments, one
+# `catch_up` item, unless a pause or a stop line that still shows names it.
+def test_r3_25_a_catch_up_after_one_missed_week_is_presence():
+    # Before: a possible stop, quiet 18, its "payoff" the 2x. The 2x ends 8 business days before the end, inside the
+    # weekly grace of 10: no stop; the missed week before it gives the one Caught up item.
+    [item] = changes(_rows(every(M(3), A(14)), 1000) + _rows([A(28)], 2000), start=M(1), end=Y(8))
+    assert _catch_up_fields(item) == ("catch_up", "weekly", 1000.0, "2054-04-14", 1, "2054-04-21", "2054-04-21", 2,
+                                      "2054-04-28", 2000.0)
+    assert (item["lender"], item["lender_state"], item["position"], item["positions"], item["scope"]) == (
+        "KAPITUS", "confirmed", 1, 1, "statement")
+    assert item["locations"] == {"last_before": "transaction:7", "catch_up": "transaction:8"}
+    assert not any(key.startswith("_") for key in item)
+
+
+def test_r3_25_a_missed_week_caught_up_is_no_pause():
+    # Before: a pause 2054-04-14 -> 2054-05-05 (15 business days); the 2x two weeks after the last payment ends the
+    # gap at 10 business days, within the grace.
+    found = changes(_rows(every(M(3), A(14)) + every(Y(5), Y(26)), 1000) + _rows([A(28)], 2000), start=M(1), end=Y(29))
+    assert _kinds(found) == ["catch_up"]
+    assert _catch_up_fields(found[0])[4:] == (1, "2054-04-21", "2054-04-21", 2, "2054-04-28", 2000.0)
+
+
+def test_r3_25_a_pause_ended_by_a_catch_up_names_it():
+    # Before: a pause 03-06 -> 03-23, 11 business days, ended by the regime's payment. The 6x is presence: the pause
+    # ends at it, names it, and is the one line for the gap (no separate Caught up item).
+    item = only(_rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1800))
+    assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
+            item["first_after_kind"], item["first_after_amount"], item["first_after_multiple"],
+            item["resumed_date"]) == ("pause", "2054-03-06", "2054-03-16", 6, "catch_up", 1800.0, 6, "2054-03-23")
+    assert "larger_debits_inside" not in item and "same_amount_debits" not in item
+    assert item["locations"] == {"last_before": "transaction:5", "first_after": "transaction:6"}
+
+
+def test_r3_25_a_larger_debit_that_is_no_multiple_is_named_inside_the_pause():
+    # 1,300 is 4.33x the payment, no exact multiple: no presence, no catch-up, named inside the gap.
+    item = only(_rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1300))
+    assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
+            item["first_after_kind"], item["resumed_date"]) == (
+        "pause", "2054-03-06", "2054-03-23", 11, "payment", "2054-03-23")
+    assert item["larger_debits_inside"] == [{"date": "2054-03-16", "amount": 1300.0}]
+    assert "first_after_amount" not in item and "first_after_multiple" not in item
+
+
+def test_r3_25_a_stop_after_catch_ups_names_them_and_no_payoff():
+    # Before: a possible stop, quiet 98, its payoff the 3x. Monthly 2x and 3x, each on or before the next due date (no
+    # missed payment): presence, no Caught up line; the stop runs from the 3x and counts both as catch-ups.
+    item = only(_rows([F(13), M(13), A(13)], 1000) + _rows([Y(13)], 2000) + _rows([J(12)], 3000), start=F(1),
+                end=date(2054, 8, 31))
+    assert (item["kind"], item["stop_confirmed"], item["last_presence_date"], item["quiet_business_days"]) == (
+        "stop", False, "2054-06-12", 55)
+    assert item["other_debits_after"] == {"count": 2, "last_date": "2054-06-12", "catch_ups": 2}
+    assert "payoff" not in item
+
+
+def test_r3_25_the_payoff_counts_earlier_large_debits():
+    # 4,500 (2.25x) and 5,000 (2.5x): no exact multiple, so neither is presence; the payoff is the last and counts
+    # the one before it.
+    item = only(_rows([F(2), M(2), A(2)], 2000) + _rows([A(10)], 4500) + _rows([A(20)], 5000), start=F(1), end=J(30))
+    assert (item["kind"], item["last_presence_date"], item["quiet_business_days"]) == ("stop", "2054-04-02", 61)
+    assert item["payoff"] == {"date": "2054-04-20", "amount": 5000.0, "earlier": 1}
+    assert "other_debits_after" not in item
+
+
+def test_r3_25_a_stop_names_a_catch_up_after_its_last_payment_and_adds_no_line():
+    # The catch-up after the last payment is the stop's last presence; the stop line names it (one line per gap).
+    item = only(_rows(bdays(M(2), M(13)), 850) + _rows([M(17)], 1700))
+    assert (item["kind"], item["last_payment_date"], item["last_presence_date"], item["quiet_business_days"]) == (
+        "stop", "2054-03-13", "2054-03-17", 10)
+    assert item["other_debits_after"] == {"count": 1, "last_date": "2054-03-17", "catch_ups": 1}
+    assert "payoff" not in item
+
+
+def test_r3_25_the_l31_shape_at_exactly_twice_is_a_catch_up():
+    # L31's payoff-sized debit at exactly 2x, after 3 missed business days: no stop, one Caught up item.
+    [item] = changes(_rows(bdays(M(2), M(20)), 850) + _rows([M(26)], 1700))
+    assert _catch_up_fields(item) == ("catch_up", "daily", 850.0, "2054-03-20", 3, "2054-03-23", "2054-03-25", 2,
+                                      "2054-03-26", 1700.0)
+
+
+@pytest.mark.parametrize("amount,multiple", [(1700, 2), (1667, 2), (1734, 2), (2550, 3), (3400, 4), (4250, 5),
+                                             (5100, 6), (5202, 6), (1666, None), (1735, None), (5950, None),
+                                             (1275, None), (6800, None)])
+def test_r3_25_the_catch_up_multiple_is_within_two_percent_of_2_to_6_times(amount, multiple):
+    pay = lpc._Pay(M(16), amount * 100, 0, 0, "transaction:1", None)
+    assert lpc._catch_up_multiple(pay, 85000) == multiple
+
+
+def test_r3_25_controls():
+    # L20: a 2.5x final debit is the payoff; L6 and § Still open 22: a 2x level held 2 is a catch-up level, no item;
+    # L31: payment-sized debits are presence; L12: bounced attempts are presence.
+    item = only(_rows([F(2), M(2), A(2)], 2000) + _rows([A(20)], 5000), start=F(1), end=J(30))
+    assert (item["kind"], item["quiet_business_days"], item["payoff"]) == (
+        "stop", 61, {"date": "2054-04-20", "amount": 5000.0})
+    assert changes(_rows(bdays(M(2), M(6)), 500) + _rows([M(11), M(12)], 1000) + _rows(bdays(M(13), M(31)), 500)) == []
+    assert changes(_rows(bdays(M(2), M(20)), 500) + _rows([M(23), M(24)], 1000)) == []
+    rows = _rows(bdays(M(2), M(20)), 850) + _rows([M(23)], 400) + _rows([M(25)], 300) + _rows([M(26)], 500)
+    assert changes(rows) == []
+    paid = _rows(every(M(4), A(8)), 1000)
+    attempts = _rows(every(A(15), A(29)), 1000, returned_funder_payment_by="transaction:99")
+    assert changes(paid + attempts, end=A(30)) == []
+
+
+# The owner's answer of 2026-10-07: the Caught up line (fabricated, as the owner's own example's shape).
+def test_r3_25_owner_a_daily_double_after_one_missed_day_is_caught_up():
+    [item] = changes(_rows(bdays(M(2), M(13)) + bdays(M(18), M(31)), 850) + _rows([M(17)], 1700))
+    assert _catch_up_fields(item) == ("catch_up", "daily", 850.0, "2054-03-13", 1, "2054-03-16", "2054-03-16", 2,
+                                      "2054-03-17", 1700.0)
+    # Two missed days.
+    [item] = changes(_rows(bdays(M(2), M(13)) + bdays(M(19), M(31)), 850) + _rows([M(18)], 1700))
+    assert _catch_up_fields(item)[4:] == (2, "2054-03-16", "2054-03-17", 2, "2054-03-18", 1700.0)
+
+
+def test_r3_25_owner_a_bounced_payment_is_a_missed_payment():
+    rows = (_rows(bdays(M(2), M(13)) + bdays(M(18), M(31)), 850) + _rows([M(17)], 1700)
+            + _rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+    [item] = changes(rows)
+    assert _catch_up_fields(item)[3:] == ("2054-03-13", 1, "2054-03-16", "2054-03-16", 2, "2054-03-17", 1700.0)
+
+
+def test_r3_25_owner_a_weekly_triple_after_two_missed_weeks_is_named_by_its_pause():
+    # Two missed weeks put the triple 15 business days after the last payment, past the weekly grace: the pause line
+    # still shows and carries the catch-up; no separate Caught up item (one line per event).
+    found = changes(_rows(every(M(3), M(17)) + every(A(14), Y(26)), 1000) + _rows([A(7)], 3000), start=M(1), end=Y(29))
+    assert _kinds(found) == ["pause"]
+    item = found[0]
+    assert (item["last_before_date"], item["first_after_date"], item["pause_business_days"], item["first_after_kind"],
+            item["first_after_amount"], item["first_after_multiple"], item["resumed_date"]) == (
+        "2054-03-17", "2054-04-07", 15, "catch_up", 3000.0, 3, "2054-04-14")
+
+
+def test_r3_25_owner_a_weekly_triple_inside_the_grace_is_caught_up():
+    # A triple 10 days after the last weekly payment (one missed due date): within the grace, one Caught up item.
+    [item] = changes(_rows(every(M(3), M(17)) + every(M(31), Y(26)), 1000) + _rows([M(27)], 3000), start=M(1),
+                     end=Y(29))
+    assert _catch_up_fields(item) == ("catch_up", "weekly", 1000.0, "2054-03-17", 1, "2054-03-24", "2054-03-24", 3,
+                                      "2054-03-27", 3000.0)
+
+
+def test_r3_25_owner_a_multiple_with_no_missed_payment_gets_no_line():
+    # A 2x on the next business day after a payment (daily), and a 2x on its weekly due date: nothing was missed.
+    daily = [day for day in bdays(M(2), M(31)) if day != M(16)]
+    assert changes(_rows(daily, 850) + _rows([M(16)], 1700)) == []
+    weekly = [day for day in every(M(3), A(28)) if day != A(7)]
+    assert changes(_rows(weekly, 1000) + _rows([A(7)], 2000), end=A(30)) == []
+    # A weekly 2x one business day after its due date is on time (CATCH_UP_LATE_BUSINESS_DAYS).
+    assert changes(_rows(weekly, 1000) + _rows([A(8)], 2000), end=A(30)) == []
+
+
+def test_r3_25_owner_a_potential_lender_s_catch_up():
+    label = f"{UNNAMED} (daily, 300.00)"
+    rows = (_potential(bdays(M(2), M(13)) + bdays(M(18), M(31)), 300, label=label)
+            + _potential([M(17)], 600, label=label))
+    [item] = changes(rows)
+    assert (item["kind"], item["lender_state"], item["lender_label"], item["multiple"], item["missed_payments"]) == (
+        "catch_up", "potential", label, 2, 1)
+
+
+def test_r3_25_owner_a_package_catch_up_names_its_statement():
+    march = _rows(bdays(M(2), M(27)), 850)
+    april = _rows([A(2)], 1700) + _rows(bdays(A(3), A(30)), 850)
+    [item] = _chain((march, M(1), M(31)), (april, A(1), A(30)))
+    assert (item["kind"], item["scope"], item["missed_payments"], item["missed_first_date"], item["catch_up_date"],
+            item["_source_statement"]) == ("catch_up", "package", 3, "2054-03-30", "2054-04-02", 1)
+
+
+def test_r3_25_owner_a_hole_before_the_catch_up_gives_no_line():
+    # The days between the two statements are covered by neither: no missed payment can be read there.
+    march = _rows(bdays(M(2), M(27)), 850)
+    april = _rows([A(8)], 1700) + _rows(bdays(A(9), A(30)), 850)
+    assert _chain((march, M(1), M(27)), (april, A(6), A(30))) == []
+
+
+def test_r3_25_the_missed_due_dates():
+    missed = lpc._missed_payments
+    assert missed(M(13), M(17), "daily", 0, "US") == [M(16)]
+    assert missed(M(13), M(17), "daily", 1, "US") == []
+    assert missed(M(13), M(18), "daily", 1, "US") == [M(16)]
+    assert missed(A(14), A(28), "weekly", 1, "US") == [A(21)]
+    assert missed(A(14), A(22), "weekly", 1, "US") == []
+    assert missed(A(14), A(23), "weekly", 1, "US") == [A(21)]
+    assert missed(M(17), A(7), "weekly", 1, "US") == [M(24), M(31)]
+    # A due date on a holiday moves to the next business day (Memorial Day 2054-05-25).
+    assert missed(Y(18), Y(27), "weekly", 1, "US") == []
+    assert missed(Y(18), Y(28), "weekly", 1, "US") == [Y(26)]
+    # Monthly: the same day of the next month (its last day where it has none), moved to a business day.
+    assert missed(A(13), Y(13), "monthly", 1, "US") == []
+    assert missed(A(13), Y(14), "monthly", 1, "US") == []
+    assert missed(A(13), Y(19), "monthly", 1, "US") == [Y(13)]
+    assert missed(date(2054, 1, 31), M(4), "monthly", 1, "US") == [date(2054, 3, 2)] == [
+        lpc._open_day(date(2054, 2, 28), "US")]
+    # Semi-monthly: 16 days (15 1/6 rounded up), so the 15th to the 1st of a 31-day month is on time.
+    assert missed(M(15), A(1), "semimonthly", 1, "US") == []
+    assert missed(M(15), A(6), "semimonthly", 1, "US") == [M(31)]
+
+
+# R3-84: same-cents debits no rule claimed, on the series' schedule inside its gap, are named; never presence.
+def test_r3_84_a_statement_stop_names_same_cents_debits_on_the_schedule():
+    item = only(_rows(bdays(M(2), M(13)), 850) + _other(bdays(M(16), M(31)), 850))
+    assert (item["kind"], item["quiet_business_days"], item["stop_confirmed"], item["last_presence_date"]) == (
+        "stop", 12, False, "2054-03-13")
+    assert item["same_amount_debits"] == {"count": 12, "first_date": "2054-03-16", "last_date": "2054-03-31"}
+
+
+def test_r3_84_a_package_pause_names_them():
+    march = _rows(bdays(M(2), M(13)), 850) + _other(bdays(M(16), M(31)), 850)
+    [item] = _chain((march, M(1), M(31)), (_rows(bdays(A(1), A(30)), 850), A(1), A(30)))
+    assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
+            item["first_after_kind"]) == ("pause", "2054-03-13", "2054-04-01", 13, "payment")
+    assert item["same_amount_debits"] == {"count": 12, "first_date": "2054-03-16", "last_date": "2054-03-31"}
+
+
+def test_r3_84_such_a_stop_is_never_confirmed():
+    march = _rows(bdays(M(2), M(13)), 850) + _other(bdays(M(16), M(31)), 850)
+    [before] = _chain((_rows(bdays(M(2), M(13)), 850), M(1), M(31)), (_other([A(1)], 20), A(1), A(30)))
+    assert (before["kind"], before["stop_confirmed"]) == ("stop", True)
+    [item] = _chain((march, M(1), M(31)), (_other(bdays(A(1), A(30)), 850), A(1), A(30)))
+    assert (item["kind"], item["stop_confirmed"]) == ("stop", False)
+    assert item["same_amount_debits"] == {"count": len(bdays(M(16), M(31))) + len(bdays(A(1), A(30))),
+                                          "first_date": "2054-03-16", "last_date": "2054-04-30"}
+
+
+@pytest.mark.parametrize("others", [
+    _other(bdays(M(16), M(31)), 850, "fee"),
+    _other(bdays(M(16), M(31)), 850, "nsf_or_return"),
+    _other(bdays(M(16), M(31)), 851),
+    _other([M(16), M(23), M(30)], 850),
+    _other([M(16), M(18), M(20), M(24), M(26)], 850),
+])
+def test_r3_84_controls_give_no_note(others):
+    # Another class (a fee, a return), other cents, another schedule (weekly), or too few of the gap's payments.
+    item = only(_rows(bdays(M(2), M(13)), 850) + others)
+    assert (item["kind"], item["quiet_business_days"]) == ("stop", 12)
+    assert "same_amount_debits" not in item
+
+
+def test_r3_84_a_reprinted_overlap_day_counts_once():
+    march = _rows(bdays(M(2), M(13)), 850) + _other(bdays(M(16), M(31)), 850)
+    april = _other([M(30), M(31)], 850) + _rows(bdays(A(1), A(30)), 850)
+    [item] = _chain((march, M(1), M(31)), (april, M(29), A(30)))
+    assert item["kind"] == "pause"
+    assert item["same_amount_debits"] == {"count": 12, "first_date": "2054-03-16", "last_date": "2054-03-31"}
+
+
+def test_r3_84_never_presence_and_never_a_payment():
+    # The note changes no figure of the item: the same stop, quiet and confirmation reading as without the debits.
+    plain = only(_rows(bdays(M(2), M(13)), 850))
+    noted = only(_rows(bdays(M(2), M(13)), 850) + _other(bdays(M(16), M(31)), 850))
+    assert {key: value for key, value in noted.items() if key not in ("same_amount_debits", "locations")} == {
+        key: value for key, value in plain.items() if key != "locations"}

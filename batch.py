@@ -67,7 +67,9 @@ FIELDS = [
     # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the statement's items by kind, and each as
     # kind:lender_label (information only).
     "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
-    "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops", "lender_payment_changes",
+    "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops",
+    # Audit round 3, R3-B05 (the owner's answer of 2026-10-07 to R3-25, "Add a 'Caught up' line"): the catch-ups.
+    "lender_payment_catch_ups", "lender_payment_changes",
     "quality", "transaction_detail_reliable", "corporate_use", "needs_review",
     "model", "error",
 ]
@@ -120,7 +122,8 @@ def _content_sha256(data: bytes) -> str:
 
 
 def _payment_change_columns(items: list[dict]) -> dict:
-    """The owner's request of 2026-10-06 (R2-OW18, I2): the seven lender payment change columns of one account."""
+    """The owner's request of 2026-10-06 (R2-OW18, I2): the lender payment change columns of one account (eight since
+    audit round 3, R3-B05: the catch-ups)."""
     def count(kind: str) -> int:
         return sum(1 for item in items if item.get("kind") == kind)
 
@@ -137,6 +140,7 @@ def _payment_change_columns(items: list[dict]) -> dict:
         "lender_payment_pauses": count("pause"),
         "lender_payment_possible_stops": sum(1 for item in items
                                              if item.get("kind") == "stop" and item.get("stop_confirmed") is not True),
+        "lender_payment_catch_ups": count("catch_up"),
         "lender_payment_changes": "; ".join(named(item) for item in items),
     }
 

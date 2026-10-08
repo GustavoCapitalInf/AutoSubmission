@@ -151,13 +151,14 @@ def test_the_batch_csv_carries_the_lender_payment_change_columns():
 
     from tests import zelle_setting_fixtures as fx
 
+    # Audit round 3, R3-B05 (the owner's answer of 2026-10-07 to R3-25): and the catch-up count, before the items.
     start = batch.FIELDS.index("recurring_debit_groups") + 1
-    assert batch.FIELDS[start:start + 7] == [
+    assert batch.FIELDS[start:start + 8] == [
         "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
         "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops",
-        "lender_payment_changes"]
+        "lender_payment_catch_ups", "lender_payment_changes"]
     row = batch._row(Path("fabricated.md"), fx.document(fx.FREE).accounts[0])
-    assert [row[name] for name in batch.FIELDS[start:start + 7]] == [0, 0, 0, 0, 0, 0, ""]
+    assert [row[name] for name in batch.FIELDS[start:start + 8]] == [0, 0, 0, 0, 0, 0, 0, ""]
     columns = batch._payment_change_columns([
         {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed"},
         {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed", "schedule_confirmed": False},
