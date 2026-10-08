@@ -1302,6 +1302,34 @@ def test_the_spec_and_the_contract_record_r2_ow18_review_round_1():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B05, review round 1: the code commit §20 and the contract name.
+R3_B05_R1_CODE_COMMIT = "cc8524e"
+
+
+def test_the_spec_and_the_contract_record_r3_b05_review_round_1():
+    """Audit round 3, R3-B05, review round 1: §9.1's `catch_ups_inside`, §10.1's wording, §10.8's export field, §17.1
+    (24)'s sentence and disclosed shapes, the §20 line with its commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    for section, end, words in (
+        ("\n### 9.1 ", "\n### 9.2 ", ("`catch_ups_inside`",)),
+        ("\n### 10.1 ", "\n### 10.2 ", ("on 2054-03-17 before payments resumed (possible catch-up)",)),
+        ("\n### 10.8 ", "\n## 11. ", ("`catch_ups_inside` (\"2054-03-17 1700.0 2x; …\")",)),
+    ):
+        found = _section(text, section, end)
+        for word in words:
+            assert word in found, (section, word)
+    open_items = re.sub(r"\s+", " ", _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. "))
+    for words in ("R3-B05 review round 1 (findings 2, 3 and 5)", "a partial catch-up", "\"Partly caught up\"",
+                  "a regime paid on the 1st and the 15th", "\"N debits of exact multiples after the last payment\""):
+        assert words in open_items, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("audit round 3, R3-B05, review round 1 (findings 1 to 5)", R3_B05_R1_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B05, review round 1 ({R3_B05_R1_CODE_COMMIT})", "`catch_ups_inside`"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
