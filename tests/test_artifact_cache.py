@@ -523,8 +523,12 @@ def test_analysis_stage_version_is_pinned_at_34():
     2026-10-08 (Capital One daily ledger) has the Capital One parser declare the
     postings it proves were printed on the previous-balance day, which the ADB
     engine folds into the opening balance, so a stored withheld ledger of such a
-    statement must recompute: 33 -> 34. This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 34
+    statement must recompute: 33 -> 34. The owner report of 2026-10-08 (Bank of
+    America NSF) has the Bank of America parser publish the bank's own Daily
+    ledger balances table once every cell is verified against the rows, so a
+    stored ledger relabels its printed days and a quiet negative opening day
+    joins the printed-day NSF count: 34 -> 35. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 35
 
 
 def test_paddle_model_token_is_not_in_free_models():

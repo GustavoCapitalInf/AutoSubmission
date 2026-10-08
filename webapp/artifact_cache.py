@@ -736,7 +736,8 @@ OCR_STAGE_VERSION = 5
 # 33 -> 34 (owner report 2026-10-08, Capital One daily ledger): the parser declares postings printed on the
 # previous-balance day (`Statement.pre_period_carry_in_count`) and the ADB engine folds them into the opening
 # balance, so such a statement's stored ADB and NSF days change from withheld to published; OCR stays cached.
-ANALYSIS_STAGE_VERSION = 34
+# 34 -> 35 (owner report 2026-10-08, Bank of America NSF): its verified Daily ledger balances join the stored ledger.
+ANALYSIS_STAGE_VERSION = 35
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
