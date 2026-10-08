@@ -101,7 +101,13 @@ _BRANCH_LABEL_WORDS = r"(?:FIN CTR|FIN CENTER|FINANCIAL CENTER|FINANCIAL CTR)"
 _ROOT_FURNITURE = re.compile(r"(?<![A-Z])(?:MEMBER FDIC|EQUAL HOUSING LENDER)\b")
 _FUNDRAISING = re.compile(r"(?<![A-Z])FUNDRAIS\w*")
 _WAVE_PAYOUT_ENTRY = re.compile(r"(?<![A-Z])WAVE (?:[A-Z0-9]{2,6} )?FUNDIN WAVE\b|(?<![A-Z])WAVE FUNDING INSTRU\w*")
-_WIRE_TRADE_PURPOSE = re.compile(r"(?<![A-Z])(?:ADVANCE PAYMEN\w*|ADVANCE PMTS?|PRE ?PAYMENTS?)(?![A-Z])")
+#: Audit round 3, R3-B07 (R3-18): and the abbreviated forms a wire's purpose field prints or cuts (ADV PAYM, ADV
+#: PAYMENT, ADV PMT, ADV PYMT, ADVANCE PYMT), never after MERCHANT, CASH or MCA (a merchant cash advance's own words,
+#: the full forms included). One pattern, shared by a wire's purpose text (_financing_root_places, wire-only: an ACH
+#: entry's 'DES:ADV PMT' keeps its root) and a payer-less deposit's reading (_deposit_location_reading).
+_WIRE_TRADE_PURPOSE = re.compile(
+    r"(?<![A-Z])(?<!MERCHANT )(?<!CASH )(?<!MCA )(?:(?:ADVANCE|ADV) (?:PAYM\w*|PMTS?|PYMTS?)|PRE ?PAYMENTS?)(?![A-Z])"
+)
 #: §8.1, T4 (audit B7: I16): a whole-word CREDIT after a single letter that ends the payer region is the entry word a
 #: layout prints after an originator name its field cut ('<NAME> P CREDIT', a sixteen-character name and its entry).
 #: Audit round 2, R2-B09 (R06): so is the ACH entry 'CREDIT NONE' ending the region after a cut name ('<NAME> CREDIT
@@ -708,9 +714,11 @@ _LOOSE_WIRE = re.compile(
 #: §8.5 (A3): on a row that prints transfer wording, the loose wire words and a bare CHIPS ('INCOMING CHIPS TRANSFER')
 #: name the wire channel (_channel). A bare CHIPS elsewhere may be a payer's own word, so _LOOSE_WIRE keeps CHIPS CREDIT.
 _TRANSFER_WIRE_WORDS = re.compile(_LOOSE_WIRE.pattern + r"|(?<![A-Z])CHIPS\b")
-#: §8.5: a sender that names a bank, a title or an escrow firm never verifies by repetition.
+#: §8.5: a sender that names a bank, a title or an escrow firm never verifies by repetition. Audit round 3, R3-B07
+#: (R3-14): BANKING and the non-English bank words BANCA, BANQUE, BANCAIRE and SPARKASSE too, beside BANCO.
 _BANK_OR_TITLE_SENDER = re.compile(
-    r"\b(?:BANK|BANCO|BANCORP|N A|TRUST COMPANY|CREDIT UNION|FCU|SAVINGS|TITLE|ESCROW|CLOSING|SETTLEMENT)\b"
+    r"\b(?:BANK|BANKING|BANCO|BANCA|BANQUE|BANCAIRE|SPARKASSE|BANCORP|N A|TRUST COMPANY|CREDIT UNION|FCU|SAVINGS"
+    r"|TITLE|ESCROW|CLOSING|SETTLEMENT)\b"
 )
 #: §8.6: the verification-only words: sales wording often enough to count, never proof.
 _VERIFICATION_ONLY = re.compile(
@@ -1943,9 +1951,10 @@ def _deposit_location_reading(
     words = _DEPOSIT_CREDIT_UNION.sub(" ", words)
     words = _STREET_NAME.sub(" ", words)
     # Audit round 2, R2-B13 (R35): B7 review round 2's place, branch name and town are removed only where no name word
-    # stands before their financing word (_deposit_location_removal).
+    # stands before their financing word (_deposit_location_removal). Audit round 3, R3-B07 (R3-45): read with the
+    # statement's bank, so arm S's whole-row match lifts R35's guard on Scotiabank's statements only.
     for location in (_DEPOSIT_PLACE, _DEPOSIT_BRANCH_NAME, _DEPOSIT_TOWN_TAIL):
-        words = location.sub(_deposit_location_removal, words)
+        words = location.sub(lambda found: _deposit_location_removal(found, bank=bank), words)
     words = _DEPOSIT_TRADE_PURPOSE.sub(" ", words)
     words = _WIRE_TRADE_PURPOSE.sub(" ", words)
     split = words.split()
@@ -1957,7 +1966,7 @@ def _deposit_location_reading(
     )
 
 
-def _deposit_location_removal(found: re.Match[str]) -> str:
+def _deposit_location_removal(found: re.Match[str], *, bank: str | None = None) -> str:
     """§8.1, T4 (audit round 2, R2-B13: R35; B7 review round 3, minor 1): a place, a branch's name or a town (B7 review
     round 2's _DEPOSIT_PLACE, _DEPOSIT_BRANCH_NAME, _DEPOSIT_TOWN_TAIL) is removed from a deposit's reading as before
     when it holds no financing word the reading keeps (_deposit_kept_word). One that holds one is removed only when that
@@ -1968,7 +1977,8 @@ def _deposit_location_removal(found: re.Match[str]) -> str:
     (_inside_a_deposit_form: 'NIGHT DROP CAPITAL PLAZA'), or the street suffix that ends a numbered address ('<n> MAIN
     ST CAPITAL HEIGHTS MD', B7 review round 2's own pin). Otherwise the match stays, so a funder's name before a
     location keeps its financing word ('MOBILE DEPOSIT <NAME> FUNDING <town> <ST>', '<NAME> CAPITAL PLAZA', '<NAME>
-    CAPITAL CITY BRANCH') and holds."""
+    CAPITAL CITY BRANCH') and holds. Audit round 3, R3-B07 (R3-45): the deposit form is read with the statement's
+    `bank` (_inside_a_deposit_form: arm S's whole-row match counts on Scotiabank's statements only)."""
     location = found.group(0).split()
     kept = [word for word in location if _deposit_kept_word(word)]
     if not kept:
@@ -1983,7 +1993,7 @@ def _deposit_location_removal(found: re.Match[str]) -> str:
         # The street suffix that ends a numbered address ('<n> MAIN ST CAPITAL HEIGHTS MD', its name removed by
         # _STREET_NAME): the town follows the ATM's or branch's address.
         or (before[-1] in _STREET_SUFFIX_WORDS and any(_numbered_token(token) for token in before[-3:-1]))
-        or _inside_a_deposit_form(found.string, found.start())
+        or _inside_a_deposit_form(found.string, found.start(), bank)
     ):
         return " "
     return found.group(0)
@@ -2000,19 +2010,47 @@ def _deposit_kept_word(word: str) -> bool:
     return word.startswith(_DEPOSIT_FINANCING_STARTS) or _WHOLE_WORD_ROOT.fullmatch(word) is not None
 
 
-def _inside_a_deposit_form(words: str, start: int) -> bool:
+def _inside_a_deposit_form(words: str, start: int, bank: str | None = None) -> bool:
     """§8.1, T4 (audit round 2, R2-B13: R35): the token just before a deposit's location (which starts at `start` in
     `words`) is a word inside a match of the classifier's check-deposit form (_CHECK_DEPOSIT_FORM) or its cash, branch or
     ATM form (_CASH_BRANCH_ATM_FORM), read from each word's start so an overlapping match is found: the location
     follows, or sits inside, the deposit's own words (Wells Fargo's 'ATM CHECK DEPOSIT ON <date> <address> <town> <ST>
-    <n> ATM ID ...', inside the form's DEPOSIT ... ATM arm; 'NIGHT DROP <place>')."""
+    <n> ATM ID ...', inside the form's DEPOSIT ... ATM arm; 'NIGHT DROP <place>').
+
+    Audit round 3, R3-B07 (R3-45): on a statement whose bank field (`bank`) is not Scotiabank's (_SCOTIABANK), arm S's
+    whole-row match (the classifier's _BRANCH_DEPOSIT_TRANSIT, the form's last alternative) never counts: the form is
+    read without it (_cash_form_without_arm_s), so R35's guard holds a financing word after a name word there
+    ('DEPOSIT <NAME> CAPITAL PLAZA <transit> <sequence>'), as before arm S. On Scotiabank's statements the words are
+    the branch's printed name and arm S counts as before. Arm S's channel reading is unchanged (spec §17.1 (3))."""
     classifier = _classifier()
     before = words[:start].rstrip()
+    cash = (
+        classifier._CASH_BRANCH_ATM_FORM if _SCOTIABANK.search((bank or "").upper()) is not None
+        else _cash_form_without_arm_s()
+    )
     return any(
         (found := form.match(words, word.start())) is not None and found.end() >= len(before)
-        for form in (classifier._CHECK_DEPOSIT_FORM, classifier._CASH_BRANCH_ATM_FORM)
+        for form in (classifier._CHECK_DEPOSIT_FORM, cash)
         for word in re.finditer(r"\S+", before)
     )
+
+
+#: §8.1, T4 (audit round 3, R3-B07: R3-45): the bank field of a Scotiabank statement (upper-cased), whose arm-S branch
+#: deposits print the branch's own name.
+_SCOTIABANK = re.compile(r"(?<![A-Z])(?:SCOTIABANK|SCOTIA|BANK OF NOVA SCOTIA|BANQUE SCOTIA)\b")
+
+
+@cache
+def _cash_form_without_arm_s() -> re.Pattern[str]:
+    """§8.1, T4 (audit round 3, R3-B07: R3-45): the classifier's cash, branch or ATM form without its last alternative,
+    arm S (_BRANCH_DEPOSIT_TRANSIT), for _inside_a_deposit_form off Scotiabank's statements. A match the full form makes
+    with an earlier alternative is the same match here (the alternation tries arm S last)."""
+    classifier = _classifier()
+    pattern = classifier._CASH_BRANCH_ATM_FORM.pattern
+    arm_s = "|" + classifier._BRANCH_DEPOSIT_TRANSIT
+    if not pattern.endswith(arm_s):
+        raise RuntimeError("the cash, branch or ATM form no longer ends with arm S")
+    return re.compile(pattern[: -len(arm_s)])
 
 
 @cache
@@ -2837,6 +2875,76 @@ def _wire_label_only(region: str) -> bool:
     a bank's or a layout's labels (_WIRE_LABEL_ONLY_WORDS)."""
     words = _classifier().payer_name(region).split()
     return all(word in _WIRE_LABEL_ONLY_WORDS for word in words)
+
+
+#: §8.5, Q5 (audit round 3, R3-B07: R3-40; the underwriter's Q1 of 2026-10-02, every wire with no sender held): the
+#: words a wire's region may print besides its labels that name nobody, beside the classifier's generic words
+#: (REVENUE_GENERIC_WORDS, joined at call time: _wire_designation_words): the account-designation and product words,
+#: the holder-noise name words, the filler and purpose words and the legal forms. Never a place or nationality word (a
+#: numbered company's or a real name's: the provinces, CANADA, USA, AMERICA, AMERICAN, NATIONAL), and never INTEREST
+#: or another word a non-sale hold reads ('WIRE TRANSFER IN <ref> INTEREST' keeps its non-sale hold).
+_WIRE_DESIGNATION_OWN_WORDS = frozenset({
+    # Account designations and products.
+    "BUSINESS", "OPERATING", "OPERATIONS", "CHECKING", "SAVINGS", "ACCOUNT", "ACCT", "DDA", "SAV", "CHK", "MONEY",
+    "MARKET", "COMMERCIAL", "ANALYZED", "PREMIUM", "PLATINUM", "SELECT", "PREFERRED", "STANDARD", "BASIC", "SIMPLE",
+    "ESSENTIALS", "FUNDAMENTALS", "COMPLETE", "ADVANTAGE", "PERFORMANCE", "EVERYDAY", "PLUS", "ELITE", "FREE", "SMALL",
+    "TOTAL",
+    # Holder-noise name words.
+    "TRUST", "GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT", "ENTERPRISES", "DBA",
+    # Filler and purpose words.
+    "AMOUNT", "RENT", "THE", "OF", "AND",
+    # Legal forms.
+    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
+    "PLC",
+})
+
+
+@cache
+def _wire_designation_words() -> frozenset[str]:
+    """§8.5, Q5 (audit round 3, R3-B07: R3-40): _WIRE_DESIGNATION_OWN_WORDS and the classifier's generic words."""
+    return _WIRE_DESIGNATION_OWN_WORDS | _classifier().REVENUE_GENERIC_WORDS
+
+
+def _wire_names_nobody(region: str) -> bool:
+    """§8.5, Q5 (audit round 3, R3-B07: R3-40; the underwriter's Q1 of 2026-10-02): a wire's payer region that names no
+    sender: only labels (_wire_label_only), or only label, holder-noise, account-designation, purpose, filler or
+    legal-form words (_WIRE_LABEL_ONLY_WORDS, _wire_designation_words: 'BUSINESS', 'OPERATING ACCOUNT', 'BUSINESS LLC',
+    'THE AMOUNT OF'), on every wire layout and the labelled path. A numbered company keeps its reading (the
+    classifier's _NUMBERED_COMPANY_REGION or _NUMBERED_PROVINCE_START: '1234567 ONTARIO INC', '1234567 B C LTD',
+    OQ3)."""
+    if _wire_label_only(region):
+        return True
+    classifier = _classifier()
+    if (
+        classifier._NUMBERED_COMPANY_REGION.search(region) is not None
+        or classifier._NUMBERED_PROVINCE_START.match(region) is not None
+    ):
+        return False
+    nobody = _WIRE_LABEL_ONLY_WORDS | _wire_designation_words()
+    return all(word in nobody for word in classifier.payer_name(region).split())
+
+
+def _sending_bank_after_label(text: str, region: str, bank: str | None) -> bool:
+    """§8.5, Q5 (audit round 3, R3-B07: R3-42): on a row the classifier reads its sender after the wire's label
+    (_WIRE_SENDER_AFTER_LABEL, no originator label: _WIRE_ORIGINATOR_LABEL), a region that is only a bank's channel name
+    (_bank_only_payer: a listed sending bank's name or the statement's own bank's, after reference tokens and a trailing
+    ACH or N A) names no sender ('INBOUND WIRE <sending bank>'). A bank by its own form keeps the bank-originated
+    hold."""
+    classifier = _classifier()
+    if classifier._WIRE_SENDER_AFTER_LABEL.match(text) is None or classifier._WIRE_ORIGINATOR_LABEL.search(text):
+        return False
+    return _bank_only_payer(region, "", bank) in {"sending", "own"}
+
+
+def _wire_region_names_nobody(text: str, region: str, bank: str | None) -> bool:
+    """§8.5, Q5: the wire channel's blank point (_facts_region, _customer_financier): a region that names nobody
+    (_wire_names_nobody, audit round 3: R3-40), a bare incoming wire (the classifier's _bare_incoming_wire, R2-B10
+    review round 1: R11) or a sending bank's channel name printed after the wire's label (_sending_bank_after_label,
+    audit round 3: R3-42)."""
+    return bool(region) and (
+        _wire_names_nobody(region) or _classifier()._bare_incoming_wire(text)
+        or _sending_bank_after_label(text, region, bank)
+    )
 
 
 def _cut_wire_legal_form(region: str) -> bool:
@@ -4397,7 +4505,7 @@ def _lessor_business(
         if _RENT_RECEIVED.search(row) is None and _RENT_LEASE.search(row) is None:
             continue
         channel = _channel(text, record.bank)
-        region = _facts_region(text, channel)
+        region = _facts_region(text, channel, record.bank)
         if region:
             if not region_names_holder(record, text, region):
                 payers.add(("payer", classifier._payer_key(region)))
@@ -4769,7 +4877,7 @@ def _customer_financier(record: TransactionClassification, text: str) -> str | N
     if channel not in _CUSTOMER_FINANCING_CHANNELS:
         return None
     region = classifier.payer_region(text)
-    if channel == "wire" and region and (_wire_label_only(region) or classifier._bare_incoming_wire(text)):
+    if channel == "wire" and _wire_region_names_nobody(text, region, record.bank):
         region = ""
     if not region:
         return None
@@ -5301,16 +5409,17 @@ def insurer_payer_reading(
     return None
 
 
-def _facts_region(text: str, channel: str) -> str:
+def _facts_region(text: str, channel: str, bank: str | None = None) -> str:
     """The payer region the pass's facts read (credit_facts; owner ruling 2026-10-02, Q2: the insurer-for-work release
     reads it too): the classifier's payer_region, '' on the wire channel where it names no sender. Audit B5 (I14): a
     wire's region of labels alone, or with no name word, names no sender (_wire_label_only). Audit round 2, R2-B10
     review round 1 (R11): nor does a row an incoming-wire label starts that prints only a reference (the classifier's
     _bare_incoming_wire), whatever word of it the payer reader keeps (a month, a stray TT or FROM): it left the
-    own-account reading only to be held as a wire with no sender, never counted."""
-    classifier = _classifier()
-    region = classifier.payer_region(text)
-    if channel == "wire" and region and (_wire_label_only(region) or classifier._bare_incoming_wire(text)):
+    own-account reading only to be held as a wire with no sender, never counted. Audit round 3, R3-B07: nor a region of
+    label, holder-noise, account-designation, purpose, filler or legal-form words (R3-40), nor a sending bank's channel
+    name printed after the wire's label (R3-42, read with the statement's `bank`): _wire_region_names_nobody."""
+    region = _classifier().payer_region(text)
+    if channel == "wire" and _wire_region_names_nobody(text, region, bank):
         return ""
     return region
 
@@ -5468,7 +5577,7 @@ def _insurer_for_work(
             or _under_micro_floor(record)
         ):
             continue
-        region = _facts_region(text, _channel(text, record.bank))
+        region = _facts_region(text, _channel(text, record.bank), record.bank)
         if _claimed(record, text) or _factoring_payout_payer(region, text):
             continue
         entry = classifier.entry_fields(text)
@@ -5551,7 +5660,7 @@ def credit_facts(
     builder's Zelle draw is a progress draw (construction_progress_draw); nothing else here reads it."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
-    region = _facts_region(text, channel)
+    region = _facts_region(text, channel, record.bank)
     # Audit round 2, R2-B11 (R09 part A): a TD Canada Trust e-Transfer prints a per-transfer code where a sender would
     # stand, which the pass's text no longer prints (without_transfer_code): the row reads no sender and no key.
     sender, holder_sender = (

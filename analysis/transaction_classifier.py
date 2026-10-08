@@ -40,7 +40,12 @@ from .dates import parse_date
 from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
 from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
-from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
+from .description_text import (
+    RECEIVER_FIELD_LABELS,
+    RECEIVER_NAME_LABELS,
+    ln_name_spans,
+    normalize_transaction_description,
+)
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from .true_revenue import (
@@ -1772,8 +1777,14 @@ def wire_relayed_customer(text: str) -> str:
 #: BANK, FEDERAL SAVINGS), and a bank's merchant-services, bankcard, processor and settlement forms, which are
 #: settlements, never a bank's own money nor a relay. The true-revenue pass holds a bank originator
 #: (financing_named_payer). A3-G review: never a food or blood bank, and never a company whose name holds the word
-#: (bank_by_form).
-BANK_FORM_ORIGINATOR = re.compile(r"(?<![A-Z])(?:BANK|BANCORP|CREDIT UNION|FEDERAL SAVINGS)\b")
+#: (bank_by_form). Audit round 3, R3-B07 (R3-14): and BANKING ('WESTPAC BANKING CORP', whose BANK the word boundary
+#: missed) and the non-English bank words (_NON_ENGLISH_BANK_WORDS: BANCO, BANCA, BANQUE, BANCAIRE, SPARKASSE).
+BANK_FORM_ORIGINATOR = re.compile(
+    r"(?<![A-Z])(?:BANK(?:ING)?|BANCORP|BANCO|BANCA|BANQUE|BANCAIRE|SPARKASSE|CREDIT UNION|FEDERAL SAVINGS)\b"
+)
+#: Audit round 3, R3-B07 (R3-14): a non-English bank word leads or sits inside the bank's own name ('BANCO <name> SA',
+#: 'BANCA <name> DI <town> SPA', 'UNION BANCAIRE PRIVEE UBP SA'), so a company form after it is the bank's own.
+_NON_ENGLISH_BANK_WORDS = frozenset({"BANCO", "BANCA", "BANQUE", "BANCAIRE", "SPARKASSE"})
 BANK_SETTLEMENT_ORIGINATOR = re.compile(
     r"(?<![A-Z])(?:MERCHANT\w*|MERCH SVCS|BANKCARD\w*|CARD (?:SERVICES|SVCS)|PAYMENTECH|PROCESSING|SETTLEMENT\w*)\b"
     r"|\b(?:MERCH|MRCH|BNKCD|BKCD|STLMT)\b"
@@ -1840,7 +1851,10 @@ def bank_by_form(region: str, after: str = "", *, city_state_end: bool = False) 
     a company form (_BANK_COMPANY_FORM) counts only as the bank's own, right after its bank word, after 'OF <place>'
     (_BANK_OF_PLACE_WORDS words) or the bank's own form words (_BANK_OWN_FORM_WORDS). Read on the originator up to a
     relay label, whose relayed customer is no part of the bank's name. A3-G re-review 2: `after` and `city_state_end`
-    are the region's address context (originator_address), read for the address's state only."""
+    are the region's address context (originator_address), read for the address's state only. Audit round 3, R3-B07
+    (R3-14): a non-English bank word (_NON_ENGLISH_BANK_WORDS) leads or sits inside the bank's own name, so any company
+    form after it is the bank's own; BANKING keeps the English rule ('WESTPAC BANKING CORP' is a bank, 'CONTOSO BANKING
+    SOLUTIONS LLC' is not)."""
     relay = next((label for label in _RELAY_ORIGINATOR_LABEL.finditer(region or "") if label.start() > 0), None)
     if relay is not None:
         after = region[relay.start():] + after
@@ -1853,6 +1867,8 @@ def bank_by_form(region: str, after: str = "", *, city_state_end: bool = False) 
         return True
     if form.start() < found.start():
         return False
+    if found.group(0) in _NON_ENGLISH_BANK_WORDS:
+        return True
     between = region[found.end(): form.start()].split()
     if not between or all(word in _BANK_OWN_FORM_WORDS for word in between):
         return True
@@ -1878,7 +1894,9 @@ def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state
     end (_RELAY_CUSTOMER_END), after its account number and any SWIFT line number: the bank only relays, so the
     customer is the sender, read normally. '' when the originator is no bank by form (bank_by_form, read with the
     region's address context, A3-G re-review 2), or no relay label names a customer (a bank sending on its own
-    behalf)."""
+    behalf). Audit round 3, R3-B07 (R3-14): a numbered company is a named payer (§5.2), so a relayed name that starts
+    as one once its account number is dropped (_NUMBERED_PROVINCE_START: '1234567 B C LTD', whose single letters and
+    legal form are no payer words) is the customer too."""
     if not region or not bank_by_form(region, after, city_state_end=city_state_end):
         return ""
     for label in _RELAY_ORIGINATOR_LABEL.finditer(rest):
@@ -1890,7 +1908,7 @@ def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state
         while tokens and _is_reference_token(tokens[0]) and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
             tokens.pop(0)
         name = " ".join(tokens)
-        if any(
+        if _NUMBERED_PROVINCE_START.match(name) is not None or any(
             _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
             for token in _leading_name_words(name).split()
         ):
@@ -1911,10 +1929,18 @@ def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state
 _FALCON_WIRE_FIELD = r"(?:INTERNATIONAL IWT|INCOMING WIRE(?: TRF)?) FALCON INTERNATI WIRES"
 #: Audit round 2, R2-B10 (R21 part C): the plural 'WIRE TRANSFERS <INCOMING|FROM|DEPOSIT|IN>' too, and 'WIRE TRANSFER[S]
 #: IN <sender>', whose sender was never read (a reference alone after IN is still no sender).
+#: Audit round 3, R3-B07 (R3-42; Q5 of 2026-09-28 counts a wire with a named sender): and the sender printed straight
+#: after R32's labels and the plural CREDIT label: 'INBOUND WIRE|FEDWIRE [TRANSFER FROM] <sender>', 'INCOMING FEDWIRE
+#: [TRANSFER FROM] <sender>', 'INCOMING WIRE TRANSFER FROM <sender>', 'INCOMING CHIPS <sender>' and 'WIRE TRANSFER[S]
+#: CREDIT <sender>' (the longer form first, so Huntington's bare 'INCOMING FEDWIRE TRANSFER' reads only its label word
+#: and no sender). The other labels with no FROM (FEDWIRE CREDIT, CHIPS CREDIT, WIRE IN, DOMESTIC WIRE, a bare INCOMING
+#: WIRE <name>, U.S. Bank's WIRE CREDIT REF<n>) stay the recorded residual (§20).
 _WIRE_SENDER_AFTER_LABEL = re.compile(
     r"^(?:INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT [A-Z]{2}|INCOMING WIRE(?= \d+ [A-Z])"
-    r"|WIRE TRANSFERS? (?:INCOMING|FROM|DEPOSIT|IN)|INCOMING WIRE TRANSFER(?= .*\bWIRE PAYMENT$)"
-    r"|(?:DOMESTIC )?WIRE DEPOSIT WIRE IN|" + _FALCON_WIRE_FIELD + r")\b ?"
+    r"|WIRE TRANSFERS? (?:INCOMING|FROM|DEPOSIT|IN|CREDIT)|INCOMING WIRE TRANSFER(?= .*\bWIRE PAYMENT$)"
+    r"|(?:DOMESTIC )?WIRE DEPOSIT WIRE IN|" + _FALCON_WIRE_FIELD
+    + r"|INBOUND (?:FED)?WIRE(?: TRANSFER FROM)?|INCOMING FEDWIRE(?: TRANSFER FROM)?|INCOMING WIRE TRANSFER FROM"
+    r"|INCOMING CHIPS)\b ?"
 )
 #: A3: the sender printed after the label ends at a wire field, at NOTPROVIDED, or at Scotiabank's WIRE PAYMENT.
 _WIRE_SENDER_AFTER_LABEL_END = re.compile(_WIRE_FIELD_END.pattern + r"|\b(?:NOTPROVIDED|WIRE PAYMENT)\b")
@@ -3143,11 +3169,13 @@ _WIRE_NON_SALE_PURPOSE = re.compile(
 #: §7.9: the channel and bank fields removed before the financing roots are read on a wire. Audit round 2, R2-B09
 #: (R06): and U.S. Bank's 'WIRE CREDIT REF<n>' and the '<INCOMING|DOMESTIC|INTL|INTERNATIONAL|FOREIGN> WIRE CREDIT'
 #: labels, whose CREDIT is the channel's word, never a lender's name (removed from the veto's text only: the row keeps
-#: its label and reads as a wire).
+#: its label and reads as a wire). Audit round 3, R3-B07 (R3-42): and R21 part C's plural label ('WIRE TRANSFERS
+#: CREDIT <sender>'), whose CREDIT is the channel's word as the singular's is, now that the sender after it is read.
 _WIRE_CHANNEL_AND_BANK_FIELDS = re.compile(
     r"^(?:WIRE CREDIT REF ?\d+|(?:INCOMING|DOMESTIC|INTL|INTERNATIONAL|FOREIGN) WIRE CREDIT)\b|"
     r"^(?:WIRE TYPE \S+ IN|USD WIRE IN|[A-Z]{3} WIRE IN|FEDWIRE CREDIT|CHIPS CREDIT|WT FED|WIRE TSF"
-    r"|WIRE TRANSFER \S+|INCOMING WIRE|WIRE IN|WIRE FROM|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN)(?: INCOMING)? WIRE"
+    r"|WIRE TRANSFER \S+|WIRE TRANSFERS (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)"
+    r"|INCOMING WIRE|WIRE IN|WIRE FROM|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN)(?: INCOMING)? WIRE"
     r"|INCOMING FUNDS TRANSFER|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER|FUNDS TRANSFER WIRE FROM"
     r"|BOOK TRANSFER CREDIT)\b"
     r"|\b(?:SND BK|BBI|VIA|INTERMEDIARY|INT BK|OGB)\b.*?(?=\b(?:B O|ORIG|ORG|REF|OBI|BNF|TRN|IMAD|PMT DET|RFB|RMR|ID)\b|$)"
@@ -3622,7 +3650,10 @@ def _classify_credit_revenue(
     direction_consistent: bool,
     bank: str | None = None,
     holder_name: str | None = None,
+    description: str | None = None,
 ) -> _RevenueDecision | None:
+    """The credit's revenue decision. Audit round 3, R3-B07 (R3-46): `description` is the printed description, read
+    only by the strong non-revenue step's LN-name reading (description_text.ln_name_spans)."""
     if amount <= 0 or not posted:
         return None
     text = revenue_text(text)
@@ -3808,8 +3839,18 @@ def _classify_credit_revenue(
     # LOAN FUNDING F<digits> <merchant>') is a lease-to-own financier's payout of the merchant's sale, which the
     # true-revenue pass claims (CUSTOMER_FINANCING_PAYERS): the strong rule reads the row without that form only. Every
     # other reader (the designation test above, the descriptor proceeds, the lender-credit reader) keeps the full text.
+    # Audit round 3, R3-B07 (R3-46; §7.11): a company name that holds LN ('LN TRUCKING LLC', 'CONTOSO LN HOLDINGS LLC';
+    # description_text.ln_name_spans, read on the printed description: no street, no loan word around it, no transfer
+    # wording) is read by the strong patterns with the LOAN the normalizer made of its LN blanked, as Snap's form is, so
+    # the row reaches pass 7, whose financing root holds it for review (financing_named_payer). Every other reader keeps
+    # the full text.
+    strong_text = _SNAP_MERCHANT_FUNDING.sub(" ", text)
+    for name, blanked in ln_name_spans(description or ""):
+        strong_text = re.sub(
+            r"(?<![A-Z0-9])" + re.escape(name) + r"(?![A-Z0-9])", lambda _found, kept=blanked: kept, strong_text
+        )
     if (
-        _matches_any(_SNAP_MERCHANT_FUNDING.sub(" ", text), _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
+        _matches_any(strong_text, _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
     ) or _own_book_or_funds_transfer(text, holder):
         return _RevenueDecision(
             "non_revenue",
@@ -4350,6 +4391,7 @@ def _build_record(
         account_name=account_name,
         direction_consistent=direction_consistent,
         holder_name=holder_name,
+        description=description,
     )
     revenue_state = revenue.classification if revenue is not None else None
     revenue_tier = tier_of_state(revenue_state)

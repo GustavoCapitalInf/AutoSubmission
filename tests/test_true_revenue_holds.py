@@ -273,6 +273,42 @@ def test_an_advance_still_holds_a_lender_s_wire_and_an_ach_entry():
     assert _one("CONTOSO GROUP DES:ADVANCE PMT ID:1", 7000.0) == FINANCING
 
 
+# Audit round 3, R3-B07 (R3-18; §8.1, T4): a buyer's advance payment printed cut or abbreviated on a wire's purpose
+# (ADV PAYM, ADV PAYMENT, ADV PMT, ADV PYMT, ADVANCE PYMT) is no financing either, never after MERCHANT, CASH or MCA.
+R318_BOFA = ("WIRE TYPE:WIRE IN DATE:000000 TIME:0000 ET TRN:0000000000000001 ORIG:{orig} ID:AE0000000000000000000 "
+             "SND BK:SAMPLE BANK LIMITED ID:0000 PMT DET:WIRES 000000000 ROUTING 000000000 {purpose}")
+
+
+@pytest.mark.parametrize("purpose", [
+    "ADV PAYM", "ADV PAYMENT FOR PO 1234", "ADV PMT", "ADV PYMT", "ADV PMT INV 1234", "ADVANCE PYMT",
+])
+def test_r3_18_a_buyer_s_abbreviated_advance_payment_wire_is_counted(purpose):
+    text = R318_BOFA.format(orig="FABRIKAM SEAFOOD TRADING", purpose=purpose)
+    assert _one(text, 23456.78, bank="Bank of America") == WIRE
+
+
+@pytest.mark.parametrize("purpose", ["MERCHANT ADV PMT", "CASH ADV PMT", "MERCHANT ADVANCE PAYMENT"])
+def test_r3_18_a_merchant_or_cash_advance_payment_on_a_wire_still_holds(purpose):
+    text = R318_BOFA.format(orig="FABRIKAM SEAFOOD TRADING", purpose=purpose)
+    assert _one(text, 23456.78, bank="Bank of America") == FINANCING
+
+
+def test_r3_18_controls_a_funder_s_wire_an_ach_entry_and_an_mca_advance():
+    # The payer region's financing name comes first; the purpose removal is wire-only.
+    assert _one(R318_BOFA.format(orig="CONTOSO CAPITAL FUNDING LLC", purpose="ADV PMT"), 23456.78,
+                bank="Bank of America") == FINANCING
+    assert _one("CONTOSO GROUP DES:ADV PMT ID:1", 23456.78, bank="Bank of America") == FINANCING
+    assert _one(R318_BOFA.format(orig="FABRIKAM SEAFOOD TRADING", purpose="MCA ADV PMT"), 23456.78,
+                bank="Bank of America")[0] == "non_revenue"
+
+
+def test_r3_18_the_pattern_is_shared_with_the_payer_less_deposit_reading():
+    assert _one("MOBILE DEPOSIT ADV PMT", 2345.67, bank="Bank of America") == CHECK
+    assert _one("ATM CASH DEPOSIT 1234 ADV PMT", 2345.67, bank="Bank of America") == NO_PAYER
+    assert _one("MOBILE DEPOSIT CONTOSO FUNDING LLC", 2345.67, bank="Bank of America") == FINANCING
+    assert tr._WIRE_TRADE_PURPOSE.search("ADV PAYM") and not tr._WIRE_TRADE_PURPOSE.search("MERCHANT ADV PMT")
+
+
 def test_a_fundraising_purpose_is_no_financing():
     text = ("WIRE TYPE WIRE IN DATE 540102 TIME 1234 ET TRN 1234567890123456 SEQ 1234567890123456 123456 ORIG CONTOSO "
             "FOR SAMPLE ID 1234567890 SND BK FABRIKAM BANK ID 123456789 PMT DET 12345 1234567890 INVOICE "
@@ -1041,8 +1077,9 @@ def test_a_northeast_bank_credit_is_held_as_financing_and_gates_its_statement():
      ("non_revenue", "financing_proceeds_credit")),
     ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHEAST BANK SAMPLEVILLE ME 12345 US REF SAMPLE NYC CTR BNF "
      "NORTHWIND PLUMBING LLC OBI 1234", FINANCING),
-    # A payer whose name only starts like the lending bank is no lending bank.
-    ("NORTHEAST BANKING SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", COMPANY),
+    # A payer whose name only starts like the lending bank is no lending bank. Audit round 3, R3-B07 (R3-14): its
+    # BANKING is one of §8.5's bank words, so Q6 never verifies it by its company form: counted once.
+    ("NORTHEAST BANKING SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", ONE_OFF),
 ])
 def test_northeast_bank_s_other_spellings_keep_their_readings(text, expected):
     [record] = _records([(text, 50000.0)], holder=_PLUMBER, bank="Bank of America")
