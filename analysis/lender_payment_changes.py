@@ -105,6 +105,10 @@ WEEKLY_EQUIVALENT = {"daily": Fraction(5), "weekly": Fraction(1), "biweekly": Fr
 #: The funding note's window around the new amount's first payment, in calendar days (B3).
 FUNDING_NOTE_DAYS_BEFORE = 20
 FUNDING_NOTE_DAYS_AFTER = 5
+#: Audit round 3, R3-82: a credit within LEVEL_MERGE_PERCENT of a payment or an attempt of the series dated 0 to this
+#: many calendar days before it returns that payment (R2-OW13's rule D window,
+#: `transaction_classifier.RETURNED_FUNDER_PAYMENT_WINDOW_DAYS`), and the funding note never cites it.
+FUNDING_NOTE_RETURN_DAYS = 7
 #: A one-off at this multiple of the regular amount or more is a payoff, never presence (A3b, B5).
 PAYOFF_MULTIPLE = 2
 #: Another series that starts at an amount within this many percent of the stopped one continues it (B5).
@@ -278,7 +282,9 @@ def _cents(value: object) -> int | None:
 
 @dataclass(frozen=True)
 class _Row:
-    """The row view (A1): the fields this module reads, from a record or its serialized dict."""
+    """The row view (A1): the fields this module reads, from a record or its serialized dict. Audit round 3, R3-82: a
+    credit's R2-OW13 marks, `returns_payment` (`returns_funder_payment`) and `reversal` (`reversal_of`), which the
+    funding note reads."""
 
     statement: int
     position: int
@@ -298,6 +304,8 @@ class _Row:
     revenue_entity: str | None
     location: str
     flagged_group: str | None
+    returns_payment: bool
+    reversal: bool
 
 
 def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
@@ -323,6 +331,7 @@ def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
         revenue_entity=_field(record, "revenue_canonical_entity"),
         location=_field(record, "source_location") or f"transaction:{position + 1}",
         flagged_group=_field(record, "flagged_group"),
+        returns_payment=bool(_field(record, "returns_funder_payment")), reversal=bool(_field(record, "reversal_of")),
     )
 
 
@@ -1005,16 +1014,31 @@ def _common(kind: str, reading: _Reading, position: _Position, positions: int, s
     }
 
 
-def _after_funding(reading: _Reading, scope: _Scope, first: date) -> dict | None:
+def _after_funding(reading: _Reading, scope: _Scope, first: date, *, after_day: date,
+                   amounts: Sequence[int]) -> dict | None:
     """B3: the latest posted, non-duplicate credit of the series' entity (canonical or revenue entity) dated from
     FUNDING_NOTE_DAYS_BEFORE days before to FUNDING_NOTE_DAYS_AFTER days after the new amount's first payment; for a
-    confirmed series, or a potential series whose entity is named."""
+    confirmed series, or a potential series whose entity is named. Audit round 3, R3-82: never (a) a credit that
+    returns or reverses a payment (R2-OW13's `returns_funder_payment` or `reversal_of`); (b) one within
+    LEVEL_MERGE_PERCENT of one of the change's own payment `amounts` (the reference regime's, the regime just before's
+    and the new regime's); (c) one within LEVEL_MERGE_PERCENT of a payment or an attempt of the series dated 0 to
+    FUNDING_NOTE_RETURN_DAYS days before it (a return of that payment); (d) one dated on or before `after_day`, the
+    first payment of the regime just before the new one (the old level's own funding). No size floor: a revolving
+    product's genuine draws can be payment-sized."""
     if not reading.named:
         return None
     entity = reading.series.entity
     window = (first - timedelta(days=FUNDING_NOTE_DAYS_BEFORE), first + timedelta(days=FUNDING_NOTE_DAYS_AFTER))
+    debits = [*reading.series.payments, *reading.series.attempts]
+
+    def returned(row: _Row) -> bool:
+        return any(_near(row.cents, pay.cents) and 0 <= (row.day - pay.day).days <= FUNDING_NOTE_RETURN_DAYS
+                   for pay in debits)
+
     credits = [row for row in scope.chain.credits
-               if (row.entity == entity or row.revenue_entity == entity) and window[0] <= row.day <= window[1]]
+               if (row.entity == entity or row.revenue_entity == entity) and window[0] <= row.day <= window[1]
+               and not (row.returns_payment or row.reversal) and row.day > after_day
+               and not any(_near(row.cents, amount) for amount in amounts) and not returned(row)]
     if not credits:
         return None
     latest = max(credits, key=lambda row: (row.day, row.statement, row.position))
@@ -1105,7 +1129,9 @@ def _change(reading: _Reading, position: _Position, positions: int, scope: _Scop
                         "change_percent": _step_percent(steps[index], regime)}
                        for index, regime in enumerate(via)]
         item["last_step_percent"] = _step_percent(via[-1], new)
-    funding = _after_funding(reading, scope, new.first)
+    # R3-82: in the dropped-regime path `previous` is the kept regime cut before the dropped one (its own first).
+    funding = _after_funding(reading, scope, new.first, after_day=previous.first,
+                             amounts=(before.amount, previous.amount, new.amount))
     if funding is not None:
         item["after_funding"] = funding
     item["locations"] = {"last_before": before.pays[-1].location, "first_after": new.pays[0].location}
@@ -1488,37 +1514,50 @@ def _previous_cycle_days(first: date, cadence: str) -> list[date]:
     return [first - timedelta(days=days) for days in range(shortest, longest + 1)]
 
 
+def _level_at(position: _Position, day: date) -> _Level:
+    """Audit round 3, R3-81: the level the position was paying on `day`: among its levels with a regular cadence that
+    have a payment dated on or before `day`, the one holding the latest such payment (by `_Pay.order`); else its last
+    level."""
+    paying = [(max(pay.order for pay in level.pays if pay.day <= day), level) for level in position.levels
+              if _regular(level.cadence) is not None and any(pay.day <= day for pay in level.pays)]
+    return max(paying, key=lambda entry: entry[0])[1] if paying else position.last_level
+
+
 def _new_streams(reading: _Reading, positions: list[_Position], scope: _Scope) -> list[dict]:
     """B8: a position P (3 or more payments, a regular last cadence) that starts at least one grace window after
     another such position Q began, while Q still pays 3 or more times on or after P's first payment, and raises the
     funder's weekly total by CHANGE_THRESHOLD_PERCENT or more. R2-OW18 review round 1: P's payment one cycle of its
     schedule before its first one (`_previous_cycle_days`) must fall inside the coverage, so a position that may have
-    been paying before the statement (chain) starts, or during a hole between two members, is never a new stream."""
+    been paying before the statement (chain) starts, or during a hole between two members, is never a new stream.
+    Audit round 3, R3-81: each Q is read at the level it was paying on P's first payment (`_level_at`), for the grace
+    test, the gate, `alongside` and the weekly totals; P's own `amount_after` and `cadence_after` stay its last level
+    (B8)."""
     items: list[dict] = []
     real = [position for position in positions
             if position.n >= MIN_STOP_PAYMENTS and _grace(position.last_level.cadence) is not None]
     for stream in real:
         if not all(scope.covered(day) for day in _previous_cycle_days(stream.first, stream.last_level.cadence)):
             continue
+        start = {id(other): _level_at(other, stream.first) for other in real}
         alongside = [
             other for other in real
             if other is not stream and other.first < stream.first
-            and scope.business_days(other.first, stream.first) >= _grace(other.last_level.cadence)
+            and scope.business_days(other.first, stream.first) >= _grace(start[id(other)].cadence)
             and sum(1 for pay in other.pays if pay.day >= stream.first) >= MIN_STOP_PAYMENTS
         ]
         if not alongside:
             continue
         level = stream.last_level
         weekly = _weekly(level.amount, level.cadence)
-        before = sum(_weekly(other.last_level.amount, other.last_level.cadence) for other in alongside)
+        before = sum(_weekly(start[id(other)].amount, start[id(other)].cadence) for other in alongside)
         if _under_floor(reading, weekly) or 100 * weekly < CHANGE_THRESHOLD_PERCENT * before:
             continue
         item = _common("new_stream", reading, stream, len(positions), scope, _label(stream.pays[-1], reading))
         item.update({
             "cadence_after": _regular(level.cadence), "amount_after": _money(level.amount),
             "first_after_date": _iso(stream.first), "payments_after": stream.n,
-            "alongside": [{"position": other.number, "cadence": _regular(other.last_level.cadence),
-                           "amount": _money(other.last_level.amount)} for other in alongside],
+            "alongside": [{"position": other.number, "cadence": _regular(start[id(other)].cadence),
+                           "amount": _money(start[id(other)].amount)} for other in alongside],
             "weekly_total_before": _money(before), "weekly_total_after": _money(before + weekly),
             "change_percent": round(((before + weekly) / before - 1) * 100),
             "locations": {"first_after": stream.pays[0].location},
@@ -1618,3 +1657,27 @@ def series_activity_after(statements: Sequence[StatementRows | tuple], series_ke
     if not later:
         return None
     return {"statement": later[0].statement, "date": _iso(later[0].day), "amount": _money(later[0].cents)}
+
+
+def covered_business_days(first: str | date, second: str | date,
+                          periods: Iterable[tuple[str | date | None, str | date | None]], calendar: str = "US") -> int:
+    """Audit round 3, R3-83 (F5's window): the business days of `calendar` strictly after `first`, up to and including
+    `second`, that lie inside at least one (start, end) of `periods`, each day once; a period with a missing or
+    unreadable bound is skipped. The package passes the printed periods of the stop's chain and of the other account's
+    chain: a day neither prints could not show the funder debiting either account. 0 when `second` is not later."""
+    start_day, end_day = parse_date(first), parse_date(second)
+    if start_day is None or end_day is None or end_day <= start_day:
+        return 0
+    spans = sorted((begin, end) for begin, end in ((parse_date(begin), parse_date(end)) for begin, end in periods)
+                   if begin is not None and end is not None and begin <= end)
+    merged: list[list[date]] = []
+    for begin, end in spans:
+        if merged and begin <= merged[-1][1] + timedelta(days=1):
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([begin, end])
+    total = 0
+    for begin, end in merged:
+        low, high = max(start_day, begin - timedelta(days=1)), min(end_day, end)
+        total += business_days_between(low, high, calendar)
+    return total

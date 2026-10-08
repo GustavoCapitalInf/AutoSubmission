@@ -124,9 +124,19 @@ def _payment_change_line(item: dict) -> str:
     # R2-OW18 review round 1: the quiet days run from the last presence; a returned attempt there is named.
     attempt = item.get("last_attempt_returned")
     returned = f", a returned attempt on {attempt.get('date')}" if isinstance(attempt, dict) else ""
+    # Audit round 3, R3-85: the later debits at other amounts are named, and where the last presence is not the last
+    # payment the count names its anchor.
+    others = item.get("other_debits_after")
+    later = ""
+    if isinstance(others, dict):
+        count = others.get("count")
+        later = (f"; {count} later {'debit' if count == 1 else 'debits'} at other amounts, the last on "
+                 f"{others.get('last_date')}")
+    presence = item.get("last_presence_date")
+    anchor = f" after {presence}" if presence and presence != item.get("last_payment_date") else ""
     return (f"{lead}{potential}: {label} {item['cadence']}, last ${item['last_payment_amount']:,.2f} on "
-            f"{item['last_payment_date']}{returned}, {item['quiet_business_days']} business days to {end} "
-            f"(grace {item['grace_business_days']})")
+            f"{item['last_payment_date']}{returned}{later}{'; ' if later else ', '}{item['quiet_business_days']} "
+            f"business days{anchor} to {end} (grace {item['grace_business_days']})")
 
 
 def _render(stored: Report, zelle_true_revenue: bool = True) -> str:

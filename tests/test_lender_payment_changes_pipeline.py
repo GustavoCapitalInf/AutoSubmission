@@ -151,9 +151,10 @@ def test_r1_the_cli_names_an_attempt_and_the_unreported_steps():
         "6 business days (grace 5); a payment at another amount on 2054-03-16, payments resumed on 2054-03-23")
     stop = pure.only(pure._rows(pure.every(M(4), A(1)), 1000)
                      + pure._rows([pure.A(8)], 1000, returned_funder_payment_by="transaction:99"), end=pure.Y(1))
+    # Audit round 3, R3-B06 (R3-85): the count runs from the returned attempt, and names it as its anchor.
     assert analyze._payment_change_line(stop) == (
         f"possible stop: KAPITUS weekly, last $1,000.00 on 2054-04-01, a returned attempt on 2054-04-08, "
-        f"{stop['quiet_business_days']} business days to the period end (grace 10)")
+        f"{stop['quiet_business_days']} business days after 2054-04-08 to the period end (grace 10)")
     steps = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._rows(pure.every(M(23), A(6)), 950)
                       + pure._rows(pure.every(A(13), A(27)), 650), end=A(30))
     assert analyze._payment_change_line(steps) == (
@@ -194,6 +195,28 @@ def test_r3_b05_the_cli_and_the_batch_name_a_catch_up():
     columns = batch._payment_change_columns([two, pause, {**one, "lender_state": "potential"}])
     assert (columns["lender_payment_catch_ups"], columns["lender_payment_pauses"]) == (2, 1)
     assert columns["lender_payment_changes"] == "catch_up:KAPITUS; pause:KAPITUS; catch_up:KAPITUS (potential)"
+
+
+def test_r3_85_the_cli_stop_line_names_the_later_debits_and_the_count_s_anchor():
+    """Audit round 3, R3-B06 (R3-85): a statement possible stop whose last presence is a later debit at another amount
+    names those debits and counts its business days after the last of them; a stop whose last presence is its last
+    payment prints as before (fabricated module items)."""
+    import analyze
+    from tests import test_lender_payment_changes as pure
+
+    later = pure.only(pure._rows(pure.bdays(M(2), M(13)), 850) + pure._rows([M(16)], 400) + pure._rows([M(19)], 500))
+    assert (later["kind"], later["other_debits_after"], later["quiet_business_days"]) == (
+        "stop", {"count": 2, "last_date": "2054-03-19"}, 8)
+    assert analyze._payment_change_line(later) == (
+        "possible stop: KAPITUS daily, last $850.00 on 2054-03-13; 2 later debits at other amounts, the last on "
+        "2054-03-19; 8 business days after 2054-03-19 to the period end (grace 5)")
+    one = pure.only(pure._rows(pure.bdays(M(2), M(13)), 850) + pure._rows([M(18)], 400))
+    assert analyze._payment_change_line(one) == (
+        "possible stop: KAPITUS daily, last $850.00 on 2054-03-13; 1 later debit at other amounts, the last on "
+        "2054-03-18; 9 business days after 2054-03-18 to the period end (grace 5)")
+    plain = pure.only(pure._rows(pure.every(A(1), pure.Y(13)), 1000), start=A(1), end=pure.Y(29))
+    assert analyze._payment_change_line(plain) == (
+        "possible stop: KAPITUS weekly, last $1,000.00 on 2054-05-13, 11 business days to the period end (grace 10)")
 
 
 def test_p_l1_the_detector_moves_nothing_else(monkeypatch):

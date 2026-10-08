@@ -216,7 +216,7 @@ def test_p5_a_coverage_gap_breaks_the_chain():
 
 SOURCE_KEYS = ("source_job", "source_document", "source_account", "source_currency", "source_period_end",
                "from_job", "from_document", "from_account", "to_job", "to_document", "to_account", "cross_statement",
-               "continues_in_other_account")
+               "continues_in_other_account", "reappears_in_other_account")
 
 
 def test_p6_two_accounts_are_never_chained():
@@ -251,6 +251,101 @@ def test_p6b_a_funder_that_moves_to_another_account_is_never_a_confirmed_stop():
     [item] = p6b(ONDECK)["lender_payment_changes"]
     assert (item["kind"], item["stop_confirmed"]) == ("stop", True)
     assert "continues_in_other_account" not in item
+
+
+# ------------------------------------------------- audit round 3, R3-B06 (R3-83; fabricated statements only)
+JULY = (date(2054, 7, 1), date(2054, 7, 31))
+
+
+def r3_83(b_days, b_amount=1700, b_period=JULY, b_name="b-july"):
+    """Account A pays KAPITUS weekly 1,000.00 from 03-04 to 04-08, then a May statement prints none; account B's one
+    statement prints KAPITUS at `b_amount` on `b_days`."""
+    a_march = statement_payload(debits(every(M(4), M(25)), 1000), month=3)
+    a_april = statement_payload(debits(every(A(1), A(8)), 1000), month=4, opening=closing(a_march))
+    a_may = statement_payload([], month=5, opening=closing(a_april))
+    b_other = statement_payload(debits(b_days, b_amount), start=b_period[0], end=b_period[1], account=ACCOUNT_B)
+    return package(job("a-march", a_march), job("a-april", a_april), job("a-may", a_may), job(b_name, b_other))
+
+
+def test_r3_83_a_funder_seen_months_later_in_another_account_reappears():
+    # B's first KAPITUS debit comes 38 business days after A's last payment in the statements provided (36 of A's
+    # after 04-08 through 05-29, then 07-01 and 07-02 of B; June no statement covers): beyond the weekly grace of 10,
+    # so the stop reads as A's own statements confirm it, and the other account is named apart. The base read "Possible
+    # stop ...; payments to KAPITUS continue from another account (b-july.pdf) from 2054-07-02 at $1,700.00".
+    [item] = r3_83(every(date(2054, 7, 2), date(2054, 7, 30)))["lender_payment_changes"]
+    assert (item["kind"], item["stop_confirmed"], item["source_document"], item["last_presence_date"]) == (
+        "stop", True, "a-april.pdf", "2054-04-08")
+    assert "continues_in_other_account" not in item
+    assert item["reappears_in_other_account"] == {"source_job": "b-july", "source_document": "b-july.pdf",
+                                                  "first_date": "2054-07-02", "amount": 1700.0,
+                                                  "covered_business_days": 38}
+    from tests.test_lender_payment_changes_ui import warning_texts
+
+    [[text, chip]] = warning_texts([item])
+    assert text == ("No payment to KAPITUS since 2054-04-08 (weekly; last payment $1,000.00; 36 business days through "
+                    "2054-05-29); payments to KAPITUS reappear in another account (b-july.pdf) from 2054-07-02 at "
+                    "$1,700.00, after 38 business days without one in the statements provided (a-april.pdf).")
+    from tests.test_lender_payment_changes_ui import chip_html
+
+    assert chip == chip_html("■", "No payments", "amber")
+
+
+def test_r3_83_inside_the_grace_window_the_funder_continues_from_another_account():
+    # P6b's shape (B's first debit 5 covered business days after A's last) is unchanged: never confirmed, "continue".
+    [item] = p6b()["lender_payment_changes"]
+    assert (item["stop_confirmed"], item["continues_in_other_account"]["first_date"]) == (False, "2054-04-15")
+    assert "reappears_in_other_account" not in item
+    # The window is counted in covered business days. B's July statement with a debit on 07-01: A covers 36 after
+    # 04-08 and B one more, 37 > 10: a reappearance. A B statement covering 04-09 to 04-30 with a debit on 04-22: 10
+    # business days after 04-08 (04-09 to 04-22), the grace exactly: "continue", never confirmed.
+    [item] = r3_83([date(2054, 7, 1)] + every(date(2054, 7, 8), date(2054, 7, 29)))["lender_payment_changes"]
+    assert (item["stop_confirmed"], item["reappears_in_other_account"]["covered_business_days"]) == (True, 37)
+    [item] = r3_83(every(A(22), A(29)), b_amount=1000, b_period=(A(9), A(30)),
+                   b_name="b-april")["lender_payment_changes"]
+    assert (item["stop_confirmed"], item["continues_in_other_account"]) == (False, {
+        "source_job": "b-april", "source_document": "b-april.pdf", "first_date": "2054-04-22", "amount": 1000.0})
+    assert "reappears_in_other_account" not in item
+    # One more business day (04-23) is beyond the grace: a reappearance, and the stop confirmed by A's May statement.
+    [item] = r3_83(every(A(23), A(30)), b_amount=1000, b_period=(A(9), A(30)),
+                   b_name="b-april")["lender_payment_changes"]
+    assert (item["stop_confirmed"], item["reappears_in_other_account"]["covered_business_days"]) == (True, 11)
+    assert "continues_in_other_account" not in item
+
+
+def test_r3_83_the_package_download_carries_the_reappearance():
+    from webapp.app import _lender_payment_change_rows, _package_rows
+
+    built = r3_83(every(date(2054, 7, 2), date(2054, 7, 30)))
+    rows = {(section, name): value for section, name, value in _package_rows(built)}
+    assert tuple(rows[("lender_payment_change_1", f"reappears_in_other_account.{name}")] for name in (
+        "source_document", "first_date", "amount", "covered_business_days")) == ("b-july.pdf", "2054-07-02", 1700.0, 38)
+    assert rows[("lender_payment_change_1", "continues_in_other_account.source_document")] == ""
+    names = [name for _section, name, _value in _lender_payment_change_rows(built["lender_payment_changes"],
+                                                                            package=True)]
+    start = names.index("continues_in_other_account.source_document")
+    assert names[start:start + 7] == [
+        "continues_in_other_account.source_document", "continues_in_other_account.first_date",
+        "continues_in_other_account.amount", "reappears_in_other_account.source_document",
+        "reappears_in_other_account.first_date", "reappears_in_other_account.amount",
+        "reappears_in_other_account.covered_business_days"]
+    # A statement's own download carries no package note.
+    assert not any(name.startswith("reappears_in_other_account") for _section, name, _value in
+                   _lender_payment_change_rows(built["lender_payment_changes"]))
+
+
+def test_r3_83_covered_business_days():
+    periods = [(M(1), Y(29)), (date(2054, 7, 1), date(2054, 7, 31))]
+    assert lpc.covered_business_days(A(8), date(2054, 7, 2), periods) == 38
+    assert lpc.covered_business_days(A(8), date(2054, 7, 2), periods[:1]) == 36
+    # Overlapping periods count a day once; a period with an open bound is skipped; nothing after `second`.
+    assert lpc.covered_business_days(A(8), date(2054, 7, 2), periods + [(A(1), A(30)), (None, Y(29))]) == 38
+    assert lpc.covered_business_days(A(8), A(8), periods) == 0
+    assert lpc.covered_business_days(A(8), A(10), periods) == 2
+    # The Canadian calendar on a CAD deal: Victoria Day (05-18) closes.
+    assert lpc.covered_business_days(A(8), Y(20), periods[:1]) == 30
+    assert lpc.covered_business_days(A(8), Y(20), periods[:1], "CA") == 29
+    # ISO strings read as dates (the package passes the item's dates).
+    assert lpc.covered_business_days("2054-04-08", "2054-07-02", periods) == 38
 
 
 # ----------------------------------------------------------------------------------------------- P7: an overlap
@@ -364,6 +459,9 @@ def test_p13_the_statement_and_package_downloads():
     assert package_rows[("lender_payment_change_1", "cross_statement")] is True
     assert package_rows[("lender_payment_change_1", "from_document")] == "march.pdf"
     assert package_rows[("lender_payment_change_1", "continues_in_other_account.source_document")] == ""
+    # Audit round 3, R3-B06 (R3-83): the reappearance note's cells, empty where the item carries none.
+    for name in ("source_document", "first_date", "amount", "covered_business_days"):
+        assert package_rows[("lender_payment_change_1", f"reappears_in_other_account.{name}")] == ""
     assert package_rows[("lender_payment_unchecked_1", "source_document")] == "april.pdf"
     assert package_rows[("lender_payment_unchecked_1", "reason")] == "analysed_before_check"
     assert "lender_payment_unchecked_1" in _package_csv(built)

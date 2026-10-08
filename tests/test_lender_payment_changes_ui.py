@@ -360,6 +360,45 @@ def test_r3_b05_the_same_amount_note_and_a_stop_it_never_confirms():
         "description, from 2054-03-16 to 2054-03-31 (possible collection under another name) (april.pdf).")
 
 
+# ------------------------------------------- audit round 3, R3-B06 (R3-81, R3-85; fabricated rows only): the lines
+@needs_node
+def test_r3_81_the_new_stream_line_names_the_level_paying_when_it_began():
+    _decrease, stream = pure.changes(pure._rows(pure.bdays(M(2), A(30)), 250) + pure._rows(pure.bdays(Y(1), J(30)), 112)
+                                     + pure._rows(pure.bdays(M(16), J(30)), 170), start=M(1), end=J(30))
+    assert warning_text(stream) == (
+        "New payment stream: KAPITUS daily $170.00 from 2054-03-16, alongside daily $250.00 (weekly total $1,250.00 → "
+        "$2,100.00, +68%; payment stream 2 of 2).")
+
+
+@needs_node
+def test_r3_85_a_confirmed_stop_s_count_names_its_anchor():
+    # Weekly 1,000.00 to 03-30, then debits of 700.00 on 04-06 and 650.00 on 04-20 (payment-sized, presence), and a May
+    # statement with none: the count runs from the last presence (04-20), not from the "since" date (03-30).
+    march = pure._rows(pure.every(M(2), M(30)), 1000)
+    april = pure._rows([A(6)], 700) + pure._rows([A(20)], 650)
+    [stop] = pure._chain((march, M(1), M(31)), (april, A(1), A(30)), ([], Y(1), Y(29)))
+    stop = {**pure.lpc.public_item(stop), "source_document": "april.pdf"}
+    assert (stop["stop_confirmed"], stop["last_payment_date"], stop["last_presence_date"],
+            stop["quiet_business_days"]) == (True, "2054-03-30", "2054-04-20", 28)
+    assert warning_text(stop) == (
+        "No regular $1,000.00 payment to KAPITUS since 2054-03-30; 2 later debits at other amounts, the last on "
+        "2054-04-20 (weekly; last payment $1,000.00; 28 business days after 2054-04-20 through 2054-05-29) "
+        "(april.pdf).")
+    # Controls, byte-identical: the plain confirmed line (U1-U4) and the returned-attempt line count from their
+    # "since" date, which is the last presence, and name no anchor.
+    p4 = pkg.package(*(pkg.job(name, payload) for name, payload in zip(("march", "april", "may"), pkg.p4())))
+    attempt_march = pure._rows(pure.every(M(4), M(18)), 1000) + pure._rows(
+        [M(25)], 1000, returned_funder_payment_by="transaction:99")
+    [attempt] = pure._chain((attempt_march, M(1), M(31)), ([], A(1), A(30)))
+    attempt = {**pure.lpc.public_item(attempt), "source_document": "april.pdf"}
+    texts = [text for text, _chip in warning_texts([p4["lender_payment_changes"][0], attempt])]
+    assert texts[0] == ("No payment to KAPITUS since 2054-04-29 (weekly; last payment $1,000.00; 21 business days "
+                        "through 2054-05-29) (april.pdf).")
+    assert texts[1] == (f"No payment or payment attempt to KAPITUS since 2054-03-25 (weekly; last payment $1,000.00 on "
+                        f"2054-03-18; {attempt['quiet_business_days']} business days through 2054-04-30); the last "
+                        f"attempt, on 2054-03-25, was returned unpaid (april.pdf).")
+
+
 # ------------------------------------------------------------------------------------- U5, U6, U7, U10: the table
 def _table(call):
     return run_dashboard(f"""

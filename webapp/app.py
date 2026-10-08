@@ -592,8 +592,11 @@ def _lender_payment_change_rows(items: object, *, package: bool = False) -> list
                 value = "; ".join(f"{entry.get('date')} {entry.get('amount')} {entry.get('multiple')}x"
                                   for entry in value if isinstance(entry, dict))
             rows.append((section, name, "" if value is None else value))
-        notes = LENDER_PAYMENT_CHANGE_NOTE_FIELDS + (
-            (("continues_in_other_account", ("source_document", "first_date", "amount")),) if package else ())
+        # Audit round 3, R3-B06 (R3-83): the package's reappearance note beside the continuation.
+        notes = LENDER_PAYMENT_CHANGE_NOTE_FIELDS + ((
+            ("continues_in_other_account", ("source_document", "first_date", "amount")),
+            ("reappears_in_other_account", ("source_document", "first_date", "amount", "covered_business_days")),
+        ) if package else ())
         for note, fields in notes:
             value = item.get(note)
             for name in fields:
@@ -2922,7 +2925,10 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
     `analysis.lender_payment_changes.payment_changes` runs per chain (its own overlap de-duplication included); each
     item gains its statement's source fields, a change item the statements of its last old payment (`from_*`) and of
     its new regime's second payment (`to_*`) and `cross_statement`; a stop whose series pays or is attempted after it
-    in a chain of another account of the package gains `continues_in_other_account` and is never confirmed.
+    in a chain of another account of the package gains `continues_in_other_account` and is never confirmed. Audit round
+    3, R3-83: only when that first payment or attempt comes within the stop's grace window, counted in the business
+    days the two chains' statements cover (`covered_business_days`); a later one gains `reappears_in_other_account`
+    (with `covered_business_days`) and leaves the stop as its own chain reads it.
 
     Returns (items, unchecked): items is None when no member was assessed."""
     entries: list[dict] = []
@@ -3008,20 +3014,40 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
                     target["job_id"], target.get("source_account"))
             if item["kind"] == "stop":
                 # F5: the series continues from another account of the deal (a chain of no member of this account).
+                # Audit round 3, R3-83: only when its first payment or attempt there comes within the stop's grace
+                # window, counted in the business days the two chains' statements cover (a third account's never
+                # count); a later one leaves the stop as its own chain reads it and is named apart.
                 found = None
+                reappears = None
+                calendar = payment_changes_module.calendar_for(chain[0]["currency"])
                 for other_index, other in enumerate(chains):
                     if other_index == chain_index or any(_same_account(one, two) for one in chain for two in other):
                         continue
                     activity = payment_changes_module.series_activity_after(
                         [entry["rows"] for entry in other], item["_series_key"], item["_last_presence"])
-                    if activity is not None and (found is None or (activity["date"], other_index) < found[0]):
-                        found = ((activity["date"], other_index), other, activity)
+                    if activity is None:
+                        continue
+                    covered = payment_changes_module.covered_business_days(
+                        item["_last_presence"], activity["date"],
+                        [(entry["start"], entry["end"]) for entry in chain + other], calendar)
+                    key = (activity["date"], other_index)
+                    if covered <= item["grace_business_days"]:
+                        if found is None or key < found[0]:
+                            found = (key, other, activity)
+                    elif reappears is None or key < reappears[0]:
+                        reappears = (key, other, activity, covered)
                 if found is not None:
                     _key, other, activity = found
                     published["continues_in_other_account"] = {
                         **statement_source(other, activity["statement"]),
                         "first_date": activity["date"], "amount": activity["amount"]}
                     published["stop_confirmed"] = False
+                elif reappears is not None:
+                    _key, other, activity, covered = reappears
+                    published["reappears_in_other_account"] = {
+                        **statement_source(other, activity["statement"]),
+                        "first_date": activity["date"], "amount": activity["amount"],
+                        "covered_business_days": covered}
             items.append(published)
     return items, unchecked
 

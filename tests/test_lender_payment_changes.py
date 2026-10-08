@@ -525,6 +525,9 @@ def test_l30_the_constants_are_named_integers_and_fractions():
     assert (lpc.CATCH_UP_PRESENCE_MULTIPLES, lpc.CATCH_UP_LATE_BUSINESS_DAYS) == ((2, 3, 4, 5, 6), 1)
     assert "catch_up" in lpc.PAYMENT_CHANGE_KINDS
     assert (lpc.CADENCE_CHANGE_MIN_PAYMENTS, lpc.CADENCE_CHANGE_MIN_DAILY) == (3, 5)
+    # Audit round 3, R3-82: a credit this many days after a payment or attempt of its amount returns it (R2-OW13's
+    # rule D window), never a funding.
+    assert lpc.FUNDING_NOTE_RETURN_DAYS == 7
 
 
 # ------------------------------------------------------------------------------------------ L31-L33: the revision
@@ -1555,3 +1558,120 @@ def test_r3_b05_r1_controls_name_no_catch_up_on_the_pause():
     assert "catch_ups_inside" not in found[0]
     assert (found[1]["missed_payments"], found[1]["missed_first_date"], found[1]["catch_up_date"]) == (
         1, "2054-03-24", "2054-03-25")
+
+
+# --------------------------------------------------- audit round 3, R3-B06 (R3-81, R3-82; fabricated rows only)
+def test_r3_81_a_new_stream_names_the_level_paying_when_it_began():
+    # Position 1 pays daily 250 in March and April, then 112 from May; position 2 pays daily 170 from 03-16. The new
+    # stream began beside the 250 payment: the base named the 112 paid only from May (560.00 -> 1,410.00, +152%).
+    found = changes(_rows(bdays(M(2), A(30)), 250) + _rows(bdays(Y(1), J(30)), 112)
+                    + _rows(bdays(M(16), J(30)), 170), start=M(1), end=J(30))
+    assert _kinds(found) == ["decrease", "new_stream"]
+    decrease, stream = found
+    assert (decrease["position"], decrease["amount_before"], decrease["amount_after"], decrease["change_percent"],
+            decrease["first_after_date"]) == (1, 250.0, 112.0, -55, "2054-05-01")
+    assert stream["alongside"] == [{"position": 1, "cadence": "daily", "amount": 250.0}]
+    assert (stream["weekly_total_before"], stream["weekly_total_after"], stream["change_percent"]) == (
+        1250.0, 2100.0, 68)
+    # P's own figures stay its last level (R2-OW18's B8).
+    assert (stream["position"], stream["amount_after"], stream["cadence_after"], stream["first_after_date"]) == (
+        2, 170.0, "daily", "2054-03-16")
+
+
+def test_r3_81_the_gate_reads_the_level_paying_when_it_began():
+    # (a) Position 1 pays weekly 1,000 to 04-27, then 2,000 from 05-04; a weekly 150 from 03-31 raised the 1,000 paying
+    # that day by 15%: a new stream (the base compared it with the later 2,000, 7.5%, and showed none).
+    found = changes(_rows(every(M(2), A(27)), 1000) + _rows(every(Y(4), J(29)), 2000)
+                    + _rows(every(M(31), J(30)), 150), start=M(1), end=J(30))
+    assert [(item["kind"], item["change_percent"]) for item in found] == [("increase", 100), ("new_stream", 15)]
+    stream = found[1]
+    assert stream["alongside"] == [{"position": 1, "cadence": "weekly", "amount": 1000.0}]
+    assert (stream["weekly_total_before"], stream["weekly_total_after"]) == (1000.0, 1150.0)
+    # (b) Position 1 pays weekly 2,000, then 500 from 05-04; a weekly 110 from 03-31 was 5.5% of the 2,000 paying that
+    # day: no new stream (the base read +22% beside the later 500).
+    found = changes(_rows(every(M(2), A(27)), 2000) + _rows(every(Y(4), J(29)), 500)
+                    + _rows(every(M(31), J(30)), 110), start=M(1), end=J(30))
+    assert [(item["kind"], item["change_percent"]) for item in found] == [("decrease", -75)]
+
+
+R3_82_ROWS = _rows(bdays(M(2), M(13)), 850) + _rows(bdays(M(16), M(25)), 600)
+
+
+def _funding(rows):
+    item = only(rows)
+    assert (item["kind"], item["change_percent"]) == ("decrease", -29)
+    return item.get("after_funding")
+
+
+def test_r3_82_the_funding_note_never_cites_a_credit_the_size_of_the_change_s_payments():
+    # The new payment's size (600.00 on 03-18), and the old payment's (850.00 on 03-12, a payment of that day returned).
+    assert _funding(R3_82_ROWS + [_credit(M(18), 600)]) is None
+    assert _funding(R3_82_ROWS + [_credit(M(12), 850)]) is None
+    # Within 1% of a payment amount: 605.00 leaves too; 610.00 (1.7% off) is cited.
+    assert _funding(R3_82_ROWS + [_credit(M(18), 605)]) is None
+    assert _funding(R3_82_ROWS + [_credit(M(18), 610)]) == {"date": "2054-03-18", "amount": 610.0}
+
+
+def test_r3_82_the_funding_note_never_cites_a_credit_that_returns_a_payment_just_made():
+    # A 700.00 one-off of the series on 03-09 (no amount of the change): a 700.00 credit 0 to 7 days after it returns
+    # it; 8 days after, it is cited. An attempt of the series counts as a payment does.
+    one_off = R3_82_ROWS + _rows([M(9)], 700)
+    assert _funding(one_off + [_credit(M(9), 700)]) is None
+    assert _funding(one_off + [_credit(M(16), 700)]) is None
+    assert _funding(one_off + [_credit(M(17), 700)]) == {"date": "2054-03-17", "amount": 700.0}
+    attempt = R3_82_ROWS + _rows([M(9)], 700, returned_funder_payment_by="transaction:99")
+    assert _funding(attempt + [_credit(M(13), 700)]) is None
+
+
+def test_r3_82_the_funding_note_never_cites_the_old_level_s_own_funding():
+    # The old level's first payment is 03-04; a 25,000.00 credit on 03-03 funded it, not the new 600.00 level.
+    rows = _rows(bdays(M(4), M(13)), 850) + _rows(bdays(M(16), M(25)), 600)
+    assert _funding(rows + [_credit(M(3), 25000)]) is None
+    assert _funding(rows + [_credit(M(4), 25000)]) is None
+    assert _funding(rows + [_credit(M(5), 25000)]) == {"date": "2054-03-05", "amount": 25000.0}
+
+
+def test_r3_82_a_payment_sized_credit_never_hides_a_real_funding():
+    # The latest credit is cited, as before, among the credits the rules leave: the 600.00 on 03-18 no longer hides the
+    # 25,000.00 on 03-13.
+    assert _funding(R3_82_ROWS + [_credit(M(13), 25000), _credit(M(18), 600)]) == {
+        "date": "2054-03-13", "amount": 25000.0}
+
+
+@pytest.mark.parametrize("mark", ["returns_funder_payment", "reversal_of"])
+def test_r3_82_a_credit_that_returns_or_reverses_a_payment_is_never_a_funding(mark):
+    # 900.00 matches no payment of the series: only the mark leaves it out (R2-OW13's pairs).
+    assert _funding(R3_82_ROWS + [_credit(M(13), 900, **{mark: "transaction:5"})]) is None
+    assert _funding(R3_82_ROWS + [_credit(M(13), 900)]) == {"date": "2054-03-13", "amount": 900.0}
+
+
+def test_r3_82_a_possible_change_reads_the_kept_regime_before_it():
+    # A dropped short regime (§ Still open 18's possible change): daily 500 from 03-09 to 03-20, then weekly 1,600 on
+    # 03-23 and 03-30. The regime just before is the daily 500 one, cut before the dropped regime: its own first
+    # payment (03-09) bounds the note, and the change's amounts are 500 and 1,600.
+    rows = _rows(bdays(M(9), M(20)), 500) + _rows([M(23), M(30)], 1600)
+
+    def funding(credits):
+        item = only(rows + credits)
+        assert (item["kind"], item["schedule_confirmed"], item["change_percent"]) == ("decrease", False, -36)
+        return item.get("after_funding")
+
+    assert funding([_credit(M(5), 25000)]) is None
+    assert funding([_credit(M(24), 1600)]) is None
+    assert funding([_credit(M(10), 25000), _credit(M(24), 1600)]) == {"date": "2054-03-10", "amount": 25000.0}
+
+
+def test_r3_82_controls():
+    # A small genuine draw, 1.08x the new payment, is still cited (no size floor: revolving draws are payment-sized).
+    assert _funding(R3_82_ROWS + [_credit(M(13), 650)]) == {"date": "2054-03-13", "amount": 650.0}
+    # The window is unchanged (L13): 20 days before to 5 days after the new amount's first payment (the old level here
+    # paying since February, so its own first payment is no bound).
+    longer = _rows(bdays(F(2), M(13)), 850) + _rows(bdays(M(16), M(25)), 600)
+
+    def funding(rows):
+        return only(rows, start=F(1)).get("after_funding")
+
+    assert funding(longer + [_credit(F(24), 25000)]) == {"date": "2054-02-24", "amount": 25000.0}
+    assert funding(longer + [_credit(F(23), 25000)]) is None
+    assert funding(longer + [_credit(M(21), 25000)]) == {"date": "2054-03-21", "amount": 25000.0}
+    assert funding(longer + [_credit(M(22), 25000)]) is None

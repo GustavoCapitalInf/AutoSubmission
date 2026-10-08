@@ -1178,8 +1178,12 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
     if (item.stop_confirmed === true) {
       const since = others ? item.last_payment_date : item.last_presence_date;
       const paid = attempt ? ` on ${item.last_payment_date}` : "";
+      // Audit round 3, R3-85: the count runs from the last presence; where "since" names another date (the last
+      // regular payment, before later debits at other amounts), the count names its anchor.
+      const anchor = since !== item.last_presence_date ? ` after ${item.last_presence_date}` : "";
       body = `No ${regular}${none} to ${who}${stream} since ${since}${later} (${cadence(item.cadence)}; last payment `
-        + `${money(item.last_payment_amount)}${paid}; ${item.quiet_business_days} business days through ${item.coverage_end})`;
+        + `${money(item.last_payment_amount)}${paid}; ${item.quiet_business_days} business days${anchor} through `
+        + `${item.coverage_end})`;
     } else {
       const span = item.scope === "package" ? `through ${item.coverage_end}` : "of the statement";
       const lead = others
@@ -1215,6 +1219,14 @@ function lenderPaymentChangeWarning(item, currency = "USD") {
       const other = item.continues_in_other_account;
       suffixes.push(`payments to ${label} continue from another account (${other.source_document || "N/A"}) from `
         + `${other.first_date} at ${money(other.amount)}`);
+    }
+    if (item.reappears_in_other_account) {
+      // Audit round 3, R3-83: the funder's first payment or attempt in another account of the deal comes after the
+      // stop's grace window, counted in the business days the two accounts' statements cover: named, the stop kept.
+      const other = item.reappears_in_other_account;
+      suffixes.push(`payments to ${label} reappear in another account (${other.source_document || "N/A"}) from `
+        + `${other.first_date} at ${money(other.amount)}, after ${other.covered_business_days} business days without `
+        + "one in the statements provided");
     }
     if (item.other_stream_continues) {
       suffixes.push(`another ${label} payment stream continues (${money(item.other_stream_continues.amount)} `
