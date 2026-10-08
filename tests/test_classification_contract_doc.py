@@ -1581,15 +1581,14 @@ R3_B10_R1_CODE_COMMIT = "f598bca"
 
 
 def test_the_spec_and_the_contract_record_r3_b10_review_round_1():
-    """Audit round 3, R3-B10, review round 1 (findings 1 to 4): §8.6's verification-only words gain SETTLEMENT's short
-    spellings, §8.1's `holder_name` bullet and §9.3's bullet say so, the R3-17, R3-37, R3-38, R3-39, R3-90 part A and
-    batch lines are marked in place, the §20 line carries the commit, and the contract's bullet."""
+    """Audit round 3, R3-B10, review round 1 (findings 1 to 4): §9.3's bullet records the round's short spellings, the
+    R3-17, R3-37, R3-38, R3-39, R3-90 part A and batch lines are marked in place, the §20 line carries the commit, and
+    the contract's bullet. Review round 2 took the short spellings back out of §8.6 and rewrote §8.1's sentence on them
+    (test_the_spec_and_the_contract_record_r3_b10_review_round_2)."""
     text = SPEC.read_text(encoding="utf-8")
     flat = re.sub(r"\s+", " ", text)
     for words in (
-        r"audit round 3, R3-B10 review round 1, §20: its short spellings `\bSETTLMT\b` and `\bSTLMT\b` too",
-        "whose verification-only words hold all three spellings since R3-B10 review round 1",
-        "Its review round 1 (§20) adds the reading of a credit whose entry fields or payer region print `SETTLMT`",
+        "Its review round 1 (§20) added the reading of a credit whose entry fields or payer region print `SETTLMT`",
     ):
         assert words in flat, words
     amendments = text.split("\n## 20. Implementation amendments", 1)[1]
@@ -1602,6 +1601,41 @@ def test_the_spec_and_the_contract_record_r3_b10_review_round_1():
     contract = _flat(CONTRACT)
     for words in (f"Audit round 3, R3-B10, review round 1 ({R3_B10_R1_CODE_COMMIT})",
                   "`SETTLEMENT`'s short spellings `SETTLMT` and `STLMT` are verification-only words beside it"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B10, review round 2: the code commit §20 and the contract name.
+R3_B10_R2_CODE_COMMIT = "99d6760"
+
+
+def test_the_spec_and_the_contract_record_r3_b10_review_round_2():
+    """Audit round 3, R3-B10, review round 2 (findings 1 and 2): §8.1's `holder_name` bullet names the release flag,
+    §8.6 reads `SETTLEMENT` alone again, §8.10 names the overruled verification, §9.3's bullet the round's stored-output
+    change, the R3-90 part A and review round 1 lines are marked in place, the §20 line carries the commit and its
+    measurement, and the contract's bullets."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    assert "R3-B10 review round 2, §20: a row the bare word alone releases" in holds
+    assert "`CreditFacts.settlement_released`" in holds
+    refused = re.sub(r"\s+", " ", _section(text, "\n### 8.6 ", "\n### 8.7 "))
+    assert "audit round 3, R3-B10 review round 2, §20: alone, as before the batch" in refused
+    assert r"`\bSETTLMT\b`" not in refused and r"`\bSTLMT\b`" not in refused
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert "a settlement under the merchant's own name that an earlier rule verified and that only the bare" in tiering
+    assert "Review round 2's own change: the reading of a row the settlement exemption alone releases" in flat
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert amendments.count("(Amended by R3-B10 review round 2, findings 1 and 2, §20 below:") == 2
+    for words in ("- **R3-B10 review round 2: a settlement the bare word alone releases is never verified and never a",
+                  "audit round 3, R3-B10, review round 2 (findings 1 and 2)", R3_B10_R2_CODE_COMMIT,
+                  "Measured against `6919508`'s tree"):
+        assert words in amendments, words
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B10, review round 2 ({R3_B10_R2_CODE_COMMIT})",
+                  "`SETTLMT` and `STLMT` are no verification-only words again",
+                  "(Review round 2 takes the short spellings back out of §8.6: see the next entry.)"):
         assert words in contract, words
 
 
