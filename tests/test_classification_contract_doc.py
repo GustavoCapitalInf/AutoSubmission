@@ -1455,6 +1455,53 @@ def test_the_spec_and_the_contract_record_r3_b08():
         assert words in contract, words
 
 
+#: Audit round 3, R3-B09: the code commit §20 and the contract name.
+R3_B09_CODE_COMMIT = "5705367"
+
+
+def test_the_spec_and_the_contract_record_r3_b09():
+    """Audit round 3, R3-B09 (R3-36, R3-87, R3-91, R3-75): §8.1's possible-return arms, §8.2's, §8.5's and §10.7's
+    unread-text sentences, §9.3's stored-output bullet, §14.2's, G9's and G18's row-count sentences, §17.1's I41 and
+    B10 sentences, one §20 line per issue and the batch line with the commit, the amended B10, R2-B07 and R07 lines, and
+    the contract's bullet and reason-table row."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "audit round 3, R3-B09 (R3-75, §20; standard D1, D3, A8;",
+        "`(?<![A-Z])(?:ENVOI|CONTR|REDEPOT) (?:FRAIS )?VFC\\b`",
+        "audit round 3, R3-B09: R3-87, §20: never after a class-code word followed by a legal form",
+        "Audit round 3, R3-B09 (R3-91, R3-87, §20): the daily core-processor template keeps each marked credit's block",
+        "Audit round 3, R3-B09 (R3-91, §8.2, §10.7, §20): a held wire whose reader kept a payer line",
+        "- **A held wire or transfer whose payer line was not read** (audit round 3, R3-B09: R3-91",
+        "\"Wire, payer line not read\"",
+        "Audit round 3, R3-B09 (§20): no bump in a fix batch either",
+        "(audit round 3, R3-B09: R3-36, §20) an account whose parse added or dropped a row",
+        "(audit round 3, R3-B09: R3-36, §20) one whose row count changed without a parse change",
+        "Audit round 3, R3-B09 (R3-36, §20): a parse change that adds or drops a row, credit or debit, is a G18",
+        "audit round 3, R3-B09: R3-75, §20: and its e-Transfer family",
+        "Audit round 3, R3-B09 (R3-91, §20): the daily core-processor template now keeps each marked credit's block",
+        "(Amended by audit round 3, R3-B09: R3-91, §20 below: each marked credit now keeps its block",
+        "(Amended by audit round 3, R3-B09: R3-91, §20 below: the daily template's credit sections",
+        "(audit round 3, R3-B09: R3-87, §20 below: never after a class-code word followed by a legal form",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A parse change that adds or drops a row is a G18 parse move**",
+                  "- **A class-code word followed by a legal form is part of a name**",
+                  "- **The daily core-processor template, balance_by_date and B1 keep the payer line they do not read",
+                  "- **A credit printing an outgoing e-Transfer label, or a French fee adjustment, is a possible",
+                  "- **Audit round 3, R3-B09 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B09 (R3-") >= 4
+    assert amendments.count(R3_B09_CODE_COMMIT) >= 5
+    assert "PLACEHOLDER" not in amendments
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B09 (R3-36, R3-87, R3-91, R3-75; {R3_B09_CODE_COMMIT})",
+                  "or (audit round 3, R3-B09) a credit printing an outgoing e-Transfer label or a French fee",
+                  "debits keep none, and the daily template kept none until audit round 3, R3-B09"):
+        assert words in contract, words
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
