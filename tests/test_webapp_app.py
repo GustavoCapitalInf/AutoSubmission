@@ -1992,6 +1992,133 @@ def test_a_35_day_export_straddling_three_monthly_statements_is_left_out():
     assert (package["totals"]["true_revenue_total"], package["totals"]["months"]) == (30000.0, 3)
 
 
+# Audit round 3, R3-B18 review round 1: a printout of more than 35 days (no monthly cycle runs so long) is tested in the
+# first phase against all its account's statements, a month-to-date and a short first or closing month included, and
+# only the statements the second phase would keep side by side are read for a double count between them.
+
+_P90_PAY = "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1"
+_P90_JAN = [("2031-01-06", _P90_PAY, 10000.0), ("2031-01-20", _P90_PAY, 4000.0),
+            ("2031-01-25", "CARD PURCHASE FABRIKAM SUPPLY", -100.0)]
+_P90_APR = [("2031-04-06", _P90_PAY, 10000.0)]
+_P90_EVERY = sorted(_P90_JAN + _FEB + _MAR_Q1 + _P90_APR)
+
+
+def _p90_rows(start, end):
+    return [row for row in _P90_EVERY if start <= row[0] <= end]
+
+
+def _activity_printout_package(window, *, number=_ACCOUNT, bank="CONTOSO BANK", extra=None, printout_first=False):
+    """January (a 4,000.00 credit on the 20th), February and March 2031, an April 1-14 month-to-date, `extra` (a job id
+    and its period, printing every row of its days) and an activity printout of `window` printing every row of its
+    days, all of one account (`number` and `bank` on every statement)."""
+    def statement(job_id, rows, start, end, opening):
+        return _unkeyed(job_id, rows, start, end, number=number, bank=bank, opening=opening)
+
+    balances = {"2031-01-01": 1500.0, "2031-01-15": 11500.0, "2031-02-01": 15400.0, "2031-02-14": 25400.0,
+                "2031-02-20": 25400.0, "2031-03-01": 25300.0, "2031-04-01": 35200.0}
+    jobs = [statement("jan", _P90_JAN, "2031-01-01", "2031-01-31", 1500.0),
+            statement("feb", _FEB, "2031-02-01", "2031-02-28", 15400.0),
+            statement("mar", _MAR_Q1, "2031-03-01", "2031-03-31", 25300.0)]
+    if extra is not None:
+        job_id, start, end = extra
+        jobs.append(statement(job_id, _p90_rows(start, end), start, end, balances[start]))
+    jobs.append(statement("mtd", _P90_APR, "2031-04-01", "2031-04-14", 35200.0))
+    printout = statement("print", _p90_rows(*window), *window, balances[window[0]])
+    return [printout, *jobs] if printout_first else [*jobs, printout]
+
+
+@pytest.mark.parametrize("printout_first", [False, True])
+@pytest.mark.parametrize("window", [("2031-01-15", "2031-04-14"), ("2031-02-14", "2031-04-14")])
+@pytest.mark.parametrize(("number", "bank"), [(_ACCOUNT, "CONTOSO BANK"), *_UNKEYED_VARIANTS])
+def test_an_activity_printout_beside_the_monthly_statements_and_a_month_to_date_is_left_out(
+        number, bank, window, printout_first):
+    """A 90- or 60-day activity printout beside the monthly statements and the current month-to-date (14 days), all of
+    whose rows they print, is left out in the first phase: the month-to-date is no partial printout of it. Kept, it
+    left February, March and the month-to-date out in its favour, January's days counted twice and a month lost."""
+    from webapp.app import _package_analysis
+
+    jobs = _activity_printout_package(window, number=number, bank=bank, printout_first=printout_first)
+    assert _r14(_package_analysis([job for job in jobs if job.id != "print"])) == (44000.0, 11000.0, 4, "approved")
+    package = _package_analysis(jobs)
+    assert _left_out(package) == [("print", "mar", "superseded_long_printout", None)]
+    assert _r14(package) == (44000.0, 11000.0, 4, "review_required") and _pairs(package) is None
+
+
+@pytest.mark.parametrize("extra", [("marmtd", "2031-03-01", "2031-03-20"), ("straddle", "2031-02-20", "2031-03-10")])
+def test_a_printout_the_monthly_statements_print_never_keeps_an_activity_printout_in_the_package(extra):
+    """A March month-to-date beside March, or a printout straddling February and March, overlaps a monthly statement
+    the 90-day printout shares its days with; the second phase leaves it out in favour of the monthly statements, so
+    it is no double count the printout must stay for: the printout is left out first, then it."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_activity_printout_package(("2031-01-15", "2031-04-14"), extra=extra))
+    assert _left_out(package) == [(extra[0], "mar", "superseded_interim", None),
+                                  ("print", "mar", "superseded_long_printout", None)]
+    assert _r14(package) == (44000.0, 11000.0, 4, "review_required") and _pairs(package) is None
+
+
+_FIRST_MONTH = [("2031-01-22", _P90_PAY, 6000.0), ("2031-01-27", _P90_PAY, 2000.0),
+                ("2031-01-29", "CARD PURCHASE FABRIKAM SUPPLY", -100.0)]
+_FIRST_FEB = [("2031-02-06", _P90_PAY, 6000.0), ("2031-02-20", "CARD PURCHASE FABRIKAM SUPPLY", -100.0),
+              ("2031-02-25", _P90_PAY, 3000.0)]
+
+
+def _first_month_package(export_end, *, export_first=False):
+    """A 12-day first month (January 20 to 31, 2031), February, and an export from January 20 to `export_end` printing
+    every row of its days."""
+    first = _period("first", _FIRST_MONTH, "2031-01-20", "2031-01-31", opening=1000.0)
+    february = _period("feb", _FIRST_FEB, "2031-02-01", "2031-02-28", opening=8900.0)
+    export = _period("export", [row for row in _FIRST_MONTH + _FIRST_FEB if row[0] <= export_end], "2031-01-20",
+                     export_end, opening=1000.0)
+    return [export, first, february] if export_first else [first, february, export]
+
+
+@pytest.mark.parametrize("export_first", [False, True])
+@pytest.mark.parametrize("export_end", ["2031-02-24", "2031-02-28"])
+def test_an_export_of_more_than_35_days_beside_a_short_first_month_is_left_out(export_end, export_first):
+    """A 36- or 40-day export beside a 12-day first month and February: a statement of more days than any monthly
+    cycle is tested against every statement of its account, so the export is left out and the two months stay (it
+    left them out in its favour, February's credits counted twice beside it or 2 months read as 1)."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_first_month_package(export_end, export_first=export_first))
+    assert _left_out(package) == [("export", "feb", "superseded_long_printout", None)]
+    assert _r14(package) == (17000.0, 8500.0, 2, "review_required") and _pairs(package) is None
+
+
+def test_a_35_day_export_beside_a_short_first_month_waits_for_the_second_phase():
+    """The recorded residual: a printout of 32 to 35 days, a monthly cycle's length, is left out in the first phase only
+    in favour of month-length statements; beside a 12-day first month it waits, the first month inside it is left out
+    in its favour, and the days it shares with February count twice, the pair named and the package sent to review."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_first_month_package("2031-02-23"))
+    assert _left_out(package) == [("first", "export", "superseded_interim", None)]
+    assert _r14(package) == (23000.0, 23000.0, 1, "review_required")
+    assert [(pair["job"], pair["other"], pair["shared_credit_count"], pair["days_shared"])
+            for pair in _pairs(package)] == [("export", "feb", 1, 23)]
+
+
+def test_a_possible_pair_leaves_a_one_row_statement_out_on_its_one_row():
+    """The recorded residual: an unkeyed savings statement whose only posted row is the monthly fee the unkeyed checking
+    statement prints on the same day and cents is left out as a shorter printout of it (the full row proof, one row
+    long), so its balances leave the package's average daily balance; True is unchanged and the package goes to
+    review."""
+    from webapp.app import _package_analysis
+
+    checking = _unkeyed("chk", [*_APRIL[:2], ("2031-04-30", "MONTHLY SERVICE FEE", -15.0)], "2031-04-01",
+                        "2031-04-30", opening=2000.0)
+    savings = _unkeyed("sav", [("2031-04-30", "MONTHLY SERVICE FEE", -15.0)], "2031-04-01", "2031-04-30",
+                       opening=90000.0)
+    alone = _package_analysis([checking])["totals"]
+    package = _package_analysis([checking, savings])
+    assert _left_out(package) == [("sav", "chk", "superseded_interim", None)]
+    totals = package["totals"]
+    assert (totals["true_revenue_total"], totals["average_daily_balance"]) == (
+        alone["true_revenue_total"], alone["average_daily_balance"])
+    assert totals["decision"] == "review_required"
+
+
 def test_the_package_rows_name_a_pair_sharing_no_credit_by_its_days():
     from webapp.app import _package_analysis, _package_rows
 

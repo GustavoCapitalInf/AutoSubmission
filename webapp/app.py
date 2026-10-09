@@ -1676,6 +1676,11 @@ _OVERLAP_SHIFT_DAYS = 3
 #: month is left out in favour of in `_package_superseded`'s first phase (7,096 of the corpus's 7,241 printed periods
 #: run 28 to 35 days; a shorter one is a partial month or a printout).
 _FULL_STATEMENT_DAYS = 28
+#: Audit round 3, R3-B18 review round 1: the most days of a monthly cycle (every printed period of the corpus's 7,241
+#: that runs more than a month runs 32 to 35 days; none runs 36 or more), so a statement of more days is a printout (a
+#: 60- or 90-day activity printout, a multi-month export), never a month its partial printouts are cut from: the first
+#: phase of `_package_superseded` tests it against all its account's statements, not only the month-length ones.
+_LONGEST_CYCLE_DAYS = 35
 
 
 def _posted_rows(account: dict) -> list[dict]:
@@ -1747,11 +1752,18 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     prints a posted row, and every posted row of it, credit or debit, is a posted row of those statements, as a
     multiset on the day and the signed cents (never a fuzzy match). The statements of more than a month
     (`_MONTH_DAYS`) are tested first, the longest first, so a quarterly printout or a multi-month export whose rows the
-    monthly statements print is left out (`superseded_long_printout`) and the monthly statements, each its own
-    calendar month, stay; audit round 3, R3-B18 (R3-05): in that first phase a statement is left out only in favour of
-    month-length statements (`_FULL_STATEMENT_DAYS` days or more) that alone cover its period and print its rows, no
-    two of which sharing its days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` days or share a credit in
-    the days both cover (no double count between them); otherwise it waits.
+    account's other statements print is left out (`superseded_long_printout`) and those statements stay; audit round
+    3, R3-B18 (R3-05): in that first phase a statement is left out only in favour of month-length statements
+    (`_FULL_STATEMENT_DAYS` days or more) that alone cover its period and print its rows, no two of which sharing its
+    days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` days or share a credit in the days both cover (no
+    double count between them); otherwise it waits. Review round 1: the month-length rule reads a statement of a
+    monthly cycle's length (`_LONGEST_CYCLE_DAYS` days or fewer) only; a printout of more days is proved by all its
+    account's statements (a month-to-date, a short first or closing month included), and the double-count test reads
+    only the statements the second phase would keep side by side (`settled`: a month-to-date beside its month, or a
+    printout two neighbouring months print, is left out there first). A printout of 32 to 35 days that only a shorter
+    statement proves with the month-length ones waits too: the second phase may leave that shorter statement, or a
+    month-length one inside the printout, out in its favour, and the days the printout shares with a statement it does
+    not print whole count twice, the pair named (the recorded residual).
     Then every statement left, long ones included, the shortest first, so an interim or month-to-date printout beside
     the full statement, a second month-to-date printout of one open month, or a short custom range of days the full
     statements print is left out (`superseded_interim`) and a full month, a 32-35-day monthly cycle included, is never
@@ -1836,15 +1848,30 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
         return first <= last and ((last - first).days + 1 > _OVERLAP_BOUNDARY_DAYS
                                   or _shared_credits(one, two, first, last)[0] >= 1)
 
+    def settled(group: list[dict]) -> list[dict]:
+        """Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by side,
+        the shortest first (of two alike, the later listed first), one left out when the others of `group` it is one
+        account with print it (`printed_by`: a month-to-date beside its month, a printout two neighbouring months
+        print), so the double count that phase resolves never keeps a long printout in the package."""
+        left = list(group)
+        for statement in sorted(group, key=lambda item: (item["days"], -item["order"])):
+            if printed_by(statement, peers(statement, left)):
+                left.remove(statement)
+        return left
+
     # Phase 1 (R2-B14 review round 1): a printout of more than a month, the longest first (of two alike, the later
     # listed first). Audit round 3, R3-B18 (R3-05): it is left out only in favour of month-length statements
     # (`_FULL_STATEMENT_DAYS` or more) that alone prove it and no two of which sharing its days overlap each other by
     # more than `_OVERLAP_BOUNDARY_DAYS` or share a credit (no double count between them), so a 32-35-day monthly
-    # cycle is never left out for partial printouts of it.
+    # cycle is never left out for partial printouts of it. Review round 1: the month-length rule reads a statement of a
+    # monthly cycle's length only (`_LONGEST_CYCLE_DAYS`); one of more days is a printout, proved by all its account's
+    # statements (a month-to-date, a short first or closing month), and the double-count test reads only the
+    # statements the second phase would keep side by side (`settled`).
     for statement in sorted((item for item in statements if item["days"] > _MONTH_DAYS),
                             key=lambda item: (-item["days"], -item["order"])):
-        full = [other for other in peers(statement, alive) if other["days"] >= _FULL_STATEMENT_DAYS]
-        sharing = [other for other in full if _days_shared(statement["span"], other["span"]) > 0]
+        full = [other for other in peers(statement, alive)
+                if other["days"] >= _FULL_STATEMENT_DAYS or statement["days"] > _LONGEST_CYCLE_DAYS]
+        sharing = [other for other in settled(full) if _days_shared(statement["span"], other["span"]) > 0]
         if not printed_by(statement, full) or any(double_counted(one, two) for place, one in enumerate(sharing)
                                                    for two in sharing[place + 1:]):
             continue
