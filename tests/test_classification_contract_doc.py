@@ -2051,6 +2051,110 @@ def test_r3_b13_r1_the_code_s_docstrings_name_the_readings():
     assert "R3-B13\n#: review round 1 (finding 3): never MUTUAL AID" in source
 
 
+#: Audit round 3, R3-B14: the code commit §20 and the contract name.
+R3_B14_CODE_COMMIT = "17521f1"
+
+
+def test_the_spec_and_the_contract_record_r3_b14():
+    """Audit round 3, R3-B14 (R3-06, R3-54, R3-07, R3-52, R3-60): §6.3 narrowing 12 and the OQ2 note, §8.1's claim
+    convention and the lessor's third arm, §8.7's arms and "What stays", §8.9's Q8 bullet, §8.10's demotions, §9.3's
+    stored-output bullet, §17.1's Q8 residual (5) and Q9 default (6), §19.1's three appended sentences, the R2-OW02,
+    R2-OW04, R2-OW05 and R2-OW06 lines marked in place, one §20 line per issue and the batch line with the commit, and
+    the contract's rows, bullets and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    precedence = re.sub(r"\s+", " ", _section(text, "\n### 6.3 ", "\n## 7. "))
+    for words in ("Audit round 3, R3-B14 (R3-06, §20): the claim never reads a merchant form",
+                  "a Cherry credit that prints `LOAN(S)` or a non-sale or financing word"):
+        assert words in precedence, words
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("a payout entity or a lease-to-own or patient financier never claims a credit whose row",
+                  "never `FUNDING`, `FUNDED`, `PAYOUT`, `PAYMENT`, `LEASE FUND`, `PROCEEDS` or a bare `ADV`",
+                  "Audit round 3, R3-B14 (R3-60, §20;", "a row whose payer region gives an empty payer key",
+                  "`_rent_payer_name`"):
+        assert words in holds, words
+    q7 = re.sub(r"\s+", " ", _section(text, "\n### 8.7 ", "\n### 8.8 "))
+    for words in ("(rewritten by audit round 3, R3-B14: R3-52, §20 below)", "`_FLOOR_PLAN_SERVICE_CREDIT`",
+                  "never `FLOORPLANNER` or `FLOOR PLANKS`", "`_card_purchase_debit`",
+                  "Audit round 3, R3-B14 (R3-52, §20; Q9 (c)",
+                  "(The arms are narrowed by audit round 3, R3-B14: R3-52, §20 below:"):
+        assert words in q7, words
+    rest = re.sub(r"\s+", " ", _section(text, "\n### 8.9 ", "\n### 8.10 "))
+    for words in ("(audit round 3, R3-B14: R3-06, §8.1's claim convention, `_payout_non_sale`",
+                  "(audit round 3, R3-B14: R3-54, §20: `KATAPULT ENG…`",
+                  "so does (audit round 3, R3-B14: R3-06, §20) a Cherry loan or advance"):
+        assert words in rest, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert "audit round 3, R3-B14: R3-06, never a credit printing a non-sale or financing word" in tiering
+    assert "- Audit round 3, R3-B14 (§20): no bump in a fix batch either" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    financiers = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Lease-to-own and patient financiers' follow-ups (the underwriter's Q8 of 2026-10-02, §8.9).**"))
+    assert "(5) A recorded residual (audit round 3, R3-B14: R3-54's Cherry half, not fixed, §20)" in financiers
+    q9 = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Finance-named customers, rent and lenders' service payments: the defaults"))
+    assert ("(the third arm reads rent words outside the payer's own name and never an account designation; R3-60)"
+            in q9)
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert review.count("Audit round 3, R3-B14 (") == 3
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("the largest single drop is one statement's whole True (its figure removed by audit round 3, "
+                  "R3-B14: R3-07, §20 below",
+                  "(amended by audit round 3, R3-B14: R3-06, §20 below: so does a Cherry loan or advance",
+                  "(amended by audit round 3, R3-B14: R3-54, §20 below: nor are the cut forms",
+                  "narrowed by audit round 3, R3-B14: R3-52, §20 below: a financier's credit only where",
+                  "(corrected, audit round 3, R3-B14: R3-52, §20 below: not fail-safe",
+                  "- **A financier's or a payout entity's non-sale or financing credit is no merchant payout, and a "
+                  "Cherry loan keeps D1**",
+                  "- **A cut Katapult Engineering name is the namesake**",
+                  "- **The Q8 tests' values are fabricated, and the R2-OW02 line prints no single statement's figure**",
+                  "- **A row that is no dealer evidence never keeps a lender's payables Verified**",
+                  "- **An own-account transfer or a payer named RENTALS never makes a lessor**",
+                  "- **Audit round 3, R3-B14 in all**"):
+        assert words in amendments, words
+    assert amendments.count("the largest single drop is one statement's whole True") == 1
+    assert amendments.count("audit round 3, R3-B14 (R3-") >= 5
+    assert amendments.count(R3_B14_CODE_COMMIT) >= 5
+    for placeholder in ("R3B14" + "CODE", "MEASURE" + "_R3B14"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "(audit round 3, R3-B14: R3-06, R3-54)" in when["`customer_financing_payout`"]
+    assert "audit round 3, R3-B14, R3-52" in when["`lender_paid_for_services`"]
+    assert "audit round 3, R3-B14, R3-60" in when["`lessor_rent`"]
+    contract = _flat(CONTRACT)
+    assert "R3B14" + "CODE" not in contract
+    for words in (f"Audit round 3, R3-B14 (R3-06, R3-54, R3-07, R3-52, R3-60; {R3_B14_CODE_COMMIT})",
+                  "keeps D1 (audit round 3, R3-B14: R3-06).", "`FLOORPLANNER` or `FLOOR PLANKS` row are no dealer "
+                  "evidence (audit round 3, R3-B14: R3-52).", "the arms narrowed by audit round 3, R3-B14: R3-52"):
+        assert words in contract, words
+
+
+def test_r3_b14_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B14: _payout_non_sale, _claimed and _customer_financier name the veto; _dealer_activity and
+    _dealer_statement the narrowed arms; _lessor_business and _rent_payer_name the third arm's reading; the classifier's
+    _is_payout_credit the Cherry loan, and its pattern carries its comment; the registry's Katapult comment."""
+    from analysis import classification_registry
+
+    veto = re.sub(r"\s+", " ", true_revenue._payout_non_sale.__doc__)
+    assert "Their consumer-side credits (refunds, loans to the holder) stay as today" in veto
+    assert "Audit round 3, R3-B14 (R3-06): a payout entity's or a financier's credit printing a non-sale" in re.sub(
+        r"\s+", " ", true_revenue._claimed.__doc__)
+    assert "audit round 3, R3-B14: R3-06, _payout_non_sale" in re.sub(
+        r"\s+", " ", true_revenue._customer_financier.__doc__)
+    activity = re.sub(r"\s+", " ", true_revenue._dealer_activity.__doc__)
+    for words in ("Audit round 3, R3-B14 (R3-52;", "_card_purchase_debit", "_FLOOR_PLAN_SERVICE_CREDIT"):
+        assert words in activity, words
+    assert "Audit round 3, R3-B14 (R3-52)" in re.sub(r"\s+", " ", true_revenue._dealer_statement.__doc__)
+    lessor = re.sub(r"\s+", " ", true_revenue._lessor_business.__doc__)
+    assert "Audit round 3, R3-B14 (R3-60;" in lessor and "_rent_payer_name" in lessor
+    assert "the _rent_memo_payer convention" in re.sub(r"\s+", " ", true_revenue._rent_payer_name.__doc__)
+    assert "Audit round 3, R3-B14 (R3-06): a Cherry credit printing LOAN(S)" in re.sub(
+        r"\s+", " ", transaction_classifier._is_payout_credit.__doc__)
+    source = inspect.getsource(transaction_classifier)
+    assert "#: Audit round 3, R3-B14 (R3-06): a payout entity's or a lease-to-own or patient financier's" in source
+    registry = inspect.getsource(classification_registry)
+    assert "audit round 3, R3-B14 (R3-54): so are the cut forms of" in registry
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
