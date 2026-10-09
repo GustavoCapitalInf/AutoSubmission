@@ -1761,11 +1761,17 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     account's statements (a month-to-date, a short first or closing month included), and the double-count test reads
     only the statements the second phase would keep side by side (`settled`: a month-to-date beside its month, or a
     printout two neighbouring months print, is left out there first, and before them another printout of more than
-    `_LONGEST_CYCLE_DAYS` days that the others print, as this phase leaves it out, so a second activity printout never
-    keeps the first in the package). A printout of 32 to 35 days that only a shorter statement proves with the
+    `_LONGEST_CYCLE_DAYS` days that the others print, as this phase leaves it out). Review round 2: and a printout of
+    32 to `_LONGEST_CYCLE_DAYS` days that the month-length statements alone print and that count nothing twice between
+    them, as this phase leaves it out; the double count is read only between two statements that are one account's,
+    each printing a posted row (`double_counted`: a printed pair, or a possible pair the overlap pass names or whose
+    two statements print only rows of the printout tested), so a second account of the holder at the bank whose number
+    is not read, a 34-day export the monthly statements print or a printout with no posted row no longer keeps the
+    long printout in the package. A printout of 32 to 35 days that only a shorter statement proves with the
     month-length ones waits too: the second phase may leave that shorter statement, or a month-length one inside the
     printout, out in its favour, and the days the printout shares with a statement it does not print whole count
-    twice, the pair named (the recorded residual).
+    twice, the pair named (the recorded residual); beside it a longer printout waits as well, read as its double count
+    (the residual's reach, recorded by review round 2).
     Then every statement left, long ones included, the shortest first, so an interim or month-to-date printout beside
     the full statement, a second month-to-date printout of one open month, or a short custom range of days the full
     statements print is left out (`superseded_interim`) and a full month, a 32-35-day monthly cycle included, is never
@@ -1888,13 +1894,13 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
 
     def settled(group: list[dict]) -> list[dict]:
         """Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by side
-        (`interim`: a month-to-date beside its month, a printout two neighbouring months print, left out), so the
-        double count that phase resolves never keeps a long printout in the package. Before that pass, the longest
-        first, a printout of more than `_LONGEST_CYCLE_DAYS` days that the others print is left out, as the first phase
-        leaves it out. Review round 2: so is a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length
-        statements of `group` alone print (`_FULL_STATEMENT_DAYS`) and that count nothing twice between them, read on
-        the second phase's own pass over them (`interim`), as the first phase leaves it out, so a 34-day export the
-        monthly statements print is no double count beside the month it straddles."""
+        (`interim`: a month-to-date beside its month, a printout two neighbouring months print, left out), so a double
+        count that phase resolves keeps no long printout in the package. Before that pass, the longest first, a
+        printout of more than `_LONGEST_CYCLE_DAYS` days that the others print is left out, as the first phase leaves it
+        out. Review round 2: so is a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length statements of
+        `group` alone print (`_FULL_STATEMENT_DAYS`) and that count nothing twice between them, read on the second
+        phase's own pass over them (`interim`), as the first phase leaves it out, so a 34-day export the monthly
+        statements print is no double count beside the month it straddles."""
         left = list(group)
         for statement in sorted((item for item in group if item["days"] > _MONTH_DAYS),
                                 key=lambda item: (-item["days"], -item["order"])):
@@ -1915,7 +1921,9 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     # monthly cycle's length only (`_LONGEST_CYCLE_DAYS`); one of more days is a printout, proved by all its account's
     # statements (a month-to-date, a short first or closing month), and the double-count test reads only the
     # statements the second phase would keep side by side (`settled`), another printout of more than
-    # `_LONGEST_CYCLE_DAYS` days the others print left out before them.
+    # `_LONGEST_CYCLE_DAYS` days the others print left out before them. Review round 2: and a 32-35-day printout the
+    # month-length statements alone print without a double count; the double count is read only between two statements
+    # that are one account's, each printing a posted row (`double_counted`, against the printout tested).
     for statement in sorted((item for item in statements if item["days"] > _MONTH_DAYS),
                             key=lambda item: (-item["days"], -item["order"])):
         full = [other for other in peers(statement, alive)

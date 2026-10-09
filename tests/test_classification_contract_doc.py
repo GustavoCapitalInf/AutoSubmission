@@ -2941,8 +2941,80 @@ def test_r3_b18_r1_the_code_s_docstrings_name_the_rules():
     assert "Audit round 3, R3-B18 review round 1: the most days of a monthly cycle" in source
     assert ("Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by "
             "side") in source
-    assert ("A printout of more than `_LONGEST_CYCLE_DAYS` days that the others print is left out before them, the "
-            "longest first, as the first phase leaves it out, so a second activity printout never keeps the first in "
-            "the package.") in source
+    # Corrected in place by review round 2 (finding 2): the claim that a second printout never keeps the first in the
+    # package was false (a 34-day export, a row-less printout), so it is gone and the rule alone stays.
+    assert ("Before that pass, the longest first, a printout of more than `_LONGEST_CYCLE_DAYS` days that the others "
+            "print is left out, as the first phase leaves it out.") in source
     assert ("and before them another printout of more than `_LONGEST_CYCLE_DAYS` days that the others print, as this "
-            "phase leaves it out, so a second activity printout never keeps the first in the package") in superseded
+            "phase leaves it out)") in superseded
+    assert "so a second activity printout never keeps the first in the package" not in source
+
+
+#: Audit round 3, R3-B18, review round 2: the code commit §20 and the contract name (one account's double count, the
+#: 32-35-day printout in the second-phase simulation, the row-less printout).
+R3_B18_R2_CODE_COMMITS = ("299778a",)
+
+
+def test_the_spec_and_the_contract_record_r3_b18_review_round_2():
+    """Audit round 3, R3-B18, review round 2 (findings 1 and 2): §9.2's R14 bullet (the false words quoted, the one
+    account's double count, the 32-35-day printout in the simulation, the residual), §9.3's sentence, the batch's and
+    review round 1's §20 lines qualified in place, the §20 line with the commit, the random search and the measurement,
+    and the contract's round 1 entry qualified in place and a new entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("amended in place by that review, which found false the words \"so neither a printout the monthly "
+                  "statements print nor a second activity printout keeps the long printout in the package\"",
+                  "Its review round 2 (§20): the double count is read only between two statements that are one "
+                  "account's, each printing a posted row",
+                  "or whose two statements print only rows of the printout being tested in its days",
+                  "a printout of 32 to 35 days that the month-length statements alone print and that counts nothing "
+                  "twice between them"):
+        assert words in package, words
+    assert "\"so neither a printout the monthly statements print" in package
+    assert package.count("so neither a printout the monthly statements print") == 1
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "Its review round 2 (§20) changes no stored output and no served key either" in versions
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    batch = _amendment_line(amendments, "- **One account's statements in a package:")
+    for words in ("and a printout of more than 35 days no longer waits; qualified in place by its review round 2",
+                  "34 of the reviewer's 2,000 random fabricated keyed packages",
+                  "and by its review round 2, §20 below: a 32-35-day printout the month-length statements alone print"):
+        assert words in batch, words
+    first = _amendment_line(amendments, "- **R3-B18 review round 1: ")
+    assert first.count("qualified in place by its review round 2, §20 below") == 2
+    line = _amendment_line(amendments, "- **R3-B18 review round 2: ")
+    for words in ("audit round 3, R3-B18, review round 2 (findings 1 and 2)", *R3_B18_R2_CODE_COMMITS,
+                  "Measured against `75bcabf`'s tree", "(finding 1)", "(finding 2)", "random search",
+                  "Recorded residuals:"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B18, review round 2 ({', '.join(R3_B18_R2_CODE_COMMITS)})",
+                  "qualified in place by its review round 2, below: true of the shapes pinned, not of every second "
+                  "printout",
+                  "or whose two statements print only rows of the printout being tested in its days",
+                  "a printout with no posted row is no double count"):
+        assert words in contract, words
+
+
+def test_r3_b18_r2_the_code_s_docstrings_name_the_rules():
+    """Audit round 3, R3-B18, review round 2: `_package_superseded` and its double-count helpers name the one account's
+    double count, the 32-35-day printout in the simulation and the residual's reach; `_possible_pair_named` names its
+    second reader."""
+    from webapp import app as appmod
+
+    superseded = re.sub(r"\s+", " ", appmod._package_superseded.__doc__)
+    for words in ("Review round 2: and a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length statements "
+                  "alone print",
+                  "the double count is read only between two statements that are one account's, each printing a posted "
+                  "row (`double_counted`",
+                  "(the residual's reach, recorded by review round 2)"):
+        assert words in superseded, words
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod))
+    for words in ("Audit round 3, R3-B18 review round 2: only two statements that are one account's, each printing a "
+                  "posted row",
+                  "Audit round 3, R3-B18 review round 2: whether `statement` prints a posted row in `printout`'s days",
+                  "Review round 2: so is a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length "
+                  "statements of `group` alone print"):
+        assert words in source, words
+    named = re.sub(r"\s+", " ", appmod._possible_pair_named.__doc__)
+    assert "Review round 2: the long-printout phase reads a possible pair as a double count on this evidence" in named
