@@ -2051,8 +2051,9 @@ def test_r3_b13_r1_the_code_s_docstrings_name_the_readings():
     assert "R3-B13\n#: review round 1 (finding 3): never MUTUAL AID" in source
 
 
-#: Audit round 3, R3-B14: the code commit §20 and the contract name.
+#: Audit round 3, R3-B14: the code commit §20 and the contract name, and the commit of R3-06's Q6 guard.
 R3_B14_CODE_COMMIT = "17521f1"
+R3_B14_GUARD_COMMIT = "439715b"
 
 
 def test_the_spec_and_the_contract_record_r3_b14():
@@ -2069,6 +2070,7 @@ def test_the_spec_and_the_contract_record_r3_b14():
     holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
     for words in ("a payout entity or a lease-to-own or patient financier never claims a credit whose row",
                   "never `FUNDING`, `FUNDED`, `PAYOUT`, `PAYMENT`, `LEASE FUND`, `PROCEEDS` or a bare `ADV`",
+                  "Q5 and Q6 never verify such a row and never count it toward a repeat (`_payout_claim_vetoed`",
                   "Audit round 3, R3-B14 (R3-60, §20;", "a row whose payer region gives an empty payer key",
                   "`_rent_payer_name`"):
         assert words in holds, words
@@ -2114,15 +2116,20 @@ def test_the_spec_and_the_contract_record_r3_b14():
     assert amendments.count("the largest single drop is one statement's whole True") == 1
     assert amendments.count("audit round 3, R3-B14 (R3-") >= 5
     assert amendments.count(R3_B14_CODE_COMMIT) >= 5
-    for placeholder in ("R3B14" + "CODE", "MEASURE" + "_R3B14"):
+    payout = _amendment_line(amendments, "- **A financier's or a payout entity's non-sale or financing credit is no "
+                                         "merchant payout, and a Cherry loan keeps D1**")
+    assert f"(`_payout_claim_vetoed`, read by `_never_q5_or_q6`; {R3_B14_GUARD_COMMIT}," in payout
+    assert R3_B14_GUARD_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B14 in all**")
+    for placeholder in ("R3B14" + "CODE", "MEASURE" + "_R3B14", "R3B14" + "GUARD"):
         assert placeholder not in text, placeholder
     when = {cells[0]: cells[3] for cells in _reason_table()}
     assert "(audit round 3, R3-B14: R3-06, R3-54)" in when["`customer_financing_payout`"]
     assert "audit round 3, R3-B14, R3-52" in when["`lender_paid_for_services`"]
     assert "audit round 3, R3-B14, R3-60" in when["`lessor_rent`"]
     contract = _flat(CONTRACT)
-    assert "R3B14" + "CODE" not in contract
+    assert "R3B14" + "CODE" not in contract and "R3B14" + "GUARD" not in contract
     for words in (f"Audit round 3, R3-B14 (R3-06, R3-54, R3-07, R3-52, R3-60; {R3_B14_CODE_COMMIT})",
+                  f"and Q5 and Q6 never verify it (`_payout_claim_vetoed`, its Q6 guard: {R3_B14_GUARD_COMMIT})",
                   "keeps D1 (audit round 3, R3-B14: R3-06).", "`FLOORPLANNER` or `FLOOR PLANKS` row are no dealer "
                   "evidence (audit round 3, R3-B14: R3-52).", "the arms narrowed by audit round 3, R3-B14: R3-52"):
         assert words in contract, words
@@ -2140,6 +2147,9 @@ def test_r3_b14_the_code_s_docstrings_name_the_readings():
         r"\s+", " ", true_revenue._claimed.__doc__)
     assert "audit round 3, R3-B14: R3-06, _payout_non_sale" in re.sub(
         r"\s+", " ", true_revenue._customer_financier.__doc__)
+    guard = re.sub(r"\s+", " ", true_revenue._payout_claim_vetoed.__doc__)
+    assert "is never verified by Q5 or Q6 and never counts toward a repeat" in guard
+    assert "(_payout_claim_vetoed)" in re.sub(r"\s+", " ", true_revenue._never_q5_or_q6.__doc__)
     activity = re.sub(r"\s+", " ", true_revenue._dealer_activity.__doc__)
     for words in ("Audit round 3, R3-B14 (R3-52;", "_card_purchase_debit", "_FLOOR_PLAN_SERVICE_CREDIT"):
         assert words in activity, words
