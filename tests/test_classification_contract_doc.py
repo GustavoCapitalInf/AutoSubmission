@@ -1886,6 +1886,98 @@ def test_r3_b12_r1_the_code_s_docstrings_name_the_residuals():
     assert "Review round 1 (finding 3): a wire layout neither gate reads" in reader
 
 
+#: Audit round 3, R3-B13: the code commit §20 and the contract name.
+R3_B13_CODE_COMMIT = "f103f68"
+
+
+def test_the_spec_and_the_contract_record_r3_b13():
+    """Audit round 3, R3-B13 (R3-11, R3-57, R3-10, R3-09, R3-58, R3-64, R3-55): §6.1 step 3a's glued lead, §7.6's
+    county-mutual veto, §8.1's spelling, arm order, consumer rail, personal-benefit words, REF, round-sum repeat and
+    asset-sale sentences, §8.10 item 11, §9.3's stored-output bullet, §14.2's class H, §17.1's I26 residuals and Q2
+    default (5), §19.1's appended sentences, the R2-OW01, R2-OW07 review round 1 and R2-OW08 lines marked in place, one
+    §20 line per issue and the batch line with the commit, and the contract's rows and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    steps = re.sub(r"\s+", " ", _section(text, "\n### 6.1 ", "\n### 6.2 "))
+    assert "Audit round 3, R3-B13 (R3-55, §20): a digit run glued before a letter-led form's first letter" in steps
+    public = re.sub(r"\s+", " ", _section(text, "\n### 7.6 ", "\n### 7.7 "))
+    assert "never followed by an insurer word (audit round 3, R3-B13: R3-11, §20;" in public
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("`COUNTY MUT`, a Texas county mutual's 16-character cut",
+                  "(Narrowed by audit round 3, R3-B13: R3-57, §20: a consumer rail only",
+                  "a listed insurer's credit is read next (audit round 3, R3-B13: R3-11, §20: before the government",
+                  "(qualified by audit round 3, R3-B13: R3-64, §20:",
+                  "Audit round 3, R3-B13 (R3-10, §20;", "`_INSURER_PERSONAL_BENEFIT`", "`_INSURER_LTD_BENEFIT`",
+                  "`_INSURER_NON_PROVIDER_BENEFIT`", "(Audit round 3, R3-B13: R3-58, §20: the service form",
+                  "Audit round 3, R3-B13 (R3-09, §20;",
+                  "on a person-to-person row §8.4's round-sum repeat still wins, as for the progress draw"):
+        assert words in holds, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert ("on a person-to-person row §8.4's round-sum repeat still wins, as for the progress draw (audit round 3, "
+            "R3-B13: R3-09, §20)") in tiering
+    assert "- Audit round 3, R3-B13 (§20): no bump in a fix batch either" in text
+    census = re.sub(r"\s+", " ", _section(text, "\n### 14.2 ", "\n### 14.3 "))
+    assert "Audit round 3, R3-B13 (R3-55, §20): every named form's residue is class H" in census
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    spelling = next(line for line in open_items.splitlines()
+                    if line.startswith("- **Every insurer spelling (audit I26, R2-OW07), for the owner to confirm.**"))
+    for words in ("Recorded residuals, not fixed: (1) R3-57:", "(2) R3-11:", "`HALLMARK COUNTY`"):
+        assert words in spelling, words
+    defaults = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Insurers paid for the business's work: the defaults (the underwriter's Q2 of 2026-10-02, §8.1; "
+        "R2-OW08).**"))
+    assert "(5) Workers' compensation and a plain `BENEFIT(S)` wording refuse the release except at a" in defaults
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert review.count("Audit round 3, R3-B13 (") == 3
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(amended by audit round 3, R3-B13: R3-55, §20 below:",
+                  "(amended by audit round 3, R3-B13: R3-11, §20 below:",
+                  "(qualified by audit round 3, R3-B13: R3-64, §20 below:",
+                  "(narrowed by audit round 3, R3-B13: R3-57, §20 below:",
+                  "corrected, audit round 3, R3-B13: R3-58, §20 below:",
+                  "(amended by audit round 3, R3-B13: R3-10, §20 below:",
+                  "- **A Texas county mutual is an insurer, never a county**",
+                  "- **Every insurer spelling reads off the consumer rails**",
+                  "- **A personal benefit is never an insurer's payment for work**",
+                  "- **A released insurer's round sums on a person-to-person row are held as any sender's**",
+                  "- **The service form never reads a wire's `REF`; the customer-payment wording does**",
+                  "- **A released insurer's printed asset sale is read by Q11 (b)**",
+                  "- **A Q12 form after a glued digit run is read, and class H reads every named form's residue**",
+                  "- **Audit round 3, R3-B13 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B13 (R3-") >= 7
+    assert amendments.count(R3_B13_CODE_COMMIT) >= 6
+    for placeholder in ("R3B13" + "CODE", "MEASURE" + "MENT_R3B13"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "`COUNTY MUT`" in when["`insurer_named_payer`"]
+    assert "a consumer person-to-person rail's sender" in when["`insurer_named_payer`"]
+    assert "a wire's `REF` included, where Chase's book transfer and Santander print the purpose" in when[
+        "`insurer_paid_for_services`"]
+    assert "R3-55" in when["`government_no_purpose`"]
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B13 (R3-11, R3-57, R3-10, R3-09, R3-58, R3-64, R3-55; {R3_B13_CODE_COMMIT})",
+                  "(amended by audit round 3, R3-B13: R3-10, below:", "corrected, audit round 3, R3-B13: R3-58, below:",
+                  "(narrowed by R3-B13, R3-57, below: a consumer rail only)"):
+        assert words in contract, words
+
+
+def test_r3_b13_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B13: insurer_payer_reading names the arm order and the consumer rail; _insurer_for_work the
+    personal-benefit refusals and the REF reader; the classifier's patterns carry their comments."""
+    reader = re.sub(r"\s+", " ", true_revenue.insurer_payer_reading.__doc__)
+    for words in ("read before the government arm", "on a consumer person-to-person rail (_p2p_rail",
+                  "the cut MUTUA reads there only beside a company form"):
+        assert words in reader, words
+    release = re.sub(r"\s+", " ", true_revenue._insurer_for_work.__doc__)
+    for words in ("nor a personal benefit's word", "_INSURER_LTD_BENEFIT", "_holder_provider",
+                  "Chase's book transfer and Santander print the purpose in"):
+        assert words in release, words
+    provider = re.sub(r"\s+", " ", true_revenue._holder_provider.__doc__)
+    assert "Medical claim payments to providers keep counting" in provider
+    source = inspect.getsource(transaction_classifier)
+    assert "Audit round 3, R3-B13 (R3-11;" in source and "Audit round 3, R3-B13 (R3-55)" in source
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
