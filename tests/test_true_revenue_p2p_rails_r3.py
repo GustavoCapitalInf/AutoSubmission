@@ -141,6 +141,65 @@ def test_r3_12_p2_the_debits_keep_the_classifier_s_reading():
     assert [record for record in yes if record.amount < 0] == [record for record in no if record.amount < 0]
 
 
+def _zelle_to(rows):
+    """The same statement with each ZEL TO debit printed 'ZELLE TO <the same words>'; the credits kept as printed."""
+    return [(re.sub(r"^ZEL TO ", "ZELLE TO ", text) if amount < 0 else text, amount, day) for text, amount, day in rows]
+
+
+def _debit_reading(records):
+    """The statement's one debit: its normalized text, its legacy class, and the counter-debit hold's kind and key."""
+    [debit] = [record for record in records if record.amount < 0]
+    [reading] = true_revenue.counter_debits(records, set()).other
+    return debit.normalized_description, debit.classification, reading.kind, reading.person_key
+
+
+def test_r3_12_p2_the_zel_to_debit_s_own_reading_is_the_classifier_s():
+    # §8.4's residual (R3-B12 review round 1, finding 4): the debit is read on its own text, never respelled. Its legacy
+    # class is 'other' and it carries no person key; the counter-debit hold reads it as circular money through the
+    # own-account arm's ZEL. Its ZELLE TO twin is a 'transfer' whose recipient's whole name is its person key.
+    rows = TWINS["e_round_trip"][0]
+    for read in (_yes, _no):
+        text, legacy, kind, person_key = _debit_reading(read(rows))
+        assert text.startswith("ZEL TO MARCUS SAMPLE")
+        assert (legacy, kind, person_key) == ("other", "circular", None)
+        assert _debit_reading(read(_zelle_to(rows)))[1:] == ("transfer", "circular", "MARCUSSAMPLE")
+
+
+@pytest.mark.parametrize(("credit", "amount", "zelle_to"), [
+    # A person-to-person credit for the debit's own amount: named by 5.6's first word (R2-B02 review round 1).
+    ("ZEL FROM MARCUS CONTOSO", 800.0, P2P),
+    # Any other credit, at any amount: named by B4's forms, the first word included.
+    ("MARCUS CONTOSO", 3200.0, (COUNTED, "named_payer_unlabelled")),
+])
+def test_r3_12_residual_a_zel_to_debit_names_another_person_by_the_given_name(credit, amount, zelle_to):
+    # §8.4's recorded residual (R3-B12 review round 1, finding 4): with no person key, a ZEL TO debit names a credit's
+    # payer by its first word, so another person who shares the recipient's given name is held against it, where its
+    # ZELLE TO twin names a credit only by the recipient's whole name. Pinned so a later change is deliberate.
+    rows = [(credit, amount, 3), ("ZEL TO MARCUS SAMPLE PNCAA0X1234567", -800.0, 6)]
+    assert _credit_tiers(_yes(rows)) == [(HELD, "payer_also_debited")]
+    assert _credit_tiers(_yes(_zelle_to(rows))) == [zelle_to]
+
+
+#: An operating platform's name printed as a ZEL sender (a public platform, the classifier's maintained source).
+PLATFORM_ZEL = [("ZEL FROM STRIPE WFCT0ABCDE12", 1000.0, 2), ("ZEL FROM STRIPE WFCT0ABCDE13", 1000.0, 9)]
+
+
+def test_r3_12_residual_the_classifier_claims_a_platform_named_zel_sender_before_pass_7():
+    # §8.4's recorded residual (R3-B12 review round 1, finding 2; the 5.5 channel gate leaves ZEL open): the classifier
+    # reads the raw text, so a ZEL FROM credit whose sender looks like an operating platform is claimed as an operating
+    # source: counted platform_unconfirmed once and Verified on a repeat (recurring_operating_source), where its ZELLE
+    # twin is counted p2p or held as a round repeat. 0 corpus rows; pinned so a later classifier batch (G7) changes it
+    # deliberately.
+    [single] = _yes(PLATFORM_ZEL[:1])
+    assert (_tier(single), single.revenue_match_method) == (
+        (COUNTED, "platform_unconfirmed"), "operating_source_requires_context")
+    assert _credit_tiers(_yes(_zelle_twin(PLATFORM_ZEL[:1]))) == [P2P]
+    pair = _yes(PLATFORM_ZEL)
+    assert [(record.revenue_tier, record.revenue_match_method) for record in pair] == [
+        ("verified", "recurring_operating_source")] * 2
+    assert _credit_tiers(_yes(_zelle_twin(PLATFORM_ZEL))) == [REPEAT, REPEAT]
+
+
 def test_r3_12_p3_one_sender_s_zel_and_zelle_round_sums_pool():
     rows = [("ZEL FROM PAT SAMPLE WFCT0ABCDE12", 500.0, 2),
             ("ZELLE FROM PAT SAMPLE ON 03/09 REF # BAC0A1B2C3D4", 1200.0, 9)]
@@ -353,3 +412,24 @@ STILL_ZELLE = [
 @pytest.mark.parametrize("text", STILL_ZELLE)
 def test_r3_56_the_rail_rows_stay_zelle_deposits(text):
     assert true_revenue.zelle_deposit(_text(text)) is True
+
+
+#: §8.4's recorded residuals (R3-B12 review round 1, finding 3; 0 corpus rows): wire layouts neither wire gate reads
+#: (no incoming-wire row and no loose wire's originator label) keep a memo's ZELLE as the rail.
+WIRES_STILL_READ = [
+    "NORTHWIND TRADING INC WIRE ZELLE LIMIT",
+    "ONLINE WIRE TRANSFER FROM NORTHWIND TRADING INC ZELLE",
+    "WIRE TRANS SVC CREDIT NORTHWIND TRADING INC ZELLE",
+    "WIRE DEPOSIT NORTHWIND TRADING INC ZELLE",
+]
+
+
+@pytest.mark.parametrize("text", WIRES_STILL_READ)
+def test_r3_56_residual_a_wire_layout_no_wire_gate_reads_keeps_the_memo_s_rail(text):
+    assert true_revenue.zelle_deposit(_text(text)) is True
+
+
+def test_r3_56_residual_a_zelle_row_printing_a_wire_originator_label_before_its_rail_is_refused():
+    # §8.4's recorded residual (R3-B12 review round 1, finding 3; 0 corpus rows): the up-to-the-rail arm reads WIRE and
+    # an originator label printed before the rail word as a loose wire's originator row.
+    assert true_revenue.zelle_deposit(_text("MOBILE WIRE ORG ZELLE PAT SAMPLE")) is False

@@ -3210,19 +3210,26 @@ def pass_text(record, text: str) -> str:
     as the same sender's 'ZELLE FROM' row: the person-to-person channel (_p2p_rail), the payer region and key (pooled
     with that sender's ZELLE rows), the round-sum repeat, and R2-B02's (R02) person match of the counter-debit hold.
     `record` needs only its bank and printed description. The classifier's _CONSUMER_P2P_RAIL (the 5.5 channel gate,
-    the legacy classes, the debits) is unchanged: a 'ZEL TO' debit keeps the classifier's debit reading."""
+    the legacy classes, the debits) is unchanged: a 'ZEL TO' debit keeps the classifier's debit reading. Review round 1
+    (§8.4's residuals): the classifier's earlier reading of the raw text is not pass 7's, so a ZEL credit whose sender
+    looks like an operating platform is still claimed as an operating source (counted, and Verified on a repeat), and
+    a 'ZEL TO' debit keeps its legacy class 'other' and no person key (a credit for its own amount, or one with no
+    person key, names it by the first word)."""
     return _ZEL_SPELLING.sub("ZELLE ", without_transfer_code(record, text))
 
 
 def zelle_deposit(text: str) -> bool:
     """Q3 (2026-10-02, spec §8.4): the credit's revenue text prints the Zelle rail before its receiver fields
-    (_ZELLE_RAIL). Audit round 3, R3-56: a wire is never a Zelle deposit, whatever its memo prints ('PMT DET:INVOICE
-    <n> PAID BY WIRE INSTEAD OF ZELLE'): an incoming wire (the classifier's _is_wire_row) or a loose wire's originator
-    row (_loose_wire_originator, as merchant_settlement reads it; read on the row up to its first Zelle word, since
-    the classifier's loose-wire label refuses a row that prints a consumer rail, so a word in the originator's name or
-    memo after the label reads as the wire's) is not read. The ACH entry-description forms ('DES:ZELLE') and the
-    rail printed mid-row are kept; a company whose name holds the word ZELLE paying by ACH still reads (§8.4's
-    residual)."""
+    (_ZELLE_RAIL). Audit round 3, R3-56: an incoming wire or a loose wire's originator row is never a Zelle deposit,
+    whatever its memo prints ('PMT DET:INVOICE <n> PAID BY WIRE INSTEAD OF ZELLE'): an incoming wire (the classifier's
+    _is_wire_row) or a loose wire's originator row (_loose_wire_originator, as merchant_settlement reads it; read on
+    the row up to its first Zelle word, since the classifier's loose-wire label refuses a row that prints a consumer
+    rail, so a word in the originator's name or memo after the label reads as the wire's) is not read. The ACH
+    entry-description forms ('DES:ZELLE') and the rail printed mid-row are kept; a company whose name holds the word
+    ZELLE paying by ACH still reads (§8.4's residual). Review round 1 (finding 3): a wire layout neither gate reads
+    ('<sender> WIRE' with no originator label, 'ONLINE WIRE TRANSFER FROM', 'WIRE TRANS SVC CREDIT', 'WIRE DEPOSIT')
+    still reads a memo's ZELLE, and a Zelle row that prints WIRE and an originator label before its rail word is
+    refused (§8.4's residuals, 0 corpus rows)."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     rail = _ZELLE_RAIL.search(row)
