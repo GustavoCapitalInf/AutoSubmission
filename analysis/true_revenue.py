@@ -965,8 +965,9 @@ _Q9_KEEPS = frozenset({
 #: Owner ruling 2026-10-02 (Q9 (c'); §8.7): dealer evidence on a statement's rows: a floor-plan form printed anywhere
 #: (FLOORPLAN, FLOOR PLAN), beside the registry's floor-plan financiers (FLOOR_PLAN_ALIASES). Audit round 3, R3-B14
 #: (R3-52): the form's own words only, FLOORPLAN(S) and FLOOR PLANNING, never FLOORPLANNER (a planning tool's
-#: subscription) or FLOOR PLANKS (flooring).
-_FLOOR_PLAN_FORM = re.compile(r"(?<![A-Z])FLOOR ?PLAN(?:S|NING)?\b")
+#: subscription) or FLOOR PLANKS (flooring). Review round 1 (finding 6): and the glued words a narrow field prints,
+#: FLOORPLANINT, FLOORPLANPAYOFF, FLOORPLANADV and FLOORPLANXPRESS.
+_FLOOR_PLAN_FORM = re.compile(r"(?<![A-Z])FLOOR ?PLAN(?:S|NING|INT|PAYOFF|ADV|XPRESS)?\b")
 #: Audit round 3, R3-B14 (R3-52; the underwriter's Q9 (c), "a lender paying a business for services counts as 'lender
 #: paid for services', never verified"): a floor-plan financier's credit printing service wording (a vendor payment, a
 #: repossession, a recovery, a tow, a transport, an inspection, a commission) pays the business for its services and is
@@ -1804,8 +1805,14 @@ def _holder_strip_names(record: TransactionClassification) -> tuple[str, ...]:
     (_holder_names), the trade side of a DBA name always and its legal side when it prints a company form; and an
     account-name field with no DBA that reads as no person's name (_p2p_person_name). Names of two words or more only.
     Never a person's name: stripping the owner's name would count the owner's pay from another company (Q8)."""
+    return _holder_strip_names_of(record.account_name, record.holder_name)
+
+
+def _holder_strip_names_of(account_name: str | None, holder_name: str | None) -> tuple[str, ...]:
+    """_holder_strip_names on a statement's account-name field and holder name (audit round 3, R3-B14 review round 1:
+    finding 1, so the classifier's Cherry veto reads the names before a record exists)."""
     classifier = _classifier()
-    names = _holder_names(record)
+    names = _holder_names_of(account_name, holder_name)
     stripped: list[str] = []
     for index, name in enumerate(names):
         printed = classifier.account_name_text(name)
@@ -3093,13 +3100,17 @@ def _holder_names(record: TransactionClassification) -> tuple[str, ...]:
     company, never a product; review round 2: never a product a holder reader publishes, PNC's 'Treasury Enterprise
     Plan' included), as each side of a DBA name is read: a layout that prints the owner there keeps the owner's own
     money held."""
-    holder = _holder(record)
+    return _holder_names_of(record.account_name, record.holder_name)
+
+
+def _holder_names_of(account_name: str | None, holder_name: str | None) -> tuple[str, ...]:
+    """_holder_names on a statement's account-name field and holder name (audit round 3, R3-B14 review round 1)."""
+    classifier = _classifier()
+    holder = classifier.holder_reading(account_name, holder_name)
     names = [holder] if holder else []
-    account = record.account_name
-    if record.holder_name and account and _usable_holder_name(account):
-        classifier = _classifier()
-        if classifier.account_name_text(account) != classifier.account_name_text(holder):
-            names.append(account)
+    if holder_name and account_name and _usable_holder_name(account_name):
+        if classifier.account_name_text(account_name) != classifier.account_name_text(holder):
+            names.append(account_name)
     return tuple(names)
 
 
@@ -4009,7 +4020,11 @@ def _dealer_activity(
     FLOORPLANNER or FLOOR PLANKS); and a floor-plan financier's posted credit (any of the three arms) is evidence only
     where it prints no service wording (_FLOOR_PLAN_SERVICE_CREDIT, read without the receiver field's value: a vendor
     payment, a repossession, a recovery, a tow, a transport, an inspection, a commission). Debits are read as before.
-    Q11 (b)'s _dealer_statement reads the same arms."""
+    Q11 (b)'s _dealer_statement reads the same arms. Review round 1 (findings 4 to 6): the service wording is read
+    without the holder's names too (without_receiver_and_holder), so a dealer advance whose unlabelled receiver is the
+    holder's own name printing RECOVERY, TRANSPORT or COMMISSIONS stays evidence; a card form's '<ST> USA|CAN' tail on a
+    wire, ACH or check row is no card purchase (_card_purchase_debit); and the floor-plan form reads its glued words
+    (FLOORPLANINT, FLOORPLANPAYOFF, FLOORPLANADV, FLOORPLANXPRESS)."""
     classifier = _classifier()
     for index in indexes:
         record = records[index]
@@ -4028,7 +4043,9 @@ def _dealer_activity(
             or _FLOOR_PLAN_FORM.search(text)
         ) and (
             record.amount < 0
-            or _FLOOR_PLAN_SERVICE_CREDIT.search(classifier._without_receiver_value(text)) is None
+            or _FLOOR_PLAN_SERVICE_CREDIT.search(
+                without_receiver_and_holder(text, record.account_name, record.holder_name)
+            ) is None
         ):
             return True
         if (
@@ -4043,13 +4060,17 @@ def _card_purchase_debit(record: TransactionClassification, text: str) -> bool:
     """Audit round 3, R3-B14 (R3-52): a debit that is a card purchase, as R2-B02 (R01) reads one: the classifier's
     class `pos`, or a card form on its revenue text (classifier._CARD_FORM_DEBIT_PREFIX: CHECKCARD or PURCHASE <mmdd>;
     _CARD_FORM_DEBIT: DEBIT CARD PURCHASE, DBCRD PUR, POS DB|DEBIT|PUR, POINT OF SALE, a glued PURCHASE<digits>, a
-    charge ending in a state or province code and its country)."""
+    charge ending in a state or province code and its country). Review round 1 (finding 5): that tail, Found's and
+    Bluevine's card-charge form, is no card purchase on a row that prints a wire, ACH or check form
+    (_NON_CARD_DEBIT_FORM: 'OUTGOING WIRE <auction> ATLANTA GA USA', 'ACH DEBIT <auction> ... GA USA')."""
     classifier = _classifier()
     stripped = text.strip()
-    return (
-        record.classification == "pos" or classifier._CARD_FORM_DEBIT_PREFIX.search(stripped) is not None
-        or _CARD_FORM_DEBIT.search(stripped) is not None
-    )
+    if record.classification == "pos" or classifier._CARD_FORM_DEBIT_PREFIX.search(stripped) is not None:
+        return True
+    card = _CARD_FORM_DEBIT.search(stripped)
+    if card is None:
+        return False
+    return _CARD_FORM_TAIL.fullmatch(card.group(0)) is None or _NON_CARD_DEBIT_FORM.search(stripped) is None
 
 
 def _dealer_contract_evidence(
@@ -4129,6 +4150,11 @@ _CARD_FORM_DEBIT = re.compile(
     r"^(?:DEBIT CARD PURCHASE|DBCRD PUR|POS (?:DB|DEBIT|PUR)|POINT OF SALE|PURCHASE\d{4,})"
     r"|(?<![A-Z])[A-Z]{2} (?:USA|CAN)$"
 )
+#: Audit round 3, R3-B14 review round 1 (finding 5): _CARD_FORM_DEBIT's tail arm, the '<ST> USA|CAN' ending, which a
+#: wire, ACH or check debit printing its beneficiary's state and country prints too (_NON_CARD_DEBIT_FORM); read by
+#: _card_purchase_debit alone (the counter-debit reader keeps _CARD_FORM_DEBIT whole).
+_CARD_FORM_TAIL = re.compile(r"(?<![A-Z])[A-Z]{2} (?:USA|CAN)$")
+_NON_CARD_DEBIT_FORM = re.compile(r"(?<![A-Z])(?:WIRE|ACH|CHECK|CHK|CHEQUE)\b")
 #: Audit round 2, R2-B02 (R02; standard A6): an ATM, ABM or cash withdrawal: the holder taking cash out names a place,
 #: never a payer, so it never holds a deposit (a transfer made at an ATM stays circular money).
 _CASH_WITHDRAWAL_DEBIT = re.compile(
@@ -4730,13 +4756,41 @@ def _rent_payer_name(text: str, region: str) -> str:
     that prints a payer-name field (_prints_payer_name_field: a wire's sender, an ACH originator, a transfer's sender
     after FROM) the name proper (_payer_name_proper: a wire's or an originator's whole region); on a row that prints
     none, the region up to the end of its first company form (_Q9_FORM_WORD, the _rent_memo_payer convention: '<NAME>
-    LLC LEASE PMT' keeps its memo), or the whole region when it prints no company form. '' for a payer-less row."""
+    LLC LEASE PMT' keeps its memo). '' for a payer-less row.
+
+    Review round 1 (finding 3): a row that prints no payer-name field prints the entry description inside the region,
+    so only the payer's name proper is removed: the region's leading rent words are the entry description a
+    label-less layout prints first (Truist's '<entry> <company field> <receiver> CUSTOMER ID': 'RENT <tenant> LLC'),
+    never the name; and with no company form, the name is the region up to a trade noun, RENTALS after a name word or
+    RENTAL ending the region after one (_rent_trade_noun_name: 'PAYMENT <NAME> RENTALS', '<NAME> AUTO RENTALS ACH
+    PAYMNT'), or none at all, so a tenant's memo after a name with no form ('<tenant> RENT 540301 ...', 'ACH DEPOSIT
+    <tenant> RENT', '<tenant> RENTAL PAYMENT', 'RENTAL INCOME <tenant>') still reads."""
     if not region:
         return ""
     if _prints_payer_name_field(text):
         return _payer_name_proper(text, region)
-    form = _Q9_FORM_WORD.search(region)
-    return region[: form.end()] if form is not None else region
+    words = region.split()
+    while words and _rent_words(words[0]):
+        words = words[1:]
+    named = " ".join(words)
+    form = _Q9_FORM_WORD.search(named)
+    return named[: form.end()] if form is not None else _rent_trade_noun_name(words)
+
+
+def _rent_trade_noun_name(words: Sequence[str]) -> str:
+    """Audit round 3, R3-B14 review round 1 (finding 3): a label-less region with no company form, as `words`, whose
+    name is a rental trade: the words up to and including RENTALS after a name word (a word of two letters or more, no
+    generic word, no rent word), or RENTAL as the last word after one; '' when it prints neither."""
+    classifier = _classifier()
+    for at, word in enumerate(words):
+        if word not in ("RENTAL", "RENTALS") or (word == "RENTAL" and at != len(words) - 1):
+            continue
+        if any(
+            before.isalpha() and len(before) > 1 and before not in classifier.REVENUE_GENERIC_WORDS
+            and not _rent_words(before) for before in words[:at]
+        ):
+            return " ".join(words[: at + 1])
+    return ""
 
 
 def _names_the_payer(credit: CounterCredit, debit: _CounterDebit, *, legacy: bool, same_amount: bool) -> bool:
@@ -5221,11 +5275,23 @@ def _payout_non_sale(record: TransactionClassification, text: str) -> bool:
     INTEREST, DIVIDEND(S), REBATE(S); never FUNDING, PAYOUT, PAYMENT, LEASE FUND, PROCEEDS or a bare ADV). Such a credit
     of a payout entity or a lease-to-own or patient financier is never claimed as a merchant payout: a holder named
     'NORTHWIND CAPITAL DENTAL', in its receiver field or in Snap's merchant form, never vetoes."""
+    words = without_receiver_and_holder(text, record.account_name, record.holder_name)
+    return _classifier()._PAYOUT_NON_SALE_CREDIT.search(words) is not None
+
+
+def without_receiver_and_holder(text: str, account_name: str | None, holder_name: str | None) -> str:
+    """Audit round 3, R3-B14 review round 1 (findings 1 and 4): `text` without the receiver field's value
+    (classifier._without_receiver_value) and without the holder's names (the I47 strip's: _without_holder_name with
+    _holder_strip_names), so a word inside the holder's own name, printed in a labelled receiver field or as an
+    unlabelled one (Wells Fargo's trailing receiver, TD's ACH DEPOSIT, a generic ACH CREDIT), is never read. Read by
+    the R3-06 veto on both sides (the pass's _payout_non_sale and the classifier's Cherry D1 veto, _is_payout_credit,
+    which passes the statement's account-name field and holder name before a record exists) and by the floor-plan
+    service wording (_dealer_activity)."""
     classifier = _classifier()
-    words = _without_holder_name(
-        classifier._without_receiver_value(text), _holder(record), also=_holder_strip_names(record)
+    return _without_holder_name(
+        classifier._without_receiver_value(text), classifier.holder_reading(account_name, holder_name),
+        also=_holder_strip_names_of(account_name, holder_name),
     )
-    return classifier._PAYOUT_NON_SALE_CREDIT.search(words) is not None
 
 
 def _leading_card_credit(text: str) -> bool:
@@ -6582,6 +6648,20 @@ def _payout_claim_vetoed(record: TransactionClassification, text: str) -> bool:
     return _payout_entity(text) is not None or _customer_financier(record, text, non_sale=False) is not None
 
 
+def _vetoed_financier(record: TransactionClassification, text: str) -> str | None:
+    """Audit round 3, R3-B14 review round 1 (finding 2; Q8's "Keep large one-off lump sums held until sourced"): the
+    lease-to-own or patient financier (_customer_financier, read without the veto) whose claim the non-sale or financing
+    veto lifted (_payout_non_sale), or None. The lump-sum test reads such a counted credit as that financier's payout,
+    as before the veto, so an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads, is never a way into True
+    for a large one-off sum; a payout entity's credit, which no lump-sum test reads, is not one."""
+    classifier = _classifier()
+    if classifier._PAYOUT_NON_SALE_CREDIT.search(classifier._without_receiver_value(text)) is None:
+        return None
+    if not _payout_non_sale(record, text):
+        return None
+    return _customer_financier(record, text, non_sale=False)
+
+
 def _factoring_payout_payer(region: str, text: str = "") -> bool:
     """§8.9 (A3-H): a freight-factoring payer the registry names for this pass alone (FACTORING_PAYOUT_PAYERS). Its
     credit is the carrier's own invoices paid by the factor: counted and flagged as factoring_payout, never verified by
@@ -7632,6 +7712,18 @@ def apply_true_revenue_pass(
         updated[index] = _with_tier(record, tier, reason)
         if reason == CUSTOMER_FINANCING_PAYOUT:
             financier_payouts[index] = fact.financier
+    # Audit round 3, R3-B14 review round 1 (finding 2): a financier's credit whose claim the non-sale or financing veto
+    # lifted and that the rules counted (an abbreviated advance, ADVNC, ADVN or ADVC, which no hold reads) is read by
+    # the lump-sum test as the payout it was read as before the veto (_vetoed_financier), so a large one-off advance
+    # stays held until sourced; its counted reason is kept otherwise.
+    for index in credits:
+        if (
+            index not in financier_payouts and updated[index].revenue_tier == "counted_flagged"
+            and not facts[index].claimed
+        ):
+            vetoed = _vetoed_financier(updated[index], texts[index])
+            if vetoed is not None:
+                financier_payouts[index] = vetoed
     # Owner ruling 2026-10-02 (Q8; §8.9, §8.10): after the tiers and before the Zelle step, a financier's payout that is
     # a large one-off lump sum is held until sourced (_customer_financing_lump), read over every payout the tiers gave.
     for index in financier_payouts:

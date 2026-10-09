@@ -2206,6 +2206,76 @@ def test_r3_52_a_non_dealer_s_asset_sale_beside_no_dealer_evidence_is_non_revenu
     assert rules_reading(dealer) == ("counted_flagged", "named_payer_purpose_refused")
 
 
+# Audit round 3, R3-B14 review round 1 (finding 3): on a row that prints no payer-name field the payer region swallows
+# the entry description, so the third arm reads the rent words outside the payer's name proper: Truist's leading entry
+# word, a rent memo after a name with no company form and a RENTAL INCOME memo still read; only a rent word inside a
+# company-formed name, or RENTAL(S) used as a trade noun after a name word, is the payer's own name.
+@pytest.mark.parametrize(("rows", "bank"), [
+    # Truist prints the entry description first: '<entry> <company field> <receiver> CUSTOMER ID <id>'.
+    ([("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", 1500.0)], "Truist"),
+    ([("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", 1500.0),
+      ("RENT CONTOSO DELI INC 0000AMI CUSTOMER ID 000000001", 1600.0)], "Truist"),
+    ([("PAYMENT FABRIKAM TENANT RENT 0000AMI CUSTOMER ID 000000000", 1500.0)], "Truist"),
+    # Tenants with no company form, the rent memo after the name (Wells Fargo, TD, a generic ACH CREDIT).
+    ([("FABRIKAM DELI RENT 540301 1234 NORTHWIND BAKERY", 1500.0),
+      ("CONTOSO DELI RENT 540301 1234 NORTHWIND BAKERY", 1600.0)], "Wells Fargo"),
+    ([("JOHN SAMPLE RENT 540301 1234 NORTHWIND BAKERY", 1500.0)], "Wells Fargo"),
+    ([("ACH DEPOSIT FABRIKAM TENANT RENT", 1500.0)], "TD Bank"),
+    ([("ACH CREDIT FABRIKAM TENANT RENT PAYMENT", 1500.0)], None),
+    ([("ACH CREDIT FABRIKAM TENANT RENTAL PAYMENT", 1500.0)], None),
+    ([("RENTAL INCOME FABRIKAM TENANT", 1500.0)], None),
+])
+def test_r3_b14_r1_a_label_less_tenant_s_rent_memo_still_makes_a_lessor(rows, bank):
+    # At 3939f5c each LEASE row was held financing_named_payer: the whole region, memo included, was removed.
+    _released(_q9_credits([_R3_60_LEASE, *rows], bank=bank)[0], LESSOR)
+
+
+@pytest.mark.parametrize(("row", "bank"), [
+    # A payer named RENTALS with no company form, on a label-less row: the trade noun is its name.
+    (("SAMPLE AUTO RENTALS ACH PAYMNT 000000", 900.0), "Wells Fargo"),
+    (("SAMPLE AUTO RENTALS 540301 1234 NORTHWIND BAKERY", 900.0), "Wells Fargo"),
+    (("ACH CREDIT SAMPLE PARTY RENTALS PAYMENT", 900.0), None),
+])
+def test_r3_b14_r1_a_payer_named_rentals_with_no_form_still_makes_no_lessor(row, bank):
+    lease = _q9_credits([_R3_60_LEASE, row], bank=bank)[0]
+    assert rules_reading(lease) == FINANCING
+
+
+def test_r3_b14_r1_the_rent_reading_names_only_the_payer_s_name_proper():
+    def name(raw, bank=None):
+        text = revenue_text(normalize_transaction_description(raw))
+        return tr._rent_payer_name(text, tr._facts_region(text, tr._channel(text, bank), bank))
+
+    # A leading rent word is the entry description a label-less layout printed first (Truist's), never the name.
+    assert name("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", "Truist") == "FABRIKAM DELI LLC"
+    assert name("LEASE PMT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", "Truist") == "PMT FABRIKAM DELI LLC"
+    # No company form: no name is removed unless RENTAL(S) is a trade noun after a name word (RENTALS anywhere,
+    # RENTAL at the region's end).
+    assert name("FABRIKAM DELI RENT 540301 1234 NORTHWIND BAKERY", "Wells Fargo") == ""
+    assert name("RENTAL INCOME FABRIKAM TENANT") == ""
+    assert name("ACH CREDIT FABRIKAM TENANT RENTAL PAYMENT") == ""
+    assert name("ACH CREDIT FABRIKAM TENANT RENTAL") == "FABRIKAM TENANT RENTAL"
+    assert name("SAMPLE AUTO RENTALS ACH PAYMNT 000000", "Wells Fargo") == "SAMPLE AUTO RENTALS"
+    assert name("DEPOSIT RENT") == ""
+    # A payer-name field keeps the name proper.
+    assert name("SAMPLE RENTALS DES:PAYMENT ID:1") == "SAMPLE RENTALS"
+
+
+# Audit round 3, R3-B14 review round 1 (findings 4 and 5, the Q11 (b) side): a VIN-bearing floor-plan advance whose
+# unlabelled receiver is the holder's own name printing a service word, and a wire or ACH purchase at the auction that
+# prints the beneficiary's state and country, are still dealer evidence, so a non-dealer's asset sale beside one keeps
+# its reading (at 3939f5c each was non_revenue / asset_sale_proceeds).
+@pytest.mark.parametrize(("row", "holder"), [
+    (("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO AUTO RECOVERY", 18000.0), "CONTOSO AUTO RECOVERY LLC"),
+    (("OUTGOING WIRE MANHEIM REMARKETING ATLANTA GA USA", -12000.0), "NORTHWIND LANDSCAPING LLC"),
+    (("ACH DEBIT MANHEIM AUCTIONS ATLANTA GA USA", -12000.0), "NORTHWIND LANDSCAPING LLC"),
+])
+def test_r3_b14_r1_a_dealer_s_evidence_keeps_an_asset_sale_beside_it_counted(row, holder):
+    sale = (f"RITCHIE BROS DES:SELLER PAYOUT ID:1 INDN:{holder} CO ID:1 CCD", 24000.0)
+    record = _q9_credits([sale, row], holder=holder, bank="Wells Fargo")[0]
+    assert rules_reading(record) == ("counted_flagged", "named_payer_purpose_refused")
+
+
 # Audit round 3, R3-B09 (R3-75; standard D1, D3, A8; the owner's "refunds and owner money never become revenue"): a
 # credit printing an outgoing e-Transfer label (TD Canada Trust's SEND E-TFR, EQ Bank's 'e-Transfer sent', any bank
 # printing a sent transfer as a credit), the French send, its reversal or its redeposit (TD's Envoi, Contr. and

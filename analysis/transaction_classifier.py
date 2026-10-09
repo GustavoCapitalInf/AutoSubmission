@@ -60,6 +60,7 @@ from .true_revenue import (
     payer_text_unread_indexes,
     payer_text_unread_texts,
     premium_trust_title,
+    without_receiver_and_holder,
     zelle_credits_present,
 )
 
@@ -3933,7 +3934,7 @@ def _classify_credit_revenue(
     # sales settlement still reaches the operating registry below. Card-issuer
     # and lease/rental payees never apply to credits, and neither does a
     # payout-credit entity (owner decision 2026-09-25).
-    financing_match = _financing_proceeds_payee(lookup_text)
+    financing_match = _financing_proceeds_payee(lookup_text, account_name=account_name, holder_name=holder_name)
     if financing_match is not None:
         return _RevenueDecision(
             "non_revenue",
@@ -4768,14 +4769,21 @@ _CHERRY_LOAN_CREDIT = re.compile(r"(?<![A-Z])LOANS?\b")
 _SNAP_MERCHANT_FUNDING = re.compile(r"(?<![A-Z])SNAP LOAN FUNDING(?= F\d)")
 
 
-def _is_payout_credit(text: str, match: PayeeMatch) -> bool:
+def _is_payout_credit(
+    text: str, match: PayeeMatch, *, account_name: str | None = None, holder_name: str | None = None,
+) -> bool:
     """Whether a credit of ``match`` is a payout-credit entity's settlement: revenue, not D1 financing proceeds.
 
     Owner decision 2026-09-25 (PAYOUT_CREDIT_ENTITIES); OQ2 (§19) narrowed to the
     five BNPL providers' settlements (_BNPL_CONSUMER_CREDIT). Credits only. Audit round
     3, R3-B14 (R3-06): a Cherry credit printing LOAN(S) or a non-sale or financing word
     (_PAYOUT_NON_SALE_CREDIT: an advance, capital, interest, a dividend, a rebate) is
-    no settlement either: it keeps D1, its reading before the Q8 ruling.
+    no settlement either: it keeps D1, its reading before the Q8 ruling. Review round 1
+    (finding 1): those words are read as the true-revenue pass's veto reads them, without
+    the receiver field's value and without the holder's names (true_revenue's
+    without_receiver_and_holder on the statement's `account_name` and `holder_name`), so
+    a practice whose own name prints CAPITAL, ADVANCE or INTEREST as an unlabelled
+    receiver (Wells Fargo, TD, a generic ACH CREDIT) keeps its Cherry payouts.
     """
     if match.entity not in PAYOUT_CREDIT_ENTITIES:
         return False
@@ -4783,11 +4791,15 @@ def _is_payout_credit(text: str, match: PayeeMatch) -> bool:
     # the holder's own name ('INDN:BALANCE DENTAL LLC') never makes a settlement consumer-side (§5.2).
     words = _without_receiver_value(revenue_text(text))
     if match.entity == _CHERRY_ENTITY and (_CHERRY_LOAN_CREDIT.search(words) or _PAYOUT_NON_SALE_CREDIT.search(words)):
-        return False
+        cherry = without_receiver_and_holder(revenue_text(text), account_name, holder_name)
+        if _CHERRY_LOAN_CREDIT.search(cherry) or _PAYOUT_NON_SALE_CREDIT.search(cherry):
+            return False
     return not (match.entity in _OQ2_BNPL_ENTITIES and _BNPL_CONSUMER_CREDIT.search(words))
 
 
-def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
+def _financing_proceeds_payee(
+    text: str, *, account_name: str | None = None, holder_name: str | None = None,
+) -> PayeeMatch | None:
     """D1: the known payee whose credit is financing proceeds, or None.
 
     Owner decision 2026-09-25: the credits of a payout-credit entity
@@ -4796,14 +4808,16 @@ def _financing_proceeds_payee(text: str) -> PayeeMatch | None:
     provider's consumer-side credit is not a settlement (OQ2, _is_payout_credit).
     Owner ruling 2026-09-26: a factoring payee's credits are the business's own
     sales paid by the factor, so they are revenue too, and they keep the
-    factoring flag (_FLAGGED_REVENUE_CREDIT_STATES).
+    factoring flag (_FLAGGED_REVENUE_CREDIT_STATES). Audit round 3, R3-B14 review
+    round 1: `account_name` and `holder_name` are the statement's, which the Cherry
+    veto of _is_payout_credit reads out of the row.
     """
     match = match_known_payee(text, credit=True)
     if (
         match is None
         or match.state not in FINANCING_STATES
         or match.state in _FLAGGED_REVENUE_CREDIT_STATES
-        or _is_payout_credit(text, match)
+        or _is_payout_credit(text, match, account_name=account_name, holder_name=holder_name)
     ):
         return None
     return match
@@ -5423,7 +5437,9 @@ def classify_transaction(
         if known_payee.state in _FLAGGED_REVENUE_CREDIT_STATES:
             return _flagged_revenue_credit_record(common, known_payee)
         # 5.6 (Q7): a listed auto lender's dealer funding took its own record above, never financing proceeds.
-        if known_payee.state in FINANCING_STATES and not _is_payout_credit(text, known_payee):
+        if known_payee.state in FINANCING_STATES and not _is_payout_credit(
+            text, known_payee, account_name=account_name, holder_name=holder_name
+        ):
             return _financing_proceeds_credit_record(common, amount, known_payee)
     # Audit B6 (I10; lender detection spec §5, amended): a factoring review entity's credit is a factor's payout,
     # flagged and marked unconfirmed; its aliases stay in the potential table, so its debits keep the potential tier.

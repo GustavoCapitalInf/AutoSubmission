@@ -513,6 +513,111 @@ def test_r3_54_the_lessor_s_own_name_is_still_katapult(text):
     assert _financier(text, amount=900.0, bank="Bank of America") == "Katapult"
 
 
+# --- audit round 3, R3-B14 review round 1 (findings 1 and 2) ---------------------------------------------------------
+
+#: Finding 1: Cherry's layouts that print the holder's name with no label (Wells Fargo's trailing receiver, TD's ACH
+#: DEPOSIT, a generic ACH CREDIT), as (bank, row template with {entry} and {name}).
+_R1_CHERRY_LABELLESS = (
+    ("Wells Fargo", "CHERRY TECHNOLOG {entry} 540301 123456 {name}"),
+    ("TD Bank", "ACH DEPOSIT CHERRYPAY {entry} {name}"),
+    (None, "ACH CREDIT CHERRY TECHNOLOGIES {entry} {name}"),
+)
+#: Fabricated practices whose own names print a veto word, leading or inside the name.
+_R1_VETO_HOLDERS = ("CAPITAL CONTOSO DENTAL LLC", "NORTHWIND ADVANCE DENTAL LLC", "INTEREST FREE NORTHWIND SMILES LLC")
+_R1_CUSTOMER = ("FABRIKAM SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND CO ID:1 CCD", 15000.0)
+
+
+def _r1_cherry(bank, template, entry, holder, amount=1300.0):
+    from analysis.metrics import compute_metrics
+
+    statement = Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=row, amount=value, direction="credit")
+        for index, (row, value) in enumerate([
+            (template.format(entry=entry, name=holder.removesuffix(" LLC")), amount), _R1_CUSTOMER])
+    ])
+    records = classify_statement_transactions(statement)
+    return records[0], compute_metrics(statement, classifications=records)
+
+
+@pytest.mark.parametrize(("bank", "template"), _R1_CHERRY_LABELLESS, ids=["wells", "td", "generic"])
+@pytest.mark.parametrize("holder", _R1_VETO_HOLDERS)
+@pytest.mark.parametrize("entry", ["FUNDING", "PAYOUT"])
+def test_r3_b14_r1_cherry_s_d1_veto_never_reads_the_holder_s_unlabelled_name(bank, template, holder, entry):
+    # Finding 1: the classifier's Cherry veto reads the row without the holder's names, as the pass's veto does, so a
+    # practice whose own name prints CAPITAL, ADVANCE or INTEREST keeps its Cherry payouts (counted and flagged, no
+    # lender credit; at 3939f5c each was financing proceeds, entity Cherry, the lender-credit exclusion on).
+    record, metrics = _r1_cherry(bank, template, entry, holder)
+    assert _reading(record) == CFP
+    assert record.revenue_match_method != "financing_proceeds_credit"
+    assert not record.contributes_to_lender_credit_exclusion and record.canonical_entity is None
+    assert (metrics.lender_credits, metrics.legacy_eligible_deposits) == (0.0, 16300.0)
+
+
+@pytest.mark.parametrize(("bank", "template"), _R1_CHERRY_LABELLESS, ids=["wells", "td", "generic"])
+@pytest.mark.parametrize("entry", ["ADVANCE", "LOAN", "REBATE"])
+def test_r3_b14_r1_cherry_s_own_loan_or_advance_word_still_keeps_d1_on_those_layouts(bank, template, entry):
+    # The control: the same layouts and holder, the veto word printed outside the holder's name: D1, as R3-06 ruled.
+    record, metrics = _r1_cherry(bank, template, entry, _R1_VETO_HOLDERS[0])
+    assert (record.revenue_classification, record.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    assert record.revenue_canonical_entity == "Cherry Technologies, Inc."
+    assert record.contributes_to_lender_credit_exclusion
+    assert (metrics.lender_credits, metrics.legacy_eligible_deposits) == (1300.0, 15000.0)
+
+
+def test_r3_b14_r1_the_classifier_s_cherry_veto_reads_the_holder_s_names_out():
+    match = classifier.match_known_payee("CHERRY TECHNOLOG FUNDING 540301 123456 CAPITAL CONTOSO DENTAL", credit=True)
+    assert match is not None and match.entity == "Cherry Technologies, Inc."
+    row = "CHERRY TECHNOLOG FUNDING 540301 123456 CAPITAL CONTOSO DENTAL"
+    assert classifier._is_payout_credit(row, match, account_name="CAPITAL CONTOSO DENTAL LLC")
+    # Without the holder's name the word is read, as R3-06 reads any Cherry row printing it.
+    assert not classifier._is_payout_credit(row, match)
+    assert not classifier._is_payout_credit(row.replace("FUNDING", "ADVANCE"), match,
+                                            account_name="CAPITAL CONTOSO DENTAL LLC")
+
+
+#: Finding 2: a financier's large one-off abbreviated advance (ADVNC, ADVN, ADVC: words no hold reads) whose claim the
+#: veto lifted, as (label, bank, row, holder, the customer beside it).
+_R1_LUMPS = (
+    ("koalafi advnc, whole thousands", "Bank of America", (_bofa("KOALAFI", "ADVNC"), 20000.0), HOLDER, BIG),
+    ("acima advn, whole thousands", "Bank of America", (_bofa("ACIMA DIGITAL", "ADVN"), 25000.0), HOLDER, BIG),
+    ("katapult advc, whole thousands", "Bank of America", (_bofa("KATAPULT", "ADVC"), 12000.0), HOLDER, BIG),
+    ("a bare cherry advnc, whole thousands", "Bank of America",
+     (_bofa("CHERRY INC", "ADVNC", "NORTHWIND DENTAL"), 20000.0), "NORTHWIND DENTAL LLC", BIG),
+    ("acima advnc, half the statement's credits", "Bank of America", (_bofa("ACIMA DIGITAL", "ADVNC"), 12345.67),
+     HOLDER, (BIG[0], 9000.0)),
+    ("wisetack's incoming wire, odd cents", "Bank of America",
+     (BOFA_WIRE.format(payer="WISETACK LLC") + " OBI:ADVNC", 15432.10), HOLDER, BIG),
+)
+
+
+@pytest.mark.parametrize(("label", "bank", "row", "holder", "customer"), _R1_LUMPS, ids=[case[0] for case in _R1_LUMPS])
+def test_r3_b14_r1_a_large_one_off_abbreviated_advance_stays_held_until_sourced(label, bank, row, holder, customer):
+    # Finding 2: the veto lifts the claim, but the lump-sum test still reads the row as the financier's (at 3939f5c it
+    # was counted: a named payer's or a wire sender's reading); the base's reading, held, returns.
+    (record, other) = _credits([row, customer], bank=bank, holder=holder)
+    assert _reading(record) == LUMP, label
+    assert record.revenue_classification == "unverified_deposit"
+    assert record.revenue_review_required and not record.contributes_to_true_revenue
+    assert not true_revenue._claimed(record, classifier.revenue_text(record.normalized_description))
+    assert _reading(other) == VERIFIED
+
+
+def test_r3_b14_r1_a_small_or_serial_abbreviated_advance_is_counted_never_verified():
+    # The controls: a small odd-cents advance is no lump sum, and three of a size from one financier are a series, as
+    # the payouts were before the veto: counted, never verified; a payout entity's lump sum keeps its payout reading.
+    (small, _big) = _credits([(_bofa("KOALAFI", "ADVNC"), 4870.55), BIG], bank="Bank of America")
+    assert _reading(small) == ("counted_flagged", "named_payer_purpose_refused")
+    *series, _big = _credits([(_bofa("ACIMA DIGITAL", "ADVNC"), amount) for amount in (10000.0, 12000.0, 11000.0)]
+                             + [BIG], bank="Bank of America")
+    for record in series:
+        assert record.revenue_tier == "counted_flagged" and not record.contributes_to_verified_revenue
+    (affirm, _big) = _credits([(_bofa("AFFIRM INC", "ADVNC"), 20000.0), BIG], bank="Bank of America")
+    assert _reading(affirm) == ("counted_flagged", "payout_credit_entity")
+    # A real payout beside it keeps the lump-sum test's reading.
+    (payout, _big) = _credits([(_bofa("KOALAFI", "FUNDING"), 20000.0), BIG], bank="Bank of America")
+    assert _reading(payout) == LUMP
+
+
 # --- the debits: unchanged ------------------------------------------------------------------------------------------
 
 #: 45: (debit text, classification, flagged group, canonical entity).

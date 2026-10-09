@@ -3600,6 +3600,54 @@ def test_r3_52_dealer_evidence_still_keeps_payables_verified(row):
         assert records[1].classification == "floor_plan_financing"
 
 
+# Audit round 3, R3-B14 review round 1 (findings 4 to 6): the narrowed arms read no more than their own words. A
+# floor-plan financier's VIN-bearing advance whose unlabelled receiver is the holder's own name printing a service word
+# (RECOVERY, TRANSPORT, COMMISSIONS: the service wording is read without the holder's names too); a wire or ACH
+# purchase at the auction that prints the beneficiary's state and country (the card form's '<ST> USA|CAN' tail is no
+# card purchase on a wire, ACH or check row); and a glued floor-plan word (FLOORPLANINT, FLOORPLANPAYOFF,
+# FLOORPLANXPRESS, FLOORPLANADV). At 3939f5c each left the payables counted as lender_paid_for_services.
+_R1_EVIDENCE = (
+    ("CONTOSO AUTO RECOVERY LLC", ("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO AUTO RECOVERY", 18000.0)),
+    ("CONTOSO AUTO TRANSPORT LLC",
+     ("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO AUTO TRANSPORT", 18000.0)),
+    ("CONTOSO VEHICLE COMMISSIONS LLC",
+     ("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO VEHICLE COMMISSIONS", 18000.0)),
+    (_R3_52_AGENCY, ("OUTGOING WIRE MANHEIM REMARKETING ATLANTA GA USA", -12000.0)),
+    (_R3_52_AGENCY, ("ACH DEBIT MANHEIM AUCTIONS ATLANTA GA USA", -12000.0)),
+    (_R3_52_AGENCY, ("CHECK 1234 MANHEIM REMARKETING ATLANTA GA USA", -12000.0)),
+    (_R3_52_AGENCY, ("FLOORPLANINT", -90.0)),
+    (_R3_52_AGENCY, ("FLOORPLANPAYOFF 1FAKE0000000000001", -9000.0)),
+    (_R3_52_AGENCY, ("FLOORPLANXPRESS DES:CURTAIL ID:1", -900.0)),
+)
+
+
+@pytest.mark.parametrize(("holder", "row"), _R1_EVIDENCE, ids=[row[0][:32] for _holder, row in _R1_EVIDENCE])
+def test_r3_b14_r1_the_narrowed_arms_still_read_a_dealer_s_own_evidence(holder, row):
+    payables = (WESTLAKE_PAYABLES.format(holder=holder), 3150.0)
+    record = _records([payables, row], holder=holder)[0]
+    assert _q7_reading(record) == (
+        "verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+
+
+def test_r3_b14_r1_the_arms_controls():
+    from analysis import true_revenue
+
+    # A card charge in Found's or Bluevine's form (no wire, ACH or check word) is still a card purchase in the town.
+    payables = (WESTLAKE_PAYABLES.format(holder=_R3_52_AGENCY), 3150.0)
+    for row in (("CONTOSO DINER MANHEIM PA USA", -38.50), ("DEBIT CARD PURCHASE MANHEIM SIMULCAST GA USA", -120.0)):
+        record = _records([payables, row], holder=_R3_52_AGENCY)[0]
+        assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None), row
+    # A floor-plan financier's service word outside the holder's names still takes the credit out.
+    holder = "CONTOSO AUTO RECOVERY LLC"
+    service = ("NEXTGEAR CAPITAL REPO FEE 1FAKE0000000000001 CONTOSO AUTO RECOVERY", 475.0)
+    record = _records([(WESTLAKE_PAYABLES.format(holder=holder), 3150.0), service], holder=holder)[0]
+    assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+    for form, read in (("FLOORPLANINT", True), ("FLOORPLANPAYOFF", True), ("FLOORPLANXPRESS", True),
+                       ("FLOORPLANADV", True), ("FLOORPLANNER", False), ("FLOORPLANNERS", False),
+                       ("FLOOR PLANKS", False), ("FLOORPLANK", False), ("FLOOR PLANER", False)):
+        assert bool(true_revenue._FLOOR_PLAN_FORM.search(form)) is read, form
+
+
 def test_q9_c_the_reason_is_a_counted_reason_of_the_one_reason_table_right_after_factoring_payout():
     from analysis import true_revenue
 
