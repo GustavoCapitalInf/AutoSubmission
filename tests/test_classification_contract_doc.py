@@ -2793,3 +2793,82 @@ def test_r3_b17_the_code_s_docstrings_name_the_readings():
     registry = inspect.getsource(classification_registry)
     assert "Audit round 3, R3-B17 (R3-77, R3-74; §5.2, §8.1; owner ruling 2026-10-02" in registry
     assert "analysis/rbc.py's _is_debit lists" in registry
+
+
+#: Audit round 3, R3-B18: the code commits §20 names (parts A to E, and part D's follow-up) and the contract's range.
+R3_B18_CODE_COMMITS = ("272f28a", "918e47e", "27856c8", "6baaef8", "6553740", "113f6ab")
+
+
+def test_the_spec_and_the_contract_record_r3_b18():
+    """Audit round 3, R3-B18 (R3-02, R3-04, R3-05): §9.2's duplicates, R14 and R13 bullets, §9.3's no-bump line, §10.1's
+    notice, §10.8's downloads, §17.1's Chase item, §20's R14, R14 review round 1 and R13 lines amended in place, the
+    batch's §20 line with its commits, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("or (audit round 3, R3-B18: R3-02, §20) its ledger key when it prints both period days, both "
+                  "balances and a ledger row",
+                  "Audit round 3, R3-B18 (R3-02, R3-04, §20), amended in place (they were grouped by their bank",
+                  "a statement that prints no bank or fewer than four digits makes a \"possible\" pair",
+                  "Chase's `Chase Transaction Export` is Chase",
+                  "in this first phase a statement is left out only in favour of month-length statements (28 days or "
+                  "more)",
+                  "`days_shared`, the days both cover",
+                  "audit round 3, R3-B18 (R3-02, §20), amended in place (the card's \"a member printing neither is its "
+                  "own\""):
+        assert words in package, words
+    assert "a member printing neither is its own." not in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "- Audit round 3, R3-B18 (§20): no bump in a fix batch either, and no stored-output change" in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("Audit round 3, R3-B18 (R3-04, §20): a pair of one account's statements named although the two "
+                  "share no credit",
+                  "cover `<days_shared>` of the same days of one account",
+                  "\"N pair(s) of overlapping statements of one account.\""):
+        assert words in cards, words
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    assert "Audit round 3, R3-B18 (R3-04, §20): each pair's section carries `days_shared`" in exports
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    assert ("Audit round 3, R3-B18 (R3-02, §20): until the number is read, such a statement is related to the "
+            "package's other statements by its ledger") in still_open
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(made true by audit round 3, R3-B18: R3-04:",
+                  "(reworded by audit round 3, R3-B18, as R2-B14 review round 2's finding 1 asked:",
+                  "(amended in place by audit round 3, R3-B18: R3-02, R3-04:",
+                  "replaced in place by audit round 3, R3-B18: R3-02:",
+                  "- **One account's statements in a package: a statement whose bank or account number is not read, an "
+                  "interim or export a day off or worded differently, and the 32-35-day monthly cycle**",
+                  "Recorded residuals:"):
+        assert words in amendments, words
+    assert amendments.count("qualified in place by audit round 3, R3-B18: R3-05:") == 2
+    batch = _amendment_line(amendments, "- **One account's statements in a package:")
+    for commit in R3_B18_CODE_COMMITS:
+        assert commit in batch, commit
+    contract = _flat(CONTRACT)
+    for words in ("Audit round 3, R3-B18 (R3-02, R3-04, R3-05; 272f28a to 6553740)",
+                  "another reading of a statement is the same statement when its period, its balances and its ledger "
+                  "rows on the day and the signed cents are the same (the `ledger:` key)",
+                  "so a 32-35-day monthly cycle stays over partial printouts of it"):
+        assert words in contract, words
+
+
+def test_r3_b18_the_code_s_docstrings_name_the_rules():
+    """Audit round 3, R3-B18: the package's identity, relation, shared-credit, supersede, months and words helpers name
+    their rule."""
+    from webapp import app as appmod
+
+    def doc(function):
+        return re.sub(r"\s+", " ", function.__doc__)
+
+    assert "audit round 3, R3-B18 (R3-02): its ledger key (`ledger:`)" in doc(appmod._account_identities)
+    assert "Audit round 3, R3-B18 (R3-02): a ledger key (`ledger:`" in doc(appmod._package_duplicates)
+    assert "Audit round 3, R3-B18 (R3-02, R3-04): whether two of `_package_superseded`'s statements" in doc(
+        appmod._pair_kind)
+    assert "A one-to-one match" in doc(appmod._shared_credits)
+    assert "Audit round 3, R3-B18 (R3-04): the credits the two share in the days both cover" in doc(
+        appmod._package_superseded)
+    assert "audit round 3, R3-B18 (R3-05): in that first phase" in doc(appmod._package_superseded)
+    assert "Audit round 3, R3-B18 (R3-02; the owner's Q6 identity of 2026-10-02" in doc(appmod._months_linked)
+    assert "an informal printout's label read as its bank (`_PACKAGE_BANK_ALIASES`)" in doc(appmod._package_bank)
+    assert "Audit round 3, R3-B18 (R3-04): a pair named although it shares no credit" in doc(appmod._overlap_words)
+    source = inspect.getsource(appmod)
+    assert "(analysis/chase.py:240, `bank=\"Chase Transaction Export\"`)" in source
