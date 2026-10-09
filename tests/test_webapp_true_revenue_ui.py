@@ -1314,6 +1314,31 @@ shown.push(els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, ""));
 
 
 @needs_node
+def test_the_notice_names_a_pair_of_one_account_sharing_no_credit_by_its_days(tmp_path, monkeypatch):
+    """Audit round 3, R3-B18 (R3-04): a pair of one account's statements named although the two share no credit (a
+    period inside the other, or more than three common days) reads the days the two cover; the header names pairs of
+    one account unless every pair shares a credit."""
+    from tests.test_webapp_app import _APRIL, _april, _period
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    other = _period("other", [("2031-04-06", "FABRIKAM INC DES:PAYMENT ID:1", 3000.0)], "2031-04-01", "2031-04-20",
+                    number="XXXX1010")
+    interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                      "2031-04-15", "2031-05-10", opening=30000.0)
+    packages = [_package_analysis([_april(), other]), _package_analysis([_april(), other, interim])]
+    result = run_dashboard("const shown = [];\n" + "".join(f"""
+renderPackageAnalysis({json.dumps(package)});
+shown.push([els.duplicateNotice.hidden, els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")]);
+""" for package in packages) + "console.log(JSON.stringify(shown));")
+    assert result[0] == [False, "1 pair of overlapping statements of one account. other.pdf and apr.pdf cover 20 of "
+                                "the same days of one account. The package needs review."]
+    assert result[1][1].startswith("3 pairs of overlapping statements of one account. ")
+    assert "other.pdf and apr.pdf cover 20 of the same days of one account" in result[1][1]
+    assert "int.pdf and apr.pdf share 1 credit ($5,000.00) in the days both cover, counted in both" in result[1][1]
+
+
+@needs_node
 def test_the_copied_summaries_carry_true_verified_and_non_revenue(tmp_path, monkeypatch):
     """I07: the credit-memo text carries True, Verified and Non-revenue, in total and per month, and names the gross
     monthly figure gross."""

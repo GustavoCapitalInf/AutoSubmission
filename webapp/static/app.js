@@ -4697,9 +4697,15 @@ const DUPLICATE_KEPT_BECAUSE_WORDS = Object.freeze({
 });
 
 // Audit round 2, R2-B14 (R14): a pair of overlapping statements of one account and the credits both print, counted in
-// both (the package downloads print the same words, webapp/app.py _overlap_words).
+// both (the package downloads print the same words, webapp/app.py _overlap_words). Audit round 3, R3-B18 (R3-04): a
+// pair named although it shares no credit (a period inside the other, or more than three common days) reads the days
+// the two cover.
 function overlappingStatementWords(pair, nameOf, money) {
   const count = numberOrNull(pair.shared_credit_count) || 0;
+  if (!count) {
+    return `${nameOf(pair.job)} and ${nameOf(pair.other)} cover ${formatNumber(numberOrNull(pair.days_shared))} `
+      + "of the same days of one account";
+  }
   return `${nameOf(pair.job)} and ${nameOf(pair.other)} share ${formatNumber(count)} `
     + `${count === 1 ? "credit" : "credits"} (${money}) in the days both cover, counted in both`;
 }
@@ -4754,9 +4760,14 @@ function renderDuplicateNotice(pkg = {}) {
         : member && member.currency !== undefined ? member.currency : packageCurrencyInfo(pkg).currency;
       return overlappingStatementWords(pair, nameOf, formatMoney(pair.shared_credit_total, currency));
     });
-    parts.push(`<strong>${escapeHtml(formatNumber(overlaps.length))} `
-      + `${overlaps.length === 1 ? "pair of overlapping statements shares" : "pairs of overlapping statements share"} `
-      + `credits.</strong> ${escapeHtml(overlapLines.join("; "))}.`);
+    // R3-B18 (R3-04): the header says the pairs share credits only when every pair does.
+    const allShare = overlaps.every((pair) => (numberOrNull(pair.shared_credit_count) || 0) > 0);
+    const header = allShare
+      ? `${overlaps.length === 1 ? "pair of overlapping statements shares" : "pairs of overlapping statements share"} `
+        + "credits."
+      : `${overlaps.length === 1 ? "pair" : "pairs"} of overlapping statements of one account.`;
+    parts.push(`<strong>${escapeHtml(formatNumber(overlaps.length))} ${header}</strong> `
+      + `${escapeHtml(overlapLines.join("; "))}.`);
   }
   els.duplicateNoticeText.innerHTML = `${parts.join(" ")} The package needs review.`;
 }

@@ -1988,10 +1988,14 @@ def _shared_credits(earlier: dict, later: dict, first, last) -> tuple[int, int]:
 
 def _overlap_words(pair: dict, filenames: dict[str, str], money: str) -> str:
     """Audit round 2, R2-B14 (R14): a pair of overlapping statements as the package names it (app.js
-    overlappingStatementWords reads the same words)."""
+    overlappingStatementWords reads the same words). Audit round 3, R3-B18 (R3-04): a pair named although it shares
+    no credit (a period inside the other, or more than three common days) reads the days the two cover."""
     count = pair.get("shared_credit_count") or 0
-    return (f"{filenames.get(pair.get('job'), pair.get('job'))} and {filenames.get(pair.get('other'), pair.get('other'))} "
-            f"share {count} {'credit' if count == 1 else 'credits'} ({money}) in the days both cover, counted in both")
+    names = f"{filenames.get(pair.get('job'), pair.get('job'))} and {filenames.get(pair.get('other'), pair.get('other'))}"
+    if not count:
+        return f"{names} cover {pair.get('days_shared')} of the same days of one account"
+    return (f"{names} share {count} {'credit' if count == 1 else 'credits'} ({money}) in the days both cover, counted in "
+            "both")
 
 
 def _ratified_omissions(analysis: object) -> list[dict]:

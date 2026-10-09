@@ -1943,6 +1943,23 @@ def test_a_35_day_export_straddling_three_monthly_statements_is_left_out():
     assert (package["totals"]["true_revenue_total"], package["totals"]["months"]) == (30000.0, 3)
 
 
+def test_the_package_rows_name_a_pair_sharing_no_credit_by_its_days():
+    from webapp.app import _package_analysis, _package_rows
+
+    other = _period("other", [("2031-04-06", "FABRIKAM INC DES:PAYMENT ID:1", 3000.0)], "2031-04-01", "2031-04-20",
+                    number="XXXX1010")
+    rows = _package_rows(_package_analysis([_april(), other]))
+    assert ("overlapping_statement_1", "days_shared", 20) in rows
+    assert ("overlapping_statement_1", "shared_credit_count", 0) in rows
+    assert ("overlapping_statement_1", "words", "other.pdf and apr.pdf cover 20 of the same days of one account") in rows
+    interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                      "2031-04-15", "2031-05-10", opening=30000.0)
+    rows = _package_rows(_package_analysis([_april(), interim]))
+    assert ("overlapping_statement_1", "days_shared", 16) in rows
+    assert ("overlapping_statement_1", "words",
+            "int.pdf and apr.pdf share 1 credit (5,000.00 USD) in the days both cover, counted in both") in rows
+
+
 # ---------------------------------------------------------------------------
 # Audit round 2, R2-B15 (R15): an account the package leaves out of its figures for any reason but a repeat (a statement
 # whose main account is held or idle, an account that did not validate, every account of a document whose transfers
