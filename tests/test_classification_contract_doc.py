@@ -2165,6 +2165,78 @@ def test_r3_b14_the_code_s_docstrings_name_the_readings():
     assert "audit round 3, R3-B14 (R3-54): so are the cut forms of" in registry
 
 
+#: Audit round 3, R3-B14, review round 1: the code commit §20 and the contract name.
+R3_B14_R1_CODE_COMMIT = "ddb4327"
+
+
+def test_the_spec_and_the_contract_record_r3_b14_review_round_1():
+    """Audit round 3, R3-B14, review round 1 (findings 1 to 6): §6.3's OQ2 note and §8.1's claim convention name the
+    Cherry veto's read; §8.1's convention the lump-sum test of a vetoed financier credit; §8.1's lessor the name proper;
+    §8.7's arms the holder's names, the card tail and the glued forms; §8.9's lump-sum bullet; §9.3's review-round
+    sentence; §17.1's Q8 follow-up (6) and Q9 default (6); the R3-06, R3-52 and R3-60 lines marked in place; the §20
+    line with the commit and the measurement; the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    precedence = re.sub(r"\s+", " ", _section(text, "\n### 6.3 ", "\n## 7. "))
+    assert "(R3-B14 review round 1, finding 1, §20: `without_receiver_and_holder`" in precedence
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("the classifier's Cherry veto, §6.3's OQ2 note, reads the same text since R3-B14 review round 1",
+                  "(`_vetoed_financier`, the financier read without the veto; R3-B14 review round 1, finding 2, §20)",
+                  "narrowed by R3-B14 review round 1, finding 3, §20, from \"or the whole region when it prints no "
+                  "form\"", "`_rent_trade_noun_name`", "Truist's `RENT <tenant> LLC … CUSTOMER ID`"):
+        assert words in holds, words
+    q7 = re.sub(r"\s+", " ", _section(text, "\n### 8.7 ", "\n### 8.8 "))
+    for words in ("`FLOORPLANINT`, `FLOORPLANPAYOFF`, `FLOORPLANADV` and `FLOORPLANXPRESS` (R3-B14 review round 1, "
+                  "finding 6, §20)",
+                  "the latter by R3-B14 review round 1, finding 4, §20: `without_receiver_and_holder`",
+                  "is no card purchase on a row that prints a wire, ACH or check form"):
+        assert words in q7, words
+    rest = re.sub(r"\s+", " ", _section(text, "\n### 8.9 ", "\n### 8.10 "))
+    assert "(`_vetoed_financier`: the financier read without the veto), in the one-off count too" in rest
+    assert "Its review round 1 (§20) changes, for the same move, the same readings of: a Cherry payout" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    financiers = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Lease-to-own and patient financiers' follow-ups (the underwriter's Q8 of 2026-10-02, §8.9).**"))
+    assert "(6) A financier's abbreviated advance (`ADVNC`, `ADVN`, `ADVC`)" in financiers
+    q9 = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Finance-named customers, rent and lenders' service payments: the defaults"))
+    assert "(R3-B14 review round 1, finding 3, §20, narrowing R3-60's brief" in q9
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(nor, by R3-B14 review round 1, finding 1, §20 below, printed as an unlabelled receiver",
+                  "held as `customer_financing_lump_sum` again by R3-B14 review round 1, finding 2, §20 below",
+                  "corrected by R3-B14 review round 1, finding 4, §20 below: that held for a labelled receiver only",
+                  "whose `<ST> USA|CAN` tail never reads a wire, ACH or check row since R3-B14 review round 1, "
+                  "finding 5",
+                  "(widened by R3-B14 review round 1, finding 6, §20 below, to the glued",
+                  "narrowed by R3-B14 review round 1, finding 3, §20 below: the name proper"):
+        assert words in amendments, words
+    line = _amendment_line(amendments, "- **R3-B14 review round 1: ")
+    for words in ("audit round 3, R3-B14, review round 1 (findings 1 to 6)", R3_B14_R1_CODE_COMMIT,
+                  "Measured against `3939f5c`'s tree", "(finding 1)", "(finding 2)", "(finding 3)", "(finding 4)",
+                  "(finding 5)", "(finding 6)"):
+        assert words in line, words
+    for placeholder in ("R3B14R1" + "CODE", "MEASURE" + "_R3B14R1"):
+        assert placeholder not in text, placeholder
+    contract = _flat(CONTRACT)
+    assert "R3B14R1" + "CODE" not in contract
+    assert f"Audit round 3, R3-B14, review round 1 ({R3_B14_R1_CODE_COMMIT})" in contract
+
+
+def test_r3_b14_r1_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B14, review round 1: the shared read, the Cherry veto, the vetoed financier, the name proper,
+    the dealer arms and the floor-plan form carry their notes."""
+    shared = re.sub(r"\s+", " ", true_revenue.without_receiver_and_holder.__doc__)
+    assert "the classifier's Cherry D1 veto, _is_payout_credit" in shared
+    assert "Review round 1 (finding 1): those words are read as the true-revenue pass's veto reads them" in re.sub(
+        r"\s+", " ", transaction_classifier._is_payout_credit.__doc__)
+    assert "Keep large one-off lump sums held until sourced" in re.sub(
+        r"\s+", " ", true_revenue._vetoed_financier.__doc__)
+    assert "Review round 1 (finding 3): a row that prints no payer-name field prints the entry description" in re.sub(
+        r"\s+", " ", true_revenue._rent_payer_name.__doc__)
+    assert "Review round 1 (findings 4 to 6)" in re.sub(r"\s+", " ", true_revenue._dealer_activity.__doc__)
+    assert "Review round 1 (finding 5)" in re.sub(r"\s+", " ", true_revenue._card_purchase_debit.__doc__)
+    assert "Review round 1 (finding 6)" in inspect.getsource(true_revenue)
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
