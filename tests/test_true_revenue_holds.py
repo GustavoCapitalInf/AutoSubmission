@@ -795,15 +795,57 @@ def test_r3_08_a_lender_the_account_also_debits_stays_held_as_one():
 
 
 @pytest.mark.parametrize("bank", R3_08_BANKS)
-def test_r3_08_residual_a_label_less_builder_named_construction_with_a_bare_draw_is_held(bank):
-    # Recorded residual (§8.1, §20; 0 corpus rows): on a label-less row '<NAME> CONSTRUCTION' with no company form
-    # before a bare DRAW cannot be told from the entry's CONSTRUCTION DRAW, so it is held (conservative, reviewable);
-    # its Bank of America DES twin, which prints the name field, counts. Truist's entry-first layout prints the DRAW
-    # before the builder's name, so a builder's draw there is held too.
-    assert _q11([("CONTOSO CONSTRUCTION DRAW 3 540503 7788 NORTHWIND SOLAR", R3_08_AMOUNT)], bank=bank) == [NON_SALE]
-    assert _q11([(_q11_bofa("CONTOSO CONSTRUCTION", "DRAW 3"), R3_08_AMOUNT)]) == [DRAW_COUNTED]
-    truist = "CONST DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC CUSTOMER ID 0000"
-    assert _q11([(truist, R3_08_AMOUNT)], bank="Truist") == [NON_SALE]
+@pytest.mark.parametrize(("name", "entry"), [
+    ("CONTOSO CONSTRUCTION", "DRAW 3"),
+    # R3-B15 review round 1 (finding 3): the cut spellings a sixteen-character originator field prints.
+    ("CONTOSO CONST", "DRAW 2"), ("CONTOSO CONSTR", "DRAW 2"),
+    # R3-B15 review round 1 (finding 4): BUILD before DRAW is the entry's purpose phrase too.
+    ("CONTOSO BUILD", "DRAW 2"),
+])
+def test_r3_08_residual_a_label_less_builder_named_with_a_phrase_word_and_a_bare_draw_is_held(name, entry, bank):
+    # Recorded residual (§8.1, §20; 0 corpus rows): on a label-less row '<NAME> CONSTRUCTION', '<NAME> CONST',
+    # '<NAME> CONSTR' or '<NAME> BUILD' with no company form before a bare DRAW cannot be told from the entry's purpose
+    # phrase, so it is held (conservative, reviewable); its Bank of America DES twin, which prints the name field,
+    # counts.
+    assert _q11([(f"{name} {entry} 540503 7788 NORTHWIND SOLAR", R3_08_AMOUNT)], bank=bank) == [NON_SALE]
+    assert _q11([(_q11_bofa(name, entry), R3_08_AMOUNT)]) == [DRAW_COUNTED]
+
+
+# R3-B15 review round 1 (finding 2; Q11 (a), "Count as true revenue and flag it"): Truist prints the entry first
+# ('<entry> <company field> <receiver> CUSTOMER ID'), so a builder's entry CONST DRAW prints before the builder's name.
+# The DRAW of a purpose phrase printed before the builder word is the entry's, never inside the payer's name, so the
+# builder's draw counts, as it did before R3-08; a payer with no builder word of its own stays held.
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize("text", [
+    "CONST DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+    "CONSTRUCTION DRAW CONTOSO HOMEBUILDERS NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+    "CONSTR DRAW CONTOSO CONSTRUCTION LLC NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+    "BUILD DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+])
+def test_r3_08_review_round_1_a_builder_s_draw_on_the_entry_first_layout_counts(text, bank):
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [DRAW_COUNTED]
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    # A root-less lender's entry-first draw: the holder's own builder word, whole or cut, is never the payer's.
+    ("CONST DRAW FABRIKAM AMERICA NORTHWIND CONSTRUCTION LLC CUSTOMER ID 0000", "NORTHWIND CONSTRUCTION LLC"),
+    ("CONST DRAW FABRIKAM AMERICA NORTHWIND CONSTR CUSTOMER ID 0000", "NORTHWIND CONSTRUCTION LLC"),
+    # A county names no builder.
+    ("CONST DRAW SAMPLE COUNTY NORTHWIND SOLAR LLC CUSTOMER ID 0000", SOLAR),
+])
+def test_r3_08_review_round_1_an_entry_first_draw_with_no_builder_stays_held(text, holder):
+    assert _q11([(text, R3_08_AMOUNT)], holder, bank="Truist") == [NON_SALE]
+
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize("text", [
+    # R3-B15 review round 1 (finding 4): a root-less lender's entry BUILD DRAW names no builder either.
+    "FABRIKAM AMERICA BUILD DRAW 540503 7788 NORTHWIND SOLAR",
+    "FABRIKAM AMERICA BUILD DRAWS 540503 7788 NORTHWIND SOLAR",
+])
+def test_r3_08_review_round_1_a_label_less_build_draw_names_no_builder(text, bank):
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [NON_SALE]
 
 
 @pytest.mark.parametrize(("region", "builder"), [
@@ -813,10 +855,30 @@ def test_r3_08_residual_a_label_less_builder_named_construction_with_a_bare_draw
     ("CONTOSO CONSTRUCTION LLC CONST DRAW", "CONSTRUCTION"),
     ("CONTOSO BUILDERS INC DRAW", "BUILDERS"),
     ("QUICK DRAW CONST PAYMENT", "CONST"),
+    # R3-B15 review round 1 (findings 2 and 4).
+    ("FABRIKAM AMERICA BUILD DRAW", None),
+    ("CONTOSO BUILD GROUP INC DRAW", "BUILD"),
+    ("BUILD DRAW CONTOSO BUILDERS INC", "BUILDERS"),
+    ("CONST DRAW CONTOSO BUILDERS INC", "BUILDERS"),
 ])
 def test_r3_08_the_label_less_builder_word(region, builder):
     found = tr._label_less_builder_word(region)
     assert (found.group(0) if found is not None else None) == builder
+
+
+@pytest.mark.parametrize(("row", "draw"), [
+    # R3-B15 review round 1 (finding 2): the purpose reads a DRAW after the builder word, or one of a purpose phrase
+    # printed before it; never one inside the payer's name.
+    ("CONTOSO BUILDERS INC DRAW 4", True),
+    ("CONST DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC", True),
+    ("CONSTRUCTION DRAWS CONTOSO HOMES NORTHWIND SOLAR LLC", True),
+    ("QUICK DRAW CONST PAYMENT", False),
+    ("SURE DRAW CONTRACTORS INC PAYMENT", False),
+    ("DRAW FABRIKAM CONTOSO BUILDERS INC", False),
+])
+def test_r3_08_the_label_less_draw_purpose(row, draw):
+    builder = tr._label_less_builder_word(row)
+    assert (tr._DRAW_WORD.search(tr._label_less_draw_purpose(row, row, builder)) is not None) is draw
 
 
 # Audit round 3, R3-B15 (R3-59; the underwriter's Q11 (b) of 2026-10-02, "Don't count as true revenue and go straight to
@@ -869,6 +931,20 @@ def test_r3_59_a_broker_s_commission_and_a_fee_printed_apart_keep_their_readings
     assert _r3_59(purpose, layout, zelle) == [expected]
 
 
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", [
+    # R3-B15 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a broker's or an
+    # agent's net commission is its own earned commission after splits, never what a seller's proceeds are net of, and
+    # so is a bare NET FEE.
+    "NET COMMISSION ON TRUCK SALE", "NET COMMISSION TRUCK SALE", "NET COMMISSIONS FOR EQUIPMENT SALE",
+    "AGENT NET COMMISSION TRUCK SALE", "BROKER NET COMMISSION ON EQUIPMENT SALE",
+    "NET COMMISSION ON SALE OF 2050 TRUCK", "NET COMMISSION CAR SALE", "NET FEE FOR TRUCK SALE",
+])
+def test_r3_59_review_round_1_a_net_commission_stays_a_broker_s_revenue(purpose, layout, zelle):
+    assert _r3_59(purpose, layout, zelle) == [REFUSED]
+
+
 def test_r3_59_a_platform_seller_payout_printing_net_of_fees_stays_asset_sale_proceeds():
     assert _q11([(_q11_bofa("RITCHIE BROS", "SELLER PMT NET OF FEES", holder=FLORIST), R3_59_AMOUNT)], FLORIST) == [
         ASSET_SALE]
@@ -880,6 +956,10 @@ def test_r3_59_a_platform_seller_payout_printing_net_of_fees_stays_asset_sale_pr
     ("", "LESS FEES ", False), ("", "NET OF COMMISSION ", False), ("", "MINUS FEES ON ", False),
     (" COMMISSION", "", True), (" FEE", "", True), (" FEES PAID", "", True),
     ("", "COMMISSION ON ", True), ("", "FEE FOR ", True), ("", "NETWORK FEES ", True),
+    # R3-B15 review round 1 (finding 1): a bare NET reads only before FEES.
+    ("", "NET FEES ", False), ("", "NET FEES FOR ", False),
+    ("", "NET COMMISSION ON ", True), ("", "NET COMMISSION ", True), ("", "NET COMMISSIONS FOR ", True),
+    ("", "AGENT NET COMMISSION ", True), ("", "NET FEE FOR ", True), ("", "NET FEE ", True),
 ])
 def test_r3_59_the_netting_words(after, before, vetoed):
     assert tr._asset_sale_commission(after, before) is vetoed

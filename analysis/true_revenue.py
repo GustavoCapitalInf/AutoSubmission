@@ -887,8 +887,9 @@ _BUILDER_PAYER = re.compile(
 #: Audit round 3, R3-B15 (R3-08; Q11 (a): "when the payer is a builder"): a draw's purpose phrase, CONSTRUCTION,
 #: CONSTR or CONST directly followed by DRAW or DRAWS. On a row that prints no payer-name field the payer region holds
 #: the entry words ('<NAME> CONST DRAW', TD's whole 'CONSTRUCTION DRAW'), so the phrase is the entry's purpose, never
-#: the payer's builder word (_label_less_builder_word).
-_DRAW_PURPOSE_PHRASE = re.compile(r"(?<![A-Z])(?:CONSTRUCTION|CONSTR|CONST) DRAWS?\b")
+#: the payer's builder word (_label_less_builder_word). R3-B15 review round 1 (finding 4): BUILD too ('<NAME> BUILD
+#: DRAW'), so a root-less lender's entry BUILD DRAW names no builder either.
+_DRAW_PURPOSE_PHRASE = re.compile(r"(?<![A-Z])(?:CONSTRUCTION|CONSTR|CONST|BUILD) DRAWS?\b")
 #: Q11 (a): a loan's, a credit line's, a mortgage's, an escrow's or a title's draw, an owner's, member's, partner's or
 #: shareholder's draw, a personal, line, credit, advance, capital, equity or cash draw, and a draw on a line, a LOC, a
 #: credit facility or an account: the business's own loan or money, never a builder's progress draw. R2-OW06 review
@@ -1065,9 +1066,13 @@ _ASSET_SALE_COMMISSION_BEFORE = re.compile(r"(?<![A-Z])(?:COMMISSIONS?|FEES?)(?:
 #: §4.2: deposits arrive net of fees): a netting word beside that commission or fee, after it ('TRUCK SALE FEES
 #: WITHHELD', 'TRUCK SALE COMM DEDUCTED') or before it ('LESS FEES TRUCK SALE', 'NET OF COMMISSION TRUCK SALE'): what
 #: the seller's proceeds are net of, never a broker's earned fee, so the sale is read (_asset_sale_commission).
+#: R3-B15 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a bare NET reads only
+#: before FEES ('NET FEES TRUCK SALE'); a broker's or an agent's NET COMMISSION is its own earned commission after
+#: splits, and NET FEE its own fee, so both stay a broker's revenue.
 _ASSET_SALE_NETTING_AFTER = re.compile(r"^\s*(?:COMMISSIONS?|COMMS?|FEES?)\s+(?:WITHHELD|DEDUCTED|DEDUCT\w*|NETTED)\b")
 _ASSET_SALE_NETTING_BEFORE = re.compile(
-    r"(?<![A-Z])(?:NET(?: OF)?|LESS|AFTER|MINUS)\s+(?:COMMISSIONS?|COMMS?|FEES?)(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
+    r"(?<![A-Z])(?:(?:NET OF|LESS|AFTER|MINUS)\s+(?:COMMISSIONS?|COMMS?|FEES?)|NET\s+FEES)"
+    r"(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
 )
 #: Q11 (b): an invoice reference, which a vehicle's or heavy equipment's sale reads through (the owner made no invoice
 #: carve-out); accounts-payable, vendor or payables wording still spares the row.
@@ -2405,13 +2410,18 @@ def construction_progress_draw(
     receiver inside the region). On a row that prints no payer-name field (_prints_payer_name_field: Wells Fargo's,
     Citizens', TD Bank's, Huntington's and Truist's label-less layouts) the region holds the entry words too: the
     payer's builder word is the first that does not start a draw's purpose phrase (_label_less_builder_word: '<NAME>
-    CONST DRAW' names no builder), and DRAW is read only after it (_label_less_draw_purpose: one printed before it,
-    'QUICK DRAW CONST PAYMENT', is inside the payer's name). A row these refuse keeps its reading before the ruling,
+    CONST DRAW' names no builder), and DRAW is read only after it or in such a phrase before it
+    (_label_less_draw_purpose: any other printed before it, 'QUICK DRAW CONST PAYMENT', is inside the payer's
+    name). A row these refuse keeps its reading before the ruling,
     the non-sale hold of its DRAW, as its Bank of America DES twin does; on a row that prints a payer-name field the
-    name field is the payer's and today's reading stands. Recorded residuals (held, reviewable; 0 corpus rows): a
-    builder named '<NAME> CONSTRUCTION' with no company form before a bare DRAW on a label-less row (the phrase cannot
-    be told from the name), and a builder's draw on Truist's entry-first layout ('CONST DRAW <NAME> BUILDERS INC
-    ...')."""
+    name field is the payer's and today's reading stands. Recorded residual (held, reviewable; 0 corpus rows): a
+    builder named '<NAME> CONSTRUCTION', or by the cut spellings a sixteen-character originator field prints, '<NAME>
+    CONST' or '<NAME> CONSTR', or '<NAME> BUILD', with no company form before a bare DRAW on a label-less row (the
+    phrase cannot be told from the name; R3-B15 review round 1, findings 3 and 4). R3-B15 review round 1 (finding 2):
+    a builder's draw on Truist's entry-first layout ('CONST DRAW <NAME> BUILDERS INC ...') counts, the DRAW of the
+    entry's purpose phrase read before the builder word (_label_less_draw_purpose); its recorded residual (counted, as
+    before R3-08; 0 corpus rows): a receiver the holder's names do not strip that prints a builder word lends it to a
+    root-less payer's entry-first CONST DRAW."""
     if not region or _REALTY_PAYER.search(region) or (not zelle_true_revenue and zelle_deposit(text)):
         return False
     named = _prints_payer_name_field(text)
@@ -2436,8 +2446,9 @@ def construction_progress_draw(
 def _label_less_builder_word(payer: str) -> re.Match[str] | None:
     """Audit round 3, R3-B15 (R3-08): the payer's builder word on a payer region that is no payer-name field (`payer`,
     read without the holder's names): the first _BUILDER_PAYER match that does not start a draw's purpose phrase
-    (_DRAW_PURPOSE_PHRASE: CONSTRUCTION, CONSTR or CONST directly followed by DRAW or DRAWS, the entry's words); None
-    when there is none ('FABRIKAM AMERICA CONST DRAW', 'SAMPLE COUNTY CONSTRUCTION DRAW')."""
+    (_DRAW_PURPOSE_PHRASE: CONSTRUCTION, CONSTR or CONST, and since R3-B15 review round 1, finding 4, BUILD, directly
+    followed by DRAW or DRAWS, the entry's words); None when there is none ('FABRIKAM AMERICA CONST DRAW', 'SAMPLE
+    COUNTY CONSTRUCTION DRAW', 'FABRIKAM AMERICA BUILD DRAW')."""
     for found in _BUILDER_PAYER.finditer(payer):
         if _DRAW_PURPOSE_PHRASE.match(payer, found.start()) is None:
             return found
@@ -2450,10 +2461,17 @@ def _label_less_draw_purpose(row: str, payer: str, builder: re.Match[str]) -> st
     region without the holder's names), so a DRAW printed before the builder word is inside the payer's name. The
     builder word is found in the row through the region's words up to it; where the row does not print them as the
     region does, only the region's words after the builder word are read (a draw the row prints later stays unread,
-    the conservative side)."""
+    the conservative side). R3-B15 review round 1 (finding 2; Q11 (a)): a draw's purpose phrase printed before the
+    builder word (_DRAW_PURPOSE_PHRASE, which _label_less_builder_word skipped) is the entry's purpose, never the
+    payer's name, so its DRAW is read too: Truist's entry-first 'CONST DRAW <NAME> BUILDERS INC <receiver> CUSTOMER
+    ID' is a builder's draw, while 'QUICK DRAW CONST PAYMENT' prints no phrase and stays unread."""
     lead = payer[: builder.end()].strip()
     at = row.find(lead) if lead else -1
-    return row[at + len(lead):] if at >= 0 else payer[builder.end():]
+    after = row[at + len(lead):] if at >= 0 else payer[builder.end():]
+    entry = " ".join(
+        found.group(0) for found in _DRAW_PURPOSE_PHRASE.finditer(payer) if found.end() <= builder.start()
+    )
+    return f"{entry} {after}" if entry else after
 
 
 def non_sale_purpose(
@@ -6878,10 +6896,12 @@ def _asset_sale_commission(after: str, before: str) -> bool:
     purpose after it: _ASSET_SALE_COMMISSION_AFTER) or right before it with at most a connector (`before`, the purpose
     before it: _ASSET_SALE_COMMISSION_BEFORE), a broker's or an agent's earned revenue, so the purpose arm reads no
     sale. Audit round 3, R3-B15 (R3-59; Q11 (b), standard G6, §4.2): never one a netting word stands beside
-    (_ASSET_SALE_NETTING_AFTER: WITHHELD, DEDUCTED, DEDUCT..., NETTED after it; _ASSET_SALE_NETTING_BEFORE: NET, NET
-    OF, LESS, AFTER, MINUS before it), which is what the seller's proceeds are net of: 'TRUCK SALE FEES WITHHELD' and
-    'LESS COMMISSION TRUCK SALE' are the sale, as 'TRUCK SALE NET OF FEES' was; 'TRUCK SALE COMMISSION', 'COMMISSION ON
-    TRUCK SALE', 'TRUCK SALE FEE' and 'FEE FOR TRUCK SALE' stay a broker's revenue."""
+    (_ASSET_SALE_NETTING_AFTER: WITHHELD, DEDUCTED, DEDUCT..., NETTED after it; _ASSET_SALE_NETTING_BEFORE: NET OF,
+    LESS, AFTER, MINUS before it, and a bare NET before FEES only, R3-B15 review round 1, finding 1), which is what the
+    seller's proceeds are net of: 'TRUCK SALE FEES WITHHELD', 'NET FEES TRUCK SALE' and 'LESS COMMISSION TRUCK SALE'
+    are the sale, as 'TRUCK SALE NET OF FEES' was; 'TRUCK SALE COMMISSION', 'COMMISSION ON TRUCK SALE', 'TRUCK SALE
+    FEE', 'FEE FOR TRUCK SALE' and a broker's or an agent's 'NET COMMISSION ON TRUCK SALE' (its own earned commission
+    after splits) stay a broker's revenue."""
     return bool(
         (_ASSET_SALE_COMMISSION_AFTER.search(after) and not _ASSET_SALE_NETTING_AFTER.search(after))
         or (_ASSET_SALE_COMMISSION_BEFORE.search(before) and not _ASSET_SALE_NETTING_BEFORE.search(before))
