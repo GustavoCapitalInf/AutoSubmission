@@ -2302,6 +2302,25 @@ def _same_account(first: dict, second: dict) -> bool:
     return _chained(first, second) or _chained(second, first)
 
 
+def _months_linked(first: dict, second: dict) -> bool:
+    """Audit round 3, R3-B18 (R3-02; the owner's Q6 identity of 2026-10-02, "consecutive months of the same account"):
+    two counted members are statements of one account for the months' floor (R13). Never two accounts of one document
+    (one job). Two keyed members (each a bank, `_package_bank`, and four digits or more) are one account when the bank
+    and the last four are equal, chained or not (audit round 2, R2-B15's key, kept exactly). Otherwise the banks agree
+    where both print one, the account names do not differ where both print one, and the balance chains (R2-OW15's
+    `_chained`, unchanged: one starts 0 to PACKAGE_CONSECUTIVE_DAYS days after the other ends and opens on its closing
+    balance, to the cent). A member linked to none is its own account."""
+    if first["job_id"] == second["job_id"]:
+        return False
+    if first["bank"] and second["bank"] and len(first["digits"]) >= 4 and len(second["digits"]) >= 4:
+        return first["bank"] == second["bank"] and first["digits"][-4:] == second["digits"][-4:]
+    if first["bank"] and second["bank"] and first["bank"] != second["bank"]:
+        return False
+    if first["name"] and second["name"] and first["name"] != second["name"]:
+        return False
+    return _chained(first, second) or _chained(second, first)
+
+
 def _different_accounts(first: dict, second: dict) -> bool:
     """R2-OW16 (Q4's identity): two package members are two of the business's accounts: two members (two jobs, or one
     document's two accounts), one declared currency, both print four digits or more, and the last fours differ or the
@@ -3152,10 +3171,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     #: counted statements print no period, each its own month.
     month_keys: set[int] = set()
     months_unplaced = 0
-    #: Audit round 2, R2-B15 (R13): the days each account's counted statements cover, keyed by the account (its bank,
-    #: casefolded and its blanks collapsed, and the last four digits of its printed number; or, where either is not
-    #: printed, the member itself).
-    account_days: dict[tuple, set] = {}
+    #: Audit round 2, R2-B15 (R13): each counted member's account reading and the days its statement covers, joined
+    #: into accounts after the loop (audit round 3, R3-B18, R3-02: `_months_linked`, the bank and the last four where
+    #: both print them, else the balance chain within the bank; a member linked to none is its own account).
+    months_members: list[dict] = []
     #: Audit B11 (I31, I05, I13): the members whose own rows do not reconcile to the bank's figures, and the members
     #: whose True rests on rows the holds could not screen or whose payer no parser read.
     unreconciled_members: list[str] = []
@@ -4282,13 +4301,16 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 months_unplaced += 1
             else:
                 month_keys.add(month_key)
-            # Audit round 2, R2-B15 (R13): the days it covers, for its account's month floor below.
-            member_digits = _printed_account_digits(analysis)
-            member_bank = _bank_key(statement)
-            account_key = ((member_bank, member_digits[-4:]) if member_bank and len(member_digits) >= 4
-                           else (job.id, account_index))
-            account_days.setdefault(account_key, set()).update(
-                _covered_days(statement.get("period_start"), statement.get("period_end")))
+            # Audit round 2, R2-B15 (R13): the days it covers, for its account's month floor below; audit round 3,
+            # R3-B18 (R3-02): with what its account is read by (`_months_linked`).
+            months_members.append({
+                "job_id": job.id, "account_index": account_index,
+                "bank": _package_bank(statement), "digits": _printed_account_digits(analysis),
+                "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
+                "start": _iso_day(statement.get("period_start")), "end": _iso_day(statement.get("period_end")),
+                "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
+                "days": _covered_days(statement.get("period_start"), statement.get("period_end")),
+            })
             if (analysis.get("reconciliation") or {}).get("ok") is not True:
                 unreconciled_members.append(doc_row["id"])
             if doc_row["holder_unscreened"]:
@@ -4352,6 +4374,26 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # the days they cover: a 16th-to-15th cycle across February (02-16..03-15 and 03-16..04-15 both stand for March)
     # or a cycle whose periods share their closing day read 3 months over 3 statements, never 2, and a statement of
     # 59 days reads 2, never 1. The labels (`_statement_month`) are unchanged; a floor below the calendar count is inert.
+    #
+    # Audit round 3, R3-B18 (R3-02): an account is the members `_months_linked` joins (a small union-find in member
+    # order): two keyed members by the bank and the last four, as before; a member that prints no bank or fewer than
+    # four digits by the balance chain of the owner's Q6 identity (R2-OW15's `_chained`) within its bank and holder, so
+    # a 16th-to-15th cycle whose number is not read reads its months too. A member linked to none is its own account.
+    links = list(range(len(months_members)))
+
+    def account_of(place: int) -> int:
+        while links[place] != place:
+            links[place] = links[links[place]]
+            place = links[place]
+        return place
+
+    for place, member in enumerate(months_members):
+        for other_place in range(place):
+            if _months_linked(months_members[other_place], member):
+                links[account_of(place)] = account_of(other_place)
+    account_days: dict[int, set] = {}
+    for place, member in enumerate(months_members):
+        account_days.setdefault(account_of(place), set()).update(member["days"])
     month_floor = max((_months_covered(len(days)) for days in account_days.values()), default=0)
     months = max(1, len(month_keys) + months_unplaced, month_floor)
     # MINOR-10: the statement periods (one per document and printed cycle) beside the months, published when the two

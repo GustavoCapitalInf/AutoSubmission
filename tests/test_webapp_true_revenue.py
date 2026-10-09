@@ -1024,7 +1024,7 @@ _CONTOSO_NUMBER = "000000001010"
 _FABRIKAM_NUMBER = "000000002020"
 
 
-def _period_payload(start, end, total=10000.0, *, number=_CONTOSO_NUMBER, bank="CONTOSO BANK"):
+def _period_payload(start, end, total=10000.0, *, number=_CONTOSO_NUMBER, bank="CONTOSO BANK", opening=1500.0):
     """A fabricated statement of `number` printing `start`..`end`, whose one credit, a FABRIKAM INC ACH payment of
     `total` on its first day, is its True revenue."""
     from analysis.pipeline import analyze_statement
@@ -1032,9 +1032,9 @@ def _period_payload(start, end, total=10000.0, *, number=_CONTOSO_NUMBER, bank="
     from analysis.schema import Statement, Transaction
     from analysis.serialization import document_report_to_dict
 
-    balance = round(1500.0 + total, 2)
+    balance = round(opening + total, 2)
     statement = Statement(bank=bank, account_name="CONTOSO BAKERY LLC", account_number=number, period_start=start,
-                          period_end=end, beginning_balance=1500.0, ending_balance=balance, currency="USD",
+                          period_end=end, beginning_balance=opening, ending_balance=balance, currency="USD",
                           currency_source="printed",
                           transactions=[Transaction(date=start, description="FABRIKAM INC DES:ACH PAYMENT ID:1",
                                                     amount=total, direction="credit", running_balance=balance)])
@@ -1142,6 +1142,70 @@ def test_the_covered_days_of_a_period():
     assert _covered_days("2031-03-02", "2031-03-01") == set()  # an end before the start reads no day
     assert _covered_days(None, "2031-03-01") == set() and _covered_days("2031-03-01", "2031-02-30") == set()
     assert len(_covered_days("2030-01-01", "2032-12-31")) == 400  # capped as _statement_month is
+
+
+# Audit round 3, R3-B18 (R3-02): a statement that prints no bank or fewer than four account digits joins its account's
+# months by the balance chain of the owner's Q6 ruling (R2-OW15's `_chained`): it starts 0 to 7 days after another
+# statement of its bank and holder ends and opens on that statement's closing balance. Unchained, it stays its own.
+
+#: The (number, bank) variants of a statement whose account is not printed in full.
+_UNKEYED_VARIANTS = [(None, "CONTOSO BANK"), ("XXXXXXXX010", "CONTOSO BANK"), ("000000001010", "")]
+
+
+def _chained_periods_package(periods, *, number, bank, total=10000.0, opening=1500.0):
+    """A package of one statement per `(start, end)`, each opening on the last one's closing balance."""
+    payloads = []
+    for start, end in periods:
+        payloads.append(_period_payload(start, end, total, number=number, bank=bank, opening=opening))
+        opening = round(opening + total, 2)
+    return payloads
+
+
+@pytest.mark.parametrize(("number", "bank"), _UNKEYED_VARIANTS)
+def test_an_unkeyed_sixteenth_cycle_chained_by_its_balances_reads_three_months(number, bank):
+    totals = _package(*_chained_periods_package(_SIXTEENTH_CYCLE, number=number, bank=bank))["totals"]
+    assert _months(totals) == (3, 30000.0, 10000.0)
+    assert totals["decision"] == "approved"
+
+
+def test_an_unkeyed_cycle_that_does_not_chain_keeps_its_own_months():
+    """The recorded residual: three unkeyed statements that each open on 1,500.00 do not chain, so each is its own
+    account and B11's two calendar months stand."""
+    totals = _periods_package(_SIXTEENTH_CYCLE, number=None)["totals"]
+    assert _months(totals) == (2, 30000.0, 15000.0)
+
+
+def test_two_unkeyed_accounts_of_one_bank_each_chained_read_three_months():
+    checking = _chained_periods_package(_SIXTEENTH_CYCLE, number=None, bank="CONTOSO BANK")
+    savings = _chained_periods_package(_SIXTEENTH_CYCLE, number=None, bank="CONTOSO BANK", total=5000.0,
+                                       opening=9000.0)
+    totals = _package(*checking, *savings)["totals"]
+    assert _months(totals) == (3, 45000.0, 15000.0)
+    assert totals["statement_periods"] == 6
+
+
+def test_the_months_link_never_joins_two_accounts_of_one_document_or_two_keyed_accounts():
+    from datetime import date
+
+    from webapp.app import _months_linked
+
+    def member(job_id, bank, digits, start, end, opening, closing, name="contoso bakery llc"):
+        return {"job_id": job_id, "bank": bank, "digits": digits, "name": name, "start": start, "end": end,
+                "opening": opening, "closing": closing}
+
+    january = member("a", "contoso bank", "", date(2031, 1, 16), date(2031, 2, 15), 1500.0, 11500.0)
+    february = member("b", "contoso bank", "", date(2031, 2, 16), date(2031, 3, 15), 11500.0, 21500.0)
+    assert _months_linked(january, february) and _months_linked(february, january)
+    assert not _months_linked(january, {**february, "job_id": "a"})  # one document's two accounts
+    assert not _months_linked(january, {**february, "bank": "fabrikam bank"})
+    assert _months_linked(january, {**february, "bank": ""})  # a bankless statement reads its chain
+    assert not _months_linked(january, {**february, "name": "fabrikam tools llc"})
+    assert _months_linked(january, {**february, "name": ""})
+    assert not _months_linked(january, {**february, "opening": 11500.01})
+    # Two keyed statements: the bank and the last four, chained or not, as R2-B15's key reads them.
+    keyed = {**january, "digits": "000000001010"}
+    assert _months_linked(keyed, {**february, "digits": "1010", "opening": 1.0})
+    assert not _months_linked(keyed, {**february, "digits": "000000002020"})
 
 
 # ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW03: the non-revenue
