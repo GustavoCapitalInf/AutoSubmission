@@ -2437,3 +2437,82 @@ def test_the_spec_the_contract_and_the_handoff_record_the_fix_run_s_review_round
     for words in ("Review round 1 of that fix run", "for ratification", "goes to review"):
         assert words in handoff, words
     assert "asks for review on its withholding only (its decision pill reads as before)" not in handoff
+
+
+#: Audit round 3, R3-B15: the code commit §20 and the contract name.
+R3_B15_CODE_COMMIT = "8e00872"
+
+
+def test_the_spec_and_the_contract_record_r3_b15():
+    """Audit round 3, R3-B15 (R3-08, R3-59, R3-63, R3-53): §5.3's held-sentence rule, §8.1's progress-draw paragraph
+    and asset-sale purpose, §8.10's demotions, §9.3's stored-output bullet, §17.1's developer item, §19.1's Q11 bullet,
+    the $1-floor, R2-OW06 and R2-OW06 review round 1 lines marked in place, one §20 line per issue and the batch line
+    with the commit, and the contract's rows, paragraphs, bullets and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    tiers = re.sub(r"\s+", " ", _section(text, "\n### 5.3 ", "\n### 5.4 "))
+    assert ("A held row's reason sentence never says it is counted: a hold that re-tiers a counted re-statement "
+            "rewrites its sentence (audit round 3, R3-B15: R3-53, §20;") in tiers
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("Audit round 3, R3-B15 (R3-08, §20; the ruling's \"when the payer is a builder\"",
+                  "`_label_less_builder_word`", "`_label_less_draw_purpose`",
+                  "a builder's draw on Truist's entry-first layout",
+                  "(audit round 3, R3-B15: R3-59, §20; Q11 (b), standard G6, §4.2", "`_asset_sale_commission`"):
+        assert words in holds, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    for words in ("Every one of these demotions leaves a credit under $1 to the floor",
+                  "(audit round 3, R3-B15: R3-63, §20;", "(audit round 3, R3-B15: R3-53, §5.3, §20)"):
+        assert words in tiering, words
+    assert "- Audit round 3, R3-B15 (§20): no bump in a fix batch either" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    developer = next(line for line in open_items.splitlines() if line.startswith(
+        "- **A project owner or developer that is no builder paying a stage draw"))
+    assert "A county's draw is held the same way (audit round 3, R3-B15: R3-08, §20)" in developer
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert review.count("Audit round 3, R3-B15 (§20): on a label-less layout") == 1
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("marked in place by audit round 3, R3-B15: R3-63, §20 below: every pass-7 demotion leaves a credit "
+                  "under $1 to the floor",
+                  "amended by audit round 3, R3-B15: R3-08, §20 below: read without the holder's names",
+                  "(amended by audit round 3, R3-B15: R3-59, §20 below: so does a sale whose commission or fee",
+                  "- **A label-less construction draw names a builder only by the payer's own word**",
+                  "- **A sale printed net of a fee or a commission is still a sale**",
+                  "- **Every pass-7 demotion leaves a credit under $1 to the floor**",
+                  "- **A held row's reason sentence never says it is counted**",
+                  "- **Audit round 3, R3-B15 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B15 (R3-") == 4
+    assert amendments.count(R3_B15_CODE_COMMIT) >= 5
+    assert R3_B15_CODE_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B15 in all**")
+    for placeholder in ("R3B15" + "CODE", "MEASURE" + "_R3"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "(audit round 3, R3-B15: R3-08)" in when["`construction_progress_draw`"]
+    assert "(audit round 3, R3-B15: R3-59)" in when["`asset_sale_proceeds`"]
+    contract = _flat(CONTRACT)
+    assert "R3B15" + "CODE" not in contract and "MEASURE" + "_R3" not in contract
+    for words in (f"Audit round 3, R3-B15 (R3-08, R3-59, R3-63, R3-53; {R3_B15_CODE_COMMIT})",
+                  "A held credit's reason sentence (`revenue_reason`, which the JSON download and the package's "
+                  "evidence sections write beside its tier) never says it is counted",
+                  "Every pass-7 demotion leaves such a credit to the floor, the factoring and progress-draw demotions "
+                  "included (audit round 3, R3-B15: R3-63).",
+                  "and so does a county's (audit round 3, R3-B15: R3-08).",
+                  "`LESS COMMISSION TRUCK SALE` are a sale, audit round 3, R3-B15: R3-59)",
+                  "unless a netting word stands beside it (audit round 3, R3-B15: R3-59)"):
+        assert words in contract, words
+
+
+def test_r3_b15_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B15: construction_progress_draw and its two helpers name R3-08's reading; asset_sale_reading
+    and _asset_sale_commission R3-59's netting words; the tier loop's two demotion arms R3-63's floor; _with_tier and
+    _held_reason R3-53's sentence."""
+    draw = re.sub(r"\s+", " ", true_revenue.construction_progress_draw.__doc__)
+    for words in ("Audit round 3, R3-B15 (R3-08;", "_label_less_builder_word", "_label_less_draw_purpose",
+                  "Truist's entry-first layout"):
+        assert words in draw, words
+    assert "_DRAW_PURPOSE_PHRASE" in re.sub(r"\s+", " ", true_revenue._label_less_builder_word.__doc__)
+    assert "Audit round 3, R3-B15 (R3-59;" in re.sub(r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    assert "R3-B15: R3-59" in re.sub(r"\s+", " ", true_revenue.asset_sale_reading.__doc__)
+    assert "Audit round 3, R3-B15 (R3-53; §5.3)" in re.sub(r"\s+", " ", true_revenue._with_tier.__doc__)
+    assert "never verified, and held for review (<label>)" in re.sub(r"\s+", " ", true_revenue._held_reason.__doc__)
+    comments = re.sub(r"\s*\n\s*#\s*", " ", inspect.getsource(true_revenue.apply_true_revenue_pass))
+    assert comments.count("Audit round 3, R3-B15 (R3-63): a credit under $1 is left to the floor") == 2
