@@ -1932,6 +1932,55 @@ def test_a_monthly_statement_of_33_days_stays_over_partial_printouts_that_tile_i
         alone["true_revenue_total"], alone["verified_revenue_total"])
 
 
+def _straddled_march(march_end, april_start, april_end, second_print=("2031-03-12", "2031-04-08")):
+    """February, a 32- or 33-day March cycle and the April after it, beside two 28-day printouts straddling March's
+    boundaries (February 15 to March 14, and `second_print`), each printing every row of its days."""
+    pay, card = "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "CARD PURCHASE FABRIKAM SUPPLY"
+    february = [("2031-02-05", pay, 1000.0), ("2031-02-20", pay, 2000.0), ("2031-02-21", card, -100.0)]
+    march = [("2031-03-03", pay, 3000.0), ("2031-03-12", pay, 4000.0), ("2031-03-25", pay, 5000.0),
+             ("2031-03-26", card, -100.0), ("2031-04-01", pay, 6000.0)]
+    april = [("2031-04-05", pay, 7000.0), ("2031-04-20", pay, 8000.0), ("2031-04-21", card, -100.0)]
+    every = sorted(february + march + april)
+
+    def printed(start, end):
+        return [row for row in every if start <= row[0] <= end]
+
+    return [_period("feb", february, "2031-02-01", "2031-02-28", opening=1000.0),
+            _period("mar", march, "2031-03-01", march_end, opening=3800.0),
+            _period("apr", april, april_start, april_end, opening=21700.0),
+            _period("print1", printed("2031-02-15", "2031-03-14"), "2031-02-15", "2031-03-14", opening=2000.0),
+            _period("print2", printed(*second_print), *second_print, opening=5000.0)]
+
+
+@pytest.mark.parametrize(("march_end", "april_start", "april_end"), [("2031-04-01", "2031-04-02", "2031-05-01"),
+                                                                     ("2031-04-02", "2031-04-03", "2031-05-02")])
+def test_a_monthly_statement_of_32_or_33_days_stays_over_two_straddling_printouts_sharing_a_credit(
+        march_end, april_start, april_end):
+    """Two 28-day printouts that each straddle a boundary of the March cycle overlap each other and share a credit, so
+    keeping them in March's place would count that credit twice: March stays, and each printout, every row of which
+    the monthly statements print, is left out."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_straddled_march(march_end, april_start, april_end))
+    assert _left_out(package) == [("print1", "feb", "superseded_interim", None),
+                                  ("print2", "mar", "superseded_interim", None)]
+    assert _r14(package)[:3] == (36000.0, 12000.0, 3) and _pairs(package) is None
+
+
+def test_two_month_length_printouts_that_tile_a_33_day_cycle_still_leave_it_out_and_are_named():
+    """The recorded residual: two 28-day printouts that tile the March cycle with no common day and no shared credit
+    leave it out in the first phase; the credits each shares with a neighbouring monthly statement are named, never
+    netted, and the package goes to review."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_straddled_march("2031-04-02", "2031-04-03", "2031-05-02",
+                                                 second_print=("2031-03-15", "2031-04-11")))
+    assert _left_out(package) == [("mar", "print2", "superseded_long_printout", None)]
+    assert [(pair["job"], pair["other"], pair["shared_credit_count"], pair["shared_credit_total"])
+            for pair in _pairs(package)] == [("print1", "feb", 1, 2000.0), ("print2", "apr", 1, 7000.0)]
+    assert package["totals"]["decision"] == "review_required"
+
+
 def test_a_35_day_export_straddling_three_monthly_statements_is_left_out():
     """Control: a pure day threshold would leave February (28 days) out in favour of the export."""
     from webapp.app import _package_analysis

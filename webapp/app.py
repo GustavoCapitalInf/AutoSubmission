@@ -1750,7 +1750,8 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     monthly statements print is left out (`superseded_long_printout`) and the monthly statements, each its own
     calendar month, stay; audit round 3, R3-B18 (R3-05): in that first phase a statement is left out only in favour of
     month-length statements (`_FULL_STATEMENT_DAYS` days or more) that alone cover its period and print its rows, no
-    two of which sharing its days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` days; otherwise it waits.
+    two of which sharing its days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` days or share a credit in
+    the days both cover (no double count between them); otherwise it waits.
     Then every statement left, long ones included, the shortest first, so an interim or month-to-date printout beside
     the full statement, a second month-to-date printout of one open month, or a short custom range of days the full
     statements print is left out (`superseded_interim`) and a full month, a 32-35-day monthly cycle included, is never
@@ -1828,17 +1829,24 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     overlapping: list[dict] = []
     alive = list(statements)
     left_out: list[tuple[dict, dict]] = []
+    def double_counted(one: dict, two: dict) -> bool:
+        """Two statements that overlap each other by more than a boundary's days, or share a credit in the days both
+        cover (`_shared_credits`): kept side by side, they count money twice."""
+        first, last = max(one["span"][0], two["span"][0]), min(one["span"][1], two["span"][1])
+        return first <= last and ((last - first).days + 1 > _OVERLAP_BOUNDARY_DAYS
+                                  or _shared_credits(one, two, first, last)[0] >= 1)
+
     # Phase 1 (R2-B14 review round 1): a printout of more than a month, the longest first (of two alike, the later
     # listed first). Audit round 3, R3-B18 (R3-05): it is left out only in favour of month-length statements
-    # (`_FULL_STATEMENT_DAYS` or more) that alone prove it and of which no two sharing its days overlap each other by
-    # more than `_OVERLAP_BOUNDARY_DAYS`, so a 32-35-day monthly cycle is never left out for partial printouts of it.
+    # (`_FULL_STATEMENT_DAYS` or more) that alone prove it and no two of which sharing its days overlap each other by
+    # more than `_OVERLAP_BOUNDARY_DAYS` or share a credit (no double count between them), so a 32-35-day monthly
+    # cycle is never left out for partial printouts of it.
     for statement in sorted((item for item in statements if item["days"] > _MONTH_DAYS),
                             key=lambda item: (-item["days"], -item["order"])):
         full = [other for other in peers(statement, alive) if other["days"] >= _FULL_STATEMENT_DAYS]
         sharing = [other for other in full if _days_shared(statement["span"], other["span"]) > 0]
-        if not printed_by(statement, full) or any(
-                _days_shared(one["span"], two["span"]) > _OVERLAP_BOUNDARY_DAYS
-                for place, one in enumerate(sharing) for two in sharing[place + 1:]):
+        if not printed_by(statement, full) or any(double_counted(one, two) for place, one in enumerate(sharing)
+                                                   for two in sharing[place + 1:]):
             continue
         statement["reason"] = "superseded_long_printout"
         left_out.append((statement, most_days(statement, full)))
