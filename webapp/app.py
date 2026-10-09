@@ -1672,6 +1672,10 @@ _OVERLAP_BOUNDARY_DAYS = 3
 #: Audit round 3, R3-B18 (R3-04): the most days apart two statements of one account may print one credit (equal cents)
 #: and still share it (`_shared_credits`): a transaction or value date, a pending item posted a day later.
 _OVERLAP_SHIFT_DAYS = 3
+#: Audit round 3, R3-B18 (R3-05): the fewest days of a month-length statement, the only kind a printout of more than a
+#: month is left out in favour of in `_package_superseded`'s first phase (7,096 of the corpus's 7,241 printed periods
+#: run 28 to 35 days; a shorter one is a partial month or a printout).
+_FULL_STATEMENT_DAYS = 28
 
 
 def _posted_rows(account: dict) -> list[dict]:
@@ -1744,11 +1748,15 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     multiset on the day and the signed cents (never a fuzzy match). The statements of more than a month
     (`_MONTH_DAYS`) are tested first, the longest first, so a quarterly printout or a multi-month export whose rows the
     monthly statements print is left out (`superseded_long_printout`) and the monthly statements, each its own
-    calendar month, stay; then the rest, the shortest first, so an interim or month-to-date printout beside the full
-    statement, a second month-to-date printout of one open month, or a short custom range of days the full statements
-    print is left out (`superseded_interim`) and a full month is never left out for partial printouts of it (of two
-    periods alike, the one listed later is tested first; R2-B14 review round 1). It repeats the statement left in the
-    package that shares the most of its days (of two alike, the one listed first).
+    calendar month, stay; audit round 3, R3-B18 (R3-05): in that first phase a statement is left out only in favour of
+    month-length statements (`_FULL_STATEMENT_DAYS` days or more) that alone cover its period and print its rows, no
+    two of which sharing its days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` days; otherwise it waits.
+    Then every statement left, long ones included, the shortest first, so an interim or month-to-date printout beside
+    the full statement, a second month-to-date printout of one open month, or a short custom range of days the full
+    statements print is left out (`superseded_interim`) and a full month, a 32-35-day monthly cycle included, is never
+    left out for partial printouts of it that print nothing it does not (of two periods alike, the one listed later is
+    tested first; R2-B14 review round 1). It repeats the statement left in the package that shares the most of its
+    days (of two alike, the one listed first).
 
     Any other overlap of two statements of one account is never netted. Audit round 3, R3-B18 (R3-04): the credits
     the two share in the days both cover are matched one to one on the cents within `_OVERLAP_SHIFT_DAYS` days,
@@ -1796,10 +1804,6 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                 "span": span, "days": days,
                 "rows": Counter((_row_day(row), _row_cents(row)) for row in rows),
                 "credits": [row for row in rows if _num(row.get("amount")) > 0],
-                # R2-B14 review round 1: a printout of more than a month is tested first, the longest first; the rest
-                # the shortest first (of two alike, the later listed first).
-                "test_order": (0, -days, -order) if days > _MONTH_DAYS else (1, days, -order),
-                "reason": "superseded_long_printout" if days > _MONTH_DAYS else "superseded_interim",
             })
 
     def peers(statement: dict, alive: list[dict]) -> list[dict]:
@@ -1809,20 +1813,44 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     def most_days(statement: dict, others: list[dict]) -> dict:
         return max(others, key=lambda other: (_days_shared(statement["span"], other["span"]), -other["order"]))
 
+    def printed_by(statement: dict, others: list[dict]) -> bool:
+        """The drop's proof: `others` cover the statement's period and print every posted row of it (a multiset on the
+        day and the signed cents), and it prints one."""
+        if not others or not statement["rows"] or not _span_covered(statement["span"],
+                                                                    [other["span"] for other in others]):
+            return False
+        pool: Counter = Counter()
+        for other in others:
+            pool.update(other["rows"])
+        return not statement["rows"] - pool
+
     superseded: list[tuple[dict, dict]] = []
     overlapping: list[dict] = []
     alive = list(statements)
     left_out: list[tuple[dict, dict]] = []
-    for statement in sorted(statements, key=lambda item: item["test_order"]):
+    # Phase 1 (R2-B14 review round 1): a printout of more than a month, the longest first (of two alike, the later
+    # listed first). Audit round 3, R3-B18 (R3-05): it is left out only in favour of month-length statements
+    # (`_FULL_STATEMENT_DAYS` or more) that alone prove it and of which no two sharing its days overlap each other by
+    # more than `_OVERLAP_BOUNDARY_DAYS`, so a 32-35-day monthly cycle is never left out for partial printouts of it.
+    for statement in sorted((item for item in statements if item["days"] > _MONTH_DAYS),
+                            key=lambda item: (-item["days"], -item["order"])):
+        full = [other for other in peers(statement, alive) if other["days"] >= _FULL_STATEMENT_DAYS]
+        sharing = [other for other in full if _days_shared(statement["span"], other["span"]) > 0]
+        if not printed_by(statement, full) or any(
+                _days_shared(one["span"], two["span"]) > _OVERLAP_BOUNDARY_DAYS
+                for place, one in enumerate(sharing) for two in sharing[place + 1:]):
+            continue
+        statement["reason"] = "superseded_long_printout"
+        left_out.append((statement, most_days(statement, full)))
+        alive.remove(statement)
+    # Phase 2: every statement left, long ones included, the shortest first (of two alike, the later listed first),
+    # against all the statements it is one account with: the partial printouts that print nothing a statement does not
+    # are left out before it, and it stays.
+    for statement in sorted(alive, key=lambda item: (item["days"], -item["order"])):
         others = peers(statement, alive)
-        if not others or not statement["rows"] or not _span_covered(statement["span"],
-                                                                    [other["span"] for other in others]):
+        if not printed_by(statement, others):
             continue
-        pool: Counter = Counter()
-        for other in others:
-            pool.update(other["rows"])
-        if statement["rows"] - pool:
-            continue
+        statement["reason"] = "superseded_interim"
         left_out.append((statement, most_days(statement, others)))
         alive.remove(statement)
     for statement, covering in left_out:

@@ -1894,6 +1894,55 @@ def test_the_shared_credits_are_matched_one_to_one_inside_the_days_both_cover():
     assert _shared_credits(entry(("2031-04-01", 10.0)), entry(("2031-04-04", 10.0)), first, last) == (1, 1000)
 
 
+@pytest.mark.parametrize("full_first", [True, False])
+@pytest.mark.parametrize("end", ["2031-07-04", "2031-07-05", "2031-07-07"])
+def test_a_monthly_statement_of_32_to_35_days_stays_over_two_overlapping_partial_printouts(end, full_first):
+    from webapp.app import _package_analysis
+
+    rows = [("2031-06-05", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0),
+            ("2031-06-16", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 9000.0),
+            ("2031-06-28", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 4000.0),
+            ("2031-06-30", "CARD PURCHASE FABRIKAM SUPPLY", -200.0)]
+    full = _period("full", rows, "2031-06-03", end)
+    early = _period("early", rows[:2], "2031-06-03", "2031-06-20")
+    late = _period("late", rows[1:], "2031-06-14", end, opening=7500.0)
+    package = _package_analysis([full, early, late] if full_first else [early, late, full])
+    assert _left_out(package) == [("early", "full", "superseded_interim", None),
+                                  ("late", "full", "superseded_interim", None)]
+    assert package["totals"]["true_revenue_total"] == 19000.0 and _pairs(package) is None
+
+
+def test_a_monthly_statement_of_33_days_stays_over_partial_printouts_that_tile_it():
+    """Kept whole, the statement keeps its recurring payer's three credits together, so its Verified stands (left out in
+    favour of the two partials, one of them printed the payer's credit alone and Verified fell)."""
+    from webapp.app import _package_analysis
+
+    payer = "FABRIKAM WHOLESALE DES:ACH CREDIT ID:7"
+    rows = [("2031-06-05", payer, 6000.0), ("2031-06-16", payer, 9000.0), ("2031-06-28", payer, 4000.0),
+            ("2031-06-30", "CARD PURCHASE SAMPLE OFFICE SUPPLY", -200.0)]
+    full = _period("full", rows, "2031-06-03", "2031-07-05")
+    alone = _package_analysis([full])["totals"]
+    early = _period("early", rows[:2], "2031-06-03", "2031-06-20")
+    late = _period("late", rows[2:], "2031-06-21", "2031-07-05", opening=16500.0)
+    package = _package_analysis([early, late, full])
+    assert _left_out(package) == [("early", "full", "superseded_interim", None),
+                                  ("late", "full", "superseded_interim", None)]
+    totals = package["totals"]
+    assert (totals["true_revenue_total"], totals["verified_revenue_total"]) == (
+        alone["true_revenue_total"], alone["verified_revenue_total"])
+
+
+def test_a_35_day_export_straddling_three_monthly_statements_is_left_out():
+    """Control: a pure day threshold would leave February (28 days) out in favour of the export."""
+    from webapp.app import _package_analysis
+
+    export = _period("export", _FEB, "2031-01-29", "2031-03-04", opening=11400.0)
+    package = _package_analysis([*_first_quarter(), export])
+    assert _left_out(package) == [("export", "feb", "superseded_long_printout", None)]
+    assert [doc["id"] for doc in package["documents"] if not doc["is_duplicate"]] == ["jan", "feb", "mar"]
+    assert (package["totals"]["true_revenue_total"], package["totals"]["months"]) == (30000.0, 3)
+
+
 # ---------------------------------------------------------------------------
 # Audit round 2, R2-B15 (R15): an account the package leaves out of its figures for any reason but a repeat (a statement
 # whose main account is held or idle, an account that did not validate, every account of a document whose transfers
