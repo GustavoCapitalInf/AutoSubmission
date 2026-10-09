@@ -1890,7 +1890,8 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                     earlier["start_printed"] is not None and earlier["end_printed"] is not None
                     and (earlier["start_printed"], earlier["end_printed"]) == (later["start_printed"],
                                                                                later["end_printed"])
-                    and all(_is_money_value(entry[side]) for entry in (earlier, later) for side in ("opening", "closing"))
+                    and all(_is_money_value(entry[side]) for entry in (earlier, later)
+                            for side in ("opening", "closing"))
                     and all(round(float(earlier[side]) * 100) == round(float(later[side]) * 100)
                             for side in ("opening", "closing"))
                 )
@@ -1999,11 +2000,12 @@ def _overlap_words(pair: dict, filenames: dict[str, str], money: str) -> str:
     overlappingStatementWords reads the same words). Audit round 3, R3-B18 (R3-04): a pair named although it shares
     no credit (a period inside the other, or more than three common days) reads the days the two cover."""
     count = pair.get("shared_credit_count") or 0
-    names = f"{filenames.get(pair.get('job'), pair.get('job'))} and {filenames.get(pair.get('other'), pair.get('other'))}"
+    names = (f"{filenames.get(pair.get('job'), pair.get('job'))} and "
+             f"{filenames.get(pair.get('other'), pair.get('other'))}")
     if not count:
         return f"{names} cover {pair.get('days_shared')} of the same days of one account"
-    return (f"{names} share {count} {'credit' if count == 1 else 'credits'} ({money}) in the days both cover, counted in "
-            "both")
+    return (f"{names} share {count} {'credit' if count == 1 else 'credits'} ({money}) in the days both cover, "
+            "counted in both")
 
 
 def _ratified_omissions(analysis: object) -> list[dict]:
@@ -2351,10 +2353,10 @@ def _bank_key(statement: object) -> str:
 
 #: Audit round 3, R3-B18 (R3-04): an informal printout's label, read as the bank whose account it prints
 #: (`_package_bank`). Chase's online transaction export publishes the label "Chase Transaction Export"
-#: (analysis/chase.py:240, `bank="Chase Transaction Export"`) where its statements publish "Chase" (analysis/chase.py:867,
-#: `bank="Chase"`); the export is no formal statement (analysis/parser_registry_entries.py:363, `chase_export`'s
-#: `formal_statement: False`). Found's month-to-date view already prints its statement's label "Lead Bank (Found)"
-#: (analysis/found_lead.py:360) and needs none.
+#: (analysis/chase.py:240, `bank="Chase Transaction Export"`) where its statements publish "Chase"
+#: (analysis/chase.py:867, `bank="Chase"`); the export is no formal statement (analysis/parser_registry_entries.py:363,
+#: `chase_export`'s `formal_statement: False`). Found's month-to-date view already prints its statement's label
+#: "Lead Bank (Found)" (analysis/found_lead.py:360) and needs none.
 _PACKAGE_BANK_ALIASES = {"chase transaction export": "chase"}
 
 

@@ -2000,7 +2000,8 @@ def test_the_package_rows_name_a_pair_sharing_no_credit_by_its_days():
     rows = _package_rows(_package_analysis([_april(), other]))
     assert ("overlapping_statement_1", "days_shared", 20) in rows
     assert ("overlapping_statement_1", "shared_credit_count", 0) in rows
-    assert ("overlapping_statement_1", "words", "other.pdf and apr.pdf cover 20 of the same days of one account") in rows
+    assert ("overlapping_statement_1", "words",
+            "other.pdf and apr.pdf cover 20 of the same days of one account") in rows
     interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
                       "2031-04-15", "2031-05-10", opening=30000.0)
     rows = _package_rows(_package_analysis([_april(), interim]))
