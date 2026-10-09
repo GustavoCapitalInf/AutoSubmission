@@ -4204,9 +4204,20 @@ _OUTGOING_WIRE_FEE = re.compile(r"(?<![A-Z])(?:OUTGOING|OUT|TO|BNF|BENEFICIARY)\
 #: sender's name ('CONTOSO TO GO INC'). Review round 1: FROM before the holder's own account (an account word or a
 #: masked account number: 'WIRE TRANSFER FEE FROM CHECKING TO <payee>') or before TO is the wire's source, never a
 #: sender, so the words after it are the fee's own.
+#: Audit round 3, R3-B16 (R3-33): the holder's own account is also an account product's name (up to two product words,
+#: BUSINESS, BUS, OPERATING, PAYROLL, PRIMARY, COMMERCIAL, ANALYZED, ANALYSIS or PERSONAL, before an account word:
+#: 'FROM BUSINESS CHECKING TO <payee>', 'FROM BUS CHK'), MONEY MARKET, OPERATING alone (the holder's operating
+#: account) or a digit run of three or more (the account number a bank prints after '*' or '...'); every other word
+#: after FROM still starts a sender ('FROM CONTOSO TO GO INC', 'FROM OPERATING ENGINEERS LOCAL ...'), so the lookahead
+#: is widened only, never every FROM ... TO read as the source (which would re-open R48's sender named with TO).
+_FEE_SOURCE_ACCOUNT = (
+    r"(?:(?:BUSINESS|BUS|OPERATING|PAYROLL|PRIMARY|COMMERCIAL|ANALYZED|ANALYSIS|PERSONAL) ){0,2}"
+    r"(?:CHECKING|CHKG|CHK|CKG|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA)"
+    r"|MONEY MARKET"
+)
 _FEE_SENDER_RUN = re.compile(
     r"(?<![A-Z])(?:TT|FROM)\b"
-    r"(?! (?:TO|CHECKING|CHKG|CHK|CKG|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA)\b| X{2,}\d*\b)"
+    rf"(?! (?:TO|OPERATING|{_FEE_SOURCE_ACCOUNT})\b| X{{2,}}\d*\b| \d{{3,}}\b)"
 )
 #: Review round 1: the outgoing words no sender's name prints, read after the sender too ('... TT <sender> BNF <payee>').
 _OUTGOING_WIRE_FEE_AFTER_SENDER = re.compile(r"(?<![A-Z])(?:OUTGOING|BNF|BENEFICIARY)\b")
@@ -4214,6 +4225,13 @@ _OUTGOING_WIRE_FEE_AFTER_SENDER = re.compile(r"(?<![A-Z])(?:OUTGOING|BNF|BENEFIC
 #: chargeback, adjustment or returns. A monthly-discount processor posts one such debit a month.
 _PROCESSOR_FEE_DEBIT = re.compile(
     r"(?<![A-Z])(?:FEES?|DISCOUNT|DISC|CHBK|CHGBK|CHRGBACK|CHARGEBACKS?|CHG BACK|ADJ|ADJUSTMENTS?|RETURNS?)\b"
+)
+#: Audit round 3, R3-B16 (R3-35; standard A1, A2, §4.2; §20 B4 review round 1): a processor's fee word glued after
+#: another word at the end of the entry that Chase's SEC code follows, once _counter_debit_kind_text splits the code off
+#: ('MONTHLYFEE SEC CCD', 'PAYCORFEES SEC CCD', 'SERVICEFEE SEC WEB'), never COFFEE.
+_GLUED_FEE_ENTRY = re.compile(
+    r"(?<![A-Z])[A-Z]{3,}?(?<!COF)(?:FEES?|DISCOUNT|DISC|CHARGEBACKS?|CHGBK|CHBK)"
+    r"(?= SEC (?:CCD|CTX|PPD|WEB|IAT|COR|TEL|POP|BOC|ARC|RCK|CIE)\b)"
 )
 #: Audit B4 (I02): a credit printing settlement, payout, MID or merchant-services wording is a processor's
 #: settlement, which its own fee debits never hold.
@@ -4257,8 +4275,13 @@ _CASH_WITHDRAWAL_DEBIT = re.compile(
 #: R2-B02 review round 1: a company whose name leads with ATM or ABM (a legal form within its next two words; never
 #: CO, a state's code after an ATM's town), or an ACH entry printing one (Bank of America's DES ... ID field, Chase's
 #: ORIG CO NAME and CO ENTRY DESCR, a receiver or company id field), is a payee the holder pays, never a cash withdrawal.
+#: Audit round 3, R3-B16 (R3-34; standard A6; R2-B02 R02: an ATM withdrawal names a place, never a payer): none of
+#: those two words is a cash or posting word (WITHDRAWAL, WITHDRAW, WITHDRWL, WTHDRWL, WDL, WD, DEBIT, CASH, FEE,
+#: PURCHASE, TRANSACTION, TXN), so 'ATM WITHDRAWAL <name> INC' and 'ATM DEBIT <name> LLC' stay cash withdrawals.
 _ATM_NAMED_COMPANY = re.compile(
-    r"(?<![A-Z])(?:ATM|ABM)(?: [A-Z&]+){0,2} (?:INC|LLC|CORP|CORPORATION|LTD|LIMITED|COMPANY|INDUSTRIES|GROUP)\b"
+    r"(?<![A-Z])(?:ATM|ABM)"
+    r"(?: (?!(?:WITHDRAWALS?|WITHDRAW|WITHDRWL|WTHDRWL|WDL|WD|DEBIT|CASH|FEE|PURCHASE|TRANSACTION|TXN)\b)[A-Z&]+){0,2}"
+    r" (?:INC|LLC|CORP|CORPORATION|LTD|LIMITED|COMPANY|INDUSTRIES|GROUP)\b"
 )
 _ACH_ENTRY_LABEL = re.compile(
     r"(?<![A-Z])(?:INDN|IND NAME|ORIG CO NAME|CO ENTRY DESCR|CO ID|DES(?: [A-Z0-9]+){1,4} ID)\b"
@@ -4291,6 +4314,12 @@ _BILL_DEBIT = re.compile(
 #: Audit B4 (I02; Q6): a payer that reads as an insurer keeps the bill exclusion off: an insurer's credit beside the
 #: holder's premium or bill to it stays held (insurers never count).
 _INSURER_CREDIT = re.compile(r"(?<![A-Z])(?:INS|INSUR\w*|ASSUR\w*)\b")
+#: Audit round 3, R3-B16 (R3-03; owner ruling 2026-10-02, the underwriter's Q2; standard A11, B6): a premium, or the
+#: bank's retry of a returned premium (a re-presentment of the same obligation, never a second one), read on a
+#: non-lender debit's kind text with Chase's glued SEC code split off ('INS PREMSEC PPD' reads 'INS PREM SEC PPD'): the
+#: flag that lets a debit naming a credit the Q2 release counted recur at one amount without holding it
+#: (also_debited). A flag, never a kind: the debit keeps its kind.
+_PREMIUM_DEBIT = re.compile(r"(?<![A-Z])(?:PREM|PREMS|PREMIUMS?|PREMSEC|RETRY)(?![A-Z])")
 #: Audit B4 (guard): a transfer, wire or person-to-person debit, or an own-account move ('TO CHKG', 'DDA TO DDA'):
 #: it can be circular money, so it also matches a payer as 5.6 read it (CounterDebitReading.legacy).
 _OWN_ACCOUNT_DEBIT = re.compile(
@@ -4319,7 +4348,9 @@ class _CounterDebit:
     more, that name's first two words glued (the only key a credit matches it by, a debit for the credit's own amount
     aside); (R01, review round 1) `card`, a card purchase in a form the card-form prefix misses, which keeps its own
     kind (a fee, a bill or another debit): the card form only lifts a payout's hold (also_debited). A lender debit's
-    reading keeps the place words (classifier._without_not_a_payer)."""
+    reading keeps the place words (classifier._without_not_a_payer). Audit round 3, R3-B16 (R3-03): `premium`, a
+    non-lender debit printing a premium or a retry of one (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code
+    split off); a lender debit's is always False."""
 
     reading: CounterDebitReading
     kind: str
@@ -4329,6 +4360,7 @@ class _CounterDebit:
     payout: bool = False
     person_key: str | None = None
     card: bool = False
+    premium: bool = False
 
 
 @dataclass(frozen=True)
@@ -4345,7 +4377,8 @@ class CounterCredit:
     prints a platform's payout id (R18, processor_payout); `person_key`, on a person-to-person or push credit whose
     sender prints a name of two words or more and no company form, that name's first two words glued (R02; review
     round 1: a company's push is compared by the B4 forms as before); `lender_reading`, the reading the lender hold
-    compares (the place words kept; None: `reading`)."""
+    compares (the place words kept; None: `reading`). Audit round 3, R3-B16 (R3-03): `released_insurer`, the credit
+    the Q2 release counted as an insurer paying for the business's work (INSURER_FOR_WORK_METHOD)."""
 
     reading: CounterDebitReading
     cents: int
@@ -4355,6 +4388,7 @@ class CounterCredit:
     payout: bool = False
     person_key: str | None = None
     lender_reading: CounterDebitReading | None = None
+    released_insurer: bool = False
 
 
 def _cents(amount: float) -> int:
@@ -4388,9 +4422,33 @@ def _counter_debit_kind(text: str) -> str:
     words name an outgoing wire falls through to the kinds after it, as before. Review round 1: FROM before the
     holder's own account or before TO starts no sender ('WIRE TRANSFER FEE FROM CHECKING TO <payee>' is the fee for
     the holder's own wire), and OUTGOING, BNF and BENEFICIARY, which no sender's name prints, are read after the
-    sender too."""
+    sender too.
+
+    Audit round 3, R3-B16 (R3-35; standard A1, A2, §4.2; §20 B4 review round 1): the processor's fee and the bill are
+    read on the kind text with Chase's glued SEC code split off (_counter_debit_kind_text: 'CO ENTRY DESCR FEESSEC
+    CCD' reads 'FEES SEC CCD', 'BILL PAYMTSEC' reads 'BILL PAYMT SEC'), and a fee word glued after another word at the
+    entry's end is the processor's fee too (_GLUED_FEE_ENTRY: 'MONTHLYFEESEC', never 'COFFEESEC'); the receiving fee
+    and circular money keep reading the row as printed (a glued 'TRANSFERSEC' keeps its kind). The kind order is
+    unchanged. R3-33: FROM before an account product's name, MONEY MARKET, OPERATING or an account number starts no
+    sender either (_FEE_SOURCE_ACCOUNT: 'WIRE TRANSFER FEE FROM BUSINESS CHECKING TO <payee>' is circular)."""
+    return _counter_debit_kind_of(*_counter_debit_kind_text(text))
+
+
+def _counter_debit_kind_text(text: str) -> tuple[str, str]:
+    """Audit round 3, R3-B16 (R3-35): a non-lender debit's kind text, read without the receiver fields' values and the
+    statement furniture (as _counter_debit_kind has read it since B4 review round 1 and B8), and the same text with
+    Chase's glued SEC code split off (classifier._GLUED_SEC_CODE, which classifier.revenue_text applies to credits
+    only): (text, split)."""
     classifier = _classifier()
     text = classifier.without_statement_furniture(classifier._without_receiver_value(text))
+    return text, classifier._GLUED_SEC_CODE.sub(r"\1 SEC \2", text)
+
+
+def _counter_debit_kind_of(text: str, split: str) -> str:
+    """Audit B4 (I02): the kind of a debit's kind text and its split (_counter_debit_kind_text), in the order
+    _counter_debit_kind gives: the receiving fee and circular money on `text`, the processor's fee and the bill on
+    `split` (audit round 3, R3-B16: R3-35)."""
+    classifier = _classifier()
     fee = _RECEIVING_FEE_DEBIT.search(text)
     if fee is not None:
         tail = text[fee.end():]
@@ -4407,9 +4465,9 @@ def _counter_debit_kind(text: str) -> str:
         or _OWN_ACCOUNT_DEBIT.search(text)
     ):
         return "circular"
-    if _PROCESSOR_FEE_DEBIT.search(text):
+    if _PROCESSOR_FEE_DEBIT.search(split) or _GLUED_FEE_ENTRY.search(split):
         return "processor_fee"
-    if _BILL_DEBIT.search(text):
+    if _BILL_DEBIT.search(split):
         return "bill"
     return "other"
 
@@ -4426,10 +4484,12 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
     keeps that kind); an ATM, ABM or cash withdrawal that is no lender's and no circular money is left out (R02,
     _cash_withdrawal: never a company named ATM or ABM, nor an ACH entry); each debit records whether it prints a
     platform's payout id (R18, processor_payout); a lender debit is read with the place words kept, and a
-    person-to-person or push debit to a named recipient records its person_key (R02)."""
+    person-to-person or push debit to a named recipient records its person_key (R02). Audit round 3, R3-B16 (R3-03):
+    each non-lender debit, a card-marked one included, records whether it prints a premium or a retry of one
+    (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code split off); a lender debit never does."""
     classifier = _classifier()
     lender: list[_CounterDebit] = []
-    other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool]] = []
+    other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool, bool]] = []
     for index, record in enumerate(records):
         if index in duplicates or record.amount >= 0 or not record.is_posted:
             continue
@@ -4443,7 +4503,8 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
             entity = _lender_entity(classifier._without_receiver_value(text))
             lender.append(_CounterDebit(reading, "lender", _cents(record.amount), entity, False, payout))
         elif not card_purchase:
-            kind = _counter_debit_kind(text)
+            kind_text, split = _counter_debit_kind_text(text)
+            kind = _counter_debit_kind_of(kind_text, split)
             if kind != "circular" and _cash_withdrawal(text):
                 continue
             card = kind in _CARD_KIND_FROM and bool(
@@ -4455,17 +4516,19 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
                 and reading.heads and reading.heads[0][1]
             ):
                 person_key = reading.heads[0][0] + reading.heads[0][1][0]
-            other.append((reading, kind, _cents(record.amount), payout, person_key, card))
+            premium = _PREMIUM_DEBIT.search(split) is not None
+            other.append((reading, kind, _cents(record.amount), payout, person_key, card, premium))
     # "Recurring same-amount debits keep holding": two or more debits of one payer word at one amount (a bill's; B4
     # review round 1: never a processor's fee beside its settlement, also_debited).
-    amounts = Counter((_head_word(reading), cents) for reading, _, cents, _, _, _ in other)
+    amounts = Counter((_head_word(reading), cents) for reading, _, cents, _, _, _, _ in other)
     return CounterDebits(
         tuple(lender),
         tuple(
             _CounterDebit(
                 reading, kind, cents, None, amounts[(_head_word(reading), cents)] >= 2, payout, person_key, card,
+                premium,
             )
-            for reading, kind, cents, payout, person_key, card in other
+            for reading, kind, cents, payout, person_key, card, premium in other
         ),
     )
 
@@ -4477,7 +4540,9 @@ _CARD_KIND_FROM = frozenset({"other", "processor_fee", "bill"})
 
 def _cash_withdrawal(text: str) -> bool:
     """Audit round 2, R2-B02 (R02; review round 1): an ATM, ABM or cash withdrawal (_CASH_WITHDRAWAL_DEBIT) that names
-    no company leading with ATM or ABM and prints no ACH entry field (_ATM_NAMED_COMPANY, _ACH_ENTRY_LABEL)."""
+    no company leading with ATM or ABM and prints no ACH entry field (_ATM_NAMED_COMPANY, _ACH_ENTRY_LABEL). Audit
+    round 3, R3-B16 (R3-34): the company's name never reads a cash or posting word between ATM or ABM and its legal
+    form, so 'ATM WITHDRAWAL <name> INC' is still a cash withdrawal."""
     return (
         _CASH_WITHDRAWAL_DEBIT.search(text) is not None
         and _ATM_NAMED_COMPANY.search(text) is None and _ACH_ENTRY_LABEL.search(text) is None
@@ -4538,7 +4603,10 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     2026-10-02 (the underwriter's Q2): `insurer` is False on a credit pass 7 released as an insurer paying for the
     business's work (INSURER_FOR_WORK_METHOD), so a bill to that insurer holds it only as a bill to any payer does.
     Audit round 3, R3-29: Interac's French form (_INTERAC_COURRIEL, whose plural the classifier's rail never reads) is
-    such a rail too, so a French autodeposit's sender names a debit as its English twin's does."""
+    such a rail too, so a French autodeposit's sender names a debit as its English twin's does. Audit round 3, R3-B16
+    (R3-03): `released_insurer` is True on that released credit, which also_debited holds by a debit naming its carrier
+    only when the debit is circular money, is for its own amount, or recurs at one amount printing no premium or retry
+    word."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     # Audit round 2, R2-B11 (R09 part A): TD Canada Trust's e-Transfer code is no sender, so never a counter-debit key.
@@ -4567,6 +4635,8 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
         payout=processor_payout(text),
         person_key=person_key,
         lender_reading=classifier.counter_debit_payer_reading(words, keep_places=True),
+        # Audit round 3, R3-B16 (R3-03): the credit the Q2 release counted as the business's work.
+        released_insurer=record.revenue_match_method == INSURER_FOR_WORK_METHOD,
     )
 
 
@@ -4646,7 +4716,15 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
     by a card charge or by a one-off other debit of the processor's own unless the debit is for its own amount (R01;
     standard A1, §4.2: its fee, subscription or card charge is the processor's shape, never circular money). Review
     round 1: a card charge keeps its own kind, so beside a credit with no payout form a card-form bill reads the bill
-    rule and any other card charge holds as its kind does."""
+    rule and any other card charge holds as its kind does.
+
+    Audit round 3, R3-B16 (R3-03; owner ruling 2026-10-02, the underwriter's Q2; the MCA principle; standard A11, B6),
+    after the bill rule: a credit the Q2 release counted as an insurer paying for the business's work
+    (CounterCredit.released_insurer) is held by a debit naming its carrier only when that debit is circular money, is
+    for the credit's own amount, or recurs at one amount printing no premium or retry word (_CounterDebit.premium). A
+    premium the business pays the carrier that pays it for its work is an ordinary expense, never money going round,
+    and it recurs at one amount by nature, as a processor's fixed fee does (B4 review round 1), so it never holds the
+    credit, recurring or not. An insurer the release did not count keeps B4's hold beside its premium or bill."""
     for debit in debits.other:
         same_amount = debit.cents == credit.cents
         if credit.payout and debit.payout and not same_amount:
@@ -4660,6 +4738,12 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
         if debit.kind == "processor_fee" and credit.settlement and not same_amount:
             continue
         if debit.kind == "bill" and not credit.insurer and not same_amount and not debit.recurring:
+            continue
+        # Audit round 3, R3-B16 (R3-03): a released insurer's carrier debits.
+        if (
+            credit.released_insurer and not same_amount and debit.kind != "circular"
+            and (debit.premium or not debit.recurring)
+        ):
             continue
         if credit.settlement and not same_amount and (
             debit.card or (debit.kind == "other" and not debit.recurring)

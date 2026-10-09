@@ -506,6 +506,9 @@ def test_the_spelled_out_insurer_words_are_unchanged():
     ("NATIONAL GENERAL INSURANCE", "National General"), ("TRAVELERS PROPERTY CASUALTY", "Travelers"),
     ("TRAVELERS PROP CAS", "Travelers"), ("TRAVELERS PROP INS", "Travelers"), ("TRAVELERS PROPERTY", "Travelers"),
     ("TRAVELERS PROP 1234", "Travelers"),
+    # Audit round 3, R3-B16 (R3-03): American Income Life, as its agents' commission credits print it.
+    ("AM INCOME LIFE", "American Income Life"), ("AMERICAN INCOME LIFE", "American Income Life"),
+    ("AMERICAN INCOME LIFE INS CO", "American Income Life"),
 ])
 def test_the_brand_table_reads_its_carriers(text, entity):
     assert insurer_credit_brand(text) == entity
@@ -519,6 +522,9 @@ def test_the_brand_table_reads_its_carriers(text, entity):
     # property line never a property manager.
     "FARMERS INSTITUTE", "FARMERS INSTANT CO", "AMERICAN FAMILY INSTITUTE", "NATIONAL GENERAL INSTRUMENTS",
     "TRAVELERS PROPERTY MANAGEMENT", "TRAVELERS PROPERTY MGMT", "TRAVELERS PROP SERVICES",
+    # Audit round 3, R3-B16 (R3-03): American Income Life's namesakes, and its entry spelling (the brand reads the payer
+    # region only).
+    "AMERICAN INCOME FUND", "AM INCOME LIFESTYLE LLC", "INCOME LIFE COACHING", "AIL INS",
 ])
 def test_no_brand_pattern_reads_another_business(text):
     assert insurer_credit_brand(text) is None
@@ -1478,3 +1484,110 @@ def test_r3_64_a_released_insurer_s_printed_asset_sale_is_read_by_q11_b(rows, st
     re-states is read by Q11 (b), non_revenue at a non-dealer, and where the holder's trade name is dealer evidence it
     keeps its release."""
     assert [rules_reading(record) for record in _dated(rows, **statement)] == expected
+
+
+# --- Audit round 3, R3-B16 --------------------------------------------------------------------------------------------
+# R3-03 (owner ruling 2026-10-02, the underwriter's Q2; the MCA principle; standard A11, B6): a credit the Q2 release
+# counted (an insurer paying for the business's work) is held by a debit naming its carrier only when that debit is
+# circular money, is for the credit's own amount, or recurs at one amount printing no premium or retry word; a premium
+# the business pays the carrier that pays it is an ordinary expense, never money going round. American Income Life
+# joins INSURER_CREDIT_BRANDS (its agents' commissions print AM INCOME LIFE as the originator, no insurer word), so
+# the release reads it. Fabricated holders, the public carriers by their names, 2054 dates, zeroed ids.
+
+AIL = ("ORIG CO NAME:AM INCOME LIFE ORIG ID:0000000001 DESC DATE:5403{dd} CO ENTRY DESCR:{entry} TRACE#:0000001 "
+       "EED:5403{dd} IND ID:0000001 IND NAME:NORTHWIND PARTNERS")
+AIL_HOLDER = {"holder": "NORTHWIND PARTNERS LLC", "bank": "Chase"}
+
+
+def _ail(entry: str, amount: float, day: str):
+    return AIL.format(dd=day[-2:], entry=entry), amount, day
+
+
+AIL_CREDITS = [_ail("AIL INS SEC:PPD", amount, day)
+               for amount, day in ((3120.45, "03-02"), (2980.10, "03-09"), (3410.00, "03-16"), (2875.30, "03-23"))]
+AIL_PREMIUM = _ail("INS PREMSEC PPD", -8.0, "03-05")
+NAVY_FEDERAL_AGENCY = {"holder": "NORTHWIND INSURANCE AGENCY LLC", "bank": "Navy Federal Credit Union"}
+FARMERS_CREDITS = [("DEPOSIT ACH PAID FROM 0000 FARMERS INS 0000000", 12500.0, "03-02"),
+                   ("DEPOSIT ACH PAID FROM 0000 FARMERS INS 0000000", 9800.0, "03-16")]
+FARMERS_PREMIUM = ("PAID TO - FARMERS INS EFT PYMT CHK 0000000", -148.11, "03-10")
+MANULIFE_CREDITS = [("INSURANCE MANULIFE", amount, day)
+                    for amount, day in ((95.20, "03-02"), (120.40, "03-09"), (88.10, "03-16"))]
+RBC_CLINIC = {"holder": CLINIC, "bank": "Royal Bank of Canada"}
+HELD_ALSO = ("excluded_pending_review", "payer_also_debited")
+
+
+@pytest.mark.parametrize(("rows", "statement", "ground"), [
+    # A1: an agency's weekly commissions beside its own small premium to the carrier (today all held).
+    pytest.param([*AIL_CREDITS, AIL_PREMIUM], AIL_HOLDER, "same_insurer_3_in_31_days", id="A1"),
+    # A2: A1 without the premium (today counted named_payer_one_off: the brand was unread).
+    pytest.param(AIL_CREDITS, AIL_HOLDER, "same_insurer_3_in_31_days", id="A2"),
+    # A3: the premium recurring at one amount, the bank's retry of a returned premium and the premium re-presented.
+    pytest.param([*AIL_CREDITS, AIL_PREMIUM, _ail("INS PREMSEC PPD", -8.0, "03-12"),
+                  _ail("RETRY PYMT", -104.92, "03-13"), _ail("INS PREM", -104.92, "03-14")], AIL_HOLDER,
+                 "same_insurer_3_in_31_days", id="A3"),
+    # A4: a Farmers agency's credits beside one premium to Farmers (today both held).
+    pytest.param([*FARMERS_CREDITS, FARMERS_PREMIUM], NAVY_FEDERAL_AGENCY, "holder_trade:insurance agency", id="A4"),
+    # A5: a clinic's insurer payments beside one debit to another insurer the label key names (today held).
+    pytest.param([*MANULIFE_CREDITS, ("INSURANCE SAMPLE MUTUAL", -8.0, "03-05")], RBC_CLINIC, "holder_trade:clinic",
+                 id="A5"),
+])
+def test_r3_03_a_released_insurer_s_credits_are_counted_beside_its_premium(rows, statement, ground):
+    records = _dated(rows, **statement)
+    assert [rules_reading(record) for record in records] == [COUNTED] * len(records)
+    for record in records:
+        assert record.revenue_match_method == METHOD and not record.contributes_to_verified_revenue
+        assert f"({GROUND_WORDS[ground]})" in record.revenue_reason
+        assert "counted and flagged, never verified" in record.revenue_reason
+    if statement is AIL_HOLDER:
+        assert round(sum(record.amount for record in records if record.contributes_to_true_revenue), 2) == 12385.85
+
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # A debit naming the carrier that recurs at one amount and prints no premium or retry word still holds.
+    pytest.param([*AIL_CREDITS, AIL_PREMIUM, _ail("AGENT DEBIT", -250.0, "03-10"),
+                  _ail("AGENT DEBIT", -250.0, "03-24")], AIL_HOLDER, [HELD_ALSO] * 4, id="recurring-agent-debit"),
+    # Circular money to the carrier still holds.
+    pytest.param([*AIL_CREDITS, AIL_PREMIUM, ("ONLINE TRANSFER TO AM INCOME LIFE REF 0001", -500.0, "03-10")],
+                 AIL_HOLDER, [HELD_ALSO] * 4, id="transfer"),
+    # A premium for a credit's own amount holds that credit only.
+    pytest.param([*AIL_CREDITS, AIL_PREMIUM, _ail("INS PREM", -2980.10, "03-10")], AIL_HOLDER,
+                 [COUNTED, HELD_ALSO, COUNTED, COUNTED], id="own-amount"),
+    # The Farmers debit printed twice at one amount, with no premium or retry word.
+    pytest.param([*FARMERS_CREDITS, FARMERS_PREMIUM, (FARMERS_PREMIUM[0], FARMERS_PREMIUM[1], "03-24")],
+                 NAVY_FEDERAL_AGENCY, [HELD_ALSO] * 2, id="recurring-eft"),
+    # Two American Income Life credits at a holder with no trade word, no debit: R2-OW07's I26 default (held as an
+    # insurer's, with the owner) now reaches the brand.
+    pytest.param([AIL_CREDITS[0], _ail("AIL INS SEC:PPD", 2980.10, "03-20")], AIL_HOLDER,
+                 [("excluded_pending_review", "insurer_named_payer")] * 2, id="two-ail-credits"),
+])
+def test_r3_03_the_holds_that_stay(rows, statement, expected):
+    assert [rules_reading(record) for record in _dated(rows, **statement)] == expected
+
+
+def test_r3_03_the_unreleased_insurer_beside_its_premium_and_the_kind_pins_are_unchanged():
+    """§20 B4 (c): an insurer's credit the release does not count stays held beside its premium or bill (insurers never
+    count); the premium is a flag, never a debit kind."""
+    for debit in ("FABRIKAM LIFE DES:INS PREM ID:2 INDN:CONTOSO BAKERY LLC CO ID:1 PPD",
+                  "FABRIKAM LIFE DES:AUTOPAY ID:2 INDN:CONTOSO BAKERY LLC CO ID:1 PPD", "BILL PAY FABRIKAM LIFE"):
+        rows = [("FABRIKAM LIFE DES:FL INS ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 PPD", 1500.0, "03-02"),
+                (debit, -105.0, "03-03")]
+        assert [rules_reading(record) for record in _dated(rows)] == [HELD_ALSO]
+    assert true_revenue._counter_debit_kind("FABRIKAM LIFE DES:INS PREM ID:2") == "other"
+    # T18 and T18b: a one-off AUTOPAY to the carrier is counted; a debit for the credit's own amount holds it.
+    drp = ("STATE FARM DES:DRP PAYMENT ID:1", 3000.0, "03-02")
+    assert [rules_reading(record) for record in _dated([drp, ("STATE FARM DES:AUTOPAY ID:9", -412.18, "03-03")],
+                                                        holder=REPAIR_SHOP)] == [COUNTED]
+    assert [rules_reading(record) for record in _dated([drp, ("STATE FARM DES:AUTOPAY ID:9", -3000.0, "03-03")],
+                                                        holder=REPAIR_SHOP)] == [HELD_ALSO]
+
+
+def test_r3_03_american_income_life_is_a_credit_only_brand():
+    """The brand reads the payer region only (never the entry's AIL INS), is no insurance-registry carrier and no §15
+    deferred payer."""
+    assert registry.INSURER_CREDIT_BRANDS["American Income Life"] == (r"AM(?:ERICAN)? INCOME LIFE",)
+    assert "American Income Life" not in registry.INSURANCE_PROVIDER_ALIASES
+    assert true_revenue._SECTION_15_DEFERRED_PAYERS.search("AMERICAN INCOME LIFE") is None
+    record = _dated([AIL_CREDITS[0]], **AIL_HOLDER)[0]
+    row = revenue_text(record.normalized_description)
+    assert insurer_credit_brand(payer_region(row)) == "American Income Life"
+    assert insurer_credit_brand(entry_fields(row)) is None

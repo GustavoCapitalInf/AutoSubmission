@@ -314,6 +314,12 @@ def test_a_branch_deposit_is_counted_beside_a_cash_withdrawal_in_its_town():
     ("ABM FABRIKAM DES:PAYMENT ID:2", True),
     ("ATM FABRIKAM INC 1234", True),
     ("ABM SAMPLE SUPPLY LLC INVOICE 1234", True),
+    # Audit round 3, R3-B16 (R3-34): the window between ATM or ABM and the legal form is no cash or posting label, so
+    # a withdrawal printing a one-word company name is still a cash withdrawal; a company named ATM keeps its debit.
+    ("ATM WITHDRAWAL FABRIKAM INC SAMPLEVILLE", False),
+    ("ATM DEBIT FABRIKAM LLC", False),
+    ("ABM WITHDRAWAL FABRIKAM LTD", False),
+    ("ATM CONTOSO GROUP LLC", True),
 ])
 def test_the_counter_debits_leave_out_atm_abm_and_cash_withdrawals(text, kept):
     record = tc.classify_transaction(text, -200.0, direction="debit")
@@ -343,3 +349,38 @@ def test_a_banking_centre_credit_from_an_account_is_held_as_naming_an_account(cr
     rows = [(credit, 1300.0), *debits]
     assert [_tier(record) for record in _credits(rows, bank="Bank of America")] == [
         ("excluded_pending_review", "transfer_account_designation")]
+
+
+# --- Audit round 3, R3-B16 --------------------------------------------------------------------------------------------
+# R3-34 (standard A6; R2-B02 R02): an ATM withdrawal names a place, never a payer. The carve-out for a company whose
+# name leads with ATM or ABM reads a legal form within the next two words, none of them a cash or posting word, so an
+# ATM withdrawal printing a one-word company name keeps the cash-withdrawal exclusion. Fabricated rows, 2054 dates.
+
+@pytest.mark.parametrize(("text", "withdrawal"), [
+    ("ATM WITHDRAWAL FABRIKAM INC SAMPLEVILLE", True),
+    ("ATM DEBIT FABRIKAM LLC", True),
+    ("ABM WITHDRAWAL FABRIKAM LTD", True),
+    ("ATM CASH FABRIKAM LLC", True),
+    ("ATM WITHDRAWAL SAMPLEVILLE CO", True),
+    ("ATM FABRIKAM INC 1234", False),
+    ("ABM SAMPLE SUPPLY LLC INVOICE 1234", False),
+    ("ATM SERVICES GROUP LLC", False),
+    ("ATM CONTOSO GROUP LLC", False),
+])
+def test_r3_34_the_atm_company_carve_out_never_reads_a_cash_or_posting_word(text, withdrawal):
+    assert tr._cash_withdrawal(text) is withdrawal
+
+
+def test_r3_34_a_remittance_reads_as_without_an_atm_withdrawal_printing_a_company_s_name():
+    def credits(rows):
+        statement = Statement(account_name=HOLDER, bank="Bank of America", transactions=[
+            Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                        direction="credit" if amount > 0 else "debit")
+            for index, (text, amount) in enumerate(rows)
+        ])
+        return [(record.revenue_tier, record.revenue_match_method)
+                for record in classify_statement_transactions(statement) if record.amount > 0]
+
+    remittance = ("FABRIKAM INC DES:INV PMT ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD", 1800.0)
+    assert credits([remittance, ("ATM WITHDRAWAL FABRIKAM INC SAMPLEVILLE", -200.0)]) == credits([remittance]) == [
+        ("verified", "payer_remittance_descriptor")]

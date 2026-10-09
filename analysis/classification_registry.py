@@ -2327,6 +2327,12 @@ INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
 #: only before an insurer word (CAS, CASUALT..., INS, INSUR...) or at the name's end, never a property manager
 #: (TRAVELERS PROPERTY MANAGEMENT). National General's bare name stays read: a 16-letter field cuts the insurer and
 #: NATIONAL GENERAL CONTRACTORS alike (an accepted over-hold, held and reviewable).
+#: Audit round 3, R3-B16 (R3-03; owner-batch insurer code, R2-OW07's table): American Income Life Insurance Company
+#: (ailife.com), a Globe Life subsidiary selling life and supplemental health insurance through its own agency force,
+#: whose agents' commission credits print AM INCOME LIFE as the ACH originator (no insurer word) and AIL INS as the
+#: entry. The brand reads the payer region only, so the entry spelling AIL INS is not added; credit-only like every
+#: brand (never in INSURANCE_PROVIDER_ALIASES, no §15 deferred payer). A bare LIFE carrier is never added without the
+#: same evidence (a bare LIFE word reads gyms and churches).
 INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
     "Farmers": (r"FARMERS (?:INS(?:UR\w*|U)?|FARMERS|GROUP|NEW WORLD|OF SALEM)", r"FARMERS IN(?! ?[A-Z])"),
     "American Family": (
@@ -2346,6 +2352,7 @@ INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
         r"TRAVELERS ?(?:INDEMN\w*|PI ?COMM|CASUALT\w*|CAS"
         r"|PROP(?:ERTY)?(?= (?:CAS|CASUALT\w*|INS|INSUR\w*)(?![A-Z])|(?! ?[A-Z]))|COMM(?:ERCIAL|L)?)",
     ),
+    "American Income Life": (r"AM(?:ERICAN)? INCOME LIFE",),
 }
 
 

@@ -629,20 +629,25 @@ def test_the_debit_kinds(text, kind):
     assert _counter_debit_kind(text) == kind
 
 
-def _counter(legacy, words, *, entity=None, cents=100000, settlement=False, insurer=False):
+def _counter(legacy, words, *, entity=None, cents=100000, settlement=False, insurer=False, released_insurer=False):
     from analysis.true_revenue import CounterCredit
 
-    return CounterCredit(tc._counter_debit_reading(legacy, [words]), cents, entity, settlement, insurer)
+    # Audit round 3, R3-B16 (R3-03): `released_insurer` is CounterCredit's last field, passed only when set.
+    extra = {"released_insurer": True} if released_insurer else {}
+    return CounterCredit(tc._counter_debit_reading(legacy, [words]), cents, entity, settlement, insurer, **extra)
 
 
 def _debits(*, lender=(), other=()):
+    """Each other debit is (legacy, words, kind, cents, recurring), or (..., recurring, premium): audit round 3,
+    R3-B16 (R3-03), `premium` is _CounterDebit's last field, passed only when set."""
     from analysis.true_revenue import CounterDebits, _CounterDebit
 
     return CounterDebits(
         tuple(_CounterDebit(tc._counter_debit_reading(legacy, [words]), "lender", 30000, entity, False)
               for legacy, words, entity in lender),
-        tuple(_CounterDebit(tc._counter_debit_reading(legacy, [words]), kind, cents, None, recurring)
-              for legacy, words, kind, cents, recurring in other),
+        tuple(_CounterDebit(tc._counter_debit_reading(legacy, [words]), kind, cents, None, recurring,
+                            **({"premium": True} if rest and rest[0] else {}))
+              for legacy, words, kind, cents, recurring, *rest in other),
     )
 
 
@@ -1129,3 +1134,180 @@ def test_ow09_the_release_reads_the_hidden_loan_guard_last(debit, released):
     assert reason == ("finance_named_customer" if released else None)
     assert tr._payer_collects(tr.counter_credit(records[0], text, region), tr.counter_debits(records, set())) is (
         not released)
+
+
+# --- Audit round 3, R3-B16 --------------------------------------------------------------------------------------------
+# R3-35 (standard A1, A2, §4.2; §20 B4 review round 1): Chase glues the SEC code onto the entry ('CO ENTRY
+# DESCR:FEESSEC CCD'), so the processor's fee and the bill words are read on the entry with the code split off, and a
+# fee word glued after another word at the entry's end ('MONTHLYFEESEC') is the processor's fee too; the receiving-fee
+# and circular tests keep reading the row as printed. R3-03: a debit naming a credit the Q2 release counted (an insurer
+# paid for the business's work) holds it only when it is circular money, is for the credit's own amount, or recurs at
+# one amount printing no premium or retry word. R3-33: the fee for the holder's own outgoing wire 'FROM <product name>
+# TO <payee>' names its source account, never a sender.
+
+CHASE_ENTRY = ("ORIG CO NAME:CONTOSO MERCHANT SERVICES ORIG ID:0000000001 DESC DATE:540303 CO ENTRY DESCR:{entry} "
+               "TRACE#:0000001 EED:540303 IND ID:0000001 IND NAME:NORTHWIND LABS")
+
+
+@pytest.mark.parametrize(("entry", "kind"), [
+    ("FEESSEC CCD", "processor_fee"),
+    ("FEESEC CCD", "processor_fee"),
+    ("MTHLY DISCSEC CCD", "processor_fee"),
+    ("DISCOUNTSEC CCD", "processor_fee"),
+    ("CHARGEBACKSEC CCD", "processor_fee"),
+    # A fee word glued after another word at the end of the entry the SEC code follows.
+    ("MONTHLYFEESEC CCD", "processor_fee"),
+    ("SERVICEFEESEC WEB", "processor_fee"),
+    ("PAYCORFEESSEC CCD", "processor_fee"),
+    ("BILLPAYFEESEC WEB", "processor_fee"),
+    ("BILL PAYMTSEC WEB", "bill"),
+    ("PLANT UTILSEC PPD", "bill"),
+    ("VZ BILLPAYSEC WEB", "bill"),
+    # Controls: no fee or bill word, COFFEE is no fee, and a glued TRANSFERSEC keeps today's kind.
+    ("COFFEESEC PPD", "other"),
+    ("PAYMENTSEC CCD", "other"),
+    ("TRANSFERSEC PPD", "other"),
+    ("FEES SEC CCD", "processor_fee"),
+])
+def test_r3_35_chase_s_glued_fee_and_bill_entries_read_their_kind(entry, kind):
+    from analysis.true_revenue import _counter_debit_kind
+
+    assert _counter_debit_kind(tc.normalize_transaction_description(CHASE_ENTRY.format(entry=entry))) == kind
+
+
+R3_35_SETTLEMENTS = [(CHASE_ENTRY.format(entry="DEPOSITSEC CCD"), amount) for amount in (2215.0, 1985.0, 2415.0)]
+R3_35_DAYS = [2, 9, 16, 5, 19]
+
+
+@pytest.mark.parametrize("entry", ["FEESSEC CCD", "DISCOUNTSEC CCD", "CHARGEBACKSEC CCD", "FEES SEC CCD"])
+def test_r3_35_an_unclaimed_processor_s_settlements_read_as_without_its_glued_fees(entry):
+    # Two equal fees (a processor's fixed fee) beside three settlements: today the glued ones read 'other' and,
+    # recurring, hold every settlement; read as the processor's fee they hold none (B4 review round 1).
+    fees = [(CHASE_ENTRY.format(entry=entry), -45.0)] * 2
+    with_fees, control = _same_as_without(R3_35_SETTLEMENTS, fees, bank="Chase", days=R3_35_DAYS)
+    assert with_fees == control
+    assert {reading[2] for reading in with_fees} != {"payer_also_debited"}
+    assert {reading[1] for reading in control} == {"verified"}
+
+
+def test_r3_35_two_equal_glued_debits_that_print_no_fee_word_still_hold_the_settlements():
+    debits = [(CHASE_ENTRY.format(entry="PAYMENTSEC CCD"), -45.0)] * 2
+    records = _credits(_records([*R3_35_SETTLEMENTS, *debits], bank="Chase", days=R3_35_DAYS))
+    assert [_tier(record) for record in records] == [HELD_ALSO] * 3
+
+
+AIL_ENTRY = ("ORIG CO NAME:AM INCOME LIFE ORIG ID:0000000001 DESC DATE:540305 CO ENTRY DESCR:{entry} TRACE#:0000001 "
+             "EED:540305 IND ID:0000001 IND NAME:NORTHWIND PARTNERS")
+
+
+@pytest.mark.parametrize(("text", "kind", "premium"), [
+    (AIL_ENTRY.format(entry="INS PREMSEC PPD"), "other", True),
+    (AIL_ENTRY.format(entry="INS PREMSEC:PPD"), "other", True),
+    (AIL_ENTRY.format(entry="INS PREM"), "other", True),
+    (AIL_ENTRY.format(entry="RETRY PYMT"), "other", True),
+    ("FABRIKAM LIFE DES:INS PREM ID:2", "other", True),
+    ("ELECTRONIC WITHDRAWAL TO FABRIKAM LIFE PREMIUM PAYMENT", "other", True),
+    ("FABRIKAM LIFE DES:PREMIUMS ID:2", "other", True),
+    ("BILL PAY FABRIKAM LIFE PREMIUM", "bill", True),
+    # No premium or retry word: an agent's debit, a payee whose name only starts like one.
+    (AIL_ENTRY.format(entry="AGENT DEBIT"), "other", False),
+    ("PAID TO - FABRIKAM INS EFT PYMT CHK 0000000", "other", False),
+    ("FABRIKAM PREMIER FOODS DES:INVOICE ID:2", "other", False),
+    ("ONLINE TRANSFER TO FABRIKAM LIFE REF 0001", "circular", False),
+])
+def test_r3_03_each_non_lender_debit_records_a_premium_or_retry_word(text, kind, premium):
+    # The premium is a flag, never a kind: the kinds are unchanged.
+    from analysis.true_revenue import counter_debits
+
+    record = tc.classify_transaction(text, -8.0, direction="debit")
+    assert [(debit.kind, debit.premium) for debit in counter_debits([record], set()).other] == [(kind, premium)]
+
+
+def test_r3_03_a_lender_debit_never_records_a_premium():
+    from analysis.true_revenue import counter_debits
+
+    record = tc.classify_transaction("FORWARD FINANCING DES:PREM ID:2 INDN:NORTHWIND LABS CO ID:0000000001 CCD", -500.0,
+                                     direction="debit")
+    debits = counter_debits([record], set())
+    assert [debit.premium for debit in debits.lender] == [False] and not debits.other
+
+
+def test_r3_03_also_debited_reads_a_released_insurer_s_carrier_debits():
+    from analysis.true_revenue import also_debited
+
+    def held(kind, *, cents=2500, recurring=False, premium=False, released=True):
+        return also_debited(_counter("CONTOSO", ["CONTOSO"], released_insurer=released),
+                            _debits(other=[("CONTOSO", ["CONTOSO"], kind, cents, recurring, premium)]))
+
+    # A released credit: a one-off debit at another amount never holds it; a recurring one holds it unless it prints a
+    # premium or retry word; circular money and a debit for its own amount always hold it.
+    assert not held("other") and not held("bill") and not held("processor_fee")
+    assert held("other", recurring=True) and not held("other", recurring=True, premium=True)
+    assert held("bill", recurring=True) and not held("bill", recurring=True, premium=True)
+    assert held("circular") and held("circular", premium=True) and held("circular", recurring=True, premium=True)
+    for kind in ("other", "bill", "processor_fee", "circular"):
+        assert held(kind, cents=100000) and held(kind, cents=100000, premium=True), kind
+    assert not held("receiving_fee") and not held("receiving_fee", cents=100000)
+    # A credit that is not released keeps today's answers, premium or not.
+    for premium in (False, True):
+        assert held("other", released=False, premium=premium)
+        assert held("other", released=False, recurring=True, premium=premium)
+        assert not held("bill", released=False, premium=premium)
+        assert held("bill", released=False, recurring=True, premium=premium)
+        assert held("circular", released=False, premium=premium)
+
+
+def test_r3_03_the_released_insurer_fact():
+    from analysis.true_revenue import CounterCredit, counter_credit
+
+    assert CounterCredit.__dataclass_fields__["released_insurer"].default is False
+    assert list(CounterCredit.__dataclass_fields__)[-1] == "released_insurer"
+    released = _records([("STATE FARM DES:DRP PAYMENT ID:1", 3000.0)], holder="CONTOSO AUTO REPAIR LLC")[0]
+    held = _records([("FABRIKAM MUTUAL INSURANCE COMPANY DES:CLAIM PAYMT ID:1", 1234.0)],
+                    holder="CONTOSO BAKERY LLC")[0]
+    for record, flags in ((released, (False, True)), (held, (True, False))):
+        text = tc.revenue_text(record.normalized_description)
+        credit = counter_credit(record, text, tc.payer_region(text))
+        assert (credit.insurer, credit.released_insurer) == flags
+
+
+@pytest.mark.parametrize("text", [
+    "WIRE TRANSFER FEE FROM BUSINESS CHECKING TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM OPERATING TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM PRIMARY CHECKING TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM BUS CHK TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM MONEY MARKET TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM *0000 TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM ...0000 TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM COMMERCIAL ANALYZED CHECKING TO CONTOSO LLC",
+])
+def test_r3_33_the_fee_for_the_holder_s_wire_from_a_named_account_is_circular(text):
+    from analysis.true_revenue import _counter_debit_kind
+
+    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == "circular"
+
+
+@pytest.mark.parametrize("text", [
+    "WIRE TRANSFER FEE FROM SAMPLE TO TABLE FOODS INC",
+    "WIRE TRANSFER FEE FROM CONTOSO TO GO INC",
+    "FUNDS TRANSFER FEE TT CONTOSO TO G",
+    "WIRE TRANSFER FEE FROM OPERATING ENGINEERS LOCAL 0",
+    "WIRE TRANSFER FEE FROM 3M COMPANY",
+    # The holder-name form: the documented residual (its debit reads the holder's name, so it holds nothing).
+    "WIRE TRANSFER FEE FROM NORTHWIND LABS LLC TO CONTOSO LLC",
+])
+def test_r3_33_a_sender_named_after_from_still_reads_a_receiving_fee(text):
+    from analysis.true_revenue import _counter_debit_kind
+
+    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == "receiving_fee"
+
+
+def test_r3_33_the_fee_for_the_holder_s_wire_from_its_checking_still_holds_the_payer_s_wires():
+    wire = ("WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:CONTOSO LLC ID:99 SND BK:SAMPLE BANK "
+            "ID:1")
+    rows = [(wire.format(n=1), 7450.0), (wire.format(n=2), 7620.0)]
+    fee = [("WIRE TRANSFER FEE FROM BUSINESS CHECKING TO CONTOSO LLC", -30.0)]
+    assert [_tier(record) for record in _credits(_records([*rows, *fee], holder="NORTHWIND LABS LLC"))] == [
+        HELD_ALSO] * 2
+    assert [_tier(record) for record in _credits(_records(rows, holder="NORTHWIND LABS LLC"))] == [
+        ("verified", None)] * 2
