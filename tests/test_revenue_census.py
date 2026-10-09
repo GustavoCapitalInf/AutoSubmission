@@ -1709,6 +1709,19 @@ def _swept(*rows):
     ("PROVINCIAL PAYMENT PROVINCE OF ONTARIO", "H"),
     ("WORK COMP BOARD WCB ALBERTA 1234", "H"),
     ("GOUV QUEBEC RQ 1234", "H"),
+    # Audit round 3, R3-B13 (R3-55): every named form's residue is class H, as Quebec's, North Dakota's and the
+    # Treasury form's already were: Minnesota's, British Columbia's, Ontario's WSIB and Wisconsin DCF's printing a word
+    # the classifier's reader does not read (the program's card settlements among them, an owner item in §17.1).
+    ("MN STATE MMB DIR DEP", "H"),
+    ("PROVINCIAL PAYMENT PROVINCE OF BC DIR DEP", "H"),
+    ("WORK COMP BOARD WSIB LOE", "H"),
+    ("FIS EBT DES WIDCF EBT ID E123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD", "H"),
+    ("ELECTRONIC DEPOSIT FROM MN STATE MMB VENDOR PAY", "H"),
+    ("MN STATE MMB DES PAYMENT ID 1 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO INVOICE 12345 CONTRACT 9",
+     "H"),
+    ("WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO CHILD CARE INV 123",
+     "H"),
+    ("WORKPLACE SAFETY AND INSURANCE BOARD REBATE", "H"),
 ])
 def test_each_class_of_the_sweep_reads_its_own_wording(text, letter):
     sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
@@ -1731,16 +1744,16 @@ def test_each_class_of_the_sweep_reads_its_own_wording(text, letter):
     "NORTHWIND OVERDRAFT SERVICES LLC DES PAYMENT ID 1",
     "ACH CREDIT NORTHWIND CUSTOMER PAYMENT",
     # The owner's ruling of 2026-10-02 (the underwriter's Q12): a government form printing its purpose (an entry, a
-    # remittance, a PMT INFO addenda, the VA's entry codes), another payer's form and the VA's letter code.
+    # remittance, a PMT INFO addenda, the VA's entry codes), another payer's form and the VA's letter code. Audit round
+    # 3, R3-B13 (R3-55): Minnesota's and Wisconsin DCF's forms printing a purpose are class H's residue now (above).
     "36 TREAS 310 DES VENDOR PAY ID 1 INDN NORTHWIND CLINIC LLC CO ID 1 CCD",
-    "ELECTRONIC DEPOSIT FROM MN STATE MMB VENDOR PAY",
-    "FIS EBT DES WIDCF EBT ID E123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD",
     "PROVINCIAL PAYMENT FABRIKAM LIQUOR CORPORATION",
     "ELECTRONIC CREDIT 36 TREAS 310 MISC PAY 123456789012345 APR 31 RMR IV SAMPLE 1234",
     "36 TREAS 310 DES MISC PAY ID 123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO RMR IV INV12345",
-    "MN STATE MMB DES PAYMENT ID 1 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO INVOICE 12345 CONTRACT 9",
-    "WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO CHILD CARE INV 123",
     "36 TREAS 310 XXVA CH33 123456789012345",
+    # R3-55: a word that only holds a form's letters is no form.
+    "WSIBCO CONSULTING LLC DES PAYMENT ID 1",
+    "CONTOSO MINWI DCFX LLC",
     "ORIG CO NAME 36 TREAS 310 ORIG ID 1234567890 DESC DATE 010254 CO ENTRY DESCR XXVA CH33SEC PPD TRACE"
     " 123456789012345 EED 540102 IND ID 1 IND NAME NORTHWIND CLINIC LLC TRN 1234567890TC",
     "36 TREAS 310 DES XXVA CH33 ID 123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 PPD",
@@ -1936,6 +1949,26 @@ def test_q12_guard_g19_fails_a_true_credit_printing_a_no_purpose_form(text, stat
                      text=census.mask(text))
     assert census._row_guards(credit)["G19"] is fails
     assert "G19" in census.FACT_FREE_CHECKS
+
+
+@pytest.mark.parametrize("text", ["12 TREAS 310 MISC PAY 1234567890", "36 TREAS 310 MISC PAY 123456789012345"])
+def test_r3_55_the_treasury_form_is_the_sweep_s_medium_row(text):
+    """Audit round 3, R3-B13 (R3-55): the Treasury form is read at medium confidence (a masked agency code cannot be
+    read), never gated."""
+    letter, confidence, _shape = census._sweep_class(census.mask(text))
+    assert (letter, confidence) == ("G", "medium")
+
+
+def test_r3_55_a_counted_glued_form_still_fails_g19():
+    """Audit round 3, R3-B13 (R3-55): the census lead reads a digit run glued before a form, as the classifier's reader
+    now does, so a glued form left in True still fails G19 and the same row non_revenue passes."""
+    text = census.mask("0102GOUV QUEBEC MSP")
+    assert text.startswith("#") and census._sweep_class(text)[:2] == ("G", "high")
+    counted = _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="named_payer_one_off",
+                      text=text)
+    excluded = _credit(0, 100, "non_revenue", "x", tier="non_revenue", text=text)
+    assert census._row_guards(counted)["G19"] is True
+    assert census._row_guards(excluded)["G19"] is False
 
 
 def test_the_compare_and_the_sweep_command_report_the_sweep(tmp_path, capsys):

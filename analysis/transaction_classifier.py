@@ -938,16 +938,19 @@ class _IrsTaxRefundForm:
 #: government payments the owner excluded when the row prints no purpose, each named by its key (the step's
 #: matched_alias), in the order the reader tests them. The VA's Treasury form is read with agency code 36 only (a blank,
 #: 12, USDA, VACP, DOD or SSA code and the letter form VA are other agencies' or unruled); WORK COMP BOARD without WSIB
-#: is another board.
+#: is another board. Audit round 3, R3-B13 (R3-55): the six letter-led forms take the left boundary (?<![A-Z]), so a
+#: digit run glued before a form's first letter ('0102GOUV QUEBEC MSP', a glued date) is a reference the rest-of-row
+#: test reads (_is_reference_token), as _CRA_POSTING_PREFIX reads a glued lead for the GST form; the VA's form keeps
+#: (?<![A-Z0-9]) (a digit glued before its agency code makes the code unreadable).
 GOVERNMENT_NO_PURPOSE_FORMS = (
-    ("mn_mmb", re.compile(r"(?<![A-Z0-9])MN STATE MMB\b")),
+    ("mn_mmb", re.compile(r"(?<![A-Z])MN STATE MMB\b")),
     ("va_treasury", re.compile(r"(?<![A-Z0-9])36 TREAS ?\d{3}\b")),
-    ("wi_dcf", re.compile(r"(?<![A-Z0-9])WI ?DCF\b")),
-    ("bc_provincial", re.compile(r"(?<![A-Z0-9])(?:PROVINCIAL PAYMENT )?PROVINCE OF (?:BC|BRITISH COLUMBIA)\b")),
-    ("ontario_wsib", re.compile(r"(?<![A-Z0-9])(?:(?:WORK COMP BOARD )?WSIB|WORKPLACE SAFETY AND INSURANCE BOARD)\b")),
-    ("quebec_government", re.compile(r"(?<![A-Z0-9])GOUV(?:ERNEMENT)?(?: DU)? QUEBEC\b")),
+    ("wi_dcf", re.compile(r"(?<![A-Z])WI ?DCF\b")),
+    ("bc_provincial", re.compile(r"(?<![A-Z])(?:PROVINCIAL PAYMENT )?PROVINCE OF (?:BC|BRITISH COLUMBIA)\b")),
+    ("ontario_wsib", re.compile(r"(?<![A-Z])(?:(?:WORK COMP BOARD )?WSIB|WORKPLACE SAFETY AND INSURANCE BOARD)\b")),
+    ("quebec_government", re.compile(r"(?<![A-Z])GOUV(?:ERNEMENT)?(?: DU)? QUEBEC\b")),
     ("nd_workforce_safety", re.compile(
-        r"(?<![A-Z0-9])(?:ND |NORTH DAKOTA )?WORKFORCE SAFETY(?: AND INS(?:URANCE)?| INS(?:URANCE)?)?\b")),
+        r"(?<![A-Z])(?:ND |NORTH DAKOTA )?WORKFORCE SAFETY(?: AND INS(?:URANCE)?| INS(?:URANCE)?)?\b")),
 )
 #: Q12 (2026-10-02): the ACH field labels read past (Chase's and Bank of America's), and the only words a no-purpose row
 #: may print besides its form and its references: posting words, SEC codes, the X12 envelope's segment names and the
@@ -3246,12 +3249,19 @@ def _public_payer_arm_a(text: str) -> bool:
     treasury = _TREASURY_CODE.search(text)
     misc = _MISC_PAY_CODE.search(text, treasury.end()) if treasury is not None else None
     return misc is not None and _RMR_IV_CODE.search(text, misc.end()) is not None
-#: §7.6 arm B: a public payer anchored on the payer name.
+#: §7.6 arm B: a public payer anchored on the payer name. Audit round 3, R3-B13 (R3-11; I26 by Q6 of 2026-09-28,
+#: "insurers never count"): a Texas county mutual is a private carrier, never a county: `<WORD> COUNTY` (or PARISH,
+#: TOWNSHIP, BOROUGH) followed by an insurer word (MUTUAL and its cuts MUTUA and MUT, INS, INSUR..., CASUALT...,
+#: INDEMN..., ASSUR..., LLOYDS) is no public payer ('PROG COUNTY MUT', 'STATE FARM COUNTY MUTUAL INS CO'). Never FIRE
+#: (a county fire department) or SELF ('<NAME> COUNTY SELF INSURANCE FUND' stays a government payer, a public insurance
+#: programme), and INS only as a whole word (never INSPECTIONS). Credit-side only: government_payer, _public_named,
+#: _public_payer_remittance and the payer-remittance veto read this pattern; no debit or lender reading does.
 _PUBLIC_PAYER_NAME = re.compile(
     r"^((?:\S+ ){0,3})(?:TREAS \d{3}"
     r"|(?:STATE|COUNTY|CITY|TOWN|VILLAGE|TOWNSHIP|BOROUGH|PARISH|DISTRICT|PROVINCE|COMMONWEALTH|GOVERNMENT|GOVT"
     r"|MUNICIPALITY) OF [A-Z]"
     r"|(?<!\bFROM )(?<!\bTO )(?<!\bTHE )(?<!\bOF )(?<!\bAND )(?<!\bINTO )\b[A-Z]{3,} (?:COUNTY|PARISH|TOWNSHIP|BOROUGH)\b"
+    r"(?! (?:MUTUAL|MUTUA|MUT|INS|INSUR\w*|CASUALT\w*|INDEMN\w*|ASSUR\w*|LLOYDS)\b)"
     r"|(?:DEPT|DEPARTMENT|MINISTRY) OF\b|(?:DHS|DHHS|DSHS|DCF|DCFS|DSS)\b|SCHOOL DIST(?:RICT)?\b|DFAS\b)"
 )
 _PUBLIC_PAYER_TEMPLATE = re.compile(

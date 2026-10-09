@@ -248,12 +248,15 @@ _CLAIM_WORD = re.compile(r"(?<![A-Z])CLAIMS?\b")
 #: and SUBRO (a subrogation recovery). Never ASSURED or ASSURE ('ASSURED STAFFING LLC'), never P AND C FOODS; CLM, CLMS
 #: and CLMEFT are not read (every corpus CLM row is a health plan paying a provider). R2-OW07 review round 1: SUBRO and
 #: its cut forms only (SUBROG, SUBROGATION), never the given name SUBROTO; P AND C before INS, INSU or INSUR... only,
-#: never an installer's or an inspector's word.
+#: never an installer's or an inspector's word. Audit round 3, R3-B13 (R3-11): and a Texas county mutual's
+#: 16-character cut, COUNTY MUT ('PROG COUNTY MUT'; MUTUA and MUTUAL already read), a private carrier never read as a
+#: county (the classifier's _PUBLIC_PAYER_NAME veto).
 _INSURER_SPELLINGS = re.compile(
     r"(?<![A-Z])(?:ASSURANCES|ASSURANT|ASSUREURS?|ASSUR|MUTUA|CASUALT\w*|INDEMN\w*|SUBRO(?:G\w*)?)(?![A-Z])"
     r"|(?<![A-Z])INS(?![A-Z])"
     r"|(?<![A-Z])P (?:AND|&) C(?:(?! ?[A-Z])| (?:INS(?:UR\w*|U)?|CO|COMPANY|CORP)(?![A-Z]))"
     r"|(?<![A-Z])LOSS (?:PMT|PAYMENT|PYMT|DRAFT)(?![A-Z])"
+    r"|(?<![A-Z])COUNTY MUT(?![A-Z])"
 )
 #: B3 review round 1: the classifier's _NO_LEGAL_FORM_LATER (copied: the classifier imports this module): no
 #: legal-form word later on the row.
@@ -2411,7 +2414,10 @@ def non_sale_purpose(
 
     Owner ruling 2026-10-02 (the underwriter's Q2): on an insurer's credit pass 7 released as the business's work
     (`insurer_work`, INSURER_FOR_WORK_METHOD), CLAIM is no non-sale word: the release read the insurer's claim as paid for
-    the business's work (a repair shop's, an agency's or a provider's claims); every other non-sale word still holds."""
+    the business's work (a repair shop's, an agency's or a provider's claims); every other non-sale word still holds.
+    Audit round 3, R3-B13 (R3-11): nor in the public-payer arm, so a listed carrier the release read before the
+    government arm ('ALLSTATE COUNTY DES:CLAIM PMT', a Texas county mutual's cut that _PUBLIC_PAYER_NAME still reads as
+    a county) is not held as a public payer's claim; the arm's other words still hold it."""
     classifier = _classifier()
     row = _without_holder_name(_hold_text(text), account_name, also=also)
     claim_entry = classifier._HCCLAIMPMT.search(text) is not None
@@ -2443,9 +2449,11 @@ def non_sale_purpose(
         and not (healthcare and re.search(r"(?<![A-Z])CLAIM PMT\b", row))
     ):
         return True
-    if _public_named(public_region(text)) and classifier._PUBLIC_PAYER_NON_SALE_WORDS.search(
-        classifier._TREASURY_BOILERPLATE.sub(" ", text)
-    ):
+    public_words = classifier._TREASURY_BOILERPLATE.sub(" ", text)
+    if insurer_work:
+        # Audit round 3, R3-B13 (R3-11): the released insurer's CLAIM is no public payer's claim either.
+        public_words = _CLAIM_WORD.sub(" ", public_words)
+    if _public_named(public_region(text)) and classifier._PUBLIC_PAYER_NON_SALE_WORDS.search(public_words):
         return True
     # S4.2 review (I6b): a brokerage, investing or crypto-exchange platform returns the owner's own money (audit round 2,
     # R2-B12: R37, never a vendor's payment or a customer's trade name, owner_money_platform).
@@ -5562,47 +5570,60 @@ def insurer_payer_reading(
     """§8.1 insurer_named_payer (audit I26, by Q6 of 2026-09-28 and the underwriter's Q2 (2026-10-02) option's "a
     one-off claim paid to a business on its own policy stays out"; R2-OW07): the insurer a credit's payer region names,
     or None; the first arm that reads wins. (a) An HCCLAIMPMT entry is a claim paid to a provider, never an insurer's
-    reading (T18's claim-first rule keeps verifying it). (b) A government payer (§7.6) is an insurer only by
-    _INSURER_NAME's spelled words or CLAIM (CLAIM never on a healthcare payer), read on the region without the holder's
-    names, never for work: the reading the insurer-name hold made before I26 (R2-OW07 review round 1), so a government
-    insurance programme's credit (employment, parental, disability or family-leave insurance, a public insurer) stays
-    held and never counts as the business's work; the widened spellings and brands never read a government payer.
-    (c) A listed insurer's credit (its revenue method one of _INSURER_REGISTRY_METHODS and the classifier's insurer
-    lookup naming it): the registry's entity, or None for a premium financier. (d) Then the region is read without the
-    holder's names (_insurer_own_region); empty, None. (e) A title firm is a title insurer when an insurer word or
-    spelling prints (never for work), else None. (f) A premium-finance wording on the row before its receiver fields is
-    premium financing, None. (g) A healthcare payer is an insurer only by _INSURER_NAME's spelled words (Q6c
-    unchanged). (g2) A §15 deferred payer (_deferred_reading: the Canadian benefit carriers, HEALTH DENTAL CLAIM,
-    CLMEFT) only by those words or CLAIM: the widened spellings and brands never read it, so a medical claim payment to
-    a provider keeps its tier. (h) An INSURER_CREDIT_BRANDS carrier, by the brand's entity. (i) _INSURER_NAME,
-    _INSURER_SPELLINGS or _CLAIM_WORD, keyed by the payer key. No channel gate, but (R2-OW07 review round 1) on a
-    person-to-person rail the widened spellings and the brands are not read: a sender's surname or given name (MUTUA,
-    SUBROTO) or the rail's own word (INS for instant) is no cut insurer, so the rail keeps the spelled-out words and
-    CLAIM it read before I26."""
+    reading (T18's claim-first rule keeps verifying it). (b) A listed insurer's credit (its revenue method one of
+    _INSURER_REGISTRY_METHODS and the classifier's insurer lookup naming it): the registry's entity, or None for a
+    premium financier. Audit round 3, R3-B13 (R3-11): read before the government arm, so a row the classifier's
+    insurance rule read as a listed insurer is that insurer, government-shaped name or not ('ALLSTATE COUNTY', a Texas
+    county mutual's cut the classifier's _PUBLIC_PAYER_NAME veto does not reach). (c) A government payer (§7.6) is an
+    insurer only by _INSURER_NAME's spelled words or CLAIM (CLAIM never on a healthcare payer), read on the region
+    without the holder's names, never for work: the reading the insurer-name hold made before I26 (R2-OW07 review round
+    1), so a government insurance programme's credit (employment, parental, disability or family-leave insurance, a
+    public insurer) stays held and never counts as the business's work; the widened spellings and brands never read a
+    government payer. (d) Then the region is read without the holder's names (_insurer_own_region); empty, None. (e) A
+    title firm is a title insurer when an insurer word or spelling prints (never for work), else None. (f) A
+    premium-finance wording on the row before its receiver fields is premium financing, None. (g) A healthcare payer is
+    an insurer only by _INSURER_NAME's spelled words (Q6c unchanged). (g2) A §15 deferred payer (_deferred_reading: the
+    Canadian benefit carriers, HEALTH DENTAL CLAIM, CLMEFT) only by those words or CLAIM: the widened spellings and
+    brands never read it, so a medical claim payment to a provider keeps its tier. (h) An INSURER_CREDIT_BRANDS carrier,
+    by the brand's entity. (i) _INSURER_NAME, _INSURER_SPELLINGS or _CLAIM_WORD, keyed by the payer key. No channel
+    gate, but (R2-OW07 review round 1; audit round 3, R3-B13: R3-57) on a consumer person-to-person rail (_p2p_rail:
+    Zelle, Interac and its e-Transfer and VIREMENT forms, Venmo, Cash App, Square Cash, Apple Cash, Popmoney) the
+    widened spellings and the brands are not read: a sender's surname or given name (MUTUA, SUBROTO) or the rail's own
+    word (APPLE CASH INS) is no cut insurer, so the rail keeps the spelled-out words and CLAIM it read before I26. A
+    push or instant rail (RTP, FEDNOW, INSTANT PAYMENT ...), a named transfer and an ACH entry worded TRANSFER, which sit
+    on the person-to-person channel too, read every spelling and the brands, except that the cut MUTUA reads there only
+    beside a company form on the payer region without the holder's names (classifier.company_form: 'REAL TIME PAYMENT
+    FROM <GIVEN NAME> MUTUA' is a person's surname)."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
     if classifier._HCCLAIMPMT.search(text):
         return None
     own = _insurer_own_region(record, region, receiver_holders)
+    # Audit round 3, R3-B13 (R3-11): the registry arm reads before the government arm.
+    if record.revenue_match_method in _INSURER_REGISTRY_METHODS:
+        match = classifier._insurance_registry_match(classifier._split_glued_claim(text), glued_digits=True)
+        if match is not None:
+            return None if match[2] else InsurerReading(match[0], "registry", True)
     if government_payer(public_region(text)):
         if own and (
             _INSURER_NAME.search(own) or (_CLAIM_WORD.search(own) and not healthcare_payer(own))
         ):
             return InsurerReading(" ".join(classifier._payer_key(own)) or own, "named", False)
         return None
-    if record.revenue_match_method in _INSURER_REGISTRY_METHODS:
-        match = classifier._insurance_registry_match(classifier._split_glued_claim(text), glued_digits=True)
-        if match is not None:
-            return None if match[2] else InsurerReading(match[0], "registry", True)
     if not own:
         return None
-    # R2-OW07 review round 1: a person-to-person rail reads the spelled-out words and CLAIM alone.
-    widened = channel != "person_to_person"
+    row = classifier._before_receiver(text)
+    # R2-OW07 review round 1: a consumer person-to-person rail reads the spelled-out words and CLAIM alone. Audit round
+    # 3, R3-B13 (R3-57): only a consumer rail; a push rail, a named transfer and a TRANSFER entry read every spelling
+    # and the brands, the cut MUTUA only beside a company form.
+    widened = channel != "person_to_person" or not _p2p_rail(row)
     named = _INSURER_NAME.search(own) is not None
-    spelled = named or (widened and _INSURER_SPELLINGS.search(own) is not None)
+    spelled = named or (widened and any(
+        found.group(0) != "MUTUA" or channel != "person_to_person" or classifier.company_form(own)
+        for found in _INSURER_SPELLINGS.finditer(own)
+    ))
     if _TITLE_FIRM.search(own):
         return InsurerReading(own, "title", False) if spelled else None
-    row = classifier._before_receiver(text)
     if any(pattern.search(row) for pattern in classifier._PREMIUM_FINANCE_WORDING_PATTERNS):
         return None
     key = " ".join(classifier._payer_key(own)) or own
@@ -5658,16 +5679,44 @@ _INSURER_COMMISSION_FORM = re.compile(
 )
 #: Q2: the forms insurers pay the owner's trades with: the commission forms, a direct-repair program's DRP, a repair and
 #: a vendor payment (the question's own example lines), read on the payer and the purpose words, never a wire's REF.
+#: Audit round 3, R3-B13 (R3-58): the classifier's customer-payment wording (_INSURER_CUSTOMER_PAYMENT), the
+#: service-form ground's other reader, reads the row before its receiver fields, a wire's REF included: Chase's BOOK
+#: TRANSFER CREDIT and Santander print the purpose there, which _title_purpose_text does not read (never a bare COMM,
+#: so 'REF COMM BANK NYC', the sending bank, stays held).
 _INSURER_SERVICE_FORM = re.compile(
     _INSURER_COMMISSION_FORM.pattern + r"|(?<![A-Z])(?:DRP|REPAIRS?|VENDOR ?(?:PMT|PAY|PAYMENT))(?![A-Z])"
 )
-#: Q2: a premium, refund, return, dividend, cancellation, overpayment, member or personal-benefit word (the MCA
-#: principle: personal benefits are never revenue) refuses every ground, unless a commission form prints in the same
-#: words.
+#: Q2: a premium, refund, return, dividend, cancellation, overpayment, member or subscriber word, or one of the
+#: personal-benefit stems DISAB..., INVALIDIT..., ANNUIT... and PENSION... (the MCA principle: personal benefits are
+#: never revenue), refuses every ground, unless a commission form prints in the same words. Audit round 3, R3-B13
+#: (R3-10): the other personal-benefit words are _INSURER_PERSONAL_BENEFIT, _INSURER_LTD_BENEFIT and
+#: _INSURER_NON_PROVIDER_BENEFIT below.
 _INSURER_NOT_FOR_WORK = re.compile(
     r"(?<![A-Z])(?:REFUND\w*|RFND|PREM|PREMIUMS?|PREMSEC|RETURN\w*|DIVIDEND\w*|CANCEL\w*|UNEARNED|OVERPA\w*|MEMBER"
     r"|SUBSCRIBER|MBR|DISAB\w*|INVALIDIT\w*|ANNUIT\w*|PENSION\w*)(?![A-Z])"
 )
+#: Audit round 3, R3-B13 (R3-10; the underwriter's Q2 of 2026-10-02, "A one-off claim paid to a business on its own
+#: policy stays out (held as today). Medical claim payments to providers keep counting as today."; the MCA principle:
+#: personal benefits are never revenue): a disability benefit under another name (short-term disability's STD, a
+#: weekly or income benefit) and life-policy money (a death or survivor benefit, a surrender, a policy's cash value, a
+#: maturity, a beneficiary's payment) refuse every ground, read on the payer (without the holder's names) and the
+#: purpose, as _INSURER_NOT_FOR_WORK is. A bare LIFE is never read (group health and dental claims print it).
+_INSURER_PERSONAL_BENEFIT = re.compile(
+    r"(?<![A-Z])(?:STD (?:BENEFITS?|BEN|BNFT|CLAIMS?|CLM|PMT|PAYMENT)|(?:WEEKLY|INCOME) (?:BENEFITS?|BEN|BNFT)|DEATH\w*"
+    r"|SURVIVOR\w*|SURRENDER\w*|SURR|CASH ?VALUE|MATURITY|MATURED|BENEFICIAR\w*)(?![A-Z])"
+)
+#: Audit round 3, R3-B13 (R3-10; Q2's two sentences above): long-term disability's LTD before a benefit, claim or
+#: payment word, read on the purpose alone (the entry fields or a wire's purpose fields), never on the payer region,
+#: where LTD is a carrier's legal form ('<carrier> CO LTD DES:CLAIM PMT' is no disability benefit).
+_INSURER_LTD_BENEFIT = re.compile(r"(?<![A-Z])LTD (?:BENEFITS?|BEN|BNFT|CLAIMS?|CLM|PMT|PAYMENT)(?![A-Z])")
+#: Audit round 3, R3-B13 (R3-10; Q2's two sentences above): workers' compensation and a plain BENEFIT(S) wording, read
+#: on the payer and the purpose, refuse every ground only where the holder is no provider (_holder_provider: no clinic
+#: or pharmacy word on a holder name): a workers' compensation carrier paying a clinic, a therapy practice or a pharmacy
+#: for treatment pays for its services; elsewhere it is a wage or an owner's benefit. A bare COMP is never read
+#: (Truist's 'INS COMP' commission).
+_INSURER_NON_PROVIDER_BENEFIT = re.compile(r"(?<![A-Z])(?:WC|WORKERS? ?COMP\w*|WORK ?COMP|BENEFITS?|BNFT)(?![A-Z])")
+#: Audit round 3, R3-B13 (R3-10): the holder trades whose insurer credits are medical claim payments to a provider.
+_PROVIDER_TRADES = frozenset({"clinic", "pharmacy"})
 #: Q2's four trades on a holder name, strict words: one names the trade from a single credit. HEALTHY, SURGE and a bare
 #: GLASS are no trade word.
 _SERVICE_TRADES = tuple(
@@ -5729,6 +5778,25 @@ def _holder_service_trade(
     return None
 
 
+def _holder_provider(record: TransactionClassification, receiver_holders: Sequence[str] = ()) -> bool:
+    """Audit round 3, R3-B13 (R3-10; the underwriter's Q2 of 2026-10-02, "Medical claim payments to providers keep
+    counting as today"): a holder name reads a clinic or a pharmacy (_PROVIDER_TRADES) by a strict or a loose word of
+    _holder_service_trade's tables, on the same names, even where that function would name another trade first (a name
+    printing a repair or an insurance word beside a clinic word is a provider too): a provider's insurer credit that
+    prints workers' compensation or a plain BENEFIT(S) wording (_INSURER_NON_PROVIDER_BENEFIT) is paid for treatment."""
+    classifier = _classifier()
+    names = [
+        printed for printed in (
+            classifier.account_name_text(name)
+            for name in (*_holder_names(record), *_holder_strip_names(record), *receiver_holders) if name
+        ) if printed
+    ]
+    return any(
+        label in _PROVIDER_TRADES and pattern.search(name) is not None
+        for table in (_SERVICE_TRADES, _SERVICE_TRADES_LOOSE) for name in names for label, pattern in table
+    )
+
+
 def _record_day(record: TransactionClassification) -> _date | None:
     """A record's posted day, or None where its date reads as none (an undated credit)."""
     try:
@@ -5760,12 +5828,19 @@ def _insurer_for_work(
     or financier claimed it (_claimed, _factoring_payout_payer: the insurer-name hold's convention); no not-for-work word
     prints on the payer (without the holder's names) or the purpose (_INSURER_NOT_FOR_WORK, unless a commission form
     prints there too); it is $1 or more, its direction agrees, and it is an unverified deposit or the insurance rule's
-    non_revenue (insurance_provider_credit_exclusion): a row a classifier rule verified is left alone. The purpose is a
-    wire's purpose fields (_title_purpose_text, never its REF) or the entry fields, read with R2-B12's layout entry
-    (_layout_entry). The ground, the first that applies: 'holder_trade:<label>' (_holder_service_trade, with the
-    statement's eligible count), 'service_form' (_INSURER_SERVICE_FORM on the payer and the purpose, or the
-    classifier's own customer-payment wording on the row before its receiver fields, for layouts that print it before
-    the payer), 'same_insurer_3_in_31_days' (the reading's key frequent, _insurer_key_frequent: the registry's or the
+    non_revenue (insurance_provider_credit_exclusion): a row a classifier rule verified is left alone. Audit round 3,
+    R3-B13 (R3-10): nor a personal benefit's word, unless a commission form prints in the same words: a disability
+    benefit by another name or life-policy money on the payer or the purpose (_INSURER_PERSONAL_BENEFIT), long-term
+    disability's LTD benefit on the purpose alone (_INSURER_LTD_BENEFIT: on the payer LTD is a legal form), and
+    workers' compensation or a plain BENEFIT(S) wording on the payer or the purpose where the holder is no clinic or
+    pharmacy (_INSURER_NON_PROVIDER_BENEFIT, _holder_provider); a refused credit is no eligible credit, so it never
+    counts toward its key's frequency or the loose-trade count. The purpose is a wire's purpose fields
+    (_title_purpose_text, never its REF) or the entry fields, read with R2-B12's layout entry (_layout_entry). The
+    ground, the first that applies: 'holder_trade:<label>' (_holder_service_trade, with the statement's eligible count),
+    'service_form' (_INSURER_SERVICE_FORM on the payer and the purpose, or the classifier's own customer-payment
+    wording on the row before its receiver fields, for layouts that print it before the payer or in a wire's REF, which
+    Chase's book transfer and Santander print the purpose in: R3-B13, R3-58), 'same_insurer_3_in_31_days' (the
+    reading's key frequent, _insurer_key_frequent: the registry's or the
     brand's entity, so one carrier is one key however it prints), and, only with the owner's switch
     INSURER_FOR_WORK_STATEMENT_ARM on, 'insurer_service_statement' (any key of the statement frequent). A credit with no
     ground is not released: a listed insurer's stays non_revenue, any other the insurer holds keep."""
@@ -5802,7 +5877,14 @@ def _insurer_for_work(
             # helper, beside entry_fields' other fields (PNC's entry, a transfer's memo).
             purpose = " ".join(part for part in (_layout_entry(text), entry) if part)
         words = f"{own} {purpose}"
-        if _INSURER_NOT_FOR_WORK.search(words) and not _INSURER_COMMISSION_FORM.search(words):
+        # Audit round 3, R3-B13 (R3-10): the personal-benefit words refuse as the not-for-work words do; the commission
+        # form printed in the same words still releases.
+        if not _INSURER_COMMISSION_FORM.search(words) and (
+            _INSURER_NOT_FOR_WORK.search(words)
+            or _INSURER_PERSONAL_BENEFIT.search(words)
+            or _INSURER_LTD_BENEFIT.search(purpose)
+            or (_INSURER_NON_PROVIDER_BENEFIT.search(words) and not _holder_provider(record, receiver_holders))
+        ):
             continue
         eligible[index] = reading
         forms[index] = bool(
@@ -6855,8 +6937,13 @@ def _tier_reason_read(
     if classifier._named_sender_after_designation(text, _holder(record)):
         return "excluded_pending_review", "transfer_account_designation"
     # Owner ruling 2026-10-02 (the underwriter's Q2; §8.10 item 12): an insurer paying the business for its work, which
-    # the release before the facts re-stated (_insurer_for_work); every hold before it still wins.
-    if record.revenue_match_method == INSURER_FOR_WORK_METHOD:
+    # the release before the facts re-stated (_insurer_for_work); every hold before it still wins. Audit round 3, R3-B13
+    # (R3-09; Q3 of 2026-10-02, "repeated round sums from one sender held", and the 2026-10-06 amendment): on a
+    # person-to-person row §8.4's round-sum repeat still wins, as for the progress draw: the released row falls through
+    # to the person-to-person arm below, held p2p_round_repeat, its method still the release's.
+    if record.revenue_match_method == INSURER_FOR_WORK_METHOD and not (
+        facts.channel == "person_to_person" and round_repeat
+    ):
         return "counted_flagged", INSURER_FOR_WORK_METHOD
     # Audit B3 (I11, §6.3 narrowing 9): a processor's instant payout printed as a card credit, released beside the
     # processor's own ACH activity: a platform payout no form confirms.

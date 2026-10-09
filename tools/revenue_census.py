@@ -55,7 +55,9 @@ prints no purpose, is the owner's and is reported apart, never in the overstatem
 The owner's ruling of 2026-10-02 (the underwriter's Q12) made the seven no-purpose forms it names non_revenue: class G
 reads them (the VA's Treasury form at medium confidence, its masked agency code unread), guard G19 fails a True credit
 printing one of the six others, and class H covers only the forms the ruling did not name and a named form printing a
-word the classifier's reader does not read.
+word the classifier's reader does not read. Audit round 3, R3-B13 (R3-55): every named form's residue is class H,
+Minnesota's, British Columbia's, Ontario's WSIB and Wisconsin DCF's included (Quebec's, North Dakota's and the Treasury
+form's already were); the classifier's reader and the census lead both read a digit run glued before a letter-led form.
 
 The owner's ruling of 2026-10-02 (the underwriter's Q10, audit round 2, R2-OW11): each account records whether its
 printed title reads PREMIUM TRUST (`premium_trust`, the metrics' fact, never the title's words), guard G20 fails a
@@ -1772,6 +1774,12 @@ NON_REVENUE_IN_TRUE_CLASSES = (
                         r"|\bPROVINCIAL PAYMENT PROVINCE OF\b(?! (?:BC|BRITISH COLUMBIA)\b)"
                         r"|\bPROV(?:INCIAL)? LOCAL GVT\b|\bGOUV(?:ERNEMENT)? (?:DU )?QUEBEC\b"),
         (SWEEP_UNCLEAR, r"\bWORK COMP BOARD\b(?! WSIB\b)|\bWCB\b|\bWORKFORCE SAFETY\b"),
+        # Audit round 3, R3-B13 (R3-55): every named form's residue, as Quebec's, North Dakota's and the Treasury
+        # form's above: Minnesota's, British Columbia's, Ontario's WSIB and Wisconsin DCF's printing a word the
+        # classifier's reader does not read (class G is read first, so a no-purpose row stays G). Among them the
+        # program's card settlements, 'FIS EBT ... WIDCF EBT', counted (§17.1, the owner's).
+        (SWEEP_UNCLEAR, r"\bMN STATE MMB\b|\bPROVINCE OF (?:BC|BRITISH COLUMBIA)\b|\b(?:WORK COMP BOARD )?WSIB\b"
+                        r"|\bWORKPLACE SAFETY AND INSURANCE BOARD\b|\bWI ?DCF\b|\bWIDCF\b"),
     )),
 )
 #: The wording is read on the masked text with each '#' read as the digit 0, which keeps a classifier's \d, \w and \b
