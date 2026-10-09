@@ -1843,29 +1843,69 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     overlapping: list[dict] = []
     alive = list(statements)
     left_out: list[tuple[dict, dict]] = []
-    def double_counted(one: dict, two: dict) -> bool:
-        """Two statements that overlap each other by more than a boundary's days, or share a credit in the days both
-        cover (`_shared_credits`): kept side by side, they count money twice."""
-        first, last = max(one["span"][0], two["span"][0]), min(one["span"][1], two["span"][1])
-        return first <= last and ((last - first).days + 1 > _OVERLAP_BOUNDARY_DAYS
-                                  or _shared_credits(one, two, first, last)[0] >= 1)
+    def only_rows_of(statement: dict, printout: dict) -> bool:
+        """Audit round 3, R3-B18 review round 2: whether `statement` prints a posted row in `printout`'s days and every
+        posted row it prints there is one of `printout`'s (a multiset on the day and the signed cents)."""
+        start, end = printout["span"]
+        within = Counter({key: count for key, count in statement["rows"].items()
+                          if (day := _iso_day(key[0])) is not None and start <= day <= end})
+        return bool(within) and not within - printout["rows"]
 
-    def settled(group: list[dict]) -> list[dict]:
-        """Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by side,
-        the shortest first (of two alike, the later listed first), one left out when the others of `group` it is one
-        account with print it (`printed_by`: a month-to-date beside its month, a printout two neighbouring months
-        print), so the double count that phase resolves never keeps a long printout in the package. A printout of more
-        than `_LONGEST_CYCLE_DAYS` days that the others print is left out before them, the longest first, as the first
-        phase leaves it out, so a second activity printout never keeps the first in the package."""
+    def double_counted(one: dict, two: dict, printout: dict) -> bool:
+        """Two statements that overlap each other by more than a boundary's days, or share a credit in the days both
+        cover (`_shared_credits`): kept side by side, they count money twice. Audit round 3, R3-B18 review round 2:
+        only two statements that are one account's, each printing a posted row (a statement printing none counts no
+        money): a printed pair (`_pair_kind`), or a possible pair that the overlap pass names (`_possible_pair_named`)
+        or whose two statements each print only rows of the `printout` being tested in its days (`only_rows_of`), so a
+        second account of the holder at the bank whose number is not read, a possible peer of every statement of the
+        first that prints rows of its own, never reads as a double count beside the first."""
+        if not one["rows"] or not two["rows"]:
+            return False
+        kind = _pair_kind(one, two)
+        first, last = max(one["span"][0], two["span"][0]), min(one["span"][1], two["span"][1])
+        if kind is None or first > last:
+            return False
+        count = _shared_credits(one, two, first, last)[0]
+        if kind == "possible" and not _possible_pair_named(one, two, first, last, count) and not (
+                only_rows_of(one, printout) and only_rows_of(two, printout)):
+            return False
+        return (last - first).days + 1 > _OVERLAP_BOUNDARY_DAYS or count >= 1
+
+    def interim(group: list[dict]) -> list[dict]:
+        """The second phase's pass over `group` alone: the shortest first (of two alike, the later listed first), one
+        left out when the others of `group` it is one account with print it (`printed_by`)."""
         left = list(group)
-        for statement in sorted((item for item in group if item["days"] > _LONGEST_CYCLE_DAYS),
-                                key=lambda item: (-item["days"], -item["order"])):
-            if printed_by(statement, peers(statement, left)):
-                left.remove(statement)
         for statement in sorted(left, key=lambda item: (item["days"], -item["order"])):
             if printed_by(statement, peers(statement, left)):
                 left.remove(statement)
         return left
+
+    def counts_twice(statement: dict, group: list[dict]) -> bool:
+        """Whether two statements of `group` that share days with `statement` count money twice (`double_counted`)."""
+        sharing = [other for other in group if _days_shared(statement["span"], other["span"]) > 0]
+        return any(double_counted(one, two, statement) for place, one in enumerate(sharing)
+                   for two in sharing[place + 1:])
+
+    def settled(group: list[dict]) -> list[dict]:
+        """Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by side
+        (`interim`: a month-to-date beside its month, a printout two neighbouring months print, left out), so the
+        double count that phase resolves never keeps a long printout in the package. Before that pass, the longest
+        first, a printout of more than `_LONGEST_CYCLE_DAYS` days that the others print is left out, as the first phase
+        leaves it out. Review round 2: so is a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length
+        statements of `group` alone print (`_FULL_STATEMENT_DAYS`) and that count nothing twice between them, read on
+        the second phase's own pass over them (`interim`), as the first phase leaves it out, so a 34-day export the
+        monthly statements print is no double count beside the month it straddles."""
+        left = list(group)
+        for statement in sorted((item for item in group if item["days"] > _MONTH_DAYS),
+                                key=lambda item: (-item["days"], -item["order"])):
+            if statement["days"] > _LONGEST_CYCLE_DAYS:
+                if printed_by(statement, peers(statement, left)):
+                    left.remove(statement)
+                continue
+            proof = [other for other in peers(statement, left) if other["days"] >= _FULL_STATEMENT_DAYS]
+            if printed_by(statement, proof) and not counts_twice(statement, interim(proof)):
+                left.remove(statement)
+        return interim(left)
 
     # Phase 1 (R2-B14 review round 1): a printout of more than a month, the longest first (of two alike, the later
     # listed first). Audit round 3, R3-B18 (R3-05): it is left out only in favour of month-length statements
@@ -1880,9 +1920,7 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                             key=lambda item: (-item["days"], -item["order"])):
         full = [other for other in peers(statement, alive)
                 if other["days"] >= _FULL_STATEMENT_DAYS or statement["days"] > _LONGEST_CYCLE_DAYS]
-        sharing = [other for other in settled(full) if _days_shared(statement["span"], other["span"]) > 0]
-        if not printed_by(statement, full) or any(double_counted(one, two) for place, one in enumerate(sharing)
-                                                   for two in sharing[place + 1:]):
+        if not printed_by(statement, full) or counts_twice(statement, settled(full)):
             continue
         statement["reason"] = "superseded_long_printout"
         left_out.append((statement, most_days(statement, full)))
@@ -1921,17 +1959,7 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
             else:
                 # R3-02: a possible pair only where more than a boundary's days are shared and the shared credits, or
                 # one period printed with both balances, show the two are one account's.
-                fewer = min(len(_dated_credits(earlier, first, last)), len(_dated_credits(later, first, last)))
-                one_period = (
-                    earlier["start_printed"] is not None and earlier["end_printed"] is not None
-                    and (earlier["start_printed"], earlier["end_printed"]) == (later["start_printed"],
-                                                                               later["end_printed"])
-                    and all(_is_money_value(entry[side]) for entry in (earlier, later)
-                            for side in ("opening", "closing"))
-                    and all(round(float(earlier[side]) * 100) == round(float(later[side]) * 100)
-                            for side in ("opening", "closing"))
-                )
-                named = days_shared > _OVERLAP_BOUNDARY_DAYS and ((count >= 1 and 2 * count >= fewer) or one_period)
+                named = _possible_pair_named(earlier, later, first, last, count)
             if not named:
                 continue
             pair = {
@@ -1995,6 +2023,24 @@ def _pair_kind(statement: dict, other: dict) -> str | None:
     if statement["currency"] and other["currency"] and statement["currency"] != other["currency"]:
         return None
     return "possible"
+
+
+def _possible_pair_named(earlier: dict, later: dict, first, last, count: int) -> bool:
+    """Audit round 3, R3-B18 (R3-02, R3-04): whether `_package_superseded`'s overlap pass names a "possible" pair
+    (`_pair_kind`) whose common days run from `first` to `last` and which shares `count` credits there
+    (`_shared_credits`): more than `_OVERLAP_BOUNDARY_DAYS` days shared and either at least half the credits the
+    fewer-credited side prints in those days shared, or one period printed by both with the same opening and closing
+    balances. Review round 2: the long-printout phase reads a possible pair as a double count on this evidence, or
+    where both statements print only rows of the printout it tests, so a second account of the holder at the bank whose
+    number is not read, printing rows of its own, never reads as one beside the first."""
+    fewer = min(len(_dated_credits(earlier, first, last)), len(_dated_credits(later, first, last)))
+    one_period = (
+        earlier["start_printed"] is not None and earlier["end_printed"] is not None
+        and (earlier["start_printed"], earlier["end_printed"]) == (later["start_printed"], later["end_printed"])
+        and all(_is_money_value(entry[side]) for entry in (earlier, later) for side in ("opening", "closing"))
+        and all(round(float(earlier[side]) * 100) == round(float(later[side]) * 100) for side in ("opening", "closing"))
+    )
+    return (last - first).days + 1 > _OVERLAP_BOUNDARY_DAYS and ((count >= 1 and 2 * count >= fewer) or one_period)
 
 
 def _dated_credits(statement: dict, first, last) -> list[tuple]:

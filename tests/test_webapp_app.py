@@ -2014,8 +2014,9 @@ def _activity_printout_package(window, *, number=_ACCOUNT, bank="CONTOSO BANK", 
     def statement(job_id, rows, start, end, opening):
         return _unkeyed(job_id, rows, start, end, number=number, bank=bank, opening=opening)
 
-    balances = {"2031-01-01": 1500.0, "2031-01-15": 11500.0, "2031-02-01": 15400.0, "2031-02-14": 25400.0,
-                "2031-02-20": 25400.0, "2031-03-01": 25300.0, "2031-04-01": 35200.0}
+    balances = {"2031-01-01": 1500.0, "2031-01-15": 11500.0, "2031-01-30": 15400.0, "2031-02-01": 15400.0,
+                "2031-02-14": 25400.0, "2031-02-20": 25400.0, "2031-02-25": 25300.0, "2031-03-01": 25300.0,
+                "2031-04-01": 35200.0}
     jobs = [statement("jan", _P90_JAN, "2031-01-01", "2031-01-31", 1500.0),
             statement("feb", _FEB, "2031-02-01", "2031-02-28", 15400.0),
             statement("mar", _MAR_Q1, "2031-03-01", "2031-03-31", 25300.0)]
@@ -2077,14 +2078,17 @@ def test_a_second_activity_printout_never_keeps_the_first_in_the_package(window,
     assert _r14(package) == (44000.0, 11000.0, 4, "review_required") and _pairs(package) is None
 
 
-def test_an_activity_printout_stays_for_two_printouts_of_it_that_overlap_each_other():
+@pytest.mark.parametrize(("number", "bank"), [(_ACCOUNT, "CONTOSO BANK"), *_UNKEYED_VARIANTS])
+def test_an_activity_printout_stays_for_two_printouts_of_it_that_overlap_each_other(number, bank):
     """The double-count test's reason, a control: a 90-day printout beside two printouts of it (45 and 54 days) that
     overlap each other by nine days and print nothing it does not stays; both printouts are left out in its favour, so
-    nothing counts twice."""
+    nothing counts twice. Review round 2: whatever the account reading; unkeyed, the two printouts share no credit in
+    their nine days (only a debit), so the overlap pass would not name them, but each prints only rows of the 90-day
+    printout, which makes them one account's."""
     from webapp.app import _package_analysis
 
     def statement(job_id, start, end, opening):
-        return _unkeyed(job_id, _p90_rows(start, end), start, end, number=_ACCOUNT, opening=opening)
+        return _unkeyed(job_id, _p90_rows(start, end), start, end, number=number, bank=bank, opening=opening)
 
     jobs = [statement("pa", "2031-01-15", "2031-02-28", 11500.0), statement("pb", "2031-02-20", "2031-04-14", 25400.0),
             statement("print", "2031-01-15", "2031-04-14", 11500.0)]
@@ -2154,6 +2158,123 @@ def test_a_possible_pair_leaves_a_one_row_statement_out_on_its_one_row():
     assert (totals["true_revenue_total"], totals["average_daily_balance"]) == (
         alone["true_revenue_total"], alone["average_daily_balance"])
     assert totals["decision"] == "review_required"
+
+
+# Audit round 3, R3-B18 review round 2: the long-printout phase reads a double count only between two statements that
+# are one account's by the overlap pass's own evidence, each printing a posted row, and its second-phase simulation
+# leaves a 32-35-day printout out first as the first phase does. Fabricated CONTOSO BANK statements of CONTOSO BAKERY
+# LLC, NORTHWIND SUPPLY LLC and FABRIKAM rows, 2031.
+
+def _savings_quarter(number=None):
+    """A second account of the holder at the bank (a savings account whose number is not read unless `number`):
+    January, February and March 2031, one interest credit at each month's end."""
+    jobs, opening = [], 50000.0
+    for job_id, start, end, cents in (("sjan", "2031-01-01", "2031-01-31", 1.10),
+                                      ("sfeb", "2031-02-01", "2031-02-28", 1.20),
+                                      ("smar", "2031-03-01", "2031-03-31", 1.30)):
+        jobs.append(_unkeyed(job_id, [(end, "INTEREST PAYMENT", cents)], start, end, number=number, opening=opening))
+        opening = round(opening + cents, 2)
+    return jobs
+
+
+@pytest.mark.parametrize("savings_number", [None, "000000002020"])
+@pytest.mark.parametrize("printout_first", [False, True])
+@pytest.mark.parametrize("window", [("2031-01-15", "2031-04-14"), ("2031-01-15", "2031-03-31")])
+def test_another_account_whose_number_is_not_read_never_keeps_an_activity_printout_in_the_package(
+        window, printout_first, savings_number):
+    """A savings account of the holder at the same bank, its number not read, is a possible peer of every checking
+    statement, but it shares no credit with them and prints other balances, so the overlap pass never names it beside
+    them: it is no double count the checking account's activity printout must stay for. The printout is left out and
+    the figures read as without it (read as a double count, the savings statements kept the printout, which left
+    February, March and the month-to-date out in its favour, January's days counted twice and a month lost). With the
+    savings number read (the control) the two accounts are never compared."""
+    from webapp.app import _package_analysis
+
+    jobs = [*_activity_printout_package(window, printout_first=printout_first), *_savings_quarter(savings_number)]
+    without = _package_analysis([job for job in jobs if job.id != "print"])["totals"]
+    package = _package_analysis(jobs)
+    assert _left_out(package) == [("print", "mar", "superseded_long_printout", None)]
+    assert _r14(package) == (44000.0, 11000.0, 4, "review_required") and _pairs(package) is None
+    assert package["totals"]["average_daily_balance"] == without["average_daily_balance"]
+
+
+@pytest.mark.parametrize("savings_number", [None, "000000002020"])
+def test_another_account_whose_number_is_not_read_never_keeps_a_35_day_export_in_the_package(savings_number):
+    """The 35-day export control beside an unkeyed savings account of the holder at the bank: the export is still left
+    out in the first phase in favour of the three monthly statements (read as a double count, the savings statements
+    kept it, February was left out in its favour and a pair was named)."""
+    from webapp.app import _package_analysis
+
+    export = _period("export", _FEB, "2031-01-29", "2031-03-04", opening=11400.0)
+    package = _package_analysis([*_first_quarter(), export, *_savings_quarter(savings_number)])
+    assert _left_out(package) == [("export", "feb", "superseded_long_printout", None)]
+    totals = package["totals"]
+    assert (totals["true_revenue_total"], totals["months"]) == (30000.0, 3) and _pairs(package) is None
+
+
+@pytest.mark.parametrize(("number", "bank"), [(_ACCOUNT, "CONTOSO BANK"), *_UNKEYED_VARIANTS])
+def test_two_statements_printing_only_the_printout_s_rows_are_its_double_count_whatever_the_account_reading(
+        number, bank):
+    """A 20-day first statement and a 33-day export share a boundary credit (two days, January 30 and 31), the export
+    and March three days and a credit, beside a 79-day printout printing every row. Kept beside each other they count
+    those credits twice, so the printout waits and the second phase leaves the four statements out in its favour: True
+    27,000, the ledger's, once. Unkeyed, the overlap pass names no possible pair sharing 3 days or fewer, but the two
+    print only rows of the printout, so they are one account's double count (read on the overlap pass's evidence
+    alone, the printout was left out and 4,000 counted twice with no pair named)."""
+    from webapp.app import _package_analysis
+
+    january = [("2031-01-14", _P90_PAY, 3000.0), ("2031-01-30", _P90_PAY, 2500.0),
+               ("2031-01-31", "CARD PURCHASE FABRIKAM SUPPLY", -100.0)]
+    march = [("2031-03-02", _P90_PAY, 1500.0), *_MAR_Q1]
+    every = sorted(january + _FEB + march)
+
+    def statement(job_id, start, end, opening):
+        return _unkeyed(job_id, [row for row in every if start <= row[0] <= end], start, end, number=number, bank=bank,
+                        opening=opening)
+
+    package = _package_analysis([statement("first", "2031-01-12", "2031-01-31", 1000.0),
+                                 statement("feb", "2031-02-01", "2031-02-28", 6400.0),
+                                 statement("mar", "2031-03-01", "2031-03-31", 16300.0),
+                                 statement("export", "2031-01-30", "2031-03-03", 4000.0),
+                                 statement("print", "2031-01-12", "2031-03-31", 1000.0)])
+    assert _left_out(package) == [("first", "print", "superseded_interim", None),
+                                  ("feb", "print", "superseded_interim", None),
+                                  ("mar", "print", "superseded_interim", None),
+                                  ("export", "print", "superseded_long_printout", None)]
+    assert _r14(package) == (27000.0, 9000.0, 3, "review_required") and _pairs(package) is None
+
+
+@pytest.mark.parametrize("printout_first", [False, True])
+def test_a_34_day_export_the_monthly_statements_print_never_keeps_an_activity_printout_in_the_package(printout_first):
+    """A 34-day export (January 30 to March 4) beside the monthly statements, the month-to-date and a 90-day printout:
+    the first phase leaves the export out in favour of the monthly statements alone, so the second-phase simulation
+    leaves it out first too and it never reads as a double count with March (read beside March, it kept the 90-day
+    printout, which left February, March and the month-to-date out in its favour, January's days counted twice and a
+    month lost). Both printouts are left out and the statements stay."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_activity_printout_package(("2031-01-15", "2031-04-14"),
+                                                           extra=("e34", "2031-01-30", "2031-03-04"),
+                                                           printout_first=printout_first))
+    left_out = [("print", "mar", "superseded_long_printout", None), ("e34", "feb", "superseded_long_printout", None)]
+    assert _left_out(package) == (left_out if printout_first else left_out[::-1])
+    assert _r14(package) == (44000.0, 11000.0, 4, "review_required") and _pairs(package) is None
+
+
+@pytest.mark.parametrize("printout_first", [False, True])
+def test_a_printout_with_no_posted_row_never_keeps_an_activity_printout_in_the_package(printout_first):
+    """A 7-day printout (February 25 to March 3) that prints no posted row counts no money, so it is no double count
+    the 90-day printout must stay for: the printout is left out and the statements stay. The row-less printout is never
+    left out (the drop needs a posted row) and its 4 days with February are named, as any printed pair's."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_activity_printout_package(("2031-01-15", "2031-04-14"),
+                                                           extra=("r7", "2031-02-25", "2031-03-03"),
+                                                           printout_first=printout_first))
+    assert _left_out(package) == [("print", "mar", "superseded_long_printout", None)]
+    assert _r14(package) == (44000.0, 11000.0, 4, "review_required")
+    assert [(pair["job"], pair["other"], pair["shared_credit_count"], pair["days_shared"])
+            for pair in _pairs(package)] == [("r7", "feb", 0, 4)]
 
 
 def test_the_package_rows_name_a_pair_sharing_no_credit_by_its_days():
