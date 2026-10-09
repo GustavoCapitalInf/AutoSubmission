@@ -3255,13 +3255,14 @@ def _public_payer_arm_a(text: str) -> bool:
 #: INDEMN..., ASSUR..., LLOYDS) is no public payer ('PROG COUNTY MUT', 'STATE FARM COUNTY MUTUAL INS CO'). Never FIRE
 #: (a county fire department) or SELF ('<NAME> COUNTY SELF INSURANCE FUND' stays a government payer, a public insurance
 #: programme), and INS only as a whole word (never INSPECTIONS). Credit-side only: government_payer, _public_named,
-#: _public_payer_remittance and the payer-remittance veto read this pattern; no debit or lender reading does.
+#: _public_payer_remittance and the payer-remittance veto read this pattern; no debit or lender reading does. R3-B13
+#: review round 1 (finding 3): never MUTUAL AID ('<NAME> COUNTY MUTUAL AID' is a public mutual-aid compact, no carrier).
 _PUBLIC_PAYER_NAME = re.compile(
     r"^((?:\S+ ){0,3})(?:TREAS \d{3}"
     r"|(?:STATE|COUNTY|CITY|TOWN|VILLAGE|TOWNSHIP|BOROUGH|PARISH|DISTRICT|PROVINCE|COMMONWEALTH|GOVERNMENT|GOVT"
     r"|MUNICIPALITY) OF [A-Z]"
     r"|(?<!\bFROM )(?<!\bTO )(?<!\bTHE )(?<!\bOF )(?<!\bAND )(?<!\bINTO )\b[A-Z]{3,} (?:COUNTY|PARISH|TOWNSHIP|BOROUGH)\b"
-    r"(?! (?:MUTUAL|MUTUA|MUT|INS|INSUR\w*|CASUALT\w*|INDEMN\w*|ASSUR\w*|LLOYDS)\b)"
+    r"(?! (?:MUTUAL(?! AID\b)|MUTUA|MUT|INS|INSUR\w*|CASUALT\w*|INDEMN\w*|ASSUR\w*|LLOYDS)\b)"
     r"|(?:DEPT|DEPARTMENT|MINISTRY) OF\b|(?:DHS|DHHS|DSHS|DCF|DCFS|DSS)\b|SCHOOL DIST(?:RICT)?\b|DFAS\b)"
 )
 _PUBLIC_PAYER_TEMPLATE = re.compile(

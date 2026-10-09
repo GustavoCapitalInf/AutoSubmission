@@ -299,7 +299,8 @@ def test_the_reader_names_no_form_on_a_control(text):
 
 @pytest.mark.parametrize(("text", "alias"), [
     ("0102WSIB EME", "ontario_wsib"), ("0102PROVINCE OF BC", "bc_provincial"),
-    ("0102GOUV QUEBEC MSP", "quebec_government"), ("0102MN STATE MMB", "mn_mmb"), ("0102WI DCF", "wi_dcf"), ("0102WORKFORCE SAFETY", "nd_workforce_safety"),
+    ("0102GOUV QUEBEC MSP", "quebec_government"), ("0102MN STATE MMB", "mn_mmb"), ("0102WI DCF", "wi_dcf"),
+    ("0102WORKFORCE SAFETY", "nd_workforce_safety"),
     # The optional leads take the glued digits too.
     ("0102PROVINCIAL PAYMENT PROVINCE OF BC", "bc_provincial"), ("0102ND WORKFORCE SAFETY", "nd_workforce_safety"),
     # Not read: the VA's form glued, letters glued before a form.

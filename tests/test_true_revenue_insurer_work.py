@@ -1044,6 +1044,10 @@ ALLSTATE_COUNTY = [(text.replace("GEICO COUNTY MUT", "ALLSTATE COUNTY"), amount,
                  {"holder": NORTHWIND_BAKERY}, [HELD], id="county-self-insurance-fund"),
     pytest.param([("ACH DEPOSIT PROG COUNTY MUT REFUND 0000000001", 640.0, "03-02")], {}, [("non_revenue", None)],
                  id="county-mut-refund"),
+    # R3-B13 review round 1 (finding 3): a county's mutual-aid body is a public compact, never a county mutual: it
+    # stays a public payer, verified (be75450: counted insurer_paid_for_services).
+    pytest.param([("HARRIS COUNTY MUTUAL AID DES:VENDOR PMT ID:0001", 1234.0, "03-02")], {}, [VERIFIED],
+                 id="county-mutual-aid"),
 ])
 def test_r3_11_a_texas_county_mutual_is_an_insurer_never_a_county(rows, statement, expected):
     """Audit round 3, R3-B13 (R3-11; I26 by Q6 of 2026-09-28, "insurers never count", and the underwriter's Q2 of
@@ -1081,6 +1085,9 @@ def test_r3_11_the_reader_keys_a_county_mutual_by_its_carrier():
     ("SAMPLE COUNTY INDEMNITY", False), ("SAMPLE COUNTY ASSURANCE", False), ("SAMPLE COUNTY LLOYDS", False),
     ("HARRIS COUNTY", True), ("SAMPLE COUNTY SCHOOL", True), ("SAMPLE COUNTY INSPECTIONS", True),
     ("SAMPLE COUNTY SELF INSURANCE", True), ("SAMPLE COUNTY FIRE DEPT", True), ("SAMPLE PARISH MUTUAL", False),
+    # R3-B13 review round 1 (finding 3): MUTUAL AID is a public compact.
+    ("HARRIS COUNTY MUTUAL AID", True), ("SAMPLE PARISH MUTUAL AID", True), ("SAMPLE COUNTY MUTUAL INS", False),
+    ("SAMPLE COUNTY MUTUAL AIDE INS", False),
 ])
 def test_r3_11_the_public_payer_name_vetoes_an_insurer_word_after_county(name, public):
     from analysis import transaction_classifier as classifier
@@ -1212,14 +1219,21 @@ def test_r3_10_a_personal_benefit_is_never_paid_for_work(rows, statement, expect
 
 @pytest.mark.parametrize(("holder", "provider"), [
     (CLINIC, True), ("CONTOSO PHARMACY LLC", True), ("CONTOSO DENTAL PLLC", True),
-    # A loose clinic word names a provider here (the strict and the loose tables), and a clinic word beside an earlier
-    # trade's word does too.
-    ("CONTOSO HEALTH SERVICES LLC", True), ("FABRIKAM INSURANCE MEDICAL BILLING LLC", True),
+    # A loose clinic word names a provider here (the brief reads the trade with the loose table).
+    ("CONTOSO HEALTH SERVICES LLC", True),
+    # R3-B13 review round 1 (finding 1): the provider is the holder's first trade (_holder_service_trade's label),
+    # so a name whose first trade is a repair shop or an insurance agency is no provider, whatever clinic or pharmacy
+    # word it also prints.
+    ("FABRIKAM INSURANCE MEDICAL BILLING LLC", False), ("CONTOSO HEALTH INSURANCE AGENCY LLC", False),
+    ("CONTOSO MED INSURANCE AGENCY LLC", False), ("CONTOSO COLLISION DOCTORS LLC", False),
+    ("CONTOSO AUTO REPAIR AND RX LLC", False),
     (BAKERY, False), (REPAIR_SHOP, False), (AGENCY, False), ("CONTOSO STAFFING AGENCY LLC", False),
 ])
 def test_r3_10_the_holder_is_a_provider(holder, provider):
     record = _dated([("NORTHWIND SUPPLY DES:PAYMENT ID:1", 100.0, "03-02")], holder=holder)[0]
     assert true_revenue._holder_provider(record) is provider
+    trade = true_revenue._holder_service_trade(record, (), true_revenue.INSURER_FOR_WORK_LOOSE_MIN_CREDITS)
+    assert (trade is not None and trade[0] in {"clinic", "pharmacy"}) is provider
 
 
 @pytest.mark.parametrize(("words", "personal", "ltd", "non_provider"), [
@@ -1239,6 +1253,92 @@ def test_r3_10_the_personal_benefit_forms(words, personal, ltd, non_provider):
     assert (true_revenue._INSURER_PERSONAL_BENEFIT.search(words) is not None) is personal
     assert (true_revenue._INSURER_LTD_BENEFIT.search(words) is not None) is ltd
     assert (true_revenue._INSURER_NON_PROVIDER_BENEFIT.search(words) is not None) is non_provider
+
+
+def _one_off(entry: str, holder: str, payer: str = "SAMPLE MUTUAL INS"):
+    return [(f"{payer} DES:{entry} ID:0001 INDN:{holder} CO ID:0000000001 PPD", 812.0, "03-02")]
+
+
+def _three(text: str, amount: float = 812.0):
+    return [(text.replace("000N", f"000{n}"), amount, day) for n, day in ((1, "03-02"), (2, "03-09"), (3, "03-16"))]
+
+
+@pytest.mark.parametrize(("rows", "holder", "expected"), [
+    # Workers' compensation or a plain BENEFIT(S) wording at a holder whose first trade is an insurance agency or a
+    # repair shop, though its name also prints a clinic or a pharmacy word (be75450: counted on the holder's trade).
+    pytest.param(_one_off("WC BENEFIT", "CONTOSO HEALTH INSURANCE AGENCY LLC"), "CONTOSO HEALTH INSURANCE AGENCY LLC",
+                 [HELD], id="health-insurance-agency-wc"),
+    pytest.param(_one_off("BENEFITS", "CONTOSO HEALTH INSURANCE AGENCY LLC", payer="AFLAC"),
+                 "CONTOSO HEALTH INSURANCE AGENCY LLC", [HELD], id="health-insurance-agency-aflac-benefits"),
+    pytest.param(_one_off("WC BENEFIT", "CONTOSO MED INSURANCE AGENCY LLC"), "CONTOSO MED INSURANCE AGENCY LLC",
+                 [HELD], id="med-insurance-agency-wc"),
+    pytest.param(_one_off("WC BENEFIT", "CONTOSO COLLISION DOCTORS LLC"), "CONTOSO COLLISION DOCTORS LLC", [HELD],
+                 id="collision-doctors-wc"),
+    pytest.param(_one_off("WORKERS COMP", "CONTOSO AUTO REPAIR AND RX LLC"), "CONTOSO AUTO REPAIR AND RX LLC", [HELD],
+                 id="auto-repair-and-rx-workers-comp"),
+    pytest.param(_one_off("WC BENEFIT", "FABRIKAM INSURANCE MEDICAL BILLING LLC"),
+                 "FABRIKAM INSURANCE MEDICAL BILLING LLC", [HELD], id="insurance-medical-billing-wc"),
+    # Controls: a holder whose first trade is a clinic or a pharmacy is paid for treatment (counted, as before).
+    pytest.param(_one_off("WC BENEFIT", CLINIC), CLINIC, [COUNTED], id="clinic-wc"),
+    pytest.param(_one_off("BENEFITS", "CONTOSO PHARMACY LLC"), "CONTOSO PHARMACY LLC", [COUNTED],
+                 id="pharmacy-benefits"),
+    pytest.param(_three("SAMPLE MUTUAL INS DES:WC BENEFIT ID:000N INDN:CONTOSO HEALTH SERVICES LLC CO ID:0000000001 "
+                        "PPD"), "CONTOSO HEALTH SERVICES LLC", [COUNTED] * 3, id="loose-clinic-wc-x3"),
+])
+def test_r3_b13_r1_the_provider_is_the_holder_s_first_trade(rows, holder, expected):
+    """Audit round 3, R3-B13, review round 1 (finding 1; R3-10's brief: the holder is a provider when
+    _holder_service_trade(record, receiver_holders, INSURER_FOR_WORK_LOOSE_MIN_CREDITS) labels a clinic or a
+    pharmacy): workers' compensation and a plain BENEFIT(S) wording refuse the release wherever the holder's first trade
+    is no clinic or pharmacy, so a health-insurance agency or a collision shop printing a clinic word keeps the insurer
+    hold."""
+    records = _dated(rows, holder=holder)
+    assert [rules_reading(record) for record in records] == expected
+    for record, reading in zip(records, expected):
+        assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
+
+
+@pytest.mark.parametrize(("rows", "holder", "expected"), [
+    # A BENEFIT word inside the carrier's name, followed by its insurer word or legal form, names the payer, never the
+    # payment (be75450: held insurer_named_payer; counted at R3-B13's base).
+    pytest.param([("MUTUAL BENEFIT INS CO DES:DRP PAYMENT ID:0001", 2450.0, "03-02")], REPAIR_SHOP, [COUNTED],
+                 id="mutual-benefit-carrier-drp"),
+    pytest.param([("MUTUAL BENEFIT GROUP DES:DRP PAYMENT ID:0001", 2450.0, "03-02")], REPAIR_SHOP, [COUNTED],
+                 id="mutual-benefit-group-drp"),
+    pytest.param(_three("SAMPLE BENEFIT LIFE INS CO DES:CLAIM PMT ID:000N"), "CONTOSO PT LLC", [COUNTED] * 3,
+                 id="benefit-life-carrier-claims-x3"),
+    pytest.param([("SAMPLE BENEFITS INS CO DES:VENDOR PMT ID:0001", 1234.0, "03-02")], NORTHWIND_BAKERY, [COUNTED],
+                 id="benefits-carrier-vendor-pmt"),
+    # Controls (held): the same carrier paying a benefit on its entry; a BENEFIT wording printed after the carrier's
+    # name on a layout with no entry field; a payer region printing only a brand and the wording; workers'
+    # compensation on the payer, which names a workers' compensation carrier however it prints.
+    pytest.param(_three("MUTUAL BENEFIT INS CO DES:BENEFITS ID:000N"), NORTHWIND_BAKERY, [HELD] * 3,
+                 id="mutual-benefit-carrier-benefits-x3"),
+    pytest.param(_three("SAMPLE MUTUAL INS BENEFIT PMT 000N"), NORTHWIND_BAKERY, [HELD] * 3,
+                 id="no-entry-benefit-after-the-name-x3"),
+    pytest.param(_three("SAMPLE WC INS FUND DES:PAYMENT ID:000N"), NORTHWIND_BAKERY, [HELD] * 3,
+                 id="wc-carrier-x3"),
+    pytest.param(_three("SAMPLE WORKERS COMP INS FUND DES:PAYMENT ID:000N"), NORTHWIND_BAKERY, [HELD] * 3,
+                 id="workers-comp-carrier-x3"),
+    pytest.param(_three("SAMPLE MUTUAL INS WC PMT 000N"), NORTHWIND_BAKERY, [HELD] * 3, id="no-entry-wc-x3"),
+])
+def test_r3_b13_r1_a_benefit_word_in_the_carrier_s_name_is_no_benefit(rows, holder, expected):
+    """Audit round 3, R3-B13, review round 1 (finding 2): a plain BENEFIT(S) or BNFT wording is read on the purpose and,
+    on the payer region, only where no insurer word, spelling or legal form follows it (there it is the carrier's name:
+    'MUTUAL BENEFIT INS CO'); workers' compensation (WC, WORKERS COMP, WORK COMP) is read on both, as R3-10 ruled."""
+    records = _dated(rows, holder=holder)
+    assert [rules_reading(record) for record in records] == expected
+
+
+@pytest.mark.parametrize(("own", "purpose", "read"), [
+    ("MUTUAL BENEFIT INS CO", "DRP PAYMENT", False), ("SAMPLE BENEFIT LIFE INS CO", "CLAIM PMT", False),
+    ("SAMPLE BENEFITS INS CO", "", False), ("MUTUAL BENEFIT GROUP", "", False), ("SAMPLE BNFT ASSURANCE", "", False),
+    ("MUTUAL BENEFIT INS CO", "BENEFITS", True), ("SAMPLE MUTUAL INS BENEFIT PMT", "", True),
+    ("AFLAC BENEFITS", "", True), ("SAMPLE INS CO", "BNFT", True), ("SAMPLE WC INS FUND", "PAYMENT", True),
+    ("SAMPLE WORKERS COMP INS FUND", "", True), ("SAMPLE INS CO", "WC CLAIM", True),
+    ("SAMPLE INS CO", "PAYMENT", False),
+])
+def test_r3_b13_r1_the_non_provider_benefit_reading(own, purpose, read):
+    assert true_revenue._non_provider_benefit(own, purpose) is read
 
 
 ROUND_ZELLE = [(f"Zelle payment from SAMPLE INSURANCE CO Conf# 000000000{n}", 1000.0, day)

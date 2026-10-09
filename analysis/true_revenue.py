@@ -5590,10 +5590,10 @@ def insurer_payer_reading(
     Zelle, Interac and its e-Transfer and VIREMENT forms, Venmo, Cash App, Square Cash, Apple Cash, Popmoney) the
     widened spellings and the brands are not read: a sender's surname or given name (MUTUA, SUBROTO) or the rail's own
     word (APPLE CASH INS) is no cut insurer, so the rail keeps the spelled-out words and CLAIM it read before I26. A
-    push or instant rail (RTP, FEDNOW, INSTANT PAYMENT ...), a named transfer and an ACH entry worded TRANSFER, which sit
-    on the person-to-person channel too, read every spelling and the brands, except that the cut MUTUA reads there only
-    beside a company form on the payer region without the holder's names (classifier.company_form: 'REAL TIME PAYMENT
-    FROM <GIVEN NAME> MUTUA' is a person's surname)."""
+    push or instant rail (RTP, FEDNOW, INSTANT PAYMENT ...), a named transfer and an ACH entry worded TRANSFER, which
+    sit on the person-to-person channel too, read every spelling and the brands, except that the cut MUTUA reads there
+    only beside a company form on the payer region without the holder's names (classifier.company_form: 'REAL TIME
+    PAYMENT FROM <GIVEN NAME> MUTUA' is a person's surname)."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
     if classifier._HCCLAIMPMT.search(text):
@@ -5710,11 +5710,16 @@ _INSURER_PERSONAL_BENEFIT = re.compile(
 #: where LTD is a carrier's legal form ('<carrier> CO LTD DES:CLAIM PMT' is no disability benefit).
 _INSURER_LTD_BENEFIT = re.compile(r"(?<![A-Z])LTD (?:BENEFITS?|BEN|BNFT|CLAIMS?|CLM|PMT|PAYMENT)(?![A-Z])")
 #: Audit round 3, R3-B13 (R3-10; Q2's two sentences above): workers' compensation and a plain BENEFIT(S) wording, read
-#: on the payer and the purpose, refuse every ground only where the holder is no provider (_holder_provider: no clinic
-#: or pharmacy word on a holder name): a workers' compensation carrier paying a clinic, a therapy practice or a pharmacy
-#: for treatment pays for its services; elsewhere it is a wage or an owner's benefit. A bare COMP is never read
-#: (Truist's 'INS COMP' commission).
+#: on the payer and the purpose (_non_provider_benefit), refuse every ground only where the holder is no provider
+#: (_holder_provider: the holder's first trade is no clinic or pharmacy): a workers' compensation carrier paying a
+#: clinic, a therapy practice or a pharmacy for treatment pays for its services; elsewhere it is a wage or an owner's
+#: benefit. A bare COMP is never read (Truist's 'INS COMP' commission).
 _INSURER_NON_PROVIDER_BENEFIT = re.compile(r"(?<![A-Z])(?:WC|WORKERS? ?COMP\w*|WORK ?COMP|BENEFITS?|BNFT)(?![A-Z])")
+#: R3-B13 review round 1 (finding 2): the plain benefit words of _INSURER_NON_PROVIDER_BENEFIT, and the words that,
+#: printed after one on the payer region, make it the carrier's name ('MUTUAL BENEFIT INS CO', 'SAMPLE BENEFIT LIFE INS
+#: CO', 'MUTUAL BENEFIT GROUP'): an insurer word or spelling (_INSURER_NAME, _INSURER_SPELLINGS) or a legal form.
+_INSURER_PLAIN_BENEFIT = re.compile(r"BENEFITS?|BNFT")
+_INSURER_NAME_FORM = re.compile(r"(?<![A-Z])(?:CO|COMPANY|CORP|CORPORATION|INC|LLC|LTD|GROUP)(?![A-Z])")
 #: Audit round 3, R3-B13 (R3-10): the holder trades whose insurer credits are medical claim payments to a provider.
 _PROVIDER_TRADES = frozenset({"clinic", "pharmacy"})
 #: Q2's four trades on a holder name, strict words: one names the trade from a single credit. HEALTHY, SURGE and a bare
@@ -5780,21 +5785,33 @@ def _holder_service_trade(
 
 def _holder_provider(record: TransactionClassification, receiver_holders: Sequence[str] = ()) -> bool:
     """Audit round 3, R3-B13 (R3-10; the underwriter's Q2 of 2026-10-02, "Medical claim payments to providers keep
-    counting as today"): a holder name reads a clinic or a pharmacy (_PROVIDER_TRADES) by a strict or a loose word of
-    _holder_service_trade's tables, on the same names, even where that function would name another trade first (a name
-    printing a repair or an insurance word beside a clinic word is a provider too): a provider's insurer credit that
-    prints workers' compensation or a plain BENEFIT(S) wording (_INSURER_NON_PROVIDER_BENEFIT) is paid for treatment."""
-    classifier = _classifier()
-    names = [
-        printed for printed in (
-            classifier.account_name_text(name)
-            for name in (*_holder_names(record), *_holder_strip_names(record), *receiver_holders) if name
-        ) if printed
-    ]
-    return any(
-        label in _PROVIDER_TRADES and pattern.search(name) is not None
-        for table in (_SERVICE_TRADES, _SERVICE_TRADES_LOOSE) for name in names for label, pattern in table
-    )
+    counting as today"): the holder's trade, the first _holder_service_trade reads with its strict and its loose words
+    (INSURER_FOR_WORK_LOOSE_MIN_CREDITS), is a clinic or a pharmacy (_PROVIDER_TRADES): a provider's insurer credit that
+    prints workers' compensation or a plain BENEFIT(S) wording (_INSURER_NON_PROVIDER_BENEFIT) is paid for treatment.
+    R3-B13 review round 1 (finding 1, the brief's reading): a name whose first trade is a repair shop or an insurance
+    agency is no provider, whatever clinic or pharmacy word it also prints ('CONTOSO HEALTH INSURANCE AGENCY LLC',
+    'CONTOSO COLLISION DOCTORS LLC')."""
+    trade = _holder_service_trade(record, receiver_holders, INSURER_FOR_WORK_LOOSE_MIN_CREDITS)
+    return trade is not None and trade[0] in _PROVIDER_TRADES
+
+
+def _non_provider_benefit(own: str, purpose: str) -> bool:
+    """Audit round 3, R3-B13 (R3-10): workers' compensation or a plain BENEFIT(S) wording
+    (_INSURER_NON_PROVIDER_BENEFIT) on the purpose, or on the payer region read without the holder's names (`own`).
+    R3-B13 review round 1 (finding 2): on the payer region a plain BENEFIT(S) or BNFT followed by an insurer word or
+    spelling or a legal form is the carrier's name (_INSURER_PLAIN_BENEFIT, _INSURER_NAME_FORM: 'MUTUAL BENEFIT INS CO
+    DES:DRP PAYMENT' is no benefit), while one printed after the name (a layout with no entry field: 'SAMPLE MUTUAL INS
+    BENEFIT PMT') and workers' compensation anywhere (WC, WORKERS COMP, WORK COMP: a workers' compensation carrier) are
+    read."""
+    if _INSURER_NON_PROVIDER_BENEFIT.search(purpose):
+        return True
+    for found in _INSURER_NON_PROVIDER_BENEFIT.finditer(own):
+        if not _INSURER_PLAIN_BENEFIT.fullmatch(found.group(0)):
+            return True
+        tail = own[found.end():]
+        if not (_INSURER_NAME.search(tail) or _INSURER_SPELLINGS.search(tail) or _INSURER_NAME_FORM.search(tail)):
+            return True
+    return False
 
 
 def _record_day(record: TransactionClassification) -> _date | None:
@@ -5832,8 +5849,9 @@ def _insurer_for_work(
     R3-B13 (R3-10): nor a personal benefit's word, unless a commission form prints in the same words: a disability
     benefit by another name or life-policy money on the payer or the purpose (_INSURER_PERSONAL_BENEFIT), long-term
     disability's LTD benefit on the purpose alone (_INSURER_LTD_BENEFIT: on the payer LTD is a legal form), and
-    workers' compensation or a plain BENEFIT(S) wording on the payer or the purpose where the holder is no clinic or
-    pharmacy (_INSURER_NON_PROVIDER_BENEFIT, _holder_provider); a refused credit is no eligible credit, so it never
+    workers' compensation or a plain BENEFIT(S) wording on the payer or the purpose (_INSURER_NON_PROVIDER_BENEFIT,
+    _non_provider_benefit: review round 1, never a benefit word inside the carrier's name) where the holder's first
+    trade is no clinic or pharmacy (_holder_provider); a refused credit is no eligible credit, so it never
     counts toward its key's frequency or the loose-trade count. The purpose is a wire's purpose fields
     (_title_purpose_text, never its REF) or the entry fields, read with R2-B12's layout entry (_layout_entry). The
     ground, the first that applies: 'holder_trade:<label>' (_holder_service_trade, with the statement's eligible count),
@@ -5883,7 +5901,7 @@ def _insurer_for_work(
             _INSURER_NOT_FOR_WORK.search(words)
             or _INSURER_PERSONAL_BENEFIT.search(words)
             or _INSURER_LTD_BENEFIT.search(purpose)
-            or (_INSURER_NON_PROVIDER_BENEFIT.search(words) and not _holder_provider(record, receiver_holders))
+            or (_non_provider_benefit(own, purpose) and not _holder_provider(record, receiver_holders))
         ):
             continue
         eligible[index] = reading
