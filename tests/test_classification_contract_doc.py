@@ -2872,3 +2872,77 @@ def test_r3_b18_the_code_s_docstrings_name_the_rules():
     assert "Audit round 3, R3-B18 (R3-04): a pair named although it shares no credit" in doc(appmod._overlap_words)
     source = inspect.getsource(appmod)
     assert "(analysis/chase.py:240, `bank=\"Chase Transaction Export\"`)" in source
+
+
+#: Audit round 3, R3-B18, review round 1: the code commits §20 and the contract name (the month-length rule's reach,
+#: then the second activity printout).
+R3_B18_R1_CODE_COMMITS = ("e2f83b6", "ddbac69")
+
+
+def test_the_spec_and_the_contract_record_r3_b18_review_round_1():
+    """Audit round 3, R3-B18, review round 1 (findings 1 to 3): §9.2's R14 bullet (the month-length rule for a monthly
+    cycle's length only, the double-count test on the statements the second phase keeps), §9.3's sentence, the R14,
+    R14 review round 1 and R3-B18 lines amended in place (the rule, the corrected residual, the one-row proof, the
+    savings export), the §20 line with the commit and the measurement, and the contract's entry marked in place and a
+    new entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("Its review round 1 (§20): the month-length rule reads a statement of a monthly cycle's length (35 "
+                  "days or fewer",
+                  "a printout of more days (a 60- or 90-day activity printout, a multi-month export) is left out in "
+                  "favour of all its account's statements",
+                  "the double-count test reads only the statements the second phase would keep side by side",
+                  "and before them another printout of more than 35 days that the others print, the longest first, as "
+                  "the first phase leaves it out"):
+        assert words in package, words
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "Its review round 1 (§20) changes no stored output and no served key either" in versions
+    assert "or a second printout of more than 35 days kept in the package" in versions
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(a statement of 32 to 35 days; a printout of more days for all its account's statements that do, "
+                  "since R3-B18 review round 1, §20 below)",
+                  "(for a statement of 32 to 35 days; since R3-B18 review round 1, §20 below, a printout of more days "
+                  "takes all its account's statements)",
+                  "(amended in place by its review round 1, §20 below: the month-length rule reads a statement of 32 "
+                  "to 35 days only",
+                  "(corrected in place by its review round 1, §20 below: it read \"a statement of fewer than 28 days "
+                  "beside a long printout",
+                  "a possible pair leaves a statement out on the full row proof however short it is",
+                  "an export of a Chase savings account, whose statements read `Chase Savings`, never meets them"):
+        assert words in amendments, words
+    batch = _amendment_line(amendments, "- **One account's statements in a package:")
+    assert "the money counted once and R13's floor keeping the months; the ledger key" not in batch
+    line = _amendment_line(amendments, "- **R3-B18 review round 1: ")
+    for words in ("audit round 3, R3-B18, review round 1 (findings 1 to 3)", *R3_B18_R1_CODE_COMMITS,
+                  "Measured against `99f86c4`'s tree", "(finding 1)", "(finding 2)", "(finding 3)",
+                  "a second activity printout"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B18, review round 1 ({', '.join(R3_B18_R1_CODE_COMMITS)})",
+                  "(a statement of 32 to 35 days; a printout of more days in favour of all its account's statements "
+                  "that do, since its review round 1)",
+                  "the long-printout phase's month-length rule reads a statement of a monthly cycle's length (35 days "
+                  "or fewer) only",
+                  "and before them another printout of more than 35 days that the others print, so a second activity "
+                  "printout never keeps the first in the package"):
+        assert words in contract, words
+
+
+def test_r3_b18_r1_the_code_s_docstrings_name_the_rules():
+    """Audit round 3, R3-B18, review round 1: `_package_superseded` names the month-length rule's reach and the double
+    count it reads, `_LONGEST_CYCLE_DAYS` its evidence and `settled` its rule."""
+    from webapp import app as appmod
+
+    superseded = re.sub(r"\s+", " ", appmod._package_superseded.__doc__)
+    assert ("Review round 1: the month-length rule reads a statement of a monthly cycle's length "
+            "(`_LONGEST_CYCLE_DAYS` days or fewer) only") in superseded
+    assert "the monthly statements, each its own calendar month, stay" not in superseded
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod))
+    assert "Audit round 3, R3-B18 review round 1: the most days of a monthly cycle" in source
+    assert ("Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by "
+            "side") in source
+    assert ("A printout of more than `_LONGEST_CYCLE_DAYS` days that the others print is left out before them, the "
+            "longest first, as the first phase leaves it out, so a second activity printout never keeps the first in "
+            "the package.") in source
+    assert ("and before them another printout of more than `_LONGEST_CYCLE_DAYS` days that the others print, as this "
+            "phase leaves it out, so a second activity printout never keeps the first in the package") in superseded
