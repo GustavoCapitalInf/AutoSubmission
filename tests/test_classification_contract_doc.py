@@ -1780,7 +1780,7 @@ def test_the_spec_and_the_contract_record_r3_b12():
                   "`\\bVIREMENTS? PAR COURRIEL\\b`",
                   "(since audit round 3, R3-B12: R3-12, §20: pass 7 reads PNC's `ZEL` as its `ZELLE` twin",
                   "on the pass's own text (`pass_text`:",
-                  "a wire is never a Zelle deposit (R3-56)",
+                  "a loose wire's originator row is never a Zelle deposit (R3-56)",
                   "a company whose name holds the word `ZELLE` paying by ACH (`DE ZELLE HOLDINGS LLC DES:VENDOR PAY`) "
                   "is still read as a Zelle deposit",
                   "PNC's `ZEL TO` debits keep the classifier's debit reading"):
@@ -1812,9 +1812,78 @@ def test_r3_b12_the_code_s_docstrings_name_the_pass_text_and_the_wire_gate():
     assert "The classifier's _CONSUMER_P2P_RAIL (the 5.5 channel gate, the legacy classes, the debits) is " \
            "unchanged" in doc
     reader = re.sub(r"\s+", " ", true_revenue.zelle_deposit.__doc__)
-    assert "a wire is never a Zelle deposit" in reader
+    assert "an incoming wire or a loose wire's originator row is never a Zelle deposit" in reader
     rail = re.sub(r"\s+", " ", true_revenue._p2p_rail.__doc__)
     assert "Interac's French form, singular or plural (_INTERAC_COURRIEL" in rail
+
+
+#: Audit round 3, R3-B12, review round 1: the code commit §20 and the contract name.
+R3_B12_R1_CODE_COMMIT = "f13d1e6"
+
+
+def _amendment_line(amendments: str, start: str) -> str:
+    """The one §20 line that starts with `start`."""
+    [line] = [line for line in amendments.splitlines() if line.startswith(start)]
+    return line
+
+
+def test_the_spec_and_the_contract_record_r3_b12_review_round_1():
+    """Audit round 3, R3-B12, review round 1 (findings 1 to 4): the R3-29 and R3-12 lines carry no single statement's
+    True; §8.4's Yes paragraph narrows the twin parity, its reader sentence names the two wire gates, and its residuals
+    record the platform-named `ZEL` sender, the wire layouts no gate reads and the `ZEL TO` debit's own reading; the
+    R3-12 and R3-56 lines marked in place; the §20 line with the commit; and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    before_after = re.compile(r"\$[0-9][0-9,]*\.[0-9]{2} → \$[0-9][0-9,]*\.[0-9]{2}")
+    courriel = _amendment_line(amendments, "- **Banque Royale's French autodeposit is the Interac rail**")
+    assert before_after.search(courriel) is None
+    for words in ("per statement", "of one business"):
+        assert words not in courriel, words
+    assert "True falls in three of the four statements, two of them newly review-gated" in courriel
+    zel = _amendment_line(amendments, "- **PNC's `ZEL` Zelle rail reads as its `ZELLE` twin in pass 7**")
+    assert "in one statement" not in zel
+    assert "in two small statements these rows made most of True" in zel
+    for words in ("(Amended by R3-B12 review round 1, finding 2, §20 below:",
+                  "the legacy class `other`, where a `ZELLE TO` debit's is `transfer`, and no person key"):
+        assert words in zel, words
+    wire = _amendment_line(amendments, "- **A wire is never a Zelle deposit**")
+    assert "(Amended by R3-B12 review round 1, finding 3, §20 below:" in wire
+    p2p = re.sub(r"\s+", " ", _section(text, "\n### 8.4 ", "\n### 8.5 "))
+    for words in ("except where the classifier's reading of the raw text claims it first (R3-B12 review round 1, "
+                  "finding 2: the residual below)",
+                  "an incoming wire or a loose wire's originator row is never a Zelle deposit (R3-56)",
+                  "(R3-B12 review round 1, finding 3:",
+                  "`ONLINE WIRE TRANSFER FROM <sender>`",
+                  "`MOBILE WIRE ORG ZELLE <sender>`",
+                  "(R3-B12 review round 1, finding 4:",
+                  "the legacy class `other`, where a `ZELLE TO` debit's is `transfer`, and no person key",
+                  "(R3-B12 review round 1, finding 2:",
+                  "counted `platform_unconfirmed` once and Verified on a repeat (`recurring_operating_source`;"):
+        assert words in p2p, words
+    for stale in ("(kind `other`, no person key, where a `ZELLE TO` debit is `circular`)",):
+        assert stale not in p2p, stale
+        assert stale not in amendments, stale
+    for words in ("- **R3-B12 review round 1: the R3-29 and R3-12 lines carry no single statement's True",
+                  "audit round 3, R3-B12, review round 1 (findings 1 to 4)", R3_B12_R1_CODE_COMMIT,
+                  "Measured against `9871cdf`'s tree"):
+        assert words in amendments, words
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT", "R3B12R1" + "CODE", "CORPUS" + "_CF"):
+        assert placeholder not in text, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B12, review round 1 ({R3_B12_R1_CODE_COMMIT})",
+                  "a `ZEL TO` debit's legacy class and missing person key",
+                  "(Review round 1 records the readings pass 7 does not reach: see the next entry.)"):
+        assert words in contract, words
+
+
+def test_r3_b12_r1_the_code_s_docstrings_name_the_residuals():
+    """Audit round 3, R3-B12, review round 1 (findings 2 to 4): pass_text names the classifier's earlier claim and the
+    ZEL TO debit's reading; zelle_deposit names the wire layouts neither gate reads."""
+    doc = re.sub(r"\s+", " ", true_revenue.pass_text.__doc__)
+    assert "the classifier's earlier reading of the raw text is not pass 7's" in doc
+    assert "its legacy class 'other' and no person key" in doc
+    reader = re.sub(r"\s+", " ", true_revenue.zelle_deposit.__doc__)
+    assert "Review round 1 (finding 3): a wire layout neither gate reads" in reader
 
 
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
