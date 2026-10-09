@@ -387,6 +387,30 @@ def test_r3_06_an_oq2_payout_entity_s_non_sale_or_financing_credit_is_never_clai
     assert not true_revenue._claimed(record, classifier.revenue_text(record.normalized_description))
 
 
+@pytest.mark.parametrize("entry", ["ADVNC", "ADVN", "ADVC"])
+def test_r3_06_an_unclaimed_payout_entity_s_credit_is_never_verified_by_q6(entry):
+    # A payout entity's credit is counted, never verified: where the veto lifts its claim and no hold reads the word (an
+    # abbreviated advance), Q6 never verifies it on its company form; the payout_credit_entity arm counts it.
+    *rows, big = _credits([(_bofa("AFFIRM INC", entry), 4870.55), (_bofa("AFFIRM INC", entry), 4990.55), BIG],
+                          bank="Bank of America")
+    for record in rows:
+        assert _reading(record) == ("counted_flagged", "payout_credit_entity")
+        assert record.revenue_classification == "unverified_deposit" and not record.contributes_to_verified_revenue
+    assert _reading(big) == VERIFIED
+
+
+@pytest.mark.parametrize("entry", ["ADVNC", "ADVN", "ADVC"])
+def test_r3_06_an_unclaimed_financier_s_credit_is_never_verified_by_q6(entry):
+    # The same for a financier spelled outside CUSTOMER_FINANCING_NAMES (a bare CHERRY region with a company form):
+    # its credit is never a Q6 repeat or company-form verification once the veto lifts its claim.
+    *rows, big = _credits([(_bofa("CHERRY INC", entry, "NORTHWIND DENTAL"), 4870.55),
+                           (_bofa("CHERRY INC", entry, "NORTHWIND DENTAL"), 4990.55), BIG], bank="Bank of America")
+    for record in rows:
+        assert record.revenue_tier == "counted_flagged" and not record.contributes_to_verified_revenue
+        assert record.revenue_tier_reason != "customer_financing_payout"
+    assert _reading(big) == VERIFIED
+
+
 def test_r3_06_the_hidden_loan_shape_is_held_and_its_debits_keep_their_reading():
     # An advance followed by four weekly debits of the same financier: held, never a payout; the debits unchanged.
     debit = (_bofa("KOALAFI", "PAYMENT"), -437.50)

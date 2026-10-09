@@ -5149,7 +5149,7 @@ def _payout_entity(text: str) -> PayeeMatch | None:
     return known if known is not None and known.entity in PAYOUT_CREDIT_ENTITIES else None
 
 
-def _customer_financier(record: TransactionClassification, text: str) -> str | None:
+def _customer_financier(record: TransactionClassification, text: str, *, non_sale: bool = True) -> str | None:
     """§8.9 (owner ruling 2026-10-02, Q8; audit I17): the lease-to-own or patient financier (CUSTOMER_FINANCING_PAYERS:
     Snap Finance, Koalafi, Cherry, Acima, Terrace Finance, Wisetack, Katapult, Progressive Leasing) whose payout to the
     merchant for a customer's financed purchase the row is, read on the payer region; or None. None, in this order, on a
@@ -5161,7 +5161,8 @@ def _customer_financier(record: TransactionClassification, text: str) -> str | N
     without the receiver field's value and the holder's names, so a holder named CAPITAL never vetoes); and on a
     consumer (PPD or WEB) entry to a person who is not the holder. Otherwise the first financier whose spelling the
     region prints; a spelling that holds LOAN (Snap's SNAP LOAN FUNDING) only in Snap's merchant form
-    (_SNAP_MERCHANT_FUNDING)."""
+    (_SNAP_MERCHANT_FUNDING). `non_sale=False` reads the financier without the R3-06 veto, for _payout_claim_vetoed
+    alone."""
     classifier = _classifier()
     if record.amount < classifier._MICRO_DEPOSIT_FLOOR:
         return None
@@ -5176,7 +5177,7 @@ def _customer_financier(record: TransactionClassification, text: str) -> str | N
     words = classifier._without_receiver_value(text)
     if classifier._BNPL_CONSUMER_CREDIT.search(words) or _LEGAL_SETTLEMENT_WORDS.search(words):
         return None
-    if _payout_non_sale(record, text):
+    if non_sale and _payout_non_sale(record, text):
         return None
     holder = _holder(record)
     if consumer_entry(text, holder) and _person_receiver(text, "", holder):
@@ -6545,7 +6546,10 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
     underwriter's Q2): and an insurer's credit released as the business's work (INSURER_FOR_WORK_METHOD). Owner ruling
     2026-10-02 (the underwriter's Q9; R2-OW09): and a credit the financing-root release lifted (CreditFacts.q9). Audit
     round 3, R3-B10 review round 2 (finding 1): and a settlement the bare settlement word alone released from the holder
-    hold or the own-push guard (CreditFacts.settlement_released), which never counted toward a repeat while held."""
+    hold or the own-push guard (CreditFacts.settlement_released), which never counted toward a repeat while held. Audit
+    round 3, R3-B14 (R3-06): and a payout entity's or a financier's credit whose claim the non-sale or financing veto
+    lifted (_payout_claim_vetoed), so the holds read it: such a credit is counted, never verified, and where no hold
+    reads its word (an abbreviated advance, ADVNC) a payout entity's is counted as payout_credit_entity, as before."""
     return (
         record.revenue_match_method == "direction_conflict"
         or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
@@ -6560,7 +6564,22 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
         or facts.progress_draw
         or facts.q9 is not None
         or facts.settlement_released
+        or (not facts.claimed and _payout_claim_vetoed(record, text))
     )
+
+
+def _payout_claim_vetoed(record: TransactionClassification, text: str) -> bool:
+    """Audit round 3, R3-B14 (R3-06): a payout entity (_payout_entity) or a lease-to-own or patient financier
+    (_customer_financier, read without the veto) names the row, whose claim the non-sale or financing veto lifted
+    (_payout_non_sale). Such a credit is never verified by Q5 or Q6 and never counts toward a repeat: the holds read it
+    as any payer's row, and where none reads its word (an abbreviated advance: ADVNC, ADVN, ADVC) it is counted, a
+    payout entity's as payout_credit_entity, as before the batch."""
+    classifier = _classifier()
+    if classifier._PAYOUT_NON_SALE_CREDIT.search(classifier._without_receiver_value(text)) is None:
+        return False
+    if not _payout_non_sale(record, text):
+        return False
+    return _payout_entity(text) is not None or _customer_financier(record, text, non_sale=False) is not None
 
 
 def _factoring_payout_payer(region: str, text: str = "") -> bool:
