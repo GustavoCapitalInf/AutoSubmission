@@ -2057,7 +2057,44 @@ def test_a_printout_the_monthly_statements_print_never_keeps_an_activity_printou
     assert _r14(package) == (44000.0, 11000.0, 4, "review_required") and _pairs(package) is None
 
 
-_FIRST_MONTH = [("2031-01-22", _P90_PAY, 6000.0), ("2031-01-27", _P90_PAY, 2000.0),
+@pytest.mark.parametrize("printout_first", [False, True])
+@pytest.mark.parametrize(("window", "extra"), [
+    (("2031-01-15", "2031-04-14"), ("p60", "2031-02-14", "2031-04-14")),
+    (("2031-01-15", "2031-04-14"), ("p40", "2031-03-01", "2031-04-09")),
+    (("2031-02-14", "2031-04-14"), ("q", "2031-01-15", "2031-03-31")),
+])
+def test_a_second_activity_printout_never_keeps_the_first_in_the_package(window, extra, printout_first):
+    """Two printouts of more than 35 days beside the monthly statements and the current month-to-date, each of whose
+    rows they print: the second printout, which the monthly statements print too, is left out before them in the
+    double-count test as the first phase leaves it out, so both printouts are left out and the statements stay. Read
+    beside the monthly statements it overlaps, it kept the first printout in the package, which then left February,
+    March and the month-to-date out in its favour, January's days counted twice and a month lost."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_activity_printout_package(window, extra=extra, printout_first=printout_first))
+    left_out = [("print", "mar", "superseded_long_printout", None), (extra[0], "mar", "superseded_long_printout", None)]
+    assert _left_out(package) == (left_out if printout_first else left_out[::-1])
+    assert _r14(package) == (44000.0, 11000.0, 4, "review_required") and _pairs(package) is None
+
+
+def test_an_activity_printout_stays_for_two_printouts_of_it_that_overlap_each_other():
+    """The double-count test's reason, a control: a 90-day printout beside two printouts of it (45 and 54 days) that
+    overlap each other by nine days and print nothing it does not stays; both printouts are left out in its favour, so
+    nothing counts twice."""
+    from webapp.app import _package_analysis
+
+    def statement(job_id, start, end, opening):
+        return _unkeyed(job_id, _p90_rows(start, end), start, end, number=_ACCOUNT, opening=opening)
+
+    jobs = [statement("pa", "2031-01-15", "2031-02-28", 11500.0), statement("pb", "2031-02-20", "2031-04-14", 25400.0),
+            statement("print", "2031-01-15", "2031-04-14", 11500.0)]
+    package = _package_analysis(jobs)
+    assert _left_out(package) == [("pa", "print", "superseded_long_printout", None),
+                                  ("pb", "print", "superseded_long_printout", None)]
+    assert package["totals"]["true_revenue_total"] == 34000.0 and _pairs(package) is None
+
+
+_FIRST_MONTH =[("2031-01-22", _P90_PAY, 6000.0), ("2031-01-27", _P90_PAY, 2000.0),
                 ("2031-01-29", "CARD PURCHASE FABRIKAM SUPPLY", -100.0)]
 _FIRST_FEB = [("2031-02-06", _P90_PAY, 6000.0), ("2031-02-20", "CARD PURCHASE FABRIKAM SUPPLY", -100.0),
               ("2031-02-25", _P90_PAY, 3000.0)]

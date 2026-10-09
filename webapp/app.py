@@ -1760,10 +1760,12 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     monthly cycle's length (`_LONGEST_CYCLE_DAYS` days or fewer) only; a printout of more days is proved by all its
     account's statements (a month-to-date, a short first or closing month included), and the double-count test reads
     only the statements the second phase would keep side by side (`settled`: a month-to-date beside its month, or a
-    printout two neighbouring months print, is left out there first). A printout of 32 to 35 days that only a shorter
-    statement proves with the month-length ones waits too: the second phase may leave that shorter statement, or a
-    month-length one inside the printout, out in its favour, and the days the printout shares with a statement it does
-    not print whole count twice, the pair named (the recorded residual).
+    printout two neighbouring months print, is left out there first, and before them another printout of more than
+    `_LONGEST_CYCLE_DAYS` days that the others print, as this phase leaves it out, so a second activity printout never
+    keeps the first in the package). A printout of 32 to 35 days that only a shorter statement proves with the
+    month-length ones waits too: the second phase may leave that shorter statement, or a month-length one inside the
+    printout, out in its favour, and the days the printout shares with a statement it does not print whole count
+    twice, the pair named (the recorded residual).
     Then every statement left, long ones included, the shortest first, so an interim or month-to-date printout beside
     the full statement, a second month-to-date printout of one open month, or a short custom range of days the full
     statements print is left out (`superseded_interim`) and a full month, a 32-35-day monthly cycle included, is never
@@ -1852,9 +1854,15 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
         """Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by side,
         the shortest first (of two alike, the later listed first), one left out when the others of `group` it is one
         account with print it (`printed_by`: a month-to-date beside its month, a printout two neighbouring months
-        print), so the double count that phase resolves never keeps a long printout in the package."""
+        print), so the double count that phase resolves never keeps a long printout in the package. A printout of more
+        than `_LONGEST_CYCLE_DAYS` days that the others print is left out before them, the longest first, as the first
+        phase leaves it out, so a second activity printout never keeps the first in the package."""
         left = list(group)
-        for statement in sorted(group, key=lambda item: (item["days"], -item["order"])):
+        for statement in sorted((item for item in group if item["days"] > _LONGEST_CYCLE_DAYS),
+                                key=lambda item: (-item["days"], -item["order"])):
+            if printed_by(statement, peers(statement, left)):
+                left.remove(statement)
+        for statement in sorted(left, key=lambda item: (item["days"], -item["order"])):
             if printed_by(statement, peers(statement, left)):
                 left.remove(statement)
         return left
@@ -1866,7 +1874,8 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     # cycle is never left out for partial printouts of it. Review round 1: the month-length rule reads a statement of a
     # monthly cycle's length only (`_LONGEST_CYCLE_DAYS`); one of more days is a printout, proved by all its account's
     # statements (a month-to-date, a short first or closing month), and the double-count test reads only the
-    # statements the second phase would keep side by side (`settled`).
+    # statements the second phase would keep side by side (`settled`), another printout of more than
+    # `_LONGEST_CYCLE_DAYS` days the others print left out before them.
     for statement in sorted((item for item in statements if item["days"] > _MONTH_DAYS),
                             key=lambda item: (-item["days"], -item["order"])):
         full = [other for other in peers(statement, alive)
