@@ -4747,6 +4747,20 @@ _BNPL_CONSUMER_CREDIT = re.compile(
     r"\bRETURN\w*|\bWITHDRAW\w*|REFUND\w*|\bRFND\w*|\bREFND\w*|\bRFD\b|\bBALANCE\b|\bCASH ?BACK\b|\bREWARDS?\b"
     r"|\bAFFIRMCARD\b|\bCARD\b|\bPURCHASES?\b|\bTRUE ?ACCORD\b"
 )
+#: Audit round 3, R3-B14 (R3-06): a payout entity's or a lease-to-own or patient financier's credit printing an advance,
+#: capital, interest, a dividend or a rebate is no merchant payout. Q8 (2026-10-02): "Their consumer-side credits
+#: (refunds, loans to the holder) stay as today"; the MCA principle: an advance, interest, a dividend or a rebate is no
+#: money the business earns from its operations. Never FUNDING, FUNDED, PAYOUT, PAYMENT, LEASE FUND or a bare ADV, which
+#: is a payment advice; never PROCEEDS, which a settlement may print; LOAN is the strong rule's. Read by the
+#: true-revenue pass's claim (_customer_financier, _claimed) and, for Cherry alone, by _is_payout_credit.
+_PAYOUT_NON_SALE_CREDIT = re.compile(
+    r"(?<![A-Z])(?:ADVANCES?|ADVNC|ADVN|ADVC|CASH ADV\w*|CAPITAL|CAPTL|INTEREST|DIVIDENDS?|REBATES?)\b"
+)
+#: Audit round 3, R3-B14 (R3-06): Cherry joined the payout entities under OQ2's consumer-side veto only (Q8), so a
+#: Cherry loan or advance left D1; it keeps D1 again, as before the Q8 ruling. The other OQ2 entities' LOAN readings
+#: are OQ2's.
+_CHERRY_ENTITY = "Cherry Technologies, Inc."
+_CHERRY_LOAN_CREDIT = re.compile(r"(?<![A-Z])LOANS?\b")
 #: Owner ruling 2026-10-02 (Q8; §6.3 narrowing 12): Snap's merchant funding as Wells Fargo prints it, 'SNAP LOAN FUNDING
 #: F<digits> <merchant>': the strong non-revenue rule reads the row without it (_classify_credit_revenue), and the
 #: true-revenue pass reads a SNAP LOAN FUNDING payer as Snap's payout only in this form (_customer_financier). A SNAP LOAN
@@ -4758,13 +4772,18 @@ def _is_payout_credit(text: str, match: PayeeMatch) -> bool:
     """Whether a credit of ``match`` is a payout-credit entity's settlement: revenue, not D1 financing proceeds.
 
     Owner decision 2026-09-25 (PAYOUT_CREDIT_ENTITIES); OQ2 (§19) narrowed to the
-    five BNPL providers' settlements (_BNPL_CONSUMER_CREDIT). Credits only.
+    five BNPL providers' settlements (_BNPL_CONSUMER_CREDIT). Credits only. Audit round
+    3, R3-B14 (R3-06): a Cherry credit printing LOAN(S) or a non-sale or financing word
+    (_PAYOUT_NON_SALE_CREDIT: an advance, capital, interest, a dividend, a rebate) is
+    no settlement either: it keeps D1, its reading before the Q8 ruling.
     """
     if match.entity not in PAYOUT_CREDIT_ENTITIES:
         return False
     # Both sites read the same text: the revenue text (a glued leading date dropped) without the receiver's name, so
     # the holder's own name ('INDN:BALANCE DENTAL LLC') never makes a settlement consumer-side (§5.2).
     words = _without_receiver_value(revenue_text(text))
+    if match.entity == _CHERRY_ENTITY and (_CHERRY_LOAN_CREDIT.search(words) or _PAYOUT_NON_SALE_CREDIT.search(words)):
+        return False
     return not (match.entity in _OQ2_BNPL_ENTITIES and _BNPL_CONSUMER_CREDIT.search(words))
 
 

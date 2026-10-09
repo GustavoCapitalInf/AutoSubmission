@@ -2118,6 +2118,92 @@ def test_q9_b_the_lessor_reading_arm_by_arm():
     assert not _lessor([("TRANSFER IN RENT", 1200.0), ("TRANSFER IN RENT", 1300.0)])
     # A Zelle deposit (the underwriter's Q3) never counts, whatever its reading at that step.
     assert not _lessor([(_CAFE_LEASE, 5200.0), ("ZELLE FROM CONTOSO TENANT LLC RENT", 1100.0)], unverify=(1,))
+    # Audit round 3, R3-B14 (R3-60): an own-account transfer whose region is an account designation (an empty payer
+    # key) is no rent payer, nor is a payer whose own name prints RENTALS; rent words outside the payer's name still
+    # read (a DES entry, a memo after the payer's company form, a wire's REF).
+    designation = ("ONLINE BANKING TRANSFER FROM CHK 0000 CONFIRMATION# 0000000000 RENT", 1450.0)
+    assert not _lessor([(_CAFE_LEASE, 5200.0), designation])
+    assert not _lessor([designation, ("ONLINE BANKING TRANSFER FROM SAV 0000 CONFIRMATION# 0000000000 RENT", 1450.0)])
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:1", 900.0)])
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("SAMPLE AUTO RENTALS INC ACH PAYMNT 000000", 900.0)],
+                       bank="Wells Fargo")
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("PAYMENT SAMPLE RENTALS 0000AMI EQUIPMENT AND CUSTOMER ID 000000000",
+                                                900.0)], bank="Truist")
+    assert _lessor([(_CAFE_LEASE, 5200.0), ("BLUEJAY PARTY RENTALS INC DES:RENT ID:1", 900.0)])
+    assert _lessor([("CONTOSO CAFE LLC LEASE PMT 123456", 5200.0), ("FABRIKAM TENANT LLC DES:RENT ID:2", 2400.0)],
+                   bank="Wells Fargo")
+    assert _lessor([(_CAFE_LEASE, 5200.0), (_R3_60_TENANT_WIRE, 2400.0)], bank="Chase")
+
+
+def test_r3_60_the_rent_reading_names_the_payer_s_own_name():
+    from analysis import transaction_classifier as classifier
+
+    def name(raw, bank=None):
+        text = revenue_text(normalize_transaction_description(raw))
+        channel = tr._channel(text, bank)
+        return tr._rent_payer_name(text, tr._facts_region(text, channel, bank))
+
+    # A payer-name field: the name proper (an ACH originator's or a wire's whole region).
+    assert name("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:1") == "BLUEJAY PARTY RENTALS INC"
+    # No payer-name field: the region up to the end of its first company form, or the whole region with none.
+    assert name("SAMPLE AUTO RENTALS INC ACH PAYMNT 000000", "Wells Fargo") == "SAMPLE AUTO RENTALS INC"
+    assert name("CONTOSO CAFE LLC LEASE PMT 123456", "Wells Fargo") == "CONTOSO CAFE LLC"
+    assert name("PAYMENT SAMPLE RENTALS 0000AMI EQUIPMENT AND CUSTOMER ID 000000000", "Truist") == (
+        "PAYMENT SAMPLE RENTALS")
+    # A payer-less row names nobody.
+    assert name("MOBILE DEPOSIT RENT UNIT 1", "Wells Fargo") == ""
+    assert classifier._payer_key("CHK") == ()
+
+
+#: Audit round 3, R3-B14 (R3-60): a tenant's book transfer whose REF memo prints the rent.
+_R3_60_TENANT_WIRE = "BOOK TRANSFER CREDIT B/O: FABRIKAM TENANT LLC SAMPLEVILLE NY 12345 US REF: APRIL RENTALS"
+_R3_60_LEASE = ("CONTOSO CAFE LLC DES:LEASE PMT ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD", 4100.0)
+
+
+@pytest.mark.parametrize(("row", "bank"), [
+    (("ONLINE BANKING TRANSFER FROM CHK 0000 CONFIRMATION# 0000000000 RENT", 1450.0), None),
+    (("ONLINE BANKING TRANSFER FROM SAV 0000 CONFIRMATION# 0000000000 RENT", 1450.0), None),
+    (("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD", 900.0), None),
+    (("PAYMENT SAMPLE RENTALS 0000AMI EQUIPMENT AND CUSTOMER ID 000000000", 900.0), "Truist"),
+    (("SAMPLE AUTO RENTALS INC ACH PAYMNT 000000", 900.0), "Wells Fargo"),
+])
+def test_r3_60_an_own_transfer_or_a_rentals_name_never_makes_a_lessor(row, bank):
+    # Today the LEASE row is counted as lessor_rent: the second row made the bakery a lessor.
+    lease = _q9_credits([_R3_60_LEASE, row], bank=bank)[0]
+    assert rules_reading(lease) == FINANCING
+
+
+@pytest.mark.parametrize(("rows", "bank", "holder"), [
+    # Two tenants whose rent words print outside their names.
+    ([_R3_60_LEASE, ("FABRIKAM TENANT LLC DES:RENT ID:0002 INDN:NORTHWIND BAKERY LLC CO ID:1 CCD", 1500.0),
+      ("CONTOSO TENANT INC DES:RENT ID:0003 INDN:NORTHWIND BAKERY LLC CO ID:1 CCD", 1600.0)], None, HOLDER),
+    # A tenant's wire whose REF memo prints the rent.
+    ([_R3_60_LEASE, (_R3_60_TENANT_WIRE, 2400.0)], "Chase", HOLDER),
+    # A label-less LEASE PMT memo after the payer's company form, with a named tenant's RENT.
+    ([("CONTOSO CAFE LLC LEASE PMT 123456", 5200.0), ("FABRIKAM TENANT LLC DES:RENT ID:2", 2400.0)], "Wells Fargo",
+     HOLDER),
+    # The holder's property-management name (the first arm).
+    ([_R3_60_LEASE], None, "SAMPLE PROPERTY MANAGEMENT LLC"),
+])
+def test_r3_60_the_controls_still_make_a_lessor(rows, bank, holder):
+    _released(_q9_credits(rows, bank=bank, holder=holder)[0], LESSOR)
+
+
+# Audit round 3, R3-B14 (R3-52, the Q11 (b) side): the narrowed dealer evidence feeds _dealer_statement too, so a
+# non-dealer's asset sale beside a row that is no dealer evidence is asset-sale proceeds (the owner's Q11 (b)).
+@pytest.mark.parametrize("row", [
+    ("CHECKCARD 0302 CONTOSO DINER MANHEIM PA 0000", -38.50),
+    ("CONTOSO FLOORPLANNER DES:SUBSCRIPT ID:1 INDN:NORTHWIND LANDSCAPING LLC CO ID:1 CCD", -19.99),
+])
+def test_r3_52_a_non_dealer_s_asset_sale_beside_no_dealer_evidence_is_non_revenue(row):
+    # Today counted (named_payer_purpose_refused): the row read as dealer evidence.
+    sale = ("RITCHIE BROS DES:SELLER PAYOUT ID:1 INDN:NORTHWIND LANDSCAPING LLC CO ID:1 CCD", 24000.0)
+    record = _q9_credits([sale, row], holder="NORTHWIND LANDSCAPING LLC")[0]
+    assert (record.revenue_tier, record.revenue_tier_reason, record.revenue_match_method) == (
+        "non_revenue", "asset_sale_proceeds", "asset_sale_proceeds")
+    # Beside a dealer's own evidence (an auction purchase by ACH) the sale keeps its reading.
+    dealer = _q9_credits([sale, ("MANHEIM US DES:ACH PAYMNT ID:1", -8400.0)], holder="NORTHWIND LANDSCAPING LLC")[0]
+    assert rules_reading(dealer) == ("counted_flagged", "named_payer_purpose_refused")
 
 
 # Audit round 3, R3-B09 (R3-75; standard D1, D3, A8; the owner's "refunds and owner money never become revenue"): a

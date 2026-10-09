@@ -3534,6 +3534,70 @@ def test_q9_c_the_payables_only_reading_and_the_dealer_evidence_arms():
     assert evidence([payables], holder="SAMPLE REPOSSESSIONS AUTO GROUP LLC") == (False, False)
     assert evidence([payables], holder="SAMPLE COLLATERAL MOTORS INC") == (False, False)
     assert evidence([payables], holder=AGENCY) == (False, False)
+    # Audit round 3, R3-B14 (R3-52): a card purchase in an auction's town, a floor-plan financier's service credit and
+    # a word that only starts like a floor plan are no dealer evidence; the floor-plan forms still read.
+    assert evidence([payables, ("CHECKCARD 0302 CONTOSO DINER MANHEIM PA 0000", -38.50)]) == (False, False)
+    assert evidence([payables, ("POS PURCHASE 0302 NORTHWIND FUEL MANHEIM PA", -61.20)]) == (False, False)
+    assert evidence([payables, ("NEXTGEAR CAPITAL DES:VENDOR PAY ID:1", 475.0)]) == (False, False)
+    assert evidence([payables, ("CONTOSO FLOORPLANNER DES:SUBSCRIPT ID:1", -19.99)]) == (False, False)
+    assert evidence([payables, ("FPX FLOORPLAN XPRESS ADVANCE VIN 1FAKE0000000000001", 18000.0)]) == (True, True)
+    assert evidence([payables, ("FLOOR PLAN PAYOFF", -9000.0)]) == (True, True)
+    for form, read in (("FLOORPLAN", True), ("FLOOR PLAN", True), ("FLOORPLANS", True), ("FLOOR PLANNING", True),
+                       ("FLOORPLAN INT", True), ("FLOORPLANNER", False), ("FLOOR PLANKS", False),
+                       ("FLOOR PLANER", False), ("SUBFLOOR PLAN", False)):
+        assert bool(true_revenue._FLOOR_PLAN_FORM.search(form)) is read, form
+    for words, read in (("VENDOR PAY", True), ("VENDORPMT", True), ("VENDOR PAYMENT", True), ("REPO FEE", True),
+                        ("REPOS", True), ("REPOSSESSION", True), ("RECOVERY", True), ("TOWING", True), ("TOW", True),
+                        ("TRANSPORT", True), ("INSPECTION", True), ("COMMISSION", True),
+                        ("ADVANCE", False), ("PAYMENT", False), ("CURTAILMNT", False), ("FLOOR PLAN", False)):
+        assert bool(true_revenue._FLOOR_PLAN_SERVICE_CREDIT.search(words)) is read, words
+
+
+# Audit round 3, R3-B14 (R3-52; the underwriter's Q9 (c), "a lender paying a business for services counts as 'lender
+# paid for services', never verified. The hidden-loan guard stays"): a row that is no dealer evidence never keeps a
+# repossession agency's Westlake PAYABLES Verified: a card purchase in the auction's town (Manheim, PA), a floor-plan
+# financier's service credit, a FLOORPLANNER subscription and a FLOOR PLANKS purchase. Fabricated rows, Bank of
+# America's DES layout.
+_R3_52_AGENCY = "CONTOSO RECOVERY LLC"
+_R3_52_PAYABLES = (
+    "WESTLAKE FINANCI DES:PAYABLES ID:EFT0000001 INDN:CONTOSO RECOVERY LLC CO ID:0000000001 CCD", 3150.0)
+_R3_52_AUTO_PAY = ("WESTLAKE FINANCI DES:AUTO PAY ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -455.0)
+_R3_52_NO_EVIDENCE = (
+    ("CHECKCARD 0302 CONTOSO DINER MANHEIM PA 0000", -38.50),
+    ("POS PURCHASE 0302 NORTHWIND FUEL MANHEIM PA", -61.20),
+    ("NEXTGEAR CAPITAL DES:VENDOR PAY ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", 475.00),
+    ("AFC FUNDING CORP DES:REPO FEE ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", 390.00),
+    ("CONTOSO FLOORPLANNER DES:SUBSCRIPT ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -19.99),
+    ("NORTHWIND HARDWARE DES:FLOOR PLANKS ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -310.00),
+)
+_R3_52_EVIDENCE = (
+    ("MANHEIM US DES:ACH PAYMNT ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -8400.00),
+    # A NextGear debit the classifier reads as floor_plan_financing.
+    ("NEXTGEAR CAPITAL DES:PAYMENT ID:2 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -9000.00),
+    ("FPX FLOORPLAN XPRESS ADVANCE VIN 1FAKE0000000000001", 18000.00),
+    ("FLOOR PLAN PAYOFF", -9000.00),
+)
+
+
+@pytest.mark.parametrize("row", _R3_52_NO_EVIDENCE, ids=[row[0][:32] for row in _R3_52_NO_EVIDENCE])
+def test_r3_52_a_row_that_is_no_dealer_evidence_never_keeps_payables_verified(row):
+    # Today each is Verified (auto_lender_dealer_funding).
+    record = _records([_R3_52_PAYABLES, row], holder=_R3_52_AGENCY)[0]
+    assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+    # The hidden-loan guard: where the lender also collects from the account, the row is held, never Verified.
+    held = _records([_R3_52_PAYABLES, row, _R3_52_AUTO_PAY], holder=_R3_52_AGENCY)[0]
+    assert _q7_reading(held) == (
+        "excluded_pending_review", "financing_named_payer", "unverified_deposit", "lender_paid_for_services", None)
+    assert not held.contributes_to_true_revenue
+
+
+@pytest.mark.parametrize("row", _R3_52_EVIDENCE, ids=[row[0][:32] for row in _R3_52_EVIDENCE])
+def test_r3_52_dealer_evidence_still_keeps_payables_verified(row):
+    records = _records([_R3_52_PAYABLES, row], holder=_R3_52_AGENCY)
+    assert _q7_reading(records[0]) == (
+        "verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+    if row[0].startswith("NEXTGEAR"):
+        assert records[1].classification == "floor_plan_financing"
 
 
 def test_q9_c_the_reason_is_a_counted_reason_of_the_one_reason_table_right_after_factoring_payout():

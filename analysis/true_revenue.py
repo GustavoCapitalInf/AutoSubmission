@@ -963,8 +963,18 @@ _Q9_KEEPS = frozenset({
     "customer_financing_payout", "construction_progress_draw", "insurer_paid_for_services", LENDER_PAID_FOR_SERVICES,
 })
 #: Owner ruling 2026-10-02 (Q9 (c'); §8.7): dealer evidence on a statement's rows: a floor-plan form printed anywhere
-#: (FLOORPLAN, FLOOR PLAN), beside the registry's floor-plan financiers (FLOOR_PLAN_ALIASES).
-_FLOOR_PLAN_FORM = re.compile(r"(?<![A-Z])FLOOR ?PLAN\w*")
+#: (FLOORPLAN, FLOOR PLAN), beside the registry's floor-plan financiers (FLOOR_PLAN_ALIASES). Audit round 3, R3-B14
+#: (R3-52): the form's own words only, FLOORPLAN(S) and FLOOR PLANNING, never FLOORPLANNER (a planning tool's
+#: subscription) or FLOOR PLANKS (flooring).
+_FLOOR_PLAN_FORM = re.compile(r"(?<![A-Z])FLOOR ?PLAN(?:S|NING)?\b")
+#: Audit round 3, R3-B14 (R3-52; the underwriter's Q9 (c), "a lender paying a business for services counts as 'lender
+#: paid for services', never verified"): a floor-plan financier's credit printing service wording (a vendor payment, a
+#: repossession, a recovery, a tow, a transport, an inspection, a commission) pays the business for its services and is
+#: no dealer evidence; every corpus floor-plan credit is a VIN-bearing dealer advance, which still is.
+_FLOOR_PLAN_SERVICE_CREDIT = re.compile(
+    r"(?<![A-Z])(?:VENDOR ?(?:PMT|PAY|PAYMENT)|REPO|REPOS|REPOSSESS\w*|RECOVER\w*|TOW(?:ING|S)?|TRANSPORT\w*|INSPECT\w*"
+    r"|COMMISSIONS?)\b"
+)
 #: Owner ruling 2026-10-02 (Q9 (c'); §8.7): a dealer's name on the holder's name (the Q11 card's holder reading, shared
 #: with R2-OW06): a vehicle or equipment noun before a dealer's trade word, or a dealership's own word. Never read where
 #: the same name prints a recovery, repossession, towing or collateral word (_DEALER_HOLDER_VETO): a repossession or
@@ -3989,7 +3999,17 @@ def _dealer_activity(
     registry's FLOOR_PLAN_ALIASES, or a FLOOR PLAN form); or when a posted, non-duplicate debit is a purchase at a
     dealer-only wholesale auction (_WHOLESALE_AUCTION_DEBIT_NAMES). A listed auto lender's payables-only credit is no
     dealer evidence: a repossession agency's own payables would make its statement a dealer's (the Q9 card); nor is a
-    §7.8 auction payout credit (R2-OW06 adds it for Q11 only)."""
+    §7.8 auction payout credit (R2-OW06 adds it for Q11 only).
+
+    Audit round 3, R3-B14 (R3-52; Q9 (c), "a lender paying a business for services counts as 'lender paid for
+    services', never verified. The hidden-loan guard stays"): the auction arm reads a debit that is no card purchase
+    (_card_purchase_debit: classification pos, or the card forms classifier._CARD_FORM_DEBIT_PREFIX and
+    _CARD_FORM_DEBIT), so a purchase in Manheim, PA is no auction purchase, while an ACH, wire or check debit to the
+    auction still is; the floor-plan form reads FLOORPLAN(S) and FLOOR PLANNING only (_FLOOR_PLAN_FORM: never
+    FLOORPLANNER or FLOOR PLANKS); and a floor-plan financier's posted credit (any of the three arms) is evidence only
+    where it prints no service wording (_FLOOR_PLAN_SERVICE_CREDIT, read without the receiver field's value: a vendor
+    payment, a repossession, a recovery, a tow, a transport, an inspection, a commission). Debits are read as before.
+    Q11 (b)'s _dealer_statement reads the same arms."""
     classifier = _classifier()
     for index in indexes:
         record = records[index]
@@ -4002,14 +4022,34 @@ def _dealer_activity(
     for index, record in enumerate(records):
         if index in duplicate_indexes or not record.is_posted:
             continue
-        if record.classification == "floor_plan_financing":
-            return True
         text = classifier.revenue_text(record.normalized_description)
-        if registry_match(text, FLOOR_PLAN_ALIASES) is not None or _FLOOR_PLAN_FORM.search(text):
+        if (
+            record.classification == "floor_plan_financing" or registry_match(text, FLOOR_PLAN_ALIASES) is not None
+            or _FLOOR_PLAN_FORM.search(text)
+        ) and (
+            record.amount < 0
+            or _FLOOR_PLAN_SERVICE_CREDIT.search(classifier._without_receiver_value(text)) is None
+        ):
             return True
-        if record.amount < 0 and any(pattern.search(text) for pattern in _WHOLESALE_AUCTION_DEBIT_NAMES):
+        if (
+            record.amount < 0 and not _card_purchase_debit(record, text)
+            and any(pattern.search(text) for pattern in _WHOLESALE_AUCTION_DEBIT_NAMES)
+        ):
             return True
     return False
+
+
+def _card_purchase_debit(record: TransactionClassification, text: str) -> bool:
+    """Audit round 3, R3-B14 (R3-52): a debit that is a card purchase, as R2-B02 (R01) reads one: the classifier's
+    class `pos`, or a card form on its revenue text (classifier._CARD_FORM_DEBIT_PREFIX: CHECKCARD or PURCHASE <mmdd>;
+    _CARD_FORM_DEBIT: DEBIT CARD PURCHASE, DBCRD PUR, POS DB|DEBIT|PUR, POINT OF SALE, a glued PURCHASE<digits>, a
+    charge ending in a state or province code and its country)."""
+    classifier = _classifier()
+    stripped = text.strip()
+    return (
+        record.classification == "pos" or classifier._CARD_FORM_DEBIT_PREFIX.search(stripped) is not None
+        or _CARD_FORM_DEBIT.search(stripped) is not None
+    )
 
 
 def _dealer_contract_evidence(
@@ -4635,7 +4675,13 @@ def _lessor_business(
     excluded later in the pass) is, printing RENT, RENTS, RENTAL(S) or a rent LEASE on the row before its receiver
     fields, the holder's names removed; a row with a payer region counts under its payer key unless the region names
     the holder (region_names_holder), and a payer-less row counts as its own payer only on a check, cash, branch or ATM
-    deposit (a payer-less transfer, person-to-person or wire row never does)."""
+    deposit (a payer-less transfer, person-to-person or wire row never does).
+
+    Audit round 3, R3-B14 (R3-60; the underwriter's Q9 (b), "rent received counts when the business is in leasing or
+    property"; §8.1's "a payer-less transfer is never a rent payer"): in the third arm, a row whose payer region gives
+    an empty payer key (an account designation: 'ONLINE BANKING TRANSFER FROM CHK <n> ... RENT') is no rent payer, and
+    the rent words are read on the row with the payer's own name removed (_rent_payer_name), so a payer named '...
+    RENTALS' is no rent payer while a DES entry, a memo after the payer's company form and a wire's REF still read."""
     if not credits:
         return False
     classifier = _classifier()
@@ -4655,17 +4701,42 @@ def _lessor_business(
         text = pass_text(record, classifier.revenue_text(record.normalized_description))
         if _CARD_CREDIT_LABEL.search(text) or zelle_deposit(text):
             continue
-        row = _without_holder_name(classifier._before_receiver(text), _holder(record), also=_holder_strip_names(record))
-        if _RENT_RECEIVED.search(row) is None and _RENT_LEASE.search(row) is None:
+        holder, also = _holder(record), _holder_strip_names(record)
+        row = classifier._before_receiver(text)
+        if not _rent_words(_without_holder_name(row, holder, also=also)):
             continue
         channel = _channel(text, record.bank)
         region = _facts_region(text, channel, record.bank)
+        if region and classifier._payer_key(region) == ():
+            continue
+        name = _rent_payer_name(text, region)
+        if name and not _rent_words(_without_holder_name(row.replace(name, " ", 1), holder, also=also)):
+            continue
         if region:
             if not region_names_holder(record, text, region):
                 payers.add(("payer", classifier._payer_key(region)))
         elif channel in _DEPOSIT_CHANNELS:
             payers.add(("row", index))
     return len(payers) >= 2
+
+
+def _rent_words(row: str) -> bool:
+    """Q9 (b), the lessor's third arm: `row` prints RENT, RENTS, RENTAL(S) (never RENT A CAR) or a rent LEASE."""
+    return _RENT_RECEIVED.search(row) is not None or _RENT_LEASE.search(row) is not None
+
+
+def _rent_payer_name(text: str, region: str) -> str:
+    """Audit round 3, R3-B14 (R3-60): the payer's own name, which the lessor's third arm reads no rent word in. On a row
+    that prints a payer-name field (_prints_payer_name_field: a wire's sender, an ACH originator, a transfer's sender
+    after FROM) the name proper (_payer_name_proper: a wire's or an originator's whole region); on a row that prints
+    none, the region up to the end of its first company form (_Q9_FORM_WORD, the _rent_memo_payer convention: '<NAME>
+    LLC LEASE PMT' keeps its memo), or the whole region when it prints no company form. '' for a payer-less row."""
+    if not region:
+        return ""
+    if _prints_payer_name_field(text):
+        return _payer_name_proper(text, region)
+    form = _Q9_FORM_WORD.search(region)
+    return region[: form.end()] if form is not None else region
 
 
 def _names_the_payer(credit: CounterCredit, debit: _CounterDebit, *, legacy: bool, same_amount: bool) -> bool:
@@ -5085,9 +5156,12 @@ def _customer_financier(record: TransactionClassification, text: str) -> str | N
     credit under the $1 floor; on a channel other than a wire, an ACH or EFT row or an unlabelled one; on a row with no
     payer region, or a wire's region that names nobody (blanked as credit_facts blanks it); on a consumer-side row (OQ2's
     consumer words, _BNPL_CONSUMER_CREDIT: a refund, a return, a withdrawal, a reward, a card or a purchase) or a
-    class-action payout (_LEGAL_SETTLEMENT_WORDS), read without the receiver field's value; and on a consumer (PPD or
-    WEB) entry to a person who is not the holder. Otherwise the first financier whose spelling the region prints; a
-    spelling that holds LOAN (Snap's SNAP LOAN FUNDING) only in Snap's merchant form (_SNAP_MERCHANT_FUNDING)."""
+    class-action payout (_LEGAL_SETTLEMENT_WORDS), read without the receiver field's value; on a non-sale or financing
+    credit (audit round 3, R3-B14: R3-06, _payout_non_sale: an advance, capital, interest, a dividend or a rebate, read
+    without the receiver field's value and the holder's names, so a holder named CAPITAL never vetoes); and on a
+    consumer (PPD or WEB) entry to a person who is not the holder. Otherwise the first financier whose spelling the
+    region prints; a spelling that holds LOAN (Snap's SNAP LOAN FUNDING) only in Snap's merchant form
+    (_SNAP_MERCHANT_FUNDING)."""
     classifier = _classifier()
     if record.amount < classifier._MICRO_DEPOSIT_FLOOR:
         return None
@@ -5101,6 +5175,8 @@ def _customer_financier(record: TransactionClassification, text: str) -> str | N
         return None
     words = classifier._without_receiver_value(text)
     if classifier._BNPL_CONSUMER_CREDIT.search(words) or _LEGAL_SETTLEMENT_WORDS.search(words):
+        return None
+    if _payout_non_sale(record, text):
         return None
     holder = _holder(record)
     if consumer_entry(text, holder) and _person_receiver(text, "", holder):
@@ -5121,14 +5197,34 @@ def _claimed(record: TransactionClassification, text: str) -> bool:
     instant payout is claimed by that processor (its pulls and fees never hold it as the payer also debited). Owner
     ruling 2026-10-02 (Q8): and a lease-to-own or patient financier's merchant payout (_customer_financier), which skips
     the holds a payout entity or a factor skips (the insurer name, the financing, counter-debit, holder and non-sale
-    holds); the insurer, possible-return, pay, personal-income and payroll-tax holds and the $1 floor still read it."""
+    holds); the insurer, possible-return, pay, personal-income and payroll-tax holds and the $1 floor still read it.
+    Audit round 3, R3-B14 (R3-06): a payout entity's or a financier's credit printing a non-sale or financing word
+    (_payout_non_sale: an advance, capital, interest, a dividend or a rebate) is not claimed, so the holds read it as
+    they read the same row from any other payer; the payout_credit_entity tier arm is unchanged."""
     if record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD:
         return True
     if record.revenue_match_method in _REGISTRY_METHODS:
         return not registry_financing(record, text)
     if record.classification == "factoring":
         return True
-    return _payout_entity(text) is not None or _customer_financier(record, text) is not None
+    if _payout_entity(text) is not None and not _payout_non_sale(record, text):
+        return True
+    return _customer_financier(record, text) is not None
+
+
+def _payout_non_sale(record: TransactionClassification, text: str) -> bool:
+    """Audit round 3, R3-B14 (R3-06; the underwriter's Q8 of 2026-10-02, "Their consumer-side credits (refunds, loans to
+    the holder) stay as today", and the MCA principle): the row, read without the receiver field's value and without
+    the holder's names (the I47 strip's, _without_holder_name with _holder_strip_names), prints a non-sale or
+    financing word (classifier._PAYOUT_NON_SALE_CREDIT: ADVANCE(S), ADVNC, ADVN, ADVC, CASH ADV..., CAPITAL, CAPTL,
+    INTEREST, DIVIDEND(S), REBATE(S); never FUNDING, PAYOUT, PAYMENT, LEASE FUND, PROCEEDS or a bare ADV). Such a credit
+    of a payout entity or a lease-to-own or patient financier is never claimed as a merchant payout: a holder named
+    'NORTHWIND CAPITAL DENTAL', in its receiver field or in Snap's merchant form, never vetoes."""
+    classifier = _classifier()
+    words = _without_holder_name(
+        classifier._without_receiver_value(text), _holder(record), also=_holder_strip_names(record)
+    )
+    return classifier._PAYOUT_NON_SALE_CREDIT.search(words) is not None
 
 
 def _leading_card_credit(text: str) -> bool:
@@ -6633,7 +6729,10 @@ def _dealer_statement(
     wholesale auction), a §7.8 auction's payout credit (a non-duplicate record of `indexes` whose revenue entity is one
     of WHOLESALE_AUCTION_PAYOUT_FORMS' auctions), or a vehicle or equipment trade name on one of the holder's names (the
     first record's _holder_names, read through account_name_text: _ASSET_TRADE_HOLDER) that prints no recovery,
-    repossession, towing or collateral word (_DEALER_HOLDER_VETO). Read once per statement, before the tiers."""
+    repossession, towing or collateral word (_DEALER_HOLDER_VETO). Read once per statement, before the tiers. Audit
+    round 3, R3-B14 (R3-52): _dealer_activity's narrowed arms (no card purchase at an auction, no floor-plan financier's
+    service credit, no FLOORPLANNER or FLOOR PLANKS), so a non-dealer's asset sale beside such a row is asset-sale
+    proceeds."""
     if _dealer_activity(records, duplicate_indexes, indexes):
         return True
     if any(

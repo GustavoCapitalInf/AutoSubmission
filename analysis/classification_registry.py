@@ -2095,8 +2095,10 @@ ASSET_SALE_SELLER_WORD_ONLY: frozenset[str] = frozenset({"Copart", "Insurance Au
 #: flag or lender reading; each key is a ledger entity (tools/lender_ledger.customer_financing_problems). A bare CHERRY
 #: is Cherry only when the whole region is CHERRY plus company or entry words ('CHERRY FUNDING', 'CHERRY INC'); a
 #: longer name is another payer ('CHERRY HILL PLUMBING LLC'). KATAPULT ENGINEERING and KATAPULT PRO (KatapultPro,
-#: pole-attachment software) are a namesake, never this lessor. SNAP LOAN FUNDING is read only in Snap's merchant form
-#: (the pass's _SNAP_MERCHANT_FUNDING: 'SNAP LOAN FUNDING F<digits> <merchant>'); a loan to the holder stays a loan.
+#: pole-attachment software) are a namesake, never this lessor; audit round 3, R3-B14 (R3-54): so are the cut forms of
+#: Katapult Engineering's name (KATAPULT ENG..., 'KATAPULT ENGINEE' the 16-character ACH company field), read by
+#: ENG\w*. SNAP LOAN FUNDING is read only in Snap's merchant form (the pass's _SNAP_MERCHANT_FUNDING: 'SNAP LOAN
+#: FUNDING F<digits> <merchant>'); a loan to the holder stays a loan.
 CUSTOMER_FINANCING_PAYERS: dict[str, str] = {
     "SNAP Finance": r"(?<![A-Z])SNAP (?:FINANCE|LOAN FUNDING)\b",
     "Koalafi": r"(?<![A-Z])KOALAFI\b",
@@ -2107,17 +2109,18 @@ CUSTOMER_FINANCING_PAYERS: dict[str, str] = {
     "Acima": r"(?<![A-Z])ACIMA\b",
     "Terrace Finance": r"(?<![A-Z])TERRACE FINANCE\b",
     "Wisetack": r"(?<![A-Z])WISETACK\b",
-    "Katapult": r"(?<![A-Z])KATAPULT\b(?! (?:ENGINEERING|PRO)\b)",
+    "Katapult": r"(?<![A-Z])KATAPULT\b(?! (?:ENG\w*|PRO)\b)",
     "Progressive Leasing": r"(?<![A-Z])(?:PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING)\b",
 }
 
 #: Owner ruling 2026-10-02 (Q8): the names of CUSTOMER_FINANCING_PAYERS' financiers, read with the receiver field's
 #: value removed (analysis/true_revenue.py compiles it): a row that names one of them is never verified by Q5 or Q6 and
-#: never counts toward a Q5 or Q6 repeat, wherever the name prints (KATAPULT with the same namesake lookahead).
+#: never counts toward a Q5 or Q6 repeat, wherever the name prints (KATAPULT with the same namesake lookahead, the cut
+#: KATAPULT ENG... forms included: audit round 3, R3-B14, R3-54).
 #: SECTION_15_DEFERRED_PAYERS' ACIMA|KATAPULT|KOALAFI line overlaps it and is left as it is.
 CUSTOMER_FINANCING_NAMES: str = (
     r"(?<![A-Z])(?:SNAP FINANCE|SNAP LOAN FUNDING|KOALAFI|ACIMA|TERRACE FINANCE|WISETACK"
-    r"|KATAPULT(?! (?:ENGINEERING|PRO)\b)|PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING|CHERRY TECHNOL\w*"
+    r"|KATAPULT(?! (?:ENG\w*|PRO)\b)|PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING|CHERRY TECHNOL\w*"
     r"|CHERRYPAY)\b"
 )
 
