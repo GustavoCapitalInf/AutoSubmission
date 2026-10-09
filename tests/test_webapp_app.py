@@ -1577,6 +1577,101 @@ def test_the_package_rows_name_a_longer_printout_in_words():
 
 
 # ---------------------------------------------------------------------------
+# Audit round 3, R3-B18 (R3-02, R3-04, R3-05; MCA standard §4.6(3)): one account's statements in a package. A statement
+# that prints no bank or fewer than four account digits is still one statement with another reading of it when its
+# period, its balances and its ledger rows on the day and the signed cents are the same (the `ledger:` key); it is
+# compared with the account's other statements (a "possible pair": banks, names and currencies not differing); an
+# overlap of one account's statements a day off or in other wording is named, never netted; and a monthly statement of
+# 32 to 35 days is never left out in favour of partial printouts that overlap each other. Fabricated CONTOSO BANK
+# statements of CONTOSO BAKERY LLC, NORTHWIND SUPPLY LLC and FABRIKAM rows, 2031.
+# ---------------------------------------------------------------------------
+
+#: The (number, bank) variants of a statement whose account is not printed in full: no number read, a number masked to
+#: three digits, a full number printed with no bank read.
+_UNKEYED_VARIANTS = [(None, "CONTOSO BANK"), ("XXXXXXXX010", "CONTOSO BANK"), ("000000001010", "")]
+
+
+def _unkeyed(job_id, rows, start, end, *, number=None, bank="CONTOSO BANK", opening=1500.0,
+             name="CONTOSO BAKERY LLC"):
+    return _listed(job_id, _printed(number, rows, start=start, end=end, opening=opening, bank=bank, name=name),
+                   content=job_id)
+
+
+@pytest.mark.parametrize(("number", "bank"), _UNKEYED_VARIANTS)
+def test_a_re_read_statement_whose_number_is_not_read_is_left_out_by_its_ledger(number, bank):
+    from webapp.app import _package_analysis
+
+    march = _unkeyed("mar", _MARCH, "2031-03-01", "2031-03-31", number=number, bank=bank)
+    april = _unkeyed("apr", _APRIL, "2031-04-01", "2031-04-30", number=number, bank=bank, opening=21000.0)
+    again_payload = _copy_module.deepcopy(march.analysis)
+    again_payload["model_used"] = "fabricated-other-reader"
+    package = _package_analysis([march, april, _listed("again", again_payload, content="again")])
+    assert _left_out(package) == [("again", "mar", "same_statement", "listed_first")]
+    assert _r14(package) == (40000.0, 20000.0, 2, "review_required")
+
+
+@pytest.mark.parametrize(("number", "bank"), _UNKEYED_VARIANTS)
+def test_a_re_read_statement_carrying_a_decision_keeps_the_decided_copy(number, bank):
+    from webapp.app import _package_analysis
+
+    march = _unkeyed("mar", _MARCH, "2031-03-01", "2031-03-31", number=number, bank=bank)
+    april = _unkeyed("apr", _APRIL, "2031-04-01", "2031-04-30", number=number, bank=bank, opening=21000.0)
+    again_payload = _copy_module.deepcopy(march.analysis)
+    again_payload["model_used"] = "fabricated-other-reader"
+    again_payload["statement"]["transactions"][0]["classification"]["revenue_review_status"] = "confirmed"
+    package = _package_analysis([march, april, _listed("again", again_payload, content="again")])
+    assert _left_out(package) == [("mar", "again", "same_statement", "has_review_decisions")]
+    assert package["totals"]["true_revenue_total"] == 40000.0
+
+
+def test_two_readings_with_one_number_read_are_one_statement():
+    from webapp.app import _account_identities, _package_analysis
+
+    march = _period("mar", _MARCH, "2031-03-01", "2031-03-31")
+    again = _unkeyed("again", _MARCH, "2031-03-01", "2031-03-31")
+    ledger = {key for key in _account_identities(march.analysis) if key.startswith("ledger:")}
+    assert ledger and ledger == {key for key in _account_identities(again.analysis) if key.startswith("ledger:")}
+    assert not any(key.startswith("statement:") for key in _account_identities(again.analysis))
+    package = _package_analysis([march, again])
+    assert _left_out(package) == [("again", "mar", "same_statement", "listed_first")]
+    assert package["totals"]["true_revenue_total"] == 20000.0
+
+
+def test_the_ledger_key_reads_the_period_the_balances_and_every_row_on_its_day_and_cents():
+    from webapp.app import _account_identities
+
+    def ledger(payload):
+        return {key for key in _account_identities(payload) if key.startswith("ledger:")}
+
+    march = _printed(None, _MARCH, start="2031-03-01", end="2031-03-31", opening=1500.0)
+    (key,) = ledger(march)
+    assert key.startswith("ledger:2031-03-01|2031-03-31|1500.00|21000.00|")
+    # Other wording, another classification or a review decision never change it; another day or cents does.
+    worded = _copy_module.deepcopy(march)
+    worded["statement"]["transactions"][0]["description"] = "ONLINE DEPOSIT NORTHWIND SUPPLY REF 0001"
+    worded["statement"]["transactions"][0]["classification"]["revenue_review_status"] = "rejected"
+    assert ledger(worded) == {key}
+    moved = _copy_module.deepcopy(march)
+    moved["statement"]["transactions"][0]["date"] = "2031-03-04"
+    assert ledger(moved) and ledger(moved) != {key}
+    # A statement that prints no balance, no period day or no row has none.
+    for field, value in (("beginning_balance", None), ("period_end", None), ("transactions", [])):
+        bare = _copy_module.deepcopy(march)
+        bare["statement"][field] = value
+        assert ledger(bare) == set()
+
+
+def test_the_package_bank_reads_the_informal_export_label_as_its_bank():
+    from webapp.app import _bank_key, _package_bank
+
+    assert _package_bank({"bank": "Chase  Transaction Export"}) == "chase"
+    assert _package_bank({"bank": "Chase"}) == "chase" and _package_bank({"bank": "CONTOSO BANK"}) == "contoso bank"
+    assert _package_bank({"bank": None}) == "" and _package_bank(None) == ""
+    # R2-OW15's and R2-OW16's passes keep reading the label as printed.
+    assert _bank_key({"bank": "Chase Transaction Export"}) == "chase transaction export"
+
+
+# ---------------------------------------------------------------------------
 # Audit round 2, R2-B15 (R15): an account the package leaves out of its figures for any reason but a repeat (a statement
 # whose main account is held or idle, an account that did not validate, every account of a document whose transfers
 # could not be paired or that left a section out without proof) sends the package to review and is named: completeness

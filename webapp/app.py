@@ -1,6 +1,7 @@
 from __future__ import annotations
 import io
 import csv
+import hashlib
 import json
 import os
 import re
@@ -1344,22 +1345,34 @@ def _account_identities(account: object) -> frozenset[str]:
       with no ledger publishes too little to tell two statements apart, and is never matched on it;
     * its statement key, when every part of it is printed: the bank, the account number's last four digits, the
       period's first and last day, and the opening and closing balance. A re-download of the same statement (other
-      bytes, so another content hash) prints the same key.
+      bytes, so another content hash) prints the same key;
+    * audit round 3, R3-B18 (R3-02): its ledger key (`ledger:`), when it prints both period days, both balances and at
+      least one ledger row: the period's days, the two balances and a hash over every ledger row's day and signed
+      cents (`_row_day`, `_row_cents`), whatever its classification. It is a parse identity no review decision, rules
+      version or setting changes, and it reads no bank and no account number, so another reading of a statement
+      whose bank or number was not read (or was read on one reading only) still matches it; `_package_duplicates`
+      never joins it between two printed full numbers that conflict.
 
-    An empty set when neither is established: such an account is never taken for a copy of another."""
+    An empty set when none is established: such an account is never taken for a copy of another."""
     if not isinstance(account, dict) or not isinstance(account.get("statement"), dict):
         return frozenset()
     statement = account["statement"]
     identities: set[str] = set()
-    if any(isinstance(row, dict) for row in statement.get("transactions") or []):
+    ledger = [row for row in statement.get("transactions") or [] if isinstance(row, dict)]
+    if ledger:
         identities.add("digest:" + account_content_digest(account))
     bank = " ".join(str(statement.get("bank") or "").split()).casefold()
     digits = "".join(character for character in str(statement.get("account_number") or "") if character.isdigit())
     start, end = statement.get("period_start"), statement.get("period_end")
     opening, closing = statement.get("beginning_balance"), statement.get("ending_balance")
-    if (bank and len(digits) >= 4 and isinstance(start, str) and start and isinstance(end, str) and end
-            and _is_money_value(opening) and _is_money_value(closing)):
+    printed = (isinstance(start, str) and start and isinstance(end, str) and end
+               and _is_money_value(opening) and _is_money_value(closing))
+    if printed and bank and len(digits) >= 4:
         identities.add(f"statement:{bank}|{digits[-4:]}|{start}|{end}|{float(opening):.2f}|{float(closing):.2f}")
+    if printed and ledger:
+        rows = json.dumps(sorted((_row_day(row), _row_cents(row)) for row in ledger))
+        identities.add(f"ledger:{start}|{end}|{float(opening):.2f}|{float(closing):.2f}|"
+                       + hashlib.sha256(rows.encode("utf-8")).hexdigest())
     return frozenset(identities)
 
 
@@ -1459,7 +1472,10 @@ def _package_duplicates(jobs) -> tuple[list, list[dict], dict[str, dict[int, str
     `_numbers_conflict`): each key holds every kept job that claimed it, in claim order, and an account matches the
     first of them whose number does not conflict with its own, in the same-statement test, in the choice of the job
     it repeats and in `repeated_accounts` alike. A content digest (`digest:`, which covers the whole payload, the
-    number included) matches as before, and so does a masked or a four-digit print.
+    number included) matches as before, and so does a masked or a four-digit print. Audit round 3, R3-B18 (R3-02): a
+    ledger key (`ledger:`, the period, the balances and every ledger row's day and signed cents, no bank and no
+    number) is read as a statement key is, so another reading of a statement whose bank or number was not read is the
+    same statement (`same_statement`, the copy kept by `_copy_rank`), never between conflicting printed numbers.
 
     Returns ``(kept jobs, dropped, repeated_accounts, groups)`` in LISTED order: `dropped` lists ``{"job",
     "duplicate_of", "reason", "kept_because", "position"}`` (`position`: the job's place in the list); each group lists
@@ -2201,9 +2217,27 @@ _OWN_MONEY_HELD_REASONS = frozenset({
 
 def _bank_key(statement: object) -> str:
     """The bank a statement prints, casefolded and its blanks collapsed ('' when none): the bank an account is read
-    under by audit round 2, R2-B15's months (R13) and R2-OW15's package passes."""
+    under by R2-OW15's and R2-OW16's package passes (audit round 2, R2-B15's months read `_package_bank` since audit
+    round 3, R3-B18)."""
     bank = statement.get("bank") if isinstance(statement, dict) else None
     return " ".join(str(bank or "").split()).casefold()
+
+
+#: Audit round 3, R3-B18 (R3-04): an informal printout's label, read as the bank whose account it prints
+#: (`_package_bank`). Chase's online transaction export publishes the label "Chase Transaction Export"
+#: (analysis/chase.py:240, `bank="Chase Transaction Export"`) where its statements publish "Chase" (analysis/chase.py:867,
+#: `bank="Chase"`); the export is no formal statement (analysis/parser_registry_entries.py:363, `chase_export`'s
+#: `formal_statement: False`). Found's month-to-date view already prints its statement's label "Lead Bank (Found)"
+#: (analysis/found_lead.py:360) and needs none.
+_PACKAGE_BANK_ALIASES = {"chase transaction export": "chase"}
+
+
+def _package_bank(statement: object) -> str:
+    """Audit round 3, R3-B18 (R3-02, R3-04): the bank one account's statements are compared under by the package's
+    shorter-printout and overlap pass (R14, `_package_superseded`) and its months (R13): `_bank_key`, an informal
+    printout's label read as its bank (`_PACKAGE_BANK_ALIASES`)."""
+    bank = _bank_key(statement)
+    return _PACKAGE_BANK_ALIASES.get(bank, bank)
 
 
 def _revenue_rows_authoritative(rows: list[dict]) -> bool:
