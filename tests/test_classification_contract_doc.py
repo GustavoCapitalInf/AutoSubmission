@@ -2654,3 +2654,64 @@ def test_r3_b15_r2_the_code_s_docstrings_name_the_readings():
         r"\s+", " ", true_revenue.construction_progress_draw.__doc__)
     source = inspect.getsource(true_revenue)
     assert "R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11)" in source
+
+
+#: Audit round 3, R3-B16: the code commit §20 and the contract name.
+R3_B16_CODE_COMMIT = "c2bf1cf"
+
+
+def test_the_spec_and_the_contract_record_r3_b16():
+    """Audit round 3, R3-B16 (R3-03, R3-35, R3-33, R3-34): §8.1's brand list, the release's carrier-debit sentence and
+    `payer_also_debited`'s ATM, fee-source, glued-entry and released-insurer sentences; §9.3's stored-output bullet;
+    §17.1's I26 item; the R2-OW08 and R2-B02 review round 1 lines marked in place; one §20 line per issue and the
+    batch line with the commit; and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("American Income Life, `AM INCOME LIFE` or `AMERICAN INCOME LIFE`",
+                  "the entry's `AIL INS` never read as the brand; audit round 3, R3-B16: R3-03, §20",
+                  "recurs at one amount without a premium or retry word",
+                  "amended by audit round 3, R3-B16: R3-03, §20",
+                  "none of them a cash or posting word (audit round 3, R3-B16: R3-34, §20",
+                  "Audit round 3, R3-B16 (R3-33, §20)",
+                  "(R3-35, §20) The processor's fee and the bill are read with Chase's glued SEC code split off",
+                  "(R3-03, §20; owner ruling 2026-10-02, the underwriter's Q2; the MCA principle)"):
+        assert words in holds, words
+    assert "- Audit round 3, R3-B16 (§20): no bump in a fix batch either" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "Audit round 3, R3-B16 (R3-03, §20) adds a tenth brand, American Income Life" in open_items
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("amended by audit round 3, R3-B16: R3-03, §20 below: a debit naming its carrier holds it only when "
+                  "circular",
+                  "narrowed by audit round 3, R3-B16: R3-34, §20 below: none of them a cash or posting word",
+                  "corrected by audit round 3, R3-B16: R3-33, §20 below:",
+                  "- **Chase's glued fee and bill entries read their kind**",
+                  "- **A released insurer is held by its carrier's debit only as circular money",
+                  "- **The outgoing-wire fee's source account reads its product name**",
+                  "- **The ATM carve-out never reads a cash or posting word as a company's name**",
+                  "- **Audit round 3, R3-B16 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B16 (R3-") == 4
+    assert amendments.count(R3_B16_CODE_COMMIT) >= 5
+    assert R3_B16_CODE_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B16 in all**")
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B16 (R3-03, R3-35, R3-33, R3-34; {R3_B16_CODE_COMMIT})",
+                  "is a credit-only insurer brand, so the release reads it",
+                  "an insurer the release does not count stays held beside its premium or bill"):
+        assert words in contract, words
+
+
+def test_r3_b16_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B16: also_debited and counter_credit name R3-03's carrier-debit rule, the kind reader R3-35's
+    split and R3-33's fee source, _cash_withdrawal R3-34's carve-out, and the registry's brand comment its evidence."""
+    from analysis import classification_registry
+
+    also = re.sub(r"\s+", " ", true_revenue.also_debited.__doc__)
+    assert "Audit round 3, R3-B16 (R3-03; owner ruling 2026-10-02, the underwriter's Q2" in also
+    assert "Audit round 3, R3-B16 (R3-03): `released_insurer`" in re.sub(
+        r"\s+", " ", true_revenue.counter_credit.__doc__)
+    kind = re.sub(r"\s+", " ", true_revenue._counter_debit_kind.__doc__)
+    assert "Audit round 3, R3-B16 (R3-35; standard A1, A2, §4.2; §20 B4 review round 1)" in kind
+    assert "R3-33: FROM before an account product's name" in kind
+    assert "Audit round 3, R3-B16 (R3-34)" in re.sub(r"\s+", " ", true_revenue._cash_withdrawal.__doc__)
+    registry = inspect.getsource(classification_registry)
+    assert "Audit round 3, R3-B16 (R3-03; owner-batch insurer code, R2-OW07's table): American Income Life" in registry
