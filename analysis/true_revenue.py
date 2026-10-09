@@ -4486,7 +4486,10 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
     platform's payout id (R18, processor_payout); a lender debit is read with the place words kept, and a
     person-to-person or push debit to a named recipient records its person_key (R02). Audit round 3, R3-B16 (R3-03):
     each non-lender debit, a card-marked one included, records whether it prints a premium or a retry of one
-    (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code split off); a lender debit never does."""
+    (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code split off); a lender debit never does. Audit round 3,
+    R3-B17 (R3-15): a debit whose reading names no word is kept when it names a numbered company's number
+    (CounterDebitReading.number), and recurs by that number (_head_word); (R3-77, R3-74) each debit is read without its
+    bank's posting-type label and a leading pre-authorized-debit label (classifier._counter_debit_text)."""
     classifier = _classifier()
     lender: list[_CounterDebit] = []
     other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool, bool]] = []
@@ -4495,7 +4498,8 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
             continue
         lender_debit = record.classification in LENDER_DEBIT_STATES
         reading, card_purchase = classifier.counter_debit_debit_reading(record, keep_places=lender_debit)
-        if reading.legacy is None and not reading.keys:
+        # Audit round 3, R3-B17 (R3-15): a debit to a numbered company is kept by its number.
+        if reading.legacy is None and not reading.keys and reading.number is None:
             continue
         text = record.normalized_description
         payout = processor_payout(text)
@@ -4550,7 +4554,10 @@ def _cash_withdrawal(text: str) -> bool:
 
 
 def _head_word(reading: CounterDebitReading) -> str | None:
-    return reading.heads[0][0] if reading.heads else reading.legacy
+    """Audit B4: the word a debit's recurrence is keyed by. Audit round 3, R3-B17 (R3-15): a numbered company's number
+    where the debit reads no word, so a numbered funder's daily debits at one amount recur by their number and two
+    numbered payees never share a key."""
+    return reading.heads[0][0] if reading.heads else (reading.legacy or reading.number)
 
 
 def _counter_region(text: str, region: str) -> str:
@@ -4606,12 +4613,15 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     such a rail too, so a French autodeposit's sender names a debit as its English twin's does. Audit round 3, R3-B16
     (R3-03): `released_insurer` is True on that released credit, which also_debited holds by a debit naming its carrier
     only when the debit is circular money, is for its own amount, or recurs at one amount printing no premium or retry
-    word."""
+    word. Audit round 3, R3-B17 (R3-77, R3-74): both readings are read with the statement's bank (`record.bank`), so
+    its posting-type label names no payer (classifier._without_posting_type_label: RBC's `INSURANCE <insurer>`); (R3-15)
+    a numbered company's reading carries its number."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     # Audit round 2, R2-B11 (R09 part A): TD Canada Trust's e-Transfer code is no sender, so never a counter-debit key.
     words = _counter_region(text, region) if _transfer_code(record) is None else region
-    reading = classifier.counter_debit_payer_reading(words)
+    # Audit round 3, R3-B17 (R3-77, R3-74): read without the statement's bank's posting-type label.
+    reading = classifier.counter_debit_payer_reading(words, bank=record.bank)
     person_key = None
     if (
         (
@@ -4634,7 +4644,7 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
         insurer=_INSURER_CREDIT.search(row) is not None and record.revenue_match_method != INSURER_FOR_WORK_METHOD,
         payout=processor_payout(text),
         person_key=person_key,
-        lender_reading=classifier.counter_debit_payer_reading(words, keep_places=True),
+        lender_reading=classifier.counter_debit_payer_reading(words, keep_places=True, bank=record.bank),
         # Audit round 3, R3-B16 (R3-03): the credit the Q2 release counted as the business's work.
         released_insurer=record.revenue_match_method == INSURER_FOR_WORK_METHOD,
     )
@@ -4642,7 +4652,12 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
 
 def _same_payer(credit: CounterDebitReading, debit: CounterDebitReading, *, legacy: bool) -> bool:
     """Audit B4: the payer and the debit name one payer: by the B4 forms (I38's glued forms included), or, where 5.6's
-    reading still governs (`legacy`), by 5.6's first distinctive word."""
+    reading still governs (`legacy`), by 5.6's first distinctive word. Audit round 3, R3-B17 (R3-15; standard C1, B6,
+    A17; the underwriter's Q9 of 2026-10-02; OQ3): first, by a numbered company's number, read on both sides only
+    where the numbered-company form prints (CounterDebitReading.number), so debited_as_lender, _names_the_payer and
+    _payer_collects read a numbered funder, affiliate or own account as they read a named one."""
+    if credit.number is not None and credit.number == debit.number:
+        return True
     if legacy and credit.legacy is not None and credit.legacy == debit.legacy:
         return True
     return not credit.keys.isdisjoint(debit.keys)

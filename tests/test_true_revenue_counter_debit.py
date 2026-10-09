@@ -1311,3 +1311,271 @@ def test_r3_33_the_fee_for_the_holder_s_wire_from_its_checking_still_holds_the_p
         HELD_ALSO] * 2
     assert [_tier(record) for record in _credits(_records(rows, holder="NORTHWIND LABS LLC"))] == [
         ("verified", None)] * 2
+
+
+# --- Audit round 3, R3-B17 --------------------------------------------------------------------------------------------
+# R3-77 (owner ruling 2026-10-02, the underwriter's Q2; standard A9; the hold's purpose, B6): a statement's bank's own
+# posting-type label names no party, so on RBC (INSURANCE, INVESTMENT, FEES DUES, EQUIPMENT RENT, PAY EMPLOYEE VENDOR)
+# and Scotiabank (INVESTMENT) the counter-debit readings read the party after it, on credits and debits alike; any
+# other bank reads as before. R3-74 (the underwriter's Q9 of 2026-10-02, "a payer that also debits the account like a
+# lender stays held"; §17.1 (5); standard C1, C2): a leading pre-authorized-debit label is cut from a debit and
+# Scotiabank's ACHDEBIT is a label word, so a funder collecting under them is read by its name. R3-15 (standard C1,
+# B6, A17; Q9; OQ3): a numbered company is compared by its number, read only where the numbered-company form prints.
+# Fabricated rows (FABRIKAM, WOODGROVE, NORTHWIND, CONTOSO; numbers 1234567, 7654321, 1234-5678), 2054 dates.
+
+RBC = "Royal Bank of Canada"
+R3_B17_HOLDER = "NORTHWIND BAKERY LTD"
+HELD_FINANCING = ("excluded_pending_review", "financing_named_payer")
+HELD_LENDER = ("excluded_pending_review", "payer_debited_as_lender")
+LENDER_SERVICES = ("counted_flagged", "lender_paid_for_services")
+NUMBERED = ("counted_flagged", "numbered_company_payer")
+
+
+def _r3_b17(rows, bank, *, holder=R3_B17_HOLDER):
+    """The rows on consecutive days from 2054-03-02, as one statement of `bank`."""
+    return _records(rows, holder=holder, bank=bank)
+
+
+def _funding_and_ten(credit, debit, bank, *, amount=30000.0):
+    """A funding (or any credit) and ten daily debits of 450.00: the credit's tier and reason."""
+    records = _r3_b17([(credit, amount), *[(debit, -450.0)] * 10], bank)
+    return [_tier(record) for record in _credits(records)]
+
+
+def _debit_reading(text, bank, *, keep_places=False):
+    record = _r3_b17([(text, -450.0)], bank)[0]
+    return tc.counter_debit_debit_reading(record, keep_places=keep_places)[0]
+
+
+@pytest.mark.parametrize("bank", [RBC, "RBC", "Banque Royale du Canada", "RBC Royal Bank", "royal bank of canada"])
+def test_r3_77_rbc_s_insurance_label_names_no_payer(bank):
+    reading = tc.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank)
+    assert reading.legacy == "SUNLIFE"
+    assert "SUNLIFE" in reading.keys and not any(key.startswith("INSURANCE") for key in reading.keys)
+    lender = tc.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank, keep_places=True)
+    assert lender.legacy == "SUNLIFE"
+
+
+@pytest.mark.parametrize("bank", [None, "", "Chase", "Royal Bank of Scotland", "CIBC"])
+def test_r3_77_another_bank_reads_a_leading_insurance_word_as_before(bank):
+    reading = tc.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank)
+    assert reading.legacy == "INSURANCE" and "INSURANCE" in reading.keys
+
+
+def test_r3_77_the_label_is_cut_once_and_only_before_a_word():
+    assert tc._without_posting_type_label("INSURANCE SUNLIFE GRP", RBC) == "SUNLIFE GRP"
+    assert tc._without_posting_type_label("INSURANCE", RBC) == "INSURANCE"
+    assert tc._without_posting_type_label("INSURANCE INSURANCE SAMPLE", RBC) == "INSURANCE SAMPLE"
+    assert tc._without_posting_type_label("FEES DUES SAMPLE ASSOCIATION", RBC) == "SAMPLE ASSOCIATION"
+    assert tc._without_posting_type_label("PAY EMPLOYEE VENDOR CONTOSO", RBC) == "CONTOSO"
+    assert tc._without_posting_type_label("SAMPLE INSURANCE CO", RBC) == "SAMPLE INSURANCE CO"
+    assert tc._without_posting_type_label("INVESTMENT FABRIKAM CAPITAL INC", "Scotiabank") == "FABRIKAM CAPITAL INC"
+    assert tc._without_posting_type_label("INSURANCE SAMPLE", "The Bank of Nova Scotia") == "INSURANCE SAMPLE"
+    assert tc._without_posting_type_label("INVESTMENT FABRIKAM", "Chase") == "INVESTMENT FABRIKAM"
+
+
+def test_r3_77_the_label_table_is_normalized():
+    from analysis.classification_registry import BANK_POSTING_TYPE_LABELS
+
+    for markers, labels in BANK_POSTING_TYPE_LABELS:
+        assert markers and labels
+        for word in (*markers, *labels):
+            assert tc.normalize_transaction_description(word) == word, word
+        assert len(set(labels)) == len(labels)
+
+
+def test_r3_77_rbc_s_debit_reads_the_party_after_its_label():
+    reading = _debit_reading("Insurance THE PERSONAL", RBC)
+    assert reading.legacy == "PERSONAL" and "INSURANCE" not in reading.keys
+    # The same insurer's premium still names it.
+    assert "SUNLIFE" in _debit_reading("Insurance SUNLIFE GRP", RBC).keys
+    # Another bank's debit keeps the word.
+    assert _debit_reading("INSURANCE THE PERSONAL", "Chase").legacy == "INSURANCE"
+
+
+def test_r3_77_a_chase_credit_named_insurance_keeps_its_word():
+    from analysis.true_revenue import counter_credit
+
+    record = _credits(_records([("INSURANCE AUTO AUCTIONS DES:SELLER PMT ID:0001", 2400.0)], bank="Chase"))[0]
+    text = tc.revenue_text(record.normalized_description)
+    credit = counter_credit(record, text, tc.payer_region(text))
+    assert credit.reading.legacy == "INSURANCE" and "INSURANCE" in credit.reading.keys
+
+
+# R3-74: a funder collecting under a pre-authorized-debit label or RBC's and Scotiabank's INVESTMENT form.
+
+@pytest.mark.parametrize(("credit", "debit", "bank"), [
+    pytest.param("ACCOUNT PAYABLE PMT FABRIKAM CAPITAL", "INVESTMENT FABRIKAM PAD", RBC, id="rbc-investment"),
+    pytest.param("ACCOUNTS PAYABLE FABRIKAM CAPITAL", "INVESTMENT FABRIKAM CAPITAL INC", "Scotiabank",
+                 id="scotia-investment"),
+    pytest.param("ACCOUNTS PAYABLE FABRIKAM CAPITAL", "MISC PAYMENT ACHDEBIT FABRIKAM CAPITAL CA", "Scotiabank",
+                 id="scotia-achdebit"),
+    pytest.param("MISC PAYMENT FABRIKAM CAPITAL VENDOR PMT", "PRE-AUTH DEBIT 0000000 FABRIKAM CAPITAL BUSINESS PAD",
+                 "CIBC", id="cibc-pre-auth-reference"),
+    pytest.param("MISC PAYMENT FABRIKAM CAPITAL VENDOR PMT", "PRE-AUTH DEBIT FABRIKAM CAPITAL", "CIBC",
+                 id="cibc-pre-auth"),
+])
+def test_r3_74_a_funder_collecting_under_a_canadian_label_keeps_its_funding_held(credit, debit, bank):
+    # Today the label word (INVESTMENT, ACHDEBIT, AUTH) is read as the payee and the Q9 release counts the funding.
+    assert _funding_and_ten(credit, debit, bank) == [HELD_FINANCING]
+
+
+def test_r3_74_a_payer_with_no_financing_root_collecting_under_rbc_s_investment_form_is_held():
+    # Today verified payer_remittance_descriptor.
+    assert _funding_and_ten("ACCOUNT PAYABLE PMT FABRIKAM TRADING", "INVESTMENT FABRIKAM PAD", RBC) == [HELD_LENDER]
+
+
+@pytest.mark.parametrize("debit", [
+    "BUSINESS PAD FABRIKAM CAPITAL", "MISC PAYMENT FABRIKAM CAPITAL", "LOAN FABRIKAM CAPITAL",
+    "PRE-AUTHORIZED DEBIT FABRIKAM CAPITAL",
+])
+def test_r3_74_the_labels_that_already_read_the_funder_hold_as_today(debit):
+    assert _funding_and_ten("ACCOUNT PAYABLE PMT FABRIKAM CAPITAL", debit, RBC) == [HELD_FINANCING]
+
+
+def test_r3_74_the_funding_alone_stays_released():
+    records = _r3_b17([("ACCOUNT PAYABLE PMT FABRIKAM CAPITAL", 30000.0)], RBC)
+    assert [_tier(record) for record in _credits(records)] == [LENDER_SERVICES]
+
+
+@pytest.mark.parametrize(("text", "bank", "keep_places", "legacy"), [
+    # No Canadian bank: a leading INVESTMENT is the payee's own word.
+    ("INVESTMENT PROPERTY GROUP LLC DES:RENT ID:0001", "Chase", False, "INVESTMENT"),
+    ("Investment MERCH PAD", RBC, True, "MERCH"),
+    ("Investment MERCH PAD", RBC, False, "MERCH"),
+    ("PRE-AUTH DEBIT 0000000 WOODGROVE CAPITAL BUSINESS PAD", "CIBC", False, "WOODGROVE"),
+    ("PRE-AUTH DEBIT WOODGROVE CAPITAL", "CIBC", False, "WOODGROVE"),
+    ("PREAUTHORIZED DEBIT 0000000 0000000 WOODGROVE CAPITAL", "CIBC", False, "WOODGROVE"),
+    ("PRE-AUTHORISED DEBIT WOODGROVE CAPITAL", None, False, "WOODGROVE"),
+    ("MISC PAYMENT ACHDEBIT WOODGROVE CAPITAL CA", "Scotiabank", False, "WOODGROVE"),
+])
+def test_r3_74_the_debit_readings_read_the_payee_after_the_label(text, bank, keep_places, legacy):
+    assert _debit_reading(text, bank, keep_places=keep_places).legacy == legacy
+
+
+def test_r3_74_the_pad_label_keeps_a_numbered_company_s_number():
+    assert tc._PAD_LABEL_BEFORE_PAYEE.sub("", "PRE AUTH DEBIT 0000000 1234567 ONTARIO INC BUSINESS PAD") == (
+        "1234567 ONTARIO INC BUSINESS PAD")
+    assert _debit_reading("PRE-AUTH DEBIT 0000000 1234567 ONTARIO INC BUSINESS PAD", "CIBC").number == "1234567"
+    assert _debit_reading("PRE-AUTH DEBIT 1234-5678 QUEBEC INC", "CIBC").number == "12345678"
+    # A label alone names nobody.
+    assert _debit_reading("PRE-AUTH DEBIT 0000000", "CIBC") == tc._NO_COUNTER_DEBIT_READING
+
+
+@pytest.mark.parametrize(("debit", "entity"), [
+    ("PRE-AUTH DEBIT 0000000 FABRIKAM CAPITAL BUSINESS PAD", "Unidentified lender obligation"),
+    ("PRE-AUTH DEBIT FABRIKAM CAPITAL", "Pre Auth Fabrikam Capital"),
+])
+def test_r3_74_the_d6_potential_lender_names_are_unchanged(debit, entity):
+    # The cut lives only in the counter-debit readers (Not fixed: the D6 names, a lender-side batch).
+    records = _r3_b17([("MISC PAYMENT FABRIKAM CAPITAL VENDOR PMT", 30000.0), *[(debit, -450.0)] * 10], "CIBC")
+    assert {(record.classification, record.canonical_entity) for record in records if record.amount < 0} == {
+        ("potential_lender", entity)}
+
+
+# R3-15: numbered companies are compared by their number.
+
+@pytest.mark.parametrize(("region", "number", "keys"), [
+    ("1234567 ONTARIO", "1234567", set()),
+    ("1234567 ONTARIO INC", "1234567", set()),
+    ("1234 5678 QUEBEC INC", "12345678", set()),
+    ("7654321 ONTA AP CC", "7654321", set()),
+    ("1234567 ONTARIO INC O A NORTHWIND BAKERY", "1234567", {"NORTHWIND", "NORTHWINDBAKERY"}),
+    ("1234567 NORTHWIND SUPPLY INC", "1234567", {"NORTHWIND", "NORTHWINDSUPPLY"}),
+    ("NORTHWIND SUPPLY INC", None, {"NORTHWIND", "NORTHWINDSUPPLY"}),
+])
+def test_r3_15_a_credit_s_numbered_company_reads_its_number(region, number, keys):
+    for keep_places in (False, True):
+        reading = tc.counter_debit_payer_reading(region, keep_places=keep_places)
+        assert (reading.number, set(reading.keys)) == (number, keys)
+
+
+@pytest.mark.parametrize(("text", "number"), [
+    ("BUSINESS PAD 1234567 ONTARIO INC", "1234567"),
+    ("MISC PAYMENT 1234567 ONTARIO 55512", "1234567"),
+    ("E-TRANSFER SENT 1234567 ALBERTA LTD - CONTOSO", "1234567"),
+    ("ONLINE BILL PAYMENT 7654321 ONTARIO INC", "7654321"),
+    ("TRANSFER TO 7654321 ONTA", "7654321"),
+    ("1234-5678 QUEBEC INC", "12345678"),
+    # Any digits alone are no number: a cheque, a reference before a name word.
+    ("CHEQUE 1234567", None),
+    ("BILL PAYMENT 1234567 NORTHWIND SUPPLY INC", None),
+    ("MISC PAYMENT 123456 NORTH MOUNTAIN PAVING", None),
+    ("MISC PAYMENT 12345678901 ONTARIO", None),
+])
+def test_r3_15_a_debit_reads_a_number_only_where_the_numbered_form_prints(text, number):
+    assert _debit_reading(text, RBC).number == number
+
+
+def test_r3_15_the_debit_s_word_readings_are_unchanged():
+    reading = _debit_reading("BUSINESS PAD 1234567 ONTARIO INC", RBC)
+    assert (reading.legacy, reading.keys, reading.heads) == (None, frozenset(), ())
+    assert _debit_reading("TRANSFER TO 7654321 ONTA", RBC).legacy == "ONTA"
+
+
+def test_r3_15_same_payer_reads_equal_numbers():
+    from analysis.true_revenue import _same_payer
+
+    def reading(number, words=()):
+        return tc._counter_debit_reading(words[0] if words else None, [list(words)], number=number)
+
+    for legacy in (False, True):
+        assert _same_payer(reading("1234567"), reading("1234567"), legacy=legacy)
+        assert not _same_payer(reading("1234567"), reading("7654321"), legacy=legacy)
+        assert not _same_payer(reading(None), reading(None), legacy=legacy)
+        assert not _same_payer(reading("1234567"), reading(None), legacy=legacy)
+    # The words still match without a number.
+    assert _same_payer(reading(None, ["CONTOSO"]), reading("1234567", ["CONTOSO"]), legacy=False)
+
+
+def test_r3_15_the_number_is_the_reading_s_last_field():
+    from analysis.transaction_classifier import CounterDebitReading
+
+    assert list(CounterDebitReading.__dataclass_fields__)[-1] == "number"
+    assert CounterDebitReading.__dataclass_fields__["number"].default is None
+
+
+@pytest.mark.parametrize(("credit", "debit"), [
+    ("MISC PAYMENT 1234567 ONTARIO", "BUSINESS PAD 1234567 ONTARIO INC"),
+    ("MISC PAYMENT 1234-5678 QUEBEC INC", "BUSINESS PAD 1234-5678 QUEBEC INC"),
+])
+def test_r3_15_a_numbered_funder_collecting_daily_keeps_its_funding_held(credit, debit):
+    # Today counted numbered_company_payer: both readings were empty and the debits were dropped.
+    records = _r3_b17([(credit, 30000.0), *[(debit, -450.0)] * 10], RBC)
+    assert {record.classification for record in records if record.amount < 0} == {"potential_lender"}
+    assert [_tier(record) for record in _credits(records)] == [HELD_LENDER]
+
+
+def test_r3_15_another_number_never_holds_a_numbered_payer():
+    assert _funding_and_ten("MISC PAYMENT 1234567 ONTARIO", "BUSINESS PAD 7654321 ONTARIO INC", RBC) == [NUMBERED]
+
+
+def test_r3_15_a_numbered_affiliate_s_round_trip_is_held():
+    rows = [("MISC PAYMENT 1234567 ONTARIO", 5000.0), ("ONLINE BANKING TRANSFER TO 1234567 ONTARIO INC", -5000.0)]
+    assert [_tier(record) for record in _credits(_r3_b17(rows, RBC))] == [HELD_ALSO]
+    assert [_tier(record) for record in _credits(_r3_b17(rows[:1], RBC))] == [NUMBERED]
+
+
+@pytest.mark.parametrize(("debit", "expected"), [
+    # Today counted: the bill payment to the same number read no word.
+    pytest.param(("ONLINE BILL PAYMENT 7654321 ONTARIO INC", -4000.0), HELD_ALSO, id="same-number"),
+    # Today held by the ONTA key, whatever number the debit prints.
+    pytest.param(("TRANSFER TO 1111111 ONTA", -500.0), NUMBERED, id="another-number"),
+])
+def test_r3_15_bmo_s_cut_numbered_credit_is_compared_by_its_number(debit, expected):
+    records = _r3_b17([("DIRECT DEPOSIT 7654321 ONTA AP CC", 4000.0), debit], "BMO")
+    assert [_tier(record) for record in _credits(records)] == [expected]
+
+
+def test_r3_15_a_numbered_company_s_debits_are_kept_and_recur_by_their_number():
+    from analysis.true_revenue import _head_word, counter_debits
+
+    # Each row read alone (no statement's lender reading), so they are the holder's other debits.
+    rows = ["ONLINE BILL PAYMENT 1234567 ONTARIO INC"] * 2 + ["ONLINE BILL PAYMENT 7654321 ONTARIO INC"]
+    debits = counter_debits([tc.classify_transaction(text, -450.0, direction="debit") for text in rows], set())
+    assert not debits.lender
+    assert [(debit.reading.number, debit.recurring) for debit in debits.other] == [
+        ("1234567", True), ("1234567", True), ("7654321", False)]
+    assert _head_word(tc._counter_debit_reading(None, [[]], number="1234567")) == "1234567"
+    assert _head_word(tc._counter_debit_reading("CONTOSO", [["CONTOSO"]], number="1234567")) == "CONTOSO"
+    assert _head_word(tc._counter_debit_reading(None, [[]])) is None

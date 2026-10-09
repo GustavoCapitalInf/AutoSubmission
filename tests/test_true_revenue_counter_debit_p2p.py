@@ -384,3 +384,23 @@ def test_r3_34_a_remittance_reads_as_without_an_atm_withdrawal_printing_a_compan
     remittance = ("FABRIKAM INC DES:INV PMT ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD", 1800.0)
     assert credits([remittance, ("ATM WITHDRAWAL FABRIKAM INC SAMPLEVILLE", -200.0)]) == credits([remittance]) == [
         ("verified", "payer_remittance_descriptor")]
+
+
+# --- Audit round 3, R3-B17 (R3-15; standard C1, B6, A17; §8.1's purpose of the counter-debit holds; OQ3) -------------
+# An e-Transfer round trip with a numbered company is compared by the company's number, as the same rows with a word
+# name are held: the autodeposit's sender and the sent transfer's recipient read the same number. Fabricated numbers.
+
+ETRANSFER_IN = "E-TRANSFER - AUTODEPOSIT {payer} CA0000AB"
+
+
+@pytest.mark.parametrize(("payer", "recipient", "expected"), [
+    # Today counted p2p: both readings were empty (the number is no word, ALBERTA a place word, LTD noise).
+    pytest.param("1234567 ALBERTA LTD", "1234567 ALBERTA LTD - CONTOSO", HELD_ALSO, id="same-number"),
+    pytest.param("1234567 ALBERTA LTD", "7654321 ALBERTA LTD - CONTOSO", P2P, id="another-number"),
+    # The word-named twin, held as before.
+    pytest.param("FABRIKAM TRADING LTD", "FABRIKAM TRADING LTD - CONTOSO", HELD_ALSO, id="word-named"),
+])
+def test_r3_15_an_e_transfer_round_trip_with_a_numbered_company_is_held(payer, recipient, expected):
+    rows = [(ETRANSFER_IN.format(payer=payer), 2150.0), (f"E-TRANSFER SENT {recipient}", -1500.0)]
+    assert [_tier(record) for record in _credits(rows, bank="Royal Bank of Canada")] == [expected]
+    assert [_tier(record) for record in _credits(rows[:1], bank="Royal Bank of Canada")] == [P2P]

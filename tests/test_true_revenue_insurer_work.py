@@ -1591,3 +1591,47 @@ def test_r3_03_american_income_life_is_a_credit_only_brand():
     row = revenue_text(record.normalized_description)
     assert insurer_credit_brand(payer_region(row)) == "American Income Life"
     assert insurer_credit_brand(entry_fields(row)) is None
+
+
+# --- Audit round 3, R3-B17 --------------------------------------------------------------------------------------------
+# R3-77 (owner ruling 2026-10-02, the underwriter's Q2: insurer payments for the business's work count; standard A9;
+# the hold's purpose, B6): RBC prints its posting-type label INSURANCE before the party on credits and debits alike, and
+# the bank's own label names no party, so a clinic's insurer payments are compared with its debits by the insurer's own
+# name: a debit to another insurer the label alone named no longer holds them, and a premium to the same insurer
+# still names it. Fabricated holder (the file's CLINIC), public carriers by their names, 2054 dates.
+
+SAMPLE_MUTUAL = "INSURANCE SAMPLE MUTUAL"
+
+
+@pytest.mark.parametrize(("debits", "expected"), [
+    # Another insurer's debit for the second credit's own amount (today that credit is held: legacy INSURANCE).
+    pytest.param([(SAMPLE_MUTUAL, -120.40, "03-10")], [COUNTED] * 3, id="own-amount-another-insurer"),
+    # Another insurer's debit recurring at one amount, no premium word (today all three are held).
+    pytest.param([(SAMPLE_MUTUAL, -8.0, "03-04"), (SAMPLE_MUTUAL, -8.0, "03-11")], [COUNTED] * 3,
+                 id="recurring-another-insurer"),
+    # Controls: the same insurer's debits still name it (key MANULIFE), as today.
+    pytest.param([("INSURANCE MANULIFE GRP", -120.40, "03-10")], [COUNTED, HELD_ALSO, COUNTED],
+                 id="own-amount-same-insurer"),
+    pytest.param([("INSURANCE MANULIFE GRP", -8.0, "03-04"), ("INSURANCE MANULIFE GRP", -8.0, "03-11")],
+                 [HELD_ALSO] * 3, id="recurring-same-insurer"),
+])
+def test_r3_77_rbc_s_insurance_label_never_names_the_insurer(debits, expected):
+    records = _dated([*MANULIFE_CREDITS, *debits], **RBC_CLINIC)
+    assert [rules_reading(record) for record in records] == expected
+    assert {record.revenue_match_method for record in records} == {METHOD}
+
+
+@pytest.mark.parametrize("bank", ["RBC", "Banque Royale du Canada"])
+def test_r3_77_every_rbc_bank_field_reads_the_label(bank):
+    rows = [*MANULIFE_CREDITS, (SAMPLE_MUTUAL, -8.0, "03-04"), (SAMPLE_MUTUAL, -8.0, "03-11")]
+    assert [rules_reading(record) for record in _dated(rows, holder=CLINIC, bank=bank)] == [COUNTED] * 3
+
+
+def test_r3_77_another_rbc_label_names_no_payer_either():
+    # RBC's EQUIPMENT RENT label on a customer's credit and on another company's debits (today held by the key
+    # EQUIPMENT): the credit reads as without the debits.
+    credit = [("EQUIPMENT RENT FABRIKAM", 1500.0, "03-02")]
+    debits = [("EQUIPMENT RENT CONTOSO LEASING", -50.0, "03-04"), ("EQUIPMENT RENT CONTOSO LEASING", -50.0, "03-11")]
+    with_debits = [rules_reading(record) for record in _dated([*credit, *debits], **RBC_CLINIC)]
+    assert with_debits == [rules_reading(record) for record in _dated(credit, **RBC_CLINIC)]
+    assert with_debits[0][0] == "counted_flagged" and with_debits[0] != HELD_ALSO

@@ -10,6 +10,7 @@ from typing import Callable, Literal, Sequence, TYPE_CHECKING
 
 from .classification_registry import (
     BANK_NAME_ALIASES,
+    BANK_POSTING_TYPE_LABELS,
     BLUE_PLAN_CLAIM_PAYERS,
     CARD_SETTLEMENT_CREDIT_FORMS,
     CardSettlementForm,
@@ -1477,6 +1478,25 @@ _REFERENCE_BEFORE_PAYER = re.compile(
     r"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) (?P<reference>\d{6,15}) (?=\S)"
 )
 _KEEPS_ITS_NUMBER = re.compile(_PROVINCE_NOT_A_NAME_START)
+#: Audit round 3, R3-B17 (R3-15; §5.2, T11, §8.1; standard C1, B6, A17: a numbered company is the usual form of a
+#: holdco): the numbered-company form the counter-debit holds key a numbered company by: six to ten digits (no digit
+#: before them) and then a province or territory (or a cut of one) or BMO's code tail that is no name's first word
+#: (_PROVINCE_NOT_A_NAME_START), or Quebec's NNNN NNNN before QUEBEC (or its cut, or QC), then any legal forms, BMO
+#: codes and tail words (_BMO_CODE_TAIL, _NUMBERED_TAIL_WORDS). Its number is `number`, or Quebec's two groups joined
+#: (_numbered_form_number). Never any digits alone: a cheque, confirmation or payment number before a name word
+#: ('CHEQUE 1234567', 'BILL PAYMENT 1234567 NORTHWIND SUPPLY INC', 'MISC PAYMENT 123456 NORTH MOUNTAIN PAVING') is
+#: none.
+_NUMBERED_FORM = re.compile(
+    rf"(?<![0-9])(?:(?P<number>\d{{6,10}}) {_PROVINCE_NOT_A_NAME_START}"
+    rf"|(?P<first>\d{{4}}) (?P<second>\d{{4}}) {_QUEBEC}\b)"
+    rf"(?: (?:{_BMO_CODE_TAIL}|{_NUMBERED_TAIL_WORDS})\b)*"
+)
+#: Audit round 3, R3-B17 (R3-15; §5.2's payer region and holder test): RBC's `ACCOUNT PAYABLE PMT` and Scotiabank's
+#: `ACCOUNTS PAYABLE` label printed before a numbered company's number: removed before the payer region is read, so
+#: `ACCOUNT PAYABLE PMT 1234567 ONTARIO` reads the region `1234567 ONTARIO`, as `MISC PAYMENT 1234567 ONTARIO` does,
+#: and the holder test reads the holder's own number. A word-named payer after a reference keeps its region
+#: (`ACCOUNTS PAYABLE <reference> NORTHWIND SUPPLY INC`).
+_AP_LABEL_BEFORE_NUMBERED = re.compile(rf"^ACC(?:OUN)?TS? PAYABLE(?: PMT)? (?=\d{{6,10}} {_PROVINCE_NOT_A_NAME_START})")
 #: A3: a numbered company's number before its province or territory, or Quebec's NNNN NNNN before QUEBEC (the
 #: province arm of _NUMBERED_COMPANY_REGION), kept when a wire's sender is read after its label.
 _NUMBERED_PROVINCE_START = re.compile(rf"^\d{{6,}} {_PROVINCE}\b|^\d{{4}} \d{{4}} {_QUEBEC}\b")
@@ -2102,12 +2122,14 @@ def _ach_payer_region(text: str) -> str:
     labels removed, cut at the first ACH field, up to the first reference token after a name word. Audit B5: PNC's
     payer after its entry and reference (I15, pnc_corporate_ach); no reference printed before the payer's name (I59,
     I26's reader, _without_reference_before_payer); an empty ORIG CO label removed and CO ENTRY DESCR read as the
-    entry field it starts (I55)."""
+    entry field it starts (I55). Audit round 3, R3-B17 (R3-15): RBC's and Scotiabank's accounts-payable label before a
+    numbered company's number removed (_AP_LABEL_BEFORE_NUMBERED), so the region keeps the number."""
     row = _before_receiver(text)
     pnc = pnc_corporate_ach(row)
     if pnc is not None:
         return _leading_name_words(_payee_region(pnc[1]))
     row = _CO_ENTRY_DESCR_LABEL.sub("DESCR", _BARE_ORIG_CO_LABEL.sub("", row)).strip()
+    row = _AP_LABEL_BEFORE_NUMBERED.sub("", row, count=1)
     return _leading_name_words(_payee_region(_strip_revenue_template(_without_reference_before_payer(row))))
 
 
@@ -6993,6 +7015,59 @@ def _card_merchant_text(text: str, printed: str) -> str | None:
     return " ".join(tokens[:_CARD_MERCHANT_WORDS])
 
 
+#: Audit round 3, R3-B17 (R3-74; the underwriter's Q9 of 2026-10-02, §17.1 (5); standard C1, C2): a leading
+#: pre-authorized-debit label, on any bank (CIBC's `PRE-AUTH DEBIT [<reference>] <name> [BUSINESS PAD]`, `PRE-AUTHORIZED
+#: DEBIT`, `PREAUTHORISED DEBIT`), with the references printed after it: cut from a debit before the counter-debit
+#: readings, so the funder's name is read (`PRE AUTH DEBIT 0000000 WOODGROVE CAPITAL BUSINESS PAD` reads WOODGROVE,
+#: never AUTH). A numbered company's number after it is no reference (R3-15: `PRE AUTH DEBIT 1234567 ONTARIO INC` keeps
+#: `1234567 ONTARIO INC`). The D6 lender names are not read through it (_unknown_payee_tokens is unchanged).
+_PAD_LABEL_BEFORE_PAYEE = re.compile(
+    r"^(?:PRE ?AUTH(?:ORI[SZ]ED)?|PREAUTH(?:ORI[SZ]ED)?) DEBIT"
+    rf"(?: (?!\d{{6,10}} {_PROVINCE_NOT_A_NAME_START}|\d{{4}} \d{{4}} {_QUEBEC}\b)\d+)*(?= |$) ?"
+)
+
+
+@cache
+def _posting_type_label_pattern(bank: str) -> re.Pattern[str] | None:
+    """Audit round 3, R3-B17 (R3-77, R3-74): the posting-type labels of the statement's bank (BANK_POSTING_TYPE_LABELS,
+    read when the bank field contains one of the entry's bank words as whole words, in any case), longest first, as a
+    pattern that reads one of them at a text's start with a word after it; None when the bank prints none."""
+    field = normalize_transaction_description(bank).strip().upper()
+    labels: set[str] = set()
+    for markers, printed in BANK_POSTING_TYPE_LABELS:
+        if any(re.search(r"(?<![A-Z])" + re.escape(marker) + r"(?![A-Z])", field) for marker in markers):
+            labels.update(printed)
+    if not labels:
+        return None
+    alternatives = "|".join(re.escape(label) for label in sorted(labels, key=lambda label: (-len(label), label)))
+    return re.compile(rf"^(?:{alternatives}) (?=\S)")
+
+
+def _without_posting_type_label(text: str, bank: str | None) -> str:
+    """Audit round 3, R3-B17 (R3-77, R3-74; owner ruling 2026-10-02, the underwriter's Q2 and Q9; standard A9, B6, C1):
+    `text` without ONE posting-type label of the statement's bank (`bank`, Statement.bank) that starts it and has a
+    word after it: RBC's `INSURANCE`, `INVESTMENT`, `FEES DUES`, `EQUIPMENT RENT` and `PAY EMPLOYEE VENDOR`,
+    Scotiabank's `INVESTMENT` (BANK_POSTING_TYPE_LABELS). The bank's own label names no party, so on RBC `INSURANCE
+    SUNLIFE MED INS` reads SUNLIFE and `INVESTMENT MERCH PAD` reads MERCH. Any other bank, or no bank, reads `text`
+    unchanged (`INSURANCE AUTO AUCTIONS` keeps its first word)."""
+    if not bank:
+        return text
+    pattern = _posting_type_label_pattern(bank)
+    return text if pattern is None else pattern.sub("", text, count=1)
+
+
+def _counter_debit_text(record: TransactionClassification) -> tuple[str | None, bool]:
+    """5.5 (§7.5, §8.1): the text a posted debit's counter-debit readings read, and whether it is a card purchase (its
+    card-form prefix matched): on a card purchase its merchant's first two words (_card_merchant_text; None when it
+    prints none), else the text after the prefix. Audit round 3, R3-B17: on a debit that is no card purchase, without
+    the statement's bank's posting-type label (R3-77, _without_posting_type_label, read with `record.bank`) and then
+    without a leading pre-authorized-debit label (R3-74, _PAD_LABEL_BEFORE_PAYEE)."""
+    text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
+    if card_form:
+        return _card_merchant_text(text, record.original_description or ""), True
+    return _PAD_LABEL_BEFORE_PAYEE.sub("", _without_posting_type_label(text, record.bank), count=1), False
+
+
 def _debit_word_reading(
     record: TransactionClassification, *, keep_places: bool = False,
 ) -> tuple[str | None, bool]:
@@ -7000,17 +7075,17 @@ def _debit_word_reading(
     after its leading card-form words and MMDD date and only on its merchant's first two words (S2.4 review and
     re-review; D11 itself is unchanged). The second value says whether the debit is a card purchase (its card-form
     prefix matched): pass 7 leaves a card purchase's merchant out of payer_also_debited (5.6, A1 census). Audit round
-    2, R2-B02 (R02): never a rail's, a bank label's or (unless `keep_places`) a place's word (_without_not_a_payer)."""
-    text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
-    if card_form:
-        text = _card_merchant_text(text, record.original_description or "")
-        if text is None:
-            return None, True
+    2, R2-B02 (R02): never a rail's, a bank label's or (unless `keep_places`) a place's word (_without_not_a_payer).
+    Audit round 3, R3-B17 (R3-77, R3-74): read on _counter_debit_text, so a debit that is no card purchase is read
+    without its bank's posting-type label and a leading pre-authorized-debit label."""
+    text, card_form = _counter_debit_text(record)
+    if text is None:
+        return None, True
     words = [
         word for word in _distinctive_words(_without_not_a_payer(_unknown_payee_tokens(text), keep_places=keep_places))
         if word not in _counter_debit_skip_words()
     ]
-    return _first_distinctive_word(words), bool(card_form)
+    return _first_distinctive_word(words), card_form
 
 
 def _debit_first_distinctive_word(record: TransactionClassification) -> str | None:
@@ -7039,8 +7114,12 @@ _COUNTER_DEBIT_GENERIC_WORDS = frozenset({
 #: two-word state that are no generic word or name-starter), the provinces and territories, CANADA, CANADIAN and
 #: AMERICAN (a town's or a nation's adjective names a place, never a payer). The CASH APP phrase is skipped whole
 #: (_without_not_a_payer). The lender hold (payer_debited_as_lender) keeps the place words (`keep_places`): a funder
-#: may carry a state's name ('<STATE> VENTURE'), and that hold never lets a funder's money into True.
-_COUNTER_DEBIT_LABEL_WORDS = frozenset({"ZELLE", "INTERAC", "VENMO", "POPMONEY", "AUTODEPOSIT", "CASHAPP", "PAIEMENT"})
+#: may carry a state's name ('<STATE> VENTURE'), and that hold never lets a funder's money into True. Audit round 3,
+#: R3-B17 (R3-74; the underwriter's Q9 of 2026-10-02): Scotiabank's ACHDEBIT label ('MISC PAYMENT ACHDEBIT <name> CA')
+#: is a label word too.
+_COUNTER_DEBIT_LABEL_WORDS = frozenset({
+    "ZELLE", "INTERAC", "VENMO", "POPMONEY", "AUTODEPOSIT", "CASHAPP", "PAIEMENT", "ACHDEBIT",
+})
 _COUNTER_DEBIT_PLACE_WORDS = frozenset("""
 ALABAMA ALASKA ARIZONA ARKANSAS CALIFORNIA COLORADO CONNECTICUT DELAWARE FLORIDA GEORGIA HAWAII IDAHO ILLINOIS INDIANA
 IOWA KANSAS KENTUCKY LOUISIANA MAINE MARYLAND MASSACHUSETTS MICHIGAN MINNESOTA MISSISSIPPI MISSOURI MONTANA NEBRASKA
@@ -7093,14 +7172,49 @@ class CounterDebitReading:
     matches on it. `keys` are the B4 forms: the first distinctive word read without _COUNTER_DEBIT_GENERIC_WORDS, a
     three-letter payroll provider allowed (I56), and that word glued to the next one or two (I38: 'CONTOSO RIDGE'
     matches 'CONTOSORIDGE'), read on the text as printed and with its glued digit runs split off (I22). `heads` are
-    each first word with the words after it, which payer_debited_as_lender's prefix comparison reads."""
+    each first word with the words after it, which payer_debited_as_lender's prefix comparison reads. Audit round 3,
+    R3-B17 (R3-15; §5.2, T11, §8.1; standard C1, B6, A17): `number`, a numbered company's number (Quebec's NNNN NNNN
+    joined), read only where the numbered-company form prints (counter_debit_payer_reading, counter_debit_debit_reading;
+    never any digits alone), which true_revenue._same_payer matches before the words: a numbered company's words are
+    a province and a legal form, which name no payer."""
 
     legacy: str | None
     keys: frozenset[str]
     heads: tuple[tuple[str, tuple[str, ...]], ...]
+    number: str | None = None
 
 
 _NO_COUNTER_DEBIT_READING = CounterDebitReading(None, frozenset(), ())
+
+
+def _numbered_form_number(found: re.Match[str]) -> str:
+    """Audit round 3, R3-B17 (R3-15): the number of a _NUMBERED_FORM match: its six to ten digits, or Quebec's two
+    groups joined ('1234 5678 QUEBEC INC' reads '12345678')."""
+    return found.group("number") or found.group("first") + found.group("second")
+
+
+#: Audit round 3, R3-B17 (R3-15): the leading number of a payer region _NUMBERED_COMPANY_REGION reads: Quebec's two
+#: groups, or the six to ten digits.
+_NUMBERED_REGION_NUMBER = re.compile(
+    rf"^(?:(?P<first>\d{{4}}) (?P<second>\d{{4}}) {_QUEBEC}\b|(?P<number>\d{{6,10}})\b)"
+)
+
+
+def _payer_region_number(region: str) -> tuple[str | None, str]:
+    """Audit round 3, R3-B17 (R3-15; §5.2's numbered company, T11): a credit's numbered-company number and the region
+    its words are read on. The region is read past a leading date (as numbered_company reads it): when it is a numbered
+    company's (_NUMBERED_COMPANY_REGION), the number is its leading digits (Quebec's form joined); when the
+    numbered-company form starts it (_NUMBERED_FORM), its words are read without that form, so the province, its cut,
+    the legal forms and BMO's code name no payer ('7654321 ONTA AP CC' reads only its number; '1234567 ONTARIO INC O A
+    NORTHWIND BAKERY' its number and NORTHWIND)."""
+    numbered = _skip_numbered_leading_date(region)
+    number = None
+    if _NUMBERED_COMPANY_REGION.match(numbered) is not None:
+        found = _NUMBERED_REGION_NUMBER.match(numbered)
+        if found is not None:
+            number = _numbered_form_number(found)
+    form = _NUMBERED_FORM.match(numbered)
+    return number, region if form is None else numbered[form.end():].strip()
 
 
 def _counter_debit_head(
@@ -7121,7 +7235,7 @@ def _counter_debit_head(
 
 
 def _counter_debit_reading(
-    legacy: str | None, readings: Sequence[Sequence[str]], *, keep_places: bool = False,
+    legacy: str | None, readings: Sequence[Sequence[str]], *, keep_places: bool = False, number: str | None = None,
 ) -> CounterDebitReading:
     heads: list[tuple[str, tuple[str, ...]]] = []
     for words in readings:
@@ -7132,22 +7246,28 @@ def _counter_debit_reading(
         word + "".join(following[:count]) for word, following in heads for count in range(_GLUED_FORM_WORDS + 1)
         if count <= len(following)
     )
-    return CounterDebitReading(legacy, keys, tuple(heads))
+    return CounterDebitReading(legacy, keys, tuple(heads), number)
 
 
-def counter_debit_payer_reading(region: str, *, keep_places: bool = False) -> CounterDebitReading:
+def counter_debit_payer_reading(
+    region: str, *, keep_places: bool = False, bank: str | None = None,
+) -> CounterDebitReading:
     """Audit B4: a credit's counter-debit reading, on its payer region (§5.2: never a receiver field). Audit round 2,
     R2-B02 (R02): its legacy word is the payer's first distinctive word (_payer_first_distinctive_word) read without
     the words that name no counterparty (_without_not_a_payer; with `keep_places`, the label words only: the lender
-    hold's reading)."""
+    hold's reading). Audit round 3, R3-B17: the region is read without the statement's bank's posting-type label
+    (R3-77, _without_posting_type_label: on RBC `INSURANCE SUNLIFE MED INS` reads SUNLIFE); a numbered company's
+    region gives its number, and its words are read without the numbered-company form (R3-15, _payer_region_number)."""
     if not region:
         return _NO_COUNTER_DEBIT_READING
+    number, region = _payer_region_number(_without_posting_type_label(region, bank))
     legacy = _first_distinctive_word([
         word for word in _distinctive_words(_without_not_a_payer(payer_name(region).split(), keep_places=keep_places))
         if word not in _counter_debit_skip_words()
     ])
     return _counter_debit_reading(
         legacy, (payer_name(region).split(), payer_name(_split_glued_digits(region)).split()), keep_places=keep_places,
+        number=number,
     )
 
 
@@ -7158,18 +7278,22 @@ def counter_debit_debit_reading(
     _debit_word_reading reads it), and whether it is a card purchase. The glued-digit reading is taken only when the
     printed one finds no word: D11 stops a name at its first reference, so splitting a leading reference
     ('CHECK1234 <name>') would cut the name the printed text reads. Audit round 2, R2-B02 (R02): `keep_places` keeps
-    the place words (the lender hold's reading, _without_not_a_payer)."""
+    the place words (the lender hold's reading, _without_not_a_payer). Audit round 3, R3-B17: read on
+    _counter_debit_text (R3-77's posting-type label and R3-74's pre-authorized-debit label cut from a debit that is no
+    card purchase); `number` is the first numbered-company form the debit prints outside its receiver fields' values
+    (R3-15, _NUMBERED_FORM: 'BUSINESS PAD 1234567 ONTARIO INC' reads '1234567'; 'CHEQUE 1234567' none), its word
+    readings unchanged (they stop at the number)."""
     legacy, card_purchase = _debit_word_reading(record, keep_places=keep_places)
-    text, card_form = _CARD_FORM_DEBIT_PREFIX.subn("", record.normalized_description, count=1)
-    if card_form:
-        text = _card_merchant_text(text, record.original_description or "")
-        if text is None:
-            return _NO_COUNTER_DEBIT_READING, card_purchase
+    text, _ = _counter_debit_text(record)
+    if text is None:
+        return _NO_COUNTER_DEBIT_READING, card_purchase
     printed = _unknown_payee_tokens(text)
     readings: list[Sequence[str]] = [printed]
     if _counter_debit_head(printed, keep_places=keep_places) is None:
         readings.append(_unknown_payee_tokens(_split_glued_digits(text)))
-    return _counter_debit_reading(legacy, readings, keep_places=keep_places), card_purchase
+    found = _NUMBERED_FORM.search(_without_receiver_value(text))
+    number = None if found is None else _numbered_form_number(found)
+    return _counter_debit_reading(legacy, readings, keep_places=keep_places, number=number), card_purchase
 
 
 def _apply_payer_remittance_counter_debit_guard(

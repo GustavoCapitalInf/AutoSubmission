@@ -1687,3 +1687,40 @@ def test_r3_b10_r1_a_the_led_holder_s_bare_run_strips_a_third_party_as_the_name_
     assert tr._without_holder_name("FABRIKAM CAPITAL GROUP", "THE CAPITAL GROUP LLC", whole_name=True).split() == [
         "FABRIKAM"
     ]
+
+
+# --- Audit round 3, R3-B17 (R3-15): the holder's own number after an accounts-payable label -------------------------
+# RBC's 'ACCOUNT PAYABLE PMT' and Scotiabank's 'ACCOUNTS PAYABLE' printed before a numbered company's number are
+# removed before the payer region is read (as 'MISC PAYMENT' is), so the holder test's digit arm reads the holder's own
+# number; a word-named payer after a reference keeps its region. Fabricated numbers and names, 2054 dates.
+
+NUMBERED_HOLDER = "1234567 ONTARIO INC"
+NUMBERED = ("counted_flagged", "numbered_company_payer")
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("ACCOUNT PAYABLE PMT 1234567 ONTARIO", "Royal Bank of Canada"),
+    ("ACCOUNTS PAYABLE 1234567 ONTARIO", "Scotiabank"),
+    ("ACCOUNTS PAYABLE PMT 1234567 ONTARIO INC", "Scotiabank"),
+    ("ACCTS PAYABLE 1234567 ONTARIO", "Scotiabank"),
+    # Already held: the MISC PAYMENT template is removed before the region.
+    ("MISC PAYMENT 1234567 ONTARIO", "Royal Bank of Canada"),
+])
+def test_r3_15_the_holder_s_own_number_after_an_accounts_payable_label_is_held(text, bank):
+    # Today the region was the label alone ('ACCOUNT PAYABLE PMT'), so the credit was counted numbered_company_payer.
+    assert _tiers([(text, 12000.0)], holder_name=NUMBERED_HOLDER, bank=bank) == [HOLDER_NAME]
+    assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(text))).startswith("1234567 ONTARIO")
+
+
+def test_r3_15_another_numbered_company_after_the_label_stays_counted():
+    assert _tiers([("ACCOUNT PAYABLE PMT 7654321 ONTARIO", 12000.0)], holder_name=NUMBERED_HOLDER,
+                  bank="Royal Bank of Canada") == [NUMBERED]
+
+
+@pytest.mark.parametrize(("text", "region"), [
+    ("ACCOUNTS PAYABLE 123456 NORTHWIND SUPPLY INC", "ACCOUNTS PAYABLE NORTHWIND SUPPLY INC"),
+    ("ACCOUNTS PAYABLE 123456 NORTH MOUNTAIN PAVING", "ACCOUNTS PAYABLE NORTH MOUNTAIN PAVING"),
+])
+def test_r3_15_a_word_named_payer_after_the_label_keeps_its_region_and_reading(text, region):
+    assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(text))) == region
+    assert _tiers([(text, 12000.0)], holder_name="NORTHWIND BAKERY LTD", bank="Scotiabank") == [REMITTANCE]

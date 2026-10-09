@@ -2229,6 +2229,24 @@ STATEMENT_BANK_PRINTED_NAMES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...
     (("CHASE",), ("CHASE",)),
 )
 
+#: Audit round 3, R3-B17 (R3-77, R3-74; §5.2, §8.1; owner ruling 2026-10-02, the underwriter's Q2 and Q9; standard A9,
+#: B6, C1): the posting-type labels a statement's bank prints before the party on credits and debits alike, which name
+#: no party, so the counter-debit readings (transaction_classifier._without_posting_type_label) never read one as the
+#: payer's or the payee's word. Each entry is (the words that name the bank inside the statement's bank field, its
+#: labels), all normalized; a bank field names the bank by containment (whole words, any case), as
+#: STATEMENT_BANK_PRINTED_NAMES is read. RBC: the title-case type labels its rows lead with (`Insurance <party>`,
+#: `Investment <word> PAD`, `Fees/Dues`, `Equipment Rent`, `Pay Employee-Vendor`); analysis/rbc.py's _is_debit lists
+#: INSURANCE and EQUIPMENT RENT among its "generic banking transaction types". Scotiabank: the `INVESTMENT <name>`
+#: form a funder's pre-authorized debit prints (R3-74). Only these banks: on any other bank a leading INSURANCE or
+#: INVESTMENT may start a real name (`INSURANCE AUTO AUCTIONS`, `INVESTMENT PROPERTY GROUP LLC`).
+BANK_POSTING_TYPE_LABELS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "RBC", "BANQUE ROYALE"),
+        ("INSURANCE", "INVESTMENT", "FEES DUES", "EQUIPMENT RENT", "PAY EMPLOYEE VENDOR"),
+    ),
+    (("SCOTIABANK", "BANK OF NOVA SCOTIA", "SCOTIA"), ("INVESTMENT",)),
+)
+
 #: Audit round 3, R3-B08 (R3-31, R3-32; §8.2, §8.6, Q2 of 2026-09-28: a bank's name is never the payer's name, and the
 #: statement's own bank's channel is never held): the listed sending-bank spellings (P2P_SENDING_BANK_NAMES) a
 #: statement's own bank prints for itself, read only by the bank-only payer reader (true_revenue._bank_only_payer): a
