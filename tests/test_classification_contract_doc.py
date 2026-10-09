@@ -2516,3 +2516,68 @@ def test_r3_b15_the_code_s_docstrings_name_the_readings():
     assert "never verified, and held for review (<label>)" in re.sub(r"\s+", " ", true_revenue._held_reason.__doc__)
     comments = re.sub(r"\s*\n\s*#\s*", " ", inspect.getsource(true_revenue.apply_true_revenue_pass))
     assert comments.count("Audit round 3, R3-B15 (R3-63): a credit under $1 is left to the floor") == 2
+
+
+#: Audit round 3, R3-B15, review round 1: the code commit §20 and the contract name.
+R3_B15_R1_CODE_COMMIT = "9d5e9a6"
+
+
+def test_the_spec_and_the_contract_record_r3_b15_review_round_1():
+    """Audit round 3, R3-B15, review round 1 (findings 1 to 4): §8.1's progress-draw paragraph (the entry phrase's
+    DRAW before the builder word, BUILD DRAW, the residuals) and asset-sale purpose (a bare NET before FEES only),
+    §9.3's review-round sentence, §19.1's Q11 bullet, the R3-08 and R3-59 lines marked in place, the §20 line with the
+    commit and the measurement, and the contract's rows, paragraph, bullets and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("and `BUILD` (R3-B15 review round 1, finding 4, §20)",
+                  "R3-B15 review round 1, finding 2, §20: the phrase is the entry's, never the payer's name",
+                  "`<NAME> CONST` or `<NAME> CONSTR`, or `<NAME> BUILD`, with no company form before a bare `DRAW`",
+                  "and a bare `NET` before `FEES` only, R3-B15 review round 1, finding 1, §20",
+                  "a broker's or an agent's `NET COMMISSION ON TRUCK SALE` (its own earned commission after splits)"):
+        assert words in holds, words
+    assert ("Its review round 1 (§20) changes, for the same move, the same readings of: a builder's label-less "
+            "draw") in text
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert "Its review round 1 (§20): the entry's own purpose phrase before the builder word" in review
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("`BUILD` added by R3-B15 review round 1, finding 4, §20 below",
+                  "widened by R3-B15 review round 1, finding 2, §20 below",
+                  "widened in place by R3-B15 review round 1, findings 3 and 4, §20 below",
+                  "(counted again by R3-B15 review round 1, finding 2, §20 below)",
+                  "narrowed by R3-B15 review round 1, finding 1, §20 below: a bare `NET` before `FEES` only"):
+        assert words in amendments, words
+    line = _amendment_line(amendments, "- **R3-B15 review round 1: ")
+    for words in ("audit round 3, R3-B15, review round 1 (findings 1 to 4)", R3_B15_R1_CODE_COMMIT,
+                  "Measured against `0633d9b`'s tree", "(finding 1)", "(finding 2)", "(finding 3)", "(finding 4)"):
+        assert words in line, words
+    assert amendments.count("audit round 3, R3-B15 (R3-") == 4
+    for placeholder in ("R3B15R1" + "CODE", "MEASURE" + "_R3B15R1"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "or in that entry phrase printed before it (its review round 1)" in when["`construction_progress_draw`"]
+    assert "or a broker's `NET COMMISSION` (its review round 1)" in when["`asset_sale_proceeds`"]
+    contract = _flat(CONTRACT)
+    assert "R3B15R1" + "CODE" not in contract
+    for words in (f"Audit round 3, R3-B15, review round 1 ({R3_B15_R1_CODE_COMMIT})",
+                  "since its review round 1 `BUILD DRAW` is such an entry phrase too",
+                  "(a broker's `NET COMMISSION ON TRUCK SALE` included: a bare `NET` reads only before `FEES`",
+                  "a bare `NET` before `FEES` only since its review round 1",
+                  "the latter counted again by its review round 1"):
+        assert words in contract, words
+
+
+def test_r3_b15_r1_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B15, review round 1: the netting reader, the two label-less readers and the progress draw
+    carry their notes."""
+    assert "a bare NET before FEES only, R3-B15 review round 1, finding 1" in re.sub(
+        r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    assert "R3-B15 review round 1 (finding 2; Q11 (a))" in re.sub(
+        r"\s+", " ", true_revenue._label_less_draw_purpose.__doc__)
+    assert "since R3-B15 review round 1, finding 4, BUILD" in re.sub(
+        r"\s+", " ", true_revenue._label_less_builder_word.__doc__)
+    draw = re.sub(r"\s+", " ", true_revenue.construction_progress_draw.__doc__)
+    for words in ("'<NAME> CONST' or '<NAME> CONSTR', or '<NAME> BUILD'", "R3-B15 review round 1 (finding 2)"):
+        assert words in draw, words
+    source = inspect.getsource(true_revenue)
+    assert "R3-B15 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11)" in source
+    assert "R3-B15 review round 1 (finding 4)" in source
